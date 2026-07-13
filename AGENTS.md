@@ -25,7 +25,7 @@ Keep this section short and update it whenever the active task changes.
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
 | Active task | W3 - Aggregate storage and general ABI layout |
-| Next task | Add nested dynamic array/tuple tail layout and complete-before-copy validation |
+| Next task | Compile validated static-element dynamic-array tails into the direct dispatcher |
 | Known blocker | Nitro live evidence still requires a running Docker daemon |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 

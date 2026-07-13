@@ -1641,3 +1641,23 @@ Rules:
 - Remaining: plan and execute static aggregate returns, then nested dynamic
   array/tuple tails with complete-before-copy validation. No W3 completion
   checkbox was closed.
+
+## 2026-07-13 - STYLUS-W3: Complete-before-copy dynamic-array layout
+
+- Status: `layout semantics complete for static element types; direct lowering pending`
+- Result: added a bounded Solidity `T[]` decoder for fully static element
+  layouts. It derives element words from the shared aggregate layout, checks
+  relative offset/head separation, element-count limits, checked payload
+  word/byte multiplication, and complete calldata tail bounds.
+- Canonical validation: before returning a pointer/count slice, the decoder
+  recursively validates every bool, uint, address, fixed-bytes, fixed-array,
+  and tuple leaf. This prevents a consumer from copying a partially validated
+  aggregate.
+- Vectors: pinned `uint64[]` and `(address,uint64[2])[]` layouts, plus element
+  limit, truncated tail, malformed uint64 padding, and nested-dynamic rejection.
+- Verification: `just stylus-aggregate-differential` passes existing direct
+  bytes/string/static aggregate execution, new dynamic-array layout vectors,
+  and generated Rust aggregate compilation.
+- Remaining: compile this validated `T[]` contract into direct Wasm, then add
+  recursive dynamic tuple/array offsets and aggregate return encoding. No W3
+  completion checkbox was closed.

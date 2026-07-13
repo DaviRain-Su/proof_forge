@@ -77,6 +77,13 @@ allocation from plan-owned head words, and the same plan compiles Rust array
 and tuple method types. Aggregate returns, nested dynamic tails, and storage
 short/long transitions remain open.
 
+The layout layer also decodes Solidity `T[]` tails when `T` is fully static,
+including fixed arrays and tuples. It checks offsets, element counts, bounded
+word/byte multiplication, complete tail bounds, and canonical padding for
+every nested scalar leaf before returning a slice. Nested dynamic elements are
+still rejected pending recursive relative-offset planning, and the direct
+dispatcher does not yet execute this dynamic-array decoder.
+
 ### W4 - Remote-Call Parity Closure (medium)
 
 Direct/local execution is substantial. Remaining evidence is static-write

@@ -40,6 +40,31 @@ def main : IO Unit := do
     | .error _ => pure ()
     | .ok words => throw <| IO.userError s!"invalid aggregate layout was accepted as {words} words"
 
+  let arrayArgs := word 32 ++ word 2 ++ word 7 ++ word 9
+  let arraySlice <- match decodeDynamicArrayArgument arrayArgs 1 0 4 (.uint 64) with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error.message
+  require (arraySlice.dataOffset == 64 && arraySlice.length == 2 &&
+      arraySlice.elementWords == 1 && arraySlice.endOffset == 128)
+    "dynamic uint64 array layout changed"
+  let tupleArrayArgs := word 32 ++ word 1 ++ word 1 ++ word 7 ++ word 9
+  let tupleElement := StylusAbiType.tuple #[.address, fixedPair]
+  let tupleArray <- match decodeDynamicArrayArgument tupleArrayArgs 1 0 2 tupleElement with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error.message
+  require (tupleArray.elementWords == 3 && tupleArray.endOffset == 160)
+    "dynamic static-tuple array layout changed"
+  let malformedArray := word 32 ++ word 2 ++ word 7 ++
+    (#[UInt8.ofNat 1] ++ Array.replicate 31 0)
+  for result in #[
+      decodeDynamicArrayArgument arrayArgs 1 0 1 (.uint 64),
+      decodeDynamicArrayArgument malformedArray 1 0 4 (.uint 64),
+      decodeDynamicArrayArgument (word 32 ++ word 3 ++ word 7) 1 0 4 (.uint 64),
+      decodeDynamicArrayArgument arrayArgs 1 0 4 (.dynamicArray (.uint 64))] do
+    match result with
+    | .error _ => pure ()
+    | .ok _ => throw <| IO.userError "invalid dynamic-array ABI vector was accepted"
+
   let empty := word 32 ++ word 0
   let emptySlice <- match decodeDynamicArgument empty 1 0 64 with
     | .ok value => pure value | .error error => throw <| IO.userError error.message
