@@ -8,7 +8,7 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
-**Current checkpoint:** 57/80 acceptance items are complete. Five open queue
+**Current checkpoint:** 59/80 acceptance items are complete. Three open queue
 packages remain; W5.2 is externally blocked by the unavailable Nitro runtime.
 Their dependency order is audited in
 `docs/review/stylus-full-integration-gap-2026-07-13.md`.
@@ -311,7 +311,7 @@ blockers may defer an item.
 - [x] Publish direct Wasm, WAT, ABI, client, plan metadata, renderer id, tool versions, and evidence hash atomically.
 - [x] Require a machine-readable evidence manifest whose Task 2-6 gates match the current plan-schema hash and are neither skipped nor stale.
 - [x] Run literal CLI builds for Counter, ValueVault, Token, RemoteCall, and Aggregate fixtures and inspect artifact bundles.
-- [ ] Commit as `feat(stylus): make direct Wasm the canonical renderer`.
+- [x] Commit the renderer cutover and renderer-neutral CLI dispatch.
 
 ### Task 8: Unified Developer Tooling, CI, and Release Evidence
 
@@ -330,7 +330,7 @@ blockers may defer an item.
 - [x] Make `stylus-all` aggregate every static Rust/direct/differential gate with no named SKIP; keep Nitro live jobs separate and explicit.
 - [x] Register each recipe exactly once in test lanes and serial coverage; run independent static gates in the default four-worker framework.
 - [ ] Add CI artifact upload for WAT/Wasm, Rust crate, normalized traces, Nitro tx/address, timing, and doctor JSON on failure.
-- [ ] Update registry text and documentation to distinguish implemented fragment, research maturity, direct default, Rust oracle, local VM evidence, and Nitro evidence.
+- [x] Update registry text and documentation to distinguish implemented fragment, research maturity, direct default, Rust oracle, local VM evidence, and Nitro evidence.
 - [ ] Run `just product`, `just stylus-all`, `just test-manifest`, `just test-equivalence`, `just docs-check`, `JOBS=4 just check-parallel`, and `git diff --check`.
 - [ ] Run `just stylus-nitro-doctor`, restore/start Nitro if needed, then run all required Nitro E2E gates and write `build/evidence/stylus/final.json`.
 - [ ] Review the complete commit range for unsupported claims, primary-triad regressions, generated output, and hidden fallbacks.

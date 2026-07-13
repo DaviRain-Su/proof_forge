@@ -2191,3 +2191,19 @@ Rules:
 - Verification: `just stylus-public-route` and `just stylus-cli-matrix` pass.
   The latter executes all five product pairs and the bound full-address remote
   call. No full Stylus or repository suite was run.
+
+## 2026-07-13 - STYLUS-W7 review: Restore serial/parallel gate equivalence
+
+- Status: `W7.1 locally complete; W7.2 durable Woodpecker upload externally blocked`
+- Added the W3 closure gate `stylus-aggregate-storage` to serial coverage and
+  the `stylus-differential-b` lane. The manifest's existing
+  `near-vm-u128-map` entry was also restored to `check-serial`, matching the
+  Wave-T baseline instead of deleting valid parallel coverage.
+- The 26 manifest-tagged Stylus static recipes now exactly equal the 26
+  `stylus-all` dependencies. GitHub still owns four optional Stylus lanes and
+  durable Woodpecker upload still requires external sink credentials.
+- Refreshed the current Stylus gap audit and roadmap: W3/W4 are locally closed;
+  W5.2, Woodpecker publication, and final branch integration remain.
+- Verification: `just test-manifest` reports 143 recipes across eight lanes;
+  `just test-equivalence` reports the same 143 recipes in serial and parallel
+  coverage. No recipe body, `stylus-all`, or repository full suite was run.

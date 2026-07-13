@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | W7 release integration review |
-| Next task | Audit stylus-all membership, four-worker lanes, CI artifact persistence, bilingual status claims, and deferred final regression |
+| Active task | Stylus final integration review |
+| Next task | Review the complete branch range, then reconcile/rebase the main work branch before the single deferred full regression |
 | Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |

@@ -29,6 +29,8 @@
     "canonical-core",
     "canonical-parity",
     "wasm-host-plan-preservation",
+    "soroban-public-route",
+    "soroban-counter-offline",
     "canonical-product",
     "canonical-boundary",
     "target-backend",
@@ -131,6 +133,7 @@
     "stylus-token-differential",
     "stylus-token-evm-interop",
     "stylus-aggregate-differential",
+    "stylus-aggregate-storage",
     "stylus-remote-call-differential",
     "stylus-scalar-params",
     "stylus-wide-values",
@@ -316,6 +319,26 @@
     },
     {
       "name": "wasm-host-plan-preservation",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-fast",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "soroban-public-route",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-fast",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "soroban-counter-offline",
       "lane": "wasm-other-exclusive",
       "execution": "lane_serial",
       "tags": [
@@ -1218,6 +1241,12 @@
     },
     {
       "name": "stylus-aggregate-differential",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-aggregate-storage",
       "lane": "stylus-differential-b",
       "execution": "lane_serial",
       "tags": ["full", "stylus"]
