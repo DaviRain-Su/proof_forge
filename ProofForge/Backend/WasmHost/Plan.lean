@@ -31,10 +31,14 @@ structure ModulePlan where
   u64IndexedWriteTypes : Array ValueType
   hashIndexedReadTypes : Array ValueType
   hashIndexedWriteTypes : Array ValueType
+  stringIndexedReadTypes : Array ValueType
+  stringIndexedWriteTypes : Array ValueType
   usesU64IndexedBuildKey : Bool
   usesHashIndexedBuildKey : Bool
+  usesStringIndexedBuildKey : Bool
   usesU64IndexedContains : Bool
   usesHashIndexedContains : Bool
+  usesStringIndexedContains : Bool
   usesHashMake : Bool
   usesHashPreimage : Bool
   usesHashTwoToOne : Bool
@@ -78,10 +82,14 @@ def buildModulePlan (module : Module) : Except PlanError ModulePlan := do
     u64IndexedWriteTypes := surface.u64IndexedWriteTypes
     hashIndexedReadTypes := surface.hashIndexedReadTypes
     hashIndexedWriteTypes := surface.hashIndexedWriteTypes
+    stringIndexedReadTypes := surface.stringIndexedReadTypes
+    stringIndexedWriteTypes := surface.stringIndexedWriteTypes
     usesU64IndexedBuildKey := surface.usesU64IndexedBuildKey
     usesHashIndexedBuildKey := surface.usesHashIndexedBuildKey
+    usesStringIndexedBuildKey := surface.usesStringIndexedBuildKey
     usesU64IndexedContains := surface.usesU64IndexedContains
     usesHashIndexedContains := surface.usesHashIndexedContains
+    usesStringIndexedContains := surface.usesStringIndexedContains
     usesHashMake := surface.usesHashMake
     usesHashPreimage := surface.usesHashPreimage
     usesHashTwoToOne := surface.usesHashTwoToOne

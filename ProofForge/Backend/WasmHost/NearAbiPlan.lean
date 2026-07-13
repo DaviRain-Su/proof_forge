@@ -19,6 +19,7 @@ partial def borshByteWidth (structs : Array StructDecl) : ValueType → Except S
   | .u64 | .address => .ok 8
   | .u128 => .ok 16
   | .hash => .ok 32
+  | .string | .bytes => .ok 260
   | .fixedArray element length => return (← borshByteWidth structs element) * length
   | .structType name => do
       let some decl := structs.find? (fun decl => decl.name == name)

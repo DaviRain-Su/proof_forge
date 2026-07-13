@@ -260,9 +260,10 @@ def scalarStateShapeSupported (state : StateDecl) : Bool :=
 def mapStateShapeSupported (state : StateDecl) : Bool :=
   match state.kind with
   | .map .u64 capacity
-  | .map .hash capacity =>
+  | .map .hash capacity
+  | .map .string capacity =>
       match state.type with
-      | .u32 | .u64 | .bool | .hash => capacity > 0
+      | .u32 | .u64 | .bool | .hash | .u128 => capacity > 0
       | _ => false
   | _ => false
 
@@ -280,7 +281,7 @@ def validateState (module : Module) : Except LowerError Unit := do
             match state.kind with
             | .map keyType _ => (keyType, state.type)
             | _ => (.unit, state.type)
-          .error { message := s!"map state `{state.id}` has unsupported wasm-near IR v0 type `{mapShapeName keyType valueType capacity}`; only Map<U64|Hash, U32|U64|Bool|Hash, N> is supported" }
+          .error { message := s!"map state `{state.id}` has unsupported wasm-near IR v0 type `{mapShapeName keyType valueType capacity}`; only Map<U64|Hash|String, U32|U64|Bool|Hash|U128, N> is supported" }
     | .array _, _ =>
         .error { message := s!"state `{state.id}` is storage.array; wasm-near IR v0 does not lower portable array storage" }
     | .dynamicArray, _ =>

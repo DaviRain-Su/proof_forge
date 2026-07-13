@@ -1485,6 +1485,66 @@ Rules:
 - Next (interop plan): Phase 3 — AccountId string keys; Phase 4 — JSON
   codecs (the long pole / highest risk). Orthogonal to the active D-052
   program (next task C1).
+## 2026-07-13 - Phase 3 Landing 1: string-keyed map mechanism + real-VM gate (NEP-141 AccountId keys)
+
+- Status: `done (verified on real NEAR VM)` — the Phase 3 gate (real-VM proof
+  that a string-keyed balance round-trips) is met. Landing 2 (callerAccountId +
+  FT conversion) remains.
+- Context. NEP-141 `balances` are keyed by `AccountId`, not its sha256 hash.
+  The riskiest mechanism is variable-length string-keyed storage: the storage
+  key length is RUNTIME (`pl + kl`), unlike the fixed-32-byte hash path, so the
+  compile-time `mapStorage*HostInsns` cannot be reused. Landing 1 de-risks that
+  mechanism in isolation before the cross-backend `ContextField.accountId`
+  sweep and the FT conversion.
+- Result.
+  - `Map.lean`: `__pf_map_buildkey_string` / `__pf_map_read_string_<vt>` /
+    `__pf_map_write_string_<vt>` / `__pf_map_delete_string_<vt>` /
+    `__pf_map_contains_string` (NEAR bridge; scalar + U128 values), with inline
+    runtime key length (`mapStringKeyLenInsns`). `.string` dispatch arms in
+    `mapReadCall` / `mapWriteCall` / `mapDeleteCall` / `mapContainsCall`.
+  - `Plan/Surface.lean` + `Plan.lean`: `IndexedStorageHelperKeyKind.string`,
+    `ModuleSurface` / `ModulePlan` string-indexed fields + merge +
+    `withStringIndexed*` + `.string` arms in the indexed-storage surface
+    summaries; `mapStringHelperFuncsForModulePlan` emitted in
+    `ModuleAssembly.helperFuncsForModulePlan`. `coreSurface` (canonical Core)
+    carries the new fields with empty/false defaults (canonical string-keyed
+    support is Landing 2).
+  - `EmitWat.lean`: `lowerExpr (.local)` for `.string`/`.bytes` emits
+    `(localGet name, localGet (name ++ "_len"))` — the param `_len` local exists
+    from `Params.loadParams`. `lowerMapKeyFor` dispatches `.string` to a
+    `(ptr, len)` key. `mapStateShapeSupported` admits `.string` keys + `.u128`
+    values for consistency.
+  - `Capabilities.lean` / `NearAbiPlan.lean` / `Plan/Surface.lean`:
+    `emitWatCapabilities` admits `.dataDynamicBytes`; `borshByteWidth` returns
+    the flat 260-byte slot for `.string`/`.bytes` (matching `Params.loadParams`);
+    `surfaceFromValueType` sets `withArrAlloc` for `.string`/`.bytes` (Borsh
+    param decode allocs a payload buffer via `__pf_arr_alloc`).
+  - Gate: `just near-vm-string-key-map` — `StringKeyMapProbe`
+    (`Map<string, u128>`; `map_roundtrip(key : String) -> U128`: write u128(100)
+    at the key, read back) rendered via `EmitWat`, executed on the unmodified
+    upstream NEAR VM (`near-vm-runner 0.37` / Wasmtime) with a Borsh string key
+    (`"alice.near"`, padded to the 260-byte flat slot). Returns
+    `64000000000000000000000000000000` (u128 100).
+- Verification (all passed): `just near-vm-string-key-map` (the new gate);
+  `just near-vm-u128-map`, `just near-vm-u128-scalar`, `just near-map-hash-alias`,
+  `just near-vm-conformance-ft`, `just near-ft-security`, `just product-token-near`,
+  `just wasm-near-ft-transfer-call`, `just wasm-near-ft-transfer-call-e2e` (no
+  regression); manifest (`test-manifest`, 117 recipes) + `test-equivalence`;
+  `lake build` (792 jobs). `just product` fails only on the documented
+  pre-existing `OwnableHash Soroban` failure (recorded 2026-07-12, unrelated).
+- Note (scope). The probe keys the map by a Borsh string PARAMETER (decoded into
+  a `(ptr, len)` pair), not `callerAccountId`. The current flat-260 input
+  prologue assert is a ProofForge convention; real variable-length Borsh string
+  INPUT is Phase 4 (JSON/Borsh codec). Landing 1 validates the string-keyed MAP
+  mechanism, which was the gate's intent.
+- Deferred to Landing 2: `callerAccountId` surface construct + the
+  `ContextField.accountId` exhaustiveness sweep (`__pf_ctx_account_id`
+  returning the raw `predecessor_account_id` as a `(ptr, len)` string, no
+  sha256); two-slot string locals (`let sender : .string := callerAccountId`);
+  string equality (`__pf_str_eq`); FT conversion (`balances` / `storageDeposits`
+  → `.string` keys, `account_id` params → `.string`, `mintAuthority` → string);
+  the wasm-near target-profile `dataDynamicBytes` admission for the canonical
+  `contract_source` path.
 ## 2026-07-13 - STYLUS-W2: Canonical ERC-20 local lifecycle
 
 - Status: `done (verified at a4c69d0c)`

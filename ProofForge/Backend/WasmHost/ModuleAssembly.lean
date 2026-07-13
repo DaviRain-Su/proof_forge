@@ -108,6 +108,7 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     crosscallPoolHelperFuncs ctx.crosscallStrings ++
     mapHelperFuncsForModulePlan modulePlan ctx.bridge ++
     mapHashHelperFuncsForModulePlan modulePlan ctx.bridge ++
+    mapStringHelperFuncsForModulePlan modulePlan ctx.bridge ++
     u128ArithFuncs ++
     aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
 

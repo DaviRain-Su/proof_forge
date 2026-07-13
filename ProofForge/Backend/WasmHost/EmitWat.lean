@@ -681,6 +681,8 @@ mutual
     | .local name =>
       match lookupLocal? env name with
       | some .u128 => .ok (#[.localGet name, .localGet (u128HiName name)], .u128)
+      | some .string => .ok (#[.localGet name, .localGet (name ++ "_len")], .string)
+      | some .bytes => .ok (#[.localGet name, .localGet (name ++ "_len")], .bytes)
       | some t => .ok (#[.localGet name], t)
       | none => err s!"EmitWat: unknown local `{name}`"
     | .add a b _ => lowerAddSubMul ctx env "add" a b
@@ -938,7 +940,9 @@ mutual
 
   partial def lowerMapKeyFor (ctx : Ctx) (env : LocalTypes) (keyType : ValueType) (key : Expr)
       : Except EmitError (Array Insn) :=
-    if keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+    if keyType == .hash then lowerMapKeyHash ctx env key
+    else if keyType == .string then lowerMapKeyTyped ctx env .string key
+    else lowerMapKeyU64 ctx env key
 
   partial def lowerMapGet (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       : Except EmitError (Array Insn × ValueType) := do

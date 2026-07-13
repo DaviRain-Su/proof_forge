@@ -8,6 +8,7 @@ open ProofForge.Backend.WasmHost.ExprAnalysis
 inductive IndexedStorageHelperKeyKind where
   | u64
   | hash
+  | string
   deriving BEq, DecidableEq, Repr
 
 structure IndexedStorageHelperSurface where
@@ -26,6 +27,7 @@ def indexedStorageHelperSurfaceOfState (module : Module) (stateId : String) :
           match keyType with
           | .u64 => .ok (some { keyKind := .u64, valueType := state.type })
           | .hash => .ok (some { keyKind := .hash, valueType := state.type })
+          | .string => .ok (some { keyKind := .string, valueType := state.type })
           | _ => .ok none
       | .array _ =>
           .ok (some { keyKind := .u64, valueType := state.type })
@@ -58,10 +60,14 @@ structure ModuleSurface where
   u64IndexedWriteTypes : Array ValueType := #[]
   hashIndexedReadTypes : Array ValueType := #[]
   hashIndexedWriteTypes : Array ValueType := #[]
+  stringIndexedReadTypes : Array ValueType := #[]
+  stringIndexedWriteTypes : Array ValueType := #[]
   usesU64IndexedBuildKey : Bool := false
   usesHashIndexedBuildKey : Bool := false
+  usesStringIndexedBuildKey : Bool := false
   usesU64IndexedContains : Bool := false
   usesHashIndexedContains : Bool := false
+  usesStringIndexedContains : Bool := false
   usesHashMake : Bool := false
   usesHashPreimage : Bool := false
   usesHashTwoToOne : Bool := false
@@ -114,10 +120,14 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   u64IndexedWriteTypes := mergeValueTypeSets lhs.u64IndexedWriteTypes rhs.u64IndexedWriteTypes
   hashIndexedReadTypes := mergeValueTypeSets lhs.hashIndexedReadTypes rhs.hashIndexedReadTypes
   hashIndexedWriteTypes := mergeValueTypeSets lhs.hashIndexedWriteTypes rhs.hashIndexedWriteTypes
+  stringIndexedReadTypes := mergeValueTypeSets lhs.stringIndexedReadTypes rhs.stringIndexedReadTypes
+  stringIndexedWriteTypes := mergeValueTypeSets lhs.stringIndexedWriteTypes rhs.stringIndexedWriteTypes
   usesU64IndexedBuildKey := lhs.usesU64IndexedBuildKey || rhs.usesU64IndexedBuildKey
   usesHashIndexedBuildKey := lhs.usesHashIndexedBuildKey || rhs.usesHashIndexedBuildKey
+  usesStringIndexedBuildKey := lhs.usesStringIndexedBuildKey || rhs.usesStringIndexedBuildKey
   usesU64IndexedContains := lhs.usesU64IndexedContains || rhs.usesU64IndexedContains
   usesHashIndexedContains := lhs.usesHashIndexedContains || rhs.usesHashIndexedContains
+  usesStringIndexedContains := lhs.usesStringIndexedContains || rhs.usesStringIndexedContains
   usesHashMake := lhs.usesHashMake || rhs.usesHashMake
   usesHashPreimage := lhs.usesHashPreimage || rhs.usesHashPreimage
   usesHashTwoToOne := lhs.usesHashTwoToOne || rhs.usesHashTwoToOne
@@ -283,6 +293,29 @@ def withHashIndexedContains : ModuleSurface := {
   usesHashIndexedContains := true
 }
 
+def withStringIndexedBuildKey : ModuleSurface := {
+  usesStringIndexedBuildKey := true,
+  usesMemcpy := true
+}
+
+def withStringIndexedReadType (type : ValueType) : ModuleSurface := {
+  usesStringIndexedBuildKey := true,
+  stringIndexedReadTypes := #[type],
+  -- `mapBuildkeyStringFunc` copies the variable-length key with `__pf_memcpy`.
+  usesMemcpy := true
+}
+
+def withStringIndexedWriteType (type : ValueType) : ModuleSurface := {
+  usesStringIndexedBuildKey := true,
+  stringIndexedWriteTypes := #[type],
+  usesMemcpy := true
+}
+
+def withStringIndexedContains : ModuleSurface := {
+  usesStringIndexedBuildKey := true,
+  usesStringIndexedContains := true
+}
+
 def withHashMake : ModuleSurface := {
   usesHashMake := true
 }
@@ -384,6 +417,8 @@ def indexedStorageReadSurfaceSummary
       | .u64, none => .ok ModuleSurface.withU64IndexedBuildKey
       | .hash, some type => .ok (ModuleSurface.withHashIndexedReadType type)
       | .hash, none => .ok ModuleSurface.withHashIndexedBuildKey
+      | .string, some type => .ok (ModuleSurface.withStringIndexedReadType type)
+      | .string, none => .ok ModuleSurface.withStringIndexedBuildKey
   | none => .ok ModuleSurface.empty
 
 def indexedStorageWriteSurfaceSummary
@@ -396,6 +431,8 @@ def indexedStorageWriteSurfaceSummary
       | .u64, none => .ok ModuleSurface.withU64IndexedBuildKey
       | .hash, some type => .ok (ModuleSurface.withHashIndexedWriteType type)
       | .hash, none => .ok ModuleSurface.withHashIndexedBuildKey
+      | .string, some type => .ok (ModuleSurface.withStringIndexedWriteType type)
+      | .string, none => .ok ModuleSurface.withStringIndexedBuildKey
   | none => .ok ModuleSurface.empty
 
 def indexedStorageContainsSurfaceSummary
@@ -406,6 +443,7 @@ def indexedStorageContainsSurfaceSummary
       match surface.keyKind with
       | .u64 => .ok ModuleSurface.withU64IndexedContains
       | .hash => .ok ModuleSurface.withHashIndexedContains
+      | .string => .ok ModuleSurface.withStringIndexedContains
   | none => .ok ModuleSurface.empty
 
 mutual
@@ -606,6 +644,10 @@ def contextOpsFromModule (module : Module) : Except PlanError (Array ContextExpr
 partial def surfaceFromValueType (module : Module) (type : ValueType) : ModuleSurface :=
   match type with
   | .hash => ModuleSurface.withMemcpy
+  | .string | .bytes =>
+    -- Borsh dynamic string/bytes params allocate a payload buffer via
+    -- `__pf_arr_alloc` (see `Params.loadParams`).
+    ModuleSurface.withArrAlloc
   | .fixedArray elemType _ =>
       mergeModuleSurfaces ModuleSurface.withArrAlloc
         (if elemType == .hash then ModuleSurface.withMemcpy else surfaceFromValueType module elemType)

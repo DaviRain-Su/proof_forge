@@ -38,6 +38,20 @@ def mapDeleteHashName (vt : ValueType) : String := "__pf_map_delete_hash_" ++ ty
 def mapContainsName : String := "__pf_map_contains"
 def mapBuildkeyName  : String := "__pf_map_buildkey"
 
+-- Map<String, T> helper names. Defined early (before the read/write/delete/
+-- contains dispatchers) so the dispatchers can reference them. The helper
+-- *bodies* (`mapBuildkeyStringFunc`, `mapReadStringFunc`, ...) live near the
+-- hash helpers below; the names are forward-declared here.
+def mapBuildkeyStringName : String := "__pf_map_buildkey_string"
+def mapReadStringName  (vt : ValueType) : String := "__pf_map_read_string_"  ++ typeSuffix vt
+def mapWriteStringName (vt : ValueType) : String := "__pf_map_write_string_" ++ typeSuffix vt
+def mapDeleteStringName (vt : ValueType) : String := "__pf_map_delete_string_" ++ typeSuffix vt
+def mapContainsStringName : String := "__pf_map_contains_string"
+
+/-- NEAR storage key length for a string key: `pl + kl` (runtime). -/
+def mapStringKeyLenInsns : Array Insn :=
+  #[.localGet "pl", .localGet "kl", .plain "i32.add", .plain "i64.extend_i32_u"]
+
 /- `__pf_map_buildkey(pp, pl, k)`: write prefix[pp..pp+pl] then 8 key bytes to MAPKEY_BUF. -/
 def mapBuildkeyFunc : Func :=
   { name := mapBuildkeyName,
@@ -263,7 +277,8 @@ def mapDeleteCall (mapInfo : MapInfo) : Except EmitError (Array Insn) :=
   match mapInfo.keyType with
   | .u64 => .ok #[.call (mapDeleteName mapInfo.valueType)]
   | .hash => .ok #[.call (mapDeleteHashName mapInfo.valueType)]
-  | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported for delete"
+  | .string => .ok #[.call (mapDeleteStringName mapInfo.valueType)]
+  | _ => err s!"EmitWat: only Map<U64|Hash|String, T> is supported for delete"
 
 def mapContainsFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
@@ -422,6 +437,7 @@ def mapReadHashName  (vt : ValueType) : String := "__pf_map_read_hash_"  ++ type
 def mapWriteHashName (vt : ValueType) : String := "__pf_map_write_hash_" ++ typeSuffix vt
 def mapContainsHashName : String := "__pf_map_contains_hash"
 
+
 def mapWriteStateInfo (maps : Array MapInfo) (id : String) : Except EmitError MapInfo :=
   match findMapState? maps id with
   | none => err s!"EmitWat: unknown map state `{id}`"
@@ -434,7 +450,8 @@ def mapWriteCall (mapInfo : MapInfo) : Except EmitError (Array Insn) :=
   match mapInfo.keyType with
   | .u64 => .ok #[.call (mapWriteName mapInfo.valueType)]
   | .hash => .ok #[.call (mapWriteHashName mapInfo.valueType)]
-  | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
+  | .string => .ok #[.call (mapWriteStringName mapInfo.valueType)]
+  | _ => err s!"EmitWat: only Map<U64|Hash|String, T> is supported"
 
 def mapPrefixInsns (mapInfo : MapInfo) : Array Insn :=
   #[.i32Const mapInfo.prefixPtr, .i32Const mapInfo.prefixLen]
@@ -462,7 +479,8 @@ def mapReadCall (mapInfo : MapInfo) (id : String) : Except EmitError (Array Insn
   match mapInfo.keyType with
   | .u64 => .ok #[.call (mapReadName mapInfo.valueType)]
   | .hash => .ok #[.call (mapReadHashName mapInfo.valueType)]
-  | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported (`{id}` has key `{mapInfo.keyType.name}`)"
+  | .string => .ok #[.call (mapReadStringName mapInfo.valueType)]
+  | _ => err s!"EmitWat: only Map<U64|Hash|String, T> is supported (`{id}` has key `{mapInfo.keyType.name}`)"
 
 def mapReadValueInsns (mapInfo : MapInfo) (keyInsns readCall : Array Insn) :
     Array Insn × ValueType :=
@@ -486,7 +504,8 @@ def mapContainsCall (mapInfo : MapInfo) : Except EmitError (Array Insn) :=
   match mapInfo.keyType with
   | .u64 => .ok #[.call mapContainsName]
   | .hash => .ok #[.call mapContainsHashName]
-  | _ => err s!"EmitWat: only Map<U64|Hash, T> is supported"
+  | .string => .ok #[.call mapContainsStringName]
+  | _ => err s!"EmitWat: only Map<U64|Hash|String, T> is supported"
 
 def mapContainsValueInsns (mapInfo : MapInfo) (keyInsns containsCall : Array Insn) :
     Array Insn × ValueType :=
@@ -774,5 +793,164 @@ def mapHashHelperFuncsForModulePlan (plan : ModulePlan)
     (plan.hashIndexedWriteTypes.foldl (init := #[]) fun acc type =>
       acc ++ #[mapDeleteHashFunc type bridge]) ++
     (if plan.usesHashIndexedContains then #[mapContainsHashFunc bridge] else #[])
+
+/-! String-keyed maps (Map<String, T>): storage key = prefix ++ variable-length
+    string bytes. The key length is RUNTIME (`pl + kl`), so these helpers inline
+    `mapStringKeyLenInsns` instead of the compile-time `mapStorage*HostInsns`.
+    Only the NEAR bridge is materialized (the NEP-141 AccountId-keyed `balances`
+    path); Soroban/CosmWasm string-keyed maps are not needed. -/
+
+def mapBuildkeyStringFunc : Func :=
+  { name := mapBuildkeyStringName,
+    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                { name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
+    locals := #[{ name := "i", type := .i32 }],
+    body := { insns := #[
+      .i32Const 0, .localSet "i",
+      .block_ { insns := #[ .loop_ { insns := #[
+        .localGet "i", .localGet "pl", .plain "i32.ge_u", .brIf 1,
+        .localGet "i", .i32Const MAPKEY_BUF, .plain "i32.add",
+        .localGet "i", .localGet "pp", .plain "i32.add", .load "i32.load8_u" 0,
+        .store "i32.store8" 0,
+        .localGet "i", .i32Const 1, .plain "i32.add", .localSet "i", .br 0 ] } ] } ,
+      .localGet "pl", .i32Const MAPKEY_BUF, .plain "i32.add",
+      .localGet "kp", .localGet "kl", .call memcpyName ] } }
+
+def mapReadStringFunc (vt : ValueType) : Func :=
+  if vt == .hash then
+    { name := mapReadStringName vt,
+      params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                  { name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
+      results := #[.i32],
+      locals := #[{ name := "found", type := .i64 }, { name := "r", type := .i32 }],
+      body := { insns := #[
+        .i32Const ZERO_HASH_BUF, .localSet "r",
+        .localGet "pp", .localGet "pl", .localGet "kp", .localGet "kl", .call mapBuildkeyStringName
+      ] ++ mapStringKeyLenInsns ++ #[
+        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read",
+        .localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[ .call hashAllocName, .localSet "r",
+                          .i64Const 0, .localGet "r", .plain "i64.extend_i32_u",
+                          .call "read_register" ] } { insns := #[] },
+        .localGet "r" ] } }
+  else
+    { name := mapReadStringName vt,
+      params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                  { name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
+      results := #[wasmTypeOf vt],
+      locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
+      body := { insns := #[
+        .const (wasmTypeOf vt) "0", .localSet "r",
+        .localGet "pp", .localGet "pl", .localGet "kp", .localGet "kl", .call mapBuildkeyStringName
+      ] ++ mapStringKeyLenInsns ++ #[
+        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read",
+        .localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
+                          .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
+        .localGet "r" ] } }
+
+def mapReadStringU128Func : Func :=
+  { name := mapReadStringName .u128,
+    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                { name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
+    results := #[],
+    locals := #[{ name := "found", type := .i64 }],
+    body := { insns :=
+      -- default (0,0) at KEY_BUF when the key is absent
+      #[.i32Const KEY_BUF, .i64Const 0, .store "i64.store" 0,
+        .i32Const (KEY_BUF + 8), .i64Const 0, .store "i64.store" 0,
+        .localGet "pp", .localGet "pl", .localGet "kp", .localGet "kl", .call mapBuildkeyStringName] ++
+      mapStringKeyLenInsns ++
+      #[.i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read",
+        .localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[.i64Const 0, .i64Const KEY_BUF, .call "read_register"] }
+          { insns := #[] } ] } }
+
+def mapWriteStringFunc (vt : ValueType) : Func :=
+  if vt == .hash then
+    { name := mapWriteStringName vt,
+      params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                  { name := "kp", type := .i32 }, { name := "kl", type := .i32 },
+                  { name := "v", type := .i32 }],
+      results := #[.i32],
+      body := { insns := #[
+        .localGet "pp", .localGet "pl", .localGet "kp", .localGet "kl", .call mapBuildkeyStringName,
+        .i32Const KEY_BUF, .localGet "v", .i32Const 32, .call memcpyName
+      ] ++ mapStringKeyLenInsns ++ #[
+        .i64Const MAPKEY_BUF, .i64Const 32, .i64Const KEY_BUF, .i64Const 0,
+        .call "storage_write", .drop,
+        .i32Const ZERO_HASH_BUF ] } }
+  else
+    { name := mapWriteStringName vt,
+      params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                  { name := "kp", type := .i32 }, { name := "kl", type := .i32 },
+                  { name := "v", type := wasmTypeOf vt }],
+      results := #[wasmTypeOf vt],
+      locals := #[{ name := "found", type := .i64 }, { name := "r", type := wasmTypeOf vt }],
+      body := { insns := #[
+        .const (wasmTypeOf vt) "0", .localSet "r",
+        .localGet "pp", .localGet "pl", .localGet "kp", .localGet "kl", .call mapBuildkeyStringName
+      ] ++ mapStringKeyLenInsns ++ #[
+        .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_read",
+        .localSet "found",
+        .localGet "found", .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[ .i64Const 0, .i64Const KEY_BUF, .call "read_register",
+                          .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
+        .i32Const KEY_BUF, .localGet "v", .store (storeOpFor vt) 0
+      ] ++ mapStringKeyLenInsns ++ #[
+        .i64Const MAPKEY_BUF, .i64Const (scalarWidth vt), .i64Const KEY_BUF, .i64Const 0,
+        .call "storage_write", .drop,
+        .localGet "r" ] } }
+
+def mapWriteStringU128Func : Func :=
+  { name := mapWriteStringName .u128,
+    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+      { name := "kp", type := .i32 }, { name := "kl", type := .i32 },
+      { name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    results := #[],
+    body := { insns :=
+      #[.i32Const KEY_BUF, .localGet "lo", .store "i64.store" 0,
+        .i32Const (KEY_BUF + 8), .localGet "hi", .store "i64.store" 0,
+        .localGet "pp", .localGet "pl", .localGet "kp", .localGet "kl", .call mapBuildkeyStringName] ++
+      (mapStringKeyLenInsns ++ #[.i64Const MAPKEY_BUF, .i64Const 16, .i64Const KEY_BUF,
+        .i64Const 0, .call "storage_write", .drop]) } }
+
+def mapDeleteStringFunc (vt : ValueType) : Func :=
+  { name := mapDeleteStringName vt,
+    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                { name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
+    results := #[.i64],
+    body := { insns := #[
+      .localGet "pp", .localGet "pl", .localGet "kp", .localGet "kl", .call mapBuildkeyStringName
+    ] ++ mapStringKeyLenInsns ++ #[
+      .i64Const MAPKEY_BUF, .i64Const 0, .call "storage_remove"] } }
+
+def mapContainsStringFunc : Func :=
+  { name := mapContainsStringName,
+    params := #[{ name := "pp", type := .i32 }, { name := "pl", type := .i32 },
+                { name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
+    results := #[.i64],
+    body := { insns := #[
+      .localGet "pp", .localGet "pl", .localGet "kp", .localGet "kl", .call mapBuildkeyStringName
+    ] ++ mapStringKeyLenInsns ++ #[
+      .i64Const MAPKEY_BUF, .call "storage_has_key"] } }
+
+def mapStringHelperFuncsForModulePlan (plan : ModulePlan)
+    (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
+  -- Only the NEAR bridge materializes string-keyed maps (NEP-141 AccountId keys).
+  if bridge != .near then #[] else
+    let readOf (type : ValueType) : Array Func :=
+      if type == .u128 then #[mapReadStringU128Func] else #[mapReadStringFunc type]
+    let writeOf (type : ValueType) : Array Func :=
+      if type == .u128 then #[mapWriteStringU128Func] else #[mapWriteStringFunc type]
+    (if plan.usesStringIndexedBuildKey then #[mapBuildkeyStringFunc] else #[]) ++
+      (plan.stringIndexedReadTypes.foldl (init := #[]) fun acc type => acc ++ readOf type) ++
+      (plan.stringIndexedWriteTypes.foldl (init := #[]) fun acc type => acc ++ writeOf type) ++
+      (plan.stringIndexedWriteTypes.foldl (init := #[]) fun acc type =>
+        acc ++ #[mapDeleteStringFunc type]) ++
+      (if plan.usesStringIndexedContains then #[mapContainsStringFunc] else #[])
 
 end ProofForge.Backend.WasmHost.Map

@@ -261,6 +261,10 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | _ => false
     usesU64IndexedContains := false
     usesHashIndexedContains := false
+    stringIndexedReadTypes := #[]
+    stringIndexedWriteTypes := #[]
+    usesStringIndexedBuildKey := false
+    usesStringIndexedContains := false
     usesHashMake := m.functions.any fun function => function.blocks.any fun block =>
       block.instructions.any fun instruction => match instruction.op with
         | .pure (.literal (.hashLit _)) => true

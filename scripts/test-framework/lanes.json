@@ -101,6 +101,7 @@
     "near-vm-conformance-ft",
     "near-vm-u128-scalar",
     "near-vm-u128-map",
+    "near-vm-string-key-map",
     "near-u128-fmt-smoke",
     "near-budget-honesty",
     "near-deploy-honesty",
@@ -978,6 +979,15 @@
     },
     {
       "name": "near-vm-u128-map",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-string-key-map",
       "lane": "wasm-other-exclusive",
       "execution": "lane_serial",
       "tags": [

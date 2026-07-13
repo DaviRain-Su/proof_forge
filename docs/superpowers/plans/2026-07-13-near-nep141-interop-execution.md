@@ -133,6 +133,48 @@ imported) and a `callerAccountId` surface construct.
 **Acceptance:** FT balances keyed by AccountId string; identity no longer
 hash-truncated.
 
+### Landing 1 — string-keyed map mechanism + real-VM gate  (DONE 2026-07-13)
+
+De-risked the riskiest mechanism (variable-length string-keyed storage with a
+**runtime** key length `pl + kl`, unlike the fixed-32-byte hash path) before
+touching the FT or the cross-backend `ContextField` sweep.
+
+- `Map.lean`: `__pf_map_buildkey_string` / `__pf_map_read_string_<vt>` /
+  `__pf_map_write_string_<vt>` / `__pf_map_delete_string_<vt>` /
+  `__pf_map_contains_string` helpers (NEAR bridge; scalar + U128 values), with
+  inline runtime key length (`mapStringKeyLenInsns`) instead of the
+  compile-time `mapStorage*HostInsns`. `.string` dispatch arms in
+  `mapReadCall` / `mapWriteCall` / `mapDeleteCall` / `mapContainsCall`.
+- `Plan/Surface.lean` + `Plan.lean`: `IndexedStorageHelperKeyKind.string`,
+  `ModuleSurface`/`ModulePlan` string-indexed fields + merge +
+  `withStringIndexed*` + `.string` arms in the indexed-storage surface
+  summaries; `mapStringHelperFuncsForModulePlan` emitted in
+  `ModuleAssembly.helperFuncsForModulePlan`.
+- `EmitWat.lean`: `lowerExpr (.local)` for `.string`/`.bytes` emits
+  `(localGet name, localGet (name ++ "_len"))` (the param `_len` local exists
+  from `Params.loadParams`); `lowerMapKeyFor` dispatches `.string` to a
+  `(ptr, len)` key.
+- `Capabilities.lean` / `NearAbiPlan.lean` / `Plan/Surface.lean`:
+  `emitWatCapabilities` admits `.dataDynamicBytes`; `borshByteWidth` returns
+  the flat 260-byte slot for `.string`/`.bytes` (matching `Params.loadParams`);
+  `surfaceFromValueType` sets `withArrAlloc` for `.string`/`.bytes` (Borsh
+  param decode allocs a payload buffer via `__pf_arr_alloc`).
+- Gate: `just near-vm-string-key-map` — `StringKeyMapProbe`
+  (`Map<string, u128>`; `map_roundtrip(key : String) -> U128`: write u128(100)
+  at the key, read back) rendered via `EmitWat`, executed on the unmodified
+  upstream NEAR VM (`near-vm-runner 0.37` / Wasmtime) with a Borsh string key
+  (padded to the 260-byte flat slot). Returns
+  `64000000000000000000000000000000` (u128 100).
+
+**Deferred to Landing 2:** `callerAccountId` surface construct + the
+`ContextField.accountId` exhaustiveness sweep (`__pf_ctx_account_id` returning
+the raw `predecessor_account_id` as a `(ptr, len)` string, no sha256); two-slot
+string locals (`let sender : .string := callerAccountId`); string equality;
+FT conversion (`balances`/`storageDeposits` → `.string` keys,
+`account_id` params → `.string`, `mintAuthority` → string); variable-length
+string INPUT (the current flat-260 prologue assert is a ProofForge convention;
+real variable-length Borsh string input is Phase 4 JSON/Borsh codec).
+
 ## Phase 4 — JSON codecs (N-01)  (effort XL; biggest risk; depends 2,3)
 
 Wallet-facing interop. JSON decode of entrypoint args (`ft_transfer
