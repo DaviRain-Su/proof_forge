@@ -116,6 +116,82 @@ private def dynamicParam (index headBytes maximum : Nat) : Array Insn := Id.run 
   return body ++ #[.localGet offsetName, .i32Const (calldataPtr + 4 + 32), .plain "i32.add",
     .plain "i64.extend_i32_u", .localGet lengthName, .plain "i64.extend_i32_u"]
 
+private def dynamicByteAddress (offsetName : String) (wordOffset byteOffset : Nat) : Array Insn := #[
+  .localGet offsetName,
+  .i32Const (calldataPtr + 4 + 32 + wordOffset * 32 + byteOffset),
+  .plain "i32.add"
+]
+
+private partial def validateDynamicStatic (offsetName : String) (wordOffset : Nat) :
+    StylusAbiType -> Except LowerError (Array Insn × Nat)
+  | .fixedArray element size => do
+      let mut body := #[]
+      let mut next := wordOffset
+      for _ in [0:size] do
+        let (checks, after) ← validateDynamicStatic offsetName next element
+        body := body ++ checks
+        next := after
+      pure (body, next)
+  | .tuple fields => do
+      let mut body := #[]
+      let mut next := wordOffset
+      for field in fields do
+        let (checks, after) ← validateDynamicStatic offsetName next field
+        body := body ++ checks
+        next := after
+      pure (body, next)
+  | type => do
+      let width ← scalarParamWidth type
+      let malformed := "stylus: malformed calldata".toUTF8.data
+      let mut check : Array Insn := #[.i32Const 0]
+      for byte in [0:(32 - width)] do
+        check := check ++ dynamicByteAddress offsetName wordOffset byte ++
+          #[.load "i32.load8_u" 0, .plain "i32.or"]
+      if type == .bool then
+        check := check ++ dynamicByteAddress offsetName wordOffset 31 ++
+          #[.load "i32.load8_u" 0, .i32Const 1, .plain "i32.gt_u", .plain "i32.or"]
+      pure (check ++ #[.if_ (.mk <| writeLiteral 32 malformed ++ #[.i32Const 32,
+        .i32Const malformed.size, .call "write_result", .i32Const 1, .return_]) .empty], wordOffset + 1)
+
+private def dynamicArrayParam (index headBytes maximum elementWords : Nat)
+    (element : StylusAbiType) : Except LowerError (Array Insn) := do
+  if maximum > 64 then
+    throw { message := s!"direct Wasm dynamic-array maximum {maximum} exceeds static validation limit 64" }
+  let headPtr := calldataPtr + 4 + index * 32
+  let offsetName := s!"abi_offset_{index}"
+  let lengthName := s!"abi_length_{index}"
+  let mut body : Array Insn := #[]
+  let mut highOffset : Array Insn := #[.i32Const 0]
+  for byte in [0:28] do
+    highOffset := highOffset ++ #[.i32Const (headPtr + byte), .load "i32.load8_u" 0, .plain "i32.or"]
+  body := body ++ rejectIf highOffset ++ decodeU32BE (headPtr + 28) offsetName
+  body := body ++ rejectIf #[.localGet offsetName, .i32Const 31, .plain "i32.and"]
+  body := body ++ rejectIf #[.localGet offsetName, .i32Const headBytes, .plain "i32.lt_u"]
+  body := body ++ rejectIf #[.localGet offsetName, .i32Const 32, .plain "i32.add",
+    .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
+  let mut highLength : Array Insn := #[.i32Const 0]
+  for byte in [0:28] do
+    highLength := highLength ++ #[.localGet offsetName, .i32Const (calldataPtr + 4 + byte),
+      .plain "i32.add", .load "i32.load8_u" 0, .plain "i32.or"]
+  body := body ++ rejectIf highLength
+  body := body ++ #[.localGet offsetName, .i32Const (calldataPtr + 4 + 28), .plain "i32.add",
+    .load "i32.load8_u" 0, .i32Const 24, .plain "i32.shl",
+    .localGet offsetName, .i32Const (calldataPtr + 4 + 29), .plain "i32.add", .load "i32.load8_u" 0,
+    .i32Const 16, .plain "i32.shl", .plain "i32.or",
+    .localGet offsetName, .i32Const (calldataPtr + 4 + 30), .plain "i32.add", .load "i32.load8_u" 0,
+    .i32Const 8, .plain "i32.shl", .plain "i32.or",
+    .localGet offsetName, .i32Const (calldataPtr + 4 + 31), .plain "i32.add", .load "i32.load8_u" 0,
+    .plain "i32.or", .localSet lengthName]
+  body := body ++ rejectIf #[.localGet lengthName, .i32Const maximum, .plain "i32.gt_u"]
+  body := body ++ rejectIf #[.localGet offsetName, .i32Const 32, .plain "i32.add",
+    .localGet lengthName, .i32Const (elementWords * 32), .plain "i32.mul", .plain "i32.add",
+    .localGet "args_len", .i32Const 4, .plain "i32.sub", .plain "i32.gt_u"]
+  for item in [0:maximum] do
+    let (checks, _) ← validateDynamicStatic offsetName (item * elementWords) element
+    body := body ++ #[.localGet lengthName, .i32Const item, .plain "i32.gt_u", .if_ (.mk checks) .empty]
+  pure <| body ++ #[.localGet offsetName, .i32Const (calldataPtr + 4 + 32), .plain "i32.add",
+    .plain "i64.extend_i32_u", .localGet lengthName, .plain "i64.extend_i32_u"]
+
 private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Except LowerError (Array Insn) := do
   let malformed := "stylus: malformed calldata".toUTF8.data
   let headWords ← abiHeadWords (plan.resources.maxMemoryPages * 2048) method.params
@@ -136,7 +212,15 @@ private def methodCall (plan : StylusPlan) (method : StylusAbiMethodPlan) : Exce
         | throw { message := s!"direct Wasm ABI method `{method.name}` parameter plan is missing" }
       let some maximum := functionParam.dynamicMaxLength?
         | throw { message := s!"direct Wasm ABI method `{method.name}` dynamic maximum is missing" }
-      body := body ++ dynamicParam headIndex (headWords * 32) maximum
+      match param.type with
+      | .bytes | .string =>
+          body := body ++ dynamicParam headIndex (headWords * 32) maximum
+      | .dynamicArray element =>
+          let elementWords ← staticAbiWords (plan.resources.maxMemoryPages * 2048) element
+            |>.mapError fun error => { message := s!"direct Wasm ABI method `{method.name}`: {error.message}" }
+          body := body ++ (← dynamicArrayParam headIndex (headWords * 32) maximum elementWords element)
+      | type =>
+          throw { message := s!"direct Wasm ABI method `{method.name}` has unsupported nested dynamic type {repr type}" }
       headIndex := headIndex + 1
     else if param.type matches .fixedArray .. | .tuple .. then
       let start := headIndex

@@ -1661,3 +1661,20 @@ Rules:
 - Remaining: compile this validated `T[]` contract into direct Wasm, then add
   recursive dynamic tuple/array offsets and aggregate return encoding. No W3
   completion checkbox was closed.
+
+## 2026-07-13 - STYLUS-W3: Static-element dynamic arrays in direct Wasm
+
+- Status: `direct parameter slice complete; nested dynamic elements pending`
+- Result: compiled the checked `T[]` contract into `user_entrypoint` for fully
+  static element layouts. A plan-owned maximum (hard-capped at 64 for bounded
+  code generation) controls unrolled validation; the dispatcher checks the
+  full payload bound, then recursively validates only elements below the
+  runtime count before passing `(data pointer, element count)`.
+- Runtime vectors: generated Wasm accepts `uint64[]` and
+  `(address,uint64[2])[]`; truncated tails, malformed later uint64 words, and
+  malformed nested address padding reject before the target function runs.
+- Rust oracle: the identical plan compiles `Vec<u64>` and
+  `Vec<(Address, [u64; 2])>` methods against Stylus SDK 0.10.8.
+- Remaining: recursive ABI-relative offsets for arrays/tuples containing
+  dynamic children, aggregate return encoding, and short/long storage. No W3
+  completion checkbox was closed.

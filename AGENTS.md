@@ -25,7 +25,7 @@ Keep this section short and update it whenever the active task changes.
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
 | Active task | W3 - Aggregate storage and general ABI layout |
-| Next task | Compile validated static-element dynamic-array tails into the direct dispatcher |
+| Next task | Add recursive relative offsets for dynamic tuple/array elements and aggregate returns |
 | Known blocker | Nitro live evidence still requires a running Docker daemon |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 

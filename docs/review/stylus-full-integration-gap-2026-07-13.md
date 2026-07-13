@@ -82,7 +82,13 @@ including fixed arrays and tuples. It checks offsets, element counts, bounded
 word/byte multiplication, complete tail bounds, and canonical padding for
 every nested scalar leaf before returning a slice. Nested dynamic elements are
 still rejected pending recursive relative-offset planning, and the direct
-dispatcher does not yet execute this dynamic-array decoder.
+dispatcher initially did not execute this dynamic-array decoder. It now emits
+bounded, complete-before-call validation for static-element arrays, including
+recursive fixed-array/tuple leaves, and passes a pointer plus element count to
+the lowered function. `uint64[]` and `(address,uint64[2])[]` execute under the
+local runner and compile as equivalent Rust `Vec` signatures. Recursive
+relative offsets for dynamic elements and aggregate return encoding remain
+open.
 
 ### W4 - Remote-Call Parity Closure (medium)
 
