@@ -146,10 +146,10 @@ private def crosscallLiteralRole? (function : Function) (id : ValueId) :
 private def poolEntryForLiteral? (contract : CanonicalContract) : CoreLiteral -> Option String
   | .addressLit value => do
       let index <- value.toNat?
-      contract.materialization.nearHostStrings[index]?
+      contract.materialization.crosscallStrings[index]?
   | .stringLit value => do
       let index <- value.toNat?
-      contract.materialization.nearHostStrings[index]?
+      contract.materialization.crosscallStrings[index]?
   | _ => none
 
 private def contextHostOp : ContextField -> Option StylusHostOp

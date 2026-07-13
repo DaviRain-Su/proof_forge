@@ -371,6 +371,8 @@ mutual
         lowerExprThroughPlan module env (.literal value)
     | .local name => do
         lowerExprThroughPlan module env (.local name)
+    | .hostCall id _ _ _ =>
+        .error { message := s!"EVM does not support target extension `{id.render}`" }
     | .arrayLit _ _ =>
         .error { message := "fixed array literals must be consumed by a fixed array local binding or literal index in IR EVM v0" }
     | .arrayGet array index =>
@@ -887,6 +889,7 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
       exprSupportsPlanScalarYul callValue &&
         exprSupportsPlanScalarYul salt
   | .crosscallNamed _ _ _ _ => false
+  | .hostCall _ _ _ _ => false
   | .nearAttachedDeposit
   | .nearStorageUsage
   | .nearPromiseTransfer _ _ => false

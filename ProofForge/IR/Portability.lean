@@ -61,6 +61,9 @@ def entrypointKindName : EntrypointKind → String
 
 mutual
   partial def classifyExpr (path : String) : Expr → Array PortabilityFinding
+    | .hostCall id args _ _ =>
+        #[finding path s!"target extension {id.render}" (.targetFamilyOnly .wasmHost)] ++
+          args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
     | .crosscallCreate callValue _ =>
         #[finding path "crosscallCreate (initcode deploy)" (.targetFamilyOnly .evm)] ++
           classifyExpr s!"{path}.value" callValue

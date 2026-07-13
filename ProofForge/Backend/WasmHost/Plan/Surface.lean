@@ -1,4 +1,5 @@
 import ProofForge.Backend.WasmHost.Plan.Common
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Backend.WasmHost.Plan
 
@@ -466,6 +467,9 @@ mutual
     match expr with
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
     | .nearStorageUsage => .ok #[]
+    | .hostCall _ args _ _ =>
+        args.foldlM (init := #[]) fun acc arg =>
+          return mergeContextExprPlans acc (← contextOpsFromExpr arg)
     | .arrayLit _ values =>
         values.foldlM (init := #[]) fun acc value =>
           return mergeContextExprPlans acc (← contextOpsFromExpr value)
@@ -706,6 +710,22 @@ mutual
         .ok ModuleSurface.withNativeValue
     | .nearStorageUsage =>
         .ok ModuleSurface.withStorageUsage
+    | .hostCall id args _ _ => do
+        let argSurface ← args.foldlM (init := ModuleSurface.empty) fun acc arg =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
+        let hostSurface :=
+          if id == ProofForge.Target.HostOps.Near.storageUsageSig.id then
+            ModuleSurface.withStorageUsage
+          else if id == ProofForge.Target.HostOps.Near.promiseTransferSig.id then
+            ModuleSurface.withPromiseTransfer
+          else if id == ProofForge.Target.HostOps.Near.promiseResultsCountSig.id ||
+              id == ProofForge.Target.HostOps.Near.promiseResultStatusSig.id ||
+              id == ProofForge.Target.HostOps.Near.promiseResultU64Sig.id ||
+              id == ProofForge.Target.HostOps.Near.promiseResultU128Sig.id then
+            ModuleSurface.withPromiseResults
+          else
+            ModuleSurface.empty
+        .ok (mergeModuleSurfaces argSurface hostSurface)
     | .nearPromiseTransfer account amount =>
         return mergeModuleSurfaces
           (mergeModuleSurfaces (← surfaceFromExpr module env account)

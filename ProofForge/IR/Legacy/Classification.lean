@@ -521,6 +521,11 @@ def classifyStatement : Statement → LegacyDecision
 No wildcard arms: adding a new `Expr` constructor makes this function fail to
 compile until it receives an explicit decision. -/
 def classifyExpr : Expr → LegacyDecision
+  | .hostCall id _ _ _ =>
+      { nodeTag := s!"Expr.hostCall({id.render})"
+        disposition := .normalize
+        owner := "target-extension-registry"
+        reason := "typed extension calls normalize to catalog-validated Canonical HostOps" }
   | .literal _ =>
       { nodeTag := "Expr.literal"
         disposition := .preserve

@@ -9,6 +9,8 @@ mutual
     | .literal _ | .local _ => #[]
     | .nativeValue | .nearAttachedDeposit => #["native value read"]
     | .nearStorageUsage => #[]
+    | .hostCall _ args _ _ =>
+        #["host operation"] ++ args.foldl (fun acc arg => acc ++ exprViolations arg) #[]
     | .arrayLit _ values =>
         values.foldl (fun acc value => acc ++ exprViolations value) #[]
     | .arrayGet array index | .memoryArrayGet array index =>

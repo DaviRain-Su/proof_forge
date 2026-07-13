@@ -459,6 +459,7 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
   | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped ..
   | .crosscallCreate .. | .crosscallCreate2 ..
   | .crosscallNamed .. => acc
+  | .hostCall _ args _ _ => args.foldl (collectFromExpr entrypoint) acc
   | .nearCrosscallInvokePool .. | .nearPromiseThen .. => acc
   | .nearPromiseTransfer account amount =>
       collectFromExpr entrypoint (collectFromExpr entrypoint acc account) amount

@@ -690,6 +690,8 @@ mutual
   partial def contextOpsFromExpr (expr : Expr) : Array ContextPlan :=
     match expr with
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => acc ++ contextOpsFromExpr arg) #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc v => acc ++ contextOpsFromExpr v
     | .arrayGet array index =>

@@ -1,6 +1,7 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Target.Capability
+import ProofForge.Target.HostOp
 import ProofForge.Target.HostRuntime
 import ProofForge.IR.Allocator
 
@@ -243,6 +244,11 @@ mutual
     Requires `crypto.ecrecover` (same EVM-only gate as ecrecover). -/
     | eip712PermitDigest (owner spender value nonce deadline domainSep : Expr)
     | nativeValue
+    /-- Typed target extension call. The shared IR carries only an open stable
+    identity, typed arguments/result, and declared capability requirements;
+    target catalogs validate and lower the operation after target selection. -/
+    | hostCall (id : ProofForge.Target.HostOpId) (args : Array Expr)
+        (returnType : ValueType) (requiredCapabilities : Array ProofForge.Target.Capability)
     /-- ABI-packed CALL (EVM). `stores` are `(offset, word)` in the **args
     region** after the 4-byte selector (from `Evm.AbiEncode.Plan`).
     - `dynLenOffset?`/`dynLen?`: overwrite Call[] length word at runtime.
@@ -645,6 +651,9 @@ mutual
         #[.cryptoEcrecover, .cryptoHash] ++ owner.capabilities ++ spender.capabilities ++
           value.capabilities ++ nonce.capabilities ++ deadline.capabilities ++ domainSep.capabilities
     | .nativeValue => #[.valueNative]
+    | .hostCall _ args returnType requiredCapabilities =>
+        requiredCapabilities ++ returnType.capabilities ++
+          args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
     | .crosscallNamed _ _ args returnType =>
         #[.crosscallNamed] ++ returnType.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]

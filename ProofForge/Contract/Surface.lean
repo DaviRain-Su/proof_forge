@@ -1,5 +1,6 @@
 import Lean
 import ProofForge.Contract.Builder
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Contract.Surface
 
@@ -501,10 +502,10 @@ def nearPromiseThen (parentPromise callbackMethod : ProofForge.IR.Expr) (args : 
 
 /-- NEAR host-extension only (`Source.Near`): decode callback result as u64. -/
 def nearPromiseResultU64 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.nearPromiseResultU64 index
+  .hostCall ProofForge.Target.HostOps.Near.promiseResultU64Sig.id #[index] .u64 #[.nearPromise]
 
 def nearPromiseResultU128 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.nearPromiseResultU128 index
+  .hostCall ProofForge.Target.HostOps.Near.promiseResultU128Sig.id #[index] .u128 #[.nearPromise]
 
 /-- Full U128 NEAR attached deposit. NEAR-only. -/
 def nearAttachedDeposit : ProofForge.IR.Expr :=
@@ -512,11 +513,11 @@ def nearAttachedDeposit : ProofForge.IR.Expr :=
 
 /-- Current NEAR trie storage usage in bytes. NEAR-only. -/
 def nearStorageUsage : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.nearStorageUsage
+  .hostCall ProofForge.Target.HostOps.Near.storageUsageSig.id #[] .u64 #[.storageScalar]
 
 /-- Schedule a NEAR native-token refund to a runtime AccountId. NEAR-only. -/
 def nearPromiseTransfer (account amount : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.nearPromiseTransfer account amount
+  .hostCall ProofForge.Target.HostOps.Near.promiseTransferSig.id #[account, amount] .u64 #[.nearPromise]
 
 def cast (value : ProofForge.IR.Expr) (target : ValueType) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.cast value target

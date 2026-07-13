@@ -170,6 +170,8 @@ def exprType (e : Expr) : AdapterM CoreType := do
   | .hash _ | .hashTwoToOne _ _ => return .hash
   | .crosscallInvoke _ _ _ => return .u64
   | .nativeValue => return .unit
+  | .hostCall _ _ returnType _ =>
+      liftExcept (adaptType (← get).env.typeIds returnType)
   | .nearAttachedDeposit => return .u128
   | .nearStorageUsage | .nearPromiseTransfer _ _ => return .u64
   | _ => throw (CanonicalizeError.typeMismatch "known" "unknown expression type")
@@ -214,6 +216,7 @@ def exprTag (e : Expr) : String :=
   | .ecrecover _ _ _ _ => "Expr.ecrecover"
   | .eip712PermitDigest _ _ _ _ _ _ => "Expr.eip712PermitDigest"
   | .nativeValue => "Expr.nativeValue"
+  | .hostCall id _ _ _ => s!"Expr.hostCall({id.render})"
   | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ => "Expr.crosscallAbiPacked"
   | .crosscallInvoke _ _ _ => "Expr.crosscallInvoke"
   | .crosscallInvokeTyped _ _ _ _ => "Expr.crosscallInvokeTyped"
@@ -465,6 +468,16 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         value := hashed.value }
   | .nativeValue =>
       emitValueInstruction (.contextRead .value) .u128
+  | .hostCall id args returnType _ => do
+      let mut instructions := #[]
+      let mut argRefs := #[]
+      for arg in args do
+        let normalized ← normalizeExpr arg
+        instructions := instructions ++ normalized.instructions
+        argRefs := argRefs.push normalized.value
+      let coreReturnType ← liftExcept (adaptType (← get).env.typeIds returnType)
+      let result ← emitValueInstruction (.hostCall { id, args := argRefs }) coreReturnType
+      return { instructions := instructions ++ result.instructions, value := result.value }
   | .arrayLit _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.arrayLit" "array literal not in initial fragment")
   | .arrayGet (.local name) (.literal index) => do

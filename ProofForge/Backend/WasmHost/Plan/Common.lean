@@ -283,6 +283,7 @@ mutual
         .ok .hash
     | .nativeValue => .ok .u64
     | .nearAttachedDeposit => .ok .u128
+    | .hostCall _ _ returnType _ => .ok returnType
     | .nearStorageUsage | .nearPromiseTransfer _ _ => .ok .u64
     | .crosscallInvoke _ _ _ => .ok .u64
     | .crosscallInvokeTyped _ _ _ returnType => .ok returnType

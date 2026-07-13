@@ -67,6 +67,9 @@ mutual
       (module : Module)
       (env : TypeEnv) : Expr → Except LowerError (Array CrosscallHelperSpec)
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => .ok #[]
+    | .hostCall _ args _ _ =>
+        args.foldlM (init := #[]) fun acc arg => do
+          .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExpr module env arg))
     | .arrayLit _ values =>
         values.foldlM (init := #[]) fun acc value => do
           .ok (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExpr module env value))
@@ -645,6 +648,8 @@ def mergeCreateHelperSpecs
 mutual
   partial def createHelperSpecsFromExpr : Expr → Array CreateHelperSpec
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => mergeCreateHelperSpecs acc (createHelperSpecsFromExpr arg)) #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromExpr value)
@@ -815,6 +820,8 @@ def mergeAbiPackedHelperSpecs
 mutual
   partial def abiPackedHelperSpecsFromExpr : Expr → Array AbiPackedHelperSpec
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)) #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr value)

@@ -156,6 +156,8 @@ mutual
         checkExprFuel fuel entrypoint env d
     | fuel + 1, entrypoint, env, .hash preimage => checkExprFuel fuel entrypoint env preimage
     | _ + 1, _, _, .nativeValue => .ok ()
+    | fuel + 1, entrypoint, env, .hostCall _ args _ _ =>
+        args.foldlM (init := ()) fun _ arg => checkExprFuel fuel entrypoint env arg
     | _ + 1, _, _, .nearAttachedDeposit => .ok ()
     | _ + 1, _, _, .nearStorageUsage => .ok ()
     | fuel + 1, entrypoint, env, .crosscallInvoke target methodId args => do

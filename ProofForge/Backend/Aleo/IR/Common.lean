@@ -203,6 +203,8 @@ mutual
   partial def analyzeExpr : Expr → ExprFacts
     | .literal _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage
     | .nearPromiseResultsCount => {}
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => acc.merge (analyzeExpr arg)) {}
     | .local name => { locals := #[name] }
     | .arrayLit _ values => values.foldl (fun acc value => acc.merge (analyzeExpr value)) {}
     | .arrayGet array index | .memoryArrayGet array index =>

@@ -42,6 +42,7 @@ mutual
         match findLocal? env name with
         | some binding => .ok binding.type
         | none => .error { message := s!"unknown local `{name}`" }
+    | .hostCall _ _ returnType _ => .ok returnType
     | .arrayLit elementType values => do
         for value in values do
           ensureType "array literal element" elementType (← inferExprType module env value)

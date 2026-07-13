@@ -23,6 +23,7 @@ Implements the core NEP-141 interface:
 -/
 import ProofForge.Contract.Builder
 import ProofForge.Contract.Source
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Contract.Stdlib.NearFungibleToken
 
@@ -222,8 +223,13 @@ def boundedRefund (unused amount receiverBalance : ProofForge.IR.Expr) : EntryM 
 def callbackUnused (amount : ProofForge.IR.Expr) : EntryM ProofForge.IR.Expr := do
   ProofForge.Contract.Builder.letMutBind "unused" .u128 amount
   ProofForge.Contract.Builder.ifElse
-    (ProofForge.Contract.Builder.eq (.nearPromiseResultStatus (u64 0)) (u64 1))
-    #[.assign (.local "unused") (.nearPromiseResultU128 (u64 0))]
+    (ProofForge.Contract.Builder.eq
+      (.hostCall ProofForge.Target.HostOps.Near.promiseResultStatusSig.id #[u64 0]
+        .u64 #[.nearPromise])
+      (u64 1))
+    #[.assign (.local "unused")
+      (.hostCall ProofForge.Target.HostOps.Near.promiseResultU128Sig.id #[u64 0]
+        .u128 #[.nearPromise])]
     #[]
   pure (.local "unused")
 
@@ -395,7 +401,9 @@ contract_mixin NearFungibleTokenMixin do
 
   entry ft_resolve_transfer (transfer_id : .u64, sender : .string, receiver : .string) returns(.u128) do
     do ProofForge.Contract.Surface.requireEq caller contractId "callback must be private";
-    do ProofForge.Contract.Surface.requireEq .nearPromiseResultsCount (u64 1)
+    do ProofForge.Contract.Surface.requireEq
+      (.hostCall ProofForge.Target.HostOps.Near.promiseResultsCountSig.id #[] .u64 #[.nearPromise])
+      (u64 1)
       "callback requires exactly one promise result";
     let active : .u64 := mapRead pendingActive transfer_id;
     do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref active) (u64 1)

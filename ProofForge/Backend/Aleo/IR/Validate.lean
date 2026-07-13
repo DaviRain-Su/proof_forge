@@ -169,6 +169,8 @@ mutual
         match findLocal? env name with
         | some binding => .ok binding.type
         | none => .error { message := s!"unknown local `{name}`" }
+    | .hostCall _ _ _ _ =>
+        .error { message := "Leo IR v0 does not support target extension calls" }
     | .arrayLit elementType values => do
         if values.isEmpty then
           .error { message := s!"empty fixed array literals are not supported by Leo IR v0 for `{elementType.name}`" }

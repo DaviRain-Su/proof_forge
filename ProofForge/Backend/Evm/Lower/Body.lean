@@ -1019,6 +1019,8 @@ mutual
   partial def buildExprPlan (module : Module) (env : TypeEnv) : Expr → Except LowerError ExprPlan
     | .literal value => literalPlan value
     | .local name => .ok (.local name)
+    | .hostCall id _ _ _ =>
+        .error { message := s!"EVM does not support target extension `{id.render}`" }
     | .arrayLit elementType values => do
         let planned ← values.mapM (buildExprPlan module env)
         .ok (.arrayLit elementType planned)

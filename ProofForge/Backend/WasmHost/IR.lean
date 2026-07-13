@@ -83,6 +83,8 @@ mutual
         checkLiteralBounds value
         .ok (literal value)
     | .local name => .ok name
+    | .hostCall _ _ _ _ =>
+        .error { message := "wasm-near Rust IR v0 does not support target extension calls; use EmitWat" }
     | .arrayLit _ _ =>
         .error { message := "fixed array literals are not supported by wasm-near IR v0" }
     | .arrayGet _ _ =>

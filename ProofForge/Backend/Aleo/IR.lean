@@ -145,6 +145,8 @@ mutual
         .error { message := "Leo IR v0 does not lower `hash4` literals (EVM 4×u64 digest); hash a field/u64 value with `.hash` instead" }
     | .literal l => .ok (.literal (leoLiteral l))
     | .local name => .ok (.identifier name)
+    | .hostCall _ _ _ _ =>
+        .error { message := "Leo IR v0 does not support target extension calls" }
     | .add lhs rhs overflowChecked => do
         let op := if overflowChecked then BinaryOperation.add else .addWrapped
         .ok (.binary ⟨op, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)

@@ -2435,3 +2435,24 @@ Rules:
   documentation sync, and `git diff --check`.
 - Next: IR-B3b, add a generic legacy extension-call carrier and migrate promise
   result, storage usage, transfer, and typed call-value wrappers.
+
+## 2026-07-14 - IR-B3b: generic legacy extension calls
+
+- Status: `done (verified 2026-07-14)`.
+- Added shared `Expr.hostCall`, carrying only an open HostOp ID, typed
+  arguments/result, and open capability requirements. The legacy adapter lowers
+  it to Canonical Core HostOp instructions, where the selected target catalog
+  performs exact signature and capability validation.
+- Migrated active NEAR stdlib/facade uses of promise result count/status/U64/U128,
+  storage usage, and promise transfer to target-catalog IDs. Removed the
+  corresponding internal Builder helpers that still constructed chain-named
+  nodes.
+- Updated every shared analyzer and backend exhaustiveness boundary. EVM,
+  Solana, Aleo, Psy, and other unsupported paths reject extension calls or
+  recurse through their arguments; no backend receives fabricated semantics.
+- Verification passed: `lake build` (802 jobs), `just hostop-protocol`,
+  `just near-abi-plan`, `Tests/NearFtSecurity.lean`, and `just near-vm-nep145`
+  on the real upstream NEAR VM. No full `just check` ran.
+- Next: IR-B3c, introduce typed target-neutral call-value/continuation forms,
+  migrate remaining compatibility fixtures, and delete all legacy `near*`
+  `Expr` constructors and match arms.

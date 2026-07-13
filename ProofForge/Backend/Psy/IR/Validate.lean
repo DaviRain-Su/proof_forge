@@ -193,6 +193,8 @@ mutual
         .error { message := "crosscallAbiPacked (compile-time ABI Call[]) is EVM-only; not supported by Psy IR v0" }
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Psy IR v0" }
+    | .hostCall _ _ _ _ =>
+        .error { message := "Psy IR v0 does not support target extension calls" }
     | .nearAttachedDeposit | .nearStorageUsage | .nearPromiseTransfer _ _ =>
         .error { message := "NEAR host expressions are not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do

@@ -368,6 +368,10 @@ def boolNot (value : Expr) : Expr :=
 def cast (value : Expr) (target : ValueType) : Expr :=
   .cast value target
 
+def hostCall (id : ProofForge.Target.HostOpId) (args : Array Expr)
+    (returnType : ValueType) (requiredCapabilities : Array ProofForge.Target.Capability) : Expr :=
+  .hostCall id args returnType requiredCapabilities
+
 def nearCrosscallInvokePool (account methodId : Expr) (args : Array Expr) (deposit : Expr)
     (argNames : Array String := #[]) : Expr :=
   .nearCrosscallInvokePool account methodId args deposit argNames
@@ -376,20 +380,8 @@ def nearPromiseThen (parentPromise callbackMethod : Expr) (args : Array Expr) (d
     (argNames : Array String := #[]) : Expr :=
   .nearPromiseThen parentPromise callbackMethod args deposit argNames
 
-def nearPromiseResultU64 (index : Expr) : Expr :=
-  .nearPromiseResultU64 index
-
-def nearPromiseResultU128 (index : Expr) : Expr :=
-  .nearPromiseResultU128 index
-
 def nearAttachedDeposit : Expr :=
   .nearAttachedDeposit
-
-def nearStorageUsage : Expr :=
-  .nearStorageUsage
-
-def nearPromiseTransfer (account amount : Expr) : Expr :=
-  .nearPromiseTransfer account amount
 
 def nearAddressLit (idx : Nat) : Expr :=
   .literal (.address idx)

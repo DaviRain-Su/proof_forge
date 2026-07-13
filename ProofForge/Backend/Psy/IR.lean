@@ -62,6 +62,8 @@ mutual
   partial def buildExpr (ctx : BuildContext) : IR.Expr → Except LowerError Lean.Compiler.Psy.Expr
     | .literal value => .ok <| .literal (buildLiteral value)
     | .local name => .ok <| .local name
+    | .hostCall _ _ _ _ =>
+        .error { message := "Psy IR v0 does not support target extension calls" }
     | .arrayLit elementType values => do
         if values.isEmpty then
           .error { message := s!"empty fixed array literals are not supported by Psy IR v0 for `{← valueTypeName elementType}`" }

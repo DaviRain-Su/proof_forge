@@ -520,6 +520,8 @@ mutual
       (collector : EventCollector) :
       Expr → Except LowerError EventCollector
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => pure collector
+    | .hostCall _ args _ _ =>
+        args.foldlM (init := collector) (collectEventPlansFromExpr module env)
     | .arrayLit _ values =>
         values.foldlM (init := collector) (collectEventPlansFromExpr module env)
     | .arrayGet array index => do
@@ -755,6 +757,8 @@ def nestedLocalArrayGetShapesForDynamicExprTarget
 mutual
   partial def localArrayGetLengthsExpr (env : TypeEnv) : Expr → Array Nat
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeNatSets acc (localArrayGetLengthsExpr env value)
@@ -949,6 +953,9 @@ def buildLocalArrayGetLengths (module : Module) : Except LowerError (Array Nat) 
 mutual
   partial def nestedLocalArrayGetShapesExpr (env : TypeEnv) : Expr → Array (Array Nat)
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)) #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env value)

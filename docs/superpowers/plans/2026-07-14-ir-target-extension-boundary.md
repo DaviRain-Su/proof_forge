@@ -15,8 +15,8 @@ on top of the current NEAR-specific `Expr` surface would enlarge the coupling.
 | IR-B1 | done (verified 2026-07-14) | Open the capability/HostOp identity and split target catalogs | Core build, catalog/handler tests, unsupported-target diagnostic |
 | IR-B2 | done (verified 2026-07-14) | Remove NEAR promise modes and semantics from Canonical Core | canonical adapter/plan tests, no `near*` Core constructors |
 | IR-B3a | done (verified 2026-07-14) | Neutralize the shared crosscall string pool | full build, adapter/crosscall/protocol/NEAR/Solana focused gates |
-| IR-B3b | in_progress | Migrate NEAR scalar operations to generic extension calls | adapter, catalog, NEP-141/145 focused VM gates |
-| IR-B3c | pending | Migrate continuation calls and delete legacy NEAR constructors | no `near*` shared Expr constructors, multi-target diagnostics |
+| IR-B3b | done (verified 2026-07-14) | Migrate NEAR scalar operations to generic extension calls | adapter, catalog, NEP-141/145 focused VM gates |
+| IR-B3c | in_progress | Migrate continuation calls and delete legacy NEAR constructors | no `near*` shared Expr constructors, multi-target diagnostics |
 | IR-B4 | pending | Move EVM protocol/ABI operations out of shared IR | EVM focused plan/Foundry gates and non-EVM diagnostics |
 | IR-B5 | pending | Audit and migrate Solana-native PDA/CPI/account behavior | Solana grammar-isolation, intent, manifest, and light sBPF gates |
 | IR-B6 | pending | Audit and migrate other implemented target families | focused Wasm-host, Move, Aleo, Psy, and Quint gates |
@@ -83,9 +83,10 @@ Completion evidence (2026-07-14):
 1. [x] Rename the shared multi-target pool to `crosscallStrings`; remove the
    NEAR-named field from legacy Module, canonical materialization, plans,
    diagnostics, deploy maps, tests, and docs.
-2. [ ] Add neutral call-value context and typed extension-call compatibility
-   nodes, then reimplement public Near SDK helpers as wrappers.
-3. [ ] Migrate all promise-result/storage-usage/transfer call sites.
+2. [x] Add a typed generic `hostCall` carrier and reimplement public Near SDK
+   scalar helpers as target-catalog wrappers.
+3. [x] Migrate active promise-result/storage-usage/transfer stdlib call sites;
+   the old constructors remain only as compatibility cases removed by B3c.
 4. [ ] Migrate pool invocation and continuation to semantic crosscall forms.
 5. [ ] Delete all nine `near*` `Expr` constructors and exhaustive match arms.
 

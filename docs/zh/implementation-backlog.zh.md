@@ -1687,8 +1687,10 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   semantics 归 target 所有。
 - ✅ IR-B3a：所有 target 的 peer/method materialization 统一使用中立的
   `crosscallStrings`。
-- IR-B3b/IR-B3c：在恢复 N-T4 前，用通用 extension 和 continuation operation
-  替换 NEAR legacy constructor。
+- ✅ IR-B3b：NEAR active scalar operation 已使用通用、经 catalog 校验的
+  extension call。
+- IR-B3c：在恢复 N-T4 前替换 continuation/call-value compatibility，并删除
+  所有旧 NEAR Expr constructor。
 - IR-B4：拆出 EVM ABI、protocol、call mode 和 dispatch 细节。
 - IR-B5：审计并迁移 Solana PDA、CPI、account、sysvar 和 packing 细节。
 - IR-B6：审计其他 Wasm-host profile、Move、Aleo、Psy 和 Quint 的所有权。

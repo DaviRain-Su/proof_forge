@@ -25,6 +25,7 @@ mutual
         match findLocal? env name with
         | some binding => .ok binding.type
         | none => .error { message := s!"unknown local `{name}`" }
+    | .hostCall _ _ returnType _ => .ok returnType
     | .arrayLit elementType values => do
         for value in values do
           ensureType "array literal element" elementType (← inferExprType module env value)
@@ -938,6 +939,7 @@ mutual
   partial def exprUsesCheckedArithmetic : Expr → Bool
     | .add _ _ _ | .sub _ _ _ | .mul _ _ _ => true
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => false
+    | .hostCall _ args _ _ => args.any exprUsesCheckedArithmetic
     | .arrayLit _ xs => xs.any exprUsesCheckedArithmetic
     | .arrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i
     | .memoryArrayNew _ l => exprUsesCheckedArithmetic l

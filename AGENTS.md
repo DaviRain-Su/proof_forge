@@ -86,8 +86,8 @@ and shared interface/materialization records.
 | IR-B1 | done (verified 2026-07-14) | Open extension identities and split target catalogs |
 | IR-B2 | done (verified 2026-07-14) | Remove NEAR promise modes and semantics from Canonical Core |
 | IR-B3a | done (verified 2026-07-14) | Rename the shared crosscall string pool to target-neutral ownership |
-| IR-B3b | in_progress | Migrate legacy NEAR scalar operations to generic extension calls |
-| IR-B3c | pending | Migrate continuation calls and delete legacy NEAR constructors |
+| IR-B3b | done (verified 2026-07-14) | Migrate legacy NEAR scalar operations to generic extension calls |
+| IR-B3c | in_progress | Migrate continuation calls and delete legacy NEAR constructors |
 | IR-B4 | pending | Move EVM protocol and ABI operations out of shared IR |
 | IR-B5 | pending | Audit and migrate Solana PDA/CPI/account behavior |
 | IR-B6 | pending | Audit other Wasm-host, Move, Aleo, Psy, and Quint target ownership |

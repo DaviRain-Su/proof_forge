@@ -435,6 +435,7 @@ mutual
   partial def exprUsesCheckedArithmetic : Expr → Bool
     | .add _ _ _ | .sub _ _ _ | .mul _ _ _ => true
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => false
+    | .hostCall _ args _ _ => args.any exprUsesCheckedArithmetic
     | .arrayLit _ xs => xs.any exprUsesCheckedArithmetic
     | .arrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i
     | .memoryArrayNew _ l => exprUsesCheckedArithmetic l

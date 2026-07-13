@@ -66,6 +66,8 @@ mutual
           collectArrayLitsExpr d ++ collectArrayLitsExpr e ++ collectArrayLitsExpr f
     | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => collectArrayLitsExpr target
     | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => acc ++ collectArrayLitsExpr arg) #[]
     | .crosscallInvoke t m args => collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .crosscallInvokeTyped t m args _
     | .crosscallInvokeStaticTyped t m args _
@@ -126,6 +128,8 @@ mutual
   partial def collectStructLitsExpr (e : Expr) : Array String :=
     match e with
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => acc ++ collectStructLitsExpr arg) #[]
     | .arrayLit _ values => values.foldl (fun acc v => acc ++ collectStructLitsExpr v) #[]
     | .arrayGet a i => collectStructLitsExpr a ++ collectStructLitsExpr i
     | .memoryArrayNew _ length => collectStructLitsExpr length

@@ -55,6 +55,7 @@ partial def canDuplicateExpr : Expr → Bool
       canDuplicateExpr a && canDuplicateExpr b && canDuplicateExpr c && canDuplicateExpr d
   | .hash preimage => canDuplicateExpr preimage
   | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => false
+  | .hostCall _ _ _ _ => false
   | .crosscallInvoke _ _ _
   | .crosscallInvokeTyped _ _ _ _
   | .crosscallInvokeValueTyped _ _ _ _ _
@@ -78,6 +79,7 @@ def exprReturnsNearPromise : Expr → Bool
   | .nearCrosscallInvokePool _ _ _ _ _ => true
   | .nearPromiseThen _ _ _ _ _ => true
   | .nearPromiseTransfer _ _ => true
+  | .hostCall id _ _ _ => id.namespace_ == "near.promise"
   | _ => false
 
 end ProofForge.Backend.WasmHost.ExprAnalysis

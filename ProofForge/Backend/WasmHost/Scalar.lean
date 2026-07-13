@@ -168,6 +168,7 @@ mutual
     | .effect eff => effectReadsPackedScalar scalars eff
     | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
     | .nearStorageUsage | .nearPromiseResultsCount => false
+    | .hostCall _ args _ _ => args.any (exprReadsPackedScalar scalars)
     | .arrayLit _ vs => vs.any (exprReadsPackedScalar scalars)
     | .arrayGet a i | .memoryArrayGet a i | .hashTwoToOne a i
     | .add a i _ | .sub a i _ | .mul a i _ | .div a i | .mod a i | .pow a i

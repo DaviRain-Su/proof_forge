@@ -203,6 +203,7 @@ where
     | .crosscallCreate .. | .crosscallCreate2 ..
     | .nearCrosscallInvokePool .. | .nearPromiseThen .. => true
     | .crosscallNamed _ _ args _ => args.any exprUses
+    | .hostCall _ args _ _ => args.any exprUses
     | .effect e => effectUses e
     | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
@@ -291,6 +292,7 @@ partial def moduleUsesNearAsyncExtension (module : Module) : Bool :=
     ep.body.any stmtUses
 where
   exprUses : Expr → Bool
+    | .hostCall id args _ _ => id.namespace_ == "near.promise" || args.any exprUses
     | .nearPromiseThen .. | .nearPromiseResultsCount
     | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _
     | .nearPromiseTransfer _ _ => true
