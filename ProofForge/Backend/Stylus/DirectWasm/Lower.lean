@@ -528,6 +528,20 @@ private def lowerOp (plan : StylusPlan) (function : StylusFunctionPlan)
             paddingCheck ++ #[.i64Const (callReturnPtr + 64), .localSet (valueLocal result)]
       | _ => throw <| diagnostic plan function block (opName op) "crosscall.return" (s!"unsupported return type {repr call.returnType}")
 
+private def dynamicReturnMaximum (plan : StylusPlan) (function : StylusFunctionPlan)
+    (value : StylusValueId) : Except LowerError Nat := do
+  if let some param := function.params.find? (fun param => param.valueId == value) then
+    if let some maximum := param.dynamicMaxLength? then return maximum
+  for block in function.blocks do
+    for operation in block.operations do
+      match operation with
+      | .call result type callId =>
+          if result == value && type.isDynamic then
+            let call <- callFor plan callId
+            if let some maximum := call.returnMaxLength? then return maximum
+      | _ => pure ()
+  fail s!"Stylus dynamic return value {value} has no plan-owned maximum length"
+
 private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
     (block : StylusBlockPlan) (values : Array StylusValueId) : Except LowerError (Array Insn) := do
   match values with
@@ -543,7 +557,8 @@ private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
       | .uint 128 => pure <| clearWord 32 ++ copyPointerBytes 48 (valueLocal value) 16 ++
           #[.i32Const 32, .i32Const 32, .call "write_result", .i32Const 0]
       | .bytes | .string => do
-          let maximum := 4096
+          let maximum <- dynamicReturnMaximum plan function value |>.mapError fun error =>
+            diagnostic plan function block "terminator" "abi.result" error.message
           pure <| #[.i32Const 32, .i32Const 0, .i32Const (64 + maximum), .plain "memory.fill"] ++
             writeBytes 63 #[32] ++ encodeUnsigned 88 8 (dynamicLengthLocal value) ++ #[
               .i32Const 96, .localGet (valueLocal value), .plain "i32.wrap_i64",

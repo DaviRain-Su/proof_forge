@@ -8,6 +8,10 @@
 
 **Tech Stack:** Lean 4/Lake, Wasm AST/WAT, wabt `wat2wasm`, Rust 1.91.0, `stylus-sdk = 0.10.8`, `cargo-stylus = 0.10.8`, Wasmtime 45, official Nitro Testnode revision `62f6cae30942f82958695697d3de8b4e1447ea7f`, Foundry `cast`.
 
+**Current checkpoint:** 26/63 acceptance items are complete. Seven remaining
+work packages and their dependency order are audited in
+`docs/review/stylus-full-integration-gap-2026-07-13.md`.
+
 ## Global Constraints
 
 - Keep `wasm-arbitrum-stylus` at research maturity until Task 7 cutover evidence passes.

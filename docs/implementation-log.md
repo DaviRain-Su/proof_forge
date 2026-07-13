@@ -1048,6 +1048,19 @@ Rules:
 - Return scratch is cleared before copying, so a shorter later response cannot
   observe or be rejected because of bytes left by an earlier call.
 
+## 2026-07-13 - Stylus full-integration audit and aggregate regression repair
+
+- Status: `26/63 plan items complete; seven work packages remain`
+- Added `docs/review/stylus-full-integration-gap-2026-07-13.md` with verified
+  evidence, honest completion estimates, seven remaining packages, environment
+  blockers, and the compiler-to-release critical path.
+- Re-ran canonical ValueVault and mapping/event gates successfully. The aggregate
+  gate exposed a regression from dynamic call-return work: a fixed 4096-byte
+  result clear overlapped calldata-backed dynamic parameters and zeroed payloads.
+- Added `dynamicReturnMaximum`, which derives the clear bound from the returned
+  function parameter or producing call envelope. Both aggregate echo vectors and
+  remote dynamic-return vectors pass after the repair.
+
 ## 2026-07-12 - TOOL-NEAR-VM-RUNNER: honest real-NEAR-VM conformance gate
 
 - Status: `done (uncommitted; pre-existing product-matrix Soroban failure unrelated)`
