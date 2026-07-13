@@ -34,29 +34,33 @@ partial def borshByteWidth (structs : Array StructDecl) : ValueType → Except S
 the target ABI plan so contract lowering and generated clients consume the same
 decision. Additional NEP-141/145 methods join only when their decoder and
 real-VM gate land. -/
-def usesJsonCodecForSignature (name : String) (params : Array (String × ValueType))
-    (returns : ValueType) : Except String Bool := do
-  if name != "ft_balance_of" then
-    return false
-  unless params == #[("account_id", .string)] && returns == .u128 do
-    throw "NEAR standard entrypoint `ft_balance_of` must have signature (account_id : String) -> U128"
-  return true
+def jsonCodecsForSignature (name : String) (params : Array (String × ValueType))
+    (returns : ValueType) : Except String (Bool × Bool) := do
+  if name == "ft_balance_of" then
+    unless params == #[("account_id", .string)] && returns == .u128 do
+      throw "NEAR standard entrypoint `ft_balance_of` must have signature (account_id : String) -> U128"
+    return (true, true)
+  if name == "ft_transfer" then
+    unless params == #[("receiver_id", .string), ("amount", .u128)] && returns == .unit do
+      throw "NEAR standard entrypoint `ft_transfer` must have signature (receiver_id : String, amount : U128) -> Unit"
+    return (true, false)
+  return (false, false)
 
 def buildSignaturePlan (structs : Array StructDecl) (name : String)
     (signatureParams : Array (String × ValueType)) (returns : ValueType) :
     Except String EntrypointPlan := do
-  let useJson ← usesJsonCodecForSignature name signatureParams returns
+  let (useJsonInput, useJsonOutput) ← jsonCodecsForSignature name signatureParams returns
   let inputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec :=
-    if useJson then .json else .borsh
+    if useJsonInput then .json else .borsh
   let outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec :=
-    if useJson then .json else .borsh
+    if useJsonOutput then .json else .borsh
   let mut offset := 0
   let mut params := #[]
   for param in signatureParams do
-    let width ← if useJson then pure 0 else borshByteWidth structs param.snd
+    let width ← if useJsonInput then pure 0 else borshByteWidth structs param.snd
     params := params.push { name? := some param.fst, type := param.snd, offset, byteWidth := width }
     offset := offset + width
-  let outputByteWidth ← if useJson then pure 0 else borshByteWidth structs returns
+  let outputByteWidth ← if useJsonOutput then pure 0 else borshByteWidth structs returns
   .ok {
     name
     inputCodec

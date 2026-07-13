@@ -2276,3 +2276,20 @@ Rules:
   `wasm-near-ft-transfer-call-e2e`, and `product-token-near`.
 - Next: reusable multi-field JSON call decoding and generated-client JSON
   transaction transport.
+
+## 2026-07-13 - NEAR-NEP141: Landing 4b - JSON `ft_transfer`
+
+- Status: `done (verified on the unmodified upstream NEAR VM)`.
+- Extended the shared `NearAbiPlan` JSON schema to the required
+  `ft_transfer(receiver_id : String, amount : U128)` fields. Canonical
+  `NearModulePlan` owns the codec decision and generated clients use the same
+  method plan.
+- Added bounded decimal U128 parsing and entrypoint-scoped JSON input helpers;
+  helper selection remains derived from the frozen module plan.
+- Added `near-vm-json-transfer`, covering a successful transfer and malformed
+  or unauthorized calls on the real VM. Optional memo/msg and generic
+  order-tolerant JSON remain explicit follow-up work.
+- Verification recorded by the original landing: `near-abi-plan`,
+  `near-abi-client`, `near-vm-json-transfer`, `near-vm-json-balance`,
+  `near-vm-conformance-ft`, and `near-ft-security`.
+- Next: structured JSON return planning for NEP-145/148.

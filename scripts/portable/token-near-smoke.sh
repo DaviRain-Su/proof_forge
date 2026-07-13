@@ -115,6 +115,8 @@ def acct_slot(name):
     return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
 def balance_json(name):
     return ('{"account_id":"' + name + '"}').encode()
+def transfer_json(receiver, amount):
+    return ('{"receiver_id":"' + receiver + '","amount":"' + str(amount) + '"}').encode()
 def u128(v):
     return struct.pack("<QQ", v, 0)
 sender = "alice.testnet"
@@ -123,7 +125,7 @@ inputs = [
     b"",
     acct_slot(sender) + u128(100),
     balance_json(sender),
-    acct_slot(receiver) + u128(30),
+    transfer_json(receiver, 30),
     balance_json(sender),
     balance_json(receiver),
 ]

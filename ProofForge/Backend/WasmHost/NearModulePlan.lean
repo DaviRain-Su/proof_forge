@@ -916,6 +916,11 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
     if plan.entrypointAbis.any (fun abi => abi.outputCodec == .json) then
       #[Scalar.returnJsonU128Func, Scalar.u128Divmod10Func, Scalar.u128FmtFunc]
     else #[]
+  let jsonInputHelpers :=
+    if plan.entrypointAbis.any (fun abi =>
+        abi.inputCodec == .json && abi.params.any (fun param => param.type == .u128)) then
+      #[Params.parseU128DecimalFunc]
+    else #[]
   let eventHelpers := if eventStrings.isEmpty then #[] else #[EmitWat.memcpyFunc] ++ Event.evtHelperFuncsForModulePlan plan.surface bridge
   let imports := Imports.importsForModulePlan plan.surface defaultAllocator false bridge
   let data := plan.layout.scalars.map (fun state => { offset := state.keyPtr, bytes := state.id : ProofForge.Compiler.Wasm.DataSegment }) ++
@@ -940,7 +945,7 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
         #[ArrayHeap.arrPtrGlobalDecl defaultAllocator.heapBase] else #[])
     funcs := (helperFuncs ++ hashStorageHelpers ++ mapHelpers ++ hashHelpers ++ crosscallHelpers ++ promiseHelpers ++ contextHelpers ++
       strEqHelpers ++ arrHeapHelpers ++ returnFuncs ++ eventHelpers ++ u128ArithHelpers ++
-      jsonReturnHelpers ++ funcs).foldl
+      jsonInputHelpers ++ jsonReturnHelpers ++ funcs).foldl
       (fun acc f => if acc.any (fun g => g.name == f.name) then acc else acc.push f) #[]
     memory := some { min := 1 }
     dataSegments := data }

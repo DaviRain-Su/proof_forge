@@ -1,7 +1,7 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: active (2026-07-13; Phases 0-3 and Phase 4 Landing 4a complete,
-Landing 4b next). Scope: make the ProofForge `wasm-near` NEP-141
+Status: active (updated 2026-07-14; Phases 0-3 and Phase 4 Landings 4a-4b
+complete, Landing 4c next). Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
 conformance.
@@ -281,12 +281,32 @@ real VM (or compare harness).
   upstream NEAR VM; malformed JSON aborts. Existing transfer/callback and
   product-token gates now query balances through JSON and continue to pass.
 
-Landing 4a meets the first view-method gate, not the whole phase. Landing 4b
-adds reusable multi-field JSON decoding and JSON call transport for
-`ft_transfer`; later slices add optional/memo/msg fields and structured
-NEP-145/148 return objects. Borsh mutation entrypoints remain intentional
-compatibility behavior until their individual JSON decoders and real-VM gates
-land.
+### Landing 4b — canonical `ft_transfer` JSON boundary (DONE 2026-07-14)
+
+- `NearAbiPlan.buildSignaturePlan` now selects JSON input independently from
+  output. The exact standard signature
+  `ft_transfer(receiver_id : String, amount : U128) -> Unit` uses JSON input
+  and no JSON return payload; all unpromoted mutation methods stay Borsh.
+- The shared Wasm decoder accepts the bounded canonical object
+  `{"receiver_id":"<AccountId>","amount":"<U128>"}`. It binds the AccountId
+  as a zero-copy `(ptr,len)` value and parses the decimal amount into the
+  standard `(lo,hi)` U128 words with four base-2^32 limbs. It accepts
+  U128::MAX and fails closed on non-digits, overflow, leading-zero encodings,
+  malformed framing, and reordered fields.
+- Legacy EmitWat and canonical `NearModulePlan` emit the decimal parser only
+  when a JSON U128 input requires it. The generated TypeScript client now has
+  JSON function-call transport and stringifies `bigint` U128 values before
+  `JSON.stringify`.
+- `just near-vm-json-transfer` compiles the public FT source and proves a full
+  U128::MAX transfer on the unmodified upstream NEAR VM, including JSON balance
+  results `"0"` and U128::MAX. Independent calls prove overflow, leading-zero,
+  and field-order violations abort in the VM.
+
+Landings 4a-4b cover the standard JSON balance view and direct transfer call,
+not the whole phase. Landing 4c adds structured JSON return planning for
+NEP-145/148. Optional memo/msg fields, the standard `ft_transfer_call` JSON
+shape, generic JSON escaping/order tolerance, and other mutation entrypoints
+remain Borsh until their individual decoder and real-VM gates land.
 
 ## Phase 5 — NEP-141 core interop (N-03)  (effort L; depends 4)
 

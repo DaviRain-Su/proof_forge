@@ -17,6 +17,7 @@ import ProofForge.Backend.WasmHost.LoweringEnv
 import ProofForge.Backend.WasmHost.Map
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.Params
 import ProofForge.Backend.WasmHost.Promise
 import ProofForge.Backend.WasmHost.Scalar
 import ProofForge.Target.HostBridge
@@ -37,6 +38,7 @@ open ProofForge.Backend.WasmHost.LoweringEnv
 open ProofForge.Backend.WasmHost.Map
 open ProofForge.Backend.WasmHost.Memory
 open ProofForge.Backend.WasmHost.Plan
+open ProofForge.Backend.WasmHost.Params
 open ProofForge.Backend.WasmHost.Promise
 open ProofForge.Backend.WasmHost.Scalar
 
@@ -107,6 +109,11 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     if ctx.entrypointAbis.any (fun abi => abi.outputCodec == .json) then
       #[returnJsonU128Func, u128Divmod10Func, u128FmtFunc]
     else #[]
+  let jsonInputHelpers :=
+    if ctx.entrypointAbis.any (fun abi =>
+        abi.inputCodec == .json && abi.params.any (fun param => param.type == .u128)) then
+      #[parseU128DecimalFunc]
+    else #[]
   let funcs := scalarHelpers ++ packHelpers ++
     returnHelperFuncsForModulePlan modulePlan ctx.bridge ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
@@ -118,7 +125,7 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     mapHelperFuncsForModulePlan modulePlan ctx.bridge ++
     mapHashHelperFuncsForModulePlan modulePlan ctx.bridge ++
     mapStringHelperFuncsForModulePlan modulePlan ctx.bridge ++
-    u128ArithFuncs ++ jsonReturnHelpers ++
+    u128ArithFuncs ++ jsonInputHelpers ++ jsonReturnHelpers ++
     aggregateHelperFuncsForModulePlan modulePlan mod ++
     (if modulePlan.usesMemcpy then #[memcpyFunc] else #[]) ++ entryFuncs
   funcs.foldl (fun unique function =>

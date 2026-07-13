@@ -49,6 +49,56 @@ def rawInputPrologue : Array Insn :=
 
 def jsonInputLen64Name : String := "__pf_json_input_len64"
 def jsonInputLenName : String := "__pf_json_input_len"
+def jsonCursorName : String := "__pf_json_cursor"
+def jsonAmountPtrName : String := "__pf_json_amount_ptr"
+def jsonAmountLenName : String := "__pf_json_amount_len"
+def parseU128DecimalName : String := "__pf_parse_u128_decimal"
+
+/-- Parse an unsigned decimal string into the shared `(lo, hi)` U128 result
+buffer. Four base-2^32 limbs keep every `limb * 10 + carry` intermediate below
+2^36, so the final carry is an exact overflow check for the full U128 range. -/
+def parseU128DecimalFunc : Func :=
+  { name := parseU128DecimalName
+    params := #[{ name := "p", type := .i32 }, { name := "n", type := .i32 }]
+    locals := #[
+      { name := "i", type := .i32 }, { name := "byte", type := .i32 },
+      { name := "digit", type := .i64 }, { name := "cur", type := .i64 },
+      { name := "carry", type := .i64 }, { name := "l0", type := .i64 },
+      { name := "l1", type := .i64 }, { name := "l2", type := .i64 },
+      { name := "l3", type := .i64 }]
+    body := { insns := #[
+      .i32Const 0, .localSet "i",
+      .i64Const 0, .localSet "l0", .i64Const 0, .localSet "l1",
+      .i64Const 0, .localSet "l2", .i64Const 0, .localSet "l3",
+      .block_ { insns := #[.loop_ { insns := #[
+        .localGet "i", .localGet "n", .plain "i32.ge_u", .brIf 1,
+        .localGet "p", .localGet "i", .plain "i32.add", .load "i32.load8_u" 0,
+        .localTee "byte", .i32Const 48, .plain "i32.lt_u",
+        .if_ { insns := #[.unreachable] } { insns := #[] },
+        .localGet "byte", .i32Const 57, .plain "i32.gt_u",
+        .if_ { insns := #[.unreachable] } { insns := #[] },
+        .localGet "byte", .i32Const 48, .plain "i32.sub", .plain "i64.extend_i32_u",
+        .localSet "digit",
+        .localGet "l0", .i64Const 10, .plain "i64.mul", .localGet "digit",
+        .plain "i64.add", .localTee "cur", .i64Const 0xffffffff, .plain "i64.and",
+        .localSet "l0", .localGet "cur", .i64Const 32, .plain "i64.shr_u", .localSet "carry",
+        .localGet "l1", .i64Const 10, .plain "i64.mul", .localGet "carry",
+        .plain "i64.add", .localTee "cur", .i64Const 0xffffffff, .plain "i64.and",
+        .localSet "l1", .localGet "cur", .i64Const 32, .plain "i64.shr_u", .localSet "carry",
+        .localGet "l2", .i64Const 10, .plain "i64.mul", .localGet "carry",
+        .plain "i64.add", .localTee "cur", .i64Const 0xffffffff, .plain "i64.and",
+        .localSet "l2", .localGet "cur", .i64Const 32, .plain "i64.shr_u", .localSet "carry",
+        .localGet "l3", .i64Const 10, .plain "i64.mul", .localGet "carry",
+        .plain "i64.add", .localTee "cur", .i64Const 0xffffffff, .plain "i64.and",
+        .localSet "l3", .localGet "cur", .i64Const 32, .plain "i64.shr_u",
+        .plain "i64.eqz", .if_ { insns := #[] } { insns := #[.unreachable] },
+        .localGet "i", .i32Const 1, .plain "i32.add", .localSet "i", .br 0
+      ] }] },
+      .i32Const U128_RESULT_BUF, .localGet "l0", .localGet "l1", .i64Const 32,
+      .plain "i64.shl", .plain "i64.or", .store "i64.store" 0,
+      .i32Const (U128_RESULT_BUF + 8), .localGet "l2", .localGet "l3", .i64Const 32,
+      .plain "i64.shl", .plain "i64.or", .store "i64.store" 0
+    ] } }
 
 def assertJsonByteAt (offset expected : Nat) : Array Insn :=
   #[.i32Const (INPUT_BUF + offset), .load "i32.load8_u" 0, .i32Const expected,
@@ -57,6 +107,22 @@ def assertJsonByteAt (offset expected : Nat) : Array Insn :=
 def assertJsonPrefix (jsonPrefix : String) : Array Insn :=
   (jsonPrefix.toUTF8.data.foldl (init := (#[], 0)) fun (insns, offset) byte =>
     (insns ++ assertJsonByteAt offset byte.toNat, offset + 1)).fst
+
+def assertJsonBytesAtCursor (cursorName : String) (bytes : String) : Array Insn :=
+  (bytes.toUTF8.data.foldl (init := (#[], 0)) fun (insns, offset) byte =>
+    (insns ++ #[.i32Const INPUT_BUF, .localGet cursorName, .plain "i32.add",
+      .i32Const offset, .plain "i32.add", .load "i32.load8_u" 0,
+      .i32Const byte.toNat, .plain "i32.ne",
+      .if_ { insns := #[.unreachable] } { insns := #[] }], offset + 1)).fst
+
+def resolveJsonWireNames (params : Array (String × ValueType))
+    (abiPlan : EntrypointPlan) (wireParamNames? : Option (Array String)) :
+    Except EmitError (Array String) :=
+  match wireParamNames? with
+  | none => .ok (params.map (·.fst))
+  | some names =>
+      if names.size == params.size then .ok names
+      else err s!"EmitWat: JSON entrypoint `{abiPlan.name}` wire-parameter mapping has {names.size} names, expected {params.size}"
 
 /-- Decode the Phase-4a canonical JSON object
 `{"account_id":"<NEAR AccountId>"}`. `JSON.stringify` and near-api-js emit this
@@ -70,11 +136,8 @@ def loadJsonStringObjectParam (params : Array (String × ValueType))
     | err s!"EmitWat: JSON entrypoint `{abiPlan.name}` requires one String parameter"
   unless params.size == 1 && type == .string do
     err s!"EmitWat: JSON entrypoint `{abiPlan.name}` currently supports exactly one String parameter"
-  let wireName ← match wireParamNames? with
-    | none => pure name
-    | some names => match names with
-      | #[wireName] => pure wireName
-      | _ => err s!"EmitWat: JSON entrypoint `{abiPlan.name}` wire-parameter mapping must contain one name"
+  let wireNames ← resolveJsonWireNames params abiPlan wireParamNames?
+  let wireName := wireNames[0]!
   let jsonPrefix := "{\"" ++ wireName ++ "\":\""
   let prefixLen := jsonPrefix.toUTF8.size
   let minInputLen := prefixLen + 2 + 2
@@ -109,6 +172,100 @@ def loadJsonStringObjectParam (params : Array (String × ValueType))
     { name := name, type := .i32 }
   ])
 
+/-- Decode the Landing-4b canonical JSON object
+`{"receiver_id":"<AccountId>","amount":"<U128>"}`. The AccountId remains a
+zero-copy string view; the decimal amount is parsed into the standard two-word
+U128 locals through `__pf_parse_u128_decimal`. -/
+def loadJsonStringU128ObjectParams (params : Array (String × ValueType))
+    (abiPlan : EntrypointPlan) (wireParamNames? : Option (Array String) := none) :
+    Except EmitError (Array Insn × Array Local) := do
+  let #[receiver, amount] := params
+    | err s!"EmitWat: JSON entrypoint `{abiPlan.name}` requires String and U128 parameters"
+  unless receiver.snd == .string && amount.snd == .u128 do
+    err s!"EmitWat: JSON entrypoint `{abiPlan.name}` currently supports (String, U128) parameters"
+  let wireNames ← resolveJsonWireNames params abiPlan wireParamNames?
+  let jsonPrefix := "{\"" ++ wireNames[0]! ++ "\":\""
+  let amountDelimiter := "\",\"" ++ wireNames[1]! ++ "\":\""
+  let prefixLen := jsonPrefix.toUTF8.size
+  let delimiterLen := amountDelimiter.toUTF8.size
+  let minInputLen := prefixLen + 2 + delimiterLen + 1 + 2
+  let maxInputLen := prefixLen + 64 + delimiterLen + 39 + 2
+  let receiverName := receiver.fst
+  let amountName := amount.fst
+  let prologue := #[
+    .i64Const 0, .call "input",
+    .i64Const 0, .call "register_len", .localTee jsonInputLen64Name,
+    .i64Const minInputLen, .plain "i64.lt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .localGet jsonInputLen64Name, .i64Const maxInputLen, .plain "i64.gt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .localGet jsonInputLen64Name, .plain "i32.wrap_i64", .localSet jsonInputLenName,
+    .i64Const 0, .i64Const INPUT_BUF, .call "read_register",
+    .i32Const prefixLen, .localSet jsonCursorName
+  ]
+  let scanReceiver := #[.block_ { insns := #[.loop_ { insns := #[
+    .localGet jsonCursorName, .localGet jsonInputLenName, .plain "i32.ge_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .i32Const INPUT_BUF, .localGet jsonCursorName, .plain "i32.add",
+    .load "i32.load8_u" 0, .i32Const 0x22, .plain "i32.eq", .brIf 1,
+    .localGet jsonCursorName, .i32Const 1, .plain "i32.add", .localTee jsonCursorName,
+    .i32Const (prefixLen + 64), .plain "i32.gt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] }, .br 0
+  ] }] }]
+  let suffixQuoteAddress := #[.i32Const INPUT_BUF, .localGet jsonInputLenName,
+    .plain "i32.add", .i32Const 2, .plain "i32.sub"]
+  let suffixBraceAddress := #[.i32Const INPUT_BUF, .localGet jsonInputLenName,
+    .plain "i32.add", .i32Const 1, .plain "i32.sub"]
+  let bindAndParse := #[
+    .localGet jsonCursorName, .i32Const prefixLen, .plain "i32.sub",
+    .i32Const 2, .plain "i32.lt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .i32Const (INPUT_BUF + prefixLen), .localSet receiverName,
+    .localGet jsonCursorName, .i32Const prefixLen, .plain "i32.sub",
+    .localSet (receiverName ++ "_len"),
+    .localGet jsonCursorName, .i32Const delimiterLen, .plain "i32.add",
+    .localTee jsonAmountPtrName, .i32Const INPUT_BUF, .plain "i32.add",
+    .localSet jsonAmountPtrName,
+    .localGet jsonInputLenName, .i32Const 2, .plain "i32.sub",
+    .localGet jsonCursorName, .i32Const delimiterLen, .plain "i32.add",
+    .plain "i32.sub", .localTee jsonAmountLenName,
+    .i32Const 1, .plain "i32.lt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .localGet jsonAmountLenName, .i32Const 39, .plain "i32.gt_u",
+    .if_ { insns := #[.unreachable] } { insns := #[] },
+    .localGet jsonAmountLenName, .i32Const 1, .plain "i32.gt_u",
+    .if_ { insns := #[.localGet jsonAmountPtrName, .load "i32.load8_u" 0,
+      .i32Const 48, .plain "i32.eq",
+      .if_ { insns := #[.unreachable] } { insns := #[] }] } { insns := #[] },
+    .localGet jsonAmountPtrName, .localGet jsonAmountLenName, .call parseU128DecimalName,
+    .i32Const U128_RESULT_BUF, .load "i64.load" 0, .localSet amountName,
+    .i32Const (U128_RESULT_BUF + 8), .load "i64.load" 0,
+    .localSet (u128HiName amountName)
+  ]
+  let suffixChecks := suffixQuoteAddress ++ #[.load "i32.load8_u" 0, .i32Const 0x22,
+      .plain "i32.ne", .if_ { insns := #[.unreachable] } { insns := #[] }] ++
+    suffixBraceAddress ++ #[.load "i32.load8_u" 0, .i32Const 0x7d,
+      .plain "i32.ne", .if_ { insns := #[.unreachable] } { insns := #[] }]
+  .ok (prologue ++ assertJsonPrefix jsonPrefix ++ scanReceiver ++
+    assertJsonBytesAtCursor jsonCursorName amountDelimiter ++ suffixChecks ++ bindAndParse, #[
+      { name := jsonInputLen64Name, type := .i64 }, { name := jsonInputLenName, type := .i32 },
+      { name := jsonCursorName, type := .i32 }, { name := jsonAmountPtrName, type := .i32 },
+      { name := jsonAmountLenName, type := .i32 },
+      { name := receiverName ++ "_len", type := .i32 }, { name := receiverName, type := .i32 },
+      { name := amountName, type := .i64 }, { name := u128HiName amountName, type := .i64 }
+    ])
+
+def loadJsonParams (params : Array (String × ValueType)) (abiPlan : EntrypointPlan)
+    (wireParamNames? : Option (Array String)) :
+    Except EmitError (Array Insn × Array Local) := do
+  let types : Array ValueType := params.map (·.snd)
+  if types == #[.string] then
+    loadJsonStringObjectParam params abiPlan wireParamNames?
+  else if types == #[.string, .u128] then
+    loadJsonStringU128ObjectParams params abiPlan wireParamNames?
+  else
+    err s!"EmitWat: JSON entrypoint `{abiPlan.name}` has no supported decoder for its parameter signature"
+
 /-- Build the Borsh input prologue and load each param into a local.
 
 * **No params:** empty prologue on all bridges (no residual `input` / `read_register`).
@@ -139,7 +296,7 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
     if bridge != .near then
       err s!"EmitWat: JSON entrypoint `{abiPlan.name}` is only supported on HostBridge.near"
     else
-      loadJsonStringObjectParam params abiPlan wireParamNames?
+      loadJsonParams params abiPlan wireParamNames?
   else
   if abiPlan.inputCodec != .borsh || abiPlan.inputByteWidth == 0 then
     err s!"EmitWat: entrypoint `{abiPlan.name}` has an invalid NEAR input codec plan"

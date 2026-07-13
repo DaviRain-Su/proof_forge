@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "f4eb5f33eb58f51d3bad256245c0ccf3a5a2429a98bf3225a673cf1be18fb8a3",
+    "sha256": "30392536ba5edb9bfcb45ab3e75c4fdec284a88a63b59c22ab1671604b3a44d9",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for Stylus evidence and NEP-141 phases 1-4a including JSON ft_balance_of"
+    "note": "manually synced for Stylus evidence and NEP-141 phases 1-4b including JSON balance and transfer"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",

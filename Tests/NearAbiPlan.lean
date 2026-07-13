@@ -38,6 +38,20 @@ def ftBalanceModule : Module := {
   entrypoints := #[ftBalanceEntrypoint]
 }
 
+def ftTransferEntrypoint : Entrypoint := {
+  name := "ft_transfer"
+  mutability := .call
+  params := #[("receiver_id", .string), ("amount", .u128)]
+  returns := .unit
+  body := #[]
+}
+
+def ftTransferModule : Module := {
+  name := "NearFtTransferJson"
+  state := #[]
+  entrypoints := #[ftTransferEntrypoint]
+}
+
 def dynamicBytesModule : Module := {
   name := "DynamicBytesNearAbi"
   state := #[]
@@ -93,6 +107,29 @@ def main : IO Unit := do
       require (message.contains "must have signature")
         "invalid standard ft_balance_of signature must be actionable"
   | .ok _ => throw <| IO.userError "invalid standard ft_balance_of signature did not fail closed"
+  let transferAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan #[] ftTransferEntrypoint with
+    | .ok plan => pure plan
+    | .error message => throw <| IO.userError message
+  require (transferAbi.inputCodec == .json && transferAbi.outputCodec == .borsh)
+    "NEAR ft_transfer must use JSON input without claiming a JSON return payload"
+  require (transferAbi.inputByteWidth == 0 && transferAbi.outputByteWidth == 0)
+    "NEAR ft_transfer JSON input and Unit output must have dynamic/zero codec widths"
+  let transferPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan ftTransferModule with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError error.message
+  let transferWat ← match ProofForge.Backend.WasmHost.NearModulePlan.renderModuleFromPlan ftTransferModule transferPlan with
+    | .ok wat => pure wat
+    | .error error => throw <| IO.userError error.message
+  require (transferWat.contains "call $__pf_parse_u128_decimal")
+    "NEAR ft_transfer must parse its JSON decimal-string amount into U128"
+  require (transferWat.contains "i32.const 114" && transferWat.contains "i32.const 97")
+    "NEAR ft_transfer must validate receiver_id and amount field bytes"
+  let invalidFtTransfer := { ftTransferEntrypoint with returns := .u64 }
+  match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan #[] invalidFtTransfer with
+  | .error message =>
+      require (message.contains "must have signature")
+        "invalid standard ft_transfer signature must be actionable"
+  | .ok _ => throw <| IO.userError "invalid standard ft_transfer signature did not fail closed"
   let plan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan echoModule with
     | .ok plan => pure plan
     | .error error => throw <| IO.userError error.message

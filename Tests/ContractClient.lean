@@ -314,6 +314,18 @@ def testNearClientUsesContractBorshCodec : IO Unit := do
   require (!contains ftWrapper "nearViewFunctionBorsh({")
     "NEAR ft_balance_of client must not use Borsh transport"
 
+  let some ftTransfer := ProofForge.Contract.Stdlib.NearFungibleToken.spec.module.entrypoints.find?
+      (fun entrypoint => entrypoint.name == "ft_transfer")
+    | throw <| IO.userError "NEAR FT fixture missing ft_transfer"
+  let transferWrapper := ProofForge.Contract.Client.nearEntrypointWrapper ftTransfer
+  require (contains transferWrapper "nearFunctionCallJson({")
+    "NEAR ft_transfer client must use JSON transaction transport"
+  require (contains transferWrapper
+      "args: {\"receiver_id\": receiver_id, \"amount\": amount.toString()}")
+    "NEAR ft_transfer client must encode receiver_id and decimal-string U128 amount"
+  require (!contains transferWrapper "nearFunctionCallBorsh({")
+    "NEAR ft_transfer client must not use Borsh transaction transport"
+
 def testAbiWordControlsTypescriptParameterType : IO Unit := do
   let wrapper ← renderEvm addressOverrideSpec "AddressOverrideProbe"
   require (contains wrapper "\"name\":\"owner\",\"type\":\"address\"")

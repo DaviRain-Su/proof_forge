@@ -283,6 +283,14 @@ def renderEvmAbiWrapper (spec : ContractSpec) (artifactBaseName : String := spec
 def nearArgsObject (entrypoint : Entrypoint) : String :=
   "{" ++ String.intercalate ", " (entrypoint.params.map fun p => "\"" ++ p.fst ++ "\": " ++ p.fst).toList ++ "}"
 
+def nearJsonValueExpr (name : String) : ValueType → String
+  | .u128 => name ++ ".toString()"
+  | _ => name
+
+def nearJsonArgsObject (entrypoint : Entrypoint) : String :=
+  "{" ++ String.intercalate ", " (entrypoint.params.map fun p =>
+    "\"" ++ p.fst ++ "\": " ++ nearJsonValueExpr p.fst p.snd).toList ++ "}"
+
 partial def nearBorshSchemaExpr (structs : Array StructDecl) : ValueType → String
   | .u8 => "\"u8\""
   | .u32 => "\"u32\""
@@ -336,11 +344,14 @@ def nearEntrypointWrapperWithPlan (entrypoint : Entrypoint)
       if entrypoint.returns == .unit then "void"
       else "unknown"
     let returnKeyword := if entrypoint.returns == .unit then "" else "return "
+    let useJson := abiPlan.inputCodec == .json
+    let callHelper := if useJson then "nearFunctionCallJson" else "nearFunctionCallBorsh"
+    let argsExpr := if useJson then nearJsonArgsObject entrypoint else argsBytes
     "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<" ++ returnType ++ "> {\n" ++
-    "  " ++ returnKeyword ++ "await nearFunctionCallBorsh({\n" ++
+    "  " ++ returnKeyword ++ "await " ++ callHelper ++ "({\n" ++
     "    contractId,\n" ++
     "    methodName: \"" ++ entrypoint.name ++ "\",\n" ++
-    "    args: " ++ argsBytes ++ ",\n" ++
+    "    args: " ++ argsExpr ++ ",\n" ++
     "    gas: options.gas,\n" ++
     "    attachedDeposit: options.attachedDeposit ?? options.deposit,\n" ++
     "  });\n" ++
@@ -354,7 +365,7 @@ def nearEntrypointWrapperWithPlan (entrypoint : Entrypoint)
         params ++ ", options: NearViewOptions = {}"
     let useJson := abiPlan.inputCodec == .json && abiPlan.outputCodec == .json
     let viewHelper := if useJson then "nearViewFunctionJson" else "nearViewFunctionBorsh"
-    let argsExpr := if useJson then nearArgsObject entrypoint else argsBytes
+    let argsExpr := if useJson then nearJsonArgsObject entrypoint else argsBytes
     let resultExpr := if useJson then nearDecodeJsonResultExpr abiPlan.returnType "result"
       else nearDecodeResultExpr structs abiPlan.returnType "result"
     "\nexport async function " ++ entrypoint.name ++ "(" ++ paramsWithOptions ++ "): Promise<" ++ typeToTs entrypoint.returns ++ "> {\n" ++
@@ -406,6 +417,10 @@ def nearBorshHelpersTs : String :=
     "}",
     "async function nearFunctionCallBorsh(request: { contractId: string; methodName: string; args: Uint8Array; gas?: bigint | string | number; attachedDeposit?: bigint | string | number }): Promise<unknown> {",
     "  return (account as any).signAndSendTransaction({ receiverId: request.contractId, actions: [transactions.functionCall(request.methodName, request.args, BigInt(request.gas ?? 30000000000000n), BigInt(request.attachedDeposit ?? 0n))] });",
+    "}",
+    "async function nearFunctionCallJson(request: { contractId: string; methodName: string; args: Record<string, unknown>; gas?: bigint | string | number; attachedDeposit?: bigint | string | number }): Promise<unknown> {",
+    "  const encodedArgs = new TextEncoder().encode(JSON.stringify(request.args));",
+    "  return (account as any).signAndSendTransaction({ receiverId: request.contractId, actions: [transactions.functionCall(request.methodName, encodedArgs, BigInt(request.gas ?? 30000000000000n), BigInt(request.attachedDeposit ?? 0n))] });",
     "}"
   ]
 
