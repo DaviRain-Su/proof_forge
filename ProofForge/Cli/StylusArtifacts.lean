@@ -24,6 +24,52 @@ private def runProcessEnv (cmd : String) (args : Array String)
   if output.exitCode != 0 then
     throw <| IO.userError s!"{cmd} failed with exit code {output.exitCode}: {output.stderr}"
 
+private partial def stylusLegacyAbiType : ProofForge.IR.ValueType -> Except String String
+  | .bool => pure "bool"
+  | .u8 => pure "uint8"
+  | .u32 => pure "uint32"
+  | .u64 => pure "uint64"
+  | .u128 => pure "uint128"
+  | .address => pure "address"
+  | .hash => pure "bytes32"
+  | .bytes => pure "bytes"
+  | .string => pure "string"
+  | .fixedArray element size => do
+      let elementType <- stylusLegacyAbiType element
+      pure s!"{elementType}[{size}]"
+  | .array element => do
+      let elementType <- stylusLegacyAbiType element
+      pure s!"{elementType}[]"
+  | .unit => .error "unit is not a Stylus ABI parameter type"
+  | .structType name => .error s!"Stylus struct parameter `{name}` needs a resolved tuple layout"
+
+private def stylusEntrypointSignature (entrypoint : ProofForge.IR.Entrypoint) : Except String String := do
+  let mut types := #[]
+  for h : index in [0:entrypoint.params.size] do
+    let param := entrypoint.params[index]
+    let abiType <- match entrypointParamEvmAbiWord entrypoint index with
+      | some override => pure override
+      | none => stylusLegacyAbiType param.snd
+    types := types.push abiType
+  pure s!"{entrypoint.name}({String.intercalate "," types.toList})"
+
+private def hydrateStylusSelectors (cast : String) (module : ProofForge.IR.Module) :
+    IO ProofForge.IR.Module := do
+  let mut entrypoints := #[]
+  for entrypoint in module.entrypoints do
+    let signature <- match stylusEntrypointSignature entrypoint with
+      | .ok signature => pure signature
+      | .error message => throw <| IO.userError message
+    let derived <- selectorFor cast signature
+    match entrypoint.selector? with
+    | some selector =>
+        if selector.toLower != derived.toLower then
+          throw <| IO.userError
+            s!"entrypoint `{entrypoint.name}` selector `{selector}` does not match Stylus ABI signature `{signature}` selector `{derived}`"
+        entrypoints := entrypoints.push entrypoint
+    | none => entrypoints := entrypoints.push { entrypoint with selector? := some derived }
+  pure { module with entrypoints }
+
 unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln "Stylus build requires a Lean contract_source input"
@@ -36,7 +82,7 @@ unsafe def compileContractSourceStylus (opts : CliOptions) : IO UInt32 := do
   let hydratedModule <- if opts.token then
       pure sourceSpec.module
     else
-      hydrateEvmSelectors opts.cast sourceSpec.module
+      hydrateStylusSelectors opts.cast sourceSpec.module
   let spec := { sourceSpec with
     module := ProofForge.Target.PeerMap.applyToModule hydratedModule opts.peerMap }
   let bundle <- match ProofForge.Compiler.adaptContractSpecCanonical spec with

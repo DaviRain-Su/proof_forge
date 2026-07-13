@@ -217,7 +217,7 @@ def main : IO Unit := do
     storage := { words := #[] }
     functions := #[
       { id := "echoBytes", abiMethod := "echoBytes", params := #[{
-          valueId := 1, name := "value", type := .bytes, dynamicMaxLength? := some 64 }]
+          valueId := 1, name := "value", type := .bytes, dynamicMaxLength? := some 4096 }]
         entryBlock := 0, blocks := #[{ id := 0, operations := #[], terminator := .return #[1] }], support },
       { id := "echoString", abiMethod := "echoString", params := #[{
           valueId := 2, name := "value", type := .string, dynamicMaxLength? := some 64 }]

@@ -95,6 +95,8 @@ assert {entry["name"] for entry in aggregate_abi} == {
 fixed = next(entry for entry in aggregate_abi if entry["name"] == "echo_fixed")
 assert fixed["inputs"] == [{"name": "value", "type": "uint64[2]"}]
 assert fixed["outputs"] == [{"type": "uint64[2]"}]
+aggregate_artifact = json.loads((root / "aggregate-direct/proof-forge-artifact.json").read_text())
+assert aggregate_artifact["plan"]["selectors"]["echo_fixed"] == "717cbbd9"
 remote_plan = (root / "remote-call-direct/proof-forge-plan.txt").read_text()
 assert 'canonicalSignature := "remote_call()"' in remote_plan
 assert 'canonicalSignature := "remote_call(uint64,uint64)"' in remote_plan

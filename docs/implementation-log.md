@@ -2008,3 +2008,18 @@ Rules:
 - Verification: the targeted gate fell from 82.74 seconds before batching to
   12.92 seconds after batching on the same worktree; runner Cargo tests and all
   aggregate Rust/direct runtime assertions pass.
+
+## 2026-07-13 - Stylus product Aggregate ABI repair
+
+- Status: `complete`
+- Direct Wasm dynamic bytes/string returns now copy the live payload before
+  clearing the ABI head and only clear the runtime padding extent. The previous
+  maximum-sized fill could erase calldata-backed payloads before the copy.
+- The Stylus CLI now derives legacy contract-source selectors from the exact
+  plan ABI widths instead of reusing EVM's compatibility widening. In
+  particular, `echo_fixed(uint64[2])` now publishes selector `717cbbd9`, matching
+  its ABI, instead of the `uint256[2]` selector.
+- Verification: targeted Lean/CLI builds, the product Aggregate local VM ABI
+  preflight for bytes/string/fixed-array echoes, `just
+  stylus-aggregate-differential`, and `just stylus-cli-matrix` pass. No full
+  repository suite was run during this development slice.

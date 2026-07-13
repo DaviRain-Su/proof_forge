@@ -621,10 +621,19 @@ private def lowerReturn (plan : StylusPlan) (function : StylusFunctionPlan)
       | .bytes | .string => do
           let maximum <- dynamicReturnMaximum plan function value |>.mapError fun error =>
             diagnostic plan function block "terminator" "abi.result" error.message
-          pure <| #[.i32Const 32, .i32Const 0, .i32Const (64 + maximum), .plain "memory.fill"] ++
-            writeBytes 63 #[32] ++ encodeUnsigned 88 8 (dynamicLengthLocal value) ++ #[
-              .i32Const 96, .localGet (valueLocal value), .plain "i32.wrap_i64",
+          let maximumPadded := ((maximum + 31) / 32) * 32
+          if 96 + maximumPadded > plan.resources.maxMemoryPages * wasmPageBytes then
+            throw <| diagnostic plan function block "terminator" "memory.result"
+              "dynamic return scratch exceeds declared memory pages"
+          pure <| #[.i32Const 96, .localGet (valueLocal value), .plain "i32.wrap_i64",
               .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64", .plain "memory.copy",
+              .i32Const 32, .i32Const 0, .i32Const 64, .plain "memory.fill",
+              .i32Const 96, .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64", .plain "i32.add",
+              .i32Const 0, .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64",
+              .i32Const 31, .plain "i32.add", .i32Const 4294967264, .plain "i32.and",
+              .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64", .plain "i32.sub",
+              .plain "memory.fill"] ++ writeBytes 63 #[32] ++
+            encodeUnsigned 88 8 (dynamicLengthLocal value) ++ #[
               .i32Const 32, .localGet (dynamicLengthLocal value), .plain "i32.wrap_i64",
               .i32Const 31, .plain "i32.add", .i32Const 4294967264, .plain "i32.and",
               .i32Const 64, .plain "i32.add", .call "write_result", .i32Const 0]
