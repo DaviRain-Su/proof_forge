@@ -12,6 +12,7 @@ evidence="$root/build/evidence/stylus/value-vault"
   exit 1
 }
 command -v cast >/dev/null || { echo "stylus-value-vault-nitro-e2e: cast is required" >&2; exit 1; }
+"$root/scripts/stylus/require-nitro-ready.sh" stylus-value-vault-nitro-e2e
 
 just --justfile "$root/justfile" stylus-value-vault-canonical
 key_path="${PROOF_FORGE_STYLUS_PRIVATE_KEY_PATH:-$("$root/tools/stylus-nitro/manage.sh" key)}"

@@ -12,6 +12,7 @@ evidence="$root/build/evidence/stylus/token"
   exit 1
 }
 command -v cast >/dev/null || { echo "stylus-token-nitro-e2e: cast is required" >&2; exit 1; }
+"$root/scripts/stylus/require-nitro-ready.sh" stylus-token-nitro-e2e
 
 just --justfile "$root/justfile" stylus-token-evm-interop
 key_path="${PROOF_FORGE_STYLUS_PRIVATE_KEY_PATH:-$("$root/tools/stylus-nitro/manage.sh" key)}"

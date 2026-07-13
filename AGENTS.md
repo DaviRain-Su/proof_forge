@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | W5 Nitro evidence audit |
-| Next task | Verify doctor blocker and live ValueVault/Token/Remote/Aggregate evidence gates without fabricating runtime success |
+| Active task | W6 Direct-Wasm CLI cutover review |
+| Next task | Audit renderer selection, direct default, atomic artifact identities, evidence freshness, and no-fallback behavior |
 | Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |

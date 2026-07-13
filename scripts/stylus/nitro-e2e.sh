@@ -12,6 +12,7 @@ key_path="${PROOF_FORGE_STYLUS_PRIVATE_KEY_PATH:-$("$root/tools/stylus-nitro/man
 key="$(tr -d '[:space:]' < "$key_path")"
 
 command -v cast >/dev/null || { echo "stylus-nitro-e2e: cast is required" >&2; exit 1; }
+"$root/scripts/stylus/require-nitro-ready.sh" stylus-nitro-e2e
 "$root/scripts/stylus/nitro-deploy.sh"
 address="$(tr -d '[:space:]' < "$root/build/stylus/nitro/address")"
 cast send --rpc-url "$endpoint" --private-key "$key" "$address" "initialize()" >/dev/null

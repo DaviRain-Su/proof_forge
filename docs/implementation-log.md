@@ -2160,3 +2160,19 @@ Rules:
   native Rust tests, Direct/runner vectors, normalized parity, evidence
   verification, and the official HostIO audit. No full aggregate or Nitro gate
   was run.
+
+## 2026-07-13 - STYLUS-W5 review: Require proven Nitro provenance
+
+- Status: `W5.1 verified; W5.2 externally blocked`
+- The current doctor report is authoritatively `ready=false`: Rust 1.91,
+  cargo-stylus 0.10.8, and cast are present, while the Docker daemon, pinned
+  Nitro checkout, and local RPC/chain id are absent. `final.json` remains
+  absent.
+- Added a shared fail-fast doctor guard to the Counter, ValueVault, Token,
+  RemoteCall, and Aggregate local Nitro E2E scripts. No script may now label an
+  arbitrary localhost EVM as `nitro-testnode`; a fresh ready doctor is required
+  before product compilation or deployment.
+- Verification: `just stylus-nitro-scripts` passes syntax and evidence-assembler
+  self-tests. All five E2E entrypoints fail at the doctor guard in the current
+  environment and preserve the non-ready report. No live deployment, receipt,
+  gas/ink, or Nitro completion is claimed.

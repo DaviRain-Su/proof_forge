@@ -13,6 +13,7 @@ missing_evidence="$out/unavailable-evidence.json"
   exit 1
 }
 command -v cast >/dev/null || { echo "stylus-aggregate-nitro-e2e: cast is required" >&2; exit 1; }
+"$root/scripts/stylus/require-nitro-ready.sh" stylus-aggregate-nitro-e2e
 
 cd "$root"
 lake build proof-forge Examples.Product.Aggregate

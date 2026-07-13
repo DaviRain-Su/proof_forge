@@ -77,10 +77,13 @@ blockers may defer an item.
   addresses, transaction hashes, receipts, results, logs, gas/ink, tool
   versions, and source/artifact hashes.
   All four live recipes and the fail-closed final evidence assembler are now
-  implemented and pass syntax/schema self-tests. RemoteCall and Aggregate also
-  pass local product artifact/VM preflight. `final.json` remains absent because
-  the current doctor report is `ready=false`; live receipts, gas/ink, and
-  deployment evidence cannot be produced without Docker and the pinned RPC.
+  implemented and pass syntax/schema self-tests. Every local live recipe now
+  requires a fresh successful doctor report before any build or deployment, so
+  an arbitrary localhost EVM cannot claim Nitro provenance. RemoteCall and
+  Aggregate also pass local product artifact/VM preflight. `final.json` remains
+  absent because the current doctor report is `ready=false`; live receipts,
+  gas/ink, and deployment evidence cannot be produced without Docker and the
+  pinned RPC.
 - [x] **W6.1 Renderer contract:** add explicit renderer selection, direct-Wasm
   default, Rust-oracle mode, named unavailable-renderer diagnostics, and strict
   no-fallback tests without promoting Stylus into the primary triad.
