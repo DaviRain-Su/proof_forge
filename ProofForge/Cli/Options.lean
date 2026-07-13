@@ -17,6 +17,21 @@ namespace ProofForge.Cli
 
 export ProofForge.Cli.EmitMode (EmitMode)
 
+inductive StylusRenderer where
+  | directWasm
+  | rustSdk
+  deriving BEq, Inhabited, Repr
+
+def StylusRenderer.id : StylusRenderer -> String
+  | .directWasm => "direct-wasm"
+  | .rustSdk => "rust-sdk"
+
+def StylusRenderer.parse (value : String) : Except String StylusRenderer :=
+  match value with
+  | "direct-wasm" => .ok .directWasm
+  | "rust-sdk" => .ok .rustSdk
+  | _ => .error s!"unsupported Stylus renderer `{value}`; expected direct-wasm or rust-sdk"
+
 inductive Command where
   | build
   | emit
@@ -43,6 +58,7 @@ structure CliOptions where
   evmConstructorParams : Array ConstructorParamSpec := #[]
   evmConstructorValues : Array ConstructorValueSpec := #[]
   solanaSbpfArch : String := "v3"
+  stylusRenderer : StylusRenderer := .directWasm
   targetId? : Option String := none
   fixture? : Option String := none
   format? : Option String := none

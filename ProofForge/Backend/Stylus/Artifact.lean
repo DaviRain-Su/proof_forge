@@ -45,16 +45,50 @@ def rustSdkBundle (source : SourceIdentity)
   ]
 }
 
+def directWasmBundle (source : SourceIdentity)
+    (watPath wasmPath abiPath clientPath deployPath : String)
+    (watSha wasmSha abiSha clientSha deploySha : String)
+    (watBytes wasmBytes abiBytes clientBytes deployBytes : Nat)
+    (sourceTools : Array ToolProvenance := #[]) : ArtifactBundle := {
+  targetId := "wasm-arbitrum-stylus"
+  source
+  outputs := #[
+    { kind := "wat", role := .intermediate, path? := some watPath,
+      sha256? := some watSha, bytes? := some watBytes },
+    { kind := "wasm", role := .primary, path? := some wasmPath,
+      sha256? := some wasmSha, bytes? := some wasmBytes },
+    { kind := "solidity-abi", role := .sidecar, path? := some abiPath,
+      sha256? := some abiSha, bytes? := some abiBytes },
+    { kind := "typescript-client", role := .sidecar, path? := some clientPath,
+      sha256? := some clientSha, bytes? := some clientBytes },
+    { kind := "deploy-manifest", role := .sidecar, path? := some deployPath,
+      sha256? := some deploySha, bytes? := some deployBytes }
+  ]
+  primaryOutput? := some "wasm"
+  finalOutput? := some "wasm"
+  toolchain := sourceTools ++ #[
+    { tool := "wat2wasm", stage := "direct-wasm", available := true }
+  ]
+  validations := #[
+    { name := "canonical-plan", state := .passed },
+    { name := "direct-wasm-render", state := .passed },
+    { name := "wat2wasm", state := .passed },
+    { name := "nitro-evidence", state := .unavailable,
+      detail? := some "live Nitro evidence is required before release promotion" }
+  ]
+}
+
 def selectorHex (bytes : StylusBytes) : String :=
   bytes.foldl (fun result byte =>
     let hexDigit (value : Nat) : Char :=
       if value < 10 then Char.ofNat ('0'.toNat + value) else Char.ofNat ('a'.toNat + value - 10)
     result.push (hexDigit (byte.toNat / 16)) |>.push (hexDigit (byte.toNat % 16))) ""
 
-def planMetadataJson (plan : StylusPlan) : String :=
+def planMetadataJson (plan : StylusPlan) (renderer : String := "rust-sdk") : String :=
   let selectors := String.intercalate "," <| plan.abi.methods.toList.map fun method =>
     s!"\"{method.name}\":\"{selectorHex method.selector}\""
-  "{\"planSchemaVersion\":\"stylus-plan-v1\",\"renderer\":\"rust-sdk-0.10.8\",\"selectors\":{" ++
+  "{\"planSchemaVersion\":\"stylus-plan-v1\",\"renderer\":\"" ++ renderer ++
+    "\",\"selectors\":{" ++
     selectors ++ "},\"storageWords\":" ++ toString plan.storage.words.size ++ "}"
 
 end ProofForge.Backend.Stylus.Artifact

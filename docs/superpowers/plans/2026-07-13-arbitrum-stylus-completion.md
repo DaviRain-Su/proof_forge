@@ -41,19 +41,23 @@ blockers may defer an item.
 - [x] **W4.3 Local two-contract evidence:** emit a machine-readable caller/
   callee local evidence manifest and make the remote differential gate verify
   its schema and hashes. This is local evidence, never Nitro evidence.
-- [ ] **W5.1 Environment audit:** run the Nitro doctor and persist doctor JSON.
+- [x] **W5.1 Environment audit:** run the Nitro doctor and persist doctor JSON.
   If Docker/RPC is unavailable, record the external blocker and continue with
   every independent W6/W7 static item rather than stopping the queue.
+  Current evidence records cargo-stylus/cast/Rust as available and Docker,
+  pinned checkout, and RPC as unavailable (`ready=false`).
 - [ ] **W5.2 Live Nitro evidence:** when available, run ValueVault, token,
   remote two-contract, and aggregate check/deploy/E2E scenarios and persist
   addresses, transaction hashes, receipts, results, logs, gas/ink, tool
   versions, and source/artifact hashes.
-- [ ] **W6.1 Renderer contract:** add explicit renderer selection, direct-Wasm
+- [x] **W6.1 Renderer contract:** add explicit renderer selection, direct-Wasm
   default, Rust-oracle mode, named unavailable-renderer diagnostics, and strict
   no-fallback tests without promoting Stylus into the primary triad.
 - [ ] **W6.2 Atomic artifact bundle:** publish WAT/Wasm/ABI/client/plan metadata
   atomically with renderer, plan-schema, ABI, storage, toolchain, and evidence
   hashes; reject skipped or stale required evidence.
+  Directory publication and WAT/Wasm/ABI/client/deploy hashes are implemented;
+  independent plan/storage/evidence hashes and freshness rejection remain open.
 - [ ] **W6.3 CLI cutover matrix:** build and inspect Counter, ValueVault, Token,
   RemoteCall, and Aggregate bundles through literal CLI commands for both
   supported renderer modes.

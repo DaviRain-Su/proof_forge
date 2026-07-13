@@ -64,7 +64,7 @@ for value in "$rust_version" "$cargo_stylus" "$docker_version" "$cast_version" "
 done
 [[ "$actual_revision" == "$expected_revision" ]] || ready=false
 
-python3 - "$ready" "$rust_version" "$cargo_stylus" "$docker_version" "$cast_version" \
+report="$(python3 - "$ready" "$rust_version" "$cargo_stylus" "$docker_version" "$cast_version" \
   "$actual_revision" "$endpoint" "$rpc_chain_id" <<'PY'
 import json
 import sys
@@ -80,5 +80,12 @@ print(json.dumps({
     "rpcChainId": sys.argv[8],
 }, sort_keys=True))
 PY
+)"
+evidence_dir="$root/build/evidence/stylus"
+mkdir -p "$evidence_dir"
+tmp="$evidence_dir/nitro-doctor.json.tmp"
+printf '%s\n' "$report" > "$tmp"
+mv "$tmp" "$evidence_dir/nitro-doctor.json"
+printf '%s\n' "$report"
 
 [[ "$ready" == true ]]

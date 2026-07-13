@@ -48,6 +48,10 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with targetId? := some targetId }
   | "--target" :: [], _ =>
       .error "missing value for --target"
+  | "--renderer" :: renderer :: rest, opts => do
+      parseArgs rest { opts with stylusRenderer := ← StylusRenderer.parse renderer }
+  | "--renderer" :: [], _ =>
+      .error "missing value for --renderer; expected direct-wasm or rust-sdk"
   | "--scenario" :: path :: rest, opts =>
       parseArgs rest { opts with scenario? := some (FilePath.mk path) }
   | "--scenario" :: [], _ =>

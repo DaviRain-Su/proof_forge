@@ -193,6 +193,7 @@ def buildUsage : String :=
     "",
     "Required:",
     "  --target <id>             target backend (evm | solana-sbpf-asm | wasm-near | …)",
+    "  --renderer <id>           Stylus renderer: direct-wasm (default) | rust-sdk",
     "",
     "Input / project root:",
     "  input.lean                source file (mutually exclusive with --fixture)",

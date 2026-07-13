@@ -1753,6 +1753,38 @@ Rules:
 - Remaining: recursively planned dynamic array/tuple children, aggregate
   storage short/long transitions, and resource exhaustion. W3.1 remains open.
 
+## 2026-07-13 - STYLUS-W6: Explicit renderer contract and direct default
+
+- Status: `W6.1 complete; evidence-hash bundle pending`
+- `CliOptions` now owns a closed `StylusRenderer` enum. Both target-first and
+  legacy argument paths accept only `direct-wasm` or `rust-sdk`; direct Wasm is
+  the default and invalid values fail during parsing.
+- The Stylus artifact compiler consumes one checked plan and either lowers it
+  directly to WAT/Wasm or explicitly renders/builds the Rust SDK oracle. It
+  never attempts the other renderer after a failure.
+- Direct bundles publish `contract.wat`, `contract.wasm`, ABI, TypeScript client,
+  deploy manifest, and honesty metadata atomically. Wasm is the primary/final
+  output. Explicit Rust bundles retain Rust source as primary and have no final
+  deployable claim.
+- `just stylus-public-route` now proves default direct Counter and Token builds,
+  explicit Rust Counter generation, hash verification, and unknown-renderer
+  failure with no output or temporary directory.
+- Remaining: independent plan/storage/evidence files and hashes, live-evidence
+  freshness enforcement, and the full Counter/ValueVault/Token/Remote/Aggregate
+  CLI matrix.
+
+## 2026-07-13 - STYLUS-W5: Persistent Nitro environment audit
+
+- Status: `doctor complete; live scenarios externally blocked`
+- `nitro-doctor.sh` now atomically persists its JSON report even when readiness
+  fails, so CI and later cutover checks can distinguish a verified external
+  blocker from a skipped gate.
+- Current `build/evidence/stylus/nitro-doctor.json` records Rust 1.91.0,
+  cargo-stylus 0.10.8, and cast as available. Docker daemon, the pinned Nitro
+  checkout revision, and the local RPC chain id are absent; `ready` is false.
+- Live ValueVault, token, remote, and aggregate evidence remains open. Local
+  Wasmtime evidence is not substituted for Nitro evidence.
+
 ## 2026-07-13 - STYLUS-W4: HostIO contexts, Rust runtime parity, and local evidence
 
 - Status: `W4.1 and W4.3 complete; normalized cross-renderer trace pending`

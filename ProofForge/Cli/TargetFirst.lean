@@ -28,6 +28,7 @@ structure NewCommandParseState where
   evmConstructorValues : Array ConstructorValueSpec := #[]
   evmConstructorArgsHex : String := ""
   solanaSbpfArch? : Option String := none
+  renderer? : Option String := none
   token : Bool := false
   nft : Bool := false
   /-- Accumulated `--peer logical=host` bindings (forwarded to legacy). -/
@@ -53,6 +54,10 @@ partial def parseNewOptions : List String → NewCommandParseState → Except St
   | "--format" :: rest, state => do
       let (format, rest) ← takeOption rest "--format"
       parseNewOptions rest { state with format? := some format }
+  | "--renderer" :: rest, state => do
+      let (renderer, rest) ← takeOption rest "--renderer"
+      let _ ← StylusRenderer.parse renderer
+      parseNewOptions rest { state with renderer? := some renderer }
   | "--report-format" :: rest, state => do
       let (format, rest) ← takeOption rest "--report-format"
       parseNewOptions rest { state with reportFormat? := some format }
@@ -206,6 +211,7 @@ def newCommandArgsToLegacy (state : NewCommandParseState) (cmd : String) : Excep
     if flag == "--contract-source-emitwat" then
       legacy := legacy ++ ["--target", target]
     if state.nft then legacy := legacy ++ ["--nft"]
+    if let some renderer := state.renderer? then legacy := legacy ++ ["--renderer", renderer]
     if target == "solana-sbpf-asm" then
       if let some arch := state.solanaSbpfArch? then
         legacy := legacy ++ ["--solana-sbpf-arch", arch]

@@ -340,6 +340,9 @@ def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : Proof
     | .nftNearEmitWat => Except.ok "--contract-source-emitwat"
     | .stylusRustSdk => Except.ok "--stylus-rust-sdk"
   let output? := state.out?.map (targetFirstNativeOutput target flag ·)
+  let stylusRenderer ← match state.renderer? with
+    | some renderer => StylusRenderer.parse renderer
+    | none => Except.ok .directWasm
   let yulOutput? :=
     match state.yulOut? with
     | some y => some (FilePath.mk y)
@@ -360,6 +363,7 @@ def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : Proof
     evmConstructorValues := state.evmConstructorValues
     evmConstructorArgsHex := state.evmConstructorArgsHex
     solanaSbpfArch := state.solanaSbpfArch?.getD "v3"
+    stylusRenderer := stylusRenderer
     targetId? := state.target?
     fixture? := state.fixture?
     format? := state.format?
