@@ -63,8 +63,8 @@ partial def canDuplicateExpr : Expr → Bool
   | .crosscallCreate _ _
   | .crosscallCreate2 _ _ _
   | .crosscallNamed _ _ _ _
-  | .nearCrosscallInvokePool _ _ _ _
-  | .nearPromiseThen _ _ _ _
+  | .nearCrosscallInvokePool _ _ _ _ _
+  | .nearPromiseThen _ _ _ _ _
   | .nearPromiseResultsCount
   | .nearPromiseResultStatus _
   | .nearPromiseResultU64 _
@@ -74,8 +74,8 @@ partial def canDuplicateExpr : Expr → Bool
 def exprReturnsNearPromise : Expr → Bool
   | .crosscallInvoke _ _ _ => true
   | .crosscallInvokeValueTyped _ _ _ _ _ => true
-  | .nearCrosscallInvokePool _ _ _ _ => true
-  | .nearPromiseThen _ _ _ _ => true
+  | .nearCrosscallInvokePool _ _ _ _ _ => true
+  | .nearPromiseThen _ _ _ _ _ => true
   | _ => false
 
 end ProofForge.Backend.WasmHost.ExprAnalysis

@@ -181,12 +181,12 @@ mutual
     | .crosscallNamed _ _ args _ =>
         match args with
         | ⟨args⟩ => allAcceptable #[classifyExpr (.crosscallNamed "" "" #[] .unit)] && scalarFragmentExprList args
-    | .nearCrosscallInvokePool i m args d =>
+    | .nearCrosscallInvokePool i m args d names =>
         match args with
-        | ⟨args⟩ => allAcceptable #[classifyExpr (.nearCrosscallInvokePool (.local "") (.local "") #[] (.local ""))] && scalarFragmentExpr i && scalarFragmentExpr m && scalarFragmentExprList args && scalarFragmentExpr d
-    | .nearPromiseThen p c args d =>
+        | ⟨args⟩ => allAcceptable #[classifyExpr (.nearCrosscallInvokePool (.local "") (.local "") #[] (.local "") names)] && scalarFragmentExpr i && scalarFragmentExpr m && scalarFragmentExprList args && scalarFragmentExpr d
+    | .nearPromiseThen p c args d names =>
         match args with
-        | ⟨args⟩ => allAcceptable #[classifyExpr (.nearPromiseThen (.local "") (.local "") #[] (.local ""))] && scalarFragmentExpr p && scalarFragmentExpr c && scalarFragmentExprList args && scalarFragmentExpr d
+        | ⟨args⟩ => allAcceptable #[classifyExpr (.nearPromiseThen (.local "") (.local "") #[] (.local "") names)] && scalarFragmentExpr p && scalarFragmentExpr c && scalarFragmentExprList args && scalarFragmentExpr d
     | .nearPromiseResultsCount => allAcceptable #[classifyExpr .nearPromiseResultsCount]
     | .nearPromiseResultStatus i => allAcceptable #[classifyExpr (.nearPromiseResultStatus (.literal (.u64 0)))] && scalarFragmentExpr i
     | .nearPromiseResultU64 i => allAcceptable #[classifyExpr (.nearPromiseResultU64 (.literal (.u64 0)))] && scalarFragmentExpr i

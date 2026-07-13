@@ -157,8 +157,8 @@ mutual
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
     | .crosscallNamed _ _ _ _ =>
         .error { message := "named-callee cross-program calls (crosscallNamed) are not supported by wasm-near Rust sourcegen v0" }
-    | .nearPromiseThen _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseThen _ _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
     | .nearPromiseResultU64 _

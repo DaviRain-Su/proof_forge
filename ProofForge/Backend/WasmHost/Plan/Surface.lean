@@ -514,14 +514,14 @@ mutual
     | .crosscallNamed _ _ args _ =>
         args.foldlM (init := #[]) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .nearCrosscallInvokePool accountIndex methodId args deposit => do
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ => do
         let base :=
           mergeContextExprPlans
             (mergeContextExprPlans (← contextOpsFromExpr accountIndex) (← contextOpsFromExpr methodId))
             (← contextOpsFromExpr deposit)
         args.foldlM (init := base) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .nearPromiseThen parentPromise callbackMethod args deposit => do
+    | .nearPromiseThen parentPromise callbackMethod args deposit _ => do
         let base :=
           mergeContextExprPlans
             (mergeContextExprPlans (← contextOpsFromExpr parentPromise) (← contextOpsFromExpr callbackMethod))
@@ -780,14 +780,14 @@ mutual
     | .crosscallNamed _ _ args _ =>
         args.foldlM (init := ModuleSurface.empty) fun acc arg =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
-    | .nearCrosscallInvokePool accountIndex methodId args deposit => do
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ => do
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces (← surfaceFromExpr module env accountIndex) (← surfaceFromExpr module env methodId))
             (← surfaceFromExpr module env deposit)
         let argSurface ← surfaceFromCrosscallArgs module env args
         return mergeModuleSurfaces (mergeModuleSurfaces base argSurface) ModuleSurface.withCrosscallPromise
-    | .nearPromiseThen parentPromise callbackMethod args deposit => do
+    | .nearPromiseThen parentPromise callbackMethod args deposit _ => do
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces

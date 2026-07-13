@@ -211,8 +211,8 @@ mutual
     | .crosscallNamed _ _ args returnType => do
         for arg in args do discard <| inferExprType module env arg
         .ok returnType
-    | .nearPromiseThen _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseThen _ _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
     | .nearPromiseResultU64 _
@@ -968,10 +968,10 @@ mutual
     | .crosscallCreate v _ => exprUsesCheckedArithmetic v
     | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
     | .crosscallNamed _ _ args _ => args.any exprUsesCheckedArithmetic
-    | .nearPromiseThen p m args d =>
+    | .nearPromiseThen p m args d _ =>
         exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
           args.any exprUsesCheckedArithmetic
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         exprUsesCheckedArithmetic accountIndex || exprUsesCheckedArithmetic methodId ||
           exprUsesCheckedArithmetic deposit || args.any exprUsesCheckedArithmetic
     | .nearPromiseResultsCount => false

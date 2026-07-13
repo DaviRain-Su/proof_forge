@@ -185,7 +185,7 @@ mutual
           (← crosscallHelperSpecsFromExpr module env callValue)
           (← crosscallHelperSpecsFromExpr module env salt))
     | .crosscallNamed _ _ _ _
-    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => .ok #[]
+    | .nearPromiseThen _ _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => .ok #[]
     | .effect effect =>
         crosscallHelperSpecsFromEffect module env effect
 
@@ -699,7 +699,7 @@ mutual
         let nested := mergeCreateHelperSpecs (createHelperSpecsFromExpr callValue) (createHelperSpecsFromExpr salt)
         pushCreateHelperSpecIfMissing nested { mode := .create2, initCodeHex }
     | .crosscallNamed _ _ _ _
-    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => #[]
+    | .nearPromiseThen _ _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => #[]
     | .effect effect =>
         createHelperSpecsFromEffect effect
 
@@ -866,12 +866,12 @@ mutual
         abiPackedHelperSpecsFromExpr callValue
     | .crosscallCreate2 callValue salt _ =>
         mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr callValue) (abiPackedHelperSpecsFromExpr salt)
-    | .nearPromiseThen a b args d =>
+    | .nearPromiseThen a b args d _ =>
         let nested := mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b)
         let nested := args.foldl (init := nested) fun acc arg =>
           mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)
         mergeAbiPackedHelperSpecs nested (abiPackedHelperSpecsFromExpr d)
-    | .nearCrosscallInvokePool a b args d =>
+    | .nearCrosscallInvokePool a b args d _ =>
         let nested := mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b)
         let nested := args.foldl (init := nested) fun acc arg =>
           mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)

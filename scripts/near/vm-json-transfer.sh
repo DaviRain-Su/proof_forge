@@ -43,12 +43,12 @@ sender = "alice.testnet"
 receiver = "bob.testnet"
 maximum = (1 << 128) - 1
 transfer = ('{"receiver_id":"' + receiver + '","amount":"' + str(maximum) + '"}').encode()
-inputs = [b"", account_slot(sender) + u128(maximum), transfer,
+inputs = [b"", account_slot(sender) + u128(maximum), account_slot(receiver), transfer,
           balance_json(sender), balance_json(receiver)]
 overflow = ('{"receiver_id":"bob.testnet","amount":"' + str(1 << 128) + '"}').encode()
 leading_zero = b'{"receiver_id":"bob.testnet","amount":"01"}'
-reordered = b' { "amount" : "1" , "receiver_id" : "bob.testnet" } '
-reordered_inputs = [b"", account_slot(sender) + u128(1), reordered,
+reordered = b' { "memo" : null, "amount" : "1" , "receiver_id" : "bob.testnet" } '
+reordered_inputs = [b"", account_slot(sender) + u128(1), account_slot(receiver), reordered,
                     balance_json(sender), balance_json(receiver)]
 unknown = b'{"receiver_id":"bob.testnet","amount":"1","extra":"x"}'
 duplicate = b'{"receiver_id":"bob.testnet","amount":"1","amount":"1"}'
@@ -62,24 +62,26 @@ print(f'DUPLICATE_HEX="{duplicate.hex()}"')
 PY
 )"
 
-out="$("${RUNNER[@]}" "$WASM" init ft_mint ft_transfer ft_balance_of ft_balance_of \
-  --inputs-hex "$INPUTS_HEX" --predecessor-account-id alice.testnet)"
+out="$("${RUNNER[@]}" "$WASM" init ft_mint storage_deposit ft_transfer ft_balance_of ft_balance_of \
+  --inputs-hex "$INPUTS_HEX" --predecessor-account-id alice.testnet \
+  --attached-deposits-yocto 0,0,1,1,0,0)"
 echo "$out"
 grep -qF 'call ft_balance_of: return_hex=223022' <<<"$out" \
   || fail 'sender balance was not JSON "0" after U128::MAX transfer'
 grep -qF "call ft_balance_of: return_hex=$EXPECTED_MAX_JSON_HEX" <<<"$out" \
   || fail "receiver balance was not JSON U128::MAX"
-grep -qF '5 methods executed successfully on real NEAR VM' <<<"$out" \
+grep -qF '6 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "valid JSON transfer sequence did not complete"
 
-reordered_out="$("${RUNNER[@]}" "$WASM" init ft_mint ft_transfer ft_balance_of ft_balance_of \
-  --inputs-hex "$REORDERED_INPUTS_HEX" --predecessor-account-id alice.testnet)"
+reordered_out="$("${RUNNER[@]}" "$WASM" init ft_mint storage_deposit ft_transfer ft_balance_of ft_balance_of \
+  --inputs-hex "$REORDERED_INPUTS_HEX" --predecessor-account-id alice.testnet \
+  --attached-deposits-yocto 0,0,1,1,0,0)"
 echo "$reordered_out"
 grep -qF 'call ft_balance_of: return_hex=223022' <<<"$reordered_out" \
   || fail 'sender balance was not JSON "0" after reordered transfer'
 grep -qF 'call ft_balance_of: return_hex=223122' <<<"$reordered_out" \
   || fail 'receiver balance was not JSON "1" after reordered transfer'
-grep -qF '5 methods executed successfully on real NEAR VM' <<<"$reordered_out" \
+grep -qF '6 methods executed successfully on real NEAR VM' <<<"$reordered_out" \
   || fail "whitespace/reordered JSON transfer sequence did not complete"
 
 assert_rejected() {
@@ -89,7 +91,7 @@ assert_rejected() {
   local rejected_status
   set +e
   rejected_out="$("${RUNNER[@]}" "$WASM" ft_transfer --input-hex "$input_hex" \
-    --predecessor-account-id alice.testnet 2>&1)"
+    --predecessor-account-id alice.testnet --attached-deposit-yocto 1 2>&1)"
   rejected_status=$?
   set -e
   echo "$rejected_out"
@@ -103,4 +105,54 @@ assert_rejected "non-canonical leading-zero JSON amount" "$LEADING_ZERO_HEX"
 assert_rejected "unknown JSON field" "$UNKNOWN_HEX"
 assert_rejected "duplicate JSON field" "$DUPLICATE_HEX"
 
-echo "vm-json-transfer: ok (schema field order/whitespace + U128::MAX + unknown/duplicate rejection)"
+SETUP_INPUTS_HEX="$(python3 - <<'PY'
+import struct
+def slot(name):
+    raw = name.encode()
+    return struct.pack('<I', len(raw)) + raw + b'\0' * (256 - len(raw))
+def u128(value):
+    return struct.pack('<QQ', value, 0)
+sender, receiver = 'alice.testnet', 'bob.testnet'
+transfer = b'{"receiver_id":"bob.testnet","amount":"1"}'
+print(','.join(value.hex() for value in [
+    b'', slot(sender) + u128(1), slot(receiver), transfer
+]))
+PY
+)"
+
+for bad_deposit in 0 2; do
+  set +e
+  deposit_out="$("${RUNNER[@]}" "$WASM" init ft_mint storage_deposit ft_transfer \
+    --inputs-hex "$SETUP_INPUTS_HEX" --predecessor-account-id alice.testnet \
+    --attached-deposits-yocto "0,0,1,$bad_deposit" 2>&1)"
+  deposit_status=$?
+  set -e
+  [[ $deposit_status -ne 0 ]] || fail "ft_transfer accepted $bad_deposit yoctoNEAR"
+  grep -qF 'call ft_transfer: ABORTED:' <<<"$deposit_out" \
+    || fail "ft_transfer $bad_deposit yoctoNEAR did not abort in the VM"
+done
+
+UNREGISTERED_INPUTS_HEX="$(python3 - <<'PY'
+import struct
+def slot(name):
+    raw = name.encode()
+    return struct.pack('<I', len(raw)) + raw + b'\0' * (256 - len(raw))
+def u128(value):
+    return struct.pack('<QQ', value, 0)
+print(','.join(value.hex() for value in [
+    b'', slot('alice.testnet') + u128(1),
+    b'{"receiver_id":"bob.testnet","amount":"1"}'
+]))
+PY
+)"
+set +e
+unregistered_out="$("${RUNNER[@]}" "$WASM" init ft_mint ft_transfer \
+  --inputs-hex "$UNREGISTERED_INPUTS_HEX" --predecessor-account-id alice.testnet \
+  --attached-deposits-yocto 0,0,1 2>&1)"
+unregistered_status=$?
+set -e
+[[ $unregistered_status -ne 0 ]] || fail "ft_transfer accepted an unregistered receiver"
+grep -qF 'call ft_transfer: ABORTED:' <<<"$unregistered_out" \
+  || fail "unregistered ft_transfer did not abort in the VM"
+
+echo "vm-json-transfer: ok (optional memo + exact one yocto + registration + schema rejection)"

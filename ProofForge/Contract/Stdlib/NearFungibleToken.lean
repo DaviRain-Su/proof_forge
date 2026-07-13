@@ -20,12 +20,11 @@ Implements the core NEP-141 interface:
 `module.nearCrosscallStrings` layout for this mixin:
 - `0` = `ft_on_transfer` method name
 - `1` = `ft_resolve_transfer` callback method name
-- `2+` = receiver account ids registered via `near_account "..."` in `contract_source`
 
-`ft_transfer_call` takes `receiver_idx : .u32` selecting a registered receiver account
-(pool index = `receiver_idx + 2`). Portable `receiver_id : .hash` continues to key balances.
-The NEP-145 functions model registration balances as U64 values because the
-current portable ABI does not expose NEAR's JSON object return shape yet.
+`ft_transfer_call` passes its runtime `receiver_id` directly to
+`promise_create`; receiver and callback arguments use named JSON objects.
+The NEP-145 functions still model registration balances as U64 values until
+N-T3 supplies the standard JSON object returns and refund accounting.
 -/
 import ProofForge.Contract.Builder
 import ProofForge.Contract.Source
@@ -53,7 +52,6 @@ end Spec
 /-- Pool indices into `module.nearCrosscallStrings` (see module header). -/
 def ftMethodOnTransferIdx : Nat := 0
 def ftMethodResolveIdx : Nat := 1
-def ftReceiverBaseIdx : Nat := 2
 
 /-- Total token supply state (u128). -/
 def totalSupply : ScalarRef :=
@@ -137,7 +135,6 @@ def callbackUnused (amount : ProofForge.IR.Expr) : EntryM ProofForge.IR.Expr := 
 def registerFtMethods : ProofForge.Contract.Builder.ModuleM Unit := do
   discard <| ProofForge.Contract.Builder.nearCrosscallString "ft_on_transfer"
   discard <| ProofForge.Contract.Builder.nearCrosscallString "ft_resolve_transfer"
-  discard <| ProofForge.Contract.Builder.nearCrosscallString "demo.receiver.testnet"
 
 contract_mixin NearFungibleTokenMixin do
   do registerFtMethods;
@@ -201,8 +198,14 @@ contract_mixin NearFungibleTokenMixin do
       (ProofForge.Contract.Surface.ref amount) "insufficient storage deposit";
     do mapWrite storageDeposits account_id (previous -! amount);
 
-  entry ft_transfer (receiver_id : .string, amount : .u128) do
+  entry ft_transfer (receiver_id : .string, amount : .u128, memo : .string) do
+    let deposit : .u64 := nativeValue;
+    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref deposit)
+      (u64 1) "ft_transfer requires exactly 1 yoctoNEAR";
     do ProofForge.Contract.Builder.assert (ProofForge.Contract.Builder.gt (ProofForge.Contract.Surface.ref amount) (u128 0)) "zero amount";
+    let receiverStorage : .u64 := mapRead storageDeposits receiver_id;
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref receiverStorage)
+      (ProofForge.Contract.Surface.read storageRequired) "receiver is not registered";
     let sender : .string := callerAccountId;
     let srcBal : .u128 := mapRead balances sender;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
@@ -237,8 +240,15 @@ contract_mixin NearFungibleTokenMixin do
     do mapWrite allowances allowanceKey amount;
     emit FApproval indexed #[fieldAsName "owner" ownerAcct, fieldAsName "spender" spender_id] data #[fieldAsName "amount" amount];
 
-  entry ft_transfer_call (receiver_id : .string, receiver_idx : .u32, amount : .u128) returns(.u64) do
+  entry ft_transfer_call (receiver_id : .string, amount : .u128, memo : .string,
+      msg : .string) returns(.u64) do
+    let deposit : .u64 := nativeValue;
+    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref deposit)
+      (u64 1) "ft_transfer_call requires exactly 1 yoctoNEAR";
     do ProofForge.Contract.Builder.assert (ProofForge.Contract.Builder.gt (ProofForge.Contract.Surface.ref amount) (u128 0)) "zero amount";
+    let receiverStorage : .u64 := mapRead storageDeposits receiver_id;
+    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref receiverStorage)
+      (ProofForge.Contract.Surface.read storageRequired) "receiver is not registered";
     let sender : .string := callerAccountId;
     let srcBal : .u128 := mapRead balances sender;
     do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
@@ -253,15 +263,15 @@ contract_mixin NearFungibleTokenMixin do
     do mapWrite pendingActive transferId (u64 1);
     return ProofForge.Contract.Surface.nearPromiseThen
       (ProofForge.Contract.Surface.nearCrosscallPool
-        (addValue
-          (ProofForge.Contract.Surface.cast (ProofForge.Contract.Surface.ref receiver_idx) .u64)
-          (u64 ftReceiverBaseIdx))
+        (ProofForge.Contract.Surface.ref receiver_id)
         (ProofForge.Contract.Surface.nearAddressLit ftMethodOnTransferIdx)
-        #[ProofForge.Contract.Surface.ref sender, ProofForge.Contract.Surface.ref amount]
-        (u64 0))
+        #[ProofForge.Contract.Surface.ref sender, ProofForge.Contract.Surface.ref amount,
+          ProofForge.Contract.Surface.ref msg]
+        (u64 0) #["sender_id", "amount", "msg"])
       (ProofForge.Contract.Surface.nearAddressLit ftMethodResolveIdx)
       #[ProofForge.Contract.Surface.ref transferId, ProofForge.Contract.Surface.ref sender,
-        ProofForge.Contract.Surface.ref receiver_id] (u64 0);
+        ProofForge.Contract.Surface.ref receiver_id] (u64 0)
+      #["transfer_id", "sender", "receiver"];
 
   entry ft_resolve_transfer (transfer_id : .u64, sender : .string, receiver : .string) returns(.u128) do
     do ProofForge.Contract.Surface.requireEq caller contractId "callback must be private";

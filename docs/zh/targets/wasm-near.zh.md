@@ -68,22 +68,19 @@ Fixture：`ProofForge/IR/Examples/NearCrosscallProbe.lean`。
 
 `Examples/Backend/WasmNear/FungibleToken.lean` 复用
 `ProofForge.Contract.Stdlib.NearFungibleToken` mixin。生成的合约导出
-`ft_transfer_call(receiver_id, receiver_idx, amount)`，Borsh 输入布局为
-`Hash || U32 || U64`：
-
-- `receiver_id` 是 portable `Hash` account key，用于 token balance 映射。
-- `receiver_idx` 从 `module.nearCrosscallStrings` 中选择已注册的 NEAR account
-  字符串；stdlib 保留 `0 = "ft_on_transfer"`、`1 = "ft_resolve_transfer"`，
-  并使用 `2 + receiver_idx` 访问远端 receiver account id。在已检查的示例中，
-  `receiver_idx = 0` 选择 `demo.receiver.testnet`。
-- `amount` 是转账的 `U64`。
+标准 JSON 方法 `ft_transfer_call(receiver_id, amount, memo?, msg)`。
+`receiver_id` 是运行时 AccountId 字符串，`amount` 是带引号的十进制 U128，
+`memo` 可选，`msg` 传给 receiver hook。合约要求精确附加 1 yoctoNEAR，且
+receiver 必须预先通过 `storage_deposit` 注册。
 
 该 entrypoint 发出的 promise 链如下：
 
 ```text
 ft_transfer_call
-  -> promise_create(receiver account, "ft_on_transfer", [callerHash, amount])
-  -> promise_then(current_account_id, "ft_resolve_transfer", [])
+  -> promise_create(receiver_id, "ft_on_transfer",
+       {"sender_id": sender, "amount": amount, "msg": msg})
+  -> promise_then(current_account_id, "ft_resolve_transfer",
+       {"transfer_id": id, "sender": sender, "receiver": receiver_id})
   -> promise_return(callback promise id)
 
 ft_resolve_transfer
@@ -92,12 +89,11 @@ ft_resolve_transfer
   -> return amount - unused
 ```
 
-静态门控 `just wasm-near-ft-transfer-call` 验证 Plan/EmitWat 形状，包括
-`nearCrosscallStrings` 布局、`ft_on_transfer` sender 参数的 hash JSON 编码，以及
-allowance 不再使用嵌套 `mapKey+mapKey` path。行为门控
-`just wasm-near-ft-transfer-call-e2e` 会在 `runtime/offline-host` 中运行生成的 WAT，
-将 callback 结果 stub 成 Borsh `U64`，并检查 `promise_create` 先于
-`promise_then`，以及 refund 后余额正确。
+静态门控 `just wasm-near-ft-transfer-call` 验证 Plan/EmitWat 形状，包括运行时
+receiver 路由、具名 JSON hook/callback 参数，以及 allowance 不再使用嵌套
+`mapKey+mapKey` path。行为门控 `just wasm-near-ft-transfer-call-e2e` 在
+`runtime/offline-host` 中运行生成的 WAT；`just near-vm-conformance-ft` 则在未经
+修改的上游 NEAR VM 上验证正向 callback，以及精确押金和 receiver 注册负例。
 
 ### `caller` vs `callerHash`
 

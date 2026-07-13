@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "30392536ba5edb9bfcb45ab3e75c4fdec284a88a63b59c22ab1671604b3a44d9",
+    "sha256": "52c73c34a29859279e96ee87a5e59e480fb9dff91a3a8e32be3bbeededb0bbf6",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for Stylus evidence and NEP-141 phases 1-4b including JSON balance and transfer"
+    "note": "manually synced for Stylus evidence and standard NEP-141 transfer real-VM coverage"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -168,10 +168,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/targets/wasm-near.md": {
-    "sha256": "889b3f14e49649ac586dd75334574136999dfeb1fb2db95d8f975dc695b3754e",
+    "sha256": "0b41cbae7932489078f8f92c6cdd4249bbf5c5890ed1a6f8df632fe960034841",
     "zh": "docs/zh/targets/wasm-near.zh.md",
-    "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "model": "manual-zh",
+    "note": "manually synced for runtime receiver and standard NEP-141 transfer_call ABI"
   },
   "docs/gate-status.md": {
     "sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd",

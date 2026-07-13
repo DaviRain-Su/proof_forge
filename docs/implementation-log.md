@@ -2319,3 +2319,20 @@ Rules:
   the focused JSON/FT real-VM gates.
 - Next: standard `ft_transfer_call` JSON, exact one-yocto guards, and receiver
   registration behavior.
+
+## 2026-07-14 - NEAR N-T2: standard NEP-141 transfer ABI
+
+- Status: `done (verified on the unmodified upstream NEAR VM)`.
+- Replaced the receiver-pool compatibility protocol with standard JSON
+  `ft_transfer(receiver_id, amount, memo?)` and
+  `ft_transfer_call(receiver_id, amount, memo?, msg)`. Both require exactly one
+  yoctoNEAR and a registered receiver.
+- Extended the canonical crosscall plan with named JSON arguments and runtime
+  AccountId targets. Promise and resolver payloads use quoted decimal U128.
+- Extended schema-driven decoding with optional fields and JSON U64 resolver
+  ids; generated clients serialize the same plan-owned schema.
+- Verification recorded by the original task: `near-abi-plan`,
+  `near-abi-client`, `near-ft-security`, `near-vm-json-transfer`,
+  `wasm-near-ft-transfer-call`, and `near-vm-conformance-ft`.
+- Next: complete NEP-145 JSON, unregister/refund semantics, and storage byte
+  accounting.

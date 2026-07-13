@@ -20,6 +20,9 @@ structure CoreCrosscallSpec where
   gas : Option ValueRef := none
   value : Option ValueRef := none
   paramTypes : Array CoreType := #[]
+  /-- Wire names for JSON-object arguments. Empty means the historical JSON
+  array encoding; otherwise this must match `paramTypes` one-for-one. -/
+  argNames : Array String := #[]
   returnType : CoreType
   deriving BEq, Repr
 

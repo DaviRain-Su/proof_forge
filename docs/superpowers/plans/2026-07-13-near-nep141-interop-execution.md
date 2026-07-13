@@ -1,7 +1,7 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: active (updated 2026-07-14; N-T0 and N-T1 complete; N-T2 / Phase 5
-in progress; Phases 0-4 complete).
+Status: active (updated 2026-07-14; N-T0 through N-T2 complete; N-T3 / Phase 6
+in progress; Phases 0-5 complete).
 Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
@@ -15,9 +15,9 @@ the broader completion work visible while each landing remains reviewable.
 | ID | State | Deliverable | Depends on |
 |---|---|---|---|
 | N-T0 | done (`337ee823`) | Reconcile stale backlog, gap audit, lifecycle, and Agent routing claims | — |
-| N-T1 | done (2026-07-14) | Schema-driven JSON ABI, structured output/client types, order/escape policy | N-T0 |
-| N-T2 | in_progress | Standard `ft_transfer_call`, exact one yocto, receiver registration | N-T1 |
-| N-T3 | pending | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | N-T1 |
+| N-T1 | done (`38def4de`) | Schema-driven JSON ABI, structured output/client types, order/escape policy | N-T0 |
+| N-T2 | done (2026-07-14) | Standard `ft_transfer_call`, exact one yocto, receiver registration | N-T1 |
+| N-T3 | in_progress | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | N-T1 |
 | N-T4 | pending | NEP-148 metadata and NEP-297 event envelopes | N-T1 |
 | N-T5 | pending | One parameterized TokenSpec -> NEP-141 executable artifact | N-T1 foundation; may proceed alongside N-T3 |
 | N-T6 | pending | Current JSON/U128 sandbox differential with verified reports | N-T2, N-T3, N-T4 |
@@ -354,10 +354,18 @@ remain scheduled in N-T3/N-T4 with their own executable gates.
 
 ## Phase 5 — NEP-141 core interop (N-03)  (effort L; depends 4)
 
-`memo`/`msg` params; local `ft_on_transfer` receiver hook; full
-`ft_transfer_call(receiver_id, amount, memo, msg)`; registration
-(storage_deposit before transfer); exact one-yocto guard.
-**Gate:** compare harness differential on transfer / transfer_call.
+Completed 2026-07-14. The public ABI now accepts standard JSON
+`ft_transfer(receiver_id, amount, memo?)` and
+`ft_transfer_call(receiver_id, amount, memo?, msg)`. Promise creation uses the
+runtime `receiver_id`; the receiver hook receives named JSON
+`{sender_id,amount,msg}`; both transfer methods require exactly one yoctoNEAR
+and reject unregistered receivers. `near-vm-conformance-ft` proves the positive
+callback path and the zero/two-yocto and unregistered-receiver failures on the
+unmodified upstream VM. Static/client coverage lives in `near-abi-plan`,
+`near-abi-client`, `near-ft-security`, and `wasm-near-ft-transfer-call`.
+
+The compare-harness differential remains intentionally assigned to N-T6,
+after the NEP-145/148 surface is complete.
 
 ## Phase 6 — NEP-145 / 148 / 297 closure (N-04)  (effort L; depends 3,4)
 

@@ -369,6 +369,22 @@ def nearJsonArgsObject (entrypoint : Entrypoint)
     | none => nearArgsObject entrypoint
   | none => nearArgsObject entrypoint
 
+def nearEntrypointParams (entrypoint : Entrypoint)
+    (abiPlan : ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan) : String :=
+  let jsonRoot? := abiPlan.inputJson?.bind (·.root?)
+  String.intercalate ", " (entrypoint.params.map fun param =>
+    let fallback := typeToTs param.snd
+    let type := match jsonRoot? with
+      | none => fallback
+      | some root =>
+          match root.fields.find? (fun field => field.sourceName?.getD field.wireName == param.fst) with
+          | none => fallback
+          | some field =>
+              let planned := abiPlan.inputJson?.map (fun schema =>
+                nearJsonSchemaTsType schema field.nodeId) |>.getD fallback
+              if field.required then planned else planned ++ " | undefined"
+    param.fst ++ ": " ++ type).toList
+
 partial def nearBorshSchemaExpr (structs : Array StructDecl) : ValueType → String
   | .u8 => "\"u8\""
   | .u32 => "\"u32\""
@@ -418,7 +434,7 @@ def nearJsonReturnType
 def nearEntrypointWrapperWithPlan (entrypoint : Entrypoint)
     (abiPlan : ProofForge.Backend.WasmHost.NearAbiPlan.EntrypointPlan)
     (structs : Array StructDecl := #[]) : String :=
-  let params := String.intercalate ", " (entrypoint.params.map fun p => p.fst ++ ": " ++ typeToTs p.snd).toList
+  let params := nearEntrypointParams entrypoint abiPlan
   let argsBytes := nearBorshArgsExpr structs entrypoint abiPlan
   if entrypoint.mutability == .call then
     let paramsWithOptions :=

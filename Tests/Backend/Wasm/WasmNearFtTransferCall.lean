@@ -11,6 +11,11 @@ def requireContains (wat : String) (needle : String) (msg : String) : IO Unit :=
   if wat.contains needle then pure () else
     throw <| IO.userError s!"{msg}: missing `{needle}`"
 
+def requireNotContains (wat : String) (needle : String) (msg : String) : IO Unit :=
+  if wat.contains needle then
+    throw <| IO.userError s!"{msg}: unexpectedly found `{needle}`"
+  else pure ()
+
 def requireFtApproveAllowanceShape (module : Module) : IO Unit := do
   let some allowances := module.state.find? (fun state => state.id == "allowances")
     | throw <| IO.userError "NearFungibleToken must declare allowances state"
@@ -43,8 +48,8 @@ def requireFtApproveAllowanceShape (module : Module) : IO Unit := do
 
 def main : IO UInt32 := do
   let module := ProofForge.Contract.Stdlib.NearFungibleToken.module
-  if module.nearCrosscallStrings != #["ft_on_transfer", "ft_resolve_transfer", "demo.receiver.testnet"] then
-    throw <| IO.userError "NearFungibleToken must register ft methods and demo receiver in nearCrosscallStrings"
+  if module.nearCrosscallStrings != #["ft_on_transfer", "ft_resolve_transfer"] then
+    throw <| IO.userError "NearFungibleToken must register only its promise method names"
   requireFtApproveAllowanceShape module
   match ProofForge.Backend.WasmHost.Plan.buildModulePlan module with
   | .ok plan =>
@@ -59,7 +64,7 @@ def main : IO UInt32 := do
     | .error err => throw <| IO.userError s!"EmitWat render failed: {err.message}"
   requireContains wat "ft_on_transfer" "FT WAT must include ft_on_transfer string"
   requireContains wat "ft_resolve_transfer" "FT WAT must include ft_resolve_transfer string"
-  requireContains wat "demo.receiver.testnet" "FT WAT must include demo receiver account"
+  requireNotContains wat "demo.receiver.testnet" "FT WAT must use the runtime receiver_id"
   requireContains wat "__pf_crosscall_pool_ptr" "FT WAT must emit crosscall pool ptr helper"
   requireContains wat "call $promise_create" "FT WAT must call promise_create"
   requireContains wat "call $promise_then" "FT WAT must call promise_then"

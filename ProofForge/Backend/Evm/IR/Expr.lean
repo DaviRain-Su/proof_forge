@@ -471,8 +471,8 @@ mutual
     | .crosscallCreate2 callValue salt initCodeHex => do
         lowerExprThroughPlan module env (.crosscallCreate2 callValue salt initCodeHex)
     | .crosscallNamed _ _ _ _
-    | .nearPromiseThen _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseThen _ _ _ _ _
+    | .nearCrosscallInvokePool _ _ _ _ _
     | .nearPromiseResultsCount
     | .nearPromiseResultStatus _
     | .nearPromiseResultU64 _
@@ -890,8 +890,8 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .memoryArrayGet _ _
   | .structLit _ _
   | .field _ _
-  | .nearPromiseThen _ _ _ _
-  | .nearCrosscallInvokePool _ _ _ _
+  | .nearPromiseThen _ _ _ _ _
+  | .nearCrosscallInvokePool _ _ _ _ _
   | .nearPromiseResultsCount
   | .nearPromiseResultStatus _
   | .nearPromiseResultU64 _

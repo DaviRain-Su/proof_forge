@@ -42,7 +42,7 @@ def callRemoteWithCallback : Entrypoint := {
     .return (.nearPromiseThen
       (.crosscallInvoke (.literal (.address 0)) (.literal (.address 1)) #[.literal (.u64 42)])
       (.literal (.address 2))
-      #[] (.literal (.u64 0)))
+      #[] (.literal (.u64 0)) #[])
   ]
 }
 

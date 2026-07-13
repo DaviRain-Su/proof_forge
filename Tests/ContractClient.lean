@@ -265,14 +265,17 @@ def testReturnValueDoesNotImplyView : IO Unit := do
   let nearWrapper := ProofForge.Contract.Client.nearEntrypointWrapper ftTransferCall
   require (contains nearWrapper "options: NearCallOptions = {}")
     "NEAR ft_transfer_call must expose call options despite returning U64"
-  require (contains nearWrapper "nearFunctionCallBorsh({")
-    "NEAR ft_transfer_call must use the Borsh call transport despite returning U64"
+  require (contains nearWrapper "nearFunctionCallJson({")
+    "NEAR ft_transfer_call must use the standard JSON call transport"
   require (contains nearWrapper "Promise<unknown>")
     "NEAR ft_transfer_call must return the real execution outcome"
-  require (contains nearWrapper "return await nearFunctionCallBorsh({")
+  require (contains nearWrapper "return await nearFunctionCallJson({")
     "NEAR ft_transfer_call must return its functionCall execution outcome"
   require (!contains nearWrapper "nearViewFunctionBorsh({")
     "NEAR ft_transfer_call must never be emitted as a view"
+  require (contains nearWrapper "\"receiver_id\"" && contains nearWrapper "\"memo\"" &&
+      contains nearWrapper "\"msg\"")
+    "NEAR ft_transfer_call client must expose receiver_id, optional memo, and msg"
 
 def testNearClientUsesContractBorshCodec : IO Unit := do
   let wrapper := ProofForge.Contract.Client.renderNearWrapper nearU64RoundTripSpec
@@ -332,8 +335,10 @@ def testNearClientUsesContractBorshCodec : IO Unit := do
   require (contains transferWrapper "nearFunctionCallJson({")
     "NEAR ft_transfer client must use JSON transaction transport"
   require (contains transferWrapper
-      "args: {\"receiver_id\": receiver_id, \"amount\": amount.toString()}")
-    "NEAR ft_transfer client must encode receiver_id and decimal-string U128 amount"
+      "args: {\"receiver_id\": receiver_id, \"amount\": amount.toString(), \"memo\": (memo == null ? null : memo)}")
+    "NEAR ft_transfer client must encode receiver_id, decimal-string U128 amount, and memo"
+  require (contains transferWrapper "memo: string | null | undefined")
+    "NEAR ft_transfer client must type memo as an optional JSON value"
   require (!contains transferWrapper "nearFunctionCallBorsh({")
     "NEAR ft_transfer client must not use Borsh transaction transport"
 

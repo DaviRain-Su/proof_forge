@@ -20,7 +20,7 @@
 #
 # Phase 2 (semantic + callback dispatch): the full NEP-141 transfer_call flow
 #   (init, ft_mint, ft_approve, balance_of*, ft_transfer_call, ft_resolve_transfer,
-#   balance_of*) with Borsh mutation inputs plus standard JSON balance queries
+#   balance_of*) with Borsh admin inputs plus standard JSON public FT calls
 #   (`--inputs-hex`) and one injected Successful
 #   promise_result (`--promise-result-u64`). ft_transfer_call must create a
 #   promise (return=receipt), and ft_resolve_transfer must read it via the REAL
@@ -77,8 +77,8 @@ grep -qF '2 methods executed successfully on real NEAR VM' <<<"$out" \
   || fail "phase 1 did not report 2 successful methods"
 
 echo "=== phase 2: semantic transfer_call + ft_resolve_transfer callback ==="
-# Mutation inputs remain Borsh. Standard `ft_balance_of` uses canonical NEAR
-# JSON (`{"account_id":"..."}`) and returns a JSON decimal string.
+# Internal mint/approve/storage setup remains Borsh. Standard NEP-141 calls
+# and the private resolver callback use canonical JSON objects.
 # Expected refund values match runtime/offline-host ft-transfer-call-smoke.sh.
 INPUTS_HEX="$(python3 - <<'PY'
 import hashlib, struct
@@ -97,10 +97,11 @@ inputs = [
     spender + u128(13),                                        # ft_approve(spender_id hash, 13)
     balance_json(sender),                                       # ft_balance_of(sender)
     balance_json(receiver),                                     # ft_balance_of(receiver)
-    acct_slot(receiver) + struct.pack("<I", 0) + u128(70),      # ft_transfer_call(receiver_id, idx=0, 70)
+    acct_slot(receiver),                                        # storage_deposit(receiver)
+    b'{"receiver_id":"demo.receiver.testnet","amount":"70","msg":"refund"}',
     balance_json(sender),                                       # ft_balance_of(sender)
     balance_json(receiver),                                     # ft_balance_of(receiver)
-    struct.pack("<Q", 0) + acct_slot(sender) + acct_slot(receiver),  # ft_resolve_transfer(0, sender, receiver)
+    b'{"transfer_id":0,"sender":"proof-forge.testnet","receiver":"demo.receiver.testnet"}',
     balance_json(sender),                                       # ft_balance_of(sender)
     balance_json(receiver),                                     # ft_balance_of(receiver)
 ]
@@ -108,9 +109,10 @@ print(",".join(i.hex() for i in inputs))
 PY
 )"
 out="$("${RUNNER[@]}" "$WASM" \
-  init ft_mint ft_approve ft_balance_of ft_balance_of ft_transfer_call \
+  init ft_mint ft_approve ft_balance_of ft_balance_of storage_deposit ft_transfer_call \
   ft_balance_of ft_balance_of ft_resolve_transfer ft_balance_of ft_balance_of \
-  --inputs-hex "$INPUTS_HEX" --promise-result-u64 25)"
+  --inputs-hex "$INPUTS_HEX" --promise-result-u64 25 \
+  --attached-deposits-yocto 0,0,0,0,0,1,1,0,0,0,0,0)"
 echo "$out"
 grep -qiE 'ABORTED|failed|LinkError' <<<"$out" && fail "phase 2 semantic flow failed on real NEAR VM"
 # ft_transfer_call creates a cross-contract promise on the real VM.
@@ -119,14 +121,14 @@ grep -qF 'call ft_transfer_call: return=receipt(' <<<"$out" \
 # ft_resolve_transfer reads the injected promise_result via the REAL host
 # functions and computes the same refund (u64 45 = LE 2d00000000000000) as the
 # offline host.
-grep -qF 'call ft_resolve_transfer: return_hex=2d000000000000000000000000000000' <<<"$out" \
+grep -qF 'call ft_resolve_transfer: return_hex=22343522' <<<"$out" \
   || fail "phase 2 ft_resolve_transfer refund != 45 (callback dispatch mismatch)"
 for expected in 2231303022 223022 22333022 22373022 22353522 22343522; do
   grep -qF "call ft_balance_of: return_hex=$expected" <<<"$out" \
     || fail "phase 2 missing JSON ft_balance_of return $expected"
 done
-grep -qF '11 methods executed successfully on real NEAR VM' <<<"$out" \
-  || fail "phase 2 did not report 11 successful methods"
+grep -qF '12 methods executed successfully on real NEAR VM' <<<"$out" \
+  || fail "phase 2 did not report 12 successful methods"
 
 echo "=== phase 3: per-call predecessor/deposit + string authorization ==="
 eval "$(python3 - <<'PY'
@@ -179,4 +181,45 @@ echo "$unauthorized_out"
 grep -qF 'call storage_withdraw: ABORTED:' <<<"$unauthorized_out" \
   || fail "phase 3 unauthorized withdrawal did not abort in the real VM"
 
-echo "vm-conformance-ft: ok (host ABI + transfer_call callback + predecessor/deposit authorization on real NEAR VM)"
+echo "=== phase 4: transfer_call exact-deposit + receiver registration ==="
+eval "$(python3 - <<'PY'
+import struct
+def acct_slot(name):
+    b = name.encode()
+    return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
+def u128(v): return struct.pack("<QQ", v, 0)
+sender = "proof-forge.testnet"
+receiver = "demo.receiver.testnet"
+transfer_call = b'{"receiver_id":"demo.receiver.testnet","amount":"70","msg":"refund"}'
+registered = [b"", acct_slot(sender) + u128(100), acct_slot(receiver), transfer_call]
+unregistered = [b"", acct_slot(sender) + u128(100), transfer_call]
+print(f'TRANSFER_CALL_INPUTS_HEX="{",".join(value.hex() for value in registered)}"')
+print(f'UNREGISTERED_TRANSFER_CALL_INPUTS_HEX="{",".join(value.hex() for value in unregistered)}"')
+PY
+)"
+
+expect_transfer_call_abort() {
+  local label="$1"
+  local methods="$2"
+  local inputs="$3"
+  local deposits="$4"
+  local output status
+  set +e
+  output="$("${RUNNER[@]}" "$WASM" $methods \
+    --inputs-hex "$inputs" --attached-deposits-yocto "$deposits" 2>&1)"
+  status=$?
+  set -e
+  echo "$output"
+  [[ $status -ne 0 ]] || fail "$label unexpectedly succeeded"
+  grep -qF 'call ft_transfer_call: ABORTED:' <<<"$output" \
+    || fail "$label did not abort in ft_transfer_call"
+}
+
+expect_transfer_call_abort "zero-yocto ft_transfer_call" \
+  "init ft_mint storage_deposit ft_transfer_call" "$TRANSFER_CALL_INPUTS_HEX" "0,0,1,0"
+expect_transfer_call_abort "two-yocto ft_transfer_call" \
+  "init ft_mint storage_deposit ft_transfer_call" "$TRANSFER_CALL_INPUTS_HEX" "0,0,1,2"
+expect_transfer_call_abort "unregistered-receiver ft_transfer_call" \
+  "init ft_mint ft_transfer_call" "$UNREGISTERED_TRANSFER_CALL_INPUTS_HEX" "0,0,1"
+
+echo "vm-conformance-ft: ok (host ABI + transfer_call callback + exact deposit + registration on real NEAR VM)"

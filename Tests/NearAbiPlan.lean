@@ -87,7 +87,7 @@ def aggregateCarrierModule : Module := {
 def ftTransferEntrypoint : Entrypoint := {
   name := "ft_transfer"
   mutability := .call
-  params := #[("receiver_id", .string), ("amount", .u128)]
+  params := #[("receiver_id", .string), ("amount", .u128), ("memo", .string)]
   returns := .unit
   body := #[]
 }
@@ -96,6 +96,23 @@ def ftTransferModule : Module := {
   name := "NearFtTransferJson"
   state := #[]
   entrypoints := #[ftTransferEntrypoint]
+}
+
+def ftTransferCallEntrypoint : Entrypoint := {
+  name := "ft_transfer_call"
+  mutability := .call
+  params := #[("receiver_id", .string), ("amount", .u128), ("memo", .string),
+    ("msg", .string)]
+  returns := .u64
+  body := #[.return (.literal (.u64 0))]
+}
+
+def ftResolveTransferEntrypoint : Entrypoint := {
+  name := "ft_resolve_transfer"
+  mutability := .call
+  params := #[("transfer_id", .u64), ("sender", .string), ("receiver", .string)]
+  returns := .u128
+  body := #[.return (.literal (.u128 0))]
 }
 
 def dynamicBytesModule : Module := {
@@ -194,8 +211,12 @@ def main : IO Unit := do
   require (transferSchema.orderIndependent && transferSchema.rejectUnknownFields)
     "NEAR JSON object schemas must accept field reordering and reject unknown fields"
   require (transferSchema.root?.map (fun root => root.fields.map (·.wireName)) ==
-      some #["receiver_id", "amount"])
-    "ft_transfer JSON schema must own its two wire fields"
+      some #["receiver_id", "amount", "memo"])
+    "ft_transfer JSON schema must own its standard wire fields"
+  let some transferRoot := transferSchema.root?
+    | throw <| IO.userError "ft_transfer JSON root is missing"
+  require (transferRoot.fields[2]?.map (fun field => !field.required) == some true)
+    "ft_transfer memo must be optional on the wire"
   let transferPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan ftTransferModule with
     | .ok plan => pure plan
     | .error error => throw <| IO.userError error.message
@@ -212,6 +233,24 @@ def main : IO Unit := do
       require (message.contains "must have signature")
         "invalid standard ft_transfer signature must be actionable"
   | .ok _ => throw <| IO.userError "invalid standard ft_transfer signature did not fail closed"
+  let transferCallAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan
+      #[] ftTransferCallEntrypoint with
+    | .ok plan => pure plan
+    | .error message => throw <| IO.userError message
+  require (transferCallAbi.inputCodec == .json && transferCallAbi.outputCodec == .borsh)
+    "ft_transfer_call must accept standard JSON and return through its promise"
+  require ((transferCallAbi.inputJson?.bind (·.root?) |>.map (fun root =>
+      root.fields.map (·.wireName))) == some #["receiver_id", "amount", "memo", "msg"])
+    "ft_transfer_call JSON schema must remove receiver_idx and expose memo/msg"
+  require ((transferCallAbi.inputJson?.bind (·.root?) |>.bind (fun root => root.fields[2]?)
+      |>.map (fun field => !field.required)) == some true)
+    "ft_transfer_call memo must be optional"
+  let resolverAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan
+      #[] ftResolveTransferEntrypoint with
+    | .ok plan => pure plan
+    | .error message => throw <| IO.userError message
+  require (resolverAbi.inputCodec == .json && resolverAbi.outputCodec == .json)
+    "ft_resolve_transfer callback must use JSON object input and JSON U128 output"
   let aggregateSchema ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildJsonValueSchema
       jsonSchemaStructs (.structType "StorageBalance") with
     | .ok schema => pure schema

@@ -202,10 +202,10 @@ mutual
         exprReadsPackedScalar scalars v || exprReadsPackedScalar scalars s
     | .crosscallNamed _ _ args _ =>
         args.any (exprReadsPackedScalar scalars)
-    | .nearCrosscallInvokePool a m args d =>
+    | .nearCrosscallInvokePool a m args d _ =>
         exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars m ||
           exprReadsPackedScalar scalars d || args.any (exprReadsPackedScalar scalars)
-    | .nearPromiseThen p c args d =>
+    | .nearPromiseThen p c args d _ =>
         exprReadsPackedScalar scalars p || exprReadsPackedScalar scalars c ||
           exprReadsPackedScalar scalars d || args.any (exprReadsPackedScalar scalars)
 

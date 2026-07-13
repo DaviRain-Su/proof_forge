@@ -495,14 +495,14 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
           | some value => pure value
           | none => throw { message := "NEAR pool invoke requires a deposit" }
         return .promiseCreatePool (<- nearResult instr) (nearValue spec.target)
-          (nearValue spec.method) (args.map nearValue) (nearValue deposit)
+          (nearValue spec.method) (args.map nearValue) (nearValue deposit) spec.argNames
       | .nearPromiseThen =>
         let deposit ← match spec.value with
           | some value => pure value
           | none => throw { message := "NEAR promise_then requires a deposit" }
         let result := { (<- nearResult instr) with typeName := "promiseReturn" }
         return .promiseThen result (nearValue spec.target) (nearValue spec.method)
-          (args.map nearValue) (nearValue deposit)
+          (args.map nearValue) (nearValue deposit) spec.argNames
       | mode => throw { message := s!"canonical NEAR crosscall mode `{repr mode}` is unsupported" }
   | op => throw { message := s!"unsupported canonical NEAR operation `{repr op}`" }
 

@@ -746,12 +746,12 @@ def classifyExpr : Expr → LegacyDecision
         disposition := .reject
         owner := "target-plan-crosscall"
         reason := "named-callee cross-program call rejected until a typed portable primitive or HostOp handler exists" }
-  | .nearCrosscallInvokePool _ _ _ _ =>
+  | .nearCrosscallInvokePool _ _ _ _ _ =>
       { nodeTag := "Expr.nearCrosscallInvokePool"
         disposition := .normalize
         owner := "near-adapter"
         reason := "NEAR string-pool promise_create normalizes to a typed Core crosscall mode" }
-  | .nearPromiseThen _ _ _ _ =>
+  | .nearPromiseThen _ _ _ _ _ =>
       { nodeTag := "Expr.nearPromiseThen"
         disposition := .normalize
         owner := "near-adapter"
@@ -920,8 +920,8 @@ def exprInventory : Array Expr := #[
   .crosscallCreate (.local "v") "",
   .crosscallCreate2 (.local "v") (.local "s") "",
   .crosscallNamed "p" "m" #[] .unit,
-  .nearCrosscallInvokePool (.local "i") (.local "m") #[] (.local "d"),
-  .nearPromiseThen (.local "p") (.local "c") #[] (.local "d"),
+  .nearCrosscallInvokePool (.local "i") (.local "m") #[] (.local "d") #[],
+  .nearPromiseThen (.local "p") (.local "c") #[] (.local "d") #[],
   .nearPromiseResultsCount,
   .nearPromiseResultStatus (.local "i"),
   .nearPromiseResultU64 (.local "i"),

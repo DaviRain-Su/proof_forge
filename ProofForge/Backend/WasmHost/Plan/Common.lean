@@ -290,8 +290,8 @@ mutual
     | .crosscallCreate _ _ => .ok .u64
     | .crosscallCreate2 _ _ _ => .ok .u64
     | .crosscallNamed _ _ _ returnType => .ok returnType
-    | .nearCrosscallInvokePool _ _ _ _ => .ok .u64
-    | .nearPromiseThen _ _ _ _ => .ok .u64
+    | .nearCrosscallInvokePool _ _ _ _ _ => .ok .u64
+    | .nearPromiseThen _ _ _ _ _ => .ok .u64
     | .nearPromiseResultsCount => .ok .u64
     | .nearPromiseResultStatus _ => .ok .u64
     | .nearPromiseResultU64 _ => .ok .u64

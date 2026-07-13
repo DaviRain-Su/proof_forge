@@ -567,7 +567,7 @@ mutual
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ => pure collector
     | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ | .crosscallNamed _ _ _ _ => pure collector
-    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => pure collector
+    | .nearPromiseThen _ _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ => pure collector
     | .effect effect => collectEventPlansFromEffect module env collector effect
 
   partial def collectEventPlansFromEffect
@@ -810,10 +810,10 @@ mutual
     | .crosscallCreate2 callValue salt _ =>
         mergeNatSets (localArrayGetLengthsExpr env callValue) (localArrayGetLengthsExpr env salt)
     | .crosscallNamed _ _ args _ => args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]
-    | .nearPromiseThen p m args d =>
+    | .nearPromiseThen p m args d _ =>
         mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env p) (localArrayGetLengthsExpr env m))
           (mergeNatSets (localArrayGetLengthsExpr env d) (args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]))
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env accountIndex) (localArrayGetLengthsExpr env methodId))
           (mergeNatSets (localArrayGetLengthsExpr env deposit)
             (args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]))
@@ -1005,11 +1005,11 @@ mutual
     | .crosscallCreate2 callValue salt _ =>
         mergeNatArraySets (nestedLocalArrayGetShapesExpr env callValue) (nestedLocalArrayGetShapesExpr env salt)
     | .crosscallNamed _ _ args _ => args.foldl (fun acc arg => mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)) #[]
-    | .nearPromiseThen p m args d =>
+    | .nearPromiseThen p m args d _ =>
         let acc := mergeNatArraySets (nestedLocalArrayGetShapesExpr env p) (nestedLocalArrayGetShapesExpr env m)
         let acc := mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env d)
         args.foldl (fun a arg => mergeNatArraySets a (nestedLocalArrayGetShapesExpr env arg)) acc
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         let acc := mergeNatArraySets (nestedLocalArrayGetShapesExpr env accountIndex) (nestedLocalArrayGetShapesExpr env methodId)
         let acc := mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env deposit)
         args.foldl (fun a arg => mergeNatArraySets a (nestedLocalArrayGetShapesExpr env arg)) acc

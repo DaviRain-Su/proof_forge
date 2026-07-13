@@ -76,10 +76,10 @@ mutual
     | .crosscallCreate value _ => collectArrayLitsExpr value
     | .crosscallCreate2 value salt _ => collectArrayLitsExpr value ++ collectArrayLitsExpr salt
     | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         collectArrayLitsExpr accountIndex ++ collectArrayLitsExpr methodId ++
           collectArrayLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+    | .nearPromiseThen parentPromise callbackMethod args deposit _ =>
         collectArrayLitsExpr parentPromise ++ collectArrayLitsExpr callbackMethod ++
           collectArrayLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .nearPromiseResultsCount => #[]
@@ -155,10 +155,10 @@ mutual
     | .crosscallCreate value _ => collectStructLitsExpr value
     | .crosscallCreate2 value salt _ => collectStructLitsExpr value ++ collectStructLitsExpr salt
     | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         collectStructLitsExpr accountIndex ++ collectStructLitsExpr methodId ++
           collectStructLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+    | .nearPromiseThen parentPromise callbackMethod args deposit _ =>
         collectStructLitsExpr parentPromise ++ collectStructLitsExpr callbackMethod ++
           collectStructLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .nearPromiseResultsCount => #[]

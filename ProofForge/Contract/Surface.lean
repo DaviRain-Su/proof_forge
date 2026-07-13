@@ -490,14 +490,14 @@ def nearAddressLit (idx : Nat) : ProofForge.IR.Expr :=
   peerHandle idx
 
 /-- NEAR host-extension: low-level pool invoke. Prefer `remoteCall` + string pool. -/
-def nearCrosscallPool (accountIndex methodId : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
-    (deposit : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.nearCrosscallInvokePool accountIndex methodId args deposit
+def nearCrosscallPool (account methodId : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
+    (deposit : ProofForge.IR.Expr) (argNames : Array String := #[]) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearCrosscallInvokePool account methodId args deposit argNames
 
 /-- NEAR host-extension only (`Source.Near`): `promise_then` chaining. -/
 def nearPromiseThen (parentPromise callbackMethod : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
-    (deposit : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.nearPromiseThen parentPromise callbackMethod args deposit
+    (deposit : ProofForge.IR.Expr) (argNames : Array String := #[]) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.nearPromiseThen parentPromise callbackMethod args deposit argNames
 
 /-- NEAR host-extension only (`Source.Near`): decode callback result as u64. -/
 def nearPromiseResultU64 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=

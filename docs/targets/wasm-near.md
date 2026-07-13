@@ -83,23 +83,20 @@ Fixture: `ProofForge/IR/Examples/NearCrosscallProbe.lean`.
 
 `Examples/Backend/WasmNear/FungibleToken.lean` reuses the
 `ProofForge.Contract.Stdlib.NearFungibleToken` mixin. The generated contract
-exports `ft_transfer_call(receiver_id, receiver_idx, amount)`, with Borsh input
-layout `Hash || U32 || U64`:
-
-- `receiver_id` is the portable `Hash` account key used for token balances.
-- `receiver_idx` selects a registered NEAR account string from
-  `module.nearCrosscallStrings`; the stdlib reserves `0 = "ft_on_transfer"`,
-  `1 = "ft_resolve_transfer"`, and uses `2 + receiver_idx` for remote receiver
-  account ids. In the checked example, `receiver_idx = 0` selects
-  `demo.receiver.testnet`.
-- `amount` is the transferred `U64`.
+exports the standard JSON method
+`ft_transfer_call(receiver_id, amount, memo?, msg)`. `receiver_id` is a runtime
+AccountId string, `amount` is a quoted decimal U128, `memo` is optional, and
+`msg` is passed to the receiver hook. The contract requires exactly one
+yoctoNEAR and a prior `storage_deposit` registration for the receiver.
 
 The promise chain emitted for that entrypoint is:
 
 ```text
 ft_transfer_call
-  -> promise_create(receiver account, "ft_on_transfer", [callerHash, amount])
-  -> promise_then(current_account_id, "ft_resolve_transfer", [])
+  -> promise_create(receiver_id, "ft_on_transfer",
+       {"sender_id": sender, "amount": amount, "msg": msg})
+  -> promise_then(current_account_id, "ft_resolve_transfer",
+       {"transfer_id": id, "sender": sender, "receiver": receiver_id})
   -> promise_return(callback promise id)
 
 ft_resolve_transfer
@@ -109,12 +106,12 @@ ft_resolve_transfer
 ```
 
 The static gate `just wasm-near-ft-transfer-call` verifies the Plan/EmitWat
-shape, including the `nearCrosscallStrings` layout, hash JSON encoding for the
-`ft_on_transfer` sender argument, and the absence of nested allowance
-`mapKey+mapKey` paths. The behavior gate `just wasm-near-ft-transfer-call-e2e`
-runs the generated WAT in `runtime/offline-host`, stubs the callback result as a
-Borsh `U64`, and checks `promise_create` precedes `promise_then` and the refund
-balances are correct.
+shape, including runtime receiver routing, named JSON hook/callback arguments,
+and the absence of nested allowance `mapKey+mapKey` paths. The behavior gate
+`just wasm-near-ft-transfer-call-e2e` runs the generated WAT in
+`runtime/offline-host`, while `just near-vm-conformance-ft` proves the positive
+callback path plus exact-deposit and receiver-registration failures on the
+unmodified upstream NEAR VM.
 
 ### `caller` vs `callerHash`
 

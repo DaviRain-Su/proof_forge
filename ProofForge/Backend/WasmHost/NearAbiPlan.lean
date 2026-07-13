@@ -104,9 +104,23 @@ def jsonSchemasForSignature (structs : Array StructDecl) (name : String)
     return (some (← buildJsonObjectSchema structs params),
       some (← buildJsonValueSchema structs returns))
   if name == "ft_transfer" then
-    unless params == #[("receiver_id", .string), ("amount", .u128)] && returns == .unit do
-      throw "NEAR standard entrypoint `ft_transfer` must have signature (receiver_id : String, amount : U128) -> Unit"
-    return (some (← buildJsonObjectSchema structs params), none)
+    unless params == #[("receiver_id", .string), ("amount", .u128), ("memo", .string)] &&
+        returns == .unit do
+      throw "NEAR standard entrypoint `ft_transfer` must have signature (receiver_id : String, amount : U128, memo : Option<String>) -> Unit"
+    let schema ← buildJsonObjectSchema structs params
+    return (some (← schema.withOptionalRootField "memo"), none)
+  if name == "ft_transfer_call" then
+    unless params == #[("receiver_id", .string), ("amount", .u128), ("memo", .string),
+        ("msg", .string)] && returns == .u64 do
+      throw "NEAR standard entrypoint `ft_transfer_call` must have signature (receiver_id : String, amount : U128, memo : Option<String>, msg : String) -> Promise<U128>"
+    let schema ← buildJsonObjectSchema structs params
+    return (some (← schema.withOptionalRootField "memo"), none)
+  if name == "ft_resolve_transfer" then
+    unless params == #[("transfer_id", .u64), ("sender", .string), ("receiver", .string)] &&
+        returns == .u128 do
+      throw "NEAR private callback `ft_resolve_transfer` must have signature (transfer_id : U64, sender : String, receiver : String) -> U128"
+    return (some (← buildJsonObjectSchema structs params),
+      some (← buildJsonValueSchema structs returns))
   return (none, none)
 
 def buildSignaturePlan (structs : Array StructDecl) (name : String)

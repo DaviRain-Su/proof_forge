@@ -460,6 +460,38 @@ def parseFlatJsonField (param : String × ValueType) (field : JsonFieldPlan)
       ] ++ expectJsonByte 0x22, #[
         { name := name, type := .i64 }, { name := u128HiName name, type := .i64 }
       ])
+  | .number, .u64 =>
+      pure (#[] ++ #[
+        .i32Const INPUT_BUF, .localGet jsonCursorName, .plain "i32.add",
+        .localSet jsonAmountPtrName,
+        .block_ { insns := #[.loop_ { insns := #[
+          .localGet jsonCursorName, .localGet jsonInputLenName, .plain "i32.ge_u",
+          .brIf 1,
+          .i32Const INPUT_BUF, .localGet jsonCursorName, .plain "i32.add",
+          .load "i32.load8_u" 0, .localTee jsonByteName,
+          .i32Const 48, .plain "i32.lt_u", .brIf 1,
+          .localGet jsonByteName, .i32Const 57, .plain "i32.gt_u", .brIf 1,
+          .localGet jsonCursorName, .i32Const 1, .plain "i32.add",
+          .localSet jsonCursorName, .br 0
+        ] }] },
+        .i32Const INPUT_BUF, .localGet jsonCursorName, .plain "i32.add",
+        .localGet jsonAmountPtrName, .plain "i32.sub", .localTee jsonAmountLenName,
+        .i32Const 1, .plain "i32.lt_u",
+        .if_ { insns := #[.unreachable] } { insns := #[] },
+        .localGet jsonAmountLenName, .i32Const 20, .plain "i32.gt_u",
+        .if_ { insns := #[.unreachable] } { insns := #[] },
+        .localGet jsonAmountLenName, .i32Const 1, .plain "i32.gt_u",
+        .if_ { insns := #[
+          .localGet jsonAmountPtrName, .load "i32.load8_u" 0,
+          .i32Const 48, .plain "i32.eq",
+          .if_ { insns := #[.unreachable] } { insns := #[] }
+        ] } { insns := #[] },
+        .localGet jsonAmountPtrName, .localGet jsonAmountLenName,
+        .call parseU128DecimalName,
+        .i32Const (U128_RESULT_BUF + 8), .load "i64.load" 0, .plain "i64.eqz",
+        .if_ { insns := #[] } { insns := #[.unreachable] },
+        .i32Const U128_RESULT_BUF, .load "i64.load" 0, .localSet name
+      ], #[{ name := name, type := .i64 }])
   | _, _ =>
       err s!"EmitWat: JSON field `{field.wireName}` node `{kind.id}` cannot bind portable parameter `{name} : {param.snd.name}`"
   let parseValue :=

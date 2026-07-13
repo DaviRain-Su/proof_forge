@@ -117,7 +117,8 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
         JsonReturn.runtimeFuncs ++ schemaFuncs
   let jsonInputHelpers :=
     (if ctx.entrypointAbis.any (fun abi =>
-        abi.inputCodec == .json && abi.params.any (fun param => param.type == .u128)) then
+        abi.inputCodec == .json && abi.params.any (fun param =>
+          param.type == .u128 || param.type == .u64 || param.type == .u32)) then
       #[parseU128DecimalFunc]
     else #[]) ++
     (if ctx.entrypointAbis.any (fun abi =>

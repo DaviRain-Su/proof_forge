@@ -220,8 +220,8 @@ def exprTag (e : Expr) : String :=
   | .crosscallCreate _ _ => "Expr.crosscallCreate"
   | .crosscallCreate2 _ _ _ => "Expr.crosscallCreate2"
   | .crosscallNamed _ _ _ _ => "Expr.crosscallNamed"
-  | .nearCrosscallInvokePool _ _ _ _ => "Expr.nearCrosscallInvokePool"
-  | .nearPromiseThen _ _ _ _ => "Expr.nearPromiseThen"
+  | .nearCrosscallInvokePool _ _ _ _ _ => "Expr.nearCrosscallInvokePool"
+  | .nearPromiseThen _ _ _ _ _ => "Expr.nearPromiseThen"
   | .nearPromiseResultsCount => "Expr.nearPromiseResultsCount"
   | .nearPromiseResultStatus _ => "Expr.nearPromiseResultStatus"
   | .nearPromiseResultU64 _ => "Expr.nearPromiseResultU64"
@@ -539,7 +539,7 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallCreate2" "crosscall create2 not in initial fragment")
   | .crosscallNamed _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallNamed" "named crosscall not in initial fragment")
-  | .nearCrosscallInvokePool accountIndex methodIndex args deposit => do
+  | .nearCrosscallInvokePool accountIndex methodIndex args deposit argNames => do
       let account ← normalizeExpr accountIndex
       let method ← normalizeExpr methodIndex
       let normalizedDeposit ← normalizeExpr deposit
@@ -557,10 +557,11 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         method := method.value
         value := some normalizedDeposit.value
         paramTypes
+        argNames
         returnType := .u64
       } argRefs) .u64
       return { instructions := instructions ++ call.instructions, value := call.value }
-  | .nearPromiseThen parentPromise callbackMethod args deposit => do
+  | .nearPromiseThen parentPromise callbackMethod args deposit argNames => do
       let parent ← normalizeExpr parentPromise
       let method ← normalizeExpr callbackMethod
       let normalizedDeposit ← normalizeExpr deposit
@@ -578,6 +579,7 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         method := method.value
         value := some normalizedDeposit.value
         paramTypes
+        argNames
         returnType := .u64
       } argRefs) .u64
       return { instructions := instructions ++ call.instructions, value := call.value }

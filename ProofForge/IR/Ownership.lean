@@ -177,7 +177,7 @@ mutual
     | fuel + 1, entrypoint, env, .crosscallCreate2 callValue salt _ => do
         checkExprFuel fuel entrypoint env callValue
         checkExprFuel fuel entrypoint env salt
-    | fuel + 1, entrypoint, env, .nearPromiseThen parentPromise callbackMethod args deposit => do
+    | fuel + 1, entrypoint, env, .nearPromiseThen parentPromise callbackMethod args deposit _ => do
         checkExprFuel fuel entrypoint env parentPromise
         checkExprFuel fuel entrypoint env callbackMethod
         checkExprFuel fuel entrypoint env deposit
@@ -186,7 +186,7 @@ mutual
     | fuel + 1, entrypoint, env, .nearPromiseResultStatus index => checkExprFuel fuel entrypoint env index
     | fuel + 1, entrypoint, env, .nearPromiseResultU64 index => checkExprFuel fuel entrypoint env index
     | fuel + 1, entrypoint, env, .nearPromiseResultU128 index => checkExprFuel fuel entrypoint env index
-    | fuel + 1, entrypoint, env, .nearCrosscallInvokePool accountIndex methodId args deposit => do
+    | fuel + 1, entrypoint, env, .nearCrosscallInvokePool accountIndex methodId args deposit _ => do
         checkExprFuel fuel entrypoint env accountIndex
         checkExprFuel fuel entrypoint env methodId
         checkExprFuel fuel entrypoint env deposit

@@ -208,7 +208,7 @@ mutual
         .ok (.call ⟨#[programId, method], #[], args'⟩)
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Leo IR v0" }
-    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _
+    | .nearPromiseThen _ _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ _
     | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _ =>
         .error { message := "NEAR promise API is not supported by Leo IR v0" }
     | .memoryArrayNew _ _ | .memoryArrayLength _ | .memoryArrayGet _ _ =>

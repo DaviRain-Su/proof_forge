@@ -31,11 +31,32 @@ def main : IO Unit := do
   require ((reprStr mint.body).contains "not mint authority") "ft_mint must authorize its caller"
 
   let transferCall <- requireEntrypoint "ft_transfer_call"
+  require (transferCall.params == #[("receiver_id", .string), ("amount", .u128),
+      ("memo", .string), ("msg", .string)])
+    "ft_transfer_call must expose the standard receiver_id/amount/memo/msg ABI"
   let transferIr := reprStr transferCall.body
+  require (!transferIr.contains "receiver_idx")
+    "ft_transfer_call must not expose the non-standard receiver pool index"
+  require (transferIr.contains "requires exactly 1 yoctoNEAR")
+    "ft_transfer_call must enforce exact one yoctoNEAR"
+  require (transferIr.contains "receiver is not registered")
+    "ft_transfer_call must reject unregistered receivers"
+  require (transferIr.contains "sender_id" && transferIr.contains "msg")
+    "ft_transfer_call must encode the standard receiver hook JSON fields"
   require (transferIr.contains "nextTransferId") "ft_transfer_call must allocate a transfer id"
   require (transferIr.contains "pendingActive") "ft_transfer_call must persist keyed callback state"
   require (transferIr.contains "nearPromiseThen" && transferIr.contains "transferId")
     "ft_transfer_call must pass its transfer id to the callback"
+
+  let transfer <- requireEntrypoint "ft_transfer"
+  require (transfer.params == #[("receiver_id", .string), ("amount", .u128),
+      ("memo", .string)])
+    "ft_transfer must expose optional memo in its standard ABI"
+  let transferIr := reprStr transfer.body
+  require (transferIr.contains "ft_transfer requires exactly 1 yoctoNEAR")
+    "ft_transfer must enforce exact one yoctoNEAR"
+  require (transferIr.contains "receiver is not registered")
+    "ft_transfer must reject unregistered receivers"
 
   let resolver <- requireEntrypoint "ft_resolve_transfer"
   require (resolver.params == #[("transfer_id", .u64), ("sender", .string), ("receiver", .string)])

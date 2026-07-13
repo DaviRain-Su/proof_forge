@@ -977,8 +977,9 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     checkErrorRef m f b (some idx) errorRef
   | .crosscall spec args =>
     let targetTypeOk : Bool := match spec.mode with
-      | .nearPoolInvoke | .nearPromiseThen =>
-          spec.target.type == .u32 || spec.target.type == .u64
+      | .nearPoolInvoke =>
+          spec.target.type == .u32 || spec.target.type == .u64 || spec.target.type == .string
+      | .nearPromiseThen => spec.target.type == .u32 || spec.target.type == .u64
       | _ => spec.target.type == .address
     unless targetTypeOk do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
@@ -1010,6 +1011,9 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     unless args.size == spec.paramTypes.size do
       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
         s!"crosscall expects {spec.paramTypes.size} args, got {args.size}"
+    unless spec.argNames.isEmpty || spec.argNames.size == args.size do
+      .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
+        s!"crosscall JSON argument names must be empty or match {args.size} arguments, got {spec.argNames.size}"
     for i in [:args.size] do
       unless args[i]!.type == spec.paramTypes[i]! do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)

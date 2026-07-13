@@ -435,14 +435,23 @@ private def canonicalPromiseStrings (plan : NearModulePlan) : Array Layout.Strin
         | _ => pure ()
   strings
 
-private def canonicalCrosscallArgs (args : Array NearValuePlan) : Array ProofForge.Compiler.Wasm.Insn := Id.run do
+private def canonicalStaticJsonBytes (value : String) : Array ProofForge.Compiler.Wasm.Insn :=
+  value.toUTF8.data.foldl (init := #[]) fun insns byte =>
+    insns ++ #[.i32Const byte.toNat, .call Crosscall.crosscallArgsPutcName]
+
+private def canonicalCrosscallArgs (args : Array NearValuePlan) (argNames : Array String) :
+    Array ProofForge.Compiler.Wasm.Insn := Id.run do
   if args.isEmpty then
     return #[]
-  let mut insns := #[.call Crosscall.crosscallArgsStartName, .i32Const 0x5b,
+  let objectMode := !argNames.isEmpty
+  let mut insns := #[.call Crosscall.crosscallArgsStartName,
+    .i32Const (if objectMode then 0x7b else 0x5b),
     .call Crosscall.crosscallArgsPutcName]
   for index in [:args.size] do
     if index > 0 then
       insns := insns ++ #[.i32Const 0x2c, .call Crosscall.crosscallArgsPutcName]
+    if objectMode then
+      insns := insns ++ canonicalStaticJsonBytes s!"\"{argNames[index]!}\":"
     let arg := args[index]!
     if arg.typeName.endsWith "bool" then
       insns := insns ++ #[.localGet s!"v{arg.id}", .call Crosscall.crosscallArgsPutboolName]
@@ -450,10 +459,8 @@ private def canonicalCrosscallArgs (args : Array NearValuePlan) : Array ProofFor
       insns := insns ++ #[.localGet s!"v{arg.id}", .call Crosscall.crosscallArgsPuthashName]
     else if arg.typeName.endsWith "string" then
       -- JSON-quoted UTF-8 string arg (two-slot ptr+len local).
-      insns := insns ++ #[.i32Const 0x22, .call Crosscall.crosscallArgsPutcName,
-        .localGet s!"v{arg.id}", .localGet (s!"v{arg.id}_len"),
-        .call Crosscall.crosscallArgsPutstrName,
-        .i32Const 0x22, .call Crosscall.crosscallArgsPutcName]
+      insns := insns ++ #[.localGet s!"v{arg.id}", .localGet (s!"v{arg.id}_len"),
+        .call Crosscall.crosscallArgsPutJsonStringName]
     else if canonicalNearType arg.typeName == .u128 then
       -- u128 crosscall arg: two-word (lo, hi) → decimal string via putu128.
       insns := insns ++ #[.localGet s!"v{arg.id}", .localGet (Types.u128HiName s!"v{arg.id}"),
@@ -463,7 +470,8 @@ private def canonicalCrosscallArgs (args : Array NearValuePlan) : Array ProofFor
       if canonicalNearType arg.typeName == .u32 then
         insns := insns ++ #[.plain "i64.extend_i32_u"]
       insns := insns ++ #[.call Crosscall.crosscallArgsPutu64Name]
-  insns ++ #[.i32Const 0x5d, .call Crosscall.crosscallArgsPutcName]
+  insns ++ #[.i32Const (if objectMode then 0x7d else 0x5d),
+    .call Crosscall.crosscallArgsPutcName]
 
 private def canonicalCrosscallArgsLenPtr (args : Array NearValuePlan) :
     Array ProofForge.Compiler.Wasm.Insn :=
@@ -718,23 +726,28 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         .i64Const Memory.RET_BUF, .i64Const gas,
         .call (HostABI.crosscallName plan.hostBridge.bridge), .localSet s!"v{result.id}"] ++
         (if plan.hostBridge.bridge == .soroban then #[] else #[.localGet s!"v{result.id}", .call "promise_return"])
-  | .promiseCreatePool result accountIndex methodIndex args deposit =>
+  | .promiseCreatePool result accountIndex methodIndex args deposit argNames =>
       if plan.hostBridge.bridge == .soroban then
         Diagnostics.err "promiseCreatePool is not supported on Soroban (NEAR-only pool invoke)"
       else
-      return canonicalCrosscallArgs args ++ canonicalDepositPtr deposit ++
-        canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolLenName] ++
-        canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolPtrName] ++
+      let accountLenPtr :=
+        if canonicalNearType accountIndex.typeName == .string then #[
+          .localGet s!"v{accountIndex.id}_len", .plain "i64.extend_i32_u",
+          .localGet s!"v{accountIndex.id}", .plain "i64.extend_i32_u"]
+        else canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolLenName] ++
+          canonicalNearI64 accountIndex ++ #[.call Memory.crosscallPoolPtrName]
+      return canonicalCrosscallArgs args argNames ++ canonicalDepositPtr deposit ++
+        accountLenPtr ++
         canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolLenName] ++
         canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolPtrName] ++
         canonicalCrosscallArgsLenPtr args ++ #[
           .i64Const Memory.RET_BUF, .i64Const Memory.crosscallDefaultGas,
           .call "promise_create", .localSet s!"v{result.id}"]
-  | .promiseThen result parent methodIndex args deposit =>
+  | .promiseThen result parent methodIndex args deposit argNames =>
       if plan.hostBridge.bridge == .soroban then
         Diagnostics.err "promiseThen is not supported on Soroban (NEAR-only promise callback)"
       else
-        return canonicalCrosscallArgs args ++ canonicalDepositPtr deposit ++
+        return canonicalCrosscallArgs args argNames ++ canonicalDepositPtr deposit ++
           canonicalNearI64 parent ++ #[.call Promise.promiseCurrentAccountName,
             .i32Const Memory.CTX_BUF, .plain "i64.extend_i32_u"] ++
           canonicalNearI64 methodIndex ++ #[.call Memory.crosscallPoolLenName] ++
@@ -924,7 +937,8 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
         Scalar.u128FmtFunc] ++ JsonReturn.runtimeFuncs ++ schemaFuncs
   let jsonInputHelpers :=
     (if plan.entrypointAbis.any (fun abi =>
-        abi.inputCodec == .json && abi.params.any (fun param => param.type == .u128)) then
+        abi.inputCodec == .json && abi.params.any (fun param =>
+          param.type == .u128 || param.type == .u64 || param.type == .u32)) then
       #[Params.parseU128DecimalFunc]
     else #[]) ++
     (if plan.entrypointAbis.any (fun abi =>

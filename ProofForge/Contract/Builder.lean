@@ -368,11 +368,13 @@ def boolNot (value : Expr) : Expr :=
 def cast (value : Expr) (target : ValueType) : Expr :=
   .cast value target
 
-def nearCrosscallInvokePool (accountIndex methodId : Expr) (args : Array Expr) (deposit : Expr) : Expr :=
-  .nearCrosscallInvokePool accountIndex methodId args deposit
+def nearCrosscallInvokePool (account methodId : Expr) (args : Array Expr) (deposit : Expr)
+    (argNames : Array String := #[]) : Expr :=
+  .nearCrosscallInvokePool account methodId args deposit argNames
 
-def nearPromiseThen (parentPromise callbackMethod : Expr) (args : Array Expr) (deposit : Expr) : Expr :=
-  .nearPromiseThen parentPromise callbackMethod args deposit
+def nearPromiseThen (parentPromise callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
+    (argNames : Array String := #[]) : Expr :=
+  .nearPromiseThen parentPromise callbackMethod args deposit argNames
 
 def nearPromiseResultU64 (index : Expr) : Expr :=
   .nearPromiseResultU64 index

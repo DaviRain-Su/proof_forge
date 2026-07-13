@@ -79,13 +79,13 @@ mutual
         #[finding path "crosscallInvokeDelegateTyped (DELEGATECALL)" (.targetFamilyOnly .evm)] ++
           classifyExpr s!"{path}.target" target ++ classifyExpr s!"{path}.method" methodId ++
           args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         #[finding path "nearCrosscallInvokePool" (.targetFamilyOnly .wasmHost)] ++
           classifyExpr s!"{path}.account" accountIndex ++
           classifyExpr s!"{path}.method" methodId ++
           classifyExpr s!"{path}.deposit" deposit ++
           args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+    | .nearPromiseThen parentPromise callbackMethod args deposit _ =>
         #[finding path "nearPromiseThen" (.targetFamilyOnly .wasmHost)] ++
           classifyExpr s!"{path}.parent" parentPromise ++
           classifyExpr s!"{path}.callback" callbackMethod ++

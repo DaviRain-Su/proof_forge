@@ -242,8 +242,8 @@ mutual
         let nested : ExprFacts :=
           args.foldl (fun acc arg => acc.merge (analyzeExpr arg)) ({} : ExprFacts)
         { nested with namedCrosscalls := nested.namedCrosscalls.push { programId, method } }
-    | .nearCrosscallInvokePool account method args deposit
-    | .nearPromiseThen account method args deposit =>
+    | .nearCrosscallInvokePool account method args deposit _
+    | .nearPromiseThen account method args deposit _ =>
         args.foldl (fun acc arg => acc.merge (analyzeExpr arg))
           ((((analyzeExpr account).merge (analyzeExpr method)).merge (analyzeExpr deposit)))
     | .effect effect => analyzeEffect effect
@@ -384,14 +384,14 @@ mutual
     | .crosscallCreate cv _ => effectExprIn p cv
     | .crosscallCreate2 cv s _ => effectExprIn p cv || effectExprIn p s
     | .crosscallNamed _ _ args _ => args.any (effectExprIn p)
-    | .nearPromiseThen p2 m args d =>
+    | .nearPromiseThen p2 m args d _ =>
         effectExprIn p p2 || effectExprIn p m || effectExprIn p d ||
           args.any (fun arg => effectExprIn p arg)
     | .nearPromiseResultsCount => false
     | .nearPromiseResultStatus i => effectExprIn p i
     | .nearPromiseResultU64 i => effectExprIn p i
     | .nearPromiseResultU128 i => effectExprIn p i
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         effectExprIn p accountIndex || effectExprIn p methodId || effectExprIn p deposit ||
           args.any (effectExprIn p ·)
     | _ => false

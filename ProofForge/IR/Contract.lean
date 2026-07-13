@@ -272,12 +272,15 @@ mutual
     runtime-address `crosscallInvoke`. Account-chain targets reject it. -/
     | crosscallNamed (programId method : String) (args : Array Expr) (returnType : ValueType)
     /-- NEAR host-extension only (not portable product path): `promise_create`
-        with runtime index into `module.nearCrosscallStrings`. Prefer portable
-        `crosscallInvoke` for authoring; this is a lower-level host form. -/
-    | nearCrosscallInvokePool (accountIndex : Expr) (methodId : Expr) (args : Array Expr) (deposit : Expr)
+        with either a runtime AccountId string or an index into
+        `module.nearCrosscallStrings`. `argNames` selects JSON-object encoding;
+        an empty array preserves the historical JSON-array encoding. -/
+    | nearCrosscallInvokePool (account : Expr) (methodId : Expr) (args : Array Expr)
+        (deposit : Expr) (argNames : Array String)
     /-- NEAR host-extension only: attach a callback method on the current contract
         (`promise_then`). D-050 Slice 3 — not portable-core. -/
-    | nearPromiseThen (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
+    | nearPromiseThen (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr)
+        (deposit : Expr) (argNames : Array String)
     /-- NEAR host-extension only: number of completed promise results in a callback. -/
     | nearPromiseResultsCount
     /-- NEAR host-extension only: status of promise result at `index` (1 = success, 2 = failed). -/
@@ -664,10 +667,10 @@ mutual
         #[.crosscallInvoke] ++ callValue.capabilities
     | .crosscallCreate2 callValue salt _ =>
         #[.crosscallInvoke] ++ callValue.capabilities ++ salt.capabilities
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         #[.nearPromise] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+    | .nearPromiseThen parentPromise callbackMethod args deposit _ =>
         #[.nearPromise] ++ parentPromise.capabilities ++ callbackMethod.capabilities ++ deposit.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
     | .nearPromiseResultsCount => #[.nearPromise]

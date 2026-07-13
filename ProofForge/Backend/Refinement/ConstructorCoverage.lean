@@ -529,9 +529,9 @@ mutual
     | n + 1, .crosscallNamed _ _ args _ => args.toList.all (exprFC n)
     | n + 1, .crosscallCreate v _ => exprFC n v
     | n + 1, .crosscallCreate2 v s _ => exprFC n v && exprFC n s
-    | n + 1, .nearCrosscallInvokePool a m args d =>
+    | n + 1, .nearCrosscallInvokePool a m args d _ =>
         exprFC n a && exprFC n m && args.toList.all (exprFC n) && exprFC n d
-    | n + 1, .nearPromiseThen p m args d =>
+    | n + 1, .nearPromiseThen p m args d _ =>
         exprFC n p && exprFC n m && args.toList.all (exprFC n) && exprFC n d
     | n + 1, .nearPromiseResultsCount => true
     | n + 1, .nearPromiseResultStatus i => exprFC n i

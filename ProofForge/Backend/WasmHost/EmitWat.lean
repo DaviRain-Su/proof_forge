@@ -131,7 +131,8 @@ export ProofForge.Backend.WasmHost.Crosscall (
   crosscallPtrGlobal crosscallArgsStartName crosscallArgsPutcName
   crosscallArgsPutu64Name crosscallArgsPutboolName crosscallArgsPuthashName
   crosscallPtrGlobalDecl crosscallArgsStartFunc crosscallArgsPutcFunc
-  crosscallArgsPutstrName crosscallArgsPutstrFunc crosscallArgsPutu64Func
+  crosscallArgsPutstrName crosscallArgsPutstrFunc crosscallArgsPutJsonStringName
+  crosscallArgsPutJsonStringFunc crosscallArgsPutu64Func
   crosscallArgsPutboolFunc crosscallArgsPuthashFunc
   crosscallArgsHelperFuncsForModulePlan crosscallGlobalsForModulePlan
   poolLookupSetBody crosscallPoolPtrFunc crosscallPoolLenFunc
@@ -348,15 +349,15 @@ def validateScratchCapacities
           let required := eventPayloadBound name fieldCount fieldNameBytes
           if required > EVT_KEY_PTR - EVENT_BUF then
             err s!"EmitWat: event `{name}` JSON scratch requires up to {required} bytes, limit is {EVT_KEY_PTR - EVENT_BUF}"
-      | .letBind _ _ (.nearCrosscallInvokePool _ _ args _)
-      | .letMutBind _ _ (.nearCrosscallInvokePool _ _ args _)
-      | .return (.nearCrosscallInvokePool _ _ args _) =>
+      | .letBind _ _ (.nearCrosscallInvokePool _ _ args _ _)
+      | .letMutBind _ _ (.nearCrosscallInvokePool _ _ args _ _)
+      | .return (.nearCrosscallInvokePool _ _ args _ _) =>
           let required := crosscallArgsBound args.size
           if required > CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF then
             err s!"EmitWat: NEAR crosscall args require up to {required} bytes, limit is {CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF}"
-      | .letBind _ _ (.nearPromiseThen _ _ args _)
-      | .letMutBind _ _ (.nearPromiseThen _ _ args _)
-      | .return (.nearPromiseThen _ _ args _) =>
+      | .letBind _ _ (.nearPromiseThen _ _ args _ _)
+      | .letMutBind _ _ (.nearPromiseThen _ _ args _ _)
+      | .return (.nearPromiseThen _ _ args _ _) =>
           let required := crosscallArgsBound args.size
           if required > CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF then
             err s!"EmitWat: NEAR promise callback args require up to {required} bytes, limit is {CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF}"
@@ -385,8 +386,7 @@ mutual
     | .u32 => .ok (vis ++ #[.plain "i64.extend_i32_u"], #[.call crosscallArgsPutu64Name])
     | .bool => .ok (vis, #[.call crosscallArgsPutboolName])
     | .hash => .ok (vis, #[.call crosscallArgsPuthashName])
-    | .string => .ok (vis, #[.i32Const 0x22, .call crosscallArgsPutcName,
-      .call crosscallArgsPutstrName, .i32Const 0x22, .call crosscallArgsPutcName])
+    | .string => .ok (vis, #[.call crosscallArgsPutJsonStringName])
     | _ => err s!"EmitWat: NEAR crosscall argument type `{vt.name}` is not supported yet"
 
   /-- Pool index as i64: address-literal handles (peerHandle) or U32/U64. -/
@@ -511,6 +511,28 @@ mutual
       let body := body ++ #[.i32Const 93, .call crosscallArgsPutcName]
       .ok (body, CROSSCALL_BUF, 0)
 
+  partial def lowerCrosscallArgsNamedJson (ctx : Ctx) (env : LocalTypes)
+      (args : Array Expr) (argNames : Array String) :
+      Except EmitError (Array Insn × Nat × Nat) := do
+    unless args.size == argNames.size do
+      err s!"EmitWat: NEAR JSON object has {args.size} values but {argNames.size} field names"
+    if args.isEmpty then
+      .ok (#[], CROSSCALL_ARGS_EMPTY_PTR, 0)
+    else
+      let (body, _) ← (Array.range args.size).foldlM (fun (accInsns, isFirst) index => do
+        let some arg := args[index]?
+          | err s!"EmitWat: missing NEAR JSON argument {index}"
+        let some argName := argNames[index]?
+          | err s!"EmitWat: missing NEAR JSON field name {index}"
+        let (vis, putInsn) ← lowerCrosscallArgValue ctx env arg
+        let sep := if isFirst then #[] else #[.i32Const 44, .call crosscallArgsPutcName]
+        let key := s!"\"{argName}\":"
+        let keyInsns := key.toUTF8.data.foldl (init := #[]) fun insns byte =>
+          insns ++ #[.i32Const byte.toNat, .call crosscallArgsPutcName]
+        .ok (accInsns ++ sep ++ keyInsns ++ vis ++ putInsn, false))
+        (#[.call crosscallArgsStartName, .i32Const 123, .call crosscallArgsPutcName], true)
+      .ok (body ++ #[.i32Const 125, .call crosscallArgsPutcName], CROSSCALL_BUF, 0)
+
   /-- near-sys `promise_create` / `promise_then` take `amount_ptr` (u128 LE), not a
   raw yocto value. Encode U64 deposit as low 64 bits at `RET_BUF`, zero high 64,
   and push `RET_BUF` as the pointer. Constant-zero deposit reuses `ZERO_HASH_BUF`. -/
@@ -540,23 +562,31 @@ mutual
       let conv := if valueType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
       .ok (valueInsns ++ conv)
 
-  partial def lowerNearCrosscallInvokePool (ctx : Ctx) (env : LocalTypes) (accountIndex method : Expr)
-      (args : Array Expr) (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
+  partial def lowerNearCrosscallInvokePool (ctx : Ctx) (env : LocalTypes) (account method : Expr)
+      (args : Array Expr) (deposit : Expr) (argNames : Array String) :
+      Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
       err "EmitWat: NEAR crosscall pool invoke requires `module.nearCrosscallStrings` to be populated"
-    let accountConv ← lowerU32OrU64AsI64 ctx env "NEAR crosscall pool account index" accountIndex
-    requireDuplicableExpr accountIndex "EmitWat: NEAR crosscall pool account index must be duplicable"
+    let (_, accountType) ← lowerExpr ctx env account
+    let accountLenPtr ← if accountType == .string then
+        match account with
+        | .local name => pure #[.localGet (name ++ "_len"), .plain "i64.extend_i32_u",
+            .localGet name, .plain "i64.extend_i32_u"]
+        | _ => err "EmitWat: runtime NEAR promise account must be a String local"
+      else do
+        let accountConv ← lowerU32OrU64AsI64 ctx env "NEAR crosscall pool account index" account
+        requireDuplicableExpr account "EmitWat: NEAR crosscall pool account index must be duplicable"
+        pure <| accountConv ++ #[.call crosscallPoolLenName] ++ accountConv ++
+          #[.call crosscallPoolPtrName]
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ←
-      lowerCrosscallArgsForMethod ctx env methodSi.str args
+      if argNames.isEmpty then lowerCrosscallArgsForMethod ctx env methodSi.str args
+      else lowerCrosscallArgsNamedJson ctx env args argNames
     let depositInsns ← lowerNearDeposit ctx env "NEAR crosscall" deposit
     let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
     let argsPtrInsns := crosscallArgsPtrInsns argsPtr
-    .ok (argBuildInsns ++ accountConv ++ #[
-      .call crosscallPoolLenName
-    ] ++ accountConv ++ #[
-      .call crosscallPoolPtrName
-    ] ++ stringInfoLenPtrInsns methodSi ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
+    .ok (argBuildInsns ++ accountLenPtr ++ stringInfoLenPtrInsns methodSi ++
+      argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
       .i64Const crosscallDefaultGas,
       .call "promise_create"
     ], .u64)
@@ -619,14 +649,17 @@ mutual
     | .near => lowerNearPromiseCreate ctx env target method args deposit
 
   partial def lowerNearPromiseThen (ctx : Ctx) (env : LocalTypes) (parentPromise callbackMethod : Expr)
-      (args : Array Expr) (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
+      (args : Array Expr) (deposit : Expr) (argNames : Array String) :
+      Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
       err "EmitWat: NEAR promise_then requires `module.nearCrosscallStrings` for callback method names"
     let (parentInsns, parentType) ← lowerExpr ctx env parentPromise
     if parentType != .u64 then
       err s!"EmitWat: NEAR promise_then parent expected `U64` promise id, got `{parentType.name}`"
     let methodSi ← resolveCrosscallStringRef ctx callbackMethod "callback method name"
-    let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
+    let (argBuildInsns, argsPtr, argsLenMarker) ←
+      if argNames.isEmpty then lowerCrosscallArgsJson ctx env args
+      else lowerCrosscallArgsNamedJson ctx env args argNames
     let depositInsns ← lowerNearDeposit ctx env "NEAR promise_then" deposit
     let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
     let argsPtrInsns := crosscallArgsPtrInsns argsPtr
@@ -818,12 +851,12 @@ mutual
       err (crosscallEvmOnlyMessage "crosscallCreate2")
     | .crosscallNamed _ _ _ _ =>
       err "EmitWat: crosscallNamed (named-callee cross-program call) is a ZK-lane construct; not lowered on Wasm hosts — use crosscallInvoke* / NEAR promise forms"
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit argNames =>
       if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else lowerNearCrosscallInvokePool ctx env accountIndex methodId args deposit
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+      else lowerNearCrosscallInvokePool ctx env accountIndex methodId args deposit argNames
+    | .nearPromiseThen parentPromise callbackMethod args deposit argNames =>
       if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else lowerNearPromiseThen ctx env parentPromise callbackMethod args deposit
+      else lowerNearPromiseThen ctx env parentPromise callbackMethod args deposit argNames
     | .nearPromiseResultsCount =>
       if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
       else .ok (#[.call "promise_results_count"], .u64)

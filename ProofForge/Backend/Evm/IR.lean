@@ -469,10 +469,10 @@ mutual
     | .crosscallCreate v _ => exprUsesCheckedArithmetic v
     | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
     | .crosscallNamed _ _ args _ => args.any exprUsesCheckedArithmetic
-    | .nearPromiseThen p m args d =>
+    | .nearPromiseThen p m args d _ =>
         exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
           args.any exprUsesCheckedArithmetic
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
         exprUsesCheckedArithmetic accountIndex || exprUsesCheckedArithmetic methodId ||
           exprUsesCheckedArithmetic deposit || args.any exprUsesCheckedArithmetic
     | .nearPromiseResultsCount => false
