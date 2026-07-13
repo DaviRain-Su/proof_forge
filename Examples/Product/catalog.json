@@ -12,6 +12,15 @@
       "gates": ["product-matrix"]
     },
     {
+      "file": "Aggregate.lean",
+      "authoring": "contract_source",
+      "kind": "aggregate",
+      "targets": ["wasm-arbitrum-stylus"],
+      "outputStage": "intermediate",
+      "gates": ["stylus-cli-matrix"],
+      "note": "Stylus research product probe for bytes/string/fixed-array ABI; recursive dynamic aggregate closure remains W3"
+    },
+    {
       "file": "ArrayExample.lean",
       "authoring": "contract_source",
       "kind": "aggregate",
@@ -126,9 +135,10 @@
       "file": "OwnableHash.lean",
       "authoring": "contract_source",
       "kind": "auth-policy",
-      "targets": ["evm", "solana-sbpf-asm", "wasm-near", "wasm-stellar-soroban"],
+      "targets": ["evm", "solana-sbpf-asm", "wasm-near"],
       "outputStage": "intermediate",
-      "gates": ["product-matrix"]
+      "gates": ["product-matrix"],
+      "note": "Soroban scalar ABI does not support 32-byte Hash storage"
     },
     {
       "file": "OwnablePausable.lean",

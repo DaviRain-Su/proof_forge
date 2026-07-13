@@ -68,6 +68,7 @@ host rewrite: `--peer logical.peer=…` / PeerMap.
 | [ExternalVault.lean](ExternalVault.lean) | external ERC-4626 vault protocol intent |
 | [ERC4626Vault.lean](ERC4626Vault.lean) | deployable ERC-4626 vault body (stdlib pro-rata; **product v1 frozen**) |
 | [AuthRemoteCall.lean](AuthRemoteCall.lean) | caller + debit + remote |
+| [Aggregate.lean](Aggregate.lean) | renderer-neutral bytes/string/fixed-array ABI probe (`just stylus-cli-matrix`) |
 | [ArrayExample.lean](ArrayExample.lean) | arrays |
 | [HostEnvProbe.lean](HostEnvProbe.lean) | triad HostEnv (`timestamp`/`checkpointId`/`contractId`/`caller`) |
 | [Ownable.lean](Ownable.lean) | owner policy |

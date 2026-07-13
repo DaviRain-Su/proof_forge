@@ -18,6 +18,7 @@ Canonical sources (change only `--target` to build EVM · Solana · NEAR · …)
 
 - `Counter.lean`
 - `HostEnvProbe.lean`
+- `Aggregate.lean`
 - `ArrayExample.lean`
 - `RemoteCall.lean`, `AuthRemoteCall.lean`
 - `Ownable.lean`, `OwnableHash.lean`, `Pausable.lean`, `OwnablePausable.lean`,

@@ -9,6 +9,7 @@
 # Format: <relative-path>:<substring-to-match>
 
 # contract_source macro (generates ContractSpec via Builder.build)
+Examples/Product/Aggregate.lean:contract_source
 Examples/Product/ArrayExample.lean:contract_source
 Examples/Product/AuthRemoteCall.lean:contract_source
 Examples/Product/Counter.lean:contract_source

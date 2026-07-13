@@ -99,7 +99,7 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
   let scalarHelpers :=
     if ctx.packScalars then #[]
     else scalarStorageHelperFuncsForModulePlan modulePlan ctx.bridge
-  scalarHelpers ++ packHelpers ++
+  let funcs := scalarHelpers ++ packHelpers ++
     returnHelperFuncsForModulePlan modulePlan ctx.bridge ++
     powHelperFuncsForModulePlan modulePlan ++ hashExprHelperFuncsForModulePlan modulePlan ++
     hashStorageHelperFuncsForModulePlan modulePlan ++ ctxHelperFuncsForModulePlan modulePlan ++
@@ -111,6 +111,9 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     mapStringHelperFuncsForModulePlan modulePlan ctx.bridge ++
     u128ArithFuncs ++
     aggregateHelperFuncsForModulePlan modulePlan mod ++ entryFuncs
+  funcs.foldl (fun unique function =>
+    if unique.any (fun prior => prior.name == function.name) then unique
+    else unique.push function) #[]
 
 def globalsForModulePlan (modulePlan : ModulePlan) (allocator : ProofForge.IR.AllocatorConfig)
     (packScalars : Bool := false) : Array Global :=
