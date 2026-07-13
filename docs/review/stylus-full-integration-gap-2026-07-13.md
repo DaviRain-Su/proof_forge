@@ -2,7 +2,7 @@
 
 ## Executive Status
 
-The completion plan currently has 29 of 64 acceptance items checked (45%).
+The completion plan currently has 31 of 64 acceptance items checked (48%).
 That number understates the foundation already built but accurately shows that
 the target is not release-integrated. A useful engineering estimate is:
 
@@ -22,6 +22,7 @@ fragment, and no current Nitro evidence authorizes a direct-Wasm cutover.
 | Canonical ValueVault | `just stylus-value-vault-canonical` | Rust/direct/local runtime green; Nitro evidence missing |
 | Mapping/event layouts | `just stylus-mapping-events`, `just stylus-nested-map` | scalar and nested maps, ABI overrides, and standard Transfer/Approval layouts green |
 | Canonical nested mapping | `just stylus-nested-map` | address-to-address-to-u128 semantics, plan keys, Rust SDK crate, direct Wasm, and local VM slot parity green |
+| Canonical ERC-20 lifecycle | `just stylus-token-differential` | shared TokenSpec, canonical plan, mint/transfer/approve/transferFrom, rollback, edge vectors, and unlimited allowance green locally |
 | Dynamic ABI | `just stylus-aggregate-differential` | bounded bytes/string parameter/return slice green after the plan-derived clear-bound fix |
 | Remote calls | `just stylus-remote-call-differential` | modes, value, gas, bounded static/dynamic returns, revert, cache policy, nested local frames green |
 | Full Lean build/docs | `lake build`, `just docs-check` | green at this checkpoint |
@@ -44,9 +45,12 @@ paths, compile the generated nested Rust SDK crate, and verify standard
 
 ### W2 - Canonical ERC-20 State Machine (large, now unblocked)
 
-No Stylus token driver exists today; `TargetDriver` rejects token/NFT surfaces.
-The shared token source must materialize through canonical Core and pass direct,
-Rust, EVM-client, rollback, event, and Nitro scenarios.
+The shared TokenSpec now materializes through the existing ERC-20 stdlib into
+canonical Core and one Stylus plan. Direct Wasm executes the complete local
+lifecycle, edge cases, rollback, standard selectors/events, and unlimited
+allowance; the generated Rust SDK crate compiles. Remaining work is normalized
+abstract/Rust/direct runtime parity, the public token driver, EVM-client
+interop packaging, and Nitro evidence.
 
 ### W3 - Aggregate Storage and General ABI Layout (large)
 

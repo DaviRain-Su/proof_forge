@@ -105,8 +105,8 @@ work packages and their dependency order are audited in
 - Consumes: mapping/event layouts.
 - Produces: Solidity-compatible `balanceOf`, `allowance`, `transfer`, `approve`, and `transferFrom` behavior.
 
-- [ ] Pin selector, return, zero-address, insufficient balance/allowance, self-transfer, max allowance, and event vectors.
-- [ ] Materialize the shared token source through canonical Core to one Stylus plan; no target-specific frontend fixture.
+- [x] Pin selector, return, zero-address, insufficient balance/allowance, self-transfer, max allowance, and event vectors (`just stylus-token-differential`).
+- [x] Materialize the shared `Examples.Product.FungibleToken.spec` through canonical Core to one Stylus plan; no target-specific frontend fixture.
 - [ ] Execute normalized abstract/Rust/direct traces for mint/approve/transfer/transferFrom and failure rollback.
 - [ ] Deploy direct Wasm to Nitro and call it through standard Solidity ABI with `cast`; compare storage-visible balances and emitted logs.
 - [ ] Run `just stylus-token-differential`, `just stylus-token-evm-interop`, and `just stylus-nitro-check`.

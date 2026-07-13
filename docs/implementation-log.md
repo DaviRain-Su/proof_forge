@@ -1485,3 +1485,24 @@ Rules:
 - Next (interop plan): Phase 3 — AccountId string keys; Phase 4 — JSON
   codecs (the long pole / highest risk). Orthogonal to the active D-052
   program (next task C1).
+## 2026-07-13 - STYLUS-W2: Canonical ERC-20 local lifecycle
+
+- Status: `done (verified at a4c69d0c)`
+- Commit: `a4c69d0c`
+- Result: materialized the shared `FungibleToken.spec` and existing ERC-20
+  stdlib through canonical Core into one Stylus plan. Direct Wasm now executes
+  mint, transfer, approve, transferFrom, standard events, rollback, zero and
+  insufficient-balance checks, self-transfer, and unlimited allowance.
+- Interfaces: legacy compatibility map-key metadata, canonical `mapN`, Stylus
+  token materializer, cast planning, minimal Rust diamond CFG rendering, and
+  non-overlapping direct-Wasm context/storage scratch regions.
+- Verification: `just stylus-token-differential`,
+  `just stylus-counter-differential`, `just stylus-value-vault-canonical`,
+  `just stylus-mapping-events`, `just stylus-rust-render`, and `lake build`
+  (792 jobs) all passed. The generated token Rust crate compiled against
+  `stylus-sdk = 0.10.8`.
+- Remaining: normalized abstract/Rust/direct runtime trace parity, public
+  `--token` routing, EVM-client interop packaging, and Nitro deployment remain
+  open in W2/W5.
+- Documentation: checked the first two W2 acceptance items, refreshed the gap
+  audit, and advanced the agent checkpoint.
