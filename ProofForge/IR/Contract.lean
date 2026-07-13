@@ -182,6 +182,7 @@ mutual
   inductive ContextField where
     | userId
     | userIdHash
+    | accountId
     | contractId
     | checkpointId
     | timestamp
@@ -337,6 +338,7 @@ end
 def ContextField.name : ContextField → String
   | .userId => "userId"
   | .userIdHash => "userIdHash"
+  | .accountId => "accountId"
   | .contractId => "contractId"
   | .checkpointId => "checkpointId"
   | .timestamp => "timestamp"
@@ -354,7 +356,7 @@ def ContextField.name : ContextField → String
   | .blockHash _ => "blockHash"
 
 def ContextField.capability : ContextField → ProofForge.Target.Capability
-  | .userId | .userIdHash | .origin => .callerSender
+  | .userId | .userIdHash | .origin | .accountId => .callerSender
   | .contractId => .accountExplicit
   | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
 
@@ -369,7 +371,7 @@ gate used by IR portability checks (general core + shipped `epochHeight`).
 
 /-- Map an IR context field onto the portable HostEnv vocabulary. -/
 def ContextField.toHostEnv : ContextField → ProofForge.Target.HostRuntime.HostEnv
-  | .userId | .userIdHash => .caller
+  | .userId | .userIdHash | .accountId => .caller
   | .contractId => .selfAddress
   | .checkpointId => .blockHeight
   | .timestamp => .blockTime

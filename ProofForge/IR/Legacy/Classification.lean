@@ -97,6 +97,7 @@ def classifyStoragePathSegment : StoragePathSegment → LegacyDecision
 def classifyContextField : ContextField → LegacyDecision
   | .userId => payloadDecision "ContextField.userId" .normalize "canonical-core" "caller identity maps to canonical sender context"
   | .userIdHash => payloadDecision "ContextField.userIdHash" .normalize "canonical-core-context" "hashed caller identity expands to sender followed by the canonical hash primitive"
+  | .accountId => payloadDecision "ContextField.accountId" .normalize "canonical-core-context" "raw AccountId string caller identity (Phase 3 NEP-141 interop)"
   | .contractId => payloadDecision "ContextField.contractId" .normalize "canonical-core" "contract identity maps to canonical contract address context"
   | .checkpointId => payloadDecision "ContextField.checkpointId" .normalize "canonical-core" "checkpoint maps to canonical block number context"
   | .timestamp => payloadDecision "ContextField.timestamp" .normalize "canonical-core" "timestamp maps to canonical block timestamp context"

@@ -279,6 +279,12 @@ def contractId : ProofForge.IR.Expr :=
 def callerHash : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.contextRead .userIdHash
 
+/-- NEAR predecessor account id as the RAW AccountId string (Phase 3 NEP-141
+    interop). Identity is not hash-truncated: balances keyed by this are keyed
+    by the real AccountId, matching `near-sdk-rs` `env::predecessor_account_id()`. -/
+def callerAccountId : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.contextRead .accountId
+
 /-- The transaction signer (EVM `tx.origin` / NEAR `signer_account_id`).
     Distinct from `caller` (the immediate caller / predecessor). -/
 def signer : ProofForge.IR.Expr :=

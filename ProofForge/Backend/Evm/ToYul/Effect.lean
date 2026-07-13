@@ -31,6 +31,7 @@ def contextFieldExpr
     ContextField → Except String Lean.Compiler.Yul.Expr
   | .userId => .ok (Lean.Compiler.Yul.builtin "caller" #[])
   | .userIdHash => .ok userIdHashYulExpr
+  | .accountId => .error "EVM context read `accountId` is not supported; EVM caller identity is a 20-byte address, not a raw AccountId string (NEAR-only, Phase 3)"
   | .contractId => .ok (Lean.Compiler.Yul.builtin "address" #[])
   | .checkpointId => .ok (Lean.Compiler.Yul.builtin "number" #[])
   | .timestamp => .ok (Lean.Compiler.Yul.builtin "timestamp" #[])
@@ -55,6 +56,7 @@ partial def contextExprPlan
     ContextExprPlan → Except ε Lean.Compiler.Yul.Expr
   | .userId => .ok (Lean.Compiler.Yul.builtin "caller" #[])
   | .userIdHash => .ok userIdHashYulExpr
+  | .accountId => .error (mkError "EVM context read `accountId` is not supported; EVM caller identity is a 20-byte address, not a raw AccountId string (NEAR-only, Phase 3)")
   | .contractId => .ok (Lean.Compiler.Yul.builtin "address" #[])
   | .checkpointId => .ok (Lean.Compiler.Yul.builtin "number" #[])
   | .timestamp => .ok (Lean.Compiler.Yul.builtin "timestamp" #[])

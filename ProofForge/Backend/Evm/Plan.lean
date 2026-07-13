@@ -39,6 +39,9 @@ mutual
     `caller` word (`hashWord(caller)`). Product path for OwnableHash /
     `callerHash` on EVM — distinct from raw address-width `userId`. -/
     | userIdHash
+    /-- Raw AccountId string caller identity (NEAR-only, Phase 3 NEP-141 interop).
+    EVM rejects this (caller is a 20-byte address). -/
+    | accountId
     | contractId
     | checkpointId
     | timestamp

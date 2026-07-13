@@ -44,7 +44,7 @@ mutual
   partial def contextExprPlanUsesCheckedArithmetic : ContextExprPlan → Bool
     | .blockHash blockNumber =>
         exprPlanUsesCheckedArithmetic blockNumber
-    | .userId | .userIdHash | .contractId | .checkpointId | .timestamp | .chainId
+    | .userId | .userIdHash | .accountId | .contractId | .checkpointId | .timestamp | .chainId
     | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         false
 
@@ -446,7 +446,7 @@ mutual
       ContextExprPlan → LocalArrayHelperRequirements
     | .blockHash blockNumber =>
         localArrayHelperRequirementsFromExprPlan blockNumber
-    | .userId | .userIdHash | .contractId | .checkpointId | .timestamp | .chainId
+    | .userId | .userIdHash | .accountId | .contractId | .checkpointId | .timestamp | .chainId
     | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         emptyLocalArrayHelperRequirements
 
@@ -822,7 +822,7 @@ mutual
     -- `userIdHash` lowers as `hashWord(caller)`; emit the keccak helper body.
     | .userIdHash =>
         #[.hashWord]
-    | .userId | .contractId | .checkpointId | .timestamp | .chainId
+    | .userId | .accountId | .contractId | .checkpointId | .timestamp | .chainId
     | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         #[]
 
@@ -1097,6 +1097,7 @@ def buildMapHelpersFromEntrypoints (entrypoints : Array EntrypointPlan) : Helper
 def contextFieldFromContextExprPlan : ContextExprPlan → ContextField
   | .userId => .userId
   | .userIdHash => .userIdHash
+  | .accountId => .accountId
   | .contractId => .contractId
   | .checkpointId => .checkpointId
   | .timestamp => .timestamp

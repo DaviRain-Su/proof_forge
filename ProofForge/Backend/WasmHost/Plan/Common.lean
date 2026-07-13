@@ -23,6 +23,7 @@ instance : ProofForge.Backend.Diagnostic.LoweringError PlanError where
 inductive ContextExprPlan where
   | userId
   | userIdHash
+  | accountId
   | contractId
   | checkpointId
   | timestamp
@@ -36,6 +37,7 @@ inductive ContextExprPlan where
 def ContextExprPlan.field : ContextExprPlan → ContextField
   | .userId => .userId
   | .userIdHash => .userIdHash
+  | .accountId => .accountId
   | .contractId => .contractId
   | .checkpointId => .checkpointId
   | .timestamp => .timestamp
@@ -47,11 +49,13 @@ def ContextExprPlan.field : ContextExprPlan → ContextField
 
 def ContextExprPlan.resultType : ContextExprPlan → ValueType
   | .randomSeed | .userIdHash => .hash
+  | .accountId => .string
   | _ => .u64
 
 def buildContextExprPlan : ContextField → Except PlanError ContextExprPlan
   | .userId => .ok .userId
   | .userIdHash => .ok .userIdHash
+  | .accountId => .ok .accountId
   | .contractId => .ok .contractId
   | .checkpointId => .ok .checkpointId
   | .timestamp => .ok .timestamp

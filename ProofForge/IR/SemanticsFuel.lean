@@ -250,6 +250,7 @@ mutual
               .ok (state, .u64 0)
           | .userIdHash | .randomSeed | .origin | .coinbase | .blockHash _ =>
               .ok (state, .hash 0 0 0 0)
+          | .accountId => .ok (state, .string "")
       | .eventEmit name fields => do
           let (nextState, data) ← evalEventFieldFuel fuel state frame fields
           .ok (nextState.recordEvent name #[] data, .unit)

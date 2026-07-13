@@ -63,6 +63,11 @@ def HASH_HEAP : Nat := 30000       -- bump-allocator base for hash (32-byte) tem
 def ARR_HEAP : Nat := 60000       -- bump-allocator base for array-value temporaries
 def HASH_CONCAT_BUF : Nat := 40000 -- 64-byte scratch for hash_two_to_one
 def CTX_BUF : Nat := 41000          -- 128-byte scratch for account-id -> sha256 -> u64
+/-- 4-byte LE length of the raw account-id string staged by `__pf_ctx_account_id`. -/
+def ACCT_ID_LEN : Nat := 41130
+/-- Raw predecessor_account_id bytes staged by `__pf_ctx_account_id` (Phase 3).
+    41134..42000 (~866 bytes) — well above the NEAR account-id ceiling. -/
+def ACCT_ID_BUF : Nat := 41134
 def EVENT_BUF : Nat := 42000       -- 256-byte scratch for building event JSON
 /-- Storage key for packed multi-scalar state (`"__pf_s"`). -/
 def PACK_KEY_PTR : Nat := 42600

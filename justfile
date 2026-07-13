@@ -1030,7 +1030,7 @@ near-vm-u128-map:
 # Real-NEAR-VM string-keyed U128 map round-trip (Map<string, u128>, the NEP-141
 # `balances` keyed by raw AccountId string — Phase 3 NEAR interop gate).
 # Verifies the variable-length string-keyed map path + Borsh string param key.
-near-vm-string-key-map:
+near-vm-string-key-map: near-vm-caller-account-id-map
     scripts/near/vm-string-key-map.sh
 
 # U128 decimal formatter smoke (JSON U128 primitive) via the offline host.

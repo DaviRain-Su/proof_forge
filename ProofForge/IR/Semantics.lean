@@ -790,6 +790,7 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       match field with
       | .userId => .ok (state, state.userId)
       | .userIdHash => .ok (state, state.userIdHash)
+      | .accountId => .ok (state, .string "")
       | .contractId | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
           .ok (state, .u64 0)
       | .randomSeed | .origin | .coinbase | .blockHash _ =>

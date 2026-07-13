@@ -1288,6 +1288,7 @@ mutual
     | .userId => .ok .userId
     -- Identity-width caller: `hashWord(caller)` → keccak256 of 32-byte padded address.
     | .userIdHash => .ok .userIdHash
+    | .accountId => .error { message := "EVM context read `accountId` is not supported; EVM caller identity is a 20-byte address, not a raw AccountId string (NEAR-only, Phase 3)" }
     | .contractId => .ok .contractId
     | .checkpointId => .ok .checkpointId
     | .timestamp => .ok .timestamp

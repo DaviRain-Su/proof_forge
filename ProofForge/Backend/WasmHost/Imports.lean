@@ -94,9 +94,11 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | _ => true
 
 def ctxImportsForModulePlan (plan : ModulePlan) : Array Import :=
-  (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash then #[predecessorImport] else #[]) ++
+  (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
+      plan.contextOps.contains .accountId then #[predecessorImport] else #[]) ++
     (if plan.contextOps.contains .contractId then #[currentAcctImport] else #[]) ++
     (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
+        plan.contextOps.contains .accountId ||
         plan.contextOps.contains .contractId || plan.contextOps.contains .origin then #[registerLenImport] else #[]) ++
     (if plan.contextOps.contains .checkpointId then #[blockHeightImport] else #[]) ++
     (if plan.contextOps.contains .prepaidGas then #[prepaidGasImport] else #[]) ++
@@ -107,7 +109,8 @@ def promiseCtxImportsForModulePlan (plan : ModulePlan) : Array Import :=
     #[]
   else
     (if plan.contextOps.contains .contractId then #[] else #[currentAcctImport]) ++
-      (if plan.contextOps.contains .userId || plan.contextOps.contains .contractId || plan.contextOps.contains .origin then
+      (if plan.contextOps.contains .userId || plan.contextOps.contains .accountId ||
+        plan.contextOps.contains .contractId || plan.contextOps.contains .origin then
         #[] else #[registerLenImport])
 
 def promiseResultImportsForModulePlan (plan : ModulePlan) : Array Import :=
