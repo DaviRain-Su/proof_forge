@@ -90,7 +90,7 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "8268c3a7dd0d4451383d8ecd7cc4e0de2169372b824087cc12870a5dfb4f6184",
+    "sha256": "ff3ac327335db7e6c140080cb50d8e8b395c1c5fbfe24abe4baf67e919e6d661",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
     "note": "manually synced for Stylus static matrix, doctor, and CI evidence gates"

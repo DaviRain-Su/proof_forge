@@ -2143,3 +2143,20 @@ Rules:
   stylus-diagnostics` pass. The storage gate also compiles Direct/Rust bool,
   uint16, uint128, and address array variants. No product/check/stylus-all
   suite or Nitro execution was run during this development slice.
+
+## 2026-07-13 - STYLUS-W4 review: Fail-closed local evidence verification
+
+- Status: `W4.1-W4.3 reviewed complete locally; Nitro not claimed`
+- Re-audited the canonical call envelopes, pinned SDK 0.10.8 HostIO source
+  signatures, Rust/direct normalized seven-step trace, and runner-only static,
+  delegate-context, nested-frame, reentrant success/revert, and outer rollback
+  vectors.
+- Added `scripts/stylus/verify-remote-local-evidence.py`. The differential gate
+  now independently reopens `remote-local.json`, requires local Wasmtime and
+  explicit non-Nitro provenance, validates the five required scenario outcomes,
+  and recomputes both generated Wasm hashes.
+- Verification: the verifier accepts the current evidence and rejects a
+  schema-corrupted copy; `just stylus-remote-call-differential` passes four
+  native Rust tests, Direct/runner vectors, normalized parity, evidence
+  verification, and the official HostIO audit. No full aggregate or Nitro gate
+  was run.

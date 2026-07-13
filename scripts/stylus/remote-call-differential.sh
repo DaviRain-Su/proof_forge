@@ -236,6 +236,7 @@ evidence_path.parent.mkdir(parents=True, exist_ok=True)
 evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
 print("stylus-remote-call-differential-runtime: ok")
 PY
+python3 scripts/stylus/verify-remote-local-evidence.py
 
 rust_trace="$root/build/stylus/remote-call/rust-normalized.json"
 rm -f "$rust_trace"

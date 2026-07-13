@@ -64,7 +64,9 @@ blockers may defer an item.
   implements cache flush as a no-op and exposes no frame trace.
 - [x] **W4.3 Local two-contract evidence:** emit a machine-readable caller/
   callee local evidence manifest and make the remote differential gate verify
-  its schema and hashes. This is local evidence, never Nitro evidence.
+  its schema and hashes. An independent verifier reopens the persisted file,
+  enforces local/non-Nitro provenance and scenario rollback semantics, and
+  recomputes both Wasm hashes. This is local evidence, never Nitro evidence.
 - [x] **W5.1 Environment audit:** run the Nitro doctor and persist doctor JSON.
   If Docker/RPC is unavailable, record the external blocker and continue with
   every independent W6/W7 static item rather than stopping the queue.

@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Arbitrum Stylus general-contract completion |
-| Active task | W4 Remote-call closure review |
-| Next task | Audit Rust/direct/runner parity, static/delegate/reentrancy vectors, and local two-contract evidence |
+| Active task | W5 Nitro evidence audit |
+| Next task | Verify doctor blocker and live ValueVault/Token/Remote/Aggregate evidence gates without fabricating runtime success |
 | Known blocker | Nitro needs Docker; Woodpecker durable artifacts need a configured sink/credentials |
 | Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
