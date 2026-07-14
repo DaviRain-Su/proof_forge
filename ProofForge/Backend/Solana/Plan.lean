@@ -796,6 +796,42 @@ private def canonicalOpResults : SolanaOpPlan -> Array SolanaValuePlan
     .portableCrosscall result .. => #[result]
   | _ => #[]
 
+private def canonicalStateValueBindings (plan : SolanaModulePlan) :
+    Array CpiValueBinding :=
+  plan.stateFields.map fun field => {
+    name := field.id
+    absOff := field.absOff
+    byteSize := field.byteSize
+    sourceKind := "state"
+  }
+
+private def canonicalEntrypointValueBindings (plan : SolanaModulePlan)
+    (entrypoint : SolanaEntrypointPlan) : Array CpiValueBinding :=
+  canonicalStateValueBindings plan ++ entrypoint.params.map fun param => {
+    name := param.name
+    absOff := param.offset
+    byteSize := param.byteSize
+    sourceKind := "instruction param"
+    relativeToInstructionData := true
+  }
+
+private def canonicalExtensionBindings (plan : SolanaModulePlan) :
+    Except SbpfAsm.LowerError (Array EntrypointBindings) := do
+  let mut bindings := #[]
+  for entrypoint in plan.entrypoints do
+    let schema <- match plan.lowerCtxSeed.entrypointSchemas.find? (fun schema =>
+        schema.name == entrypoint.name) with
+      | some schema => pure schema
+      | none => throw {
+          message := s!"canonical Solana entrypoint `{entrypoint.name}` has no input schema" }
+    bindings := bindings.push {
+      entrypoint := entrypoint.name
+      accountBindings := SbpfAsm.buildCpiAccountBindings
+        schema.accounts schema.inputLayout.accounts
+      valueBindings := canonicalEntrypointValueBindings plan entrypoint
+    }
+  pure bindings
+
 /-- Canonical lowering boundary: consumes only the complete target plan. -/
 def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array AstNode) := do
   unless plan.targetId == "solana-sbpf-asm" do throw { message := "canonical Solana plan has wrong target" }
@@ -809,6 +845,14 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
   let mut nodes : Array AstNode := #[.sectionDecl .text, .globalDecl "entrypoint", .label "entrypoint"]
   let hasPortableCrosscall := plan.functions.any fun fn => fn.blocks.any fun block =>
     block.ops.any fun op => match op with | .portableCrosscall .. => true | _ => false
+  let extensionBindings <- canonicalExtensionBindings plan
+  let fallbackAccountBindings := SbpfAsm.buildCpiAccountBindings
+    plan.lowerCtxSeed.manifestAccounts plan.lowerCtxSeed.inputLayout.accounts
+  let extensionNodes <- match Extension.lowerProgramExtensionsWithEntrypointBindingsChecked
+      fallbackAccountBindings (canonicalStateValueBindings plan) extensionBindings
+      plan.lowerCtxSeed.extensions with
+    | .ok extensionAst => pure extensionAst
+    | .error message => throw { message }
   nodes := nodes ++ SbpfAsm.lowerInstructionDataPointerSetup plan.accounts.size ++ #[
     .instruction { opcode := .ldxb, dst := some .r2, src := some entryInstructionDataReg, off := some (.num 0) }]
   for i in [:plan.functions.size] do
@@ -827,6 +871,8 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
           | some ep => pure ep
           | none => throw { message := s!"canonical Solana entrypoint `{fn.name}` is missing" }
         nodes := nodes ++ (<- lowerCanonicalParams ep fn)
+        nodes := nodes ++ Extension.lowerEntrypointActions
+          plan.lowerCtxSeed.extensions fn.name
       for i in [:block.ops.size] do
         nodes := nodes ++ (<- lowerCanonicalOp fn.id block.id i block.ops[i]!)
       nodes := nodes ++ lowerCanonicalTerminator fn.id block.terminator
@@ -842,10 +888,11 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) }, .instruction { opcode := .exit },
     .label "error_account_count",
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) }, .instruction { opcode := .exit }]
-  if hasPortableCrosscall then
+  if hasPortableCrosscall || !plan.lowerCtxSeed.extensions.cpis.isEmpty then
     nodes := nodes ++ #[.label "error_cpi",
       .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 8) },
       .instruction { opcode := .exit }]
+  nodes := nodes ++ extensionNodes
   match BpfEncode.toBpfBin nodes with
   | .ok _ => pure nodes
   | .error e => throw { message := s!"canonical Solana verifier rejected plan: {e.render}" }

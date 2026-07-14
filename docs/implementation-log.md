@@ -3990,3 +3990,23 @@ Rules:
 - Verification: focused HostOps/Authored/Solana Extension builds;
   `just hostop-protocol`; Canonical Core validation; TargetRegistry; canonical
   boundary; Legacy freeze; and `git diff --check`.
+
+## 2026-07-14 - A-CUT1e-c1: canonical Solana extension materialization
+
+- Status: `done (verified 2026-07-14)`; A-CUT1e-c2 still owns the public/internal
+  macro cutover and removal of `Source.Solana.Legacy` imports.
+- Changed the canonical Solana planner to require an exact capability-call list,
+  decode target-owned typed extensions fail closed, merge declared and CPI
+  accounts into a deterministic indexed layout, and retain scoped PDA/CPI
+  definitions and actions in the frozen ModulePlan.
+- Changed canonical `lowerFromPlan` to reconstruct account and value bindings
+  solely from the Solana plan, insert entrypoint-scoped extension actions, emit
+  PDA/CPI helpers, and validate the complete output without rebuilding a Legacy
+  `IR.Module`.
+- Extended `BpfEncode` to encode defined-label calls as relative eBPF
+  pseudo-calls while preserving hashed runtime-syscall encoding. Added a direct
+  unit theorem plus a typed account/PDA/CPI normalization-to-bytecode smoke.
+- Verification: `lake build ProofForge.Backend.Solana.BpfEncode
+  ProofForge.Backend.Solana.Plan.Core`;
+  `lake env lean --run Tests/Backend/Solana/SolanaBpfEncode.lean`;
+  `lake env lean --run Tests/Canonical/SolanaHostOpCatalog.lean`.

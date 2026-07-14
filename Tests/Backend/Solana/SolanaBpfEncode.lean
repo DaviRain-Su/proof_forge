@@ -47,6 +47,25 @@ theorem add64_reg_encode_ok :
     add64r3r4 = #[0x0f, 0x43, 0, 0, 0, 0, 0, 0] := by
   native_decide
 
+/-- Local helper calls use the eBPF pseudo-call source tag and a relative
+instruction offset; they are not hashed as runtime syscalls. -/
+def internalCallEncodesOk : Bool :=
+  match toBpfBin #[
+    .instruction { opcode := .call, imm := some (.sym "helper") },
+    .instruction { opcode := .exit },
+    .label "helper",
+    .instruction { opcode := .exit }
+  ] with
+  | .ok bytes => bytes == #[
+      0x85, 0x10, 0, 0, 1, 0, 0, 0,
+      0x95, 0, 0, 0, 0, 0, 0, 0,
+      0x95, 0, 0, 0, 0, 0, 0, 0]
+  | .error _ => false
+
+theorem internal_call_encode_ok :
+    internalCallEncodesOk = true := by
+  native_decide
+
 theorem counter_module_encodes_ok :
     moduleEncodesOk ProofForge.IR.Examples.Counter.module = true := by
   native_decide

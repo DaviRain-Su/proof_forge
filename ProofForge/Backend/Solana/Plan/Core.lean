@@ -159,14 +159,12 @@ private def coreNeedsSender (m : ProofForge.IR.Core.Module) : Bool :=
       | .contextRead .sender | .contextRead .signer => true
       | _ => false
 
-/-- Build an empty extensions plan. -/
-def coreEmptyExtensions : SolanaExtensionPlan := SolanaExtensionPlan.empty
-
 /-- Build an empty lower context seed. The canonical builder does not
 store Legacy `StructDecl`, `StateDecl`, or `Module`. The lowering for
 canonical plans must reconstruct its context from the plan fields only. -/
 def coreLowerCtxSeed (stateFields : Array SolanaStateFieldPlan)
-    (accounts : Array SolanaAccountPlan) (entrypoints : Array SolanaEntrypointPlan) : SolanaLowerCtxSeed := {
+    (accounts : Array SolanaAccountPlan) (entrypoints : Array SolanaEntrypointPlan)
+    (extensions : ProofForge.Backend.Solana.Extension.ProgramExtensions) : SolanaLowerCtxSeed := {
   stateFieldOffsets := stateFields.map (fun f => (f.id, f.absOff))
   structs := #[]
   stateDecls := #[]
@@ -181,8 +179,62 @@ def coreLowerCtxSeed (stateFields : Array SolanaStateFieldPlan)
       writable := account.writable, owner := account.owner }
     inputLayout := computeInputLayoutWithReallocFlags
       (entrypoint.accounts.map fun account => (account.dataSize, true)) }
-  extensions := {}
+  extensions
 }
+
+private def mergeAccountPlan (existing incoming : SolanaAccountPlan) : SolanaAccountPlan := {
+  existing with
+  signer := existing.signer || incoming.signer
+  writable := existing.writable || incoming.writable
+  owner := if existing.owner == "any" then incoming.owner else existing.owner
+  dataSize := max existing.dataSize incoming.dataSize
+}
+
+private def pushAccountPlan (accounts : Array SolanaAccountPlan)
+    (incoming : SolanaAccountPlan) : Array SolanaAccountPlan :=
+  match accounts.findIdx? (fun account => account.name == incoming.name) with
+  | some index => accounts.set! index (mergeAccountPlan accounts[index]! incoming)
+  | none => accounts.push incoming
+
+private def extensionAccountPlans
+    (extensions : ProofForge.Backend.Solana.Extension.ProgramExtensions) :
+    Array SolanaAccountPlan :=
+  let declared := extensions.accounts.map fun account => {
+    name := account.name
+    index := 0
+    signer := account.signer == "signer"
+    writable := account.access == "writable"
+    owner := account.owner
+    dataSize := 0
+  : SolanaAccountPlan }
+  extensions.cpis.foldl (fun accounts cpi =>
+    let accounts := pushAccountPlan accounts {
+      name := cpi.program, index := 0, signer := false, writable := false,
+      owner := "executable", dataSize := 0 }
+    cpi.accounts.foldl (fun accounts account => pushAccountPlan accounts {
+      name := account.name
+      index := 0
+      signer := account.signer == "signer"
+      writable := account.access == "writable"
+      owner := "any"
+      dataSize := 0
+    }) accounts) declared
+
+private def orderAndIndexAccounts (accounts : Array SolanaAccountPlan)
+    (order : Array String) : Array SolanaAccountPlan :=
+  let names := order.foldl (fun names name =>
+    if names.contains name || !(accounts.any (·.name == name)) then names else names.push name) #[]
+  let names := accounts.foldl (fun names account =>
+    if names.contains account.name then names else names.push account.name) names
+  names.filterMap (fun name => accounts.find? (·.name == name)) |>.mapIdx fun index account =>
+    { account with index }
+
+private def coreAccounts (dataSize : Nat) (hasCrosscall needsSender : Bool)
+    (extensions : ProofForge.Backend.Solana.Extension.ProgramExtensions) :
+    Array SolanaAccountPlan :=
+  let defaults := coreDefaultAccounts dataSize hasCrosscall needsSender
+  let merged := extensionAccountPlans extensions |>.foldl pushAccountPlan defaults
+  orderAndIndexAccounts merged extensions.accountOrder
 
 /-- Build a Solana entrypoint plan from a Core InterfaceEntrypoint.
 Maps Core entrypoint params to Solana instruction-data params. -/
@@ -352,19 +404,24 @@ def buildFromCore (checked : CheckedCanonicalContract)
     Except PlanError SolanaModulePlan := do
   if capPlan.targetId != "solana-sbpf-asm" then
     .error { message := s!"Solana buildFromCore requires target `solana-sbpf-asm`, got `{capPlan.targetId}`" }
-  for requirement in checked.contract.requirements do
-    unless capPlan.calls.any (fun call => call.capability == requirement.capability) do
-      throw { message := s!"Solana capability plan is missing `{requirement.capability.id}`" }
+  unless capPlan.calls == checked.contract.requirements do
+    throw { message := "Solana capability plan does not match canonical requirements" }
+  let extensions ← match ProofForge.Backend.Solana.Extension.ProgramExtensions.fromPlanChecked capPlan with
+    | .ok extensions => pure extensions
+    | .error error => throw { message := error }
   let m := checked.contract.module
   let iface := checked.contract.interface
   /- Compute account data size and layout. -/
   let dataSize <- coreModuleDataSize m
   let hasCrosscall := coreHasCrosscall m
   let needsSender := coreNeedsSender m
-  let accounts := coreDefaultAccounts dataSize hasCrosscall needsSender
+  let accounts := coreAccounts dataSize hasCrosscall needsSender extensions
   let inputLayout := computeInputLayoutWithReallocFlags
     (accounts.map fun account => (account.dataSize, true))
-  let stateAccountIndex := if needsSender && !hasCrosscall then 1 else 0
+  let stateAccountIndex :=
+    match accounts.find? (·.name == "program_state") with
+    | some account => account.index
+    | none => if needsSender && !hasCrosscall then 1 else 0
   let acctDataOff ← match inputLayout.accounts[stateAccountIndex]? with
     | some layout => pure layout.dataStart
     | none => if dataSize == 0 then pure 0 else throw { message := "canonical Solana state account layout is missing" }
@@ -378,9 +435,9 @@ def buildFromCore (checked : CheckedCanonicalContract)
     entrypoints := entrypoints.push epPlan
     tag := tag + 1
   /- Build accounts and extensions. -/
-  let extensions := coreEmptyExtensions
+  let extensionPlan := buildExtensionPlan extensions
   /- Build lower context seed from resolved plan fields. -/
-  let seed := coreLowerCtxSeed stateFields accounts entrypoints
+  let seed := coreLowerCtxSeed stateFields accounts entrypoints extensions
   let calleeAccountIndex :=
     if hasCrosscall then
       match accounts.find? (fun account => account.name == "peer_program") with
@@ -402,7 +459,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     accounts
     entrypoints
     functions
-    extensions
+    extensions := extensionPlan
     lowerCtxSeed := seed
   }
 

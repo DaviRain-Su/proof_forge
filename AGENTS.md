@@ -24,7 +24,7 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | A-CUT1e - cut public Solana authoring off `Source.Solana.Legacy` and establish explicit Source / HostOp catalog / backend ownership |
+| Active task | A-CUT1e-c - switch public Solana authoring off `Source.Solana.Legacy`; the typed Canonical Plan/lowering path is complete through A-CUT1e-c1 |
 | Next task | A-CUT2 - replace the remaining `ContractSpec`/`IR.Module` authored exchange value with direct Canonical Core normalization |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
@@ -172,7 +172,7 @@ Core are internal compiler representations.
 | A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
 | A-CUT1c | done (verified at `52742ff5`) | Consolidate the optional EVM and Solana semantic-refinement roots under the independent `ProofForgeFormal` Lake libraries; keep heavyweight proof dependencies out of the default compiler library |
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
-| A-CUT1e | in_progress (through A-CUT1e-b verified 2026-07-14) | Canonical operations now carry typed target-neutral payloads; Solana owns strict account/PDA/CPI schemas and a Legacy-free direct Authored adapter; next switch the public/internal macros to it and remove `Source.Solana.Legacy` imports |
+| A-CUT1e | in_progress (through A-CUT1e-c1 verified 2026-07-14) | Typed Solana account/PDA/CPI payloads now survive strict Canonical Plan construction and pure plan-to-sBPF lowering; next switch the public/internal macros to the direct Authored adapter and remove `Source.Solana.Legacy` imports |
 | A-CUT2 | in_progress (through A-CUT2f-c verified) | Direct Authored builder, portable Boolean Core operations, and inferred typed event schemas now cover the Counter/public expression path without `Contract.Builder`; public Source/loader cutover remains pending |
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |

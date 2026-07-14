@@ -3,6 +3,7 @@ import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 import ProofForge.Backend.Solana.Extension
 import ProofForge.Contract.Source.Solana.Internal.Authored
+import ProofForge.Backend.Solana.Plan.Core
 
 namespace ProofForge.Tests.Canonical.SolanaHostOpCatalog
 
@@ -54,7 +55,7 @@ def pdaSpec : PdaSpec := {
     { kind := .literal, value := "vault" },
     { kind := .account, value := "vault" }
   ]
-  bump? := some "vaultBump"
+  bump? := some "255"
   account? := some "vault"
   signer := true
 }
@@ -67,9 +68,9 @@ def cpiSpec : CpiSpec := {
     { name := "vault", access := .writable, signer := .signer },
     { name := "receiver", access := .writable }
   ]
-  signerSeeds := #[{ kind := .bump, value := "vaultBump" }]
+  signerSeeds := #[{ kind := .bump, value := "255" }]
   protocol? := some "system"
-  dataLayout? := some "system_transfer_u64"
+  dataLayout? := some "system.transfer"
   signed := true
 }
 
@@ -151,8 +152,31 @@ def run : IO Unit := do
     "typed Solana PDA action lost its entrypoint scope"
   require (extensions.cpis.any fun cpi =>
       cpi.name == "transfer" && cpi.accounts.size == 2 && cpi.signed &&
-        cpi.dataLayout? == some "system_transfer_u64")
+        cpi.dataLayout? == some "system.transfer")
     "typed Solana CPI payload did not reach the backend plan"
+  let modulePlan ← match ProofForge.Backend.Solana.Plan.Core.buildFromCore
+      typedBundle.contract typedPlan with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError s!"canonical Solana planning failed: {error.message}"
+  require (modulePlan.accounts.map (·.name) == #["vault", "system_program", "receiver"] &&
+      modulePlan.accounts.map (·.index) == #[0, 1, 2])
+    "canonical Solana plan did not preserve and reindex typed accounts"
+  require (modulePlan.extensions.pdas == #["vaultAuthority"] &&
+      modulePlan.extensions.cpis == #["transfer"])
+    "canonical Solana plan discarded typed PDA/CPI definitions"
+  require (modulePlan.lowerCtxSeed.extensions.pdaActions.any (·.entrypoint == "run") &&
+      modulePlan.lowerCtxSeed.extensions.cpiActions.any (·.entrypoint == "run"))
+    "canonical Solana lowering seed discarded scoped extension actions"
+  let lowered <- match ProofForge.Backend.Solana.Plan.lowerFromPlan modulePlan with
+    | .ok nodes => pure nodes
+    | .error error => throw <| IO.userError s!"canonical Solana lowering failed: {error.message}"
+  let loweredText := lowered.map (fun node => reprStr node) |>.toList |> String.intercalate "\n"
+  require (loweredText.contains "solana.pda.action vaultAuthority" &&
+      loweredText.contains "sol_pda_derive_vaultAuthority")
+    "canonical Solana lowering discarded the typed PDA action or helper"
+  require (loweredText.contains "solana.cpi.action transfer" &&
+      loweredText.contains "sol_cpi_transfer")
+    "canonical Solana lowering discarded the typed CPI action or helper"
   let malformedCalls := typedCalls.map fun call =>
     if call.operation == .hostOp ProofForge.Target.HostOps.Solana.cpiInvokeId then
       { call with payload := call.payload.filter (·.name != "program") }
@@ -161,6 +185,12 @@ def run : IO Unit := do
       { typedPlan with calls := malformedCalls } with
   | .ok _ => throw <| IO.userError "malformed typed Solana payload was accepted"
   | .error _ => pure ()
+  match ProofForge.Backend.Solana.Plan.Core.buildFromCore typedBundle.contract
+      { typedPlan with calls := malformedCalls } with
+  | .ok _ => throw <| IO.userError "Solana plan accepted calls that differ from canonical requirements"
+  | .error error =>
+      require (error.message.contains "does not match canonical requirements")
+        "Solana plan mismatch diagnostic did not identify the canonical boundary"
   match normalizeAuthored duplicatePayloadContract with
   | .ok _ => throw <| IO.userError "duplicate typed payload fields were accepted"
   | .error _ => pure ()

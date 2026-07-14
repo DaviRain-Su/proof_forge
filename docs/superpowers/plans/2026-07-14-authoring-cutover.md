@@ -141,7 +141,8 @@ focused canonical boundary tests pass. This task establishes ownership and the
 direct frontend seam; full deletion of every legacy Solana fixture remains
 tracked by IR-B5 and A-CUT5.
 
-Checkpoint (2026-07-14): A-CUT1e-a and A-CUT1e-b are complete. Canonical and Authored
+Checkpoint (2026-07-14): A-CUT1e-a, A-CUT1e-b, and the backend-plan slice
+A-CUT1e-c1 are complete. Canonical and Authored
 materialization intents carry the open `CapabilityOperation` identity rather
 than a closed target enum or untyped Canonical label. The initial typed Solana
 catalog registers remaining-compute-units and the three Solana hash syscalls,
@@ -153,8 +154,14 @@ without importing `Contract.Builder`, `IR.Module`, Surface, or Solana Legacy.
 Canonical validation rejects duplicate/empty payload fields; the checked Solana
 parser rejects malformed schemas and never reinterprets them as legacy metadata.
 Canonical and target-plan validation reject unknown or foreign operation IDs.
-Switching the public/internal macro implementations off the legacy builder and
-deleting their Legacy imports remain in A-CUT1e-c.
+The canonical Solana plan now requires the exact Canonical capability-call list,
+merges typed declared/CPI accounts into a deterministic layout, retains scoped
+PDA/CPI actions, constructs extension bindings from plan data rather than
+`IR.Module`, and emits helper calls that pass the sBPF encoder. `BpfEncode`
+distinguishes local label calls from hashed runtime syscalls and encodes local
+calls as relative pseudo-calls. Switching the public/internal macro
+implementations off the legacy builder and deleting their Legacy imports remain
+in A-CUT1e-c2.
 
 ### A-CUT2 - Direct `contract_source` frontend
 
