@@ -459,7 +459,8 @@ private def viewInstructionAllowed (catalog : Core.HostOp.HostOpCatalog) : Instr
   | .crosscall spec _ => spec.mode == .staticInvoke
   | .hostCall call =>
       match ProofForge.IR.Core.HostOp.HostOpCatalog.lookup catalog call.id with
-      | .ok signature => signature.effectClass == .context
+      | .ok signature =>
+          signature.effectClass == .pure || signature.effectClass == .context
       | .error _ => false
   | .storageStore _ _ | .storageRemove _ | .storageResize _ _ | .emit _ _ => false
 

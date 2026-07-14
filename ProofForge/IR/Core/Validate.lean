@@ -1091,7 +1091,7 @@ private def checkTerminator (m : Module) (f : Function) (b : Block) :
 
 /- Pass 7: capability and HostOp references. When a catalog is provided, verify
 that each `hostCall` has a known signature, argument types match, result types
-match, and the effect class is not pure. Without a catalog, fall back to the
+match, and the effect class is recognized. Without a catalog, fall back to the
 basic empty-namespace/name check. -/
 
 private def checkCapabilityAndHostOp (m : Module) (catalog? : Option HostOpCatalog) :

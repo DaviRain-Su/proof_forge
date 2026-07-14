@@ -39,7 +39,6 @@ inductive HostOpError
   | typeMismatch
   | resultArityMismatch
   | resultTypeMismatch
-  | pureEffectfulMismatch
   deriving BEq, Repr
 
 /-- A catalog of host-operation signatures. Lookup is exact by `HostOpId`. -/
@@ -88,11 +87,11 @@ def HostOpCatalog.validateResults (sig : HostOpSig) (resultTypes : Array CoreTyp
     let mismatches := resultTypes.zip sig.results |>.filter (fun (a, b) => a != b)
     if mismatches.isEmpty then .ok () else .error .resultTypeMismatch
 
-/-- Validate that the effect class is not pure when used as a hostCall. -/
+/-- Validate that the signature can use the generic typed HostOp carrier.
+All effect classes are legal here; view mutability is checked separately. -/
 def HostOpCatalog.validateCallUsage (sig : HostOpSig) :
     Except HostOpError Unit :=
   match sig.effectClass with
-  | .pure => .error .pureEffectfulMismatch
-  | .context | .external => .ok ()
+  | .pure | .context | .external => .ok ()
 
 end ProofForge.IR.Core.HostOp

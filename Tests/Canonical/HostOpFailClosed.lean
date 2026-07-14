@@ -19,7 +19,7 @@ def testSig : HostOpSig := {
   requiredCapabilities := #[ProofForge.Target.Capability.nearPromise]
 }
 
-/-- A pure signature for testing effect-class mismatch. -/
+/-- A pure signature for testing the typed pure HostOp carrier. -/
 def pureSig : HostOpSig := {
   id := { namespace_ := "math", name := "addMod", version := { major := 1, minor := 0, patch := 0 } }
   params := #[.u64, .u64, .u64]
@@ -101,10 +101,11 @@ def main : IO Unit := do
   | .ok _ => throw <| IO.userError "wrong result type should reject"
   | .error e => require (e matches .resultTypeMismatch) s!"expected resultTypeMismatch, got {repr e}"
 
-  /- 8. Pure operation used with effectful signature -/
+  /- 8. Pure operations are valid typed HostOps. Mutability is enforced by the
+  Canonical interface validator rather than by rejecting the carrier. -/
   match HostOpCatalog.validateCallUsage pureSig with
-  | .ok _ => throw <| IO.userError "pure sig used as hostCall should reject"
-  | .error e => require (e matches .pureEffectfulMismatch) s!"expected pureEffectfulMismatch, got {repr e}"
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"pure HostOp should be accepted, got {repr e}"
 
   /- 9. Missing required capability. -/
   let handler : HostOpHandler String := {

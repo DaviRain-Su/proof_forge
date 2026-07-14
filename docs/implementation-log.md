@@ -2738,3 +2738,18 @@ Rules:
   `Tests/Canonical/TargetContextHostOps.lean`, `just ir-target-boundary`, and
   `git diff --check`.
 - Next: audit and migrate EVM-only `ecrecover`/EIP-712 expression constructors.
+
+## 2026-07-14 - EVM-R1c prerequisite: pure HostOp carrier
+
+- Status: `done (verified 2026-07-14)`; EVM crypto migration follows.
+- Reconciled Core validation with the accepted HostOp architecture: pure
+  target operations may use the same exact typed/versioned HostOp carrier as
+  context and external operations.
+- Canonical view validation now accepts `.pure` and `.context` HostOps while
+  continuing to reject `.external` HostOps. Removed the obsolete
+  `pureEffectfulMismatch` error and inverted its fail-closed unit test into a
+  positive pure-carrier assertion; arity, argument/result types, version,
+  capability, and handler checks remain unchanged.
+- Verification passed: targeted Core HostOp/Validate/Canonical builds,
+  `Tests/Canonical/HostOpFailClosed.lean`,
+  `Tests/Canonical/TargetContextHostOps.lean`, and `git diff --check`.
