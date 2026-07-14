@@ -51,32 +51,33 @@ structure CompileDiagnostic where
   message : String
   deriving Repr
 
-/-- A versioned author source discovered by the Lean frontend. -/
+/-- A contract source discovered by the Lean frontend.
+`surfaceFixture` is an internal migration input, not a public source version. -/
 inductive LoadedContractSource
-  | legacyV1 (spec : ContractSpec)
-  | surfaceV2 (contract : ProofForge.Frontend.Surface.SurfaceContract)
+  | authored (spec : ContractSpec)
+  | surfaceFixture (contract : ProofForge.Frontend.Surface.SurfaceContract)
 
 namespace LoadedContractSource
 
-/-- Normalize either source version without translating Surface back to Legacy.
-Surface v2 is canonical-only; requesting the frozen Legacy pipeline fails. -/
+/-- Normalize an authored source or internal Surface fixture without translating
+Surface back to Legacy. Fixtures are canonical-only. -/
 def toCanonical (mode : CompilerPipeline) : LoadedContractSource →
     Except CompileDiagnostic CanonicalBundle
-  | .legacyV1 spec =>
+  | .authored spec =>
       match ProofForge.Frontend.ContractSpec.normalize spec with
       | .ok bundle => .ok bundle
       | .error e => .error {
-          mode, targetId := "source", message := s!"legacy source adaptation failed: {repr e}" }
-  | .surfaceV2 contract =>
+          mode, targetId := "source", message := s!"authored source normalization failed: {repr e}" }
+  | .surfaceFixture contract =>
       if mode == .legacy then
         .error {
           mode, targetId := "source",
-          message := "Surface v2 cannot request the Legacy pipeline" }
+          message := "internal Surface fixture cannot request the Legacy pipeline" }
       else
         match ProofForge.Frontend.Surface.normalizeSurface contract with
         | .ok bundle => .ok bundle
         | .error e => .error {
-            mode, targetId := "source", message := s!"Surface v2 normalization failed: {repr e}" }
+            mode, targetId := "source", message := s!"Surface fixture normalization failed: {repr e}" }
 
 end LoadedContractSource
 

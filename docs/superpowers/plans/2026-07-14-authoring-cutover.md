@@ -29,8 +29,9 @@ the cutover.
   parity from the single authored contracts.
 - The temporary EVM fixture route still compiles those internal AST values,
   while NEAR and Solana compile the original product source.
-- `Compiler.LoadedContractSource` and `Cli.ContractLoader` expose a public
-  `legacyV1` versus `surfaceV2` split.
+- `Compiler.LoadedContractSource` and `Cli.ContractLoader` retain two internal
+  input shapes during migration: authored `ContractSpec` and temporary Surface
+  fixtures. They no longer expose those shapes as public source versions.
 - Backend goldens have been removed from `Examples/Product`; live expectations
   now reside under `Examples/Backend/<Target>`.
 
@@ -101,6 +102,12 @@ every advertised target; focused target gates preserve existing behavior.
 
 Acceptance: repository search finds no Product/Canonical route and no public
 V1/V2 source branch.
+
+Checkpoint (2026-07-14): the public version split is removed. Loader cases are
+named `authored` and `surfaceFixture`, SDK/source metadata uses the single
+`contract-source` identity, and diagnostics describe Surface values as internal
+migration fixtures. Deleting `TestFixtures/SurfaceProducts` remains blocked on
+A-CUT3 feature parity, so A-CUT4 is not yet complete.
 
 ### A-CUT5 - Delete Legacy production code
 

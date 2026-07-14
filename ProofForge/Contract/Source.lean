@@ -34,12 +34,9 @@ namespace ProofForge.Contract.Source
 open Lean
 open ProofForge.IR
 
-/-- Machine-readable `contract_source` surface version (PF-P1-05). Bump when
-entry arity, item syntax, or diagnostic codes change incompatibly. -/
-def sourceDslVersion : String := "contract_source-v1"
-
-/-- Surface v2 source DSL version. -/
-def sourceSurfaceVersion : String := "contract_source-v2"
+/-- Stable machine-readable identity for the public `contract_source` format.
+Schema evolution is tracked by schema metadata, not parallel source routes. -/
+def sourceDslVersion : String := "contract-source"
 
 abbrev ScalarRef := ProofForge.Contract.Source.Internal.ScalarRef
 abbrev MapRef := ProofForge.Contract.Source.Internal.MapRef

@@ -420,7 +420,7 @@ def checkEvmSurfaceContractSource
                     (pushValidation
                       (pushValidation
                         (pushValidation
-                          (pushValidation report.validation "sourceVersion" "surface-v2")
+                          (pushValidation report.validation "sourceVersion" "contract-source")
                           "canonicalNormalize" "passed")
                         "hostOps" "passed")
                       "backendPlan" "passed")
@@ -448,9 +448,9 @@ unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (inpu
         }
         validation := pushValidation report.validation "contractSource" "failed"
       }
-  | .ok (.legacyV1 _) =>
+  | .ok (.authored _) =>
       return ← checkLegacyContractSource profile input root? moduleName? report
-  | .ok (.surfaceV2 contract) =>
+  | .ok (.surfaceFixture contract) =>
       return checkEvmSurfaceContractSource input contract report
 
 def checkFixture (profile : ProofForge.Target.TargetProfile) (targetId fixtureId : String)

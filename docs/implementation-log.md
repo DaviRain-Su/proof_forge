@@ -3641,3 +3641,17 @@ Rules:
 - Verification: targeted Source/Product/stdlib/materializer builds,
   source-DSL arity, protocol tests, canonical boundary self-test and gate, and
   repository search for the retired public module names.
+
+## 2026-07-14 - Authoring cleanup A-CUT4a: remove the public V1/V2 source split
+
+- Status: `done (verified 2026-07-14)`; deleting temporary Surface fixtures
+  remains in A-CUT4 after A-CUT3 reaches feature parity.
+- Renamed `LoadedContractSource.legacyV1/surfaceV2` to the non-versioned
+  internal cases `authored/surfaceFixture`. Loader diagnostics now identify the
+  latter as a migration fixture rather than a second authoring language.
+- Replaced `contract_source-v1`, `contract_source-v2`, and `surface-v2`
+  metadata with the single stable `contract-source` identity. Removed the
+  duplicate SDK/source version constants.
+- Verification: affected CLI/compiler build, SourceLoader and source arity
+  tests, canonical EVM bytecode/check route, boundary scans, and
+  `git diff --check`.

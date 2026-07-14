@@ -96,7 +96,7 @@ private def resolveSpecConstName (env : Environment) (modName : Name) : Option N
 
 abbrev LoadedContractSource := ProofForge.Compiler.LoadedContractSource
 
-/-- Candidate names for Surface v2 `contract` constant. -/
+/-- Candidate names for an internal Surface fixture `contract` constant. -/
 private def candidateSurfaceNames (modName : Name) : List Name :=
   let lastComponent :=
     match modName.components.reverse with
@@ -113,7 +113,7 @@ private def isSurfaceContractConst (env : Environment) (constName : Name) : Bool
       | _ => false
   | none => false
 
-/-- Resolve the Surface v2 `contract` constant. -/
+/-- Resolve an internal Surface fixture `contract` constant. -/
 private def resolveSurfaceConstName (env : Environment) (modName : Name) : Option Name :=
   (candidateSurfaceNames modName).find? fun candidate =>
     env.constants.contains candidate && isSurfaceContractConst env candidate
@@ -121,20 +121,20 @@ private def resolveSurfaceConstName (env : Environment) (modName : Name) : Optio
 /-- Discover exactly one supported source constant. Fails on ambiguity or missing. -/
 unsafe def loadSourceFromEnv (env : Environment) (modName : Name) :
     IO LoadedContractSource := do
-  let legacySpec? := resolveSpecConstName env modName
+  let authoredSpec? := resolveSpecConstName env modName
   let surfaceSpec? := resolveSurfaceConstName env modName
-  match legacySpec?, surfaceSpec? with
+  match authoredSpec?, surfaceSpec? with
   | some _, some _ =>
-      throw <| IO.userError s!"module `{modName}` exports both ContractSpec (v1) and SurfaceContract (v2); ambiguousContractSource"
+      throw <| IO.userError s!"module `{modName}` exports both an authored ContractSpec and an internal Surface fixture; ambiguousContractSource"
   | none, none =>
-      throw <| IO.userError s!"module `{modName}` exports neither ContractSpec (v1) nor SurfaceContract (v2); missingContractSource"
+      throw <| IO.userError s!"module `{modName}` exports neither an authored ContractSpec nor an internal Surface fixture; missingContractSource"
   | some constName, none =>
       match env.evalConstCheck ProofForge.Contract.ContractSpec {} `ProofForge.Contract.ContractSpec constName with
-      | .ok spec => pure (ProofForge.Compiler.LoadedContractSource.legacyV1 spec)
+      | .ok spec => pure (ProofForge.Compiler.LoadedContractSource.authored spec)
       | .error msg => throw <| IO.userError msg
   | none, some constName =>
       match env.evalConstCheck ProofForge.Frontend.Surface.SurfaceContract {} `ProofForge.Frontend.Surface.SurfaceContract constName with
-      | .ok contract => pure (ProofForge.Compiler.LoadedContractSource.surfaceV2 contract)
+      | .ok contract => pure (ProofForge.Compiler.LoadedContractSource.surfaceFixture contract)
       | .error msg => throw <| IO.userError msg
 
 unsafe def loadSource

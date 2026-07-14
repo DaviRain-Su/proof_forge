@@ -31,7 +31,7 @@ def require (condition : Bool) (message : String) : IO Unit :=
   else throw <| IO.userError message
 
 def main : IO UInt32 := do
-  require (ProofForge.Contract.Source.sourceDslVersion == "contract_source-v1")
+  require (ProofForge.Contract.Source.sourceDslVersion == "contract-source")
     s!"unexpected dsl version {ProofForge.Contract.Source.sourceDslVersion}"
   require (module.entrypoints.size == 1)
     "FiveParamProbe should declare one entry"

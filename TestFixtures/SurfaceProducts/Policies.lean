@@ -13,7 +13,7 @@ private def zeroAddress : SurfaceExpr :=
 private def sender : SurfaceExpr :=
   .contextRead .sender
 
-/-- Portable ownership policy expressed directly in Surface v2. -/
+/-- Portable ownership policy expressed as an internal Surface fixture. -/
 def ownable : SurfaceContract := {
   name := "Ownable"
   structs := #[]
@@ -60,7 +60,7 @@ def ownable : SurfaceContract := {
   constructorBindings := #[]
 }
 
-/-- Portable emergency-stop state machine expressed directly in Surface v2. -/
+/-- Portable emergency-stop state machine expressed as an internal Surface fixture. -/
 def pausable : SurfaceContract := {
   name := "Pausable"
   structs := #[]
@@ -86,7 +86,7 @@ def pausable : SurfaceContract := {
   constructorBindings := #[]
 }
 
-/-- Portable critical-section lock expressed directly in Surface v2. -/
+/-- Portable critical-section lock expressed as an internal Surface fixture. -/
 def reentrancyGuard : SurfaceContract := {
   name := "ReentrancyGuard"
   structs := #[]
@@ -115,7 +115,7 @@ def reentrancyGuard : SurfaceContract := {
 private def roleKey (role account : SurfaceExpr) : SurfaceExpr :=
   .hashPair (.hash role) (.hash account)
 
-/-- Compact portable role membership policy expressed directly in Surface v2. -/
+/-- Compact portable role membership policy expressed as an internal Surface fixture. -/
 def accessControl : SurfaceContract := {
   name := "AccessControl"
   structs := #[]
@@ -186,7 +186,7 @@ def ownableHash : SurfaceContract := {
 private def senderU64 : SurfaceExpr :=
   .cast .u64 sender
 
-/-- Owner-gated emergency-stop composition expressed directly in Surface v2. -/
+/-- Owner-gated emergency-stop composition expressed as an internal Surface fixture. -/
 def ownablePausable : SurfaceContract := {
   name := "OwnablePausable"
   structs := #[]

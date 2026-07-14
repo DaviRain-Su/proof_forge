@@ -35,39 +35,39 @@ def withoutResolvedSelectors
       { entrypoint with selector? := none } }
 
 unsafe def main : IO Unit := do
-  let legacyCounter ← load "Examples/Product/Counter.lean"
-  match legacyCounter with
-  | .legacyV1 _ => pure ()
-  | .surfaceV2 _ => throw <| IO.userError "legacy Counter discovered as Surface v2"
+  let authoredCounter ← load "Examples/Product/Counter.lean"
+  match authoredCounter with
+  | .authored _ => pure ()
+  | .surfaceFixture _ => throw <| IO.userError "authored Counter discovered as an internal Surface fixture"
 
   let surfaceCounter ← load "TestFixtures/SurfaceProducts/Counter.lean"
   match surfaceCounter with
-  | .surfaceV2 _ => pure ()
-  | .legacyV1 _ => throw <| IO.userError "canonical Counter discovered as Legacy v1"
+  | .surfaceFixture _ => pure ()
+  | .authored _ => throw <| IO.userError "internal Surface Counter discovered as an authored source"
 
-  let legacyBundle ← canonicalize legacyCounter
+  let authoredBundle ← canonicalize authoredCounter
   let surfaceBundle ← canonicalize surfaceCounter
-  require (legacyBundle.contract.contract.module == surfaceBundle.contract.contract.module)
+  require (authoredBundle.contract.contract.module == surfaceBundle.contract.contract.module)
     "Counter Core module differs between product source and internal Surface fixture"
   require
-      (withoutResolvedSelectors legacyBundle.contract.contract.interface ==
+      (withoutResolvedSelectors authoredBundle.contract.contract.interface ==
         withoutResolvedSelectors surfaceBundle.contract.contract.interface)
     "Counter interface shape differs between product source and internal Surface fixture"
   match surfaceCounter.toCanonical .legacy with
   | Except.error diagnostic =>
       require (diagnostic.message.contains "cannot request the Legacy pipeline")
-        "wrong Surface-v2/Legacy diagnostic"
-  | Except.ok _ => throw <| IO.userError "Surface v2 accepted the Legacy pipeline"
+        "wrong Surface fixture/Legacy diagnostic"
+  | Except.ok _ => throw <| IO.userError "Surface fixture accepted the Legacy pipeline"
 
-  let legacyVault ← canonicalize (← load "Examples/Product/ValueVault.lean")
+  let authoredVault ← canonicalize (← load "Examples/Product/ValueVault.lean")
   let surfaceVault ← canonicalize (← load "TestFixtures/SurfaceProducts/ValueVault.lean")
   require (surfaceVault.contract.contract.module.state.size == 6) "Surface ValueVault state drift"
   require (surfaceVault.contract.contract.module.functions.size == 7) "Surface ValueVault entrypoint drift"
   require (surfaceVault.contract.contract.module.events.size == 5) "Surface ValueVault event drift"
-  require (legacyVault.contract.contract.module == surfaceVault.contract.contract.module)
-    s!"Surface ValueVault Core module differs from product ValueVault:\nlegacy={repr legacyVault.contract.contract.module}\nsurface={repr surfaceVault.contract.contract.module}"
+  require (authoredVault.contract.contract.module == surfaceVault.contract.contract.module)
+    s!"Surface ValueVault Core module differs from product ValueVault:\nauthored={repr authoredVault.contract.contract.module}\nsurface={repr surfaceVault.contract.contract.module}"
   require
-      (withoutResolvedSelectors legacyVault.contract.contract.interface ==
+      (withoutResolvedSelectors authoredVault.contract.contract.interface ==
         withoutResolvedSelectors surfaceVault.contract.contract.interface)
     "Surface ValueVault interface shape differs from product ValueVault"
 
@@ -85,9 +85,7 @@ unsafe def main : IO Unit := do
   expectLoadError ambiguousPath "ambiguousContractSource"
   expectLoadError missingPath "missingContractSource"
 
-  require (ProofForge.Contract.SdkSchema.sourceVersionV1 == "contract_source-v1") "SDK v1 version"
-  require (ProofForge.Contract.SdkSchema.sourceVersionV2 == "contract_source-v2") "SDK v2 version"
-  require (ProofForge.Contract.Source.sourceDslVersion == "contract_source-v1") "Source v1 version"
-  require (ProofForge.Contract.Source.sourceSurfaceVersion == "contract_source-v2") "Source v2 version"
+  require (ProofForge.Contract.SdkSchema.sourceVersion == "contract-source") "SDK source identity"
+  require (ProofForge.Contract.Source.sourceDslVersion == "contract-source") "Source identity"
 
   IO.println "source-loader: ok"

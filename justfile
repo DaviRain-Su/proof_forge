@@ -318,11 +318,11 @@ evm-canonical-bytecode-route: build
     PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/Counter.bin TestFixtures/SurfaceProducts/Counter.lean
     PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/ERC4626Vault.bin TestFixtures/SurfaceProducts/ERC4626Vault.lean
     test $(tr -d '\n' < build/evm-canonical-bytecode-route/ERC4626Vault.bin | wc -c) -le 49152
-    jq -e '.sourceKind == "surface-v2" and .sdkSchema == null and .validation.contractSizeCheck.status == "passed" and (.abi.entrypoints | length) == 23' build/evm-canonical-bytecode-route/proof-forge-artifact.json >/dev/null
+    jq -e '.sourceKind == "contract-source" and .sdkSchema == null and .validation.contractSizeCheck.status == "passed" and (.abi.entrypoints | length) == 23' build/evm-canonical-bytecode-route/proof-forge-artifact.json >/dev/null
 
 # Check command validates the internal migration fixture through the EVM plan.
 evm-canonical-check-route: build
-    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge check --target evm --root . --report-format json TestFixtures/SurfaceProducts/Counter.lean | jq -e '.status == "ok" and .validation.sourceVersion == "surface-v2" and .validation.canonicalNormalize == "passed" and .validation.backendPlan == "passed" and .validation.lowering == "passed"' >/dev/null
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge check --target evm --root . --report-format json TestFixtures/SurfaceProducts/Counter.lean | jq -e '.status == "ok" and .validation.sourceVersion == "contract-source" and .validation.canonicalNormalize == "passed" and .validation.backendPlan == "passed" and .validation.lowering == "passed"' >/dev/null
 
 # Exact catalog coverage through temporary internal Surface fixtures.
 evm-canonical-product-route: build

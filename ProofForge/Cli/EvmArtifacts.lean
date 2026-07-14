@@ -48,14 +48,14 @@ def renderCanonicalSpecEvmYul (spec : ProofForge.Contract.ContractSpec) : Except
   | .ok yul => .ok yul
   | .error error => .error s!"canonical: EVM render failed: {error.message}"
 
-/-- Render a Surface v2 source through the production Canonical Core route.
-There is no Surface-to-Legacy conversion and no fallback renderer. -/
+/-- Render an internal Surface fixture through the production Canonical Core
+route. There is no Surface-to-Legacy conversion or fallback renderer. -/
 def renderSurfaceEvmYul (opts : CliOptions)
     (contract : ProofForge.Frontend.Surface.SurfaceContract) :
     IO (String × ProofForge.Backend.Evm.Plan.ModulePlan) := do
   unless opts.evmConstructorArgsHex.isEmpty do
     throw <| IO.userError
-      "Surface v2 EVM constructor arguments are not materialized yet; use an explicit init entrypoint"
+      "Surface fixture EVM constructor arguments are not materialized yet; use an explicit init entrypoint"
   let bundle ← match ProofForge.Frontend.Surface.normalizeSurface contract with
     | .ok bundle => pure bundle
     | .error error => throw <| IO.userError s!"canonical: Surface normalization failed: {repr error}"
@@ -807,7 +807,7 @@ def writeEvmPlanArtifactMetadata
     {
       moduleName := plan.name
       path? := some input.toString
-      kind := "surface-v2"
+      kind := "contract-source"
       leanElaborated := true
     }
     (plan.capabilities.map (·.id))

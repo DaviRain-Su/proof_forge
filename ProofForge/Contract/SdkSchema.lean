@@ -14,8 +14,7 @@ def schemaVersion : Nat := 0
 
 def irVersion : String := "portable-ir-v0"
 
-def sourceVersionV1 : String := "contract_source-v1"
-def sourceVersionV2 : String := "contract_source-v2"
+def sourceVersion : String := "contract-source"
 
 abbrev JsonField := String × String
 

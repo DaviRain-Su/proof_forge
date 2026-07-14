@@ -92,7 +92,7 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
   else
     let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
     match source with
-    | .legacyV1 spec =>
+    | .authored spec =>
         let opts ← match finalizeConstructorOptionsForSpec opts spec with
           | .ok opts => pure opts
           | .error msg => throw <| IO.userError msg
@@ -107,7 +107,7 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
           kind := "contract-sdk"
           leanElaborated := true
         } hydratedSpec module yulOutput output
-    | .surfaceV2 contract =>
+    | .surfaceFixture contract =>
         let (yul, plan) ← renderSurfaceEvmYul opts contract
         writeTextFile yulOutput yul
         let bytecode ← solcOptimizedBytecode opts.solc yulOutput
@@ -131,12 +131,12 @@ unsafe def compileContractSourceYul (opts : CliOptions) : IO UInt32 := do
     else do
       let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
       match source with
-      | .legacyV1 spec =>
+      | .authored spec =>
           let opts ← match finalizeConstructorOptionsForSpec opts spec with
             | .ok opts => pure opts
             | .error msg => throw <| IO.userError msg
           pure (← renderContractSpecEvmYul opts spec).fst
-      | .surfaceV2 contract =>
+      | .surfaceFixture contract =>
           pure (← renderSurfaceEvmYul opts contract).fst
   writeTextFile output yul
   IO.println s!"wrote {output}"

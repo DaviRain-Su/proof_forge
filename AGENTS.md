@@ -172,7 +172,7 @@ Core are internal compiler representations.
 | A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
 | A-CUT2 | in_progress (public Surface helper removed) | Make `contract_source` normalize directly to Canonical Core; helpers now enter only through `Contract.Source` |
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
-| A-CUT4 | pending | Delete temporary Surface fixtures and the public V1/V2 source split |
+| A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
 
 The D-052 cross-program routing index remains below for work not superseded by
