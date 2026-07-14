@@ -776,7 +776,7 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       | .accountId => .ok (state, .string "")
       | .contractId | .checkpointId | .timestamp | .epochHeight | .chainId | .gasLeft | .prepaidGas | .usedGas =>
           .ok (state, .u64 0)
-      | .randomSeed | .origin =>
+      | .randomSeed | .signer =>
           .ok (state, .hash 0 0 0 0)
   | .eventEmit name fields => do
       let (nextState, data) ← evalEventFields state frame fields

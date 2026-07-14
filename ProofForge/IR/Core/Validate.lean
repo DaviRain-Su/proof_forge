@@ -963,7 +963,7 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     match instr.results with
     | #[r] =>
       let expected := match field with
-        | .sender | .contractAddress => .address
+        | .sender | .signer | .contractAddress => .address
         | .value => .u128
         | .blockNumber | .blockTimestamp | .gas => .u64
       unless r.type == expected do

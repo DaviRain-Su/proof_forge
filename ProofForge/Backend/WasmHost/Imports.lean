@@ -70,7 +70,7 @@ def deallocImport : Import :=
 def modulePlanUsesSha256 (plan : ModulePlan) : Bool :=
   plan.usesHashPreimage || plan.usesHashTwoToOne ||
     plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
-    plan.contextOps.contains .contractId || plan.contextOps.contains .origin
+    plan.contextOps.contains .contractId || plan.contextOps.contains .signer
 
 def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
   nearImports.filter fun import_ =>
@@ -87,7 +87,7 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | "storage_usage" => plan.usesStorageUsage
     | "promise_batch_create" | "promise_batch_action_transfer" => plan.usesPromiseTransfer
     | "log_utf8" => plan.usesEventApi
-    | "signer_account_id" => plan.contextOps.contains .origin
+    | "signer_account_id" => plan.contextOps.contains .signer
     | "block_timestamp" => plan.contextOps.contains .timestamp
     | "epoch_height" => plan.contextOps.contains .epochHeight
     | "random_seed" => plan.contextOps.contains .randomSeed
@@ -103,7 +103,7 @@ def ctxImportsForModulePlan (plan : ModulePlan) : Array Import :=
     (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
         plan.contextOps.contains .accountId ||
         plan.contextOps.contains .currentAccountId ||
-        plan.contextOps.contains .contractId || plan.contextOps.contains .origin then #[registerLenImport] else #[]) ++
+        plan.contextOps.contains .contractId || plan.contextOps.contains .signer then #[registerLenImport] else #[]) ++
     (if plan.contextOps.contains .checkpointId then #[blockHeightImport] else #[]) ++
     (if plan.contextOps.contains .prepaidGas then #[prepaidGasImport] else #[]) ++
     (if plan.contextOps.contains .usedGas then #[usedGasImport] else #[])
@@ -114,14 +114,14 @@ def promiseCtxImportsForModulePlan (plan : ModulePlan) : Array Import :=
   else
     (if plan.contextOps.contains .contractId then #[] else #[currentAcctImport]) ++
       (if plan.contextOps.contains .userId || plan.contextOps.contains .accountId ||
-        plan.contextOps.contains .contractId || plan.contextOps.contains .origin then
+        plan.contextOps.contains .contractId || plan.contextOps.contains .signer then
         #[] else #[registerLenImport])
 
 def promiseResultImportsForModulePlan (plan : ModulePlan) : Array Import :=
   if !plan.usesPromiseResultU64 then
     #[]
   else if plan.contextOps.contains .userId || plan.contextOps.contains .contractId ||
-      plan.contextOps.contains .origin || plan.usesPromiseReceiverAccount then
+      plan.contextOps.contains .signer || plan.usesPromiseReceiverAccount then
     #[]
   else
     #[registerLenImport]
@@ -227,7 +227,7 @@ def importsForModulePlan
         if plan.usesStorageWrite then acc.push sorobanPutImport else acc
       let withAuth :=
         if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
-            plan.contextOps.contains .origin then
+            plan.contextOps.contains .signer then
           withStorage.push sorobanRequireAuthImport
         else
           withStorage

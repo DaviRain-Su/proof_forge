@@ -156,7 +156,7 @@ private def coreHasCrosscall (m : ProofForge.IR.Core.Module) : Bool :=
 private def coreNeedsSender (m : ProofForge.IR.Core.Module) : Bool :=
   m.functions.any fun fn => fn.blocks.any fun block =>
     block.instructions.any fun instruction => match instruction.op with
-      | .contextRead .sender => true
+      | .contextRead .sender | .contextRead .signer => true
       | _ => false
 
 /-- Build an empty extensions plan. -/
@@ -322,7 +322,7 @@ private def lowerFunctionPlan (fields : Array SolanaStateFieldPlan)
       match instr.op, instr.results[0]? with
       | .contextRead field, some result =>
           let name := reprStr field
-          if name.endsWith "sender" || name.endsWith "origin" then some result.id.value else none
+          if name.endsWith "sender" || name.endsWith "signer" then some result.id.value else none
       | _, _ => none
     let ops <- block.instructions.mapM
       (lowerInstructionPlan fields iface.events calleeAccountIndex accountContextValues)

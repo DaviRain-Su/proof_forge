@@ -298,7 +298,7 @@ honest rejects. -/
 
 def mapContextField (field : ContextField) : Except LowerError (ValueType × Expression) :=
   match field with
-  | .userId | .userIdHash | .origin => .ok (.address, .memberAccess ⟨.identifier "self", "caller"⟩)
+  | .userId | .userIdHash | .signer => .ok (.address, .memberAccess ⟨.identifier "self", "caller"⟩)
   | .checkpointId => .ok (.u32, .memberAccess ⟨.identifier "block", "height"⟩)
   | .timestamp => .error { message := "Leo IR v0 does not lower timestamp: Leo `block.timestamp` is i64, which has no portable ValueType" }
   | .chainId => .error { message := "Leo IR v0 does not lower chainId: Leo `network.id` is u16, which has no portable ValueType" }

@@ -16,7 +16,6 @@ ProofForge/IR/Contract.lean:fallback 2
 ProofForge/IR/Contract.lean:nearPrepaidGas 1
 ProofForge/IR/Contract.lean:nearPromise 7
 ProofForge/IR/Contract.lean:nearUsedGas 1
-ProofForge/IR/Contract.lean:origin 5
 ProofForge/IR/Contract.lean:prepaidGas 5
 ProofForge/IR/Contract.lean:receive 1
 ProofForge/IR/Contract.lean:solidityArgExprs 4

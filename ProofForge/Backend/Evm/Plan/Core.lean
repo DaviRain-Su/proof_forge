@@ -143,6 +143,7 @@ private def coreAbiTypeSupported : CoreType → Bool
 as `none` so the caller can special-case it. -/
 def coreContextToPlan? : Core.ContextField → Option ContextExprPlan
   | .sender => some .userId
+  | .signer => some .origin
   | .blockNumber => some .checkpointId
   | .blockTimestamp => some .timestamp
   | .gas => some .gasLeft

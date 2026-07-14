@@ -3482,3 +3482,29 @@ Rules:
   `lake env lean --run Tests/HostRuntime.lean`,
   `lake env lean --run Tests/ChainAgnosticRoute.lean`, `just evm-coverage`,
   `just ir-target-boundary`, `just legacy-freeze`, and `git diff --check`.
+
+## 2026-07-14 - EVM-R4f: separate signer from EVM origin
+
+- Status: `done (verified 2026-07-14)`; EVM-R4 is complete. The next checkpoint
+  is the repository-wide Legacy/Surface/version/product-source cleanup required
+  before NEAR migration starts.
+- Replaced the overloaded shared `ContextField.origin` with the portable
+  `ContextField.signer` intent and added Canonical Core `ContextField.signer`.
+  EVM maps it to `tx.origin`, Solana maps it to the first signer account, and
+  NEAR maps it to `signer_account_id`; immediate caller/predecessor remains the
+  separate `sender`/`caller` intent.
+- Kept exact EVM `tx.origin` solely behind the typed
+  `Contract.Source.Evm.origin` HostOp. `HostEnv.txOrigin` now rejects Solana and
+  NEAR instead of claiming a weak alias, while portable `HostEnv.signer`
+  materializes on the primary triad.
+- Renamed the WasmHost semantic-plan node from `origin` to `signer` and updated
+  Legacy fixtures/backends to consume the portable signer spelling. No shared
+  IR constructor or target-boundary allowance named `origin` remains.
+- Verification: affected Core/EVM/Solana/WasmHost builds,
+  `lake env lean --run Tests/HostRuntime.lean`,
+  `lake env lean --run Tests/IRPortability.lean`,
+  `lake env lean --run Tests/Canonical/LegacyParity.lean`,
+  `lake env lean --run Tests/Backend/Solana/SolanaMapContextSafety.lean`,
+  `lake env lean --run Tests/Backend/Wasm/EmitWatContext.lean`,
+  `scripts/evm/context-ir-smoke.sh` (5 Foundry cases), `just evm-coverage`,
+  `just ir-target-boundary`, `just legacy-freeze`, and `git diff --check`.

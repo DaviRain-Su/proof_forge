@@ -85,7 +85,7 @@ def main : IO Unit := do
     "contractId must be portable-core after Solana program_id lower (U1.2)"
   require (!ContextField.chainId.isPortableEnv) "chainId is EVM-only materialize"
   require (!ContextField.epochHeight.isPortableEnv) "epochHeight is NEAR-only"
-  require (!ContextField.origin.isPortableEnv) "origin must be EVM-only"
+  require ContextField.signer.isPortableEnv "signer must be portable across the primary triad"
   require (!ContextField.gasLeft.isPortableEnv) "gasLeft must be EVM-only"
   require (!ContextField.randomSeed.isPortableEnv) "randomSeed must not be portable-core"
 

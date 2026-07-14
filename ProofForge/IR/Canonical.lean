@@ -328,7 +328,7 @@ private def pureOpCapabilities : PureOp → Array Capability
       .compare _ _ _ | .cast _ _ => #[]
 
 private def contextCapabilities : ContextField → Array Capability
-  | .sender => #[.callerSender]
+  | .sender | .signer => #[.callerSender]
   | .value => #[.valueNative]
   | .blockNumber | .blockTimestamp | .gas => #[.envBlock]
   | .contractAddress => #[.accountExplicit]

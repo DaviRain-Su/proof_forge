@@ -1281,7 +1281,7 @@ mutual
     | .prepaidGas => .error { message := "EVM context read `prepaidGas` is not supported; prepaid_gas is NEAR-only (use gasLeft for EVM gas)" }
     | .usedGas => .error { message := "EVM context read `usedGas` is not supported; used_gas is NEAR-only (use gasLeft for EVM gas)" }
     | .randomSeed => .error { message := "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode" }
-    | .origin => .ok .origin
+    | .signer => .ok .origin
 
   partial def buildEventFieldValuePlan
       (module : Module)

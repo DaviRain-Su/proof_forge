@@ -248,7 +248,7 @@ mutual
           | .userId | .contractId | .checkpointId | .timestamp | .epochHeight
           | .chainId | .gasLeft | .prepaidGas | .usedGas =>
               .ok (state, .u64 0)
-          | .userIdHash | .randomSeed | .origin =>
+          | .userIdHash | .randomSeed | .signer =>
               .ok (state, .hash 0 0 0 0)
           | .accountId => .ok (state, .string "")
       | .eventEmit name fields => do

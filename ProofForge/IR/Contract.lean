@@ -112,7 +112,7 @@ mutual
     | prepaidGas
     | usedGas
     | randomSeed
-    | origin
+    | signer
     deriving Repr, BEq
 
   inductive Expr where
@@ -229,10 +229,10 @@ def ContextField.name : ContextField → String
   | .prepaidGas => "prepaidGas"
   | .usedGas => "usedGas"
   | .randomSeed => "randomSeed"
-  | .origin => "origin"
+  | .signer => "signer"
 
 def ContextField.capability : ContextField → ProofForge.Target.Capability
-  | .userId | .userIdHash | .origin | .accountId => .callerSender
+  | .userId | .userIdHash | .signer | .accountId => .callerSender
   | .contractId => .accountExplicit
   | .checkpointId | .timestamp | .epochHeight | .chainId | .gasLeft | .prepaidGas | .usedGas | .randomSeed => .envBlock
 
@@ -257,7 +257,7 @@ def ContextField.toHostEnv : ContextField → ProofForge.Target.HostRuntime.Host
   | .prepaidGas => .nearPrepaidGas
   | .usedGas => .nearUsedGas
   | .randomSeed => .randomness
-  | .origin => .txOrigin
+  | .signer => .signer
 
 /-- Product portable-core env whitelist: true only when **every** primary triad
 target (`evm` · `solana-sbpf-asm` · `wasm-near`) materializes the field via

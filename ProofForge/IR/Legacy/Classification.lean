@@ -111,7 +111,7 @@ def classifyContextField : ContextField → LegacyDecision
   | .prepaidGas => payloadDecision "ContextField.prepaidGas" .normalize "near-context-hostop" "prepaid gas maps to near.context.prepaid_gas"
   | .usedGas => payloadDecision "ContextField.usedGas" .normalize "near-context-hostop" "used gas maps to near.context.used_gas"
   | .randomSeed => payloadDecision "ContextField.randomSeed" .normalize "near-context-hostop" "NEAR randomness maps to near.context.random_seed"
-  | .origin => payloadDecision "ContextField.origin" .normalize "evm-context-hostop" "transaction origin maps to evm.context.origin"
+  | .signer => payloadDecision "ContextField.signer" .normalize "canonical-core" "transaction signer maps to canonical signer context"
 
 def classifyEntrypointKind : EntrypointKind → LegacyDecision
   | .function => payloadDecision "EntrypointKind.function" .preserve "canonical-interface" "normal function dispatch kind is preserved"
@@ -760,7 +760,7 @@ def storagePathSegmentInventory : Array StoragePathSegment := #[
 
 def contextFieldInventory : Array ContextField := #[
   .userId, .userIdHash, .accountId, .contractId, .checkpointId, .timestamp, .epochHeight,
-  .chainId, .gasLeft, .prepaidGas, .usedGas, .randomSeed, .origin
+  .chainId, .gasLeft, .prepaidGas, .usedGas, .randomSeed, .signer
 ]
 
 def entrypointKindInventory : Array EntrypointKind := #[

@@ -32,7 +32,7 @@ def contextHashes : Entrypoint := {
   returns := .fixedArray .hash 1
   body := #[
     .return <| .arrayLit .hash #[
-      .effect (.contextRead .origin)
+      .effect (.contextRead .signer)
     ]
   ]
 }

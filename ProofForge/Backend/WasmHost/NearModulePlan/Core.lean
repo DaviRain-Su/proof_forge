@@ -171,6 +171,7 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | .storageRemove _ => usesStorageWrite := true
         | .contextRead .value => usesNativeValue := true
         | .contextRead .sender => contextOps := contextOps.push .userId |>.push .userIdHash
+        | .contextRead .signer => contextOps := contextOps.push .signer
         | .contextRead .contractAddress => contextOps := contextOps.push .contractId
         | .contextRead .blockNumber => contextOps := contextOps.push .checkpointId
         | .contextRead .blockTimestamp => contextOps := contextOps.push .timestamp

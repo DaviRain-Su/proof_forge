@@ -14,7 +14,7 @@ inductive ContextExprPlan where
   | timestamp
   | epochHeight
   | randomSeed
-  | origin
+  | signer
   | prepaidGas
   | usedGas
   deriving BEq, DecidableEq, Repr

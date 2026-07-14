@@ -31,7 +31,7 @@ def ContextExprPlan.field : ContextExprPlan → ContextField
   | .timestamp => .timestamp
   | .epochHeight => .epochHeight
   | .randomSeed => .randomSeed
-  | .origin => .origin
+  | .signer => .signer
   | .prepaidGas => .prepaidGas
   | .usedGas => .usedGas
 
@@ -44,7 +44,7 @@ def buildContextExprPlan : ContextField → Except PlanError ContextExprPlan
   | .timestamp => .ok .timestamp
   | .epochHeight => .ok .epochHeight
   | .randomSeed => .ok .randomSeed
-  | .origin => .ok .origin
+  | .signer => .ok .signer
   | .prepaidGas => .ok .prepaidGas
   | .usedGas => .ok .usedGas
   | .chainId =>

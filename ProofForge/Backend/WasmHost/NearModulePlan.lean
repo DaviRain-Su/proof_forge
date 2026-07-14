@@ -539,7 +539,7 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         .ok #[.call "epoch_height", .localSet s!"v{result.id}"]
       else if field.endsWith "sender" then
         .ok #[.call Context.ctxUserIdName, .localSet s!"v{result.id}"]
-      else if field.endsWith "origin" then
+      else if field.endsWith "signer" then
         .ok #[.call Context.ctxSignerName, .localSet s!"v{result.id}"]
       else if field.endsWith "contractAddress" then
         .ok #[.call Context.ctxContractIdName, .localSet s!"v{result.id}"]
@@ -552,7 +552,7 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
       .ok #[.call "epoch_height", .localSet s!"v{result.id}"]
     else if field.endsWith "randomSeed" then
       .ok #[.call Context.ctxRandomSeedName, .localSet s!"v{result.id}"]
-    else if field.endsWith "origin" then
+    else if field.endsWith "signer" then
       .ok #[.call Context.ctxSignerName, .localSet s!"v{result.id}"]
     else if field.endsWith "value" then
       if canonicalNearType result.typeName == .u128 then
@@ -784,7 +784,7 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings lit
       | _ => #[])).foldl (fun acc value => if acc.any (fun old => old.id == value.id) then acc else acc.push value) #[]
   let authPrologue :=
     if plan.hostBridge.bridge == .soroban &&
-        plan.surface.contextOps.any (fun op => op == .userId || op == .userIdHash || op == .origin) then
+        plan.surface.contextOps.any (fun op => op == .userId || op == .userIdHash || op == .signer) then
       #[.i32Const 0, .i32Const 0, .call "require_auth_for_args", .drop]
     else
       #[]

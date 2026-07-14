@@ -86,7 +86,7 @@ def ctxContractIdFunc : Func :=
       .i32Const CTX_BUF, .load "i64.load" 0 ] } }
 
 /-- Signer account id: sha256(signer_account_id_bytes)[0..8] as u64.
-    Maps to IR `ContextField.origin` (tx.origin equivalent). On NEAR the signer
+    Maps to IR `ContextField.signer`. On NEAR the signer
     is the account that signed the transaction, distinct from the predecessor
     (the immediate caller). -/
 def ctxSignerFunc : Func :=
@@ -118,7 +118,7 @@ def ctxHelperFuncsForModulePlan (plan : ModulePlan)
     (if plan.contextOps.contains .userId then #[ctxUserIdFunc] else #[]) ++
       (if plan.contextOps.contains .userIdHash then #[ctxUserHashFunc] else #[]) ++
       (if plan.contextOps.contains .contractId then #[ctxContractIdFunc] else #[]) ++
-      (if plan.contextOps.contains .origin then #[ctxSignerFunc] else #[])
+      (if plan.contextOps.contains .signer then #[ctxSignerFunc] else #[])
       -- randomSeed: NOT supported on Soroban (no import)
   | _ =>
     (if plan.contextOps.contains .userId then #[ctxUserIdFunc] else #[]) ++
@@ -126,7 +126,7 @@ def ctxHelperFuncsForModulePlan (plan : ModulePlan)
       (if plan.contextOps.contains .accountId then #[ctxAccountIdFunc] else #[]) ++
       (if plan.contextOps.contains .currentAccountId then #[ctxCurrentAccountIdFunc] else #[]) ++
       (if plan.contextOps.contains .contractId then #[ctxContractIdFunc] else #[]) ++
-      (if plan.contextOps.contains .origin then #[ctxSignerFunc] else #[]) ++
+      (if plan.contextOps.contains .signer then #[ctxSignerFunc] else #[]) ++
       (if plan.contextOps.contains .randomSeed then #[ctxRandomSeedFunc] else #[])
 
 def lowerContextExprPlan :
@@ -146,7 +146,7 @@ def lowerContextExprPlan :
   | .timestamp => .ok (#[.call "block_timestamp"], .u64)
   | .epochHeight => .ok (#[.call "epoch_height"], .u64)
   | .randomSeed => .ok (#[.call ctxRandomSeedName], .hash)
-  | .origin => .ok (#[.call ctxSignerName], .u64)
+  | .signer => .ok (#[.call ctxSignerName], .u64)
   | .prepaidGas => .ok (#[.call "prepaid_gas"], .u64)
   | .usedGas => .ok (#[.call "used_gas"], .u64)
 

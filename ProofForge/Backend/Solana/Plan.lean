@@ -722,7 +722,7 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
   | .assert condition _ => .ok #[canonicalLoadValue condition .r2,
       .instruction { opcode := .jeq, dst := some .r2, imm := some (.num 0), off := some (.sym "assert_fail") }]
   | .context result field => do
-      if field.endsWith "sender" || field.endsWith "origin" then
+      if field.endsWith "sender" || field.endsWith "signer" then
         return #[
           .comment "solana.context.userId: account[0] pubkey u64-le word 0 handle",
           .instruction { opcode := .ldxdw, dst := some .r2, src := some .r1, off := some (.num 16) },

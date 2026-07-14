@@ -562,8 +562,8 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
   | .effect (.contextRead .userId) =>
       let (nodes, ctx) := lowerAccount0PubkeyDigestU64 ctx "userId"
       .ok (nodes, ctx)
-  | .effect (.contextRead .origin) =>
-      let (nodes, ctx) := lowerAccount0PubkeyDigestU64 ctx "origin"
+  | .effect (.contextRead .signer) =>
+      let (nodes, ctx) := lowerAccount0PubkeyDigestU64 ctx "signer"
       .ok (nodes, ctx)
   | .effect (.contextRead .userIdHash) =>
       -- Full 32-byte identity digest left at digest buffer; r2 holds limb0 and

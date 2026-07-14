@@ -377,7 +377,7 @@ theorem evalEffectFuel_contextRead_u64_eq (fuel : Nat) (state : State) (frame : 
   | prepaidGas => simp [evalEffectFuel]
   | usedGas => simp [evalEffectFuel]
   | randomSeed => simp at h
-  | origin => simp at h
+  | signer => simp at h
 
 end Context
 

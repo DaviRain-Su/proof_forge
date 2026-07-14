@@ -29,11 +29,9 @@ def testHostSemantics : HostSemantics where
   handle _ _ _ := .error (.unknownHostOp { namespace_ := "test", name := "unknown", version := { major := 1, minor := 0, patch := 0 } })
   handleContext field :=
     match field with
-    | .sender | .origin | .contractAddress => .ok (.address "")
-    | .blockNumber | .blockTimestamp | .epochHeight | .gas => .ok (.u64 0)
-    | .randomSeed => .ok (.hash "")
+    | .sender | .signer | .contractAddress => .ok (.address "")
+    | .blockNumber | .blockTimestamp | .gas => .ok (.u64 0)
     | .value => .ok (.u128 0)
-    | .accountId => .ok (.string "")
   handleHash _ := .error .unsupportedHash
   handleCrosscall request _ := .error (.unsupportedCrosscall request.mode)
 

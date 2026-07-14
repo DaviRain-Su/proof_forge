@@ -333,7 +333,7 @@ def adaptContextRead (field : ProofForge.IR.ContextField) :
   | .checkpointId => .ok (.portable .blockNumber .u64)
   | .timestamp => .ok (.portable .blockTimestamp .u64)
   | .gasLeft => .ok (.portable .gas .u64)
-  | .origin => .ok (.host ProofForge.Target.HostOps.Evm.originSig.id .address)
+  | .signer => .ok (.portable .signer .address)
   | .epochHeight => .ok (.host ProofForge.Target.HostOps.Near.epochHeightSig.id .u64)
   | .randomSeed => .ok (.host ProofForge.Target.HostOps.Near.randomSeedSig.id .hash)
   | .accountId => .ok (.host ProofForge.Target.HostOps.Near.predecessorAccountIdSig.id .string)
@@ -353,7 +353,7 @@ def adaptContextField (field : ProofForge.IR.ContextField) : Except Canonicalize
 
 def contextFieldType (field : ProofForge.IR.Core.ContextField) : CoreType :=
   match field with
-  | .sender | .contractAddress => .address
+  | .sender | .signer | .contractAddress => .address
   | .value => .u128
   | .blockNumber | .blockTimestamp | .gas => .u64
 

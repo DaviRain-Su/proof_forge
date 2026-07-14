@@ -288,7 +288,7 @@ def callerAccountId : ProofForge.IR.Expr :=
 /-- The transaction signer (EVM `tx.origin` / NEAR `signer_account_id`).
     Distinct from `caller` (the immediate caller / predecessor). -/
 def signer : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.contextRead .origin
+  ProofForge.Contract.Builder.contextRead .signer
 
 def nativeValue : ProofForge.IR.Expr :=
   .nativeValue

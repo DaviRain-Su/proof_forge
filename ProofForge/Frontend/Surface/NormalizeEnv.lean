@@ -134,7 +134,7 @@ def adaptContextField (field : SurfaceContextField) : ContextField :=
 /-- Result type of a Core context read. -/
 def contextFieldType (field : ContextField) : CoreType :=
   match field with
-  | .sender | .contractAddress => .address
+  | .sender | .signer | .contractAddress => .address
   | .value => .u128
   | .blockNumber | .blockTimestamp | .gas => .u64
 
