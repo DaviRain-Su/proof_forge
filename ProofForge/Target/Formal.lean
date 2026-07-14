@@ -35,21 +35,25 @@ theorem requireCapabilityPlan_sound {profile : TargetProfile} {plan checked : Ca
       | error err =>
           simp [hExt, hHost] at h
       | ok _ =>
-          cases hCall : firstUnsupportedCapabilityCall? profile plan.calls with
+          cases hHostCall : firstUnsupportedHostOpCall? profile plan.calls with
           | some call =>
-              simp [hExt, hHost, hCall] at h
+              simp [hExt, hHost, hHostCall] at h
           | none =>
-              cases hCaps : requireCapabilities profile plan.capabilities with
-              | error err =>
-                  simp [hExt, hHost, hCall, hCaps] at h
-              | ok _ =>
-                  simp [hExt, hHost, hCall, hCaps] at h
-                  subst checked
-                  have hSupported : CapabilityPlan.supportedBy profile plan = true :=
-                    (requireCapabilities_ok_iff profile plan.capabilities).mp hCaps
-                  have hExtension : CapabilityPlan.targetExtensionsAllowed profile plan = true :=
-                    (requireTargetExtensionMetadata_ok_iff profile plan.calls).mp hExt
-                  simp [CapabilityPlan.checkedBy, hSupported, hExtension]
+              cases hCall : firstUnsupportedCapabilityCall? profile plan.calls with
+              | some call =>
+                  simp [hExt, hHost, hHostCall, hCall] at h
+              | none =>
+                  cases hCaps : requireCapabilities profile plan.capabilities with
+                  | error err =>
+                      simp [hExt, hHost, hHostCall, hCall, hCaps] at h
+                  | ok _ =>
+                      simp [hExt, hHost, hHostCall, hCall, hCaps] at h
+                      subst checked
+                      have hSupported : CapabilityPlan.supportedBy profile plan = true :=
+                        (requireCapabilities_ok_iff profile plan.capabilities).mp hCaps
+                      have hExtension : CapabilityPlan.targetExtensionsAllowed profile plan = true :=
+                        (requireTargetExtensionMetadata_ok_iff profile plan.calls).mp hExt
+                      simp [CapabilityPlan.checkedBy, hSupported, hExtension]
 
 theorem requireCapabilityPlan_capability_sound {profile : TargetProfile}
     {plan checked : CapabilityPlan}

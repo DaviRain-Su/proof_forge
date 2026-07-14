@@ -167,6 +167,12 @@ printf '%s\n' 'import ProofForge.Frontend.Surface.Syntax' \
   > "$root/ProofForge/Frontend/Authored/Syntax.lean"
 expect_failure "authored syntax imports Surface" "$root"
 
+root="$TMP/retired-adapter-api"
+make_fixture "$root"
+printf '%s\n' 'def normalize := adaptContractSpecCanonical' \
+  > "$root/ProofForge/CompilerLeak.lean"
+expect_failure "retired Legacy adapter API" "$root"
+
 root="$TMP/comments"
 make_fixture "$root"
 printf '%s\n' '-- historical id: "evm-core"' 'def ids := #["evm"]' > "$root/ProofForge/Target/Registry.lean"

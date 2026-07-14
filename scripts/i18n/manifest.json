@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "b93736494d26535338ddc5e4d180eca66fc5b7345eb1a57045fe78f67beb9e0a",
+    "sha256": "5de9af42ff6333d31d79b2e4eb54123ce7919465ba9088f4d41a6939356e0f29",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through IR-B4b completion"
+    "note": "synced EN/zh through Solana layout, authoring, and NEAR runtime status updates"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -72,10 +72,10 @@
     "model": "manual"
   },
   "docs/development-standards.md": {
-    "sha256": "f9dcc0052aa02f0aa0c494127a9c79dd36ad91cb38f1e1ad45613562940f3dc7",
+    "sha256": "102cd85d35a4d4311c7160bef4191bbb8751a7340b2bfb8111af85f666a66960",
     "zh": "docs/zh/development-standards.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-10 audit integration"
+    "note": "manually synced through the Runtime.Psy ownership move"
   },
   "docs/architecture.md": {
     "sha256": "97ba93b5c8ff67fb24e80f7eee0d777ca1279b53f0b4761bdf68c5117ce7110b",
@@ -123,10 +123,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/rfcs/0014-unified-semantic-lowering-contract.md": {
-    "sha256": "9d0ee2684a65b5c49dea4d83cd431f9f48d8a222330183ccf0bfc87480f49d72",
+    "sha256": "f0ed59b2602a4452e523b3e6addc8fb53cddc1aa52a94d310f22bdf7decb30a5",
     "zh": "docs/zh/rfcs/0014-unified-semantic-lowering-contract.zh.md",
     "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "note": "synced after optional ProofForgeFormal library consolidation"
   },
   "docs/targets/README.md": {
     "sha256": "bca843801bb9cd3c46486a9d42179a07a5d93a7c6b0e64e833bc40a582d3cffe",
@@ -168,10 +168,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/targets/wasm-near.md": {
-    "sha256": "e133eaa593dda5e69a8724939ebe98232281686b9bd05cb78e954c2ae268d2a8",
+    "sha256": "4dabbe733cebea0ab98198ba374eae1983198cd3efbdb06fa2be45db1f3a99d3",
     "zh": "docs/zh/targets/wasm-near.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for target-owned NEAR HostOps"
+    "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
     "sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd",
@@ -181,9 +181,10 @@
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {
-    "sha256": "01bc8f804f62c56a171796721b7adbba2fd36955bdedbc48187f7020236ace08",
+    "sha256": "6e42948c3b35c234514afaea8f14e5873c8fba05d32d02f29ff8e0bc28bab8a7",
     "zh": "docs/zh/tutorials/portable-shared-path.zh.md",
-    "model": "manual-zh"
+    "model": "manual-zh",
+    "note": "manually synced for Source authoring path"
   },
   "docs/examples-and-tests-taxonomy.md": {
     "sha256": "fb36d60c71c095f1ea75c4ff3229eac5a6668244eb014242fa4bba7019255da0",

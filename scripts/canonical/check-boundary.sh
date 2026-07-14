@@ -14,6 +14,7 @@
 #   9. product/public authoring modules importing or constructing Surface
 #  10. optional formal libraries claiming default-backend namespace ownership
 #  11. final Authored syntax importing transitional source/IR representations
+#  12. retired Legacy adapter APIs reappearing in production code
 #
 # This is a required static gate in `just check`.
 
@@ -217,6 +218,12 @@ for f in "${AUTHORED_MODEL[@]}"; do
     report "authored frontend model $f imports a legacy authoring implementation"
   fi
 done
+
+# ── 12. Retired Legacy adapter APIs stay deleted ───────────────────
+if rg -n '\b(?:adaptLegacy|adaptContractSpecCanonical)\b' ProofForge \
+    >/dev/null 2>&1; then
+  report "retired Legacy adapter API referenced by production code"
+fi
 
 if [ "$FAIL" -eq 0 ]; then
   echo "canonical-boundary: ok"

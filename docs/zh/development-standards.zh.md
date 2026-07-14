@@ -77,7 +77,7 @@
 
 - Lean 工具链是来自 `lean-toolchain` 的 `leanprover/lean4:v4.31.0`。
 - 基础构建门禁是 `lake build`。
-- 当前库根为 `ProofForge`、`ProofForge.Psy`、`ProofForge.Target`、
+- 当前库根为 `ProofForge`、`ProofForge.Runtime.Psy`、`ProofForge.Target`、
   `ProofForge.IR`、`ProofForge.Backend`、
   `ProofForge.Backend.Solana.SbpfAsm`、`ProofForge.Compiler.Yul.AST`、
   `ProofForge.Compiler.Yul.Printer`、`ProofForge.Compiler.Wasm.AST`、

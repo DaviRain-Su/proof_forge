@@ -99,14 +99,14 @@ receiver 路由、具名 JSON hook/callback 参数，以及 allowance 不再使�
 
 ### `caller` vs `callerHash`
 
-`ProofForge.Contract.Surface.caller` 仍然是 portable `userId` context 表达式，
+`ProofForge.Contract.Source.caller` 仍然是 portable `userId` context 表达式，
 lower 为 `predecessor_account_id` 的 `U64` 投影。它适合 legacy U64-keyed 示例，
 但不够宽，不能安全地作为 NEAR account balance 的 key。
 
-`ProofForge.Contract.Surface.callerHash` 将 `userIdHash` lower 为
+`ProofForge.Contract.Source.callerHash` 将 `userIdHash` lower 为
 `predecessor_account_id` 的完整 32-byte SHA-256 digest。NEP-141 stdlib 使用
 `callerHash` 作为 account-keyed balances、allowance owner key，以及
-`ft_on_transfer` sender 参数。`ProofForge.Contract.Surface.signer` 是独立语义：
+`ft_on_transfer` sender 参数。`ProofForge.Contract.Source.signer` 是独立语义：
 它读取 `signer_account_id`，表示交易 signer，而不是 immediate predecessor。
 
 ### 为什么不用 `EmitZig`

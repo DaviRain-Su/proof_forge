@@ -4010,3 +4010,20 @@ Rules:
   ProofForge.Backend.Solana.Plan.Core`;
   `lake env lean --run Tests/Backend/Solana/SolanaBpfEncode.lean`;
   `lake env lean --run Tests/Canonical/SolanaHostOpCatalog.lean`.
+
+## 2026-07-14 - Post-rebase canonical boundary repair
+
+- Status: `done (verified 2026-07-14)`; no task ownership or migration order
+  changed.
+- Removed the zero-caller `Compiler.adaptContractSpecCanonical` residue. It
+  referenced the deleted `adaptLegacy` API and was hidden by a stale pre-rebase
+  `.olean`; public target drivers continue through the direct
+  `Frontend.ContractSpec.normalize` boundary.
+- Extended the canonical boundary gate and its self-test so retired Legacy
+  adapter APIs cannot reappear in production code.
+- Updated `requireCapabilityPlan_sound` to cover the target-owned HostOp handler
+  rejection branch introduced by the open extension protocol.
+- Verification: focused CanonicalPipeline, Target.Formal, and Stylus CLI builds;
+  canonical boundary self-test; `just canonical-boundary`;
+  `just strict-target-gate`; targeted Stylus, NEAR, and Solana gates; and
+  `git diff --check`.

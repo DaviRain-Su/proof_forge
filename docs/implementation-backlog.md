@@ -3613,7 +3613,7 @@ fixtures.
   and execute as the same Wasm under `just product-token-near`. N-T5 remains
   open until NEAR-R3/R4 removes the `NearSpec` / `ContractSpec` / Legacy
   normalization route.
-- ✅ P0: signer_account_id (host import + ctxSignerFunc + Surface.signer)
+- ✅ P0: signer_account_id (host import + ctxSignerFunc + Source.signer)
 - ✅ P0: attached_deposit (host import + .nativeValue lowering)
 - ✅ P0: Aggregate ABI (loadParams Borsh struct/array decode)
 - ✅ P0 behavior / canonical replay open: NEP-145 has exact-one-yocto guards,

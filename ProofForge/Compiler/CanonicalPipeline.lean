@@ -30,14 +30,6 @@ open ProofForge.Contract
 open ProofForge.Target
 open ProofForge.Target.ArtifactBundle
 
-/-- Normalize a Legacy-compatible `ContractSpec` at the reviewed compiler
-boundary. Public target drivers use this helper instead of importing the
-Legacy adapter directly, so the production import freeze remains shrinking. -/
-def adaptContractSpecCanonical (spec : ContractSpec) : Except String CanonicalBundle :=
-  match adaptLegacy spec with
-  | .ok bundle => .ok bundle
-  | .error error => .error s!"canonical: adapt failed: {repr error}"
-
 /-- Internal compiler pipeline mode for dual-run testing. -/
 inductive CompilerPipeline
   | legacy
