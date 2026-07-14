@@ -4027,3 +4027,21 @@ Rules:
   canonical boundary self-test; `just canonical-boundary`;
   `just strict-target-gate`; targeted Stylus, NEAR, and Solana gates; and
   `git diff --check`.
+
+## 2026-07-14 - DOC-CMP: accept native differential validation
+
+- Status: `done (verified at 45d341ad)`.
+- Commit: `45d341ad`.
+- Result: accepted D-055 and a staged native-reference differential track that
+  consolidates existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
+  and Stylus Rust evidence without adding target-specific semantics to portable
+  IR or creating another compiler route.
+- Interfaces: comparison design/plan, A-CUT2/A-CUT3 acceptance, IR-B5/IR-B8,
+  NEAR-R4, the agent checkpoint, backlog, lifecycle index, and bilingual docs.
+- Verification: `just docs-check`, `python3 scripts/translate-docs.py --check`,
+  `python3 scripts/i18n/check-links.py`, and `git diff --check` passed.
+- Remaining: finish A-CUT1e-c2; then execute CMP-0 before CMP-1/CMP-2 become
+  part of the A-CUT2 completion gate.
+- Documentation: `AGENTS.md`, `docs/decisions.md`, `docs/document-status.md`,
+  `docs/implementation-backlog.md`, the July 14 comparison design/plan and
+  Chinese translations, plus attached authoring/IR/NEAR execution plans.
