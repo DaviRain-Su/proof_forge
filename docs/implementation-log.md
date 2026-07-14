@@ -3191,6 +3191,17 @@ Rules:
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
 
+## 2026-07-14 - EVM-R2p: direct Soulbound token body
+
+- Status: `done (verified 2026-07-14)`; 26 of 28 EVM catalog products now have
+  direct Surface v2 materialization.
+- Added the non-transferable balance body with mint, holder-bound burn,
+  supply/balance accounting, and Mint/Burn events. The absence of a transfer
+  entrypoint remains explicit in the direct interface.
+- Verification: targeted product build,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.
+
 ## 2026-07-14 - EVM-R2n: direct deployment-bound protocol products
 
 - Status: `done (verified 2026-07-14)`; 24 of 28 EVM catalog products now have
