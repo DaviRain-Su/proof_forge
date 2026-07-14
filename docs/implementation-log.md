@@ -3025,3 +3025,23 @@ Rules:
   `just check` ran.
 - Next: replace indexed `crosscallStrings` with direct portable values or
   target-owned attachments, then delete the shared pool.
+
+## 2026-07-14 - EVM-R1r: detach EVM crosscalls from host-string pools
+
+- Status: `done (verified 2026-07-14)`; NEAR and Solana pool consumers remain.
+- Extended the Legacy adapter environment only as a compatibility input so
+  ordinary `crosscall.invoke` indices normalize immediately into direct Core
+  `addressLit` and `stringLit` values.
+- Deleted `crosscallStrings` from the EVM `CorePlanEnv`. EVM target planning
+  now parses direct `0x` address literals and resolves direct method names to
+  selectors; clearing the Canonical materialization pool no longer changes or
+  breaks an EVM plan.
+- Added `Tests/Canonical/EvmDirectCrosscall.lean` to prove direct Core values
+  and pool-free EVM planning. Updated the EVM Canonical-plan test so valid
+  addresses materialize while invalid addresses fail with a target diagnostic.
+- Verification passed: targeted Adapter, EVM Core-plan, and Canonical-pipeline
+  builds; EVM direct-crosscall, EVM Canonical-plan, Legacy adapter, and EVM
+  proxy tests; `just ir-target-boundary`, `just legacy-freeze`, and `git diff
+  --check`. No full `just check` ran.
+- Next: finish remaining EVM-R1 authoring/constructor deletions, then begin the
+  NEAR sequence and remove its named/continuation pool handles.

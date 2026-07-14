@@ -20,7 +20,7 @@ on top of the current NEAR-specific `Expr` surface would enlarge the coupling.
 | IR-B4 | in_progress | Move EVM protocol/ABI operations out of shared IR | EVM focused plan/Foundry gates and non-EVM diagnostics |
 | IR-B5 | pending | Audit and migrate Solana-native PDA/CPI/account behavior | Solana grammar-isolation, intent, manifest, and light sBPF gates |
 | IR-B6 | pending | Audit and migrate other implemented target families | focused Wasm-host, Move, Aleo, Psy, and Quint gates |
-| IR-B7 | in_progress (EVM B7a-B7f verified 2026-07-14) | Move target environment, error, dispatch, and materialization fields | interface/materialization tests across registered targets |
+| IR-B7 | in_progress (EVM B7a-B7g verified 2026-07-14) | Move target environment, error, dispatch, and materialization fields | interface/materialization tests across registered targets |
 | IR-B8 | pending | Enforce the boundary and close compatibility debt | empty source-scan allowlist, product gate, affected runtime gates |
 
 ## IR-B0 - Audit and Freeze
@@ -200,7 +200,10 @@ constructor into shared IR.
    contract-scoped `evm.dispatch/proxy_pattern@1.0.0` attachment; the duplicate
    proxy fields and `CanonicalProxyPattern` have been deleted. The shared
    `crosscallStrings` pool remains and must be replaced without assigning its
-   multi-target values to one chain.
+   multi-target values to one chain. Ordinary Legacy `invoke` indices now
+   normalize to direct Core address/string literals, and the EVM Core planner
+   no longer reads the pool; NEAR named/continuation and Solana metadata paths
+   still require ordered migration.
 
 ## IR-B8 - Enforcement and Sign-off
 

@@ -244,6 +244,25 @@ def addressLiteralContract : CanonicalContract := {
   }
 }
 
+def invalidAddressLiteralContract : CanonicalContract := {
+  addressLiteralContract with
+  module := {
+    addressLiteralContract.module with
+    name := "InvalidAddressLiteral"
+    functions := #[{
+      id := ⟨0⟩, params := #[], retType := .address, entry := ⟨0⟩,
+      blocks := #[{
+        id := ⟨0⟩, params := #[],
+        instructions := #[
+          ⟨#[⟨⟨0⟩, .address⟩], .pure (.literal (.addressLit "not-an-evm-address"))⟩
+        ],
+        terminator := .return #[{ id := ⟨0⟩, type := .address }]
+      }]
+    }]
+  }
+  interface := { addressLiteralContract.interface with contractName := "InvalidAddressLiteral" }
+}
+
 def multiBlockContract : CanonicalContract := {
   unsupportedContract with
   module := {
@@ -398,7 +417,7 @@ def main : IO Unit := do
   | .error e =>
       require (e.message.contains "invalid EVM selector") s!"bad selector error: {e.message}"
 
-  /- Check 9: unsupported literals fail instead of silently materializing zero. -/
+  /- Check 9: valid EVM addresses materialize exactly; invalid ones fail. -/
   let addressChecked ← match validateCanonical {
       addressLiteralContract with
       requirements := deriveCapabilityRequirements
@@ -407,9 +426,20 @@ def main : IO Unit := do
     | .ok checked => pure checked
     | .error e => throw <| IO.userError s!"address literal fixture did not validate: {repr e}"
   match buildFromCore addressChecked emptyCapPlan with
-  | .ok _ => throw <| IO.userError "buildFromCore silently materialized an address literal"
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"valid EVM address literal failed: {e.message}"
+  let invalidAddressChecked ← match validateCanonical {
+      invalidAddressLiteralContract with
+      requirements := deriveCapabilityRequirements
+        invalidAddressLiteralContract.module invalidAddressLiteralContract.materialization
+    } with
+    | .ok checked => pure checked
+    | .error e => throw <| IO.userError s!"invalid-address fixture did not validate: {repr e}"
+  match buildFromCore invalidAddressChecked emptyCapPlan with
+  | .ok _ => throw <| IO.userError "buildFromCore accepted an invalid EVM address literal"
   | .error e =>
-      require (e.message.contains "address literals") s!"address literal error: {e.message}"
+      require (e.message.contains "invalid EVM address literal")
+        s!"invalid address literal error: {e.message}"
 
   /- Check 10: CFG control flow fails closed until it has a real lowering. -/
   let multiBlockChecked ← match validateCanonical {

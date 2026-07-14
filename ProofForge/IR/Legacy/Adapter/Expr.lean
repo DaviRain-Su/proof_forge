@@ -95,6 +95,9 @@ def coreLiteralType (l : CoreLiteral) : CoreType :=
   | .stringLit _ => .string
   | .hashLit _ => .hash
 
+private def crosscallString? (index : Nat) : AdapterM (Option String) := do
+  return (← get).env.crosscallStrings[index]?
+
 /- Build a pure arithmetic instruction from already-normalized operands. -/
 
 def arithmeticValue (mode : OverflowMode) (op : ArithmeticOp) (lhs rhs : ValueRef)
@@ -520,12 +523,21 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
   | .hashValue _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.hashValue" "four-input hash not in initial fragment")
   | .crosscallInvoke target method args => do
-      let normalizedTarget ← normalizeExpr target
-      let normalizedMethod ← match method with
+      let normalizedTarget ← match target with
+        | .literal (.address index) =>
+            match ← crosscallString? index with
+            | some value => emitValueInstruction (.pure (.literal (.addressLit value))) .address
+            | none => normalizeExpr target
+        | _ => normalizeExpr target
+      let methodIndex? := match method with
         | .literal (.address n) | .literal (.u64 n) | .literal (.u32 n) |
-            .literal (.u8 n) | .literal (.u128 n) =>
-            emitValueInstruction (.pure (.literal (.stringLit (toString n)))) .string
-        | _ => normalizeExpr method
+            .literal (.u8 n) | .literal (.u128 n) => some n
+        | _ => none
+      let normalizedMethod ← match methodIndex? with
+        | some index =>
+            let value := (← crosscallString? index).getD (toString index)
+            emitValueInstruction (.pure (.literal (.stringLit value))) .string
+        | none => normalizeExpr method
       let mut instructions := normalizedTarget.instructions ++ normalizedMethod.instructions
       let mut argRefs := #[]
       let mut paramTypes := #[]

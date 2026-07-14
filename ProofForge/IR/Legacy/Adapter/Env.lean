@@ -74,6 +74,7 @@ structure AdapterEnv where
   errorDecls : Array ErrorDecl
   registeredErrors : Array RegisteredError
   overflowMode : OverflowMode
+  crosscallStrings : Array String
   localValues : Std.HashMap String ValueRef
   localArrays : Std.HashMap String (Array ValueRef)
   nextTypeId : Nat
@@ -291,6 +292,7 @@ def buildEnv (m : Module) : Except CanonicalizeError AdapterEnv := do
     errorDecls := #[],
     registeredErrors := #[],
     overflowMode := if m.overflowChecked then .checked else .wrapping,
+    crosscallStrings := m.crosscallStrings,
     localValues := {},
     localArrays := {},
     nextTypeId := 0,

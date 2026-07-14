@@ -67,7 +67,10 @@ def coreLiteralToExprPlan : CoreLiteral → Except PlanError ExprPlan
   | .addressLit value =>
       match value.toNat? with
       | some word => .ok (.literalWord word)
-      | none => .error { message := "non-numeric address literals are not yet materialized by the EVM Core plan" }
+      | none =>
+          match ProofForge.Target.ProtocolMaterialize.parseEvmAddressHex? value with
+          | some word => .ok (.literalWord word)
+          | none => .error { message := s!"invalid EVM address literal `{value}`" }
   | .bytesLit _ => .error { message := "bytes literals are not yet materialized by the EVM Core plan" }
   | .stringLit value =>
       match value.toNat? with
@@ -155,7 +158,6 @@ structure CorePlanEnv where
   storage : StorageLayout := { states := #[] }
   events : Array (EventId × EventPlan) := #[]
   errors : Array (ErrorId × Option EvmErrorPlan) := #[]
-  crosscallStrings : Array String := #[]
 
 private def lookupValueName (env : CorePlanEnv) (id : ValueId) : Except PlanError String :=
   match env.values.find? (fun entry => entry.fst == id) with
@@ -258,28 +260,21 @@ private def bindInstructionResults (env : CorePlanEnv) (instr : Instruction) : C
   { env with values, literals }
 
 private def crosscallTargetExpr (env : CorePlanEnv) (target : ValueRef) : Except PlanError ExprPlan := do
-  let some (_, .addressLit poolIndex) := env.literals.find? (fun entry => entry.fst == target.id)
-    | valueExpr env target
-  let some index := poolIndex.toNat?
-    | valueExpr env target
-  let some host := env.crosscallStrings[index]?
+  let some (_, .addressLit host) := env.literals.find? (fun entry => entry.fst == target.id)
     | valueExpr env target
   let some address := ProofForge.Target.ProtocolMaterialize.parseEvmAddressHex? host
-    | valueExpr env target
+    | throw { message := s!"invalid direct EVM crosscall target `{host}`" }
   return .literalWord address
 
 private def crosscallMethodExpr (env : CorePlanEnv) (method : ValueRef) : Except PlanError ExprPlan := do
   let some (_, literal) := env.literals.find? (fun entry => entry.fst == method.id)
     | valueExpr env method
-  let index? := match literal with
-    | .addressLit poolIndex | .stringLit poolIndex => poolIndex.toNat?
-    | _ => none
-  let some index := index?
-    | valueExpr env method
-  let some name := env.crosscallStrings[index]?
+  let some name := (match literal with
+    | .stringLit name => some name
+    | _ => none)
     | valueExpr env method
   let some selector := ProofForge.Target.ProtocolMaterialize.evmSelector? name
-    | valueExpr env method
+    | throw { message := s!"invalid direct EVM crosscall method `{name}`" }
   return .literalWord selector
 
 /-- Compute the slot span for a Core state declaration.
@@ -848,7 +843,6 @@ def buildFromCore (checked : CheckedCanonicalContract)
     storage
     events := (iface.events.zip events).map (fun entry => (entry.fst.eventId, entry.snd))
     errors
-    crosscallStrings := checked.contract.materialization.crosscallStrings
   }
   /- Build entrypoint plans from interface. -/
   let mut entrypoints := #[]
