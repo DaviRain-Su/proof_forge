@@ -3191,6 +3191,16 @@ Rules:
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
 
+## 2026-07-14 - EVM-R2m: direct ProRataVault accounting
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
+- Added a direct Surface v2 ProRataVault with reusable asset/share conversion
+  statements, empty-vault fallback, guarded ratio branches, donation skew,
+  share ledgers, deposit/withdraw accounting, and exact product events.
+- Verification: targeted product build,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.
+
 ## 2026-07-14 - EVM-R2h: direct portable context products
 
 - Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
