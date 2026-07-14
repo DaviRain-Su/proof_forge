@@ -49,6 +49,24 @@ the cutover.
 Acceptance: the boundary gate passes and no new public Surface authoring path is
 introduced.
 
+### A-CUT1c - Optional formal-library ownership
+
+- Keep target-independent executable refinement interfaces in
+  `ProofForge/Backend/Refinement` and target-owned, mathlib-free refinement
+  seams in `ProofForge/Backend/<Target>/Refinement`.
+- Keep proofs that import powdr EVM semantics or solanalib in the independent
+  `ProofForgeFormalEvm` and `ProofForgeFormalSolana` Lake libraries, under the
+  shared module root `ProofForgeFormal/{Evm,Solana}`.
+- Do not place these heavyweight proof modules inside the default `ProofForge`
+  library, and do not restore unrelated top-level roots named
+  `EvmRefinement` or `SolanaRefinement`.
+
+Acceptance: the default compiler library imports neither optional formal
+library, while both focused formal targets build independently.
+
+Status (2026-07-14): done at `52742ff5`. This ownership cleanup precedes
+A-CUT2; it does not change portable IR or public contract authoring.
+
 ### A-CUT2 - Direct `contract_source` frontend
 
 - Preserve the existing user syntax, including the Counter source exactly as a

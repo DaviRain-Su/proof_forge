@@ -12,6 +12,14 @@ boundary.
 | `ProofForge/Psy.lean` | `ProofForge/Runtime/Psy.lean` | The module exposes `@[extern]` runtime intrinsics in `Lean.Psy`; it is neither portable authoring nor a compiler backend. |
 | `EvmRefinement/*`, `SolanaRefinement/*` | `ProofForgeFormal/Evm/*`, `ProofForgeFormal/Solana/*` | These remain outside `ProofForge/**` because they are separate Lake libraries with heavyweight optional semantic dependencies. The shared project namespace makes ownership explicit without merging them into the default compiler library. |
 
+`ProofForgeFormal` is intentionally a sibling of `ProofForge`, not a backend
+subdirectory. The directory boundary mirrors the Lake dependency boundary:
+`ProofForge` is the default compiler/CLI library, while `ProofForgeFormalEvm`
+and `ProofForgeFormalSolana` are opt-in proof libraries that may import powdr,
+solanalib, and their transitive proof dependencies. Lightweight refinement
+contracts used by normal compiler tests remain under
+`ProofForge/Backend/Refinement` or `ProofForge/Backend/<Target>/Refinement`.
+
 ## Enforced boundaries
 
 - `ProofForge.Contract.Source.Solana` is the only public Solana contract
