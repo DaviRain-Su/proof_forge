@@ -201,9 +201,22 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 |---|---|---|---|
 | A-CUT3d1-1 | Product ArrayExample has one current source identity | ✅ met | `just array-example-authoring-cutover` requires one direct `contract : AuthoredContract` and rejects Product `.spec`/`.module`, `Source.Legacy`, compatibility allowlist entries, and restored duplicate sources |
 | A-CUT3d1-2 | Retired implementations are deleted instead of adapted | ✅ met | the EVM ContractSpec wrapper and temporary Surface fixture/test are absent; Product callers use `.contract`, and topology no longer requires either source |
-| A-CUT3d1-3 | Fixed-array intent stays target-neutral through checked Core | ✅ met | direct Source normalizes the two literals to exactly two `memoryAlloc`, six `memoryStore`, and four `memoryLoad` operations without embedding an EVM, Solana, or NEAR layout |
+| A-CUT3d1-3 | Fixed-array intent stays target-neutral through checked Core | ✅ met | direct Source normalizes the three literals to exactly three `memoryAlloc`, nine `memoryStore`, and five `memoryLoad` operations without embedding an EVM, Solana, or NEAR layout |
 | A-CUT3d1-4 | Primary targets own concrete memory materialization | ✅ met | EVM emits Yul helpers and bounds checks, Solana emits `sol_alloc_free_` plus typed sBPF loads/stores, and NEAR emits Wasm linear-memory allocation and bounds traps from target-owned plans |
 | A-CUT3d1-5 | Public artifacts are Canonical-only and executable | ✅ met | primary artifacts report `contract-source-authored` / `canonical-core-v1`, EVM Yul compiles, Solana package metadata passes, and the NEAR offline host returns 3, 20, and 60 with no retired sidecars |
+
+## Gate CMP-3g1 - Independent ArrayExample reference contracts
+
+**Status: Closed for reference pinning only**
+
+**Closed: 2026-07-15 at `b8448961`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3g1-1 | Every primary target has an independent native reference | ✅ met | Solidity, Pinocchio Rust, and near-sdk Rust sources implement the same four operations without importing ProofForge compiler or IR modules; all v1 manifests match their source SHA-256 |
+| CMP-3g1-2 | The scenario covers positive fixed-array behavior and a planned failure | ✅ met | the four-step v1 scenario checks length, valid indexing, sum, and normalized out-of-bounds failure across all eight observation dimensions |
+| CMP-3g1-3 | Native sources build with pinned target toolchains | ✅ met | Solidity 0.8.30 compiles the EVM reference; cargo-build-sbf 3.1.12/platform-tools v1.52 builds the Pinocchio ELF; Rust 1.94.0 builds the near-sdk Wasm |
+| CMP-3g1-4 | Reference pinning does not claim equivalence | ✅ met | inventory contains 124 assets and exactly 30 verified assets; all three references and the scenario remain `semanticEvidence=none` until CMP-3g2 VM execution |
 
 ## Gate CMP-3d1 - Independent Ownable reference contracts
 

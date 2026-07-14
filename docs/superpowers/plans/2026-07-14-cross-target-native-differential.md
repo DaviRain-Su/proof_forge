@@ -304,13 +304,24 @@ ArrayExample fixed-array execution slices:
 
 | Slice | State | Scope |
 |---|---|---|
-| CMP-3g1 | in_progress | Pin independent Solidity, Pinocchio, and near-sdk ArrayExample references plus one versioned scenario for length, valid indexing, sum, and out-of-bounds rejection. Keep every new semantic asset at `none`. |
-| CMP-3g2 | pending after CMP-3g1 | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; promote evidence only after all observation dimensions and failure behavior match. |
+| CMP-3g1 | done (verified at `b8448961`) | Pin independent Solidity, Pinocchio, and near-sdk ArrayExample references plus one versioned scenario for length, valid indexing, sum, and out-of-bounds rejection. Keep every new semantic asset at `none`. |
+| CMP-3g2 | in_progress | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; promote evidence only after all observation dimensions and failure behavior match. |
 
 `ccb9221a` is the architecture prerequisite for these slices: Product
 ArrayExample now reaches target-owned EVM, Solana, and NEAR plans only through
 checked Canonical Core, and its Legacy wrapper and Surface fixture are deleted.
 That compile/runtime smoke is not native-reference equivalence by itself.
+
+CMP-3g1 completion evidence (2026-07-15): `b8448961` adds one portable
+`outOfBounds` query so the public Product interface can express the planned
+failure without a target branch. Independent Solidity, Pinocchio, and near-sdk
+references implement the same four operations, and their complete v1
+provenance manifests match the checked-in source digests. The versioned
+scenario covers length, valid indexing, sum, and normalized out-of-bounds
+failure across all eight observation dimensions. The native sources compile
+with Solidity 0.8.30, cargo-build-sbf 3.1.12/platform-tools v1.52, and Rust
+1.94.0 respectively. Inventory now contains 124 assets and still exactly 30
+verified assets; all four new semantic assets remain `none` until CMP-3g2.
 
 Acceptance:
 

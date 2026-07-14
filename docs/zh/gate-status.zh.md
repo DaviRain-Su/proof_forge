@@ -194,9 +194,22 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 |---|---|---|---|
 | A-CUT3d1-1 | Product ArrayExample 只有一个当前 source identity | ✅ met | `just array-example-authoring-cutover` 要求唯一 direct `contract : AuthoredContract`，并拒绝 Product `.spec`/`.module`、`Source.Legacy`、compatibility allowlist 条目和恢复的重复 source |
 | A-CUT3d1-2 | 旧实现被删除而不是适配 | ✅ met | EVM ContractSpec wrapper 和临时 Surface fixture/test 均不存在；Product 调用方使用 `.contract`，topology 不再要求这两份 source |
-| A-CUT3d1-3 | fixed-array intent 经 checked Core 保持 target-neutral | ✅ met | direct Source 将两个 literal 归一化为恰好两个 `memoryAlloc`、六个 `memoryStore` 和四个 `memoryLoad`，不嵌入 EVM、Solana 或 NEAR layout |
+| A-CUT3d1-3 | fixed-array intent 经 checked Core 保持 target-neutral | ✅ met | direct Source 将三个 literal 归一化为恰好三个 `memoryAlloc`、九个 `memoryStore` 和五个 `memoryLoad`，不嵌入 EVM、Solana 或 NEAR layout |
 | A-CUT3d1-4 | 主目标拥有具体 memory 物化 | ✅ met | EVM 发射 Yul helper 与边界检查，Solana 发射 `sol_alloc_free_` 加 typed sBPF load/store，NEAR 从 target-owned plan 发射 Wasm 线性内存分配与越界 trap |
 | A-CUT3d1-5 | 公开 artifact 仅使用 Canonical 且可执行 | ✅ met | 主目标 artifact 报告 `contract-source-authored` / `canonical-core-v1`，EVM Yul 编译通过，Solana package metadata 通过，NEAR offline host 返回 3、20、60，且没有 retired sidecar |
+
+## Gate CMP-3g1 —— 独立 ArrayExample reference 契约
+
+**状态：仅 reference 固定阶段已关闭**
+
+**关闭时间：2026-07-15，提交 `b8448961`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-3g1-1 | 每个主 target 都有独立原生 reference | ✅ met | Solidity、Pinocchio Rust 与 near-sdk Rust source 实现相同四项操作，不导入 ProofForge compiler 或 IR module；所有 v1 manifest 均与 source SHA-256 一致 |
+| CMP-3g1-2 | 场景覆盖 fixed-array 正向行为与计划失败 | ✅ met | 四步 v1 场景在全部八个 observation dimension 上检查长度、合法索引、求和与归一化越界失败 |
+| CMP-3g1-3 | 原生 source 由固定目标工具链构建 | ✅ met | Solidity 0.8.30 编译 EVM reference；cargo-build-sbf 3.1.12/platform-tools v1.52 构建 Pinocchio ELF；Rust 1.94.0 构建 near-sdk Wasm |
+| CMP-3g1-4 | 固定 reference 不宣称等价 | ✅ met | inventory 包含 124 项资产和恰好 30 项 verified；三个 reference 与场景在 CMP-3g2 VM 执行前保持 `semanticEvidence=none` |
 
 ## Gate CMP-3d1 —— 独立 Ownable reference 契约
 

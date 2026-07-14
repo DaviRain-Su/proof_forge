@@ -249,13 +249,22 @@ ArrayExample fixed-array 执行切片：
 
 | 切片 | 状态 | 范围 |
 |---|---|---|
-| CMP-3g1 | in_progress | 固定独立 Solidity、Pinocchio 与 near-sdk ArrayExample reference，并定义一个覆盖长度、合法索引、求和和越界拒绝的版本化场景。所有新增语义资产保持 `none`。 |
-| CMP-3g2 | pending after CMP-3g1 | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；只有全部 observation dimension 与失败行为一致后才晋级证据。 |
+| CMP-3g1 | done（在 `b8448961` 验证） | 固定独立 Solidity、Pinocchio 与 near-sdk ArrayExample reference，并定义一个覆盖长度、合法索引、求和和越界拒绝的版本化场景。所有新增语义资产保持 `none`。 |
+| CMP-3g2 | in_progress | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；只有全部 observation dimension 与失败行为一致后才晋级证据。 |
 
 `ccb9221a` 是这些切片的架构前置：Product ArrayExample 现在只通过
 checked Canonical Core 到达 target-owned EVM、Solana 与 NEAR plan，Legacy
 wrapper 和 Surface fixture 已删除。该编译/运行冒烟本身不等于原生 reference
 语义等价。
+
+CMP-3g1 完成证据（2026-07-15）：`b8448961` 增加一个 portable
+`outOfBounds` query，使公开 Product interface 不借助 target branch 就能表达计划中的
+失败。独立 Solidity、Pinocchio 与 near-sdk reference 实现相同四项操作，完整 v1
+provenance manifest 与签入 source digest 一致。版本化场景在全部八个 observation
+dimension 上覆盖长度、合法索引、求和与归一化越界失败。原生 source 分别通过
+Solidity 0.8.30、cargo-build-sbf 3.1.12/platform-tools v1.52 与 Rust 1.94.0
+编译。Inventory 现含 124 项资产，仍恰有 30 项 verified；四项新增语义资产在
+CMP-3g2 前保持 `none`。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

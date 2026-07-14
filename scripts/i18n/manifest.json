@@ -39,10 +39,10 @@
     "note": "initial native differential validation design"
   },
   "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
-    "sha256": "c26d3cabcb56f52e4224a64f0788528c111b62c59950319b810de8ae4bd941a0",
+    "sha256": "e5ae21d89f0b7093f8553e09091b3da7901e2954f6bc972d88b47fae53f80388",
     "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through ArrayExample direct cutover and active CMP-3g1"
+    "note": "manually synced through CMP-3g1 reference pinning and active CMP-3g2"
   },
   "docs/capability-registry.md": {
     "sha256": "15c07590251894b4d8dbf6baf927ee6d4a5d80ea69a74ce02e79e0da3168ac4c",
@@ -74,10 +74,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "451dba7cdc90d7fdd36dfd026f8941f473f6358027e23eef442e5a0693c2b080",
+    "sha256": "22d2a39b17ea77c9236f80b0dac4add9fc09f7c49079762e99fce0729dd4262a",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through ArrayExample direct cutover and active CMP-3g1"
+    "note": "synced EN/zh through CMP-3g1 reference pinning and active CMP-3g2"
   },
   "docs/review-checklist.md": {
     "sha256": "c0101e0013610519412a5dc9bd2cdc1ea4dbbd67836ddcceedc16aa35598a56f",
@@ -184,10 +184,10 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "b46501cd08bb6a6d47c19a5cf739117ede89c2ac52673096d8884fd181088366",
+    "sha256": "e3871b1d447f3193554229dbc4341886ba2093e3cba681c8346c19d96ead9ed8",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "b46501cd08bb6a6d47c19a5cf739117ede89c2ac52673096d8884fd181088366"
+    "en_sha256": "e3871b1d447f3193554229dbc4341886ba2093e3cba681c8346c19d96ead9ed8"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {

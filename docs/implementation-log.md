@@ -4564,3 +4564,23 @@ Rules:
 - Verification: actionlint v1.7.7 on `.github/workflows/ci.yml`;
   removed-target search; `just docs-check`; and `git diff --check`. No full
   product or repository aggregate was run.
+
+## 2026-07-15 - CMP-3g1: pin independent ArrayExample references
+
+- Status: `done (verified at b8448961)`; CMP-3g2 primary-triad VM execution is
+  active, and all four new semantic assets remain deliberately unverified.
+- Added one portable `outOfBounds` query to the sole direct Product source so
+  the comparison can cover target-owned bounds failure without adding a
+  target branch or shared chain-specific operation.
+- Added independent Solidity, Pinocchio, and near-sdk implementations plus
+  complete v1 provenance manifests. The four-step scenario covers length,
+  valid indexing, sum, and normalized out-of-bounds failure across all eight
+  observation dimensions.
+- Regenerated only affected EVM/Solana/NEAR artifacts and repaired the focused
+  ArrayExample testkit metadata. Inventory now contains 124 assets and still
+  exactly 30 verified assets; semantic promotion is reserved for CMP-3g2.
+- Verification: focused Lean/Product and ArrayExample authoring gates;
+  `just testkit-array-example`; `just differential-contracts`; Solidity 0.8.30
+  compilation; Pinocchio host tests plus cargo-build-sbf
+  3.1.12/platform-tools v1.52; near-sdk host tests plus Rust 1.94.0 Wasm build;
+  source-digest audit; and `git diff --check`. No full aggregate was run.

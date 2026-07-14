@@ -283,7 +283,7 @@ independent primary-triad behavior requirement at `bec50074`.
 
 ### A-CUT3 - Product migration
 
-State: `in_progress; ValueVault, Ownable, Pausable, and ReentrancyGuard use the direct-only Product route with primary-triad VM evidence; ArrayExample is direct-only and awaits CMP-3g native evidence`
+State: `in_progress; ValueVault, Ownable, Pausable, and ReentrancyGuard use the direct-only Product route with primary-triad VM evidence; ArrayExample is direct-only, its independent references are pinned, and CMP-3g2 VM execution is active`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
@@ -367,6 +367,12 @@ Yul, and executes the NEAR WAT with results 3, 20, and 60. No `.spec`,
 `.module`, compatibility sidecar, or fallback renderer remains. CMP-3g now
 owns independent native reference and VM evidence before this family is
 semantically complete.
+
+ArrayExample reference checkpoint (2026-07-15): `b8448961` adds the portable
+`outOfBounds` query and pins independent Solidity, Pinocchio, and near-sdk
+references plus a four-step v1 scenario. All new reference/scenario assets
+remain `semanticEvidence=none`; CMP-3g2 must execute both sides on Anvil,
+Mollusk, and upstream `near-vm-runner` before evidence is promoted.
 
 ### A-CUT4 - Delete duplicate source and version split
 
