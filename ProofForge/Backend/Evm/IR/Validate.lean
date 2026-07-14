@@ -165,10 +165,8 @@ mutual
         ensureType "abi-packed call target" .u64 (← inferExprType module env target)
         .ok .u64
     | .nativeValue => .ok .u64
-    | .nearAttachedDeposit
-    | .nearStorageUsage
-    | .nearPromiseTransfer _ _ =>
-        .error { message := "NEAR storage/deposit host operations are not supported on EVM" }
+    | .callValueU128 =>
+        .error { message := "U128 call value is not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         ensureCrosscallHandleType "crosscall target contract id"
           (← inferExprType module env target)
@@ -225,13 +223,9 @@ mutual
     | .crosscallNamed _ _ args returnType => do
         for arg in args do discard <| inferExprType module env arg
         .ok returnType
-    | .nearPromiseThen _ _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .nearPromiseResultU128 _ =>
-        .error { message := "NEAR promise API is not supported on EVM" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported on EVM" }
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferBinaryNumericType

@@ -172,8 +172,7 @@ def exprType (e : Expr) : AdapterM CoreType := do
   | .nativeValue => return .unit
   | .hostCall _ _ returnType _ =>
       liftExcept (adaptType (← get).env.typeIds returnType)
-  | .nearAttachedDeposit => return .u128
-  | .nearStorageUsage | .nearPromiseTransfer _ _ => return .u64
+  | .callValueU128 => return .u128
   | _ => throw (CanonicalizeError.typeMismatch "known" "unknown expression type")
 
 /- Stable constructor tag for error messages. -/
@@ -226,15 +225,9 @@ def exprTag (e : Expr) : String :=
   | .crosscallCreate _ _ => "Expr.crosscallCreate"
   | .crosscallCreate2 _ _ _ => "Expr.crosscallCreate2"
   | .crosscallNamed _ _ _ _ => "Expr.crosscallNamed"
-  | .nearCrosscallInvokePool _ _ _ _ _ => "Expr.nearCrosscallInvokePool"
-  | .nearPromiseThen _ _ _ _ _ => "Expr.nearPromiseThen"
-  | .nearPromiseResultsCount => "Expr.nearPromiseResultsCount"
-  | .nearPromiseResultStatus _ => "Expr.nearPromiseResultStatus"
-  | .nearPromiseResultU64 _ => "Expr.nearPromiseResultU64"
-  | .nearPromiseResultU128 _ => "Expr.nearPromiseResultU128"
-  | .nearAttachedDeposit => "Expr.nearAttachedDeposit"
-  | .nearStorageUsage => "Expr.nearStorageUsage"
-  | .nearPromiseTransfer _ _ => "Expr.nearPromiseTransfer"
+  | .crosscallInvokeNamedValue _ _ _ _ _ => "Expr.crosscallInvokeNamedValue"
+  | .crosscallContinue _ _ _ _ _ => "Expr.crosscallContinue"
+  | .callValueU128 => "Expr.callValueU128"
   | .effect _ => "Expr.effect"
 
 /- Stable constructor tag for effects. -/
@@ -566,7 +559,7 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallCreate2" "crosscall create2 not in initial fragment")
   | .crosscallNamed _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallNamed" "named crosscall not in initial fragment")
-  | .nearCrosscallInvokePool accountIndex methodIndex args deposit argNames => do
+  | .crosscallInvokeNamedValue accountIndex methodIndex args deposit argNames => do
       let account ← normalizeExpr accountIndex
       let method ← normalizeExpr methodIndex
       let normalizedDeposit ← normalizeExpr deposit
@@ -588,7 +581,7 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         returnType := .u64
       } argRefs) .u64
       return { instructions := instructions ++ call.instructions, value := call.value }
-  | .nearPromiseThen parentPromise callbackMethod args deposit argNames => do
+  | .crosscallContinue parentPromise callbackMethod args deposit argNames => do
       let parent ← normalizeExpr parentPromise
       let method ← normalizeExpr callbackMethod
       let normalizedDeposit ← normalizeExpr deposit
@@ -610,45 +603,7 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         returnType := .u64
       } argRefs) .u64
       return { instructions := instructions ++ call.instructions, value := call.value }
-  | .nearPromiseResultsCount =>
-      emitValueInstruction (.hostCall {
-        id := ProofForge.Target.HostOps.Near.promiseResultsCountSig.id, args := #[] }) .u64
-  | .nearPromiseResultStatus index => do
-      let normalizedIndex ← normalizeExpr index
-      let result ← emitValueInstruction (.hostCall {
-        id := ProofForge.Target.HostOps.Near.promiseResultStatusSig.id,
-        args := #[normalizedIndex.value] }) .u64
-      return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
-  | .nearPromiseResultU64 index => do
-      let normalizedIndex ← normalizeExpr index
-      let result ← emitValueInstruction (.hostCall {
-        id := ProofForge.Target.HostOps.Near.promiseResultU64Sig.id
-        args := #[normalizedIndex.value]
-      }) .u64
-      return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
-  | .nearPromiseResultU128 index => do
-      let normalizedIndex ← normalizeExpr index
-      let result ← emitValueInstruction (.hostCall {
-        id := ProofForge.Target.HostOps.Near.promiseResultU128Sig.id
-        args := #[normalizedIndex.value]
-      }) .u128
-      return { instructions := normalizedIndex.instructions ++ result.instructions, value := result.value }
-  | .nearAttachedDeposit =>
+  | .callValueU128 =>
       emitValueInstruction (.contextRead .value) .u128
-  | .nearStorageUsage =>
-      emitValueInstruction (.hostCall {
-        id := ProofForge.Target.HostOps.Near.storageUsageSig.id, args := #[] }) .u64
-  | .nearPromiseTransfer account amount => do
-      let normalizedAccount ← normalizeExpr account
-      let normalizedAmount ← normalizeExpr amount
-      let result ← emitValueInstruction (.hostCall {
-        id := ProofForge.Target.HostOps.Near.promiseTransferSig.id
-        args := #[normalizedAccount.value, normalizedAmount.value]
-      }) .u64
-      return {
-        instructions := normalizedAccount.instructions ++ normalizedAmount.instructions ++
-          result.instructions
-        value := result.value
-      }
 
 end ProofForge.IR.Legacy.Adapter

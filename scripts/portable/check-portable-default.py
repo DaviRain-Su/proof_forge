@@ -37,12 +37,12 @@ FORBIDDEN_IMPORT_PREFIXES = (
 
 # NEAR Promise host-extension must not appear in Shared product sources.
 FORBIDDEN_NEAR_EXTENSION = [
-    "nearPromiseThen",
+    "crosscallContinue",
     "nearPromiseResultU64",
     "nearPromiseResultU128",
     "nearPromiseResultsCount",
     "nearCrosscallPool",
-    "nearCrosscallInvokePool",
+    "crosscallInvokeNamedValue",
 ]
 
 # EVM family-only chain constructors (T4.3) — use portable remoteCall instead.

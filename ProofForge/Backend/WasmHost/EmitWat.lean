@@ -56,6 +56,7 @@ import ProofForge.Backend.WasmHost.Statement
 import ProofForge.Backend.WasmHost.Struct
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Target.PeerMap
+import ProofForge.Target.HostOps.Near
 import ProofForge.Target.Plan
 import ProofForge.Target.Registry
 
@@ -349,15 +350,15 @@ def validateScratchCapacities
           let required := eventPayloadBound name fieldCount fieldNameBytes
           if required > EVT_KEY_PTR - EVENT_BUF then
             err s!"EmitWat: event `{name}` JSON scratch requires up to {required} bytes, limit is {EVT_KEY_PTR - EVENT_BUF}"
-      | .letBind _ _ (.nearCrosscallInvokePool _ _ args _ _)
-      | .letMutBind _ _ (.nearCrosscallInvokePool _ _ args _ _)
-      | .return (.nearCrosscallInvokePool _ _ args _ _) =>
+      | .letBind _ _ (.crosscallInvokeNamedValue _ _ args _ _)
+      | .letMutBind _ _ (.crosscallInvokeNamedValue _ _ args _ _)
+      | .return (.crosscallInvokeNamedValue _ _ args _ _) =>
           let required := crosscallArgsBound args.size
           if required > CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF then
             err s!"EmitWat: NEAR crosscall args require up to {required} bytes, limit is {CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF}"
-      | .letBind _ _ (.nearPromiseThen _ _ args _ _)
-      | .letMutBind _ _ (.nearPromiseThen _ _ args _ _)
-      | .return (.nearPromiseThen _ _ args _ _) =>
+      | .letBind _ _ (.crosscallContinue _ _ args _ _)
+      | .letMutBind _ _ (.crosscallContinue _ _ args _ _)
+      | .return (.crosscallContinue _ _ args _ _) =>
           let required := crosscallArgsBound args.size
           if required > CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF then
             err s!"EmitWat: NEAR promise callback args require up to {required} bytes, limit is {CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF}"
@@ -692,8 +693,10 @@ mutual
     | .literal (.hash4 a b c d) => .ok (#[.i64Const a, .i64Const b, .i64Const c, .i64Const d, .call hashMakeName], .hash)
     | .literal (.bytes _) =>
       err "EmitWat: bytes literal lowering not yet supported (use memoryArrayNew + store)"
-    | .literal (.string _) =>
-      err "EmitWat: string literal lowering not yet supported (use memoryArrayNew + store)"
+    | .literal (.string value) =>
+      match ctx.strings.find? (fun entry => entry.str == value) with
+      | some entry => .ok (#[.i32Const entry.ptr, .i32Const entry.len], .string)
+      | none => err "EmitWat: string literal is missing from the canonical data pool"
     | .hashValue a b c d => do
       let (ia, ta) ← lowerExpr ctx env a
       let (ib, tb) ← lowerExpr ctx env b
@@ -756,23 +759,62 @@ mutual
       -- stay well below 2^64). Full U128 nativeValue is a future enhancement.
       .ok (#[.i64Const RET_BUF, .call "attached_deposit",
              .i32Const RET_BUF, .load "i64.load" 0], .u64)
-    | .nearAttachedDeposit =>
+    | .callValueU128 =>
       .ok (#[.i64Const RET_BUF, .call "attached_deposit",
         .i32Const RET_BUF, .load "i64.load" 0,
         .i32Const (RET_BUF + 8), .load "i64.load" 0], .u128)
-    | .nearStorageUsage =>
-      if ctx.bridge == .near then .ok (#[.call "storage_usage"], .u64)
-      else err "EmitWat: storage_usage is supported only on NEAR"
-    | .nearPromiseTransfer account amount =>
-      if ctx.bridge != .near then err "EmitWat: promise_transfer is supported only on NEAR"
-      else do
-        let (accountInsns, accountType) ← lowerExpr ctx env account
-        let (amountInsns, amountType) ← lowerExpr ctx env amount
-        unless accountType == .string do
-          err s!"EmitWat: promise_transfer account expected String, got `{accountType.name}`"
-        unless amountType == .u128 do
-          err s!"EmitWat: promise_transfer amount expected U128, got `{amountType.name}`"
-        .ok (accountInsns ++ amountInsns ++ #[.call promiseTransferName], .u64)
+    | .hostCall id args returnType _ =>
+      if ctx.bridge != .near then
+        err s!"EmitWat: host operation `{id}` is not supported by bridge `{ctx.bridge.id}`"
+      else if id == ProofForge.Target.HostOps.Near.storageUsageSig.id then
+        if args.isEmpty && returnType == .u64 then
+          .ok (#[.call "storage_usage"], .u64)
+        else err "EmitWat: near.storage.usage expects () -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseTransferSig.id then
+        match args with
+        | #[account, amount] => do
+            let (accountInsns, accountType) ← lowerExpr ctx env account
+            let (amountInsns, amountType) ← lowerExpr ctx env amount
+            unless accountType == .string do
+              err s!"EmitWat: promise_transfer account expected String, got `{accountType.name}`"
+            unless amountType == .u128 do
+              err s!"EmitWat: promise_transfer amount expected U128, got `{amountType.name}`"
+            unless returnType == .u64 do
+              err s!"EmitWat: promise_transfer return expected U64, got `{returnType.name}`"
+            .ok (accountInsns ++ amountInsns ++ #[.call promiseTransferName], .u64)
+        | _ => err "EmitWat: near.promise.transfer expects (String, U128) -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseResultsCountSig.id then
+        if args.isEmpty && returnType == .u64 then
+          .ok (#[.call "promise_results_count"], .u64)
+        else err "EmitWat: near.promise.results_count expects () -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseResultStatusSig.id then
+        match args with
+        | #[index] => do
+            let indexInsns ← lowerNearPromiseResultIndex ctx env index
+            unless returnType == .u64 do
+              err s!"EmitWat: promise result status expected U64, got `{returnType.name}`"
+            .ok (indexInsns ++ #[.i64Const 0, .call "promise_result"], .u64)
+        | _ => err "EmitWat: near.promise.result_status expects (U64) -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseResultU64Sig.id then
+        match args with
+        | #[index] => do
+            let indexInsns ← lowerNearPromiseResultIndex ctx env index
+            unless returnType == .u64 do
+              err s!"EmitWat: promise result U64 expected U64, got `{returnType.name}`"
+            .ok (indexInsns ++ #[.call promiseResultU64Name], .u64)
+        | _ => err "EmitWat: near.promise.result_u64 expects (U64) -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseResultU128Sig.id then
+        match args with
+        | #[index] => do
+            let indexInsns ← lowerNearPromiseResultIndex ctx env index
+            unless returnType == .u128 do
+              err s!"EmitWat: promise result U128 expected U128, got `{returnType.name}`"
+            .ok (indexInsns ++ #[.call promiseResultU128Name,
+              .i32Const PROMISE_RESULT_BUF, .load "i64.load" 0,
+              .i32Const (PROMISE_RESULT_BUF + 8), .load "i64.load" 0], .u128)
+        | _ => err "EmitWat: near.promise.result_u128 expects (U64) -> U128"
+      else
+        err s!"EmitWat: unsupported host operation `{id}`"
     | .effect (.storageScalarRead id) =>
       match findScalarState? ctx.scalars id with
       | some s => .ok (storageScalarReadInsns s)
@@ -868,33 +910,12 @@ mutual
       err (crosscallEvmOnlyMessage "crosscallCreate2")
     | .crosscallNamed _ _ _ _ =>
       err "EmitWat: crosscallNamed (named-callee cross-program call) is a ZK-lane construct; not lowered on Wasm hosts — use crosscallInvoke* / NEAR promise forms"
-    | .nearCrosscallInvokePool accountIndex methodId args deposit argNames =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit argNames =>
       if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
       else lowerNearCrosscallInvokePool ctx env accountIndex methodId args deposit argNames
-    | .nearPromiseThen parentPromise callbackMethod args deposit argNames =>
+    | .crosscallContinue parentPromise callbackMethod args deposit argNames =>
       if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
       else lowerNearPromiseThen ctx env parentPromise callbackMethod args deposit argNames
-    | .nearPromiseResultsCount =>
-      if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else .ok (#[.call "promise_results_count"], .u64)
-    | .nearPromiseResultStatus index =>
-      if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else do
-        let indexInsns ← lowerNearPromiseResultIndex ctx env index
-        .ok (indexInsns ++ #[.i64Const 0, .call "promise_result"], .u64)
-    | .nearPromiseResultU64 index =>
-      if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else do
-        let indexInsns ← lowerNearPromiseResultIndex ctx env index
-        .ok (indexInsns ++ #[.call promiseResultU64Name], .u64)
-    | .nearPromiseResultU128 index =>
-      if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else do
-        let indexInsns ← lowerNearPromiseResultIndex ctx env index
-        -- promiseResultU128 is void (stages PROMISE_RESULT_BUF); reload lo/hi.
-        .ok (indexInsns ++ #[.call promiseResultU128Name,
-          .i32Const PROMISE_RESULT_BUF, .load "i64.load" 0,
-          .i32Const (PROMISE_RESULT_BUF + 8), .load "i64.load" 0], .u128)
     | _ => err "EmitWat: this expression form is not yet supported"
 
   partial def lowerMatchingNumericOperands (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)

@@ -16,8 +16,8 @@ on top of the current NEAR-specific `Expr` surface would enlarge the coupling.
 | IR-B2 | done (verified 2026-07-14) | Remove NEAR promise modes and semantics from Canonical Core | canonical adapter/plan tests, no `near*` Core constructors |
 | IR-B3a | done (verified 2026-07-14) | Neutralize the shared crosscall string pool | full build, adapter/crosscall/protocol/NEAR/Solana focused gates |
 | IR-B3b | done (verified 2026-07-14) | Migrate NEAR scalar operations to generic extension calls | adapter, catalog, NEP-141/145 focused VM gates |
-| IR-B3c | in_progress | Migrate continuation calls and delete legacy NEAR constructors | no `near*` shared Expr constructors, multi-target diagnostics |
-| IR-B4 | pending | Move EVM protocol/ABI operations out of shared IR | EVM focused plan/Foundry gates and non-EVM diagnostics |
+| IR-B3c | done (verified 2026-07-14) | Migrate continuation calls and delete legacy NEAR constructors | no `near*` shared Expr constructors, multi-target diagnostics |
+| IR-B4 | in_progress | Move EVM protocol/ABI operations out of shared IR | EVM focused plan/Foundry gates and non-EVM diagnostics |
 | IR-B5 | pending | Audit and migrate Solana-native PDA/CPI/account behavior | Solana grammar-isolation, intent, manifest, and light sBPF gates |
 | IR-B6 | pending | Audit and migrate other implemented target families | focused Wasm-host, Move, Aleo, Psy, and Quint gates |
 | IR-B7 | pending | Move target environment, error, dispatch, and materialization fields | interface/materialization tests across registered targets |
@@ -56,7 +56,7 @@ Completion evidence (2026-07-14):
 
 ## IR-B2 - Canonical Core Cleanup
 
-1. Replace `nearPoolInvoke` and `nearPromiseThen` with neutral async invocation
+1. Replace `nearPoolInvoke` and `crosscallContinue` with neutral async invocation
    and continuation semantics or typed HostOps where no common contract exists.
 2. Move NEAR signatures, handlers, traces, and reference execution into the
    Wasm-NEAR target namespace.
@@ -67,7 +67,7 @@ Completion evidence (2026-07-14):
 Completion evidence (2026-07-14):
 
 - Core modes are now semantic `namedInvoke` and `continuation`; the
-  `nearPoolInvoke` and `nearPromiseThen` constructors and validation branches
+  `nearPoolInvoke` and `crosscallContinue` constructors and validation branches
   are gone.
 - NEAR Promise trace/reference execution moved from `IR.Core.Semantics` to
   `Target.HostOps.Near.Semantics`, using Core's existing injected
@@ -85,10 +85,26 @@ Completion evidence (2026-07-14):
    diagnostics, deploy maps, tests, and docs.
 2. [x] Add a typed generic `hostCall` carrier and reimplement public Near SDK
    scalar helpers as target-catalog wrappers.
-3. [x] Migrate active promise-result/storage-usage/transfer stdlib call sites;
-   the old constructors remain only as compatibility cases removed by B3c.
-4. [ ] Migrate pool invocation and continuation to semantic crosscall forms.
-5. [ ] Delete all nine `near*` `Expr` constructors and exhaustive match arms.
+3. [x] Migrate active promise-result/storage-usage/transfer stdlib call sites
+   to target-owned HostOps.
+4. [x] Migrate pool invocation and continuation to semantic crosscall forms.
+5. [x] Delete all nine `near*` `Expr` constructors and exhaustive match arms.
+
+Completion evidence (2026-07-14):
+
+- Shared `Expr` retains only semantic `crosscallInvokeNamedValue`,
+  `crosscallContinue`, and full-width `callValueU128`; continuation uses the
+  target-neutral `crosscall.continue` capability.
+- Promise result/status/U64/U128, storage usage, and transfer are generic
+  `hostCall` expressions whose signatures and handlers are owned by
+  `Target.HostOps.Near`. The compatibility API lives in `Source.Near`.
+- EmitWat dispatches NEAR HostOps by registered ID and sources string literals
+  from canonical normalization; no target-specific source constructor is
+  required by the backend.
+- Verification: `lake build` (804 jobs), `just ir-target-boundary`,
+  `just hostop-protocol`, all primary canonical routes, `just near-abi-plan`,
+  `Tests/NearFtSecurity.lean`, `just wasm-near-ft-transfer-call`, and the real
+  upstream VM gate `just near-vm-nep145`.
 
 ## IR-B4 - Legacy EVM Cleanup
 

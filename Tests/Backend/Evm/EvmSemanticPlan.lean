@@ -13,6 +13,7 @@ import ProofForge.IR.Examples.EvmStorageStructProbe
 import ProofForge.IR.Examples.EvmStructArrayValueProbe
 import ProofForge.IR.Examples.EvmStructValueProbe
 import ProofForge.IR.Examples.EventProbe
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Tests.EvmSemanticPlan
 
@@ -10397,7 +10398,8 @@ def unsupportedCrosscallModule : Module := {
     returns := .unit
     params := #[]
     body := #[
-      .letBind "result" .u64 (.nearPromiseResultsCount)
+      .letBind "result" .u64 (.hostCall
+        ProofForge.Target.HostOps.Near.promiseResultsCountSig.id #[] .u64 #[.nearPromise])
     ]
   }]
 }

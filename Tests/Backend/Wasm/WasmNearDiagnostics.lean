@@ -105,7 +105,8 @@ def crosscallModule : Module :=
   module1 "BadCrosscall" #[markerState] <|
     returnEntrypoint "bad" .u64 crosscallBody
 
-def nearPromiseBody : Array Statement := #[.return .nearPromiseResultsCount]
+def nearPromiseBody : Array Statement := #[.return (.hostCall
+  ProofForge.Target.HostOps.Near.promiseResultsCountSig.id #[] .u64 #[.nearPromise])]
 
 def nearPromiseModule : Module :=
   module1 "BadNearPromise" #[markerState] <|
@@ -402,7 +403,7 @@ def cases : Array (String × Module × String) := #[
   ("crosscall Rust sourcegen unsupported", crosscallModule,
     "cross-contract calls are not supported by wasm-near Rust sourcegen v0"),
   ("near promise Rust sourcegen unsupported", nearPromiseModule,
-    "NEAR promise API is not supported by wasm-near Rust sourcegen v0"),
+    "wasm-near Rust IR v0 does not support target extension calls; use EmitWat"),
   ("unit scalar state unsupported", unitScalarStateModule,
     "state `flag` has unsupported wasm-near IR v0 scalar type `Unit`; only U32, U64, Bool, and Hash are supported"),
   ("zero capacity map unsupported", zeroCapacityMapModule,

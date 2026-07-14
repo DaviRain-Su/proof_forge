@@ -465,8 +465,7 @@ def indexedStorageContainsSurfaceSummary
 mutual
   partial def contextOpsFromExpr (expr : Expr) : Except PlanError (Array ContextExprPlan) :=
     match expr with
-    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
-    | .nearStorageUsage => .ok #[]
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => .ok #[]
     | .hostCall _ args _ _ =>
         args.foldlM (init := #[]) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
@@ -532,26 +531,20 @@ mutual
     | .crosscallNamed _ _ args _ =>
         args.foldlM (init := #[]) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .nearCrosscallInvokePool accountIndex methodId args deposit _ => do
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ => do
         let base :=
           mergeContextExprPlans
             (mergeContextExprPlans (← contextOpsFromExpr accountIndex) (← contextOpsFromExpr methodId))
             (← contextOpsFromExpr deposit)
         args.foldlM (init := base) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .nearPromiseThen parentPromise callbackMethod args deposit _ => do
+    | .crosscallContinue parentPromise callbackMethod args deposit _ => do
         let base :=
           mergeContextExprPlans
             (mergeContextExprPlans (← contextOpsFromExpr parentPromise) (← contextOpsFromExpr callbackMethod))
             (← contextOpsFromExpr deposit)
         args.foldlM (init := base) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .nearPromiseResultsCount => .ok #[]
-    | .nearPromiseResultStatus index => contextOpsFromExpr index
-    | .nearPromiseResultU64 index => contextOpsFromExpr index
-    | .nearPromiseResultU128 index => contextOpsFromExpr index
-    | .nearPromiseTransfer account amount =>
-        return mergeContextExprPlans (← contextOpsFromExpr account) (← contextOpsFromExpr amount)
     | .effect effect =>
         contextOpsFromEffect effect
 
@@ -706,10 +699,8 @@ mutual
         .ok ModuleSurface.empty
     | .nativeValue =>
         .ok ModuleSurface.withNativeValue
-    | .nearAttachedDeposit =>
+    | .callValueU128 =>
         .ok ModuleSurface.withNativeValue
-    | .nearStorageUsage =>
-        .ok ModuleSurface.withStorageUsage
     | .hostCall id args _ _ => do
         let argSurface ← args.foldlM (init := ModuleSurface.empty) fun acc arg =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
@@ -718,19 +709,15 @@ mutual
             ModuleSurface.withStorageUsage
           else if id == ProofForge.Target.HostOps.Near.promiseTransferSig.id then
             ModuleSurface.withPromiseTransfer
-          else if id == ProofForge.Target.HostOps.Near.promiseResultsCountSig.id ||
-              id == ProofForge.Target.HostOps.Near.promiseResultStatusSig.id ||
-              id == ProofForge.Target.HostOps.Near.promiseResultU64Sig.id ||
+          else if id == ProofForge.Target.HostOps.Near.promiseResultU64Sig.id ||
               id == ProofForge.Target.HostOps.Near.promiseResultU128Sig.id then
+            ModuleSurface.withPromiseResultU64
+          else if id == ProofForge.Target.HostOps.Near.promiseResultsCountSig.id ||
+              id == ProofForge.Target.HostOps.Near.promiseResultStatusSig.id then
             ModuleSurface.withPromiseResults
           else
             ModuleSurface.empty
         .ok (mergeModuleSurfaces argSurface hostSurface)
-    | .nearPromiseTransfer account amount =>
-        return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module env account)
-            (← surfaceFromExpr module env amount))
-          ModuleSurface.withPromiseTransfer
     | .arrayLit elementType values => do
         let valueSurface ← values.foldlM (init := ModuleSurface.empty) fun acc value =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env value)
@@ -825,14 +812,14 @@ mutual
     | .crosscallNamed _ _ args _ =>
         args.foldlM (init := ModuleSurface.empty) fun acc arg =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
-    | .nearCrosscallInvokePool accountIndex methodId args deposit _ => do
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ => do
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces (← surfaceFromExpr module env accountIndex) (← surfaceFromExpr module env methodId))
             (← surfaceFromExpr module env deposit)
         let argSurface ← surfaceFromCrosscallArgs module env args
         return mergeModuleSurfaces (mergeModuleSurfaces base argSurface) ModuleSurface.withCrosscallPromise
-    | .nearPromiseThen parentPromise callbackMethod args deposit _ => do
+    | .crosscallContinue parentPromise callbackMethod args deposit _ => do
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces
@@ -841,13 +828,6 @@ mutual
             ModuleSurface.withPromiseThen
         let argSurface ← surfaceFromCrosscallArgs module env args
         return mergeModuleSurfaces base argSurface
-    | .nearPromiseResultsCount => .ok ModuleSurface.withPromiseResults
-    | .nearPromiseResultStatus index =>
-        return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResults
-    | .nearPromiseResultU64 index =>
-        return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResultU64
-    | .nearPromiseResultU128 index =>
-        return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResultU64
     | .effect effect =>
         surfaceFromEffect module env effect
 

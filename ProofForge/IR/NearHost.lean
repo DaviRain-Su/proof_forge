@@ -13,23 +13,23 @@ remoteCall / crosscall.invoke  +  module.crosscallStrings
 
 **Host-extension only** (opt-in `ProofForge.Contract.Source.Near`, fixtures):
 
-| IR constructor | Host form | Portable? |
+| Semantic request | Host form | Portable? |
 |---|---|---|
-| `nearPromiseThen` | `promise_then` | no — chain callbacks |
-| `nearPromiseResultsCount` | `promise_results_count` | no — callback entrypoints |
-| `nearPromiseResultStatus` | `promise_result` status | no |
-| `nearPromiseResultU64` | Borsh u64 decode | no |
-| `nearCrosscallInvokePool` | low-level `promise_create` | prefer `crosscall.invoke` |
+| `crosscallContinue` | `promise_then` | no — chain callbacks |
+| `hostCall near.promise.results_count` | `promise_results_count` | no — callback entrypoints |
+| `hostCall near.promise.result_status` | `promise_result` status | no |
+| `hostCall near.promise.result_u64` | Borsh u64 decode | no |
+| `crosscallInvokeNamedValue` | low-level `promise_create` | prefer `crosscall.invoke` |
 
-These constructors remain on the portable `Expr` inductive for EmitWat coverage
-and ownership/semantics walks, but:
+The continuation is a shared semantic request and NEAR-only scalar operations
+are target-owned HostOps. Consequently:
 
-* `ProofForge.IR.Portability` marks them `targetFamilyOnly .wasmHost`
+* `ProofForge.IR.Portability` marks HostOps target-family-only and continuation family-shared
 * Shared examples must not use them (`just portable-default`)
 * Product authoring uses `Source.Near` only when Promise chaining is intentional
 
-Full removal from the `Expr` inductive is a later mechanical migration (every
-Expr match site). This module is the **vocabulary** for that split.
+No NEAR-named constructor remains in the shared `Expr` inductive. This module
+is the **vocabulary** for the target facade split.
 -/
 import ProofForge.IR.Contract
 import ProofForge.IR.Portability
@@ -39,13 +39,11 @@ namespace ProofForge.IR.NearHost
 open ProofForge.IR
 open ProofForge.IR.Portability
 
-/-- True when the module body uses NEAR Promise host-extension constructors. -/
+/-- True when the module body uses NEAR Promise HostOps or async continuation. -/
 def usesPromiseExtension (module : Module) : Bool :=
   (classifyModule module).any fun f =>
-    match f.class_ with
-    | .targetFamilyOnly .wasmHost =>
-        f.detail.startsWith "nearPromise" || f.detail.startsWith "nearCrosscallInvokePool"
-    | _ => false
+    f.detail.startsWith "target extension near.promise/" ||
+      f.detail.startsWith "crosscall.continue"
 
 /-- True when the module only needs the portable NEAR materialization path
 (crosscall.invoke + optional string pool), not Promise chaining. -/
@@ -56,6 +54,6 @@ def isPortableNearCrosscall (module : Module) : Bool :=
 
 def productGuidance : String :=
   "Portable: remoteCall/crosscall.invoke + crosscallStrings → promise_create. " ++
-  "Host-extension (Source.Near): nearPromiseThen / result decode."
+  "Host-extension (Source.Near): crosscallContinue / result decode."
 
 end ProofForge.IR.NearHost

@@ -37,29 +37,31 @@ Storage/crypto/context effects lower 到这些 NEAR host imports：
 | `contextRead randomSeed` | `env.random_seed` |
 | `eventEmit` | `env.log` |
 
-### NEAR Promise IR
+### NEAR Promise 物化
 
-可移植的 `crosscallInvoke` 会 lower 为远程调用的 `promise_create`。NEAR 专用的 promise 链路与回调内省使用独立的 `Expr` 形式，并在 canonical EmitWat 路径上打上 `near.promise` capability：
+可移植的 `crosscallInvoke` 会 lower 为远程调用的 `promise_create`。共享
+IR 只保留语义化的 named invocation/continuation 节点；NEAR 独有的回调与
+存储操作由 target-owned HostOp 通过稳定 ID 选择：
 
-| IR 表达式 | NEAR host import | 作用 |
+| 语义请求 | NEAR host import | 作用 |
 |---|---|---|
-| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | 使用运行时索引从 `module.crosscallStrings` 取 account 与 method 字符串并创建 promise。 |
-| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`、`current_account_id` | 在**当前**合约上，为已有 promise id（`parent` 为 `U64`）挂载回调方法。回调与远程方法名通过 `.literal (.address i)` 索引 `module.crosscallStrings`。 |
-| `nearPromiseResultsCount` | `promise_results_count` | 回调 entrypoint 中可见的已完成 promise 结果数量。 |
-| `nearPromiseResultStatus index` | `promise_result` | 读取 `index` 处结果状态（`1` = 成功，`2` = 失败）。 |
-| `nearPromiseResultU64 index` | `promise_result`、`read_register` | 将 `index` 处结果 payload 按 Borsh 解码为 `U64`（失败时返回 `0`）。 |
+| `crosscallInvokeNamedValue accountIndex methodId args deposit` | `promise_create` | 使用运行时索引从 `module.crosscallStrings` 取 account 与 method 字符串并创建 promise。 |
+| `crosscallContinue parent callbackMethod args deposit` | `promise_then`、`current_account_id` | 在**当前**合约上，为已有 promise id（`parent` 为 `U64`）挂载回调方法。回调与远程方法名通过 `.literal (.address i)` 索引 `module.crosscallStrings`。 |
+| `hostCall near.promise.results_count@1.0.0` | `promise_results_count` | 回调 entrypoint 中可见的已完成 promise 结果数量。 |
+| `hostCall near.promise.result_status@1.0.0(index)` | `promise_result` | 读取 `index` 处结果状态（`1` = 成功，`2` = 失败）。 |
+| `hostCall near.promise.result_u64@1.0.0(index)` | `promise_result`、`read_register` | 将 `index` 处结果 payload 按 Borsh 解码为 `U64`（失败时返回 `0`）。 |
 
 典型结构：
 
 ```text
 entry call_remote_with_callback:
-  return nearPromiseThen(
+  return crosscallContinue(
     crosscallInvoke(...),
     callbackMethod = "handle_remote",
     args = [], deposit = 0)
 
 entry handle_remote:
-  return nearPromiseResultU64(0)
+  return hostCall near.promise.result_u64@1.0.0(0)
 ```
 
 Fixture：`ProofForge/IR/Examples/NearCrosscallProbe.lean`。

@@ -22,12 +22,13 @@ Implements the core NEP-141 interface:
 `promise_create`; receiver and callback arguments use named JSON objects.
 -/
 import ProofForge.Contract.Builder
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Near
 import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Contract.Stdlib.NearFungibleToken
 
 open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Near
 
 namespace Spec
 
@@ -290,7 +291,7 @@ contract_mixin NearFungibleTokenMixin do
     do ProofForge.Contract.Builder.ifElse
       (ProofForge.Contract.Builder.eq (ProofForge.IR.Expr.local "storage_account") (.literal (.string "")))
       #[.assign (.local "storage_account") callerAccountId] #[];
-    let attached : .u128 := nearAttachedDeposit;
+    let attached : .u128 := callValueU128;
     let registered_bytes : .u64 := mapRead storageBytes (ProofForge.IR.Expr.local "storage_account");
     do ProofForge.Contract.Builder.letMutBind "storage_total" .u128
       (mapRead storageDeposits (ProofForge.IR.Expr.local "storage_account"));
@@ -303,7 +304,7 @@ contract_mixin NearFungibleTokenMixin do
     return storageBalanceValue (ProofForge.IR.Expr.local "storage_total");
 
   entry storage_withdraw (amount : .u128) returns(.structType "StorageBalance") do
-    do ProofForge.Contract.Surface.requireEq nearAttachedDeposit (u128 1)
+    do ProofForge.Contract.Surface.requireEq callValueU128 (u128 1)
       "storage withdraw requires exactly 1 yoctoNEAR";
     let account : .string := callerAccountId;
     let registered_bytes : .u64 := mapRead storageBytes account;
@@ -314,7 +315,7 @@ contract_mixin NearFungibleTokenMixin do
     return storageBalanceValue (mapRead storageDeposits account);
 
   entry storage_unregister (force : .bool) returns(.bool) do
-    do ProofForge.Contract.Surface.requireEq nearAttachedDeposit (u128 1)
+    do ProofForge.Contract.Surface.requireEq callValueU128 (u128 1)
       "storage unregister requires exactly 1 yoctoNEAR";
     let account : .string := callerAccountId;
     let registered_bytes : .u64 := mapRead storageBytes account;
@@ -387,14 +388,14 @@ contract_mixin NearFungibleTokenMixin do
     nextTransferId := transferId +! u64 1;
     do mapWrite pendingAmounts transferId amount;
     do mapWrite pendingActive transferId (u64 1);
-    return ProofForge.Contract.Surface.nearPromiseThen
-      (ProofForge.Contract.Surface.nearCrosscallPool
+    return ProofForge.Contract.Surface.crosscallContinue
+      (nearCrosscallPool
         (ProofForge.Contract.Surface.ref receiver_id)
-        (ProofForge.Contract.Surface.nearAddressLit ftMethodOnTransferIdx)
+        (nearAddressLit ftMethodOnTransferIdx)
         #[ProofForge.Contract.Surface.ref sender, ProofForge.Contract.Surface.ref amount,
           ProofForge.Contract.Surface.ref msg]
         (u64 0) #["sender_id", "amount", "msg"])
-      (ProofForge.Contract.Surface.nearAddressLit ftMethodResolveIdx)
+      (nearAddressLit ftMethodResolveIdx)
       #[ProofForge.Contract.Surface.ref transferId, ProofForge.Contract.Surface.ref sender,
         ProofForge.Contract.Surface.ref receiver_id] (u64 0)
       #["transfer_id", "sender", "receiver"];

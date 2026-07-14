@@ -7,8 +7,7 @@ open ProofForge.IR
 mutual
   partial def exprViolations : Expr → Array String
     | .literal _ | .local _ => #[]
-    | .nativeValue | .nearAttachedDeposit => #["native value read"]
-    | .nearStorageUsage => #[]
+    | .nativeValue | .callValueU128 => #["native value read"]
     | .hostCall _ args _ _ =>
         #["host operation"] ++ args.foldl (fun acc arg => acc ++ exprViolations arg) #[]
     | .arrayLit _ values =>
@@ -37,9 +36,7 @@ mutual
     | .crosscallInvokeValueTyped .. | .crosscallInvokeDelegateTyped ..
     | .crosscallCreate .. | .crosscallCreate2 .. | .crosscallNamed .. =>
         #["non-static crosscall"]
-    | .nearCrosscallInvokePool .. | .nearPromiseThen .. | .nearPromiseResultsCount
-    | .nearPromiseResultStatus .. | .nearPromiseResultU64 .. | .nearPromiseResultU128 ..
-    | .nearPromiseTransfer .. =>
+    | .crosscallInvokeNamedValue .. | .crosscallContinue .. =>
         #["promise operation"]
     | .effect effect => effectViolations effect
 

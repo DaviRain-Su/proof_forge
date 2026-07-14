@@ -65,7 +65,7 @@ mutual
         collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++
           collectArrayLitsExpr d ++ collectArrayLitsExpr e ++ collectArrayLitsExpr f
     | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => collectArrayLitsExpr target
-    | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .nativeValue | .callValueU128 => #[]
     | .hostCall _ args _ _ =>
         args.foldl (fun acc arg => acc ++ collectArrayLitsExpr arg) #[]
     | .crosscallInvoke t m args => collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
@@ -78,18 +78,12 @@ mutual
     | .crosscallCreate value _ => collectArrayLitsExpr value
     | .crosscallCreate2 value salt _ => collectArrayLitsExpr value ++ collectArrayLitsExpr salt
     | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         collectArrayLitsExpr accountIndex ++ collectArrayLitsExpr methodId ++
           collectArrayLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit _ =>
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
         collectArrayLitsExpr parentPromise ++ collectArrayLitsExpr callbackMethod ++
           collectArrayLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .nearPromiseResultsCount => #[]
-    | .nearPromiseResultStatus index => collectArrayLitsExpr index
-    | .nearPromiseResultU64 index => collectArrayLitsExpr index
-    | .nearPromiseResultU128 index => collectArrayLitsExpr index
-    | .nearPromiseTransfer account amount =>
-        collectArrayLitsExpr account ++ collectArrayLitsExpr amount
     | .effect eff => collectArrayLitsEffect eff
 
   partial def collectArrayLitsEffect (eff : Effect) : Array (ValueType × Nat) :=
@@ -127,7 +121,7 @@ mutual
 
   partial def collectStructLitsExpr (e : Expr) : Array String :=
     match e with
-    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => #[]
     | .hostCall _ args _ _ =>
         args.foldl (fun acc arg => acc ++ collectStructLitsExpr arg) #[]
     | .arrayLit _ values => values.foldl (fun acc v => acc ++ collectStructLitsExpr v) #[]
@@ -161,18 +155,12 @@ mutual
     | .crosscallCreate value _ => collectStructLitsExpr value
     | .crosscallCreate2 value salt _ => collectStructLitsExpr value ++ collectStructLitsExpr salt
     | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         collectStructLitsExpr accountIndex ++ collectStructLitsExpr methodId ++
           collectStructLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit _ =>
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
         collectStructLitsExpr parentPromise ++ collectStructLitsExpr callbackMethod ++
           collectStructLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .nearPromiseResultsCount => #[]
-    | .nearPromiseResultStatus index => collectStructLitsExpr index
-    | .nearPromiseResultU64 index => collectStructLitsExpr index
-    | .nearPromiseResultU128 index => collectStructLitsExpr index
-    | .nearPromiseTransfer account amount =>
-        collectStructLitsExpr account ++ collectStructLitsExpr amount
     | .effect eff => collectStructLitsEffect eff
 
   partial def collectStructLitsPathSegment (segment : StoragePathSegment) : Array String :=

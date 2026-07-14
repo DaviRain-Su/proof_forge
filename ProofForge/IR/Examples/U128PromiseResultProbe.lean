@@ -1,4 +1,5 @@
 import ProofForge.IR.Contract
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.IR.Examples.U128PromiseResultProbe
 
@@ -13,7 +14,8 @@ def readResult : Entrypoint := {
   name := "read_result"
   returns := .u128
   body := #[
-    .return (.nearPromiseResultU128 (.literal (.u64 0)))
+    .return (.hostCall ProofForge.Target.HostOps.Near.promiseResultU128Sig.id
+      #[.literal (.u64 0)] .u128 #[.nearPromise])
   ]
 }
 

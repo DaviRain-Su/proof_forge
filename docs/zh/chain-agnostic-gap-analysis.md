@@ -30,7 +30,7 @@ honesty reject);缺的是把还没抽象的概念灌进去,以及解决几个抽
   物化到 EVM call / Solana CPI / NEAR promise;Solana CPI 账户打包、PDA signer seeds、SPL-token
   `initialize_account3/mint` 都真跑通;honesty reject 已制度化。
 - **✅ 同步子集策略已锁定**:`CrosscallMaterialize.portableCrosscallPolicy = syncRequestResponseOnly`;
-  `requireSyncSubset` 拒绝 `nearPromiseThen` / `promise_result*`(逃生口仍可用但**非** portable 产品路径)。
+  `requireSyncSubset` 拒绝 `crosscallContinue` / `promise_result*`(逃生口仍可用但**非** portable 产品路径)。
   NEAR portable remote → `promise_create` only(同 receipt 无返回值)。**不做**便携 continuation 模型
   (plan non-goal)。
 - **✅ Solana 账户推断(portable remotes)**:`inferSolanaAccounts` + `materializeSyncRemote`——作者

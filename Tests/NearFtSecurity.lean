@@ -45,7 +45,7 @@ def main : IO Unit := do
     "ft_transfer_call must encode the standard receiver hook JSON fields"
   require (transferIr.contains "nextTransferId") "ft_transfer_call must allocate a transfer id"
   require (transferIr.contains "pendingActive") "ft_transfer_call must persist keyed callback state"
-  require (transferIr.contains "nearPromiseThen" && transferIr.contains "transferId")
+  require (transferIr.contains "crosscallContinue" && transferIr.contains "transferId")
     "ft_transfer_call must pass its transfer id to the callback"
 
   let transfer <- requireEntrypoint "ft_transfer"

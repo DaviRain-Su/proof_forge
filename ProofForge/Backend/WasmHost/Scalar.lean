@@ -166,8 +166,7 @@ def isPackedScalarId (scalars : Array StateInfo) (id : String) : Bool :=
 mutual
   partial def exprReadsPackedScalar (scalars : Array StateInfo) : Expr → Bool
     | .effect eff => effectReadsPackedScalar scalars eff
-    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
-    | .nearStorageUsage | .nearPromiseResultsCount => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
     | .hostCall _ args _ _ => args.any (exprReadsPackedScalar scalars)
     | .arrayLit _ vs => vs.any (exprReadsPackedScalar scalars)
     | .arrayGet a i | .memoryArrayGet a i | .hashTwoToOne a i
@@ -177,8 +176,7 @@ mutual
     | .boolAnd a i | .boolOr a i =>
         exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars i
     | .field base _ | .cast base _ | .boolNot base | .hash base
-    | .memoryArrayLength base | .memoryArrayNew _ base
-    | .nearPromiseResultStatus base | .nearPromiseResultU64 base | .nearPromiseResultU128 base =>
+    | .memoryArrayLength base | .memoryArrayNew _ base =>
         exprReadsPackedScalar scalars base
     | .structLit _ fields => fields.any (fun f => exprReadsPackedScalar scalars f.snd)
     | .hashValue a b c d =>
@@ -204,14 +202,12 @@ mutual
         exprReadsPackedScalar scalars v || exprReadsPackedScalar scalars s
     | .crosscallNamed _ _ args _ =>
         args.any (exprReadsPackedScalar scalars)
-    | .nearCrosscallInvokePool a m args d _ =>
+    | .crosscallInvokeNamedValue a m args d _ =>
         exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars m ||
           exprReadsPackedScalar scalars d || args.any (exprReadsPackedScalar scalars)
-    | .nearPromiseThen p c args d _ =>
+    | .crosscallContinue p c args d _ =>
         exprReadsPackedScalar scalars p || exprReadsPackedScalar scalars c ||
           exprReadsPackedScalar scalars d || args.any (exprReadsPackedScalar scalars)
-    | .nearPromiseTransfer account amount =>
-        exprReadsPackedScalar scalars account || exprReadsPackedScalar scalars amount
 
   partial def effectReadsPackedScalar (scalars : Array StateInfo) : Effect → Bool
     | .storageScalarRead id => isPackedScalarId scalars id

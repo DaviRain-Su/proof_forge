@@ -3,6 +3,7 @@ Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import ProofForge.IR.Contract
+import ProofForge.IR.Legacy.Adapter
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Backend.WasmHost.Aggregate
 import ProofForge.Backend.WasmHost.ArrayHeap
@@ -49,9 +50,35 @@ open ProofForge.Backend.WasmHost.Scalar
 def moduleStringPoolEnd (strings : Array StringInfo) : Nat :=
   strings.foldl (init := STRING_BASE) fun acc s => max acc (s.ptr + s.len + 1)
 
+/-- Reuse canonical normalization to discover source string literals. This keeps
+the legacy EmitWat entrypoint from growing another target-specific expression
+walker while canonical Core remains the typed source of literal data. -/
+def canonicalStringLiterals (mod : ProofForge.IR.Module) : Array String :=
+  match ProofForge.IR.Legacy.Adapter.adaptLegacy
+      (ProofForge.Contract.ContractSpec.fromIR mod) with
+  | .error _ => #[]
+  | .ok bundle =>
+      bundle.contract.contract.module.functions.foldl (init := #[]) fun values fn =>
+        fn.blocks.foldl (init := values) fun values block =>
+          block.instructions.foldl (init := values) fun values instruction =>
+            match instruction.op with
+            | .pure (.literal (.stringLit value)) =>
+                if values.contains value then values else values.push value
+            | _ => values
+
+def appendLiteralStrings (strings : Array StringInfo) (values : Array String) : Array StringInfo :=
+  let start := moduleStringPoolEnd strings
+  let result : Array StringInfo × Nat :=
+    values.foldl (init := (strings, start)) fun (entries, ptr) value =>
+      if entries.any (fun entry => entry.str == value) then
+        (entries, ptr)
+      else
+        (entries.push { str := value, ptr, len := value.length }, ptr + value.length + 1)
+  result.1
+
 def loweringCtxForModule (mod : ProofForge.IR.Module)
     (bridge : ProofForge.Target.HostBridge := .near) : Ctx :=
-  let strings := stringPool mod
+  let strings := appendLiteralStrings (stringPool mod) (canonicalStringLiterals mod)
   let panics := panicPool mod (moduleStringPoolEnd strings)
   let pack := bridge == ProofForge.Target.HostBridge.near && moduleScalarsPackable mod
   let (scalars, packSize) :=

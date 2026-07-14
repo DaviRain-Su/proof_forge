@@ -19,17 +19,8 @@ ProofForge/IR/Contract.lean:crosscallCreate2 2
 ProofForge/IR/Contract.lean:eip712PermitDigest 2
 ProofForge/IR/Contract.lean:evmProxyPattern 1
 ProofForge/IR/Contract.lean:fallback 2
-ProofForge/IR/Contract.lean:nearAttachedDeposit 2
-ProofForge/IR/Contract.lean:nearCrosscallInvokePool 2
 ProofForge/IR/Contract.lean:nearPrepaidGas 1
 ProofForge/IR/Contract.lean:nearPromise 7
-ProofForge/IR/Contract.lean:nearPromiseResultStatus 2
-ProofForge/IR/Contract.lean:nearPromiseResultU128 2
-ProofForge/IR/Contract.lean:nearPromiseResultU64 2
-ProofForge/IR/Contract.lean:nearPromiseResultsCount 2
-ProofForge/IR/Contract.lean:nearPromiseThen 2
-ProofForge/IR/Contract.lean:nearPromiseTransfer 2
-ProofForge/IR/Contract.lean:nearStorageUsage 2
 ProofForge/IR/Contract.lean:nearUsedGas 1
 ProofForge/IR/Contract.lean:origin 5
 ProofForge/IR/Contract.lean:prepaidGas 5

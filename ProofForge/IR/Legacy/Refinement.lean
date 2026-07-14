@@ -181,16 +181,12 @@ mutual
     | .crosscallNamed _ _ args _ =>
         match args with
         | ⟨args⟩ => allAcceptable #[classifyExpr (.crosscallNamed "" "" #[] .unit)] && scalarFragmentExprList args
-    | .nearCrosscallInvokePool i m args d names =>
+    | .crosscallInvokeNamedValue i m args d names =>
         match args with
-        | ⟨args⟩ => allAcceptable #[classifyExpr (.nearCrosscallInvokePool (.local "") (.local "") #[] (.local "") names)] && scalarFragmentExpr i && scalarFragmentExpr m && scalarFragmentExprList args && scalarFragmentExpr d
-    | .nearPromiseThen p c args d names =>
+        | ⟨args⟩ => allAcceptable #[classifyExpr (.crosscallInvokeNamedValue (.local "") (.local "") #[] (.local "") names)] && scalarFragmentExpr i && scalarFragmentExpr m && scalarFragmentExprList args && scalarFragmentExpr d
+    | .crosscallContinue p c args d names =>
         match args with
-        | ⟨args⟩ => allAcceptable #[classifyExpr (.nearPromiseThen (.local "") (.local "") #[] (.local "") names)] && scalarFragmentExpr p && scalarFragmentExpr c && scalarFragmentExprList args && scalarFragmentExpr d
-    | .nearPromiseResultsCount => allAcceptable #[classifyExpr .nearPromiseResultsCount]
-    | .nearPromiseResultStatus i => allAcceptable #[classifyExpr (.nearPromiseResultStatus (.literal (.u64 0)))] && scalarFragmentExpr i
-    | .nearPromiseResultU64 i => allAcceptable #[classifyExpr (.nearPromiseResultU64 (.literal (.u64 0)))] && scalarFragmentExpr i
-    | .nearPromiseResultU128 i => allAcceptable #[classifyExpr (.nearPromiseResultU128 (.literal (.u64 0)))] && scalarFragmentExpr i
+        | ⟨args⟩ => allAcceptable #[classifyExpr (.crosscallContinue (.local "") (.local "") #[] (.local "") names)] && scalarFragmentExpr p && scalarFragmentExpr c && scalarFragmentExprList args && scalarFragmentExpr d
     | .effect eff => allAcceptable #[classifyExpr (.effect (Effect.contextRead .userId))] && scalarFragmentEffect eff
 
   /-- Recursively check that an effect belongs to the scalar fragment. -/

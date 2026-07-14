@@ -460,9 +460,7 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
   | .crosscallCreate .. | .crosscallCreate2 ..
   | .crosscallNamed .. => acc
   | .hostCall _ args _ _ => args.foldl (collectFromExpr entrypoint) acc
-  | .nearCrosscallInvokePool .. | .nearPromiseThen .. => acc
-  | .nearPromiseTransfer account amount =>
-      collectFromExpr entrypoint (collectFromExpr entrypoint acc account) amount
+  | .crosscallInvokeNamedValue .. | .crosscallContinue .. => acc
   | .effect e => collectFromEffect entrypoint acc e
   | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
@@ -480,8 +478,7 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
       collectFromExpr entrypoint (collectFromExpr entrypoint acc e) f
   | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
       collectFromExpr entrypoint acc target
-  | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _
-  | .nearPromiseResultStatus a | .nearPromiseResultU64 a | .nearPromiseResultU128 a =>
+  | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ =>
       collectFromExpr entrypoint acc a
   | .arrayLit _ xs => xs.foldl (fun a e => collectFromExpr entrypoint a e) acc
   | .structLit _ fs => fs.foldl (fun a f => collectFromExpr entrypoint a f.snd) acc
@@ -492,8 +489,7 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
       collectFromExpr entrypoint
         (collectFromExpr entrypoint
           (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d
-  | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
-  | .nearStorageUsage | .nearPromiseResultsCount => acc
+  | .literal _ | .local _ | .nativeValue | .callValueU128 => acc
 where
   collectFromEffect (entrypoint : String) (acc : Array PortableCrosscallSite) :
       Effect → Array PortableCrosscallSite

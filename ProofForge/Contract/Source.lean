@@ -12,7 +12,7 @@ module for backend fixtures, Pinocchio/live gates, or hand-tuned Solana layouts:
 import ProofForge.Contract.Source.Solana
 ```
 
-NEAR Promise chaining (`nearPromiseThen` / result decode) is opt-in via:
+NEAR Promise chaining (`crosscallContinue` / result decode) is opt-in via:
 
 ```lean
 import ProofForge.Contract.Source.Near
@@ -901,14 +901,8 @@ def contractId : ProofForge.IR.Expr :=
 def nativeValue : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.nativeValue
 
-def nearAttachedDeposit : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.nearAttachedDeposit
-
-def nearStorageUsage : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.nearStorageUsage
-
-def nearPromiseTransfer (account amount : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.nearPromiseTransfer account amount
+def callValueU128 : ProofForge.IR.Expr :=
+  ProofForge.Contract.Surface.callValueU128
 
 def hash4 (a b c d : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.hash4 a b c d

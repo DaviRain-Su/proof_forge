@@ -58,7 +58,7 @@ pick a chain at write time and violated D-028. **Removed.**
       (`Backend.WasmHost.PortableCrosscall`, `NearCrosscallProbe.portableModule`,
       `Shared.RemoteCall`, `just portable-remote-call-multi-target`).
       Host-extension vocabulary: `ProofForge.IR.NearHost` + `Source.Near`.
-      `nearPromiseThen` / result constructors remain on `Expr` for EmitWat
+      `crosscallContinue` / result constructors remain on `Expr` for EmitWat
       coverage but are non-portable-core (`targetFamilyOnly .wasmHost`);
       full inductive removal is deferred (every Expr match site).
 - [x] Generalize Move entrypoint lowering beyond hardcoded Counter entrypoint

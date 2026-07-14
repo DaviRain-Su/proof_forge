@@ -201,7 +201,7 @@ where
     | .crosscallInvoke .. | .crosscallInvokeTyped .. | .crosscallInvokeValueTyped ..
     | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped ..
     | .crosscallCreate .. | .crosscallCreate2 ..
-    | .nearCrosscallInvokePool .. | .nearPromiseThen .. => true
+    | .crosscallInvokeNamedValue .. | .crosscallContinue .. => true
     | .crosscallNamed _ _ args _ => args.any exprUses
     | .hostCall _ args _ _ => args.any exprUses
     | .effect e => effectUses e
@@ -213,16 +213,13 @@ where
     | .eip712PermitDigest a b c d e f =>
         exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
     | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => exprUses target
-    | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _
-    | .nearPromiseResultStatus a | .nearPromiseResultU64 a | .nearPromiseResultU128 a => exprUses a
-    | .nearPromiseTransfer account amount => exprUses account || exprUses amount
+    | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)
     | .arrayGet a i | .memoryArrayGet a i => exprUses a || exprUses i
     | .memoryArrayNew _ len => exprUses len
     | .hashValue a b c d => exprUses a || exprUses b || exprUses c || exprUses d
-    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
-    | .nearStorageUsage | .nearPromiseResultsCount => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
@@ -293,10 +290,8 @@ partial def moduleUsesNearAsyncExtension (module : Module) : Bool :=
 where
   exprUses : Expr → Bool
     | .hostCall id args _ _ => id.namespace_ == "near.promise" || args.any exprUses
-    | .nearPromiseThen .. | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ | .nearPromiseResultU128 _
-    | .nearPromiseTransfer _ _ => true
-    | .nearCrosscallInvokePool .. => false  -- still promise_create shaped
+    | .crosscallContinue .. => true
+    | .crosscallInvokeNamedValue .. => false  -- still promise_create shaped
     | .effect e => effectUses e
     | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
@@ -324,7 +319,7 @@ where
     | .crosscallCreate a _ => exprUses a
     | .crosscallCreate2 a b _ => exprUses a || exprUses b
     | .crosscallNamed _ _ args _ => args.any exprUses
-    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v

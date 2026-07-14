@@ -424,9 +424,8 @@ mutual
     | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
         .error { message := "crosscallAbiPacked (compile-time ABI Call[]) is EVM-only; not supported by wasm-near IR v0" }
     | .nativeValue => .ok .u64
-    | .nearAttachedDeposit => .ok .u128
+    | .callValueU128 => .ok .u128
     | .hostCall _ _ returnType _ => .ok returnType
-    | .nearStorageUsage | .nearPromiseTransfer _ _ => .ok .u64
     | .crosscallInvoke _ _ _ => .ok .u64
     | .crosscallInvokeTyped _ _ _ returnType => .ok returnType
     | .crosscallInvokeValueTyped _ _ _ _ returnType => .ok returnType
@@ -435,12 +434,8 @@ mutual
     | .crosscallCreate _ _ => .ok .u64
     | .crosscallCreate2 _ _ _ => .ok .u64
     | .crosscallNamed _ _ _ returnType => .ok returnType
-    | .nearCrosscallInvokePool _ _ _ _ _ => .ok .u64
-    | .nearPromiseThen _ _ _ _ _ => .ok .u64
-    | .nearPromiseResultsCount => .ok .u64
-    | .nearPromiseResultStatus _ => .ok .u64
-    | .nearPromiseResultU64 _ => .ok .u64
-    | .nearPromiseResultU128 _ => .ok .u128
+    | .crosscallInvokeNamedValue _ _ _ _ _ => .ok .u64
+    | .crosscallContinue _ _ _ _ _ => .ok .u64
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType

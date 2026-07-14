@@ -120,10 +120,8 @@ mutual
     | .hashTwoToOne lhs rhs => do .ok <| .hashTwoToOne (← buildExpr ctx lhs) (← buildExpr ctx rhs)
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Psy IR v0" }
-    | .nearAttachedDeposit
-    | .nearStorageUsage
-    | .nearPromiseTransfer _ _ =>
-        .error { message := "NEAR storage/deposit host operations are not supported by Psy IR v0" }
+    | .callValueU128 =>
+        .error { message := "full-width call value is not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do
         .ok <| .crosscallInvoke (← buildExpr ctx target) (← buildExpr ctx methodId) (← args.mapM (buildExpr ctx))
     | .crosscallInvokeTyped _ _ _ returnType =>
@@ -140,13 +138,9 @@ mutual
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
     | .crosscallNamed _ _ _ _ =>
         .error { message := "named-callee cross-program calls (crosscallNamed) are not supported by Psy IR v0" }
-    | .nearPromiseThen _ _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .nearPromiseResultU128 _ =>
-        .error { message := "NEAR promise API is not supported by Psy IR v0" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported by Psy IR v0" }
     | .effect effect => buildEffectExpr ctx effect
 
   /-- Build a `Lean.Compiler.Psy.Expr` from a portable IR `Effect` in expression position. -/

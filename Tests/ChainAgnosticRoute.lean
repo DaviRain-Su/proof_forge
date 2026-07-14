@@ -58,7 +58,8 @@ def nearAsyncModule : Module := {
   state := #[]
   entrypoints := #[{
     name := "cb"
-    body := #[.return (.nearPromiseResultsCount)]
+    body := #[.return (.hostCall
+      ProofForge.Target.HostOps.Near.promiseResultsCountSig.id #[] .u64 #[.nearPromise])]
   }]
 }
 
@@ -402,7 +403,8 @@ def main : IO UInt32 := do
       body := #[
         .letBind "p" .u64
           (.crosscallInvoke (.literal (.u64 1)) (.literal (.u64 2)) #[]),
-        .return (.nearPromiseResultsCount)
+        .return (.hostCall ProofForge.Target.HostOps.Near.promiseResultsCountSig.id
+          #[] .u64 #[.nearPromise])
       ]
     }]
   }

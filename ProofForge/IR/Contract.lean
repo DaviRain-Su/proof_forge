@@ -277,31 +277,16 @@ mutual
     by compile-time program/method identifiers (Aleo `_dynamic_call`), unlike the
     runtime-address `crosscallInvoke`. Account-chain targets reject it. -/
     | crosscallNamed (programId method : String) (args : Array Expr) (returnType : ValueType)
-    /-- NEAR host-extension only (not portable product path): `promise_create`
-        with either a runtime AccountId string or an index into
-        `module.crosscallStrings`. `argNames` selects JSON-object encoding;
-        an empty array preserves the historical JSON-array encoding. -/
-    | nearCrosscallInvokePool (account : Expr) (methodId : Expr) (args : Array Expr)
+    /-- Invoke a named remote endpoint with value. Targets decide how names,
+        arguments, and value are encoded during materialization. -/
+    | crosscallInvokeNamedValue (account : Expr) (methodId : Expr) (args : Array Expr)
         (deposit : Expr) (argNames : Array String)
-    /-- NEAR host-extension only: attach a callback method on the current contract
-        (`promise_then`). D-050 Slice 3 — not portable-core. -/
-    | nearPromiseThen (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr)
+    /-- Continue an asynchronous invocation with a local callback. Targets that
+        do not support continuations reject the required capability. -/
+    | crosscallContinue (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr)
         (deposit : Expr) (argNames : Array String)
-    /-- NEAR host-extension only: number of completed promise results in a callback. -/
-    | nearPromiseResultsCount
-    /-- NEAR host-extension only: status of promise result at `index` (1 = success, 2 = failed). -/
-    | nearPromiseResultStatus (index : Expr)
-    /-- NEAR host-extension only: Borsh-decoded U64 payload from promise result at `index`. -/
-    | nearPromiseResultU64 (index : Expr)
-    | nearPromiseResultU128 (index : Expr)
-    /-- NEAR host-extension only: full 128-bit attached deposit. The portable
-        `nativeValue` compatibility expression remains a U64 projection. -/
-    | nearAttachedDeposit
-    /-- NEAR host-extension only: current trie storage usage in bytes. -/
-    | nearStorageUsage
-    /-- NEAR host-extension only: schedule a native-token transfer to a
-        runtime AccountId and return the batch promise index. -/
-    | nearPromiseTransfer (account amount : Expr)
+    /-- Full-width native value supplied by the caller. -/
+    | callValueU128
     | effect (effect : Effect)
     deriving Repr, BEq
 
@@ -684,20 +669,13 @@ mutual
         #[.crosscallInvoke] ++ callValue.capabilities
     | .crosscallCreate2 callValue salt _ =>
         #[.crosscallInvoke] ++ callValue.capabilities ++ salt.capabilities
-    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
-        #[.nearPromise] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
+        #[.crosscallInvoke] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit _ =>
-        #[.nearPromise] ++ parentPromise.capabilities ++ callbackMethod.capabilities ++ deposit.capabilities ++
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
+        #[.crosscallContinue] ++ parentPromise.capabilities ++ callbackMethod.capabilities ++ deposit.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
-    | .nearPromiseResultsCount => #[.nearPromise]
-    | .nearPromiseResultStatus index => #[.nearPromise] ++ index.capabilities
-    | .nearPromiseResultU64 index => #[.nearPromise] ++ index.capabilities
-    | .nearPromiseResultU128 index => #[.nearPromise] ++ index.capabilities
-    | .nearAttachedDeposit => #[.valueNative]
-    | .nearStorageUsage => #[.storageScalar]
-    | .nearPromiseTransfer account amount =>
-        #[.nearPromise] ++ account.capabilities ++ amount.capabilities
+    | .callValueU128 => #[.valueNative]
     | .effect effect => #[effect.capability] ++ effect.capabilities
 
   partial def Effect.capabilities : Effect → Array ProofForge.Target.Capability

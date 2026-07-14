@@ -1,4 +1,5 @@
 import ProofForge.IR.Contract
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.IR.Examples.NearCrosscallProbe
 
@@ -39,7 +40,7 @@ def callRemoteWithCallback : Entrypoint := {
   returns := .u64
   params := #[]
   body := #[
-    .return (.nearPromiseThen
+    .return (.crosscallContinue
       (.crosscallInvoke (.literal (.address 0)) (.literal (.address 1)) #[.literal (.u64 42)])
       (.literal (.address 2))
       #[] (.literal (.u64 0)) #[])
@@ -52,8 +53,10 @@ def handleRemote : Entrypoint := {
   returns := .u64
   params := #[]
   body := #[
-    .letBind "result_count" .u64 .nearPromiseResultsCount,
-    .return (.nearPromiseResultU64 (.literal (.u64 0)))
+    .letBind "result_count" .u64
+      (.hostCall ProofForge.Target.HostOps.Near.promiseResultsCountSig.id #[] .u64 #[.nearPromise]),
+    .return (.hostCall ProofForge.Target.HostOps.Near.promiseResultU64Sig.id
+      #[.literal (.u64 0)] .u64 #[.nearPromise])
   ]
 }
 
@@ -66,7 +69,7 @@ def module : Module := {
 }
 
 /-- Portable NEAR crosscall subset: only `crosscall.invoke` + string pool.
-No `nearPromiseThen` / result constructors — those stay host-extension fixtures. -/
+No `crosscallContinue` / result constructors — those stay host-extension fixtures. -/
 def portableModule : Module := {
   name := "NearCrosscallPortable"
   state := #[stateMarker]

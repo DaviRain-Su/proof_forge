@@ -50,31 +50,31 @@ Storage/crypto/context effects lower to these NEAR host imports:
 | `contextRead randomSeed` | `env.random_seed` |
 | `eventEmit` | `env.log` |
 
-### NEAR Promise IR
+### NEAR Promise materialization
 
-Portable `crosscallInvoke` lowers to `promise_create` for remote calls. NEAR-specific
-promise chaining and callback introspection use dedicated `Expr` forms tagged with
-the `near.promise` capability on the canonical EmitWat path:
+Portable `crosscallInvoke` lowers to `promise_create` for remote calls. Shared
+IR uses semantic named invocation/continuation nodes; NEAR-only callback and
+storage operations are target-owned HostOps selected by stable IDs:
 
-| IR expression | NEAR host import(s) | Role |
+| Semantic request | NEAR host import(s) | Role |
 |---|---|---|
-| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | Create a promise using runtime indices into `module.crosscallStrings` for the account and method names. |
-| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`, `current_account_id` | Attach a callback method on the **current** contract to an existing promise id (`parent` is `U64`). Callback and remote method names index `module.crosscallStrings` via `.literal (.address i)`. |
-| `nearPromiseResultsCount` | `promise_results_count` | In callback entrypoints: how many completed promise results are visible. |
-| `nearPromiseResultStatus index` | `promise_result` | Read result status at `index` (`1` = success, `2` = failed). |
-| `nearPromiseResultU64 index` | `promise_result`, `read_register` | Borsh-decode the result payload at `index` as `U64` (returns `0` on failure). |
+| `crosscallInvokeNamedValue accountIndex methodId args deposit` | `promise_create` | Create a promise using runtime indices into `module.crosscallStrings` for the account and method names. |
+| `crosscallContinue parent callbackMethod args deposit` | `promise_then`, `current_account_id` | Attach a callback method on the **current** contract to an existing promise id (`parent` is `U64`). Callback and remote method names index `module.crosscallStrings` via `.literal (.address i)`. |
+| `hostCall near.promise.results_count@1.0.0` | `promise_results_count` | In callback entrypoints: how many completed promise results are visible. |
+| `hostCall near.promise.result_status@1.0.0(index)` | `promise_result` | Read result status at `index` (`1` = success, `2` = failed). |
+| `hostCall near.promise.result_u64@1.0.0(index)` | `promise_result`, `read_register` | Borsh-decode the result payload at `index` as `U64` (returns `0` on failure). |
 
 Typical shape:
 
 ```text
 entry call_remote_with_callback:
-  return nearPromiseThen(
+  return crosscallContinue(
     crosscallInvoke(...),
     callbackMethod = "handle_remote",
     args = [], deposit = 0)
 
 entry handle_remote:
-  return nearPromiseResultU64(0)
+  return hostCall near.promise.result_u64@1.0.0(0)
 ```
 
 Fixture: `ProofForge/IR/Examples/NearCrosscallProbe.lean`.

@@ -71,9 +71,9 @@ not an accepted exception to the boundary.
 
 | Current shared node | Problem | Destination |
 |---|---|---|
-| `nearCrosscallInvokePool`, `nearPromiseThen` | NEAR promise scheduling is encoded in `Expr` and in `CoreCrosscallMode` | target-neutral async call/continuation intent plus NEAR plan handler |
+| `crosscallInvokeNamedValue`, `crosscallContinue` | NEAR promise scheduling is encoded in `Expr` and in `CoreCrosscallMode` | target-neutral async call/continuation intent plus NEAR plan handler |
 | `nearPromiseResultsCount`, `nearPromiseResultStatus`, `nearPromiseResultU64`, `nearPromiseResultU128` | callback API and payload codec are NEAR host details | typed async-result extension family |
-| `nearAttachedDeposit` | duplicates portable call-value context with a NEAR-specific width workaround | target-neutral `ContextField.callValue` with an explicit portable type |
+| `callValueU128` | duplicates portable call-value context with a NEAR-specific width workaround | target-neutral `ContextField.callValue` with an explicit portable type |
 | `nearStorageUsage` | exposes one host API as an `Expr` constructor | typed resource-usage HostOp registered by NEAR |
 | `nearPromiseTransfer` | exposes a NEAR batch action as an `Expr` constructor | target-neutral native transfer/async action or typed target extension |
 | `ecrecover` | hardcodes the EVM API rather than the cryptographic semantic contract | algorithm-identified signature recovery operation and capability |
@@ -95,7 +95,7 @@ not an accepted exception to the boundary.
 
 ### P1: target implementation in Canonical Core
 
-- `CoreCrosscallMode.nearPoolInvoke` and `.nearPromiseThen` contradict the
+- `CoreCrosscallMode.nearPoolInvoke` and `.crosscallContinue` contradict the
   comment that NEAR promises remain HostOps.
 - `IR.Core.HostOp.canonicalHostOpCatalog` centrally registers NEAR signatures.
   Adding a NEAR operation therefore changes the global Core module.

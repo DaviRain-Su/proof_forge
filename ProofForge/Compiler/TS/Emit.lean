@@ -176,16 +176,10 @@ mutual
     | .hostCall _ _ _ _
     | .crosscallNamed _ _ _ _ =>
         throw "EmitTS: unsupported expression"
-    | .nearPromiseThen _ _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .nearPromiseResultU128 _
-    | .nearAttachedDeposit
-    | .nearStorageUsage
-    | .nearPromiseTransfer _ _
-    | .nearCrosscallInvokePool _ _ _ _ _ =>
-        throw "EmitTS: NEAR promise expressions are unsupported"
+    | .crosscallContinue _ _ _ _ _
+    | .callValueU128
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        throw "EmitTS: asynchronous expressions are unsupported"
 
   partial def emitBinOp (expected : ValueType) (op : BinOp) (lhs rhs : ProofForge.IR.Expr) : EmitTSM ProofForge.Compiler.TS.Expr := do
     let l ← emitExpr expected lhs

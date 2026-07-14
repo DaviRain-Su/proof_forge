@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "82995cf3f3a427e126c722bb6d18b3518102a1cf6ff926b0a70b6fdf750dad61",
+    "sha256": "8e499ecfa95ad634b9d7c7374ece77f339f9ccc35e9e5761bf384a85cbe6eee7",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh for the 2026-07-14 target-extension boundary program"
+    "note": "synced EN/zh through IR-B3c completion"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -168,10 +168,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/targets/wasm-near.md": {
-    "sha256": "b3d04943391f07a3318a43bae02919ec9c4421320933cea8d06de4672ee2d437",
+    "sha256": "e133eaa593dda5e69a8724939ebe98232281686b9bd05cb78e954c2ae268d2a8",
     "zh": "docs/zh/targets/wasm-near.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for neutral crosscall string-pool ownership"
+    "note": "manually synced for target-owned NEAR HostOps"
   },
   "docs/gate-status.md": {
     "sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd",

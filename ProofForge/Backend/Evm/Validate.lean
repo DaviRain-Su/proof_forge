@@ -156,10 +156,8 @@ mutual
           ensureType "abi-packed runtime Call target" .u64 (← inferExprType module env t)
         .ok .u64
     | .nativeValue => .ok .u64
-    | .nearAttachedDeposit
-    | .nearStorageUsage
-    | .nearPromiseTransfer _ _ =>
-        .error { message := "NEAR storage/deposit host operations are not supported on EVM" }
+    | .callValueU128 =>
+        .error { message := "U128 call value is not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         ensureCrosscallHandleType "crosscall target contract id"
           (← inferExprType module env target)
@@ -216,13 +214,9 @@ mutual
     | .crosscallNamed _ _ args returnType => do
         for arg in args do discard <| inferExprType module env arg
         .ok returnType
-    | .nearPromiseThen _ _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .nearPromiseResultU128 _ =>
-        .error { message := "NEAR promise API is not supported on EVM" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported on EVM" }
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferBinaryNumericType
@@ -938,7 +932,7 @@ mutual
 
   partial def exprUsesCheckedArithmetic : Expr → Bool
     | .add _ _ _ | .sub _ _ _ | .mul _ _ _ => true
-    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
     | .hostCall _ args _ _ => args.any exprUsesCheckedArithmetic
     | .arrayLit _ xs => xs.any exprUsesCheckedArithmetic
     | .arrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i
@@ -974,18 +968,12 @@ mutual
     | .crosscallCreate v _ => exprUsesCheckedArithmetic v
     | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
     | .crosscallNamed _ _ args _ => args.any exprUsesCheckedArithmetic
-    | .nearPromiseThen p m args d _ =>
+    | .crosscallContinue p m args d _ =>
         exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
           args.any exprUsesCheckedArithmetic
-    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         exprUsesCheckedArithmetic accountIndex || exprUsesCheckedArithmetic methodId ||
           exprUsesCheckedArithmetic deposit || args.any exprUsesCheckedArithmetic
-    | .nearPromiseResultsCount => false
-    | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
-    | .nearPromiseResultU64 i => exprUsesCheckedArithmetic i
-    | .nearPromiseResultU128 i => exprUsesCheckedArithmetic i
-    | .nearPromiseTransfer account amount =>
-        exprUsesCheckedArithmetic account || exprUsesCheckedArithmetic amount
     | .effect e => effectUsesCheckedArithmetic e
 
   partial def stmtUsesCheckedArithmetic : Statement → Bool

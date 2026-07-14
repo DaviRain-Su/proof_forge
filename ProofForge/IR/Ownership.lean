@@ -158,8 +158,7 @@ mutual
     | _ + 1, _, _, .nativeValue => .ok ()
     | fuel + 1, entrypoint, env, .hostCall _ args _ _ =>
         args.foldlM (init := ()) fun _ arg => checkExprFuel fuel entrypoint env arg
-    | _ + 1, _, _, .nearAttachedDeposit => .ok ()
-    | _ + 1, _, _, .nearStorageUsage => .ok ()
+    | _ + 1, _, _, .callValueU128 => .ok ()
     | fuel + 1, entrypoint, env, .crosscallInvoke target methodId args => do
         checkExprFuel fuel entrypoint env target
         checkExprFuel fuel entrypoint env methodId
@@ -181,19 +180,12 @@ mutual
     | fuel + 1, entrypoint, env, .crosscallCreate2 callValue salt _ => do
         checkExprFuel fuel entrypoint env callValue
         checkExprFuel fuel entrypoint env salt
-    | fuel + 1, entrypoint, env, .nearPromiseThen parentPromise callbackMethod args deposit _ => do
+    | fuel + 1, entrypoint, env, .crosscallContinue parentPromise callbackMethod args deposit _ => do
         checkExprFuel fuel entrypoint env parentPromise
         checkExprFuel fuel entrypoint env callbackMethod
         checkExprFuel fuel entrypoint env deposit
         args.foldlM (init := ()) fun _ arg => checkExprFuel fuel entrypoint env arg
-    | _ + 1, _, _, .nearPromiseResultsCount => pure ()
-    | fuel + 1, entrypoint, env, .nearPromiseResultStatus index => checkExprFuel fuel entrypoint env index
-    | fuel + 1, entrypoint, env, .nearPromiseResultU64 index => checkExprFuel fuel entrypoint env index
-    | fuel + 1, entrypoint, env, .nearPromiseResultU128 index => checkExprFuel fuel entrypoint env index
-    | fuel + 1, entrypoint, env, .nearPromiseTransfer account amount => do
-        checkExprFuel fuel entrypoint env account
-        checkExprFuel fuel entrypoint env amount
-    | fuel + 1, entrypoint, env, .nearCrosscallInvokePool accountIndex methodId args deposit _ => do
+    | fuel + 1, entrypoint, env, .crosscallInvokeNamedValue accountIndex methodId args deposit _ => do
         checkExprFuel fuel entrypoint env accountIndex
         checkExprFuel fuel entrypoint env methodId
         checkExprFuel fuel entrypoint env deposit

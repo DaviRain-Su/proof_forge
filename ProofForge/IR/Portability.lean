@@ -82,36 +82,20 @@ mutual
         #[finding path "crosscallInvokeDelegateTyped (DELEGATECALL)" (.targetFamilyOnly .evm)] ++
           classifyExpr s!"{path}.target" target ++ classifyExpr s!"{path}.method" methodId ++
           args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
-    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
-        #[finding path "nearCrosscallInvokePool" (.targetFamilyOnly .wasmHost)] ++
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
+        #[finding path "crosscall.invoke.named_value" .familyShared] ++
           classifyExpr s!"{path}.account" accountIndex ++
           classifyExpr s!"{path}.method" methodId ++
           classifyExpr s!"{path}.deposit" deposit ++
           args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit _ =>
-        #[finding path "nearPromiseThen" (.targetFamilyOnly .wasmHost)] ++
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
+        #[finding path "crosscall.continue" .familyShared] ++
           classifyExpr s!"{path}.parent" parentPromise ++
           classifyExpr s!"{path}.callback" callbackMethod ++
           classifyExpr s!"{path}.deposit" deposit ++
           args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
-    | .nearPromiseResultsCount =>
-        #[finding path "nearPromiseResultsCount" (.targetFamilyOnly .wasmHost)]
-    | .nearPromiseResultStatus index =>
-        #[finding path "nearPromiseResultStatus" (.targetFamilyOnly .wasmHost)] ++
-          classifyExpr s!"{path}.index" index
-    | .nearPromiseResultU64 index =>
-        #[finding path "nearPromiseResultU64" (.targetFamilyOnly .wasmHost)] ++
-          classifyExpr s!"{path}.index" index
-    | .nearPromiseResultU128 index =>
-        #[finding path "nearPromiseResultU128" (.targetFamilyOnly .wasmHost)] ++
-          classifyExpr s!"{path}.index" index
-    | .nearAttachedDeposit =>
-        #[finding path "nearAttachedDeposit" (.targetFamilyOnly .wasmHost)]
-    | .nearStorageUsage =>
-        #[finding path "nearStorageUsage" (.targetFamilyOnly .wasmHost)]
-    | .nearPromiseTransfer account amount =>
-        #[finding path "nearPromiseTransfer" (.targetFamilyOnly .wasmHost)] ++
-          classifyExpr s!"{path}.account" account ++ classifyExpr s!"{path}.amount" amount
+    | .callValueU128 =>
+        #[finding path "context.call_value.u128" (.targetFamilyOnly .wasmHost)]
     | .crosscallInvoke target methodId args =>
         #[finding path "crosscall.invoke" .familyShared] ++
           classifyExpr s!"{path}.target" target ++ classifyExpr s!"{path}.method" methodId ++

@@ -195,8 +195,8 @@ mutual
         .error { message := "native value inspection is not supported by Psy IR v0" }
     | .hostCall _ _ _ _ =>
         .error { message := "Psy IR v0 does not support target extension calls" }
-    | .nearAttachedDeposit | .nearStorageUsage | .nearPromiseTransfer _ _ =>
-        .error { message := "NEAR host expressions are not supported by Psy IR v0" }
+    | .callValueU128 =>
+        .error { message := "full-width call value is not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do
         let targetType ← inferExprType module env target
         ensureType "crosscall target contract id" .u64 targetType
@@ -220,13 +220,9 @@ mutual
         .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
     | .crosscallNamed _ _ _ _ =>
         .error { message := "named-callee cross-program calls (crosscallNamed) are not supported by Psy IR v0; Psy uses runtime-address crosscallInvoke" }
-    | .nearPromiseThen _ _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .nearPromiseResultU128 _ =>
-        .error { message := "NEAR promise API is not supported by Psy IR v0" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported by Psy IR v0" }
     | .effect effect =>
         inferEffectExprType module env effect
 

@@ -63,14 +63,11 @@ where
     | .crosscallCreate2 a b _ => pushExpr (pushExpr acc a) b
     | .crosscallNamed _ _ args _ => args.foldl pushExpr acc
     | .hostCall _ args _ _ => args.foldl pushExpr acc
-    | .nearCrosscallInvokePool a b args d _ =>
+    | .crosscallInvokeNamedValue a b args d _ =>
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) d)
-    | .nearPromiseThen a b args d _ =>
+    | .crosscallContinue a b args d _ =>
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) d)
-    | .nearPromiseResultStatus a | .nearPromiseResultU64 a | .nearPromiseResultU128 a => pushExpr acc a
-    | .nearPromiseTransfer account amount => pushExpr (pushExpr acc account) amount
-    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
-    | .nearStorageUsage | .nearPromiseResultsCount => acc
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => acc
   pushEffect (acc : Array ContextField) : Effect → Array ContextField
     | .contextRead f => pushUnique acc f
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
@@ -123,8 +120,7 @@ where
     | .ecrecover a b c d => exprUses a || exprUses b || exprUses c || exprUses d
     | .eip712PermitDigest a b c d e f =>
         exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
-    | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _
-    | .nearPromiseResultStatus a | .nearPromiseResultU64 a | .nearPromiseResultU128 a => exprUses a
+    | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)
     | .arrayGet a i | .memoryArrayGet a i => exprUses a || exprUses i
@@ -134,13 +130,11 @@ where
     | .crosscallCreate2 a b _ => exprUses a || exprUses b
     | .crosscallNamed _ _ args _ => args.any exprUses
     | .hostCall _ args _ _ => args.any exprUses
-    | .nearCrosscallInvokePool a b args d _ =>
+    | .crosscallInvokeNamedValue a b args d _ =>
         exprUses a || exprUses b || args.any exprUses || exprUses d
-    | .nearPromiseThen a b args d _ =>
+    | .crosscallContinue a b args d _ =>
         exprUses a || exprUses b || args.any exprUses || exprUses d
-    | .nearPromiseTransfer account amount => exprUses account || exprUses amount
-    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit
-    | .nearStorageUsage | .nearPromiseResultsCount => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v

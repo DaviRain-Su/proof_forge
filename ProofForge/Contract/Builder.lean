@@ -372,16 +372,16 @@ def hostCall (id : ProofForge.Target.HostOpId) (args : Array Expr)
     (returnType : ValueType) (requiredCapabilities : Array ProofForge.Target.Capability) : Expr :=
   .hostCall id args returnType requiredCapabilities
 
-def nearCrosscallInvokePool (account methodId : Expr) (args : Array Expr) (deposit : Expr)
+def crosscallInvokeNamedValue (account methodId : Expr) (args : Array Expr) (deposit : Expr)
     (argNames : Array String := #[]) : Expr :=
-  .nearCrosscallInvokePool account methodId args deposit argNames
+  .crosscallInvokeNamedValue account methodId args deposit argNames
 
-def nearPromiseThen (parentPromise callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
+def crosscallContinue (parentPromise callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
     (argNames : Array String := #[]) : Expr :=
-  .nearPromiseThen parentPromise callbackMethod args deposit argNames
+  .crosscallContinue parentPromise callbackMethod args deposit argNames
 
-def nearAttachedDeposit : Expr :=
-  .nearAttachedDeposit
+def callValueU128 : Expr :=
+  .callValueU128
 
 def nearAddressLit (idx : Nat) : Expr :=
   .literal (.address idx)

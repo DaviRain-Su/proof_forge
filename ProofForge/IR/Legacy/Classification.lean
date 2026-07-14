@@ -751,51 +751,21 @@ def classifyExpr : Expr → LegacyDecision
         disposition := .reject
         owner := "target-plan-crosscall"
         reason := "named-callee cross-program call rejected until a typed portable primitive or HostOp handler exists" }
-  | .nearCrosscallInvokePool _ _ _ _ _ =>
-      { nodeTag := "Expr.nearCrosscallInvokePool"
+  | .crosscallInvokeNamedValue _ _ _ _ _ =>
+      { nodeTag := "Expr.crosscallInvokeNamedValue"
         disposition := .normalize
-        owner := "near-adapter"
-        reason := "NEAR string-pool promise_create normalizes to a typed Core crosscall mode" }
-  | .nearPromiseThen _ _ _ _ _ =>
-      { nodeTag := "Expr.nearPromiseThen"
+        owner := "canonical-crosscall-adapter"
+        reason := "named value invocation normalizes to a typed Core crosscall mode" }
+  | .crosscallContinue _ _ _ _ _ =>
+      { nodeTag := "Expr.crosscallContinue"
         disposition := .normalize
-        owner := "near-adapter"
-        reason := "NEAR promise_then normalizes to a typed Core crosscall mode" }
-  | .nearPromiseResultsCount =>
-      { nodeTag := "Expr.nearPromiseResultsCount"
+        owner := "canonical-crosscall-adapter"
+        reason := "asynchronous continuation normalizes to a typed Core crosscall mode" }
+  | .callValueU128 =>
+      { nodeTag := "Expr.callValueU128"
         disposition := .normalize
-        owner := "near-adapter"
-        reason := "NEAR promise results count normalizes to a versioned HostOp" }
-  | .nearPromiseResultStatus _ =>
-      { nodeTag := "Expr.nearPromiseResultStatus"
-        disposition := .normalize
-        owner := "near-adapter"
-        reason := "NEAR promise result status normalizes to a versioned HostOp" }
-  | .nearPromiseResultU64 _ =>
-      { nodeTag := "Expr.nearPromiseResultU64"
-        disposition := .normalize
-        owner := "near-adapter"
-        reason := "NEAR promise result U64 normalizes to a versioned HostOp" }
-  | .nearPromiseResultU128 _ =>
-      { nodeTag := "Expr.nearPromiseResultU128"
-        disposition := .normalize
-        owner := "near-adapter"
-        reason := "NEAR promise result U128 normalizes to a versioned HostOp" }
-  | .nearAttachedDeposit =>
-      { nodeTag := "Expr.nearAttachedDeposit"
-        disposition := .normalize
-        owner := "near-adapter"
-        reason := "full NEAR attached deposit normalizes to the U128 value context" }
-  | .nearStorageUsage =>
-      { nodeTag := "Expr.nearStorageUsage"
-        disposition := .normalize
-        owner := "near-adapter"
-        reason := "NEAR storage usage normalizes to a versioned HostOp" }
-  | .nearPromiseTransfer _ _ =>
-      { nodeTag := "Expr.nearPromiseTransfer"
-        disposition := .normalize
-        owner := "near-adapter"
-        reason := "NEAR native refund normalizes to a versioned promise HostOp" }
+        owner := "canonical-context-adapter"
+        reason := "full-width call value normalizes to the U128 value context" }
   | .effect _ =>
       { nodeTag := "Expr.effect"
         disposition := .normalize
@@ -940,15 +910,9 @@ def exprInventory : Array Expr := #[
   .crosscallCreate (.local "v") "",
   .crosscallCreate2 (.local "v") (.local "s") "",
   .crosscallNamed "p" "m" #[] .unit,
-  .nearCrosscallInvokePool (.local "i") (.local "m") #[] (.local "d") #[],
-  .nearPromiseThen (.local "p") (.local "c") #[] (.local "d") #[],
-  .nearPromiseResultsCount,
-  .nearPromiseResultStatus (.local "i"),
-  .nearPromiseResultU64 (.local "i"),
-  .nearPromiseResultU128 (.local "i"),
-  .nearAttachedDeposit,
-  .nearStorageUsage,
-  .nearPromiseTransfer (.local "account") (.local "amount"),
+  .crosscallInvokeNamedValue (.local "i") (.local "m") #[] (.local "d") #[],
+  .crosscallContinue (.local "p") (.local "c") #[] (.local "d") #[],
+  .callValueU128,
   .effect (Effect.contextRead .userId)
 ]
 

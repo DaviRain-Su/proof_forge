@@ -12,7 +12,7 @@ NEAR-specific `Expr` constructors gated by the `near.promise` capability.
 ## IR additions
 
 ```lean
-| nearPromiseThen (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
+| crosscallContinue (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
 | nearPromiseResultsCount
 | nearPromiseResultStatus (index : Expr)
 | nearPromiseResultU64 (index : Expr)
@@ -23,7 +23,7 @@ NEAR-specific `Expr` constructors gated by the `near.promise` capability.
 Reuse `module.crosscallStrings` for:
 
 - remote account ids and method names (`crosscallInvoke`)
-- **local callback method names** (`nearPromiseThen`)
+- **local callback method names** (`crosscallContinue`)
 
 Indices are referenced with `.literal (.address i)` (same as crosscall targets).
 
@@ -31,7 +31,7 @@ Indices are referenced with `.literal (.address i)` (same as crosscall targets).
 
 | Form | Result |
 |------|--------|
-| `nearPromiseThen` | `U64` (promise id) |
+| `crosscallContinue` | `U64` (promise id) |
 | `nearPromiseResultsCount` | `U64` |
 | `nearPromiseResultStatus` | `U64` (1 success / 2 failed) |
 | `nearPromiseResultU64` | `U64` (Borsh payload; 0 on failure) |
@@ -46,7 +46,7 @@ Indices are referenced with `.literal (.address i)` (same as crosscall targets).
 | IR | Host |
 |----|------|
 | `crosscallInvoke` | `promise_create` |
-| `nearPromiseThen` | `promise_then` + `current_account_id` helper |
+| `crosscallContinue` | `promise_then` + `current_account_id` helper |
 | `nearPromiseResultsCount` | `promise_results_count` |
 | `nearPromiseResultStatus` | `promise_result` |
 | `nearPromiseResultU64` | `promise_result` + `read_register` (Borsh U64) |

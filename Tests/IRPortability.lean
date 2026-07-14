@@ -217,9 +217,10 @@ def main : IO Unit := do
   require (!(classifyModule nearPortable).any fun f =>
       match f.class_ with
       | .targetFamilyOnly _ =>
-          f.detail.startsWith "nearPromise" || f.detail.startsWith "nearCrosscallInvokePool"
+          f.detail.startsWith "target extension near.promise/" ||
+            f.detail.startsWith "crosscall.continue"
       | _ => false)
-    "portable NEAR module must not use nearPromise* constructors"
+    "portable NEAR module must not use promise HostOps or continuations"
   require (usesPromiseExtension nearExt) "NearHost.usesPromiseExtension on extension fixture"
   require (!usesPromiseExtension nearPortable) "NearHost: portable probe has no promise extension"
   require (isPortableNearCrosscall nearPortable) "NearHost: portable probe is portable NEAR crosscall"

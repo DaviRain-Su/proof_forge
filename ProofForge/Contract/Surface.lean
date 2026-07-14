@@ -1,6 +1,5 @@
 import Lean
 import ProofForge.Contract.Builder
-import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Contract.Surface
 
@@ -480,44 +479,14 @@ cross-contract intent; keep CREATE2 in EVM fixtures only (T4.3). -/
 def create2Deploy (callValue salt : ProofForge.IR.Expr) (initCodeHex : String) : ProofForge.IR.Expr :=
   .crosscallCreate2 callValue salt initCodeHex
 
-/-- Low-level host string-pool registration (Wasm-NEAR/Soroban materialize).
-Prefer `declareRemote` on the portable product path. -/
-def registerNearCrosscallString (value : String) : ModuleM Unit := do
-  let _ ← ProofForge.Contract.Builder.ensureCrosscallString value
-  pure ()
-
-/-- Low-level handle; prefer `peerHandle` / `declareRemote` on portable path. -/
-def nearAddressLit (idx : Nat) : ProofForge.IR.Expr :=
-  peerHandle idx
-
-/-- NEAR host-extension: low-level pool invoke. Prefer `remoteCall` + string pool. -/
-def nearCrosscallPool (account methodId : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
+/-- Continue an asynchronous invocation with a local callback. -/
+def crosscallContinue (parentPromise callbackMethod : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
     (deposit : ProofForge.IR.Expr) (argNames : Array String := #[]) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.nearCrosscallInvokePool account methodId args deposit argNames
+  ProofForge.Contract.Builder.crosscallContinue parentPromise callbackMethod args deposit argNames
 
-/-- NEAR host-extension only (`Source.Near`): `promise_then` chaining. -/
-def nearPromiseThen (parentPromise callbackMethod : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
-    (deposit : ProofForge.IR.Expr) (argNames : Array String := #[]) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.nearPromiseThen parentPromise callbackMethod args deposit argNames
-
-/-- NEAR host-extension only (`Source.Near`): decode callback result as u64. -/
-def nearPromiseResultU64 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  .hostCall ProofForge.Target.HostOps.Near.promiseResultU64Sig.id #[index] .u64 #[.nearPromise]
-
-def nearPromiseResultU128 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  .hostCall ProofForge.Target.HostOps.Near.promiseResultU128Sig.id #[index] .u128 #[.nearPromise]
-
-/-- Full U128 NEAR attached deposit. NEAR-only. -/
-def nearAttachedDeposit : ProofForge.IR.Expr :=
-  ProofForge.Contract.Builder.nearAttachedDeposit
-
-/-- Current NEAR trie storage usage in bytes. NEAR-only. -/
-def nearStorageUsage : ProofForge.IR.Expr :=
-  .hostCall ProofForge.Target.HostOps.Near.storageUsageSig.id #[] .u64 #[.storageScalar]
-
-/-- Schedule a NEAR native-token refund to a runtime AccountId. NEAR-only. -/
-def nearPromiseTransfer (account amount : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  .hostCall ProofForge.Target.HostOps.Near.promiseTransferSig.id #[account, amount] .u64 #[.nearPromise]
+/-- Full-width native value supplied by the caller. -/
+def callValueU128 : ProofForge.IR.Expr :=
+  ProofForge.Contract.Builder.callValueU128
 
 def cast (value : ProofForge.IR.Expr) (target : ValueType) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.cast value target

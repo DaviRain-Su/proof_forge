@@ -111,8 +111,8 @@ divergences). **All three verified STILL OPEN (2026-07-08):**
   intent declared a capability. Replaced with a deduplicated `intent ∪ module` union so module
   capabilities are always checked. Added `BEq` deriving to `TargetMetadata` and `CapabilityCall` to
   support dedup. File: `Target/Adapter.lean`.
-- **0.3 `nearCrosscallInvokePool`** — DONE (2026-07-08, commit `9dbaef3b`). Mapped to the unique
-  `.nearPromise` capability (like its sibling `nearPromiseThen`), so the capability layer now
+- **0.3 `crosscallInvokeNamedValue`** — DONE (2026-07-08, commit `9dbaef3b`). Mapped to the unique
+  `.nearPromise` capability (like its sibling `crosscallContinue`), so the capability layer now
   rejects it on non-NEAR targets (EVM/Solana); the pre-existing hardcoded EVM `Validate` arms
   remain as defense-in-depth. File: `IR/Contract.lean`.
 - Card: Track 0 in [execution-plan §1](../../zh/execution-plan-2026-07.md).

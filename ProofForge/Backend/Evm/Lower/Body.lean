@@ -1139,10 +1139,8 @@ mutual
           dynLenOffset? dynPlan dynTargetOffsets tgtPlans)
     | .nativeValue =>
         .ok .nativeValue
-    | .nearAttachedDeposit
-    | .nearStorageUsage
-    | .nearPromiseTransfer _ _ =>
-        .error { message := "NEAR storage/deposit host operations are not supported on EVM" }
+    | .callValueU128 =>
+        .error { message := "U128 call value is not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         .ok (.crosscall .call
           (← buildExprPlan module env
@@ -1197,13 +1195,9 @@ mutual
           initCodeHex)
     | .crosscallNamed _ _ _ _ =>
         .error { message := "crosscallNamed (named-callee cross-program call) is a ZK-lane construct (RFC 0015); not lowered on EVM — use crosscallInvoke* for EVM cross-program calls" }
-    | .nearPromiseThen _ _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .nearPromiseResultU128 _
-    | .nearCrosscallInvokePool _ _ _ _ _ =>
-        .error { message := "NEAR promise API is not supported on EVM" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported on EVM" }
     | .effect effect => do
         .ok (.effect (← buildEffectPlan module env effect))
 

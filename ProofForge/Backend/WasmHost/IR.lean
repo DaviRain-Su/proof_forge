@@ -148,10 +148,8 @@ mutual
         .ok s!"__pf_hash_two_to_one({← lowerExpr module lhs}, {← lowerExpr module rhs})"
     | .nativeValue =>
         .ok "env::attached_deposit()"
-    | .nearAttachedDeposit
-    | .nearStorageUsage
-    | .nearPromiseTransfer _ _ =>
-        .error { message := "NEAR storage/deposit host operations require the canonical EmitWat backend and are not supported by Rust sourcegen v0" }
+    | .callValueU128 =>
+        .error { message := "full-width call value requires the canonical EmitWat backend and is not supported by Rust sourcegen v0" }
     | .crosscallInvoke _ _ _ =>
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
     | .crosscallInvokeTyped _ _ _ _
@@ -163,13 +161,9 @@ mutual
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
     | .crosscallNamed _ _ _ _ =>
         .error { message := "named-callee cross-program calls (crosscallNamed) are not supported by wasm-near Rust sourcegen v0" }
-    | .nearPromiseThen _ _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .nearPromiseResultU128 _ =>
-        .error { message := "NEAR promise API is not supported by wasm-near Rust sourcegen v0" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported by wasm-near Rust sourcegen v0" }
     | .effect effect => lowerEffectExpr module effect
 
   partial def lowerEffectExpr (module : Module) : Effect → Except LowerError String

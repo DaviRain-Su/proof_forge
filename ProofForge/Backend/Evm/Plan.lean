@@ -689,7 +689,7 @@ def ModulePlan.hasHelper (plan : ModulePlan) (helper : Helper) : Bool :=
 mutual
   partial def contextOpsFromExpr (expr : Expr) : Array ContextPlan :=
     match expr with
-    | .literal _ | .local _ | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => #[]
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => #[]
     | .hostCall _ args _ _ =>
         args.foldl (fun acc arg => acc ++ contextOpsFromExpr arg) #[]
     | .arrayLit _ values =>
@@ -739,18 +739,12 @@ mutual
         contextOpsFromExpr callValue ++ contextOpsFromExpr salt
     | .crosscallNamed _ _ args _ =>
         args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
-    | .nearPromiseThen parentPromise callbackMethod args deposit _ =>
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
         contextOpsFromExpr parentPromise ++ contextOpsFromExpr callbackMethod ++ contextOpsFromExpr deposit ++
           args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
-    | .nearCrosscallInvokePool accountIndex methodId args deposit _ =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         contextOpsFromExpr accountIndex ++ contextOpsFromExpr methodId ++ contextOpsFromExpr deposit ++
           args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
-    | .nearPromiseResultsCount => #[]
-    | .nearPromiseResultStatus index => contextOpsFromExpr index
-    | .nearPromiseResultU64 index => contextOpsFromExpr index
-    | .nearPromiseResultU128 index => contextOpsFromExpr index
-    | .nearPromiseTransfer account amount =>
-        contextOpsFromExpr account ++ contextOpsFromExpr amount
     | .effect e => contextOpsFromEffect e
 
   partial def contextOpsFromEffect (effect : Effect) : Array ContextPlan :=

@@ -12,8 +12,8 @@ Authors write portable `crosscall.invoke` with address-literal indices into
 * `crosscallStrings` host string pool (target metadata, not business logic)
 
 **NEAR host-extension only (fixtures / advanced):**
-* `nearPromiseThen`, `nearPromiseResultsCount`, `nearPromiseResultStatus`,
-  `nearPromiseResultU64`, `nearCrosscallInvokePool`
+* `crosscallContinue`, `nearPromiseResultsCount`, `nearPromiseResultStatus`,
+  `nearPromiseResultU64`, `crosscallInvokeNamedValue`
 
 These remain IR constructors for EmitWat coverage but classify as
 `targetFamilyOnly .wasmHost` in `ProofForge.IR.Portability` and must not appear
@@ -30,7 +30,7 @@ open ProofForge.IR.Portability
 private def isPromiseExtensionFinding (f : PortabilityFinding) : Bool :=
   match f.class_ with
   | .targetFamilyOnly .wasmHost =>
-      f.detail.startsWith "nearPromise" || f.detail.startsWith "nearCrosscallInvokePool"
+      f.detail.startsWith "nearPromise" || f.detail.startsWith "crosscallInvokeNamedValue"
   | _ => false
 
 /-- True when the module uses NEAR-only Promise constructors (host extension). -/

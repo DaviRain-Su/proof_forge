@@ -2456,3 +2456,25 @@ Rules:
 - Next: IR-B3c, introduce typed target-neutral call-value/continuation forms,
   migrate remaining compatibility fixtures, and delete all legacy `near*`
   `Expr` constructors and match arms.
+
+## 2026-07-14 - IR-B3c: remove legacy NEAR expression constructors
+
+- Status: `done (verified 2026-07-14)`.
+- Replaced the last shared NEAR-named call nodes with semantic
+  `crosscallInvokeNamedValue`, `crosscallContinue`, and `callValueU128` forms.
+  Added the open `crosscall.continue` capability so shared expressions no
+  longer request the target-specific `near.promise` capability.
+- Deleted promise-result count/status/U64/U128, storage-usage, and transfer
+  constructors plus their exhaustive branches from every backend and analyzer.
+  `Source.Near` now owns compatibility wrappers that emit generic HostOps.
+- Repaired two migration gaps found by focused testing: the Wasm plan now maps
+  result-decoding HostOps to the required helper surface, and EmitWat now
+  dispatches registered NEAR HostOps directly. Legacy EmitWat string literals
+  are populated from the canonical normalized instruction stream.
+- Verification passed: `lake build` (804 jobs), `just ir-target-boundary`,
+  `just hostop-protocol`, `just canonical-near-route`,
+  `just canonical-evm-route`, `just canonical-solana-route`,
+  `just near-abi-plan`, `Tests/NearFtSecurity.lean`,
+  `just wasm-near-ft-transfer-call`, and `just near-vm-nep145` on the real
+  upstream NEAR VM. No full `just check` ran.
+- Next: IR-B4, remove EVM ABI/protocol/call-mode constructors from shared IR.

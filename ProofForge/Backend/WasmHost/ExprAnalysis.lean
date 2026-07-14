@@ -54,7 +54,7 @@ partial def canDuplicateExpr : Expr → Bool
   | .hashValue a b c d =>
       canDuplicateExpr a && canDuplicateExpr b && canDuplicateExpr c && canDuplicateExpr d
   | .hash preimage => canDuplicateExpr preimage
-  | .nativeValue | .nearAttachedDeposit | .nearStorageUsage => false
+  | .nativeValue | .callValueU128 => false
   | .hostCall _ _ _ _ => false
   | .crosscallInvoke _ _ _
   | .crosscallInvokeTyped _ _ _ _
@@ -64,21 +64,15 @@ partial def canDuplicateExpr : Expr → Bool
   | .crosscallCreate _ _
   | .crosscallCreate2 _ _ _
   | .crosscallNamed _ _ _ _
-  | .nearCrosscallInvokePool _ _ _ _ _
-  | .nearPromiseThen _ _ _ _ _
-  | .nearPromiseResultsCount
-  | .nearPromiseResultStatus _
-  | .nearPromiseResultU64 _
-  | .nearPromiseResultU128 _
-  | .nearPromiseTransfer _ _
+  | .crosscallInvokeNamedValue _ _ _ _ _
+  | .crosscallContinue _ _ _ _ _
   | .effect _ => false
 
 def exprReturnsNearPromise : Expr → Bool
   | .crosscallInvoke _ _ _ => true
   | .crosscallInvokeValueTyped _ _ _ _ _ => true
-  | .nearCrosscallInvokePool _ _ _ _ _ => true
-  | .nearPromiseThen _ _ _ _ _ => true
-  | .nearPromiseTransfer _ _ => true
+  | .crosscallInvokeNamedValue _ _ _ _ _ => true
+  | .crosscallContinue _ _ _ _ _ => true
   | .hostCall id _ _ _ => id.namespace_ == "near.promise"
   | _ => false
 

@@ -458,10 +458,8 @@ mutual
             dynTargetOffsets dynTargets)
     | .nativeValue =>
         lowerExprThroughPlan module env .nativeValue
-    | .nearAttachedDeposit
-    | .nearStorageUsage
-    | .nearPromiseTransfer _ _ =>
-        .error { message := "NEAR storage/deposit host operations are not supported on EVM" }
+    | .callValueU128 =>
+        .error { message := "U128 call value is not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         lowerExprThroughPlan module env (.crosscallInvoke target methodId args)
     | .crosscallInvokeTyped target methodId args returnType => do
@@ -477,13 +475,9 @@ mutual
     | .crosscallCreate2 callValue salt initCodeHex => do
         lowerExprThroughPlan module env (.crosscallCreate2 callValue salt initCodeHex)
     | .crosscallNamed _ _ _ _
-    | .nearPromiseThen _ _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .nearPromiseResultU128 _ =>
-        .error { message := "NEAR promise API is not supported on EVM" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported on EVM" }
     | .effect effect => lowerEffectExpr module env effect
 
   partial def lowerEffectExprThroughPlan
@@ -890,9 +884,7 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
         exprSupportsPlanScalarYul salt
   | .crosscallNamed _ _ _ _ => false
   | .hostCall _ _ _ _ => false
-  | .nearAttachedDeposit
-  | .nearStorageUsage
-  | .nearPromiseTransfer _ _ => false
+  | .callValueU128 => false
   | .arrayLit _ _
   | .arrayGet _ _
   | .memoryArrayNew _ _
@@ -900,12 +892,8 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .memoryArrayGet _ _
   | .structLit _ _
   | .field _ _
-  | .nearPromiseThen _ _ _ _ _
-  | .nearCrosscallInvokePool _ _ _ _ _
-  | .nearPromiseResultsCount
-  | .nearPromiseResultStatus _
-  | .nearPromiseResultU64 _
-  | .nearPromiseResultU128 _
+  | .crosscallContinue _ _ _ _ _
+  | .crosscallInvokeNamedValue _ _ _ _ _
   | .effect _ => false
 
 partial def exprSupportsPlanCrosscallArgYul : ProofForge.IR.Expr → Bool
