@@ -3442,3 +3442,17 @@ Rules:
   `lake env lean --run Tests/IRPortability.lean`, Solana/NEAR/Psy focused
   diagnostics, `lake env lean --run Tests/Quint/CrosscallModel.lean`, and
   `git diff --check`.
+
+## 2026-07-14 - EVM-R4d: delete zero-caller EVM wrappers
+
+- Status: `done (verified 2026-07-14)`; EVM-R4 continues with Legacy context
+  and fixture removal.
+- Deleted the unused IR-to-ABI parameter reconstruction wrappers
+  `entrypointParamPlansForModule`, `entrypointCallArgsWithPlan`,
+  `entrypointCallArgs`, and `abiParamValidationStmts`. Canonical plan-to-Yul
+  consumers use `AbiParamPlan` directly.
+- Deleted the unused total `EvmBytecodeSemantics.step` compatibility alias and
+  its reflexivity theorem. The proof seam exposes only relational `Step`, the
+  executable `stepF`, and the bounded driver contract.
+- Verification: focused EVM validation and bytecode-semantics builds/smokes,
+  caller searches, `just legacy-freeze`, and `git diff --check`.

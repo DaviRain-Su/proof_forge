@@ -567,23 +567,6 @@ def entrypointStaticParamWordTypes (module : Module) (entrypoint : Entrypoint) :
       words := words ++ (← abiValueWordTypes module s!"entrypoint `{entrypoint.name}` parameter `{param.fst}`" param.snd)
   .ok words
 
-def entrypointParamPlansForModule
-    (module : Module)
-    (entrypoint : Entrypoint) :
-    Except LowerError (Array ProofForge.Backend.Evm.Plan.AbiParamPlan) := do
-  match ProofForge.Backend.Evm.Lower.entrypointParamPlans module entrypoint with
-  | .ok params => .ok params
-  | .error err => .error { message := err.message }
-
-def entrypointCallArgsWithPlan
-    (params : Array ProofForge.Backend.Evm.Plan.AbiParamPlan) :
-    Except LowerError (Array Lean.Compiler.Yul.Expr) :=
-  .ok (ProofForge.Backend.Evm.ToYul.entrypointCallArgs params)
-
-def entrypointCallArgs (module : Module) (entrypoint : Entrypoint) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
-  let params ← entrypointParamPlansForModule module entrypoint
-  entrypointCallArgsWithPlan params
-
 -- Generate calldata size check and per-word validation for static params,
 -- plus head-tail decode statements for dynamic params (bytes/string).
 -- Returns (validationStmts, dynamicDecodeStmts) — both run before the call.
@@ -591,14 +574,6 @@ def abiParamValidationAndDecodeStmts
     (params : Array ProofForge.Backend.Evm.Plan.AbiParamPlan) :
     Except LowerError (Array Lean.Compiler.Yul.Statement) :=
   .ok (ProofForge.Backend.Evm.ToYul.abiParamValidationAndDecodeStatements params)
-
--- Backward-compatible wrapper: only returns validation (no dynamic decode).
--- The full validation+decode is in abiParamValidationAndDecodeStmts.
-def abiParamValidationStmts (module : Module) (entrypoint : Entrypoint) : Except LowerError (Array Lean.Compiler.Yul.Statement) := do
-  let params ← entrypointParamPlansForModule module entrypoint
-  .ok (ProofForge.Backend.Evm.ToYul.abiParamsMinSizeValidationStatements params)
-
-
 
 def mapShapeName (keyType valueType : ValueType) (capacity : Nat) : String :=
   s!"Map<{keyType.name}, {valueType.name}, {capacity}>"

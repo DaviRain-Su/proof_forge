@@ -80,7 +80,7 @@ Legacy adapter.
 
 | Order | Target family | State | Exit condition |
 |---|---|---|---|
-| 1 | EVM | in_progress (public product route canonical; R4a-R4c complete) | Every EVM product route reaches `ModulePlan` without v1 IR and obsolete EVM compatibility code is deleted |
+| 1 | EVM | in_progress (public product route canonical; R4a-R4d complete) | Every EVM product route reaches `ModulePlan` without v1 IR and obsolete EVM compatibility code is deleted |
 | 2 | NEAR | pending after EVM | Product TokenSpec/Surface v2 reaches `NearModulePlan` without v1 IR and obsolete NEAR compatibility code is deleted |
 | 3 | Solana | pending | Product path reaches target-owned plan without v1 IR |
 | 4 | Other targets | pending | Each target is migrated or explicitly fixture/research-only |
@@ -148,7 +148,7 @@ EVM migration. Finish these rows before resuming NEAR-R2:
 | EVM-R1 | done (verified 2026-07-14) | Move EVM-only context, protocol, ABI, call-mode, error, and dispatch semantics into EVM-owned HostOps and plan metadata |
 | EVM-R2 | done (28/28 EVM catalog products direct; exact catalog audit and ERC-4626 Anvil smoke verified 2026-07-14) | Materialize Counter, ValueVault, Token, RemoteCall, and remaining EVM product families directly into checked Canonical Core |
 | EVM-R3 | done (public Yul, optimized bytecode, check, plan metadata, and 28-product CLI catalog verified 2026-07-14) | Switch EVM build/emit/check and product dispatch to the direct canonical route and replay focused EVM behavior/runtime gates |
-| EVM-R4 | in_progress (R4a-R4c verified 2026-07-14) | Delete obsolete EVM legacy lowering, adapters, constructors, compatibility APIs, and freeze-baseline entries after caller count reaches zero |
+| EVM-R4 | in_progress (R4a-R4d verified 2026-07-14) | Delete obsolete EVM legacy lowering, adapters, constructors, compatibility APIs, and freeze-baseline entries after caller count reaches zero |
 
 The D-052 cross-program routing index remains below for work not superseded by
 the active NEAR sequence.

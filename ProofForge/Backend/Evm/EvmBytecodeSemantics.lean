@@ -30,8 +30,8 @@ This file therefore provides the seam so that:
 2. The opt-in `EvmRefinement` target provides real powdr-backed `State` /
    `Step` / `stepF` / `runBytecode` wrappers without changing callers in
    `Refinement.lean`.
-3. The `sorry`-free stub theorems below (`stepF_sound`, `step_noop`,
-   `runBytecode_empty`) type-check today and will be replaced or strengthened
+3. The `sorry`-free stub theorems below (`stepF_sound`, `runBytecode_empty`)
+   type-check today and will be replaced or strengthened
    by the real per-entrypoint simulation lemmas in Phase 6c.
 -/
 
@@ -68,20 +68,16 @@ The real executable is powdr's `stepF`; its soundness theorem maps successful
 execution into the relational `Step`. This stub returns the state unchanged. -/
 def stepF (s : State) : Except String State := .ok s
 
-/-- Stub single opcode-granular EVM step kept as a compatibility alias for
-the original seam surface. The real Phase 6c path should reason about
-`Step`/`stepF`, not this total no-op projection. -/
-def step (s : State) : State := s
-
 /-- Halting predicate for the bytecode driver. Stub: never halts (the
-no-op `step` runs forever), so `runBytecode` is bounded by `maxSteps`. -/
+executable shadow has no halting state), so `runBytecode` is bounded by
+`maxSteps`. -/
 def isHalted (_s : State) : Bool := false
 
 /-- Bytecode driver aligned with ProofForge's `ObservableStep`
 (`Refinement.ObservableStep`).
 
-Runs `step` up to `maxSteps` times, stopping when `isHalted` holds, and
-collects observable steps. The real driver (Phase 6c) will project each EVM
+The stub returns immediately with no observables. The real driver (Phase 6c)
+will project each EVM
 `Step` / `stepF` transition into an `ObservableStep` via the simulation relation
 `R : IR.State ↔ EVM.State`; this stub returns the initial state and an
 empty observable array, which is the trivial base case. -/
@@ -95,11 +91,6 @@ derivations. -/
 theorem stepF_sound {s s' : State} (h : stepF s = .ok s') : Step s s' := by
   cases h
   exact Step.noop s
-
-/-- The stub step is a no-op (reflexive). This is a `sorry`-free stub
-theorem that type-checks today; it is NOT a simulation lemma and will be
-replaced by the real per-entrypoint simulation in Phase 6c. -/
-theorem step_noop (s : State) : step s = s := rfl
 
 /-- The stub driver returns the initial state and no observables. This is
 the trivial base case for the (future) trace-lifting induction. -/
