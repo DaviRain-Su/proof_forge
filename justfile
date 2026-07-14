@@ -413,6 +413,11 @@ value-vault-authoring-cutover:
     lake env lean --run Tests/Product/SolanaMaterialize.lean
     lake env lean --run Tests/SourceDslIsolation.lean
 
+# A-CUT3b1: target-neutral caller and authorization assertions reach all primary plans.
+authored-authorization:
+    lake build ProofForge.Contract.Source
+    lake env lean --run Tests/Canonical/AuthoredAuthorization.lean
+
 # Wave 6 Task 21: architecture boundary gate.
 canonical-boundary:
     scripts/canonical/check-boundary-self-test.sh

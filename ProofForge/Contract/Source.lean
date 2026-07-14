@@ -64,6 +64,16 @@ def boolLit (value : Bool) : AuthoredExpr :=
 def blockNumber : AuthoredExpr :=
   .contextRead .blockNumber
 
+/-- Immediate portable caller identity. Target plans decide how the logical
+address is read from their execution environment. -/
+def caller : AuthoredExpr :=
+  .contextRead .sender
+
+/-- Target-neutral absent-address value. Each target plan materializes the
+numeric zero handle in its native address representation. -/
+def addressZero : AuthoredExpr :=
+  .literal (.addressLit "0")
+
 def add (lhs rhs : AuthoredExpr) (checked : Bool := true) : AuthoredExpr :=
   .arith .add checked lhs rhs
 
@@ -134,6 +144,7 @@ scoped syntax "let " ident " : " term " := " term ";" : entryStmt
 scoped syntax ident " := " term ";" : entryStmt
 scoped syntax "emit " ident term ";" : entryStmt
 scoped syntax "return " term ";" : entryStmt
+scoped syntax "do " term ";" : entryStmt
 
 scoped syntax "contract_source " ident " do" ppLine contractItem* : command
 scoped syntax "contract_mixin " ident " do" ppLine contractItem* : command
@@ -162,6 +173,10 @@ partial def lowerExpr (states locals : Array String) (source : TSyntax `term) :
       `(.literal (.boolLit $value))
   | `(blockNumber) =>
       `(.contextRead .blockNumber)
+  | `(caller) =>
+      `(.contextRead .sender)
+  | `(addressZero) =>
+      `(.literal (.addressLit "0"))
   | `($lhs:term +! $rhs:term) =>
       let left <- lowerExpr states locals lhs
       let right <- lowerExpr states locals rhs
@@ -244,6 +259,19 @@ def lowerEntryBody (states : Array String) (params : Array String)
     | `(entryStmt| return $value:term;) =>
         let valueTerm <- lowerExpr states locals value
         actions := actions.push (← `(ProofForge.Frontend.Authored.Builder.ret $valueTerm))
+    | `(entryStmt| do $action:term;) =>
+        match action with
+        | `(requireEq $lhs:term $rhs:term $message:str) =>
+            let left <- lowerExpr states locals lhs
+            let right <- lowerExpr states locals rhs
+            actions := actions.push (←
+              `(ProofForge.Frontend.Authored.Builder.assert (.compare .eq $left $right) $message))
+        | `(requireNe $lhs:term $rhs:term $message:str) =>
+            let left <- lowerExpr states locals lhs
+            let right <- lowerExpr states locals rhs
+            actions := actions.push (←
+              `(ProofForge.Frontend.Authored.Builder.assert (.compare .ne $left $right) $message))
+        | _ => Macro.throwErrorAt action "unsupported direct authored action; no Legacy fallback exists"
     | _ => Macro.throwErrorAt statement "unsupported direct authored statement; no Legacy fallback exists"
   chain actions
 

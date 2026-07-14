@@ -191,6 +191,15 @@ ValueVault assets, for 12 verified assets total. CMP-3 remains active for the
 authorization, map/collection, event/error, and portable-crosscall
 representatives.
 
+Authorization authoring checkpoint (2026-07-14): A-CUT3b1 adds only
+target-neutral direct Source operations: portable caller identity, a numeric
+zero address, and equality/inequality assertions. The focused `just
+authored-authorization` gate proves they normalize to Canonical Core
+`contextRead.sender`, `compare`, and `assert` operations and reach EVM,
+Solana, and NEAR target plans without `Source.Internal`, Legacy adapters, or a
+target-specific frontend branch. Product Ownable migration and its native
+differential evidence remain the next A-CUT3/CMP-3 authorization slices.
+
 Acceptance:
 
 - ValueVault passes the primary triad with state snapshots and negative cases.

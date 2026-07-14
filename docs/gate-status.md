@@ -137,6 +137,18 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | CMP-3a-4 | All required observations fail closed | ✅ met | EVM, Solana, and NEAR each cover status, return, state, balances, events, external actions, interface, and target-local resources with `semanticMatch=true` |
 | CMP-3a-5 | ABI normalization does not create a compiler compatibility path | ✅ met | the test-only runner invokes native Solidity `uint64` and ProofForge EVM `uint256` signatures separately, then normalizes both to portable `u64`; no compiler adapter, fallback, or dual-write route was added |
 
+## Gate A-CUT3b1 - Direct authorization authoring primitives
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| A-CUT3b1-1 | Caller identity remains target-neutral before target selection | ✅ met | `just authored-authorization` proves public `caller` normalizes to Canonical Core `contextRead.sender` |
+| A-CUT3b1-2 | Authorization checks are direct Core operations | ✅ met | public `requireEq` / `requireNe` statements normalize to typed Core comparisons and assertions; unsupported direct actions fail with a no-Legacy-fallback diagnostic |
+| A-CUT3b1-3 | Primary target plans consume the same checked contract | ✅ met | focused EVM, Solana, and NEAR `buildFromCore` calls all pass for the same Authored authorization probe |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

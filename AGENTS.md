@@ -26,8 +26,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | A-CUT3/CMP-3 - ValueVault direct authoring and primary-triad native VM comparison are verified; select the authorization representative |
-| Next task | Continue A-CUT3 through collection, event/error, and portable crosscall representatives while deleting each zero-caller Legacy slice |
+| Active task | A-CUT3b2 - rewrite Product Ownable as the direct authorization representative and delete its `ContractSpec`/`IR.Module` facade |
+| Next task | Add Ownable native differential evidence, then continue A-CUT3 through collection, event/error, and portable crosscall representatives |
 | Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; CMP-3 ValueVault has complete eight-dimension semantic evidence on EVM, Solana, and NEAR |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |

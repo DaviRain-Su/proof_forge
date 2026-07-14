@@ -149,6 +149,14 @@ fallback。生成 inventory 现有 102 项资产，其中六项 CMP-3 ValueVault
 晋级，总计 12 项 verified 资产。CMP-3 继续推进 authorization、map/collection、
 event/error 和 portable-crosscall 代表场景。
 
+Authorization authoring 检查点（2026-07-14）：A-CUT3b1 只增加 target-neutral
+direct Source 操作：portable caller identity、数值零地址以及相等/不等断言。
+Focused `just authored-authorization` 门禁证明它们归一化为 Canonical Core 的
+`contextRead.sender`、`compare` 和 `assert` 操作，并且无需 `Source.Internal`、
+Legacy adapter 或 target-specific frontend 分支即可到达 EVM、Solana、NEAR
+target plan。Product Ownable 迁移及其 native differential 证据是后续
+A-CUT3/CMP-3 authorization 切片。
+
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 
 ### CMP-SOL - Solana extension conformance

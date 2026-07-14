@@ -4285,3 +4285,19 @@ Rules:
   test --manifest-path tools/near-vm-runner/Cargo.toml`; Python bytecode
   compilation and differential runner tests; `just docs-check`; and `git
   diff --check`. No full aggregate was run.
+
+## 2026-07-14 - A-CUT3b1: direct authorization authoring primitives
+
+- Status: `done (verified 2026-07-14)`; Product Ownable cutover is next.
+- Added target-neutral public Source expressions for immediate caller identity
+  and the numeric zero address. They lower directly to Authored sender context
+  and address literal nodes.
+- Added a fail-closed `do requireEq ...` / `do requireNe ...` statement form.
+  The direct macro emits Authored comparisons and assertions; every other
+  direct action is rejected and cannot fall back to Legacy or `Source.Internal`.
+- Added `Tests/Canonical/AuthoredAuthorization.lean` and the focused `just
+  authored-authorization` gate. The same checked authorization contract reaches
+  EVM, Solana, and NEAR target-owned plans.
+- Verification: `just authored-authorization`; `lake env lean --run
+  Tests/SourceDslIsolation.lean`; `just docs-check`; and `git diff --check`.
+  No full aggregate was run.
