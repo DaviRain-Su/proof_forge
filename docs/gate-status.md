@@ -263,6 +263,21 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | CMP-3f1-4 | Pinned sources do not overclaim semantic equivalence | ✅ met | `just differential-contracts` validates all manifests and digests; inventory grows to 118 assets but remains exactly 24 verified, with all four ReentrancyGuard CMP-3 assets at `none` |
 | CMP-3f1-5 | The replaced v0 manifest is not deleted prematurely | ✅ met | the called NEAR v0 manifest remains explicit CMP-3f2 deletion work until both native and direct artifacts execute on the upstream VM; it is test data, not a compiler adapter |
 
+## Gate CMP-3f2 - Primary-triad native ReentrancyGuard differential
+
+**Status: Closed**
+
+**Closed: 2026-07-14 at `b407b493`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3f2-1 | The ProofForge side uses only the direct public source | ✅ met | `just differential-reentrancy-guard` builds `Examples/Product/ReentrancyGuard.lean` as `contract-source-authored` / `canonical-core-v1` on EVM, Solana, and NEAR and rejects legacy sidecars |
+| CMP-3f2-2 | Both implementations execute the same guarded lock lifecycle | ✅ met | Anvil, Mollusk, and upstream `near-vm-runner` execute the same nine query, acquire, release, and negative steps against native and ProofForge artifacts |
+| CMP-3f2-3 | Negative transitions preserve state and remain classified | ✅ met | release while unlocked and repeated acquire both fail, retain the previous lock state, and normalize to distinct assertion error data |
+| CMP-3f2-4 | All required observations are complete | ✅ met | every target reports `semanticMatch=true` with status, return, state, balances, events, external actions, interface, and target-local resource coverage |
+| CMP-3f2-5 | Replaced v0 evidence is deleted instead of adapted | ✅ met | `testkit/compare/near/reentrancy-guard/reference-manifest.json` is deleted; the remaining compare caller explicitly names the v1 reference with no discovery fallback |
+| CMP-3f2-6 | Inventory promotion is evidence-backed | ✅ met | the generated inventory has 119 assets and exactly 30 verified assets; the three ReentrancyGuard references, scenario, runner, and focused gate are the six newly verified assets |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

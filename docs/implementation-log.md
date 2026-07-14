@@ -4503,3 +4503,30 @@ Rules:
   cargo-build-sbf 3.1.12/platform-tools v1.52; three near-sdk host tests and
   Rust 1.94.0 release Wasm build; `just differential-contracts`; source-digest
   audit; Rust format checks; and `git diff --check`. No full aggregate was run.
+
+## 2026-07-14 - CMP-3f2: primary-triad native ReentrancyGuard differential
+
+- Status: `done (verified at b407b493)`; A-CUT3d1 direct fixed-array authoring
+  and Product ArrayExample rewrite-and-delete are now active.
+- Added `scripts/differential/reentrancy_guard_pilot.py`, `just
+  differential-reentrancy-guard`, and a dedicated Mollusk runner. The gate
+  builds only `Examples/Product/ReentrancyGuard.lean` through checked Core and
+  target-owned EVM, Solana, and NEAR plans, rejects legacy sidecars, and runs
+  both implementations on Anvil, Mollusk, and upstream `near-vm-runner`.
+- All nine query, acquire, release, and negative steps cover status, return,
+  state, balances, events, external actions, interface, and target-local
+  resources. Release while unlocked and repeated acquire fail with state
+  preserved; every target reports `semanticMatch=true` and complete coverage.
+- Review caught an invalid copied Solana instruction-order assumption. The
+  harness now uses the direct authored order (`acquire=0`, `release=1`,
+  `locked=2`) as target-local interface evidence instead of changing shared IR
+  or the independent native reference to imitate another product.
+- Deleted the called NEAR ReentrancyGuard v0 manifest. The retained compare
+  command explicitly names the v1 reference; no discovery fallback or
+  compatibility adapter remains. Inventory now contains 119 assets and exactly
+  30 verified assets.
+- Verification: `just differential-reentrancy-guard`; `just
+  differential-contracts`; `just near-compare-reentrancy-guard`; focused Cargo
+  checks for the Solana harness and NEAR compare runner; Python bytecode
+  compilation; Rust formatting; and `git diff --check`. No full aggregate was
+  run.

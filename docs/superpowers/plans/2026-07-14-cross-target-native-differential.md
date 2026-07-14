@@ -272,7 +272,7 @@ ReentrancyGuard lock-state execution slices:
 | ID | State | Task |
 |---|---|---|
 | CMP-3f1 | done (verified at `9772da92`) | Pinned independent Solidity, Pinocchio, and near-sdk ReentrancyGuard references plus one versioned nine-step scenario covering release while unlocked, repeated acquire, and state preservation. All new assets remain `semanticEvidence=none`. |
-| CMP-3f2 | in_progress | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight dimensions, delete the replaced NEAR v0 manifest, and promote only complete evidence. |
+| CMP-3f2 | done (verified at `b407b493`) | Executed the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; all eight dimensions match, and the replaced NEAR v0 manifest is deleted. |
 
 Neither slice may import a ProofForge compiler module into a native reference,
 adapt `ContractSpec`/`IR.Module` back into the Product route, reuse generated
@@ -287,6 +287,18 @@ tests and builds Wasm with Rust 1.94.0. All three v1 manifests match the
 checked-in source SHA-256. The generated inventory contains 118 assets and
 still exactly 24 verified assets; the three ReentrancyGuard references and
 scenario remain `semanticEvidence=none` until CMP-3f2.
+
+CMP-3f2 completion evidence (2026-07-14): `just
+differential-reentrancy-guard` builds only
+`Examples/Product/ReentrancyGuard.lean` through Authored/checked Core and the
+three target-owned plans. Independent Solidity, Pinocchio, and near-sdk
+implementations run the same nine steps beside ProofForge on Anvil, Mollusk,
+and upstream `near-vm-runner`. Every target reports `semanticMatch=true` and
+complete eight-dimension coverage; release while unlocked and repeated acquire
+both retain the previous lock state. The old NEAR ReentrancyGuard v0 manifest
+is deleted and the remaining compare caller explicitly names the v1 reference.
+Inventory now contains 119 assets and exactly 30 verified assets. CMP-3 next
+attaches fixed-array evidence to the direct ArrayExample cutover.
 
 Acceptance:
 

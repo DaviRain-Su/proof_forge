@@ -26,9 +26,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | CMP-3f2 - execute direct ProofForge and independent native ReentrancyGuard artifacts on Anvil, Mollusk, and upstream `near-vm-runner`, then delete the replaced NEAR v0 manifest |
-| Next task | A-CUT3d1 - migrate the first map/collection Product family to the direct-only route and delete its zero-caller Legacy production path |
-| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault, Ownable, and Pausable primary-triad VM evidence are verified, with Pausable CMP-3e2 closed at `98e9996f` |
+| Active task | A-CUT3d1 - add target-neutral direct fixed-array authoring, rewrite Product ArrayExample as the sole Authored source, migrate callers, and delete its EVM ContractSpec wrapper |
+| Next task | CMP-3g1 - pin independent ArrayExample native references and a versioned fixed-array scenario before primary-triad VM execution |
+| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault, Ownable, Pausable, and ReentrancyGuard primary-triad VM evidence are verified through `b407b493` |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -177,7 +177,7 @@ Core are internal compiler representations.
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
 | A-CUT1e | done (verified at `571b795d`) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
 | A-CUT2 | done (verified at `e2834c59`) | Public Counter routes, reverse dependencies, and independent primary-triad behavior are direct-only and fully covered by CMP-2 |
-| A-CUT3 | in_progress (ReentrancyGuard direct cutover verified at `69499e99`) | Migrate the full product catalog from the single abstract source; ReentrancyGuard native reference and VM evidence are active before the next family |
+| A-CUT3 | in_progress (ReentrancyGuard direct/VM evidence verified through `b407b493`) | Migrate the full product catalog from the single abstract source; direct fixed-array authoring and ArrayExample rewrite-and-delete are active |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
 

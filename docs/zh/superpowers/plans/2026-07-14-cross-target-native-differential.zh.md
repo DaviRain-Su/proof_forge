@@ -221,7 +221,7 @@ ReentrancyGuard lock-state 执行切片：
 | ID | 状态 | 任务 |
 |---|---|---|
 | CMP-3f1 | done (verified at `9772da92`) | 固定独立 Solidity、Pinocchio 与 near-sdk ReentrancyGuard reference，并定义版本化九步场景，覆盖 unlocked 时 release、重复 acquire 和失败后状态保持。全部新增资产保持 `semanticEvidence=none`。 |
-| CMP-3f2 | in_progress | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个 dimension，删除被替代的 NEAR v0 manifest，并且只晋级完整证据。 |
+| CMP-3f2 | done (verified at `b407b493`) | 已在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；全部八个 dimension 匹配，且被替代的 NEAR v0 manifest 已删除。 |
 
 两个切片都不得让原生 reference 导入 ProofForge compiler module、把
 `ContractSpec`/`IR.Module` 适配回 Product 路线、复用生成的 target code 作为
@@ -234,6 +234,16 @@ cycle 与两个负面 host test，并使用 Rust 1.94.0 构建 Wasm。三份 v1 
 都匹配已检入 source SHA-256。生成 inventory 现含 118 项资产，仍恰有 24 项
 verified；三份 ReentrancyGuard reference 与 scenario 在 CMP-3f2 前保持
 `semanticEvidence=none`。
+
+CMP-3f2 完成证据（2026-07-14）：`just differential-reentrancy-guard`
+只把 `Examples/Product/ReentrancyGuard.lean` 经 Authored/checked Core 与三个
+target-owned plan 构建。独立 Solidity、Pinocchio 与 near-sdk 实现在 Anvil、
+Mollusk 和 upstream `near-vm-runner` 上执行与 ProofForge 相同的九步场景。
+每个 target 都报告 `semanticMatch=true` 和完整八维 coverage；unlocked 时
+release 与重复 acquire 都保持之前的 lock 状态。旧 NEAR ReentrancyGuard v0
+manifest 已删除，剩余 compare 调用方显式命名 v1 reference。Inventory 现含
+119 项资产，恰有 30 项 verified。CMP-3 下一步为 direct ArrayExample 切换
+补充 fixed-array 证据。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

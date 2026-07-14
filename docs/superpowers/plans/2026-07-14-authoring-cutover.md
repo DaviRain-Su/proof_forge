@@ -283,7 +283,7 @@ independent primary-triad behavior requirement at `e2834c59`.
 
 ### A-CUT3 - Product migration
 
-State: `in_progress; ValueVault, Ownable, Pausable, and ReentrancyGuard use the direct-only Product route; ReentrancyGuard native VM evidence is active`
+State: `in_progress; ValueVault, Ownable, Pausable, and ReentrancyGuard use the direct-only Product route with primary-triad VM evidence; ArrayExample fixed-array cutover is active`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
@@ -347,6 +347,15 @@ reentrancy-guard-authoring-cutover` emits primary-triad artifacts with
 facades, wrappers, allowlist entries, and retired sidecars. `VerifiedVault`
 owns its remaining historical lock state locally and no longer imports the
 deleted facade; its separate Product migration is not implied by this slice.
+
+ReentrancyGuard execution checkpoint (2026-07-14): `b407b493` executes the
+same nine-step guarded lock lifecycle against direct Authored and independent
+native artifacts on Anvil, Mollusk, and upstream `near-vm-runner`. Both invalid
+transitions preserve state, all eight dimensions match, the replaced NEAR v0
+manifest is deleted, and the generic compare caller names the v1 reference
+explicitly. A-CUT3 now moves to ArrayExample: direct Source must gain the
+target-neutral local fixed-array constructs required by the existing business
+source before the Legacy source and EVM ContractSpec wrapper are deleted.
 
 ### A-CUT4 - Delete duplicate source and version split
 
