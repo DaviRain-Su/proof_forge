@@ -1,6 +1,72 @@
 {
   "assets": [
     {
+      "id": "cmp2-gate-counter-primary-triad",
+      "kind": "gate",
+      "maturity": "focusedGate",
+      "notes": "focused fail-closed CMP-2 gate",
+      "path": "justfile",
+      "selectors": [
+        "differential-counter"
+      ],
+      "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "cmp2-reference-evm-counter",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-2 independent Counter reference with source digest, license, and pinned toolchain",
+      "path": "testkit/differential/counter/references/evm.v1.json",
+      "semanticEvidence": "verified",
+      "sourcePaths": [
+        "benchmarks/native/evm/Counter.sol"
+      ],
+      "targetFamily": "evm"
+    },
+    {
+      "id": "cmp2-reference-near-counter",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-2 independent Counter reference with source digest, license, and pinned toolchain",
+      "path": "testkit/differential/counter/references/near.v1.json",
+      "semanticEvidence": "verified",
+      "sourcePaths": [
+        "benchmarks/native/near/counter-rs/src/lib.rs"
+      ],
+      "targetFamily": "near"
+    },
+    {
+      "id": "cmp2-reference-solana-counter",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-2 independent Counter reference with source digest, license, and pinned toolchain",
+      "path": "testkit/differential/counter/references/solana.v1.json",
+      "semanticEvidence": "verified",
+      "sourcePaths": [
+        "benchmarks/native/solana/counter/src/lib.rs"
+      ],
+      "targetFamily": "solana"
+    },
+    {
+      "id": "cmp2-runner-counter-primary-triad",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+      "path": "scripts/differential/counter_pilot.py",
+      "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "cmp2-scenario-counter-primary-triad",
+      "kind": "scenario",
+      "maturity": "portableScenarioV1",
+      "notes": "four-step Counter lifecycle with complete eight-dimension observation coverage",
+      "path": "testkit/differential/counter/scenario.v1.json",
+      "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
       "id": "evm-anvil-runner",
       "kind": "runner",
       "maturity": "liveRunner",
@@ -1081,16 +1147,16 @@
     }
   ],
   "schema": "proof-forge.differential.inventory.v1",
-  "scope": "tracked comparison assets at CMP-0",
+  "scope": "tracked comparison assets through CMP-2",
   "summary": {
-    "assetCount": 90,
+    "assetCount": 96,
     "byTargetFamily": {
-      "evm": 7,
-      "near": 33,
-      "portable": 20,
-      "solana": 22,
+      "evm": 8,
+      "near": 34,
+      "portable": 23,
+      "solana": 23,
       "stylus": 8
     },
-    "semanticVerifiedCount": 0
+    "semanticVerifiedCount": 6
   }
 }

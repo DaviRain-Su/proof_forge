@@ -9,7 +9,13 @@ import re
 import sys
 from pathlib import Path
 
-from contracts import INVENTORY_SCHEMA, migrate_manifest, validate_inventory
+from contracts import (
+    INVENTORY_SCHEMA,
+    migrate_manifest,
+    validate_inventory,
+    validate_reference,
+    validate_scenario,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -109,6 +115,62 @@ def generate_inventory() -> dict[str, object]:
                 "structuralReference",
                 "none",
                 "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
+            )
+        )
+
+    cmp2_root = REPO_ROOT / "testkit/differential/counter"
+    for manifest in sorted((cmp2_root / "references").glob("*.v1.json")):
+        reference = json.loads(manifest.read_text(encoding="utf-8"))
+        validate_reference(reference, relative(manifest))
+        assets.append(
+            asset(
+                f"cmp2-reference-{reference['targetFamily']}-counter",
+                reference["targetFamily"],
+                "nativeReference",
+                manifest,
+                "referenceManifestV1",
+                "verified",
+                "CMP-2 independent Counter reference with source digest, license, and pinned toolchain",
+                sourcePaths=[reference["source"]["path"]],
+            )
+        )
+
+    cmp2_scenario = cmp2_root / "scenario.v1.json"
+    if cmp2_scenario.is_file():
+        scenario_document = json.loads(cmp2_scenario.read_text(encoding="utf-8"))
+        validate_scenario(scenario_document, relative(cmp2_scenario))
+        assets.append(
+            asset(
+                "cmp2-scenario-counter-primary-triad",
+                "portable",
+                "scenario",
+                cmp2_scenario,
+                "portableScenarioV1",
+                "verified",
+                "four-step Counter lifecycle with complete eight-dimension observation coverage",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp2-runner-counter-primary-triad",
+                "portable",
+                "runner",
+                REPO_ROOT / "scripts/differential/counter_pilot.py",
+                "deterministicRunner",
+                "verified",
+                "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp2-gate-counter-primary-triad",
+                "portable",
+                "gate",
+                REPO_ROOT / "justfile",
+                "focusedGate",
+                "verified",
+                "focused fail-closed CMP-2 gate",
+                selectors=["differential-counter"],
             )
         )
 
@@ -223,7 +285,7 @@ def generate_inventory() -> dict[str, object]:
     assets.sort(key=lambda item: item["id"])
     inventory: dict[str, object] = {
         "schema": INVENTORY_SCHEMA,
-        "scope": "tracked comparison assets at CMP-0",
+        "scope": "tracked comparison assets through CMP-2",
         "summary": {
             "assetCount": len(assets),
             "semanticVerifiedCount": sum(1 for item in assets if item["semanticEvidence"] == "verified"),

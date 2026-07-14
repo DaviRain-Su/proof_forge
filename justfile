@@ -46,6 +46,10 @@ differential-contracts:
     python3 scripts/differential/inventory.py --check
     python3 scripts/near/compare-matrix-snapshot-test.py
 
+# Compare the direct Authored Counter with independent native EVM, Solana, and NEAR implementations.
+differential-counter:
+    python3 scripts/differential/counter_pilot.py
+
 # Typed open capability/HostOp identity and target-owned catalog contract.
 hostop-protocol:
     lake env lean --run Tests/Canonical/HostOpCatalog.lean

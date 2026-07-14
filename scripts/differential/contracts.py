@@ -257,11 +257,14 @@ def validate_inventory(document: Any, path: str = "inventory") -> dict[str, Any]
         maturity = _string(item.get("maturity"), f"{item_path}.maturity")
         if maturity not in {
             "referenceManifestV0",
+            "referenceManifestV1",
             "structuralReference",
             "deterministicRunner",
             "liveRunner",
             "portableScenarioV0",
+            "portableScenarioV1",
             "measurementOnly",
+            "focusedGate",
             "ciGate",
             "versionedContract",
         }:

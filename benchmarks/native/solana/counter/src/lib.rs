@@ -21,6 +21,7 @@ use pinocchio::{
     Address,
     ProgramResult,
 };
+use solana_define_syscall::definitions::sol_set_return_data;
 
 pub const PF_TAG_INITIALIZE: u8 = 0;
 pub const PF_TAG_INCREMENT: u8 = 1;
@@ -94,9 +95,10 @@ pub fn process_instruction(
         PF_TAG_GET => {
             let data = state.try_borrow()?;
             let n = read_count(&data)?;
-            // Return LE u64 via sol_set_return_data when available; for host
-            // typecheck we only exercise the read path.
-            let _ = n;
+            let encoded = n.to_le_bytes();
+            // SAFETY: `encoded` remains alive for the duration of the syscall
+            // and the VM copies exactly the provided eight bytes.
+            unsafe { sol_set_return_data(encoded.as_ptr(), encoded.len() as u64) };
             Ok(())
         }
         _ => Err(ProgramError::InvalidInstructionData),

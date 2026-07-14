@@ -32,11 +32,14 @@
           "maturity": {
             "enum": [
               "referenceManifestV0",
+              "referenceManifestV1",
               "structuralReference",
               "deterministicRunner",
               "liveRunner",
               "portableScenarioV0",
+              "portableScenarioV1",
               "measurementOnly",
+              "focusedGate",
               "ciGate",
               "versionedContract"
             ]

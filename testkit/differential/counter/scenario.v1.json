@@ -1,0 +1,44 @@
+{
+  "schema": "proof-forge.differential.scenario.v1",
+  "id": "portable-counter-primary-triad",
+  "kind": "portable",
+  "targetFamily": "portable",
+  "steps": [
+    {"id": "initialize", "action": "initialize", "inputs": {}},
+    {"id": "get-zero", "action": "get", "inputs": {}},
+    {"id": "increment", "action": "increment", "inputs": {}},
+    {"id": "get-one", "action": "get", "inputs": {}}
+  ],
+  "requiredObservations": [
+    "callStatus",
+    "returnValue",
+    "state",
+    "balances",
+    "events",
+    "externalActions",
+    "interface",
+    "resources"
+  ],
+  "allowedDivergences": [
+    {
+      "dimension": "resources",
+      "scope": "/steps/initialize/observations/resources/metrics/execution/value",
+      "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."
+    },
+    {
+      "dimension": "resources",
+      "scope": "/steps/get-zero/observations/resources/metrics/execution/value",
+      "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."
+    },
+    {
+      "dimension": "resources",
+      "scope": "/steps/increment/observations/resources/metrics/execution/value",
+      "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."
+    },
+    {
+      "dimension": "resources",
+      "scope": "/steps/get-one/observations/resources/metrics/execution/value",
+      "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."
+    }
+  ]
+}

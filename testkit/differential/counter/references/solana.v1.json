@@ -1,0 +1,31 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "solana-counter-pinocchio",
+  "targetFamily": "solana",
+  "program": "counter",
+  "framework": "Pinocchio",
+  "source": {
+    "path": "benchmarks/native/solana/counter/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:d12a94f639710a802ae83259868f2fb520d37e86e2ac8ed9d4653fc7c361366a",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "pinocchio", "version": "0.11.2"},
+      {"name": "solana-define-syscall", "version": "5.1.0"},
+      {"name": "cargo-build-sbf", "version": "3.1.12"},
+      {"name": "platform-tools", "version": "v1.52"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

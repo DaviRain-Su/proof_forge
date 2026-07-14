@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import unittest
@@ -149,10 +150,36 @@ class ContractTests(unittest.TestCase):
 
     def test_generated_inventory_has_no_semantic_overclaim(self) -> None:
         inventory = generate_inventory()
-        self.assertEqual(0, inventory["summary"]["semanticVerifiedCount"])
+        self.assertEqual(6, inventory["summary"]["semanticVerifiedCount"])
         families = inventory["summary"]["byTargetFamily"]
         for family in ("evm", "solana", "near", "stylus"):
             self.assertGreater(families[family], 0)
+
+    def test_cmp2_manifests_pin_the_checked_in_reference_sources(self) -> None:
+        root = REPO_ROOT / "testkit/differential/counter"
+        scenario = json.loads((root / "scenario.v1.json").read_text(encoding="utf-8"))
+        validate_scenario(scenario)
+        self.assertEqual(
+            set(scenario["requiredObservations"]),
+            {
+                "callStatus",
+                "returnValue",
+                "state",
+                "balances",
+                "events",
+                "externalActions",
+                "interface",
+                "resources",
+            },
+        )
+        for family in ("evm", "solana", "near"):
+            manifest = json.loads(
+                (root / "references" / f"{family}.v1.json").read_text(encoding="utf-8")
+            )
+            validate_reference(manifest)
+            source = REPO_ROOT / manifest["source"]["path"]
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
 
     def test_compiler_does_not_import_comparison_contracts(self) -> None:
         needles = (
