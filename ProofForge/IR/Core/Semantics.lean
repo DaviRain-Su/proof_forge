@@ -707,6 +707,11 @@ def evalPureOp (env : Env) (resultType : CoreType) (op : PureOp) : Except Runtim
   | .unary op arg => evalUnary op (← evalRef env arg)
   | .arithmetic op mode lhs rhs => evalArithmetic op mode (← evalRef env lhs) (← evalRef env rhs)
   | .compare op lhs rhs => evalCompare op (← evalRef env lhs) (← evalRef env rhs)
+  | .boolean op lhs rhs =>
+      match op, ← evalRef env lhs, ← evalRef env rhs with
+      | .and, .bool lhs, .bool rhs => .ok (.bool (lhs && rhs))
+      | .or, .bool lhs, .bool rhs => .ok (.bool (lhs || rhs))
+      | _, _, _ => .error .typeMismatch
   | .cast to arg => evalCast to (← evalRef env arg)
   | .hash _ => .error .unsupportedHash
   | .hashTwoToOne _ _ => .error .unsupportedHash

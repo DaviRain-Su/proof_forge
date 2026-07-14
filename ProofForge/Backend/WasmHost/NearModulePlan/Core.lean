@@ -444,6 +444,11 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
         (nearValue lhs) (nearValue rhs)
   | .pure (.compare op lhs rhs) =>
       return .compare (<- nearResult instr) (nearCompare op) (nearValue lhs) (nearValue rhs)
+  | .pure (.boolean op lhs rhs) =>
+      let arithmeticOp : NearArithmeticPlan := match op with
+        | .and => .bitAnd
+        | .or => .bitOr
+      return .arithmetic (<- nearResult instr) arithmeticOp false (nearValue lhs) (nearValue rhs)
   | .pure (.hash value) =>
       return .hash (<- nearResult instr) (nearValue value)
   | .pure (.cast _ value) =>

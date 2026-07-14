@@ -325,7 +325,7 @@ private def pureOpCapabilities : PureOp → Array Capability
   | .hash _ | .hashTwoToOne _ _ => #[.cryptoHash]
   | .structLit _ _ => #[.dataStruct]
   | .literal _ | .unary _ _ | .arithmetic _ .wrapping _ _ |
-      .compare _ _ _ | .cast _ _ => #[]
+      .compare _ _ _ | .boolean _ _ _ | .cast _ _ => #[]
 
 private def contextCapabilities : ContextField → Array Capability
   | .sender | .signer => #[.callerSender]

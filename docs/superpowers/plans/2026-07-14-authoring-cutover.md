@@ -193,7 +193,10 @@ ownership, record semantics, visibility/storage-layout metadata, and authored
 Quint/Lean annotations instead of defaulting them during direct normalization.
 A-CUT2f-a establishes `Frontend.Authored.Builder` as the direct compiler-owned
 builder and proves a Counter-shaped contract reaches checked Canonical Core
-without importing `Contract.Builder` or constructing `IR.Module`.
+without importing `Contract.Builder` or constructing `IR.Module`. A-CUT2f-b
+adds the missing target-neutral Boolean Core operation so authored `boolAnd`
+and `boolOr` no longer depend on the closed Legacy expression tree; all three
+primary canonical plans consume it.
 
 ### A-CUT3 - Product migration
 

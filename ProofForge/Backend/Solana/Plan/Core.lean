@@ -273,6 +273,11 @@ private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan)
       return .copy (<- resultPlan instr) (valuePlan value)
   | .pure (.compare op lhs rhs) =>
       return .compare (<- resultPlan instr) (comparePlan op) (valuePlan lhs) (valuePlan rhs)
+  | .pure (.boolean op lhs rhs) =>
+      let arithmeticOp := match op with
+        | .and => SolanaArithmeticPlan.bitAnd
+        | .or => SolanaArithmeticPlan.bitOr
+      return .arithmetic (<- resultPlan instr) arithmeticOp false (valuePlan lhs) (valuePlan rhs)
   | .pure (.hash value) =>
       if accountContextValues.contains value.id.value then
         return .hashAccount0 (<- resultPlan instr)

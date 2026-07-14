@@ -199,6 +199,7 @@ done
 AUTHORED_MODEL=(
   ProofForge/Frontend/Authored/Type.lean
   ProofForge/Frontend/Authored/Syntax.lean
+  ProofForge/Frontend/Authored/Builder.lean
   ProofForge/Frontend/Authored/Validate.lean
   ProofForge/Frontend/Authored/Canonicalize.lean
   ProofForge/Frontend/Authored/Canonicalize/Env.lean

@@ -44,11 +44,17 @@ structure HostOpCall where
 /- Pure operations are side-effect-free and can appear inside ANF
 instructions. -/
 
+inductive BooleanOp
+  | and
+  | or
+  deriving BEq, Repr, Inhabited
+
 inductive PureOp
   | literal (value : CoreLiteral)
   | unary (op : UnaryOp) (arg : ValueRef)
   | arithmetic (op : ArithmeticOp) (mode : OverflowMode) (lhs rhs : ValueRef)
   | compare (op : CompareOp) (lhs rhs : ValueRef)
+  | boolean (op : BooleanOp) (lhs rhs : ValueRef)
   | cast (to : CoreType) (arg : ValueRef)
   | hash (arg : ValueRef)
   | hashTwoToOne (lhs rhs : ValueRef)

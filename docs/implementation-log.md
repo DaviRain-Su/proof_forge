@@ -3926,3 +3926,23 @@ Rules:
   `canonical-foundation`.
 - Verification: focused Authored builder/frontend builds; direct builder and
   metadata tests; canonical boundary and Legacy freeze; and `git diff --check`.
+
+## 2026-07-14 - A-CUT2f-b: portable Boolean Core operations
+
+- Status: `done (verified 2026-07-14)`; this removes a common-expression blocker
+  for switching `Contract.Source` helpers to the direct Authored builder.
+- Added target-neutral `Core.BooleanOp` and `PureOp.boolean` for conjunction and
+  disjunction. Core validation requires Bool operands/results, dominance tracks
+  both operands, the reference semantics evaluates exact Boolean behavior, and
+  capability derivation remains target-independent.
+- Direct Authored normalization now lowers `boolAnd`/`boolOr` instead of
+  rejecting them. EVM maps the operation to Yul bitwise Boolean words, Solana
+  to its semantic bit operation plan, and NEAR/Wasm to the neutral Wasm-host
+  arithmetic plan; no target constructor entered Authored or Core.
+- Added `Tests/Canonical/AuthoredBoolean.lean` with positive Core shape,
+  non-Bool rejection, and EVM/Solana/NEAR canonical-plan acceptance. Wired into
+  `canonical-foundation`. The canonical boundary now explicitly covers the new
+  Authored builder module.
+- Verification: focused direct Boolean tri-target planning; canonical Core
+  validation and runtime semantics; canonical boundary and Legacy freeze; and
+  `git diff --check`.

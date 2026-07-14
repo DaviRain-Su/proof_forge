@@ -425,6 +425,13 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
         | .ge => .builtin "iszero" #[.builtin "lt" #[lhsExpr, rhsExpr]]
       .ok #[StmtPlan.letBind (resultName instr) .bool
         expr]
+  | .pure (.boolean op lhs rhs) => do
+      let lhsExpr ← valueExpr env lhs
+      let rhsExpr ← valueExpr env rhs
+      let expr := match op with
+        | .and => ExprPlan.builtin "and" #[lhsExpr, rhsExpr]
+        | .or => ExprPlan.builtin "or" #[lhsExpr, rhsExpr]
+      .ok #[StmtPlan.letBind (resultName instr) .bool expr]
   | .pure (.cast toType arg) => do
       let vt := coreTypeToValueType toType
       .ok #[StmtPlan.letBind (resultName instr) vt

@@ -191,10 +191,23 @@ partial def normalizeExpr (e : AuthoredExpr) : AuthoredM NormalizedValue := do
       let coreOp := adaptCompareOp op
       let nv ← compareValue coreOp nl.value nr.value
       return { instructions := nl.instructions ++ nr.instructions ++ nv.instructions, value := nv.value }
-  | .boolAnd _ _ =>
-      throw (AuthoredNormalizeError.unsupportedAuthored "AuthoredExpr.boolAnd" "boolean and not in initial fragment")
-  | .boolOr _ _ =>
-      throw (AuthoredNormalizeError.unsupportedAuthored "AuthoredExpr.boolOr" "boolean or not in initial fragment")
+  | .boolAnd lhs rhs | .boolOr lhs rhs =>
+      let normalizedLhs ← normalizeExpr lhs
+      let normalizedRhs ← normalizeExpr rhs
+      unless normalizedLhs.value.type == .bool && normalizedRhs.value.type == .bool do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.bool)
+          s!"{repr normalizedLhs.value.type}, {repr normalizedRhs.value.type}")
+      let op := match e with
+        | .boolAnd .. => BooleanOp.and
+        | .boolOr .. => BooleanOp.or
+        | _ => BooleanOp.and
+      let normalized ← emitValueInstruction
+        (.pure (.boolean op normalizedLhs.value normalizedRhs.value)) .bool
+      return {
+        instructions := normalizedLhs.instructions ++ normalizedRhs.instructions ++
+          normalized.instructions
+        value := normalized.value
+      }
   | .unary op arg =>
       let nv ← normalizeExpr arg
       let coreOp := adaptUnaryOp op

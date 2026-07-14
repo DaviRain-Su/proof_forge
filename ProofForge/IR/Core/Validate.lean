@@ -677,6 +677,7 @@ private def referencedValueRefs (op : InstructionOp) : Array ValueRef :=
     | .unary _ arg => #[arg]
     | .arithmetic _ _ lhs rhs => #[lhs, rhs]
     | .compare _ lhs rhs => #[lhs, rhs]
+    | .boolean _ lhs rhs => #[lhs, rhs]
     | .cast _ arg => #[arg]
     | .hash arg => #[arg]
     | .hashTwoToOne lhs rhs => #[lhs, rhs]
@@ -817,6 +818,10 @@ private def checkPureOp (p : PureOp) (results : Array ValueDef)
     if !isIntegerLike lhs.type && op != .eq && op != .ne then
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
         s!"non-integer comparison {repr op} is not portable"
+  | .boolean _ lhs rhs, #[r] =>
+    unless lhs.type == .bool && rhs.type == .bool && r.type == .bool do
+      .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
+        s!"boolean operands/results must be bool, got {repr lhs.type}, {repr rhs.type} -> {repr r.type}"
   | .cast to arg, #[r] =>
     unless r.type == to && supportsCast arg.type to do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
@@ -843,6 +848,7 @@ private def expectedResultCount (op : InstructionOp) : Nat :=
   | .pure (.unary _ _) => 1
   | .pure (.arithmetic _ _ _ _) => 1
   | .pure (.compare _ _ _) => 1
+  | .pure (.boolean _ _ _) => 1
   | .pure (.cast _ _) => 1
   | .pure (.hash _) => 1
   | .pure (.hashTwoToOne _ _) => 1
