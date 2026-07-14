@@ -4553,3 +4553,14 @@ Rules:
 - Verification: `just array-example-authoring-cutover`; focused Product Matrix,
   Target Registry, Solana BPF encoder, portable-default, and examples-topology
   gates; `git diff --check`. No full aggregate was run.
+
+## 2026-07-14 - CI-D057: repair workflow after backend removal
+
+- Status: `done`; PR #104 can create CI jobs again after the repair is pushed.
+- GitHub Actions run `29376221867` failed before job creation because D-057
+  removed the `aptos-smoke` job key but left its duplicated `runs-on`, `steps`,
+  and Aptos commands at the end of `stylus-static`.
+- Deleted the orphan job body. No Move or Cloudflare workflow path was restored.
+- Verification: actionlint v1.7.7 on `.github/workflows/ci.yml`;
+  removed-target search; `just docs-check`; and `git diff --check`. No full
+  product or repository aggregate was run.
