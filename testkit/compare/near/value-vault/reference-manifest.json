@@ -47,6 +47,12 @@
       "returns": "unit"
     },
     {
+      "name": "snapshot",
+      "kind": "call",
+      "params": [],
+      "returns": "U64"
+    },
+    {
       "name": "get_balance",
       "kind": "view",
       "params": [],

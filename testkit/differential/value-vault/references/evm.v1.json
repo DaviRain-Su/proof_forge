@@ -1,0 +1,28 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "evm-value-vault-solidity",
+  "targetFamily": "evm",
+  "program": "value-vault",
+  "framework": "Solidity",
+  "source": {
+    "path": "benchmarks/native/evm/ValueVault.sol",
+    "language": "solidity"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:36616752ddd59d25e0da2ad4591c01eaa3c6ecc4892c0c9763edcfdcc4c14b02",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "solc", "version": "0.8.30"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

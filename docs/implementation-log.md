@@ -4221,7 +4221,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3a: pin the stateful scenario and Solana oracle
 
-- Status: `done (pending commit)`; the primary-triad comparison remains active.
+- Status: `done (verified at a49470cc)`; the primary-triad comparison remains active.
 - Added a 13-step ValueVault v1 scenario covering the full positive lifecycle,
   all eight observation dimensions, state preservation after rejected
   `release(201)`, and an `arithmetic-underflow` error contract.
@@ -4236,3 +4236,21 @@ Rules:
   bpf-entrypoint`, `cargo-build-sbf` with platform-tools v1.52, `just
   differential-contracts`, `just docs-check`, and `git diff --check` passed.
   No full aggregate was run.
+
+## 2026-07-14 - CMP-3b: complete EVM and NEAR native references
+
+- Status: `done (pending commit)`; the primary-triad VM runner is next.
+- Expanded the independent Solidity and near-sdk ValueVault references to the
+  complete seven-method contract, five event families, snapshot behavior, and
+  checked arithmetic rejection. The NEAR host test also proves state remains
+  unchanged after rejected `release(201)`.
+- Added complete v1 EVM and NEAR provenance manifests. The reference test now
+  requires exactly one pinned Solidity, Pinocchio, and near-sdk source and
+  rejects compiler imports.
+- Corrected the historical NEAR v0 interface list and the old B1 benchmark's
+  stale claim that no Solana ValueVault corpus exists; that benchmark remains
+  explicitly measurement-only instead of being promoted.
+- Verification: `solc` 0.8.30 ABI/bytecode compile, near-sdk host tests with
+  Rust 1.94, near-sdk release Wasm build, focused reference contract test,
+  `just differential-contracts`, `just near-compare-value-vault`, and `git
+  diff --check` passed. No full aggregate was run.

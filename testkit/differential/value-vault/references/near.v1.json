@@ -1,0 +1,30 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "near-value-vault-near-sdk-rs",
+  "targetFamily": "near",
+  "program": "value-vault",
+  "framework": "near-sdk-rs",
+  "source": {
+    "path": "testkit/compare/near/value-vault/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:dd23fd74bfdc045b7e7bbe221a1b7cb1fd0c773549c349aec360ac313ea1f0b7",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "near-sdk", "version": "5.28.3"},
+      {"name": "rustc", "version": "1.94.0"},
+      {"name": "near-vm-runner", "version": "0.37"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

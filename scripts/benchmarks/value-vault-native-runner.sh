@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # B1.7: Native ValueVault runner (bm-value-vault).
 # EVM: Anvil/cast lifecycle with gas. NEAR: host tests + wasm size.
-# Solana: deferred (no Pinocchio ValueVault corpus yet) — honest skip.
+# Solana: the CMP-3 Pinocchio corpus exists; this historical B1 runner remains
+# measurement-only until it is replaced by the normalized CMP-3 VM runner.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -107,10 +108,10 @@ else
     "$TOOLS" "$COSTS" "$STEPS" "$COMMIT"
 fi
 
-# ── Solana (no corpus yet) ──
-note "solana: honest skip (no native ValueVault Pinocchio corpus in B1.7)"
+# ── Solana (normalized execution is owned by CMP-3) ──
+note "solana: measurement-only skip (normalized execution is owned by CMP-3)"
 write_row "$OUT_DIR/bm-value-vault_solana-sbpf-asm_native.json" "solana-sbpf-asm" false \
-  "skipped: no Pinocchio ValueVault corpus yet (Counter-only native Solana in B1.2)" \
+  "skipped: use the fail-closed CMP-3 ValueVault differential gate for Pinocchio/Mollusk execution" \
   0 '{}' '{}' '[]' "$COMMIT"
 
 # ── NEAR ──

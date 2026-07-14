@@ -67,6 +67,30 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-reference-evm-value-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3 independent ValueVault reference with pinned provenance; semantic evidence remains closed until the primary-triad runner passes",
+      "path": "testkit/differential/value-vault/references/evm.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/evm/ValueVault.sol"
+      ],
+      "targetFamily": "evm"
+    },
+    {
+      "id": "cmp3-reference-near-value-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3 independent ValueVault reference with pinned provenance; semantic evidence remains closed until the primary-triad runner passes",
+      "path": "testkit/differential/value-vault/references/near.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/value-vault/src/lib.rs"
+      ],
+      "targetFamily": "near"
+    },
+    {
       "id": "cmp3-reference-solana-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -1170,10 +1194,10 @@
   "schema": "proof-forge.differential.inventory.v1",
   "scope": "tracked comparison assets through the active CMP-3 ValueVault setup",
   "summary": {
-    "assetCount": 98,
+    "assetCount": 100,
     "byTargetFamily": {
-      "evm": 8,
-      "near": 34,
+      "evm": 9,
+      "near": 35,
       "portable": 24,
       "solana": 24,
       "stylus": 8

@@ -39,7 +39,7 @@
     "note": "initial native differential validation design"
   },
   "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
-    "sha256": "7f007e1a669d2ae517518c67a96fbb7604ab2090266b859dfeb5757f233c9093",
+    "sha256": "1a37c5ceb40858f4e7c6e2c40c72c669ab86de118db97f8728761f4e7d89d00c",
     "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
     "model": "manual-zh",
     "note": "manually synced through the ValueVault direct cutover and active CMP-3"
@@ -73,7 +73,7 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "7af02b76b7357e9f615c639d5c77f9b07e380d15f542ee36817e06caae46490b",
+    "sha256": "f16a6db9b947a2190efffe22f24080dcef2cc6bcf874719920133c3913a6956d",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
     "note": "synced EN/zh through the ValueVault direct cutover and active CMP-3"

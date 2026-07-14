@@ -131,6 +131,13 @@ Solana v1 provenance manifest 已提交并通过 host typecheck。Inventory 将�
 登记为 `semanticEvidence=none`；下一切片必须补齐 Solidity/near-sdk reference，
 并在三个 VM 上分别执行原生与 ProofForge artifact 后才能晋级。
 
+Reference 检查点（2026-07-14）：手写 Solidity 与 near-sdk 实现现已覆盖全部
+七个方法、五类事件、snapshot 和 checked arithmetic 拒绝。对应 v1 manifest
+分别固定 `solc` 0.8.30 与 near-sdk 5.28.3/Rust 1.94；原生 Solidity 编译、
+near-sdk host 生命周期测试和 release Wasm 编译均通过。在共享
+Anvil/Mollusk/near-vm-runner comparison 执行前，三份 reference 仍保持
+`semanticEvidence=none`。
+
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 
 ### CMP-SOL - Solana extension conformance

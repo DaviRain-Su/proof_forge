@@ -181,7 +181,7 @@ class ContractTests(unittest.TestCase):
             digest = hashlib.sha256(source.read_bytes()).hexdigest()
             self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
 
-    def test_cmp3_value_vault_scenario_and_solana_reference_are_pinned(self) -> None:
+    def test_cmp3_value_vault_scenario_and_references_are_pinned(self) -> None:
         root = REPO_ROOT / "testkit/differential/value-vault"
         scenario = json.loads((root / "scenario.v1.json").read_text(encoding="utf-8"))
         validate_scenario(scenario)
@@ -202,16 +202,34 @@ class ContractTests(unittest.TestCase):
         rejected = next(step for step in scenario["steps"] if step["id"] == "release-too-much")
         self.assertEqual("arithmetic-underflow", rejected["expectError"])
 
-        manifest = json.loads(
-            (root / "references" / "solana.v1.json").read_text(encoding="utf-8")
-        )
-        validate_reference(manifest)
-        source = REPO_ROOT / manifest["source"]["path"]
-        digest = hashlib.sha256(source.read_bytes()).hexdigest()
-        self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
-        source_text = source.read_text(encoding="utf-8")
-        self.assertNotIn("proof_forge::", source_text)
-        self.assertNotIn("ProofForge/", source_text)
+        manifests = sorted((root / "references").glob("*.v1.json"))
+        self.assertEqual(["evm.v1.json", "near.v1.json", "solana.v1.json"], [p.name for p in manifests])
+        for manifest_path in manifests:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            validate_reference(manifest)
+            source = REPO_ROOT / manifest["source"]["path"]
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
+            source_text = source.read_text(encoding="utf-8")
+            self.assertNotIn("proof_forge::", source_text)
+            self.assertNotIn("ProofForge/", source_text)
+
+        evm_source = (REPO_ROOT / "benchmarks/native/evm/ValueVault.sol").read_text(encoding="utf-8")
+        near_source = (
+            REPO_ROOT / "testkit/compare/near/value-vault/src/lib.rs"
+        ).read_text(encoding="utf-8")
+        for method in ("charge_fee", "release", "snapshot", "get_net_value"):
+            self.assertIn(f"{method}(", evm_source)
+            self.assertIn(f"{method}(", near_source)
+        for event in (
+            "VaultInitialized",
+            "ValueDeposited",
+            "ValueCharged",
+            "ValueReleased",
+            "ValueSnapshot",
+        ):
+            self.assertIn(event, evm_source)
+            self.assertIn(event, near_source)
 
     def test_compiler_does_not_import_comparison_contracts(self) -> None:
         needles = (

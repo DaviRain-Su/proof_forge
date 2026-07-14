@@ -1,13 +1,7 @@
 //! near-sdk-rs ValueVault reference for `testkit/compare`.
 //!
-//! Mirrors the portable surface of `Examples/Product/ValueVault.lean` for the
-//! dual-deploy scenario used by the sandbox harness:
-//! - `initialize(initial)`
-//! - `deposit(amount)`
-//! - `get_balance()` → u64
-//!
-//! Additional fields/methods exist for size parity with the portable state
-//! shape; the live scenario only exercises initialize/deposit/get_balance.
+//! Implements the complete seven-method portable surface for the CMP-3
+//! primary-triad differential and the existing Sandbox comparison harness.
 
 #![allow(clippy::needless_pass_by_value)]
 
@@ -29,9 +23,8 @@ impl ValueVault {
     #[init]
     pub fn initialize(initial: u64) -> Self {
         let checkpoint = env::block_height();
-        // Match ProofForge EmitWat JSON log shape for fair dual-deploy gas compare.
         env::log_str(&format!(
-            "{{\"event\":\"VaultInitialized\",\"initial\":{initial},\"checkpoint\":{checkpoint}}}"
+            "EVENT_JSON:{{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"VaultInitialized\",\"data\":[{{\"initial\":{initial},\"checkpoint\":{checkpoint}}}]}}"
         ));
         Self {
             balance: initial,
@@ -54,7 +47,7 @@ impl ValueVault {
             .checked_add(1)
             .unwrap_or_else(|| env::panic_str("operations overflow"));
         env::log_str(&format!(
-            "{{\"event\":\"ValueDeposited\",\"amount\":{amount},\"balance\":{},\"operations\":{}}}",
+            "EVENT_JSON:{{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueDeposited\",\"data\":[{{\"amount\":{amount},\"balance\":{},\"operations\":{}}}]}}",
             self.balance, self.operations
         ));
     }
@@ -80,6 +73,10 @@ impl ValueVault {
             .operations
             .checked_add(1)
             .unwrap_or_else(|| env::panic_str("operations overflow"));
+        env::log_str(&format!(
+            "EVENT_JSON:{{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueCharged\",\"data\":[{{\"gross\":{gross},\"fee\":{fee},\"net\":{net},\"balance\":{}}}]}}",
+            self.balance
+        ));
     }
 
     pub fn release(&mut self, amount: u64) {
@@ -96,6 +93,20 @@ impl ValueVault {
             .operations
             .checked_add(1)
             .unwrap_or_else(|| env::panic_str("operations overflow"));
+        env::log_str(&format!(
+            "EVENT_JSON:{{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueReleased\",\"data\":[{{\"amount\":{amount},\"balance\":{},\"released\":{}}}]}}",
+            self.balance, self.released
+        ));
+    }
+
+    pub fn snapshot(&mut self) -> u64 {
+        let checkpoint = env::block_height();
+        self.last_checkpoint = checkpoint;
+        env::log_str(&format!(
+            "EVENT_JSON:{{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueSnapshot\",\"data\":[{{\"balance\":{},\"released\":{},\"fees\":{},\"checkpoint\":{checkpoint}}}]}}",
+            self.balance, self.released, self.fees
+        ));
+        self.balance
     }
 
     pub fn get_balance(&self) -> u64 {
@@ -122,11 +133,22 @@ mod tests {
     }
 
     #[test]
-    fn init_deposit_balance() {
+    fn full_lifecycle_and_rejected_release() {
         context();
         let mut v = ValueVault::initialize(100);
         assert_eq!(v.get_balance(), 100);
-        v.deposit(50);
-        assert_eq!(v.get_balance(), 150);
+        v.deposit(25);
+        assert_eq!(v.get_balance(), 125);
+        v.charge_fee(100, 250);
+        assert_eq!(v.get_balance(), 223);
+        assert_eq!(v.get_net_value(), 221);
+        v.release(23);
+        assert_eq!(v.get_balance(), 200);
+        assert_eq!(v.snapshot(), 200);
+        assert_eq!(v.get_net_value(), 198);
+
+        let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| v.release(201)));
+        assert!(rejected.is_err());
+        assert_eq!(v.get_balance(), 200);
     }
 }
