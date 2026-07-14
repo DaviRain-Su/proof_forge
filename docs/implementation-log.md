@@ -4218,3 +4218,21 @@ Rules:
   Quint, EmitWat, sBPF encode, mutability, and constructor-coverage tests;
   three target-first CLI builds; and `git diff --check`. No full aggregate was
   run.
+
+## 2026-07-14 - CMP-3a: pin the stateful scenario and Solana oracle
+
+- Status: `done (pending commit)`; the primary-triad comparison remains active.
+- Added a 13-step ValueVault v1 scenario covering the full positive lifecycle,
+  all eight observation dimensions, state preservation after rejected
+  `release(201)`, and an `arithmetic-underflow` error contract.
+- Added an independent no-std Pinocchio implementation for all seven methods,
+  six state fields, Clock reads, numeric event logs, checked arithmetic, and
+  return data. Its Apache-2.0 source digest and Solana toolchain are pinned by a
+  complete v1 reference manifest.
+- Inventory records the scenario and Solana oracle with
+  `semanticEvidence=none`; source existence cannot promote CMP-3 before the
+  native/ProofForge VM runner passes.
+- Verification: focused CMP-3 contract test, `cargo check --features
+  bpf-entrypoint`, `cargo-build-sbf` with platform-tools v1.52, `just
+  differential-contracts`, `just docs-check`, and `git diff --check` passed.
+  No full aggregate was run.

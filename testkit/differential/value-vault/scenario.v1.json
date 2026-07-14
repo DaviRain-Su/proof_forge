@@ -1,0 +1,46 @@
+{
+  "schema": "proof-forge.differential.scenario.v1",
+  "id": "portable-value-vault-primary-triad",
+  "kind": "portable",
+  "targetFamily": "portable",
+  "steps": [
+    {"id": "initialize", "action": "initialize", "inputs": {"initial": {"type": "u64", "value": 100}}},
+    {"id": "get-initial", "action": "get_balance", "inputs": {}},
+    {"id": "deposit", "action": "deposit", "inputs": {"amount": {"type": "u64", "value": 25}}},
+    {"id": "get-deposited", "action": "get_balance", "inputs": {}},
+    {"id": "charge-fee", "action": "charge_fee", "inputs": {"gross": {"type": "u64", "value": 100}, "fee_bps": {"type": "u64", "value": 250}}},
+    {"id": "get-charged", "action": "get_balance", "inputs": {}},
+    {"id": "get-net-charged", "action": "get_net_value", "inputs": {}},
+    {"id": "release", "action": "release", "inputs": {"amount": {"type": "u64", "value": 23}}},
+    {"id": "get-released", "action": "get_balance", "inputs": {}},
+    {"id": "snapshot", "action": "snapshot", "inputs": {}},
+    {"id": "get-net-final", "action": "get_net_value", "inputs": {}},
+    {"id": "release-too-much", "action": "release", "inputs": {"amount": {"type": "u64", "value": 201}}, "expectError": "arithmetic-underflow"},
+    {"id": "get-after-rejected", "action": "get_balance", "inputs": {}}
+  ],
+  "requiredObservations": [
+    "callStatus",
+    "returnValue",
+    "state",
+    "balances",
+    "events",
+    "externalActions",
+    "interface",
+    "resources"
+  ],
+  "allowedDivergences": [
+    {"dimension": "resources", "scope": "/steps/initialize/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-initial/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/deposit/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-deposited/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/charge-fee/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-charged/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-net-charged/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/release/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-released/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/snapshot/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-net-final/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/release-too-much/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-after-rejected/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."}
+  ]
+}

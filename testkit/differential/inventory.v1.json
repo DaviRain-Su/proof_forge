@@ -67,6 +67,27 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-reference-solana-value-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3 independent ValueVault reference with pinned provenance; semantic evidence remains closed until the primary-triad runner passes",
+      "path": "testkit/differential/value-vault/references/solana.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/solana/value-vault/src/lib.rs"
+      ],
+      "targetFamily": "solana"
+    },
+    {
+      "id": "cmp3-scenario-value-vault-primary-triad",
+      "kind": "scenario",
+      "maturity": "portableScenarioV1",
+      "notes": "stateful ValueVault lifecycle and arithmetic-underflow case; semantic evidence remains closed until every primary-triad runner executes",
+      "path": "testkit/differential/value-vault/scenario.v1.json",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
       "id": "evm-anvil-runner",
       "kind": "runner",
       "maturity": "liveRunner",
@@ -1147,14 +1168,14 @@
     }
   ],
   "schema": "proof-forge.differential.inventory.v1",
-  "scope": "tracked comparison assets through CMP-2",
+  "scope": "tracked comparison assets through the active CMP-3 ValueVault setup",
   "summary": {
-    "assetCount": 96,
+    "assetCount": 98,
     "byTargetFamily": {
       "evm": 8,
       "near": 34,
-      "portable": 23,
-      "solana": 23,
+      "portable": 24,
+      "solana": 24,
       "stylus": 8
     },
     "semanticVerifiedCount": 6

@@ -181,6 +181,38 @@ class ContractTests(unittest.TestCase):
             digest = hashlib.sha256(source.read_bytes()).hexdigest()
             self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
 
+    def test_cmp3_value_vault_scenario_and_solana_reference_are_pinned(self) -> None:
+        root = REPO_ROOT / "testkit/differential/value-vault"
+        scenario = json.loads((root / "scenario.v1.json").read_text(encoding="utf-8"))
+        validate_scenario(scenario)
+        self.assertEqual(
+            set(scenario["requiredObservations"]),
+            {
+                "callStatus",
+                "returnValue",
+                "state",
+                "balances",
+                "events",
+                "externalActions",
+                "interface",
+                "resources",
+            },
+        )
+        self.assertEqual(13, len(scenario["steps"]))
+        rejected = next(step for step in scenario["steps"] if step["id"] == "release-too-much")
+        self.assertEqual("arithmetic-underflow", rejected["expectError"])
+
+        manifest = json.loads(
+            (root / "references" / "solana.v1.json").read_text(encoding="utf-8")
+        )
+        validate_reference(manifest)
+        source = REPO_ROOT / manifest["source"]["path"]
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
+        source_text = source.read_text(encoding="utf-8")
+        self.assertNotIn("proof_forge::", source_text)
+        self.assertNotIn("ProofForge/", source_text)
+
     def test_compiler_does_not_import_comparison_contracts(self) -> None:
         needles = (
             "proof-forge.differential.reference.v1",

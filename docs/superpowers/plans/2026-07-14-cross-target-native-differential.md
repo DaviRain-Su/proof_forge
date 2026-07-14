@@ -163,6 +163,14 @@ State: `in_progress; attached to A-CUT3`
 - Reuse `Examples/Product`; do not create target-specific Product copies.
 - Record unsupported target capabilities as named compile failures, not skips.
 
+Checkpoint (2026-07-14): the 13-step v1 ValueVault scenario now fixes the
+stateful lifecycle, all eight observation dimensions, and an arithmetic
+underflow rejection. An independent Pinocchio implementation and complete v1
+Solana provenance manifest are checked in and host-typechecked. Inventory
+records both assets with `semanticEvidence=none`; the next slice must complete
+the Solidity/near-sdk references and execute both artifacts on all three VMs
+before either asset is promoted.
+
 Acceptance:
 
 - ValueVault passes the primary triad with state snapshots and negative cases.

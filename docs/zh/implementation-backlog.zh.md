@@ -40,7 +40,7 @@
 | A-CUT1e | 将公开 Solana authoring 切换到 target-owned HostOps | done（在 `571b795d` 验证） | public/internal macro 仅生成 direct Authored contract；plan-only sidecar 和 sBPF lowering 通过 focused Pinocchio 对比；不存在 public/internal Legacy import 或 fallback |
 | A-CUT2g | 将公开 portable Source/Loader 与 Counter target 路线切换到 direct Authored/Core/Plan | done（在 `42183403` 验证） | EVM、Solana assembly/ELF 和 NEAR/Wasm 制品使用 `canonical-core-v1`；无 ContractSpec sidecar/fallback；focused 三目标行为通过 |
 | A-CUT2h | 删除残留 Counter `.spec`/`.module` 消费者与过时 backend wrapper | done（在 `b2d673b4` 验证） | 调用方改用 Authored/Canonical 或显式 v1-only fixture；wrapper 已删除；EVM constructor config 归 target 所有，共享 payload fail closed |
-| A-CUT3 | 迁移 Product/stdlib 调用方并删除其 `Source.Legacy` 依赖 | in_progress（ValueVault 已 direct；CMP-3 native 证据进行中） | 补独立 Solana ValueVault reference 并关闭主三链差分，再继续 catalog |
+| A-CUT3 | 迁移 Product/stdlib 调用方并删除其 `Source.Legacy` 依赖 | in_progress（ValueVault 已 direct；CMP-3 native 证据进行中） | 补齐 Solidity/near-sdk reference 和主三链 runner，再继续 catalog |
 | B1 | 中立 Wasm-host plan 与 ABI | done（在 `c8d2bbb6` 验证） | 保持 NEAR 输出与运行时行为 |
 | B2 | 严格 canonical target gate | done（在 `d4df51bc` 验证） | adapter/validator/HostOp/builder 错误 fail closed |
 | B3 | Soroban Counter 晋级 | done（2026-07-12 验证） | 严格 plan、bridge-aware lowering、原生 ABI/auth 与运行时证据 |
@@ -63,7 +63,7 @@ operation。A-CUT1e-c2 已完成。
 | CMP-0 | 盘点并版本化 provenance/scenario/observation 共享契约 | done (verified at `18f15e59`) | 85 项受跟踪资产；35 份 v0 manifest 可显式迁移但保持 semantic ineligible |
 | CMP-1 | 实现 fail-closed normalized observation 与 coverage validator | done (verified at `7fee238c`) | 23 个 focused contract/comparator 测试；target-local resource 不能变成跨链总分 |
 | CMP-2 | Counter 原生试点：Solidity EVM、Rust Solana、Rust NEAR | done（verified at `e2834c59`） | 以完整主三链 v1 证据关闭 A-CUT2 |
-| CMP-3 | ValueVault 和代表性 stateful portable family | in_progress | direct-only 主三链编译已验证；补独立 Solana Rust reference 与 native comparison |
+| CMP-3 | ValueVault 和代表性 stateful portable family | in_progress | 13 步场景和独立 Solana Rust reference 已固定但未语义晋级；补齐 EVM/NEAR reference 与原生 VM comparison |
 | CMP-SOL | Account/PDA/CPI 与独立 Solana Rust reference 的 conformance | 与 IR-B5 同步 pending | IR-B5 退出条件 |
 | CMP-NEAR | 从 canonical-only artifact 重放现有 Rust/Sandbox reference | 与 NEAR-R4 同步 pending | NEAR-R4 退出条件 |
 | CMP-EVM | 统一独立 Solidity reference 和 EVM observation | 与 A-CUT3 同步 pending | A-CUT3 EVM 切片 |

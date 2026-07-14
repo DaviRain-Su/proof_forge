@@ -125,6 +125,12 @@ wrapper 均已删除；EVM constructor 证据仅在选择 EVM 后从 target-owne
 - 复用 `Examples/Product`，禁止 target-specific Product copy。
 - 不支持的 capability 必须产生具名编译失败，不能静默 skip。
 
+检查点（2026-07-14）：13 步 v1 ValueVault 场景现已固定 stateful 生命周期、
+八类 observation 和 arithmetic underflow 拒绝。独立 Pinocchio 实现及完整
+Solana v1 provenance manifest 已提交并通过 host typecheck。Inventory 将这两项
+登记为 `semanticEvidence=none`；下一切片必须补齐 Solidity/near-sdk reference，
+并在三个 VM 上分别执行原生与 ProofForge artifact 后才能晋级。
+
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 
 ### CMP-SOL - Solana extension conformance

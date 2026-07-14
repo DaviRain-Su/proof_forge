@@ -26,9 +26,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | A-CUT3/CMP-3 - ValueVault authoring is direct-only; add the independent Solana Rust reference and compare the primary triad |
+| Active task | A-CUT3/CMP-3 - ValueVault authoring and Solana native oracle are direct/pinned; complete the Solidity/near-sdk references and primary-triad runner |
 | Next task | Continue A-CUT3 through authorization, collection, event/error, and portable crosscall representatives while deleting each zero-caller Legacy slice |
-| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault now compiles direct-only on the primary triad and awaits CMP-3 native evidence |
+| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; CMP-3 now has a fail-closed 13-step scenario and independent Solana Pinocchio oracle, still without semantic promotion |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
