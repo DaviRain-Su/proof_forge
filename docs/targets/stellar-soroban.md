@@ -1,34 +1,42 @@
 # Stellar Soroban Target
 
-Status: **Counter MVP (PF-P3-02 six-gate, 2026-07-10)** — registry id
-`wasm-stellar-soroban` is live; product Counter sources lower through
-`EmitWat` + `HostBridge.soroban`, validate with `wat2wasm`, and execute the
-Counter lifecycle on the offline host (`just soroban-promotion`).
+Status: **Counter MVP (refreshed 2026-07-15)** — registry id
+`wasm-stellar-soroban` is live. Product Counter sources lower through
+`EmitWat` + `HostBridge.soroban` (and, for Counter, a bridge-tagged
+canonical `WasmHostModulePlan`), validate with `wat2wasm`, and execute the
+Counter lifecycle on the **ProofForge offline host** (`just soroban-promotion`,
+`just soroban-counter-offline`). This is **not** a Stellar-network deployable
+backend yet.
 
-**SPIKE honesty retained where incomplete:** in-Lean and offline-host
-`require_auth_for_args` are always-authorised (not real Env auth);
-`invoke_contract` is a spike stub (records slices, returns handle 0);
-Stellar CLI / sandbox / TTL archival are **not** yet promotion gates.
-Portable product triad remains EVM · Solana · NEAR.
+**Scheduling (2026-07-15):** deep Soroban work is **queued after** the
+primary-triad **direct authoring cutover** lands. That work is tracked in
+[PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104)
+(`DaviRain-Su/authoring-cutover-comparison`: Authored → Canonical Core →
+target-owned plans + native differential evidence). Do not open large
+HostABI / Env / CLI epics on a dual-authoring mainline. Allowed in parallel:
+docs honesty, pure design notes, and CI-only maintenance. See
+[Wasm-host analysis](../superpowers/specs/2026-07-12-wasm-host-target-analysis.md)
+and decision **D-056**.
 
-**Product queue (2026-07 close-out):** EVM · Solana · NEAR portable crosscall
-paths are the closed triad. **Soroban is the next Wasm-host spike** after that
-triad; CosmWasm full crosscall and Cloudflare Workers product path are
-**deferred**. Portable crosscall maps to native form `soroban-invoke` (honest)
-— **not** NEAR `promise_create`.
+**SPIKE honesty (do not over-claim):**
 
-**EmitWat honesty (landed):** `renderModule m .soroban` **rejects** modules
-that use portable `crosscall.invoke` or NEAR Promise constructors with an
-explicit diagnostic (`soroban-invoke` not lowered yet). Storage-only modules
-(e.g. Counter) still lower. Host surface today is storage/auth
-(`_put` / `_get` / `require_auth_for_args`); client-style cross-contract invoke
-is the next engineering step.
+| Claim | Reality |
+|---|---|
+| Runtime | offline-host Wasmtime implements a **custom** bridge ABI |
+| Real Soroban Env | `tools/soroban-vm-runner` is a **placeholder** (not functional) |
+| `require_auth_for_args` | always-authorised in Lean interpreter and offline host |
+| `invoke_contract` | spike stub (records packed slices, returns handle `0`) |
+| HostABI | hybrid: some Soroban names (`_get`/`_put`/`set_return_data`) plus retained NEAR-shaped helpers |
+| Storage | flat host key-value map (not instance/persistent/temporary + TTL) |
+| Token / NFT | no TokenSpec or NFT lane |
+| Stellar CLI | not a promotion gate |
+| Product triad | remains `evm` · `solana-sbpf-asm` · `wasm-near` only |
 
-Candidate target id: **`wasm-stellar-soroban`**
+Portable crosscall maps to native form `soroban-invoke` (honest label) —
+**not** NEAR `promise_create`. CosmWasm full crosscall remains deferred;
+Move and Cloudflare backends were removed from `main` (D-055).
 
-This note records the first ProofForge classification for Stellar smart
-contracts, commonly associated with Soroban. It does not add a Lean target
-profile yet.
+Target id: **`wasm-stellar-soroban`**
 
 Primary sources:
 
@@ -48,198 +56,154 @@ target from NEAR and CosmWasm.
 
 ```text
 Stellar smart contract target
-  -> Rust/Soroban SDK authoring model today
-  -> Wasm artifact compiled for wasm32v1-none
-  -> Stellar host environment and Env API
-  -> Stellar CLI validation, deploy, and invoke flow
+  -> (today) Lean portable IR → EmitWat + HostBridge.soroban → custom host ABI
+  -> (goal) Wasm acceptable to real Soroban Env + Stellar CLI
+  -> Stellar host environment (Env, Val/ScVal, auth, TTL storage)
+  -> Stellar CLI validation, deploy (upload + instantiate), and invoke
 ```
 
-This is not "generic Wasm." Wasm is the executable artifact format. The contract
-ABI, host functions, storage model, authorization model, deployment lifecycle,
-resource limits, and tooling are Stellar-specific.
+Wasm is only the executable envelope. ABI, host functions, storage model,
+authorization, deployment lifecycle, resource limits, and tooling are
+Stellar-specific. Sharing EmitWat with NEAR does **not** share semantics.
 
 ## Why This Matters For ProofForge
 
-The existing Wasm-family direction is correct: share only the common Wasm
-runtime pieces, and keep chain adapters separate.
+The Wasm-family direction stays: share only the common Wasm runtime pieces,
+and keep chain adapters separate (D-028 / D-054).
 
 For Soroban, the target-specific concerns are:
 
-- contracts are currently Rust/Soroban SDK programs compiled to Wasm;
-- the setup path uses Rust `v1.84.0` or newer and the `wasm32v1-none` target;
-- `stellar contract build` is the first native build command to mirror;
-- deployment is a two-step model: upload/install Wasm bytes, then instantiate a
-  contract ID that points at those bytes;
-- storage has instance, persistent, and temporary forms, with TTL and archival
-  semantics;
-- authorization is explicit through address-based calls such as
-  `require_auth()` and `require_auth_for_args()`;
-- contract accounts can implement `__check_auth()` for custom authorization;
-- cross-contract calls use generated client-style calls and host-managed
-  authorization context;
-- events, tokens, and Stellar Asset Contract integration are target-native
-  surfaces, not generic Wasm features.
-
-## Candidate Target Family
-
-Candidate family:
-
-```text
-wasm-host
-```
-
-Candidate artifact shape:
-
-```text
-stellar-soroban-package
-  - Wasm module
-  - contract spec/interface metadata
-  - deployment manifest for upload + instantiate
-  - optional generated bindings
-  - validation/test report from Stellar CLI or sandbox
-```
-
-The first ProofForge artifact should be reviewable and runnable through the
-Stellar CLI or sandbox before claiming broader platform support.
+- production contracts today are Rust/Soroban SDK programs for `wasm32v1-none`;
+- `stellar contract build` is the first native toolchain mirror for a real Env path;
+- deployment is upload/install Wasm, then instantiate a contract id;
+- storage has instance, persistent, and temporary forms, with TTL and archival;
+- authorization is explicit (`require_auth` / `require_auth_for_args` / `__check_auth`);
+- cross-contract calls use host-managed auth context and typed values, not NEAR promises;
+- events, tokens, and Stellar Asset Contract integration are target-native.
 
 ## Candidate Capabilities
 
-Most core capabilities overlap with existing Wasm-host targets:
+Most core capabilities *name* the same as other Wasm hosts; **registration
+must not exceed what the bridge implements**.
 
-| Existing capability | Soroban interpretation |
+| Capability | Counter MVP (today) | Production goal |
+|---|---|---|
+| `storage.scalar` | flat offline KV via `_get`/`_put` | instance/persistent/temporary + TTL |
+| `storage.map` | advertised; limited product evidence | typed maps / object keys |
+| `caller.sender` | auth prologue always-auth stub | real invoker / `require_auth` |
+| `events.emit` | log host surface | contract events |
+| `crosscall.invoke` | emit path → stub `invoke_contract` | real Env invoke + returns |
+| `env.block` | **registry advertises; ValueVault fail-closed** | ledger sequence/timestamp |
+| `crypto.hash` | hybrid/TODO vs HostABI | Env crypto helpers |
+
+Candidate ids (do not add until a reviewed plan owns them):
+
+| Candidate | Meaning |
 |---|---|
-| `storage.scalar` | Instance/persistent/temporary contract storage entry. |
-| `storage.map` | Typed key-value storage through Soroban storage maps. |
-| `caller.sender` | Source account/invoker context where available. |
-| `events.emit` | Contract event publishing. |
-| `crosscall.invoke` | Cross-contract invocation through generated clients. |
-| `env.block` | Ledger/network context reads. |
-| `crypto.hash` | Host/Soroban SDK crypto helpers. |
+| `auth.require` | Address-level authorization |
+| `auth.account_contract` | `__check_auth` contract accounts |
+| `storage.ttl` | TTL extension, archival, restoration |
+| `artifact.contract_spec` | CLI/bindings interface metadata |
+| `asset.stellar` | Stellar Asset Contract / token interface |
 
-Candidate capabilities that may need explicit ids later:
+## Implementation Roads
 
-| Candidate capability | Meaning |
-|---|---|
-| `auth.require` | Address-level authorization through `require_auth` or equivalent payload binding. |
-| `auth.account_contract` | Contract account authorization through `__check_auth`. |
-| `storage.ttl` | Explicit TTL extension, archival, and restoration behavior. |
-| `artifact.contract_spec` | Contract interface/spec metadata used by CLI and generated bindings. |
-| `asset.stellar` | Stellar Asset Contract or token-interface integration. |
+### Road 1: Native Soroban Package Sourcegen (not chosen for first spike)
 
-Do not add these ids to `ProofForge.Target.Capability` until a target profile
-and lowering rules are reviewed.
+Generate or wrap a Rust/Soroban SDK package built with Stellar CLI. Deferred;
+Road 2 landed first.
 
-## Implementation Road
+### Road 2: Wasm Host Bridge (current path)
 
-### Road 1: Native Soroban Package Sourcegen
+Lean lowers to Wasm with a Stellar-specific host bridge. First spike proved
+the family thesis: thin `*Host.lean` on shared `WasmExec`, not a forked EmitWat.
 
-This is the most conservative first spike. Generate or wrap a Rust/Soroban SDK
-package that can be built with the Stellar CLI.
+### Road 3 (next after cutover): Honesty → native HostABI → real Env
 
-First spike:
+Ordered slices (do not start deep code until D-056 / PR #104 baseline lands):
 
-- choose a Counter-like storage example;
-- generate a minimal Soroban package or manifest around hand-authored Rust;
-- build with `stellar contract build`;
-- validate tests with `cargo test` or Stellar's sandbox path;
-- record the Wasm path, contract spec, and tool versions in artifact metadata.
-
-This path validates target semantics before attempting a direct Lean runtime
-bridge.
-
-### Road 2: Wasm Host Bridge
-
-This road mirrors NEAR/CosmWasm more directly: Lean lowers to a Wasm module and
-a Stellar-specific host bridge.
-
-First spike:
-
-- define the minimal `Lean.Stellar` SDK surface;
-- map storage, events, and authorization to Soroban host calls;
-- emit a Wasm artifact acceptable to Stellar tooling;
-- prove that the generic Wasm runtime does not force-link NEAR or CosmWasm
-  bridge code.
-
-This should wait until the Wasm runtime split is real enough to avoid another
-one-off adapter.
+| Slice | Goal | Exit evidence |
+|---|---|---|
+| **S0** | Honest capability/registry/docs vs implemented fragment | ValueVault and over-wide caps fail closed with stable diagnostics; README/target note agree |
+| **S1** | De-NEAR HostABI | WAT imports match Soroban HostABI only; no silent NEAR `storage_*` / hybrid context leftovers for supported paths |
+| **S2** | Single canonical path | Authored → `buildFromCore` → `lowerFromPlan` is the product route for Counter; EmitWat is oracle/compat only |
+| **S3** | Crosscall simulation depth | `invoke_contract` returns useful offline results; RemoteCall differential |
+| **S4** | Real Soroban Env | Val/ScVal boundary design; `soroban-vm-runner` runs Counter; then Stellar CLI deploy gate |
+| **S5** | Product depth | ValueVault, Token/NFT intent only via IntentMaterializer after Env truth |
 
 ## Non-Goals (still open after Counter MVP)
 
 - Do not merge Soroban with `wasm-near` or `wasm-cosmwasm`.
 - Do not treat Rust/Soroban SDK details as ProofForge's long-term IR.
-- Do not ignore TTL/state archival when modeling storage beyond the
-  shared host-key map used for Counter scalars.
-- Do not model authorization as real Stellar `require_auth` until Env auth
-  is wired (always-auth remains spike honesty).
+- Do not ignore TTL/state archival when modeling storage beyond Counter KV.
+- Do not model authorization as real Stellar `require_auth` until Env auth is wired.
 - Do not claim Stellar CLI deploy/invoke until those tools are gated.
+- Do not expand TokenSpec/NFT onto Soroban while the primary triad cutover is open.
 
 ## PF-P3-02 six-gate evidence (Counter fragment)
 
 | Gate | Evidence |
 |---|---|
 | 1 Input loaded | `proof-forge build --target wasm-stellar-soroban Examples/Product/Counter.lean` |
-| 2 Fragment honesty | Artifact `hostBridge=soroban`; no NEAR wrapper swap; TokenSpec still unsupported |
+| 2 Fragment honesty | Artifact `hostBridge=soroban`; no NEAR wrapper swap; TokenSpec unsupported |
 | 3 Plan → AST → package | EmitWat + `HostBridge.soroban` (`_get`/`_put`, no `promise_create`) |
-| 4 Toolchain | `wat2wasm` final stage (`validation.wat2wasm=passed`) |
+| 4 Toolchain | `wat2wasm` final stage |
 | 5 Runtime | offline-host Counter `initialize/get/increment/get` → 0→1 |
 | 6 Docs surface | registry + `--list-targets` + README + this note |
 
-Command: `just soroban-promotion` / `scripts/cli/soroban-promotion-smoke.sh`.
+Commands: `just soroban-promotion`, `just soroban-public-route`,
+`just soroban-counter-offline`, `just wasm-soroban-host-smoke`.
 
-## Research Exit Criteria
+## Landed (Phase 4 + B3, through 2026-07-15)
 
-Soroban can leave Research only when we have:
+- `HostBridge.soroban` with host function table for storage/auth/crosscall stubs.
+- `WasmInterpreter` / `SorobanHost.lean` lemmas; `CounterSorobanRefinement`.
+- EmitWat `bridge = .soroban`: scalar `_get`/`_put`, `set_return_data`,
+  portable `crosscall.invoke` → stub `invoke_contract`; NEAR promise constructors
+  rejected; caller entrypoints may emit always-auth prologue.
+- Canonical: `ModulePlan.Core.buildFromCore` accepts `.soroban` (reuses NEAR
+  layout builder + bridge tag); `lowerFromPlan` emits Soroban imports for
+  Counter (see `Tests/Canonical/SorobanPublicRoute.lean`).
+- Registry profile in `knownIds`; CLI `build`/`check` for `contract_source`;
+  `emit` fixture path intentionally unmapped.
+- Offline-host implements the **custom** bridge; not the real Env.
 
-- a reviewed target profile proposal;
-- a decided first spike path: native Soroban package sourcegen or direct Wasm
-  host bridge;
-- a minimal Counter-like shared scenario;
-- a documented toolchain requirement set, including Rust, `wasm32v1-none`, and
-  Stellar CLI;
-- at least one reproducible local validation command;
-- artifact metadata for Wasm, contract spec, deployment manifest, and validation
-  result.
+## Open gap inventory (engineering truth)
 
-## Phase 4 First Spike (2026-07-08) — WASM host-family adapter
+### P0 — honesty / fail-closed
 
-The first Soroban spike took Road 2 (Wasm Host Bridge) and proved the WASM
-host-family thesis: a new WASM chain is a thin `*Host.lean` on top of the
-shared `WasmExec` core, not a forked EmitWat.
+- Registry capability set is wider than proven product evidence (`env.block`,
+  maps, crypto, crosscall depth).
+- Auth always-auth; invoke stub; must stay documented until Env work.
+- Fixture `emit --target wasm-stellar-soroban` is not supported (by design today).
 
-Landed:
+### P1 — architecture (post–authoring cutover)
 
-- `ProofForge.Target.HostBridge.soroban` — third `HostBridge` variant (after
-  `.near` / `.cosmWasm`) with `requiredExports`, `requiredImports`, and
-  `hostFunctions` for storage/auth plus portable crosscall
-  (`_put` / `_get` / `log_from_slice` / `require_auth_for_args` /
-  `invoke_contract`).
-- `ProofForge.Backend.WasmHost.WasmInterpreter.runSorobanHostCall` +
-  `sorobanHostArity` + `runHostCall` dispatch arm. The storage model is the
-  same byte-keyed `lookupStorage?` / `writeStorage` table NEAR and CosmWasm
-  use, so contract-axis proofs reuse the same abstract scalar reasoning.
-  `invoke_contract` is a spike stub (reads packed slices, returns handle `0`).
-- EmitWat with `bridge = .soroban`: portable `crosscall.invoke` → host
-  `invoke_contract` (shared string pool + JSON args); NEAR `promise_*` never
-  imported; Promise host-extension constructors rejected. Scalar storage uses
-  `_get`/`_put` (not NEAR `storage_*`). Entrypoints that read `caller` emit
-  `require_auth_for_args` prologue. Logical peers rewrite via `PeerMap`.
-- `ProofForge.Backend.WasmHost.SorobanHost.lean` — thin host-call lemmas
-  (`_get` hit/miss, `_put`, `set_return_data`, `log`, `require_auth`,
-  `invoke_contract`) + `soroban_host_smoke_ok`.
-- `ProofForge.Backend.WasmHost.CounterSorobanRefinement.lean` — Counter
-  universal C-proof reusing the SAME host-agnostic
-  `counterWasmCoreTraceStep` core as NEAR/CosmWasm; only the host
-  instantiation differs.
-- `just wasm-soroban-host-smoke` (in `just check`) — machine-checked witness.
-- `just crosscall-materialize` — asserts Soroban WAT contains `invoke_contract`
-  and never `promise_create`.
-- `ProofForge.Target.Registry.wasmStellarSoroban` — in `Registry.all` /
-  `--list-targets` (`hostBridge? = .soroban`); materialize / preflight /
-  `forProfile` → `soroban-invoke`. Stellar CLI + contract-spec still follow-on.
-- `Target.Preflight.runPrimaryWithSoroban` — primary triad + Soroban form.
+- `buildFromCore` still rewrites planning through a NEAR-shaped layout path.
+- HostABI retains NEAR helper names/TODOs (`input`, account ids, ledger fields).
+- Dual lowering (EmitWat vs canonical plan) should converge on one product path.
+- No Soroban-native parameter/result ABI plan (XDR / contract-spec / ScVal).
 
-Not yet done (future Soroban spikes): real Soroban `Env` API (instance /
-persistent / temporary storage with TTL, real `require_auth`, ledger reads,
-`Address`/`Symbol`/`Vec<Val>` invoke), EmitWat storage name remap off NEAR
-`storage_*`, `wasm32v1-none` artifact emit, Stellar CLI build/deploy/invoke
-validation, promote profile into `Registry.all` / `--list-targets`.
+### P2 — real Stellar runtime
+
+- Real Env import set (Val objects / handles) ≠ ptr/len custom ABI.
+- `tools/soroban-vm-runner` not functional until Env migration.
+- Storage TTL / archival; real `require_auth`; ledger context.
+- Deploy lifecycle metadata (upload + instantiate); Stellar CLI gates.
+
+### P3 — product depth
+
+- ValueVault, RemoteCall e2e, Token/NFT, rich SDK schema, resource budgets, FV beyond Counter.
+
+## Research / maturity exit (toward Experimental)
+
+Soroban may leave **Counter MVP** only when:
+
+1. Authoring cutover baseline is on `main` (D-056).
+2. S0 honesty is closed (caps match evidence).
+3. S1 HostABI is non-hybrid for the supported fragment.
+4. Counter runs on **real** Soroban Env (or an equivalent Env-faithful harness), not only offline-host.
+5. Artifact metadata records Wasm, contract-spec (or explicit gap), deploy shape, and validation.
+6. Unsupported product shapes (TokenSpec, ValueVault until ready) fail closed with stable diagnostics.
+
+Stellar CLI deploy/invoke may trail Env execution but must not be claimed early.

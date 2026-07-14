@@ -3,12 +3,17 @@
 
 # Implementation Backlog
 
-Status: **Current executable backlog (refreshed 2026-07-12)**
+Status: **Current executable backlog (refreshed 2026-07-15)**
 
 This backlog turns the multi-chain design into reviewable engineering slices.
 It is intentionally scoped to local compiler, artifact, and smoke-test work.
 The cloud platform should wait until at least two materially different targets
 are working locally.
+
+**Scheduling note (D-056):** finish the primary-triad **direct authoring
+cutover** ([PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104))
+before deep Wasm-host secondary work (Soroban HostABI/Env, CosmWasm M3/M4).
+Docs honesty and pure design notes may proceed in parallel.
 
 Related docs:
 
@@ -39,7 +44,7 @@ July 12 implementation plan.
 | A6 | Open NFT CLI/product/runtime route | done (verified at `6a6022ea`) | three honest bundles and EVM/Surfpool/NEAR lifecycle runtime evidence pass |
 | B1 | Extract neutral Wasm-host plan and ABI | done (verified at `c8d2bbb6`) | NEAR output/runtime preservation |
 | B2 | Add strict canonical target gate | done (verified at `d4df51bc`) | adapter/validator/HostOp/builder errors fail closed |
-| B3 | Promote Soroban Counter | pending after B2 | strict plan, native ABI/auth contract, runtime evidence |
+| B3 | Promote Soroban Counter MVP | done for Counter six-gate + public route; **depth deferred (D-056)** | Counter: strict gate, offline lifecycle, EmitWat/canonical WAT with `_get`/`_put`. Remaining: HostABI honesty (S0–S1), real Env (S4), product depth (S5) — see [stellar-soroban.md](targets/stellar-soroban.md) |
 | C1 | Add PSy canonical plan | pending after A6 | strict fixture gate; no maturity change |
 | C2 | Add Aleo semantic plan | pending after C1 | Core-to-plan-to-Leo; no route promotion |
 | C3 | Write sourced OpenVM brief | pending | reviewed go/defer decision before code |

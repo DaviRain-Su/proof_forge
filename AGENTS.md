@@ -24,10 +24,11 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | A-CUT1e-c - switch public Solana authoring off `Source.Solana.Legacy`; the typed Canonical Plan/lowering path is complete through A-CUT1e-c1 |
-| Next task | A-CUT2 - replace the remaining `ContractSpec`/`IR.Module` authored exchange value with direct Canonical Core normalization |
-| Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
-| Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
+| Active task | **Land PR #104** (`DaviRain-Su/authoring-cutover-comparison`): direct Authored → Canonical Core cutover + primary-triad native differential; rebase onto current `main` (includes D-055 Move/Cloudflare removal) |
+| Next task | After #104 merges: continue cutover residual (CMP-3g*) and NEAR canonical replay; **do not** start deep Soroban HostABI/Env work until then (D-056) |
+| Known blocker | PR #104 is draft and `CONFLICTING` with `main`; real NEAR receipt/testnet still needs a sandbox harness |
+| Execution queue | [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
+| Soroban note | Counter MVP only; gap list and S0–S5 order in [`docs/targets/stellar-soroban.md`](docs/targets/stellar-soroban.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task
@@ -197,7 +198,7 @@ This table is only the agent routing index.
 | D4 | done (verified at 19c93baf) | Open NFT through native target-first dispatch | Legacy replacement Task D4 |
 | B1 | done (verified at c8d2bbb6) | Extract a neutral Wasm-host plan | Plan Task 7 |
 | B2 | done (verified at d4df51bc) | Add a strict canonical target gate | Plan Task 8 |
-| B3 | done | Promote Soroban Counter (full bridge-aware lowering) | Plan Task 9 |
+| B3 | done (Counter MVP only; depth deferred D-056) | Soroban Counter six-gate + public route; S0–S5 remaining | Plan Task 9; [stellar-soroban.md](docs/targets/stellar-soroban.md) |
 | C1 | pending after A6 | Add PSy canonical planning | Plan Task 10 |
 | C2 | pending after C1 | Add an Aleo semantic plan | Plan Task 11 |
 | C3 | pending | Write the sourced OpenVM target brief | Plan Task 12 |

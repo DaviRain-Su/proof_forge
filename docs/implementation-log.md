@@ -4027,3 +4027,20 @@ Rules:
   canonical boundary self-test; `just canonical-boundary`;
   `just strict-target-gate`; targeted Stylus, NEAR, and Solana gates; and
   `git diff --check`.
+
+## 2026-07-15 - DOC: Soroban honesty + D-056 sequencing before PR #104 depth
+
+- Status: `done` (documentation only)
+- Result: refreshed Soroban Counter MVP docs for custom offline-bridge honesty,
+  open gap inventory (P0–P3), and S0–S5 slice order. Recorded D-056: land
+  primary-triad direct authoring cutover
+  ([PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104)) before deep
+  Soroban HostABI/Env or CosmWasm M3/M4. Updated agent checkpoint, backlog B3
+  state, Wasm-host analysis, targets index, and README Backend Status row.
+- Interfaces: `docs/targets/stellar-soroban.md`, `docs/decisions.md` (D-055/D-056),
+  `docs/document-status.md`, `docs/implementation-backlog.md`,
+  `docs/superpowers/specs/2026-07-12-wasm-host-target-analysis.md`,
+  `docs/target-roadmap.md`, `docs/targets/README.md`, `README.md`, `AGENTS.md`.
+- Verification: documentation edit only; no code or gate change.
+- Remaining: rebase/merge PR #104; then schedule Soroban S0 if desired.
+- Documentation: this entry.

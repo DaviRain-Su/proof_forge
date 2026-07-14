@@ -1,6 +1,6 @@
 # Documentation Status and Archive Index
 
-Status: **Authoritative documentation lifecycle index (2026-07-12)**
+Status: **Authoritative documentation lifecycle index (2026-07-15)**
 
 This page answers which documents are current, which are execution ledgers,
 and which are retained only as historical evidence. Code, runnable gates, and
@@ -15,7 +15,8 @@ generated artifacts remain the implementation truth.
 | IR versus target-extension ownership | [IR Target Extension Boundary design](superpowers/specs/2026-07-14-ir-target-extension-boundary-design.md) |
 | Next architecture and product direction | [Portable Intent design](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md) |
 | Incremental legacy replacement policy | [Legacy Replacement design](superpowers/specs/2026-07-12-incremental-legacy-replacement-design.md) |
-| Current execution order | [NEAR NEP-141 / NEP-145 interop plan](superpowers/plans/2026-07-13-near-nep141-interop-execution.md) |
+| **Active merge priority (D-056)** | [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104) direct authoring cutover + primary-triad native differential — rebase onto `main` and land before deep secondary-host work |
+| Current execution order | [NEAR NEP-141 / NEP-145 interop plan](superpowers/plans/2026-07-13-near-nep141-interop-execution.md) (after cutover baseline) |
 | Active architecture prerequisite | [IR Target Extension Boundary plan](superpowers/plans/2026-07-14-ir-target-extension-boundary.md) |
 | Cross-program portable-intent order | [Portable Intent implementation plan](superpowers/plans/2026-07-12-portable-intent-abstraction.md) |
 | Companion legacy migration order | [Legacy Replacement implementation plan](superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
@@ -27,6 +28,7 @@ generated artifacts remain the implementation truth.
 | Phase/gate decisions | [gate-status.md](gate-status.md) |
 | Validation commands | [validation-gates.md](validation-gates.md) |
 | Target maturity and per-target facts | [targets/README.md](targets/README.md) and target notes |
+| Soroban Counter MVP + gap / slice order | [targets/stellar-soroban.md](targets/stellar-soroban.md) |
 | Wasm-host promotion analysis | [Wasm-host analysis](superpowers/specs/2026-07-12-wasm-host-target-analysis.md) |
 | ZK promotion analysis | [ZK target analysis](superpowers/specs/2026-07-12-psy-integration-analysis.md) |
 

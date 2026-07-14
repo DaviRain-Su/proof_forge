@@ -67,21 +67,23 @@ is limited to CI stability, security fixes, and documentation maintenance.
 |---|---|---|
 | [Psy DPN](psy-dpn.md) | Spike | Generated `.psy`/Dargo path stays maintained; no capability-completion push until a ZK/circuit lane is scheduled. |
 | [Aleo Leo](aleo-leo.md) | Research | Counter/PureMath sourcegen and smokes stay maintained; no new ZK-app lane is currently scheduled. |
+| [Stellar Soroban](stellar-soroban.md) | Counter MVP | `just soroban-promotion` / `soroban-public-route`; **custom offline bridge only**. Deep HostABI/Env work waits for D-056 (authoring cutover PR #104). Gap list and S0–S5 order live in the target note. |
+| CosmWasm | Counter MVP | `just cosmwasm-promotion`; `execute_msg` stub; Gate G1a (M3/M4) not started. Same D-056 sequencing as Soroban for deep work. |
 
-**Removed from `main` (2026-07-15):** `move-aptos`, `move-sui`, and
+**Removed from `main` (2026-07-15, D-055):** `move-aptos`, `move-sui`, and
 `wasm-cloudflare-workers` (including `ProofForge/Backend/Move`,
 `ProofForge/Compiler/TS`, and related fixtures). Full history is preserved on
 branch `archive/move-cloudflare-2026-07-15`.
 
-## Tier-1 Candidates
+## Sequencing gate (D-056)
 
-These are the first targets after Gate P0. They should advance only after the
-CLI M3/M4 target-first migration is scheduled and reviewed.
+Before opening large secondary-host epics (Soroban Env, CosmWasm M3/M4):
 
-| Target | Stage | Resume condition |
-|---|---|---|
-| CosmWasm | Counter MVP | Promoted via the `PF-P3-02` six-gate (`just cosmwasm-promotion`); Gate G1a (M3/M4 capability completion) is **not started** and the portable-remote `execute_msg` is still a stub. |
-| Aptos Move | Spike | `just aptos-promotion` is a strict promotion gate requiring `aptos move compile/test`; remains the first Move sourcegen proof before Sui. |
+1. Land [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104) —
+   direct authoring cutover + primary-triad native differential — onto current
+   `main`.
+2. Keep product path on Authored → Canonical Core → target-owned plans.
+3. Only then schedule Soroban S0+ or CosmWasm message/reply depth.
 
 ## Docs-Only Parked Research
 
@@ -91,7 +93,7 @@ spike is scheduled.
 
 | Target | Family | Current boundary |
 |---|---|---|
-| [Stellar Soroban](stellar-soroban.md) | Counter MVP (PF-P3-02 six-gate) | `just soroban-promotion`; auth/TTL/Stellar CLI remain follow-on. |
+| (historical Move/Aptos/Sui notes) | removed from `main` | See `archive/move-cloudflare-2026-07-15` |
 | [Internet Computer](internet-computer.md) | Wasm host | Requires the Wasm-host split plus an async/inter-canister design note. |
 | [Algorand AVM](algorand-avm.md) | Source package generation | Parked behind a later sourcegen-lane exit. |
 | [Cardano Plutus/Aiken](cardano-plutus-aiken.md) | eUTXO validator sourcegen | Parked behind a later sourcegen-lane exit. |
