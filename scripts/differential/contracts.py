@@ -251,7 +251,7 @@ def validate_inventory(document: Any, path: str = "inventory") -> dict[str, Any]
         if family not in TARGET_FAMILIES:
             _fail(f"{item_path}.targetFamily", f"unsupported target family {family!r}")
         kind = _string(item.get("kind"), f"{item_path}.kind")
-        if kind not in {"nativeReference", "runner", "scenario", "gate", "reportCatalog"}:
+        if kind not in {"nativeReference", "runner", "scenario", "gate", "reportCatalog", "schema"}:
             _fail(f"{item_path}.kind", f"unsupported asset kind {kind!r}")
         _string(item.get("path"), f"{item_path}.path")
         maturity = _string(item.get("maturity"), f"{item_path}.maturity")
@@ -263,6 +263,7 @@ def validate_inventory(document: Any, path: str = "inventory") -> dict[str, Any]
             "portableScenarioV0",
             "measurementOnly",
             "ciGate",
+            "versionedContract",
         }:
             _fail(f"{item_path}.maturity", f"unsupported maturity {maturity!r}")
         evidence = _string(item.get("semanticEvidence"), f"{item_path}.semanticEvidence")

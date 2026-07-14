@@ -27,7 +27,7 @@
         "properties": {
           "id": {"type": "string", "minLength": 1},
           "targetFamily": {"enum": ["portable", "evm", "solana", "near", "stylus"]},
-          "kind": {"enum": ["nativeReference", "runner", "scenario", "gate", "reportCatalog"]},
+          "kind": {"enum": ["nativeReference", "runner", "scenario", "gate", "reportCatalog", "schema"]},
           "path": {"type": "string", "minLength": 1},
           "maturity": {
             "enum": [
@@ -37,7 +37,8 @@
               "liveRunner",
               "portableScenarioV0",
               "measurementOnly",
-              "ciGate"
+              "ciGate",
+              "versionedContract"
             ]
           },
           "semanticEvidence": {"enum": ["none", "partial", "verified"]},

@@ -86,6 +86,7 @@ class ContractTests(unittest.TestCase):
             "reference-provenance.v1.schema.json": REFERENCE_SCHEMA,
             "logical-scenario.v1.schema.json": SCENARIO_SCHEMA,
             "normalized-observation.v1.schema.json": OBSERVATION_SCHEMA,
+            "runner-result.v1.schema.json": "proof-forge.differential.runner-result.v1",
             "inventory.v1.schema.json": "proof-forge.differential.inventory.v1",
         }
         schema_root = REPO_ROOT / "testkit/differential/schemas"
@@ -158,6 +159,7 @@ class ContractTests(unittest.TestCase):
             "proof-forge.differential.reference.v1",
             "proof-forge.differential.scenario.v1",
             "proof-forge.differential.observation.v1",
+            "proof-forge.differential.runner-result.v1",
             "testkit/differential",
         )
         offenders: list[str] = []

@@ -52,6 +52,19 @@ def recipe_names(prefixes: tuple[str, ...]) -> list[str]:
 def generate_inventory() -> dict[str, object]:
     assets: list[dict[str, object]] = []
 
+    for schema in sorted((REPO_ROOT / "testkit/differential/schemas").glob("*.schema.json")):
+        assets.append(
+            asset(
+                f"schema-{schema.name.removesuffix('.schema.json')}",
+                "portable",
+                "schema",
+                schema,
+                "versionedContract",
+                "none",
+                "test-only versioned comparison contract; production compiler imports are forbidden",
+            )
+        )
+
     for manifest in sorted((REPO_ROOT / "testkit/compare/near").glob("*/reference-manifest.json")):
         migrated = migrate_manifest(manifest, REPO_ROOT)
         reference = migrated["reference"]

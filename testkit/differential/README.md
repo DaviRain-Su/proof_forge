@@ -11,8 +11,17 @@ The v1 contracts separate four facts:
   scoped allowed divergences;
 - `normalized-observation`: observed values, coverage, runner status, and the
   fail-closed semantic result;
+- `runner-result`: typed logical accounts/actors/clocks, per-step observations,
+  and explicit coverage emitted by one target runner;
 - `inventory`: every tracked reference, runner, scenario, report catalog, and
   comparison gate with an honest maturity label.
+
+`scripts/differential/runner.py` compares two runner results dimension by
+dimension. Logical account and actor identities are compared while native IDs
+remain in evidence. Cross-target external actions compare their logical payload
+while retaining target-owned native payloads. Resource observations are only
+compared within one target family; cross-target results record coverage without
+producing a combined gas/CU/fuel score.
 
 Run the focused gate with:
 

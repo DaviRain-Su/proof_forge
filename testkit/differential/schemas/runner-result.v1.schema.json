@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "proof-forge.differential.runner-result.v1",
+  "title": "ProofForge normalized native differential runner result",
+  "type": "object",
+  "required": [
+    "schema",
+    "scenarioId",
+    "targetFamily",
+    "runner",
+    "provenanceComplete",
+    "context",
+    "declaredCoverage",
+    "steps"
+  ],
+  "properties": {
+    "schema": {"const": "proof-forge.differential.runner-result.v1"},
+    "scenarioId": {"type": "string", "minLength": 1},
+    "targetFamily": {"enum": ["evm", "solana", "near", "stylus"]},
+    "runner": {
+      "type": "object",
+      "required": ["name", "status"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "status": {"enum": ["executed", "skipped", "error"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "provenanceComplete": {"type": "boolean"},
+    "context": {
+      "type": "object",
+      "required": ["accounts", "actors", "clock"],
+      "properties": {
+        "accounts": {"type": "array", "items": {"$ref": "#/$defs/account"}},
+        "actors": {"type": "array", "items": {"$ref": "#/$defs/actor"}},
+        "clock": {"$ref": "#/$defs/clock"}
+      }
+    },
+    "declaredCoverage": {
+      "$ref": "normalized-observation.v1.schema.json#/$defs/dimensions"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "observations"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "observations": {
+            "type": "object",
+            "propertyNames": {
+              "$ref": "normalized-observation.v1.schema.json#/$defs/dimension"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "account": {
+      "type": "object",
+      "required": ["id", "nativeId", "roles"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "nativeId": {"type": ["string", "null"]},
+        "roles": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "actor": {
+      "type": "object",
+      "required": ["id", "accountId", "roles"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "accountId": {"type": "string", "minLength": 1},
+        "roles": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "clock": {
+      "type": "object",
+      "required": ["tick", "nativeHeight", "timestampNs"],
+      "properties": {
+        "tick": {"type": "integer", "minimum": 0},
+        "nativeHeight": {"type": ["integer", "null"], "minimum": 0},
+        "timestampNs": {"type": ["integer", "null"], "minimum": 0}
+      }
+    }
+  }
+}

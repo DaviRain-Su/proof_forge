@@ -42,6 +42,7 @@ legacy-replacement-freeze:
 # fail-closed semantic coverage, and generated asset inventory.
 differential-contracts:
     python3 scripts/differential/test_contracts.py
+    python3 scripts/differential/test_runner.py
     python3 scripts/differential/inventory.py --check
     python3 scripts/near/compare-matrix-snapshot-test.py
 

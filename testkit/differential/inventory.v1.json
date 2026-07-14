@@ -666,6 +666,51 @@
       "targetFamily": "portable"
     },
     {
+      "id": "schema-inventory.v1",
+      "kind": "schema",
+      "maturity": "versionedContract",
+      "notes": "test-only versioned comparison contract; production compiler imports are forbidden",
+      "path": "testkit/differential/schemas/inventory.v1.schema.json",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "schema-logical-scenario.v1",
+      "kind": "schema",
+      "maturity": "versionedContract",
+      "notes": "test-only versioned comparison contract; production compiler imports are forbidden",
+      "path": "testkit/differential/schemas/logical-scenario.v1.schema.json",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "schema-normalized-observation.v1",
+      "kind": "schema",
+      "maturity": "versionedContract",
+      "notes": "test-only versioned comparison contract; production compiler imports are forbidden",
+      "path": "testkit/differential/schemas/normalized-observation.v1.schema.json",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "schema-reference-provenance.v1",
+      "kind": "schema",
+      "maturity": "versionedContract",
+      "notes": "test-only versioned comparison contract; production compiler imports are forbidden",
+      "path": "testkit/differential/schemas/reference-provenance.v1.schema.json",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "schema-runner-result.v1",
+      "kind": "schema",
+      "maturity": "versionedContract",
+      "notes": "test-only versioned comparison contract; production compiler imports are forbidden",
+      "path": "testkit/differential/schemas/runner-result.v1.schema.json",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
       "id": "solana-comparison-gates",
       "kind": "gate",
       "maturity": "ciGate",
@@ -1038,11 +1083,11 @@
   "schema": "proof-forge.differential.inventory.v1",
   "scope": "tracked comparison assets at CMP-0",
   "summary": {
-    "assetCount": 85,
+    "assetCount": 90,
     "byTargetFamily": {
       "evm": 7,
       "near": 33,
-      "portable": 15,
+      "portable": 20,
       "solana": 22,
       "stylus": 8
     },
