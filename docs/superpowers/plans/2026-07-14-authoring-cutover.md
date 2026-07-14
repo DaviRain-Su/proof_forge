@@ -283,7 +283,7 @@ independent primary-triad behavior requirement at `e2834c59`.
 
 ### A-CUT3 - Product migration
 
-State: `in_progress; ValueVault, Ownable, Pausable, and ReentrancyGuard use the direct-only Product route with primary-triad VM evidence; ArrayExample fixed-array cutover is active`
+State: `in_progress; ValueVault, Ownable, Pausable, and ReentrancyGuard use the direct-only Product route with primary-triad VM evidence; ArrayExample is direct-only and awaits CMP-3g native evidence`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
@@ -353,9 +353,20 @@ same nine-step guarded lock lifecycle against direct Authored and independent
 native artifacts on Anvil, Mollusk, and upstream `near-vm-runner`. Both invalid
 transitions preserve state, all eight dimensions match, the replaced NEAR v0
 manifest is deleted, and the generic compare caller names the v1 reference
-explicitly. A-CUT3 now moves to ArrayExample: direct Source must gain the
-target-neutral local fixed-array constructs required by the existing business
-source before the Legacy source and EVM ContractSpec wrapper are deleted.
+explicitly.
+
+ArrayExample checkpoint (2026-07-14): `c6538c6b` adds target-neutral local
+array literals and indexing to direct Source, rewrites
+`Examples/Product/ArrayExample.lean` as the sole `AuthoredContract`, and
+deletes its Legacy EVM wrapper plus the temporary Surface fixture. Canonical
+Core retains explicit `memoryAlloc` / `memoryStore` / `memoryLoad` operations;
+EVM, Solana, and NEAR own their concrete heap layouts and bounds checks. `just
+array-example-authoring-cutover` builds `contract-source-authored` /
+`canonical-core-v1` artifacts for all three primary targets, compiles the EVM
+Yul, and executes the NEAR WAT with results 3, 20, and 60. No `.spec`,
+`.module`, compatibility sidecar, or fallback renderer remains. CMP-3g now
+owns independent native reference and VM evidence before this family is
+semantically complete.
 
 ### A-CUT4 - Delete duplicate source and version split
 

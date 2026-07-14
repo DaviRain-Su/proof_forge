@@ -245,6 +245,18 @@ manifest 已删除，剩余 compare 调用方显式命名 v1 reference。Invento
 119 项资产，恰有 30 项 verified。CMP-3 下一步为 direct ArrayExample 切换
 补充 fixed-array 证据。
 
+ArrayExample fixed-array 执行切片：
+
+| 切片 | 状态 | 范围 |
+|---|---|---|
+| CMP-3g1 | in_progress | 固定独立 Solidity、Pinocchio 与 near-sdk ArrayExample reference，并定义一个覆盖长度、合法索引、求和和越界拒绝的版本化场景。所有新增语义资产保持 `none`。 |
+| CMP-3g2 | pending after CMP-3g1 | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；只有全部 observation dimension 与失败行为一致后才晋级证据。 |
+
+`c6538c6b` 是这些切片的架构前置：Product ArrayExample 现在只通过
+checked Canonical Core 到达 target-owned EVM、Solana 与 NEAR plan，Legacy
+wrapper 和 Surface fixture 已删除。该编译/运行冒烟本身不等于原生 reference
+语义等价。
+
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 
 ### CMP-SOL - Solana extension conformance

@@ -39,16 +39,16 @@
     "note": "initial native differential validation design"
   },
   "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
-    "sha256": "3edb1739bef5f873e50133c58799286b142a0bfb77bf388acc879c8f4e4f67b7",
+    "sha256": "6e1067bb6f8faad92b89e38f28bae9a58739780773630ac50b5078dcc4d746f6",
     "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through verified CMP-3f2 primary-triad VM evidence"
+    "note": "manually synced through ArrayExample direct cutover and active CMP-3g1"
   },
   "docs/capability-registry.md": {
-    "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
+    "sha256": "15c07590251894b4d8dbf6baf927ee6d4a5d80ea69a74ce02e79e0da3168ac4c",
     "zh": "docs/zh/capability-registry.zh.md",
     "model": "manual-zh",
-    "note": "synced after Psy value.native capability audit"
+    "note": "synced for EVM and NEAR canonical local-memory capability subset"
   },
   "docs/portable-ir.md": {
     "sha256": "e76910bc56117bb2d5425e80ca1f54b44f3a3b87d9b45676456cd2554f100159",
@@ -73,10 +73,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "4b48d06194efad25795c4a87cd9dbf7adfd9b9f6355d56c20c734811254da20c",
+    "sha256": "03fcc7aba74f0dce995c4a907ca6462695310c5adf9846e627a41fe395a05001",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through verified ReentrancyGuard VM evidence and active ArrayExample cutover"
+    "note": "synced EN/zh through ArrayExample direct cutover and active CMP-3g1"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -102,10 +102,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "38d1637632220b149ec4c3a4fe1134593e398a4de24b5e1222ccfc1ee53fcaf2",
+    "sha256": "e68b3d9807d612680b408fc5a57a3898c776dd0c9e75cd3de8d77448ba3da454",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through verified CMP-3f2 ReentrancyGuard VM evidence"
+    "note": "manually synced through verified ArrayExample direct cutover"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -175,9 +175,10 @@
     "model": "gemini-3-flash-preview"
   },
   "Examples/Backend/Evm/README.md": {
-    "sha256": "73c97a115f5da66ef9db1da3f7967049fff53e92354bfe1802002c79435fcd3e",
+    "sha256": "9a99b8d234f1320b0c3abbaedec43e76eaf794213b19de9122b411dc1600b7a9",
     "zh": "docs/zh/examples-evm-README.zh.md",
-    "model": "gemini-3-flash-preview"
+    "model": "manual-zh",
+    "note": "synced after direct-only Product ArrayExample cutover"
   },
   "docs/targets/wasm-near.md": {
     "sha256": "4dabbe733cebea0ab98198ba374eae1983198cd3efbdb06fa2be45db1f3a99d3",
@@ -186,10 +187,10 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "4e4a98be07612aeebc8d477787fd72e48ad56c4ada230ec544eaf37cf95f35a9",
+    "sha256": "e4b57db42004e9894b7b28d7dd057d91871c7f40d2ee6569020c81938b47756a",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "4e4a98be07612aeebc8d477787fd72e48ad56c4ada230ec544eaf37cf95f35a9"
+    "en_sha256": "e4b57db42004e9894b7b28d7dd057d91871c7f40d2ee6569020c81938b47756a"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {

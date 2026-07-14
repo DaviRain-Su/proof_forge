@@ -184,6 +184,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT3c2-4 | 公开主目标只发射 Canonical artifact | ✅ met | target-first EVM bytecode/Yul、Solana assembly/package 与 NEAR WAT/Wasm 报告 `contract-source-authored` / `canonical-core-v1`，不发射旧 sidecar，并通过 selector/metadata 校验 |
 | A-CUT3c2-5 | 保留新架构语义 | ✅ met | direct Core EVM golden 保留 packed-u64 写入边界，并加入最终 Product policy 要求的 guarded release；没有 renderer fallback 去复现较弱的 Legacy release |
 
+## Gate A-CUT3d1 —— Product ArrayExample direct 切换
+
+**状态：已关闭**
+
+**关闭时间：2026-07-14，提交 `c6538c6b`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT3d1-1 | Product ArrayExample 只有一个当前 source identity | ✅ met | `just array-example-authoring-cutover` 要求唯一 direct `contract : AuthoredContract`，并拒绝 Product `.spec`/`.module`、`Source.Legacy`、compatibility allowlist 条目和恢复的重复 source |
+| A-CUT3d1-2 | 旧实现被删除而不是适配 | ✅ met | EVM ContractSpec wrapper 和临时 Surface fixture/test 均不存在；Product 调用方使用 `.contract`，topology 不再要求这两份 source |
+| A-CUT3d1-3 | fixed-array intent 经 checked Core 保持 target-neutral | ✅ met | direct Source 将两个 literal 归一化为恰好两个 `memoryAlloc`、六个 `memoryStore` 和四个 `memoryLoad`，不嵌入 EVM、Solana 或 NEAR layout |
+| A-CUT3d1-4 | 主目标拥有具体 memory 物化 | ✅ met | EVM 发射 Yul helper 与边界检查，Solana 发射 `sol_alloc_free_` 加 typed sBPF load/store，NEAR 从 target-owned plan 发射 Wasm 线性内存分配与越界 trap |
+| A-CUT3d1-5 | 公开 artifact 仅使用 Canonical 且可执行 | ✅ met | 主目标 artifact 报告 `contract-source-authored` / `canonical-core-v1`，EVM Yul 编译通过，Solana package metadata 通过，NEAR offline host 返回 3、20、60，且没有 retired sidecar |
+
 ## Gate CMP-3d1 —— 独立 Ownable reference 契约
 
 **状态：已关闭**

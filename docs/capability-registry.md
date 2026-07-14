@@ -58,14 +58,20 @@ remain uniform.
 | `assertions.check` | Runtime or circuit assertions emitted from portable IR statements | Y | Y | N | Y | N | Y | Y | N |
 | `account.explicit` | Named account/object/resource binding | P | Y | N | Y | Y | Y | P | N |
 | `storage.pda` | Program-derived address state | N | N | N | Y | N | N | N | N |
-| `runtime.allocator` | Target runtime heap allocator contract | N | N | N | Y | N | N | N | N |
-| `runtime.memory` | Target runtime memory operations | N | N | N | Y | N | N | N | N |
+| `runtime.allocator` | Target runtime heap allocator contract | P | P | N | Y | N | N | N | N |
+| `runtime.memory` | Target runtime memory operations | P | P | N | Y | N | N | N | N |
 | `runtime.return_data` | Target runtime return-data buffer operations | N | N | N | Y | N | N | N | N |
 | `runtime.compute_units` | Target runtime compute-budget introspection | N | N | N | P | N | N | N | N |
 | `crosscall.cpi` | Solana CPI with account metas | N | N | N | Y | N | N | N | N |
 | `arith.checked` | Integer arithmetic reverts on overflow (Solidity 0.8 semantics) | Y | N | N | N | N | N | N | N |
 | `zk.circuit` | Compile entrypoints into target circuit definitions | N | N | N | N | N | N | Y | N |
 | `zk.proof` | Target proof generation or verification flow | N | N | N | N | N | N | P | N |
+
+EVM and NEAR advertise `runtime.allocator` / `runtime.memory` for the checked
+Canonical Core local-array subset. EVM materializes Yul memory helpers; NEAR
+materializes Wasm linear-memory allocation and bounds checks. They remain `P`
+because general dynamic aggregate ownership and all scalar element types are
+not yet covered. Solana's broader target-extension memory surface remains `Y`.
 
 ## Id Naming Rules
 

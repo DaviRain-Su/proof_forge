@@ -47,14 +47,20 @@ Target Extension SDK 可以暴露 Solana PDA/CPI/runtime allocator 配置、Move
 | `assertions.check` | 从 portable IR 语句发射运行时或电路断言 | Y | Y | N | Y | N | Y | Y | N |
 | `account.explicit` | 具名账户/对象/资源绑定 | P | Y | N | Y | Y | Y | P | N |
 | `storage.pda` | 程序派生地址状态 | N | N | N | Y | N | N | N | N |
-| `runtime.allocator` | 目标运行时堆分配器约定 | N | N | N | Y | N | N | N | N |
-| `runtime.memory` | 目标运行时内存操作 | N | N | N | Y | N | N | N | N |
+| `runtime.allocator` | 目标运行时堆分配器约定 | P | P | N | Y | N | N | N | N |
+| `runtime.memory` | 目标运行时内存操作 | P | P | N | Y | N | N | N | N |
 | `runtime.return_data` | 目标运行时返回数据缓冲区操作 | N | N | N | Y | N | N | N | N |
 | `runtime.compute_units` | 目标运行时计算预算自省 | N | N | N | P | N | N | N | N |
 | `crosscall.cpi` | 带有账户元数据的 Solana CPI | N | N | N | Y | N | N | N | N |
 | `arith.checked` | 整数算术在溢出时 revert（Solidity 0.8 语义） | Y | N | N | N | N | N | N | N |
 | `zk.circuit` | 将入口编译为目标电路定义 | N | N | N | N | N | N | Y | N |
 | `zk.proof` | 目标证明生成或验证流 | N | N | N | N | N | N | P | N |
+
+EVM 与 NEAR 为 checked Canonical Core 的本地数组子集声明
+`runtime.allocator` / `runtime.memory`。EVM 物化 Yul memory helper；NEAR
+物化 Wasm 线性内存分配与边界检查。由于通用动态聚合所有权和全部标量元素类型
+尚未覆盖，它们仍标记为 `P`。Solana 更广的 target-extension memory surface
+保持 `Y`。
 
 ## Id 命名规则
 

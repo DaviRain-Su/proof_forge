@@ -42,8 +42,8 @@ Counter 直接从 `Examples/Product/Counter.lean` 编译；其 canonical golden
 位于 `Examples/Backend/Evm/Counter.golden.yul`。
 `Contracts/CounterConstructorProbe.lean` 是 direct Authored fixture，只增加
 init-code 冒烟测试使用的 scalar constructor binding；它不是公开 wrapper，
-也不经过 `ContractSpec`。`Contracts/ArrayExample.lean` 和剩余 `stdlib`
-wrapper 是显式 A-CUT3 待删除清单。
+也不经过 `ContractSpec`。ArrayExample 同样直接从其 Product source 编译；
+剩余 `stdlib` wrapper 是显式 A-CUT3 待删除清单。
 
 `Ierc20Client` / `Ierc721Client`（Layer B：通过
 `Protocols.Evm.IERC20` / `IERC721` 调用外部 ERC-20 / ERC-721；而非可部署的 `Stdlib` mixin）、

@@ -4530,3 +4530,26 @@ Rules:
   checks for the Solana harness and NEAR compare runner; Python bytecode
   compilation; Rust formatting; and `git diff --check`. No full aggregate was
   run.
+
+## 2026-07-14 - A-CUT3d1: direct-only Product ArrayExample cutover
+
+- Status: `done (verified at c6538c6b)`; CMP-3g1 independent fixed-array
+  references and scenario pinning are now active.
+- Added target-neutral direct Source array literals and indexing. Rewrote
+  `Examples/Product/ArrayExample.lean` as the sole `AuthoredContract`; checked
+  Core retains two allocations, six stores, and four loads without a target
+  memory layout.
+- Deleted the obsolete EVM ContractSpec wrapper, temporary Surface fixture and
+  its test, compatibility allowlist entry, and every Product `.spec`/`.module`
+  caller. The deletion guard fails if any source or alias returns.
+- Added target-owned Canonical local-array materialization: EVM closes its Yul
+  helper set from the planned entrypoints, Solana uses `sol_alloc_free_` plus
+  typed bounds-checked sBPF memory operations, and NEAR uses Wasm linear memory
+  with target-owned allocation and bounds traps. No compatibility renderer or
+  reverse adapter was introduced.
+- Primary artifacts report `contract-source-authored` /
+  `canonical-core-v1`. EVM Yul compiles, the Solana package/encoder checks pass,
+  and the NEAR offline host returns 3, 20, and 60.
+- Verification: `just array-example-authoring-cutover`; focused Product Matrix,
+  Target Registry, Solana BPF encoder, portable-default, and examples-topology
+  gates; `git diff --check`. No full aggregate was run.

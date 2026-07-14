@@ -191,6 +191,20 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | A-CUT3c2-4 | Public primary-target artifacts are Canonical-only | ✅ met | target-first EVM bytecode/Yul, Solana assembly/package, and NEAR WAT/Wasm report `contract-source-authored` / `canonical-core-v1`, emit no retired sidecars, and pass selector/metadata validation |
 | A-CUT3c2-5 | New architecture semantics are retained | ✅ met | the direct Core EVM golden keeps packed-u64 write bounds and adds the guarded release required by the final Product policy; no renderer fallback reproduces the weaker Legacy release |
 
+## Gate A-CUT3d1 - Product ArrayExample direct cutover
+
+**Status: Closed**
+
+**Closed: 2026-07-14 at `c6538c6b`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| A-CUT3d1-1 | Product ArrayExample has one current source identity | ✅ met | `just array-example-authoring-cutover` requires one direct `contract : AuthoredContract` and rejects Product `.spec`/`.module`, `Source.Legacy`, compatibility allowlist entries, and restored duplicate sources |
+| A-CUT3d1-2 | Retired implementations are deleted instead of adapted | ✅ met | the EVM ContractSpec wrapper and temporary Surface fixture/test are absent; Product callers use `.contract`, and topology no longer requires either source |
+| A-CUT3d1-3 | Fixed-array intent stays target-neutral through checked Core | ✅ met | direct Source normalizes the two literals to exactly two `memoryAlloc`, six `memoryStore`, and four `memoryLoad` operations without embedding an EVM, Solana, or NEAR layout |
+| A-CUT3d1-4 | Primary targets own concrete memory materialization | ✅ met | EVM emits Yul helpers and bounds checks, Solana emits `sol_alloc_free_` plus typed sBPF loads/stores, and NEAR emits Wasm linear-memory allocation and bounds traps from target-owned plans |
+| A-CUT3d1-5 | Public artifacts are Canonical-only and executable | ✅ met | primary artifacts report `contract-source-authored` / `canonical-core-v1`, EVM Yul compiles, Solana package metadata passes, and the NEAR offline host returns 3, 20, and 60 with no retired sidecars |
+
 ## Gate CMP-3d1 - Independent Ownable reference contracts
 
 **Status: Closed**

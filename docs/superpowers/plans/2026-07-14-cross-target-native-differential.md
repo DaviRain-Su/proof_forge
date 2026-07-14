@@ -300,6 +300,18 @@ is deleted and the remaining compare caller explicitly names the v1 reference.
 Inventory now contains 119 assets and exactly 30 verified assets. CMP-3 next
 attaches fixed-array evidence to the direct ArrayExample cutover.
 
+ArrayExample fixed-array execution slices:
+
+| Slice | State | Scope |
+|---|---|---|
+| CMP-3g1 | in_progress | Pin independent Solidity, Pinocchio, and near-sdk ArrayExample references plus one versioned scenario for length, valid indexing, sum, and out-of-bounds rejection. Keep every new semantic asset at `none`. |
+| CMP-3g2 | pending after CMP-3g1 | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; promote evidence only after all observation dimensions and failure behavior match. |
+
+`c6538c6b` is the architecture prerequisite for these slices: Product
+ArrayExample now reaches target-owned EVM, Solana, and NEAR plans only through
+checked Canonical Core, and its Legacy wrapper and Surface fixture are deleted.
+That compile/runtime smoke is not native-reference equivalence by itself.
+
 Acceptance:
 
 - ValueVault passes the primary triad with state snapshots and negative cases.
