@@ -5,11 +5,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Smoke entry for the opt-in solanalib CompileCorrect surface.
 -/
 
-import SolanaRefinement.CompileCorrect
-import SolanaRefinement.CounterHostRefinement
-import SolanaRefinement.CoreTailHostComposition
-import SolanaRefinement.ValueVaultHostRefinement
-import SolanaRefinement.FullHostTargetSemantics
+import ProofForgeFormal.Solana.CompileCorrect
+import ProofForgeFormal.Solana.CounterHostRefinement
+import ProofForgeFormal.Solana.CoreTailHostComposition
+import ProofForgeFormal.Solana.ValueVaultHostRefinement
+import ProofForgeFormal.Solana.FullHostTargetSemantics
 
 namespace ProofForge.Backend.Solana.CompileCorrectSmoke
 

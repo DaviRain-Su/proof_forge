@@ -13,8 +13,8 @@ import ProofForge.Backend.Refinement.Core
 import ProofForge.Backend.Solana.SbpfInterpreter
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.StepSemantics
-import SolanaRefinement.CounterHostRefinement
-import SolanaRefinement.FullProgramHost
+import ProofForgeFormal.Solana.CounterHostRefinement
+import ProofForgeFormal.Solana.FullProgramHost
 
 namespace ProofForge.Backend.Solana.FullHostTargetSemantics
 

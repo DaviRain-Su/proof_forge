@@ -19,7 +19,7 @@ Portable IR.Semantics
 EvmYulMachineState  (lowered Yul object + WordBindings storage)
         │
         ├── product: Yul text → solc → bytecode  (unchanged)
-        └── opt-in: EvmRefinement → powdr stepF   (bytecode lane)
+        └── opt-in: ProofForgeFormalEvm → powdr stepF   (bytecode lane)
 ```
 
 ## What landed
@@ -30,7 +30,7 @@ EvmYulMachineState  (lowered Yul object + WordBindings storage)
 | CounterCall vocabulary lockstep | same | same |
 | ValueVault default scenario lockstep + multi-field storage relation | same | same |
 | Existing executable-trace anchors re-checked | same | same |
-| Counter IR↔powdr bytecode delivery boundary | `EvmRefinement/CounterRefinement.lean` | `just evm-powdr-counter-refinement-smoke` |
+| Counter IR↔powdr bytecode delivery boundary | `ProofForgeFormal/Evm/CounterRefinement.lean` | `just evm-powdr-counter-refinement-smoke` |
 | Counter runtime bytecode matches CLI emit witness | `scripts/evm/powdr-counter-runtime-smoke.sh` | `just evm-powdr-counter-runtime` |
 | Counter Yul→bytecode verified via external `solc` | `scripts/evm/yul-compiler-counter-smoke.sh` | `just evm-yul-compiler-counter-smoke` |
 

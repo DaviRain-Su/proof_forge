@@ -1,6 +1,6 @@
-import EvmRefinement.PowdrExec
-import EvmRefinement.HexWitness
-import EvmRefinement.CounterRuntime
+import ProofForgeFormal.Evm.PowdrExec
+import ProofForgeFormal.Evm.HexWitness
+import ProofForgeFormal.Evm.CounterRuntime
 import ProofForge.Backend.Evm.Plan.Storage
 import ProofForge.Backend.Evm.Refinement
 import ProofForge.Backend.Refinement.CounterUniversal
@@ -12,7 +12,7 @@ import ProofForge.Backend.Refinement.ConstructorCoverage
 This is the first E3 relation layer: it ties the Counter IR state's `count`
 binding to the storage word that ProofForge's EVM layout assigns to `count`,
 using the real powdr `AccountMap`/`Storage` model under the opt-in
-`EvmRefinement` target.
+`ProofForgeFormalEvm` target.
 -/
 
 /-! The original hand-expanded witness is retained under an explicit legacy
@@ -13477,14 +13477,14 @@ abbrev counterCallCalldata := LegacyHighPacked.counterCallCalldata
 toolchain). Its storage reads use `SHR 0`; writes mask the value before `SHL 0`
 and preserve the upper 192 bits. -/
 def counterCompiledRuntimeHex : String :=
-  EvmRefinement.CounterRuntime.hex
+  ProofForgeFormal.Evm.CounterRuntime.hex
 
 def counterCompiledRuntimeCode : ByteArray :=
-  (EvmRefinement.HexWitness.decodeHex? counterCompiledRuntimeHex).getD
+  (ProofForgeFormal.Evm.HexWitness.decodeHex? counterCompiledRuntimeHex).getD
     (ByteArray.mk #[])
 
 theorem counterCompiledRuntimeHex_decodes :
-    EvmRefinement.HexWitness.decodeHex? counterCompiledRuntimeHex =
+    ProofForgeFormal.Evm.HexWitness.decodeHex? counterCompiledRuntimeHex =
       some counterCompiledRuntimeCode := by
   native_decide
 

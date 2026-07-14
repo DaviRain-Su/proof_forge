@@ -1,4 +1,4 @@
-namespace EvmRefinement.HexWitness
+namespace ProofForgeFormal.Evm.HexWitness
 
 def hexNibble? : Char → Option UInt8
   | '0' => some 0
@@ -32,4 +32,4 @@ def decodeHex? (source : String) : Option ByteArray := do
   let bytes ← decodeHexChars? source.trimAscii.toString.toList
   return ByteArray.mk bytes.toArray
 
-end EvmRefinement.HexWitness
+end ProofForgeFormal.Evm.HexWitness

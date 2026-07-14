@@ -29,7 +29,7 @@ import ProofForge.Backend.Refinement.CounterUniversal
 import ProofForge.Backend.Solana.CounterSbpfExec
 import ProofForge.Backend.Solana.CounterSbpfRefinement
 import ProofForge.Backend.Solana.SbpfInterpreter
-import SolanaRefinement.HostBridge
+import ProofForgeFormal.Solana.HostBridge
 
 namespace ProofForge.Backend.Solana.CoreTailHostComposition
 

@@ -32,9 +32,9 @@ import ProofForge.Backend.Solana.StateLayout
 import ProofForge.Backend.Solana.Refinement
 import ProofForge.IR.Examples.Counter
 import ProofForge.Contract.Examples.ValueVaultInvariant
-import SolanaRefinement.HostBridge
-import SolanaRefinement.LabeledToSolanalib
-import SolanaRefinement.SolanalibAdapter
+import ProofForgeFormal.Solana.HostBridge
+import ProofForgeFormal.Solana.LabeledToSolanalib
+import ProofForgeFormal.Solana.SolanalibAdapter
 import Solanalib.SBPF.CommType
 import Solanalib.SBPF.Syntax
 import Solanalib.SBPF.Memory

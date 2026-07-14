@@ -4,8 +4,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 # Opt-in adapter: ProofForge sBPF bytes → solanalib.SBPF
 
-Mirrors `EvmRefinement/PowdrAdapter.lean`: this module is **outside** the
-default `ProofForge` root. Building the `SolanaRefinement` Lake target pulls
+Mirrors `ProofForgeFormal/Evm/PowdrAdapter.lean`: this module is **outside** the
+default `ProofForge` root. Building the `ProofForgeFormalSolana` Lake target pulls
 `solanalib` (and its mathlib pin) and reinterprets the mathlib-free
 `BpfEncode.BpfBinBytes` seam as `Solanalib.SBPF.BpfBin`.
 
@@ -14,7 +14,7 @@ Default CLI / product gates stay free of solanalib. Opt-in via:
 ```
 just solana-solanalib-adapter
 # or
-lake build SolanaRefinement
+lake build ProofForgeFormalSolana
 ```
 -/
 

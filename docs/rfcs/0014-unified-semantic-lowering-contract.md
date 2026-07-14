@@ -862,10 +862,10 @@ A full feasibility assessment has been completed and is recorded in
   `EVMYulLean` route was investigated and blocked by a Lean toolchain + mathlib version
   mismatch (`v4.22.0` vs ProofForge's `v4.31.0`). The refinement target is now
   `powdr-labs/evm-semantics`, pinned in `lakefile.lean` and `lake-manifest.json` behind
-  the opt-in `EvmRefinement` target, so default `lake build` remains mathlib-free while
-  `lake build EvmRefinement` imports the real `EvmSemantics` modules. The default-build
+  the opt-in `ProofForgeFormalEvm` target, so default `lake build` remains mathlib-free while
+  `lake build ProofForgeFormalEvm` imports the real `EvmSemantics` modules. The default-build
   seam in `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean` remains a mathlib-free stub
-  by design; the real wrapper is `EvmRefinement/PowdrAdapter.lean`, which exposes
+  by design; the real wrapper is `ProofForgeFormal/Evm/PowdrAdapter.lean`, which exposes
   powdr-backed `State`, `Step`, `stepF`, `runBytecode`, and the `runBytecode_steps`
   bridge to powdr's relational `Steps`. The pinned powdr tree exposes bytecode semantics,
   not a Yul-level relation, so the Yul→bytecode `solc` step remains an explicit trust
@@ -914,7 +914,7 @@ A full feasibility assessment has been completed and is recorded in
   (`counter_ir_trace_matches_inductive`, `value_vault_ir_trace_matches_inductive`).
   **Landed 2026-07-07 (Phase 6b):** `lakefile.lean`, `lake-manifest.json`,
   `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean`,
-  `EvmRefinement/PowdrAdapter.lean`, `EvmRefinement/CounterRefinement.lean`,
+  `ProofForgeFormal/Evm/PowdrAdapter.lean`, `ProofForgeFormal/Evm/CounterRefinement.lean`,
   and the opt-in powdr smoke gates wire `powdr-labs/evm-semantics` as the
   EVM refinement target while keeping the default build mathlib-free.
   **Next (Phase 6c):** discharge the current low-order runtime's

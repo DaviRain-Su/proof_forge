@@ -11,7 +11,7 @@ list matching the sBPF instruction layout that `solanalib.SBPF.Decoder`
 This module is intentionally **mathlib-free** and lives on the default
 `ProofForge` build path (same isolation pattern as
 `ProofForge.Backend.Evm.EvmBytecodeSemantics`). The opt-in
-`SolanaRefinement` Lake target reinterprets the resulting bytes as
+`ProofForgeFormalSolana` Lake target reinterprets the resulting bytes as
 `Solanalib.SBPF.BpfBin` and lifts decoded instructions into
 `Solanalib.SBPF.BpfInstruction` for `verifyInstr` / `bpfInterp`.
 

@@ -680,11 +680,11 @@ evm-yul-host-refinement-smoke:
 
 # Check the opt-in powdr/mathlib EVM refinement adapter target.
 evm-powdr-adapter:
-    lake build EvmRefinement
+    lake build ProofForgeFormalEvm
 
 # Pin the Counter IR↔powdr bytecode delivery boundary (opt-in, mathlib).
 evm-powdr-counter-refinement-smoke:
-    lake build EvmRefinement.CounterRefinement
+    lake build ProofForgeFormal.Evm.CounterRefinement
     lake env lean --run Tests/Backend/Evm/EvmPowdrCounterRefinement.lean
 
 # Check that the generated Counter runtime matches the embedded powdr witness.
@@ -801,7 +801,7 @@ solana-counter-sbpf-regression:
 # Check the Solana sBPF refinement anchor (Counter IR trace + artifact surface).
 solana-refinement-smoke:
     lake build ProofForge.Backend.Solana.Refinement
-    lake env lean --run Tests/Backend/Solana/SolanaRefinement.lean
+    lake env lean --run Tests/Backend/Solana/ProofForgeFormalSolana.lean
 
 # Mathlib-free sBPF binary encoder + labeled view (Scheme 1/2A encode half).
 solana-bpf-encode-smoke:
@@ -825,8 +825,8 @@ solana-account-graph:
 
 # Opt-in solanalib adapter + CompileCorrect pipeline (pulls solanalib/mathlib).
 solana-solanalib-adapter:
-    lake build SolanaRefinement
-    lake env lean --run SolanaRefinement/CompileCorrectSmoke.lean
+    lake build ProofForgeFormalSolana
+    lake env lean --run ProofForgeFormal/Solana/CompileCorrectSmoke.lean
 
 # Check contract_source target capability diagnostics through the CLI.
 contract-source-diagnostics:

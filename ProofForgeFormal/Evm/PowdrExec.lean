@@ -1,4 +1,4 @@
-import EvmRefinement.PowdrAdapter
+import ProofForgeFormal.Evm.PowdrAdapter
 
 /-! Contract-agnostic symbolic execution helpers for powdr EVM.
 

@@ -7,7 +7,7 @@ package «proof-forge» where
 require evm_semantics from git
   "https://github.com/powdr-labs/evm-semantics.git"@"ae13dbc506158f9d0c7e05634636b17e2bccf850"
 
-/-- Opt-in Solana formal lane dependency (used by `SolanaRefinement` only).
+/-- Opt-in Solana formal lane dependency (used by `ProofForgeFormalSolana` only).
 Mirrors the powdr pin: always declared so Lake can resolve the target, while
 default `ProofForge` roots do not import it. -/
 require solanalib from git
@@ -45,31 +45,31 @@ lean_lib ProofForge where
 lean_lib TestFixtures where
   roots := #[`TestFixtures]
 
-lean_lib EvmRefinement where
+lean_lib ProofForgeFormalEvm where
   roots := #[
-    `EvmRefinement.CounterRuntime,
-    `EvmRefinement.HexWitness,
-    `EvmRefinement.PowdrAdapter,
-    `EvmRefinement.PowdrExec,
-    `EvmRefinement.PowdrExecSmoke,
-    `EvmRefinement.CounterRefinement
+    `ProofForgeFormal.Evm.CounterRuntime,
+    `ProofForgeFormal.Evm.HexWitness,
+    `ProofForgeFormal.Evm.PowdrAdapter,
+    `ProofForgeFormal.Evm.PowdrExec,
+    `ProofForgeFormal.Evm.PowdrExecSmoke,
+    `ProofForgeFormal.Evm.CounterRefinement
   ]
 
 /-- Opt-in Solana formal lane: solanalib sBPF ISA + CompileCorrect pipeline.
-Imports solanalib the same way `EvmRefinement` imports powdr. Default
+Imports solanalib the same way `ProofForgeFormalEvm` imports powdr. Default
 `ProofForge` / CLI roots do not import these modules. -/
-lean_lib SolanaRefinement where
+lean_lib ProofForgeFormalSolana where
   roots := #[
-    `SolanaRefinement.SolanalibAdapter,
-    `SolanaRefinement.LabeledToSolanalib,
-    `SolanaRefinement.HostBridge,
-    `SolanaRefinement.FullProgramHost,
-    `SolanaRefinement.CounterHostRefinement,
-    `SolanaRefinement.CoreTailHostComposition,
-    `SolanaRefinement.ValueVaultHostRefinement,
-    `SolanaRefinement.FullHostTargetSemantics,
-    `SolanaRefinement.CompileCorrect,
-    `SolanaRefinement.CompileCorrectSmoke
+    `ProofForgeFormal.Solana.SolanalibAdapter,
+    `ProofForgeFormal.Solana.LabeledToSolanalib,
+    `ProofForgeFormal.Solana.HostBridge,
+    `ProofForgeFormal.Solana.FullProgramHost,
+    `ProofForgeFormal.Solana.CounterHostRefinement,
+    `ProofForgeFormal.Solana.CoreTailHostComposition,
+    `ProofForgeFormal.Solana.ValueVaultHostRefinement,
+    `ProofForgeFormal.Solana.FullHostTargetSemantics,
+    `ProofForgeFormal.Solana.CompileCorrect,
+    `ProofForgeFormal.Solana.CompileCorrectSmoke
   ]
 
 @[default_target]

@@ -14,8 +14,8 @@ import ProofForge.Backend.Solana.Refinement
 import ProofForge.Backend.Solana.SbpfInterpreter
 import ProofForge.Contract.Examples.ValueVaultInvariant
 import ProofForge.IR.StepSemantics
-import SolanaRefinement.CounterHostRefinement
-import SolanaRefinement.FullProgramHost
+import ProofForgeFormal.Solana.CounterHostRefinement
+import ProofForgeFormal.Solana.FullProgramHost
 
 namespace ProofForge.Backend.Solana.ValueVaultHostRefinement
 

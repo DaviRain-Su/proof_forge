@@ -5,7 +5,7 @@ Non-Counter reuse smoke for `SbpfExec`.
 
 Models tiny scalar-read and conditional-jump paths, proving each by composing
 generic `ReadyOpcodeAt` reductions and a `ReductionChainProvider`, mirroring
-`EvmRefinement/PowdrExecSmoke.lean`.
+`ProofForgeFormal/Evm/PowdrExecSmoke.lean`.
 -/
 
 namespace ProofForge.Backend.Solana.SbpfExecSmoke

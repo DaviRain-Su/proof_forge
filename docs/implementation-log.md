@@ -3605,3 +3605,21 @@ Rules:
 - Verification: targeted Lake build of Psy runtime, public Solana Source,
   quarantined builder, protocol facade, and all Solana backend contract
   fixtures; canonical boundary and topology gates.
+
+## 2026-07-14 - Module ownership: unify optional formal libraries
+
+- Status: `done (verified 2026-07-14)`.
+- Moved the sibling `EvmRefinement` and `SolanaRefinement` module roots to
+  `ProofForgeFormal/Evm` and `ProofForgeFormal/Solana`. Renamed their independent
+  Lake targets to `ProofForgeFormalEvm` and `ProofForgeFormalSolana`; neither is
+  imported by the default `ProofForge` library.
+- Updated proof imports, smoke scripts, gates, and active English documentation
+  to the project-owned formal namespace.
+- Repaired two stale proof fixtures exposed by the clean rebuild: the EVM
+  context obligation now matches the current three scalar reads and one signer
+  hash, and the Solana host bridge resolves overlapping sparse ABI cells by the
+  most specific address so the writable byte is not overwritten by the account
+  marker word.
+- Verification: `lake build ProofForge.Backend.Evm.Refinement
+  ProofForgeFormalEvm`; `lake build ProofForgeFormalSolana`; and
+  `lake env lean --run ProofForgeFormal/Solana/CompileCorrectSmoke.lean`.

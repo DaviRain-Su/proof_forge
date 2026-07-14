@@ -13,7 +13,7 @@ architecture and scheduling are defined by the July 12 design/plan and backlog.
 ## 🔬 Independent verification (2026-07-08) — re-checked from source, not commit messages
 
 - **Default build green — 572 jobs**, no errors (one unused-var lint). **EVM opt-in
-  `lake build EvmRefinement` green — 574 jobs** (`EvmRefinement.CounterRefinement`).
+  `lake build ProofForgeFormalEvm` green — 574 jobs** (`ProofForgeFormal.Evm.CounterRefinement`).
 - **No `sorry` / `admit` / `axiom`** anywhere in `Backend/WasmHost`, `Backend/Solana`, `IR`.
 - **Track 0 all fixed (code, not just docs):** 0.1 `overflowChecked` is now a node field on
   `.add/.sub/.mul` (default checked, threaded through `Builder`/`Surface`); 0.2

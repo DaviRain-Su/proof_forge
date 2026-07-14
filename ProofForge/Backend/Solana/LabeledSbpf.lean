@@ -30,7 +30,7 @@ Portable IR  +  IR.Semantics          ← multi-chain source of truth
                  │ BpfEncode
                  ▼
               BpfBinBytes
-                 │ (opt-in SolanaRefinement)
+                 │ (opt-in ProofForgeFormalSolana)
                  ▼
               solanalib BpfInstruction / bpfInterp
 ```
@@ -48,7 +48,7 @@ scope. Every Solana proof obligation still starts from `IR.Semantics`.
 - The labeled view's bytecode equals `BpfEncode.toBpfBin` (same encoder).
 
 Scheme 2 Phase B (lift `ResolvedInst` → `Solanalib.SBPF.BpfInstruction`
-without a byte round-trip) lives in the opt-in `SolanaRefinement` target.
+without a byte round-trip) lives in the opt-in `ProofForgeFormalSolana` target.
 -/
 
 import ProofForge.Backend.Solana.Asm

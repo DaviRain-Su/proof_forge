@@ -6,7 +6,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 Opt-in formal surface that hooks ProofForge's EmitSBPF (`SbpfAsm.lowerModule`)
 into `solanalib.SBPF` for post-hoc verification. This is the Solana analogue of
-`EvmRefinement/CounterRefinement.lean` for the powdr path.
+`ProofForgeFormal/Evm/CounterRefinement.lean` for the powdr path.
 
 ## What is machine-checked today
 
@@ -43,14 +43,14 @@ into `solanalib.SBPF` for post-hoc verification. This is the Solana analogue of
 See `docs/solana-sbpf-solanalib-bridge.md`.
 -/
 
-import SolanaRefinement.SolanalibAdapter
-import SolanaRefinement.LabeledToSolanalib
-import SolanaRefinement.HostBridge
-import SolanaRefinement.FullProgramHost
-import SolanaRefinement.CounterHostRefinement
-import SolanaRefinement.CoreTailHostComposition
-import SolanaRefinement.ValueVaultHostRefinement
-import SolanaRefinement.FullHostTargetSemantics
+import ProofForgeFormal.Solana.SolanalibAdapter
+import ProofForgeFormal.Solana.LabeledToSolanalib
+import ProofForgeFormal.Solana.HostBridge
+import ProofForgeFormal.Solana.FullProgramHost
+import ProofForgeFormal.Solana.CounterHostRefinement
+import ProofForgeFormal.Solana.CoreTailHostComposition
+import ProofForgeFormal.Solana.ValueVaultHostRefinement
+import ProofForgeFormal.Solana.FullHostTargetSemantics
 import ProofForge.Backend.Solana.BpfEncode
 import ProofForge.Backend.Solana.LabeledSbpf
 import ProofForge.IR.Examples.Counter

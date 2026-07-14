@@ -83,7 +83,10 @@ Module ownership is tracked by the
 authoring enters through `ProofForge.Contract.Source.Solana`; the old builder is
 quarantined under `Source.Solana.Legacy`, Solana fixtures live under
 `Examples/Backend/Solana/Contracts`, and Psy externs live under
-`ProofForge.Runtime.Psy`.
+`ProofForge.Runtime.Psy`. Optional heavyweight proofs live in the separate Lake
+libraries `ProofForgeFormalEvm` and `ProofForgeFormalSolana`, with modules under
+`ProofForgeFormal/Evm` and `ProofForgeFormal/Solana`; do not import them from the
+default `ProofForge` library.
 
 | Order | Target family | State | Exit condition |
 |---|---|---|---|

@@ -1,5 +1,5 @@
-import EvmRefinement.CounterRuntime
+import ProofForgeFormal.Evm.CounterRuntime
 
 def main : IO UInt32 := do
-  IO.println EvmRefinement.CounterRuntime.hex
+  IO.println ProofForgeFormal.Evm.CounterRuntime.hex
   return 0

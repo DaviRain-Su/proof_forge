@@ -33,8 +33,8 @@ import ProofForge.Backend.Solana.Asm
 import ProofForge.Backend.Solana.BpfEncode
 import ProofForge.Backend.Solana.CounterSbpfExec
 import ProofForge.Backend.Solana.SbpfInterpreter
-import SolanaRefinement.LabeledToSolanalib
-import SolanaRefinement.SolanalibAdapter
+import ProofForgeFormal.Solana.LabeledToSolanalib
+import ProofForgeFormal.Solana.SolanalibAdapter
 import Solanalib.SBPF.CommType
 import Solanalib.SBPF.Syntax
 import Solanalib.SBPF.Memory
@@ -87,10 +87,26 @@ def loadWordLE? (m : Mem) (addr : Nat) : Option Nat :=
           shift := shift * 256
     some acc
 
+/-- Select the most specific sparse word covering a byte address.
+
+Solana's serialized account header contains adjacent byte fields (duplicate,
+signer, writable, executable) while the executable interpreter stores every
+cell in the same `Nat`-valued sparse map. When a lower-address word overlaps a
+more specific cell, the higher start address owns that byte. -/
+def sparseByte? (memory : Memory) (addr : Nat) : Option Nat :=
+  let covering := memory.foldl (init := none) fun best entry =>
+    if entry.fst ≤ addr && addr < entry.fst + 8 then
+      match best with
+      | none => some entry
+      | some current => if current.fst ≤ entry.fst then some entry else best
+    else
+      best
+  covering.map fun entry =>
+    (entry.snd / (256 ^ (addr - entry.fst))) % 256
+
 /-- Convert ProofForge word-sparse memory into solanalib byte memory. -/
-def memOfPfMemory (memory : Memory) : Mem :=
-  memory.foldl (init := initMem) fun m entry =>
-    storeWordLE m entry.fst entry.snd
+def memOfPfMemory (memory : Memory) : Mem := fun addr =>
+  (sparseByte? memory addr.toNat).map fun byte => BitVec.ofNat 8 byte
 
 /-! ### Host machine state (bpf + return-data + last memory) -/
 

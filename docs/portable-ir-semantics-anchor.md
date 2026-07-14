@@ -51,8 +51,8 @@ IR.Semantics.Run  ⇝  TargetSemantics.Run
 
 | Backend | IR side | Target side today |
 |---------|---------|-------------------|
-| EVM | `runEntrypoint*` | Yul subset interpreter + opt-in powdr `stepF` (`EvmRefinement`) |
-| Solana | `runEntrypoint*` | `SbpfInterpreter` + encode/lift to solanalib (`SolanaRefinement`) |
+| EVM | `runEntrypoint*` | Yul subset interpreter + opt-in powdr `stepF` (`ProofForgeFormalEvm`) |
+| Solana | `runEntrypoint*` | `SbpfInterpreter` + encode/lift to solanalib (`ProofForgeFormalSolana`) |
 | NEAR | `runEntrypoint*` | Wasm interpreter / offline host |
 | Others | same IR | target-specific (no IR bypass) |
 

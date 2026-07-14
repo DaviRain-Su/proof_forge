@@ -1,4 +1,4 @@
-import EvmRefinement.CounterRefinement
+import ProofForgeFormal.Evm.CounterRefinement
 
 /-! ## EVM powdr Counter bytecode refinement smoke (opt-in, mathlib)
 
@@ -9,7 +9,7 @@ Pins the opt-in powdr EVM bytecode lane for Counter:
   powdr bytecode trace (delivery-boundary pin);
 - the universal fragment refinement theorem covers all Counter-shaped modules.
 
-This test imports `EvmRefinement` and therefore pulls powdr + mathlib; it is
+This test imports `ProofForgeFormal.Evm` and therefore pulls powdr + mathlib; it is
 intentionally not on the default `lake build` path.
 -/
 
@@ -44,7 +44,7 @@ theorem counterCompiledPowdr_initialMachineState_none
   rfl
 
 theorem counter_compiled_runtime_hex_is_valid :
-    EvmRefinement.HexWitness.decodeHex? counterCompiledRuntimeHex =
+    ProofForgeFormal.Evm.HexWitness.decodeHex? counterCompiledRuntimeHex =
       some counterCompiledRuntimeCode :=
   counterCompiledRuntimeHex_decodes
 

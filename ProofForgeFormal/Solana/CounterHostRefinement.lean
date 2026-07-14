@@ -28,8 +28,8 @@ import ProofForge.Backend.Refinement.CounterUniversal
 import ProofForge.Backend.Solana.SbpfInterpreter
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.StepSemantics
-import SolanaRefinement.FullProgramHost
-import SolanaRefinement.HostBridge
+import ProofForgeFormal.Solana.FullProgramHost
+import ProofForgeFormal.Solana.HostBridge
 
 namespace ProofForge.Backend.Solana.CounterHostRefinement
 

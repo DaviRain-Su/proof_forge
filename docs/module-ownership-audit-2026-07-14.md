@@ -10,7 +10,7 @@ boundary.
 | `ProofForge/Solana.lean` and `ProofForge/Solana/{Types,Metadata,Programs,Builders}.lean` | `ProofForge/Contract/Source/Solana/Legacy*` | These modules implement the old target-specific `Contract.Builder` authoring route. They are compiler-owned compatibility code, not a peer of the compiler root. Public authors use only `ProofForge.Contract.Source.Solana`. |
 | `ProofForge/Solana/Examples*` | `Examples/Backend/Solana/Contracts*` | The contracts are target fixtures for CPI, PDA, sysvar, and runtime behavior. They are not portable Product sources or public compiler modules. |
 | `ProofForge/Psy.lean` | `ProofForge/Runtime/Psy.lean` | The module exposes `@[extern]` runtime intrinsics in `Lean.Psy`; it is neither portable authoring nor a compiler backend. |
-| `EvmRefinement/*`, `SolanaRefinement/*` | pending: `ProofForgeFormal/Evm/*`, `ProofForgeFormal/Solana/*` | These must remain outside `ProofForge/**` because they are separate Lake libraries with heavyweight optional semantic dependencies. The next structural slice will unify their project ownership without merging them into the default compiler library. |
+| `EvmRefinement/*`, `SolanaRefinement/*` | `ProofForgeFormal/Evm/*`, `ProofForgeFormal/Solana/*` | These remain outside `ProofForge/**` because they are separate Lake libraries with heavyweight optional semantic dependencies. The shared project namespace makes ownership explicit without merging them into the default compiler library. |
 
 ## Enforced boundaries
 

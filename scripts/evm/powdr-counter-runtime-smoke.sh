@@ -8,7 +8,7 @@ SOLC_BIN="${PF_POWDR_SOLC:-${SOLC:-solc}}"
 
 EXPECTED_HEX="$(
   cd "$ROOT"
-  lake build EvmRefinement.CounterRuntime >/dev/null
+  lake build ProofForgeFormal.Evm.CounterRuntime >/dev/null
   lake env lean --run scripts/evm/print-counter-runtime-witness.lean
 )"
 EXPECTED_SHA256="$(python3 - "$EXPECTED_HEX" <<'PY'
@@ -55,7 +55,7 @@ PY
 )"
 
 if [[ "$actual_hex" != "$EXPECTED_HEX" ]]; then
-  echo "Counter runtime bytecode drifted from EvmRefinement.counterCompiledRuntimeCode" >&2
+  echo "Counter runtime bytecode drifted from ProofForgeFormal.Evm.CounterRuntime" >&2
   echo "expected sha256(bytes): $EXPECTED_SHA256" >&2
   echo "actual   sha256(bytes): $actual_sha256" >&2
   echo "artifact: $OUT_DIR/Counter.bin" >&2

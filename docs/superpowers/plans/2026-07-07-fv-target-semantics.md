@@ -76,7 +76,7 @@ template: S6/W6 copy E3's shape, swapping powdr's `Step` for the self-built
 `SbpfInterpreter` / `WasmInterpreter` `Step`. **Already LANDED** (commits `4c4ec279`…`2fd6e9f6`):
 P1 shared interface, the generic trace induction, and the EVM seam switched to powdr's
 `State`/`Step`/`stepF` shape (`173b9d4f`, builds mathlib-free), plus E1's opt-in
-`EvmRefinement` target pinned to powdr/mathlib and E2's real powdr-backed wrapper
+`ProofForgeFormalEvm` target pinned to powdr/mathlib and E2's real powdr-backed wrapper
 surface. Remaining EVM work is E3.
 (For the self-built lanes, start with **S1** or **W1**.)
 
@@ -120,18 +120,18 @@ surface. Remaining EVM work is E3.
   docstring in `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean` (lists the required
   `EvmSemantics.EVM.*` imports).
 - **③ Do:** add a **separate opt-in lake target** (a distinct `lean_lib`, e.g.
-  `EvmRefinement`, **not** in the default target graph) that `require`s
+  `ProofForgeFormalEvm`, **not** in the default target graph) that `require`s
   `powdr-labs/evm-semantics` pinned to a **literal commit SHA** (+ transitive
   `mathlib @ v4.31.0`). Run `lake update` in a **network** environment; capture the pinned
   commit into `lake-manifest.json`. The default `lake build` / `just check` MUST stay
   mathlib-free and green.
 - **Landed:** `lakefile.lean` pins powdr
   `ae13dbc506158f9d0c7e05634636b17e2bccf850`; `lake-manifest.json` records
-  mathlib `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`; `EvmRefinement/PowdrAdapter.lean`
+  mathlib `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`; `ProofForgeFormal/Evm/PowdrAdapter.lean`
   imports powdr's `State`, `Step`, `StepF`, `BigStep`, and `Equiv` modules and wraps
   `EvmSemantics.EVM.stepF_sound`.
 - **Acceptance:** default `lake build` unchanged (mathlib-free, green); the opt-in
-  `EvmRefinement` target resolves and builds powdr + mathlib in a network env; the pinned
+  `ProofForgeFormalEvm` target resolves and builds powdr + mathlib in a network env; the pinned
   commit is recorded in `lake-manifest.json`.
 - **Depends on:** none — **but needs network + a long mathlib build.** This is the one
   heavy, environment-dependent task; run it where network and build time exist.
@@ -145,7 +145,7 @@ surface. Remaining EVM work is E3.
   `EvmSemantics.EVM.*`, keeping the public surface and all `Refinement.lean` callers
   unchanged. Keep the mathlib-free stub as the default-build fallback (gate the real import
   behind the opt-in target so the default build never pulls mathlib).
-- **Landed:** `EvmRefinement/PowdrAdapter.lean` now exposes real powdr-backed
+- **Landed:** `ProofForgeFormal/Evm/PowdrAdapter.lean` now exposes real powdr-backed
   `State`, `Step`, `stepF : State → Except String State`, `step`, `isHalted`, and
   `runBytecode`. The `stepF` wrapper turns done-state calls into adapter errors, so
   `stepF_sound` can recover powdr's `¬ state.isDone` precondition and prove the real
@@ -208,7 +208,7 @@ surface. Remaining EVM work is E3.
 > requires new bytecode segment hand-derivation, stop and record it as future automation
 > work, not E3 completion work.
 >
-> **Revised acceptance (corrected 2026-07-10):** `lake build EvmRefinement` stays green; the
+> **Revised acceptance (corrected 2026-07-10):** `lake build ProofForgeFormalEvm` stays green; the
 > EVM status is recorded as "canonical Counter fixed-trace evidence via powdr `stepF` +
 > `native_decide`, with the universal theorem still obligation-explicit and Yul→bytecode
 > plus powdr/`native_decide` called out as TCB boundaries"; no new manual
@@ -233,7 +233,7 @@ surface. Remaining EVM work is E3.
   `ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked`. They target the
   pre-migration runtime where `count` occupied the high 64 bits. They do not establish
   refinement for the current low-order runtime.
-  `EvmRefinement/CounterRefinement.lean` now starts the E3 relation layer:
+  `ProofForgeFormal/Evm/CounterRefinement.lean` now starts the E3 relation layer:
   it proves the ProofForge EVM layout maps Counter `count` to scalar slot 0, defines the
   IR `count` ↔ powdr `AccountMap`/`Storage` relation over the generated EVM
   packed U64 slot shape used at that checkpoint: `count` occupied the high 64
@@ -429,7 +429,7 @@ surface. Remaining EVM work is E3.
   facts as the final return-path bridge: once the body has established the
   initialize storage model at the return jump, the halted frame keeps that model
   and exposes the `.none` observable.
-  `EvmRefinement/PowdrAdapter.lean` also proves `runBytecode_steps`: every successful
+  `ProofForgeFormal/Evm/PowdrAdapter.lean` also proves `runBytecode_steps`: every successful
   fuel-bounded executable run is backed by powdr's relational `Steps` closure.
   The adapter now has `runBytecode_halted_succ`, `runBytecode_step_succ`,
   `runBytecode_stepFE_succ`, `StepFEPath`, `stepFEPath_append`,

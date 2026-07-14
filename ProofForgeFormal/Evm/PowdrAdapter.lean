@@ -8,7 +8,7 @@ import EvmSemantics.EVM.Equiv
 /-! Opt-in adapter surface for `powdr-labs/evm-semantics`.
 
 This module is intentionally outside the default `ProofForge` root. Building
-the `EvmRefinement` Lake target pulls powdr + mathlib and proves that the
+the `ProofForgeFormalEvm` Lake target pulls powdr + mathlib and proves that the
 preferred Phase 6b surface is available, while the default CLI/library build
 keeps using the mathlib-free seam in `ProofForge.Backend.Evm.EvmBytecodeSemantics`.
 -/

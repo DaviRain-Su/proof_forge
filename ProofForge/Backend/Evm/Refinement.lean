@@ -1140,8 +1140,8 @@ def contextTraceCalls : Array TraceCall := #[
 ]
 
 def contextExpectedTrace : Array ObservableStep := #[
-  { entrypointName := "context_extras", selector := "d9b80589", returnValue := .words #[0, 0, 0, 0, 0, 0] },
-  { entrypointName := "context_hashes", selector := "b59b9225", returnValue := .words #[0, 0, 0] }
+  { entrypointName := "context_extras", selector := "d9b80589", returnValue := .words #[0, 0, 0] },
+  { entrypointName := "context_hashes", selector := "b59b9225", returnValue := .words #[0] }
 ]
 
 def contextTraceObligation : TraceObligation := {

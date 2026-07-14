@@ -32,7 +32,7 @@ produce the same instruction list (`counter_lift_matches_decode`).
 import ProofForge.Backend.Solana.BpfEncode
 import ProofForge.Backend.Solana.LabeledSbpf
 import ProofForge.IR.Examples.Counter
-import SolanaRefinement.SolanalibAdapter
+import ProofForgeFormal.Solana.SolanalibAdapter
 import Solanalib.SBPF.CommType
 import Solanalib.SBPF.Syntax
 import Solanalib.SBPF.Memory
