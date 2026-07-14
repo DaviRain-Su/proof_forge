@@ -2003,7 +2003,7 @@ fn run_near_reentrancy_guard(repo_root: &Path, args: &Args) -> Result<()> {
         args,
         "reentrancy-guard",
         "testkit/compare/near/reentrancy-guard",
-        "testkit/compare/near/reentrancy-guard/reference-manifest.json",
+        "testkit/differential/reentrancy-guard/references/near.v1.json",
         "Examples/Product/ReentrancyGuard.lean",
         "ReentrancyGuard.near-artifact.json",
         "pf_near_sdk_reentrancy_guard_reference.wasm",

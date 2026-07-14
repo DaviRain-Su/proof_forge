@@ -1,6 +1,7 @@
 //! Independent Pinocchio ReentrancyGuard reference for native differential tests.
 //!
-//! Instruction data is one tag: locked=0, acquire=1, and release=2.
+//! Instruction data follows the authored entrypoint order: acquire=0,
+//! release=1, and locked=2.
 //! Account zero is writable, program-owned, and stores one little-endian u64.
 
 #![no_std]
@@ -12,9 +13,9 @@ use pinocchio::{
 };
 use solana_define_syscall::definitions::sol_set_return_data;
 
-const TAG_LOCKED: u8 = 0;
-const TAG_ACQUIRE: u8 = 1;
-const TAG_RELEASE: u8 = 2;
+const TAG_ACQUIRE: u8 = 0;
+const TAG_RELEASE: u8 = 1;
+const TAG_LOCKED: u8 = 2;
 
 const STATE_LEN: usize = 8;
 const REENTRANT_CALL: u32 = 0x100;

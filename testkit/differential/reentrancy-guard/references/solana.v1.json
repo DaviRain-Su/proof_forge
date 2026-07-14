@@ -14,7 +14,7 @@
       "name": "ProofForge independent native comparison corpus",
       "url": null
     },
-    "revision": "sha256:520f078123a8e4e6739f3e242a2999fef91cdfb7edd01bc04243c602e67306c0",
+    "revision": "sha256:a8e1dce2d6cd4a43a5313bef6f340c3eff03e5e24eb019c0323b49811248b8cb",
     "license": "Apache-2.0",
     "toolchain": [
       {"name": "pinocchio", "version": "0.11.2"},

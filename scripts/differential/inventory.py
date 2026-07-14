@@ -353,8 +353,8 @@ def generate_inventory() -> dict[str, object]:
                 "nativeReference",
                 manifest,
                 "referenceManifestV1",
-                "none",
-                "CMP-3f independent ReentrancyGuard reference with pinned provenance; VM evidence is pending",
+                "verified",
+                "CMP-3f independent ReentrancyGuard reference with pinned provenance and primary-triad VM evidence",
                 sourcePaths=[reference["source"]["path"]],
             )
         )
@@ -370,8 +370,31 @@ def generate_inventory() -> dict[str, object]:
                 "scenario",
                 cmp3_guard_scenario,
                 "portableScenarioV1",
-                "none",
-                "nine-step guarded lock lifecycle awaiting execution on both implementations for every primary target",
+                "verified",
+                "nine-step guarded lock lifecycle executed on both implementations for every primary target",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-runner-reentrancy-guard-primary-triad",
+                "portable",
+                "runner",
+                REPO_ROOT / "scripts/differential/reentrancy_guard_pilot.py",
+                "deterministicRunner",
+                "verified",
+                "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-gate-reentrancy-guard-primary-triad",
+                "portable",
+                "gate",
+                REPO_ROOT / "justfile",
+                "focusedGate",
+                "verified",
+                "focused fail-closed CMP-3 ReentrancyGuard gate",
+                selectors=["differential-reentrancy-guard"],
             )
         )
 
@@ -486,7 +509,7 @@ def generate_inventory() -> dict[str, object]:
     assets.sort(key=lambda item: item["id"])
     inventory: dict[str, object] = {
         "schema": INVENTORY_SCHEMA,
-        "scope": "tracked comparison assets through verified ValueVault, Ownable, and Pausable plus pinned ReentrancyGuard CMP-3 references",
+        "scope": "tracked comparison assets through verified ValueVault, Ownable, Pausable, and ReentrancyGuard CMP-3 execution",
         "summary": {
             "assetCount": len(assets),
             "semanticVerifiedCount": sum(1 for item in assets if item["semanticEvidence"] == "verified"),

@@ -65,6 +65,11 @@ differential-ownable:
 differential-pausable:
     python3 scripts/differential/pausable_pilot.py
 
+# Compare direct Authored ReentrancyGuard artifacts with independent native EVM,
+# Solana, and NEAR implementations across the guarded lock lifecycle CMP-3 scenario.
+differential-reentrancy-guard:
+    python3 scripts/differential/reentrancy_guard_pilot.py
+
 # Typed open capability/HostOp identity and target-owned catalog contract.
 hostop-protocol:
     lake env lean --run Tests/Canonical/HostOpCatalog.lean
