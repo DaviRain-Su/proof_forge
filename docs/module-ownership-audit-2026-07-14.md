@@ -27,6 +27,14 @@ default backend namespaces. The canonical boundary gate rejects reversed
 imports, misleading namespaces, and restoration of the retired top-level
 roots.
 
+The Solana directory move is only the placement half of this decision. The
+current public `Contract.Source.Solana` and `Contract.Source.Solana.Internal`
+modules still forward into `Source.Solana.Legacy`, so the authoring dependency
+has not yet been cut over. A-CUT1e owns that prerequisite before A-CUT2 resumes:
+public macros stay under `Contract.Source.Solana`, stable operation identities
+and signatures move to `Target.HostOps.Solana`, and target validation/planning
+stays under `Backend.Solana.Extension`.
+
 ## Enforced boundaries
 
 - `ProofForge.Contract.Source.Solana` is the only public Solana contract
@@ -45,3 +53,8 @@ roots.
 Solana direct-canonical materializer owns account declarations, PDA derivation,
 CPI call plans, sysvars, memory/crypto operations, and protocol metadata without
 constructing the old `Contract.Builder` module.
+
+Before that full deletion, A-CUT1e must remove Legacy imports from the public
+Solana Source and Internal modules. Remaining backend fixtures and Learn
+compatibility callers must use explicit Legacy imports so they cannot be
+mistaken for the current authoring route.

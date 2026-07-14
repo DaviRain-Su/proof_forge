@@ -3768,3 +3768,20 @@ Rules:
   canonicalization; existing Surface normalization/parity, Set, Queue, and
   NEAR HostOp tests; canonical boundary self-test/gate; dependency scans; and
   `git diff --check`.
+
+## 2026-07-14 - Plan A-CUT1e: Solana source and target ownership cutover
+
+- Status: `planned`; execute before resuming the remaining A-CUT2 Source
+  builder cutover.
+- Confirmed that the retired top-level `ProofForge/Solana*` and
+  `ProofForge/Psy.lean` paths have already moved to explicit owners. Public
+  syntax belongs in `Contract.Source.Solana`, target fixtures belong in
+  `Examples/Backend/Solana`, and Psy externs belong in `Runtime.Psy`.
+- Found that placement is not yet dependency isolation: both the public Solana
+  Source module and its Internal implementation still import and forward to
+  `Source.Solana.Legacy`, which constructs the old `Contract.Builder` and
+  `IR.Module` route.
+- Added A-CUT1e to establish `Target.HostOps.Solana` as the stable capability
+  catalog, emit open authored HostOps from public syntax, keep validation and
+  materialization in `Backend.Solana.Extension`, and remove Legacy imports from
+  the public/internal route. Full zero-caller deletion remains in IR-B5/A-CUT5.

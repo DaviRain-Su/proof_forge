@@ -103,6 +103,47 @@ Status (2026-07-14): done. All optional proof declarations use their
 and runtime smokes pass, and the canonical boundary gate enforces the namespace
 and one-way import rules. Continue with A-CUT2.
 
+### A-CUT1e - Solana source and target ownership cutover
+
+The old top-level `ProofForge/Solana*` placement has already been removed, but
+the move is not an architectural cutover by itself. The public
+`ProofForge.Contract.Source.Solana` module and its `Internal` implementation
+still import `Source.Solana.Legacy`, whose values construct the old
+`Contract.Builder` / `IR.Module` path. Complete this task before resuming the
+remaining A-CUT2 builder work.
+
+- Keep `ProofForge.Contract.Source.Solana` as the opt-in public syntax layer.
+  It may define macros and author-facing references, but it must not own target
+  planning, sBPF lowering, or compatibility builders.
+- Add `ProofForge.Target.HostOps.Solana` as the stable Solana capability
+  catalog. Host-operation identity, version, signature, and capability
+  discovery belong here so both the frontend and backend depend on a neutral
+  target protocol rather than importing each other.
+- Encode Solana-only account, PDA, CPI, sysvar, return-data, allocator, and
+  runtime operations as open authored HostOps. Do not add closed Solana
+  constructors to the common Authored or Canonical Core expression/statement
+  enums.
+- Keep payload validation, account-layout resolution, plan construction, and
+  sBPF materialization under `ProofForge.Backend.Solana.Extension` and the
+  existing Solana plan modules.
+- Remove imports of `Source.Solana.Legacy` from the public Source module and
+  `Source.Solana.Internal`. Old fixtures and Learn compatibility may remain
+  temporarily, but must import the Legacy module explicitly and are deleted in
+  IR-B5/A-CUT5 after their caller count reaches zero.
+- Keep `ProofForge.Runtime.Psy` unchanged. Psy externs are runtime intrinsics,
+  not Solana authoring or backend code.
+
+Acceptance: the public Solana Source module elaborates representative account,
+PDA, and CPI fixtures into authored HostOps without constructing
+`ContractSpec` or `IR.Module`; neither `Contract.Source.Solana` nor its
+`Internal` module imports `Source.Solana.Legacy`; the Solana target catalog and
+focused canonical boundary tests pass. This task establishes ownership and the
+direct frontend seam; full deletion of every legacy Solana fixture remains
+tracked by IR-B5 and A-CUT5.
+
+Status (2026-07-14): in progress. Directory placement is complete, but the
+public/internal dependency on the legacy builder remains.
+
 ### A-CUT2 - Direct `contract_source` frontend
 
 - Preserve the existing user syntax, including the Counter source exactly as a

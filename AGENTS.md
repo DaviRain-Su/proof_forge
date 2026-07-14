@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | A-CUT2 - replace the remaining `ContractSpec`/`IR.Module` authored exchange value with direct Canonical Core normalization |
-| Next task | A-CUT3 - migrate the full catalog from the single Product source |
+| Active task | A-CUT1e - cut public Solana authoring off `Source.Solana.Legacy` and establish explicit Source / HostOp catalog / backend ownership |
+| Next task | A-CUT2 - replace the remaining `ContractSpec`/`IR.Module` authored exchange value with direct Canonical Core normalization |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -172,6 +172,7 @@ Core are internal compiler representations.
 | A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
 | A-CUT1c | done (verified at `52742ff5`) | Consolidate the optional EVM and Solana semantic-refinement roots under the independent `ProofForgeFormal` Lake libraries; keep heavyweight proof dependencies out of the default compiler library |
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
+| A-CUT1e | in_progress | Keep public Solana syntax in `Contract.Source.Solana`, move stable capability identity/signatures to `Target.HostOps.Solana`, keep materialization in `Backend.Solana.Extension`, and remove the public/internal dependency on `Source.Solana.Legacy` |
 | A-CUT2 | in_progress (A-CUT2a-A-CUT2d verified) | Replace the remaining `ContractSpec`/`IR.Module` exchange value; independent Authored syntax now normalizes directly to checked Canonical Core, while Source builder/loader cutover remains pending |
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
