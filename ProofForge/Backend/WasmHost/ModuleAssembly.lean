@@ -50,11 +50,30 @@ open ProofForge.Backend.WasmHost.Scalar
 def moduleStringPoolEnd (strings : Array StringInfo) : Nat :=
   strings.foldl (init := STRING_BASE) fun acc s => max acc (s.ptr + s.len + 1)
 
-/-- Reuse canonical normalization to discover source string literals. This keeps
-the legacy EmitWat entrypoint from growing another target-specific expression
-walker while canonical Core remains the typed source of literal data. -/
+private partial def nestedStringLiteralsExpr : ProofForge.IR.Expr → Array String
+  | .literal (.string value) => #[value]
+  | .arrayLit _ values => values.foldl (fun acc value => acc ++ nestedStringLiteralsExpr value) #[]
+  | .structLit _ fields => fields.foldl (fun acc field => acc ++ nestedStringLiteralsExpr field.snd) #[]
+  | .field base _ => nestedStringLiteralsExpr base
+  | _ => #[]
+
+private partial def nestedStringLiteralsStmt : ProofForge.IR.Statement → Array String
+  | .letBind _ _ value | .letMutBind _ _ value | .assign _ value
+  | .assignOp _ _ value | .return value => nestedStringLiteralsExpr value
+  | .ifElse condition thenBody elseBody =>
+      nestedStringLiteralsExpr condition ++
+        thenBody.foldl (fun acc stmt => acc ++ nestedStringLiteralsStmt stmt) #[] ++
+        elseBody.foldl (fun acc stmt => acc ++ nestedStringLiteralsStmt stmt) #[]
+  | .boundedFor _ _ _ body => body.foldl (fun acc stmt => acc ++ nestedStringLiteralsStmt stmt) #[]
+  | .whileLoop condition body => nestedStringLiteralsExpr condition ++
+      body.foldl (fun acc stmt => acc ++ nestedStringLiteralsStmt stmt) #[]
+  | _ => #[]
+
+/-- Reuse canonical normalization to discover source string literals and retain
+nested aggregate literals until every compatibility source enters through Core
+ANF. The latter is required for schema-driven JSON struct returns. -/
 def canonicalStringLiterals (mod : ProofForge.IR.Module) : Array String :=
-  match ProofForge.Frontend.ContractSpec.normalize
+  let normalized := match ProofForge.Frontend.ContractSpec.normalize
       (ProofForge.Contract.ContractSpec.fromIR mod) with
   | .error _ => #[]
   | .ok bundle =>
@@ -65,6 +84,12 @@ def canonicalStringLiterals (mod : ProofForge.IR.Module) : Array String :=
             | .pure (.literal (.stringLit value)) =>
                 if values.contains value then values else values.push value
             | _ => values
+  let nested := mod.entrypoints.foldl (init := #[]) fun values entrypoint =>
+    entrypoint.body.foldl (init := values) fun values statement =>
+      nestedStringLiteralsStmt statement |>.foldl (init := values) fun values value =>
+        if values.contains value then values else values.push value
+  nested.foldl (init := normalized) fun values value =>
+    if values.contains value then values else values.push value
 
 def appendLiteralStrings (strings : Array StringInfo) (values : Array String) : Array StringInfo :=
   let start := moduleStringPoolEnd strings

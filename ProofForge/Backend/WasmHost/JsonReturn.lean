@@ -216,7 +216,9 @@ def loadAccess (access : Access) : Except String (Array Insn) :=
         access.insns ++ #[.load "i64.load" 0] ++
         access.insns ++ #[.load "i64.load" 8]
     | .string | .bytes | .array _ =>
-        pure <| access.insns ++ #[.call structDynamicPairName]
+        pure <|
+          access.insns ++ #[.load "i32.load" 0] ++
+          access.insns ++ #[.load "i32.load" 4]
     | .hash => pure access.insns
     | .fixedArray _ _ | .structType _ =>
         pure <| access.insns ++ #[.load "i32.load" 0]

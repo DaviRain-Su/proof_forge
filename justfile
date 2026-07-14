@@ -1044,6 +1044,11 @@ near-vm-json-transfer:
 near-vm-nep145:
     scripts/near/vm-nep145.sh
 
+# Real-NEAR-VM NEP-148 metadata: exact structured JSON object, including the
+# standard spec version and token identity fields.
+near-vm-nep148:
+    scripts/near/vm-nep148.sh
+
 # Real-NEAR-VM U128 scalar round-trip: write/read/return a u128 on the
 # unmodified upstream NEAR VM. Foundation gate for NEP-141 U128 token amounts;
 # guards the U128 storage + Borsh-return helpers against emit-but-not-define

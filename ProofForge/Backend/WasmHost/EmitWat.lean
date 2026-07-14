@@ -696,7 +696,7 @@ mutual
     | .literal (.string value) =>
       match ctx.strings.find? (fun entry => entry.str == value) with
       | some entry => .ok (#[.i32Const entry.ptr, .i32Const entry.len], .string)
-      | none => err "EmitWat: string literal is missing from the canonical data pool"
+      | none => err s!"EmitWat: string literal `{value}` is missing from the canonical data pool"
     | .hashValue a b c d => do
       let (ia, ta) ← lowerExpr ctx env a
       let (ib, tb) ← lowerExpr ctx env b

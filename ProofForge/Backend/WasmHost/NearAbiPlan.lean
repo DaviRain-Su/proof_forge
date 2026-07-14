@@ -117,6 +117,11 @@ def jsonSchemasForSignature (structs : Array StructDecl) (name : String)
       throw "NEAR standard entrypoint `ft_balance_of` must have signature (account_id : String) -> U128"
     return (some (← buildJsonObjectSchema structs params),
       some (← buildJsonValueSchema structs returns))
+  if name == "ft_metadata" then
+    unless params.isEmpty && returns == .structType "FungibleTokenMetadata" do
+      throw "NEAR standard entrypoint `ft_metadata` must have signature () -> FungibleTokenMetadata"
+    return (some (← buildJsonObjectSchema structs params),
+      some (← buildJsonValueSchema structs returns))
   if name == "ft_transfer" then
     unless params == #[("receiver_id", .string), ("amount", .u128), ("memo", .string)] &&
         returns == .unit do

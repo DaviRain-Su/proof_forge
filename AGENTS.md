@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | D5 - switch Counter to the native Canonical source route |
-| Next task | IR-B5 - audit and migrate Solana PDA/CPI/account behavior |
+| Active task | N-T4 - NEP-148 metadata and NEP-297 event envelopes |
+| Next task | N-T5 - parameterized TokenSpec artifact |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -108,7 +108,7 @@ success. The Canonical EVM renderer now consumes `ModulePlan` alone. Product
 | N-T1 | done (verified at `38def4de`) | Schema-driven JSON ABI and structured client types | Phase 4 |
 | N-T2 | done (verified 2026-07-14) | Standard NEP-141 ABI and exact one-yocto/registration rules | Phase 5 |
 | N-T3 | done (verified 2026-07-14) | Complete NEP-145 JSON, unregister, refunds, and accounting | Phase 6 |
-| N-T4 | pending | NEP-148 metadata and NEP-297 events | Phase 6 |
+| N-T4 | in progress (NEP-148 verified 2026-07-14) | NEP-148 metadata and NEP-297 events | Phase 6 |
 | N-T5 | pending | One parameterized TokenSpec NEP-141 artifact | Phase 7 |
 | N-T6 | pending after N-T2/N-T3/N-T4 | Refresh sandbox compare and obtain verified evidence | Phase 8 |
 | N-T7 | pending after N-T6 | Real receipt/network runner, deploy evidence, and gas bands | Phase 8 extension |

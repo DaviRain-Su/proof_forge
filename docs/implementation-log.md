@@ -2596,3 +2596,17 @@ Rules:
   `git diff --check`.
 - Next: D5, switch Counter's loaded source/default product route away from
   `ContractSpec`; then continue the same cutover for the remaining families.
+
+## 2026-07-14 - N-T4a: NEP-148 metadata on the real NEAR VM
+
+- Status: `done (verified 2026-07-14)`.
+- Added the strict JSON `ft_metadata : () -> FungibleTokenMetadata` ABI and a
+  structured NEP-148 result with spec, identity, optional URI fields, and
+  decimals.
+- Extended nested literal collection and canonical JSON aggregate lowering so
+  metadata strings reach the Wasm data pool without injecting multi-value
+  helper functions that NEAR rejects.
+- Verification passed: `lake env lean --run Tests/NearAbiPlan.lean`, a public
+  CLI build of `Examples/Backend/WasmNear/FungibleToken.lean`, and
+  `just near-vm-nep148` on the unmodified upstream NEAR VM.
+- Remaining: N-T4b, emit NEP-297 `EVENT_JSON` envelopes for FT events.

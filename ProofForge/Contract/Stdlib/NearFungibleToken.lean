@@ -10,7 +10,7 @@ Implements the core NEP-141 interface:
 - `ft_transfer` — transfer tokens to receiver (entry, requires caller + amount)
 - `ft_approve` — set allowance for a spender using a flat `(owner, spender)` hash key
 - `ft_transfer_call` — transfer with `ft_on_transfer` promise + `ft_resolve_transfer` callback
-- `ft_metadata` — token metadata (NEP-148: decimals)
+- `ft_metadata` — structured NEP-148 token metadata
 - full NEP-145 storage management with JSON `StorageBalance` objects,
   exact one-yocto guards, predecessor refunds, unregister, and measured byte cost
 
@@ -104,6 +104,18 @@ def storageBalanceBoundsDecl : ProofForge.IR.StructDecl := {
   ]
 }
 
+def fungibleTokenMetadataDecl : ProofForge.IR.StructDecl := {
+  name := "FungibleTokenMetadata"
+  fields := #[
+    { id := "spec", type := .string },
+    { id := "name", type := .string },
+    { id := "symbol", type := .string },
+    { id := "icon", type := .string },
+    { id := "reference", type := .string },
+    { id := "decimals", type := .u64 }
+  ]
+}
+
 def storageBalanceValue (total : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
   .structLit "StorageBalance" #[
     ("total", total), ("available", u128 0)
@@ -112,6 +124,16 @@ def storageBalanceValue (total : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
 def storageBalanceBoundsValue (min : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
   .structLit "StorageBalanceBounds" #[
     ("min", min), ("max", u128 0)
+  ]
+
+def fungibleTokenMetadataValue : ProofForge.IR.Expr :=
+  .structLit "FungibleTokenMetadata" #[
+    ("spec", .literal (.string "ft-1.0.0")),
+    ("name", .literal (.string "ProofForge Token")),
+    ("symbol", .literal (.string "PFT")),
+    ("icon", .literal (.string "")),
+    ("reference", .literal (.string "")),
+    ("decimals", ProofForge.Contract.Surface.read tokenDecimals)
   ]
 
 def mapDelete (mapRef : MapRef) (key : ProofForge.IR.Expr) : EntryM Unit :=
@@ -242,6 +264,7 @@ contract_mixin NearFungibleTokenMixin do
   do registerFtMethods;
   do ProofForge.Contract.Builder.struct storageBalanceDecl;
   do ProofForge.Contract.Builder.struct storageBalanceBoundsDecl;
+  do ProofForge.Contract.Builder.struct fungibleTokenMetadataDecl;
   use ProofForge.Contract.Surface.scalar totalSupply
   use ProofForge.Contract.Surface.scalar tokenDecimals
   use ProofForge.Contract.Surface.scalar tokenName
@@ -270,14 +293,8 @@ contract_mixin NearFungibleTokenMixin do
   query ft_balance_of (account_id : .string) returns(.u128) do
     return mapRead balances account_id;
 
-  query ft_metadata returns(.u64) do
-    return tokenDecimals;
-
-  query ft_metadata_name returns(.u64) do
-    return tokenName;
-
-  query ft_metadata_symbol returns(.u64) do
-    return tokenSymbol;
+  query ft_metadata returns(.structType "FungibleTokenMetadata") do
+    return fungibleTokenMetadataValue;
 
   query storage_balance_bounds returns(.structType "StorageBalanceBounds") do
     return storageBalanceBoundsValue (ProofForge.Contract.Surface.read storageRequired);

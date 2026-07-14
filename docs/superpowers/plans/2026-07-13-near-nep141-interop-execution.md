@@ -18,7 +18,7 @@ the broader completion work visible while each landing remains reviewable.
 | N-T1 | done (`38def4de`) | Schema-driven JSON ABI, structured output/client types, order/escape policy | N-T0 |
 | N-T2 | done (2026-07-14) | Standard `ft_transfer_call`, exact one yocto, receiver registration | N-T1 |
 | N-T3 | done (2026-07-14) | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | N-T1 |
-| N-T4 | pending | NEP-148 metadata and NEP-297 event envelopes | N-T1 |
+| N-T4 | in progress (NEP-148 verified 2026-07-14) | NEP-148 metadata and NEP-297 event envelopes | N-T1 |
 | N-T5 | pending | One parameterized TokenSpec -> NEP-141 executable artifact | N-T1 foundation; may proceed alongside N-T3 |
 | N-T6 | pending | Current JSON/U128 sandbox differential with verified reports | N-T2, N-T3, N-T4 |
 | N-T7 | pending | Executed receipt chain, testnet runner, deployment evidence, gas bands | N-T6 |
@@ -380,8 +380,11 @@ yoctoNEAR. `just near-vm-nep145` proves the positive lifecycle, exact-one-yocto
 failures, underfunding, force protection/burn, refund actions, and storage
 restoration on the unmodified upstream VM.
 
-N-T4 remains in this phase: NEP-148 metadata object
-`{spec, name, symbol, decimals, …}` and NEP-297 `EVENT_JSON` envelopes. The
+N-T4 NEP-148 metadata is complete: `ft_metadata` has the strict zero-argument
+JSON ABI and returns the structured
+`{spec, name, symbol, icon, reference, decimals}` object. The
+`just near-vm-nep148` gate compiles the public FT source and proves the exact
+JSON bytes on the unmodified upstream VM. NEP-297 `EVENT_JSON` envelopes remain. The
 compare-harness `storage-deposit -> verified: yes` evidence remains N-T6 and is
 not implied by the N-T3 VM gate.
 

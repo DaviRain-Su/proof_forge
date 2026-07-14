@@ -53,6 +53,36 @@ def ftSupplyModule : Module := {
   entrypoints := #[ftSupplyEntrypoint]
 }
 
+def metadataStruct : StructDecl := {
+  name := "FungibleTokenMetadata"
+  fields := #[
+    { id := "spec", type := .string }, { id := "name", type := .string },
+    { id := "symbol", type := .string }, { id := "icon", type := .string },
+    { id := "reference", type := .string }, { id := "decimals", type := .u64 }
+  ]
+}
+
+def ftMetadataEntrypoint : Entrypoint := {
+  name := "ft_metadata"
+  mutability := .view
+  returns := .structType "FungibleTokenMetadata"
+  body := #[.return (.structLit "FungibleTokenMetadata" #[
+    ("spec", .literal (.string "ft-1.0.0")),
+    ("name", .literal (.string "ProofForge Token")),
+    ("symbol", .literal (.string "PFT")),
+    ("icon", .literal (.string "")),
+    ("reference", .literal (.string "")),
+    ("decimals", .literal (.u64 18))
+  ])]
+}
+
+def ftMetadataModule : Module := {
+  name := "NearFtMetadataJson"
+  structs := #[metadataStruct]
+  state := #[]
+  entrypoints := #[ftMetadataEntrypoint]
+}
+
 def jsonSchemaStructs : Array StructDecl := #[{
   name := "StorageBalance"
   fields := #[
@@ -230,6 +260,32 @@ def main : IO Unit := do
     "NEAR ft_total_supply must use the JSON U128 return helper"
   require (supplyWat.contains "i64.const 2" && supplyWat.contains "i32.const 123")
     "NEAR ft_total_supply must validate the canonical empty JSON object"
+  let metadataAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan
+      #[metadataStruct] ftMetadataEntrypoint with
+    | .ok plan => pure plan
+    | .error message => throw <| IO.userError message
+  require (metadataAbi.inputCodec == .json && metadataAbi.outputCodec == .json)
+    "NEAR ft_metadata must use standard JSON input/output"
+  require ((metadataAbi.outputJson?.bind (·.root?) |>.map (fun root =>
+      root.fields.map (·.wireName))) ==
+      some #["spec", "name", "symbol", "icon", "reference", "decimals"])
+    "ft_metadata JSON schema must expose the NEP-148 metadata fields"
+  let metadataPlan ← match ProofForge.Backend.WasmHost.NearModulePlan.buildNearModulePlan
+      ftMetadataModule with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError error.message
+  let metadataWat ← match ProofForge.Backend.WasmHost.NearModulePlan.renderModuleFromPlan
+      ftMetadataModule metadataPlan with
+    | .ok wat => pure wat
+    | .error error => throw <| IO.userError error.message
+  require (metadataWat.contains "call $__pf_return_json_ft_metadata")
+    "NEAR ft_metadata must route its struct through the schema-driven JSON return helper"
+  match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan #[metadataStruct]
+      { ftMetadataEntrypoint with returns := .u64 } with
+  | .ok _ => throw <| IO.userError "invalid ft_metadata signature did not fail closed"
+  | .error message =>
+      require (message.contains "must have signature")
+        "invalid ft_metadata signature must be actionable"
   let transferAbi ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildEntrypointPlan #[] ftTransferEntrypoint with
     | .ok plan => pure plan
     | .error message => throw <| IO.userError message

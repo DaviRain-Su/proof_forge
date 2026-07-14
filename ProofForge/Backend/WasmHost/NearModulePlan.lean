@@ -162,11 +162,14 @@ def buildNearModulePlan (mod : Module) : Except PlanError NearModulePlan := do
     | .error message => .error { message }
   let scalars := buildScalars mod
   let maps := buildMaps mod
-  let strsInfos := stringPool mod
+  let loweringCtx := EmitWat.loweringCtxForModule mod
+  let strsInfos := loweringCtx.strings
   let stringPoolEnd := stringInfoEnd STRING_BASE strsInfos
   let strs := strsInfos.map fun s => { str := s.str, ptr := s.ptr, len := s.len : NearStringPoolEntry }
-  let panics := buildPanics mod stringPoolEnd
-  let crosscallStrs := buildCrosscallStrings mod
+  let panics := loweringCtx.panics.map fun s =>
+    { str := s.str, ptr := s.ptr, len := s.len : NearStringPoolEntry }
+  let crosscallStrs := loweringCtx.crosscallStrings.map fun s =>
+    { str := s.str, ptr := s.ptr, len := s.len : NearStringPoolEntry }
   .ok {
     moduleName := mod.name,
     targetId := "wasm-near",
