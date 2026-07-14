@@ -75,6 +75,14 @@ def eip712PermitDigestSig : HostOpSig := {
   requiredCapabilities := #[.cryptoEcrecover]
 }
 
+def create2Sig : HostOpSig := {
+  id := { namespace_ := "evm.create", name := "create2", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[.u128, .hash, .string]
+  results := #[.address]
+  effectClass := .external
+  requiredCapabilities := #[.crosscallInvoke]
+}
+
 /-- Legacy `contract_source` currently canonicalizes EVM account handles to
 `u64`; the EVM plan widens them to full words. The HostOp signature records
 that real boundary instead of claiming Core `.address` values prematurely. -/
@@ -111,6 +119,7 @@ def signatures : Array HostOpSig := #[
   blockHashSig,
   ecrecoverSig,
   eip712PermitDigestSig,
+  create2Sig,
   erc721ReceivedSig,
   erc1155ReceivedSig,
   erc1155BatchReceivedSig

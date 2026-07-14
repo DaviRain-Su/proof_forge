@@ -162,7 +162,19 @@ private def lookupValueName (env : CorePlanEnv) (id : ValueId) : Except PlanErro
   | none => .error { message := s!"EVM Core plan references unknown value {id.value}" }
 
 private def valueExpr (env : CorePlanEnv) (value : ValueRef) : Except PlanError ExprPlan := do
+  match env.literals.find? (fun entry => entry.fst == value.id) with
+  | some (_, .stringLit literal) =>
+      unless literal.toNat?.isSome do
+        throw { message := "non-numeric string literals are plan metadata and cannot be runtime EVM values" }
+  | some (_, .bytesLit _) =>
+      throw { message := "bytes literals are not yet materialized as runtime EVM values" }
+  | _ => pure ()
   .ok (.local (← lookupValueName env value.id))
+
+private def literalString (env : CorePlanEnv) (value : ValueRef) : Except PlanError String :=
+  match env.literals.find? (fun entry => entry.fst == value.id) with
+  | some (_, .stringLit literal) => .ok literal
+  | _ => .error { message := "EVM create init code must be a compile-time string literal" }
 
 private def lookupStateName (env : CorePlanEnv) (id : StateId) : Except PlanError String :=
   match env.stateNames.find? (fun entry => entry.fst == id) with
@@ -315,6 +327,12 @@ are mapped. Unsupported ops fail closed. -/
 def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
     Except PlanError (Array StmtPlan) :=
   match instr.op with
+  | .pure (.literal (.stringLit literal)) =>
+      if literal.toNat?.isSome then do
+        .ok #[StmtPlan.letBind (resultName instr) (← coreLiteralPlanType (.stringLit literal))
+          (← coreLiteralToExprPlan (.stringLit literal))]
+      else
+        .ok #[]
   | .pure (.literal lit) => do
       .ok #[StmtPlan.letBind (resultName instr) (← coreLiteralPlanType lit)
         (← coreLiteralToExprPlan lit)]
@@ -480,6 +498,13 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
               (← valueExpr env value) (← valueExpr env nonce)
               (← valueExpr env deadline) (← valueExpr env domainSep))]
         | _ => .error { message := s!"target extension `{call.id.render}` expects 6 arguments" }
+      else if call.id == ProofForge.Target.HostOps.Evm.create2Sig.id then
+        match call.args with
+        | #[callValue, salt, initCode] => do
+            .ok #[StmtPlan.letBind (resultName instr) .address
+              (.create .create2 (← valueExpr env callValue) (some (← valueExpr env salt))
+                (← literalString env initCode))]
+        | _ => .error { message := s!"target extension `{call.id.render}` expects 3 arguments" }
       else if call.id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
         match call.args with
         | #[operator, fromAddr, toAddr, tokenId] => do
@@ -694,6 +719,32 @@ private def coreErrorPlans
     errors := errors.push (encoding.errorId, errorRef?)
   return errors
 
+private def pushCreateSpec
+    (specs : Array CreateHelperSpec) (spec : CreateHelperSpec) : Array CreateHelperSpec :=
+  if specs.contains spec then specs else specs.push spec
+
+mutual
+  private partial def coreCreateSpecsFromStmtPlan : StmtPlan → Array CreateHelperSpec
+    | .letBind _ _ (.create mode _ _ initCodeHex)
+    | .letMutBind _ _ (.create mode _ _ initCodeHex) =>
+        #[{ mode, initCodeHex }]
+    | .ifElse _ thenBody elseBody =>
+        coreCreateSpecsFromStmtPlans thenBody |>.foldl pushCreateSpec
+          (coreCreateSpecsFromStmtPlans elseBody)
+    | .boundedFor _ _ _ body => coreCreateSpecsFromStmtPlans body
+    | _ => #[]
+
+  private partial def coreCreateSpecsFromStmtPlans
+      (statements : Array StmtPlan) : Array CreateHelperSpec :=
+    statements.foldl (init := #[]) fun specs statement =>
+      (coreCreateSpecsFromStmtPlan statement).foldl pushCreateSpec specs
+end
+
+private def coreCreateHelperSpecs
+    (entrypoints : Array EntrypointPlan) : Array CreateHelperSpec :=
+  entrypoints.foldl (init := #[]) fun specs entrypoint =>
+    (coreCreateSpecsFromStmtPlans entrypoint.body).foldl pushCreateSpec specs
+
 /-- Build an EVM ModulePlan from a checked canonical contract.
 This reuses the existing ModulePlan structure — no parallel plan types. -/
 def buildFromCore (checked : CheckedCanonicalContract)
@@ -796,6 +847,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
       DispatchDefaultPlan.uupsProxy
     else
       DispatchDefaultPlan.revert
+  let creates := coreCreateHelperSpecs entrypoints
   .ok {
     name := iface.contractName
     targetPlan := capPlan
@@ -806,7 +858,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     dispatch := { entrypoints, default := dispatchDefault }
     events
     crosscalls
-    creates := #[]
+    creates
     localArrayGetLengths := #[]
     nestedLocalArrayGetShapes := #[]
     usesCheckedArithmetic

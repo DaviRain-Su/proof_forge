@@ -5,7 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 CREATE2 factory template mixin for deterministic EVM deployments via `contract_source`.
 Embeds fixed init-code hex and exposes `deploy(salt)` plus `templateInitCodeHash` metadata.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Evm
 
 namespace ProofForge.Contract.Stdlib.Create2Factory
 
@@ -40,7 +40,8 @@ contract_mixin Create2FactoryMixin do
     accepts_callvalue;
     do ProofForge.Contract.Surface.bind deployedAddress
       (ProofForge.Contract.Surface.cast
-        (create2Deploy nativeValue (ProofForge.Contract.Surface.ref salt) Spec.templateInitCodeHex)
+        (ProofForge.Contract.Source.Evm.create2Deploy
+          nativeValue (ProofForge.Contract.Surface.ref salt) Spec.templateInitCodeHex)
         .address);
     emit Deployed indexed #[
       fieldAsName "addr" (ProofForge.Contract.Surface.ref deployedAddress),

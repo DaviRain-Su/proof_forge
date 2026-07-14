@@ -20,6 +20,12 @@ def eip712PermitDigest
   .hostCall ProofForge.Target.HostOps.Evm.eip712PermitDigestSig.id
     #[owner, spender, value, nonce, deadline, domainSep] .hash #[.cryptoEcrecover]
 
+/-- EVM CREATE2 deployment with fixed init-code bytes. -/
+def create2Deploy (callValue salt : ProofForge.IR.Expr) (initCodeHex : String) :
+    ProofForge.IR.Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.create2Sig.id
+    #[callValue, salt, .literal (.string initCodeHex)] .address #[.crosscallInvoke]
+
 def checkErc721Received (operator fromAddr toAddr tokenId : ProofForge.IR.Expr) :
     EntryM Unit :=
   ProofForge.Contract.Builder.effect

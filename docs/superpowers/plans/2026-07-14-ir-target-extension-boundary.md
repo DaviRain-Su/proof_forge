@@ -127,6 +127,10 @@ Progress (2026-07-14):
 - The legacy ERC effect constructors and portable Surface helpers are deleted.
   Generic HostOps now enter EVM `EffectPlan` directly; no EVM lowering path
   reconstructs a legacy shared-IR receiver node.
+- CREATE2 authoring is now owned exclusively by `Contract.Source.Evm`; it emits
+  the typed `evm.create/create2@1.0.0` HostOp, and the EVM Core planner consumes
+  its literal init-code metadata into `ExprPlan.create`. The generic `Surface`
+  and portable `Source` no longer export it.
 
 1. [x] Move EIP-712, ERC receiver, and EVM context behavior into target-owned
    HostOps. Delete the obsolete shared constructors after all legacy-only
@@ -137,7 +141,10 @@ Progress (2026-07-14):
    shared/non-EVM match arms are deleted. Packed layout and Yul helper emission
    now exist only in the EVM plan/backend.
 3. Classify create/static/delegate behavior as portable semantics or explicit
-   target extensions and migrate accordingly.
+   target extensions and migrate accordingly. CREATE2 product authoring now
+   uses an explicit EVM HostOp; legacy fixture constructors still require
+   deletion. Static/delegate already have neutral Core modes but their legacy
+   authoring surface remains to migrate.
 4. Delete EVM/protocol-specific `Expr` and `Effect` constructors.
 
 ## IR-B5 - Solana Extension Audit and Cleanup

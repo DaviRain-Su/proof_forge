@@ -907,9 +907,6 @@ def callValueU128 : ProofForge.IR.Expr :=
 def hash4 (a b c d : Nat) : ProofForge.IR.Expr :=
   ProofForge.Contract.Surface.hash4 a b c d
 
-def create2Deploy (callValue salt : ProofForge.IR.Expr) (initCodeHex : String) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.create2Deploy callValue salt initCodeHex
-
 macro "array_get " arr:ident idx:term : term => `(ProofForge.Contract.Source.arrayGet $arr $idx)
 
 end ProofForge.Contract.Source

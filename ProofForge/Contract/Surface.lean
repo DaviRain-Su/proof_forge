@@ -442,12 +442,6 @@ def remoteCallRef (remote : RemoteRef) (args : Array ProofForge.IR.Expr) :
 def hash4 (a b c d : Nat) : ProofForge.IR.Expr :=
   .literal (.hash4 a b c d)
 
-/-- EVM family-only CREATE2 deploy (init-code hex). **Not portable** — banned in
-`Examples/Product` (`just portable-default`). Prefer portable `remoteCallRef` for
-cross-contract intent; keep CREATE2 in EVM fixtures only (T4.3). -/
-def create2Deploy (callValue salt : ProofForge.IR.Expr) (initCodeHex : String) : ProofForge.IR.Expr :=
-  .crosscallCreate2 callValue salt initCodeHex
-
 /-- Continue an asynchronous invocation with a local callback. -/
 def crosscallContinue (parentPromise callbackMethod : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
     (deposit : ProofForge.IR.Expr) (argNames : Array String := #[]) : ProofForge.IR.Expr :=

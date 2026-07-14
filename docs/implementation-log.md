@@ -2832,3 +2832,26 @@ Rules:
   modules, `Tests/AbiEncode.lean`, `just ir-target-boundary`,
   `just legacy-freeze`, and `git diff --check`. No full `just check` ran.
 - Next: classify and migrate legacy create/static/delegate call modes.
+
+## 2026-07-14 - EVM-R1h: canonical target-owned CREATE2
+
+- Status: `done (verified 2026-07-14)`; legacy CREATE/CREATE2 IR removal remains
+  part of EVM-R1.
+- Moved `create2Deploy` from generic `Contract.Surface`/`Contract.Source` to
+  `Contract.Source.Evm` and switched `Create2Factory` to the EVM facade. The
+  facade emits `evm.create/create2@1.0.0` rather than a legacy CREATE2 node.
+- Added the exact external HostOp signature and EVM Core-plan handler. Runtime
+  call value/salt remain typed Core values; compile-time init code becomes
+  target-plan metadata and is rejected as a general runtime string value.
+- Added Canonical-plan CREATE helper discovery without calling the legacy IR
+  scanner, so final Yul contains the required CREATE2 helper.
+- Added `EvmCreateHostOp` coverage for exact ID, strict EVM acceptance,
+  NEAR/Solana rejection, semantic plan shape, and helper discovery.
+- Corrected authoring documentation and the backend example wrapper so this
+  stdlib is no longer described as portable.
+- Verification passed: targeted Source/Source.Evm/Create2Factory/Core-plan
+  builds, `Tests/Canonical/EvmCreateHostOp.lean`, the EVM Create2Factory fixture
+  build and final bytecode compile smoke, `just hostop-protocol`,
+  `just ir-target-boundary`, and `git diff --check`.
+- Next: introduce target-owned CREATE/CREATE2 requests in the canonical route,
+  then delete the corresponding legacy shared constructors.
