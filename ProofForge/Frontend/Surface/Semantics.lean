@@ -68,6 +68,7 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
     match entries[index]? with
     | some value => return value
     | none => .error s!"arrayOutOfBounds: {name}[{index}]"
+  | .memoryArray _ _ => .error "memory arrays require the Core reference semantics"
   | .arith op checked lhs rhs => do
     let l ← evalExpr lhs st locals
     let r ← evalExpr rhs st locals
@@ -87,6 +88,7 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
   | .hostCall _ _ => .ok 0  /- Host calls are opaque in reference semantics. -/
   | .crosscall .. => .ok 0  /- External results are opaque in reference semantics. -/
   | .hashPair lhs rhs => return (← evalExpr lhs st locals) * 16777619 + (← evalExpr rhs st locals)
+  | .index _ _ => .error "memory array indexing requires the Core reference semantics"
   | _ => .error "unsupported expression in reference semantics"
 
 /-- Execute a list of Surface statements. -/

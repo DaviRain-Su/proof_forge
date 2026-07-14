@@ -78,6 +78,7 @@ inductive SurfaceExpr
   | stateRead (stateName : String)
   | mapRead (stateName : String) (key : SurfaceExpr)
   | arrayRead (stateName : String) (index : SurfaceExpr)
+  | memoryArray (elementType : SurfaceType) (values : Array SurfaceExpr)
   | field (base : SurfaceExpr) (fieldName : String)
   | index (base : SurfaceExpr) (idx : SurfaceExpr)
   | unary (op : SurfaceUnaryOp) (arg : SurfaceExpr)

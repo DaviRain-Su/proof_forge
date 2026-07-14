@@ -47,14 +47,20 @@ def exprType (e : SurfaceExpr) : SurfaceM CoreType := do
   | .stateRead name => stateScalarType name
   | .mapRead name _ => return (← stateMapTypes name).2
   | .arrayRead name _ => stateArrayType name
+  | .memoryArray elementType _ =>
+      return .memoryRef (← resolveSurfaceType (← get).env.typeIds elementType)
   | .contextRead field => return (contextFieldType (adaptContextField field))
   | .hostCall _ _ => return .u64
   | .crosscall _ _ _ _ returnType =>
       resolveSurfaceType (← get).env.typeIds returnType
   | .nativeValue => return .u128
   | .unary .neg arg => exprType arg
-  | .field _ _ | .index _ _ =>
-    throw (SurfaceNormalizeError.unsupportedSurface "field/index" "field/index access not in initial fragment")
+  | .index base _ =>
+      match ← exprType base with
+      | .memoryRef element => return element
+      | other => throw (SurfaceNormalizeError.typeMismatch "memory reference" (reprStr other))
+  | .field _ _ =>
+    throw (SurfaceNormalizeError.unsupportedSurface "field" "field access not in initial fragment")
 
 /-- Normalize a Surface expression into ANF instructions plus a result ValueRef. -/
 partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
@@ -134,6 +140,23 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       return {
         instructions := normalizedIndex.instructions ++ loaded.instructions,
         value := loaded.value }
+  | .memoryArray elementType values =>
+      let coreElement ← liftExcept (resolveSurfaceType (← get).env.typeIds elementType)
+      let length ← emitValueInstruction (.pure (.literal (.u64Lit values.size))) .u64
+      let allocated ← emitValueInstruction (.memoryAlloc coreElement length.value) (.memoryRef coreElement)
+      let mut instructions := length.instructions ++ allocated.instructions
+      let mut index := 0
+      for value in values do
+        let normalizedValue ← normalizeExpr value
+        unless normalizedValue.value.type == coreElement do
+          throw (SurfaceNormalizeError.typeMismatch (reprStr coreElement)
+            (reprStr normalizedValue.value.type))
+        let normalizedIndex ← emitValueInstruction (.pure (.literal (.u64Lit index))) .u64
+        instructions := instructions ++ normalizedValue.instructions ++ normalizedIndex.instructions
+        instructions := instructions.push {
+          results := #[], op := .memoryStore allocated.value normalizedIndex.value normalizedValue.value }
+        index := index + 1
+      return { instructions := instructions, value := allocated.value }
   | .contextRead field =>
       let coreField := adaptContextField field
       let resultType := contextFieldType coreField
@@ -187,7 +210,19 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
     return { instructions := instructions, value := normalizedCall.value }
   | .field _ _ =>
       throw (SurfaceNormalizeError.unsupportedSurface "SurfaceExpr.field" "field projection not in initial fragment")
-  | .index _ _ =>
-      throw (SurfaceNormalizeError.unsupportedSurface "SurfaceExpr.index" "index access not in initial fragment")
+  | .index base index =>
+      let normalizedBase ← normalizeExpr base
+      let elementType ← match normalizedBase.value.type with
+        | .memoryRef element => pure element
+        | other => throw (SurfaceNormalizeError.typeMismatch "memory reference" (reprStr other))
+      let normalizedIndex ← normalizeExpr index
+      unless normalizedIndex.value.type == .u64 do
+        throw (SurfaceNormalizeError.typeMismatch (reprStr CoreType.u64)
+          (reprStr normalizedIndex.value.type))
+      let loaded ← emitValueInstruction
+        (.memoryLoad normalizedBase.value normalizedIndex.value) elementType
+      return {
+        instructions := normalizedBase.instructions ++ normalizedIndex.instructions ++ loaded.instructions,
+        value := loaded.value }
 
 end ProofForge.Frontend.Surface

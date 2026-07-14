@@ -3190,3 +3190,18 @@ Rules:
 - Verification: targeted context/product builds,
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
+
+## 2026-07-14 - EVM-R2i: direct local-memory array product
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
+- Added a portable Surface `memoryRef` type and memory-array expression that
+  normalize into Canonical Core `memoryAlloc`, `memoryStore`, and `memoryLoad`
+  instructions. The EVM Core planner now maps those nodes into its existing
+  memory-array plan and Yul helpers; transaction-scoped EVM memory release is
+  an explicit no-op.
+- Added a direct ArrayExample preserving local array construction/indexing and
+  a focused gate that checks exact Core instruction counts plus emitted EVM
+  helpers.
+- Verification: `lake env lean --run Tests/Canonical/SurfaceMemoryArray.lean`,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, targeted Core
+  validation, and `git diff --check`.

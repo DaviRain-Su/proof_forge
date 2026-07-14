@@ -49,6 +49,7 @@ def resolveSurfaceType (typeIds : Std.HashMap String TypeId)
   | .hash => .ok .hash
   | .fixedArray elem len => do .ok (.fixedArray (← resolveSurfaceType typeIds elem) len)
   | .array elem => do .ok (.array (← resolveSurfaceType typeIds elem))
+  | .memoryRef elem => do .ok (.memoryRef (← resolveSurfaceType typeIds elem))
   | .structType name =>
     match Std.HashMap.get? typeIds name with
     | some id => .ok (.structType id)

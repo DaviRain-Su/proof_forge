@@ -23,6 +23,7 @@ inductive SurfaceType
   | hash
   | fixedArray (element : SurfaceType) (length : Nat)
   | array (element : SurfaceType)
+  | memoryRef (element : SurfaceType)
   | structType (name : String)
   deriving BEq, Repr
 

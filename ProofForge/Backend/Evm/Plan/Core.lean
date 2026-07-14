@@ -582,14 +582,21 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       .error { message := "storageLength not yet supported in EVM Core plan builder" }
   | .storageResize _ _ =>
       .error { message := "storageResize not yet supported in EVM Core plan builder" }
-  | .memoryAlloc _ _ =>
-      .error { message := "memoryAlloc not yet supported in EVM Core plan builder" }
-  | .memoryLoad _ _ =>
-      .error { message := "memoryLoad not yet supported in EVM Core plan builder" }
-  | .memoryStore _ _ _ =>
-      .error { message := "memoryStore not yet supported in EVM Core plan builder" }
+  | .memoryAlloc type length => do
+      .ok #[StmtPlan.letBind (resultName instr) (coreTypeToValueType (.memoryRef type))
+        (.memoryArrayNew (coreTypeToValueType type) (← valueExpr env length))]
+  | .memoryLoad base index => do
+      let resultType ← match instr.results[0]? with
+        | some result => pure (coreTypeToValueType result.type)
+        | none => throw { message := "memoryLoad is missing its Core result" }
+      .ok #[StmtPlan.letBind (resultName instr) resultType
+        (.memoryArrayGet (← valueExpr env base) (← valueExpr env index))]
+  | .memoryStore base index value => do
+      .ok #[StmtPlan.effect (.memoryArraySet
+        (← valueExpr env base) (← valueExpr env index) (← valueExpr env value))]
   | .memoryRelease _ =>
-      .error { message := "memoryRelease not yet supported in EVM Core plan builder" }
+      -- EVM linear memory is transaction-scoped; release has no runtime effect.
+      .ok #[]
 
 /-- Map a Core function to EVM entrypoint plan entries (body statements).
 Only the entry block is mapped for the initial fragment; control flow
