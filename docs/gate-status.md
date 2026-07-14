@@ -163,6 +163,20 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | A-CUT3b2-4 | NEAR address representation remains target-owned | ✅ met | Wasm-host parameter, scalar storage, event, and return lowering materializes portable address values as the target's i64 carrier; final `wat2wasm` validation passes |
 | A-CUT3b2-5 | EVM plan metadata retains the shared artifact schema | ✅ met | the plan-only event writer emits `topics` and `dataWords`; metadata validation checks the standard `transferOwnership(address)` selector `f2fde38b` and the 160-bit address layout |
 
+## Gate CMP-3d1 - Independent Ownable reference contracts
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3d1-1 | Every primary target has an independent native reference | ✅ met | `6e1df78b` pins Solidity, Pinocchio Rust, and near-sdk Rust sources; none imports ProofForge compiler or IR modules |
+| CMP-3d1-2 | The logical lifecycle includes authorization failures and one-shot initialization | ✅ met | the ten-step v1 scenario covers unauthorized transfer/renounce, zero-address transfer, ownership events, state-preserving failures, renounce, and rejected reinitialization after owner becomes zero |
+| CMP-3d1-3 | Native sources build with pinned target toolchains | ✅ met | `solc` 0.8.30 compiles Solidity; Pinocchio host check and cargo-build-sbf 3.1.12/platform-tools v1.52 pass; near-sdk host tests and Rust 1.94.0 Wasm build pass |
+| CMP-3d1-4 | Pinned sources do not overclaim semantic equivalence | ✅ met | `just differential-contracts` validates all digests and records the three references plus scenario as `semanticEvidence=none`; inventory is 106 assets with exactly 12 verified assets |
+| CMP-3d1-5 | No compatibility compiler route is introduced | ✅ met | all comparison code remains under `benchmarks/`, `testkit/`, and `scripts/differential/`; the unused benchmark v0 manifest was deleted and CMP-3d2 owns removal of the still-called NEAR v0 test manifest |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

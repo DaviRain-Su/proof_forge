@@ -156,6 +156,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT3b2-4 | NEAR address 表示保持 target-owned | ✅ met | Wasm-host 参数、标量存储、事件和返回 lowering 将 portable address 物化为 target 的 i64 carrier；最终 `wat2wasm` 验证通过 |
 | A-CUT3b2-5 | EVM plan metadata 保持共享 artifact schema | ✅ met | plan-only event writer 发射 `topics` 与 `dataWords`；metadata validator 检查标准 `transferOwnership(address)` selector `f2fde38b` 与 160-bit address layout |
 
+## Gate CMP-3d1 —— 独立 Ownable reference 契约
+
+**状态：已关闭**
+
+**关闭日期：2026-07-14**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-3d1-1 | 每个主目标都有独立原生 reference | ✅ met | `6e1df78b` 固定 Solidity、Pinocchio Rust 与 near-sdk Rust source；均不导入 ProofForge compiler 或 IR module |
+| CMP-3d1-2 | 逻辑生命周期包含授权失败和一次性初始化 | ✅ met | 十步 v1 场景覆盖未授权 transfer/renounce、零地址 transfer、所有权事件、失败后状态保持、renounce，以及 owner 归零后拒绝重新初始化 |
+| CMP-3d1-3 | 原生 source 由固定目标工具链构建 | ✅ met | `solc` 0.8.30 编译 Solidity；Pinocchio host check 和 cargo-build-sbf 3.1.12/platform-tools v1.52 通过；near-sdk host test 与 Rust 1.94.0 Wasm build 通过 |
+| CMP-3d1-4 | 已固定 source 不虚报语义等价 | ✅ met | `just differential-contracts` 验证全部 digest，并把三份 reference 加场景记录为 `semanticEvidence=none`；inventory 共 106 项，恰有 12 项 verified |
+| CMP-3d1-5 | 不引入兼容编译路线 | ✅ met | 所有 comparison code 保持在 `benchmarks/`、`testkit/` 与 `scripts/differential/`；未使用的 benchmark v0 manifest 已删除，仍有调用方的 NEAR v0 测试 manifest 由 CMP-3d2 删除 |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

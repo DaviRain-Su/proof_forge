@@ -4334,3 +4334,29 @@ Rules:
   which still exports no `AuthoredContract`; Pausable and ReentrancyGuard are
   subsequent A-CUT3 deletion migrations, not reasons to restore Legacy. No full
   aggregate was run.
+
+## 2026-07-14 - CMP-3d1: pin independent Ownable references
+
+- Status: `done (verified at 6e1df78b)`; CMP-3d2 native VM execution is now
+  active and the four new inventory assets remain deliberately unverified.
+- Upgraded the independent Solidity and near-sdk Ownable references to retain
+  one-shot initialization after renounce and emit ordered
+  `OwnershipTransferred` observations. Added a separate Pinocchio program with
+  signer/writable/owner checks, target-native numeric event logs, return data,
+  classified errors, and a 16-byte owner-plus-initialized state layout.
+- Added three complete v1 provenance manifests and a ten-step scenario covering
+  initialization, queries, unauthorized and zero-address transfer failures,
+  transfer, unauthorized and authorized renounce, final zero owner, and rejected
+  reinitialization. Source digests and the absence of ProofForge imports are
+  enforced by the focused contract test.
+- Deleted the unused benchmark v0 manifest. The still-called NEAR v0 test
+  manifest is deletion work in CMP-3d2; no adapter, fallback, dual-write, or
+  production compatibility route was added.
+- The inventory now contains 106 assets and still exactly 12 verified assets;
+  all four new Ownable assets have `semanticEvidence=none` until all three VM
+  comparisons execute.
+- Verification: pinned `solc` 0.8.30 compilation; `cargo check` and
+  cargo-build-sbf 3.1.12/platform-tools v1.52 for the Pinocchio reference;
+  near-sdk host tests and Rust 1.94.0 release Wasm build; `just
+  differential-contracts`; `just docs-check`; and `git diff --check`. No full
+  aggregate was run.

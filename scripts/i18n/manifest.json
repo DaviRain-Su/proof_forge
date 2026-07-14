@@ -39,7 +39,7 @@
     "note": "initial native differential validation design"
   },
   "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
-    "sha256": "12a6c80bb616072a0dccec7c0e759beece633b34c3b37fab835184e67ec3f0c2",
+    "sha256": "7a47a84c5654ebfe9cefbbc329816d46d708c3cd272d23b80b9d2899349fa721",
     "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
     "model": "manual-zh",
     "note": "manually synced through A-CUT3b1 direct authorization authoring"
@@ -73,7 +73,7 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "1c39a2b723e9491bb42d24b5ad90b05225a037b8cf2b8d74cd926e9bb2c70e47",
+    "sha256": "26d50e9d8361f76108d609e9746c5350238d8e0924d4085058d3d241926dd78a",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
     "note": "synced EN/zh through the verified CMP-3 ValueVault primary-triad pilot"
@@ -102,7 +102,7 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "1579a7736aad5847967c10bb9555168b8685aa1454af7977b2b858de3d5e5fa1",
+    "sha256": "d1e768d4c8ae0533f50596f312688a2acd1e0f2a1e95f8e1e2acec3d012d0bef",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
     "note": "manually synced through A-CUT3b1 direct authorization authoring"
@@ -186,7 +186,7 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "0a413b7d3d7ece179eec2be6f2711b0cadbd69b32bc3d6f5c112e17ab14bfc6a",
+    "sha256": "c8eaa49e71a670c0ab6b9a63cbb08e7123f636aa53ecb84f01df1778e611f406",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
     "en_sha256": "0a413b7d3d7ece179eec2be6f2711b0cadbd69b32bc3d6f5c112e17ab14bfc6a"
