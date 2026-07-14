@@ -92,17 +92,17 @@ def main : IO Unit := do
   | .ok wat =>
       require (wat.contains "promise_create") "full fixture promise_create"
       require (wat.contains "promise_then") "extension path materializes promise_then"
-  -- Honest reject when nearCrosscallStrings is empty (no silent EVM CALL).
+  -- Honest reject when crosscallStrings is empty (no silent EVM CALL).
   let bareNear : ProofForge.IR.Module := {
     name := "BareNearCrosscall"
     state := nearProbe.state
     entrypoints := #[ProofForge.IR.Examples.NearCrosscallProbe.callRemote]
   }
   match ProofForge.Backend.WasmHost.EmitWat.renderModule bareNear with
-  | .ok _ => throw (IO.userError "NEAR bare crosscall without nearCrosscallStrings must fail")
+  | .ok _ => throw (IO.userError "NEAR bare crosscall without crosscallStrings must fail")
   | .error e =>
-      require (e.message.contains "nearCrosscallStrings" || e.message.contains "promise")
-        s!"expected nearCrosscallStrings / promise diagnostic, got: {e.message}"
+      require (e.message.contains "crosscallStrings" || e.message.contains "promise")
+        s!"expected crosscallStrings / promise diagnostic, got: {e.message}"
 
   -- Solana: EVM-only STATICCALL is rejected (not silently remapped to CPI).
   -- Peer declared so PortableHonesty empty-peer does not fire before policy.
@@ -110,7 +110,7 @@ def main : IO Unit := do
     name := "StaticOnly"
     state := probe.state
     entrypoints := #[ProofForge.IR.Examples.CrosscallProbe.callRemoteStatic]
-    nearCrosscallStrings := #["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"]
+    crosscallStrings := #["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"]
   }
   match ProofForge.Backend.Solana.SbpfAsm.renderModule staticOnly with
   | .ok _ => throw (IO.userError "Solana must reject STATICCALL")

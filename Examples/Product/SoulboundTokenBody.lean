@@ -32,7 +32,7 @@ contract_source SoulboundTokenBody do
     totalSupply := u64 0;
 
   entry mint (recipient : .u64, amount : .u64) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount)
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount)
       "zero amount";
     let bal : .u64 := mapRead balances recipient;
     do mapWrite balances recipient (bal +! amount);
@@ -41,12 +41,12 @@ contract_source SoulboundTokenBody do
     emit Mint indexed #[fieldAsName "to" recipient] data #[fieldAsName "amount" amount];
 
   entry burn (amount : .u64) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount)
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount)
       "zero amount";
     let who : .u64 := caller;
     let bal : .u64 := mapRead balances who;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref bal)
-      (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref bal)
+      (ProofForge.Contract.Source.ref amount) "insufficient balance";
     do mapWrite balances who (bal -! amount);
     let ts : .u64 := totalSupply;
     totalSupply := ts -! amount;

@@ -77,7 +77,8 @@ def main : IO UInt32 := do
     name := "promise"
     mutability := .view
     «returns» := .u64
-    body := #[.return (.nearPromiseResultsCount)]
+    body := #[.return (.hostCall
+      ProofForge.Target.HostOps.Near.promiseResultsCountSig.id #[] .u64 #[.nearPromise])]
   } "promise"
   requireInvalidView {
     name := "callRemote"

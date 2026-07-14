@@ -3,7 +3,7 @@ import ProofForge.Backend.Solana.Idl
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.Package
 import ProofForge.Contract.Builder
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Legacy
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -50,7 +50,7 @@ def spec : ProofForge.Contract.ContractSpec :=
   ProofForge.Contract.Builder.build "SolanaComputeBudget" do
     ProofForge.Contract.Builder.scalarState "counter" .u64
     ProofForge.Contract.Builder.entry "increment" do
-      ProofForge.Solana.requestComputeBudget "fast_increment"
+      ProofForge.Contract.Source.Solana.Legacy.requestComputeBudget "fast_increment"
         (unitLimit? := some 250000)
         (unitPriceMicroLamports? := some 5000)
       ProofForge.Contract.Builder.effect
@@ -71,7 +71,7 @@ def main : IO UInt32 := do
     match scopedComputeBudgetCall? plan "fast_increment" "increment" with
     | some call => pure call
     | none => throw <| IO.userError "Solana plan missing fast_increment compute-budget advice"
-  require (budgetCall.operation == "solana.compute_budget.instruction")
+  require (budgetCall.operation == .builtin "solana.compute_budget.instruction")
     "fast_increment should lower through solana.compute_budget.instruction"
   requireMetadata budgetCall "solana.extension" "compute_budget"
   requireMetadata budgetCall "solana.compute_budget.op" "instruction"

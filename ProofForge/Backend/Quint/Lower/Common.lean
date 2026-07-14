@@ -440,8 +440,6 @@ def crosscallHashStubExpr (sum : Expr) : Expr :=
 
 def crosscallStaticTagExpr : Expr := .literalInt 1000000
 def crosscallDelegateTagExpr : Expr := .literalInt 2000000
-def crosscallCreateTagExpr : Expr := .literalInt 3000000
-def crosscallCreate2TagExpr : Expr := .literalInt 4000000
 
 partial def lowerCrosscallCastReturnAt (ctx : LowerCtx) (sum : Expr) (offset : Nat) (returnType : ValueType)
     (aggregateSlot : Bool := false) : Except LowerError (Expr × Nat) := do

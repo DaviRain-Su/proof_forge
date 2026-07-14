@@ -36,16 +36,16 @@ def main : IO Unit := do
   let remote := Examples.Product.RemoteCall.module
 
   -- C.6: Shared holds logical peers; deploy PeerMap rewrites host ids.
-  require (!remote.nearCrosscallStrings.isEmpty)
+  require (!remote.crosscallStrings.isEmpty)
     "declareRemoteUnit must populate host string pool for Wasm materialize"
-  require (remote.nearCrosscallStrings[0]? == some "peer.callee")
+  require (remote.crosscallStrings[0]? == some "peer.callee")
     "logical peer id in Shared (not chain account)"
-  require (remote.nearCrosscallStrings[1]? == some "remote_call")
+  require (remote.crosscallStrings[1]? == some "remote_call")
     "method id registered"
   let deployed := PeerMap.applyToModule remote PeerMap.nearDemo
-  require (deployed.nearCrosscallStrings[0]? == some "callee.example.near")
+  require (deployed.crosscallStrings[0]? == some "callee.example.near")
     "PeerMap.nearDemo rewrites peer.callee → callee.example.near"
-  require (deployed.nearCrosscallStrings[1]? == some "remote_call")
+  require (deployed.crosscallStrings[1]? == some "remote_call")
     "unmapped method id stays as declared"
 
   -- Ownable: business guard_owner / require* → each backend's native fail.

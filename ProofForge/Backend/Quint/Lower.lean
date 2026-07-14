@@ -79,10 +79,6 @@ mutual
         lowerCrosscallInvokeDelegateTypedExpr ctx target methodId args returnType
     | .nativeValue =>
         .ok (.literalInt 0)
-    | .crosscallCreate callValue _ =>
-        lowerCrosscallCreateExpr ctx callValue
-    | .crosscallCreate2 callValue salt _ =>
-        lowerCrosscallCreate2Expr ctx callValue salt
     | _ => .error { message := "unsupported IR expression for Quint lowering v1" }
 
   /-- Flatten one crosscall argument (scalar or aggregate) into a deterministic int contribution. -/
@@ -190,18 +186,6 @@ mutual
       (args : Array ProofForge.IR.Expr) (returnType : ValueType) : Except LowerError Expr := do
     let sum ← lowerCrosscallInvokeSumExpr ctx target methodId args
     lowerCrosscallCastReturn ctx (.binOp .add sum crosscallDelegateTagExpr) returnType
-
-  partial def lowerCrosscallCreateExpr (ctx : LowerCtx) (callValue : ProofForge.IR.Expr) :
-      Except LowerError Expr := do
-    let callValue' ← lowerExpr ctx callValue
-    pure (.binOp .add callValue' crosscallCreateTagExpr)
-
-  partial def lowerCrosscallCreate2Expr (ctx : LowerCtx) (callValue salt : ProofForge.IR.Expr) :
-      Except LowerError Expr := do
-    let callValue' ← lowerExpr ctx callValue
-    let salt' ← lowerExpr ctx salt
-    let saltInt := crosscallArgToIntExpr salt' .hash
-    pure (.binOp .add (.binOp .add callValue' saltInt) crosscallCreate2TagExpr)
 
   partial def lowerMapKeyExpr (ctx : LowerCtx) (key : ProofForge.IR.Expr) : Except LowerError Expr :=
     match key with
@@ -587,7 +571,7 @@ mutual
         .ok (ctx.stateValue (structFieldVarName stateId fieldName))
     | .contextRead field =>
         match field with
-        | .userId | .contractId | .checkpointId | .timestamp | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
+        | .userId | .contractId | .checkpointId | .timestamp | .chainId | .gasLeft | .prepaidGas | .usedGas =>
             .ok (.literalInt 0)
         | _ => .error { message := s!"unsupported context field for Quint lowering v1: {field.name}" }
     | _ => .error { message := "unsupported effect as expression for Quint lowering v1" }

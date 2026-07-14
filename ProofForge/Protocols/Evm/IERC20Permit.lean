@@ -14,11 +14,11 @@ this client or portable protocol method id `permit`.
 
 Scalar-bounded: `v` is a u64 word (0/1/27/28); `r`/`s` are hash-width words.
 -/
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 
 namespace ProofForge.Protocols.Evm.IERC20Permit
 
-open ProofForge.Contract.Surface
+open ProofForge.Contract.Source.Internal
 
 def catalogId : String := "protocols.evm.ierc20_permit"
 

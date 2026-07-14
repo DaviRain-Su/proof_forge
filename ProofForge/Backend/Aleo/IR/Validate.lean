@@ -169,6 +169,8 @@ mutual
         match findLocal? env name with
         | some binding => .ok binding.type
         | none => .error { message := s!"unknown local `{name}`" }
+    | .hostCall _ _ _ _ =>
+        .error { message := "Leo IR v0 does not support target extension calls" }
     | .arrayLit elementType values => do
         if values.isEmpty then
           .error { message := s!"empty fixed array literals are not supported by Leo IR v0 for `{elementType.name}`" }
@@ -249,18 +251,12 @@ mutual
         discard <| inferExprType module env l
         discard <| inferExprType module env r
         .ok .hash
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-        .error { message := "ecrecover / EIP-712 is EVM-specific and not supported by Leo IR v0" }
-    | .crosscallAbiPacked .. =>
-        .error { message := "ABI-packed crosscall (Call[]) is EVM-specific and not supported by Leo IR v0" }
     | .crosscallInvoke _ _ _
     | .crosscallInvokeTyped _ _ _ _
     | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _
     | .crosscallInvokeDelegateTyped _ _ _ _ =>
         .error { message := "typed crosscall is not supported by Leo IR v0; zk-circuit cross calls are Road 2" }
-    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
-        .error { message := "contract creation is not supported by Leo IR v0" }
     | .crosscallNamed _ _ args returnType => do
         -- RFC 0015 D4: named-callee cross-program call (lowered to a static
         -- qualified call `programId::method(args)` + an import).
@@ -269,15 +265,16 @@ mutual
         .ok returnType
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Leo IR v0" }
-    | .nearPromiseThen _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
-        .error { message := "NEAR promise API is not supported by Leo IR v0" }
+    | .callValueU128 =>
+        .error { message := "full-width call value is not supported by Leo IR v0" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported by Leo IR v0" }
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
+    | .hostCall id _ _ =>
+        .error { message := s!"Leo does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId => scalarStateType module stateId
     | .storageScalarWrite _ _ =>
         .error { message := "storage.scalar.write is a statement effect, not an expression" }
@@ -316,12 +313,6 @@ mutual
         .ok t
     | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Leo" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Leo" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def inferAssignTargetType (module : Module) (env : TypeEnv) : Expr → Except LowerError ValueType
     | .local name =>
@@ -352,6 +343,8 @@ end
 /-! ### Effect statement validation -/
 
 def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerError Unit
+  | .hostCall id _ _ =>
+      .error { message := s!"Leo does not support effect target extension `{id.render}`" }
   | .storageScalarRead _ =>
       .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do
@@ -399,12 +392,6 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
       .error { message := "context.read must be used as an expression" }
   | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
       .error { message := "Leo IR v0 does not lower event emit (Leo events are Road 2)" }
-  | .checkErc721Received _ _ _ _ =>
-      .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
-  | .checkErc1155Received _ _ _ _ _ =>
-      .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
-  | .checkErc1155BatchReceived _ _ _ _ _ =>
-      .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported by Leo IR v0" }
 
 /-! ### Statement validation -/
 

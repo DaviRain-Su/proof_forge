@@ -26,12 +26,12 @@ contract_source PayWithUsdc do
 
 Bind the peer at deploy: `--peer usdc.peer=…`.
 -/
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 import ProofForge.Target.ProtocolMaterialize
 
 namespace ProofForge.Contract.Protocol
 
-open ProofForge.Contract.Surface
+open ProofForge.Contract.Source.Internal
 open ProofForge.Target.ProtocolMaterialize
 
 /-- Logical external FT peer + method handles (string pool). -/

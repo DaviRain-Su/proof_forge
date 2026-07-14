@@ -27,13 +27,13 @@ def supportsInterfaceExpr (interfaceId : ProofForge.IR.Expr)
   additionalIds.foldl
     (fun supported id =>
       if id == invalidInterfaceId then supported
-      else ProofForge.Contract.Surface.boolOr supported
-        (ProofForge.Contract.Surface.eq interfaceId (interfaceWord id)))
-    (ProofForge.Contract.Surface.eq interfaceId erc165InterfaceWord)
+      else ProofForge.Contract.Source.boolOr supported
+        (ProofForge.Contract.Source.eq interfaceId (interfaceWord id)))
+    (ProofForge.Contract.Source.eq interfaceId erc165InterfaceWord)
 
 contract_mixin ERC165Mixin do
   query supportsInterface (interfaceId : .bytes4) returns(.bool) do
-    return supportsInterfaceExpr (ProofForge.Contract.Surface.ref interfaceId);
+    return supportsInterfaceExpr (ProofForge.Contract.Source.ref interfaceId);
 
 contract_source ERC165 do
   use mixin

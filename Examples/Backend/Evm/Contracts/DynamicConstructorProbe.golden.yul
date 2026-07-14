@@ -35,22 +35,28 @@ object "DynamicConstructorProbe" {
       revert(0, 0)
     }
     function f_DynamicConstructorProbe_getNameLen() -> __pf_result {
-      __pf_result := and(shr(0, sload(0)), 18446744073709551615)
+      let v0 := and(shr(0, sload(0)), 18446744073709551615)
+      __pf_result := v0
     }
     function f_DynamicConstructorProbe_getNameHash() -> __pf_result {
-      __pf_result := sload(1)
+      let v1 := sload(1)
+      __pf_result := v1
     }
     function f_DynamicConstructorProbe_getPayloadLen() -> __pf_result {
-      __pf_result := and(shr(0, sload(2)), 18446744073709551615)
+      let v2 := and(shr(0, sload(2)), 18446744073709551615)
+      __pf_result := v2
     }
     function f_DynamicConstructorProbe_getPayloadHash() -> __pf_result {
-      __pf_result := sload(3)
+      let v3 := sload(3)
+      __pf_result := v3
     }
     function f_DynamicConstructorProbe_getAmountCount() -> __pf_result {
-      __pf_result := and(shr(0, sload(4)), 18446744073709551615)
+      let v4 := and(shr(0, sload(4)), 18446744073709551615)
+      __pf_result := v4
     }
     function f_DynamicConstructorProbe_getAmountSum() -> __pf_result {
-      __pf_result := and(shr(64, sload(4)), 18446744073709551615)
+      let v5 := and(shr(64, sload(4)), 18446744073709551615)
+      __pf_result := v5
     }
   }
 }

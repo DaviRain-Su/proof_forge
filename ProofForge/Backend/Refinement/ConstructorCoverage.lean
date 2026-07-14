@@ -360,28 +360,24 @@ theorem evalEffectFuel_contextRead_u64_eq (fuel : Nat) (state : State) (frame : 
     (field : ContextField)
     (h : match field with
          | .userId | .contractId | .checkpointId | .timestamp | .epochHeight
-         | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao => true
+         | .chainId | .gasLeft | .prepaidGas | .usedGas => true
          | _ => false) :
     evalEffectFuel (fuel + 1) state frame (.contextRead field) =
       .ok (state, .u64 0) := by
   cases field with
-  | userId => simp [evalEffectFuel, h]
+  | userId => simp [evalEffectFuel]
   | userIdHash => simp at h
-  | contractId => simp [evalEffectFuel, h]
-  | checkpointId => simp [evalEffectFuel, h]
-  | timestamp => simp [evalEffectFuel, h]
-  | epochHeight => simp [evalEffectFuel, h]
-  | chainId => simp [evalEffectFuel, h]
-  | gasPrice => simp [evalEffectFuel, h]
-  | gasLeft => simp [evalEffectFuel, h]
-  | prepaidGas => simp [evalEffectFuel, h]
-  | usedGas => simp [evalEffectFuel, h]
-  | baseFee => simp [evalEffectFuel, h]
-  | prevRandao => simp [evalEffectFuel, h]
+  | accountId => simp at h
+  | contractId => simp [evalEffectFuel]
+  | checkpointId => simp [evalEffectFuel]
+  | timestamp => simp [evalEffectFuel]
+  | epochHeight => simp [evalEffectFuel]
+  | chainId => simp [evalEffectFuel]
+  | gasLeft => simp [evalEffectFuel]
+  | prepaidGas => simp [evalEffectFuel]
+  | usedGas => simp [evalEffectFuel]
   | randomSeed => simp at h
-  | origin => simp at h
-  | coinbase => simp at h
-  | blockHash _ => simp at h
+  | signer => simp at h
 
 end Context
 
@@ -475,6 +471,8 @@ mutual
     | _ + 1, .literal _ => true
     | _ + 1, .local _ => true
     | _ + 1, .nativeValue => true
+    | _ + 1, .callValueU128 => true
+    | n + 1, .hostCall _ args _ _ => args.toList.all (exprFC n)
     | n + 1, .arrayLit _ values => values.toList.all (exprFC n)
     | n + 1, .arrayGet a i => exprFC n a && exprFC n i
     | n + 1, .memoryArrayGet a i => exprFC n a && exprFC n i
@@ -507,14 +505,6 @@ mutual
         exprFC n a && exprFC n b && exprFC n c && exprFC n d
     | n + 1, .hash p => exprFC n p
     | n + 1, .hashTwoToOne l r => exprFC n l && exprFC n r
-    | n + 1, .ecrecover a b c d =>
-        exprFC n a && exprFC n b && exprFC n c && exprFC n d
-    | n + 1, .eip712PermitDigest a b c d e f =>
-        exprFC n a && exprFC n b && exprFC n c && exprFC n d && exprFC n e && exprFC n f
-    | n + 1, .crosscallAbiPacked t _ _ _ _ _ dynLen? _ dynTargets =>
-        exprFC n t &&
-          (match dynLen? with | some e => exprFC n e | none => true) &&
-          dynTargets.toList.all (exprFC n)
     | n + 1, .crosscallInvoke t m args =>
         exprFC n t && exprFC n m && args.toList.all (exprFC n)
     | n + 1, .crosscallInvokeTyped t m args _ =>
@@ -526,15 +516,10 @@ mutual
     | n + 1, .crosscallInvokeDelegateTyped t m args _ =>
         exprFC n t && exprFC n m && args.toList.all (exprFC n)
     | n + 1, .crosscallNamed _ _ args _ => args.toList.all (exprFC n)
-    | n + 1, .crosscallCreate v _ => exprFC n v
-    | n + 1, .crosscallCreate2 v s _ => exprFC n v && exprFC n s
-    | n + 1, .nearCrosscallInvokePool a m args d =>
+    | n + 1, .crosscallInvokeNamedValue a m args d _ =>
         exprFC n a && exprFC n m && args.toList.all (exprFC n) && exprFC n d
-    | n + 1, .nearPromiseThen p m args d =>
+    | n + 1, .crosscallContinue p m args d _ =>
         exprFC n p && exprFC n m && args.toList.all (exprFC n) && exprFC n d
-    | n + 1, .nearPromiseResultsCount => true
-    | n + 1, .nearPromiseResultStatus i => exprFC n i
-    | n + 1, .nearPromiseResultU64 i => exprFC n i
     | n + 1, .effect eff => effectFC n eff
 
   /-- Shallow + depth wrapper: a node is covered iff its constructor is
@@ -547,6 +532,7 @@ mutual
   /-- Depth-fueled full-coverage check for an `Effect`. -/
   def effectFullyCoveredD : Nat → Effect → Bool
     | 0, _ => false
+    | n + 1, .hostCall _ args _ => args.toList.all (exprFC n)
     | _ + 1, .storageScalarRead _ => true
     | n + 1, .storageScalarWrite _ v => exprFC n v
     | n + 1, .storageScalarAssignOp _ _ v => exprFC n v
@@ -571,13 +557,6 @@ mutual
     | n + 1, .eventEmit _ fields => fields.toList.all (fun f => exprFC n f.snd)
     | n + 1, .eventEmitIndexed _ fields1 fields2 =>
         fields1.toList.all (fun f => exprFC n f.snd) && fields2.toList.all (fun f => exprFC n f.snd)
-    | n + 1, .checkErc721Received a b c d =>
-        exprFC n a && exprFC n b && exprFC n c && exprFC n d
-    | n + 1, .checkErc1155Received a b c d e =>
-        exprFC n a && exprFC n b && exprFC n c && exprFC n d && exprFC n e
-    | n + 1, .checkErc1155BatchReceived a b c d e =>
-        exprFC n a && exprFC n b && exprFC n c && exprFC n d && exprFC n e
-
   /-- Shallow + depth wrapper for `Effect`. -/
   def effectFC (n : Nat) (eff : Effect) : Bool :=
     fuelCoveredEffect eff && effectFullyCoveredD n eff
@@ -701,7 +680,7 @@ which `moduleInCoveredFragment` checks modules stay within):
 
 **Expr — gap (excluded):** `arrayLit`, `arrayGet`, `memoryArrayNew`/
 `memoryArrayLength`/`memoryArrayGet`, `structLit`, `field`, `hashValue`,
-`hash`, `hashTwoToOne`, `crosscallInvoke*`, `crosscallCreate*`,
+`hash`, `hashTwoToOne`, `crosscallInvoke*`,
 `nearCrosscall*`/`nearPromise*`.
 
 **Effect — covered:** `storageScalarRead`/`Write`/`AssignOp`,
@@ -710,8 +689,7 @@ which `moduleInCoveredFragment` checks modules stay within):
 
 **Effect — gap (excluded):** `storageArrayRead`/`Write`/
 `StructFieldRead`/`StructFieldWrite`, `storageDynamicArrayPush`/`Pop`,
-`memoryArraySet`, `storagePathRead`/`Write`/`AssignOp`,
-`checkErc721Received`/`checkErc1155Received` (EVM host callbacks; PF-P2-02).
+`memoryArraySet`, `storagePathRead`/`Write`/`AssignOp`.
 
 **Statement — covered:** `letBind`/`letMutBind`, `assign`/`assignOp`, `effect`,
 `assert`/`assertEq`, `revert`/`revertWithError`, `ifElse`, `boundedFor` (U5.2),
@@ -740,8 +718,8 @@ semantics — not a real peer); RemoteCall is therefore **out of fragment**.
 | ExternalTokenTransfer / ExternalVault | **no** | protocol remote / crosscall | peer materialize |
 | TokenSpec / RoleGatedToken / StakingVault | **partial** | maps / nativeValue / roles | may use map storage (covered) or extras |
 
-**U5.3 rule:** any module whose body contains `crosscallInvoke*` /
-`crosscallCreate*` / NEAR promise ops is **rejected** by
+**U5.3 rule:** any module whose body contains `crosscallInvoke*` / NEAR promise
+ops is **rejected** by
 `moduleInCoveredFragment` because `fuelCoveredExpr` returns `false` for those
 constructors. Do not widen `fuelCoveredExpr` to cover crosscall until a real
 peer oracle exists (U2.4).

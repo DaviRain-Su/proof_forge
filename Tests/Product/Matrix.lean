@@ -66,14 +66,18 @@ def require (cond : Bool) (msg : String) : IO Unit :=
 def contains (haystack needle : String) : Bool :=
   haystack.contains needle
 
-/-- EVM + Wasm-host materialization shared by the full and partial matrices. -/
-def assertEvmWasmHosts (label : String) (m : Module) : IO Unit := do
+/-- EVM + primary NEAR materialization shared by three- and four-host rows. -/
+def assertEvmNear (label : String) (m : Module) : IO Unit := do
   match ProofForge.Backend.Evm.Plan.buildModulePlan m with
   | .error e => throw (IO.userError s!"{label} EVM plan: {e.message}")
   | .ok _ => pure ()
   match ProofForge.Backend.WasmHost.EmitWat.renderModule m with
   | .error e => throw (IO.userError s!"{label} NEAR: {e.message}")
   | .ok wat => require (wat.length > 0) s!"{label} NEAR empty wat"
+
+/-- EVM + both currently advertised Wasm-host materializations. -/
+def assertEvmWasmHosts (label : String) (m : Module) : IO Unit := do
+  assertEvmNear label m
   match ProofForge.Backend.WasmHost.EmitWat.renderModule m .soroban with
   | .error e => throw (IO.userError s!"{label} Soroban: {e.message}")
   | .ok wat =>
@@ -90,6 +94,13 @@ def assertFourHost (label : String) (m : Module) : IO Unit := do
       require (src.length > 0) s!"{label} Solana empty asm"
       require (contains src "account.validation" || contains src "entrypoint")
         s!"{label} Solana should emit entrypoint/account materialization"
+
+/-- Primary triad materialization for rows whose Soroban shape is unsupported. -/
+def assertPrimaryThree (label : String) (m : Module) : IO Unit := do
+  assertEvmNear label m
+  match ProofForge.Backend.Solana.SbpfAsm.renderModule m with
+  | .error e => throw (IO.userError s!"{label} Solana: {e.message}")
+  | .ok src => require (src.length > 0) s!"{label} Solana empty asm"
 
 /-- Storage binding reports for primary three (auto-portable). -/
 def assertAutoPortablePrimary (label : String) (m : Module) : IO Unit := do
@@ -133,13 +144,13 @@ def testCounterSingleSource : IO Unit := do
 def testPolicies : IO Unit := do
   for (label, m) in #[
     ("Ownable", Examples.Product.Ownable.module),
-    ("OwnableHash", Examples.Product.OwnableHash.module),
     ("Pausable", Examples.Product.Pausable.module),
     ("OwnablePausable", Examples.Product.OwnablePausable.module),
     ("AccessControl", Examples.Product.AccessControl.module),
     ("ReentrancyGuard", Examples.Product.ReentrancyGuard.module)
   ] do
     assertFourHost label m
+  assertPrimaryThree "OwnableHash" Examples.Product.OwnableHash.module
   -- Ownable: Solana synthesizes authority without Source.Solana
   let ownable := Examples.Product.Ownable.module
   let accounts := buildModuleAccounts ownable {}
@@ -181,7 +192,7 @@ def testRemote : IO Unit := do
   assertFourHost "AuthRemoteCall" authRemote
   assertFourHost "ExternalTokenTransfer" extFt
   assertFourHost "ExternalVault" extVault
-  require (extFt.nearCrosscallStrings.any (· == "ft_transfer"))
+  require (extFt.crosscallStrings.any (· == "ft_transfer"))
     "ExternalTokenTransfer registers protocol method ft_transfer"
   -- EVM CALL (product sources are name-only; pin selectors for Yul emit only)
   let remoteEvm : Module := {

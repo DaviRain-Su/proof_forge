@@ -9,6 +9,7 @@ import ProofForge.Cli.Options
 import ProofForge.Contract.Client
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec.Json
+import ProofForge.Contract.Token
 import ProofForge.IR
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ContextProbe
@@ -51,6 +52,40 @@ def defaultEmitWatArtifactOutput (outputDir : FilePath) : FilePath :=
 
 def emitWatTargetId (opts : CliOptions) : String :=
   opts.targetId?.getD ProofForge.Target.wasmNear.id
+
+/-- Resolve every legacy EmitWat entry through the public target registry.
+
+`TargetFamily.wasmHost` alone is insufficient: the Cloudflare research target
+belongs to that family but emits TypeScript and has no Wasm host bridge.  An
+EmitWat target must be a registered Wasm artifact profile with an explicit
+bridge.  Keeping this check here makes all fixture and contract-source legacy
+entrypoints fail before creating artifacts. -/
+def resolveEmitWatTarget
+    (opts : CliOptions) :
+    Except String (ProofForge.Target.TargetProfile × ProofForge.Target.HostBridge) := do
+  let targetId := emitWatTargetId opts
+  let profile ← match ProofForge.Target.find? targetId with
+    | some profile => .ok profile
+    | none =>
+        .error
+          s!"unknown EmitWat target '{targetId}'; known targets: {String.intercalate ", " ProofForge.Target.knownIds.toList}"
+  if profile.family != .wasmHost || profile.artifactKind != .wasm then
+    .error s!"EmitWat target '{targetId}' is not a Wasm-host profile"
+  let bridge ← match profile.hostBridge? with
+    | some bridge => .ok bridge
+    | none => .error s!"EmitWat target '{targetId}' is not a Wasm-host profile: missing host bridge"
+  .ok (profile, bridge)
+
+/-- A capability plan is target-scoped and must never be rendered through a
+different registry profile, even when both profiles share the EmitWat core. -/
+def requireEmitWatPlanTarget
+    (profile : ProofForge.Target.TargetProfile)
+    (plan : ProofForge.Target.CapabilityPlan) : Except String Unit :=
+  if plan.targetId == profile.id then
+    .ok ()
+  else
+    .error
+      s!"EmitWat capability plan target '{plan.targetId}' does not match resolved target '{profile.id}'"
 
 def emitWatDeployManifestKind (targetId : String) : String :=
   if targetId == ProofForge.Target.wasmNear.id then
@@ -206,7 +241,8 @@ def writeEmitWatArtifactMetadata
     (sourceIdentity : ProofForge.Target.ArtifactBundle.SourceIdentity)
     (module : ProofForge.IR.Module)
     (outputDir watPath : FilePath)
-    (wasmPath? : Option FilePath) : IO Unit := do
+    (wasmPath? : Option FilePath)
+    (tokenSpec? : Option ProofForge.Contract.Token.TokenSpec := none) : IO Unit := do
   let sourceKind := sourceIdentity.kind
   let metadataOutput := opts.artifactOutput?.getD (defaultEmitWatArtifactOutput outputDir)
   let schemaDir := metadataOutput.parent.getD outputDir
@@ -278,9 +314,24 @@ def writeEmitWatArtifactMetadata
     | none =>
         ProofForge.Target.CrosscallMaterialize.Report.json
           (ProofForge.Target.CrosscallMaterialize.forProfile ProofForge.Target.wasmNear)
+  let tokenJson := match tokenSpec? with
+    | none => "null"
+    | some token => jsonObject #[
+        ("standard", jsonString "nep-141"),
+        ("name", jsonString token.name),
+        ("symbol", jsonString token.symbol),
+        ("decimals", toString token.decimals),
+        ("initialSupply", match token.initialSupply? with
+          | some supply => toString supply
+          | none => "null"),
+        ("features", jsonStringArray (token.features.map (·.id))),
+        ("authFeatures", jsonStringArray (token.authFeatures.map (·.id)))
+      ]
   let metadata := jsonObject #[
     ("schemaVersion", "1"),
     ("target", jsonString targetId),
+    ("standardId", match opts.nftStandardId? targetId with
+      | some standardId => jsonString standardId | none => "null"),
     ("targetFamily", jsonString "wasmHost"),
     ("storageBinding", jsonString (match ProofForge.Target.storageBindingForTargetId? targetId with
       | some binding => binding.id
@@ -300,6 +351,7 @@ def writeEmitWatArtifactMetadata
     ("sourceKind", jsonString sourceKind),
     ("irVersion", if sourceKind == "portable-ir" then jsonString "portable-ir-v0" else "null"),
     ("sourceModule", jsonString module.name),
+    ("token", tokenJson),
     ("sdkSchema", jsonString "proof-forge-sdk.json"),
     ("capabilities", jsonStringArray (moduleCapabilityIds module)),
     ("toolchain", jsonObject #[
@@ -408,31 +460,25 @@ Default is identity: logical ids stay as declared in Shared. -/
 def emitWatPeerMap (opts : CliOptions) : ProofForge.Target.PeerMap.Map :=
   opts.peerMap
 
-/-- Host bridge for EmitWat from `--target` (Soroban vs NEAR vs CosmWasm). -/
-def emitWatBridge (opts : CliOptions) : ProofForge.Target.HostBridge :=
-  match opts.targetId? with
-  | some "wasm-stellar-soroban" => ProofForge.Target.HostBridge.soroban
-  | some id =>
-      if id == ProofForge.Target.wasmCosmWasm.id then
-        ProofForge.Target.HostBridge.cosmWasm
-      else
-        ProofForge.Target.HostBridge.near
-  | none => ProofForge.Target.HostBridge.near
-
 def emitWatRequireWasm (opts : CliOptions) : Bool :=
   -- PF-P0-08: explicit --format wat is the WAT intermediate; default final build needs Wasm.
   !(opts.format? == some "wat")
 
 def compileEmitWat (opts : CliOptions) (name : String) (mod : ProofForge.IR.Module) : IO UInt32 := do
+  let resolved ← match resolveEmitWatTarget opts with
+    | .ok resolved => pure resolved
+    | .error msg => throw <| IO.userError msg
+  let profile := resolved.1
+  let bridge := resolved.2
+  let opts := { opts with targetId? := some profile.id }
   let some output := opts.output?
     | throw <| IO.userError "emitwat mode requires -o output directory"
-  let bridge := emitWatBridge opts
   let peerMap := emitWatPeerMap opts
   -- Unified entry: WasmHost.EmitWat routes near / soroban / cosmWasm.
   match ProofForge.Backend.WasmHost.EmitWat.renderModule mod bridge peerMap with
   | .ok wat =>
       let (watPath, wasmPath?) ← writeWatPackage output name wat (requireWasm := emitWatRequireWasm opts)
-      writeEmitWatArtifactMetadata opts (emitWatTargetId opts) name {
+      writeEmitWatArtifactMetadata opts profile.id name {
         moduleName := mod.name
         kind := "portable-ir"
         leanElaborated := false
@@ -447,14 +493,22 @@ def compileEmitWatWithPlan
     (mod : ProofForge.IR.Module)
     (plan : ProofForge.Target.CapabilityPlan)
     (sourceIdentity : ProofForge.Target.ArtifactBundle.SourceIdentity) : IO UInt32 := do
+  let resolved ← match resolveEmitWatTarget opts with
+    | .ok resolved => pure resolved
+    | .error msg => throw <| IO.userError msg
+  let profile := resolved.1
+  let bridge := resolved.2
+  let opts := { opts with targetId? := some profile.id }
+  match requireEmitWatPlanTarget profile plan with
+  | .ok () => pure ()
+  | .error msg => throw <| IO.userError msg
   let some output := opts.output?
     | throw <| IO.userError "emitwat mode requires -o output directory"
-  let bridge := emitWatBridge opts
   let peerMap := emitWatPeerMap opts
   match ProofForge.Backend.WasmHost.EmitWat.renderModuleWithPlan mod plan bridge peerMap with
   | .ok wat =>
       let (watPath, wasmPath?) ← writeWatPackage output name wat (requireWasm := emitWatRequireWasm opts)
-      writeEmitWatArtifactMetadata opts (emitWatTargetId opts) name sourceIdentity mod
+      writeEmitWatArtifactMetadata opts profile.id name sourceIdentity mod
         output watPath wasmPath?
       return 0
   | .error err =>

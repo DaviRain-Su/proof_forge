@@ -1,6 +1,6 @@
 # Target Portfolio Roadmap
 
-Status: **Draft (2026-07)**
+Status: **Live portfolio sequencing (refreshed 2026-07-12)**
 
 This page is the portfolio-level plan for the ~15 docs-first research targets:
 which ones to build, in what order, under which preconditions, and which ones
@@ -15,7 +15,7 @@ milestones that map one-to-one onto implementing branches.
 
 ```text
 Tier 0  Primary-chain hardening on main today (Gate P0 closed)
-Tier 1  Next: open for scheduling after CLI M3/M4 cleanup
+Tier 1  Next: Intent/NFT, neutral Wasm-host plan, strict promotion gates
 Tier 2  Conditional: opens when its listed enabler lands
 Tier 3  Parked research: docs stay current, no registry/code work
 ```
@@ -27,16 +27,16 @@ completed the scoped P0 backend-gate DoD. The sign-off ledger is Gate P0 in
 [gate-status.md](gate-status.md); all three still have `experimental` registry
 maturity. P0 does not assert universal compiler correctness, a complete public
 SDK, or production operations readiness. After this closure, additional chain
-work is no longer blocked by D-045, but the implementation backlog still puts
-CLI M3/M4 target-first migration before Tier-1 M3/M4 advancement.
+work is no longer blocked by D-045. D-052 now puts target-neutral intent/NFT
+materialization and strict promotion infrastructure ahead of target breadth.
 
 **Tier-0 parity gate (Gate G0, the first required slice of D-045):** the shared
 scenarios (Counter and ValueVault) pass in testkit (RFC 0007) on `evm`,
 `solana-sbpf-asm`, and `wasm-near`, with per-target resource budgets (RFC 0010):
 Solana CU, EVM gas, and NEAR gas. Gate G0 is closed in
 [gate-status.md](gate-status.md), which closes the behavior/budget parity
-slice. Gate P0 is also closed, so Tier 1 can be scheduled after the remaining
-CLI M3/M4 migration work. Every later target reuses the artifacts this work
+slice. Gate P0 is also closed. Gate A1 now controls the next architecture
+program. Every later target reuses the artifacts this work
 hardens: the portable IR surface, capability routing, EmitWat, the scenario
 harness, target artifact metadata, and budget-as-gate quality signal.
 
@@ -73,12 +73,37 @@ tracked in [gate-status.md](gate-status.md).
 | Solana Pinocchio CI equivalence | solana | ✅ met | Workstream 7 / P0-1 |
 | NEAR target-first local execution/deploy metadata | wasm-near | ✅ met | P0-3 / `just near-target-first` |
 
-Gate G0 and Gate P0 are closed. The next product hardening slice is the CLI
-M3/M4 migration from legacy flags to target-first invocations; Tier-1 M3/M4
-work should be scheduled after that cleanup unless a higher-priority stability
-or security issue appears.
+Gate G0 and Gate P0 are closed. The next default program is D-052: portable
+intent materialization, the primary-triad NFT vertical slice, neutral Wasm-host
+planning, and strict target promotion gates. Security/stability fixes may
+preempt it; old research notes do not create implementation scope.
 
-## Tier 1 — next two targets
+## Tier 1 — current architecture program
+
+### 1a. Portable Intent and primary-triad NFT
+
+Deliver `IntentContract`, a materializer registry, and one minimal unique NFT
+lifecycle across EVM, Solana, and NEAR. This is architecture/product depth,
+not a new target. Exit is Gate A1 in `gate-status.md`.
+
+### 1b. Neutral Wasm-host plan and Soroban strict promotion
+
+Extract target-neutral plan/ABI contracts while preserving NEAR behavior, add
+strict canonical target gates, then promote Soroban Counter. CosmWasm remains
+blocked on a real message/reply ABI and is not promoted merely because it
+shares EmitWat.
+
+### 1c. ZK plan-only promotion
+
+Add strict canonical planning for PSy, then an Aleo semantic plan. Registry
+maturity and public input modes do not change. OpenVM remains docs-first until
+a sourced target brief is approved.
+
+## Historical Tier-1 candidates
+
+The sections below preserve D-034 CosmWasm/Aptos ordering for traceability.
+D-052 supersedes them as the default scheduling order; either candidate now
+requires an explicit slice after the current architecture program.
 
 ### 1a. `wasm-cosmwasm` — the EmitWat generality proof
 
@@ -145,6 +170,7 @@ waits for Aptos M4.
 | Target | Enabler (gate) | Marginal work once enabled | Recommendation |
 |---|---|---|---|
 | `wasm-stellar-soroban` | CosmWasm M4 (proves host-adapter split) | Soroban host imports, XDR/contract-spec ABI, storage TTL model as target metadata, Stellar CLI gate | Do after CosmWasm; second-cheapest Wasm host |
+| `wasm-arbitrum-stylus` | Approved standalone `StylusPlan`; local static/runtime closure | Direct HostIO Wasm default, pinned Rust SDK oracle, atomic evidence-bound bundles, bounded aggregate/storage completion, Nitro activation/E2E | W3/W4 are closed locally; keep at Research until live Nitro evidence closes, and never route through NEAR/Soroban |
 | `wasm-icp-canister` | CosmWasm M4 **plus** an async/inter-canister design note | Candid ABI, update/query split, cycles metadata; its async call model does not fit the current synchronous IR effect set | Defer; hardest Wasm host — do not start on adapter momentum alone |
 | `move-sui` | Aptos M4 | Object model as target extension (parallel to Solana accounts), Sui CLI gates | Follows Aptos per D-007 |
 | `starknet-cairo` | Aptos M4 (sourcegen pattern proven) + one maintainer with Cairo depth | Cairo/Scarb package printer, Sierra/CASM artifact + class-hash metadata | First non-Move sourcegen candidate; ZK-adjacent knowledge partially shared with Psy/Aleo |

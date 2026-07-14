@@ -222,11 +222,11 @@ dispatch 助记符）。obligation 的强度只等于它最弱的那一支。
 
 三层未对齐的证据链：
 
-- `nearCrosscallInvokePool` 的能力被映射成**通用 `.crosscallInvoke`**
+- `crosscallInvokeNamedValue` 的能力被映射成**通用 `.crosscallInvoke`**
   （`IR/Contract.lean:421`），EVM 声明了该能力 → **能力层根本不拒绝它**；真正
   挡住它的是 EVM 硬编码的 Validate 臂
   （`Backend/Evm/IR/Validate.lean:197`："NEAR promise API is not supported on EVM"）。
-- 对比 `nearPromiseThen` → `.nearPromise`（仅 wasmNear，`Registry.lean:117`），被
+- 对比 `crosscallContinue` → `.nearPromise`（仅 wasmNear，`Registry.lean:117`），被
   能力层与 Validate 层**双重拦截**。同类节点、拦截责任不一致。
 - Solana codegen 遍布 `"unsupported ... in Phase 1"`
   （`SbpfAsm/Expr.lean:523`、`Stmt.lean:439`），但其 profile 却声明支持
@@ -239,14 +239,14 @@ Phase-1 缺口。这个集合**没有单一真相源、未被证明，且被证�
 （`scripts/{evm,near,psy}/check-ir-coverage-manifest.py`），且 **Solana 连这个
 脚本都没有**。
 
-**根因**：链专属节点（`nearPromise*`、`nearCrosscallInvokePool`）混在可移植 `Expr`
+**根因**：链专属节点（`nearPromise*`、`crosscallInvokeNamedValue`）混在可移植 `Expr`
 里，违反 D-027 精神（链专属语义应走 metadata/capability id，而非共享 IR 构造子）。
 三个方向：
 
 - **（治本）** 把这些 NEAR 节点移出可移植 `Expr`，做成经 metadata 路由的 NEAR
   扩展节点（就像 Solana CPI/PDA 声称的那样），让可移植 `Expr` 恢复真正链中立。
 - **（最低限度）** 给每个链专属节点一个**唯一能力**（先修
-  `nearCrosscallInvokePool → .nearPromise`），让能力层单独就能干净拒绝，不再靠各
+  `crosscallInvokeNamedValue → .nearPromise`），让能力层单独就能干净拒绝，不再靠各
   后端补硬编码 Validate 臂。
 - **（长期）** 为每目标定义显式"支持片段"谓词做单一真相源，并证两条：
   `能力接受 ⟹ 属于片段` 与 `属于片段 ⟹ 降级成功（totality）`。这才把"完全映射"
@@ -393,7 +393,7 @@ refinement 是逐后端复制的 pointwise 检查（没有统一契约）。先�
 | IR 解释器 `partial def` | `ProofForge/IR/Semantics.lean:420,561` |
 | EVM bytecode 语义 stub | `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean:95` |
 | 跨链溢出分歧的官方说明 | `docs/capability-registry.md:81-105` |
-| `nearCrosscallInvokePool` 能力误映射为通用 `.crosscallInvoke` | `ProofForge/IR/Contract.lean:421` |
+| `crosscallInvokeNamedValue` 能力误映射为通用 `.crosscallInvoke` | `ProofForge/IR/Contract.lean:421` |
 | EVM 靠硬编码 Validate 臂拒绝 NEAR 节点（非能力层） | `ProofForge/Backend/Evm/IR/Validate.lean:197` |
 | Solana codegen "Phase 1 unsupported" 臂（能力 ⊋ 实际覆盖） | `ProofForge/Backend/Solana/SbpfAsm/Expr.lean:523`, `Stmt.lean:439` |
 | Solana 有类型化指令 AST 但无指令语义 | `ProofForge/Backend/Solana/Asm.lean`（无 `step`/`exec`/`eval`） |

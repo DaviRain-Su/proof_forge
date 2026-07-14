@@ -1,0 +1,37 @@
+#![cfg_attr(not(any(test, feature = "export-abi")), no_main)]
+#![cfg_attr(not(test), no_std)]
+
+extern crate alloc;
+
+use alloc::{string::String, vec, vec::Vec};
+use stylus_sdk::{alloy_primitives::*, prelude::*, storage::*};
+use core::convert::TryInto;
+
+sol_storage! {
+    #[entrypoint]
+    pub struct Counter {
+        uint64 count;
+    }
+}
+
+#[public]
+impl Counter {
+    pub fn initialize(&mut self) {
+        let v0: u64 = 0;
+        self.count.set(U64::from(v0));
+    }
+
+    pub fn increment(&mut self) -> Result<(), Vec<u8>> {
+        let v1 = self.count.get().to::<u64>();
+        let v2: u64 = 1;
+        let v3: u64 = v1.checked_add(v2)
+            .ok_or_else(|| b"checked arithmetic overflow".to_vec())?;
+        self.count.set(U64::from(v3));
+        Ok(())
+    }
+
+    pub fn get(&self) -> u64 {
+        let v4 = self.count.get().to::<u64>();
+        v4
+    }
+}

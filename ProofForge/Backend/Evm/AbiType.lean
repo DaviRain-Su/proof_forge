@@ -11,7 +11,7 @@ def abiWordOverrideCompatible (type : ValueType) (abiWord : String) : Bool :=
   match type, abiWord with
   | .u8, "uint8" => true
   | .u32, "uint32" => true
-  | .u64, "uint64" => true
+  | .u64, "uint64" | .u64, "uint256" => true
   | .u128, "uint128" => true
   | .bool, "bool" => true
   | .hash, "uint256" | .hash, "bytes32" => true

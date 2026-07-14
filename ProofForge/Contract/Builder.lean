@@ -13,7 +13,7 @@ structure ModuleBuilder where
   state : Array StateDecl := #[]
   entrypoints : Array Entrypoint := #[]
   eventAbiWords : Array EventAbiWord := #[]
-  nearCrosscallStrings : Array String := #[]
+  crosscallStrings : Array String := #[]
   intents : Array Intent := #[]
   constructorParams : Array ProofForge.Contract.ConstructorParam := #[]
   constructorInitBindings : Array ProofForge.Contract.ConstructorInitBinding := #[]
@@ -45,7 +45,7 @@ def ModuleBuilder.toModule (builder : ModuleBuilder) : Module := {
   state := builder.state
   entrypoints := builder.entrypoints
   eventAbiWords := builder.eventAbiWords
-  nearCrosscallStrings := builder.nearCrosscallStrings
+  crosscallStrings := builder.crosscallStrings
   proxyPattern? := builder.proxyPattern?.map ProofForge.Contract.ProxyPattern.kind
 }
 
@@ -79,16 +79,16 @@ def capability (capability : Capability) (operation : String := capability.id)
     (source? : Option String := none) (metadata : Array TargetMetadata := #[]) : ModuleM Unit :=
   intent (Intent.capability capability operation source? metadata)
 
-/-- Register a compile-time host string for `module.nearCrosscallStrings`
+/-- Register a compile-time host string for `module.crosscallStrings`
 (Wasm-NEAR `promise_create` / Soroban `invoke_contract` name pool).
 Dedupes by value so portable `declareRemote` can re-use peer/method ids. -/
 def ensureCrosscallString (value : String) : ModuleM Nat := do
   let builder ← get
-  match builder.nearCrosscallStrings.findIdx? (· == value) with
+  match builder.crosscallStrings.findIdx? (· == value) with
   | some idx => pure idx
   | none =>
-      let idx := builder.nearCrosscallStrings.size
-      modify fun b => { b with nearCrosscallStrings := b.nearCrosscallStrings.push value }
+      let idx := builder.crosscallStrings.size
+      modify fun b => { b with crosscallStrings := b.crosscallStrings.push value }
       pure idx
 
 /-- Compatibility alias — prefer `ensureCrosscallString` / Surface `declareRemote`. -/
@@ -109,7 +109,7 @@ def entrypointMetadata (name : String) : TargetMetadata := {
 
 def scopeEntryIntent (entrypointName : String) (intent : Intent) : Intent := {
   intent with
-  kind := .entrypoint
+  kind := if intent.capability?.isSome then .capability else .entrypoint
   metadata := intent.metadata.push (entrypointMetadata entrypointName)
 }
 
@@ -275,6 +275,9 @@ def u32 (value : Nat) : Expr :=
 def u64 (value : Nat) : Expr :=
   .literal (.u64 value)
 
+def u128 (value : Nat) : Expr :=
+  .literal (.u128 value)
+
 def bool (value : Bool) : Expr :=
   .literal (.bool value)
 
@@ -365,14 +368,20 @@ def boolNot (value : Expr) : Expr :=
 def cast (value : Expr) (target : ValueType) : Expr :=
   .cast value target
 
-def nearCrosscallInvokePool (accountIndex methodId : Expr) (args : Array Expr) (deposit : Expr) : Expr :=
-  .nearCrosscallInvokePool accountIndex methodId args deposit
+def hostCall (id : ProofForge.Target.HostOpId) (args : Array Expr)
+    (returnType : ValueType) (requiredCapabilities : Array ProofForge.Target.Capability) : Expr :=
+  .hostCall id args returnType requiredCapabilities
 
-def nearPromiseThen (parentPromise callbackMethod : Expr) (args : Array Expr) (deposit : Expr) : Expr :=
-  .nearPromiseThen parentPromise callbackMethod args deposit
+def crosscallInvokeNamedValue (account methodId : Expr) (args : Array Expr) (deposit : Expr)
+    (argNames : Array String := #[]) : Expr :=
+  .crosscallInvokeNamedValue account methodId args deposit argNames
 
-def nearPromiseResultU64 (index : Expr) : Expr :=
-  .nearPromiseResultU64 index
+def crosscallContinue (parentPromise callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
+    (argNames : Array String := #[]) : Expr :=
+  .crosscallContinue parentPromise callbackMethod args deposit argNames
+
+def callValueU128 : Expr :=
+  .callValueU128
 
 def nearAddressLit (idx : Nat) : Expr :=
   .literal (.address idx)

@@ -187,12 +187,12 @@ mutual
         ensureType "hash_two_to_one left operand" .hash lhsType
         ensureType "hash_two_to_one right operand" .hash rhsType
         .ok .hash
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-        .error { message := "ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only); not supported by Psy IR v0" }
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-        .error { message := "crosscallAbiPacked (compile-time ABI Call[]) is EVM-only; not supported by Psy IR v0" }
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Psy IR v0" }
+    | .hostCall _ _ _ _ =>
+        .error { message := "Psy IR v0 does not support target extension calls" }
+    | .callValueU128 =>
+        .error { message := "full-width call value is not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do
         let targetType ← inferExprType module env target
         ensureType "crosscall target contract id" .u64 targetType
@@ -210,18 +210,11 @@ mutual
         .error { message := s!"static typed crosscall return `{returnType.name}` is not supported by Psy IR v0; use untyped U64 crosscallInvoke for Psy targets" }
     | .crosscallInvokeDelegateTyped _ _ _ returnType =>
         .error { message := s!"delegate typed crosscall return `{returnType.name}` is not supported by Psy IR v0; use untyped U64 crosscallInvoke for Psy targets" }
-    | .crosscallCreate _ _ =>
-        .error { message := "EVM contract creation is not supported by Psy IR v0" }
-    | .crosscallCreate2 _ _ _ =>
-        .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
     | .crosscallNamed _ _ _ _ =>
         .error { message := "named-callee cross-program calls (crosscallNamed) are not supported by Psy IR v0; Psy uses runtime-address crosscallInvoke" }
-    | .nearPromiseThen _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
-        .error { message := "NEAR promise API is not supported by Psy IR v0" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported by Psy IR v0" }
     | .effect effect =>
         inferEffectExprType module env effect
 
@@ -257,6 +250,8 @@ mutual
     | none => pure ()
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
+    | .hostCall id _ _ =>
+        .error { message := s!"Psy does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId =>
         scalarStateType module stateId
     | .storageScalarWrite _ _ =>
@@ -327,22 +322,14 @@ mutual
         .error { message := "storage.path.write is a statement effect, not an expression" }
     | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.assign_op is a statement effect, not an expression" }
-    | .contextRead .origin => .ok .hash
+    | .contextRead .signer => .ok .hash
     | .contextRead .randomSeed => .ok .hash
-    | .contextRead .coinbase => .ok .hash
-    | .contextRead (.blockHash _) => .ok .hash
     | .contextRead _ =>
         .ok .u64
     | .eventEmit _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Psy" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Psy" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on Psy" }
 end
 
 partial def inferAssignTargetType (module : Module) (env : TypeEnv) : Expr → Except LowerError ValueType
@@ -381,6 +368,8 @@ partial def inferAssignTargetType (module : Module) (env : TypeEnv) : Expr → E
       .error { message := "assignment target must be a local, array index, or field path" }
 
 def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerError Unit
+  | .hostCall id _ _ =>
+      .error { message := s!"Psy does not support effect target extension `{id.render}`" }
   | .storageScalarRead _ =>
       .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do
@@ -471,12 +460,6 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
         ensureType s!"event `{name}` field `{field.fst}`" .u64 actual
   | .eventEmitIndexed name _ _ =>
       .error { message := s!"event `{name}` uses indexed fields, which are not supported by Psy IR v0" }
-  | .checkErc721Received _ _ _ _ =>
-      .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
-  | .checkErc1155Received _ _ _ _ _ =>
-      .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
-  | .checkErc1155BatchReceived _ _ _ _ _ =>
-      .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported" }
 
 mutual
   partial def validateStatement (module : Module) (entrypoint : Entrypoint) (env : TypeEnv) : Statement → Except LowerError TypeEnv

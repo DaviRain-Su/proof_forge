@@ -38,6 +38,9 @@ def extensions : ProgramExtensions := {
 def instructions : Array InstructionEntry :=
   buildInstructionsWithExtensions module extensions
 
+def moduleAccounts : Array AccountEntry :=
+  buildModuleAccounts module extensions
+
 def accountShape (instruction : InstructionEntry) : Array (String × Nat × Bool × Bool) :=
   instruction.accounts.map fun account =>
     (account.name, account.index, account.signer, account.writable)
@@ -131,7 +134,7 @@ def check : IO Bool := do
         | none =>
             IO.eprintln "solana-account-graph: first entrypoint missing"
             return false
-        | some entrypoint => match buildEntrypointPlan module extensions entrypoint 0 with
+        | some entrypoint => match buildEntrypointPlan module extensions moduleAccounts entrypoint 0 with
           | .ok plan => pure plan
           | .error err =>
               IO.eprintln s!"solana-account-graph: first plan failed: {err.render}"
@@ -141,14 +144,14 @@ def check : IO Bool := do
         | none =>
             IO.eprintln "solana-account-graph: second entrypoint missing"
             return false
-        | some entrypoint => match buildEntrypointPlan module extensions entrypoint 1 with
+        | some entrypoint => match buildEntrypointPlan module extensions moduleAccounts entrypoint 1 with
           | .ok plan => pure plan
           | .error err =>
               IO.eprintln s!"solana-account-graph: second plan failed: {err.render}"
               return false
-      if planAccountShape firstPlan.accounts != expectedFirst ||
-          planAccountShape secondPlan.accounts != expectedSecond then
-        IO.eprintln "solana-account-graph: semantic plan account graphs drifted from manifest"
+      if planAccountShape firstPlan.accounts != planAccountShape secondPlan.accounts ||
+          firstPlan.accounts.size != moduleAccounts.size then
+        IO.eprintln "solana-account-graph: semantic plans do not share the module account layout"
         return false
       return true
   | _, _ =>

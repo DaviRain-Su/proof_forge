@@ -9,7 +9,7 @@ compiler pipeline.
 
 The executable embedded equivalent lives in `ProofForge.Contract.Source`
 through the `contract_source` syntax. The string-heavy `ContractSpec`, Builder,
-and `ProofForge.Solana.Examples.*` fixtures are expected-IR/reference fixtures
+and `Examples.Backend.Solana.Contracts.*` fixtures are expected-IR/reference fixtures
 for tests; they are not the surface application developers should author by
 hand. The legacy parser may represent identifiers as strings internally after
 parsing, but lowering checks Solana CPI/PDA/state/account references before
@@ -24,23 +24,23 @@ Learn values.
 
 - `Counter.learn` mirrors the portable Counter source.
 - `ValueVault.learn` mirrors `ProofForge.Contract.Examples.ValueVault`.
-- `SolanaVault.learn` mirrors `ProofForge.Solana.Examples.Vault` and exercises
+- `SolanaVault.learn` mirrors `Examples.Backend.Solana.Contracts.Vault` and exercises
   the first Solana target-extension syntax for accounts, PDA derivation, and
   SPL Token CPI.
-- `SystemCpi.learn` mirrors `ProofForge.Solana.Examples.SystemCpi`.
+- `SystemCpi.learn` mirrors `Examples.Backend.Solana.Contracts.SystemCpi`.
 - `SystemCreateAccountCpi.learn` mirrors
-  `ProofForge.Solana.Examples.SystemCreateAccountCpi`.
+  `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi`.
 - `SplTokenOpsCpi.learn` mirrors
-  `ProofForge.Solana.Examples.SplTokenOpsCpi` and exercises selector-bearing
+  `Examples.Backend.Solana.Contracts.SplTokenOpsCpi` and exercises selector-bearing
   SPL Token mint, burn, approve, and revoke CPI syntax.
-- `LogEvent.learn` mirrors `ProofForge.Solana.Examples.LogEvent` and
+- `LogEvent.learn` mirrors `Examples.Backend.Solana.Contracts.LogEvent` and
   exercises Solana log helper syntax for pubkey and data logs.
 - `ReturnDataCompute.learn` mirrors
-  `ProofForge.Solana.Examples.ReturnDataCompute` and exercises Solana return
+  `Examples.Backend.Solana.Contracts.ReturnDataCompute` and exercises Solana return
   data plus remaining-compute-unit helper syntax.
-- `Memory.learn` mirrors `ProofForge.Solana.Examples.Memory` and exercises
+- `Memory.learn` mirrors `Examples.Backend.Solana.Contracts.Memory` and exercises
   Solana memory helper syntax.
-- `Crypto.learn` mirrors `ProofForge.Solana.Examples.Crypto` and exercises
+- `Crypto.learn` mirrors `Examples.Backend.Solana.Contracts.Crypto` and exercises
   SHA-256, Keccak-256, and BLAKE3 hash helper syntax.
 - `Clock.learn`, `Rent.learn`, `EpochSchedule.learn`, `EpochRewards.learn`,
   and `LastRestartSlot.learn` mirror the corresponding Solana examples and

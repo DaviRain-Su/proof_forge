@@ -16,7 +16,7 @@ IR semantics** — what the IR interpreter observes — is target-independent.
 ## Proof structure
 
 1. **Portable sync-subset equivalence**: A module using only portable
-   `crosscallInvoke*` nodes (no `nearPromiseThen`/`nearPromiseResult*`) has
+   `crosscallInvoke*` nodes (no `crosscallContinue`/`nearPromiseResult*`) has
    the same IR semantics regardless of target — the IR interpreter does not
    consult the target's native form.
 

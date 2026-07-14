@@ -18,19 +18,28 @@ object "Pausable" {
       revert(0, 0)
     }
     function f_Pausable_paused() -> __pf_result {
-      __pf_result := and(shr(0, sload(0)), 18446744073709551615)
+      let v0 := and(shr(0, sload(0)), 18446744073709551615)
+      __pf_result := v0
     }
     function f_Pausable_pause() {
-      if iszero(eq(and(shr(0, sload(0)), 18446744073709551615), 0)) {
+      let v1 := and(shr(0, sload(0)), 18446744073709551615)
+      let v2 := 0
+      let v3 := eq(v1, v2)
+      if iszero(v3) {
         revert(0, 0)
       }
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(1, 18446744073709551615))))
+      let v4 := 1
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v4, 18446744073709551615))))
     }
     function f_Pausable_unpause() {
-      if iszero(iszero(eq(and(shr(0, sload(0)), 18446744073709551615), 0))) {
+      let v5 := and(shr(0, sload(0)), 18446744073709551615)
+      let v6 := 0
+      let v7 := iszero(eq(v5, v6))
+      if iszero(v7) {
         revert(0, 0)
       }
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(0, 18446744073709551615))))
+      let v8 := 0
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v8, 18446744073709551615))))
     }
   }
 }

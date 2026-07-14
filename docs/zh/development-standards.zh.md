@@ -7,6 +7,9 @@
 | 主题 | 权威文档 |
 |---|---|
 | 文档地图 | `docs/INDEX.md` |
+| 文档生命周期与归档分类 | `docs/document-status.md` |
+| Agent 启动入口与当前检查点 | `AGENTS.md` |
+| 当前任务完成证据 | `docs/implementation-log.md` |
 | 已确定的架构和路线图决策 | `docs/decisions.md` |
 | 已接受的产品 / 目标方向 | `docs/rfcs/0001-multichain-platform.md`, `docs/rfcs/0002-target-implementation-design.md` |
 | 可移植 IR 与运行时/能力降级 | `docs/portable-ir.md`, `docs/rfcs/0003-portable-ir-and-runtime.md` |
@@ -14,7 +17,8 @@
 | 目标生命周期与各目标注释 | `docs/targets/README.md`, 以及具体的 `docs/targets/*.md` 注释 |
 | EVM 基准详情 | `docs/targets/evm.md`, `Examples/Backend/Evm/README.md` |
 | 共享的跨目标 Counter 场景 | `docs/shared-scenario.md` |
-| 当前全项目差距与修复优先级 | `docs/multi-chain-gap-audit-2026-07-10.md` |
+| 当前架构与下一执行顺序 | `docs/superpowers/specs/2026-07-12-portable-intent-abstraction-design.md`, `docs/superpowers/plans/2026-07-12-portable-intent-abstraction.md` |
+| 7 月 10 日历史 gap/修复证据 | `docs/multi-chain-gap-audit-2026-07-10.md` |
 | 执行积压工作与验收标准 | `docs/implementation-backlog.md` |
 | 验证命令与工具先决条件 | `docs/validation-gates.md` |
 | 中文叙述 / 策略文档 | `docs/zh/*.md`；它们必须与英文工程文档保持一致，且不得引入独立的工程策略 |
@@ -73,7 +77,7 @@
 
 - Lean 工具链是来自 `lean-toolchain` 的 `leanprover/lean4:v4.31.0`。
 - 基础构建门禁是 `lake build`。
-- 当前库根为 `ProofForge`、`ProofForge.Psy`、`ProofForge.Target`、
+- 当前库根为 `ProofForge`、`ProofForge.Runtime.Psy`、`ProofForge.Target`、
   `ProofForge.IR`、`ProofForge.Backend`、
   `ProofForge.Backend.Solana.SbpfAsm`、`ProofForge.Compiler.Yul.AST`、
   `ProofForge.Compiler.Yul.Printer`、`ProofForge.Compiler.Wasm.AST`、

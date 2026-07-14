@@ -28,11 +28,11 @@ def roleMembers : MapRef :=
   { id := "roleMembers", keyType := .u64, valueType := .u64 }
 
 contract_mixin AccessControlPortableMixin do
-  use ProofForge.Contract.Surface.mapState roleMembers
+  use ProofForge.Contract.Source.mapState roleMembers
 
   query hasRole (role : .u64, who : .address) returns(.bool) do
     let member : .u64 := pathReadRole roleMembers role who;
-    return ProofForge.Contract.Surface.ne (ProofForge.Contract.Surface.ref member) (u64 0);
+    return ProofForge.Contract.Source.ne (ProofForge.Contract.Source.ref member) (u64 0);
 
   entry grantRole (role : .u64, who : .address) do
     guard_role defaultAdminRole;

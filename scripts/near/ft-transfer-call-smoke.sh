@@ -51,59 +51,80 @@ assert_traps() {
 }
 
 eval "$(python3 - <<'PY'
-import hashlib
 import struct
+import hashlib
 
-sender = hashlib.sha256(b"proof-forge.testnet").digest()
-receiver = hashlib.sha256(b"demo.receiver.testnet").digest()
+def acct_slot(name):
+    b = name.encode()
+    assert len(b) <= 256
+    return struct.pack("<I", len(b)) + b + b"\0" * (256 - len(b))
+def balance_json(name):
+    return ('{"account_id":"' + name + '"}').encode()
+def u128(v):
+    return struct.pack("<QQ", v, 0)
+def u64(v):
+    return struct.pack("<Q", v)
+def transfer_call_json(receiver, amount, msg):
+    return ('{"receiver_id":"' + receiver + '","amount":"' + str(amount) +
+            '","msg":"' + msg + '"}').encode()
+def resolve_json(transfer_id, sender, receiver):
+    return ('{"transfer_id":' + str(transfer_id) + ',"sender":"' + sender +
+            '","receiver":"' + receiver + '"}').encode()
+
+sender = "proof-forge.testnet"
+receiver = "demo.receiver.testnet"
+# ft_approve keeps a 32-byte hash spender_id (allowances stay hash-keyed).
 spender = hashlib.sha256(b"spender.testnet").digest()
 mint_amount = 100
 approve_amount = 13
 transfer_amount = 70
-receiver_idx = 0
 unused_amount = 25
 
 inputs = [
     b"",
-    sender + struct.pack("<Q", mint_amount),
-    spender + struct.pack("<Q", approve_amount),
-    sender,
-    receiver,
-    receiver + struct.pack("<I", receiver_idx) + struct.pack("<Q", transfer_amount),
-    sender,
-    receiver,
-    struct.pack("<Q", 0) + sender + receiver,
-    sender,
-    receiver,
+    acct_slot(sender) + u128(mint_amount),
+    spender + u128(approve_amount),
+    balance_json(sender),
+    balance_json(receiver),
+    acct_slot(receiver),
+    transfer_call_json(receiver, transfer_amount, 'refund'),
+    balance_json(sender),
+    balance_json(receiver),
+    resolve_json(0, sender, receiver),
+    balance_json(sender),
+    balance_json(receiver),
 ]
 
-print(f'SENDER_HASH="{sender.hex()}"')
-print(f'RECEIVER_HASH="{receiver.hex()}"')
+print(f'SENDER_ACCT="{sender}"')
+print(f'RECEIVER_ACCT="{receiver}"')
 print(f'UNUSED_AMOUNT="{unused_amount}"')
 print(f'INPUTS_HEX="{",".join(item.hex() for item in inputs)}"')
 
-receiver2 = hashlib.sha256(b"second.receiver.testnet").digest()
+receiver2 = "second.receiver.testnet"
 refund_inputs = [
     b"",
-    sender + struct.pack("<Q", mint_amount),
-    receiver + struct.pack("<I", receiver_idx) + struct.pack("<Q", transfer_amount),
-    struct.pack("<Q", 0) + sender + receiver,
-    sender,
-    receiver,
+    acct_slot(sender) + u128(mint_amount),
+    acct_slot(receiver),
+    transfer_call_json(receiver, transfer_amount, 'refund-all'),
+    resolve_json(0, sender, receiver),
+    balance_json(sender),
+    balance_json(receiver),
 ]
 concurrent_inputs = [
     b"",
-    sender + struct.pack("<Q", mint_amount),
-    receiver + struct.pack("<I", receiver_idx) + struct.pack("<Q", 30),
-    receiver2 + struct.pack("<I", receiver_idx) + struct.pack("<Q", 20),
-    struct.pack("<Q", 1) + sender + receiver2,
-    struct.pack("<Q", 0) + sender + receiver,
-    sender,
-    receiver,
-    receiver2,
+    acct_slot(sender) + u128(mint_amount),
+    acct_slot(receiver),
+    acct_slot(receiver2),
+    transfer_call_json(receiver, 30, 'first'),
+    transfer_call_json(receiver2, 20, 'second'),
+    resolve_json(1, sender, receiver2),
+    resolve_json(0, sender, receiver),
+    balance_json(sender),
+    balance_json(receiver),
+    balance_json(receiver2),
 ]
-callback_input = struct.pack("<Q", 0) + sender + receiver
-print(f'RECEIVER2_HASH="{receiver2.hex()}"')
+callback_input = resolve_json(0, sender, receiver)
+print(f'RECEIVER2_ACCT="{receiver2}"')
 print(f'REFUND_INPUTS_HEX="{",".join(item.hex() for item in refund_inputs)}"')
 print(f'CONCURRENT_INPUTS_HEX="{",".join(item.hex() for item in concurrent_inputs)}"')
 print(f'CALLBACK_INPUT_HEX="{callback_input.hex()}"')
@@ -123,6 +144,7 @@ out="$("${HOST[@]}" "$WAT" \
   ft_approve \
   ft_balance_of \
   ft_balance_of \
+  storage_deposit \
   ft_transfer_call \
   ft_balance_of \
   ft_balance_of \
@@ -132,60 +154,66 @@ out="$("${HOST[@]}" "$WAT" \
   --predecessor-account-id proof-forge.testnet \
   --signer-account-id proof-forge.testnet \
   --current-account-id proof-forge.testnet \
+  --attached-deposit 1 \
   --promise-result-u64 "$UNUSED_AMOUNT" \
   --inputs-hex "$INPUTS_HEX")"
 echo "$out"
 
 assert_contains "$out" "call 1:ft_mint: return=<none>" "mint call"
 assert_contains "$out" "call 1:ft_approve: return=<none>" "approve call"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=6400000000000000 return_u64=100" "sender balance after mint"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=0000000000000000 return_u64=0" "receiver balance before transfer"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=2231303022" "sender JSON balance after mint"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=223022" "receiver JSON balance before transfer"
 assert_contains "$out" "call 1:ft_transfer_call: return=<none>" "promise-returned transfer call"
 # deposit is near-sys amount_ptr → offline-host reads the full u128 LE value.
-# The private callback receives Borsh transfer id + sender/receiver hashes.
-assert_contains "$out" "promise_create id=0 account=demo.receiver.testnet method=ft_on_transfer args=[\"$SENDER_HASH\",70] deposit=0 gas=50000000000000" "promise_create trace"
-assert_contains "$out" "promise_then id=1 parent=0 account=proof-forge.testnet method=ft_resolve_transfer args=[0,\"$SENDER_HASH\",\"$RECEIVER_HASH\"] deposit=0 gas=50000000000000" "promise_then trace"
+# Both receiver hook and private callback receive standard named JSON objects.
+assert_contains "$out" "promise_create id=0 account=demo.receiver.testnet method=ft_on_transfer args={\"sender_id\":\"$SENDER_ACCT\",\"amount\":\"70\",\"msg\":\"refund\"} deposit=0 gas=50000000000000" "promise_create trace"
+assert_contains "$out" "promise_then id=1 parent=0 account=proof-forge.testnet method=ft_resolve_transfer args={\"transfer_id\":0,\"sender\":\"$SENDER_ACCT\",\"receiver\":\"$RECEIVER_ACCT\"} deposit=0 gas=50000000000000" "promise_then trace"
 assert_contains "$out" "promise_return id=1" "promise_return trace"
 assert_order "$out" "promise_create id=0" "promise_then id=1 parent=0"
 assert_contains "$out" "promise_result index=0 status=1 return_u64=25" "promise result stub"
-assert_contains "$out" "call 1:ft_resolve_transfer: return_hex=2d00000000000000 return_u64=45" "resolve used amount"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=1e00000000000000 return_u64=30" "sender balance before resolve"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=4600000000000000 return_u64=70" "receiver balance before resolve"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=3700000000000000 return_u64=55" "sender balance after refund"
-assert_contains "$out" "call 1:ft_balance_of: return_hex=2d00000000000000 return_u64=45" "receiver balance after refund"
+assert_contains "$out" "call 1:ft_resolve_transfer: return_hex=22343522" "resolve used amount"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=22333022" "sender JSON balance before resolve"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=22373022" "receiver JSON balance before resolve"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=22353522" "sender JSON balance after refund"
+assert_contains "$out" "call 1:ft_balance_of: return_hex=22343522" "receiver JSON balance after refund"
 
 assert_traps "repeat init" "${HOST[@]}" "$WAT" init init \
   --predecessor-account-id proof-forge.testnet \
   --current-account-id proof-forge.testnet \
+  --attached-deposit 1 \
   --inputs-hex ","
 
 assert_traps "external resolver call" "${HOST[@]}" "$WAT" ft_resolve_transfer \
   --predecessor-account-id attacker.testnet \
   --current-account-id proof-forge.testnet \
+  --attached-deposit 1 \
   --promise-result-u64 5 \
   --inputs-hex "$CALLBACK_INPUT_HEX"
 
 refund_out="$("${HOST[@]}" "$WAT" \
-  init ft_mint ft_transfer_call ft_resolve_transfer ft_balance_of ft_balance_of \
+  init ft_mint storage_deposit ft_transfer_call ft_resolve_transfer ft_balance_of ft_balance_of \
   --predecessor-account-id proof-forge.testnet \
   --signer-account-id proof-forge.testnet \
   --current-account-id proof-forge.testnet \
+  --attached-deposit 1 \
   --promise-result-u64 1000 \
   --inputs-hex "$REFUND_INPUTS_HEX")"
-assert_contains "$refund_out" "call 1:ft_resolve_transfer: return_hex=0000000000000000 return_u64=0" "refund bounded to original amount"
-assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=6400000000000000 return_u64=100" "sender balance after bounded refund"
-assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=0000000000000000 return_u64=0" "receiver balance after bounded refund"
+assert_contains "$refund_out" "call 1:ft_resolve_transfer: return_hex=223022 return_len=3" "refund bounded to original amount"
+assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=2231303022" "sender JSON balance after bounded refund"
+assert_contains "$refund_out" "call 1:ft_balance_of: return_hex=223022" "receiver JSON balance after bounded refund"
 
 concurrent_out="$("${HOST[@]}" "$WAT" \
-  init ft_mint ft_transfer_call ft_transfer_call ft_resolve_transfer ft_resolve_transfer \
+  init ft_mint storage_deposit storage_deposit ft_transfer_call ft_transfer_call \
+  ft_resolve_transfer ft_resolve_transfer \
   ft_balance_of ft_balance_of ft_balance_of \
   --predecessor-account-id proof-forge.testnet \
   --signer-account-id proof-forge.testnet \
   --current-account-id proof-forge.testnet \
+  --attached-deposit 1 \
   --promise-result-u64 5 \
   --inputs-hex "$CONCURRENT_INPUTS_HEX")"
-assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=3c00000000000000 return_u64=60" "sender balance after out-of-order callbacks"
-assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=1900000000000000 return_u64=25" "first receiver balance after out-of-order callbacks"
-assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=0f00000000000000 return_u64=15" "second receiver balance after out-of-order callbacks"
+assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=22363022" "sender JSON balance after out-of-order callbacks"
+assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=22323522" "first receiver JSON balance after out-of-order callbacks"
+assert_contains "$concurrent_out" "call 1:ft_balance_of: return_hex=22313522" "second receiver JSON balance after out-of-order callbacks"
 
 echo "ft-transfer-call-smoke: ok (happy path, repeat-init, private callback, bounded refund, concurrent contexts)"

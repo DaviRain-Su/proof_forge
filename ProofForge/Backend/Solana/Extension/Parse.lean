@@ -2,6 +2,7 @@ import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Backend.Solana.Extension.Types
 import ProofForge.Target.Plan
+import ProofForge.Target.HostOps.Solana
 
 namespace ProofForge.Backend.Solana.Extension
 
@@ -402,7 +403,7 @@ def ProgramExtensions.addDeclaredAccount (acc : ProgramExtensions)
 def declaredAccountFromCall? (call : CapabilityCall) : Option DeclaredAccount :=
   if call.capability == .accountExplicit &&
       metadataValue? call.metadata "solana.extension" == some "account" then
-    let name := metadataValue? call.metadata "solana.account.name" |>.getD call.operation
+    let name := metadataValue? call.metadata "solana.account.name" |>.getD call.operation.render
     some {
       name := name
       access := metadataValue? call.metadata "solana.account.access" |>.getD "readonly"
@@ -462,8 +463,8 @@ def allocatorFromCall? (call : CapabilityCall) : Option RuntimeAllocator :=
     none
 
 def pdaFromCall? (call : CapabilityCall) : Option PdaDerive :=
-  if call.operation == "solana.pda.derive" then
-    let name := metadataValue? call.metadata "solana.pda.name" |>.getD call.operation
+  if call.operation.render == "solana.pda.derive" then
+    let name := metadataValue? call.metadata "solana.pda.name" |>.getD call.operation.render
     some {
       name := name
       seeds := pdaMetadataSeeds call
@@ -477,7 +478,7 @@ def pdaFromCall? (call : CapabilityCall) : Option PdaDerive :=
 
 def cpiFromCall? (call : CapabilityCall) : Option CpiInvoke :=
   if call.capability == .crosscallCpi then
-    let name := metadataValue? call.metadata "solana.cpi.name" |>.getD call.operation
+    let name := metadataValue? call.metadata "solana.cpi.name" |>.getD call.operation.render
     let program := metadataValue? call.metadata "solana.cpi.program" |>.getD ""
     let instruction := metadataValue? call.metadata "solana.cpi.instruction" |>.getD ""
     some {
@@ -489,7 +490,7 @@ def cpiFromCall? (call : CapabilityCall) : Option CpiInvoke :=
       protocol? := metadataValue? call.metadata "solana.cpi.protocol"
       dataLayout? := metadataValue? call.metadata "solana.cpi.data_layout"
       metadata := call.metadata
-      signed := call.operation == "solana.cpi.invoke_signed"
+      signed := call.operation.render == "solana.cpi.invoke_signed"
       entrypoint? := entrypoint? call
     }
   else
@@ -500,7 +501,7 @@ def memoryFromCall? (call : CapabilityCall) : Option MemoryAction :=
     match entrypoint? call, metadataValue? call.metadata "solana.memory.op" >>= memoryOpFromString? with
     | some entrypoint, some op =>
         some {
-          name := metadataValue? call.metadata "solana.memory.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.memory.name" |>.getD call.operation.render
           op := op
           dstState? := metadataValue? call.metadata "solana.memory.dst_state"
           srcState? := metadataValue? call.metadata "solana.memory.src_state"
@@ -521,7 +522,7 @@ def cryptoHashFromCall? (call : CapabilityCall) : Option CryptoHashAction :=
     match entrypoint? call, metadataValue? call.metadata "solana.crypto.op" >>= cryptoHashOpFromString? with
     | some entrypoint, some op =>
         some {
-          name := metadataValue? call.metadata "solana.crypto.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.crypto.name" |>.getD call.operation.render
           op := op
           inputState := metadataValue? call.metadata "solana.crypto.input_state" |>.getD ""
           bytes := natFromMetadata? call.metadata "solana.crypto.bytes" |>.getD 0
@@ -543,7 +544,7 @@ def sysvarFromCall? (call : CapabilityCall) : Option SysvarReadAction :=
     | some entrypoint, some kind, some field =>
         if field.kind == kind then
           some {
-            name := metadataValue? call.metadata "solana.sysvar.name" |>.getD call.operation
+            name := metadataValue? call.metadata "solana.sysvar.name" |>.getD call.operation.render
             kind := kind
             field := field
             outputState := metadataValue? call.metadata "solana.sysvar.output_state" |>.getD ""
@@ -562,7 +563,7 @@ def returnDataFromCall? (call : CapabilityCall) : Option ReturnDataAction :=
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.return_data.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.return_data.name" |>.getD call.operation.render
           sourceState := metadataValue? call.metadata "solana.return_data.source_state" |>.getD ""
           bytes := natFromMetadata? call.metadata "solana.return_data.bytes" |>.getD 0
           entrypoint := entrypoint
@@ -578,7 +579,7 @@ def returnDataReadFromCall? (call : CapabilityCall) : Option ReturnDataReadActio
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.return_data.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.return_data.name" |>.getD call.operation.render
           destinationState := metadataValue? call.metadata "solana.return_data.destination_state" |>.getD ""
           maxBytes := natFromMetadata? call.metadata "solana.return_data.max_bytes" |>.getD 0
           lengthState? := metadataValue? call.metadata "solana.return_data.length_state"
@@ -597,7 +598,7 @@ def computeUnitsFromCall? (call : CapabilityCall) : Option ComputeUnitsAction :=
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.compute_units.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.compute_units.name" |>.getD call.operation.render
           outputState := metadataValue? call.metadata "solana.compute_units.output_state" |>.getD ""
           featureGated := metadataValue? call.metadata "solana.compute_units.feature_gated"
             |>.map boolFromString |>.getD true
@@ -614,7 +615,7 @@ def computeUnitsLogFromCall? (call : CapabilityCall) : Option ComputeUnitsLogAct
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.compute_units.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.compute_units.name" |>.getD call.operation.render
           entrypoint := entrypoint
         }
     | none => none
@@ -628,7 +629,7 @@ def computeBudgetFromCall? (call : CapabilityCall) : Option ComputeBudgetAdvice 
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.compute_budget.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.compute_budget.name" |>.getD call.operation.render
           unitLimit? := natFromMetadata? call.metadata "solana.compute_budget.unit_limit"
           unitPriceMicroLamports? :=
             natFromMetadata? call.metadata "solana.compute_budget.unit_price_micro_lamports"
@@ -645,7 +646,7 @@ def pubkeyLogFromCall? (call : CapabilityCall) : Option PubkeyLogAction :=
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.log.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.log.name" |>.getD call.operation.render
           account := metadataValue? call.metadata "solana.log.account" |>.getD ""
           entrypoint := entrypoint
         }
@@ -660,7 +661,7 @@ def dataLogFromCall? (call : CapabilityCall) : Option DataLogAction :=
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.log.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.log.name" |>.getD call.operation.render
           sourceState := metadataValue? call.metadata "solana.log.source_state" |>.getD ""
           bytes := natFromMetadata? call.metadata "solana.log.bytes" |>.getD 0
           entrypoint := entrypoint
@@ -675,7 +676,7 @@ def accountReallocFromCall? (call : CapabilityCall) : Option AccountReallocActio
     match entrypoint? call with
     | some entrypoint =>
         some {
-          name := metadataValue? call.metadata "solana.account_realloc.name" |>.getD call.operation
+          name := metadataValue? call.metadata "solana.account_realloc.name" |>.getD call.operation.render
           account := metadataValue? call.metadata "solana.account_realloc.account" |>.getD ""
           newSize := natFromMetadata? call.metadata "solana.account_realloc.new_size" |>.getD 0
           entrypoint := entrypoint
@@ -698,7 +699,7 @@ def transferHookExtraAccountMetaListFromCall? (call : CapabilityCall) :
                 |>.map splitComma |>.getD #[]
         some {
           name := metadataValue? call.metadata "solana.transfer_hook_extra_meta.name"
-            |>.getD call.operation
+            |>.getD call.operation.render
           account := metadataValue? call.metadata "solana.transfer_hook_extra_meta.account"
             |>.getD ""
           extraAccounts := extraAccounts
@@ -708,77 +709,123 @@ def transferHookExtraAccountMetaListFromCall? (call : CapabilityCall) :
   else
     none
 
+private def addLegacyCall (acc : ProgramExtensions) (call : CapabilityCall) :
+    ProgramExtensions :=
+  let acc := match accountOrderFromCall? call with
+    | some names => acc.addAccountOrder names | none => acc
+  let acc := match declaredAccountFromCall? call with
+    | some account => acc.addDeclaredAccount account | none => acc
+  let acc := match allocatorFromCall? call with
+    | some allocator => acc.addAllocator allocator | none => acc
+  let acc := match pdaFromCall? call with
+    | some pda => acc.addPda pda | none => acc
+  let acc := match cpiFromCall? call with
+    | some cpi => acc.addCpi cpi | none => acc
+  let acc := match memoryFromCall? call with
+    | some action => acc.addMemory action | none => acc
+  let acc := match cryptoHashFromCall? call with
+    | some action => acc.addCryptoHash action | none => acc
+  let acc := match sysvarFromCall? call with
+    | some action => acc.addSysvar action | none => acc
+  let acc := match returnDataFromCall? call with
+    | some action => acc.addReturnData action | none => acc
+  let acc := match returnDataReadFromCall? call with
+    | some action => acc.addReturnDataRead action | none => acc
+  let acc := match computeUnitsFromCall? call with
+    | some action => acc.addComputeUnits action | none => acc
+  let acc := match computeUnitsLogFromCall? call with
+    | some action => acc.addComputeUnitsLog action | none => acc
+  let acc := match computeBudgetFromCall? call with
+    | some action => acc.addComputeBudget action | none => acc
+  let acc := match pubkeyLogFromCall? call with
+    | some action => acc.addPubkeyLog action | none => acc
+  let acc := match dataLogFromCall? call with
+    | some action => acc.addDataLog action | none => acc
+  let acc := match accountReallocFromCall? call with
+    | some action => acc.addAccountRealloc action | none => acc
+  match transferHookExtraAccountMetaListFromCall? call with
+  | some action => acc.addTransferHookExtraAccountMetaList action
+  | none => acc
+
+private def seedDescriptor (seed : ProofForge.Target.HostOps.Solana.Payload.PdaSeed) : String :=
+  let marker := match seed.kind with
+    | .literal => "literal:"
+    | .account => "account:"
+    | .bump => "bump:"
+    | .instructionParam => "param:"
+  marker ++ seed.value
+
+private def typedAccountFromCall (call : CapabilityCall) :
+    Except String (Option DeclaredAccount) :=
+  if call.operation == .hostOp ProofForge.Target.HostOps.Solana.accountDeclareId then
+    match ProofForge.Target.HostOps.Solana.Payload.AccountSpec.decode call.payload with
+    | .ok spec => .ok (some {
+        name := spec.name
+        access := spec.access.id
+        signer := spec.signer.id
+        owner := spec.owner
+        entrypoint? := entrypoint? call
+      })
+    | .error error => .error s!"invalid Solana account payload: {repr error}"
+  else
+    .ok none
+
+private def typedPdaFromCall (call : CapabilityCall) : Except String (Option PdaDerive) :=
+  if call.operation == .hostOp ProofForge.Target.HostOps.Solana.pdaDeriveId then
+    match ProofForge.Target.HostOps.Solana.Payload.PdaSpec.decode call.payload with
+    | .ok spec => .ok (some {
+        name := spec.name
+        seeds := spec.seeds.map seedDescriptor
+        bump? := spec.bump?
+        account? := spec.account?
+        signer := spec.signer
+        entrypoint? := entrypoint? call
+      })
+    | .error error => .error s!"invalid Solana PDA payload: {repr error}"
+  else
+    .ok none
+
+private def typedCpiFromCall (call : CapabilityCall) : Except String (Option CpiInvoke) :=
+  if call.operation == .hostOp ProofForge.Target.HostOps.Solana.cpiInvokeId then
+    match ProofForge.Target.HostOps.Solana.Payload.CpiSpec.decode call.payload with
+    | .ok spec => .ok (some {
+        name := spec.name
+        program := spec.program
+        instruction := spec.instruction
+        accounts := spec.accounts.map fun account => {
+          name := account.name, access := account.access.id, signer := account.signer.id }
+        signerSeeds := spec.signerSeeds.map seedDescriptor
+        protocol? := spec.protocol?
+        dataLayout? := spec.dataLayout?
+        metadata := call.metadata
+        signed := spec.signed
+        entrypoint? := entrypoint? call
+      })
+    | .error error => .error s!"invalid Solana CPI payload: {repr error}"
+  else
+    .ok none
+
+private def addCheckedCall (acc : ProgramExtensions) (call : CapabilityCall) :
+    Except String ProgramExtensions := do
+  let account? ← typedAccountFromCall call
+  let pda? ← typedPdaFromCall call
+  let cpi? ← typedCpiFromCall call
+  if account?.isSome || pda?.isSome || cpi?.isSome then
+    let acc := match account? with
+      | some account => acc.addDeclaredAccount account | none => acc
+    let acc := match pda? with | some pda => acc.addPda pda | none => acc
+    return match cpi? with | some cpi => acc.addCpi cpi | none => acc
+  return addLegacyCall acc call
+
+/-- Fail-closed parser used by the canonical Solana plan. Versioned typed
+operations are decoded by their target-owned schemas; malformed payloads are
+never reinterpreted as legacy metadata. -/
+def ProgramExtensions.fromPlanChecked (plan : CapabilityPlan) : Except String ProgramExtensions :=
+  plan.calls.foldlM addCheckedCall {}
+
+/-- Transitional metadata parser retained for legacy callers until A-CUT5. -/
 def ProgramExtensions.fromPlan (plan : CapabilityPlan) : ProgramExtensions :=
-  plan.calls.foldl
-    (fun acc call =>
-      let acc :=
-        match accountOrderFromCall? call with
-        | some names => acc.addAccountOrder names
-        | none => acc
-      let acc :=
-        match declaredAccountFromCall? call with
-        | some account => acc.addDeclaredAccount account
-        | none => acc
-      let acc :=
-        match allocatorFromCall? call with
-        | some allocator => acc.addAllocator allocator
-        | none => acc
-      let acc :=
-        match pdaFromCall? call with
-        | some pda => acc.addPda pda
-        | none => acc
-      let acc :=
-        match cpiFromCall? call with
-        | some cpi => acc.addCpi cpi
-        | none => acc
-      let acc :=
-        match memoryFromCall? call with
-        | some action => acc.addMemory action
-        | none => acc
-      let acc :=
-        match cryptoHashFromCall? call with
-        | some action => acc.addCryptoHash action
-        | none => acc
-      let acc :=
-        match sysvarFromCall? call with
-        | some action => acc.addSysvar action
-        | none => acc
-      let acc :=
-        match returnDataFromCall? call with
-        | some action => acc.addReturnData action
-        | none => acc
-      let acc :=
-        match returnDataReadFromCall? call with
-        | some action => acc.addReturnDataRead action
-        | none => acc
-      let acc :=
-        match computeUnitsFromCall? call with
-        | some action => acc.addComputeUnits action
-        | none => acc
-      let acc :=
-        match computeUnitsLogFromCall? call with
-        | some action => acc.addComputeUnitsLog action
-        | none => acc
-      let acc :=
-        match computeBudgetFromCall? call with
-        | some action => acc.addComputeBudget action
-        | none => acc
-      let acc :=
-        match pubkeyLogFromCall? call with
-        | some action => acc.addPubkeyLog action
-        | none => acc
-      let acc :=
-        match dataLogFromCall? call with
-        | some action => acc.addDataLog action
-        | none => acc
-      let acc :=
-        match accountReallocFromCall? call with
-        | some action => acc.addAccountRealloc action
-        | none => acc
-      match transferHookExtraAccountMetaListFromCall? call with
-      | some action => acc.addTransferHookExtraAccountMetaList action
-      | none => acc)
-    {}
+  plan.calls.foldl addLegacyCall {}
 
 def hasExtensions (extensions : ProgramExtensions) : Bool :=
   extensions.accountOrder.size > 0 ||

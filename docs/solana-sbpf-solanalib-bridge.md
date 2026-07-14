@@ -15,12 +15,12 @@ Hook ProofForge's EmitSBPF output into
 for **post-hoc** verification, without changing the product emit path
 (`IR → AstNode → .s → sbpf → ELF`).
 
-This is the Solana counterpart of the EVM `EvmRefinement` / powdr adapter:
+This is the Solana counterpart of the EVM `ProofForgeFormalEvm` / powdr adapter:
 
 | Lane | Default (mathlib-free) | Opt-in (external semantics) |
 |------|------------------------|-----------------------------|
-| EVM | `EvmBytecodeSemantics` | `EvmRefinement` → powdr `stepF` |
-| Solana | `BpfEncode` + `LabeledSbpf` + `SbpfInterpreter` | `SolanaRefinement` → solanalib lift / `bpfInterp` / `verifyInstr` |
+| EVM | `EvmBytecodeSemantics` | `ProofForgeFormalEvm` → powdr `stepF` |
+| Solana | `BpfEncode` + `LabeledSbpf` + `SbpfInterpreter` | `ProofForgeFormalSolana` → solanalib lift / `bpfInterp` / `verifyInstr` |
 
 ## Architecture
 
@@ -55,16 +55,16 @@ BpfState
 | Binary encoder | `ProofForge/Backend/Solana/BpfEncode.lean` | `just solana-bpf-encode-smoke` |
 | Labeled sBPF view | `ProofForge/Backend/Solana/LabeledSbpf.lean` | same |
 | Unit + Counter/ValueVault encode | `Tests/Backend/Solana/SolanaBpfEncode.lean` | same |
-| solanalib adapter | `SolanaRefinement/SolanalibAdapter.lean` | `just solana-solanalib-adapter` |
-| Direct lift ResolvedInst→BpfInstruction | `SolanaRefinement/LabeledToSolanalib.lean` | same |
-| Host bridge (Counter core-tail) | `SolanaRefinement/HostBridge.lean` | same |
-| Full EmitSBPF Counter host | `SolanaRefinement/FullProgramHost.lean` | same |
-| IR ↔ full-host paired simulation | `SolanaRefinement/CounterHostRefinement.lean` | same |
-| Core-tail host ≡ abstract model | `SolanaRefinement/CoreTailHostComposition.lean` | same |
-| ValueVault IR ↔ host lockstep | `SolanaRefinement/ValueVaultHostRefinement.lean` | same |
-| Full-host `TargetSemantics` | `SolanaRefinement/FullHostTargetSemantics.lean` | same |
-| CompileCorrect sketch | `SolanaRefinement/CompileCorrect.lean` | same |
-| Smoke entry | `SolanaRefinement/CompileCorrectSmoke.lean` | same |
+| solanalib adapter | `ProofForgeFormal/Solana/SolanalibAdapter.lean` | `just solana-solanalib-adapter` |
+| Direct lift ResolvedInst→BpfInstruction | `ProofForgeFormal/Solana/LabeledToSolanalib.lean` | same |
+| Host bridge (Counter core-tail) | `ProofForgeFormal/Solana/HostBridge.lean` | same |
+| Full EmitSBPF Counter host | `ProofForgeFormal/Solana/FullProgramHost.lean` | same |
+| IR ↔ full-host paired simulation | `ProofForgeFormal/Solana/CounterHostRefinement.lean` | same |
+| Core-tail host ≡ abstract model | `ProofForgeFormal/Solana/CoreTailHostComposition.lean` | same |
+| ValueVault IR ↔ host lockstep | `ProofForgeFormal/Solana/ValueVaultHostRefinement.lean` | same |
+| Full-host `TargetSemantics` | `ProofForgeFormal/Solana/FullHostTargetSemantics.lean` | same |
+| CompileCorrect sketch | `ProofForgeFormal/Solana/CompileCorrect.lean` | same |
+| Smoke entry | `ProofForgeFormal/Solana/CompileCorrectSmoke.lean` | same |
 | IR semantics anchor note | `docs/portable-ir-semantics-anchor.md` | docs |
 
 ### Encode conventions

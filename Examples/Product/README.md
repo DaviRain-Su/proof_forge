@@ -35,6 +35,7 @@ Taxonomy: [docs/examples-and-tests-taxonomy.md](../../docs/examples-and-tests-ta
 | 4 | [RemoteCall.lean](RemoteCall.lean) | `just portable-remote-call-multi-target` |
 | 5 | [ExternalTokenTransfer.lean](ExternalTokenTransfer.lean) | `just product-protocol-ft` |
 | 6 | [AuthRemoteCall.lean](AuthRemoteCall.lean) | `just portable-solana-accounts` |
+| 7 | [Nft.lean](Nft.lean) | `just nft-materialization` · `just nft-artifact-schema` |
 
 Full narrative: [docs/tutorials/portable-shared-path.md](../../docs/tutorials/portable-shared-path.md).
 
@@ -67,6 +68,7 @@ host rewrite: `--peer logical.peer=…` / PeerMap.
 | [ExternalVault.lean](ExternalVault.lean) | external ERC-4626 vault protocol intent |
 | [ERC4626Vault.lean](ERC4626Vault.lean) | deployable ERC-4626 vault body (stdlib pro-rata; **product v1 frozen**) |
 | [AuthRemoteCall.lean](AuthRemoteCall.lean) | caller + debit + remote |
+| [Aggregate.lean](Aggregate.lean) | renderer-neutral bytes/string/fixed-array ABI probe (`just stylus-cli-matrix`) |
 | [ArrayExample.lean](ArrayExample.lean) | arrays |
 | [HostEnvProbe.lean](HostEnvProbe.lean) | triad HostEnv (`timestamp`/`checkpointId`/`contractId`/`caller`) |
 | [Ownable.lean](Ownable.lean) | owner policy |

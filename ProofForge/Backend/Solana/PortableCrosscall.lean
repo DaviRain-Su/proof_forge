@@ -457,28 +457,16 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
   | .crosscallInvokeValueTyped _ _ _ args _ =>
       acc.push { entrypoint, argCount := args.size }
   | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped ..
-  | .crosscallCreate .. | .crosscallCreate2 ..
   | .crosscallNamed .. => acc
-  | .nearCrosscallInvokePool .. | .nearPromiseThen .. => acc
+  | .hostCall _ args _ _ => args.foldl (collectFromExpr entrypoint) acc
+  | .crosscallInvokeNamedValue .. | .crosscallContinue .. => acc
   | .effect e => collectFromEffect entrypoint acc e
   | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
   | .eq a b | .ne a b | .lt a b | .le a b | .gt a b | .ge a b
   | .boolAnd a b | .boolOr a b | .hashTwoToOne a b =>
       collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b
-  | .ecrecover a b c d =>
-      collectFromExpr entrypoint
-        (collectFromExpr entrypoint
-          (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d
-  | .eip712PermitDigest a b c d e f =>
-      let acc := collectFromExpr entrypoint
-        (collectFromExpr entrypoint
-          (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d
-      collectFromExpr entrypoint (collectFromExpr entrypoint acc e) f
-  | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-      collectFromExpr entrypoint acc target
-  | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _
-  | .nearPromiseResultStatus a | .nearPromiseResultU64 a =>
+  | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ =>
       collectFromExpr entrypoint acc a
   | .arrayLit _ xs => xs.foldl (fun a e => collectFromExpr entrypoint a e) acc
   | .structLit _ fs => fs.foldl (fun a f => collectFromExpr entrypoint a f.snd) acc
@@ -489,10 +477,11 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
       collectFromExpr entrypoint
         (collectFromExpr entrypoint
           (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d
-  | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => acc
+  | .literal _ | .local _ | .nativeValue | .callValueU128 => acc
 where
   collectFromEffect (entrypoint : String) (acc : Array PortableCrosscallSite) :
       Effect → Array PortableCrosscallSite
+    | .hostCall _ args _ => args.foldl (collectFromExpr entrypoint) acc
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v =>
         collectFromExpr entrypoint acc v
@@ -511,21 +500,6 @@ where
     | .eventEmitIndexed _ ix data =>
         data.foldl (fun a f => collectFromExpr entrypoint a f.snd)
           (ix.foldl (fun a f => collectFromExpr entrypoint a f.snd) acc)
-    | .checkErc721Received a b c d =>
-        collectFromExpr entrypoint
-          (collectFromExpr entrypoint
-            (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d
-    | .checkErc1155Received a b c d e =>
-        collectFromExpr entrypoint
-          (collectFromExpr entrypoint
-            (collectFromExpr entrypoint
-              (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d) e
-    | .checkErc1155BatchReceived a b c d e =>
-        collectFromExpr entrypoint
-          (collectFromExpr entrypoint
-            (collectFromExpr entrypoint
-              (collectFromExpr entrypoint
-                (collectFromExpr entrypoint acc a) b) c) d) e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => acc
   collectFromPath (entrypoint : String) (acc : Array PortableCrosscallSite) :
@@ -579,7 +553,7 @@ def materializationNote (module : Module) : String :=
     "no portable crosscall sites"
   else
     let peer? :=
-      match module.nearCrosscallStrings[0]? with
+      match module.crosscallStrings[0]? with
       | some s => if s.isEmpty then none else some s
       | none => none
     let inferNote :=

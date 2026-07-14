@@ -2,7 +2,7 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
-import ProofForge.IR.Contract
+import ProofForge.IR.ValueType
 import ProofForge.Compiler.Wasm.AST
 
 namespace ProofForge.Backend.WasmHost.Types
@@ -50,10 +50,16 @@ def typeSuffix (vt : ValueType) : String :=
 def readName  (vt : ValueType) : String := "__pf_read_"  ++ typeSuffix vt
 def writeName (vt : ValueType) : String := "__pf_write_" ++ typeSuffix vt
 
+/-! A u128 local `name` occupies two wasm locals: `name` (low word) and
+    `u128HiName name` (high word). The local-type env still records `.u128`
+    under `name`; only the Wasm-level allocation and get/set are two-word. -/
+def u128HiName (name : String) : String := s!"{name}__hi"
+
 def returnU32Name  : String := "__pf_return_u32"
 def returnU64Name  : String := "__pf_return_u64"
 def returnBoolName : String := "__pf_return_bool"
 def returnBytesName : String := "__pf_return_bytes"
 def returnU128Name : String := "__pf_return_u128"
+def returnJsonU128Name : String := "__pf_return_json_u128"
 
 end ProofForge.Backend.WasmHost.Types

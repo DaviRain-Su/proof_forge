@@ -1,6 +1,7 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Backend.Evm.Plan
+import ProofForge.Backend.Evm.Plan.ToYul
 import ProofForge.Backend.Evm.ToYul
 import ProofForge.Backend.Evm.Validate
 import ProofForge.Backend.Evm.IR.Validate
@@ -32,10 +33,20 @@ open ProofForge.Backend.Evm.ToYul
 open ProofForge.Backend.Evm.Lower
 open ProofForge.Backend.Evm.Plan
 
+partial def stmtPlanAlwaysReturns : ProofForge.Backend.Evm.Plan.StmtPlan → Bool
+  | .return _ => true
+  | .ifElse _ thenBody elseBody =>
+      thenBody.any stmtPlanAlwaysReturns && elseBody.any stmtPlanAlwaysReturns
+  | .letBind .. | .letMutBind .. | .assign .. | .assignOp .. | .effect ..
+  | .assert .. | .assertEq .. | .assertPlanned .. | .release .. | .revert ..
+  | .revertWithError .. | .revertPlanned ..
+  | .boundedFor .. => false
+
 def lowerEntrypointWithPlan
     (module : Module)
     (entrypoint : Entrypoint)
-    (entrypointPlan : ProofForge.Backend.Evm.Plan.EntrypointPlan) :
+    (entrypointPlan : ProofForge.Backend.Evm.Plan.EntrypointPlan)
+    (allowLegacyFallback : Bool := true) :
     Except LowerError Lean.Compiler.Yul.Statement := do
   if entrypointPlan.name != entrypoint.name then
     .error {
@@ -49,16 +60,20 @@ def lowerEntrypointWithPlan
   | _ =>
       if entrypoint.kind == .fallback || entrypoint.kind == .receive then
         .error { message := s!"entrypoint `{entrypoint.name}` is a fallback/receive and must return unit" }
-      else if statementsAlwaysReturn entrypoint.body then
+      else if (!allowLegacyFallback && entrypointPlan.body.any stmtPlanAlwaysReturns) ||
+          (allowLegacyFallback && statementsAlwaysReturn entrypoint.body) then
         pure ()
       else
         .error { message := s!"entrypoint `{entrypoint.name}` returns `{entrypoint.returns.name}` but does not return on every control-flow path" }
   validateEntrypointTypes module entrypoint
   let body ←
-    match ← lowerEntrypointBodyWithPlan? module entrypoint entrypointPlan with
+    match ← lowerEntrypointBodyWithPlan? module entrypoint entrypointPlan allowLegacyFallback with
     | some plannedBody => .ok plannedBody
     | none =>
-        lowerStatements module entrypoint.name entrypoint.returns (entrypointTypeEnv entrypoint) false entrypoint.body
+        if allowLegacyFallback then
+          lowerStatements module entrypoint.name entrypoint.returns (entrypointTypeEnv entrypoint) false entrypoint.body
+        else
+          .error { message := s!"canonical EVM entrypoint plan for `{entrypoint.name}` could not be lowered without Legacy fallback" }
   let dynamicParamAliases :=
     entrypointPlan.params.foldl
       (fun acc param =>
@@ -390,6 +405,7 @@ def plannedMemoryArrayHelperFunctions (plan : ProofForge.Backend.Evm.Plan.Module
     avoid emitting the helpers when a module only uses div/mod/bitwise/shift. -/
 mutual
   partial def effectUsesCheckedArithmetic : Effect → Bool
+    | .hostCall _ args _ => args.any exprUsesCheckedArithmetic
     | .storageScalarWrite _ v => exprUsesCheckedArithmetic v
     | .storageScalarAssignOp _ op v =>
         ProofForge.Backend.Evm.Validate.needsCheckedArithmetic op || exprUsesCheckedArithmetic v
@@ -409,19 +425,10 @@ mutual
     | .storageArrayRead _ _ | .storageArrayStructFieldRead _ _ _
     | .storageStructFieldRead _ _ | .storagePathRead _ _
     | .contextRead _ | .eventEmit _ _ | .eventEmitIndexed _ _ _ => false
-    | .checkErc721Received a b c d =>
-        exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b ||
-          exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d
-    | .checkErc1155Received a b c d e =>
-        exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b ||
-          exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d || exprUsesCheckedArithmetic e
-
-    | .checkErc1155BatchReceived a b c d e =>
-        #[a, b, c, d, e].any exprUsesCheckedArithmetic
-
   partial def exprUsesCheckedArithmetic : Expr → Bool
     | .add _ _ _ | .sub _ _ _ | .mul _ _ _ => true
-    | .literal _ | .local _ | .nativeValue => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
+    | .hostCall _ args _ _ => args.any exprUsesCheckedArithmetic
     | .arrayLit _ xs => xs.any exprUsesCheckedArithmetic
     | .arrayGet a i => exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic i
     | .memoryArrayNew _ l => exprUsesCheckedArithmetic l
@@ -440,31 +447,17 @@ mutual
         || exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d
     | .hash p => exprUsesCheckedArithmetic p
     | .hashTwoToOne l r => exprUsesCheckedArithmetic l || exprUsesCheckedArithmetic r
-    | .ecrecover a b c d =>
-        exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b ||
-          exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d
-    | .eip712PermitDigest a b c d e f =>
-        exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b ||
-          exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d ||
-          exprUsesCheckedArithmetic e || exprUsesCheckedArithmetic f
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        exprUsesCheckedArithmetic target
     | .crosscallInvoke t m args | .crosscallInvokeTyped t m args _
     | .crosscallInvokeValueTyped t m _ args _
     | .crosscallInvokeStaticTyped t m args _ | .crosscallInvokeDelegateTyped t m args _ =>
         exprUsesCheckedArithmetic t || exprUsesCheckedArithmetic m || args.any exprUsesCheckedArithmetic
-    | .crosscallCreate v _ => exprUsesCheckedArithmetic v
-    | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
     | .crosscallNamed _ _ args _ => args.any exprUsesCheckedArithmetic
-    | .nearPromiseThen p m args d =>
+    | .crosscallContinue p m args d _ =>
         exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||
           args.any exprUsesCheckedArithmetic
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         exprUsesCheckedArithmetic accountIndex || exprUsesCheckedArithmetic methodId ||
           exprUsesCheckedArithmetic deposit || args.any exprUsesCheckedArithmetic
-    | .nearPromiseResultsCount => false
-    | .nearPromiseResultStatus i => exprUsesCheckedArithmetic i
-    | .nearPromiseResultU64 i => exprUsesCheckedArithmetic i
     | .effect e => effectUsesCheckedArithmetic e
 
   partial def stmtUsesCheckedArithmetic : Statement → Bool
@@ -488,7 +481,8 @@ def plannedCheckedArithmeticHelperFunctions (plan : ProofForge.Backend.Evm.Plan.
 
 def plannedCheckedWidthHelperFunctions (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
     Array Lean.Compiler.Yul.Statement :=
-  if ProofForge.Backend.Evm.Lower.entrypointsUseCheckedWidthHelper plan.entrypoints then
+  if plan.helpers.contains .checkedWidth ||
+      ProofForge.Backend.Evm.Lower.entrypointsUseCheckedWidthHelper plan.entrypoints then
     #[ProofForge.Backend.Evm.ToYul.checkedWidthHelperFunction]
   else
     #[]
@@ -505,13 +499,14 @@ def plannedCreateHelperFunctions
 
 def lowerEntrypointsWithPlan
     (module : Module)
-    (entrypoints : Array ProofForge.Backend.Evm.Plan.EntrypointPlan) :
+    (entrypoints : Array ProofForge.Backend.Evm.Plan.EntrypointPlan)
+    (allowLegacyFallback : Bool := true) :
     Except LowerError (Array Lean.Compiler.Yul.Statement) := do
   let (idx, functions) ← module.entrypoints.foldlM (init := (0, #[])) fun acc entrypoint => do
     let (idx, functions) := acc
     match entrypoints[idx]? with
     | some entrypointPlan => do
-        let function ← lowerEntrypointWithPlan module entrypoint entrypointPlan
+        let function ← lowerEntrypointWithPlan module entrypoint entrypointPlan allowLegacyFallback
         .ok (idx + 1, functions.push function)
     | none =>
         .error {
@@ -551,11 +546,16 @@ def lowerEntrypointsBestEffort
 
 def lowerModuleWithPlan
     (module : Module)
-    (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
+    (plan : ProofForge.Backend.Evm.Plan.ModulePlan)
+    (allowLegacyEntrypointFallback : Bool := true) :
     Except LowerError Lean.Compiler.Yul.Object := do
   validateStructs module
   validateState module
-  let functions ← lowerEntrypointsBestEffort module plan.entrypoints
+  let functions ←
+    if allowLegacyEntrypointFallback then
+      lowerEntrypointsBestEffort module plan.entrypoints
+    else
+      lowerEntrypointsWithPlan module plan.entrypoints false
   let dispatch ←
     if dispatchEntrypointPlanIsComplete module plan.dispatch.entrypoints then
       dispatchBlockWithPlan module plan.dispatch
@@ -590,8 +590,8 @@ def lowerModuleWithPlan
     else
       let createSpecs := ProofForge.Backend.Evm.Lower.buildCreateHelperPlans module
       .ok (helpers ++ (← plannedCreateHelperFunctions createSpecs))
-  -- Compile-time ABI-packed CALL helpers (`crosscallAbiPacked` / Call[] materialize)
-  let abiPackSpecs := ProofForge.Backend.Evm.Lower.buildAbiPackedHelperPlans module
+  -- Compile-time ABI-packed CALL helpers are owned by the EVM plan.
+  let abiPackSpecs := plan.abiPackedHelpers
   let helpers :=
     helpers ++
       abiPackSpecs.map (fun s =>
@@ -612,6 +612,37 @@ def lowerModuleWithPlan
     name := module.name
     code := { statements := #[dispatch] ++ functions ++ helpers }
   }
+
+/-- Canonical cutover entrypoint. The complete EVM plan owns executable bodies,
+dispatch, storage layout, ABI, events, and helper requirements. Unlike
+`lowerModuleWithPlan`, this function accepts no source `IR.Module` and never
+selects a legacy reconstruction fallback. -/
+def lowerCanonicalModuleWithPlan
+    (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
+    Except LowerError Lean.Compiler.Yul.Object := do
+  let functions ← plan.entrypoints.mapM fun entrypoint =>
+    match ProofForge.Backend.Evm.Plan.ToYul.lowerEntrypoint
+        plan.name plan.overflowChecked entrypoint with
+    | .ok function => .ok function
+    | .error error => .error { message := error.message }
+  let dispatch ← match ProofForge.Backend.Evm.Plan.ToYul.lowerDispatch plan.name plan.dispatch with
+    | .ok dispatch => .ok dispatch
+    | .error error => .error { message := error.message }
+  let helpers := plannedMapHelperFunctions plan ++ plannedArrayHelperFunctions plan ++
+    plannedDynamicArrayHelperFunctions plan ++ plannedStructArrayHelperFunctions plan ++
+    plannedHashHelperFunctions plan ++ plannedMemoryArrayHelperFunctions plan ++
+    plannedCheckedWidthHelperFunctions plan ++ plannedCheckedArithmeticHelperFunctions plan
+  let crosscalls ← plannedCrosscallHelperFunctions plan.crosscalls
+  let creates ← plannedCreateHelperFunctions plan.creates
+  let abiPacked := plan.abiPackedHelpers.map ProofForge.Backend.Evm.ToYul.AbiEncode.abiPackedHelperFunction
+  let localArrays := ProofForge.Backend.Evm.ToYul.localArrayGetHelperFunctions plan.localArrayGetLengths
+  let nestedLocalArrays := ProofForge.Backend.Evm.ToYul.nestedLocalArrayGetHelperFunctions plan.nestedLocalArrayGetShapes
+  return { name := plan.name, code := { statements := #[dispatch] ++ functions ++ helpers ++
+    crosscalls ++ creates ++ abiPacked ++ localArrays ++ nestedLocalArrays } }
+
+def renderCanonicalModuleWithPlan
+    (plan : ProofForge.Backend.Evm.Plan.ModulePlan) : Except LowerError String := do
+  .ok (Lean.Compiler.Yul.Printer.render (← lowerCanonicalModuleWithPlan plan))
 
 /-- Build the full EVM semantic plan for `module` before lowering to Yul.
 

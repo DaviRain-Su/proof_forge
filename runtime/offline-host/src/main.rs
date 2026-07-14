@@ -774,19 +774,18 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
     )?;
 
     // Soroban HostBridge (PF-P3-02): `_get` / `_put` share the offline storage map.
-    // `_get` returns the first 4 LE bytes as i32 (matches EmitWat `__pf_read_u64`
-    // which zero-extends i32→i64 for Counter-scale scalars). Missing key → 0.
+    // `_get` returns the first 8 LE bytes as i64. Missing key returns zero.
     linker.func_wrap(
         "env",
         "_get",
-        |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> Result<i32> {
+        |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> Result<i64> {
             let key = read_memory(&mut caller, key_ptr as i64, key_len as i64)?;
             match caller.data().storage.get(&key) {
                 Some(value) if !value.is_empty() => {
-                    let mut buf = [0u8; 4];
-                    let n = value.len().min(4);
+                    let mut buf = [0u8; 8];
+                    let n = value.len().min(8);
                     buf[..n].copy_from_slice(&value[..n]);
-                    Ok(i32::from_le_bytes(buf))
+                    Ok(i64::from_le_bytes(buf))
                 }
                 _ => Ok(0),
             }
@@ -853,10 +852,22 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "env",
         "storage_remove",
-        |mut caller: Caller<'_, HostState>, key_len: i64, key_ptr: i64| -> Result<i64> {
+        |mut caller: Caller<'_, HostState>,
+         key_len: i64,
+         key_ptr: i64,
+         register_id: i64|
+         -> Result<i64> {
             let key = read_memory(&mut caller, key_ptr, key_len)?;
-            let existed = caller.data_mut().storage.remove(&key).is_some();
-            Ok(i64::from(existed))
+            let register_id =
+                u64::try_from(register_id).context("register id must be non-negative")?;
+            let evicted = caller.data_mut().storage.remove(&key);
+            match evicted {
+                Some(value) => {
+                    caller.data_mut().registers.insert(register_id, value);
+                    Ok(1)
+                }
+                None => Ok(0),
+            }
         },
     )?;
 
@@ -953,6 +964,46 @@ fn define_host_imports(linker: &mut Linker<HostState>) -> Result<()> {
                 u64::try_from(register_id).context("register id must be non-negative")?;
             let value = caller.data().random_seed.clone();
             caller.data_mut().registers.insert(register_id, value);
+            Ok(())
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "storage_usage",
+        |caller: Caller<'_, HostState>| -> i64 {
+            caller
+                .data()
+                .storage
+                .iter()
+                .map(|(key, value)| key.len() + value.len())
+                .sum::<usize>() as i64
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "promise_batch_create",
+        |mut caller: Caller<'_, HostState>, account_len: i64, account_ptr: i64| -> Result<i64> {
+            let account = read_utf8_lossy(&mut caller, account_ptr, account_len)?;
+            let state = caller.data_mut();
+            let id = state.next_promise_id;
+            state.next_promise_id += 1;
+            state
+                .promise_trace
+                .push(format!("promise_batch_create id={id} account={account}"));
+            Ok(id as i64)
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
+        "promise_batch_action_transfer",
+        |mut caller: Caller<'_, HostState>, promise_id: i64, amount_ptr: i64| -> Result<()> {
+            let amount = read_u128_le(&mut caller, amount_ptr)?;
+            caller.data_mut().promise_trace.push(format!(
+                "promise_batch_action_transfer id={promise_id} amount={amount}"
+            ));
             Ok(())
         },
     )?;

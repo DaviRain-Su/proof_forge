@@ -61,12 +61,9 @@ def entrypointKindName : EntrypointKind → String
 
 mutual
   partial def classifyExpr (path : String) : Expr → Array PortabilityFinding
-    | .crosscallCreate callValue _ =>
-        #[finding path "crosscallCreate (initcode deploy)" (.targetFamilyOnly .evm)] ++
-          classifyExpr s!"{path}.value" callValue
-    | .crosscallCreate2 callValue salt _ =>
-        #[finding path "crosscallCreate2 (CREATE2 deploy)" (.targetFamilyOnly .evm)] ++
-          classifyExpr s!"{path}.value" callValue ++ classifyExpr s!"{path}.salt" salt
+    | .hostCall id args _ _ =>
+        #[finding path s!"target extension {id.render}" (.targetFamilyOnly .wasmHost)] ++
+          args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
     | .crosscallNamed _ _ args _ =>
         -- RFC 0015 D4: named-callee app-chain call (Aleo _dynamic_call).
         #[finding path "crosscallNamed (named-callee app-chain call)" (.targetFamilyOnly .zkCircuitSourcegen)] ++
@@ -79,26 +76,20 @@ mutual
         #[finding path "crosscallInvokeDelegateTyped (DELEGATECALL)" (.targetFamilyOnly .evm)] ++
           classifyExpr s!"{path}.target" target ++ classifyExpr s!"{path}.method" methodId ++
           args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
-        #[finding path "nearCrosscallInvokePool" (.targetFamilyOnly .wasmHost)] ++
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
+        #[finding path "crosscall.invoke.named_value" .familyShared] ++
           classifyExpr s!"{path}.account" accountIndex ++
           classifyExpr s!"{path}.method" methodId ++
           classifyExpr s!"{path}.deposit" deposit ++
           args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
-        #[finding path "nearPromiseThen" (.targetFamilyOnly .wasmHost)] ++
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
+        #[finding path "crosscall.continue" .familyShared] ++
           classifyExpr s!"{path}.parent" parentPromise ++
           classifyExpr s!"{path}.callback" callbackMethod ++
           classifyExpr s!"{path}.deposit" deposit ++
           args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
-    | .nearPromiseResultsCount =>
-        #[finding path "nearPromiseResultsCount" (.targetFamilyOnly .wasmHost)]
-    | .nearPromiseResultStatus index =>
-        #[finding path "nearPromiseResultStatus" (.targetFamilyOnly .wasmHost)] ++
-          classifyExpr s!"{path}.index" index
-    | .nearPromiseResultU64 index =>
-        #[finding path "nearPromiseResultU64" (.targetFamilyOnly .wasmHost)] ++
-          classifyExpr s!"{path}.index" index
+    | .callValueU128 =>
+        #[finding path "context.call_value.u128" (.targetFamilyOnly .wasmHost)]
     | .crosscallInvoke target methodId args =>
         #[finding path "crosscall.invoke" .familyShared] ++
           classifyExpr s!"{path}.target" target ++ classifyExpr s!"{path}.method" methodId ++
@@ -133,24 +124,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         classifyExpr s!"{path}.lhs" lhs ++ classifyExpr s!"{path}.rhs" rhs
-    | .ecrecover a b c d =>
-        classifyExpr s!"{path}.a" a ++ classifyExpr s!"{path}.b" b ++
-          classifyExpr s!"{path}.c" c ++ classifyExpr s!"{path}.d" d
-    | .eip712PermitDigest a b c d e f =>
-        classifyExpr s!"{path}.a" a ++ classifyExpr s!"{path}.b" b ++
-          classifyExpr s!"{path}.c" c ++ classifyExpr s!"{path}.d" d ++
-          classifyExpr s!"{path}.e" e ++ classifyExpr s!"{path}.f" f
-    | .crosscallAbiPacked target _ _ _ _ _ dynLen? _dynOffs dynTargets =>
-        let base :=
-          #[finding path "crosscallAbiPacked (ABI Call[] plan; optional runtime length/targets)"
-              (.targetFamilyOnly .evm)] ++
-            classifyExpr s!"{path}.target" target
-        let base :=
-          match dynLen? with
-          | none => base
-          | some len => base ++ classifyExpr s!"{path}.dynLen" len
-        dynTargets.foldl (init := base) fun acc t =>
-          acc ++ classifyExpr s!"{path}.dynTarget" t
     | .cast value _ | .boolNot value | .hash value =>
         classifyExpr s!"{path}.value" value
     | .hashValue a b c d =>
@@ -158,6 +131,15 @@ mutual
           classifyExpr s!"{path}.c" c ++ classifyExpr s!"{path}.d" d
 
   partial def classifyEffect (path : String) : Effect → Array PortabilityFinding
+    | .hostCall id args _ =>
+        let family :=
+          if id.namespace_.startsWith "evm." then TargetFamily.evm
+          else if id.namespace_.startsWith "near." then TargetFamily.wasmHost
+          else if id.namespace_.startsWith "solana." then TargetFamily.solana
+          else if id.namespace_.startsWith "move." then TargetFamily.move
+          else TargetFamily.zkCircuitSourcegen
+        #[finding path s!"target extension {id.render}" (.targetFamilyOnly family)] ++
+          args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
     | .storageScalarRead _ => #[]
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
         classifyExpr s!"{path}.value" value
@@ -199,31 +181,6 @@ mutual
     | .eventEmitIndexed _ indexed data =>
         indexed.foldl (fun acc f => acc ++ classifyExpr s!"{path}.indexed" f.snd)
           (data.foldl (fun acc f => acc ++ classifyExpr s!"{path}.data" f.snd) #[])
-    | .checkErc721Received a b c d =>
-        -- EVM-only IERC721Receiver check (PF-P2-02); not triad-portable.
-        #[finding path "checkErc721Received" (.targetFamilyOnly .evm)] ++
-          classifyExpr s!"{path}.operator" a ++
-          classifyExpr s!"{path}.from" b ++
-          classifyExpr s!"{path}.to" c ++
-          classifyExpr s!"{path}.tokenId" d
-    | .checkErc1155Received a b c d e =>
-        -- EVM-only IERC1155Receiver check (PF-P2-02); not triad-portable.
-        #[finding path "checkErc1155Received" (.targetFamilyOnly .evm)] ++
-          classifyExpr s!"{path}.operator" a ++
-          classifyExpr s!"{path}.from" b ++
-          classifyExpr s!"{path}.to" c ++
-          classifyExpr s!"{path}.id" d ++
-          classifyExpr s!"{path}.amount" e
-
-    | .checkErc1155BatchReceived a b c d e =>
-        -- EVM-only IERC1155Receiver check (PF-P2-02); not triad-portable.
-        #[finding path "checkErc1155BatchReceived" (.targetFamilyOnly .evm)] ++
-          classifyExpr s!"{path}.operator" a ++
-          classifyExpr s!"{path}.from" b ++
-          classifyExpr s!"{path}.to" c ++
-          classifyExpr s!"{path}.ids" d ++
-          classifyExpr s!"{path}.amounts" e
-
   partial def classifyPathSegment (path : String) : StoragePathSegment → Array PortabilityFinding
     | .field _ => #[]
     | .index index => classifyExpr s!"{path}.index" index
@@ -292,9 +249,9 @@ def classifyModule (module : Module) : Array PortabilityFinding :=
         #[finding "module.proxyPattern" pattern (.targetMetadata (some .evm))]
     | none => #[]
   let nearStringFindings :=
-    if module.nearCrosscallStrings.isEmpty then #[]
+    if module.crosscallStrings.isEmpty then #[]
     else
-      #[finding "module.nearCrosscallStrings" "NEAR host string pool"
+      #[finding "module.crosscallStrings" "NEAR host string pool"
           (.targetMetadata (some .wasmHost))]
   let eventAbiFindings :=
     if module.eventAbiWords.isEmpty then #[]

@@ -1,10 +1,10 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Backend.Solana.SbpfAsm
-import ProofForge.Solana.Examples.Clock
-import ProofForge.Solana.Examples.Rent
-import ProofForge.Solana.Examples.EpochSchedule
-import ProofForge.Solana.Examples.EpochRewards
-import ProofForge.Solana.Examples.LastRestartSlot
+import Examples.Backend.Solana.Contracts.Clock
+import Examples.Backend.Solana.Contracts.Rent
+import Examples.Backend.Solana.Contracts.EpochSchedule
+import Examples.Backend.Solana.Contracts.EpochRewards
+import Examples.Backend.Solana.Contracts.LastRestartSlot
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -47,7 +47,7 @@ def requireMetadata (call : CapabilityCall) (key expected : String) : IO Unit :=
     s!"metadata `{key}` mismatch for operation `{call.operation}`"
 
 def main : IO UInt32 := do
-  let spec := ProofForge.Solana.Examples.Clock.spec
+  let spec := Examples.Backend.Solana.Contracts.Clock.spec
   let plan ←
     match resolveSpec solanaSbpfAsm spec with
     | .ok plan => pure plan
@@ -81,7 +81,7 @@ def main : IO UInt32 := do
   | .error err =>
       throw <| IO.userError s!"Solana clock sysvar package render failed: {err.render}"
 
-  let rentSpec := ProofForge.Solana.Examples.Rent.spec
+  let rentSpec := Examples.Backend.Solana.Contracts.Rent.spec
   let rentPlan ←
     match resolveSpec solanaSbpfAsm rentSpec with
     | .ok plan => pure plan
@@ -125,7 +125,7 @@ def main : IO UInt32 := do
   | .error err =>
       throw <| IO.userError s!"Solana rent sysvar package render failed: {err.render}"
 
-  let epochScheduleSpec := ProofForge.Solana.Examples.EpochSchedule.spec
+  let epochScheduleSpec := Examples.Backend.Solana.Contracts.EpochSchedule.spec
   let epochSchedulePlan ←
     match resolveSpec solanaSbpfAsm epochScheduleSpec with
     | .ok plan => pure plan
@@ -217,7 +217,7 @@ def main : IO UInt32 := do
   | .error err =>
       throw <| IO.userError s!"Solana epoch schedule sysvar package render failed: {err.render}"
 
-  let epochRewardsSpec := ProofForge.Solana.Examples.EpochRewards.spec
+  let epochRewardsSpec := Examples.Backend.Solana.Contracts.EpochRewards.spec
   let epochRewardsPlan ←
     match resolveSpec solanaSbpfAsm epochRewardsSpec with
     | .ok plan => pure plan
@@ -322,7 +322,7 @@ def main : IO UInt32 := do
   | .error err =>
       throw <| IO.userError s!"Solana epoch rewards sysvar package render failed: {err.render}"
 
-  let lastRestartSlotSpec := ProofForge.Solana.Examples.LastRestartSlot.spec
+  let lastRestartSlotSpec := Examples.Backend.Solana.Contracts.LastRestartSlot.spec
   let lastRestartSlotPlan ←
     match resolveSpec solanaSbpfAsm lastRestartSlotSpec with
     | .ok plan => pure plan

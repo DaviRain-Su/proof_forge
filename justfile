@@ -25,6 +25,361 @@ build-test-deps:
 # Check the target registry smoke.
 target-registry:
     lake env lean --run Tests/TargetRegistry.lean
+    lake env lean --run Tests/Canonical/RegistryBoundary.lean
+
+# Wave 0 Task 2: fail if IR.Contract gained constructors without a classification update.
+legacy-freeze:
+    scripts/canonical/check-legacy-freeze.sh
+    lake build ProofForge.IR.Legacy.Classification
+    lake env lean --run Tests/Canonical/LegacyInventory.lean
+
+
+# D0: Legacy replacement freeze — production IR.Legacy imports must not grow beyond baseline.
+legacy-replacement-freeze:
+    scripts/canonical/check-legacy-freeze.sh
+# Typed open capability/HostOp identity and target-owned catalog contract.
+hostop-protocol:
+    lake env lean --run Tests/Canonical/HostOpCatalog.lean
+    lake env lean --run Tests/Canonical/HostOpFailClosed.lean
+    lake env lean --run Tests/Canonical/SolanaHostOpCatalog.lean
+    lake env lean --run Tests/Canonical/EvmCryptoHostOps.lean
+    lake env lean --run Tests/Canonical/EvmCreateHostOp.lean
+    lake env lean --run Tests/Canonical/NearPromiseHostOp.lean
+    lake env lean --run Tests/Canonical/EvmEffectHostOp.lean
+    lake env lean --run Tests/Backend/Wasm/CanonicalNearPromise.lean
+
+# Wave 1/2 canonical IR foundation and Legacy adapter gates.
+canonical-foundation: hostop-protocol
+    lake env lean --run Tests/Canonical/AuthoredStructuredEffects.lean
+    lake env lean --run Tests/Canonical/AuthoredStorageLifecycle.lean
+    lake env lean --run Tests/Canonical/AuthoredCrosscall.lean
+    lake env lean --run Tests/Canonical/AuthoredMetadata.lean
+    lake env lean --run Tests/Canonical/AuthoredBuilder.lean
+    lake env lean --run Tests/Canonical/AuthoredEvents.lean
+    lake env lean --run Tests/Canonical/AuthoredBoolean.lean
+    lake env lean --run Tests/Canonical/EvmErrorPlan.lean
+    lake env lean --run Tests/Canonical/EvmDispatchExtensions.lean
+    lake env lean --run Tests/Canonical/CoreSchema.lean
+    lake env lean --run Tests/Canonical/CoreValidate.lean
+    lake env lean --run Tests/Canonical/EvidenceIsolation.lean
+    lake env lean --run Tests/Canonical/CoreSemantics.lean
+    lake env lean Tests/Canonical/CoreSemanticsProofs.lean
+    lake env lean --run Tests/Canonical/LegacyAdapter.lean
+
+# Wave 2 Task 7: legacy-to-Core observable parity gate.
+canonical-core:
+    lake build TestFixtures
+    lake env lean --run Tests/Canonical/CoreSchema.lean
+    lake env lean --run Tests/Canonical/CoreValidate.lean
+    lake env lean --run Tests/Canonical/CoreSemantics.lean
+    lake env lean --run Tests/Canonical/LegacyAdapter.lean
+    lake env lean --run Tests/Canonical/LegacyParity.lean
+    lake env lean -DwarningAsError=true Tests/Canonical/LegacyRefinement.lean
+    lake env lean -DwarningAsError=true TestFixtures/Legacy/Refinement.lean
+
+# Wave 3 Task 10: canonical Core to existing EVM plan gate.
+canonical-evm-plan:
+    lake env lean --run Tests/Backend/Evm/CanonicalPlan.lean
+    bash scripts/canonical/evm-parity.sh
+
+# Wave 3 Task 11: canonical Core to existing Solana plan gate.
+canonical-solana-plan:
+    lake env lean --run Tests/Backend/Solana/CanonicalPlan.lean
+    bash scripts/canonical/solana-parity.sh
+
+# Wave 3 Task 12: canonical Core to existing NEAR plan gate.
+canonical-near-plan:
+    lake env lean --run Tests/Backend/Wasm/CanonicalNearPlan.lean
+    bash scripts/canonical/near-parity.sh
+
+# B1: neutral Wasm-host plan owns the data contract and preserves NEAR WAT.
+wasm-host-plan-preservation:
+    lake env lean --run Tests/Canonical/WasmHostPlanPreservation.lean
+
+# B3: strict canonical Soroban Counter promotion and artifact checks.
+soroban-public-route:
+    lake build ProofForge.Compiler.CanonicalPipeline
+    lake env lean --run Tests/Canonical/SorobanPublicRoute.lean
+
+# B3: Soroban Counter offline-host lifecycle (init→increment×3→get returns 3).
+soroban-counter-offline:
+    lake build proof-forge
+    bash scripts/soroban/counter-offline-smoke.sh
+
+# Stable renderer-neutral Arbitrum Stylus plan contract.
+stylus-plan-contract:
+    lake build ProofForge.Backend.Stylus.Plan
+    lake env lean --run Tests/Stylus/PlanContract.lean
+
+# Canonical Core to validated StylusPlan contract.
+stylus-core-plan:
+    lake build ProofForge.Backend.Stylus.Plan.Core
+    lake env lean --run Tests/Stylus/CorePlan.lean
+
+# Named fail-closed diagnostics and renderer-completeness checks.
+stylus-diagnostics:
+    lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.Validate
+    lake env lean --run Tests/Stylus/Diagnostics.lean
+
+# Deterministic Stylus Rust SDK crate renderer golden contract.
+stylus-rust-render:
+    lake build ProofForge.Backend.Stylus.RustSdk.Render ProofForge.Backend.Stylus.Plan.Core
+    lake env lean --run Tests/Stylus/RustRender.lean
+
+# Package safety contract for generated Stylus crates.
+stylus-package:
+    lake build ProofForge.Backend.Stylus.Package
+    lake env lean --run Tests/Stylus/Package.lean
+
+# Deterministic Rust SDK compile/test smoke. Official instrumentation is separate.
+stylus-rust-counter:
+    scripts/stylus/rust-counter-smoke.sh
+
+# Abstract HostIO and Rust adapter Counter lifecycle.
+stylus-counter-lifecycle:
+    lake build ProofForge.Backend.Stylus.CounterRefinement
+    lake env lean --run Tests/Stylus/CounterLifecycle.lean
+    cargo test --manifest-path runtime/stylus-host/Cargo.toml
+    scripts/stylus/sdk-counter-lifecycle.sh
+
+# Research registry and strict canonical boundary for Arbitrum Stylus.
+stylus-public-route:
+    lake build ProofForge.Compiler.CanonicalPipeline ProofForge.Cli.TargetDriver
+    lake env lean --run Tests/Stylus/PublicRoute.lean
+    scripts/stylus/public-route-smoke.sh
+
+# Literal product CLI matrix through direct-Wasm and the Rust SDK oracle.
+stylus-cli-matrix:
+    scripts/stylus/cli-matrix.sh
+
+# Direct Stylus HostIO import, memory, and 32-byte storage contracts.
+stylus-direct-storage:
+    lake build ProofForge.Backend.Stylus.DirectWasm.Storage
+    lake env lean --run Tests/Stylus/DirectStorage.lean
+    wat2wasm build/stylus/direct-storage/storage.wat -o build/stylus/direct-storage/storage.wasm
+    cargo test --manifest-path runtime/stylus-host/Cargo.toml packed_storage_update
+
+# Direct Solidity ABI validation and selector dispatcher.
+stylus-direct-abi:
+    lake build ProofForge.Backend.Stylus.DirectWasm.Dispatch
+    lake env lean --run Tests/Stylus/DirectAbi.lean
+    wat2wasm build/stylus/direct-abi/dispatch.wat -o build/stylus/direct-abi/dispatch.wasm
+    PATH="$HOME/.foundry/bin:$PATH" python3 scripts/stylus/check-abi-vectors.py
+
+# Direct StylusPlan CFG/SSA lowering and abstract/direct Counter trace parity.
+stylus-counter-differential:
+    lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.Differential
+    scripts/stylus/counter-differential.sh
+
+# Stylus ValueVault context/payable/auth foundation and rollback traces.
+stylus-value-vault-differential:
+    lake build ProofForge.Backend.Stylus.DirectWasm.Context ProofForge.Backend.Stylus.ValueVaultSemantics
+    scripts/stylus/value-vault-differential.sh
+
+# Canonical product ValueVault through Core, both renderers, and real HostIO execution.
+stylus-value-vault-canonical:
+    lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/value-vault-canonical.sh
+
+stylus-mapping-events:
+    lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/mapping-events.sh
+
+# Canonical address => address => u128 storage through both Stylus renderers.
+stylus-nested-map:
+    lake build ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/nested-map.sh
+
+# Shared TokenSpec -> canonical ERC-20 -> both Stylus renderers and local VM lifecycle.
+stylus-token-differential:
+    lake build ProofForge.Backend.Stylus.Token ProofForge.Backend.Stylus.TokenSemantics ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/token-differential.sh
+
+# Standard Solidity ABI encoding/client vectors against generated direct Wasm.
+stylus-token-evm-interop:
+    lake build ProofForge.Backend.Stylus.Token ProofForge.Backend.Stylus.DirectWasm.Module
+    scripts/stylus/token-evm-interop.sh
+
+stylus-aggregate-differential:
+    lake build ProofForge.Backend.Stylus.AbiLayout ProofForge.Backend.Stylus.StorageLayout.Aggregate ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/aggregate-differential.sh
+
+# Bounded Solidity/Stylus bytes storage across layout, direct Wasm, and Rust SDK renderers.
+stylus-aggregate-storage:
+    lake build ProofForge.Backend.Stylus.StorageLayout.Aggregate ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/aggregate-storage.sh
+
+stylus-remote-call-differential:
+    lake build Examples.Product.RemoteCall ProofForge.Backend.Stylus.Plan.Core ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    scripts/stylus/remote-call-differential.sh
+
+stylus-scalar-params:
+    lake build ProofForge.Backend.Stylus.DirectWasm.Module ProofForge.Backend.Stylus.RustSdk.Render
+    lake env lean --run Tests/Stylus/ScalarParams.lean
+    wat2wasm build/stylus/scalar-params/echo.wat -o build/stylus/scalar-params/echo.wasm
+    cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- build/stylus/scalar-params/echo.wasm --calldata 627f1c5a000000000000000000000000000000000000000000000000000000000000002a --invoke user_entrypoint | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["calls"][0]["status"] == 0; assert d["result"] == "00" * 31 + "2a"; print("stylus-scalar-params-runtime: ok")'
+    cargo run --quiet --manifest-path tools/stylus-vm-runner/Cargo.toml -- build/stylus/scalar-params/echo.wasm --calldata 627f1c5a010000000000000000000000000000000000000000000000000000000000002a --invoke user_entrypoint | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["calls"][0]["status"] == 1; print("stylus-scalar-params-padding: ok")'
+
+stylus-wide-values:
+    scripts/stylus/wide-values.sh
+
+stylus-wide-arithmetic:
+    scripts/stylus/wide-arithmetic.sh
+
+# Compile and execute direct Stylus Wasm against the local vm_hooks runner.
+stylus-vm-runner:
+    scripts/stylus/vm-runner-smoke.sh
+
+# Complete local/static Stylus closure. Official cargo-stylus and live Nitro gates
+# stay explicit because they require separately provisioned tooling or services.
+stylus-all: stylus-plan-contract stylus-core-plan stylus-diagnostics stylus-rust-render stylus-package stylus-rust-counter stylus-counter-lifecycle stylus-public-route stylus-cli-matrix stylus-direct-storage stylus-direct-abi stylus-counter-differential stylus-value-vault-differential stylus-value-vault-canonical stylus-mapping-events stylus-nested-map stylus-token-differential stylus-token-evm-interop stylus-aggregate-differential stylus-aggregate-storage stylus-remote-call-differential stylus-scalar-params stylus-wide-values stylus-wide-arithmetic stylus-vm-runner stylus-nitro-scripts
+
+# Optional official Arbitrum activation/instrumentation check over direct Wasm.
+stylus-official-check: stylus-vm-runner
+    scripts/stylus/official-wasm-check.sh
+
+# Validate pinned Nitro testnode orchestration without starting Docker.
+stylus-nitro-scripts:
+    scripts/stylus/nitro-scripts-self-test.sh
+
+stylus-nitro-install:
+    tools/stylus-nitro/manage.sh install
+
+stylus-nitro-init:
+    tools/stylus-nitro/manage.sh init
+
+stylus-nitro-up:
+    tools/stylus-nitro/manage.sh up
+
+stylus-nitro-status:
+    tools/stylus-nitro/manage.sh status
+
+stylus-nitro-doctor:
+    scripts/stylus/nitro-doctor.sh
+
+stylus-nitro-check:
+    scripts/stylus/nitro-check.sh
+
+stylus-nitro-deploy:
+    scripts/stylus/nitro-deploy.sh
+
+stylus-nitro-e2e:
+    scripts/stylus/nitro-e2e.sh
+
+stylus-value-vault-nitro-e2e:
+    scripts/stylus/value-vault-nitro-e2e.sh
+
+stylus-token-nitro-e2e:
+    scripts/stylus/token-nitro-e2e.sh
+
+stylus-remote-call-nitro-e2e:
+    scripts/stylus/remote-call-nitro-e2e.sh
+
+stylus-aggregate-nitro-e2e:
+    scripts/stylus/aggregate-nitro-e2e.sh
+
+stylus-nitro-evidence:
+    python3 scripts/stylus/assemble-nitro-evidence.py \
+      --artifact "${PROOF_FORGE_STYLUS_ARTIFACT:-build/stylus/cli-matrix/counter-direct/proof-forge-artifact.json}" \
+      --doctor build/evidence/stylus/nitro-doctor.json \
+      --evidence-root build/evidence/stylus \
+      --output build/evidence/stylus/final.json
+
+stylus-nitro-down:
+    tools/stylus-nitro/manage.sh down
+
+stylus-sepolia-e2e:
+    scripts/stylus/sepolia-e2e.sh
+
+
+
+canonical-parity: canonical-evm-plan canonical-solana-plan canonical-near-plan
+
+# Wave 3B Task 12.1: canonical product matrix and coverage gate.
+canonical-product:
+    lake env lean --run Tests/Canonical/ProductMatrix.lean
+    lake env lean --run Tests/Canonical/LegacyCoverage.lean
+    python3 scripts/canonical/check-coverage.py
+
+# Temporary internal Surface fixtures are opt-in and do not expand normal builds.
+test-fixtures:
+    lake build TestFixtures
+
+# Temporary internal Surface fixtures for canonical EVM route coverage.
+evm-direct-products: test-fixtures
+    lake env lean --run Tests/Canonical/EvmDirectProducts.lean
+
+evm-direct-erc4626:
+    scripts/evm/direct-erc4626-smoke.sh
+
+# Internal Surface fixture -> Canonical Core -> EVM Yul route.
+evm-canonical-yul-route: build
+    lake env lean --run Tests/CliTargetFirst.lean
+    rm -rf build/evm-canonical-yul-route
+    lake env proof-forge build --target evm --format yul --root . -o build/evm-canonical-yul-route/Counter.yul TestFixtures/SurfaceProducts/Counter.lean
+    solc --strict-assembly build/evm-canonical-yul-route/Counter.yul --bin >/dev/null
+
+# Internal Surface fixture -> optimized EVM bytecode and plan metadata.
+evm-canonical-bytecode-route: build
+    lake env lean --run Tests/CliTargetFirst.lean
+    rm -rf build/evm-canonical-bytecode-route
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/Counter.bin TestFixtures/SurfaceProducts/Counter.lean
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/ERC4626Vault.bin TestFixtures/SurfaceProducts/ERC4626Vault.lean
+    test $(tr -d '\n' < build/evm-canonical-bytecode-route/ERC4626Vault.bin | wc -c) -le 49152
+    jq -e '.sourceKind == "contract-source" and .sdkSchema == null and .validation.contractSizeCheck.status == "passed" and (.abi.entrypoints | length) == 23' build/evm-canonical-bytecode-route/proof-forge-artifact.json >/dev/null
+
+# Check command validates the internal migration fixture through the EVM plan.
+evm-canonical-check-route: build
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge check --target evm --root . --report-format json TestFixtures/SurfaceProducts/Counter.lean | jq -e '.status == "ok" and .validation.sourceVersion == "contract-source" and .validation.canonicalNormalize == "passed" and .validation.backendPlan == "passed" and .validation.lowering == "passed"' >/dev/null
+
+# Exact catalog coverage through temporary internal Surface fixtures.
+evm-canonical-product-route: build
+    scripts/evm/canonical-product-route.sh
+
+# Wave 3B Task 12.2: materialization and diagnostic parity gate.
+canonical-materialization:
+    lake env lean --run Tests/Canonical/MaterializationParity.lean
+    lake env lean --run Tests/Canonical/DiagnosticParity.lean
+
+# Wave 4 Task 14: source loader and versioned surface.
+source-loader: test-fixtures
+    lake env lean --run Tests/Canonical/SourceLoader.lean
+
+# Wave 4 Task 15: Surface Set collection.
+canonical-set: test-fixtures
+    lake env lean --run Tests/Canonical/SetNormalize.lean
+    lake env lean --run Tests/Canonical/SetParity.lean
+
+# Wave 4 Task 16: Surface Queue collection.
+canonical-queue: test-fixtures
+    lake env lean --run Tests/Canonical/QueueNormalize.lean
+    lake env lean --run Tests/Canonical/QueueParity.lean
+
+# Wave 5 Task 17: NEAR promise HostOp.
+near-promise-hostop:
+    lake env lean --run Tests/Canonical/NearPromiseHostOp.lean
+    lake env lean --run Tests/Backend/Wasm/CanonicalNearPromise.lean
+    scripts/canonical/near-promise-hostop.sh
+
+# Wave 6 Task 18: EVM public route canonical gate.
+canonical-evm-route:
+    lake env lean --run Tests/Canonical/EvmPublicRoute.lean
+    lake env lean --run Tests/Canonical/EvmCutoverAdapter.lean
+
+# Wave 6 Task 19: Solana public route canonical gate.
+canonical-solana-route:
+    lake env lean --run Tests/Canonical/SolanaPublicRoute.lean
+
+# Wave 6 Task 20: NEAR public route canonical gate.
+canonical-near-route:
+    lake env lean --run Tests/Canonical/NearPublicRoute.lean
+
+# Wave 6 Task 21: architecture boundary gate.
+canonical-boundary:
+    scripts/canonical/check-boundary-self-test.sh
+    scripts/canonical/check-boundary.sh
+    lake env lean --run Tests/Canonical/Boundary.lean
+    lake env lean --run Tests/Canonical/TargetContextHostOps.lean
 
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:
@@ -47,7 +402,7 @@ preflight-l2:
 leo-printer-fail-closed:
     lake env lean --run Tests/LeoPrinterFailClosed.lean
 
-# PF-P1-05: contract_source DSL arity + version surface + Solana Surface isolation.
+# PF-P1-05: contract_source DSL arity + internal Solana implementation isolation.
 source-dsl-arity:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -55,11 +410,10 @@ source-dsl-arity:
     python3 - <<'PY'
     from pathlib import Path
     src = Path("ProofForge/Contract/Source.lean").read_text()
-    assert "import ProofForge.Solana.Surface" not in src
-    assert "import ProofForge.Solana\n" not in src and "import ProofForge.Solana\r" not in src
-    assert "Solana.Surface" not in src
+    assert "Source.Solana.Internal" not in src
+    assert "import ProofForge.Contract.Source.Solana.Legacy\n" not in src and "import ProofForge.Contract.Source.Solana.Legacy\r" not in src
     sol = Path("ProofForge/Contract/Source/Solana.lean").read_text()
-    assert "import ProofForge.Solana.Surface" in sol
+    assert "import ProofForge.Contract.Source.Solana.Internal" in sol
     assert "trySolanaEntryStmt" in sol
     print("source-dsl isolation: ok")
     PY
@@ -74,7 +428,7 @@ contract-spec-json:
 
 # Check generated target wrapper sketches from ContractSpec.
 contract-client: entrypoint-mutability
-    lake build ProofForge.Contract.Stdlib.NearFungibleToken
+    lake build ProofForge.Contract.Client ProofForge.Contract.Stdlib.NearFungibleToken
     lake env lean --run Tests/ContractClient.lean
     bash scripts/ts/evm-contract-client-smoke.sh
 
@@ -213,6 +567,11 @@ ir-counter-semantics-smoke:
 ir-portability-smoke:
     lake build ProofForge.IR.Portability ProofForge.IR.NearHost ProofForge.Target.StorageBinding ProofForge.IR.Examples.Counter ProofForge.IR.Examples.NearCrosscallProbe ProofForge.Backend.Evm.Validate ProofForge.Backend.Move.Sui ProofForge.Backend.Move.Aptos
     lake env lean --run Tests/IRPortability.lean
+    ./scripts/ir/check-target-boundary.sh
+
+# Freeze target/protocol leakage in shared IR while IR-B1..IR-B6 remove it.
+ir-target-boundary:
+    ./scripts/ir/check-target-boundary.sh
 
 # FV-9.0 M6: exercise the shared total fueled IR interpreter (the ∀-module theorem's quantification target).
 semantics-fuel-smoke:
@@ -221,7 +580,7 @@ semantics-fuel-smoke:
 
 # FV-9.2: constructor coverage table + IR-side preservation lemmas + counter-model irStateRel preservation.
 constructor-coverage-smoke:
-    lake build ProofForge.Backend.Refinement.ConstructorCoverage ProofForge.Backend.Refinement.CounterUniversal
+    lake build ProofForge.Backend.Refinement.ConstructorCoverage ProofForge.Backend.Refinement.CounterUniversal Examples.Product.Counter Examples.Product.HostEnvProbe Examples.Product.RemoteCall Examples.Product.Ownable Examples.Product.ValueVault ProofForge.IR.Examples.LoopProbe
     lake env lean --run Tests/ConstructorCoverageSmoke.lean
 
 # Check the first all-call-list Counter simulation proof over total IR semantics.
@@ -329,11 +688,11 @@ evm-yul-host-refinement-smoke:
 
 # Check the opt-in powdr/mathlib EVM refinement adapter target.
 evm-powdr-adapter:
-    lake build EvmRefinement
+    lake build ProofForgeFormalEvm
 
 # Pin the Counter IR↔powdr bytecode delivery boundary (opt-in, mathlib).
 evm-powdr-counter-refinement-smoke:
-    lake build EvmRefinement.CounterRefinement
+    lake build ProofForgeFormal.Evm.CounterRefinement
     lake env lean --run Tests/Backend/Evm/EvmPowdrCounterRefinement.lean
 
 # Check that the generated Counter runtime matches the embedded powdr witness.
@@ -450,7 +809,7 @@ solana-counter-sbpf-regression:
 # Check the Solana sBPF refinement anchor (Counter IR trace + artifact surface).
 solana-refinement-smoke:
     lake build ProofForge.Backend.Solana.Refinement
-    lake env lean --run Tests/Backend/Solana/SolanaRefinement.lean
+    lake env lean --run Tests/Backend/Solana/ProofForgeFormalSolana.lean
 
 # Mathlib-free sBPF binary encoder + labeled view (Scheme 1/2A encode half).
 solana-bpf-encode-smoke:
@@ -474,8 +833,8 @@ solana-account-graph:
 
 # Opt-in solanalib adapter + CompileCorrect pipeline (pulls solanalib/mathlib).
 solana-solanalib-adapter:
-    lake build SolanaRefinement
-    lake env lean --run SolanaRefinement/CompileCorrectSmoke.lean
+    lake build ProofForgeFormalSolana
+    lake env lean --run ProofForgeFormal/Solana/CompileCorrectSmoke.lean
 
 # Check contract_source target capability diagnostics through the CLI.
 contract-source-diagnostics:
@@ -486,7 +845,7 @@ solana-lean:
     lake build
     lake build ProofForge.Contract.Token
     lake build ProofForge.Contract.Examples.Counter
-    lake build ProofForge.Solana.Examples
+    lake build Examples.Backend.Solana.Contracts
     lake env lean --run Tests/Backend/Solana/SolanaDiagnostics.lean
     lake env lean --run Tests/Backend/Solana/SolanaSdk.lean
     lake env lean --run Tests/Backend/Solana/SolanaSdkManifest.lean
@@ -553,6 +912,50 @@ token-feature-matrix:
     lake build ProofForge.Contract.Token
     lake env lean --run Tests/TokenFeatureMatrix.lean
 
+# Target-neutral intent materializer registry contract and invariants.
+intent-registry:
+    lake build ProofForge.Contract
+    lake env lean --run Tests/IntentRegistry.lean
+
+# Target-neutral NFT authoring validation and intent conversion.
+nft-intent:
+    lake build ProofForge.Contract
+    lake env lean --run Tests/NftIntent.lean
+
+# Exact ABI and executable lifecycle audit for the primary-target NFT candidates.
+nft-implementation-contract:
+    lake build ProofForge.Contract.Stdlib.ERC721 ProofForge.Contract.Stdlib.MetaplexNft ProofForge.Contract.Stdlib.NearNft ProofForge.IR.Semantics
+    lake env lean --run Tests/NftImplementationContract.lean
+
+# NFT intent materializers: strict EVM/NEAR plans and pinned Solana hash blocker.
+nft-materialization:
+    lake build ProofForge.Contract.Nft.Materialize ProofForge.Compiler.CanonicalPipeline
+    lake env lean --run Tests/NftMaterialization.lean
+
+# D3: strict canonical target gate for accepted NFT materializations.
+strict-intent-materialization:
+    lake build ProofForge.Contract.Nft.Materialize ProofForge.Compiler.CanonicalPipeline
+    lake env lean --run Tests/Canonical/StrictIntentMaterialization.lean
+
+# B2: strict canonical target gate — primary-triad positive fixtures.
+strict-target-gate:
+    lake build ProofForge.Compiler.CanonicalPipeline
+    lake env lean --run Tests/Canonical/StrictTargetGate.lean
+
+
+
+# A6: NFT artifact schema — materialized ContractSpec entrypoint surface.
+nft-artifact-schema:
+    lake build ProofForge.Contract.Nft.Materialize
+    lake env lean --run Tests/NftArtifactSchema.lean
+
+# One NFTSpec through the real CLI into three target artifact/SDK bundles.
+portable-nft-multi-target: nft-artifact-schema
+    scripts/portable/nft-multi-target.sh
+
+# A6: execute the portable NFT lifecycle on EVM, Surfpool/SVM, and NEAR/Wasm.
+portable-nft-runtime: portable-nft-multi-target
+    scripts/portable/nft-runtime-smoke.sh
 # Requirement-level standard manifests and artifact-bound evidence honesty.
 standard-compliance:
     lake build ProofForge.Contract.Compliance
@@ -651,6 +1054,74 @@ near-offline-host-transaction:
 # Verify each offline-host receipt receives an independent Wasmtime fuel budget.
 near-offline-host-fuel:
     scripts/near/offline-host-fuel-smoke.sh
+
+# Verify the legacy + canonical Counter execute on the *real* upstream NEAR VM
+# (near-vm-runner / Wasmtime), proving EmitWat output is NEAR-conformant.
+# Emits the IR fixture via the internal Emit.lean harness.
+near-vm-conformance:
+    scripts/near/vm-conformance-smoke.sh
+
+# Same real-NEAR-VM execution, but compiled from the *product author source*
+# (Examples/Product/Counter.lean) through the public `proof-forge build` CLI —
+# closing the loop: real .lean -> CLI -> EmitWat -> real NEAR VM.
+near-vm-conformance-product:
+    scripts/near/vm-conformance-product.sh
+
+# Real-NEAR-VM conformance for the NEP-141 FT module: proves the full host
+# surface (storage_remove + the complete promise ABI) links against real
+# near-vm-logic and that parameterized methods + the ft_resolve_transfer
+# callback dispatch execute via the REAL promise_result host functions.
+# Extends the Counter-only gate so host-import arity regressions (e.g. a stale
+# 2-param storage_remove) cannot mask as success.
+near-vm-conformance-ft:
+    scripts/near/vm-conformance-ft.sh
+
+# Real-NEAR-VM NEP-141 JSON boundary: canonical ft_balance_of account_id input,
+# quoted decimal U128 output, and malformed JSON rejection.
+near-vm-caller-account-id-map:
+    scripts/near/vm-caller-account-id-map.sh
+
+near-vm-json-balance:
+    scripts/near/vm-json-balance.sh
+
+# Real-NEAR-VM multi-field JSON mutation boundary for standard ft_transfer.
+near-vm-json-transfer:
+    scripts/near/vm-json-transfer.sh
+
+# Real-NEAR-VM standard NEP-145 registration, withdrawal, and refund lifecycle.
+near-vm-nep145:
+    scripts/near/vm-nep145.sh
+
+# Real-NEAR-VM NEP-148 metadata: exact structured JSON object, including the
+# standard spec version and token identity fields.
+near-vm-nep148:
+    scripts/near/vm-nep148.sh
+
+# Real-NEAR-VM NEP-297 envelopes and exact NEP-141 mint/transfer/burn events.
+near-vm-nep297:
+    scripts/near/vm-nep297.sh
+
+# Real-NEAR-VM U128 scalar round-trip: write/read/return a u128 on the
+# unmodified upstream NEAR VM. Foundation gate for NEP-141 U128 token amounts;
+# guards the U128 storage + Borsh-return helpers against emit-but-not-define
+# regressions.
+near-vm-u128-scalar:
+    scripts/near/vm-u128-scalar.sh
+
+# Real-NEAR-VM U128 hash-keyed map round-trip (Map<hash, u128>, the NEP-141
+# `balances` shape). Companion to near-vm-u128-scalar.
+near-vm-u128-map:
+    scripts/near/vm-u128-map.sh
+
+# Real-NEAR-VM string-keyed U128 map round-trip (Map<string, u128>, the NEP-141
+# `balances` keyed by raw AccountId string — Phase 3 NEAR interop gate).
+# Verifies the variable-length string-keyed map path + Borsh string param key.
+near-vm-string-key-map: near-vm-caller-account-id-map near-vm-json-balance near-vm-json-transfer near-vm-nep145
+    scripts/near/vm-string-key-map.sh
+
+# U128 decimal formatter smoke (JSON U128 primitive) via the offline host.
+near-u128-fmt-smoke:
+    scripts/near/u128-fmt-smoke.sh
 
 # Check NEAR NEP-141 ft_transfer_call promise chain Plan + EmitWat smoke.
 wasm-near-ft-transfer-call:
@@ -1217,14 +1688,21 @@ wave-t-check:
 
 # Same as `just check` minus `worker-limits` and `worker-cgroup`, so the Wave-T
 # evidence gate stays skip-free on hosts without a cgroup/RLIMIT_AS memory backend.
-wave-t-baseline: build build-test-deps product target-registry target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+wave-t-baseline: build build-test-deps product target-registry target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-vm-conformance near-vm-conformance-product near-vm-conformance-ft near-vm-u128-scalar near-vm-u128-map near-vm-string-key-map near-u128-fmt-smoke near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
 
 # Check shared-vs-target example topology.
 examples-topology:
     python3 scripts/examples/check-topology.py
 
+# A1: portable rejection plus Source.Solana positive elaboration/IR intent pins.
+source-dsl-isolation:
+    lake build Examples.Backend.Solana.Contracts.AccountRealloc Examples.Backend.Solana.Contracts.SystemCpi Examples.Backend.Solana.Contracts.Vault
+    lake env lean --run Tests/SourceDslIsolation.lean
+    lake env lean --run Tests/SourceDslSolanaAcceptance.lean
+
 # Phase A portable-default: Shared examples are business-intent only (no chain Surface / TokenStandard pick).
 portable-default:
+    python3 scripts/portable/check-portable-default.py --self-test
     python3 scripts/portable/check-portable-default.py
     python3 scripts/examples/check-topology.py
     lake build Examples.Product.FungibleToken Examples.Product.FeeToken Examples.Product.SoulboundToken
@@ -1232,7 +1710,7 @@ portable-default:
 
 # Phase B.2: portable IR → Solana accounts without Source.Solana authoring.
 solana-auto-materialize:
-    lake build ProofForge.Backend.Solana.Materialize Examples.Product.Counter Examples.Product.ValueVault ProofForge.Solana.Examples.Vault
+    lake build ProofForge.Backend.Solana.Materialize Examples.Product.Counter Examples.Product.ValueVault Examples.Backend.Solana.Contracts.Vault
     lake env lean --run Tests/Product/SolanaMaterialize.lean
 
 # All implemented registry targets: materialization + crosscall map for Shared Counter.
@@ -1287,7 +1765,14 @@ product-catalog:
 product:
     just product-catalog
     just portable-default
+    just source-dsl-isolation
+    just intent-registry
+    just nft-intent
+    just nft-implementation-contract
+    just nft-materialization
+    just portable-nft-multi-target
     just product-matrix
+    just evm-canonical-product-route
     just portable-counter-multi-target
     just portable-remote-call-multi-target
     just product-token-near
@@ -1472,7 +1957,36 @@ testkit-remote-call:
 
 # Run the fast local baseline used before broader target smokes.
 # Product gate runs early so business multi-target failures surface first.
-check: build build-test-deps product target-registry target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+check-serial: build build-test-deps product intent-registry nft-intent nft-implementation-contract nft-materialization strict-intent-materialization strict-target-gate nft-artifact-schema portable-nft-multi-target target-registry legacy-freeze legacy-replacement-freeze canonical-foundation canonical-core canonical-parity wasm-host-plan-preservation soroban-public-route soroban-counter-offline canonical-product canonical-boundary target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-vm-conformance near-vm-conformance-product near-vm-conformance-ft near-vm-u128-scalar near-vm-u128-map near-vm-string-key-map near-u128-fmt-smoke near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e stylus-plan-contract stylus-core-plan stylus-diagnostics stylus-rust-render stylus-package stylus-rust-counter stylus-counter-lifecycle stylus-public-route stylus-cli-matrix stylus-direct-storage stylus-direct-abi stylus-counter-differential stylus-value-vault-differential stylus-value-vault-canonical stylus-mapping-events stylus-nested-map stylus-token-differential stylus-token-evm-interop stylus-aggregate-differential stylus-aggregate-storage stylus-remote-call-differential stylus-scalar-params stylus-wide-values stylus-wide-arithmetic stylus-vm-runner stylus-nitro-scripts docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+
+# Qualified default full gate. Use check-serial to diagnose suspected races.
+check: check-parallel
+
+# Run the complete check coverage through conflict-aware lanes.
+check-parallel:
+    python3 scripts/test-framework/scheduler.py --full
+
+# Run one lane in isolation, primarily for CI and failure reproduction.
+check-lane lane:
+    python3 scripts/test-framework/scheduler.py --lane {{lane}}
+
+# Prove that serial and parallel full gates own the same recipe set.
+test-equivalence:
+    python3 -m unittest scripts/test-framework/test_equivalence.py
+    python3 scripts/test-framework/check_equivalence.py
+
+# Validate the conflict-aware parallel test lane manifest.
+test-manifest:
+    python3 -m unittest scripts/test-framework/test_manifest.py
+    python3 scripts/test-framework/manifest.py --check
+
+# Exercise process scheduling, cancellation, exclusivity, and timing reports.
+test-scheduler:
+    python3 -m unittest scripts/test-framework/test_scheduler.py
+
+# Run the conservative affected-path inner-loop gate.
+check-fast:
+    python3 scripts/test-framework/scheduler.py --fast
 
 # Z1.1: normalized DPN bytecode goldens (shape always; rebuild-diff when dargo artifacts present).
 psy-dpn-goldens:
@@ -1722,7 +2236,16 @@ evm-all: evm-diagnostics evm-coverage evm-semantic-plan evm-ir-smokes evm-build-
 github-build-test:
     just build
     just target-registry
+    just target-backend
+    just target-support
+    just registry-command
+    just legacy-freeze
+    just canonical-foundation
     just standard-compliance
+    just canonical-core
+    just canonical-parity
+    just canonical-product
+    just canonical-boundary
     just contract-spec-json
     just contract-client
     just evm-abi-schema

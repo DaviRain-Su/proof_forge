@@ -1,6 +1,7 @@
 # Shared Contract Scenarios: Counter and ValueVault
 
-Status: **Draft spec (Phase 1–2)**
+Status: **Enforced primary-triad scenario contract (2026-07-12)** via testkit,
+artifact goldens, trace parity, and resource-budget gates.
 
 The Counter scenario is the first cross-target acceptance test. It exercises
 portable scalar state without chain-specific account models in the Lean business

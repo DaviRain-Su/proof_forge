@@ -1,4 +1,5 @@
 import ProofForge.Cli.Fixture
+import ProofForge.Cli.NativeBuildOp
 import ProofForge.Cli.Quint
 
 namespace ProofForge.Cli
@@ -9,6 +10,7 @@ structure BuildRequest where
   fixture? : Option String := none
   format? : Option String := none
   token : Bool := false
+  nft : Bool := false
   deriving Inhabited
 
 /-- Inputs for target-first `emit` legacy-flag resolution. -/
@@ -17,6 +19,17 @@ structure EmitRequest where
   format? : Option String := none
   deriving Inhabited
 
+inductive DispatchKind
+  | legacy
+  | native
+  deriving BEq, Repr
+
+structure BuildResult where
+  dispatchKind : DispatchKind
+  legacyFlag? : Option String := none
+  nativeOp? : Option NativeBuildOp := none
+  deriving Repr
+
 /-- Per-target CLI driver (PF-P1-01 compat surface).
 
 Owns build/emit legacy-flag mapping until emit modes are absorbed into real
@@ -24,7 +37,7 @@ package operations. Registered by target id so `TargetFirst` dispatches via
 lookup rather than a central target-id match. -/
 structure TargetCliDriver where
   id : String
-  resolveBuild : BuildRequest → Except String String
+  resolveBuild : BuildRequest → Except String BuildResult
   resolveEmit : EmitRequest → Except String String
 
 def isLeanSourceFile (input? : Option String) : Bool :=
@@ -44,20 +57,25 @@ def isLearnInput (input? : Option String) : Bool :=
 
 /-! ### Primary triad drivers -/
 
-def evmResolveBuild (req : BuildRequest) : Except String String :=
+def evmResolveBuild (req : BuildRequest) : Except String BuildResult :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
-  if isLearn then
+  if req.nft then
+    if isLeanSource then
+      Except.ok { dispatchKind := .native, nativeOp? := some .nftEvmBytecode }
+    else
+      Except.error "proof-forge build --target evm --nft requires a .lean NFTSpec source"
+  else if isLearn then
     match req.format?, req.token with
-    | some "yul", false => Except.ok "--learn-yul"
+    | some "yul", false => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn-yul" }
     | some "yul", true =>
         Except.error "proof-forge build --target evm --token --format yul is not yet implemented"
-    | some "bytecode", true => Except.ok "--learn-token"
-    | some "bytecode", false => Except.ok "--learn"
-    | none, true => Except.ok "--learn-token"
-    | none, false => Except.ok "--learn"
-    | some _, true => Except.ok "--learn-token"
-    | some _, false => Except.ok "--learn"
+    | some "bytecode", true => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn-token" }
+    | some "bytecode", false => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn" }
+    | none, true => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn-token" }
+    | none, false => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn" }
+    | some _, true => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn-token" }
+    | some _, false => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn" }
   else if req.token then
     match req.format? with
     | some "yul" =>
@@ -67,13 +85,23 @@ def evmResolveBuild (req : BuildRequest) : Except String String :=
           Except.error "proof-forge build --target evm --token requires a .lean TokenSpec or .learn token source"
     | _ =>
         if isLeanSource then
-          Except.ok "--learn-token"
+          Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn-token" }
         else
           Except.error "proof-forge build --target evm --token requires a .lean TokenSpec or .learn token source"
   else if req.format? == some "yul" then
-    if req.input?.isSome then Except.ok "--evm-bytecode" else Except.ok "--emit-counter-ir-yul"
+    if isLeanSource then
+      Except.ok { dispatchKind := .native, nativeOp? := some .evmCanonicalYul }
+    else if req.input?.isSome then
+      Except.error "proof-forge build --target evm --format yul requires a .lean or .learn source"
+    else
+      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-yul" }
   else
-    if req.input?.isSome then Except.ok "--evm-bytecode" else Except.ok "--emit-counter-ir-bytecode"
+    if isLeanSource then
+      Except.ok { dispatchKind := .native, nativeOp? := some .evmCanonicalBytecode }
+    else if req.input?.isSome then
+      Except.error "proof-forge build --target evm requires a .lean or .learn source"
+    else
+      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-bytecode" }
 
 def evmResolveEmit (req : EmitRequest) : Except String String :=
   let format := req.format?.getD ""
@@ -91,15 +119,20 @@ def evmResolveEmit (req : EmitRequest) : Except String String :=
   | f, fmt =>
       Except.error s!"emit --target evm --fixture {f} --format {fmt} is not yet mapped to a legacy flag"
 
-def solanaResolveBuild (req : BuildRequest) : Except String String :=
+def solanaResolveBuild (req : BuildRequest) : Except String BuildResult :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
-  match isLearn, req.token with
-  | true, true => Except.ok "--learn-token"
-  | true, false => Except.ok "--learn"
+  if req.nft then
+    if isLeanSource then
+      Except.ok { dispatchKind := .native, nativeOp? := some .nftSolanaSbpf }
+    else
+      Except.error "proof-forge build --target solana-sbpf-asm --nft requires a .lean NFTSpec source"
+  else match isLearn, req.token with
+  | true, true => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn-token" }
+  | true, false => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn" }
   | false, true =>
       if isLeanSource then
-        Except.ok "--learn-token"
+        Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn-token" }
       else
         Except.error "proof-forge build --target solana-sbpf-asm --token requires a .lean TokenSpec or .learn token source"
   | false, false =>
@@ -107,14 +140,14 @@ def solanaResolveBuild (req : BuildRequest) : Except String String :=
         -- Default final artifact is ELF (PF-P0-03). `--format s` is the
         -- toolchain-free assembly intermediate for static product CI.
         if req.format? == some "s" then
-          Except.ok "--contract-source-sbpf"
+          Except.ok { dispatchKind := .legacy, legacyFlag? := some "--contract-source-sbpf" }
         else if req.format?.isNone || req.format? == some "elf" || req.format? == some "so" then
-          Except.ok "--contract-source-solana-elf"
+          Except.ok { dispatchKind := .legacy, legacyFlag? := some "--contract-source-solana-elf" }
         else
           Except.error
             s!"proof-forge build --target solana-sbpf-asm does not support format '{req.format?.getD ""}'; use --format s or --format elf"
       else if req.format? == some "s" || req.format?.isNone then
-        Except.ok "--emit-counter-ir-sbpf"
+        Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-sbpf" }
       else
         Except.error s!"proof-forge build --target solana-sbpf-asm does not support format '{req.format?.getD ""}' without a Lean contract source input"
 
@@ -172,21 +205,26 @@ def solanaResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target solana-sbpf-asm --fixture {f} is not yet mapped to a legacy flag"
 
-def nearResolveBuild (req : BuildRequest) : Except String String :=
+def nearResolveBuild (req : BuildRequest) : Except String BuildResult :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
-  if isLearn then
+  if req.nft then
+    if isLeanSource then
+      Except.ok { dispatchKind := .native, nativeOp? := some .nftNearEmitWat }
+    else
+      Except.error "proof-forge build --target wasm-near --nft requires a .lean NFTSpec source"
+  else if isLearn then
     Except.error "proof-forge build --target wasm-near from .learn source is not yet implemented"
   else if req.token then
     if isLeanSource then
-      Except.ok "--learn-token"
+      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--learn-token" }
     else
       Except.error "proof-forge build --target wasm-near --token requires a .lean TokenSpec or .learn token source"
   else if isLeanSource then
     if req.format?.isSome && req.format? != some "wat" then
       Except.error s!"proof-forge build --target wasm-near does not support format '{req.format?.getD ""}'; use --format wat"
     else
-      Except.ok "--contract-source-emitwat"
+      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--contract-source-emitwat" }
   else if req.input?.isSome then
     Except.error "proof-forge build --target wasm-near from Lean source is not yet implemented; use a .lean contract_source module"
   else
@@ -195,7 +233,7 @@ def nearResolveBuild (req : BuildRequest) : Except String String :=
     else
       let fixture := req.fixture?.getD "counter"
       if ProofForge.Cli.Fixture.isWasmNearFixture fixture then
-        Except.ok s!"--emit-{fixture}-emitwat"
+        Except.ok { dispatchKind := .legacy, legacyFlag? := some s!"--emit-{fixture}-emitwat" }
       else
         Except.error s!"proof-forge build --target wasm-near --fixture {fixture} is not yet implemented"
 
@@ -215,7 +253,7 @@ def nearResolveEmit (req : EmitRequest) : Except String String :=
 
 /-! ### Secondary / fixture drivers -/
 
-def sorobanResolveBuild (req : BuildRequest) : Except String String :=
+def sorobanResolveBuild (req : BuildRequest) : Except String BuildResult :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
   if isLearn then
@@ -228,7 +266,7 @@ use --target evm | solana-sbpf-asm | wasm-near (see `just token-feature-matrix`)
     if req.format?.isSome && req.format? != some "wat" then
       Except.error s!"proof-forge build --target wasm-stellar-soroban does not support format '{req.format?.getD ""}'; use --format wat"
     else
-      Except.ok "--contract-source-emitwat"
+      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--contract-source-emitwat" }
   else
     Except.error "proof-forge build --target wasm-stellar-soroban requires a .lean contract_source module"
 
@@ -241,7 +279,7 @@ def fixtureOnlyBuild (target flag : String) (req : BuildRequest) : Except String
   else
     Except.ok flag
 
-def cosmwasmResolveBuild (req : BuildRequest) : Except String String :=
+def cosmwasmResolveBuild (req : BuildRequest) : Except String BuildResult :=
   let isLearn := isLearnInput req.input?
   let isLeanSource := isLeanSourceFile req.input?
   if isLearn then
@@ -256,9 +294,11 @@ use --target evm | solana-sbpf-asm | wasm-near (see `just token-feature-matrix`)
     if req.format?.isSome && req.format? != some "wat" then
       Except.error s!"proof-forge build --target wasm-cosmwasm does not support format '{req.format?.getD ""}'; use --format wat"
     else
-      Except.ok "--contract-source-emitwat"
+      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--contract-source-emitwat" }
   else
-    fixtureOnlyBuild "wasm-cosmwasm" "--emit-counter-ir-cosmwasm" req
+    match fixtureOnlyBuild "wasm-cosmwasm" "--emit-counter-ir-cosmwasm" req with
+    | Except.ok flag => Except.ok { dispatchKind := .legacy, legacyFlag? := some flag }
+    | Except.error e => Except.error e
 
 def cosmwasmResolveEmit (req : EmitRequest) : Except String String :=
   if req.fixture == "counter" then
@@ -266,11 +306,13 @@ def cosmwasmResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target wasm-cosmwasm --fixture {req.fixture} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
-def psyResolveBuild (req : BuildRequest) : Except String String :=
+def psyResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target psy-dpn from .learn source is not yet implemented"
   else
-    fixtureOnlyBuild "psy-dpn" "--emit-counter-ir-psy" req
+    match fixtureOnlyBuild "psy-dpn" "--emit-counter-ir-psy" req with
+    | Except.ok flag => Except.ok { dispatchKind := .legacy, legacyFlag? := some flag }
+    | Except.error e => Except.error e
 
 def psyResolveEmit (req : EmitRequest) : Except String String :=
   let fmt := req.format?.getD ""
@@ -281,11 +323,13 @@ def psyResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target psy-dpn --fixture {req.fixture} is not yet mapped to a legacy flag"
 
-def aleoResolveBuild (req : BuildRequest) : Except String String :=
+def aleoResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target aleo-leo from .learn source is not yet implemented"
   else
-    fixtureOnlyBuild "aleo-leo" "--emit-counter-ir-leo" req
+    match fixtureOnlyBuild "aleo-leo" "--emit-counter-ir-leo" req with
+    | Except.ok flag => Except.ok { dispatchKind := .legacy, legacyFlag? := some flag }
+    | Except.error e => Except.error e
 
 def aleoResolveEmit (req : EmitRequest) : Except String String :=
   let fmt := req.format?.getD ""
@@ -297,11 +341,13 @@ def aleoResolveEmit (req : EmitRequest) : Except String String :=
     | "pure-math" => Except.ok "--emit-pure-math-ir-leo"
     | f => Except.error s!"emit --target aleo-leo --fixture {f} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
-def aptosResolveBuild (req : BuildRequest) : Except String String :=
+def aptosResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target move-aptos from .learn source is not yet implemented"
   else
-    fixtureOnlyBuild "move-aptos" "--emit-counter-ir-aptos" req
+    match fixtureOnlyBuild "move-aptos" "--emit-counter-ir-aptos" req with
+    | Except.ok flag => Except.ok { dispatchKind := .legacy, legacyFlag? := some flag }
+    | Except.error e => Except.error e
 
 def aptosResolveEmit (req : EmitRequest) : Except String String :=
   if req.fixture == "counter" then
@@ -309,7 +355,7 @@ def aptosResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target move-aptos --fixture {req.fixture} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
-def suiResolveBuild (req : BuildRequest) : Except String String :=
+def suiResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target move-sui from .learn source is not yet implemented"
   else if req.input?.isSome then
@@ -317,9 +363,11 @@ def suiResolveBuild (req : BuildRequest) : Except String String :=
   else
     match req.fixture? with
     | some fixture =>
-        if fixture == "counter" then Except.ok "--emit-counter-ir-sui"
-        else Except.error s!"proof-forge build --target move-sui --fixture {fixture} is not yet implemented"
-    | none => Except.ok "--emit-counter-ir-sui"
+        if fixture == "counter" then
+          Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-sui" }
+        else
+          Except.error s!"proof-forge build --target move-sui --fixture {fixture} is not yet implemented"
+    | none => Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-sui" }
 
 def suiResolveEmit (req : EmitRequest) : Except String String :=
   let fmt := req.format?.getD ""
@@ -329,7 +377,7 @@ def suiResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target move-sui --fixture {req.fixture} --format {fmt} is not yet mapped to a legacy flag"
 
-def cloudflareResolveBuild (req : BuildRequest) : Except String String :=
+def cloudflareResolveBuild (req : BuildRequest) : Except String BuildResult :=
   if isLearnInput req.input? then
     Except.error "proof-forge build --target wasm-cloudflare-workers from .learn source is not yet implemented"
   else if req.input?.isSome then
@@ -345,8 +393,19 @@ def cloudflareResolveEmit (req : EmitRequest) : Except String String :=
   else
     Except.error s!"emit --target wasm-cloudflare-workers --fixture {req.fixture} --format {req.format?.getD ""} is not yet mapped to a legacy flag"
 
+def stylusResolveBuild (req : BuildRequest) : Except String BuildResult :=
+  if req.nft then
+    Except.error "proof-forge build --target wasm-arbitrum-stylus: NFT surfaces are not implemented"
+  else if isLeanSourceFile req.input? then
+    Except.ok { dispatchKind := .native, nativeOp? := some .stylusContractSource }
+  else
+    Except.error "proof-forge build --target wasm-arbitrum-stylus requires a .lean ContractSpec or TokenSpec input"
+
+def stylusResolveEmit (_req : EmitRequest) : Except String String :=
+  Except.error "proof-forge emit --target wasm-arbitrum-stylus is unavailable; use build with contract_source"
+
 /-- CLI-only verification target (not in `Target.knownIds`). -/
-def quintResolveBuild (_req : BuildRequest) : Except String String :=
+def quintResolveBuild (_req : BuildRequest) : Except String BuildResult :=
   Except.error "unknown target 'quint'"
 
 def quintResolveEmit (req : EmitRequest) : Except String String :=
@@ -382,17 +441,26 @@ def cliDrivers : Array TargetCliDriver := #[
   { id := "move-aptos", resolveBuild := aptosResolveBuild, resolveEmit := aptosResolveEmit },
   { id := "move-sui", resolveBuild := suiResolveBuild, resolveEmit := suiResolveEmit },
   { id := "wasm-cloudflare-workers", resolveBuild := cloudflareResolveBuild, resolveEmit := cloudflareResolveEmit },
+  { id := "wasm-arbitrum-stylus", resolveBuild := stylusResolveBuild, resolveEmit := stylusResolveEmit },
   { id := "quint", resolveBuild := quintResolveBuild, resolveEmit := quintResolveEmit }
 ]
 
 def findCliDriver? (id : String) : Option TargetCliDriver :=
   cliDrivers.find? (fun driver => driver.id == id)
 
-/-- Registry-backed build flag resolution (replaces the central target-id match). -/
-def resolveBuildLegacyFlag (target : String) (req : BuildRequest) : Except String String :=
+/-- Registry-backed build dispatch resolution. -/
+def resolveBuild (target : String) (req : BuildRequest) : Except String BuildResult :=
   match findCliDriver? target with
   | some driver => driver.resolveBuild req
   | none => Except.error s!"unknown target '{target}'"
+
+/-- Registry-backed build flag resolution (replaces the central target-id match). -/
+def resolveBuildLegacyFlag (target : String) (req : BuildRequest) : Except String String :=
+  match resolveBuild target req with
+  | .ok { dispatchKind := .legacy, legacyFlag? := some flag, .. } => Except.ok flag
+  | .ok { dispatchKind := .native, .. } => Except.error "internal: native build requested via legacy flag helper"
+  | .ok _ => Except.error "internal: BuildResult missing legacy flag"
+  | .error e => Except.error e
 
 /-- Registry-backed emit flag resolution (replaces the central target-id match). -/
 def resolveEmitLegacyFlag (target : String) (req : EmitRequest) : Except String String :=

@@ -155,7 +155,7 @@ The conservative first spike, and the **prerequisite for any FV-import work**.
 Once IR → Noir codegen exists, copy the EVM E-lane:
 
 - add `reilabs/lampe` as an **opt-in lake dependency** (isolated target, like the EVM
-  `EvmRefinement` target — keep the default build lampe/mathlib-free);
+  `ProofForgeFormalEvm` target — keep the default build lampe/mathlib-free);
 - write an adapter to Lampe's Noir `Step`/semantics;
 - refine the portable IR against it for the fixture via the shared `CounterUniversal`
   induction (IR ⟷ Noir computed function; proving stays external).

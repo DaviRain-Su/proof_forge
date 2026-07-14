@@ -145,9 +145,9 @@ def main : IO UInt32 := do
         s!"Solana honesty diagnostic, got: {e.message}"
   -- NEAR: IERC20 selector remotes need a string pool; honest reject without it.
   match ProofForge.Backend.WasmHost.EmitWat.renderModule m with
-  | .ok _ => throw (IO.userError "NEAR should reject empty nearCrosscallStrings for asset pull")
+  | .ok _ => throw (IO.userError "NEAR should reject empty crosscallStrings for asset pull")
   | .error e =>
-      require (e.message.contains "nearCrosscallStrings" || e.message.contains "crosscall" ||
+      require (e.message.contains "crosscallStrings" || e.message.contains "crosscall" ||
           e.message.contains "Address")
         s!"NEAR honesty diagnostic, got: {e.message}"
 

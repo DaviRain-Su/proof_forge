@@ -77,10 +77,6 @@ interface Vm {
     function roll(uint256 newHeight) external;
     function warp(uint256 newTimestamp) external;
     function chainId(uint256 newChainId) external;
-    function txGasPrice(uint256 newGasPrice) external;
-    function fee(uint256 newBaseFee) external;
-    function prevrandao(uint256 newPrevrandao) external;
-    function coinbase(address newCoinbase) external;
 }
 
 contract ProofForgeIRContextSmokeTest {
@@ -138,42 +134,31 @@ contract ProofForgeIRContextSmokeTest {
 
         vm.warp(1000);
         vm.chainId(42);
-        vm.txGasPrice(5 gwei);
-        vm.fee(20 gwei);
-        vm.prevrandao(12345);
 
         (bool ok, bytes memory result) =
             probe.call(abi.encodeWithSignature("context_extras()"));
 
         assertTrue(ok);
-        uint256[6] memory values = abi.decode(result, (uint256[6]));
+        uint256[3] memory values = abi.decode(result, (uint256[3]));
         assertEq(values[0], 1000);          // timestamp
         assertEq(values[1], 42);            // chainid
-        assertEq(values[2], 5 gwei);        // gasprice
-        assertTrue(values[3] > 0);          // gasleft
-        assertEq(values[4], 20 gwei);       // basefee
-        assertEq(values[5], 12345);         // prevrandao
+        assertTrue(values[2] > 0);          // gasleft
     }
 
     function testIRContextHashes() public {
         address probe = address(uint160(0xC0782));
         address sender = address(uint160(0xCA11E2));
         address originAddr = address(uint160(0x0b17));
-        address coinbaseAddr = address(uint160(0xc01e));
         deployRuntime(hex"$probe_hex", probe);
 
-        vm.coinbase(coinbaseAddr);
-        vm.roll(2);
         vm.startPrank(sender, originAddr);
         (bool ok, bytes memory result) =
             probe.call(abi.encodeWithSignature("context_hashes()"));
         vm.stopPrank();
 
         assertTrue(ok);
-        bytes32[3] memory values = abi.decode(result, (bytes32[3]));
+        bytes32[1] memory values = abi.decode(result, (bytes32[1]));
         assertEq(uint256(values[0]), uint256(uint160(originAddr)));
-        assertEq(uint256(values[1]), uint256(uint160(coinbaseAddr)));
-        assertEq(values[2], blockhash(1));
     }
 
     function testIRContextRejectsUnknownSelector() public {

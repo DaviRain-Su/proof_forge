@@ -9,6 +9,8 @@ import ProofForge.Backend.WasmHost.Diagnostics
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.HostABI
+import ProofForge.Backend.WasmHost.Scalar
 
 namespace ProofForge.Backend.WasmHost.Event
 
@@ -19,6 +21,7 @@ open ProofForge.Backend.WasmHost.Diagnostics
 open ProofForge.Backend.WasmHost.Layout
 open ProofForge.Backend.WasmHost.Memory
 open ProofForge.Backend.WasmHost.Plan
+open ProofForge.Backend.WasmHost.Scalar
 
 /-! JSON event-buffer helper functions for EmitWat. -/
 
@@ -92,6 +95,20 @@ def evtPutu64Func : Func :=
           .globalGet evtPtrGlobal, .localGet "len", .plain "i32.add", .globalSet evtPtrGlobal ] }
     ] } }
 
+def evtPutu128Name : String := "__pf_evt_putu128"
+
+/-! `__pf_evt_putu128(lo, hi)`: append the unsigned decimal string of the u128
+    to the event JSON buffer. Uses `__pf_fmt_u128` then memcpy. -/
+def evtPutu128Func : Func :=
+  { name := evtPutu128Name,
+    params := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    locals := #[{ name := "p", type := .i32 }, { name := "len", type := .i32 }],
+    body := { insns := #[
+      .localGet "lo", .localGet "hi", .call u128FmtName, .localSet "p",
+      .i32Const (RET_BUF + 40), .localGet "p", .plain "i32.sub", .localSet "len",
+      .globalGet evtPtrGlobal, .localGet "p", .localGet "len", .call memcpyName,
+      .globalGet evtPtrGlobal, .localGet "len", .plain "i32.add", .globalSet evtPtrGlobal ] } }
+
 def evtPutboolFunc : Func :=
   { name := evtPutboolName, params := #[{ name := "b", type := .i32 }],
     body := { insns := #[
@@ -118,22 +135,23 @@ def evtPutHashFunc : Func :=
       .i32Const 0x22, .call evtPutcName
     ] } }
 
-def evtLogFunc : Func :=
+def evtLogFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   { name := evtLogName,
     body := { insns := #[
       .globalGet evtPtrGlobal, .i32Const EVENT_BUF, .plain "i32.sub", .plain "i64.extend_i32_u",
-      .i64Const EVENT_BUF, .call "log_utf8" ] } }
+      .i64Const EVENT_BUF, .call (HostABI.logEventName bridge) ] } }
 
-def evtHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  -- Keep `fmtU64Func` when numeric events are used so Crosscall can share it
-  -- (`usesEventNumeric ⇒ skip emitting fmt in Crosscall`). Event putu64 itself
-  -- inlines decimal formatting to avoid an extra call per field.
+def evtHelperFuncsForModulePlan (plan : ModulePlan)
+    (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
   (if plan.usesEventNumeric then #[fmtU64Func] else #[]) ++
     (if plan.usesEventApi then #[evtStartFunc, evtPutcFunc, evtPutstrFunc] else #[]) ++
     (if plan.usesEventNumeric then #[evtPutu64Func] else #[]) ++
+    -- evt_putu128 references __pf_fmt_u128 / __pf_u128_divmod10; emit them
+    -- alongside so the event helper set is self-contained (mirrors crosscall).
+    (if plan.usesEventNumeric then #[evtPutu128Func, u128Divmod10Func, u128FmtFunc] else #[]) ++
     (if plan.usesEventBool then #[evtPutboolFunc] else #[]) ++
     (if plan.usesEventHash then #[evtPutHashFunc] else #[]) ++
-    (if plan.usesEventApi then #[evtLogFunc] else #[])
+    (if plan.usesEventApi then #[evtLogFunc bridge] else #[])
 
 def evtGlobals : Array Global := #[ evtPtrGlobalDecl ]
 
@@ -148,23 +166,33 @@ def evtHeaderInsns (nameSi : StringInfo) : Array Insn :=
   #[.call evtStartName]
     ++ #[.i32Const nameSi.ptr, .i32Const nameSi.len, .call evtPutstrName]
 
-def evtValueInsnsForType (fieldName : String) (type : ValueType) :
+def evtValueInsnsForType (eventName fieldName : String) (type : ValueType) :
     Except EmitError (Array Insn) :=
   match type with
   | .u64 => .ok #[.call evtPutu64Name]
+  | .u128 =>
+      let value := #[.call evtPutu128Name]
+      if (eventName == "ft_transfer" || eventName == "ft_mint" || eventName == "ft_burn") &&
+          fieldName == "amount" then
+        .ok (#[.i32Const 0x22, .call evtPutcName] ++ value ++
+          #[.i32Const 0x22, .call evtPutcName])
+      else
+        .ok value
   | .u32 => .ok #[.plain "i64.extend_i32_u", .call evtPutu64Name]
   | .bool => .ok #[.call evtPutboolName]
   | .hash => .ok #[.call evtPutHashName]
+  | .string => .ok #[.i32Const 0x22, .call evtPutcName, .call evtPutstrName,
+    .i32Const 0x22, .call evtPutcName]
   | _ => err s!"EmitWat: event field `{fieldName}` has unsupported type `{type.name}`"
 
 /-- Emit composite `,"field":` + value (one putstr for the static key fragment). -/
-def evtFieldInsns (fieldName : String) (fieldSi : StringInfo)
+def evtFieldInsns (eventName fieldName : String) (fieldSi : StringInfo)
     (valueInsns : Array Insn) (valueType : ValueType) : Except EmitError (Array Insn) := do
-  let valInsns ← evtValueInsnsForType fieldName valueType
+  let valInsns ← evtValueInsnsForType eventName fieldName valueType
   .ok (#[.i32Const fieldSi.ptr, .i32Const fieldSi.len, .call evtPutstrName]
     ++ valueInsns ++ valInsns)
 
 def evtFooterInsns : Array Insn :=
-  evtPutstrInsns EVT_CLOSE_PTR 1 ++ #[.call evtLogName]
+  evtPutstrInsns EVT_CLOSE_PTR EVT_CLOSE_LEN ++ #[.call evtLogName]
 
 end ProofForge.Backend.WasmHost.Event

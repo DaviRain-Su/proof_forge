@@ -104,7 +104,10 @@ def uupsProxyFallbackBody : Array Lean.Compiler.Yul.Statement :=
   ProofForge.Backend.Evm.ToYul.uupsProxyFallbackBody
 
 def uupsProxyDefaultCase : Lean.Compiler.Yul.Case :=
-  ProofForge.Backend.Evm.ToYul.dispatchDefaultCase .uupsProxy
+  ProofForge.Backend.Evm.ToYul.dispatchDefaultCase {
+    entrypoints := #[]
+    default := .uupsProxy
+  }
 
 /-- Lower-level checked-add expression: `__pf_checked_add(a, b)` reverts on overflow. -/
 def checkedAddExpr (lhs rhs : Lean.Compiler.Yul.Expr) : Lean.Compiler.Yul.Expr :=
@@ -178,9 +181,9 @@ def solidityCustomErrorRevertStmts (selector : Nat) (argWords : Array Nat := #[]
     Each `Expr` is lowered via `lowerExpr` to a Yul value and stored at the
     corresponding ABI word offset. The selector is still compile-time. -/
 def solidityCustomErrorRevertStmtsRuntime
-    {ε : Type} (_mkError : String → ε)
-    (lowerExpr : ProofForge.IR.Expr → Except ε Lean.Compiler.Yul.Expr)
-    (selector : Nat) (argExprs : Array ProofForge.IR.Expr) :
+    {ε α : Type} (_mkError : String → ε)
+    (lowerExpr : α → Except ε Lean.Compiler.Yul.Expr)
+    (selector : Nat) (argExprs : Array α) :
     Except ε (Array Lean.Compiler.Yul.Statement) := do
   let selectorWord :=
     Lean.Compiler.Yul.builtin "shl" #[
@@ -206,6 +209,30 @@ def solidityCustomErrorRevertStmtsRuntime
       Lean.Compiler.Yul.Expr.num totalSize
     ])
   ])
+
+/-- ProofForge structured-error envelope independent of the Legacy ErrorRef
+container. Target-owned plans use this directly. -/
+def proofForgeErrorRevertStmts (assertionId : Nat) (userCode : String) :
+    Array Lean.Compiler.Yul.Statement :=
+  let codeLen := userCode.length
+  let paddedLen := ((codeLen + 31) / 32) * 32
+  let totalSize := 96 + paddedLen
+  let headerStmts : Array Lean.Compiler.Yul.Statement := #[
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num assertionId]),
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 32, Lean.Compiler.Yul.Expr.num 64]),
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 64, Lean.Compiler.Yul.Expr.num codeLen])
+  ]
+  let chunks := if codeLen > 0 then ProofForge.Backend.Evm.ToYul.hexChunks64 (stringToHex userCode) else #[]
+  let dataStmts := chunks.foldl (init := #[]) fun acc chunk =>
+    let idx := acc.size
+    acc.push <| .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
+      Lean.Compiler.Yul.Expr.num (96 + idx * 32),
+      Lean.Compiler.Yul.Expr.lit (Lean.Compiler.Yul.Literal.hex
+        ("0x" ++ ProofForge.Backend.Evm.ToYul.rightPadHex64 chunk))
+    ])
+  headerStmts ++ dataStmts ++ #[
+    .exprStmt (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num totalSize])
+  ]
 
 def errorRefRevertStmts (ref : ProofForge.IR.ErrorRef) : Array Lean.Compiler.Yul.Statement :=
   match ref.soliditySelector? with
@@ -540,23 +567,6 @@ def entrypointStaticParamWordTypes (module : Module) (entrypoint : Entrypoint) :
       words := words ++ (← abiValueWordTypes module s!"entrypoint `{entrypoint.name}` parameter `{param.fst}`" param.snd)
   .ok words
 
-def entrypointParamPlansForModule
-    (module : Module)
-    (entrypoint : Entrypoint) :
-    Except LowerError (Array ProofForge.Backend.Evm.Plan.AbiParamPlan) := do
-  match ProofForge.Backend.Evm.Lower.entrypointParamPlans module entrypoint with
-  | .ok params => .ok params
-  | .error err => .error { message := err.message }
-
-def entrypointCallArgsWithPlan
-    (params : Array ProofForge.Backend.Evm.Plan.AbiParamPlan) :
-    Except LowerError (Array Lean.Compiler.Yul.Expr) :=
-  .ok (ProofForge.Backend.Evm.ToYul.entrypointCallArgs params)
-
-def entrypointCallArgs (module : Module) (entrypoint : Entrypoint) : Except LowerError (Array Lean.Compiler.Yul.Expr) := do
-  let params ← entrypointParamPlansForModule module entrypoint
-  entrypointCallArgsWithPlan params
-
 -- Generate calldata size check and per-word validation for static params,
 -- plus head-tail decode statements for dynamic params (bytes/string).
 -- Returns (validationStmts, dynamicDecodeStmts) — both run before the call.
@@ -564,14 +574,6 @@ def abiParamValidationAndDecodeStmts
     (params : Array ProofForge.Backend.Evm.Plan.AbiParamPlan) :
     Except LowerError (Array Lean.Compiler.Yul.Statement) :=
   .ok (ProofForge.Backend.Evm.ToYul.abiParamValidationAndDecodeStatements params)
-
--- Backward-compatible wrapper: only returns validation (no dynamic decode).
--- The full validation+decode is in abiParamValidationAndDecodeStmts.
-def abiParamValidationStmts (module : Module) (entrypoint : Entrypoint) : Except LowerError (Array Lean.Compiler.Yul.Statement) := do
-  let params ← entrypointParamPlansForModule module entrypoint
-  .ok (ProofForge.Backend.Evm.ToYul.abiParamsMinSizeValidationStatements params)
-
-
 
 def mapShapeName (keyType valueType : ValueType) (capacity : Nat) : String :=
   s!"Map<{keyType.name}, {valueType.name}, {capacity}>"

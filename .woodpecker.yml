@@ -8,7 +8,8 @@
 # Triggers: push and pull_request (all branches).
 # Gates (product-first):
 #   1. `just product` — business sources × multi-target (fail fast)
-#   2. `just check` — full static baseline (includes product again + backend)
+#   2. canonical semantic/parity/boundary gates
+#   3. `just check-parallel` — full static baseline through four local lanes
 
 when:
   - event: [push, pull_request]
@@ -19,6 +20,7 @@ clone:
     settings:
       partial: false
       depth: 0
+      fetch-target-branch: true
 
 steps:
   - name: proof-forge-product
@@ -28,6 +30,16 @@ steps:
       - scripts/ci/woodpecker-setup.sh
       - just product
 
+  - name: proof-forge-canonical
+    image: ubuntu:24.04
+    commands:
+      - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:/usr/local/bin:$PATH"
+      - scripts/ci/woodpecker-setup.sh
+      - just canonical-core
+      - just canonical-parity
+      - just canonical-product
+      - just canonical-boundary
+
   - name: proof-forge-check
     image: ubuntu:24.04
     commands:
@@ -35,5 +47,21 @@ steps:
       # Setup already ran in product step on the same workspace when sequential;
       # re-run setup for isolated step images.
       - scripts/ci/woodpecker-setup.sh
-      - just check
+      - JOBS=4 just check-parallel
       - just wave-t-gate
+
+  # Woodpecker shares this workspace between steps. Package the same Stylus
+  # evidence surface uploaded by GitHub Actions; durable publication requires
+  # a separately configured Codeberg/S3 artifact sink and credentials.
+  - name: proof-forge-stylus-evidence
+    image: ubuntu:24.04
+    commands:
+      - export PATH="$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.foundry/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+      - just stylus-nitro-doctor || true
+      - mkdir -p build/ci-artifacts build/stylus build/evidence/stylus build/test-lanes
+      - test -f build/evidence/stylus/nitro-doctor.json
+      - tar -czf "build/ci-artifacts/stylus-${CI_PIPELINE_NUMBER}.tar.gz" build/stylus build/evidence/stylus build/test-lanes
+      - test -f "build/ci-artifacts/stylus-${CI_PIPELINE_NUMBER}.tar.gz"
+      - tar -tzf "build/ci-artifacts/stylus-${CI_PIPELINE_NUMBER}.tar.gz" | grep -Fq build/evidence/stylus/nitro-doctor.json
+    when:
+      - status: [success, failure]

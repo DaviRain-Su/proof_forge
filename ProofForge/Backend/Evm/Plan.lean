@@ -1,6 +1,7 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.IR.Contract
+import ProofForge.IR.Canonical
 import ProofForge.Backend.Evm.Plan.Storage
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
@@ -39,6 +40,9 @@ mutual
     `caller` word (`hashWord(caller)`). Product path for OwnableHash /
     `callerHash` on EVM — distinct from raw address-width `userId`. -/
     | userIdHash
+    /-- Raw AccountId string caller identity (NEAR-only, Phase 3 NEP-141 interop).
+    EVM rejects this (caller is a 20-byte address). -/
+    | accountId
     | contractId
     | checkpointId
     | timestamp
@@ -497,6 +501,17 @@ instance : BEq AbiPackedHelperSpec :=
 
 /-! ## StmtPlan: target-semantic statement plan -/
 
+/-- EVM-owned error payload. Canonical Core error arguments are already lowered
+to `ExprPlan`; the target plan never reconstructs a Legacy `IR.ErrorRef`. -/
+structure EvmErrorPlan where
+  assertionId : UInt32
+  userCode? : Option String := none
+  soliditySelector? : Option String := none
+  solidityArgWords : Array Nat := #[]
+  solidityArgTypes : Array String := #[]
+  solidityArgExprs : Array ExprPlan := #[]
+  deriving Repr
+
 inductive StmtPlan where
   | letBind (name : String) (type : ValueType) (value : ExprPlan)
   | letMutBind (name : String) (type : ValueType) (value : ExprPlan)
@@ -505,9 +520,13 @@ inductive StmtPlan where
   | effect (effect : EffectPlan)
   | assert (condition : ExprPlan) (message : String) (errorRef? : Option ProofForge.IR.ErrorRef)
   | assertEq (lhs rhs : ExprPlan) (message : String) (errorRef? : Option ProofForge.IR.ErrorRef)
+  /-- Canonical-only assertion carrying an EVM-owned error payload. -/
+  | assertPlanned (condition : ExprPlan) (message : String) (error? : Option EvmErrorPlan)
   | release (name : String)
   | revert (message : String)
   | revertWithError (errorRef : ProofForge.IR.ErrorRef)
+  /-- Canonical-only structured revert. -/
+  | revertPlanned (error : EvmErrorPlan)
   | ifElse (condition : ExprPlan) (thenBody elseBody : Array StmtPlan)
   | boundedFor (indexName : String) (start stopExclusive : Nat) (body : Array StmtPlan)
   | return (value : ExprPlan)
@@ -592,12 +611,16 @@ def returnLocalNames (returnType : ValueType) (wordTypes : Array ValueType) : Ar
 structure EntrypointPlan where
   name : String
   selector : String
+  mutability : ProofForge.IR.Canonical.InterfaceMutability := .call
   params : Array AbiParamPlan
   returns : ReturnPlan
   body : Array StmtPlan
   deriving Repr
 
-instance : Inhabited EntrypointPlan := ⟨{ name := "", selector := "", params := #[], returns := default, body := #[] }⟩
+instance : Inhabited EntrypointPlan := ⟨{
+  name := "", selector := "", mutability := .call,
+  params := #[], returns := default, body := #[]
+}⟩
 
 inductive DispatchDefaultPlan where
   | revert
@@ -610,6 +633,8 @@ inductive DispatchDefaultPlan where
 
 structure DispatchPlan where
   entrypoints : Array EntrypointPlan
+  fallbackFunction? : Option String := none
+  receiveFunction? : Option String := none
   default : DispatchDefaultPlan
   deriving Repr
 
@@ -628,6 +653,8 @@ def moduleDispatchDefaultPlan (module : Module) : DispatchDefaultPlan :=
 
 def moduleDispatchPlan (module : Module) (entrypoints : Array EntrypointPlan) : DispatchPlan := {
   entrypoints
+  fallbackFunction? := if module.entrypoints.any (·.kind == .fallback) then some "__pf_fallback" else none
+  receiveFunction? := if module.entrypoints.any (·.kind == .receive) then some "__pf_receive" else none
   default := moduleDispatchDefaultPlan module
 }
 
@@ -642,12 +669,30 @@ structure MetadataPlan where
 
 /-! ## ContextPlan: EVM context operation summary -/
 
+def ContextExprPlan.name : ContextExprPlan → String
+  | .userId => "userId"
+  | .userIdHash => "userIdHash"
+  | .accountId => "accountId"
+  | .contractId => "contractId"
+  | .checkpointId => "checkpointId"
+  | .timestamp => "timestamp"
+  | .chainId => "chainId"
+  | .gasPrice => "gasPrice"
+  | .gasLeft => "gasLeft"
+  | .prepaidGas => "prepaidGas"
+  | .usedGas => "usedGas"
+  | .baseFee => "baseFee"
+  | .prevRandao => "prevRandao"
+  | .origin => "origin"
+  | .coinbase => "coinbase"
+  | .blockHash _ => "blockHash"
+
 structure ContextPlan where
-  field : ContextField
+  name : String
   deriving Repr
 
 def ContextPlan.beq (a b : ContextPlan) : Bool :=
-  a.field.name == b.field.name
+  a.name == b.name
 
 instance : BEq ContextPlan := ⟨ContextPlan.beq⟩
 
@@ -664,6 +709,9 @@ structure ModulePlan where
   events : Array EventPlan
   crosscalls : Array CrosscallHelperSpec
   creates : Array CreateHelperSpec
+  /-- ABI-packed call helpers discovered before Yul rendering. Canonical
+      lowering must consume this field instead of rescanning source IR. -/
+  abiPackedHelpers : Array AbiPackedHelperSpec := #[]
   localArrayGetLengths : Array Nat
   nestedLocalArrayGetShapes : Array (Array Nat)
   usesCheckedArithmetic : Bool
@@ -686,7 +734,9 @@ def ModulePlan.hasHelper (plan : ModulePlan) (helper : Helper) : Bool :=
 mutual
   partial def contextOpsFromExpr (expr : Expr) : Array ContextPlan :=
     match expr with
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => acc ++ contextOpsFromExpr arg) #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc v => acc ++ contextOpsFromExpr v
     | .arrayGet array index =>
@@ -706,17 +756,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         contextOpsFromExpr lhs ++ contextOpsFromExpr rhs
-    | .ecrecover a b c d =>
-        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++ contextOpsFromExpr d
-    | .eip712PermitDigest a b c d e f =>
-        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++
-          contextOpsFromExpr d ++ contextOpsFromExpr e ++ contextOpsFromExpr f
-    | .crosscallAbiPacked target _ _ _ _ _ dynLen? _dynOffs dynTargets =>
-        let base :=
-          match dynLen? with
-          | none => contextOpsFromExpr target
-          | some len => contextOpsFromExpr target ++ contextOpsFromExpr len
-        dynTargets.foldl (init := base) fun acc t => acc ++ contextOpsFromExpr t
     | .cast value _ | .boolNot value | .hash value => contextOpsFromExpr value
     | .hashValue a b c d =>
         contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++ contextOpsFromExpr d
@@ -729,24 +768,20 @@ mutual
     | .crosscallInvokeValueTyped target methodId callValue args _ =>
         contextOpsFromExpr target ++ contextOpsFromExpr methodId ++ contextOpsFromExpr callValue ++
           args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
-    | .crosscallCreate callValue _ => contextOpsFromExpr callValue
-    | .crosscallCreate2 callValue salt _ =>
-        contextOpsFromExpr callValue ++ contextOpsFromExpr salt
     | .crosscallNamed _ _ args _ =>
         args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
         contextOpsFromExpr parentPromise ++ contextOpsFromExpr callbackMethod ++ contextOpsFromExpr deposit ++
           args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         contextOpsFromExpr accountIndex ++ contextOpsFromExpr methodId ++ contextOpsFromExpr deposit ++
           args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
-    | .nearPromiseResultsCount => #[]
-    | .nearPromiseResultStatus index => contextOpsFromExpr index
-    | .nearPromiseResultU64 index => contextOpsFromExpr index
     | .effect e => contextOpsFromEffect e
 
   partial def contextOpsFromEffect (effect : Effect) : Array ContextPlan :=
     match effect with
+    | .hostCall _ args _ =>
+        args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
     | .storageScalarRead _ => #[]
     | .storageScalarWrite _ value => contextOpsFromExpr value
     | .storageScalarAssignOp _ _ value => contextOpsFromExpr value
@@ -776,19 +811,9 @@ mutual
           | .mapKey key | .index key => acc ++ contextOpsFromExpr key
           | .field _ => acc
         ++ contextOpsFromExpr value
-    | .contextRead field => #[{ field }]
+    | .contextRead field => #[{ name := field.name }]
     | .eventEmit _ fields | .eventEmitIndexed _ fields _ =>
         fields.foldl (init := #[]) fun acc field => acc ++ contextOpsFromExpr field.snd
-    | .checkErc721Received a b c d =>
-        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++ contextOpsFromExpr d
-    | .checkErc1155Received a b c d e =>
-        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++
-          contextOpsFromExpr d ++ contextOpsFromExpr e
-
-    | .checkErc1155BatchReceived a b c d e =>
-        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
-          acc ++ contextOpsFromExpr expr
-
   partial def contextOpsFromStatement (statement : Statement) : Array ContextPlan :=
     match statement with
     | .letBind _ _ value | .letMutBind _ _ value => contextOpsFromExpr value
@@ -811,7 +836,7 @@ end
 def contextOpsFromModule (module : Module) : Array ContextPlan :=
   let all := module.entrypoints.foldl (init := #[]) fun acc ep => acc ++ contextOpsFromStatements ep.body
   all.foldl (init := #[]) fun acc plan =>
-    if acc.any (fun existing => existing.field.name == plan.field.name) then acc else acc.push plan
+    if acc.any (fun existing => existing.name == plan.name) then acc else acc.push plan
 
 def buildModulePlanWithTargetPlan (module : Module) (targetPlan : CapabilityPlan) :
     Except PlanError ModulePlan := do

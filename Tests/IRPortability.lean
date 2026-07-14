@@ -85,15 +85,9 @@ def main : IO Unit := do
     "contractId must be portable-core after Solana program_id lower (U1.2)"
   require (!ContextField.chainId.isPortableEnv) "chainId is EVM-only materialize"
   require (!ContextField.epochHeight.isPortableEnv) "epochHeight is NEAR-only"
-  require (!ContextField.baseFee.isPortableEnv) "baseFee must be EVM-only"
-  require (!ContextField.prevRandao.isPortableEnv) "prevRandao must be EVM-only"
-  require (!ContextField.coinbase.isPortableEnv) "coinbase must be EVM-only"
-  require (!ContextField.origin.isPortableEnv) "origin must be EVM-only"
-  require (!ContextField.gasPrice.isPortableEnv) "gasPrice must be EVM-only"
+  require ContextField.signer.isPortableEnv "signer must be portable across the primary triad"
   require (!ContextField.gasLeft.isPortableEnv) "gasLeft must be EVM-only"
   require (!ContextField.randomSeed.isPortableEnv) "randomSeed must not be portable-core"
-  require (!(ContextField.isPortableEnv (ContextField.blockHash (Expr.literal (.u64 0)))))
-    "blockHash must not be portable-core"
 
   -- Triad portable-core env stays portable-core.
   let envReadEp : Entrypoint := {
@@ -103,18 +97,6 @@ def main : IO Unit := do
   let portableEnvReadModule : Module := { counterModule with entrypoints := #[envReadEp] }
   require (isPortableCoreModule portableEnvReadModule)
     "module reading a triad portable-core env field must stay portable-core"
-  let evmEnvReadEp : Entrypoint := {
-    name := "evmEnvRead", returns := .u64,
-    body := #[.return (.effect (.contextRead .baseFee))]
-  }
-  let evmOnlyEnvReadModule : Module := { counterModule with entrypoints := #[evmEnvReadEp] }
-  require (!isPortableCoreModule evmOnlyEnvReadModule)
-    "module reading an EVM-only env field must not be portable-core"
-  require ((familyOnlyViolations evmOnlyEnvReadModule .evm).isEmpty)
-    "EVM-only env field must be legal for EVM family"
-  require ((familyOnlyViolations evmOnlyEnvReadModule .solana).size > 0)
-    "EVM-only env field must violate Solana family lowering"
-
   -- Slice 2: Portable identity type vocabulary. `.address` is the chain-neutral
   -- account/identity handle; it is a portable identity and carries no
   -- family-only finding.
@@ -178,24 +160,6 @@ def main : IO Unit := do
   | .error _ => pure ()
   | .ok _ => throw (IO.userError "Aptos must reject an unsupported entrypoint body shape")
 
-  -- T4.3: CREATE2 is EVM family-only (Shared bans create2Deploy via portable-default).
-  let create2Mod : Module := {
-    name := "Create2Fixture"
-    state := #[]
-    entrypoints := #[{
-      name := "deploy"
-      returns := .u64
-      body := #[.return (.crosscallCreate2 (.literal (.u64 0)) (.literal (.u64 1)) "00")]
-    }]
-  }
-  require (!isPortableCoreModule create2Mod)
-    "CREATE2 module must not classify as portable-core"
-  require ((familyOnlyViolations create2Mod .solana).size > 0)
-    "CREATE2 must violate Solana family"
-  require ((familyOnlyViolations create2Mod .wasmHost).size > 0)
-    "CREATE2 must violate Wasm family"
-  require ((familyOnlyViolations create2Mod .evm).isEmpty)
-    "CREATE2 is legal on EVM family"
   -- Slice 3 (NEAR Promise out of portable product path): Promise constructors
   -- are wasmHost family-only; portable crosscall.invoke is family-shared.
   let nearPortable := ProofForge.IR.Examples.NearCrosscallProbe.portableModule
@@ -208,18 +172,19 @@ def main : IO Unit := do
     "NEAR promise constructors must be legal for wasmHost"
   require (!isPortableCoreModule nearExt)
     "promise extension module is not portable-core"
-  -- Portable invoke-only module still carries nearCrosscallStrings metadata
+  -- Portable invoke-only module still carries crosscallStrings metadata
   -- (wasmHost target metadata), so it is not portable-core, but it has no
   -- family-only Promise constructors for non-wasm families beyond the string pool.
   require ((familyOnlyViolations nearPortable .solana).any fun f =>
-      f.path == "module.nearCrosscallStrings")
-    "portable NEAR crosscall still flags nearCrosscallStrings as wasmHost metadata"
+      f.path == "module.crosscallStrings")
+    "portable NEAR crosscall still flags crosscallStrings as wasmHost metadata"
   require (!(classifyModule nearPortable).any fun f =>
       match f.class_ with
       | .targetFamilyOnly _ =>
-          f.detail.startsWith "nearPromise" || f.detail.startsWith "nearCrosscallInvokePool"
+          f.detail.startsWith "target extension near.promise/" ||
+            f.detail.startsWith "crosscall.continue"
       | _ => false)
-    "portable NEAR module must not use nearPromise* constructors"
+    "portable NEAR module must not use promise HostOps or continuations"
   require (usesPromiseExtension nearExt) "NearHost.usesPromiseExtension on extension fixture"
   require (!usesPromiseExtension nearPortable) "NearHost: portable probe has no promise extension"
   require (isPortableNearCrosscall nearPortable) "NearHost: portable probe is portable NEAR crosscall"

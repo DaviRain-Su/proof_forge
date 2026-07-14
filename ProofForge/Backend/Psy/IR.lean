@@ -62,6 +62,8 @@ mutual
   partial def buildExpr (ctx : BuildContext) : IR.Expr → Except LowerError Lean.Compiler.Psy.Expr
     | .literal value => .ok <| .literal (buildLiteral value)
     | .local name => .ok <| .local name
+    | .hostCall _ _ _ _ =>
+        .error { message := "Psy IR v0 does not support target extension calls" }
     | .arrayLit elementType values => do
         if values.isEmpty then
           .error { message := s!"empty fixed array literals are not supported by Psy IR v0 for `{← valueTypeName elementType}`" }
@@ -76,12 +78,6 @@ mutual
         .error { message := "memory arrays are not supported by Psy IR v0" }
     | .memoryArrayGet _ _ =>
         .error { message := "memory arrays are not supported by Psy IR v0" }
-    | .ecrecover _ _ _ _ =>
-        .error { message := "ecrecover (secp256k1) is EVM-specific and not supported by Psy IR v0" }
-    | .eip712PermitDigest _ _ _ _ _ _ =>
-        .error { message := "EIP-712 permit digest is EVM-specific and not supported by Psy IR v0" }
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-        .error { message := "ABI-packed crosscall (Call[]) is EVM-specific and not supported by Psy IR v0" }
     | .structLit structName fields => do
         if fields.isEmpty then
           .error { message := s!"struct literal `{structName}` must have at least one field" }
@@ -118,6 +114,8 @@ mutual
     | .hashTwoToOne lhs rhs => do .ok <| .hashTwoToOne (← buildExpr ctx lhs) (← buildExpr ctx rhs)
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Psy IR v0" }
+    | .callValueU128 =>
+        .error { message := "full-width call value is not supported by Psy IR v0" }
     | .crosscallInvoke target methodId args => do
         .ok <| .crosscallInvoke (← buildExpr ctx target) (← buildExpr ctx methodId) (← args.mapM (buildExpr ctx))
     | .crosscallInvokeTyped _ _ _ returnType =>
@@ -128,22 +126,17 @@ mutual
         .error { message := s!"static typed crosscall return `{returnType.name}` is not supported by Psy IR v0; use untyped U64 crosscallInvoke for Psy targets" }
     | .crosscallInvokeDelegateTyped _ _ _ returnType =>
         .error { message := s!"delegate typed crosscall return `{returnType.name}` is not supported by Psy IR v0; use untyped U64 crosscallInvoke for Psy targets" }
-    | .crosscallCreate _ _ =>
-        .error { message := "EVM contract creation is not supported by Psy IR v0" }
-    | .crosscallCreate2 _ _ _ =>
-        .error { message := "EVM deterministic contract creation is not supported by Psy IR v0" }
     | .crosscallNamed _ _ _ _ =>
         .error { message := "named-callee cross-program calls (crosscallNamed) are not supported by Psy IR v0" }
-    | .nearPromiseThen _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
-        .error { message := "NEAR promise API is not supported by Psy IR v0" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported by Psy IR v0" }
     | .effect effect => buildEffectExpr ctx effect
 
   /-- Build a `Lean.Compiler.Psy.Expr` from a portable IR `Effect` in expression position. -/
   partial def buildEffectExpr (ctx : BuildContext) : IR.Effect → Except LowerError Lean.Compiler.Psy.Expr
+    | .hostCall id _ _ =>
+        .error { message := s!"Psy does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId => do
         requireScalarStateCtx ctx stateId
         .ok <| .storageScalarRead stateId
@@ -211,12 +204,6 @@ mutual
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Psy" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Psy" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on Psy" }
 
   /-- Build `Lean.Compiler.Psy.StoragePathSegment` array from portable IR path segments. -/
   partial def buildStoragePath (ctx : BuildContext) : Array IR.StoragePathSegment → Except LowerError (Array Lean.Compiler.Psy.StoragePathSegment)
@@ -266,6 +253,8 @@ end
 
 /-- Build a `Lean.Compiler.Psy.Stmt` from a portable IR `Effect` in statement position. -/
 def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.Compiler.Psy.Stmt
+  | .hostCall id _ _ =>
+      .error { message := s!"Psy does not support effect target extension `{id.render}`" }
   | .storageScalarRead _ => .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do
       requireScalarStateCtx ctx stateId
@@ -340,12 +329,6 @@ def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.
       let fieldExprs ← fields.mapM fun (n, v) => do .ok (n, ← buildExpr ctx v)
       .ok <| .effect (.eventEmit name fieldExprs)
   | .eventEmitIndexed name _ _ => .error { message := s!"event `{name}` uses indexed fields, which are not supported by Psy IR v0" }
-  | .checkErc721Received _ _ _ _ =>
-      .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
-  | .checkErc1155Received _ _ _ _ _ =>
-      .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
-  | .checkErc1155BatchReceived _ _ _ _ _ =>
-      .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported" }
 
 mutual
   /-- Collect else-if chain from a nested if/else body.

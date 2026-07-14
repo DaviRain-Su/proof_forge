@@ -2,7 +2,7 @@
 
 This fixture is the first Rust/Pinocchio equivalence reference for the
 ProofForge Solana SDK beta line. It mirrors
-`ProofForge.Solana.Examples.SystemCpi`:
+`Examples.Backend.Solana.Contracts.SystemCpi`:
 
 - instruction `transfer`
 - tag byte `0`

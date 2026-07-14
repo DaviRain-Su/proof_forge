@@ -59,13 +59,9 @@ mutual
     | .hashValue a b c d => collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++ collectArrayLitsExpr d
     | .hash preimage => collectArrayLitsExpr preimage
     | .hashTwoToOne a b => collectArrayLitsExpr a ++ collectArrayLitsExpr b
-    | .ecrecover a b c d =>
-        collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++ collectArrayLitsExpr d
-    | .eip712PermitDigest a b c d e f =>
-        collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++
-          collectArrayLitsExpr d ++ collectArrayLitsExpr e ++ collectArrayLitsExpr f
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => collectArrayLitsExpr target
-    | .nativeValue => #[]
+    | .nativeValue | .callValueU128 => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => acc ++ collectArrayLitsExpr arg) #[]
     | .crosscallInvoke t m args => collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .crosscallInvokeTyped t m args _
     | .crosscallInvokeStaticTyped t m args _
@@ -73,22 +69,18 @@ mutual
         collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .crosscallInvokeValueTyped t m v args _ =>
         collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ collectArrayLitsExpr v ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .crosscallCreate value _ => collectArrayLitsExpr value
-    | .crosscallCreate2 value salt _ => collectArrayLitsExpr value ++ collectArrayLitsExpr salt
     | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         collectArrayLitsExpr accountIndex ++ collectArrayLitsExpr methodId ++
           collectArrayLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
         collectArrayLitsExpr parentPromise ++ collectArrayLitsExpr callbackMethod ++
           collectArrayLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .nearPromiseResultsCount => #[]
-    | .nearPromiseResultStatus index => collectArrayLitsExpr index
-    | .nearPromiseResultU64 index => collectArrayLitsExpr index
     | .effect eff => collectArrayLitsEffect eff
 
   partial def collectArrayLitsEffect (eff : Effect) : Array (ValueType × Nat) :=
     match eff with
+    | .hostCall _ args _ => args.foldl (fun acc arg => acc ++ collectArrayLitsExpr arg) #[]
     | .storageScalarWrite _ v => collectArrayLitsExpr v
     | .storageScalarAssignOp _ _ v => collectArrayLitsExpr v
     | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k => collectArrayLitsExpr k
@@ -110,19 +102,13 @@ mutual
     | .eventEmitIndexed _ indexedFields dataFields =>
         let indexed := indexedFields.foldl (fun acc f => acc ++ collectArrayLitsExpr f.snd) #[]
         dataFields.foldl (fun acc f => acc ++ collectArrayLitsExpr f.snd) indexed
-    | .checkErc721Received a b c d =>
-        collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++ collectArrayLitsExpr d
-    | .checkErc1155Received a b c d e =>
-        collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++
-          collectArrayLitsExpr d ++ collectArrayLitsExpr e
-    | .checkErc1155BatchReceived a b c d e =>
-        collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++
-          collectArrayLitsExpr d ++ collectArrayLitsExpr e
     | .storageScalarRead _ => #[]
 
   partial def collectStructLitsExpr (e : Expr) : Array String :=
     match e with
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => acc ++ collectStructLitsExpr arg) #[]
     | .arrayLit _ values => values.foldl (fun acc v => acc ++ collectStructLitsExpr v) #[]
     | .arrayGet a i => collectStructLitsExpr a ++ collectStructLitsExpr i
     | .memoryArrayNew _ length => collectStructLitsExpr length
@@ -138,12 +124,6 @@ mutual
     | .hash preimage => collectStructLitsExpr preimage
     | .hashValue a b c d => collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++ collectStructLitsExpr d
     | .hashTwoToOne a b => collectStructLitsExpr a ++ collectStructLitsExpr b
-    | .ecrecover a b c d =>
-        collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++ collectStructLitsExpr d
-    | .eip712PermitDigest a b c d e f =>
-        collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++
-          collectStructLitsExpr d ++ collectStructLitsExpr e ++ collectStructLitsExpr f
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => collectStructLitsExpr target
     | .crosscallInvoke t m args => collectStructLitsExpr t ++ collectStructLitsExpr m ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .crosscallInvokeTyped t m args _
     | .crosscallInvokeStaticTyped t m args _
@@ -151,18 +131,13 @@ mutual
         collectStructLitsExpr t ++ collectStructLitsExpr m ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .crosscallInvokeValueTyped t m v args _ =>
         collectStructLitsExpr t ++ collectStructLitsExpr m ++ collectStructLitsExpr v ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .crosscallCreate value _ => collectStructLitsExpr value
-    | .crosscallCreate2 value salt _ => collectStructLitsExpr value ++ collectStructLitsExpr salt
     | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         collectStructLitsExpr accountIndex ++ collectStructLitsExpr methodId ++
           collectStructLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
         collectStructLitsExpr parentPromise ++ collectStructLitsExpr callbackMethod ++
           collectStructLitsExpr deposit ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .nearPromiseResultsCount => #[]
-    | .nearPromiseResultStatus index => collectStructLitsExpr index
-    | .nearPromiseResultU64 index => collectStructLitsExpr index
     | .effect eff => collectStructLitsEffect eff
 
   partial def collectStructLitsPathSegment (segment : StoragePathSegment) : Array String :=
@@ -176,6 +151,7 @@ mutual
 
   partial def collectStructLitsEffect (eff : Effect) : Array String :=
     match eff with
+    | .hostCall _ args _ => args.foldl (fun acc arg => acc ++ collectStructLitsExpr arg) #[]
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v => collectStructLitsExpr v
     | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k => collectStructLitsExpr k
     | .storageMapInsert _ k v | .storageMapSet _ k v => collectStructLitsExpr k ++ collectStructLitsExpr v
@@ -196,14 +172,6 @@ mutual
     | .eventEmitIndexed _ indexedFields dataFields =>
         let indexed := indexedFields.foldl (fun acc f => acc ++ collectStructLitsExpr f.snd) #[]
         dataFields.foldl (fun acc f => acc ++ collectStructLitsExpr f.snd) indexed
-    | .checkErc721Received a b c d =>
-        collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++ collectStructLitsExpr d
-    | .checkErc1155Received a b c d e =>
-        collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++
-          collectStructLitsExpr d ++ collectStructLitsExpr e
-    | .checkErc1155BatchReceived a b c d e =>
-        collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++
-          collectStructLitsExpr d ++ collectStructLitsExpr e
     | .storageScalarRead _ => #[]
 end
 
@@ -271,18 +239,59 @@ def arrEqFunc (elemType : ValueType) (len : Nat) : Func :=
 def arrEqHelperFuncs (mod : ProofForge.IR.Module) : Array Func :=
   moduleArrayLits mod |>.map (fun (e, n) => arrEqFunc e n)
 
+def structU128PairName : String := "__pf_struct_get_u128_pair"
+def structDynamicPairName : String := "__pf_struct_get_dynamic_pair"
+
+def structU128PairFunc : Func :=
+  { name := structU128PairName
+    params := #[{ name := "p", type := .i32 }]
+    results := #[.i64, .i64]
+    body := { insns := #[
+      .localGet "p", .load "i64.load" 0,
+      .localGet "p", .i32Const 8, .plain "i32.add", .load "i64.load" 0
+    ] } }
+
+def structDynamicPairFunc : Func :=
+  { name := structDynamicPairName
+    params := #[{ name := "p", type := .i32 }]
+    results := #[.i32, .i32]
+    body := { insns := #[
+      .localGet "p", .load "i32.load" 0,
+      .localGet "p", .i32Const 4, .plain "i32.add", .load "i32.load" 0
+    ] } }
+
 /-- `__pf_struct_lit_<name>(f0,f1,..) -> i32`: alloc totalSize bytes, store each
     field at its cumulative offset, return the base pointer. -/
 def structLitFunc (s : ProofForge.IR.StructDecl) : Func :=
   let total := structTotalSize s
+  let params := s.fields.flatMap fun f => match f.type with
+    | .u128 => #[
+        { name := f.id, type := .i64 }, { name := u128HiName f.id, type := .i64 }
+      ]
+    | .string | .bytes | .array _ => #[
+        { name := f.id, type := .i32 }, { name := f.id ++ "_len", type := .i32 }
+      ]
+    | _ => #[{ name := f.id, type := wasmTypeOf f.type }]
   let stores : Array Insn :=
     (s.fields.foldl (fun st f =>
-        (st.1 + scalarWidth f.type,
-         st.2 ++ #[.i32Const st.1, .localGet "p", .plain "i32.add",
-                   .localGet f.id, .store (storeOpFor f.type) 0]))
+        let dst := #[.i32Const st.1, .localGet "p", .plain "i32.add"]
+        let write := match f.type with
+          | .u128 => dst ++ #[.localGet f.id, .store "i64.store" 0] ++
+              #[.i32Const (st.1 + 8), .localGet "p", .plain "i32.add",
+                .localGet (u128HiName f.id), .store "i64.store" 0]
+          | .string | .bytes | .array _ => dst ++ #[
+              .localGet f.id, .store "i32.store" 0,
+              .i32Const (st.1 + 4), .localGet "p", .plain "i32.add",
+              .localGet (f.id ++ "_len"), .store "i32.store" 0
+            ]
+          | .hash => dst ++ #[.localGet f.id, .i32Const 32, .call memcpyName]
+          | .fixedArray _ _ | .structType _ =>
+              dst ++ #[.localGet f.id, .store "i32.store" 0]
+          | _ => dst ++ #[.localGet f.id, .store (storeOpFor f.type) 0]
+        (st.1 + scalarWidth f.type, st.2 ++ write))
       (0, (#[] : Array Insn))).2
   { name := structLitName s.name,
-    params := s.fields.map (fun f => { name := f.id, type := wasmTypeOf f.type }),
+    params
     results := #[.i32],
     locals := #[{ name := "p", type := .i32 }],
     body := { insns :=
@@ -320,7 +329,14 @@ def structLitFuncsForModulePlan (plan : ModulePlan) (mod : ProofForge.IR.Module)
   plan.structLitNames.filterMap (fun name => (mod.structs.find? (fun s => s.name == name)).map structLitFunc)
 
 def aggregateHelperFuncsForModulePlan (plan : ModulePlan) (mod : ProofForge.IR.Module) : Array Func :=
+  let pairHelpers :=
+    (if mod.structs.any (fun decl => decl.fields.any (·.type == .u128)) then
+      #[structU128PairFunc] else #[]) ++
+    (if mod.structs.any (fun decl => decl.fields.any fun field => match field.type with
+        | .string | .bytes | .array _ => true
+        | _ => false) then #[structDynamicPairFunc] else #[])
   arrayLitFuncsForModulePlan plan ++ arrayEqFuncsForModulePlan plan ++
-    structLitFuncsForModulePlan plan mod ++ arrHeapHelperFuncsForModulePlan plan mod.allocator
+    structLitFuncsForModulePlan plan mod ++ pairHelpers ++
+    arrHeapHelperFuncsForModulePlan plan mod.allocator
 
 end ProofForge.Backend.WasmHost.Aggregate

@@ -500,21 +500,6 @@ def delegateCrosscallReturnTypeModule : Module :=
       unsupportedNestedCrosscallType)
   ]
 
-def createCallValueTypeModule : Module :=
-  selectedModule "BadCreateCallValueType" <| selectedReturnEntrypoint "bad" .u64 #[
-    .return (.crosscallCreate (.literal (.bool true)) "6000")
-  ]
-
-def createInitCodeHexModule : Module :=
-  selectedModule "BadCreateInitCodeHex" <| selectedReturnEntrypoint "bad" .u64 #[
-    .return (.crosscallCreate (.literal (.u64 0)) "60zz")
-  ]
-
-def create2SaltTypeModule : Module :=
-  selectedModule "BadCreate2SaltType" <| selectedReturnEntrypoint "bad" .u64 #[
-    .return (.crosscallCreate2 (.literal (.u64 0)) (.literal (.bool true)) "6000")
-  ]
-
 def hashLiteralModule : Module :=
   selectedModule "BadHashLiteral" <| selectedReturnEntrypoint "bad" .u64 #[
     .return (.literal (.hash4 1 2 3 4))
@@ -919,21 +904,6 @@ def cases : Array (String × Module × String) := #[
     "delegate crosscall return type unsupported",
     delegateCrosscallReturnTypeModule,
     "entrypoint `bad` return value fixed-array element fixed-array element struct `Wrapper` field `point` has unsupported EVM IR v0 ABI word type `Point`; ABI aggregate words support U32, U64, Bool, Hash, or Address"
-  ),
-  (
-    "create call value type mismatch",
-    createCallValueTypeModule,
-    "contract creation call value expected `U64`, got `Bool`"
-  ),
-  (
-    "create init code hex malformed",
-    createInitCodeHexModule,
-    "contract creation init code must contain only hex digits"
-  ),
-  (
-    "create2 salt type mismatch",
-    create2SaltTypeModule,
-    "contract creation salt expected `Hash`, got `Bool`"
   ),
   (
     "hash literal return type mismatch",

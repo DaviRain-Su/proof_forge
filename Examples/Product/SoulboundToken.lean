@@ -2,7 +2,7 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-Canonical high-level non-transferable (soulbound) token intent.
+Target-neutral high-level non-transferable (soulbound) token intent.
 
 Authors write `feature non_transferable` only. Chain standards are resolved by
 `--target`:

@@ -31,9 +31,9 @@ contract_source RemoteCall do
     marker := u64 0;
 
   entry call_remote returns(.u64) do
-    return ProofForge.Contract.Surface.remoteCallRef callee #[];
+    return ProofForge.Contract.Source.remoteCallRef callee #[];
 
   entry call_with_args returns(.u64) do
-    return ProofForge.Contract.Surface.remoteCallRef callee #[u64 42, u64 7];
+    return ProofForge.Contract.Source.remoteCallRef callee #[u64 42, u64 7];
 
 end Examples.Product.RemoteCall

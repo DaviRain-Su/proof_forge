@@ -1,6 +1,6 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Backend.Solana.SbpfAsm
-import ProofForge.Solana.Examples.LogEvent
+import Examples.Backend.Solana.Contracts.LogEvent
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -51,7 +51,7 @@ def requireMetadata (call : CapabilityCall) (key expected : String) : IO Unit :=
     s!"metadata `{key}` mismatch for operation `{call.operation}`"
 
 def main : IO UInt32 := do
-  let spec := ProofForge.Solana.Examples.LogEvent.spec
+  let spec := Examples.Backend.Solana.Contracts.LogEvent.spec
   let plan ←
     match resolveSpec solanaSbpfAsm spec with
     | .ok plan => pure plan
@@ -68,7 +68,7 @@ def main : IO UInt32 := do
     match scopedPubkeyLogCall? plan "log_state_account" "log_state_pubkey" with
     | some call => pure call
     | none => throw <| IO.userError "Solana log event plan missing log_state_account pubkey action"
-  require (pubkeyLogCall.operation == "solana.log.pubkey")
+  require (pubkeyLogCall.operation == .builtin "solana.log.pubkey")
     "log_state_account should lower through solana.log.pubkey"
   requireMetadata pubkeyLogCall "solana.extension" "log"
   requireMetadata pubkeyLogCall "solana.log.op" "pubkey"
@@ -78,7 +78,7 @@ def main : IO UInt32 := do
     match scopedDataLogCall? plan "log_amount_data" "log_state_data" with
     | some call => pure call
     | none => throw <| IO.userError "Solana log event plan missing log_amount_data data action"
-  require (dataLogCall.operation == "solana.log.data")
+  require (dataLogCall.operation == .builtin "solana.log.data")
     "log_amount_data should lower through solana.log.data"
   requireMetadata dataLogCall "solana.extension" "log"
   requireMetadata dataLogCall "solana.log.op" "data"

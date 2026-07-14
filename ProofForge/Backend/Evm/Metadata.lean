@@ -31,15 +31,31 @@ structure AbiEntrypointDescriptor where
   returnType : String
   deriving Repr, Inhabited
 
+def abiScalarName : ValueType → String
+  | .u8 => "uint8"
+  | .u32 => "uint32"
+  | .u64 => "uint256"
+  | .u128 => "uint128"
+  | .bool => "bool"
+  | .hash => "bytes32"
+  | .address => "address"
+  | .bytes => "bytes"
+  | .string => "string"
+  | .unit => "void"
+  | type => type.name
+
 def abiParamDescriptor (param : AbiParamPlan) : AbiParamDescriptor :=
-  { name := param.name, type := param.type.name }
+  {
+    name := param.name
+    type := param.abiWord?.getD (abiScalarName param.type)
+  }
 
 def abiEntrypointDescriptor (entrypoint : EntrypointPlan) : AbiEntrypointDescriptor :=
   {
     name := entrypoint.name
     selector := entrypoint.selector
     params := entrypoint.params.map abiParamDescriptor
-    returnType := entrypoint.returns.abiType?.getD entrypoint.returns.returnType.name
+    returnType := entrypoint.returns.abiType?.getD (abiScalarName entrypoint.returns.returnType)
   }
 
 def abiEntrypointDescriptors (plan : ModulePlan) : Array AbiEntrypointDescriptor :=

@@ -1,6 +1,7 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Backend.Diagnostic
+import ProofForge.Backend.WasmHost.Plan.Types
 import ProofForge.IR.Contract
 import ProofForge.Backend.WasmHost.ExprAnalysis
 
@@ -20,60 +21,36 @@ instance : ProofForge.Backend.Diagnostic.LoweringError PlanError where
   toDiagnostic := fun e =>
     { message := e.message, backend? := some "wasm-near" }
 
-inductive ContextExprPlan where
-  | userId
-  | userIdHash
-  | contractId
-  | checkpointId
-  | timestamp
-  | epochHeight
-  | randomSeed
-  | origin
-  | prepaidGas
-  | usedGas
-  deriving BEq, DecidableEq, Repr
-
 def ContextExprPlan.field : ContextExprPlan → ContextField
   | .userId => .userId
   | .userIdHash => .userIdHash
+  | .accountId => .accountId
+  | .currentAccountId => .contractId
   | .contractId => .contractId
   | .checkpointId => .checkpointId
   | .timestamp => .timestamp
   | .epochHeight => .epochHeight
   | .randomSeed => .randomSeed
-  | .origin => .origin
+  | .signer => .signer
   | .prepaidGas => .prepaidGas
   | .usedGas => .usedGas
-
-def ContextExprPlan.resultType : ContextExprPlan → ValueType
-  | .randomSeed | .userIdHash => .hash
-  | _ => .u64
 
 def buildContextExprPlan : ContextField → Except PlanError ContextExprPlan
   | .userId => .ok .userId
   | .userIdHash => .ok .userIdHash
+  | .accountId => .ok .accountId
   | .contractId => .ok .contractId
   | .checkpointId => .ok .checkpointId
   | .timestamp => .ok .timestamp
   | .epochHeight => .ok .epochHeight
   | .randomSeed => .ok .randomSeed
-  | .origin => .ok .origin
+  | .signer => .ok .signer
   | .prepaidGas => .ok .prepaidGas
   | .usedGas => .ok .usedGas
   | .chainId =>
       err "wasm-near context read `chainId` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
-  | .gasPrice =>
-      err "wasm-near context read `gasPrice` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
   | .gasLeft =>
       err "wasm-near context read `gasLeft` is not supported; use `prepaidGas` or `usedGas` for NEAR gas API"
-  | .baseFee =>
-      err "wasm-near context read `baseFee` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
-  | .prevRandao =>
-      err "wasm-near context read `prevRandao` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
-  | .coinbase =>
-      err "wasm-near context read `coinbase` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
-  | .blockHash _ =>
-      err "wasm-near context read `blockHash` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
 
 def mergeContextExprPlans (acc next : Array ContextExprPlan) : Array ContextExprPlan :=
   next.foldl
@@ -94,7 +71,7 @@ def stateTypeOf (module : Module) (stateId : String) : Except PlanError ValueTyp
 
 def scalarHelperType (type : ValueType) : Option ValueType :=
   match type with
-  | .u32 | .u64 | .bool | .hash => some type
+  | .u32 | .u64 | .u128 | .bool | .hash => some type
   | _ => none
 
 abbrev LocalTypeEnv := Array (String × ValueType)
@@ -147,6 +124,8 @@ mutual
       (env : LocalTypeEnv)
       (effect : Effect) : Except PlanError ValueType := do
     match effect with
+    | .hostCall id _ _ =>
+        err s!"target extension `{id.render}` is a statement effect, not an expression"
     | .storageScalarRead stateId => stateTypeOf module stateId
     | .storageMapContains stateId key => do
         discard <| inferExprType module env key
@@ -190,13 +169,7 @@ mutual
     | .storagePathWrite _ _ _
     | .storagePathAssignOp _ _ _ _
     | .eventEmit _ _
-    | .eventEmitIndexed _ _ _
-    | .checkErc721Received _ _ _ _ =>
-        err "wasm-near plan cannot treat statement-only effects as expression values"
-    | .checkErc1155Received _ _ _ _ _ =>
-        err "wasm-near plan cannot treat statement-only effects as expression values"
-
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
+    | .eventEmitIndexed _ _ _ =>
         err "wasm-near plan cannot treat statement-only effects as expression values"
 
   partial def inferExprType
@@ -266,10 +239,6 @@ mutual
         discard <| inferExprType module env c
         discard <| inferExprType module env d
         .ok .hash
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-        err "wasm-near plan: ecrecover / EIP-712 permit digest require crypto.ecrecover (EVM-only)"
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-        err "wasm-near plan: crosscallAbiPacked (compile-time ABI Call[]) is EVM-only"
     | .hash preimage => do
         discard <| inferExprType module env preimage
         .ok .hash
@@ -278,19 +247,16 @@ mutual
         discard <| inferExprType module env rhs
         .ok .hash
     | .nativeValue => .ok .u64
+    | .callValueU128 => .ok .u128
+    | .hostCall _ _ returnType _ => .ok returnType
     | .crosscallInvoke _ _ _ => .ok .u64
     | .crosscallInvokeTyped _ _ _ returnType => .ok returnType
     | .crosscallInvokeValueTyped _ _ _ _ returnType => .ok returnType
     | .crosscallInvokeStaticTyped _ _ _ returnType => .ok returnType
     | .crosscallInvokeDelegateTyped _ _ _ returnType => .ok returnType
-    | .crosscallCreate _ _ => .ok .u64
-    | .crosscallCreate2 _ _ _ => .ok .u64
     | .crosscallNamed _ _ _ returnType => .ok returnType
-    | .nearCrosscallInvokePool _ _ _ _ => .ok .u64
-    | .nearPromiseThen _ _ _ _ => .ok .u64
-    | .nearPromiseResultsCount => .ok .u64
-    | .nearPromiseResultStatus _ => .ok .u64
-    | .nearPromiseResultU64 _ => .ok .u64
+    | .crosscallInvokeNamedValue _ _ _ _ _ => .ok .u64
+    | .crosscallContinue _ _ _ _ _ => .ok .u64
     | .effect effect =>
         inferEffectExprType module env effect
 end

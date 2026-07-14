@@ -28,7 +28,7 @@ backlog 的新增/重排。
 |---|---|---|---|
 | 0.1 | 溢出语义节点化：`.add/.sub/.mul` 携带 `checked\|wrapping` 标签；或至少让 `+!`/`contract_source` elaboration 置 `overflowChecked`，并让 EVM 兑现该标志（否则默认 `false` 的"到处 wrapping"在 EVM 上不成立） | `IR/Contract.lean`、`Contract/Source.lean`、`Target/Adapter.lean:143`、`Backend/Evm/ToYul/Helpers.lean:19` | — |
 | 0.2 | 能力派生改 `intent ∪ module` 去重；随后删掉 FV-5 专用 gate（checkedArithmetic 自然流过 `requireCapabilities`） | `Target/Adapter.lean:37` | 0.1 |
-| 0.3 | 链专属 IR 节点给唯一能力：`nearCrosscallInvokePool → .nearPromise`（现误映射为通用 `.crosscallInvoke`，能力层挡不住，只靠 EVM 硬编码 Validate 臂兜底） | `IR/Contract.lean:421` | — |
+| 0.3 | 链专属 IR 节点给唯一能力：`crosscallInvokeNamedValue → .nearPromise`（现误映射为通用 `.crosscallInvoke`，能力层挡不住，只靠 EVM 硬编码 Validate 臂兜底） | `IR/Contract.lean:421` | — |
 | 0.4 | 收紧 Solana `hasEntrypointDispatch`，删裸子串匹配，只认真实 label 形态 | `Backend/Solana/Refinement.lean:119-123` | — |
 
 ### Track 1 — FV 地基 keystone（重排 WS25，按依赖）
@@ -117,7 +117,7 @@ host-参数化 EmitWat：
 | **Polkadot ink!** | research-only（D-009） | 现已转 PolkaVM/RISC-V，未必还是纯 WASM | 保持 parked，按需 revisit |
 
 **横切前置：IR 异步 effect 设计。** ICP 的 inter-canister、NEAR 的 Promise 链
-（`nearPromiseThen` 等）本质是同一类"异步跨合约"需求。当前 IR 把 NEAR 异步硬塞进
+（`crosscallContinue` 等）本质是同一类"异步跨合约"需求。当前 IR 把 NEAR 异步硬塞进
 共享 `Expr`（见 review 5.1 的 D-027 违背）。**建议把异步跨合约抽成一个统一的 IR
 扩展（effect + capability），NEAR 和 ICP 共用**——既修了 review 里的链专属节点污染，
 又给 ICP 铺路。这是"规划新链时顺带修架构"的高杠杆点。

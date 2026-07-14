@@ -1,7 +1,7 @@
 # Psy Metadata Hardening: Type-Driven Events, Validation, and CLI
 
 **Date:** 2026-07-06
-**Status:** Design spec (awaiting review)
+**Status:** Historical implemented PSy metadata-hardening design record (archived 2026-07-12).
 **Scope:** Clean up `ContextPlan` residue, derive event field types from expressions, strengthen artifact metadata validation, and add a `proof-forge metadata` CLI. Schema changes are made with EVM/Solana reuse in mind.
 **Related docs:**
 - [Psy DPN build-fix + metadata design](./2026-07-05-psy-build-fix-and-metadata-design.md)

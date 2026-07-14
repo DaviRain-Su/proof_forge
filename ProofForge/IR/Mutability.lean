@@ -7,7 +7,9 @@ open ProofForge.IR
 mutual
   partial def exprViolations : Expr → Array String
     | .literal _ | .local _ => #[]
-    | .nativeValue => #["native value read"]
+    | .nativeValue | .callValueU128 => #["native value read"]
+    | .hostCall _ args _ _ =>
+        #["host operation"] ++ args.foldl (fun acc arg => acc ++ exprViolations arg) #[]
     | .arrayLit _ values =>
         values.foldl (fun acc value => acc ++ exprViolations value) #[]
     | .arrayGet array index | .memoryArrayGet array index =>
@@ -22,34 +24,30 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         exprViolations lhs ++ exprViolations rhs
-    | .hashValue a b c d | .ecrecover a b c d =>
+    | .hashValue a b c d =>
         exprViolations a ++ exprViolations b ++ exprViolations c ++ exprViolations d
-    | .eip712PermitDigest a b c d e f =>
-        exprViolations a ++ exprViolations b ++ exprViolations c ++ exprViolations d ++
-          exprViolations e ++ exprViolations f
     | .crosscallInvokeStaticTyped target method args _ =>
         exprViolations target ++ exprViolations method ++
           args.foldl (fun acc arg => acc ++ exprViolations arg) #[]
-    | .crosscallAbiPacked .. | .crosscallInvoke .. | .crosscallInvokeTyped ..
+    | .crosscallInvoke .. | .crosscallInvokeTyped ..
     | .crosscallInvokeValueTyped .. | .crosscallInvokeDelegateTyped ..
-    | .crosscallCreate .. | .crosscallCreate2 .. | .crosscallNamed .. =>
+    | .crosscallNamed .. =>
         #["non-static crosscall"]
-    | .nearCrosscallInvokePool .. | .nearPromiseThen .. | .nearPromiseResultsCount
-    | .nearPromiseResultStatus .. | .nearPromiseResultU64 .. =>
+    | .crosscallInvokeNamedValue .. | .crosscallContinue .. =>
         #["promise operation"]
     | .effect effect => effectViolations effect
 
   partial def effectViolations : Effect → Array String
+    | .hostCall _ args _ =>
+        #["target extension effect"] ++
+          args.foldl (fun acc arg => acc ++ exprViolations arg) #[]
     | .storageScalarRead _ | .storageStructFieldRead _ _ => #[]
     | .storageMapContains _ key | .storageMapGet _ key => exprViolations key
     | .storageArrayRead _ index | .storageArrayStructFieldRead _ index _ =>
         exprViolations index
     | .storagePathRead _ path =>
         path.foldl (fun acc segment => acc ++ pathSegmentViolations segment) #[]
-    | .contextRead field =>
-        match field with
-        | .blockHash blockNumber => exprViolations blockNumber
-        | _ => #[]
+    | .contextRead _ => #[]
     | .memoryArraySet array index value =>
         exprViolations array ++ exprViolations index ++ exprViolations value
     | .storageScalarWrite .. | .storageScalarAssignOp ..
@@ -58,8 +56,6 @@ mutual
     | .storageDynamicArrayPop .. | .storageStructFieldWrite ..
     | .storagePathWrite .. | .storagePathAssignOp .. => #["storage write"]
     | .eventEmit .. | .eventEmitIndexed .. => #["event emission"]
-    | .checkErc721Received .. | .checkErc1155Received ..
-    | .checkErc1155BatchReceived .. => #["non-static crosscall"]
 
   partial def pathSegmentViolations : StoragePathSegment → Array String
     | .field _ => #[]

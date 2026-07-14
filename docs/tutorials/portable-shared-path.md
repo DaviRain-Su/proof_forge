@@ -105,7 +105,7 @@ EVM permanently rejects fee/soulbound/permit features with a Solana pointer
 ```lean
 remote callee "peer.callee" "remote_call";
 entry call_with_args returns(.u64) do
-  return ProofForge.Contract.Surface.remoteCallRef callee #[u64 42, u64 7];
+  return ProofForge.Contract.Source.remoteCallRef callee #[u64 42, u64 7];
 ```
 
 ```bash

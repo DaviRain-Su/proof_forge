@@ -116,6 +116,7 @@ def tomlString (value : String) : String :=
     `fixedArray .u8 n` is packed as contiguous LE bytes (no length prefix). -/
 def instructionParamByteSize? : ValueType → Option Nat
   | .u64 => some 8
+  | .address | .hash => some 8
   | .u32 => some 4
   | .bool => some 1
   | .fixedArray .u8 n =>
@@ -125,6 +126,7 @@ def instructionParamByteSize? : ValueType → Option Nat
 
 def instructionParamEncoding : ValueType → String
   | .u64 => "le-u64"
+  | .address | .hash => "le-u64-identity-handle"
   | .u32 => "le-u32"
   | .bool => "u8-bool"
   | .fixedArray .u8 _ => "raw-bytes"
@@ -573,7 +575,7 @@ default CPI account roles on the transaction account list:
 Authors still do not write CPI account metas; the lowerer **selectively** packs
 signer / writable / program-owned / executable accounts into `sol_invoke_signed_c`.
 
-Peer id for inference: first `nearCrosscallStrings` entry when present; else a
+Peer id for inference: first `crosscallStrings` entry when present; else a
 non-empty synthetic peer for packing-only (resolveSpec still requires a declared
 peer — see PortableHonesty). -/
 def ensurePortableCrosscallAccounts (module : Module) (accounts : Array AccountEntry) :
@@ -582,7 +584,7 @@ def ensurePortableCrosscallAccounts (module : Module) (accounts : Array AccountE
     accounts
   else
     let peer :=
-      match module.nearCrosscallStrings[0]? with
+      match module.crosscallStrings[0]? with
       | some s => if s.isEmpty then "portable.peer" else s
       | none => "portable.peer"
     let accounts :=

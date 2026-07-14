@@ -5,6 +5,7 @@ import ProofForge.Backend.Solana.Idl
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.Materialize
 import ProofForge.Backend.Solana.SbpfAsm
+import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.Cli.ArrayUtil
 import ProofForge.Cli.Artifact
 import ProofForge.Cli.FileUtil
@@ -14,11 +15,14 @@ import ProofForge.Cli.TargetJson
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Spec.Json
+import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.IR
+import ProofForge.IR.Canonical
+import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.IR.Examples.ControlFlowAssertProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ErrorRefProbe
-import ProofForge.Solana.Examples.Vault
+import Examples.Backend.Solana.Contracts.Vault
 import ProofForge.Target
 import ProofForge.Target.Preflight
 
@@ -26,6 +30,34 @@ open System
 open ProofForge.Cli.JsonUtil
 
 namespace ProofForge.Cli
+
+/-- Materialize a Solana contract exclusively through canonical Core and the
+existing semantic Solana plan. Failures are terminal; there is no Legacy
+assembly fallback. -/
+def renderCanonicalSpecSolanaAsm (spec : ProofForge.Contract.ContractSpec) :
+    Except String String := do
+  let bundle ← ProofForge.Frontend.ContractSpec.normalize spec
+  let checked := bundle.contract
+  let hostCallErrors :=
+    ProofForge.Compiler.checkHostOpHandlers "solana-sbpf-asm" checked
+  if !hostCallErrors.isEmpty then
+    .error s!"canonical: unhandled host op: {String.intercalate "; " hostCallErrors.toList}"
+  if checked.contract.materialization.intents.any (fun intent =>
+      intent.operation.render.startsWith "solana.cpi.") then
+    .error "canonical: intent-only Solana CPI is not represented by a Core crosscall"
+  let targetPlan ← match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
+    | .ok plan => .ok plan
+    | .error error => .error error.render
+  let capabilityPlan : ProofForge.Target.CapabilityPlan := {
+    targetId := "solana-sbpf-asm", calls := checked.contract.requirements,
+    metadata := targetPlan.metadata }
+  let plan ← match ProofForge.Backend.Solana.Plan.Core.buildFromCore checked capabilityPlan with
+    | .ok plan => .ok plan
+    | .error error => .error s!"canonical: Solana plan failed: {error.message}"
+  let nodes ← match ProofForge.Backend.Solana.Plan.lowerFromPlan plan with
+    | .ok nodes => .ok nodes
+    | .error error => .error s!"canonical: Solana lowering failed: {error.message}"
+  return ProofForge.Backend.Solana.Asm.renderNodes nodes
 
 /-- Write the Solana instruction manifest.toml alongside the emitted .s file.
 Returns the path that was written. -/
@@ -251,7 +283,7 @@ def compileControlIrSbpf (opts : CliOptions) : IO UInt32 := do
 
 def compileSolanaSdkSbpf (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/solana/SolanaVault.s")
-  let spec := ProofForge.Solana.Examples.Vault.spec
+  let spec := Examples.Backend.Solana.Contracts.Vault.spec
   let plan ←
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => pure plan

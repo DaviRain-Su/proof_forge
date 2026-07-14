@@ -38,6 +38,7 @@ import ProofForge.Backend.WasmHost.ExprAnalysis
 import ProofForge.Backend.WasmHost.Hash
 import ProofForge.Backend.WasmHost.Imports
 import ProofForge.Backend.WasmHost.JsonEncode
+import ProofForge.Backend.WasmHost.JsonReturn.Legacy
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.Locals
 import ProofForge.Backend.WasmHost.LoweringEnv
@@ -45,8 +46,8 @@ import ProofForge.Backend.WasmHost.Map
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.ModuleAssembly
 import ProofForge.Backend.WasmHost.Params
-import ProofForge.Backend.WasmHost.NearAbiPlan
-import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.NearAbiPlan.Legacy
+import ProofForge.Backend.WasmHost.Plan.Legacy
 import ProofForge.Backend.WasmHost.PortableCrosscall
 import ProofForge.Backend.WasmHost.Promise
 import ProofForge.Backend.WasmHost.Return
@@ -55,6 +56,7 @@ import ProofForge.Backend.WasmHost.Statement
 import ProofForge.Backend.WasmHost.Struct
 import ProofForge.Backend.WasmHost.Types
 import ProofForge.Target.PeerMap
+import ProofForge.Target.HostOps.Near
 import ProofForge.Target.Plan
 import ProofForge.Target.Registry
 
@@ -130,7 +132,8 @@ export ProofForge.Backend.WasmHost.Crosscall (
   crosscallPtrGlobal crosscallArgsStartName crosscallArgsPutcName
   crosscallArgsPutu64Name crosscallArgsPutboolName crosscallArgsPuthashName
   crosscallPtrGlobalDecl crosscallArgsStartFunc crosscallArgsPutcFunc
-  crosscallArgsPutstrName crosscallArgsPutstrFunc crosscallArgsPutu64Func
+  crosscallArgsPutstrName crosscallArgsPutstrFunc crosscallArgsPutJsonStringName
+  crosscallArgsPutJsonStringFunc crosscallArgsPutu64Func
   crosscallArgsPutboolFunc crosscallArgsPuthashFunc
   crosscallArgsHelperFuncsForModulePlan crosscallGlobalsForModulePlan
   poolLookupSetBody crosscallPoolPtrFunc crosscallPoolLenFunc
@@ -212,7 +215,7 @@ export ProofForge.Backend.WasmHost.Memory (
   HASH_CONCAT_BUF CTX_BUF EVENT_BUF EVT_KEY_PTR STRING_BASE INPUT_BUF
   CROSSCALL_BUF CROSSCALL_ARGS_EMPTY_PTR CROSSCALL_ARGS_EMPTY_LEN
   CROSSCALL_STRING_BASE crosscallDefaultGas PARAM_HASH_BUF ZERO_HASH_BUF
-  OLD_HASH_BUF STRUCT_BUF PROMISE_RESULT_BUF crosscallPoolPtrName
+  OLD_HASH_BUF STRUCT_BUF PROMISE_RESULT_BUF U128_RESULT_BUF crosscallPoolPtrName
   crosscallPoolLenName disjointRegions memoryLayoutNonoverlap
   memoryLayoutNonoverlap_valid
 )
@@ -227,8 +230,8 @@ export ProofForge.Backend.WasmHost.Params (
 )
 
 export ProofForge.Backend.WasmHost.Promise (
-  promiseCurrentAccountName promiseCurrentAccountFunc promiseResultU64Name
-  promiseResultU64Func promiseHelperFuncsForModulePlan
+  promiseCurrentAccountName promiseCurrentAccountFunc promiseResultU64Name promiseResultU128Name
+  promiseResultU64Func promiseTransferName promiseHelperFuncsForModulePlan
 )
 
 export ProofForge.Backend.WasmHost.Return (
@@ -241,7 +244,7 @@ export ProofForge.Backend.WasmHost.Scalar (
   readFunc writeFunc returnU64Func returnU32Func returnBoolFunc powName
   powFunc scalarStorageHelperFuncsForModulePlan returnHelperFuncsForModulePlan
   powHelperFuncsForModulePlan
-  u128AddName u128SubName u128MulName u128EqName u128ArithFuncs
+  u128AddName u128SubName u128MulName u128EqName u128LtName u128ArithFuncs
 )
 
 export ProofForge.Backend.WasmHost.Statement (
@@ -347,15 +350,15 @@ def validateScratchCapacities
           let required := eventPayloadBound name fieldCount fieldNameBytes
           if required > EVT_KEY_PTR - EVENT_BUF then
             err s!"EmitWat: event `{name}` JSON scratch requires up to {required} bytes, limit is {EVT_KEY_PTR - EVENT_BUF}"
-      | .letBind _ _ (.nearCrosscallInvokePool _ _ args _)
-      | .letMutBind _ _ (.nearCrosscallInvokePool _ _ args _)
-      | .return (.nearCrosscallInvokePool _ _ args _) =>
+      | .letBind _ _ (.crosscallInvokeNamedValue _ _ args _ _)
+      | .letMutBind _ _ (.crosscallInvokeNamedValue _ _ args _ _)
+      | .return (.crosscallInvokeNamedValue _ _ args _ _) =>
           let required := crosscallArgsBound args.size
           if required > CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF then
             err s!"EmitWat: NEAR crosscall args require up to {required} bytes, limit is {CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF}"
-      | .letBind _ _ (.nearPromiseThen _ _ args _)
-      | .letMutBind _ _ (.nearPromiseThen _ _ args _)
-      | .return (.nearPromiseThen _ _ args _) =>
+      | .letBind _ _ (.crosscallContinue _ _ args _ _)
+      | .letMutBind _ _ (.crosscallContinue _ _ args _ _)
+      | .return (.crosscallContinue _ _ args _ _) =>
           let required := crosscallArgsBound args.size
           if required > CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF then
             err s!"EmitWat: NEAR promise callback args require up to {required} bytes, limit is {CROSSCALL_ARGS_EMPTY_PTR - CROSSCALL_BUF}"
@@ -380,9 +383,11 @@ mutual
     let (vis, vt) ← lowerExpr ctx env arg
     match vt with
     | .u64 => .ok (vis, #[.call crosscallArgsPutu64Name])
+    | .u128 => .ok (vis, #[.call crosscallArgsPutu128Name])
     | .u32 => .ok (vis ++ #[.plain "i64.extend_i32_u"], #[.call crosscallArgsPutu64Name])
     | .bool => .ok (vis, #[.call crosscallArgsPutboolName])
     | .hash => .ok (vis, #[.call crosscallArgsPuthashName])
+    | .string => .ok (vis, #[.call crosscallArgsPutJsonStringName])
     | _ => err s!"EmitWat: NEAR crosscall argument type `{vt.name}` is not supported yet"
 
   /-- Pool index as i64: address-literal handles (peerHandle) or U32/U64. -/
@@ -507,6 +512,28 @@ mutual
       let body := body ++ #[.i32Const 93, .call crosscallArgsPutcName]
       .ok (body, CROSSCALL_BUF, 0)
 
+  partial def lowerCrosscallArgsNamedJson (ctx : Ctx) (env : LocalTypes)
+      (args : Array Expr) (argNames : Array String) :
+      Except EmitError (Array Insn × Nat × Nat) := do
+    unless args.size == argNames.size do
+      err s!"EmitWat: NEAR JSON object has {args.size} values but {argNames.size} field names"
+    if args.isEmpty then
+      .ok (#[], CROSSCALL_ARGS_EMPTY_PTR, 0)
+    else
+      let (body, _) ← (Array.range args.size).foldlM (fun (accInsns, isFirst) index => do
+        let some arg := args[index]?
+          | err s!"EmitWat: missing NEAR JSON argument {index}"
+        let some argName := argNames[index]?
+          | err s!"EmitWat: missing NEAR JSON field name {index}"
+        let (vis, putInsn) ← lowerCrosscallArgValue ctx env arg
+        let sep := if isFirst then #[] else #[.i32Const 44, .call crosscallArgsPutcName]
+        let key := s!"\"{argName}\":"
+        let keyInsns := key.toUTF8.data.foldl (init := #[]) fun insns byte =>
+          insns ++ #[.i32Const byte.toNat, .call crosscallArgsPutcName]
+        .ok (accInsns ++ sep ++ keyInsns ++ vis ++ putInsn, false))
+        (#[.call crosscallArgsStartName, .i32Const 123, .call crosscallArgsPutcName], true)
+      .ok (body ++ #[.i32Const 125, .call crosscallArgsPutcName], CROSSCALL_BUF, 0)
+
   /-- near-sys `promise_create` / `promise_then` take `amount_ptr` (u128 LE), not a
   raw yocto value. Encode U64 deposit as low 64 bits at `RET_BUF`, zero high 64,
   and push `RET_BUF` as the pointer. Constant-zero deposit reuses `ZERO_HASH_BUF`. -/
@@ -536,23 +563,31 @@ mutual
       let conv := if valueType == .u64 then #[] else #[.plain "i64.extend_i32_u"]
       .ok (valueInsns ++ conv)
 
-  partial def lowerNearCrosscallInvokePool (ctx : Ctx) (env : LocalTypes) (accountIndex method : Expr)
-      (args : Array Expr) (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
+  partial def lowerNearCrosscallInvokePool (ctx : Ctx) (env : LocalTypes) (account method : Expr)
+      (args : Array Expr) (deposit : Expr) (argNames : Array String) :
+      Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
-      err "EmitWat: NEAR crosscall pool invoke requires `module.nearCrosscallStrings` to be populated"
-    let accountConv ← lowerU32OrU64AsI64 ctx env "NEAR crosscall pool account index" accountIndex
-    requireDuplicableExpr accountIndex "EmitWat: NEAR crosscall pool account index must be duplicable"
+      err "EmitWat: NEAR crosscall pool invoke requires `module.crosscallStrings` to be populated"
+    let (_, accountType) ← lowerExpr ctx env account
+    let accountLenPtr ← if accountType == .string then
+        match account with
+        | .local name => pure #[.localGet (name ++ "_len"), .plain "i64.extend_i32_u",
+            .localGet name, .plain "i64.extend_i32_u"]
+        | _ => err "EmitWat: runtime NEAR promise account must be a String local"
+      else do
+        let accountConv ← lowerU32OrU64AsI64 ctx env "NEAR crosscall pool account index" account
+        requireDuplicableExpr account "EmitWat: NEAR crosscall pool account index must be duplicable"
+        pure <| accountConv ++ #[.call crosscallPoolLenName] ++ accountConv ++
+          #[.call crosscallPoolPtrName]
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ←
-      lowerCrosscallArgsForMethod ctx env methodSi.str args
+      if argNames.isEmpty then lowerCrosscallArgsForMethod ctx env methodSi.str args
+      else lowerCrosscallArgsNamedJson ctx env args argNames
     let depositInsns ← lowerNearDeposit ctx env "NEAR crosscall" deposit
     let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
     let argsPtrInsns := crosscallArgsPtrInsns argsPtr
-    .ok (argBuildInsns ++ accountConv ++ #[
-      .call crosscallPoolLenName
-    ] ++ accountConv ++ #[
-      .call crosscallPoolPtrName
-    ] ++ stringInfoLenPtrInsns methodSi ++ argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
+    .ok (argBuildInsns ++ accountLenPtr ++ stringInfoLenPtrInsns methodSi ++
+      argsLenInsns ++ argsPtrInsns ++ depositInsns ++ #[
       .i64Const crosscallDefaultGas,
       .call "promise_create"
     ], .u64)
@@ -563,7 +598,7 @@ mutual
       (target method : Expr) (args : Array Expr) (hostFn bridgeLabel : String) :
       Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
-      err s!"EmitWat: {bridgeLabel} remote requires `module.nearCrosscallStrings` for contract/method names"
+      err s!"EmitWat: {bridgeLabel} remote requires `module.crosscallStrings` for contract/method names"
     let contract ← resolveCrosscallStringRef ctx target "target contract id"
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
@@ -591,7 +626,7 @@ mutual
   partial def lowerNearPromiseCreate (ctx : Ctx) (env : LocalTypes) (target method : Expr)
       (args : Array Expr) (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
-      err "EmitWat: NEAR crosscall requires `module.nearCrosscallStrings` to be populated"
+      err "EmitWat: NEAR crosscall requires `module.crosscallStrings` to be populated"
     let account ← resolveCrosscallStringRef ctx target "target account id"
     let methodSi ← resolveCrosscallStringRef ctx method "method name"
     let (argBuildInsns, argsPtr, argsLenMarker) ←
@@ -615,14 +650,17 @@ mutual
     | .near => lowerNearPromiseCreate ctx env target method args deposit
 
   partial def lowerNearPromiseThen (ctx : Ctx) (env : LocalTypes) (parentPromise callbackMethod : Expr)
-      (args : Array Expr) (deposit : Expr) : Except EmitError (Array Insn × ValueType) := do
+      (args : Array Expr) (deposit : Expr) (argNames : Array String) :
+      Except EmitError (Array Insn × ValueType) := do
     if ctx.crosscallStrings.isEmpty then
-      err "EmitWat: NEAR promise_then requires `module.nearCrosscallStrings` for callback method names"
+      err "EmitWat: NEAR promise_then requires `module.crosscallStrings` for callback method names"
     let (parentInsns, parentType) ← lowerExpr ctx env parentPromise
     if parentType != .u64 then
       err s!"EmitWat: NEAR promise_then parent expected `U64` promise id, got `{parentType.name}`"
     let methodSi ← resolveCrosscallStringRef ctx callbackMethod "callback method name"
-    let (argBuildInsns, argsPtr, argsLenMarker) ← lowerCrosscallArgsJson ctx env args
+    let (argBuildInsns, argsPtr, argsLenMarker) ←
+      if argNames.isEmpty then lowerCrosscallArgsJson ctx env args
+      else lowerCrosscallArgsNamedJson ctx env args argNames
     let depositInsns ← lowerNearDeposit ctx env "NEAR promise_then" deposit
     let argsLenInsns := crosscallArgsLenInsns args argsLenMarker
     let argsPtrInsns := crosscallArgsPtrInsns argsPtr
@@ -655,8 +693,10 @@ mutual
     | .literal (.hash4 a b c d) => .ok (#[.i64Const a, .i64Const b, .i64Const c, .i64Const d, .call hashMakeName], .hash)
     | .literal (.bytes _) =>
       err "EmitWat: bytes literal lowering not yet supported (use memoryArrayNew + store)"
-    | .literal (.string _) =>
-      err "EmitWat: string literal lowering not yet supported (use memoryArrayNew + store)"
+    | .literal (.string value) =>
+      match ctx.strings.find? (fun entry => entry.str == value) with
+      | some entry => .ok (#[.i32Const entry.ptr, .i32Const entry.len], .string)
+      | none => err s!"EmitWat: string literal `{value}` is missing from the canonical data pool"
     | .hashValue a b c d => do
       let (ia, ta) ← lowerExpr ctx env a
       let (ib, tb) ← lowerExpr ctx env b
@@ -673,12 +713,11 @@ mutual
       let (lb, tb) ← lowerExpr ctx env r
       if !(ta == .hash && tb == .hash) then err "EmitWat: hash_two_to_one expects two Hash operands"
       else .ok (la ++ lb ++ #[.call hashTwoName], .hash)
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-      err "EmitWat: ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only)"
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-      err "EmitWat: crosscallAbiPacked (compile-time ABI Call[]) is EVM-only"
     | .local name =>
       match lookupLocal? env name with
+      | some .u128 => .ok (#[.localGet name, .localGet (u128HiName name)], .u128)
+      | some .string => .ok (#[.localGet name, .localGet (name ++ "_len")], .string)
+      | some .bytes => .ok (#[.localGet name, .localGet (name ++ "_len")], .bytes)
       | some t => .ok (#[.localGet name], t)
       | none => err s!"EmitWat: unknown local `{name}`"
     | .add a b _ => lowerAddSubMul ctx env "add" a b
@@ -716,6 +755,62 @@ mutual
       -- stay well below 2^64). Full U128 nativeValue is a future enhancement.
       .ok (#[.i64Const RET_BUF, .call "attached_deposit",
              .i32Const RET_BUF, .load "i64.load" 0], .u64)
+    | .callValueU128 =>
+      .ok (#[.i64Const RET_BUF, .call "attached_deposit",
+        .i32Const RET_BUF, .load "i64.load" 0,
+        .i32Const (RET_BUF + 8), .load "i64.load" 0], .u128)
+    | .hostCall id args returnType _ =>
+      if ctx.bridge != .near then
+        err s!"EmitWat: host operation `{id}` is not supported by bridge `{ctx.bridge.id}`"
+      else if id == ProofForge.Target.HostOps.Near.storageUsageSig.id then
+        if args.isEmpty && returnType == .u64 then
+          .ok (#[.call "storage_usage"], .u64)
+        else err "EmitWat: near.storage.usage expects () -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseTransferSig.id then
+        match args with
+        | #[account, amount] => do
+            let (accountInsns, accountType) ← lowerExpr ctx env account
+            let (amountInsns, amountType) ← lowerExpr ctx env amount
+            unless accountType == .string do
+              err s!"EmitWat: promise_transfer account expected String, got `{accountType.name}`"
+            unless amountType == .u128 do
+              err s!"EmitWat: promise_transfer amount expected U128, got `{amountType.name}`"
+            unless returnType == .u64 do
+              err s!"EmitWat: promise_transfer return expected U64, got `{returnType.name}`"
+            .ok (accountInsns ++ amountInsns ++ #[.call promiseTransferName], .u64)
+        | _ => err "EmitWat: near.promise.transfer expects (String, U128) -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseResultsCountSig.id then
+        if args.isEmpty && returnType == .u64 then
+          .ok (#[.call "promise_results_count"], .u64)
+        else err "EmitWat: near.promise.results_count expects () -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseResultStatusSig.id then
+        match args with
+        | #[index] => do
+            let indexInsns ← lowerNearPromiseResultIndex ctx env index
+            unless returnType == .u64 do
+              err s!"EmitWat: promise result status expected U64, got `{returnType.name}`"
+            .ok (indexInsns ++ #[.i64Const 0, .call "promise_result"], .u64)
+        | _ => err "EmitWat: near.promise.result_status expects (U64) -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseResultU64Sig.id then
+        match args with
+        | #[index] => do
+            let indexInsns ← lowerNearPromiseResultIndex ctx env index
+            unless returnType == .u64 do
+              err s!"EmitWat: promise result U64 expected U64, got `{returnType.name}`"
+            .ok (indexInsns ++ #[.call promiseResultU64Name], .u64)
+        | _ => err "EmitWat: near.promise.result_u64 expects (U64) -> U64"
+      else if id == ProofForge.Target.HostOps.Near.promiseResultU128Sig.id then
+        match args with
+        | #[index] => do
+            let indexInsns ← lowerNearPromiseResultIndex ctx env index
+            unless returnType == .u128 do
+              err s!"EmitWat: promise result U128 expected U128, got `{returnType.name}`"
+            .ok (indexInsns ++ #[.call promiseResultU128Name,
+              .i32Const PROMISE_RESULT_BUF, .load "i64.load" 0,
+              .i32Const (PROMISE_RESULT_BUF + 8), .load "i64.load" 0], .u128)
+        | _ => err "EmitWat: near.promise.result_u128 expects (U64) -> U128"
+      else
+        err s!"EmitWat: unsupported host operation `{id}`"
     | .effect (.storageScalarRead id) =>
       match findScalarState? ctx.scalars id with
       | some s => .ok (storageScalarReadInsns s)
@@ -785,7 +880,14 @@ mutual
         | some s =>
           match structFieldOffset? s fieldName, structFieldType? s fieldName with
           | some off, some ft =>
-            .ok (pb ++ #[.i32Const off, .plain "i32.add", .load (loadOpFor ft) 0], ft)
+            let address := pb ++ #[.i32Const off, .plain "i32.add"]
+            let load := match ft with
+              | .u128 => #[.call structU128PairName]
+              | .string | .bytes | .array _ => #[.call structDynamicPairName]
+              | .hash => #[]
+              | .fixedArray _ _ | .structType _ => #[.load "i32.load" 0]
+              | _ => #[.load (loadOpFor ft) 0]
+            .ok (address ++ load, ft)
           | _, _ => err s!"EmitWat: struct `{typeName}` has no field `{fieldName}`"
       | _ => err s!"EmitWat: field access expects a struct value, got `{tb.name}`"
     | .crosscallInvoke target method args =>
@@ -798,31 +900,14 @@ mutual
       err (crosscallEvmOnlyMessage "crosscallInvokeStaticTyped")
     | .crosscallInvokeDelegateTyped _ _ _ _ =>
       err (crosscallEvmOnlyMessage "crosscallInvokeDelegateTyped")
-    | .crosscallCreate _ _ =>
-      err (crosscallEvmOnlyMessage "crosscallCreate")
-    | .crosscallCreate2 _ _ _ =>
-      err (crosscallEvmOnlyMessage "crosscallCreate2")
     | .crosscallNamed _ _ _ _ =>
       err "EmitWat: crosscallNamed (named-callee cross-program call) is a ZK-lane construct; not lowered on Wasm hosts — use crosscallInvoke* / NEAR promise forms"
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit argNames =>
       if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else lowerNearCrosscallInvokePool ctx env accountIndex methodId args deposit
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+      else lowerNearCrosscallInvokePool ctx env accountIndex methodId args deposit argNames
+    | .crosscallContinue parentPromise callbackMethod args deposit argNames =>
       if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else lowerNearPromiseThen ctx env parentPromise callbackMethod args deposit
-    | .nearPromiseResultsCount =>
-      if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else .ok (#[.call "promise_results_count"], .u64)
-    | .nearPromiseResultStatus index =>
-      if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else do
-        let indexInsns ← lowerNearPromiseResultIndex ctx env index
-        .ok (indexInsns ++ #[.i64Const 0, .call "promise_result"], .u64)
-    | .nearPromiseResultU64 index =>
-      if ctx.bridge == .soroban then err sorobanNearPromiseUnsupportedMessage
-      else do
-        let indexInsns ← lowerNearPromiseResultIndex ctx env index
-        .ok (indexInsns ++ #[.call promiseResultU64Name], .u64)
+      else lowerNearPromiseThen ctx env parentPromise callbackMethod args deposit argNames
     | _ => err "EmitWat: this expression form is not yet supported"
 
   partial def lowerMatchingNumericOperands (ctx : Ctx) (env : LocalTypes) (op : String) (a b : Expr)
@@ -853,7 +938,14 @@ mutual
       if helperName.isEmpty then
         err s!"EmitWat: U128 operation `{op}` not supported"
       else
-        .ok (la ++ lb ++ #[.call helperName], .u128)
+        -- Helpers are void (NEAR VM disables multi_value); they stash the
+        -- (lo, hi) result in U128_RESULT_BUF. Reload both words so the
+        -- u128 value is represented as (lo, hi) on the operand stack.
+        .ok (la ++ lb ++ #[
+          .call helperName,
+          .i32Const U128_RESULT_BUF, .load "i64.load" 0,
+          .i32Const (U128_RESULT_BUF + 8), .load "i64.load" 0
+        ], .u128)
     | _ =>
       .ok (la ++ lb ++ #[.plain (widthOf t ++ "." ++ op)], t)
 
@@ -866,8 +958,12 @@ mutual
     else if ta == .hash && op == "ne" then .ok (la ++ lb ++ #[.call hashEqName, .plain "i32.eqz"], .bool)
     else if ta == .u128 && op == "eq" then .ok (la ++ lb ++ #[.call u128EqName], .bool)
     else if ta == .u128 && op == "ne" then .ok (la ++ lb ++ #[.call u128EqName, .plain "i32.eqz"], .bool)
+    else if ta == .u128 && op == "lt_u" then .ok (la ++ lb ++ #[.call u128LtName], .bool)
+    else if ta == .u128 && op == "ge_u" then .ok (la ++ lb ++ #[.call u128LtName, .plain "i32.eqz"], .bool)
+    else if ta == .u128 && op == "gt_u" then .ok (lb ++ la ++ #[.call u128LtName], .bool)
+    else if ta == .u128 && op == "le_u" then .ok (lb ++ la ++ #[.call u128LtName, .plain "i32.eqz"], .bool)
     else if ta == .u128 then
-      err s!"EmitWat: U128 comparison `{op}` not yet supported (only eq/ne)"
+      err s!"EmitWat: U128 comparison `{op}` not yet supported"
     else match ta with
       | .fixedArray elemType len =>
         if op == "eq" then .ok (la ++ lb ++ #[.call (arrEqName elemType len)], .bool)
@@ -886,7 +982,7 @@ mutual
       : Except EmitError (Array Insn × ValueType) := do
     let (is, src) ← lowerExpr ctx env value
     let extra ←
-      match src, target with
+      if src == target then .ok #[] else match src, target with
       | .u32, .u64 => .ok #[.plain "i64.extend_i32_u"]
       | .u64, .u32 => .ok #[.plain "i32.wrap_i64"]
       | .u32, .bool => .ok #[.i32Const 0, .plain "i32.ne"]
@@ -917,7 +1013,9 @@ mutual
 
   partial def lowerMapKeyFor (ctx : Ctx) (env : LocalTypes) (keyType : ValueType) (key : Expr)
       : Except EmitError (Array Insn) :=
-    if keyType == .hash then lowerMapKeyHash ctx env key else lowerMapKeyU64 ctx env key
+    if keyType == .hash then lowerMapKeyHash ctx env key
+    else if keyType == .string then lowerMapKeyTyped ctx env .string key
+    else lowerMapKeyU64 ctx env key
 
   partial def lowerMapGet (ctx : Ctx) (env : LocalTypes) (id : String) (key : Expr)
       : Except EmitError (Array Insn × ValueType) := do
@@ -1123,11 +1221,17 @@ mutual
 
 end
 
-def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (e : Expr)
+def lowerReturn (ctx : Ctx) (env : LocalTypes) (expected : ValueType) (entrypointName : String)
+    (outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec) (e : Expr)
     : Except EmitError (Array Insn) := do
   let (is, t) ← lowerExpr ctx env e
-  let aggBytes? ← borshReturnPayloadBytes ctx.structs expected
-  returnInsnsForLoweredExpr expected e is t ctx.bridge ctx.packScalars aggBytes?
+  if outputCodec == .json then
+    unless expected == t do
+      err s!"EmitWat: JSON return expression type `{t.name}` does not match `{expected.name}`"
+    .ok (is ++ #[.call (JsonReturn.helperName entrypointName)])
+  else
+    let aggBytes? ← borshReturnPayloadBytes ctx.structs expected
+    returnInsnsForLoweredExpr expected e is t ctx.bridge ctx.packScalars aggBytes?
 
 partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (fields : Array (String × Expr))
     : Except EmitError (Array Insn) := do
@@ -1135,16 +1239,18 @@ partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (field
   let some nameSi ← pure (findString? ctx.strings headerKey)
     | err s!"EmitWat: event header `{headerKey}` not in string pool"
   let header := evtHeaderInsns nameSi
-  let fieldInsns ← appendInsnChunksM fields fun f => do
+  let fieldInsns ← fields.mapIdxM fun index f => do
     let (fname, vexpr) := f
-    let fieldKey := eventFieldPoolString fname
+    let fieldKey := eventFieldPoolString index fname
     let some fsi ← pure (findString? ctx.strings fieldKey)
       | err s!"EmitWat: event field key `{fieldKey}` not in string pool"
     let (vis, vt) ← lowerExpr ctx env vexpr
-    evtFieldInsns fname fsi vis vt
-  .ok (header ++ fieldInsns ++ evtFooterInsns)
+    evtFieldInsns name fname fsi vis vt
+  .ok (header ++ fieldInsns.foldl (init := #[]) (fun acc insns => acc ++ insns) ++ evtFooterInsns)
 
 partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
+    (entrypointName : String)
+    (outputCodec : ProofForge.Backend.WasmHost.AbiPlan.Codec)
     (s : Statement) : Except EmitError (Array Insn) :=
   match s with
   | .letBind name t e | .letMutBind name t e => do
@@ -1175,8 +1281,10 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     let (vis, vt) ← lowerExpr ctx env value
     storageScalarAssignOpInsns s id op vis vt
   | .effect (.storageMapSet id key value) | .effect (.storageMapInsert id key value) => do
-    let (is, _) ← lowerMapWrite ctx env id key value
-    .ok (dropResultInsns is)
+    let (is, t) ← lowerMapWrite ctx env id key value
+    -- U128 map writes are void (Unit); single-word writes return the prior
+    -- value and must be dropped.
+    if t == .unit then .ok is else .ok (dropResultInsns is)
   | .effect (.storageMapDelete id key) => do
     let (is, _) ← lowerMapDelete ctx env id key
     .ok (dropResultInsns is)
@@ -1202,6 +1310,7 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     if ta != tb then err "EmitWat: assertEq operands must share a type"
     else
       let eqInsn := match ta with
+        | .u128 => #[.call u128EqName]
         | .hash => #[.call hashEqName]
         | .fixedArray elemType len => #[.call (arrEqName elemType len)]
         | _ => #[.plain (widthOf ta ++ ".eq")]
@@ -1210,16 +1319,19 @@ partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
                             .if_ { insns := failInsns } { insns := #[] }])
   | .release name => do
     releaseInsns ctx env name
-  | .return e => lowerReturn ctx env returns e
+  | .return e => lowerReturn ctx env returns entrypointName outputCodec e
   | .ifElse cond thenBody elseBody => do
     let (cis, ct) ← lowerExpr ctx env cond
     if ct != .bool then err "EmitWat: if/else condition must be Bool"
     else do
-      let thenInsns ← appendInsnChunksM thenBody fun s => lowerStmt ctx env returns s
-      let elseInsns ← appendInsnChunksM elseBody fun s => lowerStmt ctx env returns s
+      let thenInsns ← appendInsnChunksM thenBody fun s =>
+        lowerStmt ctx env returns entrypointName outputCodec s
+      let elseInsns ← appendInsnChunksM elseBody fun s =>
+        lowerStmt ctx env returns entrypointName outputCodec s
       .ok (ifElseInsns cis thenInsns elseInsns)
   | .boundedFor indexName start stop body => do
-    let bodyInsns ← appendInsnChunksM body fun s => lowerStmt ctx env returns s
+    let bodyInsns ← appendInsnChunksM body fun s =>
+      lowerStmt ctx env returns entrypointName outputCodec s
     .ok (boundedForInsns indexName start stop bodyInsns)
   | _ => err "EmitWat: this statement form is not yet supported"
 
@@ -1244,8 +1356,18 @@ def lowerEntrypoint (ctx : Ctx) (ep : Entrypoint) : Except EmitError Func := do
   let (paramPrologue, paramLocals) ← loadParams ctx.structs ep.params abiPlan ctx.bridge
   let allLocalTypes : LocalTypes :=
     (ep.params.map (fun (n, t) => { name := n, vt := t : LBind })) ++ bodyLocals
-  let locals := paramLocals ++ bodyLocals.map (fun b => { name := b.name, type := wasmTypeOf b.vt : Local })
-  let bodyInsns ← appendInsnChunksM ep.body fun s => lowerStmt ctx allLocalTypes ep.returns s
+  let locals := paramLocals ++ bodyLocals.flatMap (fun b =>
+    if b.vt == .u128 then
+      #[{ name := b.name, type := .i64 : Local },
+        { name := u128HiName b.name, type := .i64 : Local }]
+    else if b.vt == .string || b.vt == .bytes then
+      -- string/bytes local: ptr (i32) + len (i32) — mirrors the param _len local.
+      #[{ name := b.name, type := .i32 : Local },
+        { name := b.name ++ "_len", type := .i32 : Local }]
+    else
+      #[{ name := b.name, type := wasmTypeOf b.vt : Local }])
+  let bodyInsns ← appendInsnChunksM ep.body fun s =>
+    lowerStmt ctx allLocalTypes ep.returns ep.name abiPlan.outputCodec s
   let resetPrefix : Array Insn :=
     (if ctx.usesHashAlloc then #[.i32Const HASH_HEAP, .globalSet hashPtrGlobal] else #[]) ++
     (if ctx.allocator.usesEntryReset then
@@ -1279,11 +1401,18 @@ function of `(mod, modulePlan, ctx)` — it does not re-derive any layout. -/
 def lowerModuleCoreWithCtx (mod : ProofForge.IR.Module) (modulePlan : ModulePlan)
     (ctx : Ctx) : Except EmitError ProofForge.Compiler.Wasm.Module := do
   let ctx := { ctx with usesHashAlloc := modulePlanUsesHashAlloc modulePlan }
+  for abi in ctx.entrypointAbis do
+    if let some schema := abi.outputJson? then
+      match JsonReturn.buildReturnFuncFromIR abi.name ctx.structs schema abi.returnType with
+      | .ok _ => pure ()
+      | .error message =>
+          err s!"EmitWat: JSON return ABI `{abi.name}` cannot be lowered: {message}"
   let entryFuncs ← mod.entrypoints.mapM (lowerEntrypoint ctx)
   let hasPanic := !ctx.panics.isEmpty
   let imports := importsForModulePlan modulePlan mod.allocator hasPanic ctx.bridge
   let funcs := helperFuncsForModulePlan modulePlan mod ctx entryFuncs
   let globals := globalsForModulePlan modulePlan mod.allocator ctx.packScalars
+    (ctx.entrypointAbis.any fun abi => abi.outputJson?.isSome)
   .ok { imports := imports, globals := globals, funcs := funcs,
         memory := some { min := 1 },
         dataSegments := dataSegmentsForModulePlan modulePlan ctx }
@@ -1305,6 +1434,14 @@ def lowerModule (mod : ProofForge.IR.Module)
     match buildModulePlan mod with
     | .ok plan => pure plan
     | .error planErr => err s!"EmitWat: {planErr.message}"
+  if bridge == .soroban &&
+      (modulePlan.scalarReadTypes.contains .hash ||
+       modulePlan.scalarWriteTypes.contains .hash ||
+       modulePlan.u64IndexedReadTypes.contains .hash ||
+       modulePlan.u64IndexedWriteTypes.contains .hash ||
+       modulePlan.hashIndexedReadTypes.contains .hash ||
+       modulePlan.hashIndexedWriteTypes.contains .hash) then
+    err "EmitWat: Soroban lowering does not support 32-byte Hash storage with the scalar `_get` ABI"
   let entrypointAbis ← match buildModulePlans mod with
     | .ok plans => pure plans
     | .error message => err s!"EmitWat: {message}"

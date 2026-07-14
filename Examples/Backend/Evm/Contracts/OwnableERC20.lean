@@ -25,7 +25,7 @@ contract_source OwnableERC20 do
   event Transfer
 
   entry init (supply : .u64) do
-    do ProofForge.Contract.Surface.requireZero «owner» "already initialized";
+    do ProofForge.Contract.Source.requireZero «owner» "already initialized";
     «owner» := caller;
     tokenDecimals := u64 18;
     totalSupply := supply;

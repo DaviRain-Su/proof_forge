@@ -7,7 +7,7 @@ It intentionally stays small:
 
 - no allocator through `no_allocator!()`
 - entrypoint dispatch tags `0..3` matching the generated ProofForge fixture
-- account order matching `ProofForge.Solana.Examples.SplTokenOpsCpi`
+- account order matching `Examples.Backend.Solana.Contracts.SplTokenOpsCpi`
 - CPI calls through Pinocchio Token `MintTo`, `Burn`, `Approve`, and `Revoke`
 - state writes at offsets `0`, `8`, `16`, and `24`
 

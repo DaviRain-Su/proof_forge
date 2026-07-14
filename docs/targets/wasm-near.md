@@ -50,31 +50,31 @@ Storage/crypto/context effects lower to these NEAR host imports:
 | `contextRead randomSeed` | `env.random_seed` |
 | `eventEmit` | `env.log` |
 
-### NEAR Promise IR
+### NEAR Promise materialization
 
-Portable `crosscallInvoke` lowers to `promise_create` for remote calls. NEAR-specific
-promise chaining and callback introspection use dedicated `Expr` forms tagged with
-the `near.promise` capability on the canonical EmitWat path:
+Portable `crosscallInvoke` lowers to `promise_create` for remote calls. Shared
+IR uses semantic named invocation/continuation nodes; NEAR-only callback and
+storage operations are target-owned HostOps selected by stable IDs:
 
-| IR expression | NEAR host import(s) | Role |
+| Semantic request | NEAR host import(s) | Role |
 |---|---|---|
-| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | Create a promise using runtime indices into `module.nearCrosscallStrings` for the account and method names. |
-| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`, `current_account_id` | Attach a callback method on the **current** contract to an existing promise id (`parent` is `U64`). Callback and remote method names index `module.nearCrosscallStrings` via `.literal (.address i)`. |
-| `nearPromiseResultsCount` | `promise_results_count` | In callback entrypoints: how many completed promise results are visible. |
-| `nearPromiseResultStatus index` | `promise_result` | Read result status at `index` (`1` = success, `2` = failed). |
-| `nearPromiseResultU64 index` | `promise_result`, `read_register` | Borsh-decode the result payload at `index` as `U64` (returns `0` on failure). |
+| `crosscallInvokeNamedValue accountIndex methodId args deposit` | `promise_create` | Create a promise using runtime indices into `module.crosscallStrings` for the account and method names. |
+| `crosscallContinue parent callbackMethod args deposit` | `promise_then`, `current_account_id` | Attach a callback method on the **current** contract to an existing promise id (`parent` is `U64`). Callback and remote method names index `module.crosscallStrings` via `.literal (.address i)`. |
+| `hostCall near.promise.results_count@1.0.0` | `promise_results_count` | In callback entrypoints: how many completed promise results are visible. |
+| `hostCall near.promise.result_status@1.0.0(index)` | `promise_result` | Read result status at `index` (`1` = success, `2` = failed). |
+| `hostCall near.promise.result_u64@1.0.0(index)` | `promise_result`, `read_register` | Borsh-decode the result payload at `index` as `U64` (returns `0` on failure). |
 
 Typical shape:
 
 ```text
 entry call_remote_with_callback:
-  return nearPromiseThen(
+  return crosscallContinue(
     crosscallInvoke(...),
     callbackMethod = "handle_remote",
     args = [], deposit = 0)
 
 entry handle_remote:
-  return nearPromiseResultU64(0)
+  return hostCall near.promise.result_u64@1.0.0(0)
 ```
 
 Fixture: `ProofForge/IR/Examples/NearCrosscallProbe.lean`.
@@ -83,23 +83,20 @@ Fixture: `ProofForge/IR/Examples/NearCrosscallProbe.lean`.
 
 `Examples/Backend/WasmNear/FungibleToken.lean` reuses the
 `ProofForge.Contract.Stdlib.NearFungibleToken` mixin. The generated contract
-exports `ft_transfer_call(receiver_id, receiver_idx, amount)`, with Borsh input
-layout `Hash || U32 || U64`:
-
-- `receiver_id` is the portable `Hash` account key used for token balances.
-- `receiver_idx` selects a registered NEAR account string from
-  `module.nearCrosscallStrings`; the stdlib reserves `0 = "ft_on_transfer"`,
-  `1 = "ft_resolve_transfer"`, and uses `2 + receiver_idx` for remote receiver
-  account ids. In the checked example, `receiver_idx = 0` selects
-  `demo.receiver.testnet`.
-- `amount` is the transferred `U64`.
+exports the standard JSON method
+`ft_transfer_call(receiver_id, amount, memo?, msg)`. `receiver_id` is a runtime
+AccountId string, `amount` is a quoted decimal U128, `memo` is optional, and
+`msg` is passed to the receiver hook. The contract requires exactly one
+yoctoNEAR and a prior `storage_deposit` registration for the receiver.
 
 The promise chain emitted for that entrypoint is:
 
 ```text
 ft_transfer_call
-  -> promise_create(receiver account, "ft_on_transfer", [callerHash, amount])
-  -> promise_then(current_account_id, "ft_resolve_transfer", [])
+  -> promise_create(receiver_id, "ft_on_transfer",
+       {"sender_id": sender, "amount": amount, "msg": msg})
+  -> promise_then(current_account_id, "ft_resolve_transfer",
+       {"transfer_id": id, "sender": sender, "receiver": receiver_id})
   -> promise_return(callback promise id)
 
 ft_resolve_transfer
@@ -109,24 +106,24 @@ ft_resolve_transfer
 ```
 
 The static gate `just wasm-near-ft-transfer-call` verifies the Plan/EmitWat
-shape, including the `nearCrosscallStrings` layout, hash JSON encoding for the
-`ft_on_transfer` sender argument, and the absence of nested allowance
-`mapKey+mapKey` paths. The behavior gate `just wasm-near-ft-transfer-call-e2e`
-runs the generated WAT in `runtime/offline-host`, stubs the callback result as a
-Borsh `U64`, and checks `promise_create` precedes `promise_then` and the refund
-balances are correct.
+shape, including runtime receiver routing, named JSON hook/callback arguments,
+and the absence of nested allowance `mapKey+mapKey` paths. The behavior gate
+`just wasm-near-ft-transfer-call-e2e` runs the generated WAT in
+`runtime/offline-host`, while `just near-vm-conformance-ft` proves the positive
+callback path plus exact-deposit and receiver-registration failures on the
+unmodified upstream NEAR VM.
 
 ### `caller` vs `callerHash`
 
-`ProofForge.Contract.Surface.caller` remains the portable `userId` context
+`ProofForge.Contract.Source.caller` remains the portable `userId` context
 expression and lowers to a `U64` projection of `predecessor_account_id`. It is
 useful for legacy U64-keyed examples, but it is not wide enough to key NEAR
 account balances safely.
 
-`ProofForge.Contract.Surface.callerHash` lowers `userIdHash` to the full
+`ProofForge.Contract.Source.callerHash` lowers `userIdHash` to the full
 32-byte SHA-256 digest of `predecessor_account_id`. The NEP-141 stdlib uses
 `callerHash` for account-keyed balances, allowance owner keys, and the
-`ft_on_transfer` sender argument. `ProofForge.Contract.Surface.signer` is
+`ft_on_transfer` sender argument. `ProofForge.Contract.Source.signer` is
 separate: it reads `signer_account_id` and models the transaction signer, not
 the immediate predecessor.
 

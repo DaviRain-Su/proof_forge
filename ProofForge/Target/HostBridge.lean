@@ -63,7 +63,10 @@ def HostBridge.requiredImports : HostBridge → Array String
       "env.promise_then",
       "env.promise_results_count",
       "env.promise_result",
-      "env.promise_return"
+      "env.promise_return",
+      "env.storage_usage",
+      "env.promise_batch_create",
+      "env.promise_batch_action_transfer"
     ]
   | .cosmWasm => #[
       "env.db_read",
@@ -76,7 +79,8 @@ def HostBridge.requiredImports : HostBridge → Array String
       "env._get",
       "env.log_from_slice",
       "env.require_auth_for_args",
-      "env.invoke_contract"
+      "env.invoke_contract",
+      "env.set_return_data"
     ]
 
 /-- Full host-function signatures for each bridge. Used by generic Wasm
@@ -90,7 +94,7 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
   | .near => #[
       { name := "storage_read",  params := #["i64", "i64", "i64"], results := #["i64"] },
       { name := "storage_write", params := #["i64", "i64", "i64", "i64", "i64"], results := #["i64"] },
-      { name := "storage_remove", params := #["i64", "i64"], results := #["i64"] },
+      { name := "storage_remove", params := #["i64", "i64", "i64"], results := #["i64"] },
       { name := "read_register", params := #["i64", "i64"], results := #[] },
       { name := "value_return",  params := #["i64", "i64"], results := #[] },
       { name := "signer_account_id", params := #["i64"], results := #[] },
@@ -103,7 +107,10 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
       { name := "promise_then", params := #["i64", "i64", "i64", "i64", "i64", "i64", "i64", "i64", "i64"], results := #["i64"] },
       { name := "promise_results_count", params := #[], results := #["i64"] },
       { name := "promise_result", params := #["i64", "i64"], results := #["i64"] },
-      { name := "promise_return", params := #["i64"], results := #[] }
+      { name := "promise_return", params := #["i64"], results := #[] },
+      { name := "storage_usage", params := #[], results := #["i64"] },
+      { name := "promise_batch_create", params := #["i64", "i64"], results := #["i64"] },
+      { name := "promise_batch_action_transfer", params := #["i64", "i64"], results := #[] }
     ]
   | .cosmWasm => #[
       { name := "db_read",  params := #["i32"], results := #["i32"] },
@@ -117,16 +124,17 @@ def HostBridge.hostFunctions : HostBridge → Array HostFunction
     ]
   | .soroban => #[
       { name := "_put",  params := #["i32", "i32", "i32", "i32"], results := #[] },
-      { name := "_get",  params := #["i32", "i32"], results := #["i32"] },
+      { name := "_get",  params := #["i32", "i32"], results := #["i64"] },
       { name := "log_from_slice", params := #["i32", "i32"], results := #[] },
       { name := "require_auth_for_args", params := #["i32", "i32"], results := #["i32"] },
       -- Portable crosscall.invoke materializes here (not NEAR promise_create).
-      -- Contract/method names come from the shared nearCrosscallStrings pool;
+      -- Contract/method names come from the shared crosscallStrings pool;
       -- args are the same JSON scratch buffer used by NEAR. Returns a host
       -- result handle (i64) — real Env::invoke_contract lands as a later spike.
       { name := "invoke_contract",
         params := #["i64", "i64", "i64", "i64", "i64", "i64"],
-        results := #["i64"] }
+        results := #["i64"] },
+      { name := "set_return_data", params := #["i32", "i32"], results := #[] }
     ]
 
 end ProofForge.Target

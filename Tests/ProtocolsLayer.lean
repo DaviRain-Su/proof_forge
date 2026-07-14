@@ -8,7 +8,7 @@ import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.Solana.Extension.Cpi
 import ProofForge.Contract.Builder
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 import Examples.Backend.Evm.Contracts.Ierc20Client
 import Examples.Backend.Evm.Contracts.Ierc20PermitClient
 import Examples.Backend.Evm.Contracts.Ierc4626Client
@@ -101,11 +101,11 @@ def main : IO UInt32 := do
   -- EVM IERC20 example
   let ierc20 := Examples.Backend.Evm.Contracts.Ierc20Client.module
   require (ierc20.entrypoints.any (·.name == "pushTokens")) "Ierc20Client has pushTokens"
-  require (ierc20.nearCrosscallStrings.any (· == "token.peer")) "Ierc20Client registers token.peer"
+  require (ierc20.crosscallStrings.any (· == "token.peer")) "Ierc20Client registers token.peer"
   let ierc4626 := Examples.Backend.Evm.Contracts.Ierc4626Client.module
-  require (ierc4626.nearCrosscallStrings.any (· == "vault.peer")) "Ierc4626 vault.peer"
+  require (ierc4626.crosscallStrings.any (· == "vault.peer")) "Ierc4626 vault.peer"
   let iercPermit := Examples.Backend.Evm.Contracts.Ierc20PermitClient.module
-  require (iercPermit.nearCrosscallStrings.any (· == "permit.token")) "permit.token peer"
+  require (iercPermit.crosscallStrings.any (· == "permit.token")) "permit.token peer"
   match ProofForge.Backend.Evm.IR.renderModule ierc20 with
   | .error e => throw (IO.userError s!"EVM Ierc20Client render failed: {e.message}")
   | .ok yul =>
@@ -128,7 +128,7 @@ def main : IO UInt32 := do
   -- EVM IERC721 example
   let ierc721 := Examples.Backend.Evm.Contracts.Ierc721Client.module
   require (ierc721.entrypoints.any (·.name == "moveToken")) "Ierc721Client has moveToken"
-  require (ierc721.nearCrosscallStrings.any (· == "nft.peer")) "Ierc721Client registers nft.peer"
+  require (ierc721.crosscallStrings.any (· == "nft.peer")) "Ierc721Client registers nft.peer"
   match ProofForge.Backend.Evm.IR.renderModule ierc721 with
   | .error e => throw (IO.userError s!"EVM Ierc721Client render failed: {e.message}")
   | .ok yul =>
@@ -151,13 +151,13 @@ def main : IO UInt32 := do
   let nearFt := Examples.Backend.WasmNear.FtPeerClient.module
   require (nearFt.entrypoints.any (·.name == "pay")) "FtPeerClient has pay"
   require (nearFt.entrypoints.any (·.name == "pay_with_callback")) "FtPeerClient has pay_with_callback"
-  require (nearFt.nearCrosscallStrings.any (· == "my_ft")) "FtPeerClient registers my_ft peer"
-  require (nearFt.nearCrosscallStrings.any (· == "ft_transfer")) "FtPeerClient registers ft_transfer"
-  require (nearFt.nearCrosscallStrings.any (· == "ft_transfer_call"))
+  require (nearFt.crosscallStrings.any (· == "my_ft")) "FtPeerClient registers my_ft peer"
+  require (nearFt.crosscallStrings.any (· == "ft_transfer")) "FtPeerClient registers ft_transfer"
+  require (nearFt.crosscallStrings.any (· == "ft_transfer_call"))
     "FtPeerClient registers ft_transfer_call"
-  require (nearFt.nearCrosscallStrings.any (· == "ft_balance_of"))
+  require (nearFt.crosscallStrings.any (· == "ft_balance_of"))
     "FtPeerClient registers ft_balance_of"
-  require (nearFt.nearCrosscallStrings.any (· == "ft_total_supply"))
+  require (nearFt.crosscallStrings.any (· == "ft_total_supply"))
     "FtPeerClient registers ft_total_supply"
   match ProofForge.Backend.WasmHost.EmitWat.renderModule nearFt with
   | .error e => throw (IO.userError s!"NEAR FtPeerClient render failed: {e.message}")
@@ -175,7 +175,7 @@ def main : IO UInt32 := do
 
   -- Multicall3 client → Yul with aggregate selector.
   let mc := Examples.Backend.Evm.Contracts.MulticallClient.module
-  require (mc.nearCrosscallStrings.any (· == "multicall.peer")) "MulticallClient peer"
+  require (mc.crosscallStrings.any (· == "multicall.peer")) "MulticallClient peer"
   match ProofForge.Backend.Evm.IR.renderModule mc with
   | .error e => throw (IO.userError s!"MulticallClient render failed: {e.message}")
   | .ok yul =>
@@ -188,7 +188,7 @@ def main : IO UInt32 := do
 
   -- Permit2 client → Yul with transferFrom selector.
   let p2 := Examples.Backend.Evm.Contracts.Permit2Client.module
-  require (p2.nearCrosscallStrings.any (· == "permit2.peer")) "Permit2Client peer"
+  require (p2.crosscallStrings.any (· == "permit2.peer")) "Permit2Client peer"
   match ProofForge.Backend.Evm.IR.renderModule p2 with
   | .error e => throw (IO.userError s!"Permit2Client render failed: {e.message}")
   | .ok yul =>

@@ -98,7 +98,7 @@ authors must not use them on the Shared product path:
 | Form | Portability class | Product path |
 |------|-------------------|--------------|
 | `crosscall.invoke` / `remoteCallRef` | family-shared | **preferred** portable remote |
-| `create` / `create2` / `create2Deploy` | EVM family-only | EVM fixtures only — **banned in Shared** |
+| `create` / `create2` / `Source.Evm.create2Deploy` | EVM family-only | EVM fixtures only - **banned in Shared** |
 | `fallback` / `receive` | EVM family-only | EVM fixtures only |
 | `nearPromise*` / `nearCrosscallPool` | Wasm-NEAR family-only | NEAR fixtures / `Source.Near` only |
 | Solana account/PDA/CPI DSL | Solana extension | `Source.Solana` only |

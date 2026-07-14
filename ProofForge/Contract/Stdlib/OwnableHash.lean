@@ -20,10 +20,10 @@ namespace ProofForge.Contract.Stdlib.OwnableHash
 open ProofForge.Contract.Source
 
 def «owner» : ScalarRef :=
-  ProofForge.Contract.Surface.slot "owner" .hash
+  ProofForge.Contract.Source.slot "owner" .hash
 
 contract_mixin OwnableHashMixin do
-  use ProofForge.Contract.Surface.scalar «owner»
+  use ProofForge.Contract.Source.scalar «owner»
 
   query «owner» returns(.hash) do
     return «owner»;
@@ -32,16 +32,16 @@ contract_mixin OwnableHashMixin do
   -- Hash entrypoint params. Renounce + re-init patterns, or NEAR-only extension
   -- mixins, cover transfer for now.
   entry renounceOwnership do
-    do ProofForge.Contract.Surface.requireOwnerHash «owner»;
-    «owner» := ProofForge.Contract.Surface.hash4 0 0 0 0;
+    do ProofForge.Contract.Source.requireOwnerHash «owner»;
+    «owner» := ProofForge.Contract.Source.hash4 0 0 0 0;
 
 contract_source OwnableHash do
   use mixin
   entry init do
-    do ProofForge.Contract.Surface.assertCondition
-      (ProofForge.Contract.Surface.eq
-        (ProofForge.Contract.Surface.read «owner»)
-        (ProofForge.Contract.Surface.hash4 0 0 0 0))
+    do ProofForge.Contract.Source.assertCondition
+      (ProofForge.Contract.Source.eq
+        (ProofForge.Contract.Source.read «owner»)
+        (ProofForge.Contract.Source.hash4 0 0 0 0))
       "already initialized";
     «owner» := callerHash;
 

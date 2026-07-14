@@ -83,6 +83,8 @@ mutual
         checkLiteralBounds value
         .ok (literal value)
     | .local name => .ok name
+    | .hostCall _ _ _ _ =>
+        .error { message := "wasm-near Rust IR v0 does not support target extension calls; use EmitWat" }
     | .arrayLit _ _ =>
         .error { message := "fixed array literals are not supported by wasm-near IR v0" }
     | .arrayGet _ _ =>
@@ -97,12 +99,6 @@ mutual
         .error { message := "struct literals are not supported by wasm-near IR v0" }
     | .field _ _ =>
         .error { message := "struct field access is not supported by wasm-near IR v0" }
-    | .ecrecover _ _ _ _ =>
-        .error { message := "ecrecover (secp256k1) is EVM-specific and not supported by wasm-near IR v0" }
-    | .eip712PermitDigest _ _ _ _ _ _ =>
-        .error { message := "EIP-712 permit digest is EVM-specific and not supported by wasm-near IR v0" }
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-        .error { message := "ABI-packed crosscall (Call[]) is EVM-specific and not supported by wasm-near IR v0" }
     | .add lhs rhs _ => do .ok s!"({← lowerExpr module lhs} + {← lowerExpr module rhs})"
     | .sub lhs rhs _ => do .ok s!"({← lowerExpr module lhs} - {← lowerExpr module rhs})"
     | .mul lhs rhs _ => do .ok s!"({← lowerExpr module lhs} * {← lowerExpr module rhs})"
@@ -146,26 +142,25 @@ mutual
         .ok s!"__pf_hash_two_to_one({← lowerExpr module lhs}, {← lowerExpr module rhs})"
     | .nativeValue =>
         .ok "env::attached_deposit()"
+    | .callValueU128 =>
+        .error { message := "full-width call value requires the canonical EmitWat backend and is not supported by Rust sourcegen v0" }
     | .crosscallInvoke _ _ _ =>
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
     | .crosscallInvokeTyped _ _ _ _
     | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _
-    | .crosscallInvokeDelegateTyped _ _ _ _
-    | .crosscallCreate _ _
-    | .crosscallCreate2 _ _ _ =>
+    | .crosscallInvokeDelegateTyped _ _ _ _ =>
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
     | .crosscallNamed _ _ _ _ =>
         .error { message := "named-callee cross-program calls (crosscallNamed) are not supported by wasm-near Rust sourcegen v0" }
-    | .nearPromiseThen _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
-        .error { message := "NEAR promise API is not supported by wasm-near Rust sourcegen v0" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported by wasm-near Rust sourcegen v0" }
     | .effect effect => lowerEffectExpr module effect
 
   partial def lowerEffectExpr (module : Module) : Effect → Except LowerError String
+    | .hostCall id _ _ =>
+        .error { message := s!"wasm host does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId => do
         discard <| scalarStateType module stateId
         .ok s!"self.{stateId}"
@@ -222,7 +217,7 @@ mutual
         .ok "__pf_account_id_hash_u64(&env::current_account_id())"
     | .contextRead .checkpointId =>
         .ok "env::block_height()"
-    | .contextRead .origin =>
+    | .contextRead .signer =>
         .ok "__pf_account_id_hash_u64(&env::signer_account_id())"
     | .contextRead field =>
         .error { message := s!"wasm-near IR v0 context read `{field.name}` is not supported; only userId, contractId, checkpointId, and origin are available" }
@@ -230,12 +225,6 @@ mutual
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def mapValueSuffix (valueType : ValueType) : String :=
     match valueType with
@@ -277,6 +266,8 @@ mutual
     | _, _ =>
         .error { message := "wasm-near IR v0 supports only single-segment mapKey storage paths" }
   partial def lowerEffectStmt (module : Module) : Effect → Except LowerError (Array String)
+    | .hostCall id _ _ =>
+        .error { message := s!"wasm host does not support effect target extension `{id.render}`" }
     | .storageScalarRead _ =>
         .error { message := "storage.scalar.read must be used as an expression" }
     | .storageScalarWrite stateId value => do
@@ -343,12 +334,6 @@ mutual
         .ok #[logLine]
     | .eventEmitIndexed _ _ _ =>
         .error { message := "indexed events are not supported by wasm-near Rust sourcegen v0" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by wasm-near" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def lowerStoragePathWrite (module : Module) (stateId : String) (path : Array StoragePathSegment) (value : Expr) : Except LowerError (Array String) := do
     let state ← stateDeclOf module stateId "storage path"

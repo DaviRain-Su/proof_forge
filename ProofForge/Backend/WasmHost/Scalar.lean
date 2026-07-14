@@ -31,6 +31,16 @@ open ProofForge.Backend.WasmHost.Types
 
 /-! Scalar storage, return, and arithmetic helper functions for EmitWat. -/
 
+/-- U128 arithmetic/comparison helper names. U128 is represented as two i64
+    values (lo, hi); declared up here so all lowerings can reference them. -/
+def u128AddName : String := "__pf_u128_add"
+def u128SubName : String := "__pf_u128_sub"
+def u128MulName : String := "__pf_u128_mul"
+def u128EqName  : String := "__pf_u128_eq"
+def u128LtName  : String := "__pf_u128_lt"
+def u128Divmod10Name : String := "__pf_u128_divmod10"
+def u128FmtName      : String := "__pf_fmt_u128"
+
 def storageScalarStateInfo (scalars : Array StateInfo) (id : String) :
     Except EmitError StateInfo :=
   match findScalarState? scalars id with
@@ -80,28 +90,44 @@ def packBeginFreshFunc (packSize : Nat) : Func :=
         .i32Const 1, .globalSet packLoadedGlobal,
         .i32Const 0, .globalSet packDirtyGlobal ] } }
 
-def packEnsureFunc (packSize : Nat) : Func :=
+def packEnsureFunc (packSize : Nat) (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  let loadInsns := match bridge with
+    | .soroban =>
+      -- Soroban: _get returns i32 found flag; if found, data is at the
+      -- key pointer location (Soroban writes directly to memory).
+      -- For pack buffer, use _get then copy 0..packSize to PACK_BUF.
+      #[.i32Const PACK_KEY_PTR, .i32Const PACK_KEY_LEN, .call "_get",
+        .i32Const PACK_KEY_PTR, .i32Const PACK_BUF, .i32Const packSize, .call "__pf_memcpy"]
+    | _ =>
+      -- NEAR: storage_read → read_register into PACK_BUF
+      #[.i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR, .i64Const 0, .call "storage_read",
+        .i64Const 0, .plain "i64.ne",
+        .if_ { insns := #[.i64Const 0, .i64Const PACK_BUF, .call "read_register"] }
+           { insns := packZeroInsns packSize }]
   { name := packEnsureName,
     locals := if packSize % 8 == 0 then #[] else #[{ name := "i", type := .i32 }],
     body := { insns := #[
       .globalGet packLoadedGlobal, .plain "i32.eqz",
-      .if_ { insns := #[
-          .i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR, .i64Const 0, .call "storage_read",
-          .i64Const 0, .plain "i64.ne",
-          .if_ { insns := #[.i64Const 0, .i64Const PACK_BUF, .call "read_register"] }
-             { insns := packZeroInsns packSize },
+      .if_ { insns := loadInsns ++ #[
           .i32Const 1, .globalSet packLoadedGlobal
         ] } { insns := #[] }
     ] } }
 
-def packFlushFunc (packSize : Nat) : Func :=
+def packFlushFunc (packSize : Nat) (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  let storeInsns := match bridge with
+    | .soroban =>
+      -- Soroban: _put(PACK_KEY_PTR, PACK_KEY_LEN, PACK_BUF, packSize)
+      #[.i32Const PACK_KEY_PTR, .i32Const PACK_KEY_LEN,
+        .i32Const PACK_BUF, .i32Const packSize, .call "_put"]
+    | _ =>
+      -- NEAR: storage_write(key_len, key_ptr, pack_size, pack_buf, 0)
+      #[.i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR,
+        .i64Const packSize, .i64Const PACK_BUF, .i64Const 0,
+        .call "storage_write", .drop]
   { name := packFlushName,
     body := { insns := #[
       .globalGet packDirtyGlobal,
-      .if_ { insns := #[
-          .i64Const PACK_KEY_LEN, .i64Const PACK_KEY_PTR,
-          .i64Const packSize, .i64Const PACK_BUF, .i64Const 0,
-          .call "storage_write", .drop,
+      .if_ { insns := storeInsns ++ #[
           .i32Const 0, .globalSet packDirtyGlobal
         ] } { insns := #[] }
     ] } }
@@ -140,7 +166,8 @@ def isPackedScalarId (scalars : Array StateInfo) (id : String) : Bool :=
 mutual
   partial def exprReadsPackedScalar (scalars : Array StateInfo) : Expr → Bool
     | .effect eff => effectReadsPackedScalar scalars eff
-    | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
+    | .hostCall _ args _ _ => args.any (exprReadsPackedScalar scalars)
     | .arrayLit _ vs => vs.any (exprReadsPackedScalar scalars)
     | .arrayGet a i | .memoryArrayGet a i | .hashTwoToOne a i
     | .add a i _ | .sub a i _ | .mul a i _ | .div a i | .mod a i | .pow a i
@@ -149,19 +176,12 @@ mutual
     | .boolAnd a i | .boolOr a i =>
         exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars i
     | .field base _ | .cast base _ | .boolNot base | .hash base
-    | .memoryArrayLength base | .memoryArrayNew _ base
-    | .nearPromiseResultStatus base | .nearPromiseResultU64 base =>
+    | .memoryArrayLength base | .memoryArrayNew _ base =>
         exprReadsPackedScalar scalars base
     | .structLit _ fields => fields.any (fun f => exprReadsPackedScalar scalars f.snd)
     | .hashValue a b c d =>
         exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
           exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d
-    | .ecrecover a b c d =>
-        exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
-          exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d
-    | .eip712PermitDigest a b c d e f =>
-        #[a, b, c, d, e, f].any (exprReadsPackedScalar scalars)
-    | .crosscallAbiPacked t _ _ _ _ _ _ _ _ => exprReadsPackedScalar scalars t
     | .crosscallInvoke t m args
     | .crosscallInvokeTyped t m args _
     | .crosscallInvokeStaticTyped t m args _
@@ -171,19 +191,17 @@ mutual
     | .crosscallInvokeValueTyped t m v args _ =>
         exprReadsPackedScalar scalars t || exprReadsPackedScalar scalars m ||
           exprReadsPackedScalar scalars v || args.any (exprReadsPackedScalar scalars)
-    | .crosscallCreate v _ => exprReadsPackedScalar scalars v
-    | .crosscallCreate2 v s _ =>
-        exprReadsPackedScalar scalars v || exprReadsPackedScalar scalars s
     | .crosscallNamed _ _ args _ =>
         args.any (exprReadsPackedScalar scalars)
-    | .nearCrosscallInvokePool a m args d =>
+    | .crosscallInvokeNamedValue a m args d _ =>
         exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars m ||
           exprReadsPackedScalar scalars d || args.any (exprReadsPackedScalar scalars)
-    | .nearPromiseThen p c args d =>
+    | .crosscallContinue p c args d _ =>
         exprReadsPackedScalar scalars p || exprReadsPackedScalar scalars c ||
           exprReadsPackedScalar scalars d || args.any (exprReadsPackedScalar scalars)
 
   partial def effectReadsPackedScalar (scalars : Array StateInfo) : Effect → Bool
+    | .hostCall _ args _ => args.any (exprReadsPackedScalar scalars)
     | .storageScalarRead id => isPackedScalarId scalars id
     | .storageScalarAssignOp id _ v =>
         isPackedScalarId scalars id || exprReadsPackedScalar scalars v
@@ -216,20 +234,6 @@ mutual
     | .eventEmitIndexed _ indexed data =>
         indexed.any (fun f => exprReadsPackedScalar scalars f.snd) ||
           data.any (fun f => exprReadsPackedScalar scalars f.snd)
-    -- EVM-only ERC-721/1155 receive checks (PF-P2-02); still scan child exprs.
-    | .checkErc721Received a b c d =>
-        exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
-          exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d
-    | .checkErc1155Received a b c d e =>
-        exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
-          exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d ||
-          exprReadsPackedScalar scalars e
-
-    | .checkErc1155BatchReceived a b c d e =>
-        exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
-          exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d ||
-          exprReadsPackedScalar scalars e
-
   partial def stmtReadsPackedScalar (scalars : Array StateInfo) : Statement → Bool
     | .letBind _ _ e | .letMutBind _ _ e | .assign _ e | .assignOp _ _ e | .return e =>
         exprReadsPackedScalar scalars e
@@ -287,6 +291,11 @@ def storageScalarWriteInsns (structs : Array ProofForge.IR.StructDecl)
 def storageScalarReadInsns (stateInfo : StateInfo) : Array Insn × ValueType :=
   if stateInfo.packed then
     (#[.i32Const stateInfo.packOffset, .call (packReadName stateInfo.type)], stateInfo.type)
+  else if stateInfo.type == .u128 then
+    -- U128 is two i64 words: stage 16 bytes at KEY_BUF then reload lo/hi.
+    (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen, .call (readName .u128),
+      .i32Const KEY_BUF, .load "i64.load" 0,
+      .i32Const (KEY_BUF + 8), .load "i64.load" 0], .u128)
   else
     let callName := if stateInfo.type == .hash then readHashName else readName stateInfo.type
     (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen, .call callName], stateInfo.type)
@@ -309,6 +318,26 @@ def storageScalarAssignOpInsns (stateInfo : StateInfo) (id : String) (op : Assig
              .i32Const stateInfo.packOffset,
              .i32Const KEY_BUF, .load (loadOpFor stateInfo.type) 0,
              .call (packWriteName stateInfo.type)])
+  else if stateInfo.type == .u128 then
+    -- U128 assignOp via the two-word (lo, hi) convention. Stack discipline:
+    --   push kp,kl (reserved for the final write)
+    --   read_u128(kp,kl) -> KEY_BUF; reload (lo,hi)
+    --   valueInsns push (lo2,hi2)
+    --   u128_{add,sub} consumes the top four words -> U128_RESULT_BUF (void)
+    --   reload result (lo,hi); write_u128(kp,kl,lo,hi)
+    let readPart : Array Insn :=
+      #[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,
+        .i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen, .call (readName .u128),
+        .i32Const KEY_BUF, .load "i64.load" 0,
+        .i32Const (KEY_BUF + 8), .load "i64.load" 0]
+    let writePart : Array Insn :=
+      #[.i32Const U128_RESULT_BUF, .load "i64.load" 0,
+        .i32Const (U128_RESULT_BUF + 8), .load "i64.load" 0,
+        .call (writeName .u128)]
+    match op with
+    | .add => .ok (readPart ++ valueInsns ++ #[.call u128AddName] ++ writePart)
+    | .sub => .ok (readPart ++ valueInsns ++ #[.call u128SubName] ++ writePart)
+    | _ => err s!"EmitWat: U128 scalar assignOp `{assignOpName op}` not yet supported (`{id}`); only add/sub"
   else
     .ok (#[.i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,
              .i32Const stateInfo.keyPtr, .i32Const stateInfo.keyLen,
@@ -331,17 +360,17 @@ def readFuncNear (vt : ValueType) : Func :=
                         .i32Const KEY_BUF, .load (loadOpFor vt) 0, .localSet "r" ] } { insns := #[] },
       .localGet "r" ] } }
 
-/-- Soroban host ABI (C.8): `_get(key_ptr, key_len) → i32` le-scalar; extend to value width. -/
+/-- Soroban spike ABI: `_get(key_ptr, key_len) → i64` little-endian scalar. -/
 def readFuncSoroban (vt : ValueType) : Func :=
-  let extend : Array Insn :=
+  let coerce : Array Insn :=
     match vt with
-    | .u64 => #[.plain "i64.extend_i32_u"]
-    | .u32 | .bool => #[]
+    | .u64 => #[]
+    | .u32 | .bool => #[.plain "i32.wrap_i64"]
     | _ => #[]
   { name := readName vt,
     params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
     results := #[wasmTypeOf vt],
-    body := { insns := #[.localGet "kp", .localGet "kl", .call "_get"] ++ extend } }
+    body := { insns := #[.localGet "kp", .localGet "kl", .call "_get"] ++ coerce } }
 
 /-- CosmWasm host ABI: `db_read(key_ptr, key_len) → i64` (le scalar word). -/
 def readFuncCosmWasm (vt : ValueType) : Func :=
@@ -398,7 +427,7 @@ def writeFunc (vt : ValueType) (bridge : ProofForge.Target.HostBridge := .near) 
 
 def returnU64Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
+  | .cosmWasm | .soroban =>
       { name := returnU64Name, params := #[{ name := "v", type := .i64 }],
         body := { insns := #[
           .i32Const RET_BUF, .localGet "v", .store "i64.store" 0,
@@ -411,7 +440,7 @@ def returnU64Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
 
 def returnU32Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
+  | .cosmWasm | .soroban =>
       { name := returnU32Name, params := #[{ name := "v", type := .i32 }],
         body := { insns := #[
           .i32Const RET_BUF, .localGet "v", .store "i32.store" 0,
@@ -424,7 +453,7 @@ def returnU32Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
 
 def returnBoolFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
+  | .cosmWasm | .soroban =>
       { name := returnBoolName, params := #[{ name := "v", type := .i32 }],
         body := { insns := #[
           .i32Const RET_BUF, .localGet "v", .store "i32.store8" 0,
@@ -435,55 +464,102 @@ def returnBoolFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
           .i32Const RET_BUF, .localGet "v", .store "i32.store8" 0,
           .i64Const 1, .i64Const RET_BUF, .call "value_return" ] } }
 
-/-- `__pf_return_u128(ptr)`: Borsh U128 return. Reads 16 bytes from the i32 pointer
-    and writes them to RET_BUF, then calls `value_return(16, RET_BUF)`. -/
+/-! U128 values flow as TWO i64 stack words (lo, hi) throughout EmitWat (see
+    `u128AddFunc` / literal lowering). The return helper consumes those two
+    words directly, staging them into RET_BUF and returning 16 little-endian
+    bytes — the Borsh U128 wire shape. This avoids a `__pf_memcpy` dependency. -/
 def returnU128Func (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
-      { name := returnU128Name, params := #[{ name := "ptr", type := .i32 }],
+  | .cosmWasm | .soroban =>
+      { name := returnU128Name,
+        params := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
         body := { insns := #[
-          .i32Const RET_BUF, .localGet "ptr", .i32Const 16, .call memcpyName,
+          .i32Const RET_BUF, .localGet "lo", .store "i64.store" 0,
+          .i32Const (RET_BUF + 8), .localGet "hi", .store "i64.store" 0,
           .i32Const RET_BUF, .i32Const 16, .call "set_return_data" ] } }
   | _ =>
-      { name := returnU128Name, params := #[{ name := "ptr", type := .i32 }],
+      { name := returnU128Name,
+        params := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
         body := { insns := #[
-          .i32Const RET_BUF, .localGet "ptr", .i32Const 16, .call memcpyName,
+          .i32Const RET_BUF, .localGet "lo", .store "i64.store" 0,
+          .i32Const (RET_BUF + 8), .localGet "hi", .store "i64.store" 0,
           .i64Const 16, .i64Const RET_BUF, .call "value_return" ] } }
 
-/-- `__pf_return_bytes(ptr)`: Borsh dynamic return. The buffer at `ptr` has a
-4-byte LE length prefix at `ptr - 4`, followed by the payload. Computes
-`total = 4 + len` and calls `value_return(total, ptr - 4)`. -/
+/-- NEP-141 JSON U128 return: format `(lo, hi)` as unsigned decimal, surround
+it with quotes, and return the raw JSON string bytes. `__pf_fmt_u128` writes at
+most 39 digits ending at `RET_BUF + 40`, leaving one byte on each side for the
+quotes. -/
+def returnJsonU128Func : Func :=
+  { name := returnJsonU128Name,
+    params := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    locals := #[{ name := "p", type := .i32 }, { name := "len", type := .i32 }],
+    body := { insns := #[
+      .localGet "lo", .localGet "hi", .call u128FmtName, .localSet "p",
+      .localGet "p", .i32Const 1, .plain "i32.sub", .localTee "p",
+      .i32Const 0x22, .store "i32.store8" 0,
+      .i32Const (RET_BUF + 40), .i32Const 0x22, .store "i32.store8" 0,
+      .i32Const (RET_BUF + 41), .localGet "p", .plain "i32.sub", .localSet "len",
+      .localGet "len", .plain "i64.extend_i32_u",
+      .localGet "p", .plain "i64.extend_i32_u", .call "value_return"
+    ] } }
+
+/-- `__pf_read_u128(kp, kl)`: void. NEAR register ABI: `storage_read` into
+    register 0, `read_register` into KEY_BUF (16 bytes, lo@0 hi@8). The caller
+    reloads the two i64 words from KEY_BUF. -/
+def readU128FuncNear : Func :=
+  { name := readName .u128,
+    params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }],
+    results := #[],
+    body := { insns := #[
+      .localGet "kl", .plain "i64.extend_i32_u", .localGet "kp", .plain "i64.extend_i32_u",
+      .i64Const 0, .call "storage_read", .drop,
+      .i64Const 0, .i64Const KEY_BUF, .call "read_register" ] } }
+
+/-- `__pf_write_u128(kp, kl, lo, hi)`: void. Stages (lo, hi) into KEY_BUF as 16
+    little-endian bytes and writes them with `storage_write`. -/
+def writeU128FuncNear : Func :=
+  { name := writeName .u128,
+    params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 },
+      { name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    results := #[],
+    body := { insns := #[
+      .i32Const KEY_BUF, .localGet "lo", .store "i64.store" 0,
+      .i32Const (KEY_BUF + 8), .localGet "hi", .store "i64.store" 0,
+      .localGet "kl", .plain "i64.extend_i32_u", .localGet "kp", .plain "i64.extend_i32_u",
+      .i64Const 16, .i64Const KEY_BUF, .i64Const 0, .call "storage_write", .drop ] } }
+
+/-- `__pf_return_bytes(ptr, len)`: Borsh dynamic return. The buffer at `ptr`
+has a 4-byte LE length prefix at `ptr - 4`, followed by the payload. -/
 def returnBytesFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
   match bridge with
-  | .cosmWasm =>
-      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 }],
+  | .cosmWasm | .soroban =>
+      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 },
+          { name := "len", type := .i32 }],
         body := { insns := #[
           .localGet "ptr", .i32Const 4, .plain "i32.sub", .localSet "ptr",
-          .localGet "ptr", .load "i32.load" 0, .plain "i64.extend_i32_u",
+          .localGet "len", .plain "i64.extend_i32_u",
           .i64Const 4, .plain "i64.add",
           .localGet "ptr", .plain "i64.extend_i32_u",
           .call "set_return_data" ] } }
   | _ =>
-      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 }],
+      { name := returnBytesName, params := #[{ name := "ptr", type := .i32 },
+          { name := "len", type := .i32 }],
         body := { insns := #[
           .localGet "ptr", .i32Const 4, .plain "i32.sub", .localSet "ptr",
-          .localGet "ptr", .load "i32.load" 0, .plain "i64.extend_i32_u",
+          .localGet "len", .plain "i64.extend_i32_u",
           .i64Const 4, .plain "i64.add",
           .localGet "ptr", .plain "i64.extend_i32_u",
           .call "value_return" ] } }
 
-/-- U128 arithmetic helper names. U128 is represented as two i64 values (lo, hi). -/
-
-def u128AddName : String := "__pf_u128_add"
-def u128SubName : String := "__pf_u128_sub"
-def u128MulName : String := "__pf_u128_mul"
-
-/-- `__pf_u128_add(alo, ahi, blo, bhi)`: returns (lo, hi) = a + b with carry. -/
+/-- `__pf_u128_add(alo, ahi, blo, bhi)`: void; writes (lo, hi) = a + b to
+    `U128_RESULT_BUF`. NEAR VM disables `multi_value`, so u128 helpers return
+    void and stash their (lo, hi) result in a 16-byte scratch slot; callers
+    reload both words onto the stack immediately after the call. -/
 def u128AddFunc : Func :=
   { name := u128AddName,
     params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
                 { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
-    results := #[.i64, .i64],
+    results := #[],
     locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 },
                { name := "carry", type := .i64 }],
     body := { insns := #[
@@ -491,15 +567,17 @@ def u128AddFunc : Func :=
       .localGet "lo", .localGet "alo", .plain "i64.lt_u", .plain "i64.extend_i32_u",
       .i64Const 1, .plain "i64.and", .localSet "carry",
       .localGet "ahi", .localGet "bhi", .plain "i64.add", .localGet "carry", .plain "i64.add", .localSet "hi",
-      .localGet "lo", .localGet "hi"
+      .i32Const U128_RESULT_BUF, .localGet "lo", .store "i64.store" 0,
+      .i32Const (U128_RESULT_BUF + 8), .localGet "hi", .store "i64.store" 0
     ] } }
 
-/-- `__pf_u128_sub(alo, ahi, blo, bhi)`: returns (lo, hi) = a - b with borrow. -/
+/-- `__pf_u128_sub(alo, ahi, blo, bhi)`: void; writes (lo, hi) = a - b to
+    `U128_RESULT_BUF`. See `u128AddFunc` for the multi_value workaround. -/
 def u128SubFunc : Func :=
   { name := u128SubName,
     params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
                 { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
-    results := #[.i64, .i64],
+    results := #[],
     locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 },
                { name := "borrow", type := .i64 }],
     body := { insns := #[
@@ -507,27 +585,45 @@ def u128SubFunc : Func :=
       .localGet "alo", .localGet "blo", .plain "i64.lt_u", .plain "i64.extend_i32_u",
       .i64Const 1, .plain "i64.and", .localSet "borrow",
       .localGet "ahi", .localGet "bhi", .plain "i64.sub", .localGet "borrow", .plain "i64.sub", .localSet "hi",
-      .localGet "lo", .localGet "hi"
+      .i32Const U128_RESULT_BUF, .localGet "lo", .store "i64.store" 0,
+      .i32Const (U128_RESULT_BUF + 8), .localGet "hi", .store "i64.store" 0
     ] } }
 
-/-- `__pf_u128_mul(alo, ahi, blo, bhi)`: returns (lo, hi) = a * b.
-    Simplified: only computes lo = alo * blo, hi = alo * bhi + ahi * blo (cross terms).
-    Full 128-bit mul would need 192-bit intermediates; this handles common cases. -/
+/-- `__pf_u128_mul(alo, ahi, blo, bhi)`: void; writes the low 128 bits of
+    `a * b` to `U128_RESULT_BUF`. The 64x64 high word is computed from 32-bit
+    limbs, then combined with the two cross terms. -/
 def u128MulFunc : Func :=
   { name := u128MulName,
     params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
                 { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
-    results := #[.i64, .i64],
-    locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    results := #[],
+    locals := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 },
+      { name := "a0", type := .i64 }, { name := "a1", type := .i64 },
+      { name := "b0", type := .i64 }, { name := "b1", type := .i64 },
+      { name := "w0", type := .i64 }, { name := "t", type := .i64 },
+      { name := "w1", type := .i64 }, { name := "w2", type := .i64 }],
     body := { insns := #[
+      .localGet "alo", .i64Const 0xffffffff, .plain "i64.and", .localSet "a0",
+      .localGet "alo", .i64Const 32, .plain "i64.shr_u", .localSet "a1",
+      .localGet "blo", .i64Const 0xffffffff, .plain "i64.and", .localSet "b0",
+      .localGet "blo", .i64Const 32, .plain "i64.shr_u", .localSet "b1",
+      .localGet "a0", .localGet "b0", .plain "i64.mul", .localSet "w0",
+      .localGet "a1", .localGet "b0", .plain "i64.mul",
+      .localGet "w0", .i64Const 32, .plain "i64.shr_u", .plain "i64.add", .localSet "t",
+      .localGet "t", .i64Const 0xffffffff, .plain "i64.and", .localSet "w1",
+      .localGet "t", .i64Const 32, .plain "i64.shr_u", .localSet "w2",
+      .localGet "a0", .localGet "b1", .plain "i64.mul",
+      .localGet "w1", .plain "i64.add", .localSet "w1",
       .localGet "alo", .localGet "blo", .plain "i64.mul", .localSet "lo",
-      .localGet "alo", .localGet "bhi", .plain "i64.mul",
+      .localGet "a1", .localGet "b1", .plain "i64.mul",
+      .localGet "w2", .plain "i64.add",
+      .localGet "w1", .i64Const 32, .plain "i64.shr_u", .plain "i64.add",
+      .localGet "alo", .localGet "bhi", .plain "i64.mul", .plain "i64.add",
       .localGet "ahi", .localGet "blo", .plain "i64.mul",
       .plain "i64.add", .localSet "hi",
-      .localGet "lo", .localGet "hi"
-    ] } }
-
-def u128EqName : String := "__pf_u128_eq"
+      .i32Const U128_RESULT_BUF, .localGet "lo", .store "i64.store" 0,
+      .i32Const (U128_RESULT_BUF + 8), .localGet "hi", .store "i64.store" 0
+     ] } }
 
 /-- `__pf_u128_eq(alo, ahi, blo, bhi)`: returns i32 (1 if equal, 0 otherwise).
     Uses: hi_eq = (ahi == bhi); lo_eq = (alo == blo); result = hi_eq & lo_eq. -/
@@ -543,7 +639,100 @@ def u128EqFunc : Func :=
       .localGet "hi_eq", .localGet "lo_eq", .plain "i32.and"
     ] } }
 
-def u128ArithFuncs : Array Func := #[u128AddFunc, u128SubFunc, u128MulFunc, u128EqFunc]
+/-! `__pf_u128_lt(alo, ahi, blo, bhi)`: returns i32 (1 if a < b unsigned).
+    `a < b` iff `ahi < bhi || (ahi == bhi && alo < blo)`. Unsigned (lt_u);
+    NEP-141 token amounts are non-negative. -/
+def u128LtFunc : Func :=
+  { name := u128LtName,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 },
+                { name := "blo", type := .i64 }, { name := "bhi", type := .i64 }],
+    results := #[.i32],
+    locals := #[{ name := "hi_lt", type := .i32 }, { name := "hi_gt", type := .i32 },
+      { name := "lo_lt", type := .i32 }],
+    body := { insns := #[
+      .localGet "ahi", .localGet "bhi", .plain "i64.lt_u", .localSet "hi_lt",
+      .localGet "ahi", .localGet "bhi", .plain "i64.gt_u", .localSet "hi_gt",
+      .localGet "alo", .localGet "blo", .plain "i64.lt_u", .localSet "lo_lt",
+      .localGet "hi_lt",
+      .localGet "hi_gt", .plain "i32.eqz",
+      .localGet "lo_lt", .plain "i32.and",
+      .plain "i32.or" ] } }
+
+def u128Divmod10Func : Func :=
+  { name := u128Divmod10Name,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 }],
+    results := #[.i64],
+    locals := #[{ name := "rem", type := .i64 }, { name := "cur", type := .i64 },
+      { name := "ql0", type := .i64 }, { name := "ql1", type := .i64 },
+      { name := "ql2", type := .i64 }, { name := "ql3", type := .i64 }],
+    body := { insns := #[
+      .i64Const 0, .localSet "rem",
+      -- limb3 = ahi >> 32 ; cur = (rem << 32) | l3
+      .localGet "rem", .i64Const 32, .plain "i64.shl",
+      .localGet "ahi", .i64Const 32, .plain "i64.shr_u", .plain "i64.or", .localTee "cur",
+      .i64Const 10, .plain "i64.div_u", .localSet "ql3",
+      .localGet "cur", .i64Const 10, .plain "i64.rem_u", .localSet "rem",
+      -- limb2 = ahi & 0xffffffff
+      .localGet "rem", .i64Const 32, .plain "i64.shl",
+      .localGet "ahi", .i64Const 0xffffffff, .plain "i64.and", .plain "i64.or", .localTee "cur",
+      .i64Const 10, .plain "i64.div_u", .localSet "ql2",
+      .localGet "cur", .i64Const 10, .plain "i64.rem_u", .localSet "rem",
+      -- limb1 = alo >> 32
+      .localGet "rem", .i64Const 32, .plain "i64.shl",
+      .localGet "alo", .i64Const 32, .plain "i64.shr_u", .plain "i64.or", .localTee "cur",
+      .i64Const 10, .plain "i64.div_u", .localSet "ql1",
+      .localGet "cur", .i64Const 10, .plain "i64.rem_u", .localSet "rem",
+      -- limb0 = alo & 0xffffffff
+      .localGet "rem", .i64Const 32, .plain "i64.shl",
+      .localGet "alo", .i64Const 0xffffffff, .plain "i64.and", .plain "i64.or", .localTee "cur",
+      .i64Const 10, .plain "i64.div_u", .localSet "ql0",
+      .localGet "cur", .i64Const 10, .plain "i64.rem_u", .localSet "rem",
+      -- reassemble quotient and write to U128_RESULT_BUF
+      .i32Const U128_RESULT_BUF,
+        .localGet "ql0", .localGet "ql1", .i64Const 32, .plain "i64.shl", .plain "i64.or",
+        .store "i64.store" 0,
+      .i32Const (U128_RESULT_BUF + 8),
+        .localGet "ql2", .localGet "ql3", .i64Const 32, .plain "i64.shl", .plain "i64.or",
+        .store "i64.store" 0,
+      .localGet "rem" ] } }
+
+/-! `__pf_fmt_u128(alo, ahi) -> i32 ptr`: write the unsigned decimal string of
+    the u128 backwards into RET_BUF (end = RET_BUF + 40; max 39 digits) and
+    return the start pointer. Reuses `__pf_u128_divmod10` per digit. This is
+    the JSON U128 primitive shared by event fields, crosscall args, and view
+    returns (Phase 4). -/
+def u128FmtFunc : Func :=
+  { name := u128FmtName,
+    params := #[{ name := "alo", type := .i64 }, { name := "ahi", type := .i64 }],
+    results := #[.i32],
+    locals := #[{ name := "ql", type := .i64 }, { name := "qh", type := .i64 },
+      { name := "rem", type := .i64 }, { name := "p", type := .i32 }],
+    body := { insns := #[
+      .localGet "alo", .localSet "ql",
+      .localGet "ahi", .localSet "qh",
+      .i32Const (RET_BUF + 40), .localSet "p",
+      -- zero case: emit a single '0'
+      .localGet "ql", .plain "i64.eqz",
+      .localGet "qh", .plain "i64.eqz", .plain "i32.and",
+      .if_ { insns := #[
+        .i32Const (RET_BUF + 39), .i32Const 48, .store "i32.store8" 0,
+        .i32Const (RET_BUF + 39), .localSet "p" ] }
+        { insns := #[ .block_ { insns := #[ .loop_ { insns := #[
+          .localGet "ql", .plain "i64.eqz",
+          .localGet "qh", .plain "i64.eqz", .plain "i32.and", .brIf 1,
+          .localGet "ql", .localGet "qh", .call u128Divmod10Name, .localSet "rem",
+          .i32Const U128_RESULT_BUF, .load "i64.load" 0, .localSet "ql",
+          .i32Const (U128_RESULT_BUF + 8), .load "i64.load" 0, .localSet "qh",
+          .localGet "p", .i32Const 1, .plain "i32.sub", .localTee "p",
+          .i32Const 48, .localGet "rem", .plain "i32.wrap_i64", .plain "i32.add",
+          .store "i32.store8" 0, .br 0 ] } ] } ] },
+      .localGet "p" ] } }
+
+def u128ArithFuncs : Array Func :=
+  -- divmod10/fmt are event-format helpers (emitted via evtHelperFuncsForModulePlan
+  -- when usesEventNumeric), not u128 arithmetic; exclude them to avoid a
+  -- redefinition when both the event helper set and this list are emitted.
+  #[u128AddFunc, u128SubFunc, u128MulFunc, u128EqFunc, u128LtFunc]
 
 def powName (vt : ValueType) : String := "__pf_pow_" ++ typeSuffix vt
 
@@ -578,7 +767,16 @@ def scalarStorageHelperFuncsForModulePlan (plan : ModulePlan)
       acc.push (writeFunc type bridge)
     else
       acc
-  funcs
+  -- U128 storage uses a distinct two-word (lo, hi) register ABI on NEAR; the
+  -- single-word `readFunc`/`writeFunc` above do not fit it. Soroban/CosmWasm
+  -- U128 storage is not materialized in this slice.
+  let u128Funcs :=
+    if bridge == .near then
+      (if plan.scalarReadTypes.contains .u128 then #[readU128FuncNear] else #[]) ++
+        (if plan.scalarWriteTypes.contains .u128 then #[writeU128FuncNear] else #[])
+    else
+      #[]
+  funcs ++ u128Funcs
 
 def returnHelperFuncsForModulePlan (plan : ModulePlan)
     (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=

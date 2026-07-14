@@ -246,10 +246,11 @@ mutual
       | .contextRead field =>
           match field with
           | .userId | .contractId | .checkpointId | .timestamp | .epochHeight
-          | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
+          | .chainId | .gasLeft | .prepaidGas | .usedGas =>
               .ok (state, .u64 0)
-          | .userIdHash | .randomSeed | .origin | .coinbase | .blockHash _ =>
+          | .userIdHash | .randomSeed | .signer =>
               .ok (state, .hash 0 0 0 0)
+          | .accountId => .ok (state, .string "")
       | .eventEmit name fields => do
           let (nextState, data) ← evalEventFieldFuel fuel state frame fields
           .ok (nextState.recordEvent name #[] data, .unit)
@@ -257,27 +258,6 @@ mutual
           let (nextState, indexed) ← evalEventFieldFuel fuel state frame indexedFields
           let (nextState, data) ← evalEventFieldFuel fuel nextState frame dataFields
           .ok (nextState.recordEvent name indexed data, .unit)
-      | .checkErc721Received operator fromAddr toAddr tokenId => do
-          -- Abstract fuel model: evaluate args; host CALL is EVM-only (PF-P2-02).
-          let (s1, _) ← evalExprFuel fuel state frame operator
-          let (s2, _) ← evalExprFuel fuel s1 frame fromAddr
-          let (s3, _) ← evalExprFuel fuel s2 frame toAddr
-          let (s4, _) ← evalExprFuel fuel s3 frame tokenId
-          .ok (s4, .unit)
-      | .checkErc1155Received operator fromAddr toAddr id amount => do
-          let (s1, _) ← evalExprFuel fuel state frame operator
-          let (s2, _) ← evalExprFuel fuel s1 frame fromAddr
-          let (s3, _) ← evalExprFuel fuel s2 frame toAddr
-          let (s4, _) ← evalExprFuel fuel s3 frame id
-          let (s5, _) ← evalExprFuel fuel s4 frame amount
-          .ok (s5, .unit)
-      | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
-          let (s1, _) ← evalExprFuel fuel state frame operator
-          let (s2, _) ← evalExprFuel fuel s1 frame fromAddr
-          let (s3, _) ← evalExprFuel fuel s2 frame toAddr
-          let (s4, _) ← evalExprFuel fuel s3 frame ids
-          let (s5, _) ← evalExprFuel fuel s4 frame amounts
-          .ok (s5, .unit)
       | _ => unsupportedEffect effect
 
   /-- Total fuel-indexed evaluation of event field arrays. -/

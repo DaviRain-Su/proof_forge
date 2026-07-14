@@ -59,18 +59,28 @@ object "Ierc721Client" {
       revert(0, 0)
     }
     function f_Ierc721Client_moveToken(from, to, tokenId) {
-      let _ok := __proof_forge_crosscall_3(0, 599290589, from, to, tokenId)
+      let v3 := 0
+      let v4 := 599290589
+      let v5 := __proof_forge_crosscall_3(v3, v4, from, to, tokenId)
       sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(tokenId, 18446744073709551615))))
     }
     function f_Ierc721Client_safeMoveToken(from, to, tokenId) {
-      let _ok := __proof_forge_crosscall_3(0, 1115958798, from, to, tokenId)
+      let v9 := 0
+      let v10 := 1115958798
+      let v11 := __proof_forge_crosscall_3(v9, v10, from, to, tokenId)
       sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(tokenId, 18446744073709551615))))
     }
     function f_Ierc721Client_readOwner(tokenId) -> __pf_result {
-      __pf_result := __proof_forge_crosscall_1(0, 1666326814, tokenId)
+      let v13 := 0
+      let v14 := 1666326814
+      let v15 := __proof_forge_crosscall_1(v13, v14, tokenId)
+      __pf_result := v15
     }
     function f_Ierc721Client_readBalance(account) -> __pf_result {
-      __pf_result := __proof_forge_crosscall_1(0, 1889567281, account)
+      let v17 := 0
+      let v18 := 1889567281
+      let v19 := __proof_forge_crosscall_1(v17, v18, account)
+      __pf_result := v19
     }
     function __proof_forge_crosscall_3(target, selector, arg0, arg1, arg2) -> result {
       mstore(0, shl(224, selector))

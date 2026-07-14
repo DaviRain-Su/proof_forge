@@ -121,7 +121,7 @@ def forWasmHost (module : Module) (profile : TargetProfile) : Report :=
   let (stateUnits, entrypointCount) := baseCounts module
   let bridge? := profile.hostBridge?
   let hasNearExt :=
-    !module.nearCrosscallStrings.isEmpty ||
+    !module.crosscallStrings.isEmpty ||
     module.capabilities.any (fun c => c == .nearPromise)
   let mode :=
     match bridge? with

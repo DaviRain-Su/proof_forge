@@ -35,10 +35,10 @@ contract_source AuthRemoteCall do
   entry debit_and_forward (amount : .u64) returns(.u64) do
     let _sender : .u64 := caller;
     let n : .u64 := balance;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref n)
-      (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref n)
+      (ProofForge.Contract.Source.ref amount) "insufficient balance";
     balance := n -! amount;
-    return ProofForge.Contract.Surface.remoteCallRef callee
-      #[ProofForge.Contract.Surface.ref amount];
+    return ProofForge.Contract.Source.remoteCallRef callee
+      #[ProofForge.Contract.Source.ref amount];
 
 end Examples.Product.AuthRemoteCall

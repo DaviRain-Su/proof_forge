@@ -3,14 +3,14 @@ import ProofForge.Backend.Solana.Extension
 import ProofForge.Backend.Solana.Idl
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Contract.Builder
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Legacy
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
 namespace ProofForge.Tests.SolanaAllocator
 
 open ProofForge.Contract.Builder
-open ProofForge.Solana
+open ProofForge.Contract.Source.Solana.Legacy
 open ProofForge.Target
 
 def require (condition : Bool) (message : String) : IO Unit :=
@@ -35,7 +35,7 @@ def metadataValue? (call : CapabilityCall) (key : String) : Option String :=
     none
 
 def allocatorCall? (plan : CapabilityPlan) : Option CapabilityCall :=
-  plan.calls.find? (fun call => call.operation == "solana.runtime.allocator")
+  plan.calls.find? (fun call => call.operation == .builtin "solana.runtime.allocator")
 
 def requireMetadata (call : CapabilityCall) (key expected : String) : IO Unit :=
   require (metadataValue? call key == some expected)

@@ -18,20 +18,18 @@ object "Counter" {
       revert(0, 0)
     }
     function f_Counter_initialize() {
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(0, 18446744073709551615))))
+      let v0 := 0
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v0, 18446744073709551615))))
     }
     function f_Counter_increment() {
-      let n := and(shr(0, sload(0)), 18446744073709551615)
-      {
-        let __pf_packed_value := __pf_checked_width(__pf_checked_add(__pf_checked_width(n, 18446744073709551615), __pf_checked_width(1, 18446744073709551615)), 18446744073709551615)
-        if gt(__pf_packed_value, 18446744073709551615) {
-          revert(0, 0)
-        }
-        sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(__pf_packed_value, 18446744073709551615))))
-      }
+      let v1 := and(shr(0, sload(0)), 18446744073709551615)
+      let v2 := 1
+      let v3 := __pf_checked_width(__pf_checked_add(__pf_checked_width(v1, 18446744073709551615), __pf_checked_width(v2, 18446744073709551615)), 18446744073709551615)
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v3, 18446744073709551615))))
     }
     function f_Counter_get() -> __pf_result {
-      __pf_result := and(shr(0, sload(0)), 18446744073709551615)
+      let v4 := and(shr(0, sload(0)), 18446744073709551615)
+      __pf_result := v4
     }
     function __pf_checked_width(value, maxValue) -> result {
       if gt(value, maxValue) {

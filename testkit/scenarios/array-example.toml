@@ -222,7 +222,6 @@ contains = [
   'sol_sizeOf3',
   'sol_getElem',
   'sol_sumOf3',
-  'array.get: compute element address',
 ]
 
 [[artifact]]

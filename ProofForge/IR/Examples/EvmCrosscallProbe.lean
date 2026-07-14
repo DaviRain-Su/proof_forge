@@ -891,31 +891,6 @@ def callRemoteDelegateMatrixArg : Entrypoint := {
   ]
 }
 
-def deployCreate : Entrypoint := {
-  name := "deploy_create"
-  selector? := some "c9bc2909"
-  params := #[
-    ("value", .u64)
-  ]
-  returns := .u64
-  body := #[
-    .return (.crosscallCreate (.local "value") returnFortyTwoInitCodeHex)
-  ]
-}
-
-def deployCreate2 : Entrypoint := {
-  name := "deploy_create2"
-  selector? := some "70b22efb"
-  params := #[
-    ("value", .u64),
-    ("salt", .hash)
-  ]
-  returns := .u64
-  body := #[
-    .return (.crosscallCreate2 (.local "value") (.local "salt") returnFortyTwoInitCodeHex)
-  ]
-}
-
 def module : Module := {
   name := "EvmCrosscallProbe"
   structs := #[remotePairStruct]
@@ -972,9 +947,7 @@ def module : Module := {
     callRemoteDelegatePairArrayArg,
     callRemoteDelegatePairMatrix,
     callRemoteDelegatePairMatrixArg,
-    callRemoteDelegateMatrixArg,
-    deployCreate,
-    deployCreate2
+    callRemoteDelegateMatrixArg
   ]
 }
 

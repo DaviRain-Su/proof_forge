@@ -96,8 +96,8 @@ def uupsProxyFallbackBody : Array Lean.Compiler.Yul.Statement := #[
   ])
 ]
 
-def dispatchDefaultCase (defaultPlan : DispatchDefaultPlan) : Lean.Compiler.Yul.Case :=
-  match defaultPlan with
+def dispatchDefaultCase (dispatch : DispatchPlan) : Lean.Compiler.Yul.Case :=
+  match dispatch.default with
   | .revert => {
       value := none
       body := { statements := #[revertStatement] }
@@ -108,25 +108,33 @@ def dispatchDefaultCase (defaultPlan : DispatchDefaultPlan) : Lean.Compiler.Yul.
     }
   | .fallback => {
       value := none
-      body := { statements := #[
-        .ifStmt (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.builtin "calldatasize" #[]])
-          { statements := #[
-            .exprStmt (Lean.Compiler.Yul.call "__pf_receive" #[]),
-            .exprStmt (Lean.Compiler.Yul.builtin "return" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0])
-          ] },
-        .exprStmt (Lean.Compiler.Yul.call "__pf_fallback" #[])
-      ] }
+      body := { statements :=
+        (match dispatch.receiveFunction? with
+        | some name => #[.ifStmt
+            (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.builtin "calldatasize" #[]])
+            { statements := #[
+              .exprStmt (Lean.Compiler.Yul.call name #[]),
+              .exprStmt (Lean.Compiler.Yul.builtin "return" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0])
+            ] }]
+        | none => #[]) ++
+        (match dispatch.fallbackFunction? with
+        | some name => #[.exprStmt (Lean.Compiler.Yul.call name #[])]
+        | none => #[revertStatement]) }
     }
   | .receive => {
       value := none
-      body := { statements := #[
-        .ifStmt (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.builtin "calldatasize" #[]])
-          { statements := #[
-            .exprStmt (Lean.Compiler.Yul.call "__pf_receive" #[]),
-            .exprStmt (Lean.Compiler.Yul.builtin "return" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0])
-          ] },
-        .exprStmt (Lean.Compiler.Yul.call "__pf_fallback" #[])
-      ] }
+      body := { statements :=
+        (match dispatch.receiveFunction? with
+        | some name => #[.ifStmt
+            (Lean.Compiler.Yul.builtin "iszero" #[Lean.Compiler.Yul.builtin "calldatasize" #[]])
+            { statements := #[
+              .exprStmt (Lean.Compiler.Yul.call name #[]),
+              .exprStmt (Lean.Compiler.Yul.builtin "return" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num 0])
+            ] }]
+        | none => #[]) ++
+        (match dispatch.fallbackFunction? with
+        | some name => #[.exprStmt (Lean.Compiler.Yul.call name #[])]
+        | none => #[revertStatement]) }
     }
 
 def entrypointDispatchCase
@@ -171,7 +179,7 @@ def dispatchBlockStatement
 def dispatchPlanStatement
     (dispatch : DispatchPlan)
     (cases : Array Lean.Compiler.Yul.Case) : Lean.Compiler.Yul.Statement :=
-  dispatchBlockStatement dispatch.entrypoints cases (dispatchDefaultCase dispatch.default)
+  dispatchBlockStatement dispatch.entrypoints cases (dispatchDefaultCase dispatch)
 
 def dispatchResultName (index : Nat) : String :=
   s!"_r{index}"

@@ -1,5 +1,9 @@
 # Primary-Triad Runtime Handoff
 
+Status: **Historical branch handoff (archived 2026-07-12).** The referenced
+branch/checkpoint is not a current execution entrypoint. Preserve this file for
+Wave-T provenance and use the current backlog for follow-up work.
+
 > Status: checkpoint ready for a Draft PR; Wave T implementation is present,
 > but `T-99` is intentionally still `pending`.
 

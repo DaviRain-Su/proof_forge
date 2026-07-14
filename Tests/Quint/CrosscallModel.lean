@@ -23,8 +23,6 @@ def main : IO UInt32 := do
         "action call_remote_value",
         "action call_remote_static",
         "action call_remote_delegate",
-        "action deploy_create",
-        "action deploy_create2",
         "action call_remote_pair",
         "action call_remote_pair_arg",
         "action call_remote_array",
@@ -36,7 +34,6 @@ def main : IO UInt32 := do
         "nondet flag",
         "nondet x",
         "nondet value",
-        "nondet salt",
         "nondet small",
         "Map(\"flag\"",
         "target + method + 0",
@@ -47,9 +44,6 @@ def main : IO UInt32 := do
         "target + method + amount + fee",
         "target + method + 1000000",
         "target + method + 2000000",
-        "value + 3000000",
-        "4000000",
-        "if (salt == \"hash:1001:0:0:0\")",
         "% 2",
         "% 4294967296",
         "hash:1001:0:0:0",
@@ -60,7 +54,7 @@ def main : IO UInt32 := do
         if !source.contains s then
           IO.eprintln s!"FAIL missing substring: {s}"
           return 1
-      if source.contains "crosscallCreate" || source.contains "not supported in Quint lowering" then
+      if source.contains "not supported in Quint lowering" then
         IO.eprintln "FAIL lowering must support crosscallInvoke stub"
         return 1
       IO.println "PASS"

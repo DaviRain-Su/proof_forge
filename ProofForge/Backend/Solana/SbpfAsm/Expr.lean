@@ -562,8 +562,8 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
   | .effect (.contextRead .userId) =>
       let (nodes, ctx) := lowerAccount0PubkeyDigestU64 ctx "userId"
       .ok (nodes, ctx)
-  | .effect (.contextRead .origin) =>
-      let (nodes, ctx) := lowerAccount0PubkeyDigestU64 ctx "origin"
+  | .effect (.contextRead .signer) =>
+      let (nodes, ctx) := lowerAccount0PubkeyDigestU64 ctx "signer"
       .ok (nodes, ctx)
   | .effect (.contextRead .userIdHash) =>
       -- Full 32-byte identity digest left at digest buffer; r2 holds limb0 and
@@ -664,10 +664,6 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
       AstNode.instruction { opcode := .call, imm := some (.sym sol_sha256) },
       AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num digestBuf) }
     ], ctx)
-  | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-    .error { message := "Solana: ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only)" }
-  | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-    .error { message := "Solana: crosscallAbiPacked (compile-time ABI Call[]) is EVM-only" }
   | .hashTwoToOne lhs rhs => do
     let (ln, ctx) ← lowerExpr ctx lhs
     let (scratchL, ctx) := ctx.allocScratch
@@ -786,11 +782,8 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
       .error { message := "STATICCALL is EVM-only; Solana materializes portable crosscall.invoke as CPI" }
   | .crosscallInvokeDelegateTyped _ _ _ _ =>
       .error { message := "DELEGATECALL is EVM-only; Solana materializes portable crosscall.invoke as CPI" }
-  | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
-      .error { message := "create/create2 are EVM-only; not materializable as Solana CPI" }
-  | .nearCrosscallInvokePool .. | .nearPromiseThen .. | .nearPromiseResultsCount
-  | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ =>
-      .error { message := "NEAR Promise expressions are not materializable on solana-sbpf-asm" }
+  | .crosscallInvokeNamedValue .. | .crosscallContinue .. =>
+      .error { message := "asynchronous named calls are not materializable on solana-sbpf-asm" }
   | _ => .error { message := "unsupported expression in Phase 1" }
 where
   lowerPortableCrosscallInvoke (ctx0 : LowerCtx) (target method : IR.Expr) (args : Array IR.Expr) :

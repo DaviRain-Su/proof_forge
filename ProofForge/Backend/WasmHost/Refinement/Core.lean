@@ -429,28 +429,32 @@ def valueVaultEventLogPayload
   if !log.indexed.isEmpty then
     .error s!"offline-host log obligation does not yet encode indexed event `{log.name}`"
   else
+    let header (name : String) :=
+      "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"" ++
+        name ++ "\",\"data\":[{"
+    let footer := "}]}"
     match log.name, log.data.toList with
     | "VaultInitialized", [.u64 initial, .u64 checkpoint] =>
-        .ok ("{\"event\":\"VaultInitialized\",\"initial\":" ++
-          toString initial ++ ",\"checkpoint\":" ++ toString checkpoint ++ "}")
+        .ok (header "VaultInitialized" ++ "\"initial\":" ++
+          toString initial ++ ",\"checkpoint\":" ++ toString checkpoint ++ footer)
     | "ValueDeposited", [.u64 amount, .u64 balance, .u64 operations] =>
-        .ok ("{\"event\":\"ValueDeposited\",\"amount\":" ++
+        .ok (header "ValueDeposited" ++ "\"amount\":" ++
           toString amount ++ ",\"balance\":" ++ toString balance ++
-          ",\"operations\":" ++ toString operations ++ "}")
+          ",\"operations\":" ++ toString operations ++ footer)
     | "ValueCharged", [.u64 gross, .u64 fee, .u64 net, .u64 balance] =>
-        .ok ("{\"event\":\"ValueCharged\",\"gross\":" ++
+        .ok (header "ValueCharged" ++ "\"gross\":" ++
           toString gross ++ ",\"fee\":" ++ toString fee ++
           ",\"net\":" ++ toString net ++ ",\"balance\":" ++
-          toString balance ++ "}")
+          toString balance ++ footer)
     | "ValueReleased", [.u64 amount, .u64 balance, .u64 released] =>
-        .ok ("{\"event\":\"ValueReleased\",\"amount\":" ++
+        .ok (header "ValueReleased" ++ "\"amount\":" ++
           toString amount ++ ",\"balance\":" ++ toString balance ++
-          ",\"released\":" ++ toString released ++ "}")
+          ",\"released\":" ++ toString released ++ footer)
     | "ValueSnapshot", [.u64 balance, .u64 released, .u64 fees, .u64 checkpoint] =>
-        .ok ("{\"event\":\"ValueSnapshot\",\"balance\":" ++
+        .ok (header "ValueSnapshot" ++ "\"balance\":" ++
           toString balance ++ ",\"released\":" ++ toString released ++
           ",\"fees\":" ++ toString fees ++ ",\"checkpoint\":" ++
-          toString checkpoint ++ "}")
+          toString checkpoint ++ footer)
     | _, _ =>
         .error s!"offline-host log obligation has no formatter for event `{log.name}`"
 

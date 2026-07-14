@@ -436,8 +436,10 @@ inductive HostEnv where
   | blockHeight
   /-- Chain id. -/
   | chainId
-  /-- Immediate caller / signer / predecessor (`msg.sender` · signer · predecessor). -/
+  /-- Immediate caller / predecessor (`msg.sender` · predecessor). -/
   | caller
+  /-- Transaction signer (`tx.origin` · first signer · signer_account_id). -/
+  | signer
   /-- This contract's address / program id / account id. -/
   | selfAddress
   /-- Attached native value (`msg.value` · lamports · attached_deposit). -/
@@ -473,6 +475,7 @@ def HostEnv.id : HostEnv → String
   | .blockHeight => "env.blockHeight"
   | .chainId => "env.chainId"
   | .caller => "env.caller"
+  | .signer => "env.signer"
   | .selfAddress => "env.selfAddress"
   | .attachedValue => "env.attachedValue"
   | .epoch => "env.epoch"
@@ -493,7 +496,7 @@ instance : ToString HostEnv where
 
 /-- Bucket classification (gap-analysis three buckets). -/
 def HostEnv.bucket : HostEnv → HostEnvBucket
-  | .blockTime | .blockHeight | .chainId | .caller | .selfAddress | .attachedValue =>
+  | .blockTime | .blockHeight | .chainId | .caller | .signer | .selfAddress | .attachedValue =>
       .general
   | .epoch | .gasOrComputeBudgetLeft | .blockHash | .randomness =>
       .approximate
@@ -503,7 +506,7 @@ def HostEnv.bucket : HostEnv → HostEnvBucket
 
 /-- Full HostEnv catalog (for tests / enumeration). -/
 def allHostEnvs : Array HostEnv := #[
-  .blockTime, .blockHeight, .chainId, .caller, .selfAddress, .attachedValue,
+  .blockTime, .blockHeight, .chainId, .caller, .signer, .selfAddress, .attachedValue,
   .epoch, .gasOrComputeBudgetLeft, .blockHash, .randomness,
   .gasPrice, .baseFee, .txOrigin, .coinbase, .solanaRent, .nearPredecessor,
   .nearPrepaidGas, .nearUsedGas
@@ -520,6 +523,7 @@ structure HostEnvMaterialization where
 /-- Linked HostEffect when one exists (for catalog cross-ref). -/
 def HostEnv.hostEffect? : HostEnv → Option HostEffect
   | .caller => some .caller
+  | .signer => some .caller
   | .attachedValue => some .valueNative
   | .blockTime | .blockHeight | .chainId | .epoch => some .envBlock
   | .gasOrComputeBudgetLeft => some .computeRemaining
@@ -544,7 +548,7 @@ Primary triad matrix (context / nativeValue paths as of HostEnv step U1.4):
 * `blockTime` — triad (EVM `timestamp` · Solana `Clock.unix_timestamp` · NEAR `block_timestamp`)
 * `blockHeight` — triad (EVM `number` · Solana `Clock.slot` · NEAR `block_index`)
 * `chainId` — EVM only (Solana/NEAR plan reject `contextRead.chainId`)
-* `caller` / `attachedValue` / `selfAddress` — triad
+* `caller` / `signer` / `attachedValue` / `selfAddress` — triad
 * `gasOrComputeBudgetLeft` — EVM `gas` + Solana `sol_remaining_compute_units`; NEAR permanent reject
 * `epoch` — NEAR only (`epoch_height`); EVM/Solana reject
 * `blockHash` — EVM only; Solana/NEAR reject
@@ -590,6 +594,14 @@ def materializeEnv (targetId : String) (env : HostEnv) :
   | .caller, "wasm-near" =>
       .ok (mk .hostImport "env.predecessor_account_id" none
         (some "predecessor (not always signer under async receipts)"))
+  | .signer, "evm" =>
+      .ok (mk .opcode "origin" none (some "transaction signer via tx.origin"))
+  | .signer, "solana-sbpf-asm" =>
+      .ok (mk .syscall "tx_signer_account" (some "first signer account")
+        (some "32-byte signer pubkey"))
+  | .signer, "wasm-near" =>
+      .ok (mk .hostImport "env.signer_account_id" none
+        (some "transaction signer, distinct from predecessor under receipts"))
   | .selfAddress, "evm" =>
       .ok (mk .opcode "address" none none)
   | .selfAddress, "wasm-near" =>
@@ -652,13 +664,8 @@ def materializeEnv (targetId : String) (env : HostEnv) :
       .error (hostEnvReject targetId env "EVM-only basefee (EIP-1559)")
   | .txOrigin, "evm" =>
       .ok (mk .opcode "origin" none none)
-  | .txOrigin, "solana-sbpf-asm" =>
-      -- Backend already lowers ContextField.origin as first-signer pubkey digest
-      -- (same path as userId). Not EVM tx.origin semantics — document the alias.
-      .ok (mk .syscall "tx_signer_account" (some "alias of first signer / userId")
-        (some "NOT EVM tx.origin; same as env.caller on Solana"))
   | .txOrigin, _ =>
-      .error (hostEnvReject targetId env "EVM-only tx.origin; use env.caller")
+      .error (hostEnvReject targetId env "EVM-only tx.origin; use env.signer")
   | .coinbase, "evm" =>
       .ok (mk .opcode "coinbase" none none)
   | .coinbase, _ =>

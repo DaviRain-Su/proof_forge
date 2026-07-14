@@ -99,14 +99,21 @@ structure StringInfo where
   ptr : Nat
   len : Nat
 
-/-- Composite JSON event header stored in the string pool: `{"event":"<name>"`.
-One putstr emits the whole static prefix (no per-char / multi-fragment assembly). -/
-def eventHeaderPoolString (name : String) : String :=
-  "{\"event\":\"" ++ name ++ "\""
+def eventStandard (name : String) : String :=
+  if name == "ft_transfer" || name == "ft_mint" || name == "ft_burn" then
+    "nep141"
+  else
+    "proof_forge"
 
-/-- Composite JSON field key fragment: `,"field":` — one putstr per field. -/
-def eventFieldPoolString (field : String) : String :=
-  ",\"" ++ field ++ "\":"
+/-- Composite NEP-297 event header stored in the string pool. One putstr emits
+the full static prefix through the opening data object. -/
+def eventHeaderPoolString (name : String) : String :=
+  "EVENT_JSON:{\"standard\":\"" ++ eventStandard name ++
+    "\",\"version\":\"1.0.0\",\"event\":\"" ++ name ++ "\",\"data\":[{"
+
+/-- Composite JSON field key fragment. The first field has no leading comma. -/
+def eventFieldPoolString (index : Nat) (field : String) : String :=
+  (if index == 0 then "\"" else ",\"") ++ field ++ "\":"
 
 /-- Collect composite event header/field strings into a deduped pool at STRING_BASE. -/
 def stringPool (mod : ProofForge.IR.Module) : Array StringInfo :=
@@ -115,11 +122,11 @@ def stringPool (mod : ProofForge.IR.Module) : Array StringInfo :=
       match s with
       | .effect (.eventEmit name fields) =>
           acc' ++ #[eventHeaderPoolString name] ++
-            fields.map (fun (n, _) => eventFieldPoolString n)
+            fields.mapIdx (fun index (n, _) => eventFieldPoolString index n)
       | .effect (.eventEmitIndexed name indexedFields dataFields) =>
+          let fields := indexedFields ++ dataFields
           acc' ++ #[eventHeaderPoolString name] ++
-            indexedFields.map (fun (n, _) => eventFieldPoolString n) ++
-            dataFields.map (fun (n, _) => eventFieldPoolString n)
+            fields.mapIdx (fun index (n, _) => eventFieldPoolString index n)
       | _ => acc'
   let unique : Array String := raw.foldl (init := #[]) fun acc s => if acc.contains s then acc else acc.push s
   let result : Array StringInfo × Nat :=

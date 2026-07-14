@@ -11,7 +11,7 @@ list matching the sBPF instruction layout that `solanalib.SBPF.Decoder`
 This module is intentionally **mathlib-free** and lives on the default
 `ProofForge` build path (same isolation pattern as
 `ProofForge.Backend.Evm.EvmBytecodeSemantics`). The opt-in
-`SolanaRefinement` Lake target reinterprets the resulting bytes as
+`ProofForgeFormalSolana` Lake target reinterprets the resulting bytes as
 `Solanalib.SBPF.BpfBin` and lifts decoded instructions into
 `Solanalib.SBPF.BpfInstruction` for `verifyInstr` / `bpfInterp`.
 
@@ -346,15 +346,20 @@ def resolveProgram (program : SbpfProgram) :
       resolved := resolved.push { opcode := .exit }
       bytes := bytes ++ encodeSlot 0x95 0 0 0 0
     else if op == .call then
-      let id ← match inst.imm with
+      let (src, id) ← match inst.imm with
         | some (.sym name) =>
-            match syscallId? name with
-            | some id => pure id
-            | none => .error (.unknownSyscall name)
-        | some (.num n) => pure n
+            match lookupLabel slotLabels name with
+            | some target =>
+                let rel := (Int.ofNat target) - (Int.ofNat (pcSlot + 1))
+                pure (1, ← toTwosComplement rel 32)
+            | none =>
+                match syscallId? name with
+                | some id => pure (0, id)
+                | none => .error (.unknownSyscall name)
+        | some (.num n) => pure (0, n)
         | none => .error (.missingImm "call")
-      resolved := resolved.push { opcode := .call, immBits := id }
-      bytes := bytes ++ encodeSlot 0x85 0 0 0 id
+      resolved := resolved.push { opcode := .call, src, immBits := id }
+      bytes := bytes ++ encodeSlot 0x85 0 src 0 id
     else if op == .callx then
       let src ← match inst.dst with
         | some r => requireRegIdx r

@@ -1,4 +1,5 @@
 import ProofForge.Backend.WasmHost.Plan.Common
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Backend.WasmHost.Plan
 
@@ -8,6 +9,7 @@ open ProofForge.Backend.WasmHost.ExprAnalysis
 inductive IndexedStorageHelperKeyKind where
   | u64
   | hash
+  | string
   deriving BEq, DecidableEq, Repr
 
 structure IndexedStorageHelperSurface where
@@ -26,6 +28,7 @@ def indexedStorageHelperSurfaceOfState (module : Module) (stateId : String) :
           match keyType with
           | .u64 => .ok (some { keyKind := .u64, valueType := state.type })
           | .hash => .ok (some { keyKind := .hash, valueType := state.type })
+          | .string => .ok (some { keyKind := .string, valueType := state.type })
           | _ => .ok none
       | .array _ =>
           .ok (some { keyKind := .u64, valueType := state.type })
@@ -47,6 +50,8 @@ structure ModuleSurface where
   usesPromiseResultU64 : Bool := false
   usesPromiseReturn : Bool := false
   usesPromiseReceiverAccount : Bool := false
+  usesStorageUsage : Bool := false
+  usesPromiseTransfer : Bool := false
   usesCrosscallArgs : Bool := false
   usesCrosscallHash : Bool := false
   usesFmtU64 : Bool := false
@@ -58,14 +63,19 @@ structure ModuleSurface where
   u64IndexedWriteTypes : Array ValueType := #[]
   hashIndexedReadTypes : Array ValueType := #[]
   hashIndexedWriteTypes : Array ValueType := #[]
+  stringIndexedReadTypes : Array ValueType := #[]
+  stringIndexedWriteTypes : Array ValueType := #[]
   usesU64IndexedBuildKey : Bool := false
   usesHashIndexedBuildKey : Bool := false
+  usesStringIndexedBuildKey : Bool := false
   usesU64IndexedContains : Bool := false
   usesHashIndexedContains : Bool := false
+  usesStringIndexedContains : Bool := false
   usesHashMake : Bool := false
   usesHashPreimage : Bool := false
   usesHashTwoToOne : Bool := false
   usesHashEq : Bool := false
+  usesStrEq : Bool := false
   usesPowU32 : Bool := false
   usesPowU64 : Bool := false
   usesMemcpy : Bool := false
@@ -103,6 +113,8 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   usesPromiseResultU64 := lhs.usesPromiseResultU64 || rhs.usesPromiseResultU64
   usesPromiseReturn := lhs.usesPromiseReturn || rhs.usesPromiseReturn
   usesPromiseReceiverAccount := lhs.usesPromiseReceiverAccount || rhs.usesPromiseReceiverAccount
+  usesStorageUsage := lhs.usesStorageUsage || rhs.usesStorageUsage
+  usesPromiseTransfer := lhs.usesPromiseTransfer || rhs.usesPromiseTransfer
   usesCrosscallArgs := lhs.usesCrosscallArgs || rhs.usesCrosscallArgs
   usesCrosscallHash := lhs.usesCrosscallHash || rhs.usesCrosscallHash
   usesFmtU64 := lhs.usesFmtU64 || rhs.usesFmtU64
@@ -114,14 +126,19 @@ def mergeModuleSurfaces (lhs rhs : ModuleSurface) : ModuleSurface := {
   u64IndexedWriteTypes := mergeValueTypeSets lhs.u64IndexedWriteTypes rhs.u64IndexedWriteTypes
   hashIndexedReadTypes := mergeValueTypeSets lhs.hashIndexedReadTypes rhs.hashIndexedReadTypes
   hashIndexedWriteTypes := mergeValueTypeSets lhs.hashIndexedWriteTypes rhs.hashIndexedWriteTypes
+  stringIndexedReadTypes := mergeValueTypeSets lhs.stringIndexedReadTypes rhs.stringIndexedReadTypes
+  stringIndexedWriteTypes := mergeValueTypeSets lhs.stringIndexedWriteTypes rhs.stringIndexedWriteTypes
   usesU64IndexedBuildKey := lhs.usesU64IndexedBuildKey || rhs.usesU64IndexedBuildKey
   usesHashIndexedBuildKey := lhs.usesHashIndexedBuildKey || rhs.usesHashIndexedBuildKey
+  usesStringIndexedBuildKey := lhs.usesStringIndexedBuildKey || rhs.usesStringIndexedBuildKey
   usesU64IndexedContains := lhs.usesU64IndexedContains || rhs.usesU64IndexedContains
   usesHashIndexedContains := lhs.usesHashIndexedContains || rhs.usesHashIndexedContains
+  usesStringIndexedContains := lhs.usesStringIndexedContains || rhs.usesStringIndexedContains
   usesHashMake := lhs.usesHashMake || rhs.usesHashMake
   usesHashPreimage := lhs.usesHashPreimage || rhs.usesHashPreimage
   usesHashTwoToOne := lhs.usesHashTwoToOne || rhs.usesHashTwoToOne
   usesHashEq := lhs.usesHashEq || rhs.usesHashEq
+  usesStrEq := lhs.usesStrEq || rhs.usesStrEq
   usesPowU32 := lhs.usesPowU32 || rhs.usesPowU32
   usesPowU64 := lhs.usesPowU64 || rhs.usesPowU64
   usesMemcpy := lhs.usesMemcpy || rhs.usesMemcpy
@@ -193,6 +210,15 @@ def withPromiseResults : ModuleSurface := {
   usesPromiseResults := true
 }
 
+def withStorageUsage : ModuleSurface := {
+  usesStorageUsage := true
+}
+
+def withPromiseTransfer : ModuleSurface := {
+  usesPromiseApi := true
+  usesPromiseTransfer := true
+}
+
 /-- NEAR callback result payload decode (`promise_result` + Borsh U64 from register). -/
 def withPromiseResultU64 : ModuleSurface := {
   usesPromiseApi := true
@@ -262,12 +288,15 @@ def withU64IndexedWriteType (type : ValueType) : ModuleSurface := {
 def withHashIndexedReadType (type : ValueType) : ModuleSurface := {
   usesHashIndexedBuildKey := true
   hashIndexedReadTypes := #[type]
+  -- `mapBuildkeyHashFunc` copies the 32-byte key with `__pf_memcpy`.
+  usesMemcpy := true
 }
 
 def withHashIndexedWriteType (type : ValueType) : ModuleSurface := {
   usesHashIndexedBuildKey := true
   hashIndexedWriteTypes := #[type]
-  usesMemcpy := type == .hash
+  -- `mapBuildkeyHashFunc` copies the 32-byte key with `__pf_memcpy`.
+  usesMemcpy := true
 }
 
 def withU64IndexedContains : ModuleSurface := {
@@ -278,6 +307,29 @@ def withU64IndexedContains : ModuleSurface := {
 def withHashIndexedContains : ModuleSurface := {
   usesHashIndexedBuildKey := true
   usesHashIndexedContains := true
+}
+
+def withStringIndexedBuildKey : ModuleSurface := {
+  usesStringIndexedBuildKey := true,
+  usesMemcpy := true
+}
+
+def withStringIndexedReadType (type : ValueType) : ModuleSurface := {
+  usesStringIndexedBuildKey := true,
+  stringIndexedReadTypes := #[type],
+  -- `mapBuildkeyStringFunc` copies the variable-length key with `__pf_memcpy`.
+  usesMemcpy := true
+}
+
+def withStringIndexedWriteType (type : ValueType) : ModuleSurface := {
+  usesStringIndexedBuildKey := true,
+  stringIndexedWriteTypes := #[type],
+  usesMemcpy := true
+}
+
+def withStringIndexedContains : ModuleSurface := {
+  usesStringIndexedBuildKey := true,
+  usesStringIndexedContains := true
 }
 
 def withHashMake : ModuleSurface := {
@@ -349,7 +401,7 @@ def crosscallArgSurfaceForType (type : ValueType) : ModuleSurface :=
 
 def eventFieldSurfaceForType (type : ValueType) : ModuleSurface :=
   match type with
-  | .u64 | .u32 => ModuleSurface.withEventNumeric
+  | .u64 | .u32 | .u128 => ModuleSurface.withEventNumeric
   | .bool => ModuleSurface.withEventBool
   | .hash => ModuleSurface.withEventHash
   | _ => ModuleSurface.withEventApi
@@ -381,6 +433,8 @@ def indexedStorageReadSurfaceSummary
       | .u64, none => .ok ModuleSurface.withU64IndexedBuildKey
       | .hash, some type => .ok (ModuleSurface.withHashIndexedReadType type)
       | .hash, none => .ok ModuleSurface.withHashIndexedBuildKey
+      | .string, some type => .ok (ModuleSurface.withStringIndexedReadType type)
+      | .string, none => .ok ModuleSurface.withStringIndexedBuildKey
   | none => .ok ModuleSurface.empty
 
 def indexedStorageWriteSurfaceSummary
@@ -393,6 +447,8 @@ def indexedStorageWriteSurfaceSummary
       | .u64, none => .ok ModuleSurface.withU64IndexedBuildKey
       | .hash, some type => .ok (ModuleSurface.withHashIndexedWriteType type)
       | .hash, none => .ok ModuleSurface.withHashIndexedBuildKey
+      | .string, some type => .ok (ModuleSurface.withStringIndexedWriteType type)
+      | .string, none => .ok ModuleSurface.withStringIndexedBuildKey
   | none => .ok ModuleSurface.empty
 
 def indexedStorageContainsSurfaceSummary
@@ -403,12 +459,16 @@ def indexedStorageContainsSurfaceSummary
       match surface.keyKind with
       | .u64 => .ok ModuleSurface.withU64IndexedContains
       | .hash => .ok ModuleSurface.withHashIndexedContains
+      | .string => .ok ModuleSurface.withStringIndexedContains
   | none => .ok ModuleSurface.empty
 
 mutual
   partial def contextOpsFromExpr (expr : Expr) : Except PlanError (Array ContextExprPlan) :=
     match expr with
-    | .literal _ | .local _ | .nativeValue => .ok #[]
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => .ok #[]
+    | .hostCall _ args _ _ =>
+        args.foldlM (init := #[]) fun acc arg =>
+          return mergeContextExprPlans acc (← contextOpsFromExpr arg)
     | .arrayLit _ values =>
         values.foldlM (init := #[]) fun acc value =>
           return mergeContextExprPlans acc (← contextOpsFromExpr value)
@@ -431,18 +491,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         return mergeContextExprPlans (← contextOpsFromExpr lhs) (← contextOpsFromExpr rhs)
-    | .ecrecover a b c d =>
-        return mergeContextExprPlans
-          (mergeContextExprPlans (← contextOpsFromExpr a) (← contextOpsFromExpr b))
-          (mergeContextExprPlans (← contextOpsFromExpr c) (← contextOpsFromExpr d))
-    | .eip712PermitDigest a b c d e f =>
-        return mergeContextExprPlans
-          (mergeContextExprPlans
-            (mergeContextExprPlans (← contextOpsFromExpr a) (← contextOpsFromExpr b))
-            (mergeContextExprPlans (← contextOpsFromExpr c) (← contextOpsFromExpr d)))
-          (mergeContextExprPlans (← contextOpsFromExpr e) (← contextOpsFromExpr f))
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        contextOpsFromExpr target
     | .cast value _ | .boolNot value | .hash value =>
         contextOpsFromExpr value
     | .hashValue a b c d =>
@@ -464,35 +512,31 @@ mutual
             (← contextOpsFromExpr callValue)
         args.foldlM (init := base) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .crosscallCreate callValue _ =>
-        contextOpsFromExpr callValue
-    | .crosscallCreate2 callValue salt _ =>
-        return mergeContextExprPlans (← contextOpsFromExpr callValue) (← contextOpsFromExpr salt)
     | .crosscallNamed _ _ args _ =>
         args.foldlM (init := #[]) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .nearCrosscallInvokePool accountIndex methodId args deposit => do
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ => do
         let base :=
           mergeContextExprPlans
             (mergeContextExprPlans (← contextOpsFromExpr accountIndex) (← contextOpsFromExpr methodId))
             (← contextOpsFromExpr deposit)
         args.foldlM (init := base) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .nearPromiseThen parentPromise callbackMethod args deposit => do
+    | .crosscallContinue parentPromise callbackMethod args deposit _ => do
         let base :=
           mergeContextExprPlans
             (mergeContextExprPlans (← contextOpsFromExpr parentPromise) (← contextOpsFromExpr callbackMethod))
             (← contextOpsFromExpr deposit)
         args.foldlM (init := base) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .nearPromiseResultsCount => .ok #[]
-    | .nearPromiseResultStatus index => contextOpsFromExpr index
-    | .nearPromiseResultU64 index => contextOpsFromExpr index
     | .effect effect =>
         contextOpsFromEffect effect
 
   partial def contextOpsFromEffect (effect : Effect) : Except PlanError (Array ContextExprPlan) :=
     match effect with
+    | .hostCall _ args _ =>
+        args.foldlM (init := #[]) fun acc arg =>
+          return mergeContextExprPlans acc (← contextOpsFromExpr arg)
     | .storageScalarRead _ => .ok #[]
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
         contextOpsFromExpr value
@@ -531,30 +575,6 @@ mutual
           return mergeContextExprPlans acc (← contextOpsFromExpr field.snd)
         dataFields.foldlM (init := indexed) fun acc field =>
           return mergeContextExprPlans acc (← contextOpsFromExpr field.snd)
-    | .checkErc721Received a b c d => do
-        let s1 ← contextOpsFromExpr a
-        let s2 ← contextOpsFromExpr b
-        let s3 ← contextOpsFromExpr c
-        let s4 ← contextOpsFromExpr d
-        return mergeContextExprPlans (mergeContextExprPlans s1 s2) (mergeContextExprPlans s3 s4)
-    | .checkErc1155Received a b c d e => do
-        let s1 ← contextOpsFromExpr a
-        let s2 ← contextOpsFromExpr b
-        let s3 ← contextOpsFromExpr c
-        let s4 ← contextOpsFromExpr d
-        let s5 ← contextOpsFromExpr e
-        return mergeContextExprPlans
-          (mergeContextExprPlans (mergeContextExprPlans s1 s2) (mergeContextExprPlans s3 s4)) s5
-
-    | .checkErc1155BatchReceived a b c d e => do
-        let s1 ← contextOpsFromExpr a
-        let s2 ← contextOpsFromExpr b
-        let s3 ← contextOpsFromExpr c
-        let s4 ← contextOpsFromExpr d
-        let s5 ← contextOpsFromExpr e
-        return mergeContextExprPlans
-          (mergeContextExprPlans (mergeContextExprPlans s1 s2) (mergeContextExprPlans s3 s4)) s5
-
   partial def contextOpsFromPath (path : Array StoragePathSegment) :
       Except PlanError (Array ContextExprPlan) :=
     path.foldlM (init := #[]) fun acc segment =>
@@ -602,6 +622,10 @@ def contextOpsFromModule (module : Module) : Except PlanError (Array ContextExpr
 partial def surfaceFromValueType (module : Module) (type : ValueType) : ModuleSurface :=
   match type with
   | .hash => ModuleSurface.withMemcpy
+  | .string | .bytes =>
+    -- Borsh dynamic string/bytes params allocate a payload buffer and copy the
+    -- four-byte length prefix into it (see `Params.loadParams`).
+    mergeModuleSurfaces ModuleSurface.withArrAlloc ModuleSurface.withMemcpy
   | .fixedArray elemType _ =>
       mergeModuleSurfaces ModuleSurface.withArrAlloc
         (if elemType == .hash then ModuleSurface.withMemcpy else surfaceFromValueType module elemType)
@@ -638,6 +662,25 @@ mutual
         .ok ModuleSurface.empty
     | .nativeValue =>
         .ok ModuleSurface.withNativeValue
+    | .callValueU128 =>
+        .ok ModuleSurface.withNativeValue
+    | .hostCall id args _ _ => do
+        let argSurface ← args.foldlM (init := ModuleSurface.empty) fun acc arg =>
+          return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
+        let hostSurface :=
+          if id == ProofForge.Target.HostOps.Near.storageUsageSig.id then
+            ModuleSurface.withStorageUsage
+          else if id == ProofForge.Target.HostOps.Near.promiseTransferSig.id then
+            ModuleSurface.withPromiseTransfer
+          else if id == ProofForge.Target.HostOps.Near.promiseResultU64Sig.id ||
+              id == ProofForge.Target.HostOps.Near.promiseResultU128Sig.id then
+            ModuleSurface.withPromiseResultU64
+          else if id == ProofForge.Target.HostOps.Near.promiseResultsCountSig.id ||
+              id == ProofForge.Target.HostOps.Near.promiseResultStatusSig.id then
+            ModuleSurface.withPromiseResults
+          else
+            ModuleSurface.empty
+        .ok (mergeModuleSurfaces argSurface hostSurface)
     | .arrayLit elementType values => do
         let valueSurface ← values.foldlM (init := ModuleSurface.empty) fun acc value =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env value)
@@ -680,19 +723,6 @@ mutual
         let merged :=
           mergeModuleSurfaces (← surfaceFromExpr module env lhs) (← surfaceFromExpr module env rhs)
         .ok (mergeModuleSurfaces merged ModuleSurface.withHashTwoToOne)
-    | .ecrecover a b c d => do
-        let merged :=
-          mergeModuleSurfaces
-            (mergeModuleSurfaces (← surfaceFromExpr module env a) (← surfaceFromExpr module env b))
-            (mergeModuleSurfaces (← surfaceFromExpr module env c) (← surfaceFromExpr module env d))
-        .ok merged
-    | .eip712PermitDigest a b c d e f => do
-        let ab := mergeModuleSurfaces (← surfaceFromExpr module env a) (← surfaceFromExpr module env b)
-        let cd := mergeModuleSurfaces (← surfaceFromExpr module env c) (← surfaceFromExpr module env d)
-        let ef := mergeModuleSurfaces (← surfaceFromExpr module env e) (← surfaceFromExpr module env f)
-        .ok (mergeModuleSurfaces (mergeModuleSurfaces ab cd) ef)
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        surfaceFromExpr module env target
     | .cast value _ | .boolNot value =>
         surfaceFromExpr module env value
     | .hash preimage => do
@@ -723,23 +753,17 @@ mutual
             ModuleSurface.withCrosscallPromise
         let argSurface ← surfaceFromCrosscallArgs module env args
         return mergeModuleSurfaces base argSurface
-    | .crosscallCreate callValue _ => do
-        return mergeModuleSurfaces (← surfaceFromExpr module env callValue) ModuleSurface.withCrosscallPromise
-    | .crosscallCreate2 callValue salt _ =>
-        return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module env callValue) (← surfaceFromExpr module env salt))
-          ModuleSurface.withCrosscallPromise
     | .crosscallNamed _ _ args _ =>
         args.foldlM (init := ModuleSurface.empty) fun acc arg =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)
-    | .nearCrosscallInvokePool accountIndex methodId args deposit => do
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ => do
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces (← surfaceFromExpr module env accountIndex) (← surfaceFromExpr module env methodId))
             (← surfaceFromExpr module env deposit)
         let argSurface ← surfaceFromCrosscallArgs module env args
         return mergeModuleSurfaces (mergeModuleSurfaces base argSurface) ModuleSurface.withCrosscallPromise
-    | .nearPromiseThen parentPromise callbackMethod args deposit => do
+    | .crosscallContinue parentPromise callbackMethod args deposit _ => do
         let base :=
           mergeModuleSurfaces
             (mergeModuleSurfaces
@@ -748,16 +772,13 @@ mutual
             ModuleSurface.withPromiseThen
         let argSurface ← surfaceFromCrosscallArgs module env args
         return mergeModuleSurfaces base argSurface
-    | .nearPromiseResultsCount => .ok ModuleSurface.withPromiseResults
-    | .nearPromiseResultStatus index =>
-        return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResults
-    | .nearPromiseResultU64 index =>
-        return mergeModuleSurfaces (← surfaceFromExpr module env index) ModuleSurface.withPromiseResultU64
     | .effect effect =>
         surfaceFromEffect module env effect
 
   partial def surfaceFromEffect (module : Module) (env : LocalTypeEnv) (effect : Effect) : Except PlanError ModuleSurface :=
     match effect with
+    | .hostCall id _ _ =>
+        err s!"wasm host does not support effect target extension `{id.render}`"
     | .storageScalarRead stateId => do
         let type ← stateTypeOf module stateId
         let base := ModuleSurface.withStorageRead
@@ -854,30 +875,6 @@ mutual
           return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
         dataFields.foldlM (init := indexed) fun acc field =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env field.snd)
-    | .checkErc721Received a b c d => do
-        let s1 ← surfaceFromExpr module env a
-        let s2 ← surfaceFromExpr module env b
-        let s3 ← surfaceFromExpr module env c
-        let s4 ← surfaceFromExpr module env d
-        return mergeModuleSurfaces (mergeModuleSurfaces s1 s2) (mergeModuleSurfaces s3 s4)
-    | .checkErc1155Received a b c d e => do
-        let s1 ← surfaceFromExpr module env a
-        let s2 ← surfaceFromExpr module env b
-        let s3 ← surfaceFromExpr module env c
-        let s4 ← surfaceFromExpr module env d
-        let s5 ← surfaceFromExpr module env e
-        return mergeModuleSurfaces
-          (mergeModuleSurfaces (mergeModuleSurfaces s1 s2) (mergeModuleSurfaces s3 s4)) s5
-
-    | .checkErc1155BatchReceived a b c d e => do
-        let s1 ← surfaceFromExpr module env a
-        let s2 ← surfaceFromExpr module env b
-        let s3 ← surfaceFromExpr module env c
-        let s4 ← surfaceFromExpr module env d
-        let s5 ← surfaceFromExpr module env e
-        return mergeModuleSurfaces
-          (mergeModuleSurfaces (mergeModuleSurfaces s1 s2) (mergeModuleSurfaces s3 s4)) s5
-
   partial def surfaceFromPath (module : Module) (env : LocalTypeEnv) (path : Array StoragePathSegment) :
       Except PlanError ModuleSurface :=
     path.foldlM (init := ModuleSurface.empty) fun acc segment =>

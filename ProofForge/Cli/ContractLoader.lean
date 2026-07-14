@@ -4,6 +4,8 @@ import Lean.Elab.Frontend
 import Lean.Util.Path
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Token
+import ProofForge.Frontend.Surface
+import ProofForge.Compiler.CanonicalPipeline
 
 namespace ProofForge.Cli.ContractLoader
 
@@ -68,6 +70,8 @@ unsafe def runTrustedLocalFrontend
     | throw <| IO.userError s!"Lean frontend failed for `{input.toString}`"
   pure (env, modName)
 
+
+
 private def specConstName (modName : Name) : Name :=
   modName ++ `spec
 
@@ -89,6 +93,55 @@ private def isContractSpecConst (env : Environment) (constName : Name) : Bool :=
 private def resolveSpecConstName (env : Environment) (modName : Name) : Option Name :=
   (candidateSpecNames modName).find? fun candidate =>
     env.constants.contains candidate && isContractSpecConst env candidate
+
+abbrev LoadedContractSource := ProofForge.Compiler.LoadedContractSource
+
+/-- Candidate names for an internal Surface fixture `contract` constant. -/
+private def candidateSurfaceNames (modName : Name) : List Name :=
+  let lastComponent :=
+    match modName.components.reverse with
+    | last :: _ => last
+    | [] => Name.anonymous
+  [modName ++ `contract, lastComponent ++ `contract, `contract]
+
+/-- True when `constName` is a `SurfaceContract` constant. -/
+private def isSurfaceContractConst (env : Environment) (constName : Name) : Bool :=
+  match env.find? constName with
+  | some info =>
+      match info.type with
+      | Expr.const `ProofForge.Frontend.Surface.SurfaceContract _ => true
+      | _ => false
+  | none => false
+
+/-- Resolve an internal Surface fixture `contract` constant. -/
+private def resolveSurfaceConstName (env : Environment) (modName : Name) : Option Name :=
+  (candidateSurfaceNames modName).find? fun candidate =>
+    env.constants.contains candidate && isSurfaceContractConst env candidate
+
+/-- Discover exactly one supported source constant. Fails on ambiguity or missing. -/
+unsafe def loadSourceFromEnv (env : Environment) (modName : Name) :
+    IO LoadedContractSource := do
+  let authoredSpec? := resolveSpecConstName env modName
+  let surfaceSpec? := resolveSurfaceConstName env modName
+  match authoredSpec?, surfaceSpec? with
+  | some _, some _ =>
+      throw <| IO.userError s!"module `{modName}` exports both an authored ContractSpec and an internal Surface fixture; ambiguousContractSource"
+  | none, none =>
+      throw <| IO.userError s!"module `{modName}` exports neither an authored ContractSpec nor an internal Surface fixture; missingContractSource"
+  | some constName, none =>
+      match env.evalConstCheck ProofForge.Contract.ContractSpec {} `ProofForge.Contract.ContractSpec constName with
+      | .ok spec => pure (ProofForge.Compiler.LoadedContractSource.authored spec)
+      | .error msg => throw <| IO.userError msg
+  | none, some constName =>
+      match env.evalConstCheck ProofForge.Frontend.Surface.SurfaceContract {} `ProofForge.Frontend.Surface.SurfaceContract constName with
+      | .ok contract => pure (ProofForge.Compiler.LoadedContractSource.surfaceFixture contract)
+      | .error msg => throw <| IO.userError msg
+
+unsafe def loadSource
+    (input : System.FilePath) (root? : Option System.FilePath) (moduleName? : Option Name) :
+    IO LoadedContractSource := do
+  let (env, modName) ← runTrustedLocalFrontend input root? moduleName?
+  loadSourceFromEnv env modName
 
 /-- True when `spec` is a `TokenSpec` (TokenSpec modules must use `--token`). -/
 private def isTokenSpecConst (env : Environment) (constName : Name) : Bool :=

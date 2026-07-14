@@ -170,7 +170,7 @@ def forProfile (profile : TargetProfile) : Report :=
     | .solanaCpi =>
         "Portable crosscall.invoke → Solana CPI (method+args ix data; selective accounts; PDA signers when declared; Source.Solana for protocol layouts)"
     | .nearPromise =>
-        "Portable crosscall.invoke → NEAR promise_create (nearCrosscallStrings string pool for account/method names)"
+        "Portable crosscall.invoke → NEAR promise_create (crosscallStrings string pool for account/method names)"
     | .cosmWasmMsg =>
         "Portable crosscall.invoke → CosmWasm execute_msg host stub (WasmMsg-shaped; general peer remote, not token-only)"
     | .workersBinding =>
@@ -200,27 +200,23 @@ where
   exprUses : Expr → Bool
     | .crosscallInvoke .. | .crosscallInvokeTyped .. | .crosscallInvokeValueTyped ..
     | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped ..
-    | .crosscallCreate .. | .crosscallCreate2 ..
-    | .nearCrosscallInvokePool .. | .nearPromiseThen .. => true
+    | .crosscallInvokeNamedValue .. | .crosscallContinue .. => true
     | .crosscallNamed _ _ args _ => args.any exprUses
+    | .hostCall _ args _ _ => args.any exprUses
     | .effect e => effectUses e
     | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
     | .eq a b | .ne a b | .lt a b | .le a b | .gt a b | .ge a b
     | .boolAnd a b | .boolOr a b | .hashTwoToOne a b => exprUses a || exprUses b
-    | .ecrecover a b c d => exprUses a || exprUses b || exprUses c || exprUses d
-    | .eip712PermitDigest a b c d e f =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => exprUses target
-    | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _
-    | .nearPromiseResultStatus a | .nearPromiseResultU64 a => exprUses a
+    | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)
     | .arrayGet a i | .memoryArrayGet a i => exprUses a || exprUses i
     | .memoryArrayNew _ len => exprUses len
     | .hashValue a b c d => exprUses a || exprUses b || exprUses c || exprUses d
-    | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool
+    | .hostCall _ args _ => args.any exprUses
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
     | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k => exprUses k
@@ -234,12 +230,6 @@ where
     | .eventEmit _ fs => fs.any (fun f => exprUses f.snd)
     | .eventEmitIndexed _ indexed data =>
         indexed.any (fun f => exprUses f.snd) || data.any (fun f => exprUses f.snd)
-    | .checkErc721Received a b c d =>
-        exprUses a || exprUses b || exprUses c || exprUses d
-    | .checkErc1155Received a b c d e =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
-    | .checkErc1155BatchReceived a b c d e =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => false
   pathUses : StoragePathSegment → Bool
@@ -289,21 +279,14 @@ partial def moduleUsesNearAsyncExtension (module : Module) : Bool :=
     ep.body.any stmtUses
 where
   exprUses : Expr → Bool
-    | .nearPromiseThen .. | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => true
-    | .nearCrosscallInvokePool .. => false  -- still promise_create shaped
+    | .hostCall id args _ _ => id.namespace_ == "near.promise" || args.any exprUses
+    | .crosscallContinue .. => true
+    | .crosscallInvokeNamedValue .. => false  -- still promise_create shaped
     | .effect e => effectUses e
     | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
     | .eq a b | .ne a b | .lt a b | .le a b | .gt a b | .ge a b
     | .boolAnd a b | .boolOr a b | .hashTwoToOne a b => exprUses a || exprUses b
-    | .ecrecover a b c d => exprUses a || exprUses b || exprUses c || exprUses d
-    | .eip712PermitDigest a b c d e f =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
-    | .crosscallAbiPacked target _ _ _ _ _ dynLen? _ dynTargets =>
-        exprUses target ||
-          (match dynLen? with | some e => exprUses e | none => false) ||
-          dynTargets.any exprUses
     | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)
@@ -316,11 +299,10 @@ where
         exprUses a || exprUses b || exprUses c || args.any exprUses
     | .crosscallInvokeStaticTyped a b args _ | .crosscallInvokeDelegateTyped a b args _ =>
         exprUses a || exprUses b || args.any exprUses
-    | .crosscallCreate a _ => exprUses a
-    | .crosscallCreate2 a b _ => exprUses a || exprUses b
     | .crosscallNamed _ _ args _ => args.any exprUses
-    | .literal _ | .local _ | .nativeValue => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool
+    | .hostCall _ args _ => args.any exprUses
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
     | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k => exprUses k
@@ -334,12 +316,6 @@ where
     | .eventEmit _ fs => fs.any (fun f => exprUses f.snd)
     | .eventEmitIndexed _ indexed data =>
         indexed.any (fun f => exprUses f.snd) || data.any (fun f => exprUses f.snd)
-    | .checkErc721Received a b c d =>
-        exprUses a || exprUses b || exprUses c || exprUses d
-    | .checkErc1155Received a b c d e =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
-    | .checkErc1155BatchReceived a b c d e =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => false
   pathUses : StoragePathSegment → Bool

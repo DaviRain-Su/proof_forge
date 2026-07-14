@@ -48,10 +48,11 @@ local `sui move build/test` validation.
 
 | Target id | Pipeline | Stage | Local validation |
 |---|---|---|---|
-| `evm` | Lean / portable IR → Yul → `solc` → bytecode | Experimental (broad CI gates; not a full Solidity SDK) | golden Yul, diagnostics, Foundry runtime smoke (35 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2 — see [sdk-ecosystem-gaps](docs/sdk-ecosystem-gaps-2026-07.md)) |
-| `solana-sbpf-asm` | portable IR → sBPF assembly → `sbpf` → ELF | Experimental | Mollusk tests, Surfpool/Rust live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Associated Token `create_idempotent` CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner/permanent_delegate/interest_bearing/memo_transfer/transfer_hook_init/pausable), map storage, nativeValue lamports read |
-| `wasm-near` | portable IR → `EmitWat` (Wasm AST → WAT) → `wat2wasm` | Experimental | diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening |
+| `evm` | Surface v2 / Legacy adapter → canonical contract → EVM `ModulePlan` → Yul → `solc` → bytecode | Experimental (broad CI gates; not a full Solidity SDK) | golden Yul, canonical plan/artifact parity, diagnostics, Foundry runtime smoke (35 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2 — see [sdk-ecosystem-gaps](docs/sdk-ecosystem-gaps-2026-07.md)) |
+| `solana-sbpf-asm` | Surface v2 / Legacy adapter → canonical contract → `SolanaModulePlan` → sBPF assembly → ELF | Experimental | canonical plan/artifact parity, Mollusk tests, Surfpool/Rust live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Associated Token `create_idempotent` CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner/permanent_delegate/interest_bearing/memo_transfer/transfer_hook_init/pausable), map storage, nativeValue lamports read |
+| `wasm-near` | Surface v2 / Legacy adapter → canonical contract → `NearModulePlan` → Wasm AST/WAT → Wasm | Experimental | canonical plan/artifact parity, diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening, real upstream NEAR VM conformance (IR fixture + product source + NEP-141 FT incl. storage_remove and the full promise ABI + `ft_resolve_transfer` callback dispatch via real `promise_result`, through `near-vm-runner`/Wasmtime) |
 | `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just soroban-promotion` (source identity · fail-closed · HostBridge · wat2wasm · offline-host lifecycle · docs); auth still spike-always; Stellar CLI/TTL remain follow-on |
+| `wasm-arbitrum-stylus` | Surface v2 / Legacy adapter → canonical contract → `StylusPlan` → direct HostIO Wasm (default) or pinned Rust SDK oracle | Research | `just stylus-all`; atomic WAT/Wasm or Rust bundles, plan-derived Solidity ABI/client, hashed plan/storage/evidence, and local VM/differential coverage for Counter, ValueVault, Token, RemoteCall, and bounded aggregates; Nitro activation/E2E evidence is still required for promotion |
 | `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just cosmwasm-promotion` (product Counter source · offline-host 0→1 · no NEAR swap); `execute_msg` still stub; fixture `cosmwasm-check` via `just cosmwasm-counter-smoke` |
 | `move-aptos` | portable IR → Aptos Move source package | Counter sourcegen Spike | fixture Counter package + capability checks; `just aptos-promotion` is a strict promotion gate requiring `aptos move compile/test`, not default final-artifact evidence |
 | `move-sui` | portable IR → Sui Move package | Counter MVP | Counter package layout, local `sui move build/test`, unsupported-shape diagnostics, emit/build parity, object semantics, local-only validation, TypeScript client smoke |
@@ -84,7 +85,10 @@ Install `just` from [casey/just](https://github.com/casey/just); the root
 just --list        # all recipes
 just build         # lake build
 just product       # product-first: Examples/Product multi-target matrix (required CI)
-just check         # product + backend static gates (Lean + Solana-light + NEAR + Psy + testkit + …)
+just canonical-parity  # EVM/Solana/NEAR canonical plan and artifact parity
+just check-fast    # affected-path inner loop (core/product + focused target gates)
+just check         # parallel full baseline, automatically capped at four workers
+just check-serial  # serial full reference for suspected race diagnosis
 just evm-all       # full EVM gates: examples, Foundry smoke, Anvil deploy
 just portable-counter-four-target-sdk  # Counter SDK layout for EVM, Solana, NEAR, Sui
 just sui-counter-smoke                 # local Sui Move Counter build/test
@@ -121,6 +125,14 @@ prerequisites (Foundry, `solc`, `sbpf`, `wat2wasm`, `dargo`, `leo`,
 Cloud/agent environment notes are in [AGENTS.md](AGENTS.md).
 
 ## Architecture
+
+The primary triad lowers through a checked canonical contract before entering
+the existing target semantic plans. Logical state belongs to the canonical
+layer; physical slots, account offsets, and linear-memory addresses belong to
+target plans. Non-semantic evidence cannot affect plans or artifacts. The
+frozen Legacy adapter remains test-only for one release comparison window and
+is never a public fallback. See [Canonical compiler architecture](docs/architecture.md)
+and [Canonical backend interface](docs/backend-interface.md).
 
 ```mermaid
 flowchart TB
@@ -190,6 +202,8 @@ the IR spec. Editable [Excalidraw architecture diagrams](docs/diagrams/README.md
 ## Development Docs
 
 - [Development standards](docs/development-standards.md)
+- [Canonical compiler architecture](docs/architecture.md)
+- [Canonical backend interface](docs/backend-interface.md)
 - [Validation gates](docs/validation-gates.md)
 - [Implementation backlog](docs/implementation-backlog.md) — Workstream 24
   (post-consolidation follow-ups) and Workstream 25 (formal verification)

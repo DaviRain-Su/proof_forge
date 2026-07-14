@@ -44,7 +44,7 @@ mutual
   partial def contextExprPlanUsesCheckedArithmetic : ContextExprPlan → Bool
     | .blockHash blockNumber =>
         exprPlanUsesCheckedArithmetic blockNumber
-    | .userId | .userIdHash | .contractId | .checkpointId | .timestamp | .chainId
+    | .userId | .userIdHash | .accountId | .contractId | .checkpointId | .timestamp | .chainId
     | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         false
 
@@ -237,6 +237,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         exprPlanUsesCheckedArithmetic value
     | .assign target value =>
@@ -249,7 +250,7 @@ mutual
         effectPlanUsesCheckedArithmetic effect
     | .assertEq lhs rhs _ _ =>
         exprPlanUsesCheckedArithmetic lhs || exprPlanUsesCheckedArithmetic rhs
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         false
     | .ifElse condition thenBody elseBody =>
         exprPlanUsesCheckedArithmetic condition ||
@@ -361,8 +362,8 @@ partial def stmtPlanUsesCheckedWidthHelper : StmtPlan → Bool
   | .boundedFor _ _ _ body =>
       body.any stmtPlanUsesCheckedWidthHelper
   | .letBind .. | .letMutBind .. | .assign .. | .assignOp ..
-  | .assert .. | .assertEq .. | .release .. | .revert ..
-  | .revertWithError .. | .return .. =>
+  | .assert .. | .assertEq .. | .assertPlanned .. | .release .. | .revert ..
+  | .revertWithError .. | .revertPlanned .. | .return .. =>
       false
 
 def entrypointsUseCheckedWidthHelper (entrypoints : Array EntrypointPlan) : Bool :=
@@ -446,7 +447,7 @@ mutual
       ContextExprPlan → LocalArrayHelperRequirements
     | .blockHash blockNumber =>
         localArrayHelperRequirementsFromExprPlan blockNumber
-    | .userId | .userIdHash | .contractId | .checkpointId | .timestamp | .chainId
+    | .userId | .userIdHash | .accountId | .contractId | .checkpointId | .timestamp | .chainId
     | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         emptyLocalArrayHelperRequirements
 
@@ -674,6 +675,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         localArrayHelperRequirementsFromExprPlan value
     | .assign target value
@@ -687,7 +689,7 @@ mutual
         mergeLocalArrayHelperRequirements
           (localArrayHelperRequirementsFromExprPlan lhs)
           (localArrayHelperRequirementsFromExprPlan rhs)
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         emptyLocalArrayHelperRequirements
     | .ifElse condition thenBody elseBody =>
         mergeLocalArrayHelperRequirements
@@ -822,7 +824,7 @@ mutual
     -- `userIdHash` lowers as `hashWord(caller)`; emit the keccak helper body.
     | .userIdHash =>
         #[.hashWord]
-    | .userId | .contractId | .checkpointId | .timestamp | .chainId
+    | .userId | .accountId | .contractId | .checkpointId | .timestamp | .chainId
     | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .origin | .coinbase =>
         #[]
 
@@ -1048,6 +1050,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         plannedHelpersFromExprPlan value
     | .assign target value
@@ -1061,7 +1064,7 @@ mutual
         mergeHelperSets
           (plannedHelpersFromExprPlan lhs)
           (plannedHelpersFromExprPlan rhs)
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         #[]
     | .ifElse condition thenBody elseBody =>
         mergeHelperSets
@@ -1094,25 +1097,8 @@ def buildMapHelpersFromEntrypoints (entrypoints : Array EntrypointPlan) : Helper
   (buildPlannedHelpersFromEntrypoints entrypoints).filter isMapHelper
     |> closeMapHelpers
 
-def contextFieldFromContextExprPlan : ContextExprPlan → ContextField
-  | .userId => .userId
-  | .userIdHash => .userIdHash
-  | .contractId => .contractId
-  | .checkpointId => .checkpointId
-  | .timestamp => .timestamp
-  | .chainId => .chainId
-  | .gasPrice => .gasPrice
-  | .gasLeft => .gasLeft
-  | .prepaidGas => .prepaidGas
-  | .usedGas => .usedGas
-  | .baseFee => .baseFee
-  | .prevRandao => .prevRandao
-  | .origin => .origin
-  | .coinbase => .coinbase
-  | .blockHash _ => .blockHash (.literal (.u64 0))
-
 def pushContextPlanIfMissing (ops : Array ContextPlan) (op : ContextPlan) : Array ContextPlan :=
-  if ops.any (fun existing => existing.field.name == op.field.name) then ops else ops.push op
+  if ops.any (fun existing => existing.name == op.name) then ops else ops.push op
 
 def mergeContextPlans (lhs rhs : Array ContextPlan) : Array ContextPlan :=
   rhs.foldl pushContextPlanIfMissing lhs
@@ -1143,10 +1129,10 @@ mutual
   partial def contextOpsFromContextExprPlan : ContextExprPlan → Array ContextPlan
     | .blockHash blockNumber =>
         mergeContextPlans
-          #[{ field := contextFieldFromContextExprPlan (.blockHash blockNumber) }]
+          #[{ name := (ContextExprPlan.blockHash blockNumber).name }]
           (contextOpsFromExprPlan blockNumber)
     | field =>
-        #[{ field := contextFieldFromContextExprPlan field }]
+        #[{ name := field.name }]
 
   partial def contextOpsFromAbiValuePlan : AbiValuePlan → Array ContextPlan
     | .expr value =>
@@ -1332,6 +1318,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         contextOpsFromExprPlan value
     | .assign target value
@@ -1345,7 +1332,7 @@ mutual
         mergeContextPlans
           (contextOpsFromExprPlan lhs)
           (contextOpsFromExprPlan rhs)
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         #[]
     | .ifElse condition thenBody elseBody =>
         mergeContextPlans

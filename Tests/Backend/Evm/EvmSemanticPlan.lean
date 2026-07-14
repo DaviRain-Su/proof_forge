@@ -13,6 +13,7 @@ import ProofForge.IR.Examples.EvmStorageStructProbe
 import ProofForge.IR.Examples.EvmStructArrayValueProbe
 import ProofForge.IR.Examples.EvmStructValueProbe
 import ProofForge.IR.Examples.EventProbe
+import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Tests.EvmSemanticPlan
 
@@ -429,8 +430,8 @@ def requireIdentExpr
       require (name == expectedName) s!"{label} local name"
   | _ => throw <| IO.userError s!"{label} must lower to local identifier"
 
-def contextOpsContainField (ops : Array ContextPlan) (field : ContextField) : Bool :=
-  ops.any fun op => op.field.name == field.name
+def contextOpsContainField (ops : Array ContextPlan) (name : String) : Bool :=
+  ops.any fun op => op.name == name
 
 def nativeTransferPlanProbe : Module := {
   name := "NativeTransferPlanProbe"
@@ -709,15 +710,6 @@ def contextOpsPlanProbe : Module := {
       returns := .u64
       body := #[
         .return (.effect (.contextRead .timestamp))
-      ]
-    },
-    {
-      name := "block_hash"
-      selector? := some "04f3bcec"
-      params := #[("block_number", .u64)]
-      returns := .hash
-      body := #[
-        .return (.effect (.contextRead (.blockHash (.local "block_number"))))
       ]
     }
   ]
@@ -1357,12 +1349,7 @@ def testPlannedCrosscallHelperDiscoveryToYul : IO Unit := do
       require (args.size == 2) "planned aggregate crosscall return plan-to-yul arg count"
   | _ => throw <| IO.userError "planned aggregate crosscall return plan-to-yul must assign aggregate helper call"
 
-def testPlannedCreateAndNativeHelperDiscoveryToYul : IO Unit := do
-  let plan ←
-    requireOk
-      (buildSemanticPlan ProofForge.IR.Examples.EvmCrosscallProbe.module)
-      "crosscall probe plan"
-  require (plan.creates.size == 2) "crosscall probe planned create helpers"
+def testPlannedNativeHelperDiscoveryToYul : IO Unit := do
   let nativePlan ← requireOk (buildSemanticPlan nativeTransferPlanProbe) "native transfer plan"
   let nativeTransfer ← requireSome
     (nativePlan.crosscalls.find? fun spec => spec.plainTransfer)
@@ -1387,73 +1374,6 @@ def testPlannedCreateAndNativeHelperDiscoveryToYul : IO Unit := do
   require
     (statementsHaveFunctionNamed crosscallHelpers "__proof_forge_native_transfer")
     "planned crosscall helpers include native transfer"
-  let createSpec ← requireSome
-    (plan.creates.find? fun spec => spec.mode == ProofForge.Backend.Evm.Plan.CreateMode.create)
-    "crosscall probe missing planned create helper"
-  require
-    (createSpec.initCodeHex == ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
-    "planned create helper init code"
-  let createName ←
-    requireOk
-      (ProofForge.Backend.Evm.ToYul.createHelperFunctionName
-        toYulError
-        createSpec.mode
-        createSpec.initCodeHex)
-      "planned create helper name"
-  require
-    (createName ==
-      "__proof_forge_create_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
-    "planned create helper name must include normalized init code"
-  let createFunction ←
-    requireOk
-      (ProofForge.Backend.Evm.ToYul.createHelperFunction toYulError createSpec)
-      "planned create helper function"
-  match createFunction with
-  | Lean.Compiler.Yul.Statement.funcDef name params returns body => do
-      require (name == createName) "planned create helper function name"
-      require (params.size == 1) "planned create helper parameter count"
-      require (returns.size == 1) "planned create helper return count"
-      require (statementsHaveAssignmentBuiltin body.statements "create")
-        "planned create helper must call Yul create opcode"
-  | _ => throw <| IO.userError "planned create helper must lower to function definition"
-  let create2Spec ← requireSome
-    (plan.creates.find? fun spec => spec.mode == ProofForge.Backend.Evm.Plan.CreateMode.create2)
-    "crosscall probe missing planned create2 helper"
-  require
-    (create2Spec.initCodeHex == ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
-    "planned create2 helper init code"
-  let create2Name ←
-    requireOk
-      (ProofForge.Backend.Evm.ToYul.createHelperFunctionName
-        toYulError
-        create2Spec.mode
-        create2Spec.initCodeHex)
-      "planned create2 helper name"
-  require
-    (create2Name ==
-      "__proof_forge_create2_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
-    "planned create2 helper name must include normalized init code"
-  let create2Function ←
-    requireOk
-      (ProofForge.Backend.Evm.ToYul.createHelperFunction toYulError create2Spec)
-      "planned create2 helper function"
-  match create2Function with
-  | Lean.Compiler.Yul.Statement.funcDef name params returns body => do
-      require (name == create2Name) "planned create2 helper function name"
-      require (params.size == 2) "planned create2 helper parameter count"
-      require (returns.size == 1) "planned create2 helper return count"
-      require (statementsHaveAssignmentBuiltin body.statements "create2")
-        "planned create2 helper must call Yul create2 opcode"
-  | _ => throw <| IO.userError "planned create2 helper must lower to function definition"
-  let createHelpers ←
-    requireOk (plannedCreateHelperFunctions plan.creates) "planned create helper functions"
-  require (createHelpers.size == 2) "planned create helper count"
-  require
-    (statementsHaveFunctionNamed createHelpers createName)
-    "planned create helpers include create helper"
-  require
-    (statementsHaveFunctionNamed createHelpers create2Name)
-    "planned create helpers include create2 helper"
   let object ←
     requireOk
       (lowerModuleWithPlan nativeTransferPlanProbe nativePlan)
@@ -1464,7 +1384,7 @@ def testPlannedCreateAndNativeHelperDiscoveryToYul : IO Unit := do
 
 def testPlannedHelperDiscoveryToYul : IO Unit := do
   testPlannedCrosscallHelperDiscoveryToYul
-  testPlannedCreateAndNativeHelperDiscoveryToYul
+  testPlannedNativeHelperDiscoveryToYul
 
 def testPlannedCrosscallHelperDiscoveryFromEntrypointPlans : IO Unit := do
   let crosscallPlan ←
@@ -2117,11 +2037,8 @@ def testPlannedContextOpsDiscoveryFromEntrypointPlans : IO Unit := do
     (plannedContextOps == lowerPlan.contextOps)
     "full module context ops must be discovered from entrypoint plans"
   require
-    (contextOpsContainField lowerPlan.contextOps .timestamp)
+    (contextOpsContainField lowerPlan.contextOps "timestamp")
     "full module context ops must include timestamp"
-  require
-    (contextOpsContainField lowerPlan.contextOps (.blockHash (.literal (.u64 0))))
-    "full module context ops must include blockHash"
   let targetPlanContext ←
     requireValidateOk
       (ProofForge.Backend.Evm.Lower.buildFullModulePlanWithTargetPlan
@@ -2153,10 +2070,10 @@ def testPlannedContextOpsDiscoveryFromEntrypointPlans : IO Unit := do
   let injectedContextOps :=
     ProofForge.Backend.Evm.Lower.buildContextOpsFromEntrypoints injectedEntrypoints
   require
-    (contextOpsContainField injectedContextOps (.blockHash (.literal (.u64 0))))
+    (contextOpsContainField injectedContextOps "blockHash")
     "planned entrypoint body scanner must discover injected blockHash context op"
   require
-    (contextOpsContainField injectedContextOps .timestamp)
+    (contextOpsContainField injectedContextOps "timestamp")
     "planned entrypoint body scanner must discover nested blockHash argument context op"
   require
     (injectedContextOps.size == 2)
@@ -2918,7 +2835,7 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   let uupsModule := { ProofForge.IR.Examples.Counter.module with proxyPattern? := some "uups" }
   let uupsPlan ← requireOk (buildSemanticPlan uupsModule) "UUPS counter plan"
   require (uupsPlan.dispatch.default == .uupsProxy) "UUPS plan dispatch default"
-  let uupsDefault := ProofForge.Backend.Evm.ToYul.dispatchDefaultCase uupsPlan.dispatch.default
+  let uupsDefault := ProofForge.Backend.Evm.ToYul.dispatchDefaultCase uupsPlan.dispatch
   require (uupsDefault.value.isNone) "UUPS default case selector"
   require
     (uupsDefault.body.statements.size == ProofForge.Backend.Evm.ToYul.uupsProxyFallbackBody.size)
@@ -3638,62 +3555,6 @@ def testScalarExprPlanToYul : IO Unit := do
     ("__proof_forge_create2_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
     2
     "create2 ExprPlan-to-Yul"
-  let directCreatePlan ← requireValidateOk
-    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
-      ProofForge.IR.Examples.Counter.module
-      (toValidateTypeEnv scalarEnv)
-      (.crosscallCreate
-        (.literal (.u64 0))
-        ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex))
-    "direct create Lower ExprPlan"
-  match directCreatePlan with
-  | .create .create (.literalWord 0) none initCodeHex => do
-      require
-        (initCodeHex == ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
-        "direct create Lower ExprPlan init code"
-  | _ => throw <| IO.userError "direct create must lower to create ExprPlan"
-  let directCreateExpr ← requireOk
-    (lowerExpr
-      ProofForge.IR.Examples.Counter.module
-      scalarEnv
-      (.crosscallCreate
-        (.literal (.u64 0))
-        ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex))
-    "direct create lowers through ExprPlan-to-Yul"
-  requireCallExpr
-    directCreateExpr
-    ("__proof_forge_create_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
-    1
-    "direct create ExprPlan-to-Yul"
-  let directCreate2Plan ← requireValidateOk
-    (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
-      ProofForge.IR.Examples.Counter.module
-      (toValidateTypeEnv scalarEnv)
-      (.crosscallCreate2
-        (.literal (.u64 0))
-        (.local "salt")
-        ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex))
-    "direct create2 Lower ExprPlan"
-  match directCreate2Plan with
-  | .create .create2 (.literalWord 0) (some (.local "salt")) initCodeHex => do
-      require
-        (initCodeHex == ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
-        "direct create2 Lower ExprPlan init code"
-  | _ => throw <| IO.userError "direct create2 must lower to create2 ExprPlan"
-  let directCreate2Expr ← requireOk
-    (lowerExpr
-      ProofForge.IR.Examples.Counter.module
-      scalarEnv
-      (.crosscallCreate2
-        (.literal (.u64 0))
-        (.local "salt")
-        ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex))
-    "direct create2 lowers through ExprPlan-to-Yul"
-  requireCallExpr
-    directCreate2Expr
-    ("__proof_forge_create2_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex)
-    2
-    "direct create2 ExprPlan-to-Yul"
   let untypedCrosscallPlan ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.buildExpressionExprPlan
       ProofForge.IR.Examples.Counter.module
@@ -4505,66 +4366,6 @@ def testScalarFallbackGateCrosscallCreatePlanToYul : IO Unit := do
       require (args.size == 4) "aggregate argument scalar crosscall binding helper arg count"
       requireCallExpr args[3]! "__pf_checked_add" 2 "aggregate argument scalar crosscall binding planned field"
   | _ => throw <| IO.userError "aggregate argument scalar crosscall binding must use planned helper call"
-  let createEnv : TypeEnv := #[
-    { name := "value", type := .u64, isMutable := false },
-    { name := "salt", type := .hash, isMutable := false }
-  ]
-  let createHelperName :=
-    "__proof_forge_create_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex
-  let create2HelperName :=
-    "__proof_forge_create2_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex
-  let createExpr : Expr :=
-    .crosscallCreate
-      (.add (.local "value") (.literal (.u64 0)))
-      ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex
-  require
-    (exprSupportsPlanScalarYul createExpr)
-    "create expression must be accepted by scalar plan gate"
-  let createReturnStmts ← requireOk
-    (lowerReturnStmtPlan
-      ProofForge.IR.Examples.EvmCrosscallProbe.module
-      createEnv
-      "scalar_create_return"
-      .u64
-      createExpr
-      false)
-    "create scalar return plan-to-yul"
-  require (createReturnStmts.size == 1) "create scalar return statement count"
-  match createReturnStmts[0]! with
-  | Lean.Compiler.Yul.Statement.assignment names (Lean.Compiler.Yul.Expr.call name args) => do
-      require (names == #["__pf_result"]) "create scalar return target"
-      require (name == createHelperName) "create scalar return helper"
-      require (args.size == 1) "create scalar return helper arg count"
-      requireCallExpr args[0]! "__pf_checked_add" 2 "create scalar return planned call value"
-  | _ => throw <| IO.userError "create scalar return must use planned helper assignment"
-  let create2Expr : Expr :=
-    .crosscallCreate2
-      (.local "value")
-      (.local "salt")
-      ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex
-  require
-    (exprSupportsPlanScalarYul create2Expr)
-    "create2 expression must be accepted by scalar plan gate"
-  let create2BindingStmts ← requireOk
-    (lowerScalarBindingStmtPlan
-      ProofForge.IR.Examples.EvmCrosscallProbe.module
-      createEnv
-      "deployed2"
-      .u64
-      false
-      create2Expr)
-    "create2 scalar binding plan-to-yul"
-  require (create2BindingStmts.size == 1) "create2 scalar binding statement count"
-  match create2BindingStmts[0]! with
-  | Lean.Compiler.Yul.Statement.varDecl vars (some (Lean.Compiler.Yul.Expr.call name args)) => do
-      let typedName ← requireAt vars 0 "create2 scalar binding var"
-      require (typedName.name == "deployed2") "create2 scalar binding target"
-      require (name == create2HelperName) "create2 scalar binding helper"
-      require (args.size == 2) "create2 scalar binding helper arg count"
-      requireIdentExpr args[0]! "value" "create2 scalar binding call value"
-      requireIdentExpr args[1]! "salt" "create2 scalar binding salt"
-  | _ => throw <| IO.userError "create2 scalar binding must use planned helper call"
-
 def testLocalCrosscallWordsToYul : IO Unit := do
   let lowerStructFields ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.localCrosscallStructFieldIds
@@ -6895,77 +6696,6 @@ def testScalarControlFlowPlanToYul : IO Unit := do
           require (valueName == "remote") "planned scalar crosscall control-flow assignment value"
       | _ => throw <| IO.userError "planned scalar crosscall control-flow must assign helper result"
   | _ => throw <| IO.userError "planned scalar crosscall control-flow body lowering must lower to switch"
-  let createEnv : TypeEnv := #[
-    { name := "value", type := .u64, isMutable := false },
-    { name := "salt", type := .hash, isMutable := false },
-    { name := "created", type := .u64, isMutable := true }
-  ]
-  let createHelperName :=
-    "__proof_forge_create_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex
-  let create2HelperName :=
-    "__proof_forge_create2_" ++ ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex
-  let plannedCreateControl? ← requireOk
-    (plannedBodyStatement?
-      ProofForge.IR.Examples.EvmCrosscallProbe.module
-      "control_flow"
-      .unit
-      createEnv
-      (.ifElse
-        (.eq (.local "value") (.literal (.u64 0)))
-        #[
-          .letBind
-            "deployed"
-            .u64
-            (.crosscallCreate
-              (.local "value")
-              ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex),
-          .assign (.local "created") (.local "deployed")
-        ]
-        #[
-          .letBind
-            "deployed2"
-            .u64
-            (.crosscallCreate2
-              (.local "value")
-              (.local "salt")
-              ProofForge.IR.Examples.EvmCrosscallProbe.returnFortyTwoInitCodeHex),
-          .assign (.local "created") (.local "deployed2")
-        ]))
-    "planned scalar create control-flow plan construction"
-  let plannedCreateControl ← requireSome plannedCreateControl?
-    "planned scalar create control-flow plan construction missing plan"
-  let (createControlStmts, _) ← requireOk
-    (lowerPlannedBodyStatement
-      ProofForge.IR.Examples.EvmCrosscallProbe.module
-      "control_flow"
-      .unit
-      createEnv
-      false
-      plannedCreateControl)
-    "planned scalar create control-flow body lowering"
-  match createControlStmts[0]? with
-  | some (Lean.Compiler.Yul.Statement.switchStmt _ cases) => do
-      let thenCase ← requireAt cases 1 "planned scalar create control-flow then case"
-      require (thenCase.body.statements.size == 2) "planned scalar create control-flow then count"
-      match thenCase.body.statements[0]! with
-      | Lean.Compiler.Yul.Statement.varDecl names (some (Lean.Compiler.Yul.Expr.call name args)) => do
-          require (names.size == 1) "planned scalar create control-flow var count"
-          let typedName ← requireAt names 0 "planned scalar create control-flow var"
-          require (typedName.name == "deployed") "planned scalar create control-flow local name"
-          require (name == createHelperName) "planned scalar create control-flow helper"
-          require (args.size == 1) "planned scalar create control-flow helper arg count"
-      | _ => throw <| IO.userError "planned scalar create control-flow must lower let initializer to helper call"
-      let elseCase ← requireAt cases 0 "planned scalar create control-flow else case"
-      require (elseCase.body.statements.size == 2) "planned scalar create2 control-flow else count"
-      match elseCase.body.statements[0]! with
-      | Lean.Compiler.Yul.Statement.varDecl names (some (Lean.Compiler.Yul.Expr.call name args)) => do
-          require (names.size == 1) "planned scalar create2 control-flow var count"
-          let typedName ← requireAt names 0 "planned scalar create2 control-flow var"
-          require (typedName.name == "deployed2") "planned scalar create2 control-flow local name"
-          require (name == create2HelperName) "planned scalar create2 control-flow helper"
-          require (args.size == 2) "planned scalar create2 control-flow helper arg count"
-      | _ => throw <| IO.userError "planned scalar create2 control-flow must lower let initializer to helper call"
-  | _ => throw <| IO.userError "planned scalar create control-flow body lowering must lower to switch"
   let memoryArrayEnv : TypeEnv := #[
     { name := "buf", type := .array .u64, isMutable := true },
     { name := "n", type := .u64, isMutable := false }
@@ -10203,12 +9933,13 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
   let nestedEvent (name : String) : Expr :=
     .effect (.eventEmit name #[("value", .literal (.u64 1))])
   let effect : Effect :=
-    .checkErc1155BatchReceived
-      (.literal (.address 1))
-      (.literal (.address 2))
-      (.literal (.address 3))
-      (.arrayLit .u64 #[.literal (.u64 4), nestedEvent "BatchId1Event"])
+    .hostCall ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id #[
+      (.literal (.address 1)),
+      (.literal (.address 2)),
+      (.literal (.address 3)),
+      (.arrayLit .u64 #[.literal (.u64 4), nestedEvent "BatchId1Event"]),
       (.arrayLit .u64 #[.literal (.u64 5), nestedEvent "BatchAmount1Event"])
+    ] #[.crosscallInvoke]
   let collector ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.collectEventPlansFromEffect
       ProofForge.IR.Examples.Counter.module
@@ -10229,19 +9960,20 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
     (ProofForge.Backend.Evm.Lower.buildEffectPlan
       ProofForge.IR.Examples.Counter.module
       (toValidateTypeEnv env)
-      (.checkErc1155BatchReceived
-        (.literal (.address 1))
-        (.literal (.address 2))
-        (.literal (.address 3))
+      (.hostCall ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id #[
+        (.literal (.address 1)),
+        (.literal (.address 2)),
+        (.literal (.address 3)),
         (.arrayLit .u64
-          #[.literal (.u64 4), .hash (.effect (.contextRead .gasPrice))])
+          #[.literal (.u64 4), .hash (.effect (.contextRead .timestamp))]),
         (.arrayLit .u64
           #[.literal (.u64 5),
-            .arrayGet (.local "items") (.effect (.contextRead .gasLeft))])))
+            .arrayGet (.local "items") (.effect (.contextRead .gasLeft))])
+        ] #[.crosscallInvoke]))
     "ERC-1155 batch semantic effect plan"
   match planned with
   | .checkErc1155BatchReceived _ _ _
-      (.arrayLit _ #[_, .hash (.effect (.contextRead .gasPrice))])
+      (.arrayLit _ #[_, .hash (.effect (.contextRead .timestamp))])
       (.arrayLit _ #[_, .localArrayGet "items" #[.effect (.contextRead .gasLeft)] #[7]]) => pure ()
   | _ =>
       throw <| IO.userError
@@ -10258,9 +9990,9 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
     "ERC-1155 batch id1 must contribute its hash helper requirement"
   let contextOps :=
     ProofForge.Backend.Evm.Lower.contextOpsFromEffectPlan planned
-  require (contextOpsContainField contextOps .gasPrice)
-    "ERC-1155 batch id1 must contribute its gasPrice context requirement"
-  require (contextOpsContainField contextOps .gasLeft)
+  require (contextOpsContainField contextOps "timestamp")
+    "ERC-1155 batch id1 must contribute its timestamp context requirement"
+  require (contextOpsContainField contextOps "gasLeft")
     "ERC-1155 batch amount1 must contribute its gasLeft context requirement"
   require (contextOps.size == 2)
     "ERC-1155 batch context requirements must be traversed and de-duplicated"
@@ -10354,12 +10086,8 @@ def testContextPlanToYul : IO Unit := do
   let env : TypeEnv := #[
     { name := "block_number", type := .u64, isMutable := false }
   ]
-  let plan ← requireValidateOk
-    (ProofForge.Backend.Evm.Lower.buildEffectPlan
-      ProofForge.IR.Examples.Counter.module
-      (toValidateTypeEnv env)
-      (.contextRead (.blockHash (.add (.local "block_number") (.literal (.u64 1))))))
-    "context blockhash Lower EffectPlan"
+  let plan : EffectPlan := .contextRead
+    (.blockHash (.checkedArith .add (.local "block_number") (.literalWord 1)))
   match plan with
   | .contextRead (.blockHash
       (.checkedArith .add (.local name) (.literalWord value) _ _)) => do
@@ -10375,19 +10103,6 @@ def testContextPlanToYul : IO Unit := do
       require (args.size == 1) "context blockhash plan-to-yul arg count"
       requireCallExpr args[0]! "__pf_checked_add" 2 "context blockhash planned argument"
   | _ => throw <| IO.userError "context blockhash plan-to-yul must lower to blockhash builtin"
-  let directContextExpr ← requireOk
-    (lowerEffectExpr
-      ProofForge.IR.Examples.Counter.module
-      env
-      (.contextRead (.blockHash (.add (.local "block_number") (.literal (.u64 1))))))
-    "context blockhash effect Lower-to-Yul"
-  match directContextExpr with
-  | Lean.Compiler.Yul.Expr.builtin name args => do
-      require (name == "blockhash") "context blockhash effect Lower-to-Yul builtin"
-      require (args.size == 1) "context blockhash effect Lower-to-Yul arg count"
-      requireCallExpr args[0]! "__pf_checked_add" 2 "context blockhash effect planned argument"
-  | _ => throw <| IO.userError "context blockhash effect must lower through target plan"
-
 def unsupportedCrosscallModule : Module := {
   name := "UnsupportedCrosscall"
   state := #[]
@@ -10397,7 +10112,8 @@ def unsupportedCrosscallModule : Module := {
     returns := .unit
     params := #[]
     body := #[
-      .letBind "result" .u64 (.nearPromiseResultsCount)
+      .letBind "result" .u64 (.hostCall
+        ProofForge.Target.HostOps.Near.promiseResultsCountSig.id #[] .u64 #[.nearPromise])
     ]
   }]
 }

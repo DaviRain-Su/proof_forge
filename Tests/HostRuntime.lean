@@ -186,7 +186,7 @@ def main : IO UInt32 := do
   ---------------------------------------------------------------------------
   -- HostEnv (gap-analysis step 1): buckets + materialize-or-reject triad
   ---------------------------------------------------------------------------
-  require (allHostEnvs.size == 16) "HostEnv catalog size"
+  require (allHostEnvs.size == 19) "HostEnv catalog size"
   require (HostEnv.blockTime.bucket == .general) "blockTime general"
   require (HostEnv.caller.bucket == .general) "caller general"
   require (HostEnv.attachedValue.bucket == .general) "attachedValue general"
@@ -313,19 +313,20 @@ no silent wrong binding — especially not block_index / sol_get_cluster)")
           require (contains msg "HostEnv") s!"{env.id}@{tid} names HostEnv"
           require (contains msg tid) s!"{env.id} reject names {tid}"
           require (contains msg env.id) s!"{env.id} reject names term"
-  -- txOrigin: EVM native; Solana weak alias of first signer (matches backend lower);
-  -- NEAR still rejects.
+  -- txOrigin is exact EVM-only semantics. Portable transaction identity uses signer.
   match materializeEnv "evm" .txOrigin with
   | .error msg => throw (IO.userError s!"EVM txOrigin: {msg}")
   | .ok m => require (m.binding.symbol == "origin") "evm origin symbol"
   match materializeEnv "solana-sbpf-asm" .txOrigin with
-  | .error msg => throw (IO.userError s!"Solana txOrigin alias must ok: {msg}")
-  | .ok m =>
-      require (contains m.binding.symbol "signer" || contains m.binding.symbol "tx")
-        "solana txOrigin alias symbol"
+  | .ok _ => throw (IO.userError "Solana txOrigin must reject")
+  | .error msg => require (contains msg "HostEnv") "solana txOrigin HostEnv"
   match materializeEnv "wasm-near" .txOrigin with
   | .ok _ => throw (IO.userError "NEAR txOrigin must reject")
   | .error msg => require (contains msg "HostEnv") "near txOrigin HostEnv"
+  for targetId in #["evm", "solana-sbpf-asm", "wasm-near"] do
+    match materializeEnv targetId .signer with
+    | .ok _ => pure ()
+    | .error msg => throw (IO.userError s!"{targetId} signer must materialize: {msg}")
   match materializeEnv "solana-sbpf-asm" .solanaRent with
   | .ok m => require (contains m.binding.symbol "rent") "solana rent symbol"
   | .error msg => throw (IO.userError s!"solanaRent: {msg}")
@@ -345,12 +346,8 @@ no silent wrong binding — especially not block_index / sol_get_cluster)")
   require (ContextField.userId.toHostEnv == .caller) "userId→caller"
   require (ContextField.contractId.toHostEnv == .selfAddress) "contractId→self"
   require (ContextField.gasLeft.toHostEnv == .gasOrComputeBudgetLeft) "gasLeft→budget"
-  require (ContextField.origin.toHostEnv == .txOrigin) "origin→txOrigin"
-  require (ContextField.prevRandao.toHostEnv == .randomness) "prevRandao→randomness"
+  require (ContextField.signer.toHostEnv == .signer) "signer→signer"
   require (ContextField.randomSeed.toHostEnv == .randomness) "randomSeed→randomness"
-  require ((ContextField.blockHash (.literal (.u64 0))).toHostEnv == .blockHash)
-    "blockHash→blockHash"
-  require (!ContextField.baseFee.isPortableEnv) "baseFee still non-portable core"
   require (!ContextField.gasLeft.isPortableEnv)
     "gasLeft not triad portable-core (NEAR permanent reject; Solana CU is approximate)"
   require ContextField.userId.isPortableEnv "userId portable-core (triad)"

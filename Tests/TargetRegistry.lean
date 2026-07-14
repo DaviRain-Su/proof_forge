@@ -24,6 +24,16 @@ def main : IO UInt32 := do
     "evm target must declare an explicit bump-over-scratch allocator binding"
   require (find? "robinhood-chain-testnet" |>.isNone)
     "robinhood-chain-testnet must not be registered as a compiler target"
+  require (evmProfile.hostOps == HostOps.Evm.supportedIds)
+    "EVM profile HostOps must come from the target-owned signature catalog"
+
+  let externalCapability := Capability.ofId "vendor.example/custom"
+  require (externalCapability.id == "vendor.example/custom")
+    "open capability IDs must preserve extension identity"
+  let extendedProfile := {
+    evmProfile with capabilities := evmProfile.capabilities.push externalCapability }
+  require (extendedProfile.capabilities.contains externalCapability)
+    "a target extension capability must not require editing the shared capability type"
 
   let nearProfile ← requireSome (find? "wasm-near") "missing wasm-near target profile"
   require (nearProfile.deploymentAllocator? == some (ProofForge.IR.AllocatorConfig.nearWeeModel))
@@ -44,6 +54,10 @@ def main : IO UInt32 := do
   require ((HostBridge.hostFunctions HostBridge.near).any (fun fn =>
     fn.name == "random_seed" && fn.params == #["i64"] && fn.results.isEmpty))
     "NEAR host bridge must declare random_seed host signature"
+  require (nearProfile.hostOps == HostOps.Near.supportedIds)
+    "wasm-near profile HostOps must come from the target-owned signature catalog"
+  require (nearProfile.hostOps.contains HostOps.Near.promiseCreateSig.id)
+    "wasm-near profile must advertise promise.create"
 
   let cosmwasmProfile ← requireSome (find? "wasm-cosmwasm") "missing wasm-cosmwasm target profile"
   require (cosmwasmProfile.hostBridge? == some HostBridge.cosmWasm)

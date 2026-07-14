@@ -26,37 +26,38 @@ theorem isOwner_refl (s : State) : isOwner s s.ownerAddr := by rfl
 end Spec
 
 def «owner» : ScalarRef :=
-  ProofForge.Contract.Surface.slot "owner" .u64
+  ProofForge.Contract.Source.slot "owner" .u64
 
 def ownableInitialized : ScalarRef :=
-  ProofForge.Contract.Surface.slot "ownableInitialized" .u64
+  ProofForge.Contract.Source.slot "ownableInitialized" .u64
 
 contract_mixin OwnableMixin do
-  use ProofForge.Contract.Surface.scalar «owner»
-  use ProofForge.Contract.Surface.scalar ownableInitialized
+  use ProofForge.Contract.Source.scalar «owner»
+  use ProofForge.Contract.Source.scalar ownableInitialized
 
   event OwnershipTransferred abi #[
     ("previousOwner", "address"),
     ("newOwner", "address")
   ]
 
-  use ProofForge.Contract.Surface.view
-    (ProofForge.Contract.Surface.methodWithReturnAbi "owner" #[] .u64 "address")
-    (ProofForge.Contract.Surface.ret (ProofForge.Contract.Surface.read «owner»))
+  use ProofForge.Contract.Source.view
+    (ProofForge.Contract.Source.methodWithReturnAbi "owner" #[] .u64 "address")
+    (ProofForge.Contract.Source.ret (ProofForge.Contract.Source.read «owner»))
 
   entry transferOwnership (newOwner : .address) do
     guard_owner «owner»;
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref newOwner) "zero address";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref newOwner) "zero address";
     emit OwnershipTransferred indexed #[
-      fieldAsName "previousOwner" (ProofForge.Contract.Surface.read «owner»),
-      fieldAsName "newOwner" (ProofForge.Contract.Surface.ref newOwner)
+      fieldAsName "previousOwner" (ProofForge.Contract.Source.read «owner»),
+      fieldAsName "newOwner"
+        (ProofForge.Contract.Source.cast (ProofForge.Contract.Source.ref newOwner) .u64)
     ] data #[];
     «owner» := newOwner;
 
   entry renounceOwnership do
     guard_owner «owner»;
     emit OwnershipTransferred indexed #[
-      fieldAsName "previousOwner" (ProofForge.Contract.Surface.read «owner»),
+      fieldAsName "previousOwner" (ProofForge.Contract.Source.read «owner»),
       fieldAsName "newOwner" (u64 0)
     ] data #[];
     «owner» := u64 0;
@@ -65,11 +66,11 @@ contract_source Ownable do
   event OwnershipTransferred
   use mixin
   entry init do
-    do ProofForge.Contract.Surface.requireZero ownableInitialized "already initialized";
+    do ProofForge.Contract.Source.requireZero ownableInitialized "already initialized";
     ownableInitialized := u64 1;
     emit OwnershipTransferred indexed #[
       fieldAsName "previousOwner" (u64 0),
-      fieldAsName "newOwner" caller
+      fieldAsName "newOwner" (ProofForge.Contract.Source.cast caller .u64)
     ] data #[];
     «owner» := caller;
 

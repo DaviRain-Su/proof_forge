@@ -1,5 +1,5 @@
 import ProofForge.Contract.Builder
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Legacy
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -7,7 +7,7 @@ namespace ProofForge.Tests.SolanaSdk
 
 open ProofForge.Target
 open ProofForge.Contract.Builder
-open ProofForge.Solana
+open ProofForge.Contract.Source.Solana.Legacy
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then
@@ -19,7 +19,7 @@ def hasCapability (plan : CapabilityPlan) (capability : Capability) : Bool :=
   plan.capabilities.any (fun c => c == capability)
 
 def callByOperation? (plan : CapabilityPlan) (operation : String) : Option CapabilityCall :=
-  plan.calls.find? (fun call => call.operation == operation)
+  plan.calls.find? (fun call => call.operation.render == operation)
 
 def metadataValue? (call : CapabilityCall) (key : String) : Option String :=
   call.metadata.foldl
@@ -45,7 +45,7 @@ def requireMetadata (call : CapabilityCall) (key expected : String) : IO Unit :=
 
 def scopedCall? (plan : CapabilityPlan) (operation entrypoint : String) : Option CapabilityCall :=
   plan.calls.find? fun call =>
-    call.operation == operation && metadataValue? call "proof_forge.entrypoint" == some entrypoint
+    call.operation.render == operation && metadataValue? call "proof_forge.entrypoint" == some entrypoint
 
 def scopedCpiCall? (plan : CapabilityPlan) (name entrypoint : String) : Option CapabilityCall :=
   plan.calls.find? fun call =>
@@ -132,7 +132,7 @@ def requireSolanaPlan (plan : CapabilityPlan) : IO Unit := do
     match callByCpiName? plan "lamport_transfer" with
     | some call => pure call
     | none => throw <| IO.userError "Solana SDK plan missing lamport_transfer CPI"
-  require (systemCpiCall.operation == "solana.cpi.invoke")
+  require (systemCpiCall.operation == .builtin "solana.cpi.invoke")
     "system transfer should use unsigned CPI operation"
   requireMetadata systemCpiCall "solana.extension" "cpi"
   requireMetadata systemCpiCall "solana.cpi.name" "lamport_transfer"
@@ -148,7 +148,7 @@ def requireSolanaPlan (plan : CapabilityPlan) : IO Unit := do
     match callByCpiName? plan "token_transfer" with
     | some call => pure call
     | none => throw <| IO.userError "Solana SDK plan missing solana.cpi.invoke_signed operation"
-  require (cpiCall.operation == "solana.cpi.invoke_signed")
+  require (cpiCall.operation == .builtin "solana.cpi.invoke_signed")
     "SPL Token PDA transfer should use signed CPI operation"
   requireMetadata cpiCall "solana.extension" "cpi"
   requireMetadata cpiCall "solana.cpi.name" "token_transfer"

@@ -37,29 +37,31 @@ Storage/crypto/context effects lower 到这些 NEAR host imports：
 | `contextRead randomSeed` | `env.random_seed` |
 | `eventEmit` | `env.log` |
 
-### NEAR Promise IR
+### NEAR Promise 物化
 
-可移植的 `crosscallInvoke` 会 lower 为远程调用的 `promise_create`。NEAR 专用的 promise 链路与回调内省使用独立的 `Expr` 形式，并在 canonical EmitWat 路径上打上 `near.promise` capability：
+可移植的 `crosscallInvoke` 会 lower 为远程调用的 `promise_create`。共享
+IR 只保留语义化的 named invocation/continuation 节点；NEAR 独有的回调与
+存储操作由 target-owned HostOp 通过稳定 ID 选择：
 
-| IR 表达式 | NEAR host import | 作用 |
+| 语义请求 | NEAR host import | 作用 |
 |---|---|---|
-| `nearCrosscallInvokePool accountIndex methodId args deposit` | `promise_create` | 使用运行时索引从 `module.nearCrosscallStrings` 取 account 与 method 字符串并创建 promise。 |
-| `nearPromiseThen parent callbackMethod args deposit` | `promise_then`、`current_account_id` | 在**当前**合约上，为已有 promise id（`parent` 为 `U64`）挂载回调方法。回调与远程方法名通过 `.literal (.address i)` 索引 `module.nearCrosscallStrings`。 |
-| `nearPromiseResultsCount` | `promise_results_count` | 回调 entrypoint 中可见的已完成 promise 结果数量。 |
-| `nearPromiseResultStatus index` | `promise_result` | 读取 `index` 处结果状态（`1` = 成功，`2` = 失败）。 |
-| `nearPromiseResultU64 index` | `promise_result`、`read_register` | 将 `index` 处结果 payload 按 Borsh 解码为 `U64`（失败时返回 `0`）。 |
+| `crosscallInvokeNamedValue accountIndex methodId args deposit` | `promise_create` | 使用运行时索引从 `module.crosscallStrings` 取 account 与 method 字符串并创建 promise。 |
+| `crosscallContinue parent callbackMethod args deposit` | `promise_then`、`current_account_id` | 在**当前**合约上，为已有 promise id（`parent` 为 `U64`）挂载回调方法。回调与远程方法名通过 `.literal (.address i)` 索引 `module.crosscallStrings`。 |
+| `hostCall near.promise.results_count@1.0.0` | `promise_results_count` | 回调 entrypoint 中可见的已完成 promise 结果数量。 |
+| `hostCall near.promise.result_status@1.0.0(index)` | `promise_result` | 读取 `index` 处结果状态（`1` = 成功，`2` = 失败）。 |
+| `hostCall near.promise.result_u64@1.0.0(index)` | `promise_result`、`read_register` | 将 `index` 处结果 payload 按 Borsh 解码为 `U64`（失败时返回 `0`）。 |
 
 典型结构：
 
 ```text
 entry call_remote_with_callback:
-  return nearPromiseThen(
+  return crosscallContinue(
     crosscallInvoke(...),
     callbackMethod = "handle_remote",
     args = [], deposit = 0)
 
 entry handle_remote:
-  return nearPromiseResultU64(0)
+  return hostCall near.promise.result_u64@1.0.0(0)
 ```
 
 Fixture：`ProofForge/IR/Examples/NearCrosscallProbe.lean`。
@@ -68,22 +70,19 @@ Fixture：`ProofForge/IR/Examples/NearCrosscallProbe.lean`。
 
 `Examples/Backend/WasmNear/FungibleToken.lean` 复用
 `ProofForge.Contract.Stdlib.NearFungibleToken` mixin。生成的合约导出
-`ft_transfer_call(receiver_id, receiver_idx, amount)`，Borsh 输入布局为
-`Hash || U32 || U64`：
-
-- `receiver_id` 是 portable `Hash` account key，用于 token balance 映射。
-- `receiver_idx` 从 `module.nearCrosscallStrings` 中选择已注册的 NEAR account
-  字符串；stdlib 保留 `0 = "ft_on_transfer"`、`1 = "ft_resolve_transfer"`，
-  并使用 `2 + receiver_idx` 访问远端 receiver account id。在已检查的示例中，
-  `receiver_idx = 0` 选择 `demo.receiver.testnet`。
-- `amount` 是转账的 `U64`。
+标准 JSON 方法 `ft_transfer_call(receiver_id, amount, memo?, msg)`。
+`receiver_id` 是运行时 AccountId 字符串，`amount` 是带引号的十进制 U128，
+`memo` 可选，`msg` 传给 receiver hook。合约要求精确附加 1 yoctoNEAR，且
+receiver 必须预先通过 `storage_deposit` 注册。
 
 该 entrypoint 发出的 promise 链如下：
 
 ```text
 ft_transfer_call
-  -> promise_create(receiver account, "ft_on_transfer", [callerHash, amount])
-  -> promise_then(current_account_id, "ft_resolve_transfer", [])
+  -> promise_create(receiver_id, "ft_on_transfer",
+       {"sender_id": sender, "amount": amount, "msg": msg})
+  -> promise_then(current_account_id, "ft_resolve_transfer",
+       {"transfer_id": id, "sender": sender, "receiver": receiver_id})
   -> promise_return(callback promise id)
 
 ft_resolve_transfer
@@ -92,23 +91,22 @@ ft_resolve_transfer
   -> return amount - unused
 ```
 
-静态门控 `just wasm-near-ft-transfer-call` 验证 Plan/EmitWat 形状，包括
-`nearCrosscallStrings` 布局、`ft_on_transfer` sender 参数的 hash JSON 编码，以及
-allowance 不再使用嵌套 `mapKey+mapKey` path。行为门控
-`just wasm-near-ft-transfer-call-e2e` 会在 `runtime/offline-host` 中运行生成的 WAT，
-将 callback 结果 stub 成 Borsh `U64`，并检查 `promise_create` 先于
-`promise_then`，以及 refund 后余额正确。
+静态门控 `just wasm-near-ft-transfer-call` 验证 Plan/EmitWat 形状，包括运行时
+receiver 路由、具名 JSON hook/callback 参数，以及 allowance 不再使用嵌套
+`mapKey+mapKey` path。行为门控 `just wasm-near-ft-transfer-call-e2e` 在
+`runtime/offline-host` 中运行生成的 WAT；`just near-vm-conformance-ft` 则在未经
+修改的上游 NEAR VM 上验证正向 callback，以及精确押金和 receiver 注册负例。
 
 ### `caller` vs `callerHash`
 
-`ProofForge.Contract.Surface.caller` 仍然是 portable `userId` context 表达式，
+`ProofForge.Contract.Source.caller` 仍然是 portable `userId` context 表达式，
 lower 为 `predecessor_account_id` 的 `U64` 投影。它适合 legacy U64-keyed 示例，
 但不够宽，不能安全地作为 NEAR account balance 的 key。
 
-`ProofForge.Contract.Surface.callerHash` 将 `userIdHash` lower 为
+`ProofForge.Contract.Source.callerHash` 将 `userIdHash` lower 为
 `predecessor_account_id` 的完整 32-byte SHA-256 digest。NEP-141 stdlib 使用
 `callerHash` 作为 account-keyed balances、allowance owner key，以及
-`ft_on_transfer` sender 参数。`ProofForge.Contract.Surface.signer` 是独立语义：
+`ft_on_transfer` sender 参数。`ProofForge.Contract.Source.signer` 是独立语义：
 它读取 `signer_account_id`，表示交易 signer，而不是 immediate predecessor。
 
 ### 为什么不用 `EmitZig`

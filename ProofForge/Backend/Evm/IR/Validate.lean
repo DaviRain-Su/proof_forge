@@ -8,6 +8,7 @@ import ProofForge.Backend.Evm.Lower
 import ProofForge.Backend.SharedValidate
 import ProofForge.IR.Contract
 import ProofForge.Target.Adapter
+import ProofForge.Target.HostOps.Evm
 import ProofForge.Compiler.Yul.AST
 import ProofForge.Compiler.Yul.Printer
 
@@ -42,6 +43,7 @@ mutual
         match findLocal? env name with
         | some binding => .ok binding.type
         | none => .error { message := s!"unknown local `{name}`" }
+    | .hostCall _ _ returnType _ => .ok returnType
     | .arrayLit elementType values => do
         for value in values do
           ensureType "array literal element" elementType (← inferExprType module env value)
@@ -146,24 +148,9 @@ mutual
         ensureType "hash_two_to_one left operand" .hash (← inferExprType module env lhs)
         ensureType "hash_two_to_one right operand" .hash (← inferExprType module env rhs)
         .ok .hash
-    | .ecrecover digest v r s => do
-        discard <| inferExprType module env digest
-        ensureType "ecrecover v" .u64 (← inferExprType module env v)
-        discard <| inferExprType module env r
-        discard <| inferExprType module env s
-        .ok .u64
-    | .eip712PermitDigest owner spender value nonce deadline domainSep => do
-        discard <| inferExprType module env owner
-        discard <| inferExprType module env spender
-        ensureType "permit value" .u64 (← inferExprType module env value)
-        ensureType "permit nonce" .u64 (← inferExprType module env nonce)
-        ensureType "permit deadline" .u64 (← inferExprType module env deadline)
-        discard <| inferExprType module env domainSep
-        .ok .hash
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => do
-        ensureType "abi-packed call target" .u64 (← inferExprType module env target)
-        .ok .u64
     | .nativeValue => .ok .u64
+    | .callValueU128 =>
+        .error { message := "U128 call value is not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         ensureCrosscallHandleType "crosscall target contract id"
           (← inferExprType module env target)
@@ -208,24 +195,12 @@ mutual
         for arg in args do
           discard <| crosscallArgWordTypes module "delegate crosscall argument" (← inferExprType module env arg)
         .ok returnType
-    | .crosscallCreate callValue initCodeHex => do
-        ensureType "contract creation call value" .u64 (← inferExprType module env callValue)
-        discard <| lowerValidate <| ProofForge.Backend.Evm.Validate.normalizeInitCodeHex "contract creation" initCodeHex
-        .ok .u64
-    | .crosscallCreate2 callValue salt initCodeHex => do
-        ensureType "contract creation call value" .u64 (← inferExprType module env callValue)
-        ensureType "contract creation salt" .hash (← inferExprType module env salt)
-        discard <| lowerValidate <| ProofForge.Backend.Evm.Validate.normalizeInitCodeHex "contract creation" initCodeHex
-        .ok .u64
     | .crosscallNamed _ _ args returnType => do
         for arg in args do discard <| inferExprType module env arg
         .ok returnType
-    | .nearPromiseThen _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
-        .error { message := "NEAR promise API is not supported on EVM" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported on EVM" }
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferBinaryNumericType
@@ -290,6 +265,8 @@ mutual
         .error { message := "EVM IR v0 supports only single-segment index storage paths for dynamic arrays" }
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
+    | .hostCall id _ _ =>
+        .error { message := s!"target extension `{id.render}` is a statement effect, not an expression" }
     | .storageScalarRead stateId =>
         scalarStateType module stateId
     | .storageScalarWrite _ _ =>
@@ -348,22 +325,14 @@ mutual
     | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.assign_op is a statement effect, not an expression" }
     | .contextRead .userIdHash => .ok .hash
-    | .contextRead .origin => .ok .hash
+    | .contextRead .signer => .ok .hash
     | .contextRead .randomSeed => .ok .hash
-    | .contextRead .coinbase => .ok .hash
-    | .contextRead (.blockHash _) => .ok .hash
     | .contextRead _ =>
         .ok .u64
     | .eventEmit _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is a statement effect, not an expression" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is a statement effect, not an expression" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is a statement effect, not an expression" }
 end
 
 partial def inferEventFieldExprType (module : Module) (env : TypeEnv) : ProofForge.IR.Expr → Except LowerError ValueType
@@ -435,6 +404,18 @@ def eventSignature
   .ok (name ++ "(" ++ String.intercalate "," typeNames.toList ++ ")")
 
 def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Except LowerError Unit
+  | .hostCall id args _ => do
+      let expectedArity? :=
+        if id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then some 4
+        else if id == ProofForge.Target.HostOps.Evm.erc1155ReceivedSig.id then some 5
+        else if id == ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id then some 5
+        else none
+      let some expectedArity := expectedArity?
+        | .error { message := s!"EVM does not support effect target extension `{id.render}`" }
+      unless args.size == expectedArity do
+        .error { message := s!"target extension `{id.render}` expects {expectedArity} arguments, got {args.size}" }
+      for arg in args do
+        discard <| inferExprType module env arg
   | .storageScalarRead _ =>
       .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do
@@ -508,21 +489,6 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
       for field in indexedFields do
         ensureIndexedEventFieldType module name field.fst (← inferEventFieldExprType module env field.snd)
       discard <| eventSignature module env name (indexedFields ++ dataFields)
-  | .checkErc721Received operator fromAddr toAddr tokenId => do
-      discard <| inferExprType module env operator
-      discard <| inferExprType module env fromAddr
-      discard <| inferExprType module env toAddr
-      discard <| inferExprType module env tokenId
-  | .checkErc1155Received operator fromAddr toAddr id amount => do
-      discard <| inferExprType module env operator
-      discard <| inferExprType module env fromAddr
-      discard <| inferExprType module env toAddr
-      discard <| inferExprType module env id
-      discard <| inferExprType module env amount
-
-  | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
-      for expr in #[operator, fromAddr, toAddr, ids, amounts] do
-        discard <| inferExprType module env expr
 def requireMutableLocal (env : TypeEnv) (context name : String) : Except LowerError LocalBinding := do
   let some binding := findLocal? env name
     | .error { message := s!"unknown local `{name}`" }

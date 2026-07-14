@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Event
+import ProofForge.Backend.WasmHost.Scalar
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
@@ -14,6 +15,7 @@ namespace ProofForge.Backend.WasmHost.Crosscall
 open ProofForge.Compiler.Wasm
 open ProofForge.Backend.WasmHost.Common
 open ProofForge.Backend.WasmHost.Event
+open ProofForge.Backend.WasmHost.Scalar
 open ProofForge.Backend.WasmHost.Layout
 open ProofForge.Backend.WasmHost.Memory
 open ProofForge.Backend.WasmHost.Plan
@@ -24,6 +26,7 @@ def crosscallPtrGlobal : String := "crosscall_ptr"
 def crosscallArgsStartName : String := "__pf_crosscall_args_start"
 def crosscallArgsPutcName : String := "__pf_crosscall_args_putc"
 def crosscallArgsPutu64Name : String := "__pf_crosscall_args_putu64"
+def crosscallArgsPutu128Name : String := "__pf_crosscall_args_putu128"
 def crosscallArgsPutboolName : String := "__pf_crosscall_args_putbool"
 def crosscallArgsPuthashName : String := "__pf_crosscall_args_puthash"
 
@@ -40,6 +43,7 @@ def crosscallArgsPutcFunc : Func :=
       .globalGet crosscallPtrGlobal, .i32Const 1, .plain "i32.add", .globalSet crosscallPtrGlobal ] } }
 
 def crosscallArgsPutstrName : String := "__pf_crosscall_args_putstr"
+def crosscallArgsPutJsonStringName : String := "__pf_crosscall_args_put_json_string"
 
 def crosscallArgsPutstrFunc : Func :=
   { name := crosscallArgsPutstrName, params := #[{ name := "ptr", type := .i32 }, { name := "len", type := .i32 }],
@@ -63,6 +67,20 @@ def crosscallArgsPutboolFunc : Func :=
       .if_ { insns := #[ .i32Const FALSE_PTR, .i32Const 5, .call crosscallArgsPutstrName ] }
          { insns := #[ .i32Const TRUE_PTR, .i32Const 4, .call crosscallArgsPutstrName ] } ] } }
 
+/-! `__pf_crosscall_args_putu128(lo, hi)`: append the u128 decimal string
+    (via `__pf_fmt_u128`) to the crosscall JSON arg buffer. -/
+def crosscallArgsPutu128Func : Func :=
+  { name := crosscallArgsPutu128Name,
+    params := #[{ name := "lo", type := .i64 }, { name := "hi", type := .i64 }],
+    locals := #[{ name := "p", type := .i32 }, { name := "len", type := .i32 }],
+    body := { insns := #[
+      .i32Const 0x22, .call crosscallArgsPutcName,
+      .localGet "lo", .localGet "hi", .call u128FmtName, .localSet "p",
+      .i32Const (RET_BUF + 40), .localGet "p", .plain "i32.sub", .localSet "len",
+      .globalGet crosscallPtrGlobal, .localGet "p", .localGet "len", .call memcpyName,
+      .globalGet crosscallPtrGlobal, .localGet "len", .plain "i32.add", .globalSet crosscallPtrGlobal,
+      .i32Const 0x22, .call crosscallArgsPutcName ] } }
+
 def crosscallArgsPuthashFunc : Func :=
   { name := crosscallArgsPuthashName, params := #[{ name := "v", type := .i32 }],
     locals := #[{ name := "i", type := .i32 }, { name := "b", type := .i32 }, { name := "hi", type := .i32 }, { name := "lo", type := .i32 }],
@@ -81,13 +99,56 @@ def crosscallArgsPuthashFunc : Func :=
       .i32Const 0x22, .call crosscallArgsPutcName
     ] } }
 
+/-- Append one JSON-quoted UTF-8 string, escaping quotes, backslashes, and the
+standard ASCII control characters used by NEAR JSON call arguments. -/
+def crosscallArgsPutJsonStringFunc : Func :=
+  { name := crosscallArgsPutJsonStringName
+    params := #[{ name := "ptr", type := .i32 }, { name := "len", type := .i32 }]
+    locals := #[{ name := "i", type := .i32 }, { name := "b", type := .i32 }]
+    body := { insns := #[
+      .i32Const 0x22, .call crosscallArgsPutcName,
+      .i32Const 0, .localSet "i",
+      .block_ { insns := #[.loop_ { insns := #[
+        .localGet "i", .localGet "len", .plain "i32.ge_u", .brIf 1,
+        .localGet "ptr", .localGet "i", .plain "i32.add",
+        .load "i32.load8_u" 0, .localSet "b",
+        .localGet "b", .i32Const 0x22, .plain "i32.eq",
+        .if_ { insns := #[.i32Const 0x5c, .call crosscallArgsPutcName,
+          .i32Const 0x22, .call crosscallArgsPutcName] } { insns := #[
+          .localGet "b", .i32Const 0x5c, .plain "i32.eq",
+          .if_ { insns := #[.i32Const 0x5c, .call crosscallArgsPutcName,
+            .i32Const 0x5c, .call crosscallArgsPutcName] } { insns := #[
+            .localGet "b", .i32Const 0x0a, .plain "i32.eq",
+            .if_ { insns := #[.i32Const 0x5c, .call crosscallArgsPutcName,
+              .i32Const 0x6e, .call crosscallArgsPutcName] } { insns := #[
+              .localGet "b", .i32Const 0x0d, .plain "i32.eq",
+              .if_ { insns := #[.i32Const 0x5c, .call crosscallArgsPutcName,
+                .i32Const 0x72, .call crosscallArgsPutcName] } { insns := #[
+                .localGet "b", .i32Const 0x09, .plain "i32.eq",
+                .if_ { insns := #[.i32Const 0x5c, .call crosscallArgsPutcName,
+                  .i32Const 0x74, .call crosscallArgsPutcName] }
+                  { insns := #[.localGet "b", .call crosscallArgsPutcName] }
+              ] }
+            ] }
+          ] }
+        ] },
+        .localGet "i", .i32Const 1, .plain "i32.add", .localSet "i", .br 0
+      ] }] },
+      .i32Const 0x22, .call crosscallArgsPutcName
+    ] } }
+
 def crosscallArgsHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   if !plan.usesCrosscallArgs then
     #[]
   else
     (if plan.usesEventNumeric then #[] else if plan.usesFmtU64 then #[fmtU64Func] else #[]) ++
-      #[crosscallArgsStartFunc, crosscallArgsPutcFunc, crosscallArgsPutstrFunc, crosscallArgsPutu64Func,
-        crosscallArgsPutboolFunc] ++
+      #[crosscallArgsStartFunc, crosscallArgsPutcFunc, crosscallArgsPutstrFunc,
+        crosscallArgsPutJsonStringFunc, crosscallArgsPutu64Func,
+        crosscallArgsPutu128Func, crosscallArgsPutboolFunc] ++
+      -- putu128 references __pf_fmt_u128 / __pf_u128_divmod10; emit them
+      -- alongside so the helper set is self-contained regardless of whether
+      -- the surrounding path includes u128ArithFuncs.
+      #[u128Divmod10Func, u128FmtFunc] ++
       (if plan.usesCrosscallHash then #[crosscallArgsPuthashFunc] else #[])
 
 def crosscallGlobalsForModulePlan (plan : ModulePlan) : Array Global :=

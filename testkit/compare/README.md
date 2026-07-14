@@ -316,7 +316,7 @@ Harness notes and remaining coverage gaps:
 - **EscrowVault:** two-party fund → release | refund state machine; internal claim ledger only.
 - **TimelockVault:** binary unlock (`timestamp >= unlockAt`); not linear VestingVault.
 - **HeightLockVault:** binary unlock (`checkpointId`/`block_height` >= unlockHeight).
-- **Still blocked:** full `Stdlib.ERC4626` (`nearCrosscallStrings` for asset peer).
+- **Still blocked:** full `Stdlib.ERC4626` (`crosscallStrings` for asset peer).
 
 ## Contracts
 

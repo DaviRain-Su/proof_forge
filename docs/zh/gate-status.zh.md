@@ -1,6 +1,6 @@
 # Gate 完成记录
 
-状态：**Live (2026-07-04)**
+状态：**Live（2026-07-12 刷新）**
 
 本页是分层目标组合的逐 Gate 完成台账（[target-roadmap](../target-roadmap.md)，
 D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、证据和签署日期。
@@ -10,6 +10,21 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 不同于记录工程里程碑流水的 [development-log](../development-log.md)，本页记录
 的是*阶段边界*决策：当前阶段的 Definition of Done 是否已经满足，并且证据可审计。
+
+## Gate A1 —— Portable Intent 与 NFT 纵向切片
+
+**状态：Closed**
+
+**Closed: 2026-07-12**
+
+| # | 标准 | 状态 | 所需证据 |
+|---|---|---|---|
+| A1-1 | 从 portable `Source` 隔离 Solana 语法 | ✅ met | `52402821` 移动语法；`c1433b2e` 固定 portable 拒绝与 Source.Solana account/PDA/CPI/realloc IR intent；`just solana-light` 和 `just product` 通过 |
+| A1-2 | 目标中立的 Intent materializer registry | ✅ met | 私有 registry 构造；`resolveIntentMaterializer`；校验返回 target；`just intent-registry` 纳入 product/check |
+| A1-3 | 最小 NFT intent 与实现契约 | ✅ 已满足 | `just nft-intent` 和 `just nft-implementation-contract`；已验证便携 intent 与三个可执行审查候选实现 |
+| A1-4 | 主三链严格 NFT 物化 | ✅ met | `just nft-materialization`：EVM、Solana、NEAR 严格 canonical 校验及 `buildFromCore`，无 advisory fallback |
+| A1-5 | 产品制品与生命周期运行时证据 | ✅ met | `just portable-nft-multi-target` 证明三套制品；`just portable-nft-runtime` 在 EVM Foundry、Solana Surfpool/SVM 和 NEAR Wasm 上执行 mint、owner/balance、授权 transfer、未授权拒绝和重复 mint 拒绝 |
+| A1-6 | 聚合验收 | ✅ met | `6a6022ea`；`just product`、`just portable-nft-runtime`、`just solana-light`、`just check` 和 `git diff --check` 通过 |
 
 ## 使用方式
 

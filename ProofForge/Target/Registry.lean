@@ -4,6 +4,11 @@ import ProofForge.IR.Allocator
 import ProofForge.Target.Capability
 import ProofForge.Target.HostBridge
 import ProofForge.Target.Support
+import ProofForge.Target.HostOp
+import ProofForge.Target.HostOps.Near
+import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.HostOps.Solana
+import ProofForge.Target.InterfaceOps.Evm
 
 namespace ProofForge.Target
 
@@ -48,6 +53,10 @@ structure TargetProfile where
   family : TargetFamily
   artifactKind : ArtifactKind
   capabilities : CapabilitySet
+  /-- Exact typed target extensions with registered lowering handlers. -/
+  hostOps : Array HostOpId := #[]
+  /-- Exact target-owned interface/materialization extension handlers. -/
+  interfaceOps : Array HostOpId := #[]
   deploymentAllocator? : Option ProofForge.IR.AllocatorConfig := none
   offlineAllocators : Array ProofForge.IR.AllocatorConfig := #[]
   requiredTools : Array String := #[]
@@ -106,6 +115,8 @@ def evm : TargetProfile := {
     .checkedArithmetic,
     .accountExplicit
   ]
+  hostOps := HostOps.Evm.supportedIds
+  interfaceOps := InterfaceOps.Evm.supportedIds
   requiredTools := #["solc", "foundry"]
   support := TargetSupport.primaryTriad
     "portable IR Counter/ValueVault + TokenSpec; Yul intermediate, solc bytecode final"
@@ -129,16 +140,20 @@ def wasmNear : TargetProfile := {
     .valueNative,
     .eventsEmit,
     .crosscallInvoke,
+    .crosscallContinue,
     .nearPromise,
     .envBlock,
     .cryptoHash,
     .accountExplicit,
     .assertions,
+    .checkedArithmetic,
     .controlConditional,
     .controlBoundedLoop,
     .dataFixedArray,
-    .dataStruct
+    .dataStruct,
+    .dataDynamicBytes
   ]
+  hostOps := HostOps.Near.supportedIds
   hostBridge? := some .near
   requiredTools := #["rustup", "cargo", "near-cli"]
   support := TargetSupport.primaryTriad
@@ -222,7 +237,8 @@ def wasmStellarSoroban : TargetProfile := {
     .controlBoundedLoop,
     .dataFixedArray,
     .dataStruct,
-    .assertions
+    .assertions,
+    .checkedArithmetic
   ]
   hostBridge? := some .soroban
   requiredTools := #["wat2wasm"]
@@ -236,6 +252,52 @@ def wasmStellarSoroban : TargetProfile := {
       "Counter MVP (PF-P3-02 six-gate): contract_source via EmitWat + HostBridge.soroban; " ++
       "offline-host lifecycle; TokenSpec unsupported; auth/TTL/Stellar CLI follow-on"
     toolStages := #[{ tool := "wat2wasm", stage := "final-deployable" }]
+  }
+}
+
+/-- Arbitrum Stylus research backend. Direct Wasm is the CLI default and the
+Rust SDK renderer is an explicit oracle. Local vm_hooks evidence is required;
+live Nitro activation evidence is still incomplete. This is not a primary target. -/
+def wasmArbitrumStylus : TargetProfile := {
+  id := "wasm-arbitrum-stylus"
+  family := .wasmHost
+  artifactKind := .wasm
+  deploymentAllocator? := some (ProofForge.IR.AllocatorConfig.hostBump)
+  offlineAllocators := #[ProofForge.IR.AllocatorConfig.hostBump]
+  capabilities := #[
+    .storageScalar,
+    .storageMap,
+    .callerSender,
+    .valueNative,
+    .eventsEmit,
+    .crosscallInvoke,
+    .crosscallNamed,
+    .envBlock,
+    .dataDynamicBytes,
+    .dataFixedArray,
+    .dataDynamicArray,
+    .dataStruct,
+    .runtimeMemory,
+    .runtimeReturnData,
+    .assertions,
+    .controlConditional,
+    .checkedArithmetic
+  ]
+  requiredTools := #["wat2wasm", "rustup", "cargo", "cargo-stylus"]
+  support := {
+    maturity := .research
+    inputModes := #[.contractSource]
+    commands := #[.build, .check]
+    outputStages := #[.sourcegen, .intermediate]
+    validationLevel := .plan
+    supportedFragment :=
+      "Counter, ValueVault, mapping/event, and ERC-20 research slices via canonical StylusPlan; " ++
+      "direct Wasm default and pinned Rust SDK oracle with local differential evidence; " ++
+      "target-native Nitro deployment evidence remains required for release promotion"
+    toolStages := #[
+      { tool := "rustc-1.91.0", stage := "wasm-bootstrap" },
+      { tool := "cargo-stylus-0.10.8", stage := "artifact-check" }
+    ]
   }
 }
 
@@ -292,6 +354,7 @@ def solanaSbpfAsm : TargetProfile := {
     .dataStruct,
     .cryptoHash,
     .assertions,
+    .checkedArithmetic,
     .accountExplicit,
     .runtimeAllocator,
     .runtimeMemory,
@@ -301,6 +364,7 @@ def solanaSbpfAsm : TargetProfile := {
     .crosscallCpi,
     .crosscallInvoke
   ]
+  hostOps := HostOps.Solana.supportedIds
   requiredTools := #["sbpf"]
   support := TargetSupport.primaryTriad
     "portable IR → sBPF assembly intermediate → sbpf ELF final; CPI/PDA extensions"
@@ -450,11 +514,12 @@ legacy routing (e.g. `Tests/ValueVaultExample`) import the individual
 constants and may use this. -/
 def allIncludingDeprecated : Array TargetProfile := #[
   evm,
+  solanaSbpfAsm,
   wasmNear,
   wasmCosmWasm,
-  solanaSbpfAsm,
   wasmCloudflareWorkers,
   wasmStellarSoroban,
+  wasmArbitrumStylus,
   solanaSbpfLinker,
   solanaZigFork,
   moveAptos,

@@ -3,6 +3,7 @@ import Lean.Util.Path
 import ProofForge.Cli.ConstructorAbi
 import ProofForge.Cli.EmitMode
 import ProofForge.Cli.HexUtil
+import ProofForge.Cli.NativeBuildOp
 import ProofForge.Contract.Spec
 import ProofForge.Target
 import ProofForge.Target.PeerMap
@@ -15,6 +16,21 @@ open ProofForge.Cli.HexUtil
 namespace ProofForge.Cli
 
 export ProofForge.Cli.EmitMode (EmitMode)
+
+inductive StylusRenderer where
+  | directWasm
+  | rustSdk
+  deriving BEq, Inhabited, Repr
+
+def StylusRenderer.id : StylusRenderer -> String
+  | .directWasm => "direct-wasm"
+  | .rustSdk => "rust-sdk"
+
+def StylusRenderer.parse (value : String) : Except String StylusRenderer :=
+  match value with
+  | "direct-wasm" => .ok .directWasm
+  | "rust-sdk" => .ok .rustSdk
+  | _ => .error s!"unsupported Stylus renderer `{value}`; expected direct-wasm or rust-sdk"
 
 inductive Command where
   | build
@@ -42,6 +58,7 @@ structure CliOptions where
   evmConstructorParams : Array ConstructorParamSpec := #[]
   evmConstructorValues : Array ConstructorValueSpec := #[]
   solanaSbpfArch : String := "v3"
+  stylusRenderer : StylusRenderer := .directWasm
   targetId? : Option String := none
   fixture? : Option String := none
   format? : Option String := none
@@ -49,10 +66,20 @@ structure CliOptions where
   scenario? : Option FilePath := none
   mode : EmitMode := .yul
   fromNewSurface : Bool := false
+  token : Bool := false
+  nft : Bool := false
   /-- Deploy-time logical peer → host identity. Default **identity** (no silent
   rewrite). Use `--peer logical=host` and/or `--peers-demo`. -/
   peerMap : ProofForge.Target.PeerMap.Map := ProofForge.Target.PeerMap.identity
+  nativeBuildOp? : Option NativeBuildOp := none
   deriving Inhabited
+
+def CliOptions.nftStandardId? (opts : CliOptions) (targetId : String) : Option String :=
+  if !opts.nft then none
+  else if targetId == "evm" then some "erc-721"
+  else if targetId == "solana-sbpf-asm" then some "metaplex"
+  else if targetId == "wasm-near" then some "nep-171"
+  else none
 
 def CliOptions.emitsEvmDeployManifest (opts : CliOptions) : Bool :=
   opts.mode.emitsEvmDeployManifest ||

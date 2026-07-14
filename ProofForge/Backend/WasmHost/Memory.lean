@@ -34,11 +34,13 @@ Region map (base -> base+size, all bytes are exclusive scratch space):
 | `PARAM_HASH_BUF`| 46000  | ~1000  | 47000  | 32-byte slots for decoded hash params |
 | `CROSSCALL_BUF` | 47000  | ~1100  | 48100  | NEAR crosscall JSON argument scratch |
 | `CROSSCALL_ARGS_EMPTY_PTR` | 48100 | 2 | 48102 | fixed "[]" payload |
+| `U128_RESULT_BUF` | 48200 | 16 | 48216 | transient U128 arithmetic result |
 | `CROSSCALL_STRING_BASE` | 49000 | ~1000 | 50000 | NEAR account/method string pool |
 | `ZERO_HASH_BUF` | 50000  | 32     | 50032  | 32 zero bytes for missing hash map entries |
 | `OLD_HASH_BUF`  | 50500  | 32     | 50532  | previous value for hash map set/insert |
 | `PROMISE_RESULT_BUF` | 51000 | 8   | 51008  | Borsh U64 promise callback payload |
 | `STRUCT_BUF`    | 52000  | ...    | ...    | struct-valued scalar state read/write |
+| `JSON_RET_BUF`  | 56000  | 4000   | 60000  | schema-driven JSON return assembly |
 | `ARR_HEAP`      | 60000  | ...    | ...    | bump-alloc base for array-value temporaries |
 
 The bump heaps (`HASH_HEAP`, `ARR_HEAP`) grow upward and are reset per
@@ -63,28 +65,22 @@ def HASH_HEAP : Nat := 30000       -- bump-allocator base for hash (32-byte) tem
 def ARR_HEAP : Nat := 60000       -- bump-allocator base for array-value temporaries
 def HASH_CONCAT_BUF : Nat := 40000 -- 64-byte scratch for hash_two_to_one
 def CTX_BUF : Nat := 41000          -- 128-byte scratch for account-id -> sha256 -> u64
+/-- 4-byte LE length of the raw account-id string staged by `__pf_ctx_account_id`. -/
+def ACCT_ID_LEN : Nat := 41130
+/-- Raw predecessor_account_id bytes staged by `__pf_ctx_account_id` (Phase 3).
+    41134..42000 (~866 bytes) — well above the NEAR account-id ceiling. -/
+def ACCT_ID_BUF : Nat := 41134
 def EVENT_BUF : Nat := 42000       -- 256-byte scratch for building event JSON
 /-- Storage key for packed multi-scalar state (`"__pf_s"`). -/
 def PACK_KEY_PTR : Nat := 42600
 def PACK_KEY_LEN : Nat := 6
 /-- Packed scalar scratch reuses `STRUCT_BUF` (52000) as the in-memory blob. -/
 def PACK_BUF : Nat := 52000
-/-- Static punctuation pack used by optimized event JSON assembly (replaces
-per-character `putc` sequences). Layout within the 16-byte region:
-  +0  (10) `{"event":"`
-  +10 (1)  `"`
-  +11 (2)  `,"`
-  +13 (2)  `":`
-  +15 (1)  `}`
--/
+/-- Static NEP-297 footer used by optimized event JSON assembly. -/
 def EVT_PUNCT_BASE : Nat := 42800
 def EVT_PUNCT_SIZE : Nat := 16
-def EVT_HDR_OPEN_PTR : Nat := EVT_PUNCT_BASE
-def EVT_HDR_OPEN_LEN : Nat := 10
-def EVT_QUOTE_PTR : Nat := EVT_PUNCT_BASE + 10
-def EVT_FIELD_SEP_PTR : Nat := EVT_PUNCT_BASE + 11
-def EVT_COLON_PTR : Nat := EVT_PUNCT_BASE + 13
-def EVT_CLOSE_PTR : Nat := EVT_PUNCT_BASE + 15
+def EVT_CLOSE_PTR : Nat := EVT_PUNCT_BASE
+def EVT_CLOSE_LEN : Nat := 3
 /-- Back-compat alias: start of the event punctuation pack (was "event" key). -/
 def EVT_KEY_PTR : Nat := EVT_PUNCT_BASE
 def STRING_BASE : Nat := 43000     -- event/field name string pool base
@@ -98,7 +94,12 @@ def PARAM_HASH_BUF : Nat := 46000  -- 32-byte slots for decoded hash params (one
 def ZERO_HASH_BUF : Nat := 50000  -- 32 zero bytes returned for missing hash-valued map entries
 def OLD_HASH_BUF   : Nat := 50500  -- 32-byte slot holding the previous value for hash-valued map set/insert
 def STRUCT_BUF      : Nat := 52000  -- buffer for reading/writing struct-valued scalar state
+def JSON_RET_BUF    : Nat := 56000  -- schema-driven JSON return assembly (4 KiB)
+def JSON_RET_CAP    : Nat := 4000
 def PROMISE_RESULT_BUF : Nat := 51000  -- scratch for Borsh U64 promise callback payloads
+def U128_RESULT_BUF : Nat := 48200  -- 16-byte transient slot for u128 arith helpers (lo@0, hi@8)
+  -- NEAR VM disables `multi_value`, so __pf_u128_{add,sub,mul} are void and
+  -- write their (lo, hi) result here; callers reload both words onto the stack.
 def crosscallPoolPtrName : String := "__pf_crosscall_pool_ptr"
 def crosscallPoolLenName : String := "__pf_crosscall_pool_len"
 
@@ -122,11 +123,15 @@ def memoryLayoutNonoverlap : Bool :=
     (INPUT_BUF, 2000), (PARAM_HASH_BUF, 1000), (CROSSCALL_BUF, 1100),
     (CROSSCALL_ARGS_EMPTY_PTR, CROSSCALL_ARGS_EMPTY_LEN),
     (CROSSCALL_STRING_BASE, 1000), (ZERO_HASH_BUF, 32),
-    (OLD_HASH_BUF, 32), (PROMISE_RESULT_BUF, 8), (STRUCT_BUF, 4000)
+    (OLD_HASH_BUF, 32), (PROMISE_RESULT_BUF, 8), (STRUCT_BUF, 4000),
+    (JSON_RET_BUF, JSON_RET_CAP),
+    (U128_RESULT_BUF, 16)
   ]
-  regions.all (fun (a0, aSz) =>
-    regions.all (fun (b0, bSz) =>
-      a0 == b0 || disjointRegions a0 aSz b0 bSz))
+  (Array.range regions.size).all fun i =>
+    (Array.range regions.size).all fun j =>
+      i == j || match regions[i]?, regions[j]? with
+        | some (a0, aSz), some (b0, bSz) => disjointRegions a0 aSz b0 bSz
+        | _, _ => false
 
 /-- Decidable proof that the fixed EmitWat scratch regions are pairwise
 disjoint. If this theorem fails to elaborate, the memory layout constants

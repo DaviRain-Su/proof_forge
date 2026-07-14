@@ -30,11 +30,11 @@ Account ids are **string pool indices** (`registerAccountId` / `peerHandle`).
 Amount is a portable U64 rendered as a decimal JSON string.
 Full arbitrary Borsh/JSON remains out of scope — wrong arity → EmitWat reject.
 -/
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 
 namespace ProofForge.Protocols.Near.FungibleToken
 
-open ProofForge.Contract.Surface
+open ProofForge.Contract.Source.Internal
 
 /-- Catalog id for docs / diagnostics. -/
 def catalogId : String := "protocols.near.fungible_token"

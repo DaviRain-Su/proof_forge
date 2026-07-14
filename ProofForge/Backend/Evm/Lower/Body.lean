@@ -6,6 +6,7 @@ import ProofForge.IR.Contract
 import ProofForge.Target.Adapter
 import ProofForge.Target.ProtocolMaterialize
 import ProofForge.Target.Registry
+import ProofForge.Target.HostOps.Evm
 
 /-! # EVM entrypoint body plan lowering
 
@@ -1019,6 +1020,24 @@ mutual
   partial def buildExprPlan (module : Module) (env : TypeEnv) : Expr → Except LowerError ExprPlan
     | .literal value => literalPlan value
     | .local name => .ok (.local name)
+    | .hostCall id args _ _ =>
+        if id == ProofForge.Target.HostOps.Evm.ecrecoverSig.id then
+          match args with
+          | #[digest, v, r, s] => do
+              .ok (.ecrecover
+                (← buildExprPlan module env digest) (← buildExprPlan module env v)
+                (← buildExprPlan module env r) (← buildExprPlan module env s))
+          | _ => .error { message := s!"target extension `{id.render}` expects 4 arguments" }
+        else if id == ProofForge.Target.HostOps.Evm.eip712PermitDigestSig.id then
+          match args with
+          | #[owner, spender, value, nonce, deadline, domainSep] => do
+              .ok (.eip712PermitDigest
+                (← buildExprPlan module env owner) (← buildExprPlan module env spender)
+                (← buildExprPlan module env value) (← buildExprPlan module env nonce)
+                (← buildExprPlan module env deadline) (← buildExprPlan module env domainSep))
+          | _ => .error { message := s!"target extension `{id.render}` expects 6 arguments" }
+        else
+          .error { message := s!"EVM does not support target extension `{id.render}`" }
     | .arrayLit elementType values => do
         let planned ← values.mapM (buildExprPlan module env)
         .ok (.arrayLit elementType planned)
@@ -1111,92 +1130,60 @@ mutual
         .ok (.hash (← buildExprPlan module env preimage))
     | .hashTwoToOne lhs rhs => do
         .ok (.hashTwoToOne (← buildExprPlan module env lhs) (← buildExprPlan module env rhs))
-    | .ecrecover digest v r s => do
-        .ok (.ecrecover
-          (← buildExprPlan module env digest)
-          (← buildExprPlan module env v)
-          (← buildExprPlan module env r)
-          (← buildExprPlan module env s))
-    | .eip712PermitDigest owner spender value nonce deadline domainSep => do
-        .ok (.eip712PermitDigest
-          (← buildExprPlan module env owner)
-          (← buildExprPlan module env spender)
-          (← buildExprPlan module env value)
-          (← buildExprPlan module env nonce)
-          (← buildExprPlan module env deadline)
-          (← buildExprPlan module env domainSep))
-    | .crosscallAbiPacked target selector stores argsSize outSize dynLenOffset? dynLen?
-        dynTargetOffsets dynTargets => do
-        let dynPlan ←
-          match dynLen? with
-          | none => pure none
-          | some len => .ok (some (← buildExprPlan module env len))
-        let tgtPlans ← dynTargets.mapM (buildExprPlan module env)
-        .ok (.crosscallAbiPacked
-          (← buildExprPlan module env target) selector stores argsSize outSize
-          dynLenOffset? dynPlan dynTargetOffsets tgtPlans)
     | .nativeValue =>
         .ok .nativeValue
+    | .callValueU128 =>
+        .error { message := "U128 call value is not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         .ok (.crosscall .call
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           none
           (wrapCrosscallExprWordPlans (← args.mapM (buildExprPlan module env)))
           .u64)
     | .crosscallInvokeTyped target methodId args returnType => do
         .ok (.crosscall .call
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           none
           (← buildCrosscallArgWordPlansMany module env "typed crosscall argument" args)
           returnType)
     | .crosscallInvokeValueTyped target methodId callValue args returnType => do
         .ok (.crosscall .callValue
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           (some (← buildExprPlan module env callValue))
           (← buildCrosscallArgWordPlansMany module env "value crosscall argument" args)
           returnType)
     | .crosscallInvokeStaticTyped target methodId args returnType => do
         .ok (.crosscall .staticcall
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           none
           (← buildCrosscallArgWordPlansMany module env "static crosscall argument" args)
           returnType)
     | .crosscallInvokeDelegateTyped target methodId args returnType => do
         .ok (.crosscall .delegatecall
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target))
+            (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target))
           (← buildExprPlan module env
-            (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId))
+            (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId))
           none
           (← buildCrosscallArgWordPlansMany module env "delegate crosscall argument" args)
           returnType)
-    | .crosscallCreate callValue initCodeHex => do
-        .ok (.create .create (← buildExprPlan module env callValue) none initCodeHex)
-    | .crosscallCreate2 callValue salt initCodeHex => do
-        .ok (.create .create2
-          (← buildExprPlan module env callValue)
-          (some (← buildExprPlan module env salt))
-          initCodeHex)
     | .crosscallNamed _ _ _ _ =>
         .error { message := "crosscallNamed (named-callee cross-program call) is a ZK-lane construct (RFC 0015); not lowered on EVM — use crosscallInvoke* for EVM cross-program calls" }
-    | .nearPromiseThen _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _
-    | .nearCrosscallInvokePool _ _ _ _ =>
-        .error { message := "NEAR promise API is not supported on EVM" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported on EVM" }
     | .effect effect => do
         .ok (.effect (← buildEffectPlan module env effect))
 
@@ -1280,29 +1267,21 @@ mutual
       Except LowerError (Array StoragePathPlanSegment) :=
     path.mapM (buildStoragePathSegmentPlan module env)
 
-  partial def buildContextExprPlan
-      (module : Module)
-      (env : TypeEnv) :
-      ContextField → Except LowerError ContextExprPlan
+  partial def buildContextExprPlan : ContextField → Except LowerError ContextExprPlan
     | .userId => .ok .userId
     -- Identity-width caller: `hashWord(caller)` → keccak256 of 32-byte padded address.
     | .userIdHash => .ok .userIdHash
+    | .accountId => .error { message := "EVM context read `accountId` is not supported; EVM caller identity is a 20-byte address, not a raw AccountId string (NEAR-only, Phase 3)" }
     | .contractId => .ok .contractId
     | .checkpointId => .ok .checkpointId
     | .timestamp => .ok .timestamp
     | .epochHeight => .error { message := "EVM context read `epochHeight` is not supported; EVM has no epoch-height opcode" }
     | .chainId => .ok .chainId
-    | .gasPrice => .ok .gasPrice
     | .gasLeft => .ok .gasLeft
     | .prepaidGas => .error { message := "EVM context read `prepaidGas` is not supported; prepaid_gas is NEAR-only (use gasLeft for EVM gas)" }
     | .usedGas => .error { message := "EVM context read `usedGas` is not supported; used_gas is NEAR-only (use gasLeft for EVM gas)" }
-    | .baseFee => .ok .baseFee
-    | .prevRandao => .ok .prevRandao
     | .randomSeed => .error { message := "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode" }
-    | .origin => .ok .origin
-    | .coinbase => .ok .coinbase
-    | .blockHash blockNumber => do
-        .ok (.blockHash (← buildExprPlan module env blockNumber))
+    | .signer => .ok .origin
 
   partial def buildEventFieldValuePlan
       (module : Module)
@@ -1315,6 +1294,29 @@ mutual
     buildAbiValuePlan module env context fieldType value
 
   partial def buildEffectPlan (module : Module) (env : TypeEnv) : Effect → Except LowerError EffectPlan
+    | .hostCall id args _ => do
+        if id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
+          let #[operator, fromAddr, toAddr, tokenId] := args
+            | .error { message := s!"target extension `{id.render}` expects 4 arguments" }
+          .ok (.checkErc721Received
+            (← buildExprPlan module env operator) (← buildExprPlan module env fromAddr)
+            (← buildExprPlan module env toAddr) (← buildExprPlan module env tokenId))
+        else if id == ProofForge.Target.HostOps.Evm.erc1155ReceivedSig.id then
+          let #[operator, fromAddr, toAddr, tokenId, amount] := args
+            | .error { message := s!"target extension `{id.render}` expects 5 arguments" }
+          .ok (.checkErc1155Received
+            (← buildExprPlan module env operator) (← buildExprPlan module env fromAddr)
+            (← buildExprPlan module env toAddr) (← buildExprPlan module env tokenId)
+            (← buildExprPlan module env amount))
+        else if id == ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id then
+          let #[operator, fromAddr, toAddr, ids, amounts] := args
+            | .error { message := s!"target extension `{id.render}` expects 5 arguments" }
+          .ok (.checkErc1155BatchReceived
+            (← buildExprPlan module env operator) (← buildExprPlan module env fromAddr)
+            (← buildExprPlan module env toAddr) (← buildExprPlan module env ids)
+            (← buildExprPlan module env amounts))
+        else
+          .error { message := s!"EVM does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId =>
         match scalarStorageTargetPlan? module stateId with
         | some target => .ok (.storageScalarReadTarget target)
@@ -1422,7 +1424,7 @@ mutual
         let target ← lowerPlan <| storagePathWriteExprTargetPlan module stateId plannedPath
         .ok (.storagePathAssignOpExprTarget target op (← buildExprPlan module env value))
     | .contextRead field => do
-        .ok (.contextRead (← buildContextExprPlan module env field))
+        .ok (.contextRead (← buildContextExprPlan field))
     | .eventEmit name fields => do
         let eventPlan ← eventPlanForFields module env name #[] fields
         let dataFields := eventPlan.dataFields
@@ -1444,28 +1446,6 @@ mutual
             | .error { message := s!"event `{name}` missing data field plan at index {idx}" }
           buildEventFieldValuePlan module env name field.fst fieldPlan.type field.snd
         eventEffectWordPlan module env (.eventEmitIndexed eventPlan plannedIndexed plannedData)
-    | .checkErc721Received operator fromAddr toAddr tokenId => do
-        .ok (.checkErc721Received
-          (← buildExprPlan module env operator)
-          (← buildExprPlan module env fromAddr)
-          (← buildExprPlan module env toAddr)
-          (← buildExprPlan module env tokenId))
-    | .checkErc1155Received operator fromAddr toAddr id amount => do
-        .ok (.checkErc1155Received
-          (← buildExprPlan module env operator)
-          (← buildExprPlan module env fromAddr)
-          (← buildExprPlan module env toAddr)
-          (← buildExprPlan module env id)
-          (← buildExprPlan module env amount))
-
-    | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
-        .ok (.checkErc1155BatchReceived
-          (← buildExprPlan module env operator)
-          (← buildExprPlan module env fromAddr)
-          (← buildExprPlan module env toAddr)
-          (← buildExprPlan module env ids)
-          (← buildExprPlan module env amounts))
-
   partial def buildStatementPlan
       (module : Module)
       (entrypoint : Entrypoint)

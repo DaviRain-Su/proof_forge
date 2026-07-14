@@ -31,42 +31,42 @@ def statusReleased : Nat := 2
 def statusRefunded : Nat := 3
 
 def buyerSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "buyer" .u64
+  ProofForge.Contract.Source.slot "buyer" .u64
 
 def sellerSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "seller" .u64
+  ProofForge.Contract.Source.slot "seller" .u64
 
 def amountSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "amount" .u64
+  ProofForge.Contract.Source.slot "amount" .u64
 
 def statusSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "status" .u64
+  ProofForge.Contract.Source.slot "status" .u64
 
 def sellerClaimSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "sellerClaim" .u64
+  ProofForge.Contract.Source.slot "sellerClaim" .u64
 
 def buyerClaimSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "buyerClaim" .u64
+  ProofForge.Contract.Source.slot "buyerClaim" .u64
 
 contract_source EscrowVault do
-  use ProofForge.Contract.Surface.scalar buyerSlot
-  use ProofForge.Contract.Surface.scalar sellerSlot
-  use ProofForge.Contract.Surface.scalar amountSlot
-  use ProofForge.Contract.Surface.scalar statusSlot
-  use ProofForge.Contract.Surface.scalar sellerClaimSlot
-  use ProofForge.Contract.Surface.scalar buyerClaimSlot
+  use ProofForge.Contract.Source.scalar buyerSlot
+  use ProofForge.Contract.Source.scalar sellerSlot
+  use ProofForge.Contract.Source.scalar amountSlot
+  use ProofForge.Contract.Source.scalar statusSlot
+  use ProofForge.Contract.Source.scalar sellerClaimSlot
+  use ProofForge.Contract.Source.scalar buyerClaimSlot
 
   event Funded
   event Released
   event Refunded
 
   entry init (buyerId : .u64, sellerId : .u64) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref buyerId)
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref buyerId)
       "zero buyer";
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref sellerId)
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref sellerId)
       "zero seller";
-    do ProofForge.Contract.Surface.requireNe (ProofForge.Contract.Surface.ref buyerId)
-      (ProofForge.Contract.Surface.ref sellerId) "same party";
+    do ProofForge.Contract.Source.requireNe (ProofForge.Contract.Source.ref buyerId)
+      (ProofForge.Contract.Source.ref sellerId) "same party";
     buyerSlot := buyerId;
     sellerSlot := sellerId;
     amountSlot := u64 0;
@@ -75,31 +75,31 @@ contract_source EscrowVault do
     buyerClaimSlot := u64 0;
 
   entry fund (amt : .u64) do
-    do ProofForge.Contract.Surface.requireEq
-      (ProofForge.Contract.Surface.read statusSlot) (u64 statusEmpty) "not empty";
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amt)
+    do ProofForge.Contract.Source.requireEq
+      (ProofForge.Contract.Source.read statusSlot) (u64 statusEmpty) "not empty";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amt)
       "zero amount";
     amountSlot := amt;
     statusSlot := u64 statusFunded;
-    emit Funded indexed #[fieldAsName "buyer" (ProofForge.Contract.Surface.read buyerSlot)]
+    emit Funded indexed #[fieldAsName "buyer" (ProofForge.Contract.Source.read buyerSlot)]
       data #[fieldAsName "amount" amt];
 
   entry release do
-    do ProofForge.Contract.Surface.requireEq
-      (ProofForge.Contract.Surface.read statusSlot) (u64 statusFunded) "not funded";
+    do ProofForge.Contract.Source.requireEq
+      (ProofForge.Contract.Source.read statusSlot) (u64 statusFunded) "not funded";
     let amt : .u64 := amountSlot;
     statusSlot := u64 statusReleased;
     sellerClaimSlot := amt;
-    emit Released indexed #[fieldAsName "seller" (ProofForge.Contract.Surface.read sellerSlot)]
+    emit Released indexed #[fieldAsName "seller" (ProofForge.Contract.Source.read sellerSlot)]
       data #[fieldAsName "amount" amt];
 
   entry refund do
-    do ProofForge.Contract.Surface.requireEq
-      (ProofForge.Contract.Surface.read statusSlot) (u64 statusFunded) "not funded";
+    do ProofForge.Contract.Source.requireEq
+      (ProofForge.Contract.Source.read statusSlot) (u64 statusFunded) "not funded";
     let amt : .u64 := amountSlot;
     statusSlot := u64 statusRefunded;
     buyerClaimSlot := amt;
-    emit Refunded indexed #[fieldAsName "buyer" (ProofForge.Contract.Surface.read buyerSlot)]
+    emit Refunded indexed #[fieldAsName "buyer" (ProofForge.Contract.Source.read buyerSlot)]
       data #[fieldAsName "amount" amt];
 
   query get_status returns(.u64) do

@@ -1,6 +1,6 @@
 # Wasm Family Targets
 
-The Wasm family includes NEAR, CosmWasm, Stellar/Soroban, Internet Computer
+The Wasm family includes NEAR, CosmWasm, Stellar/Soroban, Arbitrum Stylus, Internet Computer
 canisters, later Polkadot/ink-style contracts, and Cloudflare Workers. They
 share an executable format, but not a contract ABI. Cloudflare Workers is not a
 blockchain, but it uses the same Wasm-host backend pattern: a generated Wasm
@@ -17,6 +17,10 @@ for the off-chain reinterpretation of capabilities.
 - **Soroban:** Counter MVP host adapter (`PF-P3-02` six-gate); interpreter auth
   is always-authorised until real Env auth lands.
 - **Cloudflare Workers:** research / off-chain only.
+- **Arbitrum Stylus (`wasm-arbitrum-stylus`):** implemented Research target. Stylus is
+  Wasm-shaped but EVM-semantic; it owns a separate `StylusPlan` and must not
+  route through `NearModulePlan`. Direct Wasm is the CLI default and pinned
+  Rust SDK sourcegen is the differential oracle; Nitro evidence is incomplete.
 
 ## Common Shape
 
@@ -80,6 +84,7 @@ ProofForge/Backend/WasmHost/          # one Wasm-family package
 | Registry `wasm-stellar-soroban` | Product target id for **Soroban only** |
 | Registry `wasm-cosmwasm` | Product target id for **CosmWasm only** |
 | Registry `wasm-cloudflare-workers` | Off-chain Wasm host (TS/Workers path; not EmitWat core) |
+| Registry `wasm-arbitrum-stylus` | Research; Solidity ABI + EVM slot semantics through a separate `StylusPlan`; direct Wasm default, Rust oracle |
 
 **Single entry:** `WasmHost.EmitWat.renderModule mod bridge` for all three
 on-chain Wasm targets. CosmWasm still uses an in-package Counter **spike**

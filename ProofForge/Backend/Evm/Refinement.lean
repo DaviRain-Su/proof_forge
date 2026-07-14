@@ -1140,8 +1140,8 @@ def contextTraceCalls : Array TraceCall := #[
 ]
 
 def contextExpectedTrace : Array ObservableStep := #[
-  { entrypointName := "context_extras", selector := "d9b80589", returnValue := .words #[0, 0, 0, 0, 0, 0] },
-  { entrypointName := "context_hashes", selector := "b59b9225", returnValue := .words #[0, 0, 0] }
+  { entrypointName := "context_extras", selector := "d9b80589", returnValue := .words #[0, 0, 0] },
+  { entrypointName := "context_hashes", selector := "b59b9225", returnValue := .words #[0] }
 ]
 
 def contextTraceObligation : TraceObligation := {
@@ -1455,7 +1455,7 @@ theorem evm_lowerable_implies_counter_skeleton
     (h : evmYulTargetSemantics.lowerableAccepts m = true) :
     m.structs = #[] ∧
       m.proxyPattern? = none ∧
-      m.nearCrosscallStrings = #[] ∧
+      m.crosscallStrings = #[] ∧
       m.eventAbiWords = #[] ∧
       m.overflowChecked = false ∧
       m.allocator = ProofForge.IR.defaultAllocator ∧

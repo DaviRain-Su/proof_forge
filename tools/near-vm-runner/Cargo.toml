@@ -1,0 +1,13 @@
+[package]
+name = "near-vm-runner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+near-vm-runner = { version = "0.37", features = ["wasmtime_vm"] }
+near-primitives-core = "0.37"
+near-parameters = "0.37"
+
+[[bin]]
+name = "near-vm-runner"
+path = "src/main.rs"

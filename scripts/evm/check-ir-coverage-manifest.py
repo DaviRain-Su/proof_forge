@@ -99,12 +99,14 @@ def read_manifest(path: Path) -> tuple[set[tuple[str, str]], list[str]]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ir", default="ProofForge/IR/Contract.lean")
+    parser.add_argument("--value-types", default="ProofForge/IR/ValueType.lean")
     parser.add_argument("--manifest", default="Tests/Backend/Evm/EvmCoverage.tsv")
     args = parser.parse_args()
 
     ir_path = Path(args.ir)
     manifest_path = Path(args.manifest)
-    actual = read_ir_constructors(ir_path)
+    value_types_path = Path(args.value_types)
+    actual = read_ir_constructors(ir_path) | read_ir_constructors(value_types_path)
     manifest, errors = read_manifest(manifest_path)
 
     missing = sorted(actual - manifest)
@@ -120,7 +122,7 @@ def main() -> int:
             print(f"evm-ir-coverage: {error}", file=sys.stderr)
         return 1
 
-    print(f"evm-ir-coverage: {len(manifest)} constructor entries match {ir_path}")
+    print(f"evm-ir-coverage: {len(manifest)} constructor entries match {value_types_path} + {ir_path}")
     return 0
 
 

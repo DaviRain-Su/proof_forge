@@ -41,13 +41,6 @@ where
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
     | .eq a b | .ne a b | .lt a b | .le a b | .gt a b | .ge a b
     | .boolAnd a b | .boolOr a b | .hashTwoToOne a b => pushExpr (pushExpr acc a) b
-    | .ecrecover a b c d => pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d
-    | .eip712PermitDigest a b c d e f =>
-        pushExpr (pushExpr (pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d) e) f
-    | .crosscallAbiPacked t _ _ _ _ _ dynLen? _ dynTargets =>
-        let acc := pushExpr acc t
-        let acc := match dynLen? with | some e => pushExpr acc e | none => acc
-        dynTargets.foldl pushExpr acc
     | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => pushExpr acc a
     | .arrayLit _ xs => xs.foldl pushExpr acc
     | .structLit _ fs => fs.foldl (fun a f => pushExpr a f.snd) acc
@@ -59,16 +52,15 @@ where
         args.foldl pushExpr (pushExpr (pushExpr acc a) b)
     | .crosscallInvokeValueTyped a b c args _ =>
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c)
-    | .crosscallCreate a _ => pushExpr acc a
-    | .crosscallCreate2 a b _ => pushExpr (pushExpr acc a) b
     | .crosscallNamed _ _ args _ => args.foldl pushExpr acc
-    | .nearCrosscallInvokePool a b args d =>
+    | .hostCall _ args _ _ => args.foldl pushExpr acc
+    | .crosscallInvokeNamedValue a b args d _ =>
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) d)
-    | .nearPromiseThen a b args d =>
+    | .crosscallContinue a b args d _ =>
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) d)
-    | .nearPromiseResultStatus a | .nearPromiseResultU64 a => pushExpr acc a
-    | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => acc
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => acc
   pushEffect (acc : Array ContextField) : Effect → Array ContextField
+    | .hostCall _ args _ => args.foldl pushExpr acc
     | .contextRead f => pushUnique acc f
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => pushExpr acc v
@@ -82,12 +74,6 @@ where
     | .eventEmit _ fs => fs.foldl (fun a f => pushExpr a f.snd) acc
     | .eventEmitIndexed _ ix data =>
         data.foldl (fun a f => pushExpr a f.snd) (ix.foldl (fun a f => pushExpr a f.snd) acc)
-    | .checkErc721Received a b c d =>
-        pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d
-    | .checkErc1155Received a b c d e =>
-        pushExpr (pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d) e
-    | .checkErc1155BatchReceived a b c d e =>
-        pushExpr (pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d) e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ => acc
   pushPath (acc : Array ContextField) : StoragePathSegment → Array ContextField
@@ -111,31 +97,26 @@ where
   exprUses : Expr → Bool
     | .crosscallInvoke .. | .crosscallInvokeTyped .. | .crosscallInvokeValueTyped ..
     | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped .. => true
-    | .crosscallAbiPacked .. => true
     | .effect e => effectUses e
     | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
     | .eq a b | .ne a b | .lt a b | .le a b | .gt a b | .ge a b
     | .boolAnd a b | .boolOr a b | .hashTwoToOne a b => exprUses a || exprUses b
-    | .ecrecover a b c d => exprUses a || exprUses b || exprUses c || exprUses d
-    | .eip712PermitDigest a b c d e f =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
-    | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _
-    | .nearPromiseResultStatus a | .nearPromiseResultU64 a => exprUses a
+    | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)
     | .arrayGet a i | .memoryArrayGet a i => exprUses a || exprUses i
     | .memoryArrayNew _ len => exprUses len
     | .hashValue a b c d => exprUses a || exprUses b || exprUses c || exprUses d
-    | .crosscallCreate a _ => exprUses a
-    | .crosscallCreate2 a b _ => exprUses a || exprUses b
     | .crosscallNamed _ _ args _ => args.any exprUses
-    | .nearCrosscallInvokePool a b args d =>
+    | .hostCall _ args _ _ => args.any exprUses
+    | .crosscallInvokeNamedValue a b args d _ =>
         exprUses a || exprUses b || args.any exprUses || exprUses d
-    | .nearPromiseThen a b args d =>
+    | .crosscallContinue a b args d _ =>
         exprUses a || exprUses b || args.any exprUses || exprUses d
-    | .literal _ | .local _ | .nativeValue | .nearPromiseResultsCount => false
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool
+    | .hostCall _ args _ => args.any exprUses
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
     | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k | .storageArrayRead _ k => exprUses k
@@ -148,12 +129,6 @@ where
     | .eventEmit _ fs => fs.any (fun f => exprUses f.snd)
     | .eventEmitIndexed _ ix data =>
         ix.any (fun f => exprUses f.snd) || data.any (fun f => exprUses f.snd)
-    | .checkErc721Received a b c d =>
-        exprUses a || exprUses b || exprUses c || exprUses d
-    | .checkErc1155Received a b c d e =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
-    | .checkErc1155BatchReceived a b c d e =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => false
   pathUses : StoragePathSegment → Bool
@@ -201,7 +176,7 @@ def requireIdentityHonesty (targetId : String) (module : Module) : Except String
 /-- Declared logical peer for Solana account inference (`declareRemote` / string pool).
 Empty or missing → inference cannot run; resolve must reject (no silent placeholder). -/
 def declaredPeerId? (module : Module) : Option String :=
-  match module.nearCrosscallStrings[0]? with
+  match module.crosscallStrings[0]? with
   | some s => if s.isEmpty then none else some s
   | none => none
 
@@ -209,7 +184,7 @@ def declaredPeerId? (module : Module) : Option String :=
 Host-extension-only modules (promise_then without portable crosscallInvoke) are
 allowed on wasm-near only (family portability still applies elsewhere).
 
-Solana: requires a **non-empty declared peer** in `nearCrosscallStrings` so
+Solana: requires a **non-empty declared peer** in `crosscallStrings` so
 `inferSolanaAccounts` runs (empty peer fails closed — no `portable.peer` invent). -/
 def requireSyncCrosscallHonesty (targetId : String) (module : Module) : Except String Unit := do
   if moduleUsesPortableSyncCrosscall module then
@@ -219,7 +194,7 @@ def requireSyncCrosscallHonesty (targetId : String) (module : Module) : Except S
       | none =>
           .error
             "PortableHonesty Crosscall: Solana portable remote requires a non-empty peer id \
-from `remote peerId \"logical.peer\" \"method\"` / declareRemote (nearCrosscallStrings / PeerMap). \
+from `remote peerId \"logical.peer\" \"method\"` / declareRemote (crosscallStrings / PeerMap). \
 empty peer cannot be inferred — fail-closed (no portable.peer invent)"
       | some peer =>
           match materializeSyncRemote targetId module peer with

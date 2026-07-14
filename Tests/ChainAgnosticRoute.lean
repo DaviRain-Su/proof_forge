@@ -58,7 +58,8 @@ def nearAsyncModule : Module := {
   state := #[]
   entrypoints := #[{
     name := "cb"
-    body := #[.return (.nearPromiseResultsCount)]
+    body := #[.return (.hostCall
+      ProofForge.Target.HostOps.Near.promiseResultsCountSig.id #[] .u64 #[.nearPromise])]
   }]
 }
 
@@ -300,26 +301,6 @@ def main : IO UInt32 := do
         throw (IO.userError s!"Counter resolveSpec {profile.id} must ok: {d.message}")
     | .ok plan => require (plan.targetId == profile.id) s!"plan target {profile.id}"
 
-  -- EVM-only baseFee context must fail Solana/NEAR resolveSpec via HostEnv honesty.
-  let baseFeeMod : Module := {
-    name := "BaseFeeOnly"
-    state := #[]
-    entrypoints := #[{
-      name := "g"
-      body := #[.return (.effect (.contextRead .baseFee))]
-    }]
-  }
-  match resolveSpec solanaSbpfAsm (ContractSpec.fromIR baseFeeMod) with
-  | .ok _ => throw (IO.userError "Solana must reject baseFee context via PortableHonesty")
-  | .error d =>
-      require (contains d.message "HostEnv" || contains d.message "PortableHonesty")
-        s!"baseFee reject names honesty, got: {d.message}"
-  match resolveSpec wasmNear (ContractSpec.fromIR baseFeeMod) with
-  | .ok _ => throw (IO.userError "NEAR must reject baseFee context")
-  | .error d =>
-      require (contains d.message "HostEnv" || contains d.message "PortableHonesty")
-        "NEAR baseFee honesty"
-
   -- Solana self (contractId) resolves after program-id HostEnv path (U1.2).
   let selfMod : Module := {
     name := "SelfOnly"
@@ -347,7 +328,7 @@ def main : IO UInt32 := do
           (.crosscallInvoke (.literal (.u64 1)) (.literal (.u64 2)) #[.literal (.u64 0)])
       ]
     }]
-    nearCrosscallStrings := #[]
+    crosscallStrings := #[]
   }
   match resolveSpec solanaSbpfAsm (ContractSpec.fromIR remoteModEmptyPeer) with
   | .ok _ => throw (IO.userError "Solana empty peer must reject on resolveSpec")
@@ -368,7 +349,7 @@ def main : IO UInt32 := do
           (.crosscallInvoke (.literal (.u64 1)) (.literal (.u64 2)) #[.literal (.u64 0)])
       ]
     }]
-    nearCrosscallStrings := #["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"]
+    crosscallStrings := #["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"]
   }
   match resolveSpec solanaSbpfAsm (ContractSpec.fromIR remoteMod) with
   | .error d => throw (IO.userError s!"Solana portable remote resolve: {d.message}")
@@ -402,7 +383,8 @@ def main : IO UInt32 := do
       body := #[
         .letBind "p" .u64
           (.crosscallInvoke (.literal (.u64 1)) (.literal (.u64 2)) #[]),
-        .return (.nearPromiseResultsCount)
+        .return (.hostCall ProofForge.Target.HostOps.Near.promiseResultsCountSig.id
+          #[] .u64 #[.nearPromise])
       ]
     }]
   }
@@ -502,9 +484,10 @@ def main : IO UInt32 := do
     entrypoints := #[{
       name := "r"
       body := #[
-        .return (.ecrecover
-          (.literal (.u64 0)) (.literal (.u64 0))
-          (.literal (.u64 0)) (.literal (.u64 0)))
+        .return (.hostCall ProofForge.Target.HostOps.Evm.ecrecoverSig.id #[
+          .literal (.hash4 0 0 0 0), .literal (.u64 0),
+          .literal (.hash4 0 0 0 0), .literal (.hash4 0 0 0 0)
+        ] .u64 #[.cryptoEcrecover])
       ]
     }]
   }

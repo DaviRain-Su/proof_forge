@@ -97,28 +97,6 @@ def callRemoteDelegate : Entrypoint := {
   ]
 }
 
-/-- Minimal init-code hex for portable create/create2 stubs (ignored by Quint semantics). -/
-def returnFortyTwoInitCodeHex : String :=
-  "69602a60005260206000f3600052600a6016f3"
-
-def deployCreate : Entrypoint := {
-  name := "deploy_create"
-  returns := .u64
-  params := #[("value", .u64)]
-  body := #[
-    .return (.crosscallCreate (.local "value") returnFortyTwoInitCodeHex)
-  ]
-}
-
-def deployCreate2 : Entrypoint := {
-  name := "deploy_create2"
-  returns := .u64
-  params := #[("value", .u64), ("salt", .hash)]
-  body := #[
-    .return (.crosscallCreate2 (.local "value") (.local "salt") returnFortyTwoInitCodeHex)
-  ]
-}
-
 def callRemotePair : Entrypoint := {
   name := "call_remote_pair"
   returns := .structType "RemotePair"
@@ -164,7 +142,6 @@ def module : Module := {
   entrypoints := #[
     callRemote, callWithArgs, callRemoteBool, callRemoteU32, callRemoteHash,
     callRemoteValue, callRemoteStatic, callRemoteDelegate,
-    deployCreate, deployCreate2,
     callRemotePair, callRemotePairArg, callRemoteArray, callRemoteArrayArg
   ]
 }
@@ -180,7 +157,7 @@ EVM-only STATICCALL/DELEGATECALL/create and Hash/struct-heavy entrypoints are
 excluded so `solana-sbpf-asm` can lower CPI materialization without extension
 surface.
 
-`nearCrosscallStrings` holds the logical peer program id (first entry) so
+`crosscallStrings` holds the logical peer program id (first entry) so
 PortableHonesty can infer CPI accounts — empty peer is fail-closed. -/
 def solanaPortableModule : Module := {
   name := "CrosscallProbeSolana"
@@ -188,7 +165,7 @@ def solanaPortableModule : Module := {
   entrypoints := #[
     callRemote, callWithArgs, callRemoteBool, callRemoteU32, callRemoteValue
   ]
-  nearCrosscallStrings := #["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "transfer"]
+  crosscallStrings := #["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "transfer"]
 }
 
 end ProofForge.IR.Examples.CrosscallProbe

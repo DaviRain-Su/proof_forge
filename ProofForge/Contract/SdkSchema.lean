@@ -14,6 +14,8 @@ def schemaVersion : Nat := 0
 
 def irVersion : String := "portable-ir-v0"
 
+def sourceVersion : String := "contract-source"
+
 abbrev JsonField := String × String
 
 structure FileRef where
@@ -175,21 +177,6 @@ mutual
     | .cast value _ | .boolNot value | .hash value => collectExprEvents events value
     | .hashValue a b c d =>
         collectExprEvents (collectExprEvents (collectExprEvents (collectExprEvents events a) b) c) d
-    | .ecrecover a b c d =>
-        collectExprEvents (collectExprEvents (collectExprEvents (collectExprEvents events a) b) c) d
-    | .eip712PermitDigest a b c d e f =>
-        collectExprEvents
-          (collectExprEvents
-            (collectExprEvents
-              (collectExprEvents
-                (collectExprEvents (collectExprEvents events a) b) c) d) e) f
-    | .crosscallAbiPacked target _ _ _ _ _ dynLen? _ dynTargets =>
-        let events₁ := collectExprEvents events target
-        let events₂ :=
-          match dynLen? with
-          | some e => collectExprEvents events₁ e
-          | none => events₁
-        dynTargets.foldl collectExprEvents events₂
     | .crosscallInvoke target methodId args
     | .crosscallInvokeTyped target methodId args _
     | .crosscallInvokeStaticTyped target methodId args _
@@ -198,24 +185,21 @@ mutual
     | .crosscallInvokeValueTyped target methodId callValue args _ =>
         args.foldl collectExprEvents
           (collectExprEvents (collectExprEvents (collectExprEvents events target) methodId) callValue)
-    | .crosscallCreate callValue _ => collectExprEvents events callValue
-    | .crosscallCreate2 callValue salt _ => collectExprEvents (collectExprEvents events callValue) salt
     | .crosscallNamed _ _ args _ => args.foldl collectExprEvents events
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
+    | .hostCall _ args _ _ => args.foldl collectExprEvents events
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
         let events' := collectExprEvents (collectExprEvents (collectExprEvents events parentPromise) callbackMethod) deposit
         args.foldl (fun acc arg => collectExprEvents acc arg) events'
-    | .nearPromiseResultsCount => events
-    | .nearPromiseResultStatus index => collectExprEvents events index
-    | .nearPromiseResultU64 index => collectExprEvents events index
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         let events₁ := collectExprEvents events accountIndex
         let events₂ := collectExprEvents events₁ methodId
         let events₃ := collectExprEvents events₂ deposit
         args.foldl collectExprEvents events₃
     | .effect effect => collectEffectEvents events effect
-    | .literal _ | .local _ | .nativeValue => events
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => events
 
   partial def collectEffectEvents (events : Array String) : Effect → Array String
+    | .hostCall _ args _ => args.foldl collectExprEvents events
     | .storageScalarWrite _ value
     | .storageScalarAssignOp _ _ value
     | .storageArrayWrite _ _ value
@@ -238,21 +222,6 @@ mutual
     | .eventEmit name fields
     | .eventEmitIndexed name fields _ =>
         fields.foldl (fun acc field => collectExprEvents acc field.snd) (pushUnique events name)
-    | .checkErc721Received operator fromAddr toAddr tokenId =>
-        collectExprEvents
-          (collectExprEvents
-            (collectExprEvents (collectExprEvents events operator) fromAddr) toAddr) tokenId
-    | .checkErc1155Received operator fromAddr toAddr id amount =>
-        collectExprEvents
-          (collectExprEvents
-            (collectExprEvents
-              (collectExprEvents (collectExprEvents events operator) fromAddr) toAddr) id) amount
-    | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts =>
-        collectExprEvents
-          (collectExprEvents
-            (collectExprEvents
-              (collectExprEvents
-                (collectExprEvents events operator) fromAddr) toAddr) ids) amounts
     | .storageScalarRead _
     | .storageDynamicArrayPop _
     | .storageStructFieldRead _ _

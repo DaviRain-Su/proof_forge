@@ -280,7 +280,7 @@ def validateState (module : Module) : Except LowerError Unit := do
             match state.kind with
             | .map keyType _ => (keyType, state.type)
             | _ => (.unit, state.type)
-          .error { message := s!"map state `{state.id}` has unsupported wasm-near IR v0 type `{mapShapeName keyType valueType capacity}`; only Map<U64|Hash, U32|U64|Bool|Hash, N> is supported" }
+          .error { message := s!"map state `{state.id}` has unsupported wasm-near Rust sourcegen v0 type `{mapShapeName keyType valueType capacity}`; only Map<U64|Hash, U32|U64|Bool|Hash, N> is supported; use canonical EmitWat for String-keyed or U128-valued maps" }
     | .array _, _ =>
         .error { message := s!"state `{state.id}` is storage.array; wasm-near IR v0 does not lower portable array storage" }
     | .dynamicArray, _ =>
@@ -419,27 +419,22 @@ mutual
         ensureType "hash_two_to_one left operand" .hash (← inferExprType module env lhs)
         ensureType "hash_two_to_one right operand" .hash (← inferExprType module env rhs)
         .ok .hash
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-        .error { message := "ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only); not supported by wasm-near IR v0" }
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-        .error { message := "crosscallAbiPacked (compile-time ABI Call[]) is EVM-only; not supported by wasm-near IR v0" }
     | .nativeValue => .ok .u64
+    | .callValueU128 => .ok .u128
+    | .hostCall _ _ returnType _ => .ok returnType
     | .crosscallInvoke _ _ _ => .ok .u64
     | .crosscallInvokeTyped _ _ _ returnType => .ok returnType
     | .crosscallInvokeValueTyped _ _ _ _ returnType => .ok returnType
     | .crosscallInvokeStaticTyped _ _ _ returnType => .ok returnType
     | .crosscallInvokeDelegateTyped _ _ _ returnType => .ok returnType
-    | .crosscallCreate _ _ => .ok .u64
-    | .crosscallCreate2 _ _ _ => .ok .u64
     | .crosscallNamed _ _ _ returnType => .ok returnType
-    | .nearCrosscallInvokePool _ _ _ _ => .ok .u64
-    | .nearPromiseThen _ _ _ _ => .ok .u64
-    | .nearPromiseResultsCount => .ok .u64
-    | .nearPromiseResultStatus _ => .ok .u64
-    | .nearPromiseResultU64 _ => .ok .u64
+    | .crosscallInvokeNamedValue _ _ _ _ _ => .ok .u64
+    | .crosscallContinue _ _ _ _ _ => .ok .u64
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
+    | .hostCall id _ _ =>
+        .error { message := s!"wasm host does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId => scalarStateType module stateId
     | .storageScalarWrite _ _ =>
         .error { message := "storage.scalar.write is a statement effect, not an expression" }
@@ -492,21 +487,13 @@ mutual
     | .storagePathAssignOp _ _ _ _ =>
         .error { message := "storage.path.assign_op is not supported by wasm-near IR v0" }
     | .contextRead .userIdHash => .ok .hash
-    | .contextRead .origin => .ok .hash
+    | .contextRead .signer => .ok .hash
     | .contextRead .randomSeed => .ok .hash
-    | .contextRead .coinbase => .ok .hash
-    | .contextRead (.blockHash _) => .ok .hash
     | .contextRead _ => .ok .u64
     | .eventEmit _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def inferStoragePathType (module : Module) (env : TypeEnv) (stateId : String) (path : Array StoragePathSegment) : Except LowerError ValueType := do
     let state ← stateDeclOf module stateId "storage path"
@@ -584,6 +571,8 @@ mutual
 
 
   partial def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Except LowerError Unit
+    | .hostCall id _ _ =>
+        .error { message := s!"wasm host does not support effect target extension `{id.render}`" }
     | .storageScalarRead _ =>
         .error { message := "storage.scalar.read must be used as an expression" }
     | .storageScalarWrite stateId value => do
@@ -649,12 +638,6 @@ mutual
               .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type `{actual.name}`; event fields must be U32, U64, Bool, Hash, or Address" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "indexed events are not supported by wasm-near Rust sourcegen v0" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by wasm-near" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported by wasm-near" }
   partial def validateStatements (module : Module) (entrypoint : Entrypoint) (env : TypeEnv) (statements : Array Statement) : Except LowerError TypeEnv :=
     statements.foldlM (init := env) fun acc stmt =>
       validateStatementTypes module entrypoint acc stmt

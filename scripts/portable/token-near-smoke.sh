@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Product-facing NEAR TokenSpec health path (Wave β).
-#
-# One command story (docs/product-sdk.md):
-#   1) TokenSpec plan for --target wasm-near (NEP-141 operations metadata)
-#   2) Full FT body: Stdlib.NearFungibleToken → EmitWat WAT
+# One Product TokenSpec -> parameterized NEP-141 Wasm, clients, metadata, VM proof.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -12,9 +8,10 @@ export PATH="$HOME/.elan/bin:$HOME/.local/bin:$PATH"
 
 OUT_DIR="${PROOF_FORGE_TOKEN_NEAR_OUT:-build/portable/token-near}"
 LEAN_TOKEN="Examples/Product/FungibleToken.lean"
-PLAN_JSON="$OUT_DIR/FungibleToken.near-nep141-plan.json"
-WAT_OUT="$OUT_DIR/NearFungibleToken.wat"
-DRIVER="$OUT_DIR/emit_body.lean"
+WAT_OUT="$OUT_DIR/prf.wat"
+WASM_OUT="$OUT_DIR/prf.wasm"
+ARTIFACT_JSON="$OUT_DIR/proof-forge-artifact.json"
+CLIENT_TS="$OUT_DIR/proof-forge-near.ts"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -32,111 +29,74 @@ require_contains() {
   grep -Fq -- "$needle" "$file" || fail "$label missing '$needle' in $file"
 }
 
-command -v lake >/dev/null 2>&1 || fail "lake not on PATH"
+for tool in cargo lake od python3 wat2wasm; do
+  command -v "$tool" >/dev/null 2>&1 || fail "missing required tool '$tool'"
+done
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 lake build proof-forge >/dev/null
 
-echo "=== product-token-near step 1: TokenSpec → wasm-near NEP-141 plan ==="
-lake env proof-forge build --target wasm-near --token --root . \
-  -o "$PLAN_JSON" \
-  "$LEAN_TOKEN" \
-  || fail "proof-forge build --target wasm-near --token failed for Product FungibleToken"
+echo "=== product-token-near: TokenSpec -> parameterized NEP-141 package ==="
+lake env lean --run Tests/NearTokenSpecRuntime.lean \
+  || fail "TokenSpec runtime structure test failed"
+lake env proof-forge build --target wasm-near --root . -o "$OUT_DIR" "$LEAN_TOKEN" \
+  || fail "TokenSpec wasm-near package build failed"
 
-require_file "$PLAN_JSON"
-python3 - "$PLAN_JSON" <<'PY'
+for output in "$WAT_OUT" "$WASM_OUT" "$ARTIFACT_JSON" "$CLIENT_TS"; do
+  require_file "$output"
+done
+require_contains "$WAT_OUT" "Proof Token" "TokenSpec name"
+require_contains "$WAT_OUT" "PRF" "TokenSpec symbol"
+require_contains "$CLIENT_TS" "ft_metadata" "generated NEAR client"
+
+python3 - "$ARTIFACT_JSON" <<'PY'
 import json
 import sys
 
-plan = json.load(open(sys.argv[1]))
-assert plan["format"] == "proof-forge-token-plan-v0"
-assert plan["sourceKind"] == "lean-token-source"
-assert plan["target"] == "wasm-near"
-assert plan["standard"] == "nep-141"
-assert plan["artifactKind"] == "near-nep141-plan"
-ops = plan.get("operations") or []
-assert "ft_transfer" in ops, f"missing ft_transfer in {ops}"
-assert "ft_balance_of" in ops, f"missing ft_balance_of in {ops}"
-assert "ft_total_supply" in ops, f"missing ft_total_supply in {ops}"
-print("near nep-141 token plan: ok")
+artifact = json.load(open(sys.argv[1]))
+assert artifact["target"] == "wasm-near"
+assert artifact["artifactKind"] == "wasm"
+assert artifact["token"] == {
+    "standard": "nep-141",
+    "name": "Proof Token",
+    "symbol": "PRF",
+    "decimals": 9,
+    "initialSupply": 1000000,
+    "features": ["mintable", "burnable"],
+    "authFeatures": [],
+}
+assert artifact["artifactBundle"]["finalOutput"] == "wasm"
+print("parameterized token artifact: ok")
 PY
 
-echo "=== product-token-near step 2: NEP-141 body (Stdlib) → EmitWat ==="
-lake build ProofForge.Contract.Stdlib.NearFungibleToken ProofForge.Backend.WasmHost.EmitWat \
-  || fail "lake build NearFungibleToken/EmitWat failed"
-
-# Emit body via Lean (stdlib exposes .module, not a CLI contract_source file).
-cat >"$DRIVER" <<'EOF'
-import ProofForge.Backend.WasmHost.EmitWat
-import ProofForge.Contract.Stdlib.NearFungibleToken
-
-def main : IO Unit := do
-  match ProofForge.Backend.WasmHost.EmitWat.renderModule
-      ProofForge.Contract.Stdlib.NearFungibleToken.module with
-  | .error e => throw (IO.userError e.message)
-  | .ok wat =>
-      let path := System.FilePath.mk "build/portable/token-near/NearFungibleToken.wat"
-      IO.FS.writeFile path wat
-      IO.println s!"wrote {path}"
-EOF
-
-# Driver uses fixed relative path under OUT_DIR
-lake env lean --run "$DRIVER" \
-  || fail "EmitWat render NearFungibleToken.module failed"
-
-require_file "$WAT_OUT"
-require_contains "$WAT_OUT" "ft_transfer" "NEP-141 body must mention ft_transfer"
-require_contains "$WAT_OUT" "storage_write" "NEP-141 body should use host storage_write"
-require_contains "$WAT_OUT" "promise_create" "NEP-141 body should support promise_create for transfer_call"
-require_contains "$WAT_OUT" "ft_mint" "NEP-141 body must export mint for lifecycle smoke"
-require_contains "$WAT_OUT" "ft_balance_of" "NEP-141 body must export balance_of"
-
-echo "=== product-token-near step 3: backend FT offline conformance (N1.3 partial) ==="
-# This validates the shared stdlib body through its Backend wrapper. The Product
-# TokenSpec above currently emits a plan, not this executable runtime artifact.
-FT_OUT="$OUT_DIR/lifecycle"
-rm -rf "$FT_OUT"
-mkdir -p "$FT_OUT"
-lake env proof-forge build --target wasm-near --root . -o "$FT_OUT" \
-  Examples/Backend/WasmNear/FungibleToken.lean \
-  || fail "lifecycle build NearFungibleToken backend source failed"
-LIFECYCLE_WAT="$(find "$FT_OUT" -name '*.wat' | head -n1)"
-require_file "$LIFECYCLE_WAT"
-
-# ft_transfer param order in stdlib: receiver hash + amount (see NearFungibleToken).
-eval "$(python3 - <<'PY'
-import hashlib, struct
-sender = hashlib.sha256(b"alice.testnet").digest()
-receiver = hashlib.sha256(b"bob.testnet").digest()
-inputs = [
-    b"",
-    sender + struct.pack("<Q", 100),
-    sender,
-    receiver + struct.pack("<Q", 30),
-    sender,
-    receiver,
-]
-print(f'INPUTS_HEX="{",".join(i.hex() for i in inputs)}"')
+INPUTS_HEX="$(python3 - <<'PY'
+values = [b'', b'{}', b'{"account_id":"alice.testnet"}', b'{}']
+print(','.join(value.hex() for value in values))
 PY
 )"
-
-HOST=(cargo run --quiet --manifest-path runtime/offline-host/Cargo.toml -- run)
-out="$("${HOST[@]}" "$LIFECYCLE_WAT" \
-  init \
-  ft_mint \
-  ft_balance_of \
-  ft_transfer \
-  ft_balance_of \
-  ft_balance_of \
-  --predecessor-account-id alice.testnet \
-  --signer-account-id alice.testnet \
-  --current-account-id proof-forge.testnet \
-  --inputs-hex "$INPUTS_HEX")"
+RUNNER=(cargo run --quiet --manifest-path tools/near-vm-runner/Cargo.toml --)
+out="$("${RUNNER[@]}" "$WASM_OUT" init ft_total_supply ft_balance_of ft_metadata \
+  --inputs-hex "$INPUTS_HEX" --predecessor-account-id alice.testnet)"
 echo "$out"
-grep -Fq "return_u64=100" <<<"$out" || fail "expected mint balance 100"
-grep -Fq "return_u64=70" <<<"$out" || fail "expected sender balance 70 after transfer"
-grep -Fq "return_u64=30" <<<"$out" || fail "expected receiver balance 30 after transfer"
-echo "backend FT offline mint/transfer conformance: ok"
+grep -Fq 'call ft_total_supply: return_hex=223130303030303022' <<<"$out" \
+  || fail 'TokenSpec initial supply did not execute as JSON "1000000"'
+grep -Fq 'call ft_balance_of: return_hex=223130303030303022' <<<"$out" \
+  || fail 'TokenSpec deployer balance did not execute as JSON "1000000"'
+EXPECTED_METADATA_HEX="$(printf '%s' '{"spec":"ft-1.0.0","name":"Proof Token","symbol":"PRF","icon":"","reference":"","decimals":9}' | od -An -vtx1 | tr -d ' \n')"
+grep -Fq "call ft_metadata: return_hex=$EXPECTED_METADATA_HEX" <<<"$out" \
+  || fail "TokenSpec metadata did not execute with the authored values"
+grep -Fq '4 methods executed successfully on real NEAR VM' <<<"$out" \
+  || fail "parameterized TokenSpec package did not complete on the real NEAR VM"
 
-echo "product-token-near: ok (TokenSpec plan · stdlib body WAT · backend FT offline conformance)"
+echo "product-token-near: ok (one TokenSpec -> Wasm + clients + metadata + real VM)"
+
+set +e
+reject_out="$(lake env proof-forge build --target wasm-near --root . \
+  -o "$OUT_DIR/rejected" Examples/Product/FeeToken.lean 2>&1)"
+reject_status=$?
+set -e
+[[ $reject_status -ne 0 ]] || fail "unsupported NEAR TokenSpec feature unexpectedly built"
+grep -Fq 'does not yet materialize feature(s) `transfer_fee`' <<<"$reject_out" \
+  || fail "unsupported NEAR TokenSpec feature did not return the named diagnostic"
+echo "product-token-near feature rejection: ok"

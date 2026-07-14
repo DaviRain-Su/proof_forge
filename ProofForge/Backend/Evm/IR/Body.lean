@@ -415,6 +415,10 @@ def effectPlanSupportsPlannedBodyStmt :
   | .eventEmitIndexedWords event indexedFieldWords dataFieldWords =>
       eventFieldWordPlansSupportPlannedBody event.indexedFields indexedFieldWords &&
         eventFieldWordPlansSupportPlannedBody event.dataFields dataFieldWords
+  | .checkErc721Received a b c d =>
+      #[a, b, c, d].all exprPlanSupportsPlannedBody
+  | .checkErc1155Received a b c d e =>
+      #[a, b, c, d, e].all exprPlanSupportsPlannedBody
   | .checkErc1155BatchReceived a b c d e =>
       #[a, b, c, d, e].all exprPlanSupportsPlannedBody
   | _ => false
@@ -486,11 +490,14 @@ mutual
         effectPlanSupportsPlannedBodyStmt effect
     | .assert condition _ _ =>
         exprPlanSupportsPlannedBody condition
+    | .assertPlanned condition _ _ =>
+        exprPlanSupportsPlannedBody condition
     | .assertEq lhs rhs _ _ =>
         exprPlanSupportsPlannedBody lhs && exprPlanSupportsPlannedBody rhs
     | .release _ => false
     | .revert _ => true
     | .revertWithError _ => true
+    | .revertPlanned _ => true
     | .ifElse condition thenBody elseBody =>
         exprPlanSupportsPlannedBody condition &&
         stmtPlansSupportPlannedBody returnType thenBody &&
@@ -811,6 +818,19 @@ def lowerPlannedBodyEffectPlan
         (.effect effect)
   | .eventEmit .. | .eventEmitIndexed .. | .eventEmitWords .. | .eventEmitIndexedWords .. =>
       lowerPlannedBodyEventEffectPlan module env effect
+  | .checkErc721Received operator fromAddr toAddr tokenId => do
+      .ok <| ProofForge.Backend.Evm.ToYul.checkErc721ReceivedStatements
+        (← lowerExprPlanExpr module env operator)
+        (← lowerExprPlanExpr module env fromAddr)
+        (← lowerExprPlanExpr module env toAddr)
+        (← lowerExprPlanExpr module env tokenId)
+  | .checkErc1155Received operator fromAddr toAddr tokenId amount => do
+      .ok <| ProofForge.Backend.Evm.ToYul.checkErc1155ReceivedStatements
+        (← lowerExprPlanExpr module env operator)
+        (← lowerExprPlanExpr module env fromAddr)
+        (← lowerExprPlanExpr module env toAddr)
+        (← lowerExprPlanExpr module env tokenId)
+        (← lowerExprPlanExpr module env amount)
   | .checkErc1155BatchReceived .. =>
       ProofForge.Backend.Evm.ToYul.erc1155BatchReceiverEffectPlanStatements
         toYulError
@@ -943,6 +963,8 @@ mutual
               | some ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.assertEq lhs rhs message errorRef?)
         .ok (statements, env)
+    | .assertPlanned _ _ _ =>
+        .error { message := "canonical EVM assertion reached the Legacy planned-body lowerer" }
     | .release _ =>
         .error { message := "planned body lowering does not support release statements" }
     | .revert message => do
@@ -959,6 +981,8 @@ mutual
             (fun ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.revertWithError errorRef)
         .ok (statements, env)
+    | .revertPlanned _ =>
+        .error { message := "canonical EVM revert reached the Legacy planned-body lowerer" }
     | .ifElse condition thenBody elseBody => do
         let (thenStatements, _) ←
           lowerPlannedBodyStatements module entrypointName returnType env true thenBody
@@ -1153,7 +1177,8 @@ end
 def lowerEntrypointBodyWithPlan?
     (module : Module)
     (entrypoint : Entrypoint)
-    (entrypointPlan : ProofForge.Backend.Evm.Plan.EntrypointPlan) :
+    (entrypointPlan : ProofForge.Backend.Evm.Plan.EntrypointPlan)
+    (swallowLoweringErrors : Bool := true) :
     Except LowerError (Option (Array Lean.Compiler.Yul.Statement)) := do
   if entrypointPlan.body.isEmpty && !entrypoint.body.isEmpty then
     .ok none
@@ -1166,7 +1191,8 @@ def lowerEntrypointBodyWithPlan?
         false
         entrypointPlan.body with
     | .ok (body, _) => .ok (some body)
-    | .error _ => .ok none
+    | .error error =>
+        if swallowLoweringErrors then .ok none else .error error
   else
     .ok none
 

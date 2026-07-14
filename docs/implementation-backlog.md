@@ -3,6 +3,8 @@
 
 # Implementation Backlog
 
+Status: **Current executable backlog (refreshed 2026-07-12)**
+
 This backlog turns the multi-chain design into reviewable engineering slices.
 It is intentionally scoped to local compiler, artifact, and smoke-test work.
 The cloud platform should wait until at least two materially different targets
@@ -18,6 +20,33 @@ Related docs:
 - [Target notes](targets/README.md)
 - [Validation gates](validation-gates.md)
 - [Multi-chain vision gap audit (2026-07-10)](multi-chain-gap-audit-2026-07-10.md)
+- [Portable Intent design (2026-07-12)](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md)
+- [Current implementation plan (2026-07-12)](superpowers/plans/2026-07-12-portable-intent-abstraction.md)
+
+## Current Architecture Program (D-052)
+
+The July 10 audit and earlier PF waves are historical evidence. New work is
+selected from this ordered program; detailed steps and ownership live in the
+July 12 implementation plan.
+
+| Order | Slice | State | Acceptance boundary |
+|---:|---|---|---|
+| A1 | Isolate Solana grammar in `Source.Solana` | done (verified at `c1433b2e`) | portable import rejects PDA/CPI/realloc; Source.Solana elaboration pins account/PDA/CPI/realloc intents; Solana fixtures unchanged |
+| A2 | Add `IntentContract` and materializer registry | done (review repaired) | duplicate-safe registry; checked target result; no frontend target dispatch |
+| A3 | Define target-neutral `NFTSpec` | done (review repaired) | identity and feature conflicts validated; asset model preserved before target selection |
+| A4 | Audit ERC-721/Metaplex/NEAR NFT candidates | done (review repaired) | executable minimal lifecycle and explicit compliance limits |
+| A5 | Materialize NFT intent on the primary triad | done (review repaired) | all accepted cases reach strict target plans; Solana hashes the full account pubkey |
+| A6 | Open NFT CLI/product/runtime route | done (verified at `6a6022ea`) | three honest bundles and EVM/Surfpool/NEAR lifecycle runtime evidence pass |
+| B1 | Extract neutral Wasm-host plan and ABI | done (verified at `c8d2bbb6`) | NEAR output/runtime preservation |
+| B2 | Add strict canonical target gate | done (verified at `d4df51bc`) | adapter/validator/HostOp/builder errors fail closed |
+| B3 | Promote Soroban Counter | pending after B2 | strict plan, native ABI/auth contract, runtime evidence |
+| C1 | Add PSy canonical plan | pending after A6 | strict fixture gate; no maturity change |
+| C2 | Add Aleo semantic plan | pending after C1 | Core-to-plan-to-Leo; no route promotion |
+| C3 | Write sourced OpenVM brief | pending | reviewed go/defer decision before code |
+
+Legacy replacement is incremental. A legacy adapter or compatibility call is
+removed only after tests establish observable equivalence and all callers use
+the new boundary.
 
 ## Primary-chain completion covenant (D-045)
 
@@ -1471,7 +1500,7 @@ partial progress is visible before the full acceptance criteria close:
       with a clear diagnostic citing target id and capability id. Basis for
       V-GATE-SOLANA-05; exercised by `Tests/Backend/Solana/SolanaDiagnostics.lean` and
       `scripts/solana/diagnostic-smoke.sh`.
-- [x] Solana SDK target extensions route `ProofForge.Solana` PDA/CPI APIs
+- [x] Solana SDK target extensions route `ProofForge.Contract.Source.Solana.Legacy` PDA/CPI APIs
       through capability plan metadata, emit `manifest.toml` extension
       definitions plus entrypoint action sections, and inject handler-level
       helper calls (`sol_pda_derive_<name>`, `sol_cpi_<name>`) before the IR
@@ -1567,7 +1596,7 @@ partial progress is visible before the full acceptance criteria close:
       `Tests/Backend/Solana/SolanaCpiPacking.lean`, `Tests/Backend/Solana/SolanaSdkManifest.lean`, and
       `scripts/solana/sdk-smoke.sh`.
 - [x] System Program transfer CPI now has a live Surfpool/Rust behavior
-      gate. `ProofForge.Solana.Examples.SystemCpi` builds a generated
+      gate. `Examples.Backend.Solana.Contracts.SystemCpi` builds a generated
       `--solana-system-cpi-elf` fixture whose entrypoint reads a scalar
       `lamports` instruction parameter, performs a System Program transfer CPI,
       and records the transferred amount in a program-owned state account.
@@ -1579,7 +1608,7 @@ partial progress is visible before the full acceptance criteria close:
       `r9` so internal helper calls do not lose it across callee stack frames.
       Coverage: `just solana-system-cpi-web3` / V-GATE-SOLANA-10.
 - [x] System Program `create_account` CPI now has a live Surfpool/Rust
-      behavior gate. `ProofForge.Solana.Examples.SystemCreateAccountCpi`
+      behavior gate. `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi`
       builds a generated `--solana-system-create-account-cpi-elf` fixture whose
       entrypoint reads scalar `lamports` and `space` instruction parameters,
       performs a System Program `create_account` CPI with payer and new-account
@@ -1588,7 +1617,7 @@ partial progress is visible before the full acceptance criteria close:
       account owner, data length, lamports, and recorded state values. Coverage:
       `just solana-system-create-account-cpi-web3` / V-GATE-SOLANA-11.
 - [x] SPL Token `transfer_checked` CPI now has a live Surfpool/Rust behavior
-      gate. `ProofForge.Solana.Examples.SplTokenTransferCheckedCpi` builds a
+      gate. `Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi` builds a
       generated `--solana-spl-token-transfer-cpi-elf` fixture whose entrypoint
       reads a scalar `amount` instruction parameter, performs an SPL Token
       `transfer_checked` CPI with the source authority signer, and records the
@@ -1783,7 +1812,7 @@ Completed beta scaffolding slices:
 - Pinocchio System transfer reference contract:
   `references/solana/pinocchio/system-transfer` contains a checked-in
   no-allocator Pinocchio reference for the same System transfer account schema
-  as `ProofForge.Solana.Examples.SystemCpi`. The gate
+  as `Examples.Backend.Solana.Contracts.SystemCpi`. The gate
   `scripts/solana/pinocchio-system-transfer-equivalence.sh` emits the
   ProofForge System CPI artifact and compares its instruction tag, parameter
   ABI, account order, signer/writable constraints, CPI protocol/data layout,
@@ -1817,7 +1846,7 @@ Completed beta scaffolding slices:
   `references/solana/pinocchio/system-create-account` contains a checked-in
   no-allocator Pinocchio reference for the same System Program
   `create_account` account schema as
-  `ProofForge.Solana.Examples.SystemCreateAccountCpi`. The gate
+  `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi`. The gate
   `scripts/solana/pinocchio-system-create-account-equivalence.sh` emits the
   ProofForge create-account CPI artifact and compares its instruction tag,
   two-parameter ABI, account order, signer/writable constraints, CPI
@@ -1835,7 +1864,7 @@ Completed beta scaffolding slices:
 - Pinocchio SPL Token transfer reference contract:
   `references/solana/pinocchio/spl-token-transfer` contains a checked-in
   no-allocator Pinocchio reference for the same SPL Token `transfer_checked`
-  account schema as `ProofForge.Solana.Examples.SplTokenTransferCheckedCpi`.
+  account schema as `Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi`.
   The gate `scripts/solana/pinocchio-spl-token-transfer-equivalence.sh` emits
   the ProofForge SPL Token CPI artifact and compares its instruction tag,
   parameter ABI, account order, signer/writable constraints, CPI
@@ -1855,7 +1884,7 @@ Completed beta scaffolding slices:
   `references/solana/pinocchio/spl-token-ops` contains a checked-in
   no-allocator Pinocchio reference for the same SPL Token
   `mint_to`/`burn`/`approve`/`revoke` account schema as
-  `ProofForge.Solana.Examples.SplTokenOpsCpi`. The gate
+  `Examples.Backend.Solana.Contracts.SplTokenOpsCpi`. The gate
   `scripts/solana/pinocchio-spl-token-ops-equivalence.sh` emits the ProofForge
   SPL Token ops CPI artifact and compares its four instruction tags, parameter
   ABI, account order, signer/writable constraints, CPI protocol/data layout,
@@ -1872,7 +1901,7 @@ Completed beta scaffolding slices:
 - Pinocchio SPL Token authority reference contract:
   `references/solana/pinocchio/spl-token-authority` contains a checked-in
   no-allocator Pinocchio reference for the same SPL Token `set_authority`
-  account schema as `ProofForge.Solana.Examples.SplTokenAuthorityCpi`. The
+  account schema as `Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi`. The
   gate `scripts/solana/pinocchio-spl-token-authority-equivalence.sh` emits the
   ProofForge SPL Token authority CPI artifact and compares its instruction ABI,
   account order, signer/writable constraints, CPI protocol/data layout,
@@ -1889,8 +1918,8 @@ Completed beta scaffolding slices:
 
 Completed developer-surface slices:
 
-- Portable ValueVault surface source:
-  `ProofForge.Contract.Surface` now lets examples declare state slots,
+- Portable ValueVault source DSL:
+  `ProofForge.Contract.Source` now lets examples declare state slots,
   parameters, methods, and event fields once, then write entrypoint bodies
   through typed refs (`read`, `write`, `bind`, `emit`, `ret`) instead of raw
   `ContractSpec` string plumbing. `ProofForge.Contract.Examples.ValueVault`
@@ -1940,38 +1969,38 @@ Completed developer-surface slices:
   `ProofForge.Contract.Learn` now parses `SolanaVault.learn` forms for
   `solana allocator`, `solana account`, `solana pda`, `solana cpi
   ... spl_token_transfer_checked(...)`, and entry-level `solana derive` /
-  `solana invoke`. The lowering reuses `ProofForge.Solana` builder helpers, so
+  `solana invoke`. The lowering reuses `ProofForge.Contract.Source.Solana.Legacy` builder helpers, so
   account/PDA/CPI metadata still flows through the existing capability plan,
   manifest, IDL, client, and sBPF assembly paths. `Tests/LearnSource.lean`
   checks that Learn-lowered SolanaVault has the same IR module and generated
-  manifest as `ProofForge.Solana.Examples.Vault`.
+  manifest as `Examples.Backend.Solana.Contracts.Vault`.
 - Learn System Program CPI syntax:
   `SystemCpi.learn` and `SystemCreateAccountCpi.learn` now cover
   `solana cpi ... system_transfer(...)`, `solana cpi ...
   system_create_account(...) owner ...`, and matching entry-level
   `solana invoke` statements. `Tests/LearnSource.lean` proves both Learn files
   lower to the same IR modules and generated manifests as the existing
-  `ProofForge.Solana.Examples.SystemCpi` and
-  `ProofForge.Solana.Examples.SystemCreateAccountCpi` source examples.
+  `Examples.Backend.Solana.Contracts.SystemCpi` and
+  `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi` source examples.
 - Learn SPL Token ops syntax:
   `SplTokenOpsCpi.learn` now covers selector-bearing Learn entrypoints plus
   `spl_token_mint_to`, `spl_token_burn`, `spl_token_approve`, and
   `spl_token_revoke` declarations/invocations. `Tests/LearnSource.lean` proves
   the Learn file lowers to the same IR module and generated manifest as
-  `ProofForge.Solana.Examples.SplTokenOpsCpi`, keeping the string-heavy Builder
+  `Examples.Backend.Solana.Contracts.SplTokenOpsCpi`, keeping the string-heavy Builder
   code as an internal expected fixture rather than the user-facing syntax.
 - Learn SPL Token close-account syntax:
   `SplTokenCloseAccountCpi.learn` now covers `spl_token_close_account`
   declarations/invocations and proves the same module/manifest boundary as
-  `ProofForge.Solana.Examples.SplTokenCloseAccountCpi` through
+  `Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi` through
   `Tests/LearnSource.lean`.
 - Learn log/return-data/compute-unit syntax:
   `LogEvent.learn` and `ReturnDataCompute.learn` now cover Solana pubkey/data
   log helper statements, return-data set/get statements, and remaining
   compute-unit read/log statements. `Tests/LearnSource.lean` proves both Learn
   files lower to the same IR modules and generated manifests as
-  `ProofForge.Solana.Examples.LogEvent` and
-  `ProofForge.Solana.Examples.ReturnDataCompute`, moving another syscall-facing
+  `Examples.Backend.Solana.Contracts.LogEvent` and
+  `Examples.Backend.Solana.Contracts.ReturnDataCompute`, moving another syscall-facing
   SDK slice from Builder-only fixtures into user-facing Learn source.
 - Learn memory/crypto/sysvar syntax:
   `Memory.learn`, `Crypto.learn`, `Rent.learn`, `EpochSchedule.learn`,
@@ -1979,7 +2008,7 @@ Completed developer-surface slices:
   Solana memory helpers, SHA-256/Keccak-256/BLAKE3 helpers, and
   sysvar/context reads in user-facing Learn source. `Tests/LearnSource.lean`
   proves these Learn files lower to the same IR modules and generated
-  manifests as the corresponding `ProofForge.Solana.Examples.*` fixtures.
+  manifests as the corresponding `Examples.Backend.Solana.Contracts.*` fixtures.
 - Learn reference diagnostics:
   `ProofForge.Contract.Learn` now builds a declaration reference index while
   lowering and rejects unknown or mismatched Solana CPI invocations, unknown
@@ -1990,9 +2019,9 @@ Completed developer-surface slices:
   Learn behaves like a checked language frontend instead of asking users to
   hand-author unchecked `ContractSpec` data.
 - Solana typed account surface:
-  `ProofForge.Solana.Surface` now adds `account_ref`, `pda_ref`, and `cpi_ref`
+  `ProofForge.Contract.Source.Solana.Internal` now adds `account_ref`, `pda_ref`, and `cpi_ref`
   declarations plus typed PDA seed, account constraint, and SPL/System CPI
-  helpers. `ProofForge.Solana.Examples.Vault` now uses dedicated
+  helpers. `Examples.Backend.Solana.Contracts.Vault` now uses dedicated
   `contract_source` items such as `allocator bump`, `account ... writable`,
   `pda ... seeds [...]`, `cpi ... spl_token_transfer_checked(...)`, `derive
   pda ...`, `invoke ... spl_token_transfer_checked(...)`, and the same
@@ -2007,14 +2036,14 @@ Completed developer-surface slices:
   `ProofForge.Contract.Source` now exposes source-level
   `cpi ... system_create_account(...) owner ...` and
   `invoke ... system_create_account(...) owner ...` forms.
-  `ProofForge.Solana.Examples.SystemCreateAccountCpi` uses those forms instead
+  `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi` uses those forms instead
   of the lower-level builder API while preserving the existing generated
   assembly, manifest, artifact, and Surfpool/Rust behavior gate.
 - SPL Token authority source syntax:
   `ProofForge.Contract.Source` now exposes source-level
   `cpi ... spl_token_set_authority(...) authority_type(...) signer_seeds [...]`
   and `invoke ... spl_token_set_authority(...) authority_type(...) signer_seeds
-  [...]` forms. `ProofForge.Solana.Examples.SplTokenAuthorityCpi` uses those
+  [...]` forms. `Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi` uses those
   forms in a Lean `.lean` fixture, and the generated artifact, Surfpool/Rust
   behavior gate, and Pinocchio reference gates all validate the same lowering
   boundary.
@@ -2022,7 +2051,7 @@ Completed developer-surface slices:
   `ProofForge.Contract.Source` now exposes source-level
   `cpi ... spl_token_close_account(...) signer_seeds [...]` and
   `invoke ... spl_token_close_account(...) signer_seeds [...]` forms.
-  `ProofForge.Solana.Examples.SplTokenCloseAccountCpi` uses those forms in a
+  `Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi` uses those forms in a
   Lean `.lean` fixture; `Tests/Backend/Solana/SolanaCpiPacking.lean` validates manifest account
   schemas, `spl-token.close_account` metadata, instruction tag `9`, one-byte
   CPI data length, and the generated CPI helper call. The fixture is available
@@ -3574,23 +3603,62 @@ fixtures.
   Pinocchio reference ≥10, Metaplex NFT, Anchor-style derive macro,
   address lookup tables
 
-### NEAR SDK blockers (2 open P0, 4 closed, 9 P1)
+### NEAR SDK blockers (reconciled 2026-07-14)
 
 - ✅ P0: Promise materialization (host imports in HostBridge + real EmitWat
   Promise encoding; full async execution and richer callbacks remain P1)
-- P0 open: TokenSpec must produce one parameterized NEP-141 runtime artifact;
-  the current stdlib/plan/offline paths are not yet that single artifact.
-- ✅ P0: signer_account_id (host import + ctxSignerFunc + Surface.signer)
+- ✅ P0 behavior / architecture open: bare TokenSpec auto-detection now emits
+  one parameterized NEP-141 Wasm package. Name, symbol, decimals, initial
+  supply, feature-gated body, generated client, and artifact metadata describe
+  and execute as the same Wasm under `just product-token-near`. N-T5 remains
+  open until NEAR-R3/R4 removes the `NearSpec` / `ContractSpec` / Legacy
+  normalization route.
+- ✅ P0: signer_account_id (host import + ctxSignerFunc + Source.signer)
 - ✅ P0: attached_deposit (host import + .nativeValue lowering)
 - ✅ P0: Aggregate ABI (loadParams Borsh struct/array decode)
-- P0 open: NEP-145 withdrawal still needs the 1-yocto guard and predecessor
-  refund Promise; JSON balance objects and full accounting remain P1.
-- ✅ P1 partial: Callback handling (promise_result host import + offline stub)
+- ✅ P0 behavior / canonical replay open: NEP-145 has exact-one-yocto guards,
+  predecessor refund Promise actions, JSON balance objects, unregister, and
+  measured byte accounting on the real VM. N-T3 remains open only for replay
+  on the canonical-only public route and sandbox differential evidence.
+- ✅ P1 partial: Callback handling executes the complete local
+  `ft_transfer_call` / `ft_resolve_transfer` balance flow with real
+  `promise_result` host calls; produced receipts and peer contracts are not
+  scheduled by `near-vm-runner`.
 - ✅ P1: block_timestamp (`block_timestamp` host import + `.contextRead .timestamp` lowering + Surface/Source helpers)
 - ✅ P1: epoch_height (`epoch_height` host import + `.contextRead .epochHeight` lowering + Surface/Source helpers)
 - ✅ P1: random_seed (`random_seed(register_id)` host import + `.contextRead .randomSeed` lowering + Surface/Source helpers returning `Hash`)
 - ✅ P1: near-api-js client options (`NearViewOptions` for views, gas/attached-deposit `NearCallOptions` for function calls)
-- ✅ P1: NEP-145 storage-management starter (`storage_deposit`/`storage_balance_*` U64 projection + Hash map target-first/offline-host smoke)
-- P1: Full Promise async execution, full NEP-145 JSON balance objects/storage byte accounting,
-  NEP-148 metadata, NEP-171 NFT, keccak256/crypto, storage_remove,
-  gas accounting, real NEAR broadcast smoke
+- ✅ P1: NEP-145 storage-management starter (`storage_deposit` /
+  `storage_balance_*` U64 projection + AccountId-string map target-first,
+  offline-host, and real-VM smoke)
+- ✅ P1: `storage_remove`, `prepaid_gas`, and `used_gas` host imports and
+  canonical EmitWat lowering are covered; do not reschedule them as missing.
+- P1: Full Promise receipt execution; schema-driven JSON ABI; complete
+  NEP-141/145; NEP-148 metadata; NEP-297 events; complete NEP-171 compliance
+  beyond the existing minimal lifecycle; additional crypto/account/economics
+  host APIs; protocol gas bands; real NEAR broadcast smoke.
+
+### IR / target-extension boundary repair (active 2026-07-14)
+
+- ✅ IR-B0: repository-wide leakage inventory, accepted D-054 boundary, and
+  monotonic `just ir-target-boundary` baseline.
+- ✅ IR-B1: open capability/HostOp identities and target-owned NEAR catalog.
+- ✅ IR-B2: Core uses neutral named-invocation/continuation modes and NEAR
+  reference semantics is target-owned.
+- ✅ IR-B3a: shared peer/method materialization now uses neutral
+  `crosscallStrings` across all targets.
+- ✅ IR-B3b: active NEAR scalar operations use generic catalog-validated
+  extension calls.
+- ✅ IR-B3c: continuation/call-value compatibility is semantic, all old NEAR
+  Expr constructors are deleted, and NEAR scalar operations use target HostOps.
+- IR-B4 (active): extract EVM ABI, protocol, call-mode, and dispatch details.
+  - ✅ IR-B4a: generic effect HostOps and target-owned ERC receiver catalog.
+  - ✅ IR-B4b: delete legacy ERC receiver effects and the shared authoring facade;
+    EVM HostOps now enter EVM plans directly without re-entering legacy IR.
+  - Next IR-B4c: migrate EIP-712/ecrecover and remaining EVM-only call modes.
+- IR-B5: audit/migrate Solana PDA, CPI, account, sysvar, and packing details.
+- IR-B6: audit other Wasm-host profiles, Move, Aleo, Psy, and Quint ownership.
+- IR-B7: extract target environment, error, interface, and materialization data.
+- IR-B8: empty the compatibility allowlist and sign off focused target/runtime
+  evidence. Research or fixture maturity does not exempt a target from the
+  shared-boundary rule.

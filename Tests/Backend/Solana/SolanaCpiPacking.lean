@@ -1,22 +1,22 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Contract.Builder
-import ProofForge.Solana
-import ProofForge.Solana.Examples.AssociatedTokenCpi
-import ProofForge.Solana.Examples.MemoCpi
-import ProofForge.Solana.Examples.SplTokenAuthorityCpi
-import ProofForge.Solana.Examples.SplToken2022Cpi
-import ProofForge.Solana.Examples.SplToken2022PausableCpi
-import ProofForge.Solana.Examples.SplToken2022TransferHook
-import ProofForge.Solana.Examples.SplTokenCloseAccountCpi
-import ProofForge.Solana.Examples.SplTokenOpsCpi
-import ProofForge.Solana.Examples.VaultTokenAccountCpi
+import ProofForge.Contract.Source.Solana.Legacy
+import Examples.Backend.Solana.Contracts.AssociatedTokenCpi
+import Examples.Backend.Solana.Contracts.MemoCpi
+import Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi
+import Examples.Backend.Solana.Contracts.SplToken2022Cpi
+import Examples.Backend.Solana.Contracts.SplToken2022PausableCpi
+import Examples.Backend.Solana.Contracts.SplToken2022TransferHook
+import Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi
+import Examples.Backend.Solana.Contracts.SplTokenOpsCpi
+import Examples.Backend.Solana.Contracts.VaultTokenAccountCpi
 
 set_option maxRecDepth 2048
 
 namespace ProofForge.Tests.SolanaCpiPacking
 
 open ProofForge.Contract.Builder
-open ProofForge.Solana
+open ProofForge.Contract.Source.Solana.Legacy
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then
@@ -179,7 +179,7 @@ def main : IO UInt32 := do
 
   -- Layer B end-to-end: create_account (owner=SPL Token) + initialize_account3 (owner=vault PDA).
   match ProofForge.Backend.Solana.Package.renderPackageForSpec "vault-token-account-cpi"
-      ProofForge.Solana.Examples.VaultTokenAccountCpi.spec with
+      Examples.Backend.Solana.Contracts.VaultTokenAccountCpi.spec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "vault-token-account package missing sBPF assembly"
@@ -271,7 +271,7 @@ def main : IO UInt32 := do
       throw <| IO.userError s!"Solana CPI packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "memo-cpi" ProofForge.Solana.Examples.MemoCpi.spec with
+      "memo-cpi" Examples.Backend.Solana.Contracts.MemoCpi.spec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "memo-cpi package missing sBPF assembly"
@@ -376,7 +376,7 @@ def main : IO UInt32 := do
       throw <| IO.userError s!"Solana token-param CPI packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "token-ops-cpi" ProofForge.Solana.Examples.SplTokenOpsCpi.spec with
+      "token-ops-cpi" Examples.Backend.Solana.Contracts.SplTokenOpsCpi.spec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "token-ops package missing sBPF assembly"
@@ -456,7 +456,7 @@ def main : IO UInt32 := do
       throw <| IO.userError s!"Solana token-ops CPI packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "token-close-cpi" ProofForge.Solana.Examples.SplTokenCloseAccountCpi.spec with
+      "token-close-cpi" Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.spec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "token-close package missing sBPF assembly"
@@ -494,7 +494,7 @@ def main : IO UInt32 := do
       throw <| IO.userError s!"Solana token-close CPI packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "token-authority-cpi" ProofForge.Solana.Examples.SplTokenAuthorityCpi.spec with
+      "token-authority-cpi" Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi.spec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "token-authority package missing sBPF assembly"
@@ -542,7 +542,7 @@ def main : IO UInt32 := do
       throw <| IO.userError s!"Solana token-authority CPI packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "token-2022-cpi" ProofForge.Solana.Examples.SplToken2022Cpi.spec with
+      "token-2022-cpi" Examples.Backend.Solana.Contracts.SplToken2022Cpi.spec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "token-2022 package missing sBPF assembly"
@@ -781,7 +781,7 @@ def main : IO UInt32 := do
       throw <| IO.userError s!"Solana Token-2022 CPI packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "token-2022-pausable-cpi" ProofForge.Solana.Examples.SplToken2022PausableCpi.spec with
+      "token-2022-pausable-cpi" Examples.Backend.Solana.Contracts.SplToken2022PausableCpi.spec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "token-2022 pausable package missing sBPF assembly"
@@ -834,7 +834,7 @@ def main : IO UInt32 := do
       throw <| IO.userError s!"Solana Token-2022 Pausable CPI packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "token-2022-transfer-hook" ProofForge.Solana.Examples.SplToken2022TransferHook.spec with
+      "token-2022-transfer-hook" Examples.Backend.Solana.Contracts.SplToken2022TransferHook.spec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "token-2022 transfer-hook package missing sBPF assembly"
@@ -917,7 +917,7 @@ def main : IO UInt32 := do
       throw <| IO.userError s!"Solana Token-2022 transfer-hook packing render failed: {err.render}"
 
   match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "associated-token-cpi" ProofForge.Solana.Examples.AssociatedTokenCpi.spec with
+      "associated-token-cpi" Examples.Backend.Solana.Contracts.AssociatedTokenCpi.spec with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "associated-token package missing sBPF assembly"

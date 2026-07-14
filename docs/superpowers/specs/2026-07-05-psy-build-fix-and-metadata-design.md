@@ -1,7 +1,7 @@
 # Psy DPN: Build Fix + Metadata Integration Design
 
 **Date:** 2026-07-05  
-**Status:** Design spec (awaiting review)  
+**Status:** Historical implemented PSy build/metadata design record (archived 2026-07-12).
 **Scope:** Fix `lake build` regressions and review debt on the `update-psy-implment` branch, then wire `ProofForge.Backend.Psy.Metadata` into Psy smoke artifact output. This is the next increment toward full `psy-dpn` support.  
 **Related docs:**
 - [Psy DPN target note](../../targets/psy-dpn.md)

@@ -2,7 +2,7 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-Canonical portable Counter shared across primary targets.
+Target-neutral Counter shared across primary targets.
 
 Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
 `--target`:
@@ -30,7 +30,7 @@ NEAR native compare (colocated under testkit/compare/near/counter):
   # optional: PROOF_FORGE_NEAR_SDK_BUILD=1 just near-compare
   # sandbox dual-deploy (real gas): just near-compare-live
 
-Canonical **author** source. `ProofForge.Contract.Examples.Counter` aliases this
+Single **author** source. `ProofForge.Contract.Examples.Counter` aliases this
 module. `ProofForge.IR.Examples.Counter` is a formal/CLI IR fixture with the
 same shape (name/state/entrypoints); do not author against the IR path.
 -/

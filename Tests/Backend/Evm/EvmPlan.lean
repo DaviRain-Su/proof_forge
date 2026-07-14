@@ -281,13 +281,11 @@ def testWrongTargetPlanRejected : IO Unit := do
 
 def testContextOpsPlan : IO Unit := do
   let plan ← requireOk (buildModulePlan ProofForge.IR.Examples.EvmContextProbe.module) "EVM context module plan failed"
-  let fieldNames := plan.contextOps.map (fun op => op.field.name)
+  let fieldNames := plan.contextOps.map (fun op => op.name)
   require (fieldNames.contains "userId") "contextOps must include userId"
   require (fieldNames.contains "timestamp") "contextOps must include timestamp"
   require (fieldNames.contains "origin") "contextOps must include origin"
-  require (fieldNames.contains "blockHash") "contextOps must include blockHash"
-  require (fieldNames.contains "coinbase") "contextOps must include coinbase"
-  requireEqNat plan.contextOps.size 12 "EvmContextProbe contextOps count"
+  requireEqNat plan.contextOps.size 7 "EvmContextProbe contextOps count"
 
 def main : IO UInt32 := do
   testMapProbeLayout

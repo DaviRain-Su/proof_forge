@@ -18,16 +18,22 @@ object "ReentrancyGuard" {
       revert(0, 0)
     }
     function f_ReentrancyGuard_acquire() {
-      if iszero(eq(and(shr(0, sload(0)), 18446744073709551615), 0)) {
+      let v0 := and(shr(0, sload(0)), 18446744073709551615)
+      let v1 := 0
+      let v2 := eq(v0, v1)
+      if iszero(v2) {
         revert(0, 0)
       }
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(1, 18446744073709551615))))
+      let v3 := 1
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v3, 18446744073709551615))))
     }
     function f_ReentrancyGuard_release() {
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(0, 18446744073709551615))))
+      let v4 := 0
+      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v4, 18446744073709551615))))
     }
     function f_ReentrancyGuard_locked() -> __pf_result {
-      __pf_result := and(shr(0, sload(0)), 18446744073709551615)
+      let v5 := and(shr(0, sload(0)), 18446744073709551615)
+      __pf_result := v5
     }
   }
 }

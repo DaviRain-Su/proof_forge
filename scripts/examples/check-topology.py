@@ -58,12 +58,15 @@ def check_shared_sources() -> None:
         elif "TokenSpec" in text:
             require_contains(rel, text, "import ProofForge.Contract.Token", "TokenSpec import")
             require_contains(rel, text, "def spec", "TokenSpec export")
+        elif "NFTSpec" in text:
+            require_contains(rel, text, "import ProofForge.Contract.Nft", "NFTSpec import")
+            require_contains(rel, text, "def spec", "NFTSpec export")
         else:
-            fail(f"{rel}: shared example must use contract_source or TokenSpec")
+            fail(f"{rel}: shared example must use contract_source, TokenSpec, or NFTSpec")
 
         # Portable-default (Phase A): Shared must not pull chain Surface modules.
         for forbidden in (
-            "import ProofForge.Solana",
+            "import ProofForge.Contract.Source.Solana.Legacy",
             "import ProofForge.Contract.Source.Solana",
             "import ProofForge.Backend.Solana",
             "import ProofForge.Backend.Evm",

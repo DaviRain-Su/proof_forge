@@ -201,7 +201,9 @@ def ExprFacts.merge (lhs rhs : ExprFacts) : ExprFacts :=
 
 mutual
   partial def analyzeExpr : Expr → ExprFacts
-    | .literal _ | .nativeValue | .nearPromiseResultsCount => {}
+    | .literal _ | .nativeValue | .callValueU128 => {}
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => acc.merge (analyzeExpr arg)) {}
     | .local name => { locals := #[name] }
     | .arrayLit _ values => values.foldl (fun acc value => acc.merge (analyzeExpr value)) {}
     | .arrayGet array index | .memoryArrayGet array index =>
@@ -209,8 +211,7 @@ mutual
     | .memoryArrayNew _ length | .memoryArrayLength length => analyzeExpr length
     | .structLit _ fields =>
         fields.foldl (fun acc field => acc.merge (analyzeExpr field.snd)) {}
-    | .field base _ | .cast base _ | .boolNot base | .hash base
-    | .nearPromiseResultStatus base | .nearPromiseResultU64 base => analyzeExpr base
+    | .field base _ | .cast base _ | .boolNot base | .hash base => analyzeExpr base
     | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _
     | .div lhs rhs | .mod lhs rhs | .pow lhs rhs
     | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
@@ -218,15 +219,8 @@ mutual
     | .eq lhs rhs | .ne lhs rhs | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         (analyzeExpr lhs).merge (analyzeExpr rhs)
-    | .hashValue a b c d | .ecrecover a b c d =>
+    | .hashValue a b c d =>
         (((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge (analyzeExpr d)
-    | .eip712PermitDigest a b c d e f =>
-        (((((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge
-          (analyzeExpr d)).merge (analyzeExpr e)).merge (analyzeExpr f)
-    | .crosscallAbiPacked target _ _ _ _ _ dynLen? _ dynTargets =>
-        let base := analyzeExpr target
-        let base := match dynLen? with | some value => base.merge (analyzeExpr value) | none => base
-        dynTargets.foldl (fun acc value => acc.merge (analyzeExpr value)) base
     | .crosscallInvoke target method args
     | .crosscallInvokeTyped target method args _
     | .crosscallInvokeStaticTyped target method args _
@@ -236,19 +230,19 @@ mutual
     | .crosscallInvokeValueTyped target method value args _ =>
         args.foldl (fun acc arg => acc.merge (analyzeExpr arg))
           (((analyzeExpr target).merge (analyzeExpr method)).merge (analyzeExpr value))
-    | .crosscallCreate value _ => analyzeExpr value
-    | .crosscallCreate2 value salt _ => (analyzeExpr value).merge (analyzeExpr salt)
     | .crosscallNamed programId method args _ =>
         let nested : ExprFacts :=
           args.foldl (fun acc arg => acc.merge (analyzeExpr arg)) ({} : ExprFacts)
         { nested with namedCrosscalls := nested.namedCrosscalls.push { programId, method } }
-    | .nearCrosscallInvokePool account method args deposit
-    | .nearPromiseThen account method args deposit =>
+    | .crosscallInvokeNamedValue account method args deposit _
+    | .crosscallContinue account method args deposit _ =>
         args.foldl (fun acc arg => acc.merge (analyzeExpr arg))
           ((((analyzeExpr account).merge (analyzeExpr method)).merge (analyzeExpr deposit)))
     | .effect effect => analyzeEffect effect
 
   partial def analyzeEffect : Effect → ExprFacts
+    | .hostCall _ args _ =>
+        args.foldl (fun acc arg => acc.merge (analyzeExpr arg)) {}
     | .storageScalarRead _ | .storageDynamicArrayPop _ | .storageStructFieldRead _ _ => {}
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value
     | .storageDynamicArrayPush _ value | .storageStructFieldWrite _ _ value => analyzeExpr value
@@ -262,22 +256,12 @@ mutual
     | .storagePathRead _ path => analyzePath path
     | .storagePathWrite _ path value | .storagePathAssignOp _ path _ value =>
         (analyzePath path).merge (analyzeExpr value)
-    | .contextRead (.blockHash number) => analyzeExpr number
     | .contextRead _ => {}
     | .eventEmit _ fields =>
         fields.foldl (fun acc field => acc.merge (analyzeExpr field.snd)) {}
     | .eventEmitIndexed _ indexed data =>
         data.foldl (fun acc field => acc.merge (analyzeExpr field.snd))
           (indexed.foldl (fun acc field => acc.merge (analyzeExpr field.snd)) {})
-    | .checkErc721Received a b c d =>
-        (((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge (analyzeExpr d)
-    | .checkErc1155Received a b c d e =>
-        ((((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge
-          (analyzeExpr d)).merge (analyzeExpr e)
-    | .checkErc1155BatchReceived a b c d e =>
-        ((((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge
-          (analyzeExpr d)).merge (analyzeExpr e)
-
   partial def analyzePath (path : Array StoragePathSegment) : ExprFacts :=
     path.foldl (fun acc segment =>
       match segment with
@@ -314,7 +298,7 @@ honest rejects. -/
 
 def mapContextField (field : ContextField) : Except LowerError (ValueType × Expression) :=
   match field with
-  | .userId | .userIdHash | .origin => .ok (.address, .memberAccess ⟨.identifier "self", "caller"⟩)
+  | .userId | .userIdHash | .signer => .ok (.address, .memberAccess ⟨.identifier "self", "caller"⟩)
   | .checkpointId => .ok (.u32, .memberAccess ⟨.identifier "block", "height"⟩)
   | .timestamp => .error { message := "Leo IR v0 does not lower timestamp: Leo `block.timestamp` is i64, which has no portable ValueType" }
   | .chainId => .error { message := "Leo IR v0 does not lower chainId: Leo `network.id` is u16, which has no portable ValueType" }
@@ -381,16 +365,12 @@ mutual
     | .crosscallInvokeValueTyped t m cv args _ => effectExprIn p t || effectExprIn p m || effectExprIn p cv || args.any (effectExprIn p)
     | .crosscallInvokeStaticTyped t m args _ => effectExprIn p t || effectExprIn p m || args.any (effectExprIn p)
     | .crosscallInvokeDelegateTyped t m args _ => effectExprIn p t || effectExprIn p m || args.any (effectExprIn p)
-    | .crosscallCreate cv _ => effectExprIn p cv
-    | .crosscallCreate2 cv s _ => effectExprIn p cv || effectExprIn p s
     | .crosscallNamed _ _ args _ => args.any (effectExprIn p)
-    | .nearPromiseThen p2 m args d =>
+    | .crosscallContinue p2 m args d _ =>
         effectExprIn p p2 || effectExprIn p m || effectExprIn p d ||
           args.any (fun arg => effectExprIn p arg)
-    | .nearPromiseResultsCount => false
-    | .nearPromiseResultStatus i => effectExprIn p i
-    | .nearPromiseResultU64 i => effectExprIn p i
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .callValueU128 => false
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         effectExprIn p accountIndex || effectExprIn p methodId || effectExprIn p deposit ||
           args.any (effectExprIn p ·)
     | _ => false

@@ -68,7 +68,7 @@ lake env proof-forge emit --target solana-sbpf-asm --fixture counter --format s 
 [ -f "$ASM_OUTPUT" ] || fail "assembly file not written: $ASM_OUTPUT"
 echo "  emitted: $ASM_OUTPUT"
 
-GOLDEN_S="$REPO_ROOT/Examples/Backend/Solana/Counter.golden.s"
+GOLDEN_S="$REPO_ROOT/Examples/Backend/Solana/Counter.legacy.golden.s"
 [ -f "$GOLDEN_S" ] || fail "golden sBPF assembly not found: $GOLDEN_S"
 diff -u "$GOLDEN_S" "$ASM_OUTPUT" || fail "emitted .s differs from golden fixture"
 echo "  golden diff: ok"

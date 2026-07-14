@@ -70,7 +70,7 @@ def deallocImport : Import :=
 def modulePlanUsesSha256 (plan : ModulePlan) : Bool :=
   plan.usesHashPreimage || plan.usesHashTwoToOne ||
     plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
-    plan.contextOps.contains .contractId || plan.contextOps.contains .origin
+    plan.contextOps.contains .contractId || plan.contextOps.contains .signer
 
 def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
   nearImports.filter fun import_ =>
@@ -84,8 +84,10 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | "promise_then" => plan.usesPromiseThen
     | "promise_results_count" | "promise_result" => plan.usesPromiseResults
     | "promise_return" => plan.usesPromiseReturn
+    | "storage_usage" => plan.usesStorageUsage
+    | "promise_batch_create" | "promise_batch_action_transfer" => plan.usesPromiseTransfer
     | "log_utf8" => plan.usesEventApi
-    | "signer_account_id" => plan.contextOps.contains .origin
+    | "signer_account_id" => plan.contextOps.contains .signer
     | "block_timestamp" => plan.contextOps.contains .timestamp
     | "epoch_height" => plan.contextOps.contains .epochHeight
     | "random_seed" => plan.contextOps.contains .randomSeed
@@ -94,10 +96,14 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
     | _ => true
 
 def ctxImportsForModulePlan (plan : ModulePlan) : Array Import :=
-  (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash then #[predecessorImport] else #[]) ++
-    (if plan.contextOps.contains .contractId then #[currentAcctImport] else #[]) ++
+  (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
+      plan.contextOps.contains .accountId then #[predecessorImport] else #[]) ++
+    (if plan.contextOps.contains .contractId || plan.contextOps.contains .currentAccountId then
+      #[currentAcctImport] else #[]) ++
     (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
-        plan.contextOps.contains .contractId || plan.contextOps.contains .origin then #[registerLenImport] else #[]) ++
+        plan.contextOps.contains .accountId ||
+        plan.contextOps.contains .currentAccountId ||
+        plan.contextOps.contains .contractId || plan.contextOps.contains .signer then #[registerLenImport] else #[]) ++
     (if plan.contextOps.contains .checkpointId then #[blockHeightImport] else #[]) ++
     (if plan.contextOps.contains .prepaidGas then #[prepaidGasImport] else #[]) ++
     (if plan.contextOps.contains .usedGas then #[usedGasImport] else #[])
@@ -107,14 +113,15 @@ def promiseCtxImportsForModulePlan (plan : ModulePlan) : Array Import :=
     #[]
   else
     (if plan.contextOps.contains .contractId then #[] else #[currentAcctImport]) ++
-      (if plan.contextOps.contains .userId || plan.contextOps.contains .contractId || plan.contextOps.contains .origin then
+      (if plan.contextOps.contains .userId || plan.contextOps.contains .accountId ||
+        plan.contextOps.contains .contractId || plan.contextOps.contains .signer then
         #[] else #[registerLenImport])
 
 def promiseResultImportsForModulePlan (plan : ModulePlan) : Array Import :=
   if !plan.usesPromiseResultU64 then
     #[]
   else if plan.contextOps.contains .userId || plan.contextOps.contains .contractId ||
-      plan.contextOps.contains .origin || plan.usesPromiseReceiverAccount then
+      plan.contextOps.contains .signer || plan.usesPromiseReceiverAccount then
     #[]
   else
     #[registerLenImport]
@@ -140,7 +147,8 @@ def stripNearPromiseImports (imports : Array Import) : Array Import :=
   imports.filter fun import_ =>
     match import_.name with
     | "promise_create" | "promise_then" | "promise_results_count"
-    | "promise_result" | "promise_return" => false
+    | "promise_result" | "promise_return" | "promise_batch_create"
+    | "promise_batch_action_transfer" => false
     | _ => true
 
 /-- C.8: drop NEAR storage_* ABI; Soroban scalars use `_get`/`_put`.
@@ -149,17 +157,21 @@ shape until Soroban-specific input encoding lands. -/
 def stripNearStorageImports (imports : Array Import) : Array Import :=
   imports.filter fun import_ =>
     match import_.name with
-    | "storage_read" | "storage_write" | "storage_has_key" | "storage_remove" => false
+    | "storage_read" | "storage_write" | "storage_has_key" | "storage_remove"
+    | "storage_usage" => false
     | _ => true
 
 def sorobanGetImport : Import :=
-  hostImport "_get" #[.i32, .i32] #[.i32]
+  hostImport "_get" #[.i32, .i32] #[.i64]
 
 def sorobanPutImport : Import :=
   hostImport "_put" #[.i32, .i32, .i32, .i32] #[]
 
 def sorobanRequireAuthImport : Import :=
   hostImport "require_auth_for_args" #[.i32, .i32] #[.i32]
+
+def sorobanSetReturnDataImport : Import :=
+  hostImport "set_return_data" #[.i32, .i32] #[]
 
 /-- CosmWasm host storage (matches WasmInterpreter / CosmWasmHost arity).
 `db_read(key_ptr, key_len) → i64` le-word; `db_write(key_ptr, key_len, val_ptr, val_len)`. -/
@@ -198,29 +210,34 @@ def importsForModulePlan
       (if plan.usesInputParams then #[registerLenImport] else #[]) ++
       (if plan.usesU64IndexedContains || plan.usesHashIndexedContains then
         #[storageHasKeyImport]
-      else
-        #[]) ++
+      else #[]) ++
       hostAllocatorImportsForModulePlan plan cfg
   match bridge with
   | .soroban =>
-      -- C.8: scalar storage → _get/_put. Promise_* never. Crosscall → invoke_contract.
-      -- C.9: require_auth_for_args when caller/userId is used.
+      -- Storage: _get/_put. Auth: require_auth_for_args.
+      -- Crosscall: invoke_contract. Return: set_return_data (not value_return).
       let withoutPromise := stripNearPromiseImports nearFamily
       let withoutNearStorage := stripNearStorageImports withoutPromise
+      -- Strip value_return for Soroban; use set_return_data instead.
+      let withoutValueReturn := withoutNearStorage.filter fun import_ =>
+        import_.name != "value_return"
       let withStorage :=
-        let acc := withoutNearStorage
+        let acc := withoutValueReturn
         let acc := if plan.usesStorageRead then acc.push sorobanGetImport else acc
         if plan.usesStorageWrite then acc.push sorobanPutImport else acc
       let withAuth :=
         if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
-            plan.contextOps.contains .origin then
+            plan.contextOps.contains .signer then
           withStorage.push sorobanRequireAuthImport
         else
           withStorage
       let withInvoke :=
         if plan.usesPromiseCreate then withAuth.push sorobanInvokeContractImport
         else withAuth
-      dedupeImports withInvoke
+      let withReturn :=
+        if !plan.returnTypes.isEmpty then withInvoke.push sorobanSetReturnDataImport
+        else withInvoke
+      dedupeImports withReturn
   | .cosmWasm =>
       -- CosmWasm: db_read/db_write + portable crosscall → execute_msg (no NEAR promise).
       let withoutPromise := stripNearPromiseImports nearFamily

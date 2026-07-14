@@ -2,6 +2,8 @@ import Init.Notation
 import Init.System.IO
 import Lean
 import ProofForge.Backend.Solana.SbpfAsm
+import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Cli.ContractLoader
 import ProofForge.Cli.Fixture
@@ -15,6 +17,8 @@ import ProofForge.IR.Examples.MapProbe
 import ProofForge.Target.HostBridge
 import ProofForge.Target.Registry
 import ProofForge.Target.Preflight
+import ProofForge.Frontend.Surface.Normalize
+import ProofForge.Compiler.CanonicalPipeline
 
 open System Lean
 open ProofForge.Cli.JsonUtil
@@ -212,7 +216,7 @@ def isFixtureOnlySourceTarget (targetId : String) : Bool :=
   targetId == "move-aptos" ||
   targetId == "move-sui"
 
-unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (input : FilePath)
+unsafe def checkLegacyContractSource (profile : ProofForge.Target.TargetProfile) (input : FilePath)
     (root? : Option FilePath) (moduleName? : Option Name) (report : Report) : IO Report := do
   let mut next := report
   -- Decouple registry membership from source-command support (PF-P0-02).
@@ -351,6 +355,103 @@ use `proof-forge emit --target {profile.id} --fixture <id>` for the Counter spik
                 }
             else
               return { resolved with validation := pushValidation resolved.validation "contractSource" "passed" }
+
+def checkEvmSurfaceContractSource
+    (input : FilePath)
+    (contract : ProofForge.Frontend.Surface.SurfaceContract)
+    (report : Report) : Report :=
+  match ProofForge.Frontend.Surface.normalizeSurface contract with
+  | .error error => {
+      report with
+      diagnostics := pushDiagnostic report.diagnostics {
+        severity := .error
+        code := "canonical.normalize"
+        message := s!"{repr error}"
+        file? := some input.toString
+      }
+      validation := pushValidation report.validation "canonicalNormalize" "failed"
+    }
+  | .ok bundle =>
+      let hostErrors := ProofForge.Compiler.checkHostOpHandlers
+        ProofForge.Target.evm.id bundle.contract
+      if !hostErrors.isEmpty then {
+        report with
+        diagnostics := hostErrors.foldl (fun diagnostics message =>
+          pushDiagnostic diagnostics {
+            severity := .error
+            code := "hostop.unsupported"
+            message
+            file? := some input.toString
+          }) report.diagnostics
+        validation := pushValidation report.validation "hostOps" "failed"
+      }
+      else
+        let capabilityPlan : ProofForge.Target.CapabilityPlan := {
+          targetId := ProofForge.Target.evm.id
+          calls := bundle.contract.contract.requirements
+        }
+        match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract capabilityPlan with
+        | .error error => {
+            report with
+            diagnostics := pushDiagnostic report.diagnostics {
+              severity := .error
+              code := "backend.plan"
+              message := error.message
+              file? := some input.toString
+            }
+            validation := pushValidation report.validation "backendPlan" "failed"
+          }
+        | .ok plan =>
+            match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
+            | .error error => {
+                report with
+                diagnostics := pushDiagnostic report.diagnostics {
+                  severity := .error
+                  code := "lowering.failed"
+                  message := error.message
+                  file? := some input.toString
+                }
+                validation := pushValidation report.validation "lowering" "failed"
+              }
+            | .ok _ => {
+                report with
+                validation :=
+                  pushValidation
+                    (pushValidation
+                      (pushValidation
+                        (pushValidation
+                          (pushValidation report.validation "sourceVersion" "contract-source")
+                          "canonicalNormalize" "passed")
+                        "hostOps" "passed")
+                      "backendPlan" "passed")
+                    "lowering" "passed"
+              }
+
+unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (input : FilePath)
+    (root? : Option FilePath) (moduleName? : Option Name) (report : Report) : IO Report := do
+  if profile.id != ProofForge.Target.evm.id then
+    return ← checkLegacyContractSource profile input root? moduleName? report
+  let source ←
+    try
+      pure (Except.ok (← ProofForge.Cli.ContractLoader.loadSource input root? moduleName?))
+    catch error =>
+      pure (Except.error error.toString)
+  match source with
+  | .error message =>
+      return {
+        report with
+        diagnostics := pushDiagnostic report.diagnostics {
+          severity := .error
+          code := "contract.load"
+          message
+          file? := some input.toString
+        }
+        validation := pushValidation report.validation "contractSource" "failed"
+      }
+  | .ok (.authored _) =>
+      return ← checkLegacyContractSource profile input root? moduleName? report
+  | .ok (.surfaceFixture contract) =>
+      return checkEvmSurfaceContractSource input contract report
 
 def checkFixture (profile : ProofForge.Target.TargetProfile) (targetId fixtureId : String)
     (format? : Option String) (report : Report) : Except String Report := do

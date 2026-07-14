@@ -129,24 +129,6 @@ mutual
     | fuel + 1, entrypoint, env, .hashTwoToOne lhs rhs => do
         checkExprFuel fuel entrypoint env lhs
         checkExprFuel fuel entrypoint env rhs
-    | fuel + 1, entrypoint, env, .ecrecover a b c d => do
-        checkExprFuel fuel entrypoint env a
-        checkExprFuel fuel entrypoint env b
-        checkExprFuel fuel entrypoint env c
-        checkExprFuel fuel entrypoint env d
-    | fuel + 1, entrypoint, env, .eip712PermitDigest a b c d e f => do
-        checkExprFuel fuel entrypoint env a
-        checkExprFuel fuel entrypoint env b
-        checkExprFuel fuel entrypoint env c
-        checkExprFuel fuel entrypoint env d
-        checkExprFuel fuel entrypoint env e
-        checkExprFuel fuel entrypoint env f
-    | fuel + 1, entrypoint, env, .crosscallAbiPacked target _ _ _ _ _ dynLen? _dynOffs dynTargets => do
-        checkExprFuel fuel entrypoint env target
-        match dynLen? with
-        | none => pure ()
-        | some len => checkExprFuel fuel entrypoint env len
-        dynTargets.foldlM (init := ()) fun _ t => checkExprFuel fuel entrypoint env t
     | fuel + 1, entrypoint, env, .cast value _ => checkExprFuel fuel entrypoint env value
     | fuel + 1, entrypoint, env, .boolNot value => checkExprFuel fuel entrypoint env value
     | fuel + 1, entrypoint, env, .hashValue a b c d => do
@@ -156,6 +138,9 @@ mutual
         checkExprFuel fuel entrypoint env d
     | fuel + 1, entrypoint, env, .hash preimage => checkExprFuel fuel entrypoint env preimage
     | _ + 1, _, _, .nativeValue => .ok ()
+    | fuel + 1, entrypoint, env, .hostCall _ args _ _ =>
+        args.foldlM (init := ()) fun _ arg => checkExprFuel fuel entrypoint env arg
+    | _ + 1, _, _, .callValueU128 => .ok ()
     | fuel + 1, entrypoint, env, .crosscallInvoke target methodId args => do
         checkExprFuel fuel entrypoint env target
         checkExprFuel fuel entrypoint env methodId
@@ -173,19 +158,12 @@ mutual
         checkExprFuel fuel entrypoint env methodId
         checkExprFuel fuel entrypoint env callValue
         args.foldlM (init := ()) fun _ arg => checkExprFuel fuel entrypoint env arg
-    | fuel + 1, entrypoint, env, .crosscallCreate callValue _ => checkExprFuel fuel entrypoint env callValue
-    | fuel + 1, entrypoint, env, .crosscallCreate2 callValue salt _ => do
-        checkExprFuel fuel entrypoint env callValue
-        checkExprFuel fuel entrypoint env salt
-    | fuel + 1, entrypoint, env, .nearPromiseThen parentPromise callbackMethod args deposit => do
+    | fuel + 1, entrypoint, env, .crosscallContinue parentPromise callbackMethod args deposit _ => do
         checkExprFuel fuel entrypoint env parentPromise
         checkExprFuel fuel entrypoint env callbackMethod
         checkExprFuel fuel entrypoint env deposit
         args.foldlM (init := ()) fun _ arg => checkExprFuel fuel entrypoint env arg
-    | _ + 1, _, _, .nearPromiseResultsCount => pure ()
-    | fuel + 1, entrypoint, env, .nearPromiseResultStatus index => checkExprFuel fuel entrypoint env index
-    | fuel + 1, entrypoint, env, .nearPromiseResultU64 index => checkExprFuel fuel entrypoint env index
-    | fuel + 1, entrypoint, env, .nearCrosscallInvokePool accountIndex methodId args deposit => do
+    | fuel + 1, entrypoint, env, .crosscallInvokeNamedValue accountIndex methodId args deposit _ => do
         checkExprFuel fuel entrypoint env accountIndex
         checkExprFuel fuel entrypoint env methodId
         checkExprFuel fuel entrypoint env deposit
@@ -194,6 +172,8 @@ mutual
 
   def checkEffectFuel : Nat → String → Env → Effect → Except OwnershipError Unit
     | 0, _, _, _ => .ok ()
+    | fuel + 1, entrypoint, env, .hostCall _ args _ =>
+        args.forM fun arg => checkExprFuel fuel entrypoint env arg
     | _ + 1, _, _, .storageScalarRead _ => .ok ()
     | fuel + 1, entrypoint, env, .storageScalarWrite _ value
     | fuel + 1, entrypoint, env, .storageScalarAssignOp _ _ value
@@ -227,25 +207,6 @@ mutual
     | fuel + 1, entrypoint, env, .eventEmitIndexed _ indexedFields dataFields => do
         indexedFields.foldlM (init := ()) fun _ field => checkExprFuel fuel entrypoint env field.snd
         dataFields.foldlM (init := ()) fun _ field => checkExprFuel fuel entrypoint env field.snd
-    | fuel + 1, entrypoint, env, .checkErc721Received operator fromAddr toAddr tokenId => do
-        checkExprFuel fuel entrypoint env operator
-        checkExprFuel fuel entrypoint env fromAddr
-        checkExprFuel fuel entrypoint env toAddr
-        checkExprFuel fuel entrypoint env tokenId
-    | fuel + 1, entrypoint, env, .checkErc1155Received operator fromAddr toAddr id amount => do
-        checkExprFuel fuel entrypoint env operator
-        checkExprFuel fuel entrypoint env fromAddr
-        checkExprFuel fuel entrypoint env toAddr
-        checkExprFuel fuel entrypoint env id
-        checkExprFuel fuel entrypoint env amount
-
-    | fuel + 1, entrypoint, env, .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
-        checkExprFuel fuel entrypoint env operator
-        checkExprFuel fuel entrypoint env fromAddr
-        checkExprFuel fuel entrypoint env toAddr
-        checkExprFuel fuel entrypoint env ids
-        checkExprFuel fuel entrypoint env amounts
-
   def checkStoragePathSegmentFuel : Nat → String → Env → StoragePathSegment →
       Except OwnershipError Unit
     | 0, _, _, _ => .ok ()

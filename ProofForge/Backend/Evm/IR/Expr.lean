@@ -4,6 +4,7 @@ import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.Evm.ToYul
 import ProofForge.Backend.Evm.Validate
 import ProofForge.Backend.Evm.IR.Validate
+import ProofForge.Target.HostOps.Evm
 import ProofForge.Backend.Evm.Lower
 import ProofForge.IR.Contract
 import ProofForge.Compiler.Yul.AST
@@ -371,6 +372,8 @@ mutual
         lowerExprThroughPlan module env (.literal value)
     | .local name => do
         lowerExprThroughPlan module env (.local name)
+    | .hostCall id _ _ _ =>
+        .error { message := s!"EVM does not support target extension `{id.render}`" }
     | .arrayLit _ _ =>
         .error { message := "fixed array literals must be consumed by a fixed array local binding or literal index in IR EVM v0" }
     | .arrayGet array index =>
@@ -445,17 +448,10 @@ mutual
         lowerExprThroughPlan module env (.hash preimage)
     | .hashTwoToOne lhs rhs => do
         lowerExprThroughPlan module env (.hashTwoToOne lhs rhs)
-    | .ecrecover a b c d => do
-        lowerExprThroughPlan module env (.ecrecover a b c d)
-    | .eip712PermitDigest a b c d e f => do
-        lowerExprThroughPlan module env (.eip712PermitDigest a b c d e f)
-    | .crosscallAbiPacked target sel stores argsSize outSize dynLenOffset? dynLen?
-        dynTargetOffsets dynTargets => do
-        lowerExprThroughPlan module env
-          (.crosscallAbiPacked target sel stores argsSize outSize dynLenOffset? dynLen?
-            dynTargetOffsets dynTargets)
     | .nativeValue =>
         lowerExprThroughPlan module env .nativeValue
+    | .callValueU128 =>
+        .error { message := "U128 call value is not supported on EVM" }
     | .crosscallInvoke target methodId args => do
         lowerExprThroughPlan module env (.crosscallInvoke target methodId args)
     | .crosscallInvokeTyped target methodId args returnType => do
@@ -466,17 +462,10 @@ mutual
         lowerExprThroughPlan module env (.crosscallInvokeStaticTyped target methodId args returnType)
     | .crosscallInvokeDelegateTyped target methodId args returnType => do
         lowerExprThroughPlan module env (.crosscallInvokeDelegateTyped target methodId args returnType)
-    | .crosscallCreate callValue initCodeHex => do
-        lowerExprThroughPlan module env (.crosscallCreate callValue initCodeHex)
-    | .crosscallCreate2 callValue salt initCodeHex => do
-        lowerExprThroughPlan module env (.crosscallCreate2 callValue salt initCodeHex)
     | .crosscallNamed _ _ _ _
-    | .nearPromiseThen _ _ _ _
-    | .nearCrosscallInvokePool _ _ _ _
-    | .nearPromiseResultsCount
-    | .nearPromiseResultStatus _
-    | .nearPromiseResultU64 _ =>
-        .error { message := "NEAR promise API is not supported on EVM" }
+    | .crosscallContinue _ _ _ _ _
+    | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported on EVM" }
     | .effect effect => lowerEffectExpr module env effect
 
   partial def lowerEffectExprThroughPlan
@@ -490,6 +479,8 @@ mutual
     lowerPlanEffectExpr module env plan
 
   partial def lowerEffectExpr (module : Module) (env : TypeEnv) : Effect → Except LowerError Lean.Compiler.Yul.Expr
+    | .hostCall id _ _ =>
+        .error { message := s!"target extension `{id.render}` is a statement effect, not an expression" }
     | .storageScalarRead stateId => do
         lowerEffectExprThroughPlan module env (.storageScalarRead stateId)
     | .storageScalarWrite _ _ =>
@@ -536,12 +527,6 @@ mutual
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is a statement effect, not an expression" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is a statement effect, not an expression" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def lowerPlanEffectExpr
       (module : Module)
@@ -809,15 +794,6 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .boolOr lhs rhs
   | .hashTwoToOne lhs rhs =>
       exprSupportsPlanScalarYul lhs && exprSupportsPlanScalarYul rhs
-  | .ecrecover a b c d =>
-      exprSupportsPlanScalarYul a && exprSupportsPlanScalarYul b &&
-        exprSupportsPlanScalarYul c && exprSupportsPlanScalarYul d
-  | .eip712PermitDigest a b c d e f =>
-      exprSupportsPlanScalarYul a && exprSupportsPlanScalarYul b &&
-        exprSupportsPlanScalarYul c && exprSupportsPlanScalarYul d &&
-        exprSupportsPlanScalarYul e && exprSupportsPlanScalarYul f
-  | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-      exprSupportsPlanScalarYul target
   | .cast value _ => exprSupportsPlanScalarYul value
   | .boolNot value
   | .hash value => exprSupportsPlanScalarYul value
@@ -876,12 +852,9 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
         exprSupportsPlanScalarYul target &&
         exprSupportsPlanScalarYul methodId &&
         args.all exprSupportsPlanCrosscallArgYul
-  | .crosscallCreate callValue _ =>
-      exprSupportsPlanScalarYul callValue
-  | .crosscallCreate2 callValue salt _ =>
-      exprSupportsPlanScalarYul callValue &&
-        exprSupportsPlanScalarYul salt
   | .crosscallNamed _ _ _ _ => false
+  | .hostCall _ _ _ _ => false
+  | .callValueU128 => false
   | .arrayLit _ _
   | .arrayGet _ _
   | .memoryArrayNew _ _
@@ -889,11 +862,8 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .memoryArrayGet _ _
   | .structLit _ _
   | .field _ _
-  | .nearPromiseThen _ _ _ _
-  | .nearCrosscallInvokePool _ _ _ _
-  | .nearPromiseResultsCount
-  | .nearPromiseResultStatus _
-  | .nearPromiseResultU64 _
+  | .crosscallContinue _ _ _ _ _
+  | .crosscallInvokeNamedValue _ _ _ _ _
   | .effect _ => false
 
 partial def exprSupportsPlanCrosscallArgYul : ProofForge.IR.Expr → Bool
@@ -1466,11 +1436,18 @@ def lowerErc1155BatchReceiverStmtPlan
     (env : TypeEnv)
     (operator fromAddr toAddr ids amounts : ProofForge.IR.Expr) :
     Except LowerError Lean.Compiler.Yul.Statement := do
-  let effectPlan ←
-    match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
-        (.checkErc1155BatchReceived operator fromAddr toAddr ids amounts) with
-    | .ok plan => .ok plan
-    | .error err => .error { message := err.message }
+  let effectPlan : ProofForge.Backend.Evm.Plan.EffectPlan :=
+    .checkErc1155BatchReceived
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) operator with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) fromAddr with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) toAddr with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) ids with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) amounts with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
   let statements ←
     ProofForge.Backend.Evm.ToYul.erc1155BatchReceiverEffectPlanStatements
       toYulError
@@ -1478,7 +1455,36 @@ def lowerErc1155BatchReceiverStmtPlan
       effectPlan
   .ok (.block { statements })
 
-def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerError Lean.Compiler.Yul.Statement
+partial def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerError Lean.Compiler.Yul.Statement
+  | .hostCall id args _ =>
+      if id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
+        match args with
+        | #[operator, fromAddr, toAddr, tokenId] => do
+            let stmts := ProofForge.Backend.Evm.ToYul.checkErc721ReceivedStatements
+              (← lowerExpr module env operator)
+              (← lowerExpr module env fromAddr)
+              (← lowerExpr module env toAddr)
+              (← lowerExpr module env tokenId)
+            .ok (.block { statements := stmts })
+        | _ => .error { message := s!"target extension `{id.render}` expects 4 arguments" }
+      else if id == ProofForge.Target.HostOps.Evm.erc1155ReceivedSig.id then
+        match args with
+        | #[operator, fromAddr, toAddr, tokenId, amount] => do
+            let stmts := ProofForge.Backend.Evm.ToYul.checkErc1155ReceivedStatements
+              (← lowerExpr module env operator)
+              (← lowerExpr module env fromAddr)
+              (← lowerExpr module env toAddr)
+              (← lowerExpr module env tokenId)
+              (← lowerExpr module env amount)
+            .ok (.block { statements := stmts })
+        | _ => .error { message := s!"target extension `{id.render}` expects 5 arguments" }
+      else if id == ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id then
+        match args with
+        | #[operator, fromAddr, toAddr, ids, amounts] =>
+            lowerErc1155BatchReceiverStmtPlan module env operator fromAddr toAddr ids amounts
+        | _ => .error { message := s!"target extension `{id.render}` expects 5 arguments" }
+      else
+        .error { message := s!"EVM does not support effect target extension `{id.render}`" }
   | .storageScalarRead _ =>
       .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value =>
@@ -1525,28 +1531,4 @@ def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerE
       lowerEventEmitStmt module env name fields
   | .eventEmitIndexed name indexedFields dataFields =>
       lowerEventEmitIndexedStmt module env name indexedFields dataFields
-  | .checkErc721Received operator fromAddr toAddr tokenId => do
-      let operatorYul ← lowerExpr module env operator
-      let fromYul ← lowerExpr module env fromAddr
-      let toYul ← lowerExpr module env toAddr
-      let tokenYul ← lowerExpr module env tokenId
-      let stmts :=
-        ProofForge.Backend.Evm.ToYul.checkErc721ReceivedStatements
-          operatorYul fromYul toYul tokenYul
-      -- Wrap multi-statement sequence as a single block statement.
-      .ok (.block { statements := stmts })
-  | .checkErc1155Received operator fromAddr toAddr id amount => do
-      let operatorYul ← lowerExpr module env operator
-      let fromYul ← lowerExpr module env fromAddr
-      let toYul ← lowerExpr module env toAddr
-      let idYul ← lowerExpr module env id
-      let amountYul ← lowerExpr module env amount
-      let stmts :=
-        ProofForge.Backend.Evm.ToYul.checkErc1155ReceivedStatements
-          operatorYul fromYul toYul idYul amountYul
-      .ok (.block { statements := stmts })
-
-  | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts =>
-      lowerErc1155BatchReceiverStmtPlan
-        module env operator fromAddr toAddr ids amounts
 end ProofForge.Backend.Evm.IR

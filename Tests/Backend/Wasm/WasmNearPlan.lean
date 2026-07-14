@@ -1,5 +1,5 @@
 import ProofForge.Backend.WasmHost.EmitWat
-import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.Plan.Legacy
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.ArrayProbe
 import ProofForge.IR.Examples.HashStorageProbe
@@ -512,11 +512,11 @@ def testCrosscallRenderEncodesU64ArgsJson : IO Unit := do
   requireContains wat "__pf_fmt_u64" "crosscall-args module must emit decimal formatter helper"
   requireContains wat "(global $crosscall_ptr" "crosscall-args module must emit crosscall_ptr global"
 
-def crosscallCreateOnlyModule : Module := {
+def promiseCallOnlyModule : Module := {
   name := "NearCrosscallCreateOnly"
   state := #[]
   entrypoints := #[ProofForge.IR.Examples.NearCrosscallProbe.callRemote]
-  nearCrosscallStrings := #["callee.testnet", "remote_call"]
+  crosscallStrings := #["callee.testnet", "remote_call"]
 }
 
 def crosscallValueDeposit : Entrypoint := {
@@ -530,12 +530,12 @@ def crosscallValueDepositModule : Module := {
   name := "NearCrosscallValueDeposit"
   state := #[]
   entrypoints := #[crosscallValueDeposit]
-  nearCrosscallStrings := #["callee.testnet", "remote_call"]
+  crosscallStrings := #["callee.testnet", "remote_call"]
 }
 
-def testCrosscallRenderKeepsOnlyCreatePromiseSurface : IO Unit := do
+def testCrosscallRenderKeepsPromiseSurface : IO Unit := do
   let wat ←
-    match renderModule crosscallCreateOnlyModule with
+    match renderModule promiseCallOnlyModule with
     | .ok wat => pure wat
     | .error err => throw <| IO.userError s!"EmitWat crosscall render failed: {err.message}"
   requireContains wat "(import \"env\" \"promise_create\"" "crosscall module must import promise_create"
@@ -671,7 +671,7 @@ def main : IO UInt32 := do
   testHostBumpArrayLiteralRenderKeepsOnlyPfAllocImport
   testHostJemallocReleaseRenderKeepsPfAllocAndDeallocImports
   testCrosscallRenderEncodesU64ArgsJson
-  testCrosscallRenderKeepsOnlyCreatePromiseSurface
+  testCrosscallRenderKeepsPromiseSurface
   testCrosscallRenderWritesU128DepositPointer
   testNearPromisePlanSurface
   testNearPromiseRenderChainsCallback

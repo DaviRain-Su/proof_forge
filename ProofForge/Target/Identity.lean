@@ -145,7 +145,7 @@ def materializeIdentity (targetId : String) (role : IdentityRole) :
       .ok {
         targetId := targetId, role := role, encoding := enc
         byteWidth? := none, hostSymbol? := some "env.promise_create"
-        semanticsNote? := some "peer account id string in nearCrosscallStrings pool"
+        semanticsNote? := some "peer account id string in crosscallStrings pool"
       }
   | _, _, _ =>
       .error (identityReject targetId role "no Identity materialize row")

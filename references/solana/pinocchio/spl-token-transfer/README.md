@@ -2,7 +2,7 @@
 
 This fixture is the second Rust/Pinocchio equivalence reference for the
 ProofForge Solana SDK beta line. It mirrors
-`ProofForge.Solana.Examples.SplTokenTransferCheckedCpi`:
+`Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi`:
 
 - instruction `transfer`
 - tag byte `0`

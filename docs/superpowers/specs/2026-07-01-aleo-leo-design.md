@@ -1,7 +1,7 @@
 # Aleo Leo Target: Research Exit + Spike Design
 
 **Date:** 2026-07-01  
-**Status:** Design spec (awaiting review)  
+**Status:** Historical Aleo sourcegen design record (archived 2026-07-12); current promotion boundary is the July 12 ZK analysis.
 **Scope:** Document-only design for `aleo-leo` Research exit and first Leo sourcegen spike. No code changes in this round.  
 **Related docs:**
 - [Aleo Leo target note](../../targets/aleo-leo.md)

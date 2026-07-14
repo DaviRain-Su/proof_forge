@@ -16,15 +16,12 @@ def nativeValue : Entrypoint := {
 def contextExtras : Entrypoint := {
   name := "context_extras"
   selector? := some "d9b80589"
-  returns := .fixedArray .u64 6
+  returns := .fixedArray .u64 3
   body := #[
     .return <| .arrayLit .u64 #[
       .effect (.contextRead .timestamp),
       .effect (.contextRead .chainId),
-      .effect (.contextRead .gasPrice),
-      .effect (.contextRead .gasLeft),
-      .effect (.contextRead .baseFee),
-      .effect (.contextRead .prevRandao)
+      .effect (.contextRead .gasLeft)
     ]
   ]
 }
@@ -32,12 +29,10 @@ def contextExtras : Entrypoint := {
 def contextHashes : Entrypoint := {
   name := "context_hashes"
   selector? := some "b59b9225"
-  returns := .fixedArray .hash 3
+  returns := .fixedArray .hash 1
   body := #[
     .return <| .arrayLit .hash #[
-      .effect (.contextRead .origin),
-      .effect (.contextRead .coinbase),
-      .effect (.contextRead (.blockHash (.literal (.u64 1))))
+      .effect (.contextRead .signer)
     ]
   ]
 }

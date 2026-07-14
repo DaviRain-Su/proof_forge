@@ -38,8 +38,8 @@ def randomSeed : Entrypoint := {
 def signerStable : Entrypoint := {
   name := "signerStable", returns := .u64,
   body := #[
-    .assertEq (.effect (.contextRead .origin)) (.effect (.contextRead .origin)) "signer unstable",
-    .return (.effect (.contextRead .origin)) ] }
+    .assertEq (.effect (.contextRead .signer)) (.effect (.contextRead .signer)) "signer unstable",
+    .return (.effect (.contextRead .signer)) ] }
 
 def depositProbe : Entrypoint := {
   name := "depositProbe", returns := .u64,

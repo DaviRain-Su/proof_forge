@@ -1,0 +1,1420 @@
+{
+  "version": 1,
+  "lanes": [
+    "core-product",
+    "evm",
+    "solana",
+    "wasm-other-exclusive",
+    "stylus-plan",
+    "stylus-runtime",
+    "stylus-differential-a",
+    "stylus-differential-b"
+  ],
+  "serialCoverage": [
+    "build",
+    "build-test-deps",
+    "product",
+    "intent-registry",
+    "nft-intent",
+    "nft-implementation-contract",
+    "nft-materialization",
+    "strict-intent-materialization",
+    "strict-target-gate",
+    "nft-artifact-schema",
+    "portable-nft-multi-target",
+    "target-registry",
+    "legacy-freeze",
+    "legacy-replacement-freeze",
+    "canonical-foundation",
+    "canonical-core",
+    "canonical-parity",
+    "wasm-host-plan-preservation",
+    "soroban-public-route",
+    "soroban-counter-offline",
+    "canonical-product",
+    "canonical-boundary",
+    "target-backend",
+    "target-support",
+    "artifact-bundle",
+    "standard-compliance",
+    "preflight-l2",
+    "source-dsl-arity",
+    "leo-printer-fail-closed",
+    "contract-spec-json",
+    "contract-client",
+    "sdk-schema",
+    "cli-deploy",
+    "cli-check",
+    "cli-version",
+    "cli-help",
+    "evm-abi-schema",
+    "evm-standard-identity",
+    "evm-plan",
+    "evm-semantic-plan",
+    "shared-validate-smoke",
+    "diagnostic-smoke",
+    "ir-step-semantics-smoke",
+    "ir-counter-semantics-smoke",
+    "ir-portability-smoke",
+    "semantics-fuel-smoke",
+    "constructor-coverage-smoke",
+    "counter-universal-refinement-smoke",
+    "supported-fragment-smoke",
+    "track14-fragment-theorems-smoke",
+    "evm-counter-shape-name-totality",
+    "lean-invariants-smoke",
+    "target-semantics-instances-smoke",
+    "wasm-exec-smoke",
+    "wasm-near-host-smoke",
+    "emitwat-aggregate-abi",
+    "wasm-cosmwasm-host-smoke",
+    "wasm-soroban-host-smoke",
+    "zk-portability-smoke",
+    "aleo-leo-codegen-smoke",
+    "wasm-cosmwasm-refinement-smoke",
+    "value-vault-wasm-refinement-smoke",
+    "evm-bytecode-semantics-smoke",
+    "evm-yul-host-refinement-smoke",
+    "ir-exec-result-smoke",
+    "fv5-overflow-smoke",
+    "solana-light",
+    "portable-counter-multi-target",
+    "cli-target-first",
+    "source-identity",
+    "registry-command",
+    "solana-source-elf",
+    "soroban-profile",
+    "wat2wasm-fail-closed",
+    "check-l2-parity",
+    "hosted-isolation",
+    "rebuild-hash",
+    "worker-limits",
+    "worker-cgroup",
+    "contract-source-diagnostics",
+    "near-target-first",
+    "near-abi-plan",
+    "near-abi-client",
+    "near-map-hash-alias",
+    "near-ft-security",
+    "wasm-near-plan",
+    "near-plan-smoke",
+    "wasm-near-scalar-safety",
+    "near-promise-amount-pointer",
+    "near-offline-host-transaction",
+    "near-offline-host-fuel",
+    "near-vm-conformance",
+    "near-vm-conformance-product",
+    "near-vm-conformance-ft",
+    "near-vm-json-balance",
+    "near-vm-json-transfer",
+    "near-vm-u128-scalar",
+    "near-vm-u128-map",
+    "near-vm-string-key-map",
+    "near-vm-caller-account-id-map",
+    "near-u128-fmt-smoke",
+    "near-budget-honesty",
+    "near-deploy-honesty",
+    "near-compare-matrix-test",
+    "wasm-near-ft-transfer-call",
+    "wasm-near-ft-transfer-call-e2e",
+    "stylus-plan-contract",
+    "stylus-core-plan",
+    "stylus-diagnostics",
+    "stylus-rust-render",
+    "stylus-package",
+    "stylus-rust-counter",
+    "stylus-counter-lifecycle",
+    "stylus-public-route",
+    "stylus-cli-matrix",
+    "stylus-direct-storage",
+    "stylus-direct-abi",
+    "stylus-counter-differential",
+    "stylus-value-vault-differential",
+    "stylus-value-vault-canonical",
+    "stylus-mapping-events",
+    "stylus-nested-map",
+    "stylus-token-differential",
+    "stylus-token-evm-interop",
+    "stylus-aggregate-differential",
+    "stylus-aggregate-storage",
+    "stylus-remote-call-differential",
+    "stylus-scalar-params",
+    "stylus-wide-values",
+    "stylus-wide-arithmetic",
+    "stylus-vm-runner",
+    "stylus-nitro-scripts",
+    "docs-check",
+    "testkit",
+    "evm-diagnostics",
+    "evm-upgrade-policy-honesty",
+    "evm-coverage",
+    "psy-diagnostics",
+    "psy-test-naming",
+    "psy-coverage",
+    "psy-metadata",
+    "psy-metadata-validation",
+    "psy-metadata-cli",
+    "quint-mbt-gate",
+    "quint-ir-model-gate",
+    "ci-install-script"
+  ],
+  "recipes": [
+    {
+      "name": "build",
+      "lane": "core-product",
+      "execution": "exclusive",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "build-test-deps",
+      "lane": "core-product",
+      "execution": "exclusive",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "product",
+      "lane": "core-product",
+      "execution": "exclusive",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "intent-registry",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "nft-intent",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "nft-implementation-contract",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "nft-materialization",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "strict-intent-materialization",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "strict-target-gate",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "nft-artifact-schema",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "portable-nft-multi-target",
+      "lane": "core-product",
+      "execution": "exclusive",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "target-registry",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "legacy-freeze",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "legacy-replacement-freeze",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "canonical-foundation",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "canonical-core",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "canonical-parity",
+      "lane": "core-product",
+      "execution": "exclusive",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "wasm-host-plan-preservation",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-fast",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "soroban-public-route",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-fast",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "soroban-counter-offline",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-fast",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "canonical-product",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "canonical-boundary",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "target-backend",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "target-support",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "artifact-bundle",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "standard-compliance",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "preflight-l2",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "source-dsl-arity",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "leo-printer-fail-closed",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "contract-spec-json",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "contract-client",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "sdk-schema",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "cli-deploy",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "cli-check",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "cli-version",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "cli-help",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "evm-abi-schema",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "full"
+      ]
+    },
+    {
+      "name": "evm-standard-identity",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "full"
+      ]
+    },
+    {
+      "name": "evm-plan",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "evm-fast",
+        "full"
+      ]
+    },
+    {
+      "name": "evm-semantic-plan",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "evm-fast",
+        "full"
+      ]
+    },
+    {
+      "name": "shared-validate-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "diagnostic-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "ir-step-semantics-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "ir-counter-semantics-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "ir-portability-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "semantics-fuel-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "constructor-coverage-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "counter-universal-refinement-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "supported-fragment-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "track14-fragment-theorems-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "evm-counter-shape-name-totality",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "full"
+      ]
+    },
+    {
+      "name": "lean-invariants-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "target-semantics-instances-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "wasm-exec-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "wasm-near-host-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "emitwat-aggregate-abi",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "wasm-cosmwasm-host-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "wasm-soroban-host-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "zk-portability-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "aleo-leo-codegen-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "wasm-cosmwasm-refinement-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "value-vault-wasm-refinement-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "evm-bytecode-semantics-smoke",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "full"
+      ]
+    },
+    {
+      "name": "evm-yul-host-refinement-smoke",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "full"
+      ]
+    },
+    {
+      "name": "ir-exec-result-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "fv5-overflow-smoke",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "solana-light",
+      "lane": "solana",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "solana",
+        "solana-fast"
+      ]
+    },
+    {
+      "name": "portable-counter-multi-target",
+      "lane": "core-product",
+      "execution": "exclusive",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "cli-target-first",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "source-identity",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "registry-command",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "solana-source-elf",
+      "lane": "solana",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "solana"
+      ]
+    },
+    {
+      "name": "soroban-profile",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "wat2wasm-fail-closed",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "check-l2-parity",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "hosted-isolation",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "rebuild-hash",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "worker-limits",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "worker-cgroup",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "contract-source-diagnostics",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "near-target-first",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-abi-plan",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-fast",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-abi-client",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-map-hash-alias",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-ft-security",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "wasm-near-plan",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-fast",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-plan-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "wasm-near-scalar-safety",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-promise-amount-pointer",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-offline-host-transaction",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-offline-host-fuel",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-conformance",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-conformance-product",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-conformance-ft",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-json-balance",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-json-transfer",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-u128-scalar",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-u128-map",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-string-key-map",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-vm-caller-account-id-map",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-u128-fmt-smoke",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-budget-honesty",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-deploy-honesty",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "near-compare-matrix-test",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "wasm-near-ft-transfer-call",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "wasm-near-ft-transfer-call-e2e",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "stylus-plan-contract",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-core-plan",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-diagnostics",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-rust-render",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-package",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-public-route",
+      "lane": "stylus-plan",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-cli-matrix",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-rust-counter",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-counter-lifecycle",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-direct-storage",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-vm-runner",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-nitro-scripts",
+      "lane": "stylus-runtime",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-direct-abi",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-counter-differential",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-value-vault-differential",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-value-vault-canonical",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-scalar-params",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus", "stylus-fast"]
+    },
+    {
+      "name": "stylus-wide-values",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-wide-arithmetic",
+      "lane": "stylus-differential-a",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-mapping-events",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-nested-map",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-token-differential",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-token-evm-interop",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-aggregate-differential",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-aggregate-storage",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "stylus-remote-call-differential",
+      "lane": "stylus-differential-b",
+      "execution": "lane_serial",
+      "tags": ["full", "stylus"]
+    },
+    {
+      "name": "docs-check",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "docs",
+        "fast",
+        "full"
+      ]
+    },
+    {
+      "name": "testkit",
+      "lane": "solana",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "evm-diagnostics",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "evm-fast",
+        "full"
+      ]
+    },
+    {
+      "name": "evm-upgrade-policy-honesty",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "full"
+      ]
+    },
+    {
+      "name": "evm-coverage",
+      "lane": "evm",
+      "execution": "lane_serial",
+      "tags": [
+        "evm",
+        "full"
+      ]
+    },
+    {
+      "name": "psy-diagnostics",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "psy-test-naming",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "psy-coverage",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "psy-metadata",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "psy-metadata-validation",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "psy-metadata-cli",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "quint-mbt-gate",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "quint-ir-model-gate",
+      "lane": "wasm-other-exclusive",
+      "execution": "lane_serial",
+      "tags": [
+        "full",
+        "wasm-other"
+      ]
+    },
+    {
+      "name": "ci-install-script",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    }
+  ]
+}

@@ -243,7 +243,7 @@ lake env proof-forge build --target wasm-near \
   || fail "proof-forge build --target wasm-near failed"
 require_file "$NEAR_WAT"
 require_file "$NEAR_ARTIFACT"
-diff -u Examples/Backend/WasmNear/ValueVault.golden.wat "$NEAR_WAT" \
+diff -u Examples/Backend/WasmNear/ValueVault.canonical.golden.wat "$NEAR_WAT" \
   || fail "NEAR ValueVault WAT golden mismatch"
 python3 scripts/near/validate-emitwat-metadata.py \
   "$NEAR_ARTIFACT" \

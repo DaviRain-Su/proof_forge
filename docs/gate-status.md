@@ -1,6 +1,6 @@
 # Gate Completion Records
 
-Status: **Live (2026-07-04)**
+Status: **Live (refreshed 2026-07-12)**
 
 This page is the authoritative per-gate completion ledger for the tiered
 portfolio ([target-roadmap](target-roadmap.md), D-034). Each Gate has one
@@ -13,6 +13,25 @@ behavior/budget slice.
 Unlike [development-log](development-log.md) (a stream of engineering
 milestones), this page records the *phase boundary* decisions: whether the
 current phase's Definition of Done is satisfied, with auditable evidence.
+
+## Gate A1 — Portable Intent and NFT vertical slice
+
+**Status: Closed**
+
+**Closed: 2026-07-12**
+
+| # | Criterion | Status | Evidence required |
+|---|---|---|---|
+| A1-1 | Solana grammar isolated from portable `Source` | ✅ met | `52402821` moves grammar; `c1433b2e` pins portable rejection plus Source.Solana account/PDA/CPI/realloc IR intents; `just solana-light` and `just product` pass |
+| A1-2 | Target-neutral Intent materializer registry | ✅ met | private registry construction; `resolveIntentMaterializer`; checked result target; `just intent-registry` in product/check |
+| A1-3 | Minimal NFT intent and implementation contracts | ✅ met | `just nft-intent` and `just nft-implementation-contract`; validated portable intent plus three executable audited candidates |
+| A1-4 | Strict primary-triad NFT materialization | ✅ met | `just nft-materialization`: strict canonical validation and `buildFromCore` for EVM, Solana, and NEAR; no advisory fallback |
+| A1-5 | Product artifacts and lifecycle runtime evidence | ✅ met | `just portable-nft-multi-target` proves three bundles; `just portable-nft-runtime` executes mint, owner/balance, authorized transfer, unauthorized rejection, and duplicate-mint rejection on EVM Foundry, Solana Surfpool/SVM, and NEAR Wasm |
+| A1-6 | Aggregate acceptance | ✅ met | `6a6022ea`; `just product`, `just portable-nft-runtime`, `just solana-light`, `just check`, and `git diff --check` pass |
+
+Gate A1 closes only when every row is met on one tested revision. Wasm-host or
+ZK research may proceed independently, but public promotion requires its own
+strict gate and does not count toward A1.
 
 ## How to use
 

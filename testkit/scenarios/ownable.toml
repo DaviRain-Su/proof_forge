@@ -196,7 +196,7 @@ contains = [
   'sol_owner',
   'sol_transferOwnership',
   'sol_renounceOwnership',
-  'solana.context.userId: sha256(account[0] full 32-byte pubkey)',
+  'solana.context.userId: account[0] pubkey u64-le word 0 handle',
 ]
 
 [[artifact]]

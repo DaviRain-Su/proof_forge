@@ -3,12 +3,15 @@
 Copy this entire document into one long-running goal or agent session. It is a
 continuous execution charter, not a request for another audit or plan.
 
-Status: **Active**
+Status: **Historical remediation ledger (archived 2026-07-12).** Do not start
+new work from this queue. Completed evidence remains traceable; unresolved
+items must be revalidated and rescheduled through the July 12 implementation
+plan and current backlog.
 
-**Complementary post-review execution charter:**
+**Historical complementary execution charter:**
 [`superpowers/plans/2026-07-10-post-review-execution.md`](superpowers/plans/2026-07-10-post-review-execution.md)
 
-Queue source of truth:
+Historical queue source:
 [`multi-chain-gap-audit-2026-07-10.md`](multi-chain-gap-audit-2026-07-10.md)
 
 Baseline: Waves 0–3 done. Wave 5 PF-P3-01 is complete through the structural

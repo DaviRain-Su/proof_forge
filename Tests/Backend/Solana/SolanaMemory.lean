@@ -1,6 +1,6 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Backend.Solana.SbpfAsm
-import ProofForge.Solana.Examples.Memory
+import Examples.Backend.Solana.Contracts.Memory
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -43,7 +43,7 @@ def requireMetadata (call : CapabilityCall) (key expected : String) : IO Unit :=
     s!"metadata `{key}` mismatch for operation `{call.operation}`"
 
 def main : IO UInt32 := do
-  let spec := ProofForge.Solana.Examples.Memory.spec
+  let spec := Examples.Backend.Solana.Contracts.Memory.spec
   let plan ←
     match resolveSpec solanaSbpfAsm spec with
     | .ok plan => pure plan
@@ -58,7 +58,7 @@ def main : IO UInt32 := do
     match scopedMemoryCall? plan "copy_source" "copy_compare_fill" with
     | some call => pure call
     | none => throw <| IO.userError "Solana memory plan missing copy_source action"
-  require (copyCall.operation == "solana.memory.memcpy")
+  require (copyCall.operation == .builtin "solana.memory.memcpy")
     "copy_source should lower through solana.memory.memcpy"
   requireMetadata copyCall "solana.extension" "memory"
   requireMetadata copyCall "solana.memory.op" "memcpy"
@@ -70,7 +70,7 @@ def main : IO UInt32 := do
     match scopedMemoryCall? plan "move_source" "copy_compare_fill" with
     | some call => pure call
     | none => throw <| IO.userError "Solana memory plan missing move_source action"
-  require (moveCall.operation == "solana.memory.memmove")
+  require (moveCall.operation == .builtin "solana.memory.memmove")
     "move_source should lower through solana.memory.memmove"
   requireMetadata moveCall "solana.memory.op" "memmove"
   requireMetadata moveCall "solana.memory.dst_state" "moved"

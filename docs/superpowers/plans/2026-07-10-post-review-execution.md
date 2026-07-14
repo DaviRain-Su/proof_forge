@@ -1,5 +1,9 @@
 # Post-Review Execution Plan — Deepen Triad, Harden Platform
 
+Status: **Historical execution charter (archived 2026-07-12).** Verified
+results remain evidence; open work must be re-entered in the current backlog.
+Superseded for scheduling by the 2026-07-12 Portable Intent plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Alongside the remaining 2026-07-10 multi-chain remediation work, convert ProofForge from “honest multi-target compiler with Counter/ValueVault vertical slices” into a **primary-triad product depth** platform **plus** (a) lowest-stable-boundary work for Psy/Aleo ZK lanes and (b) a cross-target **native-vs-ProofForge benchmark matrix** that proves the SDK path is competitive and correct.
@@ -14,7 +18,7 @@ This plan does **not** unify backends. It **deepens** the three primary adapters
 - Gate G0 / P0 closed (`docs/gate-status.md`).
 - PF remediation ledger remains Active (`docs/agent-goal-prompt.md`): PF-P3-02 is open; completed rows retain their verified evidence.
 - Product waves α–ε frozen as v1 (`docs/product-sdk-gap-plan-2026-07.md`).
-- Unified support roadmap U0–U7 structure remains historical context (`docs/superpowers/plans/2026-07-09-unified-support-roadmap.md`); this plan is the **next execution charter**.
+- Unified support roadmap U0–U7 structure remains historical context (`docs/superpowers/plans/2026-07-09-unified-support-roadmap.md`); this file was its successor and is now historical too.
 
 **Sources of truth for gaps (priority order):**
 1. Current code + `just product` / `just check` / targeted gates.
@@ -740,4 +744,6 @@ Experimental.
 
 ---
 
-**Status:** Active (2026-07-11) — post-review R1-R8 hardening is verified at the scoped boundaries above; E1.1/E1.2, the remaining lifecycle gaps, and F1 remain open.
+**Archived status (2026-07-12):** post-review R1-R8 hardening is verified at
+the scoped boundaries above. Previously open E1/F1 items require current-code
+revalidation and explicit rescheduling; they are not an active queue here.

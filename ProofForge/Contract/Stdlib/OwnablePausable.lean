@@ -15,14 +15,14 @@ namespace ProofForge.Contract.Stdlib.OwnablePausable
 open ProofForge.Contract.Source
 
 def «owner» : ScalarRef :=
-  ProofForge.Contract.Surface.slot "owner" .u64
+  ProofForge.Contract.Source.slot "owner" .u64
 
 def «paused» : ScalarRef :=
-  ProofForge.Contract.Surface.slot "paused" .u64
+  ProofForge.Contract.Source.slot "paused" .u64
 
 contract_source OwnablePausable do
-  use ProofForge.Contract.Surface.scalar «owner»
-  use ProofForge.Contract.Surface.scalar «paused»
+  use ProofForge.Contract.Source.scalar «owner»
+  use ProofForge.Contract.Source.scalar «paused»
 
   query «owner» returns(.u64) do
     return «owner»;
@@ -31,7 +31,7 @@ contract_source OwnablePausable do
     return «paused»;
 
   entry init do
-    do ProofForge.Contract.Surface.requireZero «owner» "already initialized";
+    do ProofForge.Contract.Source.requireZero «owner» "already initialized";
     «owner» := caller;
 
   entry pause do

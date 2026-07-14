@@ -7,12 +7,12 @@ ValueType	hash	lowered	EmitWat lowers Hash literals as four limbs, hash helpers,
 ValueType	fixedArray	lowered	EmitWat lowers fixed array literals, indexing, equality, local storage in linear memory, and release deallocation.
 ValueType	structType	lowered	EmitWat lowers struct literals, field access, scalar struct storage field read/write, equality through field values, and release deallocation.
 ValueType	address	lowered	EmitWat lowers Address as u64 (same as WasmNear IR v0); address literals, params, locals, returns, storage scalars, and map values use the u64 lowering path; pattern match exhaustiveness verified across EmitWat/WasmNear backend.
-ValueType	bytes	unsupported	EmitWat does not support Bytes; WasmNear IR v0 rejects data.dynamic_bytes before lowering, and EmitWat valueTypeName returns error "wasm-near IR v0 does not support Bytes".
-ValueType	string	unsupported	EmitWat does not support String; WasmNear IR v0 rejects data.dynamic_bytes before lowering, and EmitWat valueTypeName returns error "wasm-near IR v0 does not support String".
+ValueType	bytes	unsupported	Canonical EmitWat rejects dynamic Bytes ABI parameters and does not provide byte-sequence expression, local, equality, storage, or return semantics; use String for NEAR AccountId values.
+ValueType	string	lowered	Canonical EmitWat lowers String as a (ptr, len) pair for Borsh flat-slot parameters, two-slot locals, equality, raw predecessor AccountId context, string-keyed maps, event fields, crosscall arguments, and Borsh returns within the bounded v0 representation; direct String literals remain unsupported.
 ValueType	u8	lowered	EmitWat lowers U8 as i32 (same as WasmNear IR v0); U8 literals, params, locals, returns use the u32 lowering path.
-ValueType	u128	unsupported	EmitWat does not support U128; WasmNear IR v0 rejects U128 before lowering.
+ValueType	u128	lowered	Canonical EmitWat lowers U128 as two i64 stack words across parameters, locals, arithmetic, comparisons, scalar and map storage, event/crosscall fields, promise results, and 16-byte little-endian Borsh returns; literals are currently bounded to the U64 range and pow is unsupported.
 StateKind	scalar	lowered	EmitWat stateLayout maps scalar state ids to storage keys and lowers scalar read/write helpers for U32/U64/Bool/Hash and struct-valued scalar state.
-StateKind	map	lowered	EmitWat mapLayout maps map state to storage prefixes and lowers contains/get/set/insert for U64 and Hash keys with scalar or hash values.
+StateKind	map	lowered	EmitWat mapLayout maps state to storage prefixes and lowers contains/get/set/insert/delete for U64, Hash, and runtime-length String keys, including U128 values; real-VM U128 hash-key and String-key round trips cover both extended shapes.
 StateKind	array	lowered	EmitWat mapLayout represents array state as U64-keyed storage prefixes and lowers storageArrayRead/storageArrayWrite for U32/U64/Bool/Hash arrays plus field access for struct arrays.
 Literal	u32	lowered	EmitWat emits i32.const for U32 literals.
 Literal	u64	lowered	EmitWat emits i64.const for U64 literals.
@@ -20,9 +20,12 @@ Literal	bool	lowered	EmitWat emits i32.const 1/0 for Bool literals.
 Literal	hash4	lowered	EmitWat emits four U64 limbs and calls the hash constructor helper.
 Literal	address	lowered	EmitWat emits i64.const for Address literals (same as U64); address is treated as a u64 scalar in the wasm-near backend.
 Literal	u8	lowered	EmitWat emits i32.const for U8 literals (same as U32); U8 is treated as a u32 scalar.
-Literal	u128	unsupported	EmitWat does not support U128 literals.
+Literal	u128	validated	EmitWat accepts U128 literals below 2^64 and emits low/high i64 words with high=0; larger literals are rejected until full-width literal construction is implemented.
+Literal	bytes	unsupported	EmitWat rejects Bytes literals; the canonical Bytes expression and ABI surface is not implemented.
+Literal	string	unsupported	EmitWat rejects direct String literals; current String values enter through ABI parameters, AccountId context, or registered crosscall string pools.
 ContextField	userId	lowered	EmitWat lowers userId to predecessor_account_id hashing through the context helper.
 ContextField	userIdHash	lowered	EmitWat lowers userIdHash to __pf_ctx_user_hash, hashing predecessor_account_id bytes into a Hash; NearFungibleToken callerHash covers hash-keyed balance transfers.
+ContextField	accountId	lowered	Canonical EmitWat lowers accountId to the raw predecessor_account_id register payload as a bounded (ptr, len) String; NearFungibleToken balances/storageDeposits and the caller-account-id real-VM gate cover it.
 ContextField	contractId	lowered	EmitWat lowers contractId to current_account_id hashing through the context helper.
 ContextField	checkpointId	lowered	EmitWat lowers checkpointId to block_index.
 ContextField	timestamp	lowered	EmitWat lowers timestamp to the block_timestamp host import; Tests/Backend/Wasm/EmitWatContext.lean and the offline host smoke cover the returned value.
@@ -30,6 +33,8 @@ ContextField	epochHeight	lowered	EmitWat lowers epochHeight to the epoch_height 
 ContextField	chainId	unsupported	EmitWat does not lower chainId context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
 ContextField	gasPrice	unsupported	EmitWat does not lower gasPrice context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
 ContextField	gasLeft	unsupported	EmitWat does not lower gasLeft context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
+ContextField	prepaidGas	lowered	EmitWat lowers prepaidGas to the NEAR prepaid_gas host import, returns U64 gas units, and records the operation in ModulePlan.
+ContextField	usedGas	lowered	EmitWat lowers usedGas to the NEAR used_gas host import, returns U64 gas units, and records the operation in ModulePlan.
 ContextField	baseFee	unsupported	EmitWat does not lower baseFee context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
 ContextField	prevRandao	unsupported	EmitWat does not lower prevRandao context reads; userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, and origin have explicit direct-WAT host mappings.
 ContextField	randomSeed	lowered	EmitWat lowers randomSeed to the random_seed host import and returns the 32-byte register payload as Hash; Tests/Backend/Wasm/EmitWatContext.lean and offline-host smoke cover the returned bytes.
@@ -77,28 +82,24 @@ Expr	hashValue	lowered	EmitWat lowers four U64 limbs into a hash value helper.
 Expr	hash	lowered	EmitWat lowers hash preimage hashing through the sha256-backed helper.
 Expr	hashTwoToOne	lowered	EmitWat lowers two-to-one hash through the hash concat helper.
 Expr	nativeValue	lowered	EmitWat lowers nativeValue to the attached_deposit host import as a U64 projection; Tests/Backend/Wasm/EmitWatContext.lean and the offline host smoke cover the returned value.
-Expr	crosscallInvoke	lowered	EmitWat lowers crosscallInvoke to promise_create with compile-time account/method strings from module.nearCrosscallStrings and promise_return when the entrypoint returns the promise.
+Expr	callValueU128	lowered	EmitWat lowers the full-width call value through attached_deposit and returns the low/high U64 pair.
+Expr	hostCall	lowered	EmitWat validates and dispatches catalog-registered NEAR HostOps by stable ID, including promise results, storage usage, and transfers.
+Effect	hostCall	unsupported	EmitWat rejects effect HostOps without a wasm-host handler before materialization.
+Expr	crosscallInvoke	lowered	EmitWat lowers crosscallInvoke to promise_create with compile-time account/method strings from module.crosscallStrings and promise_return when the entrypoint returns the promise.
 Expr	crosscallInvokeTyped	unsupported	EmitWat capability checking rejects typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallInvokeValueTyped	unsupported	EmitWat capability checking rejects value-bearing typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallInvokeStaticTyped	unsupported	EmitWat capability checking rejects static typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallInvokeDelegateTyped	unsupported	EmitWat capability checking rejects delegate typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
-Expr	crosscallCreate	unsupported	EmitWat capability checking rejects contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
-Expr	crosscallCreate2	unsupported	EmitWat capability checking rejects create2 contract creation through the crosscall capability with a NEAR Promise-semantics diagnostic.
 Expr	crosscallNamed	unsupported	EmitWat capability checking rejects named-callee cross-program calls (crosscallNamed) with a wasm-near sourcegen diagnostic; crosscallNamed is ZK-lane only (RFC 0015 D4).
-Expr	crosscallAbiPacked	unsupported	wasm-near IR v0 rejects ABI-packed crosscall (Call[]) as EVM-specific with an explicit diagnostic.
-Expr	ecrecover	unsupported	wasm-near IR v0 rejects ecrecover (secp256k1) as EVM-specific with an explicit diagnostic.
-Expr	eip712PermitDigest	unsupported	wasm-near IR v0 rejects EIP-712 permit digest as EVM-specific with an explicit diagnostic.
-Expr	nearCrosscallInvokePool	lowered	EmitWat lowers nearCrosscallInvokePool to promise_create with __pf_crosscall_pool_ptr/__pf_crosscall_pool_len runtime string-pool indices; NearFungibleToken ft_transfer_call covers ft_on_transfer args.
-Expr	nearPromiseThen	lowered	EmitWat lowers nearPromiseThen after promise_create, scheduling a local callback method via promise_then on the current account.
-Expr	nearPromiseResultsCount	lowered	EmitWat lowers nearPromiseResultsCount to promise_results_count for callback entrypoints.
-Expr	nearPromiseResultStatus	lowered	EmitWat lowers nearPromiseResultStatus to promise_result and returns status as U64.
-Expr	nearPromiseResultU64	lowered	EmitWat lowers nearPromiseResultU64 via __pf_promise_result_u64 (promise_result + read_register Borsh U64).
+Expr	crosscallInvokeNamedValue	lowered	EmitWat lowers crosscallInvokeNamedValue to promise_create with __pf_crosscall_pool_ptr/__pf_crosscall_pool_len runtime string-pool indices; NearFungibleToken ft_transfer_call covers ft_on_transfer args.
+Expr	crosscallContinue	lowered	EmitWat lowers crosscallContinue after promise_create, scheduling a local callback method via promise_then on the current account.
 Expr	effect	lowered	EmitWat lowerExpr delegates expression-position effects to storage/context/map/array/struct effect lowering.
 Effect	storageScalarRead	lowered	EmitWat lowers scalar reads through typed storage_read helpers.
 Effect	storageScalarWrite	lowered	EmitWat lowers scalar writes through typed storage_write helpers, including struct-valued scalar writes.
 Effect	storageScalarAssignOp	lowered	EmitWat lowers scalar assignOp for non-hash scalar state by reading, applying the numeric/bitwise op, and writing back.
 Effect	storageMapContains	lowered	EmitWat lowers map contains through storage_has_key with U64 or Hash keys.
 Effect	storageMapGet	lowered	EmitWat lowers map get through typed map read helpers with default-on-missing behavior.
+Effect	storageMapDelete	lowered	EmitWat lowers map delete through storage_remove helpers for U64, Hash, and String key shapes.
 Effect	storageMapInsert	lowered	EmitWat lowers map insert through the same map write helper surface as set, returning the previous value.
 Effect	storageMapSet	lowered	EmitWat lowers map set through map write helpers, returning the previous value when used as an expression.
 Effect	storageArrayRead	lowered	EmitWat lowers array state reads as U64-keyed map reads for U32/U64/Bool/Hash arrays.
@@ -116,12 +117,9 @@ Effect	memoryArraySet	unsupported	EmitWat rejects memory.array.set because memor
 Expr	memoryArrayNew	unsupported	EmitWat rejects memory.array.new because memory arrays are not lowered to NEAR/Wasm.
 Expr	memoryArrayLength	unsupported	EmitWat rejects memory.array.length because memory arrays are not lowered to NEAR/Wasm.
 Expr	memoryArrayGet	unsupported	EmitWat rejects memory.array.get because memory arrays are not lowered to NEAR/Wasm.
-Effect	contextRead	lowered	EmitWat lowers userId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin context reads through NEAR host helpers.
-Effect	eventEmit	lowered	EmitWat lowers non-indexed events to JSON assembled in guest memory and emitted with log_utf8.
-Effect	eventEmitIndexed	lowered	EmitWat flattens indexed and data fields into one NEAR JSON event log because NEAR logs do not provide native EVM-style topics; Tests/Backend/Wasm/EmitWatChainSemantics.lean checks the rendered event fields.
-Effect	checkErc721Received	unsupported	EmitWat / WasmHost reject checkErc721Received (EVM-only IERC721Receiver callback; PF-P2-02) with an explicit diagnostic.
-Effect	checkErc1155Received	unsupported	EmitWat / WasmHost reject checkErc1155Received (EVM-only IERC1155Receiver callback; PF-P2-02) with an explicit diagnostic.
-Effect	checkErc1155BatchReceived	unsupported	EmitWat / WasmHost reject checkErc1155BatchReceived (EVM-only IERC1155Receiver batch callback; E1.2) with an explicit diagnostic.
+Effect	contextRead	lowered	EmitWat lowers userId, userIdHash, accountId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin context reads through NEAR host helpers.
+Effect	eventEmit	lowered	EmitWat lowers non-indexed events to NEP-297 EVENT_JSON envelopes assembled in guest memory and emitted with log_utf8; standard ft_mint/ft_transfer/ft_burn events use the nep141 namespace and quoted U128 amounts.
+Effect	eventEmitIndexed	lowered	EmitWat flattens indexed and data fields into one NEP-297 data object because NEAR logs do not provide native EVM-style topics; Tests/Backend/Wasm/EmitWatChainSemantics.lean checks the exact envelope and field fragments.
 StoragePathSegment	field	lowered	EmitWat lowers field as a scalar struct path segment and after index for struct-valued storage arrays.
 StoragePathSegment	index	lowered	EmitWat lowers index as a storage array path segment and before field for struct-valued storage arrays.
 StoragePathSegment	mapKey	lowered	EmitWat lowers single mapKey path segments through map helpers.
@@ -136,7 +134,7 @@ Statement	release	lowered	EmitWat lowers release of owned fixed-array and struct
 Statement	ifElse	lowered	EmitWat lowers if/else to wasm if with lowered branch bodies.
 Statement	boundedFor	lowered	EmitWat lowers boundedFor to wasm block/loop/br_if control flow.
 Statement	whileLoop	unsupported	EmitWat lowerStmt falls through to the unsupported-statement error for unbounded while loops; wasm target profile carries control.unbounded_loop but the WAT backend does not emit open-ended loops in v0.
-Statement	return	lowered	EmitWat lowers returns to value_return helpers for U32/U64/Bool/Hash values.
+Statement	return	lowered	EmitWat lowers returns to value_return helpers for U32/U64/U128/Bool/Hash/String values using the matching Borsh representation.
 Statement	revert	lowered	EmitWat lowers revert to unreachable trap (no message encoding in Wasm).
 Statement	revertWithError	lowered	EmitWat lowers revertWithError to unreachable trap (no ErrorRef encoding in Wasm).
 ValueType	array	unsupported	EmitWat does not support dynamic arrays; WasmNear IR v0 rejects data.dynamic_array before lowering and valueTypeName returns an explicit error.

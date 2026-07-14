@@ -101,6 +101,8 @@ def listGet? {α : Type} : List α → Nat → Option α
 structure State where
   storage : Bindings := []
   logs : Array EventLog := #[]
+  userId : Value := .u64 0
+  userIdHash : Value := .hash 0 0 0 0
   deriving Repr, BEq
 
 structure Frame where
@@ -392,8 +394,6 @@ def crosscallHashStubValue (sum : Nat) : Value :=
 
 def crosscallStaticTag : Nat := 1000000
 def crosscallDelegateTag : Nat := 2000000
-def crosscallCreateTag : Nat := 3000000
-def crosscallCreate2Tag : Nat := 4000000
 
 def lookupStructDecl (structs : Array StructDecl) (name : String) : Option StructDecl :=
   structs.find? (fun s => s.name == name)
@@ -567,8 +567,6 @@ partial def evalExpr (state : State) (frame : Frame) : Expr → Except String Ex
       evalCrosscallInvokeStaticTyped state frame target methodId args returnType
   | .crosscallInvokeDelegateTyped target methodId args returnType =>
       evalCrosscallInvokeDelegateTyped state frame target methodId args returnType
-  | .crosscallCreate callValue _ => evalCrosscallCreate state frame callValue
-  | .crosscallCreate2 callValue salt _ => evalCrosscallCreate2 state frame callValue salt
   | .effect effect => evalEffect state frame effect
   | .nativeValue => .ok (state, .u64 0)
   | _ => .error "expression is not supported by the scalar semantics model"
@@ -628,24 +626,6 @@ partial def evalCrosscallInvokeDelegateTyped (state : State) (frame : Frame) (ta
   let value ← crosscallCastReturn (sum + crosscallDelegateTag) returnType frame.structs
   .ok (nextState, value)
 
-partial def evalCrosscallCreate (state : State) (frame : Frame) (callValue : Expr) :
-    Except String ExprResult := do
-  let (nextState, callValueResult) ← evalExpr state frame callValue
-  let callNat ← match callValueResult with
-    | .u64 n => pure n
-    | _ => .error "crosscallCreate callValue expected U64"
-  .ok (nextState, .u64 (callNat + crosscallCreateTag))
-
-partial def evalCrosscallCreate2 (state : State) (frame : Frame) (callValue salt : Expr) :
-    Except String ExprResult := do
-  let (stateAfterValue, callValueResult) ← evalExpr state frame callValue
-  let callNat ← match callValueResult with
-    | .u64 n => pure n
-    | _ => .error "crosscallCreate2 callValue expected U64"
-  let (nextState, saltValue) ← evalExpr stateAfterValue frame salt
-  let saltNat ← crosscallArgToNat saltValue
-  .ok (nextState, .u64 (callNat + saltNat + crosscallCreate2Tag))
-
 partial def evalPathSegmentKey (state : State) (frame : Frame) : StoragePathSegment →
     Except String (State × String)
   | .field fieldName => .ok (state, s!".{fieldName}")
@@ -668,6 +648,11 @@ partial def evalStoragePathKey (state : State) (frame : Frame) (stateId : String
   .ok (nextState, key)
 
 partial def evalEffect (state : State) (frame : Frame) : Effect → Except String ExprResult
+  | .hostCall _ args _ => do
+      let nextState ← args.foldlM (init := state) fun current arg => do
+        let (afterArg, _) ← evalExpr current frame arg
+        pure afterArg
+      .ok (nextState, .unit)
   | .storageScalarRead name =>
       match state.read name with
       | some value => .ok (state, value)
@@ -786,9 +771,12 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       .ok (stateAfterValue.write key value, value)
   | .contextRead field =>
       match field with
-      | .userId | .contractId | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
+      | .userId => .ok (state, state.userId)
+      | .userIdHash => .ok (state, state.userIdHash)
+      | .accountId => .ok (state, .string "")
+      | .contractId | .checkpointId | .timestamp | .epochHeight | .chainId | .gasLeft | .prepaidGas | .usedGas =>
           .ok (state, .u64 0)
-      | .userIdHash | .randomSeed | .origin | .coinbase | .blockHash _ =>
+      | .randomSeed | .signer =>
           .ok (state, .hash 0 0 0 0)
   | .eventEmit name fields => do
       let (nextState, data) ← evalEventFields state frame fields
@@ -797,29 +785,6 @@ partial def evalEffect (state : State) (frame : Frame) : Effect → Except Strin
       let (nextState, indexed) ← evalEventFields state frame indexedFields
       let (nextState, data) ← evalEventFields nextState frame dataFields
       .ok (nextState.recordEvent name indexed data, .unit)
-  | .checkErc721Received operator fromAddr toAddr tokenId => do
-      -- Abstract IR semantics: evaluate args for purity; receiver CALL is host-level.
-      let (s1, _) ← evalExpr state frame operator
-      let (s2, _) ← evalExpr s1 frame fromAddr
-      let (s3, _) ← evalExpr s2 frame toAddr
-      let (s4, _) ← evalExpr s3 frame tokenId
-      .ok (s4, .unit)
-  | .checkErc1155Received operator fromAddr toAddr id amount => do
-      -- Abstract IR semantics: evaluate args for purity; receiver CALL is host-level.
-      let (s1, _) ← evalExpr state frame operator
-      let (s2, _) ← evalExpr s1 frame fromAddr
-      let (s3, _) ← evalExpr s2 frame toAddr
-      let (s4, _) ← evalExpr s3 frame id
-      let (s5, _) ← evalExpr s4 frame amount
-      .ok (s5, .unit)
-
-  | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
-      let (s1, _) ← evalExpr state frame operator
-      let (s2, _) ← evalExpr s1 frame fromAddr
-      let (s3, _) ← evalExpr s2 frame toAddr
-      let (s4, _) ← evalExpr s3 frame ids
-      let (s5, _) ← evalExpr s4 frame amounts
-      .ok (s5, .unit)
 partial def evalEventFields (state : State) (frame : Frame) (fields : Array (String × Expr)) :
     Except String (State × Array Value) := do
   let mut nextState := state

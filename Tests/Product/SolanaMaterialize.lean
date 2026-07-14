@@ -9,7 +9,7 @@ import Examples.Product.ValueVault
 import ProofForge.Backend.Solana.Extension
 import ProofForge.Backend.Solana.Materialize
 import ProofForge.Backend.Solana.Plan
-import ProofForge.Solana.Examples.Vault
+import Examples.Backend.Solana.Contracts.Vault
 import ProofForge.Target
 
 open ProofForge.Backend.Solana.Materialize
@@ -51,8 +51,8 @@ def main : IO Unit := do
   require (vaultReport.stateAccountCount == 1) "ValueVault synthesizes one state account"
 
   -- Source.Solana Vault with PDA/accounts → extension-declared.
-  let solanaVault := ProofForge.Solana.Examples.Vault.module
-  match resolveSpec solanaSbpfAsm ProofForge.Solana.Examples.Vault.spec with
+  let solanaVault := Examples.Backend.Solana.Contracts.Vault.module
+  match resolveSpec solanaSbpfAsm Examples.Backend.Solana.Contracts.Vault.spec with
   | .error e => throw (IO.userError s!"Solana Vault resolve failed: {e.render}")
   | .ok capPlan =>
       let ext := ProgramExtensions.fromPlan capPlan

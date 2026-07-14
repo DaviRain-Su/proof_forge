@@ -1,92 +1,12 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Target.Capability
+import ProofForge.Target.HostOp
 import ProofForge.Target.HostRuntime
 import ProofForge.IR.Allocator
+import ProofForge.IR.ValueType
 
 namespace ProofForge.IR
-
-/--! ### ValueType portability vocabulary (D-050 Slice 2)
-
-`ValueType` constructors are chain-neutral. In particular `.address` is a
-**portable account/identity handle**, not an EVM 20-byte address: each target
-adapter renames it to its native identity encoding (EVM `address`, Solana
-`Pubkey`, NEAR `AccountId`, Move `signer`/`address`) via the target ABI
-metadata bag (`paramAbiWords`). `ValueType.byteWidth` is the EVM storage width
-and only consulted by the EVM adapter; it is not part of the portable
-contract.
--/
-
-inductive ValueType where
-  | unit
-  | bool
-  | u8
-  | u32
-  | u64
-  | u128
-  | address
-  | bytes
-  | string
-  | hash
-  | fixedArray (element : ValueType) (length : Nat)
-  | structType (name : String)
-  | array (element : ValueType)
-  deriving BEq, DecidableEq, Repr
-
-def ValueType.name : ValueType → String
-  | .unit => "Unit"
-  | .bool => "Bool"
-  | .u8 => "U8"
-  | .u32 => "U32"
-  | .u64 => "U64"
-  | .u128 => "U128"
-  | .address => "Address"
-  | .bytes => "Bytes"
-  | .string => "String"
-  | .hash => "Hash"
-  | .fixedArray element length => s!"Array<{element.name},{length}>"
-  | .structType name => name
-  | .array element => s!"Array<{element.name}>"
-
-def ValueType.capabilities : ValueType → Array ProofForge.Target.Capability
-  | .unit => #[]
-  | .bool => #[]
-  | .u8 => #[]
-  | .u32 => #[]
-  | .u128 => #[]
-  | .u64 => #[]
-  | .address => #[]
-  | .bytes => #[.dataDynamicBytes]
-  | .string => #[.dataDynamicBytes]
-  | .hash => #[]
-  | .fixedArray element _ => #[.dataFixedArray] ++ element.capabilities
-  | .structType _ => #[.dataStruct]
-  | .array element => #[.dataDynamicArray] ++ element.capabilities
-
-/--! Byte width of a scalar `ValueType` in EVM storage. Returns 0 for non-scalar types. -/
-def ValueType.byteWidth : ValueType → Nat
-  | .bool => 1
-  | .u8 => 1
-  | .u32 => 4
-  | .u64 => 8
-  | .u128 => 16
-  | .address => 20
-  | .hash => 32
-  | .unit | .bytes | .string | .fixedArray _ _ | .structType _ | .array _ => 0
-
-/--! Whether a `ValueType` is a packed storage scalar (byteWidth > 0 and < 32). -/
-def ValueType.isPackedScalar : ValueType → Bool
-  | .bool | .u8 | .u32 | .u64 | .u128 | .address => true
-  | .unit | .hash | .bytes | .string | .fixedArray _ _ | .structType _ | .array _ => false
-
-/-- Portable identity `ValueType` constructors — every primary target has a
-native account/identity encoding for these, so a module may use them without a
-family-only finding. `.address` is the chain-neutral account/identity handle;
-target adapters rename it to native form (EVM `address`, Solana `Pubkey`, NEAR
-`AccountId`, Move `signer`/`address`) via `paramAbiWords` metadata. -/
-def ValueType.isPortableIdentity : ValueType → Bool
-  | .address => true
-  | _ => false
 
 structure StructField where
   id : String
@@ -136,6 +56,9 @@ structure StateDecl where
   id : String
   kind : StateKind
   type : ValueType
+  /-- Compatibility input hint for ordered composite map keys. Empty keeps the
+  legacy single-key `StateKind.map` meaning. Canonical Core owns the semantics. -/
+  keyPathTypes : Array ValueType := #[]
   deriving Repr
 
 inductive Literal where
@@ -179,21 +102,17 @@ mutual
   inductive ContextField where
     | userId
     | userIdHash
+    | accountId
     | contractId
     | checkpointId
     | timestamp
     | epochHeight
     | chainId
-    | gasPrice
     | gasLeft
     | prepaidGas
     | usedGas
-    | baseFee
-    | prevRandao
     | randomSeed
-    | origin
-    | coinbase
-    | blockHash (blockNumber : Expr)
+    | signer
     deriving Repr, BEq
 
   inductive Expr where
@@ -230,60 +149,41 @@ mutual
     | hashValue (a b c d : Expr)
     | hash (preimage : Expr)
     | hashTwoToOne (lhs rhs : Expr)
-    /-- EVM secp256k1 `ecrecover(digest, v, r, s)` → address word.
-    Requires `crypto.ecrecover` (EVM-only). -/
-    | ecrecover (digest v r s : Expr)
-    /-- EVM helper: EIP-712 permit struct digest
-    `keccak256("\x19\x01" ‖ domainSeparator ‖
-      keccak256(PERMIT_TYPEHASH ‖ owner ‖ spender ‖ value ‖ nonce ‖ deadline))`.
-    Requires `crypto.ecrecover` (same EVM-only gate as ecrecover). -/
-    | eip712PermitDigest (owner spender value nonce deadline domainSep : Expr)
     | nativeValue
-    /-- ABI-packed CALL (EVM). `stores` are `(offset, word)` in the **args
-    region** after the 4-byte selector (from `Evm.AbiEncode.Plan`).
-    - `dynLenOffset?`/`dynLen?`: overwrite Call[] length word at runtime.
-    - `dynTargetOffsets`/`dynTargets`: overwrite each Call.address word with a
-      **runtime** target (static calldata stays in `stores`).
-    Requires `crosscall.invoke`. Other hosts reject. -/
-    | crosscallAbiPacked
-        (target : Expr)
-        (selector : Nat)
-        (stores : Array (Nat × Nat))
-        (argsSize : Nat)
-        (outSize : Nat)
-        (dynLenOffset? : Option Nat)
-        (dynLen? : Option Expr)
-        (dynTargetOffsets : Array Nat)
-        (dynTargets : Array Expr)
+    /-- Typed target extension call. The shared IR carries only an open stable
+    identity, typed arguments/result, and declared capability requirements;
+    target catalogs validate and lower the operation after target selection. -/
+    | hostCall (id : ProofForge.Target.HostOpId) (args : Array Expr)
+        (returnType : ValueType) (requiredCapabilities : Array ProofForge.Target.Capability)
     | crosscallInvoke (targetContractId : Expr) (methodId : Expr) (args : Array Expr)
     | crosscallInvokeTyped (targetContractId : Expr) (methodId : Expr) (args : Array Expr) (returnType : ValueType)
     | crosscallInvokeValueTyped (targetContractId : Expr) (methodId callValue : Expr) (args : Array Expr) (returnType : ValueType)
     | crosscallInvokeStaticTyped (targetContractId : Expr) (methodId : Expr) (args : Array Expr) (returnType : ValueType)
     | crosscallInvokeDelegateTyped (targetContractId : Expr) (methodId : Expr) (args : Array Expr) (returnType : ValueType)
-    | crosscallCreate (callValue : Expr) (initCodeHex : String)
-    | crosscallCreate2 (callValue salt : Expr) (initCodeHex : String)
     /-- Named-callee cross-program call for app-chain targets (RFC 0015 D4):
     `crosscallNamed(programId, method, args, returnType)` addresses the callee
     by compile-time program/method identifiers (Aleo `_dynamic_call`), unlike the
     runtime-address `crosscallInvoke`. Account-chain targets reject it. -/
     | crosscallNamed (programId method : String) (args : Array Expr) (returnType : ValueType)
-    /-- NEAR host-extension only (not portable product path): `promise_create`
-        with runtime index into `module.nearCrosscallStrings`. Prefer portable
-        `crosscallInvoke` for authoring; this is a lower-level host form. -/
-    | nearCrosscallInvokePool (accountIndex : Expr) (methodId : Expr) (args : Array Expr) (deposit : Expr)
-    /-- NEAR host-extension only: attach a callback method on the current contract
-        (`promise_then`). D-050 Slice 3 — not portable-core. -/
-    | nearPromiseThen (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr) (deposit : Expr)
-    /-- NEAR host-extension only: number of completed promise results in a callback. -/
-    | nearPromiseResultsCount
-    /-- NEAR host-extension only: status of promise result at `index` (1 = success, 2 = failed). -/
-    | nearPromiseResultStatus (index : Expr)
-    /-- NEAR host-extension only: Borsh-decoded U64 payload from promise result at `index`. -/
-    | nearPromiseResultU64 (index : Expr)
+    /-- Invoke a named remote endpoint with value. Targets decide how names,
+        arguments, and value are encoded during materialization. -/
+    | crosscallInvokeNamedValue (account : Expr) (methodId : Expr) (args : Array Expr)
+        (deposit : Expr) (argNames : Array String)
+    /-- Continue an asynchronous invocation with a local callback. Targets that
+        do not support continuations reject the required capability. -/
+    | crosscallContinue (parentPromise : Expr) (callbackMethod : Expr) (args : Array Expr)
+        (deposit : Expr) (argNames : Array String)
+    /-- Full-width native value supplied by the caller. -/
+    | callValueU128
     | effect (effect : Effect)
     deriving Repr, BEq
 
   inductive Effect where
+    /-- Effectful target extension call with no result. The shared IR carries
+    only an open stable identity, arguments, and declared capabilities; target
+    catalogs validate and lower the operation after target selection. -/
+    | hostCall (id : ProofForge.Target.HostOpId) (args : Array Expr)
+        (requiredCapabilities : Array ProofForge.Target.Capability)
     | storageScalarRead (stateId : String)
     | storageScalarWrite (stateId : String) (value : Expr)
     | storageScalarAssignOp (stateId : String) (op : AssignOp) (value : Expr)
@@ -307,20 +207,6 @@ mutual
     | contextRead (field : ContextField)
     | eventEmit (name : String) (fields : Array (String × Expr))
     | eventEmitIndexed (name : String) (indexedFields dataFields : Array (String × Expr))
-    /-- EVM ERC-721 receiver check (PF-P2-02): if `to` has code, CALL
-    `onERC721Received(operator,from,tokenId,"")` and require magic return.
-    Non-EVM targets must reject this effect honestly. -/
-    | checkErc721Received (operator fromAddr toAddr tokenId : Expr)
-    /-- EVM ERC-1155 single-transfer receiver check (PF-P2-02): if `to` has
-    code, CALL `onERC1155Received(operator,from,id,value,"")` and require
-    magic return. Non-EVM targets must reject honestly. -/
-    | checkErc1155Received (operator fromAddr toAddr id amount : Expr)
-    /-- EVM ERC-1155 dynamic batch receiver check (E1.2): if `to` has code, CALL
-    `onERC1155BatchReceived(operator,from,ids,amounts,"")` and require magic return.
-    `ids` and `amounts` are `Expr.arrayLit .u256 ...` expressions.
-    Non-EVM targets must reject honestly. -/
-    | checkErc1155BatchReceived
-        (operator fromAddr toAddr ids amounts : Expr)
     deriving Repr, BEq
 
   inductive StoragePathSegment where
@@ -333,26 +219,22 @@ end
 def ContextField.name : ContextField → String
   | .userId => "userId"
   | .userIdHash => "userIdHash"
+  | .accountId => "accountId"
   | .contractId => "contractId"
   | .checkpointId => "checkpointId"
   | .timestamp => "timestamp"
   | .epochHeight => "epochHeight"
   | .chainId => "chainId"
-  | .gasPrice => "gasPrice"
   | .gasLeft => "gasLeft"
   | .prepaidGas => "prepaidGas"
   | .usedGas => "usedGas"
-  | .baseFee => "baseFee"
-  | .prevRandao => "prevRandao"
   | .randomSeed => "randomSeed"
-  | .origin => "origin"
-  | .coinbase => "coinbase"
-  | .blockHash _ => "blockHash"
+  | .signer => "signer"
 
 def ContextField.capability : ContextField → ProofForge.Target.Capability
-  | .userId | .userIdHash | .origin => .callerSender
+  | .userId | .userIdHash | .signer | .accountId => .callerSender
   | .contractId => .accountExplicit
-  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
+  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasLeft | .prepaidGas | .usedGas | .randomSeed => .envBlock
 
 /-! ### Context field portability + HostEnv mapping (D-050 / gap-analysis step 1)
 
@@ -365,21 +247,17 @@ gate used by IR portability checks (general core + shipped `epochHeight`).
 
 /-- Map an IR context field onto the portable HostEnv vocabulary. -/
 def ContextField.toHostEnv : ContextField → ProofForge.Target.HostRuntime.HostEnv
-  | .userId | .userIdHash => .caller
+  | .userId | .userIdHash | .accountId => .caller
   | .contractId => .selfAddress
   | .checkpointId => .blockHeight
   | .timestamp => .blockTime
   | .epochHeight => .epoch
   | .chainId => .chainId
-  | .gasPrice => .gasPrice
   | .gasLeft => .gasOrComputeBudgetLeft
   | .prepaidGas => .nearPrepaidGas
   | .usedGas => .nearUsedGas
-  | .baseFee => .baseFee
-  | .prevRandao | .randomSeed => .randomness
-  | .origin => .txOrigin
-  | .coinbase => .coinbase
-  | .blockHash _ => .blockHash
+  | .randomSeed => .randomness
+  | .signer => .signer
 
 /-- Product portable-core env whitelist: true only when **every** primary triad
 target (`evm` · `solana-sbpf-asm` · `wasm-near`) materializes the field via
@@ -483,18 +361,14 @@ structure Entrypoint where
   selector? : Option String := none
   params : Array (String × ValueType) := #[]
   /-- Parallel ABI surface overrides for selector/signature metadata
-  (`some "address"`, etc.). Historically EVM-only (`paramEvmAbiWords`); kept
-  chain-neutral so other ABI-bearing targets can reuse the same field (D-050). -/
+  (`some "address"`, etc.). This field is chain-neutral so other ABI-bearing
+  targets can reuse the same carrier metadata (D-050). -/
   paramAbiWords : Array (Option String) := #[]
   returns : ValueType := .unit
   /-- Optional host ABI override for the return carrier. -/
   returnAbiWord? : Option String := none
   body : Array Statement
   deriving Repr
-
-/-- Compatibility alias for the pre-D-050 EVM-specific field name. -/
-abbrev Entrypoint.paramEvmAbiWords (ep : Entrypoint) : Array (Option String) :=
-  ep.paramAbiWords
 
 /-- Host ABI scalar type for one named event field. Event expressions retain
 their portable IR carrier; target adapters use this declaration for canonical
@@ -521,7 +395,7 @@ structure Module where
   /-- NEAR EmitWat host strings indexed by `.literal (.address i)` (remote account/method
       names and local promise callback method names). Target-family metadata, not a
       portable IR constructor (see `IR.Portability`). -/
-  nearCrosscallStrings : Array String := #[]
+  crosscallStrings : Array String := #[]
   /-- Integer-overflow mode for this module's `Expr.add/.sub/.mul` nodes.
 
       `false` (default): portable wrapping arithmetic — matches Solana (sBPF
@@ -536,11 +410,9 @@ structure Module where
   overflowChecked : Bool := false
   deriving Repr
 
-/-- Compatibility alias for the pre-D-050 EVM-specific field name. -/
-abbrev Module.evmProxyPattern? (module : Module) : Option String :=
-  module.proxyPattern?
-
 def Effect.capability : Effect → ProofForge.Target.Capability
+  | .hostCall _ _ requiredCapabilities =>
+      requiredCapabilities[0]?.getD .targetExtension
   | .storageScalarRead _ => .storageScalar
   | .storageScalarWrite _ _ => .storageScalar
   | .storageScalarAssignOp _ _ _ => .storageScalar
@@ -576,9 +448,6 @@ def Effect.capability : Effect → ProofForge.Target.Capability
   | .contextRead field => field.capability
   | .eventEmit _ _ => .eventsEmit
   | .eventEmitIndexed _ _ _ => .eventsEmit
-  | .checkErc721Received _ _ _ _ => .crosscallInvoke
-  | .checkErc1155Received _ _ _ _ _ => .crosscallInvoke
-  | .checkErc1155BatchReceived _ _ _ _ _ => .crosscallInvoke
 
 mutual
   partial def Expr.capabilities : Expr → Array ProofForge.Target.Capability
@@ -622,23 +491,13 @@ mutual
     | .hashValue a b c d => a.capabilities ++ b.capabilities ++ c.capabilities ++ d.capabilities
     | .hash preimage => #[.cryptoHash] ++ preimage.capabilities
     | .hashTwoToOne lhs rhs => #[.cryptoHash] ++ lhs.capabilities ++ rhs.capabilities
-    | .ecrecover digest v r s =>
-        #[.cryptoEcrecover] ++ digest.capabilities ++ v.capabilities ++ r.capabilities ++ s.capabilities
-    | .eip712PermitDigest owner spender value nonce deadline domainSep =>
-        #[.cryptoEcrecover, .cryptoHash] ++ owner.capabilities ++ spender.capabilities ++
-          value.capabilities ++ nonce.capabilities ++ deadline.capabilities ++ domainSep.capabilities
     | .nativeValue => #[.valueNative]
+    | .hostCall _ args returnType requiredCapabilities =>
+        requiredCapabilities ++ returnType.capabilities ++
+          args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
     | .crosscallNamed _ _ args returnType =>
         #[.crosscallNamed] ++ returnType.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
-    | .crosscallAbiPacked target _selector _stores _argsSize _outSize _dynOff dynLen?
-        _dynTgtOffs dynTargets =>
-        let caps := #[.crosscallInvoke] ++ target.capabilities
-        let caps :=
-          match dynLen? with
-          | none => caps
-          | some len => caps ++ len.capabilities
-        dynTargets.foldl (init := caps) fun acc t => acc ++ t.capabilities
     | .crosscallInvoke target methodId args =>
         #[.crosscallInvoke] ++ target.capabilities ++ methodId.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
@@ -654,22 +513,18 @@ mutual
     | .crosscallInvokeDelegateTyped target methodId args returnType =>
         #[.crosscallInvoke] ++ target.capabilities ++ methodId.capabilities ++ returnType.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
-    | .crosscallCreate callValue _ =>
-        #[.crosscallInvoke] ++ callValue.capabilities
-    | .crosscallCreate2 callValue salt _ =>
-        #[.crosscallInvoke] ++ callValue.capabilities ++ salt.capabilities
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
-        #[.nearPromise] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
+        #[.crosscallInvoke] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
-    | .nearPromiseThen parentPromise callbackMethod args deposit =>
-        #[.nearPromise] ++ parentPromise.capabilities ++ callbackMethod.capabilities ++ deposit.capabilities ++
+    | .crosscallContinue parentPromise callbackMethod args deposit _ =>
+        #[.crosscallContinue] ++ parentPromise.capabilities ++ callbackMethod.capabilities ++ deposit.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
-    | .nearPromiseResultsCount => #[.nearPromise]
-    | .nearPromiseResultStatus index => #[.nearPromise] ++ index.capabilities
-    | .nearPromiseResultU64 index => #[.nearPromise] ++ index.capabilities
+    | .callValueU128 => #[.valueNative]
     | .effect effect => #[effect.capability] ++ effect.capabilities
 
   partial def Effect.capabilities : Effect → Array ProofForge.Target.Capability
+    | .hostCall _ args requiredCapabilities =>
+        requiredCapabilities ++ args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
     | .storageScalarRead _ => #[]
     | .storageScalarWrite _ value => value.capabilities
     | .storageScalarAssignOp _ _ value => value.capabilities
@@ -696,14 +551,6 @@ mutual
     | .eventEmitIndexed _ indexedFields dataFields =>
         indexedFields.foldl (fun acc field => acc ++ field.snd.capabilities)
           (dataFields.foldl (fun acc field => acc ++ field.snd.capabilities) #[])
-    | .checkErc721Received operator fromAddr toAddr tokenId =>
-        operator.capabilities ++ fromAddr.capabilities ++ toAddr.capabilities ++ tokenId.capabilities
-    | .checkErc1155Received operator fromAddr toAddr id amount =>
-        operator.capabilities ++ fromAddr.capabilities ++ toAddr.capabilities ++
-          id.capabilities ++ amount.capabilities
-    | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts =>
-        operator.capabilities ++ fromAddr.capabilities ++ toAddr.capabilities ++
-          ids.capabilities ++ amounts.capabilities
 
   partial def StoragePathSegment.capabilities : StoragePathSegment → Array ProofForge.Target.Capability
     | .field _ => #[.dataStruct]

@@ -59,8 +59,8 @@ def resolveCrosscallStringRef (ctx : Ctx) (e : Expr) (role : String) : Except Em
     match ctx.crosscallStrings[idx]? with
     | some si => .ok si
     | none =>
-      err s!"EmitWat: NEAR crosscall {role} index `{idx}` is out of range for `module.nearCrosscallStrings`"
+      err s!"EmitWat: NEAR crosscall {role} index `{idx}` is out of range for `module.crosscallStrings`"
   | _ =>
-    err s!"EmitWat: NEAR crosscall {role} must be `.literal (.address <index>)` into `module.nearCrosscallStrings`"
+    err s!"EmitWat: NEAR crosscall {role} must be `.literal (.address <index>)` into `module.crosscallStrings`"
 
 end ProofForge.Backend.WasmHost.LoweringEnv

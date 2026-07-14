@@ -3,7 +3,9 @@ import ProofForge.Contract.Client
 import ProofForge.Contract.Compliance
 import ProofForge.Contract.Examples
 import ProofForge.Contract.Intent
+import ProofForge.Contract.Intent.Registry
 import ProofForge.Contract.Learn
+import ProofForge.Contract.Nft
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Spec.Json
 import ProofForge.Contract.Source
@@ -13,7 +15,6 @@ import ProofForge.Contract.Stdlib.ERC1155
 import ProofForge.Contract.Stdlib.Ownable
 import ProofForge.Contract.Stdlib.Pausable
 import ProofForge.Contract.Stdlib.ReentrancyGuard
-import ProofForge.Contract.Surface
 import ProofForge.Contract.Token
 import ProofForge.Contract.Token.Evm
 import ProofForge.Contract.Token.EvmSpec

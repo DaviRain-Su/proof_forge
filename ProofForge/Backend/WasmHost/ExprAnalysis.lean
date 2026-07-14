@@ -40,41 +40,29 @@ partial def canDuplicateExpr : Expr → Bool
   | .boolAnd lhs rhs
   | .boolOr lhs rhs
   | .hashTwoToOne lhs rhs => canDuplicateExpr lhs && canDuplicateExpr rhs
-  | .ecrecover a b c d =>
-      canDuplicateExpr a && canDuplicateExpr b && canDuplicateExpr c && canDuplicateExpr d
-  | .eip712PermitDigest a b c d e f =>
-      canDuplicateExpr a && canDuplicateExpr b && canDuplicateExpr c &&
-        canDuplicateExpr d && canDuplicateExpr e && canDuplicateExpr f
-  | .crosscallAbiPacked target _ _ _ _ _ dynLen? _dynOffs dynTargets =>
-      canDuplicateExpr target &&
-        (match dynLen? with | none => true | some len => canDuplicateExpr len) &&
-        dynTargets.all canDuplicateExpr
   | .cast value _ => canDuplicateExpr value
   | .boolNot value => canDuplicateExpr value
   | .hashValue a b c d =>
       canDuplicateExpr a && canDuplicateExpr b && canDuplicateExpr c && canDuplicateExpr d
   | .hash preimage => canDuplicateExpr preimage
-  | .nativeValue => false
+  | .nativeValue | .callValueU128 => false
+  | .hostCall _ _ _ _ => false
   | .crosscallInvoke _ _ _
   | .crosscallInvokeTyped _ _ _ _
   | .crosscallInvokeValueTyped _ _ _ _ _
   | .crosscallInvokeStaticTyped _ _ _ _
   | .crosscallInvokeDelegateTyped _ _ _ _
-  | .crosscallCreate _ _
-  | .crosscallCreate2 _ _ _
   | .crosscallNamed _ _ _ _
-  | .nearCrosscallInvokePool _ _ _ _
-  | .nearPromiseThen _ _ _ _
-  | .nearPromiseResultsCount
-  | .nearPromiseResultStatus _
-  | .nearPromiseResultU64 _
+  | .crosscallInvokeNamedValue _ _ _ _ _
+  | .crosscallContinue _ _ _ _ _
   | .effect _ => false
 
 def exprReturnsNearPromise : Expr → Bool
   | .crosscallInvoke _ _ _ => true
   | .crosscallInvokeValueTyped _ _ _ _ _ => true
-  | .nearCrosscallInvokePool _ _ _ _ => true
-  | .nearPromiseThen _ _ _ _ => true
+  | .crosscallInvokeNamedValue _ _ _ _ _ => true
+  | .crosscallContinue _ _ _ _ _ => true
+  | .hostCall id _ _ _ => id.namespace_ == "near.promise"
   | _ => false
 
 end ProofForge.Backend.WasmHost.ExprAnalysis

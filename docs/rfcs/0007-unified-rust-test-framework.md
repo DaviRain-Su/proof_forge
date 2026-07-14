@@ -1,6 +1,6 @@
 # RFC 0007: Unified Rust Test Framework (testkit)
 
-Status: **Draft**
+Status: **Accepted executable architecture; scenario migration remains incremental.**
 Date: 2026-07-02
 
 ## Problem

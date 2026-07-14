@@ -14,11 +14,11 @@ Canonical Permit2 selectors (Uniswap):
 - `transferFrom(address,address,uint160,address)` → `0x36c78516`
 - `permitTransferFrom(...)` → `0x30f28b7a` (struct-heavy; scalar smoke only)
 -/
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 
 namespace ProofForge.Protocols.Evm.Permit2
 
-open ProofForge.Contract.Surface
+open ProofForge.Contract.Source.Internal
 
 def catalogId : String := "protocols.evm.permit2"
 

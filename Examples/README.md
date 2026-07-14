@@ -18,6 +18,7 @@ Canonical sources (change only `--target` to build EVM · Solana · NEAR · …)
 
 - `Counter.lean`
 - `HostEnvProbe.lean`
+- `Aggregate.lean`
 - `ArrayExample.lean`
 - `RemoteCall.lean`, `AuthRemoteCall.lean`
 - `Ownable.lean`, `OwnableHash.lean`, `Pausable.lean`, `OwnablePausable.lean`,
@@ -29,6 +30,7 @@ Canonical sources (change only `--target` to build EVM · Solana · NEAR · …)
   `ProRataVault.lean`, `StorageDeposit.lean`
 - `StatusMessage.lean`, `GuestBook.lean`, `EscrowVault.lean`
 - `VestingVault.lean`, `TimelockVault.lean`, `HeightLockVault.lean`
+- `Nft.lean`
 
 Rules: no Solana account/PDA/CPI DSL, no NEAR Promise, no hand-written EVM
 selectors, no author-chosen token standard. Enforced by `just portable-default`.

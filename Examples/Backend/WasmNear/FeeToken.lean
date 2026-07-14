@@ -36,7 +36,7 @@ contract_source FeeToken do
     feeBps := fee_bps;
 
   entry mint (recipient : .u64, amount : .u64) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount) "zero amount";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount) "zero amount";
     let bal : .u64 := mapRead balances recipient;
     do mapWrite balances recipient (bal +! amount);
     let ts : .u64 := totalSupply;
@@ -44,11 +44,11 @@ contract_source FeeToken do
     emit Mint indexed #[fieldAsName "to" recipient] data #[fieldAsName "amount" amount];
 
   entry transfer (recipient : .u64, amount : .u64) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount) "zero amount";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount) "zero amount";
     let sender : .u64 := caller;
     let srcBal : .u64 := mapRead balances sender;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
-      (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref srcBal)
+      (ProofForge.Contract.Source.ref amount) "insufficient balance";
     let bps : .u64 := feeBps;
     let fee : .u64 := (amount *! bps) /! u64 10000;
     let net : .u64 := amount -! fee;

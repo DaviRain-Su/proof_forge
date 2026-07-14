@@ -262,7 +262,7 @@ version mismatch. That blocker is avoided by switching the refinement target to
 `powdr-labs/evm-semantics`, which pins Lean `v4.31.0` and mathlib `v4.31.0`.
 The seam at `ProofForge/Backend/Evm/EvmBytecodeSemantics.lean` now mirrors
 powdr's relational `Step`/`Eval` plus executable `stepF` shape. The external
-dependency is now pinned behind the opt-in `EvmRefinement` lake target, so
+dependency is now pinned behind the opt-in `ProofForgeFormalEvm` lake target, so
 ProofForge's default build still avoids powdr/mathlib imports.
 
 - **Toolchain mismatch (the blocker).** `EVMYulLean` pins
@@ -274,7 +274,7 @@ ProofForge's default build still avoids powdr/mathlib imports.
   constraint, ProofForge is NOT downgraded to v4.22.0 — that would break
   the existing 378-job build.
 - **Resolution path.** `powdr-labs/evm-semantics` is now pinned behind the
-  opt-in `EvmRefinement` lake target at commit
+  opt-in `ProofForgeFormalEvm` lake target at commit
   `ae13dbc506158f9d0c7e05634636b17e2bccf850`, with mathlib pinned transitively
   at `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. The opt-in adapter now exposes
   real powdr-backed `State`, `Step`, `stepF`, and `runBytecode` wrappers. The
@@ -294,13 +294,13 @@ ProofForge's default build still avoids powdr/mathlib imports.
     `sorry`-free stub theorems (`step_noop`, `runBytecode_empty`), and a
     module docstring recording the blocker. Compiles with NO external
     dependency (imports only `ProofForge.Backend.Evm.Refinement`).
-  - `EvmRefinement/PowdrAdapter.lean` + `lakefile.lean` + `lake-manifest.json`
+  - `ProofForgeFormal/Evm/PowdrAdapter.lean` + `lakefile.lean` + `lake-manifest.json`
     — opt-in powdr/mathlib target that imports powdr's `State`, `Step`,
     `StepF`, `BigStep`, and `Equiv` modules, exposes a seam-compatible
     `stepF : State → Except String State` wrapper, and checks the real
     `EvmSemantics.EVM.stepF_sound` surface. It also proves successful
     `runBytecode` executions imply powdr `Steps`.
-  - `EvmRefinement/CounterRefinement.lean` — opt-in Counter relation layer that
+  - `ProofForgeFormal/Evm/CounterRefinement.lean` — opt-in Counter relation layer that
     proves `count` is EVM scalar slot 0 and relates IR `count` to powdr
     `AccountMap`/`Storage` over the generated EVM packed U64 slot shape:
     `count` occupies the low 64 bits, the high 192 bits are padding/other-packed
@@ -309,7 +309,7 @@ ProofForge's default build still avoids powdr/mathlib imports.
     equality relation, neither of which matches the compiled runtime's `get` and
     write behavior. **Legacy storage-layout checkpoint:** the prepared-frame,
     safe-trace, and hand-expanded opcode names in the historical detail below live
-    under `ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked`. They target
+    under `ProofForgeFormal.Evm.CounterRefinement.LegacyHighPacked`. They target
     the pre-migration high-64-bit layout and do not establish refinement for the
     current low-order runtime. It also prepares runtime-code parameterized Counter call
     frames and proves that preparation preserves the
@@ -531,7 +531,7 @@ ProofForge's default build still avoids powdr/mathlib imports.
 ### Phase 6c — Bank EVM Counter and stop deep bytecode hand-derivation
 
 - Preserve the Counter relation, prepared-call boundary, safe-input predicate,
-  and universal trace-lift theorem route already in `EvmRefinement`.
+  and universal trace-lift theorem route already in `ProofForgeFormalEvm`.
 - Treat the fixed powdr `stepF` trace discharged by `native_decide` as the EVM
   delivery boundary for this milestone. This is machine-checked, but it is not a
   closed universal theorem; its TCB is

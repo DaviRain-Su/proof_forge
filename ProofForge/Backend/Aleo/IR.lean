@@ -145,6 +145,8 @@ mutual
         .error { message := "Leo IR v0 does not lower `hash4` literals (EVM 4×u64 digest); hash a field/u64 value with `.hash` instead" }
     | .literal l => .ok (.literal (leoLiteral l))
     | .local name => .ok (.identifier name)
+    | .hostCall _ _ _ _ =>
+        .error { message := "Leo IR v0 does not support target extension calls" }
     | .add lhs rhs overflowChecked => do
         let op := if overflowChecked then BinaryOperation.add else .addWrapped
         .ok (.binary ⟨op, ← buildExpr ctx lhs, ← buildExpr ctx rhs⟩)
@@ -192,30 +194,27 @@ mutual
         .ok (poseidonHashTwo ab cd)
     | .hash preimage => do .ok (poseidonHashToField (← buildExpr ctx preimage))
     | .hashTwoToOne l r => do .ok (poseidonHashTwo (← buildExpr ctx l) (← buildExpr ctx r))
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-        .error { message := "ecrecover / EIP-712 is EVM-specific and not supported by Leo IR v0" }
-    | .crosscallAbiPacked .. =>
-        .error { message := "ABI-packed crosscall (Call[]) is EVM-specific and not supported by Leo IR v0" }
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _
     | .crosscallInvokeValueTyped _ _ _ _ _ | .crosscallInvokeStaticTyped _ _ _ _
     | .crosscallInvokeDelegateTyped _ _ _ _ =>
         .error { message := "typed crosscall is not supported by Leo IR v0; zk-circuit cross calls are Road 2" }
-    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
-        .error { message := "contract creation is not supported by Leo IR v0" }
     | .crosscallNamed programId method args _ => do
         -- RFC 0015 D4: static qualified cross-program call `programId::method(args)`.
         let args' ← args.mapM (buildExpr ctx)
         .ok (.call ⟨#[programId, method], #[], args'⟩)
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Leo IR v0" }
-    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _
-    | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ =>
-        .error { message := "NEAR promise API is not supported by Leo IR v0" }
+    | .callValueU128 =>
+        .error { message := "full-width call value is not supported by Leo IR v0" }
+    | .crosscallContinue _ _ _ _ _ | .crosscallInvokeNamedValue _ _ _ _ _ =>
+        .error { message := "asynchronous named calls are not supported by Leo IR v0" }
     | .memoryArrayNew _ _ | .memoryArrayLength _ | .memoryArrayGet _ _ =>
         .error { message := "memory arrays are not supported by Leo IR v0" }
     | .effect effect => buildEffectExpr ctx effect
 
   partial def buildEffectExpr (ctx : BuildContext) : IR.Effect → Except LowerError Expression
+    | .hostCall id _ _ =>
+        .error { message := s!"Leo does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId => do
         let t ← requireScalarState ctx stateId
         let d ← defaultExpr ctx t
@@ -265,15 +264,11 @@ mutual
         .ok e
     | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Leo" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Leo" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   /-- Lower an `Effect` in statement position to Leo statements (storage writes). -/
   partial def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError (Array Statement)
+    | .hostCall id _ _ =>
+        .error { message := s!"Leo does not support effect target extension `{id.render}`" }
     | .storageScalarRead _ =>
         .error { message := "storage.scalar.read must be used as an expression" }
     | .storageScalarWrite stateId value => do
@@ -328,12 +323,6 @@ mutual
         .error { message := "context.read must be used as an expression" }
     | .eventEmit _ _ | .eventEmitIndexed _ _ _ =>
         .error { message := "Leo IR v0 does not lower event emit (Leo events are Road 2)" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Leo IR v0" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   /-- Lower a portable IR statement to zero or more Leo statements. -/
   partial def buildStmt (ctx : BuildContext) : IR.Statement → Except LowerError (Array Statement)

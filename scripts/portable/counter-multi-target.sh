@@ -55,7 +55,7 @@ echo "portable-counter: Solana sBPF"
   -o "$OUT/Counter.s" \
   --artifact-output "$OUT/Counter.solana-artifact.json" \
   "$SOURCE"
-diff -u Examples/Backend/Solana/Counter.golden.s "$OUT/Counter.s"
+diff -u Examples/Backend/Solana/Counter.canonical.golden.s "$OUT/Counter.s"
 diff -u Examples/Backend/Solana/Counter.manifest.toml "$OUT/manifest.toml"
 
 echo "portable-counter: NEAR/Wasm"
@@ -63,7 +63,7 @@ echo "portable-counter: NEAR/Wasm"
   -o "$OUT/near" \
   --artifact-output "$OUT/Counter.near-artifact.json" \
   "$SOURCE"
-diff -u Examples/Backend/WasmNear/Counter.golden.wat "$OUT/near/counter.wat"
+diff -u Examples/Backend/WasmNear/Counter.canonical.golden.wat "$OUT/near/counter.wat"
 
 python3 scripts/near/validate-emitwat-metadata.py \
   "$OUT/Counter.near-artifact.json" \

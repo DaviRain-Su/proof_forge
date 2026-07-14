@@ -57,3 +57,7 @@ id.json
 *.seed
 *.keypair.json
 *keypair.json
+
+tools/near-vm-runner/target/
+runtime/stylus-host/target/
+tools/soroban-vm-runner/target/

@@ -36,8 +36,8 @@ def testEntrypoint : Entrypoint := {
   body := #[
     .letBind "score" .u64 (.effect (.storageMapGet "scores" (.literal (.u64 99)))),
     .letBind "caller" .u64 (.effect (.contextRead .userId)),
-    .letBind "origin" .u64 (.effect (.contextRead .origin)),
-    .effect (.storageScalarWrite "last" (.add (.add (.local "score") (.local "caller")) (.local "origin")))
+    .letBind "signer" .u64 (.effect (.contextRead .signer)),
+    .effect (.storageScalarWrite "last" (.add (.add (.local "score") (.local "caller")) (.local "signer")))
   ]
 }
 
@@ -62,9 +62,9 @@ def main : IO UInt32 := do
       require (asm.contains "jne r6, r7") "missing map mismatch branch"
       require (asm.contains "solana.context.userId: sha256(account[0] full 32-byte pubkey)")
         "missing userId full-pubkey digest lowering"
-      require (asm.contains "solana.context.origin: sha256(account[0] full 32-byte pubkey)")
-        "missing origin full-pubkey digest lowering"
-      require (asm.contains "sol_sha256") "userId/origin must hash full pubkey"
+      require (asm.contains "solana.context.signer: sha256(account[0] full 32-byte pubkey)")
+        "missing signer full-pubkey digest lowering"
+      require (asm.contains "sol_sha256") "userId/signer must hash full pubkey"
       require (asm.contains "ldxdw r4, [r1+16]" || asm.contains "[r1+16]")
         "must load account[0] pubkey base"
       IO.println "SolanaMapContextSafety: ok"

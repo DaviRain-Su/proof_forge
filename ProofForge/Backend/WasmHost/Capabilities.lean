@@ -21,7 +21,7 @@ open ProofForge.Backend.WasmHost.Diagnostics
     and cross-contract calls are enabled for EmitWat via Promise lowering even
     though wasm-near Rust sourcegen v0 still rejects them. -/
 def emitWatCapabilities : ProofForge.Target.CapabilitySet :=
-  (ProofForge.Target.wasmNear.capabilities.push .crosscallInvoke).push .nearPromise
+  (((ProofForge.Target.wasmNear.capabilities.push .crosscallInvoke).push .crosscallContinue).push .nearPromise).push .dataDynamicBytes
 
 def checkCapabilities (mod : ProofForge.IR.Module) : Except EmitError Unit :=
   mod.capabilities.foldlM (fun _ c =>

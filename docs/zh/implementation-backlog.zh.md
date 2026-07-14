@@ -3,6 +3,8 @@
 
 # 实现待办事项
 
+状态：**当前可执行 backlog（2026-07-12 刷新）**
+
 此待办事项将多链设计转化为可评审的工程切片。
 它被有意限定在本地编译器、制品和冒烟测试工作范围内。
 云平台应等到至少两个实质上不同的目标在本地正常工作后再开始。
@@ -17,6 +19,31 @@
 - [目标说明](../targets/README.md)
 - [验证门禁](../validation-gates.md)
 - [多链愿景差距审查 (2026-07-10)](multi-chain-gap-audit-2026-07-10.zh.md)
+- [Portable Intent 设计 (2026-07-12)](../superpowers/specs/2026-07-12-portable-intent-abstraction-design.md)
+- [当前实施计划 (2026-07-12)](../superpowers/plans/2026-07-12-portable-intent-abstraction.md)
+
+## 当前架构计划（D-052）
+
+7 月 10 日审查与早期 PF waves 现在属于历史证据。新工作按以下顺序选择；
+具体步骤与文件所有权以 7 月 12 日实施计划为准。
+
+| 顺序 | 切片 | 状态 | 验收边界 |
+|---:|---|---|---|
+| A1 | 将 Solana 语法隔离到 `Source.Solana` | done（在 `c1433b2e` 验证） | portable import 拒绝 PDA/CPI/realloc；Source.Solana elaboration 固定 account/PDA/CPI/realloc intent；Solana fixture 不变 |
+| A2 | `IntentContract` 与 materializer registry | done（审查修复完成） | 防重复 registry；校验返回 target；frontend 不按 target 分支 |
+| A3 | 目标中立 `NFTSpec` | done（审查修复完成） | target 选择前校验身份与 feature 冲突，并保留 asset model |
+| A4 | 审查 ERC-721/Metaplex/NEAR NFT 候选实现 | done（审查修复完成） | 可执行最小生命周期与明确合规限制 |
+| A5 | 主三链 NFT intent 物化 | done（审查修复完成） | 所有接受路径进入严格 target plan；Solana 对完整 account pubkey 做哈希 |
+| A6 | NFT CLI/product/runtime 路线 | done（在 `6a6022ea` 验证） | 三套诚实制品以及 EVM/Surfpool/NEAR 生命周期运行时证据均通过 |
+| B1 | 中立 Wasm-host plan 与 ABI | done（在 `c8d2bbb6` 验证） | 保持 NEAR 输出与运行时行为 |
+| B2 | 严格 canonical target gate | done（在 `d4df51bc` 验证） | adapter/validator/HostOp/builder 错误 fail closed |
+| B3 | Soroban Counter 晋级 | B2 后 pending | 严格 plan、原生 ABI/auth 与运行时证据 |
+| C1 | PSy canonical plan | A6 后 pending | 严格 fixture gate；不改变成熟度 |
+| C2 | Aleo semantic plan | C1 后 pending | Core -> plan -> Leo；不晋级公开路线 |
+| C3 | 有来源的 OpenVM brief | pending | 写代码前完成 go/defer 决策 |
+
+Legacy 替换采用渐进方式：只有在测试证明可观察等价且所有调用方已经迁移后，
+才能删除对应 adapter 或兼容调用。
 
 ## 主三链完成规约（D-045）
 
@@ -493,7 +520,7 @@
 - [x] 账户验证：根据清单进行 signer / writable / owner 检查。每个入口发射一段序言，检查账户头部偏移量 10 处的 `is_writable`，并验证账户所有者等于序列化的程序 id。失败退出码为 4 (`error_not_writable`), 5 (`error_signer`), 和 6 (`error_owner`)。Phase 1 Mollusk 运行时门控禁用了直接账户映射 ABI，因此遗留的嵌入式账户数据布局得到了测试。
 - [x] `Examples/Backend/Solana/Counter.lean` + 清单作为一个自包含示例。包括一个被追踪的 `Counter.golden.s` 和 `Counter.manifest.toml`，以及一个可在 CI 运行的、进行发射和差异对比的 `scripts/solana/build-examples.sh`。
 - [x] 能力检查器拒绝不支持的能力/目标组合，并提供引用目标 id 和能力 id 的清晰诊断信息。作为 V-GATE-SOLANA-05 的基础；通过 `Tests/Backend/Solana/SolanaDiagnostics.lean` 和 `scripts/solana/diagnostic-smoke.sh` 进行测试。
-- [x] Solana SDK 目标扩展通过能力计划元数据路由 `ProofForge.Solana` PDA/CPI API，发射 `manifest.toml` 扩展定义以及入口动作部分，并在 IR 主体之前注入处理程序级辅助调用 (`sol_pda_derive_<name>`, `sol_cpi_<name>`)，同时在 `r1` 中保留 Solana 输入指针。由 `Tests/Backend/Solana/SolanaSdk.lean`, `Tests/Backend/Solana/SolanaSdkManifest.lean` 以及可用时的 `scripts/solana/sdk-smoke.sh` 与 `sbpf build` 覆盖。
+- [x] Solana SDK 目标扩展通过能力计划元数据路由 `ProofForge.Contract.Source.Solana.Legacy` PDA/CPI API，发射 `manifest.toml` 扩展定义以及入口动作部分，并在 IR 主体之前注入处理程序级辅助调用 (`sol_pda_derive_<name>`, `sol_cpi_<name>`)，同时在 `r1` 中保留 Solana 输入指针。由 `Tests/Backend/Solana/SolanaSdk.lean`, `Tests/Backend/Solana/SolanaSdkManifest.lean` 以及可用时的 `scripts/solana/sdk-smoke.sh` 与 `sbpf build` 覆盖。
 - [x] Surfpool/Rust 线上部署冒烟测试 (V-GATE-SOLANA-04)。可选的 `scripts/solana/counter-live-smoke.sh` 门控构建 Counter ELF，启动 Surfpool，使用 Solana CLI 进行部署，通过 Rust live harness 创建一个程序所有的 counter 账户，调用 initialize/increment/get，检查账户数据 0→1→2，并验证 `get` 返回数据。该脚本传递 `--solana-sbpf-arch v0` 以直接生成与 Solana CLI 部署兼容的 ELF，并为 Surfpool 使用 `--use-rpc`。
 - [x] `--solana-elf` 暴露了 `--solana-sbpf-arch v0|v3` 并在 `proof-forge-artifact.json` 中记录选择的架构。默认保持为 `v3`；Surfpool 线上部署使用 `v0`，直到部署的 CLI/运行时堆栈在没有 `--skip-feature-verify` 的情况下接受较新的 sbpf 特性集。- [x] PDA 辅助运行时打包现在在调用 `sol_create_program_address` 之前发射静态 ASCII 种子字节缓冲区、Solana `Slice { ptr, len }` 种子表、动态 program-id 指针计算以及一个 32 字节 PDA 结果缓冲区。由 `Tests/Backend/Solana/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
 - [x] PDA 类型化种子降级现在保留兼容性 `seeds` 字段，同时为字面量/UTF-8 字节、账户 pubkeys、bump 种子和标量指令数据种子添加面向目标的类型化描述符。Solana 目标扩展处理这些描述符，将 `bump?` 追加到有效 syscall 种子列表，在 manifest/制品元数据中发射 `typed_seeds`/`typedSeeds`，并在 `account?` 存在时根据声明的账户验证派生的 PDA pubkey。由 `Tests/Backend/Solana/SolanaSdk.lean`、`Tests/Backend/Solana/SolanaSdkManifest.lean`、`Tests/Backend/Solana/SolanaPdaSeeds.lean`、`scripts/solana/sdk-smoke.sh` 和 `scripts/solana/pda-rust-smoke.sh` 覆盖。
@@ -503,9 +530,9 @@
 - [x] 返回数据和计算预算目标扩展现在通过 `runtime.return_data` 和 `runtime.compute_units` 能力元数据路由仅限 Solana 的 SDK 操作。返回数据操作将状态支持的字节切片降级为 `sol_set_return_data`，并可以通过 `sol_get_return_data` 读取最近的 CPI 返回数据缓冲区/程序 id；计算预算操作降级受特性门控的 `sol_remaining_compute_units` syscall 并将观察到的剩余 CU 值写入状态，分析操作则降级 `sol_log_compute_units_`。生成的 manifest 记录 `[[solana.entrypoint_return_data]]` 和 `[[solana.entrypoint_compute_units]]`。由 `Tests/Backend/Solana/SolanaReturnDataCompute.lean` 覆盖。
 - [x] 生成的 Solana SDK 指令 schema 现在使用模块范围的多账户列表，而不是旧的单账户 manifest。该 schema 包含状态账户、PDA 账户、CPI 账户和可执行 CPI 程序账户，且 sBPF 后端根据相同的 schema 计算 `INSTRUCTION_DATA` 偏移量。生成的 prologue 根据 schema 验证签名者/可写约束以及程序拥有的账户。账户列表在 `manifest.toml` 和 `proof-forge-artifact.json` 中均被发射。由 `Tests/Backend/Solana/SolanaSdkManifest.lean`、`Tests/Backend/Solana/SolanaCpiPacking.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
 - [x] 系统程序 (System Program) 转账/创建账户和 SPL Token CPI 指令数据打包将标准指令字节发射到 C `SolInstruction` 负载中。系统转账/创建账户使用 bincode 风格的 `u32` 鉴别器以及 `u64` lamports/space 和所有者 pubkey 字段；SPL Token `transfer_checked`、`mint_to`、`burn`、`approve` 和 `revoke` 使用标准代币指令标签和金额/精度布局，`close_account` 封装指令标签 `9`，而 `set_authority` 封装了指令标签 `6`、权限类型 `MintTokens` 以及源自只读输入账户的新权限公钥。值源可以绑定到生成的标量状态偏移量、数字字面量或解码后的标量入口参数。CPI 助手还封装了程序 id 字节、绑定到生成的多账户输入布局的 C `SolAccountMeta[]`、`SolAccountInfo[]` 条目、签名者种子表以及系统调用寄存器设置。由 `Tests/Backend/Solana/SolanaCpiPacking.lean`、`Tests/Backend/Solana/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
-- [x] System Program transfer CPI 现在具有活跃的 Surfpool/Rust 行为门控。`ProofForge.Solana.Examples.SystemCpi` 构建了一个生成的 `--solana-system-cpi-elf` fixture，其入口读取标量 `lamports` 指令参数，执行 System Program transfer CPI，并将转账金额记录在程序拥有的状态账户中。`scripts/solana/system-cpi-live-smoke.sh` 验证制品架构，使用 Solana CLI 在 Surfpool 上部署 ELF，通过 Rust live RPC harness 调用它，并检查接收者的 lamport 增量和状态数据。sBPF 降级在直接账户映射下从序列化的账户布局计算指令数据指针，并将其保留在 `r9` 中，以便内部助手调用不会在被调用者堆栈帧之间丢失它。覆盖范围：`just solana-system-cpi-web3` / V-GATE-SOLANA-10。
-- [x] System Program `create_account` CPI 现在具有活跃的 Surfpool/Rust 行为门控。`ProofForge.Solana.Examples.SystemCreateAccountCpi` 构建了一个生成的 `--solana-system-create-account-cpi-elf` fixture，其入口读取标量 `lamports` 和 `space` 指令参数，使用付款人和新账户签名者执行 System Program `create_account` CPI，创建一个程序拥有的账户，并将这两个值记录在现有的程序拥有的状态账户中。Rust live RPC harness 检查新账户所有者、数据长度、lamports 和记录的状态值。覆盖范围：`just solana-system-create-account-cpi-web3` / V-GATE-SOLANA-11。
-- [x] SPL Token `transfer_checked` CPI 现在具有活跃的 Surfpool/Rust 行为门控。`ProofForge.Solana.Examples.SplTokenTransferCheckedCpi` 构建了一个生成的 `--solana-spl-token-transfer-cpi-elf` fixture，其入口读取标量 `amount` 指令参数，使用源权限签名者执行 SPL Token `transfer_checked` CPI，并将金额记录在程序拥有的状态中。Rust live RPC harness 创建一个 mint 以及源/目标代币账户，检查代币余额增量，并检查状态记录。sBPF 降级现在在每个入口/助手堆栈帧中构建一个运行时账户指针表，因此可变大小的 SPL Token 账户数据不会使内部助手调用之间的账户偏移量失效。覆盖范围：`just solana-spl-token-transfer-cpi-web3` / V-GATE-SOLANA-12。
+- [x] System Program transfer CPI 现在具有活跃的 Surfpool/Rust 行为门控。`Examples.Backend.Solana.Contracts.SystemCpi` 构建了一个生成的 `--solana-system-cpi-elf` fixture，其入口读取标量 `lamports` 指令参数，执行 System Program transfer CPI，并将转账金额记录在程序拥有的状态账户中。`scripts/solana/system-cpi-live-smoke.sh` 验证制品架构，使用 Solana CLI 在 Surfpool 上部署 ELF，通过 Rust live RPC harness 调用它，并检查接收者的 lamport 增量和状态数据。sBPF 降级在直接账户映射下从序列化的账户布局计算指令数据指针，并将其保留在 `r9` 中，以便内部助手调用不会在被调用者堆栈帧之间丢失它。覆盖范围：`just solana-system-cpi-web3` / V-GATE-SOLANA-10。
+- [x] System Program `create_account` CPI 现在具有活跃的 Surfpool/Rust 行为门控。`Examples.Backend.Solana.Contracts.SystemCreateAccountCpi` 构建了一个生成的 `--solana-system-create-account-cpi-elf` fixture，其入口读取标量 `lamports` 和 `space` 指令参数，使用付款人和新账户签名者执行 System Program `create_account` CPI，创建一个程序拥有的账户，并将这两个值记录在现有的程序拥有的状态账户中。Rust live RPC harness 检查新账户所有者、数据长度、lamports 和记录的状态值。覆盖范围：`just solana-system-create-account-cpi-web3` / V-GATE-SOLANA-11。
+- [x] SPL Token `transfer_checked` CPI 现在具有活跃的 Surfpool/Rust 行为门控。`Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi` 构建了一个生成的 `--solana-spl-token-transfer-cpi-elf` fixture，其入口读取标量 `amount` 指令参数，使用源权限签名者执行 SPL Token `transfer_checked` CPI，并将金额记录在程序拥有的状态中。Rust live RPC harness 创建一个 mint 以及源/目标代币账户，检查代币余额增量，并检查状态记录。sBPF 降级现在在每个入口/助手堆栈帧中构建一个运行时账户指针表，因此可变大小的 SPL Token 账户数据不会使内部助手调用之间的账户偏移量失效。覆盖范围：`just solana-spl-token-transfer-cpi-web3` / V-GATE-SOLANA-12。
 - [x] 入口指令数据解码现在将第 0 字节视为入口标签，并将来自 `instruction_data+1` 的封装标量参数解码为堆栈局部变量。初始标量 ABI 支持 `U64`、`U32` 和 `Bool`，在 `manifest.toml`/`proof-forge-artifact.json` 中发射每个入口的参数架构和最小指令数据长度，使用 `error_instruction_data` 拒绝短有效载荷，并向 CPI 值绑定公开相同的固定输入偏移量，因此诸如 SPL Token `transfer_checked` 之类的 SDK 调用可以从用户指令参数而不是占位符中获取 `amount`。由 `Tests/Backend/Solana/SolanaCpiPacking.lean`、`Tests/Backend/Solana/SolanaSdkManifest.lean` 和 `scripts/solana/sdk-smoke.sh` 覆盖。
 
 ### Solana SDK 完成路线图
@@ -579,7 +606,7 @@
   `feature_gated`。
 
 已完成的 beta scaffolding 分片：- Pinocchio System 转账参考合约：
-  `references/solana/pinocchio/system-transfer` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `ProofForge.Solana.Examples.SystemCpi` 相同的 System 转账账户 schema。Gate `scripts/solana/pinocchio-system-transfer-equivalence.sh` 发射 ProofForge System CPI 制品，并将其指令标签、参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局以及状态写入合约与参考清单/源代码进行比较。
+  `references/solana/pinocchio/system-transfer` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `Examples.Backend.Solana.Contracts.SystemCpi` 相同的 System 转账账户 schema。Gate `scripts/solana/pinocchio-system-transfer-equivalence.sh` 发射 ProofForge System CPI 制品，并将其指令标签、参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局以及状态写入合约与参考清单/源代码进行比较。
 - Pinocchio System 转账实时等效性测试框架：
   `scripts/solana/pinocchio-system-transfer-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio 参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Rust live 转账场景，并比较接收者 lamport 增量以及状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。
 - Solana loader-compatible ELF packaging 阻塞：
@@ -597,26 +624,26 @@
   兼容路径：要么通过标准 Solana platform-tools 格式进行 emit/package，要么扩展当前
   direct assembler pipeline，生成 Agave 可接受的 strict v3 header 和 function markers。
 - Pinocchio System 创建账户参考合约：
-  `references/solana/pinocchio/system-create-account` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `ProofForge.Solana.Examples.SystemCreateAccountCpi` 相同的 System Program `create_account` 账户 schema。Gate `scripts/solana/pinocchio-system-create-account-equivalence.sh` 发射 ProofForge 创建账户 CPI 制品，并将其指令标签、双参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、lamports/空间/所有者合约以及双字段状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-system` 对参考进行类型检查。
+  `references/solana/pinocchio/system-create-account` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi` 相同的 System Program `create_account` 账户 schema。Gate `scripts/solana/pinocchio-system-create-account-equivalence.sh` 发射 ProofForge 创建账户 CPI 制品，并将其指令标签、双参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、lamports/空间/所有者合约以及双字段状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-system` 对参考进行类型检查。
 - Pinocchio System 创建账户实时等效性测试框架：
   `scripts/solana/pinocchio-system-create-account-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio 参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Rust live 创建账户场景，并比较 lamports/空间输入以及两者的状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。
 - Pinocchio SPL Token 转账参考合约：
-  `references/solana/pinocchio/spl-token-transfer` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `ProofForge.Solana.Examples.SplTokenTransferCheckedCpi` 相同的 SPL Token `transfer_checked` 账户 schema。Gate `scripts/solana/pinocchio-spl-token-transfer-equivalence.sh` 发射 ProofForge SPL Token CPI 制品，并将其指令标签、参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、精度/金额合约以及状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-token` 对参考进行类型检查。
+  `references/solana/pinocchio/spl-token-transfer` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi` 相同的 SPL Token `transfer_checked` 账户 schema。Gate `scripts/solana/pinocchio-spl-token-transfer-equivalence.sh` 发射 ProofForge SPL Token CPI 制品，并将其指令标签、参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、精度/金额合约以及状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-token` 对参考进行类型检查。
 - Pinocchio SPL Token 转账实时等效性测试框架：
   `scripts/solana/pinocchio-spl-token-transfer-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio Token 参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Rust live RPC transfer_checked 场景，并比较源/目标代币余额增量以及金额状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。
 - Pinocchio SPL Token 操作参考合约：
-  `references/solana/pinocchio/spl-token-ops` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `ProofForge.Solana.Examples.SplTokenOpsCpi` 相同的 SPL Token `mint_to`/`burn`/`approve`/`revoke` 账户 schema。Gate `scripts/solana/pinocchio-spl-token-ops-equivalence.sh` 发射 ProofForge SPL Token 操作 CPI 制品，并将其四个指令标签、参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、SPL Token 指令合约以及状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-token` 对参考进行类型检查。
+  `references/solana/pinocchio/spl-token-ops` 包含一个已签入的 no-allocator Pinocchio 参考，用于与 `Examples.Backend.Solana.Contracts.SplTokenOpsCpi` 相同的 SPL Token `mint_to`/`burn`/`approve`/`revoke` 账户 schema。Gate `scripts/solana/pinocchio-spl-token-ops-equivalence.sh` 发射 ProofForge SPL Token 操作 CPI 制品，并将其四个指令标签、参数 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、SPL Token 指令合约以及状态写入合约与参考清单/源代码进行比较。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 会根据 `pinocchio-token` 对参考进行类型检查。
 - Pinocchio SPL Token 操作实时等效性测试框架：
   `scripts/solana/pinocchio-spl-token-ops-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio Token 操作参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Rust live RPC mint/burn/approve/revoke 场景，并比较代币影响以及所有四个金额/标记状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该测试框架目前会跳过。
 - Pinocchio SPL Token authority 参考合约：
-  `references/solana/pinocchio/spl-token-authority` 包含一个已签入的、针对与 `ProofForge.Solana.Examples.SplTokenAuthorityCpi` 相同的 SPL Token `set_authority` 账户 schema 的无分配器 Pinocchio 参考。gate `scripts/solana/pinocchio-spl-token-authority-equivalence.sh` 发射 ProofForge SPL Token authority CPI 制品，并将其指令 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、`SetAuthority` 指令合约以及标记状态写入合约与参考清单/源代码进行对比。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 针对 `pinocchio-token` 对参考进行类型检查。
+  `references/solana/pinocchio/spl-token-authority` 包含一个已签入的、针对与 `Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi` 相同的 SPL Token `set_authority` 账户 schema 的无分配器 Pinocchio 参考。gate `scripts/solana/pinocchio-spl-token-authority-equivalence.sh` 发射 ProofForge SPL Token authority CPI 制品，并将其指令 ABI、账户顺序、签名者/可写约束、CPI 协议/数据布局、`SetAuthority` 指令合约以及标记状态写入合约与参考清单/源代码进行对比。通过 `PROOF_FORGE_PINOCCHIO_CARGO_CHECK=1`，同一个 gate 针对 `pinocchio-token` 对参考进行类型检查。
 - Pinocchio SPL Token authority 实时等效性测试 harness：
   `scripts/solana/pinocchio-spl-token-authority-live-equivalence.sh` 被配置为构建 ProofForge ELF 和已签入的 Pinocchio Token authority 参考 ELF，将这两个程序部署到一个 Surfpool 实例，分别为每个程序调用相同的 Rust live RPC 铸币权限转移场景，并对比铸币权限以及标记状态写入。当 `cargo-build-sbf` 找不到 Solana rustc/platform-tools 时，该 harness 目前会跳过。
 
 已完成的开发者层面切片：
 
-- 可移植 ValueVault 表面源代码：
-  `ProofForge.Contract.Surface` 现在允许示例仅声明一次状态槽位、参数、方法和事件字段，然后通过类型化引用（`read`、`write`、`bind`、`emit`、`ret`）编写入口主体，而不是使用原始的 `ContractSpec` 字符串管道。`ProofForge.Contract.Examples.ValueVault`
+- 可移植 ValueVault 源 DSL：
+  `ProofForge.Contract.Source` 现在允许示例仅声明一次状态槽位、参数、方法和事件字段，然后通过类型化引用（`read`、`write`、`bind`、`emit`、`ret`）编写入口主体，而不是使用原始的 `ContractSpec` 字符串管道。`ProofForge.Contract.Examples.ValueVault`
   使用此层，并有意在源代码中保留 `selector? = none`。
 - 基于声明派生的 IR 名称：
   `state_decl`、`binding_decl`、`method_decl`、`method_return_decl` 和
@@ -655,39 +682,39 @@
 - Learn Solana 目标扩展语法：
   `ProofForge.Contract.Learn` 现在解析用于 `solana allocator`、`solana account`、`solana pda`、`solana cpi
   ... spl_token_transfer_checked(...)`, and entry-level `solana derive` /
-  `solana invoke` 的 `SolanaVault.learn` 形式。降级重用了 `ProofForge.Solana` 构建器辅助工具，因此
+  `solana invoke` 的 `SolanaVault.learn` 形式。降级重用了 `ProofForge.Contract.Source.Solana.Legacy` 构建器辅助工具，因此
   账户/PDA/CPI 元数据仍然流经现有的能力计划、
   清单、IDL、客户端和 sBPF 汇编路径。`Tests/LearnSource.lean`
-  检查 Learn 降级的 SolanaVault 是否具有与 `ProofForge.Solana.Examples.Vault` 相同的 IR 模块和生成的清单。
+  检查 Learn 降级的 SolanaVault 是否具有与 `Examples.Backend.Solana.Contracts.Vault` 相同的 IR 模块和生成的清单。
 - Learn System Program CPI 语法：
   `SystemCpi.learn` 和 `SystemCreateAccountCpi.learn` 现在涵盖了
   `solana cpi ... system_transfer(...)`、`solana cpi ...
   system_create_account(...) owner ...` 以及匹配的入口级
   `solana invoke` 语句。`Tests/LearnSource.lean` 证明这两个 Learn 文件
-  降级后的 IR 模块和生成的清单与现有的 `ProofForge.Solana.Examples.SystemCpi` 和
-  `ProofForge.Solana.Examples.SystemCreateAccountCpi` 源代码示例相同。
+  降级后的 IR 模块和生成的清单与现有的 `Examples.Backend.Solana.Contracts.SystemCpi` 和
+  `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi` 源代码示例相同。
 - Learn SPL Token 操作语法：
   `SplTokenOpsCpi.learn` 现在涵盖了带有选择器的 Learn 入口，以及
   `spl_token_mint_to`、`spl_token_burn`、`spl_token_approve` 和
   `spl_token_revoke` 的声明/调用。`Tests/LearnSource.lean` 证明
-  Learn 文件降级后的 IR 模块和生成的清单与`ProofForge.Solana.Examples.SplTokenOpsCpi`，将字符串密集的 Builder 代码保留为内部预期 fixture，而不是面向用户的语法。
+  Learn 文件降级后的 IR 模块和生成的清单与`Examples.Backend.Solana.Contracts.SplTokenOpsCpi`，将字符串密集的 Builder 代码保留为内部预期 fixture，而不是面向用户的语法。
 - Learn SPL Token close-account 语法：
   `SplTokenCloseAccountCpi.learn` 现在涵盖 `spl_token_close_account` 的声明/调用，
   并通过 `Tests/LearnSource.lean` 证明它和
-  `ProofForge.Solana.Examples.SplTokenCloseAccountCpi` 具有相同的模块/manifest 边界。
+  `Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi` 具有相同的模块/manifest 边界。
 - Learn log/return-data/compute-unit 语法：
   `LogEvent.learn` 和 `ReturnDataCompute.learn` 现在涵盖了 Solana pubkey/data
   日志辅助语句、return-data set/get 语句以及剩余的
   compute-unit 读取/日志语句。`Tests/LearnSource.lean` 证明了这两个 Learn
-  文件降级为与 `ProofForge.Solana.Examples.LogEvent` 和
-  `ProofForge.Solana.Examples.ReturnDataCompute` 相同的 IR 模块和生成的 manifest，
+  文件降级为与 `Examples.Backend.Solana.Contracts.LogEvent` 和
+  `Examples.Backend.Solana.Contracts.ReturnDataCompute` 相同的 IR 模块和生成的 manifest，
   将另一个面向 syscall 的 SDK 切片从仅限 Builder 的 fixture 移至面向用户的 Learn 源代码中。
 - Learn memory/crypto/sysvar 语法：
   `Memory.learn`、`Crypto.learn`、`Rent.learn`、`EpochSchedule.learn`、
   `EpochRewards.learn`、`LastRestartSlot.learn` 和 `Clock.learn` 现在涵盖了
   面向用户的 Learn 源代码中的 Solana 内存辅助函数、SHA-256/Keccak-256/BLAKE3 辅助函数以及
   sysvar/context 读取。`Tests/LearnSource.lean`
-  证明了这些 Learn 文件降级为与相应 `ProofForge.Solana.Examples.*` fixture 相同的 IR 模块和生成的
+  证明了这些 Learn 文件降级为与相应 `Examples.Backend.Solana.Contracts.*` fixture 相同的 IR 模块和生成的
   manifest。
 - Learn 引用诊断：
   `ProofForge.Contract.Learn` 现在在降级时构建声明引用索引，并
@@ -699,9 +726,9 @@
   Learn 的行为类似于经过检查的语言前端，而不是要求用户
   手动编写未经检查的 `ContractSpec` 数据。
 - Solana 类型化账户界面：
-  `ProofForge.Solana.Surface` 现在增加了 `account_ref`、`pda_ref` 和 `cpi_ref`
+  `ProofForge.Contract.Source.Solana.Internal` 现在增加了 `account_ref`、`pda_ref` 和 `cpi_ref`
   声明，以及类型化 PDA 种子、账户约束和 SPL/System CPI
-  辅助函数。`ProofForge.Solana.Examples.Vault` 现在使用专用的
+  辅助函数。`Examples.Backend.Solana.Contracts.Vault` 现在使用专用的
   `contract_source` 项，例如 `allocator bump`、`account ... writable`、
   `pda ... seeds [...]`、`cpi ... spl_token_transfer_checked(...)`、`derive
   pda ...`, `invoke ... spl_token_transfer_checked(...)`，并且相同的
@@ -715,14 +742,14 @@
   `ProofForge.Contract.Source` 现在暴露了源代码级的
   `cpi ... system_create_account(...) owner ...` 和
   `invoke ... system_create_account(...) owner ...` 形式。
-  `ProofForge.Solana.Examples.SystemCreateAccountCpi` 使用这些形式而不是
+  `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi` 使用这些形式而不是
   低级 builder API，同时保留了现有的生成
   汇编、manifest、制品以及 Surfpool/Rust 行为门控。
 - SPL Token 权限源代码语法：
   `ProofForge.Contract.Source` 现在暴露了源代码级的
   `cpi ... spl_token_set_authority(...) authority_type(...) signer_seeds [...]`
   和 `invoke ... spl_token_set_authority(...) authority_type(...) signer_seeds
-  [...]` forms. `ProofForge.Solana.Examples.SplTokenAuthorityCpi` 在 Lean `.lean`
+  [...]` forms. `Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi` 在 Lean `.lean`
   fixture 中使用这些形式，并且生成的制品、Surfpool/Rust
   行为门控和 Pinocchio 引用门控都验证了相同的降级
   边界。
@@ -730,7 +757,7 @@
   `ProofForge.Contract.Source` 现在暴露了源代码级的
   `cpi ... spl_token_close_account(...) signer_seeds [...]` 和
   `invoke ... spl_token_close_account(...) signer_seeds [...]` 形式。
-  `ProofForge.Solana.Examples.SplTokenCloseAccountCpi` 在 Lean `.lean` fixture
+  `Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi` 在 Lean `.lean` fixture
   中使用这些形式；`Tests/Backend/Solana/SolanaCpiPacking.lean` 验证 manifest account schema、
   `spl-token.close_account` 元数据、指令标签 `9`、一字节 CPI data length 和生成的
   CPI helper 调用。该 fixture 可通过 target-first CLI
@@ -1621,23 +1648,59 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
   Pinocchio reference ≥10、Metaplex NFT、Anchor-style derive macro、
   address lookup tables
 
-### NEAR SDK blockers（2 个 P0 开放，4 个已关闭，9 个 P1）
+### NEAR SDK blockers（2026-07-14 校准）
 
 - ✅ P0：Promise materialization（HostBridge host imports + EmitWat 的真实 Promise 编码；
   完整异步执行和更丰富 callback 仍是 P1）
-- P0 开放：TokenSpec 必须生成一个参数化 NEP-141 runtime artifact；当前 stdlib、
-  plan 与 offline 路径尚未合并成该单一制品。
-- ✅ P0：signer_account_id host import + Surface.signer
+- ✅ P0 行为完成 / 架构仍开放：裸 TokenSpec 自动检测现在会生成一个参数化的
+  NEP-141 Wasm 包。name、symbol、decimals、initial supply、按 feature 裁剪的
+  body、生成客户端和 artifact metadata 在 `just product-token-near` 下共同描述并
+  执行同一份 Wasm。N-T5 仍保持开放，直到 NEAR-R3/R4 删除 `NearSpec`、
+  `ContractSpec` 和 Legacy normalization 路径。
+- ✅ P0：signer_account_id host import + Source.signer
 - ✅ P0：attached_deposit / native value host import
 - ✅ P0：Aggregate ABI（loadParams Borsh struct/array decode）
-- P0 开放：NEP-145 withdraw 仍需 1-yocto guard 和 predecessor refund Promise；
-  JSON balance objects 与完整 accounting 仍是 P1。
-- ✅ P1 partial：callback handling（promise_result host import + offline stub）
+- ✅ P0 行为完成 / canonical replay 仍开放：NEP-145 已在真实 VM 上具备精确
+  1 yocto guard、predecessor refund Promise action、JSON balance object、
+  unregister 和实测 byte accounting。N-T3 仅因需要在 canonical-only 公共路径上
+  重放并取得 sandbox differential evidence 而保持开放。
+- ✅ P1 partial：callback handling 已通过真实 `promise_result` host call 执行完整
+  `ft_transfer_call` / `ft_resolve_transfer` 本地余额流；`near-vm-runner` 不调度
+  产生的 receipt 或 peer contract。
 - ✅ P1：block_timestamp（`block_timestamp` host import + `.contextRead .timestamp` 降级 + Surface/Source 辅助）
 - ✅ P1：epoch_height（`epoch_height` host import + `.contextRead .epochHeight` 降级 + Surface/Source 辅助）
 - ✅ P1：random_seed（`random_seed(register_id)` host import + `.contextRead .randomSeed` 降级 + Surface/Source 辅助，返回 `Hash`）
 - ✅ P1：near-api-js client options（view 调用使用 `NearViewOptions`，function call 使用 gas/attached-deposit `NearCallOptions`）
-- ✅ P1：NEP-145 storage-management starter（`storage_deposit`/`storage_balance_*` 的 U64 投影 + Hash map target-first/offline-host smoke）
-- P1：完整 Promise async execution、NEP-145 JSON balance objects/storage byte accounting、
-  NEP-148 metadata、NEP-171 NFT、keccak256/crypto、storage_remove、
-  gas accounting APIs、real NEAR broadcast smoke
+- ✅ P1：NEP-145 storage-management starter（`storage_deposit` /
+  `storage_balance_*` 的 U64 投影 + AccountId-string map target-first、
+  offline-host 与真实 VM smoke）
+- ✅ P1：`storage_remove`、`prepaid_gas` 和 `used_gas` host imports 及 canonical
+  EmitWat lowering 已有覆盖，不得再作为缺失项排期。
+- P1：完整 Promise receipt execution；schema-driven JSON ABI；完整
+  NEP-141/145；NEP-148 metadata；NEP-297 events；在现有最小 lifecycle 之上的
+  完整 NEP-171 compliance；其他 crypto/account/economics host APIs；protocol gas
+  bands；real NEAR broadcast smoke。
+
+### IR / target-extension 边界修复（2026-07-14 进行中）
+
+- ✅ IR-B0：完成全仓 target leakage 清单、接受 D-054 边界，并加入单调收紧的
+  `just ir-target-boundary` baseline。
+- ✅ IR-B1：开放 capability/HostOp identity，并将 NEAR catalog 归属 target。
+- ✅ IR-B2：Core 采用中立的 named-invocation/continuation mode，NEAR reference
+  semantics 归 target 所有。
+- ✅ IR-B3a：所有 target 的 peer/method materialization 统一使用中立的
+  `crosscallStrings`。
+- ✅ IR-B3b：NEAR active scalar operation 已使用通用、经 catalog 校验的
+  extension call。
+- ✅ IR-B3c：continuation/call-value 已语义化，所有旧 NEAR Expr
+  constructor 已删除，NEAR 标量操作已转为 target-owned HostOp。
+- IR-B4（进行中）：拆出 EVM ABI、protocol、call mode 和 dispatch 细节。
+  - ✅ IR-B4a：通用 effect HostOp 与 EVM 自有 ERC receiver catalog。
+  - ✅ IR-B4b：删除旧 ERC receiver effect 与共享 authoring facade；EVM
+    HostOp 直接进入 EVM plan，不再回跳 legacy IR。
+  - 下一步 IR-B4c：迁移 EIP-712/ecrecover 与其余 EVM-only call mode。
+- IR-B5：审计并迁移 Solana PDA、CPI、account、sysvar 和 packing 细节。
+- IR-B6：审计其他 Wasm-host profile、Move、Aleo、Psy 和 Quint 的所有权。
+- IR-B7：拆出 target environment、error、interface 和 materialization 数据。
+- IR-B8：清空 compatibility allowlist，并完成各 target/runtime 的定向证据。
+  Research 或 fixture 成熟度不构成向共享 IR 泄漏 target 概念的例外。

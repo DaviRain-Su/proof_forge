@@ -1,5 +1,8 @@
 # Project Completion Roadmap — what's done, what's left, agent handoff (2026-07-08)
 
+Status: **Historical pre-consolidation roadmap (archived 2026-07-12).** Current
+architecture and scheduling are defined by the July 12 design/plan and backlog.
+
 > Single hand-off page: the current state of ProofForge's FV + correctness + breadth work,
 > in phases an agent can execute IN ORDER. Each item points to its detailed task card.
 > Detailed plans: [FV target-semantics](2026-07-07-fv-target-semantics.md),
@@ -10,7 +13,7 @@
 ## 🔬 Independent verification (2026-07-08) — re-checked from source, not commit messages
 
 - **Default build green — 572 jobs**, no errors (one unused-var lint). **EVM opt-in
-  `lake build EvmRefinement` green — 574 jobs** (`EvmRefinement.CounterRefinement`).
+  `lake build ProofForgeFormalEvm` green — 574 jobs** (`ProofForgeFormal.Evm.CounterRefinement`).
 - **No `sorry` / `admit` / `axiom`** anywhere in `Backend/WasmHost`, `Backend/Solana`, `IR`.
 - **Track 0 all fixed (code, not just docs):** 0.1 `overflowChecked` is now a node field on
   `.add/.sub/.mul` (default checked, threaded through `Builder`/`Surface`); 0.2
@@ -108,8 +111,8 @@ divergences). **All three verified STILL OPEN (2026-07-08):**
   intent declared a capability. Replaced with a deduplicated `intent ∪ module` union so module
   capabilities are always checked. Added `BEq` deriving to `TargetMetadata` and `CapabilityCall` to
   support dedup. File: `Target/Adapter.lean`.
-- **0.3 `nearCrosscallInvokePool`** — DONE (2026-07-08, commit `9dbaef3b`). Mapped to the unique
-  `.nearPromise` capability (like its sibling `nearPromiseThen`), so the capability layer now
+- **0.3 `crosscallInvokeNamedValue`** — DONE (2026-07-08, commit `9dbaef3b`). Mapped to the unique
+  `.nearPromise` capability (like its sibling `crosscallContinue`), so the capability layer now
   rejects it on non-NEAR targets (EVM/Solana); the pre-existing hardcoded EVM `Validate` arms
   remain as defense-in-depth. File: `IR/Contract.lean`.
 - Card: Track 0 in [execution-plan §1](../../zh/execution-plan-2026-07.md).

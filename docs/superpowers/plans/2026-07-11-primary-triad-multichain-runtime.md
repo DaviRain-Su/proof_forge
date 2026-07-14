@@ -4,7 +4,9 @@
 > `subagent-driven-development` (recommended) or `executing-plans` to implement
 > this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Active
+**Status:** Historical primary-triad product roadmap (archived for scheduling
+on 2026-07-12). Its compliance/runtime analysis remains evidence; new work is
+selected from the July 12 Portable Intent plan and current backlog.
 
 **Recorded on:** `feat/batch-a-p0-cleanup` at `bbc4fb9d` (2026-07-11)
 

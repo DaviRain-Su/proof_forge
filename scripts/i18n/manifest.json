@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "6714d3aad1dab1be9a0747b15e7fa5bbe0bed4c98678b920a12a86ae3cbd44c5",
+    "sha256": "661651eb8e62aac490ea3b54bbc5b2511d3f3273ceb4c0b0602a7e2e245259bd",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-11 target-maturity, EVM custom-error, NEAR FT safety, and hash-map alias updates"
+    "note": "manually synced for direct-default Arbitrum Stylus research status"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -11,10 +11,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "8d839ba1717905ec11b7b8bd86b6a5b8a5856d7749cea116d364142055fa46d6",
+    "sha256": "102ac309a71e291fe117060ec939e1b450ad2b737c97553fc4de954929a5fce3",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "manual-zh",
-    "note": "synced for active PF remediation and post-review plan links"
+    "note": "manually synced for canonical architecture documentation links"
   },
   "docs/onboarding.md": {
     "sha256": "5ec69a144131b3a817e6a7b1a98657a6949af1f1ab1fe25e4212ece313f64367",
@@ -27,24 +27,24 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "82d261631459458c6c99aa6587d2dea6d56265319dfd1b41d9fd7843f98482aa",
+    "sha256": "1a63facfbdbc7f1df687b4de51eefa1a091fd5bf12fb9cf86933ebfdd9527e3c",
     "zh": "docs/zh/decisions.zh.md",
-    "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "model": "manual-zh",
+    "note": "manually synced through D-054 IR target-extension boundary"
   },
   "docs/capability-registry.md": {
-    "sha256": "c09147d448ca67bce2651cbcca633231f3b78383c386d53f4d4fe248a68ebe14",
+    "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
     "zh": "docs/zh/capability-registry.zh.md",
     "model": "manual-zh",
     "note": "synced after Psy value.native capability audit"
   },
   "docs/portable-ir.md": {
-    "sha256": "d28f500c252fcfbeb905950ec2f67ee3c43a331e4c4c7dafdaccbfde762015c2",
+    "sha256": "e76910bc56117bb2d5425e80ca1f54b44f3a3b87d9b45676456cd2554f100159",
     "zh": "docs/zh/portable-ir.zh.md",
     "model": "manual-zh"
   },
   "docs/shared-scenario.md": {
-    "sha256": "0a64af1f4436d45dce75cf0e04aaacb868d862020f336ade6f2728b2f7df6253",
+    "sha256": "993af809fcd7a3ea94d907abbd78e66ccbe6f7ed65d70817e71cd4229db38a9b",
     "zh": "docs/zh/shared-scenario.zh.md",
     "model": "manual-zh",
     "note": "synced after Product/Backend reorg path renames"
@@ -56,34 +56,44 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/multi-chain-gap-audit-2026-07-10.md": {
-    "sha256": "6b8517fea895f858e54beca1b2d0990f818ce63323aa5a9c4cdaf4bd8219ea6d",
+    "sha256": "101da9afa0743fd40c7dde37688660b51f38f53870e97ccca6c354f9e078d564",
     "zh": "docs/zh/multi-chain-gap-audit-2026-07-10.zh.md",
-    "model": "manual-zh",
-    "note": "manually synced through the 2026-07-11 target-maturity docs update"
+    "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "7ca8434c0d81d35a9c156ff92a6a51b096ee0f372abd2acb67bb778992bc3dbf",
+    "sha256": "5de9af42ff6333d31d79b2e4eb54123ce7919465ba9088f4d41a6939356e0f29",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh PF-P2-02 ERC721/1155/custom-error closed status"
+    "note": "synced EN/zh through Solana layout, authoring, and NEAR runtime status updates"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
     "zh": "docs/zh/review-checklist.zh.md",
-    "model": "manual-zh",
-    "note": "manually synced through the 2026-07-11 target-maturity docs update"
+    "model": "manual"
   },
   "docs/development-standards.md": {
-    "sha256": "0841ffcb77ec15ed6fccf8628d7d336a9a9ed8439abe6405a75d2ebaff25fcef",
+    "sha256": "102cd85d35a4d4311c7160bef4191bbb8751a7340b2bfb8111af85f666a66960",
     "zh": "docs/zh/development-standards.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-10 audit integration"
+    "note": "manually synced through the Runtime.Psy ownership move"
+  },
+  "docs/architecture.md": {
+    "sha256": "97ba93b5c8ff67fb24e80f7eee0d777ca1279b53f0b4761bdf68c5117ce7110b",
+    "zh": "docs/zh/architecture.zh.md",
+    "model": "manual-zh",
+    "note": "manually translated for canonical compiler architecture"
+  },
+  "docs/backend-interface.md": {
+    "sha256": "96975e84c6832bc7d99a1832b79a717e82173e7e65f7759c00e6c2a51005faf7",
+    "zh": "docs/zh/backend-interface.zh.md",
+    "model": "manual-zh",
+    "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "0ada7ceab327eb3c00dee6e16884a7a95f2add971ac25d4a18139f91ff433b96",
+    "sha256": "7c5c835ffb980f92edb9441c0f6004a6932b369deabb26ba06af1d9e3bf7554d",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced after Product/Backend reorg and Counter module CLI correction"
+    "note": "manually synced for canonical EVM CREATE HostOp coverage; includes Stylus; includes NEP-145"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -113,28 +123,34 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/rfcs/0014-unified-semantic-lowering-contract.md": {
-    "sha256": "9d0ee2684a65b5c49dea4d83cd431f9f48d8a222330183ccf0bfc87480f49d72",
+    "sha256": "f0ed59b2602a4452e523b3e6addc8fb53cddc1aa52a94d310f22bdf7decb30a5",
     "zh": "docs/zh/rfcs/0014-unified-semantic-lowering-contract.zh.md",
     "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "note": "synced after optional ProofForgeFormal library consolidation"
   },
   "docs/targets/README.md": {
     "sha256": "bca843801bb9cd3c46486a9d42179a07a5d93a7c6b0e64e833bc40a582d3cffe",
     "zh": "docs/zh/targets-README.zh.md",
-    "model": "manual-zh",
-    "note": "manually synced through the 2026-07-11 target-maturity docs update"
-  },
-  "docs/targets/evm.md": {
-    "sha256": "5235c1b6ab6e73fd6afcc874d8b9d408cb04f75612268f24d879eda63e69ec58",
-    "zh": "docs/zh/targets/evm.zh.md",
     "model": "gemini-3-flash-preview",
     "note": "synced after Product/Backend reorg path renames"
   },
+  "docs/targets/evm.md": {
+    "sha256": "432c01a82945d2e93e5722b851dcd1365e4a05838034c01bd38adb7023578a68",
+    "zh": "docs/zh/targets/evm.zh.md",
+    "model": "manual-zh",
+    "note": "manually synced for EVM CREATE HostOp cutover"
+  },
   "docs/targets/wasm-family.md": {
-    "sha256": "f83bfe438747e7c993f32c351dc21e4146b9f5be92d951f5515374d1b7b9ac60",
+    "sha256": "8edc99444ea2a84d7984778a4cfd93aa4fc9e1507f9ec31c64471ecb642f566c",
     "zh": "docs/zh/targets/wasm-family.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through the 2026-07-11 target-maturity docs update"
+    "note": "manually synced for implemented Stylus research classification"
+  },
+  "docs/targets/arbitrum-stylus.md": {
+    "sha256": "67d488b8625a1c387fdcb7b25d3f3c0e2ee733db8382e0dd14ab15e34a07b682",
+    "zh": "docs/zh/targets/arbitrum-stylus.zh.md",
+    "model": "manual-zh",
+    "note": "initial docs-only Stylus target classification"
   },
   "docs/targets/solana-sbf.md": {
     "sha256": "98fa9fcada4a214df7291553e65891c7a2c3b66a1d163d96a2eb280db3fffbfa",
@@ -152,22 +168,23 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/targets/wasm-near.md": {
-    "sha256": "889b3f14e49649ac586dd75334574136999dfeb1fb2db95d8f975dc695b3754e",
+    "sha256": "4dabbe733cebea0ab98198ba374eae1983198cd3efbdb06fa2be45db1f3a99d3",
     "zh": "docs/zh/targets/wasm-near.zh.md",
-    "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "model": "manual-zh",
+    "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "474529032de93d7d0be3cf2bddd5e1802f08a3ef9a06c4c0ad82d8cb68e23cf4",
+    "sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "474529032de93d7d0be3cf2bddd5e1802f08a3ef9a06c4c0ad82d8cb68e23cf4"
+    "en_sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd"
   },
-  "docs/sdk-ecosystem-gaps-2026-07.md": "52f5cc9d6a56c8ca95c492e2441821a859e6e85afe5097c1299d21dab2e185e8",
+  "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {
-    "sha256": "01bc8f804f62c56a171796721b7adbba2fd36955bdedbc48187f7020236ace08",
+    "sha256": "6e42948c3b35c234514afaea8f14e5873c8fba05d32d02f29ff8e0bc28bab8a7",
     "zh": "docs/zh/tutorials/portable-shared-path.zh.md",
-    "model": "manual-zh"
+    "model": "manual-zh",
+    "note": "manually synced for Source authoring path"
   },
   "docs/examples-and-tests-taxonomy.md": {
     "sha256": "fb36d60c71c095f1ea75c4ff3229eac5a6668244eb014242fa4bba7019255da0",

@@ -5,12 +5,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${PF_YUL_COMPILER_COUNTER_OUT:-$ROOT/build/evm-yul-compiler}"
 PROOF_FORGE_BIN="${PROOF_FORGE_BIN:-$ROOT/.lake/build/bin/proof-forge}"
 
-# `EvmRefinement.CounterRuntime.hex` is also decoded by the formal powdr runtime.
+# `ProofForgeFormal.Evm.CounterRuntime.hex` is also decoded by the formal powdr runtime.
 # Strip metadata below because local solc versions may emit a different version
 # tag while preserving the executable runtime bytes.
 EXPECTED_FULL_HEX="$(
   cd "$ROOT"
-  lake build EvmRefinement.CounterRuntime >/dev/null
+  lake build ProofForgeFormal.Evm.CounterRuntime >/dev/null
   lake env lean --run scripts/evm/print-counter-runtime-witness.lean
 )"
 EXPECTED_SHA256="$(python3 - "$EXPECTED_FULL_HEX" <<'PY'
@@ -71,7 +71,7 @@ cli_runtime_hex="$(strip_metadata "$(tr -d '\n[:space:]' < "$OUT_DIR/Counter.bin
 expected_runtime_hex="$(strip_metadata "$EXPECTED_FULL_HEX")"
 
 if [[ "$compiled_hex" != "$expected_runtime_hex" ]]; then
-  echo "Yul→bytecode compilation drifted from EvmRefinement.counterCompiledRuntimeCode runtime" >&2
+  echo "Yul→bytecode compilation drifted from ProofForgeFormal.Evm.CounterRuntime" >&2
   echo "expected runtime: $expected_runtime_hex" >&2
   echo "actual  compiled: $compiled_hex" >&2
   echo "solc log: $OUT_DIR/Counter.solc.log" >&2

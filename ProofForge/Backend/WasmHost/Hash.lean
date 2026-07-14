@@ -8,6 +8,7 @@ import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Backend.WasmHost.Types
+import ProofForge.Target.HostBridge
 
 namespace ProofForge.Backend.WasmHost.Hash
 
@@ -87,7 +88,7 @@ def hashEqFunc : Func :=
       .localGet "a", .load "i64.load" 16, .localGet "b", .load "i64.load" 16, .plain "i64.eq", .plain "i32.and",
       .localGet "a", .load "i64.load" 24, .localGet "b", .load "i64.load" 24, .plain "i64.eq", .plain "i32.and" ] } }
 
-def readHashFunc : Func :=
+def readHashFuncNear : Func :=
   { name := readHashName,
     params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }], results := #[.i32],
     locals := #[{ name := "found", type := .i64 }, { name := "p", type := .i32 }],
@@ -99,12 +100,37 @@ def readHashFunc : Func :=
       .if_ { insns := #[ .i64Const 0, .localGet "p", .plain "i64.extend_i32_u", .call "read_register" ] } { insns := #[] },
       .localGet "p" ] } }
 
-def writeHashFunc : Func :=
+/-- Hash storage is not representable through Soroban's scalar `_get` spike ABI.
+The module lowerers reject plans that would select this helper; keep the helper
+itself valid and trapping so direct construction cannot emit malformed WAT. -/
+def readHashFuncSoroban : Func :=
+  { name := readHashName,
+    params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }], results := #[.i32],
+    body := { insns := #[.unreachable] } }
+
+def readHashFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  match bridge with
+  | .soroban => readHashFuncSoroban
+  | _ => readHashFuncNear
+
+def writeHashFuncNear : Func :=
   { name := writeHashName,
     params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }, { name := "v", type := .i32 }],
     body := { insns := #[
       .localGet "kl", .plain "i64.extend_i32_u", .localGet "kp", .plain "i64.extend_i32_u",
       .i64Const 32, .localGet "v", .plain "i64.extend_i32_u", .i64Const 0, .call "storage_write", .drop ] } }
+
+/-- Soroban: `_put(kp, kl, v, 32)`. -/
+def writeHashFuncSoroban : Func :=
+  { name := writeHashName,
+    params := #[{ name := "kp", type := .i32 }, { name := "kl", type := .i32 }, { name := "v", type := .i32 }],
+    body := { insns := #[
+      .localGet "kp", .localGet "kl", .localGet "v", .i32Const 32, .call "_put" ] } }
+
+def writeHashFunc (bridge : ProofForge.Target.HostBridge := .near) : Func :=
+  match bridge with
+  | .soroban => writeHashFuncSoroban
+  | _ => writeHashFuncNear
 
 def hashExprHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
   (if modulePlanUsesHashAlloc plan then #[hashAllocFunc] else #[]) ++
@@ -114,8 +140,9 @@ def hashExprHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
     (if plan.usesHashTwoToOne then #[hashTwoFunc] else #[]) ++
     (if plan.usesHashEq then #[hashEqFunc] else #[])
 
-def hashStorageHelperFuncsForModulePlan (plan : ModulePlan) : Array Func :=
-  (if plan.scalarReadTypes.contains .hash then #[readHashFunc] else #[]) ++
-    (if plan.scalarWriteTypes.contains .hash then #[writeHashFunc] else #[])
+def hashStorageHelperFuncsForModulePlan (plan : ModulePlan)
+    (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
+  (if plan.scalarReadTypes.contains .hash then #[readHashFunc bridge] else #[]) ++
+    (if plan.scalarWriteTypes.contains .hash then #[writeHashFunc bridge] else #[])
 
 end ProofForge.Backend.WasmHost.Hash

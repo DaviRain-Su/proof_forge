@@ -1,11 +1,16 @@
 # Product Authoring Architecture
 
-Status: **Planning (2026-07-09)**  
+Status: **Accepted product direction; historical layer sketch (refreshed
+2026-07-12).** The current intent/materializer boundary is defined by D-052.
 Audience: product + compiler design  
 Related: [authoring-model](authoring-model.md), [D-028](decisions.md),
 [D-027](decisions.md), [D-050](decisions.md),
 [RFC 0006 Token SDK](rfcs/0006-multichain-token-sdk.md),
 [IR portability remediation](ir-portability-remediation.md).
+
+This file retains the product thesis and earlier layer analysis. Where its
+concrete types or phases conflict with the July 12 design, the newer design
+wins.
 
 ## 1. Product thesis (north star)
 
@@ -170,8 +175,8 @@ EVM + Solana without extension syntax in shared examples.
 | Item | Evidence |
 |---|---|
 | Portable default import | `import ProofForge.Contract.Source` |
-| Solana extension import | `import ProofForge.Contract.Source.Solana` (re-exports Source + Solana Surface/Builders) |
-| Solana examples | `ProofForge/Solana/Examples/*` that use account/PDA/CPI import `Source.Solana` |
+| Solana extension import | `import ProofForge.Contract.Source.Solana` (the only public Solana authoring entry) |
+| Solana examples | `Examples/Backend/Solana/Contracts/*` that use account/PDA/CPI import `Source.Solana` |
 | Shared gate | `portable-default` forbids `Source.Solana` and Solana DSL keywords |
 
 ### Phase B — Automatic chain materialization (compiler)  ← **next product focus**
@@ -233,7 +238,7 @@ Implementation sketch:
      `SbpfAsm` method+args → ix data; auto `callee_program` account;
      `sol_log_64_` + `sol_get_return_data` stub). `Source.Solana` CPI remains
      for hand-tuned account vectors.
-   - **NEAR:** `promise_create` via `nearCrosscallStrings` address-literal
+   - **NEAR:** `promise_create` via `crosscallStrings` address-literal
      indices; typed/STATIC/DELEGATE/create reject with honest diagnostics.
    - Map + gate: `Target.CrosscallMaterialize` + `just crosscall-materialize`.
 
@@ -367,7 +372,7 @@ constructors only appear in extension fixtures.
 Keep Solana PDA/CPI, custom syscalls, raw host imports as **opt-in**:
 
 ```lean
-import ProofForge.Solana.Surface  -- opt-in; non-portable
+import ProofForge.Contract.Source.Solana  -- opt-in; non-portable
 ```
 
 Rules:

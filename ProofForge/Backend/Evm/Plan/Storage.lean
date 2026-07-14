@@ -140,6 +140,7 @@ inductive Helper where
   | hashPair
   | ecrecover
   | eip712PermitDigest
+  | checkedWidth
   deriving DecidableEq, Repr
 
 def Helper.beq : Helper → Helper → Bool
@@ -157,6 +158,7 @@ def Helper.beq : Helper → Helper → Bool
   | .hashPair, .hashPair => true
   | .ecrecover, .ecrecover => true
   | .eip712PermitDigest, .eip712PermitDigest => true
+  | .checkedWidth, .checkedWidth => true
   | _, _ => false
 
 instance : BEq Helper := ⟨Helper.beq⟩
@@ -188,6 +190,7 @@ def Helper.name : Helper → String
   | .hashPair => "__proof_forge_hash_pair"
   | .ecrecover => "__proof_forge_ecrecover"
   | .eip712PermitDigest => "__proof_forge_eip712_permit_digest"
+  | .checkedWidth => "__pf_checked_width"
 
 abbrev HelperSet := Array Helper
 

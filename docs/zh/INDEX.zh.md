@@ -2,20 +2,22 @@
 
 ProofForge 是一个 Lean 优先的多链智能合约平台。主干包含 EVM 基准，以及 Solana (sBPF 汇编)、NEAR (EmitWat)、Sui (Counter MVP)、CosmWasm 和 Aptos (Counter spikes)、Psy/DPN、Aleo Leo 和 Cloudflare Workers (TypeScript spike) 后端，它们统一在同一个可移植 IR 和能力注册表之下，遵循 2026-07 分支合并。
 
-**当前阶段：** Gate P0 已关闭；
-[2026-07-10 多链修复任务](../agent-goal-prompt.md)仍在推进 PF-P3-02
-次级目标成熟度工作。并行的
-[后审查主链深化计划](../superpowers/plans/2026-07-10-post-review-execution.md)
-覆盖 NEAR/EVM/Solana 产品深度、平台债务和诚实的 FV 片段扩展，且不会把尚未完成的
-次级目标工作声明为已完成。
+**当前阶段（2026-07-12）：** Gate P0 与 Canonical Core 迁移已在各自
+记录的范围内关闭。当前执行入口是
+[Portable Intent 与目标晋级计划](../superpowers/plans/2026-07-12-portable-intent-abstraction.md)：
+先隔离链特定语法，建立目标中立的 intent materializer，完成主三链 NFT
+纵向切片，再抽取中立 Wasm-host plan 并建立严格的次级目标晋级门禁。
+使用旧计划前请先阅读[文档状态索引](../document-status.md)。
 
 ## 文档地图
 
 | 如果你是…… | 从这里开始 | 然后阅读 |
 |---|---|---|
+| 开始或恢复工作的 Agent | [根目录 AGENTS.md](../../AGENTS.md) | [文档状态](../document-status.md)、[当前计划](../superpowers/plans/2026-07-12-portable-intent-abstraction.md)、[执行日志](../implementation-log.md) |
 | 新贡献者 | 本页面 + [README](README-root.zh.md) + [入职指南](onboarding.zh.md) | [可移植三目标教程](tutorials/portable-contract-three-targets.zh.md), [验证门禁](validation-gates.zh.md), [待办事项](implementation-backlog.zh.md) |
 | 实现后端 | [RFC 0002](rfcs/0002-target-implementation-design.zh.md) | [决策](decisions.zh.md), [可移植 IR](portable-ir.zh.md), 目标笔记 |
 | 评审设计 | [评审清单](review-checklist.zh.md) | RFCs, [能力注册表](capability-registry.zh.md), [共享场景](shared-scenario.zh.md) |
+| 选择当前任务 | [文档状态索引](../document-status.md) | [7 月 12 日实施计划](../superpowers/plans/2026-07-12-portable-intent-abstraction.md), [待办事项](implementation-backlog.zh.md) |
 | 策略 / 中文读者 | [zh/README](README.md) | [可行性分析](feasibility-analysis.md), [决策](decisions.zh.md) |
 
 ```mermaid
@@ -57,8 +59,8 @@ flowchart TB
 - [产品 / SDK 差距计划 (2026-07)](../product-sdk-gap-plan-2026-07.md)：差距与波次 α–ε。
 
 - [宿主运行时抽象](../host-runtime.md)：可移植 HostEffect → EVM 操作码 / Solana 系统调用 / NEAR 宿主导入。
-- [多链修复 Agent 目标提示词](../agent-goal-prompt.md)：**进行中**的 PF 账本；PF-P3-02 仍开放，已完成条目保留其验证证据。
-- [后审查执行计划 (2026-07-10)](../superpowers/plans/2026-07-10-post-review-execution.md)：互补的进行中队列——深化主要三链、平台债务与 FV 片段。
+- [多链修复 Agent 目标提示词](../agent-goal-prompt.md)：历史 PF 修复账本；保留的条目仅作为已验证证据使用。
+- [后审查执行计划 (2026-07-10)](../superpowers/plans/2026-07-10-post-review-execution.md)：历史主三链、平台债务与 FV 执行记录。
 - [共享场景：Counter](shared-scenario.zh.md)：跨目标验收测试。
 - [文档↔代码同步审计 (2026-07)](../doc-code-sync-audit-2026-07.md)：偏差登记和维护清单。
 - [教程：一个模块，三个目标](tutorials/portable-contract-three-targets.zh.md)：可移植 `contract_source` 演练 (CS-5.3)。
@@ -78,10 +80,19 @@ flowchart TB
 - [RFC 0007: 统一 Rust 测试框架](../rfcs/0007-unified-rust-test-framework.md) (草案 —— 基于 revm/Mollusk/wasmtime 的测试套件场景)
 - [RFC 0008: 链解耦的分配器抽象](../rfcs/0008-allocator-abstraction.md) (草案 —— 每个目标绑定一个分配器模型)
 
-## 工程- [开发标准](development-standards.zh.md)：贡献者规则和单一事实来源地图。
+## 工程
+
+- [规范编译器架构](architecture.zh.md)：输入、语义、状态所有权、目标路由和回滚边界。
+- [规范后端接口](backend-interface.zh.md)：目标计划所有权、精确 HostOp 失败规则和 Queue/Set 展开。
+- [开发标准](development-standards.zh.md)：贡献者规则和单一事实来源地图。
+- [文档状态](../document-status.md)：当前真值来源与历史归档分类。
+- [Agent 主入口](../../AGENTS.md)：必读顺序、当前检查点、任务路由与更新协议。
+- [执行日志](../implementation-log.md)：当前任务完成情况与验证证据的精简账本。
+- [Portable Intent 架构 (2026-07-12)](../superpowers/specs/2026-07-12-portable-intent-abstraction-design.md)：目标中立的 intent/materializer 边界与增量 legacy 替换。
+- [Portable Intent 实施计划 (2026-07-12)](../superpowers/plans/2026-07-12-portable-intent-abstraction.md)：当前执行顺序与验收门禁。
 - [新手入门](onboarding.zh.md)：本地设置路径、编辑器说明以及针对新贡献者的最小验证循环。
 - [Quint 模型生成](../quint.md)：从可移植 IR 发射可执行状态机模型，进行模拟、模型检查并重放 MBT 追踪。
-- [开发日志](../development-log.md)：带有验证说明和后续步骤的里程碑日志。
+- [开发日志](../development-log.md)：详细的历史里程碑流；仅在查找旧证据时检索。
 - [编写模型](../authoring-model.md)：学习 source、`contract_source` 以及内部 `ContractSpec` 边界。
 - [验证门控](validation-gates.zh.md)：可运行的门控和工具先决条件。
 - [形式化验证路线图](../formal-verification.md)：现有的形式化锚点和阶段性证明目标。
@@ -97,7 +108,7 @@ flowchart TB
 - [产品编写架构](../product-authoring-architecture.md)：业务意图 vs 链上具象化；阶段 A–C 状态。
 - [可移植 SDK 统一计划 (2026-07-09)](../superpowers/plans/2026-07-09-portable-sdk-unification.md)：**已完成**（policy · Token · remote · author polish）。
 - [统一支持路线图 (2026-07-09)](../superpowers/plans/2026-07-09-unified-support-roadmap.md)：此前的统一波次（历史背景；未完成的 U4/U6 已纳入后审查计划）。
-- [后审查执行计划 (2026-07-10)](../superpowers/plans/2026-07-10-post-review-execution.md)：**进行中**——S0 主干、N1 NEAR、E1 EVM、L1 Solana、**B1 基准**、**Z1 Psy DPN**、**Z2 Aleo Instructions**、P1 平台、F1 FV 与 D1 DX。
+- [后审查执行计划 (2026-07-10)](../superpowers/plans/2026-07-10-post-review-execution.md)：历史主三链/平台加固章程；当前排期已由 7 月 12 日计划取代。
 - [基准矩阵（PF 对比原生实现）](../benchmarks.md)：B1 Counter 矩阵（PF + 原生 runner、行为门禁、成本表），不制造虚假的跨链综合分数。快照：[generated/benchmark-counter.md](../generated/benchmark-counter.md)。
 - [CLI M4 legacy inventory](../cli-m4-legacy-inventory.md)：删除 alias 前的 EmitMode/flag 清单。
 - [CLI M4 删除清单](../cli-m4-deletion-checklist.md)：兼容窗口后的有序删除步骤。

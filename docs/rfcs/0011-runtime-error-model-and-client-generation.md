@@ -1,6 +1,6 @@
 # RFC 0011: Portable Runtime Error Model and Unified Client Generation
 
-Status: **Draft**
+Status: **Accepted executable architecture (D-041); coverage remains incremental.**
 Date: 2026-07-03
 
 ## Problem

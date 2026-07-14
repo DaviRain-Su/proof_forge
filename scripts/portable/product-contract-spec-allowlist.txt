@@ -1,0 +1,88 @@
+# Product-level ContractSpec construction allowlist (D2)
+#
+# Each line is a path pattern (without line numbers) identifying a legitimate
+# pre-migration site where a product ContractSpec is constructed or re-exported.
+# The freeze guard in check-portable-default.py fails when new construction
+# sites appear outside this allowlist.
+#
+# Patterns match against the file path + a simple substring check.
+# Format: <relative-path>:<substring-to-match>
+
+# contract_source macro (generates ContractSpec via Builder.build)
+Examples/Product/Aggregate.lean:contract_source
+Examples/Product/ArrayExample.lean:contract_source
+Examples/Product/AuthRemoteCall.lean:contract_source
+Examples/Product/Counter.lean:contract_source
+Examples/Product/EscrowVault.lean:contract_source
+Examples/Product/ExternalTokenTransfer.lean:contract_source
+Examples/Product/ExternalVault.lean:contract_source
+Examples/Product/GuestBook.lean:contract_source
+Examples/Product/HeightLockVault.lean:contract_source
+Examples/Product/HostEnvProbe.lean:contract_source
+Examples/Product/ProRataVault.lean:contract_source
+Examples/Product/RemoteCall.lean:contract_source
+Examples/Product/RoleGatedToken.lean:contract_source
+Examples/Product/StakingVault.lean:contract_source
+Examples/Product/StatusMessage.lean:contract_source
+Examples/Product/StorageDeposit.lean:contract_source
+Examples/Product/TimelockVault.lean:contract_source
+Examples/Product/ValueVault.lean:contract_source
+Examples/Product/VestingVault.lean:contract_source
+
+# Stdlib facade re-exports (def spec : ContractSpec := Stdlib.*.spec)
+Examples/Product/AccessControl.lean:def spec : ProofForge.Contract.ContractSpec
+Examples/Product/ERC4626Vault.lean:def spec : ProofForge.Contract.ContractSpec
+Examples/Product/Ownable.lean:def spec : ProofForge.Contract.ContractSpec
+Examples/Product/OwnableHash.lean:def spec : ProofForge.Contract.ContractSpec
+Examples/Product/OwnablePausable.lean:def spec : ProofForge.Contract.ContractSpec
+Examples/Product/Pausable.lean:def spec : ProofForge.Contract.ContractSpec
+
+# TokenSpec intent (def spec : TokenSpec)
+Examples/Product/FungibleToken.lean:def spec : TokenSpec
+Examples/Product/FeeToken.lean:def spec : TokenSpec
+Examples/Product/SoulboundToken.lean:def spec : TokenSpec
+Examples/Product/SoulboundTokenBody.lean:def spec : TokenSpec
+
+# NFTSpec intent (def spec : NFTSpec)
+Examples/Product/Nft.lean:def spec : NFTSpec
+
+# Internal construction sites (ProofForge/Contract)
+ProofForge/Contract/Builder.lean:toSpec
+ProofForge/Contract/Compose.lean:mergeSpecs
+ProofForge/Contract/Compose.lean:mergeMany
+ProofForge/Contract/Compose.lean:mergeExtension
+ProofForge/Contract/Spec.lean:ContractSpec.fromIR
+ProofForge/Contract/Source/Internal.lean:def contract
+ProofForge/Contract/Nft/Materialize.lean:projectEntrypoints
+ProofForge/Contract/Nft/Materialize.lean:withErc721Selectors
+# Additional pre-migration construction sites
+ProofForge/Contract/Examples/Counter.lean:def spec : ProofForge.Contract.ContractSpec
+ProofForge/Contract/Examples/ValueVault.lean:def spec : ProofForge.Contract.ContractSpec
+ProofForge/Contract/Protocol.lean:contract_source
+ProofForge/Contract/Source/Near.lean:contract_source
+ProofForge/Contract/Source/Solana.lean:contract_source
+ProofForge/Contract/Source.lean:contract_source
+ProofForge/Contract/Stdlib/AccessControl.lean:contract_source
+ProofForge/Contract/Stdlib/AccessControlPortable.lean:contract_source
+ProofForge/Contract/Stdlib/Compose/ERC20Part.lean:contract_source
+ProofForge/Contract/Stdlib/Compose/OwnablePart.lean:contract_source
+ProofForge/Contract/Stdlib/Create2Factory.lean:contract_source
+ProofForge/Contract/Stdlib/ERC1155.lean:contract_source
+ProofForge/Contract/Stdlib/ERC165.lean:contract_source
+ProofForge/Contract/Stdlib/ERC20.lean:contract_source
+ProofForge/Contract/Stdlib/ERC20Permit.lean:contract_source
+ProofForge/Contract/Stdlib/ERC4626.lean:contract_source
+ProofForge/Contract/Stdlib/ERC721.lean:contract_source
+ProofForge/Contract/Stdlib/MetaplexNft.lean:contract_source
+ProofForge/Contract/Stdlib/NearFungibleToken.lean:contract_source
+ProofForge/Contract/Stdlib/NearNft.lean:contract_source
+ProofForge/Contract/Stdlib/Ownable.lean:contract_source
+ProofForge/Contract/Stdlib/OwnableERC20.lean:def spec : ProofForge.Contract.ContractSpec
+ProofForge/Contract/Stdlib/OwnableHash.lean:contract_source
+ProofForge/Contract/Stdlib/OwnablePausable.lean:contract_source
+ProofForge/Contract/Stdlib/Pausable.lean:contract_source
+ProofForge/Contract/Stdlib/ReentrancyGuard.lean:contract_source
+ProofForge/Contract/Stdlib/UUPSProxy.lean:contract_source
+ProofForge/Contract/Stdlib/UUPSUpgradeable.lean:contract_source
+ProofForge/Contract/Token/Examples/SoulboundToken.lean:def spec : TokenSpec
+Examples/Product/ReentrancyGuard.lean:def spec : ProofForge.Contract.ContractSpec

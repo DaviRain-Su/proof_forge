@@ -1,7 +1,7 @@
 # Leo AST Mirror: IR → AST → Source Design
 
 **Date:** 2026-07-01  
-**Status:** Design spec (awaiting review)  
+**Status:** Historical implemented AST-migration design record (archived 2026-07-12).
 **Scope:** Refactor the Aleo Leo backend so that it lowers ProofForge portable IR into a structured Leo AST that mirrors `ProvableHQ/leo crates/ast/src/` (v4.3.2), then pretty-prints that AST to Leo source compatible with the locally installed Leo 4.0.2 CLI.  
 **Related docs:**
 - [Aleo Leo spike design](./2026-07-01-aleo-leo-design.md)

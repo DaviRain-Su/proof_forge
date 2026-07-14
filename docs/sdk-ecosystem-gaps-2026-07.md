@@ -62,20 +62,20 @@ gaps.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| ERC-20 | Implemented subset; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC20.lean` stdlib mixin (transfer/approve/transferFrom/mint/burn + Transfer/Approval events + `transfer_conserves_supply` Lean proof); `Examples/Backend/Evm/Contracts/stdlib/ERC20.lean` golden Yul; `token-intent-evm-vm-smoke.sh` exercises the shared Lean `TokenSpec` SDK path in a Rust/revm VM; `evm-mixin-compose` validates Ownable+ERC-20 composition. `ProofForge/Contract/Token/Evm.lean` is the legacy hand-written Yul path for the Token SDK and remains non-canonical | Bind every ERC-20 requirement to artifact/runtime evidence |
-| ERC-721 (NFT) | Implemented transfer subset; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC721.lean` stdlib mixin (ownerOf/transferFrom/safeTransferFrom/mint/burn + three-indexed Transfer event); mandatory balance/approval/operator surfaces and canonical address ABI remain incomplete. **PF-P2-02:** `safeTransferFrom` invokes `onERC721Received` when `extcodesize(to) > 0` (magic `0x150b7a02`); Foundry `testERC721SafeTransferToReceiver_{accepts,rejects}` in `scripts/evm/foundry-smoke.sh` | P0: mandatory core and requirement evidence |
-| ERC-1155 (multi-token) | Implemented fixed-size subset; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC1155.lean` covers balances, operator approvals, mint, burn, single `safeTransferFrom`, and custom size-2 `safeBatchTransferFrom2`; this is not the standard arbitrary-length dynamic batch/`TransferBatch` surface | P0: canonical dynamic batch, receiver data, discovery, and evidence |
+| ERC-20 | Covered implementation candidate; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC20.lean` stdlib mixin (transfer/approve/transferFrom/mint/burn + Transfer/Approval events + `transfer_conserves_supply` Lean proof); `Examples/Backend/Evm/Contracts/stdlib/ERC20.lean` golden Yul; `token-intent-evm-vm-smoke.sh` exercises the shared Lean `TokenSpec` SDK path in a Rust/revm VM; `evm-mixin-compose` validates Ownable+ERC-20 composition. `ProofForge/Contract/Token/Evm.lean` is the legacy hand-written Yul path for the Token SDK and remains non-canonical | Bind every ERC-20 requirement to artifact/runtime evidence |
+| ERC-721 (NFT) | Covered implementation candidate; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC721.lean` stdlib mixin (ownerOf/transferFrom/safeTransferFrom/mint/burn + three-indexed Transfer event); mandatory balance/approval/operator surfaces and canonical address ABI remain incomplete. **PF-P2-02:** `safeTransferFrom` invokes `onERC721Received` when `extcodesize(to) > 0` (magic `0x150b7a02`); Foundry `testERC721SafeTransferToReceiver_{accepts,rejects}` in `scripts/evm/foundry-smoke.sh` | P0: mandatory core and requirement evidence |
+| ERC-1155 (multi-token) | Covered fixed-size implementation candidate; compliance `experimental` | `ProofForge/Contract/Stdlib/ERC1155.lean` covers balances, operator approvals, mint, burn, single `safeTransferFrom`, and custom size-2 `safeBatchTransferFrom2`; this is not the standard arbitrary-length dynamic batch/`TransferBatch` surface | P0: canonical dynamic batch, receiver data, discovery, and evidence |
 | ERC-4626 (vault standard) | Implemented vault subset; compliance `experimental` | **Call** peer: `IERC4626` / `external_vault`. **Deploy body:** `Stdlib.ERC4626` pro-rata + entry/exit feeBps + FOT vault+recipient deltas (`just product-erc4626-vault`). Share allowance/delegated exits, total-assets policy, full-width math, and atomic init remain open | P0/P1: close manifest and bind evidence |
 | ERC-2612 (permit) | Atomic implementation; default compliance remains `experimental` without a verified build claim | TokenSpec emits canonical `permit(address,address,uint256,uint256,uint8,bytes32,bytes32)`, nonce/domain/deadline checks, low-s/v enforcement, and Approval atomically. `just product-erc20-permit` executes valid, replay, expired, bad-domain, high-s, invalid-v, staging/front-run, and domain-overwrite cases in Foundry. `featureSupportOnTargetWithEvidence` promotes only a full passing claim for the canonical ERC-2612 manifest, exact `proof-forge.evm.erc2612@1` adapter and exact artifact digest | Make production build reports supply the verified claim; absent, partial, forged, wrong-adapter or wrong-artifact evidence stays `experimental` |
 | ERC-1820 / ERC-777 | Missing | No hook registry or ERC-777 sender/recipient hooks | P2 |
-| ERC-165 (supportsInterface) | Immutable identity implemented; compliance `experimental` pending requirement-bound evidence | `ProofForge/Contract/Stdlib/ERC165.lean` derives the supported set from the contract surface, has no public registration path, and rejects `0xffffffff`; `just evm-standard-identity` and Foundry cover base/custom/unknown/forbidden IDs | Bind exact artifact/runtime results to the ERC-165 manifest |
+| ERC-165 (supportsInterface) | Covered immutable implementation candidate; compliance `experimental` pending requirement-bound evidence | `ProofForge/Contract/Stdlib/ERC165.lean` derives the supported set from the contract surface, has no public registration path, and rejects `0xffffffff`; `just evm-standard-identity` and Foundry cover base/custom/unknown/forbidden IDs | Bind exact artifact/runtime results to the ERC-165 manifest |
 
 ### Access patterns
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| Ownable / ERC-173 | Canonical identity surface implemented; compliance `experimental` pending requirement-bound evidence | `stdlib/Ownable.lean` keeps a portable u64 owner carrier with EVM `address` ABI metadata, emits `OwnershipTransferred`, and prevents initialization after transfer or renounce; Foundry covers unauthorized calls, stale owners, repeat init, and post-renounce re-init | Bind exact artifact/runtime results to the ERC-173 manifest |
-| AccessControl (roles) | EVM standard adapter plus portable policy profile implemented; compliance `experimental` | `stdlib/AccessControl.lean` exposes bytes32 roles, admin lookup/update, grant/revoke/renounce, and canonical events; `AccessControlPortable.lean` retains u64 role handles for shared Solana/Wasm materialization. Foundry covers unauthorized/redundant/confirmation/re-init paths | Complete OZ behavioral equivalence and bind exact evidence; do not conflate the portable role profile with the EVM standard adapter |
+| Ownable | Covered canonical ERC-173 implementation candidate; compliance `experimental` pending requirement-bound evidence | `stdlib/Ownable.lean` keeps a portable u64 owner carrier with EVM `address` ABI metadata, emits `OwnershipTransferred`, and prevents initialization after transfer or renounce; Foundry covers unauthorized calls, stale owners, repeat init, and post-renounce re-init | Bind exact artifact/runtime results to the ERC-173 manifest |
+| AccessControl (roles) | Covered implementation candidates for EVM and portable policy profiles; compliance `experimental` | `stdlib/AccessControl.lean` exposes bytes32 roles, admin lookup/update, grant/revoke/renounce, and canonical events; `AccessControlPortable.lean` retains u64 role handles for shared Solana/Wasm materialization. Foundry covers unauthorized/redundant/confirmation/re-init paths | Complete OZ behavioral equivalence and bind exact evidence; do not conflate the portable role profile with the EVM standard adapter |
 | Pausable | Covered (limited) | `stdlib/Pausable.lean` has pause/unpause + `guard_not_paused`/`guard_paused` DSL statements + Lean proof (`not_paused_zero`); `Examples/Backend/Evm/Contracts/stdlib/Pausable.lean` golden Yul. **Limitation:** pause/unpause have no built-in owner/role auth (compose with Ownable/AccessControl for guarded pause) | P1 |
 | ReentrancyGuard | Covered | `stdlib/ReentrancyGuard.lean` — reusable `acquireLock`/`releaseLock` mixin via `acquire_lock`/`release_lock` DSL statements; `Examples/Backend/Evm/Contracts/stdlib/ReentrancyGuard.lean` golden Yul. VerifiedVault hand-rolled guard predates the stdlib | — |
 
@@ -204,13 +204,18 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 | `RoleGatedToken.lean` | contract_source | OK | maps + multi-param entries |
 | `EscrowVault.lean` (+ other NEAR-compare vaults) | contract_source | OK | product compile |
 | `SoulboundTokenBody.lean` | contract_source | OK | body balances (no TokenSpec) |
-| `FungibleToken.lean` / `FeeToken` / `SoulboundToken` | **TokenSpec** | **FAIL** as bare `build` (actionable diagnostic) | needs `--token` / `just product-token-near`; N1.3 message points at TokenSpec path |
-| NEP-141 body | stdlib + TokenSpec plan | OK via `just product-token-near` | plan JSON + `NearFungibleToken.wat` |
+| `FungibleToken.lean` / `FeeToken` / `SoulboundToken` | **TokenSpec** | Bare `build --target wasm-near` emits one parameterized Wasm package; unsupported features reject | runtime behavior is verified; removing the remaining `NearSpec`/Legacy route remains N-T5 |
+| NEP-141 body | TokenSpec executable package | OK via `just product-token-near` | Wasm + generated clients + artifact metadata + real-VM initialization/query evidence |
 
 **Gap classes for N1 (ordered):**
 
-1. **TokenSpec CLI UX** — bare `build` on TokenSpec modules throws ContractSpec missing; authors need a single documented path (N1.3).
-2. **Dynamic Borsh** — one authoritative plan now drives Wasm and generated clients for fixed-width values; bytes/string remain unsupported (N1.2).
+1. **TokenSpec canonical cutover** — runtime parameterization is implemented,
+   but the source still passes through `NearSpec` / `ContractSpec` / Legacy
+   normalization before reaching Canonical Core (N-T5 + NEAR-R3/R4).
+2. **Schema-driven JSON canonical replay** — structs, optional values,
+   field-order tolerance, escaping, arrays, and typed generated returns are
+   implemented; N-T1 remains open only until the public TokenSpec artifact
+   exercises them without the Legacy route.
 3. **Promise peer correctness** — materialize exists; sandbox/offline peer returns need N1.4.
 4. **NEP-141/145 product depth** — plan+WAT exist; full FT lifecycle + storage deposit economics still shallow (N1.3/N1.5).
 5. **Budget honesty** — offline `wasmtimeFuel*` only; real `nearGas` from sandbox (N1.6).
@@ -219,20 +224,20 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| Entrypoint ABI (Borsh params + returns) | Partial (N1.2) | `NearAbiPlan` is authoritative for Wasm input validation and generated TypeScript encoding/decoding. `just near-abi-plan` checks malformed input and unsupported-schema rejection; `just near-abi-client-sandbox` proves generated `echo(42n) -> 42n` through raw RPC on near-sandbox. Flat struct/fixedArray are supported; dynamic `bytes`/`string` fail closed | P1 remain: dynamic bytes/string |
-| State storage (scalar/map/hash) | Covered | Hash-valued U64/Hash-keyed reads and old-value returns allocate stable per-entrypoint copies; the hash bump allocator resets on every affected entrypoint. `just near-map-hash-alias` and `just near-map-hash-alias-sandbox` retain two reads across later map operations | — |
+| Entrypoint ABI (per-entrypoint JSON/Borsh) | Partial (N1.2/N-01) | `NearAbiPlan` is authoritative for Wasm input validation and generated TypeScript encoding/decoding. Standard `ft_balance_of` uses JSON AccountId input and decimal-string U128 output; standard `ft_transfer` uses exact two-field JSON input and full-range U128 parsing. `just near-abi-plan`, `just near-abi-client`, `just near-vm-json-balance`, and `just near-vm-json-transfer` cover these paths. Other entrypoints retain Borsh; generic dynamic `bytes`/`string`, optional fields, and structured JSON remain fail-closed/unimplemented | P1 remain: schema-driven dynamic/structured JSON |
+| State storage (scalar/map/hash/string) | Covered | U128 values and raw AccountId-string map keys run through canonical EmitWat; Hash-valued alias safety remains covered by `just near-map-hash-alias` and `just near-map-hash-alias-sandbox`; real-VM U128/String map gates cover the standard FT balance shape | — |
 | Generic events via log_utf8 | Covered | EmitWat event lowering + offline host | — |
 | Cross-contract calls (Promise API) | Partial (N1.4) | Host imports + materialize; **offline** `just near-remote-call-offline-peer` (`call_with_args → 49`); **testkit** `just testkit-remote-call` includes NEAR peer observation (N1.4 closed: offline-host materializes promise_create/return → 49 alongside EVM/Solana peers); **sandbox** `just near-sandbox-peer` real PeerOracle; IR semantics remain sum stub (not a peer VM; see `docs/formal-verification.md` § Crosscall honesty) | P1 remain: richer multi-hop peer simulation |
-| Callback handling | Partial | `promise_result` host import exists; offline host returns `2` (Failed). Full callback dispatch deferred | P1 |
+| Callback handling | Partial | Full `ft_transfer_call` -> private keyed `ft_resolve_transfer` dispatch, injected real-VM promise result, bounded refund, and concurrent/out-of-order context isolation are covered by `just near-vm-conformance-ft`, `just wasm-near-ft-transfer-call-e2e`, and `just near-ft-security`. The VM runner does not schedule or execute the produced peer receipt | P1 remain: node/sandbox receipt execution |
 
 ### Token standards
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| NEP-141 (fungible token) | Implemented lite subset; compliance `experimental` | One-shot init, mint authority, private keyed resolver, bounded refunds and out-of-order callback isolation are executable via `just near-ft-security`, `just wasm-near-ft-transfer-call-e2e`, and `just near-ft-security-sandbox`. Current Borsh/Hash/U64 shape is not the standard JSON AccountId/U128 contract | P0: parameterized interoperable runtime and bound evidence |
+| NEP-141 (fungible token) | Interoperable core; compliance `experimental` | Amounts are U128 end-to-end and balances use raw AccountId string keys. Standard JSON `ft_balance_of`, `ft_transfer(receiver_id,amount,memo?)`, and `ft_transfer_call(receiver_id,amount,memo?,msg)` run on the unmodified upstream VM. The transfer methods enforce exactly one yoctoNEAR and receiver registration; the receiver hook and private keyed resolver use named JSON objects. `just near-vm-json-transfer`, `just near-vm-conformance-ft`, `just near-ft-security`, and `just wasm-near-ft-transfer-call` cover these paths. Real peer receipt execution and current sandbox differential evidence remain open | P0: bind compare evidence and executed peer receipts |
 | NEP-145 (storage management) | Implemented ledger subset; compliance `experimental` | Product `storage_deposit` plus caller-bound `storage_withdraw` ledger debit; canonical JSON objects, refunds, unregister, complete one-yocto behavior, and requirement evidence remain open | P0/P1 |
 | NEP-148 (metadata) | Missing | No metadata fixture | P1 |
-| NEP-171 (NFT) | Missing | No NFT example | P1 |
+| NEP-171 (NFT) | Minimal lifecycle; compliance incomplete | NFT intent materializes a NEAR `standardId=nep-171` artifact and `just portable-nft-runtime` executes init/mint/owner/balance/authorized-transfer/rejection on the NEAR offline host; metadata, approvals, enumeration, JSON interoperability, and live-node compliance remain open | P1 |
 | NEP-178 (NFT enumeration) | Missing | No enumeration example | P2 |
 | NEP-245 (multi-token) | Missing | No multi-token example | P2 |
 
@@ -240,7 +245,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 
 | Feature | Status | Evidence | Priority |
 |---|---|---|---|
-| current_account_id / predecessor_account_id | Partial | Hashed context IDs only; no full account-id string | P1 |
+| current_account_id / predecessor_account_id | Partial | `callerAccountId` exposes the full predecessor AccountId string and powers the standard FT balance keys; hashed caller/contract identities remain available. A general full-string `current_account_id` authoring value is not yet exposed outside the promise receiver path | P1 remain: full current-account string surface |
 | signer_account_id | Covered | `signer_account_id` host import + `ctxSignerFunc` + `Surface.signer` | — |
 | Access keys | Missing | No function-call/full-access key APIs | P1 |
 | Storage staking / byte accounting | Missing | No storage_usage / staking host APIs | P1 |
@@ -251,7 +256,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 |---|---|---|---|
 | attached_deposit (native value) | Covered | `attached_deposit` host import + `.nativeValue` EmitWat lowering (U64 truncation of U128); `StoragePathWrite` supports nested `mapKey+mapKey` paths | — |
 | balance_of / balance_change | Missing | No balance host APIs | P1 |
-| prepaid_gas / used_gas / GAS_PRICE | Missing | No in-contract host imports or portable IR operations | P1 |
+| prepaid_gas / used_gas / GAS_PRICE | Partial | `ContextField.prepaidGas` / `usedGas`, host imports, canonical lowering, and Wasm coverage exist. Gas price and protocol-accurate budget regression bands remain missing | P1 remain: gas price + live bands |
 | Execution budget reporting (N1.6) | Partial | Offline host reports `wasmtimeFuelCumulative`/`wasmtimeFuelDelta` only (`just near-budget-honesty`); sandbox reports real `nearGas` via `just near-sandbox-peer` | P1 remain: required sandbox budget regression bands |
 
 ### Crypto / misc
@@ -265,7 +270,7 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 | block_timestamp | Covered | `block_timestamp` host import + `.contextRead .timestamp` EmitWat lowering + `Surface.timestamp` | — |
 | epoch_height | Covered | `epoch_height` host import + `.contextRead .epochHeight` EmitWat lowering + `Surface.epochHeight` | — |
 | random_seed | Covered | `random_seed(register_id)` host import + `.contextRead .randomSeed` EmitWat lowering + `Surface.randomSeed`, returning the 32-byte register payload as `Hash` | — |
-| storage_remove | Missing | No remove host import | P1 |
+| storage_remove | Covered | `HostBridge.near`, ModulePlan-driven imports, map-delete lowering, real-VM FT host-link conformance, and Wasm coverage include the three-argument NEAR `storage_remove` ABI | — |
 
 ### Deployment
 

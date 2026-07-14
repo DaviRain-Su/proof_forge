@@ -386,9 +386,9 @@ def buildCrosscallReturnAssignmentPlan
     returns
     mode
     target := ← buildExprPlan module env
-      (ProtocolMaterialize.resolveEvmTargetExpr module.nearCrosscallStrings target)
+      (ProtocolMaterialize.resolveEvmTargetExpr module.crosscallStrings target)
     methodId := ← buildExprPlan module env
-      (ProtocolMaterialize.resolveEvmMethodExpr module.nearCrosscallStrings methodId)
+      (ProtocolMaterialize.resolveEvmMethodExpr module.crosscallStrings methodId)
     callValue? := ← callValue?.mapM (buildExprPlan module env)
     args := ← buildCrosscallArgWordPlansMany module env (crosscallModeArgContext mode) args
   }
@@ -480,7 +480,14 @@ def buildEntrypointPlan (module : Module) (entrypoint : Entrypoint) :
   let returns ← returnPlan module s!"entrypoint `{entrypoint.name}`" entrypoint.returns
     entrypoint.returnAbiWord?
   let body ← buildEntrypointBodyPlan module entrypoint
-  .ok { name := entrypoint.name, selector, params, returns, body }
+  .ok {
+    name := entrypoint.name
+    selector
+    mutability := match entrypoint.mutability with | .call => .call | .view => .view
+    params
+    returns
+    body
+  }
 
 def buildEntrypointSurfacePlan (module : Module) (entrypoint : Entrypoint) :
     Except LowerError EntrypointPlan := do
@@ -488,7 +495,14 @@ def buildEntrypointSurfacePlan (module : Module) (entrypoint : Entrypoint) :
   let params ← entrypointParamPlans module entrypoint
   let returns ← returnPlan module s!"entrypoint `{entrypoint.name}`" entrypoint.returns
     entrypoint.returnAbiWord?
-  .ok { name := entrypoint.name, selector, params, returns, body := #[] }
+  .ok {
+    name := entrypoint.name
+    selector
+    mutability := match entrypoint.mutability with | .call => .call | .view => .view
+    params
+    returns
+    body := #[]
+  }
 
 def buildEntrypointPlans (module : Module) : Except LowerError (Array EntrypointPlan) :=
   module.entrypoints.foldlM (init := #[]) fun acc entrypoint => do
@@ -519,7 +533,9 @@ mutual
       (env : TypeEnv)
       (collector : EventCollector) :
       Expr → Except LowerError EventCollector
-    | .literal _ | .local _ | .nativeValue => pure collector
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => pure collector
+    | .hostCall _ args _ _ =>
+        args.foldlM (init := collector) (collectEventPlansFromExpr module env)
     | .arrayLit _ values =>
         values.foldlM (init := collector) (collectEventPlansFromExpr module env)
     | .arrayGet array index => do
@@ -543,20 +559,6 @@ mutual
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs => do
         let collector ← collectEventPlansFromExpr module env collector lhs
         collectEventPlansFromExpr module env collector rhs
-    | .ecrecover a b c d => do
-        let collector ← collectEventPlansFromExpr module env collector a
-        let collector ← collectEventPlansFromExpr module env collector b
-        let collector ← collectEventPlansFromExpr module env collector c
-        collectEventPlansFromExpr module env collector d
-    | .eip712PermitDigest a b c d e f => do
-        let collector ← collectEventPlansFromExpr module env collector a
-        let collector ← collectEventPlansFromExpr module env collector b
-        let collector ← collectEventPlansFromExpr module env collector c
-        let collector ← collectEventPlansFromExpr module env collector d
-        let collector ← collectEventPlansFromExpr module env collector e
-        collectEventPlansFromExpr module env collector f
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        collectEventPlansFromExpr module env collector target
     | .cast value _ | .boolNot value | .hash value =>
         collectEventPlansFromExpr module env collector value
     | .hashValue a b c d => do
@@ -566,8 +568,8 @@ mutual
         collectEventPlansFromExpr module env collector d
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ => pure collector
-    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ | .crosscallNamed _ _ _ _ => pure collector
-    | .nearPromiseThen _ _ _ _ | .nearCrosscallInvokePool _ _ _ _ | .nearPromiseResultsCount | .nearPromiseResultStatus _ | .nearPromiseResultU64 _ => pure collector
+    | .crosscallNamed _ _ _ _ => pure collector
+    | .crosscallContinue _ _ _ _ _ | .crosscallInvokeNamedValue _ _ _ _ _ => pure collector
     | .effect effect => collectEventPlansFromEffect module env collector effect
 
   partial def collectEventPlansFromEffect
@@ -575,6 +577,9 @@ mutual
       (env : TypeEnv)
       (collector : EventCollector) :
       Effect → Except LowerError EventCollector
+    | .hostCall _ args _ =>
+        args.foldlM (init := collector) fun acc arg =>
+          collectEventPlansFromExpr module env acc arg
     | .storageScalarRead _ => pure collector
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
         collectEventPlansFromExpr module env collector value
@@ -628,22 +633,6 @@ mutual
           fieldPlans := fieldPlans.push (EventFieldPlan.mk field.fst fieldType false)
         let signature ← eventSignature module env name (indexedFields ++ dataFields)
         pure (collector.add (EventPlan.mk name signature fieldPlans))
-    | .checkErc721Received a b c d => do
-        let collector ← collectEventPlansFromExpr module env collector a
-        let collector ← collectEventPlansFromExpr module env collector b
-        let collector ← collectEventPlansFromExpr module env collector c
-        collectEventPlansFromExpr module env collector d
-    | .checkErc1155Received a b c d e => do
-        let collector ← collectEventPlansFromExpr module env collector a
-        let collector ← collectEventPlansFromExpr module env collector b
-        let collector ← collectEventPlansFromExpr module env collector c
-        let collector ← collectEventPlansFromExpr module env collector d
-        collectEventPlansFromExpr module env collector e
-
-    | .checkErc1155BatchReceived a b c d e =>
-        #[a, b, c, d, e].foldlM (init := collector)
-          (collectEventPlansFromExpr module env)
-
   partial def collectEventPlansFromStatements
       (module : Module)
       (env : TypeEnv)
@@ -751,7 +740,9 @@ def nestedLocalArrayGetShapesForDynamicExprTarget
 
 mutual
   partial def localArrayGetLengthsExpr (env : TypeEnv) : Expr → Array Nat
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeNatSets acc (localArrayGetLengthsExpr env value)
@@ -775,18 +766,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         mergeNatSets (localArrayGetLengthsExpr env lhs) (localArrayGetLengthsExpr env rhs)
-    | .ecrecover a b c d =>
-        mergeNatSets
-          (mergeNatSets (localArrayGetLengthsExpr env a) (localArrayGetLengthsExpr env b))
-          (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d))
-    | .eip712PermitDigest a b c d e f =>
-        mergeNatSets
-          (mergeNatSets
-            (mergeNatSets (localArrayGetLengthsExpr env a) (localArrayGetLengthsExpr env b))
-            (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d)))
-          (mergeNatSets (localArrayGetLengthsExpr env e) (localArrayGetLengthsExpr env f))
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        localArrayGetLengthsExpr env target
     | .cast value _ | .boolNot value | .hash value =>
         localArrayGetLengthsExpr env value
     | .hashValue a b c d =>
@@ -805,25 +784,21 @@ mutual
         let nested := mergeNatSets nested (localArrayGetLengthsExpr env callValue)
         args.foldl (init := nested) fun acc arg =>
           mergeNatSets acc (localArrayGetLengthsExpr env arg)
-    | .crosscallCreate callValue _ =>
-        localArrayGetLengthsExpr env callValue
-    | .crosscallCreate2 callValue salt _ =>
-        mergeNatSets (localArrayGetLengthsExpr env callValue) (localArrayGetLengthsExpr env salt)
     | .crosscallNamed _ _ args _ => args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]
-    | .nearPromiseThen p m args d =>
+    | .crosscallContinue p m args d _ =>
         mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env p) (localArrayGetLengthsExpr env m))
           (mergeNatSets (localArrayGetLengthsExpr env d) (args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]))
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env accountIndex) (localArrayGetLengthsExpr env methodId))
           (mergeNatSets (localArrayGetLengthsExpr env deposit)
             (args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]))
-    | .nearPromiseResultsCount => #[]
-    | .nearPromiseResultStatus i => localArrayGetLengthsExpr env i
-    | .nearPromiseResultU64 i => localArrayGetLengthsExpr env i
     | .effect effect =>
         localArrayGetLengthsEffect env effect
 
   partial def localArrayGetLengthsEffect (env : TypeEnv) : Effect → Array Nat
+    | .hostCall _ args _ =>
+        args.foldl (init := #[]) fun acc arg =>
+          mergeNatSets acc (localArrayGetLengthsExpr env arg)
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .contextRead _ => #[]
     | .storageScalarWrite _ value
     | .storageScalarAssignOp _ _ value
@@ -863,21 +838,6 @@ mutual
           mergeNatSets acc (localArrayGetLengthsExpr env field.snd)
         dataFields.foldl (init := indexedLengths) fun acc field =>
           mergeNatSets acc (localArrayGetLengthsExpr env field.snd)
-    | .checkErc721Received a b c d =>
-        mergeNatSets
-          (mergeNatSets (localArrayGetLengthsExpr env a) (localArrayGetLengthsExpr env b))
-          (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d))
-    | .checkErc1155Received a b c d e =>
-        mergeNatSets
-          (mergeNatSets
-            (mergeNatSets (localArrayGetLengthsExpr env a) (localArrayGetLengthsExpr env b))
-            (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d)))
-          (localArrayGetLengthsExpr env e)
-
-    | .checkErc1155BatchReceived a b c d e =>
-        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
-          mergeNatSets acc (localArrayGetLengthsExpr env expr)
-
   partial def localArrayGetLengthsStoragePathSegment (env : TypeEnv) : StoragePathSegment → Array Nat
     | .field _ => #[]
     | .index index => localArrayGetLengthsExpr env index
@@ -942,7 +902,10 @@ def buildLocalArrayGetLengths (module : Module) : Except LowerError (Array Nat) 
 
 mutual
   partial def nestedLocalArrayGetShapesExpr (env : TypeEnv) : Expr → Array (Array Nat)
-    | .literal _ | .local _ | .nativeValue => #[]
+    | .literal _ | .local _ | .nativeValue | .callValueU128 => #[]
+    | .hostCall _ args _ _ =>
+        args.foldl (fun acc arg =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)) #[]
     | .arrayLit _ values =>
         values.foldl (init := #[]) fun acc value =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env value)
@@ -967,18 +930,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         mergeNatArraySets (nestedLocalArrayGetShapesExpr env lhs) (nestedLocalArrayGetShapesExpr env rhs)
-    | .ecrecover a b c d =>
-        mergeNatArraySets
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env a) (nestedLocalArrayGetShapesExpr env b))
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d))
-    | .eip712PermitDigest a b c d e f =>
-        mergeNatArraySets
-          (mergeNatArraySets
-            (mergeNatArraySets (nestedLocalArrayGetShapesExpr env a) (nestedLocalArrayGetShapesExpr env b))
-            (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d)))
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env e) (nestedLocalArrayGetShapesExpr env f))
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        nestedLocalArrayGetShapesExpr env target
     | .cast value _ | .boolNot value | .hash value =>
         nestedLocalArrayGetShapesExpr env value
     | .hashValue a b c d =>
@@ -999,26 +950,22 @@ mutual
         let nested := mergeNatArraySets nested (nestedLocalArrayGetShapesExpr env callValue)
         args.foldl (init := nested) fun acc arg =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)
-    | .crosscallCreate callValue _ =>
-        nestedLocalArrayGetShapesExpr env callValue
-    | .crosscallCreate2 callValue salt _ =>
-        mergeNatArraySets (nestedLocalArrayGetShapesExpr env callValue) (nestedLocalArrayGetShapesExpr env salt)
     | .crosscallNamed _ _ args _ => args.foldl (fun acc arg => mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)) #[]
-    | .nearPromiseThen p m args d =>
+    | .crosscallContinue p m args d _ =>
         let acc := mergeNatArraySets (nestedLocalArrayGetShapesExpr env p) (nestedLocalArrayGetShapesExpr env m)
         let acc := mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env d)
         args.foldl (fun a arg => mergeNatArraySets a (nestedLocalArrayGetShapesExpr env arg)) acc
-    | .nearCrosscallInvokePool accountIndex methodId args deposit =>
+    | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         let acc := mergeNatArraySets (nestedLocalArrayGetShapesExpr env accountIndex) (nestedLocalArrayGetShapesExpr env methodId)
         let acc := mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env deposit)
         args.foldl (fun a arg => mergeNatArraySets a (nestedLocalArrayGetShapesExpr env arg)) acc
-    | .nearPromiseResultsCount => #[]
-    | .nearPromiseResultStatus i => nestedLocalArrayGetShapesExpr env i
-    | .nearPromiseResultU64 i => nestedLocalArrayGetShapesExpr env i
     | .effect effect =>
         nestedLocalArrayGetShapesEffect env effect
 
   partial def nestedLocalArrayGetShapesEffect (env : TypeEnv) : Effect → Array (Array Nat)
+    | .hostCall _ args _ =>
+        args.foldl (init := #[]) fun acc arg =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .contextRead _ => #[]
     | .storageScalarWrite _ value
     | .storageScalarAssignOp _ _ value
@@ -1058,21 +1005,6 @@ mutual
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env field.snd)
         dataFields.foldl (init := indexedShapes) fun acc field =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env field.snd)
-    | .checkErc721Received a b c d =>
-        mergeNatArraySets
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env a) (nestedLocalArrayGetShapesExpr env b))
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d))
-    | .checkErc1155Received a b c d e =>
-        mergeNatArraySets
-          (mergeNatArraySets
-            (mergeNatArraySets (nestedLocalArrayGetShapesExpr env a) (nestedLocalArrayGetShapesExpr env b))
-            (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d)))
-          (nestedLocalArrayGetShapesExpr env e)
-
-    | .checkErc1155BatchReceived a b c d e =>
-        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
-          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env expr)
-
   partial def nestedLocalArrayGetShapesStoragePathSegment (env : TypeEnv) :
       StoragePathSegment → Array (Array Nat)
     | .field _ => #[]

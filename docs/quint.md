@@ -206,8 +206,6 @@ Phase 3 v1 currently lowers a growing portable IR subset:
   variants (stub: `target + method + sum(args)` with variant tags and
   Bool/U32/U64/Hash return casts), flat struct and fixed-array aggregate
   crosscall params/returns (stub: flatten leaves into `sum + offset` slots),
-  `crosscallCreate` / `crosscallCreate2` (stub: `callValue + tag` and
-  `callValue + salt + tag`), and
   `.assert` / `.assertEq` statement guards
 - Scenario-driven bounds (`MAX_UINT`, `USERS`), scenario `[invariants]`, and derived `val`s
 
