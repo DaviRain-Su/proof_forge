@@ -21,6 +21,7 @@ import Examples.Product.Canonical.ProRataVault
 import Examples.Product.Canonical.AuthRemoteCall
 import Examples.Product.Canonical.ExternalTokenTransfer
 import Examples.Product.Canonical.ExternalVault
+import Examples.Product.Canonical.RoleGatedToken
 import ProofForge.Target.PeerMap
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
@@ -103,5 +104,6 @@ def main : IO Unit := do
   checkProduct Examples.Product.Canonical.AuthRemoteCall.contract 2
   checkProduct Examples.Product.Canonical.ExternalTokenTransfer.contract 5
   checkProduct Examples.Product.Canonical.ExternalVault.contract 4
+  checkProduct Examples.Product.Canonical.RoleGatedToken.contract 8
   checkUnboundPeerRejected Examples.Product.Canonical.AuthRemoteCall.contract
   IO.println "evm-direct-products: ok"

@@ -3193,7 +3193,7 @@ Rules:
 
 ## 2026-07-14 - EVM-R2n: direct deployment-bound protocol products
 
-- Status: `done (verified 2026-07-14)`; 25 of 28 EVM catalog products now have
+- Status: `done (verified 2026-07-14)`; 24 of 28 EVM catalog products now have
   direct Surface v2 materialization.
 - Added a target-neutral Surface peer reference and direct protocol facade.
   Logical peer IDs remain in Canonical Core; `PeerMap` converts CLI bindings to
@@ -3204,6 +3204,18 @@ Rules:
 - Verification: targeted frontend/EVM/product builds,
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, protocol
   materialization tests, and `git diff --check`.
+
+## 2026-07-14 - EVM-R2o: direct RoleGatedToken composition
+
+- Status: `done (verified 2026-07-14)`; 25 of 28 EVM catalog products now have
+  direct Surface v2 materialization.
+- Added a direct role-gated token composition with hashed portable membership
+  keys, admin/minter authorization, balance/supply accounting, transfers, and
+  role/token events. It composes shared semantics without importing the old
+  AccessControl or token Builder mixins.
+- Verification: targeted product build,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.
 
 ## 2026-07-14 - EVM-R2m: direct ProRataVault accounting
 
