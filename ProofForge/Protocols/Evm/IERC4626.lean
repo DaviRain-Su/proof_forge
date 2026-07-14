@@ -10,11 +10,11 @@ does not emit ERC-4626 bodies; this client is ecosystem integration only.
 
 Selectors match the EIP-4626 interface (OpenZeppelin IERC4626).
 -/
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 
 namespace ProofForge.Protocols.Evm.IERC4626
 
-open ProofForge.Contract.Surface
+open ProofForge.Contract.Source.Internal
 
 def catalogId : String := "protocols.evm.ierc4626"
 

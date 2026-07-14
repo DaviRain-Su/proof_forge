@@ -1,7 +1,7 @@
-import ProofForge.Contract.Stdlib.Surface.Policies
+import TestFixtures.SurfaceProducts.Policies
 
 namespace TestFixtures.SurfaceProducts.AccessControl
 
-def contract := ProofForge.Contract.Stdlib.Surface.Policies.accessControl
+def contract := TestFixtures.SurfaceProducts.Policies.accessControl
 
 end TestFixtures.SurfaceProducts.AccessControl

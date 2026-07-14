@@ -2,7 +2,7 @@ import ProofForge.Frontend.Surface
 
 open ProofForge.Frontend.Surface
 
-namespace ProofForge.Contract.Examples.Surface.ContextProducts
+namespace ProofForge.Frontend.Materialize.Evm.ContextProducts
 
 private def u64 (value : Nat) : SurfaceExpr := .literal (.u64Lit value)
 
@@ -119,4 +119,4 @@ def timelockVault : SurfaceContract :=
   binaryLock "TimelockVault" "unlockAt" "unlockAt"
     "get_unlock_at" "85caba73" .blockTimestamp
 
-end ProofForge.Contract.Examples.Surface.ContextProducts
+end ProofForge.Frontend.Materialize.Evm.ContextProducts

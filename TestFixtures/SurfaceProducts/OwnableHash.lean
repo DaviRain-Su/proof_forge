@@ -1,7 +1,7 @@
-import ProofForge.Contract.Stdlib.Surface.Policies
+import TestFixtures.SurfaceProducts.Policies
 
 namespace TestFixtures.SurfaceProducts.OwnableHash
 
-def contract := ProofForge.Contract.Stdlib.Surface.Policies.ownableHash
+def contract := TestFixtures.SurfaceProducts.Policies.ownableHash
 
 end TestFixtures.SurfaceProducts.OwnableHash

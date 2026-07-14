@@ -66,14 +66,14 @@ contract_source RoleGatedToken do
 
   query hasRole (role : .u64, who : .u64) returns(.bool) do
     let member : .u64 := pathReadRole roleMembers role who;
-    return ProofForge.Contract.Surface.ne (ProofForge.Contract.Surface.ref member) (u64 0);
+    return ProofForge.Contract.Source.ne (ProofForge.Contract.Source.ref member) (u64 0);
 
   entry transfer (recipient : .u64, amount : .u64) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount) "zero amount";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount) "zero amount";
     let sender : .u64 := caller;
     let srcBal : .u64 := mapRead balances sender;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
-      (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref srcBal)
+      (ProofForge.Contract.Source.ref amount) "insufficient balance";
     do mapWrite balances sender (srcBal -! amount);
     let dstBal : .u64 := mapRead balances recipient;
     do mapWrite balances recipient (dstBal +! amount);

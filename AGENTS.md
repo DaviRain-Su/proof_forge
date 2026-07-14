@@ -170,7 +170,7 @@ Core are internal compiler representations.
 | A-CUT0 | done (verified 2026-07-14) | Move backend goldens out of Product and delete unused duplicates |
 | A-CUT1 | done (verified 2026-07-14) | Enforce the internal Surface boundary and isolate temporary AST fixtures outside Product |
 | A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
-| A-CUT2 | pending | Make `contract_source` normalize directly to Canonical Core and replace the public `Contract.Surface` helper namespace |
+| A-CUT2 | in_progress (public Surface helper removed) | Make `contract_source` normalize directly to Canonical Core; helpers now enter only through `Contract.Source` |
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
 | A-CUT4 | pending | Delete temporary Surface fixtures and the public V1/V2 source split |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |

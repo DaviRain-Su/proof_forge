@@ -24,7 +24,7 @@ portable cross-contract intent (logical peers; no host string-pool APIs;
 no bare pool indices).
 -/
 import Lean
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 import ProofForge.Contract.Protocol
 
 set_option hygiene false
@@ -41,43 +41,61 @@ def sourceDslVersion : String := "contract_source-v1"
 /-- Surface v2 source DSL version. -/
 def sourceSurfaceVersion : String := "contract_source-v2"
 
-abbrev ScalarRef := ProofForge.Contract.Surface.ScalarRef
-abbrev MapRef := ProofForge.Contract.Surface.MapRef
-abbrev BindingRef := ProofForge.Contract.Surface.BindingRef
-abbrev MethodRef := ProofForge.Contract.Surface.MethodRef
-abbrev EventRef := ProofForge.Contract.Surface.EventRef
-abbrev EventField := ProofForge.Contract.Surface.EventField
-abbrev ModuleM := ProofForge.Contract.Surface.ModuleM
-abbrev EntryM := ProofForge.Contract.Surface.EntryM
+abbrev ScalarRef := ProofForge.Contract.Source.Internal.ScalarRef
+abbrev MapRef := ProofForge.Contract.Source.Internal.MapRef
+abbrev BindingRef := ProofForge.Contract.Source.Internal.BindingRef
+abbrev MethodRef := ProofForge.Contract.Source.Internal.MethodRef
+abbrev EventRef := ProofForge.Contract.Source.Internal.EventRef
+abbrev EventField := ProofForge.Contract.Source.Internal.EventField
+abbrev ModuleM := ProofForge.Contract.Source.Internal.ModuleM
+abbrev EntryM := ProofForge.Contract.Source.Internal.EntryM
 abbrev ContractSpec := ProofForge.Contract.ContractSpec
 abbrev ExternalToken := ProofForge.Contract.Protocol.ExternalToken
 abbrev ExternalVault := ProofForge.Contract.Protocol.ExternalVault
-abbrev RemoteRef := ProofForge.Contract.Surface.RemoteRef
+abbrev RemoteRef := ProofForge.Contract.Source.Internal.RemoteRef
+
+/-! Public authoring helpers live under the single `Contract.Source` API.
+`Source.Internal` owns their implementation and is not a second authoring
+surface. -/
+export ProofForge.Contract.Source.Internal (
+  acquireLock add allowancePath assertCondition bind binding bindingWithAbi
+  bindingWithAbiWord boolOr cast declareConstructorInitBinding
+  declareConstructorParam declareEventAbi declareLeanInvariant
+  declareQuintInvariant declareQuintLiveness declareRemote declareRemoteUnit
+  div eip1967Implementation eip1967ImplementationId emit emitIndexed emitNamed
+  entry entryWithMutability eq event fieldOf ge le mapGet mapKey mapSet mapState
+  markPayable method methodWithReturnAbi methodWithSelector mul nativeTransfer
+  ne pathRead pathWrite peerHandle read ref releaseLock remoteCall requireEq
+  requireGe requireNe requireNonZero requireNotPaused requireOwner
+  requireOwnerHash requirePaused requireRole requireUnlocked requireZero ret
+  scalar setProxyPattern setUpgradePolicy signer slot sub u32 view whenPositive
+  whenZero write
+)
 
 def checkpointId : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.checkpointId
+  ProofForge.Contract.Source.Internal.checkpointId
 
 def timestamp : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.timestamp
+  ProofForge.Contract.Source.Internal.timestamp
 
 def epochHeight : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.epochHeight
+  ProofForge.Contract.Source.Internal.epochHeight
 
 def randomSeed : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.randomSeed
+  ProofForge.Contract.Source.Internal.randomSeed
 
 def u64 (value : Nat) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.u64 value
+  ProofForge.Contract.Source.Internal.u64 value
 
 def u128 (value : Nat) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.u128 value
+  ProofForge.Contract.Source.Internal.u128 value
 
 def boolLit (value : Bool) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.bool value
 
-def emitIndexedEvent (eventRef : ProofForge.Contract.Surface.EventRef)
-    (indexedFields dataFields : Array ProofForge.Contract.Surface.EventField) : EntryM Unit :=
-  ProofForge.Contract.Surface.emitIndexed eventRef indexedFields dataFields
+def emitIndexedEvent (eventRef : ProofForge.Contract.Source.Internal.EventRef)
+    (indexedFields dataFields : Array ProofForge.Contract.Source.Internal.EventField) : EntryM Unit :=
+  ProofForge.Contract.Source.Internal.emitIndexed eventRef indexedFields dataFields
 
 class ToExpr (α : Type) where
   toExpr : α → ProofForge.IR.Expr
@@ -85,11 +103,11 @@ class ToExpr (α : Type) where
 instance : ToExpr ProofForge.IR.Expr where
   toExpr value := value
 
-instance : ToExpr ProofForge.Contract.Surface.BindingRef where
-  toExpr binding := ProofForge.Contract.Surface.ref binding
+instance : ToExpr ProofForge.Contract.Source.Internal.BindingRef where
+  toExpr binding := ProofForge.Contract.Source.Internal.ref binding
 
-instance : ToExpr ProofForge.Contract.Surface.ScalarRef where
-  toExpr slot := ProofForge.Contract.Surface.read slot
+instance : ToExpr ProofForge.Contract.Source.Internal.ScalarRef where
+  toExpr slot := ProofForge.Contract.Source.Internal.read slot
 
 instance : ToExpr Nat where
   toExpr value := u64 value
@@ -97,28 +115,28 @@ instance : ToExpr Nat where
 def expr [ToExpr α] (value : α) : ProofForge.IR.Expr :=
   ToExpr.toExpr value
 
-def bindValue [ToExpr α] (binding : ProofForge.Contract.Surface.BindingRef)
+def bindValue [ToExpr α] (binding : ProofForge.Contract.Source.Internal.BindingRef)
     (value : α) : EntryM Unit :=
-  ProofForge.Contract.Surface.bind binding (expr value)
+  ProofForge.Contract.Source.Internal.bind binding (expr value)
 
-def writeValue [ToExpr α] (slot : ProofForge.Contract.Surface.ScalarRef)
+def writeValue [ToExpr α] (slot : ProofForge.Contract.Source.Internal.ScalarRef)
     (value : α) : EntryM Unit :=
-  ProofForge.Contract.Surface.write slot (expr value)
+  ProofForge.Contract.Source.Internal.write slot (expr value)
 
 def retValue [ToExpr α] (value : α) : EntryM Unit :=
-  ProofForge.Contract.Surface.ret (expr value)
+  ProofForge.Contract.Source.Internal.ret (expr value)
 
 def addValue [ToExpr α] [ToExpr β] (lhs : α) (rhs : β) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.add (expr lhs) (expr rhs)
+  ProofForge.Contract.Source.Internal.add (expr lhs) (expr rhs)
 
 def subValue [ToExpr α] [ToExpr β] (lhs : α) (rhs : β) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.sub (expr lhs) (expr rhs)
+  ProofForge.Contract.Source.Internal.sub (expr lhs) (expr rhs)
 
 def mulValue [ToExpr α] [ToExpr β] (lhs : α) (rhs : β) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.mul (expr lhs) (expr rhs)
+  ProofForge.Contract.Source.Internal.mul (expr lhs) (expr rhs)
 
 def divValue [ToExpr α] [ToExpr β] (lhs : α) (rhs : β) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.div (expr lhs) (expr rhs)
+  ProofForge.Contract.Source.Internal.div (expr lhs) (expr rhs)
 
 def u64Array3 [ToExpr α] [ToExpr β] [ToExpr γ] (a : α) (b : β) (c : γ) : ProofForge.IR.Expr :=
   .arrayLit .u64 #[expr a, expr b, expr c]
@@ -132,31 +150,31 @@ scoped infixl:70 " *! " => mulValue
 scoped infixl:70 " /! " => divValue
 
 class ToField (α : Type) where
-  toField : α → ProofForge.Contract.Surface.EventField
+  toField : α → ProofForge.Contract.Source.Internal.EventField
 
-instance : ToField ProofForge.Contract.Surface.BindingRef where
-  toField binding := ProofForge.Contract.Surface.fieldOf binding
+instance : ToField ProofForge.Contract.Source.Internal.BindingRef where
+  toField binding := ProofForge.Contract.Source.Internal.fieldOf binding
 
-instance : ToField ProofForge.Contract.Surface.ScalarRef where
-  toField slot := ProofForge.Contract.Surface.fieldAs slot (expr slot)
+instance : ToField ProofForge.Contract.Source.Internal.ScalarRef where
+  toField slot := ProofForge.Contract.Source.Internal.fieldAs slot (expr slot)
 
-def field [ToField α] (value : α) : ProofForge.Contract.Surface.EventField :=
+def field [ToField α] (value : α) : ProofForge.Contract.Source.Internal.EventField :=
   ToField.toField value
 
-def fieldAsName (name : String) [ToExpr α] (value : α) : ProofForge.Contract.Surface.EventField :=
-  ProofForge.Contract.Surface.field name (expr value)
+def fieldAsName (name : String) [ToExpr α] (value : α) : ProofForge.Contract.Source.Internal.EventField :=
+  ProofForge.Contract.Source.Internal.field name (expr value)
 
 def fieldValue [ToExpr α] (name : String) (value : α) :
-    ProofForge.Contract.Surface.EventField :=
-  ProofForge.Contract.Surface.field name (expr value)
+    ProofForge.Contract.Source.Internal.EventField :=
+  ProofForge.Contract.Source.Internal.field name (expr value)
 
-def fieldAs [ToExpr α] (slot : ProofForge.Contract.Surface.ScalarRef)
-    (value : α) : ProofForge.Contract.Surface.EventField :=
-  ProofForge.Contract.Surface.fieldAs slot (expr value)
+def fieldAs [ToExpr α] (slot : ProofForge.Contract.Source.Internal.ScalarRef)
+    (value : α) : ProofForge.Contract.Source.Internal.EventField :=
+  ProofForge.Contract.Source.Internal.fieldAs slot (expr value)
 
-def emitEvent (eventRef : ProofForge.Contract.Surface.EventRef)
-    (fields : Array ProofForge.Contract.Surface.EventField) : EntryM Unit :=
-  ProofForge.Contract.Surface.emit eventRef fields
+def emitEvent (eventRef : ProofForge.Contract.Source.Internal.EventRef)
+    (fields : Array ProofForge.Contract.Source.Internal.EventField) : EntryM Unit :=
+  ProofForge.Contract.Source.Internal.emit eventRef fields
 
 /-- Portable external FT peer (product protocol intent; no `Protocols.*` import). -/
 def declareExternalToken (peerId : String) : ModuleM ExternalToken :=
@@ -207,7 +225,7 @@ def externalVaultAsset (vault : ExternalVault) : ProofForge.IR.Expr :=
   ProofForge.Contract.Protocol.externalVaultAsset vault
 
 def remoteCallRef (remote : RemoteRef) (args : Array ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.remoteCallRef remote args
+  ProofForge.Contract.Source.Internal.remoteCallRef remote args
 
 declare_syntax_cat contractItem
 declare_syntax_cat entryStmt
@@ -339,24 +357,24 @@ def mkParamLet (name : TSyntax `ident) (type : TSyntax `term)
   let nameLit := identNameLit name
   match type with
   | `(.address) =>
-    `(let $name : ProofForge.Contract.Surface.BindingRef :=
-        ProofForge.Contract.Surface.bindingWithAbi $nameLit (.u64) "address"
+    `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+        ProofForge.Contract.Source.Internal.bindingWithAbi $nameLit (.u64) "address"
       $body)
   | `(.bytes4) =>
-    `(let $name : ProofForge.Contract.Surface.BindingRef :=
-        ProofForge.Contract.Surface.bindingWithAbi $nameLit (.u64) "bytes4"
+    `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+        ProofForge.Contract.Source.Internal.bindingWithAbi $nameLit (.u64) "bytes4"
       $body)
   | `(.hash) =>
-    `(let $name : ProofForge.Contract.Surface.BindingRef :=
-        ProofForge.Contract.Surface.bindingWithAbi $nameLit (.hash) "bytes32"
+    `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+        ProofForge.Contract.Source.Internal.bindingWithAbi $nameLit (.hash) "bytes32"
       $body)
   | `(.bytes32) =>
-    `(let $name : ProofForge.Contract.Surface.BindingRef :=
-        ProofForge.Contract.Surface.bindingWithAbi $nameLit (.hash) "bytes32"
+    `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+        ProofForge.Contract.Source.Internal.bindingWithAbi $nameLit (.hash) "bytes32"
       $body)
   | _ =>
-    `(let $name : ProofForge.Contract.Surface.BindingRef :=
-        ProofForge.Contract.Surface.binding $nameLit $type
+    `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+        ProofForge.Contract.Source.Internal.binding $nameLit $type
       $body)
 
 def mkBindingLet (name : TSyntax `ident) (type : TSyntax `term)
@@ -366,22 +384,22 @@ def mkBindingLet (name : TSyntax `ident) (type : TSyntax `term)
 def mkMapLet (name : TSyntax `ident) (keyType valueType : TSyntax `term)
     (body : TSyntax `term) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
-  `(let $name : ProofForge.Contract.Surface.MapRef :=
+  `(let $name : ProofForge.Contract.Source.Internal.MapRef :=
       { id := $nameLit, keyType := $keyType, valueType := $valueType }
     $body)
 
 def mkStateLet (name : TSyntax `ident) (type : TSyntax `term)
     (body : TSyntax `term) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
-  `(let $name : ProofForge.Contract.Surface.ScalarRef :=
-      ProofForge.Contract.Surface.slot $nameLit $type
+  `(let $name : ProofForge.Contract.Source.Internal.ScalarRef :=
+      ProofForge.Contract.Source.Internal.slot $nameLit $type
     $body)
 
 def mkEventLet (name : TSyntax `ident)
     (body : TSyntax `term) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
-  `(let $name : ProofForge.Contract.Surface.EventRef :=
-      ProofForge.Contract.Surface.event $nameLit
+  `(let $name : ProofForge.Contract.Source.Internal.EventRef :=
+      ProofForge.Contract.Source.Internal.event $nameLit
     $body)
 
 /-- Optional Solana (or other extension) entry-stmt handler.
@@ -406,24 +424,24 @@ partial def lowerEntryBody (stmts : Array (TSyntax `entryStmt))
           acc ←
             match type with
             | `(.address) =>
-              `(let $name : ProofForge.Contract.Surface.BindingRef :=
-                  ProofForge.Contract.Surface.bindingWithAbi $nameLit (.u64) "address"
+              `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+                  ProofForge.Contract.Source.Internal.bindingWithAbi $nameLit (.u64) "address"
                 ProofForge.Contract.Source.bindValue $name $value *> $acc)
             | `(.bytes4) =>
-              `(let $name : ProofForge.Contract.Surface.BindingRef :=
-                  ProofForge.Contract.Surface.bindingWithAbi $nameLit (.u64) "bytes4"
+              `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+                  ProofForge.Contract.Source.Internal.bindingWithAbi $nameLit (.u64) "bytes4"
                 ProofForge.Contract.Source.bindValue $name $value *> $acc)
             | `(.hash) =>
-              `(let $name : ProofForge.Contract.Surface.BindingRef :=
-                  ProofForge.Contract.Surface.bindingWithAbi $nameLit (.hash) "bytes32"
+              `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+                  ProofForge.Contract.Source.Internal.bindingWithAbi $nameLit (.hash) "bytes32"
                 ProofForge.Contract.Source.bindValue $name $value *> $acc)
             | `(.bytes32) =>
-              `(let $name : ProofForge.Contract.Surface.BindingRef :=
-                  ProofForge.Contract.Surface.bindingWithAbi $nameLit (.hash) "bytes32"
+              `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+                  ProofForge.Contract.Source.Internal.bindingWithAbi $nameLit (.hash) "bytes32"
                 ProofForge.Contract.Source.bindValue $name $value *> $acc)
             | _ =>
-              `(let $name : ProofForge.Contract.Surface.BindingRef :=
-                  ProofForge.Contract.Surface.binding $nameLit $type
+              `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+                  ProofForge.Contract.Source.Internal.binding $nameLit $type
                 ProofForge.Contract.Source.bindValue $name $value *> $acc)
       | `(entryStmt| $slot:ident := $value:term;) =>
           acc ← `(ProofForge.Contract.Source.writeValue $slot $value *> $acc)
@@ -436,30 +454,30 @@ partial def lowerEntryBody (stmts : Array (TSyntax `entryStmt))
       | `(entryStmt| do $action:term;) =>
           acc ← `($action *> $acc)
       | `(entryStmt| accepts_callvalue;) =>
-          acc ← `(ProofForge.Contract.Surface.markPayable *> $acc)
+          acc ← `(ProofForge.Contract.Source.Internal.markPayable *> $acc)
       | `(entryStmt| sendto $recipient:ident $amount:ident;) =>
-          acc ← `(ProofForge.Contract.Surface.nativeTransfer (ProofForge.Contract.Source.expr $recipient) (ProofForge.Contract.Source.expr $amount) *> $acc)
+          acc ← `(ProofForge.Contract.Source.Internal.nativeTransfer (ProofForge.Contract.Source.expr $recipient) (ProofForge.Contract.Source.expr $amount) *> $acc)
       | `(entryStmt| guard_owner $slot:ident;) =>
-          acc ← `(ProofForge.Contract.Surface.requireOwner $slot *> $acc)
+          acc ← `(ProofForge.Contract.Source.Internal.requireOwner $slot *> $acc)
       | `(entryStmt| guard_role $role:ident;) =>
           acc ←
-            `(ProofForge.Contract.Surface.requireRole roleMembers (ProofForge.Contract.Source.expr $role)
-                ProofForge.Contract.Surface.caller *> $acc)
+            `(ProofForge.Contract.Source.Internal.requireRole roleMembers (ProofForge.Contract.Source.expr $role)
+                ProofForge.Contract.Source.Internal.caller *> $acc)
       | `(entryStmt| guard_not_paused $slot:ident;) =>
-          acc ← `(ProofForge.Contract.Surface.requireNotPaused $slot *> $acc)
+          acc ← `(ProofForge.Contract.Source.Internal.requireNotPaused $slot *> $acc)
       | `(entryStmt| guard_paused $slot:ident;) =>
-          acc ← `(ProofForge.Contract.Surface.requirePaused $slot *> $acc)
+          acc ← `(ProofForge.Contract.Source.Internal.requirePaused $slot *> $acc)
       | `(entryStmt| guard_unlocked $slot:ident;) =>
-          acc ← `(ProofForge.Contract.Surface.requireUnlocked $slot *> $acc)
+          acc ← `(ProofForge.Contract.Source.Internal.requireUnlocked $slot *> $acc)
       | `(entryStmt| acquire_lock $slot:ident;) =>
-          acc ← `(ProofForge.Contract.Surface.acquireLock $slot *> $acc)
+          acc ← `(ProofForge.Contract.Source.Internal.acquireLock $slot *> $acc)
       | `(entryStmt| release_lock $slot:ident;) =>
-          acc ← `(ProofForge.Contract.Surface.releaseLock $slot *> $acc)
+          acc ← `(ProofForge.Contract.Source.Internal.releaseLock $slot *> $acc)
       | `(entryStmt| fixedu64x3 $name:ident ($a:term, $b:term, $c:term);) =>
           let nameLit := identNameLit name
           acc ←
-            `(let $name : ProofForge.Contract.Surface.BindingRef :=
-                ProofForge.Contract.Surface.binding $nameLit (.fixedArray .u64 3)
+            `(let $name : ProofForge.Contract.Source.Internal.BindingRef :=
+                ProofForge.Contract.Source.Internal.binding $nameLit (.fixedArray .u64 3)
               ProofForge.Contract.Source.bindValue $name (ProofForge.Contract.Source.u64Array3 $a $b $c) *> $acc)
       | _ =>
           Macro.throwError
@@ -471,9 +489,9 @@ non-portable module. For portable cross-contract calls, use `remote` + `remoteCa
 
 def surfaceEntryFn (isView : Bool) : MacroM (TSyntax `term) :=
   if isView then
-    `(ProofForge.Contract.Surface.view)
+    `(ProofForge.Contract.Source.Internal.view)
   else
-    `(ProofForge.Contract.Surface.entry)
+    `(ProofForge.Contract.Source.Internal.entry)
 
 def mkEntry0 (name : TSyntax `ident) (retTy : TSyntax `term) (isView : Bool)
     (stmts : Array (TSyntax `entryStmt))
@@ -482,7 +500,7 @@ def mkEntry0 (name : TSyntax `ident) (retTy : TSyntax `term) (isView : Bool)
   let body ← lowerEntryBody stmts ext
   let entryFn ← surfaceEntryFn isView
   `($entryFn
-      (ProofForge.Contract.Surface.method $nameLit #[] $retTy)
+      (ProofForge.Contract.Source.Internal.method $nameLit #[] $retTy)
       $body)
 
 def mkEntry1 (name p1 : TSyntax `ident) (t1 retTy : TSyntax `term) (isView : Bool)
@@ -493,7 +511,7 @@ def mkEntry1 (name p1 : TSyntax `ident) (t1 retTy : TSyntax `term) (isView : Boo
   let entryFn ← surfaceEntryFn isView
   mkParamLet p1 t1
     (← `($entryFn
-        (ProofForge.Contract.Surface.method $nameLit #[$p1] $retTy)
+        (ProofForge.Contract.Source.Internal.method $nameLit #[$p1] $retTy)
         $body))
 
 def mkEntry2 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
@@ -506,7 +524,7 @@ def mkEntry2 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
   mkParamLet p1 t1
     (← mkParamLet p2 t2
       (← `($entryFn
-          (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2] $retTy)
+          (ProofForge.Contract.Source.Internal.method $nameLit #[$p1, $p2] $retTy)
           $body)))
 
 def mkEntry3 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
@@ -521,7 +539,7 @@ def mkEntry3 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
     (← mkParamLet p2 t2
       (← mkParamLet p3 t3
         (← `($entryFn
-            (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3] $retTy)
+            (ProofForge.Contract.Source.Internal.method $nameLit #[$p1, $p2, $p3] $retTy)
             $body))))
 
 def mkEntry4 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
@@ -537,7 +555,7 @@ def mkEntry4 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
       (← mkParamLet p3 t3
         (← mkParamLet p4 t4
           (← `($entryFn
-              (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3, $p4] $retTy)
+              (ProofForge.Contract.Source.Internal.method $nameLit #[$p1, $p2, $p3, $p4] $retTy)
               $body)))))
 
 def mkEntry5 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
@@ -555,7 +573,7 @@ def mkEntry5 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
         (← mkParamLet p4 t4
           (← mkParamLet p5 t5
             (← `($entryFn
-                (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3, $p4, $p5] $retTy)
+                (ProofForge.Contract.Source.Internal.method $nameLit #[$p1, $p2, $p3, $p4, $p5] $retTy)
                 $body))))))
 
 def mkEntry6 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
@@ -574,7 +592,7 @@ def mkEntry6 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
           (← mkParamLet p5 t5
             (← mkParamLet p6 t6
               (← `($entryFn
-                  (ProofForge.Contract.Surface.method $nameLit #[$p1, $p2, $p3, $p4, $p5, $p6] $retTy)
+                  (ProofForge.Contract.Source.Internal.method $nameLit #[$p1, $p2, $p3, $p4, $p5, $p6] $retTy)
                   $body)))))))
 
 def mkEntry7 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
@@ -595,7 +613,7 @@ def mkEntry7 (name p1 : TSyntax `ident) (t1 : TSyntax `term)
             (← mkParamLet p6 t6
               (← mkParamLet p7 t7
                 (← `($entryFn
-                    (ProofForge.Contract.Surface.method $nameLit
+                    (ProofForge.Contract.Source.Internal.method $nameLit
                       #[$p1, $p2, $p3, $p4, $p5, $p6, $p7] $retTy)
                     $body))))))))
 
@@ -620,47 +638,47 @@ def lowerItem (item : TSyntax `contractItem)
   | none => pure ()
   match item with
   | `(contractItem| upgrade_policy_immutable;) =>
-      let action ← `(ProofForge.Contract.Surface.setUpgradePolicy ProofForge.Contract.UpgradePolicy.immutable)
+      let action ← `(ProofForge.Contract.Source.Internal.setUpgradePolicy ProofForge.Contract.UpgradePolicy.immutable)
       return { action? := some action }
   | `(contractItem| upgrade_policy_authority $keyRef:ident;) =>
       let keyLit := identNameLit keyRef
-      let action ← `(ProofForge.Contract.Surface.setUpgradePolicy (ProofForge.Contract.UpgradePolicy.authority $keyLit))
+      let action ← `(ProofForge.Contract.Source.Internal.setUpgradePolicy (ProofForge.Contract.UpgradePolicy.authority $keyLit))
       return { action? := some action }
   | `(contractItem| proxy_pattern_uups;) =>
-      let action ← `(ProofForge.Contract.Surface.setProxyPattern ProofForge.Contract.ProxyPattern.uups)
+      let action ← `(ProofForge.Contract.Source.Internal.setProxyPattern ProofForge.Contract.ProxyPattern.uups)
       return { action? := some action }
   | `(contractItem| proxy_pattern_transparent;) =>
-      let action ← `(ProofForge.Contract.Surface.setProxyPattern ProofForge.Contract.ProxyPattern.transparent)
+      let action ← `(ProofForge.Contract.Source.Internal.setProxyPattern ProofForge.Contract.ProxyPattern.transparent)
       return { action? := some action }
   | `(contractItem| constructor_param $name:ident : "cstring";) =>
       let nameLit := identNameLit name
-      let action ← `(ProofForge.Contract.Surface.declareConstructorParam $nameLit "string")
+      let action ← `(ProofForge.Contract.Source.Internal.declareConstructorParam $nameLit "string")
       return { action? := some action }
   | `(contractItem| constructor_param $name:ident : "cbytes";) =>
       let nameLit := identNameLit name
-      let action ← `(ProofForge.Contract.Surface.declareConstructorParam $nameLit "bytes")
+      let action ← `(ProofForge.Contract.Source.Internal.declareConstructorParam $nameLit "bytes")
       return { action? := some action }
   | `(contractItem| constructor_param $name:ident : "u256array";) =>
       let nameLit := identNameLit name
-      let action ← `(ProofForge.Contract.Surface.declareConstructorParam $nameLit "uint256[]")
+      let action ← `(ProofForge.Contract.Source.Internal.declareConstructorParam $nameLit "uint256[]")
       return { action? := some action }
   | `(contractItem| quint_invariant $name:ident := $expr:str) =>
       let nameLit := identNameLit name
       let exprStr ← strLitValue expr
       let exprLit := Syntax.mkStrLit exprStr
-      let action ← `(ProofForge.Contract.Surface.declareQuintInvariant $nameLit $exprLit)
+      let action ← `(ProofForge.Contract.Source.Internal.declareQuintInvariant $nameLit $exprLit)
       return { action? := some action }
   | `(contractItem| quint_liveness $name:ident := $expr:str) =>
       let nameLit := identNameLit name
       let exprStr ← strLitValue expr
       let exprLit := Syntax.mkStrLit exprStr
-      let action ← `(ProofForge.Contract.Surface.declareQuintLiveness $nameLit $exprLit)
+      let action ← `(ProofForge.Contract.Source.Internal.declareQuintLiveness $nameLit $exprLit)
       return { action? := some action }
   | `(contractItem| lean_invariant $name:ident := $predFnName:str) =>
       let nameLit := identNameLit name
       let predStr ← strLitValue predFnName
       let predLit := Syntax.mkStrLit predStr
-      let action ← `(ProofForge.Contract.Surface.declareLeanInvariant $nameLit $predLit)
+      let action ← `(ProofForge.Contract.Source.Internal.declareLeanInvariant $nameLit $predLit)
       return { action? := some action }
   | `(contractItem| remote $name:ident $peer:str $method:str;) => do
       let peerS ← strLitValue peer
@@ -669,8 +687,8 @@ def lowerItem (item : TSyntax `contractItem)
       let methodLit : TSyntax `term := quote methodS
       return {
         binder := fun body =>
-          `(bind (ProofForge.Contract.Surface.declareRemote $peerLit $methodLit)
-              (fun ($name : ProofForge.Contract.Surface.RemoteRef) => $body))
+          `(bind (ProofForge.Contract.Source.Internal.declareRemote $peerLit $methodLit)
+              (fun ($name : ProofForge.Contract.Source.Internal.RemoteRef) => $body))
       }
   | `(contractItem| external_token $name:ident $peer:str;) => do
       let peerS ← strLitValue peer
@@ -694,27 +712,27 @@ def lowerItem (item : TSyntax `contractItem)
       let nameLit := identNameLit name
       match type with
       | `(.u64) =>
-          let action ← `(ProofForge.Contract.Surface.declareConstructorParam $nameLit "uint256")
+          let action ← `(ProofForge.Contract.Source.Internal.declareConstructorParam $nameLit "uint256")
           return { action? := some action }
       | `(.u32) =>
-          let action ← `(ProofForge.Contract.Surface.declareConstructorParam $nameLit "uint32")
+          let action ← `(ProofForge.Contract.Source.Internal.declareConstructorParam $nameLit "uint32")
           return { action? := some action }
       | `(.bool) =>
-          let action ← `(ProofForge.Contract.Surface.declareConstructorParam $nameLit "bool")
+          let action ← `(ProofForge.Contract.Source.Internal.declareConstructorParam $nameLit "bool")
           return { action? := some action }
       | _ =>
           Macro.throwError s!"unsupported constructor_param type: {type.raw}"
   | `(contractItem| state $name:ident : $type:term) =>
-      let action ← `(ProofForge.Contract.Surface.scalar $name)
+      let action ← `(ProofForge.Contract.Source.Internal.scalar $name)
       return { action? := some action, binder := mkStateLet name type }
   | `(contractItem| mapping $name:ident from $keyType:term to $valueType:term) =>
-      let action ← `(ProofForge.Contract.Surface.mapState $name)
+      let action ← `(ProofForge.Contract.Source.Internal.mapState $name)
       return { action? := some action, binder := mkMapLet name keyType valueType }
   | `(contractItem| binding $name:ident : $type:term) =>
       return { binder := mkBindingLet name type }
   | `(contractItem| event $name:ident abi $fields:term) =>
       let nameLit := identNameLit name
-      let action ← `(ProofForge.Contract.Surface.declareEventAbi $nameLit $fields)
+      let action ← `(ProofForge.Contract.Source.Internal.declareEventAbi $nameLit $fields)
       return { action? := some action, binder := mkEventLet name }
   | `(contractItem| event $name:ident) =>
       return { binder := mkEventLet name }
@@ -806,7 +824,7 @@ macro_rules
         let (body, _) ← lowerContractItems items
         `(
           def $specId : ProofForge.Contract.ContractSpec :=
-            ProofForge.Contract.Surface.contract $nameLit $body
+            ProofForge.Contract.Source.Internal.contract $nameLit $body
 
           def $moduleId : ProofForge.IR.Module :=
             ($specId).module
@@ -825,7 +843,7 @@ macro_rules
         `(
           def $specId : ProofForge.Contract.ContractSpec :=
             ProofForge.Contract.Compose.mergeExtension $nameLit $baseSpec
-              (ProofForge.Contract.Surface.contract $nameLit $extBody)
+              (ProofForge.Contract.Source.Internal.contract $nameLit $extBody)
 
           def $moduleId : ProofForge.IR.Module :=
             ($specId).module
@@ -838,74 +856,74 @@ macro_rules
         def $mixinId : ModuleM Unit := $body
       )
 
-def mapRead [ToExpr α] (mapRef : ProofForge.Contract.Surface.MapRef) (mapKey : α) :
+def mapRead [ToExpr α] (mapRef : ProofForge.Contract.Source.Internal.MapRef) (mapKey : α) :
     ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.mapGet mapRef (expr mapKey)
+  ProofForge.Contract.Source.Internal.mapGet mapRef (expr mapKey)
 
 def mapWrite [ToExpr α] [ToExpr β]
-    (mapRef : ProofForge.Contract.Surface.MapRef) (mapKey : α) (mapValue : β) : EntryM Unit :=
-  ProofForge.Contract.Surface.mapSet mapRef (expr mapKey) (expr mapValue)
+    (mapRef : ProofForge.Contract.Source.Internal.MapRef) (mapKey : α) (mapValue : β) : EntryM Unit :=
+  ProofForge.Contract.Source.Internal.mapSet mapRef (expr mapKey) (expr mapValue)
 
-def pathReadAllowance (mapRef : ProofForge.Contract.Surface.MapRef)
+def pathReadAllowance (mapRef : ProofForge.Contract.Source.Internal.MapRef)
     (ownerKey spenderKey : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.pathRead mapRef.id
-    (ProofForge.Contract.Surface.allowancePath ownerKey spenderKey)
+  ProofForge.Contract.Source.Internal.pathRead mapRef.id
+    (ProofForge.Contract.Source.Internal.allowancePath ownerKey spenderKey)
 
 def pathWriteAllowance [ToExpr α]
-    (mapRef : ProofForge.Contract.Surface.MapRef) (ownerKey spenderKey : ProofForge.IR.Expr)
+    (mapRef : ProofForge.Contract.Source.Internal.MapRef) (ownerKey spenderKey : ProofForge.IR.Expr)
     (mapValue : α) : EntryM Unit :=
-  ProofForge.Contract.Surface.pathWrite mapRef.id
-    (ProofForge.Contract.Surface.allowancePath ownerKey spenderKey) (expr mapValue)
+  ProofForge.Contract.Source.Internal.pathWrite mapRef.id
+    (ProofForge.Contract.Source.Internal.allowancePath ownerKey spenderKey) (expr mapValue)
 
 def pathReadRole [ToExpr α] [ToExpr β]
-    (mapRef : ProofForge.Contract.Surface.MapRef) (roleKey : α) (accountKey : β) :
+    (mapRef : ProofForge.Contract.Source.Internal.MapRef) (roleKey : α) (accountKey : β) :
     ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.pathRead mapRef.id
-    (ProofForge.Contract.Surface.allowancePath (expr roleKey) (expr accountKey))
+  ProofForge.Contract.Source.Internal.pathRead mapRef.id
+    (ProofForge.Contract.Source.Internal.allowancePath (expr roleKey) (expr accountKey))
 
 def pathWriteRole [ToExpr α] [ToExpr β] [ToExpr γ]
-    (mapRef : ProofForge.Contract.Surface.MapRef) (roleKey : α) (accountKey : β)
+    (mapRef : ProofForge.Contract.Source.Internal.MapRef) (roleKey : α) (accountKey : β)
     (mapValue : γ) : EntryM Unit :=
-  ProofForge.Contract.Surface.pathWrite mapRef.id
-    (ProofForge.Contract.Surface.allowancePath (expr roleKey) (expr accountKey)) (expr mapValue)
+  ProofForge.Contract.Source.Internal.pathWrite mapRef.id
+    (ProofForge.Contract.Source.Internal.allowancePath (expr roleKey) (expr accountKey)) (expr mapValue)
 
 def pathRead2 [ToExpr α] [ToExpr β]
-    (mapRef : ProofForge.Contract.Surface.MapRef) (outerKey : α) (innerKey : β) :
+    (mapRef : ProofForge.Contract.Source.Internal.MapRef) (outerKey : α) (innerKey : β) :
     ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.pathRead mapRef.id
-    (ProofForge.Contract.Surface.allowancePath (expr outerKey) (expr innerKey))
+  ProofForge.Contract.Source.Internal.pathRead mapRef.id
+    (ProofForge.Contract.Source.Internal.allowancePath (expr outerKey) (expr innerKey))
 
 def pathWrite2 [ToExpr α] [ToExpr β] [ToExpr γ]
-    (mapRef : ProofForge.Contract.Surface.MapRef) (outerKey : α) (innerKey : β)
+    (mapRef : ProofForge.Contract.Source.Internal.MapRef) (outerKey : α) (innerKey : β)
     (mapValue : γ) : EntryM Unit :=
-  ProofForge.Contract.Surface.pathWrite mapRef.id
-    (ProofForge.Contract.Surface.allowancePath (expr outerKey) (expr innerKey)) (expr mapValue)
+  ProofForge.Contract.Source.Internal.pathWrite mapRef.id
+    (ProofForge.Contract.Source.Internal.allowancePath (expr outerKey) (expr innerKey)) (expr mapValue)
 
 def caller : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.caller
+  ProofForge.Contract.Source.Internal.caller
 
 def callerHash : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.callerHash
+  ProofForge.Contract.Source.Internal.callerHash
 
 /-- NEAR predecessor account id as a raw string (Phase 3 NEP-141 interop).
 Identity is not hash-truncated: balances keyed by this are keyed by the raw
 account id string. NEAR-only. -/
 def callerAccountId : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.callerAccountId
+  ProofForge.Contract.Source.Internal.callerAccountId
 
 /-- This contract / program id (`address(this)` · program_id · current_account).
 Portable triad after HostEnv U1.2 (Solana: sha256(program_id) limb0). -/
 def contractId : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.contractId
+  ProofForge.Contract.Source.Internal.contractId
 
 def nativeValue : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.nativeValue
+  ProofForge.Contract.Source.Internal.nativeValue
 
 def callValueU128 : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.callValueU128
+  ProofForge.Contract.Source.Internal.callValueU128
 
 def hash4 (a b c d : Nat) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.hash4 a b c d
+  ProofForge.Contract.Source.Internal.hash4 a b c d
 
 macro "array_get " arr:ident idx:term : term => `(ProofForge.Contract.Source.arrayGet $arr $idx)
 

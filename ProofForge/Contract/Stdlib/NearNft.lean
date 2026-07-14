@@ -58,31 +58,31 @@ def nftApprovals : MapRef :=
 
 /-- Total NFT supply (u64). -/
 def totalNftSupply : ScalarRef :=
-  ProofForge.Contract.Surface.slot "nftTotalSupply" .u64
+  ProofForge.Contract.Source.slot "nftTotalSupply" .u64
 
 def initialized : ScalarRef :=
-  ProofForge.Contract.Surface.slot "nftInitialized" .u64
+  ProofForge.Contract.Source.slot "nftInitialized" .u64
 
 def mintAuthority : ScalarRef :=
-  ProofForge.Contract.Surface.slot "nftMintAuthority" .hash
+  ProofForge.Contract.Source.slot "nftMintAuthority" .hash
 
 /-- NFT contract metadata: name (stored as u64 hash of name string for v0). -/
 def nftContractName : ScalarRef :=
-  ProofForge.Contract.Surface.slot "nftContractName" .u64
+  ProofForge.Contract.Source.slot "nftContractName" .u64
 
 /-- NFT contract metadata: symbol (stored as u64 hash of symbol string for v0). -/
 def nftContractSymbol : ScalarRef :=
-  ProofForge.Contract.Surface.slot "nftContractSymbol" .u64
+  ProofForge.Contract.Source.slot "nftContractSymbol" .u64
 
 contract_mixin NearNftMixin do
-  use ProofForge.Contract.Surface.scalar initialized
-  use ProofForge.Contract.Surface.scalar mintAuthority
-  use ProofForge.Contract.Surface.scalar totalNftSupply
-  use ProofForge.Contract.Surface.scalar nftContractName
-  use ProofForge.Contract.Surface.scalar nftContractSymbol
-  use ProofForge.Contract.Surface.mapState tokenOwners
-  use ProofForge.Contract.Surface.mapState nftBalances
-  use ProofForge.Contract.Surface.mapState nftApprovals
+  use ProofForge.Contract.Source.scalar initialized
+  use ProofForge.Contract.Source.scalar mintAuthority
+  use ProofForge.Contract.Source.scalar totalNftSupply
+  use ProofForge.Contract.Source.scalar nftContractName
+  use ProofForge.Contract.Source.scalar nftContractSymbol
+  use ProofForge.Contract.Source.mapState tokenOwners
+  use ProofForge.Contract.Source.mapState nftBalances
+  use ProofForge.Contract.Source.mapState nftApprovals
 
   event NftTransfer
   event NftMint
@@ -105,11 +105,11 @@ contract_mixin NearNftMixin do
     return nftContractSymbol;
 
   entry nft_mint (receiver_id : .hash, token_id : .u64) do
-    do ProofForge.Contract.Surface.requireEq callerHash
-      (ProofForge.Contract.Surface.read mintAuthority) "not mint authority";
+    do ProofForge.Contract.Source.requireEq callerHash
+      (ProofForge.Contract.Source.read mintAuthority) "not mint authority";
     let existing : .hash := mapRead tokenOwners token_id;
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref existing)
-      (ProofForge.Contract.Surface.hash4 0 0 0 0) "token already exists";
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref existing)
+      (ProofForge.Contract.Source.hash4 0 0 0 0) "token already exists";
     do mapWrite tokenOwners token_id receiver_id;
     let bal : .u64 := mapRead nftBalances receiver_id;
     do mapWrite nftBalances receiver_id (bal +! (u64 1));
@@ -120,8 +120,8 @@ contract_mixin NearNftMixin do
   entry nft_transfer (receiver_id : .hash, token_id : .u64) do
     let sender : .hash := callerHash;
     let tokenOwner : .hash := mapRead tokenOwners token_id;
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref tokenOwner)
-      (ProofForge.Contract.Surface.ref sender) "not token owner";
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref tokenOwner)
+      (ProofForge.Contract.Source.ref sender) "not token owner";
     do mapWrite tokenOwners token_id receiver_id;
     let senderBal : .u64 := mapRead nftBalances sender;
     do mapWrite nftBalances sender (senderBal -! (u64 1));
@@ -132,9 +132,9 @@ contract_mixin NearNftMixin do
   entry nft_burn (token_id : .u64) do
     let who : .hash := callerHash;
     let tokenOwner : .hash := mapRead tokenOwners token_id;
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref tokenOwner)
-      (ProofForge.Contract.Surface.ref who) "not token owner";
-    do mapWrite tokenOwners token_id (ProofForge.Contract.Surface.hash4 0 0 0 0);
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref tokenOwner)
+      (ProofForge.Contract.Source.ref who) "not token owner";
+    do mapWrite tokenOwners token_id (ProofForge.Contract.Source.hash4 0 0 0 0);
     let bal : .u64 := mapRead nftBalances who;
     do mapWrite nftBalances who (bal -! (u64 1));
     let ts : .u64 := totalNftSupply;
@@ -144,15 +144,15 @@ contract_mixin NearNftMixin do
   entry nft_approve (spender_id : .hash, token_id : .u64) do
     let tokenOwnerAcct : .hash := callerHash;
     let tokenOwner : .hash := mapRead tokenOwners token_id;
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref tokenOwner)
-      (ProofForge.Contract.Surface.ref tokenOwnerAcct) "not token owner";
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref tokenOwner)
+      (ProofForge.Contract.Source.ref tokenOwnerAcct) "not token owner";
     do mapWrite nftApprovals token_id spender_id;
     emit NftApproval indexed #[fieldAsName "owner" tokenOwnerAcct, fieldAsName "approved" spender_id] data #[fieldAsName "tokenId" token_id];
 
 contract_source NearNft do
   use mixin
   entry init do
-    do ProofForge.Contract.Surface.requireZero initialized "already initialized";
+    do ProofForge.Contract.Source.requireZero initialized "already initialized";
     initialized := u64 1;
     mintAuthority := callerHash;
     totalNftSupply := u64 0;

@@ -20,10 +20,10 @@ contract_source AccessControlProbe do
   state touches : .u64
 
   entry init do
-    do ProofForge.Contract.Surface.requireZero initialized "already initialized";
+    do ProofForge.Contract.Source.requireZero initialized "already initialized";
     initialized := u64 1;
     let admin : .address := caller;
-    do writeRoleMember roleMembers defaultAdminRole (ProofForge.Contract.Surface.ref admin) (u64 1);
+    do writeRoleMember roleMembers defaultAdminRole (ProofForge.Contract.Source.ref admin) (u64 1);
     emit RoleGranted indexed #[
       fieldAsName "role" defaultAdminRole,
       fieldAsName "account" caller,
@@ -32,7 +32,7 @@ contract_source AccessControlProbe do
 
   entry grantMinter (who : .address) do
     do requireRoleMember roleMembers defaultAdminRole caller;
-    do writeRoleMember roleMembers minterRole (ProofForge.Contract.Surface.ref who) (u64 1);
+    do writeRoleMember roleMembers minterRole (ProofForge.Contract.Source.ref who) (u64 1);
 
   entry touch do
     do requireRoleMember roleMembers minterRole caller;

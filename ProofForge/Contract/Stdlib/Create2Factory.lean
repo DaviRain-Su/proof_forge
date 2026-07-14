@@ -27,8 +27,8 @@ def templateInitCodeHash : ProofForge.IR.Expr :=
 
 end Spec
 
-def deployedAddress : ProofForge.Contract.Surface.BindingRef :=
-  ProofForge.Contract.Surface.binding "deployed" .address
+def deployedAddress : ProofForge.Contract.Source.BindingRef :=
+  ProofForge.Contract.Source.binding "deployed" .address
 
 contract_mixin Create2FactoryMixin do
   event Deployed
@@ -38,16 +38,16 @@ contract_mixin Create2FactoryMixin do
 
   entry deploy (salt : .hash) returns(.address) do
     accepts_callvalue;
-    do ProofForge.Contract.Surface.bind deployedAddress
-      (ProofForge.Contract.Surface.cast
+    do ProofForge.Contract.Source.bind deployedAddress
+      (ProofForge.Contract.Source.cast
         (ProofForge.Contract.Source.Evm.create2Deploy
-          nativeValue (ProofForge.Contract.Surface.ref salt) Spec.templateInitCodeHex)
+          nativeValue (ProofForge.Contract.Source.ref salt) Spec.templateInitCodeHex)
         .address);
     emit Deployed indexed #[
-      fieldAsName "addr" (ProofForge.Contract.Surface.ref deployedAddress),
+      fieldAsName "addr" (ProofForge.Contract.Source.ref deployedAddress),
       fieldAsName "salt" salt
     ] data #[];
-    return ProofForge.Contract.Surface.ref deployedAddress;
+    return ProofForge.Contract.Source.ref deployedAddress;
 
 contract_source Create2Factory do
   use mixin

@@ -25,16 +25,16 @@ namespace ProofForge.Contract.Stdlib.ReentrancyGuard
 open ProofForge.Contract.Source
 
 def lock : ScalarRef :=
-  ProofForge.Contract.Surface.slot "lock" .u64
+  ProofForge.Contract.Source.slot "lock" .u64
 
 contract_mixin ReentrancyGuardMixin do
-  use ProofForge.Contract.Surface.scalar lock
+  use ProofForge.Contract.Source.scalar lock
 
   entry acquire do
-    do ProofForge.Contract.Surface.acquireLock lock;
+    do ProofForge.Contract.Source.acquireLock lock;
 
   entry release do
-    do ProofForge.Contract.Surface.releaseLock lock;
+    do ProofForge.Contract.Source.releaseLock lock;
 
   query locked returns(.u64) do
     return lock;

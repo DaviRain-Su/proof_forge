@@ -24,18 +24,18 @@ contract_source NearStorageDeposit do
     return mapRead storageDeposits account_id;
 
   entry storage_deposit (account_id : .hash) do
-    let amount : .u64 := ProofForge.Contract.Surface.cast nativeValue .u64;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref amount)
-      (ProofForge.Contract.Surface.read storageRequired) "storage deposit too small";
+    let amount : .u64 := ProofForge.Contract.Source.cast nativeValue .u64;
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref amount)
+      (ProofForge.Contract.Source.read storageRequired) "storage deposit too small";
     let previous : .u64 := mapRead storageDeposits account_id;
     do mapWrite storageDeposits account_id (previous +! amount);
 
   entry storage_withdraw (account_id : .hash, amount : .u64) do
-    do ProofForge.Contract.Surface.requireEq callerHash
-      (ProofForge.Contract.Surface.ref account_id) "storage withdraw caller mismatch";
+    do ProofForge.Contract.Source.requireEq callerHash
+      (ProofForge.Contract.Source.ref account_id) "storage withdraw caller mismatch";
     let previous : .u64 := mapRead storageDeposits account_id;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref previous)
-      (ProofForge.Contract.Surface.ref amount) "insufficient storage deposit";
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref previous)
+      (ProofForge.Contract.Source.ref amount) "insufficient storage deposit";
     do mapWrite storageDeposits account_id (previous -! amount);
 
 end Tests.ContractSource.NearStorageDeposit

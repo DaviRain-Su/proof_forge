@@ -1,7 +1,7 @@
-import ProofForge.Contract.Examples.Surface.ContextProducts
+import ProofForge.Frontend.Materialize.Evm.ContextProducts
 
 namespace TestFixtures.SurfaceProducts.HeightLockVault
 
-def contract := ProofForge.Contract.Examples.Surface.ContextProducts.heightLockVault
+def contract := ProofForge.Frontend.Materialize.Evm.ContextProducts.heightLockVault
 
 end TestFixtures.SurfaceProducts.HeightLockVault

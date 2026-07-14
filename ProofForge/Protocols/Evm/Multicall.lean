@@ -24,13 +24,13 @@ ABI-packed helpers remain EVM plan/Yul APIs. They are not encoded as portable
 IR expressions; free-form runtime `bytes` / nested dynamic ABI remains a
 target-specific future extension.
 -/
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 import ProofForge.Backend.Evm.AbiEncode
 import ProofForge.Backend.Evm.ToYul.AbiEncode
 
 namespace ProofForge.Protocols.Evm.Multicall
 
-open ProofForge.Contract.Surface
+open ProofForge.Contract.Source.Internal
 open ProofForge.Backend.Evm.AbiEncode
 
 def catalogId : String := "protocols.evm.multicall"

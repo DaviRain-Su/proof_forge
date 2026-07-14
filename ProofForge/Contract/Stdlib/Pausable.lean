@@ -24,10 +24,10 @@ theorem not_paused_zero : ¬ paused 0 := by simp [paused]
 end Spec
 
 def «paused» : ScalarRef :=
-  ProofForge.Contract.Surface.slot "paused" .u64
+  ProofForge.Contract.Source.slot "paused" .u64
 
 contract_mixin PausableMixin do
-  use ProofForge.Contract.Surface.scalar «paused»
+  use ProofForge.Contract.Source.scalar «paused»
 
   query «paused» returns(.u64) do
     return «paused»;

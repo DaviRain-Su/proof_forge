@@ -30,11 +30,11 @@ end Spec
 
 /-- Default admin role id (OpenZeppelin `DEFAULT_ADMIN_ROLE` is bytes32 zero). -/
 def defaultAdminRole : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.hash4 0 0 0 0
+  ProofForge.Contract.Source.hash4 0 0 0 0
 
 /-- `keccak256("MINTER_ROLE")`, used by demos and smokes. -/
 def minterRole : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.hash4
+  ProofForge.Contract.Source.hash4
     11470088803231168072 16021661935289273552
     9334983156050275148 17217135584914003622
 
@@ -45,25 +45,25 @@ def roleAdmins : MapRef :=
   { id := "roleAdmins", keyType := .hash, valueType := .hash }
 
 def initialized : ScalarRef :=
-  ProofForge.Contract.Surface.slot "accessControlInitialized" .u64
+  ProofForge.Contract.Source.slot "accessControlInitialized" .u64
 
 def roleMemberKey (role who : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
   .hashTwoToOne role (.hashValue who (.literal (.u64 0)) (.literal (.u64 0)) (.literal (.u64 0)))
 
 def hasRoleExpr (members : MapRef) (role who : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.ne
-    (ProofForge.Contract.Surface.mapGet members (roleMemberKey role who)) (.literal (.u64 0))
+  ProofForge.Contract.Source.ne
+    (ProofForge.Contract.Source.mapGet members (roleMemberKey role who)) (.literal (.u64 0))
 
 def requireRoleMember (members : MapRef) (role who : ProofForge.IR.Expr) : EntryM Unit :=
-  ProofForge.Contract.Surface.assertCondition (hasRoleExpr members role who) "missing role"
+  ProofForge.Contract.Source.assertCondition (hasRoleExpr members role who) "missing role"
 
 def writeRoleMember (members : MapRef) (role who value : ProofForge.IR.Expr) : EntryM Unit :=
-  ProofForge.Contract.Surface.mapSet members (roleMemberKey role who) value
+  ProofForge.Contract.Source.mapSet members (roleMemberKey role who) value
 
 contract_mixin AccessControlMixin do
-  use ProofForge.Contract.Surface.mapState roleMembers
-  use ProofForge.Contract.Surface.mapState roleAdmins
-  use ProofForge.Contract.Surface.scalar initialized
+  use ProofForge.Contract.Source.mapState roleMembers
+  use ProofForge.Contract.Source.mapState roleAdmins
+  use ProofForge.Contract.Source.scalar initialized
 
   event RoleAdminChanged
   event RoleGranted abi #[
@@ -78,45 +78,45 @@ contract_mixin AccessControlMixin do
   ]
 
   query hasRole (role : .bytes32, who : .address) returns(.bool) do
-    return hasRoleExpr roleMembers (ProofForge.Contract.Surface.ref role)
-      (ProofForge.Contract.Surface.ref who);
+    return hasRoleExpr roleMembers (ProofForge.Contract.Source.ref role)
+      (ProofForge.Contract.Source.ref who);
 
   query getRoleAdmin (role : .bytes32) returns(.hash) do
     return mapRead roleAdmins role;
 
   entry grantRole (role : .bytes32, who : .address) do
     let adminRole : .hash := mapRead roleAdmins role;
-    do requireRoleMember roleMembers (ProofForge.Contract.Surface.ref adminRole) caller;
-    do ProofForge.Contract.Surface.requireEq
-      (ProofForge.Contract.Surface.mapGet roleMembers
-        (roleMemberKey (ProofForge.Contract.Surface.ref role)
-          (ProofForge.Contract.Surface.ref who))) (u64 0) "role already granted";
-    do writeRoleMember roleMembers (ProofForge.Contract.Surface.ref role)
-      (ProofForge.Contract.Surface.ref who) (u64 1);
+    do requireRoleMember roleMembers (ProofForge.Contract.Source.ref adminRole) caller;
+    do ProofForge.Contract.Source.requireEq
+      (ProofForge.Contract.Source.mapGet roleMembers
+        (roleMemberKey (ProofForge.Contract.Source.ref role)
+          (ProofForge.Contract.Source.ref who))) (u64 0) "role already granted";
+    do writeRoleMember roleMembers (ProofForge.Contract.Source.ref role)
+      (ProofForge.Contract.Source.ref who) (u64 1);
     emit RoleGranted indexed #[
       fieldAsName "role" role,
-      fieldAsName "account" (ProofForge.Contract.Surface.ref who),
+      fieldAsName "account" (ProofForge.Contract.Source.ref who),
       fieldAsName "sender" caller
     ] data #[];
 
   entry revokeRole (role : .bytes32, who : .address) do
     let adminRole : .hash := mapRead roleAdmins role;
-    do requireRoleMember roleMembers (ProofForge.Contract.Surface.ref adminRole) caller;
-    do requireRoleMember roleMembers (ProofForge.Contract.Surface.ref role)
-      (ProofForge.Contract.Surface.ref who);
-    do writeRoleMember roleMembers (ProofForge.Contract.Surface.ref role)
-      (ProofForge.Contract.Surface.ref who) (u64 0);
+    do requireRoleMember roleMembers (ProofForge.Contract.Source.ref adminRole) caller;
+    do requireRoleMember roleMembers (ProofForge.Contract.Source.ref role)
+      (ProofForge.Contract.Source.ref who);
+    do writeRoleMember roleMembers (ProofForge.Contract.Source.ref role)
+      (ProofForge.Contract.Source.ref who) (u64 0);
     emit RoleRevoked indexed #[
       fieldAsName "role" role,
-      fieldAsName "account" (ProofForge.Contract.Surface.ref who),
+      fieldAsName "account" (ProofForge.Contract.Source.ref who),
       fieldAsName "sender" caller
     ] data #[];
 
   entry renounceRole (role : .bytes32, callerConfirmation : .address) do
-    do ProofForge.Contract.Surface.requireEq
-      (ProofForge.Contract.Surface.ref callerConfirmation) caller "bad role confirmation";
-    do requireRoleMember roleMembers (ProofForge.Contract.Surface.ref role) caller;
-    do writeRoleMember roleMembers (ProofForge.Contract.Surface.ref role) caller (u64 0);
+    do ProofForge.Contract.Source.requireEq
+      (ProofForge.Contract.Source.ref callerConfirmation) caller "bad role confirmation";
+    do requireRoleMember roleMembers (ProofForge.Contract.Source.ref role) caller;
+    do writeRoleMember roleMembers (ProofForge.Contract.Source.ref role) caller (u64 0);
     emit RoleRevoked indexed #[
       fieldAsName "role" role,
       fieldAsName "account" caller,
@@ -125,7 +125,7 @@ contract_mixin AccessControlMixin do
 
   entry setRoleAdmin (role : .bytes32, newAdminRole : .bytes32) do
     let previousAdminRole : .hash := mapRead roleAdmins role;
-    do requireRoleMember roleMembers (ProofForge.Contract.Surface.ref previousAdminRole) caller;
+    do requireRoleMember roleMembers (ProofForge.Contract.Source.ref previousAdminRole) caller;
     do mapWrite roleAdmins role newAdminRole;
     emit RoleAdminChanged indexed #[
       fieldAsName "role" role,
@@ -137,11 +137,11 @@ contract_source AccessControl do
   event RoleGranted
   use mixin
   entry init do
-    do ProofForge.Contract.Surface.requireZero initialized "already initialized";
+    do ProofForge.Contract.Source.requireZero initialized "already initialized";
     initialized := u64 1;
     let admin : .address := caller;
     do writeRoleMember roleMembers defaultAdminRole
-      (ProofForge.Contract.Surface.ref admin) (u64 1);
+      (ProofForge.Contract.Source.ref admin) (u64 1);
     emit RoleGranted indexed #[
       fieldAsName "role" defaultAdminRole,
       fieldAsName "account" caller,

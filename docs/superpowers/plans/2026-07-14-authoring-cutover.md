@@ -65,6 +65,13 @@ introduced.
 Acceptance: `Examples/Product/Counter.lean` reaches EVM, Solana, and NEAR Core
 plans without importing or invoking `IR.Legacy.Adapter`.
 
+Checkpoint (2026-07-14): the helper namespace replacement is complete. Public
+authors import only `ProofForge.Contract.Source`; implementation helpers live
+under `Contract.Source.Internal`, Solana helpers under
+`Contract.Source.Solana.Internal`, and direct AST materializers under
+`Frontend.Materialize`. The direct Canonical Core normalization and removal of
+the remaining Legacy adapter call are still pending in A-CUT2.
+
 ### A-CUT3 - Product migration
 
 - Migrate every `catalog.json` source through the direct frontend.

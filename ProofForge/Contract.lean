@@ -15,7 +15,6 @@ import ProofForge.Contract.Stdlib.ERC1155
 import ProofForge.Contract.Stdlib.Ownable
 import ProofForge.Contract.Stdlib.Pausable
 import ProofForge.Contract.Stdlib.ReentrancyGuard
-import ProofForge.Contract.Surface
 import ProofForge.Contract.Token
 import ProofForge.Contract.Token.Evm
 import ProofForge.Contract.Token.EvmSpec

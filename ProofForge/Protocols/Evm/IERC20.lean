@@ -15,11 +15,11 @@ Peer identity is logical (`declareToken "usdc.peer"`); bind with `--peer` at
 deploy time where the host uses a string pool. On EVM the peer handle is a
 numeric target index into the crosscall pool / plan.
 -/
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 
 namespace ProofForge.Protocols.Evm.IERC20
 
-open ProofForge.Contract.Surface
+open ProofForge.Contract.Source.Internal
 
 /-- Catalog id for docs / diagnostics. -/
 def catalogId : String := "protocols.evm.ierc20"

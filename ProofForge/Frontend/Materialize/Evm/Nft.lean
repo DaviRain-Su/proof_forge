@@ -1,11 +1,11 @@
 import ProofForge.Contract.Nft
 import ProofForge.Frontend.Surface
 
-/-! Direct NFTSpec to Surface v2 materialization for EVM. ERC-721 storage,
+/-! Internal NFTSpec to EVM frontend materialization. ERC-721 storage,
 authorization, selectors, and events are target-owned here; the portable
 NFTSpec remains free of EVM concepts. -/
 
-namespace ProofForge.Contract.Nft.EvmSurface
+namespace ProofForge.Frontend.Materialize.Evm.Nft
 
 open ProofForge.Contract
 open ProofForge.Frontend.Surface
@@ -20,14 +20,14 @@ private def transferEvent (fromAddr toAddr tokenId : SurfaceExpr) : SurfaceStmt 
 def validate (nft : NFTSpec) : Except String Unit := do
   nft.validate
   unless nft.assetModel == .unique do
-    throw "EVM Surface NFT materializer requires the unique asset model"
+    throw "EVM NFT materializer requires the unique asset model"
   unless nft.hasFeature .mintable do
-    throw "EVM Surface NFT materializer requires mintable"
+    throw "EVM NFT materializer requires mintable"
   unless nft.hasFeature .transferable do
-    throw "EVM Surface NFT materializer requires transferable"
+    throw "EVM NFT materializer requires transferable"
   for feature in nft.features do
     unless feature == .mintable || feature == .transferable do
-      throw s!"EVM Surface NFT feature `{feature.id}` is not implemented"
+      throw s!"EVM NFT feature `{feature.id}` is not implemented"
 
 private def entrypoints : Array SurfaceEntrypoint := #[
   { name := "init", kind := .function, mutability := .call,
@@ -89,4 +89,4 @@ def materialize (nft : NFTSpec) : SurfaceContract := {
     constructorBindings := #[]
   }
 
-end ProofForge.Contract.Nft.EvmSurface
+end ProofForge.Frontend.Materialize.Evm.Nft

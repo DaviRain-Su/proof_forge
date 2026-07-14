@@ -26,16 +26,16 @@ def tokenOwners : MapRef :=
   { id := "tokenOwners", keyType := .u64, valueType := .u64 }
 
 def initialized : ScalarRef :=
-  ProofForge.Contract.Surface.slot "erc721Initialized" .u64
+  ProofForge.Contract.Source.slot "erc721Initialized" .u64
 
 def mintAuthority : ScalarRef :=
   /- Portable callers are represented by the canonical u64 identity handle. -/
-  ProofForge.Contract.Surface.slot "erc721MintAuthority" .u64
+  ProofForge.Contract.Source.slot "erc721MintAuthority" .u64
 
 contract_mixin ERC721Mixin do
-  use ProofForge.Contract.Surface.scalar initialized
-  use ProofForge.Contract.Surface.scalar mintAuthority
-  use ProofForge.Contract.Surface.mapState tokenOwners
+  use ProofForge.Contract.Source.scalar initialized
+  use ProofForge.Contract.Source.scalar mintAuthority
+  use ProofForge.Contract.Source.mapState tokenOwners
 
   event Transfer abi #[
     ("from", "address"), ("to", "address"), ("tokenId", "uint256")
@@ -43,18 +43,18 @@ contract_mixin ERC721Mixin do
 
   query ownerOf (tokenId : .u64) returns(.u64) do
     let tokenOwner : .u64 := mapRead tokenOwners tokenId;
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref tokenOwner) "invalid token";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref tokenOwner) "invalid token";
     return tokenOwner;
 
   entry transferFrom (holder : .address, recipient : .address, tokenId : .u64) do
     let operator : .address := caller;
     let tokenOwner : .u64 := mapRead tokenOwners tokenId;
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref tokenOwner) "invalid token";
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref tokenOwner)
-      (ProofForge.Contract.Surface.ref holder) "wrong from";
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref operator)
-      (ProofForge.Contract.Surface.ref holder) "not authorized";
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref recipient) "zero recipient";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref tokenOwner) "invalid token";
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref tokenOwner)
+      (ProofForge.Contract.Source.ref holder) "wrong from";
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref operator)
+      (ProofForge.Contract.Source.ref holder) "not authorized";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref recipient) "zero recipient";
     do mapWrite tokenOwners tokenId recipient;
     emit Transfer indexed #[
       fieldAsName "from" holder,
@@ -65,12 +65,12 @@ contract_mixin ERC721Mixin do
   entry safeTransferFrom (holder : .address, recipient : .address, tokenId : .u64) do
     let operator : .address := caller;
     let tokenOwner : .u64 := mapRead tokenOwners tokenId;
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref tokenOwner) "invalid token";
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref tokenOwner)
-      (ProofForge.Contract.Surface.ref holder) "wrong from";
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref operator)
-      (ProofForge.Contract.Surface.ref holder) "not authorized";
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref recipient) "zero recipient";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref tokenOwner) "invalid token";
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref tokenOwner)
+      (ProofForge.Contract.Source.ref holder) "wrong from";
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref operator)
+      (ProofForge.Contract.Source.ref holder) "not authorized";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref recipient) "zero recipient";
     do mapWrite tokenOwners tokenId recipient;
     emit Transfer indexed #[
       fieldAsName "from" holder,
@@ -79,17 +79,17 @@ contract_mixin ERC721Mixin do
     ] data #[];
     -- PF-P2-02: contract recipients must implement IERC721Receiver.
     do ProofForge.Contract.Source.Evm.checkErc721Received
-      (ProofForge.Contract.Surface.ref operator)
-      (ProofForge.Contract.Surface.ref holder)
-      (ProofForge.Contract.Surface.ref recipient)
-      (ProofForge.Contract.Surface.ref tokenId);
+      (ProofForge.Contract.Source.ref operator)
+      (ProofForge.Contract.Source.ref holder)
+      (ProofForge.Contract.Source.ref recipient)
+      (ProofForge.Contract.Source.ref tokenId);
 
   entry mint (recipient : .address, tokenId : .u64) do
-    do ProofForge.Contract.Surface.requireEq caller
-      (ProofForge.Contract.Surface.read mintAuthority) "not mint authority";
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref recipient) "zero recipient";
+    do ProofForge.Contract.Source.requireEq caller
+      (ProofForge.Contract.Source.read mintAuthority) "not mint authority";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref recipient) "zero recipient";
     let existing : .u64 := mapRead tokenOwners tokenId;
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref existing) (u64 0) "token exists";
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref existing) (u64 0) "token exists";
     do mapWrite tokenOwners tokenId recipient;
     emit Transfer indexed #[
       fieldAsName "from" (u64 0),
@@ -100,8 +100,8 @@ contract_mixin ERC721Mixin do
   entry burn (tokenId : .u64) do
     let who : .address := caller;
     let tokenOwner : .u64 := mapRead tokenOwners tokenId;
-    do ProofForge.Contract.Surface.requireEq (ProofForge.Contract.Surface.ref tokenOwner)
-      (ProofForge.Contract.Surface.ref who) "not owner";
+    do ProofForge.Contract.Source.requireEq (ProofForge.Contract.Source.ref tokenOwner)
+      (ProofForge.Contract.Source.ref who) "not owner";
     do mapWrite tokenOwners tokenId (u64 0);
     emit Transfer indexed #[
       fieldAsName "from" who,
@@ -112,7 +112,7 @@ contract_mixin ERC721Mixin do
 contract_source ERC721 do
   use mixin
   entry init do
-    do ProofForge.Contract.Surface.requireZero initialized "already initialized";
+    do ProofForge.Contract.Source.requireZero initialized "already initialized";
     initialized := u64 1;
     mintAuthority := caller;
 

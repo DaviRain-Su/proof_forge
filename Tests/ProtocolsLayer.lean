@@ -8,7 +8,7 @@ import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.Solana.Extension.Cpi
 import ProofForge.Contract.Builder
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 import Examples.Backend.Evm.Contracts.Ierc20Client
 import Examples.Backend.Evm.Contracts.Ierc20PermitClient
 import Examples.Backend.Evm.Contracts.Ierc4626Client

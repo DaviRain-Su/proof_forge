@@ -16,7 +16,7 @@ def sampleInterfaceId : Nat := 0x12345678
 
 contract_source ERC165Probe do
   query supportsInterface (interfaceId : .bytes4) returns(.bool) do
-    return supportsInterfaceExpr (ProofForge.Contract.Surface.ref interfaceId)
+    return supportsInterfaceExpr (ProofForge.Contract.Source.ref interfaceId)
       #[sampleInterfaceId];
 
 end ERC165Probe

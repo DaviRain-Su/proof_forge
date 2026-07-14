@@ -1,7 +1,7 @@
-import ProofForge.Contract.Stdlib.Surface.Policies
+import TestFixtures.SurfaceProducts.Policies
 
 namespace TestFixtures.SurfaceProducts.ReentrancyGuard
 
-def contract := ProofForge.Contract.Stdlib.Surface.Policies.reentrancyGuard
+def contract := TestFixtures.SurfaceProducts.Policies.reentrancyGuard
 
 end TestFixtures.SurfaceProducts.ReentrancyGuard

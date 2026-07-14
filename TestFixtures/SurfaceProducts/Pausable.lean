@@ -1,7 +1,7 @@
-import ProofForge.Contract.Stdlib.Surface.Policies
+import TestFixtures.SurfaceProducts.Policies
 
 namespace TestFixtures.SurfaceProducts.Pausable
 
-def contract := ProofForge.Contract.Stdlib.Surface.Policies.pausable
+def contract := TestFixtures.SurfaceProducts.Policies.pausable
 
 end TestFixtures.SurfaceProducts.Pausable

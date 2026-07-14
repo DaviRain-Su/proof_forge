@@ -34,10 +34,10 @@ theorem burn_decreases_supply {supply amount : Nat}
 end Spec
 
 def totalSupply : ScalarRef :=
-  ProofForge.Contract.Surface.slot "totalSupply" .u64
+  ProofForge.Contract.Source.slot "totalSupply" .u64
 
 def tokenDecimals : ScalarRef :=
-  ProofForge.Contract.Surface.slot "decimals" .u64
+  ProofForge.Contract.Source.slot "decimals" .u64
 
 def balances : MapRef :=
   { id := "balances", keyType := .u64, valueType := .u64 }
@@ -49,14 +49,14 @@ def spendAllowanceUnlessUnlimited (owner spender current amount : ProofForge.IR.
     EntryM Unit := do
   let (_, body) := (pathWriteAllowance allowances owner spender (current -! amount)).run {}
   ProofForge.Contract.Builder.ifElse
-    (ProofForge.Contract.Surface.ne current (ProofForge.Contract.Surface.u64 18446744073709551615))
+    (ProofForge.Contract.Source.ne current (ProofForge.Contract.Source.u64 18446744073709551615))
     body.body #[]
 
 contract_mixin ERC20Mixin do
-  use ProofForge.Contract.Surface.scalar totalSupply
-  use ProofForge.Contract.Surface.scalar tokenDecimals
-  use ProofForge.Contract.Surface.mapState balances
-  use ProofForge.Contract.Surface.mapState allowances
+  use ProofForge.Contract.Source.scalar totalSupply
+  use ProofForge.Contract.Source.scalar tokenDecimals
+  use ProofForge.Contract.Source.mapState balances
+  use ProofForge.Contract.Source.mapState allowances
 
   event Transfer abi #[
     ("from", "address"), ("to", "address"), ("value", "uint256")
@@ -75,15 +75,15 @@ contract_mixin ERC20Mixin do
     return mapRead balances who;
 
   query allowance (holder : .address, spender : .address) returns(.u64) do
-    return pathReadAllowance allowances (ProofForge.Contract.Surface.ref holder)
-      (ProofForge.Contract.Surface.ref spender);
+    return pathReadAllowance allowances (ProofForge.Contract.Source.ref holder)
+      (ProofForge.Contract.Source.ref spender);
 
   entry transfer (recipient : .address, amount : .u64) returns(.bool) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref recipient) "zero recipient";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref recipient) "zero recipient";
     let sender : .address := caller;
     let srcBal : .u64 := mapRead balances sender;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
-      (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref srcBal)
+      (ProofForge.Contract.Source.ref amount) "insufficient balance";
     do mapWrite balances sender (srcBal -! amount);
     let dstBal : .u64 := mapRead balances recipient;
     do mapWrite balances recipient (dstBal +! amount);
@@ -97,9 +97,9 @@ contract_mixin ERC20Mixin do
 
   entry approve (spender : .address, amount : .u64) returns(.bool) do
     let holder : .address := caller;
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref spender) "zero spender";
-    do pathWriteAllowance allowances (ProofForge.Contract.Surface.ref holder)
-      (ProofForge.Contract.Surface.ref spender) amount;
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref spender) "zero spender";
+    do pathWriteAllowance allowances (ProofForge.Contract.Source.ref holder)
+      (ProofForge.Contract.Source.ref spender) amount;
     emit Approval indexed #[
       fieldAsName "owner" holder,
       fieldAsName "spender" spender
@@ -110,16 +110,16 @@ contract_mixin ERC20Mixin do
 
   entry transferFrom (src : .address, dst : .address, amount : .u64) returns(.bool) do
     let spender : .address := caller;
-    let current : .u64 := pathReadAllowance allowances (ProofForge.Contract.Surface.ref src)
-      (ProofForge.Contract.Surface.ref spender);
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref current)
-      (ProofForge.Contract.Surface.ref amount) "insufficient allowance";
-    do spendAllowanceUnlessUnlimited (ProofForge.Contract.Surface.ref src)
-      (ProofForge.Contract.Surface.ref spender) (ProofForge.Contract.Surface.ref current)
-      (ProofForge.Contract.Surface.ref amount);
+    let current : .u64 := pathReadAllowance allowances (ProofForge.Contract.Source.ref src)
+      (ProofForge.Contract.Source.ref spender);
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref current)
+      (ProofForge.Contract.Source.ref amount) "insufficient allowance";
+    do spendAllowanceUnlessUnlimited (ProofForge.Contract.Source.ref src)
+      (ProofForge.Contract.Source.ref spender) (ProofForge.Contract.Source.ref current)
+      (ProofForge.Contract.Source.ref amount);
     let srcBal : .u64 := mapRead balances src;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref srcBal)
-      (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref srcBal)
+      (ProofForge.Contract.Source.ref amount) "insufficient balance";
     do mapWrite balances src (srcBal -! amount);
     let dstBal : .u64 := mapRead balances dst;
     do mapWrite balances dst (dstBal +! amount);
@@ -132,7 +132,7 @@ contract_mixin ERC20Mixin do
     return boolLit true;
 
   entry mint (recipient : .address, amount : .u64) returns(.bool) do
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref recipient) "zero account";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref recipient) "zero account";
     let ts : .u64 := totalSupply;
     totalSupply := ts +! amount;
     let bal : .u64 := mapRead balances recipient;
@@ -148,8 +148,8 @@ contract_mixin ERC20Mixin do
   entry burn (amount : .u64) returns(.bool) do
     let who : .address := caller;
     let bal : .u64 := mapRead balances who;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref bal)
-      (ProofForge.Contract.Surface.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref bal)
+      (ProofForge.Contract.Source.ref amount) "insufficient balance";
     do mapWrite balances who (bal -! amount);
     let ts : .u64 := totalSupply;
     totalSupply := ts -! amount;

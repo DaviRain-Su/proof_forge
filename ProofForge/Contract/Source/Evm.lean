@@ -9,7 +9,6 @@ import ProofForge.Target.HostOps.Evm
 namespace ProofForge.Contract.Source.Evm
 
 open ProofForge.Contract.Source
-open ProofForge.Contract.Surface
 
 def origin : ProofForge.IR.Expr :=
   .hostCall ProofForge.Target.HostOps.Evm.originSig.id #[]

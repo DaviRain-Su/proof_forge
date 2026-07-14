@@ -1,7 +1,7 @@
-import ProofForge.Contract.Stdlib.Surface.Policies
+import TestFixtures.SurfaceProducts.Policies
 
 namespace TestFixtures.SurfaceProducts.OwnablePausable
 
-def contract := ProofForge.Contract.Stdlib.Surface.Policies.ownablePausable
+def contract := TestFixtures.SurfaceProducts.Policies.ownablePausable
 
 end TestFixtures.SurfaceProducts.OwnablePausable

@@ -11,11 +11,11 @@ This is **not** `Contract.Stdlib.ERC721` (Layer C: *you* are the NFT).
 Selectors match the ERC-721 ABI. Receiver callbacks (`onERC721Received`) are
 not synthesized here — same honesty as the stdlib `safeTransferFrom` note.
 -/
-import ProofForge.Contract.Surface
+import ProofForge.Contract.Source.Internal
 
 namespace ProofForge.Protocols.Evm.IERC721
 
-open ProofForge.Contract.Surface
+open ProofForge.Contract.Source.Internal
 
 /-- Catalog id for docs / diagnostics. -/
 def catalogId : String := "protocols.evm.ierc721"

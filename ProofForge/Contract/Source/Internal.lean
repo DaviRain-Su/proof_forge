@@ -1,7 +1,7 @@
 import Lean
 import ProofForge.Contract.Builder
 
-namespace ProofForge.Contract.Surface
+namespace ProofForge.Contract.Source.Internal
 
 open ProofForge.IR
 
@@ -463,4 +463,4 @@ def whenZero (value : ProofForge.IR.Expr) (body : EntryM Unit) : EntryM Unit := 
   let (_, entryBuilder) := body.run {}
   ProofForge.Contract.Builder.ifElse (ProofForge.Contract.Builder.eq value (u64 0)) entryBuilder.body #[]
 
-end ProofForge.Contract.Surface
+end ProofForge.Contract.Source.Internal

@@ -52,7 +52,7 @@ ProofForge/Contract/Compose.lean:mergeSpecs
 ProofForge/Contract/Compose.lean:mergeMany
 ProofForge/Contract/Compose.lean:mergeExtension
 ProofForge/Contract/Spec.lean:ContractSpec.fromIR
-ProofForge/Contract/Surface.lean:def contract
+ProofForge/Contract/Source/Internal.lean:def contract
 ProofForge/Contract/Nft/Materialize.lean:projectEntrypoints
 ProofForge/Contract/Nft/Materialize.lean:withErc721Selectors
 # Additional pre-migration construction sites

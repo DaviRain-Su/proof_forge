@@ -115,15 +115,15 @@ unmodified upstream NEAR VM.
 
 ### `caller` vs `callerHash`
 
-`ProofForge.Contract.Surface.caller` remains the portable `userId` context
+`ProofForge.Contract.Source.caller` remains the portable `userId` context
 expression and lowers to a `U64` projection of `predecessor_account_id`. It is
 useful for legacy U64-keyed examples, but it is not wide enough to key NEAR
 account balances safely.
 
-`ProofForge.Contract.Surface.callerHash` lowers `userIdHash` to the full
+`ProofForge.Contract.Source.callerHash` lowers `userIdHash` to the full
 32-byte SHA-256 digest of `predecessor_account_id`. The NEP-141 stdlib uses
 `callerHash` for account-keyed balances, allowance owner keys, and the
-`ft_on_transfer` sender argument. `ProofForge.Contract.Surface.signer` is
+`ft_on_transfer` sender argument. `ProofForge.Contract.Source.signer` is
 separate: it reads `signer_account_id` and models the transaction signer, not
 the immediate predecessor.
 

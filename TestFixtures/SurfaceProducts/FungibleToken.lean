@@ -1,9 +1,9 @@
 import Examples.Product.FungibleToken
-import ProofForge.Contract.Token.EvmSurface
+import ProofForge.Frontend.Materialize.Evm.Token
 
 namespace TestFixtures.SurfaceProducts.FungibleToken
 
-def contract := ProofForge.Contract.Token.EvmSurface.materialize
+def contract := ProofForge.Frontend.Materialize.Evm.Token.materialize
   Examples.Product.FungibleToken.spec
 
 end TestFixtures.SurfaceProducts.FungibleToken

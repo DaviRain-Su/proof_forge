@@ -1,10 +1,10 @@
 import ProofForge.Frontend.Surface
 
-/-! Direct EVM ERC-4626 body on Surface v2. Portable arithmetic, storage, CFG,
+/-! Internal EVM ERC-4626 frontend materialization. Portable arithmetic, storage, CFG,
 events, and crosscalls normalize to Canonical Core. EVM ABI selectors and the
 IERC20 method mapping are introduced only by this target-owned materializer. -/
 
-namespace ProofForge.Contract.ERC4626.EvmSurface
+namespace ProofForge.Frontend.Materialize.Evm.ERC4626
 
 open ProofForge.Frontend.Surface
 
@@ -591,4 +591,4 @@ def contract : SurfaceContract := {
   constructorBindings := #[]
 }
 
-end ProofForge.Contract.ERC4626.EvmSurface
+end ProofForge.Frontend.Materialize.Evm.ERC4626

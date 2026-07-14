@@ -38,7 +38,8 @@ The following paths must contain only target-neutral semantic vocabulary:
   `Effect`, `Statement`, `Entrypoint`, and `Module` shapes;
 - `ProofForge/IR/Core/{Type,Storage,Syntax,Validate}.lean`;
 - `ProofForge/IR/Canonical.lean` interface and materialization contracts;
-- portable `ProofForge.Contract.Surface` and `ProofForge.Contract.Source` APIs.
+- the public `ProofForge.Contract.Source` API. `Frontend.Surface` is a
+  compiler-internal normalization representation, not an authoring API.
 
 These layers may refer to open capability or HostOp identifiers, but must not
 own target-specific signatures, handlers, ABI layouts, string pools, error

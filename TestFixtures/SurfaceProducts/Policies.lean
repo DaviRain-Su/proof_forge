@@ -2,7 +2,7 @@ import ProofForge.Frontend.Surface
 
 open ProofForge.Frontend.Surface
 
-namespace ProofForge.Contract.Stdlib.Surface.Policies
+namespace TestFixtures.SurfaceProducts.Policies
 
 private def u64 (value : Nat) : SurfaceExpr :=
   .literal (.u64Lit value)
@@ -230,4 +230,4 @@ def ownablePausable : SurfaceContract := {
   constructorBindings := #[]
 }
 
-end ProofForge.Contract.Stdlib.Surface.Policies
+end TestFixtures.SurfaceProducts.Policies

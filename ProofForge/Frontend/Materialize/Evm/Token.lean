@@ -1,11 +1,11 @@
 import ProofForge.Contract.Token
 import ProofForge.Frontend.Surface
 
-/-! Direct TokenSpec to Surface v2 materialization for EVM. The result uses
+/-! Internal TokenSpec to EVM frontend materialization. The result uses
 portable state, arithmetic, events, and identity reads; EVM ABI selectors are
 target-owned materialization metadata. -/
 
-namespace ProofForge.Contract.Token.EvmSurface
+namespace ProofForge.Frontend.Materialize.Evm.Token
 
 open ProofForge.Contract.Token
 open ProofForge.Frontend.Surface
@@ -163,4 +163,4 @@ def materialize (token : TokenSpec) : SurfaceContract := {
   constructorBindings := #[]
 }
 
-end ProofForge.Contract.Token.EvmSurface
+end ProofForge.Frontend.Materialize.Evm.Token

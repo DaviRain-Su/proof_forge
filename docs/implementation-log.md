@@ -3623,3 +3623,21 @@ Rules:
 - Verification: `lake build ProofForge.Backend.Evm.Refinement
   ProofForgeFormalEvm`; `lake build ProofForgeFormalSolana`; and
   `lake env lean --run ProofForgeFormal/Solana/CompileCorrectSmoke.lean`.
+
+## 2026-07-14 - Authoring cleanup A-CUT2a: internalize Surface implementation
+
+- Status: `done (verified 2026-07-14)`; direct Canonical Core normalization is
+  still the active A-CUT2 remainder.
+- Deleted the public `ProofForge.Contract.Surface` and
+  `ProofForge.Solana.Surface` authoring namespaces. Public contracts now use
+  `ProofForge.Contract.Source`; compiler helpers live under
+  `Contract.Source.Internal` and `Contract.Source.Solana.Internal`.
+- Moved direct EVM `SurfaceContract` construction out of `ProofForge.Contract`
+  into `ProofForge.Frontend.Materialize.Evm`, and moved policy AST fixtures to
+  `TestFixtures.SurfaceProducts`.
+- Updated Product, stdlib, protocol, backend fixture, and targeted test callers.
+  The boundary gate rejects restoring the old public files or importing the
+  internal implementation from Product/stdlib code.
+- Verification: targeted Source/Product/stdlib/materializer builds,
+  source-DSL arity, protocol tests, canonical boundary self-test and gate, and
+  repository search for the retired public module names.

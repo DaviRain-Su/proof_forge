@@ -31,26 +31,24 @@ import ProofForge.Target.HostOps.Near
 namespace ProofForge.Contract.Source.Near
 
 open ProofForge.Contract.Source
-open ProofForge.Contract.Surface
-
-export ProofForge.Contract.Surface (
-  crosscallContinue
-  remoteCall
-)
 
 def registerNearCrosscallString (value : String) : ModuleM Unit := do
   let _ ← ProofForge.Contract.Builder.ensureCrosscallString value
   pure ()
 
 def nearAddressLit (idx : Nat) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.peerHandle idx
+  ProofForge.Contract.Source.peerHandle idx
 
 def nearCrosscallPool (account methodId : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
     (deposit : ProofForge.IR.Expr) (argNames : Array String := #[]) : ProofForge.IR.Expr :=
   ProofForge.Contract.Builder.crosscallInvokeNamedValue account methodId args deposit argNames
 
 /-- Source-compatible NEAR name for asynchronous continuation. -/
-def nearPromiseThen := ProofForge.Contract.Surface.crosscallContinue
+def nearPromiseThen (parentPromise callbackMethod : ProofForge.IR.Expr)
+    (args : Array ProofForge.IR.Expr) (deposit : ProofForge.IR.Expr)
+    (argNames : Array String := #[]) : ProofForge.IR.Expr :=
+  ProofForge.Contract.Source.Internal.crosscallContinue
+    parentPromise callbackMethod args deposit argNames
 
 def nearPromiseResultsCount : ProofForge.IR.Expr :=
   .hostCall _root_.ProofForge.Target.HostOps.Near.promiseResultsCountSig.id #[] .u64 #[.nearPromise]
@@ -66,7 +64,7 @@ def nearPromiseResultU128 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
 
 /-- Source-compatible NEAR name for the full-width call value. -/
 def nearAttachedDeposit : ProofForge.IR.Expr :=
-  ProofForge.Contract.Surface.callValueU128
+  ProofForge.Contract.Source.callValueU128
 
 def nearStorageUsage : ProofForge.IR.Expr :=
   .hostCall _root_.ProofForge.Target.HostOps.Near.storageUsageSig.id #[] .u64 #[.storageScalar]

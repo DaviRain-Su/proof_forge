@@ -18,24 +18,24 @@ namespace ProofForge.Contract.Stdlib.UUPSProxy
 open ProofForge.Contract.Source
 
 def eip1967Implementation : ScalarRef :=
-  ProofForge.Contract.Surface.eip1967Implementation
+  ProofForge.Contract.Source.eip1967Implementation
 
 def «owner» : ScalarRef :=
   ProofForge.Contract.Stdlib.UUPSUpgradeable.owner
 
-def declareAtomicConstructor : ProofForge.Contract.Surface.ModuleM Unit := do
-  ProofForge.Contract.Surface.declareConstructorParam "implementation" "address"
-  ProofForge.Contract.Surface.declareConstructorParam "admin" "address"
-  ProofForge.Contract.Surface.declareConstructorInitBinding
+def declareAtomicConstructor : ProofForge.Contract.Source.ModuleM Unit := do
+  ProofForge.Contract.Source.declareConstructorParam "implementation" "address"
+  ProofForge.Contract.Source.declareConstructorParam "admin" "address"
+  ProofForge.Contract.Source.declareConstructorInitBinding
     eip1967Implementation.id "implementation" .addressWord
-  ProofForge.Contract.Surface.declareConstructorInitBinding
+  ProofForge.Contract.Source.declareConstructorInitBinding
     «owner».id "admin" .addressKeccak
 
 contract_source UUPSProxy do
   proxy_pattern_uups;
 
-  use ProofForge.Contract.Surface.scalar «owner»
-  use ProofForge.Contract.Surface.scalar eip1967Implementation
+  use ProofForge.Contract.Source.scalar «owner»
+  use ProofForge.Contract.Source.scalar eip1967Implementation
   use declareAtomicConstructor
 
 end ProofForge.Contract.Stdlib.UUPSProxy

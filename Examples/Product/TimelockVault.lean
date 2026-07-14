@@ -23,22 +23,22 @@ namespace Examples.Product.TimelockVault
 open ProofForge.Contract.Source
 
 def lockedSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "locked" .u64
+  ProofForge.Contract.Source.slot "locked" .u64
 
 def unlockAtSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "unlockAt" .u64
+  ProofForge.Contract.Source.slot "unlockAt" .u64
 
 def claimBalanceSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "claimBalance" .u64
+  ProofForge.Contract.Source.slot "claimBalance" .u64
 
 def claimedSlot : ScalarRef :=
-  ProofForge.Contract.Surface.slot "claimed" .u64
+  ProofForge.Contract.Source.slot "claimed" .u64
 
 contract_source TimelockVault do
-  use ProofForge.Contract.Surface.scalar lockedSlot
-  use ProofForge.Contract.Surface.scalar unlockAtSlot
-  use ProofForge.Contract.Surface.scalar claimBalanceSlot
-  use ProofForge.Contract.Surface.scalar claimedSlot
+  use ProofForge.Contract.Source.scalar lockedSlot
+  use ProofForge.Contract.Source.scalar unlockAtSlot
+  use ProofForge.Contract.Source.scalar claimBalanceSlot
+  use ProofForge.Contract.Source.scalar claimedSlot
 
   event Locked
   event Claimed
@@ -50,11 +50,11 @@ contract_source TimelockVault do
     claimedSlot := u64 0;
 
   entry lock (amount : .u64, unlockAt : .u64) do
-    do ProofForge.Contract.Surface.requireEq
-      (ProofForge.Contract.Surface.read lockedSlot) (u64 0) "already locked";
-    do ProofForge.Contract.Surface.requireEq
-      (ProofForge.Contract.Surface.read claimedSlot) (u64 0) "already claimed";
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref amount)
+    do ProofForge.Contract.Source.requireEq
+      (ProofForge.Contract.Source.read lockedSlot) (u64 0) "already locked";
+    do ProofForge.Contract.Source.requireEq
+      (ProofForge.Contract.Source.read claimedSlot) (u64 0) "already claimed";
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount)
       "zero amount";
     lockedSlot := amount;
     unlockAtSlot := unlockAt;
@@ -62,15 +62,15 @@ contract_source TimelockVault do
       #[fieldAsName "amount" amount, fieldAsName "unlockAt" unlockAt];
 
   entry claim do
-    do ProofForge.Contract.Surface.requireEq
-      (ProofForge.Contract.Surface.read claimedSlot) (u64 0) "already claimed";
+    do ProofForge.Contract.Source.requireEq
+      (ProofForge.Contract.Source.read claimedSlot) (u64 0) "already claimed";
     let locked : .u64 := lockedSlot;
-    do ProofForge.Contract.Surface.requireNonZero (ProofForge.Contract.Surface.ref locked)
+    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref locked)
       "nothing locked";
     let unlock : .u64 := unlockAtSlot;
     let now : .u64 := timestamp;
-    do ProofForge.Contract.Surface.requireGe (ProofForge.Contract.Surface.ref now)
-      (ProofForge.Contract.Surface.ref unlock) "still locked";
+    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref now)
+      (ProofForge.Contract.Source.ref unlock) "still locked";
     claimedSlot := u64 1;
     lockedSlot := u64 0;
     let bal : .u64 := claimBalanceSlot;

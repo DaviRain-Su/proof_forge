@@ -127,6 +127,12 @@ printf '%s\n' 'import ProofForge.Frontend.Surface' \
   > "$root/ProofForge/Contract/Source/SurfaceLeak.lean"
 expect_failure "public Contract.Source Surface import" "$root"
 
+root="$TMP/product-source-internal"
+make_fixture "$root"
+printf '%s\n' 'import ProofForge.Contract.Source.Internal' \
+  > "$root/Examples/Product/Counter.lean"
+expect_failure "product Source.Internal import" "$root"
+
 root="$TMP/comments"
 make_fixture "$root"
 printf '%s\n' '-- historical id: "evm-core"' 'def ids := #["evm"]' > "$root/ProofForge/Target/Registry.lean"

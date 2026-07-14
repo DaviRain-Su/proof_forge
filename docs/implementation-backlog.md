@@ -1918,8 +1918,8 @@ Completed beta scaffolding slices:
 
 Completed developer-surface slices:
 
-- Portable ValueVault surface source:
-  `ProofForge.Contract.Surface` now lets examples declare state slots,
+- Portable ValueVault source DSL:
+  `ProofForge.Contract.Source` now lets examples declare state slots,
   parameters, methods, and event fields once, then write entrypoint bodies
   through typed refs (`read`, `write`, `bind`, `emit`, `ret`) instead of raw
   `ContractSpec` string plumbing. `ProofForge.Contract.Examples.ValueVault`

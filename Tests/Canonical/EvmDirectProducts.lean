@@ -26,7 +26,7 @@ import TestFixtures.SurfaceProducts.SoulboundTokenBody
 import TestFixtures.SurfaceProducts.Nft
 import TestFixtures.SurfaceProducts.ERC4626Vault
 import TestFixtures.SurfaceProducts.FungibleToken
-import ProofForge.Contract.Nft.EvmSurface
+import ProofForge.Frontend.Materialize.Evm.Nft
 import ProofForge.Target.PeerMap
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
@@ -89,7 +89,7 @@ private def checkUnsupportedNftRejected : IO Unit := do
   let unsupported : ProofForge.Contract.NFTSpec := {
     name := "Unsupported", symbol := "UNSUPPORTED",
     features := #[.mintable, .transferable, .approvals] }
-  match ProofForge.Contract.Nft.EvmSurface.validate unsupported with
+  match ProofForge.Frontend.Materialize.Evm.Nft.validate unsupported with
   | .error error =>
       require (error.contains "nft.approvals")
         "unsupported EVM NFT feature did not produce a named diagnostic"
