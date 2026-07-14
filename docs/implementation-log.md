@@ -3405,3 +3405,18 @@ Rules:
   or replacement Legacy name was introduced.
 - Verification: targeted IR build, `just ir-target-boundary`, repository
   caller search, and `git diff --check`.
+
+## 2026-07-14 - EVM-R4b: remove CREATE from shared fixture authoring
+
+- Status: `done (verified 2026-07-14)`; EVM-R4 remains in progress until the
+  now-unproduced Legacy constructors and exhaustive compatibility arms are
+  deleted.
+- Removed CREATE/CREATE2 actions from the portable `CrosscallProbe`; contract
+  deployment is not a chain-neutral crosscall semantic.
+- Migrated the EVM-specific crosscall probe to `Contract.Source.Evm` and the
+  typed `evm.create/create@1.0.0` / `create2@1.0.0` HostOps. Call value is now
+  the declared U128 native-value carrier and the result is an address.
+- Updated the Quint portable model expectation so verification no longer
+  advertises EVM deployment actions.
+- Verification: targeted example builds, canonical EVM host-op tests, Quint
+  crosscall model, and `git diff --check`.

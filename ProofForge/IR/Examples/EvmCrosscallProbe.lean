@@ -1,8 +1,17 @@
 import ProofForge.IR.Contract
+import ProofForge.Target.HostOps.Evm
 
 namespace ProofForge.IR.Examples.EvmCrosscallProbe
 
 open ProofForge.IR
+
+def createDeploy (callValue : Expr) (initCodeHex : String) : Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.createSig.id
+    #[callValue, .literal (.string initCodeHex)] .address #[.crosscallInvoke]
+
+def create2Deploy (callValue salt : Expr) (initCodeHex : String) : Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.create2Sig.id
+    #[callValue, salt, .literal (.string initCodeHex)] .address #[.crosscallInvoke]
 
 def stateMarker : StateDecl := {
   id := "_proof_forge_marker"
@@ -893,26 +902,26 @@ def callRemoteDelegateMatrixArg : Entrypoint := {
 
 def deployCreate : Entrypoint := {
   name := "deploy_create"
-  selector? := some "c9bc2909"
+  selector? := some "939204fb"
   params := #[
-    ("value", .u64)
+    ("value", .u128)
   ]
-  returns := .u64
+  returns := .address
   body := #[
-    .return (.crosscallCreate (.local "value") returnFortyTwoInitCodeHex)
+    .return (createDeploy (.local "value") returnFortyTwoInitCodeHex)
   ]
 }
 
 def deployCreate2 : Entrypoint := {
   name := "deploy_create2"
-  selector? := some "70b22efb"
+  selector? := some "e40b1768"
   params := #[
-    ("value", .u64),
+    ("value", .u128),
     ("salt", .hash)
   ]
-  returns := .u64
+  returns := .address
   body := #[
-    .return (.crosscallCreate2 (.local "value") (.local "salt") returnFortyTwoInitCodeHex)
+    .return (create2Deploy (.local "value") (.local "salt") returnFortyTwoInitCodeHex)
   ]
 }
 
