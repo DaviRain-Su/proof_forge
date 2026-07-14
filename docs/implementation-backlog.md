@@ -41,7 +41,7 @@ July 12 implementation plan.
 | A6 | Open NFT CLI/product/runtime route | done (verified at `6a6022ea`) | three honest bundles and EVM/Surfpool/NEAR lifecycle runtime evidence pass |
 | A-CUT1e | Cut public Solana authoring over to target-owned HostOps | done (verified at `571b795d`) | public/internal macros emit direct Authored contracts; plan-only sidecars and sBPF lowering pass focused Pinocchio comparisons; no public/internal Legacy import or fallback |
 | A-CUT2g | Cut public portable Source/Loader and Counter target routes to direct Authored/Core/Plan | done (verified at `42183403`) | EVM, Solana assembly/ELF, and NEAR/Wasm artifacts use `canonical-core-v1`; no ContractSpec sidecar/fallback; focused three-target behavior passes |
-| A-CUT2h | Remove stale Counter `.spec`/`.module` consumers and obsolete backend wrappers | in_progress | migrate callers to Authored/Canonical, delete zero-caller wrappers, and make focused production/test builds green without compatibility aliases |
+| A-CUT2h | Remove stale Counter `.spec`/`.module` consumers and obsolete backend wrappers | done (verified at `b2d673b4`) | callers use Authored/Canonical or explicit v1-only fixtures; wrappers are deleted; EVM constructor config is target-owned and shared payloads fail closed |
 | A-CUT3 | Migrate Product/stdlib callers and delete their `Source.Legacy` dependencies | pending after CMP-2 | migrate ValueVault first with CMP-3 evidence, then the catalog; delete zero-caller Legacy slices continuously |
 | B1 | Extract neutral Wasm-host plan and ABI | done (verified at `c8d2bbb6`) | NEAR output/runtime preservation |
 | B2 | Add strict canonical target gate | done (verified at `d4df51bc`) | adapter/validator/HostOp/builder errors fail closed |
@@ -65,7 +65,7 @@ add target-specific operations to portable IR. A-CUT1e-c2 is complete.
 |---:|---|---|---|
 | CMP-0 | Inventory and version the shared provenance/scenario/observation contracts | done (verified at `18f15e59`) | 85 tracked assets; 35 v0 manifests migrate explicitly but remain semantically ineligible |
 | CMP-1 | Implement fail-closed normalized observation and coverage validation | done (verified at `7fee238c`) | 23 focused contract/comparator tests; target-local resources cannot become a cross-chain score |
-| CMP-2 | Counter native pilot: Solidity EVM, Rust Solana, Rust NEAR | pending after A-CUT2h | required for A-CUT2 completion |
+| CMP-2 | Counter native pilot: Solidity EVM, Rust Solana, Rust NEAR | in_progress | required for A-CUT2 completion |
 | CMP-3 | ValueVault and representative stateful portable families | pending after CMP-2 | attached to A-CUT3 |
 | CMP-SOL | Account/PDA/CPI conformance against independent Solana Rust references | pending with IR-B5 | IR-B5 exit |
 | CMP-NEAR | Replay existing Rust/Sandbox references from canonical-only artifacts | pending with NEAR-R4 | NEAR-R4 exit |

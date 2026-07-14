@@ -1,15 +1,14 @@
 # Cross-Target Native Differential Validation Plan
 
-Status: **Accepted; CMP-0/CMP-1/A-CUT2g done, CMP-2 pending after A-CUT2h (2026-07-14)**
+Status: **Accepted; CMP-0/CMP-1/A-CUT2h done, CMP-2 in progress (2026-07-14)**
 
 Design: [Cross-Target Native Differential Validation](../specs/2026-07-14-cross-target-native-differential-design.md)
 
 ## Execution Rule
 
 This is a validation track, not a replacement for the current architecture
-queue. A-CUT1e-c2, CMP-0, CMP-1, and A-CUT2g are complete. A-CUT2h removes
-stale internal Counter reverse dependencies before CMP-2 validates the direct
-public route; CMP-3 remains
+queue. A-CUT1e-c2, CMP-0, CMP-1, A-CUT2g, and A-CUT2h are complete. CMP-2 now
+validates the direct public Counter route; CMP-3 remains
 part of A-CUT3 acceptance work. Target-extension tasks
 are attached to their target migration instead of opening unrelated backend
 work early.
@@ -105,13 +104,16 @@ Completion evidence:
 
 ### CMP-2 - Counter primary-triad native pilot
 
-State: `pending after A-CUT2h; required by A-CUT2 completion`
+State: `in_progress; required by A-CUT2 completion`
 
 Direct-route prerequisite: `42183403` proves public Source/Loader, EVM,
 Solana assembly/ELF, and NEAR/Wasm consume Authored/Core/target plans without a
 ContractSpec sidecar or Legacy fallback. `just portable-counter-multi-target`
 and each target-specific Counter testkit runner pass; CMP-2 must now attach the
 independent native references to the v1 observation/comparator contract.
+A-CUT2h commit `b2d673b4` also proves no retired Counter Product alias or
+backend ContractSpec wrapper remains; EVM constructor evidence is loaded as a
+target-owned attachment after EVM selection.
 
 - Use the unchanged `Examples/Product/Counter.lean` as the only ProofForge
   business source.

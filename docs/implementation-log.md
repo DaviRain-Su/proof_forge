@@ -4138,3 +4138,35 @@ Rules:
   the deletion quarantine. A-CUT3 migrates them beginning with ValueVault;
   A-CUT5 deletes zero-caller Legacy modules. CMP-2 must still compare the direct
   Counter artifacts with independent native references before A-CUT2 closes.
+
+## 2026-07-14 - A-CUT2h: remove Counter Legacy reverse dependencies
+
+- Status: `done (verified at b2d673b4)`; CMP-2 is now the only active A-CUT2
+  exit criterion.
+- Removed every retired Product Counter `.spec`/`.module` consumer, deleted the
+  duplicate EVM Counter wrapper/golden and Solana Counter wrapper, and moved
+  formal, invariant, Quint, product, routing, and schema tests to direct
+  Authored/checked Core inputs or explicitly named historical v1 fixtures.
+- Added the focused `counter-authoring-cutover` boundary gate. Public EVM
+  `build`, Yul, and `check` no longer fall back to `ContractSpec`; selector
+  hydration and plan construction use the direct source path.
+- Moved scalar constructor ABI/storage policy into the EVM-owned
+  `ConstructorConfigPlan`. The optional `evmConstructor` source attachment is
+  loaded only after EVM target selection, resolves storage in `ModulePlan`, and
+  rejects duplicate/unknown/incompatible bindings. Nonempty shared Canonical
+  constructor payloads fail closed.
+- Generated deploy metadata now distinguishes `init-code` from `deploy-object`.
+  The direct Anvil run observed constructor state `123`, then lifecycle states
+  `0`, `1`, and `2`; validators checked the declared mode, initcode, transaction
+  input, receipt, and deployed runtime.
+- Focused verification: `lake build ProofForge.Cli.ContractSourceArtifacts
+  ProofForge.Cli.Check proof-forge`; `lake env lean --run
+  Tests/Backend/Evm/CanonicalPlan.lean`; `just counter-authoring-cutover`; `just
+  public-authored-route`; `just portable-counter-multi-target`; `just
+  evm-build-examples`; `just evm-anvil-deploy`; direct JSON EVM `check` for
+  `CounterConstructorProbe`; all changed formal/Quint/product tests; `just
+  docs-check`; translation sync; and `git diff --check`.
+- Honest remaining inventory: shared Authored/Canonical constructor fields and
+  the old EVM artifact caller bridge are deletion-only inputs for IR-B4/A-CUT5;
+  the direct route rejects or bypasses them. StorageDeposit remains a strict
+  NEP-145 failure until A-CUT3 migrates its old u64 projection.

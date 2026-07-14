@@ -86,6 +86,18 @@ strict gate and does not count toward A1.
 | A-CUT2g-4 | Target behavior remains executable | ✅ met | individual Counter testkit runners pass for `evm`, `solana-sbpf-asm`, and `wasm-near`; NEAR offline-host reports `0 -> 1`; EVM selector metadata and target goldens pass |
 | A-CUT2g-5 | Legacy is deletion inventory, not compatibility | ✅ met | direct boundary gate rejects Legacy imports in Source/Counter; remaining callers explicitly import `Source.Legacy`, which the public Loader cannot discover; no direct-to-Legacy adapter or fallback exists |
 
+## Gate A-CUT2h — Counter reverse-dependency removal
+
+Status: **closed at `b2d673b4`**.
+
+| Criterion | Requirement | Status | Evidence |
+|---|---|---|---|
+| A-CUT2h-1 | No retired Product Counter `.spec`/`.module` alias remains | ✅ met | `just counter-authoring-cutover` scans production, tests, examples, scripts, and `justfile`; formal/Quint consumers now use Authored/checked Core or explicitly named v1 fixtures |
+| A-CUT2h-2 | Obsolete backend wrappers are deleted | ✅ met | EVM `Contracts/Counter.lean` plus its duplicate golden and Solana `Counter.lean` are absent; topology and EVM example gates pass |
+| A-CUT2h-3 | EVM constructor ABI remains target-owned | ✅ met | `evmConstructor : ConstructorConfigPlan` is loaded only after EVM selection; `buildFromCore` rejects shared Canonical constructor payloads and validates parameter/storage binding references |
+| A-CUT2h-4 | Direct runtime behavior survives | ✅ met | `just evm-anvil-deploy` records `creationMode: deploy-object`, reads initial `123`, then observes `0`, `1`, and `2`; `just portable-counter-multi-target` passes without a ContractSpec sidecar |
+| A-CUT2h-5 | No compatibility route was added | ✅ met | public `build`, Yul, and `check` consume Authored -> checked Core -> EVM plan; the direct EVM check passes and invalid shared/target constructor configurations fail closed |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

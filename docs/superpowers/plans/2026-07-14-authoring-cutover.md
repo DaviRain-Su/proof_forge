@@ -243,7 +243,7 @@ the final A-CUT2 exit criterion.
 
 ### A-CUT2h - Remove stale Counter reverse dependencies
 
-State: `in_progress`
+State: `done (verified at b2d673b4)`
 
 The public cutover deliberately removed `Examples.Product.Counter.spec` and
 `.module`. Focused builds then exposed internal modules and historical backend
@@ -261,11 +261,23 @@ wrappers that still referenced those retired names. Do not restore aliases.
 - Preserve constructor parameters and resolved storage bindings in the
   EVM-owned `ModulePlan`; direct artifact and deploy-object generation must not
   rediscover them from `ContractSpec` or v1 `IR.Module`.
+- Load the optional `evmConstructor : ConstructorConfigPlan` attachment only
+  after target routing selects EVM. Shared Authored/Canonical constructor ABI
+  fields are not a portable replacement: EVM planning rejects them.
 
 Acceptance: affected production modules and tests build, `docs-check` passes,
 repository searches find no retired Counter Product alias or deleted wrapper
 path, and `just evm-anvil-deploy` observes the direct typed constructor value
 before the runtime lifecycle resets it.
+
+Completion evidence (`b2d673b4`): all retired Counter `.spec`/`.module`
+consumers moved to Authored/checked Core or explicitly named v1-only fixtures;
+the obsolete EVM and Solana wrappers were deleted. `just
+counter-authoring-cutover`, `just public-authored-route`, `just
+portable-counter-multi-target`, `just evm-build-examples`, the changed
+formal/Quint/product tests, and `just docs-check` pass. The direct EVM check and
+Anvil gate load `evmConstructor` after target selection; Anvil observes `123`
+before `initialize`, then `0`, `1`, and `2`. CMP-2 is now active.
 
 ### A-CUT3 - Product migration
 

@@ -73,7 +73,7 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "54b8ca9e7babe486402026c221551c6cdc8db31b75348e48de1760fac389d8ab",
+    "sha256": "0583e54c2e1514cac826499906b945979a23c55d5a7fee49bbf9ebf61cb76895",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
     "note": "synced EN/zh through A-CUT2g and active CMP-2"
@@ -102,7 +102,7 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "e98b26c15c401477f2254137d973ee27f971c1590e70a87c43d9a8d541483b2f",
+    "sha256": "2042ea70223a0d64fae57463543f7e6096c95353c0696f84d6b089a4fb458320",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
     "note": "manually synced through direct public authoring Counter gate"
@@ -186,7 +186,7 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "0860f1b2f1ee1e63cd57b2a0b360b069ab30fb6d7fcb1501a715c737e98e91b6",
+    "sha256": "6e93985be81e2d284be60dad8acaa393a6b1ddd34d9d7374687831526b40cc59",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
     "en_sha256": "0860f1b2f1ee1e63cd57b2a0b360b069ab30fb6d7fcb1501a715c737e98e91b6"

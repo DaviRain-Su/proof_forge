@@ -79,6 +79,18 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT2g-4 | Target 行为保持可执行 | ✅ met | Counter 的 `evm`、`solana-sbpf-asm`、`wasm-near` 独立 testkit runner 均通过；NEAR offline-host 报告 `0 -> 1`；EVM selector metadata 与 target golden 通过 |
 | A-CUT2g-5 | Legacy 是待删除清单，不是兼容层 | ✅ met | direct boundary gate 拒绝 Source/Counter 导入 Legacy；剩余调用方显式导入 public Loader 无法发现的 `Source.Legacy`；不存在 direct-to-Legacy adapter 或 fallback |
 
+## Gate A-CUT2h —— 删除 Counter 反向依赖
+
+状态：**在 `b2d673b4` 关闭**。
+
+| 条件 | 要求 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT2h-1 | 不再保留 Product Counter `.spec`/`.module` 旧别名 | ✅ met | `just counter-authoring-cutover` 扫描 production、test、example、script 和 `justfile`；formal/Quint 消费者改用 Authored/checked Core 或显式 v1 fixture |
+| A-CUT2h-2 | 删除过时 backend wrapper | ✅ met | EVM `Contracts/Counter.lean`、其重复 golden 以及 Solana `Counter.lean` 均已删除；topology 与 EVM example gate 通过 |
+| A-CUT2h-3 | EVM constructor ABI 归 target 所有 | ✅ met | 仅在选择 EVM 后加载 `evmConstructor : ConstructorConfigPlan`；`buildFromCore` 拒绝共享 Canonical constructor payload，并校验参数/存储绑定引用 |
+| A-CUT2h-4 | Direct runtime 行为保持 | ✅ met | `just evm-anvil-deploy` 记录 `creationMode: deploy-object`，先读取 `123`，再观测 `0`、`1`、`2`；`just portable-counter-multi-target` 无 ContractSpec sidecar 通过 |
+| A-CUT2h-5 | 未新增兼容路线 | ✅ met | public `build`、Yul 和 `check` 均消费 Authored -> checked Core -> EVM plan；direct EVM check 通过，非法共享/target constructor config fail closed |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。
