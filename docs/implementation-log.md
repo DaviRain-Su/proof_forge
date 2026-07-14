@@ -3946,3 +3946,23 @@ Rules:
 - Verification: focused direct Boolean tri-target planning; canonical Core
   validation and runtime semantics; canonical boundary and Legacy freeze; and
   `git diff --check`.
+
+## 2026-07-14 - A-CUT2f-c: direct Authored event schemas
+
+- Status: `done (verified 2026-07-14)`; Source emit lowering can now preserve
+  event field metadata without constructing a `ContractSpec` event table.
+- Added Authored event arguments carrying the field name, indexed flag, optional
+  interface ABI word, and target-neutral value expression. The canonicalizer
+  discovers event identities in declaration/statement order, resolves field
+  types from normalized Core values, and produces matching Core and Interface
+  declarations from one schema.
+- Repeated emits must agree exactly on names, types, indexing, and ABI metadata.
+  Explicit event declarations and positional emits remain supported for
+  compiler fixtures, while an event with neither declaration nor emit fails
+  closed.
+- Added `Tests/Canonical/AuthoredEvents.lean` with inferred-schema, explicit
+  compatibility, and conflicting-schema cases; wired it into
+  `canonical-foundation`.
+- Verification: `lake build ProofForge.Frontend.Authored`,
+  `lake build ProofForge.Frontend.Surface.Semantics`, `just canonical-foundation`,
+  canonical boundary, Legacy freeze, and `git diff --check`.

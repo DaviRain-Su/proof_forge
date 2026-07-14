@@ -47,15 +47,19 @@ def buildInterface (contract : AuthoredContract) (mod : Module) :
       retType := retType,
       returnAbiWord? := ep.returnAbiWord?
     : InterfaceEntrypoint }
-  let events ← contract.events.mapIdxM fun idx ev => do
-    let fields ← ev.fields.mapIdxM fun fidx f => do
-      let coreTy ← liftExcept (resolveAuthoredType env.typeIds f.type)
-      let abiWord := f.abiWord?
-      let result : InterfaceEventField := {
-        fieldId := ⟨fidx⟩, name := f.name, type := coreTy,
-        indexed := f.indexed, abiWord? := abiWord }
-      return result
-    return { eventId := ⟨idx⟩, name := ev.name, fields := fields : InterfaceEvent }
+  let events ← (← get).eventSchemas.mapIdxM fun eventIndex schema? => do
+    let schema ← match schema? with
+      | some schema => pure schema
+      | none => throw (AuthoredNormalizeError.unsupportedAuthored "EventSchema"
+          s!"event {env.eventNames[eventIndex]!} has no declared or emitted schema")
+    let fields := schema.fields.mapIdx fun fieldIndex field =>
+      { fieldId := ⟨fieldIndex⟩
+        name := field.name
+        type := field.type
+        indexed := field.indexed
+        abiWord? := field.abiWord?
+      : InterfaceEventField }
+    return { eventId := ⟨eventIndex⟩, name := schema.name, fields : InterfaceEvent }
   let errors ← mod.errors.mapM fun decl => do
     let surfaceError? := contract.errors[decl.id.value]?
     let displayName := surfaceError?.map (·.name) |>.getD decl.name
@@ -168,7 +172,7 @@ def normalizeAuthored (contract : AuthoredContract) :
   | Except.error e => Except.error (AuthoredNormalizeError.duplicateName "" e.message)
   | Except.ok _ => pure ()
   let env ← buildEnv contract
-  let st := AuthoredState.ofEnv env
+  let st ← AuthoredState.ofEnv env contract
   let (mod, finalSt) ← StateT.run (adaptModule contract) st
   let (interface, _) ← StateT.run (buildInterface contract mod) finalSt
   let interfaceExtensions : Array InterfaceExtension :=

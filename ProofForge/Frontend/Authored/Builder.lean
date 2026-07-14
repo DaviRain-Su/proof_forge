@@ -104,6 +104,9 @@ def stateWrite (name : String) (value : AuthoredExpr) : EntryM Unit :=
 def emit (name : String) (args : Array AuthoredExpr) : EntryM Unit :=
   pushStmt (.emit name args)
 
+def emitFields (name : String) (fields : Array AuthoredEventArgument) : EntryM Unit :=
+  pushStmt (.emitFields name fields)
+
 def assert (condition : AuthoredExpr) (message : String) : EntryM Unit :=
   pushStmt (.assert condition message)
 

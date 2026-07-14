@@ -140,6 +140,11 @@ partial def execStmts (stmts : Array SurfaceStmt) (st : SurfaceRuntimeState)
       for arg in args do
         vals := vals.push (← evalExpr arg s l)
       s := { s with events := s.events.push (name, vals.toList.toArray) }
+    | .emitFields name fields => do
+      let mut vals := #[]
+      for field in fields do
+        vals := vals.push (← evalExpr field.value s l)
+      s := { s with events := s.events.push (name, vals.toList.toArray) }
     | .assert cond message => do
       let v ← evalExpr cond s l
       if v == 0 then s := { s with reverted := true, error := some message }

@@ -167,6 +167,7 @@ structure AuthoredEnv where
   stateIds : Std.HashMap String (StateId × StateShape)
   functionIds : Std.HashMap String FunctionId
   eventIds : Std.HashMap String EventId
+  eventNames : Array String
   errorDecls : Array ErrorDecl
   overflowMode : OverflowMode
   localValues : Std.HashMap String ValueRef
@@ -177,8 +178,21 @@ structure AuthoredEnv where
   nextErrorId : Nat
   deriving Repr
 
+structure ResolvedEventField where
+  name : String
+  type : CoreType
+  indexed : Bool
+  abiWord? : Option String := none
+  deriving Repr, BEq
+
+structure ResolvedEventSchema where
+  name : String
+  fields : Array ResolvedEventField
+  deriving Repr, BEq
+
 structure AuthoredState where
   env : AuthoredEnv
+  eventSchemas : Array (Option ResolvedEventSchema)
   nextValueId : Nat
   nextBlockId : Nat
   deriving Repr
@@ -231,6 +245,22 @@ def lookupEvent (name : String) : AuthoredM EventId := do
   | some id => return id
   | none => throw (AuthoredNormalizeError.unknownEvent name)
 
+def registerEventSchema (name : String) (fields : Array ResolvedEventField) :
+    AuthoredM EventId := do
+  let eventId ← lookupEvent name
+  let state ← get
+  match state.eventSchemas[eventId.value]? with
+  | some (some existing) =>
+      unless existing.fields == fields do
+        throw (AuthoredNormalizeError.typeMismatch
+          s!"event schema {repr existing.fields}" s!"event schema {repr fields}")
+  | some none =>
+      let schema : ResolvedEventSchema := { name, fields }
+      let eventSchemas := state.eventSchemas.set! eventId.value (some schema)
+      set { state with eventSchemas }
+  | none => throw (AuthoredNormalizeError.unknownEvent name)
+  return eventId
+
 /-- Lookup a local by name. -/
 def lookupLocal (name : String) : AuthoredM ValueRef := do
   match Std.HashMap.get? (← get).env.localValues name with
@@ -272,6 +302,20 @@ def stateArrayType (name : String) : AuthoredM CoreType := do
   | .fixedArray element _ | .dynamicArray element => return element
   | _ => throw (AuthoredNormalizeError.typeMismatch "array" "non-array state")
 
+partial def statementEventNames (statement : AuthoredStmt) : Array String :=
+  match statement with
+  | .emit name _ | .emitFields name _ => #[name]
+  | .branch _ thenBody elseBody =>
+      thenBody.flatMap statementEventNames ++ elseBody.flatMap statementEventNames
+  | .boundedLoop _ _ _ body => body.flatMap statementEventNames
+  | _ => #[]
+
+def contractEventNames (contract : AuthoredContract) : Array String :=
+  let discovered := contract.entrypoints.flatMap fun entrypoint =>
+    entrypoint.body.flatMap statementEventNames
+  (contract.events.map (·.name) ++ discovered).foldl
+    (fun names name => if names.contains name then names else names.push name) #[]
+
 /-- Build a resolved Authored environment from a AuthoredContract.
 Identifiers are assigned deterministically in declaration order. -/
 def buildEnv (contract : AuthoredContract) : Except AuthoredNormalizeError AuthoredEnv := do
@@ -281,6 +325,7 @@ def buildEnv (contract : AuthoredContract) : Except AuthoredNormalizeError Autho
     stateIds := {},
     functionIds := {},
     eventIds := {},
+    eventNames := #[],
     errorDecls := #[],
     overflowMode := .checked,
     localValues := {},
@@ -308,9 +353,12 @@ def buildEnv (contract : AuthoredContract) : Except AuthoredNormalizeError Autho
   for ep in contract.entrypoints do
     let id := ⟨env.nextFunctionId⟩
     env := { env with functionIds := env.functionIds.insert ep.name id, nextFunctionId := env.nextFunctionId + 1 }
-  for ev in contract.events do
+  for eventName in contractEventNames contract do
     let id := ⟨env.nextEventId⟩
-    env := { env with eventIds := env.eventIds.insert ev.name id, nextEventId := env.nextEventId + 1 }
+    env := { env with
+      eventIds := env.eventIds.insert eventName id
+      eventNames := env.eventNames.push eventName
+      nextEventId := env.nextEventId + 1 }
   for err in contract.errors do
     let id := ⟨env.nextErrorId⟩
     let coreParams ← err.params.mapM (resolveAuthoredType env.typeIds)
@@ -320,8 +368,25 @@ def buildEnv (contract : AuthoredContract) : Except AuthoredNormalizeError Autho
       nextErrorId := env.nextErrorId + 1 }
   return env
 
-/-- Construct empty AuthoredState from an environment. -/
-def AuthoredState.ofEnv (env : AuthoredEnv) : AuthoredState :=
-  { env := env, nextValueId := 0, nextBlockId := 0 }
+/-- Construct AuthoredState and seed explicitly declared event schemas. -/
+def AuthoredState.ofEnv (env : AuthoredEnv) (contract : AuthoredContract) :
+    Except AuthoredNormalizeError AuthoredState := do
+  let mut eventSchemas : Array (Option ResolvedEventSchema) :=
+    Array.replicate env.eventNames.size none
+  for event in contract.events do
+    let eventId ← match Std.HashMap.get? env.eventIds event.name with
+      | some eventId => pure eventId
+      | none => throw (AuthoredNormalizeError.unknownEvent event.name)
+    let fields ← event.fields.mapM fun field => do
+      let type ← resolveAuthoredType env.typeIds field.type
+      return {
+        name := field.name
+        type
+        indexed := field.indexed
+        abiWord? := field.abiWord?
+      }
+    let schema : ResolvedEventSchema := { name := event.name, fields }
+    eventSchemas := eventSchemas.set! eventId.value (some schema)
+  return { env, eventSchemas, nextValueId := 0, nextBlockId := 0 }
 
 end ProofForge.Frontend.Authored.Canonicalize

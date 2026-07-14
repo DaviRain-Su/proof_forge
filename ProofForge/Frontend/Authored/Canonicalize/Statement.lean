@@ -104,6 +104,16 @@ def declaredErrorRef (name : String) (args : Array AuthoredExpr) :
     index := index + 1
   return (instructions, { id := declaration.id, args := refs })
 
+def normalizeEventExpressions (args : Array AuthoredExpr) :
+    AuthoredM (Array Instruction × Array ValueRef) := do
+  let mut instructions : Array Instruction := #[]
+  let mut refs : Array ValueRef := #[]
+  for arg in args do
+    let normalized ← normalizeExpr arg
+    instructions := instructions ++ normalized.instructions
+    refs := refs.push normalized.value
+  return (instructions, refs)
+
 /-- Normalize a Authored statement into the function builder. -/
 partial def normalizeStatement (fb : FunctionBuilder) (stmt : AuthoredStmt)
     (retType : CoreType) : AuthoredM FunctionBuilder :=
@@ -241,14 +251,34 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : AuthoredStmt)
       let fb ← liftExcept (normalizedBase.instructions.foldlM FunctionBuilder.emitInstr fb)
       liftExcept (fb.emitInstr { results := #[], op := .memoryRelease normalizedBase.value })
   | .emit eventName args => do
+      let (instructions, argRefs) ← normalizeEventExpressions args
       let eventId ← lookupEvent eventName
-      let mut argRefs : Array ValueRef := #[]
-      let mut allInstrs : Array Instruction := #[]
-      for arg in args do
-        let nv ← normalizeExpr arg
-        allInstrs := allInstrs ++ nv.instructions
-        argRefs := argRefs.push nv.value
-      let fb ← liftExcept (allInstrs.foldlM FunctionBuilder.emitInstr fb)
+      let state ← get
+      let fields ← match state.eventSchemas[eventId.value]? with
+        | some (some schema) =>
+            unless schema.fields.size == argRefs.size &&
+                (schema.fields.zip argRefs).all (fun pair => pair.1.type == pair.2.type) do
+              throw (AuthoredNormalizeError.typeMismatch
+                s!"declared event schema {repr schema.fields}"
+                s!"emitted argument types {repr (argRefs.map (·.type))}")
+            pure schema.fields
+        | some none => pure <| argRefs.mapIdx fun index ref => {
+            name := s!"field{index}", type := ref.type, indexed := false }
+        | none => throw (AuthoredNormalizeError.unknownEvent eventName)
+      let eventId ← registerEventSchema eventName fields
+      let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
+      let instr := { results := #[], op := .emit eventId argRefs }
+      liftExcept (fb.emitInstr instr)
+  | .emitFields eventName fields => do
+      let (instructions, argRefs) ← normalizeEventExpressions (fields.map (·.value))
+      let schema := (fields.zip argRefs).map fun pair => {
+        name := pair.1.name
+        type := pair.2.type
+        indexed := pair.1.indexed
+        abiWord? := pair.1.abiWord?
+      : ResolvedEventField }
+      let eventId ← registerEventSchema eventName schema
+      let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
       let instr := { results := #[], op := .emit eventId argRefs }
       liftExcept (fb.emitInstr instr)
   | .assert cond message => do
@@ -426,14 +456,18 @@ def adaptStruct (decl : AuthoredStructDecl) : AuthoredM Struct := do
     | .linearRecord => StructSemantics.linearRecord
   return { id := id, fields := fields, semantics := semantics }
 
-/-- Adapt Authored events to Core events. -/
-def adaptEvents (contract : AuthoredContract) : AuthoredM (Array Event) := do
-  contract.events.mapIdxM fun idx ev => do
-    let eventId ← lookupEvent ev.name
-    let fields ← ev.fields.mapIdxM fun fidx f => do
-      let ty ← liftExcept (resolveAuthoredType (← get).env.typeIds f.type)
-      return { id := ⟨fidx⟩, type := ty : EventFieldDecl }
-    return { id := eventId, fields := fields }
+/-- Adapt resolved Authored event schemas to Core events. Event schemas may be
+declared explicitly or inferred from named emit fields. -/
+def adaptEvents : AuthoredM (Array Event) := do
+  let state ← get
+  state.eventSchemas.mapIdxM fun index schema? => do
+    let schema ← match schema? with
+      | some schema => pure schema
+      | none => throw (AuthoredNormalizeError.unsupportedAuthored "EventSchema"
+          s!"event {state.env.eventNames[index]!} has no declared or emitted schema")
+    let fields := schema.fields.mapIdx fun fieldIndex field =>
+      { id := ⟨fieldIndex⟩, type := field.type : EventFieldDecl }
+    return { id := ⟨index⟩, fields }
 
 /-- Adapt the runtime portion of a authored contract to canonical Core. -/
 def adaptModule (contract : AuthoredContract) : AuthoredM Module := do
@@ -443,7 +477,7 @@ def adaptModule (contract : AuthoredContract) : AuthoredM Module := do
     let shape ← lookupStateShape s.name
     return { id := id, shape := shape : StateDecl }
   let functions ← contract.entrypoints.mapM adaptFunction
-  let events ← adaptEvents contract
+  let events ← adaptEvents
   let env := (← get).env
   return {
     name := contract.name,

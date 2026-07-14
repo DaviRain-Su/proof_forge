@@ -120,6 +120,13 @@ inductive AuthoredExpr
   deriving Repr
 
 /-- Authored-level statements. -/
+structure AuthoredEventArgument where
+  name : String
+  indexed : Bool := false
+  abiWord? : Option String := none
+  value : AuthoredExpr
+  deriving Repr
+
 inductive AuthoredStmt
   | bind (name : String) (type : AuthoredType) (value : AuthoredExpr)
   | mutBind (name : String) (type : AuthoredType) (value : AuthoredExpr)
@@ -134,6 +141,7 @@ inductive AuthoredStmt
   | memoryStore (base index value : AuthoredExpr)
   | memoryRelease (base : AuthoredExpr)
   | emit (eventName : String) (args : Array AuthoredExpr)
+  | emitFields (eventName : String) (fields : Array AuthoredEventArgument)
   | assert (condition : AuthoredExpr) (message : String)
   | assertError (condition : AuthoredExpr) (errorName : String) (args : Array AuthoredExpr)
   | revert (message : String)

@@ -196,7 +196,12 @@ builder and proves a Counter-shaped contract reaches checked Canonical Core
 without importing `Contract.Builder` or constructing `IR.Module`. A-CUT2f-b
 adds the missing target-neutral Boolean Core operation so authored `boolAnd`
 and `boolOr` no longer depend on the closed Legacy expression tree; all three
-primary canonical plans consume it.
+primary canonical plans consume it. A-CUT2f-c closes the event-schema gap: the
+direct builder can attach field names, types, indexing, and interface ABI
+metadata at emit sites; normalization infers one deterministic contract schema,
+rejects conflicting emits, and emits matching Canonical Core and Interface event
+declarations. Existing explicitly declared events remain supported for compiler
+fixtures.
 
 ### A-CUT3 - Product migration
 
