@@ -2855,3 +2855,14 @@ Rules:
   `just ir-target-boundary`, and `git diff --check`.
 - Next: introduce target-owned CREATE/CREATE2 requests in the canonical route,
   then delete the corresponding legacy shared constructors.
+
+## 2026-07-14 - EVM-R1i: remove final crypto constructor producer
+
+- Status: `done (verified 2026-07-14)`; shared constructor deletion follows.
+- Switched the canonical EVM crypto route test from legacy
+  `Expr.ecrecover`/`Expr.eip712PermitDigest` construction to the public
+  `Contract.Source.Evm` HostOp helpers.
+- Verification passed: `Tests/Canonical/EvmCryptoHostOps.lean` and
+  `git diff --check`.
+- Next: delete the two now-unreachable legacy crypto constructors and all
+  compatibility/rejection match arms.

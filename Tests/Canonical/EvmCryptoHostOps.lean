@@ -1,5 +1,6 @@
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Compiler.CanonicalPipeline
+import ProofForge.Contract.Source.Evm
 import ProofForge.Contract.Spec
 import ProofForge.IR.Legacy.Adapter
 import ProofForge.Target.HostOps.Evm
@@ -22,9 +23,10 @@ private def cryptoModule : ProofForge.IR.Module := {
       params := #[
         ("digest", .hash), ("v", .u64), ("r", .hash), ("s", .hash)
       ]
-      returns := .u64
+      «returns» := .u64
       mutability := .view
-      body := #[.return (.ecrecover (.local "digest") (.local "v") (.local "r") (.local "s"))]
+      body := #[.return (ProofForge.Contract.Source.Evm.ecrecover
+        (.local "digest") (.local "v") (.local "r") (.local "s"))]
     },
     {
       name := "permitDigest"
@@ -33,9 +35,9 @@ private def cryptoModule : ProofForge.IR.Module := {
         ("owner", .address), ("spender", .address), ("value", .u64),
         ("nonce", .u64), ("deadline", .u64), ("domain", .hash)
       ]
-      returns := .hash
+      «returns» := .hash
       mutability := .view
-      body := #[.return (.eip712PermitDigest
+      body := #[.return (ProofForge.Contract.Source.Evm.eip712PermitDigest
         (.local "owner") (.local "spender") (.local "value")
         (.local "nonce") (.local "deadline") (.local "domain"))]
     }
