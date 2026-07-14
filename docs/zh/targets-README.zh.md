@@ -57,8 +57,11 @@ P0 本地/CI 门禁。三者仍是 `Experimental`；该签署不是通用正确�
 |---|---|---|
 | [Psy DPN](../targets/psy-dpn.md) | Spike | 生成 `.psy`/Dargo 的路径保持维护；不推进 capability-completion，除非安排新的 ZK/circuit lane。 |
 | [Aleo Leo](targets/aleo-leo.zh.md) | Research | Counter/PureMath sourcegen 和 smoke 保持维护；当前不安排新的 ZK-app 实现路线。 |
-| [Cloudflare Workers](../targets/cloudflare-workers.md) | Research（TS emit） | TypeScript Worker demo 作为 off-chain host 参考保留；当前不做产品扩展。 |
-| [Sui Move](targets/move-family.zh.md) | Counter MVP | Counter package 与本地 `just sui-*` gates 保持维护；超出 Counter 的扩展等待 D-007 中的 Aptos M4。 |
+
+**已从 `main` 删除（2026-07-15）：**`move-aptos`、`move-sui` 和
+`wasm-cloudflare-workers`，包括 `ProofForge/Backend/Move`、
+`ProofForge/Compiler/TS` 与相关 fixture。完整历史保存在分支
+`archive/move-cloudflare-2026-07-15`。
 
 ## Tier-1 候选
 
@@ -67,7 +70,6 @@ P0 本地/CI 门禁。三者仍是 `Experimental`；该签署不是通用正确�
 | 目标 | 阶段 | 恢复条件 |
 |---|---|---|
 | CosmWasm | Counter MVP | 已通过 `PF-P3-02` six-gate 提升（`just cosmwasm-promotion`）；Gate G1a（M3/M4 capability completion）**未开始**，portable remote 的 `execute_msg` 仍是 stub。 |
-| Aptos Move | Spike | `just aptos-promotion` 是严格要求 `aptos move compile/test` 的提升门；仍是 Sui 之前第一个 Move sourcegen proof。 |
 
 ## Docs-Only Parked Research
 
@@ -105,7 +107,6 @@ spike 后，才会从 docs-only 状态恢复。
 - [Algorand AVM 目标](targets/algorand-avm.zh.md)
 - [Solana sBPF Asm](../targets/solana-sbpf-asm.md) —— 规范 direct-assembly 路线（`solana-sbpf-asm` 目标 id，D-026）
 - [Solana sBPF](targets/solana-sbf.zh.md) —— 已被取代的 Zig/sbpf-linker 路线（`solana-sbpf-linker` 目标 id）
-- [Move 家族](targets/move-family.zh.md)
 - [Cardano Plutus/Aiken 目标](targets/cardano-plutus-aiken.zh.md)
 - [Tezos Michelson/LIGO 目标](targets/tezos-michelson-ligo.zh.md)
 - [Starknet Cairo 目标](targets/starknet-cairo.zh.md)

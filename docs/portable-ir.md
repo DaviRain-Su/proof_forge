@@ -136,16 +136,15 @@ spikes are considered complete.
 Each target accepts a subset of IR. Unsupported constructs fail at capability
 check time with target id and capability id.
 
-| Restriction | Solana | Move (Aptos/Sui) | Psy DPN |
-|---|---|---|---|
-| Implicit contract storage | Rejected — use explicit accounts | Rejected — use resources/objects | Allowed only through explicit Psy storage/sourcegen mapping |
-| Higher-order functions | Restricted runtime subset TBD | Rejected in v0 | Rejected in v0 |
-| Arbitrary heap objects | Runtime size TBD | Rejected | Rejected |
-| Closures | TBD with sBPF spike | Rejected | Rejected |
-| Unbounded loops | TBD with sBPF spike | Rejected in v0 | Rejected; require circuit-friendly bounded shape |
+| Restriction | Solana | Psy DPN |
+|---|---|---|
+| Implicit contract storage | Rejected — use explicit accounts | Allowed only through explicit Psy storage/sourcegen mapping |
+| Higher-order functions | Restricted runtime subset TBD | Rejected in v0 |
+| Arbitrary heap objects | Runtime size TBD | Rejected |
+| Closures | TBD with sBPF spike | Rejected |
+| Unbounded loops | TBD with sBPF spike | Rejected; require circuit-friendly bounded shape |
 
-See [targets/solana-sbf.md](targets/solana-sbf.md),
-[targets/move-family.md](targets/move-family.md), and
+See [targets/solana-sbf.md](targets/solana-sbf.md) and
 [targets/psy-dpn.md](targets/psy-dpn.md) for family-specific limits.
 
 ## Counter IR Example (v0)

@@ -54,7 +54,7 @@ strict gate and does not count toward A1.
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
-| CMP-0-1 | The tracked comparison inventory is complete and honest | ✅ met | `18f15e59`; generated `testkit/differential/inventory.v1.json` lists 85 NEAR, Solana, Stylus, EVM, portable-scenario, and CI assets and reports zero semantically verified assets |
+| CMP-0-1 | The tracked comparison inventory is complete and honest | ✅ met | `6273dfe2`; generated `testkit/differential/inventory.v1.json` lists 85 NEAR, Solana, Stylus, EVM, portable-scenario, and CI assets and reports zero semantically verified assets |
 | CMP-0-2 | Versioned contracts fail closed | ✅ met | four v1 schemas plus 11 unit tests reject missing provenance, duplicate step IDs, unknown observation dimensions, skipped/error runners, and incomplete coverage claimed as semantic success |
 | CMP-0-3 | Current v0 manifests have explicit, non-promoting migration | ✅ met | all 28 NEAR and 7 Solana manifests migrate through schema-specific functions; inferred/missing provenance stays explicit and migrated observations keep `semanticMatch=false` |
 | CMP-0-4 | Comparison contracts remain outside production architecture | ✅ met | boundary test scans `ProofForge/**/*.lean` for comparison schema/import leakage; `just differential-contracts` and `git diff --check` pass; migration functions exist only under `scripts/differential` and are deletion work after v1 conversion |
@@ -67,7 +67,7 @@ strict gate and does not count toward A1.
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
-| CMP-1-1 | Runner results preserve logical and target-native identity separately | ✅ met | `7fee238c`; typed values plus logical account/actor/clock context compare portable identity while retaining native account IDs, heights, and timestamps in evidence |
+| CMP-1-1 | Runner results preserve logical and target-native identity separately | ✅ met | `25ef8eb3`; typed values plus logical account/actor/clock context compare portable identity while retaining native account IDs, heights, and timestamps in evidence |
 | CMP-1-2 | Every required observation dimension fails closed | ✅ met | 12 comparator tests exercise independent mismatches for call status/error, return, state, balances, ordered events, external actions, interface, and resources; missing coverage, skips/errors, and incomplete provenance keep `semanticMatch=false` |
 | CMP-1-3 | Target-owned observations are not flattened into false equivalence | ✅ met | cross-target external actions compare logical payload and retain native payload; resource values compare only within one target family and aggregate score fields are rejected |
 | CMP-1-4 | The shared comparator remains test-only | ✅ met | runner schema and implementation live under `testkit/differential` and `scripts/differential`; compiler boundary test includes the runner schema ID; `just differential-contracts` passes 23 contract/comparator tests plus inventory and matrix snapshots |
@@ -88,7 +88,7 @@ strict gate and does not count toward A1.
 
 ## Gate A-CUT2h — Counter reverse-dependency removal
 
-Status: **closed at `b2d673b4`**.
+Status: **closed at `fbc69309`**.
 
 | Criterion | Requirement | Status | Evidence |
 |---|---|---|---|
@@ -117,7 +117,7 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
-| CMP-2-1 | One direct ProofForge business source reaches all three targets | ✅ met | `e2834c59`; `Examples/Product/Counter.lean` builds with `contract-source-authored` / `canonical-core-v1` metadata for EVM, Solana, and NEAR; the focused runner rejects ContractSpec sidecars |
+| CMP-2-1 | One direct ProofForge business source reaches all three targets | ✅ met | `bec50074`; `Examples/Product/Counter.lean` builds with `contract-source-authored` / `canonical-core-v1` metadata for EVM, Solana, and NEAR; the focused runner rejects ContractSpec sidecars |
 | CMP-2-2 | Independent native references have complete provenance | ✅ met | Solidity, Pinocchio Rust, and near-sdk Rust v1 manifests pin exact source SHA-256, Apache-2.0, and toolchain versions; stale source digests fail `just differential-contracts` and the runtime gate |
 | CMP-2-3 | Native and ProofForge artifacts execute on target VMs | ✅ met | Anvil executes both EVM artifacts, Mollusk executes both sBPF ELFs, and `near-vm-runner` executes both Wasm artifacts on upstream NEAR VM logic |
 | CMP-2-4 | Required semantics fail closed | ✅ met | each target reports all eight dimensions covered, `semanticMatch=true`, and zero unallowed mismatches; exact target-local gas/CU differences remain visible as allowed resource evidence |
@@ -167,7 +167,7 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 
 **Status: Closed**
 
-**Closed: 2026-07-14 at `50c1c07a`**
+**Closed: 2026-07-14 at `7256db23`**
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
@@ -181,7 +181,7 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 
 **Status: Closed**
 
-**Closed: 2026-07-14 at `69499e99`**
+**Closed: 2026-07-14 at `419405e5`**
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
@@ -195,7 +195,7 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 
 **Status: Closed**
 
-**Closed: 2026-07-14 at `c6538c6b`**
+**Closed: 2026-07-14 at `ccb9221a`**
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
@@ -213,7 +213,7 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
-| CMP-3d1-1 | Every primary target has an independent native reference | ✅ met | `6e1df78b` pins Solidity, Pinocchio Rust, and near-sdk Rust sources; none imports ProofForge compiler or IR modules |
+| CMP-3d1-1 | Every primary target has an independent native reference | ✅ met | `1545c739` pins Solidity, Pinocchio Rust, and near-sdk Rust sources; none imports ProofForge compiler or IR modules |
 | CMP-3d1-2 | The logical lifecycle includes authorization failures and one-shot initialization | ✅ met | the ten-step v1 scenario covers unauthorized transfer/renounce, zero-address transfer, ownership events, state-preserving failures, renounce, and rejected reinitialization after owner becomes zero |
 | CMP-3d1-3 | Native sources build with pinned target toolchains | ✅ met | `solc` 0.8.30 compiles Solidity; Pinocchio host check and cargo-build-sbf 3.1.12/platform-tools v1.52 pass; near-sdk host tests and Rust 1.94.0 Wasm build pass |
 | CMP-3d1-4 | Pinned sources do not overclaim semantic equivalence | ✅ met | `just differential-contracts` validates all digests and records the three references plus scenario as `semanticEvidence=none`; inventory is 106 assets with exactly 12 verified assets |
@@ -238,7 +238,7 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 
 **Status: Closed**
 
-**Closed: 2026-07-14 at `c8e417db`**
+**Closed: 2026-07-14 at `a37c9ae7`**
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
@@ -252,7 +252,7 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 
 **Status: Closed**
 
-**Closed: 2026-07-14 at `98e9996f`**
+**Closed: 2026-07-14 at `8f1f5a1f`**
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
@@ -267,7 +267,7 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 
 **Status: Closed**
 
-**Closed: 2026-07-14 at `9772da92`**
+**Closed: 2026-07-14 at `782460f0`**
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
@@ -281,7 +281,7 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 
 **Status: Closed**
 
-**Closed: 2026-07-14 at `b407b493`**
+**Closed: 2026-07-14 at `fb190e31`**
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|

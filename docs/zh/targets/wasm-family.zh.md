@@ -1,6 +1,9 @@
 # Wasm 家族目标
 
-Wasm 家族包括 NEAR、CosmWasm、Stellar/Soroban、Arbitrum Stylus、Internet Computer canisters，以及后续 Polkadot/ink 风格合约。它们共享一种可执行格式，但合约 ABI 并不相同。ProofForge 只应共享真正通用的部分。
+Wasm 家族包括 NEAR、CosmWasm、Stellar/Soroban、Arbitrum Stylus、Internet
+Computer canister，以及后续 Polkadot/ink 风格合约。它们共享一种可执行格式，
+但合约 ABI 并不相同。ProofForge 只应共享真正通用的部分。原 Cloudflare
+Workers research backend 已按 D-057 从 `main` 删除，只保留在归档分支。
 
 ## Spike 诚实性 (U7)
 
@@ -9,7 +12,6 @@ Wasm 家族包括 NEAR、CosmWasm、Stellar/Soroban、Arbitrum Stylus、Internet
   Gate G1a（M3/M4）**未开始**。
 - **Soroban：**Counter MVP host adapter（`PF-P3-02` six-gate）；在真实 Env auth
   落地前，interpreter auth 始终授权。
-- **Cloudflare Workers：**仅用于 research / off-chain。
 - **Arbitrum Stylus（`wasm-arbitrum-stylus`）：**已实现的 Research 目标。Stylus 的
   产物是 Wasm，但语义属于 EVM；它拥有独立 `StylusPlan`，不得经过
   `NearModulePlan`。Direct Wasm 是 CLI 默认 renderer，固定版本 Rust SDK

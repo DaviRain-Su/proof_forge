@@ -4030,8 +4030,8 @@ Rules:
 
 ## 2026-07-14 - DOC-CMP: accept native differential validation
 
-- Status: `done (verified at 45d341ad)`.
-- Commit: `45d341ad`.
+- Status: `done (verified at cbe29f7b)`.
+- Commit: `cbe29f7b`.
 - Result: accepted D-055 and a staged native-reference differential track that
   consolidates existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
   and Stylus Rust evidence without adding target-specific semantics to portable
@@ -4074,7 +4074,7 @@ Rules:
 
 ## 2026-07-14 - CMP-0: native differential contracts and inventory
 
-- Status: `done (verified at 18f15e59)`; CMP-1 is now active.
+- Status: `done (verified at 6273dfe2)`; CMP-1 is now active.
 - Added four versioned, test-only contracts for native-reference provenance,
   logical scenarios, normalized observations/coverage, and repository inventory.
   Validation fails closed on missing provenance, duplicate step IDs, unknown
@@ -4092,7 +4092,7 @@ Rules:
 
 ## 2026-07-14 - CMP-1: normalized runner result and comparator
 
-- Status: `done (verified at 7fee238c)`; A-CUT2g is now active before CMP-2.
+- Status: `done (verified at 25ef8eb3)`; A-CUT2g is now active before CMP-2.
 - Added the test-only `runner-result.v1` contract and typed logical values,
   accounts, actors, clocks, runner status, declared coverage, and per-step
   results. Logical context compares across chains while retaining native IDs,
@@ -4113,7 +4113,7 @@ Rules:
 
 ## 2026-07-14 - A-CUT2g: direct public Source/Loader and Counter routes
 
-- Status: `done (verified at 42183403)`; CMP-2 is active and remains the final
+- Status: `done (verified at 356e91d7)`; CMP-2 is active and remains the final
   A-CUT2 acceptance requirement.
 - Replaced the public `contract_source` implementation with direct
   `AuthoredContract` construction. The unchanged Product Counter exports only
@@ -4141,7 +4141,7 @@ Rules:
 
 ## 2026-07-14 - A-CUT2h: remove Counter Legacy reverse dependencies
 
-- Status: `done (verified at b2d673b4)`; CMP-2 is now the only active A-CUT2
+- Status: `done (verified at fbc69309)`; CMP-2 is now the only active A-CUT2
   exit criterion.
 - Removed every retired Product Counter `.spec`/`.module` consumer, deleted the
   duplicate EVM Counter wrapper/golden and Solana Counter wrapper, and moved
@@ -4173,7 +4173,7 @@ Rules:
 
 ## 2026-07-14 - CMP-2: primary-triad native Counter differential
 
-- Status: `done (verified at e2834c59)`; A-CUT2 is closed and A-CUT3/CMP-3
+- Status: `done (verified at bec50074)`; A-CUT2 is closed and A-CUT3/CMP-3
   ValueVault is now active.
 - Added v1 logical scenario and complete provenance manifests for independent
   Solidity, Pinocchio Rust, and near-sdk Rust Counter references. Source
@@ -4221,7 +4221,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3a: pin the stateful scenario and Solana oracle
 
-- Status: `done (verified at a49470cc)`; the primary-triad comparison remains active.
+- Status: `done (verified at 0034787a)`; the primary-triad comparison remains active.
 - Added a 13-step ValueVault v1 scenario covering the full positive lifecycle,
   all eight observation dimensions, state preservation after rejected
   `release(201)`, and an `arithmetic-underflow` error contract.
@@ -4239,7 +4239,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3b: complete EVM and NEAR native references
 
-- Status: `done (verified at 8ba9b309)`; the primary-triad VM runner is next.
+- Status: `done (verified at d9958588)`; the primary-triad VM runner is next.
 - Expanded the independent Solidity and near-sdk ValueVault references to the
   complete seven-method contract, five event families, snapshot behavior, and
   checked arithmetic rejection. The NEAR host test also proves state remains
@@ -4337,7 +4337,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3d1: pin independent Ownable references
 
-- Status: `done (verified at 6e1df78b)`; CMP-3d2 native VM execution is now
+- Status: `done (verified at 1545c739)`; CMP-3d2 native VM execution is now
   active and the four new inventory assets remain deliberately unverified.
 - Upgraded the independent Solidity and near-sdk Ownable references to retain
   one-shot initialization after renounce and emit ordered
@@ -4363,7 +4363,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3d2: primary-triad native Ownable differential
 
-- Status: `done (verified at ce539dce)`; A-CUT3 now moves directly to Pausable
+- Status: `done (verified at 8dddf6b7)`; A-CUT3 now moves directly to Pausable
   source/caller migration and deletion of its zero-caller Legacy stdlib module.
 - Added `scripts/differential/ownable_pilot.py` and `just
   differential-ownable`. The gate builds only the direct Product source through
@@ -4392,7 +4392,7 @@ Rules:
 
 ## 2026-07-14 - A-CUT3c1: direct-only Product Pausable cutover
 
-- Status: `done (verified at 50c1c07a)`; CMP-3e1 independent Pausable
+- Status: `done (verified at 7256db23)`; CMP-3e1 independent Pausable
   references are now active before ReentrancyGuard migration.
 - Rewrote `Examples/Product/Pausable.lean` as the sole target-neutral
   `AuthoredContract`. It directly expresses the paused scalar, query, equality
@@ -4416,7 +4416,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3e1: pin independent Pausable references
 
-- Status: `done (verified at c8e417db)`; CMP-3e2 primary-triad VM execution is
+- Status: `done (verified at a37c9ae7)`; CMP-3e2 primary-triad VM execution is
   active, and all four new semantic assets remain deliberately unverified.
 - Added independent Solidity and Pinocchio Pausable implementations. Solidity
   uses a `uint64` state with explicit repeated-pause/not-paused errors; the
@@ -4436,7 +4436,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3e2: primary-triad native Pausable differential
 
-- Status: `done (verified at 98e9996f)`; A-CUT3c2 now rewrites Product
+- Status: `done (verified at 8f1f5a1f)`; A-CUT3c2 now rewrites Product
   ReentrancyGuard directly and deletes its Legacy implementation and wrapper.
 - Added `scripts/differential/pausable_pilot.py`, `just
   differential-pausable`, and a dedicated Mollusk runner. The gate builds only
@@ -4460,7 +4460,7 @@ Rules:
 
 ## 2026-07-14 - A-CUT3c2: direct-only Product ReentrancyGuard cutover
 
-- Status: `done (verified at 69499e99)`; CMP-3f1 independent ReentrancyGuard
+- Status: `done (verified at 419405e5)`; CMP-3f1 independent ReentrancyGuard
   references and the negative lock-state scenario are now active.
 - Rewrote `Examples/Product/ReentrancyGuard.lean` as the sole target-neutral
   `AuthoredContract`. It expresses guarded acquire, guarded release, the lock
@@ -4486,7 +4486,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3f1: pin independent ReentrancyGuard references
 
-- Status: `done (verified at 9772da92)`; CMP-3f2 primary-triad VM execution is
+- Status: `done (verified at 782460f0)`; CMP-3f2 primary-triad VM execution is
   active, and all four new semantic assets remain deliberately unverified.
 - Added independent Solidity and Pinocchio ReentrancyGuard implementations.
   Both implement an 8-byte/u64 lock, reject repeated acquire, and reject
@@ -4506,7 +4506,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3f2: primary-triad native ReentrancyGuard differential
 
-- Status: `done (verified at b407b493)`; A-CUT3d1 direct fixed-array authoring
+- Status: `done (verified at fb190e31)`; A-CUT3d1 direct fixed-array authoring
   and Product ArrayExample rewrite-and-delete are now active.
 - Added `scripts/differential/reentrancy_guard_pilot.py`, `just
   differential-reentrancy-guard`, and a dedicated Mollusk runner. The gate
@@ -4533,7 +4533,7 @@ Rules:
 
 ## 2026-07-14 - A-CUT3d1: direct-only Product ArrayExample cutover
 
-- Status: `done (verified at c6538c6b)`; CMP-3g1 independent fixed-array
+- Status: `done (verified at ccb9221a)`; CMP-3g1 independent fixed-array
   references and scenario pinning are now active.
 - Added target-neutral direct Source array literals and indexing. Rewrote
   `Examples/Product/ArrayExample.lean` as the sole `AuthoredContract`; checked

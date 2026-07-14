@@ -1,11 +1,10 @@
 # Wasm Family Targets
 
-The Wasm family includes NEAR, CosmWasm, Stellar/Soroban, Arbitrum Stylus, Internet Computer
-canisters, later Polkadot/ink-style contracts, and Cloudflare Workers. They
-share an executable format, but not a contract ABI. Cloudflare Workers is not a
-blockchain, but it uses the same Wasm-host backend pattern: a generated Wasm
-module plus a target-specific host bridge. ProofForge should share only the
-parts that are genuinely common. for the off-chain reinterpretation of capabilities.
+The Wasm family includes NEAR, CosmWasm, Stellar/Soroban, Arbitrum Stylus,
+Internet Computer canisters, and later Polkadot/ink-style contracts. They share
+an executable format, but not a contract ABI. ProofForge shares only the parts
+that are genuinely common. The former Cloudflare Workers research backend was
+removed from `main` under D-057 and is retained only on the archive branch.
 
 ## Spike honesty (U7)
 
@@ -15,7 +14,6 @@ parts that are genuinely common. for the off-chain reinterpretation of capabilit
   Gate G1a (M3/M4) is **not started**.
 - **Soroban:** Counter MVP host adapter (`PF-P3-02` six-gate); interpreter auth
   is always-authorised until real Env auth lands.
-- **Cloudflare Workers:** research / off-chain only.
 - **Arbitrum Stylus (`wasm-arbitrum-stylus`):** implemented Research target. Stylus is
   Wasm-shaped but EVM-semantic; it owns a separate `StylusPlan` and must not
   route through `NearModulePlan`. Direct Wasm is the CLI default and pinned
@@ -237,13 +235,13 @@ calls. The remaining target concerns are real and selected per target:
 - native GMP — none (hash is a fixed 4×u64 limb tuple, lowered directly)
 - chain-agnostic force-linking of host bridges — none
 
-| Option | NEAR | CosmWasm | Stellar/Soroban | ICP canister | Cloudflare Workers |
-|---|---|---|---|---|---|
-| Scalar lowering | shared `EmitWat` (IR u32/u64/bool/hash → Wasm i32/i64) | shared | shared | shared | TypeScript sourcegen today; shared `EmitWat` planned |
-| Hash lowering | shared `EmitWat` (4×u64 tuple in linear memory) | shared | shared | shared | TypeScript bigint today |
-| Host bridge | `near` (`env.*`) | `cosmwasm` (`db.*`) | `stellar-soroban` | `icp-canister` | `cloudflare-workers` (fetch/KV) |
-| Args ABI | JSON / Borsh | JSON | Soroban XDR / native | Candid | JSON over HTTP |
-| Validation | NEAR VM/MVP checks | `cosmwasm-check` | Stellar CLI or sandbox | Local replica, PocketIC, or ICP CLI | `wrangler dev` / Miniflare |
+| Option | NEAR | CosmWasm | Stellar/Soroban | ICP canister |
+|---|---|---|---|---|
+| Scalar lowering | shared `EmitWat` (IR u32/u64/bool/hash → Wasm i32/i64) | shared | shared | shared |
+| Hash lowering | shared `EmitWat` (4×u64 tuple in linear memory) | shared | shared | shared |
+| Host bridge | `near` (`env.*`) | `cosmwasm` (`db.*`) | `stellar-soroban` | `icp-canister` |
+| Args ABI | JSON / Borsh | JSON | Soroban XDR / native | Candid |
+| Validation | NEAR VM/MVP checks | `cosmwasm-check` | Stellar CLI or sandbox | Local replica, PocketIC, or ICP CLI |
 
 ## CosmWasm Counter Spike
 

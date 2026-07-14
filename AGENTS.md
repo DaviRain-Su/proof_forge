@@ -28,7 +28,7 @@ Keep this section short and update it whenever the active task changes.
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
 | Active task | CMP-3g1 - pin independent ArrayExample native references and a versioned fixed-array scenario without claiming semantic equivalence |
 | Next task | CMP-3g2 - execute the direct ArrayExample and all three native references on the primary target VMs |
-| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault, Ownable, Pausable, and ReentrancyGuard VM evidence is verified through `b407b493`; ArrayExample direct cutover is verified at `c6538c6b` |
+| Validation track | CMP-0 is done at `6273dfe2`; CMP-1 at `25ef8eb3`; A-CUT2/CMP-2 at `bec50074`; ValueVault, Ownable, Pausable, and ReentrancyGuard VM evidence is verified through `fb190e31`; ArrayExample direct cutover is verified at `ccb9221a` |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -175,9 +175,9 @@ Core are internal compiler representations.
 | A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
 | A-CUT1c | done (verified at `52742ff5`) | Consolidate the optional EVM and Solana semantic-refinement roots under the independent `ProofForgeFormal` Lake libraries; keep heavyweight proof dependencies out of the default compiler library |
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
-| A-CUT1e | done (verified at `571b795d`) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
-| A-CUT2 | done (verified at `e2834c59`) | Public Counter routes, reverse dependencies, and independent primary-triad behavior are direct-only and fully covered by CMP-2 |
-| A-CUT3 | in_progress (ArrayExample direct cutover verified at `c6538c6b`) | Migrate the full product catalog from the single abstract source; CMP-3g now adds fixed-array native evidence before the next Product family |
+| A-CUT1e | done (verified at `50e32b58`) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
+| A-CUT2 | done (verified at `bec50074`) | Public Counter routes, reverse dependencies, and independent primary-triad behavior are direct-only and fully covered by CMP-2 |
+| A-CUT3 | in_progress (ArrayExample direct cutover verified at `ccb9221a`) | Migrate the full product catalog from the single abstract source; CMP-3g now adds fixed-array native evidence before the next Product family |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
 
@@ -185,7 +185,7 @@ Native-reference differential validation follows
 [the July 14 comparison plan](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md).
 It extends the existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
 and Stylus differential assets; it is not another compiler route. CMP-0 is
-done at `18f15e59`, CMP-1 at `7fee238c`, and A-CUT2/CMP-2 at `e2834c59`.
+done at `6273dfe2`, CMP-1 at `25ef8eb3`, and A-CUT2/CMP-2 at `bec50074`.
 CMP-3 is the active A-CUT3 catalog evidence; ArrayExample reference pinning is next. CMP-SOL attaches to IR-B5, CMP-NEAR
 attaches to NEAR-R4, and the final fail-closed matrix attaches to IR-B8/A-CUT5.
 

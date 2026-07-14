@@ -15,7 +15,7 @@ Start here:
 - [RFC 0001](docs/rfcs/0001-multichain-platform.md) — multi-chain architecture
   and roadmap; [RFC 0002](docs/rfcs/0002-target-implementation-design.md) —
   target implementation design.
-- [Design decisions](docs/decisions.md) — settled choices (D-001…D-045).
+- [Design decisions](docs/decisions.md) — settled choices (D-001…D-057).
 - [Formal verification roadmap](docs/formal-verification.md) — existing proof
   anchors and staged theorem targets.
 - [Demo recording](https://asciinema.org/a/fn6o6kSxB5RpMXJl) — terminal demo: author → compile → deploy → test.
@@ -47,11 +47,11 @@ EVM, Solana, and NEAR via `just portable-counter-multi-target` and
 
 | Target id | Pipeline | Stage | Local validation |
 |---|---|---|---|
-| `evm` | Surface v2 / Legacy adapter → canonical contract → EVM `ModulePlan` → Yul → `solc` → bytecode | Experimental (broad CI gates; not a full Solidity SDK) | golden Yul, canonical plan/artifact parity, diagnostics, Foundry runtime smoke (35 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2 — see [sdk-ecosystem-gaps](docs/sdk-ecosystem-gaps-2026-07.md)) |
-| `solana-sbpf-asm` | Surface v2 / Legacy adapter → canonical contract → `SolanaModulePlan` → sBPF assembly → ELF | Experimental | canonical plan/artifact parity, Mollusk tests, Surfpool/Rust live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Associated Token `create_idempotent` CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner/permanent_delegate/interest_bearing/memo_transfer/transfer_hook_init/pausable), map storage, nativeValue lamports read |
-| `wasm-near` | Surface v2 / Legacy adapter → canonical contract → `NearModulePlan` → Wasm AST/WAT → Wasm | Experimental | canonical plan/artifact parity, diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening, real upstream NEAR VM conformance (IR fixture + product source + NEP-141 FT incl. storage_remove and the full promise ABI + `ft_resolve_transfer` callback dispatch via real `promise_result`, through `near-vm-runner`/Wasmtime) |
+| `evm` | `AuthoredContract` → checked Canonical Core → EVM `ModulePlan` → Yul → `solc` → bytecode | Experimental (broad CI gates; not a full Solidity SDK) | golden Yul, canonical plan/artifact parity, diagnostics, Foundry runtime smoke (35 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2 — see [sdk-ecosystem-gaps](docs/sdk-ecosystem-gaps-2026-07.md)) |
+| `solana-sbpf-asm` | `AuthoredContract` → checked Canonical Core → `SolanaModulePlan` → sBPF assembly → ELF | Experimental | canonical plan/artifact parity, Mollusk tests, Surfpool/Rust live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Associated Token `create_idempotent` CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner/permanent_delegate/interest_bearing/memo_transfer/transfer_hook_init/pausable), map storage, nativeValue lamports read |
+| `wasm-near` | `AuthoredContract` → checked Canonical Core → `NearModulePlan` → Wasm AST/WAT → Wasm | Experimental | canonical plan/artifact parity, diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening, real upstream NEAR VM conformance (IR fixture + product source + NEP-141 FT incl. storage_remove and the full promise ABI + `ft_resolve_transfer` callback dispatch via real `promise_result`, through `near-vm-runner`/Wasmtime) |
 | `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just soroban-promotion` (source identity · fail-closed · HostBridge · wat2wasm · offline-host lifecycle · docs); auth still spike-always; Stellar CLI/TTL remain follow-on |
-| `wasm-arbitrum-stylus` | Surface v2 / Legacy adapter → canonical contract → `StylusPlan` → direct HostIO Wasm (default) or pinned Rust SDK oracle | Research | `just stylus-all`; atomic WAT/Wasm or Rust bundles, plan-derived Solidity ABI/client, hashed plan/storage/evidence, and local VM/differential coverage for Counter, ValueVault, Token, RemoteCall, and bounded aggregates; Nitro activation/E2E evidence is still required for promotion |
+| `wasm-arbitrum-stylus` | checked Canonical contract → `StylusPlan` → direct HostIO Wasm (default) or pinned Rust SDK oracle | Research | `just stylus-all`; atomic WAT/Wasm or Rust bundles, plan-derived Solidity ABI/client, hashed plan/storage/evidence, and local VM/differential coverage for Counter, ValueVault, Token, RemoteCall, and bounded aggregates; Nitro activation/E2E evidence is still required for promotion |
 | `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just cosmwasm-promotion` (product Counter source · offline-host 0→1 · no NEAR swap); `execute_msg` still stub; fixture `cosmwasm-check` via `just cosmwasm-counter-smoke` |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Spike (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
 | `aleo-leo` | portable IR → Leo source package | Research sourcegen | validated pure, Unit-final, and state-independent `(T, Final)` fragment; ordered Poseidon pair hashing, record semantics, and plan-derived metadata; state-derived non-Unit returns fail closed under Leo 4.0.2 |
@@ -113,8 +113,8 @@ lake env proof-forge emit --target aleo-leo --fixture pure-math --format leo -o 
 ```
 
 The complete, per-target list of runnable validation commands and their tool
-prerequisites (Foundry, `solc`, `sbpf`, `wat2wasm`, `dargo`, `leo`,
-`dargo`, `leo`, …) lives in [docs/validation-gates.md](docs/validation-gates.md).
+prerequisites (Foundry, `solc`, `sbpf`, `wat2wasm`, `dargo`, `leo`, …) lives
+in [docs/validation-gates.md](docs/validation-gates.md).
 Cloud/agent environment notes are in [AGENTS.md](AGENTS.md).
 
 ## Architecture
@@ -122,9 +122,9 @@ Cloud/agent environment notes are in [AGENTS.md](AGENTS.md).
 The primary triad lowers through a checked canonical contract before entering
 the existing target semantic plans. Logical state belongs to the canonical
 layer; physical slots, account offsets, and linear-memory addresses belong to
-target plans. Non-semantic evidence cannot affect plans or artifacts. The
-frozen Legacy adapter remains test-only for one release comparison window and
-is never a public fallback. See [Canonical compiler architecture](docs/architecture.md)
+target plans. Non-semantic evidence cannot affect plans or artifacts. Legacy
+code is deletion-only inventory under D-056; migrated routes cannot adapt back,
+fall back, or dual-write. See [Canonical compiler architecture](docs/architecture.md)
 and [Canonical backend interface](docs/backend-interface.md).
 
 ```mermaid
@@ -132,12 +132,11 @@ flowchart TB
   subgraph authoring ["Authoring (user-facing, chain-neutral)"]
     SDK["Lean SDK<br/>contract_source / Contract Intent API"]
     TOK["Token SDK<br/>TokenSpec"]
-    LEARN[".learn parser<br/>(frozen compatibility)"]
   end
 
   subgraph core ["Compiler-owned core"]
-    SPEC["ContractSpec"]
-    IR["Portable IR<br/>+ AllocatorConfig + ownership rules"]
+    AUTH["AuthoredContract"]
+    IR["Checked Canonical Core<br/>target-neutral operations"]
     SEM["IR semantics + formal anchors<br/>(FV roadmap)"]
   end
 
@@ -160,10 +159,9 @@ flowchart TB
     GATES["Gates: Lean tests · testkit (planned, RFC 0007)<br/>Foundry · Mollusk/Surfpool · offline host · dargo/leo"]
   end
 
-  SDK --> SPEC
-  TOK --> SPEC
-  LEARN --> SPEC
-  SPEC --> IR
+  SDK --> AUTH
+  TOK --> AUTH
+  AUTH --> IR
   IR --- SEM
   IR --> CAP
   REG --> CAP
@@ -210,7 +208,7 @@ the IR spec. Editable [Excalidraw architecture diagrams](docs/diagrams/README.md
 - **Portable authoring module:** `ProofForge.Contract.Source` (default for new
   chain-neutral contracts and templates).
 - **Target selection:** `proof-forge --target <id>` chooses EVM, Solana, NEAR,
-  Sui, or another backend at build/emission time; portable contract sources
+  or another registered backend at build/emission time; portable contract sources
   should not import a destination-chain module just to select an output chain.
 - **EVM-native module:** `ProofForge.Evm` with namespace `Lean.Evm` remains for
   legacy EVM examples and explicit EVM-only adapter work.
@@ -225,16 +223,15 @@ because `Lean.Evm` shadows the Lean compiler's own `Lean` namespace.
 Phase 0: EVM baseline                      (done)
 Phase 1: target registry + portable IR     (done)
 Phase 2+: parallel backend spikes          (Solana, NEAR, Psy on main;
-                                            Sui Counter MVP;
-                                            Aleo, CF Workers research)
+                                            Aleo retained as research)
 Phase 3:  three-chain P0 backend gates      (done — Counter + ValueVault
                                             portable on evm + solana-sbpf-asm
                                             + wasm-near)
 Current:  2 open P0 SDK blockers — NEAR parameterized TokenSpec runtime +
           NEP-145 predecessor refund Promise;
           then P1 depth and formal verification (Workstream 25)
-Later:    Move family expansion, cloud platform (after two+ targets reach
-          Experimental with shared-scenario parity; D-010)
+Archived: Move and Cloudflare code is on archive/move-cloudflare-2026-07-15;
+          restoration requires a new accepted target decision (D-057)
 ```
 
 Canonical target ids and the full decision log: [docs/decisions.md](docs/decisions.md).

@@ -230,7 +230,7 @@ rejects conflicting emits, and emits matching Canonical Core and Interface event
 declarations. Existing explicitly declared events remain supported for compiler
 fixtures.
 
-A-CUT2g is complete at `42183403`. The public `contract_source` macro exports
+A-CUT2g is complete at `356e91d7`. The public `contract_source` macro exports
 only `contract : AuthoredContract`; Loader ignores `spec` and accepts only that
 public value or an explicitly named internal `surfaceFixture`. EVM, Solana
 assembly/ELF, and NEAR/Wasm normalize the unchanged Counter source directly to
@@ -238,13 +238,13 @@ checked Core and target-owned plans. Artifact metadata is
 `contract-source-authored` / `canonical-core-v1`, no ContractSpec sidecar is
 emitted, and the three target testkit runners execute the same four-step
 Counter lifecycle. Remaining `Source.Legacy` imports are explicit deletion
-inventory for A-CUT3/A-CUT5, never a fallback. CMP-2 completed at `e2834c59`:
+inventory for A-CUT3/A-CUT5, never a fallback. CMP-2 completed at `bec50074`:
 the direct Counter semantically matches independent Solidity, Pinocchio, and
 near-sdk references with complete v1 coverage, so A-CUT2 is closed.
 
 ### A-CUT2h - Remove stale Counter reverse dependencies
 
-State: `done (verified at b2d673b4)`
+State: `done (verified at fbc69309)`
 
 The public cutover deliberately removed `Examples.Product.Counter.spec` and
 `.module`. Focused builds then exposed internal modules and historical backend
@@ -271,7 +271,7 @@ repository searches find no retired Counter Product alias or deleted wrapper
 path, and `just evm-anvil-deploy` observes the direct typed constructor value
 before the runtime lifecycle resets it.
 
-Completion evidence (`b2d673b4`): all retired Counter `.spec`/`.module`
+Completion evidence (`fbc69309`): all retired Counter `.spec`/`.module`
 consumers moved to Authored/checked Core or explicitly named v1-only fixtures;
 the obsolete EVM and Solana wrappers were deleted. `just
 counter-authoring-cutover`, `just public-authored-route`, `just
@@ -279,7 +279,7 @@ portable-counter-multi-target`, `just evm-build-examples`, the changed
 formal/Quint/product tests, and `just docs-check` pass. The direct EVM check and
 Anvil gate load `evmConstructor` after target selection; Anvil observes `123`
 before `initialize`, then `0`, `1`, and `2`. CMP-2 subsequently closed the
-independent primary-triad behavior requirement at `e2834c59`.
+independent primary-triad behavior requirement at `bec50074`.
 
 ### A-CUT3 - Product migration
 
@@ -323,20 +323,20 @@ near-sdk references beside those direct artifacts on Anvil, Mollusk, and the
 upstream NEAR VM. All ten steps and eight observation dimensions match; the
 superseded NEAR Ownable v0 manifest is deleted.
 
-Pausable checkpoint (2026-07-14): `50c1c07a` rewrites
+Pausable checkpoint (2026-07-14): `7256db23` rewrites
 `Examples/Product/Pausable.lean` as the sole `AuthoredContract`, removes every
 Product `.spec`/`.module` caller, deletes both the Legacy stdlib implementation
 and obsolete EVM wrapper, and removes their allowlist/topology entries. The
 same checked Core reaches EVM, Solana, NEAR, and the shared Soroban Wasm-host
 plan. `just pausable-authoring-cutover` builds final primary-triad artifacts
 with `contract-source-authored` / `canonical-core-v1` and rejects retired
-sidecars. `98e9996f` completes CMP-3e on Anvil, Mollusk, and upstream
+sidecars. `8f1f5a1f` completes CMP-3e on Anvil, Mollusk, and upstream
 `near-vm-runner`: all nine steps and eight observation dimensions match, the
 two rejected transitions preserve state, and the replaced NEAR v0 manifest is
 deleted. ReentrancyGuard now receives the same rewrite-and-delete treatment;
 neither family gets a compatibility facade.
 
-ReentrancyGuard checkpoint (2026-07-14): `69499e99` rewrites
+ReentrancyGuard checkpoint (2026-07-14): `419405e5` rewrites
 `Examples/Product/ReentrancyGuard.lean` as the sole direct
 `AuthoredContract`, removes every Product `.spec`/`.module` consumer, and
 deletes both `ProofForge/Contract/Stdlib/ReentrancyGuard.lean` and the obsolete
@@ -348,14 +348,14 @@ facades, wrappers, allowlist entries, and retired sidecars. `VerifiedVault`
 owns its remaining historical lock state locally and no longer imports the
 deleted facade; its separate Product migration is not implied by this slice.
 
-ReentrancyGuard execution checkpoint (2026-07-14): `b407b493` executes the
+ReentrancyGuard execution checkpoint (2026-07-14): `fb190e31` executes the
 same nine-step guarded lock lifecycle against direct Authored and independent
 native artifacts on Anvil, Mollusk, and upstream `near-vm-runner`. Both invalid
 transitions preserve state, all eight dimensions match, the replaced NEAR v0
 manifest is deleted, and the generic compare caller names the v1 reference
 explicitly.
 
-ArrayExample checkpoint (2026-07-14): `c6538c6b` adds target-neutral local
+ArrayExample checkpoint (2026-07-14): `ccb9221a` adds target-neutral local
 array literals and indexing to direct Source, rewrites
 `Examples/Product/ArrayExample.lean` as the sole `AuthoredContract`, and
 deletes its Legacy EVM wrapper plus the temporary Surface fixture. Canonical

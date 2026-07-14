@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "ba57adbdb189edfff0ec96ad3c653c18e45a8a18e822ba33524aae5334e991d0",
+    "sha256": "426221c56f4726594d8f4c9847890242a3b5aabf9d2df57422c32e4fe0bcc03c",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for direct-default Arbitrum Stylus research status"
+    "note": "manually synced for D-057 backend removal and the direct-only architecture"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -11,10 +11,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "570cbd8c9321de6519c65ccef47b73eba256b6a559b526cb8c8e8373fe572c82",
+    "sha256": "676fa0152fd6159b20c11d62d1109e8295a2aac06302c526b0efc63e5ea2e989",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for native differential design and plan links"
+    "note": "manually synced after the D-057 target removal"
   },
   "docs/onboarding.md": {
     "sha256": "5ec69a144131b3a817e6a7b1a98657a6949af1f1ab1fe25e4212ece313f64367",
@@ -27,10 +27,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "598a951c9dbf7538fd083706d5cbc37aefc6a85552075e59fe0f41e7679ad594",
+    "sha256": "fe570646e5ad8e85ab833595798361613ea1e4b8912d941084b3a3588b5684f2",
     "zh": "docs/zh/decisions.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through D-056 direct-only Legacy deletion policy"
+    "note": "manually synced through D-057 backend removal"
   },
   "docs/superpowers/specs/2026-07-14-cross-target-native-differential-design.md": {
     "sha256": "4a2e4320904bd02248b9175294e3660b85f3a30e8ad7b43dba24988a20176d9c",
@@ -39,7 +39,7 @@
     "note": "initial native differential validation design"
   },
   "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
-    "sha256": "6e1067bb6f8faad92b89e38f28bae9a58739780773630ac50b5078dcc4d746f6",
+    "sha256": "c26d3cabcb56f52e4224a64f0788528c111b62c59950319b810de8ae4bd941a0",
     "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
     "model": "manual-zh",
     "note": "manually synced through ArrayExample direct cutover and active CMP-3g1"
@@ -51,9 +51,10 @@
     "note": "synced for EVM and NEAR canonical local-memory capability subset"
   },
   "docs/portable-ir.md": {
-    "sha256": "e76910bc56117bb2d5425e80ca1f54b44f3a3b87d9b45676456cd2554f100159",
+    "sha256": "30379a47689aa6be48fa918ea910577d6327ad1b672c34b1e391fe0bd361c877",
     "zh": "docs/zh/portable-ir.zh.md",
-    "model": "manual-zh"
+    "model": "manual-zh",
+    "note": "manually synced after the D-057 target removal"
   },
   "docs/shared-scenario.md": {
     "sha256": "962bb053eab394f78c0a42a5fc0534a745867a8131edfd01d436d6e0baf86eb6",
@@ -73,15 +74,16 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "03fcc7aba74f0dce995c4a907ca6462695310c5adf9846e627a41fe395a05001",
+    "sha256": "451dba7cdc90d7fdd36dfd026f8941f473f6358027e23eef442e5a0693c2b080",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
     "note": "synced EN/zh through ArrayExample direct cutover and active CMP-3g1"
   },
   "docs/review-checklist.md": {
-    "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
+    "sha256": "c0101e0013610519412a5dc9bd2cdc1ea4dbbd67836ddcceedc16aa35598a56f",
     "zh": "docs/zh/review-checklist.zh.md",
-    "model": "manual"
+    "model": "manual",
+    "note": "manually synced after the D-057 target removal"
   },
   "docs/development-standards.md": {
     "sha256": "102cd85d35a4d4311c7160bef4191bbb8751a7340b2bfb8111af85f666a66960",
@@ -141,10 +143,10 @@
     "note": "synced after optional ProofForgeFormal library consolidation"
   },
   "docs/targets/README.md": {
-    "sha256": "bca843801bb9cd3c46486a9d42179a07a5d93a7c6b0e64e833bc40a582d3cffe",
+    "sha256": "3238cd7bd98159ff0846a055599edd2264e24f51e9f88afc8dc130bf3a06bdb5",
     "zh": "docs/zh/targets-README.zh.md",
     "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "note": "manually synced after the D-057 target removal"
   },
   "docs/targets/evm.md": {
     "sha256": "43d42b07d7a571a46bd522000ea97c11a524d0212ea0b572c36c54ab04b020da",
@@ -153,10 +155,10 @@
     "note": "manually synced for EVM CREATE HostOp cutover"
   },
   "docs/targets/wasm-family.md": {
-    "sha256": "8edc99444ea2a84d7984778a4cfd93aa4fc9e1507f9ec31c64471ecb642f566c",
+    "sha256": "91bf078dab0296789a65308831b544da8a020a48780b78e953ec16d2bd702152",
     "zh": "docs/zh/targets/wasm-family.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for implemented Stylus research classification"
+    "note": "manually synced after the D-057 Cloudflare removal"
   },
   "docs/targets/arbitrum-stylus.md": {
     "sha256": "67d488b8625a1c387fdcb7b25d3f3c0e2ee733db8382e0dd14ab15e34a07b682",
@@ -167,11 +169,6 @@
   "docs/targets/solana-sbf.md": {
     "sha256": "98fa9fcada4a214df7291553e65891c7a2c3b66a1d163d96a2eb280db3fffbfa",
     "zh": "docs/zh/targets/solana-sbf.zh.md",
-    "model": "gemini-3-flash-preview"
-  },
-  "docs/targets/move-family.md": {
-    "sha256": "e79b06cf4c77ec11e6509ec915fe4fa36adb07d9dde35f2ec91c761bf8ca7f45",
-    "zh": "docs/zh/targets/move-family.zh.md",
     "model": "gemini-3-flash-preview"
   },
   "Examples/Backend/Evm/README.md": {
@@ -187,10 +184,10 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "e4b57db42004e9894b7b28d7dd057d91871c7f40d2ee6569020c81938b47756a",
+    "sha256": "b46501cd08bb6a6d47c19a5cf739117ede89c2ac52673096d8884fd181088366",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "e4b57db42004e9894b7b28d7dd057d91871c7f40d2ee6569020c81938b47756a"
+    "en_sha256": "b46501cd08bb6a6d47c19a5cf739117ede89c2ac52673096d8884fd181088366"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {

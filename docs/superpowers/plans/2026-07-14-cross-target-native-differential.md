@@ -30,7 +30,7 @@ the implementation log.
 
 ### CMP-0 - Freeze inventory and shared contracts
 
-State: `done (verified at 18f15e59)`
+State: `done (verified at 6273dfe2)`
 
 - Inventory every native reference, runner, manifest schema, scenario, and CI
   gate; label historical measurement-only reports honestly.
@@ -70,7 +70,7 @@ Completion evidence:
 
 ### CMP-1 - Normalized observation runner contract
 
-State: `done (verified at 7fee238c)`
+State: `done (verified at 25ef8eb3)`
 
 - Add shared runner result types for call status/error, typed return, state,
   events, target-owned external actions, interface assertions, and resources.
@@ -103,14 +103,14 @@ Completion evidence:
 
 ### CMP-2 - Counter primary-triad native pilot
 
-State: `done (verified at e2834c59)`
+State: `done (verified at bec50074)`
 
-Direct-route prerequisite: `42183403` proves public Source/Loader, EVM,
+Direct-route prerequisite: `356e91d7` proves public Source/Loader, EVM,
 Solana assembly/ELF, and NEAR/Wasm consume Authored/Core/target plans without a
 ContractSpec sidecar or Legacy fallback. `just portable-counter-multi-target`
 and each target-specific Counter testkit runner pass; CMP-2 must now attach the
 independent native references to the v1 observation/comparator contract.
-A-CUT2h commit `b2d673b4` also proves no retired Counter Product alias or
+A-CUT2h commit `fbc69309` also proves no retired Counter Product alias or
 backend ContractSpec wrapper remains; EVM constructor evidence is loaded as a
 target-owned attachment after EVM selection.
 
@@ -203,17 +203,17 @@ and emits EVM, Solana, and final NEAR Wasm artifacts carrying
 `contract-source-authored` / `canonical-core-v1`. The focused gate rejects
 legacy sidecars and proves NEAR's address carrier is owned by the Wasm-host
 plan. Independent native Ownable and Pausable differential evidence is
-complete. Pausable has one direct Product source at `50c1c07a` and complete VM
-evidence at `98e9996f`. ReentrancyGuard now has one direct Product source at
-`69499e99`; CMP-3f may compare only that route and cannot adapt any retired
+complete. Pausable has one direct Product source at `7256db23` and complete VM
+evidence at `8f1f5a1f`. ReentrancyGuard now has one direct Product source at
+`419405e5`; CMP-3f may compare only that route and cannot adapt any retired
 Legacy source.
 
 Ownable authorization execution slices:
 
 | ID | State | Task |
 |---|---|---|
-| CMP-3d1 | done (verified at `6e1df78b`) | Pinned independent Solidity, Pinocchio, and near-sdk Ownable references plus one versioned ten-step logical scenario. Inventory evidence remains `none` until execution. |
-| CMP-3d2 | done (verified at `ce539dce`) | Executed the direct Authored artifact and native reference on Anvil, Mollusk, and upstream `near-vm-runner`; compared all eight required dimensions, removed the superseded Ownable v0 test manifest, and promoted only complete evidence. |
+| CMP-3d1 | done (verified at `1545c739`) | Pinned independent Solidity, Pinocchio, and near-sdk Ownable references plus one versioned ten-step logical scenario. Inventory evidence remains `none` until execution. |
+| CMP-3d2 | done (verified at `8dddf6b7`) | Executed the direct Authored artifact and native reference on Anvil, Mollusk, and upstream `near-vm-runner`; compared all eight required dimensions, removed the superseded Ownable v0 test manifest, and promoted only complete evidence. |
 
 Neither slice may add a compatibility compiler route, reuse a ProofForge
 artifact as the native oracle, or preserve a retired Product Legacy path.
@@ -242,8 +242,8 @@ Pausable state-machine execution slices:
 
 | ID | State | Task |
 |---|---|---|
-| CMP-3e1 | done (verified at `c8e417db`) | Pinned independent Solidity and Pinocchio programs, promoted the existing near-sdk reference to complete v1 provenance, and defined one versioned nine-step scenario with repeated pause/unpause failures and state preservation. Evidence remains `none`. |
-| CMP-3e2 | done (verified at `98e9996f`) | Executed the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; all eight dimensions match, and the replaced NEAR v0 manifest is deleted. |
+| CMP-3e1 | done (verified at `a37c9ae7`) | Pinned independent Solidity and Pinocchio programs, promoted the existing near-sdk reference to complete v1 provenance, and defined one versioned nine-step scenario with repeated pause/unpause failures and state preservation. Evidence remains `none`. |
+| CMP-3e2 | done (verified at `8f1f5a1f`) | Executed the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; all eight dimensions match, and the replaced NEAR v0 manifest is deleted. |
 
 Neither slice may add a compiler compatibility path, consume a v1
 `ContractSpec`/`IR.Module`, or promote inventory evidence before all three VMs
@@ -271,8 +271,8 @@ ReentrancyGuard lock-state execution slices:
 
 | ID | State | Task |
 |---|---|---|
-| CMP-3f1 | done (verified at `9772da92`) | Pinned independent Solidity, Pinocchio, and near-sdk ReentrancyGuard references plus one versioned nine-step scenario covering release while unlocked, repeated acquire, and state preservation. All new assets remain `semanticEvidence=none`. |
-| CMP-3f2 | done (verified at `b407b493`) | Executed the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; all eight dimensions match, and the replaced NEAR v0 manifest is deleted. |
+| CMP-3f1 | done (verified at `782460f0`) | Pinned independent Solidity, Pinocchio, and near-sdk ReentrancyGuard references plus one versioned nine-step scenario covering release while unlocked, repeated acquire, and state preservation. All new assets remain `semanticEvidence=none`. |
+| CMP-3f2 | done (verified at `fb190e31`) | Executed the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; all eight dimensions match, and the replaced NEAR v0 manifest is deleted. |
 
 Neither slice may import a ProofForge compiler module into a native reference,
 adapt `ContractSpec`/`IR.Module` back into the Product route, reuse generated
@@ -307,7 +307,7 @@ ArrayExample fixed-array execution slices:
 | CMP-3g1 | in_progress | Pin independent Solidity, Pinocchio, and near-sdk ArrayExample references plus one versioned scenario for length, valid indexing, sum, and out-of-bounds rejection. Keep every new semantic asset at `none`. |
 | CMP-3g2 | pending after CMP-3g1 | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; promote evidence only after all observation dimensions and failure behavior match. |
 
-`c6538c6b` is the architecture prerequisite for these slices: Product
+`ccb9221a` is the architecture prerequisite for these slices: Product
 ArrayExample now reaches target-owned EVM, Solana, and NEAR plans only through
 checked Canonical Core, and its Legacy wrapper and Surface fixture are deleted.
 That compile/runtime smoke is not native-reference equivalence by itself.

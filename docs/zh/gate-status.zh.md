@@ -47,7 +47,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
-| CMP-0-1 | 受跟踪比较资产清单完整且诚实 | ✅ met | `18f15e59`；生成的 `testkit/differential/inventory.v1.json` 列出 85 项 NEAR、Solana、Stylus、EVM、portable scenario 和 CI 资产，并报告零项 semantic verified 资产 |
+| CMP-0-1 | 受跟踪比较资产清单完整且诚实 | ✅ met | `6273dfe2`；生成的 `testkit/differential/inventory.v1.json` 列出 85 项 NEAR、Solana、Stylus、EVM、portable scenario 和 CI 资产，并报告零项 semantic verified 资产 |
 | CMP-0-2 | 版本化契约 fail closed | ✅ met | 四个 v1 schema 以及 11 个单元测试拒绝缺失 provenance、重复 step ID、未知 observation dimension、skipped/error runner 以及将 coverage 不完整声称为 semantic success |
 | CMP-0-3 | 当前 v0 manifest 具有显式且不会升级状态的 migration | ✅ met | 全部 28 个 NEAR 与 7 个 Solana manifest 通过各自 schema 的函数迁移；推断/缺失 provenance 保持显式，迁移后的 observation 保持 `semanticMatch=false` |
 | CMP-0-4 | 比较契约保持在生产架构之外 | ✅ met | 边界测试扫描 `ProofForge/**/*.lean` 中的 comparison schema/import 泄漏；`just differential-contracts` 与 `git diff --check` 通过；migration function 只存在于 `scripts/differential`，并在 v1 转换后删除 |
@@ -60,7 +60,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
-| CMP-1-1 | Runner result 分离保存 logical 与 target-native identity | ✅ met | `7fee238c`；typed value 以及 logical account/actor/clock context 比较 portable identity，同时在 evidence 中保留 native account ID、height 和 timestamp |
+| CMP-1-1 | Runner result 分离保存 logical 与 target-native identity | ✅ met | `25ef8eb3`；typed value 以及 logical account/actor/clock context 比较 portable identity，同时在 evidence 中保留 native account ID、height 和 timestamp |
 | CMP-1-2 | 每个 required observation dimension 都 fail closed | ✅ met | 12 个 comparator 测试分别覆盖 call status/error、return、state、balance、ordered event、external action、interface 和 resource mismatch；缺失 coverage、skip/error 与 incomplete provenance 均保持 `semanticMatch=false` |
 | CMP-1-3 | Target-owned observation 不会被压平为虚假 equivalence | ✅ met | 跨 target external action 比较 logical payload 并保留 native payload；resource value 只在同一 target family 内比较，aggregate score 字段会被拒绝 |
 | CMP-1-4 | 共享 comparator 保持 test-only | ✅ met | runner schema 与实现位于 `testkit/differential` 和 `scripts/differential`；compiler boundary 测试包含 runner schema ID；`just differential-contracts` 通过 23 个 contract/comparator 测试以及 inventory/matrix snapshot |
@@ -81,7 +81,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 ## Gate A-CUT2h —— 删除 Counter 反向依赖
 
-状态：**在 `b2d673b4` 关闭**。
+状态：**在 `fbc69309` 关闭**。
 
 | 条件 | 要求 | 状态 | 证据 |
 |---|---|---|---|
@@ -110,7 +110,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
-| CMP-2-1 | 一份 direct ProofForge 业务源码到达三个 target | ✅ met | `e2834c59`；`Examples/Product/Counter.lean` 为 EVM、Solana、NEAR 生成 `contract-source-authored` / `canonical-core-v1` metadata；focused runner 拒绝 ContractSpec sidecar |
+| CMP-2-1 | 一份 direct ProofForge 业务源码到达三个 target | ✅ met | `bec50074`；`Examples/Product/Counter.lean` 为 EVM、Solana、NEAR 生成 `contract-source-authored` / `canonical-core-v1` metadata；focused runner 拒绝 ContractSpec sidecar |
 | CMP-2-2 | 独立原生 reference 具有完整 provenance | ✅ met | Solidity、Pinocchio Rust、near-sdk Rust v1 manifest 固定精确 source SHA-256、Apache-2.0 和工具链版本；source digest 过期会使 `just differential-contracts` 与 runtime gate 失败 |
 | CMP-2-3 | 原生和 ProofForge artifact 在 target VM 执行 | ✅ met | Anvil 执行两份 EVM artifact，Mollusk 执行两份 sBPF ELF，`near-vm-runner` 通过 upstream NEAR VM logic 执行两份 Wasm artifact |
 | CMP-2-4 | 必需语义 fail closed | ✅ met | 每个 target 的八个 dimension 均完整覆盖，`semanticMatch=true`，且没有未允许 mismatch；精确的 target-local gas/CU 差异继续作为 resource 证据保留 |
@@ -160,7 +160,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 **状态：Closed**
 
-**Closed: 2026-07-14 at `50c1c07a`**
+**Closed: 2026-07-14 at `7256db23`**
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
@@ -174,7 +174,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 **状态：Closed**
 
-**Closed: 2026-07-14 at `69499e99`**
+**Closed: 2026-07-14 at `419405e5`**
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
@@ -188,7 +188,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 **状态：已关闭**
 
-**关闭时间：2026-07-14，提交 `c6538c6b`**
+**关闭时间：2026-07-14，提交 `ccb9221a`**
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
@@ -206,7 +206,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
-| CMP-3d1-1 | 每个主目标都有独立原生 reference | ✅ met | `6e1df78b` 固定 Solidity、Pinocchio Rust 与 near-sdk Rust source；均不导入 ProofForge compiler 或 IR module |
+| CMP-3d1-1 | 每个主目标都有独立原生 reference | ✅ met | `1545c739` 固定 Solidity、Pinocchio Rust 与 near-sdk Rust source；均不导入 ProofForge compiler 或 IR module |
 | CMP-3d1-2 | 逻辑生命周期包含授权失败和一次性初始化 | ✅ met | 十步 v1 场景覆盖未授权 transfer/renounce、零地址 transfer、所有权事件、失败后状态保持、renounce，以及 owner 归零后拒绝重新初始化 |
 | CMP-3d1-3 | 原生 source 由固定目标工具链构建 | ✅ met | `solc` 0.8.30 编译 Solidity；Pinocchio host check 和 cargo-build-sbf 3.1.12/platform-tools v1.52 通过；near-sdk host test 与 Rust 1.94.0 Wasm build 通过 |
 | CMP-3d1-4 | 已固定 source 不虚报语义等价 | ✅ met | `just differential-contracts` 验证全部 digest，并把三份 reference 加场景记录为 `semanticEvidence=none`；inventory 共 106 项，恰有 12 项 verified |
@@ -231,7 +231,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 **状态：Closed**
 
-**Closed: 2026-07-14 at `c8e417db`**
+**Closed: 2026-07-14 at `a37c9ae7`**
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
@@ -245,7 +245,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 **状态：Closed**
 
-**Closed: 2026-07-14 at `98e9996f`**
+**Closed: 2026-07-14 at `8f1f5a1f`**
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
@@ -260,7 +260,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 **状态：Closed**
 
-**Closed: 2026-07-14 at `9772da92`**
+**Closed: 2026-07-14 at `782460f0`**
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
@@ -274,7 +274,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 **状态：Closed**
 
-**Closed: 2026-07-14 at `b407b493`**
+**Closed: 2026-07-14 at `fb190e31`**
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|

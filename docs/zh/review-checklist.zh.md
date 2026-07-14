@@ -112,7 +112,6 @@ Psy/DPN 评审重点：
    - [EVM](targets/evm.zh.md)
    - [Wasm 家族](targets/wasm-family.zh.md)
    - [Solana sBPF](targets/solana-sbf.zh.md)
-   - [Move 家族](targets/move-family.zh.md)
    - [Psy DPN ZK 目标](../targets/psy-dpn.md)
 6. [共享场景：Counter](shared-scenario.zh.md)。
 

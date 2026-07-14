@@ -116,7 +116,6 @@ This feeds CI, cloud platform, and audit trails.
    - [EVM](targets/evm.md)
    - [Wasm family](targets/wasm-family.md)
    - [Solana sBPF](targets/solana-sbf.md)
-   - [Move family](targets/move-family.md)
    - [Psy DPN ZK target](targets/psy-dpn.md)
 6. [Shared scenario: Counter](shared-scenario.md).
 

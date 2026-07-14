@@ -27,7 +27,7 @@ backend 工作。
 
 ### CMP-0 - 冻结资产清单与共享契约
 
-状态：`done (verified at 18f15e59)`
+状态：`done (verified at 6273dfe2)`
 
 - 盘点所有 native reference、runner、manifest schema、scenario 和 CI gate，并诚实标记历史 measurement-only 报告。
 - 定义版本化 reference provenance、logical scenario、normalized observation、required coverage 和 allowed divergence schema。
@@ -53,7 +53,7 @@ backend 工作。
 
 ### CMP-1 - 归一化 observation runner 契约
 
-状态：`done (verified at 7fee238c)`
+状态：`done (verified at 25ef8eb3)`
 
 - 统一 call status/error、typed return、state、event、target-owned external action、interface assertion 和 resource result。
 - 定义 actor、account、value 和 clock 归一化，但不抹掉 target 原生差异。
@@ -78,14 +78,14 @@ backend 工作。
 
 ### CMP-2 - Counter 主三链原生试点
 
-状态：`done (verified at e2834c59)`
+状态：`done (verified at bec50074)`
 
-Direct route 前置证据：`42183403` 证明 public Source/Loader、EVM、Solana
+Direct route 前置证据：`356e91d7` 证明 public Source/Loader、EVM、Solana
 assembly/ELF 与 NEAR/Wasm 直接消费 Authored/Core/target plan，不产生
 ContractSpec sidecar，也没有 Legacy fallback。`just portable-counter-multi-target`
 和各 target 的 Counter testkit runner 已通过；CMP-2 需要把独立 native reference
 接到 v1 observation/comparator contract。
-A-CUT2h 提交 `b2d673b4` 还证明旧 Counter Product alias 与 backend ContractSpec
+A-CUT2h 提交 `fbc69309` 还证明旧 Counter Product alias 与 backend ContractSpec
 wrapper 均已删除；EVM constructor 证据仅在选择 EVM 后从 target-owned attachment
 加载。
 
@@ -159,16 +159,16 @@ target plan。随后 A-CUT3b2 将 Product Ownable 本身切换到这条单一路
 `contract-source-authored` / `canonical-core-v1` 的 EVM、Solana 与最终
 NEAR Wasm 制品。focused gate 拒绝 legacy sidecar，并证明 NEAR address
 carrier 由 Wasm-host plan 所有。独立原生 Ownable 与 Pausable 差分证据均已完成。
-Pausable 已在 `50c1c07a` 获得唯一 direct Product source，并在 `98e9996f`
-获得完整 VM 证据。ReentrancyGuard 已在 `69499e99` 获得唯一 direct Product
+Pausable 已在 `7256db23` 获得唯一 direct Product source，并在 `8f1f5a1f`
+获得完整 VM 证据。ReentrancyGuard 已在 `419405e5` 获得唯一 direct Product
 source；CMP-3f 只能比较这条路线，且不得适配任何已退役 Legacy source。
 
 Ownable authorization 执行切片：
 
 | ID | 状态 | 任务 |
 |---|---|---|
-| CMP-3d1 | done (verified at `6e1df78b`) | 已固定独立 Solidity、Pinocchio、near-sdk Ownable reference 与一个版本化十步逻辑场景。执行前 inventory evidence 保持 `none`。 |
-| CMP-3d2 | done (verified at `ce539dce`) | 已在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个必需 dimension，删除已被取代的 Ownable v0 测试 manifest，并且只晋级完整证据。 |
+| CMP-3d1 | done (verified at `1545c739`) | 已固定独立 Solidity、Pinocchio、near-sdk Ownable reference 与一个版本化十步逻辑场景。执行前 inventory evidence 保持 `none`。 |
+| CMP-3d2 | done (verified at `8dddf6b7`) | 已在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个必需 dimension，删除已被取代的 Ownable v0 测试 manifest，并且只晋级完整证据。 |
 
 两个切片都不得增加兼容编译路线、把 ProofForge artifact 复用为原生 oracle，
 也不得保留已退役的 Product Legacy 路径。
@@ -193,8 +193,8 @@ Pausable 状态机执行切片：
 
 | ID | 状态 | 任务 |
 |---|---|---|
-| CMP-3e1 | done (verified at `c8e417db`) | 已固定独立 Solidity 与 Pinocchio program，把现有 near-sdk reference 提升到完整 v1 provenance，并定义含重复 pause/unpause 失败与状态保持的版本化九步场景。Evidence 保持 `none`。 |
-| CMP-3e2 | done (verified at `98e9996f`) | 已在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；全部八个 dimension 匹配，且被替代的 NEAR v0 manifest 已删除。 |
+| CMP-3e1 | done (verified at `a37c9ae7`) | 已固定独立 Solidity 与 Pinocchio program，把现有 near-sdk reference 提升到完整 v1 provenance，并定义含重复 pause/unpause 失败与状态保持的版本化九步场景。Evidence 保持 `none`。 |
+| CMP-3e2 | done (verified at `8f1f5a1f`) | 已在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；全部八个 dimension 匹配，且被替代的 NEAR v0 manifest 已删除。 |
 
 两个切片都不得增加 compiler compatibility path、消费 v1
 `ContractSpec`/`IR.Module`，也不得在三个 VM 完成同一场景前晋级 inventory
@@ -220,8 +220,8 @@ ReentrancyGuard lock-state 执行切片：
 
 | ID | 状态 | 任务 |
 |---|---|---|
-| CMP-3f1 | done (verified at `9772da92`) | 固定独立 Solidity、Pinocchio 与 near-sdk ReentrancyGuard reference，并定义版本化九步场景，覆盖 unlocked 时 release、重复 acquire 和失败后状态保持。全部新增资产保持 `semanticEvidence=none`。 |
-| CMP-3f2 | done (verified at `b407b493`) | 已在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；全部八个 dimension 匹配，且被替代的 NEAR v0 manifest 已删除。 |
+| CMP-3f1 | done (verified at `782460f0`) | 固定独立 Solidity、Pinocchio 与 near-sdk ReentrancyGuard reference，并定义版本化九步场景，覆盖 unlocked 时 release、重复 acquire 和失败后状态保持。全部新增资产保持 `semanticEvidence=none`。 |
+| CMP-3f2 | done (verified at `fb190e31`) | 已在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；全部八个 dimension 匹配，且被替代的 NEAR v0 manifest 已删除。 |
 
 两个切片都不得让原生 reference 导入 ProofForge compiler module、把
 `ContractSpec`/`IR.Module` 适配回 Product 路线、复用生成的 target code 作为
@@ -252,7 +252,7 @@ ArrayExample fixed-array 执行切片：
 | CMP-3g1 | in_progress | 固定独立 Solidity、Pinocchio 与 near-sdk ArrayExample reference，并定义一个覆盖长度、合法索引、求和和越界拒绝的版本化场景。所有新增语义资产保持 `none`。 |
 | CMP-3g2 | pending after CMP-3g1 | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；只有全部 observation dimension 与失败行为一致后才晋级证据。 |
 
-`c6538c6b` 是这些切片的架构前置：Product ArrayExample 现在只通过
+`ccb9221a` 是这些切片的架构前置：Product ArrayExample 现在只通过
 checked Canonical Core 到达 target-owned EVM、Solana 与 NEAR plan，Legacy
 wrapper 和 Surface fixture 已删除。该编译/运行冒烟本身不等于原生 reference
 语义等价。

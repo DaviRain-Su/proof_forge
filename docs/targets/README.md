@@ -81,7 +81,6 @@ CLI M3/M4 target-first migration is scheduled and reviewed.
 | Target | Stage | Resume condition |
 |---|---|---|
 | CosmWasm | Counter MVP | Promoted via the `PF-P3-02` six-gate (`just cosmwasm-promotion`); Gate G1a (M3/M4 capability completion) is **not started** and the portable-remote `execute_msg` is still a stub. |
-| Aptos Move | Spike | `just aptos-promotion` is a strict promotion gate requiring `aptos move compile/test`; remains the first Move sourcegen proof before Sui. |
 
 ## Docs-Only Parked Research
 
@@ -116,13 +115,11 @@ spike is scheduled.
 - [EVM](evm.md)
 - [Wasm family](wasm-family.md)
 - [Wasm-NEAR](wasm-near.md)
-- [Cloudflare Workers target](cloudflare-workers.md)
 - [Stellar Soroban target](stellar-soroban.md)
 - [Internet Computer target](internet-computer.md)
 - [Algorand AVM target](algorand-avm.md)
 - [Solana sBPF Asm](solana-sbpf-asm.md) — canonical direct-assembly route (`solana-sbpf-asm` target id, D-026)
 - [Solana sBPF](solana-sbf.md) — superseded Zig/sbpf-linker route (`solana-sbpf-linker` target id)
-- [Move family](move-family.md)
 - [Cardano Plutus/Aiken target](cardano-plutus-aiken.md)
 - [Tezos Michelson/LIGO target](tezos-michelson-ligo.md)
 - [Starknet Cairo target](starknet-cairo.md)

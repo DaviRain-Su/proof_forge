@@ -64,17 +64,17 @@
 | D-054 | 2026-07-14 | **共享 authoring IR 和 Canonical Core 只能包含 target-neutral semantic operation；chain-native API 使用在 `--target` 之后解析的 typed target extension。** Target SDK 名称可以存在于 source facade，但必须在 checked Core 之前完成 lowering。Target signature、handler、ABI layout、environment field、string pool 和 reference host semantics 由 target 自己拥有，并通过 open registry 注入。 | 2026-07-14 审计发现：共享 `Expr`/`Effect` 中存在 NEAR promise 和 EVM/EIP/ERC/ABI 节点，Core 中存在 NEAR mode 与 semantics，canonical materialization 中存在 Solidity/NEAR 字段。Closed inductive 会让一条链的扩展迫使所有无关 backend 改动，违反 D-028/D-050/D-052。已接受的边界和迁移顺序见 [IR Target Extension Boundary design](../superpowers/specs/2026-07-14-ir-target-extension-boundary-design.md) 与 [implementation plan](../superpowers/plans/2026-07-14-ir-target-extension-boundary.md)。 |
 | D-055 | 2026-07-14 | **采用独立原生 reference 差分验证作为 target-owned 验证层，而不是新的 IR 或编译路线。** 可移植场景从唯一 Product source 比较跨 target 归一化行为；链原生场景将 typed target extension 与原生 reference 比较。 | 仓库已有 NEAR Rust/Sandbox、Solana Pinocchio、EVM runtime、Stylus Rust 和共享 testkit 资产，但 schema 与 observation coverage 分散。EVM 的原生 reference 继续使用 Solidity；Rust 适用于 Solana、NEAR 和 Stylus。[比较设计](superpowers/specs/2026-07-14-cross-target-native-differential-design.zh.md)与[实施计划](superpowers/plans/2026-07-14-cross-target-native-differential.zh.md)将 fail-closed 证据附着到 A-CUT2、IR-B5、NEAR-R4 和最终 Legacy 删除，同时不阻塞 A-CUT1e-c2。 |
 | D-056 | 2026-07-14 | **Direct Authored/Canonical/target-plan 架构是唯一生产终点；Legacy 只是待删除隔离区，不是兼容层。** 公开路径和已迁移内部路径必须按 `AuthoredContract -> CheckedCanonicalContract -> CapabilityPlan -> target-owned plan` lowering。禁止重新适配回 `ContractSpec` 或 v1 `IR.Module`，禁止 fallback 到 Legacy loader/backend，也禁止同时写入新旧两种表示。 | 兼容会长期保留两套所有权模型，并让新工作继续加深旧依赖图。剩余 `Source.Legacy`、`ContractSpec`、v1 `IR.Module` 和 Surface alias 调用方只是显式迁移清单：通过 focused gate 保持行为，将每个调用方直接迁移到新边界，然后删除零调用旧代码。本决议取代 D-052 中将 Legacy adapter 描述为受支持兼容输入的部分。 |
+| D-057 | 2026-07-15 | **从 `main` 删除 Move 与 Cloudflare backend。** 删除 registry target `move-aptos`、`move-sui`、`wasm-cloudflare-workers`，以及对应 backend（`ProofForge/Backend/Move`、`ProofForge/Compiler/TS`）、fixture、promotion smoke 和可选 CI job。完整历史保存在分支 `archive/move-cloudflare-2026-07-15`。产品 surface 保留主三链以及明确保留的 research spike（Psy、Aleo、CosmWasm、Soroban、Stylus）。 | 缩小维护面并保持 target roster 诚实；Move/Cloudflare 只是 public beta 路径之外的 Counter-MVP/research spike。 |
 
 ## 目标家族分类
 
 | 目标家族 | 目标 | 后端模式 |
 |---|---|---|
-| 直接编译器 | `evm` | `contract_source` / ContractSpec → portable IR → EVM 语义计划 → Yul AST/源代码 → solc |
+| 直接编译器 | `evm` | `AuthoredContract` → checked Canonical Core → EVM 语义计划 → Yul AST/源代码 → solc |
 | EVM 兼容链 profile | `robinhood-chain-testnet` | 复用 `evm` 字节码/ABI 输出；添加 chain id、RPC、浏览器、验证器、rollup 以及部署制品元数据 |
-| Wasm 宿主 | `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`（链下宿主，D-033）, `wasm-stellar-soroban`（候选，仅文档）, `wasm-icp-canister`（候选，仅文档） | 可移植 IR → **`EmitWat`** (Wasm AST → WAT) → `wat2wasm` + 每条链的宿主导入；Rust/CDK 源代码生成仅作为冻结的 v0 临时方案使用 (D-031, [wasm-family](targets/wasm-family.zh.md))；Cloudflare Workers 目前使用 TypeScript 源代码生成 |
+| Wasm 宿主 | `wasm-near`, `wasm-cosmwasm`, `wasm-stellar-soroban`（候选，仅文档）, `wasm-icp-canister`（候选，仅文档） | checked Canonical Core → target-owned Wasm-host plan → **`EmitWat`** (Wasm AST → WAT) → `wat2wasm` + 每条链的宿主导入；Rust/CDK 参考实现仅作为差分对比或 bootstrap 工具 (D-031, [wasm-family](targets/wasm-family.zh.md)) |
 | 二进制工具链 | `solana-sbpf-linker`, `solana-zig-fork` | Lean → 发射 Zig → bitcode → sbpf-linker（历史参考；已被 D-026 取代） |
 | sBPF 直接代码生成 | `solana-sbpf-asm` | Lean → IR → sBPF 汇编 (.s) → sbpf 工具链 → ELF（规范 D-026） |
-| 源代码生成 | `move-aptos`, `move-sui` | 可移植 IR → Move 包源代码 |
 | AVM 源代码生成 Research | `algorand-avm`（候选，仅文档） | 可移植 IR → Algorand Python、Algorand TypeScript 或 TEAL 包 → AVM approval/clear-state 或 LogicSig 字节码 + ARC-4/app 制品元数据 |
 | eUTXO 验证器源代码生成 Research | `cardano-plutus-aiken`（候选，仅文档） | 可移植 IR → Aiken 包 → UPLC/Plutus 验证器制品 + Plutus 蓝图 + 交易场景制品元数据 |
 | Michelson 源代码生成 Research | `tezos-michelson-ligo`（候选，仅文档） | 可移植 IR → LIGO 包 → Michelson 合约 + 参数/存储 schema + 操作/视图/事件清单 |
@@ -152,7 +152,6 @@ Phase 5: Cloud platform
 | 目标工程形态 | [RFC 0002](rfcs/0002-target-implementation-design.zh.md) |
 | CosmWasm SDK spike 草案 | [targets/wasm-family.md](targets/wasm-family.zh.md) |
 | Wasm-NEAR 源代码生成目标 | [targets/wasm-near.md](targets/wasm-near.zh.md) |
-| Cloudflare Workers 目标 | [targets/cloudflare-workers.md](../targets/cloudflare-workers.md) |
 | Stellar/Soroban 候选目标 | [targets/stellar-soroban.md](../targets/stellar-soroban.md) |
 | Internet Computer 候选目标 | [targets/internet-computer.md](../targets/internet-computer.md) |
 | Algorand AVM 候选目标 | [targets/algorand-avm.md](../targets/algorand-avm.md) |

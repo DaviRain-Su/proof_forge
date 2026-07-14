@@ -104,15 +104,15 @@ Lean contract source
 
 每个目标接受 IR 的一个子集。不支持的结构将在能力检查时失败，并带有目标 id 和能力 id。
 
-| 限制 | Solana | Move (Aptos/Sui) | Psy DPN |
-|---|---|---|---|
-| 隐式合约存储 | 拒绝 — 使用显式账户 | 拒绝 — 使用资源/对象 | 仅允许通过显式 Psy 存储/sourcegen 映射 |
-| 高阶函数 | 受限运行时子集待定 | 在 v0 中拒绝 | 在 v0 中拒绝 |
-| 任意堆对象 | 运行时大小待定 | 拒绝 | 拒绝 |
-| 闭包 | 随 sBPF spike 待定 | 拒绝 | 拒绝 |
-| 无界循环 | 随 sBPF spike 待定 | 在 v0 中拒绝 | 拒绝；需要电路友好的有界形状 |
+| 限制 | Solana | Psy DPN |
+|---|---|---|
+| 隐式合约存储 | 拒绝 — 使用显式账户 | 仅允许通过显式 Psy 存储/sourcegen 映射 |
+| 高阶函数 | 受限运行时子集待定 | 在 v0 中拒绝 |
+| 任意堆对象 | 运行时大小待定 | 拒绝 |
+| 闭包 | 随 sBPF spike 待定 | 拒绝 |
+| 无界循环 | 随 sBPF spike 待定 | 拒绝；需要电路友好的有界形状 |
 
-有关特定家族的限制，请参阅 [targets/solana-sbf.md](targets/solana-sbf.zh.md)、[targets/move-family.md](targets/move-family.zh.md) 和 [targets/psy-dpn.md](../targets/psy-dpn.md)。
+有关特定家族的限制，请参阅 [targets/solana-sbf.md](targets/solana-sbf.zh.md) 和 [targets/psy-dpn.md](../targets/psy-dpn.md)。
 
 ## Counter IR 示例 (v0)
 
