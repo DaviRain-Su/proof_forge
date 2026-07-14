@@ -37,7 +37,6 @@ def buildInterface (contract : SurfaceContract) (mod : Module) :
     return {
       functionId := fid,
       name := ep.name,
-      kind := adaptEntrypointKind ep.kind,
       mutability := adaptMutability ep.mutability,
       selector? := ep.selector?,
       params := params,

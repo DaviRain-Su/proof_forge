@@ -73,7 +73,6 @@ def runEntry (contract : CheckedCanonicalContract) (f : FunctionId) (args : Arra
 def interfaceEntrypoint (function : Function) (mutatesState : Bool) : InterfaceEntrypoint := {
   functionId := function.id
   name := s!"function_{function.id.value}"
-  kind := .function
   mutability := if mutatesState then .call else .view
   params := function.params.mapIdx (fun index param => {
     valueId := param.id

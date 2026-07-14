@@ -58,11 +58,11 @@ def nestedContractBase : ProofForge.IR.Canonical.CanonicalContract := {
   interface := {
     contractName := "NestedMapShape"
     entrypoints := #[
-      { functionId := ⟨0⟩, name := "allowance", kind := .function, mutability := .view,
+      { functionId := ⟨0⟩, name := "allowance", mutability := .view,
         selector? := some "dd62ed3e",
         params := #[{ valueId := ⟨0⟩, name := "owner", type := .address },
           { valueId := ⟨1⟩, name := "spender", type := .address }], retType := .u128 },
-      { functionId := ⟨1⟩, name := "approve", kind := .function, mutability := .call,
+      { functionId := ⟨1⟩, name := "approve", mutability := .call,
         selector? := some "095ea7b3",
         params := #[{ valueId := ⟨3⟩, name := "owner", type := .address },
           { valueId := ⟨4⟩, name := "spender", type := .address },

@@ -57,12 +57,6 @@ structure CanonicalEvidence where
 
 /- Interface contract: artifact-affecting host ABI and dispatch metadata. -/
 
-inductive InterfaceEntrypointKind where
-  | function
-  | fallback
-  | receive
-  deriving Repr, BEq, DecidableEq, Inhabited
-
 inductive InterfaceMutability where
   | call
   | view
@@ -78,7 +72,6 @@ structure InterfaceParam where
 structure InterfaceEntrypoint where
   functionId : FunctionId
   name : String
-  kind : InterfaceEntrypointKind
   mutability : InterfaceMutability
   selector? : Option String := none
   params : Array InterfaceParam
@@ -489,9 +482,6 @@ private def validateInterface (module : Core.Module) (catalog : Core.HostOp.Host
     throw <| interfaceError "duplicate interface entrypoint name"
   if hasDuplicate (interface.entrypoints.filterMap (·.selector?)) then
     throw <| interfaceError "duplicate interface selector"
-  if (interface.entrypoints.filter (·.kind == .fallback)).size > 1 ||
-      (interface.entrypoints.filter (·.kind == .receive)).size > 1 then
-    throw <| interfaceError "interface has multiple fallback or receive entrypoints"
   for ep in interface.entrypoints do
     let function ← match module.functions.find? (·.id == ep.functionId) with
       | some function => pure function
@@ -499,15 +489,6 @@ private def validateInterface (module : Core.Module) (catalog : Core.HostOp.Host
           s!"interface references unknown function {repr ep.functionId}")
     if ep.name.isEmpty then
       throw <| interfaceError s!"function {repr ep.functionId} has an empty interface name"
-    match ep.kind with
-    | .function => pure ()
-    | .fallback =>
-        unless ep.selector?.isNone do
-          throw <| interfaceError "fallback entrypoint cannot declare a selector"
-    | .receive =>
-        unless ep.selector?.isNone && ep.params.isEmpty && ep.retType == .unit do
-          throw <| interfaceError
-            "receive entrypoint must have no selector, no parameters, and Unit return"
     unless ep.retType == function.retType do
       throw <| interfaceError s!"return type mismatch for function {repr ep.functionId}"
     unless ep.params.map (fun p => (p.valueId, p.type)) ==
@@ -759,7 +740,7 @@ instance : Inhabited LegacyClassificationEvidence where default := { nodeTag := 
 instance : Inhabited CanonicalEvidence where default := { sourceMap := default, verification := default, legacyClassification := #[] }
 instance : Inhabited InterfaceParam where default := { valueId := ⟨0⟩, name := "", type := .unit }
 instance : Inhabited InterfaceEntrypoint where default := {
-  functionId := ⟨0⟩, name := "", kind := .function, mutability := .call,
+  functionId := ⟨0⟩, name := "", mutability := .call,
   params := #[], retType := .unit
 }
 instance : Inhabited InterfaceEventField where default := { fieldId := ⟨0⟩, name := "", type := .unit }

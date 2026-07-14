@@ -16,12 +16,6 @@ open ProofForge.Target
 
 /- Closed legacy-to-canonical policy mappings. -/
 
-def adaptEntrypointKind (kind : EntrypointKind) : InterfaceEntrypointKind :=
-  match kind with
-  | .function => .function
-  | .fallback => .fallback
-  | .receive => .receive
-
 def adaptMutability (mutability : EntrypointMutability) : InterfaceMutability :=
   match mutability with
   | .call => .call
@@ -323,7 +317,6 @@ def adaptInterface (spec : ContractSpec) (module : Core.Module) (env : AdapterEn
     return {
       functionId := fid
       name := ep.name
-      kind := adaptEntrypointKind ep.kind
       mutability := adaptMutability ep.mutability
       selector? := ep.selector?
       params := params

@@ -81,11 +81,11 @@ def counterContract : CanonicalContract := {
   interface := {
     contractName := "Counter"
     entrypoints := #[
-      { functionId := ⟨0⟩, name := "initialize", kind := .function,
+      { functionId := ⟨0⟩, name := "initialize",
         mutability := .call, params := #[], retType := .unit },
-      { functionId := ⟨1⟩, name := "increment", kind := .function,
+      { functionId := ⟨1⟩, name := "increment",
         mutability := .call, params := #[], retType := .unit },
-      { functionId := ⟨2⟩, name := "get", kind := .function,
+      { functionId := ⟨2⟩, name := "get",
         mutability := .view, params := #[], retType := .u64 }
     ]
   }

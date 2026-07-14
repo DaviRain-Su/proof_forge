@@ -170,7 +170,6 @@ def contractOf (m : Module) : CanonicalContract :=
     entrypoints := m.functions.map (fun f => {
       functionId := f.id
       name := s!"function_{f.id.value}"
-      kind := .function
       mutability := .call
       params := f.params.mapIdx (fun index param => {
         valueId := param.id

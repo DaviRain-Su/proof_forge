@@ -650,12 +650,12 @@ def coreFunctionToStmtPlans (env : CorePlanEnv) (func : Function) : Except PlanE
       | none => stmts := stmts.push (.revert "")
   return stmts
 
-private inductive EvmInterfaceEntrypointKind
+private inductive EvmDispatchKind
   | function | fallback | receive
   deriving BEq
 
 private def evmEntrypointKind (extensions : Array InterfaceExtension)
-    (functionId : FunctionId) : Except PlanError EvmInterfaceEntrypointKind := do
+    (functionId : FunctionId) : Except PlanError EvmDispatchKind := do
   let fallback := extensions.any fun extension =>
     extension.id == ProofForge.Target.InterfaceOps.Evm.fallbackDispatchId &&
       extension.subject == .entrypoint functionId
@@ -670,7 +670,7 @@ private def evmEntrypointKind (extensions : Array InterfaceExtension)
 
 /-- Map a Core InterfaceEntrypoint to an EVM EntrypointPlan. -/
 private def coreEntrypointToPlan (m : Core.Module) (baseEnv : CorePlanEnv)
-    (kind : EvmInterfaceEntrypointKind) (ep : InterfaceEntrypoint) :
+    (kind : EvmDispatchKind) (ep : InterfaceEntrypoint) :
     Except PlanError EntrypointPlan := do
   /- Find the Core function by functionId. -/
   match m.functions.find? (fun f => f.id == ep.functionId) with
@@ -846,8 +846,14 @@ def buildFromCore (checked : CheckedCanonicalContract)
     entrypoints := entrypoints.push epPlan
     match kind with
     | .function => dispatchEntrypoints := dispatchEntrypoints.push epPlan
-    | .fallback => fallbackFunction? := some s!"f_{iface.contractName}_{ep.name}"
-    | .receive => receiveFunction? := some s!"f_{iface.contractName}_{ep.name}"
+    | .fallback =>
+        if fallbackFunction?.isSome then
+          throw { message := "EVM interface has multiple fallback entrypoints" }
+        fallbackFunction? := some s!"f_{iface.contractName}_{ep.name}"
+    | .receive =>
+        if receiveFunction?.isSome then
+          throw { message := "EVM interface has multiple receive entrypoints" }
+        receiveFunction? := some s!"f_{iface.contractName}_{ep.name}"
   /- Determine if any entrypoint uses checked arithmetic. -/
   let usesCheckedArithmetic := m.functions.any fun function =>
     function.blocks.any fun block =>

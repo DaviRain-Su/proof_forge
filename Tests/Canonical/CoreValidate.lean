@@ -44,7 +44,6 @@ def baseInterface : InterfaceContract := {
   entrypoints := #[{
     functionId := ⟨0⟩
     name := "entry"
-    kind := .function
     mutability := .call
     params := #[{ valueId := ⟨0⟩, name := "value", type := .u64 }]
     retType := .u64
@@ -120,7 +119,6 @@ def syncEnvelope (contract : CanonicalContract) : CanonicalContract :=
       entrypoints := module.functions.map (fun function => {
         functionId := function.id
         name := s!"function_{function.id.value}"
-        kind := .function
         mutability := .call
         params := function.params.mapIdx (fun index param => {
           valueId := param.id
@@ -423,7 +421,7 @@ def invalidInterfaceContract : CanonicalContract := {
   interface := {
     baseInterface with
     entrypoints := #[{
-      functionId := ⟨99⟩, name := "missing", kind := .function,
+      functionId := ⟨99⟩, name := "missing",
       mutability := .call, params := #[], retType := .unit
     }]
   }
@@ -452,18 +450,6 @@ def mismatchedInterfaceParamContract : CanonicalContract := {
     entrypoints := #[{
       baseInterface.entrypoints[0]! with
       params := #[{ valueId := ⟨99⟩, name := "value", type := .u64 }]
-    }]
-  }
-}
-
-def invalidReceiveContract : CanonicalContract := {
-  baseContract with
-  interface := {
-    baseInterface with
-    entrypoints := #[{
-      baseInterface.entrypoints[0]! with
-      kind := .receive
-      selector? := some "01020304"
     }]
   }
 }
@@ -727,7 +713,7 @@ def unknownFunctionRefContract : CanonicalContract := {
   interface := {
     baseInterface with
     entrypoints := #[{
-      functionId := ⟨99⟩, name := "missing", kind := .function,
+      functionId := ⟨99⟩, name := "missing",
       mutability := .call, params := #[], retType := .unit
     }]
   }
@@ -1319,7 +1305,6 @@ def main : IO Unit := do
   expectError .invalidMaterialization invalidMaterializationContract
   expectErrorPass .unsupportedSchemaVersion "schema-version" unsupportedSchemaContract
   expectError .invalidInterface mismatchedInterfaceParamContract
-  expectError .invalidInterface invalidReceiveContract
   expectError .invalidMaterialization incompleteStateSymbolsContract
   expectError .invalidMaterialization unknownConstructorParamContract
   expectError .invalidMaterialization unsupportedConstructorAbiContract

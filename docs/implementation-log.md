@@ -2979,3 +2979,26 @@ Rules:
   reaching the dispatch assertions; no full `just check` ran.
 - Next: delete fallback/receive from `InterfaceEntrypointKind` and make the
   shared interface treat every entrypoint uniformly.
+
+## 2026-07-14 - EVM-R1p: delete canonical dispatch kinds
+
+- Status: `done (verified 2026-07-14)`; IR-B7 item 3 is complete.
+- Deleted `InterfaceEntrypointKind` and the `kind` field from the shared
+  Canonical interface. Generic validation now treats every entrypoint
+  uniformly; fallback/receive identity and special-shape validation are owned
+  by registered EVM interface extensions and the EVM planner. The planner also
+  rejects duplicate fallback or receive attachments instead of overwriting an
+  earlier dispatch binding.
+- Removed Legacy/Surface adapter writes to the deleted field and updated all
+  Canonical fixtures. Legacy `IR.EntrypointKind` and Surface authoring kinds
+  remain only on the not-yet-deleted compatibility inputs for EVM-R4.
+- Updated the EVM Canonical-plan storage observer for the target-owned
+  `assertPlanned` and `revertPlanned` cases introduced by EVM-R1k.
+- Verification passed: targeted Canonical, Adapter, Surface, EVM Core-plan,
+  and Canonical-pipeline builds; Canonical Core validation/schema/semantics,
+  Legacy adapter, EVM dispatch-extension, EVM Canonical-plan, evidence
+  isolation, and Solana Canonical-plan tests; `just ir-target-boundary`,
+  `just legacy-freeze`, and `git diff --check`. `NestedMapShape` and
+  `CanonicalNearPlan` were attempted separately but the local Lean processes
+  exited with status 139 and no diagnostic output. No full `just check` ran.
+- Next: move proxy and host-string pools out of canonical materialization.

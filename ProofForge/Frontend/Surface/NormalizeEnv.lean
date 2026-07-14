@@ -151,12 +151,6 @@ def adaptCtorKind (kind : SurfaceConstructorBindingKind) :
   | .arrayLength => .arrayLength
   | .arraySumU64 => .arraySumU64
 
-/- Convert a Surface entrypoint kind to Interface. -/
-def adaptEntrypointKind (kind : SurfaceEntrypointKind) :
-    ProofForge.IR.Canonical.InterfaceEntrypointKind :=
-  match kind with
-  | .function => .function | .fallback => .fallback | .receive => .receive
-
 /- Convert a Surface mutability to Interface. -/
 def adaptMutability (mut_ : SurfaceMutability) :
     ProofForge.IR.Canonical.InterfaceMutability :=

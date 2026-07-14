@@ -438,7 +438,6 @@ def runAssertions : IO Unit := do
   match initEp? with
   | some ep =>
       require (ep.name == "initialize") "initialize name"
-      require (ep.kind == .function) "initialize kind"
       require (ep.mutability == .call) "initialize mutability"
       require (ep.params.map (·.type) == #[.u64]) "initialize params"
       require (ep.retType == .unit) "initialize return type"
@@ -448,7 +447,6 @@ def runAssertions : IO Unit := do
   match counterGetEp? with
   | some ep =>
       require (ep.name == "get") "Counter get name"
-      require (ep.kind == .function) "Counter get kind"
       require (ep.mutability == .view) "Counter get should be view"
       require (ep.params == #[]) "Counter get params"
       require (ep.retType == .u64) "Counter get return type"

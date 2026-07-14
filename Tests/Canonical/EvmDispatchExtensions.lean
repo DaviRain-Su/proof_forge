@@ -45,6 +45,23 @@ def main : IO Unit := do
       plan.dispatch.fallbackFunction? == some "f_EvmDispatchExtensions_fallback" &&
       plan.dispatch.receiveFunction? == some "f_EvmDispatchExtensions_receive")
     "EVM dispatch extensions did not become target-owned dispatch functions"
+  let duplicateExtensions : Array InterfaceExtension :=
+    checked.contract.interfaceExtensions.map fun (extension : InterfaceExtension) =>
+      if extension.id == ProofForge.Target.InterfaceOps.Evm.receiveDispatchId then
+        { extension with id := ProofForge.Target.InterfaceOps.Evm.fallbackDispatchId }
+      else extension
+  let duplicateFallbackContract : CanonicalContract := {
+    checked.contract with
+    interfaceExtensions := duplicateExtensions
+  }
+  let duplicateFallbackChecked <- match validateCanonical duplicateFallbackContract with
+    | .ok checked => pure checked
+    | .error error => throw (IO.userError s!"duplicate fallback fixture failed canonical validation: {repr error}")
+  match ProofForge.Backend.Evm.Plan.Core.buildFromCore duplicateFallbackChecked capabilityPlan with
+  | .error error =>
+      require (error.message.contains "multiple fallback")
+        "duplicate fallback diagnostic was not target-owned and explicit"
+  | .ok _ => throw (IO.userError "EVM accepted multiple fallback entrypoints")
   let yul <- match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
     | .ok yul => pure yul
     | .error error => throw (IO.userError s!"EVM dispatch rendering failed: {error.message}")

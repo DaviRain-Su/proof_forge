@@ -73,12 +73,13 @@ partial def stmtUsesSymbolicStorage : StmtPlan → Bool
   | .assign target value | .assignOp target _ value | .assertEq target value .. =>
       exprUsesSymbolicStorage target || exprUsesSymbolicStorage value
   | .effect effect => effectUsesSymbolicStorage effect
-  | .assert condition .. | .return condition => exprUsesSymbolicStorage condition
+  | .assert condition .. | .assertPlanned condition .. | .return condition =>
+      exprUsesSymbolicStorage condition
   | .ifElse condition thenBody elseBody =>
       exprUsesSymbolicStorage condition || thenBody.any stmtUsesSymbolicStorage ||
         elseBody.any stmtUsesSymbolicStorage
   | .boundedFor _ _ _ body => body.any stmtUsesSymbolicStorage
-  | .release .. | .revert .. | .revertWithError .. => false
+  | .release .. | .revert .. | .revertWithError .. | .revertPlanned .. => false
 
 def planUsesSymbolicStorage (plan : ModulePlan) : Bool :=
   plan.entrypoints.any fun entrypoint => entrypoint.body.any stmtUsesSymbolicStorage
@@ -137,13 +138,13 @@ def counterContract : CanonicalContract := {
   interface := {
     contractName := "Counter"
     entrypoints := #[
-      { functionId := ⟨0⟩, name := "initialize", kind := .function,
+      { functionId := ⟨0⟩, name := "initialize",
         mutability := .call, params := #[], retType := .unit,
         selector? := some "deadbeef" },
-      { functionId := ⟨1⟩, name := "increment", kind := .function,
+      { functionId := ⟨1⟩, name := "increment",
         mutability := .call, params := #[], retType := .unit,
         selector? := some "feedface" },
-      { functionId := ⟨2⟩, name := "get", kind := .function,
+      { functionId := ⟨2⟩, name := "get",
         mutability := .view, params := #[], retType := .u64,
         selector? := some "c0ffee00" }
     ]
@@ -209,7 +210,7 @@ def unsupportedContract : CanonicalContract := {
   interface := {
     contractName := "Unsupported"
     entrypoints := #[
-      { functionId := ⟨0⟩, name := "run", kind := .function,
+      { functionId := ⟨0⟩, name := "run",
         mutability := .view, params := #[], retType := .u64 }
     ]
   }
@@ -236,7 +237,7 @@ def addressLiteralContract : CanonicalContract := {
   interface := {
     contractName := "AddressLiteral"
     entrypoints := #[{
-      functionId := ⟨0⟩, name := "run", kind := .function,
+      functionId := ⟨0⟩, name := "run",
       mutability := .view, params := #[], retType := .address,
       selector? := some "01020304"
     }]
@@ -261,7 +262,7 @@ def multiBlockContract : CanonicalContract := {
   interface := {
     contractName := "MultiBlock"
     entrypoints := #[{
-      functionId := ⟨0⟩, name := "run", kind := .function,
+      functionId := ⟨0⟩, name := "run",
       mutability := .view, params := #[], retType := .u64,
       selector? := some "01020304"
     }]

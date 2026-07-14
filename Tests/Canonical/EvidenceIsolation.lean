@@ -32,7 +32,7 @@ def sharedContractBase : CanonicalContract := {
     interface := {
       contractName := "EvidenceIsolation"
       entrypoints := #[{
-        functionId := ⟨0⟩, name := "get", kind := .function,
+        functionId := ⟨0⟩, name := "get",
         mutability := .view, selector? := some "a87d9f4b",
         params := #[], retType := .u64
       }]

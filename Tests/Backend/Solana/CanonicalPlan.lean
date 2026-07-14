@@ -81,13 +81,13 @@ def counterContract : CanonicalContract := {
   interface := {
     contractName := "Counter"
     entrypoints := #[
-      { functionId := ⟨0⟩, name := "initialize", kind := .function,
+      { functionId := ⟨0⟩, name := "initialize",
         mutability := .call, params := #[], retType := .unit,
         selector? := some "0xdeadbeef" },
-      { functionId := ⟨1⟩, name := "increment", kind := .function,
+      { functionId := ⟨1⟩, name := "increment",
         mutability := .call, params := #[], retType := .unit,
         selector? := some "0xfeedface" },
-      { functionId := ⟨2⟩, name := "get", kind := .function,
+      { functionId := ⟨2⟩, name := "get",
         mutability := .view, params := #[], retType := .u64,
         selector? := some "0xc0ffee00" }
     ]
@@ -170,7 +170,7 @@ def main : IO Unit := do
   | .error _ => pure ()
 
   let unsupportedParam : InterfaceEntrypoint := {
-    functionId := ⟨0⟩, name := "bad", kind := .function, mutability := .call,
+    functionId := ⟨0⟩, name := "bad", mutability := .call,
     params := #[{ valueId := ⟨0⟩, name := "payload", type := .bytes }], retType := .unit
   }
   match coreEntrypointToPlan unsupportedParam 0 with
@@ -178,7 +178,7 @@ def main : IO Unit := do
   | .error _ => pure ()
 
   let malformedSelector : InterfaceEntrypoint := {
-    functionId := ⟨0⟩, name := "bad-selector", kind := .function, mutability := .call,
+    functionId := ⟨0⟩, name := "bad-selector", mutability := .call,
     params := #[], retType := .unit, selector? := some "zzzzzzzzzzzzzzzz"
   }
   match coreEntrypointToPlan malformedSelector 0 with
