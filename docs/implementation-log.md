@@ -2785,3 +2785,14 @@ Rules:
 - Verification passed: targeted Surface/Source.Evm/ERC20Permit builds,
   `Tests/Canonical/EvmCryptoHostOps.lean`, `Tests/TokenEvm.lean`, and
   `git diff --check`.
+
+## 2026-07-14 - EVM-R1e: migrate mechanics fixture to HostOp
+
+- Status: `done (verified 2026-07-14)`.
+- Replaced the final non-inventory direct construction of legacy
+  `Expr.ecrecover` in `ChainAgnosticRoute` with the exact typed EVM HostOp.
+  The required capability remains visible to PortableHonesty, so EVM resolves
+  and NEAR still rejects through the normal mechanics path.
+- Verification passed: `Tests/ChainAgnosticRoute.lean` and `git diff --check`.
+- Remaining direct legacy crypto constructors are compatibility inventory and
+  exhaustive match arms, not product/test authoring calls.

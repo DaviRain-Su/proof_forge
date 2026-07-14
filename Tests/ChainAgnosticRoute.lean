@@ -504,9 +504,10 @@ def main : IO UInt32 := do
     entrypoints := #[{
       name := "r"
       body := #[
-        .return (.ecrecover
-          (.literal (.u64 0)) (.literal (.u64 0))
-          (.literal (.u64 0)) (.literal (.u64 0)))
+        .return (.hostCall ProofForge.Target.HostOps.Evm.ecrecoverSig.id #[
+          .literal (.hash4 0 0 0 0), .literal (.u64 0),
+          .literal (.hash4 0 0 0 0), .literal (.hash4 0 0 0 0)
+        ] .u64 #[.cryptoEcrecover])
       ]
     }]
   }
