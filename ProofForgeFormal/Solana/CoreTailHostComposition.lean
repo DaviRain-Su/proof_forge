@@ -31,7 +31,7 @@ import ProofForge.Backend.Solana.CounterSbpfRefinement
 import ProofForge.Backend.Solana.SbpfInterpreter
 import ProofForgeFormal.Solana.HostBridge
 
-namespace ProofForge.Backend.Solana.CoreTailHostComposition
+namespace ProofForgeFormal.Solana.CoreTailHostComposition
 
 open ProofForge.Backend.Refinement
 open ProofForge.Backend.Refinement.CounterUniversal
@@ -39,7 +39,7 @@ open ProofForge.Backend.Solana.CounterSbpfExec
 open ProofForge.Backend.Solana.CounterSbpfRefinement
   (CounterCoreState counterSbpfCoreTraceStep)
 open ProofForge.Backend.Solana.SbpfInterpreter
-open ProofForge.Backend.Solana.HostBridge
+open ProofForgeFormal.Solana.HostBridge
 
 /-- Project host count word; unmapped reads as 0 (PF sparse memory). -/
 def hostCount (hs : HostState) : Nat :=
@@ -180,4 +180,4 @@ theorem counter_core_tail_host_composition_ok :
     hostMatchesAbstractGrid = true ∧ hostCoreIrTraceOk = true := by
   exact ⟨host_core_tail_matches_abstract_grid, host_core_ir_trace_ok⟩
 
-end ProofForge.Backend.Solana.CoreTailHostComposition
+end ProofForgeFormal.Solana.CoreTailHostComposition

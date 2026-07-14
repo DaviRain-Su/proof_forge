@@ -20,12 +20,12 @@ solanalib, and their transitive proof dependencies. Lightweight refinement
 contracts used by normal compiler tests remain under
 `ProofForge/Backend/Refinement` or `ProofForge/Backend/<Target>/Refinement`.
 
-The directory move did not finish namespace ownership. Most optional modules
-still declare names below `ProofForge.Backend.Evm` or
-`ProofForge.Backend.Solana`, which incorrectly makes independent proof-library
-declarations look like default backend declarations. A-CUT1d renames those
-declarations to `ProofForgeFormal.Evm` and `ProofForgeFormal.Solana` without
-moving the files under `ProofForge/**` or adding compatibility aliases.
+A-CUT1d completed the namespace ownership after the directory move. Optional
+modules now declare names below `ProofForgeFormal.Evm` or
+`ProofForgeFormal.Solana`; no compatibility declarations remain under the
+default backend namespaces. The canonical boundary gate rejects reversed
+imports, misleading namespaces, and restoration of the retired top-level
+roots.
 
 ## Enforced boundaries
 

@@ -12,6 +12,7 @@
 #   7. Wasm-host plan storing v1 StructDecl or AllocatorConfig values
 #   8. target-native context fields leaking into Canonical Core
 #   9. product/public authoring modules importing or constructing Surface
+#  10. optional formal libraries claiming default-backend namespace ownership
 #
 # This is a required static gate in `just check`.
 
@@ -174,6 +175,24 @@ if rg -n '^\s*import\s+ProofForge\.Contract\.Source\.(?:Internal|Solana\.Interna
     "${INTERNAL_AUTHOR_PATHS[@]}" >/dev/null 2>&1; then
   report "product/stdlib source imports compiler-internal authoring implementation"
 fi
+
+# ── 10. Optional formal libraries own their namespaces ─────────────
+# Heavy powdr/solanalib proofs are separate Lake libraries. They may depend on
+# the default compiler, but must not masquerade as default backend modules or
+# be imported back into the default ProofForge library.
+if [ -d ProofForgeFormal ] && rg -n \
+    '^(?:namespace|end)\s+ProofForge\.Backend\.(?:Evm|Solana)(?:\.|$)' \
+    ProofForgeFormal >/dev/null 2>&1; then
+  report "optional formal library declares a default backend namespace"
+fi
+if rg -n '^\s*import\s+ProofForgeFormal\.' ProofForge >/dev/null 2>&1; then
+  report "default ProofForge library imports an optional formal library"
+fi
+for f in EvmRefinement SolanaRefinement; do
+  if [ -e "$f" ]; then
+    report "retired top-level formal root still exists: $f"
+  fi
+done
 
 if [ "$FAIL" -eq 0 ]; then
   echo "canonical-boundary: ok"

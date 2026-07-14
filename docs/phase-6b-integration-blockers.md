@@ -181,7 +181,7 @@ Yul→bytecode `solc` step as an explicit trust boundary.
   smokes for the compiled runtime; those are C-diff witnesses, not the pending
   relational per-entrypoint proof. **Legacy storage-layout checkpoint:** the
   prepared-frame, safe-trace, and hand-expanded opcode names in the historical
-  detail below live under `ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked`.
+  detail below live under `ProofForgeFormal.Evm.CounterRefinement.LegacyHighPacked`.
   They target the pre-migration high-64-bit layout and do not establish refinement
   for the current low-order runtime. Prepared calls now normalize a fresh
   top-level EVM frame while preserving storage, so stale halted frames or

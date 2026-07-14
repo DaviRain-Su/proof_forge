@@ -92,8 +92,10 @@ focused EVM/Solana refinement smokes pass; a repository scan finds no
 inside `ProofForgeFormal/**`; the default compiler roots contain no
 `import ProofForgeFormal.*`.
 
-Status (2026-07-14): pending. This bounded ownership correction runs after the
-completed A-CUT1c directory move and before continuing A-CUT2.
+Status (2026-07-14): done. All optional proof declarations use their
+`ProofForgeFormal` owner namespaces; the EVM and Solana focused proof targets
+and runtime smokes pass, and the canonical boundary gate enforces the namespace
+and one-way import rules. Continue with A-CUT2.
 
 ### A-CUT2 - Direct `contract_source` frontend
 

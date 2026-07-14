@@ -309,7 +309,7 @@ ProofForge's default build still avoids powdr/mathlib imports.
     equality relation, neither of which matches the compiled runtime's `get` and
     write behavior. **Legacy storage-layout checkpoint:** the prepared-frame,
     safe-trace, and hand-expanded opcode names in the historical detail below live
-    under `ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked`. They target
+    under `ProofForgeFormal.Evm.CounterRefinement.LegacyHighPacked`. They target
     the pre-migration high-64-bit layout and do not establish refinement for the
     current low-order runtime. It also prepares runtime-code parameterized Counter call
     frames and proves that preparation preserves the

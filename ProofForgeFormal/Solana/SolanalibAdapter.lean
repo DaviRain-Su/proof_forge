@@ -28,7 +28,7 @@ import Solanalib.SBPF.Verifier
 import Solanalib.SBPF.Interpreter
 import Solanalib.SBPF.State
 
-namespace ProofForge.Backend.Solana.SolanalibAdapter
+namespace ProofForgeFormal.Solana.SolanalibAdapter
 
 open ProofForge.Backend.Solana.BpfEncode
 open ProofForge.IR
@@ -101,4 +101,4 @@ least one instruction for the Counter module. -/
 def counterPipelineOk : Bool :=
   moduleVerifyOk ProofForge.IR.Examples.Counter.module
 
-end ProofForge.Backend.Solana.SolanalibAdapter
+end ProofForgeFormal.Solana.SolanalibAdapter

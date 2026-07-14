@@ -230,7 +230,7 @@ surface. Remaining EVM work is E3.
 - **Historical progress (evidence, not a continuation recipe):**
   **Legacy storage-layout checkpoint:** the prepared-frame, safe-trace, and
   hand-expanded opcode theorem names in the historical paragraphs below live under
-  `ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked`. They target the
+  `ProofForgeFormal.Evm.CounterRefinement.LegacyHighPacked`. They target the
   pre-migration runtime where `count` occupied the high 64 bits. They do not establish
   refinement for the current low-order runtime.
   `ProofForgeFormal/Evm/CounterRefinement.lean` now starts the E3 relation layer:

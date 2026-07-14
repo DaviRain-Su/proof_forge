@@ -19,16 +19,16 @@ using the real powdr `AccountMap`/`Storage` model under the opt-in
 namespace. It proves the pre-Solidity-layout runtime that packed `count` into
 the high 64 bits; canonical definitions for the current low-order layout follow
 after this namespace. -/
-namespace ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked
+namespace ProofForgeFormal.Evm.CounterRefinement.LegacyHighPacked
 
 open ProofForge.IR
 open ProofForge.IR.Semantics
 open ProofForge.Backend.Refinement
 
 abbrev IRState := ProofForge.IR.Semantics.State
-abbrev EvmState := ProofForge.Backend.Evm.PowdrAdapter.State
-abbrev EvmStepFEPath := ProofForge.Backend.Evm.PowdrAdapter.StepFEPath
-abbrev PowdrStepFEReady := ProofForge.Backend.Evm.PowdrExec.StepFEReady
+abbrev EvmState := ProofForgeFormal.Evm.PowdrAdapter.State
+abbrev EvmStepFEPath := ProofForgeFormal.Evm.PowdrAdapter.StepFEPath
+abbrev PowdrStepFEReady := ProofForgeFormal.Evm.PowdrExec.StepFEReady
 abbrev CounterCall := ProofForge.Backend.Refinement.CounterUniversal.CounterCall
 abbrev counterIRStep := ProofForge.Backend.Refinement.CounterUniversal.irStep
 
@@ -369,7 +369,7 @@ theorem counterStack_of_stepFE_push0_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_push0_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_push0_ok
       (op := counterPush0Op) (argOpt := argOpt) (by rfl) hready hdecoded
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -401,7 +401,7 @@ theorem counterState_of_stepFE_push0_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_push0_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_push0_ok
       (op := counterPush0Op) (argOpt := argOpt) (by rfl) hready hdecoded
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -465,7 +465,7 @@ theorem counterStack_of_stepFE_push1_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_push_data_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_push_data_ok
       (op := counterPush1Op) (value := value) (argBytes := argBytes)
       (widthPred := 0) (by rfl) hready hdecoded
   rw [hstep] at hstepGeneric
@@ -513,7 +513,7 @@ theorem counterState_of_stepFE_push1_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_push_data_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_push_data_ok
       (op := counterPush1Op) (value := value) (argBytes := argBytes)
       (widthPred := 0) (by rfl) hready hdecoded
   rw [hstep] at hstepGeneric
@@ -585,7 +585,7 @@ theorem counterState_of_stepFE_push4_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_push_data_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_push_data_ok
       (op := counterPush4Op) (value := value) (argBytes := argBytes)
       (widthPred := 3) (by rfl) hready hdecoded
   rw [hstep] at hstepGeneric
@@ -672,7 +672,7 @@ theorem counterState_of_stepFE_env_calldataload_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_calldataload_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_calldataload_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -756,7 +756,7 @@ theorem counterStack_of_stepFE_dup1_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_dup_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_dup_ok
       (op := counterDup1Op) (value := top) hready hdecoded
       (by simp [counterDup1Op, hstack])
   rw [hstep] at hstepGeneric
@@ -792,7 +792,7 @@ theorem counterState_of_stepFE_dup1_ok
   have hindex : state.stack[counterDup1Op.idx.val]? = some top := by
     simp [counterDup1Op, hstack]
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_dup_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_dup_ok
       (op := counterDup1Op) (value := top) hready hdecoded hindex
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -894,7 +894,7 @@ theorem counterStack_of_stepFE_compBit_shl_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_shl_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_shl_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -935,7 +935,7 @@ theorem counterState_of_stepFE_compBit_shl_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_shl_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_shl_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1019,7 +1019,7 @@ theorem counterState_of_stepFE_compBit_shr_ok
         (.CompBit (.SHR : EvmSemantics.Operation.CompareBitwiseOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_shr_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_shr_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1104,7 +1104,7 @@ theorem counterState_of_stepFE_compBit_eq_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_eq_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_eq_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1209,7 +1209,7 @@ theorem counterStack_of_stepFE_compBit_not_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_not_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_not_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1250,7 +1250,7 @@ theorem counterState_of_stepFE_compBit_not_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_not_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_not_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1354,7 +1354,7 @@ theorem counterStack_of_stepFE_stopArith_sub_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_sub_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_sub_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1395,7 +1395,7 @@ theorem counterState_of_stepFE_stopArith_sub_ok
     counterStepFEReady_to_powdr
       ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_sub_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_sub_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1621,7 +1621,7 @@ theorem counterState_of_stepFE_stackMemFlow_jumpdest_ok
         (.StackMemFlow (.JUMPDEST : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_jumpdest_ok hready hdecoded
+    ProofForgeFormal.Evm.PowdrExec.stepFE_jumpdest_ok hready hdecoded
   rw [hstep] at hstepGeneric
   cases hstepGeneric
   rfl
@@ -1707,7 +1707,7 @@ theorem counterState_of_stepFE_stackMemFlow_jump_ok
         (.StackMemFlow (.JUMP : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_jump_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_jump_ok
       hready hdecoded hstack hvalid
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1801,7 +1801,7 @@ theorem counterState_of_stepFE_stackMemFlow_jumpi_taken_ok
         (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_jumpi_taken_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_jumpi_taken_ok
       hready hdecoded hstack hcond hvalid
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1875,7 +1875,7 @@ theorem counterState_of_stepFE_stackMemFlow_jumpi_not_taken_ok
         (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_jumpi_not_taken_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_jumpi_not_taken_ok
       hready hdecoded hstack hcond
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -1959,7 +1959,7 @@ theorem counterState_of_stepFE_system_return_empty_ok
       EvmSemantics.MachineState.memExpansionDelta,
       EvmSemantics.MachineState.activeWordsAfter]
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_return_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_return_ok
       (offset := EvmSemantics.UInt256.ofNat 0)
       (size := EvmSemantics.UInt256.ofNat 0)
       (rest := rest) hready hdecoded hstack
@@ -2002,7 +2002,7 @@ theorem counterStack_of_stepFE_stackMemFlow_sload_ok
         (.StackMemFlow (.SLOAD : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstackGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_sload_success_stack_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_sload_success_stack_ok
       hready hdecoded hstack hstep
   rw [hstackGeneric]
   simp [counterStorageValue, counterAccount, haddr, hslot]
@@ -2035,7 +2035,7 @@ theorem counterCallStack_of_stepFE_stackMemFlow_sload_ok
       PowdrStepFEReady state
         (.StackMemFlow (.SLOAD : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
-  exact ProofForge.Backend.Evm.PowdrExec.stepFE_sload_success_callStack_ok
+  exact ProofForgeFormal.Evm.PowdrExec.stepFE_sload_success_callStack_ok
     hready hdecoded hstack hstep
 
 theorem counterStack_of_compBit_and_ok
@@ -2092,7 +2092,7 @@ theorem counterStack_of_stepFE_compBit_and_ok
         (.CompBit (.AND : EvmSemantics.Operation.CompareBitwiseOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_and_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_and_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -2127,7 +2127,7 @@ theorem counterCallStack_of_stepFE_compBit_and_ok
         (.CompBit (.AND : EvmSemantics.Operation.CompareBitwiseOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_and_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_and_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -2188,7 +2188,7 @@ theorem counterStack_of_stepFE_compBit_or_ok
         (.CompBit (.OR : EvmSemantics.Operation.CompareBitwiseOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_or_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_or_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -2223,7 +2223,7 @@ theorem counterCallStack_of_stepFE_compBit_or_ok
         (.CompBit (.OR : EvmSemantics.Operation.CompareBitwiseOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hstepGeneric :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_or_ok
+    ProofForgeFormal.Evm.PowdrExec.stepFE_or_ok
       hready hdecoded hstack
   rw [hstep] at hstepGeneric
   cases hstepGeneric
@@ -2355,7 +2355,7 @@ theorem counterStorageValue_of_stepFE_stackMemFlow_sstore_ok
         (.StackMemFlow (.SSTORE : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hdispatch :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_sstore_dispatch_ok hready hdecoded
+    ProofForgeFormal.Evm.PowdrExec.stepFE_sstore_dispatch_ok hready hdecoded
   rw [hdispatch] at hstep
   exact counterStorageValue_of_sstore_stackMemFlow_ok haddr hstack hslot hstep
 
@@ -2442,7 +2442,7 @@ theorem counterStack_of_stepFE_stackMemFlow_sstore_ok
         (.StackMemFlow (.SSTORE : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hdispatch :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_sstore_dispatch_ok hready hdecoded
+    ProofForgeFormal.Evm.PowdrExec.stepFE_sstore_dispatch_ok hready hdecoded
   rw [hdispatch] at hstep
   exact counterStack_of_sstore_stackMemFlow_ok hstack hstep
 
@@ -2475,7 +2475,7 @@ theorem counterCallStack_of_stepFE_stackMemFlow_sstore_ok
         (.StackMemFlow (.SSTORE : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hdispatch :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_sstore_dispatch_ok hready hdecoded
+    ProofForgeFormal.Evm.PowdrExec.stepFE_sstore_dispatch_ok hready hdecoded
   rw [hdispatch] at hstep
   have hcallStack := counterCallStack_of_sstore_stackMemFlow_ok hstack hstep
   simpa [EvmSemantics.EVM.State.consumeGas] using hcallStack
@@ -2540,7 +2540,7 @@ theorem counterCodePcFork_of_stepFE_stackMemFlow_sstore_ok
         (.StackMemFlow (.SSTORE : EvmSemantics.Operation.StackMemFlowOps)) :=
     ⟨hrunning, hprecompile, hstackOk, hgas⟩
   have hdispatch :=
-    ProofForge.Backend.Evm.PowdrExec.stepFE_sstore_dispatch_ok hready hdecoded
+    ProofForgeFormal.Evm.PowdrExec.stepFE_sstore_dispatch_ok hready hdecoded
   rw [hdispatch] at hstep
   obtain ⟨hcode, hpc, hfork⟩ :=
     counterCodePcFork_of_sstore_stackMemFlow_ok hstack hstep
@@ -4038,7 +4038,7 @@ theorem counterReadyOpcodeAt_of_compiledStateAt
         some (op, argOpt))
     (hready : counterStepFEReady state op)
     (havailable : op.availableInFork state.executionEnv.fork = true) :
-    ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+    ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
       counterCompiledRuntimeCode pc op argOpt state := by
   rcases hat with ⟨hcode, hpc, _hfork⟩
   exact
@@ -4088,7 +4088,7 @@ theorem counterPreparedDispatcherFirstPush0_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state 0)
     (hready : counterStepFEReady state (.Push counterPush0Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush0Op : EvmSemantics.Operation))
@@ -4103,14 +4103,14 @@ theorem counterPreparedDispatcherFirstPush0_reduction
     rcases hat with ⟨_hcode, _hpc, hfork⟩
     simp [EvmSemantics.Operation.availableInFork, counterPush0Op, hfork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 0 (.Push counterPush0Op)
         (some (EvmSemantics.UInt256.ofNat 0, 0)) state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_first_push0
       hready havailable
   simpa using
-    (ProofForge.Backend.Evm.PowdrExec.reduction_push0_at_ok
+    (ProofForgeFormal.Evm.PowdrExec.reduction_push0_at_ok
       (op := counterPush0Op)
       (argOpt := some (EvmSemantics.UInt256.ofNat 0, 0))
       hreadyAt (by native_decide))
@@ -4139,7 +4139,7 @@ theorem counterPreparedDispatcherCalldataload_reduction
       counterStepFEReady state
         (.Env (.CALLDATALOAD : EvmSemantics.Operation.EnvOps)))
     (hstack : state.stack = offset :: rest) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Env (.CALLDATALOAD : EvmSemantics.Operation.EnvOps) :
@@ -4157,14 +4157,14 @@ theorem counterPreparedDispatcherCalldataload_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 1
         (.Env (.CALLDATALOAD : EvmSemantics.Operation.EnvOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_calldataload
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_calldataload_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_calldataload_at_ok
     hreadyAt hstack
 
 theorem counterPreparedDispatcherSelectorShiftPush224_decoded
@@ -4187,7 +4187,7 @@ theorem counterPreparedDispatcherSelectorShiftPush224_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state 2)
     (hready : counterStepFEReady state (.Push counterPush1Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush1Op : EvmSemantics.Operation))
@@ -4201,13 +4201,13 @@ theorem counterPreparedDispatcherSelectorShiftPush224_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, counterPush1Op]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 2 (.Push counterPush1Op)
         (some (EvmSemantics.UInt256.ofNat 224, 1)) state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_selector_shift_push224
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_push_data_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_push_data_at_ok
     (op := counterPush1Op) (value := EvmSemantics.UInt256.ofNat 224)
     (argBytes := 1) (widthPred := 0) hreadyAt (by native_decide)
 
@@ -4242,7 +4242,7 @@ theorem counterPreparedDispatcherSelectorShr_reduction
       counterStepFEReady state
         (.CompBit (.SHR : EvmSemantics.Operation.CompareBitwiseOps)))
     (hstack : state.stack = shift :: value :: rest) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.CompBit (.SHR : EvmSemantics.Operation.CompareBitwiseOps) :
@@ -4265,14 +4265,14 @@ theorem counterPreparedDispatcherSelectorShr_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, hconstantinople]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 4
         (.CompBit (.SHR : EvmSemantics.Operation.CompareBitwiseOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt ⟨hcode, hpc, hfork⟩ hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_selector_shr
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_shr_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_shr_at_ok
     hreadyAt hstack
 
 theorem counterPreparedDispatcherSelectorDup1_decoded
@@ -4294,7 +4294,7 @@ theorem counterPreparedDispatcherSelectorDup1_reduction
     (hat : counterCompiledStateAt state 5)
     (hready : counterStepFEReady state (.Dup counterDup1Op))
     (hindex : state.stack[counterDup1Op.idx.val]? = some value) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Dup counterDup1Op : EvmSemantics.Operation))
@@ -4308,12 +4308,12 @@ theorem counterPreparedDispatcherSelectorDup1_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 5 (.Dup counterDup1Op) none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_selector_dup1
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_dup_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_dup_at_ok
     hreadyAt hindex
 
 theorem counterPreparedDispatcherInitializeSelectorPush4_decoded
@@ -4336,7 +4336,7 @@ theorem counterPreparedDispatcherInitializeSelectorPush4_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state 6)
     (hready : counterStepFEReady state (.Push counterPush4Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush4Op : EvmSemantics.Operation))
@@ -4351,14 +4351,14 @@ theorem counterPreparedDispatcherInitializeSelectorPush4_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, counterPush4Op]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 6 (.Push counterPush4Op)
         (some (EvmSemantics.UInt256.ofNat counterInitializeSelectorNat, 4))
         state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_initialize_selector_push4
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_push_data_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_push_data_at_ok
     (op := counterPush4Op)
     (value := EvmSemantics.UInt256.ofNat counterInitializeSelectorNat)
     (argBytes := 4) (widthPred := 3) hreadyAt (by native_decide)
@@ -4387,7 +4387,7 @@ theorem counterPreparedDispatcherInitializeEq_reduction
       counterStepFEReady state
         (.CompBit (.EQ : EvmSemantics.Operation.CompareBitwiseOps)))
     (hstack : state.stack = a :: b :: rest) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.CompBit (.EQ : EvmSemantics.Operation.CompareBitwiseOps) :
@@ -4402,14 +4402,14 @@ theorem counterPreparedDispatcherInitializeEq_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 11
         (.CompBit (.EQ : EvmSemantics.Operation.CompareBitwiseOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_initialize_eq
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_eq_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_eq_at_ok
     hreadyAt hstack
 
 theorem counterPreparedDispatcherInitializeTrampolinePush_decoded
@@ -4432,7 +4432,7 @@ theorem counterPreparedDispatcherInitializeTrampolinePush_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state 12)
     (hready : counterStepFEReady state (.Push counterPush1Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush1Op : EvmSemantics.Operation))
@@ -4448,14 +4448,14 @@ theorem counterPreparedDispatcherInitializeTrampolinePush_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, counterPush1Op]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 12 (.Push counterPush1Op)
         (some (EvmSemantics.UInt256.ofNat counterInitializeTrampolineOffset, 1))
         state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_initialize_trampoline_push
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_push_data_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_push_data_at_ok
     (op := counterPush1Op)
     (value := EvmSemantics.UInt256.ofNat counterInitializeTrampolineOffset)
     (argBytes := 1) (widthPred := 0) hreadyAt (by native_decide)
@@ -4488,7 +4488,7 @@ theorem counterPreparedDispatcherInitializeJumpiTaken_reduction
     (hvalid :
       EvmSemantics.EVM.Decode.isValidJumpDest
         counterCompiledRuntimeCode dest.toNat = true) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       { state.consumeGas
           (EvmSemantics.EVM.Gas.baseCost state.fork
             (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps) :
@@ -4503,14 +4503,14 @@ theorem counterPreparedDispatcherInitializeJumpiTaken_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 14
         (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_initialize_jumpi
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_jumpi_taken_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_jumpi_taken_at_ok
     hreadyAt hstack hcond hvalid
 
 theorem counterPreparedDispatcherInitializeJumpiNotTaken_reduction
@@ -4522,7 +4522,7 @@ theorem counterPreparedDispatcherInitializeJumpiNotTaken_reduction
         (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps)))
     (hstack : state.stack = dest :: cond :: rest)
     (hcond : cond.toNat = 0) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
           (EvmSemantics.EVM.Gas.baseCost state.fork
             (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps) :
@@ -4536,14 +4536,14 @@ theorem counterPreparedDispatcherInitializeJumpiNotTaken_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 14
         (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_initialize_jumpi
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_jumpi_not_taken_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_jumpi_not_taken_at_ok
     hreadyAt hstack hcond
 
 theorem counterPreparedDispatcherIncrementSelectorDup1_decoded
@@ -4567,7 +4567,7 @@ theorem counterPreparedDispatcherIncrementSelectorDup1_reduction
     (hat : counterCompiledStateAt state 15)
     (hready : counterStepFEReady state (.Dup counterDup1Op))
     (hstack : state.stack = top :: rest) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Dup counterDup1Op : EvmSemantics.Operation))
@@ -4580,7 +4580,7 @@ theorem counterPreparedDispatcherIncrementSelectorDup1_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 15 (.Dup counterDup1Op) none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_increment_selector_dup1
@@ -4588,7 +4588,7 @@ theorem counterPreparedDispatcherIncrementSelectorDup1_reduction
   have hindex : state.stack[counterDup1Op.idx.val]? = some top := by
     simp [counterDup1Op, hstack]
   simpa [hstack] using
-    ProofForge.Backend.Evm.PowdrExec.reduction_dup_at_ok
+    ProofForgeFormal.Evm.PowdrExec.reduction_dup_at_ok
       hreadyAt hindex
 
 theorem counterPreparedDispatcherIncrementSelectorPush4_decoded
@@ -4612,7 +4612,7 @@ theorem counterPreparedDispatcherIncrementSelectorPush4_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state 16)
     (hready : counterStepFEReady state (.Push counterPush4Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush4Op : EvmSemantics.Operation))
@@ -4627,14 +4627,14 @@ theorem counterPreparedDispatcherIncrementSelectorPush4_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, counterPush4Op]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 16 (.Push counterPush4Op)
         (some (EvmSemantics.UInt256.ofNat counterIncrementSelectorNat, 4))
         state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_increment_selector_push4
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_push_data_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_push_data_at_ok
     (op := counterPush4Op)
     (value := EvmSemantics.UInt256.ofNat counterIncrementSelectorNat)
     (argBytes := 4) (widthPred := 3) hreadyAt (by native_decide)
@@ -4663,7 +4663,7 @@ theorem counterPreparedDispatcherIncrementEq_reduction
       counterStepFEReady state
         (.CompBit (.EQ : EvmSemantics.Operation.CompareBitwiseOps)))
     (hstack : state.stack = a :: b :: rest) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.CompBit (.EQ : EvmSemantics.Operation.CompareBitwiseOps) :
@@ -4678,14 +4678,14 @@ theorem counterPreparedDispatcherIncrementEq_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 21
         (.CompBit (.EQ : EvmSemantics.Operation.CompareBitwiseOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_increment_eq
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_eq_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_eq_at_ok
     hreadyAt hstack
 
 theorem counterPreparedDispatcherIncrementTrampolinePush_decoded
@@ -4709,7 +4709,7 @@ theorem counterPreparedDispatcherIncrementTrampolinePush_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state 22)
     (hready : counterStepFEReady state (.Push counterPush1Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush1Op : EvmSemantics.Operation))
@@ -4725,14 +4725,14 @@ theorem counterPreparedDispatcherIncrementTrampolinePush_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, counterPush1Op]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 22 (.Push counterPush1Op)
         (some (EvmSemantics.UInt256.ofNat counterIncrementTrampolineOffset, 1))
         state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_increment_trampoline_push
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_push_data_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_push_data_at_ok
     (op := counterPush1Op)
     (value := EvmSemantics.UInt256.ofNat counterIncrementTrampolineOffset)
     (argBytes := 1) (widthPred := 0) hreadyAt (by native_decide)
@@ -4766,7 +4766,7 @@ theorem counterPreparedDispatcherIncrementJumpiTaken_reduction
     (hvalid :
       EvmSemantics.EVM.Decode.isValidJumpDest
         counterCompiledRuntimeCode dest.toNat = true) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       { state.consumeGas
           (EvmSemantics.EVM.Gas.baseCost state.fork
             (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps) :
@@ -4781,14 +4781,14 @@ theorem counterPreparedDispatcherIncrementJumpiTaken_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 24
         (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_increment_jumpi
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_jumpi_taken_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_jumpi_taken_at_ok
     hreadyAt hstack hcond hvalid
 
 theorem counterPreparedDispatcherIncrementJumpiNotTaken_reduction
@@ -4800,7 +4800,7 @@ theorem counterPreparedDispatcherIncrementJumpiNotTaken_reduction
         (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps)))
     (hstack : state.stack = dest :: cond :: rest)
     (hcond : cond.toNat = 0) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
           (EvmSemantics.EVM.Gas.baseCost state.fork
             (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps) :
@@ -4814,14 +4814,14 @@ theorem counterPreparedDispatcherIncrementJumpiNotTaken_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 24
         (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_increment_jumpi
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_jumpi_not_taken_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_jumpi_not_taken_at_ok
     hreadyAt hstack hcond
 
 theorem counterPreparedDispatcherGetSelectorPush4_decoded
@@ -4845,7 +4845,7 @@ theorem counterPreparedDispatcherGetSelectorPush4_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state 25)
     (hready : counterStepFEReady state (.Push counterPush4Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush4Op : EvmSemantics.Operation))
@@ -4860,14 +4860,14 @@ theorem counterPreparedDispatcherGetSelectorPush4_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, counterPush4Op]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 25 (.Push counterPush4Op)
         (some (EvmSemantics.UInt256.ofNat counterGetSelectorNat, 4))
         state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_get_selector_push4
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_push_data_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_push_data_at_ok
     (op := counterPush4Op)
     (value := EvmSemantics.UInt256.ofNat counterGetSelectorNat)
     (argBytes := 4) (widthPred := 3) hreadyAt (by native_decide)
@@ -4896,7 +4896,7 @@ theorem counterPreparedDispatcherGetEq_reduction
       counterStepFEReady state
         (.CompBit (.EQ : EvmSemantics.Operation.CompareBitwiseOps)))
     (hstack : state.stack = a :: b :: rest) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.CompBit (.EQ : EvmSemantics.Operation.CompareBitwiseOps) :
@@ -4911,14 +4911,14 @@ theorem counterPreparedDispatcherGetEq_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 30
         (.CompBit (.EQ : EvmSemantics.Operation.CompareBitwiseOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_get_eq
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_eq_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_eq_at_ok
     hreadyAt hstack
 
 theorem counterPreparedDispatcherGetTrampolinePush_decoded
@@ -4942,7 +4942,7 @@ theorem counterPreparedDispatcherGetTrampolinePush_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state 31)
     (hready : counterStepFEReady state (.Push counterPush1Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush1Op : EvmSemantics.Operation))
@@ -4958,14 +4958,14 @@ theorem counterPreparedDispatcherGetTrampolinePush_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, counterPush1Op]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 31 (.Push counterPush1Op)
         (some (EvmSemantics.UInt256.ofNat counterGetTrampolineOffset, 1))
         state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_get_trampoline_push
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_push_data_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_push_data_at_ok
     (op := counterPush1Op)
     (value := EvmSemantics.UInt256.ofNat counterGetTrampolineOffset)
     (argBytes := 1) (widthPred := 0) hreadyAt (by native_decide)
@@ -4998,7 +4998,7 @@ theorem counterPreparedDispatcherGetJumpiTaken_reduction
     (hvalid :
       EvmSemantics.EVM.Decode.isValidJumpDest
         counterCompiledRuntimeCode dest.toNat = true) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       { state.consumeGas
           (EvmSemantics.EVM.Gas.baseCost state.fork
             (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps) :
@@ -5013,14 +5013,14 @@ theorem counterPreparedDispatcherGetJumpiTaken_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode 33
         (.StackMemFlow (.JUMPI : EvmSemantics.Operation.StackMemFlowOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_dispatcher_get_jumpi
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_jumpi_taken_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_jumpi_taken_at_ok
     hreadyAt hstack hcond hvalid
 
 theorem counterState_of_dispatcher_first_push0_stepFE_to_calldataload_ok
@@ -6139,7 +6139,7 @@ theorem counterPreparedInitializeTrampolineJumpdest_reduction
     (hready :
       counterStepFEReady state
         (.StackMemFlow (.JUMPDEST : EvmSemantics.Operation.StackMemFlowOps))) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.StackMemFlow (.JUMPDEST : EvmSemantics.Operation.StackMemFlowOps) :
@@ -6155,20 +6155,20 @@ theorem counterPreparedInitializeTrampolineJumpdest_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode counterInitializeTrampolineOffset
         (.StackMemFlow (.JUMPDEST : EvmSemantics.Operation.StackMemFlowOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_initialize_trampoline_jumpdest
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_jumpdest_at_ok hreadyAt
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_jumpdest_at_ok hreadyAt
 
 theorem counterPreparedInitializeTrampolineReturnPush_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state (counterInitializeTrampolineOffset + 1))
     (hready : counterStepFEReady state (.Push counterPush1Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush1Op : EvmSemantics.Operation))
@@ -6187,7 +6187,7 @@ theorem counterPreparedInitializeTrampolineReturnPush_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, counterPush1Op]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode (counterInitializeTrampolineOffset + 1)
         (.Push counterPush1Op)
         (some (EvmSemantics.UInt256.ofNat counterInitializeReturnOffset, 1))
@@ -6195,7 +6195,7 @@ theorem counterPreparedInitializeTrampolineReturnPush_reduction
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_initialize_trampoline_return_push
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_push_data_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_push_data_at_ok
     (op := counterPush1Op)
     (value := EvmSemantics.UInt256.ofNat counterInitializeReturnOffset)
     (argBytes := 1) (widthPred := 0) hreadyAt (by native_decide)
@@ -6204,7 +6204,7 @@ theorem counterPreparedInitializeTrampolineBodyPush_reduction
     {state : EvmState}
     (hat : counterCompiledStateAt state (counterInitializeTrampolineOffset + 3))
     (hready : counterStepFEReady state (.Push counterPush1Op)) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.Push counterPush1Op : EvmSemantics.Operation))
@@ -6222,7 +6222,7 @@ theorem counterPreparedInitializeTrampolineBodyPush_reduction
         state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork, counterPush1Op]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode (counterInitializeTrampolineOffset + 3)
         (.Push counterPush1Op)
         (some (EvmSemantics.UInt256.ofNat counterInitializeBodyOffset, 1))
@@ -6230,7 +6230,7 @@ theorem counterPreparedInitializeTrampolineBodyPush_reduction
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_initialize_trampoline_body_push
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_push_data_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_push_data_at_ok
     (op := counterPush1Op)
     (value := EvmSemantics.UInt256.ofNat counterInitializeBodyOffset)
     (argBytes := 1) (widthPred := 0) hreadyAt (by native_decide)
@@ -6246,7 +6246,7 @@ theorem counterPreparedInitializeTrampolineJump_reduction
     (hvalid :
       EvmSemantics.EVM.Decode.isValidJumpDest
         counterCompiledRuntimeCode dest.toNat = true) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       { state.consumeGas
           (EvmSemantics.EVM.Gas.baseCost state.fork
             (.StackMemFlow (.JUMP : EvmSemantics.Operation.StackMemFlowOps) :
@@ -6264,14 +6264,14 @@ theorem counterPreparedInitializeTrampolineJump_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode (counterInitializeTrampolineOffset + 5)
         (.StackMemFlow (.JUMP : EvmSemantics.Operation.StackMemFlowOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_initialize_trampoline_jump
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_jump_at_ok
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_jump_at_ok
     hreadyAt hstack hvalid
 
 theorem counterPreparedInitializeBodyJumpdest_reduction
@@ -6280,7 +6280,7 @@ theorem counterPreparedInitializeBodyJumpdest_reduction
     (hready :
       counterStepFEReady state
         (.StackMemFlow (.JUMPDEST : EvmSemantics.Operation.StackMemFlowOps))) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state
       ((state.consumeGas
         (EvmSemantics.EVM.Gas.baseCost state.fork
           (.StackMemFlow (.JUMPDEST : EvmSemantics.Operation.StackMemFlowOps) :
@@ -6296,14 +6296,14 @@ theorem counterPreparedInitializeBodyJumpdest_reduction
         EvmSemantics.Operation).availableInFork state.executionEnv.fork) = true := by
     simp [EvmSemantics.Operation.availableInFork]
   have hreadyAt :
-      ProofForge.Backend.Evm.PowdrExec.ReadyOpcodeAt
+      ProofForgeFormal.Evm.PowdrExec.ReadyOpcodeAt
         counterCompiledRuntimeCode counterInitializeBodyOffset
         (.StackMemFlow (.JUMPDEST : EvmSemantics.Operation.StackMemFlowOps))
         none state :=
     counterReadyOpcodeAt_of_compiledStateAt hat hpcNat
       counterCompiledRuntimeCode_decodes_initialize_body_jumpdest
       hready havailable
-  exact ProofForge.Backend.Evm.PowdrExec.reduction_jumpdest_at_ok hreadyAt
+  exact ProofForgeFormal.Evm.PowdrExec.reduction_jumpdest_at_ok hreadyAt
 
 theorem counterState_of_initialize_trampoline_stepFE_to_body_ok
     {s0 s1 s2 s3 s4 : EvmState}
@@ -9199,8 +9199,8 @@ theorem counterStepFEReduction_of_ready_step
     {state nextState : EvmState} {op : EvmSemantics.Operation}
     (hready : counterStepFEReady state op)
     (hstep : EvmSemantics.EVM.stepFE state = .ok nextState) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReduction state nextState := by
-  exact ProofForge.Backend.Evm.PowdrExec.StepFEReduction.of_step hready.1 hstep
+    ProofForgeFormal.Evm.PowdrExec.StepFEReduction state nextState := by
+  exact ProofForgeFormal.Evm.PowdrExec.StepFEReduction.of_step hready.1 hstep
 
 theorem counterStepFEPath_initialize_return_segment_ok
     {s0 s1 s2 s3 s4 s5 : EvmState}
@@ -9221,7 +9221,7 @@ theorem counterStepFEPath_initialize_return_segment_ok
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep4 : EvmSemantics.EVM.stepFE s4 = .ok s5) :
     EvmStepFEPath s0 5 s5 := by
-  exact ProofForge.Backend.Evm.PowdrExec.stepFEPath_five
+  exact ProofForgeFormal.Evm.PowdrExec.stepFEPath_five
     hready0.1 hstep0 hready1.1 hstep1 hready2.1 hstep2
     hready3.1 hstep3 hready4.1 hstep4
 
@@ -9243,10 +9243,10 @@ theorem counterRunBytecode_initialize_return_segment_ok
       counterStepFEReady s4
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep4 : EvmSemantics.EVM.stepFE s4 = .ok s5) :
-    ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 5 =
-      .ok (s5, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) := by
-  exact ProofForge.Backend.Evm.PowdrExec.runSteps_of_reductionChain
-    (ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_five
+    ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 5 =
+      .ok (s5, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) := by
+  exact ProofForgeFormal.Evm.PowdrExec.runSteps_of_reductionChain
+    (ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_five
       (counterStepFEReduction_of_ready_step hready0 hstep0)
       (counterStepFEReduction_of_ready_step hready1 hstep1)
       (counterStepFEReduction_of_ready_step hready2 hstep2)
@@ -9274,7 +9274,7 @@ theorem counterStepFEPath_get_return_segment_ok
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep5 : EvmSemantics.EVM.stepFE s5 = .ok s6) :
     EvmStepFEPath s0 6 s6 := by
-  exact ProofForge.Backend.Evm.PowdrExec.stepFEPath_six
+  exact ProofForgeFormal.Evm.PowdrExec.stepFEPath_six
     hready0.1 hstep0 hready1.1 hstep1 hready2.1 hstep2
     hready3.1 hstep3 hready4.1 hstep4 hready5.1 hstep5
 
@@ -9298,10 +9298,10 @@ theorem counterRunBytecode_get_return_segment_ok
       counterStepFEReady s5
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep5 : EvmSemantics.EVM.stepFE s5 = .ok s6) :
-    ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 6 =
-      .ok (s6, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) := by
-  exact ProofForge.Backend.Evm.PowdrExec.runSteps_of_reductionChain
-    (ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_six
+    ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 6 =
+      .ok (s6, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) := by
+  exact ProofForgeFormal.Evm.PowdrExec.runSteps_of_reductionChain
+    (ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_six
       (counterStepFEReduction_of_ready_step hready0 hstep0)
       (counterStepFEReduction_of_ready_step hready1 hstep1)
       (counterStepFEReduction_of_ready_step hready2 hstep2)
@@ -9368,7 +9368,7 @@ theorem counterStepFEPath_get_body_and_return_ok
     (hstep17 : EvmSemantics.EVM.stepFE s17 = .ok s18) :
     EvmStepFEPath s0 18 s18 := by
   have hbody : EvmStepFEPath s0 12 s12 :=
-    ProofForge.Backend.Evm.PowdrExec.stepFEPath_twelve
+    ProofForgeFormal.Evm.PowdrExec.stepFEPath_twelve
       hready0.1 hstep0 hready1.1 hstep1 hready2.1 hstep2
       hready3.1 hstep3 hready4.1 hstep4 hready5.1 hstep5
       hready6.1 hstep6 hready7.1 hstep7 hready8.1 hstep8
@@ -9378,7 +9378,7 @@ theorem counterStepFEPath_get_body_and_return_ok
       hready12 hstep12 hready13 hstep13 hready14 hstep14
       hready15 hstep15 hready16 hstep16 hready17 hstep17
   simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-    ProofForge.Backend.Evm.PowdrExec.stepFEPath_append hbody hreturn
+    ProofForgeFormal.Evm.PowdrExec.stepFEPath_append hbody hreturn
 
 theorem counterRunBytecode_get_body_and_return_ok
     {s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17
@@ -9437,11 +9437,11 @@ theorem counterRunBytecode_get_body_and_return_ok
       counterStepFEReady s17
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep17 : EvmSemantics.EVM.stepFE s17 = .ok s18) :
-    ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 18 =
-      .ok (s18, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) := by
+    ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 18 =
+      .ok (s18, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) := by
   have hbody :
-      ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s0 12 s12 :=
-    ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_twelve
+      ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s0 12 s12 :=
+    ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_twelve
       (counterStepFEReduction_of_ready_step hready0 hstep0)
       (counterStepFEReduction_of_ready_step hready1 hstep1)
       (counterStepFEReduction_of_ready_step hready2 hstep2)
@@ -9455,18 +9455,18 @@ theorem counterRunBytecode_get_body_and_return_ok
       (counterStepFEReduction_of_ready_step hready10 hstep10)
       (counterStepFEReduction_of_ready_step hready11 hstep11)
   have hreturn :
-      ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s12 6 s18 :=
-    ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_six
+      ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s12 6 s18 :=
+    ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_six
       (counterStepFEReduction_of_ready_step hready12 hstep12)
       (counterStepFEReduction_of_ready_step hready13 hstep13)
       (counterStepFEReduction_of_ready_step hready14 hstep14)
       (counterStepFEReduction_of_ready_step hready15 hstep15)
       (counterStepFEReduction_of_ready_step hready16 hstep16)
       (counterStepFEReduction_of_ready_step hready17 hstep17)
-  exact ProofForge.Backend.Evm.PowdrExec.runSteps_of_reductionChain
+  exact ProofForgeFormal.Evm.PowdrExec.runSteps_of_reductionChain
     (by
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-        ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain.append
+        ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain.append
           hbody hreturn)
 
 theorem counterStepFEPath_increment_return_segment_ok
@@ -9484,7 +9484,7 @@ theorem counterStepFEPath_increment_return_segment_ok
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep3 : EvmSemantics.EVM.stepFE s3 = .ok s4) :
     EvmStepFEPath s0 4 s4 := by
-  exact ProofForge.Backend.Evm.PowdrExec.stepFEPath_four
+  exact ProofForgeFormal.Evm.PowdrExec.stepFEPath_four
     hready0.1 hstep0 hready1.1 hstep1 hready2.1 hstep2
     hready3.1 hstep3
 
@@ -9502,10 +9502,10 @@ theorem counterRunBytecode_increment_return_segment_ok
       counterStepFEReady s3
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep3 : EvmSemantics.EVM.stepFE s3 = .ok s4) :
-    ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 4 =
-      .ok (s4, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) := by
-  exact ProofForge.Backend.Evm.PowdrExec.runSteps_of_reductionChain
-    (ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_four
+    ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 4 =
+      .ok (s4, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) := by
+  exact ProofForgeFormal.Evm.PowdrExec.runSteps_of_reductionChain
+    (ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_four
       (counterStepFEReduction_of_ready_step hready0 hstep0)
       (counterStepFEReduction_of_ready_step hready1 hstep1)
       (counterStepFEReduction_of_ready_step hready2 hstep2)
@@ -9607,7 +9607,7 @@ theorem counterStepFEPath_initialize_body_and_return_ok
       hready17 hstep17 hready18 hstep18 hready19 hstep19
       hready20 hstep20 hready21 hstep21
   simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-    ProofForge.Backend.Evm.PowdrAdapter.stepFEPath_append
+    ProofForgeFormal.Evm.PowdrAdapter.stepFEPath_append
       hpathToReturn hpathReturn
 
 theorem counterRunBytecode_initialize_body_and_return_ok
@@ -9704,8 +9704,8 @@ theorem counterRunBytecode_initialize_body_and_return_ok
       counterStepFEReady s21
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep21 : EvmSemantics.EVM.stepFE s21 = .ok s22) :
-    ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 22 =
-        .ok (s22, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) ∧
+    ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 22 =
+        .ok (s22, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) ∧
       s22.halt = .Returned ∧
       counterStorageValue counterContractAddress counterCountSlot s22 =
         counterInitializeStorageWord
@@ -9733,11 +9733,11 @@ theorem counterRunBytecode_initialize_body_and_return_ok
     counterCompiledStateAt_of_initialize_sstore_stepFE_ok
       hat16 hstack16 hready16 hstep16
   have hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 22 =
-        .ok (s22, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) := by
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 22 =
+        .ok (s22, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) := by
     have hbody0 :
-        ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s0 12 s12 :=
-      ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_twelve
+        ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s0 12 s12 :=
+      ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_twelve
         (counterStepFEReduction_of_ready_step hready0 hstep0)
         (counterStepFEReduction_of_ready_step hready1 hstep1)
         (counterStepFEReduction_of_ready_step hready2 hstep2)
@@ -9751,28 +9751,28 @@ theorem counterRunBytecode_initialize_body_and_return_ok
         (counterStepFEReduction_of_ready_step hready10 hstep10)
         (counterStepFEReduction_of_ready_step hready11 hstep11)
     have hbody1 :
-        ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s12 5 s17 :=
-      ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_five
+        ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s12 5 s17 :=
+      ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_five
         (counterStepFEReduction_of_ready_step hready12 hstep12)
         (counterStepFEReduction_of_ready_step hready13 hstep13)
         (counterStepFEReduction_of_ready_step hready14 hstep14)
         (counterStepFEReduction_of_ready_step hready15 hstep15)
         (counterStepFEReduction_of_ready_step hready16 hstep16)
     have hreturn :
-        ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s17 5 s22 :=
-      ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_five
+        ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s17 5 s22 :=
+      ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_five
         (counterStepFEReduction_of_ready_step hready17 hstep17)
         (counterStepFEReduction_of_ready_step hready18 hstep18)
         (counterStepFEReduction_of_ready_step hready19 hstep19)
         (counterStepFEReduction_of_ready_step hready20 hstep20)
         (counterStepFEReduction_of_ready_step hready21 hstep21)
     have hbody :=
-      ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain.append
+      ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain.append
         hbody0 hbody1
-    exact ProofForge.Backend.Evm.PowdrExec.runSteps_of_reductionChain
+    exact ProofForgeFormal.Evm.PowdrExec.runSteps_of_reductionChain
       (by
         simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-          ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain.append
+          ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain.append
             hbody hreturn)
   have hstorage17 :
       counterStorageValue counterContractAddress counterCountSlot s17 =
@@ -9962,7 +9962,7 @@ theorem counterStepFEPath_initialize_dispatcher_body_and_return_ok
       hready32 hstep32 hready33 hstep33 hready34 hstep34
       hready35 hstep35
   simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-    ProofForge.Backend.Evm.PowdrAdapter.stepFEPath_append
+    ProofForgeFormal.Evm.PowdrAdapter.stepFEPath_append
       hpathDispatcher hpathBody
 
 theorem counterStepFEReductionChain_initialize_dispatcher_body_and_return_ok
@@ -10079,10 +10079,10 @@ theorem counterStepFEReductionChain_initialize_dispatcher_body_and_return_ok
       counterStepFEReady s35
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep35 : EvmSemantics.EVM.stepFE s35 = .ok s36) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s0 36 s36 := by
+    ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s0 36 s36 := by
   have hchain0_12 :
-      ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s0 12 s12 :=
-    ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_twelve
+      ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s0 12 s12 :=
+    ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_twelve
       (counterStepFEReduction_of_ready_step hready0 hstep0)
       (counterStepFEReduction_of_ready_step hready1 hstep1)
       (counterStepFEReduction_of_ready_step hready2 hstep2)
@@ -10096,8 +10096,8 @@ theorem counterStepFEReductionChain_initialize_dispatcher_body_and_return_ok
       (counterStepFEReduction_of_ready_step hready10 hstep10)
       (counterStepFEReduction_of_ready_step hready11 hstep11)
   have hchain12_24 :
-      ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s12 12 s24 :=
-    ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_twelve
+      ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s12 12 s24 :=
+    ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_twelve
       (counterStepFEReduction_of_ready_step hready12 hstep12)
       (counterStepFEReduction_of_ready_step hready13 hstep13)
       (counterStepFEReduction_of_ready_step hready14 hstep14)
@@ -10111,8 +10111,8 @@ theorem counterStepFEReductionChain_initialize_dispatcher_body_and_return_ok
       (counterStepFEReduction_of_ready_step hready22 hstep22)
       (counterStepFEReduction_of_ready_step hready23 hstep23)
   have hchain24_36 :
-      ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s24 12 s36 :=
-    ProofForge.Backend.Evm.PowdrExec.stepFEReductionChain_twelve
+      ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s24 12 s36 :=
+    ProofForgeFormal.Evm.PowdrExec.stepFEReductionChain_twelve
       (counterStepFEReduction_of_ready_step hready24 hstep24)
       (counterStepFEReduction_of_ready_step hready25 hstep25)
       (counterStepFEReduction_of_ready_step hready26 hstep26)
@@ -10126,10 +10126,10 @@ theorem counterStepFEReductionChain_initialize_dispatcher_body_and_return_ok
       (counterStepFEReduction_of_ready_step hready34 hstep34)
       (counterStepFEReduction_of_ready_step hready35 hstep35)
   have hchain0_24 :=
-    ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain.append
+    ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain.append
       hchain0_12 hchain12_24
   simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-    ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain.append
+    ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain.append
       hchain0_24 hchain24_36
 
 theorem counterRunBytecode_initialize_dispatcher_body_and_return_ok
@@ -10271,8 +10271,8 @@ theorem counterRunBytecode_initialize_dispatcher_body_and_return_ok
       counterStepFEReady s35
         (.System (.RETURN : EvmSemantics.Operation.SystemOps)))
     (hstep35 : EvmSemantics.EVM.stepFE s35 = .ok s36) :
-    ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 36 =
-        .ok (s36, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) ∧
+    ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 36 =
+        .ok (s36, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) ∧
       s36.halt = .Returned ∧
       counterStorageValue counterContractAddress counterCountSlot s36 =
         counterInitializeStorageWord
@@ -10290,8 +10290,8 @@ theorem counterRunBytecode_initialize_dispatcher_body_and_return_ok
       hready7 hstep7 hready8 hstep8 hready9 hstep9 hat10 hready10 hstep10
       hat11 hready11 hstep11 hat12 hready12 hstep12 hready13 hstep13
   have hrunTail :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode s14 22 =
-        .ok (s36, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) ∧
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode s14 22 =
+        .ok (s36, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) ∧
       s36.halt = .Returned ∧
       counterStorageValue counterContractAddress counterCountSlot s36 =
         counterInitializeStorageWord
@@ -10337,9 +10337,9 @@ theorem counterRunBytecode_initialize_dispatcher_body_and_return_ok
       hat22 hready22 hstep22 hat23 hready23 hstep23
       hat24 hready24 hstep24 hat25 hready25 hstep25
   have hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 36 =
-        .ok (s36, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) := by
-    exact ProofForge.Backend.Evm.PowdrExec.runSteps_of_reductionChain
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 36 =
+        .ok (s36, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) := by
+    exact ProofForgeFormal.Evm.PowdrExec.runSteps_of_reductionChain
       (counterStepFEReductionChain_initialize_dispatcher_body_and_return_ok
         hready0 hstep0 hready1 hstep1 hready2 hstep2
         hready3 hstep3 hready4 hstep4 hready5 hstep5
@@ -10359,20 +10359,20 @@ theorem counterRunBytecode_initialize_dispatcher_body_and_return_ok
 def counterPowdrPreparedTraceStep (cfg : PowdrCounterConfig) (preparedState : EvmState)
     (call : CounterCall) : Except String (EvmState × ObservableReturn) := do
   let (finalState, _observations) ←
-    ProofForge.Backend.Evm.PowdrAdapter.runBytecode preparedState cfg.fuel
+    ProofForgeFormal.Evm.PowdrAdapter.runBytecode preparedState cfg.fuel
   let observable ← counterObservableFromResult call finalState.toResult
   .ok (finalState, observable)
 
 theorem counterRunBytecode_extend_to_compiled_fuel
     {state finalState : EvmState}
-    {observations : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep}
+    {observations : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep}
     (hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode state 36 =
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode state 36 =
         .ok (finalState, observations))
-    (hHalted : ProofForge.Backend.Evm.PowdrAdapter.isHalted finalState = true) :
-    ProofForge.Backend.Evm.PowdrAdapter.runBytecode state counterCompiledRuntimeFuel =
+    (hHalted : ProofForgeFormal.Evm.PowdrAdapter.isHalted finalState = true) :
+    ProofForgeFormal.Evm.PowdrAdapter.runBytecode state counterCompiledRuntimeFuel =
       .ok (finalState, observations) := by
-  exact ProofForge.Backend.Evm.PowdrAdapter.runBytecode_extend_to_fuel
+  exact ProofForgeFormal.Evm.PowdrAdapter.runBytecode_extend_to_fuel
     (fuel := 36)
     (targetFuel := counterCompiledRuntimeFuel)
     (extra := counterCompiledRuntimeFuel - 36)
@@ -10380,15 +10380,15 @@ theorem counterRunBytecode_extend_to_compiled_fuel
 
 theorem counterRunBytecode_extend_to_compiled_fuel_from
     {fuel : Nat} {state finalState : EvmState}
-    {observations : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep}
+    {observations : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep}
     (hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode state fuel =
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode state fuel =
         .ok (finalState, observations))
-    (hHalted : ProofForge.Backend.Evm.PowdrAdapter.isHalted finalState = true)
+    (hHalted : ProofForgeFormal.Evm.PowdrAdapter.isHalted finalState = true)
     (hle : fuel ≤ counterCompiledRuntimeFuel) :
-    ProofForge.Backend.Evm.PowdrAdapter.runBytecode state counterCompiledRuntimeFuel =
+    ProofForgeFormal.Evm.PowdrAdapter.runBytecode state counterCompiledRuntimeFuel =
       .ok (finalState, observations) := by
-  exact ProofForge.Backend.Evm.PowdrAdapter.runBytecode_extend_to_fuel
+  exact ProofForgeFormal.Evm.PowdrAdapter.runBytecode_extend_to_fuel
     (fuel := fuel)
     (targetFuel := counterCompiledRuntimeFuel)
     (extra := counterCompiledRuntimeFuel - fuel)
@@ -10398,9 +10398,9 @@ theorem counterRunBytecode_extend_to_compiled_fuel_from
 theorem counterPowdrPreparedTraceStep_initialize_of_run36_ok
     {preparedState finalState : EvmState}
     (hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode preparedState 36 =
-        .ok (finalState, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)))
-    (hHalted : ProofForge.Backend.Evm.PowdrAdapter.isHalted finalState = true)
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode preparedState 36 =
+        .ok (finalState, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)))
+    (hHalted : ProofForgeFormal.Evm.PowdrAdapter.isHalted finalState = true)
     (hobs : counterObservableFromResult .initialize finalState.toResult = .ok .none) :
     counterPowdrPreparedTraceStep counterCompiledPowdrConfig preparedState .initialize =
       .ok (finalState, .none) := by
@@ -10417,15 +10417,15 @@ theorem counterPowdrPreparedTraceStep_initialize_of_run36_ok
 theorem counterPowdrPreparedTraceStep_initialize_of_run36_returned_top_level_ok
     {preparedState finalState : EvmState}
     (hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode preparedState 36 =
-        .ok (finalState, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)))
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode preparedState 36 =
+        .ok (finalState, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)))
     (hhalt : finalState.halt = .Returned)
     (hcallStack : finalState.callStack = [])
     (hobs : counterObservableFromResult .initialize finalState.toResult = .ok .none) :
     counterPowdrPreparedTraceStep counterCompiledPowdrConfig preparedState .initialize =
       .ok (finalState, .none) := by
   exact counterPowdrPreparedTraceStep_initialize_of_run36_ok hrun
-    (ProofForge.Backend.Evm.PowdrAdapter.isHalted_of_returned_top_level hhalt hcallStack)
+    (ProofForgeFormal.Evm.PowdrAdapter.isHalted_of_returned_top_level hhalt hcallStack)
     hobs
 
 def counterPowdrTraceStep (cfg : PowdrCounterConfig) (state : EvmState)
@@ -10449,8 +10449,8 @@ theorem counterPowdrPreparedTraceStep_of_run_returned_prepared_ok
     (hprepared :
       CounterPreparedCall counterCompiledPowdrConfig call preparedState)
     (hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode preparedState fuel =
-        .ok (finalState, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)))
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode preparedState fuel =
+        .ok (finalState, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)))
     (hhalt : finalState.halt = .Returned)
     (hcallStackPrepared : finalState.callStack = preparedState.callStack)
     (hobs : counterObservableFromResult call finalState.toResult = .ok observable)
@@ -10459,7 +10459,7 @@ theorem counterPowdrPreparedTraceStep_of_run_returned_prepared_ok
       .ok (finalState, observable) := by
   have hrunCompiled :=
     counterRunBytecode_extend_to_compiled_fuel_from hrun
-      (ProofForge.Backend.Evm.PowdrAdapter.isHalted_of_returned_top_level hhalt
+      (ProofForgeFormal.Evm.PowdrAdapter.isHalted_of_returned_top_level hhalt
         (hcallStackPrepared.trans (counterPreparedCall_callStack hprepared)))
       hle
   unfold counterPowdrPreparedTraceStep
@@ -10475,8 +10475,8 @@ theorem counterPowdrPreparedTraceStep_initialize_of_run36_returned_prepared_ok
     (hprepared :
       CounterPreparedCall counterCompiledPowdrConfig .initialize preparedState)
     (hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode preparedState 36 =
-        .ok (finalState, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)))
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode preparedState 36 =
+        .ok (finalState, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)))
     (hhalt : finalState.halt = .Returned)
     (hcallStackPrepared : finalState.callStack = preparedState.callStack)
     (hobs : counterObservableFromResult .initialize finalState.toResult = .ok .none) :
@@ -10490,8 +10490,8 @@ theorem counterCompiledPreparedInitialize_storage_model_of_run36_returned_sload_
     (hprepared :
       CounterPreparedCall counterCompiledPowdrConfig .initialize preparedState)
     (hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode preparedState 36 =
-        .ok (finalState, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)))
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode preparedState 36 =
+        .ok (finalState, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)))
     (hhalt : finalState.halt = .Returned)
     (hcallStackPrepared : finalState.callStack = preparedState.callStack)
     (hstorageRun :
@@ -11103,7 +11103,7 @@ theorem counterCompiledPreparedInitialize_first_four_path_ok
   have hready3 :=
     counterCompiledPreparedInitialize_fourth_ready hprepared hstep0 hstep1 hstep2
   refine ⟨s4, ?_, hat4, hdecoded4, hstack4⟩
-  exact ProofForge.Backend.Evm.PowdrExec.stepFEPath_four
+  exact ProofForgeFormal.Evm.PowdrExec.stepFEPath_four
     hready0.1 hstep0 hready1.1 hstep1 hready2.1 hstep2
     hready3.1 hstep3
 
@@ -11358,7 +11358,7 @@ theorem counterCompiledPreparedCall_first_five_path_ok
     counterCompiledPreparedCall_fifth_ready hprepared
       hstep0 hstep1 hstep2 hstep3
   refine ⟨s5, ?_, hat5, hdecoded5, hstack5⟩
-  exact ProofForge.Backend.Evm.PowdrExec.stepFEPath_five
+  exact ProofForgeFormal.Evm.PowdrExec.stepFEPath_five
     hready0.1 hstep0 hready1.1 hstep1 hready2.1 hstep2
     hready3.1 hstep3 hready4.1 hstep4
 
@@ -11368,7 +11368,7 @@ theorem counterCompiledPreparedCall_selector_prefix_reduction_chain_ok
     (hprepared :
       CounterPreparedCall counterCompiledPowdrConfig call preparedState) :
     ∃ s5,
-      ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain
+      ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain
         preparedState 5 s5 ∧
       counterCompiledStateAt s5 6 ∧
       s5.decoded =
@@ -11380,7 +11380,7 @@ theorem counterCompiledPreparedCall_selector_prefix_reduction_chain_ok
   obtain ⟨s5, path, hat5, hdecoded5, hstack5⟩ :=
     counterCompiledPreparedCall_first_five_path_ok hprepared
   exact ⟨s5,
-    ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain.of_stepFEPath path,
+    ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain.of_stepFEPath path,
     hat5, hdecoded5, hstack5⟩
 
 theorem counterCompiledPreparedInitialize_first_five_path_ok
@@ -11735,7 +11735,7 @@ theorem counterPreparedInitializeStepFEPath_to_path
 theorem counterPreparedInitializeStepFEPath_to_reductionChain
     {s0 s36 : EvmState}
     (path : CounterPreparedInitializeStepFEPath s0 s36) :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s0 36 s36 := by
+    ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s0 36 s36 := by
   exact counterStepFEReductionChain_initialize_dispatcher_body_and_return_ok
     path.hready0 path.hstep0 path.hready1 path.hstep1
     path.hready2 path.hstep2 path.hready3 path.hstep3
@@ -11769,12 +11769,12 @@ def counterPreparedInitializeSegmentPost (state finalState : EvmState) : Prop :=
 
 structure CounterPreparedInitializeSegmentModel (s0 s36 : EvmState) where
   segment :
-    ProofForge.Backend.Evm.PowdrExec.ExecutionSegment 36
+    ProofForgeFormal.Evm.PowdrExec.ExecutionSegment 36
       counterPreparedInitializeSegmentPost s0 s36
 
 structure CounterPreparedInitializeReductionChainModel (s0 s36 : EvmState) where
   chain :
-    ProofForge.Backend.Evm.PowdrExec.StepFEReductionChain s0 36 s36
+    ProofForgeFormal.Evm.PowdrExec.StepFEReductionChain s0 36 s36
   postcondition : counterPreparedInitializeSegmentPost s0 s36
 
 theorem counterCompiledPreparedInitialize_storage_model_of_dispatcher_body_and_return_ok
@@ -11974,7 +11974,7 @@ theorem counterPreparedInitializeSegmentModel_of_stepFE_path
       path.hready35 path.hstep35
   refine
     { segment :=
-        ProofForge.Backend.Evm.PowdrExec.executionSegment_of_stepFEPath
+        ProofForgeFormal.Evm.PowdrExec.executionSegment_of_stepFEPath
           (counterPreparedInitializeStepFEPath_to_path path) ?_ }
   refine ⟨hhalt, hcallStackPrepared, ?_, hobs⟩
   rw [hstorageRun, hstoragePrefix]
@@ -11992,7 +11992,7 @@ def counterPreparedInitializeSegmentModel_of_reductionChainModel
     (model : CounterPreparedInitializeReductionChainModel s0 s36) :
     CounterPreparedInitializeSegmentModel s0 s36 where
   segment :=
-    ProofForge.Backend.Evm.PowdrExec.executionSegment_of_reductionChain
+    ProofForgeFormal.Evm.PowdrExec.executionSegment_of_reductionChain
       model.chain model.postcondition
 
 def counterPreparedInitializeReductionChainModel_of_stepFE_path
@@ -12043,9 +12043,9 @@ theorem counterCompiledPreparedInitialize_storage_model_of_segment_model_ok
   rcases model.segment.postcondition with
     ⟨hreturned, hcallStack, hstorageModel, hobservable⟩
   have hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 36 =
-        .ok (s36, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) :=
-    ProofForge.Backend.Evm.PowdrExec.runSteps_of_executionSegment model.segment
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 36 =
+        .ok (s36, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) :=
+    ProofForgeFormal.Evm.PowdrExec.runSteps_of_executionSegment model.segment
   have hstep :=
     counterPowdrPreparedTraceStep_initialize_of_run36_returned_prepared_ok
       hprepared hrun hreturned hcallStack hobservable
@@ -12064,9 +12064,9 @@ theorem counterCompiledPreparedInitialize_storage_model_of_reduction_chain_model
   rcases model.postcondition with
     ⟨hreturned, hcallStack, hstorageModel, hobservable⟩
   have hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode s0 36 =
-        .ok (s36, (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) :=
-    ProofForge.Backend.Evm.PowdrExec.runSteps_of_reductionChain model.chain
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode s0 36 =
+        .ok (s36, (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) :=
+    ProofForgeFormal.Evm.PowdrExec.runSteps_of_reductionChain model.chain
   have hstep :=
     counterPowdrPreparedTraceStep_initialize_of_run36_returned_prepared_ok
       hprepared hrun hreturned hcallStack hobservable
@@ -12100,25 +12100,25 @@ theorem counterCompiledPreparedInitialize_storage_model_of_stepFE_path_chain_ok
     hprepared path
 
 abbrev CounterPreparedInitializeSegmentProvider :=
-  ProofForge.Backend.Evm.PowdrExec.SegmentProvider
+  ProofForgeFormal.Evm.PowdrExec.SegmentProvider
     counterPreparedInitializeSegmentPre 36
     counterPreparedInitializeSegmentPost
 
 abbrev CounterPreparedInitializeReductionChainProvider :=
-  ProofForge.Backend.Evm.PowdrExec.ReductionChainProvider
+  ProofForgeFormal.Evm.PowdrExec.ReductionChainProvider
     counterPreparedInitializeSegmentPre 36
     counterPreparedInitializeSegmentPost
 
 def counterPreparedInitializeSegmentProviderOfReductionChainProvider
     (provider : CounterPreparedInitializeReductionChainProvider) :
     CounterPreparedInitializeSegmentProvider :=
-  ProofForge.Backend.Evm.PowdrExec.segmentProvider_of_reductionChainProvider
+  ProofForgeFormal.Evm.PowdrExec.segmentProvider_of_reductionChainProvider
     provider
 
 def counterPreparedInitializeSegmentModel_of_executionSegment
     {s0 s36 : EvmState}
     (segment :
-      ProofForge.Backend.Evm.PowdrExec.ExecutionSegment 36
+      ProofForgeFormal.Evm.PowdrExec.ExecutionSegment 36
         counterPreparedInitializeSegmentPost s0 s36) :
     CounterPreparedInitializeSegmentModel s0 s36 where
   segment := segment
@@ -12195,13 +12195,13 @@ def counterPreparedGetSegmentPost
 
 abbrev CounterPreparedIncrementReductionChainProvider (fuel : Nat) :=
   ∀ count,
-    ProofForge.Backend.Evm.PowdrExec.ReductionChainProvider
+    ProofForgeFormal.Evm.PowdrExec.ReductionChainProvider
       (counterPreparedIncrementSegmentPre count) fuel
       (counterPreparedIncrementSegmentPost count)
 
 abbrev CounterPreparedGetReductionChainProvider (fuel : Nat) :=
   ∀ count,
-    ProofForge.Backend.Evm.PowdrExec.ReductionChainProvider
+    ProofForgeFormal.Evm.PowdrExec.ReductionChainProvider
       (counterPreparedGetSegmentPre count) fuel
       (counterPreparedGetSegmentPost count)
 
@@ -12227,10 +12227,10 @@ theorem counterCompiledPreparedIncrement_storage_model_of_reduction_chain_provid
     (provider count).chain ⟨hprepared, hbound, hstorage⟩
   rcases hpost with ⟨hhalt, hcallStack, hstorageNext, hobs⟩
   have hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode preparedState fuel =
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode preparedState fuel =
         .ok (finalState,
-          (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) :=
-    ProofForge.Backend.Evm.PowdrExec.runSteps_of_reductionChain chain
+          (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) :=
+    ProofForgeFormal.Evm.PowdrExec.runSteps_of_reductionChain chain
   have hstep :=
     counterPowdrPreparedTraceStep_of_run_returned_prepared_ok
       hprepared hrun hhalt hcallStack hobs hle
@@ -12257,10 +12257,10 @@ theorem counterCompiledPreparedGet_storage_model_of_reduction_chain_provider_ok
     (provider count).chain ⟨hprepared, hbound, hstorage⟩
   rcases hpost with ⟨hhalt, hcallStack, hstorageNext, hobs⟩
   have hrun :
-      ProofForge.Backend.Evm.PowdrAdapter.runBytecode preparedState fuel =
+      ProofForgeFormal.Evm.PowdrAdapter.runBytecode preparedState fuel =
         .ok (finalState,
-          (#[] : Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep)) :=
-    ProofForge.Backend.Evm.PowdrExec.runSteps_of_reductionChain chain
+          (#[] : Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep)) :=
+    ProofForgeFormal.Evm.PowdrExec.runSteps_of_reductionChain chain
   have hstep :=
     counterPowdrPreparedTraceStep_of_run_returned_prepared_ok
       hprepared hrun hhalt hcallStack hobs hle
@@ -12283,18 +12283,18 @@ theorem counterPreparedCall_not_isDone
 theorem counterPreparedCall_stepF_ok
     {cfg : PowdrCounterConfig} {call : CounterCall} {state : EvmState}
     (hprepared : CounterPreparedCall cfg call state) :
-    ProofForge.Backend.Evm.PowdrAdapter.stepF state =
-      .ok (ProofForge.Backend.Evm.PowdrAdapter.rawStepF state) := by
-  unfold ProofForge.Backend.Evm.PowdrAdapter.stepF
+    ProofForgeFormal.Evm.PowdrAdapter.stepF state =
+      .ok (ProofForgeFormal.Evm.PowdrAdapter.rawStepF state) := by
+  unfold ProofForgeFormal.Evm.PowdrAdapter.stepF
   rw [counterPreparedCall_isDone hprepared]
   rfl
 
 theorem counterPreparedCall_stepF_step
     {cfg : PowdrCounterConfig} {call : CounterCall} {state : EvmState}
     (hprepared : CounterPreparedCall cfg call state) :
-    ProofForge.Backend.Evm.PowdrAdapter.Step state
-      (ProofForge.Backend.Evm.PowdrAdapter.rawStepF state) :=
-  ProofForge.Backend.Evm.PowdrAdapter.raw_stepF_sound state
+    ProofForgeFormal.Evm.PowdrAdapter.Step state
+      (ProofForgeFormal.Evm.PowdrAdapter.rawStepF state) :=
+  ProofForgeFormal.Evm.PowdrAdapter.raw_stepF_sound state
     (counterPreparedCall_not_isDone hprepared)
 
 theorem counterPowdrTraceStep_steps {cfg : PowdrCounterConfig}
@@ -12305,12 +12305,12 @@ theorem counterPowdrTraceStep_steps {cfg : PowdrCounterConfig}
       (prepareCounterCall cfg.runtimeCode call state) finalState := by
   unfold counterPowdrTraceStep at h
   unfold counterPowdrPreparedTraceStep at h
-  cases hrun : ProofForge.Backend.Evm.PowdrAdapter.runBytecode
+  cases hrun : ProofForgeFormal.Evm.PowdrAdapter.runBytecode
       (prepareCounterCall cfg.runtimeCode call state) cfg.fuel with
   | error message =>
       rw [hrun] at h
       change (Except.bind (Except.error message)
-        (fun result : EvmState × Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep =>
+        (fun result : EvmState × Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep =>
           Except.bind (counterObservableFromResult call result.fst.toResult)
             (fun observable : ObservableReturn =>
               Except.ok (result.fst, observable)))) = Except.ok (finalState, obs) at h
@@ -12318,12 +12318,12 @@ theorem counterPowdrTraceStep_steps {cfg : PowdrCounterConfig}
   | ok result =>
       rcases result with ⟨runFinalState, observations⟩
       have hsteps :=
-        ProofForge.Backend.Evm.PowdrAdapter.runBytecode_steps hrun
+        ProofForgeFormal.Evm.PowdrAdapter.runBytecode_steps hrun
       rw [hrun] at h
       change (Except.bind (Except.ok
         ((runFinalState, observations) :
-          EvmState × Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep))
-        (fun result : EvmState × Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep =>
+          EvmState × Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep))
+        (fun result : EvmState × Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep =>
               Except.bind (counterObservableFromResult call result.fst.toResult)
                 (fun observable : ObservableReturn =>
                   Except.ok (result.fst, observable)))) = Except.ok (finalState, obs) at h
@@ -12350,12 +12350,12 @@ theorem counterPowdrTraceStep_observable {cfg : PowdrCounterConfig}
     counterObservableFromResult call finalState.toResult = .ok obs := by
   unfold counterPowdrTraceStep at h
   unfold counterPowdrPreparedTraceStep at h
-  cases hrun : ProofForge.Backend.Evm.PowdrAdapter.runBytecode
+  cases hrun : ProofForgeFormal.Evm.PowdrAdapter.runBytecode
       (prepareCounterCall cfg.runtimeCode call state) cfg.fuel with
   | error message =>
       rw [hrun] at h
       change (Except.bind (Except.error message)
-        (fun result : EvmState × Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep =>
+        (fun result : EvmState × Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep =>
           Except.bind (counterObservableFromResult call result.fst.toResult)
             (fun observable : ObservableReturn =>
               Except.ok (result.fst, observable)))) = Except.ok (finalState, obs) at h
@@ -12365,8 +12365,8 @@ theorem counterPowdrTraceStep_observable {cfg : PowdrCounterConfig}
       rw [hrun] at h
       change (Except.bind (Except.ok
         ((runFinalState, observations) :
-          EvmState × Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep))
-        (fun result : EvmState × Array ProofForge.Backend.Evm.PowdrAdapter.ObservableStep =>
+          EvmState × Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep))
+        (fun result : EvmState × Array ProofForgeFormal.Evm.PowdrAdapter.ObservableStep =>
               Except.bind (counterObservableFromResult call result.fst.toResult)
                 (fun observable : ObservableReturn =>
                   Except.ok (result.fst, observable)))) = Except.ok (finalState, obs) at h
@@ -13359,9 +13359,9 @@ theorem evmCompiledPowdr_fragment_refines_all
   rw [hfun]
   exact counterPowdr_trace_simulates_from_obligations counterCompiledPowdrConfig obligations calls hrel
 
-end ProofForge.Backend.Evm.CounterRefinement.LegacyHighPacked
+end ProofForgeFormal.Evm.CounterRefinement.LegacyHighPacked
 
-namespace ProofForge.Backend.Evm.CounterRefinement
+namespace ProofForgeFormal.Evm.CounterRefinement
 
 open ProofForge.IR
 open ProofForge.IR.Semantics
@@ -13370,7 +13370,7 @@ open ProofForge.Backend.Refinement.CounterUniversal
 open ProofForge.Backend.Refinement.ConstructorCoverage
 
 abbrev IRState := ProofForge.IR.Semantics.State
-abbrev EvmState := ProofForge.Backend.Evm.PowdrAdapter.State
+abbrev EvmState := ProofForgeFormal.Evm.PowdrAdapter.State
 abbrev CounterCall := ProofForge.Backend.Refinement.CounterUniversal.CounterCall
 abbrev counterIRStep := ProofForge.Backend.Refinement.CounterUniversal.irStep
 
@@ -13660,4 +13660,4 @@ theorem evmCompiledPowdr_fragment_refines_all
       obligations.step_simulates call related)
     calls hrel
 
-end ProofForge.Backend.Evm.CounterRefinement
+end ProofForgeFormal.Evm.CounterRefinement

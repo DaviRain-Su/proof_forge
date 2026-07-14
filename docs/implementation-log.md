@@ -3714,3 +3714,20 @@ Rules:
 - Added A-CUT1d to rename those declarations to the owning formal namespaces,
   update focused callers, forbid backend compatibility aliases, and verify the
   one-way optional-formal-to-compiler dependency.
+
+## 2026-07-14 - Authoring cleanup A-CUT1d: formal namespace ownership
+
+- Status: `done (verified 2026-07-14)`; A-CUT2 is active again.
+- Renamed all powdr-owned declarations to `ProofForgeFormal.Evm.*` and all
+  solanalib-owned declarations to `ProofForgeFormal.Solana.*`. No backend
+  compatibility aliases were added.
+- Made the one previously implicit Solana backend reference explicit after the
+  formal namespace stopped inheriting the `ProofForge.Backend.Solana` parent.
+- Extended the canonical boundary gate and its negative self-tests to reject
+  formal files that declare default backend namespaces, default compiler
+  imports of optional formal modules, and retired `EvmRefinement` or
+  `SolanaRefinement` roots.
+- Verification: `lake build ProofForgeFormalEvm ProofForgeFormalSolana`,
+  `just evm-powdr-counter-refinement-smoke`,
+  `just solana-solanalib-adapter`, canonical boundary self-test and gate, old
+  namespace/import scans, and `git diff --check`.

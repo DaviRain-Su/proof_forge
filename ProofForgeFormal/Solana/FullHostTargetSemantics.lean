@@ -16,13 +16,13 @@ import ProofForge.IR.StepSemantics
 import ProofForgeFormal.Solana.CounterHostRefinement
 import ProofForgeFormal.Solana.FullProgramHost
 
-namespace ProofForge.Backend.Solana.FullHostTargetSemantics
+namespace ProofForgeFormal.Solana.FullHostTargetSemantics
 
 open ProofForge.IR
 open ProofForge.Backend.Refinement
 open ProofForge.Backend.Solana.SbpfInterpreter
-open ProofForge.Backend.Solana.FullProgramHost
-open ProofForge.Backend.Solana.CounterHostRefinement
+open ProofForgeFormal.Solana.FullProgramHost
+open ProofForgeFormal.Solana.CounterHostRefinement
 
 def fullHostTargetSemantics : TargetSemantics where
   id := "solana-sbpf-solanalib-host"
@@ -76,4 +76,4 @@ theorem full_host_target_semantics_executable_counter_ok :
     } = true := by
   native_decide
 
-end ProofForge.Backend.Solana.FullHostTargetSemantics
+end ProofForgeFormal.Solana.FullHostTargetSemantics

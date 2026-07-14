@@ -9,13 +9,13 @@ Contract refinements should compose these lemmas instead of hand-deriving
 `runBytecode` one bytecode instruction at a time.
 -/
 
-namespace ProofForge.Backend.Evm.PowdrExec
+namespace ProofForgeFormal.Evm.PowdrExec
 
 set_option linter.unusedSimpArgs false
 
-abbrev State := ProofForge.Backend.Evm.PowdrAdapter.State
-abbrev ObservableStep := ProofForge.Backend.Evm.PowdrAdapter.ObservableStep
-abbrev StepFEPath := ProofForge.Backend.Evm.PowdrAdapter.StepFEPath
+abbrev State := ProofForgeFormal.Evm.PowdrAdapter.State
+abbrev ObservableStep := ProofForgeFormal.Evm.PowdrAdapter.ObservableStep
+abbrev StepFEPath := ProofForgeFormal.Evm.PowdrAdapter.StepFEPath
 abbrev UInt256 := EvmSemantics.UInt256
 abbrev Operation := EvmSemantics.Operation
 
@@ -33,7 +33,7 @@ structure DecodedOpcodeAt
   available : op.availableInFork state.executionEnv.fork = true
 
 def runSteps : State → Nat → Except String (State × Array ObservableStep) :=
-  ProofForge.Backend.Evm.PowdrAdapter.runBytecode
+  ProofForgeFormal.Evm.PowdrAdapter.runBytecode
 
 theorem runSteps_zero (state : State) :
     runSteps state 0 = .ok (state, #[]) := rfl
@@ -86,7 +86,7 @@ theorem runSteps_stepFE_succ
     (hstep : EvmSemantics.EVM.stepFE state = .ok nextState)
     (hrun : runSteps nextState fuel = .ok (finalState, observations)) :
     runSteps state (fuel + 1) = .ok (finalState, observations) := by
-  exact ProofForge.Backend.Evm.PowdrAdapter.runBytecode_stepFE_succ
+  exact ProofForgeFormal.Evm.PowdrAdapter.runBytecode_stepFE_succ
     hrunning hstep hrun
 
 theorem stepFE_ok_state_eq {state expected actual : State}
@@ -142,7 +142,7 @@ theorem stepFE_ok_memory_eq {state expected actual : State}
 theorem runSteps_of_stepFEPath_done {fuel : Nat} {state finalState : State}
     (path : StepFEPath state fuel finalState) :
     runSteps state fuel = .ok (finalState, (#[] : Array ObservableStep)) := by
-  exact ProofForge.Backend.Evm.PowdrAdapter.runBytecode_of_stepFEPath_done path
+  exact ProofForgeFormal.Evm.PowdrAdapter.runBytecode_of_stepFEPath_done path
 
 structure ExecutionSegment
     (fuel : Nat) (post : State → State → Prop)
@@ -172,9 +172,9 @@ theorem executionSegment_single
     (hpost : post state nextState) :
     ExecutionSegment 1 post state nextState :=
   { path :=
-      ProofForge.Backend.Evm.PowdrAdapter.StepFEPath.cons
+      ProofForgeFormal.Evm.PowdrAdapter.StepFEPath.cons
         hrunning hstep
-        (ProofForge.Backend.Evm.PowdrAdapter.StepFEPath.nil nextState)
+        (ProofForgeFormal.Evm.PowdrAdapter.StepFEPath.nil nextState)
     postcondition := hpost }
 
 theorem executionSegment_append
@@ -190,7 +190,7 @@ theorem executionSegment_append
       ExecutionSegment suffixFuel suffixPost midState finalState) :
     ExecutionSegment (prefixFuel + suffixFuel) combinedPost state finalState :=
   { path :=
-      ProofForge.Backend.Evm.PowdrAdapter.stepFEPath_append
+      ProofForgeFormal.Evm.PowdrAdapter.stepFEPath_append
         leftSegment.path rightSegment.path
     postcondition :=
       combine leftSegment.postcondition rightSegment.postcondition }
@@ -218,16 +218,16 @@ theorem stepFEPath_single {state nextState : State}
     (hrunning : state.halt = .Running)
     (hstep : EvmSemantics.EVM.stepFE state = .ok nextState) :
     StepFEPath state 1 nextState := by
-  exact ProofForge.Backend.Evm.PowdrAdapter.StepFEPath.cons
+  exact ProofForgeFormal.Evm.PowdrAdapter.StepFEPath.cons
     hrunning hstep
-    (ProofForge.Backend.Evm.PowdrAdapter.StepFEPath.nil nextState)
+    (ProofForgeFormal.Evm.PowdrAdapter.StepFEPath.nil nextState)
 
 theorem stepFEPath_append {state midState finalState : State}
     {prefixFuel suffixFuel : Nat}
     (prefixPath : StepFEPath state prefixFuel midState)
     (suffixPath : StepFEPath midState suffixFuel finalState) :
     StepFEPath state (prefixFuel + suffixFuel) finalState := by
-  exact ProofForge.Backend.Evm.PowdrAdapter.stepFEPath_append
+  exact ProofForgeFormal.Evm.PowdrAdapter.stepFEPath_append
     prefixPath suffixPath
 
 structure StepFEReduction (state nextState : State) : Prop where
@@ -2315,4 +2315,4 @@ theorem reduction_return_at_ok
   exact StepFEReduction.of_readyOpcodeAt hat
     (stepFE_return_at_ok hat hstack hmem)
 
-end ProofForge.Backend.Evm.PowdrExec
+end ProofForgeFormal.Evm.PowdrExec

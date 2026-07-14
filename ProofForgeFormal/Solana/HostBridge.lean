@@ -43,14 +43,14 @@ import Solanalib.SBPF.Interpreter
 import Solanalib.SBPF.Decoder
 import Solanalib.SBPF.Verifier
 
-namespace ProofForge.Backend.Solana.HostBridge
+namespace ProofForgeFormal.Solana.HostBridge
 
 open ProofForge.Backend.Solana.Asm
 open ProofForge.Backend.Solana.BpfEncode
 open ProofForge.Backend.Solana.CounterSbpfExec
 open ProofForge.Backend.Solana.SbpfInterpreter
-open ProofForge.Backend.Solana.LabeledToSolanalib
-open ProofForge.Backend.Solana.SolanalibAdapter
+open ProofForgeFormal.Solana.LabeledToSolanalib
+open ProofForgeFormal.Solana.SolanalibAdapter
 open Solanalib.SBPF
 
 /-! ### Syscall ids (must match `BpfEncode.syscallId?`) -/
@@ -373,4 +373,4 @@ theorem sequential_core_tail_trace_ok :
     sequentialTraceOk = true := by
   native_decide
 
-end ProofForge.Backend.Solana.HostBridge
+end ProofForgeFormal.Solana.HostBridge

@@ -43,7 +43,7 @@ import Solanalib.SBPF.Interpreter
 import Solanalib.SBPF.Decoder
 import Solanalib.SBPF.Verifier
 
-namespace ProofForge.Backend.Solana.FullProgramHost
+namespace ProofForgeFormal.Solana.FullProgramHost
 
 open ProofForge.IR
 open ProofForge.Backend.Refinement
@@ -52,9 +52,9 @@ open ProofForge.Backend.Solana.CounterSbpfExec
 open ProofForge.Backend.Solana.LabeledSbpf
 open ProofForge.Backend.Solana.SbpfInterpreter
 open ProofForge.Backend.Solana.StateLayout
-open ProofForge.Backend.Solana.HostBridge
-open ProofForge.Backend.Solana.LabeledToSolanalib
-open ProofForge.Backend.Solana.SolanalibAdapter
+open ProofForgeFormal.Solana.HostBridge
+open ProofForgeFormal.Solana.LabeledToSolanalib
+open ProofForgeFormal.Solana.SolanalibAdapter
 open Solanalib.SBPF
 
 /-- Encoded full Counter program + label → slot map. -/
@@ -319,4 +319,4 @@ theorem value_vault_full_program_diff_ok :
     valueVaultFullDiffOk = true := by
   native_decide
 
-end ProofForge.Backend.Solana.FullProgramHost
+end ProofForgeFormal.Solana.FullProgramHost

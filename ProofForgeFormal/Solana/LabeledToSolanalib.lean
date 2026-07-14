@@ -39,12 +39,12 @@ import Solanalib.SBPF.Memory
 import Solanalib.SBPF.Decoder
 import Solanalib.SBPF.Verifier
 
-namespace ProofForge.Backend.Solana.LabeledToSolanalib
+namespace ProofForgeFormal.Solana.LabeledToSolanalib
 
 open ProofForge.Backend.Solana.Asm
 open ProofForge.Backend.Solana.BpfEncode
 open ProofForge.Backend.Solana.LabeledSbpf
-open ProofForge.Backend.Solana.SolanalibAdapter
+open ProofForgeFormal.Solana.SolanalibAdapter
 open Solanalib.SBPF
 
 def u4OfNat (n : Nat) : U4 := BitVec.ofNat 4 n
@@ -244,4 +244,4 @@ theorem counter_lift_matches_decode :
     liftMatchesDecode ProofForge.IR.Examples.Counter.module = true := by
   native_decide
 
-end ProofForge.Backend.Solana.LabeledToSolanalib
+end ProofForgeFormal.Solana.LabeledToSolanalib

@@ -17,13 +17,13 @@ import ProofForge.IR.StepSemantics
 import ProofForgeFormal.Solana.CounterHostRefinement
 import ProofForgeFormal.Solana.FullProgramHost
 
-namespace ProofForge.Backend.Solana.ValueVaultHostRefinement
+namespace ProofForgeFormal.Solana.ValueVaultHostRefinement
 
 open ProofForge.IR
 open ProofForge.Backend.Refinement
 open ProofForge.Backend.Solana.SbpfInterpreter
-open ProofForge.Backend.Solana.FullProgramHost
-open ProofForge.Backend.Solana.CounterHostRefinement
+open ProofForgeFormal.Solana.FullProgramHost
+open ProofForgeFormal.Solana.CounterHostRefinement
 
 /-- Multi-field relation: every IR u64 state binding matches host memory at
 the layout offset (optional missing/missing ok). -/
@@ -91,4 +91,4 @@ theorem value_vault_host_trace_simulation_sound_checked :
         (valueVaultHostInitial program)
         h
 
-end ProofForge.Backend.Solana.ValueVaultHostRefinement
+end ProofForgeFormal.Solana.ValueVaultHostRefinement

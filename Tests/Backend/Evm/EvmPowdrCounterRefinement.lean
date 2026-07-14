@@ -15,7 +15,7 @@ intentionally not on the default `lake build` path.
 
 namespace ProofForge.Tests.EvmPowdrCounterRefinement
 
-open ProofForge.Backend.Evm.CounterRefinement
+open ProofForgeFormal.Evm.CounterRefinement
 
 theorem counter_packed_count_uses_low_64_bits :
     counterPackedCountValue 7 = EvmSemantics.UInt256.ofNat 7 := by

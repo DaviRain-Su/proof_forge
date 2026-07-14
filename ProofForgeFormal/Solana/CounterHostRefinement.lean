@@ -31,14 +31,14 @@ import ProofForge.IR.StepSemantics
 import ProofForgeFormal.Solana.FullProgramHost
 import ProofForgeFormal.Solana.HostBridge
 
-namespace ProofForge.Backend.Solana.CounterHostRefinement
+namespace ProofForgeFormal.Solana.CounterHostRefinement
 
 open ProofForge.IR
 open ProofForge.Backend.Refinement
 open ProofForge.Backend.Refinement.CounterUniversal
 open ProofForge.Backend.Solana.SbpfInterpreter
-open ProofForge.Backend.Solana.FullProgramHost
-open ProofForge.Backend.Solana.HostBridge
+open ProofForgeFormal.Solana.FullProgramHost
+open ProofForgeFormal.Solana.HostBridge
 
 /-- Machine state for the full-program solanalib host. -/
 structure FullHostMachineState where
@@ -316,4 +316,4 @@ theorem counter_host_counter_call_trace_sound_checked :
         (fullHostInitial program)
         h
 
-end ProofForge.Backend.Solana.CounterHostRefinement
+end ProofForgeFormal.Solana.CounterHostRefinement

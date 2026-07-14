@@ -11,14 +11,14 @@ import ProofForgeFormal.Solana.CoreTailHostComposition
 import ProofForgeFormal.Solana.ValueVaultHostRefinement
 import ProofForgeFormal.Solana.FullHostTargetSemantics
 
-namespace ProofForge.Backend.Solana.CompileCorrectSmoke
+namespace ProofForgeFormal.Solana.CompileCorrectSmoke
 
-open ProofForge.Backend.Solana.CompileCorrect
-open ProofForge.Backend.Solana.CounterHostRefinement
-open ProofForge.Backend.Solana.CoreTailHostComposition
-open ProofForge.Backend.Solana.ValueVaultHostRefinement
-open ProofForge.Backend.Solana.FullHostTargetSemantics
-open ProofForge.Backend.Solana.SolanalibAdapter
+open ProofForgeFormal.Solana.CompileCorrect
+open ProofForgeFormal.Solana.CounterHostRefinement
+open ProofForgeFormal.Solana.CoreTailHostComposition
+open ProofForgeFormal.Solana.ValueVaultHostRefinement
+open ProofForgeFormal.Solana.FullHostTargetSemantics
+open ProofForgeFormal.Solana.SolanalibAdapter
 
 #check counter_bpf_encode_ok
 #check counter_solanalib_pipeline_ok
@@ -43,7 +43,7 @@ open ProofForge.Backend.Solana.SolanalibAdapter
 #check full_host_target_semantics_counter_ok
 #check full_host_target_semantics_executable_counter_ok
 
-end ProofForge.Backend.Solana.CompileCorrectSmoke
+end ProofForgeFormal.Solana.CompileCorrectSmoke
 
 def main : IO UInt32 := do
   IO.println "solana-solanalib-compile-correct-smoke: full Solana host stack (Counter+ValueVault+composition+TargetSemantics) checked"

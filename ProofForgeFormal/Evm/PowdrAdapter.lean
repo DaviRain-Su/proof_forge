@@ -13,7 +13,7 @@ preferred Phase 6b surface is available, while the default CLI/library build
 keeps using the mathlib-free seam in `ProofForge.Backend.Evm.EvmBytecodeSemantics`.
 -/
 
-namespace ProofForge.Backend.Evm.PowdrAdapter
+namespace ProofForgeFormal.Evm.PowdrAdapter
 
 /-- Opt-in EVM bytecode state: the real powdr state. -/
 abbrev State := EvmSemantics.EVM.State
@@ -355,4 +355,4 @@ theorem powdr_stepF_sound (state : PowdrState) (hRunning : ¬ state.isDone) :
     PowdrStep state (powdrStepF state) :=
   raw_stepF_sound state hRunning
 
-end ProofForge.Backend.Evm.PowdrAdapter
+end ProofForgeFormal.Evm.PowdrAdapter

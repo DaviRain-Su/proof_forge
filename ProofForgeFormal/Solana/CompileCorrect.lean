@@ -57,18 +57,18 @@ import ProofForge.IR.Examples.Counter
 import Solanalib.SBPF.Verifier
 import Solanalib.SBPF.Interpreter
 
-namespace ProofForge.Backend.Solana.CompileCorrect
+namespace ProofForgeFormal.Solana.CompileCorrect
 
 open ProofForge.Backend.Solana.BpfEncode
 open ProofForge.Backend.Solana.LabeledSbpf
-open ProofForge.Backend.Solana.SolanalibAdapter
-open ProofForge.Backend.Solana.LabeledToSolanalib
-open ProofForge.Backend.Solana.HostBridge
-open ProofForge.Backend.Solana.FullProgramHost
-open ProofForge.Backend.Solana.CounterHostRefinement
-open ProofForge.Backend.Solana.CoreTailHostComposition
-open ProofForge.Backend.Solana.ValueVaultHostRefinement
-open ProofForge.Backend.Solana.FullHostTargetSemantics
+open ProofForgeFormal.Solana.SolanalibAdapter
+open ProofForgeFormal.Solana.LabeledToSolanalib
+open ProofForgeFormal.Solana.HostBridge
+open ProofForgeFormal.Solana.FullProgramHost
+open ProofForgeFormal.Solana.CounterHostRefinement
+open ProofForgeFormal.Solana.CoreTailHostComposition
+open ProofForgeFormal.Solana.ValueVaultHostRefinement
+open ProofForgeFormal.Solana.FullHostTargetSemantics
 open Solanalib.SBPF
 
 /-! ### Default-path encode anchor (also buildable without solanalib) -/
@@ -120,7 +120,7 @@ structure CompilePipeline where
   insns : List BpfInstruction
 
 def buildPipeline (module : ProofForge.IR.Module) : Except String CompilePipeline := do
-  let bytes ← match BpfEncode.lowerModuleToBpfBin module with
+  let bytes ← match ProofForge.Backend.Solana.BpfEncode.lowerModuleToBpfBin module with
     | .error e => .error e
     | .ok b => .ok b
   let bin := SolanalibAdapter.toBpfBin bytes
@@ -200,4 +200,4 @@ theorem counter_host_counter_call_trace_bridge_ok :
 #check full_host_target_semantics_counter_ok
 #check full_host_target_semantics_executable_counter_ok
 
-end ProofForge.Backend.Solana.CompileCorrect
+end ProofForgeFormal.Solana.CompileCorrect

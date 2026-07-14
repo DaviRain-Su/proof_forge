@@ -15,6 +15,8 @@ make_fixture() {
     "$root/ProofForge/Backend/WasmHost" \
     "$root/ProofForge/IR/Core" \
     "$root/ProofForge/Contract/Source" \
+    "$root/ProofForgeFormal/Evm" \
+    "$root/ProofForgeFormal/Solana" \
     "$root/Examples/Product" \
     "$root/ProofForge/Cli" \
     "$root/Tests" \
@@ -132,6 +134,23 @@ make_fixture "$root"
 printf '%s\n' 'import ProofForge.Contract.Source.Internal' \
   > "$root/Examples/Product/Counter.lean"
 expect_failure "product Source.Internal import" "$root"
+
+root="$TMP/formal-backend-namespace"
+make_fixture "$root"
+printf '%s\n' 'namespace ProofForge.Backend.Evm.PowdrAdapter' \
+  > "$root/ProofForgeFormal/Evm/PowdrAdapter.lean"
+expect_failure "formal default-backend namespace" "$root"
+
+root="$TMP/default-imports-formal"
+make_fixture "$root"
+printf '%s\n' 'import ProofForgeFormal.Evm.PowdrAdapter' \
+  > "$root/ProofForge/Backend/Evm/FormalLeak.lean"
+expect_failure "default compiler imports formal library" "$root"
+
+root="$TMP/retired-formal-root"
+make_fixture "$root"
+mkdir -p "$root/EvmRefinement"
+expect_failure "retired top-level formal root" "$root"
 
 root="$TMP/comments"
 make_fixture "$root"
