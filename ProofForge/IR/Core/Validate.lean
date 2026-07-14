@@ -105,6 +105,11 @@ private def supportsEquality : CoreType → Bool
   | .bool | .u8 | .u32 | .u64 | .u128 | .address | .bytes | .string | .hash => true
   | .unit | .fixedArray _ _ | .array _ | .memoryRef _ | .structType _ => false
 
+private def isHashWord : CoreType → Bool
+  | .u8 | .u32 | .u64 | .u128 | .address | .hash => true
+  | .unit | .bool | .bytes | .string | .fixedArray _ _ | .array _ |
+      .memoryRef _ | .structType _ => false
+
 private def supportsCast (fromTy toTy : CoreType) : Bool :=
   (isIntegerLike fromTy && isIntegerLike toTy) ||
     (fromTy == .address && toTy == .u64) ||
@@ -817,9 +822,9 @@ private def checkPureOp (p : PureOp) (results : Array ValueDef)
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
         s!"cast expects scalar operand and target type, got {repr arg.type} -> {repr to}"
   | .hash arg, #[r] =>
-    unless (arg.type == .hash || arg.type == .address) && r.type == .hash do
+    unless isHashWord arg.type && r.type == .hash do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)
-        s!"hash input must be hash/address and result hash, got {repr arg.type} -> {repr r.type}"
+        s!"hash input must be a canonical scalar word and result hash, got {repr arg.type} -> {repr r.type}"
   | .hashTwoToOne lhs rhs, #[r] =>
     unless lhs.type == .hash && rhs.type == .hash && r.type == .hash do
       .error <| error .typeMismatch "instruction-typing" (some fid) (some bid) (some idx)

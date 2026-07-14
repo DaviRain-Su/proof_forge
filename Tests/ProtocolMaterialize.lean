@@ -24,6 +24,15 @@ def main : IO UInt32 := do
   require (nearMethod? "transfer" == some "ft_transfer") "NEAR alias transfer"
   require (nearUsesNep141JsonObject? "ft_transfer") "NEP-141 packing for ft_transfer"
   require (hostNotes.size >= 3) "host notes for three primary hosts"
+  require (parseEvmWordHex?
+      "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" ==
+      some (2 ^ 256 - 1)) "32-byte EVM word literal"
+  require (parseEvmWordHex?
+      "0x1ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" == none)
+    "reject EVM word wider than 32 bytes"
+  require (parseEvmAddressHex?
+      "0x10000000000000000000000000000000000000000" == none)
+    "reject EVM address wider than 20 bytes"
 
   -- resolveEvmMethodExpr: address pool handle → selector word
   let pool := #["usdc.peer", "ft_transfer", "ft_balance_of"]

@@ -112,4 +112,122 @@ def reentrancyGuard : SurfaceContract := {
   constructorBindings := #[]
 }
 
+private def roleKey (role account : SurfaceExpr) : SurfaceExpr :=
+  .hashPair (.hash role) (.hash account)
+
+/-- Compact portable role membership policy expressed directly in Surface v2. -/
+def accessControl : SurfaceContract := {
+  name := "AccessControl"
+  structs := #[]
+  state := #[{ name := "roleMembers", kind := .map .hash .u64 (some 256) }]
+  events := #[]
+  errors := #[]
+  entrypoints := #[
+    { name := "init", kind := .function, mutability := .call,
+      selector? := some "e1c7392a", params := #[], retType := .unit,
+      body := #[.mapWrite "roleMembers" (roleKey (u64 0) sender) (u64 1)] },
+    { name := "hasRole", kind := .function, mutability := .view,
+      selector? := some "d1f856ee",
+      params := #[{ name := "role", type := .u64 }, { name := "who", type := .address }],
+      retType := .bool,
+      body := #[.returnExpr (.compare .ne
+        (.mapRead "roleMembers" (roleKey (.local "role") (.local "who"))) (u64 0))] },
+    { name := "grantRole", kind := .function, mutability := .call,
+      selector? := some "b428b0b0",
+      params := #[{ name := "role", type := .u64 }, { name := "who", type := .address }],
+      retType := .unit,
+      body := #[
+        .assert (.compare .ne (.mapRead "roleMembers" (roleKey (u64 0) sender)) (u64 0))
+          "missing admin role",
+        .mapWrite "roleMembers" (roleKey (.local "role") (.local "who")) (u64 1)] },
+    { name := "revokeRole", kind := .function, mutability := .call,
+      selector? := some "b7d2b162",
+      params := #[{ name := "role", type := .u64 }, { name := "who", type := .address }],
+      retType := .unit,
+      body := #[
+        .assert (.compare .ne (.mapRead "roleMembers" (roleKey (u64 0) sender)) (u64 0))
+          "missing admin role",
+        .mapWrite "roleMembers" (roleKey (.local "role") (.local "who")) (u64 0)] }
+  ]
+  constructorParams := #[]
+  constructorBindings := #[]
+}
+
+private def zeroHash : SurfaceExpr :=
+  .literal (.hashLit
+    "0x0000000000000000000000000000000000000000000000000000000000000000")
+
+/-- Hash-width ownership policy for hosts whose identities exceed one word. -/
+def ownableHash : SurfaceContract := {
+  name := "OwnableHash"
+  structs := #[]
+  state := #[{ name := "owner", kind := .scalar .hash }]
+  events := #[]
+  errors := #[]
+  entrypoints := #[
+    { name := "init", kind := .function, mutability := .call,
+      selector? := some "e1c7392a", params := #[], retType := .unit,
+      body := #[
+        .assert (.compare .eq (.stateRead "owner") zeroHash) "already initialized",
+        .stateWrite "owner" (.hash sender)] },
+    { name := "owner", kind := .function, mutability := .view,
+      selector? := some "8da5cb5b", params := #[], retType := .hash,
+      body := #[.returnExpr (.stateRead "owner")] },
+    { name := "renounceOwnership", kind := .function, mutability := .call,
+      selector? := some "715018a6", params := #[], retType := .unit,
+      body := #[
+        .assert (.compare .eq (.stateRead "owner") (.hash sender)) "caller is not owner",
+        .stateWrite "owner" zeroHash] }
+  ]
+  constructorParams := #[]
+  constructorBindings := #[]
+}
+
+private def senderU64 : SurfaceExpr :=
+  .cast .u64 sender
+
+/-- Owner-gated emergency-stop composition expressed directly in Surface v2. -/
+def ownablePausable : SurfaceContract := {
+  name := "OwnablePausable"
+  structs := #[]
+  state := #[
+    { name := "owner", kind := .scalar .u64 },
+    { name := "paused", kind := .scalar .u64 }
+  ]
+  events := #[]
+  errors := #[]
+  entrypoints := #[
+    { name := "init", kind := .function, mutability := .call,
+      selector? := some "e1c7392a", params := #[], retType := .unit,
+      body := #[
+        .assert (.compare .eq (.stateRead "owner") (u64 0)) "already initialized",
+        .stateWrite "owner" senderU64] },
+    { name := "owner", kind := .function, mutability := .view,
+      selector? := some "8da5cb5b", params := #[], retType := .u64,
+      body := #[.returnExpr (.stateRead "owner")] },
+    { name := "paused", kind := .function, mutability := .view,
+      selector? := some "5c975abb", params := #[], retType := .u64,
+      body := #[.returnExpr (.stateRead "paused")] },
+    { name := "pause", kind := .function, mutability := .call,
+      selector? := some "8456cb59", params := #[], retType := .unit,
+      body := #[
+        .assert (.compare .eq (.stateRead "owner") senderU64) "caller is not owner",
+        .assert (.compare .eq (.stateRead "paused") (u64 0)) "already paused",
+        .stateWrite "paused" (u64 1)] },
+    { name := "unpause", kind := .function, mutability := .call,
+      selector? := some "3f4ba83a", params := #[], retType := .unit,
+      body := #[
+        .assert (.compare .eq (.stateRead "owner") senderU64) "caller is not owner",
+        .assert (.compare .ne (.stateRead "paused") (u64 0)) "not paused",
+        .stateWrite "paused" (u64 0)] },
+    { name := "renounceOwnership", kind := .function, mutability := .call,
+      selector? := some "715018a6", params := #[], retType := .unit,
+      body := #[
+        .assert (.compare .eq (.stateRead "owner") senderU64) "caller is not owner",
+        .stateWrite "owner" (u64 0)] }
+  ]
+  constructorParams := #[]
+  constructorBindings := #[]
+}
+
 end ProofForge.Contract.Stdlib.Surface.Policies

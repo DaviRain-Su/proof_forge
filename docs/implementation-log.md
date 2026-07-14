@@ -3155,3 +3155,16 @@ Rules:
 - Verification: targeted builds of the policy stdlib and product modules,
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
+
+## 2026-07-14 - EVM-R2f: complete direct policy product family
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
+- Added direct Surface v2 AccessControl, hash-width Ownable, and owner-gated
+  Pausable compositions to the portable policy stdlib. AccessControl hashes
+  its `(role, account)` key in portable syntax instead of exposing an
+  EVM-specific mapping layout in shared IR.
+- Added thin Canonical product modules and extended the adapter-free EVM
+  product gate to all six policy products.
+- Verification: targeted policy/product builds,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.

@@ -4,6 +4,9 @@ import Examples.Product.Canonical.RemoteCall
 import Examples.Product.Canonical.Ownable
 import Examples.Product.Canonical.Pausable
 import Examples.Product.Canonical.ReentrancyGuard
+import Examples.Product.Canonical.AccessControl
+import Examples.Product.Canonical.OwnableHash
+import Examples.Product.Canonical.OwnablePausable
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Frontend.Surface.Normalize
@@ -50,4 +53,7 @@ def main : IO Unit := do
   checkProduct Examples.Product.Canonical.Ownable.contract 4
   checkProduct Examples.Product.Canonical.Pausable.contract 3
   checkProduct Examples.Product.Canonical.ReentrancyGuard.contract 3
+  checkProduct Examples.Product.Canonical.AccessControl.contract 4
+  checkProduct Examples.Product.Canonical.OwnableHash.contract 3
+  checkProduct Examples.Product.Canonical.OwnablePausable.contract 6
   IO.println "evm-direct-products: ok"

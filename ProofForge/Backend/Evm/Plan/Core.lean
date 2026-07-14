@@ -79,7 +79,10 @@ def coreLiteralToExprPlan : CoreLiteral → Except PlanError ExprPlan
   | .hashLit value =>
       match value.toNat? with
       | some word => .ok (.literalWord word)
-      | none => .error { message := "non-numeric hash literals are not yet materialized by the EVM Core plan" }
+      | none =>
+          match ProofForge.Target.ProtocolMaterialize.parseEvmWordHex? value with
+          | some word => .ok (.literalWord word)
+          | none => .error { message := s!"invalid EVM hash literal `{value}`" }
 
 private def coreLiteralPlanType : CoreLiteral → Except PlanError ValueType
   | .stringLit value =>

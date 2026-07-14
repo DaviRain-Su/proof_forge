@@ -98,11 +98,11 @@ def evmSelector? : String → Option Nat
   | "remote_call" => some 0xf1ae0699
   | _ => none
 
-/-- Parse a `0x`-prefixed EVM address (≤20 bytes) into a Nat word. -/
-def parseEvmAddressHex? (s : String) : Option Nat :=
+/-- Parse a `0x`-prefixed EVM word (at most 32 bytes) into a Nat. -/
+def parseEvmWordHex? (s : String) : Option Nat :=
   let raw :=
     if s.startsWith "0x" || s.startsWith "0X" then s.drop 2 else s
-  if raw.isEmpty || raw.length > 40 then none
+  if raw.isEmpty || raw.positions.length > 64 then none
   else if !raw.all fun c => c.isDigit || ('a' ≤ c && c ≤ 'f') || ('A' ≤ c && c ≤ 'F') then
     none
   else
@@ -112,6 +112,12 @@ def parseEvmAddressHex? (s : String) : Option Nat :=
         else if 'a' ≤ c && c ≤ 'f' then c.toNat - 'a'.toNat + 10
         else c.toNat - 'A'.toNat + 10
       acc * 16 + v
+
+/-- Parse a `0x`-prefixed EVM address (at most 20 bytes) into a Nat word. -/
+def parseEvmAddressHex? (s : String) : Option Nat :=
+  let raw :=
+    if s.startsWith "0x" || s.startsWith "0X" then s.drop 2 else s
+  if raw.positions.length > 40 then none else parseEvmWordHex? s
 /-- NEAR native method name for promise_create (identity for NEP-141 names). -/
 def nearMethod? : String → Option String
   | "ft_transfer" => some "ft_transfer"
