@@ -3,6 +3,8 @@ import ProofForge.Backend.Evm.Plan.ToYul
 import ProofForge.IR.Examples.EvmErrorsProbe
 import ProofForge.IR.Legacy.Adapter
 import ProofForge.Contract.Spec
+import ProofForge.Compiler.CanonicalPipeline
+import ProofForge.Target.InterfaceOps.Evm
 
 open ProofForge.IR.Canonical
 open ProofForge.Target
@@ -40,6 +42,11 @@ def main : IO Unit := do
     targetId := "evm"
     calls := checked.contract.requirements
   }
+  require (checked.contract.interfaceExtensions.all fun extension =>
+      extension.id == ProofForge.Target.InterfaceOps.Evm.solidityCustomErrorId)
+    "custom errors did not normalize to the exact EVM interface extension ID"
+  require ((ProofForge.Compiler.checkInterfaceOpHandlers "wasm-near" checked).size == 2)
+    "NEAR accepted EVM custom-error interface extensions"
   let plan <- match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capabilityPlan with
     | .ok plan => pure plan
     | .error error => throw (IO.userError s!"EVM error planning failed: {error.message}")

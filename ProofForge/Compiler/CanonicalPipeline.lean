@@ -116,6 +116,13 @@ def checkHostOpHandlers (targetId : String) (checked : CheckedCanonicalContract)
             errs.push s!"missingHostOpHandler: {call.id.render} on target {targetId}"
         | _ => errs
 
+def checkInterfaceOpHandlers (targetId : String) (checked : CheckedCanonicalContract) :
+    Array String :=
+  let supported := (ProofForge.Target.find? targetId).map (·.interfaceOps) |>.getD #[]
+  checked.contract.interfaceExtensions.foldl (init := #[]) fun errors extension =>
+    if supported.contains extension.id then errors
+    else errors.push s!"missingInterfaceOpHandler: {extension.id.render} on target {targetId}"
+
 /-- Internal dual-run compile function. Not exposed via public CLI. -/
 def compileForTest
     (mode : CompilerPipeline)
@@ -146,7 +153,8 @@ def compileForTest
                 | .ok plan => pure plan
                 | .error diagnostic =>
                     return .error { mode := .canonical, targetId, message := diagnostic.render }
-              let hostCallErrors := checkHostOpHandlers targetId checked
+              let hostCallErrors := checkHostOpHandlers targetId checked ++
+                checkInterfaceOpHandlers targetId checked
               if hostCallErrors.size > 0 then
                 pure <| .error { mode := .canonical, targetId, message := String.intercalate "; " hostCallErrors.toList }
               else if targetId == "evm" then
@@ -177,7 +185,8 @@ host-op checked, and built by the target's `buildFromCore`. -/
 private def runStrictCheckedTargetGate
     (profile : TargetProfile) (targetId : String) (checked : CheckedCanonicalContract) :
     Except String Unit := do
-  let hostCallErrors := checkHostOpHandlers targetId checked
+  let hostCallErrors := checkHostOpHandlers targetId checked ++
+    checkInterfaceOpHandlers targetId checked
   if hostCallErrors.size > 0 then
     let msg := String.intercalate "; " hostCallErrors.toList
     .error s!"canonical: unhandled host op: {msg}"

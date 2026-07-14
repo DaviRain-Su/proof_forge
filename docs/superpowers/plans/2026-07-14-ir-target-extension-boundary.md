@@ -185,8 +185,10 @@ constructor into shared IR.
    `canonical-boundary` prevents the constructors from returning to Core.
 2. [~] Move Solidity error ABI data to `EvmPlan`. Canonical error values now
    live in typed `CoreErrorRef.args`, and the EVM Core planner produces an
-   `EvmErrorPlan` without reconstructing Legacy `IR.ErrorRef`; the remaining
-   selector/type envelope must still move out of canonical materialization.
+   `EvmErrorPlan` without reconstructing Legacy `IR.ErrorRef`. The open
+   `InterfaceExtension` channel and EVM registry handler now carry the exact
+   selector/type attachment; the superseded named fields in canonical
+   materialization must still be deleted.
 3. Move fallback/receive dispatch to target interface metadata.
 4. Move proxy and host-string pools out of portable `Module` and canonical
    materialization records.

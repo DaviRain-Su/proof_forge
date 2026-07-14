@@ -2906,3 +2906,21 @@ Rules:
 - Next: remove `ErrorEncodingForm.solidityCustom` and Solidity selector/type
   fields from canonical materialization by introducing an EVM-owned interface
   attachment, then migrate fallback/receive dispatch metadata.
+
+## 2026-07-14 - EVM-R1l: open interface-extension ownership
+
+- Status: `done (verified 2026-07-14)`; deletion of the superseded canonical
+  Solidity fields follows immediately.
+- Added a target-neutral `InterfaceExtension` envelope with stable extension
+  ID, typed subject, and positional typed values. Shared Core validates only
+  identity/subject integrity and never interprets target vocabulary.
+- Registered `evm.error/solidity_custom@1.0.0` in the EVM target profile and
+  extended strict target gates to reject missing interface-extension handlers.
+- Legacy normalization now emits the EVM-owned attachment, and EVM Core
+  planning decodes it into `EvmErrorPlan`. NEAR rejects the same checked
+  contract before planning.
+- Verification passed: targeted Registry/Adapter/EVM Core-plan/Canonical
+  pipeline builds, `Tests/Canonical/EvmErrorPlan.lean`, and `git diff --check`.
+  No full `just check` ran.
+- Next: delete the old Solidity-named error fields and custom form from
+  canonical materialization and update all prior canonical tests.

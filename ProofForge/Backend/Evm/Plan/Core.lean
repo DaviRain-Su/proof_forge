@@ -2,6 +2,7 @@ import ProofForge.IR.Core
 import ProofForge.IR.Canonical
 import ProofForge.Backend.Evm.Plan
 import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.InterfaceOps.Evm
 import ProofForge.Backend.Evm.Plan.Storage
 import ProofForge.Target.Plan
 import ProofForge.Target.ProtocolMaterialize
@@ -711,14 +712,30 @@ private def coreEventToPlan (event : InterfaceEvent) : Except PlanError EventPla
 
 private def coreErrorPlans
     (interface : InterfaceContract)
-    (materialization : MaterializationContract) :
+    (materialization : MaterializationContract)
+    (extensions : Array InterfaceExtension) :
     Except PlanError (Array (ErrorId × Option EvmErrorPlan)) := do
   let mut errors := #[]
   for encoding in materialization.errorEncodings do
     let interfaceError ← match interface.errors.find? (·.errorId == encoding.errorId) with
       | some error => pure error
       | none => throw { message := s!"missing EVM interface error {encoding.errorId.value}" }
-    let errorRef? := match encoding.form with
+    let customExtension? := extensions.find? fun extension =>
+      extension.id == ProofForge.Target.InterfaceOps.Evm.solidityCustomErrorId &&
+        extension.subject == .error encoding.errorId
+    let customPlan? ← match customExtension? with
+      | none => pure none
+      | some extension => match extension.args with
+        | #[.string selector, .strings argTypes] => pure (some {
+            assertionId := UInt32.ofNat interfaceError.code
+            userCode? := interfaceError.userCode?
+            soliditySelector? := some selector
+            solidityArgTypes := argTypes
+          })
+        | _ => throw { message := s!"invalid EVM custom-error interface extension for {encoding.errorId.value}" }
+    let errorRef? := match customPlan? with
+      | some plan => some plan
+      | none => match encoding.form with
       | .assertFallback | .revertMessage => none
       | .proofForgeEnvelope => some {
           assertionId := UInt32.ofNat interfaceError.code
@@ -773,6 +790,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let storage ← coreStorageLayout m checked.contract.materialization
   let events ← iface.events.mapM coreEventToPlan
   let errors ← coreErrorPlans iface checked.contract.materialization
+    checked.contract.interfaceExtensions
   let baseEnv : CorePlanEnv := {
     stateNames := checked.contract.materialization.stateSymbols.map
       (fun symbol => (symbol.stateId, symbol.name))

@@ -4,6 +4,7 @@ import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
 import ProofForge.Target.HostOps.Near
 import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.InterfaceOps.Evm
 
 namespace ProofForge.IR.Legacy.Adapter
 
@@ -149,6 +150,15 @@ def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv)
     eventEncodings := eventEncodings,
     errorEncodings := errorEncodings
   }
+
+def adaptInterfaceExtensions (registeredErrors : Array RegisteredError) :
+    Array InterfaceExtension :=
+  registeredErrors.filterMap fun error =>
+    error.soliditySelector?.map fun selector => {
+      id := ProofForge.Target.InterfaceOps.Evm.solidityCustomErrorId
+      subject := .error error.id
+      args := #[.string selector, .strings error.solidityArgTypes]
+    }
 
 /- Event catalogue extracted from source traversal. Field ordering is canonical:
 indexed fields first, followed by data fields. Every occurrence of a named
@@ -447,6 +457,7 @@ def adaptLegacy (spec : ContractSpec) : Except CanonicalizeError CanonicalBundle
   let registeredErrors := finalSt.env.registeredErrors
   let interface ← adaptInterface spec module finalSt.env registeredErrors
   let materialization ← adaptMaterialization spec finalSt.env interface registeredErrors
+  let interfaceExtensions := adaptInterfaceExtensions registeredErrors
   let evidence := adaptEvidence spec
   let hostOpCatalog ← match ProofForge.IR.Core.HostOp.HostOpCatalog.empty.registerAll
       (ProofForge.Target.HostOps.Near.signatures ++ ProofForge.Target.HostOps.Evm.signatures) with
@@ -458,6 +469,7 @@ def adaptLegacy (spec : ContractSpec) : Except CanonicalizeError CanonicalBundle
     schemaVersion := canonicalSchemaVersion,
     module := module,
     interface := interface,
+    interfaceExtensions := interfaceExtensions,
     materialization := materialization,
     requirements := requirements,
     hostOpCatalog

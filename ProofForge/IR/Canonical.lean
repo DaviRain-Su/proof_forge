@@ -120,6 +120,25 @@ structure InterfaceContract where
   errors : Array InterfaceError := #[]
   deriving Repr, BEq
 
+/-- Target-neutral payload atoms for open interface extensions. The extension
+ID owns positional decoding; shared Core never interprets target vocabulary. -/
+inductive InterfaceExtensionValue where
+  | string (value : String)
+  | strings (values : Array String)
+  deriving Repr, BEq
+
+inductive InterfaceExtensionSubject where
+  | contract
+  | entrypoint (functionId : FunctionId)
+  | error (errorId : ErrorId)
+  deriving Repr, BEq
+
+structure InterfaceExtension where
+  id : ProofForge.Target.HostOpId
+  subject : InterfaceExtensionSubject
+  args : Array InterfaceExtensionValue := #[]
+  deriving Repr, BEq
+
 /- Materialization contract: target-neutral artifact inputs. Closed enums own
 all policy choices; target adapters may refine them but cannot reinterpret free
 form strings as new policy variants. -/
@@ -236,6 +255,7 @@ structure CanonicalContract where
   schemaVersion : Nat
   module : Core.Module
   interface : InterfaceContract
+  interfaceExtensions : Array InterfaceExtension := #[]
   materialization : MaterializationContract
   requirements : Array CapabilityCall
   hostOpCatalog : Core.HostOp.HostOpCatalog := .empty
@@ -739,6 +759,24 @@ private def validateRequirements (module : Core.Module)
     throw <| ValidationError.mkSimple .invalidMaterialization "capability"
       s!"capability requirements do not match canonical payload; expected {repr expected}, got {repr requirements}"
 
+private def validateInterfaceExtensions (module : Core.Module) (interface : InterfaceContract)
+    (extensions : Array InterfaceExtension) : Except ValidationError Unit := do
+  if hasDuplicate (extensions.map fun extension => (extension.id, extension.subject)) then
+    throw <| ValidationError.mkSimple .invalidInterface "interface-extension"
+      "duplicate interface extension identity and subject"
+  for extension in extensions do
+    match extension.subject with
+    | .contract => pure ()
+    | .entrypoint functionId =>
+        unless module.functions.any (·.id == functionId) &&
+            interface.entrypoints.any (·.functionId == functionId) do
+          throw <| ValidationError.mkSimple .invalidInterface "interface-extension"
+            s!"interface extension references unknown entrypoint {functionId.value}"
+    | .error errorId =>
+        unless module.errors.any (·.id == errorId) && interface.errors.any (·.errorId == errorId) do
+          throw <| ValidationError.mkSimple .invalidInterface "interface-extension"
+            s!"interface extension references unknown error {errorId.value}"
+
 /- Validate a canonical contract in the required fixed order. The result is a
 `CheckedCanonicalContract`; evidence is not consumed by validation. -/
 
@@ -755,6 +793,7 @@ def validateCanonical (c : CanonicalContract) :
   -- The runtime must be sound before the artifact envelope is compared with it;
   -- otherwise stale metadata would mask the actionable Core validation error.
   validateInterface c.module c.hostOpCatalog c.interface
+  validateInterfaceExtensions c.module c.interface c.interfaceExtensions
   validateMaterialization c.module c.interface c.materialization
   validateRequirements c.module c.materialization c.hostOpCatalog c.requirements
   return { contract := c }

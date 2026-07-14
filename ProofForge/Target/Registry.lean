@@ -7,6 +7,7 @@ import ProofForge.Target.Support
 import ProofForge.Target.HostOp
 import ProofForge.Target.HostOps.Near
 import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.InterfaceOps.Evm
 
 namespace ProofForge.Target
 
@@ -53,6 +54,8 @@ structure TargetProfile where
   capabilities : CapabilitySet
   /-- Exact typed target extensions with registered lowering handlers. -/
   hostOps : Array HostOpId := #[]
+  /-- Exact target-owned interface/materialization extension handlers. -/
+  interfaceOps : Array HostOpId := #[]
   deploymentAllocator? : Option ProofForge.IR.AllocatorConfig := none
   offlineAllocators : Array ProofForge.IR.AllocatorConfig := #[]
   requiredTools : Array String := #[]
@@ -112,6 +115,7 @@ def evm : TargetProfile := {
     .accountExplicit
   ]
   hostOps := HostOps.Evm.supportedIds
+  interfaceOps := InterfaceOps.Evm.supportedIds
   requiredTools := #["solc", "foundry"]
   support := TargetSupport.primaryTriad
     "portable IR Counter/ValueVault + TokenSpec; Yul intermediate, solc bytecode final"
