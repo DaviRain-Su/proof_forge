@@ -419,8 +419,6 @@ mutual
         ensureType "hash_two_to_one left operand" .hash (← inferExprType module env lhs)
         ensureType "hash_two_to_one right operand" .hash (← inferExprType module env rhs)
         .ok .hash
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-        .error { message := "ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only); not supported by wasm-near IR v0" }
     | .nativeValue => .ok .u64
     | .callValueU128 => .ok .u128
     | .hostCall _ _ returnType _ => .ok returnType

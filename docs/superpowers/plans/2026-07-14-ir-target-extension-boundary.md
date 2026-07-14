@@ -116,7 +116,8 @@ Progress (2026-07-14):
   the EVM plan; NEAR rejects every one through handler resolution.
 - EVM secp256k1 recovery and the EIP-712 permit digest now enter product source
   through pure `evm.crypto/*` HostOps. Canonical planning reaches the existing
-  EVM semantic helper nodes and non-EVM targets reject the exact IDs.
+  EVM semantic helper nodes and non-EVM targets reject the exact IDs. The old
+  shared crypto constructors and every compatibility/rejection arm are deleted.
 - Added the generic result-free `Effect.hostCall` extension path and an EVM
   catalog for ERC-721/1155 receiver callbacks.
 - EVM-specific stdlib modules now import `Source.Evm`; portable `Source` no

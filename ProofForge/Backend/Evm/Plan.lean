@@ -714,11 +714,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         contextOpsFromExpr lhs ++ contextOpsFromExpr rhs
-    | .ecrecover a b c d =>
-        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++ contextOpsFromExpr d
-    | .eip712PermitDigest a b c d e f =>
-        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++
-          contextOpsFromExpr d ++ contextOpsFromExpr e ++ contextOpsFromExpr f
     | .cast value _ | .boolNot value | .hash value => contextOpsFromExpr value
     | .hashValue a b c d =>
         contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++ contextOpsFromExpr d

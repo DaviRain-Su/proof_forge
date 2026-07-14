@@ -178,14 +178,6 @@ mutual
     | .cast value _ | .boolNot value | .hash value => collectExprEvents events value
     | .hashValue a b c d =>
         collectExprEvents (collectExprEvents (collectExprEvents (collectExprEvents events a) b) c) d
-    | .ecrecover a b c d =>
-        collectExprEvents (collectExprEvents (collectExprEvents (collectExprEvents events a) b) c) d
-    | .eip712PermitDigest a b c d e f =>
-        collectExprEvents
-          (collectExprEvents
-            (collectExprEvents
-              (collectExprEvents
-                (collectExprEvents (collectExprEvents events a) b) c) d) e) f
     | .crosscallInvoke target methodId args
     | .crosscallInvokeTyped target methodId args _
     | .crosscallInvokeStaticTyped target methodId args _

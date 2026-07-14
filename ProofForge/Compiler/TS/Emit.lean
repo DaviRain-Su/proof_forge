@@ -167,7 +167,6 @@ mutual
     | .arrayLit _ _ | .arrayGet _ _ | .structLit _ _ | .field _ _
     | .memoryArrayNew _ _ | .memoryArrayLength _ | .memoryArrayGet _ _
     | .hashValue _ _ _ _ | .hash _ | .hashTwoToOne _ _ | .nativeValue
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _
     | .crosscallInvokeValueTyped _ _ _ _ _ | .crosscallInvokeStaticTyped _ _ _ _
     | .crosscallInvokeDelegateTyped _ _ _ _ | .crosscallCreate _ _

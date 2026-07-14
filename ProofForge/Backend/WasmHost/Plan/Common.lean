@@ -249,8 +249,6 @@ mutual
         discard <| inferExprType module env c
         discard <| inferExprType module env d
         .ok .hash
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-        err "wasm-near plan: ecrecover / EIP-712 permit digest require crypto.ecrecover (EVM-only)"
     | .hash preimage => do
         discard <| inferExprType module env preimage
         .ok .hash

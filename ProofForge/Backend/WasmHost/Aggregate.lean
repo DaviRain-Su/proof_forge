@@ -59,11 +59,6 @@ mutual
     | .hashValue a b c d => collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++ collectArrayLitsExpr d
     | .hash preimage => collectArrayLitsExpr preimage
     | .hashTwoToOne a b => collectArrayLitsExpr a ++ collectArrayLitsExpr b
-    | .ecrecover a b c d =>
-        collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++ collectArrayLitsExpr d
-    | .eip712PermitDigest a b c d e f =>
-        collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++
-          collectArrayLitsExpr d ++ collectArrayLitsExpr e ++ collectArrayLitsExpr f
     | .nativeValue | .callValueU128 => #[]
     | .hostCall _ args _ _ =>
         args.foldl (fun acc arg => acc ++ collectArrayLitsExpr arg) #[]
@@ -131,11 +126,6 @@ mutual
     | .hash preimage => collectStructLitsExpr preimage
     | .hashValue a b c d => collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++ collectStructLitsExpr d
     | .hashTwoToOne a b => collectStructLitsExpr a ++ collectStructLitsExpr b
-    | .ecrecover a b c d =>
-        collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++ collectStructLitsExpr d
-    | .eip712PermitDigest a b c d e f =>
-        collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++
-          collectStructLitsExpr d ++ collectStructLitsExpr e ++ collectStructLitsExpr f
     | .crosscallInvoke t m args => collectStructLitsExpr t ++ collectStructLitsExpr m ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .crosscallInvokeTyped t m args _
     | .crosscallInvokeStaticTyped t m args _

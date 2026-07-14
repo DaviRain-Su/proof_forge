@@ -685,16 +685,6 @@ def classifyExpr : Expr → LegacyDecision
         disposition := .reject
         owner := "target-plan-abi"
         reason := "two-to-one hash combiner rejected: Core has no two-input hash primitive" }
-  | .ecrecover _ _ _ _ =>
-      { nodeTag := "Expr.ecrecover"
-        disposition := .materialization
-        owner := "evm-crypto-hostop"
-        reason := "EVM secp256k1 recovery maps to evm.crypto.ecrecover" }
-  | .eip712PermitDigest _ _ _ _ _ _ =>
-      { nodeTag := "Expr.eip712PermitDigest"
-        disposition := .materialization
-        owner := "evm-crypto-hostop"
-        reason := "EIP-712 permit digest maps to evm.crypto.eip712_permit_digest" }
   | .nativeValue =>
       { nodeTag := "Expr.nativeValue"
         disposition := .preserve
@@ -887,8 +877,6 @@ def exprInventory : Array Expr := #[
   .hashValue (.local "a") (.local "b") (.local "c") (.local "d"),
   .hash (.local "x"),
   .hashTwoToOne (.local "x") (.local "y"),
-  .ecrecover (.local "d") (.local "v") (.local "r") (.local "s"),
-  .eip712PermitDigest (.local "o") (.local "s") (.local "v") (.local "n") (.local "d") (.local "ds"),
   .nativeValue,
   .hostCall
     { namespace_ := "inventory", name := "probe", version := { major := 1, minor := 0, patch := 0 } }

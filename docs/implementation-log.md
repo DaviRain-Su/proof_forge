@@ -2866,3 +2866,19 @@ Rules:
   `git diff --check`.
 - Next: delete the two now-unreachable legacy crypto constructors and all
   compatibility/rejection match arms.
+
+## 2026-07-14 - EVM-R1j: delete shared crypto constructors
+
+- Status: `done (verified 2026-07-14)`; EVM-R1 remains in progress.
+- Deleted legacy `Expr.ecrecover` and `Expr.eip712PermitDigest` from the shared
+  IR schema, adapter, classification inventory, ownership/mutability/
+  portability analysis, SDK schema traversal, and refinement coverage.
+- Removed their stale EVM compatibility lowering and all non-EVM rejection or
+  traversal arms. EVM `ExprPlan` crypto nodes, HostOp handlers, and Yul helpers
+  remain target-owned.
+- Verification passed: targeted builds for all affected shared/EVM/non-EVM
+  modules, `Tests/Canonical/EvmCryptoHostOps.lean`, `Tests/TokenEvm.lean`,
+  ERC20Permit build, `just ir-target-boundary`, `just legacy-freeze`, and
+  `git diff --check`. No full `just check` ran.
+- Next: migrate static/delegate authoring and then Solidity error/dispatch
+  metadata before EVM-R2.

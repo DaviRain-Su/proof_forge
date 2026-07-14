@@ -178,8 +178,6 @@ def exprType (e : Expr) : AdapterM CoreType := do
   | .effect (.storagePathRead name path) =>
       storagePathResultType (← lookupStateShape name) path
   | .hash _ | .hashTwoToOne _ _ => return .hash
-  | .ecrecover _ _ _ _ => return .u64
-  | .eip712PermitDigest _ _ _ _ _ _ => return .hash
   | .crosscallInvoke _ _ _ => return .u64
   | .nativeValue => return .unit
   | .hostCall _ _ returnType _ =>
@@ -224,8 +222,6 @@ def exprTag (e : Expr) : String :=
   | .hashValue _ _ _ _ => "Expr.hashValue"
   | .hash _ => "Expr.hash"
   | .hashTwoToOne _ _ => "Expr.hashTwoToOne"
-  | .ecrecover _ _ _ _ => "Expr.ecrecover"
-  | .eip712PermitDigest _ _ _ _ _ _ => "Expr.eip712PermitDigest"
   | .nativeValue => "Expr.nativeValue"
   | .hostCall id _ _ _ => s!"Expr.hostCall({id.render})"
   | .crosscallInvoke _ _ _ => "Expr.crosscallInvoke"
@@ -523,28 +519,6 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       throw (CanonicalizeError.unsupportedConstructor "Expr.field" "field projection not in initial fragment")
   | .hashValue _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.hashValue" "four-input hash not in initial fragment")
-  | .ecrecover digest v r s => do
-      let normalizedArgs ← #[digest, v, r, s].mapM normalizeExpr
-      let result ← emitValueInstruction
-        (.hostCall {
-          id := ProofForge.Target.HostOps.Evm.ecrecoverSig.id
-          args := normalizedArgs.map (·.value)
-        }) .u64
-      return {
-        instructions := normalizedArgs.flatMap (·.instructions) ++ result.instructions
-        value := result.value
-      }
-  | .eip712PermitDigest owner spender value nonce deadline domainSep => do
-      let normalizedArgs ← #[owner, spender, value, nonce, deadline, domainSep].mapM normalizeExpr
-      let result ← emitValueInstruction
-        (.hostCall {
-          id := ProofForge.Target.HostOps.Evm.eip712PermitDigestSig.id
-          args := normalizedArgs.map (·.value)
-        }) .hash
-      return {
-        instructions := normalizedArgs.flatMap (·.instructions) ++ result.instructions
-        value := result.value
-      }
   | .crosscallInvoke target method args => do
       let normalizedTarget ← normalizeExpr target
       let normalizedMethod ← match method with

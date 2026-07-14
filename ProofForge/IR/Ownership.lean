@@ -129,18 +129,6 @@ mutual
     | fuel + 1, entrypoint, env, .hashTwoToOne lhs rhs => do
         checkExprFuel fuel entrypoint env lhs
         checkExprFuel fuel entrypoint env rhs
-    | fuel + 1, entrypoint, env, .ecrecover a b c d => do
-        checkExprFuel fuel entrypoint env a
-        checkExprFuel fuel entrypoint env b
-        checkExprFuel fuel entrypoint env c
-        checkExprFuel fuel entrypoint env d
-    | fuel + 1, entrypoint, env, .eip712PermitDigest a b c d e f => do
-        checkExprFuel fuel entrypoint env a
-        checkExprFuel fuel entrypoint env b
-        checkExprFuel fuel entrypoint env c
-        checkExprFuel fuel entrypoint env d
-        checkExprFuel fuel entrypoint env e
-        checkExprFuel fuel entrypoint env f
     | fuel + 1, entrypoint, env, .cast value _ => checkExprFuel fuel entrypoint env value
     | fuel + 1, entrypoint, env, .boolNot value => checkExprFuel fuel entrypoint env value
     | fuel + 1, entrypoint, env, .hashValue a b c d => do

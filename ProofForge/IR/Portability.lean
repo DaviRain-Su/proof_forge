@@ -130,13 +130,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         classifyExpr s!"{path}.lhs" lhs ++ classifyExpr s!"{path}.rhs" rhs
-    | .ecrecover a b c d =>
-        classifyExpr s!"{path}.a" a ++ classifyExpr s!"{path}.b" b ++
-          classifyExpr s!"{path}.c" c ++ classifyExpr s!"{path}.d" d
-    | .eip712PermitDigest a b c d e f =>
-        classifyExpr s!"{path}.a" a ++ classifyExpr s!"{path}.b" b ++
-          classifyExpr s!"{path}.c" c ++ classifyExpr s!"{path}.d" d ++
-          classifyExpr s!"{path}.e" e ++ classifyExpr s!"{path}.f" f
     | .cast value _ | .boolNot value | .hash value =>
         classifyExpr s!"{path}.value" value
     | .hashValue a b c d =>

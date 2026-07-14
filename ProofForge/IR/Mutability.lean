@@ -24,11 +24,8 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         exprViolations lhs ++ exprViolations rhs
-    | .hashValue a b c d | .ecrecover a b c d =>
+    | .hashValue a b c d =>
         exprViolations a ++ exprViolations b ++ exprViolations c ++ exprViolations d
-    | .eip712PermitDigest a b c d e f =>
-        exprViolations a ++ exprViolations b ++ exprViolations c ++ exprViolations d ++
-          exprViolations e ++ exprViolations f
     | .crosscallInvokeStaticTyped target method args _ =>
         exprViolations target ++ exprViolations method ++
           args.foldl (fun acc arg => acc ++ exprViolations arg) #[]

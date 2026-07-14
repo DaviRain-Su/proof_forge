@@ -99,10 +99,6 @@ mutual
         .error { message := "struct literals are not supported by wasm-near IR v0" }
     | .field _ _ =>
         .error { message := "struct field access is not supported by wasm-near IR v0" }
-    | .ecrecover _ _ _ _ =>
-        .error { message := "ecrecover (secp256k1) is EVM-specific and not supported by wasm-near IR v0" }
-    | .eip712PermitDigest _ _ _ _ _ _ =>
-        .error { message := "EIP-712 permit digest is EVM-specific and not supported by wasm-near IR v0" }
     | .add lhs rhs _ => do .ok s!"({← lowerExpr module lhs} + {← lowerExpr module rhs})"
     | .sub lhs rhs _ => do .ok s!"({← lowerExpr module lhs} - {← lowerExpr module rhs})"
     | .mul lhs rhs _ => do .ok s!"({← lowerExpr module lhs} * {← lowerExpr module rhs})"

@@ -182,11 +182,6 @@ mutual
     | .hashValue a b c d =>
         exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
           exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d
-    | .ecrecover a b c d =>
-        exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
-          exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d
-    | .eip712PermitDigest a b c d e f =>
-        #[a, b, c, d, e, f].any (exprReadsPackedScalar scalars)
     | .crosscallInvoke t m args
     | .crosscallInvokeTyped t m args _
     | .crosscallInvokeStaticTyped t m args _

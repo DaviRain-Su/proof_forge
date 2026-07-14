@@ -545,18 +545,6 @@ mutual
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs => do
         let collector ← collectEventPlansFromExpr module env collector lhs
         collectEventPlansFromExpr module env collector rhs
-    | .ecrecover a b c d => do
-        let collector ← collectEventPlansFromExpr module env collector a
-        let collector ← collectEventPlansFromExpr module env collector b
-        let collector ← collectEventPlansFromExpr module env collector c
-        collectEventPlansFromExpr module env collector d
-    | .eip712PermitDigest a b c d e f => do
-        let collector ← collectEventPlansFromExpr module env collector a
-        let collector ← collectEventPlansFromExpr module env collector b
-        let collector ← collectEventPlansFromExpr module env collector c
-        let collector ← collectEventPlansFromExpr module env collector d
-        let collector ← collectEventPlansFromExpr module env collector e
-        collectEventPlansFromExpr module env collector f
     | .cast value _ | .boolNot value | .hash value =>
         collectEventPlansFromExpr module env collector value
     | .hashValue a b c d => do
@@ -764,16 +752,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         mergeNatSets (localArrayGetLengthsExpr env lhs) (localArrayGetLengthsExpr env rhs)
-    | .ecrecover a b c d =>
-        mergeNatSets
-          (mergeNatSets (localArrayGetLengthsExpr env a) (localArrayGetLengthsExpr env b))
-          (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d))
-    | .eip712PermitDigest a b c d e f =>
-        mergeNatSets
-          (mergeNatSets
-            (mergeNatSets (localArrayGetLengthsExpr env a) (localArrayGetLengthsExpr env b))
-            (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d)))
-          (mergeNatSets (localArrayGetLengthsExpr env e) (localArrayGetLengthsExpr env f))
     | .cast value _ | .boolNot value | .hash value =>
         localArrayGetLengthsExpr env value
     | .hashValue a b c d =>
@@ -942,16 +920,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         mergeNatArraySets (nestedLocalArrayGetShapesExpr env lhs) (nestedLocalArrayGetShapesExpr env rhs)
-    | .ecrecover a b c d =>
-        mergeNatArraySets
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env a) (nestedLocalArrayGetShapesExpr env b))
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d))
-    | .eip712PermitDigest a b c d e f =>
-        mergeNatArraySets
-          (mergeNatArraySets
-            (mergeNatArraySets (nestedLocalArrayGetShapesExpr env a) (nestedLocalArrayGetShapesExpr env b))
-            (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d)))
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env e) (nestedLocalArrayGetShapesExpr env f))
     | .cast value _ | .boolNot value | .hash value =>
         nestedLocalArrayGetShapesExpr env value
     | .hashValue a b c d =>

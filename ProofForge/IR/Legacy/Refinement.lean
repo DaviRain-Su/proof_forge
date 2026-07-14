@@ -157,8 +157,6 @@ mutual
     | .hashValue a b c d => allAcceptable #[classifyExpr (.hashValue (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr a && scalarFragmentExpr b && scalarFragmentExpr c && scalarFragmentExpr d
     | .hash preimage => allAcceptable #[classifyExpr (.hash (.local ""))] && scalarFragmentExpr preimage
     | .hashTwoToOne a b => allAcceptable #[classifyExpr (.hashTwoToOne (.local "") (.local ""))] && scalarFragmentExpr a && scalarFragmentExpr b
-    | .ecrecover d v r s => allAcceptable #[classifyExpr (.ecrecover (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr d && scalarFragmentExpr v && scalarFragmentExpr r && scalarFragmentExpr s
-    | .eip712PermitDigest o s v n d ds => allAcceptable #[classifyExpr (.eip712PermitDigest (.local "") (.local "") (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr s && scalarFragmentExpr v && scalarFragmentExpr n && scalarFragmentExpr d && scalarFragmentExpr ds
     | .nativeValue => allAcceptable #[classifyExpr .nativeValue]
     | .hostCall _ _ _ _ => false
     | .crosscallInvoke t m args =>

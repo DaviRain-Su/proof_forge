@@ -713,8 +713,6 @@ mutual
       let (lb, tb) ← lowerExpr ctx env r
       if !(ta == .hash && tb == .hash) then err "EmitWat: hash_two_to_one expects two Hash operands"
       else .ok (la ++ lb ++ #[.call hashTwoName], .hash)
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-      err "EmitWat: ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only)"
     | .local name =>
       match lookupLocal? env name with
       | some .u128 => .ok (#[.localGet name, .localGet (u128HiName name)], .u128)

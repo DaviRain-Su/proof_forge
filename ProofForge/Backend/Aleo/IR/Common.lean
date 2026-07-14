@@ -219,11 +219,8 @@ mutual
     | .eq lhs rhs | .ne lhs rhs | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         (analyzeExpr lhs).merge (analyzeExpr rhs)
-    | .hashValue a b c d | .ecrecover a b c d =>
+    | .hashValue a b c d =>
         (((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge (analyzeExpr d)
-    | .eip712PermitDigest a b c d e f =>
-        (((((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge
-          (analyzeExpr d)).merge (analyzeExpr e)).merge (analyzeExpr f)
     | .crosscallInvoke target method args
     | .crosscallInvokeTyped target method args _
     | .crosscallInvokeStaticTyped target method args _

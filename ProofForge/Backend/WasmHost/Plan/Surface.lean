@@ -491,16 +491,6 @@ mutual
     | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
         return mergeContextExprPlans (← contextOpsFromExpr lhs) (← contextOpsFromExpr rhs)
-    | .ecrecover a b c d =>
-        return mergeContextExprPlans
-          (mergeContextExprPlans (← contextOpsFromExpr a) (← contextOpsFromExpr b))
-          (mergeContextExprPlans (← contextOpsFromExpr c) (← contextOpsFromExpr d))
-    | .eip712PermitDigest a b c d e f =>
-        return mergeContextExprPlans
-          (mergeContextExprPlans
-            (mergeContextExprPlans (← contextOpsFromExpr a) (← contextOpsFromExpr b))
-            (mergeContextExprPlans (← contextOpsFromExpr c) (← contextOpsFromExpr d)))
-          (mergeContextExprPlans (← contextOpsFromExpr e) (← contextOpsFromExpr f))
     | .cast value _ | .boolNot value | .hash value =>
         contextOpsFromExpr value
     | .hashValue a b c d =>
@@ -737,17 +727,6 @@ mutual
         let merged :=
           mergeModuleSurfaces (← surfaceFromExpr module env lhs) (← surfaceFromExpr module env rhs)
         .ok (mergeModuleSurfaces merged ModuleSurface.withHashTwoToOne)
-    | .ecrecover a b c d => do
-        let merged :=
-          mergeModuleSurfaces
-            (mergeModuleSurfaces (← surfaceFromExpr module env a) (← surfaceFromExpr module env b))
-            (mergeModuleSurfaces (← surfaceFromExpr module env c) (← surfaceFromExpr module env d))
-        .ok merged
-    | .eip712PermitDigest a b c d e f => do
-        let ab := mergeModuleSurfaces (← surfaceFromExpr module env a) (← surfaceFromExpr module env b)
-        let cd := mergeModuleSurfaces (← surfaceFromExpr module env c) (← surfaceFromExpr module env d)
-        let ef := mergeModuleSurfaces (← surfaceFromExpr module env e) (← surfaceFromExpr module env f)
-        .ok (mergeModuleSurfaces (mergeModuleSurfaces ab cd) ef)
     | .cast value _ | .boolNot value =>
         surfaceFromExpr module env value
     | .hash preimage => do

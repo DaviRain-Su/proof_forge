@@ -664,8 +664,6 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
       AstNode.instruction { opcode := .call, imm := some (.sym sol_sha256) },
       AstNode.instruction { opcode := .ldxdw, dst := some .r2, src := some .r10, off := some (.num digestBuf) }
     ], ctx)
-  | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-    .error { message := "Solana: ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only)" }
   | .hashTwoToOne lhs rhs => do
     let (ln, ctx) ← lowerExpr ctx lhs
     let (scratchL, ctx) := ctx.allocScratch

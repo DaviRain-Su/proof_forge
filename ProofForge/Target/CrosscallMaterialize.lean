@@ -209,9 +209,6 @@ where
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
     | .eq a b | .ne a b | .lt a b | .le a b | .gt a b | .ge a b
     | .boolAnd a b | .boolOr a b | .hashTwoToOne a b => exprUses a || exprUses b
-    | .ecrecover a b c d => exprUses a || exprUses b || exprUses c || exprUses d
-    | .eip712PermitDigest a b c d e f =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
     | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)
@@ -291,9 +288,6 @@ where
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b
     | .eq a b | .ne a b | .lt a b | .le a b | .gt a b | .ge a b
     | .boolAnd a b | .boolOr a b | .hashTwoToOne a b => exprUses a || exprUses b
-    | .ecrecover a b c d => exprUses a || exprUses b || exprUses c || exprUses d
-    | .eip712PermitDigest a b c d e f =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
     | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)

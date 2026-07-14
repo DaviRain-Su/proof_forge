@@ -446,13 +446,6 @@ mutual
         || exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d
     | .hash p => exprUsesCheckedArithmetic p
     | .hashTwoToOne l r => exprUsesCheckedArithmetic l || exprUsesCheckedArithmetic r
-    | .ecrecover a b c d =>
-        exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b ||
-          exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d
-    | .eip712PermitDigest a b c d e f =>
-        exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b ||
-          exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d ||
-          exprUsesCheckedArithmetic e || exprUsesCheckedArithmetic f
     | .crosscallInvoke t m args | .crosscallInvokeTyped t m args _
     | .crosscallInvokeValueTyped t m _ args _
     | .crosscallInvokeStaticTyped t m args _ | .crosscallInvokeDelegateTyped t m args _ =>

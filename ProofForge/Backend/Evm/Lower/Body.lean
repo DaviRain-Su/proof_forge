@@ -1130,20 +1130,6 @@ mutual
         .ok (.hash (← buildExprPlan module env preimage))
     | .hashTwoToOne lhs rhs => do
         .ok (.hashTwoToOne (← buildExprPlan module env lhs) (← buildExprPlan module env rhs))
-    | .ecrecover digest v r s => do
-        .ok (.ecrecover
-          (← buildExprPlan module env digest)
-          (← buildExprPlan module env v)
-          (← buildExprPlan module env r)
-          (← buildExprPlan module env s))
-    | .eip712PermitDigest owner spender value nonce deadline domainSep => do
-        .ok (.eip712PermitDigest
-          (← buildExprPlan module env owner)
-          (← buildExprPlan module env spender)
-          (← buildExprPlan module env value)
-          (← buildExprPlan module env nonce)
-          (← buildExprPlan module env deadline)
-          (← buildExprPlan module env domainSep))
     | .nativeValue =>
         .ok .nativeValue
     | .callValueU128 =>

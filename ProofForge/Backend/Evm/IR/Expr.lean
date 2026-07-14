@@ -448,10 +448,6 @@ mutual
         lowerExprThroughPlan module env (.hash preimage)
     | .hashTwoToOne lhs rhs => do
         lowerExprThroughPlan module env (.hashTwoToOne lhs rhs)
-    | .ecrecover a b c d => do
-        lowerExprThroughPlan module env (.ecrecover a b c d)
-    | .eip712PermitDigest a b c d e f => do
-        lowerExprThroughPlan module env (.eip712PermitDigest a b c d e f)
     | .nativeValue =>
         lowerExprThroughPlan module env .nativeValue
     | .callValueU128 =>
@@ -802,13 +798,6 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
   | .boolOr lhs rhs
   | .hashTwoToOne lhs rhs =>
       exprSupportsPlanScalarYul lhs && exprSupportsPlanScalarYul rhs
-  | .ecrecover a b c d =>
-      exprSupportsPlanScalarYul a && exprSupportsPlanScalarYul b &&
-        exprSupportsPlanScalarYul c && exprSupportsPlanScalarYul d
-  | .eip712PermitDigest a b c d e f =>
-      exprSupportsPlanScalarYul a && exprSupportsPlanScalarYul b &&
-        exprSupportsPlanScalarYul c && exprSupportsPlanScalarYul d &&
-        exprSupportsPlanScalarYul e && exprSupportsPlanScalarYul f
   | .cast value _ => exprSupportsPlanScalarYul value
   | .boolNot value
   | .hash value => exprSupportsPlanScalarYul value

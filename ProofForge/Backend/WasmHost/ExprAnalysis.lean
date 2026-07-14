@@ -40,11 +40,6 @@ partial def canDuplicateExpr : Expr → Bool
   | .boolAnd lhs rhs
   | .boolOr lhs rhs
   | .hashTwoToOne lhs rhs => canDuplicateExpr lhs && canDuplicateExpr rhs
-  | .ecrecover a b c d =>
-      canDuplicateExpr a && canDuplicateExpr b && canDuplicateExpr c && canDuplicateExpr d
-  | .eip712PermitDigest a b c d e f =>
-      canDuplicateExpr a && canDuplicateExpr b && canDuplicateExpr c &&
-        canDuplicateExpr d && canDuplicateExpr e && canDuplicateExpr f
   | .cast value _ => canDuplicateExpr value
   | .boolNot value => canDuplicateExpr value
   | .hashValue a b c d =>

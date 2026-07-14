@@ -187,8 +187,6 @@ mutual
         ensureType "hash_two_to_one left operand" .hash lhsType
         ensureType "hash_two_to_one right operand" .hash rhsType
         .ok .hash
-    | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
-        .error { message := "ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only); not supported by Psy IR v0" }
     | .nativeValue =>
         .error { message := "native value inspection is not supported by Psy IR v0" }
     | .hostCall _ _ _ _ =>

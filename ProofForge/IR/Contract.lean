@@ -154,14 +154,6 @@ mutual
     | hashValue (a b c d : Expr)
     | hash (preimage : Expr)
     | hashTwoToOne (lhs rhs : Expr)
-    /-- EVM secp256k1 `ecrecover(digest, v, r, s)` → address word.
-    Requires `crypto.ecrecover` (EVM-only). -/
-    | ecrecover (digest v r s : Expr)
-    /-- EVM helper: EIP-712 permit struct digest
-    `keccak256("\x19\x01" ‖ domainSeparator ‖
-      keccak256(PERMIT_TYPEHASH ‖ owner ‖ spender ‖ value ‖ nonce ‖ deadline))`.
-    Requires `crypto.ecrecover` (same EVM-only gate as ecrecover). -/
-    | eip712PermitDigest (owner spender value nonce deadline domainSep : Expr)
     | nativeValue
     /-- Typed target extension call. The shared IR carries only an open stable
     identity, typed arguments/result, and declared capability requirements;
@@ -523,11 +515,6 @@ mutual
     | .hashValue a b c d => a.capabilities ++ b.capabilities ++ c.capabilities ++ d.capabilities
     | .hash preimage => #[.cryptoHash] ++ preimage.capabilities
     | .hashTwoToOne lhs rhs => #[.cryptoHash] ++ lhs.capabilities ++ rhs.capabilities
-    | .ecrecover digest v r s =>
-        #[.cryptoEcrecover] ++ digest.capabilities ++ v.capabilities ++ r.capabilities ++ s.capabilities
-    | .eip712PermitDigest owner spender value nonce deadline domainSep =>
-        #[.cryptoEcrecover, .cryptoHash] ++ owner.capabilities ++ spender.capabilities ++
-          value.capabilities ++ nonce.capabilities ++ deadline.capabilities ++ domainSep.capabilities
     | .nativeValue => #[.valueNative]
     | .hostCall _ args returnType requiredCapabilities =>
         requiredCapabilities ++ returnType.capabilities ++

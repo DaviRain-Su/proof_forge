@@ -510,10 +510,6 @@ mutual
         exprFC n a && exprFC n b && exprFC n c && exprFC n d
     | n + 1, .hash p => exprFC n p
     | n + 1, .hashTwoToOne l r => exprFC n l && exprFC n r
-    | n + 1, .ecrecover a b c d =>
-        exprFC n a && exprFC n b && exprFC n c && exprFC n d
-    | n + 1, .eip712PermitDigest a b c d e f =>
-        exprFC n a && exprFC n b && exprFC n c && exprFC n d && exprFC n e && exprFC n f
     | n + 1, .crosscallInvoke t m args =>
         exprFC n t && exprFC n m && args.toList.all (exprFC n)
     | n + 1, .crosscallInvokeTyped t m args _ =>

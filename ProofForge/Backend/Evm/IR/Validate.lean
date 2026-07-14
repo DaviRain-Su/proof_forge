@@ -148,20 +148,6 @@ mutual
         ensureType "hash_two_to_one left operand" .hash (← inferExprType module env lhs)
         ensureType "hash_two_to_one right operand" .hash (← inferExprType module env rhs)
         .ok .hash
-    | .ecrecover digest v r s => do
-        discard <| inferExprType module env digest
-        ensureType "ecrecover v" .u64 (← inferExprType module env v)
-        discard <| inferExprType module env r
-        discard <| inferExprType module env s
-        .ok .u64
-    | .eip712PermitDigest owner spender value nonce deadline domainSep => do
-        discard <| inferExprType module env owner
-        discard <| inferExprType module env spender
-        ensureType "permit value" .u64 (← inferExprType module env value)
-        ensureType "permit nonce" .u64 (← inferExprType module env nonce)
-        ensureType "permit deadline" .u64 (← inferExprType module env deadline)
-        discard <| inferExprType module env domainSep
-        .ok .hash
     | .nativeValue => .ok .u64
     | .callValueU128 =>
         .error { message := "U128 call value is not supported on EVM" }
