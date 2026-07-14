@@ -178,6 +178,8 @@ def exprType (e : Expr) : AdapterM CoreType := do
   | .effect (.storagePathRead name path) =>
       storagePathResultType (← lookupStateShape name) path
   | .hash _ | .hashTwoToOne _ _ => return .hash
+  | .ecrecover _ _ _ _ => return .u64
+  | .eip712PermitDigest _ _ _ _ _ _ => return .hash
   | .crosscallInvoke _ _ _ => return .u64
   | .nativeValue => return .unit
   | .hostCall _ _ returnType _ =>
@@ -522,10 +524,28 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       throw (CanonicalizeError.unsupportedConstructor "Expr.field" "field projection not in initial fragment")
   | .hashValue _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.hashValue" "four-input hash not in initial fragment")
-  | .ecrecover _ _ _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.ecrecover" "ecrecover not in initial fragment")
-  | .eip712PermitDigest _ _ _ _ _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.eip712PermitDigest" "EIP-712 permit digest not in initial fragment")
+  | .ecrecover digest v r s => do
+      let normalizedArgs ← #[digest, v, r, s].mapM normalizeExpr
+      let result ← emitValueInstruction
+        (.hostCall {
+          id := ProofForge.Target.HostOps.Evm.ecrecoverSig.id
+          args := normalizedArgs.map (·.value)
+        }) .u64
+      return {
+        instructions := normalizedArgs.flatMap (·.instructions) ++ result.instructions
+        value := result.value
+      }
+  | .eip712PermitDigest owner spender value nonce deadline domainSep => do
+      let normalizedArgs ← #[owner, spender, value, nonce, deadline, domainSep].mapM normalizeExpr
+      let result ← emitValueInstruction
+        (.hostCall {
+          id := ProofForge.Target.HostOps.Evm.eip712PermitDigestSig.id
+          args := normalizedArgs.map (·.value)
+        }) .hash
+      return {
+        instructions := normalizedArgs.flatMap (·.instructions) ++ result.instructions
+        value := result.value
+      }
   | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallAbiPacked" "crosscall ABI packing not in initial fragment")
   | .crosscallInvoke target method args => do

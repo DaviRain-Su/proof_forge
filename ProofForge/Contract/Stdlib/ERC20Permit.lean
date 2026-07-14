@@ -11,7 +11,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 `permit(owner,spender,value,deadline,v,r,s)` is the canonical atomic EIP-2612
 surface. DOMAIN_SEPARATOR is initialized once via `initDomain(sep)`.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Evm
 
 namespace ProofForge.Contract.Stdlib.ERC20Permit
 
@@ -65,7 +65,7 @@ contract_mixin ERC20PermitMixin do
       "permit expired";
     let n : .u64 := mapRead noncesMap holder;
     let digest : .hash :=
-      ProofForge.Contract.Surface.eip712PermitDigest
+      ProofForge.Contract.Source.Evm.eip712PermitDigest
         (ProofForge.Contract.Surface.ref holder)
         (ProofForge.Contract.Surface.ref spender)
         (ProofForge.Contract.Surface.ref value)
@@ -73,7 +73,7 @@ contract_mixin ERC20PermitMixin do
         (ProofForge.Contract.Surface.ref deadline)
         (ProofForge.Contract.Surface.read domainSeparatorSlot);
     let recovered : .u64 :=
-      ProofForge.Contract.Surface.ecrecover
+      ProofForge.Contract.Source.Evm.ecrecover
         (ProofForge.Contract.Surface.ref digest)
         (ProofForge.Contract.Surface.cast (ProofForge.Contract.Surface.ref v) .u64)
         (ProofForge.Contract.Surface.ref r)

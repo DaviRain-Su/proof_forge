@@ -688,13 +688,13 @@ def classifyExpr : Expr → LegacyDecision
   | .ecrecover _ _ _ _ =>
       { nodeTag := "Expr.ecrecover"
         disposition := .materialization
-        owner := "evm-adapter"
-        reason := "EVM secp256k1 ecrecover precompile materialized by EVM adapter" }
+        owner := "evm-crypto-hostop"
+        reason := "EVM secp256k1 recovery maps to evm.crypto.ecrecover" }
   | .eip712PermitDigest _ _ _ _ _ _ =>
       { nodeTag := "Expr.eip712PermitDigest"
         disposition := .materialization
-        owner := "evm-adapter"
-        reason := "EIP-712 permit digest materialized by EVM adapter" }
+        owner := "evm-crypto-hostop"
+        reason := "EIP-712 permit digest maps to evm.crypto.eip712_permit_digest" }
   | .nativeValue =>
       { nodeTag := "Expr.nativeValue"
         disposition := .preserve

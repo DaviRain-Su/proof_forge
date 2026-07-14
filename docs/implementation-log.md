@@ -2753,3 +2753,23 @@ Rules:
 - Verification passed: targeted Core HostOp/Validate/Canonical builds,
   `Tests/Canonical/HostOpFailClosed.lean`,
   `Tests/Canonical/TargetContextHostOps.lean`, and `git diff --check`.
+
+## 2026-07-14 - EVM-R1c: target-owned recovery and EIP-712
+
+- Status: `done (verified 2026-07-14)` for product/canonical HostOp routing;
+  deletion of the two old shared constructors is the next slice.
+- Added pure typed `evm.crypto/ecrecover@1.0.0` and
+  `evm.crypto/eip712_permit_digest@1.0.0` signatures with exact argument,
+  result, and capability contracts.
+- Added EVM-owned source helpers and switched `ERC20Permit` away from portable
+  `Contract.Surface` crypto helpers. Legacy canonicalization translates old
+  constructors to the same HostOps; both canonical and transitional EVM plans
+  lower them to the existing semantic helper expressions.
+- Added `Tests/Canonical/EvmCryptoHostOps.lean` to `hostop-protocol`; it proves
+  strict EVM validation/planning, view-safe pure operations, exact IDs, and
+  wrong-target rejection.
+- Verification passed: targeted Stdlib/adapter/EVM plan/lower builds,
+  `just hostop-protocol`, `Tests/TokenEvm.lean`, `just ir-target-boundary`, and
+  `git diff --check`.
+- Next: remove `Expr.ecrecover` and `Expr.eip712PermitDigest` plus their stale
+  shared/backend reject arms; EVM product authoring must retain only HostOps.

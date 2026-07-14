@@ -1020,8 +1020,24 @@ mutual
   partial def buildExprPlan (module : Module) (env : TypeEnv) : Expr → Except LowerError ExprPlan
     | .literal value => literalPlan value
     | .local name => .ok (.local name)
-    | .hostCall id _ _ _ =>
-        .error { message := s!"EVM does not support target extension `{id.render}`" }
+    | .hostCall id args _ _ =>
+        if id == ProofForge.Target.HostOps.Evm.ecrecoverSig.id then
+          match args with
+          | #[digest, v, r, s] => do
+              .ok (.ecrecover
+                (← buildExprPlan module env digest) (← buildExprPlan module env v)
+                (← buildExprPlan module env r) (← buildExprPlan module env s))
+          | _ => .error { message := s!"target extension `{id.render}` expects 4 arguments" }
+        else if id == ProofForge.Target.HostOps.Evm.eip712PermitDigestSig.id then
+          match args with
+          | #[owner, spender, value, nonce, deadline, domainSep] => do
+              .ok (.eip712PermitDigest
+                (← buildExprPlan module env owner) (← buildExprPlan module env spender)
+                (← buildExprPlan module env value) (← buildExprPlan module env nonce)
+                (← buildExprPlan module env deadline) (← buildExprPlan module env domainSep))
+          | _ => .error { message := s!"target extension `{id.render}` expects 6 arguments" }
+        else
+          .error { message := s!"EVM does not support target extension `{id.render}`" }
     | .arrayLit elementType values => do
         let planned ← values.mapM (buildExprPlan module env)
         .ok (.arrayLit elementType planned)

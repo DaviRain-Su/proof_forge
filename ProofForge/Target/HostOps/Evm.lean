@@ -59,6 +59,22 @@ def blockHashSig : HostOpSig := {
   requiredCapabilities := #[.envBlock]
 }
 
+def ecrecoverSig : HostOpSig := {
+  id := { namespace_ := "evm.crypto", name := "ecrecover", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[.hash, .u64, .hash, .hash]
+  results := #[.u64]
+  effectClass := .pure
+  requiredCapabilities := #[.cryptoEcrecover]
+}
+
+def eip712PermitDigestSig : HostOpSig := {
+  id := { namespace_ := "evm.crypto", name := "eip712_permit_digest", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[.address, .address, .u64, .u64, .u64, .hash]
+  results := #[.hash]
+  effectClass := .pure
+  requiredCapabilities := #[.cryptoEcrecover]
+}
+
 /-- Legacy `contract_source` currently canonicalizes EVM account handles to
 `u64`; the EVM plan widens them to full words. The HostOp signature records
 that real boundary instead of claiming Core `.address` values prematurely. -/
@@ -93,6 +109,8 @@ def signatures : Array HostOpSig := #[
   baseFeeSig,
   coinbaseSig,
   blockHashSig,
+  ecrecoverSig,
+  eip712PermitDigestSig,
   erc721ReceivedSig,
   erc1155ReceivedSig,
   erc1155BatchReceivedSig

@@ -465,6 +465,21 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
             .ok #[StmtPlan.letBind (resultName instr) .hash
               (.context (.blockHash (← valueExpr env blockNumber)))]
         | _ => .error { message := s!"target extension `{call.id.render}` expects 1 argument" }
+      else if call.id == ProofForge.Target.HostOps.Evm.ecrecoverSig.id then
+        match call.args with
+        | #[digest, v, r, s] => do
+            .ok #[StmtPlan.letBind (resultName instr) .u64 (.ecrecover
+              (← valueExpr env digest) (← valueExpr env v)
+              (← valueExpr env r) (← valueExpr env s))]
+        | _ => .error { message := s!"target extension `{call.id.render}` expects 4 arguments" }
+      else if call.id == ProofForge.Target.HostOps.Evm.eip712PermitDigestSig.id then
+        match call.args with
+        | #[owner, spender, value, nonce, deadline, domainSep] => do
+            .ok #[StmtPlan.letBind (resultName instr) .hash (.eip712PermitDigest
+              (← valueExpr env owner) (← valueExpr env spender)
+              (← valueExpr env value) (← valueExpr env nonce)
+              (← valueExpr env deadline) (← valueExpr env domainSep))]
+        | _ => .error { message := s!"target extension `{call.id.render}` expects 6 arguments" }
       else if call.id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
         match call.args with
         | #[operator, fromAddr, toAddr, tokenId] => do

@@ -114,6 +114,9 @@ Progress (2026-07-14):
   parameterized `block_hash` context
   reads now normalize to exact `evm.context/*` HostOps and materialize only in
   the EVM plan; NEAR rejects every one through handler resolution.
+- EVM secp256k1 recovery and the EIP-712 permit digest now enter product source
+  through pure `evm.crypto/*` HostOps. Canonical planning reaches the existing
+  EVM semantic helper nodes and non-EVM targets reject the exact IDs.
 - Added the generic result-free `Effect.hostCall` extension path and an EVM
   catalog for ERC-721/1155 receiver callbacks.
 - EVM-specific stdlib modules now import `Source.Evm`; portable `Source` no
@@ -125,8 +128,9 @@ Progress (2026-07-14):
   Generic HostOps now enter EVM `EffectPlan` directly; no EVM lowering path
   reconstructs a legacy shared-IR receiver node.
 
-1. Move EIP-712 behavior into target-owned HostOps; ERC receiver and EVM
-   context behavior are already migrated.
+1. [x] Move EIP-712, ERC receiver, and EVM context behavior into target-owned
+   HostOps. Delete the obsolete shared constructors after all legacy-only
+   exhaustive match arms have been removed.
 2. Replace EVM ABI-packed call payloads with a semantic call description whose
    ABI layout is built in the EVM plan.
 3. Classify create/static/delegate behavior as portable semantics or explicit

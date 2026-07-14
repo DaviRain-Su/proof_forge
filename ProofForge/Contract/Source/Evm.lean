@@ -11,6 +11,15 @@ namespace ProofForge.Contract.Source.Evm
 open ProofForge.Contract.Source
 open ProofForge.Contract.Surface
 
+def ecrecover (digest v r s : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.ecrecoverSig.id #[digest, v, r, s]
+    .u64 #[.cryptoEcrecover]
+
+def eip712PermitDigest
+    (owner spender value nonce deadline domainSep : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.eip712PermitDigestSig.id
+    #[owner, spender, value, nonce, deadline, domainSep] .hash #[.cryptoEcrecover]
+
 def checkErc721Received (operator fromAddr toAddr tokenId : ProofForge.IR.Expr) :
     EntryM Unit :=
   ProofForge.Contract.Builder.effect
