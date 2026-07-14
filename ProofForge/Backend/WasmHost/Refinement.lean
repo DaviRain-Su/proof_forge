@@ -940,12 +940,12 @@ def valueVaultArtifactSurfaceObligation : ArtifactSurfaceObligation := {
     (22, "last_value"),
     (33, "last_checkpoint"),
     (49, "operations"),
-    -- Composite JSON event headers (one putstr per event; see Layout.eventHeaderPoolString)
-    (43000, "{\"event\":\"VaultInitialized\""),
-    (43055, "{\"event\":\"ValueDeposited\""),
-    (43119, "{\"event\":\"ValueCharged\""),
-    (43169, "{\"event\":\"ValueReleased\""),
-    (43207, "{\"event\":\"ValueSnapshot\"")
+    -- Composite NEP-297 headers (one putstr per event).
+    (43000, "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"VaultInitialized\",\"data\":[{"),
+    (43118, "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueDeposited\",\"data\":[{"),
+    (43245, "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueCharged\",\"data\":[{"),
+    (43358, "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueReleased\",\"data\":[{"),
+    (43460, "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueSnapshot\",\"data\":[{")
   ]
   requiredMemoryRegions := nearHostBufferMemoryRegions
 }
@@ -998,10 +998,10 @@ def valueVaultOfflineHostExecutionObligation : OfflineHostExecutionObligation :=
       storageHexSnapshot := valueVaultStorageHexSnapshot 100 0 0 100 0 1
       logCount := 1
       logLineFragments := #[
-        "log: {\"event\":\"VaultInitialized\",\"initial\":100,\"checkpoint\":0}"
+        "log: EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"VaultInitialized\",\"data\":[{\"initial\":100,\"checkpoint\":0}]}"
       ]
       logPayloadHexFragments := #[
-        stringHex "{\"event\":\"VaultInitialized\",\"initial\":100,\"checkpoint\":0}"
+        stringHex "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"VaultInitialized\",\"data\":[{\"initial\":100,\"checkpoint\":0}]}"
       ]
     },
     {
@@ -1023,10 +1023,10 @@ def valueVaultOfflineHostExecutionObligation : OfflineHostExecutionObligation :=
       storageHexSnapshot := valueVaultStorageHexSnapshot 125 0 0 25 0 2
       logCount := 2
       logLineFragments := #[
-        "log: {\"event\":\"ValueDeposited\",\"amount\":25,\"balance\":125,\"operations\":2}"
+        "log: EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueDeposited\",\"data\":[{\"amount\":25,\"balance\":125,\"operations\":2}]}"
       ]
       logPayloadHexFragments := #[
-        stringHex "{\"event\":\"ValueDeposited\",\"amount\":25,\"balance\":125,\"operations\":2}"
+        stringHex "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueDeposited\",\"data\":[{\"amount\":25,\"balance\":125,\"operations\":2}]}"
       ]
     },
     {
@@ -1048,10 +1048,10 @@ def valueVaultOfflineHostExecutionObligation : OfflineHostExecutionObligation :=
       storageHexSnapshot := valueVaultStorageHexSnapshot 223 0 2 98 0 3
       logCount := 3
       logLineFragments := #[
-        "log: {\"event\":\"ValueCharged\",\"gross\":100,\"fee\":2,\"net\":98,\"balance\":223}"
+        "log: EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueCharged\",\"data\":[{\"gross\":100,\"fee\":2,\"net\":98,\"balance\":223}]}"
       ]
       logPayloadHexFragments := #[
-        stringHex "{\"event\":\"ValueCharged\",\"gross\":100,\"fee\":2,\"net\":98,\"balance\":223}"
+        stringHex "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueCharged\",\"data\":[{\"gross\":100,\"fee\":2,\"net\":98,\"balance\":223}]}"
       ]
     },
     {
@@ -1083,10 +1083,10 @@ def valueVaultOfflineHostExecutionObligation : OfflineHostExecutionObligation :=
       storageHexSnapshot := valueVaultStorageHexSnapshot 200 23 2 23 0 4
       logCount := 4
       logLineFragments := #[
-        "log: {\"event\":\"ValueReleased\",\"amount\":23,\"balance\":200,\"released\":23}"
+        "log: EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueReleased\",\"data\":[{\"amount\":23,\"balance\":200,\"released\":23}]}"
       ]
       logPayloadHexFragments := #[
-        stringHex "{\"event\":\"ValueReleased\",\"amount\":23,\"balance\":200,\"released\":23}"
+        stringHex "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueReleased\",\"data\":[{\"amount\":23,\"balance\":200,\"released\":23}]}"
       ]
     },
     {
@@ -1109,10 +1109,10 @@ def valueVaultOfflineHostExecutionObligation : OfflineHostExecutionObligation :=
       storageHexSnapshot := valueVaultStorageHexSnapshot 200 23 2 23 0 4
       logCount := 5
       logLineFragments := #[
-        "log: {\"event\":\"ValueSnapshot\",\"balance\":200,\"released\":23,\"fees\":2,\"checkpoint\":0}"
+        "log: EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueSnapshot\",\"data\":[{\"balance\":200,\"released\":23,\"fees\":2,\"checkpoint\":0}]}"
       ]
       logPayloadHexFragments := #[
-        stringHex "{\"event\":\"ValueSnapshot\",\"balance\":200,\"released\":23,\"fees\":2,\"checkpoint\":0}"
+        stringHex "EVENT_JSON:{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"ValueSnapshot\",\"data\":[{\"balance\":200,\"released\":23,\"fees\":2,\"checkpoint\":0}]}"
       ]
     },
     {

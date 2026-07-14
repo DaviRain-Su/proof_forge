@@ -123,8 +123,8 @@ Expr	memoryArrayNew	unsupported	EmitWat rejects memory.array.new because memory 
 Expr	memoryArrayLength	unsupported	EmitWat rejects memory.array.length because memory arrays are not lowered to NEAR/Wasm.
 Expr	memoryArrayGet	unsupported	EmitWat rejects memory.array.get because memory arrays are not lowered to NEAR/Wasm.
 Effect	contextRead	lowered	EmitWat lowers userId, userIdHash, accountId, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin context reads through NEAR host helpers.
-Effect	eventEmit	lowered	EmitWat lowers non-indexed events to JSON assembled in guest memory and emitted with log_utf8.
-Effect	eventEmitIndexed	lowered	EmitWat flattens indexed and data fields into one NEAR JSON event log because NEAR logs do not provide native EVM-style topics; Tests/Backend/Wasm/EmitWatChainSemantics.lean checks the rendered event fields.
+Effect	eventEmit	lowered	EmitWat lowers non-indexed events to NEP-297 EVENT_JSON envelopes assembled in guest memory and emitted with log_utf8; standard ft_mint/ft_transfer/ft_burn events use the nep141 namespace and quoted U128 amounts.
+Effect	eventEmitIndexed	lowered	EmitWat flattens indexed and data fields into one NEP-297 data object because NEAR logs do not provide native EVM-style topics; Tests/Backend/Wasm/EmitWatChainSemantics.lean checks the exact envelope and field fragments.
 StoragePathSegment	field	lowered	EmitWat lowers field as a scalar struct path segment and after index for struct-valued storage arrays.
 StoragePathSegment	index	lowered	EmitWat lowers index as a storage array path segment and before field for struct-valued storage arrays.
 StoragePathSegment	mapKey	lowered	EmitWat lowers single mapKey path segments through map helpers.

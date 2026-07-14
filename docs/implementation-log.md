@@ -2610,3 +2610,18 @@ Rules:
   CLI build of `Examples/Backend/WasmNear/FungibleToken.lean`, and
   `just near-vm-nep148` on the unmodified upstream NEAR VM.
 - Remaining: N-T4b, emit NEP-297 `EVENT_JSON` envelopes for FT events.
+
+## 2026-07-14 - N-T4b: NEP-297 and standard NEP-141 events
+
+- Status: `done (verified 2026-07-14)`.
+- Changed both legacy-compatible and canonical EmitWat event lowering to emit
+  NEP-297 `EVENT_JSON` envelopes from the shared layout/event helpers.
+- The fungible-token mint, transfer, and burn events now use the `nep141`
+  namespace, standard field names, and quoted decimal U128 amounts; other
+  events use the `proof_forge` namespace.
+- Updated the executable refinement model and real VM runner so the exact log
+  bytes are observed rather than merely proving that event calls do not trap.
+- Verification: `lake build ProofForge.Backend.WasmHost.Refinement proof-forge`,
+  `just near-vm-json-transfer`, `just near-vm-nep297`, and
+  `lake env lean --run Tests/Backend/Wasm/EmitWatChainSemantics.lean`.
+- Remaining: N-T5 TokenSpec parameterization; N-T6 sandbox differential.

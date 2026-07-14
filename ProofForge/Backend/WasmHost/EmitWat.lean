@@ -1247,14 +1247,14 @@ partial def lowerEventEmit (ctx : Ctx) (env : LocalTypes) (name : String) (field
   let some nameSi ← pure (findString? ctx.strings headerKey)
     | err s!"EmitWat: event header `{headerKey}` not in string pool"
   let header := evtHeaderInsns nameSi
-  let fieldInsns ← appendInsnChunksM fields fun f => do
+  let fieldInsns ← fields.mapIdxM fun index f => do
     let (fname, vexpr) := f
-    let fieldKey := eventFieldPoolString fname
+    let fieldKey := eventFieldPoolString index fname
     let some fsi ← pure (findString? ctx.strings fieldKey)
       | err s!"EmitWat: event field key `{fieldKey}` not in string pool"
     let (vis, vt) ← lowerExpr ctx env vexpr
-    evtFieldInsns fname fsi vis vt
-  .ok (header ++ fieldInsns ++ evtFooterInsns)
+    evtFieldInsns name fname fsi vis vt
+  .ok (header ++ fieldInsns.foldl (init := #[]) (fun acc insns => acc ++ insns) ++ evtFooterInsns)
 
 partial def lowerStmt (ctx : Ctx) (env : LocalTypes) (returns : ValueType)
     (entrypointName : String)

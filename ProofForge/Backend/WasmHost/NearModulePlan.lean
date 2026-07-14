@@ -416,7 +416,8 @@ private def canonicalEventStrings (plan : NearModulePlan) : Array Layout.StringI
       for op in block.ops do
         match op with
         | .log event fields =>
-            for value in #[Layout.eventHeaderPoolString event] ++ fields.map (fun field => Layout.eventFieldPoolString field.fst) do
+            for value in #[Layout.eventHeaderPoolString event] ++
+                fields.mapIdx (fun index field => Layout.eventFieldPoolString index field.fst) do
               if !strings.any (fun entry => entry.str == value) then
                 strings := strings.push { str := value, ptr, len := value.length }
                 ptr := ptr + value.length
@@ -737,11 +738,11 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
         | some entry => pure entry
         | none => Diagnostics.err s!"canonical NEAR event header `{event}` is missing"
       let mut insns := Event.evtHeaderInsns header
-      for (field, value) in fields do
-        let key <- match eventStrings.find? (fun entry => entry.str == Layout.eventFieldPoolString field) with
+      for (field, value) in fields, index in [0:fields.size] do
+        let key <- match eventStrings.find? (fun entry => entry.str == Layout.eventFieldPoolString index field) with
           | some entry => pure entry
           | none => Diagnostics.err s!"canonical NEAR event field `{field}` is missing"
-        insns := insns ++ (<- Event.evtFieldInsns field key (canonicalNearGet value.id value.typeName)
+        insns := insns ++ (<- Event.evtFieldInsns event field key (canonicalNearGet value.id value.typeName)
           (canonicalNearType value.typeName))
       return insns ++ Event.evtFooterInsns
   | .promiseCreate result accountId methodName args deposit gas => do
@@ -1039,7 +1040,7 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
       { offset := Memory.FALSE_PTR, bytes := "false" },
       { offset := Memory.HEX_LUT_PTR, bytes := "0123456789abcdef" }] ++
     (if eventStrings.isEmpty then #[] else #[{
-      offset := Memory.EVT_PUNCT_BASE, bytes := "{\"event\":\"" ++ "\"" ++ ",\"" ++ "\":" ++ "}"
+      offset := Memory.EVT_PUNCT_BASE, bytes := "}]}"
     }]) ++ eventStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment }) ++
     literalStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment }) ++
     promiseStrings.map (fun entry => { offset := entry.ptr, bytes := entry.str : ProofForge.Compiler.Wasm.DataSegment }) ++

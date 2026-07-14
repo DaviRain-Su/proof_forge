@@ -132,13 +132,11 @@ def dataSegmentsForModulePlan (modulePlan : ModulePlan) (ctx : Ctx) : Array Data
     #[{ offset := TRUE_PTR, bytes := "true" },
       { offset := FALSE_PTR, bytes := "false" },
       { offset := HEX_LUT_PTR, bytes := "0123456789abcdef" }]
-  -- Static JSON punctuation for event logs (see Memory.EVT_PUNCT_* layout).
-  -- One packed segment keeps data-section noise low and enables putstr-based
-  -- assembly instead of per-character putc (gas + code size).
+  -- Static NEP-297 footer for event logs.
   let evtKeySegments :=
     if modulePlan.usesEventApi then
       #[{ offset := EVT_PUNCT_BASE
-          bytes := "{\"event\":\"" ++ "\"" ++ ",\"" ++ "\":" ++ "}" : DataSegment }]
+          bytes := "}]}" : DataSegment }]
     else #[]
   let usesCrosscallStrings := modulePlan.usesPromiseCreate || modulePlan.usesPromiseThen
   let crosscallStringData :=

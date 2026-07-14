@@ -1049,6 +1049,10 @@ near-vm-nep145:
 near-vm-nep148:
     scripts/near/vm-nep148.sh
 
+# Real-NEAR-VM NEP-297 envelopes and exact NEP-141 mint/transfer/burn events.
+near-vm-nep297:
+    scripts/near/vm-nep297.sh
+
 # Real-NEAR-VM U128 scalar round-trip: write/read/return a u128 on the
 # unmodified upstream NEAR VM. Foundation gate for NEP-141 U128 token amounts;
 # guards the U128 storage + Borsh-return helpers against emit-but-not-define

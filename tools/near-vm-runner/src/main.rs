@@ -392,6 +392,9 @@ fn main() {
                     }
                 }
                 println!("call {}: storage_usage={}", method, storage_usage);
+                for log in &outcome.logs {
+                    println!("call {}: log={}", method, log);
+                }
                 for action in &ext.action_log[action_log_start..] {
                     println!("call {}: action={:?}", method, action);
                 }

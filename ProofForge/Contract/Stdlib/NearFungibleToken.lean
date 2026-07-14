@@ -281,11 +281,11 @@ contract_mixin NearFungibleTokenMixin do
   use ProofForge.Contract.Surface.mapState pendingAmounts
   use ProofForge.Contract.Surface.mapState pendingActive
 
-  event FTransfer
-  event FMint
-  event FBurn
-  event FApproval
-  event StorageDeposit
+  event ft_transfer
+  event ft_mint
+  event ft_burn
+  event ft_approval
+  event storage_deposit
 
   query ft_total_supply returns(.u128) do
     return totalSupply;
@@ -316,7 +316,7 @@ contract_mixin NearFungibleTokenMixin do
       (ProofForge.Contract.Builder.eq (expr registered_bytes) (u64 0))
       (entryBody storageDepositNewBody)
       (entryBody storageDepositExistingBody);
-    emit StorageDeposit indexed #[fieldAsName "account" (ProofForge.IR.Expr.local "storage_account")]
+    emit storage_deposit indexed #[fieldAsName "account_id" (ProofForge.IR.Expr.local "storage_account")]
       data #[fieldAsName "amount" (ProofForge.IR.Expr.local "storage_total")];
     return storageBalanceValue (ProofForge.IR.Expr.local "storage_total");
 
@@ -357,7 +357,7 @@ contract_mixin NearFungibleTokenMixin do
     do mapWrite balances sender (srcBal -! amount);
     let dstBal : .u128 := mapRead balances receiver_id;
     do mapWrite balances receiver_id (dstBal +! amount);
-    emit FTransfer indexed #[fieldAsName "from" sender, fieldAsName "to" receiver_id] data #[fieldAsName "amount" amount];
+    emit ft_transfer indexed #[fieldAsName "old_owner_id" sender, fieldAsName "new_owner_id" receiver_id] data #[fieldAsName "amount" amount];
 
   entry ft_mint (receiver_id : .string, amount : .u128) do
     do ProofForge.Contract.Surface.requireEq callerHash
@@ -366,7 +366,7 @@ contract_mixin NearFungibleTokenMixin do
     do mapWrite balances receiver_id (srcBal +! amount);
     let ts : .u128 := totalSupply;
     totalSupply := ts +! amount;
-    emit FMint indexed #[fieldAsName "to" receiver_id] data #[fieldAsName "amount" amount];
+    emit ft_mint indexed #[fieldAsName "owner_id" receiver_id] data #[fieldAsName "amount" amount];
 
   entry ft_burn (amount : .u128) do
     let who : .string := callerAccountId;
@@ -376,13 +376,13 @@ contract_mixin NearFungibleTokenMixin do
     do mapWrite balances who (bal -! amount);
     let ts : .u128 := totalSupply;
     totalSupply := ts -! amount;
-    emit FBurn indexed #[fieldAsName "from" who] data #[fieldAsName "amount" amount];
+    emit ft_burn indexed #[fieldAsName "owner_id" who] data #[fieldAsName "amount" amount];
 
   entry ft_approve (spender_id : .hash, amount : .u128) do
     let ownerAcct : .hash := callerHash;
     let allowanceKey : .hash := ProofForge.IR.Expr.hashTwoToOne (expr ownerAcct) (expr spender_id);
     do mapWrite allowances allowanceKey amount;
-    emit FApproval indexed #[fieldAsName "owner" ownerAcct, fieldAsName "spender" spender_id] data #[fieldAsName "amount" amount];
+    emit ft_approval indexed #[fieldAsName "owner" ownerAcct, fieldAsName "spender" spender_id] data #[fieldAsName "amount" amount];
 
   entry ft_transfer_call (receiver_id : .string, amount : .u128, memo : .string,
       msg : .string) returns(.u64) do
@@ -400,7 +400,7 @@ contract_mixin NearFungibleTokenMixin do
     do mapWrite balances sender (srcBal -! amount);
     let dstBal : .u128 := mapRead balances receiver_id;
     do mapWrite balances receiver_id (dstBal +! amount);
-    emit FTransfer indexed #[fieldAsName "from" sender, fieldAsName "to" receiver_id] data #[fieldAsName "amount" amount];
+    emit ft_transfer indexed #[fieldAsName "old_owner_id" sender, fieldAsName "new_owner_id" receiver_id] data #[fieldAsName "amount" amount];
     let transferId : .u64 := nextTransferId;
     nextTransferId := transferId +! u64 1;
     do mapWrite pendingAmounts transferId amount;

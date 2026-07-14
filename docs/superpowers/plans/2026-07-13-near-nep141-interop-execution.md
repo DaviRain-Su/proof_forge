@@ -1,6 +1,6 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: active (updated 2026-07-14; N-T0 through N-T3 complete; N-T4 / Phase 6
+Status: active (updated 2026-07-14; N-T0 through N-T4 complete; Phase 7
 in progress; Phases 0-5 and the NEP-145 portion of Phase 6 complete).
 Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
@@ -18,7 +18,7 @@ the broader completion work visible while each landing remains reviewable.
 | N-T1 | done (`38def4de`) | Schema-driven JSON ABI, structured output/client types, order/escape policy | N-T0 |
 | N-T2 | done (2026-07-14) | Standard `ft_transfer_call`, exact one yocto, receiver registration | N-T1 |
 | N-T3 | done (2026-07-14) | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | N-T1 |
-| N-T4 | in progress (NEP-148 verified 2026-07-14) | NEP-148 metadata and NEP-297 event envelopes | N-T1 |
+| N-T4 | done (verified 2026-07-14) | NEP-148 metadata and NEP-297 event envelopes | N-T1 |
 | N-T5 | pending | One parameterized TokenSpec -> NEP-141 executable artifact | N-T1 foundation; may proceed alongside N-T3 |
 | N-T6 | pending | Current JSON/U128 sandbox differential with verified reports | N-T2, N-T3, N-T4 |
 | N-T7 | pending | Executed receipt chain, testnet runner, deployment evidence, gas bands | N-T6 |
@@ -380,11 +380,14 @@ yoctoNEAR. `just near-vm-nep145` proves the positive lifecycle, exact-one-yocto
 failures, underfunding, force protection/burn, refund actions, and storage
 restoration on the unmodified upstream VM.
 
-N-T4 NEP-148 metadata is complete: `ft_metadata` has the strict zero-argument
+N-T4 is complete. `ft_metadata` has the strict zero-argument
 JSON ABI and returns the structured
 `{spec, name, symbol, icon, reference, decimals}` object. The
 `just near-vm-nep148` gate compiles the public FT source and proves the exact
-JSON bytes on the unmodified upstream VM. NEP-297 `EVENT_JSON` envelopes remain. The
+JSON bytes on the unmodified upstream VM. EmitWat events now use NEP-297
+`EVENT_JSON` envelopes; `ft_mint`, `ft_transfer`, and `ft_burn` use the
+`nep141` namespace, standard field names, and quoted U128 amounts. The exact
+payloads are proved by `just near-vm-nep297`. The
 compare-harness `storage-deposit -> verified: yes` evidence remains N-T6 and is
 not implied by the N-T3 VM gate.
 

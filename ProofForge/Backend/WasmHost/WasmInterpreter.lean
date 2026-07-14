@@ -21,7 +21,10 @@ abbrev Registers := Array (Nat × Bytes)
 abbrev Storage := Array (Bytes × Bytes)
 abbrev WasmModule := ProofForge.Compiler.Wasm.Module
 
-def defaultFuel : Nat := 5000
+/-- The interpreter charges each byte copied by guest `memcpy`. NEP-297 event
+headers are deliberately descriptive, so realistic event traces need more than
+the original scalar-only budget. -/
+def defaultFuel : Nat := 20000
 
 def writeByte (memory : LinearMemory) (addr value : Nat) : LinearMemory :=
   (memory.filter (fun entry => entry.fst != addr)).push (addr, value % 256)

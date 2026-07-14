@@ -166,11 +166,18 @@ def evtHeaderInsns (nameSi : StringInfo) : Array Insn :=
   #[.call evtStartName]
     ++ #[.i32Const nameSi.ptr, .i32Const nameSi.len, .call evtPutstrName]
 
-def evtValueInsnsForType (fieldName : String) (type : ValueType) :
+def evtValueInsnsForType (eventName fieldName : String) (type : ValueType) :
     Except EmitError (Array Insn) :=
   match type with
   | .u64 => .ok #[.call evtPutu64Name]
-  | .u128 => .ok #[.call evtPutu128Name]
+  | .u128 =>
+      let value := #[.call evtPutu128Name]
+      if (eventName == "ft_transfer" || eventName == "ft_mint" || eventName == "ft_burn") &&
+          fieldName == "amount" then
+        .ok (#[.i32Const 0x22, .call evtPutcName] ++ value ++
+          #[.i32Const 0x22, .call evtPutcName])
+      else
+        .ok value
   | .u32 => .ok #[.plain "i64.extend_i32_u", .call evtPutu64Name]
   | .bool => .ok #[.call evtPutboolName]
   | .hash => .ok #[.call evtPutHashName]
@@ -179,13 +186,13 @@ def evtValueInsnsForType (fieldName : String) (type : ValueType) :
   | _ => err s!"EmitWat: event field `{fieldName}` has unsupported type `{type.name}`"
 
 /-- Emit composite `,"field":` + value (one putstr for the static key fragment). -/
-def evtFieldInsns (fieldName : String) (fieldSi : StringInfo)
+def evtFieldInsns (eventName fieldName : String) (fieldSi : StringInfo)
     (valueInsns : Array Insn) (valueType : ValueType) : Except EmitError (Array Insn) := do
-  let valInsns ← evtValueInsnsForType fieldName valueType
+  let valInsns ← evtValueInsnsForType eventName fieldName valueType
   .ok (#[.i32Const fieldSi.ptr, .i32Const fieldSi.len, .call evtPutstrName]
     ++ valueInsns ++ valInsns)
 
 def evtFooterInsns : Array Insn :=
-  evtPutstrInsns EVT_CLOSE_PTR 1 ++ #[.call evtLogName]
+  evtPutstrInsns EVT_CLOSE_PTR EVT_CLOSE_LEN ++ #[.call evtLogName]
 
 end ProofForge.Backend.WasmHost.Event

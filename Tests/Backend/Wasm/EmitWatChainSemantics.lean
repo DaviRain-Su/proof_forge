@@ -50,7 +50,9 @@ def indexedEventModule : Module := {
 def crosscallModule := ProofForge.IR.Examples.NearCrosscallProbe.module
 
 def main : IO UInt32 := do
-  requireRenderedContains "indexed event" indexedEventModule #["Seen", "account", "value", "log_utf8"]
+  requireRenderedContains "indexed event" indexedEventModule #[
+    "EVENT_JSON:{\\\"standard\\\":\\\"proof_forge\\\",\\\"version\\\":\\\"1.0.0\\\",\\\"event\\\":\\\"Seen\\\",\\\"data\\\":[{",
+    "\\\"account\\\":", ",\\\"value\\\":", "}]}", "log_utf8"]
   requireRenderedContains "crosscall promise" crosscallModule #[
     "promise_create", "promise_return", "promise_then", "promise_results_count",
     "promise_result", "__pf_promise_result_u64", "read_register",

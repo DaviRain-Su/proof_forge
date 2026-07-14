@@ -76,22 +76,11 @@ def PACK_KEY_PTR : Nat := 42600
 def PACK_KEY_LEN : Nat := 6
 /-- Packed scalar scratch reuses `STRUCT_BUF` (52000) as the in-memory blob. -/
 def PACK_BUF : Nat := 52000
-/-- Static punctuation pack used by optimized event JSON assembly (replaces
-per-character `putc` sequences). Layout within the 16-byte region:
-  +0  (10) `{"event":"`
-  +10 (1)  `"`
-  +11 (2)  `,"`
-  +13 (2)  `":`
-  +15 (1)  `}`
--/
+/-- Static NEP-297 footer used by optimized event JSON assembly. -/
 def EVT_PUNCT_BASE : Nat := 42800
 def EVT_PUNCT_SIZE : Nat := 16
-def EVT_HDR_OPEN_PTR : Nat := EVT_PUNCT_BASE
-def EVT_HDR_OPEN_LEN : Nat := 10
-def EVT_QUOTE_PTR : Nat := EVT_PUNCT_BASE + 10
-def EVT_FIELD_SEP_PTR : Nat := EVT_PUNCT_BASE + 11
-def EVT_COLON_PTR : Nat := EVT_PUNCT_BASE + 13
-def EVT_CLOSE_PTR : Nat := EVT_PUNCT_BASE + 15
+def EVT_CLOSE_PTR : Nat := EVT_PUNCT_BASE
+def EVT_CLOSE_LEN : Nat := 3
 /-- Back-compat alias: start of the event punctuation pack (was "event" key). -/
 def EVT_KEY_PTR : Nat := EVT_PUNCT_BASE
 def STRING_BASE : Nat := 43000     -- event/field name string pool base
