@@ -1,6 +1,5 @@
 import ProofForge.IR.Core
 import ProofForge.IR.Canonical
-import ProofForge.IR.Allocator
 import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Backend.WasmHost.NearModulePlan
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
@@ -621,7 +620,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let entrypointAbis ← iface.entrypoints.mapM fun entrypoint =>
     let signatureParams := entrypoint.params.map fun param =>
       (param.name, coreTypeToValueTypeWith checked.contract.materialization param.type)
-    match NearAbiPlan.buildSignaturePlanFromStructPlans lowerCtxSeed.structs entrypoint.name signatureParams
+    match NearAbiPlan.buildSignaturePlan lowerCtxSeed.structs entrypoint.name signatureParams
         (coreTypeToValueTypeWith checked.contract.materialization entrypoint.retType) with
     | .ok plan => pure plan
     | .error message => throw { message }

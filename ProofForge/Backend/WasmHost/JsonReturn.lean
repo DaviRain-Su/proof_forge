@@ -227,7 +227,7 @@ def loadAccess (access : Access) : Except String (Array Insn) :=
     | .u64 | .address => pure <| access.insns ++ #[.load "i64.load" 0]
     | .unit => throw "JSON return cannot load Unit from aggregate memory"
 
-def accessIsAbsent (structs : Array StructDecl) (access : Access) : Except String (Array Insn) :=
+def accessIsAbsent (structs : Array StructPlan.Struct) (access : Access) : Except String (Array Insn) :=
   match access.type with
   | .string | .bytes | .array _ =>
       if access.memory then
@@ -248,16 +248,30 @@ def accessIsAbsent (structs : Array StructDecl) (access : Access) : Except Strin
         #[.load "i64.load" 8, .plain "i64.or", .plain "i64.eqz"]
   | _ => throw s!"JSON optional carrier `{access.type.name}` has no absence sentinel"
 
-def structFieldAccess (structs : Array StructDecl) (base : Access)
+private def plannedStructFieldType? (plan : StructPlan.Struct)
+    (fieldName : String) : Option ValueType :=
+  (plan.fields.find? (·.id == fieldName)).map (·.type)
+
+private def plannedStructFieldOffset? (plan : StructPlan.Struct)
+    (fieldName : String) : Option Nat :=
+  let rec go (index offset : Nat) : Option Nat :=
+    if h : index < plan.fields.size then
+      let field := plan.fields[index]
+      if field.id == fieldName then some offset
+      else go (index + 1) (offset + scalarWidth field.type)
+    else none
+  go 0 0
+
+def structFieldAccess (structs : Array StructPlan.Struct) (base : Access)
     (field : JsonFieldPlan) : Except String Access := do
   let .structType typeName := base.type
     | throw s!"JSON object field `{field.wireName}` requires a struct carrier"
   let some decl := structs.find? (·.name == typeName)
     | throw s!"JSON return references unknown struct `{typeName}`"
   let sourceName := field.sourceName?.getD field.wireName
-  let some fieldType := structFieldType? decl sourceName
+  let some fieldType := plannedStructFieldType? decl sourceName
     | throw s!"JSON schema field `{field.wireName}` references missing `{typeName}.{sourceName}`"
-  let some offset := structFieldOffset? decl sourceName
+  let some offset := plannedStructFieldOffset? decl sourceName
     | throw s!"JSON schema field `{field.wireName}` has no offset in `{typeName}`"
   let baseInsns ← loadAccess base
   pure {
@@ -266,7 +280,7 @@ def structFieldAccess (structs : Array StructDecl) (base : Access)
     memory := true
   }
 
-partial def emitNode (schema : JsonSchemaPlan) (structs : Array StructDecl)
+partial def emitNode (schema : JsonSchemaPlan) (structs : Array StructPlan.Struct)
     (nodeId : Nat) (access : Access) : Except String (Array Insn) := do
   let some node := schema.nodes.find? (·.id == nodeId)
     | throw s!"JSON return schema references missing node {nodeId}"
@@ -389,7 +403,7 @@ def arrayLocals (schema : JsonSchemaPlan) : Array Local :=
     { name := s!"__pf_json_array_index_{node.id}", type := .i32 }
   ] else #[]
 
-def buildReturnFunc (entrypoint : String) (structs : Array StructDecl)
+def buildReturnFunc (entrypoint : String) (structs : Array StructPlan.Struct)
     (schema : JsonSchemaPlan) (type : ValueType) : Except String Func := do
   schema.validate
   let body ← emitNode schema structs schema.rootNode (rootAccess type)
@@ -399,11 +413,5 @@ def buildReturnFunc (entrypoint : String) (structs : Array StructDecl)
     locals := arrayLocals schema
     body := { insns := #[.call startName] ++ body ++ #[.call finishName] }
   }
-
-def buildReturnFuncFromStructPlans (entrypoint : String)
-    (structs : Array ProofForge.Backend.WasmHost.StructPlan.Struct)
-    (schema : JsonSchemaPlan) (type : ValueType) : Except String Func :=
-  buildReturnFunc entrypoint
-    (structs.map ProofForge.Backend.WasmHost.StructPlan.toIR) schema type
 
 end ProofForge.Backend.WasmHost.JsonReturn

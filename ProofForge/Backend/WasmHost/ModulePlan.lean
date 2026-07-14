@@ -1,8 +1,7 @@
 import ProofForge.Backend.WasmHost.AbiPlan
 import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Backend.WasmHost.StructPlan
-import ProofForge.Backend.WasmHost.Types
-import ProofForge.IR.Contract
+import ProofForge.IR.Prelude
 import ProofForge.Target.HostBridge
 
 /-! Target-neutral data contract consumed by Wasm-host renderers. -/

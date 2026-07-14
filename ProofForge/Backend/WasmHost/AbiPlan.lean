@@ -1,4 +1,4 @@
-import ProofForge.IR.Contract
+import ProofForge.IR.ValueType
 
 namespace ProofForge.Backend.WasmHost.AbiPlan
 

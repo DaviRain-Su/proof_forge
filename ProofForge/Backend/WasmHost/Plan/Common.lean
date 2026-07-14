@@ -1,6 +1,7 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Backend.Diagnostic
+import ProofForge.Backend.WasmHost.Plan.Types
 import ProofForge.IR.Contract
 import ProofForge.Backend.WasmHost.ExprAnalysis
 
@@ -20,20 +21,6 @@ instance : ProofForge.Backend.Diagnostic.LoweringError PlanError where
   toDiagnostic := fun e =>
     { message := e.message, backend? := some "wasm-near" }
 
-inductive ContextExprPlan where
-  | userId
-  | userIdHash
-  | accountId
-  | contractId
-  | checkpointId
-  | timestamp
-  | epochHeight
-  | randomSeed
-  | origin
-  | prepaidGas
-  | usedGas
-  deriving BEq, DecidableEq, Repr
-
 def ContextExprPlan.field : ContextExprPlan → ContextField
   | .userId => .userId
   | .userIdHash => .userIdHash
@@ -46,11 +33,6 @@ def ContextExprPlan.field : ContextExprPlan → ContextField
   | .origin => .origin
   | .prepaidGas => .prepaidGas
   | .usedGas => .usedGas
-
-def ContextExprPlan.resultType : ContextExprPlan → ValueType
-  | .randomSeed | .userIdHash => .hash
-  | .accountId => .string
-  | _ => .u64
 
 def buildContextExprPlan : ContextField → Except PlanError ContextExprPlan
   | .userId => .ok .userId

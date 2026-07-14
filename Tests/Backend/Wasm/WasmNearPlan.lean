@@ -1,5 +1,5 @@
 import ProofForge.Backend.WasmHost.EmitWat
-import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.Plan.Legacy
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.ArrayProbe
 import ProofForge.IR.Examples.HashStorageProbe

@@ -38,7 +38,7 @@ import ProofForge.Backend.WasmHost.ExprAnalysis
 import ProofForge.Backend.WasmHost.Hash
 import ProofForge.Backend.WasmHost.Imports
 import ProofForge.Backend.WasmHost.JsonEncode
-import ProofForge.Backend.WasmHost.JsonReturn
+import ProofForge.Backend.WasmHost.JsonReturn.Legacy
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.Locals
 import ProofForge.Backend.WasmHost.LoweringEnv
@@ -46,8 +46,8 @@ import ProofForge.Backend.WasmHost.Map
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.ModuleAssembly
 import ProofForge.Backend.WasmHost.Params
-import ProofForge.Backend.WasmHost.NearAbiPlan
-import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.NearAbiPlan.Legacy
+import ProofForge.Backend.WasmHost.Plan.Legacy
 import ProofForge.Backend.WasmHost.PortableCrosscall
 import ProofForge.Backend.WasmHost.Promise
 import ProofForge.Backend.WasmHost.Return
@@ -1411,7 +1411,7 @@ def lowerModuleCoreWithCtx (mod : ProofForge.IR.Module) (modulePlan : ModulePlan
   let ctx := { ctx with usesHashAlloc := modulePlanUsesHashAlloc modulePlan }
   for abi in ctx.entrypointAbis do
     if let some schema := abi.outputJson? then
-      match JsonReturn.buildReturnFunc abi.name ctx.structs schema abi.returnType with
+      match JsonReturn.buildReturnFuncFromIR abi.name ctx.structs schema abi.returnType with
       | .ok _ => pure ()
       | .error message =>
           err s!"EmitWat: JSON return ABI `{abi.name}` cannot be lowered: {message}"

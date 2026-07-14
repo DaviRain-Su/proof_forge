@@ -1,5 +1,8 @@
 import ProofForge.Backend.WasmHost.NearModulePlan
 import ProofForge.Backend.WasmHost.EmitWat
+import ProofForge.Backend.WasmHost.NearAbiPlan.Legacy
+import ProofForge.Backend.WasmHost.Plan.Legacy
+import ProofForge.Backend.WasmHost.StructPlan.Legacy
 import ProofForge.Compiler.Wasm.Printer
 
 /-! Legacy `IR.Module` compatibility for the NEAR plan pipeline.
@@ -76,7 +79,7 @@ def buildNearModulePlan (mod : Module) : Except PlanError NearModulePlan := do
       mapkeyBuf := MAPKEY_BUF
       stringBase := STRING_BASE
       crosscallStringBase := CROSSCALL_STRING_BASE
-      structs := mod.structs.map ProofForge.Backend.WasmHost.StructPlan.ofIR
+      structs := mod.structs.map ProofForge.Backend.WasmHost.StructPlan.Legacy.ofIR
     }
   }
 

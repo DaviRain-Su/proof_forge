@@ -17,7 +17,7 @@ abbrev JsonFieldPlan := ProofForge.Backend.WasmHost.AbiPlan.JsonFieldPlan
 abbrev JsonNodePlan := ProofForge.Backend.WasmHost.AbiPlan.JsonNodePlan
 abbrev JsonSchemaPlan := ProofForge.Backend.WasmHost.AbiPlan.JsonSchemaPlan
 
-partial def borshByteWidth (structs : Array StructDecl) : ValueType → Except String Nat
+partial def borshByteWidth (structs : Array StructPlan.Struct) : ValueType → Except String Nat
   | .unit => .ok 0
   | .bool | .u8 => .ok 1
   | .u32 => .ok 4
@@ -35,7 +35,7 @@ partial def borshByteWidth (structs : Array StructDecl) : ValueType → Except S
       .ok size
   | type => .error s!"NEAR Borsh ABI does not support dynamic `{type.name}` values"
 
-partial def appendJsonValueSchema (structs : Array StructDecl) (type : ValueType)
+partial def appendJsonValueSchema (structs : Array StructPlan.Struct) (type : ValueType)
     (nodes : Array JsonNodePlan) : Except String (Nat × Array JsonNodePlan) := do
   let appendLeaf (kind : JsonNodeKind) : Nat × Array JsonNodePlan :=
     let id := nodes.size
@@ -71,7 +71,7 @@ partial def appendJsonValueSchema (structs : Array StructDecl) (type : ValueType
       return (id, nodes.push {
         id, kind := .object, valueType? := some type, fields })
 
-def buildJsonObjectSchema (structs : Array StructDecl)
+def buildJsonObjectSchema (structs : Array StructPlan.Struct)
     (params : Array (String × ValueType)) : Except String JsonSchemaPlan := do
   let mut nodes := #[]
   let mut fields := #[]
@@ -84,7 +84,7 @@ def buildJsonObjectSchema (structs : Array StructDecl)
   nodes := nodes.push { id := rootNode, kind := .object, fields }
   return { rootNode, nodes, orderIndependent := true, rejectUnknownFields := true }
 
-def buildJsonValueSchema (structs : Array StructDecl) (type : ValueType) :
+def buildJsonValueSchema (structs : Array StructPlan.Struct) (type : ValueType) :
     Except String JsonSchemaPlan := do
   let (rootNode, nodes) ← appendJsonValueSchema structs type #[]
   return { rootNode, nodes }
@@ -105,7 +105,7 @@ def withOptionalRoot (schema : JsonSchemaPlan) : Except String JsonSchemaPlan :=
 
 /-- Wallet-compatible JSON selection plus its explicit wire schemas. Contract
 lowering and generated clients consume this single target ABI decision. -/
-def jsonSchemasForSignature (structs : Array StructDecl) (name : String)
+def jsonSchemasForSignature (structs : Array StructPlan.Struct) (name : String)
     (params : Array (String × ValueType)) (returns : ValueType) :
     Except String (Option JsonSchemaPlan × Option JsonSchemaPlan) := do
   if name == "ft_total_supply" then
@@ -174,7 +174,7 @@ def jsonSchemasForSignature (structs : Array StructDecl) (name : String)
       some (← buildJsonValueSchema structs returns))
   return (none, none)
 
-def buildSignaturePlan (structs : Array StructDecl) (name : String)
+def buildSignaturePlan (structs : Array StructPlan.Struct) (name : String)
     (signatureParams : Array (String × ValueType)) (returns : ValueType) :
     Except String EntrypointPlan := do
   let (inputJson?, outputJson?) ←
@@ -209,26 +209,5 @@ def buildSignaturePlan (structs : Array StructDecl) (name : String)
     inputJson?
     outputJson?
   }
-
-def buildSignaturePlanFromStructPlans
-    (structs : Array ProofForge.Backend.WasmHost.StructPlan.Struct) (name : String)
-    (signatureParams : Array (String × ValueType)) (returns : ValueType) :
-    Except String EntrypointPlan :=
-  buildSignaturePlan (structs.map ProofForge.Backend.WasmHost.StructPlan.toIR)
-    name signatureParams returns
-
-def buildEntrypointPlan (structs : Array StructDecl) (entrypoint : Entrypoint) :
-    Except String EntrypointPlan :=
-  buildSignaturePlan structs entrypoint.name entrypoint.params entrypoint.returns
-
-def buildModulePlans (module : Module) : Except String (Array EntrypointPlan) :=
-  module.entrypoints.mapM (buildEntrypointPlan module.structs)
-
-def validateEntrypointPlan (structs : Array StructDecl) (entrypoint : Entrypoint)
-    (plan : EntrypointPlan) : Except String Unit := do
-  let expected <- buildEntrypointPlan structs entrypoint
-  if plan != expected then
-    .error s!"NEAR ABI plan for entrypoint `{entrypoint.name}` does not match its signature"
-  .ok ()
 
 end ProofForge.Backend.WasmHost.NearAbiPlan

@@ -1,6 +1,6 @@
 import ProofForge.Contract.Spec.Json
 import ProofForge.Backend.Evm.AbiType
-import ProofForge.Backend.WasmHost.NearAbiPlan
+import ProofForge.Backend.WasmHost.NearAbiPlan.Legacy
 import ProofForge.IR.Contract
 import ProofForge.IR.Mutability
 

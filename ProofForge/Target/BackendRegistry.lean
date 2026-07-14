@@ -4,7 +4,7 @@ import ProofForge.Backend.Solana.Plan
 import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.IR
-import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.Plan.Legacy
 import ProofForge.Compiler.Yul.Printer
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Target.Backend

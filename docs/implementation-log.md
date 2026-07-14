@@ -2661,3 +2661,29 @@ Rules:
   `Tests/NearAbiPlan.lean`, and `just canonical-boundary`.
 - Next: extract the Wasm-host value/type model so the plan no longer imports
   v1 `IR.Contract` merely to name scalar and aggregate value shapes.
+
+## 2026-07-14 - NEAR-R1b: portable value types and pure plan modules
+
+- Status: `done (verified 2026-07-14)`.
+- Extracted the chain-neutral `ValueType` vocabulary from the v1 contract
+  schema into `IR.ValueType`; `IR.Contract` now consumes it rather than owning
+  it. The legacy classifier records that it only classifies value shapes when
+  they occur inside compatibility contract nodes.
+- Made Wasm-host ABI, struct, surface, and module plan data modules depend on
+  portable value types instead of `IR.Contract`. Moved old `Module -> Plan`,
+  ABI, struct, and JSON-return conversions into explicit `.Legacy` modules.
+- Canonical JSON return layout computes target-plan field offsets directly;
+  it no longer converts target struct plans back into `StructDecl`.
+- Expanded `canonical-boundary` to protect all pure Wasm-host plan modules
+  from imports of `IR.Contract`, `IR.Legacy`, or any Wasm-host `.Legacy`
+  module.
+- Updated EVM, NEAR, and Psy coverage-manifest scanners to read constructors
+  from both `IR.ValueType` and the remaining compatibility contract schema.
+- Extended the legacy schema freeze to watch `IR.ValueType`, so constructor
+  changes still require an explicit compatibility-classification update.
+- Verification passed: targeted builds through `Target.BackendRegistry`,
+  `Tests/Canonical/WasmHostPlanPreservation.lean`, `Tests/NearAbiPlan.lean`,
+  `Tests/NearModulePlan.lean`, all three IR coverage-manifest scanners, and
+  `just canonical-boundary`.
+- Next: NEAR-R2, replace shared context/promise operation variants with typed
+  target HostOps before the TokenSpec cutover.

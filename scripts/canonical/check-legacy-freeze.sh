@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_PATH=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
 
 SCHEMA_FILES=(
+  "ProofForge/IR/ValueType.lean"
   "ProofForge/IR/Contract.lean"
   "ProofForge/Contract/Spec.lean"
 )
@@ -53,6 +54,7 @@ run_self_tests() {
   mkdir -p "$source_repo/ProofForge/IR/Legacy" "$source_repo/ProofForge/Contract" \
     "$source_repo/scripts/canonical"
   printf '%s\n' 'inductive LegacySchema where | original' > "$source_repo/ProofForge/IR/Contract.lean"
+  printf '%s\n' 'inductive ValueType where | original' > "$source_repo/ProofForge/IR/ValueType.lean"
   printf '%s\n' 'structure LegacySpec where' '  name : String' > "$source_repo/ProofForge/Contract/Spec.lean"
   printf '%s\n' 'def classification := #["original"]' > "$source_repo/$CLASSIFICATION_FILE"
   : > "$source_repo/scripts/canonical/legacy-production-imports.txt"

@@ -2,7 +2,7 @@
 
 Status: active (updated 2026-07-14; N-T1 through N-T4 have executable behavior
 baselines but are reopened until those gates run through the canonical-only
-NEAR product route; NEAR-R0 is complete and NEAR-R1 is in progress).
+NEAR product route; NEAR-R0/R1 are complete and NEAR-R2 is in progress).
 Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
@@ -35,8 +35,8 @@ not accepted as architecture completion.
 | ID | State | Deliverable |
 |---|---|---|
 | NEAR-R0 | done (`b8acc604`) | Move v1 module-plan compatibility into an explicit Legacy module and enforce static import boundaries |
-| NEAR-R1 | in_progress | Make every `NearModulePlan` field target-owned |
-| NEAR-R2 | pending | Represent NEAR-only semantics as typed target HostOps, not shared Core constructors |
+| NEAR-R1 | done (verified 2026-07-14) | Make every `NearModulePlan` field target-owned |
+| NEAR-R2 | in_progress | Represent NEAR-only semantics as typed target HostOps, not shared Core constructors |
 | NEAR-R3 | pending | Materialize TokenSpec/Surface v2 directly into checked Canonical Core |
 | NEAR-R4 | pending | Switch CLI/product dispatch and replay N-T1 through N-T4 behavior gates |
 | NEAR-R5 | pending | Delete obsolete NEAR product sources, adapters, and compatibility APIs after caller count reaches zero |

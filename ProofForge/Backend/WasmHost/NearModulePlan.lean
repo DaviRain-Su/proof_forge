@@ -862,7 +862,7 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
       let schemaFuncs ← jsonAbis.mapM fun abi => do
         let some schema := abi.outputJson?
           | Diagnostics.err s!"canonical NEAR JSON ABI `{abi.name}` is missing its output schema"
-        match JsonReturn.buildReturnFuncFromStructPlans abi.name plan.lowerCtxSeed.structs schema abi.returnType with
+        match JsonReturn.buildReturnFunc abi.name plan.lowerCtxSeed.structs schema abi.returnType with
         | .ok func => pure func
         | .error message => Diagnostics.err s!"canonical NEAR JSON ABI `{abi.name}`: {message}"
       pure <| #[EmitWat.memcpyFunc, Event.fmtU64Func, Scalar.u128Divmod10Func,

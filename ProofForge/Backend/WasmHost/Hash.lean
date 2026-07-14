@@ -8,6 +8,7 @@ import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Memory
 import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Backend.WasmHost.Types
+import ProofForge.Target.HostBridge
 
 namespace ProofForge.Backend.WasmHost.Hash
 

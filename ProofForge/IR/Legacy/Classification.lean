@@ -49,7 +49,11 @@ private def payloadDecision (nodeTag : String) (disposition : LegacyDisposition)
   { nodeTag, disposition, owner, reason }
 
 /- Payload classifiers are deliberately constructor-exhaustive. Outer-node
-classifiers must not hide schema growth in nested legacy inductives. -/
+classifiers must not hide schema growth in nested legacy inductives.
+
+`ValueType` now lives in the portable `IR.ValueType` module rather than the v1
+contract schema. This classifier remains only to decide how value shapes found
+inside compatibility `Contract` nodes normalize into Canonical Core. -/
 
 def classifyValueType : ValueType → LegacyDecision
   | .unit => payloadDecision "ValueType.unit" .normalize "canonical-core" "unit type maps to CoreType.unit"

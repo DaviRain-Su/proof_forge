@@ -1,4 +1,4 @@
-import ProofForge.IR.Contract
+import ProofForge.IR.ValueType
 
 /-! Target-owned aggregate layout used by Wasm-host plans. -/
 
@@ -20,31 +20,5 @@ structure Struct where
   isPublic : Bool := false
   isRecord : Bool := false
   deriving Repr, BEq
-
-def ofIR (declaration : StructDecl) : Struct := {
-  name := declaration.name
-  fields := declaration.fields.map fun field => {
-    id := field.id
-    type := field.type
-    isPublic := field.isPublic
-    isRef := field.isRef
-  }
-  deriveStorage := declaration.deriveStorage
-  isPublic := declaration.isPublic
-  isRecord := declaration.isRecord
-}
-
-def toIR (plan : Struct) : StructDecl := {
-  name := plan.name
-  fields := plan.fields.map fun field => {
-    id := field.id
-    type := field.type
-    isPublic := field.isPublic
-    isRef := field.isRef
-  }
-  deriveStorage := plan.deriveStorage
-  isPublic := plan.isPublic
-  isRecord := plan.isRecord
-}
 
 end ProofForge.Backend.WasmHost.StructPlan

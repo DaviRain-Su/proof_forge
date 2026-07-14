@@ -1,6 +1,6 @@
 import ProofForge.Backend.WasmHost.EmitWat
-import ProofForge.Backend.WasmHost.JsonReturn
-import ProofForge.Backend.WasmHost.NearAbiPlan
+import ProofForge.Backend.WasmHost.JsonReturn.Legacy
+import ProofForge.Backend.WasmHost.NearAbiPlan.Legacy
 import ProofForge.Backend.WasmHost.NearModulePlan.Legacy
 import ProofForge.Backend.WasmHost.WasmInterpreter
 
@@ -364,7 +364,7 @@ def main : IO Unit := do
   require ((storageUnregisterAbi.inputJson?.bind (·.root?) |>.bind (fun root => root.fields[0]?)
       |>.map (·.required)) == some false && storageUnregisterAbi.outputCodec == .json)
     "storage_unregister force must be optional and its Bool result must use JSON"
-  let aggregateSchema ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildJsonValueSchema
+  let aggregateSchema ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildJsonValueSchemaFromIR
       jsonSchemaStructs (.structType "StorageBalance") with
     | .ok schema => pure schema
     | .error message => throw <| IO.userError message
@@ -374,7 +374,7 @@ def main : IO Unit := do
       node.kind == .fixedArray && node.fixedLength? == some 2)
     "JSON schema graph must represent fixed-array fields"
   let aggregateReturnFunc ← match
-      ProofForge.Backend.WasmHost.JsonReturn.buildReturnFunc "storage_balance_of"
+      ProofForge.Backend.WasmHost.JsonReturn.buildReturnFuncFromIR "storage_balance_of"
         jsonSchemaStructs aggregateSchema (.structType "StorageBalance") with
     | .ok func => pure func
     | .error message => throw <| IO.userError message
@@ -400,7 +400,7 @@ def main : IO Unit := do
   match optionalSchema.validate with
   | .ok _ => pure ()
   | .error message => throw <| IO.userError s!"valid optional JSON schema rejected: {message}"
-  let optionalInputBase ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildJsonObjectSchema
+  let optionalInputBase ← match ProofForge.Backend.WasmHost.NearAbiPlan.buildJsonObjectSchemaFromIR
       #[] #[("memo", .string)] with
     | .ok schema => pure schema
     | .error message => throw <| IO.userError message

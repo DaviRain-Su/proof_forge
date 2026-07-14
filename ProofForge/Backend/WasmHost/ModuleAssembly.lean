@@ -12,7 +12,7 @@ import ProofForge.Backend.WasmHost.Context
 import ProofForge.Backend.WasmHost.Crosscall
 import ProofForge.Backend.WasmHost.Event
 import ProofForge.Backend.WasmHost.Hash
-import ProofForge.Backend.WasmHost.JsonReturn
+import ProofForge.Backend.WasmHost.JsonReturn.Legacy
 import ProofForge.Backend.WasmHost.StringCmp
 import ProofForge.Backend.WasmHost.Layout
 import ProofForge.Backend.WasmHost.LoweringEnv
@@ -162,7 +162,7 @@ def helperFuncsForModulePlan (modulePlan : ModulePlan) (mod : ProofForge.IR.Modu
     if jsonAbis.isEmpty then #[] else
       let schemaFuncs := jsonAbis.filterMap fun abi =>
         abi.outputJson?.bind fun schema =>
-          (JsonReturn.buildReturnFunc abi.name ctx.structs schema abi.returnType).toOption
+          (JsonReturn.buildReturnFuncFromIR abi.name ctx.structs schema abi.returnType).toOption
       #[memcpyFunc, fmtU64Func, u128Divmod10Func, u128FmtFunc] ++
         JsonReturn.runtimeFuncs ++ schemaFuncs
   let jsonInputHelpers :=

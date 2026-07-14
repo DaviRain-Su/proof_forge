@@ -39,9 +39,14 @@ CANONICAL_PATHS=(
   ProofForge/Backend/Solana/Plan/Core.lean
   ProofForge/Backend/WasmHost/NearModulePlan/Core.lean
   ProofForge/Backend/WasmHost/ModulePlan/Lower.lean
+  ProofForge/Backend/WasmHost/ModulePlan.lean
+  ProofForge/Backend/WasmHost/Plan.lean
+  ProofForge/Backend/WasmHost/Plan/Types.lean
+  ProofForge/Backend/WasmHost/AbiPlan.lean
+  ProofForge/Backend/WasmHost/StructPlan.lean
 )
 for f in "${CANONICAL_PATHS[@]}"; do
-  if rg -n '^\s*import\s+(ProofForge\.IR\.(Contract|Legacy)(\.|\s|$)|ProofForge\.Backend\.WasmHost\.NearModulePlan\.Legacy(\s|$))' "$f" >/dev/null 2>&1; then
+  if rg -n '^\s*import\s+(ProofForge\.IR\.(Contract|Legacy)(\.|\s|$)|ProofForge\.Backend\.WasmHost\.[A-Za-z0-9_.]*Legacy(\s|$))' "$f" >/dev/null 2>&1; then
     report "canonical path $f imports retired IR compatibility"
   fi
 done

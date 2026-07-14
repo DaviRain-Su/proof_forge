@@ -4,90 +4,9 @@ import ProofForge.Target.Capability
 import ProofForge.Target.HostOp
 import ProofForge.Target.HostRuntime
 import ProofForge.IR.Allocator
+import ProofForge.IR.ValueType
 
 namespace ProofForge.IR
-
-/--! ### ValueType portability vocabulary (D-050 Slice 2)
-
-`ValueType` constructors are chain-neutral. In particular `.address` is a
-**portable account/identity handle**, not an EVM 20-byte address: each target
-adapter renames it to its native identity encoding (EVM `address`, Solana
-`Pubkey`, NEAR `AccountId`, Move `signer`/`address`) via the target ABI
-metadata bag (`paramAbiWords`). `ValueType.byteWidth` is the EVM storage width
-and only consulted by the EVM adapter; it is not part of the portable
-contract.
--/
-
-inductive ValueType where
-  | unit
-  | bool
-  | u8
-  | u32
-  | u64
-  | u128
-  | address
-  | bytes
-  | string
-  | hash
-  | fixedArray (element : ValueType) (length : Nat)
-  | structType (name : String)
-  | array (element : ValueType)
-  deriving BEq, DecidableEq, Repr
-
-def ValueType.name : ValueType → String
-  | .unit => "Unit"
-  | .bool => "Bool"
-  | .u8 => "U8"
-  | .u32 => "U32"
-  | .u64 => "U64"
-  | .u128 => "U128"
-  | .address => "Address"
-  | .bytes => "Bytes"
-  | .string => "String"
-  | .hash => "Hash"
-  | .fixedArray element length => s!"Array<{element.name},{length}>"
-  | .structType name => name
-  | .array element => s!"Array<{element.name}>"
-
-def ValueType.capabilities : ValueType → Array ProofForge.Target.Capability
-  | .unit => #[]
-  | .bool => #[]
-  | .u8 => #[]
-  | .u32 => #[]
-  | .u128 => #[]
-  | .u64 => #[]
-  | .address => #[]
-  | .bytes => #[.dataDynamicBytes]
-  | .string => #[.dataDynamicBytes]
-  | .hash => #[]
-  | .fixedArray element _ => #[.dataFixedArray] ++ element.capabilities
-  | .structType _ => #[.dataStruct]
-  | .array element => #[.dataDynamicArray] ++ element.capabilities
-
-/--! Byte width of a scalar `ValueType` in EVM storage. Returns 0 for non-scalar types. -/
-def ValueType.byteWidth : ValueType → Nat
-  | .bool => 1
-  | .u8 => 1
-  | .u32 => 4
-  | .u64 => 8
-  | .u128 => 16
-  | .address => 20
-  | .hash => 32
-  | .unit | .bytes | .string | .fixedArray _ _ | .structType _ | .array _ => 0
-
-/--! Whether a `ValueType` is a packed storage scalar (byteWidth > 0 and < 32). -/
-def ValueType.isPackedScalar : ValueType → Bool
-  | .bool | .u8 | .u32 | .u64 | .u128 | .address => true
-  | .unit | .hash | .bytes | .string | .fixedArray _ _ | .structType _ | .array _ => false
-
-/-- Portable identity `ValueType` constructors — every primary target has a
-native account/identity encoding for these, so a module may use them without a
-family-only finding. `.address` is the chain-neutral account/identity handle;
-target adapters rename it to native form (EVM `address`, Solana `Pubkey`, NEAR
-`AccountId`, Move `signer`/`address`) via `paramAbiWords` metadata. -/
-def ValueType.isPortableIdentity : ValueType → Bool
-  | .address => true
-  | _ => false
 
 structure StructField where
   id : String
