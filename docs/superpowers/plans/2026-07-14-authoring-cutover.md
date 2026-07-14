@@ -1,0 +1,105 @@
+# Unified Contract Authoring Cutover
+
+Date: 2026-07-14
+
+## Decision
+
+`Examples/Product/*.lean` is the only authored product source tree. A product
+must remain target-neutral and use the `contract_source` syntax. Target choice
+changes materialization only; it must not select a second handwritten contract.
+
+`ProofForge.Frontend.Surface` is an internal normalization AST. Users and
+product examples must not import it, construct `SurfaceContract`, or depend on
+its constructors. `Canonical Core` is also compiler-owned output, not a second
+authoring language.
+
+There is one current source format. Public diagnostics and artifact metadata
+must not advertise `v1`, `v2`, `legacyV1`, `surfaceV2`, or `surface-v2` after
+the cutover.
+
+## Verified Current State
+
+- `contract_source` expands to `ContractSpec` and `IR.Module` in
+  `ProofForge/Contract/Source.lean`.
+- Production `Frontend.ContractSpec.normalize` still calls
+  `IR.Legacy.Adapter.adaptLegacy`.
+- `Examples/Product/Canonical` contains 28 handwritten/internal-Surface EVM
+  product variants. They duplicate the business contracts in `Examples/Product`.
+- The EVM product route and direct-product tests currently compile the duplicate
+  directory, while NEAR and Solana compile the original product source.
+- `Compiler.LoadedContractSource` and `Cli.ContractLoader` expose a public
+  `legacyV1` versus `surfaceV2` split.
+- Backend goldens have been removed from `Examples/Product`; live expectations
+  now reside under `Examples/Backend/<Target>`.
+
+## Required Sequence
+
+### A-CUT1 - Internal frontend boundary
+
+- Keep `Frontend.Surface` compiler-internal.
+- Move helper modules out of public `Contract.SurfaceV2` ownership.
+- Add an import-boundary gate: files below `Examples/Product` and public
+  `ProofForge.Contract.Source*` modules may not import `Frontend.Surface`.
+
+Acceptance: the boundary gate passes and no new public Surface authoring path is
+introduced.
+
+### A-CUT2 - Direct `contract_source` frontend
+
+- Preserve the existing user syntax, including the Counter source exactly as a
+  target-neutral business contract.
+- Change macro output from `ContractSpec`/`IR.Module` to one compiler-owned
+  authored-contract value that normalizes directly to checked Canonical Core.
+- Preserve invariants, liveness declarations, entrypoint mutability, ABI
+  overrides, constructor declarations, intents, mixin composition, and target
+  extension HostOps without constructing Legacy IR.
+- Resolve target ABI selectors during target planning, not in product source.
+
+Acceptance: `Examples/Product/Counter.lean` reaches EVM, Solana, and NEAR Core
+plans without importing or invoking `IR.Legacy.Adapter`.
+
+### A-CUT3 - Product migration
+
+- Migrate every `catalog.json` source through the direct frontend.
+- Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
+  live in intent materializers, target HostOps, target profiles, or backend
+  fixtures.
+- Collection abstractions such as Queue and Set become public DSL/stdlib
+  features used from the product source, not standalone handwritten Surface
+  products.
+
+Acceptance: the complete catalog compiles from `Examples/Product/<file>` for
+every advertised target; focused target gates preserve existing behavior.
+
+### A-CUT4 - Delete duplicate source and version split
+
+- Delete `Examples/Product/Canonical` and its allowlist entries.
+- Repoint EVM product gates to `Examples/Product`.
+- Replace `LoadedContractSource.legacyV1/surfaceV2` with one current source
+  variant, then remove dual-source ambiguity diagnostics.
+- Replace public `surface-v2` and `contract_source-v1/v2` metadata with one
+  stable `contract-source` identity. Versioning, if later needed, belongs in a
+  schema field and must not create two production compiler routes.
+
+Acceptance: repository search finds no Product/Canonical route and no public
+V1/V2 source branch.
+
+### A-CUT5 - Delete Legacy production code
+
+- Delete `Frontend.ContractSpec.Normalize`, production `adaptLegacy` callers,
+  Legacy backend plan modules, compatibility constructors, and freeze
+  allowlists after caller count reaches zero.
+- Move any historical parity fixture that remains useful out of production
+  imports; delete obsolete dual-run gates.
+- Keep target backends consuming only checked Canonical Core plus target-owned
+  plans/HostOps.
+
+Acceptance: production `ProofForge/**` contains no `IR.Legacy` import or
+`adaptLegacy` call, the CLI cannot select a Legacy pipeline, and primary-triad
+product gates pass from the single author source.
+
+## Commit Discipline
+
+Commit each A-CUT task after targeted verification. Do not start NEAR-R2 until
+A-CUT1 through A-CUT5 are complete. Do not solve a failing product by copying
+its logic into a target-specific or Canonical product directory.

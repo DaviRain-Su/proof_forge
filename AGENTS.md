@@ -150,6 +150,20 @@ EVM migration. Finish these rows before resuming NEAR-R2:
 | EVM-R3 | done (public Yul, optimized bytecode, check, plan metadata, and 28-product CLI catalog verified 2026-07-14) | Switch EVM build/emit/check and product dispatch to the direct canonical route and replay focused EVM behavior/runtime gates |
 | EVM-R4 | done (R4a-R4f verified 2026-07-14) | Delete obsolete EVM legacy lowering, adapters, constructors, compatibility APIs, and freeze-baseline entries after caller count reaches zero |
 
+Before NEAR-R2, complete the single-authoring cutover in
+[the July 14 authoring plan](docs/superpowers/plans/2026-07-14-authoring-cutover.md).
+`Examples/Product` is the only product source; `Frontend.Surface` and Canonical
+Core are internal compiler representations.
+
+| ID | State | Task |
+|---|---|---|
+| A-CUT0 | done (verified 2026-07-14) | Move backend goldens out of Product and delete unused duplicates |
+| A-CUT1 | in_progress (protocol helper internalized) | Enforce the internal Surface boundary |
+| A-CUT2 | pending | Make existing `contract_source` syntax normalize directly to Canonical Core |
+| A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
+| A-CUT4 | pending | Delete `Examples/Product/Canonical` and the public V1/V2 source split |
+| A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
+
 The D-052 cross-program routing index remains below for work not superseded by
 the active NEAR sequence.
 
