@@ -228,7 +228,7 @@ Evidence: grammar move `52402821`, acceptance repair `c1433b2e`, initial guard
 - Consumes: `IntentContract`, `IntentMaterialization`, and the duplicate-safe materializer registry from A2.
 - Produces: a reviewed allowlist of existing product-level `ContractSpec` construction sites and a gate preventing growth.
 
-- [ ] **Step 1: Inventory exact product construction sites**
+- [x] **Step 1: Inventory exact product construction sites**
 
 Run:
 
@@ -241,7 +241,7 @@ Record only legitimate pre-migration locations in
 `scripts/portable/product-contract-spec-allowlist.txt` using
 `path:line-independent-pattern` entries. Do not use line numbers as identity.
 
-- [ ] **Step 2: Write the failing boundary test**
+- [x] **Step 2: Write the failing boundary test**
 
 Create `Tests/IntentProductBoundary.lean` with a minimal intent materializer
 whose result contains a `ContractSpec`, then assert that target selection occurs
@@ -260,7 +260,7 @@ require (result.targetId == "evm") "registry selected the wrong target"
 Use the exact A2 API names if they differ from the design, and update this plan's
 interface note in the completion log rather than introducing duplicate wrappers.
 
-- [ ] **Step 3: Add the shrinking allowlist check**
+- [x] **Step 3: Add the shrinking allowlist check**
 
 Extend `check-portable-default.py` to scan only `ProofForge/Contract` and
 `Examples/Product`, compare matches against the reviewed patterns, and fail on
@@ -270,7 +270,7 @@ new direct construction. The diagnostic must include:
 portable-default: new product ContractSpec coupling: <path>:<symbol>
 ```
 
-- [ ] **Step 4: Verify and advance the ledger**
+- [x] **Step 4: Verify and advance the ledger**
 
 Run:
 
@@ -284,7 +284,7 @@ git diff --check
 Expected: pass. Advance D2 to `replacement_ready`; existing product families
 remain on their old defaults.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Tests/IntentProductBoundary.lean scripts/portable/check-portable-default.py \

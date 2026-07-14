@@ -2513,3 +2513,15 @@ Rules:
   `just ir-target-boundary`, and EVM/NEAR/EmitWat/Psy coverage checks.
 - Next: IR-B4c, move EIP-712/ecrecover and remaining EVM-only call forms out
   of shared IR; separately audit and retire the legacy pipeline itself.
+
+## 2026-07-14 - Legacy plan audit: D2 status repair
+
+- Status: `done (documentation repair)`.
+- Verified that D2 was already implemented by `1caa87ff`: the reviewed product
+  `ContractSpec` allowlist, `Tests/IntentProductBoundary.lean`, and the
+  `portable-default` shrinking guard all exist and pass.
+- Updated the authoritative incremental replacement plan to mark D2 complete;
+  no compiler behavior changed.
+- Verification passed: `lake env lean --run Tests/IntentProductBoundary.lean`
+  and `just portable-default`.
+- Next: D5, migrate Counter as the first existing product family.
