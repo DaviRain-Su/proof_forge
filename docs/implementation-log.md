@@ -2687,3 +2687,24 @@ Rules:
   `just canonical-boundary`.
 - Next: NEAR-R2, replace shared context/promise operation variants with typed
   target HostOps before the TokenSpec cutover.
+
+## 2026-07-14 - IR-B7a: target-owned context HostOps
+
+- Status: `done (verified 2026-07-14)` for the Canonical Core context subtask;
+  EVM-R1 and NEAR-R2 remain open.
+- Reduced `Core.ContextField` to portable sender/value/block/time/gas/contract
+  reads. EVM `origin`/`prevrandao` and NEAR predecessor/current account,
+  epoch, random seed, prepaid gas, and used gas are exact typed HostOps.
+- Added the read-only HostOp effect class so target context calls are legal in
+  view entrypoints without treating promise/receiver calls as read-only.
+- Legacy adaptation now translates old target-specific context constructors
+  into target HostOps; EVM and NEAR planners consume only their own IDs and the
+  handler gate rejects cross-target use.
+- Extended `canonical-boundary` and its self-test to reject target-native Core
+  context constructors, and added the focused HostOp route test to that gate.
+- Verification passed: affected Core/Surface/EVM/Solana/Stylus/NEAR builds,
+  `Tests/Canonical/TargetContextHostOps.lean`, `just canonical-boundary`, and
+  `git diff --check`.
+- Corrected the control-plane status: EVM's plan-only renderer baseline is not
+  an end-to-end legacy removal. Work resumes at EVM-R1, then EVM-R2 through
+  EVM-R4; NEAR follows only after EVM exits.

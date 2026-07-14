@@ -331,6 +331,7 @@ canonical-boundary:
     scripts/canonical/check-boundary-self-test.sh
     scripts/canonical/check-boundary.sh
     lake env lean --run Tests/Canonical/Boundary.lean
+    lake env lean --run Tests/Canonical/TargetContextHostOps.lean
 
 # PF-P1-01: registry-backed TargetBackend + CLI driver dispatch.
 target-backend:

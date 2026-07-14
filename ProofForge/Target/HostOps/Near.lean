@@ -11,6 +11,54 @@ namespace ProofForge.Target.HostOps.Near
 open ProofForge.IR.Core
 open ProofForge.IR.Core.HostOp
 
+def predecessorAccountIdSig : HostOpSig := {
+  id := { namespace_ := "near.context", name := "predecessor_account_id", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[]
+  results := #[.string]
+  effectClass := .context
+  requiredCapabilities := #[.callerSender]
+}
+
+def currentAccountIdSig : HostOpSig := {
+  id := { namespace_ := "near.context", name := "current_account_id", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[]
+  results := #[.string]
+  effectClass := .context
+  requiredCapabilities := #[.accountExplicit]
+}
+
+def epochHeightSig : HostOpSig := {
+  id := { namespace_ := "near.context", name := "epoch_height", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[]
+  results := #[.u64]
+  effectClass := .context
+  requiredCapabilities := #[.envBlock]
+}
+
+def randomSeedSig : HostOpSig := {
+  id := { namespace_ := "near.context", name := "random_seed", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[]
+  results := #[.hash]
+  effectClass := .context
+  requiredCapabilities := #[.envBlock]
+}
+
+def prepaidGasSig : HostOpSig := {
+  id := { namespace_ := "near.context", name := "prepaid_gas", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[]
+  results := #[.u64]
+  effectClass := .context
+  requiredCapabilities := #[.runtimeComputeUnits]
+}
+
+def usedGasSig : HostOpSig := {
+  id := { namespace_ := "near.context", name := "used_gas", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[]
+  results := #[.u64]
+  effectClass := .context
+  requiredCapabilities := #[.runtimeComputeUnits]
+}
+
 def promiseCreateSig : HostOpSig := {
   id := { namespace_ := "near.promise", name := "create", version := { major := 1, minor := 0, patch := 0 } }
   params := #[.string, .string, .bytes, .u128, .u64]
@@ -68,6 +116,12 @@ def promiseTransferSig : HostOpSig := {
 }
 
 def signatures : Array HostOpSig := #[
+  predecessorAccountIdSig,
+  currentAccountIdSig,
+  epochHeightSig,
+  randomSeedSig,
+  prepaidGasSig,
+  usedGasSig,
   promiseCreateSig,
   promiseResultU64Sig,
   promiseResultsCountSig,

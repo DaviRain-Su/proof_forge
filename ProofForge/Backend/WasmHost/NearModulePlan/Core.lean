@@ -174,10 +174,6 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
         | .contextRead .contractAddress => contextOps := contextOps.push .contractId
         | .contextRead .blockNumber => contextOps := contextOps.push .checkpointId
         | .contextRead .blockTimestamp => contextOps := contextOps.push .timestamp
-        | .contextRead .epochHeight => contextOps := contextOps.push .epochHeight
-        | .contextRead .randomSeed => contextOps := contextOps.push .randomSeed
-        | .contextRead .origin => contextOps := contextOps.push .origin
-        | .contextRead .accountId => contextOps := contextOps.push .accountId
         | .emit event _ =>
           usesEventApi := true
           match m.events.find? (fun decl => decl.id == event) with
@@ -187,6 +183,12 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
                 usesEventNumeric := true
           | none => pure ()
         | .hostCall call =>
+          if call.id == HostOps.predecessorAccountIdId then contextOps := contextOps.push .accountId
+          if call.id == HostOps.currentAccountIdId then contextOps := contextOps.push .currentAccountId
+          if call.id == HostOps.epochHeightId then contextOps := contextOps.push .epochHeight
+          if call.id == HostOps.randomSeedId then contextOps := contextOps.push .randomSeed
+          if call.id == HostOps.prepaidGasId then contextOps := contextOps.push .prepaidGas
+          if call.id == HostOps.usedGasId then contextOps := contextOps.push .usedGas
           if call.id == HostOps.promiseCreateId then usesPromiseCreate := true
           if call.id == HostOps.storageUsageId then usesStorageUsage := true
           if call.id == HostOps.promiseTransferId then usesPromiseTransfer := true
@@ -484,7 +486,11 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
       let handler ← match registry.lookup "wasm-near" call.id with
         | some handler => pure handler
         | none => throw { message := s!"missingHostOpHandler: {call.id.render} on target wasm-near" }
-      if call.id == HostOps.promiseCreateId then
+      if handler.lower == #[HostOps.NearOpPlan.contextRead] then
+        unless call.args.isEmpty do
+          throw { message := s!"{call.id.render} requires no arguments" }
+        return .hostContext (<- nearResult instr) call.id
+      else if call.id == HostOps.promiseCreateId then
         unless handler.lower == #[HostOps.NearOpPlan.promiseCreate] do
           throw { message := s!"invalid HostOp plan for {call.id.render}" }
         unless call.args.size == 5 do

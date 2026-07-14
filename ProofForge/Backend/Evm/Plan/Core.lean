@@ -137,13 +137,9 @@ def coreContextToPlan? : Core.ContextField → Option ContextExprPlan
   | .sender => some .userId
   | .blockNumber => some .checkpointId
   | .blockTimestamp => some .timestamp
-  | .epochHeight => none
-  | .randomSeed => some .prevRandao
-  | .origin => some .origin
   | .gas => some .gasLeft
   | .contractAddress => some .contractId
   | .value => none  -- handled via ExprPlan.nativeValue, not a context field
-  | .accountId => none  -- NEAR-only string account id; EVM has no equivalent
 
 /-- Derive the result name for an instruction from its result ValueDef array. -/
 private def resultName (instr : Instruction) : String :=
@@ -443,7 +439,15 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       .ok #[StmtPlan.assert (← valueExpr env cond)
         s!"assertion failed" (← lookupErrorRef env error.id)]
   | .hostCall call =>
-      if call.id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
+      if call.id == ProofForge.Target.HostOps.Evm.originSig.id then do
+        unless call.args.isEmpty do
+          throw ({ message := s!"target extension `{call.id.render}` expects no arguments" } : PlanError)
+        .ok #[StmtPlan.letBind (resultName instr) .address (.context .origin)]
+      else if call.id == ProofForge.Target.HostOps.Evm.prevRandaoSig.id then do
+        unless call.args.isEmpty do
+          throw ({ message := s!"target extension `{call.id.render}` expects no arguments" } : PlanError)
+        .ok #[StmtPlan.letBind (resultName instr) .hash (.context .prevRandao)]
+      else if call.id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
         match call.args with
         | #[operator, fromAddr, toAddr, tokenId] => do
             .ok #[StmtPlan.effect (.checkErc721Received

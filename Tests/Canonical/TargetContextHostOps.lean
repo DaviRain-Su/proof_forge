@@ -1,0 +1,113 @@
+import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Backend.WasmHost.NearModulePlan.Core
+import ProofForge.Compiler.CanonicalPipeline
+import ProofForge.Contract.Spec
+import ProofForge.IR.Legacy.Adapter
+import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.HostOps.Near
+
+open ProofForge.IR
+open ProofForge.IR.Core
+open ProofForge.IR.Canonical
+open ProofForge.Target
+
+private def require (condition : Bool) (message : String) : IO Unit :=
+  unless condition do throw (IO.userError message)
+
+private def contextSpec (name : String) (field : ProofForge.IR.ContextField)
+    (returns : ValueType) : ProofForge.Contract.ContractSpec :=
+  ProofForge.Contract.ContractSpec.fromIR {
+    name
+    state := #[]
+    entrypoints := #[{
+      name := "read"
+      selector? := some "01020304"
+      returns
+      mutability := .view
+      body := #[.return (.effect (.contextRead field))]
+    }]
+  }
+
+private def adapt (name : String) (field : ProofForge.IR.ContextField)
+    (returns : ValueType) : IO CheckedCanonicalContract := do
+  match ProofForge.IR.Legacy.Adapter.adaptLegacy (contextSpec name field returns) with
+  | .ok bundle => pure bundle.contract
+  | .error error => throw (IO.userError s!"{name} adaptation failed: {repr error}")
+
+private def hostCallIds (checked : CheckedCanonicalContract) : Array ProofForge.Target.HostOpId :=
+  checked.contract.module.functions.flatMap fun function =>
+    function.blocks.flatMap fun block =>
+      block.instructions.filterMap fun instruction => match instruction.op with
+        | .hostCall call => some call.id
+        | _ => none
+
+private def evmPlan (checked : CheckedCanonicalContract) :
+    IO ProofForge.Backend.Evm.Plan.ModulePlan := do
+  let capPlan : CapabilityPlan := {
+    targetId := "evm"
+    calls := checked.contract.requirements
+  }
+  match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
+  | .ok plan => pure plan
+  | .error error => throw (IO.userError s!"EVM context plan failed: {error.message}")
+
+private def nearPlan (checked : CheckedCanonicalContract) :
+    IO ProofForge.Backend.WasmHost.NearModulePlan.NearModulePlan := do
+  let capPlan : CapabilityPlan := {
+    targetId := "wasm-near"
+    calls := checked.contract.requirements
+  }
+  match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore checked capPlan with
+  | .ok plan => pure plan
+  | .error error => throw (IO.userError s!"NEAR context plan failed: {error.message}")
+
+private def evmPlanHasContext (plan : ProofForge.Backend.Evm.Plan.ModulePlan)
+    (expected : ProofForge.Backend.Evm.Plan.ContextExprPlan) : Bool :=
+  plan.entrypoints.any fun entrypoint => entrypoint.body.any fun statement => match statement with
+    | .letBind _ _ (.context actual) => reprStr actual == reprStr expected
+    | _ => false
+
+private def nearPlanHasHostContext
+    (plan : ProofForge.Backend.WasmHost.NearModulePlan.NearModulePlan)
+    (expected : ProofForge.Target.HostOpId) : Bool :=
+  plan.functions.any fun function => function.blocks.any fun block =>
+    block.ops.any fun operation => match operation with
+      | .hostContext _ actual => actual == expected
+      | _ => false
+
+def main : IO Unit := do
+  let origin ← adapt "EvmOrigin" .origin .address
+  require (hostCallIds origin == #[ProofForge.Target.HostOps.Evm.originSig.id])
+    "legacy origin did not normalize to evm.context/origin"
+  require (evmPlanHasContext (← evmPlan origin) .origin)
+    "EVM origin HostOp did not materialize to the origin context plan"
+  require ((ProofForge.Compiler.checkHostOpHandlers "wasm-near" origin).any
+      (·.contains "evm.context/origin@1.0.0"))
+    "NEAR accepted the EVM origin HostOp"
+
+  let randomness ← adapt "EvmPrevRandao" .prevRandao .hash
+  require (hostCallIds randomness == #[ProofForge.Target.HostOps.Evm.prevRandaoSig.id])
+    "legacy prevRandao did not normalize to evm.context/prevrandao"
+  require (evmPlanHasContext (← evmPlan randomness) .prevRandao)
+    "EVM prevRandao HostOp did not materialize to the target context plan"
+
+  let nearCases : Array
+      (String × ProofForge.IR.ContextField × ValueType × ProofForge.Target.HostOpId) := #[
+    ("NearPredecessor", .accountId, .string,
+      ProofForge.Target.HostOps.Near.predecessorAccountIdSig.id),
+    ("NearEpoch", .epochHeight, .u64, ProofForge.Target.HostOps.Near.epochHeightSig.id),
+    ("NearRandom", .randomSeed, .hash, ProofForge.Target.HostOps.Near.randomSeedSig.id),
+    ("NearPrepaidGas", .prepaidGas, .u64, ProofForge.Target.HostOps.Near.prepaidGasSig.id),
+    ("NearUsedGas", .usedGas, .u64, ProofForge.Target.HostOps.Near.usedGasSig.id)
+  ]
+  for (name, field, returns, expectedId) in nearCases do
+    let checked ← adapt name field returns
+    require (hostCallIds checked == #[expectedId])
+      s!"{name} did not normalize to its typed NEAR HostOp"
+    require (nearPlanHasHostContext (← nearPlan checked) expectedId)
+      s!"{name} HostOp did not survive the NEAR target-plan boundary"
+    require ((ProofForge.Compiler.checkHostOpHandlers "evm" checked).any
+        (·.contains expectedId.render))
+      s!"EVM accepted NEAR HostOp {expectedId.render}"
+
+  IO.println "target-context-hostops: ok"

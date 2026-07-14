@@ -28,6 +28,13 @@ def emitValueInstruction (op : InstructionOp) (resultType : CoreType) : AdapterM
   let instr := { results := #[vdef], op := op }
   return { instructions := #[instr], value := { id := vid, type := resultType } }
 
+def normalizeContextRead (field : ProofForge.IR.ContextField) : AdapterM NormalizedValue := do
+  match ← liftExcept (adaptContextRead field) with
+  | .portable coreField resultType =>
+      emitValueInstruction (.contextRead coreField) resultType
+  | .host id resultType =>
+      emitValueInstruction (.hostCall { id, args := #[] }) resultType
+
 /- Convert a legacy `AssignOp` to a canonical `ArithmeticOp`. -/
 
 def adaptAssignOp (op : AssignOp) : Except CanonicalizeError ArithmeticOp :=
@@ -440,9 +447,7 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       let hashed ← emitValueInstruction (.pure (.hash sender.value)) .hash
       return { instructions := sender.instructions ++ hashed.instructions, value := hashed.value }
   | .effect (.contextRead field) =>
-      let coreField ← liftExcept (adaptContextField field)
-      let resultType := contextFieldType coreField
-      emitValueInstruction (.contextRead coreField) resultType
+      normalizeContextRead field
   | .effect other =>
       throw (CanonicalizeError.unsupportedConstructor (effectTag other) "effect expression not in initial fragment")
   | .hash preimage =>

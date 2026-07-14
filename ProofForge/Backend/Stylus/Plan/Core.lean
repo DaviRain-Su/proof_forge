@@ -155,9 +155,8 @@ private def poolEntryForLiteral? (contract : CanonicalContract) : CoreLiteral ->
 private def contextHostOp : ContextField -> Option StylusHostOp
   | .sender => some .msgSender | .value => some .msgValue
   | .blockNumber => some .blockNumber | .blockTimestamp => some .blockTimestamp
-  | .origin => some .txOrigin | .gas => some .gasLeft
+  | .gas => some .gasLeft
   | .contractAddress => some .contractAddress
-  | .epochHeight | .randomSeed | .accountId => none
 
 private def instructionPlan (contract : CanonicalContract) (function : Function)
     (instruction : Instruction) :

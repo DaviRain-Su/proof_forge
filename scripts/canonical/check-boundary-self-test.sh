@@ -13,6 +13,7 @@ make_fixture() {
     "$root/ProofForge/Backend/WasmHost/NearModulePlan" \
     "$root/ProofForge/Backend/WasmHost/ModulePlan" \
     "$root/ProofForge/Backend/WasmHost" \
+    "$root/ProofForge/IR/Core" \
     "$root/ProofForge/Cli" \
     "$root/Tests" \
     "$root/scripts/canonical"
@@ -25,6 +26,8 @@ make_fixture() {
   : > "$root/ProofForge/Backend/Solana/Plan/Core.lean"
   : > "$root/ProofForge/Backend/WasmHost/NearModulePlan/Core.lean"
   : > "$root/ProofForge/Backend/WasmHost/ModulePlan/Lower.lean"
+  printf '%s\n' 'inductive ContextField' '  | sender | gas' '  deriving Repr' \
+    > "$root/ProofForge/IR/Core/Type.lean"
 }
 
 expect_failure() {
@@ -92,6 +95,12 @@ make_fixture "$root"
 printf '%s\n' 'structure LowerCtxSeed where' '  structs : Array StructDecl' \
   > "$root/ProofForge/Backend/WasmHost/ModulePlan.lean"
 expect_failure "Wasm-host legacy layout type" "$root"
+
+root="$TMP/target-context"
+make_fixture "$root"
+printf '%s\n' 'inductive ContextField' '  | sender | origin' '  deriving Repr' \
+  > "$root/ProofForge/IR/Core/Type.lean"
+expect_failure "target-native Core context" "$root"
 
 root="$TMP/comments"
 make_fixture "$root"

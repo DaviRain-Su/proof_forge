@@ -3,6 +3,7 @@ import ProofForge.Backend.WasmHost.Plan
 import ProofForge.Backend.WasmHost.StructPlan
 import ProofForge.IR.Prelude
 import ProofForge.Target.HostBridge
+import ProofForge.Target.HostOp
 
 /-! Target-neutral data contract consumed by Wasm-host renderers. -/
 
@@ -76,6 +77,7 @@ inductive OpPlan where
   | cast (result value : ValuePlan)
   | structLit (result : ValuePlan) (typeName : String) (fields : Array ValuePlan)
   | context (result : ValuePlan) (field : String)
+  | hostContext (result : ValuePlan) (id : ProofForge.Target.HostOpId)
   | log (eventName : String) (fields : Array (String × ValuePlan))
   | assert (condition : ValuePlan) (errorCode : Nat)
   | promiseCreate (result : ValuePlan) (accountId methodName : String)

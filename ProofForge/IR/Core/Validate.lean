@@ -958,11 +958,9 @@ private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     match instr.results with
     | #[r] =>
       let expected := match field with
-        | .sender | .origin | .contractAddress => .address
-        | .randomSeed => .hash
+        | .sender | .contractAddress => .address
         | .value => .u128
-        | .blockNumber | .blockTimestamp | .epochHeight | .gas => .u64
-        | .accountId => .string
+        | .blockNumber | .blockTimestamp | .gas => .u64
       unless r.type == expected do
         .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
           s!"contextRead {repr field} result must be {repr expected}, got {repr r.type}"

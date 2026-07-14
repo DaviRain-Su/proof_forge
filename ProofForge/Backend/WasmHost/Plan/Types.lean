@@ -8,6 +8,7 @@ inductive ContextExprPlan where
   | userId
   | userIdHash
   | accountId
+  | currentAccountId
   | contractId
   | checkpointId
   | timestamp
@@ -20,7 +21,7 @@ inductive ContextExprPlan where
 
 def ContextExprPlan.resultType : ContextExprPlan → ValueType
   | .randomSeed | .userIdHash => .hash
-  | .accountId => .string
+  | .accountId | .currentAccountId => .string
   | _ => .u64
 
 end ProofForge.Backend.WasmHost.Plan

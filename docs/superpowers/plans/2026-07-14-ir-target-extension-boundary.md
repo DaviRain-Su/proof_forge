@@ -20,7 +20,7 @@ on top of the current NEAR-specific `Expr` surface would enlarge the coupling.
 | IR-B4 | in_progress | Move EVM protocol/ABI operations out of shared IR | EVM focused plan/Foundry gates and non-EVM diagnostics |
 | IR-B5 | pending | Audit and migrate Solana-native PDA/CPI/account behavior | Solana grammar-isolation, intent, manifest, and light sBPF gates |
 | IR-B6 | pending | Audit and migrate other implemented target families | focused Wasm-host, Move, Aleo, Psy, and Quint gates |
-| IR-B7 | pending | Move target environment, error, dispatch, and materialization fields | interface/materialization tests across registered targets |
+| IR-B7 | in_progress (context subtask verified 2026-07-14) | Move target environment, error, dispatch, and materialization fields | interface/materialization tests across registered targets |
 | IR-B8 | pending | Enforce the boundary and close compatibility debt | empty source-scan allowlist, product gate, affected runtime gates |
 
 ## IR-B0 - Audit and Freeze
@@ -159,8 +159,10 @@ constructor into shared IR.
 
 ## IR-B7 - Interface and Materialization Cleanup
 
-1. Replace chain-only `ContextField` variants with neutral fields or extension
-   environment reads.
+1. [x] Replace chain-only Canonical Core `ContextField` variants with typed
+   target HostOps. EVM `origin`/`prevrandao` and NEAR account/epoch/random/gas
+   reads now use exact target catalogs; wrong-target handlers reject them and
+   `canonical-boundary` prevents the constructors from returning to Core.
 2. Move Solidity error ABI data to `EvmPlan`.
 3. Move fallback/receive dispatch to target interface metadata.
 4. Move proxy and host-string pools out of portable `Module` and canonical

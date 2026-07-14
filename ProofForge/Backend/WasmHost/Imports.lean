@@ -98,9 +98,11 @@ def nearImportsForModulePlan (plan : ModulePlan) : Array Import :=
 def ctxImportsForModulePlan (plan : ModulePlan) : Array Import :=
   (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
       plan.contextOps.contains .accountId then #[predecessorImport] else #[]) ++
-    (if plan.contextOps.contains .contractId then #[currentAcctImport] else #[]) ++
+    (if plan.contextOps.contains .contractId || plan.contextOps.contains .currentAccountId then
+      #[currentAcctImport] else #[]) ++
     (if plan.contextOps.contains .userId || plan.contextOps.contains .userIdHash ||
         plan.contextOps.contains .accountId ||
+        plan.contextOps.contains .currentAccountId ||
         plan.contextOps.contains .contractId || plan.contextOps.contains .origin then #[registerLenImport] else #[]) ++
     (if plan.contextOps.contains .checkpointId then #[blockHeightImport] else #[]) ++
     (if plan.contextOps.contains .prepaidGas then #[prepaidGasImport] else #[]) ++

@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | NEAR-R2 - move NEAR-only semantics into typed HostOps |
-| Next task | NEAR-R3 - materialize TokenSpec directly into Canonical Core |
+| Active task | EVM-R1 - finish EVM-native HostOp, ABI, and environment ownership |
+| Next task | EVM-R2 - move every EVM product family to direct Canonical Core materialization |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -80,8 +80,8 @@ Legacy adapter.
 
 | Order | Target family | State | Exit condition |
 |---|---|---|---|
-| 1 | EVM | done (canonical renderer baseline verified 2026-07-14) | Strict renderer consumes `ModulePlan` alone |
-| 2 | NEAR | in_progress | Product TokenSpec/Surface v2 reaches `NearModulePlan` without v1 IR |
+| 1 | EVM | in_progress (renderer-only baseline complete) | Every EVM product route reaches `ModulePlan` without v1 IR and obsolete EVM compatibility code is deleted |
+| 2 | NEAR | pending after EVM | Product TokenSpec/Surface v2 reaches `NearModulePlan` without v1 IR and obsolete NEAR compatibility code is deleted |
 | 3 | Solana | pending | Product path reaches target-owned plan without v1 IR |
 | 4 | Other targets | pending | Each target is migrated or explicitly fixture/research-only |
 
@@ -134,10 +134,21 @@ cutover is split into reviewable removal slices:
 |---|---|---|
 | NEAR-R0 | done (verified at `b8acc604`) | Isolate v1 `IR.Module` builders/lowerers behind an explicit Legacy module and enforce import boundaries |
 | NEAR-R1 | done (verified 2026-07-14) | Remove v1 `ValueType`, `StructDecl`, and allocator ownership from `NearModulePlan` |
-| NEAR-R2 | in_progress | Move NEAR-only context, value, receipt, and promise operations into typed Near HostOps |
+| NEAR-R2 | pending after EVM-R4 (context subtask landed) | Move NEAR-only context, value, receipt, and promise operations into typed Near HostOps |
 | NEAR-R3 | pending | Materialize TokenSpec/Surface v2 directly into checked Canonical Core |
 | NEAR-R4 | pending | Switch the public CLI route and replay N-T1 through N-T4 gates on the canonical artifact |
 | NEAR-R5 | pending | Delete `NearSpec`, the legacy FT product source, adapters, and zero-caller compatibility APIs |
+
+The EVM renderer-only commits are likewise baselines, not completion of the
+EVM migration. Finish these rows before resuming NEAR-R2:
+
+| ID | State | Task |
+|---|---|---|
+| EVM-R0 | done (`c988153b`, `f44be25d`, `4cc2700b`) | Make canonical storage/ABI plans complete enough that the strict renderer consumes `ModulePlan` alone |
+| EVM-R1 | in_progress | Move EVM-only context, protocol, ABI, call-mode, error, and dispatch semantics into EVM-owned HostOps and plan metadata |
+| EVM-R2 | pending | Materialize Counter, ValueVault, Token, RemoteCall, and remaining EVM product families directly into checked Canonical Core |
+| EVM-R3 | pending | Switch EVM build/emit/check and product dispatch to the direct canonical route and replay focused EVM behavior/runtime gates |
+| EVM-R4 | pending | Delete obsolete EVM legacy lowering, adapters, constructors, compatibility APIs, and freeze-baseline entries after caller count reaches zero |
 
 The D-052 cross-program routing index remains below for work not superseded by
 the active NEAR sequence.

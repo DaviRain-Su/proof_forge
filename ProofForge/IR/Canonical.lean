@@ -329,11 +329,8 @@ private def pureOpCapabilities : PureOp → Array Capability
 private def contextCapabilities : ContextField → Array Capability
   | .sender => #[.callerSender]
   | .value => #[.valueNative]
-  | .blockNumber | .blockTimestamp | .epochHeight | .gas => #[.envBlock]
-  | .randomSeed => #[.cryptoHash]
-  | .origin => #[.callerSender]
+  | .blockNumber | .blockTimestamp | .gas => #[.envBlock]
   | .contractAddress => #[.accountExplicit]
-  | .accountId => #[.callerSender]
 
 private def instructionCapabilities (instruction : Instruction) : Array Capability :=
   let resultCaps := instruction.results.foldl
@@ -453,16 +450,20 @@ private def interfaceError (reason : String) : ValidationError :=
 private def materializationError (reason : String) : ValidationError :=
   ValidationError.mkSimple .invalidMaterialization "materialization" reason
 
-private def viewInstructionAllowed : InstructionOp → Bool
+private def viewInstructionAllowed (catalog : Core.HostOp.HostOpCatalog) : InstructionOp → Bool
   | .pure _ | .storageLoad _ | .storageContains _ | .storageLength _ |
       .memoryAlloc _ _ | .memoryLoad _ _ | .memoryStore _ _ _ |
       .memoryRelease _ | .assert _ _ => true
   | .contextRead .value => false
   | .contextRead _ => true
   | .crosscall spec _ => spec.mode == .staticInvoke
-  | .storageStore _ _ | .storageRemove _ | .storageResize _ _ | .emit _ _ | .hostCall _ => false
+  | .hostCall call =>
+      match ProofForge.IR.Core.HostOp.HostOpCatalog.lookup catalog call.id with
+      | .ok signature => signature.effectClass == .context
+      | .error _ => false
+  | .storageStore _ _ | .storageRemove _ | .storageResize _ _ | .emit _ _ => false
 
-private def validateInterface (module : Core.Module)
+private def validateInterface (module : Core.Module) (catalog : Core.HostOp.HostOpCatalog)
     (interface : InterfaceContract) : Except ValidationError Unit := do
   if interface.contractName.isEmpty then
     throw <| interfaceError "contract name is empty"
@@ -501,7 +502,7 @@ private def validateInterface (module : Core.Module)
     if ep.mutability == .view then
       for block in function.blocks do
         for idx in [:block.instructions.size] do
-          unless viewInstructionAllowed block.instructions[idx]!.op do
+          unless viewInstructionAllowed catalog block.instructions[idx]!.op do
             throw <| interfaceError
               s!"view function {repr ep.functionId} contains a stateful instruction at block {repr block.id}, index {idx}"
 
@@ -747,7 +748,7 @@ def validateCanonical (c : CanonicalContract) :
   let _ ← Validate.validateModulePhases c.module (some c.hostOpCatalog)
   -- The runtime must be sound before the artifact envelope is compared with it;
   -- otherwise stale metadata would mask the actionable Core validation error.
-  validateInterface c.module c.interface
+  validateInterface c.module c.hostOpCatalog c.interface
   validateMaterialization c.module c.interface c.materialization
   validateRequirements c.module c.materialization c.hostOpCatalog c.requirements
   return { contract := c }

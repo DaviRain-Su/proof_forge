@@ -1,8 +1,9 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: active (updated 2026-07-14; N-T1 through N-T4 have executable behavior
+Status: pending after EVM-R4 (updated 2026-07-14; N-T1 through N-T4 have executable behavior
 baselines but are reopened until those gates run through the canonical-only
-NEAR product route; NEAR-R0/R1 are complete and NEAR-R2 is in progress).
+NEAR product route; NEAR-R0/R1 are complete and the context subtask of NEAR-R2
+is landed, but the target sequence now finishes EVM before resuming NEAR).
 Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
@@ -36,14 +37,15 @@ not accepted as architecture completion.
 |---|---|---|
 | NEAR-R0 | done (`b8acc604`) | Move v1 module-plan compatibility into an explicit Legacy module and enforce static import boundaries |
 | NEAR-R1 | done (verified 2026-07-14) | Make every `NearModulePlan` field target-owned |
-| NEAR-R2 | in_progress | Represent NEAR-only semantics as typed target HostOps, not shared Core constructors |
+| NEAR-R2 | pending after EVM-R4 (context subtask landed) | Represent NEAR-only semantics as typed target HostOps, not shared Core constructors |
 | NEAR-R3 | pending | Materialize TokenSpec/Surface v2 directly into checked Canonical Core |
 | NEAR-R4 | pending | Switch CLI/product dispatch and replay N-T1 through N-T4 behavior gates |
 | NEAR-R5 | pending | Delete obsolete NEAR product sources, adapters, and compatibility APIs after caller count reaches zero |
 
-The repository-wide migration order is EVM baseline first, then NEAR, then
-Solana, then other target families. NEAR work must finish through NEAR-R5
-before beginning the Solana product cutover.
+The repository-wide migration order is full EVM replacement first, then NEAR,
+then Solana, then other target families. The EVM renderer-only baseline does
+not satisfy that first step. NEAR resumes only after EVM-R4; NEAR must then
+finish through NEAR-R5 before beginning the Solana product cutover.
 
 This plan operationalizes the `pending` Wave-N tasks (`N-01`→`N-04`) from
 `docs/superpowers/plans/2026-07-11-primary-triad-multichain-runtime.md`. It is

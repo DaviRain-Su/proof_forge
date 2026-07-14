@@ -576,6 +576,29 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
     else if field.endsWith "contractAddress" then
       .ok #[.call Context.ctxContractIdName, .localSet s!"v{result.id}"]
     else Diagnostics.err s!"canonical NEAR context `{field}` has no handler"
+  | .hostContext result hostOpId =>
+    if plan.hostBridge.bridge != .near then
+      Diagnostics.err s!"target HostOp context `{hostOpId.render}` is only supported by wasm-near"
+    else if hostOpId == HostOps.predecessorAccountIdId then
+      .ok (#[.call Context.ctxAccountIdName,
+        .i32Const Memory.ACCT_ID_BUF,
+        .i32Const Memory.ACCT_ID_LEN, .load "i32.load" 0] ++
+        canonicalNearSet result.id result.typeName)
+    else if hostOpId == HostOps.currentAccountIdId then
+      .ok (#[.call Context.ctxCurrentAccountIdName,
+        .i32Const Memory.ACCT_ID_BUF,
+        .i32Const Memory.ACCT_ID_LEN, .load "i32.load" 0] ++
+        canonicalNearSet result.id result.typeName)
+    else if hostOpId == HostOps.epochHeightId then
+      .ok #[.call "epoch_height", .localSet s!"v{result.id}"]
+    else if hostOpId == HostOps.randomSeedId then
+      .ok #[.call Context.ctxRandomSeedName, .localSet s!"v{result.id}"]
+    else if hostOpId == HostOps.prepaidGasId then
+      .ok #[.call "prepaid_gas", .localSet s!"v{result.id}"]
+    else if hostOpId == HostOps.usedGasId then
+      .ok #[.call "used_gas", .localSet s!"v{result.id}"]
+    else
+      Diagnostics.err s!"canonical NEAR target context `{hostOpId.render}` has no handler"
   | .assert condition _ => .ok #[.localGet s!"v{condition.id}", .plain "i32.eqz",
       .if_ { insns := #[.unreachable] } { insns := #[] }]
   | .log event fields => do

@@ -25,6 +25,7 @@ def ContextExprPlan.field : ContextExprPlan → ContextField
   | .userId => .userId
   | .userIdHash => .userIdHash
   | .accountId => .accountId
+  | .currentAccountId => .contractId
   | .contractId => .contractId
   | .checkpointId => .checkpointId
   | .timestamp => .timestamp

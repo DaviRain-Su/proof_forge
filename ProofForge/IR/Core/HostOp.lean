@@ -18,6 +18,7 @@ open ProofForge.Target
 /-- Effect class of a host operation. -/
 inductive HostOpEffectClass
   | pure
+  | context
   | external
   deriving BEq, Repr
 
@@ -92,6 +93,6 @@ def HostOpCatalog.validateCallUsage (sig : HostOpSig) :
     Except HostOpError Unit :=
   match sig.effectClass with
   | .pure => .error .pureEffectfulMismatch
-  | .external => .ok ()
+  | .context | .external => .ok ()
 
 end ProofForge.IR.Core.HostOp

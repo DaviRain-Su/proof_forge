@@ -20,6 +20,7 @@ open ProofForge.Target
 /-- Plan-level operations for NEAR host calls. These are NOT `Wasm.Insn`;
 they are consumed by the plan builder to set surface flags and import names. -/
 inductive NearOpPlan
+  | contextRead
   | promiseCreate
   | promiseResultsCount
   | promiseResultStatus
@@ -34,6 +35,15 @@ instance : Inhabited (HostOpHandler NearOpPlan) := ⟨{ targetId := "", id := { 
 /-- The exact `near.promise.create@1.0.0` HostOpId. -/
 def promiseCreateId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.promiseCreateSig.id
 
+def predecessorAccountIdId : ProofForge.Target.HostOpId :=
+  ProofForge.Target.HostOps.Near.predecessorAccountIdSig.id
+def currentAccountIdId : ProofForge.Target.HostOpId :=
+  ProofForge.Target.HostOps.Near.currentAccountIdSig.id
+def epochHeightId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.epochHeightSig.id
+def randomSeedId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.randomSeedSig.id
+def prepaidGasId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.prepaidGasSig.id
+def usedGasId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.usedGasSig.id
+
 def promiseResultU64Id : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.promiseResultU64Sig.id
 
 def promiseResultU128Id : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.Near.promiseResultU128Sig.id
@@ -47,6 +57,18 @@ def promiseTransferId : ProofForge.Target.HostOpId := ProofForge.Target.HostOps.
 def nearPromiseRegistry : Except String (HostOpRegistry NearOpPlan) :=
   do
   let registry ← HostOpRegistry.register (HostOpRegistry.empty NearOpPlan) {
+    targetId := "wasm-near", id := predecessorAccountIdId, lower := #[.contextRead] }
+  let registry ← HostOpRegistry.register registry {
+    targetId := "wasm-near", id := currentAccountIdId, lower := #[.contextRead] }
+  let registry ← HostOpRegistry.register registry {
+    targetId := "wasm-near", id := epochHeightId, lower := #[.contextRead] }
+  let registry ← HostOpRegistry.register registry {
+    targetId := "wasm-near", id := randomSeedId, lower := #[.contextRead] }
+  let registry ← HostOpRegistry.register registry {
+    targetId := "wasm-near", id := prepaidGasId, lower := #[.contextRead] }
+  let registry ← HostOpRegistry.register registry {
+    targetId := "wasm-near", id := usedGasId, lower := #[.contextRead] }
+  let registry ← HostOpRegistry.register registry {
     targetId := "wasm-near",
     id := promiseCreateId,
     lower := #[NearOpPlan.promiseCreate]

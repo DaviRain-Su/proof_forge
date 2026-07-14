@@ -10,6 +10,7 @@
 #   5. legacy constructor change without classification change
 #   6. remaining EvmCorePlan, SolanaCorePlan, or WasmCorePlan declaration
 #   7. Wasm-host plan storing v1 StructDecl or AllocatorConfig values
+#   8. target-native context fields leaking into Canonical Core
 #
 # This is a required static gate in `just check`.
 
@@ -124,6 +125,16 @@ done
 if rg -n '\b(?:StructDecl|AllocatorConfig)\b' \
     ProofForge/Backend/WasmHost/ModulePlan.lean >/dev/null 2>&1; then
   report "Wasm-host module plan stores retired v1 layout types"
+fi
+
+# ── 8. Canonical Core context stays target-neutral ─────────────────
+# Native environment reads are typed HostOps owned by their target catalog.
+CORE_TYPE=ProofForge/IR/Core/Type.lean
+if [ -f "$CORE_TYPE" ] && sed -n \
+    '/^inductive ContextField$/,/^[[:space:]]*deriving /p' "$CORE_TYPE" \
+    | rg -n '^\s*\|.*\b(origin|prevRandao|epochHeight|randomSeed|accountId|prepaidGas|usedGas)\b' \
+      >/dev/null 2>&1; then
+  report "target-native constructor found in Core.ContextField"
 fi
 
 if [ "$FAIL" -eq 0 ]; then

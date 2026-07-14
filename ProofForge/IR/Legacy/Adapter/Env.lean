@@ -4,6 +4,8 @@ import ProofForge.IR.Core.Type
 import ProofForge.IR.Core.Storage
 import ProofForge.IR.Core.Syntax
 import ProofForge.IR.Core.Error
+import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.HostOps.Near
 import Std
 
 namespace ProofForge.IR.Legacy.Adapter
@@ -312,30 +314,43 @@ def buildEnv (m : Module) : Except CanonicalizeError AdapterEnv := do
     }
   return env
 
-/- Convert a legacy `ContextField` to a canonical `ContextField`. Only the
-fields used by the initial fragment are accepted. -/
+inductive AdaptedContextRead where
+  | portable (field : ProofForge.IR.Core.ContextField) (type : CoreType)
+  | host (id : ProofForge.Target.HostOpId) (type : CoreType)
+  deriving Repr
+
+def adaptContextRead (field : ProofForge.IR.ContextField) :
+    Except CanonicalizeError AdaptedContextRead :=
+  match field with
+  | .userId => .ok (.portable .sender .address)
+  | .contractId => .ok (.portable .contractAddress .address)
+  | .checkpointId => .ok (.portable .blockNumber .u64)
+  | .timestamp => .ok (.portable .blockTimestamp .u64)
+  | .gasLeft => .ok (.portable .gas .u64)
+  | .origin => .ok (.host ProofForge.Target.HostOps.Evm.originSig.id .address)
+  | .prevRandao => .ok (.host ProofForge.Target.HostOps.Evm.prevRandaoSig.id .hash)
+  | .epochHeight => .ok (.host ProofForge.Target.HostOps.Near.epochHeightSig.id .u64)
+  | .randomSeed => .ok (.host ProofForge.Target.HostOps.Near.randomSeedSig.id .hash)
+  | .accountId => .ok (.host ProofForge.Target.HostOps.Near.predecessorAccountIdSig.id .string)
+  | .prepaidGas => .ok (.host ProofForge.Target.HostOps.Near.prepaidGasSig.id .u64)
+  | .usedGas => .ok (.host ProofForge.Target.HostOps.Near.usedGasSig.id .u64)
+  | other => .error (CanonicalizeError.unsupportedConstructor
+      s!"ContextField.{other.name}" "context field not in canonical compatibility fragment")
 
 def adaptContextField (field : ProofForge.IR.ContextField) : Except CanonicalizeError ProofForge.IR.Core.ContextField :=
-  match field with
-  | .userId => .ok .sender
-  | .contractId => .ok .contractAddress
-  | .checkpointId => .ok .blockNumber
-  | .timestamp => .ok .blockTimestamp
-  | .epochHeight => .ok .epochHeight
-  | .randomSeed => .ok .randomSeed
-  | .origin => .ok .origin
-  | .accountId => .ok .accountId
-  | other => .error (CanonicalizeError.unsupportedConstructor s!"ContextField.{other.name}" "context field not in initial fragment")
+  match adaptContextRead field with
+  | .ok (.portable coreField _) => .ok coreField
+  | .ok (.host _ _) => .error (CanonicalizeError.unsupportedConstructor
+      s!"ContextField.{field.name}" "target context must normalize through a HostOp")
+  | .error error => .error error
 
 /- Result type of a canonical context read. -/
 
 def contextFieldType (field : ProofForge.IR.Core.ContextField) : CoreType :=
   match field with
-  | .sender | .origin | .contractAddress => .address
-  | .randomSeed => .hash
+  | .sender | .contractAddress => .address
   | .value => .u128
-  | .blockNumber | .blockTimestamp | .epochHeight | .gas => .u64
-  | .accountId => .string
+  | .blockNumber | .blockTimestamp | .gas => .u64
 
 /- Construct an empty `AdapterState` from an environment. -/
 

@@ -156,7 +156,7 @@ private def coreHasCrosscall (m : ProofForge.IR.Core.Module) : Bool :=
 private def coreNeedsSender (m : ProofForge.IR.Core.Module) : Bool :=
   m.functions.any fun fn => fn.blocks.any fun block =>
     block.instructions.any fun instruction => match instruction.op with
-      | .contextRead .sender | .contextRead .origin => true
+      | .contextRead .sender => true
       | _ => false
 
 /-- Build an empty extensions plan. -/

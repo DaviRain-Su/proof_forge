@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "6fd0d4492a5e571b8c0c9bbcadf186a896c0a837c423d5dda7f3e7522ac6bfd6",
+    "sha256": "66eb26f88b184af1d7b585593f2b4b4ebfa2db285b674728c85d367270f06117",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for Stylus evidence and full NEP-145 real-VM storage management"
+    "note": "manually synced for Stylus evidence, NEP-145 real-VM storage management, and target-owned context HostOp boundary coverage"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",

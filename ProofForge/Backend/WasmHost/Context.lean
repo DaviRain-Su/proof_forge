@@ -23,6 +23,7 @@ open ProofForge.Backend.WasmHost.Plan
 def ctxUserIdName : String := "__pf_ctx_user_id"
 def ctxUserHashName : String := "__pf_ctx_user_hash"
 def ctxAccountIdName : String := "__pf_ctx_account_id"
+def ctxCurrentAccountIdName : String := "__pf_ctx_current_account_id"
 def ctxContractIdName : String := "__pf_ctx_contract_id"
 def ctxSignerName : String := "__pf_ctx_signer_id"
 def ctxRandomSeedName : String := "__pf_ctx_random_seed"
@@ -59,6 +60,16 @@ def ctxAccountIdFunc : Func :=
     locals := #[{ name := "len", type := .i64 }],
     body := { insns := #[
       .i64Const 0, .call "predecessor_account_id",
+      .i64Const 0, .call "register_len", .localSet "len",
+      .i64Const 0, .i64Const ACCT_ID_BUF, .call "read_register",
+      .i32Const ACCT_ID_LEN, .localGet "len", .plain "i32.wrap_i64",
+      .store "i32.store" 0 ] } }
+
+def ctxCurrentAccountIdFunc : Func :=
+  { name := ctxCurrentAccountIdName, results := #[],
+    locals := #[{ name := "len", type := .i64 }],
+    body := { insns := #[
+      .i64Const 0, .call "current_account_id",
       .i64Const 0, .call "register_len", .localSet "len",
       .i64Const 0, .i64Const ACCT_ID_BUF, .call "read_register",
       .i32Const ACCT_ID_LEN, .localGet "len", .plain "i32.wrap_i64",
@@ -113,6 +124,7 @@ def ctxHelperFuncsForModulePlan (plan : ModulePlan)
     (if plan.contextOps.contains .userId then #[ctxUserIdFunc] else #[]) ++
       (if plan.contextOps.contains .userIdHash then #[ctxUserHashFunc] else #[]) ++
       (if plan.contextOps.contains .accountId then #[ctxAccountIdFunc] else #[]) ++
+      (if plan.contextOps.contains .currentAccountId then #[ctxCurrentAccountIdFunc] else #[]) ++
       (if plan.contextOps.contains .contractId then #[ctxContractIdFunc] else #[]) ++
       (if plan.contextOps.contains .origin then #[ctxSignerFunc] else #[]) ++
       (if plan.contextOps.contains .randomSeed then #[ctxRandomSeedFunc] else #[])
@@ -125,6 +137,9 @@ def lowerContextExprPlan :
     -- VOID helper stages the raw predecessor_account_id at ACCT_ID_BUF and the
     -- length at ACCT_ID_LEN; materialize `(ptr, len)` from the staged slots.
     .ok (#[.call ctxAccountIdName, .i32Const ACCT_ID_BUF,
+         .i32Const ACCT_ID_LEN, .load "i32.load" 0], .string)
+  | .currentAccountId =>
+    .ok (#[.call ctxCurrentAccountIdName, .i32Const ACCT_ID_BUF,
          .i32Const ACCT_ID_LEN, .load "i32.load" 0], .string)
   | .contractId => .ok (#[.call ctxContractIdName], .u64)
   | .checkpointId => .ok (#[.call "block_index"], .u64)
