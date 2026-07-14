@@ -37,6 +37,14 @@ legacy-freeze:
 # D0: Legacy replacement freeze — production IR.Legacy imports must not grow beyond baseline.
 legacy-replacement-freeze:
     scripts/canonical/check-legacy-freeze.sh
+
+# Versioned native-reference contracts, explicit v0 test-manifest migration,
+# fail-closed semantic coverage, and generated asset inventory.
+differential-contracts:
+    python3 scripts/differential/test_contracts.py
+    python3 scripts/differential/inventory.py --check
+    python3 scripts/near/compare-matrix-snapshot-test.py
+
 # Typed open capability/HostOp identity and target-owned catalog contract.
 hostop-protocol:
     lake env lean --run Tests/Canonical/HostOpCatalog.lean

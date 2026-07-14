@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "proof-forge.differential.reference.v1",
+  "title": "ProofForge native reference provenance",
+  "type": "object",
+  "required": [
+    "schema",
+    "id",
+    "targetFamily",
+    "program",
+    "framework",
+    "source",
+    "provenance",
+    "semanticEligibility"
+  ],
+  "properties": {
+    "schema": {"const": "proof-forge.differential.reference.v1"},
+    "id": {"type": "string", "minLength": 1},
+    "targetFamily": {"enum": ["evm", "solana", "near", "stylus"]},
+    "program": {"type": "string", "minLength": 1},
+    "framework": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "required": ["path", "language"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "language": {"type": "string", "minLength": 1}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["status", "origin", "revision", "license", "toolchain", "missing"],
+      "properties": {
+        "status": {"enum": ["complete", "incomplete"]},
+        "origin": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "url": {"type": ["string", "null"]}
+          }
+        },
+        "revision": {"type": ["string", "null"]},
+        "license": {"type": ["string", "null"]},
+        "toolchain": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "version"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "version": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "missing": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["revision", "license", "toolchainVersions"]}
+        }
+      }
+    },
+    "semanticEligibility": {
+      "type": "object",
+      "required": ["eligible", "reasons"],
+      "properties": {
+        "eligible": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

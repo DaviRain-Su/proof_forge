@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "proof-forge.differential.scenario.v1",
+  "title": "ProofForge logical differential scenario",
+  "type": "object",
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "targetFamily",
+    "steps",
+    "requiredObservations",
+    "allowedDivergences"
+  ],
+  "properties": {
+    "schema": {"const": "proof-forge.differential.scenario.v1"},
+    "id": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["portable", "targetExtension"]},
+    "targetFamily": {"enum": ["portable", "evm", "solana", "near", "stylus"]},
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "action"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "action": {"type": "string", "minLength": 1},
+          "inputs": {"type": "object"}
+        }
+      }
+    },
+    "requiredObservations": {
+      "$ref": "normalized-observation.v1.schema.json#/$defs/dimensions"
+    },
+    "allowedDivergences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["dimension", "scope", "reason"],
+        "properties": {
+          "dimension": {"$ref": "normalized-observation.v1.schema.json#/$defs/dimension"},
+          "scope": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "proof-forge.differential.observation.v1",
+  "title": "ProofForge normalized differential observation",
+  "type": "object",
+  "required": [
+    "schema",
+    "scenarioId",
+    "runner",
+    "provenanceComplete",
+    "observedMatch",
+    "observationCoverage",
+    "steps",
+    "semanticMatch"
+  ],
+  "properties": {
+    "schema": {"const": "proof-forge.differential.observation.v1"},
+    "scenarioId": {"type": "string", "minLength": 1},
+    "runner": {
+      "type": "object",
+      "required": ["name", "status"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "status": {"enum": ["executed", "skipped", "error"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "provenanceComplete": {"type": "boolean"},
+    "observedMatch": {"type": "boolean"},
+    "observationCoverage": {
+      "type": "object",
+      "required": ["required", "covered", "missing"],
+      "properties": {
+        "required": {"$ref": "#/$defs/dimensions"},
+        "covered": {"$ref": "#/$defs/dimensions"},
+        "missing": {"$ref": "#/$defs/dimensions"}
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "observations"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "observations": {
+            "type": "object",
+            "propertyNames": {"$ref": "#/$defs/dimension"}
+          }
+        }
+      }
+    },
+    "semanticMatch": {"type": "boolean"}
+  },
+  "$defs": {
+    "dimension": {
+      "enum": [
+        "callStatus",
+        "returnValue",
+        "state",
+        "balances",
+        "events",
+        "externalActions",
+        "interface",
+        "resources"
+      ]
+    },
+    "dimensions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/dimension"}
+    }
+  }
+}

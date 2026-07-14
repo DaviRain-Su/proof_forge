@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "proof-forge.differential.inventory.v1",
+  "title": "ProofForge native differential asset inventory",
+  "type": "object",
+  "required": ["schema", "scope", "summary", "assets"],
+  "properties": {
+    "schema": {"const": "proof-forge.differential.inventory.v1"},
+    "scope": {"type": "string", "minLength": 1},
+    "summary": {
+      "type": "object",
+      "required": ["assetCount", "semanticVerifiedCount", "byTargetFamily"]
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "targetFamily",
+          "kind",
+          "path",
+          "maturity",
+          "semanticEvidence",
+          "notes"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "targetFamily": {"enum": ["portable", "evm", "solana", "near", "stylus"]},
+          "kind": {"enum": ["nativeReference", "runner", "scenario", "gate", "reportCatalog"]},
+          "path": {"type": "string", "minLength": 1},
+          "maturity": {
+            "enum": [
+              "referenceManifestV0",
+              "structuralReference",
+              "deterministicRunner",
+              "liveRunner",
+              "portableScenarioV0",
+              "measurementOnly",
+              "ciGate"
+            ]
+          },
+          "semanticEvidence": {"enum": ["none", "partial", "verified"]},
+          "notes": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

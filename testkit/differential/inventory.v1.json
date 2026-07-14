@@ -1,0 +1,1051 @@
+{
+  "assets": [
+    {
+      "id": "evm-anvil-runner",
+      "kind": "runner",
+      "maturity": "liveRunner",
+      "notes": "Anvil deployment gate; not a normalized native differential",
+      "path": "scripts/evm/anvil-deploy-smoke.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-comparison-gates",
+      "kind": "gate",
+      "maturity": "ciGate",
+      "notes": "EVM Foundry and Anvil execution recipes; recipe presence does not imply normalized semantic verification",
+      "path": "justfile",
+      "selectors": [
+        "evm-anvil-deploy",
+        "evm-dynamic-constructor-anvil",
+        "evm-foundry"
+      ],
+      "semanticEvidence": "partial",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-foundry-runner",
+      "kind": "runner",
+      "maturity": "liveRunner",
+      "notes": "Foundry behavior gate; not yet paired with all native references",
+      "path": "scripts/evm/foundry-smoke.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-reference-counter",
+      "kind": "nativeReference",
+      "maturity": "structuralReference",
+      "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
+      "path": "benchmarks/native/evm/Counter.sol",
+      "semanticEvidence": "none",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-reference-ownable",
+      "kind": "nativeReference",
+      "maturity": "structuralReference",
+      "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
+      "path": "benchmarks/native/evm/Ownable.sol",
+      "semanticEvidence": "none",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-reference-valuevault",
+      "kind": "nativeReference",
+      "maturity": "structuralReference",
+      "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
+      "path": "benchmarks/native/evm/ValueVault.sol",
+      "semanticEvidence": "none",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-revm-runner",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "revm execution harness without shared v1 observation output",
+      "path": "testkit/harness-evm/src/lib.rs",
+      "semanticEvidence": "partial",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "github-comparison-ci",
+      "kind": "gate",
+      "maturity": "ciGate",
+      "notes": "hosted CI lanes that invoke existing target gates; normalized v1 comparison promotion is not yet wired",
+      "path": ".github/workflows/ci.yml",
+      "semanticEvidence": "partial",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "near-comparison-gates",
+      "kind": "gate",
+      "maturity": "ciGate",
+      "notes": "NEAR offline, sandbox, and matrix recipes; recipe presence does not imply normalized semantic verification",
+      "path": "justfile",
+      "selectors": [
+        "near-compare",
+        "near-compare-access-control",
+        "near-compare-access-control-live",
+        "near-compare-all-live",
+        "near-compare-array-example",
+        "near-compare-array-example-live",
+        "near-compare-auth-remote-call",
+        "near-compare-auth-remote-call-live",
+        "near-compare-counter",
+        "near-compare-escrow-vault",
+        "near-compare-escrow-vault-live",
+        "near-compare-external-token-transfer",
+        "near-compare-external-token-transfer-live",
+        "near-compare-external-vault",
+        "near-compare-external-vault-live",
+        "near-compare-fee-token",
+        "near-compare-fee-token-live",
+        "near-compare-ft-peer-client",
+        "near-compare-ft-peer-client-live",
+        "near-compare-fungible-token",
+        "near-compare-fungible-token-live",
+        "near-compare-guestbook",
+        "near-compare-guestbook-live",
+        "near-compare-height-lock-vault",
+        "near-compare-height-lock-vault-live",
+        "near-compare-host-env-probe",
+        "near-compare-host-env-probe-live",
+        "near-compare-live",
+        "near-compare-matrix",
+        "near-compare-matrix-test",
+        "near-compare-ownable",
+        "near-compare-ownable-hash",
+        "near-compare-ownable-hash-live",
+        "near-compare-ownable-live",
+        "near-compare-ownable-pausable",
+        "near-compare-ownable-pausable-live",
+        "near-compare-pausable",
+        "near-compare-pausable-live",
+        "near-compare-pro-rata-vault",
+        "near-compare-pro-rata-vault-live",
+        "near-compare-reentrancy-guard",
+        "near-compare-reentrancy-guard-live",
+        "near-compare-remote-call",
+        "near-compare-remote-call-live",
+        "near-compare-role-gated-token",
+        "near-compare-role-gated-token-live",
+        "near-compare-soulbound-token",
+        "near-compare-soulbound-token-live",
+        "near-compare-staking-vault",
+        "near-compare-staking-vault-live",
+        "near-compare-status-message",
+        "near-compare-status-message-live",
+        "near-compare-storage-deposit",
+        "near-compare-storage-deposit-live",
+        "near-compare-timelock-vault",
+        "near-compare-timelock-vault-live",
+        "near-compare-value-vault",
+        "near-compare-value-vault-live",
+        "near-compare-vesting-vault",
+        "near-compare-vesting-vault-live"
+      ],
+      "semanticEvidence": "partial",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-historical-matrix",
+      "kind": "reportCatalog",
+      "maturity": "measurementOnly",
+      "notes": "28 historical live reports are explicitly excluded from semantic verification because normalized coverage is absent",
+      "path": "testkit/compare/MATRIX.md",
+      "semanticEvidence": "none",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-matrix-generator",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "historical matrix generator with fail-closed measurement-only labels",
+      "path": "scripts/near/compare-matrix-snapshot.py",
+      "semanticEvidence": "none",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-offline-runner",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "offline Wasmtime size/fuel comparison runner",
+      "path": "testkit/compare/src/main.rs",
+      "semanticEvidence": "partial",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-access-control",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/access-control/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/access-control/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-array-example",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/array-example/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/array-example/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-auth-remote-call",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/auth-remote-call/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/auth-remote-call/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-counter",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/counter/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/counter/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-escrow-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/escrow-vault/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/escrow-vault/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-external-token-transfer",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/external-token-transfer/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/external-token-transfer/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-external-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/external-vault/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/external-vault/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-fee-token",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/fee-token/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/fee-token/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-ft-peer-client",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/ft-peer-client/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/ft-peer-client/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-fungible-token",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/fungible-token/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/fungible-token/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-guestbook",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/guestbook/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/guestbook/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-height-lock-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/height-lock-vault/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/height-lock-vault/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-host-env-probe",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/host-env-probe/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/host-env-probe/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-ownable",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/ownable/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/ownable/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-ownable-hash",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/ownable-hash/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/ownable-hash/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-ownable-pausable",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/ownable-pausable/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/ownable-pausable/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-pausable",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/pausable/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/pausable/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-pro-rata-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/pro-rata-vault/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/pro-rata-vault/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-reentrancy-guard",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/reentrancy-guard/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/reentrancy-guard/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-remote-call",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/remote-call/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/remote-call/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-role-gated-token",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/role-gated-token/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/role-gated-token/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-soulbound-token",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/soulbound-token/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/soulbound-token/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-staking-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/staking-vault/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/staking-vault/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-status-message",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/status-message/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/status-message/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-storage-deposit",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/storage-deposit/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/storage-deposit/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-timelock-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/timelock-vault/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/timelock-vault/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-value-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/value-vault/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/value-vault/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-reference-vesting-vault",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
+      "path": "testkit/compare/near/vesting-vault/reference-manifest.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/vesting-vault/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
+      "targetFamily": "near"
+    },
+    {
+      "id": "near-sandbox-runner",
+      "kind": "runner",
+      "maturity": "liveRunner",
+      "notes": "NEAR Sandbox runner; historical reports do not satisfy v1 coverage",
+      "path": "testkit/compare/near/sandbox/src/main.rs",
+      "semanticEvidence": "partial",
+      "targetFamily": "near"
+    },
+    {
+      "id": "portable-scenario-allocator-release",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/allocator-release.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-array-example",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/array-example.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-counter",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/counter.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-error-ref",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/error-ref.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-error-ref-user-code",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/error-ref-user-code.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-ownable",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/ownable.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-quint-counter",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/quint-counter.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-quint-value-vault",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/quint-value-vault.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-remote-call",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/remote-call.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-role-gated-token",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/role-gated-token.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-staking-vault",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/staking-vault.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-unsupported-crosscall",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/unsupported-crosscall.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "portable-scenario-value-vault",
+      "kind": "scenario",
+      "maturity": "portableScenarioV0",
+      "notes": "existing artifact/runtime scenario; it predates the versioned logical-step and coverage contract",
+      "path": "testkit/scenarios/value-vault.toml",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "solana-comparison-gates",
+      "kind": "gate",
+      "maturity": "ciGate",
+      "notes": "Solana Pinocchio static and live equivalence recipes; recipe presence does not imply normalized semantic verification",
+      "path": "justfile",
+      "selectors": [
+        "solana-pinocchio-install-sbf-tools",
+        "solana-pinocchio-live-equivalence",
+        "solana-pinocchio-memo-equivalence",
+        "solana-pinocchio-reference-equivalence",
+        "solana-pinocchio-spl-token-authority-equivalence",
+        "solana-pinocchio-spl-token-authority-live-equivalence",
+        "solana-pinocchio-spl-token-close-account-equivalence",
+        "solana-pinocchio-spl-token-ops-equivalence",
+        "solana-pinocchio-spl-token-ops-live-equivalence",
+        "solana-pinocchio-spl-token-transfer-equivalence",
+        "solana-pinocchio-spl-token-transfer-live-equivalence",
+        "solana-pinocchio-system-create-account-equivalence",
+        "solana-pinocchio-system-create-account-live-equivalence",
+        "solana-pinocchio-system-transfer-equivalence",
+        "solana-pinocchio-system-transfer-live-equivalence"
+      ],
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-reference-memo",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "Pinocchio Rust reference with structural gates; v0 manifest lacks complete provenance and normalized observation coverage",
+      "path": "references/solana/pinocchio/memo/reference-manifest.json",
+      "semanticEvidence": "partial",
+      "sourcePaths": [
+        "references/solana/pinocchio/memo/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.solana.reference-equivalence.v0",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-reference-spl-token-authority",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "Pinocchio Rust reference with structural gates; v0 manifest lacks complete provenance and normalized observation coverage",
+      "path": "references/solana/pinocchio/spl-token-authority/reference-manifest.json",
+      "semanticEvidence": "partial",
+      "sourcePaths": [
+        "references/solana/pinocchio/spl-token-authority/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.solana.reference-equivalence.v0",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-reference-spl-token-close-account",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "Pinocchio Rust reference with structural gates; v0 manifest lacks complete provenance and normalized observation coverage",
+      "path": "references/solana/pinocchio/spl-token-close-account/reference-manifest.json",
+      "semanticEvidence": "partial",
+      "sourcePaths": [
+        "references/solana/pinocchio/spl-token-close-account/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.solana.reference-equivalence.v0",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-reference-spl-token-ops",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "Pinocchio Rust reference with structural gates; v0 manifest lacks complete provenance and normalized observation coverage",
+      "path": "references/solana/pinocchio/spl-token-ops/reference-manifest.json",
+      "semanticEvidence": "partial",
+      "sourcePaths": [
+        "references/solana/pinocchio/spl-token-ops/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.solana.reference-equivalence.v0",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-reference-spl-token-transfer",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "Pinocchio Rust reference with structural gates; v0 manifest lacks complete provenance and normalized observation coverage",
+      "path": "references/solana/pinocchio/spl-token-transfer/reference-manifest.json",
+      "semanticEvidence": "partial",
+      "sourcePaths": [
+        "references/solana/pinocchio/spl-token-transfer/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.solana.reference-equivalence.v0",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-reference-system-create-account",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "Pinocchio Rust reference with structural gates; v0 manifest lacks complete provenance and normalized observation coverage",
+      "path": "references/solana/pinocchio/system-create-account/reference-manifest.json",
+      "semanticEvidence": "partial",
+      "sourcePaths": [
+        "references/solana/pinocchio/system-create-account/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.solana.reference-equivalence.v0",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-reference-system-transfer",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV0",
+      "notes": "Pinocchio Rust reference with structural gates; v0 manifest lacks complete provenance and normalized observation coverage",
+      "path": "references/solana/pinocchio/system-transfer/reference-manifest.json",
+      "semanticEvidence": "partial",
+      "sourcePaths": [
+        "references/solana/pinocchio/system-transfer/src/lib.rs"
+      ],
+      "sourceSchema": "proof-forge.solana.reference-equivalence.v0",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-live-equivalence",
+      "kind": "runner",
+      "maturity": "liveRunner",
+      "notes": "Pinocchio dual-artifact behavior runner",
+      "path": "scripts/solana/pinocchio-live-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-memo-equivalence",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Pinocchio static structural equivalence runner",
+      "path": "scripts/solana/pinocchio-memo-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-reference-equivalence",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Pinocchio static structural equivalence runner",
+      "path": "scripts/solana/pinocchio-reference-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-spl-token-authority-equivalence",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Pinocchio static structural equivalence runner",
+      "path": "scripts/solana/pinocchio-spl-token-authority-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-spl-token-authority-live-equivalence",
+      "kind": "runner",
+      "maturity": "liveRunner",
+      "notes": "Pinocchio dual-artifact behavior runner",
+      "path": "scripts/solana/pinocchio-spl-token-authority-live-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-spl-token-close-account-equivalence",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Pinocchio static structural equivalence runner",
+      "path": "scripts/solana/pinocchio-spl-token-close-account-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-spl-token-ops-equivalence",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Pinocchio static structural equivalence runner",
+      "path": "scripts/solana/pinocchio-spl-token-ops-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-spl-token-ops-live-equivalence",
+      "kind": "runner",
+      "maturity": "liveRunner",
+      "notes": "Pinocchio dual-artifact behavior runner",
+      "path": "scripts/solana/pinocchio-spl-token-ops-live-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-spl-token-transfer-equivalence",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Pinocchio static structural equivalence runner",
+      "path": "scripts/solana/pinocchio-spl-token-transfer-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-spl-token-transfer-live-equivalence",
+      "kind": "runner",
+      "maturity": "liveRunner",
+      "notes": "Pinocchio dual-artifact behavior runner",
+      "path": "scripts/solana/pinocchio-spl-token-transfer-live-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-system-create-account-equivalence",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Pinocchio static structural equivalence runner",
+      "path": "scripts/solana/pinocchio-system-create-account-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-system-create-account-live-equivalence",
+      "kind": "runner",
+      "maturity": "liveRunner",
+      "notes": "Pinocchio dual-artifact behavior runner",
+      "path": "scripts/solana/pinocchio-system-create-account-live-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-system-transfer-equivalence",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Pinocchio static structural equivalence runner",
+      "path": "scripts/solana/pinocchio-system-transfer-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "solana-runner-pinocchio-system-transfer-live-equivalence",
+      "kind": "runner",
+      "maturity": "liveRunner",
+      "notes": "Pinocchio dual-artifact behavior runner",
+      "path": "scripts/solana/pinocchio-system-transfer-live-equivalence.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "solana"
+    },
+    {
+      "id": "stylus-comparison-gates",
+      "kind": "gate",
+      "maturity": "ciGate",
+      "notes": "Stylus differential, VM, Nitro, and SDK recipes; recipe presence does not imply normalized semantic verification",
+      "path": "justfile",
+      "selectors": [
+        "stylus-aggregate-differential",
+        "stylus-aggregate-nitro-e2e",
+        "stylus-aggregate-storage",
+        "stylus-all",
+        "stylus-cli-matrix",
+        "stylus-core-plan",
+        "stylus-counter-differential",
+        "stylus-counter-lifecycle",
+        "stylus-diagnostics",
+        "stylus-direct-abi",
+        "stylus-direct-storage",
+        "stylus-mapping-events",
+        "stylus-nested-map",
+        "stylus-nitro-check",
+        "stylus-nitro-deploy",
+        "stylus-nitro-doctor",
+        "stylus-nitro-down",
+        "stylus-nitro-e2e",
+        "stylus-nitro-evidence",
+        "stylus-nitro-init",
+        "stylus-nitro-install",
+        "stylus-nitro-scripts",
+        "stylus-nitro-status",
+        "stylus-nitro-up",
+        "stylus-official-check",
+        "stylus-package",
+        "stylus-plan-contract",
+        "stylus-public-route",
+        "stylus-remote-call-differential",
+        "stylus-remote-call-nitro-e2e",
+        "stylus-rust-counter",
+        "stylus-rust-render",
+        "stylus-scalar-params",
+        "stylus-sepolia-e2e",
+        "stylus-token-differential",
+        "stylus-token-evm-interop",
+        "stylus-token-nitro-e2e",
+        "stylus-value-vault-canonical",
+        "stylus-value-vault-differential",
+        "stylus-value-vault-nitro-e2e",
+        "stylus-vm-runner",
+        "stylus-wide-arithmetic",
+        "stylus-wide-values"
+      ],
+      "semanticEvidence": "partial",
+      "targetFamily": "stylus"
+    },
+    {
+      "id": "stylus-host-runner",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Rust host semantic runner used by focused differentials",
+      "path": "runtime/stylus-host/src/main.rs",
+      "semanticEvidence": "partial",
+      "targetFamily": "stylus"
+    },
+    {
+      "id": "stylus-runner-aggregate-differential",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "focused abstract/Rust/direct-Wasm comparison without a v1 provenance manifest",
+      "path": "scripts/stylus/aggregate-differential.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "stylus"
+    },
+    {
+      "id": "stylus-runner-counter-differential",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "focused abstract/Rust/direct-Wasm comparison without a v1 provenance manifest",
+      "path": "scripts/stylus/counter-differential.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "stylus"
+    },
+    {
+      "id": "stylus-runner-remote-call-differential",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "focused abstract/Rust/direct-Wasm comparison without a v1 provenance manifest",
+      "path": "scripts/stylus/remote-call-differential.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "stylus"
+    },
+    {
+      "id": "stylus-runner-token-differential",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "focused abstract/Rust/direct-Wasm comparison without a v1 provenance manifest",
+      "path": "scripts/stylus/token-differential.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "stylus"
+    },
+    {
+      "id": "stylus-runner-value-vault-differential",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "focused abstract/Rust/direct-Wasm comparison without a v1 provenance manifest",
+      "path": "scripts/stylus/value-vault-differential.sh",
+      "semanticEvidence": "partial",
+      "targetFamily": "stylus"
+    },
+    {
+      "id": "stylus-vm-runner",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "Stylus VM conformance runner; shared v1 output is pending CMP-STYLUS",
+      "path": "tools/stylus-vm-runner/src/main.rs",
+      "semanticEvidence": "partial",
+      "targetFamily": "stylus"
+    },
+    {
+      "id": "woodpecker-comparison-ci",
+      "kind": "gate",
+      "maturity": "ciGate",
+      "notes": "Woodpecker invokes aggregate gates; normalized v1 comparison promotion is not yet wired",
+      "path": ".woodpecker.yml",
+      "semanticEvidence": "partial",
+      "targetFamily": "portable"
+    }
+  ],
+  "schema": "proof-forge.differential.inventory.v1",
+  "scope": "tracked comparison assets at CMP-0",
+  "summary": {
+    "assetCount": 85,
+    "byTargetFamily": {
+      "evm": 7,
+      "near": 33,
+      "portable": 15,
+      "solana": 22,
+      "stylus": 8
+    },
+    "semanticVerifiedCount": 0
+  }
+}
