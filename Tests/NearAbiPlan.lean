@@ -1,7 +1,7 @@
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.JsonReturn
 import ProofForge.Backend.WasmHost.NearAbiPlan
-import ProofForge.Backend.WasmHost.NearModulePlan
+import ProofForge.Backend.WasmHost.NearModulePlan.Legacy
 import ProofForge.Backend.WasmHost.WasmInterpreter
 
 open ProofForge.IR

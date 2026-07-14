@@ -30,7 +30,7 @@ import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.EvmMapProbe
 import ProofForge.IR.Examples.EvmStorageArrayProbe
 import ProofForge.IR.Examples.EvmStorageStructProbe
-import ProofForge.Backend.WasmHost.NearModulePlan
+import ProofForge.Backend.WasmHost.NearModulePlan.Legacy
 import ProofForge.Backend.WasmHost.EmitWat
 
 namespace ProofForge.Tests.NearModulePlan

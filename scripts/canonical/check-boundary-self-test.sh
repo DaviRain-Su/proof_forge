@@ -11,6 +11,7 @@ make_fixture() {
     "$root/ProofForge/Backend/Evm/Plan" \
     "$root/ProofForge/Backend/Solana/Plan" \
     "$root/ProofForge/Backend/WasmHost/NearModulePlan" \
+    "$root/ProofForge/Backend/WasmHost/ModulePlan" \
     "$root/ProofForge/Backend/WasmHost" \
     "$root/ProofForge/Cli" \
     "$root/Tests" \
@@ -23,6 +24,7 @@ make_fixture() {
   : > "$root/ProofForge/Backend/Evm/Plan/Core.lean"
   : > "$root/ProofForge/Backend/Solana/Plan/Core.lean"
   : > "$root/ProofForge/Backend/WasmHost/NearModulePlan/Core.lean"
+  : > "$root/ProofForge/Backend/WasmHost/ModulePlan/Lower.lean"
 }
 
 expect_failure() {
@@ -62,6 +64,18 @@ root="$TMP/legacy"
 make_fixture "$root"
 printf '%s\n' 'import ProofForge.IR.Contract' > "$root/ProofForge/Backend/Evm/Plan/Core.lean"
 expect_failure "canonical Legacy import" "$root"
+
+root="$TMP/near-legacy"
+make_fixture "$root"
+printf '%s\n' 'import ProofForge.Backend.WasmHost.NearModulePlan.Legacy' \
+  > "$root/ProofForge/Backend/WasmHost/NearModulePlan/Core.lean"
+expect_failure "canonical NEAR compatibility import" "$root"
+
+root="$TMP/legacy-namespace"
+make_fixture "$root"
+printf '%s\n' 'import ProofForge.IR.Legacy.Adapter' \
+  > "$root/ProofForge/Backend/WasmHost/ModulePlan/Lower.lean"
+expect_failure "canonical legacy namespace import" "$root"
 
 root="$TMP/raw-ast"
 make_fixture "$root"

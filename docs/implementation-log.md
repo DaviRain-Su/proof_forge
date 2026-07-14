@@ -2625,3 +2625,21 @@ Rules:
   `just near-vm-json-transfer`, `just near-vm-nep297`, and
   `lake env lean --run Tests/Backend/Wasm/EmitWatChainSemantics.lean`.
 - Remaining: N-T5 TokenSpec parameterization; N-T6 sandbox differential.
+
+## 2026-07-14 - NEAR-R0a: isolate v1 module-plan compatibility
+
+- Status: `in_progress`; this is the first NEAR canonical-cutover slice.
+- Moved every `IR.Module`-accepting NEAR plan builder and lowerer into the
+  explicit `NearModulePlan.Legacy` module. Canonical Core planning and
+  plan-only lowering continue to import only `NearModulePlan`.
+- Extended `canonical-boundary` so Canonical target builders and Wasm-host
+  plan lowering reject imports of `IR.Contract`, the `IR.Legacy` namespace,
+  and `NearModulePlan.Legacy`; self-tests prove each forbidden import fails.
+- Reopened N-T1 through N-T4 for canonical-route replay. Their existing commits
+  remain behavior baselines, but the legacy FT source path is no longer counted
+  as architecture completion.
+- Verification passed: targeted builds for the main, Legacy, Core, and Lower
+  modules; `Tests/Canonical/WasmHostPlanPreservation.lean`;
+  `Tests/NearModulePlan.lean`; `Tests/NearAbiPlan.lean`; and
+  `just canonical-boundary`.
+- Next: NEAR-R0b/R1, remove v1 type/layout ownership from the target plan.

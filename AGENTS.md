@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | N-T4 - NEP-148 metadata and NEP-297 event envelopes |
-| Next task | N-T5 - parameterized TokenSpec artifact |
+| Active task | NEAR-R0 - isolate all v1 `IR.Module` compatibility APIs |
+| Next task | NEAR-R1 - make `NearModulePlan` fully target-owned |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -74,6 +74,17 @@ The active NEAR execution order lives in the
 Do not reopen completed U128, AccountId-string, `storage_remove`, gas-context,
 or JSON balance/transfer slices from stale gap prose.
 
+The target migration order is fixed. Do not start a later row while an earlier
+row still has a production path through `ContractSpec`, `IR.Module`, or a
+Legacy adapter.
+
+| Order | Target family | State | Exit condition |
+|---|---|---|---|
+| 1 | EVM | done (canonical renderer baseline verified 2026-07-14) | Strict renderer consumes `ModulePlan` alone |
+| 2 | NEAR | in_progress | Product TokenSpec/Surface v2 reaches `NearModulePlan` without v1 IR |
+| 3 | Solana | pending | Product path reaches target-owned plan without v1 IR |
+| 4 | Other targets | pending | Each target is migrated or explicitly fixture/research-only |
+
 The immediate architecture prerequisite is the
 [IR Target Extension Boundary plan](docs/superpowers/plans/2026-07-14-ir-target-extension-boundary.md).
 Complete IR-B0 through IR-B3 before N-T4 resumes. IR-B4 through IR-B8 then
@@ -105,14 +116,28 @@ success. The Canonical EVM renderer now consumes `ModulePlan` alone. Product
 | ID | State | Task | Authoritative section |
 |---|---|---|---|
 | N-T0 | done (verified at `337ee823`) | Reconcile stale NEAR task and capability claims | NEAR plan task index |
-| N-T1 | done (verified at `38def4de`) | Schema-driven JSON ABI and structured client types | Phase 4 |
-| N-T2 | done (verified 2026-07-14) | Standard NEP-141 ABI and exact one-yocto/registration rules | Phase 5 |
-| N-T3 | done (verified 2026-07-14) | Complete NEP-145 JSON, unregister, refunds, and accounting | Phase 6 |
-| N-T4 | done (verified 2026-07-14) | NEP-148 metadata and NEP-297 events | Phase 6 |
+| N-T1 | pending | Re-land the verified JSON ABI behavior on the canonical-only NEAR route | Phase 4 + NEAR-R4 |
+| N-T2 | pending | Re-land the verified NEP-141 behavior on the canonical-only NEAR route | Phase 5 + NEAR-R4 |
+| N-T3 | pending | Re-land the verified NEP-145 behavior on the canonical-only NEAR route | Phase 6 + NEAR-R4 |
+| N-T4 | pending | Re-land the verified NEP-148/297 behavior on the canonical-only NEAR route | Phase 6 + NEAR-R4 |
 | N-T5 | pending | One parameterized TokenSpec NEP-141 artifact | Phase 7 |
 | N-T6 | pending after N-T2/N-T3/N-T4 | Refresh sandbox compare and obtain verified evidence | Phase 8 |
 | N-T7 | pending after N-T6 | Real receipt/network runner, deploy evidence, and gas bands | Phase 8 extension |
 | N-T8 | pending | NEAR ecosystem extensions and formal preservation | Phase 9 extension |
+
+The previous N-T1 through N-T4 commits remain executable behavioral baselines;
+they are not accepted as architecture completion because the public FT source
+still enters through `NearSpec`/`ContractSpec` and `Legacy.Adapter`. The NEAR
+cutover is split into reviewable removal slices:
+
+| ID | State | Task |
+|---|---|---|
+| NEAR-R0 | in_progress | Isolate v1 `IR.Module` builders/lowerers behind an explicit Legacy module and enforce import boundaries |
+| NEAR-R1 | pending | Remove v1 `ValueType`, `StructDecl`, and allocator ownership from `NearModulePlan` |
+| NEAR-R2 | pending | Move NEAR-only context, value, receipt, and promise operations into typed Near HostOps |
+| NEAR-R3 | pending | Materialize TokenSpec/Surface v2 directly into checked Canonical Core |
+| NEAR-R4 | pending | Switch the public CLI route and replay N-T1 through N-T4 gates on the canonical artifact |
+| NEAR-R5 | pending | Delete `NearSpec`, the legacy FT product source, adapters, and zero-caller compatibility APIs |
 
 The D-052 cross-program routing index remains below for work not superseded by
 the active NEAR sequence.

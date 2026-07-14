@@ -5,7 +5,7 @@
 # Fails on any of:
 #   1. public target id ending in -core
 #   2. backend importing ProofForge.Frontend.Surface
-#   3. canonical target builder importing ProofForge.IR.Contract
+#   3. canonical target builder/lowerer importing retired IR compatibility
 #   4. target plan declaration containing Yul.Statement, AstNode, or Wasm.Insn
 #   5. legacy constructor change without classification change
 #   6. remaining EvmCorePlan, SolanaCorePlan, or WasmCorePlan declaration
@@ -30,16 +30,18 @@ if rg -n '^\s*import\s+ProofForge\.Frontend\.Surface(\s|$)' ProofForge/Backend/ 
   report "backend imports ProofForge.Frontend.Surface"
 fi
 
-# ── 3. No canonical target builder importing ProofForge.IR.Contract ─
-# Canonical Core builders (Plan/Core.lean) must not import Legacy IR.
-CANONICAL_BUILDERS=(
+# ── 3. Canonical target paths cannot import retired compatibility ───
+# Core builders and plan-only lowerers must remain independent of the v1 IR
+# and target compatibility modules.
+CANONICAL_PATHS=(
   ProofForge/Backend/Evm/Plan/Core.lean
   ProofForge/Backend/Solana/Plan/Core.lean
   ProofForge/Backend/WasmHost/NearModulePlan/Core.lean
+  ProofForge/Backend/WasmHost/ModulePlan/Lower.lean
 )
-for f in "${CANONICAL_BUILDERS[@]}"; do
-  if rg -n '^\s*import\s+ProofForge\.IR\.Contract(\s|$)' "$f" >/dev/null 2>&1; then
-    report "canonical builder $f imports ProofForge.IR.Contract"
+for f in "${CANONICAL_PATHS[@]}"; do
+  if rg -n '^\s*import\s+(ProofForge\.IR\.(Contract|Legacy)(\.|\s|$)|ProofForge\.Backend\.WasmHost\.NearModulePlan\.Legacy(\s|$))' "$f" >/dev/null 2>&1; then
+    report "canonical path $f imports retired IR compatibility"
   fi
 done
 

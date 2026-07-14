@@ -1,7 +1,8 @@
 # NEP-141 / NEP-145 Interop — Unified Execution Plan
 
-Status: active (updated 2026-07-14; N-T0 through N-T4 complete; Phase 7
-in progress; Phases 0-5 and the NEP-145 portion of Phase 6 complete).
+Status: active (updated 2026-07-14; N-T1 through N-T4 have executable behavior
+baselines but are reopened until those gates run through the canonical-only
+NEAR product route; NEAR-R0 is in progress).
 Scope: make the ProofForge `wasm-near` NEP-141
 FungibleToken and NEP-145 storage management interoperate with real NEAR
 contracts, proven by the compare harness at semantic equivalence and by real-VM
@@ -15,17 +16,34 @@ the broader completion work visible while each landing remains reviewable.
 | ID | State | Deliverable | Depends on |
 |---|---|---|---|
 | N-T0 | done (`337ee823`) | Reconcile stale backlog, gap audit, lifecycle, and Agent routing claims | — |
-| N-T1 | done (`38def4de`) | Schema-driven JSON ABI, structured output/client types, order/escape policy | N-T0 |
-| N-T2 | done (2026-07-14) | Standard `ft_transfer_call`, exact one yocto, receiver registration | N-T1 |
-| N-T3 | done (2026-07-14) | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | N-T1 |
-| N-T4 | done (verified 2026-07-14) | NEP-148 metadata and NEP-297 event envelopes | N-T1 |
+| N-T1 | pending canonical replay (baseline `38def4de`) | Schema-driven JSON ABI, structured output/client types, order/escape policy | NEAR-R4 |
+| N-T2 | pending canonical replay (baseline verified 2026-07-14) | Standard `ft_transfer_call`, exact one yocto, receiver registration | NEAR-R4 |
+| N-T3 | pending canonical replay (baseline verified 2026-07-14) | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | NEAR-R4 |
+| N-T4 | pending canonical replay (baselines `768ce114`, `09fbf234`) | NEP-148 metadata and NEP-297 event envelopes | NEAR-R4 |
 | N-T5 | pending | One parameterized TokenSpec -> NEP-141 executable artifact | N-T1 foundation; may proceed alongside N-T3 |
 | N-T6 | pending | Current JSON/U128 sandbox differential with verified reports | N-T2, N-T3, N-T4 |
 | N-T7 | pending | Executed receipt chain, testnet runner, deployment evidence, gas bands | N-T6 |
 | N-T8 | pending | NEP-171/178/245 depth, missing host APIs/crypto, formal preservation | independent slices after N-T1 |
 
-Completion means all nine rows are `done` with direct gates. A completed
-landing does not reduce the remaining objective.
+Completion means all nine rows are `done` with direct gates on a public route
+that does not pass through `NearSpec`, `ContractSpec`, `IR.Module`, or
+`Legacy.Adapter`. Existing behavior commits are retained as parity oracles,
+not accepted as architecture completion.
+
+### Canonical cutover sequence
+
+| ID | State | Deliverable |
+|---|---|---|
+| NEAR-R0 | in_progress | Move v1 module-plan compatibility into an explicit Legacy module and enforce static import boundaries |
+| NEAR-R1 | pending | Make every `NearModulePlan` field target-owned |
+| NEAR-R2 | pending | Represent NEAR-only semantics as typed target HostOps, not shared Core constructors |
+| NEAR-R3 | pending | Materialize TokenSpec/Surface v2 directly into checked Canonical Core |
+| NEAR-R4 | pending | Switch CLI/product dispatch and replay N-T1 through N-T4 behavior gates |
+| NEAR-R5 | pending | Delete obsolete NEAR product sources, adapters, and compatibility APIs after caller count reaches zero |
+
+The repository-wide migration order is EVM baseline first, then NEAR, then
+Solana, then other target families. NEAR work must finish through NEAR-R5
+before beginning the Solana product cutover.
 
 This plan operationalizes the `pending` Wave-N tasks (`N-01`→`N-04`) from
 `docs/superpowers/plans/2026-07-11-primary-triad-multichain-runtime.md`. It is
