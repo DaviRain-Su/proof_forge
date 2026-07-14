@@ -3168,3 +3168,14 @@ Rules:
 - Verification: targeted policy/product builds,
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
+
+## 2026-07-14 - EVM-R2g: direct map-backed aggregate products
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
+- Added direct Surface v2 GuestBook and StatusMessage products. They exercise
+  scalar/map storage, caller projection, checked counters, indexed/data event
+  fields, and map-backed queries without `contract_source` or Legacy
+  adaptation.
+- Verification: targeted product builds,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.
