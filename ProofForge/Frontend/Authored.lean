@@ -1,5 +1,6 @@
 import ProofForge.Frontend.Authored.Type
 import ProofForge.Frontend.Authored.Syntax
+import ProofForge.Frontend.Authored.Builder
 import ProofForge.Frontend.Authored.Validate
 import ProofForge.Frontend.Authored.Canonicalize
 

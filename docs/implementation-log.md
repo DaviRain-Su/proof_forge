@@ -3907,3 +3907,22 @@ Rules:
 - Verification: focused Authored and representative Surface fixture builds;
   authored canonicalization/effects/storage/crosscall/metadata tests; Surface
   normalization; canonical boundary and Legacy freeze; and `git diff --check`.
+
+## 2026-07-14 - A-CUT2f-a: direct Authored builder foundation
+
+- Status: `done (verified 2026-07-14)`; the next slice switches
+  `Contract.Source.Internal` primitives and then the public macro/loader to this
+  builder.
+- Added `Frontend.Authored.Builder`, whose module and entry state machines own
+  Authored declarations and statements and return one `AuthoredContract`.
+  The module has no dependency on `Contract.Builder`, `ContractSpec`,
+  `IR.Contract`, Surface, or a target backend.
+- Added direct declarations for state, maps, structs, events, errors, entrypoint
+  mutability, portable statements, intents, and verification annotations. No
+  compatibility conversion or second IR module is produced.
+- Added `Tests/Canonical/AuthoredBuilder.lean`, which builds the product Counter
+  shape directly and verifies checked arithmetic, entrypoint identity, state,
+  and Quint/Lean evidence after checked Canonical normalization. Wired into
+  `canonical-foundation`.
+- Verification: focused Authored builder/frontend builds; direct builder and
+  metadata tests; canonical boundary and Legacy freeze; and `git diff --check`.
