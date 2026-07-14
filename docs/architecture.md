@@ -1,5 +1,8 @@
 # Canonical Compiler Architecture
 
+For a **whole-repo map** (CLI → frontend → Core → backends → gates) with Mermaid
+diagrams, see [system-architecture.md](system-architecture.md).
+
 ProofForge separates contract meaning from target materialization. The public
 compiler route is:
 

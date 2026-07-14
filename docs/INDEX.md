@@ -90,6 +90,7 @@ Accepted engineering direction ([rfcs/README](rfcs/README.md)):
 
 ## Engineering
 
+- [System architecture map](system-architecture.md): whole-repo Mermaid map (CLI, frontend, Core, targets, backends, gates).
 - [Canonical compiler architecture](architecture.md): input, semantic,
   state-ownership, target-routing, and rollback boundaries.
 - [Canonical backend interface](backend-interface.md): target-plan ownership,

@@ -11,6 +11,7 @@ generated artifacts remain the implementation truth.
 | Responsibility | Authoritative document |
 |---|---|
 | Settled decisions | [decisions.md](decisions.md) |
+| Whole-repo architecture map (Mermaid) | [system-architecture.md](system-architecture.md) |
 | Current compiler architecture | [Canonical Core design](superpowers/specs/2026-07-11-core-ir-target-plan-design.md) |
 | IR versus target-extension ownership | [IR Target Extension Boundary design](superpowers/specs/2026-07-14-ir-target-extension-boundary-design.md) |
 | Next architecture and product direction | [Portable Intent design](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md) |
