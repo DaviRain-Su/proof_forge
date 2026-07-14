@@ -2478,3 +2478,21 @@ Rules:
   `just wasm-near-ft-transfer-call`, and `just near-vm-nep145` on the real
   upstream NEAR VM. No full `just check` ran.
 - Next: IR-B4, remove EVM ABI/protocol/call-mode constructors from shared IR.
+
+## 2026-07-14 - IR-B4a: EVM effect HostOp boundary
+
+- Status: `done (verified 2026-07-14)`.
+- Added result-free generic `Effect.hostCall`, the target-owned
+  `Target.HostOps.Evm` catalog, and the `Source.Evm` authoring facade.
+- Migrated ERC-721 and ERC-1155 stdlib receiver callbacks to registered EVM
+  HostOps. EVM Legacy and Canonical plans lower those IDs to the existing
+  receiver plans; other backends reject unknown effect extensions explicitly.
+- Corrected Core HostOp result validation so zero-result signatures are owned
+  by the catalog rather than a hard-coded one-result assumption. Solana CLI
+  now runs the same HostOp handler gate before plan construction.
+- Verification passed: full `lake build`, `just evm-semantic-plan`,
+  `Tests/Canonical/EvmEffectHostOp.lean`, real CLI compilation of
+  `ERC721Probe` to a 2214-hex-character EVM runtime, and explicit
+  pre-plan rejection on `solana-sbpf-asm` and `wasm-near`.
+- Next: IR-B4b, delete the three legacy ERC receiver `Effect` constructors and
+  move EIP-712/ecrecover authoring behind the EVM extension facade.

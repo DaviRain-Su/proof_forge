@@ -439,6 +439,8 @@ mutual
     | .effect effect => inferEffectExprType module env effect
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
+    | .hostCall id _ _ =>
+        .error { message := s!"wasm host does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId => scalarStateType module stateId
     | .storageScalarWrite _ _ =>
         .error { message := "storage.scalar.write is a statement effect, not an expression" }
@@ -583,6 +585,8 @@ mutual
 
 
   partial def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Except LowerError Unit
+    | .hostCall id _ _ =>
+        .error { message := s!"wasm host does not support effect target extension `{id.render}`" }
     | .storageScalarRead _ =>
         .error { message := "storage.scalar.read must be used as an expression" }
     | .storageScalarWrite stateId value => do

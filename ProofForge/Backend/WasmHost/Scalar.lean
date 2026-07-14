@@ -210,6 +210,7 @@ mutual
           exprReadsPackedScalar scalars d || args.any (exprReadsPackedScalar scalars)
 
   partial def effectReadsPackedScalar (scalars : Array StateInfo) : Effect → Bool
+    | .hostCall _ args _ => args.any (exprReadsPackedScalar scalars)
     | .storageScalarRead id => isPackedScalarId scalars id
     | .storageScalarAssignOp id _ v =>
         isPackedScalarId scalars id || exprReadsPackedScalar scalars v

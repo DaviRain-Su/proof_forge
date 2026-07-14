@@ -6,7 +6,7 @@ Canonical ERC-721 NFT mixin for `contract_source` composition on EVM.
 Uses standard selectors, three-indexed Transfer events, and tokenOwners storage.
 `safeTransferFrom` invokes `onERC721Received` for contract recipients (PF-P2-02).
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Evm
 
 namespace ProofForge.Contract.Stdlib.ERC721
 
@@ -78,7 +78,7 @@ contract_mixin ERC721Mixin do
       fieldAsName "tokenId" tokenId
     ] data #[];
     -- PF-P2-02: contract recipients must implement IERC721Receiver.
-    do ProofForge.Contract.Surface.checkErc721Received
+    do ProofForge.Contract.Source.Evm.checkErc721Received
       (ProofForge.Contract.Surface.ref operator)
       (ProofForge.Contract.Surface.ref holder)
       (ProofForge.Contract.Surface.ref recipient)

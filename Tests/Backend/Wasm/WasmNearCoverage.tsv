@@ -85,6 +85,7 @@ Expr	effect	lowered	lowerExpr delegates to lowerEffectExpr, which validates expr
 Expr	nativeValue	lowered	inferExprType types nativeValue as U64 and Rust sourcegen lowers it to env::attached_deposit(); Tests/Backend/Wasm/WasmNearDiagnostics.lean covers the rendered expression.
 Expr	callValueU128	lowered	Canonical EmitWat lowers the full-width call value through attached_deposit; frozen Rust sourcegen rejects the pair form explicitly.
 Expr	hostCall	lowered	Canonical EmitWat dispatches catalog-registered NEAR HostOps by stable ID; frozen Rust sourcegen rejects unsupported target extensions.
+Effect	hostCall	unsupported	Wasm host plans reject effect HostOps without a target-owned handler before materialization.
 Expr	crosscallInvoke	lowered	EmitWat lowers crosscallInvoke to promise_create/promise_return using module.crosscallStrings address literals; wasm-near target profile admits crosscall.invoke for the canonical EmitWat path while Rust sourcegen remains frozen.
 Expr	crosscallInvokeTyped	unsupported	EmitWat rejects typed cross-contract calls with an explicit NEAR diagnostic; use untyped crosscallInvoke / crosscallInvokeNamedValue with string-pool literals.
 Expr	crosscallInvokeValueTyped	unsupported	EmitWat rejects value-bearing typed cross-contract calls; NEAR value transfer is modeled on crosscallInvokeNamedValue/crosscallInvoke deposit operands.

@@ -155,6 +155,15 @@ mutual
           classifyExpr s!"{path}.c" c ++ classifyExpr s!"{path}.d" d
 
   partial def classifyEffect (path : String) : Effect → Array PortabilityFinding
+    | .hostCall id args _ =>
+        let family :=
+          if id.namespace_.startsWith "evm." then TargetFamily.evm
+          else if id.namespace_.startsWith "near." then TargetFamily.wasmHost
+          else if id.namespace_.startsWith "solana." then TargetFamily.solana
+          else if id.namespace_.startsWith "move." then TargetFamily.move
+          else TargetFamily.zkCircuitSourcegen
+        #[finding path s!"target extension {id.render}" (.targetFamilyOnly family)] ++
+          args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]
     | .storageScalarRead _ => #[]
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
         classifyExpr s!"{path}.value" value

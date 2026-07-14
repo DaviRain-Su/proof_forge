@@ -6,6 +6,7 @@ import ProofForge.Target.HostBridge
 import ProofForge.Target.Support
 import ProofForge.Target.HostOp
 import ProofForge.Target.HostOps.Near
+import ProofForge.Target.HostOps.Evm
 
 namespace ProofForge.Target
 
@@ -110,6 +111,7 @@ def evm : TargetProfile := {
     .checkedArithmetic,
     .accountExplicit
   ]
+  hostOps := HostOps.Evm.supportedIds
   requiredTools := #["solc", "foundry"]
   support := TargetSupport.primaryTriad
     "portable IR Counter/ValueVault + TokenSpec; Yul intermediate, solc bytecode final"

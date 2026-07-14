@@ -258,6 +258,8 @@ mutual
     | none => pure ()
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
+    | .hostCall id _ _ =>
+        .error { message := s!"Psy does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId =>
         scalarStateType module stateId
     | .storageScalarWrite _ _ =>
@@ -382,6 +384,8 @@ partial def inferAssignTargetType (module : Module) (env : TypeEnv) : Expr → E
       .error { message := "assignment target must be a local, array index, or field path" }
 
 def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerError Unit
+  | .hostCall id _ _ =>
+      .error { message := s!"Psy does not support effect target extension `{id.render}`" }
   | .storageScalarRead _ =>
       .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do

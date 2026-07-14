@@ -7,7 +7,7 @@ Covers balances, operator approvals, mint, burn, single `safeTransferFrom`
 with IERC1155Receiver callback (PF-P2-02), and size-2 `safeBatchTransferFrom2`
 (fixed two ids; dynamic-array batch ABI is a later slice).
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Evm
 
 namespace ProofForge.Contract.Stdlib.ERC1155
 
@@ -89,7 +89,7 @@ contract_mixin ERC1155Mixin do
       fieldAsName "id" id,
       fieldAsName "value" amount
     ];
-    do ProofForge.Contract.Surface.checkErc1155Received
+    do ProofForge.Contract.Source.Evm.checkErc1155Received
       (ProofForge.Contract.Surface.ref operator)
       (ProofForge.Contract.Surface.ref src)
       (ProofForge.Contract.Surface.ref dst)
@@ -136,7 +136,7 @@ contract_mixin ERC1155Mixin do
       fieldAsName "id" id1,
       fieldAsName "value" amount1
     ];
-    do ProofForge.Contract.Surface.checkErc1155BatchReceived
+    do ProofForge.Contract.Source.Evm.checkErc1155BatchReceived
       (ProofForge.Contract.Surface.ref operator)
       (ProofForge.Contract.Surface.ref src)
       (ProofForge.Contract.Surface.ref dst)

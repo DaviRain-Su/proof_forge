@@ -15,6 +15,7 @@ import ProofForge.Cli.TargetJson
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Spec.Json
+import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.IR
 import ProofForge.IR.Canonical
 import ProofForge.IR.Legacy.Adapter
@@ -41,6 +42,10 @@ def renderCanonicalSpecSolanaAsm (spec : ProofForge.Contract.ContractSpec) :
   let checked ← match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
     | .ok checked => .ok checked
     | .error error => .error s!"canonical: validation failed: {repr error}"
+  let hostCallErrors :=
+    ProofForge.Compiler.checkHostOpHandlers "solana-sbpf-asm" checked
+  if !hostCallErrors.isEmpty then
+    .error s!"canonical: unhandled host op: {String.intercalate "; " hostCallErrors.toList}"
   if checked.contract.materialization.intents.any (fun intent =>
       intent.label.startsWith "solana.cpi.") then
     .error "canonical: intent-only Solana CPI is not represented by a Core crosscall"

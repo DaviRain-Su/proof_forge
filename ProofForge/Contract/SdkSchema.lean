@@ -217,6 +217,7 @@ mutual
     | .literal _ | .local _ | .nativeValue | .callValueU128 => events
 
   partial def collectEffectEvents (events : Array String) : Effect → Array String
+    | .hostCall _ args _ => args.foldl collectExprEvents events
     | .storageScalarWrite _ value
     | .storageScalarAssignOp _ _ value
     | .storageArrayWrite _ _ value

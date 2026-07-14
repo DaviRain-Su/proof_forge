@@ -415,6 +415,10 @@ def effectPlanSupportsPlannedBodyStmt :
   | .eventEmitIndexedWords event indexedFieldWords dataFieldWords =>
       eventFieldWordPlansSupportPlannedBody event.indexedFields indexedFieldWords &&
         eventFieldWordPlansSupportPlannedBody event.dataFields dataFieldWords
+  | .checkErc721Received a b c d =>
+      #[a, b, c, d].all exprPlanSupportsPlannedBody
+  | .checkErc1155Received a b c d e =>
+      #[a, b, c, d, e].all exprPlanSupportsPlannedBody
   | .checkErc1155BatchReceived a b c d e =>
       #[a, b, c, d, e].all exprPlanSupportsPlannedBody
   | _ => false
@@ -811,6 +815,19 @@ def lowerPlannedBodyEffectPlan
         (.effect effect)
   | .eventEmit .. | .eventEmitIndexed .. | .eventEmitWords .. | .eventEmitIndexedWords .. =>
       lowerPlannedBodyEventEffectPlan module env effect
+  | .checkErc721Received operator fromAddr toAddr tokenId => do
+      .ok <| ProofForge.Backend.Evm.ToYul.checkErc721ReceivedStatements
+        (← lowerExprPlanExpr module env operator)
+        (← lowerExprPlanExpr module env fromAddr)
+        (← lowerExprPlanExpr module env toAddr)
+        (← lowerExprPlanExpr module env tokenId)
+  | .checkErc1155Received operator fromAddr toAddr tokenId amount => do
+      .ok <| ProofForge.Backend.Evm.ToYul.checkErc1155ReceivedStatements
+        (← lowerExprPlanExpr module env operator)
+        (← lowerExprPlanExpr module env fromAddr)
+        (← lowerExprPlanExpr module env toAddr)
+        (← lowerExprPlanExpr module env tokenId)
+        (← lowerExprPlanExpr module env amount)
   | .checkErc1155BatchReceived .. =>
       ProofForge.Backend.Evm.ToYul.erc1155BatchReceiverEffectPlanStatements
         toYulError

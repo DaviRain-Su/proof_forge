@@ -195,6 +195,9 @@ mutual
   partial def crosscallHelperSpecsFromEffect
       (module : Module)
       (env : TypeEnv) : Effect → Except LowerError (Array CrosscallHelperSpec)
+    | .hostCall _ args _ =>
+        args.foldlM (init := #[]) fun acc arg => do
+          pure (mergeCrosscallHelperSpecs acc (← crosscallHelperSpecsFromExpr module env arg))
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .contextRead _ => .ok #[]
     | .storageScalarWrite _ value
     | .storageScalarAssignOp _ _ value
@@ -709,6 +712,8 @@ mutual
         createHelperSpecsFromEffect effect
 
   partial def createHelperSpecsFromEffect : Effect → Array CreateHelperSpec
+    | .hostCall _ args _ =>
+        args.foldl (init := #[]) fun acc arg => mergeCreateHelperSpecs acc (createHelperSpecsFromExpr arg)
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .contextRead _ => #[]
     | .storageScalarWrite _ value
     | .storageScalarAssignOp _ _ value
@@ -887,6 +892,9 @@ mutual
     | .effect effect => abiPackedHelperSpecsFromEffect effect
 
   partial def abiPackedHelperSpecsFromEffect : Effect → Array AbiPackedHelperSpec
+    | .hostCall _ args _ =>
+        args.foldl (init := #[]) fun acc arg =>
+          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .contextRead _
     | .storageDynamicArrayPop _ => #[]
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value

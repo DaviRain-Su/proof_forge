@@ -4,6 +4,7 @@ import ProofForge.Backend.Evm.Plan
 import ProofForge.Backend.Evm.ToYul
 import ProofForge.Backend.Evm.Validate
 import ProofForge.Backend.Evm.IR.Validate
+import ProofForge.Target.HostOps.Evm
 import ProofForge.Backend.Evm.Lower
 import ProofForge.IR.Contract
 import ProofForge.Compiler.Yul.AST
@@ -491,6 +492,8 @@ mutual
     lowerPlanEffectExpr module env plan
 
   partial def lowerEffectExpr (module : Module) (env : TypeEnv) : Effect → Except LowerError Lean.Compiler.Yul.Expr
+    | .hostCall id _ _ =>
+        .error { message := s!"target extension `{id.render}` is a statement effect, not an expression" }
     | .storageScalarRead stateId => do
         lowerEffectExprThroughPlan module env (.storageScalarRead stateId)
     | .storageScalarWrite _ _ =>
@@ -1478,7 +1481,25 @@ def lowerErc1155BatchReceiverStmtPlan
       effectPlan
   .ok (.block { statements })
 
-def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerError Lean.Compiler.Yul.Statement
+partial def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Except LowerError Lean.Compiler.Yul.Statement
+  | .hostCall id args _ =>
+      if id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
+        match args with
+        | #[operator, fromAddr, toAddr, tokenId] =>
+            lowerEffectStmt module env (.checkErc721Received operator fromAddr toAddr tokenId)
+        | _ => .error { message := s!"target extension `{id.render}` expects 4 arguments" }
+      else if id == ProofForge.Target.HostOps.Evm.erc1155ReceivedSig.id then
+        match args with
+        | #[operator, fromAddr, toAddr, tokenId, amount] =>
+            lowerEffectStmt module env (.checkErc1155Received operator fromAddr toAddr tokenId amount)
+        | _ => .error { message := s!"target extension `{id.render}` expects 5 arguments" }
+      else if id == ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id then
+        match args with
+        | #[operator, fromAddr, toAddr, ids, amounts] =>
+            lowerEffectStmt module env (.checkErc1155BatchReceived operator fromAddr toAddr ids amounts)
+        | _ => .error { message := s!"target extension `{id.render}` expects 5 arguments" }
+      else
+        .error { message := s!"EVM does not support effect target extension `{id.render}`" }
   | .storageScalarRead _ =>
       .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value =>

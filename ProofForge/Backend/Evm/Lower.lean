@@ -577,6 +577,9 @@ mutual
       (env : TypeEnv)
       (collector : EventCollector) :
       Effect → Except LowerError EventCollector
+    | .hostCall _ args _ =>
+        args.foldlM (init := collector) fun acc arg =>
+          collectEventPlansFromExpr module env acc arg
     | .storageScalarRead _ => pure collector
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
         collectEventPlansFromExpr module env collector value
@@ -825,6 +828,9 @@ mutual
         localArrayGetLengthsEffect env effect
 
   partial def localArrayGetLengthsEffect (env : TypeEnv) : Effect → Array Nat
+    | .hostCall _ args _ =>
+        args.foldl (init := #[]) fun acc arg =>
+          mergeNatSets acc (localArrayGetLengthsExpr env arg)
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .contextRead _ => #[]
     | .storageScalarWrite _ value
     | .storageScalarAssignOp _ _ value
@@ -1020,6 +1026,9 @@ mutual
         nestedLocalArrayGetShapesEffect env effect
 
   partial def nestedLocalArrayGetShapesEffect (env : TypeEnv) : Effect → Array (Array Nat)
+    | .hostCall _ args _ =>
+        args.foldl (init := #[]) fun acc arg =>
+          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .contextRead _ => #[]
     | .storageScalarWrite _ value
     | .storageScalarAssignOp _ _ value

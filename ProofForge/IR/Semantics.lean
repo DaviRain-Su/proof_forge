@@ -670,6 +670,11 @@ partial def evalStoragePathKey (state : State) (frame : Frame) (stateId : String
   .ok (nextState, key)
 
 partial def evalEffect (state : State) (frame : Frame) : Effect → Except String ExprResult
+  | .hostCall _ args _ => do
+      let nextState ← args.foldlM (init := state) fun current arg => do
+        let (afterArg, _) ← evalExpr current frame arg
+        pure afterArg
+      .ok (nextState, .unit)
   | .storageScalarRead name =>
       match state.read name with
       | some value => .ok (state, value)

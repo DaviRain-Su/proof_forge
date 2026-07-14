@@ -309,6 +309,11 @@ def classifyIntentFields : ProofForge.Contract.Intent → Array LegacyDecision
 No wildcard arms: adding a new `Effect` constructor makes this function fail to
 compile until it receives an explicit decision. -/
 def classifyEffect : Effect → LegacyDecision
+  | .hostCall id _ _ =>
+      { nodeTag := s!"Effect.hostCall({id.render})"
+        disposition := .materialization
+        owner := "target-extension"
+        reason := "typed effect extension normalizes to a catalog-validated Canonical HostOp" }
   | .storageScalarRead _ =>
       { nodeTag := "Effect.storageScalarRead"
         disposition := .normalize

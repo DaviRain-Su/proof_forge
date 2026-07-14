@@ -4,6 +4,7 @@ import ProofForge.IR.Contract
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 import ProofForge.Backend.Evm.Validate.Common
+import ProofForge.Target.HostOps.Evm
 
 namespace ProofForge.Backend.Evm.Validate
 
@@ -281,6 +282,8 @@ mutual
         .error { message := "EVM IR v0 supports only single-segment index storage paths for dynamic arrays" }
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
+    | .hostCall id _ _ =>
+        .error { message := s!"target extension `{id.render}` is a statement effect, not an expression" }
     | .storageScalarRead stateId =>
         scalarStateType module stateId
     | .storageScalarWrite _ _ =>
@@ -423,6 +426,18 @@ def eventSignature
   .ok (name ++ "(" ++ String.intercalate "," typeNames.toList ++ ")")
 
 def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Except LowerError Unit
+  | .hostCall id args _ => do
+      let expectedArity? :=
+        if id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then some 4
+        else if id == ProofForge.Target.HostOps.Evm.erc1155ReceivedSig.id then some 5
+        else if id == ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id then some 5
+        else none
+      let some expectedArity := expectedArity?
+        | .error { message := s!"EVM does not support effect target extension `{id.render}`" }
+      unless args.size == expectedArity do
+        .error { message := s!"target extension `{id.render}` expects {expectedArity} arguments, got {args.size}" }
+      for arg in args do
+        discard <| inferExprType module env arg
   | .storageScalarRead _ =>
       .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do
@@ -903,6 +918,7 @@ def validateCapabilities (module : Module) : Except LowerError Unit :=
     avoid emitting the helpers when a module only uses div/mod/bitwise/shift. -/
 mutual
   partial def effectUsesCheckedArithmetic : Effect → Bool
+    | .hostCall _ args _ => args.any exprUsesCheckedArithmetic
     | .storageScalarWrite _ v => exprUsesCheckedArithmetic v
     | .storageScalarAssignOp _ op v => needsCheckedArithmetic op || exprUsesCheckedArithmetic v
     | .storageMapInsert _ _ v => exprUsesCheckedArithmetic v

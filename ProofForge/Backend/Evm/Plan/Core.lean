@@ -1,6 +1,7 @@
 import ProofForge.IR.Core
 import ProofForge.IR.Canonical
 import ProofForge.Backend.Evm.Plan
+import ProofForge.Target.HostOps.Evm
 import ProofForge.Backend.Evm.Plan.Storage
 import ProofForge.Target.Plan
 import ProofForge.Target.ProtocolMaterialize
@@ -396,8 +397,30 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       exact source-facing code and Solidity encoding. -/
       .ok #[StmtPlan.assert (← valueExpr env cond)
         s!"assertion failed" (← lookupErrorRef env error.id)]
-  | .hostCall _ =>
-      .error { message := "hostCall not yet supported in EVM Core plan builder" }
+  | .hostCall call =>
+      if call.id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
+        match call.args with
+        | #[operator, fromAddr, toAddr, tokenId] => do
+            .ok #[StmtPlan.effect (.checkErc721Received
+              (← valueExpr env operator) (← valueExpr env fromAddr)
+              (← valueExpr env toAddr) (← valueExpr env tokenId))]
+        | _ => .error { message := s!"target extension `{call.id.render}` expects 4 arguments" }
+      else if call.id == ProofForge.Target.HostOps.Evm.erc1155ReceivedSig.id then
+        match call.args with
+        | #[operator, fromAddr, toAddr, tokenId, amount] => do
+            .ok #[StmtPlan.effect (.checkErc1155Received
+              (← valueExpr env operator) (← valueExpr env fromAddr)
+              (← valueExpr env toAddr) (← valueExpr env tokenId) (← valueExpr env amount))]
+        | _ => .error { message := s!"target extension `{call.id.render}` expects 5 arguments" }
+      else if call.id == ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id then
+        match call.args with
+        | #[operator, fromAddr, toAddr, ids, amounts] => do
+            .ok #[StmtPlan.effect (.checkErc1155BatchReceived
+              (← valueExpr env operator) (← valueExpr env fromAddr)
+              (← valueExpr env toAddr) (← valueExpr env ids) (← valueExpr env amounts))]
+        | _ => .error { message := s!"target extension `{call.id.render}` expects 5 arguments" }
+      else
+        .error { message := s!"EVM Core plan does not support target extension `{call.id.render}`" }
   | .crosscall spec args => do
       if spec.gas.isSome then
         throw { message := "crosscall gas override is not yet materialized by the EVM Core plan" }

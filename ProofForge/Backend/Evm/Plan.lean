@@ -749,6 +749,8 @@ mutual
 
   partial def contextOpsFromEffect (effect : Effect) : Array ContextPlan :=
     match effect with
+    | .hostCall _ args _ =>
+        args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
     | .storageScalarRead _ => #[]
     | .storageScalarWrite _ value => contextOpsFromExpr value
     | .storageScalarAssignOp _ _ value => contextOpsFromExpr value

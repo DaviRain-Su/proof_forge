@@ -550,6 +550,9 @@ mutual
 
   partial def contextOpsFromEffect (effect : Effect) : Except PlanError (Array ContextExprPlan) :=
     match effect with
+    | .hostCall _ args _ =>
+        args.foldlM (init := #[]) fun acc arg =>
+          return mergeContextExprPlans acc (← contextOpsFromExpr arg)
     | .storageScalarRead _ => .ok #[]
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value =>
         contextOpsFromExpr value
@@ -833,6 +836,8 @@ mutual
 
   partial def surfaceFromEffect (module : Module) (env : LocalTypeEnv) (effect : Effect) : Except PlanError ModuleSurface :=
     match effect with
+    | .hostCall id _ _ =>
+        err s!"wasm host does not support effect target extension `{id.render}`"
     | .storageScalarRead stateId => do
         let type ← stateTypeOf module stateId
         let base := ModuleSurface.withStorageRead

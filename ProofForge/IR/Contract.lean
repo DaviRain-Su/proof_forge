@@ -291,6 +291,11 @@ mutual
     deriving Repr, BEq
 
   inductive Effect where
+    /-- Effectful target extension call with no result. The shared IR carries
+    only an open stable identity, arguments, and declared capabilities; target
+    catalogs validate and lower the operation after target selection. -/
+    | hostCall (id : ProofForge.Target.HostOpId) (args : Array Expr)
+        (requiredCapabilities : Array ProofForge.Target.Capability)
     | storageScalarRead (stateId : String)
     | storageScalarWrite (stateId : String) (value : Expr)
     | storageScalarAssignOp (stateId : String) (op : AssignOp) (value : Expr)
@@ -549,6 +554,8 @@ abbrev Module.evmProxyPattern? (module : Module) : Option String :=
   module.proxyPattern?
 
 def Effect.capability : Effect → ProofForge.Target.Capability
+  | .hostCall _ _ requiredCapabilities =>
+      requiredCapabilities[0]?.getD .targetExtension
   | .storageScalarRead _ => .storageScalar
   | .storageScalarWrite _ _ => .storageScalar
   | .storageScalarAssignOp _ _ _ => .storageScalar
@@ -679,6 +686,8 @@ mutual
     | .effect effect => #[effect.capability] ++ effect.capabilities
 
   partial def Effect.capabilities : Effect → Array ProofForge.Target.Capability
+    | .hostCall _ args requiredCapabilities =>
+        requiredCapabilities ++ args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
     | .storageScalarRead _ => #[]
     | .storageScalarWrite _ value => value.capabilities
     | .storageScalarAssignOp _ _ value => value.capabilities

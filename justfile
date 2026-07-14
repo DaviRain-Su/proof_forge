@@ -42,6 +42,7 @@ hostop-protocol:
     lake env lean --run Tests/Canonical/HostOpCatalog.lean
     lake env lean --run Tests/Canonical/HostOpFailClosed.lean
     lake env lean --run Tests/Canonical/NearPromiseHostOp.lean
+    lake env lean --run Tests/Canonical/EvmEffectHostOp.lean
     lake env lean --run Tests/Backend/Wasm/CanonicalNearPromise.lean
 
 # Wave 1/2 canonical IR foundation and Legacy adapter gates.

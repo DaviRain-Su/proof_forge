@@ -1692,6 +1692,8 @@ blocker 关闭。这里的 “P0 SDK blocker” 指的是：缺失该能力就�
 - ✅ IR-B3c：continuation/call-value 已语义化，所有旧 NEAR Expr
   constructor 已删除，NEAR 标量操作已转为 target-owned HostOp。
 - IR-B4（进行中）：拆出 EVM ABI、protocol、call mode 和 dispatch 细节。
+  - ✅ IR-B4a：通用 effect HostOp 与 EVM 自有 ERC receiver catalog。
+  - 下一步 IR-B4b：删除旧 ERC receiver effect，并迁移 EIP-712/ecrecover。
 - IR-B5：审计并迁移 Solana PDA、CPI、account、sysvar 和 packing 细节。
 - IR-B6：审计其他 Wasm-host profile、Move、Aleo、Psy 和 Quint 的所有权。
 - IR-B7：拆出 target environment、error、interface 和 materialization 数据。

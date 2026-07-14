@@ -145,6 +145,8 @@ mutual
 
   /-- Build a `Lean.Compiler.Psy.Expr` from a portable IR `Effect` in expression position. -/
   partial def buildEffectExpr (ctx : BuildContext) : IR.Effect → Except LowerError Lean.Compiler.Psy.Expr
+    | .hostCall id _ _ =>
+        .error { message := s!"Psy does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId => do
         requireScalarStateCtx ctx stateId
         .ok <| .storageScalarRead stateId
@@ -267,6 +269,8 @@ end
 
 /-- Build a `Lean.Compiler.Psy.Stmt` from a portable IR `Effect` in statement position. -/
 def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError Lean.Compiler.Psy.Stmt
+  | .hostCall id _ _ =>
+      .error { message := s!"Psy does not support effect target extension `{id.render}`" }
   | .storageScalarRead _ => .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do
       requireScalarStateCtx ctx stateId

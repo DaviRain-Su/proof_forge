@@ -108,6 +108,18 @@ Completion evidence (2026-07-14):
 
 ## IR-B4 - Legacy EVM Cleanup
 
+Progress (2026-07-14):
+
+- Added the generic result-free `Effect.hostCall` extension path and an EVM
+  catalog for ERC-721/1155 receiver callbacks.
+- EVM-specific stdlib modules now import `Source.Evm`; portable `Source` no
+  longer needs to be the authoring owner for newly migrated receiver calls.
+- Canonical Core validates zero-result HostOps from their catalog signature,
+  EVM Core/Legacy plans dispatch registered IDs, and Solana/NEAR reject EVM
+  IDs through the shared handler gate before target planning.
+- The legacy ERC effect constructors remain only as compatibility inputs and
+  are the next deletion slice.
+
 1. Move EIP-712 and ERC receiver behavior into the EVM SDK/stdlib layer.
 2. Replace EVM ABI-packed call payloads with a semantic call description whose
    ABI layout is built in the EVM plan.

@@ -219,6 +219,8 @@ mutual
     | .effect effect => buildEffectExpr ctx effect
 
   partial def buildEffectExpr (ctx : BuildContext) : IR.Effect → Except LowerError Expression
+    | .hostCall id _ _ =>
+        .error { message := s!"Leo does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId => do
         let t ← requireScalarState ctx stateId
         let d ← defaultExpr ctx t
@@ -277,6 +279,8 @@ mutual
 
   /-- Lower an `Effect` in statement position to Leo statements (storage writes). -/
   partial def buildEffectStmt (ctx : BuildContext) : IR.Effect → Except LowerError (Array Statement)
+    | .hostCall id _ _ =>
+        .error { message := s!"Leo does not support effect target extension `{id.render}`" }
     | .storageScalarRead _ =>
         .error { message := "storage.scalar.read must be used as an expression" }
     | .storageScalarWrite stateId value => do

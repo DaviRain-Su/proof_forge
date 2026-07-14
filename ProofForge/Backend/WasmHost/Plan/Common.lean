@@ -151,6 +151,8 @@ mutual
       (env : LocalTypeEnv)
       (effect : Effect) : Except PlanError ValueType := do
     match effect with
+    | .hostCall id _ _ =>
+        err s!"target extension `{id.render}` is a statement effect, not an expression"
     | .storageScalarRead stateId => stateTypeOf module stateId
     | .storageMapContains stateId key => do
         discard <| inferExprType module env key

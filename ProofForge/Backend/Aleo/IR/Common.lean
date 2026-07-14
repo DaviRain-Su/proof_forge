@@ -250,6 +250,8 @@ mutual
     | .effect effect => analyzeEffect effect
 
   partial def analyzeEffect : Effect → ExprFacts
+    | .hostCall _ args _ =>
+        args.foldl (fun acc arg => acc.merge (analyzeExpr arg)) {}
     | .storageScalarRead _ | .storageDynamicArrayPop _ | .storageStructFieldRead _ _ => {}
     | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value
     | .storageDynamicArrayPush _ value | .storageStructFieldWrite _ _ value => analyzeExpr value

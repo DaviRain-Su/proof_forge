@@ -6,6 +6,7 @@ import ProofForge.IR.Contract
 import ProofForge.Target.Adapter
 import ProofForge.Target.ProtocolMaterialize
 import ProofForge.Target.Registry
+import ProofForge.Target.HostOps.Evm
 
 /-! # EVM entrypoint body plan lowering
 
@@ -1317,6 +1318,29 @@ mutual
     buildAbiValuePlan module env context fieldType value
 
   partial def buildEffectPlan (module : Module) (env : TypeEnv) : Effect → Except LowerError EffectPlan
+    | .hostCall id args _ => do
+        if id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
+          let #[operator, fromAddr, toAddr, tokenId] := args
+            | .error { message := s!"target extension `{id.render}` expects 4 arguments" }
+          .ok (.checkErc721Received
+            (← buildExprPlan module env operator) (← buildExprPlan module env fromAddr)
+            (← buildExprPlan module env toAddr) (← buildExprPlan module env tokenId))
+        else if id == ProofForge.Target.HostOps.Evm.erc1155ReceivedSig.id then
+          let #[operator, fromAddr, toAddr, tokenId, amount] := args
+            | .error { message := s!"target extension `{id.render}` expects 5 arguments" }
+          .ok (.checkErc1155Received
+            (← buildExprPlan module env operator) (← buildExprPlan module env fromAddr)
+            (← buildExprPlan module env toAddr) (← buildExprPlan module env tokenId)
+            (← buildExprPlan module env amount))
+        else if id == ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id then
+          let #[operator, fromAddr, toAddr, ids, amounts] := args
+            | .error { message := s!"target extension `{id.render}` expects 5 arguments" }
+          .ok (.checkErc1155BatchReceived
+            (← buildExprPlan module env operator) (← buildExprPlan module env fromAddr)
+            (← buildExprPlan module env toAddr) (← buildExprPlan module env ids)
+            (← buildExprPlan module env amounts))
+        else
+          .error { message := s!"EVM does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId =>
         match scalarStorageTargetPlan? module stateId with
         | some target => .ok (.storageScalarReadTarget target)

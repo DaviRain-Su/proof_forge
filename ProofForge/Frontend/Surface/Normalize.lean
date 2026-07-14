@@ -2,6 +2,7 @@ import ProofForge.Frontend.Surface.NormalizeStmt
 import ProofForge.IR.Core.Error
 import ProofForge.IR.Canonical
 import ProofForge.Target.HostOps.Near
+import ProofForge.Target.HostOps.Evm
 
 /-! # Surface AST — Top-Level Normalization to CanonicalBundle
 
@@ -144,7 +145,8 @@ def normalizeSurface (contract : SurfaceContract) :
   let (materialization, _) ← StateT.run (buildMaterialization contract interface) finalSt
   let evidence := buildEvidence contract
   let hostOpCatalog ← if moduleUsesHostOps mod then
-    match ProofForge.Target.HostOps.Near.catalog with
+    match ProofForge.IR.Core.HostOp.HostOpCatalog.empty.registerAll
+        (ProofForge.Target.HostOps.Near.signatures ++ ProofForge.Target.HostOps.Evm.signatures) with
     | .ok catalog => pure catalog
     | .error error => throw (.unsupportedSurface "HostOpCatalog" s!"registration failed: {repr error}")
   else

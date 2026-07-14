@@ -41,6 +41,9 @@ mutual
     | .effect effect => effectViolations effect
 
   partial def effectViolations : Effect → Array String
+    | .hostCall _ args _ =>
+        #["target extension effect"] ++
+          args.foldl (fun acc arg => acc ++ exprViolations arg) #[]
     | .storageScalarRead _ | .storageStructFieldRead _ _ => #[]
     | .storageMapContains _ key | .storageMapGet _ key => exprViolations key
     | .storageArrayRead _ index | .storageArrayStructFieldRead _ index _ =>

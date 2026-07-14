@@ -221,6 +221,7 @@ where
     | .hashValue a b c d => exprUses a || exprUses b || exprUses c || exprUses d
     | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool
+    | .hostCall _ args _ => args.any exprUses
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
     | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k => exprUses k
@@ -321,6 +322,7 @@ where
     | .crosscallNamed _ _ args _ => args.any exprUses
     | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool
+    | .hostCall _ args _ => args.any exprUses
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
     | .storageMapContains _ k | .storageMapGet _ k | .storageArrayRead _ k => exprUses k

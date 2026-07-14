@@ -403,6 +403,7 @@ def plannedMemoryArrayHelperFunctions (plan : ProofForge.Backend.Evm.Plan.Module
     avoid emitting the helpers when a module only uses div/mod/bitwise/shift. -/
 mutual
   partial def effectUsesCheckedArithmetic : Effect → Bool
+    | .hostCall _ args _ => args.any exprUsesCheckedArithmetic
     | .storageScalarWrite _ v => exprUsesCheckedArithmetic v
     | .storageScalarAssignOp _ op v =>
         ProofForge.Backend.Evm.Validate.needsCheckedArithmetic op || exprUsesCheckedArithmetic v

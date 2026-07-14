@@ -88,6 +88,7 @@ mutual
 
   partial def collectArrayLitsEffect (eff : Effect) : Array (ValueType × Nat) :=
     match eff with
+    | .hostCall _ args _ => args.foldl (fun acc arg => acc ++ collectArrayLitsExpr arg) #[]
     | .storageScalarWrite _ v => collectArrayLitsExpr v
     | .storageScalarAssignOp _ _ v => collectArrayLitsExpr v
     | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k => collectArrayLitsExpr k
@@ -174,6 +175,7 @@ mutual
 
   partial def collectStructLitsEffect (eff : Effect) : Array String :=
     match eff with
+    | .hostCall _ args _ => args.foldl (fun acc arg => acc ++ collectStructLitsExpr arg) #[]
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v => collectStructLitsExpr v
     | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k => collectStructLitsExpr k
     | .storageMapInsert _ k v | .storageMapSet _ k v => collectStructLitsExpr k ++ collectStructLitsExpr v

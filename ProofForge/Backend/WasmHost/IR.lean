@@ -167,6 +167,8 @@ mutual
     | .effect effect => lowerEffectExpr module effect
 
   partial def lowerEffectExpr (module : Module) : Effect → Except LowerError String
+    | .hostCall id _ _ =>
+        .error { message := s!"wasm host does not support effect target extension `{id.render}`" }
     | .storageScalarRead stateId => do
         discard <| scalarStateType module stateId
         .ok s!"self.{stateId}"
@@ -278,6 +280,8 @@ mutual
     | _, _ =>
         .error { message := "wasm-near IR v0 supports only single-segment mapKey storage paths" }
   partial def lowerEffectStmt (module : Module) : Effect → Except LowerError (Array String)
+    | .hostCall id _ _ =>
+        .error { message := s!"wasm host does not support effect target extension `{id.render}`" }
     | .storageScalarRead _ =>
         .error { message := "storage.scalar.read must be used as an expression" }
     | .storageScalarWrite stateId value => do

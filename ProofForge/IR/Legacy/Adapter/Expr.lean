@@ -234,6 +234,7 @@ def exprTag (e : Expr) : String :=
 
 def effectTag (eff : Effect) : String :=
   match eff with
+  | .hostCall id _ _ => s!"Effect.hostCall({id.render})"
   | .storageScalarRead _ => "Effect.storageScalarRead"
   | .storageScalarWrite _ _ => "Effect.storageScalarWrite"
   | .storageScalarAssignOp _ _ _ => "Effect.storageScalarAssignOp"

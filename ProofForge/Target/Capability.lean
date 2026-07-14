@@ -24,6 +24,10 @@ def Capability.eventsEmit := Capability.ofId "events.emit"
 def Capability.crosscallInvoke := Capability.ofId "crosscall.invoke"
 def Capability.crosscallNamed := Capability.ofId "crosscall.named"
 def Capability.crosscallContinue := Capability.ofId "crosscall.continue"
+/-- Generic fail-closed marker for a target extension that omitted its concrete
+capability list. Well-formed target HostOps should always declare a more
+specific capability. -/
+def Capability.targetExtension := Capability.ofId "target.extension"
 def Capability.nearPromise := Capability.ofId "near.promise"
 def Capability.envBlock := Capability.ofId "env.block"
 def Capability.controlConditional := Capability.ofId "control.conditional"

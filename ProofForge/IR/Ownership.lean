@@ -194,6 +194,8 @@ mutual
 
   def checkEffectFuel : Nat → String → Env → Effect → Except OwnershipError Unit
     | 0, _, _, _ => .ok ()
+    | fuel + 1, entrypoint, env, .hostCall _ args _ =>
+        args.forM fun arg => checkExprFuel fuel entrypoint env arg
     | _ + 1, _, _, .storageScalarRead _ => .ok ()
     | fuel + 1, entrypoint, env, .storageScalarWrite _ value
     | fuel + 1, entrypoint, env, .storageScalarAssignOp _ _ value

@@ -476,6 +476,8 @@ mutual
     | _ + 1, .literal _ => true
     | _ + 1, .local _ => true
     | _ + 1, .nativeValue => true
+    | _ + 1, .callValueU128 => true
+    | n + 1, .hostCall _ args _ _ => args.toList.all (exprFC n)
     | n + 1, .arrayLit _ values => values.toList.all (exprFC n)
     | n + 1, .arrayGet a i => exprFC n a && exprFC n i
     | n + 1, .memoryArrayGet a i => exprFC n a && exprFC n i
@@ -545,6 +547,7 @@ mutual
   /-- Depth-fueled full-coverage check for an `Effect`. -/
   def effectFullyCoveredD : Nat → Effect → Bool
     | 0, _ => false
+    | n + 1, .hostCall _ args _ => args.toList.all (exprFC n)
     | _ + 1, .storageScalarRead _ => true
     | n + 1, .storageScalarWrite _ v => exprFC n v
     | n + 1, .storageScalarAssignOp _ _ v => exprFC n v

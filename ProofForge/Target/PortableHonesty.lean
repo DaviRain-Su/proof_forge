@@ -69,6 +69,7 @@ where
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) d)
     | .literal _ | .local _ | .nativeValue | .callValueU128 => acc
   pushEffect (acc : Array ContextField) : Effect → Array ContextField
+    | .hostCall _ args _ => args.foldl pushExpr acc
     | .contextRead f => pushUnique acc f
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => pushExpr acc v
@@ -136,6 +137,7 @@ where
         exprUses a || exprUses b || args.any exprUses || exprUses d
     | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool
+    | .hostCall _ args _ => args.any exprUses
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v => exprUses v
     | .storageMapContains _ k | .storageMapGet _ k | .storageMapDelete _ k | .storageArrayRead _ k => exprUses k

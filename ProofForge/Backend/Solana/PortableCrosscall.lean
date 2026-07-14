@@ -493,6 +493,7 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
 where
   collectFromEffect (entrypoint : String) (acc : Array PortableCrosscallSite) :
       Effect → Array PortableCrosscallSite
+    | .hostCall _ args _ => args.foldl (collectFromExpr entrypoint) acc
     | .storageScalarWrite _ v | .storageScalarAssignOp _ _ v
     | .storageStructFieldWrite _ _ v | .storageDynamicArrayPush _ v =>
         collectFromExpr entrypoint acc v

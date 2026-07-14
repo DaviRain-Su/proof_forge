@@ -8,6 +8,7 @@ import ProofForge.Backend.Evm.Lower
 import ProofForge.Backend.SharedValidate
 import ProofForge.IR.Contract
 import ProofForge.Target.Adapter
+import ProofForge.Target.HostOps.Evm
 import ProofForge.Compiler.Yul.AST
 import ProofForge.Compiler.Yul.Printer
 
@@ -290,6 +291,8 @@ mutual
         .error { message := "EVM IR v0 supports only single-segment index storage paths for dynamic arrays" }
 
   partial def inferEffectExprType (module : Module) (env : TypeEnv) : Effect → Except LowerError ValueType
+    | .hostCall id _ _ =>
+        .error { message := s!"target extension `{id.render}` is a statement effect, not an expression" }
     | .storageScalarRead stateId =>
         scalarStateType module stateId
     | .storageScalarWrite _ _ =>
@@ -435,6 +438,18 @@ def eventSignature
   .ok (name ++ "(" ++ String.intercalate "," typeNames.toList ++ ")")
 
 def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Except LowerError Unit
+  | .hostCall id args _ => do
+      let expectedArity? :=
+        if id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then some 4
+        else if id == ProofForge.Target.HostOps.Evm.erc1155ReceivedSig.id then some 5
+        else if id == ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id then some 5
+        else none
+      let some expectedArity := expectedArity?
+        | .error { message := s!"EVM does not support effect target extension `{id.render}`" }
+      unless args.size == expectedArity do
+        .error { message := s!"target extension `{id.render}` expects {expectedArity} arguments, got {args.size}" }
+      for arg in args do
+        discard <| inferExprType module env arg
   | .storageScalarRead _ =>
       .error { message := "storage.scalar.read must be used as an expression" }
   | .storageScalarWrite stateId value => do

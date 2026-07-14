@@ -158,6 +158,14 @@ private def normalizeStatementStoragePath (name : String) (path : Array StorageP
 
 def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBuilder :=
   match eff with
+  | .hostCall id args _ => do
+      let mut fb := fb
+      let mut argRefs := #[]
+      for arg in args do
+        let normalized ← normalizeExpr arg
+        fb ← liftExcept (normalized.instructions.foldlM FunctionBuilder.emitInstr fb)
+        argRefs := argRefs.push normalized.value
+      liftExcept (fb.emitInstr { results := #[], op := .hostCall { id, args := argRefs } })
   | .storageScalarWrite stateName value => do
       let stateId ← lookupState stateName
       let resultType ← stateScalarType stateName

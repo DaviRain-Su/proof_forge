@@ -856,7 +856,7 @@ private def expectedResultCount (op : InstructionOp) : Nat :=
   | .emit _ _ => 0
   | .assert _ _ => 0
   | .crosscall spec _ => if spec.returnType == .unit then 0 else 1
-  | .hostCall _ => 1
+  | .hostCall _ => 0 -- Catalog validation owns HostOp result arity.
 
 private def checkErrorRef (m : Module) (f : Function) (b : Block)
     (instruction : Option Nat) (errorRef : CoreErrorRef) :
@@ -884,9 +884,11 @@ private def validCrosscallMethodType : CoreType → Bool
 private def checkInstructionTyping (m : Module) (f : Function) (b : Block)
     (idx : Nat) (instr : Instruction) : Except ValidationError Unit := do
   let pass := "instruction-typing"
-  unless instr.results.size == expectedResultCount instr.op do
+  unless (match instr.op with
+      | .hostCall _ => true
+      | _ => instr.results.size == expectedResultCount instr.op) do
     .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
-      s!"operation expects {expectedResultCount instr.op} results, got {instr.results.size}"
+      s!"operation {repr instr.op} expects {expectedResultCount instr.op} results, got {instr.results.size}"
   match instr.op with
   | .pure p => checkPureOp p instr.results f.id b.id idx
   | .storageLoad path =>
@@ -1118,7 +1120,7 @@ private def checkCapabilityAndHostOp (m : Module) (catalog? : Option HostOpCatal
                   match HostOpCatalog.validateCall sig argTypes with
                   | Except.error e =>
                       .error <| error .typeMismatch pass (some f.id) (some b.id) (some idx)
-                        s!"hostCall argument validation failed: {repr e}"
+                        s!"hostCall argument validation failed: {repr e}; expected {repr sig.params}, got {repr argTypes}"
                   | Except.ok _ =>
                       let resultTypes := instr.results.map (·.type)
                       match HostOpCatalog.validateResults sig resultTypes with

@@ -84,6 +84,7 @@ Expr	hashTwoToOne	lowered	EmitWat lowers two-to-one hash through the hash concat
 Expr	nativeValue	lowered	EmitWat lowers nativeValue to the attached_deposit host import as a U64 projection; Tests/Backend/Wasm/EmitWatContext.lean and the offline host smoke cover the returned value.
 Expr	callValueU128	lowered	EmitWat lowers the full-width call value through attached_deposit and returns the low/high U64 pair.
 Expr	hostCall	lowered	EmitWat validates and dispatches catalog-registered NEAR HostOps by stable ID, including promise results, storage usage, and transfers.
+Effect	hostCall	unsupported	EmitWat rejects effect HostOps without a wasm-host handler before materialization.
 Expr	crosscallInvoke	lowered	EmitWat lowers crosscallInvoke to promise_create with compile-time account/method strings from module.crosscallStrings and promise_return when the entrypoint returns the promise.
 Expr	crosscallInvokeTyped	unsupported	EmitWat capability checking rejects typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
 Expr	crosscallInvokeValueTyped	unsupported	EmitWat capability checking rejects value-bearing typed cross-contract calls with a NEAR Promise-semantics diagnostic before lowering.
