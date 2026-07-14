@@ -162,9 +162,6 @@ mutual
         ensureType "permit deadline" .u64 (← inferExprType module env deadline)
         discard <| inferExprType module env domainSep
         .ok .hash
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => do
-        ensureType "abi-packed call target" .u64 (← inferExprType module env target)
-        .ok .u64
     | .nativeValue => .ok .u64
     | .callValueU128 =>
         .error { message := "U128 call value is not supported on EVM" }

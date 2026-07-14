@@ -32,7 +32,7 @@ mutual
     | .crosscallInvokeStaticTyped target method args _ =>
         exprViolations target ++ exprViolations method ++
           args.foldl (fun acc arg => acc ++ exprViolations arg) #[]
-    | .crosscallAbiPacked .. | .crosscallInvoke .. | .crosscallInvokeTyped ..
+    | .crosscallInvoke .. | .crosscallInvokeTyped ..
     | .crosscallInvokeValueTyped .. | .crosscallInvokeDelegateTyped ..
     | .crosscallCreate .. | .crosscallCreate2 .. | .crosscallNamed .. =>
         #["non-static crosscall"]

@@ -161,7 +161,6 @@ mutual
     | .eip712PermitDigest o s v n d ds => allAcceptable #[classifyExpr (.eip712PermitDigest (.local "") (.local "") (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr s && scalarFragmentExpr v && scalarFragmentExpr n && scalarFragmentExpr d && scalarFragmentExpr ds
     | .nativeValue => allAcceptable #[classifyExpr .nativeValue]
     | .hostCall _ _ _ _ => false
-    | .crosscallAbiPacked t _ _ _ _ _ _ _ _ => allAcceptable #[classifyExpr (.crosscallAbiPacked (.local "") 0 #[] 0 0 none none #[] #[])] && scalarFragmentExpr t
     | .crosscallInvoke t m args =>
         match args with
         | ⟨args⟩ => allAcceptable #[classifyExpr (.crosscallInvoke (.local "") (.local "") #[])] && scalarFragmentExpr t && scalarFragmentExpr m && scalarFragmentExprList args

@@ -501,8 +501,6 @@ mutual
             (mergeContextExprPlans (← contextOpsFromExpr a) (← contextOpsFromExpr b))
             (mergeContextExprPlans (← contextOpsFromExpr c) (← contextOpsFromExpr d)))
           (mergeContextExprPlans (← contextOpsFromExpr e) (← contextOpsFromExpr f))
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        contextOpsFromExpr target
     | .cast value _ | .boolNot value | .hash value =>
         contextOpsFromExpr value
     | .hashValue a b c d =>
@@ -750,8 +748,6 @@ mutual
         let cd := mergeModuleSurfaces (← surfaceFromExpr module env c) (← surfaceFromExpr module env d)
         let ef := mergeModuleSurfaces (← surfaceFromExpr module env e) (← surfaceFromExpr module env f)
         .ok (mergeModuleSurfaces (mergeModuleSurfaces ab cd) ef)
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        surfaceFromExpr module env target
     | .cast value _ | .boolNot value =>
         surfaceFromExpr module env value
     | .hash preimage => do

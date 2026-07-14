@@ -196,8 +196,6 @@ mutual
     | .hashTwoToOne l r => do .ok (poseidonHashTwo (← buildExpr ctx l) (← buildExpr ctx r))
     | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
         .error { message := "ecrecover / EIP-712 is EVM-specific and not supported by Leo IR v0" }
-    | .crosscallAbiPacked .. =>
-        .error { message := "ABI-packed crosscall (Call[]) is EVM-specific and not supported by Leo IR v0" }
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _
     | .crosscallInvokeValueTyped _ _ _ _ _ | .crosscallInvokeStaticTyped _ _ _ _
     | .crosscallInvokeDelegateTyped _ _ _ _ =>

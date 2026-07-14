@@ -117,8 +117,6 @@ mutual
           (← crosscallHelperSpecsFromExpr module env e)
           (← crosscallHelperSpecsFromExpr module env f)
         .ok (mergeCrosscallHelperSpecs (mergeCrosscallHelperSpecs ab cd) ef)
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        crosscallHelperSpecsFromExpr module env target
     | .cast value _ | .boolNot value | .hash value =>
         crosscallHelperSpecsFromExpr module env value
     | .hashValue a b c d => do
@@ -662,8 +660,6 @@ mutual
             (mergeCreateHelperSpecs (createHelperSpecsFromExpr a) (createHelperSpecsFromExpr b))
             (mergeCreateHelperSpecs (createHelperSpecsFromExpr c) (createHelperSpecsFromExpr d)))
           (mergeCreateHelperSpecs (createHelperSpecsFromExpr e) (createHelperSpecsFromExpr f))
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        createHelperSpecsFromExpr target
     | .cast value _ | .boolNot value | .hash value =>
         createHelperSpecsFromExpr value
     | .hashValue a b c d =>
@@ -772,159 +768,6 @@ end
 def buildCreateHelperPlans (module : Module) : Array CreateHelperSpec :=
   module.entrypoints.foldl (init := #[]) fun acc entrypoint =>
     mergeCreateHelperSpecs acc (createHelperSpecsFromStatements entrypoint.body)
-
-/-! ## Compile-time ABI-packed CALL helpers (`crosscallAbiPacked`) -/
-
-def pushAbiPackedHelperSpecIfMissing
-    (acc : Array AbiPackedHelperSpec)
-    (value : AbiPackedHelperSpec) : Array AbiPackedHelperSpec :=
-  if acc.any (fun existing => existing == value) then acc else acc.push value
-
-def mergeAbiPackedHelperSpecs
-    (lhs rhs : Array AbiPackedHelperSpec) : Array AbiPackedHelperSpec :=
-  rhs.foldl pushAbiPackedHelperSpecIfMissing lhs
-
-mutual
-  partial def abiPackedHelperSpecsFromExpr : Expr → Array AbiPackedHelperSpec
-    | .literal _ | .local _ | .nativeValue | .callValueU128 => #[]
-    | .hostCall _ args _ _ =>
-        args.foldl (fun acc arg => mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)) #[]
-    | .arrayLit _ values =>
-        values.foldl (init := #[]) fun acc value =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr value)
-    | .arrayGet array index | .memoryArrayGet array index =>
-        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr array) (abiPackedHelperSpecsFromExpr index)
-    | .memoryArrayNew _ length => abiPackedHelperSpecsFromExpr length
-    | .memoryArrayLength array | .field array _ | .cast array _ | .boolNot array | .hash array =>
-        abiPackedHelperSpecsFromExpr array
-    | .structLit _ fields =>
-        fields.foldl (init := #[]) fun acc field =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr field.snd)
-    | .add lhs rhs _ | .sub lhs rhs _ | .mul lhs rhs _ | .div lhs rhs | .mod lhs rhs
-    | .pow lhs rhs | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
-    | .shiftLeft lhs rhs | .shiftRight lhs rhs | .eq lhs rhs | .ne lhs rhs
-    | .lt lhs rhs | .le lhs rhs | .gt lhs rhs | .ge lhs rhs
-    | .boolAnd lhs rhs | .boolOr lhs rhs | .hashTwoToOne lhs rhs =>
-        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr lhs) (abiPackedHelperSpecsFromExpr rhs)
-    | .ecrecover a b c d | .hashValue a b c d =>
-        mergeAbiPackedHelperSpecs
-          (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b))
-          (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr c) (abiPackedHelperSpecsFromExpr d))
-    | .eip712PermitDigest a b c d e f =>
-        mergeAbiPackedHelperSpecs
-          (mergeAbiPackedHelperSpecs
-            (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b))
-            (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr c) (abiPackedHelperSpecsFromExpr d)))
-          (mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr e) (abiPackedHelperSpecsFromExpr f))
-    | .crosscallAbiPacked target selector stores argsSize outSize dynLenOffset? dynLen?
-        dynTargetOffsets dynTargets =>
-        let nested :=
-          match dynLen? with
-          | none => abiPackedHelperSpecsFromExpr target
-          | some len =>
-              mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr target)
-                (abiPackedHelperSpecsFromExpr len)
-        let nested := dynTargets.foldl (init := nested) fun acc t =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr t)
-        pushAbiPackedHelperSpecIfMissing nested
-          { selector, stores, argsSize, outSize, dynLenOffset?, dynTargetOffsets }
-    | .crosscallInvoke target methodId args
-    | .crosscallInvokeTyped target methodId args _
-    | .crosscallInvokeStaticTyped target methodId args _
-    | .crosscallInvokeDelegateTyped target methodId args _ =>
-        let nested := mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr target)
-          (abiPackedHelperSpecsFromExpr methodId)
-        args.foldl (init := nested) fun acc arg =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)
-    | .crosscallInvokeValueTyped target methodId callValue args _ =>
-        let nested := mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr target)
-          (abiPackedHelperSpecsFromExpr methodId)
-        let nested := mergeAbiPackedHelperSpecs nested (abiPackedHelperSpecsFromExpr callValue)
-        args.foldl (init := nested) fun acc arg =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)
-    | .crosscallCreate callValue _ =>
-        abiPackedHelperSpecsFromExpr callValue
-    | .crosscallCreate2 callValue salt _ =>
-        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr callValue) (abiPackedHelperSpecsFromExpr salt)
-    | .crosscallContinue a b args d _ =>
-        let nested := mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b)
-        let nested := args.foldl (init := nested) fun acc arg =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)
-        mergeAbiPackedHelperSpecs nested (abiPackedHelperSpecsFromExpr d)
-    | .crosscallInvokeNamedValue a b args d _ =>
-        let nested := mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr a) (abiPackedHelperSpecsFromExpr b)
-        let nested := args.foldl (init := nested) fun acc arg =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)
-        mergeAbiPackedHelperSpecs nested (abiPackedHelperSpecsFromExpr d)
-    | .crosscallNamed _ _ _ _ => #[]
-    | .effect effect => abiPackedHelperSpecsFromEffect effect
-
-  partial def abiPackedHelperSpecsFromEffect : Effect → Array AbiPackedHelperSpec
-    | .hostCall _ args _ =>
-        args.foldl (init := #[]) fun acc arg =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr arg)
-    | .storageScalarRead _ | .storageStructFieldRead _ _ | .contextRead _
-    | .storageDynamicArrayPop _ => #[]
-    | .storageScalarWrite _ value | .storageScalarAssignOp _ _ value
-    | .storageStructFieldWrite _ _ value => abiPackedHelperSpecsFromExpr value
-    | .storageMapContains _ key | .storageMapGet _ key | .storageMapDelete _ key => abiPackedHelperSpecsFromExpr key
-    | .storageMapInsert _ key value | .storageMapSet _ key value =>
-        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr key) (abiPackedHelperSpecsFromExpr value)
-    | .storageArrayRead _ index | .storageArrayStructFieldRead _ index _ =>
-        abiPackedHelperSpecsFromExpr index
-    | .storageArrayWrite _ index value | .storageArrayStructFieldWrite _ index _ value =>
-        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr index) (abiPackedHelperSpecsFromExpr value)
-    | .storageDynamicArrayPush _ value | .memoryArraySet _ _ value =>
-        abiPackedHelperSpecsFromExpr value
-    | .storagePathRead _ path =>
-        path.foldl (init := #[]) fun acc seg =>
-          match seg with
-          | .field _ => acc
-          | .index index | .mapKey index =>
-              mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr index)
-    | .storagePathWrite _ path value | .storagePathAssignOp _ path _ value =>
-        let fromPath := path.foldl (init := #[]) fun acc seg =>
-          match seg with
-          | .field _ => acc
-          | .index index | .mapKey index =>
-              mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr index)
-        mergeAbiPackedHelperSpecs fromPath (abiPackedHelperSpecsFromExpr value)
-    | .eventEmit _ fields =>
-        fields.foldl (init := #[]) fun acc f =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr f.snd)
-    | .eventEmitIndexed _ indexed data =>
-        let a := indexed.foldl (init := #[]) fun acc f =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr f.snd)
-        data.foldl (init := a) fun acc f =>
-          mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromExpr f.snd)
-  partial def abiPackedHelperSpecsFromStatement : Statement → Array AbiPackedHelperSpec
-    | .letBind _ _ value | .letMutBind _ _ value | .return value =>
-        abiPackedHelperSpecsFromExpr value
-    | .assign target value | .assignOp target _ value =>
-        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr target) (abiPackedHelperSpecsFromExpr value)
-    | .effect effect => abiPackedHelperSpecsFromEffect effect
-    | .assert condition _ _ => abiPackedHelperSpecsFromExpr condition
-    | .assertEq lhs rhs _ _ =>
-        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr lhs) (abiPackedHelperSpecsFromExpr rhs)
-    | .release _ | .revert _ | .revertWithError _ => #[]
-    | .ifElse condition thenBody elseBody =>
-        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr condition)
-          (mergeAbiPackedHelperSpecs
-            (abiPackedHelperSpecsFromStatements thenBody)
-            (abiPackedHelperSpecsFromStatements elseBody))
-    | .boundedFor _ _ _ body => abiPackedHelperSpecsFromStatements body
-    | .whileLoop cond body =>
-        mergeAbiPackedHelperSpecs (abiPackedHelperSpecsFromExpr cond)
-          (abiPackedHelperSpecsFromStatements body)
-
-  partial def abiPackedHelperSpecsFromStatements (statements : Array Statement) : Array AbiPackedHelperSpec :=
-    statements.foldl (init := #[]) fun acc stmt =>
-      mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromStatement stmt)
-end
-
-def buildAbiPackedHelperPlans (module : Module) : Array AbiPackedHelperSpec :=
-  module.entrypoints.foldl (init := #[]) fun acc entrypoint =>
-    mergeAbiPackedHelperSpecs acc (abiPackedHelperSpecsFromStatements entrypoint.body)
 
 mutual
   partial def createHelperSpecsFromContextExprPlan : ContextExprPlan → Array CreateHelperSpec

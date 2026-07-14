@@ -44,10 +44,6 @@ where
     | .ecrecover a b c d => pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d
     | .eip712PermitDigest a b c d e f =>
         pushExpr (pushExpr (pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d) e) f
-    | .crosscallAbiPacked t _ _ _ _ _ dynLen? _ dynTargets =>
-        let acc := pushExpr acc t
-        let acc := match dynLen? with | some e => pushExpr acc e | none => acc
-        dynTargets.foldl pushExpr acc
     | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => pushExpr acc a
     | .arrayLit _ xs => xs.foldl pushExpr acc
     | .structLit _ fs => fs.foldl (fun a f => pushExpr a f.snd) acc
@@ -106,7 +102,6 @@ where
   exprUses : Expr → Bool
     | .crosscallInvoke .. | .crosscallInvokeTyped .. | .crosscallInvokeValueTyped ..
     | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped .. => true
-    | .crosscallAbiPacked .. => true
     | .effect e => effectUses e
     | .add a b _ | .sub a b _ | .mul a b _ | .div a b | .mod a b | .pow a b
     | .bitAnd a b | .bitOr a b | .bitXor a b | .shiftLeft a b | .shiftRight a b

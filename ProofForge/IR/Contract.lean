@@ -168,22 +168,6 @@ mutual
     target catalogs validate and lower the operation after target selection. -/
     | hostCall (id : ProofForge.Target.HostOpId) (args : Array Expr)
         (returnType : ValueType) (requiredCapabilities : Array ProofForge.Target.Capability)
-    /-- ABI-packed CALL (EVM). `stores` are `(offset, word)` in the **args
-    region** after the 4-byte selector (from `Evm.AbiEncode.Plan`).
-    - `dynLenOffset?`/`dynLen?`: overwrite Call[] length word at runtime.
-    - `dynTargetOffsets`/`dynTargets`: overwrite each Call.address word with a
-      **runtime** target (static calldata stays in `stores`).
-    Requires `crosscall.invoke`. Other hosts reject. -/
-    | crosscallAbiPacked
-        (target : Expr)
-        (selector : Nat)
-        (stores : Array (Nat × Nat))
-        (argsSize : Nat)
-        (outSize : Nat)
-        (dynLenOffset? : Option Nat)
-        (dynLen? : Option Expr)
-        (dynTargetOffsets : Array Nat)
-        (dynTargets : Array Expr)
     | crosscallInvoke (targetContractId : Expr) (methodId : Expr) (args : Array Expr)
     | crosscallInvokeTyped (targetContractId : Expr) (methodId : Expr) (args : Array Expr) (returnType : ValueType)
     | crosscallInvokeValueTyped (targetContractId : Expr) (methodId callValue : Expr) (args : Array Expr) (returnType : ValueType)
@@ -551,14 +535,6 @@ mutual
     | .crosscallNamed _ _ args returnType =>
         #[.crosscallNamed] ++ returnType.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
-    | .crosscallAbiPacked target _selector _stores _argsSize _outSize _dynOff dynLen?
-        _dynTgtOffs dynTargets =>
-        let caps := #[.crosscallInvoke] ++ target.capabilities
-        let caps :=
-          match dynLen? with
-          | none => caps
-          | some len => caps ++ len.capabilities
-        dynTargets.foldl (init := caps) fun acc t => acc ++ t.capabilities
     | .crosscallInvoke target methodId args =>
         #[.crosscallInvoke] ++ target.capabilities ++ methodId.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]

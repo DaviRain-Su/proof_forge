@@ -453,8 +453,6 @@ mutual
         exprUsesCheckedArithmetic a || exprUsesCheckedArithmetic b ||
           exprUsesCheckedArithmetic c || exprUsesCheckedArithmetic d ||
           exprUsesCheckedArithmetic e || exprUsesCheckedArithmetic f
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-        exprUsesCheckedArithmetic target
     | .crosscallInvoke t m args | .crosscallInvokeTyped t m args _
     | .crosscallInvokeValueTyped t m _ args _
     | .crosscallInvokeStaticTyped t m args _ | .crosscallInvokeDelegateTyped t m args _ =>
@@ -600,11 +598,8 @@ def lowerModuleWithPlan
     else
       let createSpecs := ProofForge.Backend.Evm.Lower.buildCreateHelperPlans module
       .ok (helpers ++ (← plannedCreateHelperFunctions createSpecs))
-  -- Compile-time ABI-packed CALL helpers (`crosscallAbiPacked` / Call[] materialize).
-  -- Complete plans own these specs; only the compatibility path may rescan IR.
-  let abiPackSpecs :=
-    if completePlan then plan.abiPackedHelpers
-    else ProofForge.Backend.Evm.Lower.buildAbiPackedHelperPlans module
+  -- Compile-time ABI-packed CALL helpers are owned by the EVM plan.
+  let abiPackSpecs := plan.abiPackedHelpers
   let helpers :=
     helpers ++
       abiPackSpecs.map (fun s =>

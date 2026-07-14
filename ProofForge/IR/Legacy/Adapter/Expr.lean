@@ -228,7 +228,6 @@ def exprTag (e : Expr) : String :=
   | .eip712PermitDigest _ _ _ _ _ _ => "Expr.eip712PermitDigest"
   | .nativeValue => "Expr.nativeValue"
   | .hostCall id _ _ _ => s!"Expr.hostCall({id.render})"
-  | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ => "Expr.crosscallAbiPacked"
   | .crosscallInvoke _ _ _ => "Expr.crosscallInvoke"
   | .crosscallInvokeTyped _ _ _ _ => "Expr.crosscallInvokeTyped"
   | .crosscallInvokeValueTyped _ _ _ _ _ => "Expr.crosscallInvokeValueTyped"
@@ -546,8 +545,6 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
         instructions := normalizedArgs.flatMap (·.instructions) ++ result.instructions
         value := result.value
       }
-  | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallAbiPacked" "crosscall ABI packing not in initial fragment")
   | .crosscallInvoke target method args => do
       let normalizedTarget ← normalizeExpr target
       let normalizedMethod ← match method with

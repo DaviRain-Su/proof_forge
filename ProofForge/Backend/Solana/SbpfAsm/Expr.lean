@@ -666,8 +666,6 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
     ], ctx)
   | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
     .error { message := "Solana: ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only)" }
-  | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-    .error { message := "Solana: crosscallAbiPacked (compile-time ABI Call[]) is EVM-only" }
   | .hashTwoToOne lhs rhs => do
     let (ln, ctx) ← lowerExpr ctx lhs
     let (scratchL, ctx) := ctx.allocScratch

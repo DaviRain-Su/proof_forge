@@ -313,8 +313,8 @@ def classifyIntentFields : ProofForge.Contract.Intent → Array LegacyDecision
 No wildcard arms: adding a new `Effect` constructor makes this function fail to
 compile until it receives an explicit decision. -/
 def classifyEffect : Effect → LegacyDecision
-  | .hostCall id _ _ =>
-      { nodeTag := s!"Effect.hostCall({id.render})"
+  | .hostCall _ _ _ =>
+      { nodeTag := "Effect.hostCall"
         disposition := .materialization
         owner := "target-extension"
         reason := "typed effect extension normalizes to a catalog-validated Canonical HostOp" }
@@ -515,8 +515,8 @@ def classifyStatement : Statement → LegacyDecision
 No wildcard arms: adding a new `Expr` constructor makes this function fail to
 compile until it receives an explicit decision. -/
 def classifyExpr : Expr → LegacyDecision
-  | .hostCall id _ _ _ =>
-      { nodeTag := s!"Expr.hostCall({id.render})"
+  | .hostCall _ _ _ _ =>
+      { nodeTag := "Expr.hostCall"
         disposition := .normalize
         owner := "target-extension-registry"
         reason := "typed extension calls normalize to catalog-validated Canonical HostOps" }
@@ -700,11 +700,6 @@ def classifyExpr : Expr → LegacyDecision
         disposition := .preserve
         owner := "canonical-core"
         reason := "native value reference is in the initial accepted runtime fragment" }
-  | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-      { nodeTag := "Expr.crosscallAbiPacked"
-        disposition := .reject
-        owner := "target-plan-crosscall"
-        reason := "ABI-packed crosscall rejected until a typed portable primitive or HostOp handler exists" }
   | .crosscallInvoke _ _ _ =>
       { nodeTag := "Expr.crosscallInvoke"
         disposition := .preserve
@@ -789,7 +784,7 @@ def storagePathSegmentInventory : Array StoragePathSegment := #[
 ]
 
 def contextFieldInventory : Array ContextField := #[
-  .userId, .userIdHash, .contractId, .checkpointId, .timestamp, .epochHeight,
+  .userId, .userIdHash, .accountId, .contractId, .checkpointId, .timestamp, .epochHeight,
   .chainId, .gasPrice, .gasLeft, .prepaidGas, .usedGas, .baseFee, .prevRandao, .randomSeed, .origin,
   .coinbase, .blockHash (.literal (.u64 0))
 ]
@@ -895,7 +890,9 @@ def exprInventory : Array Expr := #[
   .ecrecover (.local "d") (.local "v") (.local "r") (.local "s"),
   .eip712PermitDigest (.local "o") (.local "s") (.local "v") (.local "n") (.local "d") (.local "ds"),
   .nativeValue,
-  .crosscallAbiPacked (.local "t") 0 #[] 0 0 none none #[] #[],
+  .hostCall
+    { namespace_ := "inventory", name := "probe", version := { major := 1, minor := 0, patch := 0 } }
+    #[] .unit #[],
   .crosscallInvoke (.local "t") (.local "m") #[],
   .crosscallInvokeTyped (.local "t") (.local "m") #[] .unit,
   .crosscallInvokeValueTyped (.local "t") (.local "m") (.local "v") #[] .unit,
@@ -912,6 +909,9 @@ def exprInventory : Array Expr := #[
 
 /--! Representative effect for every `Effect` constructor. -/
 def effectInventory : Array Effect := #[
+  .hostCall
+    { namespace_ := "inventory", name := "probe", version := { major := 1, minor := 0, patch := 0 } }
+    #[] #[],
   .storageScalarRead "s",
   .storageScalarWrite "s" (.local "v"),
   .storageScalarAssignOp "s" .add (.local "v"),

@@ -64,7 +64,6 @@ mutual
     | .eip712PermitDigest a b c d e f =>
         collectArrayLitsExpr a ++ collectArrayLitsExpr b ++ collectArrayLitsExpr c ++
           collectArrayLitsExpr d ++ collectArrayLitsExpr e ++ collectArrayLitsExpr f
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => collectArrayLitsExpr target
     | .nativeValue | .callValueU128 => #[]
     | .hostCall _ args _ _ =>
         args.foldl (fun acc arg => acc ++ collectArrayLitsExpr arg) #[]
@@ -137,7 +136,6 @@ mutual
     | .eip712PermitDigest a b c d e f =>
         collectStructLitsExpr a ++ collectStructLitsExpr b ++ collectStructLitsExpr c ++
           collectStructLitsExpr d ++ collectStructLitsExpr e ++ collectStructLitsExpr f
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => collectStructLitsExpr target
     | .crosscallInvoke t m args => collectStructLitsExpr t ++ collectStructLitsExpr m ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .crosscallInvokeTyped t m args _
     | .crosscallInvokeStaticTyped t m args _

@@ -212,7 +212,6 @@ where
     | .ecrecover a b c d => exprUses a || exprUses b || exprUses c || exprUses d
     | .eip712PermitDigest a b c d e f =>
         exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
-    | .crosscallAbiPacked target _ _ _ _ _ _ _ _ => exprUses target
     | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)
@@ -295,10 +294,6 @@ where
     | .ecrecover a b c d => exprUses a || exprUses b || exprUses c || exprUses d
     | .eip712PermitDigest a b c d e f =>
         exprUses a || exprUses b || exprUses c || exprUses d || exprUses e || exprUses f
-    | .crosscallAbiPacked target _ _ _ _ _ dynLen? _ dynTargets =>
-        exprUses target ||
-          (match dynLen? with | some e => exprUses e | none => false) ||
-          dynTargets.any exprUses
     | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ => exprUses a
     | .arrayLit _ xs => xs.any exprUses
     | .structLit _ fs => fs.any (fun f => exprUses f.snd)

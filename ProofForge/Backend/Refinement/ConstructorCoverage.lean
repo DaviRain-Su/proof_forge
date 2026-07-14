@@ -514,10 +514,6 @@ mutual
         exprFC n a && exprFC n b && exprFC n c && exprFC n d
     | n + 1, .eip712PermitDigest a b c d e f =>
         exprFC n a && exprFC n b && exprFC n c && exprFC n d && exprFC n e && exprFC n f
-    | n + 1, .crosscallAbiPacked t _ _ _ _ _ dynLen? _ dynTargets =>
-        exprFC n t &&
-          (match dynLen? with | some e => exprFC n e | none => true) &&
-          dynTargets.toList.all (exprFC n)
     | n + 1, .crosscallInvoke t m args =>
         exprFC n t && exprFC n m && args.toList.all (exprFC n)
     | n + 1, .crosscallInvokeTyped t m args _ =>

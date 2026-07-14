@@ -141,12 +141,6 @@ mutual
         checkExprFuel fuel entrypoint env d
         checkExprFuel fuel entrypoint env e
         checkExprFuel fuel entrypoint env f
-    | fuel + 1, entrypoint, env, .crosscallAbiPacked target _ _ _ _ _ dynLen? _dynOffs dynTargets => do
-        checkExprFuel fuel entrypoint env target
-        match dynLen? with
-        | none => pure ()
-        | some len => checkExprFuel fuel entrypoint env len
-        dynTargets.foldlM (init := ()) fun _ t => checkExprFuel fuel entrypoint env t
     | fuel + 1, entrypoint, env, .cast value _ => checkExprFuel fuel entrypoint env value
     | fuel + 1, entrypoint, env, .boolNot value => checkExprFuel fuel entrypoint env value
     | fuel + 1, entrypoint, env, .hashValue a b c d => do

@@ -719,12 +719,6 @@ mutual
     | .eip712PermitDigest a b c d e f =>
         contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++
           contextOpsFromExpr d ++ contextOpsFromExpr e ++ contextOpsFromExpr f
-    | .crosscallAbiPacked target _ _ _ _ _ dynLen? _dynOffs dynTargets =>
-        let base :=
-          match dynLen? with
-          | none => contextOpsFromExpr target
-          | some len => contextOpsFromExpr target ++ contextOpsFromExpr len
-        dynTargets.foldl (init := base) fun acc t => acc ++ contextOpsFromExpr t
     | .cast value _ | .boolNot value | .hash value => contextOpsFromExpr value
     | .hashValue a b c d =>
         contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++ contextOpsFromExpr d

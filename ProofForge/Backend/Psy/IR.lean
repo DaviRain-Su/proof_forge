@@ -82,8 +82,6 @@ mutual
         .error { message := "ecrecover (secp256k1) is EVM-specific and not supported by Psy IR v0" }
     | .eip712PermitDigest _ _ _ _ _ _ =>
         .error { message := "EIP-712 permit digest is EVM-specific and not supported by Psy IR v0" }
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-        .error { message := "ABI-packed crosscall (Call[]) is EVM-specific and not supported by Psy IR v0" }
     | .structLit structName fields => do
         if fields.isEmpty then
           .error { message := s!"struct literal `{structName}` must have at least one field" }

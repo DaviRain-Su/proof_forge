@@ -103,8 +103,6 @@ mutual
         .error { message := "ecrecover (secp256k1) is EVM-specific and not supported by wasm-near IR v0" }
     | .eip712PermitDigest _ _ _ _ _ _ =>
         .error { message := "EIP-712 permit digest is EVM-specific and not supported by wasm-near IR v0" }
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-        .error { message := "ABI-packed crosscall (Call[]) is EVM-specific and not supported by wasm-near IR v0" }
     | .add lhs rhs _ => do .ok s!"({← lowerExpr module lhs} + {← lowerExpr module rhs})"
     | .sub lhs rhs _ => do .ok s!"({← lowerExpr module lhs} - {← lowerExpr module rhs})"
     | .mul lhs rhs _ => do .ok s!"({← lowerExpr module lhs} * {← lowerExpr module rhs})"

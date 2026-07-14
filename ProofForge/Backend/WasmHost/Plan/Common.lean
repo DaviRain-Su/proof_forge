@@ -251,8 +251,6 @@ mutual
         .ok .hash
     | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
         err "wasm-near plan: ecrecover / EIP-712 permit digest require crypto.ecrecover (EVM-only)"
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-        err "wasm-near plan: crosscallAbiPacked (compile-time ABI Call[]) is EVM-only"
     | .hash preimage => do
         discard <| inferExprType module env preimage
         .ok .hash

@@ -421,8 +421,6 @@ mutual
         .ok .hash
     | .ecrecover _ _ _ _ | .eip712PermitDigest _ _ _ _ _ _ =>
         .error { message := "ecrecover / EIP-712 permit require crypto.ecrecover (EVM-only); not supported by wasm-near IR v0" }
-    | .crosscallAbiPacked _ _ _ _ _ _ _ _ _ =>
-        .error { message := "crosscallAbiPacked (compile-time ABI Call[]) is EVM-only; not supported by wasm-near IR v0" }
     | .nativeValue => .ok .u64
     | .callValueU128 => .ok .u128
     | .hostCall _ _ returnType _ => .ok returnType

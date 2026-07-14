@@ -187,7 +187,6 @@ mutual
           exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d
     | .eip712PermitDigest a b c d e f =>
         #[a, b, c, d, e, f].any (exprReadsPackedScalar scalars)
-    | .crosscallAbiPacked t _ _ _ _ _ _ _ _ => exprReadsPackedScalar scalars t
     | .crosscallInvoke t m args
     | .crosscallInvokeTyped t m args _
     | .crosscallInvokeStaticTyped t m args _

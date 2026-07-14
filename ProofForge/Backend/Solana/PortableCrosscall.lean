@@ -476,8 +476,6 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
         (collectFromExpr entrypoint
           (collectFromExpr entrypoint (collectFromExpr entrypoint acc a) b) c) d
       collectFromExpr entrypoint (collectFromExpr entrypoint acc e) f
-  | .crosscallAbiPacked target _ _ _ _ _ _ _ _ =>
-      collectFromExpr entrypoint acc target
   | .cast a _ | .boolNot a | .hash a | .memoryArrayLength a | .field a _ =>
       collectFromExpr entrypoint acc a
   | .arrayLit _ xs => xs.foldl (fun a e => collectFromExpr entrypoint a e) acc

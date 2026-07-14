@@ -224,10 +224,6 @@ mutual
     | .eip712PermitDigest a b c d e f =>
         (((((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge
           (analyzeExpr d)).merge (analyzeExpr e)).merge (analyzeExpr f)
-    | .crosscallAbiPacked target _ _ _ _ _ dynLen? _ dynTargets =>
-        let base := analyzeExpr target
-        let base := match dynLen? with | some value => base.merge (analyzeExpr value) | none => base
-        dynTargets.foldl (fun acc value => acc.merge (analyzeExpr value)) base
     | .crosscallInvoke target method args
     | .crosscallInvokeTyped target method args _
     | .crosscallInvokeStaticTyped target method args _

@@ -186,13 +186,6 @@ mutual
             (collectExprEvents
               (collectExprEvents
                 (collectExprEvents (collectExprEvents events a) b) c) d) e) f
-    | .crosscallAbiPacked target _ _ _ _ _ dynLen? _ dynTargets =>
-        let events₁ := collectExprEvents events target
-        let events₂ :=
-          match dynLen? with
-          | some e => collectExprEvents events₁ e
-          | none => events₁
-        dynTargets.foldl collectExprEvents events₂
     | .crosscallInvoke target methodId args
     | .crosscallInvokeTyped target methodId args _
     | .crosscallInvokeStaticTyped target methodId args _

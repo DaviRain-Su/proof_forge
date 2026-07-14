@@ -2813,3 +2813,22 @@ Rules:
   `Tests/AbiEncode.lean`, and `git diff --check`.
 - Next: delete `Expr.crosscallAbiPacked` and its now-dead shared/backend match
   arms, then tighten the target-boundary baseline.
+
+## 2026-07-14 - EVM-R1g: delete shared ABI-packed call node
+
+- Status: `done (verified 2026-07-14)`; EVM-R1 call/error/dispatch migration
+  remains in progress.
+- Deleted legacy `Expr.crosscallAbiPacked` and every adapter, analysis,
+  refinement, validator, and non-EVM backend arm that existed only for that
+  EVM ABI layout.
+- Deleted the compatibility `abiPackedHelperSpecsFromExpr` whole-module scanner.
+  Packed helper specifications now enter code generation only through the EVM
+  `ModulePlan`; the target-owned `ExprPlan.crosscallAbiPacked` and Yul emitter
+  remain intact.
+- Repaired earlier legacy-freeze inventory omissions for `accountId`, expression
+  HostOps, and effect HostOps. HostOp classification tags are stable constructor
+  names rather than payload-dependent IDs.
+- Verification passed: targeted builds for all affected shared/EVM/non-EVM
+  modules, `Tests/AbiEncode.lean`, `just ir-target-boundary`,
+  `just legacy-freeze`, and `git diff --check`. No full `just check` ran.
+- Next: classify and migrate legacy create/static/delegate call modes.

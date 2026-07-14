@@ -131,10 +131,11 @@ Progress (2026-07-14):
 1. [x] Move EIP-712, ERC receiver, and EVM context behavior into target-owned
    HostOps. Delete the obsolete shared constructors after all legacy-only
    exhaustive match arms have been removed.
-2. Replace EVM ABI-packed call payloads with a semantic call description whose
-   ABI layout is built in the EVM plan. The Multicall producer and tests now
-   consume `AbiEncode.Plan`/`AbiPackedHelperSpec` directly; removal of the dead
-   legacy `Expr.crosscallAbiPacked` constructor is the follow-up slice.
+2. [x] Remove EVM ABI-packed call payloads from shared IR. Multicall producers
+   and tests consume `AbiEncode.Plan`/`AbiPackedHelperSpec` directly; the dead
+   legacy `Expr.crosscallAbiPacked` constructor, compatibility scanner, and all
+   shared/non-EVM match arms are deleted. Packed layout and Yul helper emission
+   now exist only in the EVM plan/backend.
 3. Classify create/static/delegate behavior as portable semantics or explicit
    target extensions and migrate accordingly.
 4. Delete EVM/protocol-specific `Expr` and `Effect` constructors.
