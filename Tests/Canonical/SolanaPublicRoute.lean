@@ -7,7 +7,7 @@ import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Frontend.Surface
 import ProofForge.Frontend.Surface.Host.Near
 import ProofForge.IR.Core.HostOp
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Canonical
 import ProofForge.Target
 import ProofForge.Cli.SolanaArtifacts
@@ -96,8 +96,8 @@ unsafe def main : IO Unit := do
   require (!canonicalVault.isEmpty) "canonical ValueVault assembly is empty"
 
   /- Check 3: buildFromCore produces a valid Solana plan for Counter. -/
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy counterSpec with
-  | .error e => throw <| IO.userError s!"adaptLegacy failed: {repr e}"
+  match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec counterSpec with
+  | .error e => throw <| IO.userError s!"normalizeContractSpec failed: {repr e}"
   | .ok bundle =>
     match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
     | .error e => throw <| IO.userError s!"validateCanonical failed: {repr e}"
@@ -136,7 +136,7 @@ unsafe def main : IO Unit := do
   let unsupportedSpec := ContractSpec.fromIR unsupportedModule
   match renderCanonicalSpecSolanaAsm unsupportedSpec with
   | .error error =>
-      require (error.contains "canonical: adapt failed")
+      require (error.contains "canonical: source normalization failed")
         s!"public Solana route changed canonical rejection: {error}"
   | .ok _ => throw <| IO.userError "public Solana route accepted unsupported Legacy input"
 

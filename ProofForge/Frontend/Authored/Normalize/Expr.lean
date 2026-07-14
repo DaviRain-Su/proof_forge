@@ -1,8 +1,8 @@
-import ProofForge.IR.Legacy.Adapter.Env
+import ProofForge.Frontend.Authored.Normalize.Env
 import ProofForge.IR.Core.HostOp
 import ProofForge.Target.HostOps.Near
 
-namespace ProofForge.IR.Legacy.Adapter
+namespace ProofForge.Frontend.Authored.Normalize
 
 open ProofForge.IR
 open ProofForge.IR.Core
@@ -35,7 +35,7 @@ def normalizeContextRead (field : ProofForge.IR.ContextField) : AdapterM Normali
   | .host id resultType =>
       emitValueInstruction (.hostCall { id, args := #[] }) resultType
 
-/- Convert a legacy `AssignOp` to a canonical `ArithmeticOp`. -/
+/- Convert a source `AssignOp` to a canonical `ArithmeticOp`. -/
 
 def adaptAssignOp (op : AssignOp) : Except CanonicalizeError ArithmeticOp :=
   match op with
@@ -50,7 +50,7 @@ def adaptAssignOp (op : AssignOp) : Except CanonicalizeError ArithmeticOp :=
   | .shiftLeft => .ok .shl
   | .shiftRight => .ok .shr
 
-/- Convert a legacy `Literal` to a canonical `CoreLiteral`, checking fixed-width
+/- Convert a source `Literal` to a canonical `CoreLiteral`, checking fixed-width
 ranges before any narrowing occurs. -/
 
 def adaptLiteral (l : Literal) : Except CanonicalizeError CoreLiteral :=
@@ -94,9 +94,6 @@ def coreLiteralType (l : CoreLiteral) : CoreType :=
   | .bytesLit _ => .bytes
   | .stringLit _ => .string
   | .hashLit _ => .hash
-
-private def crosscallString? (index : Nat) : AdapterM (Option String) := do
-  return (← get).env.crosscallStrings[index]?
 
 /- Build a pure arithmetic instruction from already-normalized operands. -/
 
@@ -153,7 +150,7 @@ private def storagePathResultType (shape : StateShape)
     | _ => throw (CanonicalizeError.typeMismatch "scalar storage leaf" (reprStr current))
   return resultType
 
-/- Compute the canonical result type of a legacy expression. -/
+/- Compute the canonical result type of a source expression. -/
 
 def exprType (e : Expr) : AdapterM CoreType := do
   match e with
@@ -266,7 +263,7 @@ def effectTag (eff : Effect) : String :=
   | .eventEmit _ _ => "Effect.eventEmit"
   | .eventEmitIndexed _ _ _ => "Effect.eventEmitIndexed"
 
-/- Normalize a legacy `Expr` into ANF instructions plus a result `ValueRef`.
+/- Normalize a source `Expr` into ANF instructions plus a result `ValueRef`.
 Effectful sub-expressions (storage/context reads) are lifted to explicit
 instructions. No wildcard arm exists. -/
 
@@ -509,21 +506,15 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
   | .hashValue _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.hashValue" "four-input hash not in initial fragment")
   | .crosscallInvoke target method args => do
-      let normalizedTarget ← match target with
-        | .literal (.address index) =>
-            match ← crosscallString? index with
-            | some value => emitValueInstruction (.pure (.literal (.addressLit value))) .address
-            | none => normalizeExpr target
-        | _ => normalizeExpr target
-      let methodIndex? := match method with
-        | .literal (.address n) | .literal (.u64 n) | .literal (.u32 n) |
-            .literal (.u8 n) | .literal (.u128 n) => some n
-        | _ => none
-      let normalizedMethod ← match methodIndex? with
-        | some index =>
-            let value := (← crosscallString? index).getD (toString index)
-            emitValueInstruction (.pure (.literal (.stringLit value))) .string
-        | none => normalizeExpr method
+      /- Core carries stable numeric handles. The target-owned materialization
+      string pool resolves those handles after target selection. -/
+      let normalizedTarget ← normalizeExpr target
+      let normalizedMethod ← match method with
+        | .literal (.address index) | .literal (.u8 index) |
+          .literal (.u32 index) | .literal (.u64 index) |
+          .literal (.u128 index) =>
+            emitValueInstruction (.pure (.literal (.stringLit (toString index)))) .string
+        | _ => normalizeExpr method
       let mut instructions := normalizedTarget.instructions ++ normalizedMethod.instructions
       let mut argRefs := #[]
       let mut paramTypes := #[]
@@ -608,4 +599,4 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
   | .callValueU128 =>
       emitValueInstruction (.contextRead .value) .u128
 
-end ProofForge.IR.Legacy.Adapter
+end ProofForge.Frontend.Authored.Normalize

@@ -22,6 +22,7 @@ import ProofForge.Cli.NftLoader
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Token.NearSpec
+import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.IR
 import ProofForge.Target
 import ProofForge.Target.ArtifactBundle
@@ -47,9 +48,7 @@ def renderCanonicalSpecNearWat (spec : ProofForge.Contract.ContractSpec)
     Except String String := do
   let adaptedSpec := { spec with
     module := ProofForge.Target.PeerMap.applyToModule spec.module peerMap }
-  let bundle ← match ProofForge.IR.Legacy.Adapter.adaptLegacy adaptedSpec with
-    | .ok bundle => .ok bundle
-    | .error error => .error s!"canonical: adapt failed: {repr error}"
+  let bundle ← ProofForge.Frontend.ContractSpec.normalize adaptedSpec
   let checked ← match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
     | .ok checked => .ok checked
     | .error error => .error s!"canonical: validation failed: {repr error}"

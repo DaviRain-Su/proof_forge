@@ -1,5 +1,5 @@
 import ProofForge.IR.Canonical
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Examples.Counter
 import ProofForge.Backend.WasmHost.ModulePlan
 import ProofForge.Backend.WasmHost.ModulePlan.Core
@@ -59,9 +59,9 @@ def main : IO Unit := do
   -- Build Counter spec
   let counterSpec := ProofForge.Contract.ContractSpec.fromIR
     ProofForge.IR.Examples.Counter.module
-  let bundle ← match ProofForge.IR.Legacy.Adapter.adaptLegacy counterSpec with
+  let bundle ← match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec counterSpec with
     | .ok b => pure b
-    | .error e => throw <| IO.userError s!"adaptLegacy failed: {repr e}"
+    | .error e => throw <| IO.userError s!"normalizeContractSpec failed: {repr e}"
   let checked ← match validateCanonical bundle.contract.contract with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"validateCanonical failed: {repr e}"

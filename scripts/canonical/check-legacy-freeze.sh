@@ -8,7 +8,7 @@ SCHEMA_FILES=(
   "ProofForge/IR/Contract.lean"
   "ProofForge/Contract/Spec.lean"
 )
-CLASSIFICATION_FILE="ProofForge/IR/Legacy/Classification.lean"
+CLASSIFICATION_FILE="ProofForge/Frontend/Authored/Classification.lean"
 
 usage() {
   echo "usage: $0 [--base-ref REF] [--self-test]" >&2
@@ -51,7 +51,8 @@ run_self_tests() {
   git init -q -b main "$source_repo"
   git -C "$source_repo" config user.name "legacy-freeze-test"
   git -C "$source_repo" config user.email "legacy-freeze-test@example.invalid"
-  mkdir -p "$source_repo/ProofForge/IR/Legacy" "$source_repo/ProofForge/Contract" \
+  mkdir -p "$source_repo/ProofForge/IR" "$source_repo/ProofForge/Frontend/Authored" \
+    "$source_repo/ProofForge/Contract" \
     "$source_repo/scripts/canonical"
   printf '%s\n' 'inductive LegacySchema where | original' > "$source_repo/ProofForge/IR/Contract.lean"
   printf '%s\n' 'inductive ValueType where | original' > "$source_repo/ProofForge/IR/ValueType.lean"

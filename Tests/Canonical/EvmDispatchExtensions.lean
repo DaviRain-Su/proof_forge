@@ -1,6 +1,6 @@
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.IR.Examples.EvmFallbackProbe
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Contract.Spec
 import ProofForge.Target.InterfaceOps.Evm
 import ProofForge.Backend.Evm.Plan.Core
@@ -22,7 +22,7 @@ def main : IO Unit := do
   }
   let spec := ProofForge.Contract.ContractSpec.fromIR
     dispatchModule
-  let checked <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  let checked <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
     | .ok bundle => pure bundle.contract
     | .error error => throw (IO.userError s!"EVM dispatch adaptation failed: {repr error}")
   let ids := checked.contract.interfaceExtensions.map (·.id)

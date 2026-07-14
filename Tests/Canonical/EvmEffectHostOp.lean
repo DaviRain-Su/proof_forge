@@ -1,6 +1,6 @@
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Contract.Stdlib.ERC721
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Target.HostOps.Evm
 import ProofForge.Target.Registry
 
@@ -10,7 +10,7 @@ private def require (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw (IO.userError message)
 
 private def checkedErc721 : IO ProofForge.IR.Canonical.CheckedCanonicalContract := do
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy ProofForge.Contract.Stdlib.ERC721.spec with
+  match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec ProofForge.Contract.Stdlib.ERC721.spec with
   | .ok bundle => pure bundle.contract
   | .error error => throw (IO.userError s!"ERC721 canonical adaptation failed: {repr error}")
 

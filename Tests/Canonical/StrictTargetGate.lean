@@ -60,10 +60,10 @@ def main : IO Unit := do
       s!"strict gate: ValueVault on {targetId}"
 
   -- -- Test 3: runStrictCanonicalContractGate works from a raw canonical contract --
-  -- Counter via adaptLegacy -> validateCanonical -> strict planning
-  let bundle ← match ProofForge.IR.Legacy.Adapter.adaptLegacy counterSpec with
+  -- Counter via normalizeContractSpec -> validateCanonical -> strict planning
+  let bundle ← match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec counterSpec with
     | .ok b => pure b
-    | .error e => throw <| IO.userError s!"adaptLegacy failed: {repr e}"
+    | .error e => throw <| IO.userError s!"normalizeContractSpec failed: {repr e}"
   for targetId in primaryTriad do
     requireOk (runStrictCanonicalContractGate targetId bundle.contract.contract)
       s!"strict contract gate: Counter on {targetId}"

@@ -1,12 +1,12 @@
 import ProofForge.Contract.Spec
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Core
 
 /-! Regression coverage for Legacy constructs admitted by the EVM canonical cutover. -/
 
 open ProofForge.IR
 open ProofForge.IR.Core
-open ProofForge.IR.Legacy.Adapter
+open ProofForge.Frontend.Authored.Normalize
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
@@ -32,7 +32,7 @@ def userHashModule : ProofForge.IR.Module := {
 }
 
 def main : IO Unit := do
-  let hashBundle ← match adaptLegacy (ProofForge.Contract.ContractSpec.fromIR hashModule) with
+  let hashBundle ← match normalizeContractSpec (ProofForge.Contract.ContractSpec.fromIR hashModule) with
     | .ok bundle => pure bundle
     | .error error => throw <| IO.userError s!"hash4 adaptation failed: {repr error}"
   require (hashBundle.contract.contract.module.functions.any fun function =>
@@ -40,7 +40,7 @@ def main : IO Unit := do
       match instruction.op with | .pure (.literal (.hashLit _)) => true | _ => false)
     "hash4 did not become a Core hash literal"
 
-  let mapBundle ← match adaptLegacy (ProofForge.Contract.ContractSpec.fromIR mapModule) with
+  let mapBundle ← match normalizeContractSpec (ProofForge.Contract.ContractSpec.fromIR mapModule) with
     | .ok bundle => pure bundle
     | .error error => throw <| IO.userError s!"map-get adaptation failed: {repr error}"
   require (mapBundle.contract.contract.module.functions.any fun function =>
@@ -48,7 +48,7 @@ def main : IO Unit := do
       match instruction.op with | .storageLoad { path := #[.mapKey _], .. } => true | _ => false)
     "storageMapGet did not become a Core mapKey load"
 
-  let userBundle ← match adaptLegacy (ProofForge.Contract.ContractSpec.fromIR userHashModule) with
+  let userBundle ← match normalizeContractSpec (ProofForge.Contract.ContractSpec.fromIR userHashModule) with
     | .ok bundle => pure bundle
     | .error error => throw <| IO.userError s!"userIdHash adaptation failed: {repr error}"
   require (userBundle.contract.contract.module.functions.any fun function =>

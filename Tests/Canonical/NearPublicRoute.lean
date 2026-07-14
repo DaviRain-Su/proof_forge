@@ -8,7 +8,7 @@ import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Frontend.Surface
 import ProofForge.Frontend.Surface.Host.Near
 import ProofForge.IR.Core.HostOp
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Canonical
 import ProofForge.Target
 import ProofForge.Cli.ContractSourceArtifacts
@@ -103,7 +103,7 @@ unsafe def main : IO Unit := do
 
   let remoteInput := System.FilePath.mk "Examples/Product/RemoteCall.lean"
   let remoteSpec ← ProofForge.Cli.ContractLoader.loadSpec remoteInput opts.root? none
-  let canonicalRemote ← match renderCanonicalSpecNearWat remoteSpec with
+  let canonicalRemote ← match renderCanonicalSpecNearWat remoteSpec ProofForge.Target.PeerMap.nearDemo with
     | .ok wat => pure wat
     | .error error => throw <| IO.userError error
   require (canonicalRemote.contains "promise_create" && canonicalRemote.contains "promise_return")
@@ -122,8 +122,8 @@ unsafe def main : IO Unit := do
     "canonical NearFungibleToken omitted promise-result U64 decoding"
 
   /- Check 3: buildFromCore produces a valid NEAR plan for Counter. -/
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy counterSpec with
-  | .error e => throw <| IO.userError s!"adaptLegacy failed: {repr e}"
+  match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec counterSpec with
+  | .error e => throw <| IO.userError s!"normalizeContractSpec failed: {repr e}"
   | .ok bundle =>
     match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
     | .error e => throw <| IO.userError s!"validateCanonical failed: {repr e}"
@@ -169,7 +169,7 @@ unsafe def main : IO Unit := do
   let unsupportedSpec := ContractSpec.fromIR unsupportedModule
   match renderCanonicalSpecNearWat unsupportedSpec with
   | .error error =>
-      require (error.contains "canonical: adapt failed")
+      require (error.contains "canonical: source normalization failed")
         s!"public NEAR route changed canonical rejection: {error}"
   | .ok _ => throw <| IO.userError "public NEAR route accepted unsupported Legacy input"
 

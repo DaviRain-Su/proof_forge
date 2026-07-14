@@ -4,7 +4,7 @@ import ProofForge.Backend.Stylus.Package
 import ProofForge.Backend.Stylus.RustSdk.Render
 import ProofForge.Compiler.Wasm.Printer
 import ProofForge.Contract.Spec
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 
 open ProofForge.Backend.Stylus
 open ProofForge.IR
@@ -53,9 +53,9 @@ def mapModule : ProofForge.IR.Module := {
 
 def main : IO Unit := do
   let spec := ProofForge.Contract.ContractSpec.fromIR mapModule
-  let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  let bundle <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
     | .ok value => pure value
-    | .error error => throw <| IO.userError s!"adaptLegacy failed: {repr error}"
+    | .error error => throw <| IO.userError s!"normalizeContractSpec failed: {repr error}"
   let capabilityPlan : ProofForge.Target.CapabilityPlan := {
     targetId := "wasm-arbitrum-stylus", calls := bundle.contract.contract.requirements }
   let plan <- match ProofForge.Backend.Stylus.Plan.Core.buildFromCore bundle.contract capabilityPlan with

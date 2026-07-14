@@ -3,8 +3,6 @@ import ProofForge.IR.Core.Error
 import ProofForge.IR.Core.Validate
 import ProofForge.IR.Canonical
 import ProofForge.IR.Contract
-import ProofForge.IR.Legacy.Classification
-import ProofForge.IR.Legacy.Adapter
 import ProofForge.IR.Portability
 import ProofForge.IR.CounterSemantics
 import ProofForge.IR.Examples.AbiAggregateProbe

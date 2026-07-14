@@ -1,12 +1,12 @@
-import ProofForge.IR.Legacy.Adapter.Statement
-import ProofForge.IR.Legacy.Classification
+import ProofForge.Frontend.Authored.Normalize.Statement
+import ProofForge.Frontend.Authored.Classification
 import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
 import ProofForge.Target.HostOps.Near
 import ProofForge.Target.HostOps.Evm
 import ProofForge.Target.InterfaceOps.Evm
 
-namespace ProofForge.IR.Legacy.Adapter
+namespace ProofForge.Frontend.Authored.Normalize
 
 open ProofForge.IR
 open ProofForge.IR.Core
@@ -14,7 +14,7 @@ open ProofForge.IR.Canonical
 open ProofForge.Contract
 open ProofForge.Target
 
-/- Closed legacy-to-canonical policy mappings. -/
+/- Closed source-schema-to-canonical policy mappings. -/
 
 def adaptMutability (mutability : EntrypointMutability) : InterfaceMutability :=
   match mutability with
@@ -53,7 +53,7 @@ def adaptErrorEncodingForm : RegisteredErrorForm → ErrorEncodingForm
   | .proofForgeEnvelope => .proofForgeEnvelope
   | .solidityCustom => .proofForgeEnvelope
 
-/- Convert a legacy constructor binding without dropping the named parameter or
+/- Convert a source constructor binding without dropping the named parameter or
 typed initialization operation. -/
 
 def adaptConstructorBinding (env : AdapterEnv) (b : ConstructorInitBinding) : Except CanonicalizeError ConstructorBinding := do
@@ -67,17 +67,17 @@ def adaptConstructorBinding (env : AdapterEnv) (b : ConstructorInitBinding) : Ex
   | none =>
       .error (CanonicalizeError.unknownState b.stateId)
 
-/- Map the legacy `ContractSpec` fields into the canonical materialization
+/- Map `ContractSpec` fields into the canonical materialization
 contract. All artifact-affecting metadata is preserved. -/
 
-def adaptStateSymbols (m : Module) (env : AdapterEnv) :
+def adaptStateSymbols (m : ProofForge.IR.Module) (env : AdapterEnv) :
     Except CanonicalizeError (Array StateDisplaySymbol) :=
   m.state.mapM (fun state =>
     match Std.HashMap.get? env.stateIds state.id with
     | some (stateId, _) => .ok { stateId := stateId, name := state.id }
     | none => .error (CanonicalizeError.unknownState state.id))
 
-def adaptTypeLayouts (m : Module) (env : AdapterEnv) :
+def adaptTypeLayouts (m : ProofForge.IR.Module) (env : AdapterEnv) :
     Except CanonicalizeError (Array TypeLayoutMetadata) :=
   m.structs.mapM (fun declaration =>
     match Std.HashMap.get? env.typeIds declaration.name with
@@ -195,7 +195,7 @@ def collectEventNamesStmt (stmt : Statement) (acc : Array String) : Array String
   | .whileLoop _ body => body.foldl (fun a s => collectEventNamesStmt s a) acc
   | _ => acc
 
-def collectEventNames (m : Module) : Array String :=
+def collectEventNames (m : ProofForge.IR.Module) : Array String :=
   m.entrypoints.foldl (fun acc ep =>
     ep.body.foldl (fun a stmt => collectEventNamesStmt stmt a) acc) #[]
 
@@ -219,11 +219,11 @@ private def collectEventSitesStmt (stmt : Statement)
       body.foldl (fun acc nested => collectEventSitesStmt nested acc) sites
   | _ => sites
 
-private def collectEventSites (m : Module) : Array SourceEventSite :=
+private def collectEventSites (m : ProofForge.IR.Module) : Array SourceEventSite :=
   m.entrypoints.foldl (fun sites ep =>
     ep.body.foldl (fun acc stmt => collectEventSitesStmt stmt acc) sites) #[]
 
-private def sourceEventFields (m : Module) (name : String) :
+private def sourceEventFields (m : ProofForge.IR.Module) (name : String) :
     Except CanonicalizeError (Array SourceEventField) := do
   let sites := (collectEventSites m).filter (·.name == name)
   let fields ← match sites[0]? with
@@ -256,7 +256,7 @@ private def findEventArgTypes (functions : Array Function) (eventId : EventId) :
 
 /- Build all canonical event declarations discovered in the module. -/
 
-def adaptEvents (m : Module) (functions : Array Function) : AdapterM (Array Event) := do
+def adaptEvents (m : ProofForge.IR.Module) (functions : Array Function) : AdapterM (Array Event) := do
   let names := collectEventNames m
   names.mapM (fun name => do
     let eventId ← lookupEvent name
@@ -276,7 +276,7 @@ def adaptEvents (m : Module) (functions : Array Function) : AdapterM (Array Even
       pure { id := ⟨index⟩, type := type })
     return { id := eventId, fields := coreFields })
 
-private def validateEventAbiWords (m : Module) : Except CanonicalizeError Unit := do
+private def validateEventAbiWords (m : ProofForge.IR.Module) : Except CanonicalizeError Unit := do
   for override in m.eventAbiWords do
     let fields ← sourceEventFields m override.eventName
     unless fields.any (·.name == override.fieldName) do
@@ -288,7 +288,7 @@ private def validateEventAbiWords (m : Module) : Except CanonicalizeError Unit :
       throw <| CanonicalizeError.conflictingEventSchema override.eventName
         s!"duplicate ABI override for field `{override.fieldName}`"
 
-private def eventAbiWord? (m : Module) (eventName fieldName : String) : Option String :=
+private def eventAbiWord? (m : ProofForge.IR.Module) (eventName fieldName : String) : Option String :=
   (m.eventAbiWords.find? (fun override =>
     override.eventName == eventName && override.fieldName == fieldName)).map (·.abiWord)
 
@@ -369,7 +369,7 @@ def adaptInterface (spec : ContractSpec) (module : Core.Module) (env : AdapterEn
     errors := errors
   }
 
-/- Adapt a legacy struct declaration to canonical form. -/
+/- Normalize a source struct declaration to canonical form. -/
 
 def adaptStruct (decl : StructDecl) : AdapterM Struct := do
   let id ← lookupType decl.name
@@ -387,7 +387,7 @@ def adaptStruct (decl : StructDecl) : AdapterM Struct := do
     semantics := if decl.isRecord then .linearRecord else .value
   }
 
-/- Adapt one legacy entrypoint to a canonical function CFG. -/
+/- Normalize one source entrypoint to a canonical function CFG. -/
 
 def adaptFunction (ep : Entrypoint) : AdapterM Function := do
   resetLocals
@@ -403,9 +403,9 @@ def adaptFunction (ep : Entrypoint) : AdapterM Function := do
   let (blocks, entryId) ← normalizeBody ep.body retType
   return { id := fid, params := params, retType := retType, blocks := blocks, entry := entryId }
 
-/- Adapt the runtime portion of a legacy module to canonical Core. -/
+/- Normalize the runtime portion of a source module to canonical Core. -/
 
-def adaptModuleM (m : Module) : AdapterM Core.Module := do
+def adaptModuleM (m : ProofForge.IR.Module) : AdapterM Core.Module := do
   let structs ← m.structs.mapM adaptStruct
   let state ← m.state.mapM (fun s => do
     let id ← lookupState s.id
@@ -430,7 +430,7 @@ def checkSpecFieldClassification (spec : ContractSpec) : Except CanonicalizeErro
     | .reject => throw (CanonicalizeError.unsupportedConstructor d.field d.reason)
     | _ => pure ()
 
-/- Build canonical evidence from the legacy spec, including classification and
+/- Build canonical evidence from the source spec, including classification and
 verification annotations. -/
 
 def adaptEvidence (spec : ContractSpec) : CanonicalEvidence := {
@@ -454,11 +454,11 @@ def adaptEvidence (spec : ContractSpec) : CanonicalEvidence := {
     })
 }
 
-/- Main entry point: adapt a legacy `ContractSpec` into a checked canonical
+/- Main entry point: normalize an authored `ContractSpec` into a checked canonical
 bundle. Fails closed on any unsupported constructor, unmapped field, or
 validation error. -/
 
-def adaptLegacy (spec : ContractSpec) : Except CanonicalizeError CanonicalBundle := do
+def normalizeContractSpec (spec : ContractSpec) : Except CanonicalizeError CanonicalBundle := do
   checkSpecFieldClassification spec
   let env ← buildEnv spec.module
   let st := AdapterState.ofEnv env
@@ -488,4 +488,4 @@ def adaptLegacy (spec : ContractSpec) : Except CanonicalizeError CanonicalBundle
   | .ok checked =>
       return { contract := checked, evidence := evidence }
 
-end ProofForge.IR.Legacy.Adapter
+end ProofForge.Frontend.Authored.Normalize

@@ -1,8 +1,8 @@
 import ProofForge.IR.Semantics
 import ProofForge.IR.Core.Semantics
 import ProofForge.IR.Core.Id
-import ProofForge.IR.Legacy.Classification
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Classification
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
 import Std
@@ -12,8 +12,8 @@ namespace TestFixtures.Legacy.Refinement
 open ProofForge.IR.Core
 open ProofForge.IR.Core.Semantics
 open ProofForge.IR
-open ProofForge.IR.Legacy
-open ProofForge.IR.Legacy.Adapter
+open ProofForge.Frontend.Authored
+open ProofForge.Frontend.Authored.Normalize
 open ProofForge.Contract
 
 /-! Value-range constants for the fixed-width scalar types carried by Core. -/
@@ -73,7 +73,7 @@ def sourceEventName (spec : ContractSpec) (eid : EventId) : Option String :=
 
 /-- Decision acceptability for the scalar fragment. Delegates to the
 canonical `isScalarAcceptable` from the classification module. -/
-def allAcceptable (ds : Array LegacyDecision) : Bool :=
+def allAcceptable (ds : Array NormalizationDecision) : Bool :=
   ds.all isScalarAcceptable
 
 def scalarFragmentValueType (ty : ValueType) : Bool :=
@@ -338,7 +338,7 @@ excluded. -/
 def observableMatch (spec : ContractSpec)
     (legacy : ProofForge.IR.Semantics.ExecResult (ProofForge.IR.Semantics.State × Option ProofForge.IR.Semantics.Value))
     (core : Except RuntimeError ExecutionResult) : Bool :=
-  match adaptLegacy spec with
+  match normalizeContractSpec spec with
   | .error _ => false
   | .ok bundle =>
       let coreModule := bundle.contract.contract.module

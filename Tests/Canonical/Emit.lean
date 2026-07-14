@@ -7,7 +7,7 @@ import ProofForge.Cli.EvmArtifacts
 import ProofForge.Backend.Solana.SbpfAsm
 import ProofForge.Backend.Solana.Plan
 import ProofForge.Backend.Solana.Plan.Core
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Backend.WasmHost.NearModulePlan
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
@@ -83,7 +83,7 @@ def main (args : List String) : IO UInt32 := do
           | .ok asm => pure asm
           | .error e => throw <| IO.userError s!"legacy Solana emit failed: {e.message}"
       | .canonical => do
-          let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+          let bundle <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
             | .ok bundle => pure bundle
             | .error e => throw <| IO.userError s!"canonical Solana adapt failed: {repr e}"
           let capPlan : ProofForge.Target.CapabilityPlan := {
@@ -104,7 +104,7 @@ def main (args : List String) : IO UInt32 := do
           | .ok wat => pure wat
           | .error e => throw <| IO.userError s!"legacy NEAR emit failed: {e.message}"
       | .canonical => do
-          let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+          let bundle <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
             | .ok bundle => pure bundle
             | .error e => throw <| IO.userError s!"canonical NEAR adapt failed: {repr e}"
           let capPlan : ProofForge.Target.CapabilityPlan := {

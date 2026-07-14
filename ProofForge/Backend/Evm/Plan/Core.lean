@@ -163,6 +163,7 @@ structure CorePlanEnv where
   storage : StorageLayout := { states := #[] }
   events : Array (EventId × EventPlan) := #[]
   errors : Array (ErrorId × Option EvmErrorPlan) := #[]
+  crosscallStrings : Array String := #[]
   peerBindings : Array TargetMetadata := #[]
 
 private def lookupValueName (env : CorePlanEnv) (id : ValueId) : Except PlanError String :=
@@ -176,6 +177,16 @@ private def resolvePeerAddress (env : CorePlanEnv) (host : String) : Except Plan
   let some address := ProofForge.Target.ProtocolMaterialize.parseEvmAddressHex? resolvedHost
     | throw { message := s!"unbound or invalid EVM crosscall target `{host}`" }
   return address
+
+private def resolveCrosscallHandle (env : CorePlanEnv) (handle : String)
+    (kind : String) : Except PlanError String :=
+  match handle.toNat? with
+  | none => .ok handle
+  | some index =>
+      match env.crosscallStrings[index]? with
+      | some value => .ok value
+      | none => .error {
+          message := s!"EVM crosscall {kind} handle {index} is out of range" }
 
 private def valueExpr (env : CorePlanEnv) (value : ValueRef) : Except PlanError ExprPlan := do
   match env.literals.find? (fun entry => entry.fst == value.id) with
@@ -275,7 +286,7 @@ private def bindInstructionResults (env : CorePlanEnv) (instr : Instruction) : C
 private def crosscallTargetExpr (env : CorePlanEnv) (target : ValueRef) : Except PlanError ExprPlan := do
   let some (_, .addressLit host) := env.literals.find? (fun entry => entry.fst == target.id)
     | valueExpr env target
-  return .literalWord (← resolvePeerAddress env host)
+  return .literalWord (← resolvePeerAddress env (← resolveCrosscallHandle env host "target"))
 
 private def crosscallMethodExpr (env : CorePlanEnv) (method : ValueRef) : Except PlanError ExprPlan := do
   let some (_, literal) := env.literals.find? (fun entry => entry.fst == method.id)
@@ -284,8 +295,9 @@ private def crosscallMethodExpr (env : CorePlanEnv) (method : ValueRef) : Except
     | .stringLit name => some name
     | _ => none)
     | valueExpr env method
-  let some selector := ProofForge.Target.ProtocolMaterialize.evmSelector? name
-    | throw { message := s!"invalid direct EVM crosscall method `{name}`" }
+  let resolvedName ← resolveCrosscallHandle env name "method"
+  let some selector := ProofForge.Target.ProtocolMaterialize.evmSelector? resolvedName
+    | throw { message := s!"invalid direct EVM crosscall method `{resolvedName}`" }
   return .literalWord selector
 
 /-- Compute the slot span for a Core state declaration.
@@ -353,9 +365,9 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
           (← coreLiteralToExprPlan (.stringLit literal))]
       else
         .ok #[]
-  | .pure (.literal (.addressLit host)) => do
+  | .pure (.literal (.addressLit value)) => do
       .ok #[StmtPlan.letBind (resultName instr) .address
-        (.literalWord (← resolvePeerAddress env host))]
+        (← coreLiteralToExprPlan (.addressLit value))]
   | .pure (.literal lit) => do
       .ok #[StmtPlan.letBind (resultName instr) (← coreLiteralPlanType lit)
         (← coreLiteralToExprPlan lit)]
@@ -620,8 +632,8 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       .ok #[]
 
 /-- Map a Core function to EVM entrypoint plan entries (body statements).
-Only the entry block is mapped for the initial fragment; control flow
-mapping (branches, loops) will be added as needed. -/
+Structured jumps and branches are lowered recursively; unsupported block
+arguments and irreducible cycles fail closed. -/
 private def lowerBlockInstructions (env : CorePlanEnv) (block : Block) :
     Except PlanError (Array StmtPlan × CorePlanEnv) := do
   let mut statements := #[]
@@ -908,6 +920,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     storage
     events := (iface.events.zip events).map (fun entry => (entry.fst.eventId, entry.snd))
     errors
+    crosscallStrings := checked.contract.materialization.crosscallStrings
     peerBindings := capPlan.metadata
   }
   /- Build entrypoint plans from interface. -/

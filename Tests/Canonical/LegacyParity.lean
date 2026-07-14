@@ -2,7 +2,7 @@ import ProofForge.IR.Semantics
 import ProofForge.IR.Core.Semantics
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import TestFixtures.Legacy.Refinement
 import ProofForge.Contract.Spec
 import Std
@@ -11,7 +11,7 @@ namespace Tests.Canonical.LegacyParity
 
 open ProofForge.IR.Core
 open ProofForge.IR.Core.Semantics
-open ProofForge.IR.Legacy.Adapter
+open ProofForge.Frontend.Authored.Normalize
 open TestFixtures.Legacy.Refinement
 open ProofForge.Contract
 
@@ -19,7 +19,7 @@ def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
 def expectBundle (spec : ContractSpec) : IO ProofForge.IR.Canonical.CanonicalBundle :=
-  match adaptLegacy spec with
+  match normalizeContractSpec spec with
   | .ok b => pure b
   | .error e => throw <| IO.userError s!"adapt failed: {repr e}"
 

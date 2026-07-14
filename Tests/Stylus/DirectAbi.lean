@@ -2,7 +2,7 @@ import ProofForge.Backend.Stylus.DirectWasm.Dispatch
 import ProofForge.Backend.WasmHost.WasmInterpreter
 import ProofForge.Backend.Stylus.Plan.Core
 import ProofForge.IR.Examples.Counter
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Contract.Spec
 
 open ProofForge.Backend.Stylus
@@ -16,7 +16,7 @@ def isError : Except ε α -> Bool
 
 def main : IO Unit := do
   let spec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
-  let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  let bundle <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
     | .ok bundle => pure bundle | .error error => throw <| IO.userError s!"{repr error}"
   let plan <- match ProofForge.Backend.Stylus.Plan.Core.buildFromCore bundle.contract {
       targetId := "wasm-arbitrum-stylus", calls := bundle.contract.contract.requirements } with

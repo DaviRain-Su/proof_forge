@@ -6,7 +6,7 @@ import ProofForge.Backend.Stylus.DirectWasm.Module
 import ProofForge.Backend.Stylus.RustSdk.Render
 import ProofForge.Backend.Stylus.Package
 import ProofForge.Compiler.Wasm.Printer
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 
 open ProofForge.Backend.Stylus
 
@@ -15,7 +15,7 @@ def require (condition : Bool) (message : String) : IO Unit :=
 
 def main : IO Unit := do
   let source := ProofForge.Backend.Stylus.Token.specFor Examples.Product.FungibleToken.spec
-  let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy source with
+  let bundle <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec source with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"token canonicalization failed: {repr error}"
   let plan <- match ProofForge.Backend.Stylus.Plan.Core.buildFromCore bundle.contract {

@@ -3,7 +3,7 @@ import ProofForge.Backend.Evm.IR
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Contract.Source.Evm
 import ProofForge.Contract.Spec
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 
 open ProofForge.IR
 open ProofForge.IR.Core
@@ -78,7 +78,7 @@ private def planHasCreate (plan : ProofForge.Backend.Evm.Plan.ModulePlan) : Bool
 
 def main : IO Unit := do
   let spec := ProofForge.Contract.ContractSpec.fromIR createModule
-  let checked <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  let checked <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
     | .ok bundle => pure bundle.contract
     | .error error => throw (IO.userError s!"CREATE adaptation failed: {repr error}")
   require (hostCallIds checked == #[ProofForge.Target.HostOps.Evm.createSig.id,

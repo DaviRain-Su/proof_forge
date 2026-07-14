@@ -1,5 +1,0 @@
-ProofForge/Frontend/ContractSpec/Normalize.lean
-ProofForge/IR.lean
-ProofForge/IR/Legacy/Adapter.lean
-ProofForge/IR/Legacy/Adapter/Expr.lean
-ProofForge/IR/Legacy/Adapter/Statement.lean

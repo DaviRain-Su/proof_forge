@@ -5,7 +5,7 @@ import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.Plan.Storage
 import ProofForge.Backend.Evm.IR
 import ProofForge.Compiler.Yul.Printer
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Contract.Spec
@@ -171,7 +171,7 @@ def emptyCapPlan : CapabilityPlan := { targetId := "evm", calls := #[], metadata
 def wrongTargetCapPlan : CapabilityPlan := { targetId := "solana-sbpf-asm", calls := #[], metadata := #[] }
 
 def checkedFromSpec (spec : ProofForge.Contract.ContractSpec) : IO CheckedCanonicalContract := do
-  let bundle ← match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  let bundle ← match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
     | .ok bundle => pure bundle
     | .error error => throw <| IO.userError s!"canonical adapter failed: {repr error}"
   match validateCanonical bundle.contract.contract with
@@ -441,7 +441,7 @@ def main : IO Unit := do
       require (e.message.contains "invalid EVM address literal")
         s!"invalid address literal error: {e.message}"
 
-  /- Check 10: CFG control flow fails closed until it has a real lowering. -/
+  /- Check 10: structured multi-block CFG control flow is preserved. -/
   let multiBlockChecked ← match validateCanonical {
       multiBlockContract with
       requirements := deriveCapabilityRequirements
@@ -450,8 +450,11 @@ def main : IO Unit := do
     | .ok checked => pure checked
     | .error e => throw <| IO.userError s!"multi-block fixture did not validate: {repr e}"
   match buildFromCore multiBlockChecked emptyCapPlan with
-  | .ok _ => throw <| IO.userError "buildFromCore ignored multi-block CFG control flow"
-  | .error e =>
-      require (e.message.contains "CFG control flow") s!"multi-block error: {e.message}"
+  | .error e => throw <| IO.userError s!"multi-block CFG planning failed: {e.message}"
+  | .ok cfgPlan =>
+      require (cfgPlan.entrypoints.any fun entrypoint =>
+        entrypoint.body.any fun statement =>
+          match statement with | .return _ => true | _ => false)
+        "multi-block CFG lost its return terminator"
 
   IO.println "canonical-evm-plan: ok"

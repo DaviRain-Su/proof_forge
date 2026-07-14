@@ -1,6 +1,6 @@
 import ProofForge.IR.Core
 import ProofForge.IR.Canonical
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Contract.Spec
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
@@ -13,8 +13,8 @@ and target extension data must be equal after normalization. Changing
 CanonicalEvidence must not change the comparison.
 -/
 
-open ProofForge.IR.Legacy
-open ProofForge.IR.Legacy.Adapter
+open ProofForge.Frontend.Authored
+open ProofForge.Frontend.Authored.Normalize
 open ProofForge.IR.Canonical
 open ProofForge.Contract
 
@@ -32,7 +32,7 @@ def main : IO Unit := do
   for (name, spec) in productFixtures do
     totalTests := totalTests + 1
     /- Adapt the spec through the legacy adapter. -/
-    match adaptLegacy spec with
+    match normalizeContractSpec spec with
     | .error e => throw <| IO.userError s!"{name}: adapt failed: {repr e}"
     | .ok bundle =>
         let contract := bundle.contract.contract

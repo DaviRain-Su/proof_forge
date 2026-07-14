@@ -3,7 +3,7 @@ import ProofForge.IR.Canonical
 import ProofForge.Backend.Solana.Plan
 import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.Target.Plan
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Contract.Spec
 
@@ -23,7 +23,7 @@ open ProofForge.IR.Canonical
 open ProofForge.Target
 open ProofForge.Backend.Solana.Plan
 open ProofForge.Backend.Solana.Plan.Core
-open ProofForge.IR.Legacy.Adapter
+open ProofForge.Frontend.Authored.Normalize
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
@@ -186,7 +186,7 @@ def main : IO Unit := do
   | .error _ => pure ()
 
   let vaultSpec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module
-  let vaultBundle <- match adaptLegacy vaultSpec with
+  let vaultBundle <- match normalizeContractSpec vaultSpec with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"ValueVault canonical adaptation failed: {repr e}"
   let vaultChecked := vaultBundle.contract

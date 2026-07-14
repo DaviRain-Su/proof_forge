@@ -1,5 +1,5 @@
 import ProofForge.Frontend.Surface
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Examples.Counter
 import ProofForge.Contract.Spec
 
@@ -7,7 +7,7 @@ import ProofForge.Contract.Spec
 
 open ProofForge.Frontend.Surface
 open ProofForge.IR.Core
-open ProofForge.IR.Legacy.Adapter
+open ProofForge.Frontend.Authored.Normalize
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
@@ -89,7 +89,7 @@ def main : IO Unit := do
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"Counter normalization failed: {repr e}"
   require (counter.contract.contract.module.functions.size == 3) "Counter function count"
-  let legacyCounter ← match adaptLegacy
+  let legacyCounter ← match normalizeContractSpec
       (ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.Counter.module) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"Legacy Counter adaptation failed: {repr e}"

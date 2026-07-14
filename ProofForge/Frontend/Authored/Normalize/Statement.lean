@@ -1,6 +1,6 @@
-import ProofForge.IR.Legacy.Adapter.Expr
+import ProofForge.Frontend.Authored.Normalize.Expr
 
-namespace ProofForge.IR.Legacy.Adapter
+namespace ProofForge.Frontend.Authored.Normalize
 
 open ProofForge.IR
 open ProofForge.IR.Core
@@ -94,7 +94,7 @@ private def changedOuterLocal? (outer candidate : Std.HashMap String ValueRef) :
 /- Default error reference for unconditional reverts. -/
 
 def fallbackError (message : String) (form : RegisteredErrorForm) : AdapterM CoreErrorRef := do
-  let id ← registerError "legacy" "Revert" none 0 message form
+  let id ← registerError "authored" "Revert" none 0 message form
   return { id := id, args := #[] }
 
 private def solidityArgCoreType (abiType : String) : Except CanonicalizeError CoreType :=
@@ -169,7 +169,7 @@ def errorRefOf (message : String) (r : ErrorRef) : AdapterM NormalizedErrorRef :
         (.pure (.literal literal)) param
       instructions := instructions ++ emitted.instructions
       args := args.push emitted.value
-  let id ← registerError "legacy" name r.userCode? r.assertionId.toNat message
+  let id ← registerError "authored" name r.userCode? r.assertionId.toNat message
     form (r.soliditySelector?.map String.toLower) #[] r.solidityArgTypes params
   return { instructions, error := { id := id, args := args } }
 
@@ -220,7 +220,7 @@ private def normalizeStatementStoragePath (name : String) (path : Array StorageP
         | _ => throw (CanonicalizeError.typeMismatch "scalar storage leaf" (reprStr current))
       return (instructions, segments, resultType)
 
-/- Normalize a legacy `Effect` into the function builder. -/
+/- Normalize a source `Effect` into the function builder. -/
 
 def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBuilder :=
   match eff with
@@ -315,7 +315,7 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
   | other =>
       throw (CanonicalizeError.unsupportedConstructor (effectTag other) "effect not in initial fragment")
 
-/- Normalize a legacy `Statement` into the function builder. -/
+/- Normalize a source `Statement` into the function builder. -/
 
 def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : CoreType) : AdapterM FunctionBuilder :=
   match stmt with
@@ -571,4 +571,4 @@ def normalizeBody (stmts : Array Statement) (retType : CoreType) : AdapterM (Arr
   let blocks ← liftExcept builder.toBlocks
   return (blocks, entryId)
 
-end ProofForge.IR.Legacy.Adapter
+end ProofForge.Frontend.Authored.Normalize

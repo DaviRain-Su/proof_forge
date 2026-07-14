@@ -8,13 +8,13 @@ import ProofForge.Target.HostOps.Evm
 import ProofForge.Target.HostOps.Near
 import Std
 
-namespace ProofForge.IR.Legacy.Adapter
+namespace ProofForge.Frontend.Authored.Normalize
 
 open ProofForge.IR
 open ProofForge.IR.Core
 open ProofForge.IR.Core.Error
 
-/- Errors produced by the fail-closed legacy adapter. Every unsupported or
+/- Errors produced by fail-closed authored-source normalization. Every unsupported or
 unclassified construct is reported explicitly; no wildcard fallback exists. -/
 
 inductive CanonicalizeError
@@ -223,7 +223,7 @@ def lookupLocalArray (name : String) : AdapterM (Array ValueRef) := do
 def resetLocals : AdapterM Unit :=
   modify (fun s => { s with env := { s.env with localValues := {}, localArrays := {} } })
 
-/- Map a legacy `ValueType` to the canonical `CoreType`. -/
+/- Map a source `ValueType` to the canonical `CoreType`. -/
 
 def adaptType (typeIds : Std.HashMap String TypeId) (t : ValueType) :
     Except CanonicalizeError CoreType :=
@@ -245,10 +245,10 @@ def adaptType (typeIds : Std.HashMap String TypeId) (t : ValueType) :
       | none => .error (CanonicalizeError.unknownType name)
   | .array e => do .ok (.array (← adaptType typeIds e))
 
-/- Map a legacy `StateDecl` to a canonical `StateShape`. The result is purely
+/- Map a source `StateDecl` to a canonical `StateShape`. The result is purely
 logical; no target allocation information is introduced. -/
 
-def adaptStateShape (typeIds : Std.HashMap String TypeId) (decl : StateDecl) :
+def adaptStateShape (typeIds : Std.HashMap String TypeId) (decl : ProofForge.IR.StateDecl) :
     Except CanonicalizeError StateShape :=
   match decl.kind with
   | .scalar => do .ok (.scalar (← adaptType typeIds decl.type))
@@ -276,14 +276,14 @@ private def collectEventNamesStmt (stmt : Statement) (names : Array String) : Ar
       body.foldl (fun acc nested => collectEventNamesStmt nested acc) names
   | _ => names
 
-private def collectEventNames (m : Module) : Array String :=
+private def collectEventNames (m : ProofForge.IR.Module) : Array String :=
   m.entrypoints.foldl (fun names ep =>
     ep.body.foldl (fun acc stmt => collectEventNamesStmt stmt acc) names) #[]
 
-/- Build a resolved adapter environment from a legacy `Module`. Identifiers are
+/- Build a resolved normalization environment from a source `Module`. Identifiers are
 assigned deterministically in declaration order. -/
 
-def buildEnv (m : Module) : Except CanonicalizeError AdapterEnv := do
+def buildEnv (m : ProofForge.IR.Module) : Except CanonicalizeError AdapterEnv := do
   let mut env : AdapterEnv := {
     typeIds := {},
     stateIds := {},
@@ -361,4 +361,4 @@ def contextFieldType (field : ProofForge.IR.Core.ContextField) : CoreType :=
 
 def AdapterState.ofEnv (env : AdapterEnv) : AdapterState := { env := env, nextValueId := 0, nextBlockId := 0 }
 
-end ProofForge.IR.Legacy.Adapter
+end ProofForge.Frontend.Authored.Normalize

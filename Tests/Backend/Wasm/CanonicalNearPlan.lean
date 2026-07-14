@@ -3,7 +3,7 @@ import ProofForge.IR.Canonical
 import ProofForge.Backend.WasmHost.NearModulePlan
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
 import ProofForge.Target.Plan
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Contract.Stdlib.NearFungibleToken
 import ProofForge.Contract.Spec
@@ -163,7 +163,7 @@ def main : IO Unit := do
   | .ok _ => throw <| IO.userError "dynamic NEAR state silently received a placeholder layout"
   | .error _ => pure ()
 
-  let vaultBundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy
+  let vaultBundle <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec
       (ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"ValueVault adaptation failed: {repr e}"
@@ -183,7 +183,7 @@ def main : IO Unit := do
   require (vaultWat.contains "(export \"deposit\")" && vaultWat.contains "log_utf8")
     "ValueVault canonical WAT lost entrypoint or event host call"
 
-  let ftBundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy
+  let ftBundle <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec
       (ProofForge.Contract.ContractSpec.fromIR ProofForge.Contract.Stdlib.NearFungibleToken.module) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"NearFungibleToken adaptation failed: {repr e}"

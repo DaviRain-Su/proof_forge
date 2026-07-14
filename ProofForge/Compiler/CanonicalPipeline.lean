@@ -17,9 +17,9 @@ exposed through the public CLI and does not modify `Target.knownIds`, backend
 registry, or release packaging.
 
 `.legacy` calls the frozen baseline functions directly.
-`.canonical` calls `adaptLegacy`, `validateCanonical`, capability resolution,
-and (once available) the target's `buildFromCore`. Canonical failure is never
-caught and retried as legacy.
+`.canonical` normalizes the authored source, validates Canonical Core, resolves
+capabilities, and invokes the target's `buildFromCore`. Canonical failure is
+never caught and retried as legacy.
 -/
 
 namespace ProofForge.Compiler
@@ -95,7 +95,7 @@ private def makeBundle (targetId : String) (spec : ContractSpec) (modeLabel : St
   validations := #[{
     name := "canonical-validation"
     state := .passed
-    detail? := some s!"adaptLegacy + validateCanonical succeeded ({modeLabel})"
+    detail? := some s!"source normalization + validateCanonical succeeded ({modeLabel})"
   }]
 }
 
@@ -246,7 +246,7 @@ def runStrictCanonicalTargetGate (targetId : String) (spec : ContractSpec) : Exc
   let bundle ←
     match ProofForge.Frontend.ContractSpec.normalize spec with
     | .ok b => pure b
-    | .error e => .error s!"canonical: adapt failed: {repr e}"
+    | .error e => .error e
   runStrictCheckedTargetGate profile targetId bundle.contract
 
 end ProofForge.Compiler

@@ -3674,3 +3674,28 @@ Rules:
 - Verification: affected Lean builds, `Tests/NearTokenSpecRuntime.lean`,
   `just product-token-near`, unsupported FeeToken diagnostic, and
   `git diff --check`.
+
+## 2026-07-14 - Authoring cleanup A-CUT2b: frontend-owned normalization
+
+- Status: `done (verified 2026-07-14)`; A-CUT2 remains open until
+  `contract_source` stops constructing the transitional `ContractSpec` and
+  `IR.Module` exchange value.
+- Moved the production canonical normalizer and exhaustive source-schema
+  classification from `ProofForge.IR.Legacy` to
+  `ProofForge.Frontend.Authored`. The default `ProofForge.IR` module no longer
+  imports frontend code, and the production Legacy-import baseline is empty.
+- Renamed the implementation entry to `normalizeContractSpec`; production
+  callers use only the `Frontend.ContractSpec.normalize` facade. Normalization
+  and validation errors remain terminal and use one source-normalization
+  diagnostic prefix.
+- Corrected portable crosscall ownership exposed by the move: Canonical Core
+  now retains numeric target/method handles, while NEAR and EVM target plans
+  resolve them through `MaterializationContract.crosscallStrings`. EVM direct
+  address/selector parsing remains target-owned.
+- Updated the freeze and canonical boundary gates for the frontend-owned
+  classification file and removed all production `IR.Legacy.Adapter` imports.
+- Verification: targeted frontend/CLI/EVM-plan builds; canonical inventory,
+  adapter parity, source-loader, EVM/NEAR/Solana public-route, strict intent,
+  and affected Stylus tests; legacy-freeze and boundary self-tests;
+  `LEGACY_FREEZE_BASE=HEAD scripts/canonical/check-boundary.sh`; production
+  obsolete-reference scans; and `git diff --check`.

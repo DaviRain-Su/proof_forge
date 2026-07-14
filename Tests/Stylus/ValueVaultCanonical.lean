@@ -4,7 +4,7 @@ import ProofForge.Backend.Stylus.Package
 import ProofForge.Backend.Stylus.RustSdk.Render
 import ProofForge.Contract.Spec
 import ProofForge.IR.Examples.ValueVault
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Compiler.Wasm.Printer
 
 open ProofForge.Backend.Stylus
@@ -14,9 +14,9 @@ def require (condition : Bool) (message : String) : IO Unit :=
 
 def main : IO Unit := do
   let spec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module
-  let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  let bundle <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
     | .ok value => pure value
-    | .error error => throw <| IO.userError s!"adaptLegacy failed: {repr error}"
+    | .error error => throw <| IO.userError s!"normalizeContractSpec failed: {repr error}"
   let capabilityPlan : ProofForge.Target.CapabilityPlan := {
     targetId := "wasm-arbitrum-stylus"
     calls := bundle.contract.contract.requirements

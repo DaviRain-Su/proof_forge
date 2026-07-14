@@ -1,7 +1,7 @@
 import ProofForge.Backend.Stylus.Plan.Core
 import ProofForge.Backend.Stylus.Validate
 import ProofForge.IR.Examples.Counter
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Contract.Spec
 
 open ProofForge.Backend.Stylus
@@ -133,9 +133,9 @@ def hasArrayCache (plan : StylusPlan) : Bool :=
 
 def main : IO Unit := do
   let spec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
-  let bundle <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  let bundle <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
     | .ok value => pure value
-    | .error e => throw <| IO.userError s!"adaptLegacy failed: {repr e}"
+    | .error e => throw <| IO.userError s!"normalizeContractSpec failed: {repr e}"
   let capPlan : ProofForge.Target.CapabilityPlan := {
     targetId := "wasm-arbitrum-stylus"
     calls := bundle.contract.contract.requirements

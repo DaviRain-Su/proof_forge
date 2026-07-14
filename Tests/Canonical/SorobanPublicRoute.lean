@@ -24,7 +24,7 @@ import ProofForge.Backend.WasmHost.ModulePlan.Core
 import ProofForge.Backend.WasmHost.ModulePlan.Lower
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Backend.WasmHost.EmitWat
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Canonical
 import ProofForge.Frontend.Surface
 import ProofForge.Frontend.Surface.Host.Near
@@ -32,7 +32,7 @@ import ProofForge.Frontend.Surface.Host.Near
 open ProofForge.Compiler
 open ProofForge.IR
 open ProofForge.IR.Canonical
-open ProofForge.IR.Legacy.Adapter
+open ProofForge.Frontend.Authored.Normalize
 open ProofForge.Contract
 open ProofForge.Backend.WasmHost
 
@@ -70,9 +70,9 @@ def main : IO Unit := do
   | .error msg => require (msg.contains "env.block") s!"expected env.block failure, got: {msg}"
 
   -- -- Test 3: runStrictCanonicalContractGate works from raw canonical contract --
-  let bundle ← match adaptLegacy counterSpec with
+  let bundle ← match normalizeContractSpec counterSpec with
     | .ok b => pure b
-    | .error e => throw <| IO.userError s!"adaptLegacy failed: {repr e}"
+    | .error e => throw <| IO.userError s!"normalizeContractSpec failed: {repr e}"
   requireOk (runStrictCanonicalContractGate "wasm-stellar-soroban" bundle.contract.contract)
     "strict contract gate: Counter on wasm-stellar-soroban"
 

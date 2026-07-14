@@ -2,7 +2,7 @@ import ProofForge.Backend.Solana.Refinement
 import ProofForge.Backend.Solana.BpfEncode
 import ProofForge.Backend.Solana.Plan
 import ProofForge.Backend.Solana.Plan.Core
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Contract.Spec
@@ -12,13 +12,13 @@ open ProofForge.Backend.Solana.Plan
 open ProofForge.Backend.Solana.Plan.Core
 open ProofForge.Backend.Solana.SbpfInterpreter
 open ProofForge.Backend.Solana.Refinement
-open ProofForge.IR.Legacy.Adapter
+open ProofForge.Frontend.Authored.Normalize
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
 def canonicalNodes (module : ProofForge.IR.Module) : IO (Array Asm.AstNode) := do
-  let bundle <- match adaptLegacy (ProofForge.Contract.ContractSpec.fromIR module) with
+  let bundle <- match normalizeContractSpec (ProofForge.Contract.ContractSpec.fromIR module) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"adapt failed: {repr e}"
   let capPlan : ProofForge.Target.CapabilityPlan := {

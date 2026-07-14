@@ -1,7 +1,7 @@
 import ProofForge.Backend.Stylus.CounterRefinement
 import ProofForge.Backend.Stylus.Plan.Core
 import ProofForge.IR.Examples.Counter
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Contract.Spec
 
 open ProofForge.Backend.Stylus
@@ -12,7 +12,7 @@ def require (condition : Bool) (message : String) : IO Unit :=
 
 def counterPlan : Except String StylusPlan := do
   let spec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.Counter.module
-  let bundle <- (ProofForge.IR.Legacy.Adapter.adaptLegacy spec).mapError (fun error => s!"{repr error}")
+  let bundle <- (ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec).mapError (fun error => s!"{repr error}")
   (ProofForge.Backend.Stylus.Plan.Core.buildFromCore bundle.contract {
     targetId := "wasm-arbitrum-stylus", calls := bundle.contract.contract.requirements
   }).mapError (fun error => error.message)

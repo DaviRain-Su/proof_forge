@@ -1,7 +1,7 @@
-import ProofForge.IR.Legacy.Classification
+import ProofForge.Frontend.Authored.Classification
 import Lean
 
-open ProofForge.IR.Legacy
+open ProofForge.Frontend.Authored
 open Lean Elab Term
 
 private def elabStringArray (values : Array String) : TermElabM Expr := do
@@ -51,7 +51,7 @@ def isUnique (xs : Array String) : Bool :=
           return false
     return true
 
-def requireDecisions (label : String) (decisions : Array LegacyDecision)
+def requireDecisions (label : String) (decisions : Array NormalizationDecision)
     (expectedTags : Array String) : IO Unit := do
   let tags := decisions.map (·.nodeTag)
   require (tags == expectedTags) s!"{label} classification inventory drift: {repr tags} != {repr expectedTags}"

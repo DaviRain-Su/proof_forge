@@ -1,7 +1,7 @@
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.Plan.ToYul
 import ProofForge.IR.Examples.EvmErrorsProbe
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Contract.Spec
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Target.InterfaceOps.Evm
@@ -35,7 +35,7 @@ def main : IO Unit := do
   }
   let spec := ProofForge.Contract.ContractSpec.fromIR
     errorModule
-  let checked <- match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
+  let checked <- match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
     | .ok bundle => pure bundle.contract
     | .error error => throw (IO.userError s!"EVM error adaptation failed: {repr error}")
   let capabilityPlan : CapabilityPlan := {

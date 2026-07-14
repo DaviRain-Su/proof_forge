@@ -2,7 +2,7 @@ import ProofForge.Contract.Spec
 import ProofForge.IR.Contract
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Core
 import Std
 
@@ -10,8 +10,8 @@ namespace Tests.Canonical.LegacyAdapter
 
 open ProofForge.IR
 open ProofForge.IR.Core
-open ProofForge.IR.Legacy
-open ProofForge.IR.Legacy.Adapter
+open ProofForge.Frontend.Authored
+open ProofForge.Frontend.Authored.Normalize
 open ProofForge.Contract
 
 def counterSpec : ContractSpec :=
@@ -386,7 +386,7 @@ def hasErrorCode (module : Core.Module) (code : Nat) : Bool :=
 
 def runAssertions : IO Unit := do
   -- Counter adapts successfully.
-  let counterBundle ← match adaptLegacy counterSpec with
+  let counterBundle ← match normalizeContractSpec counterSpec with
     | .ok b => pure b
     | .error e => throw <| IO.userError s!"Counter adapt failed: {repr e}"
 
@@ -405,14 +405,14 @@ def runAssertions : IO Unit := do
   | none => throw <| IO.userError "Counter get function missing"
   require (hasArithmeticMode counterModule .add .checked) "Counter checked add not preserved"
 
-  let wrappingBundle ← match adaptLegacy (ContractSpec.fromIR (arithmeticModeModule false)) with
+  let wrappingBundle ← match normalizeContractSpec (ContractSpec.fromIR (arithmeticModeModule false)) with
     | .ok b => pure b
     | .error e => throw <| IO.userError s!"wrapping arithmetic adapt failed: {repr e}"
   require (hasArithmeticMode wrappingBundle.contract.contract.module .add .wrapping)
     "explicit wrapping add not preserved"
 
   -- ValueVault adapts successfully.
-  let vaultBundle ← match adaptLegacy vaultSpec with
+  let vaultBundle ← match normalizeContractSpec vaultSpec with
     | .ok b => pure b
     | .error e => throw <| IO.userError s!"ValueVault adapt failed: {repr e}"
 
@@ -458,7 +458,7 @@ def runAssertions : IO Unit := do
   require (materialization.upgradePolicy? == none) "upgrade policy should be empty for fixture"
   let evidence := vaultBundle.evidence
   require (evidence.legacyClassification.size == 10) "legacy classification evidence count"
-  let expectedClassification : List (String × LegacyDisposition) := [
+  let expectedClassification : List (String × NormalizationDisposition) := [
     ("name", .preserve),
     ("module", .normalize),
     ("intents", .materialization),
@@ -475,14 +475,14 @@ def runAssertions : IO Unit := do
     | some d =>
         require (d.decision == disp.toString) s!"classification for {field}: {d.decision} ≠ {disp.toString}"
     | none => throw <| IO.userError s!"missing classification for {field}"
-  require (evidence.legacyClassification.all (fun d => d.decision != LegacyDisposition.reject.toString))
+  require (evidence.legacyClassification.all (fun d => d.decision != NormalizationDisposition.reject.toString))
     "legacy classification contains a reject disposition"
   require (evidence.verification.quintInvariants.isEmpty) "fixture has no Quint invariants"
   require (evidence.verification.quintLiveness.isEmpty) "fixture has no Quint liveness"
   require (evidence.verification.leanInvariants.isEmpty) "fixture has no Lean invariants"
 
   -- Non-default envelope metadata is readable from the canonical bundle alone.
-  let probeBundle ← match adaptLegacy envelopeProbeSpec with
+  let probeBundle ← match normalizeContractSpec envelopeProbeSpec with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"envelope probe adapt failed: {repr e}"
   let probe := probeBundle.contract.contract
@@ -613,7 +613,7 @@ def runAssertions : IO Unit := do
     name := "label_bound", body := "Envelope.labelBound"
   }]) "Lean invariant body changed"
 
-  let structBundle ← match adaptLegacy (ContractSpec.fromIR structReferenceModule) with
+  let structBundle ← match normalizeContractSpec (ContractSpec.fromIR structReferenceModule) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"named struct reference adapt failed: {repr e}"
   let structContract := structBundle.contract.contract
@@ -640,56 +640,56 @@ def runAssertions : IO Unit := do
     "interface struct TypeId diverged from Core"
 
   -- Literal range rejection before numeric narrowing.
-  match adaptLegacy (ContractSpec.fromIR (outOfRangeModule .u8 256)) with
+  match normalizeContractSpec (ContractSpec.fromIR (outOfRangeModule .u8 256)) with
   | .error (.literalOutOfRange "u8" _) => pure ()
   | .error e => throw <| IO.userError s!"u8 256 wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "u8 256 should have rejected"
 
-  match adaptLegacy (ContractSpec.fromIR (outOfRangeModule .u32 4294967296)) with
+  match normalizeContractSpec (ContractSpec.fromIR (outOfRangeModule .u32 4294967296)) with
   | .error (.literalOutOfRange "u32" _) => pure ()
   | .error e => throw <| IO.userError s!"u32 2^32 wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "u32 2^32 should have rejected"
 
-  match adaptLegacy (ContractSpec.fromIR (outOfRangeModule .u64 18446744073709551616)) with
+  match normalizeContractSpec (ContractSpec.fromIR (outOfRangeModule .u64 18446744073709551616)) with
   | .error (.literalOutOfRange "u64" _) => pure ()
   | .error e => throw <| IO.userError s!"u64 2^64 wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "u64 2^64 should have rejected"
 
-  match adaptLegacy (ContractSpec.fromIR (outOfRangeModule .u128 340282366920938463463374607431768211456)) with
+  match normalizeContractSpec (ContractSpec.fromIR (outOfRangeModule .u128 340282366920938463463374607431768211456)) with
   | .error (.literalOutOfRange "u128" _) => pure ()
   | .error e => throw <| IO.userError s!"u128 2^128 wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "u128 2^128 should have rejected"
 
   -- Unknown state name returns `unknownState`, never state zero.
-  match adaptLegacy (ContractSpec.fromIR unknownStateModule) with
+  match normalizeContractSpec (ContractSpec.fromIR unknownStateModule) with
   | .error (.unknownState "missing") => pure ()
   | .error e => throw <| IO.userError s!"unknown state wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "unknown state should have rejected"
 
-  match adaptLegacy (ContractSpec.fromIR mismatchedLetModule) with
+  match normalizeContractSpec (ContractSpec.fromIR mismatchedLetModule) with
   | .error (.typeMismatch _ _) => pure ()
   | .error e => throw <| IO.userError s!"mismatched let wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "mismatched let type should have rejected"
 
-  let ifBundle ← match adaptLegacy (ContractSpec.fromIR ifElseModule) with
+  let ifBundle ← match normalizeContractSpec (ContractSpec.fromIR ifElseModule) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"ifElse adapt failed: {repr e}"
   let ifFunction := ifBundle.contract.contract.module.functions.find? (·.id == ⟨0⟩)
   require (ifFunction.map (·.blocks.size) == some 4) "ifElse did not retain entry/branches/continuation"
 
-  let loopBundle ← match adaptLegacy (ContractSpec.fromIR boundedForModule) with
+  let loopBundle ← match normalizeContractSpec (ContractSpec.fromIR boundedForModule) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"boundedFor adapt failed: {repr e}"
   require (hasBoundedBackedge loopBundle.contract.contract.module)
     "boundedFor did not retain its atMost bound"
 
-  let errorBundle ← match adaptLegacy (ContractSpec.fromIR structuredErrorModule) with
+  let errorBundle ← match normalizeContractSpec (ContractSpec.fromIR structuredErrorModule) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"structured error adapt failed: {repr e}"
   require (hasErrorCode errorBundle.contract.contract.module 7)
     "structured ErrorRef assertionId was not preserved"
 
-  let boolEventBundle ← match adaptLegacy (ContractSpec.fromIR boolEventModule) with
+  let boolEventBundle ← match normalizeContractSpec (ContractSpec.fromIR boolEventModule) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"bool event adapt failed: {repr e}"
   match boolEventBundle.contract.contract.module.events.find? (·.id == ⟨0⟩) with
@@ -703,13 +703,13 @@ def runAssertions : IO Unit := do
       require (event.fields.map (·.indexed) == #[false]) "bool event indexed flag changed"
   | none => throw <| IO.userError "bool event interface schema missing"
 
-  let nestedBundle ← match adaptLegacy (ContractSpec.fromIR nestedTerminatingIfModule) with
+  let nestedBundle ← match normalizeContractSpec (ContractSpec.fromIR nestedTerminatingIfModule) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"nested terminating if adapt failed: {repr e}"
   require (returnCount nestedBundle.contract.contract.module == 3)
     "nested terminating branches were not retained"
 
-  let conditionalBundle ← match adaptLegacy (ContractSpec.fromIR conditionalLocalMutationModule) with
+  let conditionalBundle ← match normalizeContractSpec (ContractSpec.fromIR conditionalLocalMutationModule) with
     | .ok bundle => pure bundle
     | .error e => throw <| IO.userError s!"conditional local phi adapt failed: {repr e}"
   let conditionalFunction ← match conditionalBundle.contract.contract.module.functions[0]? with
@@ -722,22 +722,22 @@ def runAssertions : IO Unit := do
     | _ => false) == 2)
     "conditional local mutation did not pass both branch values to the phi"
 
-  match adaptLegacy (ContractSpec.fromIR loopLocalMutationModule) with
+  match normalizeContractSpec (ContractSpec.fromIR loopLocalMutationModule) with
   | .error (.unsupportedConstructor "Statement.boundedFor" _) => pure ()
   | .error e => throw <| IO.userError s!"loop local mutation wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "loop-carried local mutation was silently accepted"
 
-  match adaptLegacy (ContractSpec.fromIR releaseModule) with
+  match normalizeContractSpec (ContractSpec.fromIR releaseModule) with
   | .error (.unsupportedConstructor "Statement.release" _) => pure ()
   | .error e => throw <| IO.userError s!"release wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "release was silently lowered to a no-op"
 
-  match adaptLegacy (ContractSpec.fromIR conflictingEventModule) with
+  match normalizeContractSpec (ContractSpec.fromIR conflictingEventModule) with
   | .error (.conflictingEventSchema "Conflict" _) => pure ()
   | .error e => throw <| IO.userError s!"conflicting event schema wrong error: {repr e}"
   | .ok _ => throw <| IO.userError "conflicting event schema was silently accepted"
 
-  match adaptLegacy (ContractSpec.fromIR duplicateEntrypointModule) with
+  match normalizeContractSpec (ContractSpec.fromIR duplicateEntrypointModule) with
   | .error (.validation error) =>
       require (error.tag == .duplicateId) "structured validation error tag changed"
   | .error e => throw <| IO.userError s!"duplicate entrypoint lost validation error: {repr e}"

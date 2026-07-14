@@ -21,8 +21,11 @@ the cutover.
 
 - `contract_source` expands to `ContractSpec` and `IR.Module` in
   `ProofForge/Contract/Source.lean`.
-- Production `Frontend.ContractSpec.normalize` still calls
-  `IR.Legacy.Adapter.adaptLegacy`.
+- Production normalization is owned by `Frontend.Authored.Normalize` behind
+  the single `Frontend.ContractSpec.normalize` facade. No production module
+  imports `IR.Legacy.Adapter`, but the authored exchange value is still
+  `ContractSpec` containing `IR.Module` and must be replaced before A-CUT2 is
+  complete.
 - The former `Examples/Product/Canonical` handwritten Surface duplicates have
   been isolated as temporary tests in `TestFixtures/SurfaceProducts`.
   They are not product sources and remain only until A-CUT3 reaches feature
@@ -84,12 +87,15 @@ A-CUT2; it does not change portable IR or public contract authoring.
 Acceptance: `Examples/Product/Counter.lean` reaches EVM, Solana, and NEAR Core
 plans without importing or invoking `IR.Legacy.Adapter`.
 
-Checkpoint (2026-07-14): the helper namespace replacement is complete. Public
+Checkpoint (2026-07-14): the helper namespace replacement and normalizer
+ownership move are complete. Public
 authors import only `ProofForge.Contract.Source`; implementation helpers live
 under `Contract.Source.Internal`, Solana helpers under
 `Contract.Source.Solana.Internal`, and direct AST materializers under
-`Frontend.Materialize`. The direct Canonical Core normalization and removal of
-the remaining Legacy adapter call are still pending in A-CUT2.
+`Frontend.Materialize`. The production normalizer now lives under
+`Frontend.Authored.Normalize`; `ProofForge.IR` no longer imports it and the
+production Legacy import baseline is empty. Replacing the remaining
+`ContractSpec`/`IR.Module` authored exchange value is still pending in A-CUT2.
 
 ### A-CUT3 - Product migration
 
@@ -129,7 +135,8 @@ A-CUT3 feature parity, so A-CUT4 is not yet complete.
 
 ### A-CUT5 - Delete Legacy production code
 
-- Delete `Frontend.ContractSpec.Normalize`, production `adaptLegacy` callers,
+- Delete `Frontend.ContractSpec.Normalize`, the transitional
+  `Frontend.Authored.Normalize` implementation,
   Legacy backend plan modules, compatibility constructors, and freeze
   allowlists after caller count reaches zero.
 - Move any historical parity fixture that remains useful out of production
@@ -138,7 +145,7 @@ A-CUT3 feature parity, so A-CUT4 is not yet complete.
   plans/HostOps.
 
 Acceptance: production `ProofForge/**` contains no `IR.Legacy` import or
-`adaptLegacy` call, the CLI cannot select a Legacy pipeline, and primary-triad
+compatibility-normalization call, the CLI cannot select a Legacy pipeline, and primary-triad
 product gates pass from the single author source.
 
 ## Commit Discipline

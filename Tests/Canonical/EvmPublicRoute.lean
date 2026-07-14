@@ -5,7 +5,7 @@ import Examples.Product.RemoteCall
 import Examples.Backend.Evm.Contracts.stdlib.Pausable
 import ProofForge.Contract.Spec
 import ProofForge.Backend.Evm.Plan.Core
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Canonical
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
 import ProofForge.Frontend.Surface
@@ -87,7 +87,10 @@ def main : IO Unit := do
   let cast := match ← IO.getEnv "HOME" with
     | some home => home ++ "/.foundry/bin/cast"
     | none => "cast"
-  let opts : CliOptions := { cast }
+  let peerMap := ProofForge.Target.PeerMap.ofList [
+    ("peer.callee", "0x000000000000000000000000000000000000ca11")
+  ]
+  let opts : CliOptions := { cast, peerMap }
 
   /- Checks 1-2: public rendering is the explicit canonical artifact, not a
   validation sidecar followed by Legacy rendering. -/
@@ -108,7 +111,8 @@ def main : IO Unit := do
     "public ValueVault Yul differs from explicit canonical materialization"
 
   let (publicRemoteYul, _) ← renderContractSpecEvmYul opts remoteSpec
-  let hydratedRemote ← hydrateEvmSelectors cast remoteSpec.module
+  let hydratedRemote ← hydrateEvmSelectors cast
+    (ProofForge.Target.PeerMap.applyToModule remoteSpec.module peerMap)
   let canonicalRemoteYul ← match renderCanonicalSpecEvmYul { remoteSpec with module := hydratedRemote } with
     | .ok yul => pure yul
     | .error message => throw <| IO.userError message
@@ -134,8 +138,8 @@ def main : IO Unit := do
     s!"public EVM route did not expose the canonical adapter rejection: {rejectionMessage}"
 
   /- Check 4: buildFromCore produces a valid EVM ModulePlan for Counter. -/
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy { counterSpec with module := hydratedCounter } with
-  | .error e => throw <| IO.userError s!"adaptLegacy failed: {repr e}"
+  match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec { counterSpec with module := hydratedCounter } with
+  | .error e => throw <| IO.userError s!"normalizeContractSpec failed: {repr e}"
   | .ok bundle =>
     match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
     | Except.error e => throw <| IO.userError s!"validateCanonical failed: {repr e}"

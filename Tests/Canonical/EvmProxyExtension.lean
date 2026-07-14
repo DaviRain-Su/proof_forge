@@ -1,5 +1,5 @@
 import ProofForge.Compiler.CanonicalPipeline
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Contract.Spec
 import ProofForge.Target.InterfaceOps.Evm
 import ProofForge.Backend.Evm.Plan.Core
@@ -29,7 +29,7 @@ private def capabilityPlan : ProofForge.Target.CapabilityPlan := {
 }
 
 def main : IO Unit := do
-  let checked ← match ProofForge.IR.Legacy.Adapter.adaptLegacy (proxySpec .uups) with
+  let checked ← match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec (proxySpec .uups) with
     | .ok bundle => pure bundle.contract
     | .error error => throw (IO.userError s!"UUPS adaptation failed: {repr error}")
   let extension ← match checked.contract.interfaceExtensions.find?
@@ -48,7 +48,7 @@ def main : IO Unit := do
   require (plan.dispatch.default == .uupsProxy)
     "UUPS attachment did not select the EVM proxy dispatch plan"
 
-  let transparent ← match ProofForge.IR.Legacy.Adapter.adaptLegacy (proxySpec .transparent) with
+  let transparent ← match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec (proxySpec .transparent) with
     | .ok bundle => pure bundle.contract
     | .error error => throw (IO.userError s!"transparent adaptation failed: {repr error}")
   match ProofForge.Backend.Evm.Plan.Core.buildFromCore transparent capabilityPlan with
@@ -61,7 +61,7 @@ def main : IO Unit := do
     ContractSpec.fromIR (proxyModule "transparent") with
     proxyPattern? := some .uups
   }
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy mismatched with
+  match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec mismatched with
   | .error _ => pure ()
   | .ok _ => throw (IO.userError "mismatched legacy proxy declarations were accepted")
   IO.println "evm-proxy-extension: ok"

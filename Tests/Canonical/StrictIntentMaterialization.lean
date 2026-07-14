@@ -40,7 +40,7 @@ def goodSpec : ContractSpec :=
       ProofForge.Contract.Stdlib.ERC721.spec #["init", "mint", "transferFrom", "ownerOf"])
 
 /-- A ContractSpec whose module contains an unsupported effect so that
-`adaptLegacy` fails with a named stage diagnostic. -/
+`normalizeContractSpec` fails with a named stage diagnostic. -/
 def badAdaptSpec : ContractSpec := {
   name := "BadAdapt"
   module := {
@@ -131,8 +131,8 @@ def main : IO Unit := do
   requireErrorPrefix "canonical: unknown target"
     (ProofForge.Compiler.runStrictCanonicalTargetGate "missing-target" goodSpec)
 
-  -- Test 2: adaptLegacy failure names the adapter stage.
-  requireErrorPrefix "canonical: adapt failed"
+  -- Test 2: normalizeContractSpec failure names the adapter stage.
+  requireErrorPrefix "canonical: source normalization failed"
     (ProofForge.Compiler.runStrictCanonicalTargetGate "evm" badAdaptSpec)
 
   -- Test 3: a known good spec must pass every strict stage.
@@ -162,7 +162,7 @@ def main : IO Unit := do
     (ProofForge.Compiler.runStrictCanonicalContractGate "solana-sbpf-asm" goodCanonical)
 
   -- Test 8: source adaptation failures remain terminal.
-  requireErrorPrefix "canonical: adapt failed"
+  requireErrorPrefix "canonical: source normalization failed"
     (ProofForge.Compiler.runStrictCanonicalTargetGate "evm" badAdaptSpec)
 
   -- Test 9: NFT materialization uses strict gate internally

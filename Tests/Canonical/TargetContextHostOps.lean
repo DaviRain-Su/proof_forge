@@ -3,7 +3,7 @@ import ProofForge.Backend.WasmHost.NearModulePlan.Core
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Contract.Source.Evm
 import ProofForge.Contract.Spec
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Target.HostOps.Evm
 import ProofForge.Target.HostOps.Near
 
@@ -45,13 +45,13 @@ private def exprSpec (name : String) (expr : ProofForge.IR.Expr)
 
 private def adapt (name : String) (field : ProofForge.IR.ContextField)
     (resultType : ValueType) : IO CheckedCanonicalContract := do
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy (contextSpec name field resultType) with
+  match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec (contextSpec name field resultType) with
   | .ok bundle => pure bundle.contract
   | .error error => throw (IO.userError s!"{name} adaptation failed: {repr error}")
 
 private def adaptExpr (name : String) (expr : ProofForge.IR.Expr)
     (resultType : ValueType) : IO CheckedCanonicalContract := do
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy (exprSpec name expr resultType) with
+  match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec (exprSpec name expr resultType) with
   | .ok bundle => pure bundle.contract
   | .error error => throw (IO.userError s!"{name} adaptation failed: {repr error}")
 
