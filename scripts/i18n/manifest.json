@@ -11,10 +11,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "102ac309a71e291fe117060ec939e1b450ad2b737c97553fc4de954929a5fce3",
+    "sha256": "020096911832e90c02a7db762c05b5d806ab4961aa7bf3e008318f75a0373a3a",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for canonical architecture documentation links"
+    "note": "synced after system-architecture EN/zh deep map (2026-07-15)"
   },
   "docs/onboarding.md": {
     "sha256": "5ec69a144131b3a817e6a7b1a98657a6949af1f1ab1fe25e4212ece313f64367",
@@ -78,10 +78,10 @@
     "note": "manually synced through the Runtime.Psy ownership move"
   },
   "docs/architecture.md": {
-    "sha256": "97ba93b5c8ff67fb24e80f7eee0d777ca1279b53f0b4761bdf68c5117ce7110b",
+    "sha256": "87e789caf797508a7cde164973d3ba158307436870de73117fbf8cbeb417da70",
     "zh": "docs/zh/architecture.zh.md",
     "model": "manual-zh",
-    "note": "manually translated for canonical compiler architecture"
+    "note": "synced after system-architecture EN/zh deep map (2026-07-15)"
   },
   "docs/backend-interface.md": {
     "sha256": "96975e84c6832bc7d99a1832b79a717e82173e7e65f7759c00e6c2a51005faf7",
@@ -185,5 +185,11 @@
     "sha256": "fb36d60c71c095f1ea75c4ff3229eac5a6668244eb014242fa4bba7019255da0",
     "zh": "docs/zh/examples-and-tests-taxonomy.zh.md",
     "model": "manual-zh"
+  },
+  "docs/system-architecture.md": {
+    "sha256": "890552f2d0a747052d8cbdf338b5b6236db7e3252b7d314761f931e35286366f",
+    "zh": "docs/zh/system-architecture.zh.md",
+    "model": "manual-zh",
+    "note": "EN overview + §12 internals; zh is full deep-dive"
   }
 }

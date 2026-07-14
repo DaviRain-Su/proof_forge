@@ -1,7 +1,9 @@
 # Canonical Compiler Architecture
 
 For a **whole-repo map** (CLI → frontend → Core → backends → gates) with Mermaid
-diagrams, see [system-architecture.md](system-architecture.md).
+diagrams, see [system-architecture.md](system-architecture.md). Chinese deep
+dive with per-component internals:
+[zh/system-architecture.zh.md](zh/system-architecture.zh.md).
 
 ProofForge separates contract meaning from target materialization. The public
 compiler route is:

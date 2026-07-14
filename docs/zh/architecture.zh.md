@@ -1,5 +1,9 @@
 # 规范编译器架构
 
+整仓鸟瞰、**各层与组件内部结构**（Mermaid）：
+[system-architecture.zh.md](system-architecture.zh.md)
+（英文对照 [system-architecture.md](../system-architecture.md)）。
+
 ProofForge 将合约语义与目标物化分离。公开编译路径为：
 
 ```text

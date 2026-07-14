@@ -82,6 +82,7 @@ flowchart TB
 
 ## 工程
 
+- [系统架构全景（中文·分层内部）](system-architecture.zh.md)：CLI / Frontend / Core / Target / 各 Backend 内部结构与全局数据流。
 - [规范编译器架构](architecture.zh.md)：输入、语义、状态所有权、目标路由和回滚边界。
 - [规范后端接口](backend-interface.zh.md)：目标计划所有权、精确 HostOp 失败规则和 Queue/Set 展开。
 - [开发标准](development-standards.zh.md)：贡献者规则和单一事实来源地图。

@@ -2,11 +2,15 @@
 
 Status: **Current orientation map (2026-07-15)**
 
+**中文深拆版（分层 + 各组件内部）：**
+[zh/system-architecture.zh.md](zh/system-architecture.zh.md).
+
 This document is a **whole-repo architecture picture**: what every major
 component is, how data flows at compile time, and how validation/runtime
 evidence attaches. It is intentionally visual-first (Mermaid). Source of truth
 for *scheduling* remains [AGENTS.md](../AGENTS.md) and the current plans;
-source of truth for *behavior* remains code and gates.
+source of truth for *behavior* remains code and gates. Section **§12** expands
+per-layer internal structure.
 
 Related deep dives:
 
@@ -611,3 +615,144 @@ When a **layer boundary** moves (new frontend owner, deleted Legacy path, new
 target plan), update **this map** in the same change as the design/plan
 update. Do not let this file advertise a path that `rg` and `just` gates no
 longer implement.
+
+---
+
+## 12. Layer-deep internals
+
+Chinese deep-dive (same diagrams, full narrative):
+[system-architecture.zh.md](zh/system-architecture.zh.md).
+
+### 12.1 CLI internals (`ProofForge/Cli`)
+
+```mermaid
+flowchart TB
+  MAIN["Cli.lean main"] --> OPT["Options · Usage · LegacyArgs"]
+  MAIN --> TF["TargetFirst"]
+  TF --> TD["TargetDriver<br/>native vs legacy dispatch"]
+  TD --> NB["NativeBuildOp"]
+  MAIN --> LD["ContractLoader · TokenLoader · NftLoader"]
+  LD --> PIPE["CanonicalPipeline / frontend"]
+  TD --> ART["EvmArtifacts · SolanaArtifacts<br/>EmitWatArtifacts · StylusArtifacts<br/>PsyArtifacts · LearnArtifacts"]
+  ART --> META["Metadata · Artifact · ConstructorAbi · EvmAbi"]
+  MAIN --> CHK["Check"]
+  MAIN --> DEP["Deploy · SolanaCommands · WasmNearCommands"]
+  MAIN --> UTIL["Process · FileUtil · HexUtil · JsonUtil · ArrayUtil"]
+```
+
+### 12.2 Frontend internals
+
+```mermaid
+flowchart TB
+  subgraph Authored["Frontend.Authored"]
+    AS["Syntax · Type · Builder"]
+    AV["Validate · Classification"]
+    AN["Normalize Expr/Stmt/Env"]
+    AC["Canonicalize Expr/Stmt/Env"]
+  end
+  subgraph Spec["Frontend.ContractSpec"]
+    CSN["Normalize facade"]
+  end
+  subgraph Surface["Frontend.Surface"]
+    SS["Syntax · Type · Validate"]
+    SN["Normalize · Semantics · Protocol"]
+    SC["Collections Queue/Set"]
+    SH["Host.Near fixtures"]
+  end
+  subgraph Mat["Frontend.Materialize"]
+    ME["Evm Token · NFT · ERC4626 · ContextProducts"]
+  end
+  AS --> AV --> AN --> AC --> CORE["IR.Core"]
+  CSN --> CORE
+  SS --> SN --> CORE
+  Mat --> AS
+  Mat --> CSN
+```
+
+### 12.3 Canonical Core internals (`IR/Core`)
+
+```mermaid
+flowchart LR
+  ID["Id"] --> SYN["Syntax"]
+  SYN --> TY["Type"]
+  TY --> VAL["Validate"]
+  VAL --> HOP["HostOp references"]
+  VAL --> ST["Storage logical shape"]
+  VAL --> SEM["Semantics · Semantics/* · fuel"]
+  ERR["Error"] --> VAL
+```
+
+### 12.4 Target layer internals
+
+```mermaid
+flowchart TB
+  REG["Registry · BackendRegistry"] --> CAP["Capability"]
+  REG --> HOPI["HostOp · HostOpRegistry"]
+  HOPI --> HOPS["HostOps/Evm · Near · Solana"]
+  CAP --> PRE["Preflight · PortableHonesty · Check"]
+  HOPS --> PRE
+  REG --> BIND["StorageBinding"]
+  REG --> XC["CrosscallMaterialize · PeerMap<br/>ProtocolMaterialize"]
+  PRE --> MAT["Materialize · Plan"]
+  BIND --> MAT
+  XC --> MAT
+  MAT --> ART["ArtifactBundle"]
+  HB["HostBridge · HostRuntime"] --> MAT
+```
+
+### 12.5 EVM backend internals
+
+```mermaid
+flowchart LR
+  C["Core + caps"] --> P["Plan / Plan.Core · Storage"]
+  P --> V["Validate/*"]
+  P --> L["Lower/*"]
+  L --> Y["ToYul/*"]
+  Y --> YA["Compiler.Yul.AST"]
+  YA --> YP["Compiler.Yul.Printer"]
+  YP --> SOLC["solc"]
+  P --> M["Metadata · AbiEncode · ConstructorInit"]
+  P --> R["Refinement · YulSemantics · optional Formal"]
+```
+
+### 12.6 Solana backend internals
+
+```mermaid
+flowchart LR
+  C["Core + caps"] --> P["Plan / Plan.Core"]
+  P --> E["Extension · Syscalls · StateLayout"]
+  P --> A["Asm · LabeledSbpf · SbpfAsm"]
+  A --> B["BpfEncode · BinaryLayout"]
+  B --> ELF["ELF + Manifest · Package · Idl · Client"]
+  P --> X["PortableCrosscall · Materialize"]
+  A --> EX["SbpfExec / Interpreter smoke"]
+```
+
+### 12.7 WasmHost backend internals
+
+```mermaid
+flowchart TB
+  C["Core + caps"] --> NP["NearModulePlan / ModulePlan / Plan"]
+  NP --> LAY["Layout · Memory · Locals · StructPlan · ArrayHeap"]
+  NP --> ABI["NearAbiPlan · HostABI · Imports · Params · Return"]
+  NP --> LOW["Statement · Scalar · Map · Event · Assert · Crosscall · Promise"]
+  LOW --> EW["EmitWat · ModuleAssembly"]
+  EW --> WAT["Compiler.Wasm.AST + Printer"]
+  WAT --> W2W["wat2wasm"]
+  NP --> BR["NearHost · CosmWasmHost · SorobanHost"]
+  NP --> JR["JsonReturn · JsonEncode"]
+  NP --> RF["Refinement · WasmExec / Interpreter"]
+```
+
+### 12.8 Validation stack internals
+
+```mermaid
+flowchart TB
+  JUST["justfile recipes"] --> SCR["scripts/{portable,canonical,evm,near,solana,differential,…}"]
+  SCR --> CLI["proof-forge / lake env lean --run"]
+  SCR --> TK["testkit Cargo workspace"]
+  TK --> H["harness-evm · harness-solana · harness-near · harness-quint"]
+  TK --> CMP["compare/* native references"]
+  TK --> D["differential schemas + pilots"]
+  F["ProofForgeFormalEvm / FormalSolana"] -.->|opt-in Lake| CORE["IR.Core anchors"]
+```
