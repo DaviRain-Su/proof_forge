@@ -42,7 +42,7 @@ July 12 implementation plan.
 | A-CUT1e | Cut public Solana authoring over to target-owned HostOps | done (verified at `571b795d`) | public/internal macros emit direct Authored contracts; plan-only sidecars and sBPF lowering pass focused Pinocchio comparisons; no public/internal Legacy import or fallback |
 | A-CUT2g | Cut public portable Source/Loader and Counter target routes to direct Authored/Core/Plan | done (verified at `42183403`) | EVM, Solana assembly/ELF, and NEAR/Wasm artifacts use `canonical-core-v1`; no ContractSpec sidecar/fallback; focused three-target behavior passes |
 | A-CUT2h | Remove stale Counter `.spec`/`.module` consumers and obsolete backend wrappers | done (verified at `b2d673b4`) | callers use Authored/Canonical or explicit v1-only fixtures; wrappers are deleted; EVM constructor config is target-owned and shared payloads fail closed |
-| A-CUT3 | Migrate Product/stdlib callers and delete their `Source.Legacy` dependencies | in_progress (Pausable direct/VM evidence through `98e9996f`) | rewrite ReentrancyGuard and delete its Legacy implementation before map/collection, event/error, and portable crosscall families |
+| A-CUT3 | Migrate Product/stdlib callers and delete their `Source.Legacy` dependencies | in_progress (ReentrancyGuard direct cutover verified at `69499e99`) | complete ReentrancyGuard independent native/VM evidence before map/collection, event/error, and portable crosscall families |
 | B1 | Extract neutral Wasm-host plan and ABI | done (verified at `c8d2bbb6`) | NEAR output/runtime preservation |
 | B2 | Add strict canonical target gate | done (verified at `d4df51bc`) | adapter/validator/HostOp/builder errors fail closed |
 | B3 | Promote Soroban Counter | done (verified 2026-07-12) | strict plan, bridge-aware lowering, native ABI/auth contract, runtime evidence |
@@ -66,7 +66,7 @@ add target-specific operations to portable IR. A-CUT1e-c2 is complete.
 | CMP-0 | Inventory and version the shared provenance/scenario/observation contracts | done (verified at `18f15e59`) | 85 tracked assets; 35 v0 manifests migrate explicitly but remain semantically ineligible |
 | CMP-1 | Implement fail-closed normalized observation and coverage validation | done (verified at `7fee238c`) | 23 focused contract/comparator tests; target-local resources cannot become a cross-chain score |
 | CMP-2 | Counter native pilot: Solidity EVM, Rust Solana, Rust NEAR | done (verified at `e2834c59`) | closes A-CUT2 with complete primary-triad v1 evidence |
-| CMP-3 | ValueVault and representative stateful portable families | in_progress | ValueVault, Ownable, and Pausable primary-triad VM comparisons are verified; ReentrancyGuard direct cutover and native reference slices are next |
+| CMP-3 | ValueVault and representative stateful portable families | in_progress | ValueVault, Ownable, and Pausable primary-triad VM comparisons are verified; ReentrancyGuard is direct-only and CMP-3f1 native references are active |
 | CMP-SOL | Account/PDA/CPI conformance against independent Solana Rust references | pending with IR-B5 | IR-B5 exit |
 | CMP-NEAR | Replay existing Rust/Sandbox references from canonical-only artifacts | pending with NEAR-R4 | NEAR-R4 exit |
 | CMP-EVM | Normalize independent Solidity references and EVM observations | pending with A-CUT3 | A-CUT3 EVM slices |

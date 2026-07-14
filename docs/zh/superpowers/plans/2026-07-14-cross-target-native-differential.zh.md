@@ -160,7 +160,8 @@ target plan。随后 A-CUT3b2 将 Product Ownable 本身切换到这条单一路
 NEAR Wasm 制品。focused gate 拒绝 legacy sidecar，并证明 NEAR address
 carrier 由 Wasm-host plan 所有。独立原生 Ownable 与 Pausable 差分证据均已完成。
 Pausable 已在 `50c1c07a` 获得唯一 direct Product source，并在 `98e9996f`
-获得完整 VM 证据；下一步是 ReentrancyGuard，且不得适配任何已退役 Legacy source。
+获得完整 VM 证据。ReentrancyGuard 已在 `69499e99` 获得唯一 direct Product
+source；CMP-3f 只能比较这条路线，且不得适配任何已退役 Legacy source。
 
 Ownable authorization 执行切片：
 
@@ -214,6 +215,17 @@ upstream `near-vm-runner` 上执行与 ProofForge 相同的九步场景。每个
 之前的 paused 状态。旧 NEAR Pausable v0 manifest 已删除，剩余 compare 调用方
 显式命名 v1 reference，不存在 discovery fallback。Inventory 现含 113 项资产，
 恰有 24 项 verified。
+
+ReentrancyGuard lock-state 执行切片：
+
+| ID | 状态 | 任务 |
+|---|---|---|
+| CMP-3f1 | in_progress | 固定独立 Solidity、Pinocchio 与 near-sdk ReentrancyGuard reference，并定义版本化九步场景，覆盖 unlocked 时 release、重复 acquire 和失败后状态保持。全部新增资产保持 `semanticEvidence=none`。 |
+| CMP-3f2 | CMP-3f1 后 pending | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个 dimension，删除被替代的 NEAR v0 manifest，并且只晋级完整证据。 |
+
+两个切片都不得让原生 reference 导入 ProofForge compiler module、把
+`ContractSpec`/`IR.Module` 适配回 Product 路线、复用生成的 target code 作为
+oracle，也不得在 VM 证据落地后保留被取代的 v0 manifest。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

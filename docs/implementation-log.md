@@ -4457,3 +4457,29 @@ Rules:
   `just near-compare-pausable`; focused Cargo checks for the Solana harness and
   NEAR compare runner; Python bytecode compilation; and `git diff --check`. No
   full aggregate was run.
+
+## 2026-07-14 - A-CUT3c2: direct-only Product ReentrancyGuard cutover
+
+- Status: `done (verified at 69499e99)`; CMP-3f1 independent ReentrancyGuard
+  references and the negative lock-state scenario are now active.
+- Rewrote `Examples/Product/ReentrancyGuard.lean` as the sole target-neutral
+  `AuthoredContract`. It expresses guarded acquire, guarded release, the lock
+  query, and both state transitions without `ContractSpec`, v1 `IR.Module`,
+  `Source.Legacy`, or a stdlib facade.
+- Deleted `ProofForge/Contract/Stdlib/ReentrancyGuard.lean` and the obsolete
+  EVM wrapper. Removed their aggregate import, topology/allowlist records, and
+  every Product `.spec`/`.module` caller. `VerifiedVault` no longer imports the
+  deleted facade; its still-Legacy product route remains explicit later
+  migration work rather than a hidden ReentrancyGuard dependency.
+- Added `Tests/ReentrancyGuardExample.lean`, a fail-closed source-tree deletion
+  guard, and a target-first smoke. The same checked contract reaches EVM,
+  Solana, NEAR, and the shared Soroban Wasm-host plan. Primary-triad artifacts
+  carry `contract-source-authored` / `canonical-core-v1` and no retired
+  sidecars.
+- Regenerated the EVM golden from direct Core. The current artifact keeps
+  packed-u64 bounds and the final policy's guarded release instead of weakening
+  the new architecture to reproduce the Legacy unconditional release.
+- Verification: `just reentrancy-guard-authoring-cutover`; focused Product
+  matrix and portable-auth tests; `just portable-stdlib-core-multi-target`;
+  topology/portable-default checks; `just near-compare-reentrancy-guard`; and
+  `git diff --check`. No full aggregate was run.

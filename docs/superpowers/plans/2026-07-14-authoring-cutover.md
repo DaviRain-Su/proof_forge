@@ -283,7 +283,7 @@ independent primary-triad behavior requirement at `e2834c59`.
 
 ### A-CUT3 - Product migration
 
-State: `in_progress; ValueVault, Ownable, and Pausable direct with primary-triad VM evidence; ReentrancyGuard rewrite-and-delete active`
+State: `in_progress; ValueVault, Ownable, Pausable, and ReentrancyGuard use the direct-only Product route; ReentrancyGuard native VM evidence is active`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
@@ -335,6 +335,18 @@ sidecars. `98e9996f` completes CMP-3e on Anvil, Mollusk, and upstream
 two rejected transitions preserve state, and the replaced NEAR v0 manifest is
 deleted. ReentrancyGuard now receives the same rewrite-and-delete treatment;
 neither family gets a compatibility facade.
+
+ReentrancyGuard checkpoint (2026-07-14): `69499e99` rewrites
+`Examples/Product/ReentrancyGuard.lean` as the sole direct
+`AuthoredContract`, removes every Product `.spec`/`.module` consumer, and
+deletes both `ProofForge/Contract/Stdlib/ReentrancyGuard.lean` and the obsolete
+EVM wrapper. One checked contract retains guarded acquire and guarded release
+through EVM, Solana, NEAR, and the shared Soroban Wasm-host plan. `just
+reentrancy-guard-authoring-cutover` emits primary-triad artifacts with
+`contract-source-authored` / `canonical-core-v1` and rejects restored aliases,
+facades, wrappers, allowlist entries, and retired sidecars. `VerifiedVault`
+owns its remaining historical lock state locally and no longer imports the
+deleted facade; its separate Product migration is not implied by this slice.
 
 ### A-CUT4 - Delete duplicate source and version split
 

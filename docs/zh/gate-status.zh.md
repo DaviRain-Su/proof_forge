@@ -170,6 +170,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT3c1-4 | 公开主目标只发射 Canonical artifact | ✅ met | target-first EVM bytecode/Yul、Solana assembly/package 与 NEAR WAT/Wasm 报告 `contract-source-authored` / `canonical-core-v1`，不发射旧 sidecar，并通过 selector/metadata 校验 |
 | A-CUT3c1-5 | 保留新架构语义 | ✅ met | EVM golden 从 direct Core 重新生成并保留更严格的 packed-u64 宽度检查；EVM、Solana 与 Wasm 输出保留两种 pause-state assertion，且没有 fallback renderer |
 
+## Gate A-CUT3c2 —— Product ReentrancyGuard direct 切换
+
+**状态：Closed**
+
+**Closed: 2026-07-14 at `69499e99`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT3c2-1 | Product ReentrancyGuard 只有一个当前 source identity | ✅ met | `just reentrancy-guard-authoring-cutover` 要求唯一 `contract : AuthoredContract`，并拒绝 Product `.spec`/`.module`、`Source.Legacy`、stdlib facade 引用和 compatibility allowlist 项 |
+| A-CUT3c2-2 | 旧实现被删除而不是适配 | ✅ met | `ProofForge/Contract/Stdlib/ReentrancyGuard.lean` 与过时 EVM wrapper 均已删除；所有 Product 调用方改用 `.contract` 或专用 checked-Core gate，topology 不再要求该 wrapper |
+| A-CUT3c2-3 | 两个 lock guard 到达 checked Core 与 target-owned plan | ✅ met | 同一个 checked contract 在 EVM、Solana、NEAR 与共享 Soroban Wasm-host plan 中保留 acquire 相等 guard、release 不等 guard 和两次状态写入 |
+| A-CUT3c2-4 | 公开主目标只发射 Canonical artifact | ✅ met | target-first EVM bytecode/Yul、Solana assembly/package 与 NEAR WAT/Wasm 报告 `contract-source-authored` / `canonical-core-v1`，不发射旧 sidecar，并通过 selector/metadata 校验 |
+| A-CUT3c2-5 | 保留新架构语义 | ✅ met | direct Core EVM golden 保留 packed-u64 写入边界，并加入最终 Product policy 要求的 guarded release；没有 renderer fallback 去复现较弱的 Legacy release |
+
 ## Gate CMP-3d1 —— 独立 Ownable reference 契约
 
 **状态：已关闭**

@@ -26,8 +26,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | A-CUT3c2 - rewrite Product ReentrancyGuard as the sole direct Authored source, migrate every caller, and delete its Legacy stdlib implementation and obsolete backend wrapper |
-| Next task | CMP-3f1 - pin independent ReentrancyGuard native references and a negative lock-state scenario after the direct-only cutover |
+| Active task | CMP-3f1 - pin independent ReentrancyGuard native references and one negative lock-state scenario; evidence stays unverified until VM execution |
+| Next task | CMP-3f2 - execute direct ProofForge and independent native ReentrancyGuard artifacts on Anvil, Mollusk, and upstream `near-vm-runner`, then delete the replaced NEAR v0 manifest |
 | Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault, Ownable, and Pausable primary-triad VM evidence are verified, with Pausable CMP-3e2 closed at `98e9996f` |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
@@ -177,7 +177,7 @@ Core are internal compiler representations.
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
 | A-CUT1e | done (verified at `571b795d`) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
 | A-CUT2 | done (verified at `e2834c59`) | Public Counter routes, reverse dependencies, and independent primary-triad behavior are direct-only and fully covered by CMP-2 |
-| A-CUT3 | in_progress (Pausable direct cutover and VM differential verified through `98e9996f`) | Migrate the full product catalog from the single abstract source; ReentrancyGuard direct rewrite-and-delete is active |
+| A-CUT3 | in_progress (ReentrancyGuard direct cutover verified at `69499e99`) | Migrate the full product catalog from the single abstract source; ReentrancyGuard native reference and VM evidence are active before the next family |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
 

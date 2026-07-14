@@ -204,7 +204,8 @@ and emits EVM, Solana, and final NEAR Wasm artifacts carrying
 legacy sidecars and proves NEAR's address carrier is owned by the Wasm-host
 plan. Independent native Ownable and Pausable differential evidence is
 complete. Pausable has one direct Product source at `50c1c07a` and complete VM
-evidence at `98e9996f`; ReentrancyGuard is next and cannot adapt any retired
+evidence at `98e9996f`. ReentrancyGuard now has one direct Product source at
+`69499e99`; CMP-3f may compare only that route and cannot adapt any retired
 Legacy source.
 
 Ownable authorization execution slices:
@@ -265,6 +266,18 @@ complete eight-dimension coverage; both invalid transitions retain the
 previous paused state. The old NEAR Pausable v0 manifest is deleted and the
 remaining compare caller explicitly names the v1 reference without discovery
 fallback. Inventory now contains 113 assets and exactly 24 verified assets.
+
+ReentrancyGuard lock-state execution slices:
+
+| ID | State | Task |
+|---|---|---|
+| CMP-3f1 | in_progress | Pin independent Solidity, Pinocchio, and near-sdk ReentrancyGuard references plus one versioned nine-step scenario covering release while unlocked, repeated acquire, and state preservation. All new assets remain `semanticEvidence=none`. |
+| CMP-3f2 | pending after CMP-3f1 | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight dimensions, delete the replaced NEAR v0 manifest, and promote only complete evidence. |
+
+Neither slice may import a ProofForge compiler module into a native reference,
+adapt `ContractSpec`/`IR.Module` back into the Product route, reuse generated
+target code as the oracle, or retain the replaced v0 manifest after VM evidence
+lands.
 
 Acceptance:
 

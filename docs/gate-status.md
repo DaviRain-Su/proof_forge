@@ -177,6 +177,20 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | A-CUT3c1-4 | Public primary-target artifacts are Canonical-only | ✅ met | target-first EVM bytecode/Yul, Solana assembly/package, and NEAR WAT/Wasm report `contract-source-authored` / `canonical-core-v1`, emit no retired sidecars, and pass selector/metadata validation |
 | A-CUT3c1-5 | New architecture semantics are retained | ✅ met | the EVM golden is regenerated from direct Core and keeps its stricter packed-u64 width checks; EVM, Solana, and Wasm outputs preserve both pause-state assertions without a fallback renderer |
 
+## Gate A-CUT3c2 - Product ReentrancyGuard direct cutover
+
+**Status: Closed**
+
+**Closed: 2026-07-14 at `69499e99`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| A-CUT3c2-1 | Product ReentrancyGuard has one current source identity | ✅ met | `just reentrancy-guard-authoring-cutover` requires one `contract : AuthoredContract` and rejects Product `.spec`/`.module`, `Source.Legacy`, stdlib-facade references, and compatibility allowlist entries |
+| A-CUT3c2-2 | Retired implementations are deleted instead of adapted | ✅ met | `ProofForge/Contract/Stdlib/ReentrancyGuard.lean` and the obsolete EVM wrapper are absent; all Product callers use `.contract` or the dedicated checked-Core gate, and topology no longer requires the wrapper |
+| A-CUT3c2-3 | Both lock guards reach checked Core and target-owned plans | ✅ met | one checked contract preserves acquire equality, release inequality, and both state stores through EVM, Solana, NEAR, and the shared Soroban Wasm-host plan |
+| A-CUT3c2-4 | Public primary-target artifacts are Canonical-only | ✅ met | target-first EVM bytecode/Yul, Solana assembly/package, and NEAR WAT/Wasm report `contract-source-authored` / `canonical-core-v1`, emit no retired sidecars, and pass selector/metadata validation |
+| A-CUT3c2-5 | New architecture semantics are retained | ✅ met | the direct Core EVM golden keeps packed-u64 write bounds and adds the guarded release required by the final Product policy; no renderer fallback reproduces the weaker Legacy release |
+
 ## Gate CMP-3d1 - Independent Ownable reference contracts
 
 **Status: Closed**
