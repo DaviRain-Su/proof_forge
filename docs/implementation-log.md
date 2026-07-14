@@ -3129,3 +3129,16 @@ Rules:
 - Next: inventory the remaining EVM product sources, classify aliases/composed
   families, and add direct Surface materializers only where behavior is not
   already covered by these four cores.
+
+## 2026-07-14 - EVM-R2d: direct Ownable policy materialization
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress for the
+  remaining EVM product families.
+- Added a Surface v2 Ownable product with address-typed owner state, one-shot
+  initialization, owner-only transfer/renounce checks, indexed ownership
+  events, and explicit EVM selectors.
+- The direct product reaches checked Canonical Core and the EVM `ModulePlan`
+  without importing the legacy Ownable mixin, `ContractSpec`, or
+  `Legacy.Adapter`.
+- Verification: `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`
+  and `git diff --check`.
