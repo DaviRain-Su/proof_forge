@@ -12,7 +12,7 @@
 |--------|----------|
 | `evm` | ERC-20-compatible contract (Yul/bytecode) |
 | `solana-sbpf-asm` | SPL / Token-2022 mint·CPI **plan** |
-| `wasm-near` | NEP-141 **plan** + full body via `Stdlib.NearFungibleToken` |
+| `wasm-near` | Parameterized NEP-141 Wasm package via the target adapter |
 | other (e.g. Soroban) | **no TokenSpec lane** — use policy/remote only |
 
 Feature honesty: `just token-feature-matrix` / `featureSupportOnTarget`.
@@ -376,7 +376,15 @@ def TokenSpec.nearUnsupportedFeatures (spec : TokenSpec) : Array TokenFeature :=
     .confidentialTransfer, .transferHook,
     .metadataPointer, .defaultAccountState, .immutableOwner].filter spec.hasFeature
 
-def validateNearTokenFeatures (spec : TokenSpec) : Except String Unit :=
+def validateNearTokenFeatures (spec : TokenSpec) : Except String Unit := do
+  match spec.initialSupply? with
+  | some supply =>
+      let maxU128 := 340282366920938463463374607431768211455
+      if supply > maxU128 then
+        throw s!"target `wasm-near` TokenSpec initialSupply `{supply}` exceeds the U128 maximum `{maxU128}`"
+      else
+        pure ()
+  | none => pure ()
   match spec.nearUnsupportedFeatures.toList with
   | [] => .ok ()
   | feature :: rest =>
@@ -835,9 +843,8 @@ def solanaTokenPlan (target : TargetProfile) (spec : TokenSpec) : TokenPlan :=
     ]
   }
 
-/-- Honest NEAR NEP-141 **plan** (not full EmitWat FT codegen yet).
-Points authors at `Stdlib.NearFungibleToken` for mixin composition; TokenSpec
-lane records standard + supported operations for deploy tooling. -/
+/-- NEAR NEP-141 operation plan. The public CLI combines this plan with the
+parameterized executable body; it is also retained as deploy-tool metadata. -/
 def nearNep141Plan (target : TargetProfile) (spec : TokenSpec) : TokenPlan :=
   let ops :=
     #["ft_total_supply", "ft_balance_of", "ft_transfer", "ft_metadata"] ++
@@ -858,8 +865,8 @@ def nearNep141Plan (target : TargetProfile) (spec : TokenSpec) : TokenPlan :=
     ]
     operations := ops
     notes := #[
-      "NEAR TokenSpec lowers to a NEP-141 plan (standard + operations metadata).",
-      "Full contract body: compose ProofForge.Contract.Stdlib.NearFungibleToken with --target wasm-near.",
+      "NEAR TokenSpec lowers to one parameterized NEP-141 Wasm package plus operation metadata.",
+      "The target adapter materializes metadata, initial supply, and enabled mint/burn operations.",
       "Peer receivers for ft_transfer_call use declareRemote / PeerMap (no chain DSL in Shared)."
     ]
   }

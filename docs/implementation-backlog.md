@@ -3607,16 +3607,19 @@ fixtures.
 
 - ✅ P0: Promise materialization (host imports in HostBridge + real EmitWat
   Promise encoding; full async execution and richer callbacks remain P1)
-- P0 open: TokenSpec auto-detection and `NearSpec` routing exist, but one
-  parameterized NEP-141 runtime artifact is still missing: name, symbol,
-  decimals, initial supply, feature-gated init/body, generated client, and
-  metadata must describe the same emitted Wasm.
+- ✅ P0 behavior / architecture open: bare TokenSpec auto-detection now emits
+  one parameterized NEP-141 Wasm package. Name, symbol, decimals, initial
+  supply, feature-gated body, generated client, and artifact metadata describe
+  and execute as the same Wasm under `just product-token-near`. N-T5 remains
+  open until NEAR-R3/R4 removes the `NearSpec` / `ContractSpec` / Legacy
+  normalization route.
 - ✅ P0: signer_account_id (host import + ctxSignerFunc + Surface.signer)
 - ✅ P0: attached_deposit (host import + .nativeValue lowering)
 - ✅ P0: Aggregate ABI (loadParams Borsh struct/array decode)
-- P0 open: NEP-145 withdrawal has a caller check and a minimum-one-yocto guard,
-  but still needs an **exact** one-yocto guard, predecessor refund Promise,
-  JSON balance objects, unregister, and byte accounting.
+- ✅ P0 behavior / canonical replay open: NEP-145 has exact-one-yocto guards,
+  predecessor refund Promise actions, JSON balance objects, unregister, and
+  measured byte accounting on the real VM. N-T3 remains open only for replay
+  on the canonical-only public route and sandbox differential evidence.
 - ✅ P1 partial: Callback handling executes the complete local
   `ft_transfer_call` / `ft_resolve_transfer` balance flow with real
   `promise_result` host calls; produced receipts and peer contracts are not

@@ -94,12 +94,12 @@ Gate: `just portable-default` rejects chain DSL in Product sources.
 |--------|----------------------|----------|
 | `evm` | `build --target evm --token …` | ERC-20 Yul/bytecode |
 | `solana-sbpf-asm` | `just product-token-solana` | SPL **plan** (`transfer_checked`, …) |
-| `wasm-near` | `just product-token-near` | NEP-141 **plan** + FT body WAT (stdlib path) |
+| `wasm-near` | `just product-token-near` | One parameterized NEP-141 Wasm package + generated clients/metadata |
 
 Feature honesty: `just token-feature-matrix` (unsupported → reject, no silent drop).
 
 ```bash
-just product-token-near     # NEAR TokenSpec plan + NEP-141 body
+just product-token-near     # NEAR TokenSpec -> Wasm + clients + metadata + real VM
 just product-token-solana   # Solana TokenSpec SPL plan
 just shared-token-intent    # Lean TokenSpec plan honesty (broader)
 ```
@@ -168,4 +168,3 @@ VaultSpec-only authoring, non-EVM vault body parity. See
 Engine work (pack layers, HostRuntime, CPI catalogs) continues **under** this
 surface — see [product-sdk-gap-plan](product-sdk-gap-plan-2026-07.md). Frozen
 waves α–ε are the v1 claim; further edges need a named epic.
-

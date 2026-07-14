@@ -9,6 +9,7 @@ import ProofForge.Cli.Options
 import ProofForge.Contract.Client
 import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec.Json
+import ProofForge.Contract.Token
 import ProofForge.IR
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ContextProbe
@@ -240,7 +241,8 @@ def writeEmitWatArtifactMetadata
     (sourceIdentity : ProofForge.Target.ArtifactBundle.SourceIdentity)
     (module : ProofForge.IR.Module)
     (outputDir watPath : FilePath)
-    (wasmPath? : Option FilePath) : IO Unit := do
+    (wasmPath? : Option FilePath)
+    (tokenSpec? : Option ProofForge.Contract.Token.TokenSpec := none) : IO Unit := do
   let sourceKind := sourceIdentity.kind
   let metadataOutput := opts.artifactOutput?.getD (defaultEmitWatArtifactOutput outputDir)
   let schemaDir := metadataOutput.parent.getD outputDir
@@ -312,6 +314,19 @@ def writeEmitWatArtifactMetadata
     | none =>
         ProofForge.Target.CrosscallMaterialize.Report.json
           (ProofForge.Target.CrosscallMaterialize.forProfile ProofForge.Target.wasmNear)
+  let tokenJson := match tokenSpec? with
+    | none => "null"
+    | some token => jsonObject #[
+        ("standard", jsonString "nep-141"),
+        ("name", jsonString token.name),
+        ("symbol", jsonString token.symbol),
+        ("decimals", toString token.decimals),
+        ("initialSupply", match token.initialSupply? with
+          | some supply => toString supply
+          | none => "null"),
+        ("features", jsonStringArray (token.features.map (·.id))),
+        ("authFeatures", jsonStringArray (token.authFeatures.map (·.id)))
+      ]
   let metadata := jsonObject #[
     ("schemaVersion", "1"),
     ("target", jsonString targetId),
@@ -336,6 +351,7 @@ def writeEmitWatArtifactMetadata
     ("sourceKind", jsonString sourceKind),
     ("irVersion", if sourceKind == "portable-ir" then jsonString "portable-ir-v0" else "null"),
     ("sourceModule", jsonString module.name),
+    ("token", tokenJson),
     ("sdkSchema", jsonString "proof-forge-sdk.json"),
     ("capabilities", jsonStringArray (moduleCapabilityIds module)),
     ("toolchain", jsonObject #[

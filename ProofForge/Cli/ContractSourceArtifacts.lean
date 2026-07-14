@@ -287,15 +287,18 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
 unsafe def tryLoadSpecOrTokenSpec
     (input : System.FilePath) (root? : Option System.FilePath)
     (moduleName? : Option Lean.Name) (targetId : String) :
-    IO (Except String ProofForge.Contract.ContractSpec) := do
+    IO (Except String (ProofForge.Contract.ContractSpec ×
+      Option ProofForge.Contract.Token.TokenSpec)) := do
   try
     let spec ← ProofForge.Cli.ContractLoader.loadSpec input root? moduleName?
-    pure (.ok spec)
+    pure (.ok (spec, none))
   catch _ =>
     try
       let (_, tokenSpec) ← ProofForge.Cli.TokenLoader.loadToken input root? moduleName?
       if targetId == ProofForge.Target.wasmNear.id then
-        pure (.ok (ProofForge.Contract.Token.NearSpec.specFor tokenSpec))
+        match ProofForge.Contract.Token.planForTarget ProofForge.Target.wasmNear tokenSpec with
+        | .ok _ => pure (.ok (ProofForge.Contract.Token.NearSpec.specFor tokenSpec, some tokenSpec))
+        | .error error => pure (.error error)
       else
         pure (.error s!"source defines a TokenSpec but target `{targetId}` has no TokenSpec auto-detect lane; use `--token`")
     catch err =>
@@ -311,11 +314,12 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
     | .ok resolved => pure resolved
     | .error msg => throw <| IO.userError msg
   let profile := resolved.1
-  let spec ← if opts.nft then
-      ProofForge.Cli.NftLoader.loadAndMaterializeNft input opts.root? opts.moduleName? profile.id
+  let (spec, tokenSpec?) ← if opts.nft then
+      pure (← ProofForge.Cli.NftLoader.loadAndMaterializeNft input opts.root?
+        opts.moduleName? profile.id, none)
     else
       match (← tryLoadSpecOrTokenSpec input opts.root? opts.moduleName? profile.id) with
-      | .ok spec => pure spec
+      | .ok loaded => pure loaded
       | .error err => throw <| IO.userError err
   let fixtureSlug := spec.name.toLower
   let outputDir ← match opts.output? with
@@ -345,7 +349,7 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
       path? := some input.toString
       kind := "contract-sdk"
       leanElaborated := true
-    } spec.module outputDir watPath wasmPath?
+    } spec.module outputDir watPath wasmPath? tokenSpec?
     return 0
   else
     compileEmitWatWithPlan opts' fixtureSlug spec.module plan {

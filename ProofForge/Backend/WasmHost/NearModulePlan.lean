@@ -775,7 +775,7 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings lit
         .loadState result _ | .loadMap result .. |
         .arithmetic result .. | .compare result .. | .hash result _ | .hashTwoToOne result .. | .cast result _ |
         .structLit result .. |
-        .context result _ |
+        .context result _ | .hostContext result _ |
         .storageUsage result |
         .promiseCreate result .. | .portableCrosscall result .. | .promiseCreatePool result .. |
         .promiseThen result .. | .promiseTransfer result .. |

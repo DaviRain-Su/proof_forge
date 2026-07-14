@@ -21,7 +21,7 @@ the broader completion work visible while each landing remains reviewable.
 | N-T2 | pending canonical replay (baseline verified 2026-07-14) | Standard `ft_transfer_call`, exact one yocto, receiver registration | NEAR-R4 |
 | N-T3 | pending canonical replay (baseline verified 2026-07-14) | Full NEP-145 JSON, unregister, `promise_transfer`, byte accounting | NEAR-R4 |
 | N-T4 | pending canonical replay (baselines `768ce114`, `09fbf234`) | NEP-148 metadata and NEP-297 event envelopes | NEAR-R4 |
-| N-T5 | pending | One parameterized TokenSpec -> NEP-141 executable artifact | N-T1 foundation; may proceed alongside N-T3 |
+| N-T5 | in progress (N-T5a runtime package verified) | Remove `NearSpec`/Legacy from the parameterized TokenSpec -> NEP-141 executable artifact | N-T1 foundation + NEAR-R3/R4 |
 | N-T6 | pending | Current JSON/U128 sandbox differential with verified reports | N-T2, N-T3, N-T4 |
 | N-T7 | pending | Executed receipt chain, testnet runner, deployment evidence, gas bands | N-T6 |
 | N-T8 | pending | NEP-171/178/245 depth, missing host APIs/crypto, formal preservation | independent slices after N-T1 |
@@ -415,6 +415,15 @@ not implied by the N-T3 VM gate.
 
 `name`/`symbol`/`decimals`/`initialSupply`/`features` affect the emitted Wasm
 (not just the plan JSON); unsupported features reject.
+
+N-T5a completed 2026-07-14: bare `build --target wasm-near` on
+`Examples/Product/FungibleToken.lean` emits one Wasm package plus typed clients
+and token metadata. The real VM proves authored name/symbol/decimals and the
+initial supply/deployer balance; unsupported transfer-fee input rejects. A
+canonical local-declaration bug for target HostOp string results was repaired
+in the same route. N-T5 remains open because the materializer still constructs
+the template through `NearSpec` / `ContractSpec` / Legacy normalization;
+NEAR-R3/R4 must remove that dependency before sign-off.
 
 ## Phase 8 — Compare harness → semantic equivalence  (effort M; depends 5,6)
 

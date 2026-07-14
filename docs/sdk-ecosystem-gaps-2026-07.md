@@ -204,13 +204,18 @@ Probe: `proof-forge build --target wasm-near` on Product sources after S0 merge.
 | `RoleGatedToken.lean` | contract_source | OK | maps + multi-param entries |
 | `EscrowVault.lean` (+ other NEAR-compare vaults) | contract_source | OK | product compile |
 | `SoulboundTokenBody.lean` | contract_source | OK | body balances (no TokenSpec) |
-| `FungibleToken.lean` / `FeeToken` / `SoulboundToken` | **TokenSpec** | Bare `build --target wasm-near` auto-detects TokenSpec through `NearSpec` | route exists; runtime metadata/initial-supply parameterization remains N-T5 |
-| NEP-141 body | stdlib + TokenSpec plan | OK via `just product-token-near` | plan JSON + `NearFungibleToken.wat` |
+| `FungibleToken.lean` / `FeeToken` / `SoulboundToken` | **TokenSpec** | Bare `build --target wasm-near` emits one parameterized Wasm package; unsupported features reject | runtime behavior is verified; removing the remaining `NearSpec`/Legacy route remains N-T5 |
+| NEP-141 body | TokenSpec executable package | OK via `just product-token-near` | Wasm + generated clients + artifact metadata + real-VM initialization/query evidence |
 
 **Gap classes for N1 (ordered):**
 
-1. **TokenSpec runtime parameterization** — bare build routing exists, but name/symbol/decimals/initialSupply do not yet materialize into one executable Wasm (N-T5).
-2. **Schema-driven JSON** — one authoritative plan drives the two landed standard JSON signatures; structs, optional values, field-order tolerance, escaping, and generic dynamic values remain unsupported (N-T1).
+1. **TokenSpec canonical cutover** — runtime parameterization is implemented,
+   but the source still passes through `NearSpec` / `ContractSpec` / Legacy
+   normalization before reaching Canonical Core (N-T5 + NEAR-R3/R4).
+2. **Schema-driven JSON canonical replay** — structs, optional values,
+   field-order tolerance, escaping, arrays, and typed generated returns are
+   implemented; N-T1 remains open only until the public TokenSpec artifact
+   exercises them without the Legacy route.
 3. **Promise peer correctness** — materialize exists; sandbox/offline peer returns need N1.4.
 4. **NEP-141/145 product depth** — plan+WAT exist; full FT lifecycle + storage deposit economics still shallow (N1.3/N1.5).
 5. **Budget honesty** — offline `wasmtimeFuel*` only; real `nearGas` from sandbox (N1.6).

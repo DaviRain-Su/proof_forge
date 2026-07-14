@@ -3655,3 +3655,22 @@ Rules:
 - Verification: affected CLI/compiler build, SourceLoader and source arity
   tests, canonical EVM bytecode/check route, boundary scans, and
   `git diff --check`.
+
+## 2026-07-14 - NEAR N-T5a: one parameterized TokenSpec runtime package
+
+- Status: `done (verified 2026-07-14)`; N-T5 remains open for the
+  NEAR-R3/R4 removal of `NearSpec` and Legacy normalization.
+- Bare `build --target wasm-near` now preserves `init` and materializes the
+  TokenSpec name, symbol, decimals, initial supply, deployer balance, feature
+  filtering, generated clients, and token artifact metadata into one package.
+- Fixed canonical `NearModulePlan` local declaration collection for typed
+  target HostOp results. Without it, AccountId string results emitted uses of
+  `$vN/$vN_len` without declaring those locals and `wat2wasm` rejected the
+  canonical product artifact.
+- `product-token-near` no longer proves a plan and an unrelated stdlib body.
+  It builds the Product TokenSpec once, validates Wasm/client/metadata, executes
+  init/supply/balance/metadata on the upstream NEAR VM, and checks unsupported
+  feature rejection.
+- Verification: affected Lean builds, `Tests/NearTokenSpecRuntime.lean`,
+  `just product-token-near`, unsupported FeeToken diagnostic, and
+  `git diff --check`.

@@ -130,7 +130,7 @@ success. The Canonical EVM renderer now consumes `ModulePlan` alone. Product
 | N-T2 | pending | Re-land the verified NEP-141 behavior on the canonical-only NEAR route | Phase 5 + NEAR-R4 |
 | N-T3 | pending | Re-land the verified NEP-145 behavior on the canonical-only NEAR route | Phase 6 + NEAR-R4 |
 | N-T4 | pending | Re-land the verified NEP-148/297 behavior on the canonical-only NEAR route | Phase 6 + NEAR-R4 |
-| N-T5 | pending | One parameterized TokenSpec NEP-141 artifact | Phase 7 |
+| N-T5 | in_progress (N-T5a runtime package verified) | Remove the remaining `NearSpec`/Legacy route from the parameterized TokenSpec NEP-141 artifact | Phase 7 + NEAR-R3/R4 |
 | N-T6 | pending after N-T2/N-T3/N-T4 | Refresh sandbox compare and obtain verified evidence | Phase 8 |
 | N-T7 | pending after N-T6 | Real receipt/network runner, deploy evidence, and gas bands | Phase 8 extension |
 | N-T8 | pending | NEAR ecosystem extensions and formal preservation | Phase 9 extension |
