@@ -3191,6 +3191,20 @@ Rules:
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
 
+## 2026-07-14 - EVM-R2n: direct deployment-bound protocol products
+
+- Status: `done (verified 2026-07-14)`; 25 of 28 EVM catalog products now have
+  direct Surface v2 materialization.
+- Added a target-neutral Surface peer reference and direct protocol facade.
+  Logical peer IDs remain in Canonical Core; `PeerMap` converts CLI bindings to
+  target-plan metadata, and only the EVM planner validates/resolves the bound
+  host as an address.
+- Added direct AuthRemoteCall, ExternalTokenTransfer, and ExternalVault
+  products, including target-owned method selector resolution.
+- Verification: targeted frontend/EVM/product builds,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, protocol
+  materialization tests, and `git diff --check`.
+
 ## 2026-07-14 - EVM-R2m: direct ProRataVault accounting
 
 - Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.

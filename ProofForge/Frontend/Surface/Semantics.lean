@@ -54,6 +54,7 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
     | .u64Lit n | .u32Lit n | .u8Lit n | .u128Lit n => .ok n
     | .boolLit b => .ok (if b then 1 else 0)
     | _ => .error "unsupported literal in reference semantics"
+  | .peerRef _ => .ok 0
   | .local name => match Std.HashMap.get? locals name with
     | some v => .ok v | none => .error s!"unbound local: {name}"
   | .stateRead name => match Std.HashMap.get? st.storage name with

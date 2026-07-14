@@ -18,6 +18,10 @@ import Examples.Product.Canonical.StakingVault
 import Examples.Product.Canonical.StorageDeposit
 import Examples.Product.Canonical.VestingVault
 import Examples.Product.Canonical.ProRataVault
+import Examples.Product.Canonical.AuthRemoteCall
+import Examples.Product.Canonical.ExternalTokenTransfer
+import Examples.Product.Canonical.ExternalVault
+import ProofForge.Target.PeerMap
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Frontend.Surface.Normalize
@@ -37,6 +41,11 @@ private def planDirect
   let capabilityPlan : CapabilityPlan := {
     targetId := "evm"
     calls := bundle.contract.contract.requirements
+    metadata := (ProofForge.Target.PeerMap.ofList [
+      ("peer.callee", "0x000000000000000000000000000000000000cA11"),
+      ("usdc.peer", "0x000000000000000000000000000000000000cA12"),
+      ("vault.peer", "0x000000000000000000000000000000000000cA13")
+    ]).targetMetadata
   }
   match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract capabilityPlan with
   | .ok plan => pure plan
@@ -56,6 +65,19 @@ private def checkProduct
       require (yul.contains s!"object \"{contract.name}\"")
         s!"{contract.name} direct EVM renderer lost the product identity"
   | .error error => throw (IO.userError s!"direct EVM product render failed: {error.message}")
+
+private def checkUnboundPeerRejected
+    (contract : ProofForge.Frontend.Surface.SurfaceContract) : IO Unit := do
+  let bundle ← match ProofForge.Frontend.Surface.normalizeSurface contract with
+    | .ok bundle => pure bundle
+    | .error error => throw (IO.userError s!"peer Surface normalization failed: {repr error}")
+  let capabilityPlan : CapabilityPlan := {
+    targetId := "evm", calls := bundle.contract.contract.requirements }
+  match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract capabilityPlan with
+  | .error error =>
+      require (error.message.contains "unbound or invalid EVM crosscall target")
+        "unbound peer did not produce the named EVM diagnostic"
+  | .ok _ => throw (IO.userError "unbound EVM peer unexpectedly materialized")
 
 def main : IO Unit := do
   checkProduct Examples.Product.Canonical.Counter.contract 3
@@ -78,4 +100,8 @@ def main : IO Unit := do
   checkProduct Examples.Product.Canonical.StorageDeposit.contract 5
   checkProduct Examples.Product.Canonical.VestingVault.contract 7
   checkProduct Examples.Product.Canonical.ProRataVault.contract 9
+  checkProduct Examples.Product.Canonical.AuthRemoteCall.contract 2
+  checkProduct Examples.Product.Canonical.ExternalTokenTransfer.contract 5
+  checkProduct Examples.Product.Canonical.ExternalVault.contract 4
+  checkUnboundPeerRejected Examples.Product.Canonical.AuthRemoteCall.contract
   IO.println "evm-direct-products: ok"

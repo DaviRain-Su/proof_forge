@@ -161,11 +161,19 @@ structure CorePlanEnv where
   storage : StorageLayout := { states := #[] }
   events : Array (EventId × EventPlan) := #[]
   errors : Array (ErrorId × Option EvmErrorPlan) := #[]
+  peerBindings : Array TargetMetadata := #[]
 
 private def lookupValueName (env : CorePlanEnv) (id : ValueId) : Except PlanError String :=
   match env.values.find? (fun entry => entry.fst == id) with
   | some entry => .ok entry.snd
   | none => .error { message := s!"EVM Core plan references unknown value {id.value}" }
+
+private def resolvePeerAddress (env : CorePlanEnv) (host : String) : Except PlanError Nat := do
+  let resolvedHost := env.peerBindings.find? (fun metadata => metadata.key == s!"peer.{host}")
+    |>.map (·.value) |>.getD host
+  let some address := ProofForge.Target.ProtocolMaterialize.parseEvmAddressHex? resolvedHost
+    | throw { message := s!"unbound or invalid EVM crosscall target `{host}`" }
+  return address
 
 private def valueExpr (env : CorePlanEnv) (value : ValueRef) : Except PlanError ExprPlan := do
   match env.literals.find? (fun entry => entry.fst == value.id) with
@@ -265,9 +273,7 @@ private def bindInstructionResults (env : CorePlanEnv) (instr : Instruction) : C
 private def crosscallTargetExpr (env : CorePlanEnv) (target : ValueRef) : Except PlanError ExprPlan := do
   let some (_, .addressLit host) := env.literals.find? (fun entry => entry.fst == target.id)
     | valueExpr env target
-  let some address := ProofForge.Target.ProtocolMaterialize.parseEvmAddressHex? host
-    | throw { message := s!"invalid direct EVM crosscall target `{host}`" }
-  return .literalWord address
+  return .literalWord (← resolvePeerAddress env host)
 
 private def crosscallMethodExpr (env : CorePlanEnv) (method : ValueRef) : Except PlanError ExprPlan := do
   let some (_, literal) := env.literals.find? (fun entry => entry.fst == method.id)
@@ -345,6 +351,9 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
           (← coreLiteralToExprPlan (.stringLit literal))]
       else
         .ok #[]
+  | .pure (.literal (.addressLit host)) => do
+      .ok #[StmtPlan.letBind (resultName instr) .address
+        (.literalWord (← resolvePeerAddress env host))]
   | .pure (.literal lit) => do
       .ok #[StmtPlan.letBind (resultName instr) (← coreLiteralPlanType lit)
         (← coreLiteralToExprPlan lit)]
@@ -860,6 +869,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     storage
     events := (iface.events.zip events).map (fun entry => (entry.fst.eventId, entry.snd))
     errors
+    peerBindings := capPlan.metadata
   }
   /- Build entrypoint plans from interface. -/
   let mut entrypoints := #[]

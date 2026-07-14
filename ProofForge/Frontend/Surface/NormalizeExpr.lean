@@ -39,6 +39,7 @@ def compareValue (op : CompareOp) (lhs rhs : ValueRef) : SurfaceM NormalizedValu
 def exprType (e : SurfaceExpr) : SurfaceM CoreType := do
   match e with
   | .literal lit => return (coreLiteralType (← liftExcept (adaptLiteral lit)))
+  | .peerRef _ => return .address
   | .local name => return (← lookupLocal name).type
   | .arith _ _ lhs _ => exprType lhs
   | .cast target _ => resolveSurfaceType (← get).env.typeIds target
@@ -68,6 +69,8 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
   | .literal lit =>
       let coreLit ← liftExcept (adaptLiteral lit)
       emitValueInstruction (.pure (.literal coreLit)) (coreLiteralType coreLit)
+  | .peerRef logicalId =>
+      emitValueInstruction (.pure (.literal (.addressLit logicalId))) .address
   | .local name =>
       let ref ← lookupLocal name
       return { instructions := #[], value := ref }

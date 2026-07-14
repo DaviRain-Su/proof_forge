@@ -146,7 +146,7 @@ EVM migration. Finish these rows before resuming NEAR-R2:
 |---|---|---|
 | EVM-R0 | done (`c988153b`, `f44be25d`, `4cc2700b`) | Make canonical storage/ABI plans complete enough that the strict renderer consumes `ModulePlan` alone |
 | EVM-R1 | done (verified 2026-07-14) | Move EVM-only context, protocol, ABI, call-mode, error, and dispatch semantics into EVM-owned HostOps and plan metadata |
-| EVM-R2 | in_progress (core + policy + aggregate/context + five vault/accounting products verified 2026-07-14) | Materialize Counter, ValueVault, Token, RemoteCall, and remaining EVM product families directly into checked Canonical Core |
+| EVM-R2 | in_progress (25/28 EVM catalog products direct; protocol peers verified 2026-07-14) | Materialize Counter, ValueVault, Token, RemoteCall, and remaining EVM product families directly into checked Canonical Core |
 | EVM-R3 | pending | Switch EVM build/emit/check and product dispatch to the direct canonical route and replay focused EVM behavior/runtime gates |
 | EVM-R4 | pending | Delete obsolete EVM legacy lowering, adapters, constructors, compatibility APIs, and freeze-baseline entries after caller count reaches zero |
 

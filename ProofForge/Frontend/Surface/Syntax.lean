@@ -74,6 +74,7 @@ inductive SurfaceLValue
 /-- Surface-level expressions. -/
 inductive SurfaceExpr
   | literal (lit : SurfaceLiteral)
+  | peerRef (logicalId : String)
   | local (name : String)
   | stateRead (stateName : String)
   | mapRead (stateName : String) (key : SurfaceExpr)

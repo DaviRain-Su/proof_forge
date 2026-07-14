@@ -96,6 +96,7 @@ def evmSelector? : String → Option Nat
   | "redeem" => some 0xba087652
   -- PF-P2-03: generic RemoteCall peer method (call_with_args → two uint256 words).
   | "remote_call" => some 0xf1ae0699
+  | "receive" => some 0x5cdf6ad2
   | _ => none
 
 /-- Parse a `0x`-prefixed EVM word (at most 32 bytes) into a Nat. -/

@@ -24,6 +24,7 @@ via `ProtocolMaterialize.resolveEvmTargetExpr`; method names still map through
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.IR.Contract
+import ProofForge.Target.Plan
 
 namespace ProofForge.Target.PeerMap
 
@@ -95,5 +96,12 @@ def Map.json (m : Map) : String :=
     m.bindings.map fun b =>
       "{\"logical\":\"" ++ b.logical ++ "\",\"host\":\"" ++ b.host ++ "\"}"
   "[" ++ String.intercalate "," pairs.toList ++ "]"
+
+/-- Target-plan metadata for direct Canonical peer resolution. -/
+def Map.targetMetadata (m : Map) : Array ProofForge.Target.TargetMetadata :=
+  m.bindings.map fun binding => {
+    key := s!"peer.{binding.logical}"
+    value := binding.host
+  }
 
 end ProofForge.Target.PeerMap
