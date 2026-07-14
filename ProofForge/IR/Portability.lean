@@ -136,7 +136,6 @@ mutual
           if id.namespace_.startsWith "evm." then TargetFamily.evm
           else if id.namespace_.startsWith "near." then TargetFamily.wasmHost
           else if id.namespace_.startsWith "solana." then TargetFamily.solana
-          else if id.namespace_.startsWith "move." then TargetFamily.move
           else TargetFamily.zkCircuitSourcegen
         #[finding path s!"target extension {id.render}" (.targetFamilyOnly family)] ++
           args.foldl (fun acc arg => acc ++ classifyExpr s!"{path}.arg" arg) #[]

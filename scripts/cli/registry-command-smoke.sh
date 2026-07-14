@@ -24,31 +24,32 @@ echo "$help_text" | grep -Fq "at least one" || \
 echo "$help_text" | grep -Fq "not a promise" || \
   fail "help missing 'not a promise of Lean contract_source build support'"
 
-# Cloudflare fixture emit is the supported command that justifies list membership.
-lake env proof-forge emit --target wasm-cloudflare-workers --fixture counter --format ts \
-  -o "$OUT/counter.ts" >/dev/null
-[[ -s "$OUT/counter.ts" ]] || fail "cloudflare fixture emit produced empty file"
+# Psy fixture emit is a supported command that justifies list membership for a
+# fixture-only research lane (not a product contract_source compiler).
+lake env proof-forge emit --target psy-dpn --fixture counter --format psy \
+  -o "$OUT/counter.psy" >/dev/null
+[[ -s "$OUT/counter.psy" ]] || fail "psy fixture emit produced empty file"
 
 # Source build/check must fail closed with stable diagnostics (never unknown target).
 set +e
-build_err="$(lake env proof-forge build --target wasm-cloudflare-workers --root . \
-  -o "$OUT/cf-build" Examples/Product/ValueVault.lean 2>&1)"
+build_err="$(lake env proof-forge build --target psy-dpn --root . \
+  -o "$OUT/psy-build" Examples/Product/ValueVault.lean 2>&1)"
 build_st=$?
-check_err="$(lake env proof-forge check --target wasm-cloudflare-workers --root . \
+check_err="$(lake env proof-forge check --target psy-dpn --root . \
   Examples/Product/ValueVault.lean 2>&1)"
 check_st=$?
 set -e
 
-[[ "$build_st" -ne 0 ]] || fail "cloudflare source build should fail"
+[[ "$build_st" -ne 0 ]] || fail "psy source build should fail"
 echo "$build_err" | grep -Fq "source input is not supported" || fail "build missing source-input diagnostic: $build_err"
 echo "$build_err" | grep -Fq "unknown target" && fail "build returned unknown target: $build_err"
 
-[[ "$check_st" -ne 0 ]] || fail "cloudflare source check should fail"
+[[ "$check_st" -ne 0 ]] || fail "psy source check should fail"
 echo "$check_err" | grep -Fq "source input is not supported" || fail "check missing source-input diagnostic: $check_err"
 echo "$check_err" | grep -Fq "unknown target" && fail "check returned unknown target: $check_err"
 
-# Fixture check for Cloudflare should resolve the profile and pass.
-lake env proof-forge check --target wasm-cloudflare-workers --fixture counter >/dev/null
+# Fixture check for psy should resolve the profile and pass.
+lake env proof-forge check --target psy-dpn --fixture counter >/dev/null
 
 # Every generic legacy EmitWat entrypoint must resolve --target through the
 # public registry and reject unknown, hidden *-core, and non-EmitWat profiles
@@ -67,7 +68,7 @@ invalid_emitwat_targets=(
   solana-sbpf-asm-core
   wasm-near-core
   evm
-  wasm-cloudflare-workers
+  psy-dpn
 )
 for flag in "${legacy_emitwat_flags[@]}"; do
   for target in "${invalid_emitwat_targets[@]}"; do

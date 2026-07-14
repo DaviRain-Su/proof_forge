@@ -36,20 +36,5 @@ python3 scripts/sdk/validate-sdk-artifact-refs.py \
   "$OUT_ROOT/solana-sbpf-asm/proof-forge-sdk.json" \
   "$OUT_ROOT/wasm-near/proof-forge-sdk.json"
 
-SUI_LOG="$OUT_ROOT/move-sui-source.log"
-if lake env proof-forge build --target move-sui --root . -o "$OUT_ROOT/move-sui" "$SOURCE" >"$SUI_LOG" 2>&1; then
-  python3 scripts/sdk/validate-sdk-schema.py \
-    "$OUT_ROOT/move-sui/proof-forge-sdk.json" \
-    --expect-schema proof-forge.sdk-schema.v0 \
-    --expect-target move-sui
-  python3 scripts/sdk/validate-sdk-artifact-refs.py \
-    --require-relative \
-    --reject-absolute \
-    "$OUT_ROOT/move-sui/proof-forge-sdk.json"
-else
-  grep -Fq "move-sui" "$SUI_LOG"
-  grep -Fq "source" "$SUI_LOG"
-  grep -Fq "out of scope" "$SUI_LOG"
-fi
 
 echo "source-counter-sdk-smoke: ok"

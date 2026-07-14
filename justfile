@@ -446,7 +446,6 @@ sdk-schema:
     lake env lean --run Tests/SdkSchema.lean
     lake env lean --run Tests/SdkSchemaExtensions.lean
     lake env lean --run Tests/SdkSchemaDiagnostics.lean
-    lake env lean --run Tests/SuiSdkSchema.lean
     python3 scripts/sdk/validate-sdk-schema.py build/sdk/*/proof-forge-sdk.json --expect-schema proof-forge.sdk-schema.v0 --expect-ir portable-ir-v0
     python3 scripts/sdk/validate-sdk-artifact-refs.py --require-relative --reject-absolute build/sdk/*/proof-forge-sdk.json
     scripts/sdk/schema-determinism-smoke.sh
@@ -490,45 +489,15 @@ shared-token-intent:
 cosmwasm-counter-smoke:
     scripts/cosmwasm/counter-smoke.sh
 
-# Run the Aptos Move Counter sourcegen smoke through aptos move compile/test.
-aptos-counter-smoke:
-    scripts/aptos/counter-smoke.sh
 
-# Emit and diff tracked Aptos Move example artifacts.
-aptos-build-examples:
-    scripts/aptos/build-examples.sh
 
-# Run Aptos unsupported-shape diagnostic smoke.
-aptos-diagnostics:
-    lake env lean --run Tests/AptosDiagnostics.lean
 
-# Emit and validate the Sui Move Counter package layout.
-sui-build-examples:
-    scripts/sui/build-examples.sh
 
-# Run the Sui Move Counter package through local sui move build/test.
-sui-counter-smoke:
-    scripts/sui/counter-smoke.sh
 
-# Run Sui unsupported-shape diagnostic smoke.
-sui-diagnostics:
-    lake env lean --run Tests/SuiDiagnostics.lean
 
-# Check Sui emit/build target-first package parity.
-sui-emit-build-parity:
-    scripts/sui/emit-build-parity-smoke.sh
 
-# Check generated Sui object source avoids Aptos/global-storage patterns.
-sui-object-semantics:
-    scripts/sui/object-semantics-smoke.sh
 
-# Check Sui validation stays local to sui move build/test.
-sui-local-only:
-    scripts/sui/local-only-smoke.sh
 
-# Type-check the generated Sui client in a minimal consumer smoke.
-sui-client-ts-smoke:
-    scripts/sui/client-ts-smoke.sh
 
 # Check the EVM semantic plan smoke.
 evm-plan:
@@ -565,7 +534,7 @@ ir-counter-semantics-smoke:
 
 # D-050: portable IR + target-resolved StorageBinding smoke.
 ir-portability-smoke:
-    lake build ProofForge.IR.Portability ProofForge.IR.NearHost ProofForge.Target.StorageBinding ProofForge.IR.Examples.Counter ProofForge.IR.Examples.NearCrosscallProbe ProofForge.Backend.Evm.Validate ProofForge.Backend.Move.Sui ProofForge.Backend.Move.Aptos
+    lake build ProofForge.IR.Portability ProofForge.IR.NearHost ProofForge.Target.StorageBinding ProofForge.IR.Examples.Counter ProofForge.IR.Examples.NearCrosscallProbe ProofForge.Backend.Evm.Validate
     lake env lean --run Tests/IRPortability.lean
     ./scripts/ir/check-target-boundary.sh
 
@@ -745,17 +714,8 @@ soroban-promotion:
 cosmwasm-promotion:
     scripts/cli/cosmwasm-promotion-smoke.sh
 
-# PF-P3-02: six-gate promotion smoke for move-aptos (Counter fixture fragment).
-aptos-promotion:
-    scripts/cli/aptos-promotion-smoke.sh
 
-# PF-P3-02: six-gate promotion smoke for move-sui (Counter MVP fragment).
-sui-promotion:
-    scripts/cli/sui-promotion-smoke.sh
 
-# PF-P3-02: six-gate promotion smoke for wasm-cloudflare-workers (Counter TS fragment).
-cloudflare-promotion:
-    scripts/cli/cloudflare-promotion-smoke.sh
 
 # PF-P3-02: six-gate promotion smoke for psy-dpn (Counter fixture; dargo optional).
 psy-promotion:
@@ -1398,7 +1358,7 @@ portable-array-example-multi-target:
 portable-stdlib-core-multi-target:
     scripts/portable/stdlib-core-multi-target.sh
 
-# Generate and validate the portable Counter canonical SDK layout for all four SDK targets.
+# Generate and validate the portable Counter canonical SDK layout for the primary triad.
 portable-counter-four-target-sdk:
     scripts/portable/counter-four-target-sdk.sh
 
@@ -1410,7 +1370,7 @@ portable-source-counter-sdk:
 portable-legacy-output-stability:
     scripts/portable/legacy-output-stability-smoke.sh
 
-# Validate local Counter runtime behavior across runnable EVM, Solana, NEAR, and Sui targets.
+# Validate local Counter runtime behavior across EVM, Solana, and NEAR.
 portable-counter-four-target-runtime:
     scripts/portable/counter-four-target-runtime-smoke.sh
 

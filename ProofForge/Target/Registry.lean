@@ -16,7 +16,6 @@ inductive TargetFamily where
   | evm
   | wasmHost
   | solana
-  | move
   | zkCircuitSourcegen
   deriving BEq, DecidableEq, Repr
 
@@ -24,7 +23,6 @@ def TargetFamily.id : TargetFamily → String
   | .evm => "evm"
   | .wasmHost => "wasm-host"
   | .solana => "solana"
-  | .move => "move"
   | .zkCircuitSourcegen => "zk-circuit-sourcegen"
 
 inductive ArtifactKind where
@@ -32,10 +30,8 @@ inductive ArtifactKind where
   | yul
   | wasm
   | solanaElf
-  | movePackage
   | psyCircuitJson
   | leoSource
-  | typescriptSource
   deriving BEq, DecidableEq, Repr
 
 def ArtifactKind.id : ArtifactKind → String
@@ -43,10 +39,8 @@ def ArtifactKind.id : ArtifactKind → String
   | .yul => "yul"
   | .wasm => "wasm"
   | .solanaElf => "solana-elf"
-  | .movePackage => "move-package"
   | .psyCircuitJson => "psy-circuit-json"
   | .leoSource => "leo-source"
-  | .typescriptSource => "typescript-source"
 
 structure TargetProfile where
   id : String
@@ -192,25 +186,6 @@ def wasmCosmWasm : TargetProfile := {
       "Counter MVP (PF-P3-02 six-gate): contract_source via EmitWat + HostBridge.cosmWasm; " ++
       "offline-host lifecycle; execute_msg remains stub; cosmwasm-check golden via fixture emit"
     toolStages := #[{ tool := "wat2wasm", stage := "final-deployable" }]
-  }
-}
-
-def wasmCloudflareWorkers : TargetProfile := {
-  id := "wasm-cloudflare-workers"
-  family := .wasmHost
-  artifactKind := .typescriptSource
-  capabilities := #[.storageScalar]
-  requiredTools := #["wrangler"]
-  support := {
-    maturity := .research
-    inputModes := #[.fixture]
-    commands := #[.emit]
-    outputStages := #[.sourcegen]
-    validationLevel := .none
-    supportedFragment :=
-      "Off-chain research sourcegen: fixture Counter storage.scalar subset → TypeScript Worker; " ++
-      "product contract_source fails closed; strict Wrangler validation is an optional promotion gate"
-    toolStages := #[{ tool := "wrangler", stage := "sourcegen" }]
   }
 }
 
@@ -382,56 +357,6 @@ def solanaZigFork : TargetProfile := {
   deprecated := true
 }
 
-def moveAptos : TargetProfile := {
-  id := "move-aptos"
-  family := .move
-  artifactKind := .movePackage
-  capabilities := #[
-    .storageScalar,
-    .storageMap,
-    .callerSender,
-    .valueNative,
-    .eventsEmit,
-    .crosscallInvoke,
-    .envBlock,
-    .cryptoHash,
-    .accountExplicit
-  ]
-  requiredTools := #["aptos"]
-  support := {
-    maturity := .spike
-    inputModes := #[.fixture]
-    commands := #[.build, .emit, .check]
-    outputStages := #[.sourcegen]
-    validationLevel := .capability
-    supportedFragment :=
-      "Counter sourcegen spike: fixture counter → Move source package; " ++
-      "product contract_source fails closed; final package requires mandatory aptos compile/test"
-    toolStages := #[{ tool := "aptos", stage := "sourcegen" }]
-  }
-}
-
-def moveSui : TargetProfile := {
-  id := "move-sui"
-  family := .move
-  artifactKind := .movePackage
-  capabilities := #[
-    .storageScalar,
-    .assertions,
-    .accountExplicit
-  ]
-  requiredTools := #["sui"]
-  support := {
-    maturity := .counterMvp
-    inputModes := #[.fixture]
-    commands := #[.build, .emit, .check]
-    outputStages := #[.sourcegen]
-    validationLevel := .capability
-    supportedFragment := "Counter MVP Move package; scalar storage + assertions only"
-    toolStages := #[{ tool := "sui", stage := "sourcegen" }]
-  }
-}
-
 def psyDpn : TargetProfile := {
   id := "psy-dpn"
   family := .zkCircuitSourcegen
@@ -517,13 +442,10 @@ def allIncludingDeprecated : Array TargetProfile := #[
   solanaSbpfAsm,
   wasmNear,
   wasmCosmWasm,
-  wasmCloudflareWorkers,
   wasmStellarSoroban,
   wasmArbitrumStylus,
   solanaSbpfLinker,
   solanaZigFork,
-  moveAptos,
-  moveSui,
   psyDpn,
   aleoLeo
 ]

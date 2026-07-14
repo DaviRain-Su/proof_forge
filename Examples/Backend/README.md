@@ -17,7 +17,7 @@ This path:    fixtures · goldens · Source.Solana · Learn · spikes
 | `WasmNear/` | Golden WAT + Layer B `FtPeerClient` (NEP-141 peer, not stdlib FT body) |
 | `Stylus/` | Nitro deployment peers and target-only live fixtures |
 | `Learn/` | Legacy parser fixtures |
-| `Psy/`, `Aleo/`, `Aptos/`, `CosmWasm/`, `CloudflareWorkers/`, `near/` | Target research |
+| `Psy/`, `Aleo/`, `CosmWasm/`, `near/` | Target research |
 
 Source.Solana / NEAR host-extension syntax here is **fixture-only**, not the
 portable product API (see product-authoring-architecture C.4).

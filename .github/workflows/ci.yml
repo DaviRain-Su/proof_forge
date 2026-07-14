@@ -613,38 +613,6 @@ jobs:
         if: steps.install-leo.outputs.available != 'true'
         run: echo "Aleo smoke skipped because Leo was not available."
 
-  cloudflare-smoke:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
-      - name: Install just
-        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
-        with:
-          tool: just@1.48.0
-
-      - name: Install Lean
-        run: |
-          scripts/ci/install-lean.sh
-          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-
-      - name: Install Node and wrangler
-        run: |
-          curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-          sudo apt-get install -y nodejs
-          sudo npm install -g typescript wrangler
-          tsc --version
-          wrangler --version
-
-      - name: Build proof-forge
-        run: just build
-
-      - name: Run TypeScript / Cloudflare Workers smoke
-        run: ./scripts/ts/counter-ir-smoke.sh
-
   cosmwasm-smoke:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -742,7 +710,6 @@ jobs:
             build/test-lanes/
           if-no-files-found: warn
 
-  aptos-smoke:
     runs-on: ubuntu-latest
     continue-on-error: true
 

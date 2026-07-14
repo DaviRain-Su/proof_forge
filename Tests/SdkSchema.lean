@@ -53,13 +53,6 @@ def targetArtifacts (targetId dir : String) : IO (Array (String × FileRef)) := 
         ("deployManifest", ← makeRef dir "proof-forge-deploy.json" "{\"target\":\"wasm-near\"}\n"),
         ("contractSpec", ← makeRef dir "Counter.contract-spec.json" "{\"schema\":\"proof-forge.contract-spec.v0\"}\n")
       ]
-  | "move-sui" =>
-      return #[
-        ("artifactMetadata", ← makeRef dir "proof-forge-artifact.json" "{\"target\":\"move-sui\"}\n"),
-        ("manifest", ← makeRef dir "Move.toml" "[package]\nname = \"counter\"\n"),
-        ("primary", ← makeRef dir "sources/counter.move" "module proof_forge::counter {}\n"),
-        ("tests", ← makeRef dir "tests/counter_tests.move" "#[test]\nfun test_counter() {}\n")
-      ]
   | other =>
       throw <| IO.userError s!"unexpected test target {other}"
 
@@ -74,8 +67,6 @@ def targetClients (targetId dir : String) : IO (Array (String × FileRef)) := do
       return #[("typescript", ← makeRef dir "proof-forge-client.ts" "export const target = \"solana-sbpf-asm\";\n")]
   | "wasm-near" =>
       return #[("typescript", ← makeRef dir "proof-forge-near.ts" "export const target = \"wasm-near\";\n")]
-  | "move-sui" =>
-      return #[("typescript", ← makeRef dir "proof-forge-client.ts" "export const target = \"move-sui\";\n")]
   | other =>
       throw <| IO.userError s!"unexpected test target {other}"
 
@@ -110,7 +101,7 @@ def requireRootFields (targetId json : String) : IO Unit := do
     s!"{targetId} SDK schema missing target extension object"
 
 def main : IO UInt32 := do
-  let targets := #["evm", "solana-sbpf-asm", "wasm-near", "move-sui"]
+  let targets := #["evm", "solana-sbpf-asm", "wasm-near"]
   for targetId in targets do
     let json ← renderTarget targetId
     requireRootFields targetId json

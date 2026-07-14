@@ -15,9 +15,6 @@ import ProofForge.Cli.ContractSourceArtifacts
 import ProofForge.Cli.StylusArtifacts
 import ProofForge.Cli.Metadata
 import ProofForge.Cli.Quint
-import ProofForge.Compiler.TS.AST
-import ProofForge.Compiler.TS.Printer
-import ProofForge.Compiler.TS.Emit
 import ProofForge.IR.Examples.AbiAggregateProbe
 import ProofForge.IR.Examples.AbiScalarProbe
 import ProofForge.IR.Examples.ArrayProbe
@@ -172,7 +169,6 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .yul => compileContractSourceYul opts
   | .evmBytecode => compileEvmBytecode opts
   | .counterIrYul => compileCounterIrYul opts
-  | .counterIrTs => compileCounterIrTs opts
   | .counterIrBytecode => compileCounterIrBytecode opts
   | .valueVaultIrYul => compileValueVaultIrYul opts
   | .valueVaultIrBytecode => compileValueVaultIrBytecode opts
@@ -320,8 +316,6 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
   | .counterIrAleo => compileCounterIrAleo opts
   | .pureMathIrLeo => compilePureMathIrLeo opts
   | .counterIrCosmWasm => compileCounterIrCosmWasm opts
-  | .counterIrAptos => compileCounterIrAptos opts
-  | .counterIrSui => compileCounterIrSui opts
   | .counterIrQuint => compileCounterIrQuint opts
   | .valueVaultIrQuint => compileValueVaultIrQuint opts
   | .irQuint => compileIrQuint opts

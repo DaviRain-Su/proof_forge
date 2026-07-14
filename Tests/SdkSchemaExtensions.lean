@@ -70,17 +70,6 @@ def main : IO UInt32 := do
   require (contains near "\"offlineHost\":")
     "NEAR extension missing offline host metadata"
 
-  let sui ← renderTarget "move-sui"
-  requireOnlySelectedExtension "move-sui" "sui" sui
-  require (contains sui "\"packageDir\":")
-    "Sui extension missing package metadata"
-  require (contains sui "\"object\":")
-    "Sui extension missing object metadata"
-  require (contains sui "\"uidType\": \"UID\"")
-    "Sui extension missing UID metadata"
-  require (contains sui "\"ownership\":")
-    "Sui extension missing ownership metadata"
-
   IO.println "sdk-schema-extensions: ok"
   return 0
 

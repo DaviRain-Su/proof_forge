@@ -48,10 +48,6 @@ run_and_check build-near build/sdk/wasm-near \
 run_and_check emit-near "$OUT_ROOT/emit/wasm-near" \
   lake env proof-forge emit --target wasm-near --fixture counter --format wat -o "$OUT_ROOT/emit/wasm-near"
 
-run_and_check build-sui build/sdk/move-sui \
-  lake env proof-forge build --target move-sui --fixture counter -o build/sdk/move-sui
-run_and_check emit-sui "$OUT_ROOT/emit/move-sui" \
-  lake env proof-forge emit --target move-sui --fixture counter --format sui -o "$OUT_ROOT/emit/move-sui"
 
 scripts/sdk/validate-sdk-layout.py build/sdk
 python3 scripts/sdk/validate-sdk-artifact-refs.py --require-relative --reject-absolute build/sdk/*/proof-forge-sdk.json

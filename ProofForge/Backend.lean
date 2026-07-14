@@ -4,5 +4,4 @@ import ProofForge.Backend.Psy.Metadata
 import ProofForge.Backend.Solana
 import ProofForge.Backend.WasmHost
 import ProofForge.Backend.Aleo
-import ProofForge.Backend.Move.Aptos
 import ProofForge.Backend.Quint

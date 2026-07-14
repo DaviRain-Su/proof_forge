@@ -158,10 +158,7 @@ COL_TO_TARGET = {
     "NEAR": "wasm-near",
     "CosmWasm": "wasm-cosmwasm",
     "Solana": "solana-sbpf-asm",
-    "Aptos": "move-aptos",
-    "Sui": "move-sui",
     "Psy DPN": "psy-dpn",
-    "CF Workers": "wasm-cloudflare-workers",
 }
 
 
@@ -274,7 +271,7 @@ justfile = read_text(repo / "justfile")
 val_gates = read_text(repo / "docs/validation-gates.md")
 cap_reg = read_text(repo / "docs/capability-registry.md")
 sdk_gaps = read_text(repo / "docs/sdk-ecosystem-gaps-2026-07.md")
-cf_workers = read_text(repo / "docs/targets/cloudflare-workers.md")
+cf_workers = ""
 targets_readme = read_text(repo / "docs/targets/README.md")
 
 registry_ids = parse_registry_known_ids(registry_text)
@@ -306,7 +303,7 @@ example_paths = {
 only_registry = sorted(registry_ids - readme_ids)
 only_readme = sorted(readme_ids - registry_ids)
 cli_not_registry = sorted(cli_ids - registry_ids)
-registry_not_cli = sorted(registry_ids - cli_ids - {"wasm-cloudflare-workers"})
+registry_not_cli = sorted(registry_ids - cli_ids)
 
 for tid in only_registry:
     add(

@@ -111,8 +111,6 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       .error "missing value for --learn-target"
   | "--emit-counter-ir-yul" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrYul }
-  | "--emit-counter-ir-ts" :: rest, opts =>
-      parseArgs rest { opts with mode := .counterIrTs }
   | "--emit-counter-ir-bytecode" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrBytecode }
   | "--emit-value-vault-ir-yul" :: rest, opts =>
@@ -405,10 +403,6 @@ partial def parseArgs : List String → CliOptions → Except String CliOptions
       parseArgs rest { opts with mode := .pureMathIrLeo }
   | "--emit-counter-ir-cosmwasm" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrCosmWasm }
-  | "--emit-counter-ir-aptos" :: rest, opts =>
-      parseArgs rest { opts with mode := .counterIrAptos }
-  | "--emit-counter-ir-sui" :: rest, opts =>
-      parseArgs rest { opts with mode := .counterIrSui }
   | "--emit-counter-ir-quint" :: rest, opts =>
       parseArgs rest { opts with mode := .counterIrQuint }
   | "--emit-value-vault-ir-quint" :: rest, opts =>

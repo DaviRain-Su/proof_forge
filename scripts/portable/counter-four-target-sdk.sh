@@ -16,7 +16,6 @@ generate_sdk() {
   lake env proof-forge build --target evm --fixture counter --format bytecode -o "$out_root/evm"
   lake env proof-forge build --target solana-sbpf-asm --fixture counter -o "$out_root/solana-sbpf-asm"
   lake env proof-forge build --target wasm-near --fixture counter --format wat -o "$out_root/wasm-near"
-  lake env proof-forge build --target move-sui --fixture counter -o "$out_root/move-sui"
 }
 
 validate_counter_schemas() {
@@ -40,7 +39,6 @@ extension_by_target = {
     "evm": "evm",
     "solana-sbpf-asm": "solana",
     "wasm-near": "near",
-    "move-sui": "sui",
 }
 required_entrypoints = {"initialize", "increment", "get"}
 for target, extension in extension_by_target.items():
@@ -87,4 +85,4 @@ cp -R "$OUT_ROOT" "$SNAP_B"
 
 diff -ru "$SNAP_A" "$SNAP_B"
 
-echo "counter-four-target-sdk: ok"
+echo "counter-four-target-sdk: ok (primary triad; Sui removed)"

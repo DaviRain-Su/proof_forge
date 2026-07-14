@@ -22,7 +22,7 @@ import sys
 
 a = pathlib.Path(sys.argv[1])
 b = pathlib.Path(sys.argv[2])
-targets = ["evm", "solana-sbpf-asm", "wasm-near", "move-sui"]
+targets = ["evm", "solana-sbpf-asm", "wasm-near"]
 for target in targets:
     left = (a / target / "proof-forge-sdk.json").read_bytes()
     right = (b / target / "proof-forge-sdk.json").read_bytes()

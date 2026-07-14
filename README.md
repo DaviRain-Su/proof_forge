@@ -40,11 +40,10 @@ branches). Lifecycle stages follow [docs/targets/README.md](docs/targets/README.
 The primary-chain P0 backend-gate covenant (D-045) is closed, but SDK depth is
 not: the current gap inventory records **2 open P0 SDK blockers** (both NEAR;
 EVM and Solana have 0). Unified SDK schema/layout outputs exist for `evm`,
-`solana-sbpf-asm`, `wasm-near`, and `move-sui` via the portable Counter flow.
+`solana-sbpf-asm`, and `wasm-near` via the portable Counter flow.
 Three-chain portable scenarios (Counter, ValueVault) compile and execute on
 EVM, Solana, and NEAR via `just portable-counter-multi-target` and
-`just portable-value-vault`; Sui is intentionally scoped to a Counter MVP with
-local `sui move build/test` validation.
+`just portable-value-vault`.
 
 | Target id | Pipeline | Stage | Local validation |
 |---|---|---|---|
@@ -54,23 +53,20 @@ local `sui move build/test` validation.
 | `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just soroban-promotion` (source identity · fail-closed · HostBridge · wat2wasm · offline-host lifecycle · docs); auth still spike-always; Stellar CLI/TTL remain follow-on |
 | `wasm-arbitrum-stylus` | Surface v2 / Legacy adapter → canonical contract → `StylusPlan` → direct HostIO Wasm (default) or pinned Rust SDK oracle | Research | `just stylus-all`; atomic WAT/Wasm or Rust bundles, plan-derived Solidity ABI/client, hashed plan/storage/evidence, and local VM/differential coverage for Counter, ValueVault, Token, RemoteCall, and bounded aggregates; Nitro activation/E2E evidence is still required for promotion |
 | `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just cosmwasm-promotion` (product Counter source · offline-host 0→1 · no NEAR swap); `execute_msg` still stub; fixture `cosmwasm-check` via `just cosmwasm-counter-smoke` |
-| `move-aptos` | portable IR → Aptos Move source package | Counter sourcegen Spike | fixture Counter package + capability checks; `just aptos-promotion` is a strict promotion gate requiring `aptos move compile/test`, not default final-artifact evidence |
-| `move-sui` | portable IR → Sui Move package | Counter MVP | Counter package layout, local `sui move build/test`, unsupported-shape diagnostics, emit/build parity, object semantics, local-only validation, TypeScript client smoke |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Spike (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
 | `aleo-leo` | portable IR → Leo source package | Research sourcegen | validated pure, Unit-final, and state-independent `(T, Final)` fragment; ordered Poseidon pair hashing, record semantics, and plan-derived metadata; state-derived non-Unit returns fail closed under Leo 4.0.2 |
-| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | Off-chain Research sourcegen | fixture Counter TS only; product source fails closed; promotion requires successful Wrangler dry-run plus executable Worker lifecycle; not a Wasm binary |
 
 **CLI-only verification target:** `quint` is accepted by `proof-forge emit --target quint`
 for formal/model-checking fixtures but is **not** in `Target.knownIds` /
 `--list-targets` (same class as a verification lane, not a product host).
 
 
-**Spike honesty (U7):** CosmWasm / Aptos / Soroban / Cloudflare are **not**
-primary-product hosts. CosmWasm portable crosscall is a WasmMsg-shaped
-`execute_msg` stub; Soroban interpreter `require_auth_for_args` is always-auth
-in Lean. Gate G1a/G1b (CosmWasm/Aptos M3–M4) stay **not started** until
-explicitly scheduled — see [gate-status](docs/gate-status.md) and
-[unified-support-roadmap](docs/superpowers/plans/2026-07-09-unified-support-roadmap.md) U7.
+**Spike honesty (U7):** CosmWasm / Soroban are **not** primary-product hosts.
+CosmWasm portable crosscall is a WasmMsg-shaped `execute_msg` stub; Soroban
+interpreter `require_auth_for_args` is always-auth in Lean. Move (Aptos/Sui)
+and Cloudflare Workers backends were removed from `main` (archived on branch
+`archive/move-cloudflare-2026-07-15`). Gate G1a (CosmWasm M3–M4) stays **not
+started** until explicitly scheduled — see [gate-status](docs/gate-status.md).
 
 The multi-chain Token SDK (`TokenSpec`, [RFC 0006](docs/rfcs/0006-multichain-token-sdk.md))
 routes one token intent to ERC-20 bytecode on EVM or SPL Token / Token-2022
@@ -90,8 +86,7 @@ just check-fast    # affected-path inner loop (core/product + focused target gat
 just check         # parallel full baseline, automatically capped at four workers
 just check-serial  # serial full reference for suspected race diagnosis
 just evm-all       # full EVM gates: examples, Foundry smoke, Anvil deploy
-just portable-counter-four-target-sdk  # Counter SDK layout for EVM, Solana, NEAR, Sui
-just sui-counter-smoke                 # local Sui Move Counter build/test
+just portable-counter-four-target-sdk  # Counter SDK layout for EVM, Solana, NEAR
 just ci            # the full CI sequence locally
 ```
 
@@ -113,15 +108,13 @@ Emit artifacts for other targets from built-in portable IR fixtures:
 ```sh
 lake env proof-forge emit --target wasm-near --fixture counter --format wat -o build/wasm-near
 lake env proof-forge emit --target solana-sbpf-asm --fixture counter --format elf -o build/solana/counter.so
-lake env proof-forge emit --target move-sui --fixture counter --format sui -o build/sui
 lake env proof-forge emit --target psy-dpn --fixture counter --format psy -o build/psy/Counter.psy
 lake env proof-forge emit --target aleo-leo --fixture pure-math --format leo -o build/aleo/PureMath.leo
-lake env proof-forge emit --target wasm-cloudflare-workers --fixture counter --format ts -o build/ts/Counter.ts
 ```
 
 The complete, per-target list of runnable validation commands and their tool
 prerequisites (Foundry, `solc`, `sbpf`, `wat2wasm`, `dargo`, `leo`,
-`wrangler`, …) lives in [docs/validation-gates.md](docs/validation-gates.md).
+`dargo`, `leo`, …) lives in [docs/validation-gates.md](docs/validation-gates.md).
 Cloud/agent environment notes are in [AGENTS.md](AGENTS.md).
 
 ## Architecture
@@ -158,10 +151,8 @@ flowchart TB
     EVM["EVM<br/>Plan → Yul → solc"]
     SOL["Solana<br/>sBPF asm → ELF"]
     NEAR["NEAR<br/>EmitWat → WAT → wasm"]
-    SUI["Sui<br/>Move package (Counter MVP)"]
     PSY["Psy/DPN<br/>.psy → Dargo"]
     ALEO["Aleo<br/>Leo package"]
-    CFW["CF Workers<br/>TypeScript"]
   end
 
   subgraph artifacts ["Artifacts + validation"]
@@ -177,8 +168,8 @@ flowchart TB
   IR --> CAP
   REG --> CAP
   EXT --> CAP
-  CAP --> EVM & SOL & NEAR & SUI & PSY & ALEO & CFW
-  EVM & SOL & NEAR & SUI & PSY & ALEO & CFW --> ART
+  CAP --> EVM & SOL & NEAR & PSY & ALEO
+  EVM & SOL & NEAR & PSY & ALEO --> ART
   ART --> GATES
 ```
 

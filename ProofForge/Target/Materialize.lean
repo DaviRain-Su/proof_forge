@@ -13,8 +13,7 @@ product vocabulary for every **implemented** target in `Target.Registry.all`
 |---|---|---|
 | EVM | `evm` | contract-global slots |
 | Solana | `solana-sbpf-asm` | account-data |
-| Wasm host | `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers` | host KV (+ host bridge) |
-| Move | `move-aptos`, `move-sui` | resource / object |
+| Wasm host | `wasm-near`, `wasm-cosmwasm` | host KV (+ host bridge) |
 | ZK sourcegen | `psy-dpn`, `aleo-leo` | circuit mapping |
 
 Deprecated Solana routes stay importable but are not advertised.
@@ -133,8 +132,7 @@ def forWasmHost (module : Module) (profile : TargetProfile) : Report :=
     | some .cosmWasm => "cosmwasm-storage"
     | some .soroban => "soroban-storage"
     | none =>
-        if profile.id == "wasm-cloudflare-workers" then "workers-bindings"
-        else "host-key-value"
+        "host-key-value"
   let note :=
     match bridge?, mode with
     | some .near, .autoPortable =>
@@ -146,10 +144,7 @@ def forWasmHost (module : Module) (profile : TargetProfile) : Report :=
     | some .soroban, _ =>
         "Soroban host storage (_put/_get) + portable crosscall → invoke_contract (soroban-invoke)"
     | none, _ =>
-        if profile.id == "wasm-cloudflare-workers" then
-          "Cloudflare Workers bindings / off-chain host from portable IR (TS emit path)"
-        else
-          "Wasm-host layout synthesized from portable IR"
+        "Wasm-host layout synthesized from portable IR"
   { targetId := profile.id
     targetFamily := TargetFamily.wasmHost.id
     storageBinding := profile.storageBinding.id
@@ -166,42 +161,9 @@ def forWasmNear (module : Module) : Report :=
 def forWasmCosmWasm (module : Module) : Report :=
   forWasmHost module wasmCosmWasm
 
-def forWasmCloudflareWorkers (module : Module) : Report :=
-  forWasmHost module wasmCloudflareWorkers
-
 /-- Soroban host adapter (profile constant; not yet in `Registry.all`). -/
 def forWasmStellarSoroban (module : Module) : Report :=
   forWasmHost module wasmStellarSoroban
-
-/-- Move family: Aptos resource vs Sui object — target picks binding. -/
-def forMove (module : Module) (profile : TargetProfile) : Report :=
-  let (stateUnits, entrypointCount) := baseCounts module
-  let binding := profile.storageBinding
-  let layoutKind :=
-    match binding with
-    | .moveObject => "move-object"
-    | .moveResource => "move-resource"
-    | _ => binding.id
-  let note :=
-    match binding with
-    | .moveObject =>
-        "Sui object-with-UID package synthesized from portable scalar state (Counter MVP)"
-    | .moveResource =>
-        "Aptos account resource package synthesized from portable scalar state (Counter spike)"
-    | _ =>
-        "Move package sourcegen from portable IR"
-  { targetId := profile.id
-    targetFamily := TargetFamily.move.id
-    storageBinding := binding.id
-    mode := .autoPortable
-    layoutKind := layoutKind
-    hostBridge? := none
-    stateUnits := stateUnits
-    entrypointCount := entrypointCount
-    note := note }
-
-def forMoveAptos (module : Module) : Report := forMove module moveAptos
-def forMoveSui (module : Module) : Report := forMove module moveSui
 
 /-- ZK circuit / Leo sourcegen family. -/
 def forZk (module : Module) (profile : TargetProfile) : Report :=
@@ -243,10 +205,7 @@ def forImplementedProfile (profile : TargetProfile) (module : Module)
     | "solana-sbpf-asm" => some (forSolana module solanaExt)
     | "wasm-near" => some (forWasmNear module)
     | "wasm-cosmwasm" => some (forWasmCosmWasm module)
-    | "wasm-cloudflare-workers" => some (forWasmCloudflareWorkers module)
     | "wasm-stellar-soroban" => some (forWasmStellarSoroban module)
-    | "move-aptos" => some (forMoveAptos module)
-    | "move-sui" => some (forMoveSui module)
     | "psy-dpn" => some (forPsyDpn module)
     | "aleo-leo" => some (forAleoLeo module)
     | _ =>
@@ -254,7 +213,6 @@ def forImplementedProfile (profile : TargetProfile) (module : Module)
         | .evm => some (forEvm module)
         | .solana => some (forSolana module solanaExt profile.id)
         | .wasmHost => some (forWasmHost module profile)
-        | .move => some (forMove module profile)
         | .zkCircuitSourcegen => some (forZk module profile)
 
 /-- Compatibility alias for earlier primary-only callers. -/

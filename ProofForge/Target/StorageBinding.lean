@@ -25,10 +25,6 @@ inductive StorageBinding where
   | accountData
   /-- Wasm-host key/value storage (NEAR, and similar hosts). -/
   | hostKeyValue
-  /-- Aptos account-owned Move resource (`has key`). -/
-  | moveResource
-  /-- Sui Move object with UID (`has key`). -/
-  | moveObject
   /-- ZK / circuit storage mapping (felt-backed or similar). -/
   | circuitMapping
   deriving BEq, DecidableEq, Repr
@@ -37,16 +33,12 @@ def StorageBinding.id : StorageBinding → String
   | .contractGlobal => "contract-global"
   | .accountData => "account-data"
   | .hostKeyValue => "host-key-value"
-  | .moveResource => "move-resource"
-  | .moveObject => "move-object"
   | .circuitMapping => "circuit-mapping"
 
 def StorageBinding.describe : StorageBinding → String
   | .contractGlobal => "EVM contract storage slots"
   | .accountData => "Solana account data layout"
   | .hostKeyValue => "Wasm host key/value storage"
-  | .moveResource => "Aptos Move account resource"
-  | .moveObject => "Sui Move object with UID"
   | .circuitMapping => "ZK circuit storage mapping"
 
 /-- Resolve the native storage binding for a target profile. Pure function of
@@ -55,17 +47,14 @@ def TargetProfile.storageBinding (profile : TargetProfile) : StorageBinding :=
   match profile.id with
   | "evm" => .contractGlobal
   | "solana-sbpf-asm" | "solana-sbpf-linker" | "solana-zig-fork" => .accountData
-  | "wasm-near" | "wasm-cosmwasm" | "wasm-cloudflare-workers"
+  | "wasm-near" | "wasm-cosmwasm"
   | "wasm-stellar-soroban" => .hostKeyValue
-  | "move-aptos" => .moveResource
-  | "move-sui" => .moveObject
   | "psy-dpn" | "aleo-leo" => .circuitMapping
   | _ =>
       match profile.family with
       | .evm => .contractGlobal
       | .solana => .accountData
       | .wasmHost => .hostKeyValue
-      | .move => .moveResource
       | .zkCircuitSourcegen => .circuitMapping
 
 def storageBindingForTargetId? (targetId : String) : Option StorageBinding :=

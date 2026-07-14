@@ -67,8 +67,11 @@ is limited to CI stability, security fixes, and documentation maintenance.
 |---|---|---|
 | [Psy DPN](psy-dpn.md) | Spike | Generated `.psy`/Dargo path stays maintained; no capability-completion push until a ZK/circuit lane is scheduled. |
 | [Aleo Leo](aleo-leo.md) | Research | Counter/PureMath sourcegen and smokes stay maintained; no new ZK-app lane is currently scheduled. |
-| [Cloudflare Workers](cloudflare-workers.md) | Research (TS emit) | Counter TypeScript Worker demo stays as an off-chain host reference; no product expansion is currently scheduled. |
-| [Sui Move](move-family.md) | Counter MVP | Counter package + local `just sui-*` gates stay maintained; beyond-Counter expansion waits for Aptos M4 per D-007. |
+
+**Removed from `main` (2026-07-15):** `move-aptos`, `move-sui`, and
+`wasm-cloudflare-workers` (including `ProofForge/Backend/Move`,
+`ProofForge/Compiler/TS`, and related fixtures). Full history is preserved on
+branch `archive/move-cloudflare-2026-07-15`.
 
 ## Tier-1 Candidates
 

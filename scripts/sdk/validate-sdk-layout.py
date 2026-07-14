@@ -30,14 +30,6 @@ REQUIRED_BY_TARGET = {
         "counter.wat",
         "proof-forge-deploy.json",
     ],
-    "move-sui": [
-        "proof-forge-sdk.json",
-        "proof-forge-client.ts",
-        "proof-forge-artifact.json",
-        "Move.toml",
-        "sources/counter.move",
-        "tests/counter_tests.move",
-    ],
 }
 
 

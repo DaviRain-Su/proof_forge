@@ -179,7 +179,7 @@ def main : IO UInt32 := do
   requireEmitWatTarget (some "wasm-cosmwasm") "wasm-cosmwasm" .cosmWasm
   requireEmitWatTarget (some "wasm-stellar-soroban") "wasm-stellar-soroban" .soroban
   for targetId in #["not-a-target", "evm-core", "solana-sbpf-asm-core", "wasm-near-core",
-      "evm", "wasm-cloudflare-workers"] do
+      "evm", "psy-dpn"] do
     requireEmitWatTargetError targetId
   requireEmitWatPlanTargetCheck "wasm-near" "wasm-near" true
   requireEmitWatPlanTargetCheck "wasm-near" "wasm-cosmwasm" false
@@ -299,27 +299,6 @@ def main : IO UInt32 := do
   requireLegacyArgs
     ["emit", "--target", "aleo-leo", "--fixture", "pure-math", "--format", "leo", "-o", "build/aleo/PureMath.leo"]
     ["--emit-pure-math-ir-leo", "-o", "build/aleo/PureMath.leo"]
-  requireLegacyArgs
-    ["emit", "--target", "move-aptos", "--fixture", "counter", "--format", "aptos", "-o", "build/aptos-counter"]
-    ["--emit-counter-ir-aptos", "-o", "build/aptos-counter"]
-  requireLegacyArgs
-    ["build", "--target", "move-sui", "--fixture", "counter", "-o", "build/sdk/move-sui"]
-    ["--emit-counter-ir-sui", "-o", "build/sdk/move-sui"]
-  requireLegacyArgs
-    ["emit", "--target", "move-sui", "--fixture", "counter", "--format", "sui", "-o", "build/sdk/move-sui"]
-    ["--emit-counter-ir-sui", "-o", "build/sdk/move-sui"]
-  requireErrorContains
-    ["emit", "--target", "move-sui", "--fixture", "counter", "--format", "aptos", "-o", "build/sdk/move-sui"]
-    #["move-sui", "aptos", "sui"]
-  requireErrorContains
-    ["build", "--target", "move-sui", "--fixture", "value-vault", "-o", "build/sdk/move-sui"]
-    #["move-sui", "value-vault", "not yet implemented"]
-  requireErrorContains
-    ["emit", "--target", "move-sui", "--fixture", "value-vault", "--format", "sui", "-o", "build/sdk/move-sui"]
-    #["move-sui", "value-vault", "not yet mapped"]
-  requireErrorContains
-    ["build", "--target", "move-sui", "--root", ".", "-o", "build/source-sdk/move-sui", "Examples/Product/Counter.lean"]
-    #["move-sui", "source input is not supported"]
   -- PF-P3-02: CosmWasm accepts contract_source Lean modules (HostBridge.cosmWasm).
   requireLegacyArgs
     ["build", "--target", "wasm-cosmwasm", "--root", ".", "-o", "build/source-sdk/cosmwasm",
@@ -335,21 +314,17 @@ def main : IO UInt32 := do
     ["build", "--target", "aleo-leo", "--root", ".", "-o", "build/source-sdk/vault.leo",
       "Examples/Product/ValueVault.lean"]
     #["aleo-leo", "source input is not supported"]
+  -- Removed targets must fail as unknown rather than as legacy source-input denials.
   requireErrorContains
-    ["build", "--target", "move-aptos", "--root", ".", "-o", "build/source-sdk/move-aptos",
-      "Examples/Product/ValueVault.lean"]
-    #["move-aptos", "source input is not supported"]
+    ["build", "--target", "move-sui", "--fixture", "counter", "-o", "build/sdk/move-sui"]
+    #["unknown target"]
   requireErrorContains
-    ["build", "--target", "wasm-cloudflare-workers", "--root", ".", "-o", "build/source-sdk/workers",
-      "Examples/Product/ValueVault.lean"]
-    #["wasm-cloudflare-workers", "source input is not supported"]
+    ["build", "--target", "wasm-cloudflare-workers", "--fixture", "counter", "-o", "build/ts"]
+    #["unknown target"]
   -- Fixture emit remains available for the CosmWasm region/cosmwasm-check spike.
   requireLegacyArgs
     ["build", "--target", "wasm-cosmwasm", "-o", "build/cosmwasm/Counter.wat"]
     ["--emit-counter-ir-cosmwasm", "-o", "build/cosmwasm/Counter.wat"]
-  requireLegacyArgs
-    ["emit", "--target", "wasm-cloudflare-workers", "--fixture", "counter", "--format", "ts"]
-    ["--emit-counter-ir-ts"]
   requireNftNative "evm" "Examples/Product/Nft.lean"
   requireNftNative "solana-sbpf-asm" "Examples/Product/Nft.lean"
   requireNftNative "wasm-near" "Examples/Product/Nft.lean"

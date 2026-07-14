@@ -969,8 +969,8 @@ def featureSupportOnTarget (targetId : String) (feature : TokenFeature) : Featur
         .experimental
       else
         .reject
-  | "wasm-cosmwasm" | "wasm-cloudflare-workers"
-  | "wasm-stellar-soroban" | "move-aptos" | "move-sui"
+  | "wasm-cosmwasm"
+  | "wasm-stellar-soroban"
   | "psy-dpn" | "aleo-leo" =>
       .noLane
   | _ => .noLane

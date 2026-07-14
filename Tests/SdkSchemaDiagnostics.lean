@@ -68,10 +68,6 @@ def main : IO UInt32 := do
     #["evm", "crosscall.cpi", "storage.pda"]
     "Solana-only metadata under evm"
 
-  expectErrorContains
-    (renderResult "move-sui" (ContractSpec.fromIR mapModule))
-    #["move-sui", "storage.map"]
-    "non-MVP Sui map shape"
 
   expectErrorContains
     (renderResult "unknown-target" spec)

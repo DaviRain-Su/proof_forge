@@ -3,7 +3,7 @@ Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
 Materialization + crosscall mapping for every implemented registry target
-(EVM · Solana · Wasm family · Move · Psy · Aleo).
+(EVM · Solana · Wasm family · Psy · Aleo).
 -/
 import Examples.Product.Counter
 import ProofForge.Target.CrosscallMaterialize
@@ -39,18 +39,6 @@ def main : IO Unit := do
   require (cosmwasmR.layoutKind == "cosmwasm-storage") "CosmWasm layout"
   require (cosmwasmR.mode == .autoPortable) "CosmWasm auto-portable"
 
-  let cfR := forWasmCloudflareWorkers counter
-  require (cfR.targetId == "wasm-cloudflare-workers") "CF Workers id"
-  require (cfR.layoutKind == "workers-bindings") "CF layout"
-  require cfR.hostBridge?.isNone "CF Workers has no consensus host bridge"
-
-  -- Move
-  let aptosR := forMoveAptos counter
-  let suiR := forMoveSui counter
-  require (aptosR.storageBinding == "move-resource") "Aptos resource"
-  require (suiR.storageBinding == "move-object") "Sui object"
-  require (aptosR.mode == .autoPortable && suiR.mode == .autoPortable) "Move auto"
-
   -- ZK
   let psyR := forPsyDpn counter
   let aleoR := forAleoLeo counter
@@ -78,14 +66,12 @@ def main : IO Unit := do
   let solX := forProfile solanaSbpfAsm
   let nearX := forProfile wasmNear
   let cosmwasmX := forProfile wasmCosmWasm
-  let cfX := forProfile wasmCloudflareWorkers
   let psyX := forProfile psyDpn
   let aleoX := forProfile aleoLeo
   require (evmX.nativeForm == .evmCall) "EVM crosscall form"
   require (solX.nativeForm == .solanaCpi) "Solana crosscall form"
   require (nearX.nativeForm == .nearPromise) "NEAR crosscall form"
   require (cosmwasmX.nativeForm == .cosmWasmMsg) "CosmWasm crosscall form (deferred spike)"
-  require (cfX.nativeForm == .workersBinding) "CF crosscall form (deferred)"
   require (psyX.nativeForm == .zkCircuitCall) "Psy crosscall form"
   require (aleoX.nativeForm == .zkCircuitCall) "Aleo crosscall form"
   -- Soroban host-adapter profile (constant, not in Registry.all / list-targets).

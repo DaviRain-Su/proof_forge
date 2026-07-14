@@ -25,7 +25,6 @@ EXTENSION_KEYS = {
     "evm": "evm",
     "solana-sbpf-asm": "solana",
     "wasm-near": "near",
-    "move-sui": "sui",
 }
 
 

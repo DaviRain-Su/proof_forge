@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 The `EmitMode` enumeration lists every legacy `--mode` / fixture flag the CLI
 accepts. It is a large flat inductive (~140 constructors) covering EVM, Solana
-sBPF, NEAR Wasm, Move/Sui, Aleo Leo, CosmWasm, Aptos, Quint, and Psy targets
+sBPF, NEAR Wasm, Aleo Leo, CosmWasm, Quint, and Psy targets
 plus per-fixture IR smokes.
 
 The type and target-independent helper functions live here. `Cli.lean` imports
@@ -33,7 +33,6 @@ inductive EmitMode where
   | contractSourceEmitWat
   | learnTarget
   | learnTokenTarget
-  | counterIrTs
   | abiScalarIrYul
   | abiScalarIrBytecode
   | assertIrYul
@@ -166,8 +165,6 @@ inductive EmitMode where
   | counterIrAleo
   | pureMathIrLeo
   | counterIrCosmWasm
-  | counterIrAptos
-  | counterIrSui
   | counterIrQuint
   | valueVaultIrQuint
   | irQuint
@@ -349,10 +346,7 @@ def EmitMode.hasBuiltInFixture : EmitMode → Bool
   | .counterIrLeo
   | .counterIrAleo
   | .pureMathIrLeo
-  | .counterIrTs
   | .counterIrCosmWasm
-  | .counterIrAptos
-  | .counterIrSui
   | .counterIrQuint => true
   | .valueVaultIrQuint => true
   | .irQuint => true

@@ -4,8 +4,6 @@ import ProofForge.Cli.EvmAbi
 import ProofForge.Cli.EvmArtifacts
 import ProofForge.Cli.FileUtil
 import ProofForge.Cli.Options
-import ProofForge.Compiler.TS.Emit
-import ProofForge.Compiler.TS.Printer
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Spec
 import ProofForge.IR
@@ -69,18 +67,6 @@ def renderCounterIrYul : IO String := do
   match ProofForge.Cli.Evm.renderYul ProofForge.IR.Examples.Counter.module with
   | .ok yul => return yul
   | .error err => throw <| IO.userError err.render
-
-def compileCounterIrTs (opts : CliOptions) : IO UInt32 := do
-  let output := opts.output?.getD (FilePath.mk "build/ts/Counter.ts")
-  match ProofForge.Compiler.TS.Emit.emitModule ProofForge.IR.Examples.Counter.module with
-  | .ok tsModule =>
-    let source := ProofForge.Compiler.TS.Printer.render tsModule
-    writeTextFile output source
-    IO.println s!"wrote {output}"
-    return 0
-  | .error msg =>
-    IO.eprintln s!"compileCounterIrTs: {msg}"
-    return 1
 
 def compileCounterIrBytecode (opts : CliOptions) : IO UInt32 := do
   let yulOutput := opts.yulOutput?.getD (FilePath.mk "build/ir/Counter.yul")

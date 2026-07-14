@@ -153,8 +153,6 @@ def main : IO Unit := do
     "heap-backed infos pack full MAX_TX_ACCOUNT_LOCKS (64)"
   require (HEAP_START_ADDRESS == 0x300000000) "Solana heap base"
   require (PORTABLE_CPI_INFO_HEAP_BYTES == 64 * 56) "heap reserve for 64 AccountInfos"
-  require ((forProfile moveAptos).nativeForm == NativeForm.moveCall) "Aptos form"
-  require ((forProfile moveSui).nativeForm == NativeForm.moveCall) "Sui form"
   -- Soroban is next host adapter: honest form, never alias NEAR promise.
   require (NativeForm.sorobanInvoke.id == "soroban-invoke") "Soroban form id"
   require (NativeForm.sorobanInvoke != NativeForm.nearPromise)

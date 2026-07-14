@@ -50,7 +50,7 @@ samples. Do not teach Backend as the SDK.
 | `Backend/Solana/` | sBPF goldens, manifests; Source.Solana only when needed |
 | `Backend/WasmNear/` | WAT goldens / NEAR fixtures |
 | `Backend/Learn/` | Legacy `.learn` parser fixtures |
-| `Backend/Psy/`, `Aleo/`, `Aptos/`, `CosmWasm/`, `CloudflareWorkers/`, … | Research / target spikes |
+| `Backend/Psy/`, `Aleo/`, `CosmWasm/`, … | Research / target spikes |
 
 If a Backend fixture starts as useful business logic, **move the logic into
 `Product/`** and leave only goldens or thin re-exports under Backend.

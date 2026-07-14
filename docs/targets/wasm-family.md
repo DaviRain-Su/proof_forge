@@ -5,8 +5,7 @@ canisters, later Polkadot/ink-style contracts, and Cloudflare Workers. They
 share an executable format, but not a contract ABI. Cloudflare Workers is not a
 blockchain, but it uses the same Wasm-host backend pattern: a generated Wasm
 module plus a target-specific host bridge. ProofForge should share only the
-parts that are genuinely common. See [Cloudflare Workers target](cloudflare-workers.md)
-for the off-chain reinterpretation of capabilities.
+parts that are genuinely common. for the off-chain reinterpretation of capabilities.
 
 ## Spike honesty (U7)
 
@@ -83,7 +82,6 @@ ProofForge/Backend/WasmHost/          # one Wasm-family package
 | Registry `wasm-near` | Product target id for **NEAR only** |
 | Registry `wasm-stellar-soroban` | Product target id for **Soroban only** |
 | Registry `wasm-cosmwasm` | Product target id for **CosmWasm only** |
-| Registry `wasm-cloudflare-workers` | Off-chain Wasm host (TS/Workers path; not EmitWat core) |
 | Registry `wasm-arbitrum-stylus` | Research; Solidity ABI + EVM slot semantics through a separate `StylusPlan`; direct Wasm default, Rust oracle |
 
 **Single entry:** `WasmHost.EmitWat.renderModule mod bridge` for all three

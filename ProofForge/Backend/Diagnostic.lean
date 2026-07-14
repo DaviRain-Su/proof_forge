@@ -21,7 +21,7 @@ holds for `Evm.Validate.LowerError`, `Evm.IR.LowerError`, `Evm.Plan.PlanError`,
 `WasmNear.Plan.PlanError`, `WasmNear.EmitWat.EmitError`,
 `Solana.SbpfAsm.LowerError`, `Solana.Plan.PlanError`, `Psy.IR.LowerError`,
 `Psy.Plan.PlanError`, `CosmWasm.IR.LowerError`, `CosmWasm.EmitWat.EmitError`,
-`Aleo.IR.LowerError`, `Move.Sui.EmitError`, `Move.Aptos.EmitError`,
+`Aleo.IR.LowerError`,
 `Quint.Lower.LowerError`, `Quint.Replay.ReplayError`, `Quint.InvExpr.ParseError`,
 and the already-shared `ProofForge.Target.Diagnostic`. The only richer shape is
 `ProofForge.Cli.Check.Diagnostic` (severity + code + location), which is a CLI

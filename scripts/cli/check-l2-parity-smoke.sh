@@ -11,7 +11,7 @@ lake build proof-forge >/dev/null
 fail() { echo "check-l2-parity: $*" >&2; exit 1; }
 
 # Fixture-only targets: check and build must both reject source with same category.
-for target in psy-dpn aleo-leo move-aptos move-sui wasm-cloudflare-workers; do
+for target in psy-dpn aleo-leo; do
   set +e
   berr="$(lake env proof-forge build --target "$target" --root . -o "/tmp/pf-check-b-$target" \
     Examples/Product/ValueVault.lean 2>&1)"

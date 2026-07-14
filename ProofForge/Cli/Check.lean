@@ -210,11 +210,8 @@ def checkFixtureCapabilities (profile : ProofForge.Target.TargetProfile) (fixtur
 PF-P3-02: `wasm-cosmwasm` is Counter MVP with contract_source (same class as
 Soroban EmitWat adapter) and is intentionally *not* fixture-only. -/
 def isFixtureOnlySourceTarget (targetId : String) : Bool :=
-  targetId == "wasm-cloudflare-workers" ||
   targetId == "psy-dpn" ||
-  targetId == "aleo-leo" ||
-  targetId == "move-aptos" ||
-  targetId == "move-sui"
+  targetId == "aleo-leo"
 
 unsafe def checkLegacyContractSource (profile : ProofForge.Target.TargetProfile) (input : FilePath)
     (root? : Option FilePath) (moduleName? : Option Name) (report : Report) : IO Report := do

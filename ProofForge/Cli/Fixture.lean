@@ -89,11 +89,8 @@ inductive Format where
   | wat
   | s
   | psy
-  | ts
   | leo
   | cosmwasm
-  | aptos
-  | sui
   | elf
   | qnt
   | scenario
@@ -107,11 +104,8 @@ def Format.id : Format → String
   | .wat => "wat"
   | .s => "s"
   | .psy => "psy"
-  | .ts => "ts"
   | .leo => "leo"
   | .cosmwasm => "cosmwasm"
-  | .aptos => "aptos"
-  | .sui => "sui"
   | .elf => "elf"
   | .qnt => "qnt"
   | .scenario => "scenario"
@@ -125,11 +119,8 @@ def parseFormat? (s : String) : Option Format :=
   | "wat" => some .wat
   | "s" | "sbpf-asm" => some .s
   | "psy" => some .psy
-  | "ts" => some .ts
   | "leo" => some .leo
   | "cosmwasm" => some .cosmwasm
-  | "aptos" => some .aptos
-  | "sui" | "move" => some .sui
   | "elf" | "so" => some .elf
   | "qnt" => some .qnt
   | "dpn-json" | "dpn" | "json" => some .dpnJson
@@ -145,12 +136,9 @@ def supportedTargetIds : Array String := #[
   "solana-sbpf-asm",
   "wasm-near",
   "wasm-cosmwasm",
-  "wasm-cloudflare-workers",
   "wasm-stellar-soroban",
   "psy-dpn",
   "aleo-leo",
-  "move-aptos",
-  "move-sui",
   "quint"
 ]
 
@@ -162,12 +150,9 @@ def defaultFormatFor (targetId fixtureId : String) : Option Format :=
       else some .yul
   | "solana-sbpf-asm" => some .s
   | "wasm-near" | "wasm-cosmwasm" => some .wat
-  | "wasm-cloudflare-workers" => some .ts
   | "wasm-stellar-soroban" => some .wat
   | "psy-dpn" => some .psy
   | "aleo-leo" => some .leo
-  | "move-aptos" => some .aptos
-  | "move-sui" => some .sui
   | "quint" => some .qnt
   | _ => none
 
@@ -216,15 +201,12 @@ def supportsFormat (targetId fixtureId : String) (format : Format) : Bool :=
   | "solana-sbpf-asm", f, _ => isSolanaFixture f
   | "wasm-near", f, _ => isWasmNearFixture f
   | "wasm-cosmwasm", "counter", .wat => true
-  | "wasm-cloudflare-workers", "counter", .ts => true
   | "wasm-stellar-soroban", f, .wat => isWasmNearFixture f
   | "psy-dpn", f, .psy => isPsyFixture f
   | "psy-dpn", "counter", .dpnJson => true
   | "aleo-leo", "counter", .leo => true
   | "aleo-leo", "counter", .aleo => true
   | "aleo-leo", "pure-math", .leo => true
-  | "move-aptos", "counter", .aptos => true
-  | "move-sui", "counter", .sui => true
   | "quint", "counter", .qnt => true
   | "quint", "value-vault", .qnt => true
   | "quint", f, .qnt => Quint.supportsFixture f

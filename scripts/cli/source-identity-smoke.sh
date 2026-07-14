@@ -37,7 +37,7 @@ fail() {
 # fragments; ValueVault may fail-closed on host-runtime gaps (like Soroban).
 is_fixture_only() {
   case "$1" in
-    psy-dpn|aleo-leo|move-aptos|move-sui|wasm-cloudflare-workers) return 0 ;;
+    psy-dpn|aleo-leo) return 0 ;;
     *) return 1 ;;
   esac
 }

@@ -128,7 +128,7 @@ spike to M3/M4.
 **Status: Not started.** Gate P0 is closed, so the D-045 freeze no longer
 blocks scheduling. The next implementation step is still controlled by the
 backlog: finish the CLI M3/M4 target-first migration before advancing this
-spike to M3/M4 or starting `move-sui`.
+spike to M3/M4. (Move targets were removed from main on 2026-07-15.)
 
 ## Gate G2 — both Tier-1 exits (not started)
 
