@@ -39,10 +39,10 @@
     "note": "initial native differential validation design"
   },
   "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
-    "sha256": "41aa927e07b709fdcea81a8040dde4ff36b844dea2632ca1056714655a5baabe",
+    "sha256": "efeb7dd7329981ab80d584a734eabe21fae64d017854f75a54639753694428cd",
     "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through pinned CMP-3e1 Pausable references and active VM execution"
+    "note": "manually synced through verified CMP-3e2 Pausable primary-triad VM execution"
   },
   "docs/capability-registry.md": {
     "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
@@ -73,10 +73,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "128f78b1a98a02a4085c72bf41a5d49931f74f9a84375e310fcf3ed715ef9614",
+    "sha256": "ec7f8fbeb2f736c213deaffc271ff7ea9bfdd83aff1cc9d69d43938b16d04fc2",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through pinned Pausable references and active CMP-3e2 execution"
+    "note": "synced EN/zh through verified Pausable evidence and active ReentrancyGuard cutover"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -102,10 +102,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "960f4309bcc597f76bbc7e9b5a307257876067de566df8b9eb1dbfe18197b098",
+    "sha256": "c946ea83493fb4d7b297324dfbc07d0faa35328cf65f84f080612a07d8101fc3",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through CMP-3e1 pinned Pausable inventory"
+    "note": "manually synced through CMP-3e2 Pausable differential gate"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -186,10 +186,10 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "f5a664e5140144eae9ce136a63a705fec143b8adf6b53d3f86736a0922aab3b5",
+    "sha256": "f483c2815aefa370d7cdfe46ee30b751e8f7824b036feab238bbde7caf00439f",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "f5a664e5140144eae9ce136a63a705fec143b8adf6b53d3f86736a0922aab3b5"
+    "en_sha256": "f483c2815aefa370d7cdfe46ee30b751e8f7824b036feab238bbde7caf00439f"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {

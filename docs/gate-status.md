@@ -220,6 +220,21 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | CMP-3e1-4 | Pinned sources do not overclaim semantic equivalence | ✅ met | `just differential-contracts` validates all manifests and digests; inventory grows to 112 assets but remains exactly 18 verified, with all four Pausable CMP-3 assets at `none` |
 | CMP-3e1-5 | No production compatibility path is introduced | ✅ met | references, scenario, and inventory logic remain under `benchmarks/`, `testkit/`, and `scripts/differential/`; the called NEAR v0 manifest remains explicit deletion work for CMP-3e2, not a compiler adapter |
 
+## Gate CMP-3e2 - Primary-triad native Pausable differential
+
+**Status: Closed**
+
+**Closed: 2026-07-14 at `98e9996f`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3e2-1 | The ProofForge side uses only the direct public source | ✅ met | `just differential-pausable` builds `Examples/Product/Pausable.lean` as `contract-source-authored` / `canonical-core-v1` on EVM, Solana, and NEAR and rejects legacy sidecars |
+| CMP-3e2-2 | Both implementations execute the same guarded state machine | ✅ met | Anvil, Mollusk, and upstream `near-vm-runner` execute the same nine query, pause, unpause, and negative steps against native and ProofForge artifacts |
+| CMP-3e2-3 | Negative transitions preserve state and remain classified | ✅ met | unpause while unpaused and repeated pause both fail, retain the previous scalar state, and normalize to distinct assertion error data |
+| CMP-3e2-4 | All required observations are complete | ✅ met | every target reports `semanticMatch=true` with status, return, state, balances, events, external actions, interface, and target-local resource coverage |
+| CMP-3e2-5 | Replaced v0 evidence is deleted instead of adapted | ✅ met | `testkit/compare/near/pausable/reference-manifest.json` is deleted; the remaining compare caller explicitly names the v1 reference with no discovery fallback |
+| CMP-3e2-6 | Inventory promotion is evidence-backed | ✅ met | the generated inventory has 113 assets and exactly 24 verified assets; the three Pausable references, scenario, runner, and focused gate are the six newly verified assets |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

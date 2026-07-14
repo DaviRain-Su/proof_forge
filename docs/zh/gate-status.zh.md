@@ -213,6 +213,21 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | CMP-3e1-4 | 已固定 source 不虚报语义等价 | ✅ met | `just differential-contracts` 校验全部 manifest 与 digest；inventory 增至 112 项但仍恰有 18 项 verified，四个 Pausable CMP-3 asset 全部为 `none` |
 | CMP-3e1-5 | 不引入生产兼容路线 | ✅ met | reference、scenario 与 inventory logic 保持在 `benchmarks/`、`testkit/`、`scripts/differential/`；仍被调用的 NEAR v0 manifest 是 CMP-3e2 的显式删除任务，而不是 compiler adapter |
 
+## Gate CMP-3e2 —— 主三链原生 Pausable 差分
+
+**状态：Closed**
+
+**Closed: 2026-07-14 at `98e9996f`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-3e2-1 | ProofForge 侧只使用 direct public source | ✅ met | `just differential-pausable` 在 EVM、Solana、NEAR 上以 `contract-source-authored` / `canonical-core-v1` 构建 `Examples/Product/Pausable.lean`，并拒绝 legacy sidecar |
+| CMP-3e2-2 | 两侧实现执行相同 guarded 状态机 | ✅ met | Anvil、Mollusk 与 upstream `near-vm-runner` 对原生和 ProofForge artifact 执行相同九个 query、pause、unpause 与负面 step |
+| CMP-3e2-3 | 负面 transition 保持状态并完成分类 | ✅ met | 未暂停时 unpause 与重复 pause 均失败，保持之前的标量状态，并归一化为不同 assertion error data |
+| CMP-3e2-4 | 所有必需 observation 完整 | ✅ met | 每个 target 都报告 `semanticMatch=true`，并完整覆盖 status、return、state、balance、event、external action、interface 与 target-local resource |
+| CMP-3e2-5 | 删除被替代的 v0 evidence，而不是适配 | ✅ met | `testkit/compare/near/pausable/reference-manifest.json` 已删除；剩余 compare 调用方显式命名 v1 reference，不存在 discovery fallback |
+| CMP-3e2-6 | Inventory 晋级由证据支撑 | ✅ met | 生成 inventory 含 113 项资产，恰有 24 项 verified；三份 Pausable reference、scenario、runner 与 focused gate 是六项新增 verified 资产 |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

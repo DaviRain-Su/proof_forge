@@ -4433,3 +4433,27 @@ Rules:
   cargo-build-sbf 3.1.12/platform-tools v1.52; near-sdk host tests and Rust
   1.94.0 release Wasm build; `just differential-contracts`; source-digest
   audit; and `git diff --check`. No full aggregate was run.
+
+## 2026-07-14 - CMP-3e2: primary-triad native Pausable differential
+
+- Status: `done (verified at 98e9996f)`; A-CUT3c2 now rewrites Product
+  ReentrancyGuard directly and deletes its Legacy implementation and wrapper.
+- Added `scripts/differential/pausable_pilot.py`, `just
+  differential-pausable`, and a dedicated Mollusk runner. The gate builds only
+  the direct Product source through checked Core and EVM/Solana/NEAR
+  target-owned plans, rejects legacy sidecars, and executes both implementations
+  on Anvil, Mollusk, and upstream `near-vm-runner`.
+- All nine steps cover status, return value, paused state, balances, events,
+  external actions, interface, and target-local resources. Unpause while
+  unpaused and repeated pause fail with state preserved; every target reports
+  `semanticMatch=true` and complete coverage.
+- Deleted the called NEAR Pausable v0 manifest. The retained compare command
+  explicitly names `testkit/differential/pausable/references/near.v1.json`;
+  there is no fallback or migration adapter.
+- Inventory now contains 113 assets and exactly 24 verified assets. The three
+  Pausable references, scenario, deterministic runner, and focused gate are
+  promoted only after the three VM comparisons passed.
+- Verification: `just differential-pausable`; `just differential-contracts`;
+  `just near-compare-pausable`; focused Cargo checks for the Solana harness and
+  NEAR compare runner; Python bytecode compilation; and `git diff --check`. No
+  full aggregate was run.

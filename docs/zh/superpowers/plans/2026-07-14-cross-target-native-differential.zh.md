@@ -158,9 +158,9 @@ target plan。随后 A-CUT3b2 将 Product Ownable 本身切换到这条单一路
 删除 ContractSpec/v1 alias 与过时 EVM wrapper，并发射携带
 `contract-source-authored` / `canonical-core-v1` 的 EVM、Solana 与最终
 NEAR Wasm 制品。focused gate 拒绝 legacy sidecar，并证明 NEAR address
-carrier 由 Wasm-host plan 所有。独立原生 Ownable 差分证据已经完成。Pausable
-也已在 `50c1c07a` 获得唯一 direct Product source；下一步固定其原生 reference
-并执行 VM comparison，且不得适配已退役的 Legacy source。
+carrier 由 Wasm-host plan 所有。独立原生 Ownable 与 Pausable 差分证据均已完成。
+Pausable 已在 `50c1c07a` 获得唯一 direct Product source，并在 `98e9996f`
+获得完整 VM 证据；下一步是 ReentrancyGuard，且不得适配任何已退役 Legacy source。
 
 Ownable authorization 执行切片：
 
@@ -193,7 +193,7 @@ Pausable 状态机执行切片：
 | ID | 状态 | 任务 |
 |---|---|---|
 | CMP-3e1 | done (verified at `c8e417db`) | 已固定独立 Solidity 与 Pinocchio program，把现有 near-sdk reference 提升到完整 v1 provenance，并定义含重复 pause/unpause 失败与状态保持的版本化九步场景。Evidence 保持 `none`。 |
-| CMP-3e2 | in_progress | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个 dimension，并删除被替代的 NEAR v0 manifest，而不是适配它。 |
+| CMP-3e2 | done (verified at `98e9996f`) | 已在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；全部八个 dimension 匹配，且被替代的 NEAR v0 manifest 已删除。 |
 
 两个切片都不得增加 compiler compatibility path、消费 v1
 `ContractSpec`/`IR.Module`，也不得在三个 VM 完成同一场景前晋级 inventory
@@ -205,6 +205,15 @@ cargo-build-sbf 3.1.12 / platform-tools v1.52 构建；near-sdk source 通过三
 host test，并使用 Rust 1.94.0 构建 Wasm。三份 v1 manifest 都匹配已检入 source
 SHA-256。生成 inventory 现含 112 项资产，仍恰有 18 项 verified；三份 Pausable
 reference 与 scenario 在 CMP-3e2 前保持 `semanticEvidence=none`。
+
+CMP-3e2 完成证据（2026-07-14）：`just differential-pausable` 仅把
+`Examples/Product/Pausable.lean` 经 Authored/checked Core 与三个 target-owned
+plan 构建。独立 Solidity、Pinocchio 与 near-sdk 实现在 Anvil、Mollusk 和
+upstream `near-vm-runner` 上执行与 ProofForge 相同的九步场景。每个 target
+均报告 `semanticMatch=true` 和完整八维 coverage；两个非法 transition 都保持
+之前的 paused 状态。旧 NEAR Pausable v0 manifest 已删除，剩余 compare 调用方
+显式命名 v1 reference，不存在 discovery fallback。Inventory 现含 113 项资产，
+恰有 24 项 verified。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

@@ -202,9 +202,10 @@ that single route, deletes its ContractSpec/v1 aliases and obsolete EVM wrapper,
 and emits EVM, Solana, and final NEAR Wasm artifacts carrying
 `contract-source-authored` / `canonical-core-v1`. The focused gate rejects
 legacy sidecars and proves NEAR's address carrier is owned by the Wasm-host
-plan. Independent native Ownable differential evidence is complete. Pausable
-now also has one direct Product source at `50c1c07a`; its native reference and
-VM comparison slices are next and cannot adapt the retired Legacy source.
+plan. Independent native Ownable and Pausable differential evidence is
+complete. Pausable has one direct Product source at `50c1c07a` and complete VM
+evidence at `98e9996f`; ReentrancyGuard is next and cannot adapt any retired
+Legacy source.
 
 Ownable authorization execution slices:
 
@@ -241,7 +242,7 @@ Pausable state-machine execution slices:
 | ID | State | Task |
 |---|---|---|
 | CMP-3e1 | done (verified at `c8e417db`) | Pinned independent Solidity and Pinocchio programs, promoted the existing near-sdk reference to complete v1 provenance, and defined one versioned nine-step scenario with repeated pause/unpause failures and state preservation. Evidence remains `none`. |
-| CMP-3e2 | in_progress | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight dimensions and delete the replaced NEAR v0 manifest rather than adapting it. |
+| CMP-3e2 | done (verified at `98e9996f`) | Executed the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; all eight dimensions match, and the replaced NEAR v0 manifest is deleted. |
 
 Neither slice may add a compiler compatibility path, consume a v1
 `ContractSpec`/`IR.Module`, or promote inventory evidence before all three VMs
@@ -254,6 +255,16 @@ the near-sdk source passes three host tests and builds Wasm with Rust 1.94.0.
 All three v1 manifests match the checked-in source SHA-256. The generated
 inventory contains 112 assets and still exactly 18 verified assets; the three
 Pausable references and scenario remain `semanticEvidence=none` until CMP-3e2.
+
+CMP-3e2 completion evidence (2026-07-14): `just differential-pausable`
+builds only `Examples/Product/Pausable.lean` through Authored/checked Core and
+the three target-owned plans. Independent Solidity, Pinocchio, and near-sdk
+implementations run the same nine steps beside ProofForge on Anvil, Mollusk,
+and upstream `near-vm-runner`. Every target reports `semanticMatch=true` and
+complete eight-dimension coverage; both invalid transitions retain the
+previous paused state. The old NEAR Pausable v0 manifest is deleted and the
+remaining compare caller explicitly names the v1 reference without discovery
+fallback. Inventory now contains 113 assets and exactly 24 verified assets.
 
 Acceptance:
 

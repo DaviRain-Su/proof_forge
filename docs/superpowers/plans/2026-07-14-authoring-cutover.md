@@ -283,7 +283,7 @@ independent primary-triad behavior requirement at `e2834c59`.
 
 ### A-CUT3 - Product migration
 
-State: `in_progress; ValueVault and Ownable direct with primary-triad VM evidence; Pausable direct cutover verified at 50c1c07a and native differential active`
+State: `in_progress; ValueVault, Ownable, and Pausable direct with primary-triad VM evidence; ReentrancyGuard rewrite-and-delete active`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
@@ -330,8 +330,11 @@ and obsolete EVM wrapper, and removes their allowlist/topology entries. The
 same checked Core reaches EVM, Solana, NEAR, and the shared Soroban Wasm-host
 plan. `just pausable-authoring-cutover` builds final primary-triad artifacts
 with `contract-source-authored` / `canonical-core-v1` and rejects retired
-sidecars. CMP-3e native evidence is active before ReentrancyGuard receives the
-same rewrite-and-delete treatment; neither family gets a compatibility facade.
+sidecars. `98e9996f` completes CMP-3e on Anvil, Mollusk, and upstream
+`near-vm-runner`: all nine steps and eight observation dimensions match, the
+two rejected transitions preserve state, and the replaced NEAR v0 manifest is
+deleted. ReentrancyGuard now receives the same rewrite-and-delete treatment;
+neither family gets a compatibility facade.
 
 ### A-CUT4 - Delete duplicate source and version split
 
