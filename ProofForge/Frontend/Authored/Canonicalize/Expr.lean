@@ -18,6 +18,63 @@ structure NormalizedValue where
   value : ValueRef
   deriving Repr, BEq, Nonempty
 
+private inductive StorageCursor
+  | value (type : CoreType)
+  | mapKeys (keys : Array CoreType) (value : CoreType)
+  | array (element : CoreType)
+
+private def initialStorageCursor (shape : StateShape) : StorageCursor :=
+  match shape with
+  | .scalar type => .value type
+  | .map key value _ => .mapKeys #[key] value
+  | .mapN keys value _ => .mapKeys keys value
+  | .fixedArray element _ | .dynamicArray element => .array element
+  | .record typeId => .value (.structType typeId)
+
+private def authoredPathValueType (value : AuthoredPathValue) : AuthoredM CoreType := do
+  match value with
+  | .local name => return (← lookupLocal name).type
+  | .literal literal => return coreLiteralType (← liftExcept (adaptLiteral literal))
+
+private def advanceStorageCursor (cursor : StorageCursor)
+    (segment : AuthoredStorageSegment) : AuthoredM StorageCursor := do
+  match cursor, segment with
+  | .mapKeys keys valueType, .mapKey key =>
+      let expected ← match keys[0]? with
+        | some expected => pure expected
+        | none => throw (AuthoredNormalizeError.invalidLValue "map path has too many keys")
+      let actual ← authoredPathValueType key
+      unless actual == expected do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr expected) (reprStr actual))
+      let remaining := keys.extract 1 keys.size
+      return if remaining.isEmpty then .value valueType else .mapKeys remaining valueType
+  | .array element, .index index =>
+      let actual ← authoredPathValueType index
+      unless actual == .u64 do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.u64) (reprStr actual))
+      return .value element
+  | .value (.fixedArray element _), .index index
+  | .value (.array element), .index index =>
+      let actual ← authoredPathValueType index
+      unless actual == .u64 do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.u64) (reprStr actual))
+      return .value element
+  | .value (.structType typeId), .field name =>
+      let (_, fieldType) ← lookupStructField typeId name
+      return .value fieldType
+  | _, _ =>
+      throw (AuthoredNormalizeError.invalidLValue "storage path segment does not match the logical state shape")
+
+def storagePathResultType (stateName : String) (path : Array AuthoredStorageSegment) :
+    AuthoredM CoreType := do
+  let mut cursor := initialStorageCursor (← lookupStateShape stateName)
+  for segment in path do
+    cursor ← advanceStorageCursor cursor segment
+  match cursor with
+  | .value type => return type
+  | .mapKeys _ _ => throw (AuthoredNormalizeError.invalidLValue "storage path is missing a map key")
+  | .array _ => throw (AuthoredNormalizeError.invalidLValue "storage path is missing an array index")
+
 /-- Append an instruction that produces a single value. -/
 def emitValueInstruction (op : InstructionOp) (resultType : CoreType) :
     AuthoredM NormalizedValue := do
@@ -25,6 +82,40 @@ def emitValueInstruction (op : InstructionOp) (resultType : CoreType) :
   let vdef := { id := vid, type := resultType }
   let instr := { results := #[vdef], op := op }
   return { instructions := #[instr], value := { id := vid, type := resultType } }
+
+private def normalizePathValue (value : AuthoredPathValue) : AuthoredM NormalizedValue := do
+  match value with
+  | .local name => return { instructions := #[], value := ← lookupLocal name }
+  | .literal literal =>
+      let coreLiteral ← liftExcept (adaptLiteral literal)
+      emitValueInstruction (.pure (.literal coreLiteral)) (coreLiteralType coreLiteral)
+
+def normalizeStorageRef (stateName : String) (path : Array AuthoredStorageSegment) :
+    AuthoredM (Array Instruction × StorageRef) := do
+  let resultType ← storagePathResultType stateName path
+  let root ← lookupState stateName
+  let mut instructions : Array Instruction := #[]
+  let mut segments : Array StorageSegment := #[]
+  let mut cursor := initialStorageCursor (← lookupStateShape stateName)
+  for segment in path do
+    let ownerCursor := cursor
+    cursor ← advanceStorageCursor cursor segment
+    match segment with
+    | .mapKey key =>
+        let normalized ← normalizePathValue key
+        instructions := instructions ++ normalized.instructions
+        segments := segments.push (.mapKey normalized.value)
+    | .index index =>
+        let normalized ← normalizePathValue index
+        instructions := instructions ++ normalized.instructions
+        segments := segments.push (.index normalized.value)
+    | .field name =>
+        let typeId ← match ownerCursor with
+          | .value (.structType typeId) => pure typeId
+          | _ => throw (AuthoredNormalizeError.invalidLValue "field path did not resolve to a record")
+        let (fieldId, _) ← lookupStructField typeId name
+        segments := segments.push (.field fieldId)
+  return (instructions, { root, path := segments, resultType })
 
 /-- Build a pure arithmetic instruction from already-normalized operands. -/
 def arithmeticValue (mode : OverflowMode) (op : ArithmeticOp) (lhs rhs : ValueRef)
@@ -48,7 +139,12 @@ def exprType (e : AuthoredExpr) : AuthoredM CoreType := do
   | .stateRead name => stateScalarType name
   | .mapRead name _ => return (← stateMapTypes name).2
   | .arrayRead name _ => stateArrayType name
+  | .storageLoad name path => storagePathResultType name path
+  | .storageContains _ _ => return .bool
+  | .storageLength _ => return .u64
   | .memoryArray elementType _ =>
+      return .memoryRef (← resolveAuthoredType (← get).env.typeIds elementType)
+  | .memoryAlloc elementType _ =>
       return .memoryRef (← resolveAuthoredType (← get).env.typeIds elementType)
   | .contextRead field => return (contextFieldType (adaptContextField field))
   | .hostCall _ _ returnType =>
@@ -144,6 +240,21 @@ partial def normalizeExpr (e : AuthoredExpr) : AuthoredM NormalizedValue := do
       return {
         instructions := normalizedIndex.instructions ++ loaded.instructions,
         value := loaded.value }
+  | .storageLoad name path =>
+      let (instructions, reference) ← normalizeStorageRef name path
+      let loaded ← emitValueInstruction (.storageLoad reference) reference.resultType
+      return { instructions := instructions ++ loaded.instructions, value := loaded.value }
+  | .storageContains name path =>
+      let (instructions, reference) ← normalizeStorageRef name path
+      let contained ← emitValueInstruction (.storageContains reference) .bool
+      return { instructions := instructions ++ contained.instructions, value := contained.value }
+  | .storageLength name =>
+      let shape ← lookupStateShape name
+      match shape with
+      | .fixedArray _ _ | .dynamicArray _ => pure ()
+      | _ => throw (AuthoredNormalizeError.typeMismatch "array state" (reprStr shape))
+      let root ← lookupState name
+      emitValueInstruction (.storageLength root) .u64
   | .memoryArray elementType values =>
       let coreElement ← liftExcept (resolveAuthoredType (← get).env.typeIds elementType)
       let length ← emitValueInstruction (.pure (.literal (.u64Lit values.size))) .u64
@@ -161,6 +272,17 @@ partial def normalizeExpr (e : AuthoredExpr) : AuthoredM NormalizedValue := do
           results := #[], op := .memoryStore allocated.value normalizedIndex.value normalizedValue.value }
         index := index + 1
       return { instructions := instructions, value := allocated.value }
+  | .memoryAlloc elementType length =>
+      let coreElement ← liftExcept (resolveAuthoredType (← get).env.typeIds elementType)
+      let normalizedLength ← normalizeExpr length
+      unless normalizedLength.value.type == .u64 do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.u64)
+          (reprStr normalizedLength.value.type))
+      let allocated ← emitValueInstruction
+        (.memoryAlloc coreElement normalizedLength.value) (.memoryRef coreElement)
+      return {
+        instructions := normalizedLength.instructions ++ allocated.instructions
+        value := allocated.value }
   | .contextRead field =>
       let coreField := adaptContextField field
       let resultType := contextFieldType coreField

@@ -186,6 +186,60 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : AuthoredStmt)
           root := stateId,
           path := #[.index normalizedIndex.value],
           resultType := elementType } normalizedValue.value }
+  | .storageStore name path value => do
+      let (pathInstructions, reference) ← normalizeStorageRef name path
+      let normalizedValue ← normalizeExpr value
+      unless normalizedValue.value.type == reference.resultType do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr reference.resultType)
+          (reprStr normalizedValue.value.type))
+      let instructions := pathInstructions ++ normalizedValue.instructions
+      let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept (fb.emitInstr {
+        results := #[], op := .storageStore reference normalizedValue.value })
+  | .storageRemove name path => do
+      let (instructions, reference) ← normalizeStorageRef name path
+      let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept (fb.emitInstr { results := #[], op := .storageRemove reference })
+  | .storageResize name length => do
+      let shape ← lookupStateShape name
+      match shape with
+      | .dynamicArray _ => pure ()
+      | _ => throw (AuthoredNormalizeError.typeMismatch "dynamic array state" (reprStr shape))
+      let normalizedLength ← normalizeExpr length
+      unless normalizedLength.value.type == .u64 do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.u64)
+          (reprStr normalizedLength.value.type))
+      let fb ← liftExcept (normalizedLength.instructions.foldlM FunctionBuilder.emitInstr fb)
+      let root ← lookupState name
+      liftExcept (fb.emitInstr {
+        results := #[], op := .storageResize root normalizedLength.value })
+  | .memoryStore base index value => do
+      let normalizedBase ← normalizeExpr base
+      let elementType ← match normalizedBase.value.type with
+        | .memoryRef elementType => pure elementType
+        | other => throw (AuthoredNormalizeError.typeMismatch "memory reference" (reprStr other))
+      let normalizedIndex ← normalizeExpr index
+      unless normalizedIndex.value.type == .u64 do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.u64)
+          (reprStr normalizedIndex.value.type))
+      let normalizedValue ← normalizeExpr value
+      unless normalizedValue.value.type == elementType do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr elementType)
+          (reprStr normalizedValue.value.type))
+      let instructions := normalizedBase.instructions ++ normalizedIndex.instructions ++
+        normalizedValue.instructions
+      let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept (fb.emitInstr {
+        results := #[]
+        op := .memoryStore normalizedBase.value normalizedIndex.value normalizedValue.value
+      })
+  | .memoryRelease base => do
+      let normalizedBase ← normalizeExpr base
+      match normalizedBase.value.type with
+      | .memoryRef _ => pure ()
+      | other => throw (AuthoredNormalizeError.typeMismatch "memory reference" (reprStr other))
+      let fb ← liftExcept (normalizedBase.instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept (fb.emitInstr { results := #[], op := .memoryRelease normalizedBase.value })
   | .emit eventName args => do
       let eventId ← lookupEvent eventName
       let mut argRefs : Array ValueRef := #[]

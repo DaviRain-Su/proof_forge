@@ -69,7 +69,10 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
     match entries[index]? with
     | some value => return value
     | none => .error s!"arrayOutOfBounds: {name}[{index}]"
+  | .storageLoad .. | .storageContains .. | .storageLength .. =>
+      .error "logical storage paths require the Core reference semantics"
   | .memoryArray _ _ => .error "memory arrays require the Core reference semantics"
+  | .memoryAlloc _ _ => .error "memory allocation requires the Core reference semantics"
   | .arith op checked lhs rhs => do
     let l ← evalExpr lhs st locals
     let r ← evalExpr rhs st locals
@@ -128,6 +131,10 @@ partial def execStmts (stmts : Array SurfaceStmt) (st : SurfaceRuntimeState)
       let entries := s.arrays.get? name |>.getD #[]
       if index >= entries.size then .error s!"arrayOutOfBounds: {name}[{index}]"
       s := { s with arrays := s.arrays.insert name (entries.set! index value) }
+    | .storageStore .. | .storageRemove .. | .storageResize .. =>
+      .error "logical storage paths require the Core reference semantics"
+    | .memoryStore .. | .memoryRelease .. =>
+      .error "memory lifecycle requires the Core reference semantics"
     | .emit name args => do
       let mut vals := #[]
       for arg in args do

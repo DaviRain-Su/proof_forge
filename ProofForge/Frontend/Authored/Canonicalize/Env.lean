@@ -63,6 +63,9 @@ def resolveStateKind (typeIds : Std.HashMap String TypeId)
   | .map kty vty cap => do
       .ok (.map (← resolveAuthoredType typeIds kty)
         (← resolveAuthoredType typeIds vty) cap)
+  | .mapN keyTypes valueType cap => do
+      .ok (.mapN (← keyTypes.mapM (resolveAuthoredType typeIds))
+        (← resolveAuthoredType typeIds valueType) cap)
   | .fixedArray elem len => do .ok (.fixedArray (← resolveAuthoredType typeIds elem) len)
   | .dynamicArray elem => do .ok (.dynamicArray (← resolveAuthoredType typeIds elem))
   | .record typeName =>
@@ -160,6 +163,7 @@ def adaptMutability (mut_ : AuthoredMutability) :
 /-- Resolved symbol tables and identifier supplies. -/
 structure AuthoredEnv where
   typeIds : Std.HashMap String TypeId
+  structFields : Std.HashMap TypeId (Array (String × CoreType))
   stateIds : Std.HashMap String (StateId × StateShape)
   functionIds : Std.HashMap String FunctionId
   eventIds : Std.HashMap String EventId
@@ -254,6 +258,14 @@ def stateMapTypes (name : String) : AuthoredM (CoreType × CoreType) := do
   | .map keyType valueType _ => return (keyType, valueType)
   | _ => throw (AuthoredNormalizeError.typeMismatch "map" "non-map state")
 
+def lookupStructField (typeId : TypeId) (name : String) : AuthoredM (FieldId × CoreType) := do
+  let fields ← match Std.HashMap.get? (← get).env.structFields typeId with
+    | some fields => pure fields
+    | none => throw (AuthoredNormalizeError.unknownType s!"type#{typeId.value}")
+  match fields.findIdx? (fun field => field.1 == name) with
+  | some index => return (⟨index⟩, fields[index]!.2)
+  | none => throw (AuthoredNormalizeError.unknownType s!"type#{typeId.value}.{name}")
+
 def stateArrayType (name : String) : AuthoredM CoreType := do
   let shape ← lookupStateShape name
   match shape with
@@ -265,6 +277,7 @@ Identifiers are assigned deterministically in declaration order. -/
 def buildEnv (contract : AuthoredContract) : Except AuthoredNormalizeError AuthoredEnv := do
   let mut env : AuthoredEnv := {
     typeIds := {},
+    structFields := {},
     stateIds := {},
     functionIds := {},
     eventIds := {},
@@ -280,6 +293,14 @@ def buildEnv (contract : AuthoredContract) : Except AuthoredNormalizeError Autho
   for struct in contract.structs do
     let id := ⟨env.nextTypeId⟩
     env := { env with typeIds := env.typeIds.insert struct.name id, nextTypeId := env.nextTypeId + 1 }
+  for struct in contract.structs do
+    let typeId ← match Std.HashMap.get? env.typeIds struct.name with
+      | some typeId => pure typeId
+      | none => throw (AuthoredNormalizeError.unknownType struct.name)
+    let fields ← struct.fields.mapM fun field => do
+      let type ← resolveAuthoredType env.typeIds field.type
+      return (field.name, type)
+    env := { env with structFields := env.structFields.insert typeId fields }
   for state in contract.state do
     let id := ⟨env.nextStateId⟩
     let shape ← resolveStateKind env.typeIds state.kind

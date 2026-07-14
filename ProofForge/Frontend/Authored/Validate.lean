@@ -30,6 +30,11 @@ def validateAuthored (contract : AuthoredContract) : Except AuthoredValidationEr
   checkUniqueNames (contract.errors.map (·.name)) "error"
   checkUniqueNames (contract.entrypoints.map (·.name)) "entrypoint"
   for s in contract.state do
+    match s.kind with
+    | .mapN keyTypes _ _ =>
+        if keyTypes.size < 2 then
+          .error { message := s!"nested map {s.name} requires at least two key types" }
+    | _ => pure ()
     if s.name.startsWith "$surface." then
       unless s.generated &&
           (s.name.startsWith "$surface.set." || s.name.startsWith "$surface.queue.") do

@@ -70,6 +70,20 @@ inductive AuthoredLValue
   | stateField (name : String)
   deriving Repr
 
+/-- ANF-compatible operands allowed in a logical storage path. Complex source
+expressions are bound before constructing the path. -/
+inductive AuthoredPathValue
+  | local (name : String)
+  | literal (value : AuthoredLiteral)
+  deriving Repr
+
+/-- Target-neutral logical storage path. Target layouts are resolved later. -/
+inductive AuthoredStorageSegment
+  | mapKey (key : AuthoredPathValue)
+  | index (index : AuthoredPathValue)
+  | field (name : String)
+  deriving Repr
+
 
 /-- Authored-level expressions. -/
 inductive AuthoredExpr
@@ -79,7 +93,11 @@ inductive AuthoredExpr
   | stateRead (stateName : String)
   | mapRead (stateName : String) (key : AuthoredExpr)
   | arrayRead (stateName : String) (index : AuthoredExpr)
+  | storageLoad (stateName : String) (path : Array AuthoredStorageSegment)
+  | storageContains (stateName : String) (path : Array AuthoredStorageSegment)
+  | storageLength (stateName : String)
   | memoryArray (elementType : AuthoredType) (values : Array AuthoredExpr)
+  | memoryAlloc (elementType : AuthoredType) (length : AuthoredExpr)
   | field (base : AuthoredExpr) (fieldName : String)
   | index (base : AuthoredExpr) (idx : AuthoredExpr)
   | unary (op : AuthoredUnaryOp) (arg : AuthoredExpr)
@@ -106,6 +124,12 @@ inductive AuthoredStmt
   | stateWrite (stateName : String) (value : AuthoredExpr)
   | mapWrite (stateName : String) (key value : AuthoredExpr)
   | arrayWrite (stateName : String) (index value : AuthoredExpr)
+  | storageStore (stateName : String) (path : Array AuthoredStorageSegment)
+      (value : AuthoredExpr)
+  | storageRemove (stateName : String) (path : Array AuthoredStorageSegment)
+  | storageResize (stateName : String) (length : AuthoredExpr)
+  | memoryStore (base index value : AuthoredExpr)
+  | memoryRelease (base : AuthoredExpr)
   | emit (eventName : String) (args : Array AuthoredExpr)
   | assert (condition : AuthoredExpr) (message : String)
   | assertError (condition : AuthoredExpr) (errorName : String) (args : Array AuthoredExpr)
@@ -122,6 +146,8 @@ inductive AuthoredStmt
 inductive AuthoredStateKind
   | scalar (type : AuthoredType)
   | map (keyType valueType : AuthoredType) (capacity : Option Nat)
+  | mapN (keyTypes : Array AuthoredType) (valueType : AuthoredType)
+      (capacity : Option Nat)
   | fixedArray (element : AuthoredType) (length : Nat)
   | dynamicArray (element : AuthoredType)
   | record (typeName : String)

@@ -3829,3 +3829,24 @@ Rules:
 - Verification: focused Authored/Surface builds; Authored structured-effects,
   authored canonicalization, Surface normalization/parity, canonical boundary,
   Legacy freeze, and `git diff --check`.
+
+## 2026-07-14 - A-CUT2e-b: logical storage and memory lifecycle
+
+- Status: `done (verified 2026-07-14)`; A-CUT2 schema parity continues before
+  the direct Source builder cutover.
+- Added target-neutral authored storage paths with map-key, array-index, and
+  record-field segments. Path operands are ANF-compatible locals or literals;
+  no target slot, account offset, storage prefix, or chain-specific constructor
+  entered Authored or Canonical Core.
+- Added nested-map state plus storage load/contains/store/remove/length/resize,
+  and explicit memory alloc/store/release. The direct normalizer resolves every
+  path against declaration and struct-field types before emitting Core.
+- Added early nested-map arity validation and fail-closed key/index/value type
+  checks. Complex source expressions must be bound before they become path
+  operands, keeping the authored compiler AST deterministic.
+- Added `Tests/Canonical/AuthoredStorageLifecycle.lean` with map, two-key map,
+  dynamic-array, record-field, and memory lifecycle coverage plus a wrong-key
+  negative case; wired it into `canonical-foundation`.
+- Verification: focused Authored/Surface and fixture builds;
+  `canonical-foundation`, Set/Queue normalization, canonical boundary, Legacy
+  freeze, and `git diff --check`.

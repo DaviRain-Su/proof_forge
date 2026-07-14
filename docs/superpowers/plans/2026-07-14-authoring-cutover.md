@@ -180,9 +180,11 @@ now lives under `Frontend.Authored.{Type,Syntax}`; the Surface type/syntax files
 are compatibility aliases only, and `normalizeAuthored` reaches checked
 Canonical Core without `IR.Contract`. A-CUT2e-a added explicit HostOp result
 types and declared-error references with typed runtime arguments; Canonical
-validation rejects signature and error-argument mismatches. Storage-path and
-memory-lifecycle parity, replacing the Source builder, and the remaining
-`ContractSpec`/`IR.Module` authored exchange value are still pending in A-CUT2.
+validation rejects signature and error-argument mismatches. A-CUT2e-b added
+target-neutral logical storage paths, nested-map state, contains/remove/length/
+resize operations, and explicit memory allocation/store/release. Replacing the
+Source builder and the remaining `ContractSpec`/`IR.Module` authored exchange
+value are still pending in A-CUT2.
 
 ### A-CUT3 - Product migration
 
