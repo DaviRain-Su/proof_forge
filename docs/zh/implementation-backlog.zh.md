@@ -57,8 +57,8 @@ operation。A-CUT1e-c2 已完成。
 
 | 顺序 | 切片 | 状态 | 关联的架构退出条件 |
 |---:|---|---|---|
-| CMP-0 | 盘点并版本化 provenance/scenario/observation 共享契约 | in_progress | 新增 reference format 前必须完成 |
-| CMP-1 | 实现 fail-closed normalized observation 与 coverage validator | CMP-0 后 pending | A-CUT2 前置 |
+| CMP-0 | 盘点并版本化 provenance/scenario/observation 共享契约 | done (verified at `18f15e59`) | 85 项受跟踪资产；35 份 v0 manifest 可显式迁移但保持 semantic ineligible |
+| CMP-1 | 实现 fail-closed normalized observation 与 coverage validator | in_progress | A-CUT2 前置 |
 | CMP-2 | Counter 原生试点：Solidity EVM、Rust Solana、Rust NEAR | CMP-1 后 pending | A-CUT2 完成条件 |
 | CMP-3 | ValueVault 和代表性 stateful portable family | CMP-2 后 pending | 附着 A-CUT3 |
 | CMP-SOL | Account/PDA/CPI 与独立 Solana Rust reference 的 conformance | 与 IR-B5 同步 pending | IR-B5 退出条件 |

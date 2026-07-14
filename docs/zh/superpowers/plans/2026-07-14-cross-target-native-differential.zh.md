@@ -1,12 +1,12 @@
 # 跨目标原生差分验证实施计划
 
-状态：**已接受；CMP-0 进行中（2026-07-14）**
+状态：**已接受；CMP-0 已在 `18f15e59` 完成，CMP-1 进行中（2026-07-14）**
 
 设计文档：[跨目标原生差分验证设计](../specs/2026-07-14-cross-target-native-differential-design.zh.md)
 
 ## 执行规则
 
-这是验证轨道，不替代当前架构队列。A-CUT1e-c2 已完成，现在先执行 CMP-0；CMP-1 至 CMP-3 分别成为 A-CUT2/A-CUT3 的验收组成部分。Target-extension 测试附着在对应 target 的迁移任务上，不能借此提前开启无关 backend 工作。
+这是验证轨道，不替代当前架构队列。A-CUT1e-c2 与 CMP-0 已完成，现在先执行 CMP-1；CMP-2 与 CMP-3 分别成为 A-CUT2/A-CUT3 的验收组成部分。Target-extension 测试附着在对应 target 的迁移任务上，不能借此提前开启无关 backend 工作。
 
 状态只能使用 `pending`、`in_progress`、`blocked` 和 `done (verified at <sha>)`。每个完成任务必须记录精确门禁并更新 implementation log。
 
@@ -14,17 +14,17 @@
 
 | 资产 | 当前状态 | 处理方式 |
 |---|---|---|
-| `testkit/scenarios` | 主三链共享场景和归一化 runtime trace | 保留为可移植场景目录 |
-| `testkit/compare/near` | 大量 Rust reference 和 Sandbox runner，很多报告 coverage 尚不完整 | 增量迁移 manifest 和 observation |
-| `references/solana/pinocchio` | 静态及 live Rust reference equivalence | 保留为 Solana extension 目录 |
-| Stylus differential scripts | 已有 Rust/direct-Wasm focused compare | 主三链 schema 稳定后适配 |
-| EVM runtime gates | 已有独立执行，统一 Solidity reference 不完整 | 增加固定版本 Solidity reference，保留现有 `revm`/Anvil 门禁 |
+| `testkit/scenarios` | 13 个 portable v0 scenario | 在 CMP-1/CMP-2 迁移 logical step |
+| `testkit/compare/near` | 28 个 Rust v0 reference 以及 offline/Sandbox runner；历史矩阵仅限 measurement | 增量替换 v0 manifest 与 observation |
+| `references/solana/pinocchio` | 7 个 Rust v0 reference 以及 14 个 static/live script | 保留为 Solana extension 目录，并在 CMP-SOL 替换 v0 manifest |
+| Stylus differential scripts | 5 个 focused Rust/direct-Wasm compare 以及 VM/host runner；没有 v1 native-reference manifest | 主三链 schema 稳定后适配 |
+| EVM runtime gates | 3 份手写 Solidity 源码以及 `revm`、Foundry、Anvil 执行；没有归一化 v1 result | 在 CMP-2/CMP-EVM 固定 provenance 并配对 reference |
 
 ## 任务顺序
 
 ### CMP-0 - 冻结资产清单与共享契约
 
-状态：`in_progress`
+状态：`done (verified at 18f15e59)`
 
 - 盘点所有 native reference、runner、manifest schema、scenario 和 CI gate，并诚实标记历史 measurement-only 报告。
 - 定义版本化 reference provenance、logical scenario、normalized observation、required coverage 和 allowed divergence schema。
@@ -33,9 +33,24 @@
 
 验收：生成的 inventory 完整列出 NEAR、Solana、Stylus 和 EVM 比较资产；合法旧 manifest 可显式迁移，畸形 fixture 失败；编译器和 target plan 不导入比较 schema。
 
+完成证据：
+
+- `testkit/differential/inventory.v1.json` 确定性列出 NEAR、Solana、Stylus、
+  EVM 及 portable scenario/CI 层的 85 项受跟踪资产；
+  `semanticVerifiedCount` 为零，不会提升现有 partial evidence。
+- 四个检入的 v1 JSON schema 与 `scripts/differential/contracts.py` 强制验证
+  provenance、唯一 step ID、封闭 observation dimension、精确 coverage、runner
+  状态和 fail-closed semantic promotion。
+- 显式 NEAR v0 与 Solana v0 migration function 验证当前全部 28 和 7 份
+  manifest。缺失历史字段被记录为 inference 和 incomplete provenance；迁移后的
+  observation 保持 skipped，绝不会成为 semantic success。每个 target 迁移到 v1
+  后必须删除这些测试数据 migration；它们不是编译器兼容路线。
+- `just differential-contracts` 通过 11 个 schema/malformed/migration/boundary
+  测试、生成 inventory 检查和 NEAR matrix snapshot 测试。
+
 ### CMP-1 - 归一化 observation runner 契约
 
-状态：`pending after CMP-0`
+状态：`in_progress`
 
 - 统一 call status/error、typed return、state、event、target-owned external action、interface assertion 和 resource result。
 - 定义 actor、account、value 和 clock 归一化，但不抹掉 target 原生差异。

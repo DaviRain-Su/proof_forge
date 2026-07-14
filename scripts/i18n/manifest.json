@@ -39,10 +39,10 @@
     "note": "initial native differential validation design"
   },
   "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
-    "sha256": "f9891cf18faa97f1c38ce7ed3b936724c1c024807f635f32d9e1d48e74bd47bf",
+    "sha256": "bb2039f19e6970d012d977dad61372a10da78ae385ffc44a28f9de7fd99df6e5",
     "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
     "model": "manual-zh",
-    "note": "initial native differential validation plan"
+    "note": "synced through CMP-0 completion and active CMP-1"
   },
   "docs/capability-registry.md": {
     "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
@@ -73,10 +73,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "d4c5d80f08d94a83285cf26621fd0f889bdaabccca47ae3b557978a8e397d9a6",
+    "sha256": "d6dde0107fb37d506c6a992c79e58347971f04ba8c97f196de71903b1632faeb",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through A-CUT1e-c2 and active CMP-0"
+    "note": "synced EN/zh through CMP-0 and active CMP-1"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -102,10 +102,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "5324f07b2148a63ac3e6f62bb229709daec33b37a9955a129fe902f421982ae5",
+    "sha256": "f034da428017a245b65c35f35b6a2776b262c3aa8255c23e8f369805422e2e90",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for direct canonical Solana authoring; includes Stylus and NEP-145"
+    "note": "manually synced through CMP-0 differential contracts"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -186,10 +186,10 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "cd3be1632f6687cfcb90419d95a8cd8324b2b7943bb3d6b6a18bfca576e52536",
+    "sha256": "02407b770676da66f343bf0c8e9540ba8e2977f90a0822ab3438644f0669318a",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "cd3be1632f6687cfcb90419d95a8cd8324b2b7943bb3d6b6a18bfca576e52536"
+    "en_sha256": "02407b770676da66f343bf0c8e9540ba8e2977f90a0822ab3438644f0669318a"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {

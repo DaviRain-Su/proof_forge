@@ -13,9 +13,11 @@ The current architecture program, D-052, adds a target-neutral intent and
 materializer boundary while preserving the existing primary-triad behavior.
 
 For the public beta, only three targets are advertised as `contract_source`
-compilers: `evm`, `solana-sbpf-asm`, and `wasm-near`. Legacy `ContractSpec`
-inputs and target adapters are migrated incrementally behind equivalence tests;
-do not delete a compatibility path until all callers and fixtures have moved.
+compilers: `evm`, `solana-sbpf-asm`, and `wasm-near`. There is one destination:
+direct authoring through checked Canonical Core and target-owned plans. Do not
+add compatibility, fallback, or dual-write routes. Existing Legacy callers are
+isolated deletion backlog; move their callers under focused gates, then delete
+the zero-caller code.
 
 ## Current Checkpoint
 
@@ -23,12 +25,12 @@ Keep this section short and update it whenever the active task changes.
 
 | Field | Current value |
 |---|---|
-| Program | Native differential inventory before the remaining direct-authoring cutover |
-| Active task | CMP-0 - freeze the native-reference inventory and shared comparison contracts after the verified A-CUT1e-c2 Solana cutover |
-| Next task | CMP-1 plus A-CUT2 - add fail-closed normalized observations while replacing the remaining `ContractSpec`/`IR.Module` authored exchange value |
-| Validation track | A-CUT1e-c2 is complete; CMP-0 is now in progress and CMP-1/CMP-2 remain A-CUT2 exit criteria |
+| Program | Direct authoring cutover with fail-closed native differential evidence |
+| Active task | CMP-1 - implement the normalized runner result and coverage comparator on the v1 contracts from `18f15e59` |
+| Next task | CMP-2 plus A-CUT2 - run Counter against independent EVM, Solana, and NEAR references while removing the remaining `ContractSpec`/`IR.Module` authored exchange value |
+| Validation track | CMP-0 is done at `18f15e59`; CMP-1 is active and CMP-2 remains an A-CUT2 exit criterion |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
-| Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
+| Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task
@@ -182,9 +184,9 @@ Core are internal compiler representations.
 Native-reference differential validation follows
 [the July 14 comparison plan](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md).
 It extends the existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
-and Stylus differential assets; it is not another compiler route. A-CUT1e-c2
-is complete; finish CMP-0 before new reference formats proliferate.
-CMP-2 is required for A-CUT2 completion, CMP-SOL attaches to IR-B5, CMP-NEAR
+and Stylus differential assets; it is not another compiler route. CMP-0 is
+done at `18f15e59`; CMP-1 is now the only active comparison slice. CMP-2 is
+required for A-CUT2 completion, CMP-SOL attaches to IR-B5, CMP-NEAR
 attaches to NEAR-R4, and the final fail-closed matrix attaches to IR-B8/A-CUT5.
 
 The D-052 cross-program routing index remains below for work not superseded by

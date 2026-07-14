@@ -46,6 +46,19 @@ strict gate and does not count toward A1.
 | A-CUT1e-3 | Plan-only artifacts preserve SDK and runtime constraints | ✅ met | `Tests/Backend/Solana/SolanaSdkManifest.lean` and `SolanaAccountRealloc.lean` pass; canonical lowering enforces instruction length and signer/writable/owner validation; System, Memo, close-account, and authority Pinocchio structural comparisons pass |
 | A-CUT1e-4 | No fallback was introduced | ✅ met | public fixtures expose `.contract` only; public CLI fixture routes call `compileSolanaAuthoredSbpf`/`compileSolanaAuthoredElf`; failures from normalization, planning, lowering, package generation, and sBPF build remain terminal |
 
+## Gate CMP-0 — Native differential contracts and inventory
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-0-1 | The tracked comparison inventory is complete and honest | ✅ met | `18f15e59`; generated `testkit/differential/inventory.v1.json` lists 85 NEAR, Solana, Stylus, EVM, portable-scenario, and CI assets and reports zero semantically verified assets |
+| CMP-0-2 | Versioned contracts fail closed | ✅ met | four v1 schemas plus 11 unit tests reject missing provenance, duplicate step IDs, unknown observation dimensions, skipped/error runners, and incomplete coverage claimed as semantic success |
+| CMP-0-3 | Current v0 manifests have explicit, non-promoting migration | ✅ met | all 28 NEAR and 7 Solana manifests migrate through schema-specific functions; inferred/missing provenance stays explicit and migrated observations keep `semanticMatch=false` |
+| CMP-0-4 | Comparison contracts remain outside production architecture | ✅ met | boundary test scans `ProofForge/**/*.lean` for comparison schema/import leakage; `just differential-contracts` and `git diff --check` pass; migration functions exist only under `scripts/differential` and are deletion work after v1 conversion |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

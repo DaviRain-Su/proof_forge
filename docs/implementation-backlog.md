@@ -60,8 +60,8 @@ add target-specific operations to portable IR. A-CUT1e-c2 is complete.
 
 | Order | Slice | State | Attached architecture exit |
 |---:|---|---|---|
-| CMP-0 | Inventory and version the shared provenance/scenario/observation contracts | in_progress | required before new reference formats proliferate |
-| CMP-1 | Implement fail-closed normalized observation and coverage validation | pending after CMP-0 | A-CUT2 prerequisite |
+| CMP-0 | Inventory and version the shared provenance/scenario/observation contracts | done (verified at `18f15e59`) | 85 tracked assets; 35 v0 manifests migrate explicitly but remain semantically ineligible |
+| CMP-1 | Implement fail-closed normalized observation and coverage validation | in_progress | A-CUT2 prerequisite |
 | CMP-2 | Counter native pilot: Solidity EVM, Rust Solana, Rust NEAR | pending after CMP-1 | required for A-CUT2 completion |
 | CMP-3 | ValueVault and representative stateful portable families | pending after CMP-2 | attached to A-CUT3 |
 | CMP-SOL | Account/PDA/CPI conformance against independent Solana Rust references | pending with IR-B5 | IR-B5 exit |

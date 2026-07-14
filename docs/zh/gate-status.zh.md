@@ -39,6 +39,19 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT1e-3 | Plan-only 制品保留 SDK 与运行时约束 | ✅ met | `SolanaSdkManifest` 和 `SolanaAccountRealloc` 通过；canonical lowering 强制检查 instruction length 与 signer/writable/owner；System、Memo、close-account、authority Pinocchio 结构对比通过 |
 | A-CUT1e-4 | 未引入 fallback | ✅ met | 公开 fixture 只暴露 `.contract`；公开 CLI fixture route 使用 `compileSolanaAuthoredSbpf`/`compileSolanaAuthoredElf`；normalization、planning、lowering、package 与 sBPF build 失败均保持终止 |
 
+## Gate CMP-0 —— 原生差分契约与资产清单
+
+**状态：Closed**
+
+**Closed: 2026-07-14**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-0-1 | 受跟踪比较资产清单完整且诚实 | ✅ met | `18f15e59`；生成的 `testkit/differential/inventory.v1.json` 列出 85 项 NEAR、Solana、Stylus、EVM、portable scenario 和 CI 资产，并报告零项 semantic verified 资产 |
+| CMP-0-2 | 版本化契约 fail closed | ✅ met | 四个 v1 schema 以及 11 个单元测试拒绝缺失 provenance、重复 step ID、未知 observation dimension、skipped/error runner 以及将 coverage 不完整声称为 semantic success |
+| CMP-0-3 | 当前 v0 manifest 具有显式且不会升级状态的 migration | ✅ met | 全部 28 个 NEAR 与 7 个 Solana manifest 通过各自 schema 的函数迁移；推断/缺失 provenance 保持显式，迁移后的 observation 保持 `semanticMatch=false` |
+| CMP-0-4 | 比较契约保持在生产架构之外 | ✅ met | 边界测试扫描 `ProofForge/**/*.lean` 中的 comparison schema/import 泄漏；`just differential-contracts` 与 `git diff --check` 通过；migration function 只存在于 `scripts/differential`，并在 v1 转换后删除 |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

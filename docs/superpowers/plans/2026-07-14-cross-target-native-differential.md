@@ -1,14 +1,14 @@
 # Cross-Target Native Differential Validation Plan
 
-Status: **Accepted; CMP-0 in progress (2026-07-14)**
+Status: **Accepted; CMP-0 done at `18f15e59`, CMP-1 in progress (2026-07-14)**
 
 Design: [Cross-Target Native Differential Validation](../specs/2026-07-14-cross-target-native-differential-design.md)
 
 ## Execution Rule
 
 This is a validation track, not a replacement for the current architecture
-queue. A-CUT1e-c2 is complete. CMP-0 now runs first, while CMP-1 through
-CMP-3 become part of the A-CUT2/A-CUT3 acceptance work. Target-extension tasks
+queue. A-CUT1e-c2 and CMP-0 are complete. CMP-1 now runs first, while CMP-2
+and CMP-3 become part of the A-CUT2/A-CUT3 acceptance work. Target-extension tasks
 are attached to their target migration instead of opening unrelated backend
 work early.
 
@@ -20,17 +20,17 @@ the implementation log.
 
 | Asset | Current state | Planned disposition |
 |---|---|---|
-| `testkit/scenarios` | shared primary-triad scenarios and normalized runtime traces | retain as the portable scenario catalog |
-| `testkit/compare/near` | extensive Rust references and Sandbox runner; many reports still lack complete observation coverage | migrate manifests and observations incrementally |
-| `references/solana/pinocchio` | static and live Rust reference equivalence | retain as Solana extension catalog |
-| Stylus differential scripts | focused Rust/direct-Wasm comparisons | adapt after the primary-triad schema stabilizes |
-| EVM runtime gates | independent execution exists; unified Solidity reference catalog is incomplete | add pinned Solidity references without replacing `revm`/Anvil gates |
+| `testkit/scenarios` | 13 portable v0 scenarios | migrate logical steps during CMP-1/CMP-2 |
+| `testkit/compare/near` | 28 Rust v0 references plus offline/Sandbox runners; historical matrix is measurement-only | replace v0 manifests and observations incrementally |
+| `references/solana/pinocchio` | 7 Rust v0 references plus 14 static/live scripts | retain as Solana extension catalog and replace v0 manifests in CMP-SOL |
+| Stylus differential scripts | 5 focused Rust/direct-Wasm comparisons plus VM/host runners; no v1 native-reference manifest | adapt after the primary-triad schema stabilizes |
+| EVM runtime gates | 3 handwritten Solidity sources plus `revm`, Foundry, and Anvil execution; no normalized v1 result | pin provenance and pair references in CMP-2/CMP-EVM |
 
 ## Task Order
 
 ### CMP-0 - Freeze inventory and shared contracts
 
-State: `in_progress`
+State: `done (verified at 18f15e59)`
 
 - Inventory every native reference, runner, manifest schema, scenario, and CI
   gate; label historical measurement-only reports honestly.
@@ -52,9 +52,25 @@ Acceptance:
 Focused verification: schema unit tests, manifest fixtures, comparison-matrix
 snapshot tests, and `git diff --check`.
 
+Completion evidence:
+
+- `testkit/differential/inventory.v1.json` deterministically lists 85 tracked
+  assets across NEAR, Solana, Stylus, EVM, and the portable scenario/CI layer;
+  `semanticVerifiedCount` is zero, so existing partial evidence is not promoted.
+- Four checked-in v1 JSON schemas and `scripts/differential/contracts.py`
+  enforce provenance, unique step IDs, the closed observation-dimension set,
+  exact coverage, runner status, and fail-closed semantic promotion.
+- Explicit NEAR v0 and Solana v0 migration functions validate all 28 and 7
+  current manifests. Missing historical fields are recorded as inference and
+  incomplete provenance; migrated observations are skipped and never semantic
+  successes. These test-data migrations are deleted as each target moves to v1;
+  they are not compiler compatibility routes.
+- `just differential-contracts` passes 11 schema/malformed/migration/boundary
+  tests, the generated inventory check, and the NEAR matrix snapshot test.
+
 ### CMP-1 - Normalized observation runner contract
 
-State: `pending after CMP-0`
+State: `in_progress`
 
 - Add shared runner result types for call status/error, typed return, state,
   events, target-owned external actions, interface assertions, and resources.

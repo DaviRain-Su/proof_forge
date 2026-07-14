@@ -4071,3 +4071,21 @@ Rules:
   Pinocchio System transfer, System create-account, Memo, SPL Token
   close-account, and set-authority structural equivalence recipes. Live
   Surfpool suites were not rerun in this slice.
+
+## 2026-07-14 - CMP-0: native differential contracts and inventory
+
+- Status: `done (verified at 18f15e59)`; CMP-1 is now active.
+- Added four versioned, test-only contracts for native-reference provenance,
+  logical scenarios, normalized observations/coverage, and repository inventory.
+  Validation fails closed on missing provenance, duplicate step IDs, unknown
+  observation dimensions, runner skips/errors, and incomplete coverage.
+- Added explicit NEAR v0 and Solana v0 manifest migrations. All 28 NEAR and 7
+  Solana manifests validate through their named migration, while inferred and
+  missing provenance remains visible and semantic success remains false. These
+  functions are temporary test-data migrations, not production compatibility.
+- Generated an 85-item inventory covering the current native references,
+  runners, scenarios, report catalog, and hosted/local gate surfaces. No asset
+  is labeled semantically verified at this checkpoint.
+- Verification: `just differential-contracts`; `python3 -m py_compile
+  scripts/differential/contracts.py scripts/differential/inventory.py
+  scripts/differential/test_contracts.py`; and `git diff --check`.
