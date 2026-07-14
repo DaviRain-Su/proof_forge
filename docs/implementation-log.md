@@ -3180,6 +3180,17 @@ Rules:
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
 
+## 2026-07-14 - EVM-R2l: direct VestingVault CFG
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
+- Added a direct Surface v2 VestingVault preserving timestamp-driven linear
+  vesting, the fully-vested fallback, guarded pro-rata branch, scratch state,
+  released/claim ledgers, and event output. This exercises Surface branch CFG
+  lowering through checked Canonical Core and EVM planning.
+- Verification: targeted product build,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.
+
 ## 2026-07-14 - EVM-R2h: direct portable context products
 
 - Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
