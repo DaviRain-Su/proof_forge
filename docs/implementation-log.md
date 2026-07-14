@@ -2708,3 +2708,18 @@ Rules:
 - Corrected the control-plane status: EVM's plan-only renderer baseline is not
   an end-to-end legacy removal. Work resumes at EVM-R1, then EVM-R2 through
   EVM-R4; NEAR follows only after EVM exits.
+
+## 2026-07-14 - EVM-R1a: no-argument environment HostOps
+
+- Status: `done (verified 2026-07-14)`; EVM-R1 remains in progress.
+- Added exact EVM context HostOps for gas price, base fee, and coinbase, all
+  classified as read-only context effects with target-owned result types.
+- Changed legacy canonicalization from rejection to typed HostOp normalization
+  and taught the EVM Core plan to materialize the existing semantic context
+  plan nodes. NEAR handler checks reject all three IDs.
+- Extended `Tests/Canonical/TargetContextHostOps.lean` with positive EVM plan
+  assertions and wrong-target negative assertions.
+- Verification passed: targeted EVM HostOp/adapter/Core-plan builds, the focused
+  context HostOp test, `just ir-target-boundary`, and `git diff --check`.
+- Next: EVM-R1b, migrate parameterized `blockHash(number)` without adding a
+  target constructor to Canonical Core.

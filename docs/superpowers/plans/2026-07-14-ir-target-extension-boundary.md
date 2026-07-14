@@ -110,6 +110,9 @@ Completion evidence (2026-07-14):
 
 Progress (2026-07-14):
 
+- EVM `origin`, `prevrandao`, `gas_price`, `base_fee`, and `coinbase` context
+  reads now normalize to exact `evm.context/*` HostOps and materialize only in
+  the EVM plan; NEAR rejects every one through handler resolution.
 - Added the generic result-free `Effect.hostCall` extension path and an EVM
   catalog for ERC-721/1155 receiver callbacks.
 - EVM-specific stdlib modules now import `Source.Evm`; portable `Source` no
@@ -121,7 +124,8 @@ Progress (2026-07-14):
   Generic HostOps now enter EVM `EffectPlan` directly; no EVM lowering path
   reconstructs a legacy shared-IR receiver node.
 
-1. Move EIP-712 and ERC receiver behavior into the EVM SDK/stdlib layer.
+1. Move EIP-712 and the remaining EVM context behavior (`blockHash`) into
+   target-owned HostOps; ERC receiver behavior is already migrated.
 2. Replace EVM ABI-packed call payloads with a semantic call description whose
    ABI layout is built in the EVM plan.
 3. Classify create/static/delegate behavior as portable semantics or explicit

@@ -91,6 +91,23 @@ def main : IO Unit := do
   require (evmPlanHasContext (← evmPlan randomness) .prevRandao)
     "EVM prevRandao HostOp did not materialize to the target context plan"
 
+  let evmCases : Array
+      (String × ProofForge.IR.ContextField × ValueType × ProofForge.Target.HostOpId ×
+        ProofForge.Backend.Evm.Plan.ContextExprPlan) := #[
+    ("EvmGasPrice", .gasPrice, .u64, ProofForge.Target.HostOps.Evm.gasPriceSig.id, .gasPrice),
+    ("EvmBaseFee", .baseFee, .u64, ProofForge.Target.HostOps.Evm.baseFeeSig.id, .baseFee),
+    ("EvmCoinbase", .coinbase, .hash, ProofForge.Target.HostOps.Evm.coinbaseSig.id, .coinbase)
+  ]
+  for (name, field, returns, expectedId, expectedPlan) in evmCases do
+    let checked ← adapt name field returns
+    require (hostCallIds checked == #[expectedId])
+      s!"{name} did not normalize to its typed EVM HostOp"
+    require (evmPlanHasContext (← evmPlan checked) expectedPlan)
+      s!"{name} HostOp did not materialize to the EVM target context plan"
+    require ((ProofForge.Compiler.checkHostOpHandlers "wasm-near" checked).any
+        (·.contains expectedId.render))
+      s!"NEAR accepted EVM HostOp {expectedId.render}"
+
   let nearCases : Array
       (String × ProofForge.IR.ContextField × ValueType × ProofForge.Target.HostOpId) := #[
     ("NearPredecessor", .accountId, .string,

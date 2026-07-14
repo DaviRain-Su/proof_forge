@@ -107,15 +107,15 @@ def classifyContextField : ContextField → LegacyDecision
   | .timestamp => payloadDecision "ContextField.timestamp" .normalize "canonical-core" "timestamp maps to canonical block timestamp context"
   | .epochHeight => payloadDecision "ContextField.epochHeight" .normalize "near-context-hostop" "epoch height maps to near.context.epoch_height"
   | .chainId => payloadDecision "ContextField.chainId" .reject "canonical-core-context" "chain id is outside the initial adapter fragment"
-  | .gasPrice => payloadDecision "ContextField.gasPrice" .reject "canonical-core-context" "gas price is outside the initial adapter fragment"
+  | .gasPrice => payloadDecision "ContextField.gasPrice" .normalize "evm-context-hostop" "EVM gas price maps to evm.context.gas_price"
   | .gasLeft => payloadDecision "ContextField.gasLeft" .normalize "canonical-core" "portable remaining gas maps to canonical gas context"
   | .prepaidGas => payloadDecision "ContextField.prepaidGas" .normalize "near-context-hostop" "prepaid gas maps to near.context.prepaid_gas"
   | .usedGas => payloadDecision "ContextField.usedGas" .normalize "near-context-hostop" "used gas maps to near.context.used_gas"
-  | .baseFee => payloadDecision "ContextField.baseFee" .reject "canonical-core-context" "base fee is outside the initial adapter fragment"
+  | .baseFee => payloadDecision "ContextField.baseFee" .normalize "evm-context-hostop" "EVM base fee maps to evm.context.base_fee"
   | .prevRandao => payloadDecision "ContextField.prevRandao" .normalize "evm-context-hostop" "EVM randomness maps to evm.context.prevrandao"
   | .randomSeed => payloadDecision "ContextField.randomSeed" .normalize "near-context-hostop" "NEAR randomness maps to near.context.random_seed"
   | .origin => payloadDecision "ContextField.origin" .normalize "evm-context-hostop" "transaction origin maps to evm.context.origin"
-  | .coinbase => payloadDecision "ContextField.coinbase" .reject "canonical-core-context" "block producer identity is outside the initial adapter fragment"
+  | .coinbase => payloadDecision "ContextField.coinbase" .normalize "evm-context-hostop" "EVM block producer maps to evm.context.coinbase"
   | .blockHash _ => payloadDecision "ContextField.blockHash" .reject "canonical-core-context" "historical block hash is outside the initial adapter fragment"
 
 def classifyEntrypointKind : EntrypointKind → LegacyDecision

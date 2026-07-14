@@ -27,6 +27,30 @@ def prevRandaoSig : HostOpSig := {
   requiredCapabilities := #[.envBlock]
 }
 
+def gasPriceSig : HostOpSig := {
+  id := { namespace_ := "evm.context", name := "gas_price", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[]
+  results := #[.u64]
+  effectClass := .context
+  requiredCapabilities := #[.envBlock]
+}
+
+def baseFeeSig : HostOpSig := {
+  id := { namespace_ := "evm.context", name := "base_fee", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[]
+  results := #[.u64]
+  effectClass := .context
+  requiredCapabilities := #[.envBlock]
+}
+
+def coinbaseSig : HostOpSig := {
+  id := { namespace_ := "evm.context", name := "coinbase", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[]
+  results := #[.hash]
+  effectClass := .context
+  requiredCapabilities := #[.envBlock]
+}
+
 /-- Legacy `contract_source` currently canonicalizes EVM account handles to
 `u64`; the EVM plan widens them to full words. The HostOp signature records
 that real boundary instead of claiming Core `.address` values prematurely. -/
@@ -57,6 +81,9 @@ def erc1155BatchReceivedSig : HostOpSig := {
 def signatures : Array HostOpSig := #[
   originSig,
   prevRandaoSig,
+  gasPriceSig,
+  baseFeeSig,
+  coinbaseSig,
   erc721ReceivedSig,
   erc1155ReceivedSig,
   erc1155BatchReceivedSig

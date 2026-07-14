@@ -447,6 +447,18 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
         unless call.args.isEmpty do
           throw ({ message := s!"target extension `{call.id.render}` expects no arguments" } : PlanError)
         .ok #[StmtPlan.letBind (resultName instr) .hash (.context .prevRandao)]
+      else if call.id == ProofForge.Target.HostOps.Evm.gasPriceSig.id then do
+        unless call.args.isEmpty do
+          throw ({ message := s!"target extension `{call.id.render}` expects no arguments" } : PlanError)
+        .ok #[StmtPlan.letBind (resultName instr) .u64 (.context .gasPrice)]
+      else if call.id == ProofForge.Target.HostOps.Evm.baseFeeSig.id then do
+        unless call.args.isEmpty do
+          throw ({ message := s!"target extension `{call.id.render}` expects no arguments" } : PlanError)
+        .ok #[StmtPlan.letBind (resultName instr) .u64 (.context .baseFee)]
+      else if call.id == ProofForge.Target.HostOps.Evm.coinbaseSig.id then do
+        unless call.args.isEmpty do
+          throw ({ message := s!"target extension `{call.id.render}` expects no arguments" } : PlanError)
+        .ok #[StmtPlan.letBind (resultName instr) .hash (.context .coinbase)]
       else if call.id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
         match call.args with
         | #[operator, fromAddr, toAddr, tokenId] => do
