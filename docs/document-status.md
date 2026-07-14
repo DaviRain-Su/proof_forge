@@ -31,6 +31,7 @@ generated artifacts remain the implementation truth.
 | Soroban Counter MVP + gap / slice order | [targets/stellar-soroban.md](targets/stellar-soroban.md) |
 | Wasm-host promotion analysis | [Wasm-host analysis](superpowers/specs/2026-07-12-wasm-host-target-analysis.md) |
 | ZK promotion analysis | [ZK target analysis](superpowers/specs/2026-07-12-psy-integration-analysis.md) |
+| OpenVM research brief (C3, defer) | [targets/openvm-research.md](targets/openvm-research.md) |
 
 ## Historical Baselines
 

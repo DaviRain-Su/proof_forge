@@ -24,9 +24,10 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **Land PR #104** (`DaviRain-Su/authoring-cutover-comparison`): direct Authored → Canonical Core cutover + primary-triad native differential; rebase onto current `main` (includes D-055 Move/Cloudflare removal) |
+| Active task | **Land PR #104** (`DaviRain-Su/authoring-cutover-comparison`): direct Authored → Canonical Core cutover + primary-triad native differential |
 | Next task | After #104 merges: continue cutover residual (CMP-3g*) and NEAR canonical replay; **do not** start deep Soroban HostABI/Env work until then (D-056) |
-| Known blocker | PR #104 is draft and `CONFLICTING` with `main`; real NEAR receipt/testnet still needs a sandbox harness |
+| Parallel on main (done) | C3 OpenVM research brief → **defer** backend ([`docs/targets/openvm-research.md`](docs/targets/openvm-research.md)) |
+| Known blocker | PR #104 babysit (CI/ready); real NEAR receipt/testnet still needs a sandbox harness |
 | Execution queue | [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Soroban note | Counter MVP only; gap list and S0–S5 order in [`docs/targets/stellar-soroban.md`](docs/targets/stellar-soroban.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -201,7 +202,7 @@ This table is only the agent routing index.
 | B3 | done (Counter MVP only; depth deferred D-056) | Soroban Counter six-gate + public route; S0–S5 remaining | Plan Task 9; [stellar-soroban.md](docs/targets/stellar-soroban.md) |
 | C1 | pending after A6 | Add PSy canonical planning | Plan Task 10 |
 | C2 | pending after C1 | Add an Aleo semantic plan | Plan Task 11 |
-| C3 | pending | Write the sourced OpenVM target brief | Plan Task 12 |
+| C3 | done (2026-07-15) | Sourced OpenVM brief; decision **defer** backend/registry | Plan Task 12; [openvm-research.md](docs/targets/openvm-research.md) |
 
 Allowed task states are `pending`, `in_progress`, `blocked`, and
 `done (verified at <sha>)`. Use `blocked` only with a concrete blocker and the

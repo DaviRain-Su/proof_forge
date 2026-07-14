@@ -70,6 +70,12 @@ is limited to CI stability, security fixes, and documentation maintenance.
 | [Stellar Soroban](stellar-soroban.md) | Counter MVP | `just soroban-promotion` / `soroban-public-route`; **custom offline bridge only**. Deep HostABI/Env work waits for D-056 (authoring cutover PR #104). Gap list and S0–S5 order live in the target note. |
 | CosmWasm | Counter MVP | `just cosmwasm-promotion`; `execute_msg` stub; Gate G1a (M3/M4) not started. Same D-056 sequencing as Soroban for deep work. |
 
+## Research inventory (docs only)
+
+| Target | Stage | Scheduling status |
+|---|---|---|
+| [OpenVM](openvm-research.md) | Research | Sourced brief closed 2026-07-15 with **defer** on backend/registry; preferred future spike is Rust guest sourcegen if reopened after #104 and PSy/Aleo plan work. No target id. |
+
 **Removed from `main` (2026-07-15, D-055):** `move-aptos`, `move-sui`, and
 `wasm-cloudflare-workers` (including `ProofForge/Backend/Move`,
 `ProofForge/Compiler/TS`, and related fixtures). Full history is preserved on

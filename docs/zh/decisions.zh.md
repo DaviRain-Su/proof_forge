@@ -62,6 +62,8 @@
 | D-052 | 2026-07-12 | **将 target-neutral `IntentContract` materialization 和增量 Legacy replacement 作为下一架构阶段。** Portable spec 在不包含 `targetId` 分支的情况下归一化；`IntentMaterializer` registry 将 `(target, intent family)` 解析成真实 `ContractSpec`、Canonical contract、capability plan 和现有 target plan。第一个产品切片是主三链上的最小独特 NFT lifecycle。Solana grammar 移到 `Source.Solana`；Wasm-host promotion 先抽取中立 plan/ABI 边界；PSy/Aleo 在任何公开成熟度变化前建立 strict canonical plan gate。 | 扩展 D-028 和已完成的 Canonical Core 迁移，不增加 target-specific Core constructor。Legacy adapter 保留为兼容输入，且只能通过保持行为、fail-closed 的切片移除。已接受的设计和执行顺序是 2026-07-12 Portable Intent spec 与 plan。D-034 保留为 portfolio 历史；D-052 取代其默认的下一步调度顺序。 |
 | D-053 | 2026-07-12 | **将 `wasm-arbitrum-stylus` 分类为具有 EVM 语义、使用独立 `StylusPlan` 的 docs-only Wasm-host target。** Direct HostIO Wasm 是最终 canonical renderer；固定版本的 `stylus-sdk` Rust sourcegen 保留为 bootstrap、兼容路径和 differential oracle。 | Stylus 部署 Wasm，但采用 Solidity ABI、EVM 256-bit storage slot、topic、call、gas 和 ink。将它路由到 `NearModulePlan` 或 Soroban key-value storage 会把 artifact format 绑定到错误的 contract semantics。Registry 工作等待 strict plan contract 与 validator。 |
 | D-054 | 2026-07-14 | **共享 authoring IR 和 Canonical Core 只能包含 target-neutral semantic operation；chain-native API 使用在 `--target` 之后解析的 typed target extension。** Target SDK 名称可以存在于 source facade，但必须在 checked Core 之前完成 lowering。Target signature、handler、ABI layout、environment field、string pool 和 reference host semantics 由 target 自己拥有，并通过 open registry 注入。 | 2026-07-14 审计发现：共享 `Expr`/`Effect` 中存在 NEAR promise 和 EVM/EIP/ERC/ABI 节点，Core 中存在 NEAR mode 与 semantics，canonical materialization 中存在 Solidity/NEAR 字段。Closed inductive 会让一条链的扩展迫使所有无关 backend 改动，违反 D-028/D-050/D-052。已接受的边界和迁移顺序见 [IR Target Extension Boundary design](../superpowers/specs/2026-07-14-ir-target-extension-boundary-design.md) 与 [implementation plan](../superpowers/plans/2026-07-14-ir-target-extension-boundary.md)。 |
+| D-055 | 2026-07-15 | **从 `main` 移除 Move 与 Cloudflare 后端。** 删除注册表目标 `move-aptos`、`move-sui`、`wasm-cloudflare-workers`，及其后端（`ProofForge/Backend/Move`、`ProofForge/Compiler/TS`）、fixture、晋级冒烟与可选 CI job。完整历史保留在分支 `archive/move-cloudflare-2026-07-15`。产品面保留主三链与有意保留的 research spike（Psy、Aleo、CosmWasm、Soroban、Stylus）。 | 缩小维护面并诚实化目标名单；Move/Cloudflare 是不在 public-beta 路径上的 Counter-MVP/research spike。 |
+| D-056 | 2026-07-15 | **在深度 secondary Wasm-host 工作之前，优先完成主三链 direct authoring cutover。** 将 [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104)（Authored → Canonical Core + native differential）合入当前 `main`，再开大型 `wasm-stellar-soroban` HostABI/Env/Stellar CLI 史诗或 CosmWasm M3/M4。允许并行：文档诚实、纯设计笔记、现有 Counter MVP gate 维护。Soroban 深度顺序为 S0 诚实 → S1 去 NEAR 化 HostABI → S2 单一 canonical 路径 → S3 offline crosscall → S4 真实 Env → S5 产品深度（[stellar-soroban.md](../targets/stellar-soroban.md)）。 | Cutover 会重写 `Contract.Source`、Authored 与 `WasmHost/NearModulePlan`——这是 Soroban 复用的脊柱。并行做深度 host 工作会带来双路径 merge 风险，并诱使对自定义 offline bridge 过度宣称。 |
 
 ## 目标家族分类
 
@@ -69,10 +71,10 @@
 |---|---|---|
 | 直接编译器 | `evm` | `contract_source` / ContractSpec → portable IR → EVM 语义计划 → Yul AST/源代码 → solc |
 | EVM 兼容链 profile | `robinhood-chain-testnet` | 复用 `evm` 字节码/ABI 输出；添加 chain id、RPC、浏览器、验证器、rollup 以及部署制品元数据 |
-| Wasm 宿主 | `wasm-near`, `wasm-cosmwasm`, `wasm-cloudflare-workers`（链下宿主，D-033）, `wasm-stellar-soroban`（候选，仅文档）, `wasm-icp-canister`（候选，仅文档） | 可移植 IR → **`EmitWat`** (Wasm AST → WAT) → `wat2wasm` + 每条链的宿主导入；Rust/CDK 源代码生成仅作为冻结的 v0 临时方案使用 (D-031, [wasm-family](targets/wasm-family.zh.md))；Cloudflare Workers 目前使用 TypeScript 源代码生成 |
+| Wasm 宿主 | `wasm-near`（主路径）、`wasm-cosmwasm` / `wasm-stellar-soroban`（Counter MVP 自定义 bridge）、`wasm-icp-canister`（仅文档候选）；历史 `wasm-cloudflare-workers` 已移除（D-055） | 可移植 IR → **`EmitWat`** (Wasm AST → WAT) → `wat2wasm` + 每条链的宿主导入；Rust/CDK 源代码生成仅作为冻结的 v0 临时方案使用 (D-031)；Soroban 深度在 authoring cutover 之后（D-056） |
 | 二进制工具链 | `solana-sbpf-linker`, `solana-zig-fork` | Lean → 发射 Zig → bitcode → sbpf-linker（历史参考；已被 D-026 取代） |
 | sBPF 直接代码生成 | `solana-sbpf-asm` | Lean → IR → sBPF 汇编 (.s) → sbpf 工具链 → ELF（规范 D-026） |
-| 源代码生成 | `move-aptos`, `move-sui` | 可移植 IR → Move 包源代码 |
+| 源代码生成（历史） | 原 `move-aptos` / `move-sui` 已从 `main` 删除（D-055；归档 `archive/move-cloudflare-2026-07-15`） | 曾为可移植 IR → Move 包源代码 |
 | AVM 源代码生成 Research | `algorand-avm`（候选，仅文档） | 可移植 IR → Algorand Python、Algorand TypeScript 或 TEAL 包 → AVM approval/clear-state 或 LogicSig 字节码 + ARC-4/app 制品元数据 |
 | eUTXO 验证器源代码生成 Research | `cardano-plutus-aiken`（候选，仅文档） | 可移植 IR → Aiken 包 → UPLC/Plutus 验证器制品 + Plutus 蓝图 + 交易场景制品元数据 |
 | Michelson 源代码生成 Research | `tezos-michelson-ligo`（候选，仅文档） | 可移植 IR → LIGO 包 → Michelson 合约 + 参数/存储 schema + 操作/视图/事件清单 |
@@ -150,7 +152,7 @@ Phase 5: Cloud platform
 | 目标工程形态 | [RFC 0002](rfcs/0002-target-implementation-design.zh.md) |
 | CosmWasm SDK spike 草案 | [targets/wasm-family.md](targets/wasm-family.zh.md) |
 | Wasm-NEAR 源代码生成目标 | [targets/wasm-near.md](targets/wasm-near.zh.md) |
-| Cloudflare Workers 目标 | [targets/cloudflare-workers.md](../targets/cloudflare-workers.md) |
+| Cloudflare Workers 目标（历史，D-055 已移除） | 归档分支 `archive/move-cloudflare-2026-07-15`；见 D-033/D-055 |
 | Stellar/Soroban 候选目标 | [targets/stellar-soroban.md](../targets/stellar-soroban.md) |
 | Internet Computer 候选目标 | [targets/internet-computer.md](../targets/internet-computer.md) |
 | Algorand AVM 候选目标 | [targets/algorand-avm.md](../targets/algorand-avm.md) |

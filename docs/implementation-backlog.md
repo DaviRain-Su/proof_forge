@@ -47,7 +47,7 @@ July 12 implementation plan.
 | B3 | Promote Soroban Counter MVP | done for Counter six-gate + public route; **depth deferred (D-056)** | Counter: strict gate, offline lifecycle, EmitWat/canonical WAT with `_get`/`_put`. Remaining: HostABI honesty (S0–S1), real Env (S4), product depth (S5) — see [stellar-soroban.md](targets/stellar-soroban.md) |
 | C1 | Add PSy canonical plan | pending after A6 | strict fixture gate; no maturity change |
 | C2 | Add Aleo semantic plan | pending after C1 | Core-to-plan-to-Leo; no route promotion |
-| C3 | Write sourced OpenVM brief | pending | reviewed go/defer decision before code |
+| C3 | Write sourced OpenVM brief | done (2026-07-15) | [`targets/openvm-research.md`](targets/openvm-research.md): **defer** backend/registry; revisit after #104 + C1/C2 |
 
 Legacy replacement is incremental. A legacy adapter or compatibility call is
 removed only after tests establish observable equivalence and all callers use

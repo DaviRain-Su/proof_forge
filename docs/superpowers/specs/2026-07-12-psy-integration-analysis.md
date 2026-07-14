@@ -95,8 +95,12 @@ after a real Leo compile/execute gate is available in CI.
 
 ## OpenVM Research Boundary
 
-OpenVM is not present in the repository. Before adding a registry entry or
-backend, write a dated target brief using primary sources that fixes:
+Sourced brief: [openvm-research.md](../../targets/openvm-research.md)
+(2026-07-15). Decision: **defer** backend and registry. The checklist below is
+retained as the acceptance contract that brief satisfied; do not schedule
+implementation from unpinned facts or from this analysis alone.
+
+Before adding a registry entry or backend, the dated target brief must fix:
 
 - supported OpenVM release/toolchain;
 - guest ISA and executable format;

@@ -100,8 +100,10 @@ merely because it shares EmitWat.
 ### 1c. ZK plan-only promotion
 
 Add strict canonical planning for PSy, then an Aleo semantic plan. Registry
-maturity and public input modes do not change. OpenVM remains docs-first until
-a sourced target brief is approved.
+maturity and public input modes do not change. OpenVM research brief is written
+([openvm-research.md](targets/openvm-research.md), 2026-07-15) with a reviewed
+**defer** on backend/registry until after authoring cutover and C1/C2; no
+implementation tasks are opened from this inventory alone.
 
 ## Historical Tier-1 candidates
 

@@ -45,24 +45,23 @@ Counter 流程，`evm`、`solana-sbpf-asm`、`wasm-near` 和 `move-sui` 已具�
 | `evm` | Surface v2 / Legacy adapter → canonical contract → EVM `ModulePlan` → Yul → `solc` → bytecode | Experimental（广泛 CI 门禁；不是完整 Solidity SDK） | golden Yul、canonical plan/artifact parity、诊断、Foundry 运行时冒烟（35 个测试）、Anvil 部署、动态构造函数 Anvil、构造函数 body、部署 gas-limit/price/priority flags、stdlib（ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2；见 [sdk-ecosystem-gaps](../sdk-ecosystem-gaps-2026-07.md)） |
 | `solana-sbpf-asm` | Surface v2 / Legacy adapter → canonical contract → `SolanaModulePlan` → sBPF assembly → ELF | Experimental | canonical plan/artifact parity、Mollusk 测试、Surfpool/Rust live 冒烟、Pinocchio 等价性门禁、indexed events、Memo CPI、Associated Token `create_idempotent` CPI、Token-2022 扩展、map storage、nativeValue lamports read |
 | `wasm-near` | Surface v2 / Legacy adapter → canonical contract → `NearModulePlan` → Wasm AST/WAT → Wasm | Experimental | canonical plan/artifact parity、诊断、IR 覆盖清单、形式化 trace obligation、target-first 冒烟、离线宿主冒烟（signer+deposit+promise stubs）、artifact/deploy metadata、NEP-141 FT stdlib、aggregate ABI params、nested mapKey paths、nativeValue U64 truncation、eventEmitIndexed flattening、真实上游 NEAR VM 一致性（IR fixture + 产品源码 + NEP-141 FT，含 storage_remove 与完整 promise ABI，以及经真实 `promise_result` 的 `ft_resolve_transfer` 回调分发，通过 `near-vm-runner`/Wasmtime） |
-| `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP（PF-P3-02 六门） | `just soroban-promotion`（源身份 · fail-closed · HostBridge · wat2wasm · offline-host 生命周期 · 文档）；auth 仍为 always-auth spike；Stellar CLI/TTL 为后续 |
+| `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP（自定义 offline bridge，非真实 Env） | `just soroban-promotion` / `soroban-public-route`；auth 仍为 always-auth；`invoke_contract` stub；HostABI 仍 hybrid；真实 Env/Stellar CLI 延后（D-056，[stellar-soroban](../targets/stellar-soroban.md)） |
 | `wasm-arbitrum-stylus` | Surface v2 / Legacy adapter → canonical contract → `StylusPlan` → direct HostIO Wasm（默认）或固定 Rust SDK oracle | Research | `just stylus-all`；原子发布 WAT/Wasm 或 Rust bundle、plan 派生 Solidity ABI/client、带哈希的 plan/storage/evidence，并为 Counter、ValueVault、Token、RemoteCall 和有界 aggregate 提供本地 VM/差分覆盖；晋级仍需要 Nitro activation/E2E 证据 |
 | `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP（PF-P3-02 六门） | `just cosmwasm-promotion`（产品 Counter · offline-host 0→1 · 无 NEAR 偷换）；`execute_msg` 仍为 stub；fixture `cosmwasm-check` 见 `just cosmwasm-counter-smoke` |
-| `move-aptos` | portable IR → Aptos Move 源码包 | Counter sourcegen Spike | fixture Counter 包 + capability 检查；`just aptos-promotion` 是严格晋级门，要求 `aptos move compile/test`，不作为默认最终制品证据 |
-| `move-sui` | portable IR → Sui Move 包 | Counter MVP | 本地 `sui move build/test`、`just sui-counter-smoke` 等 |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Spike（受限子集） | golden source、诊断、`dargo` execute 冒烟 |
 | `aleo-leo` | portable IR → Leo 源码包 | Research sourcegen | 已验证 pure、Unit-final 和状态无关 `(T, Final)` 子集；保序 Poseidon pair hash、record 语义和 plan 派生 metadata；Leo 4.0.2 下依赖状态的非 Unit 返回会 fail closed |
-| `wasm-cloudflare-workers` | portable IR → TypeScript Worker | 链下 Research sourcegen | 仅 fixture Counter TS；产品源 fail closed；晋级要求 Wrangler dry-run 成功并执行 Worker 生命周期；非 Wasm 二进制 |
 
 **仅 CLI 的验证目标：** `quint` 可通过 `proof-forge emit --target quint` 用于形式化/模型检查
 fixture，但**不在** `Target.knownIds` / `--list-targets` 中（验证通道，不是产品 host）。
 
-**Spike 诚实性 (U7)：**CosmWasm / Aptos / Soroban / Cloudflare 不是主要产品
-host。CosmWasm portable crosscall 是 WasmMsg 形状的 `execute_msg` stub；
-Soroban interpreter 的 `require_auth_for_args` 在 Lean 中始终授权。Gate G1a/G1b
-（CosmWasm/Aptos M3-M4）在显式排期前保持**未开始**；参见
-[gate-status](../gate-status.md) 和
-[unified-support-roadmap](../superpowers/plans/2026-07-09-unified-support-roadmap.md) U7。
+**Spike 诚实性 (U7)：** CosmWasm / Soroban **不是**主产品 host。CosmWasm
+portable crosscall 是 WasmMsg 形状的 `execute_msg` stub；Soroban 使用**自定义**
+offline-host bridge（不是真实 Soroban Env），always-auth 且 `invoke_contract`
+为 stub。深度 Soroban/CosmWasm 工作等待主三链 authoring cutover
+（[PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104)，D-056）。
+Move（Aptos/Sui）与 Cloudflare Workers 已从 `main` 移除（归档于
+`archive/move-cloudflare-2026-07-15`，D-055）。Gate G1a（CosmWasm M3–M4）
+保持**未开始** — 见 [gate-status](../gate-status.md)。
 
 多链 Token SDK（`TokenSpec`，[RFC 0006](../rfcs/0006-multichain-token-sdk.md)）
 把同一份 token 意图在 EVM 上路由为 ERC-20 bytecode，在 Solana 上路由为

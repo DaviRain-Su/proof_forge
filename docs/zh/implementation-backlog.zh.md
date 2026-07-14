@@ -40,7 +40,7 @@
 | B3 | Soroban Counter 晋级 | B2 后 pending | 严格 plan、原生 ABI/auth 与运行时证据 |
 | C1 | PSy canonical plan | A6 后 pending | 严格 fixture gate；不改变成熟度 |
 | C2 | Aleo semantic plan | C1 后 pending | Core -> plan -> Leo；不晋级公开路线 |
-| C3 | 有来源的 OpenVM brief | pending | 写代码前完成 go/defer 决策 |
+| C3 | 有来源的 OpenVM brief | done (2026-07-15) | [`targets/openvm-research.md`](../targets/openvm-research.md)：**defer** 后端/注册表；#104 与 C1/C2 之后再评估 |
 
 Legacy 替换采用渐进方式：只有在测试证明可观察等价且所有调用方已经迁移后，
 才能删除对应 adapter 或兼容调用。

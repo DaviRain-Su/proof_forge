@@ -1,15 +1,21 @@
 # Wasm 家族目标
 
-Wasm 家族包括 NEAR、CosmWasm、Stellar/Soroban、Arbitrum Stylus、Internet Computer canisters，以及后续 Polkadot/ink 风格合约。它们共享一种可执行格式，但合约 ABI 并不相同。ProofForge 只应共享真正通用的部分。
+Wasm 家族包括 NEAR、CosmWasm、Stellar/Soroban、Arbitrum Stylus、Internet Computer
+canisters、后续 Polkadot/ink 风格合约，以及历史中的 Cloudflare Workers。它们
+共享一种可执行格式，但合约 ABI 并不相同。Cloudflare Workers 不是区块链，但使用
+相同的 Wasm-host 后端模式：生成的 Wasm 模块 + 目标专用 host bridge。ProofForge
+只应共享真正通用的部分；Cloudflare 用于能力的链下再解释。
 
 ## Spike 诚实性 (U7)
 
 - **NEAR (`wasm-near`)** 是主要 Wasm 产品 host（Experimental）。
-- **CosmWasm：**portable remote 使用 WasmMsg 形状的 `execute_msg` **stub**；
+- **CosmWasm：** Counter MVP 六门（`just cosmwasm-promotion`）；portable remote
+  仍使用 WasmMsg 形状的 `execute_msg` **stub**；
   Gate G1a（M3/M4）**未开始**。
-- **Soroban：**Counter MVP host adapter（`PF-P3-02` six-gate）；在真实 Env auth
-  落地前，interpreter auth 始终授权。
-- **Cloudflare Workers：**仅用于 research / off-chain。
+- **Soroban：** Counter MVP host adapter（`PF-P3-02` six-gate）；在真实 Env auth
+  落地前，interpreter auth 始终授权。深度工作等待 D-056 authoring cutover。
+- **Cloudflare Workers：** 历史 research / off-chain 目标；**已从 `main` 移除**
+  （D-055，归档 `archive/move-cloudflare-2026-07-15`）。
 - **Arbitrum Stylus（`wasm-arbitrum-stylus`）：**已实现的 Research 目标。Stylus 的
   产物是 Wasm，但语义属于 EVM；它拥有独立 `StylusPlan`，不得经过
   `NearModulePlan`。Direct Wasm 是 CLI 默认 renderer，固定版本 Rust SDK

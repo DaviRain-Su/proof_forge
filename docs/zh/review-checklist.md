@@ -106,7 +106,7 @@ Psy/DPN review 重点：
 4. 再看 target 专页：
    - [Wasm family](../targets/wasm-family.md)
    - [Solana sBPF](../targets/solana-sbf.md)
-   - [Move family](../targets/move-family.md)
+   - Move family (removed from `main`, D-055; archive `archive/move-cloudflare-2026-07-15`)
    - [Psy DPN ZK target](../targets/psy-dpn.md)
 
 ## 当前最需要拍板的决策

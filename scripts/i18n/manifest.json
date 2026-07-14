@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "661651eb8e62aac490ea3b54bbc5b2511d3f3273ceb4c0b0602a7e2e245259bd",
+    "sha256": "d656c766289c06669529923de89be10c67275e94172b5f4978b247b323fe9855",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for direct-default Arbitrum Stylus research status"
+    "note": "synced EN/zh after D-055/D-056 backend status honesty"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -27,10 +27,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "1a63facfbdbc7f1df687b4de51eefa1a091fd5bf12fb9cf86933ebfdd9527e3c",
+    "sha256": "13465871571c125f64019203700c0d3f37eeec2ea78955cbaaa51c07f47b9dc9",
     "zh": "docs/zh/decisions.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through D-054 IR target-extension boundary"
+    "note": "synced EN/zh after D-055/D-056"
   },
   "docs/capability-registry.md": {
     "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "5de9af42ff6333d31d79b2e4eb54123ce7919465ba9088f4d41a6939356e0f29",
+    "sha256": "cad9e24b8e8a9153978ebbbefdf1af4d730d94d29c9083d7ba990271c150b505",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through Solana layout, authoring, and NEAR runtime status updates"
+    "note": "synced EN/zh after OpenVM research brief (C3 defer 2026-07-15)"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -129,10 +129,10 @@
     "note": "synced after optional ProofForgeFormal library consolidation"
   },
   "docs/targets/README.md": {
-    "sha256": "bca843801bb9cd3c46486a9d42179a07a5d93a7c6b0e64e833bc40a582d3cffe",
+    "sha256": "85a1d96c38d7f7e9c13f9adf8beb9adb0a13e656b15cb93c52524e6d45d05d1e",
     "zh": "docs/zh/targets-README.zh.md",
     "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "note": "synced EN/zh after OpenVM research brief (C3 defer 2026-07-15)"
   },
   "docs/targets/evm.md": {
     "sha256": "432c01a82945d2e93e5722b851dcd1365e4a05838034c01bd38adb7023578a68",
@@ -141,7 +141,7 @@
     "note": "manually synced for EVM CREATE HostOp cutover"
   },
   "docs/targets/wasm-family.md": {
-    "sha256": "8edc99444ea2a84d7984778a4cfd93aa4fc9e1507f9ec31c64471ecb642f566c",
+    "sha256": "87a4423357170a8d164407d8f376b085840927adedc47c6b5346594d164e48f5",
     "zh": "docs/zh/targets/wasm-family.zh.md",
     "model": "manual-zh",
     "note": "manually synced for implemented Stylus research classification"
@@ -157,11 +157,6 @@
     "zh": "docs/zh/targets/solana-sbf.zh.md",
     "model": "gemini-3-flash-preview"
   },
-  "docs/targets/move-family.md": {
-    "sha256": "e79b06cf4c77ec11e6509ec915fe4fa36adb07d9dde35f2ec91c761bf8ca7f45",
-    "zh": "docs/zh/targets/move-family.zh.md",
-    "model": "gemini-3-flash-preview"
-  },
   "Examples/Backend/Evm/README.md": {
     "sha256": "71682a0437c768fc21a03a38ebd4896796a2044fd78598bbe389c12783c49123",
     "zh": "docs/zh/examples-evm-README.zh.md",
@@ -174,7 +169,7 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd",
+    "sha256": "e3be4e977239b390e3d5c061dc27c1610080307f2a634fdb2f8a05b22a291125",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
     "en_sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd"

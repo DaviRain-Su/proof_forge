@@ -4044,3 +4044,20 @@ Rules:
 - Verification: documentation edit only; no code or gate change.
 - Remaining: rebase/merge PR #104; then schedule Soroban S0 if desired.
 - Documentation: this entry.
+
+## 2026-07-15 - C3: OpenVM research brief (defer)
+
+- Status: `done` (documentation only)
+- Result: Wrote a primary-sourced OpenVM target brief and recorded a reviewed
+  **defer** on backend, registry id, CLI target, and shared ZK HostOps. Preferred
+  future spike (if reopened) is Rust guest sourcegen + `cargo openvm` oracle,
+  not hand-written Core→RV32. Upstream Lean FV (openvm-fv, Lean 4.26) is
+  documented as a non-drop-in proof boundary relative to ProofForge's v4.31.0.
+- Interfaces: `docs/targets/openvm-research.md`; index updates in
+  `docs/targets/README.md`, `docs/target-roadmap.md`, `docs/document-status.md`,
+  `docs/implementation-backlog.md`, portable-intent plan Task 12, ZK analysis,
+  `AGENTS.md`, and zh backlog/targets index.
+- Verification: `just docs-check`; `git diff --check` (run with this change).
+- Remaining: none for C3; implementation remains closed until reopen checklist
+  in the brief is satisfied. Active merge priority is still PR #104.
+- Documentation: this entry.

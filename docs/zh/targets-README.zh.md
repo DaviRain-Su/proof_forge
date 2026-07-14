@@ -57,17 +57,11 @@ P0 本地/CI 门禁。三者仍是 `Experimental`；该签署不是通用正确�
 |---|---|---|
 | [Psy DPN](../targets/psy-dpn.md) | Spike | 生成 `.psy`/Dargo 的路径保持维护；不推进 capability-completion，除非安排新的 ZK/circuit lane。 |
 | [Aleo Leo](targets/aleo-leo.zh.md) | Research | Counter/PureMath sourcegen 和 smoke 保持维护；当前不安排新的 ZK-app 实现路线。 |
-| [Cloudflare Workers](../targets/cloudflare-workers.md) | Research（TS emit） | TypeScript Worker demo 作为 off-chain host 参考保留；当前不做产品扩展。 |
-| [Sui Move](targets/move-family.zh.md) | Counter MVP | Counter package 与本地 `just sui-*` gates 保持维护；超出 Counter 的扩展等待 D-007 中的 Aptos M4。 |
+| [Stellar Soroban](../targets/stellar-soroban.md) | Counter MVP | `just soroban-promotion` / `soroban-public-route`；**仅自定义 offline bridge**。深度 HostABI/Env 等待 D-056（authoring cutover PR #104）。 |
+| CosmWasm | Counter MVP | `just cosmwasm-promotion`；`execute_msg` stub；Gate G1a（M3/M4）未开始。与 Soroban 一样，深度工作受 D-056 排序约束。 |
 
-## Tier-1 候选
-
-这些是 Gate P0 之后最先恢复的目标，但应先完成 CLI M3/M4 target-first 迁移并经过评审。
-
-| 目标 | 阶段 | 恢复条件 |
-|---|---|---|
-| CosmWasm | Counter MVP | 已通过 `PF-P3-02` six-gate 提升（`just cosmwasm-promotion`）；Gate G1a（M3/M4 capability completion）**未开始**，portable remote 的 `execute_msg` 仍是 stub。 |
-| Aptos Move | Spike | `just aptos-promotion` 是严格要求 `aptos move compile/test` 的提升门；仍是 Sui 之前第一个 Move sourcegen proof。 |
+**已从 `main` 移除（2026-07-15，D-055）：** `move-aptos`、`move-sui`、
+`wasm-cloudflare-workers`。完整历史在分支 `archive/move-cloudflare-2026-07-15`。
 
 ## Docs-Only Parked Research
 
@@ -87,6 +81,7 @@ spike 后，才会从 docs-only 状态恢复。
 | [Zcash Shielded](targets/zcash-shielded.zh.md) | Privacy UTXO / ZK payment | 跟随可工作的 Bitcoin policy lane。 |
 | [Bitcoin Cash CashScript](targets/bitcoin-cash-cashscript.zh.md) | UTXO script/covenant sourcegen | 跟随 Bitcoin policy lane。 |
 | [Kaspa Toccata](targets/kaspa-toccata.zh.md) | UTXO covenant / based app | 停在 policy/ZK lane 决策之后。 |
+| [OpenVM](../targets/openvm-research.md) | Guest zkVM（Research） | 2026-07-15 有来源 brief，决策 **defer** 后端/注册表；若重开优先 Rust guest sourcegen。无 target id。 |
 
 ## 已取代或参考路线
 
@@ -105,7 +100,7 @@ spike 后，才会从 docs-only 状态恢复。
 - [Algorand AVM 目标](targets/algorand-avm.zh.md)
 - [Solana sBPF Asm](../targets/solana-sbpf-asm.md) —— 规范 direct-assembly 路线（`solana-sbpf-asm` 目标 id，D-026）
 - [Solana sBPF](targets/solana-sbf.zh.md) —— 已被取代的 Zig/sbpf-linker 路线（`solana-sbpf-linker` 目标 id）
-- [Move 家族](targets/move-family.zh.md)
+- [OpenVM research brief](../targets/openvm-research.md) —— C3 有来源 brief（defer 后端）
 - [Cardano Plutus/Aiken 目标](targets/cardano-plutus-aiken.zh.md)
 - [Tezos Michelson/LIGO 目标](targets/tezos-michelson-ligo.zh.md)
 - [Starknet Cairo 目标](targets/starknet-cairo.zh.md)
