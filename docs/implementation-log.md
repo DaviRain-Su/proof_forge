@@ -3298,3 +3298,30 @@ Rules:
 - Verification: targeted materializer/product builds,
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`,
   `lake env lean --run Tests/NftIntent.lean`, and `git diff --check`.
+
+## 2026-07-14 - EVM-R2r: direct ERC-4626 and complete EVM catalog
+
+- Status: `done (verified 2026-07-14)`; an exact comparison of
+  `Examples/Product/catalog.json` with the direct-product gate reports 28 of 28
+  EVM catalog products and no remaining product.
+- Added a direct EVM ERC-4626 Surface v2 body with 23 entrypoints, standard
+  selectors/events, initialization guards, reentrancy locking, pro-rata and
+  ceiling conversions, entry/exit fees, conservative max limits, share
+  balances/allowances, IERC20 pull/push crosscalls, and vault/recipient FOT
+  balance-delta accounting.
+- Replaced the EVM Core planner's single-level branch assumption with recursive
+  structured CFG lowering. Nested branches, shared continuations, branch-local
+  early returns, and reverts now lower without adding target nodes to Core.
+- Added host ABI carrier metadata to Surface parameters, returns, and event
+  fields. It is preserved in Canonical Interface only; executable Core remains
+  target-neutral. Direct ERC-20, ERC-721, and ERC-4626 now preserve standard
+  `uint256` ABI words and event signatures despite bounded Core carriers.
+- Added `just evm-direct-products` and `just evm-direct-erc4626`. The latter
+  compiles optimized strict-assembly, enforces the EIP-170 limit, installs the
+  6934-byte runtime in Anvil, and verifies initialization, getters, maxDeposit,
+  and repeated-init rejection. EVM-R3 must carry the optimizer into the public
+  bytecode route; the unoptimized direct runtime is too large.
+- Verification: both focused recipes above,
+  `lake env lean --run Tests/Canonical/CoreValidate.lean`,
+  `lake env lean --run Tests/ERC4626Stdlib.lean`, `just ir-target-boundary`,
+  and `git diff --check`.

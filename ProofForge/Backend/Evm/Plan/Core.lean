@@ -625,51 +625,76 @@ private def returnPlan (env : CorePlanEnv) (values : Array ValueRef) :
   if let some value := values[0]? then return #[.return (← valueExpr env value)]
   return #[]
 
-def coreFunctionToStmtPlans (env : CorePlanEnv) (func : Function) : Except PlanError (Array StmtPlan) := do
-  let block ← match func.blocks[0]? with
-    | some block => pure block
-    | none => throw { message := s!"function {func.id.value} has no entry block" }
-  if block.id != func.entry then
-    throw { message := s!"function {func.id.value} first block is not its entry" }
-  if !block.params.isEmpty then
-    throw { message := s!"function {func.id.value} entry block parameters are not yet materialized by the EVM Core plan" }
-  let (entryStatements, currentEnv) ← lowerBlockInstructions env block
-  let mut stmts := entryStatements
+private def blockSuccessors (block : Block) : Array BlockId :=
   match block.terminator with
-  | .return vals => stmts := stmts ++ (← returnPlan currentEnv vals)
-  | .branch condition onTrue onFalse =>
-      let trueBlock ← match func.blocks.find? (fun candidate => candidate.id == onTrue) with
-        | some block => pure block
-        | none => throw { message := "EVM Core branch true block is missing" }
-      let falseBlock ← match func.blocks.find? (fun candidate => candidate.id == onFalse) with
-        | some block => pure block
-        | none => throw { message := "EVM Core branch false block is missing" }
-      let (trueBody, _) ← lowerBlockInstructions currentEnv trueBlock
-      let (falseBody, _) ← lowerBlockInstructions currentEnv falseBlock
-      let (continuation, trueArgs) ← match trueBlock.terminator with
-        | .jump target args _ => pure (target, args)
-        | _ => throw { message := "EVM Core structured branch true arm must jump to a continuation" }
-      let (falseContinuation, falseArgs) ← match falseBlock.terminator with
-        | .jump target args _ => pure (target, args)
-        | _ => throw { message := "EVM Core structured branch false arm must jump to a continuation" }
-      unless continuation == falseContinuation && trueArgs.isEmpty && falseArgs.isEmpty do
-        throw { message := "EVM Core structured branch arms must join without block arguments" }
-      stmts := stmts.push (.ifElse (← valueExpr currentEnv condition) trueBody falseBody)
-      let continuationBlock ← match func.blocks.find? (fun candidate => candidate.id == continuation) with
-        | some block => pure block
-        | none => throw { message := "EVM Core branch continuation is missing" }
-      let (continuationBody, continuationEnv) ← lowerBlockInstructions currentEnv continuationBlock
-      stmts := stmts ++ continuationBody
-      match continuationBlock.terminator with
-      | .return values => stmts := stmts ++ (← returnPlan continuationEnv values)
-      | _ => throw { message := "EVM Core branch continuation must return" }
-  | .jump .. =>
-      throw { message := s!"function {func.id.value} CFG control flow entry jump is not yet materialized by the EVM Core plan" }
+  | .jump target _ _ => #[target]
+  | .branch _ onTrue onFalse => #[onTrue, onFalse]
+  | .return _ | .revert _ => #[]
+
+private def reachableBlocks (func : Function) (start : BlockId) : Array BlockId :=
+  let rec visit (pending seen : Array BlockId) (fuel : Nat) : Array BlockId :=
+    match fuel, pending.back? with
+    | 0, _ | _, none => seen
+    | fuel + 1, some current =>
+        let pending := pending.pop
+        if seen.contains current then visit pending seen fuel
+        else
+          let successors := match func.blocks.find? (fun block => block.id == current) with
+            | some block => blockSuccessors block
+            | none => #[]
+          visit (pending ++ successors) (seen.push current) fuel
+  visit #[start] #[] (func.blocks.size * 4 + 1)
+
+private def branchJoin? (func : Function) (onTrue onFalse : BlockId) : Option BlockId :=
+  let trueReachable := reachableBlocks func onTrue
+  let falseReachable := reachableBlocks func onFalse
+  let candidates := trueReachable.filter fun id =>
+    id != onTrue && id != onFalse && falseReachable.contains id
+  candidates.foldl (fun best candidate =>
+    match best with
+    | none => some candidate
+    | some current => if candidate.value < current.value then some candidate else best) none
+
+private partial def lowerStructuredRegion
+    (func : Function) (env : CorePlanEnv) (blockId : BlockId)
+    (stop? : Option BlockId) (fuel : Nat) : Except PlanError (Array StmtPlan) := do
+  if fuel == 0 then
+    throw { message := s!"EVM Core CFG for function {func.id.value} exceeded its structured fuel" }
+  if stop? == some blockId then return #[]
+  let block ← match func.blocks.find? (fun candidate => candidate.id == blockId) with
+    | some block => pure block
+    | none => throw { message := s!"EVM Core CFG references missing block {blockId.value}" }
+  unless block.params.isEmpty do
+    throw { message := s!"EVM Core structured block {blockId.value} arguments are not yet materialized" }
+  let (head, currentEnv) ← lowerBlockInstructions env block
+  match block.terminator with
+  | .return values => return head ++ (← returnPlan currentEnv values)
   | .revert error =>
       match ← lookupErrorPlan currentEnv error with
-      | some plan => stmts := stmts.push (.revertPlanned plan)
-      | none => stmts := stmts.push (.revert "")
-  return stmts
+      | some plan => return head.push (.revertPlanned plan)
+      | none => return head.push (.revert "")
+  | .jump target args _ =>
+      unless args.isEmpty do
+        throw { message := "EVM Core structured jumps with block arguments are not yet materialized" }
+      if stop? == some target then return head
+      return head ++ (← lowerStructuredRegion func currentEnv target stop? (fuel - 1))
+  | .branch condition onTrue onFalse =>
+      let join? := branchJoin? func onTrue onFalse
+      let trueBody ← lowerStructuredRegion func currentEnv onTrue join? (fuel - 1)
+      let falseBody ← lowerStructuredRegion func currentEnv onFalse join? (fuel - 1)
+      let mut result := head.push (.ifElse (← valueExpr currentEnv condition) trueBody falseBody)
+      if let some join := join? then
+        unless stop? == some join do
+          result := result ++ (← lowerStructuredRegion func currentEnv join stop? (fuel - 1))
+      return result
+
+def coreFunctionToStmtPlans (env : CorePlanEnv) (func : Function) : Except PlanError (Array StmtPlan) := do
+  let entry ← match func.blocks.find? (fun block => block.id == func.entry) with
+    | some block => pure block
+    | none => throw { message := s!"function {func.id.value} has no entry block" }
+  unless entry.params.isEmpty do
+    throw { message := s!"function {func.id.value} entry block parameters are not yet materialized by the EVM Core plan" }
+  lowerStructuredRegion func env func.entry none (func.blocks.size * 4 + 1)
 
 private inductive EvmDispatchKind
   | function | fallback | receive
@@ -740,6 +765,7 @@ private def coreEntrypointToPlan (m : Core.Module) (baseEnv : CorePlanEnv)
         params
         returns := {
           returnType
+          abiType? := ep.returnAbiWord?
           wordTypes := if returnType == .unit then #[] else #[returnType]
           localNames := returnLocalNames returnType (if returnType == .unit then #[] else #[returnType])
         }

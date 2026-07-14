@@ -11,6 +11,8 @@ open ProofForge.Contract
 open ProofForge.Frontend.Surface
 
 private def zeroAddress : SurfaceExpr := .literal (.addressLit "0")
+private def tokenIdParam : SurfaceParam :=
+  { name := "tokenId", type := .u64, abiWord? := some "uint256" }
 
 private def transferEvent (fromAddr toAddr tokenId : SurfaceExpr) : SurfaceStmt :=
   .emit "Transfer" #[fromAddr, toAddr, tokenId]
@@ -38,7 +40,7 @@ private def entrypoints : Array SurfaceEntrypoint := #[
       .stateWrite "mint_authority" (.local "authority") ] },
   { name := "mint", kind := .function, mutability := .call,
     selector? := some "40c10f19",
-    params := #[{ name := "recipient", type := .address }, { name := "tokenId", type := .u64 }],
+    params := #[{ name := "recipient", type := .address }, tokenIdParam],
     retType := .unit, body := #[
       .bind "caller" .address (.contextRead .sender),
       .bind "authority" .address (.stateRead "mint_authority"),
@@ -51,7 +53,7 @@ private def entrypoints : Array SurfaceEntrypoint := #[
   { name := "transferFrom", kind := .function, mutability := .call,
     selector? := some "23b872dd",
     params := #[{ name := "holder", type := .address },
-      { name := "recipient", type := .address }, { name := "tokenId", type := .u64 }],
+      { name := "recipient", type := .address }, tokenIdParam],
     retType := .unit, body := #[
       .bind "caller" .address (.contextRead .sender),
       .bind "owner" .address (.mapRead "token_owners" (.local "tokenId")),
@@ -62,7 +64,7 @@ private def entrypoints : Array SurfaceEntrypoint := #[
       .mapWrite "token_owners" (.local "tokenId") (.local "recipient"),
       transferEvent (.local "holder") (.local "recipient") (.local "tokenId") ] },
   { name := "ownerOf", kind := .function, mutability := .view,
-    selector? := some "6352211e", params := #[{ name := "tokenId", type := .u64 }],
+    selector? := some "6352211e", params := #[tokenIdParam],
     retType := .address, body := #[
       .bind "owner" .address (.mapRead "token_owners" (.local "tokenId")),
       .assert (.compare .ne (.local "owner") zeroAddress) "invalid token",
@@ -80,7 +82,7 @@ def materialize (nft : NFTSpec) : SurfaceContract := {
     events := #[{ name := "Transfer", fields := #[
       { name := "from", type := .address, indexed := true },
       { name := "to", type := .address, indexed := true },
-      { name := "tokenId", type := .u64, indexed := true }] }]
+      { name := "tokenId", type := .u64, indexed := true, abiWord? := some "uint256" }] }]
     errors := #[]
     entrypoints := entrypoints
     constructorParams := #[]

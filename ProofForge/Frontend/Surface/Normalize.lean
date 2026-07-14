@@ -32,7 +32,10 @@ def buildInterface (contract : SurfaceContract) (mod : Module) :
     let params ← ep.params.mapIdxM fun pidx p => do
       let coreTy ← liftExcept (resolveSurfaceType env.typeIds p.type)
       let valueDef := function.params[pidx]!
-      return { valueId := valueDef.id, name := p.name, type := coreTy : InterfaceParam }
+      let abiWord := p.abiWord?
+      let result : InterfaceParam := {
+        valueId := valueDef.id, name := p.name, type := coreTy, abiWord? := abiWord }
+      return result
     let retType ← liftExcept (resolveSurfaceType env.typeIds ep.retType)
     return {
       functionId := fid,
@@ -40,12 +43,17 @@ def buildInterface (contract : SurfaceContract) (mod : Module) :
       mutability := adaptMutability ep.mutability,
       selector? := ep.selector?,
       params := params,
-      retType := retType
+      retType := retType,
+      returnAbiWord? := ep.returnAbiWord?
     : InterfaceEntrypoint }
   let events ← contract.events.mapIdxM fun idx ev => do
     let fields ← ev.fields.mapIdxM fun fidx f => do
       let coreTy ← liftExcept (resolveSurfaceType env.typeIds f.type)
-      return { fieldId := ⟨fidx⟩, name := f.name, type := coreTy, indexed := f.indexed : InterfaceEventField }
+      let abiWord := f.abiWord?
+      let result : InterfaceEventField := {
+        fieldId := ⟨fidx⟩, name := f.name, type := coreTy,
+        indexed := f.indexed, abiWord? := abiWord }
+      return result
     return { eventId := ⟨idx⟩, name := ev.name, fields := fields : InterfaceEvent }
   let errors ← mod.errors.mapM fun decl => do
     let surfaceError? := contract.errors[decl.id.value]?

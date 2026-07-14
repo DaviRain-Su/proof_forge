@@ -292,6 +292,13 @@ canonical-product:
     lake env lean --run Tests/Canonical/LegacyCoverage.lean
     python3 scripts/canonical/check-coverage.py
 
+# Direct Surface/Core EVM product catalog and focused ERC-4626 runtime gate.
+evm-direct-products:
+    lake env lean --run Tests/Canonical/EvmDirectProducts.lean
+
+evm-direct-erc4626:
+    scripts/evm/direct-erc4626-smoke.sh
+
 # Wave 3B Task 12.2: materialization and diagnostic parity gate.
 canonical-materialization:
     lake env lean --run Tests/Canonical/MaterializationParity.lean

@@ -24,6 +24,8 @@ import Examples.Product.Canonical.ExternalVault
 import Examples.Product.Canonical.RoleGatedToken
 import Examples.Product.Canonical.SoulboundTokenBody
 import Examples.Product.Canonical.Nft
+import Examples.Product.Canonical.ERC4626Vault
+import Examples.Product.Canonical.FungibleToken
 import ProofForge.Contract.Nft.EvmSurface
 import ProofForge.Target.PeerMap
 import ProofForge.Backend.Evm.Plan.Core
@@ -93,6 +95,21 @@ private def checkUnsupportedNftRejected : IO Unit := do
         "unsupported EVM NFT feature did not produce a named diagnostic"
   | .ok _ => throw (IO.userError "unsupported EVM NFT feature unexpectedly validated")
 
+private def checkStandardAbiOverrides : IO Unit := do
+  for (contract, entrypointName, paramName) in #[
+      (Examples.Product.Canonical.FungibleToken.contract, "transfer", "amount"),
+      (Examples.Product.Canonical.Nft.contract, "mint", "tokenId") ] do
+    let bundle ← match ProofForge.Frontend.Surface.normalizeSurface contract with
+      | .ok bundle => pure bundle
+      | .error error => throw (IO.userError s!"standard ABI normalization failed: {repr error}")
+    let some entrypoint := bundle.contract.contract.interface.entrypoints.find?
+        (·.name == entrypointName)
+      | throw (IO.userError s!"missing standard entrypoint {entrypointName}")
+    let some param := entrypoint.params.find? (·.name == paramName)
+      | throw (IO.userError s!"missing standard parameter {paramName}")
+    require (param.abiWord? == some "uint256")
+      s!"{entrypointName}.{paramName} lost its uint256 ABI carrier"
+
 def main : IO Unit := do
   checkProduct Examples.Product.Canonical.Counter.contract 3
   checkProduct Examples.Product.Canonical.ValueVault.contract 7
@@ -120,6 +137,9 @@ def main : IO Unit := do
   checkProduct Examples.Product.Canonical.RoleGatedToken.contract 8
   checkProduct Examples.Product.Canonical.SoulboundTokenBody.contract 5
   checkProduct Examples.Product.Canonical.Nft.contract 4
+  checkProduct Examples.Product.Canonical.ERC4626Vault.contract 23
+  checkProduct Examples.Product.Canonical.FungibleToken.contract 10
   checkUnsupportedNftRejected
+  checkStandardAbiOverrides
   checkUnboundPeerRejected Examples.Product.Canonical.AuthRemoteCall.contract
   IO.println "evm-direct-products: ok"

@@ -10,6 +10,9 @@ namespace ProofForge.Contract.Token.EvmSurface
 open ProofForge.Contract.Token
 open ProofForge.Frontend.Surface
 
+private def uint256Param (name : String) : SurfaceParam :=
+  { name, type := .u128, abiWord? := some "uint256" }
+
 private def allowanceKey (owner spender : SurfaceExpr) : SurfaceExpr :=
   .hashPair (.hash owner) (.hash spender)
 
@@ -35,6 +38,7 @@ private def baseEntrypoints (token : TokenSpec) : Array SurfaceEntrypoint := #[
         (.literal (.u128Lit (token.initialSupply?.getD 0))) ] },
   { name := "totalSupply", kind := .function, mutability := .view,
     selector? := some "18160ddd", params := #[], retType := .u128,
+    returnAbiWord? := some "uint256",
     body := #[.returnExpr (.stateRead "total_supply")] },
   { name := "decimals", kind := .function, mutability := .view,
     selector? := some "313ce567", params := #[], retType := .u8,
@@ -42,17 +46,19 @@ private def baseEntrypoints (token : TokenSpec) : Array SurfaceEntrypoint := #[
   { name := "balanceOf", kind := .function, mutability := .view,
     selector? := some "70a08231",
     params := #[{ name := "account", type := .address }], retType := .u128,
+    returnAbiWord? := some "uint256",
     body := #[.returnExpr (.mapRead "balances" (.local "account"))] },
   { name := "allowance", kind := .function, mutability := .view,
     selector? := some "dd62ed3e",
     params := #[{ name := "owner", type := .address },
       { name := "spender", type := .address }], retType := .u128,
+    returnAbiWord? := some "uint256",
     body := #[.returnExpr (.mapRead "allowances"
       (allowanceKey (.local "owner") (.local "spender")))] },
   { name := "transfer", kind := .function, mutability := .call,
     selector? := some "a9059cbb",
     params := #[{ name := "to", type := .address },
-      { name := "amount", type := .u128 }], retType := .bool,
+      uint256Param "amount"], retType := .bool,
     body := #[
       .bind "sender" .address (.contextRead .sender),
       .bind "from_balance" .u128 (.mapRead "balances" (.local "sender")),
@@ -66,7 +72,7 @@ private def baseEntrypoints (token : TokenSpec) : Array SurfaceEntrypoint := #[
   { name := "approve", kind := .function, mutability := .call,
     selector? := some "095ea7b3",
     params := #[{ name := "spender", type := .address },
-      { name := "amount", type := .u128 }], retType := .bool,
+      uint256Param "amount"], retType := .bool,
     body := #[
       .bind "owner" .address (.contextRead .sender),
       .bind "key" .hash (allowanceKey (.local "owner") (.local "spender")),
@@ -76,7 +82,7 @@ private def baseEntrypoints (token : TokenSpec) : Array SurfaceEntrypoint := #[
   { name := "transferFrom", kind := .function, mutability := .call,
     selector? := some "23b872dd",
     params := #[{ name := "from", type := .address },
-      { name := "to", type := .address }, { name := "amount", type := .u128 }],
+      { name := "to", type := .address }, uint256Param "amount"],
     retType := .bool,
     body := #[
       .bind "spender" .address (.contextRead .sender),
@@ -97,7 +103,7 @@ private def baseEntrypoints (token : TokenSpec) : Array SurfaceEntrypoint := #[
 private def mintEntrypoint : SurfaceEntrypoint := {
   name := "mint", kind := .function, mutability := .call,
   selector? := some "40c10f19",
-  params := #[{ name := "to", type := .address }, { name := "amount", type := .u128 }],
+  params := #[{ name := "to", type := .address }, uint256Param "amount"],
   retType := .bool,
   body := #[
     .bind "caller" .address (.contextRead .sender),
@@ -115,7 +121,7 @@ private def mintEntrypoint : SurfaceEntrypoint := {
 
 private def burnEntrypoint : SurfaceEntrypoint := {
   name := "burn", kind := .function, mutability := .call,
-  selector? := some "42966c68", params := #[{ name := "amount", type := .u128 }],
+  selector? := some "42966c68", params := #[uint256Param "amount"],
   retType := .bool,
   body := #[
     .bind "owner" .address (.contextRead .sender),
@@ -143,11 +149,11 @@ def materialize (token : TokenSpec) : SurfaceContract := {
     { name := "Transfer", fields := #[
       { name := "from", type := .address, indexed := true },
       { name := "to", type := .address, indexed := true },
-      { name := "amount", type := .u128, indexed := false }] },
+      { name := "amount", type := .u128, indexed := false, abiWord? := some "uint256" }] },
     { name := "Approval", fields := #[
       { name := "owner", type := .address, indexed := true },
       { name := "spender", type := .address, indexed := true },
-      { name := "amount", type := .u128, indexed := false }] }
+      { name := "amount", type := .u128, indexed := false, abiWord? := some "uint256" }] }
   ]
   errors := #[]
   entrypoints := baseEntrypoints token ++

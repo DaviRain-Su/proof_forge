@@ -135,6 +135,9 @@ structure SurfaceEventField where
   name : String
   type : SurfaceType
   indexed : Bool
+  /-- Host ABI carrier override. This is interface metadata and never enters
+  the executable Core module. -/
+  abiWord? : Option String := none
   deriving Repr
 
 structure SurfaceEventDecl where
@@ -157,6 +160,8 @@ inductive SurfaceMutability
 structure SurfaceParam where
   name : String
   type : SurfaceType
+  /-- Host ABI carrier override preserved only by Canonical Interface. -/
+  abiWord? : Option String := none
   deriving Repr
 
 structure SurfaceEntrypoint where
@@ -166,6 +171,8 @@ structure SurfaceEntrypoint where
   selector? : Option String := none
   params : Array SurfaceParam
   retType : SurfaceType
+  /-- Host ABI carrier override for the return word. -/
+  returnAbiWord? : Option String := none
   body : Array SurfaceStmt
   span : Option SourceSpan := none
   deriving Repr
