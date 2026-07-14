@@ -329,12 +329,14 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
 
 def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : ProofForge.Cli.NativeBuildOp) : Except String CliOptions := do
   let mode ← match op with
+    | .evmCanonicalYul => Except.ok .yul
     | .nftEvmBytecode => Except.ok .evmBytecode
     | .nftSolanaSbpf => Except.ok .contractSourceSbpf
     | .nftNearEmitWat => Except.ok .contractSourceEmitWat
     | .stylusContractSource => Except.ok .contractSourceEmitWat
   let target := state.target?.getD ""
   let flag ← match op with
+    | .evmCanonicalYul => Except.ok "--canonical-evm-yul"
     | .nftEvmBytecode => Except.ok "--evm-bytecode"
     | .nftSolanaSbpf => Except.ok "--contract-source-sbpf"
     | .nftNearEmitWat => Except.ok "--contract-source-emitwat"
@@ -367,7 +369,7 @@ def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : Proof
     targetId? := state.target?
     fixture? := state.fixture?
     format? := state.format?
-    nft := op != .stylusContractSource
+    nft := op == .nftEvmBytecode || op == .nftSolanaSbpf || op == .nftNearEmitWat
     peerMap := state.peers.foldl (fun m spec =>
       match ProofForge.Target.PeerMap.parseBinding spec with
       | .ok b => ProofForge.Target.PeerMap.merge m { bindings := #[b] }
@@ -506,6 +508,7 @@ unsafe def dispatch (args : List String) : IO UInt32 := do
               match opts.nativeBuildOp? with
               | some op =>
                   match op with
+                  | .evmCanonicalYul => ProofForge.Cli.compileContractSourceYul opts
                   | .nftEvmBytecode => ProofForge.Cli.compileContractSourceEvmBytecode opts
                   | .nftSolanaSbpf => ProofForge.Cli.compileContractSourceSbpf opts
                   | .nftNearEmitWat => ProofForge.Cli.compileContractSourceEmitWat opts

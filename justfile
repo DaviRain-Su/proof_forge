@@ -299,6 +299,13 @@ evm-direct-products:
 evm-direct-erc4626:
     scripts/evm/direct-erc4626-smoke.sh
 
+# Public target-first Surface v2 -> Canonical Core -> EVM Yul route.
+evm-canonical-yul-route: build
+    lake env lean --run Tests/CliTargetFirst.lean
+    rm -rf build/evm-canonical-yul-route
+    lake env proof-forge build --target evm --format yul --root . -o build/evm-canonical-yul-route/Counter.yul Examples/Product/Canonical/Counter.lean
+    solc --strict-assembly build/evm-canonical-yul-route/Counter.yul --bin >/dev/null
+
 # Wave 3B Task 12.2: materialization and diagnostic parity gate.
 canonical-materialization:
     lake env lean --run Tests/Canonical/MaterializationParity.lean

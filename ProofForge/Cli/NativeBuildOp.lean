@@ -1,6 +1,7 @@
 namespace ProofForge.Cli
 
 inductive NativeBuildOp
+  | evmCanonicalYul
   | nftEvmBytecode
   | nftSolanaSbpf
   | nftNearEmitWat

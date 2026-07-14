@@ -89,8 +89,10 @@ def evmResolveBuild (req : BuildRequest) : Except String BuildResult :=
         else
           Except.error "proof-forge build --target evm --token requires a .lean TokenSpec or .learn token source"
   else if req.format? == some "yul" then
-    if req.input?.isSome then
-      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--evm-bytecode" }
+    if isLeanSource then
+      Except.ok { dispatchKind := .native, nativeOp? := some .evmCanonicalYul }
+    else if req.input?.isSome then
+      Except.error "proof-forge build --target evm --format yul requires a .lean or .learn source"
     else
       Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-yul" }
   else

@@ -95,12 +95,23 @@ unsafe def compileContractSourceYul (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
       return 1
-  let spec ← loadContractSpecForOptions opts input "evm"
-  let opts ← match finalizeConstructorOptionsForSpec opts spec with
-    | .ok opts => pure opts
-    | .error msg => throw <| IO.userError msg
   let output := opts.output?.getD (defaultYulOutput input)
-  let (yul, _module) ← renderContractSpecEvmYul opts spec
+  let yul ← if opts.nft then do
+      let spec ← loadContractSpecForOptions opts input "evm"
+      let opts ← match finalizeConstructorOptionsForSpec opts spec with
+        | .ok opts => pure opts
+        | .error msg => throw <| IO.userError msg
+      pure (← renderContractSpecEvmYul opts spec).fst
+    else do
+      let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
+      match source with
+      | .legacyV1 spec =>
+          let opts ← match finalizeConstructorOptionsForSpec opts spec with
+            | .ok opts => pure opts
+            | .error msg => throw <| IO.userError msg
+          pure (← renderContractSpecEvmYul opts spec).fst
+      | .surfaceV2 contract =>
+          pure (← renderSurfaceEvmYul opts contract).fst
   writeTextFile output yul
   IO.println s!"wrote {output}"
   return 0

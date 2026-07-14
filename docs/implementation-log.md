@@ -3325,3 +3325,19 @@ Rules:
   `lake env lean --run Tests/Canonical/CoreValidate.lean`,
   `lake env lean --run Tests/ERC4626Stdlib.lean`, `just ir-target-boundary`,
   and `git diff --check`.
+
+## 2026-07-14 - EVM-R3a: public canonical Yul route
+
+- Status: `done (verified 2026-07-14)`; EVM-R3 remains in progress for the
+  bytecode/artifact route and the remaining public product dispatch surfaces.
+- Added a native `evmCanonicalYul` build operation. A target-first EVM build of
+  a Lean Surface v2 source now loads `SurfaceContract`, normalizes it directly
+  into checked Canonical Core, builds the EVM-owned semantic plan, and renders
+  Yul without converting through `ContractSpec` or Legacy IR.
+- Fixed the public `--format yul` resolver, which previously selected
+  `--evm-bytecode` and consequently required a Legacy `ContractSpec`. The
+  native option builder now also sets NFT mode only for actual NFT operations.
+- Added `just evm-canonical-yul-route`, covering driver selection, option
+  integrity, real CLI compilation of direct Counter, and strict-assembly solc
+  acceptance.
+- Verification: `just evm-canonical-yul-route` and `git diff --check`.

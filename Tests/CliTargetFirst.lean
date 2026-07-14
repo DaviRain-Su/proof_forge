@@ -75,6 +75,25 @@ def requireNftNative (target : String) (input : String) : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"resolve failed for {target}: {e}"
 
+def requireEvmCanonicalYulNative (input : String) : IO Unit := do
+  let state ← match ProofForge.Cli.parseNewOptions
+      ["--target", "evm", "--format", "yul", input] {} with
+    | .ok state => pure state
+    | .error error => throw <| IO.userError s!"parse failed: {error}"
+  let (target, request) ← match ProofForge.Cli.resolveBuildRequest state with
+    | .ok result => pure result
+    | .error error => throw <| IO.userError error
+  match ProofForge.Cli.resolveBuild target request with
+  | .ok { dispatchKind := .native, nativeOp? := some .evmCanonicalYul, .. } =>
+      let opts ← match ProofForge.Cli.buildNativeOptions state .evmCanonicalYul with
+        | .ok opts => pure opts
+        | .error error => throw <| IO.userError error
+      require (!opts.nft) "canonical EVM Yul dispatch must not set the NFT source mode"
+      require (opts.mode == .yul) "canonical EVM Yul dispatch selected the wrong compiler mode"
+  | .ok other =>
+      throw <| IO.userError s!"expected native canonical EVM Yul dispatch, got {repr other}"
+  | .error error => throw <| IO.userError error
+
 def requireLegacy (target : String) (fixture? : Option String := none) : IO Unit := do
   let args := ["--target", target] ++ fixture?.toList.flatMap (fun f => ["--fixture", f])
   let state ← match ProofForge.Cli.parseNewOptions args {} with
@@ -127,6 +146,7 @@ def requireEmitWatPlanTargetCheck
       throw <| IO.userError s!"EmitWat plan target {planTargetId} unexpectedly rejected: {err}"
 
 def main : IO UInt32 := do
+  requireEvmCanonicalYulNative "Examples/Product/Canonical/Counter.lean"
   match ProofForge.Cli.parseArgs
       ["--emit-error-ref-emitwat", "--target", "wasm-near"] {} with
   | .ok opts =>

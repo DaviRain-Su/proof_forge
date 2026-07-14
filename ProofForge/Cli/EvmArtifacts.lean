@@ -18,6 +18,8 @@ import ProofForge.Contract.Spec.Json
 import ProofForge.IR
 import ProofForge.IR.Canonical
 import ProofForge.Frontend.ContractSpec.Normalize
+import ProofForge.Frontend.Surface.Normalize
+import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Target
 import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.PeerMap
@@ -45,6 +47,33 @@ def renderCanonicalSpecEvmYul (spec : ProofForge.Contract.ContractSpec) : Except
   match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
   | .ok yul => .ok yul
   | .error error => .error s!"canonical: EVM render failed: {error.message}"
+
+/-- Render a Surface v2 source through the production Canonical Core route.
+There is no Surface-to-Legacy conversion and no fallback renderer. -/
+def renderSurfaceEvmYul (opts : CliOptions)
+    (contract : ProofForge.Frontend.Surface.SurfaceContract) :
+    IO (String × ProofForge.Backend.Evm.Plan.ModulePlan) := do
+  unless opts.evmConstructorArgsHex.isEmpty do
+    throw <| IO.userError
+      "Surface v2 EVM constructor arguments are not materialized yet; use an explicit init entrypoint"
+  let bundle ← match ProofForge.Frontend.Surface.normalizeSurface contract with
+    | .ok bundle => pure bundle
+    | .error error => throw <| IO.userError s!"canonical: Surface normalization failed: {repr error}"
+  let hostErrors := ProofForge.Compiler.checkHostOpHandlers ProofForge.Target.evm.id bundle.contract
+  unless hostErrors.isEmpty do
+    throw <| IO.userError (String.intercalate "; " hostErrors.toList)
+  let capabilityPlan : ProofForge.Target.CapabilityPlan := {
+    targetId := ProofForge.Target.evm.id
+    calls := bundle.contract.contract.requirements
+    metadata := opts.peerMap.targetMetadata
+  }
+  let plan ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract capabilityPlan with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError s!"canonical: EVM plan failed: {error.message}"
+  let yul ← match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
+    | .ok yul => pure yul
+    | .error error => throw <| IO.userError s!"canonical: EVM render failed: {error.message}"
+  return (yul, plan)
 
 def renderContractSpecEvmYul (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) :
     IO (String × ProofForge.IR.Module) := do
