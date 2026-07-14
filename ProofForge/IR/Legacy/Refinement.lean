@@ -160,6 +160,7 @@ mutual
     | .ecrecover d v r s => allAcceptable #[classifyExpr (.ecrecover (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr d && scalarFragmentExpr v && scalarFragmentExpr r && scalarFragmentExpr s
     | .eip712PermitDigest o s v n d ds => allAcceptable #[classifyExpr (.eip712PermitDigest (.local "") (.local "") (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr s && scalarFragmentExpr v && scalarFragmentExpr n && scalarFragmentExpr d && scalarFragmentExpr ds
     | .nativeValue => allAcceptable #[classifyExpr .nativeValue]
+    | .hostCall _ _ _ _ => false
     | .crosscallAbiPacked t _ _ _ _ _ _ _ _ => allAcceptable #[classifyExpr (.crosscallAbiPacked (.local "") 0 #[] 0 0 none none #[] #[])] && scalarFragmentExpr t
     | .crosscallInvoke t m args =>
         match args with
@@ -187,10 +188,12 @@ mutual
     | .crosscallContinue p c args d names =>
         match args with
         | ⟨args⟩ => allAcceptable #[classifyExpr (.crosscallContinue (.local "") (.local "") #[] (.local "") names)] && scalarFragmentExpr p && scalarFragmentExpr c && scalarFragmentExprList args && scalarFragmentExpr d
+    | .callValueU128 => allAcceptable #[classifyExpr .callValueU128]
     | .effect eff => allAcceptable #[classifyExpr (.effect (Effect.contextRead .userId))] && scalarFragmentEffect eff
 
   /-- Recursively check that an effect belongs to the scalar fragment. -/
   def scalarFragmentEffect : Effect → Bool
+    | .hostCall _ _ _ => false
     | .storageScalarRead _ => allAcceptable #[classifyEffect (Effect.storageScalarRead "")]
     | .storageScalarWrite _ e => allAcceptable #[classifyEffect (Effect.storageScalarWrite "" (.local ""))] && scalarFragmentExpr e
     | .storageScalarAssignOp _ op e => allAcceptable #[classifyEffect (Effect.storageScalarAssignOp "" .add (.local ""))] && scalarFragmentAssignOp op && scalarFragmentExpr e
@@ -218,10 +221,6 @@ mutual
     | .eventEmitIndexed _ is ds =>
         match is, ds with
         | ⟨is⟩, ⟨ds⟩ => allAcceptable #[classifyEffect (Effect.eventEmitIndexed "" #[] #[])] && scalarFragmentExprPairList is && scalarFragmentExprPairList ds
-    | .checkErc721Received o f t i => allAcceptable #[classifyEffect (Effect.checkErc721Received (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr f && scalarFragmentExpr t && scalarFragmentExpr i
-    | .checkErc1155Received o f t i a => allAcceptable #[classifyEffect (Effect.checkErc1155Received (.local "") (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr f && scalarFragmentExpr t && scalarFragmentExpr i && scalarFragmentExpr a
-    | .checkErc1155BatchReceived o f t ids amounts => allAcceptable #[classifyEffect (Effect.checkErc1155BatchReceived (.local "") (.local "") (.local "") (.local "") (.local ""))] && scalarFragmentExpr o && scalarFragmentExpr f && scalarFragmentExpr t && scalarFragmentExpr ids && scalarFragmentExpr amounts
-
   /-- Recursively check that a statement belongs to the scalar fragment. -/
   def scalarFragmentStatement : Statement → Bool
     | .letBind _ ty e => allAcceptable #[classifyStatement (.letBind "" .u64 (.local ""))] && scalarFragmentValueType ty && scalarFragmentExpr e

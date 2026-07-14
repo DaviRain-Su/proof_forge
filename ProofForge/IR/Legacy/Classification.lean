@@ -429,21 +429,6 @@ def classifyEffect : Effect → LegacyDecision
         disposition := .materialization
         owner := "target-plan-events"
         reason := "indexed/data event field split materialized to target plan" }
-  | .checkErc721Received _ _ _ _ =>
-      { nodeTag := "Effect.checkErc721Received"
-        disposition := .reject
-        owner := "evm-adapter"
-        reason := "ERC-721 receiver check is target-only until a typed portable primitive or HostOp handler exists" }
-  | .checkErc1155Received _ _ _ _ _ =>
-      { nodeTag := "Effect.checkErc1155Received"
-        disposition := .reject
-        owner := "evm-adapter"
-        reason := "ERC-1155 receiver check is target-only until a typed portable primitive or HostOp handler exists" }
-  | .checkErc1155BatchReceived _ _ _ _ _ =>
-      { nodeTag := "Effect.checkErc1155BatchReceived"
-        disposition := .reject
-        owner := "evm-adapter"
-        reason := "ERC-1155 batch receiver check is target-only until a typed portable primitive or HostOp handler exists" }
 
 /--! Classify a legacy `Statement` constructor.
 
@@ -946,11 +931,6 @@ def effectInventory : Array Effect := #[
   .contextRead .userId,
   .eventEmit "E" #[],
   .eventEmitIndexed "E" #[] #[],
-  .checkErc721Received (.local "o") (.local "f") (.local "t") (.local "i"),
-  .checkErc1155Received (.local "o") (.local "f") (.local "t") (.local "i") (.local "a"),
-  .checkErc1155BatchReceived (.local "o") (.local "f") (.local "t")
-    (.arrayLit .u64 #[.local "i0", .local "i1"])
-    (.arrayLit .u64 #[.local "a0", .local "a1"])
 ]
 
 /--! Representative statement for every `Statement` constructor. -/

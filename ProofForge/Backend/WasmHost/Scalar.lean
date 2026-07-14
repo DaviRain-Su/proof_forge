@@ -243,20 +243,6 @@ mutual
     | .eventEmitIndexed _ indexed data =>
         indexed.any (fun f => exprReadsPackedScalar scalars f.snd) ||
           data.any (fun f => exprReadsPackedScalar scalars f.snd)
-    -- EVM-only ERC-721/1155 receive checks (PF-P2-02); still scan child exprs.
-    | .checkErc721Received a b c d =>
-        exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
-          exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d
-    | .checkErc1155Received a b c d e =>
-        exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
-          exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d ||
-          exprReadsPackedScalar scalars e
-
-    | .checkErc1155BatchReceived a b c d e =>
-        exprReadsPackedScalar scalars a || exprReadsPackedScalar scalars b ||
-          exprReadsPackedScalar scalars c || exprReadsPackedScalar scalars d ||
-          exprReadsPackedScalar scalars e
-
   partial def stmtReadsPackedScalar (scalars : Array StateInfo) : Statement → Bool
     | .letBind _ _ e | .letMutBind _ _ e | .assign _ e | .assignOp _ _ e | .return e =>
         exprReadsPackedScalar scalars e

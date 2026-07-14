@@ -502,12 +502,6 @@ mutual
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def inferStoragePathType (module : Module) (env : TypeEnv) (stateId : String) (path : Array StoragePathSegment) : Except LowerError ValueType := do
     let state ← stateDeclOf module stateId "storage path"
@@ -652,12 +646,6 @@ mutual
               .error { message := s!"event `{name}` field `{field.fst}` has unsupported wasm-near IR v0 type `{actual.name}`; event fields must be U32, U64, Bool, Hash, or Address" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "indexed events are not supported by wasm-near Rust sourcegen v0" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by wasm-near" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by wasm-near" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported by wasm-near" }
   partial def validateStatements (module : Module) (entrypoint : Entrypoint) (env : TypeEnv) (statements : Array Statement) : Except LowerError TypeEnv :=
     statements.foldlM (init := env) fun acc stmt =>
       validateStatementTypes module entrypoint acc stmt

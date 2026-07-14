@@ -53,7 +53,10 @@ def badAdaptSpec : ContractSpec := {
       mutability := .call
       params := #[]
       body := #[
-        Statement.effect (Effect.checkErc721Received (.local "o") (.local "f") (.local "t") (.local "i"))
+        Statement.effect (Effect.hostCall
+          { namespace_ := "test", name := "unsupported/effect",
+            version := { major := 1, minor := 0, patch := 0 } }
+          #[] #[.targetExtension])
       ]
     }]
     structs := #[]

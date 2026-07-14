@@ -633,22 +633,6 @@ mutual
           fieldPlans := fieldPlans.push (EventFieldPlan.mk field.fst fieldType false)
         let signature ← eventSignature module env name (indexedFields ++ dataFields)
         pure (collector.add (EventPlan.mk name signature fieldPlans))
-    | .checkErc721Received a b c d => do
-        let collector ← collectEventPlansFromExpr module env collector a
-        let collector ← collectEventPlansFromExpr module env collector b
-        let collector ← collectEventPlansFromExpr module env collector c
-        collectEventPlansFromExpr module env collector d
-    | .checkErc1155Received a b c d e => do
-        let collector ← collectEventPlansFromExpr module env collector a
-        let collector ← collectEventPlansFromExpr module env collector b
-        let collector ← collectEventPlansFromExpr module env collector c
-        let collector ← collectEventPlansFromExpr module env collector d
-        collectEventPlansFromExpr module env collector e
-
-    | .checkErc1155BatchReceived a b c d e =>
-        #[a, b, c, d, e].foldlM (init := collector)
-          (collectEventPlansFromExpr module env)
-
   partial def collectEventPlansFromStatements
       (module : Module)
       (env : TypeEnv)
@@ -870,21 +854,6 @@ mutual
           mergeNatSets acc (localArrayGetLengthsExpr env field.snd)
         dataFields.foldl (init := indexedLengths) fun acc field =>
           mergeNatSets acc (localArrayGetLengthsExpr env field.snd)
-    | .checkErc721Received a b c d =>
-        mergeNatSets
-          (mergeNatSets (localArrayGetLengthsExpr env a) (localArrayGetLengthsExpr env b))
-          (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d))
-    | .checkErc1155Received a b c d e =>
-        mergeNatSets
-          (mergeNatSets
-            (mergeNatSets (localArrayGetLengthsExpr env a) (localArrayGetLengthsExpr env b))
-            (mergeNatSets (localArrayGetLengthsExpr env c) (localArrayGetLengthsExpr env d)))
-          (localArrayGetLengthsExpr env e)
-
-    | .checkErc1155BatchReceived a b c d e =>
-        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
-          mergeNatSets acc (localArrayGetLengthsExpr env expr)
-
   partial def localArrayGetLengthsStoragePathSegment (env : TypeEnv) : StoragePathSegment → Array Nat
     | .field _ => #[]
     | .index index => localArrayGetLengthsExpr env index
@@ -1068,21 +1037,6 @@ mutual
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env field.snd)
         dataFields.foldl (init := indexedShapes) fun acc field =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env field.snd)
-    | .checkErc721Received a b c d =>
-        mergeNatArraySets
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env a) (nestedLocalArrayGetShapesExpr env b))
-          (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d))
-    | .checkErc1155Received a b c d e =>
-        mergeNatArraySets
-          (mergeNatArraySets
-            (mergeNatArraySets (nestedLocalArrayGetShapesExpr env a) (nestedLocalArrayGetShapesExpr env b))
-            (mergeNatArraySets (nestedLocalArrayGetShapesExpr env c) (nestedLocalArrayGetShapesExpr env d)))
-          (nestedLocalArrayGetShapesExpr env e)
-
-    | .checkErc1155BatchReceived a b c d e =>
-        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
-          mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env expr)
-
   partial def nestedLocalArrayGetShapesStoragePathSegment (env : TypeEnv) :
       StoragePathSegment → Array (Array Nat)
     | .field _ => #[]

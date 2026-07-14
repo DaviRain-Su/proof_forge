@@ -2496,3 +2496,20 @@ Rules:
   pre-plan rejection on `solana-sbpf-asm` and `wasm-near`.
 - Next: IR-B4b, delete the three legacy ERC receiver `Effect` constructors and
   move EIP-712/ecrecover authoring behind the EVM extension facade.
+
+## 2026-07-14 - IR-B4b: delete legacy EVM receiver effects
+
+- Status: `done (verified 2026-07-14)`.
+- Deleted the three ERC-721/ERC-1155 receiver constructors from shared
+  `Effect` and removed their portable `Contract.Surface` authoring helpers.
+- Removed the corresponding branches from shared semantics, ownership,
+  portability, SDK schema, refinement coverage, and every non-EVM backend.
+- Reworked EVM IR lowering so registered receiver HostOps lower directly to
+  EVM `EffectPlan`/Yul instead of reconstructing a legacy IR effect.
+- Migrated the semantic-plan and strict-intent tests to generic HostOps and
+  removed obsolete per-constructor coverage rows.
+- Verification passed: `just hostop-protocol`, `just evm-semantic-plan`,
+  `just strict-intent-materialization`, `just constructor-coverage-smoke`,
+  `just ir-target-boundary`, and EVM/NEAR/EmitWat/Psy coverage checks.
+- Next: IR-B4c, move EIP-712/ecrecover and remaining EVM-only call forms out
+  of shared IR; separately audit and retire the legacy pipeline itself.

@@ -381,37 +381,6 @@ def nativeTransfer (recipient amount : ProofForge.IR.Expr) : EntryM Unit :=
   ProofForge.Contract.Builder.letBind "_sent" .u64
     (.crosscallInvokeValueTyped recipient (u64 0) amount #[] .u64)
 
-/-- EVM ERC-721 safe-transfer receiver check (PF-P2-02).
-
-If `to` has code (`extcodesize`), CALL
-`onERC721Received(operator, from, tokenId, "")` and require the magic
-`bytes4` return. EOAs skip the callback. Non-EVM targets reject this
-effect. -/
-def checkErc721Received (operator fromAddr toAddr tokenId : ProofForge.IR.Expr) :
-    EntryM Unit :=
-  ProofForge.Contract.Builder.effect
-    (.checkErc721Received operator fromAddr toAddr tokenId)
-
-/-- EVM ERC-1155 safe-transfer receiver check (PF-P2-02).
-
-If `to` has code, CALL `onERC1155Received(operator, from, id, value, "")`
-and require the magic `bytes4` return. EOAs skip the callback. -/
-def checkErc1155Received
-    (operator fromAddr toAddr id amount : ProofForge.IR.Expr) : EntryM Unit :=
-  ProofForge.Contract.Builder.effect
-    (.checkErc1155Received operator fromAddr toAddr id amount)
-
-/-- EVM ERC-1155 dynamic batch receiver check (E1.2).
-If `to` has code, CALL
-`onERC1155BatchReceived(operator, from, ids, amounts, "")`
-and require the magic `bytes4` return. EOAs skip.
-`ids` and `amounts` are array expressions (e.g. `arrayLit .u256 #[...]`). -/
-def checkErc1155BatchReceived
-    (operator fromAddr toAddr ids amounts : ProofForge.IR.Expr) :
-    EntryM Unit :=
-  ProofForge.Contract.Builder.effect
-    (.checkErc1155BatchReceived operator fromAddr toAddr ids amounts)
-
 /-- Portable cross-contract intent (family-shared). Backends materialize as
 EVM CALL / Solana CPI / NEAR `promise_create` / Soroban `invoke_contract` —
 authors never write CPI metas or Promise chains here. Prefer `declareRemote`

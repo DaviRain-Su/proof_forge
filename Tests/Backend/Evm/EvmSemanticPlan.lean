@@ -10204,12 +10204,13 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
   let nestedEvent (name : String) : Expr :=
     .effect (.eventEmit name #[("value", .literal (.u64 1))])
   let effect : Effect :=
-    .checkErc1155BatchReceived
-      (.literal (.address 1))
-      (.literal (.address 2))
-      (.literal (.address 3))
-      (.arrayLit .u64 #[.literal (.u64 4), nestedEvent "BatchId1Event"])
+    .hostCall ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id #[
+      (.literal (.address 1)),
+      (.literal (.address 2)),
+      (.literal (.address 3)),
+      (.arrayLit .u64 #[.literal (.u64 4), nestedEvent "BatchId1Event"]),
       (.arrayLit .u64 #[.literal (.u64 5), nestedEvent "BatchAmount1Event"])
+    ] #[.crosscallInvoke]
   let collector ← requireValidateOk
     (ProofForge.Backend.Evm.Lower.collectEventPlansFromEffect
       ProofForge.IR.Examples.Counter.module
@@ -10230,15 +10231,16 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
     (ProofForge.Backend.Evm.Lower.buildEffectPlan
       ProofForge.IR.Examples.Counter.module
       (toValidateTypeEnv env)
-      (.checkErc1155BatchReceived
-        (.literal (.address 1))
-        (.literal (.address 2))
-        (.literal (.address 3))
+      (.hostCall ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id #[
+        (.literal (.address 1)),
+        (.literal (.address 2)),
+        (.literal (.address 3)),
         (.arrayLit .u64
-          #[.literal (.u64 4), .hash (.effect (.contextRead .gasPrice))])
+          #[.literal (.u64 4), .hash (.effect (.contextRead .gasPrice))]),
         (.arrayLit .u64
           #[.literal (.u64 5),
-            .arrayGet (.local "items") (.effect (.contextRead .gasLeft))])))
+            .arrayGet (.local "items") (.effect (.contextRead .gasLeft))])
+        ] #[.crosscallInvoke]))
     "ERC-1155 batch semantic effect plan"
   match planned with
   | .checkErc1155BatchReceived _ _ _

@@ -258,9 +258,6 @@ def effectTag (eff : Effect) : String :=
   | .contextRead _ => "Effect.contextRead"
   | .eventEmit _ _ => "Effect.eventEmit"
   | .eventEmitIndexed _ _ _ => "Effect.eventEmitIndexed"
-  | .checkErc721Received _ _ _ _ => "Effect.checkErc721Received"
-  | .checkErc1155Received _ _ _ _ _ => "Effect.checkErc1155Received"
-  | .checkErc1155BatchReceived _ _ _ _ _ => "Effect.checkErc1155BatchReceived"
 
 /- Normalize a legacy `Expr` into ANF instructions plus a result `ValueRef`.
 Effectful sub-expressions (storage/context reads) are lifted to explicit

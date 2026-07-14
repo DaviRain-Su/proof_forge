@@ -540,12 +540,6 @@ mutual
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is a statement effect, not an expression" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is a statement effect, not an expression" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on host" }
 
   partial def lowerPlanEffectExpr
       (module : Module)
@@ -1469,11 +1463,18 @@ def lowerErc1155BatchReceiverStmtPlan
     (env : TypeEnv)
     (operator fromAddr toAddr ids amounts : ProofForge.IR.Expr) :
     Except LowerError Lean.Compiler.Yul.Statement := do
-  let effectPlan ←
-    match ProofForge.Backend.Evm.Lower.buildEffectPlan module (toValidateTypeEnv env)
-        (.checkErc1155BatchReceived operator fromAddr toAddr ids amounts) with
-    | .ok plan => .ok plan
-    | .error err => .error { message := err.message }
+  let effectPlan : ProofForge.Backend.Evm.Plan.EffectPlan :=
+    .checkErc1155BatchReceived
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) operator with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) fromAddr with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) toAddr with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) ids with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
+      (← match ProofForge.Backend.Evm.Lower.buildExprPlan module (toValidateTypeEnv env) amounts with
+          | .ok plan => .ok plan | .error err => .error { message := err.message })
   let statements ←
     ProofForge.Backend.Evm.ToYul.erc1155BatchReceiverEffectPlanStatements
       toYulError
@@ -1485,18 +1486,29 @@ partial def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Excep
   | .hostCall id args _ =>
       if id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
         match args with
-        | #[operator, fromAddr, toAddr, tokenId] =>
-            lowerEffectStmt module env (.checkErc721Received operator fromAddr toAddr tokenId)
+        | #[operator, fromAddr, toAddr, tokenId] => do
+            let stmts := ProofForge.Backend.Evm.ToYul.checkErc721ReceivedStatements
+              (← lowerExpr module env operator)
+              (← lowerExpr module env fromAddr)
+              (← lowerExpr module env toAddr)
+              (← lowerExpr module env tokenId)
+            .ok (.block { statements := stmts })
         | _ => .error { message := s!"target extension `{id.render}` expects 4 arguments" }
       else if id == ProofForge.Target.HostOps.Evm.erc1155ReceivedSig.id then
         match args with
-        | #[operator, fromAddr, toAddr, tokenId, amount] =>
-            lowerEffectStmt module env (.checkErc1155Received operator fromAddr toAddr tokenId amount)
+        | #[operator, fromAddr, toAddr, tokenId, amount] => do
+            let stmts := ProofForge.Backend.Evm.ToYul.checkErc1155ReceivedStatements
+              (← lowerExpr module env operator)
+              (← lowerExpr module env fromAddr)
+              (← lowerExpr module env toAddr)
+              (← lowerExpr module env tokenId)
+              (← lowerExpr module env amount)
+            .ok (.block { statements := stmts })
         | _ => .error { message := s!"target extension `{id.render}` expects 5 arguments" }
       else if id == ProofForge.Target.HostOps.Evm.erc1155BatchReceivedSig.id then
         match args with
         | #[operator, fromAddr, toAddr, ids, amounts] =>
-            lowerEffectStmt module env (.checkErc1155BatchReceived operator fromAddr toAddr ids amounts)
+            lowerErc1155BatchReceiverStmtPlan module env operator fromAddr toAddr ids amounts
         | _ => .error { message := s!"target extension `{id.render}` expects 5 arguments" }
       else
         .error { message := s!"EVM does not support effect target extension `{id.render}`" }
@@ -1546,28 +1558,4 @@ partial def lowerEffectStmt (module : Module) (env : TypeEnv) : Effect → Excep
       lowerEventEmitStmt module env name fields
   | .eventEmitIndexed name indexedFields dataFields =>
       lowerEventEmitIndexedStmt module env name indexedFields dataFields
-  | .checkErc721Received operator fromAddr toAddr tokenId => do
-      let operatorYul ← lowerExpr module env operator
-      let fromYul ← lowerExpr module env fromAddr
-      let toYul ← lowerExpr module env toAddr
-      let tokenYul ← lowerExpr module env tokenId
-      let stmts :=
-        ProofForge.Backend.Evm.ToYul.checkErc721ReceivedStatements
-          operatorYul fromYul toYul tokenYul
-      -- Wrap multi-statement sequence as a single block statement.
-      .ok (.block { statements := stmts })
-  | .checkErc1155Received operator fromAddr toAddr id amount => do
-      let operatorYul ← lowerExpr module env operator
-      let fromYul ← lowerExpr module env fromAddr
-      let toYul ← lowerExpr module env toAddr
-      let idYul ← lowerExpr module env id
-      let amountYul ← lowerExpr module env amount
-      let stmts :=
-        ProofForge.Backend.Evm.ToYul.checkErc1155ReceivedStatements
-          operatorYul fromYul toYul idYul amountYul
-      .ok (.block { statements := stmts })
-
-  | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts =>
-      lowerErc1155BatchReceiverStmtPlan
-        module env operator fromAddr toAddr ids amounts
 end ProofForge.Backend.Evm.IR

@@ -361,12 +361,6 @@ mutual
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is a statement effect, not an expression" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is a statement effect, not an expression" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is a statement effect, not an expression" }
 end
 
 partial def inferEventFieldExprType (module : Module) (env : TypeEnv) : ProofForge.IR.Expr → Except LowerError ValueType
@@ -523,21 +517,6 @@ def validateEffectStmtTypes (module : Module) (env : TypeEnv) : Effect → Excep
       for field in indexedFields do
         ensureIndexedEventFieldType module name field.fst (← inferEventFieldExprType module env field.snd)
       discard <| eventSignature module env name (indexedFields ++ dataFields)
-  | .checkErc721Received operator fromAddr toAddr tokenId => do
-      discard <| inferExprType module env operator
-      discard <| inferExprType module env fromAddr
-      discard <| inferExprType module env toAddr
-      discard <| inferExprType module env tokenId
-  | .checkErc1155Received operator fromAddr toAddr id amount => do
-      discard <| inferExprType module env operator
-      discard <| inferExprType module env fromAddr
-      discard <| inferExprType module env toAddr
-      discard <| inferExprType module env id
-      discard <| inferExprType module env amount
-
-  | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
-      for expr in #[operator, fromAddr, toAddr, ids, amounts] do
-        discard <| inferExprType module env expr
 def requireMutableLocal (env : TypeEnv) (context name : String) : Except LowerError LocalBinding := do
   let some binding := findLocal? env name
     | .error { message := s!"unknown local `{name}`" }

@@ -117,8 +117,9 @@ Progress (2026-07-14):
 - Canonical Core validates zero-result HostOps from their catalog signature,
   EVM Core/Legacy plans dispatch registered IDs, and Solana/NEAR reject EVM
   IDs through the shared handler gate before target planning.
-- The legacy ERC effect constructors remain only as compatibility inputs and
-  are the next deletion slice.
+- The legacy ERC effect constructors and portable Surface helpers are deleted.
+  Generic HostOps now enter EVM `EffectPlan` directly; no EVM lowering path
+  reconstructs a legacy shared-IR receiver node.
 
 1. Move EIP-712 and ERC receiver behavior into the EVM SDK/stdlib layer.
 2. Replace EVM ABI-packed call payloads with a semantic call description whose

@@ -340,12 +340,6 @@ mutual
         .error { message := "event.emit is a statement effect, not an expression" }
     | .eventEmitIndexed _ _ _ =>
         .error { message := "event.emit.indexed is a statement effect, not an expression" }
-    | .checkErc721Received _ _ _ _ =>
-        .error { message := "checkErc721Received is EVM-only (PF-P2-02); not an expression on Psy" }
-    | .checkErc1155Received _ _ _ _ _ =>
-        .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not an expression on Psy" }
-    | .checkErc1155BatchReceived _ _ _ _ _ =>
-        .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not an expression on Psy" }
 end
 
 partial def inferAssignTargetType (module : Module) (env : TypeEnv) : Expr → Except LowerError ValueType
@@ -476,12 +470,6 @@ def validateEffectStmt (module : Module) (env : TypeEnv) : Effect → Except Low
         ensureType s!"event `{name}` field `{field.fst}`" .u64 actual
   | .eventEmitIndexed name _ _ =>
       .error { message := s!"event `{name}` uses indexed fields, which are not supported by Psy IR v0" }
-  | .checkErc721Received _ _ _ _ =>
-      .error { message := "checkErc721Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
-  | .checkErc1155Received _ _ _ _ _ =>
-      .error { message := "checkErc1155Received is EVM-only (PF-P2-02); not supported by Psy IR v0" }
-  | .checkErc1155BatchReceived _ _ _ _ _ =>
-      .error { message := "checkErc1155BatchReceived is EVM-only (PF-P2-02); not supported" }
 
 mutual
   partial def validateStatement (module : Module) (entrypoint : Entrypoint) (env : TypeEnv) : Statement → Except LowerError TypeEnv

@@ -783,16 +783,6 @@ mutual
     | .contextRead field => #[{ field }]
     | .eventEmit _ fields | .eventEmitIndexed _ fields _ =>
         fields.foldl (init := #[]) fun acc field => acc ++ contextOpsFromExpr field.snd
-    | .checkErc721Received a b c d =>
-        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++ contextOpsFromExpr d
-    | .checkErc1155Received a b c d e =>
-        contextOpsFromExpr a ++ contextOpsFromExpr b ++ contextOpsFromExpr c ++
-          contextOpsFromExpr d ++ contextOpsFromExpr e
-
-    | .checkErc1155BatchReceived a b c d e =>
-        #[a, b, c, d, e].foldl (init := #[]) fun acc expr =>
-          acc ++ contextOpsFromExpr expr
-
   partial def contextOpsFromStatement (statement : Statement) : Array ContextPlan :=
     match statement with
     | .letBind _ _ value | .letMutBind _ _ value => contextOpsFromExpr value

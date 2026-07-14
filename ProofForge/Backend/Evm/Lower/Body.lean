@@ -1470,28 +1470,6 @@ mutual
             | .error { message := s!"event `{name}` missing data field plan at index {idx}" }
           buildEventFieldValuePlan module env name field.fst fieldPlan.type field.snd
         eventEffectWordPlan module env (.eventEmitIndexed eventPlan plannedIndexed plannedData)
-    | .checkErc721Received operator fromAddr toAddr tokenId => do
-        .ok (.checkErc721Received
-          (← buildExprPlan module env operator)
-          (← buildExprPlan module env fromAddr)
-          (← buildExprPlan module env toAddr)
-          (← buildExprPlan module env tokenId))
-    | .checkErc1155Received operator fromAddr toAddr id amount => do
-        .ok (.checkErc1155Received
-          (← buildExprPlan module env operator)
-          (← buildExprPlan module env fromAddr)
-          (← buildExprPlan module env toAddr)
-          (← buildExprPlan module env id)
-          (← buildExprPlan module env amount))
-
-    | .checkErc1155BatchReceived operator fromAddr toAddr ids amounts => do
-        .ok (.checkErc1155BatchReceived
-          (← buildExprPlan module env operator)
-          (← buildExprPlan module env fromAddr)
-          (← buildExprPlan module env toAddr)
-          (← buildExprPlan module env ids)
-          (← buildExprPlan module env amounts))
-
   partial def buildStatementPlan
       (module : Module)
       (entrypoint : Entrypoint)

@@ -62,8 +62,6 @@ mutual
     | .storageDynamicArrayPop .. | .storageStructFieldWrite ..
     | .storagePathWrite .. | .storagePathAssignOp .. => #["storage write"]
     | .eventEmit .. | .eventEmitIndexed .. => #["event emission"]
-    | .checkErc721Received .. | .checkErc1155Received ..
-    | .checkErc1155BatchReceived .. => #["non-static crosscall"]
 
   partial def pathSegmentViolations : StoragePathSegment → Array String
     | .field _ => #[]

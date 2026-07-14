@@ -3650,7 +3650,9 @@ fixtures.
   Expr constructors are deleted, and NEAR scalar operations use target HostOps.
 - IR-B4 (active): extract EVM ABI, protocol, call-mode, and dispatch details.
   - ✅ IR-B4a: generic effect HostOps and target-owned ERC receiver catalog.
-  - Next IR-B4b: delete legacy ERC receiver effects and migrate EIP-712/ecrecover.
+  - ✅ IR-B4b: delete legacy ERC receiver effects and the shared authoring facade;
+    EVM HostOps now enter EVM plans directly without re-entering legacy IR.
+  - Next IR-B4c: migrate EIP-712/ecrecover and remaining EVM-only call modes.
 - IR-B5: audit/migrate Solana PDA, CPI, account, sysvar, and packing details.
 - IR-B6: audit other Wasm-host profiles, Move, Aleo, Psy, and Quint ownership.
 - IR-B7: extract target environment, error, interface, and materialization data.

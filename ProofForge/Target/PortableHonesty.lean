@@ -83,12 +83,6 @@ where
     | .eventEmit _ fs => fs.foldl (fun a f => pushExpr a f.snd) acc
     | .eventEmitIndexed _ ix data =>
         data.foldl (fun a f => pushExpr a f.snd) (ix.foldl (fun a f => pushExpr a f.snd) acc)
-    | .checkErc721Received a b c d =>
-        pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d
-    | .checkErc1155Received a b c d e =>
-        pushExpr (pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d) e
-    | .checkErc1155BatchReceived a b c d e =>
-        pushExpr (pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c) d) e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ => acc
   pushPath (acc : Array ContextField) : StoragePathSegment → Array ContextField
@@ -150,12 +144,6 @@ where
     | .eventEmit _ fs => fs.any (fun f => exprUses f.snd)
     | .eventEmitIndexed _ ix data =>
         ix.any (fun f => exprUses f.snd) || data.any (fun f => exprUses f.snd)
-    | .checkErc721Received a b c d =>
-        exprUses a || exprUses b || exprUses c || exprUses d
-    | .checkErc1155Received a b c d e =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
-    | .checkErc1155BatchReceived a b c d e =>
-        exprUses a || exprUses b || exprUses c || exprUses d || exprUses e
     | .storageScalarRead _ | .storageStructFieldRead _ _ | .storageDynamicArrayPop _
     | .storageArrayStructFieldRead _ _ _ | .contextRead _ => false
   pathUses : StoragePathSegment → Bool

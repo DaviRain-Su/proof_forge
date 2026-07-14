@@ -272,15 +272,6 @@ mutual
     | .eventEmitIndexed _ indexed data =>
         data.foldl (fun acc field => acc.merge (analyzeExpr field.snd))
           (indexed.foldl (fun acc field => acc.merge (analyzeExpr field.snd)) {})
-    | .checkErc721Received a b c d =>
-        (((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge (analyzeExpr d)
-    | .checkErc1155Received a b c d e =>
-        ((((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge
-          (analyzeExpr d)).merge (analyzeExpr e)
-    | .checkErc1155BatchReceived a b c d e =>
-        ((((analyzeExpr a).merge (analyzeExpr b)).merge (analyzeExpr c)).merge
-          (analyzeExpr d)).merge (analyzeExpr e)
-
   partial def analyzePath (path : Array StoragePathSegment) : ExprFacts :=
     path.foldl (fun acc segment =>
       match segment with
