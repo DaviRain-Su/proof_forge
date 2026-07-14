@@ -134,7 +134,7 @@ class ContractTests(unittest.TestCase):
 
     def test_all_near_v0_manifests_migrate_fail_closed(self) -> None:
         paths = sorted((REPO_ROOT / "testkit/compare/near").glob("*/reference-manifest.json"))
-        self.assertEqual(28, len(paths))
+        self.assertEqual(27, len(paths))
         for path in paths:
             migrated = migrate_manifest(path, REPO_ROOT)
             self.assertFalse(migrated["reference"]["semanticEligibility"]["eligible"])
@@ -150,15 +150,21 @@ class ContractTests(unittest.TestCase):
 
     def test_generated_inventory_has_no_semantic_overclaim(self) -> None:
         inventory = generate_inventory()
-        self.assertEqual(12, inventory["summary"]["semanticVerifiedCount"])
+        self.assertEqual(18, inventory["summary"]["semanticVerifiedCount"])
         verified_ids = {
             item["id"] for item in inventory["assets"] if item["semanticEvidence"] == "verified"
         }
         self.assertEqual(
             {
+                "cmp3-gate-ownable-primary-triad",
                 "cmp3-reference-evm-value-vault",
+                "cmp3-reference-evm-ownable",
                 "cmp3-reference-near-value-vault",
+                "cmp3-reference-near-ownable",
                 "cmp3-reference-solana-value-vault",
+                "cmp3-reference-solana-ownable",
+                "cmp3-runner-ownable-primary-triad",
+                "cmp3-scenario-ownable-primary-triad",
                 "cmp3-scenario-value-vault-primary-triad",
                 "cmp3-runner-value-vault-primary-triad",
                 "cmp3-gate-value-vault-primary-triad",
@@ -247,6 +253,9 @@ class ContractTests(unittest.TestCase):
 
     def test_cmp3_ownable_scenario_and_references_are_pinned(self) -> None:
         root = REPO_ROOT / "testkit/differential/ownable"
+        self.assertFalse(
+            (REPO_ROOT / "testkit/compare/near/ownable/reference-manifest.json").exists()
+        )
         scenario = json.loads((root / "scenario.v1.json").read_text(encoding="utf-8"))
         validate_scenario(scenario)
         self.assertEqual(
@@ -310,6 +319,10 @@ class ContractTests(unittest.TestCase):
         self.assertIn("fn ownership_transferred", solana_source)
         self.assertIn("EVENT_JSON:", near_source)
         self.assertIn("OwnershipTransferred", near_source)
+        near_compare = (REPO_ROOT / "testkit/compare/src/main.rs").read_text(encoding="utf-8")
+        self.assertIn(
+            '"testkit/differential/ownable/references/near.v1.json"', near_compare
+        )
 
         inventory = generate_inventory()
         ownable_assets = {
@@ -319,10 +332,12 @@ class ContractTests(unittest.TestCase):
         }
         self.assertEqual(
             {
-                "cmp3-reference-evm-ownable": "none",
-                "cmp3-reference-near-ownable": "none",
-                "cmp3-reference-solana-ownable": "none",
-                "cmp3-scenario-ownable-primary-triad": "none",
+                "cmp3-gate-ownable-primary-triad": "verified",
+                "cmp3-reference-evm-ownable": "verified",
+                "cmp3-reference-near-ownable": "verified",
+                "cmp3-reference-solana-ownable": "verified",
+                "cmp3-runner-ownable-primary-triad": "verified",
+                "cmp3-scenario-ownable-primary-triad": "verified",
             },
             ownable_assets,
         )

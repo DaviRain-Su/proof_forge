@@ -241,8 +241,8 @@ def generate_inventory() -> dict[str, object]:
                 "nativeReference",
                 manifest,
                 "referenceManifestV1",
-                "none",
-                "CMP-3 independent Ownable reference with pinned provenance; VM comparison is pending CMP-3d2",
+                "verified",
+                "CMP-3 independent Ownable reference with pinned provenance and primary-triad VM evidence",
                 sourcePaths=[reference["source"]["path"]],
             )
         )
@@ -258,8 +258,31 @@ def generate_inventory() -> dict[str, object]:
                 "scenario",
                 cmp3_ownable_scenario,
                 "portableScenarioV1",
-                "none",
-                "authorization lifecycle and negative cases are pinned; no semantic promotion occurs before all three VM comparisons execute",
+                "verified",
+                "ten-step authorization lifecycle and negative cases executed on both implementations for every primary target",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-runner-ownable-primary-triad",
+                "portable",
+                "runner",
+                REPO_ROOT / "scripts/differential/ownable_pilot.py",
+                "deterministicRunner",
+                "verified",
+                "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-gate-ownable-primary-triad",
+                "portable",
+                "gate",
+                REPO_ROOT / "justfile",
+                "focusedGate",
+                "verified",
+                "focused fail-closed CMP-3 Ownable gate",
+                selectors=["differential-ownable"],
             )
         )
 
@@ -374,7 +397,7 @@ def generate_inventory() -> dict[str, object]:
     assets.sort(key=lambda item: item["id"])
     inventory: dict[str, object] = {
         "schema": INVENTORY_SCHEMA,
-        "scope": "tracked comparison assets through verified ValueVault and pinned, unexecuted Ownable CMP-3 slices",
+        "scope": "tracked comparison assets through verified ValueVault and Ownable CMP-3 primary-triad slices",
         "summary": {
             "assetCount": len(assets),
             "semanticVerifiedCount": sum(1 for item in assets if item["semanticEvidence"] == "verified"),

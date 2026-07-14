@@ -55,6 +55,11 @@ differential-counter:
 differential-value-vault:
     python3 scripts/differential/value_vault_pilot.py
 
+# Compare direct Authored Ownable artifacts with independent native EVM,
+# Solana, and NEAR implementations across the authorization CMP-3 scenario.
+differential-ownable:
+    python3 scripts/differential/ownable_pilot.py
+
 # Typed open capability/HostOp identity and target-owned catalog contract.
 hostop-protocol:
     lake env lean --run Tests/Canonical/HostOpCatalog.lean
