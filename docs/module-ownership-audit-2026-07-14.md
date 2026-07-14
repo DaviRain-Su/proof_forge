@@ -20,6 +20,13 @@ solanalib, and their transitive proof dependencies. Lightweight refinement
 contracts used by normal compiler tests remain under
 `ProofForge/Backend/Refinement` or `ProofForge/Backend/<Target>/Refinement`.
 
+The directory move did not finish namespace ownership. Most optional modules
+still declare names below `ProofForge.Backend.Evm` or
+`ProofForge.Backend.Solana`, which incorrectly makes independent proof-library
+declarations look like default backend declarations. A-CUT1d renames those
+declarations to `ProofForgeFormal.Evm` and `ProofForgeFormal.Solana` without
+moving the files under `ProofForge/**` or adding compatibility aliases.
+
 ## Enforced boundaries
 
 - `ProofForge.Contract.Source.Solana` is the only public Solana contract

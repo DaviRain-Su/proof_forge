@@ -70,6 +70,31 @@ library, while both focused formal targets build independently.
 Status (2026-07-14): done at `52742ff5`. This ownership cleanup precedes
 A-CUT2; it does not change portable IR or public contract authoring.
 
+### A-CUT1d - Optional formal namespace alignment
+
+- Keep `ProofForgeFormal` as a sibling of `ProofForge`. This is intentional:
+  the directory boundary mirrors the separate Lake libraries and prevents
+  powdr, solanalib, mathlib, and their transitive dependencies from entering
+  the default compiler/CLI library.
+- Rename declarations owned by `ProofForgeFormal/Evm` from
+  `ProofForge.Backend.Evm.*` to `ProofForgeFormal.Evm.*`.
+- Rename declarations owned by `ProofForgeFormal/Solana` from
+  `ProofForge.Backend.Solana.*` to `ProofForgeFormal.Solana.*`.
+- Update focused proof tests, scripts, and documentation to use the new module
+  namespaces. Do not add compatibility aliases under `ProofForge.Backend`.
+- Enforce the dependency direction: optional formal libraries may import
+  `ProofForge`, while the default `ProofForge` library may not import
+  `ProofForgeFormal`.
+
+Acceptance: `lake build ProofForgeFormalEvm ProofForgeFormalSolana` and the
+focused EVM/Solana refinement smokes pass; a repository scan finds no
+`ProofForge.Backend.Evm.*` or `ProofForge.Backend.Solana.*` namespace declared
+inside `ProofForgeFormal/**`; the default compiler roots contain no
+`import ProofForgeFormal.*`.
+
+Status (2026-07-14): pending. This bounded ownership correction runs after the
+completed A-CUT1c directory move and before continuing A-CUT2.
+
 ### A-CUT2 - Direct `contract_source` frontend
 
 - Preserve the existing user syntax, including the Counter source exactly as a

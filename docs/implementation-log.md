@@ -3699,3 +3699,18 @@ Rules:
   and affected Stylus tests; legacy-freeze and boundary self-tests;
   `LEGACY_FREEZE_BASE=HEAD scripts/canonical/check-boundary.sh`; production
   obsolete-reference scans; and `git diff --check`.
+
+## 2026-07-14 - Plan A-CUT1d: align optional formal namespaces
+
+- Status: `planned`; execute before continuing the remaining A-CUT2 frontend
+  replacement.
+- Confirmed that `ProofForgeFormal` should remain a top-level sibling of
+  `ProofForge`: it owns the opt-in `ProofForgeFormalEvm` and
+  `ProofForgeFormalSolana` Lake libraries and keeps heavyweight powdr/solanalib
+  dependencies outside the default compiler library.
+- Found an incomplete part of the earlier directory move: optional proof files
+  now live under `ProofForgeFormal/{Evm,Solana}` but mostly still declare
+  `ProofForge.Backend.Evm.*` and `ProofForge.Backend.Solana.*` namespaces.
+- Added A-CUT1d to rename those declarations to the owning formal namespaces,
+  update focused callers, forbid backend compatibility aliases, and verify the
+  one-way optional-formal-to-compiler dependency.
