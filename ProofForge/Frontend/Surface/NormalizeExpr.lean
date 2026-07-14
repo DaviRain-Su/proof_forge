@@ -43,7 +43,7 @@ def exprType (e : SurfaceExpr) : SurfaceM CoreType := do
   | .arith _ _ lhs _ => exprType lhs
   | .cast target _ => resolveSurfaceType (← get).env.typeIds target
   | .compare _ _ _ | .boolAnd _ _ | .boolOr _ _ | .unary .not _ => return .bool
-  | .hash _ => return .hash
+  | .hash _ | .hashPair _ _ => return .hash
   | .stateRead name => stateScalarType name
   | .mapRead name _ => return (← stateMapTypes name).2
   | .arrayRead name _ => stateArrayType name
@@ -142,6 +142,13 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       let nv ← normalizeExpr arg
       let nhash ← emitValueInstruction (.pure (.hash nv.value)) .hash
       return { instructions := nv.instructions ++ nhash.instructions, value := nhash.value }
+  | .hashPair lhs rhs =>
+      let normalizedLhs ← normalizeExpr lhs
+      let normalizedRhs ← normalizeExpr rhs
+      let hashed ← emitValueInstruction
+        (.pure (.hashTwoToOne normalizedLhs.value normalizedRhs.value)) .hash
+      return { instructions := normalizedLhs.instructions ++ normalizedRhs.instructions ++
+        hashed.instructions, value := hashed.value }
   | .nativeValue =>
       emitValueInstruction (.contextRead .value) .u128
   | .hostCall id args =>

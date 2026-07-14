@@ -87,6 +87,7 @@ inductive SurfaceExpr
   | boolOr (lhs rhs : SurfaceExpr)
   | cast (to : SurfaceType) (arg : SurfaceExpr)
   | hash (arg : SurfaceExpr)
+  | hashPair (lhs rhs : SurfaceExpr)
   | contextRead (field : SurfaceContextField)
   | nativeValue
   | hostCall (id : ProofForge.Target.HostOpId) (args : Array SurfaceExpr)

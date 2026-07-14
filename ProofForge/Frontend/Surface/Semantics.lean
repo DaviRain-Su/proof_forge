@@ -86,6 +86,7 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
   | .nativeValue => .ok 0
   | .hostCall _ _ => .ok 0  /- Host calls are opaque in reference semantics. -/
   | .crosscall .. => .ok 0  /- External results are opaque in reference semantics. -/
+  | .hashPair lhs rhs => return (← evalExpr lhs st locals) * 16777619 + (← evalExpr rhs st locals)
   | _ => .error "unsupported expression in reference semantics"
 
 /-- Execute a list of Surface statements. -/

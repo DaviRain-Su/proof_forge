@@ -47,18 +47,18 @@ def buildInterface (contract : SurfaceContract) (mod : Module) :
       let coreTy ← liftExcept (resolveSurfaceType env.typeIds f.type)
       return { fieldId := ⟨fidx⟩, name := f.name, type := coreTy, indexed := f.indexed : InterfaceEventField }
     return { eventId := ⟨idx⟩, name := ev.name, fields := fields : InterfaceEvent }
-  let errors ← contract.errors.mapIdxM fun idx e => do
-    let decl ← match mod.errors.find? (fun d => d.id == ⟨idx⟩) with
-      | some d => pure d
-      | none => throw (SurfaceNormalizeError.unknownError e.name)
+  let errors ← mod.errors.mapM fun decl => do
+    let surfaceError? := contract.errors[decl.id.value]?
+    let displayName := surfaceError?.map (·.name) |>.getD decl.name
+    let message := surfaceError?.map (·.message) |>.getD decl.name
     return {
-      errorId := ⟨idx⟩,
-      namespace_ := "$surface",
+      errorId := decl.id,
+      namespace_ := decl.namespace_,
       coreName := decl.name,
-      name := e.name,
+      name := displayName,
       userCode? := none,
-      code := idx,
-      message := e.message,
+      code := decl.code,
+      message := message,
       params := decl.params
     : InterfaceError }
   return {

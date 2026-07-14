@@ -3102,3 +3102,30 @@ Rules:
   diff --check`. No full `just check` ran.
 - Next: model the direct Canonical Token family without reusing the old
   `ContractSpec` token materializer.
+
+## 2026-07-14 - EVM-R2c: direct TokenSpec materialization
+
+- Status: `done (verified 2026-07-14)`; the four named EVM-R2 families are
+  direct, while the remaining product inventory still needs closure.
+- Added target-owned `Contract.Token.EvmSurface.materialize`, producing a
+  Surface v2 contract directly from portable `TokenSpec`. It does not reuse
+  `Token.EvmSpec`, Legacy ERC-20 modules, or `ContractSpec` adaptation.
+- Implemented total supply, decimals, balances, transfers, hashed composite
+  allowances, approvals, transferFrom, and feature-gated mint/burn. The
+  initializer is one-shot and mint checks the stored owner.
+- Added the portable Surface `hashPair` expression and mapped it to Canonical
+  `hashTwoToOne`; allowance layout remains target-plan owned.
+- Fixed Surface normalization so generated assert/revert Core errors receive
+  matching interface and materialization entries instead of failing Canonical
+  validation.
+- Added `Examples/Product/Canonical/FungibleToken.lean` and the isolated
+  `Tests/Canonical/EvmDirectToken.lean` gate for selectors, balance/allowance
+  storage, feature filtering, and Yul rendering.
+- Verification passed: targeted Surface/Token builds; direct Token, Surface
+  normalization/parity, and Canonical Core validation tests; `just
+  ir-target-boundary`, `just legacy-freeze`, and `git diff --check`. The larger
+  direct-product test was rebuilt separately after the Surface constructor
+  layout changed and passes; no full `just check` ran.
+- Next: inventory the remaining EVM product sources, classify aliases/composed
+  families, and add direct Surface materializers only where behavior is not
+  already covered by these four cores.
