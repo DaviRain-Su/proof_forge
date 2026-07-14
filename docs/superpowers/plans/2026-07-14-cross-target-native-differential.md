@@ -1,15 +1,14 @@
 # Cross-Target Native Differential Validation Plan
 
-Status: **Accepted; CMP-0/CMP-1/A-CUT2h done, CMP-2 in progress (2026-07-14)**
+Status: **Accepted; CMP-0/CMP-1/CMP-2 done, CMP-3 in progress (2026-07-14)**
 
 Design: [Cross-Target Native Differential Validation](../specs/2026-07-14-cross-target-native-differential-design.md)
 
 ## Execution Rule
 
 This is a validation track, not a replacement for the current architecture
-queue. A-CUT1e-c2, CMP-0, CMP-1, A-CUT2g, and A-CUT2h are complete. CMP-2 now
-validates the direct public Counter route; CMP-3 remains
-part of A-CUT3 acceptance work. Target-extension tasks
+queue. A-CUT1e-c2, CMP-0, CMP-1, and A-CUT2/CMP-2 are complete. CMP-3 now
+validates the ValueVault cutover as part of A-CUT3 acceptance work. Target-extension tasks
 are attached to their target migration instead of opening unrelated backend
 work early.
 
@@ -25,7 +24,7 @@ the implementation log.
 | `testkit/compare/near` | 28 Rust v0 references plus offline/Sandbox runners; historical matrix is measurement-only | replace v0 manifests and observations incrementally |
 | `references/solana/pinocchio` | 7 Rust v0 references plus 14 static/live scripts | retain as Solana extension catalog and replace v0 manifests in CMP-SOL |
 | Stylus differential scripts | 5 focused Rust/direct-Wasm comparisons plus VM/host runners; no v1 native-reference manifest | adapt after the primary-triad schema stabilizes |
-| EVM runtime gates | 3 handwritten Solidity sources plus `revm`, Foundry, and Anvil execution; no normalized v1 result | pin provenance and pair references in CMP-2/CMP-EVM |
+| EVM runtime gates | Counter has a pinned Solidity v1 reference and normalized Anvil result; two other handwritten sources remain partial | migrate the remaining references with their A-CUT3 families in CMP-3/CMP-EVM |
 
 ## Task Order
 
@@ -104,7 +103,7 @@ Completion evidence:
 
 ### CMP-2 - Counter primary-triad native pilot
 
-State: `in_progress; required by A-CUT2 completion`
+State: `done (verified at e2834c59)`
 
 Direct-route prerequisite: `42183403` proves public Source/Loader, EVM,
 Solana assembly/ELF, and NEAR/Wasm consume Authored/Core/target plans without a
@@ -133,11 +132,30 @@ Acceptance:
 - Each reference manifest pins source provenance, license, and toolchain.
 - The focused pilot runs without a full `just check`.
 
+Completion evidence:
+
+- `just differential-counter` builds the unchanged Product Counter through
+  direct Authored/checked Core target plans and rejects any ContractSpec
+  sidecar. EVM and Solana execute on Anvil and Mollusk; both ProofForge and
+  near-sdk Wasm execute on the unmodified upstream NEAR VM.
+- Three v1 reference manifests pin SHA-256 source revisions, Apache-2.0, and
+  exact compiler/framework toolchains. The Pinocchio reference now returns its
+  `get` value through the real Solana return-data syscall.
+- EVM, Solana, and NEAR each cover all eight observation dimensions with
+  `semanticMatch=true` and zero unallowed mismatches. Target-local gas/CU
+  differences are retained under four exact resource paths and are never
+  aggregated into a cross-chain score.
+- The generated inventory now tracks 96 assets; the three references, v1
+  scenario, deterministic runner, and focused gate are the six verified CMP-2
+  assets. Comparison code remains outside `ProofForge/`.
+
 ### CMP-3 - Stateful portable catalog expansion
 
-State: `pending after CMP-2; attached to A-CUT3`
+State: `in_progress; attached to A-CUT3`
 
 - Add ValueVault as the first stateful scenario.
+- Add the missing independent Solana Rust ValueVault reference; a skip or reuse
+  of ProofForge-generated sBPF is not acceptable native evidence.
 - Then select one representative each for authorization, map/collection state,
   events/errors, and portable crosscall intent.
 - Reuse `Examples/Product`; do not create target-specific Product copies.

@@ -238,8 +238,9 @@ checked Core and target-owned plans. Artifact metadata is
 `contract-source-authored` / `canonical-core-v1`, no ContractSpec sidecar is
 emitted, and the three target testkit runners execute the same four-step
 Counter lifecycle. Remaining `Source.Legacy` imports are explicit deletion
-inventory for A-CUT3/A-CUT5, never a fallback. CMP-2 is now active and remains
-the final A-CUT2 exit criterion.
+inventory for A-CUT3/A-CUT5, never a fallback. CMP-2 completed at `e2834c59`:
+the direct Counter semantically matches independent Solidity, Pinocchio, and
+near-sdk references with complete v1 coverage, so A-CUT2 is closed.
 
 ### A-CUT2h - Remove stale Counter reverse dependencies
 
@@ -277,9 +278,12 @@ counter-authoring-cutover`, `just public-authored-route`, `just
 portable-counter-multi-target`, `just evm-build-examples`, the changed
 formal/Quint/product tests, and `just docs-check` pass. The direct EVM check and
 Anvil gate load `evmConstructor` after target selection; Anvil observes `123`
-before `initialize`, then `0`, `1`, and `2`. CMP-2 is now active.
+before `initialize`, then `0`, `1`, and `2`. CMP-2 subsequently closed the
+independent primary-triad behavior requirement at `e2834c59`.
 
 ### A-CUT3 - Product migration
+
+State: `in_progress; CMP-3 ValueVault is active`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details

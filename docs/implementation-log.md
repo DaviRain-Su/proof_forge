@@ -4170,3 +4170,29 @@ Rules:
   the old EVM artifact caller bridge are deletion-only inputs for IR-B4/A-CUT5;
   the direct route rejects or bypasses them. StorageDeposit remains a strict
   NEP-145 failure until A-CUT3 migrates its old u64 projection.
+
+## 2026-07-14 - CMP-2: primary-triad native Counter differential
+
+- Status: `done (verified at e2834c59)`; A-CUT2 is closed and A-CUT3/CMP-3
+  ValueVault is now active.
+- Added v1 logical scenario and complete provenance manifests for independent
+  Solidity, Pinocchio Rust, and near-sdk Rust Counter references. Source
+  revisions are SHA-256 pinned and checked against the working tree.
+- Added `scripts/differential/counter_pilot.py` and `just
+  differential-counter`. It builds the unchanged Product Counter only through
+  direct Authored -> checked Core -> target-plan routes, validates artifact
+  identity, rejects ContractSpec sidecars, and runs both implementations on
+  Anvil, Mollusk, and the upstream NEAR VM.
+- Added a testkit-only native Solana Mollusk runner and completed the Pinocchio
+  reference `get` return-data syscall. Native and ProofForge traces observe
+  `initialize -> get(0) -> increment -> get(1)` plus target-local gas/CU.
+- All three comparisons cover the eight required dimensions with
+  `semanticMatch=true`, four exact allowed resource-value differences, and no
+  unallowed mismatches. The generated inventory now contains 96 assets and six
+  verified CMP-2 assets.
+- Verification: `PF_CMP_SOLC=build/toolchains/solc-0.8.30 just
+  differential-counter`; `just differential-contracts`; `cargo check
+  --manifest-path testkit/Cargo.toml -p
+  proof-forge-testkit-harness-solana --bin native_counter`; Python bytecode
+  compilation for all differential scripts; and `git diff --check`. No full
+  `just check` or `just product` was run.

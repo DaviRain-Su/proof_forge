@@ -1,14 +1,13 @@
 # 跨目标原生差分验证实施计划
 
-状态：**已接受；CMP-0/CMP-1/A-CUT2h 已完成，CMP-2 进行中（2026-07-14）**
+状态：**已接受；CMP-0/CMP-1/CMP-2 已完成，CMP-3 进行中（2026-07-14）**
 
 设计文档：[跨目标原生差分验证设计](../specs/2026-07-14-cross-target-native-differential-design.zh.md)
 
 ## 执行规则
 
-这是验证轨道，不替代当前架构队列。A-CUT1e-c2、CMP-0、CMP-1、
-A-CUT2g 与 A-CUT2h 已完成。CMP-2 现在验证 direct public Counter route；
-CMP-3 仍属于 A-CUT3 验收。
+这是验证轨道，不替代当前架构队列。A-CUT1e-c2、CMP-0、CMP-1 以及
+A-CUT2/CMP-2 已完成。CMP-3 现在验证 ValueVault cutover，并属于 A-CUT3 验收。
 Target-extension 测试附着在对应 target 的迁移任务上，不能借此提前开启无关
 backend 工作。
 
@@ -22,7 +21,7 @@ backend 工作。
 | `testkit/compare/near` | 28 个 Rust v0 reference 以及 offline/Sandbox runner；历史矩阵仅限 measurement | 增量替换 v0 manifest 与 observation |
 | `references/solana/pinocchio` | 7 个 Rust v0 reference 以及 14 个 static/live script | 保留为 Solana extension 目录，并在 CMP-SOL 替换 v0 manifest |
 | Stylus differential scripts | 5 个 focused Rust/direct-Wasm compare 以及 VM/host runner；没有 v1 native-reference manifest | 主三链 schema 稳定后适配 |
-| EVM runtime gates | 3 份手写 Solidity 源码以及 `revm`、Foundry、Anvil 执行；没有归一化 v1 result | 在 CMP-2/CMP-EVM 固定 provenance 并配对 reference |
+| EVM runtime gates | Counter 已有固定的 Solidity v1 reference 与归一化 Anvil result；另两份手写源码仍为 partial | 随 A-CUT3 family 在 CMP-3/CMP-EVM 中迁移剩余 reference |
 
 ## 任务顺序
 
@@ -79,7 +78,7 @@ backend 工作。
 
 ### CMP-2 - Counter 主三链原生试点
 
-状态：`in_progress; required by A-CUT2 completion`
+状态：`done (verified at e2834c59)`
 
 Direct route 前置证据：`42183403` 证明 public Source/Loader、EVM、Solana
 assembly/ELF 与 NEAR/Wasm 直接消费 Authored/Core/target plan，不产生
@@ -98,11 +97,29 @@ wrapper 均已删除；EVM constructor 证据仅在选择 EVM 后从 target-owne
 
 验收：主三链必需 observation coverage 完整且 semantic match；每份 manifest 固定来源、license 和工具链；focused pilot 不需要执行完整 `just check`。
 
+完成证据：
+
+- `just differential-counter` 通过 direct Authored/checked Core target plan
+  构建未改写的 Product Counter，并拒绝任何 ContractSpec sidecar。EVM 与 Solana
+  分别在 Anvil 和 Mollusk 执行；ProofForge 与 near-sdk Wasm 都在未修改的
+  upstream NEAR VM 上执行。
+- 三份 v1 reference manifest 固定 SHA-256 source revision、Apache-2.0 和精确
+  compiler/framework toolchain。Pinocchio reference 的 `get` 已通过真实 Solana
+  return-data syscall 返回结果。
+- EVM、Solana、NEAR 均覆盖全部八个 observation dimension，
+  `semanticMatch=true` 且没有未允许 mismatch。target-local gas/CU 差异只保留在
+  四个精确 resource path 下，不会聚合为跨链分数。
+- 生成 inventory 现有 96 项资产；三份 reference、v1 scenario、deterministic
+  runner 和 focused gate 是六项 verified CMP-2 资产。比较代码仍位于
+  `ProofForge/` 之外。
+
 ### CMP-3 - Stateful 可移植产品扩展
 
-状态：`pending after CMP-2; attached to A-CUT3`
+状态：`in_progress; attached to A-CUT3`
 
 - 先加入 ValueVault。
+- 补齐缺失的独立 Solana Rust ValueVault reference；不允许用 skip 或
+  ProofForge 生成的 sBPF 充当原生证据。
 - 再分别选择 authorization、map/collection、event/error 和 portable crosscall intent 的代表场景。
 - 复用 `Examples/Product`，禁止 target-specific Product copy。
 - 不支持的 capability 必须产生具名编译失败，不能静默 skip。

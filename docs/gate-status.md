@@ -98,6 +98,20 @@ Status: **closed at `b2d673b4`**.
 | A-CUT2h-4 | Direct runtime behavior survives | ✅ met | `just evm-anvil-deploy` records `creationMode: deploy-object`, reads initial `123`, then observes `0`, `1`, and `2`; `just portable-counter-multi-target` passes without a ContractSpec sidecar |
 | A-CUT2h-5 | No compatibility route was added | ✅ met | public `build`, Yul, and `check` consume Authored -> checked Core -> EVM plan; the direct EVM check passes and invalid shared/target constructor configurations fail closed |
 
+## Gate CMP-2 — Primary-triad native Counter differential
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-2-1 | One direct ProofForge business source reaches all three targets | ✅ met | `e2834c59`; `Examples/Product/Counter.lean` builds with `contract-source-authored` / `canonical-core-v1` metadata for EVM, Solana, and NEAR; the focused runner rejects ContractSpec sidecars |
+| CMP-2-2 | Independent native references have complete provenance | ✅ met | Solidity, Pinocchio Rust, and near-sdk Rust v1 manifests pin exact source SHA-256, Apache-2.0, and toolchain versions; stale source digests fail `just differential-contracts` and the runtime gate |
+| CMP-2-3 | Native and ProofForge artifacts execute on target VMs | ✅ met | Anvil executes both EVM artifacts, Mollusk executes both sBPF ELFs, and `near-vm-runner` executes both Wasm artifacts on upstream NEAR VM logic |
+| CMP-2-4 | Required semantics fail closed | ✅ met | each target reports all eight dimensions covered, `semanticMatch=true`, and zero unallowed mismatches; exact target-local gas/CU differences remain visible as allowed resource evidence |
+| CMP-2-5 | The comparison is not a compiler compatibility route | ✅ met | schemas, manifests, runner, and reports live under `testkit/`, `scripts/`, `benchmarks/`, and ignored `build/`; the compiler import-boundary test remains green |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

@@ -91,6 +91,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT2h-4 | Direct runtime 行为保持 | ✅ met | `just evm-anvil-deploy` 记录 `creationMode: deploy-object`，先读取 `123`，再观测 `0`、`1`、`2`；`just portable-counter-multi-target` 无 ContractSpec sidecar 通过 |
 | A-CUT2h-5 | 未新增兼容路线 | ✅ met | public `build`、Yul 和 `check` 均消费 Authored -> checked Core -> EVM plan；direct EVM check 通过，非法共享/target constructor config fail closed |
 
+## Gate CMP-2 —— 主三链原生 Counter 差分
+
+**状态：Closed**
+
+**Closed: 2026-07-14**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-2-1 | 一份 direct ProofForge 业务源码到达三个 target | ✅ met | `e2834c59`；`Examples/Product/Counter.lean` 为 EVM、Solana、NEAR 生成 `contract-source-authored` / `canonical-core-v1` metadata；focused runner 拒绝 ContractSpec sidecar |
+| CMP-2-2 | 独立原生 reference 具有完整 provenance | ✅ met | Solidity、Pinocchio Rust、near-sdk Rust v1 manifest 固定精确 source SHA-256、Apache-2.0 和工具链版本；source digest 过期会使 `just differential-contracts` 与 runtime gate 失败 |
+| CMP-2-3 | 原生和 ProofForge artifact 在 target VM 执行 | ✅ met | Anvil 执行两份 EVM artifact，Mollusk 执行两份 sBPF ELF，`near-vm-runner` 通过 upstream NEAR VM logic 执行两份 Wasm artifact |
+| CMP-2-4 | 必需语义 fail closed | ✅ met | 每个 target 的八个 dimension 均完整覆盖，`semanticMatch=true`，且没有未允许 mismatch；精确的 target-local gas/CU 差异继续作为 resource 证据保留 |
+| CMP-2-5 | 比较不是编译器兼容路线 | ✅ met | schema、manifest、runner 与 report 仅位于 `testkit/`、`scripts/`、`benchmarks/` 和忽略的 `build/`；compiler import boundary test 保持通过 |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

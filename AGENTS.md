@@ -25,10 +25,10 @@ Keep this section short and update it whenever the active task changes.
 
 | Field | Current value |
 |---|---|
-| Program | Direct authoring cutover with fail-closed native differential evidence |
-| Active task | CMP-2 - run the direct Authored/Canonical Counter against independent EVM, Solana, and NEAR references |
-| Next task | A-CUT3/CMP-3 - migrate ValueVault first, then the remaining Product catalog, while deleting zero-caller Legacy slices |
-| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2h at `b2d673b4`; CMP-2 is the remaining A-CUT2 exit criterion |
+| Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
+| Active task | A-CUT3/CMP-3 - migrate ValueVault off `Source.Legacy`, add the missing independent Solana Rust reference, and compare the primary triad |
+| Next task | Continue A-CUT3 through authorization, collection, event/error, and portable crosscall representatives while deleting each zero-caller Legacy slice |
+| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; the v1 inventory now tracks 96 assets and six verified CMP-2 assets |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -176,8 +176,8 @@ Core are internal compiler representations.
 | A-CUT1c | done (verified at `52742ff5`) | Consolidate the optional EVM and Solana semantic-refinement roots under the independent `ProofForgeFormal` Lake libraries; keep heavyweight proof dependencies out of the default compiler library |
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
 | A-CUT1e | done (verified at `571b795d`) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
-| A-CUT2 | in_progress (A-CUT2h verified at `b2d673b4`; CMP-2 active) | Public routes and Counter reverse dependencies are direct-only; the independent primary-triad pilot remains before A-CUT2 closes |
-| A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
+| A-CUT2 | done (verified at `e2834c59`) | Public Counter routes, reverse dependencies, and independent primary-triad behavior are direct-only and fully covered by CMP-2 |
+| A-CUT3 | in_progress (CMP-3 ValueVault active) | Migrate the full product catalog from the single abstract source and delete each retired Legacy slice |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
 
@@ -185,8 +185,8 @@ Native-reference differential validation follows
 [the July 14 comparison plan](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md).
 It extends the existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
 and Stylus differential assets; it is not another compiler route. CMP-0 is
-done at `18f15e59`, CMP-1 at `7fee238c`, and A-CUT2h at `b2d673b4`.
-CMP-2 is now the sole active A-CUT2 completion evidence. CMP-SOL attaches to IR-B5, CMP-NEAR
+done at `18f15e59`, CMP-1 at `7fee238c`, and A-CUT2/CMP-2 at `e2834c59`.
+CMP-3 is the active A-CUT3 ValueVault evidence. CMP-SOL attaches to IR-B5, CMP-NEAR
 attaches to NEAR-R4, and the final fail-closed matrix attaches to IR-B8/A-CUT5.
 
 The D-052 cross-program routing index remains below for work not superseded by
