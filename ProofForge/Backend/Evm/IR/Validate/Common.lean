@@ -104,7 +104,10 @@ def uupsProxyFallbackBody : Array Lean.Compiler.Yul.Statement :=
   ProofForge.Backend.Evm.ToYul.uupsProxyFallbackBody
 
 def uupsProxyDefaultCase : Lean.Compiler.Yul.Case :=
-  ProofForge.Backend.Evm.ToYul.dispatchDefaultCase .uupsProxy
+  ProofForge.Backend.Evm.ToYul.dispatchDefaultCase {
+    entrypoints := #[]
+    default := .uupsProxy
+  }
 
 /-- Lower-level checked-add expression: `__pf_checked_add(a, b)` reverts on overflow. -/
 def checkedAddExpr (lhs rhs : Lean.Compiler.Yul.Expr) : Lean.Compiler.Yul.Expr :=

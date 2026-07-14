@@ -3,6 +3,8 @@ import ProofForge.IR.Examples.EvmFallbackProbe
 import ProofForge.IR.Legacy.Adapter
 import ProofForge.Contract.Spec
 import ProofForge.Target.InterfaceOps.Evm
+import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Backend.Evm.IR
 
 open ProofForge.IR.Canonical
 
@@ -32,4 +34,23 @@ def main : IO Unit := do
     "EVM rejected its dispatch interface extensions"
   require ((ProofForge.Compiler.checkInterfaceOpHandlers "wasm-near" checked).size == 2)
     "NEAR accepted EVM dispatch interface extensions"
+  let capabilityPlan : ProofForge.Target.CapabilityPlan := {
+    targetId := "evm"
+    calls := checked.contract.requirements
+  }
+  let plan <- match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capabilityPlan with
+    | .ok plan => pure plan
+    | .error error => throw (IO.userError s!"EVM dispatch planning failed: {error.message}")
+  require (plan.dispatch.entrypoints.isEmpty &&
+      plan.dispatch.fallbackFunction? == some "f_EvmDispatchExtensions_fallback" &&
+      plan.dispatch.receiveFunction? == some "f_EvmDispatchExtensions_receive")
+    "EVM dispatch extensions did not become target-owned dispatch functions"
+  let yul <- match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
+    | .ok yul => pure yul
+    | .error error => throw (IO.userError s!"EVM dispatch rendering failed: {error.message}")
+  require (yul.contains "function f_EvmDispatchExtensions_fallback" &&
+      yul.contains "function f_EvmDispatchExtensions_receive" &&
+      yul.contains "f_EvmDispatchExtensions_fallback()" &&
+      yul.contains "f_EvmDispatchExtensions_receive()")
+    "canonical Yul omitted target-owned fallback/receive functions or calls"
   IO.println "evm-dispatch-extensions: ok"

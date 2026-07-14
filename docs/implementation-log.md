@@ -2962,3 +2962,20 @@ Rules:
   `git diff --check`. No full `just check` ran.
 - Next: make EVM `DispatchPlan` consume the attachments and render their
   function bodies, then delete fallback/receive from `InterfaceEntrypointKind`.
+
+## 2026-07-14 - EVM-R1o: canonical dispatch-plan consumption
+
+- Status: `done (verified 2026-07-14)`; shared interface-kind deletion follows.
+- Extended EVM `DispatchPlan` with explicit optional fallback/receive function
+  bindings. Core planning resolves those bindings only from registered EVM
+  interface extensions; selector dispatch contains ordinary functions only.
+- Canonical rendering now emits both special function bodies and a default
+  branch that calls only functions that actually exist. Missing fallback or
+  receive paths revert instead of calling an undefined hard-coded function.
+- Verification passed: targeted EVM Plan/ToYul/IR builds,
+  `Tests/Canonical/EvmDispatchExtensions.lean`, and `git diff --check`.
+  The broader `EvmSemanticPlan` was attempted but stopped on its existing
+  fallback probe diagnostic (`view getValue contains native value read`) before
+  reaching the dispatch assertions; no full `just check` ran.
+- Next: delete fallback/receive from `InterfaceEntrypointKind` and make the
+  shared interface treat every entrypoint uniformly.

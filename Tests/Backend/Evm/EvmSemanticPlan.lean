@@ -2919,7 +2919,7 @@ def testEntrypointDispatchPlanToYul : IO Unit := do
   let uupsModule := { ProofForge.IR.Examples.Counter.module with proxyPattern? := some "uups" }
   let uupsPlan ← requireOk (buildSemanticPlan uupsModule) "UUPS counter plan"
   require (uupsPlan.dispatch.default == .uupsProxy) "UUPS plan dispatch default"
-  let uupsDefault := ProofForge.Backend.Evm.ToYul.dispatchDefaultCase uupsPlan.dispatch.default
+  let uupsDefault := ProofForge.Backend.Evm.ToYul.dispatchDefaultCase uupsPlan.dispatch
   require (uupsDefault.value.isNone) "UUPS default case selector"
   require
     (uupsDefault.body.statements.size == ProofForge.Backend.Evm.ToYul.uupsProxyFallbackBody.size)

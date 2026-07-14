@@ -650,18 +650,42 @@ def coreFunctionToStmtPlans (env : CorePlanEnv) (func : Function) : Except PlanE
       | none => stmts := stmts.push (.revert "")
   return stmts
 
+private inductive EvmInterfaceEntrypointKind
+  | function | fallback | receive
+  deriving BEq
+
+private def evmEntrypointKind (extensions : Array InterfaceExtension)
+    (functionId : FunctionId) : Except PlanError EvmInterfaceEntrypointKind := do
+  let fallback := extensions.any fun extension =>
+    extension.id == ProofForge.Target.InterfaceOps.Evm.fallbackDispatchId &&
+      extension.subject == .entrypoint functionId
+  let receive := extensions.any fun extension =>
+    extension.id == ProofForge.Target.InterfaceOps.Evm.receiveDispatchId &&
+      extension.subject == .entrypoint functionId
+  if fallback && receive then
+    throw { message := s!"entrypoint {functionId.value} cannot be both EVM fallback and receive" }
+  else if fallback then pure .fallback
+  else if receive then pure .receive
+  else pure .function
+
 /-- Map a Core InterfaceEntrypoint to an EVM EntrypointPlan. -/
-def coreEntrypointToPlan (m : Core.Module) (baseEnv : CorePlanEnv) (ep : InterfaceEntrypoint) :
+private def coreEntrypointToPlan (m : Core.Module) (baseEnv : CorePlanEnv)
+    (kind : EvmInterfaceEntrypointKind) (ep : InterfaceEntrypoint) :
     Except PlanError EntrypointPlan := do
   /- Find the Core function by functionId. -/
   match m.functions.find? (fun f => f.id == ep.functionId) with
   | none => .error { message := s!"entrypoint {ep.name} references unknown function {ep.functionId.value}" }
   | some func =>
-      let selector ← match ep.selector? with
-        | some selector => pure selector
-        | none => throw { message := s!"entrypoint {ep.name} is missing its EVM selector" }
-      unless isEvmSelector selector do
+      let selector ← match kind, ep.selector? with
+        | .function, some selector => pure selector
+        | .function, none => throw { message := s!"entrypoint {ep.name} is missing its EVM selector" }
+        | .fallback, none | .receive, none => pure ""
+        | .fallback, some _ | .receive, some _ =>
+            throw { message := s!"EVM fallback/receive entrypoint {ep.name} cannot have a selector" }
+      if kind == .function && !isEvmSelector selector then
         throw { message := s!"entrypoint {ep.name} has invalid EVM selector `{selector}`" }
+      if kind != .function && (!ep.params.isEmpty || ep.retType != .unit) then
+        throw { message := s!"EVM fallback/receive entrypoint {ep.name} must have no parameters and Unit return" }
       for param in ep.params do
         unless coreAbiTypeSupported param.type do
           throw { message := s!"entrypoint {ep.name} parameter `{param.name}` has an EVM ABI type not yet materialized by the Core plan" }
@@ -813,9 +837,17 @@ def buildFromCore (checked : CheckedCanonicalContract)
   }
   /- Build entrypoint plans from interface. -/
   let mut entrypoints := #[]
+  let mut dispatchEntrypoints := #[]
+  let mut fallbackFunction? := none
+  let mut receiveFunction? := none
   for ep in iface.entrypoints do
-    let epPlan ← coreEntrypointToPlan m baseEnv ep
+    let kind ← evmEntrypointKind checked.contract.interfaceExtensions ep.functionId
+    let epPlan ← coreEntrypointToPlan m baseEnv kind ep
     entrypoints := entrypoints.push epPlan
+    match kind with
+    | .function => dispatchEntrypoints := dispatchEntrypoints.push epPlan
+    | .fallback => fallbackFunction? := some s!"f_{iface.contractName}_{ep.name}"
+    | .receive => receiveFunction? := some s!"f_{iface.contractName}_{ep.name}"
   /- Determine if any entrypoint uses checked arithmetic. -/
   let usesCheckedArithmetic := m.functions.any fun function =>
     function.blocks.any fun block =>
@@ -890,6 +922,10 @@ def buildFromCore (checked : CheckedCanonicalContract)
     if checked.contract.materialization.moduleProxyPattern? == some .uups ||
         checked.contract.materialization.proxyPattern? == some .uups then
       DispatchDefaultPlan.uupsProxy
+    else if receiveFunction?.isSome then
+      DispatchDefaultPlan.receive
+    else if fallbackFunction?.isSome then
+      DispatchDefaultPlan.fallback
     else
       DispatchDefaultPlan.revert
   let creates := coreCreateHelperSpecs entrypoints
@@ -900,7 +936,12 @@ def buildFromCore (checked : CheckedCanonicalContract)
     helpers
     mapAssignOps := #[]
     entrypoints
-    dispatch := { entrypoints, default := dispatchDefault }
+    dispatch := {
+      entrypoints := dispatchEntrypoints
+      fallbackFunction?
+      receiveFunction?
+      default := dispatchDefault
+    }
     events
     crosscalls
     creates

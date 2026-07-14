@@ -628,6 +628,8 @@ inductive DispatchDefaultPlan where
 
 structure DispatchPlan where
   entrypoints : Array EntrypointPlan
+  fallbackFunction? : Option String := none
+  receiveFunction? : Option String := none
   default : DispatchDefaultPlan
   deriving Repr
 
@@ -646,6 +648,8 @@ def moduleDispatchDefaultPlan (module : Module) : DispatchDefaultPlan :=
 
 def moduleDispatchPlan (module : Module) (entrypoints : Array EntrypointPlan) : DispatchPlan := {
   entrypoints
+  fallbackFunction? := if module.entrypoints.any (·.kind == .fallback) then some "__pf_fallback" else none
+  receiveFunction? := if module.entrypoints.any (·.kind == .receive) then some "__pf_receive" else none
   default := moduleDispatchDefaultPlan module
 }
 
