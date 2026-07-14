@@ -1,6 +1,6 @@
 import ProofForge.Target.Formal
 import ProofForge.Contract.Examples.Counter
-import ProofForge.Contract.Examples.ValueVault
+import Examples.Product.ValueVault
 import ProofForge.Frontend.Authored.Canonicalize
 
 namespace ProofForge.Target
@@ -22,9 +22,8 @@ so importing them from `Target.Formal` would create a cycle. Hosting the
 full-boundary theorems here breaks that cycle while still living in the
 `ProofForge.Target` namespace.
 
-Counter now enters through direct Authored normalization and
-`resolveCanonicalCheckedBy`; ValueVault remains explicit deletion inventory on
-the old boundary until A-CUT3 migrates it. -/
+Counter and ValueVault both enter through direct Authored normalization and
+`resolveCanonicalCheckedBy`. -/
 
 def authoredCounterCheckedBy (profile : TargetProfile) : Bool :=
   match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
@@ -47,16 +46,20 @@ theorem resolveCanonical_sound_counter_near :
     authoredCounterCheckedBy wasmNear = true := by
   native_decide
 
-/-- Resolving the ValueVault spec against the EVM profile yields a checked
-plan. -/
-theorem resolveSpec_sound_value_vault_evm :
-    resolveSpecCheckedBy evm ProofForge.Contract.Examples.ValueVault.spec = true := by
+def authoredValueVaultCheckedBy (profile : TargetProfile) : Bool :=
+  match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      Examples.Product.ValueVault.contract with
+  | .ok bundle => resolveCanonicalCheckedBy profile bundle.contract
+  | .error _ => false
+
+/-- The direct ValueVault Canonical requirements yield a checked EVM plan. -/
+theorem resolveCanonical_sound_value_vault_evm :
+    authoredValueVaultCheckedBy evm = true := by
   native_decide
 
-/-- Resolving the ValueVault spec against the NEAR Wasm profile yields a
-checked plan. -/
-theorem resolveSpec_sound_value_vault_near :
-    resolveSpecCheckedBy wasmNear ProofForge.Contract.Examples.ValueVault.spec = true := by
+/-- The direct ValueVault Canonical requirements yield a checked NEAR plan. -/
+theorem resolveCanonical_sound_value_vault_near :
+    authoredValueVaultCheckedBy wasmNear = true := by
   native_decide
 
 end ProofForge.Target

@@ -1,7 +1,7 @@
 import ProofForge.Backend.Solana.BpfEncode
 import ProofForge.Backend.Solana.LabeledSbpf
 import ProofForge.IR.Examples.Counter
-import ProofForge.Contract.Examples.ValueVault
+import ProofForge.IR.Examples.ValueVault
 
 /-! ## sBPF binary encoder + labeled assembly smoke (mathlib-free default path)
 
@@ -72,14 +72,14 @@ theorem counter_module_encodes_ok :
 
 theorem value_vault_module_encodes_ok :
     moduleEncodesOk
-      ProofForge.Contract.Examples.ValueVault.module = true := by
+      ProofForge.IR.Examples.ValueVault.module = true := by
   native_decide
 
 #check counter_labeled_ok
 #check counter_labeled_matches_encode
 
 theorem value_vault_labeled_ok :
-    moduleLabeledOk ProofForge.Contract.Examples.ValueVault.module = true := by
+    moduleLabeledOk ProofForge.IR.Examples.ValueVault.module = true := by
   native_decide
 
 end ProofForge.Tests.SolanaBpfEncode

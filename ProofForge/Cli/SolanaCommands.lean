@@ -14,7 +14,7 @@ import ProofForge.Cli.Process
 import ProofForge.Cli.SolanaArtifacts
 import ProofForge.Cli.TargetJson
 import ProofForge.Cli.Usage
-import ProofForge.Contract.Examples.ValueVault
+import Examples.Product.ValueVault
 import ProofForge.Contract.Spec
 import ProofForge.IR.Examples.Counter
 import Examples.Backend.Solana.Contracts.AssociatedTokenCpi
@@ -645,11 +645,11 @@ def compileSolanaSplToken2022TransferHookSbpf (opts : CliOptions) : IO UInt32 :=
     Examples.Backend.Solana.Contracts.SplToken2022TransferHook.spec
 
 def compileValueVaultSolanaElf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecElf opts
+  compileSolanaAuthoredElf opts
     (FilePath.mk "build/solana/ValueVault.so")
     "value-vault"
     "value-vault-solana-elf"
-    ProofForge.Contract.Examples.ValueVault.spec
+    Examples.Product.ValueVault.contract
 
 def compileSolanaSystemCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaAuthoredElf opts

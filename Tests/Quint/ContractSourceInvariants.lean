@@ -1,8 +1,9 @@
 import ProofForge.Contract.Examples.Counter
-import ProofForge.Contract.Examples.ValueVault
+import Examples.Product.ValueVault
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.Scenario
 import ProofForge.IR.Examples.Counter
+import ProofForge.IR.Examples.ValueVault
 
 namespace Tests.Quint.ContractSourceInvariants
 
@@ -26,13 +27,14 @@ def main : IO UInt32 := do
       require (source.contains "val countBounded = count <= MAX_UINT")
         "Counter model missing countBounded val from contract_source"
 
-  let vaultInvs := ProofForge.Contract.Examples.ValueVault.spec.quintInvariants
-  require (vaultInvs.size == 2) "ValueVault spec should expose two quint_invariant annotations"
+  let vaultInvs := Examples.Product.ValueVault.contract.quintInvariants.map
+    fun annotation => (annotation.name, annotation.body)
+  require (vaultInvs.size == 2) "ValueVault source should expose two quint_invariant annotations"
   let vaultScenario : Scenario.Config := {
     maxUint := 5,
     contractInvariants := vaultInvs
   }
-  match Lower.renderModule ProofForge.Contract.Examples.ValueVault.module vaultScenario with
+  match Lower.renderModule ProofForge.IR.Examples.ValueVault.module vaultScenario with
   | .error e => throw (IO.userError s!"ValueVault lower failed: {e.message}")
   | .ok source =>
       require (source.contains "val totalCoversReleased = balance + released + fees >= released")

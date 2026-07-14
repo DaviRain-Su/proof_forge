@@ -397,6 +397,17 @@ public-authored-route:
 counter-authoring-cutover:
     scripts/canonical/check-counter-authoring-cutover.sh
 
+# A-CUT3a: ValueVault public authoring reaches only Authored/Core/target plans.
+value-vault-authoring-cutover:
+    lake build ProofForge.Contract.Source Examples.Product.ValueVault ProofForge.Target.FormalBoundary
+    lake env lean --run Tests/Canonical/PublicAuthoredRoute.lean
+    lake env lean --run Tests/Canonical/SourceLoader.lean
+    lake env lean --run Tests/SharedContractSource.lean
+    lake env lean --run Tests/ValueVaultExample.lean
+    lake env lean --run Tests/TargetFormal.lean
+    lake env lean --run Tests/Product/SolanaMaterialize.lean
+    lake env lean --run Tests/SourceDslIsolation.lean
+
 # Wave 6 Task 21: architecture boundary gate.
 canonical-boundary:
     scripts/canonical/check-boundary-self-test.sh

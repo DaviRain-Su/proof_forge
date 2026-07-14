@@ -73,7 +73,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 | # | 标准 | 状态 | 证据 |
 |---|---|---|---|
-| A-CUT2g-1 | Public Source 与 Loader 只交换 `AuthoredContract` | ✅ met | `42183403`；`just public-authored-route` 证明 Counter 只导出 `contract` 而不导出 `spec`/`module`，Loader 拒绝隔离的 ValueVault，不会 fallback |
+| A-CUT2g-1 | Public Source 与 Loader 只交换 `AuthoredContract` | ✅ met | `just public-authored-route` 证明 Counter 与 ValueVault 只导出 `contract`，不导出 `spec`/`module`；internal Surface fixture 使用独立 loader identity，且不存在 Legacy fallback |
 | A-CUT2g-2 | 主三链物化绕开 `ContractSpec` 与 `IR.Module` | ✅ met | `just portable-counter-multi-target` 从不变的 Product Counter 构建 EVM、Solana assembly 和 NEAR/Wasm，metadata 为 `contract-source-authored` / `canonical-core-v1`，并拒绝任何 ContractSpec sidecar |
 | A-CUT2g-3 | 最终 Solana ELF 同样使用 direct target plan | ✅ met | target-specific Counter testkit 通过 `compileSolanaAuthoredElf` 构建 ELF；initialize/get/increment/get 生命周期在 Mollusk 中通过严格 account 与 instruction-data 校验 |
 | A-CUT2g-4 | Target 行为保持可执行 | ✅ met | Counter 的 `evm`、`solana-sbpf-asm`、`wasm-near` 独立 testkit runner 均通过；NEAR offline-host 报告 `0 -> 1`；EVM selector metadata 与 target golden 通过 |
@@ -90,6 +90,17 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT2h-3 | EVM constructor ABI 归 target 所有 | ✅ met | 仅在选择 EVM 后加载 `evmConstructor : ConstructorConfigPlan`；`buildFromCore` 拒绝共享 Canonical constructor payload，并校验参数/存储绑定引用 |
 | A-CUT2h-4 | Direct runtime 行为保持 | ✅ met | `just evm-anvil-deploy` 记录 `creationMode: deploy-object`，先读取 `123`，再观测 `0`、`1`、`2`；`just portable-counter-multi-target` 无 ContractSpec sidecar 通过 |
 | A-CUT2h-5 | 未新增兼容路线 | ✅ met | public `build`、Yul 和 `check` 均消费 Authored -> checked Core -> EVM plan；direct EVM check 通过，非法共享/target constructor config fail closed |
+
+## Gate A-CUT3a —— ValueVault direct authoring cutover
+
+状态：**本地关闭；CMP-3 native differential 仍在进行**。
+
+| 条件 | 要求 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT3a-1 | Product ValueVault 只有一个当前 authoring identity | ✅ met | `just value-vault-authoring-cutover` 证明模块只导出 `contract`；不存在 `.spec`、`.module` 或 `Source.Legacy` Product 路线 |
+| A-CUT3a-2 | Portable state、event 与 context 直接进入 checked Core | ✅ met | 显式 typed event schema、named argument 与 `blockNumber` 归一化为 6 个 state、7 个 function、5 个 event，并与内部 Core 基线一致 |
+| A-CUT3a-3 | 主目标消费 target-owned plan | ✅ met | focused EVM、Solana、NEAR CLI build 都报告 `contract-source-authored` / `canonical-core-v1`；Solana package 保留 event 与 Clock 物化 |
+| A-CUT3a-4 | 删除旧 reverse alias，而不是适配 | ✅ met | production/test 中没有 `ProofForge.Contract.Examples.ValueVault.spec/module` 或 `Examples.Product.ValueVault.module`；历史 v1 proof 显式命名 `ProofForge.IR.Examples.ValueVault` |
 
 ## Gate CMP-2 —— 主三链原生 Counter 差分
 

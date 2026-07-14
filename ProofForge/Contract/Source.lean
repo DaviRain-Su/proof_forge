@@ -61,6 +61,9 @@ def u128 (value : Nat) : AuthoredExpr :=
 def boolLit (value : Bool) : AuthoredExpr :=
   .literal (.boolLit value)
 
+def blockNumber : AuthoredExpr :=
+  .contextRead .blockNumber
+
 def add (lhs rhs : AuthoredExpr) (checked : Bool := true) : AuthoredExpr :=
   .arith .add checked lhs rhs
 
@@ -113,6 +116,7 @@ declare_syntax_cat entryStmt
 
 scoped syntax "state " ident " : " term : contractItem
 scoped syntax "binding " ident " : " term : contractItem
+scoped syntax "event " ident term : contractItem
 scoped syntax "quint_invariant " ident " := " str : contractItem
 scoped syntax "quint_liveness " ident " := " str : contractItem
 scoped syntax "lean_invariant " ident " := " str : contractItem
@@ -128,6 +132,7 @@ scoped syntax "query " ident "(" ident " : " term ", " ident " : " term ")" " re
 
 scoped syntax "let " ident " : " term " := " term ";" : entryStmt
 scoped syntax ident " := " term ";" : entryStmt
+scoped syntax "emit " ident term ";" : entryStmt
 scoped syntax "return " term ";" : entryStmt
 
 scoped syntax "contract_source " ident " do" ppLine contractItem* : command
@@ -147,12 +152,16 @@ def chain (actions : Array (TSyntax `term)) : MacroM (TSyntax `term) := do
 partial def lowerExpr (states locals : Array String) (source : TSyntax `term) :
     MacroM (TSyntax `term) := do
   match source with
+  | `(($value:term)) =>
+      lowerExpr states locals value
   | `(u64 $value:num) =>
       `(.literal (.u64Lit $value))
   | `(u128 $value:num) =>
       `(.literal (.u128Lit $value))
   | `(boolLit $value:term) =>
       `(.literal (.boolLit $value))
+  | `(blockNumber) =>
+      `(.contextRead .blockNumber)
   | `($lhs:term +! $rhs:term) =>
       let left <- lowerExpr states locals lhs
       let right <- lowerExpr states locals rhs
@@ -178,6 +187,31 @@ partial def lowerExpr (states locals : Array String) (source : TSyntax `term) :
         `(.local $valueTerm)
   | _ => Macro.throwErrorAt source s!"unsupported direct authored expression `{source.raw}`; no Legacy fallback exists"
 
+def lowerEventArgument (states locals : Array String) (source : TSyntax `term) :
+    MacroM (TSyntax `term) := do
+  match source with
+  | `(field $value:ident) =>
+      let valueTerm <- lowerExpr states locals value
+      let fieldName := nameLit value
+      `(ProofForge.Frontend.Authored.AuthoredEventArgument.mk
+        $fieldName false none $valueTerm)
+  | `(fieldAs $name:ident $value:term) =>
+      let valueTerm <- lowerExpr states locals value
+      let fieldName := nameLit name
+      `(ProofForge.Frontend.Authored.AuthoredEventArgument.mk
+        $fieldName false none $valueTerm)
+  | `(indexedField $value:ident) =>
+      let valueTerm <- lowerExpr states locals value
+      let fieldName := nameLit value
+      `(ProofForge.Frontend.Authored.AuthoredEventArgument.mk
+        $fieldName true none $valueTerm)
+  | `(indexedFieldAs $name:ident $value:term) =>
+      let valueTerm <- lowerExpr states locals value
+      let fieldName := nameLit name
+      `(ProofForge.Frontend.Authored.AuthoredEventArgument.mk
+        $fieldName true none $valueTerm)
+  | _ => Macro.throwErrorAt source "unsupported direct authored event argument"
+
 def lowerEntryBody (states : Array String) (params : Array String)
     (statements : Array (TSyntax `entryStmt)) : MacroM (TSyntax `term) := do
   let mut locals := params
@@ -199,6 +233,14 @@ def lowerEntryBody (states : Array String) (params : Array String)
         else
           actions := actions.push (←
             `(ProofForge.Frontend.Authored.Builder.assign (.local $targetTerm) $valueTerm))
+    | `(entryStmt| emit $eventName:ident $fieldsTerm:term;) =>
+        let fields <- match fieldsTerm with
+          | `(#[$fields,*]) => pure fields.getElems
+          | _ => Macro.throwErrorAt fieldsTerm "event arguments must be an array literal"
+        let loweredFields <- fields.mapM (lowerEventArgument states locals)
+        let eventNameTerm := nameLit eventName
+        actions := actions.push (←
+          `(ProofForge.Frontend.Authored.Builder.emitFields $eventNameTerm #[$loweredFields,*]))
     | `(entryStmt| return $value:term;) =>
         let valueTerm <- lowerExpr states locals value
         actions := actions.push (← `(ProofForge.Frontend.Authored.Builder.ret $valueTerm))
@@ -212,7 +254,8 @@ def entryAction (states : Array String) (name : TSyntax `ident)
   let authoredParams <- params.mapM fun param => do
     let paramName := nameLit param.1
     let paramType := param.2
-    `(show AuthoredParam from { name := $paramName, type := $paramType })
+    `(show ProofForge.Frontend.Authored.AuthoredParam from {
+      name := $paramName, type := $paramType })
   let mutability <- if isView then `(.view) else `(.call)
   let entryName := nameLit name
   `(ProofForge.Frontend.Authored.Builder.entryFull $entryName #[$authoredParams,*]
@@ -228,6 +271,19 @@ def strLitValue (stx : TSyntax `str) : MacroM String := do
   | some value => pure value
   | none => Macro.throwErrorAt stx "expected a string literal"
 
+def lowerEventFieldDecl (source : TSyntax `term) :
+    MacroM (TSyntax `term) := do
+  match source with
+  | `(field $name:ident $type:term) =>
+      let fieldName := nameLit name
+      `(ProofForge.Frontend.Authored.AuthoredEventField.mk
+        $fieldName $type false none)
+  | `(indexedField $name:ident $type:term) =>
+      let fieldName := nameLit name
+      `(ProofForge.Frontend.Authored.AuthoredEventField.mk
+        $fieldName $type true none)
+  | _ => Macro.throwErrorAt source "unsupported direct authored event field"
+
 def lowerItem (states : Array String) (item : TSyntax `contractItem) :
     MacroM (Option (TSyntax `term)) := do
   match item with
@@ -236,6 +292,15 @@ def lowerItem (states : Array String) (item : TSyntax `contractItem) :
       return some (← `(ProofForge.Frontend.Authored.Builder.scalarState $stateName $type))
   | `(contractItem| binding $_name:ident : $_type:term) =>
       return none
+  | `(contractItem| event $name:ident $fieldsTerm:term) =>
+      let eventName := nameLit name
+      let fields <- match fieldsTerm with
+        | `(#[$fields,*]) => pure fields.getElems
+        | _ => Macro.throwErrorAt fieldsTerm "event fields must be an array literal"
+      let loweredFields <- fields.mapM lowerEventFieldDecl
+      return some (← `(ProofForge.Frontend.Authored.Builder.event
+        (ProofForge.Frontend.Authored.AuthoredEventDecl.mk
+          $eventName #[$loweredFields,*])))
   | `(contractItem| quint_invariant $name:ident := $body:str) =>
       let annotationName := nameLit name
       let annotationBody : TSyntax `term := quote (← strLitValue body)

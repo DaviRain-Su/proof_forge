@@ -1,4 +1,4 @@
-import ProofForge.Contract.Examples.ValueVault
+import Examples.Product.ValueVault
 import ProofForge.Contract.Intent
 import ProofForge.Contract.Spec
 import Examples.Backend.Solana.Contracts.Vault
@@ -21,11 +21,11 @@ open ProofForge.Target
 
 -- FV-1 full-boundary soundness theorems (native_decide over the three
 -- primary-chain profiles × Counter and ValueVault).
-#check resolveSpec_sound_counter_evm
-#check resolveSpec_sound_counter_solana
-#check resolveSpec_sound_counter_near
-#check resolveSpec_sound_value_vault_evm
-#check resolveSpec_sound_value_vault_near
+#check resolveCanonical_sound_counter_evm
+#check resolveCanonical_sound_counter_solana
+#check resolveCanonical_sound_counter_near
+#check resolveCanonical_sound_value_vault_evm
+#check resolveCanonical_sound_value_vault_near
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then
@@ -46,11 +46,19 @@ def requireError (result : Except Diagnostic CapabilityPlan) (expected : String)
       s!"{message}: expected `{expected}`, got `{err.render}`"
 
 def checkValueVaultEvm : IO Unit := do
+  let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      Examples.Product.ValueVault.contract with
+    | .ok bundle => pure bundle
+    | .error error => throw <| IO.userError s!"ValueVault normalization failed: {repr error}"
+  let requested : CapabilityPlan := {
+    targetId := evm.id
+    calls := bundle.contract.contract.requirements
+  }
   let plan ← requireOk
-    (resolveSpec evm ProofForge.Contract.Examples.ValueVault.spec)
+    (requireCapabilityPlan evm requested)
     "ValueVault EVM routing failed"
   require (plan.checkedBy evm) "ValueVault EVM plan failed FV-1 checkedBy predicate"
-  require (resolveSpecCheckedBy evm ProofForge.Contract.Examples.ValueVault.spec)
+  require (resolveCanonicalCheckedBy evm bundle.contract)
     "ValueVault EVM resolve result failed FV-1 checkedBy predicate"
 
 /-- FV-1 fail-closed: capability present in intent but HostRuntime n/a on target.
@@ -97,7 +105,7 @@ def checkSolanaExtensionIsolation : IO Unit := do
 three primary-chain profiles. This check #checks that they type-check. -/
 def checkFullBoundaryTheorems : IO Unit := do
   -- resolveSpec_sound_counter_evm / _solana / _near
-  -- resolveSpec_sound_value_vault_evm / _near
+  -- resolveCanonical_sound_value_vault_evm / _near
   -- These are the FV-1 full-boundary soundness theorems; #check is enough
   -- because they are `native_decide`-discharged.
   pure ()

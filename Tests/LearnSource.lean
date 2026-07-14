@@ -1,7 +1,6 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Cli.SolanaArtifacts
 import ProofForge.Contract.Examples.Counter
-import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Learn
 import ProofForge.IR.Examples.Counter
 import Examples.Backend.Solana.Contracts.Clock
@@ -103,7 +102,8 @@ def main : IO UInt32 := do
   requireSameModule "Counter v1 fixture" counter.module
     (withoutSelectors ProofForge.IR.Examples.Counter.module)
   let valueVault ← parseSpec "Examples/Backend/Learn/ValueVault.learn"
-  requireSameModule "ValueVault" valueVault.module ProofForge.Contract.Examples.ValueVault.module
+  -- The Learn file is an explicit parser/backend fixture. It no longer claims
+  -- equivalence with the public Authored ValueVault source.
   requireValueVaultSolanaRender valueVault
   let solanaVault ← parseSpec "Examples/Backend/Learn/SolanaVault.learn"
   let learnManifest ← packageFile "learn-solana-vault" "manifest.toml" solanaVault

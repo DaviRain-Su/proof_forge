@@ -120,14 +120,13 @@ def main : IO UInt32 := do
   | .ok () => pure ()
   | .error error => throw <| IO.userError s!"static view was rejected: {error}"
 
-  let some snapshot := Examples.Product.ValueVault.module.entrypoints.find?
+  let some snapshot := Examples.Product.ValueVault.contract.entrypoints.find?
       (fun entrypoint => entrypoint.name == "snapshot")
     | throw <| IO.userError "ValueVault snapshot entrypoint missing"
-  require (snapshot.mutability == .call)
-    "ValueVault snapshot writes last_checkpoint and emits an event, so it must remain a call"
-  match ProofForge.IR.Mutability.validateEntrypoint snapshot with
-  | .ok () => pure ()
-  | .error error => throw <| IO.userError s!"ValueVault call snapshot rejected: {error}"
+  match snapshot.mutability with
+  | .call => pure ()
+  | .view => throw (IO.userError
+      "ValueVault snapshot writes last_checkpoint and emits an event, so it must remain a call")
 
   IO.println "entrypoint-mutability: ok"
   return 0

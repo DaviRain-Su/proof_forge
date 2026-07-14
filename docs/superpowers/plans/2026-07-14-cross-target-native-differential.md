@@ -153,7 +153,9 @@ Completion evidence:
 
 State: `in_progress; attached to A-CUT3`
 
-- Add ValueVault as the first stateful scenario.
+- ValueVault's public source is now direct-only and compiles through checked
+  Core on all three primary targets. Add it as the first stateful native
+  scenario; no Legacy artifact is eligible for comparison.
 - Add the missing independent Solana Rust ValueVault reference; a skip or reuse
   of ProofForge-generated sBPF is not acceptable native evidence.
 - Then select one representative each for authorization, map/collection state,

@@ -3,7 +3,7 @@ import Examples.Product.Counter
 import Examples.Product.HostEnvProbe
 import Examples.Product.RemoteCall
 import Examples.Product.Ownable
-import Examples.Product.ValueVault
+import ProofForge.IR.Examples.ValueVault
 import ProofForge.IR.Examples.LoopProbe
 import ProofForge.Backend.Refinement.CounterUniversal
 
@@ -119,8 +119,8 @@ theorem product_ownable_in_covered_fragment :
     moduleInCoveredFragment Examples.Product.Ownable.module = true := by
   native_decide
 
-theorem product_valueVault_in_covered_fragment :
-    moduleInCoveredFragment Examples.Product.ValueVault.module = true := by
+theorem valueVault_v1_fixture_in_covered_fragment :
+    moduleInCoveredFragment ProofForge.IR.Examples.ValueVault.module = true := by
   native_decide
 
 theorem product_remoteCall_out_of_covered_fragment :

@@ -5,7 +5,6 @@ import ProofForge.Backend.WasmHost.Types
 import ProofForge.IR.Semantics
 import ProofForge.IR.Examples.Counter
 import ProofForge.Compiler.Wasm.AST
-import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Examples.ValueVaultInvariant
 
 namespace ProofForge.Backend.WasmHost.Refinement

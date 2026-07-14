@@ -117,7 +117,8 @@ wrapper 均已删除；EVM constructor 证据仅在选择 EVM 后从 target-owne
 
 状态：`in_progress; attached to A-CUT3`
 
-- 先加入 ValueVault。
+- ValueVault 公开源码现已只走 direct Authored/checked Core，并可在三个主目标
+  编译。将其作为首个 stateful native scenario；Legacy artifact 不具备比较资格。
 - 补齐缺失的独立 Solana Rust ValueVault reference；不允许用 skip 或
   ProofForge 生成的 sBPF 充当原生证据。
 - 再分别选择 authorization、map/collection、event/error 和 portable crosscall intent 的代表场景。

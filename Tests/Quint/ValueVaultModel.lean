@@ -1,4 +1,4 @@
-import ProofForge.Contract.Examples.ValueVault
+import Examples.Product.ValueVault
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Backend.Quint.Lower
 
@@ -9,7 +9,8 @@ open ProofForge.Backend.Quint
 def scenario : Scenario.Config := {
   maxUint := 5,
   users := #["alice", "bob"],
-  contractInvariants := ProofForge.Contract.Examples.ValueVault.spec.quintInvariants
+  contractInvariants := Examples.Product.ValueVault.contract.quintInvariants.map
+    fun annotation => (annotation.name, annotation.body)
 }
 
 def main : IO UInt32 := do

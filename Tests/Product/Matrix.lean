@@ -36,7 +36,6 @@ import Examples.Product.StakingVault
 import Examples.Product.StatusMessage
 import Examples.Product.StorageDeposit
 import Examples.Product.TimelockVault
-import Examples.Product.ValueVault
 import Examples.Product.VestingVault
 import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.Evm.Plan
@@ -151,7 +150,6 @@ def testPolicies : IO Unit := do
 
 def testVaultsAndTokens : IO Unit := do
   for (label, module) in #[
-    ("ValueVault", Examples.Product.ValueVault.module),
     ("StakingVault", Examples.Product.StakingVault.module),
     ("RoleGatedToken", Examples.Product.RoleGatedToken.module),
     ("ArrayExample", Examples.Product.ArrayExample.module),

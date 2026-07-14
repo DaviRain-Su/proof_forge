@@ -1,4 +1,4 @@
-import ProofForge.Contract.Examples.ValueVault
+import Examples.Product.ValueVault
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.ITF
@@ -17,7 +17,9 @@ def loadScenario : IO Scenario.Config := do
 
 def scenario : IO Scenario.Config := do
   let cfg ← loadScenario
-  pure { cfg with contractInvariants := ProofForge.Contract.Examples.ValueVault.spec.quintInvariants }
+  let annotations := Examples.Product.ValueVault.contract.quintInvariants.map
+    fun annotation => (annotation.name, annotation.body)
+  pure { cfg with contractInvariants := annotations }
 
 def generateModel : IO String := do
   let s ← scenario

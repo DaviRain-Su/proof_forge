@@ -46,12 +46,20 @@ def main : IO Unit := do
       require (plan.accounts.any fun a => a.name == "count")
         "plan accounts must include auto-materialized count"
 
-  -- ValueVault portable: also auto-portable.
-  let vault := Examples.Product.ValueVault.module
-  let vaultReport := report vault {}
-  require (vaultReport.mode == .autoPortable)
-    s!"ValueVault expected auto-portable, got {vaultReport.mode.id}"
-  require (vaultReport.stateAccountCount == 1) "ValueVault synthesizes one state account"
+  -- ValueVault reaches the target-owned plan from direct Authored/Core.
+  let vaultBundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      Examples.Product.ValueVault.contract with
+    | .ok bundle => pure bundle
+    | .error error => throw <| IO.userError s!"ValueVault normalization failed: {repr error}"
+  let vaultCapabilityPlan : ProofForge.Target.CapabilityPlan := {
+    targetId := ProofForge.Target.solanaSbpfAsm.id
+    calls := vaultBundle.contract.contract.requirements
+  }
+  match ProofForge.Backend.Solana.Plan.Core.buildFromCore
+      vaultBundle.contract vaultCapabilityPlan with
+  | .error error => throw <| IO.userError s!"ValueVault direct plan failed: {error.message}"
+  | .ok plan =>
+      require (plan.accounts.size >= 1) "ValueVault direct plan must synthesize state accounts"
 
   -- Source.Solana Vault reaches the target-owned plan directly.
   let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored

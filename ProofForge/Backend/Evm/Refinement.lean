@@ -1,7 +1,7 @@
 import ProofForge.Backend.Refinement.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.Evm.YulSemantics
-import ProofForge.Contract.Examples.ValueVault
+import ProofForge.IR.Examples.ValueVault
 import ProofForge.IR.Examples.EvmAbiAggregateProbe
 import ProofForge.IR.Examples.EvmExpressionProbe
 import ProofForge.IR.Examples.ConditionalProbe
@@ -531,7 +531,7 @@ def hydrateValueVaultEntrypoint (entrypoint : Entrypoint) : Entrypoint :=
   | none => entrypoint
 
 def valueVaultEvmModule : Module :=
-  let module := ProofForge.Contract.Examples.ValueVault.module
+  let module := ProofForge.IR.Examples.ValueVault.module
   { module with entrypoints := module.entrypoints.map hydrateValueVaultEntrypoint }
 
 def missingEntrypoint (name : String) : Entrypoint := {

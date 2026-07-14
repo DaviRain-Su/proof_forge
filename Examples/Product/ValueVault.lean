@@ -30,14 +30,14 @@ NEAR native compare (testkit/compare/near/value-vault):
   just near-compare-value-vault-live
 
 
-`ProofForge/Contract/Examples/ValueVault.lean` is a compatibility alias for
-this source so tests and formal gates keep one canonical authoring surface.
+This file is the only product authoring source. Compiler-owned Canonical Core
+and target plans are derived from its `AuthoredContract` value.
 -/
-import ProofForge.Contract.Source.Legacy
+import ProofForge.Contract.Source
 
 namespace Examples.Product.ValueVault
 
-open ProofForge.Contract.Source.Legacy
+open ProofForge.Contract.Source
 
 contract_source ValueVault do
   state balance : .u64
@@ -50,14 +50,15 @@ contract_source ValueVault do
   quint_invariant totalCoversReleased := "balance + released + fees >= released"
   quint_invariant totalCoversFees := "balance + released + fees >= fees"
 
-  event VaultInitialized
-  event ValueDeposited
-  event ValueCharged
-  event ValueReleased
-  event ValueSnapshot
+  event VaultInitialized #[field initial .u64, field checkpoint .u64]
+  event ValueDeposited #[field amount .u64, field balance .u64, field operations .u64]
+  event ValueCharged #[field gross .u64, field fee .u64, field net .u64, field balance .u64]
+  event ValueReleased #[field amount .u64, field balance .u64, field released .u64]
+  event ValueSnapshot #[field balance .u64, field released .u64, field fees .u64,
+    field checkpoint .u64]
 
   entry «initialize» (initial : .u64) do
-    let checkpoint : .u64 := checkpointId;
+    let checkpoint : .u64 := blockNumber;
     balance := initial;
     released := u64 0;
     fees := u64 0;
@@ -121,7 +122,7 @@ contract_source ValueVault do
     ];
 
   entry snapshot returns(.u64) do
-    let checkpoint : .u64 := checkpointId;
+    let checkpoint : .u64 := blockNumber;
     let balance_now : .u64 := balance;
     let released_now : .u64 := released;
     let fees_now : .u64 := fees;

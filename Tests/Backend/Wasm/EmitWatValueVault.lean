@@ -1,5 +1,5 @@
 import ProofForge.Backend.WasmHost.EmitWat
-import ProofForge.Contract.Examples.ValueVault
+import ProofForge.IR.Examples.ValueVault
 
 open ProofForge.Backend.WasmHost.EmitWat
 
@@ -7,7 +7,7 @@ open ProofForge.Backend.WasmHost.EmitWat
     deterministic offline host and unified testkit. -/
 
 def main : IO UInt32 := do
-  match renderModule ProofForge.Contract.Examples.ValueVault.module with
+  match renderModule ProofForge.IR.Examples.ValueVault.module with
   | .ok wat =>
     IO.FS.createDirAll "build/wasm-near"
     IO.FS.writeFile "build/wasm-near/emitwat-value-vault.wat" wat

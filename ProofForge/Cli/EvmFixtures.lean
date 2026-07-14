@@ -4,7 +4,6 @@ import ProofForge.Cli.EvmAbi
 import ProofForge.Cli.EvmArtifacts
 import ProofForge.Cli.FileUtil
 import ProofForge.Cli.Options
-import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Spec
 import ProofForge.IR
 import ProofForge.IR.Examples.AbiAggregateProbe
@@ -16,6 +15,7 @@ import ProofForge.IR.Examples.ConditionalProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ErrorRefProbe
 import ProofForge.IR.Examples.EventProbe
+import ProofForge.IR.Examples.ValueVault
 import ProofForge.IR.Examples.EvmAbiAggregateProbe
 import ProofForge.IR.Examples.EvmArrayAbiProbe
 import ProofForge.IR.Examples.EvmArrayValueProbe
@@ -104,7 +104,7 @@ def compileErrorRefIrBytecode (opts : CliOptions) : IO UInt32 := do
 
 def compileValueVaultIrYul (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/ir/ValueVault.yul")
-  let module ← hydrateEvmSelectors opts.cast ProofForge.Contract.Examples.ValueVault.module
+  let module ← hydrateEvmSelectors opts.cast ProofForge.IR.Examples.ValueVault.module
   match ProofForge.Cli.Evm.renderYul module with
   | .ok yul =>
       writeTextFile output yul
@@ -114,7 +114,7 @@ def compileValueVaultIrYul (opts : CliOptions) : IO UInt32 := do
       throw <| IO.userError err.render
 
 def renderValueVaultIrYul (opts : CliOptions) : IO (String × ProofForge.IR.Module) := do
-  let module ← hydrateEvmSelectors opts.cast ProofForge.Contract.Examples.ValueVault.module
+  let module ← hydrateEvmSelectors opts.cast ProofForge.IR.Examples.ValueVault.module
   match ProofForge.Cli.Evm.renderYul module with
   | .ok yul => return (yul, module)
   | .error err => throw <| IO.userError err.render
@@ -128,7 +128,7 @@ def compileValueVaultIrBytecode (opts : CliOptions) : IO UInt32 := do
   writeTextFile output (bytecode ++ "\n")
   let spec := ProofForge.Contract.ContractSpec.fromIR module
   writeEvmContractSdkArtifactMetadata opts "ValueVault" {
-    moduleName := "ProofForge.Contract.Examples.ValueVault"
+    moduleName := "ProofForge.IR.Examples.ValueVault"
     kind := "portable-ir"
     leanElaborated := false
   } spec module yulOutput output

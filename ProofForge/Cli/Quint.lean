@@ -3,7 +3,7 @@ import ProofForge.IR.Contract
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.Scenario
 import ProofForge.Contract.Examples.Counter
-import ProofForge.Contract.Examples.ValueVault
+import Examples.Product.ValueVault
 import ProofForge.Cli.Options
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
@@ -175,8 +175,10 @@ def compileCounterIrQuint (opts : CliOptions) : IO UInt32 :=
 
 def compileValueVaultIrQuint (opts : CliOptions) : IO UInt32 :=
   compileIrQuintModule opts ProofForge.IR.Examples.ValueVault.module "build/quint/ValueVault.qnt"
-    ProofForge.Contract.Examples.ValueVault.spec.quintInvariants
-    ProofForge.Contract.Examples.ValueVault.spec.quintLiveness
+    (Examples.Product.ValueVault.contract.quintInvariants.map
+      fun annotation => (annotation.name, annotation.body))
+    (Examples.Product.ValueVault.contract.quintLiveness.map
+      fun annotation => (annotation.name, annotation.body))
 
 def compileIrQuint (opts : CliOptions) : IO UInt32 := do
   let fixture ← match opts.fixture? with

@@ -59,11 +59,22 @@ unsafe def main : IO Unit := do
         "wrong Surface fixture/Legacy diagnostic"
   | Except.ok _ => throw <| IO.userError "Surface fixture accepted the Legacy pipeline"
 
-  expectLoadError "Examples/Product/ValueVault.lean" "missingContractSource"
+  let authoredVault ← load "Examples/Product/ValueVault.lean"
+  match authoredVault with
+  | .authored _ => pure ()
+  | .surfaceFixture _ => throw <| IO.userError "authored ValueVault discovered as an internal Surface fixture"
+  let authoredVaultBundle ← canonicalize authoredVault
   let surfaceVault ← canonicalize (← load "TestFixtures/SurfaceProducts/ValueVault.lean")
   require (surfaceVault.contract.contract.module.state.size == 6) "Surface ValueVault state drift"
   require (surfaceVault.contract.contract.module.functions.size == 7) "Surface ValueVault entrypoint drift"
   require (surfaceVault.contract.contract.module.events.size == 5) "Surface ValueVault event drift"
+  require
+      (authoredVaultBundle.contract.contract.module == surfaceVault.contract.contract.module)
+    "ValueVault Core module differs between product source and internal Surface fixture"
+  require
+      (withoutResolvedSelectors authoredVaultBundle.contract.contract.interface ==
+        withoutResolvedSelectors surfaceVault.contract.contract.interface)
+    "ValueVault interface shape differs between product source and internal Surface fixture"
 
   let fixtureDir := "build/canonical/source-loader"
   IO.FS.createDirAll fixtureDir

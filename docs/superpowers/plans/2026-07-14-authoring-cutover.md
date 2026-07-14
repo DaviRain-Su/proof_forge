@@ -302,6 +302,14 @@ CMP-3 must add stateful ValueVault evidence and representative product-family
 observations incrementally; golden artifacts alone are not sufficient evidence
 for a migrated family.
 
+Checkpoint (2026-07-14): ValueVault no longer imports `Source.Legacy` and
+exports no `ContractSpec` or v1 `IR.Module`. Typed event schemas, named event
+arguments, and portable `blockNumber` authoring lower directly through
+Authored/checked Core. EVM, Solana, and NEAR builds all report
+`contract-source-authored` / `canonical-core-v1`; `just
+value-vault-authoring-cutover` pins the no-fallback boundary. CMP-3 remains in
+progress until the independent native primary-triad comparison is complete.
+
 ### A-CUT4 - Delete duplicate source and version split
 
 - Delete the temporary `TestFixtures/SurfaceProducts` values and their

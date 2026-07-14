@@ -6,8 +6,8 @@ import ProofForge.IR.Examples.ArrayProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.EvmMapProbe
 import ProofForge.Compiler.Wasm.AST
-import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Examples.ValueVaultInvariant
+import ProofForge.IR.Examples.ValueVault
 import ProofForge.Backend.WasmHost.Refinement.Core
 import ProofForge.Backend.WasmHost.WasmInterpreter
 import ProofForge.IR.StepSemantics
@@ -60,7 +60,7 @@ def counterTraceObligation : TraceObligation := {
 }
 
 def valueVaultEntrypointD (entrypointName : String) : Entrypoint :=
-  match ProofForge.Contract.Examples.ValueVault.module.entrypoints.find?
+  match ProofForge.IR.Examples.ValueVault.module.entrypoints.find?
       (fun entrypoint => entrypoint.name == entrypointName) with
   | some entrypoint => entrypoint
   | none => ProofForge.IR.Examples.Counter.initializeEntrypoint
@@ -111,7 +111,7 @@ def valueVaultExpectedTrace : Array ObservableStep :=
 
 def valueVaultTraceObligation : TraceObligation := {
   name := "ValueVault.default-scenario"
-  module := ProofForge.Contract.Examples.ValueVault.module
+  module := ProofForge.IR.Examples.ValueVault.module
   calls := valueVaultTraceCalls
   expected := valueVaultExpectedTrace
 }
@@ -730,23 +730,23 @@ def counterStorageWriteKeyValueFramesOk : Bool :=
 
 def valueVaultInputHostFramesOk : Bool :=
   wasmHostFramesOk
-    ProofForge.Contract.Examples.ValueVault.module
+    ProofForge.IR.Examples.ValueVault.module
     nearValueVaultInputHostFrameExpectations
 
 def valueVaultContextHostFramesOk : Bool :=
   wasmHostFramesOk
-    ProofForge.Contract.Examples.ValueVault.module
+    ProofForge.IR.Examples.ValueVault.module
     nearValueVaultContextHostFrameExpectations
 
 def valueVaultStorageReadKeyFramesOk : Bool :=
   wasmEntrypointHostFramesComplete
-    ProofForge.Contract.Examples.ValueVault.module
+    ProofForge.IR.Examples.ValueVault.module
     valueVaultStorageReadKeyFrameExpectations
     (ProofForge.Backend.WasmHost.Types.readName .u64)
 
 def valueVaultStorageWriteKeyValueFramesOk : Bool :=
   wasmEntrypointHostFramesComplete
-    ProofForge.Contract.Examples.ValueVault.module
+    ProofForge.IR.Examples.ValueVault.module
     valueVaultStorageWriteKeyValueFrameExpectations
     (ProofForge.Backend.WasmHost.Types.writeName .u64)
 
@@ -848,7 +848,7 @@ def counterOfflineHostExecutionObligation : OfflineHostExecutionObligation := {
 
 def valueVaultArtifactSurfaceObligation : ArtifactSurfaceObligation := {
   name := "ValueVault.EmitWat.artifact-surface"
-  module := ProofForge.Contract.Examples.ValueVault.module
+  module := ProofForge.IR.Examples.ValueVault.module
   requiredImports := #[
     "input",
     "read_register",
@@ -1301,14 +1301,14 @@ theorem value_vault_emitwat_storage_write_key_value_frames_ok :
 
 theorem value_vault_emitwat_storage_read_key_frame_omission_rejected :
     wasmEntrypointHostFramesComplete
-        ProofForge.Contract.Examples.ValueVault.module
+        ProofForge.IR.Examples.ValueVault.module
         valueVaultStorageReadKeyFrameExpectations.pop
         (ProofForge.Backend.WasmHost.Types.readName .u64) = false := by
   native_decide
 
 theorem value_vault_emitwat_storage_write_key_value_frame_omission_rejected :
     wasmEntrypointHostFramesComplete
-        ProofForge.Contract.Examples.ValueVault.module
+        ProofForge.IR.Examples.ValueVault.module
         valueVaultStorageWriteKeyValueFrameExpectations.pop
         (ProofForge.Backend.WasmHost.Types.writeName .u64) = false := by
   native_decide

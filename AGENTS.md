@@ -26,9 +26,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | A-CUT3/CMP-3 - migrate ValueVault off `Source.Legacy`, add the missing independent Solana Rust reference, and compare the primary triad |
+| Active task | A-CUT3/CMP-3 - ValueVault authoring is direct-only; add the independent Solana Rust reference and compare the primary triad |
 | Next task | Continue A-CUT3 through authorization, collection, event/error, and portable crosscall representatives while deleting each zero-caller Legacy slice |
-| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; the v1 inventory now tracks 96 assets and six verified CMP-2 assets |
+| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault now compiles direct-only on the primary triad and awaits CMP-3 native evidence |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -177,7 +177,7 @@ Core are internal compiler representations.
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
 | A-CUT1e | done (verified at `571b795d`) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
 | A-CUT2 | done (verified at `e2834c59`) | Public Counter routes, reverse dependencies, and independent primary-triad behavior are direct-only and fully covered by CMP-2 |
-| A-CUT3 | in_progress (CMP-3 ValueVault active) | Migrate the full product catalog from the single abstract source and delete each retired Legacy slice |
+| A-CUT3 | in_progress (ValueVault direct cutover complete; CMP-3 native evidence active) | Migrate the full product catalog from the single abstract source and delete each retired Legacy slice |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
 

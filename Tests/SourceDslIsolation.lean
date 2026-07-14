@@ -46,10 +46,10 @@ def collectFailures (env : Environment) : List String :=
     fails esCats "realloc vault to 256;" "realloc",
     fails esCats "init_transfer_hook_extra_meta(vault, extra);" "init_transfer_hook_extra_meta",
     oks ciCats "state count : .u64" "state declaration",
-    oks ciCats "mapping balances from .u64 to .u64" "mapping declaration",
-    oks ciCats "event Transfer" "event declaration",
-    oks ciCats "remote callee \"peer.callee\" \"remote_call\";" "remote",
-    oks ciCats "external_token usdc \"usdc.peer\";" "external_token",
+    fails ciCats "mapping balances from .u64 to .u64" "unmigrated mapping declaration",
+    fails ciCats "event Transfer" "untyped Legacy event declaration",
+    fails ciCats "remote callee \"peer.callee\" \"remote_call\";" "Legacy remote",
+    fails ciCats "external_token usdc \"usdc.peer\";" "Legacy external_token",
     oks esCats "let n : .u64 := count;" "let binding",
     oks esCats "return x;" "return"
   ].filterMap id

@@ -80,7 +80,7 @@ strict gate and does not count toward A1.
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
-| A-CUT2g-1 | Public Source and Loader exchange only `AuthoredContract` | ✅ met | `42183403`; `just public-authored-route` proves Counter exports `contract`, not `spec`/`module`, and Loader rejects the quarantined ValueVault instead of falling back |
+| A-CUT2g-1 | Public Source and Loader exchange only `AuthoredContract` | ✅ met | `just public-authored-route` proves Counter and ValueVault export `contract`, not `spec`/`module`; internal Surface fixtures retain a distinct loader identity and no Legacy fallback exists |
 | A-CUT2g-2 | Primary-triad materialization avoids `ContractSpec` and `IR.Module` | ✅ met | `just portable-counter-multi-target` builds EVM, Solana assembly, and NEAR/Wasm from the unchanged Product Counter with `contract-source-authored` / `canonical-core-v1` metadata and rejects any ContractSpec sidecar |
 | A-CUT2g-3 | Final Solana ELF also uses the direct target plan | ✅ met | target-specific Counter testkit run builds the ELF through `compileSolanaAuthoredElf`; the initialize/get/increment/get lifecycle passes under Mollusk with strict account and instruction-data validation |
 | A-CUT2g-4 | Target behavior remains executable | ✅ met | individual Counter testkit runners pass for `evm`, `solana-sbpf-asm`, and `wasm-near`; NEAR offline-host reports `0 -> 1`; EVM selector metadata and target goldens pass |
@@ -97,6 +97,17 @@ Status: **closed at `b2d673b4`**.
 | A-CUT2h-3 | EVM constructor ABI remains target-owned | ✅ met | `evmConstructor : ConstructorConfigPlan` is loaded only after EVM selection; `buildFromCore` rejects shared Canonical constructor payloads and validates parameter/storage binding references |
 | A-CUT2h-4 | Direct runtime behavior survives | ✅ met | `just evm-anvil-deploy` records `creationMode: deploy-object`, reads initial `123`, then observes `0`, `1`, and `2`; `just portable-counter-multi-target` passes without a ContractSpec sidecar |
 | A-CUT2h-5 | No compatibility route was added | ✅ met | public `build`, Yul, and `check` consume Authored -> checked Core -> EVM plan; the direct EVM check passes and invalid shared/target constructor configurations fail closed |
+
+## Gate A-CUT3a - ValueVault direct authoring cutover
+
+Status: **closed locally; CMP-3 native differential remains active**.
+
+| Criterion | Requirement | Status | Evidence |
+|---|---|---|---|
+| A-CUT3a-1 | Product ValueVault has one current authoring identity | ✅ met | `just value-vault-authoring-cutover` proves the module exports only `contract`; no `.spec`, `.module`, or `Source.Legacy` product path remains |
+| A-CUT3a-2 | Portable state, events, and context enter checked Core directly | ✅ met | explicit typed event schemas, named arguments, and `blockNumber` normalize to 6 states, 7 functions, and 5 events equal to the internal Core baseline |
+| A-CUT3a-3 | Primary targets consume target-owned plans | ✅ met | focused EVM, Solana, and NEAR CLI builds each report `contract-source-authored` / `canonical-core-v1`; Solana package checks retain events and Clock materialization |
+| A-CUT3a-4 | Old reverse aliases are removed rather than adapted | ✅ met | production and tests contain no `ProofForge.Contract.Examples.ValueVault.spec/module` or `Examples.Product.ValueVault.module`; historical v1 proofs name `ProofForge.IR.Examples.ValueVault` explicitly |
 
 ## Gate CMP-2 — Primary-triad native Counter differential
 

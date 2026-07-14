@@ -1,5 +1,5 @@
-import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.LeanInvariant
+import ProofForge.IR.Examples.ValueVault
 import ProofForge.IR.Semantics
 
 /-! ## FV-8 user-authored Lean invariants — ValueVault authoring example
@@ -65,7 +65,7 @@ def expectedNetValue (inputs : ScenarioInputs) : Nat :=
   expectedBalance inputs - expectedFee inputs
 
 def module : Module :=
-  ProofForge.Contract.Examples.ValueVault.module
+  ProofForge.IR.Examples.ValueVault.module
 
 /-! ### User-declared Lean invariants (the FV-8 authoring surface)
 

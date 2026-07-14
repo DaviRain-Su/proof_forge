@@ -12,7 +12,6 @@ import ProofForge.Cli.FileUtil
 import ProofForge.Cli.JsonUtil
 import ProofForge.Cli.Options
 import ProofForge.Cli.TargetJson
-import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Spec.Json
 import ProofForge.Compiler.CanonicalPipeline
@@ -23,6 +22,7 @@ import ProofForge.Frontend.Authored
 import ProofForge.IR.Examples.ControlFlowAssertProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ErrorRefProbe
+import ProofForge.IR.Examples.ValueVault
 import Examples.Backend.Solana.Contracts.Vault
 import ProofForge.Target
 import ProofForge.Target.Preflight
@@ -358,7 +358,7 @@ def compileSolanaSdkSbpf (opts : CliOptions) : IO UInt32 := do
 
 def compileValueVaultIrSbpf (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/solana/ValueVault.s")
-  let spec := ProofForge.Contract.Examples.ValueVault.spec
+  let spec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module
   let plan ←
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => pure plan

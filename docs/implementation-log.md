@@ -4196,3 +4196,25 @@ Rules:
   proof-forge-testkit-harness-solana --bin native_counter`; Python bytecode
   compilation for all differential scripts; and `git diff --check`. No full
   `just check` or `just product` was run.
+
+## 2026-07-14 - A-CUT3a: ValueVault direct authoring cutover
+
+- Status: direct authoring and target-plan cutover complete; CMP-3 native
+  differential remains in progress.
+- Extended the public Authored DSL with typed event schemas, named/indexed
+  event arguments, parenthesized arithmetic, and portable `blockNumber` reads.
+  ValueVault now imports only `ProofForge.Contract.Source` and exports only its
+  `AuthoredContract`.
+- Removed all ValueVault `.spec`/`.module` reverse consumers. Current CLI and
+  target-formal paths normalize Authored -> checked Core -> CapabilityPlan ->
+  target plan. Historical v1 proof/backend fixtures now name
+  `ProofForge.IR.Examples.ValueVault` explicitly and no longer claim Product
+  equivalence.
+- EVM, Solana, and NEAR target-first builds emitted metadata with
+  `contract-source-authored` / `canonical-core-v1`. The Solana direct package
+  retained ValueVault event and Clock materialization.
+- Verification: `just value-vault-authoring-cutover`; targeted builds of the
+  changed CLI/refinement modules and `proof-forge`; focused Product, Learn,
+  Quint, EmitWat, sBPF encode, mutability, and constructor-coverage tests;
+  three target-first CLI builds; and `git diff --check`. No full aggregate was
+  run.
