@@ -1127,6 +1127,7 @@ def assembleFullPlan (basePlan : ModulePlan) (module : Module) : Except LowerErr
   let eventPlans ← buildEventPlans module
   let crosscallPlans ← buildCrosscallHelperPlansFromEntrypoints module entrypointPlans
   let createPlans := buildCreateHelperPlansFromEntrypoints entrypointPlans
+  let abiPackedHelpers := buildAbiPackedHelperPlans module
   let localArrayRequirements := buildLocalArrayHelperRequirementsFromEntrypoints entrypointPlans
   let localArrayGetLengths := localArrayRequirements.fst
   let nestedLocalArrayGetShapes := localArrayRequirements.snd
@@ -1156,6 +1157,7 @@ def assembleFullPlan (basePlan : ModulePlan) (module : Module) : Except LowerErr
     events := eventPlans
     crosscalls := crosscallPlans
     creates := createPlans
+    abiPackedHelpers := abiPackedHelpers
     localArrayGetLengths := localArrayGetLengths
     nestedLocalArrayGetShapes := nestedLocalArrayGetShapes
     usesCheckedArithmetic := usesCheckedArithmetic

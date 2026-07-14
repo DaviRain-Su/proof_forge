@@ -599,8 +599,11 @@ def lowerModuleWithPlan
     else
       let createSpecs := ProofForge.Backend.Evm.Lower.buildCreateHelperPlans module
       .ok (helpers ++ (← plannedCreateHelperFunctions createSpecs))
-  -- Compile-time ABI-packed CALL helpers (`crosscallAbiPacked` / Call[] materialize)
-  let abiPackSpecs := ProofForge.Backend.Evm.Lower.buildAbiPackedHelperPlans module
+  -- Compile-time ABI-packed CALL helpers (`crosscallAbiPacked` / Call[] materialize).
+  -- Complete plans own these specs; only the compatibility path may rescan IR.
+  let abiPackSpecs :=
+    if completePlan then plan.abiPackedHelpers
+    else ProofForge.Backend.Evm.Lower.buildAbiPackedHelperPlans module
   let helpers :=
     helpers ++
       abiPackSpecs.map (fun s =>
@@ -640,9 +643,6 @@ def lowerCanonicalModuleWithPlan
     throw ({ message := "canonical EVM plan entrypoint order differs from the declaration context" } : LowerError)
   unless plan.storage.states.map (·.id) == module.state.map (·.id) do
     throw ({ message := "canonical EVM plan storage symbols differ from the declaration context" } : LowerError)
-  let abiPacked := ProofForge.Backend.Evm.Lower.buildAbiPackedHelperPlans module
-  unless abiPacked.isEmpty do
-    throw ({ message := "canonical EVM plan does not yet own ABI-packed helper metadata" } : LowerError)
   lowerModuleWithPlan module plan false
 
 def renderCanonicalModuleWithPlan

@@ -667,6 +667,9 @@ structure ModulePlan where
   events : Array EventPlan
   crosscalls : Array CrosscallHelperSpec
   creates : Array CreateHelperSpec
+  /-- ABI-packed call helpers discovered before Yul rendering. Canonical
+      lowering must consume this field instead of rescanning source IR. -/
+  abiPackedHelpers : Array AbiPackedHelperSpec := #[]
   localArrayGetLengths : Array Nat
   nestedLocalArrayGetShapes : Array (Array Nat)
   usesCheckedArithmetic : Bool

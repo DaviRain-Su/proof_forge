@@ -2564,3 +2564,17 @@ Rules:
   `git diff --check`.
 - Next: IR-B7b, add a plan-only Canonical EVM renderer and remove the
   `IR.Module` argument from the strict public route.
+
+## 2026-07-14 - IR-B7b1: EVM plan owns ABI-packed helpers
+
+- Status: `done (verified 2026-07-14)`.
+- Added ABI-packed helper specifications to `Evm.Plan.ModulePlan` and populate
+  them during full compatibility planning.
+- Complete and Canonical lowering now consumes the recorded specifications;
+  only incomplete compatibility plans may rescan source IR.
+- Removed the Canonical renderer's previous rejection that admitted the plan
+  did not own this metadata.
+- Verification passed: targeted EVM IR/Core builds,
+  `Tests/Backend/Evm/CanonicalPlan.lean`, `just evm-semantic-plan`, and
+  `git diff --check`.
+- Next: IR-B7b2, make entrypoint/body/dispatch lowering consume the plan alone.
