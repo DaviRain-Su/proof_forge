@@ -23,6 +23,8 @@ import Examples.Product.Canonical.ExternalTokenTransfer
 import Examples.Product.Canonical.ExternalVault
 import Examples.Product.Canonical.RoleGatedToken
 import Examples.Product.Canonical.SoulboundTokenBody
+import Examples.Product.Canonical.Nft
+import ProofForge.Contract.Nft.EvmSurface
 import ProofForge.Target.PeerMap
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
@@ -81,6 +83,16 @@ private def checkUnboundPeerRejected
         "unbound peer did not produce the named EVM diagnostic"
   | .ok _ => throw (IO.userError "unbound EVM peer unexpectedly materialized")
 
+private def checkUnsupportedNftRejected : IO Unit := do
+  let unsupported : ProofForge.Contract.NFTSpec := {
+    name := "Unsupported", symbol := "UNSUPPORTED",
+    features := #[.mintable, .transferable, .approvals] }
+  match ProofForge.Contract.Nft.EvmSurface.validate unsupported with
+  | .error error =>
+      require (error.contains "nft.approvals")
+        "unsupported EVM NFT feature did not produce a named diagnostic"
+  | .ok _ => throw (IO.userError "unsupported EVM NFT feature unexpectedly validated")
+
 def main : IO Unit := do
   checkProduct Examples.Product.Canonical.Counter.contract 3
   checkProduct Examples.Product.Canonical.ValueVault.contract 7
@@ -107,5 +119,7 @@ def main : IO Unit := do
   checkProduct Examples.Product.Canonical.ExternalVault.contract 4
   checkProduct Examples.Product.Canonical.RoleGatedToken.contract 8
   checkProduct Examples.Product.Canonical.SoulboundTokenBody.contract 5
+  checkProduct Examples.Product.Canonical.Nft.contract 4
+  checkUnsupportedNftRejected
   checkUnboundPeerRejected Examples.Product.Canonical.AuthRemoteCall.contract
   IO.println "evm-direct-products: ok"

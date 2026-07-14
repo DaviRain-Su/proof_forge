@@ -3283,3 +3283,18 @@ Rules:
 - Verification: targeted product builds,
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
+
+## 2026-07-14 - EVM-R2q: direct NFT to ERC-721 materialization
+
+- Status: `done (verified 2026-07-14)`; 27 of 28 EVM catalog products now have
+  direct Surface v2 materialization.
+- Added an EVM-owned `NFTSpec -> SurfaceContract` materializer. Portable NFT
+  intent remains target-neutral while ERC-721 selectors, owner storage,
+  mint-authority checks, transfer authorization, and indexed Transfer events
+  are introduced only in the EVM materializer.
+- Unsupported asset models and feature combinations fail with named
+  diagnostics instead of silently losing behavior. The direct product route no
+  longer passes through `IntentMaterialization`, `ContractSpec`, or Legacy IR.
+- Verification: targeted materializer/product builds,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`,
+  `lake env lean --run Tests/NftIntent.lean`, and `git diff --check`.
