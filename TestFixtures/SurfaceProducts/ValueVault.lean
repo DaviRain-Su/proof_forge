@@ -122,4 +122,7 @@ def contract : SurfaceContract := {
   constructorBindings := #[]
 }
 
+/-- Loader-only identity for this temporary internal fixture. -/
+def surfaceFixture : SurfaceContract := contract
+
 end TestFixtures.SurfaceProducts.ValueVault

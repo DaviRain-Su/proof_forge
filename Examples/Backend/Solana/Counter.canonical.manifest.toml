@@ -1,0 +1,36 @@
+# ProofForge generated Solana instruction manifest
+target = "solana-sbpf-asm"
+
+[program]
+id = "REPLACE_WITH_PROGRAM_ID"
+name = "counter"
+
+[[instruction]]
+name = "initialize"
+tag = 0
+handler = "sol_initialize"
+min_data_len = 1
+accounts = [
+  { name = "program_state", index = 0, signer = false, writable = true, owner = "program" }
+]
+params = []
+
+[[instruction]]
+name = "increment"
+tag = 1
+handler = "sol_increment"
+min_data_len = 1
+accounts = [
+  { name = "program_state", index = 0, signer = false, writable = true, owner = "program" }
+]
+params = []
+
+[[instruction]]
+name = "get"
+tag = 2
+handler = "sol_get"
+min_data_len = 1
+accounts = [
+  { name = "program_state", index = 0, signer = false, writable = true, owner = "program" }
+]
+params = []

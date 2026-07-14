@@ -383,6 +383,12 @@ canonical-solana-route:
 canonical-near-route:
     lake env lean --run Tests/Canonical/NearPublicRoute.lean
 
+# A-CUT2g: public Source/Loader exchange is direct AuthoredContract only.
+public-authored-route:
+    lake build ProofForge.Cli.ContractLoader Examples.Product.Counter TestFixtures.SurfaceProducts.Counter TestFixtures.SurfaceProducts.ValueVault
+    lake env lean --run Tests/Canonical/PublicAuthoredRoute.lean
+    lake env lean --run Tests/Canonical/SourceLoader.lean
+
 # Wave 6 Task 21: architecture boundary gate.
 canonical-boundary:
     scripts/canonical/check-boundary-self-test.sh

@@ -33,11 +33,11 @@ NEAR native compare (testkit/compare/near/value-vault):
 `ProofForge/Contract/Examples/ValueVault.lean` is a compatibility alias for
 this source so tests and formal gates keep one canonical authoring surface.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.ValueVault
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source ValueVault do
   state balance : .u64

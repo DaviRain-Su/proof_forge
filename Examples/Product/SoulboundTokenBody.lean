@@ -15,11 +15,11 @@ token-intent module in `SoulboundToken.lean` (Solana Token-2022 plan path).
 
 NEAR compare: `just near-compare-soulbound-token` / `-live`
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.SoulboundTokenBody
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source SoulboundTokenBody do
   state totalSupply : .u64
@@ -32,7 +32,7 @@ contract_source SoulboundTokenBody do
     totalSupply := u64 0;
 
   entry mint (recipient : .u64, amount : .u64) do
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref amount)
       "zero amount";
     let bal : .u64 := mapRead balances recipient;
     do mapWrite balances recipient (bal +! amount);
@@ -41,12 +41,12 @@ contract_source SoulboundTokenBody do
     emit Mint indexed #[fieldAsName "to" recipient] data #[fieldAsName "amount" amount];
 
   entry burn (amount : .u64) do
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref amount)
       "zero amount";
     let who : .u64 := caller;
     let bal : .u64 := mapRead balances who;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref bal)
-      (ProofForge.Contract.Source.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref bal)
+      (ProofForge.Contract.Source.Legacy.ref amount) "insufficient balance";
     do mapWrite balances who (bal -! amount);
     let ts : .u64 := totalSupply;
     totalSupply := ts -! amount;

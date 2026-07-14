@@ -15,11 +15,11 @@ The token-intent planner still does **not** generate ERC-4626 *bodies*
 just product-protocol-vault
 ```
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.ExternalVault
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source ExternalVault do
   external_vault vault "vault.peer";

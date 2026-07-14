@@ -5,11 +5,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Dynamic constructor probe: exercises `cstring`, `cbytes`, and `u256array`
 constructor params through the EVM target.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace DynamicConstructorProbe
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 namespace Core
 contract_source DynamicConstructorProbe do

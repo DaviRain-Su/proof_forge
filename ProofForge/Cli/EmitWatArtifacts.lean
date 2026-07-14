@@ -1,6 +1,7 @@
 import Lean.Util.Path
 import ProofForge.Backend.WasmHost
 import ProofForge.Backend.WasmHost.EmitWat
+import ProofForge.Backend.WasmHost.ModulePlan
 import ProofForge.Cli.Artifact
 import ProofForge.Cli.FileUtil
 import ProofForge.Cli.IrJson
@@ -234,6 +235,196 @@ def emitWatArtifactBundle
           detail? := some "final Wasm not produced; wat2wasm missing or skipped"
         }]
       }
+
+def canonicalEmitWatMutabilityId : ProofForge.IR.Canonical.InterfaceMutability -> String
+  | .call => "call"
+  | .view => "view"
+
+def canonicalEmitWatEntrypointJson
+    (materialization : ProofForge.IR.Canonical.MaterializationContract)
+    (entrypoint : ProofForge.IR.Canonical.InterfaceEntrypoint) : String :=
+  jsonObject #[
+    ("name", jsonString entrypoint.name),
+    ("mutability", jsonString (canonicalEmitWatMutabilityId entrypoint.mutability)),
+    ("params", jsonArray (entrypoint.params.map fun param =>
+      jsonObject #[
+        ("name", jsonString param.name),
+        ("type", valueTypeJson
+          (ProofForge.Backend.WasmHost.NearModulePlan.Core.coreTypeToValueTypeWith
+            materialization param.type))
+      ])),
+    ("returns", valueTypeJson
+      (ProofForge.Backend.WasmHost.NearModulePlan.Core.coreTypeToValueTypeWith
+        materialization entrypoint.retType))
+  ]
+
+private def canonicalEmitWatCapabilityIds
+    (plan : ProofForge.Target.CapabilityPlan) : Array String :=
+  plan.capabilities.foldl (init := #[]) fun ids capability =>
+    if ids.contains capability.id then ids else ids.push capability.id
+
+def canonicalEmitWatMaterializationJson
+    (plan : ProofForge.Backend.WasmHost.ModulePlan.WasmHostModulePlan) : String :=
+  jsonObject #[
+    ("targetId", jsonString plan.targetId),
+    ("targetFamily", jsonString "wasmHost"),
+    ("storageBinding", jsonString (match ProofForge.Target.storageBindingForTargetId? plan.targetId with
+      | some binding => binding.id
+      | none => "unknown")),
+    ("mode", jsonString "auto-portable"),
+    ("layoutKind", jsonString s!"{plan.hostBridge.bridge.id}-host-storage"),
+    ("hostBridge", jsonString plan.hostBridge.bridge.id),
+    ("stateUnits", toString (plan.layout.scalars.size + plan.layout.maps.size)),
+    ("entrypointCount", toString plan.entrypointAbis.size),
+    ("note", jsonString "materialization summary derived from the validated canonical WasmHostModulePlan")
+  ]
+
+def writeCanonicalEmitWatDeployManifest
+    (deployOutput : FilePath)
+    (targetId fixture sourceKind : String)
+    (checked : ProofForge.IR.Canonical.CheckedCanonicalContract)
+    (capabilityPlan : ProofForge.Target.CapabilityPlan)
+    (modulePlan : ProofForge.Backend.WasmHost.ModulePlan.WasmHostModulePlan)
+    (watArtifact : String)
+    (wasmArtifact? : Option String) : IO Unit := do
+  let mut artifactFields : Array (String × String) := #[("wat", watArtifact)]
+  if let some wasmArtifact := wasmArtifact? then
+    artifactFields := artifactFields.push ("wasm", wasmArtifact)
+  let entrypoints := checked.contract.interface.entrypoints.map
+    (canonicalEmitWatEntrypointJson checked.contract.materialization)
+  let manifest := jsonObject #[
+    ("schemaVersion", "1"),
+    ("kind", jsonString (emitWatDeployManifestKind targetId)),
+    ("target", jsonString targetId),
+    ("targetFamily", jsonString "wasmHost"),
+    ("storageBinding", jsonString (match ProofForge.Target.storageBindingForTargetId? targetId with
+      | some binding => binding.id
+      | none => "unknown")),
+    ("materialization", canonicalEmitWatMaterializationJson modulePlan),
+    ("crosscallMaterialization",
+      match ProofForge.Target.find? targetId with
+      | some profile =>
+          ProofForge.Target.CrosscallMaterialize.Report.json
+            (ProofForge.Target.CrosscallMaterialize.forProfile profile)
+      | none => "null"),
+    ("artifactKind", jsonString "wasm-deploy"),
+    ("fixture", jsonString fixture),
+    ("sourceKind", jsonString sourceKind),
+    ("irVersion", jsonString modulePlan.irVersion),
+    ("sourceModule", jsonString modulePlan.moduleName),
+    ("capabilities", jsonStringArray (canonicalEmitWatCapabilityIds capabilityPlan)),
+    ("abi", jsonObject #[("entrypoints", jsonArray entrypoints)]),
+    ("artifacts", jsonObject artifactFields),
+    ("deployment", jsonObject #[
+      ("mode", jsonString "local-offline-host"),
+      ("status", jsonString "not-broadcast"),
+      ("broadcast", jsonString "not-generated"),
+      ("broadcastArtifact", "null"),
+      ("networkDeploy", jsonString "not-generated"),
+      ("localExecutor", jsonString "runtime/offline-host"),
+      ("nearAccountId", "null"),
+      ("nearSandbox", if targetId == ProofForge.Target.wasmNear.id then
+        jsonString "not-generated" else "null"),
+      ("note", jsonString "Canonical Wasm-host output is locally executable; no network transaction was generated or broadcast.")
+    ])
+  ]
+  if let some parent := deployOutput.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile deployOutput (manifest ++ "\n")
+
+/-- Artifact metadata for the direct public source route. This function accepts
+checked Canonical Core and the target-owned WasmHostModulePlan only; it cannot
+reconstruct or emit a Legacy ContractSpec/IR.Module sidecar. -/
+def writeCanonicalEmitWatArtifactMetadata
+    (opts : CliOptions)
+    (targetId fixture : String)
+    (sourceIdentity : ProofForge.Target.ArtifactBundle.SourceIdentity)
+    (checked : ProofForge.IR.Canonical.CheckedCanonicalContract)
+    (capabilityPlan : ProofForge.Target.CapabilityPlan)
+    (modulePlan : ProofForge.Backend.WasmHost.ModulePlan.WasmHostModulePlan)
+    (outputDir watPath : FilePath)
+    (wasmPath? : Option FilePath) : IO Unit := do
+  let metadataOutput := opts.artifactOutput?.getD (defaultEmitWatArtifactOutput outputDir)
+  let schemaDir := metadataOutput.parent.getD outputDir
+  let deployOutput := defaultDeployManifestOutput metadataOutput
+  let watArtifact <- artifactEntryJsonRelativeTo schemaDir watPath
+  let wasmArtifact? <- optionalExistingArtifactEntryJsonRelativeTo schemaDir wasmPath?
+  let watDigest <- fileDigestAndBytes watPath
+  let wasmDigest? <- match wasmPath? with
+    | some path => if <- path.pathExists then pure (some (<- fileDigestAndBytes path)) else pure none
+    | none => pure none
+  let sourceToolchain <-
+    ProofForge.Target.ArtifactBundle.sourceElaborationToolchain sourceIdentity opts.root?
+  let bundle := emitWatArtifactBundle targetId sourceIdentity watPath
+    (if wasmDigest?.isSome then wasmPath? else none)
+    (some watDigest.fst) (wasmDigest?.map (·.fst))
+    (some watDigest.snd) (wasmDigest?.map (·.snd)) sourceToolchain
+  match ProofForge.Target.ArtifactBundle.validateHonesty bundle with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError s!"canonical EmitWat ArtifactBundle honesty: {error.message}"
+  writeCanonicalEmitWatDeployManifest deployOutput targetId fixture sourceIdentity.kind
+    checked capabilityPlan modulePlan watArtifact wasmArtifact?
+  let deployArtifact <- artifactEntryJsonRelativeTo schemaDir deployOutput
+  let mut artifactFields : Array (String × String) := #[
+    ("wat", watArtifact),
+    ("deployManifest", deployArtifact)
+  ]
+  if let some wasmArtifact := wasmArtifact? then
+    artifactFields := artifactFields.push ("wasm", wasmArtifact)
+  let entrypoints := checked.contract.interface.entrypoints.map
+    (canonicalEmitWatEntrypointJson checked.contract.materialization)
+  let metadata := jsonObject #[
+    ("schemaVersion", "1"),
+    ("target", jsonString targetId),
+    ("standardId", "null"),
+    ("targetFamily", jsonString "wasmHost"),
+    ("storageBinding", jsonString (match ProofForge.Target.storageBindingForTargetId? targetId with
+      | some binding => binding.id
+      | none => "unknown")),
+    ("materialization", canonicalEmitWatMaterializationJson modulePlan),
+    ("crosscallMaterialization",
+      match ProofForge.Target.find? targetId with
+      | some profile =>
+          ProofForge.Target.CrosscallMaterialize.Report.json
+            (ProofForge.Target.CrosscallMaterialize.forProfile profile)
+      | none => "null"),
+    ("preflight", jsonObject #[
+      ("targetId", jsonString targetId),
+      ("capabilityOk", "true"),
+      ("portabilityOk", "true"),
+      ("readyToMaterialize", "true"),
+      ("crosscallNativeForm", jsonString modulePlan.hostBridge.bridge.id),
+      ("note", jsonString "checked Canonical Core and WasmHostModulePlan validation passed")
+    ]),
+    ("artifactKind", jsonString (if wasmArtifact?.isSome then "wasm" else "wat")),
+    ("fixture", jsonString fixture),
+    ("sourceKind", jsonString sourceIdentity.kind),
+    ("irVersion", jsonString modulePlan.irVersion),
+    ("sourceModule", jsonString modulePlan.moduleName),
+    ("token", "null"),
+    ("sdkSchema", "null"),
+    ("capabilities", jsonStringArray (canonicalEmitWatCapabilityIds capabilityPlan)),
+    ("toolchain", jsonObject #[("wat2wasm", jsonObject #[
+      ("path", jsonString "wat2wasm"),
+      ("version", "null")
+    ])]),
+    ("abi", jsonObject #[("entrypoints", jsonArray entrypoints)]),
+    ("artifacts", jsonObject artifactFields),
+    ("artifactBundle", ProofForge.Target.ArtifactBundle.ArtifactBundle.toJson bundle),
+    ("validation", jsonObject #[
+      ("emitWat", jsonString "passed"),
+      ("watGeneration", jsonString "passed"),
+      ("wat2wasm", jsonString (if wasmArtifact?.isSome then "passed" else "unavailable")),
+      ("deployManifest", jsonString "passed"),
+      ("canonicalPlan", jsonString "passed"),
+      ("offlineHost", jsonString "pending")
+    ])
+  ]
+  if let some parent := metadataOutput.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile metadataOutput (metadata ++ "\n")
+  IO.println s!"wrote {metadataOutput}"
 
 def writeEmitWatArtifactMetadata
     (opts : CliOptions)

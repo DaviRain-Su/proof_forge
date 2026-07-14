@@ -18,23 +18,23 @@ chain-equivalent reentrancy theory. Prefer this mixin when the business rule is
 “do not re-enter this critical section”; do not claim EVM-identical call-stack
 semantics on Wasm/Solana.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace ProofForge.Contract.Stdlib.ReentrancyGuard
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def lock : ScalarRef :=
-  ProofForge.Contract.Source.slot "lock" .u64
+  ProofForge.Contract.Source.Legacy.slot "lock" .u64
 
 contract_mixin ReentrancyGuardMixin do
-  use ProofForge.Contract.Source.scalar lock
+  use ProofForge.Contract.Source.Legacy.scalar lock
 
   entry acquire do
-    do ProofForge.Contract.Source.acquireLock lock;
+    do ProofForge.Contract.Source.Legacy.acquireLock lock;
 
   entry release do
-    do ProofForge.Contract.Source.releaseLock lock;
+    do ProofForge.Contract.Source.Legacy.releaseLock lock;
 
   query locked returns(.u64) do
     return lock;

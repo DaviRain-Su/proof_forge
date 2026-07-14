@@ -14,20 +14,20 @@ Not full `Stdlib.ERC4626` (EVM-primary external asset token). NEAR compare:
 
   `just near-compare-pro-rata-vault` / `-live`
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.ProRataVault
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def totalAssetsSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "totalAssets" .u64
+  ProofForge.Contract.Source.Legacy.slot "totalAssets" .u64
 
 def totalSupplySlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "totalSupply" .u64
+  ProofForge.Contract.Source.Legacy.slot "totalSupply" .u64
 
 def convertScratch : ScalarRef :=
-  ProofForge.Contract.Source.slot "convertScratch" .u64
+  ProofForge.Contract.Source.Legacy.slot "convertScratch" .u64
 
 def shareBalances : MapRef :=
   { id := "shareBalances", keyType := .u64, valueType := .u64 }
@@ -35,30 +35,30 @@ def shareBalances : MapRef :=
 /-- Seed `convertScratch` with 1:1 fallback; when supply > 0 overwrite with
     `amount * totalSupply / totalAssets`. -/
 def applyConvertToShares (amount : ProofForge.IR.Expr) : EntryM Unit := do
-  ProofForge.Contract.Source.write convertScratch amount
-  let ts := ProofForge.Contract.Source.read totalSupplySlot
-  ProofForge.Contract.Source.whenPositive ts do
-    let ta := ProofForge.Contract.Source.read totalAssetsSlot
-    ProofForge.Contract.Source.requireNonZero ta "zero totalAssets"
-    ProofForge.Contract.Source.write convertScratch
-      (ProofForge.Contract.Source.div
-        (ProofForge.Contract.Source.mul amount ts) ta)
+  ProofForge.Contract.Source.Legacy.write convertScratch amount
+  let ts := ProofForge.Contract.Source.Legacy.read totalSupplySlot
+  ProofForge.Contract.Source.Legacy.whenPositive ts do
+    let ta := ProofForge.Contract.Source.Legacy.read totalAssetsSlot
+    ProofForge.Contract.Source.Legacy.requireNonZero ta "zero totalAssets"
+    ProofForge.Contract.Source.Legacy.write convertScratch
+      (ProofForge.Contract.Source.Legacy.div
+        (ProofForge.Contract.Source.Legacy.mul amount ts) ta)
 
 def applyConvertToAssets (amount : ProofForge.IR.Expr) : EntryM Unit := do
-  ProofForge.Contract.Source.write convertScratch amount
-  let ts := ProofForge.Contract.Source.read totalSupplySlot
-  ProofForge.Contract.Source.whenPositive ts do
-    let ta := ProofForge.Contract.Source.read totalAssetsSlot
-    ProofForge.Contract.Source.requireNonZero ta "zero totalAssets"
-    ProofForge.Contract.Source.write convertScratch
-      (ProofForge.Contract.Source.div
-        (ProofForge.Contract.Source.mul amount ta) ts)
+  ProofForge.Contract.Source.Legacy.write convertScratch amount
+  let ts := ProofForge.Contract.Source.Legacy.read totalSupplySlot
+  ProofForge.Contract.Source.Legacy.whenPositive ts do
+    let ta := ProofForge.Contract.Source.Legacy.read totalAssetsSlot
+    ProofForge.Contract.Source.Legacy.requireNonZero ta "zero totalAssets"
+    ProofForge.Contract.Source.Legacy.write convertScratch
+      (ProofForge.Contract.Source.Legacy.div
+        (ProofForge.Contract.Source.Legacy.mul amount ta) ts)
 
 contract_source ProRataVault do
-  use ProofForge.Contract.Source.scalar totalAssetsSlot
-  use ProofForge.Contract.Source.scalar totalSupplySlot
-  use ProofForge.Contract.Source.scalar convertScratch
-  use ProofForge.Contract.Source.mapState shareBalances
+  use ProofForge.Contract.Source.Legacy.scalar totalAssetsSlot
+  use ProofForge.Contract.Source.Legacy.scalar totalSupplySlot
+  use ProofForge.Contract.Source.Legacy.scalar convertScratch
+  use ProofForge.Contract.Source.Legacy.mapState shareBalances
 
   event Deposit
   event Withdraw
@@ -81,27 +81,27 @@ contract_source ProRataVault do
   -- Entries (not queries): convert uses convertScratch storage writes, which
   -- NEAR forbids in pure view context.
   entry convert_to_shares (assets : .u64) returns(.u64) do
-    do applyConvertToShares (ProofForge.Contract.Source.ref assets);
+    do applyConvertToShares (ProofForge.Contract.Source.Legacy.ref assets);
     return convertScratch;
 
   entry convert_to_assets (shares : .u64) returns(.u64) do
-    do applyConvertToAssets (ProofForge.Contract.Source.ref shares);
+    do applyConvertToAssets (ProofForge.Contract.Source.Legacy.ref shares);
     return convertScratch;
 
   -- Increase assets without minting shares (donation / yield skew).
   entry donate (assets : .u64) do
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref assets)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref assets)
       "zero assets";
     let ta : .u64 := totalAssetsSlot;
     totalAssetsSlot := ta +! assets;
     emit Donate indexed #[] data #[fieldAsName "assets" assets];
 
   entry deposit (assets : .u64) do
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref assets)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref assets)
       "zero assets";
-    do applyConvertToShares (ProofForge.Contract.Source.ref assets);
+    do applyConvertToShares (ProofForge.Contract.Source.Legacy.ref assets);
     let shares : .u64 := convertScratch;
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref shares)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref shares)
       "zero shares";
     let who : .u64 := caller;
     let bal : .u64 := mapRead shareBalances who;
@@ -114,13 +114,13 @@ contract_source ProRataVault do
       data #[fieldAsName "assets" assets, fieldAsName "shares" shares];
 
   entry withdraw (shares : .u64) do
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref shares)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref shares)
       "zero shares";
     let who : .u64 := caller;
     let bal : .u64 := mapRead shareBalances who;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref bal)
-      (ProofForge.Contract.Source.ref shares) "insufficient shares";
-    do applyConvertToAssets (ProofForge.Contract.Source.ref shares);
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref bal)
+      (ProofForge.Contract.Source.Legacy.ref shares) "insufficient shares";
+    do applyConvertToAssets (ProofForge.Contract.Source.Legacy.ref shares);
     let assets : .u64 := convertScratch;
     do mapWrite shareBalances who (bal -! shares);
     let ts : .u64 := totalSupplySlot;

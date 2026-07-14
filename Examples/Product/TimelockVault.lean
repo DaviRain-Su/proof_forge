@@ -16,29 +16,29 @@ claimable in full (not linear vesting — contrast `VestingVault`).
 
 NEAR compare: `just near-compare-timelock-vault` / `-live`
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.TimelockVault
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def lockedSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "locked" .u64
+  ProofForge.Contract.Source.Legacy.slot "locked" .u64
 
 def unlockAtSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "unlockAt" .u64
+  ProofForge.Contract.Source.Legacy.slot "unlockAt" .u64
 
 def claimBalanceSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "claimBalance" .u64
+  ProofForge.Contract.Source.Legacy.slot "claimBalance" .u64
 
 def claimedSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "claimed" .u64
+  ProofForge.Contract.Source.Legacy.slot "claimed" .u64
 
 contract_source TimelockVault do
-  use ProofForge.Contract.Source.scalar lockedSlot
-  use ProofForge.Contract.Source.scalar unlockAtSlot
-  use ProofForge.Contract.Source.scalar claimBalanceSlot
-  use ProofForge.Contract.Source.scalar claimedSlot
+  use ProofForge.Contract.Source.Legacy.scalar lockedSlot
+  use ProofForge.Contract.Source.Legacy.scalar unlockAtSlot
+  use ProofForge.Contract.Source.Legacy.scalar claimBalanceSlot
+  use ProofForge.Contract.Source.Legacy.scalar claimedSlot
 
   event Locked
   event Claimed
@@ -50,11 +50,11 @@ contract_source TimelockVault do
     claimedSlot := u64 0;
 
   entry lock (amount : .u64, unlockAt : .u64) do
-    do ProofForge.Contract.Source.requireEq
-      (ProofForge.Contract.Source.read lockedSlot) (u64 0) "already locked";
-    do ProofForge.Contract.Source.requireEq
-      (ProofForge.Contract.Source.read claimedSlot) (u64 0) "already claimed";
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount)
+    do ProofForge.Contract.Source.Legacy.requireEq
+      (ProofForge.Contract.Source.Legacy.read lockedSlot) (u64 0) "already locked";
+    do ProofForge.Contract.Source.Legacy.requireEq
+      (ProofForge.Contract.Source.Legacy.read claimedSlot) (u64 0) "already claimed";
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref amount)
       "zero amount";
     lockedSlot := amount;
     unlockAtSlot := unlockAt;
@@ -62,15 +62,15 @@ contract_source TimelockVault do
       #[fieldAsName "amount" amount, fieldAsName "unlockAt" unlockAt];
 
   entry claim do
-    do ProofForge.Contract.Source.requireEq
-      (ProofForge.Contract.Source.read claimedSlot) (u64 0) "already claimed";
+    do ProofForge.Contract.Source.Legacy.requireEq
+      (ProofForge.Contract.Source.Legacy.read claimedSlot) (u64 0) "already claimed";
     let locked : .u64 := lockedSlot;
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref locked)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref locked)
       "nothing locked";
     let unlock : .u64 := unlockAtSlot;
     let now : .u64 := timestamp;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref now)
-      (ProofForge.Contract.Source.ref unlock) "still locked";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref now)
+      (ProofForge.Contract.Source.Legacy.ref unlock) "still locked";
     claimedSlot := u64 1;
     lockedSlot := u64 0;
     let bal : .u64 := claimBalanceSlot;

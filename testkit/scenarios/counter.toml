@@ -46,11 +46,12 @@ equals = "counter"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
 
 [[artifact.json]]
 path = "irVersion"
-kind = "null"
+kind = "string"
+equals = "canonical-core-v1"
 
 [[artifact.json]]
 path = "sourceModule"
@@ -60,7 +61,7 @@ equals = "Counter"
 path = "capabilities"
 kind = "array"
 non_empty = true
-length = 1
+length = 2
 
 [[artifact.json]]
 path = "capabilities"
@@ -149,11 +150,12 @@ equals = "counter"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
 
 [[artifact.json]]
 path = "irVersion"
-kind = "null"
+kind = "string"
+equals = "canonical-core-v1"
 
 [[artifact.json]]
 path = "sourceModule"
@@ -163,7 +165,7 @@ equals = "Counter"
 path = "capabilities"
 kind = "array"
 non_empty = true
-length = 1
+length = 2
 
 [[artifact.json]]
 path = "capabilities"
@@ -209,12 +211,12 @@ artifact = "wat"
 [[artifact]]
 target = "solana-sbpf-asm"
 name = "sbpf-asm"
-matches_file = "Examples/Backend/Solana/Counter.golden.s"
+matches_file = "Examples/Backend/Solana/Counter.canonical.golden.s"
 
 [[artifact]]
 target = "solana-sbpf-asm"
 name = "manifest"
-matches_file = "Examples/Backend/Solana/Counter.manifest.toml"
+matches_file = "Examples/Backend/Solana/Counter.canonical.manifest.toml"
 
 [[artifact.toml]]
 path = "target"
@@ -292,12 +294,13 @@ equals = "Counter"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
 
 [[artifact.json]]
 path = "irVersion"
 kind = "string"
 non_empty = true
+equals = "canonical-core-v1"
 
 [[artifact.json]]
 path = "sourceModule"
@@ -308,7 +311,7 @@ non_empty = true
 path = "capabilities"
 kind = "array"
 non_empty = true
-length = 1
+length = 2
 
 [[artifact.json]]
 path = "capabilities"
@@ -347,16 +350,6 @@ artifact = "client"
 [[artifact.file]]
 path = "artifacts.solanaElf"
 artifact = "elf"
-
-[[artifact.json]]
-path = "solanaIdl.instructions"
-kind = "array"
-non_empty = true
-length = 3
-
-[[artifact.jsonArtifact]]
-path = "solanaIdl"
-artifact = "idl"
 
 [[artifact]]
 target = "solana-sbpf-asm"
@@ -420,11 +413,12 @@ equals = "Counter"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
 
 [[artifact.json]]
 path = "irVersion"
-kind = "null"
+kind = "string"
+equals = "canonical-core-v1"
 
 [[artifact.json]]
 path = "sourceModule"
@@ -435,7 +429,7 @@ non_empty = true
 path = "capabilities"
 kind = "array"
 non_empty = true
-length = 1
+length = 2
 
 [[artifact.json]]
 path = "capabilities"
@@ -471,7 +465,7 @@ equals = "passed"
 path = "artifacts"
 kind = "object"
 non_empty = true
-length = 7
+length = 5
 
 [[artifact.file]]
 path = "artifacts.yul"
@@ -521,11 +515,12 @@ equals = "Counter"
 [[artifact.json]]
 path = "sourceKind"
 kind = "string"
-equals = "contract-sdk"
+equals = "contract-source-authored"
 
 [[artifact.json]]
 path = "irVersion"
-kind = "null"
+kind = "string"
+equals = "canonical-core-v1"
 
 [[artifact.json]]
 path = "sourceModule"
@@ -540,7 +535,7 @@ kind = "null"
 path = "capabilities"
 kind = "array"
 non_empty = true
-length = 1
+length = 2
 
 [[artifact.json]]
 path = "capabilities"
@@ -609,7 +604,7 @@ artifact = "init-code"
 [[step]]
 call = "initialize"
 [step.expect.budget]
-solana_cu = { baseline = 56, tolerance = 0.05 }
+solana_cu = { baseline = 72, tolerance = 0.05 }
 evm_gas = { baseline = 23332, tolerance = 0.10 }
 wasmtime_fuel_cumulative = { baseline = 25, tolerance = 0.05 }
 
@@ -618,14 +613,14 @@ call = "get"
 [step.expect.return]
 u64 = 0
 [step.expect.budget]
-solana_cu = { baseline = 163, tolerance = 0.05 }
+solana_cu = { baseline = 179, tolerance = 0.05 }
 evm_gas = { baseline = 23281, tolerance = 0.10 }
 wasmtime_fuel_cumulative = { baseline = 66, tolerance = 0.05 }
 
 [[step]]
 call = "increment"
 [step.expect.budget]
-solana_cu = { baseline = 63, tolerance = 0.05 }
+solana_cu = { baseline = 81, tolerance = 0.05 }
 evm_gas = { baseline = 43259, tolerance = 0.10 }
 wasmtime_fuel_cumulative = { baseline = 124, tolerance = 0.05 }
 
@@ -634,6 +629,6 @@ call = "get"
 [step.expect.return]
 u64 = 1
 [step.expect.budget]
-solana_cu = { baseline = 163, tolerance = 0.05 }
+solana_cu = { baseline = 179, tolerance = 0.05 }
 evm_gas = { baseline = 23281, tolerance = 0.10 }
 wasmtime_fuel_cumulative = { baseline = 165, tolerance = 0.05 }

@@ -20,11 +20,11 @@ or emit a predecessor refund Promise.
 NEAR compare: `just near-compare-storage-deposit` / `-live`
 Offline lifecycle: `just near-storage-deposit-offline`
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.StorageDeposit
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source StorageDeposit do
   state storageRequired : .u64
@@ -40,18 +40,18 @@ contract_source StorageDeposit do
     return mapRead storageDeposits account_id;
 
   entry storage_deposit (account_id : .hash) do
-    let amount : .u64 := ProofForge.Contract.Source.cast nativeValue .u64;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref amount)
-      (ProofForge.Contract.Source.read storageRequired) "storage deposit too small";
+    let amount : .u64 := ProofForge.Contract.Source.Legacy.cast nativeValue .u64;
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref amount)
+      (ProofForge.Contract.Source.Legacy.read storageRequired) "storage deposit too small";
     let previous : .u64 := mapRead storageDeposits account_id;
     do mapWrite storageDeposits account_id (previous +! amount);
 
   entry storage_withdraw (account_id : .hash, amount : .u64) do
-    do ProofForge.Contract.Source.requireEq callerHash
-      (ProofForge.Contract.Source.ref account_id) "storage withdraw caller mismatch";
+    do ProofForge.Contract.Source.Legacy.requireEq callerHash
+      (ProofForge.Contract.Source.Legacy.ref account_id) "storage withdraw caller mismatch";
     let previous : .u64 := mapRead storageDeposits account_id;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref previous)
-      (ProofForge.Contract.Source.ref amount) "insufficient storage deposit";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref previous)
+      (ProofForge.Contract.Source.Legacy.ref amount) "insufficient storage deposit";
     do mapWrite storageDeposits account_id (previous -! amount);
 
 end Examples.Product.StorageDeposit

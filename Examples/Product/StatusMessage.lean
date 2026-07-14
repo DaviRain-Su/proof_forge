@@ -15,11 +15,11 @@ reference uses AccountId → u64 for a fair dual-deploy compare.
 
 NEAR compare: `just near-compare-status-message` / `-live`
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.StatusMessage
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source StatusMessage do
   state version : .u64

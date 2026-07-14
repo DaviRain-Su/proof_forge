@@ -6,7 +6,7 @@ EVM stdlib composition fixture: Ownable access control plus ERC-20 token
 surface. The chain-neutral token intent example lives in
 `Examples/Product/FungibleToken.lean`.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 import ProofForge.Contract.Compose
 import ProofForge.Contract.Stdlib.Compose.Specs
 import ProofForge.Contract.Stdlib.Ownable
@@ -14,7 +14,7 @@ import ProofForge.Contract.Stdlib.ERC20
 
 namespace OwnableERC20
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 open ProofForge.Contract.Stdlib.Ownable
 open ProofForge.Contract.Stdlib.ERC20
 
@@ -25,7 +25,7 @@ contract_source OwnableERC20 do
   event Transfer
 
   entry init (supply : .u64) do
-    do ProofForge.Contract.Source.requireZero «owner» "already initialized";
+    do ProofForge.Contract.Source.Legacy.requireZero «owner» "already initialized";
     «owner» := caller;
     tokenDecimals := u64 18;
     totalSupply := supply;

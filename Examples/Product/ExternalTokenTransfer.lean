@@ -17,11 +17,11 @@ just product-protocol-ft
 
 Bind peer at deploy: `--peer usdc.peer=…`.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.ExternalTokenTransfer
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source ExternalTokenTransfer do
   external_token usdc "usdc.peer";

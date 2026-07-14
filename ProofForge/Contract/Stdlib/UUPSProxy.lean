@@ -10,32 +10,32 @@ no public initializer. The explicit `admin` constructor argument initializes the
 `UpgradePolicy.authority` `keyRef`. This fixture therefore declares no upgrade
 policy. Pair it with an implementation mixin such as `UUPSUpgradeable`.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 import ProofForge.Contract.Stdlib.UUPSUpgradeable
 
 namespace ProofForge.Contract.Stdlib.UUPSProxy
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def eip1967Implementation : ScalarRef :=
-  ProofForge.Contract.Source.eip1967Implementation
+  ProofForge.Contract.Source.Legacy.eip1967Implementation
 
 def «owner» : ScalarRef :=
   ProofForge.Contract.Stdlib.UUPSUpgradeable.owner
 
-def declareAtomicConstructor : ProofForge.Contract.Source.ModuleM Unit := do
-  ProofForge.Contract.Source.declareConstructorParam "implementation" "address"
-  ProofForge.Contract.Source.declareConstructorParam "admin" "address"
-  ProofForge.Contract.Source.declareConstructorInitBinding
+def declareAtomicConstructor : ProofForge.Contract.Source.Legacy.ModuleM Unit := do
+  ProofForge.Contract.Source.Legacy.declareConstructorParam "implementation" "address"
+  ProofForge.Contract.Source.Legacy.declareConstructorParam "admin" "address"
+  ProofForge.Contract.Source.Legacy.declareConstructorInitBinding
     eip1967Implementation.id "implementation" .addressWord
-  ProofForge.Contract.Source.declareConstructorInitBinding
+  ProofForge.Contract.Source.Legacy.declareConstructorInitBinding
     «owner».id "admin" .addressKeccak
 
 contract_source UUPSProxy do
   proxy_pattern_uups;
 
-  use ProofForge.Contract.Source.scalar «owner»
-  use ProofForge.Contract.Source.scalar eip1967Implementation
+  use ProofForge.Contract.Source.Legacy.scalar «owner»
+  use ProofForge.Contract.Source.Legacy.scalar eip1967Implementation
   use declareAtomicConstructor
 
 end ProofForge.Contract.Stdlib.UUPSProxy

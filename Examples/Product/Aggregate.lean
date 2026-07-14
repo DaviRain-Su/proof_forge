@@ -6,11 +6,11 @@ Product-level aggregate ABI probe for backends that advertise dynamic data.
 The source stays renderer-neutral; target validation decides which aggregate
 shapes are supported.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.Aggregate
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source Aggregate do
   query echo_bytes (value : .bytes) returns(.bytes) do

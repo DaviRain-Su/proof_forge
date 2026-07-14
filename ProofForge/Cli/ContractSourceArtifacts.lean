@@ -14,6 +14,7 @@ import ProofForge.Cli.FileUtil
 import ProofForge.Cli.JsonUtil
 import ProofForge.Cli.Options
 import ProofForge.Cli.SolanaArtifacts
+import ProofForge.Cli.SolanaCommands
 import ProofForge.Cli.TargetJson
 import ProofForge.Cli.Usage
 import ProofForge.Compiler.CanonicalPipeline
@@ -66,6 +67,50 @@ def renderCanonicalSpecNearWat (spec : ProofForge.Contract.ContractSpec)
     | .error error => .error s!"canonical: NEAR lowering failed: {error.message}"
   return ProofForge.Compiler.Wasm.Printer.render wasm
 
+structure CanonicalAuthoredWasmHostBuild where
+  checked : ProofForge.IR.Canonical.CheckedCanonicalContract
+  capabilityPlan : ProofForge.Target.CapabilityPlan
+  modulePlan : ProofForge.Backend.WasmHost.ModulePlan.WasmHostModulePlan
+  wat : String
+
+/-- Direct public-source route for Wasm-host targets. The exchange values are
+AuthoredContract, checked Canonical Core, and the target-owned module plan.
+There is no ContractSpec/IR.Module conversion and no Legacy fallback. -/
+def renderAuthoredWasmHostWat
+    (profile : ProofForge.Target.TargetProfile)
+    (targetMetadata : Array ProofForge.Target.TargetMetadata)
+    (contract : ProofForge.Frontend.Authored.AuthoredContract) :
+    Except String CanonicalAuthoredWasmHostBuild := do
+  let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored contract with
+    | .ok bundle => .ok bundle
+    | .error error => .error s!"canonical: Authored normalization failed: {repr error}"
+  let checked := bundle.contract
+  let hostErrors :=
+    ProofForge.Compiler.checkHostOpHandlers profile.id checked ++
+    ProofForge.Compiler.checkInterfaceOpHandlers profile.id checked
+  unless hostErrors.isEmpty do
+    throw s!"canonical: unhandled target operation: {String.intercalate "; " hostErrors.toList}"
+  let capabilityPlan ← match ProofForge.Target.requireCapabilityPlan profile {
+      targetId := profile.id
+      calls := checked.contract.requirements
+      metadata := targetMetadata
+    } with
+    | .ok plan => .ok plan
+    | .error diagnostic => .error s!"canonical: capability plan failed: {diagnostic.render}"
+  let modulePlan ←
+    match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore checked capabilityPlan with
+    | .ok plan => .ok plan
+    | .error error => .error s!"canonical: Wasm-host plan failed: {error.message}"
+  let wasm ← match ProofForge.Backend.WasmHost.ModulePlan.lowerFromPlan modulePlan with
+    | .ok wasm => .ok wasm
+    | .error error => .error s!"canonical: Wasm-host lowering failed: {error.message}"
+  return {
+    checked
+    capabilityPlan
+    modulePlan
+    wat := ProofForge.Compiler.Wasm.Printer.render wasm
+  }
+
 unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
@@ -91,21 +136,13 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
   else
     let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
     match source with
-    | .authored spec =>
-        let opts ← match finalizeConstructorOptionsForSpec opts spec with
-          | .ok opts => pure opts
-          | .error msg => throw <| IO.userError msg
-        let (yul, module) ← renderContractSpecEvmYul opts spec
+    | .authored contract =>
+        let (yul, plan) ← renderAuthoredEvmYul opts contract
         writeTextFile yulOutput yul
-        let bytecode ← solcBytecode opts.solc yulOutput
+        let bytecode ← solcOptimizedBytecode opts.solc yulOutput
+        requireEvmRuntimeSize bytecode
         writeTextFile output (bytecode ++ "\n")
-        let hydratedSpec := { spec with module := module }
-        writeEvmContractSdkArtifactMetadata opts (leanBaseName input) {
-          moduleName := hydratedSpec.name
-          path? := some input.toString
-          kind := "contract-sdk"
-          leanElaborated := true
-        } hydratedSpec module yulOutput output
+        writeEvmPlanArtifactMetadata opts input plan yulOutput output
     | .surfaceFixture contract =>
         let (yul, plan) ← renderSurfaceEvmYul opts contract
         writeTextFile yulOutput yul
@@ -130,11 +167,8 @@ unsafe def compileContractSourceYul (opts : CliOptions) : IO UInt32 := do
     else do
       let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
       match source with
-      | .authored spec =>
-          let opts ← match finalizeConstructorOptionsForSpec opts spec with
-            | .ok opts => pure opts
-            | .error msg => throw <| IO.userError msg
-          pure (← renderContractSpecEvmYul opts spec).fst
+      | .authored contract =>
+          pure (← renderAuthoredEvmYul opts contract).fst
       | .surfaceFixture contract =>
           pure (← renderSurfaceEvmYul opts contract).fst
   writeTextFile output yul
@@ -145,8 +179,16 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
       return 1
+  let defaultOutput := siblingPath input s!".{leanBaseName input}.s"
+  if !opts.nft then
+    let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
+    match source with
+    | .authored contract =>
+        return ← compileSolanaAuthoredSbpf opts defaultOutput (leanBaseName input) contract
+    | .surfaceFixture contract =>
+        return ← compileSolanaAuthoredSbpf opts defaultOutput (leanBaseName input) contract
   let spec ← loadContractSpecForOptions opts input "solana-sbpf-asm"
-  let output := opts.output?.getD (siblingPath input s!".{leanBaseName input}.s")
+  let output := opts.output?.getD defaultOutput
   let plan ←
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => pure plan
@@ -278,31 +320,6 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
   | .error error =>
       throw <| IO.userError error
 
-/-- Try loading a `ContractSpec` first; if that fails and the source defines a
-    `TokenSpec`, materialize a target-appropriate `ContractSpec` from it.
-
-    This lets authors run `proof-forge build --target wasm-near Token.lean`
-    without `--token` when the source is a `TokenSpec` (P0-NEAR-1). -/
-unsafe def tryLoadSpecOrTokenSpec
-    (input : System.FilePath) (root? : Option System.FilePath)
-    (moduleName? : Option Lean.Name) (targetId : String) :
-    IO (Except String (ProofForge.Contract.ContractSpec ×
-      Option ProofForge.Contract.Token.TokenSpec)) := do
-  try
-    let spec ← ProofForge.Cli.ContractLoader.loadSpec input root? moduleName?
-    pure (.ok (spec, none))
-  catch _ =>
-    try
-      let (_, tokenSpec) ← ProofForge.Cli.TokenLoader.loadToken input root? moduleName?
-      if targetId == ProofForge.Target.wasmNear.id then
-        match ProofForge.Contract.Token.planForTarget ProofForge.Target.wasmNear tokenSpec with
-        | .ok _ => pure (.ok (ProofForge.Contract.Token.NearSpec.specFor tokenSpec, some tokenSpec))
-        | .error error => pure (.error error)
-      else
-        pure (.error s!"source defines a TokenSpec but target `{targetId}` has no TokenSpec auto-detect lane; use `--token`")
-    catch err =>
-      pure (.error s!"{err}")
-
 unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
@@ -313,14 +330,6 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
     | .ok resolved => pure resolved
     | .error msg => throw <| IO.userError msg
   let profile := resolved.1
-  let (spec, tokenSpec?) ← if opts.nft then
-      pure (← ProofForge.Cli.NftLoader.loadAndMaterializeNft input opts.root?
-        opts.moduleName? profile.id, none)
-    else
-      match (← tryLoadSpecOrTokenSpec input opts.root? opts.moduleName? profile.id) with
-      | .ok loaded => pure loaded
-      | .error err => throw <| IO.userError err
-  let fixtureSlug := spec.name.toLower
   let outputDir ← match opts.output? with
     | some out =>
         if out.extension == "wat" then
@@ -333,29 +342,48 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
     output? := some outputDir
     targetId? := some profile.id
   }
-  let plan ←
-    match ProofForge.Target.resolveSpec profile spec with
-    | .ok plan => pure plan
-    | .error err => throw <| IO.userError err.render
-  if profile.id == "wasm-near" then
-    let wat ← match renderCanonicalSpecNearWat spec opts.peerMap with
-      | .ok wat => pure wat
-      | .error error => throw <| IO.userError error
-    let (watPath, wasmPath?) ← writeWatPackage outputDir fixtureSlug wat
-      (requireWasm := emitWatRequireWasm opts')
-    writeEmitWatArtifactMetadata opts' profile.id fixtureSlug {
-      moduleName := spec.name
-      path? := some input.toString
-      kind := "contract-sdk"
-      leanElaborated := true
-    } spec.module outputDir watPath wasmPath? tokenSpec?
-    return 0
-  else
-    compileEmitWatWithPlan opts' fixtureSlug spec.module plan {
-      moduleName := spec.name
-      path? := some input.toString
-      kind := "contract-sdk"
-      leanElaborated := true
-    }
+  if opts.nft then
+    let spec ← ProofForge.Cli.NftLoader.loadAndMaterializeNft input opts.root?
+      opts.moduleName? profile.id
+    let plan ← match ProofForge.Target.resolveSpec profile spec with
+      | .ok plan => pure plan
+      | .error err => throw <| IO.userError err.render
+    if profile.id == ProofForge.Target.wasmNear.id then
+      let wat ← match renderCanonicalSpecNearWat spec opts.peerMap with
+        | .ok wat => pure wat
+        | .error error => throw <| IO.userError error
+      let (watPath, wasmPath?) ← writeWatPackage outputDir spec.name.toLower wat
+        (requireWasm := emitWatRequireWasm opts')
+      writeEmitWatArtifactMetadata opts' profile.id spec.name.toLower {
+        moduleName := spec.name
+        path? := some input.toString
+        kind := "legacy-nft-source"
+        leanElaborated := true
+      } spec.module outputDir watPath wasmPath?
+      return 0
+    else
+      return ← compileEmitWatWithPlan opts' spec.name.toLower spec.module plan {
+        moduleName := spec.name
+        path? := some input.toString
+        kind := "legacy-nft-source"
+        leanElaborated := true
+      }
+  let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
+  let (contract, sourceKind) := match source with
+    | .authored contract => (contract, "contract-source-authored")
+    | .surfaceFixture contract => (contract, "internal-surface-fixture")
+  let built ← match renderAuthoredWasmHostWat profile opts.peerMap.targetMetadata contract with
+    | .ok built => pure built
+    | .error error => throw <| IO.userError error
+  let fixtureSlug := built.modulePlan.moduleName.toLower
+  let (watPath, wasmPath?) ← writeWatPackage outputDir fixtureSlug built.wat
+    (requireWasm := emitWatRequireWasm opts')
+  writeCanonicalEmitWatArtifactMetadata opts' profile.id fixtureSlug {
+    moduleName := built.modulePlan.moduleName
+    path? := some input.toString
+    kind := sourceKind
+    leanElaborated := true
+  } built.checked built.capabilityPlan built.modulePlan outputDir watPath wasmPath?
+  return 0
 
 end ProofForge.Cli

@@ -6,11 +6,11 @@ Portable role-based access control for hosts that use compact role handles.
 The EVM-standard `bytes32` surface lives in `Stdlib.AccessControl`; this module
 keeps the shared business policy materializable on EVM, Solana, and Wasm hosts.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace ProofForge.Contract.Stdlib.AccessControlPortable
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 namespace Spec
 
@@ -28,11 +28,11 @@ def roleMembers : MapRef :=
   { id := "roleMembers", keyType := .u64, valueType := .u64 }
 
 contract_mixin AccessControlPortableMixin do
-  use ProofForge.Contract.Source.mapState roleMembers
+  use ProofForge.Contract.Source.Legacy.mapState roleMembers
 
   query hasRole (role : .u64, who : .address) returns(.bool) do
     let member : .u64 := pathReadRole roleMembers role who;
-    return ProofForge.Contract.Source.ne (ProofForge.Contract.Source.ref member) (u64 0);
+    return ProofForge.Contract.Source.Legacy.ne (ProofForge.Contract.Source.Legacy.ref member) (u64 0);
 
   entry grantRole (role : .u64, who : .address) do
     guard_role defaultAdminRole;

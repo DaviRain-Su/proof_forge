@@ -4,11 +4,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 Minimal NEAR random-seed fixture for target-first EmitWat smoke tests.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Tests.ContractSource.NearRandomSeed
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source NearRandomSeed do
   query seed returns(.hash) do

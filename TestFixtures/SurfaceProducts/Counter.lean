@@ -57,4 +57,8 @@ def contract : SurfaceContract := {
   ]
 }
 
+/-- Loader-only identity. Public authored modules export `contract`; internal
+Surface fixtures use a distinct name and cannot masquerade as product source. -/
+def surfaceFixture : SurfaceContract := contract
+
 end TestFixtures.SurfaceProducts.Counter

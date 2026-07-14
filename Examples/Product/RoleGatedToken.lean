@@ -31,11 +31,11 @@ Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
 See `scripts/portable/role-gated-token-multi-target.sh` for a checked
 end-to-end demo.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.RoleGatedToken
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def adminRole : Nat := 0
 def minterRole : Nat := 1
@@ -66,14 +66,14 @@ contract_source RoleGatedToken do
 
   query hasRole (role : .u64, who : .u64) returns(.bool) do
     let member : .u64 := pathReadRole roleMembers role who;
-    return ProofForge.Contract.Source.ne (ProofForge.Contract.Source.ref member) (u64 0);
+    return ProofForge.Contract.Source.Legacy.ne (ProofForge.Contract.Source.Legacy.ref member) (u64 0);
 
   entry transfer (recipient : .u64, amount : .u64) do
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount) "zero amount";
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref amount) "zero amount";
     let sender : .u64 := caller;
     let srcBal : .u64 := mapRead balances sender;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref srcBal)
-      (ProofForge.Contract.Source.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref srcBal)
+      (ProofForge.Contract.Source.Legacy.ref amount) "insufficient balance";
     do mapWrite balances sender (srcBal -! amount);
     let dstBal : .u64 := mapRead balances recipient;
     do mapWrite balances recipient (dstBal +! amount);

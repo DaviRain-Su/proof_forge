@@ -4,12 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 Example contract exercising CREATE2 factory deterministic deployment.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 import ProofForge.Contract.Stdlib.Create2Factory
 
 namespace Create2FactoryProbe
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 open ProofForge.Contract.Stdlib.Create2Factory
 
 contract_source Create2FactoryProbe do

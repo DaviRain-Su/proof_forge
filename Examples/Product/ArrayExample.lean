@@ -11,11 +11,11 @@ NEAR/Wasm by changing only `--target`.
 See `scripts/portable/array-example-multi-target.sh` for a checked end-to-end
 demo.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.ArrayExample
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source ArrayExample do
   query sizeOf3 returns(.u64) do

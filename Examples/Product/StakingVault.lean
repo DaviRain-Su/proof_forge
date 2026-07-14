@@ -34,11 +34,11 @@ Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
 See `scripts/portable/staking-vault-multi-target.sh` for a checked
 end-to-end demo.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.StakingVault
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source StakingVault do
   state totalDeposits : .u64
@@ -55,7 +55,7 @@ contract_source StakingVault do
 
   entry deposit do
     let amount : .u64 := nativeValue;
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount) "zero deposit";
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref amount) "zero deposit";
     let depositor : .u64 := caller;
     let currentShares : .u64 := mapRead shares depositor;
     do mapWrite shares depositor (currentShares +! amount);
@@ -66,11 +66,11 @@ contract_source StakingVault do
     emit Deposit indexed #[fieldAsName "depositor" depositor] data #[fieldAsName "amount" amount];
 
   entry withdraw (shareAmount : .u64) do
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref shareAmount) "zero shares";
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref shareAmount) "zero shares";
     let depositor : .u64 := caller;
     let currentShares : .u64 := mapRead shares depositor;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref currentShares)
-      (ProofForge.Contract.Source.ref shareAmount) "insufficient shares";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref currentShares)
+      (ProofForge.Contract.Source.Legacy.ref shareAmount) "insufficient shares";
     do mapWrite shares depositor (currentShares -! shareAmount);
     let td : .u64 := totalDeposits;
     totalDeposits := td -! shareAmount;

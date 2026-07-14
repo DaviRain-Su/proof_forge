@@ -4,11 +4,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 ERC-165 interface introspection mixin for `contract_source` composition.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace ProofForge.Contract.Stdlib.ERC165
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def erc165InterfaceId : Nat := 0x01ffc9a7
 
@@ -27,13 +27,13 @@ def supportsInterfaceExpr (interfaceId : ProofForge.IR.Expr)
   additionalIds.foldl
     (fun supported id =>
       if id == invalidInterfaceId then supported
-      else ProofForge.Contract.Source.boolOr supported
-        (ProofForge.Contract.Source.eq interfaceId (interfaceWord id)))
-    (ProofForge.Contract.Source.eq interfaceId erc165InterfaceWord)
+      else ProofForge.Contract.Source.Legacy.boolOr supported
+        (ProofForge.Contract.Source.Legacy.eq interfaceId (interfaceWord id)))
+    (ProofForge.Contract.Source.Legacy.eq interfaceId erc165InterfaceWord)
 
 contract_mixin ERC165Mixin do
   query supportsInterface (interfaceId : .bytes4) returns(.bool) do
-    return supportsInterfaceExpr (ProofForge.Contract.Source.ref interfaceId);
+    return supportsInterfaceExpr (ProofForge.Contract.Source.Legacy.ref interfaceId);
 
 contract_source ERC165 do
   use mixin

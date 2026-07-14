@@ -13,17 +13,17 @@ Product path for identity-width owner:
 Prefer `Stdlib.Ownable` (u64 handle) when the triad only needs address-width
 handles without hashing.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace ProofForge.Contract.Stdlib.OwnableHash
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def «owner» : ScalarRef :=
-  ProofForge.Contract.Source.slot "owner" .hash
+  ProofForge.Contract.Source.Legacy.slot "owner" .hash
 
 contract_mixin OwnableHashMixin do
-  use ProofForge.Contract.Source.scalar «owner»
+  use ProofForge.Contract.Source.Legacy.scalar «owner»
 
   query «owner» returns(.hash) do
     return «owner»;
@@ -32,16 +32,16 @@ contract_mixin OwnableHashMixin do
   -- Hash entrypoint params. Renounce + re-init patterns, or NEAR-only extension
   -- mixins, cover transfer for now.
   entry renounceOwnership do
-    do ProofForge.Contract.Source.requireOwnerHash «owner»;
-    «owner» := ProofForge.Contract.Source.hash4 0 0 0 0;
+    do ProofForge.Contract.Source.Legacy.requireOwnerHash «owner»;
+    «owner» := ProofForge.Contract.Source.Legacy.hash4 0 0 0 0;
 
 contract_source OwnableHash do
   use mixin
   entry init do
-    do ProofForge.Contract.Source.assertCondition
-      (ProofForge.Contract.Source.eq
-        (ProofForge.Contract.Source.read «owner»)
-        (ProofForge.Contract.Source.hash4 0 0 0 0))
+    do ProofForge.Contract.Source.Legacy.assertCondition
+      (ProofForge.Contract.Source.Legacy.eq
+        (ProofForge.Contract.Source.Legacy.read «owner»)
+        (ProofForge.Contract.Source.Legacy.hash4 0 0 0 0))
       "already initialized";
     «owner» := callerHash;
 

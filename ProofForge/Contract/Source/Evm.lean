@@ -3,12 +3,12 @@
 Import this module from EVM-specific SDK and stdlib modules. Portable product
 sources continue to import `ProofForge.Contract.Source` only.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 import ProofForge.Target.HostOps.Evm
 
 namespace ProofForge.Contract.Source.Evm
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def origin : ProofForge.IR.Expr :=
   .hostCall ProofForge.Target.HostOps.Evm.originSig.id #[]

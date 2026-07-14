@@ -17,29 +17,29 @@ Contrast:
 
 NEAR compare: `just near-compare-height-lock-vault` / `-live`
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.HeightLockVault
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def lockedSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "locked" .u64
+  ProofForge.Contract.Source.Legacy.slot "locked" .u64
 
 def unlockHeightSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "unlockHeight" .u64
+  ProofForge.Contract.Source.Legacy.slot "unlockHeight" .u64
 
 def claimBalanceSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "claimBalance" .u64
+  ProofForge.Contract.Source.Legacy.slot "claimBalance" .u64
 
 def claimedSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "claimed" .u64
+  ProofForge.Contract.Source.Legacy.slot "claimed" .u64
 
 contract_source HeightLockVault do
-  use ProofForge.Contract.Source.scalar lockedSlot
-  use ProofForge.Contract.Source.scalar unlockHeightSlot
-  use ProofForge.Contract.Source.scalar claimBalanceSlot
-  use ProofForge.Contract.Source.scalar claimedSlot
+  use ProofForge.Contract.Source.Legacy.scalar lockedSlot
+  use ProofForge.Contract.Source.Legacy.scalar unlockHeightSlot
+  use ProofForge.Contract.Source.Legacy.scalar claimBalanceSlot
+  use ProofForge.Contract.Source.Legacy.scalar claimedSlot
 
   event Locked
   event Claimed
@@ -51,11 +51,11 @@ contract_source HeightLockVault do
     claimedSlot := u64 0;
 
   entry lock (amount : .u64, unlockHeight : .u64) do
-    do ProofForge.Contract.Source.requireEq
-      (ProofForge.Contract.Source.read lockedSlot) (u64 0) "already locked";
-    do ProofForge.Contract.Source.requireEq
-      (ProofForge.Contract.Source.read claimedSlot) (u64 0) "already claimed";
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount)
+    do ProofForge.Contract.Source.Legacy.requireEq
+      (ProofForge.Contract.Source.Legacy.read lockedSlot) (u64 0) "already locked";
+    do ProofForge.Contract.Source.Legacy.requireEq
+      (ProofForge.Contract.Source.Legacy.read claimedSlot) (u64 0) "already claimed";
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref amount)
       "zero amount";
     lockedSlot := amount;
     unlockHeightSlot := unlockHeight;
@@ -63,15 +63,15 @@ contract_source HeightLockVault do
       #[fieldAsName "amount" amount, fieldAsName "unlockHeight" unlockHeight];
 
   entry claim do
-    do ProofForge.Contract.Source.requireEq
-      (ProofForge.Contract.Source.read claimedSlot) (u64 0) "already claimed";
+    do ProofForge.Contract.Source.Legacy.requireEq
+      (ProofForge.Contract.Source.Legacy.read claimedSlot) (u64 0) "already claimed";
     let locked : .u64 := lockedSlot;
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref locked)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref locked)
       "nothing locked";
     let unlock : .u64 := unlockHeightSlot;
     let height : .u64 := checkpointId;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref height)
-      (ProofForge.Contract.Source.ref unlock) "height too low";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref height)
+      (ProofForge.Contract.Source.Legacy.ref unlock) "height too low";
     claimedSlot := u64 1;
     lockedSlot := u64 0;
     let bal : .u64 := claimBalanceSlot;

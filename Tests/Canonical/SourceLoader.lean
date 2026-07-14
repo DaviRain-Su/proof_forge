@@ -59,27 +59,22 @@ unsafe def main : IO Unit := do
         "wrong Surface fixture/Legacy diagnostic"
   | Except.ok _ => throw <| IO.userError "Surface fixture accepted the Legacy pipeline"
 
-  let authoredVault ← canonicalize (← load "Examples/Product/ValueVault.lean")
+  expectLoadError "Examples/Product/ValueVault.lean" "missingContractSource"
   let surfaceVault ← canonicalize (← load "TestFixtures/SurfaceProducts/ValueVault.lean")
   require (surfaceVault.contract.contract.module.state.size == 6) "Surface ValueVault state drift"
   require (surfaceVault.contract.contract.module.functions.size == 7) "Surface ValueVault entrypoint drift"
   require (surfaceVault.contract.contract.module.events.size == 5) "Surface ValueVault event drift"
-  require (authoredVault.contract.contract.module == surfaceVault.contract.contract.module)
-    s!"Surface ValueVault Core module differs from product ValueVault:\nauthored={repr authoredVault.contract.contract.module}\nsurface={repr surfaceVault.contract.contract.module}"
-  require
-      (withoutResolvedSelectors authoredVault.contract.contract.interface ==
-        withoutResolvedSelectors surfaceVault.contract.contract.interface)
-    "Surface ValueVault interface shape differs from product ValueVault"
 
   let fixtureDir := "build/canonical/source-loader"
   IO.FS.createDirAll fixtureDir
   let ambiguousPath := fixtureDir ++ "/Ambiguous.lean"
   IO.FS.writeFile ambiguousPath <|
-    "import ProofForge.Contract.Spec\n" ++
-    "import ProofForge.IR.Examples.Counter\n" ++
+    "import ProofForge.Frontend.Authored\n" ++
+    "import ProofForge.Frontend.Surface\n" ++
+    "import Examples.Product.Counter\n" ++
     "import TestFixtures.SurfaceProducts.Counter\n" ++
-    "def spec : ProofForge.Contract.ContractSpec := ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.Counter.module\n" ++
-    "def contract := TestFixtures.SurfaceProducts.Counter.contract\n"
+    "def contract : ProofForge.Frontend.Authored.AuthoredContract := Examples.Product.Counter.contract\n" ++
+    "def surfaceFixture : ProofForge.Frontend.Surface.SurfaceContract := TestFixtures.SurfaceProducts.Counter.surfaceFixture\n"
   let missingPath := fixtureDir ++ "/Missing.lean"
   IO.FS.writeFile missingPath "def marker : Nat := 1\n"
   expectLoadError ambiguousPath "ambiguousContractSource"

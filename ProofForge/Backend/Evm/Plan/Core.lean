@@ -322,14 +322,14 @@ def coreStateSlotSpan (m : Core.Module) (decl : Core.StateDecl) : Nat :=
       | some s => s.fields.size
       | none => 1
 
-/-- Build a StorageLayout from Core state declarations.
-Logical StateId values are assigned slots in declaration order (0, 1, 2, ...).
-The `StateKind` and slot span are preserved from the Core `StateShape` so
-downstream helper discovery and Yul slot math work correctly. -/
+/-- Build an EVM storage layout directly from Core state declarations.
+Narrow scalar packing is part of the EVM target plan; it is not rediscovered
+from a Legacy `IR.Module`. -/
 def coreStorageLayout (module : Core.Module) (materialization : MaterializationContract) :
     Except PlanError StorageLayout := do
   let mut states := #[]
   let mut slot := 0
+  let mut usedBytes := 0
   for decl in module.state do
     let symbol ← match materialization.stateSymbols.find? (fun symbol => symbol.stateId == decl.id) with
       | some symbol => pure symbol
@@ -344,14 +344,43 @@ def coreStorageLayout (module : Core.Module) (materialization : MaterializationC
           pure (StateKind.array length, coreTypeToValueType element)
       | .dynamicArray .. => throw { message := "dynamic-array state is not yet materialized by the EVM Core plan" }
       | .record .. => throw { message := "record state is not yet materialized by the EVM Core plan" }
-    states := states.push {
-      id := symbol.name
-      slot
-      span := coreStateSlotSpan module decl
-      kind
-      type
-    }
-    slot := slot + 1
+    let span := coreStateSlotSpan module decl
+    let width := type.byteWidth
+    let canPack := kind == .scalar && width > 0 && width < 32
+    if canPack && usedBytes + width <= 32 then
+      states := states.push {
+        id := symbol.name
+        slot
+        span := 0
+        kind
+        type
+        byteOffset := usedBytes
+        byteWidth := width
+      }
+      usedBytes := usedBytes + width
+    else if canPack then
+      if usedBytes > 0 then slot := slot + 1
+      states := states.push {
+        id := symbol.name
+        slot
+        span := 0
+        kind
+        type
+        byteWidth := width
+      }
+      usedBytes := width
+    else
+      if usedBytes > 0 then slot := slot + 1
+      states := states.push {
+        id := symbol.name
+        slot
+        span
+        kind
+        type
+        byteWidth := 32
+      }
+      slot := slot + span
+      usedBytes := 0
   return { states }
 
 /-- Map a Core instruction op to EVM StmtPlan entries.

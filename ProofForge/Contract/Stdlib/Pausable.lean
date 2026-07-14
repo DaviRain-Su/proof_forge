@@ -9,11 +9,11 @@ separately. For OpenZeppelin-style only-owner pause, use
 `ProofForge.Contract.Stdlib.OwnablePausable` (or compose Ownable + this mixin
 with custom entries).
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace ProofForge.Contract.Stdlib.Pausable
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 namespace Spec
 
@@ -24,10 +24,10 @@ theorem not_paused_zero : ¬ paused 0 := by simp [paused]
 end Spec
 
 def «paused» : ScalarRef :=
-  ProofForge.Contract.Source.slot "paused" .u64
+  ProofForge.Contract.Source.Legacy.slot "paused" .u64
 
 contract_mixin PausableMixin do
-  use ProofForge.Contract.Source.scalar «paused»
+  use ProofForge.Contract.Source.Legacy.scalar «paused»
 
   query «paused» returns(.u64) do
     return «paused»;

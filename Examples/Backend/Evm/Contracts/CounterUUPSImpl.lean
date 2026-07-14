@@ -8,12 +8,12 @@ authority policy that the EVM target cannot yet enforce from `keyRef`. Its
 zero-state initialization is completed by the proxy constructor, so the
 implementation runtime deliberately exposes no public initializer.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 import ProofForge.Contract.Stdlib.UUPSUpgradeable
 
 namespace CounterUUPSImpl
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 open ProofForge.Contract.Stdlib.UUPSUpgradeable
 
 contract_source CounterUUPSImpl do

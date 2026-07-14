@@ -1,8 +1,8 @@
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Tests.ContractSource.UnsupportedNear
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source UnsupportedNear do
   use ProofForge.Contract.Builder.capability

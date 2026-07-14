@@ -4,6 +4,7 @@ import Lean.Elab.Frontend
 import Lean.Util.Path
 import ProofForge.Contract.Spec
 import ProofForge.Contract.Token
+import ProofForge.Frontend.Authored
 import ProofForge.Frontend.Surface
 import ProofForge.Compiler.CanonicalPipeline
 
@@ -72,9 +73,6 @@ unsafe def runTrustedLocalFrontend
 
 
 
-private def specConstName (modName : Name) : Name :=
-  modName ++ `spec
-
 private def candidateSpecNames (modName : Name) : List Name :=
   let lastComponent :=
     match modName.components.reverse with
@@ -96,13 +94,33 @@ private def resolveSpecConstName (env : Environment) (modName : Name) : Option N
 
 abbrev LoadedContractSource := ProofForge.Compiler.LoadedContractSource
 
-/-- Candidate names for an internal Surface fixture `contract` constant. -/
-private def candidateSurfaceNames (modName : Name) : List Name :=
+/-- Candidate names for the only public source value, `contract`. -/
+private def candidateAuthoredNames (modName : Name) : List Name :=
   let lastComponent :=
     match modName.components.reverse with
     | last :: _ => last
     | [] => Name.anonymous
   [modName ++ `contract, lastComponent ++ `contract, `contract]
+
+private def isAuthoredContractConst (env : Environment) (constName : Name) : Bool :=
+  match env.find? constName with
+  | some info =>
+      match info.type with
+      | Expr.const `ProofForge.Frontend.Authored.AuthoredContract _ => true
+      | _ => false
+  | none => false
+
+private def resolveAuthoredConstName (env : Environment) (modName : Name) : Option Name :=
+  (candidateAuthoredNames modName).find? fun candidate =>
+    env.constants.contains candidate && isAuthoredContractConst env candidate
+
+/-- Candidate names for the explicitly internal `surfaceFixture` value. -/
+private def candidateSurfaceNames (modName : Name) : List Name :=
+  let lastComponent :=
+    match modName.components.reverse with
+    | last :: _ => last
+    | [] => Name.anonymous
+  [modName ++ `surfaceFixture, lastComponent ++ `surfaceFixture, `surfaceFixture]
 
 /-- True when `constName` is a `SurfaceContract` constant. -/
 private def isSurfaceContractConst (env : Environment) (constName : Name) : Bool :=
@@ -113,7 +131,7 @@ private def isSurfaceContractConst (env : Environment) (constName : Name) : Bool
       | _ => false
   | none => false
 
-/-- Resolve an internal Surface fixture `contract` constant. -/
+/-- Resolve an internal `surfaceFixture` constant. -/
 private def resolveSurfaceConstName (env : Environment) (modName : Name) : Option Name :=
   (candidateSurfaceNames modName).find? fun candidate =>
     env.constants.contains candidate && isSurfaceContractConst env candidate
@@ -121,16 +139,17 @@ private def resolveSurfaceConstName (env : Environment) (modName : Name) : Optio
 /-- Discover exactly one supported source constant. Fails on ambiguity or missing. -/
 unsafe def loadSourceFromEnv (env : Environment) (modName : Name) :
     IO LoadedContractSource := do
-  let authoredSpec? := resolveSpecConstName env modName
+  let authoredContract? := resolveAuthoredConstName env modName
   let surfaceSpec? := resolveSurfaceConstName env modName
-  match authoredSpec?, surfaceSpec? with
+  match authoredContract?, surfaceSpec? with
   | some _, some _ =>
-      throw <| IO.userError s!"module `{modName}` exports both an authored ContractSpec and an internal Surface fixture; ambiguousContractSource"
+      throw <| IO.userError s!"module `{modName}` exports both an AuthoredContract and an internal Surface fixture; ambiguousContractSource"
   | none, none =>
-      throw <| IO.userError s!"module `{modName}` exports neither an authored ContractSpec nor an internal Surface fixture; missingContractSource"
+      throw <| IO.userError s!"module `{modName}` exports neither contract : AuthoredContract nor surfaceFixture : SurfaceContract; missingContractSource"
   | some constName, none =>
-      match env.evalConstCheck ProofForge.Contract.ContractSpec {} `ProofForge.Contract.ContractSpec constName with
-      | .ok spec => pure (ProofForge.Compiler.LoadedContractSource.authored spec)
+      match env.evalConstCheck ProofForge.Frontend.Authored.AuthoredContract {}
+          `ProofForge.Frontend.Authored.AuthoredContract constName with
+      | .ok contract => pure (ProofForge.Compiler.LoadedContractSource.authored contract)
       | .error msg => throw <| IO.userError msg
   | none, some constName =>
       match env.evalConstCheck ProofForge.Frontend.Surface.SurfaceContract {} `ProofForge.Frontend.Surface.SurfaceContract constName with
@@ -163,8 +182,8 @@ def missingContractSpecMessage (modName : Name) (hasTokenSpec : Bool) : String :
 use `proof-forge build --target <id> --token …` (or `just product-token-near` / product-token-solana) \
 for TokenSpec modules"
   else
-    s!"no `spec : ProofForge.Contract.ContractSpec` found while loading module `{modName}`; \
-define one with `contract_source` or `def spec : ProofForge.Contract.ContractSpec` \
+    s!"explicit Legacy loader found no `spec : ProofForge.Contract.ContractSpec` in module `{modName}`; \
+public `contract_source` modules export `contract : AuthoredContract` and must use loadSource \
 (TokenSpec modules need `--token`)"
 
 unsafe def loadSpecFromEnv (env : Environment) (modName : Name) : IO ProofForge.Contract.ContractSpec := do

@@ -18,11 +18,11 @@ No native deposit / external token — NEAR dual-deploy friendly.
 
 NEAR compare: `just near-compare-escrow-vault` / `-live`
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.EscrowVault
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 /-- 0 empty · 1 funded · 2 released · 3 refunded -/
 def statusEmpty : Nat := 0
@@ -31,42 +31,42 @@ def statusReleased : Nat := 2
 def statusRefunded : Nat := 3
 
 def buyerSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "buyer" .u64
+  ProofForge.Contract.Source.Legacy.slot "buyer" .u64
 
 def sellerSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "seller" .u64
+  ProofForge.Contract.Source.Legacy.slot "seller" .u64
 
 def amountSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "amount" .u64
+  ProofForge.Contract.Source.Legacy.slot "amount" .u64
 
 def statusSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "status" .u64
+  ProofForge.Contract.Source.Legacy.slot "status" .u64
 
 def sellerClaimSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "sellerClaim" .u64
+  ProofForge.Contract.Source.Legacy.slot "sellerClaim" .u64
 
 def buyerClaimSlot : ScalarRef :=
-  ProofForge.Contract.Source.slot "buyerClaim" .u64
+  ProofForge.Contract.Source.Legacy.slot "buyerClaim" .u64
 
 contract_source EscrowVault do
-  use ProofForge.Contract.Source.scalar buyerSlot
-  use ProofForge.Contract.Source.scalar sellerSlot
-  use ProofForge.Contract.Source.scalar amountSlot
-  use ProofForge.Contract.Source.scalar statusSlot
-  use ProofForge.Contract.Source.scalar sellerClaimSlot
-  use ProofForge.Contract.Source.scalar buyerClaimSlot
+  use ProofForge.Contract.Source.Legacy.scalar buyerSlot
+  use ProofForge.Contract.Source.Legacy.scalar sellerSlot
+  use ProofForge.Contract.Source.Legacy.scalar amountSlot
+  use ProofForge.Contract.Source.Legacy.scalar statusSlot
+  use ProofForge.Contract.Source.Legacy.scalar sellerClaimSlot
+  use ProofForge.Contract.Source.Legacy.scalar buyerClaimSlot
 
   event Funded
   event Released
   event Refunded
 
   entry init (buyerId : .u64, sellerId : .u64) do
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref buyerId)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref buyerId)
       "zero buyer";
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref sellerId)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref sellerId)
       "zero seller";
-    do ProofForge.Contract.Source.requireNe (ProofForge.Contract.Source.ref buyerId)
-      (ProofForge.Contract.Source.ref sellerId) "same party";
+    do ProofForge.Contract.Source.Legacy.requireNe (ProofForge.Contract.Source.Legacy.ref buyerId)
+      (ProofForge.Contract.Source.Legacy.ref sellerId) "same party";
     buyerSlot := buyerId;
     sellerSlot := sellerId;
     amountSlot := u64 0;
@@ -75,31 +75,31 @@ contract_source EscrowVault do
     buyerClaimSlot := u64 0;
 
   entry fund (amt : .u64) do
-    do ProofForge.Contract.Source.requireEq
-      (ProofForge.Contract.Source.read statusSlot) (u64 statusEmpty) "not empty";
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amt)
+    do ProofForge.Contract.Source.Legacy.requireEq
+      (ProofForge.Contract.Source.Legacy.read statusSlot) (u64 statusEmpty) "not empty";
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref amt)
       "zero amount";
     amountSlot := amt;
     statusSlot := u64 statusFunded;
-    emit Funded indexed #[fieldAsName "buyer" (ProofForge.Contract.Source.read buyerSlot)]
+    emit Funded indexed #[fieldAsName "buyer" (ProofForge.Contract.Source.Legacy.read buyerSlot)]
       data #[fieldAsName "amount" amt];
 
   entry release do
-    do ProofForge.Contract.Source.requireEq
-      (ProofForge.Contract.Source.read statusSlot) (u64 statusFunded) "not funded";
+    do ProofForge.Contract.Source.Legacy.requireEq
+      (ProofForge.Contract.Source.Legacy.read statusSlot) (u64 statusFunded) "not funded";
     let amt : .u64 := amountSlot;
     statusSlot := u64 statusReleased;
     sellerClaimSlot := amt;
-    emit Released indexed #[fieldAsName "seller" (ProofForge.Contract.Source.read sellerSlot)]
+    emit Released indexed #[fieldAsName "seller" (ProofForge.Contract.Source.Legacy.read sellerSlot)]
       data #[fieldAsName "amount" amt];
 
   entry refund do
-    do ProofForge.Contract.Source.requireEq
-      (ProofForge.Contract.Source.read statusSlot) (u64 statusFunded) "not funded";
+    do ProofForge.Contract.Source.Legacy.requireEq
+      (ProofForge.Contract.Source.Legacy.read statusSlot) (u64 statusFunded) "not funded";
     let amt : .u64 := amountSlot;
     statusSlot := u64 statusRefunded;
     buyerClaimSlot := amt;
-    emit Refunded indexed #[fieldAsName "buyer" (ProofForge.Contract.Source.read buyerSlot)]
+    emit Refunded indexed #[fieldAsName "buyer" (ProofForge.Contract.Source.Legacy.read buyerSlot)]
       data #[fieldAsName "amount" amt];
 
   query get_status returns(.u64) do

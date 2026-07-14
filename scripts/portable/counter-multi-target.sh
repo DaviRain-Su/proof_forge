@@ -20,6 +20,7 @@ if [[ -n "${CAST:-}" ]]; then
   cast_args=(--cast "$CAST")
 fi
 
+rm -rf "$OUT"
 mkdir -p "$OUT"
 
 (cd "$ROOT" && lake build proof-forge >/dev/null)
@@ -35,19 +36,20 @@ diff -u Examples/Backend/Evm/Counter.golden.yul "$OUT/Counter.yul"
 python3 scripts/evm/validate-artifact-metadata.py \
   --root "$ROOT" \
   --expect-fixture Counter \
-  --expect-source-kind contract-sdk \
+  --expect-source-kind contract-source-authored \
+  --expect-ir-version canonical-core-v1 \
   "$OUT/Counter.proof-forge-artifact.json"
-python3 - "$OUT/Counter.contract-spec.json" <<'PY'
+python3 - "$OUT/Counter.proof-forge-artifact.json" <<'PY'
 import json
 import pathlib
 import sys
 
-spec = json.loads(pathlib.Path(sys.argv[1]).read_text())
-actual = {entry["name"]: entry["selector"] for entry in spec["entrypoints"]}
+artifact = json.loads(pathlib.Path(sys.argv[1]).read_text())
+actual = {entry["name"]: entry["selector"] for entry in artifact["abi"]["entrypoints"]}
 expected = {"initialize": "8129fc1c", "increment": "d09de08a", "get": "6d4ce63c"}
 if actual != expected:
-    raise SystemExit(f"contract spec selectors diverge from EVM dispatcher: {actual}")
-print("portable-counter: contract spec selectors match dispatcher")
+    raise SystemExit(f"canonical plan selectors diverge from EVM dispatcher: {actual}")
+print("portable-counter: canonical plan selectors match dispatcher")
 PY
 
 echo "portable-counter: Solana sBPF"
@@ -56,7 +58,7 @@ echo "portable-counter: Solana sBPF"
   --artifact-output "$OUT/Counter.solana-artifact.json" \
   "$SOURCE"
 diff -u Examples/Backend/Solana/Counter.canonical.golden.s "$OUT/Counter.s"
-diff -u Examples/Backend/Solana/Counter.manifest.toml "$OUT/manifest.toml"
+diff -u Examples/Backend/Solana/Counter.canonical.manifest.toml "$OUT/manifest.toml"
 
 echo "portable-counter: NEAR/Wasm"
 "${proof_forge[@]}" build --target wasm-near --root . \
@@ -70,7 +72,13 @@ python3 scripts/near/validate-emitwat-metadata.py \
   --expected-fixture counter \
   --expected-module Counter \
   --expected-entrypoints initialize,increment,get \
-  --expected-source-kind contract-sdk
+  --expected-source-kind contract-source-authored \
+  --expected-ir-version canonical-core-v1
+
+if find "$OUT" -name '*contract-spec.json' -print -quit | grep -q .; then
+  echo "portable-counter: direct authored route emitted a forbidden ContractSpec sidecar" >&2
+  exit 1
+fi
 
 if out="$("${HOST[@]}" "$OUT/near/counter.wat" initialize get increment get 2>&1)"; then
   echo "$out"

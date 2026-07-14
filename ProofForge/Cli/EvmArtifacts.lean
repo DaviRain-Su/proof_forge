@@ -17,6 +17,7 @@ import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec.Json
 import ProofForge.IR
 import ProofForge.IR.Canonical
+import ProofForge.Frontend.Authored
 import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.Frontend.Surface.Normalize
 import ProofForge.Compiler.CanonicalPipeline
@@ -30,6 +31,44 @@ open ProofForge.Cli.JsonUtil
 open System
 
 namespace ProofForge.Cli
+
+def evmSourceIrVersionJson (sourceKind : String) : String :=
+  if sourceKind == "portable-ir" then
+    jsonString "portable-ir-v0"
+  else if sourceKind == "contract-source-authored" then
+    jsonString "canonical-core-v1"
+  else
+    "null"
+
+def hydrateAuthoredEvmSelectors (cast : String)
+    (checked : ProofForge.IR.Canonical.CheckedCanonicalContract) :
+    IO ProofForge.IR.Canonical.CheckedCanonicalContract := do
+  let mut entrypoints := #[]
+  for entrypoint in checked.contract.interface.entrypoints do
+    let mut abiTypes := #[]
+    for param in entrypoint.params do
+      let valueType := ProofForge.Backend.Evm.Plan.Core.coreTypeToValueType param.type
+      let abiType ← match ProofForge.Backend.Evm.AbiType.scalarTypeName
+          s!"entrypoint `{entrypoint.name}` parameter `{param.name}`" valueType param.abiWord? with
+        | .ok value => pure value
+        | .error message => throw <| IO.userError message
+      abiTypes := abiTypes.push abiType
+    let signature := s!"{entrypoint.name}({String.intercalate "," abiTypes.toList})"
+    let derived ← selectorFor cast signature
+    match entrypoint.selector? with
+    | some selector =>
+        unless selector.toLower == derived.toLower do
+          throw <| IO.userError
+            s!"entrypoint `{entrypoint.name}` selector `{selector}` does not match target ABI signature `{signature}` selector `{derived}`"
+        entrypoints := entrypoints.push entrypoint
+    | none =>
+        entrypoints := entrypoints.push { entrypoint with selector? := some derived }
+  let canonical := { checked.contract with
+    interface := { checked.contract.interface with entrypoints := entrypoints } }
+  match ProofForge.IR.Canonical.validateCanonical canonical with
+  | .ok hydrated => pure hydrated
+  | .error error =>
+      throw <| IO.userError s!"canonical: EVM selector hydration invalidated the interface: {repr error}"
 
 /-- Materialize a hydrated EVM contract exclusively through canonical Core and
 the existing EVM semantic plan. Every failure is terminal; this function has no
@@ -48,32 +87,40 @@ def renderCanonicalSpecEvmYul (spec : ProofForge.Contract.ContractSpec) : Except
   | .ok yul => .ok yul
   | .error error => .error s!"canonical: EVM render failed: {error.message}"
 
-/-- Render an internal Surface fixture through the production Canonical Core
-route. There is no Surface-to-Legacy conversion or fallback renderer. -/
-def renderSurfaceEvmYul (opts : CliOptions)
-    (contract : ProofForge.Frontend.Surface.SurfaceContract) :
+/-- Render a direct authored contract through checked Canonical Core and the
+target-owned EVM plan. There is no ContractSpec conversion or fallback. -/
+def renderAuthoredEvmYul (opts : CliOptions)
+    (contract : ProofForge.Frontend.Authored.AuthoredContract) :
     IO (String × ProofForge.Backend.Evm.Plan.ModulePlan) := do
   unless opts.evmConstructorArgsHex.isEmpty do
     throw <| IO.userError
-      "Surface fixture EVM constructor arguments are not materialized yet; use an explicit init entrypoint"
-  let bundle ← match ProofForge.Frontend.Surface.normalizeSurface contract with
+      "direct authored EVM constructor arguments are not materialized yet; use an explicit init entrypoint"
+  let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored contract with
     | .ok bundle => pure bundle
-    | .error error => throw <| IO.userError s!"canonical: Surface normalization failed: {repr error}"
-  let hostErrors := ProofForge.Compiler.checkHostOpHandlers ProofForge.Target.evm.id bundle.contract
+    | .error error => throw <| IO.userError s!"canonical: Authored normalization failed: {repr error}"
+  let checked ← hydrateAuthoredEvmSelectors opts.cast bundle.contract
+  let hostErrors := ProofForge.Compiler.checkHostOpHandlers ProofForge.Target.evm.id checked
   unless hostErrors.isEmpty do
     throw <| IO.userError (String.intercalate "; " hostErrors.toList)
   let capabilityPlan : ProofForge.Target.CapabilityPlan := {
     targetId := ProofForge.Target.evm.id
-    calls := bundle.contract.contract.requirements
+    calls := checked.contract.requirements
     metadata := opts.peerMap.targetMetadata
   }
-  let plan ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract capabilityPlan with
+  let plan ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capabilityPlan with
     | .ok plan => pure plan
     | .error error => throw <| IO.userError s!"canonical: EVM plan failed: {error.message}"
   let yul ← match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
     | .ok yul => pure yul
     | .error error => throw <| IO.userError s!"canonical: EVM render failed: {error.message}"
   return (yul, plan)
+
+/-- Temporary internal fixture wrapper. Surface is an alias of Authored and is
+not a public source route. -/
+def renderSurfaceEvmYul (opts : CliOptions)
+    (contract : ProofForge.Frontend.Surface.SurfaceContract) :
+    IO (String × ProofForge.Backend.Evm.Plan.ModulePlan) :=
+  renderAuthoredEvmYul opts contract
 
 def renderContractSpecEvmYul (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) :
     IO (String × ProofForge.IR.Module) := do
@@ -462,7 +509,7 @@ def writeEvmDeployManifest
     ("fixture", jsonString fixture),
     ("contractName", jsonString (contractNameForFixture fixture)),
     ("sourceKind", jsonString sourceKind),
-    ("irVersion", if sourceKind == "portable-ir" then jsonString "portable-ir-v0" else "null"),
+    ("irVersion", evmSourceIrVersionJson sourceKind),
     ("sourceModule", jsonString sourceModule),
     ("chainProfile", evmChainProfileFieldJson chainProfile?),
     ("capabilities", jsonStringArray (dedupStrings capabilities)),
@@ -752,7 +799,7 @@ def writeEvmArtifactMetadata
     ("artifactKind", jsonString "evm-bytecode"),
     ("fixture", jsonString fixture),
     ("sourceKind", jsonString sourceKind),
-    ("irVersion", if sourceKind == "portable-ir" then jsonString "portable-ir-v0" else "null"),
+    ("irVersion", evmSourceIrVersionJson sourceKind),
     ("sourceModule", jsonString sourceModule),
     ("sdkSchema", if sdkSchemaGenerated then jsonString "proof-forge-sdk.json" else "null"),
     ("capabilities", jsonStringArray (dedupStrings capabilities)),
@@ -807,7 +854,7 @@ def writeEvmPlanArtifactMetadata
     {
       moduleName := plan.name
       path? := some input.toString
-      kind := "contract-source"
+      kind := "contract-source-authored"
       leanElaborated := true
     }
     (plan.capabilities.map (·.id))

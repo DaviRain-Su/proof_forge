@@ -644,6 +644,7 @@ def main() -> int:
     parser.add_argument("--root", required=True)
     parser.add_argument("--expect-fixture", required=True)
     parser.add_argument("--expect-source-kind")
+    parser.add_argument("--expect-ir-version")
     parser.add_argument("--expect-chain-profile")
     parser.add_argument("--expect-chain-id", type=int)
     parser.add_argument("--expect-constructor-args-hex")
@@ -681,6 +682,8 @@ def main() -> int:
     else:
         expect_string(metadata.get("sourceKind"), "sourceKind")
     expect(metadata.get("irVersion") is None or isinstance(metadata.get("irVersion"), str), "irVersion must be null or string")
+    if args.expect_ir_version:
+        expect(metadata.get("irVersion") == args.expect_ir_version, "irVersion mismatch")
 
     capabilities = expect_array(metadata.get("capabilities"), "capabilities")
     for idx, capability in enumerate(capabilities):

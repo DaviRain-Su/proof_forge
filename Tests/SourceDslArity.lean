@@ -1,8 +1,8 @@
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.FiveParamProbe
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source FiveParamProbe do
   state a_slot : .u64
@@ -14,7 +14,7 @@ end Examples.Product.FiveParamProbe
 
 namespace Examples.Product.SevenParamProbe
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source SevenParamProbe do
   entry seven (a : .u64, b : .u64, c : .u64, d : .u64, e : .u64, f : .u64, g : .u64) returns(.u64) do
@@ -31,8 +31,8 @@ def require (condition : Bool) (message : String) : IO Unit :=
   else throw <| IO.userError message
 
 def main : IO UInt32 := do
-  require (ProofForge.Contract.Source.sourceDslVersion == "contract-source")
-    s!"unexpected dsl version {ProofForge.Contract.Source.sourceDslVersion}"
+  require (ProofForge.Contract.Source.Legacy.sourceDslVersion == "contract-source")
+    s!"unexpected dsl version {ProofForge.Contract.Source.Legacy.sourceDslVersion}"
   require (module.entrypoints.size == 1)
     "FiveParamProbe should declare one entry"
   match module.entrypoints.toList with

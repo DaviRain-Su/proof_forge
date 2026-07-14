@@ -2,6 +2,7 @@ import ProofForge.IR.Contract
 import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
+import ProofForge.Frontend.Authored
 import ProofForge.Frontend.Surface
 import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.Plan
@@ -46,7 +47,7 @@ structure CompileDiagnostic where
 /-- A contract source discovered by the Lean frontend.
 `surfaceFixture` is an internal migration input, not a public source version. -/
 inductive LoadedContractSource
-  | authored (spec : ContractSpec)
+  | authored (contract : ProofForge.Frontend.Authored.AuthoredContract)
   | surfaceFixture (contract : ProofForge.Frontend.Surface.SurfaceContract)
 
 namespace LoadedContractSource
@@ -55,8 +56,8 @@ namespace LoadedContractSource
 Surface back to Legacy. Fixtures are canonical-only. -/
 def toCanonical (mode : CompilerPipeline) : LoadedContractSource →
     Except CompileDiagnostic CanonicalBundle
-  | .authored spec =>
-      match ProofForge.Frontend.ContractSpec.normalize spec with
+  | .authored contract =>
+      match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored contract with
       | .ok bundle => .ok bundle
       | .error e => .error {
           mode, targetId := "source", message := s!"authored source normalization failed: {repr e}" }

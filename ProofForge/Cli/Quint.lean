@@ -100,7 +100,9 @@ def scenarioConfigForEmit (fixtureId : String) : ProofForge.Backend.Quint.Scenar
   let base := ProofForge.Backend.Quint.Scenario.defaultForFixture fixtureId
   match fixtureId with
   | "counter" =>
-      { base with liveness := ProofForge.Contract.Examples.Counter.spec.quintLiveness }
+      { base with liveness :=
+          (ProofForge.Contract.Examples.Counter.contract.quintLiveness.map
+            fun annotation => (annotation.name, annotation.body)) }
   | _ => base
 
 /-- Map a fixture id to the IR module lowered into Quint. -/
@@ -166,8 +168,10 @@ def compileIrQuintModule (opts : CliOptions) (module : ProofForge.IR.Module) (de
 
 def compileCounterIrQuint (opts : CliOptions) : IO UInt32 :=
   compileIrQuintModule opts ProofForge.IR.Examples.Counter.module "build/quint/Counter.qnt"
-    ProofForge.Contract.Examples.Counter.spec.quintInvariants
-    ProofForge.Contract.Examples.Counter.spec.quintLiveness
+    (ProofForge.Contract.Examples.Counter.contract.quintInvariants.map
+      fun annotation => (annotation.name, annotation.body))
+    (ProofForge.Contract.Examples.Counter.contract.quintLiveness.map
+      fun annotation => (annotation.name, annotation.body))
 
 def compileValueVaultIrQuint (opts : CliOptions) : IO UInt32 :=
   compileIrQuintModule opts ProofForge.IR.Examples.ValueVault.module "build/quint/ValueVault.qnt"

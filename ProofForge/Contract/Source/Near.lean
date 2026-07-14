@@ -14,7 +14,7 @@ contract_source MyNearProgram do
 Portable Shared examples must keep:
 
 ```lean
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 ```
 
 and use only `declareRemoteUnit` + `peerHandle` + `remoteCall` on the portable
@@ -25,19 +25,19 @@ The shared IR contains no NEAR-specific expression constructors. This facade
 maps NEAR-only behavior to target-owned HostOps while keeping portable
 cross-call operations on the shared semantic surface.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 import ProofForge.Target.HostOps.Near
 
 namespace ProofForge.Contract.Source.Near
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def registerNearCrosscallString (value : String) : ModuleM Unit := do
   let _ ← ProofForge.Contract.Builder.ensureCrosscallString value
   pure ()
 
 def nearAddressLit (idx : Nat) : ProofForge.IR.Expr :=
-  ProofForge.Contract.Source.peerHandle idx
+  ProofForge.Contract.Source.Legacy.peerHandle idx
 
 def nearCrosscallPool (account methodId : ProofForge.IR.Expr) (args : Array ProofForge.IR.Expr)
     (deposit : ProofForge.IR.Expr) (argNames : Array String := #[]) : ProofForge.IR.Expr :=
@@ -64,7 +64,7 @@ def nearPromiseResultU128 (index : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
 
 /-- Source-compatible NEAR name for the full-width call value. -/
 def nearAttachedDeposit : ProofForge.IR.Expr :=
-  ProofForge.Contract.Source.callValueU128
+  ProofForge.Contract.Source.Legacy.callValueU128
 
 def nearStorageUsage : ProofForge.IR.Expr :=
   .hostCall _root_.ProofForge.Target.HostOps.Near.storageUsageSig.id #[] .u64 #[.storageScalar]

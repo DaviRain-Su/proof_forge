@@ -15,11 +15,11 @@ Authors write business intent only; `--target` materializes each host.
 Approximate / chain-only env (Solana randomness, epoch, gasLeft, chainId, …)
 still honest-reject and must not appear on the Shared product path.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.HostEnvProbe
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source HostEnvProbe do
   state lastTime : .u64

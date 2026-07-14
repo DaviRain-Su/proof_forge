@@ -16,11 +16,11 @@ Host account strings are deploy-time: `--peer peer.callee=alice.testnet` or
 
 See `just portable-remote-call-multi-target` / `just crosscall-materialize`.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.RemoteCall
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source RemoteCall do
   remote callee "peer.callee" "remote_call";
@@ -31,9 +31,9 @@ contract_source RemoteCall do
     marker := u64 0;
 
   entry call_remote returns(.u64) do
-    return ProofForge.Contract.Source.remoteCallRef callee #[];
+    return ProofForge.Contract.Source.Legacy.remoteCallRef callee #[];
 
   entry call_with_args returns(.u64) do
-    return ProofForge.Contract.Source.remoteCallRef callee #[u64 42, u64 7];
+    return ProofForge.Contract.Source.Legacy.remoteCallRef callee #[u64 42, u64 7];
 
 end Examples.Product.RemoteCall

@@ -19,32 +19,32 @@ NEAR view forbids `storage_write`, so `vested` / `releasable` are **entries**
 
 NEAR compare: `just near-compare-vesting-vault` / `-live`
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.VestingVault
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def beneficiary : ScalarRef :=
-  ProofForge.Contract.Source.slot "beneficiary" .u64
+  ProofForge.Contract.Source.Legacy.slot "beneficiary" .u64
 
 def totalAllocation : ScalarRef :=
-  ProofForge.Contract.Source.slot "totalAllocation" .u64
+  ProofForge.Contract.Source.Legacy.slot "totalAllocation" .u64
 
 def released : ScalarRef :=
-  ProofForge.Contract.Source.slot "released" .u64
+  ProofForge.Contract.Source.Legacy.slot "released" .u64
 
 def startTime : ScalarRef :=
-  ProofForge.Contract.Source.slot "startTime" .u64
+  ProofForge.Contract.Source.Legacy.slot "startTime" .u64
 
 def duration : ScalarRef :=
-  ProofForge.Contract.Source.slot "duration" .u64
+  ProofForge.Contract.Source.Legacy.slot "duration" .u64
 
 def claimBalance : ScalarRef :=
-  ProofForge.Contract.Source.slot "claimBalance" .u64
+  ProofForge.Contract.Source.Legacy.slot "claimBalance" .u64
 
 def vestedScratch : ScalarRef :=
-  ProofForge.Contract.Source.slot "vestedScratch" .u64
+  ProofForge.Contract.Source.Legacy.slot "vestedScratch" .u64
 
 /-- Write vested amount into `vestedScratch` from host timestamp.
 
@@ -53,38 +53,38 @@ def vestedScratch : ScalarRef :=
     (nanoseconds) because the pro-rate branch only runs when `elapsed < duration`.
 -/
 def computeVested : EntryM Unit := do
-  let now := ProofForge.Contract.Source.timestamp
-  let start := ProofForge.Contract.Source.read startTime
-  let dur := ProofForge.Contract.Source.read duration
-  let total := ProofForge.Contract.Source.read totalAllocation
-  let elapsed := ProofForge.Contract.Source.sub now start
+  let now := ProofForge.Contract.Source.Legacy.timestamp
+  let start := ProofForge.Contract.Source.Legacy.read startTime
+  let dur := ProofForge.Contract.Source.Legacy.read duration
+  let total := ProofForge.Contract.Source.Legacy.read totalAllocation
+  let elapsed := ProofForge.Contract.Source.Legacy.sub now start
   -- Default: fully vested (covers live NEAR ns timestamps ≫ duration).
-  ProofForge.Contract.Source.write vestedScratch total
+  ProofForge.Contract.Source.Legacy.write vestedScratch total
   -- If still vesting (elapsed < duration), overwrite with pro-rate.
   let prorateBody : EntryM Unit := do
-    ProofForge.Contract.Source.requireNonZero dur "zero duration"
-    ProofForge.Contract.Source.write vestedScratch
-      (ProofForge.Contract.Source.div
-        (ProofForge.Contract.Source.mul total elapsed) dur)
+    ProofForge.Contract.Source.Legacy.requireNonZero dur "zero duration"
+    ProofForge.Contract.Source.Legacy.write vestedScratch
+      (ProofForge.Contract.Source.Legacy.div
+        (ProofForge.Contract.Source.Legacy.mul total elapsed) dur)
   let (_, prorateB) := prorateBody.run {}
   ProofForge.Contract.Builder.ifElse
     (ProofForge.Contract.Builder.lt elapsed dur) prorateB.body #[]
 
 contract_source VestingVault do
-  use ProofForge.Contract.Source.scalar beneficiary
-  use ProofForge.Contract.Source.scalar totalAllocation
-  use ProofForge.Contract.Source.scalar released
-  use ProofForge.Contract.Source.scalar startTime
-  use ProofForge.Contract.Source.scalar duration
-  use ProofForge.Contract.Source.scalar claimBalance
-  use ProofForge.Contract.Source.scalar vestedScratch
+  use ProofForge.Contract.Source.Legacy.scalar beneficiary
+  use ProofForge.Contract.Source.Legacy.scalar totalAllocation
+  use ProofForge.Contract.Source.Legacy.scalar released
+  use ProofForge.Contract.Source.Legacy.scalar startTime
+  use ProofForge.Contract.Source.Legacy.scalar duration
+  use ProofForge.Contract.Source.Legacy.scalar claimBalance
+  use ProofForge.Contract.Source.Legacy.scalar vestedScratch
 
   event Released
 
   entry init (who : .u64, total : .u64, start : .u64, dur : .u64) do
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref total)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref total)
       "zero total";
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref dur)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref dur)
       "zero duration";
     beneficiary := who;
     totalAllocation := total;
@@ -119,12 +119,12 @@ contract_source VestingVault do
     let v : .u64 := vestedScratch;
     let r : .u64 := released;
     let amount : .u64 := v -! r;
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount)
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref amount)
       "nothing releasable";
     released := r +! amount;
     let bal : .u64 := claimBalance;
     claimBalance := bal +! amount;
-    emit Released indexed #[fieldAsName "beneficiary" (ProofForge.Contract.Source.read beneficiary)]
+    emit Released indexed #[fieldAsName "beneficiary" (ProofForge.Contract.Source.Legacy.read beneficiary)]
       data #[fieldAsName "amount" amount];
 
 end Examples.Product.VestingVault

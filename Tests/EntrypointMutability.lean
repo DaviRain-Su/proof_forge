@@ -1,11 +1,11 @@
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 import ProofForge.IR.Mutability
 import ProofForge.Target
 import Examples.Product.ValueVault
 
 namespace ProofForge.Tests.MutabilitySource
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source MutabilityArityProbe do
   entry call0 do

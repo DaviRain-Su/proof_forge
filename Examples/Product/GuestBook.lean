@@ -14,11 +14,11 @@ monotonic index and total count — same control flow as a guestbook
 
 NEAR compare: `just near-compare-guestbook` / `-live`
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.GuestBook
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source GuestBook do
   state messageCount : .u64

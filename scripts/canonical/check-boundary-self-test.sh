@@ -173,6 +173,12 @@ printf '%s\n' 'def normalize := adaptContractSpecCanonical' \
   > "$root/ProofForge/CompilerLeak.lean"
 expect_failure "retired Legacy adapter API" "$root"
 
+root="$TMP/direct-source-legacy"
+make_fixture "$root"
+printf '%s\n' 'import ProofForge.Contract.Source.Legacy' \
+  > "$root/ProofForge/Contract/Source.lean"
+expect_failure "direct Source imports Legacy quarantine" "$root"
+
 root="$TMP/comments"
 make_fixture "$root"
 printf '%s\n' '-- historical id: "evm-core"' 'def ids := #["evm"]' > "$root/ProofForge/Target/Registry.lean"

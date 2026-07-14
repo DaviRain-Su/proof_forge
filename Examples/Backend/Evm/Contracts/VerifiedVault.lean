@@ -5,12 +5,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Portable VerifiedVault for the unified EVM entry path. Source-level financial
 proofs remain in `VerifiedVault.Spec`; codegen uses portable IR only.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 import ProofForge.Contract.Stdlib.ReentrancyGuard
 
 namespace VerifiedVault
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 open ProofForge.Contract.Stdlib.ReentrancyGuard
 
 namespace Spec
@@ -75,7 +75,7 @@ contract_source VerifiedVault do
   mapping balances from .u64 to .u64
 
   entry init do
-    do ProofForge.Contract.Source.requireZero initialized "already initialized";
+    do ProofForge.Contract.Source.Legacy.requireZero initialized "already initialized";
     «owner» := caller;
     initialized := u64 1;
     reserves := u64 0;
@@ -83,10 +83,10 @@ contract_source VerifiedVault do
 
   entry deposit do
     accepts_callvalue;
-    do ProofForge.Contract.Source.requireNe (ProofForge.Contract.Source.read initialized) (u64 0) "not initialized";
+    do ProofForge.Contract.Source.Legacy.requireNe (ProofForge.Contract.Source.Legacy.read initialized) (u64 0) "not initialized";
     let depositor : .u64 := caller;
     let amount : .u64 := nativeValue;
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref amount) "zero deposit";
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref amount) "zero deposit";
     let curReserves : .u64 := reserves;
     reserves := curReserves +! amount;
     let curShares : .u64 := totalShares;
@@ -95,15 +95,15 @@ contract_source VerifiedVault do
     do mapWrite balances depositor (bal +! amount);
 
   entry withdraw (amount : .u64) do
-    do ProofForge.Contract.Source.requireNe (ProofForge.Contract.Source.read initialized) (u64 0) "not initialized";
+    do ProofForge.Contract.Source.Legacy.requireNe (ProofForge.Contract.Source.Legacy.read initialized) (u64 0) "not initialized";
     acquire_lock lock;
     let withdrawer : .u64 := caller;
     let bal : .u64 := mapRead balances withdrawer;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref bal) (ProofForge.Contract.Source.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref bal) (ProofForge.Contract.Source.Legacy.ref amount) "insufficient balance";
     let curReserves : .u64 := reserves;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref curReserves) (ProofForge.Contract.Source.ref amount) "insufficient reserves";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref curReserves) (ProofForge.Contract.Source.Legacy.ref amount) "insufficient reserves";
     let curShares : .u64 := totalShares;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref curShares) (ProofForge.Contract.Source.ref amount) "insufficient shares";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref curShares) (ProofForge.Contract.Source.Legacy.ref amount) "insufficient shares";
     reserves := curReserves -! amount;
     totalShares := curShares -! amount;
     do mapWrite balances withdrawer (bal -! amount);

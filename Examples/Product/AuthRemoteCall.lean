@@ -16,11 +16,11 @@ Also builds on EVM / NEAR / Soroban (remote materializes as CALL / promise /
 invoke_contract). See `Tests/Product/Accounts.lean` and
 `just portable-solana-accounts`.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace Examples.Product.AuthRemoteCall
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 contract_source AuthRemoteCall do
   remote callee "peer.callee" "receive";
@@ -35,10 +35,10 @@ contract_source AuthRemoteCall do
   entry debit_and_forward (amount : .u64) returns(.u64) do
     let _sender : .u64 := caller;
     let n : .u64 := balance;
-    do ProofForge.Contract.Source.requireGe (ProofForge.Contract.Source.ref n)
-      (ProofForge.Contract.Source.ref amount) "insufficient balance";
+    do ProofForge.Contract.Source.Legacy.requireGe (ProofForge.Contract.Source.Legacy.ref n)
+      (ProofForge.Contract.Source.Legacy.ref amount) "insufficient balance";
     balance := n -! amount;
-    return ProofForge.Contract.Source.remoteCallRef callee
-      #[ProofForge.Contract.Source.ref amount];
+    return ProofForge.Contract.Source.Legacy.remoteCallRef callee
+      #[ProofForge.Contract.Source.Legacy.ref amount];
 
 end Examples.Product.AuthRemoteCall

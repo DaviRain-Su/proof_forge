@@ -15,6 +15,7 @@
 #  10. optional formal libraries claiming default-backend namespace ownership
 #  11. final Authored syntax importing transitional source/IR representations
 #  12. retired Legacy adapter APIs reappearing in production code
+#  13. the direct public source/Counter route importing transitional authoring
 #
 # This is a required static gate in `just check`.
 
@@ -224,6 +225,19 @@ if rg -n '\b(?:adaptLegacy|adaptContractSpecCanonical)\b' ProofForge \
     >/dev/null 2>&1; then
   report "retired Legacy adapter API referenced by production code"
 fi
+
+# ── 13. Direct public authoring cannot depend on the quarantine ─────
+DIRECT_AUTHORING_FILES=(
+  ProofForge/Contract/Source.lean
+  Examples/Product/Counter.lean
+  ProofForge/Contract/Examples/Counter.lean
+)
+for f in "${DIRECT_AUTHORING_FILES[@]}"; do
+  if [ -f "$f" ] && rg -n '^\s*import\s+(ProofForge\.Contract\.(?:Builder|Source\.Legacy)|ProofForge\.IR\.(?:Contract|Expr)|ProofForge\.Frontend\.Surface)(\.|\s|$)' \
+      "$f" >/dev/null 2>&1; then
+    report "direct public authoring file $f imports a transitional representation"
+  fi
+done
 
 if [ "$FAIL" -eq 0 ]; then
   echo "canonical-boundary: ok"

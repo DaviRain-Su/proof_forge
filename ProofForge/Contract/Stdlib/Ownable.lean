@@ -6,11 +6,11 @@ Portable Ownable access-control mixin for `contract_source` composition.
 To combine with ERC-20 in one contract, use the official `compose` API and import
 `ProofForge.Contract.Stdlib.Compose.Specs` rather than chaining both mixins directly.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace ProofForge.Contract.Stdlib.Ownable
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 namespace Spec
 
@@ -26,38 +26,38 @@ theorem isOwner_refl (s : State) : isOwner s s.ownerAddr := by rfl
 end Spec
 
 def «owner» : ScalarRef :=
-  ProofForge.Contract.Source.slot "owner" .u64
+  ProofForge.Contract.Source.Legacy.slot "owner" .u64
 
 def ownableInitialized : ScalarRef :=
-  ProofForge.Contract.Source.slot "ownableInitialized" .u64
+  ProofForge.Contract.Source.Legacy.slot "ownableInitialized" .u64
 
 contract_mixin OwnableMixin do
-  use ProofForge.Contract.Source.scalar «owner»
-  use ProofForge.Contract.Source.scalar ownableInitialized
+  use ProofForge.Contract.Source.Legacy.scalar «owner»
+  use ProofForge.Contract.Source.Legacy.scalar ownableInitialized
 
   event OwnershipTransferred abi #[
     ("previousOwner", "address"),
     ("newOwner", "address")
   ]
 
-  use ProofForge.Contract.Source.view
-    (ProofForge.Contract.Source.methodWithReturnAbi "owner" #[] .u64 "address")
-    (ProofForge.Contract.Source.ret (ProofForge.Contract.Source.read «owner»))
+  use ProofForge.Contract.Source.Legacy.view
+    (ProofForge.Contract.Source.Legacy.methodWithReturnAbi "owner" #[] .u64 "address")
+    (ProofForge.Contract.Source.Legacy.ret (ProofForge.Contract.Source.Legacy.read «owner»))
 
   entry transferOwnership (newOwner : .address) do
     guard_owner «owner»;
-    do ProofForge.Contract.Source.requireNonZero (ProofForge.Contract.Source.ref newOwner) "zero address";
+    do ProofForge.Contract.Source.Legacy.requireNonZero (ProofForge.Contract.Source.Legacy.ref newOwner) "zero address";
     emit OwnershipTransferred indexed #[
-      fieldAsName "previousOwner" (ProofForge.Contract.Source.read «owner»),
+      fieldAsName "previousOwner" (ProofForge.Contract.Source.Legacy.read «owner»),
       fieldAsName "newOwner"
-        (ProofForge.Contract.Source.cast (ProofForge.Contract.Source.ref newOwner) .u64)
+        (ProofForge.Contract.Source.Legacy.cast (ProofForge.Contract.Source.Legacy.ref newOwner) .u64)
     ] data #[];
     «owner» := newOwner;
 
   entry renounceOwnership do
     guard_owner «owner»;
     emit OwnershipTransferred indexed #[
-      fieldAsName "previousOwner" (ProofForge.Contract.Source.read «owner»),
+      fieldAsName "previousOwner" (ProofForge.Contract.Source.Legacy.read «owner»),
       fieldAsName "newOwner" (u64 0)
     ] data #[];
     «owner» := u64 0;
@@ -66,11 +66,11 @@ contract_source Ownable do
   event OwnershipTransferred
   use mixin
   entry init do
-    do ProofForge.Contract.Source.requireZero ownableInitialized "already initialized";
+    do ProofForge.Contract.Source.Legacy.requireZero ownableInitialized "already initialized";
     ownableInitialized := u64 1;
     emit OwnershipTransferred indexed #[
       fieldAsName "previousOwner" (u64 0),
-      fieldAsName "newOwner" (ProofForge.Contract.Source.cast caller .u64)
+      fieldAsName "newOwner" (ProofForge.Contract.Source.Legacy.cast caller .u64)
     ] data #[];
     «owner» := caller;
 

@@ -312,9 +312,9 @@ def compileSolanaSpecElf (opts : CliOptions) (defaultOutput : FilePath)
   | .error err =>
       throw <| IO.userError err.render
 
-/-- Source-backed Solana ELF build (PF-P0-03). Loads `contract_source` and runs
-the same package/ELF path as fixture ELF emits. Fails if `sbpf` is unavailable. -/
-unsafe def compileContractSourceSolanaElf (opts : CliOptions) : IO UInt32 := do
+/-- Deletion-only NFT/Legacy ELF route. Public authored sources use the direct
+canonical plan entry point declared below. -/
+unsafe def compileLegacyContractSourceSolanaElf (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
       return 1
@@ -559,6 +559,24 @@ def compileSolanaAuthoredElf (opts : CliOptions) (defaultOutput : FilePath)
   IO.FS.writeFile metadataOutput (metadata ++ "\n")
   IO.println s!"wrote {metadataOutput}"
   return 0
+
+/-- Public source-backed Solana ELF build. Normal sources are loaded only as
+AuthoredContract and lowered through checked Canonical Core and SolanaModulePlan.
+The explicit NFT mode remains isolated until its authored catalog migration. -/
+unsafe def compileContractSourceSolanaElf (opts : CliOptions) : IO UInt32 := do
+  if opts.nft then
+    return ← compileLegacyContractSourceSolanaElf opts
+  let some input := opts.input?
+    | IO.eprintln usage
+      return 1
+  let base := leanBaseName input
+  let defaultOutput := siblingPath input s!"{base}.so"
+  let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
+  match source with
+  | .authored contract =>
+      compileSolanaAuthoredElf opts defaultOutput base base contract
+  | .surfaceFixture contract =>
+      compileSolanaAuthoredElf opts defaultOutput base base contract
 
 def compileSolanaSystemCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaAuthoredSbpf opts

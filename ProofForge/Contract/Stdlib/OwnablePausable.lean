@@ -8,21 +8,21 @@ Standalone `Pausable` leaves pause/unpause unauthenticated so hosts can compose
 auth separately; this module is the product path that matches OpenZeppelin-style
 `onlyOwner` pause control without chain DSL.
 -/
-import ProofForge.Contract.Source
+import ProofForge.Contract.Source.Legacy
 
 namespace ProofForge.Contract.Stdlib.OwnablePausable
 
-open ProofForge.Contract.Source
+open ProofForge.Contract.Source.Legacy
 
 def «owner» : ScalarRef :=
-  ProofForge.Contract.Source.slot "owner" .u64
+  ProofForge.Contract.Source.Legacy.slot "owner" .u64
 
 def «paused» : ScalarRef :=
-  ProofForge.Contract.Source.slot "paused" .u64
+  ProofForge.Contract.Source.Legacy.slot "paused" .u64
 
 contract_source OwnablePausable do
-  use ProofForge.Contract.Source.scalar «owner»
-  use ProofForge.Contract.Source.scalar «paused»
+  use ProofForge.Contract.Source.Legacy.scalar «owner»
+  use ProofForge.Contract.Source.Legacy.scalar «paused»
 
   query «owner» returns(.u64) do
     return «owner»;
@@ -31,7 +31,7 @@ contract_source OwnablePausable do
     return «paused»;
 
   entry init do
-    do ProofForge.Contract.Source.requireZero «owner» "already initialized";
+    do ProofForge.Contract.Source.Legacy.requireZero «owner» "already initialized";
     «owner» := caller;
 
   entry pause do

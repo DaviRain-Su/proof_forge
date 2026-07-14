@@ -80,6 +80,7 @@ def main() -> int:
     parser.add_argument("--expected-module", required=True)
     parser.add_argument("--expected-entrypoints", required=True, help="comma-separated entrypoint names")
     parser.add_argument("--expected-source-kind", default="portable-ir")
+    parser.add_argument("--expected-ir-version")
     args = parser.parse_args()
 
     metadata_path = Path(args.metadata)
@@ -92,7 +93,9 @@ def main() -> int:
     expect(metadata.get("artifactKind") == "wasm", "artifactKind must be wasm")
     expect(metadata.get("fixture") == args.expected_fixture, "fixture mismatch")
     expect(metadata.get("sourceKind") == args.expected_source_kind, "sourceKind mismatch")
-    if args.expected_source_kind == "portable-ir":
+    if args.expected_ir_version is not None:
+        expect(metadata.get("irVersion") == args.expected_ir_version, "irVersion mismatch")
+    elif args.expected_source_kind == "portable-ir":
         expect(metadata.get("irVersion") == "portable-ir-v0", "irVersion must be portable-ir-v0")
     else:
         expect(metadata.get("irVersion") is None, "irVersion must be null for non-IR sources")
@@ -110,7 +113,7 @@ def main() -> int:
     expect(validation.get("emitWat") == "passed", "validation.emitWat must be passed")
     expect(validation.get("watGeneration") == "passed", "validation.watGeneration must be passed")
     expect(validation.get("deployManifest") == "passed", "validation.deployManifest must be passed")
-    expect(validation.get("wat2wasm") in {"passed", "skipped"}, "validation.wat2wasm must be passed or skipped")
+    expect(validation.get("wat2wasm") in {"passed", "skipped", "unavailable"}, "validation.wat2wasm has an invalid state")
 
     deploy_path = metadata_base / Path(deploy["path"])
     deploy_manifest = expect_object(json.loads(deploy_path.read_text()), "deploy manifest")
@@ -120,7 +123,9 @@ def main() -> int:
     expect(deploy_manifest.get("target") == "wasm-near", "deploy target must be wasm-near")
     expect(deploy_manifest.get("fixture") == args.expected_fixture, "deploy fixture mismatch")
     expect(deploy_manifest.get("sourceKind") == args.expected_source_kind, "deploy sourceKind mismatch")
-    if args.expected_source_kind == "portable-ir":
+    if args.expected_ir_version is not None:
+        expect(deploy_manifest.get("irVersion") == args.expected_ir_version, "deploy irVersion mismatch")
+    elif args.expected_source_kind == "portable-ir":
         expect(deploy_manifest.get("irVersion") == "portable-ir-v0", "deploy irVersion must be portable-ir-v0")
     else:
         expect(deploy_manifest.get("irVersion") is None, "deploy irVersion must be null for non-IR sources")
