@@ -135,8 +135,19 @@ Reference 检查点（2026-07-14）：手写 Solidity 与 near-sdk 实现现已�
 七个方法、五类事件、snapshot 和 checked arithmetic 拒绝。对应 v1 manifest
 分别固定 `solc` 0.8.30 与 near-sdk 5.28.3/Rust 1.94；原生 Solidity 编译、
 near-sdk host 生命周期测试和 release Wasm 编译均通过。在共享
-Anvil/Mollusk/near-vm-runner comparison 执行前，三份 reference 仍保持
+Anvil/Mollusk/near-vm-runner comparison 执行前，三份 reference 保持
 `semanticEvidence=none`。
+
+ValueVault 执行检查点（2026-07-14）：`just differential-value-vault` 现在把
+direct Authored Product 源码经 checked Core 和 target-owned plan 构建，再在
+Anvil、Mollusk 与 upstream NEAR VM 上执行两侧实现。全部 13 个 logical step
+（包括被拒绝的 `release(201)`）覆盖八个 observation dimension，并在 EVM、
+Solana、NEAR 上报告 `semanticMatch=true`。原生 Solidity 的 `uint64` ABI 与
+ProofForge EVM 的 `uint256` ABI 仍是 target-local 调用细节，runner 将二者
+归一化为同一个 portable `u64` interface；没有新增 compiler adapter 或
+fallback。生成 inventory 现有 102 项资产，其中六项 CMP-3 ValueVault 资产被
+晋级，总计 12 项 verified 资产。CMP-3 继续推进 authorization、map/collection、
+event/error 和 portable-crosscall 代表场景。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

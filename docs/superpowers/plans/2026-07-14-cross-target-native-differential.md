@@ -176,8 +176,20 @@ implementations now cover all seven methods, five event families, snapshot,
 and checked arithmetic rejection. Their v1 manifests pin `solc` 0.8.30 and
 near-sdk 5.28.3/Rust 1.94 respectively; native Solidity compilation, near-sdk
 host lifecycle tests, and release Wasm compilation pass. All three references
-remain `semanticEvidence=none` until the shared Anvil/Mollusk/near-vm-runner
-comparison executes.
+were held at `semanticEvidence=none` until the shared VM comparison executed.
+
+ValueVault execution checkpoint (2026-07-14): `just
+differential-value-vault` now builds the direct Authored Product source through
+checked Core and target-owned plans, then executes both implementations on
+Anvil, Mollusk, and the upstream NEAR VM. All 13 logical steps, including the
+rejected `release(201)`, cover all eight observation dimensions and report
+`semanticMatch=true` for EVM, Solana, and NEAR. Native Solidity `uint64` and
+ProofForge EVM `uint256` ABIs remain target-local calling details and normalize
+to the same portable `u64` interface; no compiler adapter or fallback was
+added. The generated inventory has 102 assets and promotes exactly six CMP-3
+ValueVault assets, for 12 verified assets total. CMP-3 remains active for the
+authorization, map/collection, event/error, and portable-crosscall
+representatives.
 
 Acceptance:
 

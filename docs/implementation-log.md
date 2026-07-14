@@ -4239,7 +4239,7 @@ Rules:
 
 ## 2026-07-14 - CMP-3b: complete EVM and NEAR native references
 
-- Status: `done (pending commit)`; the primary-triad VM runner is next.
+- Status: `done (verified at 8ba9b309)`; the primary-triad VM runner is next.
 - Expanded the independent Solidity and near-sdk ValueVault references to the
   complete seven-method contract, five event families, snapshot behavior, and
   checked arithmetic rejection. The NEAR host test also proves state remains
@@ -4254,3 +4254,34 @@ Rules:
   Rust 1.94, near-sdk release Wasm build, focused reference contract test,
   `just differential-contracts`, `just near-compare-value-vault`, and `git
   diff --check` passed. No full aggregate was run.
+
+## 2026-07-14 - CMP-3c: execute the primary-triad ValueVault differential
+
+- Status: `done (verified 2026-07-14)`; CMP-3 continues with the authorization
+  representative.
+- Added a fixed 13-step Mollusk runner for both native and direct ProofForge
+  ValueVault ELFs, including six-field state snapshots, return data, numeric
+  event logs, compute units, and checked-underflow failure capture.
+- Extended the upstream NEAR VM tool with an explicit diagnostic
+  `--continue-on-abort` mode so the negative step can prove storage remains
+  unchanged without turning the abort into success.
+- Added the fail-closed three-target runner and `just
+  differential-value-vault`. It builds only the direct Authored Product source,
+  rejects ContractSpec sidecars, and compares independent Solidity,
+  Pinocchio, and near-sdk references with ProofForge artifacts on Anvil,
+  Mollusk, and the upstream NEAR VM.
+- Kept native Solidity `uint64` and ProofForge EVM `uint256` ABI signatures as
+  separate target-local adapters in the test runner, then normalized both to
+  portable `u64`. No compiler adapter, Legacy fallback, or dual-write path was
+  introduced.
+- All 13 steps cover status, return, state, balances, events, external actions,
+  interface, and target-local resources with `semanticMatch=true` on EVM,
+  Solana, and NEAR. The generated inventory now contains 102 assets, including
+  12 verified CMP-2/CMP-3 assets.
+- Verification: `PF_CMP_SOLC=build/toolchains/solc-0.8.30 just
+  differential-value-vault`; `just differential-contracts`; `cargo check
+  --manifest-path testkit/Cargo.toml -p
+  proof-forge-testkit-harness-solana --bin value_vault_differential`; `cargo
+  test --manifest-path tools/near-vm-runner/Cargo.toml`; Python bytecode
+  compilation and differential runner tests; `just docs-check`; and `git
+  diff --check`. No full aggregate was run.

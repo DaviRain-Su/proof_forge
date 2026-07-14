@@ -150,7 +150,21 @@ class ContractTests(unittest.TestCase):
 
     def test_generated_inventory_has_no_semantic_overclaim(self) -> None:
         inventory = generate_inventory()
-        self.assertEqual(6, inventory["summary"]["semanticVerifiedCount"])
+        self.assertEqual(12, inventory["summary"]["semanticVerifiedCount"])
+        verified_ids = {
+            item["id"] for item in inventory["assets"] if item["semanticEvidence"] == "verified"
+        }
+        self.assertEqual(
+            {
+                "cmp3-reference-evm-value-vault",
+                "cmp3-reference-near-value-vault",
+                "cmp3-reference-solana-value-vault",
+                "cmp3-scenario-value-vault-primary-triad",
+                "cmp3-runner-value-vault-primary-triad",
+                "cmp3-gate-value-vault-primary-triad",
+            },
+            {asset_id for asset_id in verified_ids if asset_id.startswith("cmp3-")},
+        )
         families = inventory["summary"]["byTargetFamily"]
         for family in ("evm", "solana", "near", "stylus"):
             self.assertGreater(families[family], 0)

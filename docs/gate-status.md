@@ -100,7 +100,7 @@ Status: **closed at `b2d673b4`**.
 
 ## Gate A-CUT3a - ValueVault direct authoring cutover
 
-Status: **closed locally; CMP-3 native differential remains active**.
+Status: **closed with primary-triad native differential evidence; catalog migration remains active**.
 
 | Criterion | Requirement | Status | Evidence |
 |---|---|---|---|
@@ -122,6 +122,20 @@ Status: **closed locally; CMP-3 native differential remains active**.
 | CMP-2-3 | Native and ProofForge artifacts execute on target VMs | ✅ met | Anvil executes both EVM artifacts, Mollusk executes both sBPF ELFs, and `near-vm-runner` executes both Wasm artifacts on upstream NEAR VM logic |
 | CMP-2-4 | Required semantics fail closed | ✅ met | each target reports all eight dimensions covered, `semanticMatch=true`, and zero unallowed mismatches; exact target-local gas/CU differences remain visible as allowed resource evidence |
 | CMP-2-5 | The comparison is not a compiler compatibility route | ✅ met | schemas, manifests, runner, and reports live under `testkit/`, `scripts/`, `benchmarks/`, and ignored `build/`; the compiler import-boundary test remains green |
+
+## Gate CMP-3a - Primary-triad native ValueVault differential
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3a-1 | The direct ValueVault Product source is the only ProofForge business input | ✅ met | `just differential-value-vault` builds `Examples/Product/ValueVault.lean` with `contract-source-authored` / `canonical-core-v1` metadata and rejects any ContractSpec sidecar |
+| CMP-3a-2 | Independent references have complete pinned provenance | ✅ met | Solidity, Pinocchio Rust, and near-sdk Rust v1 manifests pin exact source SHA-256, Apache-2.0, and compiler/framework toolchains |
+| CMP-3a-3 | Both implementations execute the same stateful and negative lifecycle | ✅ met | Anvil, Mollusk, and upstream `near-vm-runner` execute all 13 steps, including checked underflow rejection and post-failure state preservation |
+| CMP-3a-4 | All required observations fail closed | ✅ met | EVM, Solana, and NEAR each cover status, return, state, balances, events, external actions, interface, and target-local resources with `semanticMatch=true` |
+| CMP-3a-5 | ABI normalization does not create a compiler compatibility path | ✅ met | the test-only runner invokes native Solidity `uint64` and ProofForge EVM `uint256` signatures separately, then normalizes both to portable `u64`; no compiler adapter, fallback, or dual-write route was added |
 
 ## How to use
 

@@ -185,8 +185,8 @@ def generate_inventory() -> dict[str, object]:
                 "nativeReference",
                 manifest,
                 "referenceManifestV1",
-                "none",
-                "CMP-3 independent ValueVault reference with pinned provenance; semantic evidence remains closed until the primary-triad runner passes",
+                "verified",
+                "CMP-3 independent ValueVault reference with pinned provenance and primary-triad VM evidence",
                 sourcePaths=[reference["source"]["path"]],
             )
         )
@@ -202,8 +202,31 @@ def generate_inventory() -> dict[str, object]:
                 "scenario",
                 cmp3_scenario,
                 "portableScenarioV1",
-                "none",
-                "stateful ValueVault lifecycle and arithmetic-underflow case; semantic evidence remains closed until every primary-triad runner executes",
+                "verified",
+                "stateful ValueVault lifecycle and arithmetic-underflow case executed on both implementations for every primary target",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-runner-value-vault-primary-triad",
+                "portable",
+                "runner",
+                REPO_ROOT / "scripts/differential/value_vault_pilot.py",
+                "deterministicRunner",
+                "verified",
+                "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-gate-value-vault-primary-triad",
+                "portable",
+                "gate",
+                REPO_ROOT / "justfile",
+                "focusedGate",
+                "verified",
+                "focused fail-closed CMP-3 ValueVault gate",
+                selectors=["differential-value-vault"],
             )
         )
 
@@ -318,7 +341,7 @@ def generate_inventory() -> dict[str, object]:
     assets.sort(key=lambda item: item["id"])
     inventory: dict[str, object] = {
         "schema": INVENTORY_SCHEMA,
-        "scope": "tracked comparison assets through the active CMP-3 ValueVault setup",
+        "scope": "tracked comparison assets through the verified CMP-3 ValueVault primary-triad pilot",
         "summary": {
             "assetCount": len(assets),
             "semanticVerifiedCount": sum(1 for item in assets if item["semanticEvidence"] == "verified"),

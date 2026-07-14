@@ -21,7 +21,16 @@ VALUE_TYPES = frozenset(
     {"unit", "bool", "u64", "u128", "i64", "string", "bytes", "address", "accountId", "list", "record"}
 )
 ERROR_CATEGORIES = frozenset(
-    {"assertion", "authorization", "invalidInput", "unsupported", "externalFailure", "outOfResource", "trap"}
+    {
+        "assertion",
+        "arithmetic",
+        "authorization",
+        "invalidInput",
+        "unsupported",
+        "externalFailure",
+        "outOfResource",
+        "trap",
+    }
 )
 
 

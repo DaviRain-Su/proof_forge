@@ -50,6 +50,11 @@ differential-contracts:
 differential-counter:
     python3 scripts/differential/counter_pilot.py
 
+# Compare direct Authored ValueVault artifacts with independent native EVM,
+# Solana, and NEAR implementations across the stateful CMP-3 scenario.
+differential-value-vault:
+    python3 scripts/differential/value_vault_pilot.py
+
 # Typed open capability/HostOp identity and target-owned catalog contract.
 hostop-protocol:
     lake env lean --run Tests/Canonical/HostOpCatalog.lean

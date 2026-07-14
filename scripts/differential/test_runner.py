@@ -287,6 +287,17 @@ class RunnerContractTests(unittest.TestCase):
         with self.assertRaisesRegex(RunnerContractError, "classified errorCategory"):
             result("bad", values={"callStatus": {"status": "revert"}}, coverage=("callStatus",))
 
+    def test_arithmetic_failure_is_a_classified_portable_error(self) -> None:
+        values = {
+            "callStatus": {
+                "status": "revert",
+                "errorCategory": "arithmetic",
+                "errorData": {"kind": "underflow", "operation": "release"},
+            }
+        }
+        arithmetic = result("native", values=values, coverage=("callStatus",))
+        self.assertEqual("arithmetic", arithmetic.steps[0].observations["callStatus"]["errorCategory"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -67,12 +67,24 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-gate-value-vault-primary-triad",
+      "kind": "gate",
+      "maturity": "focusedGate",
+      "notes": "focused fail-closed CMP-3 ValueVault gate",
+      "path": "justfile",
+      "selectors": [
+        "differential-value-vault"
+      ],
+      "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
       "id": "cmp3-reference-evm-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
-      "notes": "CMP-3 independent ValueVault reference with pinned provenance; semantic evidence remains closed until the primary-triad runner passes",
+      "notes": "CMP-3 independent ValueVault reference with pinned provenance and primary-triad VM evidence",
       "path": "testkit/differential/value-vault/references/evm.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "sourcePaths": [
         "benchmarks/native/evm/ValueVault.sol"
       ],
@@ -82,9 +94,9 @@
       "id": "cmp3-reference-near-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
-      "notes": "CMP-3 independent ValueVault reference with pinned provenance; semantic evidence remains closed until the primary-triad runner passes",
+      "notes": "CMP-3 independent ValueVault reference with pinned provenance and primary-triad VM evidence",
       "path": "testkit/differential/value-vault/references/near.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "sourcePaths": [
         "testkit/compare/near/value-vault/src/lib.rs"
       ],
@@ -94,21 +106,30 @@
       "id": "cmp3-reference-solana-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
-      "notes": "CMP-3 independent ValueVault reference with pinned provenance; semantic evidence remains closed until the primary-triad runner passes",
+      "notes": "CMP-3 independent ValueVault reference with pinned provenance and primary-triad VM evidence",
       "path": "testkit/differential/value-vault/references/solana.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "sourcePaths": [
         "benchmarks/native/solana/value-vault/src/lib.rs"
       ],
       "targetFamily": "solana"
     },
     {
+      "id": "cmp3-runner-value-vault-primary-triad",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+      "path": "scripts/differential/value_vault_pilot.py",
+      "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
       "id": "cmp3-scenario-value-vault-primary-triad",
       "kind": "scenario",
       "maturity": "portableScenarioV1",
-      "notes": "stateful ValueVault lifecycle and arithmetic-underflow case; semantic evidence remains closed until every primary-triad runner executes",
+      "notes": "stateful ValueVault lifecycle and arithmetic-underflow case executed on both implementations for every primary target",
       "path": "testkit/differential/value-vault/scenario.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "targetFamily": "portable"
     },
     {
@@ -1192,16 +1213,16 @@
     }
   ],
   "schema": "proof-forge.differential.inventory.v1",
-  "scope": "tracked comparison assets through the active CMP-3 ValueVault setup",
+  "scope": "tracked comparison assets through the verified CMP-3 ValueVault primary-triad pilot",
   "summary": {
-    "assetCount": 100,
+    "assetCount": 102,
     "byTargetFamily": {
       "evm": 9,
       "near": 35,
-      "portable": 24,
+      "portable": 26,
       "solana": 24,
       "stylus": 8
     },
-    "semanticVerifiedCount": 6
+    "semanticVerifiedCount": 12
   }
 }

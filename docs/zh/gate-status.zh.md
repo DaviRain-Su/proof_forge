@@ -93,7 +93,7 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 
 ## Gate A-CUT3a —— ValueVault direct authoring cutover
 
-状态：**本地关闭；CMP-3 native differential 仍在进行**。
+状态：**已用主三链 native differential 证据关闭；catalog 迁移继续进行**。
 
 | 条件 | 要求 | 状态 | 证据 |
 |---|---|---|---|
@@ -115,6 +115,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | CMP-2-3 | 原生和 ProofForge artifact 在 target VM 执行 | ✅ met | Anvil 执行两份 EVM artifact，Mollusk 执行两份 sBPF ELF，`near-vm-runner` 通过 upstream NEAR VM logic 执行两份 Wasm artifact |
 | CMP-2-4 | 必需语义 fail closed | ✅ met | 每个 target 的八个 dimension 均完整覆盖，`semanticMatch=true`，且没有未允许 mismatch；精确的 target-local gas/CU 差异继续作为 resource 证据保留 |
 | CMP-2-5 | 比较不是编译器兼容路线 | ✅ met | schema、manifest、runner 与 report 仅位于 `testkit/`、`scripts/`、`benchmarks/` 和忽略的 `build/`；compiler import boundary test 保持通过 |
+
+## Gate CMP-3a —— 主三链原生 ValueVault 差分
+
+**状态：Closed**
+
+**Closed: 2026-07-14**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-3a-1 | direct ValueVault Product source 是唯一 ProofForge 业务输入 | ✅ met | `just differential-value-vault` 以 `contract-source-authored` / `canonical-core-v1` metadata 构建 `Examples/Product/ValueVault.lean`，并拒绝任何 ContractSpec sidecar |
+| CMP-3a-2 | 独立 reference 具有完整固定 provenance | ✅ met | Solidity、Pinocchio Rust、near-sdk Rust v1 manifest 固定精确 source SHA-256、Apache-2.0 与 compiler/framework 工具链 |
+| CMP-3a-3 | 两侧实现执行相同 stateful 与 negative lifecycle | ✅ met | Anvil、Mollusk 与 upstream `near-vm-runner` 执行全部 13 步，包括 checked underflow 拒绝与失败后状态保持 |
+| CMP-3a-4 | 所有必需 observation fail closed | ✅ met | EVM、Solana、NEAR 各自完整覆盖 status、return、state、balance、event、external action、interface 与 target-local resource，并报告 `semanticMatch=true` |
+| CMP-3a-5 | ABI 归一化不创建 compiler 兼容路线 | ✅ met | 仅测试 runner 分别调用原生 Solidity `uint64` 与 ProofForge EVM `uint256` signature，再把二者归一化为 portable `u64`；没有新增 compiler adapter、fallback 或 dual-write route |
 
 ## 使用方式
 

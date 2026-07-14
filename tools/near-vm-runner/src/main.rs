@@ -24,9 +24,11 @@
 // sequence exercise caller authorization and payable entrypoints without
 // pretending to be a full node or receipt scheduler.
 //
-// Exit codes: 0 = every method executed without abort; 1 = I/O or execution
-// failure (including `outcome.aborted`, which the VM reports as `Ok`); 2 =
-// usage error.
+// By default, exit codes are: 0 = every method executed without abort; 1 = I/O
+// or execution failure (including `outcome.aborted`, which the VM reports as
+// `Ok`); 2 = usage error. `--continue-on-abort` is an explicit diagnostic mode
+// that prints abort rows and continues the same storage sequence; its caller
+// must assert which calls were expected to abort.
 
 use near_parameters::vm::Config;
 use near_parameters::ExtCostsConfig;
@@ -61,6 +63,8 @@ struct Cli {
     predecessor_account_ids: Vec<AccountId>,
     /// Attached yoctoNEAR deposit for each call.
     attached_deposits_yocto: Vec<u128>,
+    /// Continue the same storage sequence after an observed VM abort.
+    continue_on_abort: bool,
 }
 
 impl Cli {
@@ -73,6 +77,7 @@ impl Cli {
         let mut predecessor_account_ids: Option<Vec<String>> = None;
         let mut attached_deposit_yocto: Option<u128> = None;
         let mut attached_deposits_yocto: Option<Vec<u128>> = None;
+        let mut continue_on_abort = false;
 
         let mut it = args.into_iter().peekable();
         while let Some(arg) = it.next() {
@@ -117,6 +122,7 @@ impl Cli {
                             .collect::<Result<Vec<_>, _>>()?,
                     );
                 }
+                "--continue-on-abort" => continue_on_abort = true,
                 s if s.starts_with('-') => return Err(format!("unknown option `{s}`")),
                 s => positionals.push(s.to_string()),
             }
@@ -199,6 +205,7 @@ impl Cli {
             promise_results,
             predecessor_account_ids,
             attached_deposits_yocto,
+            continue_on_abort,
         })
     }
 }
@@ -246,6 +253,7 @@ fn print_usage() {
                                       attached yoctoNEAR applied to every call\n\
            --attached-deposits-yocto N[,N...]\n\
                                       one attached yoctoNEAR value per method call\n\
+           --continue-on-abort       print abort rows and continue the same storage sequence\n\
          \n\
          exit codes: 0 = all methods executed without abort; 1 = failure; 2 = usage error"
     );
@@ -333,6 +341,7 @@ fn main() {
     // the VM's eviction accounting (`usage - evicted_len`) underflows.
     let mut storage_usage: StorageUsage = 0;
 
+    let mut abort_count = 0usize;
     for (call_index, method) in config.methods.iter().enumerate() {
         let action_log_start = ext.action_log.len();
         let input: Rc<[u8]> = Rc::from(config.inputs[call_index].as_slice());
@@ -361,8 +370,18 @@ fn main() {
                 // these as success would hide every conformance failure, so
                 // inspect `aborted` before anything else.
                 if let Some(err) = &outcome.aborted {
-                    eprintln!("call {}: ABORTED: {:?}", method, err);
-                    process::exit(1);
+                    if !config.continue_on_abort {
+                        eprintln!("call {}: ABORTED: {:?}", method, err);
+                        process::exit(1);
+                    }
+                    abort_count += 1;
+                    println!(
+                        "call {}: aborted={:?} gas={}",
+                        method,
+                        err,
+                        outcome.burnt_gas.as_gas()
+                    );
+                    continue;
                 }
                 storage_usage = outcome.storage_usage;
                 match &outcome.return_data {
@@ -406,10 +425,18 @@ fn main() {
         }
     }
 
-    println!(
-        "[near-vm-runner] {} methods executed successfully on real NEAR VM",
-        config.methods.len()
-    );
+    if abort_count == 0 {
+        println!(
+            "[near-vm-runner] {} methods executed successfully on real NEAR VM",
+            config.methods.len()
+        );
+    } else {
+        println!(
+            "[near-vm-runner] {} methods executed with {} observed abort(s) on real NEAR VM",
+            config.methods.len(),
+            abort_count
+        );
+    }
 }
 
 #[cfg(test)]
@@ -436,6 +463,20 @@ mod tests {
         assert_eq!(cli.predecessor_account_ids[0].as_str(), "owner.near");
         assert_eq!(cli.predecessor_account_ids[1].as_str(), "alice.near");
         assert_eq!(cli.attached_deposits_yocto, vec![0, 7]);
+        assert!(!cli.continue_on_abort);
+    }
+
+    #[test]
+    fn parses_continue_on_abort_diagnostic_mode() {
+        let cli = Cli::parse(args(&[
+            "contract.wasm",
+            "release",
+            "get_balance",
+            "--continue-on-abort",
+        ]))
+        .expect("continue-on-abort should parse");
+
+        assert!(cli.continue_on_abort);
     }
 
     #[test]
