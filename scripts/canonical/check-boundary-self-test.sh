@@ -15,6 +15,7 @@ make_fixture() {
     "$root/ProofForge/Backend/WasmHost" \
     "$root/ProofForge/IR/Core" \
     "$root/ProofForge/Contract/Source" \
+    "$root/ProofForge/Frontend/Authored" \
     "$root/ProofForgeFormal/Evm" \
     "$root/ProofForgeFormal/Solana" \
     "$root/Examples/Product" \
@@ -30,6 +31,8 @@ make_fixture() {
   : > "$root/ProofForge/Backend/Solana/Plan/Core.lean"
   : > "$root/ProofForge/Backend/WasmHost/NearModulePlan/Core.lean"
   : > "$root/ProofForge/Backend/WasmHost/ModulePlan/Lower.lean"
+  : > "$root/ProofForge/Frontend/Authored/Type.lean"
+  : > "$root/ProofForge/Frontend/Authored/Syntax.lean"
   printf '%s\n' 'inductive ContextField' '  | sender | gas' '  deriving Repr' \
     > "$root/ProofForge/IR/Core/Type.lean"
 }
@@ -151,6 +154,18 @@ root="$TMP/retired-formal-root"
 make_fixture "$root"
 mkdir -p "$root/EvmRefinement"
 expect_failure "retired top-level formal root" "$root"
+
+root="$TMP/authored-legacy-import"
+make_fixture "$root"
+printf '%s\n' 'import ProofForge.IR.Contract' \
+  > "$root/ProofForge/Frontend/Authored/Syntax.lean"
+expect_failure "authored syntax imports transitional IR" "$root"
+
+root="$TMP/authored-surface-import"
+make_fixture "$root"
+printf '%s\n' 'import ProofForge.Frontend.Surface.Syntax' \
+  > "$root/ProofForge/Frontend/Authored/Syntax.lean"
+expect_failure "authored syntax imports Surface" "$root"
 
 root="$TMP/comments"
 make_fixture "$root"

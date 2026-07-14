@@ -3731,3 +3731,21 @@ Rules:
   `just evm-powdr-counter-refinement-smoke`,
   `just solana-solanalib-adapter`, canonical boundary self-test and gate, old
   namespace/import scans, and `git diff --check`.
+
+## 2026-07-14 - Authoring cleanup A-CUT2c: independent authored syntax owner
+
+- Status: `done (verified 2026-07-14)`; A-CUT2 remains open for the Source
+  builder and loader exchange-value cutover.
+- Moved the independent frontend type system and syntax ownership from
+  `Frontend.Surface` to `Frontend.Authored`, with explicit `Authored*` names.
+  These types do not alias or import `IR.Expr`, `IR.Statement`, `IR.Module`, or
+  target ASTs.
+- Reduced `Frontend.Surface.Type` and `Frontend.Surface.Syntax` to temporary
+  compatibility aliases used only by compiler fixtures. No constructors are
+  owned by the Surface namespace.
+- Added the `ProofForge.Frontend.Authored` aggregate module and extended the
+  canonical boundary gate with negative tests that reject imports from the
+  final authored model back into `IR.Contract`, `IR.Legacy`, or Surface.
+- Verification: focused Authored/Surface/TestFixtures builds; Surface, Set,
+  Queue, and NEAR HostOp normalization tests; canonical boundary self-test and
+  gate; dependency scans; and `git diff --check`.

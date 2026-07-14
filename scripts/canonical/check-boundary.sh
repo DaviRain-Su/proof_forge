@@ -13,6 +13,7 @@
 #   8. target-native context fields leaking into Canonical Core
 #   9. product/public authoring modules importing or constructing Surface
 #  10. optional formal libraries claiming default-backend namespace ownership
+#  11. final Authored syntax importing transitional source/IR representations
 #
 # This is a required static gate in `just check`.
 
@@ -191,6 +192,18 @@ fi
 for f in EvmRefinement SolanaRefinement; do
   if [ -e "$f" ]; then
     report "retired top-level formal root still exists: $f"
+  fi
+done
+
+# ── 11. Authored syntax is independent of transitional representations ─
+AUTHORED_MODEL=(
+  ProofForge/Frontend/Authored/Type.lean
+  ProofForge/Frontend/Authored/Syntax.lean
+)
+for f in "${AUTHORED_MODEL[@]}"; do
+  if rg -n '^\s*import\s+(ProofForge\.IR\.(?:Contract|Legacy)(?:\.|\s|$)|ProofForge\.Frontend\.Surface(?:\.|\s|$))' \
+      "$f" >/dev/null 2>&1; then
+    report "authored frontend model $f imports a transitional representation"
   fi
 done
 

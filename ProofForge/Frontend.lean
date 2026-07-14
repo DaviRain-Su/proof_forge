@@ -1,3 +1,4 @@
+import ProofForge.Frontend.Authored
 import ProofForge.Frontend.Surface
 
 /-! # ProofForge Frontend — Top-Level Aggregator

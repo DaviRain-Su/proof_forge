@@ -26,6 +26,9 @@ the cutover.
   imports `IR.Legacy.Adapter`, but the authored exchange value is still
   `ContractSpec` containing `IR.Module` and must be replaced before A-CUT2 is
   complete.
+- The independent frontend type/syntax model is owned by
+  `Frontend.Authored`. `Frontend.Surface.Type` and `.Syntax` now contain only
+  temporary aliases for compiler fixtures and may not own new constructors.
 - The former `Examples/Product/Canonical` handwritten Surface duplicates have
   been isolated as temporary tests in `TestFixtures/SurfaceProducts`.
   They are not product sources and remain only until A-CUT3 reaches feature
@@ -121,7 +124,9 @@ under `Contract.Source.Internal`, Solana helpers under
 `Contract.Source.Solana.Internal`, and direct AST materializers under
 `Frontend.Materialize`. The production normalizer now lives under
 `Frontend.Authored.Normalize`; `ProofForge.IR` no longer imports it and the
-production Legacy import baseline is empty. Replacing the remaining
+production Legacy import baseline is empty. The independent final source model
+now lives under `Frontend.Authored.{Type,Syntax}`; the Surface type/syntax files
+are compatibility aliases only. Replacing the Source builder and remaining
 `ContractSpec`/`IR.Module` authored exchange value is still pending in A-CUT2.
 
 ### A-CUT3 - Product migration

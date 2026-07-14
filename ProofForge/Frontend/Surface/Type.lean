@@ -1,30 +1,14 @@
-import ProofForge.IR.Core
+import ProofForge.Frontend.Authored.Type
 
-/-! # Surface AST — Independent Type System
+/-! Temporary compatibility names for compiler-internal Surface fixtures.
 
-Surface-owned types for the independent authoring front-end. These do NOT
-alias `IR.ValueType` or any backend/target AST. The normalizer resolves
-Surface types to `CoreType` using a declaration-order type-id map.
+The final authoring type system is owned by `Frontend.Authored`. Surface
+fixtures retain these aliases only until A-CUT4 deletes the duplicate fixture
+route.
 -/
 
 namespace ProofForge.Frontend.Surface
 
-/-- Surface-level types. Independent of `IR.ValueType` and any target AST. -/
-inductive SurfaceType
-  | unit
-  | bool
-  | u8
-  | u32
-  | u64
-  | u128
-  | address
-  | bytes
-  | string
-  | hash
-  | fixedArray (element : SurfaceType) (length : Nat)
-  | array (element : SurfaceType)
-  | memoryRef (element : SurfaceType)
-  | structType (name : String)
-  deriving BEq, Repr
+abbrev SurfaceType := ProofForge.Frontend.Authored.AuthoredType
 
 end ProofForge.Frontend.Surface
