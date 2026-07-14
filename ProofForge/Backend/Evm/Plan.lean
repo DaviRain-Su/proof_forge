@@ -660,6 +660,47 @@ def moduleDispatchPlan (module : Module) (entrypoints : Array EntrypointPlan) : 
 
 /-! ## MetadataPlan: planned artifact/deploy metadata inputs -/
 
+/-- EVM-owned constructor ABI schema loaded after EVM target selection. -/
+structure ConstructorParamPlan where
+  name : String
+  abiType : String
+  deriving Repr, BEq
+
+/-- EVM storage initialization semantics. Keeping this enum target-owned
+prevents ABI policy from leaking into Authored syntax or Canonical Core. -/
+inductive ConstructorBindingKindPlan where
+  | scalarU64
+  | addressWord
+  | addressKeccak
+  | stringLength
+  | stringKeccak
+  | bytesLength
+  | bytesKeccak
+  | arrayLength
+  | arraySumU64
+  deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Fully resolved EVM constructor storage write. The storage destination is
+fixed during planning, so init-code rendering performs no source-IR lookup. -/
+structure ConstructorBindingPlan where
+  state : StorageStatePlan
+  paramName : String
+  kind : ConstructorBindingKindPlan
+  deriving Repr
+
+/-- EVM authoring attachment resolved only after `--target evm` is selected.
+It names storage logically; `Plan.Core` resolves the final slot and width. -/
+structure ConstructorBindingRequestPlan where
+  stateName : String
+  paramName : String
+  kind : ConstructorBindingKindPlan
+  deriving Repr
+
+structure ConstructorConfigPlan where
+  params : Array ConstructorParamPlan := #[]
+  bindings : Array ConstructorBindingRequestPlan := #[]
+  deriving Repr
+
 structure MetadataPlan where
   moduleName : String
   entrypoints : Array EntrypointPlan
@@ -709,6 +750,8 @@ structure ModulePlan where
   events : Array EventPlan
   crosscalls : Array CrosscallHelperSpec
   creates : Array CreateHelperSpec
+  constructorParams : Array ConstructorParamPlan := #[]
+  constructorBindings : Array ConstructorBindingPlan := #[]
   /-- ABI-packed call helpers discovered before Yul rendering. Canonical
       lowering must consume this field instead of rescanning source IR. -/
   abiPackedHelpers : Array AbiPackedHelperSpec := #[]

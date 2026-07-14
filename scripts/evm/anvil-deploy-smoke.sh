@@ -24,9 +24,9 @@ if [[ -n "${EVM_ANVIL_CONSTRUCTOR_ARG+x}" ]]; then
 elif [[ -n "$CONSTRUCTOR_ARGS_HEX" ]]; then
   CONSTRUCTOR_ARG=""
 else
-  CONSTRUCTOR_ARG=""
+  CONSTRUCTOR_ARG="initial=123"
 fi
-CONSTRUCTOR_PARAM="${EVM_ANVIL_CONSTRUCTOR_PARAM-}"
+CONSTRUCTOR_PARAM="${EVM_ANVIL_CONSTRUCTOR_PARAM-initial:uint256}"
 export PROOF_FORGE_DEPLOY_PRIVATE_KEY="${PROOF_FORGE_DEPLOY_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 if [[ -n "${EVM_ANVIL_CONSTRUCTOR_ARG+x}" && -n "$CONSTRUCTOR_ARG" && -n "$CONSTRUCTOR_ARGS_HEX" ]]; then
   echo "anvil-deploy-smoke: set either EVM_ANVIL_CONSTRUCTOR_ARG or EVM_ANVIL_CONSTRUCTOR_ARGS_HEX, not both" >&2
@@ -58,7 +58,8 @@ else
   proof_forge=(lake env proof-forge)
 fi
 
-(cd "$ROOT" && lake build proof-forge Examples.Product.Counter >/dev/null)
+(cd "$ROOT" && lake build proof-forge Examples.Product.Counter \
+  Examples.Backend.Evm.Contracts.CounterConstructorProbe >/dev/null)
 
 rebuild_counter_with_profile() {
   local proof_forge_args=(
@@ -68,7 +69,7 @@ rebuild_counter_with_profile() {
     --yul-output "$OUT_DIR/Counter.yul"
     --artifact-output "$OUT_DIR/Counter.proof-forge-artifact.json"
     -o "$OUT_DIR/Counter.bin"
-    Examples/Backend/Evm/Contracts/Counter.lean
+    Examples/Product/Counter.lean
   )
   if [[ -n "$CHAIN_PROFILE" ]]; then
     proof_forge_args+=(--evm-chain-profile "$CHAIN_PROFILE")
@@ -76,12 +77,13 @@ rebuild_counter_with_profile() {
   (
     cd "$ROOT"
     "${proof_forge[@]}" "${proof_forge_args[@]}"
-    diff -u Examples/Backend/Evm/Contracts/Counter.golden.yul "$OUT_DIR/Counter.yul"
+    diff -u Examples/Backend/Evm/Counter.golden.yul "$OUT_DIR/Counter.yul"
     metadata_validator=(
       python3 "$ROOT/scripts/evm/validate-artifact-metadata.py"
       --root "$ROOT"
       --expect-fixture Counter
-      --expect-source-kind contract-sdk
+      --expect-source-kind contract-source-authored
+      --expect-ir-version canonical-core-v1
     )
     if [[ -n "$CHAIN_PROFILE" ]]; then
       metadata_validator+=(--expect-chain-profile "$CHAIN_PROFILE" --expect-chain-id "$CHAIN_ID")
@@ -113,17 +115,19 @@ if [[ -n "$CONSTRUCTOR_ARG" || -n "$CONSTRUCTOR_ARGS_HEX" ]]; then
   if [[ -n "$CONSTRUCTOR_ARGS_HEX" ]]; then
     proof_forge_args+=(--evm-constructor-args-hex "$CONSTRUCTOR_ARGS_HEX")
   fi
-  proof_forge_args+=(-o "$OUT_DIR/Counter.bin" Examples/Backend/Evm/Contracts/Counter.lean)
+  proof_forge_args+=(-o "$OUT_DIR/Counter.bin" \
+    Examples/Backend/Evm/Contracts/CounterConstructorProbe.lean)
 
   (
     cd "$ROOT"
     "${proof_forge[@]}" "${proof_forge_args[@]}"
-    diff -u Examples/Backend/Evm/Contracts/Counter.golden.yul "$OUT_DIR/Counter.yul"
+    diff -u Examples/Backend/Evm/Counter.golden.yul "$OUT_DIR/Counter.yul"
     metadata_validator=(
       python3 "$ROOT/scripts/evm/validate-artifact-metadata.py"
       --root "$ROOT"
       --expect-fixture Counter
-      --expect-source-kind contract-sdk
+      --expect-source-kind contract-source-authored
+      --expect-ir-version canonical-core-v1
     )
     if [[ -n "$CHAIN_PROFILE" ]]; then
       metadata_validator+=(--expect-chain-profile "$CHAIN_PROFILE" --expect-chain-id "$CHAIN_ID")

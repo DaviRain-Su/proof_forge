@@ -1,5 +1,10 @@
 # Documentation / Onboarding Gap Analysis
 
+> Historical review snapshot from 2026-07-10. The Counter wrapper paths and
+> failing commands quoted as evidence below were removed by the July 14 direct
+> Product cutover; use `AGENTS.md`, `docs/document-status.md`, and current
+> validation gates for executable instructions.
+
 **Dimension:** `documentation-onboarding`
 **Scope:** The quality, accuracy, discoverability, and completeness of ProofForge’s user and contributor documentation, project scaffolding, first-run experience, and translated materials.
 **Date:** 2026-07-10

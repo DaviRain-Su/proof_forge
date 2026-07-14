@@ -5,6 +5,7 @@ import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Cli.Artifact
 import ProofForge.Cli.ArrayUtil
 import ProofForge.Cli.ConstructorAbi
+import ProofForge.Cli.ContractLoader
 import ProofForge.Cli.Evm
 import ProofForge.Cli.EvmAbi
 import ProofForge.Cli.HexUtil
@@ -31,6 +32,51 @@ open ProofForge.Cli.JsonUtil
 open System
 
 namespace ProofForge.Cli
+
+private def candidateEvmConstructorNames (modName : Lean.Name) : List Lean.Name :=
+  let lastComponent :=
+    match modName.components.reverse with
+    | last :: _ => last
+    | [] => Lean.Name.anonymous
+  [modName ++ `evmConstructor, lastComponent ++ `evmConstructor, `evmConstructor]
+
+private def isEvmConstructorConfigConst
+    (env : Lean.Environment) (constName : Lean.Name) : Bool :=
+  match env.find? constName with
+  | some info =>
+      match info.type with
+      | Lean.Expr.const `ProofForge.Backend.Evm.Plan.ConstructorConfigPlan _ => true
+      | _ => false
+  | none => false
+
+private def existingEvmConstructorConfigConsts
+    (env : Lean.Environment) (modName : Lean.Name) : List Lean.Name :=
+  (candidateEvmConstructorNames modName).eraseDups.filter env.constants.contains
+
+/-- Load the portable source plus its optional EVM-only authoring attachment.
+This entry point is called only after target routing selected `evm`; the shared
+source loader remains unaware of EVM ABI and constructor storage semantics. -/
+unsafe def loadEvmSource
+    (input : FilePath) (root? : Option FilePath) (moduleName? : Option Lean.Name) :
+    IO (ProofForge.Cli.ContractLoader.LoadedContractSource ×
+      ProofForge.Backend.Evm.Plan.ConstructorConfigPlan) := do
+  let (env, modName) ← ProofForge.Cli.ContractLoader.runTrustedLocalFrontend
+    input root? moduleName?
+  let source ← ProofForge.Cli.ContractLoader.loadSourceFromEnv env modName
+  let config ← match existingEvmConstructorConfigConsts env modName with
+    | [] => pure {}
+    | [constName] =>
+        unless isEvmConstructorConfigConst env constName do
+          throw <| IO.userError
+            s!"EVM attachment `{constName}` must have type ProofForge.Backend.Evm.Plan.ConstructorConfigPlan"
+        match env.evalConstCheck ProofForge.Backend.Evm.Plan.ConstructorConfigPlan {}
+            `ProofForge.Backend.Evm.Plan.ConstructorConfigPlan constName with
+        | .ok config => pure config
+        | .error message => throw <| IO.userError message
+    | constNames =>
+        throw <| IO.userError
+          s!"module `{modName}` exports multiple EVM constructor attachments: {constNames}"
+  pure (source, config)
 
 def evmSourceIrVersionJson (sourceKind : String) : String :=
   if sourceKind == "portable-ir" then
@@ -90,11 +136,9 @@ def renderCanonicalSpecEvmYul (spec : ProofForge.Contract.ContractSpec) : Except
 /-- Render a direct authored contract through checked Canonical Core and the
 target-owned EVM plan. There is no ContractSpec conversion or fallback. -/
 def renderAuthoredEvmYul (opts : CliOptions)
-    (contract : ProofForge.Frontend.Authored.AuthoredContract) :
+    (contract : ProofForge.Frontend.Authored.AuthoredContract)
+    (constructorConfig : ProofForge.Backend.Evm.Plan.ConstructorConfigPlan := {}) :
     IO (String × ProofForge.Backend.Evm.Plan.ModulePlan) := do
-  unless opts.evmConstructorArgsHex.isEmpty do
-    throw <| IO.userError
-      "direct authored EVM constructor arguments are not materialized yet; use an explicit init entrypoint"
   let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored contract with
     | .ok bundle => pure bundle
     | .error error => throw <| IO.userError s!"canonical: Authored normalization failed: {repr error}"
@@ -107,7 +151,8 @@ def renderAuthoredEvmYul (opts : CliOptions)
     calls := checked.contract.requirements
     metadata := opts.peerMap.targetMetadata
   }
-  let plan ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capabilityPlan with
+  let plan ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore
+      checked capabilityPlan constructorConfig with
     | .ok plan => pure plan
     | .error error => throw <| IO.userError s!"canonical: EVM plan failed: {error.message}"
   let yul ← match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
@@ -118,9 +163,10 @@ def renderAuthoredEvmYul (opts : CliOptions)
 /-- Temporary internal fixture wrapper. Surface is an alias of Authored and is
 not a public source route. -/
 def renderSurfaceEvmYul (opts : CliOptions)
-    (contract : ProofForge.Frontend.Surface.SurfaceContract) :
+    (contract : ProofForge.Frontend.Surface.SurfaceContract)
+    (constructorConfig : ProofForge.Backend.Evm.Plan.ConstructorConfigPlan := {}) :
     IO (String × ProofForge.Backend.Evm.Plan.ModulePlan) :=
-  renderAuthoredEvmYul opts contract
+  renderAuthoredEvmYul opts contract constructorConfig
 
 def renderContractSpecEvmYul (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) :
     IO (String × ProofForge.IR.Module) := do
@@ -314,18 +360,25 @@ def writeEvmInitCode
   let runtimeTrimmed := trimAsciiString runtimeBytecode
   let argsTrimmed := stripHexPrefix (trimAsciiString constructorArgsHex)
   let argsByteLen := argsTrimmed.length / 2
-  let specParams := opts.evmConstructorParams.map fun param =>
+  let legacyParams := opts.evmConstructorParams.map fun param =>
     { name := param.name, abiType := param.abiType : ProofForge.Contract.EvmConstructorParam }
+  let planParams := legacyParams.map
+    ProofForge.Backend.Evm.ConstructorInit.legacyConstructorParamPlan
   let initCode ←
     match module? with
     | some module =>
         match ProofForge.Backend.Evm.ConstructorInit.validateAtomicUupsConstructor
-            module specParams constructorInitBindings constructorArgsHex with
+            module legacyParams constructorInitBindings constructorArgsHex with
         | .error err => throw <| IO.userError err.render
         | .ok () => pure ()
-        if ProofForge.Backend.Evm.ConstructorInit.shouldUseDeployObject constructorInitBindings constructorArgsHex then
+        let layout := ProofForge.Backend.Evm.Plan.storageLayout module
+        let planBindings ← constructorInitBindings.mapM fun binding =>
+          match ProofForge.Backend.Evm.ConstructorInit.legacyConstructorBindingPlan layout binding with
+          | .ok binding => pure binding
+          | .error err => throw <| IO.userError err.render
+        if ProofForge.Backend.Evm.ConstructorInit.shouldUseDeployObject planBindings constructorArgsHex then
           match ProofForge.Backend.Evm.ConstructorInit.renderDeployObject
-              module.name module specParams constructorInitBindings runtimeTrimmed argsByteLen with
+              module.name planParams planBindings runtimeTrimmed argsByteLen with
           | .error err => throw <| IO.userError err.render
           | .ok deployYul =>
               let deployYulPath := bytecodeOutput.withExtension "deploy.yul"
@@ -342,6 +395,39 @@ def writeEvmInitCode
         match deploymentInitCodeHex runtimeTrimmed constructorArgsHex with
         | .ok initCode => pure initCode
         | .error msg => throw <| IO.userError msg
+  let initCodeOutput := defaultInitCodeOutput bytecodeOutput
+  if let some parent := initCodeOutput.parent then
+    IO.FS.createDirAll parent
+  IO.FS.writeFile initCodeOutput (initCode ++ "\n")
+  IO.println s!"wrote {initCodeOutput} ({initCode.length} hex chars)"
+  return initCodeOutput
+
+def writeEvmPlanInitCode
+    (opts : CliOptions)
+    (plan : ProofForge.Backend.Evm.Plan.ModulePlan)
+    (bytecodeOutput : FilePath)
+    (constructorArgsHex : String) : IO FilePath := do
+  let runtimeBytecode ← IO.FS.readFile bytecodeOutput
+  let runtimeTrimmed := trimAsciiString runtimeBytecode
+  let argsTrimmed := stripHexPrefix (trimAsciiString constructorArgsHex)
+  let argsByteLen := argsTrimmed.length / 2
+  let initCode ←
+    if ProofForge.Backend.Evm.ConstructorInit.shouldUseDeployObject
+        plan.constructorBindings constructorArgsHex then
+      match ProofForge.Backend.Evm.ConstructorInit.renderDeployObject
+          plan.name plan.constructorParams plan.constructorBindings runtimeTrimmed argsByteLen with
+      | .error err => throw <| IO.userError err.render
+      | .ok deployYul =>
+          let deployYulPath := bytecodeOutput.withExtension "deploy.yul"
+          if let some parent := deployYulPath.parent then
+            IO.FS.createDirAll parent
+          IO.FS.writeFile deployYulPath (deployYul ++ "\n")
+          let creationHex ← solcBytecode opts.solc deployYulPath
+          pure (creationHex ++ argsTrimmed)
+    else
+      match deploymentInitCodeHex runtimeTrimmed constructorArgsHex with
+      | .ok initCode => pure initCode
+      | .error msg => throw <| IO.userError msg
   let initCodeOutput := defaultInitCodeOutput bytecodeOutput
   if let some parent := initCodeOutput.parent then
     IO.FS.createDirAll parent
@@ -455,7 +541,7 @@ def writeEvmDeployManifest
     (chainProfile? : Option ProofForge.Target.EvmChainProfile)
     (constructorParams : Array ConstructorParamSpec)
     (sourceArtifact? : Option String)
-    (yulArtifact bytecodeArtifact initCodeArtifact constructorArgs : String)
+    (yulArtifact bytecodeArtifact initCodeArtifact constructorArgs initCodeMode : String)
     (module? : Option ProofForge.IR.Module := none)
     (plan? : Option ProofForge.Backend.Evm.Plan.ModulePlan := none) : IO Unit := do
   let mut inputFields : Array (String × String) := #[
@@ -520,7 +606,7 @@ def writeEvmDeployManifest
       ("methods", jsonArray methods)
     ]),
     ("creation", jsonObject #[
-      ("mode", jsonString "init-code"),
+      ("mode", jsonString initCodeMode),
       ("constructorArgs", constructorArgs),
       ("initCode", initCodeArtifact),
       ("runtimeBytecode", bytecodeArtifact)
@@ -687,7 +773,24 @@ def writeEvmArtifactMetadata
   let deployOutput := defaultDeployManifestOutput metadataOutput
   let chainProfile? ← resolveEvmChainProfile? opts.evmChainProfile?
   let constructorArgs ← constructorArgsJson opts.evmConstructorArgsHex opts.evmConstructorArgsSource
-  let initCodeOutput ← writeEvmInitCode opts module? constructorInitBindings bytecodeOutput opts.evmConstructorArgsHex
+  let initCodeMode :=
+    match plan? with
+    | some plan =>
+        if ProofForge.Backend.Evm.ConstructorInit.shouldUseDeployObject
+            plan.constructorBindings opts.evmConstructorArgsHex then
+          "deploy-object"
+        else
+          "init-code"
+    | none =>
+        if !constructorInitBindings.isEmpty && !opts.evmConstructorArgsHex.isEmpty then
+          "deploy-object"
+        else
+          "init-code"
+  let initCodeOutput ← match plan?, module? with
+    | some plan, none =>
+        writeEvmPlanInitCode opts plan bytecodeOutput opts.evmConstructorArgsHex
+    | _, _ =>
+        writeEvmInitCode opts module? constructorInitBindings bytecodeOutput opts.evmConstructorArgsHex
   let yulArtifact ← artifactEntryJson yulOutput
   let bytecodeArtifact ← artifactEntryJson bytecodeOutput
   let initCodeArtifact ← artifactEntryJson initCodeOutput
@@ -708,6 +811,7 @@ def writeEvmArtifactMetadata
     bytecodeArtifact
     initCodeArtifact
     constructorArgs
+    initCodeMode
     module?
     plan?
   let mut artifactFields : Array (String × String) := #[

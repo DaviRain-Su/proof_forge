@@ -179,7 +179,20 @@ def validate_constructor_schema_args(params: list[dict], constructor_args_hex: s
     )
 
 
-def validate_deployment_init_code(init_hex: str, runtime_hex: str, constructor_args_hex: str, prefix: str) -> None:
+def validate_deployment_init_code(
+    init_hex: str,
+    runtime_hex: str,
+    constructor_args_hex: str,
+    prefix: str,
+    mode: str,
+) -> None:
+    if mode == "deploy-object":
+        expect(runtime_hex in init_hex, f"{prefix} must embed referenced runtime bytecode")
+        expect(
+            not constructor_args_hex or init_hex.endswith(constructor_args_hex),
+            f"{prefix} constructor args suffix mismatch",
+        )
+        return
     runtime_size = len(runtime_hex) // 2
     size, offset = read_push_value(init_hex, 0, f"{prefix}.runtimeSize")
     code_offset, offset = read_push_value(init_hex, offset, f"{prefix}.codeOffset")
@@ -333,6 +346,8 @@ def main() -> int:
     runtime_hex = expect_hex_file(runtime_path, "runtimeBytecode").lower()
     init_hex = expect_hex_file(init_code_path, "initCode").lower()
     creation = expect_object(manifest.get("creation"), "deploy manifest creation")
+    creation_mode = expect_string(creation.get("mode"), "deploy manifest creation.mode")
+    expect(creation_mode in {"init-code", "deploy-object"}, "deploy manifest creation.mode unsupported")
     constructor_args = expect_array(creation.get("constructorArgs"), "deploy manifest creation.constructorArgs")
     constructor_args_hex = validate_constructor_args(
         constructor_args,
@@ -342,7 +357,8 @@ def main() -> int:
     validate_constructor_schema_args(constructor_params, constructor_args_hex)
     expect(run.get("constructorAbi") == manifest["abi"]["constructor"], "constructorAbi must match deploy manifest")
     expect(run.get("constructorArgs") == constructor_args, "constructorArgs must match deploy manifest")
-    validate_deployment_init_code(init_hex, runtime_hex, constructor_args_hex, "initCode")
+    expect(run.get("creationMode") == creation_mode, "creationMode must match deploy manifest")
+    validate_deployment_init_code(init_hex, runtime_hex, constructor_args_hex, "initCode", creation_mode)
 
     network = expect_object(run.get("network"), "network")
     network_kind = expect_string(network.get("kind"), "network.kind")
@@ -391,7 +407,14 @@ def main() -> int:
     expect(deployed_code.get("bytes") == len(runtime_hex) // 2, "deployedCode.bytes mismatch")
 
     calls = expect_object(run.get("calls"), "calls")
-    expect(calls.get("initialGet") == "0", "calls.initialGet mismatch")
+    expected_initial_get = "0"
+    if (
+        constructor_args_hex
+        and constructor_params
+        and constructor_params[0] == {"name": "initial", "type": "uint256"}
+    ):
+        expected_initial_get = str(int(constructor_args_hex[:64], 16))
+    expect(calls.get("initialGet") == expected_initial_get, "calls.initialGet mismatch")
     expect(calls.get("afterInitializeGet") == "0", "calls.afterInitializeGet mismatch")
     expect(calls.get("afterIncrementGet") == "1", "calls.afterIncrementGet mismatch")
     expect(calls.get("afterSecondIncrementGet") == "2", "calls.afterSecondIncrementGet mismatch")

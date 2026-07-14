@@ -1,6 +1,7 @@
 import ProofForge.Contract.Examples.Counter
 import ProofForge.Backend.Quint.Lower
 import ProofForge.Backend.Quint.Scenario
+import ProofForge.IR.Examples.Counter
 
 namespace Tests.Quint.ContractSourceLiveness
 
@@ -10,15 +11,17 @@ def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw (IO.userError message)
 
 def main : IO UInt32 := do
-  let counterLiveness := ProofForge.Contract.Examples.Counter.spec.quintLiveness
+  let counterLiveness := ProofForge.Contract.Examples.Counter.contract.quintLiveness.map
+    (fun annotation => (annotation.name, annotation.body))
   require (counterLiveness.any (fun (n, _) => n == "eventuallyPositive"))
     "Counter spec missing eventuallyPositive quint_liveness"
   let counterScenario : Scenario.Config := {
     maxUint := 3,
-    contractInvariants := ProofForge.Contract.Examples.Counter.spec.quintInvariants,
+    contractInvariants := ProofForge.Contract.Examples.Counter.contract.quintInvariants.map
+      (fun annotation => (annotation.name, annotation.body)),
     contractLiveness := counterLiveness
   }
-  match Lower.renderModule ProofForge.Contract.Examples.Counter.module counterScenario with
+  match Lower.renderModule ProofForge.IR.Examples.Counter.module counterScenario with
   | .error e => throw (IO.userError s!"Counter lower failed: {e.message}")
   | .ok source =>
       require (source.contains "temporal eventuallyPositive = eventually(count > 0)")

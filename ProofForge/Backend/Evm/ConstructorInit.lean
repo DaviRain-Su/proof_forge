@@ -21,7 +21,8 @@ def InitError.render (err : InitError) : String := err.message
 def paramIsDynamic (abiType : String) : Bool :=
   abiType == "string" || abiType == "bytes" || abiType == "uint256[]"
 
-def paramWithIndex? (params : Array EvmConstructorParam) (name : String) : Option (Nat × EvmConstructorParam) :=
+def paramWithIndex? (params : Array ConstructorParamPlan) (name : String) :
+    Option (Nat × ConstructorParamPlan) :=
   params.zipIdx.toList.find? (fun (param, _idx) => param.name == name) |>.map (fun (param, idx) => (idx, param))
 
 def findStorageState (layout : StorageLayout) (stateId : String) : Option StorageStatePlan :=
@@ -98,13 +99,46 @@ def validateAtomicUupsConstructor
   if args.length != 128 then
     .error { message := "UUPS proxy deployment requires exactly two 32-byte constructor arguments" }
 
+/-- One-way deletion bridge for the remaining Legacy artifact callers. New
+Authored/Core code must construct these values in `Plan.Core` instead. -/
+def legacyConstructorParamPlan (param : EvmConstructorParam) : ConstructorParamPlan := {
+  name := param.name
+  abiType := param.abiType
+}
+
+private def legacyConstructorBindingKindPlan :
+    EvmConstructorInitKind → ConstructorBindingKindPlan
+  | .scalarU64 => .scalarU64
+  | .addressWord => .addressWord
+  | .addressKeccak => .addressKeccak
+  | .stringLength => .stringLength
+  | .stringKeccak => .stringKeccak
+  | .bytesLength => .bytesLength
+  | .bytesKeccak => .bytesKeccak
+  | .arrayLength => .arrayLength
+  | .arraySumU64 => .arraySumU64
+
+/-- Resolve a Legacy binding into the EVM-owned target plan. This conversion is
+strictly old-to-new and exists only until the remaining Legacy callers are
+deleted. -/
+def legacyConstructorBindingPlan
+    (layout : StorageLayout) (binding : EvmConstructorInitBinding) :
+    Except InitError ConstructorBindingPlan := do
+  let some state := findStorageState layout binding.stateId
+    | throw { message := s!"constructor_bind references unknown state `{binding.stateId}`" }
+  return {
+    state
+    paramName := binding.paramName
+    kind := legacyConstructorBindingKindPlan binding.kind
+  }
+
 def headWordOffsetExpr (paramIdx : Nat) : String :=
   s!"add(__pf_args_off, {32 * paramIdx})"
 
 def codeLoadExpr (offsetExpr : String) : String :=
   s!"__pf_code_load({offsetExpr})"
 
-def paramDataPtrExpr (param : EvmConstructorParam) (paramIdx : Nat) : String :=
+def paramDataPtrExpr (param : ConstructorParamPlan) (paramIdx : Nat) : String :=
   let head := headWordOffsetExpr paramIdx
   if paramIsDynamic param.abiType then
     s!"add(__pf_args_off, {codeLoadExpr head})"
@@ -130,13 +164,11 @@ def storeFullWordForState
     storeFullWord state valueExpr
 
 def genBindingInit
-    (params : Array EvmConstructorParam)
-    (layout : StorageLayout)
-    (binding : EvmConstructorInitBinding) : Except InitError String := do
+    (params : Array ConstructorParamPlan)
+    (binding : ConstructorBindingPlan) : Except InitError String := do
   let some (paramIdx, param) := paramWithIndex? params binding.paramName
     | .error { message := s!"constructor_bind references unknown param `{binding.paramName}`" }
-  let some state := findStorageState layout binding.stateId
-    | .error { message := s!"constructor_bind references unknown state `{binding.stateId}`" }
+  let state := binding.state
   let dataPtr := paramDataPtrExpr param paramIdx
   match binding.kind with
   | .scalarU64 =>
@@ -147,13 +179,13 @@ def genBindingInit
   | .addressWord =>
     if param.abiType != "address" then
       .error { message := s!"constructor_bind address_word requires address param `{binding.paramName}`" }
-    else if binding.stateId != eip1967ImplementationStateId &&
+    else if state.id != eip1967ImplementationStateId &&
         state.type != ValueType.address && state.type != ValueType.hash then
-      .error { message := s!"constructor_bind address_word target `{binding.stateId}` must be .address or .hash" }
+      .error { message := s!"constructor_bind address_word target `{state.id}` must be .address or .hash" }
     else
       let value := codeLoadExpr dataPtr
       let implementationCodeGuard :=
-        if binding.stateId == eip1967ImplementationStateId then
+        if state.id == eip1967ImplementationStateId then
           "\n      if iszero(extcodesize(__pf_address)) { revert(0, 0) }"
         else
           ""
@@ -161,12 +193,12 @@ def genBindingInit
         "\n      if iszero(__pf_address) { revert(0, 0) }" ++
         "\n      if gt(__pf_address, " ++ addressMask ++ ") { revert(0, 0) }" ++
         implementationCodeGuard ++ "\n      " ++
-        storeFullWordForState binding.stateId state "__pf_address" ++ "\n    }")
+        storeFullWordForState state.id state "__pf_address" ++ "\n    }")
   | .addressKeccak =>
     if param.abiType != "address" then
       .error { message := s!"constructor_bind address_keccak requires address param `{binding.paramName}`" }
     else if state.type != ValueType.hash then
-      .error { message := s!"constructor_bind address_keccak target `{binding.stateId}` must be .hash" }
+      .error { message := s!"constructor_bind address_keccak target `{state.id}` must be .hash" }
     else
       let value := codeLoadExpr dataPtr
       .ok ("{\n      let __pf_address := " ++ value ++
@@ -178,14 +210,14 @@ def genBindingInit
     if param.abiType != "string" && param.abiType != "bytes" then
       .error { message := s!"constructor_bind length requires string/bytes param `{binding.paramName}`" }
     else if state.type != ValueType.u64 then
-      .error { message := s!"constructor_bind length target `{binding.stateId}` must be .u64" }
+      .error { message := s!"constructor_bind length target `{state.id}` must be .u64" }
     else
       .ok (storePackedU64 state s!"and({codeLoadExpr dataPtr}, {u64Mask})")
   | .stringKeccak | .bytesKeccak =>
     if param.abiType != "string" && param.abiType != "bytes" then
       .error { message := s!"constructor_bind keccak requires string/bytes param `{binding.paramName}`" }
     else if state.type != ValueType.hash then
-      .error { message := s!"constructor_bind keccak target `{binding.stateId}` must be .hash" }
+      .error { message := s!"constructor_bind keccak target `{state.id}` must be .hash" }
     else
       let hashStore :=
         "{\n      let __pf_len := " ++ codeLoadExpr dataPtr ++
@@ -196,14 +228,14 @@ def genBindingInit
     if param.abiType != "uint256[]" then
       .error { message := s!"constructor_bind array_length requires uint256[] param `{binding.paramName}`" }
     else if state.type != ValueType.u64 then
-      .error { message := s!"constructor_bind array_length target `{binding.stateId}` must be .u64" }
+      .error { message := s!"constructor_bind array_length target `{state.id}` must be .u64" }
     else
       .ok (storePackedU64 state s!"and({codeLoadExpr dataPtr}, {u64Mask})")
   | .arraySumU64 =>
     if param.abiType != "uint256[]" then
       .error { message := s!"constructor_bind array_sum requires uint256[] param `{binding.paramName}`" }
     else if state.type != ValueType.u64 then
-      .error { message := s!"constructor_bind array_sum target `{binding.stateId}` must be .u64" }
+      .error { message := s!"constructor_bind array_sum target `{state.id}` must be .u64" }
     else
       let arrPtr := dataPtr
       let elemOff := s!"add({arrPtr}, add(32, mul(__pf_arr_i, 32)))"
@@ -211,26 +243,23 @@ def genBindingInit
       .ok ("{\n  let __pf_arr_count := and(" ++ codeLoadExpr arrPtr ++ ", " ++ u64Mask ++ ")\n  let __pf_arr_sum := 0\n  for { let __pf_arr_i := 0 } lt(__pf_arr_i, __pf_arr_count) { __pf_arr_i := add(__pf_arr_i, 1) } {\n    let __pf_arr_elem := " ++ codeLoadExpr elemOff ++ "\n    __pf_arr_sum := add(__pf_arr_sum, and(__pf_arr_elem, " ++ u64Mask ++ "))\n  }\n  " ++ store ++ "\n}")
 
 def genInitBody
-    (params : Array EvmConstructorParam)
-    (layout : StorageLayout)
-    (bindings : Array EvmConstructorInitBinding) : Except InitError String := do
+    (params : Array ConstructorParamPlan)
+    (bindings : Array ConstructorBindingPlan) : Except InitError String := do
   let mut lines : Array String := #[]
   for binding in bindings do
-    let line ← genBindingInit params layout binding
+    let line ← genBindingInit params binding
     lines := lines.push line
   .ok (String.intercalate "\n    " lines.toList)
 
 def renderDeployObject
     (moduleName : String)
-    (module : Module)
-    (params : Array EvmConstructorParam)
-    (bindings : Array EvmConstructorInitBinding)
+    (params : Array ConstructorParamPlan)
+    (bindings : Array ConstructorBindingPlan)
     (runtimeBytecodeHex : String)
     (constructorArgsByteLen : Nat) : Except InitError String := do
   if bindings.isEmpty then
     .error { message := "renderDeployObject requires at least one constructor_bind" }
-  let layout := storageLayout module
-  let initBody ← genInitBody params layout bindings
+  let initBody ← genInitBody params bindings
   let runtime := stripHexPrefix runtimeBytecodeHex
   if runtime.isEmpty then
     .error { message := "runtime bytecode must be non-empty for deploy object generation" }
@@ -239,7 +268,7 @@ def renderDeployObject
     "\n    let __pf_rt_off := dataoffset(\"runtime\")\n    let __pf_rt_size := datasize(\"runtime\")\n    codecopy(0, __pf_rt_off, __pf_rt_size)\n    return(0, __pf_rt_size)\n  }\n  data \"runtime\" hex\"" ++ runtime ++ "\"\n}")
 
 def shouldUseDeployObject
-    (bindings : Array EvmConstructorInitBinding) (constructorArgsHex : String) : Bool :=
+    (bindings : Array ConstructorBindingPlan) (constructorArgsHex : String) : Bool :=
   !bindings.isEmpty && !constructorArgsHex.isEmpty
 
 end ProofForge.Backend.Evm.ConstructorInit

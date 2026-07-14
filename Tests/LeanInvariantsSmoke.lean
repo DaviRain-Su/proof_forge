@@ -22,8 +22,9 @@ open ProofForge.Contract.Examples.CounterInvariant
 
 /-- Counter `contract_source` exposes the `lean_invariant` annotations. -/
 def counterLeanInvariantsRegistered : Bool :=
-  ProofForge.Contract.Examples.Counter.spec.leanInvariants.any
-    (fun (n, _) => n == "countBounded" || n == "countNonNegative")
+  ProofForge.Contract.Examples.Counter.contract.leanInvariants.any
+    (fun annotation => annotation.name == "countBounded" ||
+      annotation.name == "countNonNegative")
 
 end ProofForge.Tests.LeanInvariantsSmoke
 

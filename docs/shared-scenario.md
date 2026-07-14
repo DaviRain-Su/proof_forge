@@ -207,9 +207,9 @@ scenario through generated `.psy` source and Dargo validation.
 | Target | Path | Status |
 |---|---|---|
 | **All primary chains** | `Examples/Product/Counter.lean`, `Examples/Product/ValueVault.lean` (`contract_source`) | **In repo** — `just portable-counter-multi-target`, `just portable-value-vault` |
-| EVM | `Examples/Backend/Evm/Contracts/Counter.lean` | **In repo** — compatibility wrapper around the shared Counter with EVM constructor-init metadata |
+| EVM | `Examples/Backend/Evm/Counter.golden.yul` + `Contracts/CounterConstructorProbe.lean` | **In repo** — direct Product golden plus direct Authored constructor probe; no Counter `ContractSpec` wrapper |
 | CosmWasm | `Examples/Backend/CosmWasm/Counter.golden.wat` | **In repo (Spike)** — golden WAT via `proof-forge emit --target wasm-cosmwasm --fixture counter`; `just cosmwasm-counter-smoke` |
-| Solana | `Examples/Backend/Solana/Counter.lean` + manifest | **In repo** — compatibility wrapper around the shared Counter plus sBPF golden/manifest fixtures |
+| Solana | `Examples/Backend/Solana/Counter.canonical.golden.s` + canonical manifest | **In repo** — direct Product Counter plan/assembly fixtures; no Counter `ContractSpec` wrapper |
 | Aptos | `Examples/Backend/Aptos/Counter/golden/` | **In repo (Spike)** — golden Move module; `just aptos-counter-smoke` |
 | Cloudflare Workers | `Examples/Backend/CloudflareWorkers/Counter/` + `emit --format ts` | **In repo (Spike)** — TS package + `scripts/ts/counter-ir-smoke.sh` |
 | Psy DPN | `Examples/Backend/Psy/*.golden.psy`, `scripts/psy/*-smoke.sh` | **In repo** |

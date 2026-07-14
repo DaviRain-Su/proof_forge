@@ -1,6 +1,7 @@
 import ProofForge.Target.Formal
 import ProofForge.Contract.Examples.Counter
 import ProofForge.Contract.Examples.ValueVault
+import ProofForge.Frontend.Authored.Canonicalize
 
 namespace ProofForge.Target
 
@@ -21,27 +22,29 @@ so importing them from `Target.Formal` would create a cycle. Hosting the
 full-boundary theorems here breaks that cycle while still living in the
 `ProofForge.Target` namespace.
 
-`resolveSpecCheckedBy` runs the full boundary. These `native_decide` checks
-confirm that for the three primary-chain profiles, every resolved Counter and
-ValueVault plan satisfies `checkedBy profile = true`, exercising both the
-no-upgrade-policy path (Counter) and the with-upgrade-policy path (ValueVault)
-through `defaultResolve`. -/
+Counter now enters through direct Authored normalization and
+`resolveCanonicalCheckedBy`; ValueVault remains explicit deletion inventory on
+the old boundary until A-CUT3 migrates it. -/
 
-/-- Resolving the Counter spec against the EVM profile yields a checked plan. -/
-theorem resolveSpec_sound_counter_evm :
-    resolveSpecCheckedBy evm ProofForge.Contract.Examples.Counter.spec = true := by
+def authoredCounterCheckedBy (profile : TargetProfile) : Bool :=
+  match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      ProofForge.Contract.Examples.Counter.contract with
+  | .ok bundle => resolveCanonicalCheckedBy profile bundle.contract
+  | .error _ => false
+
+/-- The direct Counter Canonical requirements yield a checked EVM plan. -/
+theorem resolveCanonical_sound_counter_evm :
+    authoredCounterCheckedBy evm = true := by
   native_decide
 
-/-- Resolving the Counter spec against the Solana sBPF profile yields a
-checked plan. -/
-theorem resolveSpec_sound_counter_solana :
-    resolveSpecCheckedBy solanaSbpfAsm ProofForge.Contract.Examples.Counter.spec = true := by
+/-- The direct Counter Canonical requirements yield a checked Solana plan. -/
+theorem resolveCanonical_sound_counter_solana :
+    authoredCounterCheckedBy solanaSbpfAsm = true := by
   native_decide
 
-/-- Resolving the Counter spec against the NEAR Wasm profile yields a checked
-plan. -/
-theorem resolveSpec_sound_counter_near :
-    resolveSpecCheckedBy wasmNear ProofForge.Contract.Examples.Counter.spec = true := by
+/-- The direct Counter Canonical requirements yield a checked NEAR plan. -/
+theorem resolveCanonical_sound_counter_near :
+    authoredCounterCheckedBy wasmNear = true := by
   native_decide
 
 /-- Resolving the ValueVault spec against the EVM profile yields a checked

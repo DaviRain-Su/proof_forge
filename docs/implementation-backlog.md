@@ -39,10 +39,13 @@ July 12 implementation plan.
 | A4 | Audit ERC-721/Metaplex/NEAR NFT candidates | done (review repaired) | executable minimal lifecycle and explicit compliance limits |
 | A5 | Materialize NFT intent on the primary triad | done (review repaired) | all accepted cases reach strict target plans; Solana hashes the full account pubkey |
 | A6 | Open NFT CLI/product/runtime route | done (verified at `6a6022ea`) | three honest bundles and EVM/Surfpool/NEAR lifecycle runtime evidence pass |
-| A-CUT1e | Cut public Solana authoring over to target-owned HostOps | done (verified 2026-07-14) | public/internal macros emit direct Authored contracts; plan-only sidecars and sBPF lowering pass focused Pinocchio comparisons; no public/internal Legacy import or fallback |
+| A-CUT1e | Cut public Solana authoring over to target-owned HostOps | done (verified at `571b795d`) | public/internal macros emit direct Authored contracts; plan-only sidecars and sBPF lowering pass focused Pinocchio comparisons; no public/internal Legacy import or fallback |
+| A-CUT2g | Cut public portable Source/Loader and Counter target routes to direct Authored/Core/Plan | done (verified at `42183403`) | EVM, Solana assembly/ELF, and NEAR/Wasm artifacts use `canonical-core-v1`; no ContractSpec sidecar/fallback; focused three-target behavior passes |
+| A-CUT2h | Remove stale Counter `.spec`/`.module` consumers and obsolete backend wrappers | in_progress | migrate callers to Authored/Canonical, delete zero-caller wrappers, and make focused production/test builds green without compatibility aliases |
+| A-CUT3 | Migrate Product/stdlib callers and delete their `Source.Legacy` dependencies | pending after CMP-2 | migrate ValueVault first with CMP-3 evidence, then the catalog; delete zero-caller Legacy slices continuously |
 | B1 | Extract neutral Wasm-host plan and ABI | done (verified at `c8d2bbb6`) | NEAR output/runtime preservation |
 | B2 | Add strict canonical target gate | done (verified at `d4df51bc`) | adapter/validator/HostOp/builder errors fail closed |
-| B3 | Promote Soroban Counter | pending after B2 | strict plan, native ABI/auth contract, runtime evidence |
+| B3 | Promote Soroban Counter | done (verified 2026-07-12) | strict plan, bridge-aware lowering, native ABI/auth contract, runtime evidence |
 | C1 | Add PSy canonical plan | pending after A6 | strict fixture gate; no maturity change |
 | C2 | Add Aleo semantic plan | pending after C1 | Core-to-plan-to-Leo; no route promotion |
 | C3 | Write sourced OpenVM brief | pending | reviewed go/defer decision before code |
@@ -62,7 +65,7 @@ add target-specific operations to portable IR. A-CUT1e-c2 is complete.
 |---:|---|---|---|
 | CMP-0 | Inventory and version the shared provenance/scenario/observation contracts | done (verified at `18f15e59`) | 85 tracked assets; 35 v0 manifests migrate explicitly but remain semantically ineligible |
 | CMP-1 | Implement fail-closed normalized observation and coverage validation | done (verified at `7fee238c`) | 23 focused contract/comparator tests; target-local resources cannot become a cross-chain score |
-| CMP-2 | Counter native pilot: Solidity EVM, Rust Solana, Rust NEAR | pending after A-CUT2g | required for A-CUT2 completion |
+| CMP-2 | Counter native pilot: Solidity EVM, Rust Solana, Rust NEAR | pending after A-CUT2h | required for A-CUT2 completion |
 | CMP-3 | ValueVault and representative stateful portable families | pending after CMP-2 | attached to A-CUT3 |
 | CMP-SOL | Account/PDA/CPI conformance against independent Solana Rust references | pending with IR-B5 | IR-B5 exit |
 | CMP-NEAR | Replay existing Rust/Sandbox references from canonical-only artifacts | pending with NEAR-R4 | NEAR-R4 exit |
@@ -1453,7 +1456,8 @@ Tasks:
   - Effect lowering: storageScalar read/write at account-data offsets.
 - Add `--solana-elf` CLI mode: emit `.s` then invoke `sbpf build`.
 - Generate instruction manifest (`manifest.toml`) alongside the `.s`.
-- Create `Examples/Backend/Solana/Counter.lean` + manifest.
+- Create the original self-contained Solana Counter wrapper + manifest
+  (historical path; wrapper removed by A-CUT2h after the direct Product cutover).
 - Run `sbpf test` (Mollusk) and a Surfpool/Rust live deployment smoke.
 
 Acceptance criteria:
@@ -1515,7 +1519,8 @@ partial progress is visible before the full acceptance criteria close:
       6 (`error_owner`). Phase 1 Mollusk runtime gates disable the
       direct-account-mapping ABI so the legacy embedded account-data layout
       is exercised.
-- [x] `Examples/Backend/Solana/Counter.lean` + manifest as a self-contained example.
+- [x] The original self-contained Solana Counter wrapper + manifest
+      (historical path; wrapper removed by A-CUT2h after the direct Product cutover).
       Includes a tracked `Counter.golden.s` and `Counter.manifest.toml` and a
       CI-runnable `scripts/solana/build-examples.sh` that emits and diffs.
 - [x] Capability checker rejects unsupported capability/target combinations

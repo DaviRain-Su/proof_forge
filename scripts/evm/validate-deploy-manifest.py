@@ -173,9 +173,22 @@ def validate_constructor_args(
     return actual_hex
 
 
-def validate_deployment_init_code(init_path: Path, runtime_path: Path, constructor_args_hex: str, prefix: str) -> None:
+def validate_deployment_init_code(
+    init_path: Path,
+    runtime_path: Path,
+    constructor_args_hex: str,
+    prefix: str,
+    mode: str,
+) -> None:
     init_hex = expect_hex_text(init_path, f"{prefix}.initCode")
     runtime_hex = expect_hex_text(runtime_path, f"{prefix}.runtimeBytecode")
+    if mode == "deploy-object":
+        expect(runtime_hex.lower() in init_hex.lower(), f"{prefix}.initCode must embed referenced runtime bytecode")
+        expect(
+            not constructor_args_hex or init_hex.lower().endswith(constructor_args_hex.lower()),
+            f"{prefix}.initCode constructor args suffix mismatch",
+        )
+        return
     runtime_size = len(runtime_hex) // 2
 
     size, offset = read_push_value(init_hex, 0, f"{prefix}.initCode.runtimeSize")
@@ -489,7 +502,8 @@ def main() -> int:
     expect_hex_text(bytecode_path, "inputs.bytecode")
 
     creation = expect_object(manifest.get("creation"), "creation")
-    expect(creation.get("mode") == "init-code", "creation.mode mismatch")
+    creation_mode = expect_string(creation.get("mode"), "creation.mode")
+    expect(creation_mode in {"init-code", "deploy-object"}, "creation.mode unsupported")
     constructor_args_hex = validate_constructor_args(
         expect_array(creation.get("constructorArgs"), "creation.constructorArgs"),
         args.expect_constructor_args_hex,
@@ -504,7 +518,9 @@ def main() -> int:
     runtime_path = file_entry(root, runtime_entry, "creation.runtimeBytecode")
     expect(runtime_entry == inputs["bytecode"], "creation.runtimeBytecode must match inputs.bytecode")
     expect(runtime_path.resolve() == bytecode_path.resolve(), "creation.runtimeBytecode path must match inputs.bytecode")
-    validate_deployment_init_code(creation_init_code_path, runtime_path, constructor_args_hex, "creation")
+    validate_deployment_init_code(
+        creation_init_code_path, runtime_path, constructor_args_hex, "creation", creation_mode
+    )
 
     return 0
 

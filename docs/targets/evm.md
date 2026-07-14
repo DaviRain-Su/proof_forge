@@ -79,7 +79,7 @@ lake build
 
 lake env proof-forge build --target evm --root . \
   --artifact-output build/evm/Counter.proof-forge-artifact.json \
-  -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean
+  -o build/evm/Counter.bin Examples/Product/Counter.lean
 
 scripts/evm/build-examples.sh
 scripts/evm/foundry-smoke.sh
@@ -728,10 +728,11 @@ The EVM deploy manifest records:
   `--evm-chain-profile` is provided, including profile id, chain id, RPC URLs,
   native gas symbol, explorer, verifier, and notes
 - Yul/source inputs plus runtime bytecode and initcode hash/size
-- `creation.mode: init-code`, optional static-word constructor ABI schema from
-  `--evm-constructor-param`, optional ABI-encoded constructor args from typed
-  `--evm-constructor-arg` values or raw `--evm-constructor-args-hex`, an
-  artifact-linked initcode file, and the referenced runtime bytecode
+- `creation.mode: init-code` for the simple runtime-copy header or
+  `creation.mode: deploy-object` when the EVM target plan executes resolved
+  constructor storage bindings; both record the constructor ABI schema,
+  optional ABI-encoded arguments, artifact-linked initcode, and referenced
+  runtime bytecode
 - `deployment.profileId`, `deployment.chainId`, `deployment.rpcUrls`,
   `deployment.blockExplorerUrl`, and verifier fields when a chain profile is
   selected

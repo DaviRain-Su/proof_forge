@@ -6,6 +6,7 @@ import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.WasmHost.EmitWat
 import ProofForge.Cli.ContractLoader
+import ProofForge.Cli.EvmArtifacts
 import ProofForge.Cli.Fixture
 import ProofForge.Cli.JsonUtil
 import ProofForge.Cli.HexUtil
@@ -353,76 +354,99 @@ use `proof-forge emit --target {profile.id} --fixture <id>` for the Counter spik
             else
               return { resolved with validation := pushValidation resolved.validation "contractSource" "passed" }
 
-def checkEvmSurfaceContractSource
+private def checkEvmCanonicalContractSource
     (input : FilePath)
-    (contract : ProofForge.Frontend.Surface.SurfaceContract)
+    (checked : ProofForge.IR.Canonical.CheckedCanonicalContract)
+    (constructorConfig : ProofForge.Backend.Evm.Plan.ConstructorConfigPlan)
     (report : Report) : Report :=
-  match ProofForge.Frontend.Surface.normalizeSurface contract with
-  | .error error => {
+  let hostErrors := ProofForge.Compiler.checkHostOpHandlers
+    ProofForge.Target.evm.id checked
+  if !hostErrors.isEmpty then {
+    report with
+    diagnostics := hostErrors.foldl (fun diagnostics message =>
+      pushDiagnostic diagnostics {
+        severity := .error
+        code := "hostop.unsupported"
+        message
+        file? := some input.toString
+      }) report.diagnostics
+    validation := pushValidation report.validation "hostOps" "failed"
+  }
+  else
+    let capabilityPlan : ProofForge.Target.CapabilityPlan := {
+      targetId := ProofForge.Target.evm.id
+      calls := checked.contract.requirements
+    }
+    match ProofForge.Backend.Evm.Plan.Core.buildFromCore
+        checked capabilityPlan constructorConfig with
+    | .error error => {
       report with
       diagnostics := pushDiagnostic report.diagnostics {
         severity := .error
-        code := "canonical.normalize"
-        message := s!"{repr error}"
+        code := "backend.plan"
+        message := error.message
         file? := some input.toString
       }
-      validation := pushValidation report.validation "canonicalNormalize" "failed"
+      validation := pushValidation report.validation "backendPlan" "failed"
     }
-  | .ok bundle =>
-      let hostErrors := ProofForge.Compiler.checkHostOpHandlers
-        ProofForge.Target.evm.id bundle.contract
-      if !hostErrors.isEmpty then {
-        report with
-        diagnostics := hostErrors.foldl (fun diagnostics message =>
-          pushDiagnostic diagnostics {
-            severity := .error
-            code := "hostop.unsupported"
-            message
-            file? := some input.toString
-          }) report.diagnostics
-        validation := pushValidation report.validation "hostOps" "failed"
-      }
-      else
-        let capabilityPlan : ProofForge.Target.CapabilityPlan := {
-          targetId := ProofForge.Target.evm.id
-          calls := bundle.contract.contract.requirements
-        }
-        match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract capabilityPlan with
+    | .ok plan =>
+        match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
         | .error error => {
             report with
             diagnostics := pushDiagnostic report.diagnostics {
               severity := .error
-              code := "backend.plan"
+              code := "lowering.failed"
               message := error.message
               file? := some input.toString
             }
-            validation := pushValidation report.validation "backendPlan" "failed"
+            validation := pushValidation report.validation "lowering" "failed"
           }
-        | .ok plan =>
-            match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
-            | .error error => {
-                report with
-                diagnostics := pushDiagnostic report.diagnostics {
-                  severity := .error
-                  code := "lowering.failed"
-                  message := error.message
-                  file? := some input.toString
-                }
-                validation := pushValidation report.validation "lowering" "failed"
-              }
-            | .ok _ => {
-                report with
-                validation :=
-                  pushValidation
+        | .ok _ => {
+            report with
+            validation :=
+              pushValidation
+                (pushValidation
+                  (pushValidation
                     (pushValidation
-                      (pushValidation
-                        (pushValidation
-                          (pushValidation report.validation "sourceVersion" "contract-source")
-                          "canonicalNormalize" "passed")
-                        "hostOps" "passed")
-                      "backendPlan" "passed")
-                    "lowering" "passed"
-              }
+                      (pushValidation report.validation "sourceVersion" "contract-source")
+                      "canonicalNormalize" "passed")
+                    "hostOps" "passed")
+                  "backendPlan" "passed")
+                "lowering" "passed"
+          }
+
+unsafe def checkEvmSurfaceContractSource
+    (input : FilePath)
+    (contract : ProofForge.Frontend.Surface.SurfaceContract)
+    (constructorConfig : ProofForge.Backend.Evm.Plan.ConstructorConfigPlan)
+    (report : Report) : IO Report := do
+  let bundle ← match ProofForge.Frontend.Surface.normalizeSurface contract with
+    | .ok bundle => pure bundle
+    | .error error =>
+        return {
+          report with
+          diagnostics := pushDiagnostic report.diagnostics {
+            severity := .error
+            code := "canonical.normalize"
+            message := s!"{repr error}"
+            file? := some input.toString
+          }
+          validation := pushValidation report.validation "canonicalNormalize" "failed"
+        }
+  let checked ← try
+      ProofForge.Cli.hydrateAuthoredEvmSelectors "cast" bundle.contract
+    catch error =>
+      return {
+        report with
+        diagnostics := pushDiagnostic report.diagnostics {
+          severity := .error
+          code := "backend.selector"
+          message := error.toString
+          file? := some input.toString
+        }
+        validation := pushValidation report.validation "selectorHydration" "failed"
+      }
+  return checkEvmCanonicalContractSource input checked constructorConfig report
 
 unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (input : FilePath)
     (root? : Option FilePath) (moduleName? : Option Name) (report : Report) : IO Report := do
@@ -430,7 +454,7 @@ unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (inpu
     return ← checkLegacyContractSource profile input root? moduleName? report
   let source ←
     try
-      pure (Except.ok (← ProofForge.Cli.ContractLoader.loadSource input root? moduleName?))
+      pure (Except.ok (← ProofForge.Cli.loadEvmSource input root? moduleName?))
     catch error =>
       pure (Except.error error.toString)
   match source with
@@ -445,10 +469,10 @@ unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (inpu
         }
         validation := pushValidation report.validation "contractSource" "failed"
       }
-  | .ok (.authored _) =>
-      return ← checkLegacyContractSource profile input root? moduleName? report
-  | .ok (.surfaceFixture contract) =>
-      return checkEvmSurfaceContractSource input contract report
+  | .ok (.authored contract, constructorConfig) =>
+      return ← checkEvmSurfaceContractSource input contract constructorConfig report
+  | .ok (.surfaceFixture contract, constructorConfig) =>
+      return ← checkEvmSurfaceContractSource input contract constructorConfig report
 
 def checkFixture (profile : ProofForge.Target.TargetProfile) (targetId fixtureId : String)
     (format? : Option String) (report : Report) : Except String Report := do

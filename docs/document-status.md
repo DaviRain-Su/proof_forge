@@ -45,6 +45,7 @@ stay traceable. They must not be used as current scheduling authority.
 | `superpowers/plans/2026-07-09-portable-sdk-unification.md` | completed portable SDK waves | July 12 intent design |
 | `superpowers/plans/2026-07-09-unified-support-roadmap.md` | HostEnv/crosscall/FV consolidation history | July 12 intent and target analyses |
 | `superpowers/plans/2026-07-10-post-review-execution.md` | triad hardening and benchmark execution history | July 12 implementation plan |
+| `superpowers/plans/2026-07-10-public-beta-blocker-sprint.md` | completed public-beta CLI/release sprint; legacy-preservation wording superseded | D-056 and July 14 authoring plan |
 | `superpowers/plans/2026-07-11-core-ir-target-plan.md` | completed Canonical Core migration tasks | Canonical Core design and current code |
 | `superpowers/plans/2026-07-11-primary-triad-runtime-handoff.md` | branch/checkpoint handoff | primary-triad roadmap history |
 | `doc-code-sync-audit-2026-07.md` | point-in-time documentation audit | this lifecycle index and docs gates |
@@ -72,26 +73,27 @@ search the historical log only when older evidence is required.
 7. New architecture work updates decisions, this index, the relevant design,
    backlog, roadmap, gates, and validation docs in the same documentation
    phase before code implementation begins.
-8. Legacy code is migrated incrementally behind tests. Documentation must name
-   the legacy boundary and intended replacement rather than pretending the old
-   path has already been deleted.
+8. Legacy code is migrated incrementally behind tests, but it is not a supported
+   compatibility surface. Documentation must name the deletion-only quarantine,
+   forbid new fallback/dual-write routes, and remove each zero-caller slice.
 9. Root `AGENTS.md` is the mandatory agent entry point. It contains only the
    current checkpoint and links; detailed task state remains in the current
    plan, and completed-task evidence is appended to `implementation-log.md`.
 
 ## Current Migration Principle
 
-Legacy `ContractSpec` and adapters remain compatibility inputs while product
-surfaces move toward:
+The public compiler has one destination architecture:
 
 ```text
-portable authoring
-  -> IntentContract / Frontend Surface
+portable authoring (`AuthoredContract`)
   -> CheckedCanonicalContract
   -> CapabilityPlan + target materializer
   -> target plan
   -> artifact and runtime evidence
 ```
 
-Each replacement slice must preserve observable behavior, add a strict gate,
-and remove legacy code only after all callers and fixtures have migrated.
+Remaining `ContractSpec`, `IR.Module`, and `Source.Legacy` callers are
+deletion-only migration inventory. Each slice preserves observable behavior,
+adds a strict gate, moves callers directly to the architecture above, and then
+deletes the zero-caller old code. No new adapter may convert direct Authored or
+Canonical values back into Legacy representations.

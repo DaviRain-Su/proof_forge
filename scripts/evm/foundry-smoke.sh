@@ -113,7 +113,11 @@ fi
 rebuild_constructor_init_fixture() {
   local name="$1"
   local lean_file="$2"
+  local golden="${lean_file%.lean}.golden.yul"
   shift 2
+  if [[ "$name" == "Counter" ]]; then
+    golden="$ROOT/Examples/Backend/Evm/Counter.golden.yul"
+  fi
   (
     cd "$ROOT"
     "${proof_forge[@]}" build \
@@ -124,7 +128,7 @@ rebuild_constructor_init_fixture() {
       -o "$OUT_DIR/$name.ctor.bin" \
       "$@" \
       "$lean_file"
-    diff -u "${lean_file%.lean}.golden.yul" "$OUT_DIR/$name.yul"
+    diff -u "$golden" "$OUT_DIR/$name.yul"
   )
 }
 
@@ -136,7 +140,7 @@ rebuild_constructor_init_fixture DynamicConstructorProbe "$ROOT/Examples/Backend
   --evm-constructor-arg "payload=0xdeadbeef" \
   --evm-constructor-arg "amounts=1,2,3"
 
-rebuild_constructor_init_fixture Counter "$ROOT/Examples/Backend/Evm/Contracts/Counter.lean" \
+rebuild_constructor_init_fixture Counter "$ROOT/Examples/Backend/Evm/Contracts/CounterConstructorProbe.lean" \
   --evm-constructor-arg "initial=123"
 
 # PF-P2-03: RemoteCall with deploy-time peer address for real CALL peer equivalence.

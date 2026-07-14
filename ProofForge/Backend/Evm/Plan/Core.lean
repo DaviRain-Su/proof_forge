@@ -383,6 +383,65 @@ def coreStorageLayout (module : Core.Module) (materialization : MaterializationC
       usedBytes := 0
   return { states }
 
+private def constructorBindingTypesValid
+    (param : ConstructorParamPlan)
+    (state : StorageStatePlan)
+    (kind : ConstructorBindingKindPlan) : Bool :=
+  match kind with
+  | .scalarU64 =>
+      (param.abiType == "uint64" || param.abiType == "uint256") && state.type == .u64
+  | .addressWord =>
+      param.abiType == "address" && (state.type == .address || state.type == .hash)
+  | .addressKeccak => param.abiType == "address" && state.type == .hash
+  | .stringLength | .bytesLength =>
+      (param.abiType == "string" || param.abiType == "bytes") && state.type == .u64
+  | .stringKeccak | .bytesKeccak =>
+      (param.abiType == "string" || param.abiType == "bytes") && state.type == .hash
+  | .arrayLength | .arraySumU64 =>
+      param.abiType == "uint256[]" && state.type == .u64
+
+private def resolveConstructorBindings
+    (config : ConstructorConfigPlan)
+    (storage : StorageLayout) : Except PlanError (Array ConstructorBindingPlan) := do
+  let mut paramNames : Array String := #[]
+  for param in config.params do
+    if param.name.isEmpty then
+      throw { message := "EVM constructor parameter name must not be empty" }
+    if param.abiType.isEmpty then
+      throw { message := s!"EVM constructor parameter `{param.name}` has an empty ABI type" }
+    if paramNames.contains param.name then
+      throw { message := s!"duplicate EVM constructor parameter `{param.name}`" }
+    paramNames := paramNames.push param.name
+  if !config.params.isEmpty && config.bindings.isEmpty then
+    throw { message := "EVM constructor parameters require target-owned storage bindings" }
+  let mut stateNames : Array String := #[]
+  let mut bindings : Array ConstructorBindingPlan := #[]
+  for binding in config.bindings do
+    let some param := config.params.find? (·.name == binding.paramName)
+      | throw {
+          message :=
+            s!"EVM constructor binding for `{binding.stateName}` references unknown parameter `{binding.paramName}`"
+        }
+    let some state := storage.find? binding.stateName
+      | throw { message := s!"EVM constructor binding references unplanned storage state `{binding.stateName}`" }
+    if stateNames.contains state.id then
+      throw { message := s!"duplicate EVM constructor storage binding `{state.id}`" }
+    unless constructorBindingTypesValid param state binding.kind do
+      throw {
+        message :=
+          s!"EVM constructor binding `{binding.paramName}` -> `{state.id}` is incompatible with ABI type `{param.abiType}` and storage type `{state.type.name}`"
+      }
+    stateNames := stateNames.push state.id
+    bindings := bindings.push {
+      state
+      paramName := binding.paramName
+      kind := binding.kind
+    }
+  for param in config.params do
+    unless config.bindings.any (·.paramName == param.name) do
+      throw { message := s!"unused EVM constructor parameter `{param.name}`" }
+  return bindings
+
 /-- Map a Core instruction op to EVM StmtPlan entries.
 Scalar load/store, context read, arithmetic, event emit, assert, and return
 are mapped. Unsupported ops fail closed. -/
@@ -952,15 +1011,23 @@ private def coreCreateHelperSpecs
 /-- Build an EVM ModulePlan from a checked canonical contract.
 This reuses the existing ModulePlan structure — no parallel plan types. -/
 def buildFromCore (checked : CheckedCanonicalContract)
-    (capPlan : CapabilityPlan) :
+    (capPlan : CapabilityPlan)
+    (constructorConfig : ConstructorConfigPlan := {}) :
     Except PlanError ModulePlan := do
   if capPlan.targetId != ProofForge.Target.evm.id then
     .error { message := s!"EVM buildFromCore requires target `{ProofForge.Target.evm.id}`, got `{capPlan.targetId}`" }
   let m := checked.contract.module
   let iface := checked.contract.interface
+  unless checked.contract.materialization.constructorParams.isEmpty &&
+      checked.contract.materialization.constructorBindings.isEmpty do
+    throw {
+      message :=
+        "EVM constructor ABI/bindings must use the target-owned evmConstructor attachment, not shared Canonical materialization"
+    }
   let proxyPattern? ← evmProxyPattern checked.contract.interfaceExtensions
   /- Build storage layout from Core state declarations. -/
   let storage ← coreStorageLayout m checked.contract.materialization
+  let constructorBindings ← resolveConstructorBindings constructorConfig storage
   let events ← iface.events.mapM coreEventToPlan
   let errors ← coreErrorPlans iface checked.contract.materialization
     checked.contract.interfaceExtensions
@@ -1090,6 +1157,8 @@ def buildFromCore (checked : CheckedCanonicalContract)
     events
     crosscalls
     creates
+    constructorParams := constructorConfig.params
+    constructorBindings
     localArrayGetLengths := #[]
     nestedLocalArrayGetShapes := #[]
     usesCheckedArithmetic

@@ -16,13 +16,13 @@ Does **not** force host-specific decode helpers to share one name
 (`decodeProofForgeRevert` vs `parseProofForgePanic` vs `errorBySolanaCustomCode`)
 — those stay host-idiomatic; only the catalogue ids and entrypoint names unify.
 -/
-import Examples.Product.Counter
 import ProofForge.Contract.Client
 import ProofForge.Contract.Spec
 import ProofForge.Contract.SdkSchema
 import ProofForge.Backend.Solana.Client
 import ProofForge.Backend.Solana.Idl
 import ProofForge.IR.Examples.ErrorRefProbe
+import ProofForge.IR.Examples.Counter
 
 namespace ProofForge.Tests.ClientSchemaParity
 
@@ -40,7 +40,9 @@ def renderEvm (spec : ContractSpec) (name : String) : IO String :=
   | .ok wrapper => pure wrapper
   | .error err => throw <| IO.userError s!"EVM client render failed: {err}"
 
-def counterModule : Module := Examples.Product.Counter.module
+/- Explicit v1 client-schema fixture. Public Counter artifact metadata is
+covered by the direct authored route and is never adapted back to this module. -/
+def counterModule : Module := ProofForge.IR.Examples.Counter.module
 def counterSpec : ContractSpec := ContractSpec.fromIR counterModule
 def errorSpec : ContractSpec :=
   ContractSpec.fromIR ProofForge.IR.Examples.ErrorRefProbe.module

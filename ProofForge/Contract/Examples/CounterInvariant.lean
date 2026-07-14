@@ -1,74 +1,82 @@
 import ProofForge.Contract.Examples.Counter
-import ProofForge.Contract.LeanInvariant
-import ProofForge.IR.Semantics
+import ProofForge.Frontend.Authored.Canonicalize
+import ProofForge.IR.Core.Semantics
 
-/-! ## FV-8 user-authored Lean invariants — Counter authoring example
+/-! ## Counter invariants over checked Canonical Core
 
-Canonical Counter instance of the FV-8 user-invariant authoring mode (Track
-1.7). The author declares a `countBounded` Lean invariant (parallel to the
-`quint_invariant` annotation, which is a string expression for Quint MBT) and
-machine-checks it holds after a scenario pre-codegen.
+The author-facing annotation names the predicates in this module. The executable
+gate normalizes the single Product source and runs Core reference semantics; it
+does not reconstruct the retired `ContractSpec` or v1 `IR.Module`.
 -/
 
 namespace ProofForge.Contract.Examples.CounterInvariant
 
-open ProofForge.IR
-open ProofForge.Contract.LeanInvariant
+open ProofForge.IR.Core
+open ProofForge.IR.Core.Semantics
 
-abbrev SemState := ProofForge.IR.Semantics.State
+abbrev SemState := LogicalState
 
-def module : Module :=
-  ProofForge.Contract.Examples.Counter.module
+def host : HostSemantics where
+  handle call _ _ := .error (.unknownHostOp call.id)
+  handleContext field := .error (.unsupportedContext field)
+  handleHash _ := .error .unsupportedHash
+  handleCrosscall request _ := .error (.unsupportedCrosscall request.mode)
 
-/-! ### User-declared Lean invariant -/
+def initialState : SemState := default
 
-/-- `countBounded`: after a bounded-increment scenario, the count does not
-exceed the scenario bound. This is the Lean-side invariant corresponding to
-the `quint_invariant countBounded := "count <= MAX_UINT"` annotation, but
-checked here by Lean reduction rather than Quint MBT. -/
+def readCount (state : SemState) : Nat :=
+  match state.storage ⟨0⟩ with
+  | some (.scalar (.u64 value)) => value.toNat
+  | _ => 0
+
+/-- The count remains within the scenario bound. -/
 def countBounded (bound : Nat) (state : SemState) : Bool :=
-  readU64D state "count" <= bound
+  readCount state <= bound
 
-/-- Non-negative count: the count is never negative (trivially true for
-`Nat`-backed storage, but illustrates the authoring pattern for a
-purely-Lean invariant that does not mirror a Quint annotation). -/
+/-- The Core `u64` representation is non-negative by construction. -/
 def countNonNegative (state : SemState) : Bool :=
-  readU64D state "count" >= 0
+  readCount state >= 0
 
-def counterInvariants (bound : Nat) : ContractInvariants :=
-  { moduleName := module.name
-    invariants := #[
-      InvariantSpec.declare "countBounded" (countBounded bound),
-      InvariantSpec.declare "countNonNegative" countNonNegative
-    ] }
+def runCall (checked : ProofForge.IR.Canonical.CheckedCanonicalContract)
+    (functionId : Nat) (state : SemState) : Except String SemState :=
+  match execute host 100 checked ⟨functionId⟩ #[] state with
+  | .ok result => .ok result.finalState
+  | .error error => .error s!"Core execution failed: {repr error}"
 
-/-! ### Scenario: initialize then increment `n` times -/
+def runIncrements (checked : ProofForge.IR.Canonical.CheckedCanonicalContract) :
+    Nat → SemState → Except String SemState
+  | 0, state => .ok state
+  | n + 1, state => do
+      let next ← runCall checked 1 state
+      runIncrements checked n next
 
-def incrementScenario (n : Nat) : Array ScenarioStep :=
-  #[{ entrypointName := "initialize" }] ++
-    (List.replicate n { entrypointName := "increment" } |>.toArray)
-
-def initialState : SemState := ProofForge.IR.Semantics.State.empty
-
-/-! ### Pre-codegen machine check -/
+def runScenario (n : Nat) : Except String SemState := do
+  let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      ProofForge.Contract.Examples.Counter.contract with
+    | .ok bundle => .ok bundle
+    | .error error => .error s!"Counter normalization failed: {repr error}"
+  let initialized ← runCall bundle.contract 0 initialState
+  runIncrements bundle.contract n initialized
 
 def verified (bound n : Nat) : Bool :=
-  verifyInvariantsAfterScenario module (counterInvariants bound)
-    initialState (incrementScenario n)
+  match runScenario n with
+  | .ok finalState => countBounded bound finalState && countNonNegative finalState
+  | .error _ => false
 
-/-- After `n` increments from the empty state, `countBounded n` holds (the count
-is exactly `n`, hence `≤ n`), and `countNonNegative` holds trivially. -/
 theorem counter_invariants_hold_after_scenario :
     verified 3 3 = true := by
   native_decide
 
-/-- Soundness bridge for the Counter invariants. -/
 theorem counter_invariants_sound (bound n : Nat)
     (h : verified bound n = true) :
-    ∃ finalState, allInvariantsHold (counterInvariants bound) finalState = true ∧
-      (∃ observed, runScenario module initialState (incrementScenario n) = .ok (finalState, observed)) := by
+    ∃ finalState,
+      (countBounded bound finalState && countNonNegative finalState) = true ∧
+      runScenario n = .ok finalState := by
   unfold verified at h
-  exact invariants_hold_after_scenario module (counterInvariants bound)
-    initialState (incrementScenario n) h
+  cases hsc : runScenario n with
+  | error message => simp [hsc] at h
+  | ok finalState =>
+      refine ⟨finalState, by simpa [hsc] using h, ?_⟩
+      simpa [hsc]
 
 end ProofForge.Contract.Examples.CounterInvariant

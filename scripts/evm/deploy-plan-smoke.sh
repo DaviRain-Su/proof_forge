@@ -31,7 +31,7 @@ DEPLOY_PLAN="$PLAN_DIR/Counter.proof-forge-deploy-plan.json"
     --artifact-output "$OUT_DIR/Counter.proof-forge-artifact.json" \
     --evm-chain-profile "$CHAIN_PROFILE" \
     -o "$OUT_DIR/Counter.bin" \
-    Examples/Backend/Evm/Contracts/Counter.lean
+    Examples/Product/Counter.lean
 )
 
 (

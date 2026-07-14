@@ -29,7 +29,7 @@ mkdir -p "$OUT_DIR"
 # Keep the CLI executable and importable contract modules fresh when this script
 # is run directly. The examples may import stdlib modules that the executable
 # does not depend on.
-prebuild_targets=(proof-forge)
+prebuild_targets=(proof-forge Examples.Product.Counter)
 has_prebuild_target() {
   local target="$1"
   local existing
@@ -54,43 +54,41 @@ done < <(find "$CONTRACTS_DIR" -name '*.lean' -print0 | sort -z)
 
 (cd "$ROOT" && lake build "${prebuild_targets[@]}" >/dev/null)
 
+# The public Counter no longer has a backend ContractSpec wrapper. Compile the
+# single Product Authored source directly and compare against its canonical Yul.
+if ! (
+  cd "$ROOT"
+  "${proof_forge[@]}" build --target evm --root . \
+    --yul-output "$OUT_DIR/Counter.yul" \
+    --artifact-output "$OUT_DIR/Counter.proof-forge-artifact.json" \
+    -o "$OUT_DIR/Counter.bin" \
+    Examples/Product/Counter.lean
+  diff -u Examples/Backend/Evm/Counter.golden.yul "$OUT_DIR/Counter.yul"
+  python3 "$ROOT/scripts/evm/validate-artifact-metadata.py" \
+    --root "$ROOT" \
+    --expect-fixture Counter \
+    --expect-source-kind contract-source-authored \
+    --expect-ir-version canonical-core-v1 \
+    "$OUT_DIR/Counter.proof-forge-artifact.json"
+); then
+  echo "build-examples: direct Product Counter failed" >&2
+  exit 1
+fi
+
 is_contract_source() {
   local lean_file="$1"
-  if grep -Eq 'contract_source |def spec : ProofForge\.Contract\.ContractSpec|def spec := ProofForge\.Contract\.Stdlib\.' "$lean_file"; then
+  if grep -Eq '^import ProofForge\.Contract\.Source\.Legacy$' "$lean_file"; then
+    return 1
+  fi
+  if grep -Eq 'contract_source |def contract : ProofForge\.Frontend\.Authored\.AuthoredContract|def surfaceFixture : ProofForge\.Frontend\.Surface\.SurfaceContract' "$lean_file"; then
     return 0
   fi
   return 1
 }
 
-# Backend fixtures exercise the full Legacy EVM IR, including nested mapping
-# paths, CREATE2, and aggregate locals that are intentionally outside the
-# current canonical Core fragment. Public-route coverage is explicit: entries
-# here must compile without fallback and match canonical golden Yul. The
-# remaining fixtures continue to run through their dedicated IR/Foundry smokes
-# earlier in `evm-all`.
-canonical_public_fixtures=(
-  Counter
-  DynamicConstructorProbe
-  Ierc20Client
-  Ierc20PermitClient
-  Ierc4626Client
-  Ierc721Client
-  MulticallClient
-  Pausable
-  Permit2Client
-  ReentrancyGuard
-)
-
-is_canonical_public_fixture() {
-  local name="$1"
-  local fixture
-  for fixture in "${canonical_public_fixtures[@]}"; do
-    if [[ "$fixture" == "$name" ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
+# Backend `spec` fixtures are deletion inventory and cannot enter the public
+# Loader. Direct backend fixtures compile here only when they own a tracked Yul
+# golden; constructor-only probes run through their dedicated runtime gates.
 
 failures=0
 while IFS= read -r -d '' lean_file; do
@@ -99,11 +97,11 @@ while IFS= read -r -d '' lean_file; do
     echo "build-examples: skipping $lean_file (not a portable contract source)" >&2
     continue
   fi
-  if ! is_canonical_public_fixture "$name"; then
-    echo "build-examples: skipping $name (legacy-only Core gap; covered by dedicated EVM IR smoke)" >&2
+  if [[ "$name" == "CounterConstructorProbe" ]]; then
+    echo "build-examples: skipping $name (covered by evm-anvil-deploy)" >&2
     continue
   fi
-  source_kind="contract-sdk"
+  source_kind="contract-source-authored"
   fixture="$name"
   out="$OUT_DIR/$name.bin"
   yul_out="$OUT_DIR/$name.yul"
@@ -136,6 +134,7 @@ while IFS= read -r -d '' lean_file; do
       --root "$ROOT" \
       --expect-fixture "$fixture" \
       --expect-source-kind "$source_kind" \
+      --expect-ir-version canonical-core-v1 \
       "$metadata"
   ); then
     :

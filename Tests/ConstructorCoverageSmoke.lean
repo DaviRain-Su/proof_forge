@@ -108,7 +108,7 @@ theorem coveredFragment_uses_only_covered_capabilities :
 -- 12. U5.1 / U5.3: Product modules vs covered fragment.
 -- Counter / HostEnvProbe stay in fragment; RemoteCall (crosscall stub) is out.
 theorem product_counter_in_covered_fragment :
-    moduleInCoveredFragment Examples.Product.Counter.module = true := by
+    moduleInCoveredFragment ProofForge.IR.Examples.Counter.module = true := by
   native_decide
 
 theorem product_hostEnvProbe_in_covered_fragment :
@@ -147,8 +147,8 @@ theorem loopProbe_in_covered_fragment :
 
 def main : IO UInt32 := do
   -- Runtime re-check of U5 product map (native_decide theorems above).
-  if !(moduleInCoveredFragment Examples.Product.Counter.module) then
-    throw (IO.userError "Product Counter must be in covered fragment")
+  if !(moduleInCoveredFragment ProofForge.IR.Examples.Counter.module) then
+    throw (IO.userError "Counter v1 proof fixture must be in covered fragment")
   if !(moduleInCoveredFragment Examples.Product.HostEnvProbe.module) then
     throw (IO.userError "Product HostEnvProbe must be in covered fragment")
   if moduleInCoveredFragment Examples.Product.RemoteCall.module then

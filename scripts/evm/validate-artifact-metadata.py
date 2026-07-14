@@ -619,7 +619,8 @@ def validate_deploy_manifest(
         expect(same_path(manifest_source, source_path), "deploy manifest inputs.source must match metadata artifacts.source")
 
     creation = expect_object(manifest.get("creation"), "deploy manifest creation")
-    expect(creation.get("mode") == "init-code", "deploy manifest creation.mode mismatch")
+    creation_mode = expect_string(creation.get("mode"), "deploy manifest creation.mode")
+    expect(creation_mode in {"init-code", "deploy-object"}, "deploy manifest creation.mode unsupported")
     constructor_args = expect_array(creation.get("constructorArgs"), "deploy manifest creation.constructorArgs")
     constructor_args_hex = validate_constructor_args(
         constructor_args,
@@ -636,7 +637,16 @@ def validate_deploy_manifest(
     runtime_path = file_entry(root, runtime_entry, "runtimeBytecode", "creation")
     expect(same_path(runtime_path, bytecode_path), "deploy manifest runtimeBytecode must match metadata artifacts.bytecode")
     expect(runtime_entry == inputs["bytecode"], "deploy manifest runtimeBytecode entry must match inputs.bytecode")
-    validate_deployment_init_code(creation_init_code, runtime_path, constructor_args_hex, "deploy manifest creation")
+    init_hex = expect_hex_text(creation_init_code, "deploy manifest creation.initCode")
+    runtime_hex = expect_hex_text(runtime_path, "deploy manifest creation.runtimeBytecode")
+    if creation_mode == "init-code":
+        validate_legacy_deployment_init_code(
+            init_hex, runtime_hex, constructor_args_hex, "deploy manifest creation"
+        )
+    else:
+        validate_deploy_object_init_code(
+            init_hex, runtime_hex, constructor_args_hex, "deploy manifest creation"
+        )
 
 
 def main() -> int:

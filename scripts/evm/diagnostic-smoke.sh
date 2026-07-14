@@ -29,7 +29,7 @@ run_cli_diagnostic() {
     --artifact-output "$out_dir/Counter.proof-forge-artifact.json" \
     -o "$out_dir/Counter.bin" \
     "$@" \
-    Examples/Backend/Evm/Contracts/Counter.lean \
+    Examples/Product/Counter.lean \
     >"$stdout_log" 2>"$stderr_log"
   local status=$?
   set -e

@@ -55,7 +55,7 @@ echo "Let's look at the Counter example:"
 echo ""
 sleep 1
 
-type_cmd "cat Examples/Backend/Evm/Contracts/Counter.lean"
+type_cmd "cat Examples/Product/Counter.lean"
 
 echo ""
 sleep 1
@@ -94,7 +94,7 @@ echo "Compile the Counter contract to EVM runtime bytecode:"
 echo ""
 sleep 0.5
 
-type_cmd "lake env proof-forge build --target evm --root . --module Counter -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean"
+type_cmd "lake env proof-forge build --target evm --root . -o build/evm/Counter.bin Examples/Product/Counter.lean"
 
 echo ""
 sleep 1
@@ -110,7 +110,7 @@ echo "Let's inspect the generated Yul (intermediate representation):"
 echo ""
 sleep 0.5
 
-type_cmd "lake env proof-forge build --target evm --root . --module Counter -o build/evm/Counter.bin --yul-output build/evm/Counter.demo.yul Examples/Backend/Evm/Contracts/Counter.lean"
+type_cmd "lake env proof-forge build --target evm --root . -o build/evm/Counter.bin --yul-output build/evm/Counter.demo.yul Examples/Product/Counter.lean"
 
 echo ""
 sleep 0.5
@@ -154,37 +154,32 @@ echo ""
 sleep 2
 
 # ================================================================
-# Part 4: Testing (Foundry Runtime Smoke Tests)
+# Part 4: Focused compiler validation
 # ================================================================
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Part 4/4: Testing (Foundry IR Smoke Tests)"
+echo "  Part 4/4: Testing (Canonical EVM Plan Gate)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 sleep 1
 
-echo "ProofForge generates Foundry test harnesses from portable IR."
-echo "Each fixture compiles to Yul → bytecode, deploys to a test VM,"
-echo "and asserts runtime behavior matches expected values."
+echo "The focused plan gate proves Canonical Core carries storage, ABI,"
+echo "constructor schema/bindings, and target semantics into ModulePlan."
 echo ""
 sleep 1
 
-echo "Running the context probe smoke test (context reads, opcodes):"
+echo "Running the canonical EVM plan and parity checks:"
 echo ""
 sleep 0.5
 
-type_cmd "just evm-ir-smokes 2>&1 | grep -E '(PASS|FAIL|Suite result|context-ir-smoke)' | head -20"
+type_cmd "just canonical-evm-plan"
 
 echo ""
 sleep 1
-echo "All smoke tests pass! The test suite covers:"
-echo "  • Scalar/array/map storage operations"
-echo "  • ABI encoding/decoding (scalars, structs, arrays)"
-echo "  • Context reads (caller, address, block number, timestamp,"
-echo "    chainId, gasPrice, gas, baseFee, prevRandao, origin, coinbase,"
-echo "    blockhash)"
-echo "  • Events (log0-log4, indexed topics, aggregate hashing)"
-echo "  • Cross-calls (call, staticcall, delegatecall, create, create2)"
-echo "  • Assertions, conditionals, bounded loops, expressions"
+echo "The focused gate checks:"
+echo "  • Authored/Canonical state reaches resolved EVM storage slots"
+echo "  • Constructor ABI and bindings remain target-plan owned"
+echo "  • Selectors, checked arithmetic, events, and CFG are preserved"
+echo "  • Wrong-target and unsupported Core operations fail closed"
 echo ""
 sleep 2
 
@@ -197,7 +192,7 @@ echo "╠═══════════════════════�
 echo "║  1. Author  — Lean 4 contract_source DSL                   ║"
 echo "║  2. Compile — proof-forge build --target evm               ║"
 echo "║  3. Deploy  — Anvil local chain + cast send --create       ║"
-echo "║  4. Test    — Foundry IR smoke tests (all PASS)            ║"
+echo "║  4. Test    — Canonical EVM plan and parity gates          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Repository: https://github.com/DaviRain-Su/proof_forge"

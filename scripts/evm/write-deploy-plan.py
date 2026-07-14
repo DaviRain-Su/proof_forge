@@ -57,6 +57,7 @@ def main() -> int:
         "chainProfile": profile,
         "constructorAbi": manifest["abi"]["constructor"],
         "constructorArgs": manifest["creation"]["constructorArgs"],
+        "creationMode": manifest["creation"]["mode"],
         "network": {
             "kind": "chain-profile",
             "chainId": profile.get("chainId"),

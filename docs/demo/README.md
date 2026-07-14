@@ -42,7 +42,7 @@ agg docs/demo/proofforge-evm-demo.cast docs/demo/proofforge-evm-demo.gif
 | Field       | Value                                    |
 |-------------|------------------------------------------|
 | File        | `proofforge-evm-demo.cast`               |
-| Duration    | ~2 minutes                               |
+| Duration    | ~1 minute 18 seconds                     |
 | Terminal    | 80×24                                    |
 | Format      | asciicast v3 (JSON)                      |
 | Idle limit  | 2 seconds (long pauses auto-compressed)   |
@@ -57,5 +57,6 @@ asciinema rec --idle-time-limit=2 \
   docs/demo/proofforge-evm-demo.cast
 ```
 
-The demo script (`scripts/demo/record-demo.sh`) runs the actual
-ProofForge commands against the live toolchain — no mocks.
+The demo script (`scripts/demo/record-demo.sh`) runs the actual direct Product
+compile, Authored constructor Anvil deploy, and focused Canonical EVM plan gates
+against the live toolchain; it uses no mocks or Legacy Counter wrapper.

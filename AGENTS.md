@@ -26,8 +26,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Direct authoring cutover with fail-closed native differential evidence |
-| Active task | A-CUT2g - switch the public Source builder/loader exchange to direct `AuthoredContract` and remove its remaining `ContractSpec`/`IR.Module` route |
-| Next task | CMP-2 - run the direct-route Counter against independent EVM, Solana, and NEAR references with complete required coverage |
+| Active task | A-CUT2h - remove stale Counter `.spec`/`.module` consumers and delete obsolete EVM/Solana Counter Legacy wrappers |
+| Next task | CMP-2 - run the direct Authored/Canonical Counter against independent EVM, Solana, and NEAR references |
 | Validation track | CMP-0 is done at `18f15e59`; CMP-1 is done at `7fee238c`; CMP-2 remains an A-CUT2 exit criterion |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
@@ -175,8 +175,8 @@ Core are internal compiler representations.
 | A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
 | A-CUT1c | done (verified at `52742ff5`) | Consolidate the optional EVM and Solana semantic-refinement roots under the independent `ProofForgeFormal` Lake libraries; keep heavyweight proof dependencies out of the default compiler library |
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
-| A-CUT1e | done (verified 2026-07-14) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
-| A-CUT2 | in_progress (through A-CUT2f-c verified) | Direct Authored builder, portable Boolean Core operations, and inferred typed event schemas now cover the Counter/public expression path without `Contract.Builder`; public Source/loader cutover remains pending |
+| A-CUT1e | done (verified at `571b795d`) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
+| A-CUT2 | in_progress (A-CUT2g verified at `42183403`; A-CUT2h active) | Public routes are direct; remove stale internal Counter consumers and wrappers before the independent CMP-2 pilot closes A-CUT2 |
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |

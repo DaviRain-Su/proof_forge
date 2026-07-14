@@ -152,9 +152,6 @@ def counterContract : CanonicalContract := {
     errors := #[]
   }
   materialization := {
-    constructorParams := #[{ name := "initial", abiType := "uint64" }]
-    constructorBindings := #[{
-      stateId := ⟨0⟩, paramName := "initial", kind := .scalarU64 }]
     stateSymbols := #[{ stateId := ⟨0⟩, name := "count" }]
   }
   requirements := #[]
@@ -167,6 +164,24 @@ def counterContractWithReqs : CanonicalContract := {
 }
 
 def emptyCapPlan : CapabilityPlan := { targetId := "evm", calls := #[], metadata := #[] }
+
+def counterConstructorConfig : ConstructorConfigPlan := {
+  params := #[{ name := "initial", abiType := "uint64" }]
+  bindings := #[{
+    stateName := "count", paramName := "initial", kind := .scalarU64
+  }]
+}
+
+def sharedConstructorPayloadContract : CanonicalContract := {
+  counterContract with
+  materialization := {
+    counterContract.materialization with
+    constructorParams := #[{ name := "initial", abiType := "uint64" }]
+    constructorBindings := #[{
+      stateId := ⟨0⟩, paramName := "initial", kind := .scalarU64
+    }]
+  }
+}
 
 def wrongTargetCapPlan : CapabilityPlan := { targetId := "solana-sbpf-asm", calls := #[], metadata := #[] }
 
@@ -345,9 +360,22 @@ def main : IO Unit := do
     | .error e => throw <| IO.userError s!"Counter validation failed: {repr e}"
 
   /- Build the EVM plan from Core. -/
-  let plan ← match buildFromCore counterChecked emptyCapPlan with
+  let plan ← match buildFromCore counterChecked emptyCapPlan counterConstructorConfig with
     | .ok p => pure p
     | .error e => throw <| IO.userError s!"Counter buildFromCore failed: {e.message}"
+
+  /- Constructor ABI and storage initialization are EVM plan data. They must
+  not be rediscovered from ContractSpec during artifact generation. -/
+  require (plan.constructorParams == #[{ name := "initial", abiType := "uint64" }])
+    s!"canonical constructor params did not reach the EVM plan: {repr plan.constructorParams}"
+  let constructorBinding ← match plan.constructorBindings[0]? with
+    | some binding => pure binding
+    | none => throw <| IO.userError "canonical constructor binding did not reach the EVM plan"
+  require (plan.constructorBindings.size == 1)
+    s!"unexpected canonical constructor binding count: {plan.constructorBindings.size}"
+  require (constructorBinding.state.id == "count" && constructorBinding.state.slot == 0 &&
+      constructorBinding.paramName == "initial" && constructorBinding.kind == .scalarU64)
+    s!"canonical constructor binding was not resolved into EVM storage: {repr constructorBinding}"
 
   /- Check 1: slot allocation is injective over StateId. -/
   let slots := plan.storage.states.map (·.slot)
@@ -379,11 +407,41 @@ def main : IO Unit := do
       require hasReturn s!"entrypoint {ep.name} with non-unit return has no return stmt"
 
   /- Check 5: evidence changes do not change ModulePlan. -/
-  let plan2 ← match buildFromCore counterChecked emptyCapPlan with
+  let plan2 ← match buildFromCore counterChecked emptyCapPlan counterConstructorConfig with
     | .ok p => pure p
     | .error e => throw <| IO.userError s!"Second buildFromCore failed: {e.message}"
   require (plan.storage.states.size == plan2.storage.states.size) "storage changed between builds"
   require (plan.entrypoints.size == plan2.entrypoints.size) "entrypoint count changed"
+
+  /- Shared Canonical Core cannot smuggle target-owned constructor ABI data. -/
+  let sharedConstructorChecked ← match validateCanonical {
+      sharedConstructorPayloadContract with
+      requirements := deriveCapabilityRequirements
+        sharedConstructorPayloadContract.module sharedConstructorPayloadContract.materialization
+    } with
+    | .ok checked => pure checked
+    | .error error =>
+        throw <| IO.userError s!"shared constructor rejection fixture did not validate: {repr error}"
+  match buildFromCore sharedConstructorChecked emptyCapPlan counterConstructorConfig with
+  | .ok _ =>
+      throw <| IO.userError
+        "EVM plan accepted constructor ABI/bindings from shared Canonical materialization"
+  | .error error =>
+      require (error.message.contains "target-owned evmConstructor attachment")
+        s!"unexpected shared constructor payload diagnostic: {error.message}"
+
+  match buildFromCore counterChecked emptyCapPlan {
+      params := #[{ name := "initial", abiType := "uint256" }]
+      bindings := #[{
+        stateName := "count", paramName := "missing", kind := .scalarU64
+      }]
+    } with
+  | .ok _ =>
+      throw <| IO.userError
+        "EVM plan accepted a constructor binding with an unknown target parameter"
+  | .error error =>
+      require (error.message.contains "unknown parameter `missing`")
+        s!"unexpected invalid EVM constructor attachment diagnostic: {error.message}"
 
   /- Check 6: wrong target fails. -/
   match buildFromCore counterChecked wrongTargetCapPlan with

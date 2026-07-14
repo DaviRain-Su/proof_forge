@@ -97,8 +97,8 @@ lake build
 把可移植 Counter 编译为 EVM 运行时 bytecode：
 
 ```sh
-lake env proof-forge build --target evm --root . --module Counter \
-  -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean
+lake env proof-forge build --target evm --root . \
+  -o build/evm/Counter.bin Examples/Product/Counter.lean
 ```
 
 从内置的 portable IR fixture 产出其他目标的制品：

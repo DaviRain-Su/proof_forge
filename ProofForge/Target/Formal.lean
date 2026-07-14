@@ -1,4 +1,5 @@
 import ProofForge.Target.Adapter
+import ProofForge.IR.Canonical
 
 namespace ProofForge.Target
 
@@ -85,5 +86,16 @@ def ResolveResult.checkedBy (profile : TargetProfile)
 def resolveSpecCheckedBy (profile : TargetProfile)
     (spec : ProofForge.Contract.ContractSpec) : Bool :=
   ResolveResult.checkedBy profile (resolveSpec profile spec)
+
+/-- Check the capability boundary for an already validated Canonical contract.
+This is the direct-architecture counterpart of `resolveSpecCheckedBy`; it does
+not reconstruct a `ContractSpec` or v1 `IR.Module`. -/
+def resolveCanonicalCheckedBy (profile : TargetProfile)
+    (checked : ProofForge.IR.Canonical.CheckedCanonicalContract) : Bool :=
+  ResolveResult.checkedBy profile <| requireCapabilityPlan profile {
+    targetId := profile.id
+    calls := checked.contract.requirements
+    metadata := #[]
+  }
 
 end ProofForge.Target

@@ -1,12 +1,16 @@
 # 跨目标原生差分验证实施计划
 
-状态：**已接受；CMP-0/CMP-1 已完成，CMP-2 等待 A-CUT2g（2026-07-14）**
+状态：**已接受；CMP-0/CMP-1/A-CUT2g 已完成，CMP-2 等待 A-CUT2h（2026-07-14）**
 
 设计文档：[跨目标原生差分验证设计](../specs/2026-07-14-cross-target-native-differential-design.zh.md)
 
 ## 执行规则
 
-这是验证轨道，不替代当前架构队列。A-CUT1e-c2、CMP-0 与 CMP-1 已完成。现在由 A-CUT2g 删除剩余 public authored Legacy exchange，之后再执行 CMP-2；CMP-3 仍属于 A-CUT3 验收。Target-extension 测试附着在对应 target 的迁移任务上，不能借此提前开启无关 backend 工作。
+这是验证轨道，不替代当前架构队列。A-CUT1e-c2、CMP-0、CMP-1 与
+A-CUT2g 已完成。A-CUT2h 先删除残留的 Counter internal reverse dependency，
+随后 CMP-2 验证 direct public route；CMP-3 仍属于 A-CUT3 验收。
+Target-extension 测试附着在对应 target 的迁移任务上，不能借此提前开启无关
+backend 工作。
 
 状态只能使用 `pending`、`in_progress`、`blocked` 和 `done (verified at <sha>)`。每个完成任务必须记录精确门禁并更新 implementation log。
 
@@ -75,7 +79,13 @@
 
 ### CMP-2 - Counter 主三链原生试点
 
-状态：`pending after A-CUT2g; required by A-CUT2 completion`
+状态：`pending after A-CUT2h; required by A-CUT2 completion`
+
+Direct route 前置证据：`42183403` 证明 public Source/Loader、EVM、Solana
+assembly/ELF 与 NEAR/Wasm 直接消费 Authored/Core/target plan，不产生
+ContractSpec sidecar，也没有 Legacy fallback。`just portable-counter-multi-target`
+和各 target 的 Counter testkit runner 已通过；CMP-2 需要把独立 native reference
+接到 v1 observation/comparator contract。
 
 - ProofForge 侧只使用未改写的 `Examples/Product/Counter.lean`。
 - 独立 reference：EVM 使用 Solidity，Solana 使用 Pinocchio/native Rust，NEAR 使用 `near-sdk` Rust。

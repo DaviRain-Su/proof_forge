@@ -389,6 +389,10 @@ public-authored-route:
     lake env lean --run Tests/Canonical/PublicAuthoredRoute.lean
     lake env lean --run Tests/Canonical/SourceLoader.lean
 
+# A-CUT2h: no stale Counter ContractSpec/IR.Module aliases or backend wrappers.
+counter-authoring-cutover:
+    scripts/canonical/check-counter-authoring-cutover.sh
+
 # Wave 6 Task 21: architecture boundary gate.
 canonical-boundary:
     scripts/canonical/check-boundary-self-test.sh

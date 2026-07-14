@@ -13,7 +13,8 @@ def scenario : Scenario.Config := {
   users := #["alice", "bob"],
   maxSteps := 5,
   nTraces := 1,
-  contractInvariants := ProofForge.Contract.Examples.Counter.spec.quintInvariants
+  contractInvariants := ProofForge.Contract.Examples.Counter.contract.quintInvariants.map
+    (fun annotation => (annotation.name, annotation.body))
 }
 
 def generateModel : IO String :=

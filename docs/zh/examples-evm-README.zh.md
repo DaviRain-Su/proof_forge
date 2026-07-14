@@ -38,13 +38,12 @@ lake env proof-forge build --target evm \
 `Counter`、`ArrayExample`、`Ownable`、`Pausable`、`ReentrancyGuard`、
 `ValueVault`、`RoleGatedToken` 和 `StakingVault` 是主要的多目标共享合约场景。
 
-`Examples/Backend/Evm/Contracts/Counter.lean` 和
-`Examples/Backend/Evm/Contracts/ArrayExample.lean` 是围绕
-`Examples/Product` 中相应模块的兼容性包装器。Counter 仅添加了由 constructor-init 冒烟测试使用的 EVM 部署时构造函数制品元数据；ArrayExample
-保留了历史 EVM 黄金 Yul 路径。
-`stdlib/Ownable.lean`、`stdlib/Pausable.lean` 和
-`stdlib/ReentrancyGuard.lean` 路径也是围绕
-规范 stdlib mixin 的共享外观的兼容性包装器。
+Counter 直接从 `Examples/Product/Counter.lean` 编译；其 canonical golden
+位于 `Examples/Backend/Evm/Counter.golden.yul`。
+`Contracts/CounterConstructorProbe.lean` 是 direct Authored fixture，只增加
+init-code 冒烟测试使用的 scalar constructor binding；它不是公开 wrapper，
+也不经过 `ContractSpec`。`Contracts/ArrayExample.lean` 和剩余 `stdlib`
+wrapper 是显式 A-CUT3 待删除清单。
 
 `Ierc20Client` / `Ierc721Client`（Layer B：通过
 `Protocols.Evm.IERC20` / `IERC721` 调用外部 ERC-20 / ERC-721；而非可部署的 `Stdlib` mixin）、

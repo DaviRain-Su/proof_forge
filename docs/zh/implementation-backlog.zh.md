@@ -37,10 +37,13 @@
 | A4 | 审查 ERC-721/Metaplex/NEAR NFT 候选实现 | done（审查修复完成） | 可执行最小生命周期与明确合规限制 |
 | A5 | 主三链 NFT intent 物化 | done（审查修复完成） | 所有接受路径进入严格 target plan；Solana 对完整 account pubkey 做哈希 |
 | A6 | NFT CLI/product/runtime 路线 | done（在 `6a6022ea` 验证） | 三套诚实制品以及 EVM/Surfpool/NEAR 生命周期运行时证据均通过 |
-| A-CUT1e | 将公开 Solana authoring 切换到 target-owned HostOps | done（2026-07-14 验证） | public/internal macro 仅生成 direct Authored contract；plan-only sidecar 和 sBPF lowering 通过 focused Pinocchio 对比；不存在 public/internal Legacy import 或 fallback |
+| A-CUT1e | 将公开 Solana authoring 切换到 target-owned HostOps | done（在 `571b795d` 验证） | public/internal macro 仅生成 direct Authored contract；plan-only sidecar 和 sBPF lowering 通过 focused Pinocchio 对比；不存在 public/internal Legacy import 或 fallback |
+| A-CUT2g | 将公开 portable Source/Loader 与 Counter target 路线切换到 direct Authored/Core/Plan | done（在 `42183403` 验证） | EVM、Solana assembly/ELF 和 NEAR/Wasm 制品使用 `canonical-core-v1`；无 ContractSpec sidecar/fallback；focused 三目标行为通过 |
+| A-CUT2h | 删除残留 Counter `.spec`/`.module` 消费者与过时 backend wrapper | in_progress | 将调用方迁移到 Authored/Canonical，删除零调用 wrapper，并在不添加兼容别名的情况下让 focused production/test build 通过 |
+| A-CUT3 | 迁移 Product/stdlib 调用方并删除其 `Source.Legacy` 依赖 | CMP-2 后 pending | 先迁移带 CMP-3 证据的 ValueVault，再迁移全部 catalog；持续删除零调用 Legacy 切片 |
 | B1 | 中立 Wasm-host plan 与 ABI | done（在 `c8d2bbb6` 验证） | 保持 NEAR 输出与运行时行为 |
 | B2 | 严格 canonical target gate | done（在 `d4df51bc` 验证） | adapter/validator/HostOp/builder 错误 fail closed |
-| B3 | Soroban Counter 晋级 | B2 后 pending | 严格 plan、原生 ABI/auth 与运行时证据 |
+| B3 | Soroban Counter 晋级 | done（2026-07-12 验证） | 严格 plan、bridge-aware lowering、原生 ABI/auth 与运行时证据 |
 | C1 | PSy canonical plan | A6 后 pending | 严格 fixture gate；不改变成熟度 |
 | C2 | Aleo semantic plan | C1 后 pending | Core -> plan -> Leo；不晋级公开路线 |
 | C3 | 有来源的 OpenVM brief | pending | 写代码前完成 go/defer 决策 |
@@ -59,7 +62,7 @@ operation。A-CUT1e-c2 已完成。
 |---:|---|---|---|
 | CMP-0 | 盘点并版本化 provenance/scenario/observation 共享契约 | done (verified at `18f15e59`) | 85 项受跟踪资产；35 份 v0 manifest 可显式迁移但保持 semantic ineligible |
 | CMP-1 | 实现 fail-closed normalized observation 与 coverage validator | done (verified at `7fee238c`) | 23 个 focused contract/comparator 测试；target-local resource 不能变成跨链总分 |
-| CMP-2 | Counter 原生试点：Solidity EVM、Rust Solana、Rust NEAR | A-CUT2g 后 pending | A-CUT2 完成条件 |
+| CMP-2 | Counter 原生试点：Solidity EVM、Rust Solana、Rust NEAR | A-CUT2h 后 pending | A-CUT2 完成条件 |
 | CMP-3 | ValueVault 和代表性 stateful portable family | CMP-2 后 pending | 附着 A-CUT3 |
 | CMP-SOL | Account/PDA/CPI 与独立 Solana Rust reference 的 conformance | 与 IR-B5 同步 pending | IR-B5 退出条件 |
 | CMP-NEAR | 从 canonical-only artifact 重放现有 Rust/Sandbox reference | 与 NEAR-R4 同步 pending | NEAR-R4 退出条件 |
@@ -519,7 +522,8 @@ operation。A-CUT1e-c2 已完成。
   - Effect 降级：在账户数据偏移处进行 storageScalar 读/写。
 - 添加 `--solana-elf` CLI 模式：发射 `.s` 然后调用 `sbpf build`。
 - 在生成 `.s` 的同时生成指令清单 (`manifest.toml`)。
-- 创建 `Examples/Backend/Solana/Counter.lean` + 清单。
+- 创建最初的独立 Solana Counter wrapper + 清单（历史路径；direct Product
+  cutover 后已由 A-CUT2h 删除 wrapper）。
 - 运行 `sbpf test` (Mollusk) 以及 Surfpool/Rust 实时部署冒烟测试。
 
 验收标准：- Counter 场景（初始化、增加、获取）通过 `sbpf test`。
@@ -540,7 +544,10 @@ operation。A-CUT1e-c2 已完成。
 - [x] 指令清单 (`manifest.toml`) 与 `.s` 一同生成。`ProofForge.Backend.Solana.SbpfAsm.renderManifest` 发射一个包含目标、程序占位符 id 以及使用 Phase 1 默认账户惯例 (writable, signer=false, owner=program) 的每个入口指令表的 TOML。`--emit-counter-ir-sbpf` 和 `--emit-control-ir-sbpf` 在 `.s` 旁边写入 `manifest.toml` 并将其作为制品包含在内。
 - [x] `--solana-elf` CLI 模式：发射 `.s`，写入 `manifest.toml`，脚手架化一个 `sbpf` 项目，调用 `sbpf build`，将生成的 `.so` 复制到请求的输出，并在制品元数据中记录 `sbpfBuild: passed`。
 - [x] 账户验证：根据清单进行 signer / writable / owner 检查。每个入口发射一段序言，检查账户头部偏移量 10 处的 `is_writable`，并验证账户所有者等于序列化的程序 id。失败退出码为 4 (`error_not_writable`), 5 (`error_signer`), 和 6 (`error_owner`)。Phase 1 Mollusk 运行时门控禁用了直接账户映射 ABI，因此遗留的嵌入式账户数据布局得到了测试。
-- [x] `Examples/Backend/Solana/Counter.lean` + 清单作为一个自包含示例。包括一个被追踪的 `Counter.golden.s` 和 `Counter.manifest.toml`，以及一个可在 CI 运行的、进行发射和差异对比的 `scripts/solana/build-examples.sh`。
+- [x] 最初的独立 Solana Counter wrapper + 清单（历史路径；direct Product
+      cutover 后已由 A-CUT2h 删除 wrapper）。它包括被追踪的
+      `Counter.golden.s`、`Counter.manifest.toml` 和可在 CI 运行的
+      `scripts/solana/build-examples.sh`。
 - [x] 能力检查器拒绝不支持的能力/目标组合，并提供引用目标 id 和能力 id 的清晰诊断信息。作为 V-GATE-SOLANA-05 的基础；通过 `Tests/Backend/Solana/SolanaDiagnostics.lean` 和 `scripts/solana/diagnostic-smoke.sh` 进行测试。
 - [x] Solana SDK 目标扩展通过能力计划元数据路由 `ProofForge.Contract.Source.Solana.Legacy` PDA/CPI API，发射 `manifest.toml` 扩展定义以及入口动作部分，并在 IR 主体之前注入处理程序级辅助调用 (`sol_pda_derive_<name>`, `sol_cpi_<name>`)，同时在 `r1` 中保留 Solana 输入指针。由 `Tests/Backend/Solana/SolanaSdk.lean`, `Tests/Backend/Solana/SolanaSdkManifest.lean` 以及可用时的 `scripts/solana/sdk-smoke.sh` 与 `sbpf build` 覆盖。
 - [x] Surfpool/Rust 线上部署冒烟测试 (V-GATE-SOLANA-04)。可选的 `scripts/solana/counter-live-smoke.sh` 门控构建 Counter ELF，启动 Surfpool，使用 Solana CLI 进行部署，通过 Rust live harness 创建一个程序所有的 counter 账户，调用 initialize/increment/get，检查账户数据 0→1→2，并验证 `get` 返回数据。该脚本传递 `--solana-sbpf-arch v0` 以直接生成与 Solana CLI 部署兼容的 ELF，并为 Surfpool 使用 `--use-rpc`。

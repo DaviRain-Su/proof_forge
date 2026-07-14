@@ -4,7 +4,7 @@
 
 **Goal:** Deliver a target-neutral intent materialization boundary and a minimal executable NFT product across EVM, Solana, and NEAR, then apply the same strict promotion discipline to Wasm-host and ZK targets.
 
-**Architecture:** Portable specs normalize to `IntentContract`. A registry dispatches `(targetId, IntentFamily)` to target materializers returning ordinary `ContractSpec` values. Canonical Core stays target-neutral; target-specific behavior remains in materializers, plans, protocol contracts, and typed HostOps.
+**Architecture:** Portable specs normalize to `IntentContract`. A registry dispatches `(targetId, IntentFamily)` to target materializers that feed the direct Authored/checked-Canonical boundary. Canonical Core stays target-neutral; target-specific behavior remains in materializers, plans, protocol contracts, and typed HostOps. The initial `ContractSpec`-returning implementation is deletion backlog, not a compatibility contract.
 
 **Tech Stack:** Lean 4, Lake, ProofForge Canonical Core and target plans, `just`, existing EVM/Solana/NEAR harnesses.
 
@@ -16,6 +16,8 @@
 - Existing TokenSpec and primary-triad product behavior remain stable.
 - A promoted target fails closed for its declared supported fragment.
 - Existing NFT stdlib modules are audited candidates, not assumed compliant.
+- Do not add a direct-to-Legacy adapter, fallback, or dual-write path. Migrate
+  old intent callers to Authored/Canonical output and delete zero-caller code.
 - Run `just product` before backend-heavy gates and `just check` before merge.
 - Stage only task-owned files.
 

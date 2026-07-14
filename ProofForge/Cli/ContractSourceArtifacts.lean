@@ -134,17 +134,27 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
       leanElaborated := true
     } hydratedSpec module yulOutput output
   else
-    let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
+    let (source, constructorConfig) ← loadEvmSource input opts.root? opts.moduleName?
     match source with
     | .authored contract =>
-        let (yul, plan) ← renderAuthoredEvmYul opts contract
+        let (yul, plan) ← renderAuthoredEvmYul opts contract constructorConfig
+        let opts ← match finalizeConstructorOptionsForParams opts
+            (plan.constructorParams.map fun param => {
+              name := param.name, abiType := param.abiType }) with
+          | .ok opts => pure opts
+          | .error msg => throw <| IO.userError msg
         writeTextFile yulOutput yul
         let bytecode ← solcOptimizedBytecode opts.solc yulOutput
         requireEvmRuntimeSize bytecode
         writeTextFile output (bytecode ++ "\n")
         writeEvmPlanArtifactMetadata opts input plan yulOutput output
     | .surfaceFixture contract =>
-        let (yul, plan) ← renderSurfaceEvmYul opts contract
+        let (yul, plan) ← renderSurfaceEvmYul opts contract constructorConfig
+        let opts ← match finalizeConstructorOptionsForParams opts
+            (plan.constructorParams.map fun param => {
+              name := param.name, abiType := param.abiType }) with
+          | .ok opts => pure opts
+          | .error msg => throw <| IO.userError msg
         writeTextFile yulOutput yul
         let bytecode ← solcOptimizedBytecode opts.solc yulOutput
         requireEvmRuntimeSize bytecode
@@ -165,12 +175,12 @@ unsafe def compileContractSourceYul (opts : CliOptions) : IO UInt32 := do
         | .error msg => throw <| IO.userError msg
       pure (← renderContractSpecEvmYul opts spec).fst
     else do
-      let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
+      let (source, constructorConfig) ← loadEvmSource input opts.root? opts.moduleName?
       match source with
       | .authored contract =>
-          pure (← renderAuthoredEvmYul opts contract).fst
+          pure (← renderAuthoredEvmYul opts contract constructorConfig).fst
       | .surfaceFixture contract =>
-          pure (← renderSurfaceEvmYul opts contract).fst
+          pure (← renderSurfaceEvmYul opts contract constructorConfig).fst
   writeTextFile output yul
   IO.println s!"wrote {output}"
   return 0

@@ -72,6 +72,20 @@ strict gate and does not count toward A1.
 | CMP-1-3 | Target-owned observations are not flattened into false equivalence | ✅ met | cross-target external actions compare logical payload and retain native payload; resource values compare only within one target family and aggregate score fields are rejected |
 | CMP-1-4 | The shared comparator remains test-only | ✅ met | runner schema and implementation live under `testkit/differential` and `scripts/differential`; compiler boundary test includes the runner schema ID; `just differential-contracts` passes 23 contract/comparator tests plus inventory and matrix snapshots |
 
+## Gate A-CUT2g — Direct public authoring route
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| A-CUT2g-1 | Public Source and Loader exchange only `AuthoredContract` | ✅ met | `42183403`; `just public-authored-route` proves Counter exports `contract`, not `spec`/`module`, and Loader rejects the quarantined ValueVault instead of falling back |
+| A-CUT2g-2 | Primary-triad materialization avoids `ContractSpec` and `IR.Module` | ✅ met | `just portable-counter-multi-target` builds EVM, Solana assembly, and NEAR/Wasm from the unchanged Product Counter with `contract-source-authored` / `canonical-core-v1` metadata and rejects any ContractSpec sidecar |
+| A-CUT2g-3 | Final Solana ELF also uses the direct target plan | ✅ met | target-specific Counter testkit run builds the ELF through `compileSolanaAuthoredElf`; the initialize/get/increment/get lifecycle passes under Mollusk with strict account and instruction-data validation |
+| A-CUT2g-4 | Target behavior remains executable | ✅ met | individual Counter testkit runners pass for `evm`, `solana-sbpf-asm`, and `wasm-near`; NEAR offline-host reports `0 -> 1`; EVM selector metadata and target goldens pass |
+| A-CUT2g-5 | Legacy is deletion inventory, not compatibility | ✅ met | direct boundary gate rejects Legacy imports in Source/Counter; remaining callers explicitly import `Source.Legacy`, which the public Loader cannot discover; no direct-to-Legacy adapter or fallback exists |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

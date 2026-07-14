@@ -64,6 +64,10 @@ def main() -> int:
     manifest_path = file_entry(root, expect_object(plan.get("deployManifest"), "deployManifest"), "deployManifest")
     manifest = expect_object(json.loads(manifest_path.read_text(encoding="utf-8")), "deploy manifest")
     expect(manifest.get("kind") == "proof-forge-evm-deploy-manifest", "deploy manifest kind mismatch")
+    creation = expect_object(manifest.get("creation"), "deploy manifest creation")
+    creation_mode = expect_string(plan.get("creationMode"), "creationMode")
+    expect(creation_mode in {"init-code", "deploy-object"}, "creationMode unsupported")
+    expect(creation_mode == creation.get("mode"), "creationMode must match deploy manifest")
 
     profile = expect_object(plan.get("chainProfile"), "chainProfile")
     profile_id = expect_string(profile.get("id"), "chainProfile.id")

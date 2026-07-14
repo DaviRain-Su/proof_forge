@@ -90,6 +90,7 @@ def main() -> int:
         "chainProfile": profile,
         "constructorAbi": deploy_manifest["abi"]["constructor"],
         "constructorArgs": deploy_manifest["creation"]["constructorArgs"],
+        "creationMode": deploy_manifest["creation"]["mode"],
         "castSendReceipt": file_entry(root, args.deploy_receipt),
         "creationTransaction": file_entry(root, args.creation_transaction),
         "initializeReceipt": file_entry(root, initialize_receipt_path),

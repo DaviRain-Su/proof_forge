@@ -83,28 +83,26 @@ def check_shared_sources() -> None:
                 )
 
 
-def check_wrapper(rel: str, shared_name: str) -> None:
+def check_wrapper(rel: str, shared_name: str, export: str) -> None:
     text = read(rel)
     require_contains(rel, text, f"import Examples.Product.{shared_name}", "shared import")
-    require_contains(rel, text, f"Examples.Product.{shared_name}.spec", "shared spec reference")
+    require_contains(rel, text, f"Examples.Product.{shared_name}.{export}", f"shared {export} reference")
     if "contract_source " in text:
-        fail(f"{rel}: compatibility wrapper must not duplicate contract_source logic")
+        fail(f"{rel}: wrapper must not duplicate contract_source logic")
 
 
 def check_compatibility_wrappers() -> None:
     wrappers = {
-        "Examples/Backend/Evm/Contracts/ArrayExample.lean": "ArrayExample",
-        "Examples/Backend/Evm/Contracts/Counter.lean": "Counter",
-        "Examples/Backend/Evm/Contracts/stdlib/Ownable.lean": "Ownable",
-        "Examples/Backend/Evm/Contracts/stdlib/Pausable.lean": "Pausable",
-        "Examples/Backend/Evm/Contracts/stdlib/ReentrancyGuard.lean": "ReentrancyGuard",
-        "Examples/Backend/Solana/Counter.lean": "Counter",
-        "ProofForge/Contract/Examples/Counter.lean": "Counter",
-        "ProofForge/Contract/Examples/ValueVault.lean": "ValueVault",
-        "ProofForge/Contract/Token/Examples/SoulboundToken.lean": "SoulboundToken",
+        "Examples/Backend/Evm/Contracts/ArrayExample.lean": ("ArrayExample", "spec"),
+        "Examples/Backend/Evm/Contracts/stdlib/Ownable.lean": ("Ownable", "spec"),
+        "Examples/Backend/Evm/Contracts/stdlib/Pausable.lean": ("Pausable", "spec"),
+        "Examples/Backend/Evm/Contracts/stdlib/ReentrancyGuard.lean": ("ReentrancyGuard", "spec"),
+        "ProofForge/Contract/Examples/Counter.lean": ("Counter", "contract"),
+        "ProofForge/Contract/Examples/ValueVault.lean": ("ValueVault", "spec"),
+        "ProofForge/Contract/Token/Examples/SoulboundToken.lean": ("SoulboundToken", "spec"),
     }
-    for rel, shared_name in wrappers.items():
-        check_wrapper(rel, shared_name)
+    for rel, (shared_name, export) in wrappers.items():
+        check_wrapper(rel, shared_name, export)
 
 
 def main() -> int:

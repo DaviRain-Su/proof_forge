@@ -99,8 +99,8 @@ lake build
 Compile the EVM Counter example to runtime bytecode:
 
 ```sh
-lake env proof-forge build --target evm --root . --module Counter \
-  -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean
+lake env proof-forge build --target evm --root . \
+  -o build/evm/Counter.bin Examples/Product/Counter.lean
 ```
 
 Emit artifacts for other targets from built-in portable IR fixtures:

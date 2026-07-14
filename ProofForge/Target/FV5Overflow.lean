@@ -1,17 +1,15 @@
 import ProofForge.Target.Formal
 import ProofForge.Contract.Examples.Counter
-import ProofForge.IR.Examples.Counter
+import ProofForge.Frontend.Authored.Canonicalize
 
 namespace ProofForge.Target
 
 /-! ## FV-5 checked-overflow capability gate
 
-`Module.overflowChecked` is the portable IR's integer-overflow mode. When a
-module sets `overflowChecked := true`, it declares the `arith.checked`
-capability (Solidity-0.8-style revert-on-overflow). The platform's core
-"reject rather than silently change semantics" promise then requires that such
-a module can only resolve to a target profile that declares `arith.checked`.
-All three primary targets now declare and materialize that capability.
+The direct Counter source uses checked addition. Authored normalization records
+that semantic requirement as `arith.checked` in Canonical Core, and the target
+capability boundary must accept it on every primary target without rebuilding a
+v1 `IR.Module` or `ContractSpec`.
 
 These `native_decide` theorems pin that gate:
 
@@ -26,38 +24,36 @@ and lives in `ProofForge/IR/Semantics.lean`. -/
 
 namespace FV5Overflow
 
-open ProofForge.IR
+def checkedCounterRequirements : Array CapabilityCall :=
+  match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      ProofForge.Contract.Examples.Counter.contract with
+  | .ok bundle => bundle.contract.contract.requirements
+  | .error _ => #[]
 
-/-- The canonical Counter module with `overflowChecked := true`. This is the
-fixture for the FV-5 gate: it declares `arith.checked`. -/
-def checkedCounterModule : Module :=
-  { ProofForge.IR.Examples.Counter.module with overflowChecked := true }
+def checkedCounterResolvesOn (profile : TargetProfile) : Bool :=
+  match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      ProofForge.Contract.Examples.Counter.contract with
+  | .ok bundle => resolveCanonicalCheckedBy profile bundle.contract
+  | .error _ => false
 
-/-- Keep the capability-intent view synchronized with the replaced module. -/
-def checkedCounterSpec : ProofForge.Contract.ContractSpec :=
-  { ProofForge.Contract.Examples.Counter.spec with
-    module := checkedCounterModule
-    intents := ProofForge.Contract.intentsFromIR checkedCounterModule }
-
-/-- `checkedCounterModule` declares the `arith.checked` capability. -/
-theorem checkedCounterModule_declares_arith_checked :
-    checkedCounterModule.capabilities.contains .checkedArithmetic = true := by
+/-- Direct normalization preserves the source's checked arithmetic. -/
+theorem checkedCounterCanonical_declares_arith_checked :
+    checkedCounterRequirements.any (fun call => call.capability == .checkedArithmetic) = true := by
   native_decide
 
-/-- A checked-overflow module resolves to `.ok` on EVM (EVM declares
-`arith.checked`). -/
-theorem checkedCounterModule_resolves_on_evm :
-    resolveSpecCheckedBy evm checkedCounterSpec = true := by
+/-- EVM declares and materializes checked arithmetic. -/
+theorem checkedCounterCanonical_resolves_on_evm :
+    checkedCounterResolvesOn evm = true := by
   native_decide
 
 /-- Solana declares and materializes checked arithmetic. -/
-theorem checkedCounterModule_resolves_on_solana :
-    resolveSpecCheckedBy solanaSbpfAsm checkedCounterSpec = true := by
+theorem checkedCounterCanonical_resolves_on_solana :
+    checkedCounterResolvesOn solanaSbpfAsm = true := by
   native_decide
 
 /-- NEAR declares and materializes checked arithmetic. -/
-theorem checkedCounterModule_resolves_on_near :
-    resolveSpecCheckedBy wasmNear checkedCounterSpec = true := by
+theorem checkedCounterCanonical_resolves_on_near :
+    checkedCounterResolvesOn wasmNear = true := by
   native_decide
 
 end FV5Overflow

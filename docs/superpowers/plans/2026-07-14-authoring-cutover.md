@@ -204,7 +204,7 @@ under `Contract.Source.Internal`, Solana helpers under
 `Frontend.Authored.Normalize`; `ProofForge.IR` no longer imports it and the
 production Legacy import baseline is empty. The independent final source model
 now lives under `Frontend.Authored.{Type,Syntax}`; the Surface type/syntax files
-are compatibility aliases only, and `normalizeAuthored` reaches checked
+are deletion-bound internal fixture aliases only, and `normalizeAuthored` reaches checked
 Canonical Core without `IR.Contract`. A-CUT2e-a added explicit HostOp result
 types and declared-error references with typed runtime arguments; Canonical
 validation rejects signature and error-argument mismatches. A-CUT2e-b added
@@ -230,11 +230,42 @@ rejects conflicting emits, and emits matching Canonical Core and Interface event
 declarations. Existing explicitly declared events remain supported for compiler
 fixtures.
 
-Active slice A-CUT2g replaces the public `contract_source` macro output and
-loader exchange value with that direct `AuthoredContract`. It must remove the
-remaining `ContractSpec`/`IR.Module` production route rather than wrap or adapt
-it. The focused Counter route and boundary searches are the acceptance tests;
-CMP-2 begins only after this direct route is executable for the primary triad.
+A-CUT2g is complete at `42183403`. The public `contract_source` macro exports
+only `contract : AuthoredContract`; Loader ignores `spec` and accepts only that
+public value or an explicitly named internal `surfaceFixture`. EVM, Solana
+assembly/ELF, and NEAR/Wasm normalize the unchanged Counter source directly to
+checked Core and target-owned plans. Artifact metadata is
+`contract-source-authored` / `canonical-core-v1`, no ContractSpec sidecar is
+emitted, and the three target testkit runners execute the same four-step
+Counter lifecycle. Remaining `Source.Legacy` imports are explicit deletion
+inventory for A-CUT3/A-CUT5, never a fallback. CMP-2 is now active and remains
+the final A-CUT2 exit criterion.
+
+### A-CUT2h - Remove stale Counter reverse dependencies
+
+State: `in_progress`
+
+The public cutover deliberately removed `Examples.Product.Counter.spec` and
+`.module`. Focused builds then exposed internal modules and historical backend
+wrappers that still referenced those retired names. Do not restore aliases.
+
+- Reject every `ProofForge.Contract.Examples.Counter.spec` and `.module`
+  reference with a focused boundary gate.
+- Migrate production, formal, invariant, and annotation consumers to the
+  authored contract or checked Canonical Core.
+- Tests that intentionally exercise the historical Quint v1 lowering may name
+  `ProofForge.IR.Examples.Counter` explicitly; they must not present that
+  fixture as the Product compiler route.
+- Delete the zero-caller EVM and Solana Counter `ContractSpec` wrappers and
+  update the example-topology gate to require the direct contract alias.
+- Preserve constructor parameters and resolved storage bindings in the
+  EVM-owned `ModulePlan`; direct artifact and deploy-object generation must not
+  rediscover them from `ContractSpec` or v1 `IR.Module`.
+
+Acceptance: affected production modules and tests build, `docs-check` passes,
+repository searches find no retired Counter Product alias or deleted wrapper
+path, and `just evm-anvil-deploy` observes the direct typed constructor value
+before the runtime lifecycle resets it.
 
 ### A-CUT3 - Product migration
 
@@ -246,8 +277,8 @@ CMP-2 begins only after this direct route is executable for the primary triad.
   features used from the product source, not standalone handwritten Surface
   products.
 - Migrate every Product caller away from the transitional
-  `ProofForge.Contract.Surface` namespace before deleting that compatibility
-  module.
+  `ProofForge.Contract.Surface` namespace before deleting that internal alias
+  module; it is not maintained as compatibility.
 
 Acceptance: the complete catalog compiles from `Examples/Product/<file>` for
 every advertised target; focused target gates preserve existing behavior.
@@ -277,8 +308,8 @@ A-CUT3 feature parity, so A-CUT4 is not yet complete.
 
 ### A-CUT5 - Delete Legacy production code
 
-- Delete `Frontend.ContractSpec.Normalize`, the transitional
-  `Frontend.Authored.Normalize` implementation,
+- Delete `Source.Legacy`, `Frontend.ContractSpec.Normalize`, the transitional
+  Surface aliases and loaders,
   Legacy backend plan modules, compatibility constructors, and freeze
   allowlists after caller count reaches zero.
 - Move any historical parity fixture that remains useful out of production

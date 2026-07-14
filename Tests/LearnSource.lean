@@ -3,6 +3,7 @@ import ProofForge.Cli.SolanaArtifacts
 import ProofForge.Contract.Examples.Counter
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Learn
+import ProofForge.IR.Examples.Counter
 import Examples.Backend.Solana.Contracts.Clock
 import Examples.Backend.Solana.Contracts.Crypto
 import Examples.Backend.Solana.Contracts.EpochRewards
@@ -42,6 +43,11 @@ def requireSameModule (label : String)
   let expectedRepr := reprModule expected
   require (actualRepr == expectedRepr)
     s!"{label} Learn source did not lower to the expected IR module\nactual:\n{actualRepr}\nexpected:\n{expectedRepr}"
+
+def withoutSelectors (module : ProofForge.IR.Module) : ProofForge.IR.Module :=
+  { module with
+    entrypoints := module.entrypoints.map fun entrypoint =>
+      { entrypoint with selector? := none } }
 
 def requireSameText (label actual expected : String) : IO Unit :=
   require (actual == expected)
@@ -94,7 +100,8 @@ def requireValueVaultSolanaRender (spec : ProofForge.Contract.ContractSpec) : IO
 
 def main : IO UInt32 := do
   let counter ← parseSpec "Examples/Backend/Learn/Counter.learn"
-  requireSameModule "Counter" counter.module ProofForge.Contract.Examples.Counter.module
+  requireSameModule "Counter v1 fixture" counter.module
+    (withoutSelectors ProofForge.IR.Examples.Counter.module)
   let valueVault ← parseSpec "Examples/Backend/Learn/ValueVault.learn"
   requireSameModule "ValueVault" valueVault.module ProofForge.Contract.Examples.ValueVault.module
   requireValueVaultSolanaRender valueVault

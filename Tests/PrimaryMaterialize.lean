@@ -5,7 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Materialization + crosscall mapping for every implemented registry target
 (EVM · Solana · Wasm family · Psy · Aleo).
 -/
-import Examples.Product.Counter
+import ProofForge.IR.Examples.Counter
 import ProofForge.Target.CrosscallMaterialize
 import ProofForge.Target.Materialize
 import ProofForge.Target.Registry
@@ -18,7 +18,9 @@ def require (cond : Bool) (msg : String) : IO Unit :=
   if cond then pure () else throw (IO.userError msg)
 
 def main : IO Unit := do
-  let counter := Examples.Product.Counter.module
+  -- Explicit v1 fixture coverage for target families not yet migrated to Core.
+  -- The Product Counter route is covered by `portable-counter-multi-target`.
+  let counter := ProofForge.IR.Examples.Counter.module
 
   -- Primary three
   let evmR := forEvm counter

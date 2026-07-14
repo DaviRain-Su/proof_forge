@@ -4110,3 +4110,31 @@ Rules:
   scripts/differential/contracts.py scripts/differential/inventory.py
   scripts/differential/runner.py scripts/differential/test_contracts.py
   scripts/differential/test_runner.py`; and `git diff --check`.
+
+## 2026-07-14 - A-CUT2g: direct public Source/Loader and Counter routes
+
+- Status: `done (verified at 42183403)`; CMP-2 is active and remains the final
+  A-CUT2 acceptance requirement.
+- Replaced the public `contract_source` implementation with direct
+  `AuthoredContract` construction. The unchanged Product Counter exports only
+  `contract`; public Loader no longer discovers `spec`, and internal Surface
+  fixtures require the explicit `surfaceFixture` identity.
+- Routed public EVM, Solana assembly/ELF, and NEAR/Wasm builds through checked
+  Canonical Core and target-owned plans. EVM selector hydration and packed
+  layout are plan-owned; Solana final ELF uses `compileSolanaAuthoredElf`; NEAR
+  metadata/deploy manifests consume Canonical Core plus `WasmHostModulePlan`
+  and generate no ContractSpec/client sidecars.
+- Moved every unmigrated caller to explicit `Source.Legacy` imports. That module
+  is deletion-only and cannot be discovered by the public loader; no adapter,
+  fallback, or dual-write route from Authored/Core to Legacy was added.
+- Updated direct EVM/Solana goldens and Counter resource baselines for checked
+  narrow writes, instruction-data length, exact account count, writable, and
+  owner validation.
+- Verification: `just public-authored-route`; `just canonical-boundary`;
+  `just portable-counter-multi-target`; individual Counter testkit runs for
+  `evm`, `solana-sbpf-asm`, and `wasm-near`; `lake build ProofForge.Contract
+  ProofForge.Cli`; and `git diff --check`.
+- Limitation: Product/stdlib callers other than Counter remain explicitly in
+  the deletion quarantine. A-CUT3 migrates them beginning with ValueVault;
+  A-CUT5 deletes zero-caller Legacy modules. CMP-2 must still compare the direct
+  Counter artifacts with independent native references before A-CUT2 closes.

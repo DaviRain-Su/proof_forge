@@ -1,6 +1,6 @@
 # RFC 0002: 目标实现设计
 
-状态：已接受
+状态：已接受的架构基线；source path 示例已按 D-056 刷新
 
 日期：2026-06-30
 
@@ -202,20 +202,20 @@ structure TargetProfile where
 
 ## CLI 形态
 
-当前 CLI 直接支持 EVM 字节码：
+当前 target-first CLI 直接编译唯一的 Product Counter：
 
 ```sh
-lake env proof-forge --evm-bytecode -o build/evm/Counter.bin \
-  Examples/Backend/Evm/Contracts/Counter.lean
+lake env proof-forge build --target evm --root . \
+  -o build/evm/Counter.bin Examples/Product/Counter.lean
 ```
 
 面向目标的 CLI 最终应暴露：
 
 ```sh
-proof-forge build --target evm --out build/evm Examples/Backend/Evm/Contracts/Counter.lean
+proof-forge build --target evm --out build/evm Examples/Product/Counter.lean
 proof-forge build --target wasm-near --out build/near Examples/Near/Counter.lean          # planned
 proof-forge build --target wasm-cosmwasm --out build/cosmwasm Examples/Backend/CosmWasm/Counter.lean  # planned
-proof-forge build --target solana-sbpf-asm --out build/solana Examples/Backend/Solana/Counter.lean  # planned
+proof-forge build --target solana-sbpf-asm --out build/solana Examples/Product/Counter.lean
 proof-forge build --target move-aptos --out build/aptos Examples/Move/Aptos/Counter/       # planned
 proof-forge test --target evm
 proof-forge test --target solana-sbpf-asm

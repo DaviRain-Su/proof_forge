@@ -1,6 +1,6 @@
 # RFC 0002: Target implementation design
 
-Status: Accepted
+Status: Accepted architecture baseline; source-path examples refreshed by D-056
 
 Date: 2026-06-30
 
@@ -220,20 +220,20 @@ addresses, transaction hashes, and test reports.
 
 ## CLI Shape
 
-The current CLI supports EVM bytecode directly:
+The current target-first CLI compiles the single Product Counter directly:
 
 ```sh
-lake env proof-forge --evm-bytecode -o build/evm/Counter.bin \
-  Examples/Backend/Evm/Contracts/Counter.lean
+lake env proof-forge build --target evm --root . \
+  -o build/evm/Counter.bin Examples/Product/Counter.lean
 ```
 
 The target-oriented CLI should eventually expose:
 
 ```sh
-proof-forge build --target evm --out build/evm Examples/Backend/Evm/Contracts/Counter.lean
+proof-forge build --target evm --out build/evm Examples/Product/Counter.lean
 proof-forge build --target wasm-near --out build/near Examples/Near/Counter.lean          # planned
 proof-forge build --target wasm-cosmwasm --out build/cosmwasm Examples/Backend/CosmWasm/Counter.lean  # planned
-proof-forge build --target solana-sbpf-asm --out build/solana Examples/Backend/Solana/Counter.lean  # planned
+proof-forge build --target solana-sbpf-asm --out build/solana Examples/Product/Counter.lean
 proof-forge build --target move-aptos --out build/aptos Examples/Move/Aptos/Counter/       # planned
 proof-forge test --target evm
 proof-forge test --target solana-sbpf-asm

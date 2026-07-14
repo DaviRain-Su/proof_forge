@@ -8,7 +8,8 @@
 # Patterns match against the file path + a simple substring check.
 # Format: <relative-path>:<substring-to-match>
 
-# contract_source macro (generates ContractSpec via Builder.build)
+# Pre-migration product authoring inventory. Counter now uses the direct
+# Authored macro; every remaining Legacy-backed entry is deletion work.
 Examples/Product/Aggregate.lean:contract_source
 Examples/Product/ArrayExample.lean:contract_source
 Examples/Product/AuthRemoteCall.lean:contract_source
@@ -61,7 +62,7 @@ ProofForge/Contract/Examples/ValueVault.lean:def spec : ProofForge.Contract.Cont
 ProofForge/Contract/Protocol.lean:contract_source
 ProofForge/Contract/Source/Near.lean:contract_source
 ProofForge/Contract/Source/Solana.lean:contract_source
-ProofForge/Contract/Source.lean:contract_source
+ProofForge/Contract/Source/Legacy.lean:contract_source
 ProofForge/Contract/Stdlib/AccessControl.lean:contract_source
 ProofForge/Contract/Stdlib/AccessControlPortable.lean:contract_source
 ProofForge/Contract/Stdlib/Compose/ERC20Part.lean:contract_source

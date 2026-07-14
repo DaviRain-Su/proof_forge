@@ -252,7 +252,10 @@ def check_contract_spec_allowlist() -> None:
         REPO_ROOT / "ProofForge" / "Contract",
         REPO_ROOT / "Examples" / "Product",
     ]
-    # Patterns that indicate ContractSpec CONSTRUCTION (not consumption)
+    # Patterns that indicate ContractSpec construction (not consumption).
+    # `contract_source` itself is now also the direct Authored macro, so only
+    # Legacy-importing sources and the quarantined macro definition count as
+    # ContractSpec coupling.
     patterns = [
         "ContractSpec.fromIR",
         "def spec : ProofForge.Contract.ContractSpec",
@@ -264,7 +267,7 @@ def check_contract_spec_allowlist() -> None:
         "def projectEntrypoints",
         "def withErc721Selectors",
         "def toSpec",
-        "def contract ",
+        "def contract (name : String) (body : ModuleM Unit) : ContractSpec",
     ]
     for scan_dir in scan_dirs:
         for path in sorted(scan_dir.rglob("*.lean")):
@@ -272,6 +275,9 @@ def check_contract_spec_allowlist() -> None:
             text = path.read_text(encoding="utf-8")
             for pat in patterns:
                 if pat not in text:
+                    continue
+                if pat == "contract_source " and rel != "ProofForge/Contract/Source/Legacy.lean" \
+                        and "import ProofForge.Contract.Source.Legacy" not in text:
                     continue
                 # Check if this path is covered by the allowlist
                 path_covered = any(

@@ -38,7 +38,7 @@ lake env proof-forge build \
   --evm-chain-profile anvil-local \
   --artifact-output "$OUT_DIR/Counter.proof-forge-artifact.json" \
   -o "$OUT_DIR/Counter.bin" \
-  Examples/Backend/Evm/Contracts/Counter.lean
+  Examples/Product/Counter.lean
 
 DEPLOY_MANIFEST="$OUT_DIR/Counter.proof-forge-deploy.json"
 DEPLOY_RUN="$RUN_DIR/Counter.proof-forge-deploy-run.json"

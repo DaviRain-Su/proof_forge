@@ -4,7 +4,6 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 Phase B.2: portable IR → Solana accounts without Source.Solana authoring.
 -/
-import Examples.Product.Counter
 import Examples.Product.ValueVault
 import ProofForge.Backend.Solana.Extension
 import ProofForge.Backend.Solana.Materialize
@@ -13,6 +12,7 @@ import Examples.Backend.Solana.Contracts.Vault
 import ProofForge.Target
 import ProofForge.Frontend.Authored
 import ProofForge.Backend.Solana.Plan.Core
+import ProofForge.IR.Examples.Counter
 
 open ProofForge.Backend.Solana.Materialize
 open ProofForge.Backend.Solana.Extension
@@ -22,8 +22,9 @@ def require (cond : Bool) (msg : String) : IO Unit :=
   if cond then pure () else throw (IO.userError msg)
 
 def main : IO Unit := do
-  -- Portable Counter: auto-portable materialization.
-  let counter := Examples.Product.Counter.module
+  -- Explicit v1 materialization fixture. The public Product Counter now enters
+  -- through Authored/Core and is covered by the direct target-plan gates.
+  let counter := ProofForge.IR.Examples.Counter.module
   require (supportsAutoPortable counter) "Counter must support auto-portable path"
   let counterReport := report counter {}
   require (counterReport.mode == .autoPortable)

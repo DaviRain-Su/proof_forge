@@ -19,7 +19,8 @@ def main : IO UInt32 := do
   | .error err => throw (IO.userError s!"roundtrip parse failed: {err}")
   | .ok parsed =>
       require (parsed.maxUint == 3) "roundtrip maxUint mismatch"
-      require (parsed.liveness.size == ProofForge.Contract.Examples.Counter.spec.quintLiveness.size)
+      require (parsed.liveness.size ==
+        ProofForge.Contract.Examples.Counter.contract.quintLiveness.size)
         "roundtrip liveness size mismatch"
 
   let vaultCfg := defaultForFixture "value-vault"

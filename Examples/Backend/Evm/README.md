@@ -42,14 +42,12 @@ lake env proof-forge build --target evm \
 `ValueVault`, `RoleGatedToken`, and `StakingVault` are the primary multi-target
 shared contract scenarios.
 
-`Examples/Backend/Evm/Contracts/Counter.lean` and
-`Examples/Backend/Evm/Contracts/ArrayExample.lean` are compatibility wrappers around
-the corresponding modules in `Examples/Product`. Counter adds only EVM
-deploy-time constructor metadata used by constructor-init smokes; ArrayExample
-preserves the historical EVM golden Yul path.
-The `stdlib/Ownable.lean`, `stdlib/Pausable.lean`, and
-`stdlib/ReentrancyGuard.lean` paths are also compatibility wrappers around
-shared facades for the canonical stdlib mixins.
+Counter compiles directly from `Examples/Product/Counter.lean`; its canonical
+golden lives at `Examples/Backend/Evm/Counter.golden.yul`.
+`Contracts/CounterConstructorProbe.lean` is a direct Authored fixture that adds
+only the scalar constructor binding used by the init-code smoke. It is not a
+public wrapper or a `ContractSpec` route. `Contracts/ArrayExample.lean` and the
+remaining `stdlib` wrappers are explicit A-CUT3 deletion inventory.
 
 `Ierc20Client` / `Ierc721Client` (Layer B: CALL external ERC-20 / ERC-721 via
 `Protocols.Evm.IERC20` / `IERC721`; not the deployable `Stdlib` mixins),

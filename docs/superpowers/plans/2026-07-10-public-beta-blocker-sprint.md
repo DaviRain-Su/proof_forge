@@ -1,5 +1,9 @@
 # Public Beta Blocker Sprint Implementation Plan
 
+> **Historical completed sprint.** Current work follows D-056 and the July 14
+> authoring/Legacy-removal plans; legacy-preservation constraints below are not
+> current architecture policy.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the public-beta blockers identified in `docs/review/scorecard.md` so ProofForge is installable, trustworthy, and honest about its supported target surface.
@@ -1217,7 +1221,7 @@
 
   ```markdown
   lake env proof-forge build --target evm --root . --module Counter \
-    -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean
+    -o build/evm/Counter.bin Examples/Product/Counter.lean
   ```
 
   with:

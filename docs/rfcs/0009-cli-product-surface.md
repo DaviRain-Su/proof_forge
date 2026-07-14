@@ -1,18 +1,21 @@
 # RFC 0009: CLI Product Surface
 
-Status: **Accepted — M1/M3 landed, M4 transition open**
+Status: **Accepted target-first surface; compatibility transition superseded by D-056**
 Date: 2026-07-03
 
-Implementation status (2026-07-04): RFC 0009 is accepted as the durable CLI
-surface. M1 has landed in code: `Command`/`CliOptions` exist, `build`/`emit`
-route through the compatibility layer, `check` is a real validation verb,
+Implementation status (refreshed 2026-07-14): RFC 0009 is accepted as the
+durable target-first CLI surface. M1 has landed in code:
+`Command`/`CliOptions` exist, direct Product `build`/`emit` routes lower through
+Authored/Canonical/target plans, `check` is a real validation verb,
 `--list-targets` and `--list-fixtures` are wired, and legacy emit modes carry
-migration/deprecation metadata. M3 has also landed for executable callers:
+migration/deprecation metadata only on deletion-bound legacy inputs. M3 has
+also landed for executable callers:
 `just cli-target-first` scans `justfile`, `scripts/`, `testkit/`, and `Tests/`
 for direct legacy `proof-forge --flag` invocations and runs
 `Tests/CliTargetFirst.lean` to lock representative target-first mappings. The
-remaining transition work is M4: remove `EmitMode` and the legacy flag parser
-only after the compatibility release window.
+remaining transition work is M4: remove `EmitMode` and the legacy flag parser.
+D-056 cancels the compatibility release window; no new fallback or dual-write
+route may be added while deletion proceeds.
 
 ## Problem
 
@@ -107,7 +110,7 @@ Non-goals:
 
 ```sh
 # Compile a Lean contract to EVM bytecode.
-proof-forge build --target evm -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean
+proof-forge build --target evm -o build/evm/Counter.bin Examples/Product/Counter.lean
 
 # Build the built-in Counter fixture for NEAR.
 proof-forge build --target wasm-near --fixture counter -o build/near
@@ -250,8 +253,8 @@ add constructors to it. Once aliases are removed, `EmitMode` is deleted.
 
 ## Acceptance Criteria
 
-- `proof-forge build --target evm Examples/Backend/Evm/Contracts/Counter.lean` produces
-  the same bytecode as the old `--evm-bytecode` path.
+- `proof-forge build --target evm Examples/Product/Counter.lean` lowers through
+  Authored/Canonical/EVM plan without a Legacy loader or fallback.
 - `proof-forge emit --target evm --fixture counter --format yul` produces the
   same Yul as the old `--emit-counter-ir-yul` path.
 - `proof-forge check --target wasm-near --fixture map` fails with a clear

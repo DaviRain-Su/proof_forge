@@ -78,12 +78,30 @@ def testNoncanonicalRawAddress : IO Unit := do
       s!"expected high-96-bit address diagnostic, got: {e}"
     IO.println "cli-constructor: noncanonical raw address error ok"
 
+def testPlanParamFinalization : IO Unit := do
+  let params := #[{ name := "initial", abiType := "uint256" : ConstructorParamSpec }]
+  let opts : CliOptions := {
+    evmConstructorValues := #[{ name := "initial", value := "123" }]
+  }
+  match finalizeConstructorOptionsForParams opts params with
+  | .error e => throw <| IO.userError s!"plan constructor params did not finalize: {e}"
+  | .ok finalized =>
+      require (finalized.evmConstructorParams == params)
+        "plan constructor params were not merged into CLI options"
+      require (finalized.evmConstructorArgsHex ==
+          "000000000000000000000000000000000000000000000000000000000000007b")
+        s!"plan constructor value encoded incorrectly: {finalized.evmConstructorArgsHex}"
+      require (finalized.evmConstructorArgsSource == "--evm-constructor-arg")
+        "plan constructor argument provenance changed"
+      IO.println "cli-constructor: plan-param finalization ok"
+
 def main : IO UInt32 := do
   testStringOnly
   testUint256ArrayOnly
   testMixedStaticDynamic
   testMissingValue
   testNoncanonicalRawAddress
+  testPlanParamFinalization
   IO.println "CliConstructor: all tests passed"
   pure 0
 

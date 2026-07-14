@@ -69,7 +69,7 @@ lake build
 
 lake env proof-forge build --target evm --root . \
   --artifact-output build/evm/Counter.proof-forge-artifact.json \
-  -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean
+  -o build/evm/Counter.bin Examples/Product/Counter.lean
 
 scripts/evm/build-examples.sh
 scripts/evm/foundry-smoke.sh
@@ -333,7 +333,7 @@ EVM deploy manifest 会记录：
   `chainProfile` metadata，包括 profile id、chain id、RPC URLs、native gas
   symbol、explorer、verifier 和 notes
 - Yul/source 输入，以及 runtime bytecode 和 initcode 的 hash/size
-- `creation.mode: init-code`，可选记录来自 `--evm-constructor-param` 的静态 word constructor ABI schema、来自 typed `--evm-constructor-arg` value 或 raw `--evm-constructor-args-hex` 的 ABI-encoded constructor args，并记录 artifact-linked initcode 文件和它引用的 runtime bytecode
+- 简单 runtime-copy header 使用 `creation.mode: init-code`；当 EVM target plan 执行已解析的 constructor storage binding 时使用 `creation.mode: deploy-object`。两种模式都会记录 constructor ABI schema、可选 ABI-encoded 参数、artifact-linked initcode 和其引用的 runtime bytecode
 - 选择 chain profile 时的 `deployment.profileId`、`deployment.chainId`、
   `deployment.rpcUrls`、`deployment.blockExplorerUrl` 和 verifier 字段
 - `deployment.broadcast: not-generated`，因为交易签名、broadcast JSON、deployed

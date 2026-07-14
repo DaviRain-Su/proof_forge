@@ -3,6 +3,7 @@ import ProofForge.Cli.ContractLoader
 import ProofForge.Contract.Examples.Counter
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Learn
+import ProofForge.Frontend.Authored.Canonicalize
 
 namespace ProofForge.Tests.SharedContractSource
 
@@ -51,37 +52,28 @@ def packageFile (label path : String)
   | .error err =>
       throw <| IO.userError s!"{label} Solana render failed: {err.render}"
 
-unsafe def requireCounterEquivalence : IO Unit := do
-  let shared ← loadSharedSpec "Examples/Product/Counter.lean"
-  let evm ← loadSharedSpec "Examples/Backend/Evm/Contracts/Counter.lean"
-  let solana ← loadSharedSpec "Examples/Backend/Solana/Counter.lean"
-  let learn ← parseLearnSpec "Examples/Backend/Learn/Counter.learn"
-  requireSameModule "Shared Counter vs canonical contract_source"
-    shared.module ProofForge.Contract.Examples.Counter.module
-  requireSameAnnotations "Shared Counter vs canonical quint_invariant"
-    shared.quintInvariants ProofForge.Contract.Examples.Counter.spec.quintInvariants
-  requireSameAnnotations "Shared Counter vs canonical quint_liveness"
-    shared.quintLiveness ProofForge.Contract.Examples.Counter.spec.quintLiveness
-  requireSameModule "EVM Counter compatibility wrapper vs shared contract_source"
-    evm.module shared.module
-  requireSameAnnotations "EVM Counter compatibility wrapper quint_invariant"
-    evm.quintInvariants shared.quintInvariants
-  requireSameAnnotations "EVM Counter compatibility wrapper quint_liveness"
-    evm.quintLiveness shared.quintLiveness
-  require (evm.constructorParams == #[{ name := "initial", abiType := "uint256" }])
-    "EVM Counter wrapper lost constructor param metadata"
-  require (evm.constructorInitBindings == #[
-      { stateId := "count", paramName := "initial", kind := .scalarU64 }
-    ])
-    "EVM Counter wrapper lost constructor init binding metadata"
-  requireSameModule "Solana Counter compatibility wrapper vs shared contract_source"
-    solana.module shared.module
-  requireSameAnnotations "Solana Counter compatibility wrapper quint_invariant"
-    solana.quintInvariants shared.quintInvariants
-  requireSameAnnotations "Solana Counter compatibility wrapper quint_liveness"
-    solana.quintLiveness shared.quintLiveness
-  requireSameModule "Legacy Learn Counter vs shared contract_source"
-    learn.module shared.module
+unsafe def requireCounterDirectSource : IO Unit := do
+  let source ← ProofForge.Cli.ContractLoader.loadSource
+    "Examples/Product/Counter.lean" (some ".") none
+  let contract ← match source with
+    | .authored contract => pure contract
+    | .surfaceFixture _ =>
+        throw <| IO.userError "Product Counter loaded as an internal Surface fixture"
+  require (contract.name == ProofForge.Contract.Examples.Counter.contract.name)
+    "direct Counter contract identity mismatch"
+  require (contract.quintInvariants.any (fun annotation =>
+      annotation.name == "countBounded" && annotation.body == "count <= MAX_UINT"))
+    "direct Counter lost countBounded quint_invariant"
+  require (contract.quintLiveness.any (fun annotation =>
+      annotation.name == "eventuallyPositive" && annotation.body == "eventually(count > 0)"))
+    "direct Counter lost eventuallyPositive quint_liveness"
+  let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored contract with
+    | .ok bundle => pure bundle
+    | .error error => throw <| IO.userError s!"direct Counter normalization failed: {repr error}"
+  require (bundle.contract.contract.module.state.size == 1)
+    "direct Counter Canonical Core state drift"
+  require (bundle.contract.contract.module.functions.size == 3)
+    "direct Counter Canonical Core entrypoint drift"
 
 unsafe def requireValueVaultEquivalence : IO Unit := do
   let shared ← loadSharedSpec "Examples/Product/ValueVault.lean"
@@ -97,7 +89,7 @@ unsafe def requireValueVaultEquivalence : IO Unit := do
   requireSameText "ValueVault Solana manifest shared-vs-learn" sharedManifest learnManifest
 
 unsafe def main : IO UInt32 := do
-  requireCounterEquivalence
+  requireCounterDirectSource
   requireValueVaultEquivalence
   IO.println "shared-contract-source: ok"
   return 0

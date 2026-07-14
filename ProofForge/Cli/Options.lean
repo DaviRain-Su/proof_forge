@@ -111,16 +111,19 @@ def defaultYulOutput (input : FilePath) : FilePath :=
 def defaultBytecodeYulOutput (bytecodeOutput : FilePath) : FilePath :=
   bytecodeOutput.withExtension "yul"
 
-def mergeSpecConstructorParams
-    (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) : CliOptions :=
-  if spec.constructorParams.isEmpty then
+def mergeConstructorParams
+    (opts : CliOptions) (params : Array ConstructorParamSpec) : CliOptions :=
+  if params.isEmpty then
     opts
   else
-    let specParams := spec.constructorParams.map fun param =>
-      { name := param.name, abiType := param.abiType }
     let extraParams := opts.evmConstructorParams.filter fun param =>
-      !specParams.any (fun existing => existing.name == param.name)
-    { opts with evmConstructorParams := specParams ++ extraParams }
+      !params.any (fun existing => existing.name == param.name)
+    { opts with evmConstructorParams := params ++ extraParams }
+
+def mergeSpecConstructorParams
+    (opts : CliOptions) (spec : ProofForge.Contract.ContractSpec) : CliOptions :=
+  mergeConstructorParams opts (spec.constructorParams.map fun param =>
+    { name := param.name, abiType := param.abiType })
 
 def constructorValuesDeferSpecMerge
     (params : Array ConstructorParamSpec) (values : Array ConstructorValueSpec) : Bool :=
@@ -168,6 +171,19 @@ def finalizeConstructorOptionsForSpec
     else
       { mergedBase with evmConstructorArgsHex := "" }
   if !merged.evmConstructorValues.isEmpty && constructorValuesDeferSpecMerge merged.evmConstructorParams merged.evmConstructorValues then
+    validateConstructorValuesAgainstParams merged.evmConstructorParams merged.evmConstructorValues
+  finalizeConstructorOptions merged
+
+def finalizeConstructorOptionsForParams
+    (opts : CliOptions) (params : Array ConstructorParamSpec) : Except String CliOptions := do
+  let mergedBase := mergeConstructorParams opts params
+  let merged :=
+    if opts.evmConstructorValues.isEmpty then
+      mergedBase
+    else
+      { mergedBase with evmConstructorArgsHex := "" }
+  if !merged.evmConstructorValues.isEmpty &&
+      constructorValuesDeferSpecMerge merged.evmConstructorParams merged.evmConstructorValues then
     validateConstructorValuesAgainstParams merged.evmConstructorParams merged.evmConstructorValues
   finalizeConstructorOptions merged
 

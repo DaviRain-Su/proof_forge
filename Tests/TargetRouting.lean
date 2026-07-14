@@ -1,5 +1,6 @@
-import ProofForge.Contract.Examples.Counter
-import ProofForge.IR.Examples.Counter
+import Examples.Product.Counter
+import ProofForge.Backend.Solana.Plan.Core
+import ProofForge.Frontend.Authored.Canonicalize
 import ProofForge.IR.Examples.CrosscallProbe
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
@@ -9,57 +10,51 @@ namespace ProofForge.Tests.TargetRouting
 open ProofForge.Target
 
 def require (condition : Bool) (message : String) : IO Unit :=
-  if condition then
-    pure ()
-  else
-    throw <| IO.userError message
+  if condition then pure () else throw <| IO.userError message
 
 def hasCapability (plan : CapabilityPlan) (capability : Capability) : Bool :=
-  plan.capabilities.any (fun c => c == capability)
-
-def stateShape (module : ProofForge.IR.Module) :=
-  module.state.map (fun state => (state.id, state.kind, state.type))
-
-def portableEntrypointShape (module : ProofForge.IR.Module) :=
-  module.entrypoints.map (fun entrypoint =>
-    (entrypoint.name, entrypoint.params, entrypoint.returns))
-
-def requireSameCounterShape : IO Unit := do
-  let builderModule := ProofForge.Contract.Examples.Counter.module
-  let irModule := ProofForge.IR.Examples.Counter.module
-  require (builderModule.name == irModule.name) "Builder Counter module name mismatch"
-  require (stateShape builderModule == stateShape irModule) "Builder Counter state shape mismatch"
-  require (portableEntrypointShape builderModule == portableEntrypointShape irModule)
-    "Builder Counter portable entrypoint shape mismatch"
-  require (builderModule.entrypoints.all (fun entrypoint => entrypoint.selector?.isNone))
-    "Builder Counter source should defer target selectors to emission"
-  require (builderModule.capabilities == irModule.capabilities) "Builder Counter capabilities mismatch"
+  plan.capabilities.any (fun candidate => candidate == capability)
 
 def main : IO UInt32 := do
-  requireSameCounterShape
+  let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      Examples.Product.Counter.contract with
+    | .ok bundle => pure bundle
+    | .error error =>
+        throw <| IO.userError s!"direct Counter normalization failed: {repr error}"
+  let core := bundle.contract.contract
+  require (core.interface.contractName == "Counter")
+    "direct Counter canonical name mismatch"
+  require (core.module.state.size == 1 && core.module.functions.size == 3)
+    "direct Counter canonical shape mismatch"
+  require (core.materialization.stateSymbols.any (fun symbol => symbol.name == "count"))
+    "direct Counter canonical state symbol missing count"
+  require (core.interface.entrypoints.all (fun entrypoint => entrypoint.selector?.isNone))
+    "portable Counter source should defer target selectors to EVM planning"
 
-  let builderCounterPlan ←
-    match resolveSpec solanaSbpfAsm ProofForge.Contract.Examples.Counter.spec with
+  let counterPlan ← match requireCapabilityPlan solanaSbpfAsm {
+      targetId := solanaSbpfAsm.id
+      calls := core.requirements
+      metadata := #[]
+    } with
     | .ok plan => pure plan
-    | .error err => throw <| IO.userError s!"Builder Counter routing failed: {err.render}"
-  require (builderCounterPlan.targetId == solanaSbpfAsm.id) "Builder Counter plan target id mismatch"
-  require (hasCapability builderCounterPlan .storageScalar) "Builder Counter plan missing storage.scalar"
-
-  let counterPlan ←
-    match resolveModule solanaSbpfAsm ProofForge.IR.Examples.Counter.module with
-    | .ok plan => pure plan
-    | .error err => throw <| IO.userError s!"Counter routing failed: {err.render}"
+    | .error error => throw <| IO.userError s!"direct Counter routing failed: {error.render}"
   require (counterPlan.targetId == solanaSbpfAsm.id) "Counter plan target id mismatch"
-  require (counterPlan.calls.size > 0) "Counter plan must include routed capability calls"
   require (hasCapability counterPlan .storageScalar) "Counter plan missing storage.scalar"
+  match ProofForge.Backend.Solana.Plan.Core.buildFromCore bundle.contract counterPlan with
+  | .error error => throw <| IO.userError s!"direct Counter Solana plan failed: {error.message}"
+  | .ok targetPlan =>
+      require (targetPlan.entrypoints.size == 3) "direct Counter Solana entrypoint drift"
+      require (targetPlan.stateFields.any (fun field => field.id == "0"))
+        "direct Counter Solana plan missing canonical state id 0"
 
-  -- Portable crosscall.invoke is supported on Solana (CPI); empty peer still fails closed.
+  -- The explicit v1 fixture remains only for the not-yet-migrated crosscall
+  -- diagnostic. It is not a Product Counter source or compatibility route.
   match resolveModule solanaSbpfAsm ProofForge.IR.Examples.CrosscallProbe.module with
   | .ok _ => throw <| IO.userError "Solana routing unexpectedly accepted crosscall without peer"
-  | .error err =>
-      let msg := err.render
-      require (msg.contains "PortableHonesty" || msg.contains "empty peer" || msg.contains "peer")
-        s!"unexpected Solana routing diagnostic: {msg}"
+  | .error error =>
+      let message := error.render
+      require (message.contains "PortableHonesty" || message.contains "empty peer" ||
+        message.contains "peer") s!"unexpected Solana routing diagnostic: {message}"
 
   IO.println "target-routing: ok"
   return 0

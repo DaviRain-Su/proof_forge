@@ -18,26 +18,28 @@ planning, target materialization, and emitted artifacts.
 
 ## Current Baseline
 
-The repository already has the architectural foundation:
+The repository now has the direct architectural foundation:
 
-- `contract_source` and `TokenSpec` product routes for the primary triad.
-- `adaptLegacy -> CheckedCanonicalContract -> CapabilityPlan -> buildFromCore`.
+- `contract_source` Counter authoring emits one `AuthoredContract`.
+- Public loading normalizes directly to
+  `CheckedCanonicalContract -> CapabilityPlan -> buildFromCore`.
 - EVM, Solana, and NEAR target plans with canonical parity gates.
 - Typed, versioned HostOps for target-specific operations.
 - Portable remote calls with target-specific materialization.
 - `Stdlib.ERC721`, `Stdlib.ERC1155`, `Stdlib.MetaplexNft`, and
   `Stdlib.NearNft` implementation candidates.
-- NEAR promise create/then/result handling, including CFG block-parameter
-  lowering verified by the FT callback runtime gate.
-- Solana runtime account graph, duplicate-account, and account-count checks.
+- A target-neutral `WasmHostModulePlan` with NEAR and Soroban bridge ownership.
+- Solana runtime account graph, instruction-data length, duplicate/exact account
+  count, signer, writable, and owner checks.
 
 Remaining relevant gaps:
 
-- Solana grammar declarations still live in `Contract/Source.lean` even though
-  their handlers live in `Contract/Source/Solana.lean`.
-- There is no portable `NFTSpec` product route or NFT materialization contract.
-- Wasm-host canonical planning is still named and constrained as
-  `NearModulePlan`; `buildFromCore` accepts only `wasm-near`.
+- Only Counter has completed the direct public Source/Loader cutover; remaining
+  Product and stdlib callers are explicitly quarantined under `Source.Legacy`.
+- Existing NFT and Token intent materializers still return deletion-bound
+  `ContractSpec` values and must move to direct Authored/Canonical outputs.
+- Temporary Surface fixtures, old loaders, and Legacy target routes remain until
+  their callers move, then must be deleted rather than maintained as compatibility.
 - PSy and Aleo remain fixture/research routes without canonical public-product
   promotion.
 
@@ -64,11 +66,14 @@ Portable authoring
 Intent validation and target-neutral IntentContract
                  |
                  v
+AuthoredContract -> checked Canonical Core
+                 |
+                 v
 Target Materializer Registry
   (target, intent family, feature set) -> materializer or named rejection
                  |
                  v
-ContractSpec / CheckedCanonicalContract / CapabilityPlan
+CapabilityPlan + typed target extensions
                  |
                  v
 Evm.Plan | Solana.Plan | WasmHostModulePlan | research target plan
@@ -101,7 +106,7 @@ structure IntentContract where
 structure IntentMaterialization where
   targetId : String
   standardId : String
-  contractSpec : ProofForge.Contract.ContractSpec
+  canonical : ProofForge.IR.Canonical.CanonicalBundle
   evidence : Array String := #[]
 
 structure IntentMaterializer where
@@ -168,7 +173,9 @@ between unique and multi-token standards at the generic intent boundary.
 ## NFT Materialization
 
 Each primary target materializer consumes the same `IntentContract`, selects a
-native implementation candidate, and returns a normal `ContractSpec`.
+native implementation candidate, and returns direct checked Canonical output.
+The current `ContractSpec` result in the first NFT implementation is migration
+debt owned by A-CUT3/A-CUT5, not part of this design contract.
 
 The initial candidates are:
 
@@ -202,9 +209,9 @@ It is not frontend `targetId` dispatch.
 
 ## Solana Grammar Isolation
 
-`Source.lean` retains the shared syntax categories (`contractItem`,
-`entryStmt`) and portable grammar. Solana-specific productions, seed
-categories, and handlers live in `Source/Solana.lean`.
+`Source.lean` owns the direct portable grammar and emits `AuthoredContract`.
+Solana-specific productions, seed categories, and handlers live in
+`Source/Solana.lean` and emit typed target extension payloads.
 
 This is a grammar ownership change only. It must not change generated IR or
 Solana fixtures. Product modules importing only `Contract.Source` must be
@@ -223,10 +230,9 @@ WasmHostModulePlan
   + target HostOp registry
 ```
 
-Renaming alone is insufficient. `NearModulePlan.buildFromCore` currently
-performs NEAR Borsh planning and accepts only `wasm-near`. Soroban promotion
-starts by extracting the shared plan and preserving NEAR behavior, then adds a
-Soroban-native ABI/auth plan.
+The neutral module-plan boundary is implemented. NEAR-specific ABI, promise,
+receipt, and host behavior remains target-owned; sharing Wasm emission never
+permits a target to route through another target's semantic plan.
 
 ## ZK Target Boundary
 
@@ -258,7 +264,7 @@ Every vertical slice requires:
 
 1. Unit tests for intent validation and registry resolution.
 2. Feature x target honest-reject matrix.
-3. ContractSpec and canonical validation tests.
+3. Direct Authored normalization and canonical validation tests.
 4. Target plan assertions.
 5. Artifact metadata/client checks.
 6. Runtime lifecycle evidence where local tooling exists.

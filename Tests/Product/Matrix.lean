@@ -14,7 +14,6 @@ TokenSpec: EVM · Solana · NEAR honesty only (no Soroban token lane).
 import Examples.Product.AccessControl
 import Examples.Product.ArrayExample
 import Examples.Product.AuthRemoteCall
-import Examples.Product.Counter
 import Examples.Product.EscrowVault
 import Examples.Product.HostEnvProbe
 import Examples.Product.ExternalTokenTransfer
@@ -114,22 +113,15 @@ def assertAutoPortablePrimary (label : String) (m : Module) : IO Unit := do
   require (solR.storageBinding == "account-data") s!"{label} Solana binding"
   require (nearR.storageBinding == "host-key-value") s!"{label} NEAR binding"
 
-/-- Phase 2: Product is author source; IR fixture shares shape (not body/selectors). -/
-def testCounterSingleSource : IO Unit := do
-  let product := Examples.Product.Counter.module
-  let ir := ProofForge.IR.Examples.Counter.module
-  require (product.name == ir.name) "Counter name Product=IR fixture"
-  require (product.state.map (·.id) == ir.state.map (·.id))
-    "Counter state ids Product=IR fixture"
-  require (product.entrypoints.map (·.name) == ir.entrypoints.map (·.name))
-    "Counter entrypoint names Product=IR fixture"
-  require (product.entrypoints.map (·.name) == #["initialize", "increment", "get"])
-    "Product Counter entrypoint names"
-  -- Authors do not pin selectors; IR fixture may keep them for EVM CLI goldens.
-  require (product.entrypoints.all (fun e => e.selector?.isNone))
-    "Product Counter must be name-only (no author selectors)"
-  assertAutoPortablePrimary "Counter" product
-  assertFourHost "Counter" product
+/- Explicit coverage for target families that still consume the v1 Counter
+fixture. It is not a Product authoring route; the Product Counter is exercised
+by the direct authored primary-triad gate. -/
+def testCounterV1FixtureCoverage : IO Unit := do
+  let fixture := ProofForge.IR.Examples.Counter.module
+  require (fixture.entrypoints.map (·.name) == #["initialize", "increment", "get"])
+    "Counter v1 fixture entrypoint names"
+  assertAutoPortablePrimary "Counter v1 fixture" fixture
+  assertFourHost "Counter v1 fixture" fixture
   assertFourHost "HostEnvProbe" Examples.Product.HostEnvProbe.module
   assertAutoPortablePrimary "HostEnvProbe" Examples.Product.HostEnvProbe.module
   -- Triad HostEnv fields must lower on Solana (U1.1–U1.2).
@@ -173,7 +165,16 @@ def testVaultsAndTokens : IO Unit := do
     ("VestingVault", Examples.Product.VestingVault.module)
   ] do
     assertFourHost label module
-  assertEvmWasmHosts "StorageDeposit" Examples.Product.StorageDeposit.module
+  /- StorageDeposit remains A-CUT3 deletion inventory. Its NEP-145-lite u64
+  projection is not the current NEAR ABI and must fail closed rather than be
+  counted as a portable Product success. -/
+  match ProofForge.Backend.WasmHost.EmitWat.renderModule
+      Examples.Product.StorageDeposit.module with
+  | .ok _ => throw (IO.userError
+      "Legacy StorageDeposit unexpectedly passed the strict NEP-145 ABI gate")
+  | .error error =>
+      require (error.message.contains "StorageBalanceBounds")
+        s!"StorageDeposit failed for an unexpected reason: {error.message}"
   -- nativeValue → writable signer@0
   let stakeAccounts := buildModuleAccounts Examples.Product.StakingVault.module {}
   match stakeAccounts[0]? with
@@ -262,7 +263,7 @@ def testTokenIntent : IO Unit := do
   | .ok _ => throw (IO.userError "Soroban must have no TokenSpec lane")
 
 def main : IO UInt32 := do
-  testCounterSingleSource
+  testCounterV1FixtureCoverage
   testPolicies
   testVaultsAndTokens
   testRemote

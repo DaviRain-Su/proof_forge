@@ -190,9 +190,9 @@ cargo run --manifest-path testkit/Cargo.toml -p proof-forge-testkit -- run --sce
 | 目标 | 路径 | 状态 |
 |---|---|---|
 | **所有主链** | `Examples/Product/Counter.lean`、`Examples/Product/ValueVault.lean`（`contract_source`） | **代码库中** — `just portable-counter-multi-target`、`just portable-value-vault` |
-| EVM | `Examples/Backend/Evm/Contracts/Counter.lean` | **代码库中** — shared Counter 的兼容 wrapper，附带 EVM constructor-init metadata |
+| EVM | `Examples/Backend/Evm/Counter.golden.yul` + `Contracts/CounterConstructorProbe.lean` | **代码库中** — direct Product golden 加 direct Authored constructor probe；不存在 Counter `ContractSpec` wrapper |
 | CosmWasm | `Examples/Backend/CosmWasm/Counter.golden.wat` | **代码库中 (Spike)** — 通过 `proof-forge emit --target wasm-cosmwasm --fixture counter` 生成 golden WAT；`just cosmwasm-counter-smoke` |
-| Solana | `Examples/Backend/Solana/Counter.lean` + manifest | **代码库中** — shared Counter 的兼容 wrapper，附带 sBPF golden/manifest fixtures |
+| Solana | `Examples/Backend/Solana/Counter.canonical.golden.s` + canonical manifest | **代码库中** — direct Product Counter plan/assembly fixture；不存在 Counter `ContractSpec` wrapper |
 | Aptos | `Examples/Backend/Aptos/Counter/golden/` | **代码库中 (Spike)** — golden Move module；`just aptos-counter-smoke` |
 | Cloudflare Workers | `Examples/Backend/CloudflareWorkers/Counter/` + `emit --format ts` | **代码库中 (Spike)** — TS package + `scripts/ts/counter-ir-smoke.sh` |
 | Psy DPN | `Examples/Backend/Psy/*.golden.psy`, `scripts/psy/*-smoke.sh` | **代码库中** |

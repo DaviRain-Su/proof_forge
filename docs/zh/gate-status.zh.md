@@ -65,6 +65,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | CMP-1-3 | Target-owned observation 不会被压平为虚假 equivalence | ✅ met | 跨 target external action 比较 logical payload 并保留 native payload；resource value 只在同一 target family 内比较，aggregate score 字段会被拒绝 |
 | CMP-1-4 | 共享 comparator 保持 test-only | ✅ met | runner schema 与实现位于 `testkit/differential` 和 `scripts/differential`；compiler boundary 测试包含 runner schema ID；`just differential-contracts` 通过 23 个 contract/comparator 测试以及 inventory/matrix snapshot |
 
+## Gate A-CUT2g —— Direct public authoring 路线
+
+**状态：Closed**
+
+**Closed: 2026-07-14**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT2g-1 | Public Source 与 Loader 只交换 `AuthoredContract` | ✅ met | `42183403`；`just public-authored-route` 证明 Counter 只导出 `contract` 而不导出 `spec`/`module`，Loader 拒绝隔离的 ValueVault，不会 fallback |
+| A-CUT2g-2 | 主三链物化绕开 `ContractSpec` 与 `IR.Module` | ✅ met | `just portable-counter-multi-target` 从不变的 Product Counter 构建 EVM、Solana assembly 和 NEAR/Wasm，metadata 为 `contract-source-authored` / `canonical-core-v1`，并拒绝任何 ContractSpec sidecar |
+| A-CUT2g-3 | 最终 Solana ELF 同样使用 direct target plan | ✅ met | target-specific Counter testkit 通过 `compileSolanaAuthoredElf` 构建 ELF；initialize/get/increment/get 生命周期在 Mollusk 中通过严格 account 与 instruction-data 校验 |
+| A-CUT2g-4 | Target 行为保持可执行 | ✅ met | Counter 的 `evm`、`solana-sbpf-asm`、`wasm-near` 独立 testkit runner 均通过；NEAR offline-host 报告 `0 -> 1`；EVM selector metadata 与 target golden 通过 |
+| A-CUT2g-5 | Legacy 是待删除清单，不是兼容层 | ✅ met | direct boundary gate 拒绝 Source/Counter 导入 Legacy；剩余调用方显式导入 public Loader 无法发现的 `Source.Legacy`；不存在 direct-to-Legacy adapter 或 fallback |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。
