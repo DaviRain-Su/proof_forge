@@ -2773,3 +2773,15 @@ Rules:
   `git diff --check`.
 - Next: remove `Expr.ecrecover` and `Expr.eip712PermitDigest` plus their stale
   shared/backend reject arms; EVM product authoring must retain only HostOps.
+
+## 2026-07-14 - EVM-R1d: remove portable crypto authoring API
+
+- Status: `done (verified 2026-07-14)`; legacy IR constructor deletion remains.
+- Deleted `Contract.Surface.ecrecover` and
+  `Contract.Surface.eip712PermitDigest`. Product code now has only the
+  target-owned `Contract.Source.Evm` HostOp helpers for these operations.
+- Repository caller audit found no remaining use of the removed portable API;
+  ERC20Permit had already switched to the EVM facade.
+- Verification passed: targeted Surface/Source.Evm/ERC20Permit builds,
+  `Tests/Canonical/EvmCryptoHostOps.lean`, `Tests/TokenEvm.lean`, and
+  `git diff --check`.
