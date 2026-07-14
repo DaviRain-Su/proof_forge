@@ -3205,3 +3205,13 @@ Rules:
 - Verification: `lake env lean --run Tests/Canonical/SurfaceMemoryArray.lean`,
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, targeted Core
   validation, and `git diff --check`.
+
+## 2026-07-14 - EVM-R2j: direct Escrow lifecycle
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
+- Added a direct Surface v2 EscrowVault preserving two-party initialization,
+  one-shot funding, mutually exclusive release/refund states, claim ledgers,
+  event schemas, query surface, and exact EVM selectors.
+- Verification: targeted product build,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.

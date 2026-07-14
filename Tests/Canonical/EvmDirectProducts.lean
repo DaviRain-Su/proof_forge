@@ -13,6 +13,7 @@ import Examples.Product.Canonical.HostEnvProbe
 import Examples.Product.Canonical.HeightLockVault
 import Examples.Product.Canonical.TimelockVault
 import Examples.Product.Canonical.ArrayExample
+import Examples.Product.Canonical.EscrowVault
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Frontend.Surface.Normalize
@@ -68,4 +69,5 @@ def main : IO Unit := do
   checkProduct Examples.Product.Canonical.HeightLockVault.contract 7
   checkProduct Examples.Product.Canonical.TimelockVault.contract 7
   checkProduct Examples.Product.Canonical.ArrayExample.contract 3
+  checkProduct Examples.Product.Canonical.EscrowVault.contract 10
   IO.println "evm-direct-products: ok"
