@@ -1,6 +1,6 @@
-import ProofForge.Solana.Examples.AccountRealloc
-import ProofForge.Solana.Examples.SystemCpi
-import ProofForge.Solana.Examples.Vault
+import Examples.Backend.Solana.Contracts.AccountRealloc
+import Examples.Backend.Solana.Contracts.SystemCpi
+import Examples.Backend.Solana.Contracts.Vault
 
 namespace ProofForge.Tests.SourceDslSolanaAcceptance
 
@@ -29,7 +29,7 @@ def hasEntrypoint (spec : ContractSpec) (name : String) : Bool :=
   spec.module.entrypoints.any fun entrypoint => entrypoint.name == name
 
 def main : IO UInt32 := do
-  let vault := ProofForge.Solana.Examples.Vault.spec
+  let vault := Examples.Backend.Solana.Contracts.Vault.spec
   require (vault.name == "SolanaVault")
     "Solana Vault source did not elaborate to the expected ContractSpec"
   require (hasIntent vault "solana.runtime.allocator" (some "runtime"))
@@ -47,13 +47,13 @@ def main : IO UInt32 := do
   require (hasEntrypoint vault "touch")
     "Solana Vault source lost the touch entrypoint"
 
-  let systemCpi := ProofForge.Solana.Examples.SystemCpi.spec
+  let systemCpi := Examples.Backend.Solana.Contracts.SystemCpi.spec
   require (hasIntent systemCpi "solana.cpi.accounts" (some "lamport_transfer"))
     "system_transfer declaration did not preserve CPI intent"
   require (hasIntent systemCpi "solana.cpi.accounts" (some "lamport_transfer") (some "transfer"))
     "system_transfer invocation did not preserve entrypoint-scoped CPI intent"
 
-  let realloc := ProofForge.Solana.Examples.AccountRealloc.spec
+  let realloc := Examples.Backend.Solana.Contracts.AccountRealloc.spec
   require (hasIntent realloc "solana.account.realloc" (some "realloc_buffer") (some "grow"))
     "realloc statement did not preserve entrypoint-scoped realloc intent"
   require (hasEntrypoint realloc "grow")

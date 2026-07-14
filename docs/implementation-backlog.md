@@ -1500,7 +1500,7 @@ partial progress is visible before the full acceptance criteria close:
       with a clear diagnostic citing target id and capability id. Basis for
       V-GATE-SOLANA-05; exercised by `Tests/Backend/Solana/SolanaDiagnostics.lean` and
       `scripts/solana/diagnostic-smoke.sh`.
-- [x] Solana SDK target extensions route `ProofForge.Solana` PDA/CPI APIs
+- [x] Solana SDK target extensions route `ProofForge.Contract.Source.Solana.Legacy` PDA/CPI APIs
       through capability plan metadata, emit `manifest.toml` extension
       definitions plus entrypoint action sections, and inject handler-level
       helper calls (`sol_pda_derive_<name>`, `sol_cpi_<name>`) before the IR
@@ -1596,7 +1596,7 @@ partial progress is visible before the full acceptance criteria close:
       `Tests/Backend/Solana/SolanaCpiPacking.lean`, `Tests/Backend/Solana/SolanaSdkManifest.lean`, and
       `scripts/solana/sdk-smoke.sh`.
 - [x] System Program transfer CPI now has a live Surfpool/Rust behavior
-      gate. `ProofForge.Solana.Examples.SystemCpi` builds a generated
+      gate. `Examples.Backend.Solana.Contracts.SystemCpi` builds a generated
       `--solana-system-cpi-elf` fixture whose entrypoint reads a scalar
       `lamports` instruction parameter, performs a System Program transfer CPI,
       and records the transferred amount in a program-owned state account.
@@ -1608,7 +1608,7 @@ partial progress is visible before the full acceptance criteria close:
       `r9` so internal helper calls do not lose it across callee stack frames.
       Coverage: `just solana-system-cpi-web3` / V-GATE-SOLANA-10.
 - [x] System Program `create_account` CPI now has a live Surfpool/Rust
-      behavior gate. `ProofForge.Solana.Examples.SystemCreateAccountCpi`
+      behavior gate. `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi`
       builds a generated `--solana-system-create-account-cpi-elf` fixture whose
       entrypoint reads scalar `lamports` and `space` instruction parameters,
       performs a System Program `create_account` CPI with payer and new-account
@@ -1617,7 +1617,7 @@ partial progress is visible before the full acceptance criteria close:
       account owner, data length, lamports, and recorded state values. Coverage:
       `just solana-system-create-account-cpi-web3` / V-GATE-SOLANA-11.
 - [x] SPL Token `transfer_checked` CPI now has a live Surfpool/Rust behavior
-      gate. `ProofForge.Solana.Examples.SplTokenTransferCheckedCpi` builds a
+      gate. `Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi` builds a
       generated `--solana-spl-token-transfer-cpi-elf` fixture whose entrypoint
       reads a scalar `amount` instruction parameter, performs an SPL Token
       `transfer_checked` CPI with the source authority signer, and records the
@@ -1812,7 +1812,7 @@ Completed beta scaffolding slices:
 - Pinocchio System transfer reference contract:
   `references/solana/pinocchio/system-transfer` contains a checked-in
   no-allocator Pinocchio reference for the same System transfer account schema
-  as `ProofForge.Solana.Examples.SystemCpi`. The gate
+  as `Examples.Backend.Solana.Contracts.SystemCpi`. The gate
   `scripts/solana/pinocchio-system-transfer-equivalence.sh` emits the
   ProofForge System CPI artifact and compares its instruction tag, parameter
   ABI, account order, signer/writable constraints, CPI protocol/data layout,
@@ -1846,7 +1846,7 @@ Completed beta scaffolding slices:
   `references/solana/pinocchio/system-create-account` contains a checked-in
   no-allocator Pinocchio reference for the same System Program
   `create_account` account schema as
-  `ProofForge.Solana.Examples.SystemCreateAccountCpi`. The gate
+  `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi`. The gate
   `scripts/solana/pinocchio-system-create-account-equivalence.sh` emits the
   ProofForge create-account CPI artifact and compares its instruction tag,
   two-parameter ABI, account order, signer/writable constraints, CPI
@@ -1864,7 +1864,7 @@ Completed beta scaffolding slices:
 - Pinocchio SPL Token transfer reference contract:
   `references/solana/pinocchio/spl-token-transfer` contains a checked-in
   no-allocator Pinocchio reference for the same SPL Token `transfer_checked`
-  account schema as `ProofForge.Solana.Examples.SplTokenTransferCheckedCpi`.
+  account schema as `Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi`.
   The gate `scripts/solana/pinocchio-spl-token-transfer-equivalence.sh` emits
   the ProofForge SPL Token CPI artifact and compares its instruction tag,
   parameter ABI, account order, signer/writable constraints, CPI
@@ -1884,7 +1884,7 @@ Completed beta scaffolding slices:
   `references/solana/pinocchio/spl-token-ops` contains a checked-in
   no-allocator Pinocchio reference for the same SPL Token
   `mint_to`/`burn`/`approve`/`revoke` account schema as
-  `ProofForge.Solana.Examples.SplTokenOpsCpi`. The gate
+  `Examples.Backend.Solana.Contracts.SplTokenOpsCpi`. The gate
   `scripts/solana/pinocchio-spl-token-ops-equivalence.sh` emits the ProofForge
   SPL Token ops CPI artifact and compares its four instruction tags, parameter
   ABI, account order, signer/writable constraints, CPI protocol/data layout,
@@ -1901,7 +1901,7 @@ Completed beta scaffolding slices:
 - Pinocchio SPL Token authority reference contract:
   `references/solana/pinocchio/spl-token-authority` contains a checked-in
   no-allocator Pinocchio reference for the same SPL Token `set_authority`
-  account schema as `ProofForge.Solana.Examples.SplTokenAuthorityCpi`. The
+  account schema as `Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi`. The
   gate `scripts/solana/pinocchio-spl-token-authority-equivalence.sh` emits the
   ProofForge SPL Token authority CPI artifact and compares its instruction ABI,
   account order, signer/writable constraints, CPI protocol/data layout,
@@ -1969,38 +1969,38 @@ Completed developer-surface slices:
   `ProofForge.Contract.Learn` now parses `SolanaVault.learn` forms for
   `solana allocator`, `solana account`, `solana pda`, `solana cpi
   ... spl_token_transfer_checked(...)`, and entry-level `solana derive` /
-  `solana invoke`. The lowering reuses `ProofForge.Solana` builder helpers, so
+  `solana invoke`. The lowering reuses `ProofForge.Contract.Source.Solana.Legacy` builder helpers, so
   account/PDA/CPI metadata still flows through the existing capability plan,
   manifest, IDL, client, and sBPF assembly paths. `Tests/LearnSource.lean`
   checks that Learn-lowered SolanaVault has the same IR module and generated
-  manifest as `ProofForge.Solana.Examples.Vault`.
+  manifest as `Examples.Backend.Solana.Contracts.Vault`.
 - Learn System Program CPI syntax:
   `SystemCpi.learn` and `SystemCreateAccountCpi.learn` now cover
   `solana cpi ... system_transfer(...)`, `solana cpi ...
   system_create_account(...) owner ...`, and matching entry-level
   `solana invoke` statements. `Tests/LearnSource.lean` proves both Learn files
   lower to the same IR modules and generated manifests as the existing
-  `ProofForge.Solana.Examples.SystemCpi` and
-  `ProofForge.Solana.Examples.SystemCreateAccountCpi` source examples.
+  `Examples.Backend.Solana.Contracts.SystemCpi` and
+  `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi` source examples.
 - Learn SPL Token ops syntax:
   `SplTokenOpsCpi.learn` now covers selector-bearing Learn entrypoints plus
   `spl_token_mint_to`, `spl_token_burn`, `spl_token_approve`, and
   `spl_token_revoke` declarations/invocations. `Tests/LearnSource.lean` proves
   the Learn file lowers to the same IR module and generated manifest as
-  `ProofForge.Solana.Examples.SplTokenOpsCpi`, keeping the string-heavy Builder
+  `Examples.Backend.Solana.Contracts.SplTokenOpsCpi`, keeping the string-heavy Builder
   code as an internal expected fixture rather than the user-facing syntax.
 - Learn SPL Token close-account syntax:
   `SplTokenCloseAccountCpi.learn` now covers `spl_token_close_account`
   declarations/invocations and proves the same module/manifest boundary as
-  `ProofForge.Solana.Examples.SplTokenCloseAccountCpi` through
+  `Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi` through
   `Tests/LearnSource.lean`.
 - Learn log/return-data/compute-unit syntax:
   `LogEvent.learn` and `ReturnDataCompute.learn` now cover Solana pubkey/data
   log helper statements, return-data set/get statements, and remaining
   compute-unit read/log statements. `Tests/LearnSource.lean` proves both Learn
   files lower to the same IR modules and generated manifests as
-  `ProofForge.Solana.Examples.LogEvent` and
-  `ProofForge.Solana.Examples.ReturnDataCompute`, moving another syscall-facing
+  `Examples.Backend.Solana.Contracts.LogEvent` and
+  `Examples.Backend.Solana.Contracts.ReturnDataCompute`, moving another syscall-facing
   SDK slice from Builder-only fixtures into user-facing Learn source.
 - Learn memory/crypto/sysvar syntax:
   `Memory.learn`, `Crypto.learn`, `Rent.learn`, `EpochSchedule.learn`,
@@ -2008,7 +2008,7 @@ Completed developer-surface slices:
   Solana memory helpers, SHA-256/Keccak-256/BLAKE3 helpers, and
   sysvar/context reads in user-facing Learn source. `Tests/LearnSource.lean`
   proves these Learn files lower to the same IR modules and generated
-  manifests as the corresponding `ProofForge.Solana.Examples.*` fixtures.
+  manifests as the corresponding `Examples.Backend.Solana.Contracts.*` fixtures.
 - Learn reference diagnostics:
   `ProofForge.Contract.Learn` now builds a declaration reference index while
   lowering and rejects unknown or mismatched Solana CPI invocations, unknown
@@ -2019,9 +2019,9 @@ Completed developer-surface slices:
   Learn behaves like a checked language frontend instead of asking users to
   hand-author unchecked `ContractSpec` data.
 - Solana typed account surface:
-  `ProofForge.Solana.Surface` now adds `account_ref`, `pda_ref`, and `cpi_ref`
+  `ProofForge.Contract.Source.Solana.Internal` now adds `account_ref`, `pda_ref`, and `cpi_ref`
   declarations plus typed PDA seed, account constraint, and SPL/System CPI
-  helpers. `ProofForge.Solana.Examples.Vault` now uses dedicated
+  helpers. `Examples.Backend.Solana.Contracts.Vault` now uses dedicated
   `contract_source` items such as `allocator bump`, `account ... writable`,
   `pda ... seeds [...]`, `cpi ... spl_token_transfer_checked(...)`, `derive
   pda ...`, `invoke ... spl_token_transfer_checked(...)`, and the same
@@ -2036,14 +2036,14 @@ Completed developer-surface slices:
   `ProofForge.Contract.Source` now exposes source-level
   `cpi ... system_create_account(...) owner ...` and
   `invoke ... system_create_account(...) owner ...` forms.
-  `ProofForge.Solana.Examples.SystemCreateAccountCpi` uses those forms instead
+  `Examples.Backend.Solana.Contracts.SystemCreateAccountCpi` uses those forms instead
   of the lower-level builder API while preserving the existing generated
   assembly, manifest, artifact, and Surfpool/Rust behavior gate.
 - SPL Token authority source syntax:
   `ProofForge.Contract.Source` now exposes source-level
   `cpi ... spl_token_set_authority(...) authority_type(...) signer_seeds [...]`
   and `invoke ... spl_token_set_authority(...) authority_type(...) signer_seeds
-  [...]` forms. `ProofForge.Solana.Examples.SplTokenAuthorityCpi` uses those
+  [...]` forms. `Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi` uses those
   forms in a Lean `.lean` fixture, and the generated artifact, Surfpool/Rust
   behavior gate, and Pinocchio reference gates all validate the same lowering
   boundary.
@@ -2051,7 +2051,7 @@ Completed developer-surface slices:
   `ProofForge.Contract.Source` now exposes source-level
   `cpi ... spl_token_close_account(...) signer_seeds [...]` and
   `invoke ... spl_token_close_account(...) signer_seeds [...]` forms.
-  `ProofForge.Solana.Examples.SplTokenCloseAccountCpi` uses those forms in a
+  `Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi` uses those forms in a
   Lean `.lean` fixture; `Tests/Backend/Solana/SolanaCpiPacking.lean` validates manifest account
   schemas, `spl-token.close_account` metadata, instruction tag `9`, one-byte
   CPI data length, and the generated CPI helper call. The fixture is available

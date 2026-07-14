@@ -24,7 +24,7 @@ IMPORT_COMMAND_RE = re.compile(
 )
 MODULE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*")
 FORBIDDEN_IMPORT_PREFIXES = (
-    "ProofForge.Solana",
+    "ProofForge.Contract.Source.Solana.Legacy",
     "ProofForge.Contract.Source.Solana",
     "ProofForge.Contract.Source.Near",
     "ProofForge.Backend.Solana",
@@ -70,7 +70,7 @@ FORBIDDEN_STANDARD_RE = re.compile(
 )
 
 # Solana account model must not appear as authoring in Shared (extensions live
-# under Examples/Backend/Solana and ProofForge.Solana / Source.Solana).
+# under Examples/Backend/Solana and Contract.Source.Solana).
 FORBIDDEN_SOLANA_AUTHORING = [
     "pdaAccount",
     "pda_account",

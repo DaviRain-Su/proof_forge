@@ -1,11 +1,11 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Contract.Builder
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Legacy
 
 namespace ProofForge.Tests.SolanaPdaSeeds
 
 open ProofForge.Contract.Builder
-open ProofForge.Solana
+open ProofForge.Contract.Source.Solana.Legacy
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then

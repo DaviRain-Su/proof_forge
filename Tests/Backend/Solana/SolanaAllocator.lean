@@ -3,14 +3,14 @@ import ProofForge.Backend.Solana.Extension
 import ProofForge.Backend.Solana.Idl
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Contract.Builder
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Legacy
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
 namespace ProofForge.Tests.SolanaAllocator
 
 open ProofForge.Contract.Builder
-open ProofForge.Solana
+open ProofForge.Contract.Source.Solana.Legacy
 open ProofForge.Target
 
 def require (condition : Bool) (message : String) : IO Unit :=

@@ -78,6 +78,13 @@ The target migration order is fixed. Do not start a later row while an earlier
 row still has a production path through `ContractSpec`, `IR.Module`, or a
 Legacy adapter.
 
+Module ownership is tracked by the
+[2026-07-14 audit](docs/module-ownership-audit-2026-07-14.md). Public Solana
+authoring enters through `ProofForge.Contract.Source.Solana`; the old builder is
+quarantined under `Source.Solana.Legacy`, Solana fixtures live under
+`Examples/Backend/Solana/Contracts`, and Psy externs live under
+`ProofForge.Runtime.Psy`.
+
 | Order | Target family | State | Exit condition |
 |---|---|---|---|
 | 1 | EVM | in_progress (public product route canonical; R4a-R4d complete) | Every EVM product route reaches `ModulePlan` without v1 IR and obsolete EVM compatibility code is deleted |

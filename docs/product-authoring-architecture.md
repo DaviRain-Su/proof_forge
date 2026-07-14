@@ -175,8 +175,8 @@ EVM + Solana without extension syntax in shared examples.
 | Item | Evidence |
 |---|---|
 | Portable default import | `import ProofForge.Contract.Source` |
-| Solana extension import | `import ProofForge.Contract.Source.Solana` (re-exports Source + Solana Surface/Builders) |
-| Solana examples | `ProofForge/Solana/Examples/*` that use account/PDA/CPI import `Source.Solana` |
+| Solana extension import | `import ProofForge.Contract.Source.Solana` (the only public Solana authoring entry) |
+| Solana examples | `Examples/Backend/Solana/Contracts/*` that use account/PDA/CPI import `Source.Solana` |
 | Shared gate | `portable-default` forbids `Source.Solana` and Solana DSL keywords |
 
 ### Phase B — Automatic chain materialization (compiler)  ← **next product focus**
@@ -372,7 +372,7 @@ constructors only appear in extension fixtures.
 Keep Solana PDA/CPI, custom syscalls, raw host imports as **opt-in**:
 
 ```lean
-import ProofForge.Solana.Surface  -- opt-in; non-portable
+import ProofForge.Contract.Source.Solana  -- opt-in; non-portable
 ```
 
 Rules:

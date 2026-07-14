@@ -2,20 +2,20 @@ import ProofForge.Backend.Solana.Package
 import ProofForge.Contract.Examples.Counter
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Learn
-import ProofForge.Solana.Examples.Clock
-import ProofForge.Solana.Examples.Crypto
-import ProofForge.Solana.Examples.EpochRewards
-import ProofForge.Solana.Examples.EpochSchedule
-import ProofForge.Solana.Examples.LastRestartSlot
-import ProofForge.Solana.Examples.LogEvent
-import ProofForge.Solana.Examples.Memory
-import ProofForge.Solana.Examples.Rent
-import ProofForge.Solana.Examples.ReturnDataCompute
-import ProofForge.Solana.Examples.SplTokenCloseAccountCpi
-import ProofForge.Solana.Examples.SplTokenOpsCpi
-import ProofForge.Solana.Examples.SystemCpi
-import ProofForge.Solana.Examples.SystemCreateAccountCpi
-import ProofForge.Solana.Examples.Vault
+import Examples.Backend.Solana.Contracts.Clock
+import Examples.Backend.Solana.Contracts.Crypto
+import Examples.Backend.Solana.Contracts.EpochRewards
+import Examples.Backend.Solana.Contracts.EpochSchedule
+import Examples.Backend.Solana.Contracts.LastRestartSlot
+import Examples.Backend.Solana.Contracts.LogEvent
+import Examples.Backend.Solana.Contracts.Memory
+import Examples.Backend.Solana.Contracts.Rent
+import Examples.Backend.Solana.Contracts.ReturnDataCompute
+import Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi
+import Examples.Backend.Solana.Contracts.SplTokenOpsCpi
+import Examples.Backend.Solana.Contracts.SystemCpi
+import Examples.Backend.Solana.Contracts.SystemCreateAccountCpi
+import Examples.Backend.Solana.Contracts.Vault
 
 namespace ProofForge.Tests.LearnSource
 
@@ -82,105 +82,105 @@ def main : IO UInt32 := do
   requireSameModule "ValueVault" valueVault.module ProofForge.Contract.Examples.ValueVault.module
   requireValueVaultSolanaRender valueVault
   let solanaVault ← parseSpec "Examples/Backend/Learn/SolanaVault.learn"
-  requireSameModule "SolanaVault" solanaVault.module ProofForge.Solana.Examples.Vault.module
+  requireSameModule "SolanaVault" solanaVault.module Examples.Backend.Solana.Contracts.Vault.module
   let learnManifest ← packageFile "learn-solana-vault" "manifest.toml" solanaVault
-  let sourceManifest ← packageFile "source-solana-vault" "manifest.toml" ProofForge.Solana.Examples.Vault.spec
+  let sourceManifest ← packageFile "source-solana-vault" "manifest.toml" Examples.Backend.Solana.Contracts.Vault.spec
   requireSameText "SolanaVault Learn manifest" learnManifest sourceManifest
   let systemCpi ← parseSpec "Examples/Backend/Learn/SystemCpi.learn"
-  requireSameModule "SystemCpi" systemCpi.module ProofForge.Solana.Examples.SystemCpi.module
+  requireSameModule "SystemCpi" systemCpi.module Examples.Backend.Solana.Contracts.SystemCpi.module
   let learnSystemManifest ← packageFile "learn-system-cpi" "manifest.toml" systemCpi
   let sourceSystemManifest ← packageFile "source-system-cpi" "manifest.toml"
-    ProofForge.Solana.Examples.SystemCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCpi.spec
   requireSameText "SystemCpi Learn manifest" learnSystemManifest sourceSystemManifest
   let systemCreateAccount ← parseSpec "Examples/Backend/Learn/SystemCreateAccountCpi.learn"
   requireSameModule "SystemCreateAccountCpi" systemCreateAccount.module
-    ProofForge.Solana.Examples.SystemCreateAccountCpi.module
+    Examples.Backend.Solana.Contracts.SystemCreateAccountCpi.module
   let learnCreateAccountManifest ← packageFile "learn-system-create-account-cpi" "manifest.toml"
     systemCreateAccount
   let sourceCreateAccountManifest ← packageFile "source-system-create-account-cpi" "manifest.toml"
-    ProofForge.Solana.Examples.SystemCreateAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCreateAccountCpi.spec
   requireSameText "SystemCreateAccountCpi Learn manifest"
     learnCreateAccountManifest sourceCreateAccountManifest
   let splTokenOps ← parseSpec "Examples/Backend/Learn/SplTokenOpsCpi.learn"
   requireSameModule "SplTokenOpsCpi" splTokenOps.module
-    ProofForge.Solana.Examples.SplTokenOpsCpi.module
+    Examples.Backend.Solana.Contracts.SplTokenOpsCpi.module
   let learnTokenOpsManifest ← packageFile "learn-spl-token-ops-cpi" "manifest.toml" splTokenOps
   let sourceTokenOpsManifest ← packageFile "source-spl-token-ops-cpi" "manifest.toml"
-    ProofForge.Solana.Examples.SplTokenOpsCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenOpsCpi.spec
   requireSameText "SplTokenOpsCpi Learn manifest" learnTokenOpsManifest sourceTokenOpsManifest
   let splTokenCloseAccount ← parseSpec "Examples/Backend/Learn/SplTokenCloseAccountCpi.learn"
   requireSameModule "SplTokenCloseAccountCpi" splTokenCloseAccount.module
-    ProofForge.Solana.Examples.SplTokenCloseAccountCpi.module
+    Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.module
   let learnTokenCloseManifest ← packageFile "learn-spl-token-close-account-cpi" "manifest.toml"
     splTokenCloseAccount
   let sourceTokenCloseManifest ← packageFile "source-spl-token-close-account-cpi" "manifest.toml"
-    ProofForge.Solana.Examples.SplTokenCloseAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.spec
   requireSameText "SplTokenCloseAccountCpi Learn manifest"
     learnTokenCloseManifest sourceTokenCloseManifest
   let logEvent ← parseSpec "Examples/Backend/Learn/LogEvent.learn"
-  requireSameModule "LogEvent" logEvent.module ProofForge.Solana.Examples.LogEvent.module
+  requireSameModule "LogEvent" logEvent.module Examples.Backend.Solana.Contracts.LogEvent.module
   let learnLogEventManifest ← packageFile "learn-log-event" "manifest.toml" logEvent
   let sourceLogEventManifest ← packageFile "source-log-event" "manifest.toml"
-    ProofForge.Solana.Examples.LogEvent.spec
+    Examples.Backend.Solana.Contracts.LogEvent.spec
   requireSameText "LogEvent Learn manifest" learnLogEventManifest sourceLogEventManifest
   let returnDataCompute ← parseSpec "Examples/Backend/Learn/ReturnDataCompute.learn"
   requireSameModule "ReturnDataCompute" returnDataCompute.module
-    ProofForge.Solana.Examples.ReturnDataCompute.module
+    Examples.Backend.Solana.Contracts.ReturnDataCompute.module
   let learnReturnDataComputeManifest ← packageFile "learn-return-data-compute" "manifest.toml"
     returnDataCompute
   let sourceReturnDataComputeManifest ← packageFile "source-return-data-compute" "manifest.toml"
-    ProofForge.Solana.Examples.ReturnDataCompute.spec
+    Examples.Backend.Solana.Contracts.ReturnDataCompute.spec
   requireSameText "ReturnDataCompute Learn manifest" learnReturnDataComputeManifest
     sourceReturnDataComputeManifest
   let memory ← parseSpec "Examples/Backend/Learn/Memory.learn"
-  requireSameModule "Memory" memory.module ProofForge.Solana.Examples.Memory.module
+  requireSameModule "Memory" memory.module Examples.Backend.Solana.Contracts.Memory.module
   let learnMemoryManifest ← packageFile "learn-memory" "manifest.toml" memory
   let sourceMemoryManifest ← packageFile "source-memory" "manifest.toml"
-    ProofForge.Solana.Examples.Memory.spec
+    Examples.Backend.Solana.Contracts.Memory.spec
   requireSameText "Memory Learn manifest" learnMemoryManifest sourceMemoryManifest
   let crypto ← parseSpec "Examples/Backend/Learn/Crypto.learn"
-  requireSameModule "Crypto" crypto.module ProofForge.Solana.Examples.Crypto.module
+  requireSameModule "Crypto" crypto.module Examples.Backend.Solana.Contracts.Crypto.module
   let learnCryptoManifest ← packageFile "learn-crypto" "manifest.toml" crypto
   let sourceCryptoManifest ← packageFile "source-crypto" "manifest.toml"
-    ProofForge.Solana.Examples.Crypto.spec
+    Examples.Backend.Solana.Contracts.Crypto.spec
   requireSameText "Crypto Learn manifest" learnCryptoManifest sourceCryptoManifest
   let clock ← parseSpec "Examples/Backend/Learn/Clock.learn"
-  requireSameModule "Clock" clock.module ProofForge.Solana.Examples.Clock.module
+  requireSameModule "Clock" clock.module Examples.Backend.Solana.Contracts.Clock.module
   let learnClockManifest ← packageFile "learn-clock" "manifest.toml" clock
   let sourceClockManifest ← packageFile "source-clock" "manifest.toml"
-    ProofForge.Solana.Examples.Clock.spec
+    Examples.Backend.Solana.Contracts.Clock.spec
   requireSameText "Clock Learn manifest" learnClockManifest sourceClockManifest
   let rent ← parseSpec "Examples/Backend/Learn/Rent.learn"
-  requireSameModule "Rent" rent.module ProofForge.Solana.Examples.Rent.module
+  requireSameModule "Rent" rent.module Examples.Backend.Solana.Contracts.Rent.module
   let learnRentManifest ← packageFile "learn-rent" "manifest.toml" rent
   let sourceRentManifest ← packageFile "source-rent" "manifest.toml"
-    ProofForge.Solana.Examples.Rent.spec
+    Examples.Backend.Solana.Contracts.Rent.spec
   requireSameText "Rent Learn manifest" learnRentManifest sourceRentManifest
   let epochSchedule ← parseSpec "Examples/Backend/Learn/EpochSchedule.learn"
   requireSameModule "EpochSchedule" epochSchedule.module
-    ProofForge.Solana.Examples.EpochSchedule.module
+    Examples.Backend.Solana.Contracts.EpochSchedule.module
   let learnEpochScheduleManifest ← packageFile "learn-epoch-schedule" "manifest.toml"
     epochSchedule
   let sourceEpochScheduleManifest ← packageFile "source-epoch-schedule" "manifest.toml"
-    ProofForge.Solana.Examples.EpochSchedule.spec
+    Examples.Backend.Solana.Contracts.EpochSchedule.spec
   requireSameText "EpochSchedule Learn manifest" learnEpochScheduleManifest
     sourceEpochScheduleManifest
   let epochRewards ← parseSpec "Examples/Backend/Learn/EpochRewards.learn"
   requireSameModule "EpochRewards" epochRewards.module
-    ProofForge.Solana.Examples.EpochRewards.module
+    Examples.Backend.Solana.Contracts.EpochRewards.module
   let learnEpochRewardsManifest ← packageFile "learn-epoch-rewards" "manifest.toml"
     epochRewards
   let sourceEpochRewardsManifest ← packageFile "source-epoch-rewards" "manifest.toml"
-    ProofForge.Solana.Examples.EpochRewards.spec
+    Examples.Backend.Solana.Contracts.EpochRewards.spec
   requireSameText "EpochRewards Learn manifest" learnEpochRewardsManifest
     sourceEpochRewardsManifest
   let lastRestartSlot ← parseSpec "Examples/Backend/Learn/LastRestartSlot.learn"
   requireSameModule "LastRestartSlot" lastRestartSlot.module
-    ProofForge.Solana.Examples.LastRestartSlot.module
+    Examples.Backend.Solana.Contracts.LastRestartSlot.module
   let learnLastRestartSlotManifest ← packageFile "learn-last-restart-slot" "manifest.toml"
     lastRestartSlot
   let sourceLastRestartSlotManifest ← packageFile "source-last-restart-slot" "manifest.toml"
-    ProofForge.Solana.Examples.LastRestartSlot.spec
+    Examples.Backend.Solana.Contracts.LastRestartSlot.spec
   requireSameText "LastRestartSlot Learn manifest" learnLastRestartSlotManifest
     sourceLastRestartSlotManifest
   IO.println "learn-source: ok"

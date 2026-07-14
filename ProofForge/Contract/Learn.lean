@@ -1,7 +1,7 @@
 import ProofForge.Contract.Builder
 import ProofForge.Contract.Spec
 import ProofForge.IR.Contract
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Legacy
 import ProofForge.Contract.Learn.Parser
 
 namespace ProofForge.Contract.Learn
@@ -18,8 +18,8 @@ private structure LowerEnv where
 
 private structure SolanaAccountRef where
   name : String
-  access : ProofForge.Solana.AccountAccess := .readOnly
-  signerPolicy : ProofForge.Solana.SignerPolicy := .none
+  access : ProofForge.Contract.Source.Solana.Legacy.AccountAccess := .readOnly
+  signerPolicy : ProofForge.Contract.Source.Solana.Legacy.SignerPolicy := .none
   owner : String := "any"
   deriving Repr
 
@@ -385,8 +385,8 @@ private def lowerExpr (env : LowerEnv) : Expr → Except String ProofForge.IR.Ex
       | .div => .ok (.div lhs rhs)
 
 private def lowerSolanaSeed : SolanaSeed → String
-  | .literal value => ProofForge.Solana.literalSeed value
-  | .account name => ProofForge.Solana.accountSeed name
+  | .literal value => ProofForge.Contract.Source.Solana.Legacy.literalSeed value
+  | .account name => ProofForge.Contract.Source.Solana.Legacy.accountSeed name
 
 private def lowerSolanaSeeds (seeds : Array SolanaSeed) : Array String :=
   seeds.map lowerSolanaSeed
@@ -402,33 +402,33 @@ private def lowerSolanaItem (item : SolanaItem) :
     Except String (ProofForge.Contract.Builder.ModuleM Unit) := do
   match item with
   | .allocatorBump =>
-      pure ProofForge.Solana.bumpAllocator
+      pure ProofForge.Contract.Source.Solana.Legacy.bumpAllocator
   | .account name access signerPolicy owner =>
-      pure (ProofForge.Solana.accountConstraint name access signerPolicy owner)
+      pure (ProofForge.Contract.Source.Solana.Legacy.accountConstraint name access signerPolicy owner)
   | .pda name seeds bump account isSigner =>
-      pure (ProofForge.Solana.pdaAccount name (lowerSolanaSeeds seeds)
+      pure (ProofForge.Contract.Source.Solana.Legacy.pdaAccount name (lowerSolanaSeeds seeds)
         (bump? := some bump) (account? := some account) (isSigner := isSigner))
   | .systemTransfer name fromAccount toAccount lamportsSource =>
-      pure (ProofForge.Solana.systemTransfer name fromAccount toAccount lamportsSource)
+      pure (ProofForge.Contract.Source.Solana.Legacy.systemTransfer name fromAccount toAccount lamportsSource)
   | .systemCreateAccount name payer newAccount lamportsSource spaceSource owner =>
-      pure (ProofForge.Solana.systemCreateAccount name payer newAccount lamportsSource spaceSource owner)
+      pure (ProofForge.Contract.Source.Solana.Legacy.systemCreateAccount name payer newAccount lamportsSource spaceSource owner)
   | .splTokenTransferChecked name source mint destination authority amountSource decimals signerSeeds =>
-      pure (ProofForge.Solana.splTokenTransferChecked name source mint destination authority amountSource
+      pure (ProofForge.Contract.Source.Solana.Legacy.splTokenTransferChecked name source mint destination authority amountSource
         decimals (signerSeeds := lowerSolanaSignerSeeds signerSeeds))
   | .splTokenMintTo name mint destination authority amountSource signerSeeds =>
-      pure (ProofForge.Solana.splTokenMintTo name mint destination authority amountSource
+      pure (ProofForge.Contract.Source.Solana.Legacy.splTokenMintTo name mint destination authority amountSource
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds))
   | .splTokenBurn name source mint authority amountSource signerSeeds =>
-      pure (ProofForge.Solana.splTokenBurn name source mint authority amountSource
+      pure (ProofForge.Contract.Source.Solana.Legacy.splTokenBurn name source mint authority amountSource
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds))
   | .splTokenApprove name source delegate owner amountSource signerSeeds =>
-      pure (ProofForge.Solana.splTokenApprove name source delegate owner amountSource
+      pure (ProofForge.Contract.Source.Solana.Legacy.splTokenApprove name source delegate owner amountSource
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds))
   | .splTokenRevoke name source owner signerSeeds =>
-      pure (ProofForge.Solana.splTokenRevoke name source owner
+      pure (ProofForge.Contract.Source.Solana.Legacy.splTokenRevoke name source owner
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds))
   | .splTokenCloseAccount name account destination authority signerSeeds =>
-      pure (ProofForge.Solana.splTokenCloseAccount name account destination authority
+      pure (ProofForge.Contract.Source.Solana.Legacy.splTokenCloseAccount name account destination authority
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds))
 
 private def lowerStmtAction (refs : SolanaRefs) (stateNames : Array String)
@@ -461,82 +461,82 @@ private def lowerStmtAction (refs : SolanaRefs) (stateNames : Array String)
         (ProofForge.Contract.Builder.eventEmit eventName lowered)
       .ok (action *> stmtAction, env)
   | .solanaDerivePda name seeds bump account isSigner =>
-      let stmtAction := ProofForge.Solana.derivePda name (lowerSolanaSeeds seeds)
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.derivePda name (lowerSolanaSeeds seeds)
         (bump? := some bump) (account? := some account) (isSigner := isSigner)
       .ok (action *> stmtAction, env)
   | .solanaInvokeSystemTransfer name fromAccount toAccount lamportsSource =>
-      let stmtAction := ProofForge.Solana.invokeSystemTransfer name fromAccount toAccount lamportsSource
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.invokeSystemTransfer name fromAccount toAccount lamportsSource
       .ok (action *> stmtAction, env)
   | .solanaInvokeSystemCreateAccount name payer newAccount lamportsSource spaceSource owner =>
-      let stmtAction := ProofForge.Solana.invokeSystemCreateAccount name payer newAccount
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.invokeSystemCreateAccount name payer newAccount
         lamportsSource spaceSource owner
       .ok (action *> stmtAction, env)
   | .solanaInvokeSplTokenTransferChecked name source mint destination authority amountSource decimals signerSeeds =>
-      let stmtAction := ProofForge.Solana.invokeSplTokenTransferChecked name source mint destination authority
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.invokeSplTokenTransferChecked name source mint destination authority
         amountSource decimals (signerSeeds := lowerSolanaSignerSeeds signerSeeds)
       .ok (action *> stmtAction, env)
   | .solanaInvokeSplTokenMintTo name mint destination authority amountSource signerSeeds =>
-      let stmtAction := ProofForge.Solana.invokeSplTokenMintTo name mint destination authority amountSource
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.invokeSplTokenMintTo name mint destination authority amountSource
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds)
       .ok (action *> stmtAction, env)
   | .solanaInvokeSplTokenBurn name source mint authority amountSource signerSeeds =>
-      let stmtAction := ProofForge.Solana.invokeSplTokenBurn name source mint authority amountSource
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.invokeSplTokenBurn name source mint authority amountSource
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds)
       .ok (action *> stmtAction, env)
   | .solanaInvokeSplTokenApprove name source delegate owner amountSource signerSeeds =>
-      let stmtAction := ProofForge.Solana.invokeSplTokenApprove name source delegate owner amountSource
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.invokeSplTokenApprove name source delegate owner amountSource
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds)
       .ok (action *> stmtAction, env)
   | .solanaInvokeSplTokenRevoke name source owner signerSeeds =>
-      let stmtAction := ProofForge.Solana.invokeSplTokenRevoke name source owner
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.invokeSplTokenRevoke name source owner
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds)
       .ok (action *> stmtAction, env)
   | .solanaInvokeSplTokenCloseAccount name account destination authority signerSeeds =>
-      let stmtAction := ProofForge.Solana.invokeSplTokenCloseAccount name account destination authority
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.invokeSplTokenCloseAccount name account destination authority
         (signerSeeds := lowerSolanaSignerSeeds signerSeeds)
       .ok (action *> stmtAction, env)
   | .solanaSetReturnData name sourceState bytes =>
-      let stmtAction := ProofForge.Solana.setReturnDataFromState name sourceState bytes
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.setReturnDataFromState name sourceState bytes
       .ok (action *> stmtAction, env)
   | .solanaGetReturnData name destinationState maxBytes lengthState? programIdStates =>
-      let stmtAction := ProofForge.Solana.getReturnDataToState name destinationState maxBytes
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.getReturnDataToState name destinationState maxBytes
         (lengthState? := lengthState?) (programIdStates := programIdStates)
       .ok (action *> stmtAction, env)
   | .solanaRemainingComputeUnits name outputState =>
-      let stmtAction := ProofForge.Solana.remainingComputeUnitsToState name outputState
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.remainingComputeUnitsToState name outputState
       .ok (action *> stmtAction, env)
   | .solanaLogRemainingComputeUnits name =>
-      let stmtAction := ProofForge.Solana.logRemainingComputeUnits name
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.logRemainingComputeUnits name
       .ok (action *> stmtAction, env)
   | .solanaLogAccountPubkey name account =>
-      let stmtAction := ProofForge.Solana.logAccountPubkey name account
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.logAccountPubkey name account
       .ok (action *> stmtAction, env)
   | .solanaLogStateData name sourceState bytes =>
-      let stmtAction := ProofForge.Solana.logStateData name sourceState bytes
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.logStateData name sourceState bytes
       .ok (action *> stmtAction, env)
   | .solanaMemoryMemcpy name dstState srcState bytes =>
-      let stmtAction := ProofForge.Solana.memcpyState name dstState srcState bytes
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.memcpyState name dstState srcState bytes
       .ok (action *> stmtAction, env)
   | .solanaMemoryMemmove name dstState srcState bytes =>
-      let stmtAction := ProofForge.Solana.memmoveState name dstState srcState bytes
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.memmoveState name dstState srcState bytes
       .ok (action *> stmtAction, env)
   | .solanaMemoryMemcmp name lhsState rhsState resultState bytes =>
-      let stmtAction := ProofForge.Solana.memcmpState name lhsState rhsState resultState bytes
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.memcmpState name lhsState rhsState resultState bytes
       .ok (action *> stmtAction, env)
   | .solanaMemoryMemset name dstState value bytes =>
-      let stmtAction := ProofForge.Solana.memsetState name dstState value bytes
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.memsetState name dstState value bytes
       .ok (action *> stmtAction, env)
   | .solanaCryptoHash .sha256 name inputState bytes outputStates =>
-      let stmtAction := ProofForge.Solana.sha256StateToStates name inputState bytes outputStates
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.sha256StateToStates name inputState bytes outputStates
       .ok (action *> stmtAction, env)
   | .solanaCryptoHash .keccak256 name inputState bytes outputStates =>
-      let stmtAction := ProofForge.Solana.keccak256StateToStates name inputState bytes outputStates
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.keccak256StateToStates name inputState bytes outputStates
       .ok (action *> stmtAction, env)
   | .solanaCryptoHash .blake3 name inputState bytes outputStates =>
-      let stmtAction := ProofForge.Solana.blake3StateToStates name inputState bytes outputStates
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.blake3StateToStates name inputState bytes outputStates
       .ok (action *> stmtAction, env)
   | .solanaSysvarRead kind field name outputState =>
-      let stmtAction := ProofForge.Solana.sysvarEntry {
+      let stmtAction := ProofForge.Contract.Source.Solana.Legacy.sysvarEntry {
         name := name
         kind := kind
         field := field

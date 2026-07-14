@@ -1,6 +1,6 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Contract.Builder
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Legacy
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -20,8 +20,8 @@ def contains (haystack needle : String) : Bool :=
 def ownerSpec : ProofForge.Contract.ContractSpec :=
   ProofForge.Contract.Builder.build "SolanaOwnerConstraints" do
     ProofForge.Contract.Builder.scalarState "counter" .u64
-    ProofForge.Solana.readonlyAccountConstraint "token_program" (owner := "executable")
-    ProofForge.Solana.writableAccountConstraint "token_account" (owner := "token_program")
+    ProofForge.Contract.Source.Solana.Legacy.readonlyAccountConstraint "token_program" (owner := "executable")
+    ProofForge.Contract.Source.Solana.Legacy.writableAccountConstraint "token_account" (owner := "token_program")
     ProofForge.Contract.Builder.entry "touch" do
       ProofForge.Contract.Builder.effect
         (ProofForge.Contract.Builder.storageScalarAssignOp "counter"
@@ -31,7 +31,7 @@ def ownerSpec : ProofForge.Contract.ContractSpec :=
 def missingOwnerSpec : ProofForge.Contract.ContractSpec :=
   ProofForge.Contract.Builder.build "SolanaMissingOwnerConstraint" do
     ProofForge.Contract.Builder.scalarState "counter" .u64
-    ProofForge.Solana.writableAccountConstraint "token_account" (owner := "missing_program")
+    ProofForge.Contract.Source.Solana.Legacy.writableAccountConstraint "token_account" (owner := "missing_program")
     ProofForge.Contract.Builder.entry "touch" do
       ProofForge.Contract.Builder.effect
         (ProofForge.Contract.Builder.storageScalarAssignOp "counter"

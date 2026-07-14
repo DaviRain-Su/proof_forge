@@ -1,7 +1,7 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Contract.Builder
-import ProofForge.Solana
-import ProofForge.Solana.Examples.AccountRealloc
+import ProofForge.Contract.Source.Solana.Legacy
+import Examples.Backend.Solana.Contracts.AccountRealloc
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -48,7 +48,7 @@ def builderSpec : ProofForge.Contract.ContractSpec :=
   ProofForge.Contract.Builder.build "SolanaAccountReallocBuilder" do
     ProofForge.Contract.Builder.scalarState "counter" .u64
     ProofForge.Contract.Builder.entry "grow" do
-      ProofForge.Solana.reallocAccount "grow_counter" "counter" 64
+      ProofForge.Contract.Source.Solana.Legacy.reallocAccount "grow_counter" "counter" 64
       ProofForge.Contract.Builder.effect
         (ProofForge.Contract.Builder.storageScalarWrite "counter"
           (ProofForge.Contract.Builder.u64 1))
@@ -130,7 +130,7 @@ def main : IO UInt32 := do
   checkPackage "solana-account-realloc-builder" builderSpec "grow_counter" "counter" "grow" 64
   checkPackage
     "solana-account-realloc-source"
-    ProofForge.Solana.Examples.AccountRealloc.spec
+    Examples.Backend.Solana.Contracts.AccountRealloc.spec
     "realloc_buffer"
     "buffer"
     "grow"

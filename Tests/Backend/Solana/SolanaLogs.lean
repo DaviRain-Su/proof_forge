@@ -1,6 +1,6 @@
 import ProofForge.Backend.Solana.Package
 import ProofForge.Backend.Solana.SbpfAsm
-import ProofForge.Solana.Examples.LogEvent
+import Examples.Backend.Solana.Contracts.LogEvent
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -51,7 +51,7 @@ def requireMetadata (call : CapabilityCall) (key expected : String) : IO Unit :=
     s!"metadata `{key}` mismatch for operation `{call.operation}`"
 
 def main : IO UInt32 := do
-  let spec := ProofForge.Solana.Examples.LogEvent.spec
+  let spec := Examples.Backend.Solana.Contracts.LogEvent.spec
   let plan ←
     match resolveSpec solanaSbpfAsm spec with
     | .ok plan => pure plan

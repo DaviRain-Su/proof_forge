@@ -37,7 +37,7 @@ Authors usually want (1) always, (2) when integrating ecosystem programs, and
 | Layer | Code lives (today) | Author intent |
 |-------|--------------------|---------------|
 | **A Host** | `Capability`, **`HostRuntime`** (opcode/syscall/import map), `HostBridge`, backends | “Use chain primitives” |
-| **B Protocols** | `ProofForge/Protocols/*` (+ legacy `ProofForge/Solana/Programs`) | “Call existing program/contract” |
+| **B Protocols** | `ProofForge/Protocols/*` (+ legacy `ProofForge/Contract/Source/Solana/Legacy/Programs`) | “Call existing program/contract” |
 | **C Stdlib** | `ProofForge/Contract/Stdlib/*` (ERC20 · ERC721 · **ERC4626** · Ownable · …) | “I am the implementation” |
 
 **TokenSpec** sits *above* B and C: `--target` picks whether the platform
@@ -54,7 +54,7 @@ Portable surface → capability → materialize:
 | Context | caller / block / value | CALLER, … | tx accounts | signer / deposit |
 | Peer remote | `declareRemote` + `remoteCallRef` | CALL | portable CPI | `promise_create` |
 | External FT peer | Product `external_token` / `externalTokenTransfer` | IERC20 selector | portable CPI smoke | NEP-141 JsonEncode |
-| Protocol CPI (Solana) | Solana Surface CPI builders | — | `sol_invoke_signed_c` + dataLayout | — |
+| Protocol CPI (Solana) | `Contract.Source.Solana` CPI builders | — | `sol_invoke_signed_c` + dataLayout | — |
 
 Gates: `Target.Capability`, preflight L0–L1, backend honesty rejects.  
 **Native symbol inventory:** `ProofForge.Target.HostRuntime` + [host-runtime.md](host-runtime.md).  
@@ -70,7 +70,7 @@ No business state machine inside the client.
 
 #### Solana — official / ecosystem programs
 
-Canonical packing: `ProofForge/Solana/Programs.lean` +
+Canonical packing: `ProofForge/Contract/Source/Solana/Legacy/Programs.lean` +
 `ProofForge/Backend/Solana/Extension/Cpi.lean`  
 Facade: `ProofForge.Protocols.Solana`
 

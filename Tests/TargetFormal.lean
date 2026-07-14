@@ -1,7 +1,7 @@
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Intent
 import ProofForge.Contract.Spec
-import ProofForge.Solana.Examples.Vault
+import Examples.Backend.Solana.Contracts.Vault
 import ProofForge.Target.Formal
 import ProofForge.Target.FormalBoundary
 import ProofForge.IR.Contract
@@ -71,11 +71,11 @@ def checkUnsupportedCapability : IO Unit := do
         s!"NEAR PDA reject must name HostRuntime, got: {err.render}"
 
 def checkSolanaExtensionIsolation : IO Unit := do
-  requireError (resolveSpec evm ProofForge.Solana.Examples.Vault.spec)
+  requireError (resolveSpec evm Examples.Backend.Solana.Contracts.Vault.spec)
     "target `evm` cannot use Solana target extension metadata on operation `solana.runtime.allocator`"
     "Solana target-extension metadata must be rejected on EVM"
   let solanaPlan ← requireOk
-    (resolveSpec solanaSbpfAsm ProofForge.Solana.Examples.Vault.spec)
+    (resolveSpec solanaSbpfAsm Examples.Backend.Solana.Contracts.Vault.spec)
     "Solana Vault routing failed"
   require (solanaPlan.checkedBy solanaSbpfAsm)
     "Solana Vault plan failed FV-1 checkedBy predicate"

@@ -1,5 +1,5 @@
 import ProofForge.IR.Contract
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Legacy
 
 namespace ProofForge.Contract.Learn
 
@@ -45,8 +45,8 @@ inductive SolanaSignerSeed where
 
 inductive SolanaItem where
   | allocatorBump
-  | account (name : String) (access : ProofForge.Solana.AccountAccess)
-      (signerPolicy : ProofForge.Solana.SignerPolicy) (owner : String)
+  | account (name : String) (access : ProofForge.Contract.Source.Solana.Legacy.AccountAccess)
+      (signerPolicy : ProofForge.Contract.Source.Solana.Legacy.SignerPolicy) (owner : String)
   | pda (name : String) (seeds : Array SolanaSeed) (bump account : String) (isSigner : Bool)
   | systemTransfer (name fromAccount toAccount lamportsSource : String)
   | systemCreateAccount (name payer newAccount lamportsSource spaceSource owner : String)
@@ -95,10 +95,10 @@ inductive Stmt where
   | solanaMemoryMemmove (name dstState srcState : String) (bytes : Nat)
   | solanaMemoryMemcmp (name lhsState rhsState resultState : String) (bytes : Nat)
   | solanaMemoryMemset (name dstState : String) (value bytes : Nat)
-  | solanaCryptoHash (op : ProofForge.Solana.CryptoHashOp) (name inputState : String)
+  | solanaCryptoHash (op : ProofForge.Contract.Source.Solana.Legacy.CryptoHashOp) (name inputState : String)
       (bytes : Nat) (outputStates : Array String)
-  | solanaSysvarRead (kind : ProofForge.Solana.SysvarKind)
-      (field : ProofForge.Solana.SysvarField) (name outputState : String)
+  | solanaSysvarRead (kind : ProofForge.Contract.Source.Solana.Legacy.SysvarKind)
+      (field : ProofForge.Contract.Source.Solana.Legacy.SysvarField) (name outputState : String)
   | return (value : Expr)
   deriving Repr
 
@@ -331,7 +331,7 @@ private def expectArgs (name : String) (args : Array String) (size : Nat) : Pars
   else
     failAt s!"{name} expects {size} arguments, got {args.size}"
 
-private def parseAccountAccess : ParserM ProofForge.Solana.AccountAccess := do
+private def parseAccountAccess : ParserM ProofForge.Contract.Source.Solana.Legacy.AccountAccess := do
   let access ← expectIdent
   match access with
   | "readonly" => pure .readOnly
@@ -400,9 +400,9 @@ private partial def parsePdaTail : ParserM (Array SolanaSeed × String × String
   pure (seeds, bump, account, isSigner)
 
 private partial def parseAccountTail :
-    ParserM (ProofForge.Solana.AccountAccess × ProofForge.Solana.SignerPolicy × String) := do
+    ParserM (ProofForge.Contract.Source.Solana.Legacy.AccountAccess × ProofForge.Contract.Source.Solana.Legacy.SignerPolicy × String) := do
   let access ← parseAccountAccess
-  let mut signerPolicy : ProofForge.Solana.SignerPolicy := .none
+  let mut signerPolicy : ProofForge.Contract.Source.Solana.Legacy.SignerPolicy := .none
   let mut owner := "any"
   let mut done := false
   repeat
@@ -506,7 +506,7 @@ private partial def parseMemoryStmt : ParserM Stmt := do
       pure (.solanaMemoryMemset name args[0]! value bytes)
   | other => failAt s!"unsupported Solana memory op `{other}`"
 
-private def parseCryptoHashOp (op : String) : ParserM ProofForge.Solana.CryptoHashOp := do
+private def parseCryptoHashOp (op : String) : ParserM ProofForge.Contract.Source.Solana.Legacy.CryptoHashOp := do
   match op with
   | "sha256" => pure .sha256
   | "keccak256" => pure .keccak256
@@ -524,7 +524,7 @@ private partial def parseCryptoStmt : ParserM Stmt := do
   let outputStates ← parseIdentList
   pure (.solanaCryptoHash op name args[0]! bytes outputStates)
 
-private def parseSysvarKind (value : String) : ParserM ProofForge.Solana.SysvarKind := do
+private def parseSysvarKind (value : String) : ParserM ProofForge.Contract.Source.Solana.Legacy.SysvarKind := do
   match value with
   | "rent" => pure .rent
   | "epoch_schedule" => pure .epochSchedule
@@ -532,7 +532,7 @@ private def parseSysvarKind (value : String) : ParserM ProofForge.Solana.SysvarK
   | "last_restart_slot" => pure .lastRestartSlot
   | other => failAt s!"unsupported Solana sysvar kind `{other}`"
 
-private def parseSysvarField (value : String) : ParserM ProofForge.Solana.SysvarField := do
+private def parseSysvarField (value : String) : ParserM ProofForge.Contract.Source.Solana.Legacy.SysvarField := do
   match value with
   | "lamports_per_byte_year" => pure .rentLamportsPerByteYear
   | "slots_per_epoch" => pure .epochScheduleSlotsPerEpoch

@@ -1,4 +1,4 @@
-import ProofForge.Psy
+import ProofForge.Runtime.Psy
 
 open Lean.Psy
 

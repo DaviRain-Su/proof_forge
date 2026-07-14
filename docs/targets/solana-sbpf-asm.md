@@ -443,7 +443,8 @@ Storage layout is deterministic and computed at codegen time:
 
 CPI and PDA derivation are Solana‑only concepts (D-027). They do **not** enter
 the portable IR. Instead, Solana-specific SDK calls are routed through
-`ProofForge.Solana` into target capability calls, gated by the existing
+`ProofForge.Contract.Source.Solana` into target capability calls. Its temporary
+compiler implementation is isolated under `Source.Solana.Legacy` and gated by the existing
 `crosscall.cpi` and `storage.pda` capability IDs in `Target/Capability.lean`:
 
 ```lean

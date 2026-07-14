@@ -2,7 +2,7 @@ import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.Package
 import ProofForge.Backend.Solana.Idl
 import ProofForge.IR.Examples.ErrorRefProbe
-import ProofForge.Solana.Examples.Vault
+import Examples.Backend.Solana.Contracts.Vault
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -20,7 +20,7 @@ def contains (haystack needle : String) : Bool :=
   haystack.contains needle
 
 def main : IO UInt32 := do
-  let spec := ProofForge.Solana.Examples.Vault.spec
+  let spec := Examples.Backend.Solana.Contracts.Vault.spec
   let plan ←
     match resolveSpec solanaSbpfAsm spec with
     | .ok plan => pure plan

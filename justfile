@@ -394,7 +394,7 @@ preflight-l2:
 leo-printer-fail-closed:
     lake env lean --run Tests/LeoPrinterFailClosed.lean
 
-# PF-P1-05: contract_source DSL arity + version surface + Solana Surface isolation.
+# PF-P1-05: contract_source DSL arity + internal Solana implementation isolation.
 source-dsl-arity:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -402,11 +402,10 @@ source-dsl-arity:
     python3 - <<'PY'
     from pathlib import Path
     src = Path("ProofForge/Contract/Source.lean").read_text()
-    assert "import ProofForge.Solana.Surface" not in src
-    assert "import ProofForge.Solana\n" not in src and "import ProofForge.Solana\r" not in src
-    assert "Solana.Surface" not in src
+    assert "Source.Solana.Internal" not in src
+    assert "import ProofForge.Contract.Source.Solana.Legacy\n" not in src and "import ProofForge.Contract.Source.Solana.Legacy\r" not in src
     sol = Path("ProofForge/Contract/Source/Solana.lean").read_text()
-    assert "import ProofForge.Solana.Surface" in sol
+    assert "import ProofForge.Contract.Source.Solana.Internal" in sol
     assert "trySolanaEntryStmt" in sol
     print("source-dsl isolation: ok")
     PY
@@ -838,7 +837,7 @@ solana-lean:
     lake build
     lake build ProofForge.Contract.Token
     lake build ProofForge.Contract.Examples.Counter
-    lake build ProofForge.Solana.Examples
+    lake build Examples.Backend.Solana.Contracts
     lake env lean --run Tests/Backend/Solana/SolanaDiagnostics.lean
     lake env lean --run Tests/Backend/Solana/SolanaSdk.lean
     lake env lean --run Tests/Backend/Solana/SolanaSdkManifest.lean
@@ -1689,7 +1688,7 @@ examples-topology:
 
 # A1: portable rejection plus Source.Solana positive elaboration/IR intent pins.
 source-dsl-isolation:
-    lake build ProofForge.Solana.Examples.AccountRealloc ProofForge.Solana.Examples.SystemCpi ProofForge.Solana.Examples.Vault
+    lake build Examples.Backend.Solana.Contracts.AccountRealloc Examples.Backend.Solana.Contracts.SystemCpi Examples.Backend.Solana.Contracts.Vault
     lake env lean --run Tests/SourceDslIsolation.lean
     lake env lean --run Tests/SourceDslSolanaAcceptance.lean
 
@@ -1703,7 +1702,7 @@ portable-default:
 
 # Phase B.2: portable IR → Solana accounts without Source.Solana authoring.
 solana-auto-materialize:
-    lake build ProofForge.Backend.Solana.Materialize Examples.Product.Counter Examples.Product.ValueVault ProofForge.Solana.Examples.Vault
+    lake build ProofForge.Backend.Solana.Materialize Examples.Product.Counter Examples.Product.ValueVault Examples.Backend.Solana.Contracts.Vault
     lake env lean --run Tests/Product/SolanaMaterialize.lean
 
 # All implemented registry targets: materialization + crosscall map for Shared Counter.

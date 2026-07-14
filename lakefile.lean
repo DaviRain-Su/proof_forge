@@ -17,7 +17,7 @@ lean_lib ProofForge where
   roots := #[
     `Examples,
     `ProofForge,
-    `ProofForge.Psy,
+    `ProofForge.Runtime.Psy,
     `ProofForge.Target,
     `ProofForge.IR,
     `ProofForge.Contract,

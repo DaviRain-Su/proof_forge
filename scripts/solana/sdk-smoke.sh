@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test for the Solana SDK target-extension path.
 #
-# This gate validates that a contract written with `ProofForge.Solana` SDK
+# This gate validates the legacy Solana builder fixture behind `Source.Solana`
 # helpers emits:
 #   - sBPF assembly
 #   - manifest.toml with PDA/CPI extension metadata

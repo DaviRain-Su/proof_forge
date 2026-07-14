@@ -22,7 +22,7 @@ import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.IR.Examples.ControlFlowAssertProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ErrorRefProbe
-import ProofForge.Solana.Examples.Vault
+import Examples.Backend.Solana.Contracts.Vault
 import ProofForge.Target
 import ProofForge.Target.Preflight
 
@@ -283,7 +283,7 @@ def compileControlIrSbpf (opts : CliOptions) : IO UInt32 := do
 
 def compileSolanaSdkSbpf (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/solana/SolanaVault.s")
-  let spec := ProofForge.Solana.Examples.Vault.spec
+  let spec := Examples.Backend.Solana.Contracts.Vault.spec
   let plan ←
     match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => pure plan

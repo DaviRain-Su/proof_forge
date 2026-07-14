@@ -3,7 +3,7 @@ import ProofForge.Backend.Solana.Idl
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.Package
 import ProofForge.Contract.Builder
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Legacy
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
 
@@ -50,7 +50,7 @@ def spec : ProofForge.Contract.ContractSpec :=
   ProofForge.Contract.Builder.build "SolanaComputeBudget" do
     ProofForge.Contract.Builder.scalarState "counter" .u64
     ProofForge.Contract.Builder.entry "increment" do
-      ProofForge.Solana.requestComputeBudget "fast_increment"
+      ProofForge.Contract.Source.Solana.Legacy.requestComputeBudget "fast_increment"
         (unitLimit? := some 250000)
         (unitPriceMicroLamports? := some 5000)
       ProofForge.Contract.Builder.effect

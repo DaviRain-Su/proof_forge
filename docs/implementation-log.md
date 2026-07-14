@@ -3585,3 +3585,23 @@ Rules:
   negative smokes, Canonical Legacy parity/refinement checks,
   `scripts/canonical/check-legacy-freeze.sh`, both canonical boundary gates,
   and `lake build ProofForge.IR proof-forge`.
+
+## 2026-07-14 - Module ownership: isolate Solana SDK compatibility and Psy runtime
+
+- Status: `done (verified 2026-07-14)`.
+- Removed the ambiguous top-level `ProofForge/Solana*` ownership. The public
+  authoring entry remains `ProofForge.Contract.Source.Solana`; the old
+  `Contract.Builder` implementation is explicitly quarantined under
+  `ProofForge.Contract.Source.Solana.Legacy` until the Solana canonical cutover.
+- Moved target-specific Solana contracts to
+  `Examples/Backend/Solana/Contracts` and updated CLI, tests, Learn parity, and
+  gate references to their fixture-owned namespace.
+- Moved the `Lean.Psy` extern SDK from `ProofForge.Psy` to
+  `ProofForge.Runtime.Psy`, reflecting that it is target runtime glue rather
+  than portable contract authoring or compiler backend code.
+- Recorded why the optional EVM/Solana refinement libraries must remain outside
+  the default `ProofForge` Lake library; their unified `ProofForgeFormal`
+  namespace is the next structural slice.
+- Verification: targeted Lake build of Psy runtime, public Solana Source,
+  quarantined builder, protocol facade, and all Solana backend contract
+  fixtures; canonical boundary and topology gates.

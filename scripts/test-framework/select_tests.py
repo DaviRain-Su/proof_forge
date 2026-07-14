@@ -14,7 +14,8 @@ SHARED_PREFIXES = (
 )
 EVM_PREFIXES = ("ProofForge/Backend/Evm/", "scripts/evm/", "Tests/Backend/Evm/")
 SOLANA_PREFIXES = (
-    "ProofForge/Backend/Solana/", "ProofForge/Solana/", "scripts/solana/",
+    "ProofForge/Backend/Solana/", "ProofForge/Contract/Source/Solana/",
+    "Examples/Backend/Solana/", "scripts/solana/",
     "Tests/Backend/Solana/",
 )
 WASM_PREFIXES = (

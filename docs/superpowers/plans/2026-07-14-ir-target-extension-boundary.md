@@ -153,7 +153,8 @@ Progress (2026-07-14):
 
 1. Verify that PDA derivation, CPI account metas/signer seeds, sysvars,
    account ownership, realloc, and instruction packing are owned by
-   `Source.Solana`, `ProofForge.Solana`, or the Solana backend.
+   `Source.Solana`, its compiler-owned `Source.Solana.Legacy` compatibility
+   layer, or the Solana backend.
 2. Replace any remaining shared constructors or records that encode Solana
    account layout with typed extension requests and target plan data.
 3. Keep portable invocation, authorization, storage, and resource-budget

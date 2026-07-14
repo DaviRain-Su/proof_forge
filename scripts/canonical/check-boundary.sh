@@ -120,6 +120,11 @@ SPIKE_FILES=(
   ProofForge/IR/Legacy/Refinement.lean
   ProofForge/IR/Elaborate.lean
   ProofForge/IR/Elaborate/Smoke.lean
+  ProofForge/Contract/Surface.lean
+  ProofForge/Solana/Surface.lean
+  ProofForge/Solana.lean
+  ProofForge/Psy.lean
+  ProofForge/Contract/Stdlib/Surface/Policies.lean
 )
 for f in "${SPIKE_FILES[@]}"; do
   if [ -f "$f" ]; then
@@ -160,6 +165,14 @@ if rg -n '^\s*import\s+ProofForge\.Frontend\.Surface(\.|\s|$)' \
 fi
 if rg -n '\bSurfaceContract\b' Examples/Product >/dev/null 2>&1; then
   report "product source constructs internal SurfaceContract"
+fi
+INTERNAL_AUTHOR_PATHS=(Examples/Product)
+if [ -d ProofForge/Contract/Stdlib ]; then
+  INTERNAL_AUTHOR_PATHS+=(ProofForge/Contract/Stdlib)
+fi
+if rg -n '^\s*import\s+ProofForge\.Contract\.Source\.(?:Internal|Solana\.Internal)(\s|$)' \
+    "${INTERNAL_AUTHOR_PATHS[@]}" >/dev/null 2>&1; then
+  report "product/stdlib source imports compiler-internal authoring implementation"
 fi
 
 if [ "$FAIL" -eq 0 ]; then

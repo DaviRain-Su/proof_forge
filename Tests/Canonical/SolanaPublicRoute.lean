@@ -15,7 +15,7 @@ import ProofForge.Cli.SolanaCommands
 import ProofForge.Cli.Options
 import ProofForge.Cli.ContractSourceArtifacts
 import ProofForge.Cli.ContractLoader
-import ProofForge.Solana.Examples.SystemCpi
+import Examples.Backend.Solana.Contracts.SystemCpi
 
 /-! # Solana Public Route Test
 
@@ -141,7 +141,7 @@ unsafe def main : IO Unit := do
   | .ok _ => throw <| IO.userError "public Solana route accepted unsupported Legacy input"
 
   /- Check 7: intent-only CPI cannot silently disappear in canonical output. -/
-  match renderCanonicalSpecSolanaAsm ProofForge.Solana.Examples.SystemCpi.spec with
+  match renderCanonicalSpecSolanaAsm Examples.Backend.Solana.Contracts.SystemCpi.spec with
   | .error error =>
       require (error.contains "intent-only Solana CPI")
         s!"CPI fail-closed diagnostic changed: {error}"

@@ -2,7 +2,7 @@
 
 This fixture is the third Rust/Pinocchio equivalence reference for the
 ProofForge Solana SDK beta line. It mirrors
-`ProofForge.Solana.Examples.SystemCreateAccountCpi`:
+`Examples.Backend.Solana.Contracts.SystemCreateAccountCpi`:
 
 - instruction `create`
 - tag byte `0`

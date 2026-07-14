@@ -183,7 +183,7 @@ and run them with the second style against the exact `dargo` version used in CI.
 
 ## SDK Surface
 
-The first Lean SDK module is `ProofForge.Psy` with namespace `Lean.Psy`.
+The first Lean SDK module is `ProofForge.Runtime.Psy` with namespace `Lean.Psy`.
 
 It provides:
 

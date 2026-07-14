@@ -88,7 +88,7 @@ source-of-truth docs and states when they must be updated.
 
 - Lean toolchain is `leanprover/lean4:v4.31.0` from `lean-toolchain`.
 - Base build gate is `lake build`.
-- Current library roots are `ProofForge`, `ProofForge.Psy`,
+- Current library roots are `ProofForge`, `ProofForge.Runtime.Psy`,
   `ProofForge.Target`, `ProofForge.IR`, `ProofForge.Backend`,
   `ProofForge.Backend.Solana.SbpfAsm`, `ProofForge.Compiler.Yul.AST`,
   `ProofForge.Compiler.Yul.Printer`, `ProofForge.Compiler.Wasm.AST`,

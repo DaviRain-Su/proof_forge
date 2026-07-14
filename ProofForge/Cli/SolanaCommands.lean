@@ -17,26 +17,26 @@ import ProofForge.Cli.Usage
 import ProofForge.Contract.Examples.ValueVault
 import ProofForge.Contract.Spec
 import ProofForge.IR.Examples.Counter
-import ProofForge.Solana.Examples.AssociatedTokenCpi
-import ProofForge.Solana.Examples.Clock
-import ProofForge.Solana.Examples.Crypto
-import ProofForge.Solana.Examples.EpochRewards
-import ProofForge.Solana.Examples.EpochSchedule
-import ProofForge.Solana.Examples.LastRestartSlot
-import ProofForge.Solana.Examples.LogEvent
-import ProofForge.Solana.Examples.MemoCpi
-import ProofForge.Solana.Examples.Memory
-import ProofForge.Solana.Examples.Rent
-import ProofForge.Solana.Examples.ReturnDataCompute
-import ProofForge.Solana.Examples.SplToken2022Cpi
-import ProofForge.Solana.Examples.SplToken2022PausableCpi
-import ProofForge.Solana.Examples.SplToken2022TransferHook
-import ProofForge.Solana.Examples.SplTokenAuthorityCpi
-import ProofForge.Solana.Examples.SplTokenCloseAccountCpi
-import ProofForge.Solana.Examples.SplTokenOpsCpi
-import ProofForge.Solana.Examples.SplTokenTransferCheckedCpi
-import ProofForge.Solana.Examples.SystemCpi
-import ProofForge.Solana.Examples.SystemCreateAccountCpi
+import Examples.Backend.Solana.Contracts.AssociatedTokenCpi
+import Examples.Backend.Solana.Contracts.Clock
+import Examples.Backend.Solana.Contracts.Crypto
+import Examples.Backend.Solana.Contracts.EpochRewards
+import Examples.Backend.Solana.Contracts.EpochSchedule
+import Examples.Backend.Solana.Contracts.LastRestartSlot
+import Examples.Backend.Solana.Contracts.LogEvent
+import Examples.Backend.Solana.Contracts.MemoCpi
+import Examples.Backend.Solana.Contracts.Memory
+import Examples.Backend.Solana.Contracts.Rent
+import Examples.Backend.Solana.Contracts.ReturnDataCompute
+import Examples.Backend.Solana.Contracts.SplToken2022Cpi
+import Examples.Backend.Solana.Contracts.SplToken2022PausableCpi
+import Examples.Backend.Solana.Contracts.SplToken2022TransferHook
+import Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi
+import Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi
+import Examples.Backend.Solana.Contracts.SplTokenOpsCpi
+import Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi
+import Examples.Backend.Solana.Contracts.SystemCpi
+import Examples.Backend.Solana.Contracts.SystemCreateAccountCpi
 import ProofForge.Target
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Target.ArtifactBundle
@@ -408,67 +408,67 @@ def compileSolanaSystemCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/SystemCpi.s")
     "solana-system-cpi-sbpf"
-    ProofForge.Solana.Examples.SystemCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCpi.spec
 
 def compileSolanaSystemCreateAccountCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/SystemCreateAccountCpi.s")
     "solana-system-create-account-cpi-sbpf"
-    ProofForge.Solana.Examples.SystemCreateAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCreateAccountCpi.spec
 
 def compileSolanaSplTokenTransferCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/SplTokenTransferCheckedCpi.s")
     "solana-spl-token-transfer-cpi-sbpf"
-    ProofForge.Solana.Examples.SplTokenTransferCheckedCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi.spec
 
 def compileSolanaSplTokenOpsCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/SplTokenOpsCpi.s")
     "solana-spl-token-ops-cpi-sbpf"
-    ProofForge.Solana.Examples.SplTokenOpsCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenOpsCpi.spec
 
 def compileSolanaSplTokenCloseAccountCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/SplTokenCloseAccountCpi.s")
     "solana-spl-token-close-account-cpi-sbpf"
-    ProofForge.Solana.Examples.SplTokenCloseAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.spec
 
 def compileSolanaSplTokenAuthorityCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/SplTokenAuthorityCpi.s")
     "solana-spl-token-authority-cpi-sbpf"
-    ProofForge.Solana.Examples.SplTokenAuthorityCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi.spec
 
 def compileSolanaAssociatedTokenCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/AssociatedTokenCpi.s")
     "solana-associated-token-cpi-sbpf"
-    ProofForge.Solana.Examples.AssociatedTokenCpi.spec
+    Examples.Backend.Solana.Contracts.AssociatedTokenCpi.spec
 
 def compileSolanaMemoCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/MemoCpi.s")
     "solana-memo-cpi-sbpf"
-    ProofForge.Solana.Examples.MemoCpi.spec
+    Examples.Backend.Solana.Contracts.MemoCpi.spec
 
 def compileSolanaSplToken2022CpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/SplToken2022Cpi.s")
     "solana-spl-token-2022-cpi-sbpf"
-    ProofForge.Solana.Examples.SplToken2022Cpi.spec
+    Examples.Backend.Solana.Contracts.SplToken2022Cpi.spec
 
 def compileSolanaSplToken2022PausableCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/SplToken2022PausableCpi.s")
     "solana-spl-token-2022-pausable-cpi-sbpf"
-    ProofForge.Solana.Examples.SplToken2022PausableCpi.spec
+    Examples.Backend.Solana.Contracts.SplToken2022PausableCpi.spec
 
 def compileSolanaSplToken2022TransferHookSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
     (FilePath.mk "build/solana/SplToken2022TransferHook.s")
     "solana-spl-token-2022-transfer-hook-sbpf"
-    ProofForge.Solana.Examples.SplToken2022TransferHook.spec
+    Examples.Backend.Solana.Contracts.SplToken2022TransferHook.spec
 
 def compileValueVaultSolanaElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
@@ -482,140 +482,140 @@ def compileSolanaSystemCpiElf (opts : CliOptions) : IO UInt32 :=
     (FilePath.mk "build/solana/SystemCpi.so")
     "system-cpi"
     "solana-system-cpi-elf"
-    ProofForge.Solana.Examples.SystemCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCpi.spec
 
 def compileSolanaSystemCreateAccountCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SystemCreateAccountCpi.so")
     "system-create-account-cpi"
     "solana-system-create-account-cpi-elf"
-    ProofForge.Solana.Examples.SystemCreateAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCreateAccountCpi.spec
 
 def compileSolanaSplTokenTransferCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SplTokenTransferCheckedCpi.so")
     "spl-token-transfer-cpi"
     "solana-spl-token-transfer-cpi-elf"
-    ProofForge.Solana.Examples.SplTokenTransferCheckedCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenTransferCheckedCpi.spec
 
 def compileSolanaSplTokenOpsCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SplTokenOpsCpi.so")
     "spl-token-ops-cpi"
     "solana-spl-token-ops-cpi-elf"
-    ProofForge.Solana.Examples.SplTokenOpsCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenOpsCpi.spec
 
 def compileSolanaSplTokenCloseAccountCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SplTokenCloseAccountCpi.so")
     "spl-token-close-account-cpi"
     "solana-spl-token-close-account-cpi-elf"
-    ProofForge.Solana.Examples.SplTokenCloseAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.spec
 
 def compileSolanaSplTokenAuthorityCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SplTokenAuthorityCpi.so")
     "spl-token-authority-cpi"
     "solana-spl-token-authority-cpi-elf"
-    ProofForge.Solana.Examples.SplTokenAuthorityCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi.spec
 
 def compileSolanaAssociatedTokenCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/AssociatedTokenCpi.so")
     "associated-token-cpi"
     "solana-associated-token-cpi-elf"
-    ProofForge.Solana.Examples.AssociatedTokenCpi.spec
+    Examples.Backend.Solana.Contracts.AssociatedTokenCpi.spec
 
 def compileSolanaMemoCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/MemoCpi.so")
     "solana-memo-cpi"
     "solana-memo-cpi-elf"
-    ProofForge.Solana.Examples.MemoCpi.spec
+    Examples.Backend.Solana.Contracts.MemoCpi.spec
 
 def compileSolanaSplToken2022CpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SplToken2022Cpi.so")
     "spl-token-2022-cpi"
     "solana-spl-token-2022-cpi-elf"
-    ProofForge.Solana.Examples.SplToken2022Cpi.spec
+    Examples.Backend.Solana.Contracts.SplToken2022Cpi.spec
 
 def compileSolanaSplToken2022PausableCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SplToken2022PausableCpi.so")
     "spl-token-2022-pausable-cpi"
     "solana-spl-token-2022-pausable-cpi-elf"
-    ProofForge.Solana.Examples.SplToken2022PausableCpi.spec
+    Examples.Backend.Solana.Contracts.SplToken2022PausableCpi.spec
 
 def compileSolanaSplToken2022TransferHookElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/SplToken2022TransferHook.so")
     "spl-token-2022-transfer-hook"
     "solana-spl-token-2022-transfer-hook-elf"
-    ProofForge.Solana.Examples.SplToken2022TransferHook.spec
+    Examples.Backend.Solana.Contracts.SplToken2022TransferHook.spec
 
 def compileSolanaLogEventElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/LogEvent.so")
     "log-event"
     "solana-log-event-elf"
-    ProofForge.Solana.Examples.LogEvent.spec
+    Examples.Backend.Solana.Contracts.LogEvent.spec
 
 def compileSolanaClockSysvarElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/Clock.so")
     "clock-sysvar"
     "solana-clock-sysvar-elf"
-    ProofForge.Solana.Examples.Clock.spec
+    Examples.Backend.Solana.Contracts.Clock.spec
 
 def compileSolanaRentSysvarElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/Rent.so")
     "rent-sysvar"
     "solana-rent-sysvar-elf"
-    ProofForge.Solana.Examples.Rent.spec
+    Examples.Backend.Solana.Contracts.Rent.spec
 
 def compileSolanaEpochScheduleSysvarElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/EpochSchedule.so")
     "epoch-schedule-sysvar"
     "solana-epoch-schedule-sysvar-elf"
-    ProofForge.Solana.Examples.EpochSchedule.spec
+    Examples.Backend.Solana.Contracts.EpochSchedule.spec
 
 def compileSolanaEpochRewardsSysvarElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/EpochRewards.so")
     "epoch-rewards-sysvar"
     "solana-epoch-rewards-sysvar-elf"
-    ProofForge.Solana.Examples.EpochRewards.spec
+    Examples.Backend.Solana.Contracts.EpochRewards.spec
 
 def compileSolanaLastRestartSlotSysvarElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/LastRestartSlot.so")
     "last-restart-slot-sysvar"
     "solana-last-restart-slot-sysvar-elf"
-    ProofForge.Solana.Examples.LastRestartSlot.spec
+    Examples.Backend.Solana.Contracts.LastRestartSlot.spec
 
 def compileSolanaMemoryElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/Memory.so")
     "memory"
     "solana-memory-elf"
-    ProofForge.Solana.Examples.Memory.spec
+    Examples.Backend.Solana.Contracts.Memory.spec
 
 def compileSolanaCryptoHashElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/CryptoHash.so")
     "crypto-hash"
     "solana-crypto-hash-elf"
-    ProofForge.Solana.Examples.Crypto.spec
+    Examples.Backend.Solana.Contracts.Crypto.spec
 
 def compileSolanaReturnDataComputeElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
     (FilePath.mk "build/solana/ReturnDataCompute.so")
     "return-data-compute"
     "solana-return-data-compute-elf"
-    ProofForge.Solana.Examples.ReturnDataCompute.spec
+    Examples.Backend.Solana.Contracts.ReturnDataCompute.spec
 
 def compileSbpfAsm (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/solana/entrypoint.s")

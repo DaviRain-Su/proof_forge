@@ -11,11 +11,11 @@ hand-tuned Solana layouts:
 import ProofForge.Contract.Source.Solana
 ```
 
-PF-P1-05: `ProofForge.Solana.Surface` is loaded only through this opt-in module.
+PF-P1-05: `ProofForge.Contract.Source.Solana.Internal` is loaded only through this opt-in module.
 -/
 import ProofForge.Contract.Source
-import ProofForge.Solana.Surface
-import ProofForge.Solana
+import ProofForge.Contract.Source.Solana.Internal
+import ProofForge.Contract.Source.Solana.Legacy
 
 set_option hygiene false
 
@@ -86,30 +86,30 @@ scoped syntax "bump_seed " ident : solanaSignerSeed
 def mkAccountLet (name : TSyntax `ident)
     (body : TSyntax `term) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
-  `(let $name : ProofForge.Solana.Surface.AccountRef :=
+  `(let $name : ProofForge.Contract.Source.Solana.Internal.AccountRef :=
       { name := $nameLit }
     $body)
 
 def mkPdaLet (name : TSyntax `ident)
     (body : TSyntax `term) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
-  `(let $name : ProofForge.Solana.Surface.PdaRef :=
+  `(let $name : ProofForge.Contract.Source.Solana.Internal.PdaRef :=
       { name := $nameLit }
     $body)
 
 def mkCpiLet (name : TSyntax `ident)
     (body : TSyntax `term) : MacroM (TSyntax `term) := do
   let nameLit := identNameLit name
-  `(let $name : ProofForge.Solana.Surface.CpiRef :=
+  `(let $name : ProofForge.Contract.Source.Solana.Internal.CpiRef :=
       { name := $nameLit }
     $body)
 
 def lowerSolanaSeed (seed : TSyntax `solanaSeed) : MacroM (TSyntax `term) := do
   match seed with
   | `(solanaSeed| literal_seed $value:str) =>
-      `(ProofForge.Solana.Surface.literalSeed $value)
+      `(ProofForge.Contract.Source.Solana.Internal.literalSeed $value)
   | `(solanaSeed| account_seed $accountRef:ident) =>
-      `(ProofForge.Solana.Surface.accountSeed $accountRef)
+      `(ProofForge.Contract.Source.Solana.Internal.accountSeed $accountRef)
   | _ =>
       Macro.throwErrorAt seed s!"unsupported Solana PDA seed (dsl {sourceDslVersion})"
 
@@ -120,9 +120,9 @@ def lowerSolanaSeeds (seedItems : TSyntaxArray `solanaSeed) : MacroM (TSyntax `t
 def lowerSolanaSignerSeed (seed : TSyntax `solanaSignerSeed) : MacroM (TSyntax `term) := do
   match seed with
   | `(solanaSignerSeed| pda_seed $pdaRef:ident) =>
-      `(ProofForge.Solana.Surface.pdaName $pdaRef)
+      `(ProofForge.Contract.Source.Solana.Internal.pdaName $pdaRef)
   | `(solanaSignerSeed| bump_seed $bindingRef:ident) =>
-      `(ProofForge.Solana.Surface.bindingName $bindingRef)
+      `(ProofForge.Contract.Source.Solana.Internal.bindingName $bindingRef)
   | _ =>
       Macro.throwErrorAt seed s!"unsupported Solana signer seed (dsl {sourceDslVersion})"
 
@@ -138,7 +138,7 @@ def trySolanaEntryStmt : EntryStmtExt := fun stmt acc => do
   | `(entryStmt| derive pda $pdaRef:ident seeds [$seedItems:solanaSeed,*] bump $bumpRef:ident account $accountRef:ident signer;) => do
     let seedArray ← lowerSolanaSeeds seedItems
     return some (←
-      `(ProofForge.Solana.Surface.derivePda $pdaRef $seedArray
+      `(ProofForge.Contract.Source.Solana.Internal.derivePda $pdaRef $seedArray
           (bump? := some $bumpRef)
           (account? := some $accountRef)
           (isSigner := true) *> $acc))
@@ -148,12 +148,12 @@ def trySolanaEntryStmt : EntryStmtExt := fun stmt acc => do
     let toLit := identNameLit toAccount
     let lamportsLit := identNameLit lamportsSource
     return some (←
-      `(ProofForge.Solana.invokeSystemTransfer $callLit $fromLit $toLit $lamportsLit *> $acc))
+      `(ProofForge.Contract.Source.Solana.Legacy.invokeSystemTransfer $callLit $fromLit $toLit $lamportsLit *> $acc))
   | `(entryStmt| invoke $call:ident memo($memoSource:ident);) => do
     let callLit := identNameLit call
     let memoLit := identNameLit memoSource
     return some (←
-      `(ProofForge.Solana.invokeMemo $callLit $memoLit *> $acc))
+      `(ProofForge.Contract.Source.Solana.Legacy.invokeMemo $callLit $memoLit *> $acc))
   | `(entryStmt| invoke $call:ident system_create_account($payer:ident, $newAccount:ident, $lamportsSource:ident, $spaceSource:ident) owner $ownerSource:term;) => do
     let callLit := identNameLit call
     let payerLit := identNameLit payer
@@ -161,47 +161,47 @@ def trySolanaEntryStmt : EntryStmtExt := fun stmt acc => do
     let lamportsLit := identNameLit lamportsSource
     let spaceLit := identNameLit spaceSource
     return some (←
-      `(ProofForge.Solana.invokeSystemCreateAccount
+      `(ProofForge.Contract.Source.Solana.Legacy.invokeSystemCreateAccount
           $callLit $payerLit $newAccountLit $lamportsLit $spaceLit $ownerSource *> $acc))
   | `(entryStmt| invoke $call:ident spl_token_transfer_checked($source:ident, $mint:ident, $destination:ident, $authority:ident, $amountRef:ident) decimals($decimalValue:term) signer_seeds [$signerSeedItems:solanaSignerSeed,*];) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     return some (←
-      `(ProofForge.Solana.Surface.invokeSplTokenTransferChecked
+      `(ProofForge.Contract.Source.Solana.Internal.invokeSplTokenTransferChecked
           $call $source $mint $destination $authority $amountRef $decimalValue
           (signerSeeds := $signerSeedArray) *> $acc))
   | `(entryStmt| invoke $call:ident spl_token_close_account($tokenAccount:ident, $destination:ident, $authority:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*];) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     return some (←
-      `(ProofForge.Solana.Surface.invokeSplTokenCloseAccount
+      `(ProofForge.Contract.Source.Solana.Internal.invokeSplTokenCloseAccount
           $call $tokenAccount $destination $authority
           (signerSeeds := $signerSeedArray) *> $acc))
   | `(entryStmt| invoke $call:ident spl_token_set_authority($tokenAccount:ident, $authority:ident, $newAuthority:ident) authority_type($authorityType:term) signer_seeds [$signerSeedItems:solanaSignerSeed,*];) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     return some (←
-      `(ProofForge.Solana.Surface.invokeSplTokenSetAuthority
+      `(ProofForge.Contract.Source.Solana.Internal.invokeSplTokenSetAuthority
           $call $tokenAccount $authority $newAuthority
           (authorityType := $authorityType)
           (signerSeeds := $signerSeedArray) *> $acc))
   | `(entryStmt| invoke $call:ident associated_token_create($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*];) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     return some (←
-      `(ProofForge.Solana.Surface.invokeAssociatedTokenCreate
+      `(ProofForge.Contract.Source.Solana.Internal.invokeAssociatedTokenCreate
           $call $funding $ataAccount $wallet $mint
           (idempotent := false)
           (signerSeeds := $signerSeedArray) *> $acc))
   | `(entryStmt| invoke $call:ident associated_token_create_idempotent($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*];) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     return some (←
-      `(ProofForge.Solana.Surface.invokeAssociatedTokenCreate
+      `(ProofForge.Contract.Source.Solana.Internal.invokeAssociatedTokenCreate
           $call $funding $ataAccount $wallet $mint
           (idempotent := true)
           (signerSeeds := $signerSeedArray) *> $acc))
   | `(entryStmt| realloc $accountRef:ident to $newSize:term;) => do
     return some (←
-      `(ProofForge.Solana.Surface.reallocAccount $accountRef $newSize *> $acc))
+      `(ProofForge.Contract.Source.Solana.Internal.reallocAccount $accountRef $newSize *> $acc))
   | `(entryStmt| init_transfer_hook_extra_meta($accountRef:ident, $extraAccountRef:ident);) => do
     return some (←
-      `(ProofForge.Solana.Surface.initializeTransferHookExtraAccountMetaList
+      `(ProofForge.Contract.Source.Solana.Internal.initializeTransferHookExtraAccountMetaList
           $accountRef $extraAccountRef *> $acc))
   | _ => pure none
 
@@ -209,36 +209,36 @@ def trySolanaEntryStmt : EntryStmtExt := fun stmt acc => do
 def trySolanaContractItem : ContractItemExt := fun item => do
   match item with
   | `(contractItem| allocator bump) => do
-    let action ← `(ProofForge.Solana.Surface.bumpAllocator)
+    let action ← `(ProofForge.Contract.Source.Solana.Internal.bumpAllocator)
     return some { action? := some action }
   | `(contractItem| account $name:ident readonly) => do
-    let action ← `(ProofForge.Solana.Surface.readonlyAccount $name)
+    let action ← `(ProofForge.Contract.Source.Solana.Internal.readonlyAccount $name)
     return some { action? := some action, binder := mkAccountLet name }
   | `(contractItem| account $name:ident readonly signer) => do
-    let action ← `(ProofForge.Solana.Surface.signerAccount $name)
+    let action ← `(ProofForge.Contract.Source.Solana.Internal.signerAccount $name)
     return some { action? := some action, binder := mkAccountLet name }
   | `(contractItem| account $name:ident readonly owner $ownerValue:term) => do
-    let action ← `(ProofForge.Solana.Surface.readonlyAccount $name $ownerValue)
+    let action ← `(ProofForge.Contract.Source.Solana.Internal.readonlyAccount $name $ownerValue)
     return some { action? := some action, binder := mkAccountLet name }
   | `(contractItem| account $name:ident readonly signer owner $ownerValue:term) => do
-    let action ← `(ProofForge.Solana.Surface.signerAccount $name .readOnly $ownerValue)
+    let action ← `(ProofForge.Contract.Source.Solana.Internal.signerAccount $name .readOnly $ownerValue)
     return some { action? := some action, binder := mkAccountLet name }
   | `(contractItem| account $name:ident writable) => do
-    let action ← `(ProofForge.Solana.Surface.writableAccount $name)
+    let action ← `(ProofForge.Contract.Source.Solana.Internal.writableAccount $name)
     return some { action? := some action, binder := mkAccountLet name }
   | `(contractItem| account $name:ident writable signer) => do
-    let action ← `(ProofForge.Solana.Surface.writableSignerAccount $name)
+    let action ← `(ProofForge.Contract.Source.Solana.Internal.writableSignerAccount $name)
     return some { action? := some action, binder := mkAccountLet name }
   | `(contractItem| account $name:ident writable owner $ownerValue:term) => do
-    let action ← `(ProofForge.Solana.Surface.writableAccount $name $ownerValue)
+    let action ← `(ProofForge.Contract.Source.Solana.Internal.writableAccount $name $ownerValue)
     return some { action? := some action, binder := mkAccountLet name }
   | `(contractItem| account $name:ident writable signer owner $ownerValue:term) => do
-    let action ← `(ProofForge.Solana.Surface.writableSignerAccount $name $ownerValue)
+    let action ← `(ProofForge.Contract.Source.Solana.Internal.writableSignerAccount $name $ownerValue)
     return some { action? := some action, binder := mkAccountLet name }
   | `(contractItem| pda $name:ident seeds [$seedItems:solanaSeed,*] bump $bumpRef:ident account $accountRef:ident signer) => do
     let seedArray ← lowerSolanaSeeds seedItems
     let action ←
-      `(ProofForge.Solana.Surface.pdaAccount $name $seedArray
+      `(ProofForge.Contract.Source.Solana.Internal.pdaAccount $name $seedArray
           (bump? := some $bumpRef)
           (account? := some $accountRef)
           (isSigner := true))
@@ -249,13 +249,13 @@ def trySolanaContractItem : ContractItemExt := fun item => do
     let toLit := identNameLit toAccount
     let lamportsLit := identNameLit lamportsSource
     let action ←
-      `(ProofForge.Solana.systemTransfer $callLit $fromLit $toLit $lamportsLit)
+      `(ProofForge.Contract.Source.Solana.Legacy.systemTransfer $callLit $fromLit $toLit $lamportsLit)
     return some { action? := some action }
   | `(contractItem| cpi $call:ident memo($memoSource:ident)) => do
     let callLit := identNameLit call
     let memoLit := identNameLit memoSource
     let action ←
-      `(ProofForge.Solana.memo $callLit $memoLit)
+      `(ProofForge.Contract.Source.Solana.Legacy.memo $callLit $memoLit)
     return some { action? := some action }
   | `(contractItem| cpi $call:ident system_create_account($payer:ident, $newAccount:ident, $lamportsSource:ident, $spaceSource:ident) owner $ownerSource:term) => do
     let callLit := identNameLit call
@@ -264,27 +264,27 @@ def trySolanaContractItem : ContractItemExt := fun item => do
     let lamportsLit := identNameLit lamportsSource
     let spaceLit := identNameLit spaceSource
     let action ←
-      `(ProofForge.Solana.systemCreateAccount
+      `(ProofForge.Contract.Source.Solana.Legacy.systemCreateAccount
           $callLit $payerLit $newAccountLit $lamportsLit $spaceLit $ownerSource)
     return some { action? := some action }
   | `(contractItem| cpi $call:ident spl_token_transfer_checked($source:ident, $mint:ident, $destination:ident, $authority:ident, $amountRef:ident) decimals($decimalValue:term) signer_seeds [$signerSeedItems:solanaSignerSeed,*]) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     let action ←
-      `(ProofForge.Solana.Surface.splTokenTransferChecked
+      `(ProofForge.Contract.Source.Solana.Internal.splTokenTransferChecked
           $call $source $mint $destination $authority $amountRef $decimalValue
           (signerSeeds := $signerSeedArray))
     return some { action? := some action, binder := mkCpiLet call }
   | `(contractItem| cpi $call:ident spl_token_close_account($tokenAccount:ident, $destination:ident, $authority:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*]) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     let action ←
-      `(ProofForge.Solana.Surface.splTokenCloseAccount
+      `(ProofForge.Contract.Source.Solana.Internal.splTokenCloseAccount
           $call $tokenAccount $destination $authority
           (signerSeeds := $signerSeedArray))
     return some { action? := some action, binder := mkCpiLet call }
   | `(contractItem| cpi $call:ident spl_token_set_authority($tokenAccount:ident, $authority:ident, $newAuthority:ident) authority_type($authorityType:term) signer_seeds [$signerSeedItems:solanaSignerSeed,*]) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     let action ←
-      `(ProofForge.Solana.Surface.splTokenSetAuthority
+      `(ProofForge.Contract.Source.Solana.Internal.splTokenSetAuthority
           $call $tokenAccount $authority $newAuthority
           (authorityType := $authorityType)
           (signerSeeds := $signerSeedArray))
@@ -292,7 +292,7 @@ def trySolanaContractItem : ContractItemExt := fun item => do
   | `(contractItem| cpi $call:ident associated_token_create($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*]) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     let action ←
-      `(ProofForge.Solana.Surface.associatedTokenCreate
+      `(ProofForge.Contract.Source.Solana.Internal.associatedTokenCreate
           $call $funding $ataAccount $wallet $mint
           (idempotent := false)
           (signerSeeds := $signerSeedArray))
@@ -300,7 +300,7 @@ def trySolanaContractItem : ContractItemExt := fun item => do
   | `(contractItem| cpi $call:ident associated_token_create_idempotent($funding:ident, $ataAccount:ident, $wallet:ident, $mint:ident) signer_seeds [$signerSeedItems:solanaSignerSeed,*]) => do
     let signerSeedArray ← lowerSolanaSignerSeeds signerSeedItems
     let action ←
-      `(ProofForge.Solana.Surface.associatedTokenCreate
+      `(ProofForge.Contract.Source.Solana.Internal.associatedTokenCreate
           $call $funding $ataAccount $wallet $mint
           (idempotent := true)
           (signerSeeds := $signerSeedArray))
@@ -318,7 +318,7 @@ macro_rules
         let (body, _) ← lowerContractItems items trySolanaEntryStmt trySolanaContractItem
         `(
           def $specId : ProofForge.Contract.ContractSpec :=
-            ProofForge.Contract.Surface.contract $nameLit $body
+            ProofForge.Contract.Source.Internal.contract $nameLit $body
 
           def $moduleId : ProofForge.IR.Module :=
             ($specId).module
@@ -337,7 +337,7 @@ macro_rules
         `(
           def $specId : ProofForge.Contract.ContractSpec :=
             ProofForge.Contract.Compose.mergeExtension $nameLit $baseSpec
-              (ProofForge.Contract.Surface.contract $nameLit $extBody)
+              (ProofForge.Contract.Source.Internal.contract $nameLit $extBody)
 
           def $moduleId : ProofForge.IR.Module :=
             ($specId).module
