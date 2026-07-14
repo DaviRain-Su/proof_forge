@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="520" viewBox="0 0 1180 520" role="img" aria-label="ProofForge · Architecture Overview">
+  <defs>
+    <filter id="s" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#5c6570"/>
+    </marker>
+    <style>
+      .t { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      .title { font-size: 22px; font-weight: 700; fill: #1a1d23; }
+      .sub { font-size: 13px; fill: #5c6570; }
+      .b { font-size: 13px; font-weight: 600; fill: #1a1d23; }
+      .s { font-size: 11px; fill: #5c6570; }
+      .tiny { font-size: 10px; fill: #5c6570; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#fafbfc"/>
+
+<text x="40" y="36" class="t title" text-anchor="start">ProofForge · Architecture Overview</text>
+<text x="40" y="58" class="t sub" text-anchor="start">Product source → Frontend → Canonical Core → Target → Backend → artifacts &amp; evidence</text>
+<rect x="40" y="82" width="160" height="34" rx="8" fill="#3b82f6"/>
+<text x="120" y="104" class="t b" text-anchor="middle" fill="#ffffff">1 Author</text>
+<rect x="40" y="130" width="160" height="72" rx="10" ry="10" fill="#d6ebff" stroke="#3b82f6" stroke-width="1.5" filter="url(#s)"/>
+<text x="120" y="160" class="t b" text-anchor="middle">Product</text>
+<text x="120" y="180" class="t s" text-anchor="middle">Examples/Product</text>
+<rect x="40" y="214" width="160" height="72" rx="10" ry="10" fill="#d6ebff" stroke="#3b82f6" stroke-width="1.5" filter="url(#s)"/>
+<text x="120" y="244" class="t b" text-anchor="middle">DSL</text>
+<text x="120" y="264" class="t s" text-anchor="middle">contract_source</text>
+<rect x="40" y="298" width="160" height="72" rx="10" ry="10" fill="#d6ebff" stroke="#3b82f6" stroke-width="1.5" filter="url(#s)"/>
+<text x="120" y="328" class="t b" text-anchor="middle">Intent</text>
+<text x="120" y="348" class="t s" text-anchor="middle">Token / NFT Spec</text>
+<line x1="204" y1="250" x2="236" y2="250" stroke="#5c6570" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="240" y="82" width="160" height="34" rx="8" fill="#0284c7"/>
+<text x="320" y="104" class="t b" text-anchor="middle" fill="#ffffff">2 Frontend</text>
+<rect x="240" y="130" width="160" height="72" rx="10" ry="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#s)"/>
+<text x="320" y="160" class="t b" text-anchor="middle">Authored</text>
+<text x="320" y="180" class="t s" text-anchor="middle">Canonicalize</text>
+<rect x="240" y="214" width="160" height="72" rx="10" ry="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#s)"/>
+<text x="320" y="244" class="t b" text-anchor="middle">Compat</text>
+<text x="320" y="264" class="t s" text-anchor="middle">ContractSpec</text>
+<rect x="240" y="298" width="160" height="72" rx="10" ry="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#s)"/>
+<text x="320" y="328" class="t b" text-anchor="middle">Materialize</text>
+<text x="320" y="348" class="t s" text-anchor="middle">per target</text>
+<line x1="404" y1="250" x2="436" y2="250" stroke="#5c6570" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="440" y="82" width="160" height="34" rx="8" fill="#16a34a"/>
+<text x="520" y="104" class="t b" text-anchor="middle" fill="#ffffff">3 Core</text>
+<rect x="440" y="130" width="160" height="72" rx="10" ry="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5" filter="url(#s)"/>
+<text x="520" y="160" class="t b" text-anchor="middle">IR.Core</text>
+<text x="520" y="180" class="t s" text-anchor="middle">Syntax · Type</text>
+<rect x="440" y="214" width="160" height="72" rx="10" ry="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5" filter="url(#s)"/>
+<text x="520" y="244" class="t b" text-anchor="middle">Validate</text>
+<text x="520" y="264" class="t s" text-anchor="middle">fail-closed</text>
+<rect x="440" y="298" width="160" height="72" rx="10" ry="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5" filter="url(#s)"/>
+<text x="520" y="328" class="t b" text-anchor="middle">Semantics</text>
+<text x="520" y="348" class="t s" text-anchor="middle">ref. interpreter</text>
+<line x1="604" y1="250" x2="636" y2="250" stroke="#5c6570" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="640" y="82" width="160" height="34" rx="8" fill="#ca8a04"/>
+<text x="720" y="104" class="t b" text-anchor="middle" fill="#ffffff">4 Target</text>
+<rect x="640" y="130" width="160" height="72" rx="10" ry="10" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5" filter="url(#s)"/>
+<text x="720" y="160" class="t b" text-anchor="middle">Registry</text>
+<text x="720" y="180" class="t s" text-anchor="middle">knownIds</text>
+<rect x="640" y="214" width="160" height="72" rx="10" ry="10" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5" filter="url(#s)"/>
+<text x="720" y="244" class="t b" text-anchor="middle">Capability</text>
+<text x="720" y="264" class="t s" text-anchor="middle">CapabilityPlan</text>
+<rect x="640" y="298" width="160" height="72" rx="10" ry="10" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5" filter="url(#s)"/>
+<text x="720" y="328" class="t b" text-anchor="middle">HostOps</text>
+<text x="720" y="348" class="t s" text-anchor="middle">EVM/Sol/Near</text>
+<line x1="804" y1="250" x2="836" y2="250" stroke="#5c6570" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="840" y="82" width="160" height="34" rx="8" fill="#ea580c"/>
+<text x="920" y="104" class="t b" text-anchor="middle" fill="#ffffff">5 Backend</text>
+<rect x="840" y="130" width="160" height="72" rx="10" ry="10" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5" filter="url(#s)"/>
+<text x="920" y="160" class="t b" text-anchor="middle">evm</text>
+<text x="920" y="180" class="t s" text-anchor="middle">Plan→Yul→solc</text>
+<rect x="840" y="214" width="160" height="72" rx="10" ry="10" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5" filter="url(#s)"/>
+<text x="920" y="244" class="t b" text-anchor="middle">solana</text>
+<text x="920" y="264" class="t s" text-anchor="middle">Plan→sBPF→ELF</text>
+<rect x="840" y="298" width="160" height="72" rx="10" ry="10" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5" filter="url(#s)"/>
+<text x="920" y="328" class="t b" text-anchor="middle">wasm-near</text>
+<text x="920" y="348" class="t s" text-anchor="middle">Plan→WAT→wasm</text>
+<line x1="1004" y1="250" x2="1036" y2="250" stroke="#5c6570" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="1000" y="82" width="160" height="34" rx="8" fill="#475569"/>
+<text x="1080" y="104" class="t b" text-anchor="middle" fill="#ffffff">6 Evidence</text>
+<rect x="1000" y="130" width="160" height="72" rx="10" ry="10" fill="#f1f5f9" stroke="#475569" stroke-width="1.5" filter="url(#s)"/>
+<text x="1080" y="160" class="t b" text-anchor="middle">Artifacts</text>
+<text x="1080" y="180" class="t s" text-anchor="middle">bin · wat · so</text>
+<rect x="1000" y="214" width="160" height="72" rx="10" ry="10" fill="#f1f5f9" stroke="#475569" stroke-width="1.5" filter="url(#s)"/>
+<text x="1080" y="244" class="t b" text-anchor="middle">Gates</text>
+<text x="1080" y="264" class="t s" text-anchor="middle">just product</text>
+<rect x="1000" y="298" width="160" height="72" rx="10" ry="10" fill="#f1f5f9" stroke="#475569" stroke-width="1.5" filter="url(#s)"/>
+<text x="1080" y="328" class="t b" text-anchor="middle">Runtime</text>
+<text x="1080" y="348" class="t s" text-anchor="middle">Anvil/Mollusk</text>
+<text x="40" y="500" class="t tiny" text-anchor="start">Primary triad: evm · solana-sbpf-asm · wasm-near    Secondary: Stylus / Psy / Aleo / Quint</text>
+</svg>

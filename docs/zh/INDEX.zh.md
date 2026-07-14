@@ -41,11 +41,11 @@ flowchart TB
   BL --> TGT
 ```
 
-## 架构图 (Excalidraw)
+## 架构图（视觉优先）
 
-用于演示和入职培训的可编辑手绘风格图表 —— 可在 [excalidraw.com](https://excalidraw.com) 或编辑器内通过 Excalidraw 插件打开：
-
-- [图表目录](../diagrams/README.md) —— 七个 `.excalidraw` 文件，涵盖平台概览、编译流水线、多目标 Counter、能力路由、开发人员工作流、代码库布局和目标全景。
+- **[系统架构 · 视觉导览](system-architecture-visual.zh.md)** —— **推荐入口**：新版 SVG 总图（GitHub 可直接看）+ Excalidraw PNG 图库。
+- [系统架构全景（文字深拆）](system-architecture.zh.md) —— 分层与组件内部说明。
+- [图表目录](../diagrams/README.md) —— 七个可编辑 `.excalidraw` + PNG；可在 [excalidraw.com](https://excalidraw.com) 打开。
 
 ## 规范与决策
 

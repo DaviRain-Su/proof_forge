@@ -2,17 +2,26 @@
 
 状态：**当前导向图（2026-07-15）**
 
-本文是 **整仓架构拆解**：从全局到分层，再到各组件**内部结构**。图为
-**Mermaid**（GitHub / VS Code / Cursor 可直接渲染）。行为以代码与门禁为准；
-排期以 [AGENTS.md](../../AGENTS.md) 与当前 plan 为准。
+> **想先看图、要好看？** 请先打开视觉导览（SVG + Excalidraw PNG）：  
+> **[system-architecture-visual.zh.md](system-architecture-visual.zh.md)**  
+> 本文是 **文字深拆 + Mermaid 结构图**；细节全，但不如视觉版直观。
+
+行为以代码与门禁为准；排期以 [AGENTS.md](../../AGENTS.md) 与当前 plan 为准。
 
 | 相关文档 | 说明 |
 |---|---|
-| [英文版 system-architecture.md](../system-architecture.md) | 与本文同主题；§12 为分层内部图 |
+| **[视觉导览（推荐先读）](system-architecture-visual.zh.md)** | SVG 总图 + Excalidraw PNG |
+| [英文版 system-architecture.md](../system-architecture.md) | 英文深拆；§12 分层内部 |
 | [规范编译器架构](architecture.zh.md) | Canonical 语义 vs 目标物化 |
 | [后端接口](../backend-interface.md) | 目标计划义务 |
 | [产品编写架构](../product-authoring-architecture.md) | 业务意图 vs 链上物化 |
 | [目标笔记索引](targets-README.zh.md) | 各链成熟度与诚实边界 |
+
+### 视觉摘要（嵌入）
+
+![流水线](../diagrams/svg/02-pipeline.zh.svg)
+
+![总览](../diagrams/svg/01-overview.zh.svg)
 
 ---
 

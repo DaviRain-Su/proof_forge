@@ -2,15 +2,21 @@
 
 Status: **Current orientation map (2026-07-15)**
 
-**中文深拆版（分层 + 各组件内部）：**
-[zh/system-architecture.zh.md](zh/system-architecture.zh.md).
+> **Prefer pretty pictures first?** Open the visual guide (SVG + Excalidraw PNG):  
+> **[system-architecture-visual.md](system-architecture-visual.md)** ·  
+> 中文: [zh/system-architecture-visual.zh.md](zh/system-architecture-visual.zh.md)
 
-This document is a **whole-repo architecture picture**: what every major
-component is, how data flows at compile time, and how validation/runtime
-evidence attaches. It is intentionally visual-first (Mermaid). Source of truth
-for *scheduling* remains [AGENTS.md](../AGENTS.md) and the current plans;
-source of truth for *behavior* remains code and gates. Section **§12** expands
-per-layer internal structure.
+**中文文字深拆：** [zh/system-architecture.zh.md](zh/system-architecture.zh.md).
+
+This document is a **whole-repo structure inventory** (Mermaid + tables). Source
+of truth for *scheduling* remains [AGENTS.md](../AGENTS.md); for *behavior*,
+code and gates. Section **§12** expands per-layer internals.
+
+### Visual digest
+
+![Pipeline](diagrams/svg/02-pipeline.en.svg)
+
+![Overview](diagrams/svg/01-overview.en.svg)
 
 Related deep dives:
 

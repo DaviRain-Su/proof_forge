@@ -1,40 +1,67 @@
-# ProofForge Architecture Diagrams (Excalidraw)
+# ProofForge Architecture Diagrams
 
-Hand-editable architecture diagrams for ProofForge, in [Excalidraw](https://excalidraw.com) format.
+Three presentation modes, pick what you need:
 
-## How to open
+| Mode | Path | Best for |
+|---|---|---|
+| **SVG (current, inline)** | [svg/](svg/) | GitHub / Markdown preview, clean product look |
+| **PNG (Excalidraw export)** | `proofforge_*.png` | slides, hand-drawn demo style |
+| **Excalidraw sources** | `0*.excalidraw` | open on [excalidraw.com](https://excalidraw.com) and edit |
 
-1. Go to [https://excalidraw.com](https://excalidraw.com)
-2. **Menu → Open** (or drag-and-drop a `.excalidraw` file onto the canvas)
-3. Pick a file from this directory
+**Start here:**
 
-You can also open these files in VS Code with the Excalidraw extension, or embed them in Notion/Obsidian where Excalidraw is supported.
+- EN visual guide: [../system-architecture-visual.md](../system-architecture-visual.md)
+- 中文视觉导览: [../zh/system-architecture-visual.zh.md](../zh/system-architecture-visual.zh.md)
 
-## Diagram catalog
+## SVG catalog (`svg/`)
+
+Regenerate with:
+
+```sh
+python3 scripts/generate-architecture-svg.py
+```
 
 | File | Contents |
 |---|---|
-| [01-architecture-overview.excalidraw](01-architecture-overview.excalidraw) | End-to-end platform layers: authoring → IR → routing → backends → artifacts |
-| [02-compilation-pipeline.excalidraw](02-compilation-pipeline.excalidraw) | Nine-stage compile pipeline; EVM semantic-plan detail on the side |
-| [03-multi-target-counter.excalidraw](03-multi-target-counter.excalidraw) | One `Counter.lean` compiled to EVM / Solana / NEAR with validation gates |
-| [04-capability-routing.excalidraw](04-capability-routing.excalidraw) | Capability registry, target profiles, fail-fast diagnostics |
-| [05-developer-workflow.excalidraw](05-developer-workflow.excalidraw) | `proof-forge` CLI commands and `just` recipes |
-| [06-codebase-structure.excalidraw](06-codebase-structure.excalidraw) | Repository layout and Lean module roots |
-| [07-target-landscape.excalidraw](07-target-landscape.excalidraw) | Target lifecycle stages and implementation families |
+| `01-overview.{zh,en}.svg` | Six-column end-to-end architecture |
+| `02-pipeline.{zh,en}.svg` | Primary compile path (one row) |
+| `03-three-targets.{zh,en}.svg` | One Counter source → three targets |
+| `04-layer-stack.{zh,en}.svg` | Outside-in layer bands |
+| `05-components.{zh,en}.svg` | CLI / Frontend / Core / Target / backends / evidence |
 
-## Regenerating
+## Excalidraw catalog
 
-Diagrams are generated from `scripts/generate-excalidraw-diagrams.py`. After editing the script:
+Hand-editable [Excalidraw](https://excalidraw.com) diagrams:
+
+1. Go to [https://excalidraw.com](https://excalidraw.com)
+2. **Menu → Open** (or drag-and-drop a `.excalidraw` file)
+3. Or use the VS Code Excalidraw extension
+
+| File | Contents |
+|---|---|
+| [01-architecture-overview.excalidraw](01-architecture-overview.excalidraw) | End-to-end platform layers |
+| [02-compilation-pipeline.excalidraw](02-compilation-pipeline.excalidraw) | Nine-stage compile pipeline; EVM detail |
+| [03-multi-target-counter.excalidraw](03-multi-target-counter.excalidraw) | One Counter → EVM / Solana / NEAR |
+| [04-capability-routing.excalidraw](04-capability-routing.excalidraw) | Capability registry, fail-fast |
+| [05-developer-workflow.excalidraw](05-developer-workflow.excalidraw) | CLI and `just` recipes |
+| [06-codebase-structure.excalidraw](06-codebase-structure.excalidraw) | Repository layout |
+| [07-target-landscape.excalidraw](07-target-landscape.excalidraw) | Target lifecycle / families |
+
+Matching PNG exports live beside these files (`proofforge_*.png`).
+
+Regenerate Excalidraw JSON:
 
 ```sh
 python3 scripts/generate-excalidraw-diagrams.py
 ```
 
-Manual edits inside Excalidraw will be overwritten if you regenerate from the script — export or copy your changes first.
+Manual edits in Excalidraw are overwritten if you regenerate from the script —
+export or copy changes first. Prefer updating the **SVG generator** for
+current architecture labels; keep Excalidraw for whiteboard storytelling.
 
 ## Related docs
 
-- [README architecture section](../../README.md#architecture) — Mermaid version of the overview
-- [Portable IR](../portable-ir.md) — IR layering spec
-- [Capability registry](../capability-registry.md) — capability ids checked at compile time
-- [中文架构评审](../zh/architecture-review-2026-07.md) — Chinese architecture review
+- [System architecture visual](../system-architecture-visual.md)
+- [System architecture map](../system-architecture.md)
+- [Portable IR](../portable-ir.md)
+- [Capability registry](../capability-registry.md)

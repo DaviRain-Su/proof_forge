@@ -11,10 +11,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "020096911832e90c02a7db762c05b5d806ab4961aa7bf3e008318f75a0373a3a",
+    "sha256": "4072fae519798feb925cd85d79710d45ea65856dc77a3c4aab4e4d08cf7f115f",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "manual-zh",
-    "note": "synced after system-architecture EN/zh deep map (2026-07-15)"
+    "note": "synced after architecture visual guides"
   },
   "docs/onboarding.md": {
     "sha256": "5ec69a144131b3a817e6a7b1a98657a6949af1f1ab1fe25e4212ece313f64367",
