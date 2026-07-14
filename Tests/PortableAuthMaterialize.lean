@@ -125,6 +125,8 @@ def main : IO Unit := do
   -- checks only the authored identity and never projects it back to IR.Module.
   require (Examples.Product.Pausable.contract.state.map (·.name) == #["paused"])
     "direct Pausable authored state drift"
+  require (Examples.Product.ReentrancyGuard.contract.state.map (·.name) == #["lock"])
+    "direct ReentrancyGuard authored state drift"
 
   -- T1.3: OwnablePausable — only owner may pause/unpause.
   let ownablePausable := Examples.Product.OwnablePausable.module
@@ -154,23 +156,6 @@ def main : IO Unit := do
         "Soroban OwnablePausable with caller emits require_auth"
       require (wat.contains "unreachable" || wat.contains "panic")
         "Soroban OwnablePausable fail path"
-
-  -- T1.5: ReentrancyGuard lock-state materializes on four hosts (not EVM-only).
-  let reent := Examples.Product.ReentrancyGuard.module
-  match ProofForge.Backend.Evm.Plan.buildModulePlan reent with
-  | .error e => throw (IO.userError s!"EVM ReentrancyGuard plan: {e.message}")
-  | .ok _ => pure ()
-  match ProofForge.Backend.Solana.SbpfAsm.renderModule reent with
-  | .error e => throw (IO.userError s!"Solana ReentrancyGuard: {e.message}")
-  | .ok _ => pure ()
-  match ProofForge.Backend.WasmHost.EmitWat.renderModule reent with
-  | .error e => throw (IO.userError s!"NEAR ReentrancyGuard: {e.message}")
-  | .ok _ => pure ()
-  match ProofForge.Backend.WasmHost.EmitWat.renderModule reent .soroban with
-  | .error e => throw (IO.userError s!"Soroban ReentrancyGuard: {e.message}")
-  | .ok wat =>
-      require (wat.contains "_get" || wat.contains "_put")
-        "Soroban ReentrancyGuard uses host storage for lock"
 
   -- T1.4: AccessControl / roles — nested map path on four hosts.
   let accessControl := Examples.Product.AccessControl.module
@@ -210,7 +195,7 @@ def main : IO Unit := do
       require (wat.contains "_get" || wat.contains "_put")
         "RoleGatedToken Soroban maps via host storage"
 
-  for mod in #[ownablePausable, reent, accessControl, roleGated] do
+  for mod in #[ownablePausable, accessControl, roleGated] do
     let reps := runPrimaryWithSoroban mod
     require (reps.size == 4) s!"preflight size for {mod.name}"
     for r in reps do

@@ -25,15 +25,33 @@ object "ReentrancyGuard" {
         revert(0, 0)
       }
       let v3 := 1
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v3, 18446744073709551615))))
+      {
+        let __pf_packed_value := v3
+        if gt(__pf_packed_value, 18446744073709551615) {
+          revert(0, 0)
+        }
+        sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(__pf_packed_value, 18446744073709551615))))
+      }
     }
     function f_ReentrancyGuard_release() {
-      let v4 := 0
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v4, 18446744073709551615))))
+      let v4 := and(shr(0, sload(0)), 18446744073709551615)
+      let v5 := 0
+      let v6 := iszero(eq(v4, v5))
+      if iszero(v6) {
+        revert(0, 0)
+      }
+      let v7 := 0
+      {
+        let __pf_packed_value := v7
+        if gt(__pf_packed_value, 18446744073709551615) {
+          revert(0, 0)
+        }
+        sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(__pf_packed_value, 18446744073709551615))))
+      }
     }
     function f_ReentrancyGuard_locked() -> __pf_result {
-      let v5 := and(shr(0, sload(0)), 18446744073709551615)
-      __pf_result := v5
+      let v8 := and(shr(0, sload(0)), 18446744073709551615)
+      __pf_result := v8
     }
   }
 }

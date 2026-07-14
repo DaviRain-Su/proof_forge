@@ -447,6 +447,16 @@ pausable-authoring-cutover:
     lake env lean --run Tests/Canonical/SourceLoader.lean
     scripts/canonical/pausable-target-first-smoke.sh
 
+# A-CUT3c2: Product ReentrancyGuard has one direct route and no Legacy facade.
+reentrancy-guard-authoring-cutover:
+    scripts/canonical/check-reentrancy-guard-authoring-cutover.sh
+    lake build ProofForge.Backend.WasmHost.ModulePlan.Core ProofForge.Cli.ContractLoader Examples.Product.ReentrancyGuard
+    lake env lean --run Tests/ReentrancyGuardExample.lean
+    lake env lean --run Tests/Canonical/EvmPublicRoute.lean
+    lake env lean --run Tests/Canonical/PublicAuthoredRoute.lean
+    lake env lean --run Tests/Canonical/SourceLoader.lean
+    scripts/canonical/reentrancy-guard-target-first-smoke.sh
+
 # Wave 6 Task 21: architecture boundary gate.
 canonical-boundary:
     scripts/canonical/check-boundary-self-test.sh

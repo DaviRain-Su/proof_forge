@@ -1,6 +1,7 @@
 import Examples.Product.Counter
 import Examples.Product.Ownable
 import Examples.Product.Pausable
+import Examples.Product.ReentrancyGuard
 import Examples.Product.ValueVault
 import ProofForge.Cli.ContractLoader
 import ProofForge.Frontend.Authored
@@ -21,6 +22,9 @@ def publicOwnable : AuthoredContract :=
 
 def publicPausable : AuthoredContract :=
   Examples.Product.Pausable.contract
+
+def publicReentrancyGuard : AuthoredContract :=
+  Examples.Product.ReentrancyGuard.contract
 
 def require (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -86,6 +90,21 @@ unsafe def run : IO Unit := do
         "Loader changed the direct authored Pausable identity"
   | .surfaceFixture _ =>
       throw <| IO.userError "public Pausable was loaded as an internal Surface fixture"
+  let guardInput := System.FilePath.mk "Examples/Product/ReentrancyGuard.lean"
+  let (guardEnv, guardModName) <- ProofForge.Cli.ContractLoader.runTrustedLocalFrontend
+    guardInput (some (System.FilePath.mk ".")) none
+  require (guardEnv.constants.contains (guardModName ++ `contract))
+    "public ReentrancyGuard does not export contract : AuthoredContract"
+  require (!(guardEnv.constants.contains (guardModName ++ `spec)))
+    "public ReentrancyGuard still exports the retired ContractSpec source"
+  require (!(guardEnv.constants.contains (guardModName ++ `module)))
+    "public ReentrancyGuard still exports the retired IR.Module source"
+  match <- ProofForge.Cli.ContractLoader.loadSourceFromEnv guardEnv guardModName with
+  | .authored contract =>
+      require (contract.name == publicReentrancyGuard.name)
+        "Loader changed the direct authored ReentrancyGuard identity"
+  | .surfaceFixture _ =>
+      throw <| IO.userError "public ReentrancyGuard was loaded as an internal Surface fixture"
   IO.println "public-authored-route: ok"
 
 end ProofForge.Tests.Canonical.PublicAuthoredRoute

@@ -102,6 +102,19 @@ unsafe def main : IO Unit := do
   require (authoredPausableBundle.contract.contract.module.events.isEmpty)
     "Authored Pausable event drift"
 
+  let authoredGuard <- load "Examples/Product/ReentrancyGuard.lean"
+  match authoredGuard with
+  | .authored _ => pure ()
+  | .surfaceFixture _ =>
+      throw (IO.userError "authored ReentrancyGuard discovered as an internal Surface fixture")
+  let authoredGuardBundle <- canonicalize authoredGuard
+  require (authoredGuardBundle.contract.contract.module.state.size == 1)
+    "Authored ReentrancyGuard state drift"
+  require (authoredGuardBundle.contract.contract.module.functions.size == 3)
+    "Authored ReentrancyGuard entrypoint drift"
+  require (authoredGuardBundle.contract.contract.module.events.isEmpty)
+    "Authored ReentrancyGuard event drift"
+
   let fixtureDir := "build/canonical/source-loader"
   IO.FS.createDirAll fixtureDir
   let ambiguousPath := fixtureDir ++ "/Ambiguous.lean"

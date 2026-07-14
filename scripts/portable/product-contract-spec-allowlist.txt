@@ -79,8 +79,6 @@ ProofForge/Contract/Stdlib/Ownable.lean:contract_source
 ProofForge/Contract/Stdlib/OwnableERC20.lean:def spec : ProofForge.Contract.ContractSpec
 ProofForge/Contract/Stdlib/OwnableHash.lean:contract_source
 ProofForge/Contract/Stdlib/OwnablePausable.lean:contract_source
-ProofForge/Contract/Stdlib/ReentrancyGuard.lean:contract_source
 ProofForge/Contract/Stdlib/UUPSProxy.lean:contract_source
 ProofForge/Contract/Stdlib/UUPSUpgradeable.lean:contract_source
 ProofForge/Contract/Token/Examples/SoulboundToken.lean:def spec : TokenSpec
-Examples/Product/ReentrancyGuard.lean:def spec : ProofForge.Contract.ContractSpec

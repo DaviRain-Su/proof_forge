@@ -94,7 +94,6 @@ def check_wrapper(rel: str, shared_name: str, export: str) -> None:
 def check_compatibility_wrappers() -> None:
     wrappers = {
         "Examples/Backend/Evm/Contracts/ArrayExample.lean": ("ArrayExample", "spec"),
-        "Examples/Backend/Evm/Contracts/stdlib/ReentrancyGuard.lean": ("ReentrancyGuard", "spec"),
         "ProofForge/Contract/Examples/Counter.lean": ("Counter", "contract"),
         "ProofForge/Contract/Examples/ValueVault.lean": ("ValueVault", "contract"),
         "ProofForge/Contract/Token/Examples/SoulboundToken.lean": ("SoulboundToken", "spec"),

@@ -3,6 +3,7 @@ import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import Examples.Product.RemoteCall
 import Examples.Product.Pausable
+import Examples.Product.ReentrancyGuard
 import ProofForge.Contract.Spec
 import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.Evm.Plan.Core
@@ -155,6 +156,44 @@ def main : IO Unit := do
     | .error error => throw <| IO.userError s!"direct Pausable EVM render failed: {error.message}"
   require (!directPausableYul.contains "mstore(32, 64)")
     "canonical assertFallback changed a plain revert into an encoded error envelope"
+
+  let guardBundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      Examples.Product.ReentrancyGuard.contract with
+    | .ok bundle => pure bundle
+    | .error error =>
+        throw <| IO.userError s!"direct ReentrancyGuard normalization failed: {repr error}"
+  let guardEntrypoints := guardBundle.contract.contract.interface.entrypoints.map fun entrypoint =>
+    let selector? := match entrypoint.name with
+      | "acquire" => some "a7134f73"
+      | "release" => some "86d1a69f"
+      | "locked" => some "cf309012"
+      | _ => entrypoint.selector?
+    { entrypoint with selector? }
+  let guardInterface := {
+    guardBundle.contract.contract.interface with entrypoints := guardEntrypoints }
+  let checkedGuard ← match ProofForge.IR.Canonical.validateCanonical {
+      guardBundle.contract.contract with interface := guardInterface } with
+    | .ok checked => pure checked
+    | .error error =>
+        throw <| IO.userError s!"direct ReentrancyGuard validation failed: {repr error}"
+  let guardCapabilities ← match ProofForge.Target.requireCapabilityPlan ProofForge.Target.evm {
+      targetId := ProofForge.Target.evm.id
+      calls := checkedGuard.contract.requirements
+    } with
+    | .ok plan => pure plan
+    | .error error =>
+        throw <| IO.userError s!"direct ReentrancyGuard capability plan failed: {error.render}"
+  let guardPlan ← match buildFromCore checkedGuard guardCapabilities with
+    | .ok plan => pure plan
+    | .error error =>
+        throw <| IO.userError s!"direct ReentrancyGuard EVM plan failed: {error.message}"
+  let directGuardYul ← match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan guardPlan with
+    | .ok yul => pure yul
+    | .error error =>
+        throw <| IO.userError s!"direct ReentrancyGuard EVM render failed: {error.message}"
+  require (directGuardYul.contains "revert" && directGuardYul.contains "sload" &&
+      directGuardYul.contains "sstore")
+    "direct ReentrancyGuard Yul lost guarded lock transitions"
 
   /- Check 3: an adapter coverage gap is terminal on the public route. -/
   let unsupportedSpec := ContractSpec.fromIR unsupportedAdapterModule

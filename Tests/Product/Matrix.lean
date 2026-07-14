@@ -137,12 +137,16 @@ def testPolicies : IO Unit := do
   require (Examples.Product.Pausable.contract.entrypoints.map (·.name) ==
       #["paused", "pause", "unpause"])
     "direct Pausable authored entrypoint drift"
-  /- Direct Pausable target-plan coverage lives in
-  `just pausable-authoring-cutover`; do not adapt it back to v1 IR here. -/
+  require (Examples.Product.ReentrancyGuard.contract.state.map (·.name) == #["lock"])
+    "direct ReentrancyGuard authored state drift"
+  require (Examples.Product.ReentrancyGuard.contract.entrypoints.map (·.name) ==
+      #["acquire", "release", "locked"])
+    "direct ReentrancyGuard authored entrypoint drift"
+  /- Direct Pausable and ReentrancyGuard target-plan coverage lives in their
+  focused authoring gates; do not adapt either source back to v1 IR here. -/
   for (label, m) in #[
     ("OwnablePausable", Examples.Product.OwnablePausable.module),
-    ("AccessControl", Examples.Product.AccessControl.module),
-    ("ReentrancyGuard", Examples.Product.ReentrancyGuard.module)
+    ("AccessControl", Examples.Product.AccessControl.module)
   ] do
     assertFourHost label m
   assertPrimaryThree "OwnableHash" Examples.Product.OwnableHash.module

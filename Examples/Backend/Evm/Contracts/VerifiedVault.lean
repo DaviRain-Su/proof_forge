@@ -6,12 +6,10 @@ Portable VerifiedVault for the unified EVM entry path. Source-level financial
 proofs remain in `VerifiedVault.Spec`; codegen uses portable IR only.
 -/
 import ProofForge.Contract.Source.Legacy
-import ProofForge.Contract.Stdlib.ReentrancyGuard
 
 namespace VerifiedVault
 
 open ProofForge.Contract.Source.Legacy
-open ProofForge.Contract.Stdlib.ReentrancyGuard
 
 namespace Spec
 
@@ -66,8 +64,7 @@ theorem withdraw_decreases_reserves {s next : State} {amount : Nat}
 end Spec
 
 contract_source VerifiedVault do
-  import ProofForge.Contract.Stdlib.ReentrancyGuard;
-
+  state lock : .u64
   state «owner» : .u64
   state initialized : .u64
   state reserves : .u64
