@@ -229,7 +229,7 @@ inductive AuthoredIntentKind
 
 structure AuthoredIntent where
   kind : AuthoredIntentKind
-  label : String
+  operation : ProofForge.Target.CapabilityOperation
   capability? : Option ProofForge.Target.Capability := none
   metadata : Array ProofForge.Target.TargetMetadata := #[]
   source? : Option String := none

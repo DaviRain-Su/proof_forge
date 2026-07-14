@@ -3,6 +3,7 @@ import ProofForge.IR.Core.Error
 import ProofForge.IR.Canonical
 import ProofForge.Target.HostOps.Near
 import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.HostOps.Solana
 import ProofForge.Target.InterfaceOps.Evm
 
 /-! # Authored AST — Top-Level Normalization to CanonicalBundle
@@ -97,7 +98,7 @@ def buildMaterialization (contract : AuthoredContract) (interface : InterfaceCon
     { kind := match i.kind with
         | .module => .module | .state => .state
         | .entrypoint => .entrypoint | .capability => .capability,
-      label := i.label,
+      operation := i.operation,
       capability? := i.capability?,
       metadata := i.metadata : MaterializationIntent }
   return {
@@ -138,6 +139,12 @@ private def moduleUsesHostOps (mod : Module) : Bool :=
         | .hostCall _ => true
         | _ => false
 
+private def materializationUsesHostOps (materialization : MaterializationContract) : Bool :=
+  materialization.intents.any fun intent =>
+    match intent.operation with
+    | .hostOp _ => true
+    | .builtin _ => false
+
 /-- Normalize a authored contract to a CanonicalBundle.
 This assigns canonical IDs by declaration order and maps all Authored
 constructs to Core IR types. -/
@@ -160,9 +167,11 @@ def normalizeAuthored (contract : AuthoredContract) :
     |>.filterMap id
   let (materialization, _) ← StateT.run (buildMaterialization contract interface) finalSt
   let evidence := buildEvidence contract
-  let hostOpCatalog ← if moduleUsesHostOps mod then
+  let hostOpCatalog ← if moduleUsesHostOps mod || materializationUsesHostOps materialization then
     match ProofForge.IR.Core.HostOp.HostOpCatalog.empty.registerAll
-        (ProofForge.Target.HostOps.Near.signatures ++ ProofForge.Target.HostOps.Evm.signatures) with
+        (ProofForge.Target.HostOps.Near.signatures ++
+          ProofForge.Target.HostOps.Evm.signatures ++
+          ProofForge.Target.HostOps.Solana.signatures) with
     | .ok catalog => pure catalog
     | .error error => throw (.unsupportedAuthored "HostOpCatalog" s!"registration failed: {repr error}")
   else

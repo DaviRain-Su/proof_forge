@@ -41,6 +41,7 @@ legacy-replacement-freeze:
 hostop-protocol:
     lake env lean --run Tests/Canonical/HostOpCatalog.lean
     lake env lean --run Tests/Canonical/HostOpFailClosed.lean
+    lake env lean --run Tests/Canonical/SolanaHostOpCatalog.lean
     lake env lean --run Tests/Canonical/EvmCryptoHostOps.lean
     lake env lean --run Tests/Canonical/EvmCreateHostOp.lean
     lake env lean --run Tests/Canonical/NearPromiseHostOp.lean

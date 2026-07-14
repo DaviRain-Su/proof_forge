@@ -141,8 +141,15 @@ focused canonical boundary tests pass. This task establishes ownership and the
 direct frontend seam; full deletion of every legacy Solana fixture remains
 tracked by IR-B5 and A-CUT5.
 
-Status (2026-07-14): in progress. Directory placement is complete, but the
-public/internal dependency on the legacy builder remains.
+Checkpoint (2026-07-14): A-CUT1e-a is complete. Canonical and Authored
+materialization intents carry the open `CapabilityOperation` identity rather
+than a closed target enum or untyped Canonical label. The initial typed Solana
+catalog registers remaining-compute-units and the three Solana hash syscalls,
+and `solana-sbpf-asm` advertises those exact versioned IDs. Account/PDA/CPI
+operations are intentionally not represented by placeholder HostOp signatures:
+their typed authored payload and backend handler contract remain in A-CUT1e-b.
+Canonical and target-plan validation reject unknown or foreign operation IDs.
+The public/internal dependency on the legacy builder also remains.
 
 ### A-CUT2 - Direct `contract_source` frontend
 

@@ -7,6 +7,7 @@ import ProofForge.Target.Support
 import ProofForge.Target.HostOp
 import ProofForge.Target.HostOps.Near
 import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.HostOps.Solana
 import ProofForge.Target.InterfaceOps.Evm
 
 namespace ProofForge.Target
@@ -363,6 +364,7 @@ def solanaSbpfAsm : TargetProfile := {
     .crosscallCpi,
     .crosscallInvoke
   ]
+  hostOps := HostOps.Solana.supportedIds
   requiredTools := #["sbpf"]
   support := TargetSupport.primaryTriad
     "portable IR → sBPF assembly intermediate → sbpf ELF final; CPI/PDA extensions"

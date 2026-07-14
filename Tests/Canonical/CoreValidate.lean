@@ -502,7 +502,9 @@ def capabilityIntentWithoutCapabilityContract : CanonicalContract := {
   baseContract with
   materialization := {
     baseMaterialization with
-    intents := #[{ kind := .capability, label := "emit", capability? := none }]
+    intents := #[{
+      kind := .capability, operation := .builtin "emit", capability? := none
+    }]
   }
 }
 
@@ -511,7 +513,7 @@ def nonCapabilityIntentWithCapabilityContract : CanonicalContract := {
   materialization := {
     baseMaterialization with
     intents := #[{
-      kind := .module, label := "module", capability? := some .eventsEmit
+      kind := .module, operation := .builtin "module", capability? := some .eventsEmit
     }]
   }
 }

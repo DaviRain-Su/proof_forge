@@ -21,6 +21,10 @@ def CapabilityOperation.render : CapabilityOperation → String
   | .builtin name => name
   | .hostOp id => id.render
 
+def CapabilityOperation.hasIdentity : CapabilityOperation → Bool
+  | .builtin name => !name.isEmpty
+  | .hostOp id => !id.namespace_.isEmpty && !id.name.isEmpty
+
 instance : ToString CapabilityOperation where
   toString := CapabilityOperation.render
 

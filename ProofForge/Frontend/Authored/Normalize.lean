@@ -107,7 +107,7 @@ def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv)
   let typeLayouts ← adaptTypeLayouts spec.module env
   let intents : Array MaterializationIntent := spec.intents.map (fun intent => {
     kind := intent.kind
-    label := intent.label
+    operation := .builtin intent.label
     capability? := intent.capability?
     metadata := intent.metadata
   })

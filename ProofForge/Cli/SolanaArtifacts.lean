@@ -43,7 +43,7 @@ def renderCanonicalSpecSolanaAsm (spec : ProofForge.Contract.ContractSpec) :
   if !hostCallErrors.isEmpty then
     .error s!"canonical: unhandled host op: {String.intercalate "; " hostCallErrors.toList}"
   if checked.contract.materialization.intents.any (fun intent =>
-      intent.label.startsWith "solana.cpi.") then
+      intent.operation.render.startsWith "solana.cpi.") then
     .error "canonical: intent-only Solana CPI is not represented by a Core crosscall"
   let targetPlan ← match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
     | .ok plan => .ok plan

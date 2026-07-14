@@ -77,7 +77,7 @@ def capabilityContract : SurfaceContract := {
   constructorParams := #[]
   constructorBindings := #[]
   intents := #[{
-    kind := .capability, label := "solana-pda",
+    kind := .capability, operation := .builtin "solana-pda",
     capability? := some .storagePda
   }]
 }

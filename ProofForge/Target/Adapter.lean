@@ -97,6 +97,13 @@ def firstUnsupportedCapabilityCall? (profile : TargetProfile) (calls : Array Cap
     Option CapabilityCall :=
   calls.find? (fun call => !hasCapability profile call.capability)
 
+def firstUnsupportedHostOpCall? (profile : TargetProfile) (calls : Array CapabilityCall) :
+    Option CapabilityCall :=
+  calls.find? fun call =>
+    match call.operation with
+    | .builtin _ => false
+    | .hostOp id => !profile.hostOps.contains id
+
 def unsupportedCapabilityCallDiagnostic (profile : TargetProfile) (call : CapabilityCall) :
     Diagnostic :=
   let sourceFragment :=
@@ -107,6 +114,11 @@ def unsupportedCapabilityCallDiagnostic (profile : TargetProfile) (call : Capabi
     message :=
       s!"target `{profile.id}` does not support capability `{call.capability.id}`{sourceFragment}: capability is not present in the target profile"
   }
+
+def unsupportedHostOpCallDiagnostic (profile : TargetProfile) (call : CapabilityCall) :
+    Diagnostic := {
+  message := s!"target `{profile.id}` has no handler for operation `{call.operation.render}`"
+}
 
 def requireTargetExtensionMetadata (profile : TargetProfile) (calls : Array CapabilityCall) :
     Except Diagnostic Unit := do
@@ -144,12 +156,15 @@ def requireCapabilityPlan (profile : TargetProfile) (plan : CapabilityPlan) :
       match requirePlanHostRuntimeHonesty profile plan with
       | .error err => .error err
       | .ok () =>
-          match firstUnsupportedCapabilityCall? profile plan.calls with
-          | some call => .error (unsupportedCapabilityCallDiagnostic profile call)
+          match firstUnsupportedHostOpCall? profile plan.calls with
+          | some call => .error (unsupportedHostOpCallDiagnostic profile call)
           | none =>
-              match requireCapabilities profile plan.capabilities with
-              | .ok () => .ok plan
-              | .error err => .error (Diagnostic.fromCapabilityError err)
+              match firstUnsupportedCapabilityCall? profile plan.calls with
+              | some call => .error (unsupportedCapabilityCallDiagnostic profile call)
+              | none =>
+                  match requireCapabilities profile plan.capabilities with
+                  | .ok () => .ok plan
+                  | .error err => .error (Diagnostic.fromCapabilityError err)
 
 def defaultResolve (profile : TargetProfile) (spec : ProofForge.Contract.ContractSpec) :
     Except Diagnostic CapabilityPlan := do

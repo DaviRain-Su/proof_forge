@@ -3785,3 +3785,29 @@ Rules:
   catalog, emit open authored HostOps from public syntax, keep validation and
   materialization in `Backend.Solana.Extension`, and remove Legacy imports from
   the public/internal route. Full zero-caller deletion remains in IR-B5/A-CUT5.
+
+## 2026-07-14 - A-CUT1e-a: open Solana operation identity
+
+- Status: `done (verified 2026-07-14)`; A-CUT1e continues with typed
+  account/PDA/CPI payloads and the public Source/Internal Legacy cut.
+- Replaced the Canonical materialization intent's raw `label` with the open
+  `CapabilityOperation` carrier. Direct Authored contracts can now retain a
+  versioned target operation, while the old `Contract.Intent` converts to a
+  builtin operation only at the compatibility normalizer boundary.
+- Added `Target.HostOps.Solana` with exact signatures for remaining compute
+  units, SHA-256, Keccak-256, and Blake3. Registered those IDs in the canonical
+  Solana target profile and the direct Authored HostOp catalog.
+- Made both validation boundaries fail closed: Canonical requirements reject
+  unknown HostOp IDs or mismatched required capabilities, and target capability
+  plans reject versioned operations absent from the selected profile. The
+  focused test proves EVM cannot accept a Solana operation merely because it
+  supports the same broad capability.
+- Did not invent metadata-only PDA/CPI HostOp signatures. Those operations need
+  typed account, seed, and instruction-data payloads before catalog entry.
+- Added `Tests/Canonical/SolanaHostOpCatalog.lean` and wired it into
+  `hostop-protocol`; it verifies catalog lookup, profile advertisement, and
+  Authored-to-Canonical operation preservation.
+- Verification: focused Authored/Registry builds; Solana HostOp catalog,
+  Authored canonicalization, Core validation, strict intent materialization,
+  Surface normalization, and Solana public-route tests; canonical boundary and
+  Legacy freeze gates; target-specific constructor scan; and `git diff --check`.

@@ -188,7 +188,7 @@ structure TypeLayoutMetadata where
 the checked contract through this type. -/
 structure MaterializationIntent where
   kind : ProofForge.Contract.IntentKind
-  label : String
+  operation : CapabilityOperation
   capability? : Option Capability := none
   metadata : Array TargetMetadata := #[]
   deriving Repr, BEq
@@ -425,7 +425,7 @@ def materializationCapabilityCalls
   materialization.intents.filterMap (fun intent =>
     intent.capability?.map (fun capability => {
       capability := capability
-      operation := .builtin intent.label
+      operation := intent.operation
       source? := none
       metadata := intent.metadata
     }))
@@ -612,17 +612,17 @@ private def validateMaterialization (module : Core.Module)
       throw <| materializationError s!"field metadata does not align with Core type {repr layout.typeId}"
 
   for intent in materialization.intents do
-    if intent.label.isEmpty then
-      throw <| materializationError "materialization intent has an empty label"
+    if !intent.operation.hasIdentity then
+      throw <| materializationError "materialization intent has an empty operation identity"
     match intent.kind, intent.capability? with
     | .capability, some _ => pure ()
     | .capability, none =>
         throw <| materializationError
-          s!"capability intent `{intent.label}` has no capability"
+          s!"capability intent `{intent.operation.render}` has no capability"
     | _, none => pure ()
     | _, some _ =>
         throw <| materializationError
-          s!"non-capability intent `{intent.label}` carries a capability"
+          s!"non-capability intent `{intent.operation.render}` carries a capability"
 
   unless materialization.eventEncodings.size == interface.events.size do
     throw <| materializationError "event encoding mirror is incomplete"
@@ -670,9 +670,20 @@ private def validateRequirements (module : Core.Module)
     throw <| ValidationError.mkSimple .invalidMaterialization "capability"
       "duplicate capability requirement"
   for call in requirements do
-    if call.operation.render.isEmpty then
+    if !call.operation.hasIdentity then
       throw <| ValidationError.mkSimple .unknownReference "capability"
         s!"capability call for {call.capability} has empty operation"
+    match call.operation with
+    | .builtin _ => pure ()
+    | .hostOp id =>
+        let signature ← match hostOpCatalog.lookup id with
+          | .ok signature => pure signature
+          | .error _ =>
+              throw <| ValidationError.mkSimple .unknownReference "capability"
+                s!"capability call references unknown HostOp `{id.render}`"
+        unless signature.requiredCapabilities.contains call.capability do
+          throw <| ValidationError.mkSimple .invalidMaterialization "capability"
+            s!"HostOp `{id.render}` does not require capability `{call.capability}`"
     unless call.source?.isNone do
       throw <| ValidationError.mkSimple .invalidMaterialization "capability"
         s!"capability call `{call.operation.render}` leaked source evidence into the checked contract"
@@ -749,7 +760,8 @@ instance : Inhabited TypeFieldMetadata where default := { fieldId := ⟨0⟩, na
 instance : Inhabited TypeLayoutMetadata where default := {
   typeId := ⟨0⟩, name := "", isPublic := false, deriveStorage := false, fields := #[]
 }
-instance : Inhabited MaterializationIntent where default := { kind := .module, label := "" }
+instance : Inhabited MaterializationIntent where
+  default := { kind := .module, operation := .builtin "" }
 instance : Inhabited EventFieldEncoding where default := { fieldId := ⟨0⟩, abiWord := "" }
 instance : Inhabited EventEncoding where default := { eventId := ⟨0⟩, fields := #[] }
 instance : Inhabited ErrorEncoding where default := { errorId := ⟨0⟩, form := .assertFallback }

@@ -38,15 +38,15 @@ def surfaceCounter : SurfaceContract := {
   constructorParams := #[]
   constructorBindings := #[]
   intents := #[
-    { kind := .module, label := "Counter" },
-    { kind := .state, label := "count" },
-    { kind := .entrypoint, label := "initialize" },
-    { kind := .entrypoint, label := "increment" },
-    { kind := .entrypoint, label := "get" },
-    { kind := .capability, label := "storage.scalar", capability? := some .storageScalar },
-    { kind := .capability, label := "storage.scalar", capability? := some .storageScalar },
-    { kind := .capability, label := "storage.scalar", capability? := some .storageScalar },
-    { kind := .capability, label := "storage.scalar", capability? := some .storageScalar }
+    { kind := .module, operation := .builtin "Counter" },
+    { kind := .state, operation := .builtin "count" },
+    { kind := .entrypoint, operation := .builtin "initialize" },
+    { kind := .entrypoint, operation := .builtin "increment" },
+    { kind := .entrypoint, operation := .builtin "get" },
+    { kind := .capability, operation := .builtin "storage.scalar", capability? := some .storageScalar },
+    { kind := .capability, operation := .builtin "storage.scalar", capability? := some .storageScalar },
+    { kind := .capability, operation := .builtin "storage.scalar", capability? := some .storageScalar },
+    { kind := .capability, operation := .builtin "storage.scalar", capability? := some .storageScalar }
   ]
 }
 
