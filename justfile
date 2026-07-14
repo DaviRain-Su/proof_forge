@@ -319,6 +319,10 @@ evm-canonical-bytecode-route: build
 evm-canonical-check-route: build
     PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge check --target evm --root . --report-format json Examples/Product/Canonical/Counter.lean | jq -e '.status == "ok" and .validation.sourceVersion == "surface-v2" and .validation.canonicalNormalize == "passed" and .validation.backendPlan == "passed" and .validation.lowering == "passed"' >/dev/null
 
+# Exact EVM product catalog through the public target-first canonical Yul route.
+evm-canonical-product-route: build
+    scripts/evm/canonical-product-route.sh
+
 # Wave 3B Task 12.2: materialization and diagnostic parity gate.
 canonical-materialization:
     lake env lean --run Tests/Canonical/MaterializationParity.lean
@@ -1756,6 +1760,7 @@ product:
     just nft-materialization
     just portable-nft-multi-target
     just product-matrix
+    just evm-canonical-product-route
     just portable-counter-multi-target
     just portable-remote-call-multi-target
     just product-token-near

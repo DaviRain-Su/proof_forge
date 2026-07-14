@@ -3377,3 +3377,20 @@ Rules:
 - Added `just evm-canonical-check-route`, including machine-readable evidence
   for source version, canonical normalization, plan construction, and lowering.
 - Verification: `just evm-canonical-check-route` and `git diff --check`.
+
+## 2026-07-14 - EVM-R3d: canonical product CLI catalog
+
+- Status: `done (verified 2026-07-14)`; EVM-R3 is complete and EVM-R4 is next.
+- Defined `Examples/Product/Canonical` as the EVM materialization source set
+  during the ordered chain migration. The primary catalog remains the single
+  selector: every entry advertising `evm` must have a same-named Surface v2
+  source, while focused collection examples are not silently promoted.
+- Added a catalog-driven public CLI gate for all 28 EVM products. Each source
+  is compiled through target-first canonical Yul dispatch; logical peer names
+  are supplied only as EVM target metadata.
+- Added the gate to `just product`, so product-first CI now detects missing
+  canonical EVM roots and regressions that only appear through the executable
+  command surface.
+- The sibling Legacy-authored product sources remain temporarily for NEAR and
+  Solana only. EVM no longer consumes them in its product catalog gate.
+- Verification: `just evm-canonical-product-route` and `git diff --check`.

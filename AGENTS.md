@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | EVM-R3 - switch public EVM build/emit/check/product routes to Canonical Core |
-| Next task | EVM-R4 - delete zero-caller EVM Legacy lowering and compatibility APIs |
+| Active task | EVM-R4 - delete zero-caller EVM Legacy lowering and compatibility APIs |
+| Next task | NEAR-R2 - direct canonical product and public-route cutover |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -147,7 +147,7 @@ EVM migration. Finish these rows before resuming NEAR-R2:
 | EVM-R0 | done (`c988153b`, `f44be25d`, `4cc2700b`) | Make canonical storage/ABI plans complete enough that the strict renderer consumes `ModulePlan` alone |
 | EVM-R1 | done (verified 2026-07-14) | Move EVM-only context, protocol, ABI, call-mode, error, and dispatch semantics into EVM-owned HostOps and plan metadata |
 | EVM-R2 | done (28/28 EVM catalog products direct; exact catalog audit and ERC-4626 Anvil smoke verified 2026-07-14) | Materialize Counter, ValueVault, Token, RemoteCall, and remaining EVM product families directly into checked Canonical Core |
-| EVM-R3 | in_progress | Switch EVM build/emit/check and product dispatch to the direct canonical route and replay focused EVM behavior/runtime gates |
+| EVM-R3 | done (public Yul, optimized bytecode, check, plan metadata, and 28-product CLI catalog verified 2026-07-14) | Switch EVM build/emit/check and product dispatch to the direct canonical route and replay focused EVM behavior/runtime gates |
 | EVM-R4 | pending | Delete obsolete EVM legacy lowering, adapters, constructors, compatibility APIs, and freeze-baseline entries after caller count reaches zero |
 
 The D-052 cross-program routing index remains below for work not superseded by

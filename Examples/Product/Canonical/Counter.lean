@@ -2,10 +2,9 @@ import ProofForge.Frontend.Surface
 
 /-! # Canonical Counter (Surface v2)
 
-Surface-authored Counter contract — same business behavior as the
-Legacy `Examples/Product/Counter.lean` but using the independent
-`Frontend.Surface` AST. Test input only; the Legacy product baseline
-remains the public source until cutover.
+Surface-authored Counter contract using the independent `Frontend.Surface`
+AST. This is the public EVM materialization source; the older sibling source is
+retained only for targets whose ordered migration has not run yet.
 -/
 
 open ProofForge.Frontend.Surface
