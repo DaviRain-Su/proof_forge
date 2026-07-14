@@ -2,8 +2,8 @@
 """Check that example sources follow the shared-vs-target topology.
 
 The goal is narrow and structural: reusable product examples live under
-Examples/Product, while historical target paths stay as wrappers or
-target-specific fixtures.
+Examples/Product, while retained target paths are explicit temporary wrappers
+or target-specific fixtures.
 """
 
 from __future__ import annotations
@@ -94,7 +94,6 @@ def check_wrapper(rel: str, shared_name: str, export: str) -> None:
 def check_compatibility_wrappers() -> None:
     wrappers = {
         "Examples/Backend/Evm/Contracts/ArrayExample.lean": ("ArrayExample", "spec"),
-        "Examples/Backend/Evm/Contracts/stdlib/Pausable.lean": ("Pausable", "spec"),
         "Examples/Backend/Evm/Contracts/stdlib/ReentrancyGuard.lean": ("ReentrancyGuard", "spec"),
         "ProofForge/Contract/Examples/Counter.lean": ("Counter", "contract"),
         "ProofForge/Contract/Examples/ValueVault.lean": ("ValueVault", "contract"),

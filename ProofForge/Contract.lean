@@ -13,7 +13,6 @@ import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Stdlib.ERC20
 import ProofForge.Contract.Stdlib.ERC1155
 import ProofForge.Contract.Stdlib.Ownable
-import ProofForge.Contract.Stdlib.Pausable
 import ProofForge.Contract.Stdlib.ReentrancyGuard
 import ProofForge.Contract.Token
 import ProofForge.Contract.Token.Evm

@@ -432,6 +432,16 @@ ownable-authoring-cutover:
     lake env lean --run Tests/Canonical/SourceLoader.lean
     scripts/canonical/ownable-target-first-smoke.sh
 
+# A-CUT3c1: Product Pausable has one direct Authored/Core route and no Legacy facade.
+pausable-authoring-cutover:
+    scripts/canonical/check-pausable-authoring-cutover.sh
+    lake build ProofForge.Backend.WasmHost.ModulePlan.Core ProofForge.Cli.ContractLoader Examples.Product.Pausable
+    lake env lean --run Tests/PausableExample.lean
+    lake env lean --run Tests/Canonical/EvmPublicRoute.lean
+    lake env lean --run Tests/Canonical/PublicAuthoredRoute.lean
+    lake env lean --run Tests/Canonical/SourceLoader.lean
+    scripts/canonical/pausable-target-first-smoke.sh
+
 # Wave 6 Task 21: architecture boundary gate.
 canonical-boundary:
     scripts/canonical/check-boundary-self-test.sh

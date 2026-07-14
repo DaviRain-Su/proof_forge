@@ -132,8 +132,14 @@ def testCounterV1FixtureCoverage : IO Unit := do
         "HostEnvProbe Solana must lower contractId / program_id"
 
 def testPolicies : IO Unit := do
+  require (Examples.Product.Pausable.contract.state.map (·.name) == #["paused"])
+    "direct Pausable authored state drift"
+  require (Examples.Product.Pausable.contract.entrypoints.map (·.name) ==
+      #["paused", "pause", "unpause"])
+    "direct Pausable authored entrypoint drift"
+  /- Direct Pausable target-plan coverage lives in
+  `just pausable-authoring-cutover`; do not adapt it back to v1 IR here. -/
   for (label, m) in #[
-    ("Pausable", Examples.Product.Pausable.module),
     ("OwnablePausable", Examples.Product.OwnablePausable.module),
     ("AccessControl", Examples.Product.AccessControl.module),
     ("ReentrancyGuard", Examples.Product.ReentrancyGuard.module)

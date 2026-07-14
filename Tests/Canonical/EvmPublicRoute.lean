@@ -2,9 +2,11 @@ import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import Examples.Product.RemoteCall
-import Examples.Backend.Evm.Contracts.stdlib.Pausable
+import Examples.Product.Pausable
 import ProofForge.Contract.Spec
+import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Frontend.Authored.Canonicalize
 import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Canonical
 import ProofForge.Backend.WasmHost.NearModulePlan.HostOps
@@ -83,7 +85,6 @@ def main : IO Unit := do
   let counterSpec := ContractSpec.fromIR (withoutSelectors ProofForge.IR.Examples.Counter.module)
   let vaultSpec := ContractSpec.fromIR (withoutSelectors ProofForge.IR.Examples.ValueVault.module)
   let remoteSpec := ContractSpec.fromIR (withoutSelectors Examples.Product.RemoteCall.module)
-  let pausableSpec := ContractSpec.fromIR (withoutSelectors Pausable.module)
   let cast := match ← IO.getEnv "HOME" with
     | some home => home ++ "/.foundry/bin/cast"
     | none => "cast"
@@ -123,8 +124,36 @@ def main : IO Unit := do
   require (publicRemoteYul.contains "function __proof_forge_crosscall_2")
     "canonical RemoteCall omitted its two-argument CALL helper"
 
-  let (publicPausableYul, _) ← renderContractSpecEvmYul opts pausableSpec
-  require (!publicPausableYul.contains "mstore(32, 64)")
+  let pausableBundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      Examples.Product.Pausable.contract with
+    | .ok bundle => pure bundle
+    | .error error => throw <| IO.userError s!"direct Pausable normalization failed: {repr error}"
+  let pausableEntrypoints := pausableBundle.contract.contract.interface.entrypoints.map fun entrypoint =>
+    let selector? := match entrypoint.name with
+      | "paused" => some "5c975abb"
+      | "pause" => some "8456cb59"
+      | "unpause" => some "3f4ba83a"
+      | _ => entrypoint.selector?
+    { entrypoint with selector? }
+  let pausableInterface := {
+    pausableBundle.contract.contract.interface with entrypoints := pausableEntrypoints }
+  let checkedPausable ← match ProofForge.IR.Canonical.validateCanonical {
+      pausableBundle.contract.contract with interface := pausableInterface } with
+    | .ok checked => pure checked
+    | .error error => throw <| IO.userError s!"direct Pausable validation failed: {repr error}"
+  let pausableCapabilities ← match ProofForge.Target.requireCapabilityPlan ProofForge.Target.evm {
+      targetId := ProofForge.Target.evm.id
+      calls := checkedPausable.contract.requirements
+    } with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError s!"direct Pausable capability plan failed: {error.render}"
+  let pausablePlan ← match buildFromCore checkedPausable pausableCapabilities with
+    | .ok plan => pure plan
+    | .error error => throw <| IO.userError s!"direct Pausable EVM plan failed: {error.message}"
+  let directPausableYul ← match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan pausablePlan with
+    | .ok yul => pure yul
+    | .error error => throw <| IO.userError s!"direct Pausable EVM render failed: {error.message}"
+  require (!directPausableYul.contains "mstore(32, 64)")
     "canonical assertFallback changed a plain revert into an encoded error envelope"
 
   /- Check 3: an adapter coverage gap is terminal on the public route. -/

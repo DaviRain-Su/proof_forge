@@ -121,46 +121,10 @@ def main : IO Unit := do
       require (src.contains "assert" || src.contains "assert_eq" || src.contains "assert_fail")
         "Solana OwnableHash requireOwnerHash materializes as assert"
 
-  -- T1.1/T1.2: Pausable emergency-stop on four hosts (unauthenticated pause API).
-  let pausable := Examples.Product.Pausable.module
-  require (pausable.state.any (fun s => s.id == "paused" && s.type == .u64))
-    "Pausable stores paused as u64"
-  match ProofForge.Backend.Evm.Plan.buildModulePlan pausable with
-  | .error e => throw (IO.userError s!"EVM Pausable plan: {e.message}")
-  | .ok _ => pure ()
-  let pausableEvm : ProofForge.IR.Module := {
-    pausable with
-    entrypoints := pausable.entrypoints.map fun ep =>
-      match ep.name with
-      | "paused" => { ep with selector? := some "5c975abb" }
-      | "pause" => { ep with selector? := some "8456cb59" }
-      | "unpause" => { ep with selector? := some "3f4ba83a" }
-      | _ => ep
-  }
-  match ProofForge.Backend.Evm.IR.renderModule pausableEvm with
-  | .error e => throw (IO.userError s!"EVM Pausable Yul: {e.message}")
-  | .ok yul =>
-      require (yul.contains "revert")
-        "EVM Pausable guards materialize as revert"
-      require (yul.contains "sload" && yul.contains "sstore")
-        "EVM Pausable reads/writes paused slot"
-  match ProofForge.Backend.Solana.SbpfAsm.renderModule pausable with
-  | .error e => throw (IO.userError s!"Solana Pausable: {e.message}")
-  | .ok src =>
-      require (src.contains "assert" || src.contains "assert_eq" || src.contains "assert_fail")
-        "Solana Pausable guard materializes as assert"
-  match ProofForge.Backend.WasmHost.EmitWat.renderModule pausable with
-  | .error e => throw (IO.userError s!"NEAR Pausable: {e.message}")
-  | .ok wat =>
-      require (wat.contains "unreachable" || wat.contains "panic")
-        "NEAR Pausable checks materialize as unreachable/panic"
-  match ProofForge.Backend.WasmHost.EmitWat.renderModule pausable .soroban with
-  | .error e => throw (IO.userError s!"Soroban Pausable: {e.message}")
-  | .ok wat =>
-      require (wat.contains "unreachable" || wat.contains "panic")
-        "Soroban Pausable checks materialize as unreachable/panic"
-      require (wat.contains "_get" || wat.contains "_put")
-        "Soroban Pausable uses host storage"
+  -- T1.1/T1.2 moved to the direct Authored/Core gate. This legacy aggregate
+  -- checks only the authored identity and never projects it back to IR.Module.
+  require (Examples.Product.Pausable.contract.state.map (·.name) == #["paused"])
+    "direct Pausable authored state drift"
 
   -- T1.3: OwnablePausable — only owner may pause/unpause.
   let ownablePausable := Examples.Product.OwnablePausable.module
@@ -246,7 +210,7 @@ def main : IO Unit := do
       require (wat.contains "_get" || wat.contains "_put")
         "RoleGatedToken Soroban maps via host storage"
 
-  for mod in #[pausable, ownablePausable, reent, accessControl, roleGated] do
+  for mod in #[ownablePausable, reent, accessControl, roleGated] do
     let reps := runPrimaryWithSoroban mod
     require (reps.size == 4) s!"preflight size for {mod.name}"
     for r in reps do

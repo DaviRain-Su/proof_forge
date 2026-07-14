@@ -1,5 +1,6 @@
 import Examples.Product.Counter
 import Examples.Product.Ownable
+import Examples.Product.Pausable
 import Examples.Product.ValueVault
 import ProofForge.Cli.ContractLoader
 import ProofForge.Frontend.Authored
@@ -17,6 +18,9 @@ def publicValueVault : AuthoredContract :=
 
 def publicOwnable : AuthoredContract :=
   Examples.Product.Ownable.contract
+
+def publicPausable : AuthoredContract :=
+  Examples.Product.Pausable.contract
 
 def require (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -67,6 +71,21 @@ unsafe def run : IO Unit := do
         "Loader changed the direct authored Ownable identity"
   | .surfaceFixture _ =>
       throw <| IO.userError "public Ownable was loaded as an internal Surface fixture"
+  let pausableInput := System.FilePath.mk "Examples/Product/Pausable.lean"
+  let (pausableEnv, pausableModName) <- ProofForge.Cli.ContractLoader.runTrustedLocalFrontend
+    pausableInput (some (System.FilePath.mk ".")) none
+  require (pausableEnv.constants.contains (pausableModName ++ `contract))
+    "public Pausable does not export contract : AuthoredContract"
+  require (!(pausableEnv.constants.contains (pausableModName ++ `spec)))
+    "public Pausable still exports the retired ContractSpec source"
+  require (!(pausableEnv.constants.contains (pausableModName ++ `module)))
+    "public Pausable still exports the retired IR.Module source"
+  match <- ProofForge.Cli.ContractLoader.loadSourceFromEnv pausableEnv pausableModName with
+  | .authored contract =>
+      require (contract.name == publicPausable.name)
+        "Loader changed the direct authored Pausable identity"
+  | .surfaceFixture _ =>
+      throw <| IO.userError "public Pausable was loaded as an internal Surface fixture"
   IO.println "public-authored-route: ok"
 
 end ProofForge.Tests.Canonical.PublicAuthoredRoute

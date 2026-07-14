@@ -89,6 +89,19 @@ unsafe def main : IO Unit := do
   require (authoredOwnableBundle.contract.contract.module.events.size == 1)
     "Authored Ownable event drift"
 
+  let authoredPausable <- load "Examples/Product/Pausable.lean"
+  match authoredPausable with
+  | .authored _ => pure ()
+  | .surfaceFixture _ =>
+      throw (IO.userError "authored Pausable discovered as an internal Surface fixture")
+  let authoredPausableBundle <- canonicalize authoredPausable
+  require (authoredPausableBundle.contract.contract.module.state.size == 1)
+    "Authored Pausable state drift"
+  require (authoredPausableBundle.contract.contract.module.functions.size == 3)
+    "Authored Pausable entrypoint drift"
+  require (authoredPausableBundle.contract.contract.module.events.isEmpty)
+    "Authored Pausable event drift"
+
   let fixtureDir := "build/canonical/source-loader"
   IO.FS.createDirAll fixtureDir
   let ambiguousPath := fixtureDir ++ "/Ambiguous.lean"

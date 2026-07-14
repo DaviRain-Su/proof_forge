@@ -45,7 +45,7 @@ expected_entries() {
 
 expected_source_kind() {
   case "$1" in
-    Ownable) echo "contract-source-authored" ;;
+    Ownable|Pausable) echo "contract-source-authored" ;;
     *) echo "contract-sdk" ;;
   esac
 }

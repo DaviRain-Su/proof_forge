@@ -2,20 +2,29 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-Portable Pausable example facade.
+Target-neutral Pausable emergency-stop policy shared across target plans.
 
-The canonical reusable mixin lives in `ProofForge.Contract.Stdlib.Pausable`.
-This module gives the examples tree a shared source path that can be routed to
-EVM, Solana sBPF, and NEAR/Wasm by changing only `--target`.
+This file is the only Product authoring source. It normalizes directly from
+`AuthoredContract` to checked Canonical Core and target-owned plans.
 -/
-import ProofForge.Contract.Stdlib.Pausable
+import ProofForge.Contract.Source
 
 namespace Examples.Product.Pausable
 
-def spec : ProofForge.Contract.ContractSpec :=
-  ProofForge.Contract.Stdlib.Pausable.spec
+open ProofForge.Contract.Source
 
-def module : ProofForge.IR.Module :=
-  spec.module
+contract_source Pausable do
+  state paused : .u64
+
+  query paused returns(.u64) do
+    return paused;
+
+  entry pause do
+    do requireEq paused (u64 0) "already paused";
+    paused := u64 1;
+
+  entry unpause do
+    do requireNe paused (u64 0) "not paused";
+    paused := u64 0;
 
 end Examples.Product.Pausable

@@ -29,7 +29,13 @@ object "Pausable" {
         revert(0, 0)
       }
       let v4 := 1
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v4, 18446744073709551615))))
+      {
+        let __pf_packed_value := v4
+        if gt(__pf_packed_value, 18446744073709551615) {
+          revert(0, 0)
+        }
+        sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(__pf_packed_value, 18446744073709551615))))
+      }
     }
     function f_Pausable_unpause() {
       let v5 := and(shr(0, sload(0)), 18446744073709551615)
@@ -39,7 +45,13 @@ object "Pausable" {
         revert(0, 0)
       }
       let v8 := 0
-      sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(v8, 18446744073709551615))))
+      {
+        let __pf_packed_value := v8
+        if gt(__pf_packed_value, 18446744073709551615) {
+          revert(0, 0)
+        }
+        sstore(0, or(and(sload(0), not(shl(0, 18446744073709551615))), shl(0, and(__pf_packed_value, 18446744073709551615))))
+      }
     }
   }
 }
