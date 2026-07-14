@@ -20,12 +20,14 @@ def contract : SurfaceContract := {
   errors := #[]
   entrypoints := #[
     { name := "initialize", kind := .function, mutability := .call,
+      selector? := some "8129fc1c",
       params := #[], retType := .unit,
       body := #[
         .stateWrite "count" (.literal (.u64Lit 0))
       ]
     },
     { name := "increment", kind := .function, mutability := .call,
+      selector? := some "d09de08a",
       params := #[], retType := .unit,
       body := #[
         .stateWrite "count"
@@ -35,6 +37,7 @@ def contract : SurfaceContract := {
       ]
     },
     { name := "get", kind := .function, mutability := .view,
+      selector? := some "6d4ce63c",
       params := #[], retType := .u64,
       body := #[
         .returnExpr (.stateRead "count")

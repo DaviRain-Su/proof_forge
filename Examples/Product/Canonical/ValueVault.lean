@@ -43,6 +43,7 @@ def contract : SurfaceContract := {
   errors := #[]
   entrypoints := #[
     { name := "initialize", kind := .function, mutability := .call,
+      selector? := some "8129fc1c",
       params := #[{ name := "initial", type := .u64 }], retType := .unit,
       body := #[
         .bind "checkpoint" .u64 (.contextRead .blockNumber),
@@ -54,6 +55,7 @@ def contract : SurfaceContract := {
         .stateWrite "operations" (.literal (.u64Lit 1)),
         .emit "VaultInitialized" #[.local "initial", .local "checkpoint"]] },
     { name := "deposit", kind := .function, mutability := .call,
+      selector? := some "d09de08a",
       params := #[{ name := "amount", type := .u64 }], retType := .unit,
       body := #[
         .bind "current" .u64 (.stateRead "balance"),
@@ -65,6 +67,7 @@ def contract : SurfaceContract := {
         .stateWrite "operations" (.local "next_ops"),
         .emit "ValueDeposited" #[.local "amount", .local "next", .local "next_ops"]] },
     { name := "charge_fee", kind := .function, mutability := .call,
+      selector? := some "4ef4885b",
       params := #[
         { name := "gross", type := .u64 }, { name := "fee_bps", type := .u64 }], retType := .unit,
       body := #[
@@ -81,6 +84,7 @@ def contract : SurfaceContract := {
         .stateWrite "last_value" (.local "net"), .stateWrite "operations" (.local "next_ops"),
         .emit "ValueCharged" #[.local "gross", .local "fee", .local "net", .local "next"]] },
     { name := "release", kind := .function, mutability := .call,
+      selector? := some "b214faa5",
       params := #[{ name := "amount", type := .u64 }], retType := .unit,
       body := #[
         .bind "current" .u64 (.stateRead "balance"),
@@ -93,6 +97,7 @@ def contract : SurfaceContract := {
         .stateWrite "last_value" (.local "amount"), .stateWrite "operations" (.local "next_ops"),
         .emit "ValueReleased" #[.local "amount", .local "next", .local "released_next"]] },
     { name := "snapshot", kind := .function, mutability := .call,
+      selector? := some "0c2d8b55",
       params := #[], retType := .u64,
       body := #[
         .bind "checkpoint" .u64 (.contextRead .blockNumber),
@@ -103,9 +108,11 @@ def contract : SurfaceContract := {
         .emit "ValueSnapshot" #[.local "balance_now", .local "released_now", .local "fees_now", .local "checkpoint"],
         .returnExpr (.local "balance_now")] },
     { name := "get_balance", kind := .function, mutability := .view,
+      selector? := some "f8a8fd6d",
       params := #[], retType := .u64,
       body := #[.returnExpr (.stateRead "balance")] },
     { name := "get_net_value", kind := .function, mutability := .view,
+      selector? := some "1a381be1",
       params := #[], retType := .u64,
       body := #[.bind "balance_now" .u64 (.stateRead "balance"),
         .bind "fees_now" .u64 (.stateRead "fees"),

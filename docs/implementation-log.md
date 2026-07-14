@@ -3064,3 +3064,21 @@ Rules:
   legacy-freeze`, and `git diff --check`. No full `just check` ran.
 - Next: EVM-R2, direct Canonical materialization for Counter, ValueVault,
   Token, RemoteCall, and remaining EVM product families.
+
+## 2026-07-14 - EVM-R2a: direct Counter and ValueVault products
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress for Token,
+  RemoteCall, and the remaining product families.
+- Completed the existing Surface v2 Counter and ValueVault product definitions
+  with their stable EVM selectors.
+- Added `Tests/Canonical/EvmDirectProducts.lean`, which imports only the
+  Surface products and new compiler path, then runs `normalizeSurface ->
+  buildFromCore -> renderCanonicalModuleWithPlan`. It does not import or call
+  `ContractSpec`, `Frontend.ContractSpec.Normalize`, or `adaptLegacy`.
+- Verified three Counter and seven ValueVault entrypoints reach exact EVM
+  dispatch cases and render Yul with the original product identity.
+- Verification passed: rebuilt both Surface product modules; EVM direct-product,
+  Surface normalization, and EVM Canonical-plan tests; `just
+  ir-target-boundary`, `just legacy-freeze`, and `git diff --check`. No full
+  `just check` ran.
+- Next: add direct Canonical EVM product coverage for RemoteCall, then Token.
