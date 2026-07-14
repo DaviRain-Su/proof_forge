@@ -16,20 +16,6 @@ def require (condition : Bool) (message : String) : IO Unit :=
 def testQueue := Examples.Product.Canonical.BoundedQueue.queue
 def queueContract := Examples.Product.Canonical.BoundedQueue.contract
 
-def evmDeclarationContext : ProofForge.IR.Module := {
-  name := "BoundedQueue"
-  state := #[
-    { id := testQueue.itemsName, kind := .array 3, type := .u64 },
-    { id := testQueue.headName, kind := .scalar, type := .u64 },
-    { id := testQueue.lengthName, kind := .scalar, type := .u64 }]
-  entrypoints := #[
-    { name := "initialize", selector? := some "8129fc1c", body := #[] },
-    { name := "enqueue", selector? := some "a2e62045", params := #[("value", .u64)], body := #[] },
-    { name := "dequeue", selector? := some "2e17de78", returns := .u64, body := #[] },
-    { name := "peek", selector? := some "59e02dd7", mutability := .view, returns := .u64, body := #[] },
-    { name := "length", selector? := some "1f7b6d32", mutability := .view, returns := .u64, body := #[] }]
-}
-
 def main : IO Unit := do
   IO.FS.createDirAll "build/canonical/queue/evm"
   IO.FS.createDirAll "build/canonical/queue/solana"
@@ -76,7 +62,7 @@ def main : IO Unit := do
   let evmPlan ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract evmCapabilities with
     | .ok plan => pure plan
     | .error e => throw <| IO.userError s!"EVM rejected Queue Core: {e.message}"
-  match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan evmDeclarationContext evmPlan with
+  match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan evmPlan with
   | .ok yul => IO.FS.writeFile "build/canonical/queue/evm/contract.yul" yul
   | .error e => throw <| IO.userError s!"EVM Queue lowering failed: {e.message}"
 

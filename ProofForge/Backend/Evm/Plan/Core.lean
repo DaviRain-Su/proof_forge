@@ -424,18 +424,18 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       let eventPlan ← lookupEventPlan env event
       if eventPlan.fields.size != args.size then
         throw { message := s!"event {event.value} argument count does not match its interface schema" }
-      let mut indexedFields := #[]
-      let mut dataFields := #[]
+      let mut indexedFields : Array (Array ExprPlan) := #[]
+      let mut dataFields : Array (Array ExprPlan) := #[]
       for idx in [:args.size] do
-        let value := AbiValuePlan.expr (← valueExpr env args[idx]!)
+        let value := #[← valueExpr env args[idx]!]
         if eventPlan.fields[idx]!.indexed then
           indexedFields := indexedFields.push value
         else
           dataFields := dataFields.push value
       if indexedFields.isEmpty then
-        .ok #[StmtPlan.effect (.eventEmit eventPlan dataFields)]
+        .ok #[StmtPlan.effect (.eventEmitWords eventPlan dataFields)]
       else
-        .ok #[StmtPlan.effect (.eventEmitIndexed eventPlan indexedFields dataFields)]
+        .ok #[StmtPlan.effect (.eventEmitIndexedWords eventPlan indexedFields dataFields)]
   | .assert cond error => do
       /- Resolve the Core error identity through canonical materialization.
       Fallback errors remain plain reverts; envelope/custom forms carry the

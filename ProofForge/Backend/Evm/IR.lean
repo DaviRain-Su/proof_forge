@@ -1,6 +1,7 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Backend.Evm.Plan
+import ProofForge.Backend.Evm.Plan.ToYul
 import ProofForge.Backend.Evm.ToYul
 import ProofForge.Backend.Evm.Validate
 import ProofForge.Backend.Evm.IR.Validate
@@ -625,30 +626,36 @@ def lowerModuleWithPlan
     code := { statements := #[dispatch] ++ functions ++ helpers }
   }
 
-/-- Canonical cutover entrypoint. The legacy module is a declaration/type
-context only; executable bodies, dispatch, storage layout, events, and helper
-requirements must all be complete in `plan`. Unlike `lowerModuleWithPlan`, this
-function never selects a legacy reconstruction fallback. -/
+/-- Canonical cutover entrypoint. The complete EVM plan owns executable bodies,
+dispatch, storage layout, ABI, events, and helper requirements. Unlike
+`lowerModuleWithPlan`, this function accepts no source `IR.Module` and never
+selects a legacy reconstruction fallback. -/
 def lowerCanonicalModuleWithPlan
-    (module : Module)
     (plan : ProofForge.Backend.Evm.Plan.ModulePlan) :
     Except LowerError Lean.Compiler.Yul.Object := do
-  unless plan.name == module.name do
-    throw ({ message := s!"canonical EVM plan/module name mismatch: `{plan.name}` vs `{module.name}`" } : LowerError)
-  unless entrypointBodyPlanIsComplete module plan.entrypoints do
-    throw ({ message := "canonical EVM plan has incomplete entrypoint bodies" } : LowerError)
-  unless dispatchEntrypointPlanIsComplete module plan.dispatch.entrypoints do
-    throw ({ message := "canonical EVM plan has incomplete dispatch metadata" } : LowerError)
-  unless plan.entrypoints.map (·.name) == module.entrypoints.map (·.name) do
-    throw ({ message := "canonical EVM plan entrypoint order differs from the declaration context" } : LowerError)
-  unless plan.storage.states.map (·.id) == module.state.map (·.id) do
-    throw ({ message := "canonical EVM plan storage symbols differ from the declaration context" } : LowerError)
-  lowerModuleWithPlan module plan false
+  let functions ← plan.entrypoints.mapM fun entrypoint =>
+    match ProofForge.Backend.Evm.Plan.ToYul.lowerEntrypoint
+        plan.name plan.overflowChecked entrypoint with
+    | .ok function => .ok function
+    | .error error => .error { message := error.message }
+  let dispatch ← match ProofForge.Backend.Evm.Plan.ToYul.lowerDispatch plan.name plan.dispatch with
+    | .ok dispatch => .ok dispatch
+    | .error error => .error { message := error.message }
+  let helpers := plannedMapHelperFunctions plan ++ plannedArrayHelperFunctions plan ++
+    plannedDynamicArrayHelperFunctions plan ++ plannedStructArrayHelperFunctions plan ++
+    plannedHashHelperFunctions plan ++ plannedMemoryArrayHelperFunctions plan ++
+    plannedCheckedWidthHelperFunctions plan ++ plannedCheckedArithmeticHelperFunctions plan
+  let crosscalls ← plannedCrosscallHelperFunctions plan.crosscalls
+  let creates ← plannedCreateHelperFunctions plan.creates
+  let abiPacked := plan.abiPackedHelpers.map ProofForge.Backend.Evm.ToYul.AbiEncode.abiPackedHelperFunction
+  let localArrays := ProofForge.Backend.Evm.ToYul.localArrayGetHelperFunctions plan.localArrayGetLengths
+  let nestedLocalArrays := ProofForge.Backend.Evm.ToYul.nestedLocalArrayGetHelperFunctions plan.nestedLocalArrayGetShapes
+  return { name := plan.name, code := { statements := #[dispatch] ++ functions ++ helpers ++
+    crosscalls ++ creates ++ abiPacked ++ localArrays ++ nestedLocalArrays } }
 
 def renderCanonicalModuleWithPlan
-    (module : Module)
     (plan : ProofForge.Backend.Evm.Plan.ModulePlan) : Except LowerError String := do
-  .ok (Lean.Compiler.Yul.Printer.render (← lowerCanonicalModuleWithPlan module plan))
+  .ok (Lean.Compiler.Yul.Printer.render (← lowerCanonicalModuleWithPlan plan))
 
 /-- Build the full EVM semantic plan for `module` before lowering to Yul.
 

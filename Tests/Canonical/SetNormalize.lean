@@ -16,19 +16,6 @@ def require (condition : Bool) (message : String) : IO Unit :=
 def testSet := Examples.Product.Canonical.SetRegistry.registry
 def setContract := Examples.Product.Canonical.SetRegistry.contract
 
-def evmDeclarationContext : ProofForge.IR.Module := {
-  name := "SetRegistry"
-  state := #[
-    { id := testSet.membersName, kind := .map .u64 100, type := .bool },
-    { id := testSet.cardinalityName, kind := .scalar, type := .u64 }]
-  entrypoints := #[
-    { name := "initialize", selector? := some "8129fc1c", body := #[] },
-    { name := "insert", selector? := some "e1c7392a", params := #[("key", .u64)], body := #[] },
-    { name := "remove", selector? := some "4cc82215", params := #[("key", .u64)], body := #[] },
-    { name := "contains", selector? := some "5b4b73a9", mutability := .view,
-      params := #[("key", .u64)], returns := .bool, body := #[] }]
-}
-
 def main : IO Unit := do
   IO.FS.createDirAll "build/canonical/set/evm"
   IO.FS.createDirAll "build/canonical/set/solana"
@@ -67,7 +54,7 @@ def main : IO Unit := do
     targetId := "evm", calls := bundle.contract.contract.requirements, metadata := #[] }
   match ProofForge.Backend.Evm.Plan.Core.buildFromCore bundle.contract evmCapabilities with
   | .ok plan =>
-      match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan evmDeclarationContext plan with
+      match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
       | .ok yul =>
           require (!yul.isEmpty) "EVM Set lowering emitted no Yul"
           IO.FS.writeFile "build/canonical/set/evm/contract.yul" yul

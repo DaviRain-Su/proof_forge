@@ -452,9 +452,8 @@ NFT `build` subrow is `default_switched`.
 
 **Depends on:** D4 proves one native product route, and IR-B7 removes the EVM
 Canonical renderer's dependency on legacy `IR.Module` declaration/storage
-context. IR-B7a is complete: Core storage effects are physical EVM targets.
-IR-B7b must make `renderCanonicalModuleWithPlan` consume `ModulePlan` alone
-before Counter's default route is switched.
+context. Both prerequisites are complete: Core storage effects are physical
+EVM targets and `renderCanonicalModuleWithPlan` consumes `ModulePlan` alone.
 
 **Files:**
 - Modify: `Examples/Product/Counter.lean`

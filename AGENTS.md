@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | IR-B7a - make Canonical EVM storage plans target-owned |
-| Next task | IR-B7b - render Canonical EVM plans without `IR.Module` |
+| Active task | D5 - switch Counter to the native Canonical source route |
+| Next task | IR-B5 - audit and migrate Solana PDA/CPI/account behavior |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -91,16 +91,16 @@ and shared interface/materialization records.
 | IR-B4 | in_progress (B4a-B4b verified) | Move EVM protocol and ABI operations out of shared IR |
 | IR-B5 | pending | Audit and migrate Solana PDA/CPI/account behavior |
 | IR-B6 | pending | Audit other Wasm-host, Move, Aleo, Psy, and Quint target ownership |
-| IR-B7 | in_progress (B7a verified 2026-07-14) | Move target environment/interface/materialization fields |
+| IR-B7 | in_progress (EVM B7a-B7b verified 2026-07-14) | Move target environment/interface/materialization fields |
 | IR-B8 | pending | Empty the compatibility allowlist and enforce the boundary |
 
 Legacy removal follows the
 [incremental replacement plan](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md).
 The advisory canonical gate is removed (D3); do not reintroduce a path that
 turns adaptation, validation, HostOp, capability, or target-plan failure into
-success. Product `ContractSpec` migration remains blocked on target plans
-owning all declaration/render metadata, especially the EVM renderer's residual
-`IR.Module` context.
+success. The Canonical EVM renderer now consumes `ModulePlan` alone. Product
+`ContractSpec` removal proceeds through D5-D12; do not reintroduce an
+`IR.Module` argument or symbolic storage rediscovery into the strict route.
 
 | ID | State | Task | Authoritative section |
 |---|---|---|---|

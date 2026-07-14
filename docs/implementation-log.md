@@ -2578,3 +2578,21 @@ Rules:
   `Tests/Backend/Evm/CanonicalPlan.lean`, `just evm-semantic-plan`, and
   `git diff --check`.
 - Next: IR-B7b2, make entrypoint/body/dispatch lowering consume the plan alone.
+
+## 2026-07-14 - IR-B7b2: plan-only Canonical EVM rendering
+
+- Status: `done (verified 2026-07-14)`.
+- Added `Backend.Evm.Plan.ToYul`, a strict lowering pass that consumes only
+  target-owned `ExprPlan`, `EffectPlan`, and `StmtPlan` nodes. Legacy
+  expressions and symbolic storage effects fail closed.
+- Changed `lowerCanonicalModuleWithPlan` and
+  `renderCanonicalModuleWithPlan` to accept `ModulePlan` alone. Removed the
+  hand-written legacy EVM declaration contexts from Set and Queue tests.
+- Canonical Core events now materialize word plans before rendering instead
+  of carrying ABI values that required source-module analysis.
+- Verification passed: Counter, ValueVault, Set, and Queue Canonical tests;
+  rebuilt `proof-forge`; a real Counter EVM build (360 runtime hex chars);
+  `just strict-intent-materialization`; `just strict-target-gate`; and
+  `git diff --check`.
+- Next: D5, switch Counter's loaded source/default product route away from
+  `ContractSpec`; then continue the same cutover for the remaining families.

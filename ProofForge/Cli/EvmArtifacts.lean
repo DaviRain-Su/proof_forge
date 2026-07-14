@@ -42,7 +42,7 @@ def renderCanonicalSpecEvmYul (spec : ProofForge.Contract.ContractSpec) : Except
   let plan ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capabilityPlan with
     | .ok plan => .ok plan
     | .error error => .error s!"canonical: EVM plan failed: {error.message}"
-  match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan spec.module plan with
+  match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
   | .ok yul => .ok yul
   | .error error => .error s!"canonical: EVM render failed: {error.message}"
 

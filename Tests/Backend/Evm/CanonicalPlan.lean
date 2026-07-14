@@ -177,8 +177,8 @@ def checkedFromSpec (spec : ProofForge.Contract.ContractSpec) : IO CheckedCanoni
   | .ok checked => pure checked
   | .error error => throw <| IO.userError s!"canonical validation failed: {repr error}"
 
-def renderWithCanonicalPlan (module : ProofForge.IR.Module) (plan : ModulePlan) : IO String := do
-  let object ← match ProofForge.Backend.Evm.IR.lowerCanonicalModuleWithPlan module plan with
+def renderWithCanonicalPlan (plan : ModulePlan) : IO String := do
+  let object ← match ProofForge.Backend.Evm.IR.lowerCanonicalModuleWithPlan plan with
     | .ok object => pure object
     | .error error => throw <| IO.userError s!"canonical EVM plan did not render: {error.message}"
   pure (Lean.Compiler.Yul.Printer.render object)
@@ -278,12 +278,22 @@ def main : IO Unit := do
     s!"canonical state symbol did not reach the EVM plan: {repr (realCounterPlan.storage.states.map (·.id))}"
   require (!planUsesSymbolicStorage realCounterPlan)
     s!"canonical Counter EVM plan retained symbolic Legacy storage effects: {repr realCounterPlan.entrypoints}"
-  let counterYul ← renderWithCanonicalPlan ProofForge.IR.Examples.Counter.module realCounterPlan
+  let counterYul ← renderWithCanonicalPlan realCounterPlan
   require (counterYul.contains "object \"Counter\"")
     "canonical Counter plan did not produce a Yul object"
   require (counterYul.contains
       "__pf_checked_width(__pf_checked_add(__pf_checked_width(v1, 18446744073709551615)")
     "canonical u64 checked addition lost its narrow-width overflow guard"
+  let symbolicEntrypoints := realCounterPlan.entrypoints.mapIdx fun idx entrypoint =>
+    if idx == 0 then
+      { entrypoint with body := #[.effect (.storageScalarWrite "count" (.literalWord 0))] }
+    else entrypoint
+  match ProofForge.Backend.Evm.IR.lowerCanonicalModuleWithPlan
+      { realCounterPlan with entrypoints := symbolicEntrypoints } with
+  | .ok _ => throw <| IO.userError "plan-only EVM renderer accepted symbolic Legacy storage"
+  | .error error =>
+      require (error.message.contains "symbolic storage effect")
+        s!"unexpected symbolic storage diagnostic: {error.message}"
 
   let realVaultChecked ← checkedFromSpec
     (ProofForge.Contract.ContractSpec.fromIR ProofForge.IR.Examples.ValueVault.module)
@@ -305,7 +315,7 @@ def main : IO Unit := do
     | none => throw <| IO.userError "canonical VaultInitialized event plan missing"
   require (initializedEvent.signature == "VaultInitialized(uint64,uint64)")
     s!"canonical event signature used field names instead of ABI types: {initializedEvent.signature}"
-  let vaultYul ← renderWithCanonicalPlan ProofForge.IR.Examples.ValueVault.module realVaultPlan
+  let vaultYul ← renderWithCanonicalPlan realVaultPlan
   require (vaultYul.contains "object \"ValueVault\"")
     "canonical ValueVault plan did not produce a Yul object"
 
