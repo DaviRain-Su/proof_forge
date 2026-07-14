@@ -1,14 +1,15 @@
 # Cross-Target Native Differential Validation Plan
 
-Status: **Accepted; CMP-0 done at `18f15e59`, CMP-1 in progress (2026-07-14)**
+Status: **Accepted; CMP-0/CMP-1 done, CMP-2 pending after A-CUT2g (2026-07-14)**
 
 Design: [Cross-Target Native Differential Validation](../specs/2026-07-14-cross-target-native-differential-design.md)
 
 ## Execution Rule
 
 This is a validation track, not a replacement for the current architecture
-queue. A-CUT1e-c2 and CMP-0 are complete. CMP-1 now runs first, while CMP-2
-and CMP-3 become part of the A-CUT2/A-CUT3 acceptance work. Target-extension tasks
+queue. A-CUT1e-c2, CMP-0, and CMP-1 are complete. A-CUT2g now removes the
+remaining public authored Legacy exchange before CMP-2 runs; CMP-3 remains
+part of A-CUT3 acceptance work. Target-extension tasks
 are attached to their target migration instead of opening unrelated backend
 work early.
 
@@ -70,7 +71,7 @@ Completion evidence:
 
 ### CMP-1 - Normalized observation runner contract
 
-State: `in_progress`
+State: `done (verified at 7fee238c)`
 
 - Add shared runner result types for call status/error, typed return, state,
   events, target-owned external actions, interface assertions, and resources.
@@ -87,9 +88,23 @@ Acceptance:
 - Resource measurements remain target-local and cannot be aggregated into a
   synthetic cross-chain score.
 
+Completion evidence:
+
+- `proof-forge.differential.runner-result.v1` defines typed logical values,
+  accounts, actors, clocks, runner status, declared coverage, and per-step
+  observations without entering compiler modules.
+- The comparator checks all eight observation dimensions independently,
+  requires exact declared/actual coverage, rejects unclassified errors, and
+  keeps allowed divergences scoped to an exact dimension and JSON path.
+- Cross-target external actions compare their logical payload while retaining
+  target-owned native payloads. Resource observations compare only within one
+  target family and cannot expose an aggregate cross-chain score.
+- `just differential-contracts` passes 11 base-contract tests, 12 runner and
+  comparator tests, the 90-asset inventory check, and the NEAR matrix snapshot.
+
 ### CMP-2 - Counter primary-triad native pilot
 
-State: `pending after CMP-1; required by A-CUT2 completion`
+State: `pending after A-CUT2g; required by A-CUT2 completion`
 
 - Use the unchanged `Examples/Product/Counter.lean` as the only ProofForge
   business source.

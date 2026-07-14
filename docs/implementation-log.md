@@ -4089,3 +4089,24 @@ Rules:
 - Verification: `just differential-contracts`; `python3 -m py_compile
   scripts/differential/contracts.py scripts/differential/inventory.py
   scripts/differential/test_contracts.py`; and `git diff --check`.
+
+## 2026-07-14 - CMP-1: normalized runner result and comparator
+
+- Status: `done (verified at 7fee238c)`; A-CUT2g is now active before CMP-2.
+- Added the test-only `runner-result.v1` contract and typed logical values,
+  accounts, actors, clocks, runner status, declared coverage, and per-step
+  results. Logical context compares across chains while retaining native IDs,
+  heights, and timestamps as evidence.
+- Added a fail-closed comparator for all eight dimensions. It distinguishes
+  observed equality from complete coverage, rejects unclassified errors,
+  skips/errors, and incomplete provenance, and restricts allowed divergence to
+  one exact dimension/path.
+- External actions compare logical payloads across targets while retaining
+  target-owned native payloads. Resources compare only inside one target family;
+  aggregate cross-chain score fields are rejected.
+- Promoted all five comparison schemas into the generated inventory, now 90
+  assets with zero semantic-verification overclaim.
+- Verification: `just differential-contracts`; `python3 -m py_compile
+  scripts/differential/contracts.py scripts/differential/inventory.py
+  scripts/differential/runner.py scripts/differential/test_contracts.py
+  scripts/differential/test_runner.py`; and `git diff --check`.

@@ -59,6 +59,19 @@ strict gate and does not count toward A1.
 | CMP-0-3 | Current v0 manifests have explicit, non-promoting migration | ✅ met | all 28 NEAR and 7 Solana manifests migrate through schema-specific functions; inferred/missing provenance stays explicit and migrated observations keep `semanticMatch=false` |
 | CMP-0-4 | Comparison contracts remain outside production architecture | ✅ met | boundary test scans `ProofForge/**/*.lean` for comparison schema/import leakage; `just differential-contracts` and `git diff --check` pass; migration functions exist only under `scripts/differential` and are deletion work after v1 conversion |
 
+## Gate CMP-1 — Normalized runner result and comparator
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-1-1 | Runner results preserve logical and target-native identity separately | ✅ met | `7fee238c`; typed values plus logical account/actor/clock context compare portable identity while retaining native account IDs, heights, and timestamps in evidence |
+| CMP-1-2 | Every required observation dimension fails closed | ✅ met | 12 comparator tests exercise independent mismatches for call status/error, return, state, balances, ordered events, external actions, interface, and resources; missing coverage, skips/errors, and incomplete provenance keep `semanticMatch=false` |
+| CMP-1-3 | Target-owned observations are not flattened into false equivalence | ✅ met | cross-target external actions compare logical payload and retain native payload; resource values compare only within one target family and aggregate score fields are rejected |
+| CMP-1-4 | The shared comparator remains test-only | ✅ met | runner schema and implementation live under `testkit/differential` and `scripts/differential`; compiler boundary test includes the runner schema ID; `just differential-contracts` passes 23 contract/comparator tests plus inventory and matrix snapshots |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

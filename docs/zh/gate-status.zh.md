@@ -52,6 +52,19 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | CMP-0-3 | 当前 v0 manifest 具有显式且不会升级状态的 migration | ✅ met | 全部 28 个 NEAR 与 7 个 Solana manifest 通过各自 schema 的函数迁移；推断/缺失 provenance 保持显式，迁移后的 observation 保持 `semanticMatch=false` |
 | CMP-0-4 | 比较契约保持在生产架构之外 | ✅ met | 边界测试扫描 `ProofForge/**/*.lean` 中的 comparison schema/import 泄漏；`just differential-contracts` 与 `git diff --check` 通过；migration function 只存在于 `scripts/differential`，并在 v1 转换后删除 |
 
+## Gate CMP-1 —— 归一化 runner result 与 comparator
+
+**状态：Closed**
+
+**Closed: 2026-07-14**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-1-1 | Runner result 分离保存 logical 与 target-native identity | ✅ met | `7fee238c`；typed value 以及 logical account/actor/clock context 比较 portable identity，同时在 evidence 中保留 native account ID、height 和 timestamp |
+| CMP-1-2 | 每个 required observation dimension 都 fail closed | ✅ met | 12 个 comparator 测试分别覆盖 call status/error、return、state、balance、ordered event、external action、interface 和 resource mismatch；缺失 coverage、skip/error 与 incomplete provenance 均保持 `semanticMatch=false` |
+| CMP-1-3 | Target-owned observation 不会被压平为虚假 equivalence | ✅ met | 跨 target external action 比较 logical payload 并保留 native payload；resource value 只在同一 target family 内比较，aggregate score 字段会被拒绝 |
+| CMP-1-4 | 共享 comparator 保持 test-only | ✅ met | runner schema 与实现位于 `testkit/differential` 和 `scripts/differential`；compiler boundary 测试包含 runner schema ID；`just differential-contracts` 通过 23 个 contract/comparator 测试以及 inventory/matrix snapshot |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

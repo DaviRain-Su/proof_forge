@@ -26,9 +26,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Direct authoring cutover with fail-closed native differential evidence |
-| Active task | CMP-1 - implement the normalized runner result and coverage comparator on the v1 contracts from `18f15e59` |
-| Next task | CMP-2 plus A-CUT2 - run Counter against independent EVM, Solana, and NEAR references while removing the remaining `ContractSpec`/`IR.Module` authored exchange value |
-| Validation track | CMP-0 is done at `18f15e59`; CMP-1 is active and CMP-2 remains an A-CUT2 exit criterion |
+| Active task | A-CUT2g - switch the public Source builder/loader exchange to direct `AuthoredContract` and remove its remaining `ContractSpec`/`IR.Module` route |
+| Next task | CMP-2 - run the direct-route Counter against independent EVM, Solana, and NEAR references with complete required coverage |
+| Validation track | CMP-0 is done at `18f15e59`; CMP-1 is done at `7fee238c`; CMP-2 remains an A-CUT2 exit criterion |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -185,8 +185,9 @@ Native-reference differential validation follows
 [the July 14 comparison plan](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md).
 It extends the existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
 and Stylus differential assets; it is not another compiler route. CMP-0 is
-done at `18f15e59`; CMP-1 is now the only active comparison slice. CMP-2 is
-required for A-CUT2 completion, CMP-SOL attaches to IR-B5, CMP-NEAR
+done at `18f15e59` and CMP-1 at `7fee238c`. A-CUT2g must remove the remaining
+public authored Legacy exchange before CMP-2 can provide the A-CUT2 completion
+evidence. CMP-SOL attaches to IR-B5, CMP-NEAR
 attaches to NEAR-R4, and the final fail-closed matrix attaches to IR-B8/A-CUT5.
 
 The D-052 cross-program routing index remains below for work not superseded by

@@ -230,6 +230,12 @@ rejects conflicting emits, and emits matching Canonical Core and Interface event
 declarations. Existing explicitly declared events remain supported for compiler
 fixtures.
 
+Active slice A-CUT2g replaces the public `contract_source` macro output and
+loader exchange value with that direct `AuthoredContract`. It must remove the
+remaining `ContractSpec`/`IR.Module` production route rather than wrap or adapt
+it. The focused Counter route and boundary searches are the acceptance tests;
+CMP-2 begins only after this direct route is executable for the primary triad.
+
 ### A-CUT3 - Product migration
 
 - Migrate every `catalog.json` source through the direct frontend.
