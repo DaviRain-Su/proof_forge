@@ -29,4 +29,8 @@ contract_source ArrayExample do
     let xs : .memoryRef .u64 := arrayLiteral .u64 #[u64 10, u64 20, u64 30];
     return (arrayGet xs (u64 0)) +! (arrayGet xs (u64 1)) +! (arrayGet xs (u64 2));
 
+  query outOfBounds returns(.u64) do
+    let xs : .memoryRef .u64 := arrayLiteral .u64 #[u64 10, u64 20, u64 30];
+    return arrayGet xs (u64 3);
+
 end Examples.Product.ArrayExample

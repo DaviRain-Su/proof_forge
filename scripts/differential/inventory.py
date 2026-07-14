@@ -398,6 +398,39 @@ def generate_inventory() -> dict[str, object]:
             )
         )
 
+    cmp3_array_root = REPO_ROOT / "testkit/differential/array-example"
+    for manifest in sorted((cmp3_array_root / "references").glob("*.v1.json")):
+        reference = json.loads(manifest.read_text(encoding="utf-8"))
+        validate_reference(reference, relative(manifest))
+        assets.append(
+            asset(
+                f"cmp3-reference-{reference['targetFamily']}-array-example",
+                reference["targetFamily"],
+                "nativeReference",
+                manifest,
+                "referenceManifestV1",
+                "none",
+                "CMP-3g independent ArrayExample reference with pinned provenance; VM evidence is pending",
+                sourcePaths=[reference["source"]["path"]],
+            )
+        )
+
+    cmp3_array_scenario = cmp3_array_root / "scenario.v1.json"
+    if cmp3_array_scenario.is_file():
+        scenario_document = json.loads(cmp3_array_scenario.read_text(encoding="utf-8"))
+        validate_scenario(scenario_document, relative(cmp3_array_scenario))
+        assets.append(
+            asset(
+                "cmp3-scenario-array-example-primary-triad",
+                "portable",
+                "scenario",
+                cmp3_array_scenario,
+                "portableScenarioV1",
+                "none",
+                "four-step fixed-array scenario with VM evidence pending CMP-3g2",
+            )
+        )
+
     for scenario in sorted((REPO_ROOT / "testkit/scenarios").glob("*.toml")):
         assets.append(
             asset(
@@ -509,7 +542,7 @@ def generate_inventory() -> dict[str, object]:
     assets.sort(key=lambda item: item["id"])
     inventory: dict[str, object] = {
         "schema": INVENTORY_SCHEMA,
-        "scope": "tracked comparison assets through verified ValueVault, Ownable, Pausable, and ReentrancyGuard CMP-3 execution",
+        "scope": "tracked comparison assets through verified stateful CMP-3 execution and pinned ArrayExample CMP-3g references",
         "summary": {
             "assetCount": len(assets),
             "semanticVerifiedCount": sum(1 for item in assets if item["semanticEvidence"] == "verified"),

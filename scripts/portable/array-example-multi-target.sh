@@ -56,6 +56,7 @@ python3 scripts/evm/validate-artifact-metadata.py \
   --expect-entrypoint sizeOf3:8c471d33 \
   --expect-entrypoint getElem:ff170768 \
   --expect-entrypoint sumOf3:6d666075 \
+  --expect-entrypoint outOfBounds:c1ea953e \
   "$OUT/evm/ArrayExample.proof-forge-artifact.json"
 
 echo "portable-array-example: Solana sBPF"
@@ -71,10 +72,12 @@ require_file "$OUT/solana/ArrayExample.solana-artifact.json"
 require_contains "$OUT/solana/ArrayExample.s" "sol_sizeOf3" "Solana sizeOf3 entrypoint"
 require_contains "$OUT/solana/ArrayExample.s" "sol_getElem" "Solana getElem entrypoint"
 require_contains "$OUT/solana/ArrayExample.s" "sol_sumOf3" "Solana sumOf3 entrypoint"
+require_contains "$OUT/solana/ArrayExample.s" "sol_outOfBounds" "Solana outOfBounds entrypoint"
 require_contains "$OUT/solana/ArrayExample.s" "memory.array.get: compute element address" "Solana array lowering"
 require_contains "$OUT/solana/manifest.toml" 'name = "sizeOf3"' "Solana manifest sizeOf3"
 require_contains "$OUT/solana/manifest.toml" 'name = "getElem"' "Solana manifest getElem"
 require_contains "$OUT/solana/manifest.toml" 'name = "sumOf3"' "Solana manifest sumOf3"
+require_contains "$OUT/solana/manifest.toml" 'name = "outOfBounds"' "Solana manifest outOfBounds"
 python3 - "$OUT/solana/ArrayExample.solana-artifact.json" <<'PY'
 import json
 import sys
@@ -99,7 +102,7 @@ python3 scripts/near/validate-emitwat-metadata.py \
   "$OUT/near/ArrayExample.near-artifact.json" \
   --expected-fixture arrayexample \
   --expected-module ArrayExample \
-  --expected-entrypoints sizeOf3,getElem,sumOf3 \
+  --expected-entrypoints sizeOf3,getElem,sumOf3,outOfBounds \
   --expected-source-kind contract-source-authored
 
 if out="$("${HOST[@]}" "$OUT/near/arrayexample.wat" sizeOf3 getElem sumOf3 2>&1)"; then

@@ -1,0 +1,31 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "solana-array-example-pinocchio",
+  "targetFamily": "solana",
+  "program": "array-example",
+  "framework": "Pinocchio",
+  "source": {
+    "path": "benchmarks/native/solana/array-example/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:93d6575b4263279533ec013253a57db89af59db88784e0b9b1c18dfbafd79649",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "pinocchio", "version": "0.11.2"},
+      {"name": "solana-define-syscall", "version": "5.1.0"},
+      {"name": "cargo-build-sbf", "version": "3.1.12"},
+      {"name": "platform-tools", "version": "v1.52"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

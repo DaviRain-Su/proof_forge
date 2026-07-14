@@ -2097,7 +2097,7 @@ fn run_near_array_example(repo_root: &Path, args: &Args) -> Result<()> {
         args,
         "array-example",
         "testkit/compare/near/array-example",
-        "testkit/compare/near/array-example/reference-manifest.json",
+        "testkit/differential/array-example/references/near.v1.json",
         "Examples/Product/ArrayExample.lean",
         "ArrayExample.near-artifact.json",
         "pf_near_sdk_array_example_reference.wasm",

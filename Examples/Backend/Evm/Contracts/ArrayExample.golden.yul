@@ -16,6 +16,11 @@ object "ArrayExample" {
       mstore(0, _r)
       return(0, 32)
     }
+    case 0xc1ea953e {
+      let _r := f_ArrayExample_outOfBounds()
+      mstore(0, _r)
+      return(0, 32)
+    }
     default {
       revert(0, 0)
     }
@@ -78,6 +83,31 @@ object "ArrayExample" {
       let v25 := __proof_forge_memory_array_get(v12, v24)
       let v26 := __pf_checked_width(__pf_checked_add(__pf_checked_width(v23, 18446744073709551615), __pf_checked_width(v25, 18446744073709551615)), 18446744073709551615)
       __pf_result := v26
+    }
+    function f_ArrayExample_outOfBounds() -> __pf_result {
+      let v27 := 3
+      let v28 := __proof_forge_memory_array_new(v27)
+      let v29 := 10
+      let v30 := 0
+      if iszero(lt(v30, mload(v28))) {
+        revert(0, 0)
+      }
+      mstore(add(add(v28, 32), mul(v30, 32)), v29)
+      let v31 := 20
+      let v32 := 1
+      if iszero(lt(v32, mload(v28))) {
+        revert(0, 0)
+      }
+      mstore(add(add(v28, 32), mul(v32, 32)), v31)
+      let v33 := 30
+      let v34 := 2
+      if iszero(lt(v34, mload(v28))) {
+        revert(0, 0)
+      }
+      mstore(add(add(v28, 32), mul(v34, 32)), v33)
+      let v35 := 3
+      let v36 := __proof_forge_memory_array_get(v28, v35)
+      __pf_result := v36
     }
     function __proof_forge_memory_array_new(length) -> ptr {
       ptr := mload(64)

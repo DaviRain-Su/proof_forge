@@ -115,6 +115,18 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-reference-evm-array-example",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3g independent ArrayExample reference with pinned provenance; VM evidence is pending",
+      "path": "testkit/differential/array-example/references/evm.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/evm/ArrayExample.sol"
+      ],
+      "targetFamily": "evm"
+    },
+    {
       "id": "cmp3-reference-evm-ownable",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -163,6 +175,18 @@
       "targetFamily": "evm"
     },
     {
+      "id": "cmp3-reference-near-array-example",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3g independent ArrayExample reference with pinned provenance; VM evidence is pending",
+      "path": "testkit/differential/array-example/references/near.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/array-example/src/lib.rs"
+      ],
+      "targetFamily": "near"
+    },
+    {
       "id": "cmp3-reference-near-ownable",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -209,6 +233,18 @@
         "testkit/compare/near/value-vault/src/lib.rs"
       ],
       "targetFamily": "near"
+    },
+    {
+      "id": "cmp3-reference-solana-array-example",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3g independent ArrayExample reference with pinned provenance; VM evidence is pending",
+      "path": "testkit/differential/array-example/references/solana.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/solana/array-example/src/lib.rs"
+      ],
+      "targetFamily": "solana"
     },
     {
       "id": "cmp3-reference-solana-ownable",
@@ -295,6 +331,15 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-scenario-array-example-primary-triad",
+      "kind": "scenario",
+      "maturity": "portableScenarioV1",
+      "notes": "four-step fixed-array scenario with VM evidence pending CMP-3g2",
+      "path": "testkit/differential/array-example/scenario.v1.json",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
       "id": "cmp3-scenario-ownable-primary-triad",
       "kind": "scenario",
       "maturity": "portableScenarioV1",
@@ -360,6 +405,15 @@
       "notes": "Foundry behavior gate; not yet paired with all native references",
       "path": "scripts/evm/foundry-smoke.sh",
       "semanticEvidence": "partial",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-reference-arrayexample",
+      "kind": "nativeReference",
+      "maturity": "structuralReference",
+      "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
+      "path": "benchmarks/native/evm/ArrayExample.sol",
+      "semanticEvidence": "none",
       "targetFamily": "evm"
     },
     {
@@ -1390,14 +1444,14 @@
     }
   ],
   "schema": "proof-forge.differential.inventory.v1",
-  "scope": "tracked comparison assets through verified ValueVault, Ownable, Pausable, and ReentrancyGuard CMP-3 execution",
+  "scope": "tracked comparison assets through verified stateful CMP-3 execution and pinned ArrayExample CMP-3g references",
   "summary": {
-    "assetCount": 119,
+    "assetCount": 124,
     "byTargetFamily": {
-      "evm": 14,
-      "near": 35,
-      "portable": 35,
-      "solana": 27,
+      "evm": 16,
+      "near": 36,
+      "portable": 36,
+      "solana": 28,
       "stylus": 8
     },
     "semanticVerifiedCount": 30

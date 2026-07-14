@@ -5,7 +5,7 @@ name = "array-example"
 fixture = "array-example"
 source = "Examples/Product/ArrayExample.lean"
 targets = ["wasm-near", "evm", "solana-sbpf-asm"]
-capabilities = ["data.fixed_array", "entrypoint.external"]
+capabilities = ["runtime.memory", "runtime.allocator", "arith.checked"]
 
 [scenario.reference.toolchain]
 revm = "41.0.0"
@@ -20,6 +20,7 @@ contains = [
   '(func $sizeOf3 (export "sizeOf3")',
   '(func $getElem (export "getElem")',
   '(func $sumOf3 (export "sumOf3")',
+  '(func $outOfBounds (export "outOfBounds")',
 ]
 
 [[artifact]]
@@ -42,7 +43,7 @@ equals = "arrayexample"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
 
 [[artifact.json]]
 path = "sourceModule"
@@ -55,13 +56,13 @@ non_empty = true
 
 [[artifact.json]]
 path = "capabilities"
-contains = "data.fixed_array"
+contains = "runtime.memory"
 
 [[artifact.json]]
 path = "abi.entrypoints"
 kind = "array"
 non_empty = true
-length = 3
+length = 4
 
 [[artifact.json]]
 path = "abi.entrypoints[0].name"
@@ -74,6 +75,10 @@ equals = "getElem"
 [[artifact.json]]
 path = "abi.entrypoints[2].name"
 equals = "sumOf3"
+
+[[artifact.json]]
+path = "abi.entrypoints[3].name"
+equals = "outOfBounds"
 
 [[artifact.json]]
 path = "validation.emitWat"
@@ -126,6 +131,7 @@ contains = [
   'function f_ArrayExample_sizeOf3',
   'function f_ArrayExample_getElem',
   'function f_ArrayExample_sumOf3',
+  'function f_ArrayExample_outOfBounds',
 ]
 
 [[artifact]]
@@ -148,7 +154,7 @@ equals = "ArrayExample"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
 
 [[artifact.json]]
 path = "capabilities"
@@ -157,13 +163,13 @@ non_empty = true
 
 [[artifact.json]]
 path = "capabilities"
-contains = "data.fixed_array"
+contains = "runtime.memory"
 
 [[artifact.json]]
 path = "abi.entrypoints"
 kind = "array"
 non_empty = true
-length = 3
+length = 4
 
 [[artifact.json]]
 path = "abi.entrypoints[0].name"
@@ -176,6 +182,10 @@ equals = "getElem"
 [[artifact.json]]
 path = "abi.entrypoints[2].name"
 equals = "sumOf3"
+
+[[artifact.json]]
+path = "abi.entrypoints[3].name"
+equals = "outOfBounds"
 
 [[artifact.json]]
 path = "validation.solcStrictAssembly"
@@ -222,6 +232,7 @@ contains = [
   'sol_sizeOf3',
   'sol_getElem',
   'sol_sumOf3',
+  'sol_outOfBounds',
 ]
 
 [[artifact]]
@@ -231,6 +242,7 @@ contains = [
   'name = "sizeOf3"',
   'name = "getElem"',
   'name = "sumOf3"',
+  'name = "outOfBounds"',
   'name = "arrayexample"',
 ]
 
@@ -248,7 +260,7 @@ equals = "arrayexample"
 path = "instruction"
 kind = "array"
 non_empty = true
-length = 3
+length = 4
 
 [[artifact.toml]]
 path = "instruction[0].name"
@@ -261,6 +273,10 @@ equals = "getElem"
 [[artifact.toml]]
 path = "instruction[2].name"
 equals = "sumOf3"
+
+[[artifact.toml]]
+path = "instruction[3].name"
+equals = "outOfBounds"
 
 [[artifact]]
 target = "solana-sbpf-asm"
@@ -282,7 +298,7 @@ equals = "ArrayExample"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
 
 [[artifact.json]]
 path = "sourceModule"
@@ -296,15 +312,11 @@ non_empty = true
 
 [[artifact.json]]
 path = "capabilities"
-contains = "data.fixed_array"
+contains = "runtime.memory"
 
 [[artifact.json]]
 path = "validation.manifestGeneration"
 equals = "passed"
-
-[[artifact.file]]
-path = "artifacts.source"
-artifact = "source"
 
 [[artifact.file]]
 path = "artifacts.sbpfAsm"
@@ -321,10 +333,6 @@ artifact = "idl"
 [[artifact.file]]
 path = "artifacts.solanaClientTs"
 artifact = "client"
-
-[[artifact.jsonArtifact]]
-path = "solanaIdl"
-artifact = "idl"
 
 [[artifact]]
 target = "solana-sbpf-asm"
@@ -343,7 +351,7 @@ equals = "ArrayExample"
 path = "instructions"
 kind = "array"
 non_empty = true
-length = 3
+length = 4
 
 [[artifact]]
 target = "solana-sbpf-asm"

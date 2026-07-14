@@ -527,6 +527,88 @@ class ContractTests(unittest.TestCase):
             guard_assets,
         )
 
+    def test_cmp3_array_example_scenario_and_references_are_pinned(self) -> None:
+        root = REPO_ROOT / "testkit/differential/array-example"
+        scenario = json.loads((root / "scenario.v1.json").read_text(encoding="utf-8"))
+        validate_scenario(scenario)
+        self.assertEqual(
+            set(scenario["requiredObservations"]),
+            {
+                "callStatus",
+                "returnValue",
+                "state",
+                "balances",
+                "events",
+                "externalActions",
+                "interface",
+                "resources",
+            },
+        )
+        self.assertEqual(
+            ["size-of-3", "get-element", "sum-of-3", "out-of-bounds"],
+            [step["id"] for step in scenario["steps"]],
+        )
+        self.assertEqual(
+            "array-index-out-of-bounds",
+            scenario["steps"][-1]["expectError"],
+        )
+        self.assertEqual(len(scenario["steps"]), len(scenario["allowedDivergences"]))
+
+        manifests = sorted((root / "references").glob("*.v1.json"))
+        self.assertEqual(
+            ["evm.v1.json", "near.v1.json", "solana.v1.json"],
+            [path.name for path in manifests],
+        )
+        for manifest_path in manifests:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            validate_reference(manifest)
+            source = REPO_ROOT / manifest["source"]["path"]
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
+            source_text = source.read_text(encoding="utf-8")
+            self.assertNotIn("proof_forge::", source_text)
+            self.assertNotIn("ProofForge/", source_text)
+
+        product_source = (REPO_ROOT / "Examples/Product/ArrayExample.lean").read_text(
+            encoding="utf-8"
+        )
+        evm_source = (REPO_ROOT / "benchmarks/native/evm/ArrayExample.sol").read_text(
+            encoding="utf-8"
+        )
+        solana_source = (
+            REPO_ROOT / "benchmarks/native/solana/array-example/src/lib.rs"
+        ).read_text(encoding="utf-8")
+        near_source = (
+            REPO_ROOT / "testkit/compare/near/array-example/src/lib.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("query outOfBounds returns(.u64)", product_source)
+        self.assertIn("error ArrayIndexOutOfBounds", evm_source)
+        self.assertIn("const ARRAY_INDEX_OUT_OF_BOUNDS", solana_source)
+        self.assertIn('env::panic_str("array index out of bounds")', near_source)
+        near_compare = (REPO_ROOT / "testkit/compare/src/main.rs").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            '"testkit/differential/array-example/references/near.v1.json"',
+            near_compare,
+        )
+
+        inventory = generate_inventory()
+        array_assets = {
+            item["id"]: item["semanticEvidence"]
+            for item in inventory["assets"]
+            if item["id"].startswith("cmp3-") and "array-example" in item["id"]
+        }
+        self.assertEqual(
+            {
+                "cmp3-reference-evm-array-example": "none",
+                "cmp3-reference-near-array-example": "none",
+                "cmp3-reference-solana-array-example": "none",
+                "cmp3-scenario-array-example-primary-triad": "none",
+            },
+            array_assets,
+        )
+
     def test_compiler_does_not_import_comparison_contracts(self) -> None:
         needles = (
             "proof-forge.differential.reference.v1",

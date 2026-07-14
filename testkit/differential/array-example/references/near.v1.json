@@ -1,0 +1,30 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "near-array-example-near-sdk-rs",
+  "targetFamily": "near",
+  "program": "array-example",
+  "framework": "near-sdk-rs",
+  "source": {
+    "path": "testkit/compare/near/array-example/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:fca254df297ce9e85731f036c58496bb6c7e589e0a3c2356a9d115b6295d04a4",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "near-sdk", "version": "5.28.3"},
+      {"name": "rustc", "version": "1.94.0"},
+      {"name": "near-vm-runner", "version": "0.36.0"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

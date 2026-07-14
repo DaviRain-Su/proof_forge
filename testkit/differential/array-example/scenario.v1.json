@@ -1,0 +1,28 @@
+{
+  "schema": "proof-forge.differential.scenario.v1",
+  "id": "portable-array-example-primary-triad",
+  "kind": "portable",
+  "targetFamily": "portable",
+  "steps": [
+    {"id": "size-of-3", "action": "sizeOf3", "inputs": {}},
+    {"id": "get-element", "action": "getElem", "inputs": {}},
+    {"id": "sum-of-3", "action": "sumOf3", "inputs": {}},
+    {"id": "out-of-bounds", "action": "outOfBounds", "inputs": {}, "expectError": "array-index-out-of-bounds"}
+  ],
+  "requiredObservations": [
+    "callStatus",
+    "returnValue",
+    "state",
+    "balances",
+    "events",
+    "externalActions",
+    "interface",
+    "resources"
+  ],
+  "allowedDivergences": [
+    {"dimension": "resources", "scope": "/steps/size-of-3/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-element/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/sum-of-3/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/out-of-bounds/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."}
+  ]
+}

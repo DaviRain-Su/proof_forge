@@ -1,6 +1,6 @@
 //! near-sdk ArrayExample — fixed [u64;3] locals matching Product ArrayExample.
 
-use near_sdk::near;
+use near_sdk::{env, near};
 
 #[near(contract_state)]
 #[derive(Default)]
@@ -21,6 +21,14 @@ impl ArrayExample {
         let xs: [u64; 3] = [10, 20, 30];
         xs[0] + xs[1] + xs[2]
     }
+
+    pub fn out_of_bounds(&self) -> u64 {
+        let xs: [u64; 3] = [10, 20, 30];
+        let index = 3usize;
+        xs.get(index)
+            .copied()
+            .unwrap_or_else(|| env::panic_str("array index out of bounds"))
+    }
 }
 
 #[cfg(test)]
@@ -36,5 +44,12 @@ mod tests {
         assert_eq!(c.size_of3(), 3);
         assert_eq!(c.get_elem(), 20);
         assert_eq!(c.sum_of3(), 60);
+    }
+
+    #[test]
+    #[should_panic(expected = "array index out of bounds")]
+    fn rejects_out_of_bounds_access() {
+        testing_env!(VMContextBuilder::new().build());
+        ArrayExample::default().out_of_bounds();
     }
 }
