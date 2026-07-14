@@ -4483,3 +4483,23 @@ Rules:
   matrix and portable-auth tests; `just portable-stdlib-core-multi-target`;
   topology/portable-default checks; `just near-compare-reentrancy-guard`; and
   `git diff --check`. No full aggregate was run.
+
+## 2026-07-14 - CMP-3f1: pin independent ReentrancyGuard references
+
+- Status: `done (verified at 9772da92)`; CMP-3f2 primary-triad VM execution is
+  active, and all four new semantic assets remain deliberately unverified.
+- Added independent Solidity and Pinocchio ReentrancyGuard implementations.
+  Both implement an 8-byte/u64 lock, reject repeated acquire, and reject
+  release while unlocked without importing ProofForge compiler or IR modules.
+- Updated the independent near-sdk reference to the final guarded-release
+  policy and added host tests for both invalid transitions. Added three
+  complete v1 reference manifests and a nine-step scenario that queries state
+  after each expected failure.
+- Extended the deterministic inventory and contract test. It now contains 118
+  assets but still exactly 24 verified assets; all three ReentrancyGuard
+  references and the scenario report `semanticEvidence=none` until execution.
+  The called NEAR v0 manifest remains only as explicit CMP-3f2 deletion work.
+- Verification: Solidity 0.8.30 compilation; Pinocchio host check plus
+  cargo-build-sbf 3.1.12/platform-tools v1.52; three near-sdk host tests and
+  Rust 1.94.0 release Wasm build; `just differential-contracts`; source-digest
+  audit; Rust format checks; and `git diff --check`. No full aggregate was run.

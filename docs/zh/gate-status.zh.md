@@ -242,6 +242,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | CMP-3e2-5 | 删除被替代的 v0 evidence，而不是适配 | ✅ met | `testkit/compare/near/pausable/reference-manifest.json` 已删除；剩余 compare 调用方显式命名 v1 reference，不存在 discovery fallback |
 | CMP-3e2-6 | Inventory 晋级由证据支撑 | ✅ met | 生成 inventory 含 113 项资产，恰有 24 项 verified；三份 Pausable reference、scenario、runner 与 focused gate 是六项新增 verified 资产 |
 
+## Gate CMP-3f1 —— 独立 ReentrancyGuard reference 契约
+
+**状态：Closed**
+
+**Closed: 2026-07-14 at `9772da92`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-3f1-1 | 每个主目标都有独立原生 reference | ✅ met | Solidity、Pinocchio Rust、near-sdk Rust source 均不导入 ProofForge compiler 或 IR module；三份 v1 manifest 固定精确 source SHA-256、license 与 toolchain |
+| CMP-3f1-2 | 逻辑场景包含两种非法 lock transition | ✅ met | 九步场景覆盖 unlocked 时 release、重复 acquire、成功 acquire/release，以及每次失败后的状态查询 |
+| CMP-3f1-3 | 原生 source 由固定 target toolchain 构建 | ✅ met | `solc` 0.8.30 编译 Solidity；Pinocchio host check 和 cargo-build-sbf 3.1.12/platform-tools v1.52 通过；三个 near-sdk host test 与 Rust 1.94.0 Wasm build 通过 |
+| CMP-3f1-4 | 已固定 source 不虚报语义等价 | ✅ met | `just differential-contracts` 校验全部 manifest 与 digest；inventory 增至 118 项但仍恰有 24 项 verified，四个 ReentrancyGuard CMP-3 asset 全部为 `none` |
+| CMP-3f1-5 | 不提前删除被取代的 v0 manifest | ✅ met | 仍被调用的 NEAR v0 manifest 在两侧 artifact 通过 upstream VM 执行前保持为 CMP-3f2 显式删除任务；它只是测试数据，不是 compiler adapter |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

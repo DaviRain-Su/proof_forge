@@ -220,12 +220,20 @@ ReentrancyGuard lock-state 执行切片：
 
 | ID | 状态 | 任务 |
 |---|---|---|
-| CMP-3f1 | in_progress | 固定独立 Solidity、Pinocchio 与 near-sdk ReentrancyGuard reference，并定义版本化九步场景，覆盖 unlocked 时 release、重复 acquire 和失败后状态保持。全部新增资产保持 `semanticEvidence=none`。 |
-| CMP-3f2 | CMP-3f1 后 pending | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个 dimension，删除被替代的 NEAR v0 manifest，并且只晋级完整证据。 |
+| CMP-3f1 | done (verified at `9772da92`) | 固定独立 Solidity、Pinocchio 与 near-sdk ReentrancyGuard reference，并定义版本化九步场景，覆盖 unlocked 时 release、重复 acquire 和失败后状态保持。全部新增资产保持 `semanticEvidence=none`。 |
+| CMP-3f2 | in_progress | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个 dimension，删除被替代的 NEAR v0 manifest，并且只晋级完整证据。 |
 
 两个切片都不得让原生 reference 导入 ProofForge compiler module、把
 `ContractSpec`/`IR.Module` 适配回 Product 路线、复用生成的 target code 作为
 oracle，也不得在 VM 证据落地后保留被取代的 v0 manifest。
+
+CMP-3f1 完成证据（2026-07-14）：Solidity 0.8.30 编译独立 `uint64` lock
+policy；单账户、8 字节 Pinocchio 状态机通过 host typecheck，并由
+cargo-build-sbf 3.1.12 / platform-tools v1.52 构建；near-sdk source 通过正向
+cycle 与两个负面 host test，并使用 Rust 1.94.0 构建 Wasm。三份 v1 manifest
+都匹配已检入 source SHA-256。生成 inventory 现含 118 项资产，仍恰有 24 项
+verified；三份 ReentrancyGuard reference 与 scenario 在 CMP-3f2 前保持
+`semanticEvidence=none`。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

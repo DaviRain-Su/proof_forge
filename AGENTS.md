@@ -26,8 +26,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | CMP-3f1 - pin independent ReentrancyGuard native references and one negative lock-state scenario; evidence stays unverified until VM execution |
-| Next task | CMP-3f2 - execute direct ProofForge and independent native ReentrancyGuard artifacts on Anvil, Mollusk, and upstream `near-vm-runner`, then delete the replaced NEAR v0 manifest |
+| Active task | CMP-3f2 - execute direct ProofForge and independent native ReentrancyGuard artifacts on Anvil, Mollusk, and upstream `near-vm-runner`, then delete the replaced NEAR v0 manifest |
+| Next task | A-CUT3d1 - migrate the first map/collection Product family to the direct-only route and delete its zero-caller Legacy production path |
 | Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault, Ownable, and Pausable primary-triad VM evidence are verified, with Pausable CMP-3e2 closed at `98e9996f` |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |

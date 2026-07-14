@@ -271,13 +271,22 @@ ReentrancyGuard lock-state execution slices:
 
 | ID | State | Task |
 |---|---|---|
-| CMP-3f1 | in_progress | Pin independent Solidity, Pinocchio, and near-sdk ReentrancyGuard references plus one versioned nine-step scenario covering release while unlocked, repeated acquire, and state preservation. All new assets remain `semanticEvidence=none`. |
-| CMP-3f2 | pending after CMP-3f1 | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight dimensions, delete the replaced NEAR v0 manifest, and promote only complete evidence. |
+| CMP-3f1 | done (verified at `9772da92`) | Pinned independent Solidity, Pinocchio, and near-sdk ReentrancyGuard references plus one versioned nine-step scenario covering release while unlocked, repeated acquire, and state preservation. All new assets remain `semanticEvidence=none`. |
+| CMP-3f2 | in_progress | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight dimensions, delete the replaced NEAR v0 manifest, and promote only complete evidence. |
 
 Neither slice may import a ProofForge compiler module into a native reference,
 adapt `ContractSpec`/`IR.Module` back into the Product route, reuse generated
 target code as the oracle, or retain the replaced v0 manifest after VM evidence
 lands.
+
+CMP-3f1 completion evidence (2026-07-14): Solidity 0.8.30 compiles the
+independent `uint64` lock policy; the one-account, 8-byte Pinocchio state
+machine host-typechecks and builds with cargo-build-sbf 3.1.12 / platform-tools
+v1.52; the near-sdk source passes the positive cycle plus both negative host
+tests and builds Wasm with Rust 1.94.0. All three v1 manifests match the
+checked-in source SHA-256. The generated inventory contains 118 assets and
+still exactly 24 verified assets; the three ReentrancyGuard references and
+scenario remain `semanticEvidence=none` until CMP-3f2.
 
 Acceptance:
 

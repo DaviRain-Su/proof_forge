@@ -249,6 +249,20 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | CMP-3e2-5 | Replaced v0 evidence is deleted instead of adapted | ✅ met | `testkit/compare/near/pausable/reference-manifest.json` is deleted; the remaining compare caller explicitly names the v1 reference with no discovery fallback |
 | CMP-3e2-6 | Inventory promotion is evidence-backed | ✅ met | the generated inventory has 113 assets and exactly 24 verified assets; the three Pausable references, scenario, runner, and focused gate are the six newly verified assets |
 
+## Gate CMP-3f1 - Independent ReentrancyGuard reference contracts
+
+**Status: Closed**
+
+**Closed: 2026-07-14 at `9772da92`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3f1-1 | Every primary target has an independent native reference | ✅ met | Solidity, Pinocchio Rust, and near-sdk Rust sources import no ProofForge compiler or IR modules; three v1 manifests pin exact source SHA-256, license, and toolchains |
+| CMP-3f1-2 | The logical scenario includes both invalid lock transitions | ✅ met | the nine-step scenario covers release while unlocked, repeated acquire, successful acquire/release, and state queries after each failure |
+| CMP-3f1-3 | Native sources build with pinned target toolchains | ✅ met | `solc` 0.8.30 compiles Solidity; Pinocchio host check and cargo-build-sbf 3.1.12/platform-tools v1.52 pass; three near-sdk host tests and Rust 1.94.0 Wasm build pass |
+| CMP-3f1-4 | Pinned sources do not overclaim semantic equivalence | ✅ met | `just differential-contracts` validates all manifests and digests; inventory grows to 118 assets but remains exactly 24 verified, with all four ReentrancyGuard CMP-3 assets at `none` |
+| CMP-3f1-5 | The replaced v0 manifest is not deleted prematurely | ✅ met | the called NEAR v0 manifest remains explicit CMP-3f2 deletion work until both native and direct artifacts execute on the upstream VM; it is test data, not a compiler adapter |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.
