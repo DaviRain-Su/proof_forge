@@ -24,7 +24,7 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | A-CUT2 - make `contract_source` normalize directly to Canonical Core |
+| Active task | A-CUT2 - internalize authoring helpers and make `contract_source` normalize directly to Canonical Core |
 | Next task | A-CUT3 - migrate the full catalog from the single Product source |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
@@ -159,6 +159,7 @@ Core are internal compiler representations.
 |---|---|---|
 | A-CUT0 | done (verified 2026-07-14) | Move backend goldens out of Product and delete unused duplicates |
 | A-CUT1 | done (verified 2026-07-14) | Enforce the internal Surface boundary and isolate temporary AST fixtures outside Product |
+| A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
 | A-CUT2 | pending | Make `contract_source` normalize directly to Canonical Core and replace the public `Contract.Surface` helper namespace |
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
 | A-CUT4 | pending | Delete temporary Surface fixtures and the public V1/V2 source split |

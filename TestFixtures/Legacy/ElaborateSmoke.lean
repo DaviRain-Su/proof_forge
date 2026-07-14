@@ -1,14 +1,15 @@
 import ProofForge.IR.Contract
-import ProofForge.IR.Legacy.Core
+import TestFixtures.Legacy.Core
 import ProofForge.IR.Core.Error
-import ProofForge.IR.Elaborate
+import TestFixtures.Legacy.Elaborate
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 
-namespace ProofForge.IR.Elaborate.Smoke
+namespace TestFixtures.Legacy.ElaborateSmoke
 
 open ProofForge.IR
-open ProofForge.IR.Legacy.Core
+open TestFixtures.Legacy.Core
+open TestFixtures.Legacy.Elaborate
 open ProofForge.IR.Core.Error
 
 /-- Round-trip smoke for the Counter surface → Core elaboration path. -/
@@ -32,11 +33,11 @@ def smoke : IO UInt32 := do
   | .ok core =>
     IO.println s!"ValueVault elaboration OK: {core.name} ({core.state.length} state vars, {core.entrypoints.length} entrypoints)"
   if failures.isEmpty then
-    IO.println "ProofForge.IR.Elaborate.Smoke OK"
+    IO.println "TestFixtures.Legacy.ElaborateSmoke OK"
     return (0 : UInt32)
   else
     for msg in failures do
       IO.println s!"FAIL: {msg}"
     return (1 : UInt32)
 
-end ProofForge.IR.Elaborate.Smoke
+end TestFixtures.Legacy.ElaborateSmoke

@@ -115,6 +115,11 @@ SPIKE_FILES=(
   Tests/EvmCoreSmoke.lean
   Tests/SolanaCoreSmoke.lean
   Tests/WasmHostCoreSmoke.lean
+  ProofForge/IR/Legacy/Core.lean
+  ProofForge/IR/Legacy/Validate.lean
+  ProofForge/IR/Legacy/Refinement.lean
+  ProofForge/IR/Elaborate.lean
+  ProofForge/IR/Elaborate/Smoke.lean
 )
 for f in "${SPIKE_FILES[@]}"; do
   if [ -f "$f" ]; then

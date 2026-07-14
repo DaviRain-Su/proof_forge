@@ -7,10 +7,11 @@ import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
 import Std
 
-namespace ProofForge.IR.Legacy.Refinement
+namespace TestFixtures.Legacy.Refinement
 
 open ProofForge.IR.Core
 open ProofForge.IR.Core.Semantics
+open ProofForge.IR
 open ProofForge.IR.Legacy
 open ProofForge.IR.Legacy.Adapter
 open ProofForge.Contract
@@ -287,7 +288,7 @@ def returnValueRelation (legacy : Option ProofForge.IR.Semantics.Value) (core : 
 
 /-- Relate legacy and Core logical states by source state name. Only scalar
 storage is considered, which matches the scalar fragment. -/
-def StateRelation (spec : ContractSpec) (coreModule : Core.Module)
+def StateRelation (spec : ContractSpec) (coreModule : ProofForge.IR.Core.Module)
     (legacy : ProofForge.IR.Semantics.State) (core : LogicalState) : Bool :=
   Id.run do
     for i in [:spec.module.state.size] do
@@ -371,4 +372,4 @@ theorem observableRelation_of_match
     ObservableRelation spec legacy core :=
   h
 
-end ProofForge.IR.Legacy.Refinement
+end TestFixtures.Legacy.Refinement

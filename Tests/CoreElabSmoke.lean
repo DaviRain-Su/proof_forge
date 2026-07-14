@@ -1,8 +1,8 @@
 import ProofForge.IR.Contract
-import ProofForge.IR.Elaborate
+import TestFixtures.Legacy.Elaborate
 
 open ProofForge.IR
-open ProofForge.IR.Elaborate
+open TestFixtures.Legacy.Elaborate
 
 def counterSurfaceModule : Module :=
   { name := "Counter"

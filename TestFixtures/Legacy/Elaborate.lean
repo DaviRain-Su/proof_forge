@@ -1,12 +1,12 @@
 import ProofForge.IR.Contract
-import ProofForge.IR.Legacy.Core
+import TestFixtures.Legacy.Core
 import ProofForge.IR.Core.Error
 import ProofForge.IR.Legacy.Adapter
 
-namespace ProofForge.IR.Elaborate
+namespace TestFixtures.Legacy.Elaborate
 
 open ProofForge.IR
-open ProofForge.IR.Legacy.Core
+open TestFixtures.Legacy.Core
 open ProofForge.IR.Core.Error
 
 /-- Inhabited instances so that partial recursive elaborators over the mutual
@@ -198,11 +198,4 @@ def elaborateModule (m : Module) : Except ElabError CoreModule := do
     , events := []
     }
 
-/-- Compatibility alias preserved for the migration window. -/
-@[deprecated "Use `ProofForge.IR.Legacy.Adapter.adaptLegacy` for canonical bundle conversion." (since := "0.1.0-beta.1")]
-def adaptToCanonical (spec : ProofForge.Contract.ContractSpec) : Except String ProofForge.IR.Canonical.CanonicalBundle :=
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
-  | .ok bundle => .ok bundle
-  | .error e => .error (reprStr e)
-
-end ProofForge.IR.Elaborate
+end TestFixtures.Legacy.Elaborate

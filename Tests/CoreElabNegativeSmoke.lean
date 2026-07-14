@@ -1,8 +1,8 @@
 import ProofForge.IR.Contract
-import ProofForge.IR.Elaborate
+import TestFixtures.Legacy.Elaborate
 
 open ProofForge.IR
-open ProofForge.IR.Elaborate
+open TestFixtures.Legacy.Elaborate
 
 /-- A module whose only state variable is "count", but the entrypoint reads an
 undeclared "owner" state variable. Elaboration must fail with

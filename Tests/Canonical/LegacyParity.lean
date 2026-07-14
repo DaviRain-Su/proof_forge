@@ -3,7 +3,7 @@ import ProofForge.IR.Core.Semantics
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.IR.Legacy.Adapter
-import ProofForge.IR.Legacy.Refinement
+import TestFixtures.Legacy.Refinement
 import ProofForge.Contract.Spec
 import Std
 
@@ -12,7 +12,7 @@ namespace Tests.Canonical.LegacyParity
 open ProofForge.IR.Core
 open ProofForge.IR.Core.Semantics
 open ProofForge.IR.Legacy.Adapter
-open ProofForge.IR.Legacy.Refinement
+open TestFixtures.Legacy.Refinement
 open ProofForge.Contract
 
 def require (condition : Bool) (message : String) : IO Unit :=

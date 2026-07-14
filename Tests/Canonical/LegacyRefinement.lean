@@ -1,6 +1,6 @@
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
-import ProofForge.IR.Legacy.Refinement
+import TestFixtures.Legacy.Refinement
 import ProofForge.Contract.Spec
 
 namespace Tests.Canonical.LegacyRefinement
@@ -8,7 +8,7 @@ namespace Tests.Canonical.LegacyRefinement
 open ProofForge.IR
 open ProofForge.IR.Examples.Counter
 open ProofForge.IR.Examples.ValueVault
-open ProofForge.IR.Legacy.Refinement
+open TestFixtures.Legacy.Refinement
 open ProofForge.Contract
 
 /-- Fixture that uses a rejected constructor (`whileLoop`). -/
@@ -35,4 +35,4 @@ example : legacyScalarFragmentB (ContractSpec.fromIR whileLoopModule) = false :=
 
 end Tests.Canonical.LegacyRefinement
 
-#check ProofForge.IR.Legacy.Refinement.observableRelation_of_match
+#check TestFixtures.Legacy.Refinement.observableRelation_of_match

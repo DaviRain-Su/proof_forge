@@ -28,5 +28,10 @@ import TestFixtures.SurfaceProducts.StorageDeposit
 import TestFixtures.SurfaceProducts.TimelockVault
 import TestFixtures.SurfaceProducts.ValueVault
 import TestFixtures.SurfaceProducts.VestingVault
+import TestFixtures.Legacy.Core
+import TestFixtures.Legacy.Validate
+import TestFixtures.Legacy.Elaborate
+import TestFixtures.Legacy.ElaborateSmoke
+import TestFixtures.Legacy.Refinement
 
 /-! Compiler-internal fixtures. Product contracts live only in `Examples/Product`. -/

@@ -60,13 +60,14 @@ canonical-foundation: hostop-protocol
 
 # Wave 2 Task 7: legacy-to-Core observable parity gate.
 canonical-core:
+    lake build TestFixtures
     lake env lean --run Tests/Canonical/CoreSchema.lean
     lake env lean --run Tests/Canonical/CoreValidate.lean
     lake env lean --run Tests/Canonical/CoreSemantics.lean
     lake env lean --run Tests/Canonical/LegacyAdapter.lean
     lake env lean --run Tests/Canonical/LegacyParity.lean
     lake env lean -DwarningAsError=true Tests/Canonical/LegacyRefinement.lean
-    lake env lean -DwarningAsError=true ProofForge/IR/Legacy/Refinement.lean
+    lake env lean -DwarningAsError=true TestFixtures/Legacy/Refinement.lean
 
 # Wave 3 Task 10: canonical Core to existing EVM plan gate.
 canonical-evm-plan:

@@ -2,10 +2,6 @@ import ProofForge.IR.Core
 import ProofForge.IR.Core.Error
 import ProofForge.IR.Core.Validate
 import ProofForge.IR.Canonical
-import ProofForge.IR.Legacy.Core
-import ProofForge.IR.Legacy.Validate
-import ProofForge.IR.Elaborate
-import ProofForge.IR.Elaborate.Smoke
 import ProofForge.IR.Contract
 import ProofForge.IR.Legacy.Classification
 import ProofForge.IR.Legacy.Adapter

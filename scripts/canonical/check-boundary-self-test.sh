@@ -92,6 +92,11 @@ make_fixture "$root"
 touch "$root/ProofForge/Backend/Evm/CorePlan.lean"
 expect_failure "remaining spike file" "$root"
 
+root="$TMP/retired-legacy-elaborator"
+make_fixture "$root"
+touch "$root/ProofForge/IR/Elaborate.lean"
+expect_failure "retired production Legacy elaborator" "$root"
+
 root="$TMP/wasm-plan-legacy-layout"
 make_fixture "$root"
 printf '%s\n' 'structure LowerCtxSeed where' '  structs : Array StructDecl' \

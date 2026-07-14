@@ -1,10 +1,10 @@
-import ProofForge.IR.Legacy.Core
+import TestFixtures.Legacy.Core
 import ProofForge.IR.Core.Error
 import Std
 
-namespace ProofForge.IR.Legacy.Validate
+namespace TestFixtures.Legacy.Validate
 
-open ProofForge.IR.Legacy.Core
+open TestFixtures.Legacy.Core
 open ProofForge.IR.Core.Error
 
 def validateModule (m : CoreModule) : Except ValidationError Unit := do
@@ -23,4 +23,4 @@ def validateModule (m : CoreModule) : Except ValidationError Unit := do
     seen := seen.insert e.name
   .ok ()
 
-end ProofForge.IR.Legacy.Validate
+end TestFixtures.Legacy.Validate

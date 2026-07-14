@@ -3566,3 +3566,22 @@ Rules:
   and parity tests, `lake env lean --run Tests/CliTargetFirst.lean`,
   `scripts/canonical/check-boundary-self-test.sh`, and
   `scripts/canonical/check-boundary.sh`.
+
+## 2026-07-14 - Legacy production audit: remove obsolete test-only modules
+
+- Status: `done (verified 2026-07-14)`; all remaining Legacy modules have
+  production callers and are assigned to the direct frontend, version-entry,
+  or target-route cutover.
+- Moved the superseded Legacy Core model and validator, deprecated partial
+  elaborator and smoke, and Legacy/Core observable-refinement harness from
+  `ProofForge/**` into the opt-in `TestFixtures.Legacy` library.
+- Removed those exports from `ProofForge.IR`, reduced the exact production
+  Legacy import baseline, and taught `canonical-boundary` to reject restoration
+  of the retired production paths.
+- Recorded the remaining caller-owned deletion points in
+  `docs/legacy-production-audit-2026-07-14.md`; none is treated as complete
+  merely because it was renamed.
+- Verification: `lake build TestFixtures`, legacy Core/elaborator positive and
+  negative smokes, Canonical Legacy parity/refinement checks,
+  `scripts/canonical/check-legacy-freeze.sh`, both canonical boundary gates,
+  and `lake build ProofForge.IR proof-forge`.

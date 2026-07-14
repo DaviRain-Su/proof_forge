@@ -1,8 +1,8 @@
-import ProofForge.IR.Legacy.Core
-import ProofForge.IR.Legacy.Validate
+import TestFixtures.Legacy.Core
+import TestFixtures.Legacy.Validate
 
-open ProofForge.IR.Legacy.Core
-open ProofForge.IR.Legacy.Validate
+open TestFixtures.Legacy.Core
+open TestFixtures.Legacy.Validate
 
 def counterCoreModule : CoreModule :=
   { name := "Counter"
