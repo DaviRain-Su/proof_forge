@@ -3082,3 +3082,23 @@ Rules:
   ir-target-boundary`, `just legacy-freeze`, and `git diff --check`. No full
   `just check` ran.
 - Next: add direct Canonical EVM product coverage for RemoteCall, then Token.
+
+## 2026-07-14 - EVM-R2b: direct portable RemoteCall
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress for Token
+  and the remaining product families.
+- Added the independent `SurfaceCrosscallMode` and a typed Surface crosscall
+  expression. Normalization emits the existing target-neutral
+  `CoreCrosscallSpec`; the Surface node contains no EVM selector, NEAR promise,
+  or Solana account-layout data.
+- Added `Examples/Product/Canonical/RemoteCall.lean` with direct address and
+  method literals, and included it in the adapter-free EVM direct-product gate.
+- Surface reference semantics treats external results as opaque, matching its
+  existing HostOp policy while compiler validation and target plans retain the
+  exact typed operation.
+- Verification passed: rebuilt Surface and the three direct product modules;
+  EVM direct-product, Surface normalization/parity, and Canonical Core
+  validation tests; `just ir-target-boundary`, `just legacy-freeze`, and `git
+  diff --check`. No full `just check` ran.
+- Next: model the direct Canonical Token family without reusing the old
+  `ContractSpec` token materializer.

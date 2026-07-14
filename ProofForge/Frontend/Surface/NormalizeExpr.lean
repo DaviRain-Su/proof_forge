@@ -49,6 +49,8 @@ def exprType (e : SurfaceExpr) : SurfaceM CoreType := do
   | .arrayRead name _ => stateArrayType name
   | .contextRead field => return (contextFieldType (adaptContextField field))
   | .hostCall _ _ => return .u64
+  | .crosscall _ _ _ _ returnType =>
+      resolveSurfaceType (← get).env.typeIds returnType
   | .nativeValue => return .u128
   | .unary .neg arg => exprType arg
   | .field _ _ | .index _ _ =>
@@ -151,6 +153,31 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       argRefs := argRefs.push nv.value
     let nv ← emitValueInstruction (.hostCall { id := id, args := argRefs }) .u64
     return { instructions := allInstrs ++ nv.instructions, value := nv.value }
+  | .crosscall mode target method args returnType =>
+    let normalizedTarget ← normalizeExpr target
+    let normalizedMethod ← normalizeExpr method
+    let mut allInstrs := normalizedTarget.instructions ++ normalizedMethod.instructions
+    let mut argRefs := #[]
+    let mut paramTypes := #[]
+    for arg in args do
+      let normalizedArg ← normalizeExpr arg
+      allInstrs := allInstrs ++ normalizedArg.instructions
+      argRefs := argRefs.push normalizedArg.value
+      paramTypes := paramTypes.push normalizedArg.value.type
+    let coreReturnType ← liftExcept (resolveSurfaceType (← get).env.typeIds returnType)
+    let coreMode := match mode with
+      | .invoke => CoreCrosscallMode.invoke
+      | .staticInvoke => CoreCrosscallMode.staticInvoke
+      | .delegateInvoke => CoreCrosscallMode.delegateInvoke
+    let normalizedCall ← emitValueInstruction (.crosscall {
+      mode := coreMode,
+      target := normalizedTarget.value,
+      method := normalizedMethod.value,
+      paramTypes := paramTypes,
+      returnType := coreReturnType
+    } argRefs) coreReturnType
+    let instructions := allInstrs ++ normalizedCall.instructions
+    return { instructions := instructions, value := normalizedCall.value }
   | .field _ _ =>
       throw (SurfaceNormalizeError.unsupportedSurface "SurfaceExpr.field" "field projection not in initial fragment")
   | .index _ _ =>

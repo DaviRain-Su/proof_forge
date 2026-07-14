@@ -57,6 +57,13 @@ inductive SurfaceContextField
   | contractAddress
   deriving Repr
 
+/-- Portable crosscall semantics. Target ABI and scheduling stay out of Surface. -/
+inductive SurfaceCrosscallMode
+  | invoke
+  | staticInvoke
+  | delegateInvoke
+  deriving Repr
+
 /-- Surface-level lvalues (assignment targets). -/
 inductive SurfaceLValue
   | local (name : String)
@@ -83,6 +90,8 @@ inductive SurfaceExpr
   | contextRead (field : SurfaceContextField)
   | nativeValue
   | hostCall (id : ProofForge.Target.HostOpId) (args : Array SurfaceExpr)
+  | crosscall (mode : SurfaceCrosscallMode) (target method : SurfaceExpr)
+      (args : Array SurfaceExpr) (returnType : SurfaceType)
   deriving Repr
 
 /-- Surface-level statements. -/

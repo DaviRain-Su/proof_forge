@@ -1,5 +1,6 @@
 import Examples.Product.Canonical.Counter
 import Examples.Product.Canonical.ValueVault
+import Examples.Product.Canonical.RemoteCall
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Frontend.Surface.Normalize
@@ -42,4 +43,5 @@ private def checkProduct
 def main : IO Unit := do
   checkProduct Examples.Product.Canonical.Counter.contract 3
   checkProduct Examples.Product.Canonical.ValueVault.contract 7
+  checkProduct Examples.Product.Canonical.RemoteCall.contract 3
   IO.println "evm-direct-products: ok"

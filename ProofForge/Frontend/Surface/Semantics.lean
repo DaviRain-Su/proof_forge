@@ -85,6 +85,7 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
   | .contextRead _ => .ok 0  /- Context reads are opaque in reference semantics. -/
   | .nativeValue => .ok 0
   | .hostCall _ _ => .ok 0  /- Host calls are opaque in reference semantics. -/
+  | .crosscall .. => .ok 0  /- External results are opaque in reference semantics. -/
   | _ => .error "unsupported expression in reference semantics"
 
 /-- Execute a list of Surface statements. -/
