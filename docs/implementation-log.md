@@ -3524,3 +3524,17 @@ Rules:
   canonical-plan gap for logical non-numeric peer addresses, tracked by the
   authoring cutover rather than hidden by a fallback.
 - Verification: source/golden caller audit and `git diff --check`.
+
+## 2026-07-14 - Authoring cleanup A-CUT1a: internalize Surface protocol helpers
+
+- Status: `done (verified 2026-07-14)`; the full Product authoring cutover is
+  still in progress.
+- Moved the transitional `ProofForge.Contract.SurfaceV2.Protocol` module to
+  `ProofForge.Frontend.Surface.Protocol`. The helper operates on internal
+  normalization AST values and is no longer advertised as a public Contract
+  authoring API or as a second version.
+- Updated the three temporary Canonical product callers. They remain migration
+  inputs only and will be deleted when the original `contract_source` products
+  directly enter Canonical Core.
+- Verification: targeted builds for AuthRemoteCall, ExternalTokenTransfer, and
+  ExternalVault; repository `SurfaceV2` caller search; `git diff --check`.

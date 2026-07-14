@@ -1,6 +1,6 @@
 import ProofForge.Frontend.Surface
 
-namespace ProofForge.Contract.SurfaceV2.Protocol
+namespace ProofForge.Frontend.Surface.Protocol
 
 open ProofForge.Frontend.Surface
 
@@ -16,4 +16,4 @@ def invoke (remote : RemoteRef) (args : Array SurfaceExpr)
 def externalToken (peerId method : String) : RemoteRef := { peerId, method }
 def externalVault (peerId method : String) : RemoteRef := { peerId, method }
 
-end ProofForge.Contract.SurfaceV2.Protocol
+end ProofForge.Frontend.Surface.Protocol

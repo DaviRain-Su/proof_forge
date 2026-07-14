@@ -1,7 +1,7 @@
-import ProofForge.Contract.SurfaceV2.Protocol
+import ProofForge.Frontend.Surface.Protocol
 
 open ProofForge.Frontend.Surface
-open ProofForge.Contract.SurfaceV2.Protocol
+open ProofForge.Frontend.Surface.Protocol
 
 namespace Examples.Product.Canonical.ExternalTokenTransfer
 
