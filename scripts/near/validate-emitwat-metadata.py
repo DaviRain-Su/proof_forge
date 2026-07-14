@@ -97,6 +97,8 @@ def main() -> int:
         expect(metadata.get("irVersion") == args.expected_ir_version, "irVersion mismatch")
     elif args.expected_source_kind == "portable-ir":
         expect(metadata.get("irVersion") == "portable-ir-v0", "irVersion must be portable-ir-v0")
+    elif args.expected_source_kind == "contract-source-authored":
+        expect(metadata.get("irVersion") == "canonical-core-v1", "irVersion must be canonical-core-v1")
     else:
         expect(metadata.get("irVersion") is None, "irVersion must be null for non-IR sources")
     expect(metadata.get("sourceModule") == args.expected_module, "sourceModule mismatch")
@@ -127,6 +129,8 @@ def main() -> int:
         expect(deploy_manifest.get("irVersion") == args.expected_ir_version, "deploy irVersion mismatch")
     elif args.expected_source_kind == "portable-ir":
         expect(deploy_manifest.get("irVersion") == "portable-ir-v0", "deploy irVersion must be portable-ir-v0")
+    elif args.expected_source_kind == "contract-source-authored":
+        expect(deploy_manifest.get("irVersion") == "canonical-core-v1", "deploy irVersion must be canonical-core-v1")
     else:
         expect(deploy_manifest.get("irVersion") is None, "deploy irVersion must be null for non-IR sources")
     expect(deploy_manifest.get("sourceModule") == args.expected_module, "deploy sourceModule mismatch")

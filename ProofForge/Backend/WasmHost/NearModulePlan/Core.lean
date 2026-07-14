@@ -180,7 +180,8 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
           match m.events.find? (fun decl => decl.id == event) with
           | some decl =>
               if decl.fields.any (fun field => field.type == .bool) then usesEventBool := true
-              if decl.fields.any (fun field => field.type == .u8 || field.type == .u32 || field.type == .u64 || field.type == .u128) then
+              if decl.fields.any (fun field => field.type == .u8 || field.type == .u32 ||
+                  field.type == .u64 || field.type == .u128 || field.type == .address) then
                 usesEventNumeric := true
           | none => pure ()
         | .hostCall call =>

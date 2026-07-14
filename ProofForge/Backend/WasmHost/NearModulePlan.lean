@@ -194,6 +194,7 @@ private def canonicalNearType (name : String) : ValueType :=
   else if name.endsWith "u128" then .u128
   else if name.endsWith "hash" then .hash
   else if name.endsWith "string" then .string
+  else if name.endsWith "address" then .address
   else if name.contains "structType" then .structType ""
   else .u64
 
@@ -865,7 +866,9 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
   let contextHelpers := Context.ctxHelperFuncsForModulePlan plan.surface bridge
   let strEqHelpers := StringCmp.strEqFuncsForModulePlan plan.surface
   let arrHeapHelpers := ArrayHeap.arrHeapHelperFuncsForModulePlan plan.surface defaultAllocator
-  let returnFuncs := (if plan.surface.returnTypes.contains .u64 then #[Scalar.returnU64Func bridge] else #[]) ++
+  let returnFuncs :=
+    (if plan.surface.returnTypes.contains .u64 || plan.surface.returnTypes.contains .address then
+      #[Scalar.returnU64Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .u32 then #[Scalar.returnU32Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .u128 then #[Scalar.returnU128Func bridge] else #[]) ++
     (if plan.surface.returnTypes.contains .bool then #[Scalar.returnBoolFunc bridge] else #[])

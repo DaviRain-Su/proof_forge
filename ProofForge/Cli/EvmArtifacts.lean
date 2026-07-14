@@ -748,7 +748,9 @@ def planEventJson (cast : String)
     ("topic0", jsonString topic0),
     ("anonymous", "false"),
     ("indexedFields", jsonArray indexedFields),
-    ("dataFields", jsonArray dataFields)
+    ("dataFields", jsonArray dataFields),
+    ("topics", toString (indexedFields.size + 1)),
+    ("dataWords", toString dataFields.size)
   ]
 
 def writeEvmArtifactMetadata

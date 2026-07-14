@@ -142,6 +142,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT3b1-2 | authorization check 是 direct Core operation | ✅ met | public `requireEq` / `requireNe` statement 归一化为 typed Core comparison 与 assertion；不支持的 direct action 以 no-Legacy-fallback 诊断失败 |
 | A-CUT3b1-3 | 主 target plan 消费同一 checked contract | ✅ met | 同一个 Authored authorization probe 的 focused EVM、Solana、NEAR `buildFromCore` 均通过 |
 
+## Gate A-CUT3b2 —— Product Ownable direct 切换
+
+**状态：Closed**
+
+**Closed: 2026-07-14**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT3b2-1 | Product Ownable 只有一个当前 source identity | ✅ met | `just ownable-authoring-cutover` 要求 `contract : AuthoredContract`，并拒绝 Product `.spec`/`.module`、`Source.Legacy`、stdlib facade、allowlist 记录和过时 EVM wrapper |
+| A-CUT3b2-2 | authorization 到达 checked Core 与 target-owned plan | ✅ met | focused Lean gate 从同一个 checked contract 观察 sender context、相等/不等 assertion、EVM caller/revert、Solana signer authority 与最终 NEAR plan-to-Wasm lowering |
+| A-CUT3b2-3 | 每个主 target 只发射 Canonical artifact | ✅ met | focused EVM bytecode/Yul、Solana assembly/package 与 NEAR WAT/Wasm build 均报告 `contract-source-authored` / `canonical-core-v1`，且不发射 ContractSpec/v1 sidecar |
+| A-CUT3b2-4 | NEAR address 表示保持 target-owned | ✅ met | Wasm-host 参数、标量存储、事件和返回 lowering 将 portable address 物化为 target 的 i64 carrier；最终 `wat2wasm` 验证通过 |
+| A-CUT3b2-5 | EVM plan metadata 保持共享 artifact schema | ✅ met | plan-only event writer 发射 `topics` 与 `dataWords`；metadata validator 检查标准 `transferOwnership(address)` selector `f2fde38b` 与 160-bit address layout |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

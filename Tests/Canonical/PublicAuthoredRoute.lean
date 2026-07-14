@@ -1,4 +1,5 @@
 import Examples.Product.Counter
+import Examples.Product.Ownable
 import Examples.Product.ValueVault
 import ProofForge.Cli.ContractLoader
 import ProofForge.Frontend.Authored
@@ -13,6 +14,9 @@ def publicCounter : AuthoredContract :=
 
 def publicValueVault : AuthoredContract :=
   Examples.Product.ValueVault.contract
+
+def publicOwnable : AuthoredContract :=
+  Examples.Product.Ownable.contract
 
 def require (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -48,6 +52,21 @@ unsafe def run : IO Unit := do
         "Loader changed the direct authored ValueVault identity"
   | .surfaceFixture _ =>
       throw <| IO.userError "public ValueVault was loaded as an internal Surface fixture"
+  let ownableInput := System.FilePath.mk "Examples/Product/Ownable.lean"
+  let (ownableEnv, ownableModName) <- ProofForge.Cli.ContractLoader.runTrustedLocalFrontend
+    ownableInput (some (System.FilePath.mk ".")) none
+  require (ownableEnv.constants.contains (ownableModName ++ `contract))
+    "public Ownable does not export contract : AuthoredContract"
+  require (!(ownableEnv.constants.contains (ownableModName ++ `spec)))
+    "public Ownable still exports the retired ContractSpec source"
+  require (!(ownableEnv.constants.contains (ownableModName ++ `module)))
+    "public Ownable still exports the retired IR.Module source"
+  match <- ProofForge.Cli.ContractLoader.loadSourceFromEnv ownableEnv ownableModName with
+  | .authored contract =>
+      require (contract.name == publicOwnable.name)
+        "Loader changed the direct authored Ownable identity"
+  | .surfaceFixture _ =>
+      throw <| IO.userError "public Ownable was loaded as an internal Surface fixture"
   IO.println "public-authored-route: ok"
 
 end ProofForge.Tests.Canonical.PublicAuthoredRoute

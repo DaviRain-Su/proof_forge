@@ -14,19 +14,21 @@ open ProofForge.Compiler.Wasm
 artifact-surface obligations. -/
 
 def wasmTypeOf : ValueType → ValType
-  | .u32 => .i32 | .u64 => .i64 | .bool => .i32 | .hash => .i32 | .u128 => .i64 | _ => .i32
+  | .u32 => .i32 | .u64 | .address => .i64 | .bool => .i32 | .hash => .i32
+  | .u128 => .i64 | _ => .i32
 
 def widthOf : ValueType → String
-  | .u32 => "i32" | .u64 => "i64" | .bool => "i32" | .hash => "i32" | .u128 => "i64" | _ => "i32"
+  | .u32 => "i32" | .u64 | .address => "i64" | .bool => "i32" | .hash => "i32"
+  | .u128 => "i64" | _ => "i32"
 
 def isNumeric (t : ValueType) : Bool :=
   match t with
-  | .u32 | .u64 | .u128 => true
+  | .u32 | .u64 | .u128 | .address => true
   | _ => false
 
 def isScalarBorshType (t : ValueType) : Bool :=
   match t with
-  | .u32 | .u64 | .bool | .hash | .u128 => true
+  | .u32 | .u64 | .bool | .hash | .u128 | .address => true
   | _ => false
 
 def scalarWidth : ValueType → Nat
@@ -45,6 +47,7 @@ def typeSuffix (vt : ValueType) : String :=
   | .bool => "bool"
   | .hash => "hash"
   | .u128 => "u128"
+  | .address => "address"
   | _ => "x"
 
 def readName  (vt : ValueType) : String := "__pf_read_"  ++ typeSuffix vt

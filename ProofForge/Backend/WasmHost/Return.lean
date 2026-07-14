@@ -54,7 +54,7 @@ def returnInsnsForLoweredExpr (expected : ValueType) (expr : Expr)
     -- host handle and uses ordinary value_return encoding.
     .ok (insns ++ #[.call "promise_return"])
   else match actual with
-    | .u64 => .ok (insns ++ #[.call returnU64Name])
+    | .u64 | .address => .ok (insns ++ #[.call returnU64Name])
     | .u32 => .ok (insns ++ #[.call returnU32Name])
     | .u128 => .ok (insns ++ #[.call returnU128Name])
     | .bool => .ok (insns ++ #[.call returnBoolName])

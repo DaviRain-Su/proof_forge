@@ -22,7 +22,6 @@ import Examples.Product.FeeToken
 import Examples.Product.FungibleToken
 import Examples.Product.GuestBook
 import Examples.Product.HeightLockVault
-import Examples.Product.Ownable
 import Examples.Product.OwnableHash
 import Examples.Product.OwnablePausable
 import Examples.Product.Pausable
@@ -134,7 +133,6 @@ def testCounterV1FixtureCoverage : IO Unit := do
 
 def testPolicies : IO Unit := do
   for (label, m) in #[
-    ("Ownable", Examples.Product.Ownable.module),
     ("Pausable", Examples.Product.Pausable.module),
     ("OwnablePausable", Examples.Product.OwnablePausable.module),
     ("AccessControl", Examples.Product.AccessControl.module),
@@ -142,11 +140,6 @@ def testPolicies : IO Unit := do
   ] do
     assertFourHost label m
   assertPrimaryThree "OwnableHash" Examples.Product.OwnableHash.module
-  -- Ownable: Solana synthesizes authority without Source.Solana
-  let ownable := Examples.Product.Ownable.module
-  let accounts := buildModuleAccounts ownable {}
-  require (accounts.any (fun a => a.name == "authority" && a.signer))
-    "Ownable Solana authority auto-fill"
 
 def testVaultsAndTokens : IO Unit := do
   for (label, module) in #[

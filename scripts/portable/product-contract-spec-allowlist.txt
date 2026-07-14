@@ -33,7 +33,6 @@ Examples/Product/VestingVault.lean:contract_source
 # Stdlib facade re-exports (def spec : ContractSpec := Stdlib.*.spec)
 Examples/Product/AccessControl.lean:def spec : ProofForge.Contract.ContractSpec
 Examples/Product/ERC4626Vault.lean:def spec : ProofForge.Contract.ContractSpec
-Examples/Product/Ownable.lean:def spec : ProofForge.Contract.ContractSpec
 Examples/Product/OwnableHash.lean:def spec : ProofForge.Contract.ContractSpec
 Examples/Product/OwnablePausable.lean:def spec : ProofForge.Contract.ContractSpec
 Examples/Product/Pausable.lean:def spec : ProofForge.Contract.ContractSpec

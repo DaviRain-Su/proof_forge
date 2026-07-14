@@ -756,7 +756,7 @@ def powFunc (vt : ValueType) : Func :=
 
 def scalarStorageHelperFuncsForModulePlan (plan : ModulePlan)
     (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
-  let scalarTypes : Array ValueType := #[.u32, .u64, .bool]
+  let scalarTypes : Array ValueType := #[.u32, .u64, .bool, .address]
   let funcs := scalarTypes.foldl (init := #[]) fun acc type =>
     let acc :=
       if plan.scalarReadTypes.contains type then
@@ -780,7 +780,8 @@ def scalarStorageHelperFuncsForModulePlan (plan : ModulePlan)
 
 def returnHelperFuncsForModulePlan (plan : ModulePlan)
     (bridge : ProofForge.Target.HostBridge := .near) : Array Func :=
-  (if plan.returnTypes.contains .u64 then #[returnU64Func bridge] else #[]) ++
+  (if plan.returnTypes.contains .u64 || plan.returnTypes.contains .address then
+      #[returnU64Func bridge] else #[]) ++
     (if plan.returnTypes.contains .u32 then #[returnU32Func bridge] else #[]) ++
     (if plan.returnTypes.contains .bool then #[returnBoolFunc bridge] else #[]) ++
     (if plan.returnTypes.contains .u128 then #[returnU128Func bridge] else #[]) ++

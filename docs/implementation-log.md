@@ -4301,3 +4301,36 @@ Rules:
 - Verification: `just authored-authorization`; `lake env lean --run
   Tests/SourceDslIsolation.lean`; `just docs-check`; and `git diff --check`.
   No full aggregate was run.
+
+## 2026-07-14 - A-CUT3b2: direct-only Product Ownable cutover
+
+- Status: `done (verified 2026-07-14)`; independent native Ownable comparison
+  is the next CMP-3 slice.
+- Rewrote `Examples/Product/Ownable.lean` as the sole target-neutral
+  `AuthoredContract`. It exports no `ContractSpec` or v1 `IR.Module`, imports
+  no Legacy/stdlib facade, and directly expresses initialization, caller
+  authorization, zero-address rejection, ownership events, transfer, and
+  renounce behavior.
+- Deleted the obsolete EVM Ownable wrapper, removed Product Ownable's retired
+  `.spec`/`.module` consumers and allowlist record, and added a source-tree gate
+  that rejects their restoration. No compatibility alias or fallback was
+  introduced.
+- Completed the Wasm-host target-owned address carrier for direct Canonical
+  plans: address parameters, scalar storage, comparisons, events, and returns
+  use the NEAR backend's i64 carrier. Final WAT now passes `wat2wasm`.
+- Completed plan-only EVM event metadata with the existing `topics` and
+  `dataWords` schema fields. The direct artifact uses the standard
+  `transferOwnership(address)` selector `f2fde38b` and a 160-bit EVM address
+  layout.
+- Added `just ownable-authoring-cutover`. It checks loader/source identity,
+  checked Core and all three target plans, EVM bytecode/Yul, Solana
+  assembly/package, final NEAR Wasm, canonical artifact metadata, and absence
+  of ContractSpec/v1 sidecars.
+- Verification: `just ownable-authoring-cutover`; `just testkit-ownable` (three
+  targets and normalized trace parity); the affected Product,
+  permission, loader, matrix, constructor, topology, and portable-default
+  tests; and `git diff --check`. `just portable-stdlib-core-multi-target`
+  verified Ownable on all three targets and then failed closed at Pausable,
+  which still exports no `AuthoredContract`; Pausable and ReentrancyGuard are
+  subsequent A-CUT3 deletion migrations, not reasons to restore Legacy. No full
+  aggregate was run.

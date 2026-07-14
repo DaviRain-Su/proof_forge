@@ -638,7 +638,7 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
     : Except EmitError (Array Insn × Array Local) := do
   let plannedParams := abiPlan.params.map fun param => (param.name?.getD "", param.type)
   if abiPlan.name.isEmpty || plannedParams != params then
-    err s!"EmitWat: entrypoint `{abiPlan.name}` NEAR ABI plan does not match its parameter signature"
+    err s!"EmitWat: entrypoint `{abiPlan.name}` NEAR ABI plan does not match its parameter signature: planned={repr plannedParams}, actual={repr params}"
   -- CosmWasm: no NEAR input — empty prologue only; reject params for now.
   if bridge == .cosmWasm then
     if params.isEmpty then
@@ -670,7 +670,7 @@ def loadParams (structs : Array ProofForge.IR.StructDecl)
     fun (insns, locals, offset, hslot) p =>
       let (name, vt) := p
       match vt with
-      | .u32 | .u64 | .bool =>
+      | .u32 | .u64 | .bool | .address =>
         let loadInsns := #[.i32Const (INPUT_BUF + offset), .load (loadOpFor vt) 0, .localSet name]
         .ok (insns ++ loadInsns, locals.push { name := name, type := wasmTypeOf vt }, offset + scalarWidth vt, hslot)
       | .u128 =>

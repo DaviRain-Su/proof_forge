@@ -418,6 +418,15 @@ authored-authorization:
     lake build ProofForge.Contract.Source
     lake env lean --run Tests/Canonical/AuthoredAuthorization.lean
 
+# A-CUT3b2: Product Ownable has one direct Authored/Core route to all primary plans.
+ownable-authoring-cutover:
+    scripts/canonical/check-ownable-authoring-cutover.sh
+    lake build ProofForge.Backend.WasmHost.NearModulePlan.Core ProofForge.Cli.ContractLoader Examples.Product.Ownable
+    lake env lean --run Tests/OwnableExample.lean
+    lake env lean --run Tests/Canonical/PublicAuthoredRoute.lean
+    lake env lean --run Tests/Canonical/SourceLoader.lean
+    scripts/canonical/ownable-target-first-smoke.sh
+
 # Wave 6 Task 21: architecture boundary gate.
 canonical-boundary:
     scripts/canonical/check-boundary-self-test.sh

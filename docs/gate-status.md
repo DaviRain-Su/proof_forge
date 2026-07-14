@@ -149,6 +149,20 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | A-CUT3b1-2 | Authorization checks are direct Core operations | ✅ met | public `requireEq` / `requireNe` statements normalize to typed Core comparisons and assertions; unsupported direct actions fail with a no-Legacy-fallback diagnostic |
 | A-CUT3b1-3 | Primary target plans consume the same checked contract | ✅ met | focused EVM, Solana, and NEAR `buildFromCore` calls all pass for the same Authored authorization probe |
 
+## Gate A-CUT3b2 - Product Ownable direct cutover
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| A-CUT3b2-1 | Product Ownable has one current source identity | ✅ met | `just ownable-authoring-cutover` requires `contract : AuthoredContract`, rejects Product `.spec`/`.module`, `Source.Legacy`, the stdlib facade, its allowlist entry, and the obsolete EVM wrapper |
+| A-CUT3b2-2 | Authorization reaches checked Core and target-owned plans | ✅ met | the focused Lean gate observes sender context, equality/inequality assertions, EVM caller/revert behavior, Solana signer authority, and final NEAR plan-to-Wasm lowering from the same checked contract |
+| A-CUT3b2-3 | Every primary target emits only Canonical artifacts | ✅ met | focused EVM bytecode/Yul, Solana assembly/package, and NEAR WAT/Wasm builds report `contract-source-authored` / `canonical-core-v1` and emit no ContractSpec/v1 sidecar |
+| A-CUT3b2-4 | NEAR address representation remains target-owned | ✅ met | Wasm-host parameter, scalar storage, event, and return lowering materializes portable address values as the target's i64 carrier; final `wat2wasm` validation passes |
+| A-CUT3b2-5 | EVM plan metadata retains the shared artifact schema | ✅ met | the plan-only event writer emits `topics` and `dataWords`; metadata validation checks the standard `transferOwnership(address)` selector `f2fde38b` and the 160-bit address layout |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

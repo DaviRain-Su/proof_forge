@@ -154,8 +154,12 @@ direct Source 操作：portable caller identity、数值零地址以及相等/�
 Focused `just authored-authorization` 门禁证明它们归一化为 Canonical Core 的
 `contextRead.sender`、`compare` 和 `assert` 操作，并且无需 `Source.Internal`、
 Legacy adapter 或 target-specific frontend 分支即可到达 EVM、Solana、NEAR
-target plan。Product Ownable 迁移及其 native differential 证据是后续
-A-CUT3/CMP-3 authorization 切片。
+target plan。随后 A-CUT3b2 将 Product Ownable 本身切换到这条单一路线，
+删除 ContractSpec/v1 alias 与过时 EVM wrapper，并发射携带
+`contract-source-authored` / `canonical-core-v1` 的 EVM、Solana 与最终
+NEAR Wasm 制品。focused gate 拒绝 legacy sidecar，并证明 NEAR address
+carrier 由 Wasm-host plan 所有。独立原生 Ownable 差分证据是下一项 CMP-3
+authorization 切片。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

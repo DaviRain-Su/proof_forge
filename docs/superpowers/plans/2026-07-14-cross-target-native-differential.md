@@ -197,8 +197,13 @@ zero address, and equality/inequality assertions. The focused `just
 authored-authorization` gate proves they normalize to Canonical Core
 `contextRead.sender`, `compare`, and `assert` operations and reach EVM,
 Solana, and NEAR target plans without `Source.Internal`, Legacy adapters, or a
-target-specific frontend branch. Product Ownable migration and its native
-differential evidence remain the next A-CUT3/CMP-3 authorization slices.
+target-specific frontend branch. A-CUT3b2 then moves Product Ownable itself to
+that single route, deletes its ContractSpec/v1 aliases and obsolete EVM wrapper,
+and emits EVM, Solana, and final NEAR Wasm artifacts carrying
+`contract-source-authored` / `canonical-core-v1`. The focused gate rejects
+legacy sidecars and proves NEAR's address carrier is owned by the Wasm-host
+plan. Independent native Ownable differential evidence is the next CMP-3
+authorization slice.
 
 Acceptance:
 

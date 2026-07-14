@@ -43,7 +43,11 @@ equals = "ownable"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
+
+[[artifact.json]]
+path = "irVersion"
+equals = "canonical-core-v1"
 
 [[artifact.json]]
 path = "sourceModule"
@@ -129,7 +133,11 @@ equals = "Ownable"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
+
+[[artifact.json]]
+path = "irVersion"
+equals = "canonical-core-v1"
 
 [[artifact.json]]
 path = "capabilities"
@@ -246,7 +254,11 @@ equals = "Ownable"
 
 [[artifact.json]]
 path = "sourceKind"
-equals = "contract-sdk"
+equals = "contract-source-authored"
+
+[[artifact.json]]
+path = "irVersion"
+equals = "canonical-core-v1"
 
 [[artifact.json]]
 path = "capabilities"
@@ -260,10 +272,6 @@ contains = "caller.sender"
 [[artifact.json]]
 path = "validation.manifestGeneration"
 equals = "passed"
-
-[[artifact.file]]
-path = "artifacts.source"
-artifact = "source"
 
 [[artifact.file]]
 path = "artifacts.sbpfAsm"
@@ -280,10 +288,6 @@ artifact = "idl"
 [[artifact.file]]
 path = "artifacts.solanaClientTs"
 artifact = "client"
-
-[[artifact.jsonArtifact]]
-path = "solanaIdl"
-artifact = "idl"
 
 [[artifact]]
 target = "solana-sbpf-asm"

@@ -36,10 +36,17 @@ mkdir -p "$OUT"
 
 expected_entries() {
   case "$1" in
-    Ownable) echo "owner,transferOwnership,renounceOwnership,init" ;;
+    Ownable) echo "init,owner,transferOwnership,renounceOwnership" ;;
     Pausable) echo "paused,pause,unpause" ;;
     ReentrancyGuard) echo "acquire,release,locked" ;;
     *) fail "unknown stdlib module: $1" ;;
+  esac
+}
+
+expected_source_kind() {
+  case "$1" in
+    Ownable) echo "contract-source-authored" ;;
+    *) echo "contract-sdk" ;;
   esac
 }
 
@@ -48,7 +55,7 @@ set_evm_metadata_args() {
     Ownable)
       metadata_args=( \
         --expect-entrypoint owner:8da5cb5b \
-        --expect-entrypoint transferOwnership:d23e8489 \
+        --expect-entrypoint transferOwnership:f2fde38b \
         --expect-entrypoint renounceOwnership:715018a6 \
         --expect-entrypoint init:e1c7392a \
       )
@@ -88,7 +95,7 @@ for module in "${MODULES[@]}"; do
   python3 scripts/evm/validate-artifact-metadata.py \
     --root "$ROOT" \
     --expect-fixture "$module" \
-    --expect-source-kind contract-sdk \
+    --expect-source-kind "$(expected_source_kind "$module")" \
     "${metadata_args[@]}" \
     "$module_out/evm/${module}.proof-forge-artifact.json"
 
@@ -116,21 +123,21 @@ for module in "${MODULES[@]}"; do
     --expected-fixture "$lower" \
     --expected-module "$module" \
     --expected-entrypoints "$(expected_entries "$module")" \
-    --expected-source-kind contract-sdk
+    --expected-source-kind "$(expected_source_kind "$module")"
 
-  python3 - "$module" "$(expected_entries "$module")" \
+  python3 - "$module" "$(expected_entries "$module")" "$(expected_source_kind "$module")" \
     "$module_out/solana/${module}.solana-artifact.json" \
     "$module_out/solana/manifest.toml" <<'PY'
 import json
 import sys
 
-module, entries_csv, artifact_path, manifest_path = sys.argv[1:]
+module, entries_csv, source_kind, artifact_path, manifest_path = sys.argv[1:]
 entries = entries_csv.split(",")
 artifact = json.load(open(artifact_path))
 manifest = open(manifest_path).read()
 assert artifact["target"] == "solana-sbpf-asm"
 assert artifact["fixture"] == module
-assert artifact["sourceKind"] == "contract-sdk"
+assert artifact["sourceKind"] == source_kind
 assert artifact["sourceModule"] == module
 for entry in entries:
     assert f'name = "{entry}"' in manifest, f"missing Solana manifest entry {entry}"

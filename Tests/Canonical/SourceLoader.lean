@@ -76,6 +76,19 @@ unsafe def main : IO Unit := do
         withoutResolvedSelectors surfaceVault.contract.contract.interface)
     "ValueVault interface shape differs between product source and internal Surface fixture"
 
+  let authoredOwnable <- load "Examples/Product/Ownable.lean"
+  match authoredOwnable with
+  | .authored _ => pure ()
+  | .surfaceFixture _ =>
+      throw (IO.userError "authored Ownable discovered as an internal Surface fixture")
+  let authoredOwnableBundle <- canonicalize authoredOwnable
+  require (authoredOwnableBundle.contract.contract.module.state.size == 2)
+    "Authored Ownable state drift"
+  require (authoredOwnableBundle.contract.contract.module.functions.size == 4)
+    "Authored Ownable entrypoint drift"
+  require (authoredOwnableBundle.contract.contract.module.events.size == 1)
+    "Authored Ownable event drift"
+
   let fixtureDir := "build/canonical/source-loader"
   IO.FS.createDirAll fixtureDir
   let ambiguousPath := fixtureDir ++ "/Ambiguous.lean"

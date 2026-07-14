@@ -6,7 +6,6 @@ T3.2: Solana account auto-fill for transfer / remote / native-value intents
 without Source.Solana authoring.
 -/
 import Examples.Product.AuthRemoteCall
-import Examples.Product.Ownable
 import Examples.Product.RemoteCall
 import Examples.Product.RoleGatedToken
 import Examples.Product.ExternalTokenTransfer
@@ -47,18 +46,6 @@ def mustRender (label : String) (m : Module) : IO String := do
   match ProofForge.Backend.Solana.SbpfAsm.renderModule m with
   | .ok src => pure src
   | .error e => throw (IO.userError s!"{label} SbpfAsm: {e.message}")
-
-/-- Pure Ownable: authority non-writable (no nativeValue). -/
-def testOwnableAuth : IO Unit := do
-  let m := Examples.Product.Ownable.module
-  let accounts := buildModuleAccounts m {}
-  let head ← leading accounts
-  require head.signer "Ownable: leading account must be signer"
-  require (!head.writable) "Ownable: pure auth authority stays non-writable"
-  require (head.name == "authority") "Ownable: authority name"
-  require (hasProgramState accounts) "Ownable: program state present"
-  let src ← mustRender "Ownable" m
-  require (src.contains "account.validation") "Ownable prologue"
 
 /-- Remote-only: state + payer + callee_program (no caller). -/
 def testRemoteCall : IO Unit := do
@@ -165,7 +152,6 @@ def testEmptyPeerDiagnostic : IO Unit := do
         s!"empty peer should point authors at remote/declareRemote, got: {msg}"
 
 def main : IO UInt32 := do
-  testOwnableAuth
   testRemoteCall
   testRoleGatedTokenTransfer
   testStakingVaultNative

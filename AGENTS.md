@@ -26,9 +26,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | A-CUT3b2 - rewrite Product Ownable as the direct authorization representative and delete its `ContractSpec`/`IR.Module` facade |
-| Next task | Add Ownable native differential evidence, then continue A-CUT3 through collection, event/error, and portable crosscall representatives |
-| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; CMP-3 ValueVault has complete eight-dimension semantic evidence on EVM, Solana, and NEAR |
+| Active task | CMP-3d - execute independent native Ownable references beside the direct Authored artifacts on EVM, Solana, and NEAR |
+| Next task | Migrate the next Product family directly; Pausable and ReentrancyGuard remain rejected Legacy inventory and must not receive a compatibility route |
+| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; CMP-3 ValueVault is verified and Product Ownable now has a canonical-only three-target compile gate |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -177,7 +177,7 @@ Core are internal compiler representations.
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
 | A-CUT1e | done (verified at `571b795d`) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
 | A-CUT2 | done (verified at `e2834c59`) | Public Counter routes, reverse dependencies, and independent primary-triad behavior are direct-only and fully covered by CMP-2 |
-| A-CUT3 | in_progress (ValueVault direct and native-differential verified 2026-07-14) | Migrate the full product catalog from the single abstract source and delete each retired Legacy slice |
+| A-CUT3 | in_progress (ValueVault and Ownable direct; ValueVault native-differential verified 2026-07-14) | Migrate the full product catalog from the single abstract source and delete each retired Legacy slice |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
 
@@ -186,7 +186,7 @@ Native-reference differential validation follows
 It extends the existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
 and Stylus differential assets; it is not another compiler route. CMP-0 is
 done at `18f15e59`, CMP-1 at `7fee238c`, and A-CUT2/CMP-2 at `e2834c59`.
-CMP-3 is the active A-CUT3 ValueVault evidence. CMP-SOL attaches to IR-B5, CMP-NEAR
+CMP-3 is the active A-CUT3 catalog evidence; Ownable native execution is next. CMP-SOL attaches to IR-B5, CMP-NEAR
 attaches to NEAR-R4, and the final fail-closed matrix attaches to IR-B8/A-CUT5.
 
 The D-052 cross-program routing index remains below for work not superseded by

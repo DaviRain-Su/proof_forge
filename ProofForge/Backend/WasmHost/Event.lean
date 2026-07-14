@@ -169,7 +169,7 @@ def evtHeaderInsns (nameSi : StringInfo) : Array Insn :=
 def evtValueInsnsForType (eventName fieldName : String) (type : ValueType) :
     Except EmitError (Array Insn) :=
   match type with
-  | .u64 => .ok #[.call evtPutu64Name]
+  | .u64 | .address => .ok #[.call evtPutu64Name]
   | .u128 =>
       let value := #[.call evtPutu128Name]
       if (eventName == "ft_transfer" || eventName == "ft_mint" || eventName == "ft_burn") &&

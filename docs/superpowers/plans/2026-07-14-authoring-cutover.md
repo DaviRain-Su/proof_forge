@@ -283,7 +283,7 @@ independent primary-triad behavior requirement at `e2834c59`.
 
 ### A-CUT3 - Product migration
 
-State: `in_progress; CMP-3 ValueVault is active`
+State: `in_progress; ValueVault and Ownable direct, CMP-3 Ownable native evidence active`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
@@ -309,6 +309,17 @@ Authored/checked Core. EVM, Solana, and NEAR builds all report
 `contract-source-authored` / `canonical-core-v1`; `just
 value-vault-authoring-cutover` pins the no-fallback boundary. CMP-3 remains in
 progress until the independent native primary-triad comparison is complete.
+
+Authorization checkpoint (2026-07-14): Product Ownable now imports only the
+direct `ProofForge.Contract.Source`, exports one `AuthoredContract`, and has no
+`.spec`, `.module`, `Source.Legacy`, stdlib facade, or EVM compatibility
+wrapper. Portable address/caller/assert operations normalize to checked Core;
+EVM, Solana, and NEAR artifacts all report `contract-source-authored` /
+`canonical-core-v1`. The Wasm-host target plan owns address's i64 carrier for
+parameters, storage, events, and returns. `just ownable-authoring-cutover`
+builds final artifacts for all three targets and rejects retired sidecars.
+Independent native Ownable execution is the next CMP-3 slice. Pausable and
+ReentrancyGuard remain rejected Legacy inventory, not fallback candidates.
 
 ### A-CUT4 - Delete duplicate source and version split
 
