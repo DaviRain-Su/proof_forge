@@ -3394,3 +3394,14 @@ Rules:
 - The sibling Legacy-authored product sources remain temporarily for NEAR and
   Solana only. EVM no longer consumes them in its product catalog gate.
 - Verification: `just evm-canonical-product-route` and `git diff --check`.
+
+## 2026-07-14 - EVM-R4a: delete zero-caller EVM field aliases
+
+- Status: `done (verified 2026-07-14)`; EVM-R4 remains in progress.
+- Deleted the zero-caller `Entrypoint.paramEvmAbiWords` and
+  `Module.evmProxyPattern?` compatibility aliases. All callers already use the
+  chain-neutral `paramAbiWords` and target-resolved `proxyPattern?` fields.
+- Removed the obsolete EVM alias from the target-boundary baseline; no wrapper
+  or replacement Legacy name was introduced.
+- Verification: targeted IR build, `just ir-target-boundary`, repository
+  caller search, and `git diff --check`.

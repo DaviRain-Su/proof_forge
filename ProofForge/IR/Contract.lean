@@ -377,18 +377,14 @@ structure Entrypoint where
   selector? : Option String := none
   params : Array (String × ValueType) := #[]
   /-- Parallel ABI surface overrides for selector/signature metadata
-  (`some "address"`, etc.). Historically EVM-only (`paramEvmAbiWords`); kept
-  chain-neutral so other ABI-bearing targets can reuse the same field (D-050). -/
+  (`some "address"`, etc.). This field is chain-neutral so other ABI-bearing
+  targets can reuse the same carrier metadata (D-050). -/
   paramAbiWords : Array (Option String) := #[]
   returns : ValueType := .unit
   /-- Optional host ABI override for the return carrier. -/
   returnAbiWord? : Option String := none
   body : Array Statement
   deriving Repr
-
-/-- Compatibility alias for the pre-D-050 EVM-specific field name. -/
-abbrev Entrypoint.paramEvmAbiWords (ep : Entrypoint) : Array (Option String) :=
-  ep.paramAbiWords
 
 /-- Host ABI scalar type for one named event field. Event expressions retain
 their portable IR carrier; target adapters use this declaration for canonical
@@ -429,10 +425,6 @@ structure Module where
       `docs/formal-verification.md`. -/
   overflowChecked : Bool := false
   deriving Repr
-
-/-- Compatibility alias for the pre-D-050 EVM-specific field name. -/
-abbrev Module.evmProxyPattern? (module : Module) : Option String :=
-  module.proxyPattern?
 
 def Effect.capability : Effect → ProofForge.Target.Capability
   | .hostCall _ _ requiredCapabilities =>

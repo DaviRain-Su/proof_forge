@@ -17,7 +17,6 @@ ProofForge/IR/Contract.lean:coinbase 6
 ProofForge/IR/Contract.lean:crosscallCreate 2
 ProofForge/IR/Contract.lean:crosscallCreate2 2
 ProofForge/IR/Contract.lean:eip712PermitDigest 2
-ProofForge/IR/Contract.lean:evmProxyPattern 1
 ProofForge/IR/Contract.lean:fallback 2
 ProofForge/IR/Contract.lean:nearPrepaidGas 1
 ProofForge/IR/Contract.lean:nearPromise 7
