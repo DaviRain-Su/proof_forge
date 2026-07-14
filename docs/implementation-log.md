@@ -3363,3 +3363,17 @@ Rules:
   metadata tail.
 - Verification: `just evm-canonical-bytecode-route`,
   `just evm-direct-products`, and `git diff --check`.
+
+## 2026-07-14 - EVM-R3c: public canonical check route
+
+- Status: `done (verified 2026-07-14)`; EVM-R3 remains in progress for the
+  product-source cutover audit.
+- The public `proof-forge check --target evm <surface.lean>` command now loads
+  Surface v2 directly, normalizes and validates Canonical Core, checks EVM host
+  operation ownership, builds the EVM semantic plan, and dry-renders canonical
+  Yul. It does not request a `ContractSpec` or invoke Legacy backend validation.
+- Legacy source checking remains isolated in `checkLegacyContractSource` only
+  for sources not yet migrated during the ordered chain cutover.
+- Added `just evm-canonical-check-route`, including machine-readable evidence
+  for source version, canonical normalization, plan construction, and lowering.
+- Verification: `just evm-canonical-check-route` and `git diff --check`.

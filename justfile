@@ -315,6 +315,10 @@ evm-canonical-bytecode-route: build
     test $(tr -d '\n' < build/evm-canonical-bytecode-route/ERC4626Vault.bin | wc -c) -le 49152
     jq -e '.sourceKind == "surface-v2" and .sdkSchema == null and .validation.contractSizeCheck.status == "passed" and (.abi.entrypoints | length) == 23' build/evm-canonical-bytecode-route/proof-forge-artifact.json >/dev/null
 
+# Public check command validates Surface v2 through Canonical Core and EVM plan.
+evm-canonical-check-route: build
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge check --target evm --root . --report-format json Examples/Product/Canonical/Counter.lean | jq -e '.status == "ok" and .validation.sourceVersion == "surface-v2" and .validation.canonicalNormalize == "passed" and .validation.backendPlan == "passed" and .validation.lowering == "passed"' >/dev/null
+
 # Wave 3B Task 12.2: materialization and diagnostic parity gate.
 canonical-materialization:
     lake env lean --run Tests/Canonical/MaterializationParity.lean
