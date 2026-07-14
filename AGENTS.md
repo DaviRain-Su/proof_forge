@@ -173,7 +173,7 @@ Core are internal compiler representations.
 | A-CUT1c | done (verified at `52742ff5`) | Consolidate the optional EVM and Solana semantic-refinement roots under the independent `ProofForgeFormal` Lake libraries; keep heavyweight proof dependencies out of the default compiler library |
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
 | A-CUT1e | in_progress (A-CUT1e-a verified 2026-07-14) | Canonical materialization intents now carry open `CapabilityOperation` identities and the first typed Solana runtime HostOps are registered; next remove the public/internal dependency on `Source.Solana.Legacy` |
-| A-CUT2 | in_progress (A-CUT2a-A-CUT2d verified) | Replace the remaining `ContractSpec`/`IR.Module` exchange value; independent Authored syntax now normalizes directly to checked Canonical Core, while Source builder/loader cutover remains pending |
+| A-CUT2 | in_progress (A-CUT2a-A-CUT2e-a verified) | Independent Authored syntax now normalizes directly to checked Canonical Core with typed HostOp results and structured error references; storage/memory schema parity and Source builder/loader cutover remain pending |
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |

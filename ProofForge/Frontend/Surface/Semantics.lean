@@ -86,7 +86,7 @@ partial def evalExpr (e : SurfaceExpr) (st : SurfaceRuntimeState)
     | .ge => .ok (if l ≥ r then 1 else 0)
   | .contextRead _ => .ok 0  /- Context reads are opaque in reference semantics. -/
   | .nativeValue => .ok 0
-  | .hostCall _ _ => .ok 0  /- Host calls are opaque in reference semantics. -/
+  | .hostCall _ _ _ => .ok 0  /- Host calls are opaque in reference semantics. -/
   | .crosscall .. => .ok 0  /- External results are opaque in reference semantics. -/
   | .hashPair lhs rhs => return (← evalExpr lhs st locals) * 16777619 + (← evalExpr rhs st locals)
   | .index _ _ => .error "memory array indexing requires the Core reference semantics"
@@ -136,7 +136,12 @@ partial def execStmts (stmts : Array SurfaceStmt) (st : SurfaceRuntimeState)
     | .assert cond message => do
       let v ← evalExpr cond s l
       if v == 0 then s := { s with reverted := true, error := some message }
+    | .assertError cond errorName _ => do
+      let v ← evalExpr cond s l
+      if v == 0 then s := { s with reverted := true, error := some errorName }
     | .revert message => s := { s with reverted := true, error := some message }
+    | .revertError errorName _ =>
+      s := { s with reverted := true, error := some errorName }
     | .branch cond thenBody elseBody => do
       let v ← evalExpr cond s l
       if v ≠ 0 then

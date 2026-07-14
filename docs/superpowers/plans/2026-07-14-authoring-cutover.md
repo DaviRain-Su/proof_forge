@@ -178,9 +178,11 @@ under `Contract.Source.Internal`, Solana helpers under
 production Legacy import baseline is empty. The independent final source model
 now lives under `Frontend.Authored.{Type,Syntax}`; the Surface type/syntax files
 are compatibility aliases only, and `normalizeAuthored` reaches checked
-Canonical Core without `IR.Contract`. Replacing the Source builder and
-remaining `ContractSpec`/`IR.Module` authored exchange value is still pending
-in A-CUT2.
+Canonical Core without `IR.Contract`. A-CUT2e-a added explicit HostOp result
+types and declared-error references with typed runtime arguments; Canonical
+validation rejects signature and error-argument mismatches. Storage-path and
+memory-lifecycle parity, replacing the Source builder, and the remaining
+`ContractSpec`/`IR.Module` authored exchange value are still pending in A-CUT2.
 
 ### A-CUT3 - Product migration
 

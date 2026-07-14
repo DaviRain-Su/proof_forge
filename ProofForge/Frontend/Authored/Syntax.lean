@@ -93,6 +93,7 @@ inductive AuthoredExpr
   | contextRead (field : AuthoredContextField)
   | nativeValue
   | hostCall (id : ProofForge.Target.HostOpId) (args : Array AuthoredExpr)
+      (returnType : AuthoredType)
   | crosscall (mode : AuthoredCrosscallMode) (target method : AuthoredExpr)
       (args : Array AuthoredExpr) (returnType : AuthoredType)
   deriving Repr
@@ -107,7 +108,9 @@ inductive AuthoredStmt
   | arrayWrite (stateName : String) (index value : AuthoredExpr)
   | emit (eventName : String) (args : Array AuthoredExpr)
   | assert (condition : AuthoredExpr) (message : String)
+  | assertError (condition : AuthoredExpr) (errorName : String) (args : Array AuthoredExpr)
   | revert (message : String)
+  | revertError (errorName : String) (args : Array AuthoredExpr)
   | branch (condition : AuthoredExpr) (thenBody elseBody : Array AuthoredStmt)
   | boundedLoop (indexName : String) (start stopExclusive : Nat) (body : Array AuthoredStmt)
   | hostCallBind (name : String) (type : AuthoredType) (id : ProofForge.Target.HostOpId) (args : Array AuthoredExpr)

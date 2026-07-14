@@ -3811,3 +3811,21 @@ Rules:
   Authored canonicalization, Core validation, strict intent materialization,
   Surface normalization, and Solana public-route tests; canonical boundary and
   Legacy freeze gates; target-specific constructor scan; and `git diff --check`.
+
+## 2026-07-14 - A-CUT2e-a: typed effects in the authored schema
+
+- Status: `done (verified 2026-07-14)`; A-CUT2e continues with storage paths,
+  collection lifecycle operations, and memory lifecycle parity.
+- Changed Authored HostOp expressions to carry an explicit result type instead
+  of silently producing `u64`. The normalizer preserves that type and the
+  Canonical HostOp catalog rejects disagreement with the registered signature.
+- Added declared-error assert/revert statements with typed runtime arguments.
+  The direct normalizer resolves the error identity, checks arity and argument
+  types, and emits a real `CoreErrorRef`; the old message-only statements remain
+  temporary Surface fixture compatibility.
+- Added `Tests/Canonical/AuthoredStructuredEffects.lean` with positive shape
+  assertions and negative HostOp-result/error-argument cases, and wired it into
+  `canonical-foundation`.
+- Verification: focused Authored/Surface builds; Authored structured-effects,
+  authored canonicalization, Surface normalization/parity, canonical boundary,
+  Legacy freeze, and `git diff --check`.

@@ -81,6 +81,29 @@ def assertErrorRef (message : String) : AuthoredM CoreErrorRef := do
     nextErrorId := st.env.nextErrorId + 1 } })
   return { id := id, args := #[] }
 
+/-- Resolve and type-check a declared authored error with runtime arguments. -/
+def declaredErrorRef (name : String) (args : Array AuthoredExpr) :
+    AuthoredM (Array Instruction × CoreErrorRef) := do
+  let declaration ← match (← get).env.errorDecls.find? (fun error => error.name == name) with
+    | some declaration => pure declaration
+    | none => throw (AuthoredNormalizeError.unknownError name)
+  unless args.size == declaration.params.size do
+    throw (AuthoredNormalizeError.typeMismatch
+      s!"{declaration.params.size} error arguments" s!"{args.size} error arguments")
+  let mut instructions : Array Instruction := #[]
+  let mut refs : Array ValueRef := #[]
+  let mut index := 0
+  for arg in args do
+    let normalized ← normalizeExpr arg
+    let expected := declaration.params[index]!
+    unless normalized.value.type == expected do
+      throw (AuthoredNormalizeError.typeMismatch (reprStr expected)
+        (reprStr normalized.value.type))
+    instructions := instructions ++ normalized.instructions
+    refs := refs.push normalized.value
+    index := index + 1
+  return (instructions, { id := declaration.id, args := refs })
+
 /-- Normalize a Authored statement into the function builder. -/
 partial def normalizeStatement (fb : FunctionBuilder) (stmt : AuthoredStmt)
     (retType : CoreType) : AuthoredM FunctionBuilder :=
@@ -182,8 +205,20 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : AuthoredStmt)
       let error ← assertErrorRef message
       let instr := { results := #[], op := .assert nv.value error }
       liftExcept (fb.emitInstr instr)
+  | .assertError cond errorName args => do
+      let nv ← normalizeExpr cond
+      unless nv.value.type == .bool do
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.bool) (reprStr nv.value.type))
+      let (errorInstructions, error) ← declaredErrorRef errorName args
+      let instructions := nv.instructions ++ errorInstructions
+      let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept (fb.emitInstr { results := #[], op := .assert nv.value error })
   | .revert message => do
       let error ← revertErrorRef message
+      liftExcept (fb.setTerminator (.revert error))
+  | .revertError errorName args => do
+      let (instructions, error) ← declaredErrorRef errorName args
+      let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
       liftExcept (fb.setTerminator (.revert error))
   | .branch cond thenBody elseBody => do
       let nv ← normalizeExpr cond

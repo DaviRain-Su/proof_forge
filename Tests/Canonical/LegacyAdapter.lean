@@ -580,7 +580,7 @@ def runAssertions : IO Unit := do
     "struct/field materialization metadata changed"
   require (probeMaterialization.intents == #[{
       kind := .capability
-      label := "emit-configured"
+      operation := .builtin "emit-configured"
       capability? := some .eventsEmit
       metadata := #[{ key := "event", value := "Configured" }]
     }]) "source-free materialization intent changed"

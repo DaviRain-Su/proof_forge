@@ -51,7 +51,8 @@ def exprType (e : AuthoredExpr) : AuthoredM CoreType := do
   | .memoryArray elementType _ =>
       return .memoryRef (← resolveAuthoredType (← get).env.typeIds elementType)
   | .contextRead field => return (contextFieldType (adaptContextField field))
-  | .hostCall _ _ => return .u64
+  | .hostCall _ _ returnType =>
+      resolveAuthoredType (← get).env.typeIds returnType
   | .crosscall _ _ _ _ returnType =>
       resolveAuthoredType (← get).env.typeIds returnType
   | .nativeValue => return .u128
@@ -177,14 +178,15 @@ partial def normalizeExpr (e : AuthoredExpr) : AuthoredM NormalizedValue := do
         hashed.instructions, value := hashed.value }
   | .nativeValue =>
       emitValueInstruction (.contextRead .value) .u128
-  | .hostCall id args =>
+  | .hostCall id args returnType =>
     let mut allInstrs : Array Instruction := #[]
     let mut argRefs : Array ValueRef := #[]
     for arg in args do
       let nv ← normalizeExpr arg
       allInstrs := allInstrs ++ nv.instructions
       argRefs := argRefs.push nv.value
-    let nv ← emitValueInstruction (.hostCall { id := id, args := argRefs }) .u64
+    let coreReturnType ← liftExcept (resolveAuthoredType (← get).env.typeIds returnType)
+    let nv ← emitValueInstruction (.hostCall { id := id, args := argRefs }) coreReturnType
     return { instructions := allInstrs ++ nv.instructions, value := nv.value }
   | .crosscall mode target method args returnType =>
     let normalizedTarget ← normalizeExpr target
