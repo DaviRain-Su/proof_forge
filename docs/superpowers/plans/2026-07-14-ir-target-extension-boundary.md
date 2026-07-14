@@ -141,12 +141,13 @@ Progress (2026-07-14):
    legacy `Expr.crosscallAbiPacked` constructor, compatibility scanner, and all
    shared/non-EVM match arms are deleted. Packed layout and Yul helper emission
    now exist only in the EVM plan/backend.
-3. Classify create/static/delegate behavior as portable semantics or explicit
-   target extensions and migrate accordingly. CREATE2 product authoring now
-   uses an explicit EVM HostOp; legacy fixture constructors still require
-   deletion. Static/delegate already have neutral Core modes but their legacy
-   authoring surface remains to migrate.
-4. Delete EVM/protocol-specific `Expr` and `Effect` constructors.
+3. [x] Classify create/static/delegate behavior as portable semantics or
+   explicit target extensions. Static/delegate are neutral Canonical Core
+   modes; CREATE and CREATE2 use exact `evm.create/*` HostOps and lower only in
+   the EVM plan.
+4. [-> EVM-R4] Delete the frozen EVM/protocol-specific Legacy `Expr`
+   constructors after EVM-R2/R3 move their remaining callers to direct
+   Canonical Core. Do not replace them with another Legacy enum or wrapper.
 
 ## IR-B5 - Solana Extension Audit and Cleanup
 

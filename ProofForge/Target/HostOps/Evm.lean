@@ -75,6 +75,14 @@ def eip712PermitDigestSig : HostOpSig := {
   requiredCapabilities := #[.cryptoEcrecover]
 }
 
+def createSig : HostOpSig := {
+  id := { namespace_ := "evm.create", name := "create", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[.u128, .string]
+  results := #[.address]
+  effectClass := .external
+  requiredCapabilities := #[.crosscallInvoke]
+}
+
 def create2Sig : HostOpSig := {
   id := { namespace_ := "evm.create", name := "create2", version := { major := 1, minor := 0, patch := 0 } }
   params := #[.u128, .hash, .string]
@@ -119,6 +127,7 @@ def signatures : Array HostOpSig := #[
   blockHashSig,
   ecrecoverSig,
   eip712PermitDigestSig,
+  createSig,
   create2Sig,
   erc721ReceivedSig,
   erc1155ReceivedSig,

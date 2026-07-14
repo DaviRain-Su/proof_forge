@@ -507,6 +507,13 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
               (← valueExpr env value) (← valueExpr env nonce)
               (← valueExpr env deadline) (← valueExpr env domainSep))]
         | _ => .error { message := s!"target extension `{call.id.render}` expects 6 arguments" }
+      else if call.id == ProofForge.Target.HostOps.Evm.createSig.id then
+        match call.args with
+        | #[callValue, initCode] => do
+            .ok #[StmtPlan.letBind (resultName instr) .address
+              (.create .create (← valueExpr env callValue) none
+                (← literalString env initCode))]
+        | _ => .error { message := s!"target extension `{call.id.render}` expects 2 arguments" }
       else if call.id == ProofForge.Target.HostOps.Evm.create2Sig.id then
         match call.args with
         | #[callValue, salt, initCode] => do

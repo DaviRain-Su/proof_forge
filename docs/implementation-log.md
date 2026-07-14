@@ -3045,3 +3045,22 @@ Rules:
   --check`. No full `just check` ran.
 - Next: finish remaining EVM-R1 authoring/constructor deletions, then begin the
   NEAR sequence and remove its named/continuation pool handles.
+
+## 2026-07-14 - EVM-R1s: target-owned plain CREATE
+
+- Status: `done (verified 2026-07-14)`; EVM-R1 is complete and EVM-R2 is next.
+- Registered `evm.create/create@1.0.0` beside CREATE2, added
+  `Contract.Source.Evm.createDeploy`, and lowered the exact HostOp to
+  `ExprPlan.create .create` in the EVM Core planner.
+- Expanded `Tests/Canonical/EvmCreateHostOp.lean` to cover CREATE and CREATE2
+  IDs, wrong-target handler rejection, both semantic plan nodes, and helper
+  collection.
+- Confirmed the cleanup boundary: static/delegate remain platform-neutral
+  Canonical Core modes. Frozen Legacy EVM constructors are not being reshaped
+  into another compatibility API; EVM-R4 deletes them after EVM-R2/R3 switch
+  the remaining callers and public routes.
+- Verification passed: targeted EVM HostOp/facade/Core-plan builds; EVM create,
+  proxy, and direct-crosscall tests; `just ir-target-boundary`, `just
+  legacy-freeze`, and `git diff --check`. No full `just check` ran.
+- Next: EVM-R2, direct Canonical materialization for Counter, ValueVault,
+  Token, RemoteCall, and remaining EVM product families.
