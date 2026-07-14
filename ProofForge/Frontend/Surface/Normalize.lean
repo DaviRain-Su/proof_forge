@@ -3,6 +3,7 @@ import ProofForge.IR.Core.Error
 import ProofForge.IR.Canonical
 import ProofForge.Target.HostOps.Near
 import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.InterfaceOps.Evm
 
 /-! # Surface AST — Top-Level Normalization to CanonicalBundle
 
@@ -142,6 +143,14 @@ def normalizeSurface (contract : SurfaceContract) :
   let st := SurfaceState.ofEnv env
   let (mod, finalSt) ← StateT.run (adaptModule contract) st
   let (interface, _) ← StateT.run (buildInterface contract mod) finalSt
+  let interfaceExtensions : Array InterfaceExtension :=
+    contract.entrypoints.mapIdx (fun index entrypoint =>
+      let id? := match entrypoint.kind with
+        | .function => none
+        | .fallback => some ProofForge.Target.InterfaceOps.Evm.fallbackDispatchId
+        | .receive => some ProofForge.Target.InterfaceOps.Evm.receiveDispatchId
+      id?.map fun id => { id, subject := .entrypoint ⟨index⟩ })
+    |>.filterMap id
   let (materialization, _) ← StateT.run (buildMaterialization contract interface) finalSt
   let evidence := buildEvidence contract
   let hostOpCatalog ← if moduleUsesHostOps mod then
@@ -156,6 +165,7 @@ def normalizeSurface (contract : SurfaceContract) :
     schemaVersion := canonicalSchemaVersion,
     module := mod,
     interface := interface,
+    interfaceExtensions := interfaceExtensions,
     materialization := materialization,
     requirements := requirements,
     hostOpCatalog

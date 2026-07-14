@@ -11,6 +11,22 @@ def solidityCustomErrorId : ProofForge.Target.HostOpId := {
   version := { major := 1, minor := 0, patch := 0 }
 }
 
-def supportedIds : Array ProofForge.Target.HostOpId := #[solidityCustomErrorId]
+def fallbackDispatchId : ProofForge.Target.HostOpId := {
+  namespace_ := "evm.dispatch"
+  name := "fallback"
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
+def receiveDispatchId : ProofForge.Target.HostOpId := {
+  namespace_ := "evm.dispatch"
+  name := "receive"
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
+def supportedIds : Array ProofForge.Target.HostOpId := #[
+  solidityCustomErrorId,
+  fallbackDispatchId,
+  receiveDispatchId
+]
 
 end ProofForge.Target.InterfaceOps.Evm

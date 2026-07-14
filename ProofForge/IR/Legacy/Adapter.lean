@@ -148,14 +148,29 @@ def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv)
     errorEncodings := errorEncodings
   }
 
-def adaptInterfaceExtensions (registeredErrors : Array RegisteredError) :
-    Array InterfaceExtension :=
-  registeredErrors.filterMap fun error =>
+def adaptInterfaceExtensions (spec : ContractSpec) (interface : InterfaceContract)
+    (registeredErrors : Array RegisteredError) : Except CanonicalizeError (Array InterfaceExtension) := do
+  let errorExtensions := registeredErrors.filterMap fun error =>
     error.soliditySelector?.map fun selector => {
       id := ProofForge.Target.InterfaceOps.Evm.solidityCustomErrorId
       subject := .error error.id
       args := #[.string selector, .strings error.solidityArgTypes]
     }
+  let mut dispatchExtensions := #[]
+  for entrypoint in spec.module.entrypoints do
+    let interfaceEntrypoint ← match interface.entrypoints.find? (·.name == entrypoint.name) with
+      | some found => pure found
+      | none => throw (CanonicalizeError.unknownFunction entrypoint.name)
+    let id? := match entrypoint.kind with
+      | .function => none
+      | .fallback => some ProofForge.Target.InterfaceOps.Evm.fallbackDispatchId
+      | .receive => some ProofForge.Target.InterfaceOps.Evm.receiveDispatchId
+    if let some id := id? then
+      dispatchExtensions := dispatchExtensions.push {
+        id
+        subject := .entrypoint interfaceEntrypoint.functionId
+      }
+  return errorExtensions ++ dispatchExtensions
 
 /- Event catalogue extracted from source traversal. Field ordering is canonical:
 indexed fields first, followed by data fields. Every occurrence of a named
@@ -454,7 +469,7 @@ def adaptLegacy (spec : ContractSpec) : Except CanonicalizeError CanonicalBundle
   let registeredErrors := finalSt.env.registeredErrors
   let interface ← adaptInterface spec module finalSt.env registeredErrors
   let materialization ← adaptMaterialization spec finalSt.env interface registeredErrors
-  let interfaceExtensions := adaptInterfaceExtensions registeredErrors
+  let interfaceExtensions ← adaptInterfaceExtensions spec interface registeredErrors
   let evidence := adaptEvidence spec
   let hostOpCatalog ← match ProofForge.IR.Core.HostOp.HostOpCatalog.empty.registerAll
       (ProofForge.Target.HostOps.Near.signatures ++ ProofForge.Target.HostOps.Evm.signatures) with

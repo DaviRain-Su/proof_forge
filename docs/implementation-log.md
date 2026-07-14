@@ -2945,3 +2945,20 @@ Rules:
   its memory limit before producing a test result; no full `just check` ran.
 - Next: move fallback/receive dispatch ownership out of the shared interface,
   then move proxy and host-string pools out of canonical materialization.
+
+## 2026-07-14 - EVM-R1n: dispatch interface-extension bridge
+
+- Status: `done (verified 2026-07-14)`; EVM planner consumption and shared-kind
+  deletion follow next.
+- Registered exact `evm.dispatch/fallback@1.0.0` and
+  `evm.dispatch/receive@1.0.0` interface extension IDs.
+- Legacy `ContractSpec` and Surface v2 normalization now attach those IDs to
+  the canonical function identity. Strict handler resolution accepts them only
+  for EVM and rejects them for NEAR/Solana before target planning.
+- Added `Tests/Canonical/EvmDispatchExtensions.lean` for exact normalization
+  and wrong-target rejection.
+- Verification passed: targeted Adapter/Surface/Registry builds,
+  `Tests/Canonical/EvmDispatchExtensions.lean`, `just ir-target-boundary`, and
+  `git diff --check`. No full `just check` ran.
+- Next: make EVM `DispatchPlan` consume the attachments and render their
+  function bodies, then delete fallback/receive from `InterfaceEntrypointKind`.

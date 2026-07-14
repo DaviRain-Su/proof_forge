@@ -189,7 +189,10 @@ constructor into shared IR.
    `InterfaceExtension` channel and EVM registry handler now carry the exact
    selector/type attachment. The superseded named fields and closed custom
    form have been deleted from canonical materialization.
-3. Move fallback/receive dispatch to target interface metadata.
+3. [~] Move fallback/receive dispatch to target interface metadata. Legacy and
+   Surface normalization now emit exact EVM dispatch extensions, and strict
+   target gates reject them on non-EVM targets. EVM plan/render consumption and
+   deletion of the shared interface kind variants remain.
 4. Move proxy and host-string pools out of portable `Module` and canonical
    materialization records.
 
