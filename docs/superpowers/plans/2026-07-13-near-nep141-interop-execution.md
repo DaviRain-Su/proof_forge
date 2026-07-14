@@ -31,6 +31,14 @@ that does not pass through `NearSpec`, `ContractSpec`, `IR.Module`, or
 `Legacy.Adapter`. Existing behavior commits are retained as parity oracles,
 not accepted as architecture completion.
 
+CMP-NEAR from the
+[cross-target native differential plan](2026-07-14-cross-target-native-differential.md)
+is part of NEAR-R4/N-T6 acceptance. Existing Rust references and Sandbox
+scenarios must be replayed from the canonical-only public artifact with
+fail-closed argument, caller, return, log, storage, promise/action, and error
+coverage. `near-vm-runner` remains VM conformance evidence and cannot substitute
+for real receipt scheduling in Sandbox or a node harness.
+
 ### Canonical cutover sequence
 
 | ID | State | Deliverable |
@@ -39,7 +47,7 @@ not accepted as architecture completion.
 | NEAR-R1 | done (verified 2026-07-14) | Make every `NearModulePlan` field target-owned |
 | NEAR-R2 | pending after EVM-R4 (context subtask landed) | Represent NEAR-only semantics as typed target HostOps, not shared Core constructors |
 | NEAR-R3 | pending | Materialize TokenSpec/Surface v2 directly into checked Canonical Core |
-| NEAR-R4 | pending | Switch CLI/product dispatch and replay N-T1 through N-T4 behavior gates |
+| NEAR-R4 | pending | Switch CLI/product dispatch and replay N-T1 through N-T4 behavior gates plus CMP-NEAR native-reference comparisons |
 | NEAR-R5 | pending | Delete obsolete NEAR product sources, adapters, and compatibility APIs after caller count reaches zero |
 
 The repository-wide migration order is full EVM replacement first, then NEAR,

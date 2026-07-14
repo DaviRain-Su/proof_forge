@@ -1,0 +1,217 @@
+# Cross-Target Native Differential Validation Plan
+
+Status: **Accepted; queued alongside the architecture cutover (2026-07-14)**
+
+Design: [Cross-Target Native Differential Validation](../specs/2026-07-14-cross-target-native-differential-design.md)
+
+## Execution Rule
+
+This is a validation track, not a replacement for the current architecture
+queue. Finish A-CUT1e-c2 first. CMP-0 may land independently, but CMP-1 through
+CMP-3 become part of the A-CUT2/A-CUT3 acceptance work. Target-extension tasks
+are attached to their target migration instead of opening unrelated backend
+work early.
+
+Allowed states are `pending`, `in_progress`, `blocked`, and
+`done (verified at <sha>)`. Every completed task records exact gates and updates
+the implementation log.
+
+## Current Inventory
+
+| Asset | Current state | Planned disposition |
+|---|---|---|
+| `testkit/scenarios` | shared primary-triad scenarios and normalized runtime traces | retain as the portable scenario catalog |
+| `testkit/compare/near` | extensive Rust references and Sandbox runner; many reports still lack complete observation coverage | migrate manifests and observations incrementally |
+| `references/solana/pinocchio` | static and live Rust reference equivalence | retain as Solana extension catalog |
+| Stylus differential scripts | focused Rust/direct-Wasm comparisons | adapt after the primary-triad schema stabilizes |
+| EVM runtime gates | independent execution exists; unified Solidity reference catalog is incomplete | add pinned Solidity references without replacing `revm`/Anvil gates |
+
+## Task Order
+
+### CMP-0 - Freeze inventory and shared contracts
+
+State: `pending after A-CUT1e-c2; may be developed independently`
+
+- Inventory every native reference, runner, manifest schema, scenario, and CI
+  gate; label historical measurement-only reports honestly.
+- Define versioned schemas for reference provenance, logical scenarios,
+  normalized observations, required coverage, and allowed divergences.
+- Add a schema validator that rejects missing provenance, duplicate step IDs,
+  unknown observation dimensions, and semantic success with incomplete
+  coverage.
+- Provide migration adapters for current NEAR v0 and Solana v0 manifests; do
+  not bulk rewrite every reference before the validator exists.
+
+Acceptance:
+
+- One generated inventory lists all current NEAR, Solana, Stylus, and EVM
+  comparison assets without claiming unobserved equivalence.
+- Valid current manifests can migrate explicitly; malformed fixtures fail.
+- No compiler or target plan imports the comparison schema.
+
+Focused verification: schema unit tests, manifest fixtures, comparison-matrix
+snapshot tests, and `git diff --check`.
+
+### CMP-1 - Normalized observation runner contract
+
+State: `pending after CMP-0`
+
+- Add shared runner result types for call status/error, typed return, state,
+  events, target-owned external actions, interface assertions, and resources.
+- Define actor, account, value, and clock normalization without erasing
+  target-native distinctions.
+- Require explicit coverage declarations per scenario and per runner.
+- Keep target adapters small: they translate native observations but do not
+  reinterpret compiler semantics.
+
+Acceptance:
+
+- A synthetic test proves matching results pass, any mismatched dimension
+  fails, and missing required observations cannot produce `semanticMatch=true`.
+- Resource measurements remain target-local and cannot be aggregated into a
+  synthetic cross-chain score.
+
+### CMP-2 - Counter primary-triad native pilot
+
+State: `pending after CMP-1; required by A-CUT2 completion`
+
+- Use the unchanged `Examples/Product/Counter.lean` as the only ProofForge
+  business source.
+- Add or pin independent references: Solidity for EVM, Pinocchio/native Rust for
+  Solana, and `near-sdk` Rust for NEAR.
+- Execute the same initialize/increment/get scenario with equivalent logical
+  actors and inputs in deterministic runners.
+- Compare status, returns, state, errors, emitted logs when present, artifact
+  metadata, and target-local resources.
+- Prove the ProofForge side enters through the direct Authored/Canonical route,
+  not `ContractSpec`, `IR.Module`, or a Legacy adapter.
+
+Acceptance:
+
+- All three targets report complete required observation coverage and semantic
+  match.
+- Each reference manifest pins source provenance, license, and toolchain.
+- The focused pilot runs without a full `just check`.
+
+### CMP-3 - Stateful portable catalog expansion
+
+State: `pending after CMP-2; attached to A-CUT3`
+
+- Add ValueVault as the first stateful scenario.
+- Then select one representative each for authorization, map/collection state,
+  events/errors, and portable crosscall intent.
+- Reuse `Examples/Product`; do not create target-specific Product copies.
+- Record unsupported target capabilities as named compile failures, not skips.
+
+Acceptance:
+
+- ValueVault passes the primary triad with state snapshots and negative cases.
+- Every selected family has a documented observation contract and honest target
+  support matrix.
+- A-CUT3 cannot mark a product family migrated solely from golden artifacts.
+
+### CMP-SOL - Solana extension conformance
+
+State: `pending with IR-B5`
+
+- Migrate existing Pinocchio references to the shared provenance/observation
+  contract.
+- Add direct public-authoring scenarios for account declarations, PDA
+  derivation, CPI, signer/writable/order constraints, and instruction payloads.
+- Compare static plan/manifest facts first, then Mollusk or Surfpool behavior
+  when the required toolchain exists.
+
+Acceptance:
+
+- The ProofForge artifact is produced from typed Solana extensions after target
+  selection.
+- Independent Rust references and ProofForge programs run the same inputs and
+  compare account/state/CPI observations.
+- No Solana constructor is added to shared IR.
+
+### CMP-NEAR - NEAR native-reference replay
+
+State: `pending with NEAR-R4`
+
+- Reuse the existing `near-sdk` reference catalog and Sandbox harness.
+- Complete argument, caller, return, log, storage, promise/action, and negative
+  error observations required by each selected scenario.
+- Rebuild the ProofForge side through the canonical-only public route before
+  accepting historical behavior claims.
+
+Acceptance:
+
+- Counter, ValueVault, and the N-T1 through N-T4 representative contracts pass
+  fail-closed semantic comparison from the new route.
+- Historical measurement-only reports remain excluded from semantic rankings.
+- Receipt scheduling claims use Sandbox/node evidence, not `near-vm-runner`
+  conformance alone.
+
+### CMP-EVM - Solidity reference catalog
+
+State: `pending after CMP-2; may proceed with A-CUT3 EVM slices`
+
+- Add minimal independent Solidity references for Counter and ValueVault, then
+  representative ABI/event/revert/call/storage cases.
+- Pin `solc` and reference origins; run both artifacts on the same `revm` or
+  Anvil scenario.
+- Retain existing Yul shape and bytecode gates as structural checks, not the
+  semantic oracle.
+
+Acceptance:
+
+- Native EVM comparisons use Solidity; any Rust model is labeled secondary.
+- Return data, storage, logs, reverts, and gas bands are compared where the
+  scenario requires them.
+
+### CMP-STYLUS - Stylus reference normalization
+
+State: `pending after primary-triad CMP-2/CMP-3`
+
+- Adapt existing `stylus-sdk` Rust differential gates to the shared manifest and
+  observation contract.
+- Preserve the dedicated `StylusPlan`; do not route Stylus through NEAR plans
+  merely because both emit Wasm.
+
+Acceptance:
+
+- Direct HostIO Wasm and pinned Rust SDK references execute the same scenarios
+  with complete required observations.
+
+### CMP-CI - Tiered execution and promotion policy
+
+State: `pending after CMP-2`
+
+- Add a fast affected-path command for schema/static/VM differentials.
+- Keep node/sandbox/live dual-deploy jobs in target-specific lanes with explicit
+  tool prerequisites and evidence artifacts.
+- Do not add heavyweight live suites to every development slice.
+- Require at least one independent native-reference or VM behavior gate before
+  a capability is advertised as implemented.
+
+Acceptance:
+
+- Local inner-loop comparison is focused and deterministic.
+- CI reports skipped tools separately from passed comparisons.
+- IR-B8/A-CUT5 sign-off consumes a generated matrix whose semantic status fails
+  closed on missing coverage.
+
+## Integration With The Active Queue
+
+| Order | Work | Comparison requirement |
+|---:|---|---|
+| 1 | A-CUT1e-c2 | Use existing Solana canonical and Pinocchio evidence; do not wait for CMP framework consolidation |
+| 2 | CMP-0 | Freeze schemas and inventory before new references proliferate |
+| 3 | A-CUT2 plus CMP-1/CMP-2 | Direct authoring cutover and Counter native pilot land together before A-CUT2 completion |
+| 4 | A-CUT3 plus CMP-3/CMP-EVM | Product catalog migration gains stateful native evidence incrementally |
+| 5 | IR-B5 plus CMP-SOL | Solana target extensions receive independent Rust conformance |
+| 6 | NEAR-R4 plus CMP-NEAR | Canonical-only NEAR artifacts replay the existing native catalog |
+| 7 | IR-B8/A-CUT5 plus CMP-CI | Legacy deletion and boundary closure require a fail-closed matrix |
+| 8 | CMP-STYLUS and later targets | Adopt the stable contract without disturbing the primary migration order |
+
+## Commit Discipline
+
+Each task is a separate reviewable commit or short series: schema/validator,
+one target adapter, one scenario/reference, then CI wiring. Run only focused
+affected gates during development. Full `just product` or `just check` remains
+an integration checkpoint, not a per-reference requirement.

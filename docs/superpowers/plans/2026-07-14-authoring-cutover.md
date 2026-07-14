@@ -141,6 +141,11 @@ focused canonical boundary tests pass. This task establishes ownership and the
 direct frontend seam; full deletion of every legacy Solana fixture remains
 tracked by IR-B5 and A-CUT5.
 
+Comparison attachment: A-CUT1e-c2 uses the existing typed canonical Solana and
+Pinocchio structural/runtime evidence. It does not wait for CMP-0, but the
+public-macro fixture must prove the direct Authored route produces the expected
+target-owned account/PDA/CPI plan without importing Solana Legacy.
+
 Checkpoint (2026-07-14): A-CUT1e-a, A-CUT1e-b, and the backend-plan slice
 A-CUT1e-c1 are complete. Canonical and Authored
 materialization intents carry the open `CapabilityOperation` identity rather
@@ -178,7 +183,11 @@ in A-CUT1e-c2.
 - Resolve target ABI selectors during target planning, not in product source.
 
 Acceptance: `Examples/Product/Counter.lean` reaches EVM, Solana, and NEAR Core
-plans without importing or invoking `IR.Legacy.Adapter`.
+plans without importing or invoking `IR.Legacy.Adapter`. Before A-CUT2 is
+marked complete, CMP-1/CMP-2 from the
+[native differential plan](2026-07-14-cross-target-native-differential.md)
+must compare the direct-route Counter against independent Solidity, Solana
+Rust, and NEAR Rust references with complete required observation coverage.
 
 Checkpoint (2026-07-14): the helper namespace replacement and normalizer
 ownership move are complete. Public
@@ -230,6 +239,9 @@ fixtures.
 
 Acceptance: the complete catalog compiles from `Examples/Product/<file>` for
 every advertised target; focused target gates preserve existing behavior.
+CMP-3 must add stateful ValueVault evidence and representative product-family
+observations incrementally; golden artifacts alone are not sufficient evidence
+for a migrated family.
 
 ### A-CUT4 - Delete duplicate source and version split
 
@@ -264,7 +276,9 @@ A-CUT3 feature parity, so A-CUT4 is not yet complete.
 
 Acceptance: production `ProofForge/**` contains no `IR.Legacy` import or
 compatibility-normalization call, the CLI cannot select a Legacy pipeline, and primary-triad
-product gates pass from the single author source.
+product gates pass from the single author source. The CMP-CI generated matrix
+must fail closed on missing required observations before the final Legacy route
+and its temporary L0 parity gates are deleted.
 
 ## Commit Discipline
 

@@ -90,6 +90,8 @@ flowchart TB
 - [执行日志](../implementation-log.md)：当前任务完成情况与验证证据的精简账本。
 - [Portable Intent 架构 (2026-07-12)](../superpowers/specs/2026-07-12-portable-intent-abstraction-design.md)：目标中立的 intent/materializer 边界与增量 legacy 替换。
 - [Portable Intent 实施计划 (2026-07-12)](../superpowers/plans/2026-07-12-portable-intent-abstraction.md)：当前执行顺序与验收门禁。
+- [跨目标原生差分设计 (2026-07-14)](superpowers/specs/2026-07-14-cross-target-native-differential-design.zh.md)：独立原生 reference、归一化 observation 以及不污染 IR 的 target-extension 验证。
+- [跨目标原生差分计划 (2026-07-14)](superpowers/plans/2026-07-14-cross-target-native-differential.zh.md)：附着到 authoring、Solana、NEAR 和 Legacy 删除退出条件的验证任务。
 - [新手入门](onboarding.zh.md)：本地设置路径、编辑器说明以及针对新贡献者的最小验证循环。
 - [Quint 模型生成](../quint.md)：从可移植 IR 发射可执行状态机模型，进行模拟、模型检查并重放 MBT 追踪。
 - [开发日志](../development-log.md)：详细的历史里程碑流；仅在查找旧证据时检索。

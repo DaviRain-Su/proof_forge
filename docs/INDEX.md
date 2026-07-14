@@ -100,6 +100,8 @@ Accepted engineering direction ([rfcs/README](rfcs/README.md)):
 - [Implementation log](implementation-log.md): concise current task completion and verification ledger.
 - [Portable Intent architecture (2026-07-12)](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md): target-neutral intent/materializer boundary and incremental legacy replacement.
 - [Portable Intent implementation plan (2026-07-12)](superpowers/plans/2026-07-12-portable-intent-abstraction.md): current execution order and acceptance gates.
+- [Cross-target native differential design (2026-07-14)](superpowers/specs/2026-07-14-cross-target-native-differential-design.md): independent native references, normalized observations, and IR-safe target-extension validation.
+- [Cross-target native differential plan (2026-07-14)](superpowers/plans/2026-07-14-cross-target-native-differential.md): validation tasks attached to authoring, Solana, NEAR, and Legacy-removal exits.
 - [Onboarding](onboarding.md): local setup path, editor notes, and the minimum
   validation loop for new contributors.
 - [Quint model generation](quint.md): emit executable state-machine models from portable IR, simulate, model-check, and replay MBT traces.

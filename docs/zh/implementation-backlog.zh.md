@@ -21,6 +21,8 @@
 - [多链愿景差距审查 (2026-07-10)](multi-chain-gap-audit-2026-07-10.zh.md)
 - [Portable Intent 设计 (2026-07-12)](../superpowers/specs/2026-07-12-portable-intent-abstraction-design.md)
 - [当前实施计划 (2026-07-12)](../superpowers/plans/2026-07-12-portable-intent-abstraction.md)
+- [原生差分设计 (2026-07-14)](superpowers/specs/2026-07-14-cross-target-native-differential-design.zh.md)
+- [原生差分计划 (2026-07-14)](superpowers/plans/2026-07-14-cross-target-native-differential.zh.md)
 
 ## 当前架构计划（D-052）
 
@@ -44,6 +46,24 @@
 
 Legacy 替换采用渐进方式：只有在测试证明可观察等价且所有调用方已经迁移后，
 才能删除对应 adapter 或兼容调用。
+
+## 原生差分验证轨道（D-055）
+
+该验证轨道统一现有 NEAR Rust/Sandbox、Solana Pinocchio、EVM runtime、
+Stylus Rust 和共享 testkit 比较。它不向可移植 IR 增加 target-specific
+operation，也不阻塞 A-CUT1e-c2。
+
+| 顺序 | 切片 | 状态 | 关联的架构退出条件 |
+|---:|---|---|---|
+| CMP-0 | 盘点并版本化 provenance/scenario/observation 共享契约 | A-CUT1e-c2 后 pending | 新增 reference format 前必须完成 |
+| CMP-1 | 实现 fail-closed normalized observation 与 coverage validator | CMP-0 后 pending | A-CUT2 前置 |
+| CMP-2 | Counter 原生试点：Solidity EVM、Rust Solana、Rust NEAR | CMP-1 后 pending | A-CUT2 完成条件 |
+| CMP-3 | ValueVault 和代表性 stateful portable family | CMP-2 后 pending | 附着 A-CUT3 |
+| CMP-SOL | Account/PDA/CPI 与独立 Solana Rust reference 的 conformance | 与 IR-B5 同步 pending | IR-B5 退出条件 |
+| CMP-NEAR | 从 canonical-only artifact 重放现有 Rust/Sandbox reference | 与 NEAR-R4 同步 pending | NEAR-R4 退出条件 |
+| CMP-EVM | 统一独立 Solidity reference 和 EVM observation | CMP-2 后 pending | A-CUT3 EVM 切片 |
+| CMP-STYLUS | 迁移现有 Rust/direct-Wasm differential | 主三链试点后 pending | 后续 target 接入 |
+| CMP-CI | Focused local gate、target-specific live lane 和 fail-closed 生成矩阵 | CMP-2 后 pending | IR-B8/A-CUT5 签署 |
 
 ## 主三链完成规约（D-045）
 

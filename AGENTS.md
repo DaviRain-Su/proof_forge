@@ -26,6 +26,7 @@ Keep this section short and update it whenever the active task changes.
 | Program | Canonical target-plan ownership and incremental Legacy removal |
 | Active task | A-CUT1e-c - switch public Solana authoring off `Source.Solana.Legacy`; the typed Canonical Plan/lowering path is complete through A-CUT1e-c1 |
 | Next task | A-CUT2 - replace the remaining `ContractSpec`/`IR.Module` authored exchange value with direct Canonical Core normalization |
+| Validation track | Native differential CMP-0 is queued after A-CUT1e-c2; CMP-1/CMP-2 become A-CUT2 exit criteria and do not block the current Solana macro cutover |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -177,6 +178,14 @@ Core are internal compiler representations.
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
+
+Native-reference differential validation follows
+[the July 14 comparison plan](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md).
+It extends the existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
+and Stylus differential assets; it is not another compiler route. Finish
+A-CUT1e-c2 first, then complete CMP-0 before new reference formats proliferate.
+CMP-2 is required for A-CUT2 completion, CMP-SOL attaches to IR-B5, CMP-NEAR
+attaches to NEAR-R4, and the final fail-closed matrix attaches to IR-B8/A-CUT5.
 
 The D-052 cross-program routing index remains below for work not superseded by
 the active NEAR sequence.

@@ -11,10 +11,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "102ac309a71e291fe117060ec939e1b450ad2b737c97553fc4de954929a5fce3",
+    "sha256": "570cbd8c9321de6519c65ccef47b73eba256b6a559b526cb8c8e8373fe572c82",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for canonical architecture documentation links"
+    "note": "manually synced for native differential design and plan links"
   },
   "docs/onboarding.md": {
     "sha256": "5ec69a144131b3a817e6a7b1a98657a6949af1f1ab1fe25e4212ece313f64367",
@@ -27,10 +27,22 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "1a63facfbdbc7f1df687b4de51eefa1a091fd5bf12fb9cf86933ebfdd9527e3c",
+    "sha256": "be7c8ecea731a1de25f614d61d12796ae9b8127b1f52dbec7357a51526652ee6",
     "zh": "docs/zh/decisions.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through D-054 IR target-extension boundary"
+    "note": "manually synced through D-055 native differential validation"
+  },
+  "docs/superpowers/specs/2026-07-14-cross-target-native-differential-design.md": {
+    "sha256": "4a2e4320904bd02248b9175294e3660b85f3a30e8ad7b43dba24988a20176d9c",
+    "zh": "docs/zh/superpowers/specs/2026-07-14-cross-target-native-differential-design.zh.md",
+    "model": "manual-zh",
+    "note": "initial native differential validation design"
+  },
+  "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
+    "sha256": "f9891cf18faa97f1c38ce7ed3b936724c1c024807f635f32d9e1d48e74bd47bf",
+    "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
+    "model": "manual-zh",
+    "note": "initial native differential validation plan"
   },
   "docs/capability-registry.md": {
     "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
@@ -61,10 +73,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "5de9af42ff6333d31d79b2e4eb54123ce7919465ba9088f4d41a6939356e0f29",
+    "sha256": "3d51a0f67789242f240ddcc525ba0e77bed3f91ea9f78af2566abf304806d45e",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through Solana layout, authoring, and NEAR runtime status updates"
+    "note": "synced EN/zh through D-055 native differential validation track"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",

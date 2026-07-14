@@ -18,7 +18,7 @@ on top of the current NEAR-specific `Expr` surface would enlarge the coupling.
 | IR-B3b | done (verified 2026-07-14) | Migrate NEAR scalar operations to generic extension calls | adapter, catalog, NEP-141/145 focused VM gates |
 | IR-B3c | done (verified 2026-07-14) | Migrate continuation calls and delete legacy NEAR constructors | no `near*` shared Expr constructors, multi-target diagnostics |
 | IR-B4 | in_progress | Move EVM protocol/ABI operations out of shared IR | EVM focused plan/Foundry gates and non-EVM diagnostics |
-| IR-B5 | pending | Audit and migrate Solana-native PDA/CPI/account behavior | Solana grammar-isolation, intent, manifest, and light sBPF gates |
+| IR-B5 | pending | Audit and migrate Solana-native PDA/CPI/account behavior | Solana grammar-isolation, intent, manifest, light sBPF gates, and CMP-SOL native-reference conformance |
 | IR-B6 | pending | Audit and migrate other implemented target families | focused Wasm-host, Move, Aleo, Psy, and Quint gates |
 | IR-B7 | in_progress (EVM B7a-B7g verified 2026-07-14) | Move target environment, error, dispatch, and materialization fields | interface/materialization tests across registered targets |
 | IR-B8 | pending | Enforce the boundary and close compatibility debt | empty source-scan allowlist, product gate, affected runtime gates |
@@ -160,6 +160,9 @@ Progress (2026-07-14):
 3. Keep portable invocation, authorization, storage, and resource-budget
    semantics shared where their contract is genuinely cross-target.
 4. Prove unsupported targets reject Solana extensions before materialization.
+5. Complete CMP-SOL from the native differential plan: compare public authored
+   account/PDA/CPI scenarios with independent Solana Rust references while
+   keeping the reference schema and runner outside compiler ownership.
 
 ## IR-B6 - Other Implemented Target Families
 
@@ -213,6 +216,8 @@ constructor into shared IR.
 - Shared IR/Core source scan rejects chain/protocol constructors and fields.
 - Target extension SDKs remain usable and generate named metadata.
 - Unsupported targets fail at capability or handler resolution.
+- The CMP-CI generated comparison matrix fails closed on missing required
+  observations; target-native suites remain target-owned.
 - Run focused Core/adapter tests, `just ir-portability-smoke`, `just product`,
   the affected NEAR VM gates, and affected EVM runtime gates.
 - Resume N-T4 only after IR-B3. IR-B4 through IR-B7 remain required for the

@@ -22,6 +22,8 @@ Related docs:
 - [Multi-chain vision gap audit (2026-07-10)](multi-chain-gap-audit-2026-07-10.md)
 - [Portable Intent design (2026-07-12)](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md)
 - [Current implementation plan (2026-07-12)](superpowers/plans/2026-07-12-portable-intent-abstraction.md)
+- [Native differential design (2026-07-14)](superpowers/specs/2026-07-14-cross-target-native-differential-design.md)
+- [Native differential plan (2026-07-14)](superpowers/plans/2026-07-14-cross-target-native-differential.md)
 
 ## Current Architecture Program (D-052)
 
@@ -47,6 +49,24 @@ July 12 implementation plan.
 Legacy replacement is incremental. A legacy adapter or compatibility call is
 removed only after tests establish observable equivalence and all callers use
 the new boundary.
+
+## Native Differential Validation Track (D-055)
+
+This validation track consolidates existing NEAR Rust/Sandbox, Solana
+Pinocchio, EVM runtime, Stylus Rust, and shared testkit comparisons. It does not
+add target-specific operations to portable IR and does not block A-CUT1e-c2.
+
+| Order | Slice | State | Attached architecture exit |
+|---:|---|---|---|
+| CMP-0 | Inventory and version the shared provenance/scenario/observation contracts | pending after A-CUT1e-c2 | required before new reference formats proliferate |
+| CMP-1 | Implement fail-closed normalized observation and coverage validation | pending after CMP-0 | A-CUT2 prerequisite |
+| CMP-2 | Counter native pilot: Solidity EVM, Rust Solana, Rust NEAR | pending after CMP-1 | required for A-CUT2 completion |
+| CMP-3 | ValueVault and representative stateful portable families | pending after CMP-2 | attached to A-CUT3 |
+| CMP-SOL | Account/PDA/CPI conformance against independent Solana Rust references | pending with IR-B5 | IR-B5 exit |
+| CMP-NEAR | Replay existing Rust/Sandbox references from canonical-only artifacts | pending with NEAR-R4 | NEAR-R4 exit |
+| CMP-EVM | Normalize independent Solidity references and EVM observations | pending after CMP-2 | A-CUT3 EVM slices |
+| CMP-STYLUS | Migrate existing Rust/direct-Wasm differentials | pending after primary-triad pilots | later target adoption |
+| CMP-CI | Focused local gate, target-specific live lanes, generated fail-closed matrix | pending after CMP-2 | IR-B8/A-CUT5 sign-off |
 
 ## Primary-chain completion covenant (D-045)
 
