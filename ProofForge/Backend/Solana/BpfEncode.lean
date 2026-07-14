@@ -152,6 +152,7 @@ def syscallId? : String → Option Nat
   | "sol_keccak256" => some 0xd56b5fe9
   | "sol_blake3" => some 0x174c5122
   | "sol_panic_" => some 0x686093bb
+  | "sol_alloc_free_" => some 0x83f00e8f
   | "abort" => some 0x6cb2c653
   | _ => none
 

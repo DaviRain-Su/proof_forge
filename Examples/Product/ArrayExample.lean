@@ -11,22 +11,22 @@ NEAR/Wasm by changing only `--target`.
 See `scripts/portable/array-example-multi-target.sh` for a checked end-to-end
 demo.
 -/
-import ProofForge.Contract.Source.Legacy
+import ProofForge.Contract.Source
 
 namespace Examples.Product.ArrayExample
 
-open ProofForge.Contract.Source.Legacy
+open ProofForge.Contract.Source
 
 contract_source ArrayExample do
   query sizeOf3 returns(.u64) do
     return u64 3;
 
   query getElem returns(.u64) do
-    fixedu64x3 xs (10, 20, 30);
-    return array_get xs (u64 1);
+    let xs : .memoryRef .u64 := arrayLiteral .u64 #[u64 10, u64 20, u64 30];
+    return arrayGet xs (u64 1);
 
   query sumOf3 returns(.u64) do
-    fixedu64x3 xs (10, 20, 30);
-    return (array_get xs (u64 0)) +! (array_get xs (u64 1)) +! (array_get xs (u64 2));
+    let xs : .memoryRef .u64 := arrayLiteral .u64 #[u64 10, u64 20, u64 30];
+    return (arrayGet xs (u64 0)) +! (arrayGet xs (u64 1)) +! (arrayGet xs (u64 2));
 
 end Examples.Product.ArrayExample

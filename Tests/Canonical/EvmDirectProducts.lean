@@ -12,7 +12,6 @@ import TestFixtures.SurfaceProducts.StatusMessage
 import TestFixtures.SurfaceProducts.HostEnvProbe
 import TestFixtures.SurfaceProducts.HeightLockVault
 import TestFixtures.SurfaceProducts.TimelockVault
-import TestFixtures.SurfaceProducts.ArrayExample
 import TestFixtures.SurfaceProducts.EscrowVault
 import TestFixtures.SurfaceProducts.StakingVault
 import TestFixtures.SurfaceProducts.StorageDeposit
@@ -125,7 +124,6 @@ def main : IO Unit := do
   checkProduct TestFixtures.SurfaceProducts.HostEnvProbe.contract 6
   checkProduct TestFixtures.SurfaceProducts.HeightLockVault.contract 7
   checkProduct TestFixtures.SurfaceProducts.TimelockVault.contract 7
-  checkProduct TestFixtures.SurfaceProducts.ArrayExample.contract 3
   checkProduct TestFixtures.SurfaceProducts.EscrowVault.contract 10
   checkProduct TestFixtures.SurfaceProducts.StakingVault.contract 6
   checkProduct TestFixtures.SurfaceProducts.StorageDeposit.contract 5

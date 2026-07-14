@@ -103,6 +103,8 @@ def evm : TargetProfile := {
     .dataDynamicArray,
     .dataDynamicBytes,
     .dataStruct,
+    .runtimeAllocator,
+    .runtimeMemory,
     .cryptoHash,
     .cryptoEcrecover,
     .assertions,
@@ -145,7 +147,9 @@ def wasmNear : TargetProfile := {
     .controlBoundedLoop,
     .dataFixedArray,
     .dataStruct,
-    .dataDynamicBytes
+    .dataDynamicBytes,
+    .runtimeAllocator,
+    .runtimeMemory
   ]
   hostOps := HostOps.Near.supportedIds
   hostBridge? := some .near

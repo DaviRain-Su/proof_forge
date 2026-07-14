@@ -462,6 +462,16 @@ reentrancy-guard-authoring-cutover:
     lake env lean --run Tests/Canonical/SourceLoader.lean
     scripts/canonical/reentrancy-guard-target-first-smoke.sh
 
+# A-CUT3d1: Product ArrayExample has one direct fixed-array route and no duplicate source.
+array-example-authoring-cutover:
+    scripts/canonical/check-array-example-authoring-cutover.sh
+    lake build ProofForge.Cli.ContractLoader Examples.Product.ArrayExample
+    lake env lean --run Tests/ArrayExample.lean
+    lake env lean --run Tests/Canonical/EvmPublicRoute.lean
+    lake env lean --run Tests/Canonical/PublicAuthoredRoute.lean
+    lake env lean --run Tests/Canonical/SourceLoader.lean
+    scripts/portable/array-example-multi-target.sh
+
 # Wave 6 Task 21: architecture boundary gate.
 canonical-boundary:
     scripts/canonical/check-boundary-self-test.sh

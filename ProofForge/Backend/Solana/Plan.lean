@@ -130,6 +130,11 @@ inductive SolanaOpPlan where
       (index : SolanaValuePlan)
   | storeArray (stateId : Nat) (absOff capacity elementByteSize : Nat)
       (index value : SolanaValuePlan)
+  | memoryAlloc (result : SolanaValuePlan) (elementByteSize : Nat)
+      (length : SolanaValuePlan)
+  | memoryLoad (result base index : SolanaValuePlan) (elementByteSize : Nat)
+  | memoryStore (base index value : SolanaValuePlan) (elementByteSize : Nat)
+  | memoryRelease (base : SolanaValuePlan)
   | arithmetic (result : SolanaValuePlan) (op : SolanaArithmeticPlan)
       (checked : Bool) (lhs rhs : SolanaValuePlan)
   | compare (result : SolanaValuePlan) (op : SolanaComparePlan)
@@ -630,6 +635,85 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
         .label fail,
         .instruction { opcode := .ja, off := some (.sym "assert_fail") },
         .label done]
+  | .memoryAlloc result elementByteSize length => do
+      unless elementByteSize == 1 || elementByteSize == 4 || elementByteSize == 8 do
+        throw { message := s!"canonical Solana memory element width {elementByteSize} is unsupported" }
+      .ok #[
+        .comment s!"memory.array.new: allocate heap array of {elementByteSize}-byte elements",
+        .instruction { opcode := .stxdw, dst := some .r10, src := some .r1, off := some (.num 400) },
+        canonicalLoadValue length .r2,
+        .instruction { opcode := .stxdw, dst := some .r10, src := some .r2, off := some (.num 408) },
+        .instruction { opcode := .mul64, dst := some .r2, imm := some (.num elementByteSize) },
+        .instruction { opcode := .add64, dst := some .r2, imm := some (.num 8) },
+        .instruction { opcode := .mov64, dst := some .r1, src := some .r2 },
+        .instruction { opcode := .mov64, dst := some .r2, imm := some (.num 0) },
+        .instruction { opcode := .call, imm := some (.sym sol_alloc_free_) },
+        .instruction { opcode := .jeq, dst := some .r0, imm := some (.num 0), off := some (.sym "assert_fail") },
+        .instruction { opcode := .ldxdw, dst := some .r3, src := some .r10, off := some (.num 408) },
+        .instruction { opcode := .stxdw, dst := some .r0, src := some .r3, off := some (.num 0) },
+        .instruction { opcode := .mov64, dst := some .r2, src := some .r0 },
+        .instruction { opcode := .add64, dst := some .r2, imm := some (.num 8) },
+        canonicalStoreValue result .r2,
+        .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num 400) }]
+  | .memoryLoad result base index elementByteSize => do
+      let loadOpcode ← match elementByteSize with
+        | 1 => pure Opcode.ldxb
+        | 4 => pure Opcode.ldxw
+        | 8 => pure Opcode.ldxdw
+        | width => throw {
+            message := s!"canonical Solana memory element width {width} is unsupported" }
+      let fail := s!"core_memory_load_{fnId}_{blockId}_{opIndex}_bounds"
+      let done := s!"core_memory_load_{fnId}_{blockId}_{opIndex}_done"
+      .ok #[
+        .comment "memory.array.get: compute element address",
+        canonicalLoadValue base .r3,
+        canonicalLoadValue index .r2,
+        .instruction { opcode := .mov64, dst := some .r4, src := some .r3 },
+        .instruction { opcode := .sub64, dst := some .r4, imm := some (.num 8) },
+        .instruction { opcode := .ldxdw, dst := some .r4, src := some .r4, off := some (.num 0) },
+        .instruction { opcode := .jge, dst := some .r2, src := some .r4, off := some (.sym fail) },
+        .instruction { opcode := .mul64, dst := some .r2, imm := some (.num elementByteSize) },
+        .instruction { opcode := .add64, dst := some .r3, src := some .r2 },
+        .instruction { opcode := loadOpcode, dst := some .r4, src := some .r3, off := some (.num 0) },
+        canonicalStoreValue result .r4,
+        .instruction { opcode := .ja, off := some (.sym done) },
+        .label fail,
+        .instruction { opcode := .ja, off := some (.sym "assert_fail") },
+        .label done]
+  | .memoryStore base index value elementByteSize => do
+      let storeOpcode ← match elementByteSize with
+        | 1 => pure Opcode.stxb
+        | 4 => pure Opcode.stxw
+        | 8 => pure Opcode.stxdw
+        | width => throw {
+            message := s!"canonical Solana memory element width {width} is unsupported" }
+      let fail := s!"core_memory_store_{fnId}_{blockId}_{opIndex}_bounds"
+      let done := s!"core_memory_store_{fnId}_{blockId}_{opIndex}_done"
+      .ok #[
+        .comment "memory.array.set: compute element address",
+        canonicalLoadValue base .r3,
+        canonicalLoadValue index .r2,
+        .instruction { opcode := .mov64, dst := some .r4, src := some .r3 },
+        .instruction { opcode := .sub64, dst := some .r4, imm := some (.num 8) },
+        .instruction { opcode := .ldxdw, dst := some .r4, src := some .r4, off := some (.num 0) },
+        .instruction { opcode := .jge, dst := some .r2, src := some .r4, off := some (.sym fail) },
+        .instruction { opcode := .mul64, dst := some .r2, imm := some (.num elementByteSize) },
+        .instruction { opcode := .add64, dst := some .r3, src := some .r2 },
+        canonicalLoadValue value .r4,
+        .instruction { opcode := storeOpcode, dst := some .r3, src := some .r4, off := some (.num 0) },
+        .instruction { opcode := .ja, off := some (.sym done) },
+        .label fail,
+        .instruction { opcode := .ja, off := some (.sym "assert_fail") },
+        .label done]
+  | .memoryRelease base =>
+      .ok #[
+        .comment "memory.array.release: free heap array",
+        .instruction { opcode := .stxdw, dst := some .r10, src := some .r1, off := some (.num 400) },
+        canonicalLoadValue base .r2,
+        .instruction { opcode := .sub64, dst := some .r2, imm := some (.num 8) },
+        .instruction { opcode := .mov64, dst := some .r1, imm := some (.num 0) },
+        .instruction { opcode := .call, imm := some (.sym sol_alloc_free_) },
+        .instruction { opcode := .ldxdw, dst := some .r1, src := some .r10, off := some (.num 400) }]
   | .loadMap result _ absOff capacity keyByteSize valueByteSize key => do
       unless keyByteSize == 8 && (valueByteSize == 1 || valueByteSize == 8) do
         throw { message := "canonical Solana map requires 8-byte keys and 1- or 8-byte values" }
@@ -800,7 +884,7 @@ private def lowerCanonicalParams (ep : SolanaEntrypointPlan) (fn : SolanaFunctio
 private def canonicalOpResults : SolanaOpPlan -> Array SolanaValuePlan
   | .literal result _ | .boolLiteral result _ | .copy result _ | .hashAccount0 result |
     .loadState result .. | .loadMap result .. |
-    .loadArray result .. |
+    .loadArray result .. | .memoryAlloc result .. | .memoryLoad result .. |
     .arithmetic result .. | .compare result .. | .context result _ |
     .portableCrosscall result .. => #[result]
   | _ => #[]

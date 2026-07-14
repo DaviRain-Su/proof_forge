@@ -46,8 +46,9 @@ Counter compiles directly from `Examples/Product/Counter.lean`; its canonical
 golden lives at `Examples/Backend/Evm/Counter.golden.yul`.
 `Contracts/CounterConstructorProbe.lean` is a direct Authored fixture that adds
 only the scalar constructor binding used by the init-code smoke. It is not a
-public wrapper or a `ContractSpec` route. `Contracts/ArrayExample.lean` and the
-remaining `stdlib` wrappers are explicit A-CUT3 deletion inventory.
+public wrapper or a `ContractSpec` route. ArrayExample also compiles directly
+from its Product source; the remaining `stdlib` wrappers are explicit A-CUT3
+deletion inventory.
 
 `Ierc20Client` / `Ierc721Client` (Layer B: CALL external ERC-20 / ERC-721 via
 `Protocols.Evm.IERC20` / `IERC721`; not the deployable `Stdlib` mixins),

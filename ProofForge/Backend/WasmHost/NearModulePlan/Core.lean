@@ -339,8 +339,13 @@ def coreSurface (m : ProofForge.IR.Core.Module) : WasmHost.Plan.ModulePlan := Id
     usesArrAlloc := m.functions.any (fun fn =>
       fn.params.any (fun p => p.type == .string || p.type == .bytes) ||
       fn.blocks.any (fun block => block.instructions.any fun instruction =>
-        match instruction.op with | .pure (.structLit _ _) => true | _ => false))
-    usesArrDealloc := false
+        match instruction.op with
+        | .pure (.structLit _ _) | .memoryAlloc _ _ => true
+        | _ => false))
+    usesArrDealloc := m.functions.any fun fn => fn.blocks.any fun block =>
+      block.instructions.any fun instruction => match instruction.op with
+        | .memoryRelease _ => true
+        | _ => false
   }
 
 /-- Build an empty lower context seed. The canonical builder does not store
@@ -399,6 +404,14 @@ private def nearArithmetic : ArithmeticOp -> NearArithmeticPlan
 
 private def nearCompare : CompareOp -> NearComparePlan
   | .eq => .eq | .ne => .ne | .lt => .lt | .le => .le | .gt => .gt | .ge => .ge
+
+private def nearMemoryElementType : CoreType -> Except PlanError ValueType
+  | .bool => .ok .bool
+  | .u32 => .ok .u32
+  | .u64 => .ok .u64
+  | .address => .ok .address
+  | type => .error {
+      message := s!"canonical NEAR local arrays do not support element type `{repr type}`" }
 
 private def unpackHashLiteral (value : String) : Except PlanError (Nat × Nat × Nat × Nat) := do
   let some word := value.toNat?
@@ -477,6 +490,24 @@ private def lowerNearOp (iface : InterfaceContract) (materialization : Materiali
       | #[.mapKey key] | #[.index key] =>
           return .removeMap ref.root.value (nearValue key)
       | _ => throw { message := "NEAR canonical storage removal supports one mapKey or index segment" }
+  | .memoryAlloc elementType length =>
+      return .memoryAlloc (<- nearResult instr) (<- nearMemoryElementType elementType)
+        (nearValue length)
+  | .memoryLoad base index =>
+      let elementType <- match base.type with
+        | .memoryRef elementType => nearMemoryElementType elementType
+        | other => throw { message := s!"NEAR memoryLoad requires memoryRef, got `{repr other}`" }
+      return .memoryLoad (<- nearResult instr) (nearValue base) (nearValue index) elementType
+  | .memoryStore base index value =>
+      let elementType <- match base.type with
+        | .memoryRef elementType => nearMemoryElementType elementType
+        | other => throw { message := s!"NEAR memoryStore requires memoryRef, got `{repr other}`" }
+      return .memoryStore (nearValue base) (nearValue index) (nearValue value) elementType
+  | .memoryRelease base =>
+      let elementType <- match base.type with
+        | .memoryRef elementType => nearMemoryElementType elementType
+        | other => throw { message := s!"NEAR memoryRelease requires memoryRef, got `{repr other}`" }
+      return .memoryRelease (nearValue base) elementType
   | .contextRead field => return .context (<- nearResult instr) (reprStr field)
   | .emit event args =>
       let decl <- match iface.events.find? (fun decl => decl.eventId == event) with

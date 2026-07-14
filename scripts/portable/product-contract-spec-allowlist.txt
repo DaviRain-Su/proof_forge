@@ -11,7 +11,6 @@
 # Pre-migration product authoring inventory. Counter now uses the direct
 # Authored macro; every remaining Legacy-backed entry is deletion work.
 Examples/Product/Aggregate.lean:contract_source
-Examples/Product/ArrayExample.lean:contract_source
 Examples/Product/AuthRemoteCall.lean:contract_source
 Examples/Product/Counter.lean:contract_source
 Examples/Product/EscrowVault.lean:contract_source

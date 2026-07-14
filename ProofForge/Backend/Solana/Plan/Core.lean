@@ -352,6 +352,22 @@ private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan)
       | #[.mapKey key] => return .storeMap ref.root.value field.absOff field.capacity field.keyByteSize field.valueByteSize (valuePlan key) (valuePlan value)
       | #[.index index] => return .storeArray ref.root.value field.absOff field.capacity field.valueByteSize (valuePlan index) (valuePlan value)
       | _ => throw { message := "Solana canonical storage supports one mapKey or index segment" }
+  | .memoryAlloc elementType length =>
+      return .memoryAlloc (<- resultPlan instr) (<- coreScalarByteSize elementType)
+        (valuePlan length)
+  | .memoryLoad base index =>
+      let elementType <- match base.type with
+        | .memoryRef elementType => pure elementType
+        | other => throw { message := s!"Solana memoryLoad requires memoryRef, got `{repr other}`" }
+      return .memoryLoad (<- resultPlan instr) (valuePlan base) (valuePlan index)
+        (<- coreScalarByteSize elementType)
+  | .memoryStore base index value =>
+      let elementType <- match base.type with
+        | .memoryRef elementType => pure elementType
+        | other => throw { message := s!"Solana memoryStore requires memoryRef, got `{repr other}`" }
+      return .memoryStore (valuePlan base) (valuePlan index) (valuePlan value)
+        (<- coreScalarByteSize elementType)
+  | .memoryRelease base => return .memoryRelease (valuePlan base)
   | .contextRead field => return .context (<- resultPlan instr) (reprStr field)
   | .emit event args =>
       let eventName ← match events.find? (fun declaration => declaration.eventId == event) with

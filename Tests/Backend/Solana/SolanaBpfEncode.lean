@@ -66,6 +66,10 @@ theorem internal_call_encode_ok :
     internalCallEncodesOk = true := by
   native_decide
 
+theorem allocator_syscall_id_ok :
+    syscallId? "sol_alloc_free_" = some 0x83f00e8f := by
+  native_decide
+
 theorem counter_module_encodes_ok :
     moduleEncodesOk ProofForge.IR.Examples.Counter.module = true := by
   native_decide

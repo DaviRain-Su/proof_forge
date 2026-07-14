@@ -26,6 +26,9 @@ def main : IO UInt32 := do
     "robinhood-chain-testnet must not be registered as a compiler target"
   require (evmProfile.hostOps == HostOps.Evm.supportedIds)
     "EVM profile HostOps must come from the target-owned signature catalog"
+  require (evmProfile.capabilities.contains .runtimeAllocator &&
+      evmProfile.capabilities.contains .runtimeMemory)
+    "EVM profile must declare the Core local-memory implementation"
 
   let externalCapability := Capability.ofId "vendor.example/custom"
   require (externalCapability.id == "vendor.example/custom")
@@ -58,6 +61,9 @@ def main : IO UInt32 := do
     "wasm-near profile HostOps must come from the target-owned signature catalog"
   require (nearProfile.hostOps.contains HostOps.Near.promiseCreateSig.id)
     "wasm-near profile must advertise promise.create"
+  require (nearProfile.capabilities.contains .runtimeAllocator &&
+      nearProfile.capabilities.contains .runtimeMemory)
+    "wasm-near profile must declare the Core local-memory implementation"
 
   let cosmwasmProfile ← requireSome (find? "wasm-cosmwasm") "missing wasm-cosmwasm target profile"
   require (cosmwasmProfile.hostBridge? == some HostBridge.cosmWasm)

@@ -86,6 +86,16 @@ def mul (lhs rhs : AuthoredExpr) (checked : Bool := true) : AuthoredExpr :=
 def div (lhs rhs : AuthoredExpr) : AuthoredExpr :=
   .arith .div false lhs rhs
 
+/-- Target-neutral local array literal. Its source length is fixed by `values`;
+target plans choose the concrete memory representation. -/
+def arrayLiteral (elementType : AuthoredType) (values : Array AuthoredExpr) : AuthoredExpr :=
+  .memoryArray elementType values
+
+/-- Target-neutral local array access. Bounds behavior is preserved by
+Canonical Core and materialized by each target plan. -/
+def arrayGet (array index : AuthoredExpr) : AuthoredExpr :=
+  .index array index
+
 class ToExpr (alpha : Type) where
   toExpr : alpha -> AuthoredExpr
 
@@ -193,6 +203,13 @@ partial def lowerExpr (states locals : Array String) (source : TSyntax `term) :
       let left <- lowerExpr states locals lhs
       let right <- lowerExpr states locals rhs
       `(.arith .div false $left $right)
+  | `(arrayLiteral $elementType:term #[$values,*]) =>
+      let loweredValues <- values.getElems.mapM (lowerExpr states locals)
+      `(.memoryArray $elementType #[$loweredValues,*])
+  | `(arrayGet $array:term $index:term) =>
+      let loweredArray <- lowerExpr states locals array
+      let loweredIndex <- lowerExpr states locals index
+      `(.index $loweredArray $loweredIndex)
   | `(term| $name:ident) =>
       let value := name.getId.toString
       let valueTerm : TSyntax `term := quote value

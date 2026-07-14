@@ -195,6 +195,7 @@ private def canonicalNearType (name : String) : ValueType :=
   else if name.endsWith "hash" then .hash
   else if name.endsWith "string" then .string
   else if name.endsWith "address" then .address
+  else if name.contains "memoryRef" then .array .u64
   else if name.contains "structType" then .structType ""
   else .u64
 
@@ -441,6 +442,40 @@ private def lowerCanonicalNearOp (plan : NearModulePlan)
       let (instructions, _) := Map.mapDeleteValueInsns mapInfo
         (canonicalNearGet key.id key.typeName) deleteCall
       return instructions ++ #[.drop]
+  | .memoryAlloc result elementType length =>
+      let width := Types.scalarWidth elementType
+      return canonicalNearI64 length ++ #[
+        .i64Const width, .plain "i64.mul", .i64Const 8, .plain "i64.add",
+        .call ArrayHeap.arrAllocName, .localSet s!"v{result.id}",
+        .localGet s!"v{result.id}"] ++ canonicalNearI64 length ++ #[
+        .store "i64.store" 0,
+        .localGet s!"v{result.id}", .i32Const 8, .plain "i32.add",
+        .localSet s!"v{result.id}"]
+  | .memoryLoad result base index elementType =>
+      let width := Types.scalarWidth elementType
+      return canonicalNearI64 index ++ #[
+        .localGet s!"v{base.id}", .i32Const 8, .plain "i32.sub",
+        .load "i64.load" 0, .plain "i64.ge_u",
+        .if_ { insns := #[.unreachable] } { insns := #[] },
+        .localGet s!"v{base.id}"] ++ canonicalNearI64 index ++ #[
+        .i64Const width, .plain "i64.mul", .plain "i32.wrap_i64", .plain "i32.add",
+        .load (Types.loadOpFor elementType) 0] ++ canonicalNearSet result.id result.typeName
+  | .memoryStore base index value elementType =>
+      let width := Types.scalarWidth elementType
+      return canonicalNearI64 index ++ #[
+        .localGet s!"v{base.id}", .i32Const 8, .plain "i32.sub",
+        .load "i64.load" 0, .plain "i64.ge_u",
+        .if_ { insns := #[.unreachable] } { insns := #[] },
+        .localGet s!"v{base.id}"] ++ canonicalNearI64 index ++ #[
+        .i64Const width, .plain "i64.mul", .plain "i32.wrap_i64", .plain "i32.add"] ++
+        canonicalNearGet value.id value.typeName ++ #[.store (Types.storeOpFor elementType) 0]
+  | .memoryRelease base elementType =>
+      let width := Types.scalarWidth elementType
+      return #[
+        .localGet s!"v{base.id}", .i32Const 8, .plain "i32.sub",
+        .localGet s!"v{base.id}", .i32Const 8, .plain "i32.sub",
+        .load "i64.load" 0, .i64Const width, .plain "i64.mul",
+        .i64Const 8, .plain "i64.add", .call "__pf_arr_dealloc"]
   | .arithmetic result op checked lhs rhs =>
       let ty := canonicalNearType result.typeName
       if ty == .u128 then
@@ -773,7 +808,8 @@ private def lowerCanonicalNearFunction (plan : NearModulePlan) (eventStrings lit
   let values := (fn.params ++ fn.blocks.flatMap (fun block =>
     block.params ++ block.ops.flatMap fun op => match op with
       | .literal result _ | .stringLiteral result _ | .hashLiteral result .. | .boolLiteral result _ |
-        .loadState result _ | .loadMap result .. |
+        .loadState result _ | .loadMap result .. | .memoryAlloc result .. |
+        .memoryLoad result .. |
         .arithmetic result .. | .compare result .. | .hash result _ | .hashTwoToOne result .. | .cast result _ |
         .structLit result .. |
         .context result _ | .hostContext result _ |
@@ -927,7 +963,9 @@ def lowerFromPlan (plan : NearModulePlan) : Except Diagnostics.EmitError ProofFo
         #[JsonReturn.ptrGlobalDecl] else #[]) ++
       Crosscall.crosscallGlobalsForModulePlan plan.surface ++
       (if ArrayHeap.modulePlanUsesArrHeap plan.surface && !defaultAllocator.requiresHost then
-        #[ArrayHeap.arrPtrGlobalDecl defaultAllocator.heapBase] else #[])
+        #[ArrayHeap.arrPtrGlobalDecl defaultAllocator.heapBase] ++
+          (if defaultAllocator.usesMinimalMallocShape then #[ArrayHeap.arrFreeGlobalDecl] else #[])
+       else #[])
     funcs := (helperFuncs ++ hashStorageHelpers ++ mapHelpers ++ hashHelpers ++ crosscallHelpers ++ promiseHelpers ++ contextHelpers ++
       strEqHelpers ++ arrHeapHelpers ++ returnFuncs ++ eventHelpers ++ u128ArithHelpers ++
       jsonInputHelpers ++ jsonReturnHelpers ++ funcs).foldl

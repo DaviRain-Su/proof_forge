@@ -4,6 +4,7 @@ import ProofForge.Backend.Evm.Plan
 import ProofForge.Target.HostOps.Evm
 import ProofForge.Target.InterfaceOps.Evm
 import ProofForge.Backend.Evm.Plan.Storage
+import ProofForge.Backend.Evm.Lower.Requirements
 import ProofForge.Backend.Evm.Validate.Common
 import ProofForge.Target.Plan
 import ProofForge.Target.ProtocolMaterialize
@@ -1100,13 +1101,16 @@ def buildFromCore (checked : CheckedCanonicalContract)
     block.instructions.any fun instruction => match instruction.op with
       | .pure (.hashTwoToOne ..) => true
       | _ => false
-  let helpers :=
+  let baseHelpers :=
     (if usesCheckedWidth then #[Helper.checkedWidth] else #[]) ++
     (if usesArrayAccess then #[Helper.arraySlot] else #[]) ++
     (if usesMapRead || usesMapWrite then #[Helper.mapSlot] else #[]) ++
     (if usesMapWrite then #[Helper.mapPresenceSlot, Helper.mapWrite] else #[]) ++
     (if usesHashWord then #[Helper.hashWord] else #[]) ++
     (if usesHashPair then #[Helper.hashPair] else #[])
+  let helpers :=
+    (ProofForge.Backend.Evm.Lower.buildMemoryArrayHelpersFromEntrypoints entrypoints).foldl
+      HelperSet.insert baseHelpers
   let mut crosscalls := #[]
   for function in m.functions do
     for block in function.blocks do

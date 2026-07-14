@@ -52,7 +52,7 @@ diff -u Examples/Backend/Evm/Contracts/ArrayExample.golden.yul "$OUT/evm/ArrayEx
 python3 scripts/evm/validate-artifact-metadata.py \
   --root "$ROOT" \
   --expect-fixture ArrayExample \
-  --expect-source-kind contract-sdk \
+  --expect-source-kind contract-source-authored \
   --expect-entrypoint sizeOf3:8c471d33 \
   --expect-entrypoint getElem:ff170768 \
   --expect-entrypoint sumOf3:6d666075 \
@@ -71,7 +71,7 @@ require_file "$OUT/solana/ArrayExample.solana-artifact.json"
 require_contains "$OUT/solana/ArrayExample.s" "sol_sizeOf3" "Solana sizeOf3 entrypoint"
 require_contains "$OUT/solana/ArrayExample.s" "sol_getElem" "Solana getElem entrypoint"
 require_contains "$OUT/solana/ArrayExample.s" "sol_sumOf3" "Solana sumOf3 entrypoint"
-require_contains "$OUT/solana/ArrayExample.s" "array.get: compute element address" "Solana array lowering"
+require_contains "$OUT/solana/ArrayExample.s" "memory.array.get: compute element address" "Solana array lowering"
 require_contains "$OUT/solana/manifest.toml" 'name = "sizeOf3"' "Solana manifest sizeOf3"
 require_contains "$OUT/solana/manifest.toml" 'name = "getElem"' "Solana manifest getElem"
 require_contains "$OUT/solana/manifest.toml" 'name = "sumOf3"' "Solana manifest sumOf3"
@@ -82,8 +82,9 @@ import sys
 artifact = json.load(open(sys.argv[1]))
 assert artifact["target"] == "solana-sbpf-asm"
 assert artifact["fixture"] == "ArrayExample"
-assert artifact["sourceKind"] == "contract-sdk"
+assert artifact["sourceKind"] == "contract-source-authored"
 assert artifact["sourceModule"] == "ArrayExample"
+assert artifact["irVersion"] == "canonical-core-v1"
 print("portable-array-example solana artifact: ok")
 PY
 
@@ -99,7 +100,7 @@ python3 scripts/near/validate-emitwat-metadata.py \
   --expected-fixture arrayexample \
   --expected-module ArrayExample \
   --expected-entrypoints sizeOf3,getElem,sumOf3 \
-  --expected-source-kind contract-sdk
+  --expected-source-kind contract-source-authored
 
 if out="$("${HOST[@]}" "$OUT/near/arrayexample.wat" sizeOf3 getElem sumOf3 2>&1)"; then
   echo "$out"
@@ -110,5 +111,26 @@ else
   echo "portable-array-example: offline-host unavailable; WAT metadata checks passed" >&2
   echo "$out" >&2
 fi
+
+python3 - "$OUT" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+artifacts = [
+    root / "evm/ArrayExample.proof-forge-artifact.json",
+    root / "solana/ArrayExample.solana-artifact.json",
+    root / "near/ArrayExample.near-artifact.json",
+]
+for path in artifacts:
+    artifact = json.loads(path.read_text())
+    assert artifact["sourceKind"] == "contract-source-authored", path
+    assert artifact["sourceModule"] == "ArrayExample", path
+    assert artifact["irVersion"] == "canonical-core-v1", path
+
+retired = list(root.rglob("*contract-spec*")) + list(root.rglob("*ir-module*"))
+assert not retired, f"retired compatibility sidecars emitted: {retired}"
+PY
 
 echo "portable-array-example-multi-target: ok"
