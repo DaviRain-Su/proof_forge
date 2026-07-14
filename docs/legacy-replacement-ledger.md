@@ -6,7 +6,7 @@ Status: **Current executable migration ledger (2026-07-12)**
 |---|---|---|---|---|---|---|
 | D1-source-solana | Solana grammar reachable from `Contract.Source` | `Contract.Source.Solana` ownership | removed | A1 | portable reject + exact import guard + Solana positive IR pins + Solana parity | `52402821`, `c1433b2e`, `b8c03f5`, review repair `6af4eb72` |
 | D2-product-spec | product entry directly routes `ContractSpec` | `IntentContract` materializer | replacement_ready | A2-A6 | each product family switched | allowlist frozen; `Tests/IntentProductBoundary.lean` passes |
-| D3-canonical-fallback | advisory `runCanonicalValidationGate` | strict canonical target gate | replacement_ready | A5/B2 | advertised fragments strict by default | `Tests/Canonical/StrictIntentMaterialization.lean`; `Tests/NftMaterialization.lean` Test 7; `just strict-intent-materialization` |
+| D3-canonical-fallback | advisory `runCanonicalValidationGate` | strict canonical target gate | removed | A5/B2 | no production caller; advisory API deleted | strict target/intent gates; removal verified 2026-07-14 |
 | D4-cli-arg-roundtrip | `newCommandArgsToLegacy` reparse | typed native target driver | replacement_ready; NFT `build` subrow `default_switched` | A6 | build/emit/check native | `Tests/CliTargetFirst.lean`; `scripts/portable/nft-multi-target.sh`; `just product`; `just check` |
 | D5-legacy-imports | production imports `IR.Legacy.*` | canonical or isolated test helper | inventoried | D6-D12 | production allowlist empty | pending |
 
@@ -65,16 +65,16 @@ reproducible positive and negative gates.
   - `Tests/Canonical/StrictIntentMaterialization.lean` independently asserts
     exact prefixes for unknown target, adapter, validation, capability, HostOp,
     and target-builder failures; it also requires full success for a known-good
-    spec and proves the strict/advisory divergence.
+    spec.
   - `Tests/NftMaterialization.lean` Test 7 verifies every primary target passes
     `runStrictCanonicalTargetGate` and that materialization evidence names the gate.
   - `just strict-intent-materialization` is wired into `just check`.
-  - Committed at `545d7a51`.
-- **State:** `replacement_ready`. NFT materializations now use the strict gate.
-  Non-NFT product callers still use the advisory gate, so this is not yet
-  `default_switched`.
-- **Next state:** `default_switched` after non-NFT product families migrate to the
-  strict gate and `runCanonicalValidationGate` becomes opt-in/legacy only.
+  - Production inventory on 2026-07-14 found no caller of the advisory API;
+    primary artifact renderers already fail closed through canonical target
+    planning.
+  - `runCanonicalValidationGate` and tests for swallowed failures were deleted.
+- **State:** `removed`. `runStrictCanonicalTargetGate` and
+  `runStrictCanonicalContractGate` are the only shared target gates.
 
 ## D4-cli-arg-roundtrip
 
@@ -97,8 +97,10 @@ reproducible positive and negative gates.
 - **Trigger:** D6-D12 (incremental migration of Counter, ValueVault, Token, RemoteCall, etc.)
 - **Parity:** each migrated module passes strict canonical gate
 - **Current evidence:** baseline captured at `21cdd587`; fail-closed missing-file
-  behavior and import-freeze self-tests verified at `5bc3196c`. The Stylus
-  public driver enters Legacy-compatible normalization through the reviewed
-  `Compiler.adaptContractSpecCanonical` boundary, without growing the direct
-  production import baseline.
+  behavior and import-freeze self-tests verified at `5bc3196c`. On 2026-07-14,
+  direct adapter imports were removed from EVM, Solana, Stylus, Wasm assembly,
+  and `CanonicalPipeline`; the reviewed production baseline shrank from 11 to
+  9 files. `Frontend.ContractSpec.Normalize` is now the sole non-Legacy module
+  allowed to import the compatibility adapter. Stylus uses that shared
+  normalization boundary while keeping its token/renderer artifact path.
 - **Next state:** `replacement_ready` as each module migrates

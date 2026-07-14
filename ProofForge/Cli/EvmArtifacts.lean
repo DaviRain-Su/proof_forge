@@ -17,7 +17,7 @@ import ProofForge.Contract.SdkSchema
 import ProofForge.Contract.Spec.Json
 import ProofForge.IR
 import ProofForge.IR.Canonical
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.Target
 import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.PeerMap
@@ -33,12 +33,8 @@ namespace ProofForge.Cli
 the existing EVM semantic plan. Every failure is terminal; this function has no
 legacy fallback. -/
 def renderCanonicalSpecEvmYul (spec : ProofForge.Contract.ContractSpec) : Except String String := do
-  let bundle ← match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
-    | .ok bundle => .ok bundle
-    | .error error => .error s!"canonical: adapt failed: {repr error}"
-  let checked ← match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
-    | .ok checked => .ok checked
-    | .error error => .error s!"canonical: validation failed: {repr error}"
+  let bundle ← ProofForge.Frontend.ContractSpec.normalize spec
+  let checked := bundle.contract
   let capabilityPlan : ProofForge.Target.CapabilityPlan := {
     targetId := ProofForge.Target.evm.id
     calls := checked.contract.requirements

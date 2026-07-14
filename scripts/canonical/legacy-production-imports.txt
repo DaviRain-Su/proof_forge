@@ -1,6 +1,4 @@
-ProofForge/Cli/EvmArtifacts.lean
-ProofForge/Cli/SolanaArtifacts.lean
-ProofForge/Compiler/CanonicalPipeline.lean
+ProofForge/Frontend/ContractSpec/Normalize.lean
 ProofForge/IR.lean
 ProofForge/IR/Elaborate.lean
 ProofForge/IR/Elaborate/Smoke.lean

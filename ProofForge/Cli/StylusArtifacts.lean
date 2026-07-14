@@ -10,7 +10,7 @@ import ProofForge.Cli.ContractSourceArtifacts
 import ProofForge.Cli.EvmAbi
 import ProofForge.Cli.Options
 import ProofForge.Cli.TokenLoader
-import ProofForge.Compiler.CanonicalPipeline
+import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.Target.Registry
 import ProofForge.Compiler.Wasm.Printer
 
@@ -85,9 +85,9 @@ private unsafe def compileContractSourceStylusImpl (opts : CliOptions) : IO UInt
       hydrateStylusSelectors opts.cast sourceSpec.module
   let spec := { sourceSpec with
     module := ProofForge.Target.PeerMap.applyToModule hydratedModule opts.peerMap }
-  let bundle <- match ProofForge.Compiler.adaptContractSpecCanonical spec with
+  let bundle <- match ProofForge.Frontend.ContractSpec.normalize spec with
     | .ok bundle => pure bundle
-    | .error error => throw <| IO.userError s!"Stylus canonical adapter: {error}"
+    | .error error => throw <| IO.userError s!"Stylus canonical normalization: {error}"
   let capPlan <- match ProofForge.Target.requireCapabilityPlan ProofForge.Target.wasmArbitrumStylus {
       targetId := "wasm-arbitrum-stylus"
       calls := bundle.contract.contract.requirements

@@ -8,9 +8,8 @@ import ProofForge.Frontend.Surface.Host.Near
 /-!
 # Strict Intent Materialization Test
 
-Tests `runStrictCanonicalTargetGate`: unlike the advisory
-`runCanonicalValidationGate`, this function does NOT swallow
-`buildFromCore` or `adaptLegacy` failures. Every stage is a hard error.
+Tests `runStrictCanonicalTargetGate`. It does not swallow `buildFromCore` or
+source-adaptation failures; every stage is a hard error.
 
 D3: accepted NFT materializations must pass the strict gate before
 returning their ContractSpec.
@@ -162,16 +161,9 @@ def main : IO Unit := do
   requireErrorPrefix "canonical: buildFromCore failed"
     (ProofForge.Compiler.runStrictCanonicalContractGate "solana-sbpf-asm" goodCanonical)
 
-  -- Test 8: strict gate differs from advisory gate
-  -- The advisory gate would return .ok for badAdaptSpec; the strict gate must not.
-  let advisoryResult := ProofForge.Compiler.runCanonicalValidationGate "evm" badAdaptSpec
-  let strictResult := ProofForge.Compiler.runStrictCanonicalTargetGate "evm" badAdaptSpec
-  match advisoryResult, strictResult with
-  | .ok _, .ok _ =>
-    throw <| IO.userError "strict gate should differ from advisory gate on badAdaptSpec"
-  | _, .error _ => pure ()  /- strict gate correctly rejects what advisory swallows -/
-  | .error _, .ok _ =>
-    throw <| IO.userError "strict gate should not be weaker than advisory gate"
+  -- Test 8: source adaptation failures remain terminal.
+  requireErrorPrefix "canonical: adapt failed"
+    (ProofForge.Compiler.runStrictCanonicalTargetGate "evm" badAdaptSpec)
 
   -- Test 9: NFT materialization uses strict gate internally
   -- The NFT materializers should call runStrictCanonicalTargetGate

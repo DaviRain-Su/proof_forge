@@ -78,12 +78,4 @@ def main : IO Unit := do
     "canonical: capability plan failed: target `wasm-cosmwasm` does not support capability `arith.checked`"
     (runStrictCanonicalTargetGate "wasm-cosmwasm" counterSpec)
 
-  -- -- Test 6: advisory gate and strict gate agree on success --
-  -- Both gates must succeed for a known-good spec. The strict success was
-  -- checked above; pin the advisory side independently instead of allowing a
-  -- shared regression to count as agreement.
-  for targetId in primaryTriad do
-    requireOk (runCanonicalValidationGate targetId counterSpec)
-      s!"advisory gate: Counter on {targetId}"
-
   IO.println "strict-target-gate: ok"

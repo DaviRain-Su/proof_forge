@@ -3,7 +3,7 @@ Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import ProofForge.IR.Contract
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Backend.WasmHost.Aggregate
 import ProofForge.Backend.WasmHost.ArrayHeap
@@ -54,7 +54,7 @@ def moduleStringPoolEnd (strings : Array StringInfo) : Nat :=
 the legacy EmitWat entrypoint from growing another target-specific expression
 walker while canonical Core remains the typed source of literal data. -/
 def canonicalStringLiterals (mod : ProofForge.IR.Module) : Array String :=
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy
+  match ProofForge.Frontend.ContractSpec.normalize
       (ProofForge.Contract.ContractSpec.fromIR mod) with
   | .error _ => #[]
   | .ok bundle =>

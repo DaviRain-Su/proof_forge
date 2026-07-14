@@ -2525,3 +2525,26 @@ Rules:
 - Verification passed: `lake env lean --run Tests/IntentProductBoundary.lean`
   and `just portable-default`.
 - Next: D5, migrate Counter as the first existing product family.
+
+## 2026-07-14 - D3: remove advisory canonical fallback
+
+- Status: `removed (verified 2026-07-14)`.
+- Confirmed with a repository-wide caller search that
+  `runCanonicalValidationGate` had no production or example caller; primary
+  artifact paths already use fail-closed canonical target planning.
+- Deleted the advisory function, which previously converted adaptation and
+  target-builder gaps into success, and removed tests that preserved that
+  behavior.
+- Added `Frontend.ContractSpec.Normalize` as the single compatibility owner and
+  removed direct Legacy Adapter imports from EVM, Solana, Stylus, Wasm module
+  assembly, and `CanonicalPipeline`; the production import allowlist shrank
+  from 11 files to 9.
+- Strict tests now assert terminal adaptation failure and primary-triad target
+  success directly.
+- Verification passed: `lake build ProofForge.Compiler.CanonicalPipeline`,
+  targeted builds for all migrated callers, `just canonical-boundary`,
+  `just legacy-replacement-freeze`, `just strict-target-gate`, and
+  `just strict-intent-materialization`.
+- Remaining Legacy work: remove CLI argument round-trips and eliminate the EVM
+  renderer's residual legacy `IR.Module` declaration context before switching
+  Surface v2 products such as Counter.

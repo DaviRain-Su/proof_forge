@@ -701,7 +701,7 @@ is empty or every remaining row is explicitly compiler-internal.
 - Replaces: advisory production calls to `runCanonicalValidationGate`.
 - Produces: strict default for all advertised product families and primary targets.
 
-- [ ] **Step 1: Inventory production callers**
+- [x] **Step 1: Inventory production callers**
 
 Run:
 
@@ -712,13 +712,13 @@ rg -n 'runCanonicalValidationGate|CompilerPipeline\.legacy|\.legacy\b' ProofForg
 Classify each caller as production, compatibility alias, or test-only. Record
 the classification in the ledger before editing.
 
-- [ ] **Step 2: Write a no-fallback regression test**
+- [x] **Step 2: Write a no-fallback regression test**
 
 For each primary target, inject a spec that reaches a distinct failure stage
 and assert the production entry returns that error. Also assert a valid Counter,
 ValueVault, Token, NFT, and Remote input succeeds.
 
-- [ ] **Step 3: Switch production callers**
+- [x] **Step 3: Switch production callers**
 
 Replace advisory calls with `runStrictCanonicalTargetGate`. Keep the advisory
 function only if an explicit compatibility alias still uses it; annotate that
@@ -924,7 +924,7 @@ and a full green revision after those switches.
   still requires them; aliases invoke a named compatibility handler, not the
   new target-first dispatch path.
 
-- [ ] **Step 1: Prove there are no production callers**
+- [x] **Step 1: Prove there are no production callers**
 
 Run:
 

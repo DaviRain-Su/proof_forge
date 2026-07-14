@@ -94,6 +94,14 @@ and shared interface/materialization records.
 | IR-B7 | pending | Move target environment/interface/materialization fields |
 | IR-B8 | pending | Empty the compatibility allowlist and enforce the boundary |
 
+Legacy removal follows the
+[incremental replacement plan](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md).
+The advisory canonical gate is removed (D3); do not reintroduce a path that
+turns adaptation, validation, HostOp, capability, or target-plan failure into
+success. Product `ContractSpec` migration remains blocked on target plans
+owning all declaration/render metadata, especially the EVM renderer's residual
+`IR.Module` context.
+
 | ID | State | Task | Authoritative section |
 |---|---|---|---|
 | N-T0 | done (verified at `337ee823`) | Reconcile stale NEAR task and capability claims | NEAR plan task index |

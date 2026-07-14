@@ -18,7 +18,7 @@ import ProofForge.Contract.Spec.Json
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.IR
 import ProofForge.IR.Canonical
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.IR.Examples.ControlFlowAssertProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ErrorRefProbe
@@ -36,12 +36,8 @@ existing semantic Solana plan. Failures are terminal; there is no Legacy
 assembly fallback. -/
 def renderCanonicalSpecSolanaAsm (spec : ProofForge.Contract.ContractSpec) :
     Except String String := do
-  let bundle ← match ProofForge.IR.Legacy.Adapter.adaptLegacy spec with
-    | .ok bundle => .ok bundle
-    | .error error => .error s!"canonical: adapt failed: {repr error}"
-  let checked ← match ProofForge.IR.Canonical.validateCanonical bundle.contract.contract with
-    | .ok checked => .ok checked
-    | .error error => .error s!"canonical: validation failed: {repr error}"
+  let bundle ← ProofForge.Frontend.ContractSpec.normalize spec
+  let checked := bundle.contract
   let hostCallErrors :=
     ProofForge.Compiler.checkHostOpHandlers "solana-sbpf-asm" checked
   if !hostCallErrors.isEmpty then

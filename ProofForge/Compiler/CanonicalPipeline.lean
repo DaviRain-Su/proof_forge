@@ -1,5 +1,5 @@
 import ProofForge.IR.Contract
-import ProofForge.IR.Legacy.Adapter
+import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
 import ProofForge.Frontend.Surface
@@ -25,8 +25,6 @@ caught and retried as legacy.
 namespace ProofForge.Compiler
 
 open ProofForge.IR
-open ProofForge.IR.Legacy
-open ProofForge.IR.Legacy.Adapter
 open ProofForge.IR.Canonical
 open ProofForge.Contract
 open ProofForge.Target
@@ -65,7 +63,7 @@ Surface v2 is canonical-only; requesting the frozen Legacy pipeline fails. -/
 def toCanonical (mode : CompilerPipeline) : LoadedContractSource →
     Except CompileDiagnostic CanonicalBundle
   | .legacyV1 spec =>
-      match adaptLegacy spec with
+      match ProofForge.Frontend.ContractSpec.normalize spec with
       | .ok bundle => .ok bundle
       | .error e => .error {
           mode, targetId := "source", message := s!"legacy source adaptation failed: {repr e}" }
@@ -132,7 +130,7 @@ def compileForTest
       | none => pure <| .error { mode := .legacy, targetId, message := "unknown target" }
       | some _ => pure <| .ok (makeBundle targetId spec "legacy")
   | .canonical =>
-      match adaptLegacy spec with
+      match ProofForge.Frontend.ContractSpec.normalize spec with
       | .error e => pure <| .error { mode := .canonical, targetId, message := s!"adapt failed: {repr e}" }
       | .ok bundle =>
           match validateCanonical bundle.contract.contract with
@@ -169,52 +167,10 @@ def compileForTest
                   message := "canonical buildFromCore is unavailable for this target"
                 }
 
-/-- Shared canonical validation gate for public CLI routes.
-
-Runs `adaptLegacy` → `validateCanonical` → hostOp handler check →
-`buildFromCore`. Validation failures (invalid canonical form, unhandled
-host ops) are hard errors. `buildFromCore` failures are advisory — the
-target may not yet support all canonical operations, so the legacy
-path continues with a warning.
-
-`adaptLegacy` failures are also advisory (product constructs not yet in
-the canonical adapter).
-
-This is a documented coverage gap until the adapter and target builders
-reach full coverage. -/
-def runCanonicalValidationGate (targetId : String) (spec : ContractSpec) : Except String Unit := do
-  match adaptLegacy spec with
-  | .error _ => .ok ()  /- adapter coverage gap; legacy path proceeds -/
-  | .ok bundle =>
-      match validateCanonical bundle.contract.contract with
-      | .error e => .error s!"canonical: validation failed: {repr e}"
-      | .ok checked =>
-          let hostCallErrors := checkHostOpHandlers targetId checked
-          if hostCallErrors.size > 0 then
-            .error (String.intercalate "; " hostCallErrors.toList)
-          else
-            /- buildFromCore failures are advisory: the target builder may not
-            support all canonical operations yet. The legacy path continues. -/
-            let capPlan : CapabilityPlan := { targetId, calls := checked.contract.requirements, metadata := #[] }
-            if targetId == "evm" then
-              match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
-              | .error _ => .ok ()  /- buildFromCore coverage gap; advisory -/
-              | .ok _ => .ok ()
-            else if targetId == "solana-sbpf-asm" then
-              match ProofForge.Backend.Solana.Plan.Core.buildFromCore checked capPlan with
-              | .error _ => .ok ()  /- buildFromCore coverage gap; advisory -/
-              | .ok _ => .ok ()
-            else if targetId == "wasm-near" then
-              match ProofForge.Backend.WasmHost.ModulePlan.Core.buildFromCore checked capPlan with
-              | .error _ => .ok ()  /- buildFromCore coverage gap; advisory -/
-              | .ok _ => .ok ()
-            else
-              .ok ()
 /-- Strict canonical target gate.
 
-Runs the same stages as `runCanonicalValidationGate`, but every stage is a
-hard error. This is the replacement for the advisory fallback used during the
-legacy-to-canonical migration.
+Every stage is a hard error. The former advisory gate was removed after its
+last production caller migrated to strict target planning.
 
 Returns `.ok ()` only when the spec can be adapted, validated, capability-checked,
 host-op checked, and built by the target's `buildFromCore`. -/
@@ -278,7 +234,7 @@ def runStrictCanonicalTargetGate (targetId : String) (spec : ContractSpec) : Exc
     | some p => pure p
     | none => .error s!"canonical: unknown target {targetId}"
   let bundle ←
-    match adaptLegacy spec with
+    match ProofForge.Frontend.ContractSpec.normalize spec with
     | .ok b => pure b
     | .error e => .error s!"canonical: adapt failed: {repr e}"
   runStrictCheckedTargetGate profile targetId bundle.contract
