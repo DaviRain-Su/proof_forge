@@ -292,34 +292,38 @@ canonical-product:
     lake env lean --run Tests/Canonical/LegacyCoverage.lean
     python3 scripts/canonical/check-coverage.py
 
-# Direct Surface/Core EVM product catalog and focused ERC-4626 runtime gate.
-evm-direct-products:
+# Temporary internal Surface fixtures are opt-in and do not expand normal builds.
+test-fixtures:
+    lake build TestFixtures
+
+# Temporary internal Surface fixtures for canonical EVM route coverage.
+evm-direct-products: test-fixtures
     lake env lean --run Tests/Canonical/EvmDirectProducts.lean
 
 evm-direct-erc4626:
     scripts/evm/direct-erc4626-smoke.sh
 
-# Public target-first Surface v2 -> Canonical Core -> EVM Yul route.
+# Internal Surface fixture -> Canonical Core -> EVM Yul route.
 evm-canonical-yul-route: build
     lake env lean --run Tests/CliTargetFirst.lean
     rm -rf build/evm-canonical-yul-route
-    lake env proof-forge build --target evm --format yul --root . -o build/evm-canonical-yul-route/Counter.yul Examples/Product/Canonical/Counter.lean
+    lake env proof-forge build --target evm --format yul --root . -o build/evm-canonical-yul-route/Counter.yul TestFixtures/SurfaceProducts/Counter.lean
     solc --strict-assembly build/evm-canonical-yul-route/Counter.yul --bin >/dev/null
 
-# Public target-first Surface v2 -> optimized EVM bytecode and plan metadata.
+# Internal Surface fixture -> optimized EVM bytecode and plan metadata.
 evm-canonical-bytecode-route: build
     lake env lean --run Tests/CliTargetFirst.lean
     rm -rf build/evm-canonical-bytecode-route
-    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/Counter.bin Examples/Product/Canonical/Counter.lean
-    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/ERC4626Vault.bin Examples/Product/Canonical/ERC4626Vault.lean
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/Counter.bin TestFixtures/SurfaceProducts/Counter.lean
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/ERC4626Vault.bin TestFixtures/SurfaceProducts/ERC4626Vault.lean
     test $(tr -d '\n' < build/evm-canonical-bytecode-route/ERC4626Vault.bin | wc -c) -le 49152
     jq -e '.sourceKind == "surface-v2" and .sdkSchema == null and .validation.contractSizeCheck.status == "passed" and (.abi.entrypoints | length) == 23' build/evm-canonical-bytecode-route/proof-forge-artifact.json >/dev/null
 
-# Public check command validates Surface v2 through Canonical Core and EVM plan.
+# Check command validates the internal migration fixture through the EVM plan.
 evm-canonical-check-route: build
-    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge check --target evm --root . --report-format json Examples/Product/Canonical/Counter.lean | jq -e '.status == "ok" and .validation.sourceVersion == "surface-v2" and .validation.canonicalNormalize == "passed" and .validation.backendPlan == "passed" and .validation.lowering == "passed"' >/dev/null
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge check --target evm --root . --report-format json TestFixtures/SurfaceProducts/Counter.lean | jq -e '.status == "ok" and .validation.sourceVersion == "surface-v2" and .validation.canonicalNormalize == "passed" and .validation.backendPlan == "passed" and .validation.lowering == "passed"' >/dev/null
 
-# Exact EVM product catalog through the public target-first canonical Yul route.
+# Exact catalog coverage through temporary internal Surface fixtures.
 evm-canonical-product-route: build
     scripts/evm/canonical-product-route.sh
 
@@ -329,16 +333,16 @@ canonical-materialization:
     lake env lean --run Tests/Canonical/DiagnosticParity.lean
 
 # Wave 4 Task 14: source loader and versioned surface.
-source-loader:
+source-loader: test-fixtures
     lake env lean --run Tests/Canonical/SourceLoader.lean
 
 # Wave 4 Task 15: Surface Set collection.
-canonical-set:
+canonical-set: test-fixtures
     lake env lean --run Tests/Canonical/SetNormalize.lean
     lake env lean --run Tests/Canonical/SetParity.lean
 
 # Wave 4 Task 16: Surface Queue collection.
-canonical-queue:
+canonical-queue: test-fixtures
     lake env lean --run Tests/Canonical/QueueNormalize.lean
     lake env lean --run Tests/Canonical/QueueParity.lean
 

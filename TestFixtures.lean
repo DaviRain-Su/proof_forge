@@ -1,0 +1,32 @@
+import TestFixtures.SurfaceProducts.AccessControl
+import TestFixtures.SurfaceProducts.ArrayExample
+import TestFixtures.SurfaceProducts.AuthRemoteCall
+import TestFixtures.SurfaceProducts.BoundedQueue
+import TestFixtures.SurfaceProducts.Counter
+import TestFixtures.SurfaceProducts.ERC4626Vault
+import TestFixtures.SurfaceProducts.EscrowVault
+import TestFixtures.SurfaceProducts.ExternalTokenTransfer
+import TestFixtures.SurfaceProducts.ExternalVault
+import TestFixtures.SurfaceProducts.FungibleToken
+import TestFixtures.SurfaceProducts.GuestBook
+import TestFixtures.SurfaceProducts.HeightLockVault
+import TestFixtures.SurfaceProducts.HostEnvProbe
+import TestFixtures.SurfaceProducts.Nft
+import TestFixtures.SurfaceProducts.Ownable
+import TestFixtures.SurfaceProducts.OwnableHash
+import TestFixtures.SurfaceProducts.OwnablePausable
+import TestFixtures.SurfaceProducts.Pausable
+import TestFixtures.SurfaceProducts.ProRataVault
+import TestFixtures.SurfaceProducts.ReentrancyGuard
+import TestFixtures.SurfaceProducts.RemoteCall
+import TestFixtures.SurfaceProducts.RoleGatedToken
+import TestFixtures.SurfaceProducts.SetRegistry
+import TestFixtures.SurfaceProducts.SoulboundTokenBody
+import TestFixtures.SurfaceProducts.StakingVault
+import TestFixtures.SurfaceProducts.StatusMessage
+import TestFixtures.SurfaceProducts.StorageDeposit
+import TestFixtures.SurfaceProducts.TimelockVault
+import TestFixtures.SurfaceProducts.ValueVault
+import TestFixtures.SurfaceProducts.VestingVault
+
+/-! Compiler-internal fixtures. Product contracts live only in `Examples/Product`. -/

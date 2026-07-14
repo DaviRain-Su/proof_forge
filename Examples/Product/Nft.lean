@@ -2,7 +2,7 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-Canonical portable NFT intent shared across primary targets.
+Target-neutral NFT intent shared across primary targets.
 
 Authors write a single `NFTSpec` with business features only. They never
 pick a chain NFT standard. `--target` materializes the standard:

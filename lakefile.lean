@@ -41,6 +41,10 @@ lean_lib ProofForge where
     `ProofForge.Compiler.Psy.Printer
   ]
 
+/-- Compiler-internal migration fixtures, built only by focused test gates. -/
+lean_lib TestFixtures where
+  roots := #[`TestFixtures]
+
 lean_lib EvmRefinement where
   roots := #[
     `EvmRefinement.CounterRuntime,

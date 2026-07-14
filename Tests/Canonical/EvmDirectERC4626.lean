@@ -1,4 +1,4 @@
-import Examples.Product.Canonical.ERC4626Vault
+import TestFixtures.SurfaceProducts.ERC4626Vault
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Frontend.Surface.Normalize
@@ -33,7 +33,7 @@ private partial def countReturns (body : Array StmtPlan) : Nat :=
     | _ => 0) 0
 
 def main : IO Unit := do
-  let surface := Examples.Product.Canonical.ERC4626Vault.contract
+  let surface := TestFixtures.SurfaceProducts.ERC4626Vault.contract
   require (surface.entrypoints.size == 23) "direct ERC4626 ABI must keep 23 entrypoints"
   require (surface.events.size == 4) "direct ERC4626 must keep four standard events"
   let selectors := surface.entrypoints.filterMap (·.selector?)

@@ -165,8 +165,8 @@ def requireEmitWatPlanTargetCheck
       throw <| IO.userError s!"EmitWat plan target {planTargetId} unexpectedly rejected: {err}"
 
 def main : IO UInt32 := do
-  requireEvmCanonicalYulNative "Examples/Product/Canonical/Counter.lean"
-  requireEvmCanonicalBytecodeNative "Examples/Product/Canonical/Counter.lean"
+  requireEvmCanonicalYulNative "TestFixtures/SurfaceProducts/Counter.lean"
+  requireEvmCanonicalBytecodeNative "TestFixtures/SurfaceProducts/Counter.lean"
   match ProofForge.Cli.parseArgs
       ["--emit-error-ref-emitwat", "--target", "wasm-near"] {} with
   | .ok opts =>

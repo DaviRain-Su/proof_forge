@@ -1,4 +1,4 @@
-import Examples.Product.Canonical.FungibleToken
+import TestFixtures.SurfaceProducts.FungibleToken
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Frontend.Surface.Normalize
@@ -9,7 +9,7 @@ private def require (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw (IO.userError message)
 
 def main : IO Unit := do
-  let contract := Examples.Product.Canonical.FungibleToken.contract
+  let contract := TestFixtures.SurfaceProducts.FungibleToken.contract
   let bundle ← match ProofForge.Frontend.Surface.normalizeSurface contract with
     | .ok bundle => pure bundle
     | .error error => throw (IO.userError s!"direct Token normalization failed: {repr error}")

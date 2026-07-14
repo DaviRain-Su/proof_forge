@@ -14,6 +14,8 @@ make_fixture() {
     "$root/ProofForge/Backend/WasmHost/ModulePlan" \
     "$root/ProofForge/Backend/WasmHost" \
     "$root/ProofForge/IR/Core" \
+    "$root/ProofForge/Contract/Source" \
+    "$root/Examples/Product" \
     "$root/ProofForge/Cli" \
     "$root/Tests" \
     "$root/scripts/canonical"
@@ -101,6 +103,24 @@ make_fixture "$root"
 printf '%s\n' 'inductive ContextField' '  | sender | origin' '  deriving Repr' \
   > "$root/ProofForge/IR/Core/Type.lean"
 expect_failure "target-native Core context" "$root"
+
+root="$TMP/product-surface"
+make_fixture "$root"
+printf '%s\n' 'import ProofForge.Frontend.Surface' \
+  > "$root/Examples/Product/Counter.lean"
+expect_failure "product Surface import" "$root"
+
+root="$TMP/product-surface-constructor"
+make_fixture "$root"
+printf '%s\n' 'def contract : SurfaceContract := {}' \
+  > "$root/Examples/Product/Counter.lean"
+expect_failure "product Surface constructor" "$root"
+
+root="$TMP/public-source-surface"
+make_fixture "$root"
+printf '%s\n' 'import ProofForge.Frontend.Surface' \
+  > "$root/ProofForge/Contract/Source/SurfaceLeak.lean"
+expect_failure "public Contract.Source Surface import" "$root"
 
 root="$TMP/comments"
 make_fixture "$root"

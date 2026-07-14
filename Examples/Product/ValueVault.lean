@@ -2,7 +2,7 @@
 Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 
-Canonical portable ValueVault shared across primary targets.
+Target-neutral ValueVault shared across primary targets.
 
 Compile the same module to EVM, Solana sBPF, and NEAR/Wasm by changing only
 `--target`:

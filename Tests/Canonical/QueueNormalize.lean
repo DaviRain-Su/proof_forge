@@ -1,5 +1,5 @@
 import ProofForge.Frontend.Surface
-import Examples.Product.Canonical.BoundedQueue
+import TestFixtures.SurfaceProducts.BoundedQueue
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.Solana.Plan.Core
@@ -13,8 +13,8 @@ open ProofForge.IR.Core
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
-def testQueue := Examples.Product.Canonical.BoundedQueue.queue
-def queueContract := Examples.Product.Canonical.BoundedQueue.contract
+def testQueue := TestFixtures.SurfaceProducts.BoundedQueue.queue
+def queueContract := TestFixtures.SurfaceProducts.BoundedQueue.contract
 
 def main : IO Unit := do
   IO.FS.createDirAll "build/canonical/queue/evm"

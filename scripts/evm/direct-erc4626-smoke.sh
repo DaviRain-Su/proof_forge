@@ -26,7 +26,7 @@ ANVIL=$(find_tool anvil)
 CAST=$(find_tool cast)
 
 cd "$ROOT"
-lake build ProofForge.Contract.ERC4626.EvmSurface Examples.Product.Canonical.ERC4626Vault
+lake build ProofForge.Contract.ERC4626.EvmSurface TestFixtures.SurfaceProducts.ERC4626Vault
 lake env lean --run Tests/Canonical/EvmDirectERC4626.lean
 mkdir -p "$OUT"
 solc --strict-assembly --optimize --bin "$OUT/ERC4626.yul" > "$OUT/ERC4626.optimized.txt"

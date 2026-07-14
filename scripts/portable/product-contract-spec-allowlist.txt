@@ -85,8 +85,4 @@ ProofForge/Contract/Stdlib/ReentrancyGuard.lean:contract_source
 ProofForge/Contract/Stdlib/UUPSProxy.lean:contract_source
 ProofForge/Contract/Stdlib/UUPSUpgradeable.lean:contract_source
 ProofForge/Contract/Token/Examples/SoulboundToken.lean:def spec : TokenSpec
-Examples/Product/Canonical/BoundedQueue.lean:def contract
-Examples/Product/Canonical/Counter.lean:def contract
-Examples/Product/Canonical/SetRegistry.lean:def contract
-Examples/Product/Canonical/ValueVault.lean:def contract
 Examples/Product/ReentrancyGuard.lean:def spec : ProofForge.Contract.ContractSpec

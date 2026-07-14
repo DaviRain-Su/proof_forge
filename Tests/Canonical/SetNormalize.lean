@@ -1,5 +1,5 @@
 import ProofForge.Frontend.Surface
-import Examples.Product.Canonical.SetRegistry
+import TestFixtures.SurfaceProducts.SetRegistry
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.Solana.Plan.Core
@@ -13,8 +13,8 @@ open ProofForge.IR.Core
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
-def testSet := Examples.Product.Canonical.SetRegistry.registry
-def setContract := Examples.Product.Canonical.SetRegistry.contract
+def testSet := TestFixtures.SurfaceProducts.SetRegistry.registry
+def setContract := TestFixtures.SurfaceProducts.SetRegistry.contract
 
 def main : IO Unit := do
   IO.FS.createDirAll "build/canonical/set/evm"

@@ -11,6 +11,7 @@
 #   6. remaining EvmCorePlan, SolanaCorePlan, or WasmCorePlan declaration
 #   7. Wasm-host plan storing v1 StructDecl or AllocatorConfig values
 #   8. target-native context fields leaking into Canonical Core
+#   9. product/public authoring modules importing or constructing Surface
 #
 # This is a required static gate in `just check`.
 
@@ -135,6 +136,25 @@ if [ -f "$CORE_TYPE" ] && sed -n \
     | rg -n '^\s*\|.*\b(origin|prevRandao|epochHeight|randomSeed|accountId|prepaidGas|usedGas)\b' \
       >/dev/null 2>&1; then
   report "target-native constructor found in Core.ContextField"
+fi
+
+# ── 9. Surface is a compiler-owned normalization representation ────
+# Product contracts are authored only through `contract_source`. Public source
+# modules may implement the macro, but must not expose Surface as an authoring
+# API. Direct Surface fixtures belong under TestFixtures.
+AUTHORING_PATHS=(Examples/Product)
+if [ -f ProofForge/Contract/Source.lean ]; then
+  AUTHORING_PATHS+=(ProofForge/Contract/Source.lean)
+fi
+if [ -d ProofForge/Contract/Source ]; then
+  AUTHORING_PATHS+=(ProofForge/Contract/Source)
+fi
+if rg -n '^\s*import\s+ProofForge\.Frontend\.Surface(\.|\s|$)' \
+    "${AUTHORING_PATHS[@]}" >/dev/null 2>&1; then
+  report "public authoring path imports internal Frontend.Surface"
+fi
+if rg -n '\bSurfaceContract\b' Examples/Product >/dev/null 2>&1; then
+  report "product source constructs internal SurfaceContract"
 fi
 
 if [ "$FAIL" -eq 0 ]; then

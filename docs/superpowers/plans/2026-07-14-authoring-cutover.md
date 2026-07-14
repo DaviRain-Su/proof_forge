@@ -23,10 +23,12 @@ the cutover.
   `ProofForge/Contract/Source.lean`.
 - Production `Frontend.ContractSpec.normalize` still calls
   `IR.Legacy.Adapter.adaptLegacy`.
-- `Examples/Product/Canonical` contains 28 handwritten/internal-Surface EVM
-  product variants. They duplicate the business contracts in `Examples/Product`.
-- The EVM product route and direct-product tests currently compile the duplicate
-  directory, while NEAR and Solana compile the original product source.
+- The former `Examples/Product/Canonical` handwritten Surface duplicates have
+  been isolated as temporary tests in `TestFixtures/SurfaceProducts`.
+  They are not product sources and remain only until A-CUT3 reaches feature
+  parity from the single authored contracts.
+- The temporary EVM fixture route still compiles those internal AST values,
+  while NEAR and Solana compile the original product source.
 - `Compiler.LoadedContractSource` and `Cli.ContractLoader` expose a public
   `legacyV1` versus `surfaceV2` split.
 - Backend goldens have been removed from `Examples/Product`; live expectations
@@ -40,6 +42,8 @@ the cutover.
 - Move helper modules out of public `Contract.SurfaceV2` ownership.
 - Add an import-boundary gate: files below `Examples/Product` and public
   `ProofForge.Contract.Source*` modules may not import `Frontend.Surface`.
+- Keep direct Surface values only in explicit compiler test fixtures, never in
+  the Product tree.
 
 Acceptance: the boundary gate passes and no new public Surface authoring path is
 introduced.
@@ -53,6 +57,9 @@ introduced.
 - Preserve invariants, liveness declarations, entrypoint mutability, ABI
   overrides, constructor declarations, intents, mixin composition, and target
   extension HostOps without constructing Legacy IR.
+- Replace the public `ProofForge.Contract.Surface` helper name with Source DSL
+  operations owned by the single authoring API. `Surface` must name only the
+  compiler-internal normalization representation, never contract code.
 - Resolve target ABI selectors during target planning, not in product source.
 
 Acceptance: `Examples/Product/Counter.lean` reaches EVM, Solana, and NEAR Core
@@ -67,13 +74,17 @@ plans without importing or invoking `IR.Legacy.Adapter`.
 - Collection abstractions such as Queue and Set become public DSL/stdlib
   features used from the product source, not standalone handwritten Surface
   products.
+- Migrate every Product caller away from the transitional
+  `ProofForge.Contract.Surface` namespace before deleting that compatibility
+  module.
 
 Acceptance: the complete catalog compiles from `Examples/Product/<file>` for
 every advertised target; focused target gates preserve existing behavior.
 
 ### A-CUT4 - Delete duplicate source and version split
 
-- Delete `Examples/Product/Canonical` and its allowlist entries.
+- Delete the temporary `TestFixtures/SurfaceProducts` values and their
+  allowlist entries.
 - Repoint EVM product gates to `Examples/Product`.
 - Replace `LoadedContractSource.legacyV1/surfaceV2` with one current source
   variant, then remove dual-source ambiguity diagnostics.

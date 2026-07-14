@@ -3538,3 +3538,31 @@ Rules:
   directly enter Canonical Core.
 - Verification: targeted builds for AuthRemoteCall, ExternalTokenTransfer, and
   ExternalVault; repository `SurfaceV2` caller search; `git diff --check`.
+
+## 2026-07-14 - Authoring cleanup A-CUT1: enforce one Product authoring tree
+
+- Status: `done (verified 2026-07-14)`; A-CUT2 is the active task.
+- Removed the handwritten Surface duplicates from
+  `Examples/Product/Canonical`. `Examples/Product` now contains only the
+  target-neutral `contract_source` contracts and product metadata; the Counter
+  author source and its business logic are unchanged.
+- Isolated the temporary direct-Surface inputs under
+  `TestFixtures/SurfaceProducts` with an explicit Lake test-fixture root. These
+  values remain only to protect the canonical EVM route until A-CUT3 reaches
+  the same behavior from the single authored Product sources.
+- Extended `canonical-boundary` and its self-test to reject Surface imports in
+  `Examples/Product` and public `ProofForge.Contract.Source*` modules, and to
+  reject direct `SurfaceContract` construction in Product sources.
+- Corrected `SourceLoader` parity assertions to compare target-neutral Core and
+  interface shape without treating target-resolved EVM selectors or a target
+  HostOp catalog as source-level equality.
+- The separate public helper namespace `ProofForge.Contract.Surface` is not the
+  internal Surface AST, but its name still violates the one-authoring-language
+  model. A-CUT2/A-CUT3 will move those Product helpers into the Source DSL and
+  delete the compatibility namespace.
+- Verification: `lake build TestFixtures`,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`,
+  `lake env lean --run Tests/Canonical/SourceLoader.lean`, Set/Queue normalize
+  and parity tests, `lake env lean --run Tests/CliTargetFirst.lean`,
+  `scripts/canonical/check-boundary-self-test.sh`, and
+  `scripts/canonical/check-boundary.sh`.

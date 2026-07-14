@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 CATALOG="Examples/Product/catalog.json"
-CANONICAL_DIR="Examples/Product/Canonical"
+FIXTURE_DIR="TestFixtures/SurfaceProducts"
 OUT="${PROOF_FORGE_EVM_CANONICAL_PRODUCT_OUT:-build/evm-canonical-products}"
 EXPECTED="$OUT/expected.txt"
 
@@ -16,8 +16,8 @@ jq -r '.sources[] | select(.targets | index("evm")) | .file' "$CATALOG" | sort >
 
 while IFS= read -r file; do
   base="${file%.lean}"
-  if [[ ! -f "$CANONICAL_DIR/$file" ]]; then
-    echo "missing canonical EVM product source: $CANONICAL_DIR/$file" >&2
+  if [[ ! -f "$FIXTURE_DIR/$file" ]]; then
+    echo "missing internal EVM Surface fixture: $FIXTURE_DIR/$file" >&2
     exit 1
   fi
   lake env proof-forge build \
@@ -28,7 +28,7 @@ while IFS= read -r file; do
     --peer usdc.peer=0x000000000000000000000000000000000000ca12 \
     --peer vault.peer=0x000000000000000000000000000000000000ca13 \
     -o "$OUT/$base.yul" \
-    "$CANONICAL_DIR/$file" >/dev/null
+    "$FIXTURE_DIR/$file" >/dev/null
   grep -Fq "object \"" "$OUT/$base.yul"
 done < "$EXPECTED"
 

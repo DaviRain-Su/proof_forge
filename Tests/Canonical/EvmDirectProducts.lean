@@ -1,31 +1,31 @@
-import Examples.Product.Canonical.Counter
-import Examples.Product.Canonical.ValueVault
-import Examples.Product.Canonical.RemoteCall
-import Examples.Product.Canonical.Ownable
-import Examples.Product.Canonical.Pausable
-import Examples.Product.Canonical.ReentrancyGuard
-import Examples.Product.Canonical.AccessControl
-import Examples.Product.Canonical.OwnableHash
-import Examples.Product.Canonical.OwnablePausable
-import Examples.Product.Canonical.GuestBook
-import Examples.Product.Canonical.StatusMessage
-import Examples.Product.Canonical.HostEnvProbe
-import Examples.Product.Canonical.HeightLockVault
-import Examples.Product.Canonical.TimelockVault
-import Examples.Product.Canonical.ArrayExample
-import Examples.Product.Canonical.EscrowVault
-import Examples.Product.Canonical.StakingVault
-import Examples.Product.Canonical.StorageDeposit
-import Examples.Product.Canonical.VestingVault
-import Examples.Product.Canonical.ProRataVault
-import Examples.Product.Canonical.AuthRemoteCall
-import Examples.Product.Canonical.ExternalTokenTransfer
-import Examples.Product.Canonical.ExternalVault
-import Examples.Product.Canonical.RoleGatedToken
-import Examples.Product.Canonical.SoulboundTokenBody
-import Examples.Product.Canonical.Nft
-import Examples.Product.Canonical.ERC4626Vault
-import Examples.Product.Canonical.FungibleToken
+import TestFixtures.SurfaceProducts.Counter
+import TestFixtures.SurfaceProducts.ValueVault
+import TestFixtures.SurfaceProducts.RemoteCall
+import TestFixtures.SurfaceProducts.Ownable
+import TestFixtures.SurfaceProducts.Pausable
+import TestFixtures.SurfaceProducts.ReentrancyGuard
+import TestFixtures.SurfaceProducts.AccessControl
+import TestFixtures.SurfaceProducts.OwnableHash
+import TestFixtures.SurfaceProducts.OwnablePausable
+import TestFixtures.SurfaceProducts.GuestBook
+import TestFixtures.SurfaceProducts.StatusMessage
+import TestFixtures.SurfaceProducts.HostEnvProbe
+import TestFixtures.SurfaceProducts.HeightLockVault
+import TestFixtures.SurfaceProducts.TimelockVault
+import TestFixtures.SurfaceProducts.ArrayExample
+import TestFixtures.SurfaceProducts.EscrowVault
+import TestFixtures.SurfaceProducts.StakingVault
+import TestFixtures.SurfaceProducts.StorageDeposit
+import TestFixtures.SurfaceProducts.VestingVault
+import TestFixtures.SurfaceProducts.ProRataVault
+import TestFixtures.SurfaceProducts.AuthRemoteCall
+import TestFixtures.SurfaceProducts.ExternalTokenTransfer
+import TestFixtures.SurfaceProducts.ExternalVault
+import TestFixtures.SurfaceProducts.RoleGatedToken
+import TestFixtures.SurfaceProducts.SoulboundTokenBody
+import TestFixtures.SurfaceProducts.Nft
+import TestFixtures.SurfaceProducts.ERC4626Vault
+import TestFixtures.SurfaceProducts.FungibleToken
 import ProofForge.Contract.Nft.EvmSurface
 import ProofForge.Target.PeerMap
 import ProofForge.Backend.Evm.Plan.Core
@@ -97,8 +97,8 @@ private def checkUnsupportedNftRejected : IO Unit := do
 
 private def checkStandardAbiOverrides : IO Unit := do
   for (contract, entrypointName, paramName) in #[
-      (Examples.Product.Canonical.FungibleToken.contract, "transfer", "amount"),
-      (Examples.Product.Canonical.Nft.contract, "mint", "tokenId") ] do
+      (TestFixtures.SurfaceProducts.FungibleToken.contract, "transfer", "amount"),
+      (TestFixtures.SurfaceProducts.Nft.contract, "mint", "tokenId") ] do
     let bundle ← match ProofForge.Frontend.Surface.normalizeSurface contract with
       | .ok bundle => pure bundle
       | .error error => throw (IO.userError s!"standard ABI normalization failed: {repr error}")
@@ -111,35 +111,35 @@ private def checkStandardAbiOverrides : IO Unit := do
       s!"{entrypointName}.{paramName} lost its uint256 ABI carrier"
 
 def main : IO Unit := do
-  checkProduct Examples.Product.Canonical.Counter.contract 3
-  checkProduct Examples.Product.Canonical.ValueVault.contract 7
-  checkProduct Examples.Product.Canonical.RemoteCall.contract 3
-  checkProduct Examples.Product.Canonical.Ownable.contract 4
-  checkProduct Examples.Product.Canonical.Pausable.contract 3
-  checkProduct Examples.Product.Canonical.ReentrancyGuard.contract 3
-  checkProduct Examples.Product.Canonical.AccessControl.contract 4
-  checkProduct Examples.Product.Canonical.OwnableHash.contract 3
-  checkProduct Examples.Product.Canonical.OwnablePausable.contract 6
-  checkProduct Examples.Product.Canonical.GuestBook.contract 5
-  checkProduct Examples.Product.Canonical.StatusMessage.contract 3
-  checkProduct Examples.Product.Canonical.HostEnvProbe.contract 6
-  checkProduct Examples.Product.Canonical.HeightLockVault.contract 7
-  checkProduct Examples.Product.Canonical.TimelockVault.contract 7
-  checkProduct Examples.Product.Canonical.ArrayExample.contract 3
-  checkProduct Examples.Product.Canonical.EscrowVault.contract 10
-  checkProduct Examples.Product.Canonical.StakingVault.contract 6
-  checkProduct Examples.Product.Canonical.StorageDeposit.contract 5
-  checkProduct Examples.Product.Canonical.VestingVault.contract 7
-  checkProduct Examples.Product.Canonical.ProRataVault.contract 9
-  checkProduct Examples.Product.Canonical.AuthRemoteCall.contract 2
-  checkProduct Examples.Product.Canonical.ExternalTokenTransfer.contract 5
-  checkProduct Examples.Product.Canonical.ExternalVault.contract 4
-  checkProduct Examples.Product.Canonical.RoleGatedToken.contract 8
-  checkProduct Examples.Product.Canonical.SoulboundTokenBody.contract 5
-  checkProduct Examples.Product.Canonical.Nft.contract 4
-  checkProduct Examples.Product.Canonical.ERC4626Vault.contract 23
-  checkProduct Examples.Product.Canonical.FungibleToken.contract 10
+  checkProduct TestFixtures.SurfaceProducts.Counter.contract 3
+  checkProduct TestFixtures.SurfaceProducts.ValueVault.contract 7
+  checkProduct TestFixtures.SurfaceProducts.RemoteCall.contract 3
+  checkProduct TestFixtures.SurfaceProducts.Ownable.contract 4
+  checkProduct TestFixtures.SurfaceProducts.Pausable.contract 3
+  checkProduct TestFixtures.SurfaceProducts.ReentrancyGuard.contract 3
+  checkProduct TestFixtures.SurfaceProducts.AccessControl.contract 4
+  checkProduct TestFixtures.SurfaceProducts.OwnableHash.contract 3
+  checkProduct TestFixtures.SurfaceProducts.OwnablePausable.contract 6
+  checkProduct TestFixtures.SurfaceProducts.GuestBook.contract 5
+  checkProduct TestFixtures.SurfaceProducts.StatusMessage.contract 3
+  checkProduct TestFixtures.SurfaceProducts.HostEnvProbe.contract 6
+  checkProduct TestFixtures.SurfaceProducts.HeightLockVault.contract 7
+  checkProduct TestFixtures.SurfaceProducts.TimelockVault.contract 7
+  checkProduct TestFixtures.SurfaceProducts.ArrayExample.contract 3
+  checkProduct TestFixtures.SurfaceProducts.EscrowVault.contract 10
+  checkProduct TestFixtures.SurfaceProducts.StakingVault.contract 6
+  checkProduct TestFixtures.SurfaceProducts.StorageDeposit.contract 5
+  checkProduct TestFixtures.SurfaceProducts.VestingVault.contract 7
+  checkProduct TestFixtures.SurfaceProducts.ProRataVault.contract 9
+  checkProduct TestFixtures.SurfaceProducts.AuthRemoteCall.contract 2
+  checkProduct TestFixtures.SurfaceProducts.ExternalTokenTransfer.contract 5
+  checkProduct TestFixtures.SurfaceProducts.ExternalVault.contract 4
+  checkProduct TestFixtures.SurfaceProducts.RoleGatedToken.contract 8
+  checkProduct TestFixtures.SurfaceProducts.SoulboundTokenBody.contract 5
+  checkProduct TestFixtures.SurfaceProducts.Nft.contract 4
+  checkProduct TestFixtures.SurfaceProducts.ERC4626Vault.contract 23
+  checkProduct TestFixtures.SurfaceProducts.FungibleToken.contract 10
   checkUnsupportedNftRejected
   checkStandardAbiOverrides
-  checkUnboundPeerRejected Examples.Product.Canonical.AuthRemoteCall.contract
+  checkUnboundPeerRejected TestFixtures.SurfaceProducts.AuthRemoteCall.contract
   IO.println "evm-direct-products: ok"

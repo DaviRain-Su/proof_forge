@@ -1,6 +1,6 @@
 import ProofForge.Frontend.Surface
 import ProofForge.IR.Core.Semantics
-import Examples.Product.Canonical.SetRegistry
+import TestFixtures.SurfaceProducts.SetRegistry
 
 /-! Task 15 semantic parity between Surface Set expansion and Core execution. -/
 
@@ -8,8 +8,8 @@ open ProofForge.Frontend.Surface
 open ProofForge.IR.Core
 open ProofForge.IR.Core.Semantics
 
-def testSet := Examples.Product.Canonical.SetRegistry.registry
-def setContract := Examples.Product.Canonical.SetRegistry.contract
+def testSet := TestFixtures.SurfaceProducts.SetRegistry.registry
+def setContract := TestFixtures.SurfaceProducts.SetRegistry.contract
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message

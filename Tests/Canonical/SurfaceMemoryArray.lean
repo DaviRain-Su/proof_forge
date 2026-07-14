@@ -1,4 +1,4 @@
-import Examples.Product.Canonical.ArrayExample
+import TestFixtures.SurfaceProducts.ArrayExample
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Frontend.Surface.Normalize
@@ -12,7 +12,7 @@ private def require (condition : Bool) (message : String) : IO Unit :=
 
 def main : IO Unit := do
   let bundle ← match ProofForge.Frontend.Surface.normalizeSurface
-      Examples.Product.Canonical.ArrayExample.contract with
+      TestFixtures.SurfaceProducts.ArrayExample.contract with
     | .ok bundle => pure bundle
     | .error error => throw (IO.userError s!"array Surface normalization failed: {repr error}")
   let instructions := bundle.contract.contract.module.functions.flatMap fun function =>

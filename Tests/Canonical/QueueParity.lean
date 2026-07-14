@@ -1,6 +1,6 @@
 import ProofForge.Frontend.Surface
 import ProofForge.IR.Core.Semantics
-import Examples.Product.Canonical.BoundedQueue
+import TestFixtures.SurfaceProducts.BoundedQueue
 
 /-! Task 16 FIFO, wrap-around, and structured-error parity for bounded queues. -/
 
@@ -8,8 +8,8 @@ open ProofForge.Frontend.Surface
 open ProofForge.IR.Core
 open ProofForge.IR.Core.Semantics
 
-def queue := Examples.Product.Canonical.BoundedQueue.queue
-def queueContract := Examples.Product.Canonical.BoundedQueue.contract
+def queue := TestFixtures.SurfaceProducts.BoundedQueue.queue
+def queueContract := TestFixtures.SurfaceProducts.BoundedQueue.contract
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
