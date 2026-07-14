@@ -44,6 +44,7 @@ mkdir -p "$OUT/evm" "$OUT/solana" "$OUT/near"
 echo "portable-remote-call: EVM"
 if command -v solc >/dev/null 2>&1; then
   "${proof_forge[@]}" build --target evm --root . \
+    --peer peer.callee=0x000000000000000000000000000000000000ca11 \
     -o "$OUT/evm/RemoteCall.bin" \
     --yul-output "$OUT/evm/RemoteCall.yul" \
     --artifact-output "$OUT/evm/RemoteCall.proof-forge-artifact.json" \
@@ -75,10 +76,10 @@ require_contains "$OUT/solana/RemoteCall.s" "sol_get_return_data" "Solana return
 require_contains "$OUT/solana/RemoteCall.s" "AccountMeta" "Solana AccountMeta pack comment"
 require_contains "$OUT/solana/RemoteCall.s" "peer/callee account index" "Solana peer account index resolve"
 require_contains "$OUT/solana/manifest.toml" "callee_program" "manifest callee_program account"
-GOLDEN_SOL="$ROOT/Examples/Product/goldens/RemoteCall.canonical.solana.s"
+GOLDEN_SOL="$ROOT/Examples/Backend/Solana/RemoteCall.golden.s"
 if [[ -f "$GOLDEN_SOL" ]]; then
   diff -u "$GOLDEN_SOL" "$OUT/solana/RemoteCall.s" \
-    || fail "Solana asm drifted from Examples/Product/goldens/RemoteCall.solana.s"
+    || fail "Solana asm drifted from Examples/Backend/Solana/RemoteCall.golden.s"
 fi
 
 echo "portable-remote-call: NEAR/Wasm"
@@ -99,10 +100,10 @@ else
 fi
 [[ -n "$WAT" && -f "$WAT" ]] || fail "NEAR WAT not written under $OUT/near"
 require_contains "$WAT" "promise_create" "NEAR promise_create materialization"
-GOLDEN_NEAR="$ROOT/Examples/Product/goldens/RemoteCall.canonical.near.wat"
+GOLDEN_NEAR="$ROOT/Examples/Backend/WasmNear/RemoteCall.golden.wat"
 if [[ -f "$GOLDEN_NEAR" ]]; then
   diff -u "$GOLDEN_NEAR" "$WAT" \
-    || fail "NEAR WAT drifted from Examples/Product/goldens/RemoteCall.near.wat"
+    || fail "NEAR WAT drifted from Examples/Backend/WasmNear/RemoteCall.golden.wat"
 fi
 require_file "$OUT/near/RemoteCall.near-artifact.json"
 

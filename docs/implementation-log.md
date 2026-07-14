@@ -3508,3 +3508,19 @@ Rules:
   `lake env lean --run Tests/Backend/Wasm/EmitWatContext.lean`,
   `scripts/evm/context-ir-smoke.sh` (5 Foundry cases), `just evm-coverage`,
   `just ir-target-boundary`, `just legacy-freeze`, and `git diff --check`.
+
+## 2026-07-14 - Authoring cleanup A-CUT0: remove backend goldens from Product
+
+- Status: `done (verified 2026-07-14)`.
+- Moved the live RemoteCall Solana assembly and NEAR WAT expectations from
+  `Examples/Product/goldens` to `Examples/Backend/Solana` and
+  `Examples/Backend/WasmNear`. Deleted two unused duplicate golden files.
+- `Examples/Product` is now reserved for target-neutral authored contracts and
+  product metadata; generated or expected target artifacts belong to backend
+  fixtures.
+- Updated the portable RemoteCall gate to the backend-owned paths and supplied
+  the EVM logical-peer binding now required by the strict canonical plan. The
+  EVM leg passes; the subsequent Solana leg currently exposes the pre-existing
+  canonical-plan gap for logical non-numeric peer addresses, tracked by the
+  authoring cutover rather than hidden by a fallback.
+- Verification: source/golden caller audit and `git diff --check`.
