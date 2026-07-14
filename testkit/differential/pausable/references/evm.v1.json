@@ -1,0 +1,28 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "evm-pausable-solidity",
+  "targetFamily": "evm",
+  "program": "pausable",
+  "framework": "Solidity",
+  "source": {
+    "path": "benchmarks/native/evm/Pausable.sol",
+    "language": "solidity"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:e4cd2ad307ad2d8a6ac9251d478324048a891a4ef1a9eb48ab0caaad6eaeb916",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "solc", "version": "0.8.30"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

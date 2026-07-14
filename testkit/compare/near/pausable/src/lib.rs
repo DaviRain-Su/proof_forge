@@ -49,4 +49,20 @@ mod tests {
         c.unpause();
         assert_eq!(c.paused(), 0);
     }
+
+    #[test]
+    #[should_panic(expected = "already paused")]
+    fn rejects_repeated_pause() {
+        testing_env!(VMContextBuilder::new().build());
+        let mut c = Pausable::default();
+        c.pause();
+        c.pause();
+    }
+
+    #[test]
+    #[should_panic(expected = "not paused")]
+    fn rejects_unpause_while_unpaused() {
+        testing_env!(VMContextBuilder::new().build());
+        Pausable::default().unpause();
+    }
 }

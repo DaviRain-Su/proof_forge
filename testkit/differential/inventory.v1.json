@@ -103,6 +103,18 @@
       "targetFamily": "evm"
     },
     {
+      "id": "cmp3-reference-evm-pausable",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3e independent Pausable reference with pinned provenance; VM evidence is pending",
+      "path": "testkit/differential/pausable/references/evm.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/evm/Pausable.sol"
+      ],
+      "targetFamily": "evm"
+    },
+    {
       "id": "cmp3-reference-evm-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -127,6 +139,18 @@
       "targetFamily": "near"
     },
     {
+      "id": "cmp3-reference-near-pausable",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3e independent Pausable reference with pinned provenance; VM evidence is pending",
+      "path": "testkit/differential/pausable/references/near.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/pausable/src/lib.rs"
+      ],
+      "targetFamily": "near"
+    },
+    {
       "id": "cmp3-reference-near-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -147,6 +171,18 @@
       "semanticEvidence": "verified",
       "sourcePaths": [
         "benchmarks/native/solana/ownable/src/lib.rs"
+      ],
+      "targetFamily": "solana"
+    },
+    {
+      "id": "cmp3-reference-solana-pausable",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3e independent Pausable reference with pinned provenance; VM evidence is pending",
+      "path": "testkit/differential/pausable/references/solana.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/solana/pausable/src/lib.rs"
       ],
       "targetFamily": "solana"
     },
@@ -187,6 +223,15 @@
       "notes": "ten-step authorization lifecycle and negative cases executed on both implementations for every primary target",
       "path": "testkit/differential/ownable/scenario.v1.json",
       "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "cmp3-scenario-pausable-primary-triad",
+      "kind": "scenario",
+      "maturity": "portableScenarioV1",
+      "notes": "nine-step Pausable lifecycle is pinned but has not completed primary-triad VM execution",
+      "path": "testkit/differential/pausable/scenario.v1.json",
+      "semanticEvidence": "none",
       "targetFamily": "portable"
     },
     {
@@ -245,6 +290,15 @@
       "maturity": "structuralReference",
       "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
       "path": "benchmarks/native/evm/Ownable.sol",
+      "semanticEvidence": "none",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-reference-pausable",
+      "kind": "nativeReference",
+      "maturity": "structuralReference",
+      "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
+      "path": "benchmarks/native/evm/Pausable.sol",
       "semanticEvidence": "none",
       "targetFamily": "evm"
     },
@@ -1266,14 +1320,14 @@
     }
   ],
   "schema": "proof-forge.differential.inventory.v1",
-  "scope": "tracked comparison assets through verified ValueVault and Ownable CMP-3 primary-triad slices",
+  "scope": "tracked comparison assets through verified ValueVault and Ownable plus pinned Pausable CMP-3 slices",
   "summary": {
-    "assetCount": 107,
+    "assetCount": 112,
     "byTargetFamily": {
-      "evm": 10,
-      "near": 35,
-      "portable": 29,
-      "solana": 25,
+      "evm": 12,
+      "near": 36,
+      "portable": 30,
+      "solana": 26,
       "stylus": 8
     },
     "semanticVerifiedCount": 18

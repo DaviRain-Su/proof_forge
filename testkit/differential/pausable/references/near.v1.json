@@ -1,0 +1,30 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "near-pausable-near-sdk-rs",
+  "targetFamily": "near",
+  "program": "pausable",
+  "framework": "near-sdk-rs",
+  "source": {
+    "path": "testkit/compare/near/pausable/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:f7a246ed6280a0a75d7f8e41e461c0bf040fa8ccec58cd1fa2922534e87b6371",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "near-sdk", "version": "5.28.3"},
+      {"name": "rustc", "version": "1.94.0"},
+      {"name": "near-vm-runner", "version": "0.37"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

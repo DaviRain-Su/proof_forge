@@ -1,0 +1,31 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "solana-pausable-pinocchio",
+  "targetFamily": "solana",
+  "program": "pausable",
+  "framework": "Pinocchio",
+  "source": {
+    "path": "benchmarks/native/solana/pausable/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:d81c5baf0e99830b225cd50e5d8ff2fa9496c555f6874f728dadf3321117f2d7",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "pinocchio", "version": "0.11.2"},
+      {"name": "solana-define-syscall", "version": "5.1.0"},
+      {"name": "cargo-build-sbf", "version": "3.1.12"},
+      {"name": "platform-tools", "version": "v1.52"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}
