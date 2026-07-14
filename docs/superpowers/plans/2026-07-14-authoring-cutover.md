@@ -188,7 +188,9 @@ value are still pending in A-CUT2. A-CUT2e-c completed the target-neutral
 crosscall schema: direct Authored normalization now preserves invoke, static,
 delegate, named, and continuation modes together with optional gas/value,
 typed arguments, JSON argument names, and return type. ABI serialization and
-receipt scheduling remain target-owned.
+receipt scheduling remain target-owned. A-CUT2e-d preserves structure field
+ownership, record semantics, visibility/storage-layout metadata, and authored
+Quint/Lean annotations instead of defaulting them during direct normalization.
 
 ### A-CUT3 - Product migration
 

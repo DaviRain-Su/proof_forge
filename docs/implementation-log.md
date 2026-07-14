@@ -3888,3 +3888,22 @@ Rules:
   28-product `Tests/Canonical/EvmDirectProducts.lean`, and
   `Tests/Backend/Evm/CanonicalPlan.lean` including its invalid-address negative
   case; canonical boundary and `git diff --check`.
+
+## 2026-07-14 - A-CUT2e-d: authored structure and evidence parity
+
+- Status: `done (verified 2026-07-14)`; direct Source builder work no longer
+  needs the old `ContractSpec` merely to preserve structure or proof metadata.
+- Added Authored-owned field ownership and struct semantics, plus public/private
+  and storage-derivation metadata. Direct normalization now writes the semantic
+  pieces to Core and presentation/layout pieces to canonical materialization.
+- Added Authored verification annotations and preserved Quint invariants,
+  Quint liveness properties, and Lean invariant references in canonical
+  evidence. These annotations remain non-semantic and cannot affect target
+  capability derivation or generated runtime behavior.
+- Added `Tests/Canonical/AuthoredMetadata.lean`; it verifies exact layout and
+  evidence preservation and confirms unsupported reference ownership fails
+  closed rather than silently becoming value ownership. The test is wired into
+  `canonical-foundation`.
+- Verification: focused Authored and representative Surface fixture builds;
+  authored canonicalization/effects/storage/crosscall/metadata tests; Surface
+  normalization; canonical boundary and Legacy freeze; and `git diff --check`.

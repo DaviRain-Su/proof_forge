@@ -87,8 +87,15 @@ def buildMaterialization (contract : AuthoredContract) (interface : InterfaceCon
     return { stateId := ⟨idx⟩, name := s.name : StateDisplaySymbol }
   let typeLayouts ← contract.structs.mapIdxM fun idx s => do
     let fields ← s.fields.mapIdxM fun fidx f =>
-      return { fieldId := ⟨fidx⟩, name := f.name, isPublic := true : TypeFieldMetadata }
-    return { typeId := ⟨idx⟩, name := s.name, isPublic := true, deriveStorage := false, fields := fields : TypeLayoutMetadata }
+      return { fieldId := ⟨fidx⟩, name := f.name, isPublic := f.isPublic : TypeFieldMetadata }
+    let layout : TypeLayoutMetadata := {
+      typeId := ⟨idx⟩
+      name := s.name
+      isPublic := s.isPublic
+      deriveStorage := s.deriveStorage
+      fields := fields
+    }
+    return layout
   let eventEncodings := interface.events.map fun ev =>
     { eventId := ev.eventId, fields := ev.fields.filterMap (fun f =>
         f.abiWord?.map (fun w => { fieldId := f.fieldId, abiWord := w : EventFieldEncoding })) }
@@ -123,7 +130,14 @@ def buildEvidence (contract : AuthoredContract) : CanonicalEvidence :=
       (⟨idx⟩, none, none, loc)
   {
     sourceMap := { entries := entries },
-    verification := {},
+    verification := {
+      quintInvariants := contract.quintInvariants.map fun annotation =>
+        { name := annotation.name, body := annotation.body },
+      quintLiveness := contract.quintLiveness.map fun annotation =>
+        { name := annotation.name, body := annotation.body },
+      leanInvariants := contract.leanInvariants.map fun annotation =>
+        { name := annotation.name, body := annotation.body }
+    },
     intentSources := contract.intents.mapIdx fun idx i =>
       match i.source? with
       | some src => { intentIndex := idx, source := src : IntentSourceEvidence }

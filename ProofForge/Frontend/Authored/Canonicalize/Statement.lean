@@ -417,8 +417,14 @@ def adaptStruct (decl : AuthoredStructDecl) : AuthoredM Struct := do
   let id ← lookupType decl.name
   let fields ← decl.fields.mapIdxM fun idx f => do
     let ty ← liftExcept (resolveAuthoredType (← get).env.typeIds f.type)
-    return { id := ⟨idx⟩, type := ty : FieldDecl }
-  return { id := id, fields := fields, semantics := .value }
+    let ownership := match f.ownership with
+      | .value => FieldOwnership.value
+      | .reference => FieldOwnership.reference
+    return { id := ⟨idx⟩, type := ty, ownership := ownership : FieldDecl }
+  let semantics := match decl.semantics with
+    | .value => StructSemantics.value
+    | .linearRecord => StructSemantics.linearRecord
+  return { id := id, fields := fields, semantics := semantics }
 
 /-- Adapt Authored events to Core events. -/
 def adaptEvents (contract : AuthoredContract) : AuthoredM (Array Event) := do

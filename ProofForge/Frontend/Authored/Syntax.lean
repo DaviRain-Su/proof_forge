@@ -210,14 +210,29 @@ structure AuthoredEntrypoint where
   deriving Repr
 
 /-- Authored-level struct field. -/
+inductive AuthoredFieldOwnership
+  | value
+  | reference
+  deriving Repr
+
+inductive AuthoredStructSemantics
+  | value
+  | linearRecord
+  deriving Repr
+
 structure AuthoredStructField where
   name : String
   type : AuthoredType
+  isPublic : Bool := true
+  ownership : AuthoredFieldOwnership := .value
   deriving Repr
 
 structure AuthoredStructDecl where
   name : String
   fields : Array AuthoredStructField
+  deriveStorage : Bool := false
+  isPublic : Bool := true
+  semantics : AuthoredStructSemantics := .value
   deriving Repr
 
 /-- Authored-level constructor binding. -/
@@ -267,6 +282,11 @@ structure AuthoredIntent where
   source? : Option String := none
   deriving Repr
 
+structure AuthoredVerificationAnnotation where
+  name : String
+  body : String
+  deriving Repr
+
 /-- A complete authored contract before checked Canonical Core normalization. -/
 structure AuthoredContract where
   name : String
@@ -278,6 +298,9 @@ structure AuthoredContract where
   constructorParams : Array AuthoredConstructorParam
   constructorBindings : Array AuthoredConstructorBinding
   intents : Array AuthoredIntent := #[]
+  quintInvariants : Array AuthoredVerificationAnnotation := #[]
+  quintLiveness : Array AuthoredVerificationAnnotation := #[]
+  leanInvariants : Array AuthoredVerificationAnnotation := #[]
   deriving Repr
 
 end ProofForge.Frontend.Authored
