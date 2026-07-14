@@ -3850,3 +3850,26 @@ Rules:
 - Verification: focused Authored/Surface and fixture builds;
   `canonical-foundation`, Set/Queue normalization, canonical boundary, Legacy
   freeze, and `git diff --check`.
+
+## 2026-07-14 - A-CUT2e-c: portable crosscall schema parity
+
+- Status: `done (verified 2026-07-14)`; direct Source builder work can now use
+  one Authored crosscall constructor instead of the old NEAR-specific IR forms.
+- Extended the target-neutral Authored crosscall schema with named invocation
+  and continuation modes, optional gas/value expressions, JSON argument names,
+  inferred parameter types, and explicit return type. No target ABI encoding,
+  promise scheduling, account layout, or chain-specific constructor entered the
+  authored syntax.
+- The direct normalizer preserves these fields in `CoreCrosscallSpec`, rejects
+  mismatched argument-name counts, and rejects non-`u64` gas before Core
+  validation. Existing Surface protocol and EVM ERC4626 fixture helpers now use
+  the complete portable constructor.
+- Added `Tests/Canonical/AuthoredCrosscall.lean` with named/continuation shape
+  assertions and negative argument-name/gas cases, and wired it into
+  `canonical-foundation`.
+- Verification: focused Authored/Surface/RemoteCall/ERC4626 builds; authored
+  effects, storage lifecycle, and crosscall tests; Surface normalization and
+  parity; direct EVM crosscall; canonical boundary and Legacy freeze; and
+  `git diff --check`. The broader `EvmDirectProducts` test still exposes its
+  pre-existing logical peer literal planning failure (`peer.callee`) and was not
+  treated as evidence for this slice.

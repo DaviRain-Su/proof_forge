@@ -21,11 +21,11 @@ def contract : SurfaceContract := {
       body := #[.stateWrite "marker" (.literal (.u64Lit 0))] },
     { name := "call_remote", kind := .function, mutability := .call,
       selector? := some "1f44d2ce", params := #[], retType := .u64,
-      body := #[.returnExpr (.crosscall .invoke peer method #[] .u64)] },
+      body := #[.returnExpr (.crosscall .invoke peer method none none #[] #[] .u64)] },
     { name := "call_with_args", kind := .function, mutability := .call,
       selector? := some "f1ae0699", params := #[], retType := .u64,
       body := #[.returnExpr (.crosscall .invoke peer method
-        #[.literal (.u64Lit 42), .literal (.u64Lit 7)] .u64)] }
+        none none #[] #[.literal (.u64Lit 42), .literal (.u64Lit 7)] .u64)] }
   ]
   constructorParams := #[]
   constructorBindings := #[]

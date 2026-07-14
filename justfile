@@ -52,6 +52,7 @@ hostop-protocol:
 canonical-foundation: hostop-protocol
     lake env lean --run Tests/Canonical/AuthoredStructuredEffects.lean
     lake env lean --run Tests/Canonical/AuthoredStorageLifecycle.lean
+    lake env lean --run Tests/Canonical/AuthoredCrosscall.lean
     lake env lean --run Tests/Canonical/EvmErrorPlan.lean
     lake env lean --run Tests/Canonical/EvmDispatchExtensions.lean
     lake env lean --run Tests/Canonical/CoreSchema.lean

@@ -184,7 +184,11 @@ validation rejects signature and error-argument mismatches. A-CUT2e-b added
 target-neutral logical storage paths, nested-map state, contains/remove/length/
 resize operations, and explicit memory allocation/store/release. Replacing the
 Source builder and the remaining `ContractSpec`/`IR.Module` authored exchange
-value are still pending in A-CUT2.
+value are still pending in A-CUT2. A-CUT2e-c completed the target-neutral
+crosscall schema: direct Authored normalization now preserves invoke, static,
+delegate, named, and continuation modes together with optional gas/value,
+typed arguments, JSON argument names, and return type. ABI serialization and
+receipt scheduling remain target-owned.
 
 ### A-CUT3 - Product migration
 

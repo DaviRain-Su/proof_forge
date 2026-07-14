@@ -11,7 +11,7 @@ structure RemoteRef where
 def invoke (remote : RemoteRef) (args : Array SurfaceExpr)
     (returnType : SurfaceType := .u64) : SurfaceExpr :=
   .crosscall .invoke (.peerRef remote.peerId) (.literal (.stringLit remote.method))
-    args returnType
+    none none #[] args returnType
 
 def externalToken (peerId method : String) : RemoteRef := { peerId, method }
 def externalVault (peerId method : String) : RemoteRef := { peerId, method }

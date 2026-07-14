@@ -62,6 +62,8 @@ inductive AuthoredCrosscallMode
   | invoke
   | staticInvoke
   | delegateInvoke
+  | namedInvoke
+  | continuation
   deriving Repr
 
 /-- Authored-level lvalues (assignment targets). -/
@@ -113,6 +115,7 @@ inductive AuthoredExpr
   | hostCall (id : ProofForge.Target.HostOpId) (args : Array AuthoredExpr)
       (returnType : AuthoredType)
   | crosscall (mode : AuthoredCrosscallMode) (target method : AuthoredExpr)
+      (gas value : Option AuthoredExpr) (argNames : Array String)
       (args : Array AuthoredExpr) (returnType : AuthoredType)
   deriving Repr
 

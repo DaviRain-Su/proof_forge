@@ -149,7 +149,7 @@ def exprType (e : AuthoredExpr) : AuthoredM CoreType := do
   | .contextRead field => return (contextFieldType (adaptContextField field))
   | .hostCall _ _ returnType =>
       resolveAuthoredType (← get).env.typeIds returnType
-  | .crosscall _ _ _ _ returnType =>
+  | .crosscall _ _ _ _ _ _ _ returnType =>
       resolveAuthoredType (← get).env.typeIds returnType
   | .nativeValue => return .u128
   | .unary .neg arg => exprType arg
@@ -310,10 +310,25 @@ partial def normalizeExpr (e : AuthoredExpr) : AuthoredM NormalizedValue := do
     let coreReturnType ← liftExcept (resolveAuthoredType (← get).env.typeIds returnType)
     let nv ← emitValueInstruction (.hostCall { id := id, args := argRefs }) coreReturnType
     return { instructions := allInstrs ++ nv.instructions, value := nv.value }
-  | .crosscall mode target method args returnType =>
+  | .crosscall mode target method gas value argNames args returnType =>
+    unless argNames.isEmpty || argNames.size == args.size do
+      throw (AuthoredNormalizeError.typeMismatch
+        s!"zero or {args.size} crosscall argument names" s!"{argNames.size} argument names")
     let normalizedTarget ← normalizeExpr target
     let normalizedMethod ← normalizeExpr method
     let mut allInstrs := normalizedTarget.instructions ++ normalizedMethod.instructions
+    let normalizedGas ← gas.mapM normalizeExpr
+    match normalizedGas with
+    | some normalized =>
+        unless normalized.value.type == .u64 do
+          throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.u64)
+            (reprStr normalized.value.type))
+        allInstrs := allInstrs ++ normalized.instructions
+    | none => pure ()
+    let normalizedValue ← value.mapM normalizeExpr
+    match normalizedValue with
+    | some normalized => allInstrs := allInstrs ++ normalized.instructions
+    | none => pure ()
     let mut argRefs := #[]
     let mut paramTypes := #[]
     for arg in args do
@@ -326,11 +341,16 @@ partial def normalizeExpr (e : AuthoredExpr) : AuthoredM NormalizedValue := do
       | .invoke => CoreCrosscallMode.invoke
       | .staticInvoke => CoreCrosscallMode.staticInvoke
       | .delegateInvoke => CoreCrosscallMode.delegateInvoke
+      | .namedInvoke => CoreCrosscallMode.namedInvoke
+      | .continuation => CoreCrosscallMode.continuation
     let normalizedCall ← emitValueInstruction (.crosscall {
       mode := coreMode,
       target := normalizedTarget.value,
       method := normalizedMethod.value,
+      gas := normalizedGas.map (·.value),
+      value := normalizedValue.map (·.value),
       paramTypes := paramTypes,
+      argNames := argNames,
       returnType := coreReturnType
     } argRefs) coreReturnType
     let instructions := allInstrs ++ normalizedCall.instructions

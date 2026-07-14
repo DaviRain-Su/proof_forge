@@ -32,7 +32,8 @@ private def allowanceKey (owner spender : SurfaceExpr) : SurfaceExpr :=
   .hashPair (.hash owner) (.hash spender)
 
 private def assetCall (method : String) (args : Array SurfaceExpr) : SurfaceExpr :=
-  .crosscall .invoke (.stateRead "asset") (.literal (.stringLit method)) args .u64
+  .crosscall .invoke (.stateRead "asset") (.literal (.stringLit method))
+    none none #[] args .u64
 
 private def acquireLock : Array SurfaceStmt := #[
   .bind "lock_held" .bool (.stateRead "locked"),
