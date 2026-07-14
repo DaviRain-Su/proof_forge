@@ -116,7 +116,7 @@ def classifyContextField : ContextField → LegacyDecision
   | .randomSeed => payloadDecision "ContextField.randomSeed" .normalize "near-context-hostop" "NEAR randomness maps to near.context.random_seed"
   | .origin => payloadDecision "ContextField.origin" .normalize "evm-context-hostop" "transaction origin maps to evm.context.origin"
   | .coinbase => payloadDecision "ContextField.coinbase" .normalize "evm-context-hostop" "EVM block producer maps to evm.context.coinbase"
-  | .blockHash _ => payloadDecision "ContextField.blockHash" .reject "canonical-core-context" "historical block hash is outside the initial adapter fragment"
+  | .blockHash _ => payloadDecision "ContextField.blockHash" .normalize "evm-context-hostop" "historical block hash maps to parameterized evm.context.block_hash"
 
 def classifyEntrypointKind : EntrypointKind → LegacyDecision
   | .function => payloadDecision "EntrypointKind.function" .preserve "canonical-interface" "normal function dispatch kind is preserved"

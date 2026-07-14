@@ -51,6 +51,14 @@ def coinbaseSig : HostOpSig := {
   requiredCapabilities := #[.envBlock]
 }
 
+def blockHashSig : HostOpSig := {
+  id := { namespace_ := "evm.context", name := "block_hash", version := { major := 1, minor := 0, patch := 0 } }
+  params := #[.u64]
+  results := #[.hash]
+  effectClass := .context
+  requiredCapabilities := #[.envBlock]
+}
+
 /-- Legacy `contract_source` currently canonicalizes EVM account handles to
 `u64`; the EVM plan widens them to full words. The HostOp signature records
 that real boundary instead of claiming Core `.address` values prematurely. -/
@@ -84,6 +92,7 @@ def signatures : Array HostOpSig := #[
   gasPriceSig,
   baseFeeSig,
   coinbaseSig,
+  blockHashSig,
   erc721ReceivedSig,
   erc1155ReceivedSig,
   erc1155BatchReceivedSig

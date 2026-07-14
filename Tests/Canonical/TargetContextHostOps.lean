@@ -67,6 +67,14 @@ private def evmPlanHasContext (plan : ProofForge.Backend.Evm.Plan.ModulePlan)
     | .letBind _ _ (.context actual) => reprStr actual == reprStr expected
     | _ => false
 
+private def evmPlanHasBlockHashOfSeven (plan : ProofForge.Backend.Evm.Plan.ModulePlan) : Bool :=
+  plan.entrypoints.any fun entrypoint => entrypoint.body.any fun statement => match statement with
+    | .letBind name _ (.literalWord 7) =>
+        entrypoint.body.any fun candidate => match candidate with
+          | .letBind _ _ (.context (.blockHash (.local argument))) => argument == name
+          | _ => false
+    | _ => false
+
 private def nearPlanHasHostContext
     (plan : ProofForge.Backend.WasmHost.NearModulePlan.NearModulePlan)
     (expected : ProofForge.Target.HostOpId) : Bool :=
@@ -107,6 +115,16 @@ def main : IO Unit := do
     require ((ProofForge.Compiler.checkHostOpHandlers "wasm-near" checked).any
         (·.contains expectedId.render))
       s!"NEAR accepted EVM HostOp {expectedId.render}"
+
+  let historical ← adapt "EvmBlockHash" (.blockHash (.literal (.u64 7))) .hash
+  require (hostCallIds historical == #[ProofForge.Target.HostOps.Evm.blockHashSig.id])
+    "legacy blockHash did not normalize to evm.context/block_hash"
+  let historicalPlan ← evmPlan historical
+  require (evmPlanHasBlockHashOfSeven historicalPlan)
+    "EVM blockHash HostOp did not retain its block-number argument"
+  require ((ProofForge.Compiler.checkHostOpHandlers "wasm-near" historical).any
+      (·.contains ProofForge.Target.HostOps.Evm.blockHashSig.id.render))
+    "NEAR accepted the EVM blockHash HostOp"
 
   let nearCases : Array
       (String × ProofForge.IR.ContextField × ValueType × ProofForge.Target.HostOpId) := #[

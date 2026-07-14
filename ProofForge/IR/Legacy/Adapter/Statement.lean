@@ -242,6 +242,9 @@ def normalizeEffect (fb : FunctionBuilder) (eff : Effect) : AdapterM FunctionBui
       let fb ← liftExcept (instrs.foldlM FunctionBuilder.emitInstr fb)
       let instr := { results := #[], op := .emit eventId args }
       liftExcept (fb.emitInstr instr)
+  | .contextRead (.blockHash blockNumber) => do
+      let normalized ← normalizeExpr (.effect (.contextRead (.blockHash blockNumber)))
+      liftExcept (normalized.instructions.foldlM FunctionBuilder.emitInstr fb)
   | .contextRead field => do
       let ctxRef ← normalizeContextRead field
       let fb ← liftExcept (ctxRef.instructions.foldlM FunctionBuilder.emitInstr fb)

@@ -459,6 +459,12 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
         unless call.args.isEmpty do
           throw ({ message := s!"target extension `{call.id.render}` expects no arguments" } : PlanError)
         .ok #[StmtPlan.letBind (resultName instr) .hash (.context .coinbase)]
+      else if call.id == ProofForge.Target.HostOps.Evm.blockHashSig.id then
+        match call.args with
+        | #[blockNumber] => do
+            .ok #[StmtPlan.letBind (resultName instr) .hash
+              (.context (.blockHash (← valueExpr env blockNumber)))]
+        | _ => .error { message := s!"target extension `{call.id.render}` expects 1 argument" }
       else if call.id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
         match call.args with
         | #[operator, fromAddr, toAddr, tokenId] => do

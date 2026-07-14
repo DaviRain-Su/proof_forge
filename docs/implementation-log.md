@@ -2723,3 +2723,18 @@ Rules:
   context HostOp test, `just ir-target-boundary`, and `git diff --check`.
 - Next: EVM-R1b, migrate parameterized `blockHash(number)` without adding a
   target constructor to Canonical Core.
+
+## 2026-07-14 - EVM-R1b: parameterized block-hash HostOp
+
+- Status: `done (verified 2026-07-14)`; EVM-R1 remains in progress.
+- Added `evm.context/block_hash@1.0.0 : u64 -> hash` as a read-only context
+  HostOp. Legacy expression normalization preserves the block-number argument
+  in ANF before emitting the typed call.
+- The EVM Core plan materializes the call to its target-owned
+  `ContextExprPlan.blockHash`; NEAR rejects the ID through handler resolution.
+- The focused test verifies both the literal binding and the block-hash local
+  reference, rather than relying on an invalid inlined-expression assumption.
+- Verification passed: targeted adapter/EVM Core-plan builds,
+  `Tests/Canonical/TargetContextHostOps.lean`, `just ir-target-boundary`, and
+  `git diff --check`.
+- Next: audit and migrate EVM-only `ecrecover`/EIP-712 expression constructors.
