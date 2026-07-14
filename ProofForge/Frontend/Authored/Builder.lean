@@ -77,6 +77,16 @@ def error (declaration : AuthoredErrorDecl) : ModuleM Unit :=
 def intent (authoredIntent : AuthoredIntent) : ModuleM Unit :=
   modify fun builder => { builder with intents := builder.intents.push authoredIntent }
 
+def entryIntent (authoredIntent : AuthoredIntent) : EntryM Unit :=
+  modify fun builder => { builder with intents := builder.intents.push authoredIntent }
+
+private def scopeIntent (entrypoint : String) (authoredIntent : AuthoredIntent) : AuthoredIntent :=
+  if authoredIntent.metadata.any (·.key == "proof_forge.entrypoint") then
+    authoredIntent
+  else
+    { authoredIntent with metadata := authoredIntent.metadata.push {
+        key := "proof_forge.entrypoint", value := entrypoint } }
+
 def quintInvariant (name body : String) : ModuleM Unit :=
   modify fun builder => { builder with
     quintInvariants := builder.quintInvariants.push { name, body } }
@@ -133,7 +143,7 @@ def entryFull (name : String) (params : Array AuthoredParam) (retType : Authored
   }
   modify fun builder => { builder with
     entrypoints := builder.entrypoints.push entrypoint
-    intents := builder.intents ++ entryBuilder.intents }
+    intents := builder.intents ++ entryBuilder.intents.map (scopeIntent name) }
 
 def entry (name : String) (body : EntryM Unit) : ModuleM Unit :=
   entryFull name #[] .unit body

@@ -191,6 +191,7 @@ structure MaterializationIntent where
   operation : CapabilityOperation
   capability? : Option Capability := none
   metadata : Array TargetMetadata := #[]
+  payload : OperationPayload := #[]
   deriving Repr, BEq
 
 structure EventFieldEncoding where
@@ -407,6 +408,7 @@ private def instructionHostOpCalls (catalog : Core.HostOp.HostOpCatalog)
           operation := .hostOp call.id
           source? := none
           metadata := #[]
+          payload := #[]
         }
       | .error _ => #[]
   | _ => #[]
@@ -428,6 +430,7 @@ def materializationCapabilityCalls
       operation := intent.operation
       source? := none
       metadata := intent.metadata
+      payload := intent.payload
     }))
 
 /-- Stable union of source-free capability intents and Core-derived defaults. -/
@@ -614,6 +617,9 @@ private def validateMaterialization (module : Core.Module)
   for intent in materialization.intents do
     if !intent.operation.hasIdentity then
       throw <| materializationError "materialization intent has an empty operation identity"
+    unless intent.payload.wellFormed do
+      throw <| materializationError
+        s!"materialization intent `{intent.operation.render}` has invalid payload field names"
     match intent.kind, intent.capability? with
     | .capability, some _ => pure ()
     | .capability, none =>
@@ -676,14 +682,16 @@ private def validateRequirements (module : Core.Module)
     match call.operation with
     | .builtin _ => pure ()
     | .hostOp id =>
-        let signature ← match hostOpCatalog.lookup id with
-          | .ok signature => pure signature
-          | .error _ =>
+        match hostOpCatalog.lookup id with
+        | .ok signature =>
+            unless signature.requiredCapabilities.contains call.capability do
+              throw <| ValidationError.mkSimple .invalidMaterialization "capability"
+                s!"HostOp `{id.render}` does not require capability `{call.capability}`"
+        | .error _ =>
+            unless materialization.intents.any (fun intent =>
+                intent.operation == .hostOp id && intent.capability? == some call.capability) do
               throw <| ValidationError.mkSimple .unknownReference "capability"
-                s!"capability call references unknown HostOp `{id.render}`"
-        unless signature.requiredCapabilities.contains call.capability do
-          throw <| ValidationError.mkSimple .invalidMaterialization "capability"
-            s!"HostOp `{id.render}` does not require capability `{call.capability}`"
+                s!"capability call references unknown runtime or materialization HostOp `{id.render}`"
     unless call.source?.isNone do
       throw <| ValidationError.mkSimple .invalidMaterialization "capability"
         s!"capability call `{call.operation.render}` leaked source evidence into the checked contract"

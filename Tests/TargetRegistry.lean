@@ -24,8 +24,8 @@ def main : IO UInt32 := do
     "evm target must declare an explicit bump-over-scratch allocator binding"
   require (find? "robinhood-chain-testnet" |>.isNone)
     "robinhood-chain-testnet must not be registered as a compiler target"
-  require evmProfile.hostOps.isEmpty
-    "EVM must not advertise target HostOps until it registers exact handlers"
+  require (evmProfile.hostOps == HostOps.Evm.supportedIds)
+    "EVM profile HostOps must come from the target-owned signature catalog"
 
   let externalCapability := Capability.ofId "vendor.example/custom"
   require (externalCapability.id == "vendor.example/custom")

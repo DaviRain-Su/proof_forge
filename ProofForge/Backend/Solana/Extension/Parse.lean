@@ -2,6 +2,7 @@ import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.Backend.Solana.Extension.Types
 import ProofForge.Target.Plan
+import ProofForge.Target.HostOps.Solana
 
 namespace ProofForge.Backend.Solana.Extension
 
@@ -708,77 +709,123 @@ def transferHookExtraAccountMetaListFromCall? (call : CapabilityCall) :
   else
     none
 
+private def addLegacyCall (acc : ProgramExtensions) (call : CapabilityCall) :
+    ProgramExtensions :=
+  let acc := match accountOrderFromCall? call with
+    | some names => acc.addAccountOrder names | none => acc
+  let acc := match declaredAccountFromCall? call with
+    | some account => acc.addDeclaredAccount account | none => acc
+  let acc := match allocatorFromCall? call with
+    | some allocator => acc.addAllocator allocator | none => acc
+  let acc := match pdaFromCall? call with
+    | some pda => acc.addPda pda | none => acc
+  let acc := match cpiFromCall? call with
+    | some cpi => acc.addCpi cpi | none => acc
+  let acc := match memoryFromCall? call with
+    | some action => acc.addMemory action | none => acc
+  let acc := match cryptoHashFromCall? call with
+    | some action => acc.addCryptoHash action | none => acc
+  let acc := match sysvarFromCall? call with
+    | some action => acc.addSysvar action | none => acc
+  let acc := match returnDataFromCall? call with
+    | some action => acc.addReturnData action | none => acc
+  let acc := match returnDataReadFromCall? call with
+    | some action => acc.addReturnDataRead action | none => acc
+  let acc := match computeUnitsFromCall? call with
+    | some action => acc.addComputeUnits action | none => acc
+  let acc := match computeUnitsLogFromCall? call with
+    | some action => acc.addComputeUnitsLog action | none => acc
+  let acc := match computeBudgetFromCall? call with
+    | some action => acc.addComputeBudget action | none => acc
+  let acc := match pubkeyLogFromCall? call with
+    | some action => acc.addPubkeyLog action | none => acc
+  let acc := match dataLogFromCall? call with
+    | some action => acc.addDataLog action | none => acc
+  let acc := match accountReallocFromCall? call with
+    | some action => acc.addAccountRealloc action | none => acc
+  match transferHookExtraAccountMetaListFromCall? call with
+  | some action => acc.addTransferHookExtraAccountMetaList action
+  | none => acc
+
+private def seedDescriptor (seed : ProofForge.Target.HostOps.Solana.Payload.PdaSeed) : String :=
+  let marker := match seed.kind with
+    | .literal => "literal:"
+    | .account => "account:"
+    | .bump => "bump:"
+    | .instructionParam => "param:"
+  marker ++ seed.value
+
+private def typedAccountFromCall (call : CapabilityCall) :
+    Except String (Option DeclaredAccount) :=
+  if call.operation == .hostOp ProofForge.Target.HostOps.Solana.accountDeclareId then
+    match ProofForge.Target.HostOps.Solana.Payload.AccountSpec.decode call.payload with
+    | .ok spec => .ok (some {
+        name := spec.name
+        access := spec.access.id
+        signer := spec.signer.id
+        owner := spec.owner
+        entrypoint? := entrypoint? call
+      })
+    | .error error => .error s!"invalid Solana account payload: {repr error}"
+  else
+    .ok none
+
+private def typedPdaFromCall (call : CapabilityCall) : Except String (Option PdaDerive) :=
+  if call.operation == .hostOp ProofForge.Target.HostOps.Solana.pdaDeriveId then
+    match ProofForge.Target.HostOps.Solana.Payload.PdaSpec.decode call.payload with
+    | .ok spec => .ok (some {
+        name := spec.name
+        seeds := spec.seeds.map seedDescriptor
+        bump? := spec.bump?
+        account? := spec.account?
+        signer := spec.signer
+        entrypoint? := entrypoint? call
+      })
+    | .error error => .error s!"invalid Solana PDA payload: {repr error}"
+  else
+    .ok none
+
+private def typedCpiFromCall (call : CapabilityCall) : Except String (Option CpiInvoke) :=
+  if call.operation == .hostOp ProofForge.Target.HostOps.Solana.cpiInvokeId then
+    match ProofForge.Target.HostOps.Solana.Payload.CpiSpec.decode call.payload with
+    | .ok spec => .ok (some {
+        name := spec.name
+        program := spec.program
+        instruction := spec.instruction
+        accounts := spec.accounts.map fun account => {
+          name := account.name, access := account.access.id, signer := account.signer.id }
+        signerSeeds := spec.signerSeeds.map seedDescriptor
+        protocol? := spec.protocol?
+        dataLayout? := spec.dataLayout?
+        metadata := call.metadata
+        signed := spec.signed
+        entrypoint? := entrypoint? call
+      })
+    | .error error => .error s!"invalid Solana CPI payload: {repr error}"
+  else
+    .ok none
+
+private def addCheckedCall (acc : ProgramExtensions) (call : CapabilityCall) :
+    Except String ProgramExtensions := do
+  let account? ← typedAccountFromCall call
+  let pda? ← typedPdaFromCall call
+  let cpi? ← typedCpiFromCall call
+  if account?.isSome || pda?.isSome || cpi?.isSome then
+    let acc := match account? with
+      | some account => acc.addDeclaredAccount account | none => acc
+    let acc := match pda? with | some pda => acc.addPda pda | none => acc
+    return match cpi? with | some cpi => acc.addCpi cpi | none => acc
+  return addLegacyCall acc call
+
+/-- Fail-closed parser used by the canonical Solana plan. Versioned typed
+operations are decoded by their target-owned schemas; malformed payloads are
+never reinterpreted as legacy metadata. -/
+def ProgramExtensions.fromPlanChecked (plan : CapabilityPlan) : Except String ProgramExtensions :=
+  plan.calls.foldlM addCheckedCall {}
+
+/-- Transitional metadata parser retained for legacy callers until A-CUT5. -/
 def ProgramExtensions.fromPlan (plan : CapabilityPlan) : ProgramExtensions :=
-  plan.calls.foldl
-    (fun acc call =>
-      let acc :=
-        match accountOrderFromCall? call with
-        | some names => acc.addAccountOrder names
-        | none => acc
-      let acc :=
-        match declaredAccountFromCall? call with
-        | some account => acc.addDeclaredAccount account
-        | none => acc
-      let acc :=
-        match allocatorFromCall? call with
-        | some allocator => acc.addAllocator allocator
-        | none => acc
-      let acc :=
-        match pdaFromCall? call with
-        | some pda => acc.addPda pda
-        | none => acc
-      let acc :=
-        match cpiFromCall? call with
-        | some cpi => acc.addCpi cpi
-        | none => acc
-      let acc :=
-        match memoryFromCall? call with
-        | some action => acc.addMemory action
-        | none => acc
-      let acc :=
-        match cryptoHashFromCall? call with
-        | some action => acc.addCryptoHash action
-        | none => acc
-      let acc :=
-        match sysvarFromCall? call with
-        | some action => acc.addSysvar action
-        | none => acc
-      let acc :=
-        match returnDataFromCall? call with
-        | some action => acc.addReturnData action
-        | none => acc
-      let acc :=
-        match returnDataReadFromCall? call with
-        | some action => acc.addReturnDataRead action
-        | none => acc
-      let acc :=
-        match computeUnitsFromCall? call with
-        | some action => acc.addComputeUnits action
-        | none => acc
-      let acc :=
-        match computeUnitsLogFromCall? call with
-        | some action => acc.addComputeUnitsLog action
-        | none => acc
-      let acc :=
-        match computeBudgetFromCall? call with
-        | some action => acc.addComputeBudget action
-        | none => acc
-      let acc :=
-        match pubkeyLogFromCall? call with
-        | some action => acc.addPubkeyLog action
-        | none => acc
-      let acc :=
-        match dataLogFromCall? call with
-        | some action => acc.addDataLog action
-        | none => acc
-      let acc :=
-        match accountReallocFromCall? call with
-        | some action => acc.addAccountRealloc action
-        | none => acc
-      match transferHookExtraAccountMetaListFromCall? call with
-      | some action => acc.addTransferHookExtraAccountMetaList action
-      | none => acc)
-    {}
+  plan.calls.foldl addLegacyCall {}
 
 def hasExtensions (extensions : ProgramExtensions) : Bool :=
   extensions.accountOrder.size > 0 ||

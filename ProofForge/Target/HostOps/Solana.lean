@@ -1,4 +1,5 @@
 import ProofForge.IR.Core.HostOp
+import ProofForge.Target.HostOps.Solana.Payload
 
 /-! # Solana Target Host-Operation Signatures
 
@@ -11,6 +12,30 @@ namespace ProofForge.Target.HostOps.Solana
 
 open ProofForge.IR.Core
 open ProofForge.IR.Core.HostOp
+
+def accountDeclareId : ProofForge.Target.HostOpId := {
+  namespace_ := "solana.account"
+  name := "declare"
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
+def pdaDeriveId : ProofForge.Target.HostOpId := {
+  namespace_ := "solana.pda"
+  name := "derive"
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
+def cpiInvokeId : ProofForge.Target.HostOpId := {
+  namespace_ := "solana.cpi"
+  name := "invoke"
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
+def materializationIds : Array ProofForge.Target.HostOpId := #[
+  accountDeclareId,
+  pdaDeriveId,
+  cpiInvokeId
+]
 
 def remainingComputeUnitsSig : HostOpSig := {
   id := {
@@ -70,6 +95,7 @@ def signatures : Array HostOpSig := #[
 def catalog : Except HostOpError HostOpCatalog :=
   HostOpCatalog.empty.registerAll signatures
 
-def supportedIds : Array ProofForge.Target.HostOpId := signatures.map (·.id)
+def supportedIds : Array ProofForge.Target.HostOpId :=
+  materializationIds ++ signatures.map (·.id)
 
 end ProofForge.Target.HostOps.Solana

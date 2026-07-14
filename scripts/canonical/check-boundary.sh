@@ -205,11 +205,16 @@ AUTHORED_MODEL=(
   ProofForge/Frontend/Authored/Canonicalize/Env.lean
   ProofForge/Frontend/Authored/Canonicalize/Expr.lean
   ProofForge/Frontend/Authored/Canonicalize/Statement.lean
+  ProofForge/Contract/Source/Solana/Internal/Authored.lean
 )
 for f in "${AUTHORED_MODEL[@]}"; do
   if rg -n '^\s*import\s+(ProofForge\.IR\.(?:Contract|Legacy)(?:\.|\s|$)|ProofForge\.Frontend\.Surface(?:\.|\s|$))' \
       "$f" >/dev/null 2>&1; then
     report "authored frontend model $f imports a transitional representation"
+  fi
+  if rg -n '^\s*import\s+ProofForge\.Contract\.(?:Builder|Source\.Solana\.Legacy)(?:\.|\s|$)' \
+      "$f" >/dev/null 2>&1; then
+    report "authored frontend model $f imports a legacy authoring implementation"
   fi
 done
 

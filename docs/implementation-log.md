@@ -3966,3 +3966,27 @@ Rules:
 - Verification: `lake build ProofForge.Frontend.Authored`,
   `lake build ProofForge.Frontend.Surface.Semantics`, `just canonical-foundation`,
   canonical boundary, Legacy freeze, and `git diff --check`.
+
+## 2026-07-14 - A-CUT1e-b: typed Solana operation payloads
+
+- Status: `done (verified 2026-07-14)`; A-CUT1e-c must now switch the public
+  Solana macros and remove their direct/internal Legacy imports.
+- Added a target-neutral typed operation payload carrier to `Target.Plan` and
+  preserved it through Authored intents, Canonical materialization, and derived
+  capability calls. The shared carrier has no Solana field names or semantic
+  constructors and rejects empty or duplicate field names.
+- Added target-owned versioned Solana account-declare, PDA-derive, and CPI-invoke
+  identities plus strict typed schemas. Their decoders reject missing, extra,
+  wrongly typed, invalid-enum, and length-mismatched fields.
+- Added `Contract.Source.Solana.Internal.Authored`, a direct builder adapter that
+  emits typed module/entrypoint intents without importing `Contract.Builder`,
+  Legacy IR, Surface, or `Source.Solana.Legacy`. The canonical boundary gate now
+  enforces that dependency rule.
+- Added fail-closed typed parsing to `ProgramExtensions.fromPlanChecked` while
+  retaining the metadata-only `fromPlan` entrypoint for explicit Legacy callers.
+  Expanded `SolanaHostOpCatalog` coverage through Authored normalization and the
+  backend account/PDA/CPI plan. Repaired the stale TargetRegistry assertion so
+  EVM, like NEAR and Solana, is checked against its actual target-owned catalog.
+- Verification: focused HostOps/Authored/Solana Extension builds;
+  `just hostop-protocol`; Canonical Core validation; TargetRegistry; canonical
+  boundary; Legacy freeze; and `git diff --check`.

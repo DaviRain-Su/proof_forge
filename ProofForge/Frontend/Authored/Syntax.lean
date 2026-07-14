@@ -287,6 +287,7 @@ structure AuthoredIntent where
   operation : ProofForge.Target.CapabilityOperation
   capability? : Option ProofForge.Target.Capability := none
   metadata : Array ProofForge.Target.TargetMetadata := #[]
+  payload : ProofForge.Target.OperationPayload := #[]
   source? : Option String := none
   deriving Repr
 

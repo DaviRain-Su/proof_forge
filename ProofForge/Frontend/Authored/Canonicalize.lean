@@ -111,7 +111,8 @@ def buildMaterialization (contract : AuthoredContract) (interface : InterfaceCon
         | .entrypoint => .entrypoint | .capability => .capability,
       operation := i.operation,
       capability? := i.capability?,
-      metadata := i.metadata : MaterializationIntent }
+      metadata := i.metadata,
+      payload := i.payload : MaterializationIntent }
   return {
     constructorBindings := bindings,
     constructorParams := contract.constructorParams.map fun p =>
