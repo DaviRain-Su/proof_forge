@@ -26,9 +26,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | CMP-3d2 - execute direct Authored Ownable artifacts and independent references on Anvil, Mollusk, and near-vm-runner; delete the replaced Ownable v0 test manifest instead of adapting it |
-| Next task | Continue A-CUT3 with the next Product family after Ownable obtains complete eight-dimension VM evidence; no Product Legacy route may remain after its callers move |
-| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault VM evidence is verified; Ownable v1 references/scenario are pinned at `6e1df78b` with evidence intentionally unverified |
+| Active task | A-CUT3c1 - rewrite Product Pausable as the sole direct Authored source, migrate its callers, and delete the zero-caller `ProofForge.Contract.Stdlib.Pausable` Legacy implementation |
+| Next task | CMP-3e - execute independent Pausable references after the canonical-only cutover; then migrate ReentrancyGuard with the same delete-not-adapt rule |
+| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault is verified; Ownable references were pinned at `6e1df78b` and primary-triad VM evidence closed at `ce539dce` |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |

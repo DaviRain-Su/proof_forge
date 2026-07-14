@@ -4360,3 +4360,32 @@ Rules:
   near-sdk host tests and Rust 1.94.0 release Wasm build; `just
   differential-contracts`; `just docs-check`; and `git diff --check`. No full
   aggregate was run.
+
+## 2026-07-14 - CMP-3d2: primary-triad native Ownable differential
+
+- Status: `done (verified at ce539dce)`; A-CUT3 now moves directly to Pausable
+  source/caller migration and deletion of its zero-caller Legacy stdlib module.
+- Added `scripts/differential/ownable_pilot.py` and `just
+  differential-ownable`. The gate builds only the direct Product source through
+  checked Core and EVM/Solana/NEAR target plans, rejects ContractSpec sidecars,
+  and executes independent native references beside the generated artifacts on
+  Anvil, Mollusk, and upstream `near-vm-runner`.
+- Added a Mollusk runner with separate Alice/Bob signer accounts, a program-owned
+  16-byte state account, exact scenario destinations, raw return data, numeric
+  event logs, errors, and compute units. A review repair made the unauthorized
+  transfer pass Bob, not zero, and validates that input explicitly.
+- All ten steps cover status, return, owner state, balances, ordered events,
+  external actions, interface, and target-local resources with
+  `semanticMatch=true` on all three targets. Unauthorized transfer/renounce,
+  zero-address transfer, and post-renounce reinitialization preserve state.
+- Deleted the called NEAR Ownable v0 manifest. The generic compare runner now
+  accepts an explicit manifest path for every fixture, and Ownable names its v1
+  manifest directly; there is no discovery fallback or migration adapter.
+- Inventory now contains 107 assets and exactly 18 verified assets. The six
+  Ownable reference/scenario/runner/gate assets are promoted only after VM
+  execution.
+- Verification: `PF_CMP_SOLC=build/toolchains/solc-0.8.30 just
+  differential-ownable`; `just differential-contracts`; `just
+  near-compare-ownable`; focused Cargo checks for the Solana and NEAR compare
+  runners; Python bytecode compilation; and `git diff --check`. No full
+  aggregate was run.

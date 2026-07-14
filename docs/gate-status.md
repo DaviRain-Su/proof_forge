@@ -177,6 +177,21 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | CMP-3d1-4 | Pinned sources do not overclaim semantic equivalence | ✅ met | `just differential-contracts` validates all digests and records the three references plus scenario as `semanticEvidence=none`; inventory is 106 assets with exactly 12 verified assets |
 | CMP-3d1-5 | No compatibility compiler route is introduced | ✅ met | all comparison code remains under `benchmarks/`, `testkit/`, and `scripts/differential/`; the unused benchmark v0 manifest was deleted and CMP-3d2 owns removal of the still-called NEAR v0 test manifest |
 
+## Gate CMP-3d2 - Primary-triad native Ownable differential
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3d2-1 | The ProofForge side uses only the direct public source | ✅ met | `just differential-ownable` builds `Examples/Product/Ownable.lean` with `contract-source-authored` / `canonical-core-v1` on EVM, Solana, and NEAR and rejects ContractSpec sidecars |
+| CMP-3d2-2 | Both implementations execute the same authorization inputs | ✅ met | Anvil, Mollusk, and upstream `near-vm-runner` execute all ten steps with explicit Alice/Bob/zero roles; the Solana runner records and validates each destination instead of inferring it from the result |
+| CMP-3d2-3 | Negative cases preserve state and remain classified | ✅ met | unauthorized transfer/renounce, zero-address transfer, and reinitialization after renounce fail with owner state unchanged and normalized authorization/invalid-input/assertion categories |
+| CMP-3d2-4 | Events, returns, and target-local resources are observed completely | ✅ met | every target reports `semanticMatch=true` with complete eight-dimension coverage; indexed EVM topics, Solana numeric logs, and NEAR event JSON normalize to the same ordered ownership events |
+| CMP-3d2-5 | Replaced v0 evidence is deleted rather than adapted | ✅ met | `testkit/compare/near/ownable/reference-manifest.json` is deleted; the remaining compare caller explicitly names `testkit/differential/ownable/references/near.v1.json` with no fallback |
+| CMP-3d2-6 | Inventory promotion is evidence-backed | ✅ met | the generated inventory has 107 assets and exactly 18 verified assets; the three Ownable references, scenario, runner, and focused gate are the six newly verified assets |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

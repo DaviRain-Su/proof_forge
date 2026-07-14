@@ -283,7 +283,7 @@ independent primary-triad behavior requirement at `e2834c59`.
 
 ### A-CUT3 - Product migration
 
-State: `in_progress; ValueVault and Ownable direct, CMP-3 Ownable native evidence active`
+State: `in_progress; ValueVault and Ownable direct with primary-triad VM evidence; Pausable direct deletion migration active`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
@@ -318,8 +318,12 @@ EVM, Solana, and NEAR artifacts all report `contract-source-authored` /
 `canonical-core-v1`. The Wasm-host target plan owns address's i64 carrier for
 parameters, storage, events, and returns. `just ownable-authoring-cutover`
 builds final artifacts for all three targets and rejects retired sidecars.
-Independent native Ownable execution is the next CMP-3 slice. Pausable and
-ReentrancyGuard remain rejected Legacy inventory, not fallback candidates.
+`just differential-ownable` now executes independent Solidity, Pinocchio, and
+near-sdk references beside those direct artifacts on Anvil, Mollusk, and the
+upstream NEAR VM. All ten steps and eight observation dimensions match; the
+superseded NEAR Ownable v0 manifest is deleted. Pausable is the active direct
+deletion migration, followed by ReentrancyGuard; neither receives a
+compatibility facade.
 
 ### A-CUT4 - Delete duplicate source and version split
 

@@ -170,6 +170,21 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | CMP-3d1-4 | 已固定 source 不虚报语义等价 | ✅ met | `just differential-contracts` 验证全部 digest，并把三份 reference 加场景记录为 `semanticEvidence=none`；inventory 共 106 项，恰有 12 项 verified |
 | CMP-3d1-5 | 不引入兼容编译路线 | ✅ met | 所有 comparison code 保持在 `benchmarks/`、`testkit/` 与 `scripts/differential/`；未使用的 benchmark v0 manifest 已删除，仍有调用方的 NEAR v0 测试 manifest 由 CMP-3d2 删除 |
 
+## Gate CMP-3d2 —— 主三链原生 Ownable 差分
+
+**状态：已关闭**
+
+**关闭日期：2026-07-14**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-3d2-1 | ProofForge 侧只使用 direct public source | ✅ met | `just differential-ownable` 在 EVM、Solana、NEAR 上以 `contract-source-authored` / `canonical-core-v1` 构建 `Examples/Product/Ownable.lean`，并拒绝 ContractSpec sidecar |
+| CMP-3d2-2 | 两侧实现执行相同授权输入 | ✅ met | Anvil、Mollusk 与 upstream `near-vm-runner` 使用显式 Alice/Bob/zero role 执行全部十步；Solana runner 记录并验证每个 destination，而不是从结果推断 |
+| CMP-3d2-3 | 负面用例保持状态并完成分类 | ✅ met | 未授权 transfer/renounce、零地址 transfer 与 renounce 后重新初始化均失败，owner 状态不变，并归一化为 authorization/invalid-input/assertion 类别 |
+| CMP-3d2-4 | 完整观察 event、return 与 target-local resource | ✅ met | 每个 target 都报告 `semanticMatch=true` 与完整八维 coverage；indexed EVM topic、Solana numeric log 与 NEAR event JSON 归一化为同一有序 ownership event |
+| CMP-3d2-5 | 删除被替代的 v0 evidence，而不是适配 | ✅ met | `testkit/compare/near/ownable/reference-manifest.json` 已删除；剩余 compare 调用方显式命名 `testkit/differential/ownable/references/near.v1.json`，没有 fallback |
+| CMP-3d2-6 | Inventory 晋级由证据支撑 | ✅ met | 生成 inventory 含 107 项资产，恰有 18 项 verified；三份 Ownable reference、scenario、runner 与 focused gate 是六项新增 verified 资产 |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

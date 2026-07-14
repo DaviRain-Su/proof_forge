@@ -166,7 +166,7 @@ Ownable authorization 执行切片：
 | ID | 状态 | 任务 |
 |---|---|---|
 | CMP-3d1 | done (verified at `6e1df78b`) | 已固定独立 Solidity、Pinocchio、near-sdk Ownable reference 与一个版本化十步逻辑场景。执行前 inventory evidence 保持 `none`。 |
-| CMP-3d2 | in_progress | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个必需 dimension，删除已被取代的 Ownable v0 测试 manifest，并且只晋级完整证据。 |
+| CMP-3d2 | done (verified at `ce539dce`) | 已在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个必需 dimension，删除已被取代的 Ownable v0 测试 manifest，并且只晋级完整证据。 |
 
 两个切片都不得增加兼容编译路线、把 ProofForge artifact 复用为原生 oracle，
 也不得保留已退役的 Product Legacy 路径。
@@ -178,6 +178,14 @@ transfer 失败、所有权 transfer、未授权与授权 renounce，以及 reno
 并由 cargo-build-sbf 3.1.12 / platform-tools v1.52 构建；near-sdk source 通过
 host 测试，并由 Rust 1.94.0 构建 Wasm。确定性 inventory 含 106 项资产，但仍
 只有 12 项 verified；四项新增 Ownable 资产均为 `semanticEvidence=none`。
+
+CMP-3d2 完成证据（2026-07-14）：`just differential-ownable` 只把
+`Examples/Product/Ownable.lean` 经 Authored/checked Core 与三个 target-owned
+plan 构建，再通过 Anvil、Mollusk 与 upstream `near-vm-runner` 执行两侧实现。
+十步授权生命周期在每个 target 上都报告 `semanticMatch=true`，并完整覆盖 status、
+return、state、balance、event、external action、interface 与 target-local resource。
+旧 NEAR Ownable v0 manifest 已删除；其 compare 调用方现在显式命名 v1 manifest，
+不存在发现 fallback 或迁移 adapter。Inventory 现含 107 项资产，恰有 18 项 verified。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

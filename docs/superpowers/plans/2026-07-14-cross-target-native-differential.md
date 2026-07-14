@@ -210,7 +210,7 @@ Ownable authorization execution slices:
 | ID | State | Task |
 |---|---|---|
 | CMP-3d1 | done (verified at `6e1df78b`) | Pinned independent Solidity, Pinocchio, and near-sdk Ownable references plus one versioned ten-step logical scenario. Inventory evidence remains `none` until execution. |
-| CMP-3d2 | in_progress | Execute the direct Authored artifact and native reference on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight required dimensions, remove the superseded Ownable v0 test manifest, and promote only complete evidence. |
+| CMP-3d2 | done (verified at `ce539dce`) | Executed the direct Authored artifact and native reference on Anvil, Mollusk, and upstream `near-vm-runner`; compared all eight required dimensions, removed the superseded Ownable v0 test manifest, and promoted only complete evidence. |
 
 Neither slice may add a compatibility compiler route, reuse a ProofForge
 artifact as the native oracle, or preserve a retired Product Legacy path.
@@ -224,6 +224,16 @@ Pinocchio source host-typechecks and builds with cargo-build-sbf 3.1.12 /
 platform-tools v1.52; the near-sdk source passes host tests and builds Wasm with
 Rust 1.94.0. The deterministic inventory contains 106 assets but still exactly
 12 verified assets; all four new Ownable assets have `semanticEvidence=none`.
+
+CMP-3d2 completion evidence (2026-07-14): `just differential-ownable` builds
+only `Examples/Product/Ownable.lean` through Authored/checked Core and the three
+target-owned plans, then executes both implementations through Anvil, Mollusk,
+and upstream `near-vm-runner`. The ten-step authorization lifecycle reports
+`semanticMatch=true` and complete status, return, state, balances, events,
+external-actions, interface, and target-local resource coverage for every
+target. The old NEAR Ownable v0 manifest was deleted; its compare caller now
+names the v1 manifest explicitly, with no discovery fallback or migration
+adapter. Inventory now contains 107 assets and exactly 18 verified assets.
 
 Acceptance:
 
