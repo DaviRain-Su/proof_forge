@@ -52,8 +52,6 @@ where
         args.foldl pushExpr (pushExpr (pushExpr acc a) b)
     | .crosscallInvokeValueTyped a b c args _ =>
         args.foldl pushExpr (pushExpr (pushExpr (pushExpr acc a) b) c)
-    | .crosscallCreate a _ => pushExpr acc a
-    | .crosscallCreate2 a b _ => pushExpr (pushExpr acc a) b
     | .crosscallNamed _ _ args _ => args.foldl pushExpr acc
     | .hostCall _ args _ _ => args.foldl pushExpr acc
     | .crosscallInvokeNamedValue a b args d _ =>
@@ -110,8 +108,6 @@ where
     | .arrayGet a i | .memoryArrayGet a i => exprUses a || exprUses i
     | .memoryArrayNew _ len => exprUses len
     | .hashValue a b c d => exprUses a || exprUses b || exprUses c || exprUses d
-    | .crosscallCreate a _ => exprUses a
-    | .crosscallCreate2 a b _ => exprUses a || exprUses b
     | .crosscallNamed _ _ args _ => args.any exprUses
     | .hostCall _ args _ _ => args.any exprUses
     | .crosscallInvokeNamedValue a b args d _ =>

@@ -1179,13 +1179,6 @@ mutual
           none
           (← buildCrosscallArgWordPlansMany module env "delegate crosscall argument" args)
           returnType)
-    | .crosscallCreate callValue initCodeHex => do
-        .ok (.create .create (← buildExprPlan module env callValue) none initCodeHex)
-    | .crosscallCreate2 callValue salt initCodeHex => do
-        .ok (.create .create2
-          (← buildExprPlan module env callValue)
-          (some (← buildExprPlan module env salt))
-          initCodeHex)
     | .crosscallNamed _ _ _ _ =>
         .error { message := "crosscallNamed (named-callee cross-program call) is a ZK-lane construct (RFC 0015); not lowered on EVM — use crosscallInvoke* for EVM cross-program calls" }
     | .crosscallContinue _ _ _ _ _

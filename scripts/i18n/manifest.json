@@ -90,10 +90,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "66eb26f88b184af1d7b585593f2b4b4ebfa2db285b674728c85d367270f06117",
+    "sha256": "7c5c835ffb980f92edb9441c0f6004a6932b369deabb26ba06af1d9e3bf7554d",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for Stylus evidence, NEP-145 real-VM storage management, and target-owned context HostOp boundary coverage"
+    "note": "manually synced for canonical EVM CREATE HostOp coverage; includes Stylus; includes NEP-145"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -135,10 +135,10 @@
     "note": "synced after Product/Backend reorg path renames"
   },
   "docs/targets/evm.md": {
-    "sha256": "5235c1b6ab6e73fd6afcc874d8b9d408cb04f75612268f24d879eda63e69ec58",
+    "sha256": "432c01a82945d2e93e5722b851dcd1365e4a05838034c01bd38adb7023578a68",
     "zh": "docs/zh/targets/evm.zh.md",
-    "model": "gemini-3-flash-preview",
-    "note": "synced after Product/Backend reorg path renames"
+    "model": "manual-zh",
+    "note": "manually synced for EVM CREATE HostOp cutover"
   },
   "docs/targets/wasm-family.md": {
     "sha256": "8edc99444ea2a84d7984778a4cfd93aa4fc9e1507f9ec31c64471ecb642f566c",

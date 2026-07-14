@@ -52,8 +52,6 @@ partial def canDuplicateExpr : Expr → Bool
   | .crosscallInvokeValueTyped _ _ _ _ _
   | .crosscallInvokeStaticTyped _ _ _ _
   | .crosscallInvokeDelegateTyped _ _ _ _
-  | .crosscallCreate _ _
-  | .crosscallCreate2 _ _ _
   | .crosscallNamed _ _ _ _
   | .crosscallInvokeNamedValue _ _ _ _ _
   | .crosscallContinue _ _ _ _ _

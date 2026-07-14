@@ -132,12 +132,7 @@ Expr	crosscallInvokeTyped	unsupported	Psy IR v0 rejects typed scalar crosscalls 
 Expr	crosscallInvokeValueTyped	unsupported	Psy IR v0 rejects value-bearing typed scalar crosscalls with an explicit diagnostic because the current Psy lowering only models untyped Felt-returning __invoke_sync calls.
 Expr	crosscallInvokeStaticTyped	unsupported	Psy IR v0 rejects static typed scalar crosscalls with an explicit diagnostic because the current Psy lowering only models untyped Felt-returning __invoke_sync calls.
 Expr	crosscallInvokeDelegateTyped	unsupported	Psy IR v0 rejects delegate typed scalar crosscalls with an explicit diagnostic because the current Psy lowering only models untyped Felt-returning __invoke_sync calls.
-Expr	crosscallCreate	unsupported	Psy IR v0 rejects EVM contract creation with an explicit diagnostic because DPN does not expose EVM create semantics.
-Expr	crosscallCreate2	unsupported	Psy IR v0 rejects EVM deterministic contract creation with an explicit diagnostic because DPN does not expose EVM create2 semantics.
-Expr	crosscallAbiPacked	unsupported	Psy IR v0 rejects compile-time ABI-packed CALL (EVM ERC20/protocol helper); not a DPN primitive.
 Expr	crosscallNamed	unsupported	Psy IR v0 rejects named-callee cross-program calls (crosscallNamed) with an explicit diagnostic; Psy uses runtime-address crosscallInvoke (crosscallNamed is ZK-lane only, RFC 0015 D4).
-Expr	ecrecover	unsupported	Psy IR v0 rejects EVM ecrecover precompile Expr; circuit crypto uses host-specific gadgets, not ECDSA recovery.
-Expr	eip712PermitDigest	unsupported	Psy IR v0 rejects EIP-712 permit digest Expr (EVM ERC20Permit path).
 Expr	crosscallInvokeNamedValue	unsupported	Psy IR v0 rejects NEAR string-pool promise creation with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
 Expr	crosscallContinue	unsupported	Psy IR v0 rejects NEAR promise chaining with the explicit "NEAR promise API is not supported by Psy IR v0" diagnostic.
 Effect	eventEmit	lowered	lowerEffectStmt emits __emit([fields]) with an event-name comment; EventProbe covers it and Dargo test confirms result_events contains the emitted data.

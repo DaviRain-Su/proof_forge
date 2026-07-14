@@ -635,30 +635,6 @@ def delegateTypedCrosscallModule : Module := {
   }]
 }
 
-def createCrosscallModule : Module := {
-  name := "BadCreateCrosscall"
-  state := #[markerState]
-  entrypoints := #[{
-    name := "bad"
-    returns := .u64
-    body := #[
-      .return (.crosscallCreate (.literal (.u64 0)) "6000")
-    ]
-  }]
-}
-
-def create2CrosscallModule : Module := {
-  name := "BadCreate2Crosscall"
-  state := #[markerState]
-  entrypoints := #[{
-    name := "bad"
-    returns := .u64
-    body := #[
-      .return (.crosscallCreate2 (.literal (.u64 0)) (.literal (.hash4 0 0 0 7)) "6000")
-    ]
-  }]
-}
-
 def indexedEventModule : Module := {
   name := "BadIndexedEvent"
   state := #[markerState]
@@ -986,16 +962,6 @@ def cases : Array (String × Module × String) := #[
     "delegate typed crosscall unsupported",
     delegateTypedCrosscallModule,
     "delegate typed crosscall return `U64` is not supported by Psy IR v0; use untyped U64 crosscallInvoke for Psy targets"
-  ),
-  (
-    "create crosscall unsupported",
-    createCrosscallModule,
-    "EVM contract creation is not supported by Psy IR v0"
-  ),
-  (
-    "create2 crosscall unsupported",
-    create2CrosscallModule,
-    "EVM deterministic contract creation is not supported by Psy IR v0"
   ),
   (
     "indexed event unsupported",

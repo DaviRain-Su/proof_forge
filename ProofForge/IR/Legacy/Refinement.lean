@@ -174,8 +174,6 @@ mutual
     | .crosscallInvokeDelegateTyped t m args _ =>
         match args with
         | ⟨args⟩ => allAcceptable #[classifyExpr (.crosscallInvokeDelegateTyped (.local "") (.local "") #[] .unit)] && scalarFragmentExpr t && scalarFragmentExpr m && scalarFragmentExprList args
-    | .crosscallCreate cv _ => allAcceptable #[classifyExpr (.crosscallCreate (.local "") "")] && scalarFragmentExpr cv
-    | .crosscallCreate2 cv salt _ => allAcceptable #[classifyExpr (.crosscallCreate2 (.local "") (.local "") "")] && scalarFragmentExpr cv && scalarFragmentExpr salt
     | .crosscallNamed _ _ args _ =>
         match args with
         | ⟨args⟩ => allAcceptable #[classifyExpr (.crosscallNamed "" "" #[] .unit)] && scalarFragmentExprList args

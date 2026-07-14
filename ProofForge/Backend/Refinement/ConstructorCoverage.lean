@@ -521,8 +521,6 @@ mutual
     | n + 1, .crosscallInvokeDelegateTyped t m args _ =>
         exprFC n t && exprFC n m && args.toList.all (exprFC n)
     | n + 1, .crosscallNamed _ _ args _ => args.toList.all (exprFC n)
-    | n + 1, .crosscallCreate v _ => exprFC n v
-    | n + 1, .crosscallCreate2 v s _ => exprFC n v && exprFC n s
     | n + 1, .crosscallInvokeNamedValue a m args d _ =>
         exprFC n a && exprFC n m && args.toList.all (exprFC n) && exprFC n d
     | n + 1, .crosscallContinue p m args d _ =>
@@ -687,7 +685,7 @@ which `moduleInCoveredFragment` checks modules stay within):
 
 **Expr — gap (excluded):** `arrayLit`, `arrayGet`, `memoryArrayNew`/
 `memoryArrayLength`/`memoryArrayGet`, `structLit`, `field`, `hashValue`,
-`hash`, `hashTwoToOne`, `crosscallInvoke*`, `crosscallCreate*`,
+`hash`, `hashTwoToOne`, `crosscallInvoke*`,
 `nearCrosscall*`/`nearPromise*`.
 
 **Effect — covered:** `storageScalarRead`/`Write`/`AssignOp`,
@@ -725,8 +723,8 @@ semantics — not a real peer); RemoteCall is therefore **out of fragment**.
 | ExternalTokenTransfer / ExternalVault | **no** | protocol remote / crosscall | peer materialize |
 | TokenSpec / RoleGatedToken / StakingVault | **partial** | maps / nativeValue / roles | may use map storage (covered) or extras |
 
-**U5.3 rule:** any module whose body contains `crosscallInvoke*` /
-`crosscallCreate*` / NEAR promise ops is **rejected** by
+**U5.3 rule:** any module whose body contains `crosscallInvoke*` / NEAR promise
+ops is **rejected** by
 `moduleInCoveredFragment` because `fuelCoveredExpr` returns `false` for those
 constructors. Do not widen `fuelCoveredExpr` to cover crosscall until a real
 peer oracle exists (U2.4).

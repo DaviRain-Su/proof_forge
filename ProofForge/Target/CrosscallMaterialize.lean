@@ -200,7 +200,6 @@ where
   exprUses : Expr → Bool
     | .crosscallInvoke .. | .crosscallInvokeTyped .. | .crosscallInvokeValueTyped ..
     | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped ..
-    | .crosscallCreate .. | .crosscallCreate2 ..
     | .crosscallInvokeNamedValue .. | .crosscallContinue .. => true
     | .crosscallNamed _ _ args _ => args.any exprUses
     | .hostCall _ args _ _ => args.any exprUses
@@ -300,8 +299,6 @@ where
         exprUses a || exprUses b || exprUses c || args.any exprUses
     | .crosscallInvokeStaticTyped a b args _ | .crosscallInvokeDelegateTyped a b args _ =>
         exprUses a || exprUses b || args.any exprUses
-    | .crosscallCreate a _ => exprUses a
-    | .crosscallCreate2 a b _ => exprUses a || exprUses b
     | .crosscallNamed _ _ args _ => args.any exprUses
     | .literal _ | .local _ | .nativeValue | .callValueU128 => false
   effectUses : Effect → Bool

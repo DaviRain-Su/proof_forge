@@ -91,12 +91,7 @@ Expr	crosscallInvokeTyped	unsupported	EmitWat rejects typed cross-contract calls
 Expr	crosscallInvokeValueTyped	unsupported	EmitWat rejects value-bearing typed cross-contract calls; NEAR value transfer is modeled on crosscallInvokeNamedValue/crosscallInvoke deposit operands.
 Expr	crosscallInvokeStaticTyped	unsupported	EmitWat rejects static typed cross-contract calls as EVM-only.
 Expr	crosscallInvokeDelegateTyped	unsupported	EmitWat rejects delegate typed cross-contract calls as EVM-only.
-Expr	crosscallCreate	unsupported	EmitWat rejects contract creation as EVM-only.
-Expr	crosscallCreate2	unsupported	EmitWat rejects create2 contract creation as EVM-only.
 Expr	crosscallNamed	unsupported	wasm-near Rust sourcegen rejects named-callee cross-program calls (crosscallNamed) with an explicit diagnostic; crosscallNamed is ZK-lane only (RFC 0015 D4).
-Expr	crosscallAbiPacked	unsupported	wasm-near IR v0 rejects ABI-packed crosscall (Call[]) as EVM-specific with an explicit diagnostic.
-Expr	ecrecover	unsupported	wasm-near IR v0 rejects ecrecover (secp256k1) as EVM-specific with an explicit diagnostic.
-Expr	eip712PermitDigest	unsupported	wasm-near IR v0 rejects EIP-712 permit digest as EVM-specific with an explicit diagnostic.
 Expr	crosscallInvokeNamedValue	lowered	EmitWat lowers crosscallInvokeNamedValue to promise_create with __pf_crosscall_pool_ptr/__pf_crosscall_pool_len runtime string-pool indices; NearFungibleToken ft_transfer_call fixture covers sender-hash plus amount ft_on_transfer args.
 Expr	crosscallContinue	lowered	EmitWat lowers crosscallContinue to promise_then on the current contract account using module.crosscallStrings callback method literals; wasm-near target profile admits near.promise for the canonical EmitWat path.
 Effect	storageScalarRead	lowered	lowerEffectExpr emits self.<id>; Counter get covers it and the read-as-statement diagnostic guards misuse.

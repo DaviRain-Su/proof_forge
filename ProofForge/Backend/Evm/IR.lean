@@ -451,8 +451,6 @@ mutual
     | .crosscallInvokeValueTyped t m _ args _
     | .crosscallInvokeStaticTyped t m args _ | .crosscallInvokeDelegateTyped t m args _ =>
         exprUsesCheckedArithmetic t || exprUsesCheckedArithmetic m || args.any exprUsesCheckedArithmetic
-    | .crosscallCreate v _ => exprUsesCheckedArithmetic v
-    | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
     | .crosscallNamed _ _ args _ => args.any exprUsesCheckedArithmetic
     | .crosscallContinue p m args d _ =>
         exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||

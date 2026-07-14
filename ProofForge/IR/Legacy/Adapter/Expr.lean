@@ -232,8 +232,6 @@ def exprTag (e : Expr) : String :=
   | .crosscallInvokeValueTyped _ _ _ _ _ => "Expr.crosscallInvokeValueTyped"
   | .crosscallInvokeStaticTyped _ _ _ _ => "Expr.crosscallInvokeStaticTyped"
   | .crosscallInvokeDelegateTyped _ _ _ _ => "Expr.crosscallInvokeDelegateTyped"
-  | .crosscallCreate _ _ => "Expr.crosscallCreate"
-  | .crosscallCreate2 _ _ _ => "Expr.crosscallCreate2"
   | .crosscallNamed _ _ _ _ => "Expr.crosscallNamed"
   | .crosscallInvokeNamedValue _ _ _ _ _ => "Expr.crosscallInvokeNamedValue"
   | .crosscallContinue _ _ _ _ _ => "Expr.crosscallContinue"
@@ -573,10 +571,6 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallInvokeStaticTyped" "static typed crosscall invoke not in initial fragment")
   | .crosscallInvokeDelegateTyped _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallInvokeDelegateTyped" "delegate typed crosscall invoke not in initial fragment")
-  | .crosscallCreate _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallCreate" "crosscall create not in initial fragment")
-  | .crosscallCreate2 _ _ _ =>
-      throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallCreate2" "crosscall create2 not in initial fragment")
   | .crosscallNamed _ _ _ _ =>
       throw (CanonicalizeError.unsupportedConstructor "Expr.crosscallNamed" "named crosscall not in initial fragment")
   | .crosscallInvokeNamedValue accountIndex methodIndex args deposit argNames => do

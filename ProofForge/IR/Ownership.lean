@@ -158,10 +158,6 @@ mutual
         checkExprFuel fuel entrypoint env methodId
         checkExprFuel fuel entrypoint env callValue
         args.foldlM (init := ()) fun _ arg => checkExprFuel fuel entrypoint env arg
-    | fuel + 1, entrypoint, env, .crosscallCreate callValue _ => checkExprFuel fuel entrypoint env callValue
-    | fuel + 1, entrypoint, env, .crosscallCreate2 callValue salt _ => do
-        checkExprFuel fuel entrypoint env callValue
-        checkExprFuel fuel entrypoint env salt
     | fuel + 1, entrypoint, env, .crosscallContinue parentPromise callbackMethod args deposit _ => do
         checkExprFuel fuel entrypoint env parentPromise
         checkExprFuel fuel entrypoint env callbackMethod

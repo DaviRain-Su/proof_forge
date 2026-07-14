@@ -195,15 +195,6 @@ mutual
         for arg in args do
           discard <| crosscallArgWordTypes module "delegate crosscall argument" (← inferExprType module env arg)
         .ok returnType
-    | .crosscallCreate callValue initCodeHex => do
-        ensureType "contract creation call value" .u64 (← inferExprType module env callValue)
-        discard <| lowerValidate <| ProofForge.Backend.Evm.Validate.normalizeInitCodeHex "contract creation" initCodeHex
-        .ok .u64
-    | .crosscallCreate2 callValue salt initCodeHex => do
-        ensureType "contract creation call value" .u64 (← inferExprType module env callValue)
-        ensureType "contract creation salt" .hash (← inferExprType module env salt)
-        discard <| lowerValidate <| ProofForge.Backend.Evm.Validate.normalizeInitCodeHex "contract creation" initCodeHex
-        .ok .u64
     | .crosscallNamed _ _ args returnType => do
         for arg in args do discard <| inferExprType module env arg
         .ok returnType

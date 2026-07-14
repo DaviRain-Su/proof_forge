@@ -4,6 +4,7 @@ import ProofForge.Backend.Evm.Plan
 import ProofForge.Target.HostOps.Evm
 import ProofForge.Target.InterfaceOps.Evm
 import ProofForge.Backend.Evm.Plan.Storage
+import ProofForge.Backend.Evm.Validate.Common
 import ProofForge.Target.Plan
 import ProofForge.Target.ProtocolMaterialize
 
@@ -522,16 +523,26 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       else if call.id == ProofForge.Target.HostOps.Evm.createSig.id then
         match call.args with
         | #[callValue, initCode] => do
+            let initCode ← literalString env initCode
+            let initCode ← match ProofForge.Backend.Evm.Validate.normalizeInitCodeHex
+                "contract creation" initCode with
+              | .ok code => .ok code
+              | .error error => .error { message := error.message }
             .ok #[StmtPlan.letBind (resultName instr) .address
               (.create .create (← valueExpr env callValue) none
-                (← literalString env initCode))]
+                initCode)]
         | _ => .error { message := s!"target extension `{call.id.render}` expects 2 arguments" }
       else if call.id == ProofForge.Target.HostOps.Evm.create2Sig.id then
         match call.args with
         | #[callValue, salt, initCode] => do
+            let initCode ← literalString env initCode
+            let initCode ← match ProofForge.Backend.Evm.Validate.normalizeInitCodeHex
+                "contract creation" initCode with
+              | .ok code => .ok code
+              | .error error => .error { message := error.message }
             .ok #[StmtPlan.letBind (resultName instr) .address
               (.create .create2 (← valueExpr env callValue) (some (← valueExpr env salt))
-                (← literalString env initCode))]
+                initCode)]
         | _ => .error { message := s!"target extension `{call.id.render}` expects 3 arguments" }
       else if call.id == ProofForge.Target.HostOps.Evm.erc721ReceivedSig.id then
         match call.args with

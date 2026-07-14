@@ -79,7 +79,7 @@ not an accepted exception to the boundary.
 | `ecrecover` | hardcodes the EVM API rather than the cryptographic semantic contract | algorithm-identified signature recovery operation and capability |
 | `eip712PermitDigest` | embeds one Ethereum application standard in shared IR | EVM SDK desugaring or typed EVM extension |
 | `crosscallAbiPacked` | stores EVM selector/memory offsets and ABI words in shared IR | EVM call ABI plan derived after target selection |
-| `crosscallCreate`, `crosscallCreate2`, static/delegate variants | target call modes are mixed with portable invocation | portable call/deploy intent where semantics are common; otherwise target extension |
+| Legacy `crosscallCreate`, `crosscallCreate2`; static/delegate variants | target call modes were mixed with portable invocation | CREATE/CREATE2 constructors removed in favor of versioned `evm.create/*` HostOps; portable invocation remains chain-neutral |
 | `checkErc721Received`, `checkErc1155Received`, `checkErc1155BatchReceived` | ERC protocol hooks are shared `Effect` constructors | EVM stdlib desugaring to call/assert or typed EVM extension |
 
 ### P1: target fields in shared interface/materialization records

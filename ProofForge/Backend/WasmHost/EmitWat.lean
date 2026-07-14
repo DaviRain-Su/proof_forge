@@ -900,10 +900,6 @@ mutual
       err (crosscallEvmOnlyMessage "crosscallInvokeStaticTyped")
     | .crosscallInvokeDelegateTyped _ _ _ _ =>
       err (crosscallEvmOnlyMessage "crosscallInvokeDelegateTyped")
-    | .crosscallCreate _ _ =>
-      err (crosscallEvmOnlyMessage "crosscallCreate")
-    | .crosscallCreate2 _ _ _ =>
-      err (crosscallEvmOnlyMessage "crosscallCreate2")
     | .crosscallNamed _ _ _ _ =>
       err "EmitWat: crosscallNamed (named-callee cross-program call) is a ZK-lane construct; not lowered on Wasm hosts — use crosscallInvoke* / NEAR promise forms"
     | .crosscallInvokeNamedValue accountIndex methodId args deposit argNames =>

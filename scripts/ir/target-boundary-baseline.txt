@@ -14,8 +14,6 @@ ProofForge/IR/Contract.lean:checkErc1155BatchReceived 3
 ProofForge/IR/Contract.lean:checkErc1155Received 3
 ProofForge/IR/Contract.lean:checkErc721Received 3
 ProofForge/IR/Contract.lean:coinbase 6
-ProofForge/IR/Contract.lean:crosscallCreate 2
-ProofForge/IR/Contract.lean:crosscallCreate2 2
 ProofForge/IR/Contract.lean:eip712PermitDigest 2
 ProofForge/IR/Contract.lean:fallback 2
 ProofForge/IR/Contract.lean:nearPrepaidGas 1

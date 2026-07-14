@@ -149,9 +149,7 @@ mutual
     | .crosscallInvokeTyped _ _ _ _
     | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _
-    | .crosscallInvokeDelegateTyped _ _ _ _
-    | .crosscallCreate _ _
-    | .crosscallCreate2 _ _ _ =>
+    | .crosscallInvokeDelegateTyped _ _ _ _ =>
         .error { message := "cross-contract calls are not supported by wasm-near Rust sourcegen v0" }
     | .crosscallNamed _ _ _ _ =>
         .error { message := "named-callee cross-program calls (crosscallNamed) are not supported by wasm-near Rust sourcegen v0" }

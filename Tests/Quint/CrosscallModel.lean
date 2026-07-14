@@ -54,7 +54,7 @@ def main : IO UInt32 := do
         if !source.contains s then
           IO.eprintln s!"FAIL missing substring: {s}"
           return 1
-      if source.contains "crosscallCreate" || source.contains "not supported in Quint lowering" then
+      if source.contains "not supported in Quint lowering" then
         IO.eprintln "FAIL lowering must support crosscallInvoke stub"
         return 1
       IO.println "PASS"

@@ -750,9 +750,6 @@ mutual
     | .crosscallInvokeValueTyped target methodId callValue args _ =>
         contextOpsFromExpr target ++ contextOpsFromExpr methodId ++ contextOpsFromExpr callValue ++
           args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
-    | .crosscallCreate callValue _ => contextOpsFromExpr callValue
-    | .crosscallCreate2 callValue salt _ =>
-        contextOpsFromExpr callValue ++ contextOpsFromExpr salt
     | .crosscallNamed _ _ args _ =>
         args.foldl (init := #[]) fun acc arg => acc ++ contextOpsFromExpr arg
     | .crosscallContinue parentPromise callbackMethod args deposit _ =>

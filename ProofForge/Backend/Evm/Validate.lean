@@ -177,15 +177,6 @@ mutual
         for arg in args do
           discard <| crosscallArgWordTypes module "delegate crosscall argument" (← inferExprType module env arg)
         .ok returnType
-    | .crosscallCreate callValue initCodeHex => do
-        ensureType "contract creation call value" .u64 (← inferExprType module env callValue)
-        discard <| normalizeInitCodeHex "contract creation" initCodeHex
-        .ok .u64
-    | .crosscallCreate2 callValue salt initCodeHex => do
-        ensureType "contract creation call value" .u64 (← inferExprType module env callValue)
-        ensureType "contract creation salt" .hash (← inferExprType module env salt)
-        discard <| normalizeInitCodeHex "contract creation" initCodeHex
-        .ok .u64
     | .crosscallNamed _ _ args returnType => do
         for arg in args do discard <| inferExprType module env arg
         .ok returnType
@@ -915,8 +906,6 @@ mutual
     | .crosscallInvokeValueTyped t m _ args _
     | .crosscallInvokeStaticTyped t m args _ | .crosscallInvokeDelegateTyped t m args _ =>
         exprUsesCheckedArithmetic t || exprUsesCheckedArithmetic m || args.any exprUsesCheckedArithmetic
-    | .crosscallCreate v _ => exprUsesCheckedArithmetic v
-    | .crosscallCreate2 v s _ => exprUsesCheckedArithmetic v || exprUsesCheckedArithmetic s
     | .crosscallNamed _ _ args _ => args.any exprUsesCheckedArithmetic
     | .crosscallContinue p m args d _ =>
         exprUsesCheckedArithmetic p || exprUsesCheckedArithmetic m || exprUsesCheckedArithmetic d ||

@@ -782,8 +782,6 @@ partial def lowerExpr (ctx : LowerCtx) (expr : IR.Expr) : Except LowerError (Arr
       .error { message := "STATICCALL is EVM-only; Solana materializes portable crosscall.invoke as CPI" }
   | .crosscallInvokeDelegateTyped _ _ _ _ =>
       .error { message := "DELEGATECALL is EVM-only; Solana materializes portable crosscall.invoke as CPI" }
-  | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
-      .error { message := "create/create2 are EVM-only; not materializable as Solana CPI" }
   | .crosscallInvokeNamedValue .. | .crosscallContinue .. =>
       .error { message := "asynchronous named calls are not materializable on solana-sbpf-asm" }
   | _ => .error { message := "unsupported expression in Phase 1" }

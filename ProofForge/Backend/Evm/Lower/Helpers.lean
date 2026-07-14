@@ -160,12 +160,6 @@ mutual
         let argWordCount ← crosscallArgWordCountForArgs module env "delegate crosscall argument" args
         let spec ← crosscallHelperSpec module "delegate crosscall return" argWordCount returnType .delegatecall
         .ok (pushCrosscallHelperSpecIfMissing nested spec)
-    | .crosscallCreate callValue _ =>
-        crosscallHelperSpecsFromExpr module env callValue
-    | .crosscallCreate2 callValue salt _ => do
-        .ok (mergeCrosscallHelperSpecs
-          (← crosscallHelperSpecsFromExpr module env callValue)
-          (← crosscallHelperSpecsFromExpr module env salt))
     | .crosscallNamed _ _ _ _
     | .crosscallContinue _ _ _ _ _ | .crosscallInvokeNamedValue _ _ _ _ _ => .ok #[]
     | .effect effect =>
@@ -650,11 +644,6 @@ mutual
         let nested := mergeCreateHelperSpecs nested (createHelperSpecsFromExpr callValue)
         args.foldl (init := nested) fun acc arg =>
           mergeCreateHelperSpecs acc (createHelperSpecsFromExpr arg)
-    | .crosscallCreate callValue initCodeHex =>
-        pushCreateHelperSpecIfMissing (createHelperSpecsFromExpr callValue) { mode := .create, initCodeHex }
-    | .crosscallCreate2 callValue salt initCodeHex =>
-        let nested := mergeCreateHelperSpecs (createHelperSpecsFromExpr callValue) (createHelperSpecsFromExpr salt)
-        pushCreateHelperSpecIfMissing nested { mode := .create2, initCodeHex }
     | .crosscallNamed _ _ _ _
     | .crosscallContinue _ _ _ _ _ | .crosscallInvokeNamedValue _ _ _ _ _ => #[]
     | .effect effect =>

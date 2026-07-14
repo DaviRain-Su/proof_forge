@@ -48,8 +48,6 @@ def selectedModule (name : String) (entrypoint : Entrypoint) : Module := {
 /-- Empty-peer portable remote reject (PortableHonesty). -/
 def emptyPeerMessageNeedle : String := "empty peer"
 
-def createMessageNeedle : String := "create/create2 are EVM-only"
-
 def crosscallInvokeModule : Module :=
   selectedModule "BadCrosscallInvoke" <|
     selectedReturnEntrypoint "bad" .u64 #[
@@ -97,18 +95,6 @@ def crosscallInvokeDelegateTypedModule : Module :=
         .u64)
     ]
 
-def crosscallCreateModule : Module :=
-  selectedModule "BadCrosscallCreate" <|
-    selectedReturnEntrypoint "bad" .u64 #[
-      .return (.crosscallCreate (.literal (.u64 0)) "00")
-    ]
-
-def crosscallCreate2Module : Module :=
-  selectedModule "BadCrosscallCreate2" <|
-    selectedReturnEntrypoint "bad" .u64 #[
-      .return (.crosscallCreate2 (.literal (.u64 0)) (.literal (.u64 0)) "00")
-    ]
-
 def crosscallLetBindModule : Module :=
   selectedModule "BadCrosscallLetBind" <|
     selectedEntrypoint "bad" #[
@@ -123,8 +109,6 @@ def cases : Array (String × Module × String) := #[
   ("crosscall.invokeValueTyped empty peer", crosscallInvokeValueTypedModule, emptyPeerMessageNeedle),
   ("crosscall.invokeStaticTyped empty peer", crosscallInvokeStaticTypedModule, emptyPeerMessageNeedle),
   ("crosscall.invokeDelegateTyped empty peer", crosscallInvokeDelegateTypedModule, emptyPeerMessageNeedle),
-  ("crosscall.create EVM-only", crosscallCreateModule, createMessageNeedle),
-  ("crosscall.create2 EVM-only", crosscallCreate2Module, createMessageNeedle),
   ("crosscall.invoke letBind empty peer", crosscallLetBindModule, emptyPeerMessageNeedle)
 ]
 

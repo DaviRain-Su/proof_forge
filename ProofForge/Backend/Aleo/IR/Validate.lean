@@ -257,8 +257,6 @@ mutual
     | .crosscallInvokeStaticTyped _ _ _ _
     | .crosscallInvokeDelegateTyped _ _ _ _ =>
         .error { message := "typed crosscall is not supported by Leo IR v0; zk-circuit cross calls are Road 2" }
-    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
-        .error { message := "contract creation is not supported by Leo IR v0" }
     | .crosscallNamed _ _ args returnType => do
         -- RFC 0015 D4: named-callee cross-program call (lowered to a static
         -- qualified call `programId::method(args)` + an import).

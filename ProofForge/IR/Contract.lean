@@ -165,8 +165,6 @@ mutual
     | crosscallInvokeValueTyped (targetContractId : Expr) (methodId callValue : Expr) (args : Array Expr) (returnType : ValueType)
     | crosscallInvokeStaticTyped (targetContractId : Expr) (methodId : Expr) (args : Array Expr) (returnType : ValueType)
     | crosscallInvokeDelegateTyped (targetContractId : Expr) (methodId : Expr) (args : Array Expr) (returnType : ValueType)
-    | crosscallCreate (callValue : Expr) (initCodeHex : String)
-    | crosscallCreate2 (callValue salt : Expr) (initCodeHex : String)
     /-- Named-callee cross-program call for app-chain targets (RFC 0015 D4):
     `crosscallNamed(programId, method, args, returnType)` addresses the callee
     by compile-time program/method identifiers (Aleo `_dynamic_call`), unlike the
@@ -529,10 +527,6 @@ mutual
     | .crosscallInvokeDelegateTyped target methodId args returnType =>
         #[.crosscallInvoke] ++ target.capabilities ++ methodId.capabilities ++ returnType.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]
-    | .crosscallCreate callValue _ =>
-        #[.crosscallInvoke] ++ callValue.capabilities
-    | .crosscallCreate2 callValue salt _ =>
-        #[.crosscallInvoke] ++ callValue.capabilities ++ salt.capabilities
     | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         #[.crosscallInvoke] ++ accountIndex.capabilities ++ methodId.capabilities ++ deposit.capabilities ++
           args.foldl (fun acc arg => acc ++ arg.capabilities) #[]

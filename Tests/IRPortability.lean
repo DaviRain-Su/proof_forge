@@ -178,24 +178,6 @@ def main : IO Unit := do
   | .error _ => pure ()
   | .ok _ => throw (IO.userError "Aptos must reject an unsupported entrypoint body shape")
 
-  -- T4.3: CREATE2 is EVM family-only (Shared bans create2Deploy via portable-default).
-  let create2Mod : Module := {
-    name := "Create2Fixture"
-    state := #[]
-    entrypoints := #[{
-      name := "deploy"
-      returns := .u64
-      body := #[.return (.crosscallCreate2 (.literal (.u64 0)) (.literal (.u64 1)) "00")]
-    }]
-  }
-  require (!isPortableCoreModule create2Mod)
-    "CREATE2 module must not classify as portable-core"
-  require ((familyOnlyViolations create2Mod .solana).size > 0)
-    "CREATE2 must violate Solana family"
-  require ((familyOnlyViolations create2Mod .wasmHost).size > 0)
-    "CREATE2 must violate Wasm family"
-  require ((familyOnlyViolations create2Mod .evm).isEmpty)
-    "CREATE2 is legal on EVM family"
   -- Slice 3 (NEAR Promise out of portable product path): Promise constructors
   -- are wasmHost family-only; portable crosscall.invoke is family-shared.
   let nearPortable := ProofForge.IR.Examples.NearCrosscallProbe.portableModule

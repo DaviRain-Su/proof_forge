@@ -69,8 +69,6 @@ mutual
         collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .crosscallInvokeValueTyped t m v args _ =>
         collectArrayLitsExpr t ++ collectArrayLitsExpr m ++ collectArrayLitsExpr v ++ args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
-    | .crosscallCreate value _ => collectArrayLitsExpr value
-    | .crosscallCreate2 value salt _ => collectArrayLitsExpr value ++ collectArrayLitsExpr salt
     | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectArrayLitsExpr a) #[]
     | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         collectArrayLitsExpr accountIndex ++ collectArrayLitsExpr methodId ++
@@ -133,8 +131,6 @@ mutual
         collectStructLitsExpr t ++ collectStructLitsExpr m ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .crosscallInvokeValueTyped t m v args _ =>
         collectStructLitsExpr t ++ collectStructLitsExpr m ++ collectStructLitsExpr v ++ args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
-    | .crosscallCreate value _ => collectStructLitsExpr value
-    | .crosscallCreate2 value salt _ => collectStructLitsExpr value ++ collectStructLitsExpr salt
     | .crosscallNamed _ _ args _ => args.foldl (fun acc a => acc ++ collectStructLitsExpr a) #[]
     | .crosscallInvokeNamedValue accountIndex methodId args deposit _ =>
         collectStructLitsExpr accountIndex ++ collectStructLitsExpr methodId ++

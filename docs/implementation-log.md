@@ -3420,3 +3420,25 @@ Rules:
   advertises EVM deployment actions.
 - Verification: targeted example builds, canonical EVM host-op tests, Quint
   crosscall model, and `git diff --check`.
+
+## 2026-07-14 - EVM-R4c: delete Legacy CREATE constructors
+
+- Status: `done (verified 2026-07-14)`; EVM-R4 continues with remaining
+  zero-caller Legacy EVM APIs.
+- Deleted `Expr.crosscallCreate` and `Expr.crosscallCreate2` from the shared IR,
+  semantics, classification, refinement, analyzers, and every backend
+  compatibility match. No non-EVM backend retains rejection logic for an EVM
+  constructor in portable IR.
+- Made versioned `evm.create/create@1.0.0` and
+  `evm.create/create2@1.0.0` HostOps the only CREATE authoring route. Canonical
+  EVM planning now validates and normalizes init code before helper discovery.
+- Reduced `EvmCrosscallProbe` to portable call semantics only. The legacy
+  crosscall smoke no longer advertises deployment; the canonical HostOp gate
+  owns CREATE/CREATE2 type, target, plan, and Yul checks.
+- Verification: `lake build ProofForge.Cli.EvmFixtures`,
+  `lake env lean --run Tests/Canonical/EvmCreateHostOp.lean`,
+  `lake env lean --run Tests/Backend/Evm/EvmSemanticPlan.lean`,
+  `scripts/evm/crosscall-ir-smoke.sh` (71 Foundry cases),
+  `lake env lean --run Tests/IRPortability.lean`, Solana/NEAR/Psy focused
+  diagnostics, `lake env lean --run Tests/Quint/CrosscallModel.lean`, and
+  `git diff --check`.

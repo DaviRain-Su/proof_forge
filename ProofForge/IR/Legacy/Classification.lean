@@ -715,16 +715,6 @@ def classifyExpr : Expr → LegacyDecision
         disposition := .reject
         owner := "target-plan-crosscall"
         reason := "delegate typed crosscall rejected until a typed portable primitive or HostOp handler exists" }
-  | .crosscallCreate _ _ =>
-      { nodeTag := "Expr.crosscallCreate"
-        disposition := .reject
-        owner := "target-plan-crosscall"
-        reason := "contract creation rejected until a typed portable primitive or HostOp handler exists" }
-  | .crosscallCreate2 _ _ _ =>
-      { nodeTag := "Expr.crosscallCreate2"
-        disposition := .reject
-        owner := "target-plan-crosscall"
-        reason := "CREATE2 deployment rejected until a typed portable primitive or HostOp handler exists" }
   | .crosscallNamed _ _ _ _ =>
       { nodeTag := "Expr.crosscallNamed"
         disposition := .reject
@@ -886,8 +876,6 @@ def exprInventory : Array Expr := #[
   .crosscallInvokeValueTyped (.local "t") (.local "m") (.local "v") #[] .unit,
   .crosscallInvokeStaticTyped (.local "t") (.local "m") #[] .unit,
   .crosscallInvokeDelegateTyped (.local "t") (.local "m") #[] .unit,
-  .crosscallCreate (.local "v") "",
-  .crosscallCreate2 (.local "v") (.local "s") "",
   .crosscallNamed "p" "m" #[] .unit,
   .crosscallInvokeNamedValue (.local "i") (.local "m") #[] (.local "d") #[],
   .crosscallContinue (.local "p") (.local "c") #[] (.local "d") #[],

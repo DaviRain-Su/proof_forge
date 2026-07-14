@@ -48,8 +48,6 @@ FORBIDDEN_NEAR_EXTENSION = [
 # EVM family-only chain constructors (T4.3) — use portable remoteCall instead.
 FORBIDDEN_EVM_FAMILY = [
     "create2Deploy",
-    "crosscallCreate2",
-    "crosscallCreate(",
     "entrySelector",
     "methodWithSelector",
     "entrySelectorReturns",

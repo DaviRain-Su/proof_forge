@@ -457,7 +457,6 @@ partial def collectFromExpr (entrypoint : String) (acc : Array PortableCrosscall
   | .crosscallInvokeValueTyped _ _ _ args _ =>
       acc.push { entrypoint, argCount := args.size }
   | .crosscallInvokeStaticTyped .. | .crosscallInvokeDelegateTyped ..
-  | .crosscallCreate .. | .crosscallCreate2 ..
   | .crosscallNamed .. => acc
   | .hostCall _ args _ _ => args.foldl (collectFromExpr entrypoint) acc
   | .crosscallInvokeNamedValue .. | .crosscallContinue .. => acc

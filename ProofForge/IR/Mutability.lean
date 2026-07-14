@@ -31,7 +31,7 @@ mutual
           args.foldl (fun acc arg => acc ++ exprViolations arg) #[]
     | .crosscallInvoke .. | .crosscallInvokeTyped ..
     | .crosscallInvokeValueTyped .. | .crosscallInvokeDelegateTyped ..
-    | .crosscallCreate .. | .crosscallCreate2 .. | .crosscallNamed .. =>
+    | .crosscallNamed .. =>
         #["non-static crosscall"]
     | .crosscallInvokeNamedValue .. | .crosscallContinue .. =>
         #["promise operation"]

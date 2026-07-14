@@ -512,10 +512,6 @@ mutual
             (← contextOpsFromExpr callValue)
         args.foldlM (init := base) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
-    | .crosscallCreate callValue _ =>
-        contextOpsFromExpr callValue
-    | .crosscallCreate2 callValue salt _ =>
-        return mergeContextExprPlans (← contextOpsFromExpr callValue) (← contextOpsFromExpr salt)
     | .crosscallNamed _ _ args _ =>
         args.foldlM (init := #[]) fun acc arg =>
           return mergeContextExprPlans acc (← contextOpsFromExpr arg)
@@ -757,12 +753,6 @@ mutual
             ModuleSurface.withCrosscallPromise
         let argSurface ← surfaceFromCrosscallArgs module env args
         return mergeModuleSurfaces base argSurface
-    | .crosscallCreate callValue _ => do
-        return mergeModuleSurfaces (← surfaceFromExpr module env callValue) ModuleSurface.withCrosscallPromise
-    | .crosscallCreate2 callValue salt _ =>
-        return mergeModuleSurfaces
-          (mergeModuleSurfaces (← surfaceFromExpr module env callValue) (← surfaceFromExpr module env salt))
-          ModuleSurface.withCrosscallPromise
     | .crosscallNamed _ _ args _ =>
         args.foldlM (init := ModuleSurface.empty) fun acc arg =>
           return mergeModuleSurfaces acc (← surfaceFromExpr module env arg)

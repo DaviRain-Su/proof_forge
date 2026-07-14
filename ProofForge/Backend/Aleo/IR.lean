@@ -198,8 +198,6 @@ mutual
     | .crosscallInvokeValueTyped _ _ _ _ _ | .crosscallInvokeStaticTyped _ _ _ _
     | .crosscallInvokeDelegateTyped _ _ _ _ =>
         .error { message := "typed crosscall is not supported by Leo IR v0; zk-circuit cross calls are Road 2" }
-    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ =>
-        .error { message := "contract creation is not supported by Leo IR v0" }
     | .crosscallNamed programId method args _ => do
         -- RFC 0015 D4: static qualified cross-program call `programId::method(args)`.
         let args' ← args.mapM (buildExpr ctx)

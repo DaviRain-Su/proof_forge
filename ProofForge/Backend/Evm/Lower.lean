@@ -568,7 +568,7 @@ mutual
         collectEventPlansFromExpr module env collector d
     | .crosscallInvoke _ _ _ | .crosscallInvokeTyped _ _ _ _ | .crosscallInvokeValueTyped _ _ _ _ _
     | .crosscallInvokeStaticTyped _ _ _ _ | .crosscallInvokeDelegateTyped _ _ _ _ => pure collector
-    | .crosscallCreate _ _ | .crosscallCreate2 _ _ _ | .crosscallNamed _ _ _ _ => pure collector
+    | .crosscallNamed _ _ _ _ => pure collector
     | .crosscallContinue _ _ _ _ _ | .crosscallInvokeNamedValue _ _ _ _ _ => pure collector
     | .effect effect => collectEventPlansFromEffect module env collector effect
 
@@ -784,10 +784,6 @@ mutual
         let nested := mergeNatSets nested (localArrayGetLengthsExpr env callValue)
         args.foldl (init := nested) fun acc arg =>
           mergeNatSets acc (localArrayGetLengthsExpr env arg)
-    | .crosscallCreate callValue _ =>
-        localArrayGetLengthsExpr env callValue
-    | .crosscallCreate2 callValue salt _ =>
-        mergeNatSets (localArrayGetLengthsExpr env callValue) (localArrayGetLengthsExpr env salt)
     | .crosscallNamed _ _ args _ => args.foldl (fun acc arg => mergeNatSets acc (localArrayGetLengthsExpr env arg)) #[]
     | .crosscallContinue p m args d _ =>
         mergeNatSets (mergeNatSets (localArrayGetLengthsExpr env p) (localArrayGetLengthsExpr env m))
@@ -954,10 +950,6 @@ mutual
         let nested := mergeNatArraySets nested (nestedLocalArrayGetShapesExpr env callValue)
         args.foldl (init := nested) fun acc arg =>
           mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)
-    | .crosscallCreate callValue _ =>
-        nestedLocalArrayGetShapesExpr env callValue
-    | .crosscallCreate2 callValue salt _ =>
-        mergeNatArraySets (nestedLocalArrayGetShapesExpr env callValue) (nestedLocalArrayGetShapesExpr env salt)
     | .crosscallNamed _ _ args _ => args.foldl (fun acc arg => mergeNatArraySets acc (nestedLocalArrayGetShapesExpr env arg)) #[]
     | .crosscallContinue p m args d _ =>
         let acc := mergeNatArraySets (nestedLocalArrayGetShapesExpr env p) (nestedLocalArrayGetShapesExpr env m)

@@ -186,8 +186,6 @@ mutual
     | .crosscallInvokeValueTyped target methodId callValue args _ =>
         args.foldl collectExprEvents
           (collectExprEvents (collectExprEvents (collectExprEvents events target) methodId) callValue)
-    | .crosscallCreate callValue _ => collectExprEvents events callValue
-    | .crosscallCreate2 callValue salt _ => collectExprEvents (collectExprEvents events callValue) salt
     | .crosscallNamed _ _ args _ => args.foldl collectExprEvents events
     | .hostCall _ args _ _ => args.foldl collectExprEvents events
     | .crosscallContinue parentPromise callbackMethod args deposit _ =>

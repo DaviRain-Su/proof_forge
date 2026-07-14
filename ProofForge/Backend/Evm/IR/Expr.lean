@@ -462,10 +462,6 @@ mutual
         lowerExprThroughPlan module env (.crosscallInvokeStaticTyped target methodId args returnType)
     | .crosscallInvokeDelegateTyped target methodId args returnType => do
         lowerExprThroughPlan module env (.crosscallInvokeDelegateTyped target methodId args returnType)
-    | .crosscallCreate callValue initCodeHex => do
-        lowerExprThroughPlan module env (.crosscallCreate callValue initCodeHex)
-    | .crosscallCreate2 callValue salt initCodeHex => do
-        lowerExprThroughPlan module env (.crosscallCreate2 callValue salt initCodeHex)
     | .crosscallNamed _ _ _ _
     | .crosscallContinue _ _ _ _ _
     | .crosscallInvokeNamedValue _ _ _ _ _ =>
@@ -856,11 +852,6 @@ partial def exprSupportsPlanScalarYul : ProofForge.IR.Expr → Bool
         exprSupportsPlanScalarYul target &&
         exprSupportsPlanScalarYul methodId &&
         args.all exprSupportsPlanCrosscallArgYul
-  | .crosscallCreate callValue _ =>
-      exprSupportsPlanScalarYul callValue
-  | .crosscallCreate2 callValue salt _ =>
-      exprSupportsPlanScalarYul callValue &&
-        exprSupportsPlanScalarYul salt
   | .crosscallNamed _ _ _ _ => false
   | .hostCall _ _ _ _ => false
   | .callValueU128 => false

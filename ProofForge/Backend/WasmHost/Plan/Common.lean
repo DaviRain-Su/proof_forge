@@ -264,8 +264,6 @@ mutual
     | .crosscallInvokeValueTyped _ _ _ _ returnType => .ok returnType
     | .crosscallInvokeStaticTyped _ _ _ returnType => .ok returnType
     | .crosscallInvokeDelegateTyped _ _ _ returnType => .ok returnType
-    | .crosscallCreate _ _ => .ok .u64
-    | .crosscallCreate2 _ _ _ => .ok .u64
     | .crosscallNamed _ _ _ returnType => .ok returnType
     | .crosscallInvokeNamedValue _ _ _ _ _ => .ok .u64
     | .crosscallContinue _ _ _ _ _ => .ok .u64

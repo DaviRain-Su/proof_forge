@@ -230,8 +230,6 @@ mutual
     | .crosscallInvokeValueTyped target method value args _ =>
         args.foldl (fun acc arg => acc.merge (analyzeExpr arg))
           (((analyzeExpr target).merge (analyzeExpr method)).merge (analyzeExpr value))
-    | .crosscallCreate value _ => analyzeExpr value
-    | .crosscallCreate2 value salt _ => (analyzeExpr value).merge (analyzeExpr salt)
     | .crosscallNamed programId method args _ =>
         let nested : ExprFacts :=
           args.foldl (fun acc arg => acc.merge (analyzeExpr arg)) ({} : ExprFacts)
@@ -368,8 +366,6 @@ mutual
     | .crosscallInvokeValueTyped t m cv args _ => effectExprIn p t || effectExprIn p m || effectExprIn p cv || args.any (effectExprIn p)
     | .crosscallInvokeStaticTyped t m args _ => effectExprIn p t || effectExprIn p m || args.any (effectExprIn p)
     | .crosscallInvokeDelegateTyped t m args _ => effectExprIn p t || effectExprIn p m || args.any (effectExprIn p)
-    | .crosscallCreate cv _ => effectExprIn p cv
-    | .crosscallCreate2 cv s _ => effectExprIn p cv || effectExprIn p s
     | .crosscallNamed _ _ args _ => args.any (effectExprIn p)
     | .crosscallContinue p2 m args d _ =>
         effectExprIn p p2 || effectExprIn p m || effectExprIn p d ||

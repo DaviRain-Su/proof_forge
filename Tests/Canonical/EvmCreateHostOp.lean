@@ -1,4 +1,5 @@
 import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Backend.Evm.IR
 import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.Contract.Source.Evm
 import ProofForge.Contract.Spec
@@ -11,6 +12,13 @@ open ProofForge.Target
 
 private def require (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw (IO.userError message)
+
+private def requireErrorContains (needle : String) (result : Except String α) : IO Unit :=
+  match result with
+  | .error message =>
+      require (message.contains needle)
+        s!"expected error containing `{needle}`, got `{message}`"
+  | .ok _ => throw (IO.userError s!"expected error containing `{needle}`")
 
 private def initCodeHex := "69602a60005260206000f3600052600a6016f3"
 
@@ -35,6 +43,18 @@ private def createModule : ProofForge.IR.Module := {
         (.literal (.u128 0)) (.literal (.hash4 0 0 0 7)) initCodeHex)]
     }
   ]
+}
+
+private def createFixture (name : String) (body : ProofForge.IR.Expr) : ProofForge.IR.Module := {
+  name
+  state := #[]
+  entrypoints := #[{
+    name := "deploy"
+    selector? := some "01020304"
+    params := #[]
+    «returns» := .address
+    body := #[.return body]
+  }]
 }
 
 private def hostCallIds (checked : CheckedCanonicalContract) : Array ProofForge.Target.HostOpId :=
@@ -83,4 +103,27 @@ def main : IO Unit := do
   require (plan.creates == #[{ mode := .create, initCodeHex },
       { mode := .create2, initCodeHex }])
     "CREATE helper requirements were not collected from the canonical plan"
+  let yul <- match ProofForge.Backend.Evm.IR.renderCanonicalModuleWithPlan plan with
+    | .ok yul => pure yul
+    | .error error => throw (IO.userError s!"canonical CREATE Yul failed: {error.message}")
+  require (yul.contains s!"function __proof_forge_create_{initCodeHex}")
+    "canonical Yul did not emit the CREATE helper"
+  require (yul.contains s!"function __proof_forge_create2_{initCodeHex}")
+    "canonical Yul did not emit the CREATE2 helper"
+  requireErrorContains "CoreType.u128" <|
+    ProofForge.Compiler.runStrictCanonicalTargetGate "evm" <|
+      ProofForge.Contract.ContractSpec.fromIR <|
+        createFixture "BadCreateCallValue" <|
+          ProofForge.Contract.Source.Evm.createDeploy (.literal (.bool true)) "6000"
+  requireErrorContains "init code must contain only hex digits" <|
+    ProofForge.Compiler.runStrictCanonicalTargetGate "evm" <|
+      ProofForge.Contract.ContractSpec.fromIR <|
+        createFixture "BadCreateInitCode" <|
+          ProofForge.Contract.Source.Evm.createDeploy (.literal (.u128 0)) "60zz"
+  requireErrorContains "CoreType.hash" <|
+    ProofForge.Compiler.runStrictCanonicalTargetGate "evm" <|
+      ProofForge.Contract.ContractSpec.fromIR <|
+        createFixture "BadCreate2Salt" <|
+          ProofForge.Contract.Source.Evm.create2Deploy
+            (.literal (.u128 0)) (.literal (.bool true)) "6000"
   IO.println "evm-create-hostop: ok"
