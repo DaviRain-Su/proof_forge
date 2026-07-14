@@ -63,7 +63,7 @@ operation。A-CUT1e-c2 已完成。
 | CMP-0 | 盘点并版本化 provenance/scenario/observation 共享契约 | done (verified at `18f15e59`) | 85 项受跟踪资产；35 份 v0 manifest 可显式迁移但保持 semantic ineligible |
 | CMP-1 | 实现 fail-closed normalized observation 与 coverage validator | done (verified at `7fee238c`) | 23 个 focused contract/comparator 测试；target-local resource 不能变成跨链总分 |
 | CMP-2 | Counter 原生试点：Solidity EVM、Rust Solana、Rust NEAR | done（verified at `e2834c59`） | 以完整主三链 v1 证据关闭 A-CUT2 |
-| CMP-3 | ValueVault 和代表性 stateful portable family | in_progress | ValueVault 与 Ownable 主三链 VM comparison 已验证；Pausable direct cutover 已在 `50c1c07a` 关闭；CMP-3e1 当前固定独立 Pausable reference，之后才进入 VM 执行 |
+| CMP-3 | ValueVault 和代表性 stateful portable family | in_progress | ValueVault 与 Ownable 主三链 VM comparison 已验证；Pausable reference/scenario 已在 `c8e417db` 固定且 evidence 为 `none`；CMP-3e2 当前执行三个 VM |
 | CMP-SOL | Account/PDA/CPI 与独立 Solana Rust reference 的 conformance | 与 IR-B5 同步 pending | IR-B5 退出条件 |
 | CMP-NEAR | 从 canonical-only artifact 重放现有 Rust/Sandbox reference | 与 NEAR-R4 同步 pending | NEAR-R4 退出条件 |
 | CMP-EVM | 统一独立 Solidity reference 和 EVM observation | 与 A-CUT3 同步 pending | A-CUT3 EVM 切片 |

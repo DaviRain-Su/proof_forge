@@ -199,6 +199,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | CMP-3d2-5 | 删除被替代的 v0 evidence，而不是适配 | ✅ met | `testkit/compare/near/ownable/reference-manifest.json` 已删除；剩余 compare 调用方显式命名 `testkit/differential/ownable/references/near.v1.json`，没有 fallback |
 | CMP-3d2-6 | Inventory 晋级由证据支撑 | ✅ met | 生成 inventory 含 107 项资产，恰有 18 项 verified；三份 Ownable reference、scenario、runner 与 focused gate 是六项新增 verified 资产 |
 
+## Gate CMP-3e1 —— 独立 Pausable reference 契约
+
+**状态：Closed**
+
+**Closed: 2026-07-14 at `c8e417db`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-3e1-1 | 每个主目标都有独立原生 reference | ✅ met | Solidity、Pinocchio Rust、near-sdk Rust source 均不导入 ProofForge compiler 或 IR module；三份 v1 manifest 固定精确 source SHA-256、license 与 toolchain |
+| CMP-3e1-2 | 逻辑场景包含负面状态保持 | ✅ met | 九步场景覆盖初始/最终查询、未暂停时 unpause、重复 pause、失败后状态查询，以及成功 pause/unpause transition |
+| CMP-3e1-3 | 原生 source 由固定 target toolchain 构建 | ✅ met | `solc` 0.8.30 编译 Solidity；Pinocchio host check 和 cargo-build-sbf 3.1.12/platform-tools v1.52 通过；near-sdk host test 与 Rust 1.94.0 Wasm build 通过 |
+| CMP-3e1-4 | 已固定 source 不虚报语义等价 | ✅ met | `just differential-contracts` 校验全部 manifest 与 digest；inventory 增至 112 项但仍恰有 18 项 verified，四个 Pausable CMP-3 asset 全部为 `none` |
+| CMP-3e1-5 | 不引入生产兼容路线 | ✅ met | reference、scenario 与 inventory logic 保持在 `benchmarks/`、`testkit/`、`scripts/differential/`；仍被调用的 NEAR v0 manifest 是 CMP-3e2 的显式删除任务，而不是 compiler adapter |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

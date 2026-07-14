@@ -206,6 +206,20 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | CMP-3d2-5 | Replaced v0 evidence is deleted rather than adapted | ✅ met | `testkit/compare/near/ownable/reference-manifest.json` is deleted; the remaining compare caller explicitly names `testkit/differential/ownable/references/near.v1.json` with no fallback |
 | CMP-3d2-6 | Inventory promotion is evidence-backed | ✅ met | the generated inventory has 107 assets and exactly 18 verified assets; the three Ownable references, scenario, runner, and focused gate are the six newly verified assets |
 
+## Gate CMP-3e1 - Independent Pausable reference contracts
+
+**Status: Closed**
+
+**Closed: 2026-07-14 at `c8e417db`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3e1-1 | Every primary target has an independent native reference | ✅ met | Solidity, Pinocchio Rust, and near-sdk Rust sources import no ProofForge compiler or IR modules; three v1 manifests pin exact source SHA-256, license, and toolchains |
+| CMP-3e1-2 | The logical scenario includes negative state preservation | ✅ met | the nine-step scenario covers initial/final queries, unpause while unpaused, repeated pause, post-failure state queries, and successful pause/unpause transitions |
+| CMP-3e1-3 | Native sources build with pinned target toolchains | ✅ met | `solc` 0.8.30 compiles Solidity; Pinocchio host check and cargo-build-sbf 3.1.12/platform-tools v1.52 pass; near-sdk host tests and Rust 1.94.0 Wasm build pass |
+| CMP-3e1-4 | Pinned sources do not overclaim semantic equivalence | ✅ met | `just differential-contracts` validates all manifests and digests; inventory grows to 112 assets but remains exactly 18 verified, with all four Pausable CMP-3 assets at `none` |
+| CMP-3e1-5 | No production compatibility path is introduced | ✅ met | references, scenario, and inventory logic remain under `benchmarks/`, `testkit/`, and `scripts/differential/`; the called NEAR v0 manifest remains explicit deletion work for CMP-3e2, not a compiler adapter |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

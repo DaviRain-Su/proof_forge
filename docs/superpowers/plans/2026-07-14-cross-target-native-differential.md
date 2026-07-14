@@ -240,12 +240,20 @@ Pausable state-machine execution slices:
 
 | ID | State | Task |
 |---|---|---|
-| CMP-3e1 | in_progress | Pin independent Solidity and Pinocchio programs, promote the existing near-sdk reference to complete v1 provenance, and define one versioned scenario with repeated pause/unpause failures and state preservation. Evidence remains `none`. |
-| CMP-3e2 | pending after CMP-3e1 | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight dimensions and delete the replaced NEAR v0 manifest rather than adapting it. |
+| CMP-3e1 | done (verified at `c8e417db`) | Pinned independent Solidity and Pinocchio programs, promoted the existing near-sdk reference to complete v1 provenance, and defined one versioned nine-step scenario with repeated pause/unpause failures and state preservation. Evidence remains `none`. |
+| CMP-3e2 | in_progress | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight dimensions and delete the replaced NEAR v0 manifest rather than adapting it. |
 
 Neither slice may add a compiler compatibility path, consume a v1
 `ContractSpec`/`IR.Module`, or promote inventory evidence before all three VMs
 complete the same scenario.
+
+CMP-3e1 completion evidence (2026-07-14): Solidity 0.8.30 compiles the
+independent `uint64` reference; the one-account, 8-byte Pinocchio state machine
+host-typechecks and builds with cargo-build-sbf 3.1.12 / platform-tools v1.52;
+the near-sdk source passes three host tests and builds Wasm with Rust 1.94.0.
+All three v1 manifests match the checked-in source SHA-256. The generated
+inventory contains 112 assets and still exactly 18 verified assets; the three
+Pausable references and scenario remain `semanticEvidence=none` until CMP-3e2.
 
 Acceptance:
 

@@ -192,12 +192,19 @@ Pausable 状态机执行切片：
 
 | ID | 状态 | 任务 |
 |---|---|---|
-| CMP-3e1 | in_progress | 固定独立 Solidity 与 Pinocchio program，把现有 near-sdk reference 提升到完整 v1 provenance，并定义含重复 pause/unpause 失败与状态保持的版本化场景。Evidence 保持 `none`。 |
-| CMP-3e2 | CMP-3e1 后 pending | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个 dimension，并删除被替代的 NEAR v0 manifest，而不是适配它。 |
+| CMP-3e1 | done (verified at `c8e417db`) | 已固定独立 Solidity 与 Pinocchio program，把现有 near-sdk reference 提升到完整 v1 provenance，并定义含重复 pause/unpause 失败与状态保持的版本化九步场景。Evidence 保持 `none`。 |
+| CMP-3e2 | in_progress | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个 dimension，并删除被替代的 NEAR v0 manifest，而不是适配它。 |
 
 两个切片都不得增加 compiler compatibility path、消费 v1
 `ContractSpec`/`IR.Module`，也不得在三个 VM 完成同一场景前晋级 inventory
 evidence。
+
+CMP-3e1 完成证据（2026-07-14）：Solidity 0.8.30 编译独立 `uint64`
+reference；单账户、8 字节 Pinocchio 状态机通过 host typecheck，并由
+cargo-build-sbf 3.1.12 / platform-tools v1.52 构建；near-sdk source 通过三个
+host test，并使用 Rust 1.94.0 构建 Wasm。三份 v1 manifest 都匹配已检入 source
+SHA-256。生成 inventory 现含 112 项资产，仍恰有 18 项 verified；三份 Pausable
+reference 与 scenario 在 CMP-3e2 前保持 `semanticEvidence=none`。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

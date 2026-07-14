@@ -4413,3 +4413,23 @@ Rules:
 - Verification: `just pausable-authoring-cutover`; focused Product matrix and
   portable-auth tests; topology and portable-default checks; `git diff
   --check`. No full aggregate was run.
+
+## 2026-07-14 - CMP-3e1: pin independent Pausable references
+
+- Status: `done (verified at c8e417db)`; CMP-3e2 primary-triad VM execution is
+  active, and all four new semantic assets remain deliberately unverified.
+- Added independent Solidity and Pinocchio Pausable implementations. Solidity
+  uses a `uint64` state with explicit repeated-pause/not-paused errors; the
+  Pinocchio program owns one writable 8-byte state account and exposes query,
+  pause, and unpause instruction tags without ProofForge imports.
+- Promoted the existing near-sdk source to complete v1 provenance and added
+  host tests for both repeated invalid transitions. Added three complete v1
+  reference manifests and a nine-step portable scenario that queries state
+  after each expected failure.
+- Extended the deterministic inventory and contract test. It now contains 112
+  assets but still exactly 18 verified assets; all three Pausable references
+  and the scenario report `semanticEvidence=none` until execution.
+- Verification: `solc` 0.8.30; Pinocchio `cargo check --locked` plus
+  cargo-build-sbf 3.1.12/platform-tools v1.52; near-sdk host tests and Rust
+  1.94.0 release Wasm build; `just differential-contracts`; source-digest
+  audit; and `git diff --check`. No full aggregate was run.

@@ -26,9 +26,9 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | CMP-3e1 - pin independent Solidity, Pinocchio, and near-sdk Pausable references plus one versioned negative-state scenario; keep evidence unverified until execution |
-| Next task | CMP-3e2 - execute Pausable on Anvil, Mollusk, and upstream NEAR VM; then A-CUT3c2 rewrites ReentrancyGuard and deletes its Legacy implementation |
-| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault is verified; Ownable VM evidence closed at `ce539dce`; Pausable direct cutover closed at `50c1c07a` |
+| Active task | CMP-3e2 - execute the direct Pausable artifact and independent references on Anvil, Mollusk, and upstream NEAR VM; compare all eight dimensions and delete the replaced NEAR v0 manifest |
+| Next task | A-CUT3c2 - rewrite Product ReentrancyGuard as the sole direct Authored source, migrate callers, and delete its zero-caller Legacy implementation |
+| Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; ValueVault and Ownable VM evidence are verified; Pausable cutover closed at `50c1c07a` and native references were pinned at `c8e417db` |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
