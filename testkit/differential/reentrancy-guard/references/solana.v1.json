@@ -1,0 +1,31 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "solana-reentrancy-guard-pinocchio",
+  "targetFamily": "solana",
+  "program": "reentrancy-guard",
+  "framework": "Pinocchio",
+  "source": {
+    "path": "benchmarks/native/solana/reentrancy-guard/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:520f078123a8e4e6739f3e242a2999fef91cdfb7edd01bc04243c602e67306c0",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "pinocchio", "version": "0.11.2"},
+      {"name": "solana-define-syscall", "version": "5.1.0"},
+      {"name": "cargo-build-sbf", "version": "3.1.12"},
+      {"name": "platform-tools", "version": "v1.52"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

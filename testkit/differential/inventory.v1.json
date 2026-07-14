@@ -127,6 +127,18 @@
       "targetFamily": "evm"
     },
     {
+      "id": "cmp3-reference-evm-reentrancy-guard",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3f independent ReentrancyGuard reference with pinned provenance; VM evidence is pending",
+      "path": "testkit/differential/reentrancy-guard/references/evm.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/evm/ReentrancyGuard.sol"
+      ],
+      "targetFamily": "evm"
+    },
+    {
       "id": "cmp3-reference-evm-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -163,6 +175,18 @@
       "targetFamily": "near"
     },
     {
+      "id": "cmp3-reference-near-reentrancy-guard",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3f independent ReentrancyGuard reference with pinned provenance; VM evidence is pending",
+      "path": "testkit/differential/reentrancy-guard/references/near.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/reentrancy-guard/src/lib.rs"
+      ],
+      "targetFamily": "near"
+    },
+    {
       "id": "cmp3-reference-near-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -195,6 +219,18 @@
       "semanticEvidence": "verified",
       "sourcePaths": [
         "benchmarks/native/solana/pausable/src/lib.rs"
+      ],
+      "targetFamily": "solana"
+    },
+    {
+      "id": "cmp3-reference-solana-reentrancy-guard",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3f independent ReentrancyGuard reference with pinned provenance; VM evidence is pending",
+      "path": "testkit/differential/reentrancy-guard/references/solana.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/solana/reentrancy-guard/src/lib.rs"
       ],
       "targetFamily": "solana"
     },
@@ -253,6 +289,15 @@
       "notes": "nine-step guarded Pausable lifecycle executed on both implementations for every primary target",
       "path": "testkit/differential/pausable/scenario.v1.json",
       "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "cmp3-scenario-reentrancy-guard-primary-triad",
+      "kind": "scenario",
+      "maturity": "portableScenarioV1",
+      "notes": "nine-step guarded lock lifecycle awaiting execution on both implementations for every primary target",
+      "path": "testkit/differential/reentrancy-guard/scenario.v1.json",
+      "semanticEvidence": "none",
       "targetFamily": "portable"
     },
     {
@@ -320,6 +365,15 @@
       "maturity": "structuralReference",
       "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
       "path": "benchmarks/native/evm/Pausable.sol",
+      "semanticEvidence": "none",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-reference-reentrancyguard",
+      "kind": "nativeReference",
+      "maturity": "structuralReference",
+      "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
+      "path": "benchmarks/native/evm/ReentrancyGuard.sol",
       "semanticEvidence": "none",
       "targetFamily": "evm"
     },
@@ -1328,14 +1382,14 @@
     }
   ],
   "schema": "proof-forge.differential.inventory.v1",
-  "scope": "tracked comparison assets through verified ValueVault and Ownable plus pinned Pausable CMP-3 slices",
+  "scope": "tracked comparison assets through verified ValueVault, Ownable, and Pausable plus pinned ReentrancyGuard CMP-3 references",
   "summary": {
-    "assetCount": 113,
+    "assetCount": 118,
     "byTargetFamily": {
-      "evm": 12,
-      "near": 35,
-      "portable": 32,
-      "solana": 26,
+      "evm": 14,
+      "near": 36,
+      "portable": 33,
+      "solana": 27,
       "stylus": 8
     },
     "semanticVerifiedCount": 24

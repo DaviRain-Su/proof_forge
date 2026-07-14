@@ -1,0 +1,28 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "evm-reentrancy-guard-solidity",
+  "targetFamily": "evm",
+  "program": "reentrancy-guard",
+  "framework": "Solidity",
+  "source": {
+    "path": "benchmarks/native/evm/ReentrancyGuard.sol",
+    "language": "solidity"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:7bcfba7ddc8da0a70fc209b0015a501191253b8d0c1aeafe5552d7034f61c662",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "solc", "version": "0.8.30"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

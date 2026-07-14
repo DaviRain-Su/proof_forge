@@ -342,6 +342,39 @@ def generate_inventory() -> dict[str, object]:
             )
         )
 
+    cmp3_guard_root = REPO_ROOT / "testkit/differential/reentrancy-guard"
+    for manifest in sorted((cmp3_guard_root / "references").glob("*.v1.json")):
+        reference = json.loads(manifest.read_text(encoding="utf-8"))
+        validate_reference(reference, relative(manifest))
+        assets.append(
+            asset(
+                f"cmp3-reference-{reference['targetFamily']}-reentrancy-guard",
+                reference["targetFamily"],
+                "nativeReference",
+                manifest,
+                "referenceManifestV1",
+                "none",
+                "CMP-3f independent ReentrancyGuard reference with pinned provenance; VM evidence is pending",
+                sourcePaths=[reference["source"]["path"]],
+            )
+        )
+
+    cmp3_guard_scenario = cmp3_guard_root / "scenario.v1.json"
+    if cmp3_guard_scenario.is_file():
+        scenario_document = json.loads(cmp3_guard_scenario.read_text(encoding="utf-8"))
+        validate_scenario(scenario_document, relative(cmp3_guard_scenario))
+        assets.append(
+            asset(
+                "cmp3-scenario-reentrancy-guard-primary-triad",
+                "portable",
+                "scenario",
+                cmp3_guard_scenario,
+                "portableScenarioV1",
+                "none",
+                "nine-step guarded lock lifecycle awaiting execution on both implementations for every primary target",
+            )
+        )
+
     for scenario in sorted((REPO_ROOT / "testkit/scenarios").glob("*.toml")):
         assets.append(
             asset(
@@ -453,7 +486,7 @@ def generate_inventory() -> dict[str, object]:
     assets.sort(key=lambda item: item["id"])
     inventory: dict[str, object] = {
         "schema": INVENTORY_SCHEMA,
-        "scope": "tracked comparison assets through verified ValueVault and Ownable plus pinned Pausable CMP-3 slices",
+        "scope": "tracked comparison assets through verified ValueVault, Ownable, and Pausable plus pinned ReentrancyGuard CMP-3 references",
         "summary": {
             "assetCount": len(assets),
             "semanticVerifiedCount": sum(1 for item in assets if item["semanticEvidence"] == "verified"),

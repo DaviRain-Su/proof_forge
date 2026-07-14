@@ -1,0 +1,30 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "near-reentrancy-guard-near-sdk-rs",
+  "targetFamily": "near",
+  "program": "reentrancy-guard",
+  "framework": "near-sdk-rs",
+  "source": {
+    "path": "testkit/compare/near/reentrancy-guard/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:51efa5d88ec356522502d841aa4c4f1a291564bea2566a099f34afc42dec8e3e",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "near-sdk", "version": "5.28.3"},
+      {"name": "rustc", "version": "1.94.0"},
+      {"name": "near-vm-runner", "version": "0.37"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

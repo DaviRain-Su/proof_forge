@@ -433,6 +433,88 @@ class ContractTests(unittest.TestCase):
             pausable_assets,
         )
 
+    def test_cmp3_reentrancy_guard_scenario_and_references_are_pinned(self) -> None:
+        root = REPO_ROOT / "testkit/differential/reentrancy-guard"
+        self.assertTrue(
+            (REPO_ROOT / "testkit/compare/near/reentrancy-guard/reference-manifest.json").exists()
+        )
+        scenario = json.loads((root / "scenario.v1.json").read_text(encoding="utf-8"))
+        validate_scenario(scenario)
+        self.assertEqual(
+            set(scenario["requiredObservations"]),
+            {
+                "callStatus",
+                "returnValue",
+                "state",
+                "balances",
+                "events",
+                "externalActions",
+                "interface",
+                "resources",
+            },
+        )
+        self.assertEqual(9, len(scenario["steps"]))
+        rejected = {
+            step["id"]: step["expectError"]
+            for step in scenario["steps"]
+            if "expectError" in step
+        }
+        self.assertEqual(
+            {
+                "release-while-unlocked": "lock-not-held",
+                "acquire-while-locked": "reentrant-call",
+            },
+            rejected,
+        )
+        self.assertEqual(len(scenario["steps"]), len(scenario["allowedDivergences"]))
+
+        manifests = sorted((root / "references").glob("*.v1.json"))
+        self.assertEqual(
+            ["evm.v1.json", "near.v1.json", "solana.v1.json"],
+            [path.name for path in manifests],
+        )
+        for manifest_path in manifests:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            validate_reference(manifest)
+            source = REPO_ROOT / manifest["source"]["path"]
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
+            source_text = source.read_text(encoding="utf-8")
+            self.assertNotIn("proof_forge::", source_text)
+            self.assertNotIn("ProofForge/", source_text)
+
+        evm_source = (
+            REPO_ROOT / "benchmarks/native/evm/ReentrancyGuard.sol"
+        ).read_text(encoding="utf-8")
+        solana_source = (
+            REPO_ROOT / "benchmarks/native/solana/reentrancy-guard/src/lib.rs"
+        ).read_text(encoding="utf-8")
+        near_source = (
+            REPO_ROOT / "testkit/compare/near/reentrancy-guard/src/lib.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("error ReentrantCall", evm_source)
+        self.assertIn("error LockNotHeld", evm_source)
+        self.assertIn("const STATE_LEN: usize = 8", solana_source)
+        self.assertIn("state.owned_by(program_id)", solana_source)
+        self.assertIn('env::panic_str("reentrant call")', near_source)
+        self.assertIn('env::panic_str("lock not held")', near_source)
+
+        inventory = generate_inventory()
+        guard_assets = {
+            item["id"]: item["semanticEvidence"]
+            for item in inventory["assets"]
+            if item["id"].startswith("cmp3-") and "reentrancy-guard" in item["id"]
+        }
+        self.assertEqual(
+            {
+                "cmp3-reference-evm-reentrancy-guard": "none",
+                "cmp3-reference-near-reentrancy-guard": "none",
+                "cmp3-reference-solana-reentrancy-guard": "none",
+                "cmp3-scenario-reentrancy-guard-primary-triad": "none",
+            },
+            guard_assets,
+        )
+
     def test_compiler_does_not_import_comparison_contracts(self) -> None:
         needles = (
             "proof-forge.differential.reference.v1",

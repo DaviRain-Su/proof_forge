@@ -1,6 +1,6 @@
 //! near-sdk ReentrancyGuard lock-bit reference.
-//! Mirrors `ProofForge.Contract.Stdlib.ReentrancyGuard` portable surface:
-//! acquire / release / locked. Not EVM call-stack reentrancy theory.
+//! Implements the portable acquire / release / locked policy independently.
+//! This is lock-state behavior, not EVM call-stack reentrancy theory.
 
 #![allow(clippy::needless_pass_by_value)]
 
@@ -27,6 +27,9 @@ impl ReentrancyGuard {
     }
 
     pub fn release(&mut self) {
+        if self.lock == 0 {
+            env::panic_str("lock not held");
+        }
         self.lock = 0;
     }
 }
@@ -46,5 +49,22 @@ mod tests {
         assert_eq!(c.locked(), 1);
         c.release();
         assert_eq!(c.locked(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "reentrant call")]
+    fn repeated_acquire_is_rejected() {
+        testing_env!(VMContextBuilder::new().build());
+        let mut c = ReentrancyGuard::default();
+        c.acquire();
+        c.acquire();
+    }
+
+    #[test]
+    #[should_panic(expected = "lock not held")]
+    fn release_while_unlocked_is_rejected() {
+        testing_env!(VMContextBuilder::new().build());
+        let mut c = ReentrancyGuard::default();
+        c.release();
     }
 }

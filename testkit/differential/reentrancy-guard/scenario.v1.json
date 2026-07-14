@@ -1,0 +1,38 @@
+{
+  "schema": "proof-forge.differential.scenario.v1",
+  "id": "portable-reentrancy-guard-primary-triad",
+  "kind": "portable",
+  "targetFamily": "portable",
+  "steps": [
+    {"id": "initial-locked", "action": "locked", "inputs": {}},
+    {"id": "release-while-unlocked", "action": "release", "inputs": {}, "expectError": "lock-not-held"},
+    {"id": "state-after-failed-release", "action": "locked", "inputs": {}},
+    {"id": "acquire", "action": "acquire", "inputs": {}},
+    {"id": "locked-after-acquire", "action": "locked", "inputs": {}},
+    {"id": "acquire-while-locked", "action": "acquire", "inputs": {}, "expectError": "reentrant-call"},
+    {"id": "state-after-failed-acquire", "action": "locked", "inputs": {}},
+    {"id": "release", "action": "release", "inputs": {}},
+    {"id": "final-locked", "action": "locked", "inputs": {}}
+  ],
+  "requiredObservations": [
+    "callStatus",
+    "returnValue",
+    "state",
+    "balances",
+    "events",
+    "externalActions",
+    "interface",
+    "resources"
+  ],
+  "allowedDivergences": [
+    {"dimension": "resources", "scope": "/steps/initial-locked/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/release-while-unlocked/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/state-after-failed-release/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/acquire/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/locked-after-acquire/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/acquire-while-locked/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/state-after-failed-acquire/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/release/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/final-locked/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."}
+  ]
+}
