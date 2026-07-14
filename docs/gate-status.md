@@ -163,6 +163,20 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | A-CUT3b2-4 | NEAR address representation remains target-owned | ✅ met | Wasm-host parameter, scalar storage, event, and return lowering materializes portable address values as the target's i64 carrier; final `wat2wasm` validation passes |
 | A-CUT3b2-5 | EVM plan metadata retains the shared artifact schema | ✅ met | the plan-only event writer emits `topics` and `dataWords`; metadata validation checks the standard `transferOwnership(address)` selector `f2fde38b` and the 160-bit address layout |
 
+## Gate A-CUT3c1 - Product Pausable direct cutover
+
+**Status: Closed**
+
+**Closed: 2026-07-14 at `50c1c07a`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| A-CUT3c1-1 | Product Pausable has one current source identity | ✅ met | `just pausable-authoring-cutover` requires one `contract : AuthoredContract` and rejects Product `.spec`/`.module`, `Source.Legacy`, stdlib-facade references, and compatibility allowlist entries |
+| A-CUT3c1-2 | Retired implementations are deleted instead of adapted | ✅ met | `ProofForge/Contract/Stdlib/Pausable.lean` and the EVM wrapper are absent; all former Product callers use `.contract` or the dedicated checked-Core gate, and topology no longer requires the wrapper |
+| A-CUT3c1-3 | The state machine reaches checked Core and target-owned plans | ✅ met | one checked contract preserves equality and inequality guards plus state stores through EVM, Solana, NEAR, and the shared Soroban Wasm-host plan |
+| A-CUT3c1-4 | Public primary-target artifacts are Canonical-only | ✅ met | target-first EVM bytecode/Yul, Solana assembly/package, and NEAR WAT/Wasm report `contract-source-authored` / `canonical-core-v1`, emit no retired sidecars, and pass selector/metadata validation |
+| A-CUT3c1-5 | New architecture semantics are retained | ✅ met | the EVM golden is regenerated from direct Core and keeps its stricter packed-u64 width checks; EVM, Solana, and Wasm outputs preserve both pause-state assertions without a fallback renderer |
+
 ## Gate CMP-3d1 - Independent Ownable reference contracts
 
 **Status: Closed**

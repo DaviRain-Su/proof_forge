@@ -1,5 +1,5 @@
 //! near-sdk Pausable reference (unauthenticated pause/unpause).
-//! Mirrors `ProofForge.Contract.Stdlib.Pausable` / Product Pausable.
+//! Independent near-sdk reference for the direct Product Pausable behavior.
 
 #![allow(clippy::needless_pass_by_value)]
 

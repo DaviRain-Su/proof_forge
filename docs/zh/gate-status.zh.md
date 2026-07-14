@@ -156,6 +156,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT3b2-4 | NEAR address 表示保持 target-owned | ✅ met | Wasm-host 参数、标量存储、事件和返回 lowering 将 portable address 物化为 target 的 i64 carrier；最终 `wat2wasm` 验证通过 |
 | A-CUT3b2-5 | EVM plan metadata 保持共享 artifact schema | ✅ met | plan-only event writer 发射 `topics` 与 `dataWords`；metadata validator 检查标准 `transferOwnership(address)` selector `f2fde38b` 与 160-bit address layout |
 
+## Gate A-CUT3c1 —— Product Pausable direct 切换
+
+**状态：Closed**
+
+**Closed: 2026-07-14 at `50c1c07a`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT3c1-1 | Product Pausable 只有一个当前 source identity | ✅ met | `just pausable-authoring-cutover` 要求唯一 `contract : AuthoredContract`，并拒绝 Product `.spec`/`.module`、`Source.Legacy`、stdlib facade 引用和 compatibility allowlist 项 |
+| A-CUT3c1-2 | 旧实现被删除而不是适配 | ✅ met | `ProofForge/Contract/Stdlib/Pausable.lean` 与 EVM wrapper 均已删除；原 Product 调用方改用 `.contract` 或专用 checked-Core gate，topology 不再要求该 wrapper |
+| A-CUT3c1-3 | 状态机到达 checked Core 与 target-owned plan | ✅ met | 同一个 checked contract 在 EVM、Solana、NEAR 与共享 Soroban Wasm-host plan 中保留相等/不等 guard 和状态写入 |
+| A-CUT3c1-4 | 公开主目标只发射 Canonical artifact | ✅ met | target-first EVM bytecode/Yul、Solana assembly/package 与 NEAR WAT/Wasm 报告 `contract-source-authored` / `canonical-core-v1`，不发射旧 sidecar，并通过 selector/metadata 校验 |
+| A-CUT3c1-5 | 保留新架构语义 | ✅ met | EVM golden 从 direct Core 重新生成并保留更严格的 packed-u64 宽度检查；EVM、Solana 与 Wasm 输出保留两种 pause-state assertion，且没有 fallback renderer |
+
 ## Gate CMP-3d1 —— 独立 Ownable reference 契约
 
 **状态：已关闭**

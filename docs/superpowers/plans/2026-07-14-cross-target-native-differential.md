@@ -202,8 +202,9 @@ that single route, deletes its ContractSpec/v1 aliases and obsolete EVM wrapper,
 and emits EVM, Solana, and final NEAR Wasm artifacts carrying
 `contract-source-authored` / `canonical-core-v1`. The focused gate rejects
 legacy sidecars and proves NEAR's address carrier is owned by the Wasm-host
-plan. Independent native Ownable differential evidence is the next CMP-3
-authorization slice.
+plan. Independent native Ownable differential evidence is complete. Pausable
+now also has one direct Product source at `50c1c07a`; its native reference and
+VM comparison slices are next and cannot adapt the retired Legacy source.
 
 Ownable authorization execution slices:
 
@@ -234,6 +235,17 @@ external-actions, interface, and target-local resource coverage for every
 target. The old NEAR Ownable v0 manifest was deleted; its compare caller now
 names the v1 manifest explicitly, with no discovery fallback or migration
 adapter. Inventory now contains 107 assets and exactly 18 verified assets.
+
+Pausable state-machine execution slices:
+
+| ID | State | Task |
+|---|---|---|
+| CMP-3e1 | in_progress | Pin independent Solidity and Pinocchio programs, promote the existing near-sdk reference to complete v1 provenance, and define one versioned scenario with repeated pause/unpause failures and state preservation. Evidence remains `none`. |
+| CMP-3e2 | pending after CMP-3e1 | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight dimensions and delete the replaced NEAR v0 manifest rather than adapting it. |
+
+Neither slice may add a compiler compatibility path, consume a v1
+`ContractSpec`/`IR.Module`, or promote inventory evidence before all three VMs
+complete the same scenario.
 
 Acceptance:
 

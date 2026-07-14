@@ -4389,3 +4389,27 @@ Rules:
   near-compare-ownable`; focused Cargo checks for the Solana and NEAR compare
   runners; Python bytecode compilation; and `git diff --check`. No full
   aggregate was run.
+
+## 2026-07-14 - A-CUT3c1: direct-only Product Pausable cutover
+
+- Status: `done (verified at 50c1c07a)`; CMP-3e1 independent Pausable
+  references are now active before ReentrancyGuard migration.
+- Rewrote `Examples/Product/Pausable.lean` as the sole target-neutral
+  `AuthoredContract`. It directly expresses the paused scalar, query, equality
+  and inequality guards, and pause/unpause transitions without `ContractSpec`,
+  v1 `IR.Module`, `Source.Legacy`, or a stdlib facade.
+- Deleted `ProofForge/Contract/Stdlib/Pausable.lean` and the obsolete EVM
+  wrapper. Removed their aggregate import, topology/allowlist records, and all
+  Product `.spec`/`.module` callers; legacy aggregate tests now either inspect
+  `.contract` or defer target behavior to the direct checked-Core gate.
+- Added `Tests/PausableExample.lean`, the source-tree deletion guard, and the
+  public target-first smoke. The same checked contract reaches EVM, Solana,
+  NEAR, and the shared Soroban Wasm-host plan. Public primary-triad artifacts
+  carry `contract-source-authored` / `canonical-core-v1` and no retired
+  sidecars.
+- Regenerated the EVM backend golden from direct Core. The new output retains
+  stricter packed-u64 write bounds instead of weakening the new architecture
+  to reproduce the Legacy renderer.
+- Verification: `just pausable-authoring-cutover`; focused Product matrix and
+  portable-auth tests; topology and portable-default checks; `git diff
+  --check`. No full aggregate was run.

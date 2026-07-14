@@ -283,7 +283,7 @@ independent primary-triad behavior requirement at `e2834c59`.
 
 ### A-CUT3 - Product migration
 
-State: `in_progress; ValueVault and Ownable direct with primary-triad VM evidence; Pausable direct deletion migration active`
+State: `in_progress; ValueVault and Ownable direct with primary-triad VM evidence; Pausable direct cutover verified at 50c1c07a and native differential active`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
@@ -321,9 +321,17 @@ builds final artifacts for all three targets and rejects retired sidecars.
 `just differential-ownable` now executes independent Solidity, Pinocchio, and
 near-sdk references beside those direct artifacts on Anvil, Mollusk, and the
 upstream NEAR VM. All ten steps and eight observation dimensions match; the
-superseded NEAR Ownable v0 manifest is deleted. Pausable is the active direct
-deletion migration, followed by ReentrancyGuard; neither receives a
-compatibility facade.
+superseded NEAR Ownable v0 manifest is deleted.
+
+Pausable checkpoint (2026-07-14): `50c1c07a` rewrites
+`Examples/Product/Pausable.lean` as the sole `AuthoredContract`, removes every
+Product `.spec`/`.module` caller, deletes both the Legacy stdlib implementation
+and obsolete EVM wrapper, and removes their allowlist/topology entries. The
+same checked Core reaches EVM, Solana, NEAR, and the shared Soroban Wasm-host
+plan. `just pausable-authoring-cutover` builds final primary-triad artifacts
+with `contract-source-authored` / `canonical-core-v1` and rejects retired
+sidecars. CMP-3e native evidence is active before ReentrancyGuard receives the
+same rewrite-and-delete treatment; neither family gets a compatibility facade.
 
 ### A-CUT4 - Delete duplicate source and version split
 

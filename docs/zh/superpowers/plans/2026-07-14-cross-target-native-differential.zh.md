@@ -158,8 +158,9 @@ target plan。随后 A-CUT3b2 将 Product Ownable 本身切换到这条单一路
 删除 ContractSpec/v1 alias 与过时 EVM wrapper，并发射携带
 `contract-source-authored` / `canonical-core-v1` 的 EVM、Solana 与最终
 NEAR Wasm 制品。focused gate 拒绝 legacy sidecar，并证明 NEAR address
-carrier 由 Wasm-host plan 所有。独立原生 Ownable 差分证据是下一项 CMP-3
-authorization 切片。
+carrier 由 Wasm-host plan 所有。独立原生 Ownable 差分证据已经完成。Pausable
+也已在 `50c1c07a` 获得唯一 direct Product source；下一步固定其原生 reference
+并执行 VM comparison，且不得适配已退役的 Legacy source。
 
 Ownable authorization 执行切片：
 
@@ -186,6 +187,17 @@ plan 构建，再通过 Anvil、Mollusk 与 upstream `near-vm-runner` 执行两�
 return、state、balance、event、external action、interface 与 target-local resource。
 旧 NEAR Ownable v0 manifest 已删除；其 compare 调用方现在显式命名 v1 manifest，
 不存在发现 fallback 或迁移 adapter。Inventory 现含 107 项资产，恰有 18 项 verified。
+
+Pausable 状态机执行切片：
+
+| ID | 状态 | 任务 |
+|---|---|---|
+| CMP-3e1 | in_progress | 固定独立 Solidity 与 Pinocchio program，把现有 near-sdk reference 提升到完整 v1 provenance，并定义含重复 pause/unpause 失败与状态保持的版本化场景。Evidence 保持 `none`。 |
+| CMP-3e2 | CMP-3e1 后 pending | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个 dimension，并删除被替代的 NEAR v0 manifest，而不是适配它。 |
+
+两个切片都不得增加 compiler compatibility path、消费 v1
+`ContractSpec`/`IR.Module`，也不得在三个 VM 完成同一场景前晋级 inventory
+evidence。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 
