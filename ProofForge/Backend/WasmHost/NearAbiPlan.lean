@@ -3,6 +3,7 @@ Copyright (c) 2026 DaviRain. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import ProofForge.Backend.WasmHost.AbiPlan
+import ProofForge.Backend.WasmHost.StructPlan
 
 namespace ProofForge.Backend.WasmHost.NearAbiPlan
 
@@ -208,6 +209,13 @@ def buildSignaturePlan (structs : Array StructDecl) (name : String)
     inputJson?
     outputJson?
   }
+
+def buildSignaturePlanFromStructPlans
+    (structs : Array ProofForge.Backend.WasmHost.StructPlan.Struct) (name : String)
+    (signatureParams : Array (String × ValueType)) (returns : ValueType) :
+    Except String EntrypointPlan :=
+  buildSignaturePlan (structs.map ProofForge.Backend.WasmHost.StructPlan.toIR)
+    name signatureParams returns
 
 def buildEntrypointPlan (structs : Array StructDecl) (entrypoint : Entrypoint) :
     Except String EntrypointPlan :=

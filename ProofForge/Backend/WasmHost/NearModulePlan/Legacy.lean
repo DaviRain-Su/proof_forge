@@ -76,12 +76,12 @@ def buildNearModulePlan (mod : Module) : Except PlanError NearModulePlan := do
       mapkeyBuf := MAPKEY_BUF
       stringBase := STRING_BASE
       crosscallStringBase := CROSSCALL_STRING_BASE
-      structs := mod.structs
-      allocator := mod.allocator
+      structs := mod.structs.map ProofForge.Backend.WasmHost.StructPlan.ofIR
     }
   }
 
-def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan)
+def Ctx.fromPlanSeed (_seed : NearLowerCtxSeed) (layout : NearLayoutPlan)
+    (structs : Array StructDecl) (allocator : ProofForge.IR.AllocatorConfig)
     (entrypointAbis : Array EntrypointPlan := #[]) : EmitWat.Ctx :=
   let pack := layout.scalars.any (fun state => state.packed)
   let packSize := layout.scalars.foldl (init := 0) fun size state =>
@@ -101,8 +101,8 @@ def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan)
       { str := entry.str, ptr := entry.ptr, len := entry.len : EmitWat.StringInfo }
     crosscallStrings := layout.crosscallStrings.map fun entry =>
       { str := entry.str, ptr := entry.ptr, len := entry.len : EmitWat.StringInfo }
-    structs := seed.structs
-    allocator := seed.allocator
+    structs
+    allocator
     entrypointAbis
     packScalars := pack
     packSize
@@ -110,7 +110,7 @@ def Ctx.fromPlanSeed (seed : NearLowerCtxSeed) (layout : NearLayoutPlan)
 
 def lowerModuleFromPlan (mod : Module) (plan : NearModulePlan) :
     Except ProofForge.Backend.WasmHost.Diagnostics.EmitError ProofForge.Compiler.Wasm.Module := do
-  let ctx := Ctx.fromPlanSeed plan.lowerCtxSeed plan.layout plan.entrypointAbis
+  let ctx := Ctx.fromPlanSeed plan.lowerCtxSeed plan.layout mod.structs mod.allocator plan.entrypointAbis
   EmitWat.validateScratchCapacities mod ctx.strings ctx.panics ctx.crosscallStrings
   EmitWat.lowerModuleCoreWithCtx mod plan.surface ctx
 

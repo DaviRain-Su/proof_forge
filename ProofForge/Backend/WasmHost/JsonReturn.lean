@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import ProofForge.Compiler.Wasm.AST
 import ProofForge.Backend.WasmHost.AbiPlan
+import ProofForge.Backend.WasmHost.StructPlan
 import ProofForge.Backend.WasmHost.Aggregate
 import ProofForge.Backend.WasmHost.Common
 import ProofForge.Backend.WasmHost.Event
@@ -398,5 +399,11 @@ def buildReturnFunc (entrypoint : String) (structs : Array StructDecl)
     locals := arrayLocals schema
     body := { insns := #[.call startName] ++ body ++ #[.call finishName] }
   }
+
+def buildReturnFuncFromStructPlans (entrypoint : String)
+    (structs : Array ProofForge.Backend.WasmHost.StructPlan.Struct)
+    (schema : JsonSchemaPlan) (type : ValueType) : Except String Func :=
+  buildReturnFunc entrypoint
+    (structs.map ProofForge.Backend.WasmHost.StructPlan.toIR) schema type
 
 end ProofForge.Backend.WasmHost.JsonReturn

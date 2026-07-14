@@ -87,6 +87,12 @@ make_fixture "$root"
 touch "$root/ProofForge/Backend/Evm/CorePlan.lean"
 expect_failure "remaining spike file" "$root"
 
+root="$TMP/wasm-plan-legacy-layout"
+make_fixture "$root"
+printf '%s\n' 'structure LowerCtxSeed where' '  structs : Array StructDecl' \
+  > "$root/ProofForge/Backend/WasmHost/ModulePlan.lean"
+expect_failure "Wasm-host legacy layout type" "$root"
+
 root="$TMP/comments"
 make_fixture "$root"
 printf '%s\n' '-- historical id: "evm-core"' 'def ids := #["evm"]' > "$root/ProofForge/Target/Registry.lean"

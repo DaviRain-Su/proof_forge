@@ -2643,3 +2643,21 @@ Rules:
   `Tests/NearModulePlan.lean`; `Tests/NearAbiPlan.lean`; and
   `just canonical-boundary`.
 - Next: NEAR-R0b/R1, remove v1 type/layout ownership from the target plan.
+
+## 2026-07-14 - NEAR-R1a: target-owned aggregate layout
+
+- Status: `in_progress`; `StructDecl` and `AllocatorConfig` ownership is
+  removed, while `ValueType` extraction remains.
+- Added Wasm-host `StructPlan` field/aggregate layouts and changed
+  `WasmHostModulePlan.LowerCtxSeed` to store those target plans instead of v1
+  IR declarations. Removed allocator configuration from the plan entirely.
+- Legacy lowering reads the original declarations and allocator only from its
+  explicitly supplied legacy module. Canonical ABI and JSON-return entrypoints
+  accept the target-owned layouts through dedicated adapters.
+- Extended `canonical-boundary` and its self-test to reject `StructDecl` or
+  `AllocatorConfig` fields in the Wasm-host module plan.
+- Verification passed: targeted Wasm-host builds,
+  `Tests/Canonical/WasmHostPlanPreservation.lean`, `Tests/NearModulePlan.lean`,
+  `Tests/NearAbiPlan.lean`, and `just canonical-boundary`.
+- Next: extract the Wasm-host value/type model so the plan no longer imports
+  v1 `IR.Contract` merely to name scalar and aggregate value shapes.

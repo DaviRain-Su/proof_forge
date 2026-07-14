@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | NEAR-R0 - isolate all v1 `IR.Module` compatibility APIs |
-| Next task | NEAR-R1 - make `NearModulePlan` fully target-owned |
+| Active task | NEAR-R1 - make `NearModulePlan` fully target-owned |
+| Next task | NEAR-R2 - move NEAR-only semantics into typed HostOps |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -132,8 +132,8 @@ cutover is split into reviewable removal slices:
 
 | ID | State | Task |
 |---|---|---|
-| NEAR-R0 | in_progress | Isolate v1 `IR.Module` builders/lowerers behind an explicit Legacy module and enforce import boundaries |
-| NEAR-R1 | pending | Remove v1 `ValueType`, `StructDecl`, and allocator ownership from `NearModulePlan` |
+| NEAR-R0 | done (verified at `b8acc604`) | Isolate v1 `IR.Module` builders/lowerers behind an explicit Legacy module and enforce import boundaries |
+| NEAR-R1 | in_progress | Remove v1 `ValueType`, `StructDecl`, and allocator ownership from `NearModulePlan` |
 | NEAR-R2 | pending | Move NEAR-only context, value, receipt, and promise operations into typed Near HostOps |
 | NEAR-R3 | pending | Materialize TokenSpec/Surface v2 directly into checked Canonical Core |
 | NEAR-R4 | pending | Switch the public CLI route and replay N-T1 through N-T4 gates on the canonical artifact |

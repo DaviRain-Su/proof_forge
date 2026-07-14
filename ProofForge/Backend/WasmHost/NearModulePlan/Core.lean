@@ -359,7 +359,7 @@ def coreLowerCtxSeed (m : ProofForge.IR.Core.Module)
         isPublic := layout.isPublic
         isRecord := declaration.semantics == .linearRecord
       }
-    allocator := defaultAllocator }
+    }
 
 private def nearValue (value : ValueRef) : NearValuePlan :=
   { id := value.id.value, typeName := reprStr value.type }
@@ -621,7 +621,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let entrypointAbis ← iface.entrypoints.mapM fun entrypoint =>
     let signatureParams := entrypoint.params.map fun param =>
       (param.name, coreTypeToValueTypeWith checked.contract.materialization param.type)
-    match NearAbiPlan.buildSignaturePlan lowerCtxSeed.structs entrypoint.name signatureParams
+    match NearAbiPlan.buildSignaturePlanFromStructPlans lowerCtxSeed.structs entrypoint.name signatureParams
         (coreTypeToValueTypeWith checked.contract.materialization entrypoint.retType) with
     | .ok plan => pure plan
     | .error message => throw { message }

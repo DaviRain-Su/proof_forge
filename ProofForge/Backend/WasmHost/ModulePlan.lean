@@ -1,7 +1,7 @@
 import ProofForge.Backend.WasmHost.AbiPlan
 import ProofForge.Backend.WasmHost.Plan
+import ProofForge.Backend.WasmHost.StructPlan
 import ProofForge.Backend.WasmHost.Types
-import ProofForge.IR.Allocator
 import ProofForge.IR.Contract
 import ProofForge.Target.HostBridge
 
@@ -122,8 +122,7 @@ structure LowerCtxSeed where
   mapkeyBuf : Nat
   stringBase : Nat
   crosscallStringBase : Nat
-  structs : Array StructDecl
-  allocator : ProofForge.IR.AllocatorConfig
+  structs : Array ProofForge.Backend.WasmHost.StructPlan.Struct
   deriving Repr
 
 structure HostBridgePlan where

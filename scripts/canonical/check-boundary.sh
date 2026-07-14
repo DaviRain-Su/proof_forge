@@ -9,6 +9,7 @@
 #   4. target plan declaration containing Yul.Statement, AstNode, or Wasm.Insn
 #   5. legacy constructor change without classification change
 #   6. remaining EvmCorePlan, SolanaCorePlan, or WasmCorePlan declaration
+#   7. Wasm-host plan storing v1 StructDecl or AllocatorConfig values
 #
 # This is a required static gate in `just check`.
 
@@ -113,6 +114,12 @@ for f in "${SPIKE_FILES[@]}"; do
     report "spike file still exists: $f"
   fi
 done
+
+# ── 7. Wasm-host plan fields are target-owned ─────────────────────
+if rg -n '\b(?:StructDecl|AllocatorConfig)\b' \
+    ProofForge/Backend/WasmHost/ModulePlan.lean >/dev/null 2>&1; then
+  report "Wasm-host module plan stores retired v1 layout types"
+fi
 
 if [ "$FAIL" -eq 0 ]; then
   echo "canonical-boundary: ok"
