@@ -104,3 +104,6 @@ reproducible positive and negative gates.
   allowed to import the compatibility adapter. Stylus uses that shared
   normalization boundary while keeping its token/renderer artifact path.
 - **Next state:** `replacement_ready` as each module migrates
+- **Blocking prerequisite:** IR-B7b. Canonical Core now emits physical EVM
+  scalar/map/array storage targets, but the Yul renderer must stop accepting a
+  legacy `IR.Module` before Counter can leave the compatibility source path.

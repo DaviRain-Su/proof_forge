@@ -23,11 +23,11 @@ Keep this section short and update it whenever the active task changes.
 
 | Field | Current value |
 |---|---|
-| Program | Arbitrum Stylus general-contract completion |
-| Active task | External Stylus evidence follow-up |
-| Next task | Provision the pinned Nitro Testnode and configure a durable Woodpecker artifact sink, then close W5.2/W7.2 |
-| Known blocker | Nitro needs Docker, the pinned checkout, and local RPC; Woodpecker durable artifacts need a configured sink/credentials |
-| Execution queue | [`docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md`](docs/superpowers/plans/2026-07-13-arbitrum-stylus-completion.md) |
+| Program | Canonical target-plan ownership and incremental Legacy removal |
+| Active task | IR-B7a - make Canonical EVM storage plans target-owned |
+| Next task | IR-B7b - render Canonical EVM plans without `IR.Module` |
+| Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
+| Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task
@@ -91,7 +91,7 @@ and shared interface/materialization records.
 | IR-B4 | in_progress (B4a-B4b verified) | Move EVM protocol and ABI operations out of shared IR |
 | IR-B5 | pending | Audit and migrate Solana PDA/CPI/account behavior |
 | IR-B6 | pending | Audit other Wasm-host, Move, Aleo, Psy, and Quint target ownership |
-| IR-B7 | pending | Move target environment/interface/materialization fields |
+| IR-B7 | in_progress (B7a verified 2026-07-14) | Move target environment/interface/materialization fields |
 | IR-B8 | pending | Empty the compatibility allowlist and enforce the boundary |
 
 Legacy removal follows the

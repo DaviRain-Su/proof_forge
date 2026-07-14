@@ -2548,3 +2548,19 @@ Rules:
 - Remaining Legacy work: remove CLI argument round-trips and eliminate the EVM
   renderer's residual legacy `IR.Module` declaration context before switching
   Surface v2 products such as Counter.
+
+## 2026-07-14 - IR-B7a: target-owned Canonical EVM storage plans
+
+- Status: `done (verified 2026-07-14)`.
+- Changed the Canonical Core EVM builder to resolve logical `StateId` values
+  against its own `StorageLayout` during planning.
+- Scalar, map, and fixed-array loads/stores now emit physical target variants
+  carrying slots, packing widths, and bounds. They no longer retain symbolic
+  state names for the Yul phase to rediscover through legacy `IR.Module`.
+- Added a regression assertion covering real Counter and ValueVault plans;
+  either plan fails if any symbolic Legacy storage effect survives.
+- Verification passed: `lake build ProofForge.Backend.Evm.Plan.Core`,
+  `lake env lean --run Tests/Backend/Evm/CanonicalPlan.lean`, and
+  `git diff --check`.
+- Next: IR-B7b, add a plan-only Canonical EVM renderer and remove the
+  `IR.Module` argument from the strict public route.

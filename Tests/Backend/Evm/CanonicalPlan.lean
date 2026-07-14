@@ -32,6 +32,57 @@ open ProofForge.Backend.Evm.Plan.Core
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw <| IO.userError message
 
+def effectUsesSymbolicStorage : EffectPlan → Bool
+  | .storageScalarRead .. | .storageScalarWrite .. | .storageScalarAssignOp ..
+  | .storageMapContains .. | .storageMapGet .. | .storageMapInsert ..
+  | .storageMapSet .. | .storageMapDelete ..
+  | .storageArrayRead .. | .storageArrayWrite ..
+  | .storageArrayStructFieldRead .. | .storageArrayStructFieldWrite ..
+  | .storageDynamicArrayPush .. | .storageDynamicArrayPop ..
+  | .storageStructFieldRead .. | .storageStructFieldWrite ..
+  | .storagePathRead .. | .storagePathWrite .. | .storagePathAssignOp .. => true
+  | _ => false
+
+partial def exprUsesSymbolicStorage : ExprPlan → Bool
+  | .effect effect => effectUsesSymbolicStorage effect
+  | .builtin _ args | .helperCall _ args | .arrayLit _ args => args.any exprUsesSymbolicStorage
+  | .checkedArith _ lhs rhs .. | .arrayGet lhs rhs | .memoryArrayGet lhs rhs
+  | .hashTwoToOne lhs rhs => exprUsesSymbolicStorage lhs || exprUsesSymbolicStorage rhs
+  | .hashPack a b c d | .hashValue a b c d | .ecrecover a b c d =>
+      #[a, b, c, d].any exprUsesSymbolicStorage
+  | .eip712PermitDigest a b c d e f => #[a, b, c, d, e, f].any exprUsesSymbolicStorage
+  | .crosscall _ target method value? args _ =>
+      exprUsesSymbolicStorage target || exprUsesSymbolicStorage method ||
+        value?.any exprUsesSymbolicStorage || args.any (fun
+          | .expr value => exprUsesSymbolicStorage value
+          | .local .. | .storage .. => false)
+  | .create _ value salt? _ =>
+      exprUsesSymbolicStorage value || salt?.any exprUsesSymbolicStorage
+  | .cast value _ | .structField value _ | .memoryArrayNew _ value
+  | .memoryArrayLength value | .hash value => exprUsesSymbolicStorage value
+  | .localArrayGet _ path _ => path.any exprUsesSymbolicStorage
+  | .structLit _ fields => fields.any (exprUsesSymbolicStorage ·.snd)
+  | .crosscallAbiPacked target _ _ _ _ _ dynLen? _ dynTargets =>
+      exprUsesSymbolicStorage target || dynLen?.any exprUsesSymbolicStorage ||
+        dynTargets.any exprUsesSymbolicStorage
+  | .literalWord .. | .local .. | .calldataWord .. | .storageLoad ..
+  | .context .. | .nativeValue => false
+
+partial def stmtUsesSymbolicStorage : StmtPlan → Bool
+  | .letBind _ _ value | .letMutBind _ _ value => exprUsesSymbolicStorage value
+  | .assign target value | .assignOp target _ value | .assertEq target value .. =>
+      exprUsesSymbolicStorage target || exprUsesSymbolicStorage value
+  | .effect effect => effectUsesSymbolicStorage effect
+  | .assert condition .. | .return condition => exprUsesSymbolicStorage condition
+  | .ifElse condition thenBody elseBody =>
+      exprUsesSymbolicStorage condition || thenBody.any stmtUsesSymbolicStorage ||
+        elseBody.any stmtUsesSymbolicStorage
+  | .boundedFor _ _ _ body => body.any stmtUsesSymbolicStorage
+  | .release .. | .revert .. | .revertWithError .. => false
+
+def planUsesSymbolicStorage (plan : ModulePlan) : Bool :=
+  plan.entrypoints.any fun entrypoint => entrypoint.body.any stmtUsesSymbolicStorage
+
 /-- A simple counter contract in Core: one state, two functions
 (initialize + increment + get). -/
 def counterContract : CanonicalContract := {
@@ -225,6 +276,8 @@ def main : IO Unit := do
     | .error error => throw <| IO.userError s!"real Counter plan failed: {error.message}"
   require (realCounterPlan.storage.states.map (·.id) == #["count"])
     s!"canonical state symbol did not reach the EVM plan: {repr (realCounterPlan.storage.states.map (·.id))}"
+  require (!planUsesSymbolicStorage realCounterPlan)
+    s!"canonical Counter EVM plan retained symbolic Legacy storage effects: {repr realCounterPlan.entrypoints}"
   let counterYul ← renderWithCanonicalPlan ProofForge.IR.Examples.Counter.module realCounterPlan
   require (counterYul.contains "object \"Counter\"")
     "canonical Counter plan did not produce a Yul object"
@@ -240,6 +293,8 @@ def main : IO Unit := do
   require (realVaultPlan.storage.states.map (·.id) ==
       #["balance", "released", "fees", "last_value", "last_checkpoint", "operations"])
     "ValueVault canonical state symbols changed"
+  require (!planUsesSymbolicStorage realVaultPlan)
+    "canonical ValueVault EVM plan retained symbolic Legacy storage effects"
   let depositPlan ← match realVaultPlan.entrypoints.find? (·.name == "deposit") with
     | some plan => pure plan
     | none => throw <| IO.userError "canonical ValueVault deposit plan missing"

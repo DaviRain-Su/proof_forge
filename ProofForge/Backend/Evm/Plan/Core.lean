@@ -155,6 +155,7 @@ structure CorePlanEnv where
   values : Array (ValueId × String) := #[]
   literals : Array (ValueId × CoreLiteral) := #[]
   stateNames : Array (StateId × String) := #[]
+  storage : StorageLayout := { states := #[] }
   events : Array (EventId × EventPlan) := #[]
   errors : Array (ErrorId × Option ProofForge.IR.ErrorRef) := #[]
   crosscallStrings : Array String := #[]
@@ -171,6 +172,50 @@ private def lookupStateName (env : CorePlanEnv) (id : StateId) : Except PlanErro
   match env.stateNames.find? (fun entry => entry.fst == id) with
   | some entry => .ok entry.snd
   | none => .error { message := s!"EVM Core plan references unknown state symbol {id.value}" }
+
+private def lookupStorageState (env : CorePlanEnv) (id : StateId) : Except PlanError StorageStatePlan := do
+  let name ← lookupStateName env id
+  match env.storage.find? name with
+  | some state => .ok state
+  | none => .error { message := s!"EVM Core plan references unplanned storage state `{name}`" }
+
+private def scalarReadTarget (env : CorePlanEnv) (id : StateId) : Except PlanError ScalarStorageTargetPlan := do
+  let state ← lookupStorageState env id
+  unless state.kind == .scalar do
+    throw { message := s!"EVM Core scalar load references non-scalar state `{state.id}`" }
+  return {
+    slot := .scalarSlot state.slot
+    byteOffset := state.byteOffset
+    byteWidth := state.byteWidth
+  }
+
+private def scalarWriteTarget (env : CorePlanEnv) (id : StateId) : Except PlanError ScalarStorageTargetPlan := do
+  let target ← scalarReadTarget env id
+  return { target with writeSemantics := .checked }
+
+private def mapReadTarget (env : CorePlanEnv) (id : StateId) : Except PlanError MapReadTargetPlan := do
+  let state ← lookupStorageState env id
+  match state.kind with
+  | .map .. => return { rootSlot := state.slot }
+  | _ => throw { message := s!"EVM Core map load references non-map state `{state.id}`" }
+
+private def mapWriteTarget (env : CorePlanEnv) (id : StateId) : Except PlanError MapWriteTargetPlan := do
+  let state ← lookupStorageState env id
+  match state.kind with
+  | .map .. => return { rootSlot := state.slot }
+  | _ => throw { message := s!"EVM Core map store references non-map state `{state.id}`" }
+
+private def arrayReadTarget (env : CorePlanEnv) (id : StateId) : Except PlanError ArrayReadTargetPlan := do
+  let state ← lookupStorageState env id
+  match state.kind with
+  | .array length => return { rootSlot := state.slot, length }
+  | _ => throw { message := s!"EVM Core array load references non-array state `{state.id}`" }
+
+private def arrayWriteTarget (env : CorePlanEnv) (id : StateId) : Except PlanError ArrayWriteTargetPlan := do
+  let state ← lookupStorageState env id
+  match state.kind with
+  | .array length => return { rootSlot := state.slot, length }
+  | _ => throw { message := s!"EVM Core array store references non-array state `{state.id}`" }
 
 private def lookupEventPlan (env : CorePlanEnv) (id : EventId) : Except PlanError EventPlan :=
   match env.events.find? (fun entry => entry.fst == id) with
@@ -337,26 +382,26 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       | #[] =>
         let vt := coreTypeToValueType path.resultType
         .ok #[StmtPlan.letBind (resultName instr) vt
-          (.effect (.storageScalarRead (← lookupStateName env path.root)))]
+          (.effect (.storageScalarReadTarget (← scalarReadTarget env path.root)))]
       | #[.mapKey key] =>
         let vt := coreTypeToValueType path.resultType
         .ok #[StmtPlan.letBind (resultName instr) vt
-          (.effect (.storageMapGet (← lookupStateName env path.root) (← valueExpr env key)))]
+          (.effect (.storageMapGetTarget (← mapReadTarget env path.root) (← valueExpr env key)))]
       | #[.index index] =>
         let vt := coreTypeToValueType path.resultType
         .ok #[StmtPlan.letBind (resultName instr) vt
-          (.effect (.storageArrayRead (← lookupStateName env path.root) (← valueExpr env index)))]
+          (.effect (.storageArrayReadTarget (← arrayReadTarget env path.root) (← valueExpr env index)))]
       | _ => .error { message := "EVM Core plan supports one mapKey or index storage-load segment" }
   | .storageStore path value => do
       match path.path with
       | #[] =>
-        .ok #[StmtPlan.effect (.storageScalarWrite (← lookupStateName env path.root)
+        .ok #[StmtPlan.effect (.storageScalarWriteTarget (← scalarWriteTarget env path.root)
           (← valueExpr env value))]
       | #[.mapKey key] =>
-        .ok #[StmtPlan.effect (.storageMapSet (← lookupStateName env path.root)
+        .ok #[StmtPlan.effect (.storageMapSetTarget (← mapWriteTarget env path.root)
           (← valueExpr env key) (← valueExpr env value))]
       | #[.index index] =>
-        .ok #[StmtPlan.effect (.storageArrayWrite (← lookupStateName env path.root)
+        .ok #[StmtPlan.effect (.storageArrayWriteTarget (← arrayWriteTarget env path.root)
           (← valueExpr env index) (← valueExpr env value))]
       | _ => .error { message := "EVM Core plan supports one mapKey or index storage-store segment" }
   | .storageRemove _ =>
@@ -628,6 +673,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
   let baseEnv : CorePlanEnv := {
     stateNames := checked.contract.materialization.stateSymbols.map
       (fun symbol => (symbol.stateId, symbol.name))
+    storage
     events := (iface.events.zip events).map (fun entry => (entry.fst.eventId, entry.snd))
     errors
     crosscallStrings := checked.contract.materialization.crosscallStrings
