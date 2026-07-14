@@ -1,5 +1,7 @@
 import ProofForge.Frontend.Authored.Type
 import ProofForge.Frontend.Authored.Syntax
+import ProofForge.Frontend.Authored.Validate
+import ProofForge.Frontend.Authored.Canonicalize
 
 /-! # Authored frontend model
 

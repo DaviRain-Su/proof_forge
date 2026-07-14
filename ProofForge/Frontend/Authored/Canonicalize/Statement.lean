@@ -1,13 +1,13 @@
-import ProofForge.Frontend.Surface.NormalizeExpr
+import ProofForge.Frontend.Authored.Canonicalize.Expr
 
-/-! # Surface AST — Statement and Function Normalization
+/-! # Authored AST — Statement and Function Normalization
 
-Normalize Surface statements into Core CFG blocks using a FunctionBuilder.
+Normalize authored statements into Core CFG blocks using a FunctionBuilder.
 Mirrors the Legacy adapter's block/branch/loop construction with
-Surface-owned types. Fail-closed: no wildcard fallback.
+Authored-owned types. Fail-closed: no wildcard fallback.
 -/
 
-namespace ProofForge.Frontend.Surface
+namespace ProofForge.Frontend.Authored.Canonicalize
 
 open ProofForge.IR.Core
 
@@ -29,30 +29,30 @@ structure FunctionBuilder where
   deriving Repr
 
 def FunctionBuilder.emitInstr (fb : FunctionBuilder) (instr : Instruction) :
-    Except SurfaceNormalizeError FunctionBuilder :=
+    Except AuthoredNormalizeError FunctionBuilder :=
   if !fb.active then
-    .error (SurfaceNormalizeError.terminatedBlock "cannot append instruction after all control-flow paths terminated")
+    .error (AuthoredNormalizeError.terminatedBlock "cannot append instruction after all control-flow paths terminated")
   else
     match fb.current.terminator with
-    | some _ => .error (SurfaceNormalizeError.terminatedBlock s!"cannot append instruction to terminated block {repr fb.current.id}")
+    | some _ => .error (AuthoredNormalizeError.terminatedBlock s!"cannot append instruction to terminated block {repr fb.current.id}")
     | none => .ok { fb with current := { fb.current with instructions := fb.current.instructions.push instr } }
 
 def FunctionBuilder.setTerminator (fb : FunctionBuilder) (t : Terminator) :
-    Except SurfaceNormalizeError FunctionBuilder :=
+    Except AuthoredNormalizeError FunctionBuilder :=
   if !fb.active then
-    .error (SurfaceNormalizeError.terminatedBlock "cannot terminate an unreachable continuation")
+    .error (AuthoredNormalizeError.terminatedBlock "cannot terminate an unreachable continuation")
   else
     match fb.current.terminator with
-    | some _ => .error (SurfaceNormalizeError.terminatedBlock s!"block {repr fb.current.id} already has a terminator")
+    | some _ => .error (AuthoredNormalizeError.terminatedBlock s!"block {repr fb.current.id} already has a terminator")
     | none => .ok { fb with current := { fb.current with terminator := some t } }
 
 def FunctionBuilder.sealedBlocks (fb : FunctionBuilder) :
-    Except SurfaceNormalizeError (Array Block) :=
+    Except AuthoredNormalizeError (Array Block) :=
   if !fb.active then
     .ok fb.blocks
   else
     match fb.current.terminator with
-    | none => .error (SurfaceNormalizeError.terminatedBlock s!"block {repr fb.current.id} has no terminator")
+    | none => .error (AuthoredNormalizeError.terminatedBlock s!"block {repr fb.current.id} has no terminator")
     | some terminator => .ok (fb.blocks.push {
         id := fb.current.id,
         params := fb.current.params,
@@ -60,7 +60,7 @@ def FunctionBuilder.sealedBlocks (fb : FunctionBuilder) :
         terminator := terminator })
 
 /-- Register a revert error and return its CoreErrorRef. -/
-def revertErrorRef (message : String) : SurfaceM CoreErrorRef := do
+def revertErrorRef (message : String) : AuthoredM CoreErrorRef := do
   let s ← get
   let id := ⟨s.env.nextErrorId⟩
   modify (fun st => { st with env := { st.env with
@@ -70,7 +70,7 @@ def revertErrorRef (message : String) : SurfaceM CoreErrorRef := do
   return { id := id, args := #[] }
 
 /-- Register an assert error and return its CoreErrorRef. -/
-def assertErrorRef (message : String) : SurfaceM CoreErrorRef := do
+def assertErrorRef (message : String) : AuthoredM CoreErrorRef := do
   let s ← get
   if let some declaration := s.env.errorDecls.find? (fun error => error.name == message) then
     return { id := declaration.id, args := #[] }
@@ -81,23 +81,23 @@ def assertErrorRef (message : String) : SurfaceM CoreErrorRef := do
     nextErrorId := st.env.nextErrorId + 1 } })
   return { id := id, args := #[] }
 
-/-- Normalize a Surface statement into the function builder. -/
-partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
-    (retType : CoreType) : SurfaceM FunctionBuilder :=
+/-- Normalize a Authored statement into the function builder. -/
+partial def normalizeStatement (fb : FunctionBuilder) (stmt : AuthoredStmt)
+    (retType : CoreType) : AuthoredM FunctionBuilder :=
   match stmt with
   | .bind name ty value => do
-      let coreTy ← liftExcept (resolveSurfaceType (← get).env.typeIds ty)
+      let coreTy ← liftExcept (resolveAuthoredType (← get).env.typeIds ty)
       let nv ← normalizeExpr value
       unless nv.value.type == coreTy do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       bindLocal name { id := nv.value.id, type := coreTy }
       return fb
   | .mutBind name ty value => do
-      let coreTy ← liftExcept (resolveSurfaceType (← get).env.typeIds ty)
+      let coreTy ← liftExcept (resolveAuthoredType (← get).env.typeIds ty)
       let nv ← normalizeExpr value
       unless nv.value.type == coreTy do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr coreTy) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       bindLocal name { id := nv.value.id, type := coreTy }
       return fb
@@ -108,14 +108,14 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       | .local name => do
           let current ← lookupLocal name
           unless current.type == nv.value.type do
-            throw (SurfaceNormalizeError.typeMismatch (reprStr current.type) (reprStr nv.value.type))
+            throw (AuthoredNormalizeError.typeMismatch (reprStr current.type) (reprStr nv.value.type))
           bindLocal name nv.value
           return fb
       | .stateField name => do
           let stateId ← lookupState name
           let resultType ← stateScalarType name
           unless nv.value.type == resultType do
-            throw (SurfaceNormalizeError.typeMismatch (reprStr resultType) (reprStr nv.value.type))
+            throw (AuthoredNormalizeError.typeMismatch (reprStr resultType) (reprStr nv.value.type))
           let instr := { results := #[], op := .storageStore { root := stateId, resultType := resultType } nv.value }
           liftExcept (fb.emitInstr instr)
   | .stateWrite name value => do
@@ -124,7 +124,7 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       let stateId ← lookupState name
       let resultType ← stateScalarType name
       unless nv.value.type == resultType do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr resultType) (reprStr nv.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr resultType) (reprStr nv.value.type))
       let instr := { results := #[], op := .storageStore { root := stateId, resultType := resultType } nv.value }
       liftExcept (fb.emitInstr instr)
   | .mapWrite name key value => do
@@ -132,10 +132,10 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       let (keyType, valueType) ← stateMapTypes name
       let normalizedKey ← normalizeExpr key
       unless normalizedKey.value.type == keyType do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr keyType) (reprStr normalizedKey.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr keyType) (reprStr normalizedKey.value.type))
       let normalizedValue ← normalizeExpr value
       unless normalizedValue.value.type == valueType do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr valueType) (reprStr normalizedValue.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr valueType) (reprStr normalizedValue.value.type))
       let instructions := normalizedKey.instructions ++ normalizedValue.instructions
       let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
       liftExcept <| fb.emitInstr {
@@ -149,11 +149,11 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       let elementType ← stateArrayType name
       let normalizedIndex ← normalizeExpr index
       unless normalizedIndex.value.type == .u64 do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr CoreType.u64)
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.u64)
           (reprStr normalizedIndex.value.type))
       let normalizedValue ← normalizeExpr value
       unless normalizedValue.value.type == elementType do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr elementType)
+        throw (AuthoredNormalizeError.typeMismatch (reprStr elementType)
           (reprStr normalizedValue.value.type))
       let instructions := normalizedIndex.instructions ++ normalizedValue.instructions
       let fb ← liftExcept (instructions.foldlM FunctionBuilder.emitInstr fb)
@@ -177,7 +177,7 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
   | .assert cond message => do
       let nv ← normalizeExpr cond
       unless nv.value.type == .bool do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr CoreType.bool) (reprStr nv.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.bool) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       let error ← assertErrorRef message
       let instr := { results := #[], op := .assert nv.value error }
@@ -188,7 +188,7 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
   | .branch cond thenBody elseBody => do
       let nv ← normalizeExpr cond
       unless nv.value.type == .bool do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr CoreType.bool) (reprStr nv.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.bool) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       let trueId ← freshBlockId
       let falseId ← freshBlockId
@@ -217,7 +217,7 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       return { blocks := branchBlocks, current := { id := contId }, active := trueFallsThrough || falseFallsThrough }
   | .boundedLoop indexName start stopExclusive body => do
       if stopExclusive < start then
-        throw (SurfaceNormalizeError.terminatedBlock
+        throw (AuthoredNormalizeError.terminatedBlock
           s!"boundedLoop: stopExclusive {stopExclusive} < start {start}")
       let headerId ← freshBlockId
       let bodyId ← freshBlockId
@@ -262,7 +262,7 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
       modify (fun s => { s with env := { s.env with localValues := localsBefore } })
       return { blocks := loopBlocks, current := { id := contId } }
   | .hostCallBind name ty id args => do
-      let coreTy ← liftExcept (resolveSurfaceType (← get).env.typeIds ty)
+      let coreTy ← liftExcept (resolveAuthoredType (← get).env.typeIds ty)
       let mut allInstrs : Array Instruction := #[]
       let mut argRefs : Array ValueRef := #[]
       for arg in args do
@@ -279,7 +279,7 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
    | .returnExpr value => do
       let nv ← normalizeExpr value
       unless nv.value.type == retType do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr retType) (reprStr nv.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr retType) (reprStr nv.value.type))
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
       liftExcept (fb.setTerminator (.return #[nv.value]))
   | .returnUnit =>
@@ -287,7 +287,7 @@ partial def normalizeStatement (fb : FunctionBuilder) (stmt : SurfaceStmt)
 
 /-- Ensure the final block has a return terminator. -/
 def ensureTerminator (fb : FunctionBuilder) (retType : CoreType) :
-    SurfaceM FunctionBuilder :=
+    AuthoredM FunctionBuilder :=
   if !fb.active then return fb
   else match fb.current.terminator with
     | some _ => return fb
@@ -295,13 +295,13 @@ def ensureTerminator (fb : FunctionBuilder) (retType : CoreType) :
         if retType == .unit then
           liftExcept (fb.setTerminator (.return #[]))
         else
-          throw (SurfaceNormalizeError.terminatedBlock
+          throw (AuthoredNormalizeError.terminatedBlock
             s!"function returning {repr retType} missing return")
 
 /-- Normalize a statement body and return the completed blocks plus the entry
 block identifier. -/
-def normalizeBody (stmts : Array SurfaceStmt) (retType : CoreType) :
-    SurfaceM (Array Block × BlockId) := do
+def normalizeBody (stmts : Array AuthoredStmt) (retType : CoreType) :
+    AuthoredM (Array Block × BlockId) := do
   let entryId ← freshBlockId
   let builder : FunctionBuilder := { blocks := #[], current := { id := entryId } }
   let builder ← stmts.foldlM (fun b s => normalizeStatement b s retType) builder
@@ -309,39 +309,39 @@ def normalizeBody (stmts : Array SurfaceStmt) (retType : CoreType) :
   let blocks ← liftExcept builder.sealedBlocks
   return (blocks, entryId)
 
-/-- Normalize one Surface entrypoint to a Core Function. -/
-def adaptFunction (ep : SurfaceEntrypoint) : SurfaceM Function := do
+/-- Normalize one Authored entrypoint to a Core Function. -/
+def adaptFunction (ep : AuthoredEntrypoint) : AuthoredM Function := do
   resetLocals
   let fid ← lookupFunction ep.name
   let params ← ep.params.mapM fun p => do
-    let coreTy ← liftExcept (resolveSurfaceType (← get).env.typeIds p.type)
+    let coreTy ← liftExcept (resolveAuthoredType (← get).env.typeIds p.type)
     let vid ← freshValueId
     let vdef := { id := vid, type := coreTy }
     bindLocal p.name { id := vid, type := coreTy }
     return vdef
-  let retType ← liftExcept (resolveSurfaceType (← get).env.typeIds ep.retType)
+  let retType ← liftExcept (resolveAuthoredType (← get).env.typeIds ep.retType)
   let (blocks, entryId) ← normalizeBody ep.body retType
   return { id := fid, params := params, retType := retType, blocks := blocks, entry := entryId }
 
-/-- Adapt a Surface struct declaration to canonical form. -/
-def adaptStruct (decl : SurfaceStructDecl) : SurfaceM Struct := do
+/-- Adapt a Authored struct declaration to canonical form. -/
+def adaptStruct (decl : AuthoredStructDecl) : AuthoredM Struct := do
   let id ← lookupType decl.name
   let fields ← decl.fields.mapIdxM fun idx f => do
-    let ty ← liftExcept (resolveSurfaceType (← get).env.typeIds f.type)
+    let ty ← liftExcept (resolveAuthoredType (← get).env.typeIds f.type)
     return { id := ⟨idx⟩, type := ty : FieldDecl }
   return { id := id, fields := fields, semantics := .value }
 
-/-- Adapt Surface events to Core events. -/
-def adaptEvents (contract : SurfaceContract) : SurfaceM (Array Event) := do
+/-- Adapt Authored events to Core events. -/
+def adaptEvents (contract : AuthoredContract) : AuthoredM (Array Event) := do
   contract.events.mapIdxM fun idx ev => do
     let eventId ← lookupEvent ev.name
     let fields ← ev.fields.mapIdxM fun fidx f => do
-      let ty ← liftExcept (resolveSurfaceType (← get).env.typeIds f.type)
+      let ty ← liftExcept (resolveAuthoredType (← get).env.typeIds f.type)
       return { id := ⟨fidx⟩, type := ty : EventFieldDecl }
     return { id := eventId, fields := fields }
 
-/-- Adapt the runtime portion of a Surface contract to canonical Core. -/
-def adaptModule (contract : SurfaceContract) : SurfaceM Module := do
+/-- Adapt the runtime portion of a authored contract to canonical Core. -/
+def adaptModule (contract : AuthoredContract) : AuthoredM Module := do
   let structs ← contract.structs.mapM adaptStruct
   let state ← contract.state.mapM fun s => do
     let id ← lookupState s.name
@@ -359,4 +359,4 @@ def adaptModule (contract : SurfaceContract) : SurfaceM Module := do
     errors := env.errorDecls
   }
 
-end ProofForge.Frontend.Surface
+end ProofForge.Frontend.Authored.Canonicalize

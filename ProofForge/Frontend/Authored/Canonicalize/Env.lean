@@ -1,22 +1,22 @@
-import ProofForge.Frontend.Surface.Syntax
-import ProofForge.Frontend.Surface.Validate
+import ProofForge.Frontend.Authored.Syntax
+import ProofForge.Frontend.Authored.Validate
 import ProofForge.IR.Core
 import ProofForge.IR.Canonical
 import Std
 
-/-! # Surface AST — Normalizer Environment
+/-! # Authored AST — Normalizer Environment
 
 Symbol tables, identifier supplies, and monadic infrastructure for
-the Surface-to-Core normalizer. Mirrors the Legacy adapter's `AdapterEnv`/
-`AdapterState`/`AdapterM` but with Surface-owned types and error messages.
+the Authored-to-Core normalizer. Mirrors the Legacy adapter's `AdapterEnv`/
+`AdapterState`/`AdapterM` but with Authored-owned types and error messages.
 -/
 
-namespace ProofForge.Frontend.Surface
+namespace ProofForge.Frontend.Authored.Canonicalize
 
 open ProofForge.IR.Core
 
-/-- Errors produced by the Surface normalizer. Fail-closed: no wildcard fallback. -/
-inductive SurfaceNormalizeError
+/-- Errors produced by the Authored normalizer. Fail-closed: no wildcard fallback. -/
+inductive AuthoredNormalizeError
   | unknownState (name : String)
   | unknownFunction (name : String)
   | unknownEvent (name : String)
@@ -28,14 +28,14 @@ inductive SurfaceNormalizeError
   | invalidLValue (desc : String)
   | terminatedBlock (desc : String)
   | unboundedLoop (reason : String)
-  | unsupportedSurface (nodeTag : String) (reason : String)
+  | unsupportedAuthored (nodeTag : String) (reason : String)
   | duplicateName (context : String) (name : String)
   | validation (error : ProofForge.IR.Core.Error.ValidationError)
   deriving Repr
 
-/-- Resolve a Surface type to a Core type using the declaration-order type-id map. -/
-def resolveSurfaceType (typeIds : Std.HashMap String TypeId)
-    (ty : SurfaceType) : Except SurfaceNormalizeError CoreType :=
+/-- Resolve a Authored type to a Core type using the declaration-order type-id map. -/
+def resolveAuthoredType (typeIds : Std.HashMap String TypeId)
+    (ty : AuthoredType) : Except AuthoredNormalizeError CoreType :=
   match ty with
   | .unit => .ok .unit
   | .bool => .ok .bool
@@ -47,46 +47,46 @@ def resolveSurfaceType (typeIds : Std.HashMap String TypeId)
   | .bytes => .ok .bytes
   | .string => .ok .string
   | .hash => .ok .hash
-  | .fixedArray elem len => do .ok (.fixedArray (← resolveSurfaceType typeIds elem) len)
-  | .array elem => do .ok (.array (← resolveSurfaceType typeIds elem))
-  | .memoryRef elem => do .ok (.memoryRef (← resolveSurfaceType typeIds elem))
+  | .fixedArray elem len => do .ok (.fixedArray (← resolveAuthoredType typeIds elem) len)
+  | .array elem => do .ok (.array (← resolveAuthoredType typeIds elem))
+  | .memoryRef elem => do .ok (.memoryRef (← resolveAuthoredType typeIds elem))
   | .structType name =>
     match Std.HashMap.get? typeIds name with
     | some id => .ok (.structType id)
-    | none => .error (SurfaceNormalizeError.unknownType name)
+    | none => .error (AuthoredNormalizeError.unknownType name)
 
-/-- Resolve a Surface state kind to a Core StateShape. -/
+/-- Resolve a Authored state kind to a Core StateShape. -/
 def resolveStateKind (typeIds : Std.HashMap String TypeId)
-    (kind : SurfaceStateKind) : Except SurfaceNormalizeError StateShape :=
+    (kind : AuthoredStateKind) : Except AuthoredNormalizeError StateShape :=
   match kind with
-  | .scalar ty => do .ok (.scalar (← resolveSurfaceType typeIds ty))
+  | .scalar ty => do .ok (.scalar (← resolveAuthoredType typeIds ty))
   | .map kty vty cap => do
-      .ok (.map (← resolveSurfaceType typeIds kty)
-        (← resolveSurfaceType typeIds vty) cap)
-  | .fixedArray elem len => do .ok (.fixedArray (← resolveSurfaceType typeIds elem) len)
-  | .dynamicArray elem => do .ok (.dynamicArray (← resolveSurfaceType typeIds elem))
+      .ok (.map (← resolveAuthoredType typeIds kty)
+        (← resolveAuthoredType typeIds vty) cap)
+  | .fixedArray elem len => do .ok (.fixedArray (← resolveAuthoredType typeIds elem) len)
+  | .dynamicArray elem => do .ok (.dynamicArray (← resolveAuthoredType typeIds elem))
   | .record typeName =>
     match Std.HashMap.get? typeIds typeName with
     | some id => .ok (.record id)
-    | none => .error (SurfaceNormalizeError.unknownType typeName)
+    | none => .error (AuthoredNormalizeError.unknownType typeName)
 
-/-- Convert a Surface literal to a Core literal, checking fixed-width ranges. -/
-def adaptLiteral (lit : SurfaceLiteral) : Except SurfaceNormalizeError CoreLiteral :=
+/-- Convert a Authored literal to a Core literal, checking fixed-width ranges. -/
+def adaptLiteral (lit : AuthoredLiteral) : Except AuthoredNormalizeError CoreLiteral :=
   match lit with
   | .unitLit => .ok .unitLit
   | .boolLit b => .ok (.boolLit b)
   | .u8Lit n =>
       if n < 256 then .ok (.u8Lit n)
-      else .error (SurfaceNormalizeError.literalOutOfRange "u8" (toString n))
+      else .error (AuthoredNormalizeError.literalOutOfRange "u8" (toString n))
   | .u32Lit n =>
       if n < 4294967296 then .ok (.u32Lit n)
-      else .error (SurfaceNormalizeError.literalOutOfRange "u32" (toString n))
+      else .error (AuthoredNormalizeError.literalOutOfRange "u32" (toString n))
   | .u64Lit n =>
       if n < 18446744073709551616 then .ok (.u64Lit n)
-      else .error (SurfaceNormalizeError.literalOutOfRange "u64" (toString n))
+      else .error (AuthoredNormalizeError.literalOutOfRange "u64" (toString n))
   | .u128Lit n =>
       if n < 340282366920938463463374607431768211456 then .ok (.u128Lit n)
-      else .error (SurfaceNormalizeError.literalOutOfRange "u128" (toString n))
+      else .error (AuthoredNormalizeError.literalOutOfRange "u128" (toString n))
   | .addressLit s => .ok (.addressLit s)
   | .stringLit s => .ok (.stringLit s)
   | .hashLit s => .ok (.hashLit s)
@@ -105,24 +105,24 @@ def coreLiteralType (l : CoreLiteral) : CoreType :=
   | .stringLit _ => .string
   | .hashLit _ => .hash
 
-/-- Convert a Surface arithmetic op to a Core arithmetic op. -/
-def adaptArithOp (op : SurfaceArithOp) : ArithmeticOp :=
+/-- Convert a Authored arithmetic op to a Core arithmetic op. -/
+def adaptArithOp (op : AuthoredArithOp) : ArithmeticOp :=
   match op with
   | .add => .add | .sub => .sub | .mul => .mul | .div => .div | .mod => .mod
   | .bitAnd => .and | .bitOr => .or | .bitXor => .xor
   | .shiftLeft => .shl | .shiftRight => .shr
 
-/-- Convert a Surface comparison op to a Core comparison op. -/
-def adaptCompareOp (op : SurfaceCompareOp) : CompareOp :=
+/-- Convert a Authored comparison op to a Core comparison op. -/
+def adaptCompareOp (op : AuthoredCompareOp) : CompareOp :=
   match op with
   | .eq => .eq | .ne => .ne | .lt => .lt | .le => .le | .gt => .gt | .ge => .ge
 
-/-- Convert a Surface unary op to a Core unary op. -/
-def adaptUnaryOp (op : SurfaceUnaryOp) : UnaryOp :=
+/-- Convert a Authored unary op to a Core unary op. -/
+def adaptUnaryOp (op : AuthoredUnaryOp) : UnaryOp :=
   match op with | .not => .not | .neg => .neg
 
-/-- Convert a Surface context field to a Core context field. -/
-def adaptContextField (field : SurfaceContextField) : ContextField :=
+/-- Convert a Authored context field to a Core context field. -/
+def adaptContextField (field : AuthoredContextField) : ContextField :=
   match field with
   | .sender => .sender
   | .value => .value
@@ -138,8 +138,8 @@ def contextFieldType (field : ContextField) : CoreType :=
   | .value => .u128
   | .blockNumber | .blockTimestamp | .gas => .u64
 
-/- Convert a Surface constructor binding kind to Canonical. -/
-def adaptCtorKind (kind : SurfaceConstructorBindingKind) :
+/- Convert a Authored constructor binding kind to Canonical. -/
+def adaptCtorKind (kind : AuthoredConstructorBindingKind) :
     ProofForge.IR.Canonical.ConstructorBindingKind :=
   match kind with
   | .scalarU64 => .scalarU64
@@ -152,13 +152,13 @@ def adaptCtorKind (kind : SurfaceConstructorBindingKind) :
   | .arrayLength => .arrayLength
   | .arraySumU64 => .arraySumU64
 
-/- Convert a Surface mutability to Interface. -/
-def adaptMutability (mut_ : SurfaceMutability) :
+/- Convert a Authored mutability to Interface. -/
+def adaptMutability (mut_ : AuthoredMutability) :
     ProofForge.IR.Canonical.InterfaceMutability :=
   match mut_ with | .call => .call | .view => .view
 
 /-- Resolved symbol tables and identifier supplies. -/
-structure SurfaceEnv where
+structure AuthoredEnv where
   typeIds : Std.HashMap String TypeId
   stateIds : Std.HashMap String (StateId × StateShape)
   functionIds : Std.HashMap String FunctionId
@@ -173,97 +173,97 @@ structure SurfaceEnv where
   nextErrorId : Nat
   deriving Repr
 
-structure SurfaceState where
-  env : SurfaceEnv
+structure AuthoredState where
+  env : AuthoredEnv
   nextValueId : Nat
   nextBlockId : Nat
   deriving Repr
 
-abbrev SurfaceM := StateT SurfaceState (Except SurfaceNormalizeError)
+abbrev AuthoredM := StateT AuthoredState (Except AuthoredNormalizeError)
 
-/-- Lift an Except into SurfaceM. -/
-def liftExcept {α} : Except SurfaceNormalizeError α → SurfaceM α :=
+/-- Lift an Except into AuthoredM. -/
+def liftExcept {α} : Except AuthoredNormalizeError α → AuthoredM α :=
   fun x => match x with | .ok a => return a | .error e => throw e
 
 /-- Fresh value ID. -/
-def freshValueId : SurfaceM ValueId := do
+def freshValueId : AuthoredM ValueId := do
   let s ← get
   set { s with nextValueId := s.nextValueId + 1 }
   return ⟨s.nextValueId⟩
 
 /-- Fresh block ID. -/
-def freshBlockId : SurfaceM BlockId := do
+def freshBlockId : AuthoredM BlockId := do
   let s ← get
   set { s with nextBlockId := s.nextBlockId + 1 }
   return ⟨s.nextBlockId⟩
 
 /-- Lookup a type by name. -/
-def lookupType (name : String) : SurfaceM TypeId := do
+def lookupType (name : String) : AuthoredM TypeId := do
   match Std.HashMap.get? (← get).env.typeIds name with
   | some id => return id
-  | none => throw (SurfaceNormalizeError.unknownType name)
+  | none => throw (AuthoredNormalizeError.unknownType name)
 
 /-- Lookup a state by name. -/
-def lookupState (name : String) : SurfaceM StateId := do
+def lookupState (name : String) : AuthoredM StateId := do
   match Std.HashMap.get? (← get).env.stateIds name with
   | some (id, _) => return id
-  | none => throw (SurfaceNormalizeError.unknownState name)
+  | none => throw (AuthoredNormalizeError.unknownState name)
 
 /-- Lookup a state shape by name. -/
-def lookupStateShape (name : String) : SurfaceM StateShape := do
+def lookupStateShape (name : String) : AuthoredM StateShape := do
   match Std.HashMap.get? (← get).env.stateIds name with
   | some (_, shape) => return shape
-  | none => throw (SurfaceNormalizeError.unknownState name)
+  | none => throw (AuthoredNormalizeError.unknownState name)
 
 /-- Lookup a function by name. -/
-def lookupFunction (name : String) : SurfaceM FunctionId := do
+def lookupFunction (name : String) : AuthoredM FunctionId := do
   match Std.HashMap.get? (← get).env.functionIds name with
   | some id => return id
-  | none => throw (SurfaceNormalizeError.unknownFunction name)
+  | none => throw (AuthoredNormalizeError.unknownFunction name)
 
 /-- Lookup an event by name. -/
-def lookupEvent (name : String) : SurfaceM EventId := do
+def lookupEvent (name : String) : AuthoredM EventId := do
   match Std.HashMap.get? (← get).env.eventIds name with
   | some id => return id
-  | none => throw (SurfaceNormalizeError.unknownEvent name)
+  | none => throw (AuthoredNormalizeError.unknownEvent name)
 
 /-- Lookup a local by name. -/
-def lookupLocal (name : String) : SurfaceM ValueRef := do
+def lookupLocal (name : String) : AuthoredM ValueRef := do
   match Std.HashMap.get? (← get).env.localValues name with
   | some ref => return ref
-  | none => throw (SurfaceNormalizeError.unboundLocal name)
+  | none => throw (AuthoredNormalizeError.unboundLocal name)
 
 /-- Bind a local name to a value reference. -/
-def bindLocal (name : String) (ref : ValueRef) : SurfaceM Unit :=
+def bindLocal (name : String) (ref : ValueRef) : AuthoredM Unit :=
   modify (fun s => { s with env := { s.env with localValues := s.env.localValues.insert name ref } })
 
 /-- Reset local bindings (at function boundary). -/
-def resetLocals : SurfaceM Unit :=
+def resetLocals : AuthoredM Unit :=
   modify (fun s => { s with env := { s.env with localValues := {} } })
 
 /-- Scalar element type of a state variable. -/
-def stateScalarType (name : String) : SurfaceM CoreType := do
+def stateScalarType (name : String) : AuthoredM CoreType := do
   let shape ← lookupStateShape name
   match shape with
   | .scalar ty => return ty
-  | _ => throw (SurfaceNormalizeError.typeMismatch "scalar" "non-scalar state")
+  | _ => throw (AuthoredNormalizeError.typeMismatch "scalar" "non-scalar state")
 
-def stateMapTypes (name : String) : SurfaceM (CoreType × CoreType) := do
+def stateMapTypes (name : String) : AuthoredM (CoreType × CoreType) := do
   let shape ← lookupStateShape name
   match shape with
   | .map keyType valueType _ => return (keyType, valueType)
-  | _ => throw (SurfaceNormalizeError.typeMismatch "map" "non-map state")
+  | _ => throw (AuthoredNormalizeError.typeMismatch "map" "non-map state")
 
-def stateArrayType (name : String) : SurfaceM CoreType := do
+def stateArrayType (name : String) : AuthoredM CoreType := do
   let shape ← lookupStateShape name
   match shape with
   | .fixedArray element _ | .dynamicArray element => return element
-  | _ => throw (SurfaceNormalizeError.typeMismatch "array" "non-array state")
+  | _ => throw (AuthoredNormalizeError.typeMismatch "array" "non-array state")
 
-/-- Build a resolved Surface environment from a SurfaceContract.
+/-- Build a resolved Authored environment from a AuthoredContract.
 Identifiers are assigned deterministically in declaration order. -/
-def buildEnv (contract : SurfaceContract) : Except SurfaceNormalizeError SurfaceEnv := do
-  let mut env : SurfaceEnv := {
+def buildEnv (contract : AuthoredContract) : Except AuthoredNormalizeError AuthoredEnv := do
+  let mut env : AuthoredEnv := {
     typeIds := {},
     stateIds := {},
     functionIds := {},
@@ -292,15 +292,15 @@ def buildEnv (contract : SurfaceContract) : Except SurfaceNormalizeError Surface
     env := { env with eventIds := env.eventIds.insert ev.name id, nextEventId := env.nextEventId + 1 }
   for err in contract.errors do
     let id := ⟨env.nextErrorId⟩
-    let coreParams ← err.params.mapM (resolveSurfaceType env.typeIds)
+    let coreParams ← err.params.mapM (resolveAuthoredType env.typeIds)
     env := { env with
       errorDecls := env.errorDecls.push {
         id := id, namespace_ := "$surface", name := err.name, code := id.value, params := coreParams }
       nextErrorId := env.nextErrorId + 1 }
   return env
 
-/-- Construct empty SurfaceState from an environment. -/
-def SurfaceState.ofEnv (env : SurfaceEnv) : SurfaceState :=
+/-- Construct empty AuthoredState from an environment. -/
+def AuthoredState.ofEnv (env : AuthoredEnv) : AuthoredState :=
   { env := env, nextValueId := 0, nextBlockId := 0 }
 
-end ProofForge.Frontend.Surface
+end ProofForge.Frontend.Authored.Canonicalize

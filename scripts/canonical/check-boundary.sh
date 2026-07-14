@@ -199,6 +199,11 @@ done
 AUTHORED_MODEL=(
   ProofForge/Frontend/Authored/Type.lean
   ProofForge/Frontend/Authored/Syntax.lean
+  ProofForge/Frontend/Authored/Validate.lean
+  ProofForge/Frontend/Authored/Canonicalize.lean
+  ProofForge/Frontend/Authored/Canonicalize/Env.lean
+  ProofForge/Frontend/Authored/Canonicalize/Expr.lean
+  ProofForge/Frontend/Authored/Canonicalize/Statement.lean
 )
 for f in "${AUTHORED_MODEL[@]}"; do
   if rg -n '^\s*import\s+(ProofForge\.IR\.(?:Contract|Legacy)(?:\.|\s|$)|ProofForge\.Frontend\.Surface(?:\.|\s|$))' \

@@ -172,7 +172,7 @@ Core are internal compiler representations.
 | A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
 | A-CUT1c | done (verified at `52742ff5`) | Consolidate the optional EVM and Solana semantic-refinement roots under the independent `ProofForgeFormal` Lake libraries; keep heavyweight proof dependencies out of the default compiler library |
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
-| A-CUT2 | in_progress (A-CUT2a/A-CUT2b/A-CUT2c verified) | Replace the remaining `ContractSpec`/`IR.Module` exchange value; the independent final source model is now owned by `Frontend.Authored`, while Source builder cutover remains pending |
+| A-CUT2 | in_progress (A-CUT2a-A-CUT2d verified) | Replace the remaining `ContractSpec`/`IR.Module` exchange value; independent Authored syntax now normalizes directly to checked Canonical Core, while Source builder/loader cutover remains pending |
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |

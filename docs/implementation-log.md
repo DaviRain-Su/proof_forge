@@ -3749,3 +3749,22 @@ Rules:
 - Verification: focused Authored/Surface/TestFixtures builds; Surface, Set,
   Queue, and NEAR HostOp normalization tests; canonical boundary self-test and
   gate; dependency scans; and `git diff --check`.
+
+## 2026-07-14 - Authoring cleanup A-CUT2d: direct authored canonicalizer
+
+- Status: `done (verified 2026-07-14)`; A-CUT2 remains open for Source builder
+  schema parity and loader cutover.
+- Moved validation, normalization environment, expression/statement lowering,
+  and top-level checked Canonical Core assembly from Surface ownership to
+  `Frontend.Authored.{Validate,Canonicalize}`.
+- Added the direct `normalizeAuthored` entrypoint. It consumes
+  `AuthoredContract` and returns `CanonicalBundle` without importing
+  `IR.Contract`, `IR.Legacy`, or Surface.
+- Reduced Surface normalization to one fixture facade and removed its internal
+  NormalizeEnv/Expr/Stmt ownership modules.
+- Added `Tests/Canonical/AuthoredCanonicalize.lean` to prove the direct Counter
+  contract name, state, functions, and interface order through checked Core.
+- Verification: focused Authored/Surface/TestFixtures builds; direct Authored
+  canonicalization; existing Surface normalization/parity, Set, Queue, and
+  NEAR HostOp tests; canonical boundary self-test/gate; dependency scans; and
+  `git diff --check`.

@@ -1,13 +1,13 @@
-import ProofForge.Frontend.Surface.NormalizeEnv
+import ProofForge.Frontend.Authored.Canonicalize.Env
 
-/-! # Surface AST — Expression Normalization
+/-! # Authored AST — Expression Normalization
 
-Normalize Surface expressions into ANF instructions plus a result ValueRef.
+Normalize authored expressions into ANF instructions plus a result ValueRef.
 Effectful sub-expressions (storage/context reads) are lifted to explicit
 instructions. No wildcard arm exists.
 -/
 
-namespace ProofForge.Frontend.Surface
+namespace ProofForge.Frontend.Authored.Canonicalize
 
 open ProofForge.IR.Core
 
@@ -20,7 +20,7 @@ structure NormalizedValue where
 
 /-- Append an instruction that produces a single value. -/
 def emitValueInstruction (op : InstructionOp) (resultType : CoreType) :
-    SurfaceM NormalizedValue := do
+    AuthoredM NormalizedValue := do
   let vid ← freshValueId
   let vdef := { id := vid, type := resultType }
   let instr := { results := #[vdef], op := op }
@@ -28,43 +28,43 @@ def emitValueInstruction (op : InstructionOp) (resultType : CoreType) :
 
 /-- Build a pure arithmetic instruction from already-normalized operands. -/
 def arithmeticValue (mode : OverflowMode) (op : ArithmeticOp) (lhs rhs : ValueRef)
-    (resultType : CoreType) : SurfaceM NormalizedValue := do
+    (resultType : CoreType) : AuthoredM NormalizedValue := do
   emitValueInstruction (.pure (.arithmetic op mode lhs rhs)) resultType
 
 /-- Build a pure comparison instruction from already-normalized operands. -/
-def compareValue (op : CompareOp) (lhs rhs : ValueRef) : SurfaceM NormalizedValue := do
+def compareValue (op : CompareOp) (lhs rhs : ValueRef) : AuthoredM NormalizedValue := do
   emitValueInstruction (.pure (.compare op lhs rhs)) .bool
 
-/-- Compute the Core result type of a Surface expression. -/
-def exprType (e : SurfaceExpr) : SurfaceM CoreType := do
+/-- Compute the Core result type of a Authored expression. -/
+def exprType (e : AuthoredExpr) : AuthoredM CoreType := do
   match e with
   | .literal lit => return (coreLiteralType (← liftExcept (adaptLiteral lit)))
   | .peerRef _ => return .address
   | .local name => return (← lookupLocal name).type
   | .arith _ _ lhs _ => exprType lhs
-  | .cast target _ => resolveSurfaceType (← get).env.typeIds target
+  | .cast target _ => resolveAuthoredType (← get).env.typeIds target
   | .compare _ _ _ | .boolAnd _ _ | .boolOr _ _ | .unary .not _ => return .bool
   | .hash _ | .hashPair _ _ => return .hash
   | .stateRead name => stateScalarType name
   | .mapRead name _ => return (← stateMapTypes name).2
   | .arrayRead name _ => stateArrayType name
   | .memoryArray elementType _ =>
-      return .memoryRef (← resolveSurfaceType (← get).env.typeIds elementType)
+      return .memoryRef (← resolveAuthoredType (← get).env.typeIds elementType)
   | .contextRead field => return (contextFieldType (adaptContextField field))
   | .hostCall _ _ => return .u64
   | .crosscall _ _ _ _ returnType =>
-      resolveSurfaceType (← get).env.typeIds returnType
+      resolveAuthoredType (← get).env.typeIds returnType
   | .nativeValue => return .u128
   | .unary .neg arg => exprType arg
   | .index base _ =>
       match ← exprType base with
       | .memoryRef element => return element
-      | other => throw (SurfaceNormalizeError.typeMismatch "memory reference" (reprStr other))
+      | other => throw (AuthoredNormalizeError.typeMismatch "memory reference" (reprStr other))
   | .field _ _ =>
-    throw (SurfaceNormalizeError.unsupportedSurface "field" "field access not in initial fragment")
+    throw (AuthoredNormalizeError.unsupportedAuthored "field" "field access not in initial fragment")
 
-/-- Normalize a Surface expression into ANF instructions plus a result ValueRef. -/
-partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
+/-- Normalize a Authored expression into ANF instructions plus a result ValueRef. -/
+partial def normalizeExpr (e : AuthoredExpr) : AuthoredM NormalizedValue := do
   match e with
   | .literal lit =>
       let coreLit ← liftExcept (adaptLiteral lit)
@@ -79,9 +79,9 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       let nr ← normalizeExpr rhs
       let ty ← exprType lhs
       unless nr.value.type == ty do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr ty) (reprStr nr.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr ty) (reprStr nr.value.type))
       unless ty == .u8 || ty == .u32 || ty == .u64 || ty == .u128 do
-        throw (SurfaceNormalizeError.typeMismatch "unsigned integer" (reprStr ty))
+        throw (AuthoredNormalizeError.typeMismatch "unsigned integer" (reprStr ty))
       let mode := if checked then .checked else .wrapping
       let coreOp := adaptArithOp op
       let nv ← arithmeticValue mode coreOp nl.value nr.value ty
@@ -90,14 +90,14 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       let nl ← normalizeExpr lhs
       let nr ← normalizeExpr rhs
       unless nl.value.type == nr.value.type do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr nl.value.type) (reprStr nr.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr nl.value.type) (reprStr nr.value.type))
       let coreOp := adaptCompareOp op
       let nv ← compareValue coreOp nl.value nr.value
       return { instructions := nl.instructions ++ nr.instructions ++ nv.instructions, value := nv.value }
   | .boolAnd _ _ =>
-      throw (SurfaceNormalizeError.unsupportedSurface "SurfaceExpr.boolAnd" "boolean and not in initial fragment")
+      throw (AuthoredNormalizeError.unsupportedAuthored "AuthoredExpr.boolAnd" "boolean and not in initial fragment")
   | .boolOr _ _ =>
-      throw (SurfaceNormalizeError.unsupportedSurface "SurfaceExpr.boolOr" "boolean or not in initial fragment")
+      throw (AuthoredNormalizeError.unsupportedAuthored "AuthoredExpr.boolOr" "boolean or not in initial fragment")
   | .unary op arg =>
       let nv ← normalizeExpr arg
       let coreOp := adaptUnaryOp op
@@ -106,7 +106,7 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       return { instructions := nv.instructions ++ nresult.instructions, value := nresult.value }
   | .cast target arg =>
       let nv ← normalizeExpr arg
-      let coreTy ← liftExcept (resolveSurfaceType (← get).env.typeIds target)
+      let coreTy ← liftExcept (resolveAuthoredType (← get).env.typeIds target)
       let ncast ← emitValueInstruction (.pure (.cast coreTy nv.value)) coreTy
       return { instructions := nv.instructions ++ ncast.instructions, value := ncast.value }
   | .stateRead name =>
@@ -119,7 +119,7 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       let (keyType, valueType) ← stateMapTypes name
       let normalizedKey ← normalizeExpr key
       unless normalizedKey.value.type == keyType do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr keyType) (reprStr normalizedKey.value.type))
+        throw (AuthoredNormalizeError.typeMismatch (reprStr keyType) (reprStr normalizedKey.value.type))
       let loaded ← emitValueInstruction
         (.storageLoad {
           root := stateId,
@@ -133,7 +133,7 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       let elementType ← stateArrayType name
       let normalizedIndex ← normalizeExpr index
       unless normalizedIndex.value.type == .u64 do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr CoreType.u64)
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.u64)
           (reprStr normalizedIndex.value.type))
       let loaded ← emitValueInstruction
         (.storageLoad {
@@ -144,7 +144,7 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
         instructions := normalizedIndex.instructions ++ loaded.instructions,
         value := loaded.value }
   | .memoryArray elementType values =>
-      let coreElement ← liftExcept (resolveSurfaceType (← get).env.typeIds elementType)
+      let coreElement ← liftExcept (resolveAuthoredType (← get).env.typeIds elementType)
       let length ← emitValueInstruction (.pure (.literal (.u64Lit values.size))) .u64
       let allocated ← emitValueInstruction (.memoryAlloc coreElement length.value) (.memoryRef coreElement)
       let mut instructions := length.instructions ++ allocated.instructions
@@ -152,7 +152,7 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       for value in values do
         let normalizedValue ← normalizeExpr value
         unless normalizedValue.value.type == coreElement do
-          throw (SurfaceNormalizeError.typeMismatch (reprStr coreElement)
+          throw (AuthoredNormalizeError.typeMismatch (reprStr coreElement)
             (reprStr normalizedValue.value.type))
         let normalizedIndex ← emitValueInstruction (.pure (.literal (.u64Lit index))) .u64
         instructions := instructions ++ normalizedValue.instructions ++ normalizedIndex.instructions
@@ -197,7 +197,7 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
       allInstrs := allInstrs ++ normalizedArg.instructions
       argRefs := argRefs.push normalizedArg.value
       paramTypes := paramTypes.push normalizedArg.value.type
-    let coreReturnType ← liftExcept (resolveSurfaceType (← get).env.typeIds returnType)
+    let coreReturnType ← liftExcept (resolveAuthoredType (← get).env.typeIds returnType)
     let coreMode := match mode with
       | .invoke => CoreCrosscallMode.invoke
       | .staticInvoke => CoreCrosscallMode.staticInvoke
@@ -212,15 +212,15 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
     let instructions := allInstrs ++ normalizedCall.instructions
     return { instructions := instructions, value := normalizedCall.value }
   | .field _ _ =>
-      throw (SurfaceNormalizeError.unsupportedSurface "SurfaceExpr.field" "field projection not in initial fragment")
+      throw (AuthoredNormalizeError.unsupportedAuthored "AuthoredExpr.field" "field projection not in initial fragment")
   | .index base index =>
       let normalizedBase ← normalizeExpr base
       let elementType ← match normalizedBase.value.type with
         | .memoryRef element => pure element
-        | other => throw (SurfaceNormalizeError.typeMismatch "memory reference" (reprStr other))
+        | other => throw (AuthoredNormalizeError.typeMismatch "memory reference" (reprStr other))
       let normalizedIndex ← normalizeExpr index
       unless normalizedIndex.value.type == .u64 do
-        throw (SurfaceNormalizeError.typeMismatch (reprStr CoreType.u64)
+        throw (AuthoredNormalizeError.typeMismatch (reprStr CoreType.u64)
           (reprStr normalizedIndex.value.type))
       let loaded ← emitValueInstruction
         (.memoryLoad normalizedBase.value normalizedIndex.value) elementType
@@ -228,4 +228,4 @@ partial def normalizeExpr (e : SurfaceExpr) : SurfaceM NormalizedValue := do
         instructions := normalizedBase.instructions ++ normalizedIndex.instructions ++ loaded.instructions,
         value := loaded.value }
 
-end ProofForge.Frontend.Surface
+end ProofForge.Frontend.Authored.Canonicalize
