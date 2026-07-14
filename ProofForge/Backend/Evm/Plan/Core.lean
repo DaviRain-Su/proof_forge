@@ -159,6 +159,7 @@ private def resultName (instr : Instruction) : String :=
 structure CorePlanEnv where
   values : Array (ValueId × String) := #[]
   literals : Array (ValueId × CoreLiteral) := #[]
+  crosscallTargets : Array ValueId := #[]
   stateNames : Array (StateId × String) := #[]
   storage : StorageLayout := { states := #[] }
   events : Array (EventId × EventPlan) := #[]
@@ -366,8 +367,16 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       else
         .ok #[]
   | .pure (.literal (.addressLit value)) => do
-      .ok #[StmtPlan.letBind (resultName instr) .address
-        (← coreLiteralToExprPlan (.addressLit value))]
+      match instr.results[0]? with
+      | some result =>
+          if env.crosscallTargets.contains result.id then
+            -- Logical peer identities are resolved through target metadata when
+            -- the crosscall itself is lowered; they are not runtime literals.
+            .ok #[]
+          else
+            .ok #[StmtPlan.letBind (resultName instr) .address
+              (← coreLiteralToExprPlan (.addressLit value))]
+      | none => throw { message := "address literal is missing its Core result" }
   | .pure (.literal lit) => do
       .ok #[StmtPlan.letBind (resultName instr) (← coreLiteralPlanType lit)
         (← coreLiteralToExprPlan lit)]
@@ -718,7 +727,12 @@ def coreFunctionToStmtPlans (env : CorePlanEnv) (func : Function) : Except PlanE
     | none => throw { message := s!"function {func.id.value} has no entry block" }
   unless entry.params.isEmpty do
     throw { message := s!"function {func.id.value} entry block parameters are not yet materialized by the EVM Core plan" }
-  lowerStructuredRegion func env func.entry none (func.blocks.size * 4 + 1)
+  let crosscallTargets := func.blocks.flatMap fun block =>
+    block.instructions.filterMap fun instruction => match instruction.op with
+      | .crosscall spec _ => some spec.target.id
+      | _ => none
+  lowerStructuredRegion func { env with crosscallTargets } func.entry none
+    (func.blocks.size * 4 + 1)
 
 private inductive EvmDispatchKind
   | function | fallback | receive

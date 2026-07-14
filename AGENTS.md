@@ -158,7 +158,7 @@ EVM migration. Finish these rows before resuming NEAR-R2:
 | EVM-R1 | done (verified 2026-07-14) | Move EVM-only context, protocol, ABI, call-mode, error, and dispatch semantics into EVM-owned HostOps and plan metadata |
 | EVM-R2 | done (28/28 EVM catalog products direct; exact catalog audit and ERC-4626 Anvil smoke verified 2026-07-14) | Materialize Counter, ValueVault, Token, RemoteCall, and remaining EVM product families directly into checked Canonical Core |
 | EVM-R3 | done (public Yul, optimized bytecode, check, plan metadata, and 28-product CLI catalog verified 2026-07-14) | Switch EVM build/emit/check and product dispatch to the direct canonical route and replay focused EVM behavior/runtime gates |
-| EVM-R4 | done (R4a-R4f verified 2026-07-14) | Delete obsolete EVM legacy lowering, adapters, constructors, compatibility APIs, and freeze-baseline entries after caller count reaches zero |
+| EVM-R4 | done (R4a-R4g verified 2026-07-14) | Delete obsolete EVM legacy lowering/adapters and preserve target-owned logical peer resolution after the direct frontend cutover |
 
 Before NEAR-R2, complete the single-authoring cutover in
 [the July 14 authoring plan](docs/superpowers/plans/2026-07-14-authoring-cutover.md).

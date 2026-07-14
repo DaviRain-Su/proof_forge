@@ -3873,3 +3873,18 @@ Rules:
   `git diff --check`. The broader `EvmDirectProducts` test still exposes its
   pre-existing logical peer literal planning failure (`peer.callee`) and was not
   treated as evidence for this slice.
+
+## 2026-07-14 - EVM-R4g: defer logical peer address materialization
+
+- Status: `done (verified 2026-07-14)`; this is follow-up hardening discovered
+  by replaying the direct product catalog after the Authored crosscall update.
+- The EVM Core planner now identifies value IDs used as crosscall targets per
+  function. Their address literals remain logical peer identities until the
+  crosscall is lowered and resolved through `CapabilityPlan` target metadata;
+  they are no longer rejected early as malformed physical EVM addresses.
+- Ordinary address literals still use strict EVM parsing, and an unbound
+  logical peer still fails with the named crosscall-target diagnostic.
+- Verification: `Tests/Canonical/EvmDirectCrosscall.lean`, the complete
+  28-product `Tests/Canonical/EvmDirectProducts.lean`, and
+  `Tests/Backend/Evm/CanonicalPlan.lean` including its invalid-address negative
+  case; canonical boundary and `git diff --check`.
