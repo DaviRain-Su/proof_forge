@@ -96,8 +96,10 @@ def evmResolveBuild (req : BuildRequest) : Except String BuildResult :=
     else
       Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-yul" }
   else
-    if req.input?.isSome then
-      Except.ok { dispatchKind := .legacy, legacyFlag? := some "--evm-bytecode" }
+    if isLeanSource then
+      Except.ok { dispatchKind := .native, nativeOp? := some .evmCanonicalBytecode }
+    else if req.input?.isSome then
+      Except.error "proof-forge build --target evm requires a .lean or .learn source"
     else
       Except.ok { dispatchKind := .legacy, legacyFlag? := some "--emit-counter-ir-bytecode" }
 

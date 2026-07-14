@@ -71,24 +71,50 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
   let some input := opts.input?
     | IO.eprintln usage
       return 1
-  let spec ← loadContractSpecForOptions opts input "evm"
-  let opts ← match finalizeConstructorOptionsForSpec opts spec with
-    | .ok opts => pure opts
-    | .error msg => throw <| IO.userError msg
   let output := opts.output?.getD (input.withExtension "bin")
   let yulOutput := opts.yulOutput?.getD (defaultBytecodeYulOutput output)
-  let (yul, module) ← renderContractSpecEvmYul opts spec
-  writeTextFile yulOutput yul
-  let bytecode ← solcBytecode opts.solc yulOutput
-  writeTextFile output (bytecode ++ "\n")
-  let hydratedSpec := { spec with module := module }
-  writeEvmContractSdkArtifactMetadata opts (leanBaseName input) {
-    moduleName := hydratedSpec.name
-    path? := some input.toString
-    kind := "contract-sdk"
-    leanElaborated := true
-  } hydratedSpec module yulOutput output
-  IO.println s!"wrote {output} ({bytecode.length} hex chars)"
+  if opts.nft then
+    let spec ← loadContractSpecForOptions opts input "evm"
+    let opts ← match finalizeConstructorOptionsForSpec opts spec with
+      | .ok opts => pure opts
+      | .error msg => throw <| IO.userError msg
+    let (yul, module) ← renderContractSpecEvmYul opts spec
+    writeTextFile yulOutput yul
+    let bytecode ← solcBytecode opts.solc yulOutput
+    writeTextFile output (bytecode ++ "\n")
+    let hydratedSpec := { spec with module := module }
+    writeEvmContractSdkArtifactMetadata opts (leanBaseName input) {
+      moduleName := hydratedSpec.name
+      path? := some input.toString
+      kind := "contract-sdk"
+      leanElaborated := true
+    } hydratedSpec module yulOutput output
+  else
+    let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
+    match source with
+    | .legacyV1 spec =>
+        let opts ← match finalizeConstructorOptionsForSpec opts spec with
+          | .ok opts => pure opts
+          | .error msg => throw <| IO.userError msg
+        let (yul, module) ← renderContractSpecEvmYul opts spec
+        writeTextFile yulOutput yul
+        let bytecode ← solcBytecode opts.solc yulOutput
+        writeTextFile output (bytecode ++ "\n")
+        let hydratedSpec := { spec with module := module }
+        writeEvmContractSdkArtifactMetadata opts (leanBaseName input) {
+          moduleName := hydratedSpec.name
+          path? := some input.toString
+          kind := "contract-sdk"
+          leanElaborated := true
+        } hydratedSpec module yulOutput output
+    | .surfaceV2 contract =>
+        let (yul, plan) ← renderSurfaceEvmYul opts contract
+        writeTextFile yulOutput yul
+        let bytecode ← solcOptimizedBytecode opts.solc yulOutput
+        requireEvmRuntimeSize bytecode
+        writeTextFile output (bytecode ++ "\n")
+        writeEvmPlanArtifactMetadata opts input plan yulOutput output
+  IO.println s!"wrote {output}"
   return 0
 
 unsafe def compileContractSourceYul (opts : CliOptions) : IO UInt32 := do

@@ -157,6 +157,23 @@ def solcBytecode (solc : String) (yulFile : FilePath) : IO String := do
     throw <| IO.userError s!"solc did not emit bytecode for {yulFile}"
   appendSolcMetadata solc bytecode
 
+def solcOptimizedBytecode (solc : String) (yulFile : FilePath) : IO String := do
+  let stdout ← runProcess solc #["--strict-assembly", "--optimize", yulFile.toString, "--bin"]
+  let mut bytecode := ""
+  for line in stdout.splitOn "\n" do
+    let line := trimAsciiString line
+    if isHexString line then
+      bytecode := line
+  if bytecode.isEmpty then
+    throw <| IO.userError s!"solc did not emit optimized bytecode for {yulFile}"
+  appendSolcMetadata solc bytecode
+
+def requireEvmRuntimeSize (bytecode : String) : IO Unit := do
+  let bytecodeBytes := (trimAsciiString bytecode).length / 2
+  if bytecodeBytes > 24576 then
+    throw <| IO.userError
+      s!"optimized EVM runtime is {bytecodeBytes} bytes and exceeds the EIP-170 limit of 24576 bytes"
+
 def storageLayoutJson (module : ProofForge.IR.Module) : String :=
   let layout := ProofForge.Backend.Evm.Plan.storageLayout module
   let stateJson (s : ProofForge.Backend.Evm.Plan.StorageStatePlan) : String :=
@@ -175,6 +192,25 @@ def storageLayoutJson (module : ProofForge.IR.Module) : String :=
     ]
   jsonObject #[
     ("states", jsonArray (layout.states.map stateJson))
+  ]
+
+def planStorageLayoutJson (plan : ProofForge.Backend.Evm.Plan.ModulePlan) : String :=
+  let stateJson (state : ProofForge.Backend.Evm.Plan.StorageStatePlan) : String :=
+    jsonObject #[
+      ("id", jsonString state.id),
+      ("slot", toString state.slot),
+      ("span", toString state.span),
+      ("kind", jsonString (match state.kind with
+        | .scalar => "scalar"
+        | .map _ _ => "map"
+        | .array _ => "array"
+        | .dynamicArray => "dynamicArray")),
+      ("type", jsonString state.type.name),
+      ("byteOffset", toString state.byteOffset),
+      ("byteWidth", toString state.byteWidth)
+    ]
+  jsonObject #[
+    ("states", jsonArray (plan.storage.states.map stateJson))
   ]
 
 partial def pushByteWidthFrom (value width : Nat) : Option Nat :=
@@ -373,7 +409,8 @@ def writeEvmDeployManifest
     (constructorParams : Array ConstructorParamSpec)
     (sourceArtifact? : Option String)
     (yulArtifact bytecodeArtifact initCodeArtifact constructorArgs : String)
-    (module? : Option ProofForge.IR.Module := none) : IO Unit := do
+    (module? : Option ProofForge.IR.Module := none)
+    (plan? : Option ProofForge.Backend.Evm.Plan.ModulePlan := none) : IO Unit := do
   let mut inputFields : Array (String × String) := #[
     ("yul", yulArtifact),
     ("bytecode", bytecodeArtifact),
@@ -386,18 +423,20 @@ def writeEvmDeployManifest
     | some module =>
         ProofForge.Target.Materialize.Report.json
           (ProofForge.Target.Materialize.forEvm module)
-    | none =>
-        ProofForge.Target.Materialize.Report.json {
-          targetId := "evm"
-          targetFamily := "evm"
-          storageBinding := ProofForge.Target.evm.storageBinding.id
-          mode := .autoPortable
-          layoutKind := "contract-global-slots"
-          hostBridge? := none
-          stateUnits := 0
-          entrypointCount := entrypoints.size
-          note := "EVM materialization summary without full IR module in this path"
-        }
+    | none => ProofForge.Target.Materialize.Report.json {
+        targetId := "evm"
+        targetFamily := "evm"
+        storageBinding := ProofForge.Target.evm.storageBinding.id
+        mode := .autoPortable
+        layoutKind := "contract-global-slots"
+        hostBridge? := none
+        stateUnits := plan?.map (·.storage.states.size) |>.getD 0
+        entrypointCount := plan?.map (·.entrypoints.size) |>.getD entrypoints.size
+        note := if plan?.isSome then
+          "EVM materialization summary from validated canonical ModulePlan"
+        else
+          "EVM materialization summary without a source or canonical plan"
+      }
   let manifest := jsonObject #[
     ("schemaVersion", "1"),
     ("kind", jsonString "proof-forge-evm-deploy-manifest"),
@@ -414,7 +453,10 @@ def writeEvmDeployManifest
           ProofForge.Target.Preflight.Report.json
             (ProofForge.Target.Preflight.run ProofForge.Target.evm module)
       | none =>
-          "{\"targetId\":\"evm\",\"capabilityOk\":true,\"portabilityOk\":true,\"readyToMaterialize\":true,\"crosscallNativeForm\":\"evm-call\",\"note\":\"preflight skipped (no IR module in this path)\"}"
+          if plan?.isSome then
+            "{\"targetId\":\"evm\",\"capabilityOk\":true,\"portabilityOk\":true,\"readyToMaterialize\":true,\"crosscallNativeForm\":\"evm-call\",\"note\":\"validated canonical ModulePlan built successfully\"}"
+          else
+            "{\"targetId\":\"evm\",\"capabilityOk\":true,\"portabilityOk\":true,\"readyToMaterialize\":true,\"crosscallNativeForm\":\"evm-call\",\"note\":\"preflight skipped (no source or canonical plan)\"}"
     ),
     ("artifactKind", jsonString "evm-initcode-deploy"),
     ("fixture", jsonString fixture),
@@ -501,6 +543,81 @@ def evmArtifactBundle
     ]
   }
 
+def planAbiTypeName (context : String) (type : ProofForge.IR.ValueType)
+    (abiWord? : Option String := none) : Except String String :=
+  ProofForge.Backend.Evm.AbiType.scalarTypeName context type abiWord?
+
+def planEntrypointJson
+    (entrypoint : ProofForge.Backend.Evm.Plan.EntrypointPlan) : Except String String := do
+  let mut params := #[]
+  let mut abiTypes := #[]
+  let mut calldataWords := 0
+  for param in entrypoint.params do
+    let abiType ← planAbiTypeName
+      s!"entrypoint `{entrypoint.name}` parameter `{param.name}`" param.type param.abiWord?
+    let mut wordTypes := #[]
+    for wordType in param.wordTypes do
+      wordTypes := wordTypes.push (← planAbiTypeName
+        s!"entrypoint `{entrypoint.name}` parameter `{param.name}` word" wordType)
+    calldataWords := calldataWords + wordTypes.size
+    abiTypes := abiTypes.push abiType
+    params := params.push (entrypointAbiValueJson (some param.name) param.type abiType wordTypes)
+  let (returnWords, returnValue) ←
+    if entrypoint.returns.returnType == .unit then
+      pure (0, entrypointAbiValueJson none .unit "void" #[])
+    else do
+      let abiType ← planAbiTypeName s!"entrypoint `{entrypoint.name}` return"
+        entrypoint.returns.returnType entrypoint.returns.abiType?
+      let mut wordTypes := #[]
+      for wordType in entrypoint.returns.wordTypes do
+        wordTypes := wordTypes.push (← planAbiTypeName
+          s!"entrypoint `{entrypoint.name}` return word" wordType)
+      pure (wordTypes.size,
+        entrypointAbiValueJson none entrypoint.returns.returnType abiType wordTypes)
+  .ok <| jsonObject #[
+    ("name", jsonString entrypoint.name),
+    ("selector", jsonString entrypoint.selector),
+    ("signature", jsonString s!"{entrypoint.name}({String.intercalate "," abiTypes.toList})"),
+    ("mutability", jsonString (match entrypoint.mutability with | .call => "call" | .view => "view")),
+    ("params", jsonArray params),
+    ("returns", valueTypeJson entrypoint.returns.returnType),
+    ("returnValue", returnValue),
+    ("calldataWords", toString calldataWords),
+    ("returnWords", toString returnWords)
+  ]
+
+def planEventFieldJson (field : ProofForge.Backend.Evm.Plan.EventFieldPlan) : Except String String := do
+  let abiType ← planAbiTypeName s!"event field `{field.name}`" field.type field.abiType?
+  .ok <| jsonObject #[
+    ("name", jsonString field.name),
+    ("type", jsonString abiType),
+    ("irType", valueTypeJson field.type),
+    ("indexed", jsonBool field.indexed),
+    ("encoding", jsonString (if field.indexed then "indexed-word" else "abi-static-words")),
+    ("wordTypes", jsonStringArray #[abiType]),
+    ("wordCount", "1")
+  ]
+
+def planEventJson (cast : String)
+    (event : ProofForge.Backend.Evm.Plan.EventPlan) : IO String := do
+  let topic0 ← eventTopic0For cast event.signature
+  let mut indexedFields := #[]
+  let mut dataFields := #[]
+  for field in event.fields do
+    let fieldJson ← liftExceptString (planEventFieldJson field)
+    if field.indexed then
+      indexedFields := indexedFields.push fieldJson
+    else
+      dataFields := dataFields.push fieldJson
+  return jsonObject #[
+    ("name", jsonString event.name),
+    ("signature", jsonString event.signature),
+    ("topic0", jsonString topic0),
+    ("anonymous", "false"),
+    ("indexedFields", jsonArray indexedFields),
+    ("dataFields", jsonArray dataFields)
+  ]
+
 def writeEvmArtifactMetadata
     (opts : CliOptions)
     (fixture : String)
@@ -513,7 +630,9 @@ def writeEvmArtifactMetadata
     (extraArtifacts : Array (String × String) := #[])
     (storageLayout? : Option String := none)
     (module? : Option ProofForge.IR.Module := none)
-    (constructorInitBindings : Array ProofForge.Contract.EvmConstructorInitBinding := #[]) : IO Unit := do
+    (constructorInitBindings : Array ProofForge.Contract.EvmConstructorInitBinding := #[])
+    (sdkSchemaGenerated : Bool := true)
+    (plan? : Option ProofForge.Backend.Evm.Plan.ModulePlan := none) : IO Unit := do
   let sourceKind := sourceIdentity.kind
   let sourceModule := sourceIdentity.moduleName
   let source? := sourceIdentity.path?.map FilePath.mk
@@ -543,6 +662,7 @@ def writeEvmArtifactMetadata
     initCodeArtifact
     constructorArgs
     module?
+    plan?
   let mut artifactFields : Array (String × String) := #[
     ("yul", yulArtifact),
     ("bytecode", bytecodeArtifact),
@@ -593,18 +713,20 @@ def writeEvmArtifactMetadata
     | some module =>
         ProofForge.Target.Materialize.Report.json
           (ProofForge.Target.Materialize.forEvm module)
-    | none =>
-        ProofForge.Target.Materialize.Report.json {
-          targetId := "evm"
-          targetFamily := "evm"
-          storageBinding := ProofForge.Target.evm.storageBinding.id
-          mode := .autoPortable
-          layoutKind := "contract-global-slots"
-          hostBridge? := none
-          stateUnits := 0
-          entrypointCount := entrypoints.size
-          note := "EVM materialization summary without full IR module in this path"
-        }
+    | none => ProofForge.Target.Materialize.Report.json {
+        targetId := "evm"
+        targetFamily := "evm"
+        storageBinding := ProofForge.Target.evm.storageBinding.id
+        mode := .autoPortable
+        layoutKind := "contract-global-slots"
+        hostBridge? := none
+        stateUnits := plan?.map (·.storage.states.size) |>.getD 0
+        entrypointCount := plan?.map (·.entrypoints.size) |>.getD entrypoints.size
+        note := if plan?.isSome then
+          "EVM materialization summary from validated canonical ModulePlan"
+        else
+          "EVM materialization summary without a source or canonical plan"
+      }
   let metadata := jsonObject #[
     ("schemaVersion", "1"),
     ("target", jsonString "evm"),
@@ -622,14 +744,17 @@ def writeEvmArtifactMetadata
           ProofForge.Target.Preflight.Report.json
             (ProofForge.Target.Preflight.run ProofForge.Target.evm module)
       | none =>
-          "{\"targetId\":\"evm\",\"capabilityOk\":true,\"portabilityOk\":true,\"readyToMaterialize\":true,\"crosscallNativeForm\":\"evm-call\",\"note\":\"preflight skipped (no IR module in this path)\"}"
+          if plan?.isSome then
+            "{\"targetId\":\"evm\",\"capabilityOk\":true,\"portabilityOk\":true,\"readyToMaterialize\":true,\"crosscallNativeForm\":\"evm-call\",\"note\":\"validated canonical ModulePlan built successfully\"}"
+          else
+            "{\"targetId\":\"evm\",\"capabilityOk\":true,\"portabilityOk\":true,\"readyToMaterialize\":true,\"crosscallNativeForm\":\"evm-call\",\"note\":\"preflight skipped (no source or canonical plan)\"}"
     ),
     ("artifactKind", jsonString "evm-bytecode"),
     ("fixture", jsonString fixture),
     ("sourceKind", jsonString sourceKind),
     ("irVersion", if sourceKind == "portable-ir" then jsonString "portable-ir-v0" else "null"),
     ("sourceModule", jsonString sourceModule),
-    ("sdkSchema", jsonString "proof-forge-sdk.json"),
+    ("sdkSchema", if sdkSchemaGenerated then jsonString "proof-forge-sdk.json" else "null"),
     ("capabilities", jsonStringArray (dedupStrings capabilities)),
     ("toolchain", jsonObject #[
       ("solc", jsonObject #[
@@ -664,6 +789,39 @@ def writeEvmArtifactMetadata
     IO.FS.createDirAll parent
   IO.FS.writeFile metadataOutput (metadata ++ "\n")
   IO.println s!"wrote {metadataOutput}"
+
+def writeEvmPlanArtifactMetadata
+    (opts : CliOptions)
+    (input : FilePath)
+    (plan : ProofForge.Backend.Evm.Plan.ModulePlan)
+    (yulOutput bytecodeOutput : FilePath) : IO Unit := do
+  let mut entrypoints := #[]
+  for entrypoint in plan.entrypoints do
+    entrypoints := entrypoints.push (← liftExceptString (planEntrypointJson entrypoint))
+  let mut events := #[]
+  for event in plan.events do
+    events := events.push (← planEventJson opts.cast event)
+  writeEvmArtifactMetadata
+    opts
+    plan.name
+    {
+      moduleName := plan.name
+      path? := some input.toString
+      kind := "surface-v2"
+      leanElaborated := true
+    }
+    (plan.capabilities.map (·.id))
+    entrypoints
+    events
+    #[]
+    yulOutput
+    bytecodeOutput
+    #[]
+    (some (planStorageLayoutJson plan))
+    none
+    #[]
+    false
+    (some plan)
 
 def writeEvmModuleArtifactMetadata
     (opts : CliOptions)

@@ -762,6 +762,7 @@ private def coreEntrypointToPlan (m : Core.Module) (baseEnv : CorePlanEnv)
       .ok {
         name := ep.name
         selector
+        mutability := ep.mutability
         params
         returns := {
           returnType

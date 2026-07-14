@@ -1,6 +1,7 @@
 import Init.Data.Array.Basic
 import Init.Data.String.Basic
 import ProofForge.IR.Contract
+import ProofForge.IR.Canonical
 import ProofForge.Backend.Evm.Plan.Storage
 import ProofForge.Target.Adapter
 import ProofForge.Target.Registry
@@ -610,12 +611,16 @@ def returnLocalNames (returnType : ValueType) (wordTypes : Array ValueType) : Ar
 structure EntrypointPlan where
   name : String
   selector : String
+  mutability : ProofForge.IR.Canonical.InterfaceMutability := .call
   params : Array AbiParamPlan
   returns : ReturnPlan
   body : Array StmtPlan
   deriving Repr
 
-instance : Inhabited EntrypointPlan := ⟨{ name := "", selector := "", params := #[], returns := default, body := #[] }⟩
+instance : Inhabited EntrypointPlan := ⟨{
+  name := "", selector := "", mutability := .call,
+  params := #[], returns := default, body := #[]
+}⟩
 
 inductive DispatchDefaultPlan where
   | revert

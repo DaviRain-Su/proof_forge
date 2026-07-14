@@ -3341,3 +3341,25 @@ Rules:
   integrity, real CLI compilation of direct Counter, and strict-assembly solc
   acceptance.
 - Verification: `just evm-canonical-yul-route` and `git diff --check`.
+
+## 2026-07-14 - EVM-R3b: public canonical bytecode and plan metadata
+
+- Status: `done (verified 2026-07-14)`; EVM-R3 remains in progress for product
+  source cutover and the remaining emit/check compatibility surfaces.
+- Added native `evmCanonicalBytecode` dispatch for every Lean source. Surface
+  v2 sources now compile through checked Canonical Core and the EVM-owned plan,
+  use optimized strict-assembly, fail closed above the EIP-170 runtime limit,
+  and never synthesize a `ContractSpec` or Legacy IR module.
+- Added direct plan-driven ABI, event, capability, mutability, and storage
+  metadata. Artifact metadata identifies `surface-v2` honestly and records the
+  not-yet-generated canonical SDK schema as `null`; the old ContractSpec client
+  generator is not invoked from this route.
+- Preserved entrypoint mutability in `ModulePlan`, fixed plan metadata ABI names,
+  and admitted the intentional portable U64 carrier for EVM `uint256` ABI
+  words. These values now survive source normalization through artifact output.
+- Added `just evm-canonical-bytecode-route`. It compiles direct Counter and the
+  23-entrypoint ERC-4626 vault, checks metadata shape, and enforces the runtime
+  size limit; the optimized ERC-4626 runtime is 6946 bytes with the solc
+  metadata tail.
+- Verification: `just evm-canonical-bytecode-route`,
+  `just evm-direct-products`, and `git diff --check`.

@@ -94,6 +94,25 @@ def requireEvmCanonicalYulNative (input : String) : IO Unit := do
       throw <| IO.userError s!"expected native canonical EVM Yul dispatch, got {repr other}"
   | .error error => throw <| IO.userError error
 
+def requireEvmCanonicalBytecodeNative (input : String) : IO Unit := do
+  let state ← match ProofForge.Cli.parseNewOptions ["--target", "evm", input] {} with
+    | .ok state => pure state
+    | .error error => throw <| IO.userError s!"parse failed: {error}"
+  let (target, request) ← match ProofForge.Cli.resolveBuildRequest state with
+    | .ok result => pure result
+    | .error error => throw <| IO.userError error
+  match ProofForge.Cli.resolveBuild target request with
+  | .ok { dispatchKind := .native, nativeOp? := some .evmCanonicalBytecode, .. } =>
+      let opts ← match ProofForge.Cli.buildNativeOptions state .evmCanonicalBytecode with
+        | .ok opts => pure opts
+        | .error error => throw <| IO.userError error
+      require (!opts.nft) "canonical EVM bytecode dispatch must not set the NFT source mode"
+      require (opts.mode == .evmBytecode)
+        "canonical EVM bytecode dispatch selected the wrong compiler mode"
+  | .ok other =>
+      throw <| IO.userError s!"expected native canonical EVM bytecode dispatch, got {repr other}"
+  | .error error => throw <| IO.userError error
+
 def requireLegacy (target : String) (fixture? : Option String := none) : IO Unit := do
   let args := ["--target", target] ++ fixture?.toList.flatMap (fun f => ["--fixture", f])
   let state ← match ProofForge.Cli.parseNewOptions args {} with
@@ -147,6 +166,7 @@ def requireEmitWatPlanTargetCheck
 
 def main : IO UInt32 := do
   requireEvmCanonicalYulNative "Examples/Product/Canonical/Counter.lean"
+  requireEvmCanonicalBytecodeNative "Examples/Product/Canonical/Counter.lean"
   match ProofForge.Cli.parseArgs
       ["--emit-error-ref-emitwat", "--target", "wasm-near"] {} with
   | .ok opts =>
@@ -178,9 +198,8 @@ def main : IO UInt32 := do
       ProofForge.Cli.Fixture.supportsFormat "psy-dpn" "assert" .psy &&
       !ProofForge.Cli.Fixture.supportsFormat "psy-dpn" "assert" .wat)
     "fixture support helpers should preserve Solana/Psy format boundaries"
-  requireLegacyArgs
-    ["build", "--target", "evm", "--root", ".", "--module", "contract", "-o", "build/evm/Counter.bin", "Examples/Backend/Evm/Contracts/Counter.lean"]
-    ["--evm-bytecode", "-o", "build/evm/Counter.bin", "--root", ".", "--module", "contract", "--solc", "solc", "--cast", "cast", "Examples/Backend/Evm/Contracts/Counter.lean"]
+  -- All EVM `.lean` bytecode sources now use native dispatch. The loader may
+  -- still classify an unmigrated source as Legacy until EVM-R4 removes it.
   requireLegacyArgs
     ["build", "--target", "evm", "--format", "yul", "-o", "build/evm/ValueVault.yul", "Examples/Backend/Learn/ValueVault.learn"]
     ["--learn-yul", "-o", "build/evm/ValueVault.yul", "Examples/Backend/Learn/ValueVault.learn"]

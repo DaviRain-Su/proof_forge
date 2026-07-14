@@ -480,7 +480,14 @@ def buildEntrypointPlan (module : Module) (entrypoint : Entrypoint) :
   let returns ← returnPlan module s!"entrypoint `{entrypoint.name}`" entrypoint.returns
     entrypoint.returnAbiWord?
   let body ← buildEntrypointBodyPlan module entrypoint
-  .ok { name := entrypoint.name, selector, params, returns, body }
+  .ok {
+    name := entrypoint.name
+    selector
+    mutability := match entrypoint.mutability with | .call => .call | .view => .view
+    params
+    returns
+    body
+  }
 
 def buildEntrypointSurfacePlan (module : Module) (entrypoint : Entrypoint) :
     Except LowerError EntrypointPlan := do
@@ -488,7 +495,14 @@ def buildEntrypointSurfacePlan (module : Module) (entrypoint : Entrypoint) :
   let params ← entrypointParamPlans module entrypoint
   let returns ← returnPlan module s!"entrypoint `{entrypoint.name}`" entrypoint.returns
     entrypoint.returnAbiWord?
-  .ok { name := entrypoint.name, selector, params, returns, body := #[] }
+  .ok {
+    name := entrypoint.name
+    selector
+    mutability := match entrypoint.mutability with | .call => .call | .view => .view
+    params
+    returns
+    body := #[]
+  }
 
 def buildEntrypointPlans (module : Module) : Except LowerError (Array EntrypointPlan) :=
   module.entrypoints.foldlM (init := #[]) fun acc entrypoint => do

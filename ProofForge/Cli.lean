@@ -330,6 +330,7 @@ unsafe def compileFile (opts : CliOptions) : IO UInt32 := do
 def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : ProofForge.Cli.NativeBuildOp) : Except String CliOptions := do
   let mode ← match op with
     | .evmCanonicalYul => Except.ok .yul
+    | .evmCanonicalBytecode => Except.ok .evmBytecode
     | .nftEvmBytecode => Except.ok .evmBytecode
     | .nftSolanaSbpf => Except.ok .contractSourceSbpf
     | .nftNearEmitWat => Except.ok .contractSourceEmitWat
@@ -337,6 +338,7 @@ def buildNativeOptions (state : ProofForge.Cli.NewCommandParseState) (op : Proof
   let target := state.target?.getD ""
   let flag ← match op with
     | .evmCanonicalYul => Except.ok "--canonical-evm-yul"
+    | .evmCanonicalBytecode => Except.ok "--canonical-evm-bytecode"
     | .nftEvmBytecode => Except.ok "--evm-bytecode"
     | .nftSolanaSbpf => Except.ok "--contract-source-sbpf"
     | .nftNearEmitWat => Except.ok "--contract-source-emitwat"
@@ -509,6 +511,7 @@ unsafe def dispatch (args : List String) : IO UInt32 := do
               | some op =>
                   match op with
                   | .evmCanonicalYul => ProofForge.Cli.compileContractSourceYul opts
+                  | .evmCanonicalBytecode => ProofForge.Cli.compileContractSourceEvmBytecode opts
                   | .nftEvmBytecode => ProofForge.Cli.compileContractSourceEvmBytecode opts
                   | .nftSolanaSbpf => ProofForge.Cli.compileContractSourceSbpf opts
                   | .nftNearEmitWat => ProofForge.Cli.compileContractSourceEmitWat opts

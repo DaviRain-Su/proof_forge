@@ -306,6 +306,15 @@ evm-canonical-yul-route: build
     lake env proof-forge build --target evm --format yul --root . -o build/evm-canonical-yul-route/Counter.yul Examples/Product/Canonical/Counter.lean
     solc --strict-assembly build/evm-canonical-yul-route/Counter.yul --bin >/dev/null
 
+# Public target-first Surface v2 -> optimized EVM bytecode and plan metadata.
+evm-canonical-bytecode-route: build
+    lake env lean --run Tests/CliTargetFirst.lean
+    rm -rf build/evm-canonical-bytecode-route
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/Counter.bin Examples/Product/Canonical/Counter.lean
+    PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge build --target evm --root . -o build/evm-canonical-bytecode-route/ERC4626Vault.bin Examples/Product/Canonical/ERC4626Vault.lean
+    test $(tr -d '\n' < build/evm-canonical-bytecode-route/ERC4626Vault.bin | wc -c) -le 49152
+    jq -e '.sourceKind == "surface-v2" and .sdkSchema == null and .validation.contractSizeCheck.status == "passed" and (.abi.entrypoints | length) == 23' build/evm-canonical-bytecode-route/proof-forge-artifact.json >/dev/null
+
 # Wave 3B Task 12.2: materialization and diagnostic parity gate.
 canonical-materialization:
     lake env lean --run Tests/Canonical/MaterializationParity.lean
