@@ -3215,3 +3215,13 @@ Rules:
 - Verification: targeted product build,
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
+
+## 2026-07-14 - EVM-R2k: direct staking and storage-deposit accounting
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
+- Added direct Surface v2 StakingVault and StorageDeposit products, covering
+  native-value narrowing, caller projections, hash-keyed ledgers, checked
+  credit/debit accounting, withdrawal authorization, and event materialization.
+- Verification: targeted product builds,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.

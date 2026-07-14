@@ -14,6 +14,8 @@ import Examples.Product.Canonical.HeightLockVault
 import Examples.Product.Canonical.TimelockVault
 import Examples.Product.Canonical.ArrayExample
 import Examples.Product.Canonical.EscrowVault
+import Examples.Product.Canonical.StakingVault
+import Examples.Product.Canonical.StorageDeposit
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Frontend.Surface.Normalize
@@ -70,4 +72,6 @@ def main : IO Unit := do
   checkProduct Examples.Product.Canonical.TimelockVault.contract 7
   checkProduct Examples.Product.Canonical.ArrayExample.contract 3
   checkProduct Examples.Product.Canonical.EscrowVault.contract 10
+  checkProduct Examples.Product.Canonical.StakingVault.contract 6
+  checkProduct Examples.Product.Canonical.StorageDeposit.contract 5
   IO.println "evm-direct-products: ok"
