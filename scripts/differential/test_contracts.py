@@ -245,6 +245,88 @@ class ContractTests(unittest.TestCase):
             self.assertIn(event, evm_source)
             self.assertIn(event, near_source)
 
+    def test_cmp3_ownable_scenario_and_references_are_pinned(self) -> None:
+        root = REPO_ROOT / "testkit/differential/ownable"
+        scenario = json.loads((root / "scenario.v1.json").read_text(encoding="utf-8"))
+        validate_scenario(scenario)
+        self.assertEqual(
+            set(scenario["requiredObservations"]),
+            {
+                "callStatus",
+                "returnValue",
+                "state",
+                "balances",
+                "events",
+                "externalActions",
+                "interface",
+                "resources",
+            },
+        )
+        self.assertEqual(10, len(scenario["steps"]))
+        rejected = {
+            step["id"]: step["expectError"]
+            for step in scenario["steps"]
+            if "expectError" in step
+        }
+        self.assertEqual(
+            {
+                "unauthorized-transfer": "authorization",
+                "zero-address-transfer": "zero-address",
+                "old-owner-renounce": "authorization",
+                "reinitialize-after-renounce": "already-initialized",
+            },
+            rejected,
+        )
+        self.assertEqual(len(scenario["steps"]), len(scenario["allowedDivergences"]))
+
+        manifests = sorted((root / "references").glob("*.v1.json"))
+        self.assertEqual(
+            ["evm.v1.json", "near.v1.json", "solana.v1.json"],
+            [path.name for path in manifests],
+        )
+        for manifest_path in manifests:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            validate_reference(manifest)
+            source = REPO_ROOT / manifest["source"]["path"]
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
+            source_text = source.read_text(encoding="utf-8")
+            self.assertNotIn("proof_forge::", source_text)
+            self.assertNotIn("ProofForge/", source_text)
+
+        evm_source = (REPO_ROOT / "benchmarks/native/evm/Ownable.sol").read_text(
+            encoding="utf-8"
+        )
+        solana_source = (
+            REPO_ROOT / "benchmarks/native/solana/ownable/src/lib.rs"
+        ).read_text(encoding="utf-8")
+        near_source = (
+            REPO_ROOT / "testkit/compare/near/ownable/src/lib.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("bool private initialized", evm_source)
+        self.assertIn("event OwnershipTransferred", evm_source)
+        self.assertIn("const STATE_LEN: usize = 16", solana_source)
+        self.assertIn("state.owned_by(program_id)", solana_source)
+        self.assertIn("fn ownership_transferred", solana_source)
+        self.assertIn("EVENT_JSON:", near_source)
+        self.assertIn("OwnershipTransferred", near_source)
+
+        inventory = generate_inventory()
+        ownable_assets = {
+            item["id"]: item["semanticEvidence"]
+            for item in inventory["assets"]
+            if item["id"].startswith("cmp3-") and "ownable" in item["id"]
+        }
+        self.assertEqual(
+            {
+                "cmp3-reference-evm-ownable": "none",
+                "cmp3-reference-near-ownable": "none",
+                "cmp3-reference-solana-ownable": "none",
+                "cmp3-scenario-ownable-primary-triad": "none",
+            },
+            ownable_assets,
+        )
+
     def test_compiler_does_not_import_comparison_contracts(self) -> None:
         needles = (
             "proof-forge.differential.reference.v1",

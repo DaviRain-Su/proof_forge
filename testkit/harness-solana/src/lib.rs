@@ -30,8 +30,8 @@ const REMOTE_CALL_PROJECT_NAME: &str = "proofforge-remote-call";
 const COUNTER_DATA_LEN: usize = 8;
 const VALUE_VAULT_DATA_LEN: usize = 48;
 const ERROR_REF_DATA_LEN: usize = 8;
-/// Ownable stores a single portable u64 owner handle.
-const OWNABLE_DATA_LEN: usize = 8;
+/// Ownable stores portable u64 owner and initialized words.
+const OWNABLE_DATA_LEN: usize = 16;
 /// RemoteCall marker is a single u64 on account[0].
 const REMOTE_CALL_MARKER_LEN: usize = 8;
 

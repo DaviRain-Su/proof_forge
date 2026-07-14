@@ -1,0 +1,28 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "evm-ownable-solidity",
+  "targetFamily": "evm",
+  "program": "ownable",
+  "framework": "Solidity",
+  "source": {
+    "path": "benchmarks/native/evm/Ownable.sol",
+    "language": "solidity"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:6651c620f03b3ee1f0413ea4d20772557c3caa02a72f5836deacf81e2f4b0bd4",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "solc", "version": "0.8.30"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

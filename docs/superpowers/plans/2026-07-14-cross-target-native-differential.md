@@ -205,6 +205,16 @@ legacy sidecars and proves NEAR's address carrier is owned by the Wasm-host
 plan. Independent native Ownable differential evidence is the next CMP-3
 authorization slice.
 
+Ownable authorization execution slices:
+
+| ID | State | Task |
+|---|---|---|
+| CMP-3d1 | in_progress | Pin independent Solidity, Pinocchio, and near-sdk Ownable references plus one versioned logical scenario. Inventory evidence remains `none` until execution. |
+| CMP-3d2 | pending after CMP-3d1 | Execute the direct Authored artifact and native reference on Anvil, Mollusk, and upstream `near-vm-runner`; compare all eight required dimensions and promote only complete evidence. |
+
+Neither slice may add a compatibility compiler route, reuse a ProofForge
+artifact as the native oracle, or preserve a retired Product Legacy path.
+
 Acceptance:
 
 - ValueVault passes the primary triad with state snapshots and negative cases.

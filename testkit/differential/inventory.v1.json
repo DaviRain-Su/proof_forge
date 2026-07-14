@@ -79,6 +79,18 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-reference-evm-ownable",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3 independent Ownable reference with pinned provenance; VM comparison is pending CMP-3d2",
+      "path": "testkit/differential/ownable/references/evm.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/evm/Ownable.sol"
+      ],
+      "targetFamily": "evm"
+    },
+    {
       "id": "cmp3-reference-evm-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -91,6 +103,18 @@
       "targetFamily": "evm"
     },
     {
+      "id": "cmp3-reference-near-ownable",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3 independent Ownable reference with pinned provenance; VM comparison is pending CMP-3d2",
+      "path": "testkit/differential/ownable/references/near.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/ownable/src/lib.rs"
+      ],
+      "targetFamily": "near"
+    },
+    {
       "id": "cmp3-reference-near-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -101,6 +125,18 @@
         "testkit/compare/near/value-vault/src/lib.rs"
       ],
       "targetFamily": "near"
+    },
+    {
+      "id": "cmp3-reference-solana-ownable",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3 independent Ownable reference with pinned provenance; VM comparison is pending CMP-3d2",
+      "path": "testkit/differential/ownable/references/solana.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/solana/ownable/src/lib.rs"
+      ],
+      "targetFamily": "solana"
     },
     {
       "id": "cmp3-reference-solana-value-vault",
@@ -121,6 +157,15 @@
       "notes": "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
       "path": "scripts/differential/value_vault_pilot.py",
       "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
+      "id": "cmp3-scenario-ownable-primary-triad",
+      "kind": "scenario",
+      "maturity": "portableScenarioV1",
+      "notes": "authorization lifecycle and negative cases are pinned; no semantic promotion occurs before all three VM comparisons execute",
+      "path": "testkit/differential/ownable/scenario.v1.json",
+      "semanticEvidence": "none",
       "targetFamily": "portable"
     },
     {
@@ -1213,14 +1258,14 @@
     }
   ],
   "schema": "proof-forge.differential.inventory.v1",
-  "scope": "tracked comparison assets through the verified CMP-3 ValueVault primary-triad pilot",
+  "scope": "tracked comparison assets through verified ValueVault and pinned, unexecuted Ownable CMP-3 slices",
   "summary": {
-    "assetCount": 102,
+    "assetCount": 106,
     "byTargetFamily": {
-      "evm": 9,
-      "near": 35,
-      "portable": 26,
-      "solana": 24,
+      "evm": 10,
+      "near": 36,
+      "portable": 27,
+      "solana": 25,
       "stylus": 8
     },
     "semanticVerifiedCount": 12

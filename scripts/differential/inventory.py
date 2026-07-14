@@ -230,6 +230,39 @@ def generate_inventory() -> dict[str, object]:
             )
         )
 
+    cmp3_ownable_root = REPO_ROOT / "testkit/differential/ownable"
+    for manifest in sorted((cmp3_ownable_root / "references").glob("*.v1.json")):
+        reference = json.loads(manifest.read_text(encoding="utf-8"))
+        validate_reference(reference, relative(manifest))
+        assets.append(
+            asset(
+                f"cmp3-reference-{reference['targetFamily']}-ownable",
+                reference["targetFamily"],
+                "nativeReference",
+                manifest,
+                "referenceManifestV1",
+                "none",
+                "CMP-3 independent Ownable reference with pinned provenance; VM comparison is pending CMP-3d2",
+                sourcePaths=[reference["source"]["path"]],
+            )
+        )
+
+    cmp3_ownable_scenario = cmp3_ownable_root / "scenario.v1.json"
+    if cmp3_ownable_scenario.is_file():
+        scenario_document = json.loads(cmp3_ownable_scenario.read_text(encoding="utf-8"))
+        validate_scenario(scenario_document, relative(cmp3_ownable_scenario))
+        assets.append(
+            asset(
+                "cmp3-scenario-ownable-primary-triad",
+                "portable",
+                "scenario",
+                cmp3_ownable_scenario,
+                "portableScenarioV1",
+                "none",
+                "authorization lifecycle and negative cases are pinned; no semantic promotion occurs before all three VM comparisons execute",
+            )
+        )
+
     for scenario in sorted((REPO_ROOT / "testkit/scenarios").glob("*.toml")):
         assets.append(
             asset(
@@ -341,7 +374,7 @@ def generate_inventory() -> dict[str, object]:
     assets.sort(key=lambda item: item["id"])
     inventory: dict[str, object] = {
         "schema": INVENTORY_SCHEMA,
-        "scope": "tracked comparison assets through the verified CMP-3 ValueVault primary-triad pilot",
+        "scope": "tracked comparison assets through verified ValueVault and pinned, unexecuted Ownable CMP-3 slices",
         "summary": {
             "assetCount": len(assets),
             "semanticVerifiedCount": sum(1 for item in assets if item["semanticEvidence"] == "verified"),

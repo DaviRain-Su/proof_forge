@@ -39,7 +39,7 @@
     "note": "initial native differential validation design"
   },
   "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
-    "sha256": "d24f3fca34f81d772b6c26ef4169648716cdc3354c47f010f5d65948b05f2798",
+    "sha256": "12a6c80bb616072a0dccec7c0e759beece633b34c3b37fab835184e67ec3f0c2",
     "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
     "model": "manual-zh",
     "note": "manually synced through A-CUT3b1 direct authorization authoring"

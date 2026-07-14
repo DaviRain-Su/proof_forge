@@ -161,6 +161,16 @@ NEAR Wasm 制品。focused gate 拒绝 legacy sidecar，并证明 NEAR address
 carrier 由 Wasm-host plan 所有。独立原生 Ownable 差分证据是下一项 CMP-3
 authorization 切片。
 
+Ownable authorization 执行切片：
+
+| ID | 状态 | 任务 |
+|---|---|---|
+| CMP-3d1 | in_progress | 固定独立 Solidity、Pinocchio、near-sdk Ownable reference 与一个版本化逻辑场景。执行前 inventory evidence 保持 `none`。 |
+| CMP-3d2 | CMP-3d1 后 pending | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；比较全部八个必需 dimension，并且只晋级完整证据。 |
+
+两个切片都不得增加兼容编译路线、把 ProofForge artifact 复用为原生 oracle，
+也不得保留已退役的 Product Legacy 路径。
+
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 
 ### CMP-SOL - Solana extension conformance

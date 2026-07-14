@@ -6,7 +6,7 @@ Hand-written baselines for ProofForge vs native comparison.
 |----------|-----|--------|------|
 | `bm-counter` | [`evm/Counter.sol`](evm/Counter.sol) | [`solana/counter/`](solana/counter/) | [`near/counter-rs/`](near/counter-rs/) |
 | `bm-value-vault` | [`evm/ValueVault.sol`](evm/ValueVault.sol) | — (skip) | `testkit/compare/near/value-vault` |
-| `bm-ownable` | [`evm/Ownable.sol`](evm/Ownable.sol) | — (skip) | `testkit/compare/near/ownable` |
+| `bm-ownable` | [`evm/Ownable.sol`](evm/Ownable.sol) | [`solana/ownable`](solana/ownable) | `testkit/compare/near/ownable` |
 
 ```sh
 just benchmark-native-counter   # Counter compile/typecheck

@@ -26,8 +26,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | CMP-3d - execute independent native Ownable references beside the direct Authored artifacts on EVM, Solana, and NEAR |
-| Next task | Migrate the next Product family directly; Pausable and ReentrancyGuard remain rejected Legacy inventory and must not receive a compatibility route |
+| Active task | CMP-3d1 - pin independent Solidity, Pinocchio, and near-sdk Ownable references plus the fail-closed v1 scenario; keep semantic evidence unverified until VM execution |
+| Next task | CMP-3d2 - execute direct Authored artifacts and independent Ownable references on Anvil, Mollusk, and near-vm-runner; then migrate the next Product family without retaining Legacy routes |
 | Validation track | CMP-0 is done at `18f15e59`; CMP-1 at `7fee238c`; A-CUT2/CMP-2 at `e2834c59`; CMP-3 ValueVault is verified and Product Ownable now has a canonical-only three-target compile gate |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |

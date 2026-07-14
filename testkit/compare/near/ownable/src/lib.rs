@@ -21,8 +21,10 @@ pub struct Ownable {
 impl Ownable {
     #[init]
     pub fn init() -> Self {
+        let owner = env::predecessor_account_id();
+        log_ownership_transferred(None, Some(&owner));
         Self {
-            owner: env::predecessor_account_id(),
+            owner,
         }
     }
 
@@ -34,13 +36,16 @@ impl Ownable {
     pub fn transfer_ownership(&mut self, new_owner: AccountId) {
         self.assert_owner();
         assert_ne!(new_owner.as_str(), "", "zero address");
+        log_ownership_transferred(Some(&self.owner), Some(&new_owner));
         self.owner = new_owner;
     }
 
     pub fn renounce_ownership(&mut self) {
         self.assert_owner();
         // AccountId cannot be empty; sentinel matches PF setting owner to 0 (renounced).
-        self.owner = "renounced.near".parse().unwrap();
+        let renounced = "renounced.near".parse().unwrap();
+        log_ownership_transferred(Some(&self.owner), None);
+        self.owner = renounced;
     }
 
     fn assert_owner(&self) {
@@ -50,10 +55,18 @@ impl Ownable {
     }
 }
 
+fn log_ownership_transferred(previous_owner: Option<&AccountId>, new_owner: Option<&AccountId>) {
+    let previous = previous_owner.map_or("0", |owner| owner.as_str());
+    let next = new_owner.map_or("0", |owner| owner.as_str());
+    env::log_str(&format!(
+        "EVENT_JSON:{{\"standard\":\"proof_forge\",\"version\":\"1.0.0\",\"event\":\"OwnershipTransferred\",\"data\":[{{\"previousOwner\":\"{previous}\",\"newOwner\":\"{next}\"}}]}}"
+    ));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_sdk::test_utils::VMContextBuilder;
+    use near_sdk::test_utils::{get_logs, VMContextBuilder};
     use near_sdk::testing_env;
 
     fn ctx(pred: &str) {
@@ -67,10 +80,12 @@ mod tests {
         ctx("alice.testnet");
         let mut c = Ownable::init();
         assert_eq!(c.owner().as_str(), "alice.testnet");
+        assert!(get_logs().last().unwrap().contains("OwnershipTransferred"));
         c.transfer_ownership("bob.testnet".parse().unwrap());
         ctx("bob.testnet");
         assert_eq!(c.owner().as_str(), "bob.testnet");
         c.renounce_ownership();
         assert_eq!(c.owner().as_str(), "renounced.near");
+        assert!(get_logs().last().unwrap().contains("\"newOwner\":\"0\""));
     }
 }

@@ -1,0 +1,40 @@
+{
+  "schema": "proof-forge.differential.scenario.v1",
+  "id": "portable-ownable-primary-triad",
+  "kind": "portable",
+  "targetFamily": "portable",
+  "steps": [
+    {"id": "initialize-alice", "action": "initialize", "inputs": {"actor": {"type": "address", "value": "alice"}}},
+    {"id": "owner-alice", "action": "owner", "inputs": {"actor": {"type": "address", "value": "alice"}}},
+    {"id": "unauthorized-transfer", "action": "transfer_ownership", "inputs": {"actor": {"type": "address", "value": "bob"}, "newOwner": {"type": "address", "value": "bob"}}, "expectError": "authorization"},
+    {"id": "zero-address-transfer", "action": "transfer_ownership", "inputs": {"actor": {"type": "address", "value": "alice"}, "newOwner": {"type": "address", "value": "zero"}}, "expectError": "zero-address"},
+    {"id": "transfer-to-bob", "action": "transfer_ownership", "inputs": {"actor": {"type": "address", "value": "alice"}, "newOwner": {"type": "address", "value": "bob"}}},
+    {"id": "owner-bob", "action": "owner", "inputs": {"actor": {"type": "address", "value": "bob"}}},
+    {"id": "old-owner-renounce", "action": "renounce_ownership", "inputs": {"actor": {"type": "address", "value": "alice"}}, "expectError": "authorization"},
+    {"id": "renounce-bob", "action": "renounce_ownership", "inputs": {"actor": {"type": "address", "value": "bob"}}},
+    {"id": "owner-zero", "action": "owner", "inputs": {"actor": {"type": "address", "value": "alice"}}},
+    {"id": "reinitialize-after-renounce", "action": "initialize", "inputs": {"actor": {"type": "address", "value": "alice"}}, "expectError": "already-initialized"}
+  ],
+  "requiredObservations": [
+    "callStatus",
+    "returnValue",
+    "state",
+    "balances",
+    "events",
+    "externalActions",
+    "interface",
+    "resources"
+  ],
+  "allowedDivergences": [
+    {"dimension": "resources", "scope": "/steps/initialize-alice/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/owner-alice/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/unauthorized-transfer/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/zero-address-transfer/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/transfer-to-bob/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/owner-bob/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/old-owner-renounce/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/renounce-bob/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/owner-zero/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/reinitialize-after-renounce/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."}
+  ]
+}

@@ -1,0 +1,23 @@
+# Independent Pinocchio Ownable used only as a native differential oracle.
+
+[package]
+name = "proofforge-benchmark-native-solana-ownable"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+description = "Independent Pinocchio Ownable reference for native differential validation"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+bpf-entrypoint = []
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[dependencies]
+pinocchio = { version = "0.11", default-features = false }
+solana-define-syscall = { version = "5.0", features = ["unstable-static-syscalls"] }
