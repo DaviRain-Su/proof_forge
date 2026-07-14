@@ -1267,10 +1267,7 @@ mutual
       Except LowerError (Array StoragePathPlanSegment) :=
     path.mapM (buildStoragePathSegmentPlan module env)
 
-  partial def buildContextExprPlan
-      (module : Module)
-      (env : TypeEnv) :
-      ContextField → Except LowerError ContextExprPlan
+  partial def buildContextExprPlan : ContextField → Except LowerError ContextExprPlan
     | .userId => .ok .userId
     -- Identity-width caller: `hashWord(caller)` → keccak256 of 32-byte padded address.
     | .userIdHash => .ok .userIdHash
@@ -1280,17 +1277,11 @@ mutual
     | .timestamp => .ok .timestamp
     | .epochHeight => .error { message := "EVM context read `epochHeight` is not supported; EVM has no epoch-height opcode" }
     | .chainId => .ok .chainId
-    | .gasPrice => .ok .gasPrice
     | .gasLeft => .ok .gasLeft
     | .prepaidGas => .error { message := "EVM context read `prepaidGas` is not supported; prepaid_gas is NEAR-only (use gasLeft for EVM gas)" }
     | .usedGas => .error { message := "EVM context read `usedGas` is not supported; used_gas is NEAR-only (use gasLeft for EVM gas)" }
-    | .baseFee => .ok .baseFee
-    | .prevRandao => .ok .prevRandao
     | .randomSeed => .error { message := "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode" }
     | .origin => .ok .origin
-    | .coinbase => .ok .coinbase
-    | .blockHash blockNumber => do
-        .ok (.blockHash (← buildExprPlan module env blockNumber))
 
   partial def buildEventFieldValuePlan
       (module : Module)
@@ -1433,7 +1424,7 @@ mutual
         let target ← lowerPlan <| storagePathWriteExprTargetPlan module stateId plannedPath
         .ok (.storagePathAssignOpExprTarget target op (← buildExprPlan module env value))
     | .contextRead field => do
-        .ok (.contextRead (← buildContextExprPlan module env field))
+        .ok (.contextRead (← buildContextExprPlan field))
     | .eventEmit name fields => do
         let eventPlan ← eventPlanForFields module env name #[] fields
         let dataFields := eventPlan.dataFields

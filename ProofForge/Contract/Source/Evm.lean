@@ -11,6 +11,30 @@ namespace ProofForge.Contract.Source.Evm
 open ProofForge.Contract.Source
 open ProofForge.Contract.Surface
 
+def origin : ProofForge.IR.Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.originSig.id #[]
+    .address #[.callerSender]
+
+def prevRandao : ProofForge.IR.Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.prevRandaoSig.id #[]
+    .hash #[.envBlock]
+
+def gasPrice : ProofForge.IR.Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.gasPriceSig.id #[]
+    .u64 #[.envBlock]
+
+def baseFee : ProofForge.IR.Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.baseFeeSig.id #[]
+    .u64 #[.envBlock]
+
+def coinbase : ProofForge.IR.Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.coinbaseSig.id #[]
+    .hash #[.envBlock]
+
+def blockHash (blockNumber : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
+  .hostCall ProofForge.Target.HostOps.Evm.blockHashSig.id #[blockNumber]
+    .hash #[.envBlock]
+
 def ecrecover (digest v r s : ProofForge.IR.Expr) : ProofForge.IR.Expr :=
   .hostCall ProofForge.Target.HostOps.Evm.ecrecoverSig.id #[digest, v, r, s]
     .u64 #[.cryptoEcrecover]

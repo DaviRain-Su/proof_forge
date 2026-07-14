@@ -186,7 +186,7 @@ def main : IO UInt32 := do
   ---------------------------------------------------------------------------
   -- HostEnv (gap-analysis step 1): buckets + materialize-or-reject triad
   ---------------------------------------------------------------------------
-  require (allHostEnvs.size == 16) "HostEnv catalog size"
+  require (allHostEnvs.size == 18) "HostEnv catalog size"
   require (HostEnv.blockTime.bucket == .general) "blockTime general"
   require (HostEnv.caller.bucket == .general) "caller general"
   require (HostEnv.attachedValue.bucket == .general) "attachedValue general"
@@ -346,11 +346,7 @@ no silent wrong binding — especially not block_index / sol_get_cluster)")
   require (ContextField.contractId.toHostEnv == .selfAddress) "contractId→self"
   require (ContextField.gasLeft.toHostEnv == .gasOrComputeBudgetLeft) "gasLeft→budget"
   require (ContextField.origin.toHostEnv == .txOrigin) "origin→txOrigin"
-  require (ContextField.prevRandao.toHostEnv == .randomness) "prevRandao→randomness"
   require (ContextField.randomSeed.toHostEnv == .randomness) "randomSeed→randomness"
-  require ((ContextField.blockHash (.literal (.u64 0))).toHostEnv == .blockHash)
-    "blockHash→blockHash"
-  require (!ContextField.baseFee.isPortableEnv) "baseFee still non-portable core"
   require (!ContextField.gasLeft.isPortableEnv)
     "gasLeft not triad portable-core (NEAR permanent reject; Solana CU is approximate)"
   require ContextField.userId.isPortableEnv "userId portable-core (triad)"

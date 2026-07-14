@@ -256,7 +256,6 @@ mutual
     | .storagePathRead _ path => analyzePath path
     | .storagePathWrite _ path value | .storagePathAssignOp _ path _ value =>
         (analyzePath path).merge (analyzeExpr value)
-    | .contextRead (.blockHash number) => analyzeExpr number
     | .contextRead _ => {}
     | .eventEmit _ fields =>
         fields.foldl (fun acc field => acc.merge (analyzeExpr field.snd)) {}

@@ -85,15 +85,9 @@ def main : IO Unit := do
     "contractId must be portable-core after Solana program_id lower (U1.2)"
   require (!ContextField.chainId.isPortableEnv) "chainId is EVM-only materialize"
   require (!ContextField.epochHeight.isPortableEnv) "epochHeight is NEAR-only"
-  require (!ContextField.baseFee.isPortableEnv) "baseFee must be EVM-only"
-  require (!ContextField.prevRandao.isPortableEnv) "prevRandao must be EVM-only"
-  require (!ContextField.coinbase.isPortableEnv) "coinbase must be EVM-only"
   require (!ContextField.origin.isPortableEnv) "origin must be EVM-only"
-  require (!ContextField.gasPrice.isPortableEnv) "gasPrice must be EVM-only"
   require (!ContextField.gasLeft.isPortableEnv) "gasLeft must be EVM-only"
   require (!ContextField.randomSeed.isPortableEnv) "randomSeed must not be portable-core"
-  require (!(ContextField.isPortableEnv (ContextField.blockHash (Expr.literal (.u64 0)))))
-    "blockHash must not be portable-core"
 
   -- Triad portable-core env stays portable-core.
   let envReadEp : Entrypoint := {
@@ -103,18 +97,6 @@ def main : IO Unit := do
   let portableEnvReadModule : Module := { counterModule with entrypoints := #[envReadEp] }
   require (isPortableCoreModule portableEnvReadModule)
     "module reading a triad portable-core env field must stay portable-core"
-  let evmEnvReadEp : Entrypoint := {
-    name := "evmEnvRead", returns := .u64,
-    body := #[.return (.effect (.contextRead .baseFee))]
-  }
-  let evmOnlyEnvReadModule : Module := { counterModule with entrypoints := #[evmEnvReadEp] }
-  require (!isPortableCoreModule evmOnlyEnvReadModule)
-    "module reading an EVM-only env field must not be portable-core"
-  require ((familyOnlyViolations evmOnlyEnvReadModule .evm).isEmpty)
-    "EVM-only env field must be legal for EVM family"
-  require ((familyOnlyViolations evmOnlyEnvReadModule .solana).size > 0)
-    "EVM-only env field must violate Solana family lowering"
-
   -- Slice 2: Portable identity type vocabulary. `.address` is the chain-neutral
   -- account/identity handle; it is a portable identity and carries no
   -- family-only finding.

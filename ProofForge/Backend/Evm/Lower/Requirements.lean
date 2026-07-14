@@ -1097,26 +1097,8 @@ def buildMapHelpersFromEntrypoints (entrypoints : Array EntrypointPlan) : Helper
   (buildPlannedHelpersFromEntrypoints entrypoints).filter isMapHelper
     |> closeMapHelpers
 
-def contextFieldFromContextExprPlan : ContextExprPlan → ContextField
-  | .userId => .userId
-  | .userIdHash => .userIdHash
-  | .accountId => .accountId
-  | .contractId => .contractId
-  | .checkpointId => .checkpointId
-  | .timestamp => .timestamp
-  | .chainId => .chainId
-  | .gasPrice => .gasPrice
-  | .gasLeft => .gasLeft
-  | .prepaidGas => .prepaidGas
-  | .usedGas => .usedGas
-  | .baseFee => .baseFee
-  | .prevRandao => .prevRandao
-  | .origin => .origin
-  | .coinbase => .coinbase
-  | .blockHash _ => .blockHash (.literal (.u64 0))
-
 def pushContextPlanIfMissing (ops : Array ContextPlan) (op : ContextPlan) : Array ContextPlan :=
-  if ops.any (fun existing => existing.field.name == op.field.name) then ops else ops.push op
+  if ops.any (fun existing => existing.name == op.name) then ops else ops.push op
 
 def mergeContextPlans (lhs rhs : Array ContextPlan) : Array ContextPlan :=
   rhs.foldl pushContextPlanIfMissing lhs
@@ -1147,10 +1129,10 @@ mutual
   partial def contextOpsFromContextExprPlan : ContextExprPlan → Array ContextPlan
     | .blockHash blockNumber =>
         mergeContextPlans
-          #[{ field := contextFieldFromContextExprPlan (.blockHash blockNumber) }]
+          #[{ name := (ContextExprPlan.blockHash blockNumber).name }]
           (contextOpsFromExprPlan blockNumber)
     | field =>
-        #[{ field := contextFieldFromContextExprPlan field }]
+        #[{ name := field.name }]
 
   partial def contextOpsFromAbiValuePlan : AbiValuePlan → Array ContextPlan
     | .expr value =>

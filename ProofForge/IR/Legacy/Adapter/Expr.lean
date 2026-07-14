@@ -173,7 +173,6 @@ def exprType (e : Expr) : AdapterM CoreType := do
   | .boolAnd _ _ | .boolOr _ _ | .boolNot _ => return .bool
   | .effect (.storageScalarRead name) => stateScalarType name
   | .effect (.contextRead .userIdHash) => return .hash
-  | .effect (.contextRead (.blockHash _)) => return .hash
   | .effect (.contextRead field) =>
       match ← liftExcept (adaptContextRead field) with
       | .portable _ resultType | .host _ resultType => return resultType
@@ -447,17 +446,6 @@ partial def normalizeExpr (e : Expr) : AdapterM NormalizedValue := do
       let sender ← emitValueInstruction (.contextRead .sender) .address
       let hashed ← emitValueInstruction (.pure (.hash sender.value)) .hash
       return { instructions := sender.instructions ++ hashed.instructions, value := hashed.value }
-  | .effect (.contextRead (.blockHash blockNumber)) =>
-      let normalizedBlock ← normalizeExpr blockNumber
-      let blockHash ← emitValueInstruction
-        (.hostCall {
-          id := ProofForge.Target.HostOps.Evm.blockHashSig.id
-          args := #[normalizedBlock.value]
-        }) .hash
-      return {
-        instructions := normalizedBlock.instructions ++ blockHash.instructions
-        value := blockHash.value
-      }
   | .effect (.contextRead field) =>
       normalizeContextRead field
   | .effect other =>

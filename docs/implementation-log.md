@@ -3456,3 +3456,29 @@ Rules:
   executable `stepF`, and the bounded driver contract.
 - Verification: focused EVM validation and bytecode-semantics builds/smokes,
   caller searches, `just legacy-freeze`, and `git diff --check`.
+
+## 2026-07-14 - EVM-R4e: remove EVM context from shared IR
+
+- Status: `done (verified 2026-07-14)`; EVM-R4 continues with the overloaded
+  portable-signer/`tx.origin` name split.
+- Deleted `gasPrice`, `baseFee`, `prevRandao`, `coinbase`, and parameterized
+  `blockHash` from shared `IR.ContextField`, including every Legacy adapter,
+  classifier, semantic interpreter, backend rejection arm, coverage entry, and
+  target-boundary allowance.
+- Added typed `Contract.Source.Evm` authoring functions for the five operations.
+  Their exact versioned HostOps lower through Canonical Core into EVM-owned
+  `ContextExprPlan` nodes; the EVM plan no longer converts target context plans
+  back into shared `ContextField` values for metadata collection.
+- Reduced the portable `ContextProbe` to shared context only. EVM-only context
+  ownership is checked by the canonical HostOp gate, while the portable fixture
+  and its Foundry smoke continue to cover timestamp, chain id, gas budget, and
+  signer behavior.
+- Corrected the EVM ABI security matrix so the already-supported/default
+  `U64 -> uint256` override is tested as valid instead of contradictory invalid
+  input.
+- Verification: `lake env lean --run Tests/Canonical/TargetContextHostOps.lean`,
+  `just evm-semantic-plan`, `scripts/evm/context-ir-smoke.sh` (5 Foundry cases),
+  `lake env lean --run Tests/IRPortability.lean`,
+  `lake env lean --run Tests/HostRuntime.lean`,
+  `lake env lean --run Tests/ChainAgnosticRoute.lean`, `just evm-coverage`,
+  `just ir-target-boundary`, `just legacy-freeze`, and `git diff --check`.

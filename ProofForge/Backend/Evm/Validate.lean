@@ -309,8 +309,6 @@ mutual
     | .contextRead .userIdHash => .ok .hash
     | .contextRead .origin => .ok .hash
     | .contextRead .randomSeed => .ok .hash
-    | .contextRead .coinbase => .ok .hash
-    | .contextRead (.blockHash _) => .ok .hash
     | .contextRead _ =>
         .ok .u64
     | .eventEmit _ _ =>

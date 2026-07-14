@@ -47,10 +47,7 @@ mutual
         exprViolations index
     | .storagePathRead _ path =>
         path.foldl (fun acc segment => acc ++ pathSegmentViolations segment) #[]
-    | .contextRead field =>
-        match field with
-        | .blockHash blockNumber => exprViolations blockNumber
-        | _ => #[]
+    | .contextRead _ => #[]
     | .memoryArraySet array index value =>
         exprViolations array ++ exprViolations index ++ exprViolations value
     | .storageScalarWrite .. | .storageScalarAssignOp ..

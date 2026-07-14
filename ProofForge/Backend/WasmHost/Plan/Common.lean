@@ -49,18 +49,8 @@ def buildContextExprPlan : ContextField → Except PlanError ContextExprPlan
   | .usedGas => .ok .usedGas
   | .chainId =>
       err "wasm-near context read `chainId` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
-  | .gasPrice =>
-      err "wasm-near context read `gasPrice` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
   | .gasLeft =>
       err "wasm-near context read `gasLeft` is not supported; use `prepaidGas` or `usedGas` for NEAR gas API"
-  | .baseFee =>
-      err "wasm-near context read `baseFee` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
-  | .prevRandao =>
-      err "wasm-near context read `prevRandao` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
-  | .coinbase =>
-      err "wasm-near context read `coinbase` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, origin, prepaidGas, and usedGas"
-  | .blockHash _ =>
-      err "wasm-near context read `blockHash` is not supported; supported fields are userId, userIdHash, contractId, checkpointId, timestamp, epochHeight, randomSeed, and origin"
 
 def mergeContextExprPlans (acc next : Array ContextExprPlan) : Array ContextExprPlan :=
   next.foldl

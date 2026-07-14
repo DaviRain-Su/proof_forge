@@ -26,29 +26,6 @@ the value is a true Hash word distinct from raw address-width `caller`. -/
 def userIdHashYulExpr : Lean.Compiler.Yul.Expr :=
   helperCall Helper.hashWord #[Lean.Compiler.Yul.builtin "caller" #[]]
 
-def contextFieldExpr
-    (lowerExpr : Expr → Except String Lean.Compiler.Yul.Expr) :
-    ContextField → Except String Lean.Compiler.Yul.Expr
-  | .userId => .ok (Lean.Compiler.Yul.builtin "caller" #[])
-  | .userIdHash => .ok userIdHashYulExpr
-  | .accountId => .error "EVM context read `accountId` is not supported; EVM caller identity is a 20-byte address, not a raw AccountId string (NEAR-only, Phase 3)"
-  | .contractId => .ok (Lean.Compiler.Yul.builtin "address" #[])
-  | .checkpointId => .ok (Lean.Compiler.Yul.builtin "number" #[])
-  | .timestamp => .ok (Lean.Compiler.Yul.builtin "timestamp" #[])
-  | .epochHeight => .error "EVM context read `epochHeight` is not supported; EVM has no epoch-height opcode"
-  | .chainId => .ok (Lean.Compiler.Yul.builtin "chainid" #[])
-  | .gasPrice => .ok (Lean.Compiler.Yul.builtin "gasprice" #[])
-  | .gasLeft => .ok (Lean.Compiler.Yul.builtin "gas" #[])
-  | .prepaidGas => .error "EVM context read `prepaidGas` is not supported; prepaid_gas is NEAR-only (use gasLeft for EVM gas)"
-  | .usedGas => .error "EVM context read `usedGas` is not supported; used_gas is NEAR-only (use gasLeft for EVM gas)"
-  | .baseFee => .ok (Lean.Compiler.Yul.builtin "basefee" #[])
-  | .prevRandao => .ok (Lean.Compiler.Yul.builtin "prevrandao" #[])
-  | .randomSeed => .error "EVM context read `randomSeed` is not supported; use prevRandao for the EVM prevrandao opcode"
-  | .origin => .ok (Lean.Compiler.Yul.builtin "origin" #[])
-  | .coinbase => .ok (Lean.Compiler.Yul.builtin "coinbase" #[])
-  | .blockHash blockNumber => do
-      .ok (Lean.Compiler.Yul.builtin "blockhash" #[← lowerExpr blockNumber])
-
 partial def contextExprPlan
     {ε : Type}
     (mkError : String → ε)

@@ -24,7 +24,7 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | EVM-R4 - delete zero-caller EVM Legacy lowering and compatibility APIs |
+| Active task | EVM-R4f - separate portable signer identity from EVM `tx.origin` |
 | Next task | NEAR-R2 - direct canonical product and public-route cutover |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
@@ -148,7 +148,7 @@ EVM migration. Finish these rows before resuming NEAR-R2:
 | EVM-R1 | done (verified 2026-07-14) | Move EVM-only context, protocol, ABI, call-mode, error, and dispatch semantics into EVM-owned HostOps and plan metadata |
 | EVM-R2 | done (28/28 EVM catalog products direct; exact catalog audit and ERC-4626 Anvil smoke verified 2026-07-14) | Materialize Counter, ValueVault, Token, RemoteCall, and remaining EVM product families directly into checked Canonical Core |
 | EVM-R3 | done (public Yul, optimized bytecode, check, plan metadata, and 28-product CLI catalog verified 2026-07-14) | Switch EVM build/emit/check and product dispatch to the direct canonical route and replay focused EVM behavior/runtime gates |
-| EVM-R4 | in_progress (R4a-R4d verified 2026-07-14) | Delete obsolete EVM legacy lowering, adapters, constructors, compatibility APIs, and freeze-baseline entries after caller count reaches zero |
+| EVM-R4 | in_progress (R4a-R4e verified 2026-07-14) | Delete obsolete EVM legacy lowering, adapters, constructors, compatibility APIs, and freeze-baseline entries after caller count reaches zero |
 
 The D-052 cross-program routing index remains below for work not superseded by
 the active NEAR sequence.

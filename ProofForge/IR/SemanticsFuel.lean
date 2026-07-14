@@ -246,9 +246,9 @@ mutual
       | .contextRead field =>
           match field with
           | .userId | .contractId | .checkpointId | .timestamp | .epochHeight
-          | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao =>
+          | .chainId | .gasLeft | .prepaidGas | .usedGas =>
               .ok (state, .u64 0)
-          | .userIdHash | .randomSeed | .origin | .coinbase | .blockHash _ =>
+          | .userIdHash | .randomSeed | .origin =>
               .ok (state, .hash 0 0 0 0)
           | .accountId => .ok (state, .string "")
       | .eventEmit name fields => do

@@ -360,29 +360,24 @@ theorem evalEffectFuel_contextRead_u64_eq (fuel : Nat) (state : State) (frame : 
     (field : ContextField)
     (h : match field with
          | .userId | .contractId | .checkpointId | .timestamp | .epochHeight
-         | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao => true
+         | .chainId | .gasLeft | .prepaidGas | .usedGas => true
          | _ => false) :
     evalEffectFuel (fuel + 1) state frame (.contextRead field) =
       .ok (state, .u64 0) := by
   cases field with
-  | userId => simp [evalEffectFuel, h]
+  | userId => simp [evalEffectFuel]
   | userIdHash => simp at h
   | accountId => simp at h
-  | contractId => simp [evalEffectFuel, h]
-  | checkpointId => simp [evalEffectFuel, h]
-  | timestamp => simp [evalEffectFuel, h]
-  | epochHeight => simp [evalEffectFuel, h]
-  | chainId => simp [evalEffectFuel, h]
-  | gasPrice => simp [evalEffectFuel, h]
-  | gasLeft => simp [evalEffectFuel, h]
-  | prepaidGas => simp [evalEffectFuel, h]
-  | usedGas => simp [evalEffectFuel, h]
-  | baseFee => simp [evalEffectFuel, h]
-  | prevRandao => simp [evalEffectFuel, h]
+  | contractId => simp [evalEffectFuel]
+  | checkpointId => simp [evalEffectFuel]
+  | timestamp => simp [evalEffectFuel]
+  | epochHeight => simp [evalEffectFuel]
+  | chainId => simp [evalEffectFuel]
+  | gasLeft => simp [evalEffectFuel]
+  | prepaidGas => simp [evalEffectFuel]
+  | usedGas => simp [evalEffectFuel]
   | randomSeed => simp at h
   | origin => simp at h
-  | coinbase => simp at h
-  | blockHash _ => simp at h
 
 end Context
 

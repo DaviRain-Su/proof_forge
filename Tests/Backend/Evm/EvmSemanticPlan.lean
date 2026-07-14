@@ -430,8 +430,8 @@ def requireIdentExpr
       require (name == expectedName) s!"{label} local name"
   | _ => throw <| IO.userError s!"{label} must lower to local identifier"
 
-def contextOpsContainField (ops : Array ContextPlan) (field : ContextField) : Bool :=
-  ops.any fun op => op.field.name == field.name
+def contextOpsContainField (ops : Array ContextPlan) (name : String) : Bool :=
+  ops.any fun op => op.name == name
 
 def nativeTransferPlanProbe : Module := {
   name := "NativeTransferPlanProbe"
@@ -710,15 +710,6 @@ def contextOpsPlanProbe : Module := {
       returns := .u64
       body := #[
         .return (.effect (.contextRead .timestamp))
-      ]
-    },
-    {
-      name := "block_hash"
-      selector? := some "04f3bcec"
-      params := #[("block_number", .u64)]
-      returns := .hash
-      body := #[
-        .return (.effect (.contextRead (.blockHash (.local "block_number"))))
       ]
     }
   ]
@@ -2046,11 +2037,8 @@ def testPlannedContextOpsDiscoveryFromEntrypointPlans : IO Unit := do
     (plannedContextOps == lowerPlan.contextOps)
     "full module context ops must be discovered from entrypoint plans"
   require
-    (contextOpsContainField lowerPlan.contextOps .timestamp)
+    (contextOpsContainField lowerPlan.contextOps "timestamp")
     "full module context ops must include timestamp"
-  require
-    (contextOpsContainField lowerPlan.contextOps (.blockHash (.literal (.u64 0))))
-    "full module context ops must include blockHash"
   let targetPlanContext ←
     requireValidateOk
       (ProofForge.Backend.Evm.Lower.buildFullModulePlanWithTargetPlan
@@ -2082,10 +2070,10 @@ def testPlannedContextOpsDiscoveryFromEntrypointPlans : IO Unit := do
   let injectedContextOps :=
     ProofForge.Backend.Evm.Lower.buildContextOpsFromEntrypoints injectedEntrypoints
   require
-    (contextOpsContainField injectedContextOps (.blockHash (.literal (.u64 0))))
+    (contextOpsContainField injectedContextOps "blockHash")
     "planned entrypoint body scanner must discover injected blockHash context op"
   require
-    (contextOpsContainField injectedContextOps .timestamp)
+    (contextOpsContainField injectedContextOps "timestamp")
     "planned entrypoint body scanner must discover nested blockHash argument context op"
   require
     (injectedContextOps.size == 2)
@@ -9977,7 +9965,7 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
         (.literal (.address 2)),
         (.literal (.address 3)),
         (.arrayLit .u64
-          #[.literal (.u64 4), .hash (.effect (.contextRead .gasPrice))]),
+          #[.literal (.u64 4), .hash (.effect (.contextRead .timestamp))]),
         (.arrayLit .u64
           #[.literal (.u64 5),
             .arrayGet (.local "items") (.effect (.contextRead .gasLeft))])
@@ -9985,7 +9973,7 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
     "ERC-1155 batch semantic effect plan"
   match planned with
   | .checkErc1155BatchReceived _ _ _
-      (.arrayLit _ #[_, .hash (.effect (.contextRead .gasPrice))])
+      (.arrayLit _ #[_, .hash (.effect (.contextRead .timestamp))])
       (.arrayLit _ #[_, .localArrayGet "items" #[.effect (.contextRead .gasLeft)] #[7]]) => pure ()
   | _ =>
       throw <| IO.userError
@@ -10002,9 +9990,9 @@ def testErc1155BatchTraversalAndPlanLowering : IO Unit := do
     "ERC-1155 batch id1 must contribute its hash helper requirement"
   let contextOps :=
     ProofForge.Backend.Evm.Lower.contextOpsFromEffectPlan planned
-  require (contextOpsContainField contextOps .gasPrice)
-    "ERC-1155 batch id1 must contribute its gasPrice context requirement"
-  require (contextOpsContainField contextOps .gasLeft)
+  require (contextOpsContainField contextOps "timestamp")
+    "ERC-1155 batch id1 must contribute its timestamp context requirement"
+  require (contextOpsContainField contextOps "gasLeft")
     "ERC-1155 batch amount1 must contribute its gasLeft context requirement"
   require (contextOps.size == 2)
     "ERC-1155 batch context requirements must be traversed and de-duplicated"
@@ -10098,12 +10086,8 @@ def testContextPlanToYul : IO Unit := do
   let env : TypeEnv := #[
     { name := "block_number", type := .u64, isMutable := false }
   ]
-  let plan ← requireValidateOk
-    (ProofForge.Backend.Evm.Lower.buildEffectPlan
-      ProofForge.IR.Examples.Counter.module
-      (toValidateTypeEnv env)
-      (.contextRead (.blockHash (.add (.local "block_number") (.literal (.u64 1))))))
-    "context blockhash Lower EffectPlan"
+  let plan : EffectPlan := .contextRead
+    (.blockHash (.checkedArith .add (.local "block_number") (.literalWord 1)))
   match plan with
   | .contextRead (.blockHash
       (.checkedArith .add (.local name) (.literalWord value) _ _)) => do
@@ -10119,19 +10103,6 @@ def testContextPlanToYul : IO Unit := do
       require (args.size == 1) "context blockhash plan-to-yul arg count"
       requireCallExpr args[0]! "__pf_checked_add" 2 "context blockhash planned argument"
   | _ => throw <| IO.userError "context blockhash plan-to-yul must lower to blockhash builtin"
-  let directContextExpr ← requireOk
-    (lowerEffectExpr
-      ProofForge.IR.Examples.Counter.module
-      env
-      (.contextRead (.blockHash (.add (.local "block_number") (.literal (.u64 1))))))
-    "context blockhash effect Lower-to-Yul"
-  match directContextExpr with
-  | Lean.Compiler.Yul.Expr.builtin name args => do
-      require (name == "blockhash") "context blockhash effect Lower-to-Yul builtin"
-      require (args.size == 1) "context blockhash effect Lower-to-Yul arg count"
-      requireCallExpr args[0]! "__pf_checked_add" 2 "context blockhash effect planned argument"
-  | _ => throw <| IO.userError "context blockhash effect must lower through target plan"
-
 def unsupportedCrosscallModule : Module := {
   name := "UnsupportedCrosscall"
   state := #[]

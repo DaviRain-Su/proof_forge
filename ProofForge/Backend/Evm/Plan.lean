@@ -669,12 +669,30 @@ structure MetadataPlan where
 
 /-! ## ContextPlan: EVM context operation summary -/
 
+def ContextExprPlan.name : ContextExprPlan → String
+  | .userId => "userId"
+  | .userIdHash => "userIdHash"
+  | .accountId => "accountId"
+  | .contractId => "contractId"
+  | .checkpointId => "checkpointId"
+  | .timestamp => "timestamp"
+  | .chainId => "chainId"
+  | .gasPrice => "gasPrice"
+  | .gasLeft => "gasLeft"
+  | .prepaidGas => "prepaidGas"
+  | .usedGas => "usedGas"
+  | .baseFee => "baseFee"
+  | .prevRandao => "prevRandao"
+  | .origin => "origin"
+  | .coinbase => "coinbase"
+  | .blockHash _ => "blockHash"
+
 structure ContextPlan where
-  field : ContextField
+  name : String
   deriving Repr
 
 def ContextPlan.beq (a b : ContextPlan) : Bool :=
-  a.field.name == b.field.name
+  a.name == b.name
 
 instance : BEq ContextPlan := ⟨ContextPlan.beq⟩
 
@@ -793,7 +811,7 @@ mutual
           | .mapKey key | .index key => acc ++ contextOpsFromExpr key
           | .field _ => acc
         ++ contextOpsFromExpr value
-    | .contextRead field => #[{ field }]
+    | .contextRead field => #[{ name := field.name }]
     | .eventEmit _ fields | .eventEmitIndexed _ fields _ =>
         fields.foldl (init := #[]) fun acc field => acc ++ contextOpsFromExpr field.snd
   partial def contextOpsFromStatement (statement : Statement) : Array ContextPlan :=
@@ -818,7 +836,7 @@ end
 def contextOpsFromModule (module : Module) : Array ContextPlan :=
   let all := module.entrypoints.foldl (init := #[]) fun acc ep => acc ++ contextOpsFromStatements ep.body
   all.foldl (init := #[]) fun acc plan =>
-    if acc.any (fun existing => existing.field.name == plan.field.name) then acc else acc.push plan
+    if acc.any (fun existing => existing.name == plan.name) then acc else acc.push plan
 
 def buildModulePlanWithTargetPlan (module : Module) (targetPlan : CapabilityPlan) :
     Except PlanError ModulePlan := do

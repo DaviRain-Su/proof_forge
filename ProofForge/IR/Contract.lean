@@ -108,16 +108,11 @@ mutual
     | timestamp
     | epochHeight
     | chainId
-    | gasPrice
     | gasLeft
     | prepaidGas
     | usedGas
-    | baseFee
-    | prevRandao
     | randomSeed
     | origin
-    | coinbase
-    | blockHash (blockNumber : Expr)
     deriving Repr, BEq
 
   inductive Expr where
@@ -230,21 +225,16 @@ def ContextField.name : ContextField → String
   | .timestamp => "timestamp"
   | .epochHeight => "epochHeight"
   | .chainId => "chainId"
-  | .gasPrice => "gasPrice"
   | .gasLeft => "gasLeft"
   | .prepaidGas => "prepaidGas"
   | .usedGas => "usedGas"
-  | .baseFee => "baseFee"
-  | .prevRandao => "prevRandao"
   | .randomSeed => "randomSeed"
   | .origin => "origin"
-  | .coinbase => "coinbase"
-  | .blockHash _ => "blockHash"
 
 def ContextField.capability : ContextField → ProofForge.Target.Capability
   | .userId | .userIdHash | .origin | .accountId => .callerSender
   | .contractId => .accountExplicit
-  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasPrice | .gasLeft | .prepaidGas | .usedGas | .baseFee | .prevRandao | .randomSeed | .coinbase | .blockHash _ => .envBlock
+  | .checkpointId | .timestamp | .epochHeight | .chainId | .gasLeft | .prepaidGas | .usedGas | .randomSeed => .envBlock
 
 /-! ### Context field portability + HostEnv mapping (D-050 / gap-analysis step 1)
 
@@ -263,15 +253,11 @@ def ContextField.toHostEnv : ContextField → ProofForge.Target.HostRuntime.Host
   | .timestamp => .blockTime
   | .epochHeight => .epoch
   | .chainId => .chainId
-  | .gasPrice => .gasPrice
   | .gasLeft => .gasOrComputeBudgetLeft
   | .prepaidGas => .nearPrepaidGas
   | .usedGas => .nearUsedGas
-  | .baseFee => .baseFee
-  | .prevRandao | .randomSeed => .randomness
+  | .randomSeed => .randomness
   | .origin => .txOrigin
-  | .coinbase => .coinbase
-  | .blockHash _ => .blockHash
 
 /-- Product portable-core env whitelist: true only when **every** primary triad
 target (`evm` · `solana-sbpf-asm` · `wasm-near`) materializes the field via

@@ -1,6 +1,7 @@
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
 import ProofForge.Compiler.CanonicalPipeline
+import ProofForge.Contract.Source.Evm
 import ProofForge.Contract.Spec
 import ProofForge.IR.Legacy.Adapter
 import ProofForge.Target.HostOps.Evm
@@ -15,22 +16,42 @@ private def require (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw (IO.userError message)
 
 private def contextSpec (name : String) (field : ProofForge.IR.ContextField)
-    (returns : ValueType) : ProofForge.Contract.ContractSpec :=
+    (resultType : ValueType) : ProofForge.Contract.ContractSpec :=
   ProofForge.Contract.ContractSpec.fromIR {
     name
     state := #[]
     entrypoints := #[{
       name := "read"
       selector? := some "01020304"
-      returns
+      «returns» := resultType
       mutability := .view
       body := #[.return (.effect (.contextRead field))]
     }]
   }
 
+private def exprSpec (name : String) (expr : ProofForge.IR.Expr)
+    (resultType : ValueType) : ProofForge.Contract.ContractSpec :=
+  ProofForge.Contract.ContractSpec.fromIR {
+    name
+    state := #[]
+    entrypoints := #[{
+      name := "read"
+      selector? := some "01020304"
+      «returns» := resultType
+      mutability := .view
+      body := #[.return expr]
+    }]
+  }
+
 private def adapt (name : String) (field : ProofForge.IR.ContextField)
-    (returns : ValueType) : IO CheckedCanonicalContract := do
-  match ProofForge.IR.Legacy.Adapter.adaptLegacy (contextSpec name field returns) with
+    (resultType : ValueType) : IO CheckedCanonicalContract := do
+  match ProofForge.IR.Legacy.Adapter.adaptLegacy (contextSpec name field resultType) with
+  | .ok bundle => pure bundle.contract
+  | .error error => throw (IO.userError s!"{name} adaptation failed: {repr error}")
+
+private def adaptExpr (name : String) (expr : ProofForge.IR.Expr)
+    (resultType : ValueType) : IO CheckedCanonicalContract := do
+  match ProofForge.IR.Legacy.Adapter.adaptLegacy (exprSpec name expr resultType) with
   | .ok bundle => pure bundle.contract
   | .error error => throw (IO.userError s!"{name} adaptation failed: {repr error}")
 
@@ -84,41 +105,45 @@ private def nearPlanHasHostContext
       | _ => false
 
 def main : IO Unit := do
-  let origin ← adapt "EvmOrigin" .origin .address
+  let origin ← adaptExpr "EvmOrigin" ProofForge.Contract.Source.Evm.origin .address
   require (hostCallIds origin == #[ProofForge.Target.HostOps.Evm.originSig.id])
-    "legacy origin did not normalize to evm.context/origin"
+    "EVM origin authoring API did not emit evm.context/origin"
   require (evmPlanHasContext (← evmPlan origin) .origin)
     "EVM origin HostOp did not materialize to the origin context plan"
   require ((ProofForge.Compiler.checkHostOpHandlers "wasm-near" origin).any
       (·.contains "evm.context/origin@1.0.0"))
     "NEAR accepted the EVM origin HostOp"
 
-  let randomness ← adapt "EvmPrevRandao" .prevRandao .hash
+  let randomness ← adaptExpr "EvmPrevRandao" ProofForge.Contract.Source.Evm.prevRandao .hash
   require (hostCallIds randomness == #[ProofForge.Target.HostOps.Evm.prevRandaoSig.id])
-    "legacy prevRandao did not normalize to evm.context/prevrandao"
+    "EVM prevRandao authoring API did not emit evm.context/prevrandao"
   require (evmPlanHasContext (← evmPlan randomness) .prevRandao)
     "EVM prevRandao HostOp did not materialize to the target context plan"
 
   let evmCases : Array
-      (String × ProofForge.IR.ContextField × ValueType × ProofForge.Target.HostOpId ×
+      (String × ProofForge.IR.Expr × ValueType × ProofForge.Target.HostOpId ×
         ProofForge.Backend.Evm.Plan.ContextExprPlan) := #[
-    ("EvmGasPrice", .gasPrice, .u64, ProofForge.Target.HostOps.Evm.gasPriceSig.id, .gasPrice),
-    ("EvmBaseFee", .baseFee, .u64, ProofForge.Target.HostOps.Evm.baseFeeSig.id, .baseFee),
-    ("EvmCoinbase", .coinbase, .hash, ProofForge.Target.HostOps.Evm.coinbaseSig.id, .coinbase)
+    ("EvmGasPrice", ProofForge.Contract.Source.Evm.gasPrice, .u64,
+      ProofForge.Target.HostOps.Evm.gasPriceSig.id, .gasPrice),
+    ("EvmBaseFee", ProofForge.Contract.Source.Evm.baseFee, .u64,
+      ProofForge.Target.HostOps.Evm.baseFeeSig.id, .baseFee),
+    ("EvmCoinbase", ProofForge.Contract.Source.Evm.coinbase, .hash,
+      ProofForge.Target.HostOps.Evm.coinbaseSig.id, .coinbase)
   ]
-  for (name, field, returns, expectedId, expectedPlan) in evmCases do
-    let checked ← adapt name field returns
+  for (name, expr, resultType, expectedId, expectedPlan) in evmCases do
+    let checked ← adaptExpr name expr resultType
     require (hostCallIds checked == #[expectedId])
-      s!"{name} did not normalize to its typed EVM HostOp"
+      s!"{name} authoring API did not emit its typed EVM HostOp"
     require (evmPlanHasContext (← evmPlan checked) expectedPlan)
       s!"{name} HostOp did not materialize to the EVM target context plan"
     require ((ProofForge.Compiler.checkHostOpHandlers "wasm-near" checked).any
         (·.contains expectedId.render))
       s!"NEAR accepted EVM HostOp {expectedId.render}"
 
-  let historical ← adapt "EvmBlockHash" (.blockHash (.literal (.u64 7))) .hash
+  let historical ← adaptExpr "EvmBlockHash"
+    (ProofForge.Contract.Source.Evm.blockHash (.literal (.u64 7))) .hash
   require (hostCallIds historical == #[ProofForge.Target.HostOps.Evm.blockHashSig.id])
-    "legacy blockHash did not normalize to evm.context/block_hash"
+    "EVM blockHash authoring API did not emit evm.context/block_hash"
   let historicalPlan ← evmPlan historical
   require (evmPlanHasBlockHashOfSeven historicalPlan)
     "EVM blockHash HostOp did not retain its block-number argument"
@@ -135,8 +160,8 @@ def main : IO Unit := do
     ("NearPrepaidGas", .prepaidGas, .u64, ProofForge.Target.HostOps.Near.prepaidGasSig.id),
     ("NearUsedGas", .usedGas, .u64, ProofForge.Target.HostOps.Near.usedGasSig.id)
   ]
-  for (name, field, returns, expectedId) in nearCases do
-    let checked ← adapt name field returns
+  for (name, field, resultType, expectedId) in nearCases do
+    let checked ← adapt name field resultType
     require (hostCallIds checked == #[expectedId])
       s!"{name} did not normalize to its typed NEAR HostOp"
     require (nearPlanHasHostContext (← nearPlan checked) expectedId)

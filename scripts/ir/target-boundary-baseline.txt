@@ -8,12 +8,9 @@ ProofForge/IR/Canonical.lean:soliditySelector 3
 ProofForge/IR/Canonical.lean:solidityStaticArgBitWidth 2
 ProofForge/IR/Canonical.lean:staticInvoke 1
 ProofForge/IR/Contract.lean:Evm 1
-ProofForge/IR/Contract.lean:baseFee 6
-ProofForge/IR/Contract.lean:blockHash 6
 ProofForge/IR/Contract.lean:checkErc1155BatchReceived 3
 ProofForge/IR/Contract.lean:checkErc1155Received 3
 ProofForge/IR/Contract.lean:checkErc721Received 3
-ProofForge/IR/Contract.lean:coinbase 6
 ProofForge/IR/Contract.lean:eip712PermitDigest 2
 ProofForge/IR/Contract.lean:fallback 2
 ProofForge/IR/Contract.lean:nearPrepaidGas 1
@@ -21,7 +18,6 @@ ProofForge/IR/Contract.lean:nearPromise 7
 ProofForge/IR/Contract.lean:nearUsedGas 1
 ProofForge/IR/Contract.lean:origin 5
 ProofForge/IR/Contract.lean:prepaidGas 5
-ProofForge/IR/Contract.lean:prevRandao 5
 ProofForge/IR/Contract.lean:receive 1
 ProofForge/IR/Contract.lean:solidityArgExprs 4
 ProofForge/IR/Contract.lean:solidityArgTypes 4

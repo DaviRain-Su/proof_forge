@@ -57,6 +57,7 @@ def testValidScalarOverrideMatrix : IO Unit := do
     (.u8, "uint8"),
     (.u32, "uint32"),
     (.u64, "uint64"),
+    (.u64, "uint256"),
     (.u128, "uint128"),
     (.bool, "bool"),
     (.hash, "uint256"),
@@ -78,7 +79,6 @@ def testMismatchedAndDynamicOverridesFailClosed : IO Unit := do
     (.array .u64, "uint256"),
     (.u8, "uint32"),
     (.u32, "address"),
-    (.u64, "uint256"),
     (.hash, "address"),
     (.bool, "uint8"),
     (.u64, "tuple")
