@@ -38,7 +38,8 @@ partial def stmtPlanAlwaysReturns : ProofForge.Backend.Evm.Plan.StmtPlan → Boo
   | .ifElse _ thenBody elseBody =>
       thenBody.any stmtPlanAlwaysReturns && elseBody.any stmtPlanAlwaysReturns
   | .letBind .. | .letMutBind .. | .assign .. | .assignOp .. | .effect ..
-  | .assert .. | .assertEq .. | .release .. | .revert .. | .revertWithError ..
+  | .assert .. | .assertEq .. | .assertPlanned .. | .release .. | .revert ..
+  | .revertWithError .. | .revertPlanned ..
   | .boundedFor .. => false
 
 def lowerEntrypointWithPlan

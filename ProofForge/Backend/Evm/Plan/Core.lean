@@ -153,7 +153,7 @@ structure CorePlanEnv where
   stateNames : Array (StateId × String) := #[]
   storage : StorageLayout := { states := #[] }
   events : Array (EventId × EventPlan) := #[]
-  errors : Array (ErrorId × Option ProofForge.IR.ErrorRef) := #[]
+  errors : Array (ErrorId × Option EvmErrorPlan) := #[]
   crosscallStrings : Array String := #[]
 
 private def lookupValueName (env : CorePlanEnv) (id : ValueId) : Except PlanError String :=
@@ -230,10 +230,23 @@ private def lookupEventPlan (env : CorePlanEnv) (id : EventId) : Except PlanErro
   | some entry => .ok entry.snd
   | none => .error { message := s!"EVM Core plan references unknown event {id.value}" }
 
-private def lookupErrorRef (env : CorePlanEnv) (id : ErrorId) : Except PlanError (Option ProofForge.IR.ErrorRef) :=
-  match env.errors.find? (fun entry => entry.fst == id) with
-  | some entry => .ok entry.snd
-  | none => .error { message := s!"EVM Core plan references unknown error {id.value}" }
+private def lookupErrorPlan (env : CorePlanEnv) (error : CoreErrorRef) :
+    Except PlanError (Option EvmErrorPlan) := do
+  let template ← match env.errors.find? (fun entry => entry.fst == error.id) with
+    | some entry => pure entry.snd
+    | none => throw { message := s!"EVM Core plan references unknown error {error.id.value}" }
+  match template with
+  | none =>
+      unless error.args.isEmpty do
+        throw { message := s!"plain Core error {error.id.value} unexpectedly carries arguments" }
+      pure none
+  | some plan =>
+      let args ← error.args.mapM (valueExpr env)
+      unless plan.solidityArgWords.isEmpty || args.isEmpty do
+        throw { message := s!"EVM error {error.id.value} mixes static and runtime arguments" }
+      unless plan.solidityArgTypes.size == plan.solidityArgWords.size + args.size do
+        throw { message := s!"EVM error {error.id.value} argument schema does not match Core arguments" }
+      pure (some { plan with solidityArgExprs := args })
 
 private def bindInstructionResults (env : CorePlanEnv) (instr : Instruction) : CorePlanEnv :=
   let values := instr.results.foldl
@@ -454,8 +467,8 @@ def coreInstructionToStmtPlans (env : CorePlanEnv) (instr : Instruction) :
       /- Resolve the Core error identity through canonical materialization.
       Fallback errors remain plain reverts; envelope/custom forms carry the
       exact source-facing code and Solidity encoding. -/
-      .ok #[StmtPlan.assert (← valueExpr env cond)
-        s!"assertion failed" (← lookupErrorRef env error.id)]
+      .ok #[StmtPlan.assertPlanned (← valueExpr env cond)
+        s!"assertion failed" (← lookupErrorPlan env error)]
   | .hostCall call =>
       if call.id == ProofForge.Target.HostOps.Evm.originSig.id then do
         unless call.args.isEmpty do
@@ -630,8 +643,10 @@ def coreFunctionToStmtPlans (env : CorePlanEnv) (func : Function) : Except PlanE
       | _ => throw { message := "EVM Core branch continuation must return" }
   | .jump .. =>
       throw { message := s!"function {func.id.value} CFG control flow entry jump is not yet materialized by the EVM Core plan" }
-  | .revert _ =>
-      throw { message := s!"function {func.id.value} structured revert terminator is not yet materialized by the EVM Core plan" }
+  | .revert error =>
+      match ← lookupErrorPlan currentEnv error with
+      | some plan => stmts := stmts.push (.revertPlanned plan)
+      | none => stmts := stmts.push (.revert "")
   return stmts
 
 /-- Map a Core InterfaceEntrypoint to an EVM EntrypointPlan. -/
@@ -697,7 +712,7 @@ private def coreEventToPlan (event : InterfaceEvent) : Except PlanError EventPla
 private def coreErrorPlans
     (interface : InterfaceContract)
     (materialization : MaterializationContract) :
-    Except PlanError (Array (ErrorId × Option ProofForge.IR.ErrorRef)) := do
+    Except PlanError (Array (ErrorId × Option EvmErrorPlan)) := do
   let mut errors := #[]
   for encoding in materialization.errorEncodings do
     let interfaceError ← match interface.errors.find? (·.errorId == encoding.errorId) with

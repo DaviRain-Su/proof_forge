@@ -559,6 +559,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         crosscallHelperSpecsFromExprPlan module value
     | .assign target value
@@ -572,7 +573,7 @@ mutual
         .ok (mergeCrosscallHelperSpecs
           (← crosscallHelperSpecsFromExprPlan module lhs)
           (← crosscallHelperSpecsFromExprPlan module rhs))
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         .ok #[]
     | .ifElse condition thenBody elseBody => do
         let conditionSpecs ← crosscallHelperSpecsFromExprPlan module condition
@@ -978,6 +979,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         createHelperSpecsFromExprPlan value
     | .assign target value
@@ -991,7 +993,7 @@ mutual
         mergeCreateHelperSpecs
           (createHelperSpecsFromExprPlan lhs)
           (createHelperSpecsFromExprPlan rhs)
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         #[]
     | .ifElse condition thenBody elseBody =>
         mergeCreateHelperSpecs

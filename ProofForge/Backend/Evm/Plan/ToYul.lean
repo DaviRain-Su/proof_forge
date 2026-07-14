@@ -61,6 +61,26 @@ private def lowerErrorRef (ref : ProofForge.IR.ErrorRef) :
     Except PlanError (Array Lean.Compiler.Yul.Statement) :=
   ProofForge.Backend.Evm.IR.errorRefRevertStmtsRuntime error rejectLegacyExpr ref
 
+private def lowerErrorPlan (plan : EvmErrorPlan) :
+    Except PlanError (Array Lean.Compiler.Yul.Statement) := do
+  match plan.soliditySelector? with
+  | none =>
+      unless plan.solidityArgWords.isEmpty && plan.solidityArgExprs.isEmpty do
+        throw (error "EVM error arguments require a Solidity selector")
+      pure (ProofForge.Backend.Evm.IR.proofForgeErrorRevertStmts
+        plan.assertionId.toNat (plan.userCode?.getD ""))
+  | some selector =>
+      let some selectorWord := ProofForge.Backend.Evm.IR.parseSoliditySelectorHex selector
+        | throw (error s!"invalid EVM custom-error selector `{selector}`")
+      unless plan.solidityArgWords.isEmpty || plan.solidityArgExprs.isEmpty do
+        throw (error "EVM custom error mixes static and runtime arguments")
+      if plan.solidityArgExprs.isEmpty then
+        pure (ProofForge.Backend.Evm.IR.solidityCustomErrorRevertStmts
+          selectorWord plan.solidityArgWords)
+      else
+        ProofForge.Backend.Evm.IR.solidityCustomErrorRevertStmtsRuntime
+          error lowerExpr selectorWord plan.solidityArgExprs
+
 private def lowerEffectStmt (overflowChecked : Bool) (effect : EffectPlan) :
     Except PlanError (Array Lean.Compiler.Yul.Statement) :=
   match effect with
@@ -138,11 +158,18 @@ mutual
           (fun | none => .ok #[ProofForge.Backend.Evm.ToYul.revertStatement]
                | some ref => lowerErrorRef ref)
           plan
+    | .assertPlanned condition _ errorPlan? => do
+        let revertStatements ← match errorPlan? with
+          | none => pure #[ProofForge.Backend.Evm.ToYul.revertStatement]
+          | some plan => lowerErrorPlan plan
+        pure #[ProofForge.Backend.Evm.ToYul.assertStatementFromCondition
+          (← lowerExpr condition) revertStatements]
     | .release _ => .error (error "canonical EVM plan does not support release statements")
     | .revert message =>
         ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements error lowerErrorRef (.revert message)
     | .revertWithError ref =>
         ProofForge.Backend.Evm.ToYul.revertStmtPlanStatements error lowerErrorRef (.revertWithError ref)
+    | .revertPlanned plan => lowerErrorPlan plan
     | .ifElse condition thenBody elseBody => do
         let thenStatements ← lowerStatements overflowChecked returns true thenBody
         let elseStatements ← lowerStatements overflowChecked returns true elseBody

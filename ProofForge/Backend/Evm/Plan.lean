@@ -500,6 +500,17 @@ instance : BEq AbiPackedHelperSpec :=
 
 /-! ## StmtPlan: target-semantic statement plan -/
 
+/-- EVM-owned error payload. Canonical Core error arguments are already lowered
+to `ExprPlan`; the target plan never reconstructs a Legacy `IR.ErrorRef`. -/
+structure EvmErrorPlan where
+  assertionId : UInt32
+  userCode? : Option String := none
+  soliditySelector? : Option String := none
+  solidityArgWords : Array Nat := #[]
+  solidityArgTypes : Array String := #[]
+  solidityArgExprs : Array ExprPlan := #[]
+  deriving Repr
+
 inductive StmtPlan where
   | letBind (name : String) (type : ValueType) (value : ExprPlan)
   | letMutBind (name : String) (type : ValueType) (value : ExprPlan)
@@ -508,9 +519,13 @@ inductive StmtPlan where
   | effect (effect : EffectPlan)
   | assert (condition : ExprPlan) (message : String) (errorRef? : Option ProofForge.IR.ErrorRef)
   | assertEq (lhs rhs : ExprPlan) (message : String) (errorRef? : Option ProofForge.IR.ErrorRef)
+  /-- Canonical-only assertion carrying an EVM-owned error payload. -/
+  | assertPlanned (condition : ExprPlan) (message : String) (error? : Option EvmErrorPlan)
   | release (name : String)
   | revert (message : String)
   | revertWithError (errorRef : ProofForge.IR.ErrorRef)
+  /-- Canonical-only structured revert. -/
+  | revertPlanned (error : EvmErrorPlan)
   | ifElse (condition : ExprPlan) (thenBody elseBody : Array StmtPlan)
   | boundedFor (indexName : String) (start stopExclusive : Nat) (body : Array StmtPlan)
   | return (value : ExprPlan)

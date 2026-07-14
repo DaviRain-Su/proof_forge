@@ -2882,3 +2882,27 @@ Rules:
   `git diff --check`. No full `just check` ran.
 - Next: migrate static/delegate authoring and then Solidity error/dispatch
   metadata before EVM-R2.
+
+## 2026-07-14 - EVM-R1k: target-owned canonical error plan
+
+- Status: `done (verified 2026-07-14)`; removal of the remaining selector/type
+  envelope from canonical materialization is the next IR-B7 slice.
+- Added `EvmErrorPlan` and canonical-only assert/revert statement variants.
+  `Plan.Core.buildFromCore` now lowers `CoreErrorRef.args` directly to
+  `ExprPlan` and never reconstructs a Legacy `IR.ErrorRef`.
+- Implemented structured Core revert terminators in the EVM planner and direct
+  target-plan-to-Yul lowering for ProofForge envelopes plus Solidity custom
+  errors with static or runtime arguments.
+- Changed Legacy normalization so Solidity static words and runtime expressions
+  become typed Core error arguments. Interface error declarations now carry
+  the corresponding Core parameter schema; static words are no longer retained
+  as the canonical value source.
+- Added `Tests/Canonical/EvmErrorPlan.lean` and updated earlier adapter/public
+  route assertions to test the current architecture boundary.
+- Verification passed: targeted EVM CLI module build,
+  `Tests/Canonical/EvmErrorPlan.lean`, `Tests/Canonical/LegacyAdapter.lean`,
+  `Tests/Canonical/EvmPublicRoute.lean`, `just ir-target-boundary`,
+  `just legacy-freeze`, and `git diff --check`. No full `just check` ran.
+- Next: remove `ErrorEncodingForm.solidityCustom` and Solidity selector/type
+  fields from canonical materialization by introducing an EVM-owned interface
+  attachment, then migrate fallback/receive dispatch metadata.

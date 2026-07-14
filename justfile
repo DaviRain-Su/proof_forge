@@ -49,6 +49,7 @@ hostop-protocol:
 
 # Wave 1/2 canonical IR foundation and Legacy adapter gates.
 canonical-foundation: hostop-protocol
+    lake env lean --run Tests/Canonical/EvmErrorPlan.lean
     lake env lean --run Tests/Canonical/CoreSchema.lean
     lake env lean --run Tests/Canonical/CoreValidate.lean
     lake env lean --run Tests/Canonical/EvidenceIsolation.lean

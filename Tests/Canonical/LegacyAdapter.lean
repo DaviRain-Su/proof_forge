@@ -521,7 +521,8 @@ def runAssertions : IO Unit := do
     | some error => pure error
     | none => throw <| IO.userError "Denied interface error missing"
   require (configuredError.userCode? == some "Denied" &&
-      configuredError.code == 77 && configuredError.message == "denied")
+      configuredError.code == 77 && configuredError.message == "denied" &&
+      configuredError.params == #[.hash])
     "portable error catalogue changed"
   let errorEncoding ← match probe.materialization.errorEncodings.find?
       (·.errorId == configuredError.errorId) with
@@ -530,8 +531,8 @@ def runAssertions : IO Unit := do
   require (errorEncoding.form == .solidityCustom &&
       errorEncoding.soliditySelector? == some "deadbeef" &&
       errorEncoding.solidityArgTypes == #["uint256"] &&
-      errorEncoding.solidityArgWords == #[7])
-    "custom error selector/schema/words changed"
+      errorEncoding.solidityArgWords.isEmpty)
+    "custom error selector/schema was not separated from Core arguments"
 
   let probeMaterialization := probe.materialization
   require (probeMaterialization.constructorParams == #[{

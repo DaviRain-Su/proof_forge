@@ -490,11 +490,14 @@ mutual
         effectPlanSupportsPlannedBodyStmt effect
     | .assert condition _ _ =>
         exprPlanSupportsPlannedBody condition
+    | .assertPlanned condition _ _ =>
+        exprPlanSupportsPlannedBody condition
     | .assertEq lhs rhs _ _ =>
         exprPlanSupportsPlannedBody lhs && exprPlanSupportsPlannedBody rhs
     | .release _ => false
     | .revert _ => true
     | .revertWithError _ => true
+    | .revertPlanned _ => true
     | .ifElse condition thenBody elseBody =>
         exprPlanSupportsPlannedBody condition &&
         stmtPlansSupportPlannedBody returnType thenBody &&
@@ -960,6 +963,8 @@ mutual
               | some ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.assertEq lhs rhs message errorRef?)
         .ok (statements, env)
+    | .assertPlanned _ _ _ =>
+        .error { message := "canonical EVM assertion reached the Legacy planned-body lowerer" }
     | .release _ =>
         .error { message := "planned body lowering does not support release statements" }
     | .revert message => do
@@ -976,6 +981,8 @@ mutual
             (fun ref => errorRefRevertStmtsRuntime toYulError (fun expr => lowerExpr module env expr) ref)
             (.revertWithError errorRef)
         .ok (statements, env)
+    | .revertPlanned _ =>
+        .error { message := "canonical EVM revert reached the Legacy planned-body lowerer" }
     | .ifElse condition thenBody elseBody => do
         let (thenStatements, _) ←
           lowerPlannedBodyStatements module entrypointName returnType env true thenBody

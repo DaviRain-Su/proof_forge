@@ -237,6 +237,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         exprPlanUsesCheckedArithmetic value
     | .assign target value =>
@@ -249,7 +250,7 @@ mutual
         effectPlanUsesCheckedArithmetic effect
     | .assertEq lhs rhs _ _ =>
         exprPlanUsesCheckedArithmetic lhs || exprPlanUsesCheckedArithmetic rhs
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         false
     | .ifElse condition thenBody elseBody =>
         exprPlanUsesCheckedArithmetic condition ||
@@ -361,8 +362,8 @@ partial def stmtPlanUsesCheckedWidthHelper : StmtPlan → Bool
   | .boundedFor _ _ _ body =>
       body.any stmtPlanUsesCheckedWidthHelper
   | .letBind .. | .letMutBind .. | .assign .. | .assignOp ..
-  | .assert .. | .assertEq .. | .release .. | .revert ..
-  | .revertWithError .. | .return .. =>
+  | .assert .. | .assertEq .. | .assertPlanned .. | .release .. | .revert ..
+  | .revertWithError .. | .revertPlanned .. | .return .. =>
       false
 
 def entrypointsUseCheckedWidthHelper (entrypoints : Array EntrypointPlan) : Bool :=
@@ -674,6 +675,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         localArrayHelperRequirementsFromExprPlan value
     | .assign target value
@@ -687,7 +689,7 @@ mutual
         mergeLocalArrayHelperRequirements
           (localArrayHelperRequirementsFromExprPlan lhs)
           (localArrayHelperRequirementsFromExprPlan rhs)
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         emptyLocalArrayHelperRequirements
     | .ifElse condition thenBody elseBody =>
         mergeLocalArrayHelperRequirements
@@ -1048,6 +1050,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         plannedHelpersFromExprPlan value
     | .assign target value
@@ -1061,7 +1064,7 @@ mutual
         mergeHelperSets
           (plannedHelpersFromExprPlan lhs)
           (plannedHelpersFromExprPlan rhs)
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         #[]
     | .ifElse condition thenBody elseBody =>
         mergeHelperSets
@@ -1333,6 +1336,7 @@ mutual
     | .letBind _ _ value
     | .letMutBind _ _ value
     | .assert value _ _
+    | .assertPlanned value _ _
     | .return value =>
         contextOpsFromExprPlan value
     | .assign target value
@@ -1346,7 +1350,7 @@ mutual
         mergeContextPlans
           (contextOpsFromExprPlan lhs)
           (contextOpsFromExprPlan rhs)
-    | .release _ | .revert _ | .revertWithError _ =>
+    | .release _ | .revert _ | .revertWithError _ | .revertPlanned _ =>
         #[]
     | .ifElse condition thenBody elseBody =>
         mergeContextPlans

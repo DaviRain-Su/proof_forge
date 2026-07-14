@@ -102,7 +102,7 @@ and shared interface/materialization records.
 | IR-B4 | in_progress (B4a-B4b verified) | Move EVM protocol and ABI operations out of shared IR |
 | IR-B5 | pending | Audit and migrate Solana PDA/CPI/account behavior |
 | IR-B6 | pending | Audit other Wasm-host, Move, Aleo, Psy, and Quint target ownership |
-| IR-B7 | in_progress (EVM B7a-B7b verified 2026-07-14) | Move target environment/interface/materialization fields |
+| IR-B7 | in_progress (EVM B7a-B7c verified 2026-07-14) | Move target environment/interface/materialization fields |
 | IR-B8 | pending | Empty the compatibility allowlist and enforce the boundary |
 
 Legacy removal follows the

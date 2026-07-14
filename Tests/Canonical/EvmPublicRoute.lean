@@ -130,7 +130,7 @@ def main : IO Unit := do
     pure ""
   catch error =>
     pure (toString error)
-  require (rejectionMessage.contains "canonical: adapt failed")
+  require (rejectionMessage.contains "canonical: source normalization failed")
     s!"public EVM route did not expose the canonical adapter rejection: {rejectionMessage}"
 
   /- Check 4: buildFromCore produces a valid EVM ModulePlan for Counter. -/

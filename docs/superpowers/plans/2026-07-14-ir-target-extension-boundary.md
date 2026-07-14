@@ -183,7 +183,10 @@ constructor into shared IR.
    target HostOps. EVM `origin`/`prevrandao` and NEAR account/epoch/random/gas
    reads now use exact target catalogs; wrong-target handlers reject them and
    `canonical-boundary` prevents the constructors from returning to Core.
-2. Move Solidity error ABI data to `EvmPlan`.
+2. [~] Move Solidity error ABI data to `EvmPlan`. Canonical error values now
+   live in typed `CoreErrorRef.args`, and the EVM Core planner produces an
+   `EvmErrorPlan` without reconstructing Legacy `IR.ErrorRef`; the remaining
+   selector/type envelope must still move out of canonical materialization.
 3. Move fallback/receive dispatch to target interface metadata.
 4. Move proxy and host-string pools out of portable `Module` and canonical
    materialization records.

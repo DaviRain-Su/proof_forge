@@ -59,6 +59,7 @@ structure RegisteredError where
   soliditySelector? : Option String
   solidityArgWords : Array Nat
   solidityArgTypes : Array String
+  params : Array CoreType
   deriving Repr, BEq
 
 /- Resolved symbol tables and identifier supplies. State entries store the
@@ -136,7 +137,8 @@ def registerError (namespace_ name : String) (userCode? : Option String)
     (code : Nat) (message : String) (form : RegisteredErrorForm)
     (soliditySelector? : Option String := none)
     (solidityArgWords : Array Nat := #[])
-    (solidityArgTypes : Array String := #[]) : AdapterM ErrorId := do
+    (solidityArgTypes : Array String := #[])
+    (params : Array CoreType := #[]) : AdapterM ErrorId := do
   let s ← get
   match s.env.registeredErrors.find? (fun error =>
       error.namespace_ == namespace_ && error.name == name &&
@@ -144,7 +146,7 @@ def registerError (namespace_ name : String) (userCode? : Option String)
       error.message == message && error.form == form &&
       error.soliditySelector? == soliditySelector? &&
       error.solidityArgWords == solidityArgWords &&
-      error.solidityArgTypes == solidityArgTypes) with
+      error.solidityArgTypes == solidityArgTypes && error.params == params) with
   | some error => return error.id
   | none =>
     let id ← freshErrorId
@@ -155,7 +157,8 @@ def registerError (namespace_ name : String) (userCode? : Option String)
           id := id,
           namespace_ := namespace_,
           name := coreName,
-          code := code
+          code := code,
+          params := params
         },
         registeredErrors := s.env.registeredErrors.push {
           id := id,
@@ -168,7 +171,8 @@ def registerError (namespace_ name : String) (userCode? : Option String)
           form := form,
           soliditySelector? := soliditySelector?,
           solidityArgWords := solidityArgWords,
-          solidityArgTypes := solidityArgTypes
+          solidityArgTypes := solidityArgTypes,
+          params := params
         }
       }
     })

@@ -97,15 +97,81 @@ def fallbackError (message : String) (form : RegisteredErrorForm) : AdapterM Cor
   let id ← registerError "legacy" "Revert" none 0 message form
   return { id := id, args := #[] }
 
-def errorRefOf (message : String) (r : ErrorRef) : AdapterM CoreErrorRef := do
+private def solidityArgCoreType (abiType : String) : Except CanonicalizeError CoreType :=
+  match abiType with
+  | "uint8" => .ok .u8
+  | "uint32" => .ok .u32
+  | "uint64" => .ok .u64
+  | "uint128" => .ok .u128
+  | "uint256" | "bytes32" => .ok .hash
+  | "bool" => .ok .bool
+  | "address" => .ok .address
+  | other => .error (CanonicalizeError.unsupportedConstructor
+      "ErrorRef.solidityArgTypes" s!"unsupported static Solidity ABI type `{other}`")
+
+private def solidityWordLiteral (type : CoreType) (word : Nat) :
+    Except CanonicalizeError CoreLiteral := do
+  let width := match type with
+    | .u8 => 8
+    | .u32 => 32
+    | .u64 => 64
+    | .u128 => 128
+    | .bool => 1
+    | .address => 160
+    | .hash => 256
+    | _ => 0
+  if width == 0 || word >= 2 ^ width then
+    throw (CanonicalizeError.literalOutOfRange (reprStr type) (toString word))
+  match type with
+  | .u8 => pure (.u8Lit word)
+  | .u32 => pure (.u32Lit word)
+  | .u64 => pure (.u64Lit word)
+  | .u128 => pure (.u128Lit word)
+  | .bool => pure (.boolLit (word == 1))
+  | .address => pure (.addressLit (toString word))
+  | .hash => pure (.hashLit (toString word))
+  | _ => throw (CanonicalizeError.typeMismatch "Solidity static ABI word" (reprStr type))
+
+structure NormalizedErrorRef where
+  instructions : Array Instruction
+  error : CoreErrorRef
+
+def errorRefOf (message : String) (r : ErrorRef) : AdapterM NormalizedErrorRef := do
   let name := r.userCode?.getD s!"Error{r.assertionId}"
   let form := if r.soliditySelector?.isSome then
       RegisteredErrorForm.solidityCustom
     else
       RegisteredErrorForm.proofForgeEnvelope
+  unless r.solidityArgWords.isEmpty || r.solidityArgExprs.isEmpty do
+    throw (CanonicalizeError.unsupportedConstructor "ErrorRef"
+      "static and runtime Solidity error arguments are mutually exclusive")
+  let params ← r.solidityArgTypes.mapM (fun type => liftExcept (solidityArgCoreType type))
+  let mut instructions := #[]
+  let mut args := #[]
+  if !r.solidityArgExprs.isEmpty then
+    unless r.solidityArgExprs.size == params.size do
+      throw (CanonicalizeError.typeMismatch s!"{params.size} Solidity error arguments"
+        s!"{r.solidityArgExprs.size} runtime arguments")
+    for (expr, param) in r.solidityArgExprs.zip params do
+      let normalized ← normalizeExpr expr
+      unless normalized.value.type == param do
+        throw (CanonicalizeError.typeMismatch (reprStr param)
+          (reprStr normalized.value.type))
+      instructions := instructions ++ normalized.instructions
+      args := args.push normalized.value
+  else if !r.solidityArgWords.isEmpty then
+    unless r.solidityArgWords.size == params.size do
+      throw (CanonicalizeError.typeMismatch s!"{params.size} Solidity error arguments"
+        s!"{r.solidityArgWords.size} static words")
+    for (word, param) in r.solidityArgWords.zip params do
+      let literal ← liftExcept (solidityWordLiteral param word)
+      let emitted ← emitValueInstruction
+        (.pure (.literal literal)) param
+      instructions := instructions ++ emitted.instructions
+      args := args.push emitted.value
   let id ← registerError "legacy" name r.userCode? r.assertionId.toNat message
-    form (r.soliditySelector?.map String.toLower) r.solidityArgWords r.solidityArgTypes
-  return { id := id, args := #[] }
+    form (r.soliditySelector?.map String.toLower) #[] r.solidityArgTypes params
+  return { instructions, error := { id := id, args := args } }
 
 private def normalizeStatementStoragePath (name : String) (path : Array StoragePathSegment) :
     AdapterM (Array Instruction × Array Core.StorageSegment × CoreType) := do
@@ -331,10 +397,11 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
   | .assert cond message errorRef? => do
       let nv ← normalizeExpr cond
       let fb ← liftExcept (nv.instructions.foldlM FunctionBuilder.emitInstr fb)
-      let error ← match errorRef? with
+      let normalizedError ← match errorRef? with
         | some r => errorRefOf message r
-        | none => fallbackError message .assertFallback
-      let instr := { results := #[], op := .assert nv.value error }
+        | none => pure { instructions := #[], error := ← fallbackError message .assertFallback }
+      let fb ← liftExcept (normalizedError.instructions.foldlM FunctionBuilder.emitInstr fb)
+      let instr := { results := #[], op := .assert nv.value normalizedError.error }
       liftExcept (fb.emitInstr instr)
   | .assertEq lhs rhs message errorRef? => do
       let nl ← normalizeExpr lhs
@@ -343,17 +410,19 @@ def normalizeStatement (fb : FunctionBuilder) (stmt : Statement) (retType : Core
       let fb ← liftExcept (nl.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (nr.instructions.foldlM FunctionBuilder.emitInstr fb)
       let fb ← liftExcept (nc.instructions.foldlM FunctionBuilder.emitInstr fb)
-      let error ← match errorRef? with
+      let normalizedError ← match errorRef? with
         | some r => errorRefOf message r
-        | none => fallbackError message .assertFallback
-      let instr := { results := #[], op := .assert nc.value error }
+        | none => pure { instructions := #[], error := ← fallbackError message .assertFallback }
+      let fb ← liftExcept (normalizedError.instructions.foldlM FunctionBuilder.emitInstr fb)
+      let instr := { results := #[], op := .assert nc.value normalizedError.error }
       liftExcept (fb.emitInstr instr)
   | .revert message => do
       let error ← fallbackError message .revertMessage
       liftExcept (fb.setTerminator (.revert error))
   | .revertWithError ref => do
-      let error ← errorRefOf (ref.userCode?.getD "revertWithError") ref
-      liftExcept (fb.setTerminator (.revert error))
+      let normalizedError ← errorRefOf (ref.userCode?.getD "revertWithError") ref
+      let fb ← liftExcept (normalizedError.instructions.foldlM FunctionBuilder.emitInstr fb)
+      liftExcept (fb.setTerminator (.revert normalizedError.error))
   | .release _ =>
       throw (CanonicalizeError.unsupportedConstructor "Statement.release"
         "ownership-aware memory release is not implemented in canonical normalization")

@@ -178,9 +178,9 @@ def solidityCustomErrorRevertStmts (selector : Nat) (argWords : Array Nat := #[]
     Each `Expr` is lowered via `lowerExpr` to a Yul value and stored at the
     corresponding ABI word offset. The selector is still compile-time. -/
 def solidityCustomErrorRevertStmtsRuntime
-    {ε : Type} (_mkError : String → ε)
-    (lowerExpr : ProofForge.IR.Expr → Except ε Lean.Compiler.Yul.Expr)
-    (selector : Nat) (argExprs : Array ProofForge.IR.Expr) :
+    {ε α : Type} (_mkError : String → ε)
+    (lowerExpr : α → Except ε Lean.Compiler.Yul.Expr)
+    (selector : Nat) (argExprs : Array α) :
     Except ε (Array Lean.Compiler.Yul.Statement) := do
   let selectorWord :=
     Lean.Compiler.Yul.builtin "shl" #[
@@ -206,6 +206,30 @@ def solidityCustomErrorRevertStmtsRuntime
       Lean.Compiler.Yul.Expr.num totalSize
     ])
   ])
+
+/-- ProofForge structured-error envelope independent of the Legacy ErrorRef
+container. Target-owned plans use this directly. -/
+def proofForgeErrorRevertStmts (assertionId : Nat) (userCode : String) :
+    Array Lean.Compiler.Yul.Statement :=
+  let codeLen := userCode.length
+  let paddedLen := ((codeLen + 31) / 32) * 32
+  let totalSize := 96 + paddedLen
+  let headerStmts : Array Lean.Compiler.Yul.Statement := #[
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num assertionId]),
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 32, Lean.Compiler.Yul.Expr.num 64]),
+    .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[Lean.Compiler.Yul.Expr.num 64, Lean.Compiler.Yul.Expr.num codeLen])
+  ]
+  let chunks := if codeLen > 0 then ProofForge.Backend.Evm.ToYul.hexChunks64 (stringToHex userCode) else #[]
+  let dataStmts := chunks.foldl (init := #[]) fun acc chunk =>
+    let idx := acc.size
+    acc.push <| .exprStmt (Lean.Compiler.Yul.builtin "mstore" #[
+      Lean.Compiler.Yul.Expr.num (96 + idx * 32),
+      Lean.Compiler.Yul.Expr.lit (Lean.Compiler.Yul.Literal.hex
+        ("0x" ++ ProofForge.Backend.Evm.ToYul.rightPadHex64 chunk))
+    ])
+  headerStmts ++ dataStmts ++ #[
+    .exprStmt (Lean.Compiler.Yul.builtin "revert" #[Lean.Compiler.Yul.Expr.num 0, Lean.Compiler.Yul.Expr.num totalSize])
+  ]
 
 def errorRefRevertStmts (ref : ProofForge.IR.ErrorRef) : Array Lean.Compiler.Yul.Statement :=
   match ref.soliditySelector? with

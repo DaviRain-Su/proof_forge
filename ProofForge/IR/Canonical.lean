@@ -695,17 +695,22 @@ private def validateMaterialization (module : Core.Module)
           throw (materializationError
             s!"non-custom error {repr encoding.errorId} carries a Solidity custom encoding")
     | .solidityCustom =>
+        let abiTypes := encoding.solidityArgTypes
+        let staticWords := encoding.solidityArgWords
         let selector ← match encoding.soliditySelector? with
           | some selector => pure selector
           | none => throw (materializationError s!"custom error {repr encoding.errorId} is missing its Solidity selector")
         unless isHexSelector selector do
           throw (materializationError
             s!"error {repr encoding.errorId} has invalid Solidity selector `{selector}`")
-        unless encoding.solidityArgWords.size == encoding.solidityArgTypes.size do
+        unless abiTypes.size == owner.params.size do
           throw (materializationError
             s!"error {repr encoding.errorId} has mismatched Solidity argument schema")
+        unless staticWords.isEmpty || staticWords.size == abiTypes.size do
+          throw (materializationError
+            s!"error {repr encoding.errorId} has mismatched static Solidity arguments")
         for ((abiType, word), index) in
-            (encoding.solidityArgTypes.zip encoding.solidityArgWords).zipIdx do
+            (abiTypes.zip staticWords).zipIdx do
           let width ← match solidityStaticArgBitWidth? abiType with
             | some width => pure width
             | none => throw (materializationError
