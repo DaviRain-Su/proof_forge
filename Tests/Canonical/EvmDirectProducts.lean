@@ -9,6 +9,9 @@ import Examples.Product.Canonical.OwnableHash
 import Examples.Product.Canonical.OwnablePausable
 import Examples.Product.Canonical.GuestBook
 import Examples.Product.Canonical.StatusMessage
+import Examples.Product.Canonical.HostEnvProbe
+import Examples.Product.Canonical.HeightLockVault
+import Examples.Product.Canonical.TimelockVault
 import ProofForge.Backend.Evm.Plan.Core
 import ProofForge.Backend.Evm.IR
 import ProofForge.Frontend.Surface.Normalize
@@ -60,4 +63,7 @@ def main : IO Unit := do
   checkProduct Examples.Product.Canonical.OwnablePausable.contract 6
   checkProduct Examples.Product.Canonical.GuestBook.contract 5
   checkProduct Examples.Product.Canonical.StatusMessage.contract 3
+  checkProduct Examples.Product.Canonical.HostEnvProbe.contract 6
+  checkProduct Examples.Product.Canonical.HeightLockVault.contract 7
+  checkProduct Examples.Product.Canonical.TimelockVault.contract 7
   IO.println "evm-direct-products: ok"

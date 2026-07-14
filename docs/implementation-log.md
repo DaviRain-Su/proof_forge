@@ -3179,3 +3179,14 @@ Rules:
 - Verification: targeted product builds,
   `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
   --check`.
+
+## 2026-07-14 - EVM-R2h: direct portable context products
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
+- Added a target-neutral Surface v2 context-product module for HostEnvProbe and
+  a reusable binary-lock state machine instantiated by HeightLockVault and
+  TimelockVault. The lock policy selects only the portable block-number or
+  block-timestamp field; no EVM context constructor enters shared syntax.
+- Verification: targeted context/product builds,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.
