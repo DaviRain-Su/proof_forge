@@ -23,10 +23,10 @@ Keep this section short and update it whenever the active task changes.
 
 | Field | Current value |
 |---|---|
-| Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | A-CUT1e-c - switch public Solana authoring off `Source.Solana.Legacy`; the typed Canonical Plan/lowering path is complete through A-CUT1e-c1 |
-| Next task | A-CUT2 - replace the remaining `ContractSpec`/`IR.Module` authored exchange value with direct Canonical Core normalization |
-| Validation track | Native differential CMP-0 is queued after A-CUT1e-c2; CMP-1/CMP-2 become A-CUT2 exit criteria and do not block the current Solana macro cutover |
+| Program | Native differential inventory before the remaining direct-authoring cutover |
+| Active task | CMP-0 - freeze the native-reference inventory and shared comparison contracts after the verified A-CUT1e-c2 Solana cutover |
+| Next task | CMP-1 plus A-CUT2 - add fail-closed normalized observations while replacing the remaining `ContractSpec`/`IR.Module` authored exchange value |
+| Validation track | A-CUT1e-c2 is complete; CMP-0 is now in progress and CMP-1/CMP-2 remain A-CUT2 exit criteria |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
@@ -173,7 +173,7 @@ Core are internal compiler representations.
 | A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
 | A-CUT1c | done (verified at `52742ff5`) | Consolidate the optional EVM and Solana semantic-refinement roots under the independent `ProofForgeFormal` Lake libraries; keep heavyweight proof dependencies out of the default compiler library |
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
-| A-CUT1e | in_progress (through A-CUT1e-c1 verified 2026-07-14) | Typed Solana account/PDA/CPI payloads now survive strict Canonical Plan construction and pure plan-to-sBPF lowering; next switch the public/internal macros to the direct Authored adapter and remove `Source.Solana.Legacy` imports |
+| A-CUT1e | done (verified 2026-07-14) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
 | A-CUT2 | in_progress (through A-CUT2f-c verified) | Direct Authored builder, portable Boolean Core operations, and inferred typed event schemas now cover the Counter/public expression path without `Contract.Builder`; public Source/loader cutover remains pending |
 | A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
@@ -182,8 +182,8 @@ Core are internal compiler representations.
 Native-reference differential validation follows
 [the July 14 comparison plan](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md).
 It extends the existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
-and Stylus differential assets; it is not another compiler route. Finish
-A-CUT1e-c2 first, then complete CMP-0 before new reference formats proliferate.
+and Stylus differential assets; it is not another compiler route. A-CUT1e-c2
+is complete; finish CMP-0 before new reference formats proliferate.
 CMP-2 is required for A-CUT2 completion, CMP-SOL attaches to IR-B5, CMP-NEAR
 attaches to NEAR-R4, and the final fail-closed matrix attaches to IR-B8/A-CUT5.
 

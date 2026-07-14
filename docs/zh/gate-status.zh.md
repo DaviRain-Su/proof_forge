@@ -26,6 +26,19 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A1-5 | 产品制品与生命周期运行时证据 | ✅ met | `just portable-nft-multi-target` 证明三套制品；`just portable-nft-runtime` 在 EVM Foundry、Solana Surfpool/SVM 和 NEAR Wasm 上执行 mint、owner/balance、授权 transfer、未授权拒绝和重复 mint 拒绝 |
 | A1-6 | 聚合验收 | ✅ met | `6a6022ea`；`just product`、`just portable-nft-runtime`、`just solana-light`、`just check` 和 `git diff --check` 通过 |
 
+## Gate A-CUT1e —— Direct Solana authoring 切换
+
+**状态：Closed**
+
+**Closed: 2026-07-14**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT1e-1 | Public/internal Solana authoring 不依赖 Legacy builder | ✅ met | `Source.Solana` 只生成一个 `AuthoredContract`；边界搜索确认 public/internal 模块不依赖 `Source.Solana.Legacy`、`ContractSpec` 或 `IR.Module`；`just source-dsl-isolation` 通过 |
+| A-CUT1e-2 | Typed target operation 严格进入 plan-only lowering | ✅ met | account/PDA/CPI/allocator/realloc payload fail closed 解码；`SolanaHostOpCatalog`、`SourceDslSolanaAcceptance` 和 `SolanaCpiPacking` 通过 |
+| A-CUT1e-3 | Plan-only 制品保留 SDK 与运行时约束 | ✅ met | `SolanaSdkManifest` 和 `SolanaAccountRealloc` 通过；canonical lowering 强制检查 instruction length 与 signer/writable/owner；System、Memo、close-account、authority Pinocchio 结构对比通过 |
+| A-CUT1e-4 | 未引入 fallback | ✅ met | 公开 fixture 只暴露 `.contract`；公开 CLI fixture route 使用 `compileSolanaAuthoredSbpf`/`compileSolanaAuthoredElf`；normalization、planning、lowering、package 与 sBPF build 失败均保持终止 |
+
 ## 使用方式
 
 - 当某个 Gate 的第一条标准开始推进时，新增一个 `## Gate GN` 小节。

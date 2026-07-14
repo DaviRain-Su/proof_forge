@@ -81,11 +81,11 @@ if [instruction.get("name") for instruction in instructions] != ["set_authority"
     raise SystemExit(f"instruction schema mismatch: {instructions}")
 instruction = instructions[0]
 expected_accounts = [
-    "last_authority_marker",
+    "program_state",
     "mint",
     "authority",
-    "spl_token",
     "new_authority",
+    "spl_token",
 ]
 accounts = [account.get("name") for account in instruction.get("accounts", [])]
 if accounts != expected_accounts:

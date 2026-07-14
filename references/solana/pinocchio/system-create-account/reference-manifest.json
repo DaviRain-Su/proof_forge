@@ -12,14 +12,14 @@
     "params": [
       {
         "name": "lamports",
-        "type": "U64",
+        "type": "u64",
         "offset": 1,
         "byteSize": 8,
         "encoding": "le-u64"
       },
       {
         "name": "space",
-        "type": "U64",
+        "type": "u64",
         "offset": 9,
         "byteSize": 8,
         "encoding": "le-u64"
@@ -28,7 +28,7 @@
   },
   "accounts": [
     {
-      "name": "last_created_lamports",
+      "name": "program_state",
       "index": 0,
       "signer": false,
       "writable": true,

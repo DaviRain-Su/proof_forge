@@ -776,16 +776,25 @@ private def lowerCanonicalParams (ep : SolanaEntrypointPlan) (fn : SolanaFunctio
     Except SbpfAsm.LowerError (Array AstNode) := do
   unless ep.params.size == fn.params.size do
     throw { message := s!"canonical Solana parameter layout mismatch for `{fn.name}`" }
-  let mut nodes := #[]
+  let mut nodes : Array AstNode := #[]
   for i in [:fn.params.size] do
     let param := ep.params[i]!
     let value := fn.params[i]!
-    let opcode <- match param.byteSize with
-      | 1 => pure Opcode.ldxb | 2 => pure .ldxh | 4 => pure .ldxw | 8 => pure .ldxdw
-      | width => throw { message := s!"canonical Solana parameter width {width} is unsupported" }
-    nodes := nodes ++ #[
-      .instruction { opcode, dst := some .r2, src := some entryInstructionDataReg, off := some (.num param.offset) },
-      canonicalStoreValue value .r2]
+    match param.byteSize with
+    | 1 | 2 | 4 | 8 =>
+        let opcode := match param.byteSize with
+          | 1 => Opcode.ldxb | 2 => .ldxh | 4 => .ldxw | _ => .ldxdw
+        nodes := nodes ++ #[
+          .instruction {
+            opcode
+            dst := some .r2
+            src := some entryInstructionDataReg
+            off := some (.num param.offset)
+          },
+          canonicalStoreValue value .r2]
+    | width =>
+        nodes := nodes.push (.comment
+          s!"entrypoint.param[{ep.name}.{param.name}]: raw bytes width={width} remain in instruction_data+{param.offset}")
   return nodes
 
 private def canonicalOpResults : SolanaOpPlan -> Array SolanaValuePlan
@@ -853,7 +862,8 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
       plan.lowerCtxSeed.extensions with
     | .ok extensionAst => pure extensionAst
     | .error message => throw { message }
-  nodes := nodes ++ SbpfAsm.lowerInstructionDataPointerSetup plan.accounts.size ++ #[
+  nodes := nodes ++ SbpfAsm.lowerInstructionDataPointerSetup plan.accounts.size ++
+    SbpfAsm.lowerInstructionDataLengthCheck 1 ++ #[
     .instruction { opcode := .ldxb, dst := some .r2, src := some entryInstructionDataReg, off := some (.num 0) }]
   for i in [:plan.functions.size] do
     let fn := plan.functions[i]!
@@ -870,6 +880,30 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
         let ep <- match plan.entrypoints.find? (fun ep => ep.name == fn.name) with
           | some ep => pure ep
           | none => throw { message := s!"canonical Solana entrypoint `{fn.name}` is missing" }
+        let schema <- match plan.lowerCtxSeed.entrypointSchemas.find? (fun schema =>
+            schema.name == ep.name) with
+          | some schema => pure schema
+          | none => throw {
+              message := s!"canonical Solana entrypoint `{ep.name}` has no input schema" }
+        nodes := nodes ++ #[
+          .comment s!"account.graph: exact runtime count = {schema.accounts.size}",
+          .instruction {
+            opcode := .ldxdw
+            dst := some .r2
+            src := some .r1
+            off := some (.num 0)
+          },
+          .instruction {
+            opcode := .jne
+            dst := some .r2
+            imm := some (.num schema.accounts.size)
+            off := some (.sym "error_account_count")
+          }
+        ]
+        nodes := nodes ++ (<- SbpfAsm.lowerAccountValidations
+          schema.accounts schema.inputLayout.accounts)
+        if ep.instructionDataMinLen > 1 then
+          nodes := nodes ++ SbpfAsm.lowerInstructionDataLengthCheck ep.instructionDataMinLen
         nodes := nodes ++ (<- lowerCanonicalParams ep fn)
         nodes := nodes ++ Extension.lowerEntrypointActions
           plan.lowerCtxSeed.extensions fn.name
@@ -887,7 +921,15 @@ def lowerFromPlan (plan : SolanaModulePlan) : Except SbpfAsm.LowerError (Array A
     .label "error_duplicate_account",
     .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 13) }, .instruction { opcode := .exit },
     .label "error_account_count",
-    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) }, .instruction { opcode := .exit }]
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 14) }, .instruction { opcode := .exit },
+    .label "error_not_writable",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 4) }, .instruction { opcode := .exit },
+    .label "error_signer",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 5) }, .instruction { opcode := .exit },
+    .label "error_owner",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 6) }, .instruction { opcode := .exit },
+    .label "error_instruction_data",
+    .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 9) }, .instruction { opcode := .exit }]
   if hasPortableCrosscall || !plan.lowerCtxSeed.extensions.cpis.isEmpty then
     nodes := nodes ++ #[.label "error_cpi",
       .instruction { opcode := .mov64, dst := some .r0, imm := some (.num 8) },

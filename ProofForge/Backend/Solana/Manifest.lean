@@ -1036,8 +1036,9 @@ def buildInstructionsWithPlan (module : Module) (plan : ProofForge.Target.Capabi
     Array InstructionEntry :=
   buildInstructionsWithExtensions module (ProgramExtensions.fromPlan plan)
 
-def renderManifestWithInstructions (module : Module) (instructions : Array InstructionEntry) : String :=
-  let programName := module.name.toLower
+def renderManifestWithNameAndInstructions (moduleName : String)
+    (instructions : Array InstructionEntry) : String :=
+  let programName := moduleName.toLower
   let instructionBlocks := instructions.map InstructionEntry.render
   String.intercalate "\n" #[
     "# ProofForge generated Solana instruction manifest",
@@ -1048,6 +1049,9 @@ def renderManifestWithInstructions (module : Module) (instructions : Array Instr
     "name = \"" ++ programName ++ "\"",
     ""
   ].toList ++ "\n" ++ String.intercalate "\n\n" instructionBlocks.toList
+
+def renderManifestWithInstructions (module : Module) (instructions : Array InstructionEntry) : String :=
+  renderManifestWithNameAndInstructions module.name instructions
 
 /-- Render the full manifest.toml contents. -/
 def renderManifest (module : Module) : String :=

@@ -1,4 +1,5 @@
 import ProofForge.Backend.Solana.Package
+import ProofForge.Cli.SolanaArtifacts
 import ProofForge.Contract.Builder
 import ProofForge.Contract.Source.Solana.Legacy
 import Examples.Backend.Solana.Contracts.AssociatedTokenCpi
@@ -26,6 +27,15 @@ def require (condition : Bool) (message : String) : IO Unit :=
 
 def contains (haystack needle : String) : Bool :=
   haystack.contains needle
+
+def renderDirectPackage (projectName : String)
+    (contract : ProofForge.Frontend.Authored.AuthoredContract) :
+    Except ProofForge.Backend.Solana.SbpfAsm.LowerError
+      ProofForge.Backend.Solana.Package.RenderedPackage := do
+  let plan ← match ProofForge.Cli.buildCanonicalAuthoredSolanaPlan contract with
+    | .ok plan => .ok plan
+    | .error message => .error { message }
+  ProofForge.Backend.Solana.Package.renderPackageFromPlan projectName plan
 
 def systemTransferSpec : ProofForge.Contract.ContractSpec :=
   build "SolanaSystemCpi" do
@@ -270,8 +280,8 @@ def main : IO UInt32 := do
   | .error err =>
       throw <| IO.userError s!"Solana CPI packing render failed: {err.render}"
 
-  match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "memo-cpi" Examples.Backend.Solana.Contracts.MemoCpi.spec with
+  match renderDirectPackage
+      "memo-cpi" Examples.Backend.Solana.Contracts.MemoCpi.contract with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "memo-cpi package missing sBPF assembly"
@@ -283,7 +293,7 @@ def main : IO UInt32 := do
         "memo manifest missing log_memo instruction"
       require (contains manifest "min_data_len = 9")
         "memo manifest missing memoArg instruction-data length"
-      require (contains manifest "{ name = \"memoArg\", type = \"U64\", offset = 1, byte_size = 8, encoding = \"le-u64\" }")
+      require (contains manifest "{ name = \"memoArg\", type = \"u64\", offset = 1, byte_size = 8, encoding = \"le-u64\" }")
         "memo manifest missing memoArg parameter schema"
       -- L1.3 multi-byte memo entry
       require (contains manifest "name = \"log_memo_bytes\"")
@@ -294,7 +304,7 @@ def main : IO UInt32 := do
         "memo manifest missing raw-bytes encoding for fixedArray memo"
       require (contains manifest "memo_source = \"memoBytes\"")
         "memo manifest missing memoBytes source metadata"
-      require (contains manifest "{ name = \"last_memo_word\", index = 0, signer = false, writable = true, owner = \"program\" },")
+      require (contains manifest "{ name = \"program_state\", index = 0, signer = false, writable = true, owner = \"program\" },")
         "memo manifest missing state account schema"
       require (contains manifest "{ name = \"memo\", index = 1, signer = false, writable = false, owner = \"executable\" }")
         "memo manifest missing Memo program account schema"
@@ -455,8 +465,8 @@ def main : IO UInt32 := do
   | .error err =>
       throw <| IO.userError s!"Solana token-ops CPI packing render failed: {err.render}"
 
-  match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "token-close-cpi" Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.spec with
+  match renderDirectPackage
+      "token-close-cpi" Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.contract with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "token-close package missing sBPF assembly"
@@ -466,7 +476,7 @@ def main : IO UInt32 := do
       let manifest := manifestFile.contents
       require (contains manifest "name = \"close_account\"")
         "token close manifest missing close_account entrypoint"
-      require (contains manifest "{ name = \"last_close_marker\", index = 0, signer = false, writable = true, owner = \"program\" },")
+      require (contains manifest "{ name = \"program_state\", index = 0, signer = false, writable = true, owner = \"program\" },")
         "token close manifest missing state account schema"
       require (contains manifest "{ name = \"token_account\", index = 1, signer = false, writable = true, owner = \"any\" },")
         "token close manifest missing token account schema"
@@ -493,8 +503,8 @@ def main : IO UInt32 := do
   | .error err =>
       throw <| IO.userError s!"Solana token-close CPI packing render failed: {err.render}"
 
-  match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "token-authority-cpi" Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi.spec with
+  match renderDirectPackage
+      "token-authority-cpi" Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi.contract with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "token-authority package missing sBPF assembly"
@@ -504,7 +514,7 @@ def main : IO UInt32 := do
       let manifest := manifestFile.contents
       require (contains manifest "name = \"set_authority\"")
         "token authority manifest missing set_authority entrypoint"
-      require (contains manifest "{ name = \"last_authority_marker\", index = 0, signer = false, writable = true, owner = \"program\" },")
+      require (contains manifest "{ name = \"program_state\", index = 0, signer = false, writable = true, owner = \"program\" },")
         "token authority manifest missing state account schema"
       require (contains manifest "{ name = \"mint\", index = 1, signer = false, writable = true, owner = \"any\" },")
         "token authority manifest missing mint account schema"
@@ -916,8 +926,8 @@ def main : IO UInt32 := do
   | .error err =>
       throw <| IO.userError s!"Solana Token-2022 transfer-hook packing render failed: {err.render}"
 
-  match ProofForge.Backend.Solana.Package.renderPackageForSpec
-      "associated-token-cpi" Examples.Backend.Solana.Contracts.AssociatedTokenCpi.spec with
+  match renderDirectPackage
+      "associated-token-cpi" Examples.Backend.Solana.Contracts.AssociatedTokenCpi.contract with
   | .ok pkg =>
       let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
         | throw <| IO.userError "associated-token package missing sBPF assembly"
@@ -927,7 +937,7 @@ def main : IO UInt32 := do
       let manifest := manifestFile.contents
       require (contains manifest "name = \"create_associated\"")
         "associated-token manifest missing create_associated entrypoint"
-      require (contains manifest "{ name = \"last_created_marker\", index = 0, signer = false, writable = true, owner = \"program\" },")
+      require (contains manifest "{ name = \"program_state\", index = 0, signer = false, writable = true, owner = \"program\" },")
         "associated-token manifest missing state account schema"
       require (contains manifest "{ name = \"payer\", index = 1, signer = true, writable = true, owner = \"any\" },")
         "associated-token manifest missing payer account schema"

@@ -797,11 +797,64 @@ private def typedCpiFromCall (call : CapabilityCall) : Except String (Option Cpi
         signerSeeds := spec.signerSeeds.map seedDescriptor
         protocol? := spec.protocol?
         dataLayout? := spec.dataLayout?
-        metadata := call.metadata
+        metadata := call.metadata ++ spec.arguments.map fun argument => {
+          key := "solana.cpi." ++ argument.kind.id
+          value := argument.value
+        }
         signed := spec.signed
         entrypoint? := entrypoint? call
       })
     | .error error => .error s!"invalid Solana CPI payload: {repr error}"
+  else
+    .ok none
+
+private def typedAllocatorFromCall (call : CapabilityCall) :
+    Except String (Option RuntimeAllocator) :=
+  if call.operation == .hostOp ProofForge.Target.HostOps.Solana.allocatorConfigureId then
+    match ProofForge.Target.HostOps.Solana.Payload.AllocatorSpec.decode call.payload with
+    | .ok spec =>
+        let base := parseHex? spec.heapStart |>.getD 0x300000000
+        let (strategy, release) := match spec.kind with
+          | .bump => (ProofForge.IR.AllocatorStrategy.bump, ProofForge.IR.AllocatorRelease.noop)
+          | .none => (ProofForge.IR.AllocatorStrategy.bump, ProofForge.IR.AllocatorRelease.none)
+        .ok (some {
+          name := spec.name
+          config := {
+            model := {
+              strategy
+              region := { base, size? := some spec.heapBytes, growable := false }
+              release
+            }
+          }
+          entrypoint? := entrypoint? call
+        })
+    | .error error => .error s!"invalid Solana allocator payload: {repr error}"
+  else
+    .ok none
+
+private def typedAccountReallocFromCall (call : CapabilityCall) :
+    Except String (Option AccountReallocAction) :=
+  if call.operation == .hostOp ProofForge.Target.HostOps.Solana.accountReallocId then
+    match ProofForge.Target.HostOps.Solana.Payload.AccountReallocSpec.decode call.payload,
+        entrypoint? call with
+    | .ok spec, some entrypoint => .ok (some {
+        name := spec.name, account := spec.account, newSize := spec.newSize, entrypoint })
+    | .ok _, none => .error "typed Solana account realloc requires entrypoint scope"
+    | .error error, _ => .error s!"invalid Solana account realloc payload: {repr error}"
+  else
+    .ok none
+
+private def typedTransferHookExtraAccountMetaFromCall (call : CapabilityCall) :
+    Except String (Option TransferHookExtraAccountMetaListAction) :=
+  if call.operation ==
+      .hostOp ProofForge.Target.HostOps.Solana.transferHookExtraAccountMetaId then
+    match ProofForge.Target.HostOps.Solana.Payload.TransferHookExtraAccountMetaSpec.decode
+        call.payload, entrypoint? call with
+    | .ok spec, some entrypoint => .ok (some {
+        name := spec.name, account := spec.account,
+        extraAccounts := spec.extraAccounts, entrypoint })
+    | .ok _, none => .error "typed Solana transfer-hook metadata initialization requires entrypoint scope"
+    | .error error, _ => .error s!"invalid Solana transfer-hook metadata payload: {repr error}"
   else
     .ok none
 
@@ -810,11 +863,21 @@ private def addCheckedCall (acc : ProgramExtensions) (call : CapabilityCall) :
   let account? ← typedAccountFromCall call
   let pda? ← typedPdaFromCall call
   let cpi? ← typedCpiFromCall call
-  if account?.isSome || pda?.isSome || cpi?.isSome then
+  let allocator? ← typedAllocatorFromCall call
+  let realloc? ← typedAccountReallocFromCall call
+  let transferHook? ← typedTransferHookExtraAccountMetaFromCall call
+  if account?.isSome || pda?.isSome || cpi?.isSome || allocator?.isSome ||
+      realloc?.isSome || transferHook?.isSome then
     let acc := match account? with
       | some account => acc.addDeclaredAccount account | none => acc
     let acc := match pda? with | some pda => acc.addPda pda | none => acc
-    return match cpi? with | some cpi => acc.addCpi cpi | none => acc
+    let acc := match cpi? with | some cpi => acc.addCpi cpi | none => acc
+    let acc := match allocator? with | some allocator => acc.addAllocator allocator | none => acc
+    let acc := match realloc? with
+      | some action => acc.pushAccountReallocAction action | none => acc
+    return match transferHook? with
+      | some action => acc.pushTransferHookExtraAccountMetaListAction action
+      | none => acc
   return addLegacyCall acc call
 
 /-- Fail-closed parser used by the canonical Solana plan. Versioned typed

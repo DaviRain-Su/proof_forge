@@ -1,4 +1,5 @@
 import ProofForge.Backend.Solana.Package
+import ProofForge.Cli.SolanaArtifacts
 import ProofForge.Contract.Builder
 import ProofForge.Contract.Source.Solana.Legacy
 import Examples.Backend.Solana.Contracts.AccountRealloc
@@ -126,11 +127,41 @@ def checkPackage (label : String) (spec : ProofForge.Contract.ContractSpec)
   require (contains asmFile.contents "stxdw [r7+0], r2")
     s!"{label} assembly missing data_len store"
 
+def checkDirectPackage (label : String)
+    (contract : ProofForge.Frontend.Authored.AuthoredContract)
+    (reallocName accountName entrypointName : String) (newSize : Nat) : IO Unit := do
+  let plan ← match ProofForge.Cli.buildCanonicalAuthoredSolanaPlan contract with
+    | .ok plan => pure plan
+    | .error err => throw <| IO.userError s!"{label} direct planning failed: {err}"
+  let some action := plan.lowerCtxSeed.extensions.accountReallocActions.find? (fun action =>
+      action.name == reallocName && action.entrypoint == entrypointName)
+    | throw <| IO.userError s!"{label} plan missing realloc action `{reallocName}`"
+  require (action.account == accountName && action.newSize == newSize)
+    s!"{label} typed realloc payload mismatch"
+
+  let pkg ← match ProofForge.Backend.Solana.Package.renderPackageFromPlan label plan with
+    | .ok pkg => pure pkg
+    | .error err => throw <| IO.userError s!"{label} direct package render failed: {err.render}"
+  let some manifestFile := pkg.files.find? (fun file => file.path == "manifest.toml")
+    | throw <| IO.userError s!"{label} package missing manifest.toml"
+  let some idlFile := pkg.files.find? (fun file => file.path == pkg.idlPath)
+    | throw <| IO.userError s!"{label} package missing IDL"
+  let some asmFile := pkg.files.find? (fun file => file.path == pkg.asmPath)
+    | throw <| IO.userError s!"{label} package missing assembly"
+  require (contains manifestFile.contents s!"realloc = \"{reallocName}\"")
+    s!"{label} manifest missing realloc action"
+  require (contains idlFile.contents s!"\"realloc\": \"{reallocName}\"")
+    s!"{label} IDL missing realloc action"
+  require (contains asmFile.contents s!"account={accountName} new_size={newSize} max_increase=10240")
+    s!"{label} assembly missing realloc helper metadata"
+  require (contains asmFile.contents s!"sol_account_realloc_{reallocName}")
+    s!"{label} assembly missing realloc helper label"
+
 def main : IO UInt32 := do
   checkPackage "solana-account-realloc-builder" builderSpec "grow_counter" "counter" "grow" 64
-  checkPackage
+  checkDirectPackage
     "solana-account-realloc-source"
-    Examples.Backend.Solana.Contracts.AccountRealloc.spec
+    Examples.Backend.Solana.Contracts.AccountRealloc.contract
     "realloc_buffer"
     "buffer"
     "grow"

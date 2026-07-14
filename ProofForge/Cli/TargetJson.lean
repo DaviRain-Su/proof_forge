@@ -1,5 +1,6 @@
 import ProofForge.Backend.Solana.Extension
 import ProofForge.Backend.Solana.Manifest
+import ProofForge.Backend.Solana.Plan
 import ProofForge.Cli.ArrayUtil
 import ProofForge.Cli.JsonUtil
 import ProofForge.IR
@@ -293,8 +294,50 @@ def solanaInstructionsJson (module : ProofForge.IR.Module)
     (plan : ProofForge.Target.CapabilityPlan) : String :=
   jsonArray ((ProofForge.Backend.Solana.Manifest.buildInstructionsWithPlan module plan).map solanaInstructionJson)
 
-def solanaExtensionsJson (plan : ProofForge.Target.CapabilityPlan) : String :=
-  let extensions := ProofForge.Backend.Solana.Extension.ProgramExtensions.fromPlan plan
+def solanaPlanAccountJson (account : ProofForge.Backend.Solana.Plan.SolanaAccountPlan) : String :=
+  jsonObject #[
+    ("name", jsonString account.name),
+    ("index", toString account.index),
+    ("signer", jsonBool account.signer),
+    ("writable", jsonBool account.writable),
+    ("owner", jsonString account.owner)
+  ]
+
+def solanaPlanParamEncoding (typeName : String) : String :=
+  if typeName == "u64" then "le-u64"
+  else if typeName == "u32" then "le-u32"
+  else if typeName == "bool" then "u8-bool"
+  else if typeName == "array" then "raw-bytes"
+  else if typeName == "address" || typeName == "hash" then "le-u64-identity-handle"
+  else "unsupported"
+
+def solanaPlanParamJson
+    (param : ProofForge.Backend.Solana.Plan.SolanaInstructionParamPlan) : String :=
+  jsonObject #[
+    ("name", jsonString param.name),
+    ("type", jsonString param.typeName),
+    ("offset", toString param.offset),
+    ("byteSize", toString param.byteSize),
+    ("encoding", jsonString (solanaPlanParamEncoding param.typeName))
+  ]
+
+def solanaPlanInstructionJson (tag : Nat)
+    (instruction : ProofForge.Backend.Solana.Plan.SolanaEntrypointPlan) : String :=
+  jsonObject #[
+    ("name", jsonString instruction.name),
+    ("tag", toString tag),
+    ("handler", jsonString ("entry_" ++ instruction.name)),
+    ("minDataLen", toString instruction.instructionDataMinLen),
+    ("accounts", jsonArray (instruction.accounts.map solanaPlanAccountJson)),
+    ("params", jsonArray (instruction.params.map solanaPlanParamJson))
+  ]
+
+def solanaPlanInstructionsJson
+    (plan : ProofForge.Backend.Solana.Plan.SolanaModulePlan) : String :=
+  jsonArray (plan.entrypoints.mapIdx solanaPlanInstructionJson)
+
+def solanaExtensionsValueJson
+    (extensions : ProofForge.Backend.Solana.Extension.ProgramExtensions) : String :=
   jsonObject #[
     ("accounts", jsonArray (extensions.accounts.map solanaDeclaredAccountJson)),
     ("allocators", jsonArray (extensions.allocators.map solanaAllocatorJson)),
@@ -312,6 +355,10 @@ def solanaExtensionsJson (plan : ProofForge.Target.CapabilityPlan) : String :=
     ("pubkeyLogActions", jsonArray (extensions.pubkeyLogActions.map solanaPubkeyLogActionJson)),
     ("dataLogActions", jsonArray (extensions.dataLogActions.map solanaDataLogActionJson))
   ]
+
+def solanaExtensionsJson (plan : ProofForge.Target.CapabilityPlan) : String :=
+  let extensions := ProofForge.Backend.Solana.Extension.ProgramExtensions.fromPlan plan
+  solanaExtensionsValueJson extensions
 
 /-! ## PF-P1-02: machine-readable target support matrix (`--list-targets --json`) -/
 

@@ -4045,3 +4045,29 @@ Rules:
 - Documentation: `AGENTS.md`, `docs/decisions.md`, `docs/document-status.md`,
   `docs/implementation-backlog.md`, the July 14 comparison design/plan and
   Chinese translations, plus attached authoring/IR/NEAR execution plans.
+
+## 2026-07-14 - A-CUT1e-c2: direct public Solana authoring
+
+- Status: `done (verified 2026-07-14)`; CMP-0 is now active before the
+  remaining A-CUT2 authoring work.
+- Replaced `Contract.Source.Solana` and its `Internal` seam with direct
+  `AuthoredContract` construction. Public account, PDA, CPI, allocator,
+  realloc, and transfer-hook syntax emits versioned target-owned payloads and
+  never constructs `ContractSpec` or `IR.Module`.
+- Added strict target payloads and plan-only manifest, IDL, client, artifact,
+  package, and sBPF routes. Canonical Solana lowering now checks instruction
+  data length plus exact account count and signer/writable/owner constraints
+  before executing an entrypoint.
+- Migrated public System transfer/create-account, Memo, SPL Token close-account
+  and set-authority, Associated Token, Vault, and realloc fixtures and tests to
+  `.contract`. Learn Legacy tests remain explicitly isolated and no longer
+  compare or adapt public source back to `.module`/`.spec`.
+- Updated independent reference manifests to the canonical lowercase type
+  names and target-owned `program_state` account role while retaining logical
+  state-write names and Rust behavior constants.
+- Verification: `just hostop-protocol`; `just canonical-boundary`;
+  `just source-dsl-isolation`; `just solana-source-elf`; focused TargetFormal,
+  Solana materialization/public-route/package/CPI/realloc/Learn tests; and the
+  Pinocchio System transfer, System create-account, Memo, SPL Token
+  close-account, and set-authority structural equivalence recipes. Live
+  Surfpool suites were not rerun in this slice.

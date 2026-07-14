@@ -87,7 +87,7 @@ if names != ["log_memo", "log_memo_bytes"]:
     raise SystemExit(f"instruction schema mismatch: {names}")
 log_memo = instructions[0]
 accounts = [account.get("name") for account in log_memo.get("accounts", [])]
-if accounts != ["last_memo_word", "memo"]:
+if accounts != ["program_state", "memo"]:
     raise SystemExit(f"account schema mismatch: {accounts}")
 params = log_memo.get("params", [])
 expected_params = [

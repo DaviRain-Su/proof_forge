@@ -80,7 +80,7 @@ instructions = artifact.get("solanaInstructions", [])
 if len(instructions) != 1 or instructions[0].get("name") != "transfer":
     raise SystemExit(f"instruction schema mismatch: {instructions}")
 accounts = [account.get("name") for account in instructions[0].get("accounts", [])]
-if accounts != ["last_transfer_lamports", "payer", "recipient", "system_program"]:
+if accounts != ["program_state", "payer", "recipient", "system_program"]:
     raise SystemExit(f"account schema mismatch: {accounts}")
 params = instructions[0].get("params", [])
 if params != [{"name": "lamports", "type": "U64", "offset": 1, "byteSize": 8, "encoding": "le-u64"}]:

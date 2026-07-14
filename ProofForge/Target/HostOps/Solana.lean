@@ -31,10 +31,31 @@ def cpiInvokeId : ProofForge.Target.HostOpId := {
   version := { major := 1, minor := 0, patch := 0 }
 }
 
+def allocatorConfigureId : ProofForge.Target.HostOpId := {
+  namespace_ := "solana.allocator"
+  name := "configure"
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
+def accountReallocId : ProofForge.Target.HostOpId := {
+  namespace_ := "solana.account"
+  name := "realloc"
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
+def transferHookExtraAccountMetaId : ProofForge.Target.HostOpId := {
+  namespace_ := "solana.transfer_hook"
+  name := "initialize_extra_account_meta"
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
 def materializationIds : Array ProofForge.Target.HostOpId := #[
   accountDeclareId,
   pdaDeriveId,
-  cpiInvokeId
+  cpiInvokeId,
+  allocatorConfigureId,
+  accountReallocId,
+  transferHookExtraAccountMetaId
 ]
 
 def remainingComputeUnitsSig : HostOpSig := {

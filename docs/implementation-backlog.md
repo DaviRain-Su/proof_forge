@@ -39,6 +39,7 @@ July 12 implementation plan.
 | A4 | Audit ERC-721/Metaplex/NEAR NFT candidates | done (review repaired) | executable minimal lifecycle and explicit compliance limits |
 | A5 | Materialize NFT intent on the primary triad | done (review repaired) | all accepted cases reach strict target plans; Solana hashes the full account pubkey |
 | A6 | Open NFT CLI/product/runtime route | done (verified at `6a6022ea`) | three honest bundles and EVM/Surfpool/NEAR lifecycle runtime evidence pass |
+| A-CUT1e | Cut public Solana authoring over to target-owned HostOps | done (verified 2026-07-14) | public/internal macros emit direct Authored contracts; plan-only sidecars and sBPF lowering pass focused Pinocchio comparisons; no public/internal Legacy import or fallback |
 | B1 | Extract neutral Wasm-host plan and ABI | done (verified at `c8d2bbb6`) | NEAR output/runtime preservation |
 | B2 | Add strict canonical target gate | done (verified at `d4df51bc`) | adapter/validator/HostOp/builder errors fail closed |
 | B3 | Promote Soroban Counter | pending after B2 | strict plan, native ABI/auth contract, runtime evidence |
@@ -46,19 +47,20 @@ July 12 implementation plan.
 | C2 | Add Aleo semantic plan | pending after C1 | Core-to-plan-to-Leo; no route promotion |
 | C3 | Write sourced OpenVM brief | pending | reviewed go/defer decision before code |
 
-Legacy replacement is incremental. A legacy adapter or compatibility call is
-removed only after tests establish observable equivalence and all callers use
-the new boundary.
+Legacy deletion is sliced, but compatibility is not the destination. Do not add
+new adapters, dual-write routes, or fallbacks. Existing Legacy callers must stay
+explicitly isolated until a focused equivalence gate moves them to the direct
+boundary, after which the zero-caller Legacy code is deleted in IR-B8/A-CUT5.
 
 ## Native Differential Validation Track (D-055)
 
 This validation track consolidates existing NEAR Rust/Sandbox, Solana
 Pinocchio, EVM runtime, Stylus Rust, and shared testkit comparisons. It does not
-add target-specific operations to portable IR and does not block A-CUT1e-c2.
+add target-specific operations to portable IR. A-CUT1e-c2 is complete.
 
 | Order | Slice | State | Attached architecture exit |
 |---:|---|---|---|
-| CMP-0 | Inventory and version the shared provenance/scenario/observation contracts | pending after A-CUT1e-c2 | required before new reference formats proliferate |
+| CMP-0 | Inventory and version the shared provenance/scenario/observation contracts | in_progress | required before new reference formats proliferate |
 | CMP-1 | Implement fail-closed normalized observation and coverage validation | pending after CMP-0 | A-CUT2 prerequisite |
 | CMP-2 | Counter native pilot: Solidity EVM, Rust Solana, Rust NEAR | pending after CMP-1 | required for A-CUT2 completion |
 | CMP-3 | ValueVault and representative stateful portable families | pending after CMP-2 | attached to A-CUT3 |

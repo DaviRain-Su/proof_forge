@@ -1,13 +1,13 @@
 # Cross-Target Native Differential Validation Plan
 
-Status: **Accepted; queued alongside the architecture cutover (2026-07-14)**
+Status: **Accepted; CMP-0 in progress (2026-07-14)**
 
 Design: [Cross-Target Native Differential Validation](../specs/2026-07-14-cross-target-native-differential-design.md)
 
 ## Execution Rule
 
 This is a validation track, not a replacement for the current architecture
-queue. Finish A-CUT1e-c2 first. CMP-0 may land independently, but CMP-1 through
+queue. A-CUT1e-c2 is complete. CMP-0 now runs first, while CMP-1 through
 CMP-3 become part of the A-CUT2/A-CUT3 acceptance work. Target-extension tasks
 are attached to their target migration instead of opening unrelated backend
 work early.
@@ -30,7 +30,7 @@ the implementation log.
 
 ### CMP-0 - Freeze inventory and shared contracts
 
-State: `pending after A-CUT1e-c2; may be developed independently`
+State: `in_progress`
 
 - Inventory every native reference, runner, manifest schema, scenario, and CI
   gate; label historical measurement-only reports honestly.

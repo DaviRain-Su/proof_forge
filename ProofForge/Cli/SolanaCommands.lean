@@ -404,17 +404,173 @@ def compileSolanaSpecSbpf (opts : CliOptions) (defaultOutput : FilePath)
   | .error error =>
       throw <| IO.userError error.render
 
+def writeCanonicalSolanaPlanSupportFiles (output : FilePath)
+    (plan : ProofForge.Backend.Solana.Plan.SolanaModulePlan) :
+    IO (FilePath × FilePath × FilePath) := do
+  let parent := output.parent.getD (FilePath.mk ".")
+  let manifestOutput := parent / ProofForge.Backend.Solana.Package.manifestPath
+  let idlOutput := parent / ProofForge.Backend.Solana.Package.idlPath
+  let clientOutput := parent / ProofForge.Backend.Solana.Package.clientPath
+  IO.FS.createDirAll parent
+  writeTextFile manifestOutput
+    (ProofForge.Backend.Solana.Package.renderManifestFromPlan plan ++ "\n")
+  writeTextFile idlOutput
+    (ProofForge.Backend.Solana.Package.renderIdlFromPlan plan ++ "\n")
+  writeTextFile clientOutput
+    (ProofForge.Backend.Solana.Package.renderClientFromPlan plan ++ "\n")
+  return (manifestOutput, idlOutput, clientOutput)
+
+def compileSolanaAuthoredSbpf (opts : CliOptions) (defaultOutput : FilePath)
+    (fixture : String) (contract : ProofForge.Frontend.Authored.AuthoredContract) :
+    IO UInt32 := do
+  let output := opts.output?.getD defaultOutput
+  let (capabilityPlan, modulePlan) ←
+    match buildCanonicalAuthoredSolanaPlans contract with
+    | .ok plans => pure plans
+    | .error error => throw <| IO.userError error
+  let source ← match ProofForge.Backend.Solana.Plan.lowerFromPlan modulePlan with
+    | .ok nodes => pure (ProofForge.Backend.Solana.Asm.renderNodes nodes)
+    | .error error => throw <| IO.userError error.message
+  if let some parent := output.parent then IO.FS.createDirAll parent
+  writeTextFile output source
+  IO.println s!"wrote {output}"
+  let (manifestOutput, idlOutput, clientOutput) ←
+    writeCanonicalSolanaPlanSupportFiles output modulePlan
+  let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput output)
+  if let some parent := metadataOutput.parent then IO.FS.createDirAll parent
+  let sourceArtifact ← artifactEntryJson output
+  let manifestArtifact ← artifactEntryJson manifestOutput
+  let idlArtifact ← artifactEntryJson idlOutput
+  let clientArtifact ← artifactEntryJson clientOutput
+  let asmDigest ← fileDigestAndBytes output
+  let bundle := solanaAsmArtifactBundle {
+      moduleName := contract.name
+      kind := "contract-source-authored"
+    } output asmDigest.fst asmDigest.snd
+  requireHonestBundle "direct Authored Solana asm" bundle
+  let metadata := jsonObject #[
+    ("schemaVersion", "1"),
+    ("target", jsonString ProofForge.Backend.Solana.SbpfAsm.targetId),
+    ("targetFamily", jsonString "solana"),
+    ("artifactKind", jsonString ProofForge.Backend.Solana.SbpfAsm.artifactKind),
+    ("fixture", jsonString fixture),
+    ("sourceKind", jsonString "contract-source-authored"),
+    ("irVersion", jsonString "canonical-core-v1"),
+    ("sourceModule", jsonString contract.name),
+    ("capabilities", jsonStringArray
+      (dedupStrings (capabilityPlan.capabilities.map fun capability => capability.id))),
+    ("capabilityPlan", capabilityPlanJson capabilityPlan),
+    ("solanaInstructions", solanaPlanInstructionsJson modulePlan),
+    ("solanaExtensions", solanaExtensionsValueJson modulePlan.lowerCtxSeed.extensions),
+    ("artifacts", jsonObject #[
+      ("sbpfAsm", sourceArtifact),
+      ("manifestToml", manifestArtifact),
+      ("solanaIdl", idlArtifact),
+      ("solanaClientTs", clientArtifact)
+    ]),
+    ("artifactBundle", ProofForge.Target.ArtifactBundle.ArtifactBundle.toJson bundle),
+    ("validation", jsonObject #[
+      ("targetRouting", jsonString "passed"),
+      ("canonicalPlan", jsonString "passed"),
+      ("manifestGeneration", jsonString "passed"),
+      ("sbpfBuild", jsonString "notRun"),
+      ("liveCpi", jsonString "pending")
+    ])
+  ]
+  IO.FS.writeFile metadataOutput (metadata ++ "\n")
+  IO.println s!"wrote {metadataOutput}"
+  return 0
+
+def compileSolanaAuthoredElf (opts : CliOptions) (defaultOutput : FilePath)
+    (fallbackProjectName fixture : String)
+    (contract : ProofForge.Frontend.Authored.AuthoredContract) : IO UInt32 := do
+  let output := opts.output?.getD defaultOutput
+  let projectName := match output.fileName with
+    | some name => (name.splitOn ".").headD fallbackProjectName
+    | none => fallbackProjectName
+  let projectDir := output.parent.getD (FilePath.mk ".") / s!"{projectName}-sbpf-project"
+  let (capabilityPlan, modulePlan) ←
+    match buildCanonicalAuthoredSolanaPlans contract with
+    | .ok plans => pure plans
+    | .error error => throw <| IO.userError error
+  let package ← match ProofForge.Backend.Solana.Package.renderPackageFromPlan projectName modulePlan with
+    | .ok package => pure package
+    | .error error => throw <| IO.userError error.message
+  for file in package.files do
+    let path := packagePath projectDir file.path
+    writeTextFile path file.contents
+  let asmSrc := packagePath projectDir package.asmPath
+  let manifestOutput := packagePath projectDir package.manifestPath
+  let idlOutput := packagePath projectDir package.idlPath
+  let clientOutput := packagePath projectDir package.clientPath
+  let _ ← runProcess "sbpf" #["build", "--arch", opts.solanaSbpfArch]
+    (cwd? := some projectDir)
+  let builtElf := projectDir / "deploy" / s!"{projectName}.so"
+  if !(← builtElf.pathExists) then
+    throw <| IO.userError s!"sbpf build did not produce {builtElf}"
+  let elfBytes ← IO.FS.readBinFile builtElf
+  if let some parent := output.parent then IO.FS.createDirAll parent
+  IO.FS.writeBinFile output elfBytes
+  IO.println s!"wrote {output}"
+  let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput output)
+  if let some parent := metadataOutput.parent then IO.FS.createDirAll parent
+  let sourceArtifact ← artifactEntryJson asmSrc
+  let manifestArtifact ← artifactEntryJson manifestOutput
+  let idlArtifact ← artifactEntryJson idlOutput
+  let clientArtifact ← artifactEntryJson clientOutput
+  let elfArtifact ← artifactEntryJson output
+  let asmDigest ← fileDigestAndBytes asmSrc
+  let elfDigest ← fileDigestAndBytes output
+  let bundle := solanaElfArtifactBundle {
+      moduleName := contract.name
+      kind := "contract-source-authored"
+    } asmSrc output asmDigest.fst elfDigest.fst asmDigest.snd elfDigest.snd
+  requireHonestBundle "direct Authored Solana ELF" bundle
+  let metadata := jsonObject #[
+    ("schemaVersion", "1"),
+    ("target", jsonString ProofForge.Backend.Solana.SbpfAsm.targetId),
+    ("targetFamily", jsonString "solana"),
+    ("artifactKind", jsonString ProofForge.Backend.Solana.SbpfAsm.artifactKind),
+    ("fixture", jsonString fixture),
+    ("sourceKind", jsonString "contract-source-authored"),
+    ("irVersion", jsonString "canonical-core-v1"),
+    ("sourceModule", jsonString contract.name),
+    ("capabilities", jsonStringArray
+      (dedupStrings (capabilityPlan.capabilities.map fun capability => capability.id))),
+    ("capabilityPlan", capabilityPlanJson capabilityPlan),
+    ("solanaInstructions", solanaPlanInstructionsJson modulePlan),
+    ("solanaExtensions", solanaExtensionsValueJson modulePlan.lowerCtxSeed.extensions),
+    ("artifacts", jsonObject #[
+      ("sbpfAsm", sourceArtifact),
+      ("manifestToml", manifestArtifact),
+      ("solanaIdl", idlArtifact),
+      ("solanaClientTs", clientArtifact),
+      ("solanaElf", elfArtifact)
+    ]),
+    ("artifactBundle", ProofForge.Target.ArtifactBundle.ArtifactBundle.toJson bundle),
+    ("validation", jsonObject #[
+      ("targetRouting", jsonString "passed"),
+      ("canonicalPlan", jsonString "passed"),
+      ("manifestGeneration", jsonString "passed"),
+      ("sbpfBuild", jsonString "passed"),
+      ("liveCpi", jsonString "pending")
+    ])
+  ]
+  IO.FS.writeFile metadataOutput (metadata ++ "\n")
+  IO.println s!"wrote {metadataOutput}"
+  return 0
+
 def compileSolanaSystemCpiSbpf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecSbpf opts
+  compileSolanaAuthoredSbpf opts
     (FilePath.mk "build/solana/SystemCpi.s")
     "solana-system-cpi-sbpf"
-    Examples.Backend.Solana.Contracts.SystemCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCpi.contract
 
 def compileSolanaSystemCreateAccountCpiSbpf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecSbpf opts
+  compileSolanaAuthoredSbpf opts
     (FilePath.mk "build/solana/SystemCreateAccountCpi.s")
     "solana-system-create-account-cpi-sbpf"
-    Examples.Backend.Solana.Contracts.SystemCreateAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCreateAccountCpi.contract
 
 def compileSolanaSplTokenTransferCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
@@ -429,28 +585,28 @@ def compileSolanaSplTokenOpsCpiSbpf (opts : CliOptions) : IO UInt32 :=
     Examples.Backend.Solana.Contracts.SplTokenOpsCpi.spec
 
 def compileSolanaSplTokenCloseAccountCpiSbpf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecSbpf opts
+  compileSolanaAuthoredSbpf opts
     (FilePath.mk "build/solana/SplTokenCloseAccountCpi.s")
     "solana-spl-token-close-account-cpi-sbpf"
-    Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.contract
 
 def compileSolanaSplTokenAuthorityCpiSbpf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecSbpf opts
+  compileSolanaAuthoredSbpf opts
     (FilePath.mk "build/solana/SplTokenAuthorityCpi.s")
     "solana-spl-token-authority-cpi-sbpf"
-    Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi.contract
 
 def compileSolanaAssociatedTokenCpiSbpf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecSbpf opts
+  compileSolanaAuthoredSbpf opts
     (FilePath.mk "build/solana/AssociatedTokenCpi.s")
     "solana-associated-token-cpi-sbpf"
-    Examples.Backend.Solana.Contracts.AssociatedTokenCpi.spec
+    Examples.Backend.Solana.Contracts.AssociatedTokenCpi.contract
 
 def compileSolanaMemoCpiSbpf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecSbpf opts
+  compileSolanaAuthoredSbpf opts
     (FilePath.mk "build/solana/MemoCpi.s")
     "solana-memo-cpi-sbpf"
-    Examples.Backend.Solana.Contracts.MemoCpi.spec
+    Examples.Backend.Solana.Contracts.MemoCpi.contract
 
 def compileSolanaSplToken2022CpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecSbpf opts
@@ -478,18 +634,18 @@ def compileValueVaultSolanaElf (opts : CliOptions) : IO UInt32 :=
     ProofForge.Contract.Examples.ValueVault.spec
 
 def compileSolanaSystemCpiElf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecElf opts
+  compileSolanaAuthoredElf opts
     (FilePath.mk "build/solana/SystemCpi.so")
     "system-cpi"
     "solana-system-cpi-elf"
-    Examples.Backend.Solana.Contracts.SystemCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCpi.contract
 
 def compileSolanaSystemCreateAccountCpiElf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecElf opts
+  compileSolanaAuthoredElf opts
     (FilePath.mk "build/solana/SystemCreateAccountCpi.so")
     "system-create-account-cpi"
     "solana-system-create-account-cpi-elf"
-    Examples.Backend.Solana.Contracts.SystemCreateAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SystemCreateAccountCpi.contract
 
 def compileSolanaSplTokenTransferCpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts
@@ -506,32 +662,32 @@ def compileSolanaSplTokenOpsCpiElf (opts : CliOptions) : IO UInt32 :=
     Examples.Backend.Solana.Contracts.SplTokenOpsCpi.spec
 
 def compileSolanaSplTokenCloseAccountCpiElf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecElf opts
+  compileSolanaAuthoredElf opts
     (FilePath.mk "build/solana/SplTokenCloseAccountCpi.so")
     "spl-token-close-account-cpi"
     "solana-spl-token-close-account-cpi-elf"
-    Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenCloseAccountCpi.contract
 
 def compileSolanaSplTokenAuthorityCpiElf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecElf opts
+  compileSolanaAuthoredElf opts
     (FilePath.mk "build/solana/SplTokenAuthorityCpi.so")
     "spl-token-authority-cpi"
     "solana-spl-token-authority-cpi-elf"
-    Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi.spec
+    Examples.Backend.Solana.Contracts.SplTokenAuthorityCpi.contract
 
 def compileSolanaAssociatedTokenCpiElf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecElf opts
+  compileSolanaAuthoredElf opts
     (FilePath.mk "build/solana/AssociatedTokenCpi.so")
     "associated-token-cpi"
     "solana-associated-token-cpi-elf"
-    Examples.Backend.Solana.Contracts.AssociatedTokenCpi.spec
+    Examples.Backend.Solana.Contracts.AssociatedTokenCpi.contract
 
 def compileSolanaMemoCpiElf (opts : CliOptions) : IO UInt32 :=
-  compileSolanaSpecElf opts
+  compileSolanaAuthoredElf opts
     (FilePath.mk "build/solana/MemoCpi.so")
     "solana-memo-cpi"
     "solana-memo-cpi-elf"
-    Examples.Backend.Solana.Contracts.MemoCpi.spec
+    Examples.Backend.Solana.Contracts.MemoCpi.contract
 
 def compileSolanaSplToken2022CpiElf (opts : CliOptions) : IO UInt32 :=
   compileSolanaSpecElf opts

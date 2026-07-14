@@ -73,10 +73,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "3d51a0f67789242f240ddcc525ba0e77bed3f91ea9f78af2566abf304806d45e",
+    "sha256": "d4c5d80f08d94a83285cf26621fd0f889bdaabccca47ae3b557978a8e397d9a6",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through D-055 native differential validation track"
+    "note": "synced EN/zh through A-CUT1e-c2 and active CMP-0"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -102,10 +102,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "7c5c835ffb980f92edb9441c0f6004a6932b369deabb26ba06af1d9e3bf7554d",
+    "sha256": "5324f07b2148a63ac3e6f62bb229709daec33b37a9955a129fe902f421982ae5",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for canonical EVM CREATE HostOp coverage; includes Stylus; includes NEP-145"
+    "note": "manually synced for direct canonical Solana authoring; includes Stylus and NEP-145"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -186,10 +186,10 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd",
+    "sha256": "cd3be1632f6687cfcb90419d95a8cd8324b2b7943bb3d6b6a18bfca576e52536",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "bc27c6f80346ca08eda0910c1a0d4f08f46ed5b2beadbc5cafc91cfb54a246fd"
+    "en_sha256": "cd3be1632f6687cfcb90419d95a8cd8324b2b7943bb3d6b6a18bfca576e52536"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {

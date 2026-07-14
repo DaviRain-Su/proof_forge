@@ -16,7 +16,7 @@
   ],
   "accounts": [
     {
-      "name": "last_close_marker",
+      "name": "program_state",
       "index": 0,
       "signer": false,
       "writable": true,

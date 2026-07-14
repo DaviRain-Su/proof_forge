@@ -81,7 +81,7 @@ if [instruction.get("name") for instruction in instructions] != ["close_account"
     raise SystemExit(f"instruction schema mismatch: {instructions}")
 instruction = instructions[0]
 expected_accounts = [
-    "last_close_marker",
+    "program_state",
     "token_account",
     "destination",
     "authority",

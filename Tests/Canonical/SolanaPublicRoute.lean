@@ -140,11 +140,12 @@ unsafe def main : IO Unit := do
         s!"public Solana route changed canonical rejection: {error}"
   | .ok _ => throw <| IO.userError "public Solana route accepted unsupported Legacy input"
 
-  /- Check 7: intent-only CPI cannot silently disappear in canonical output. -/
-  match renderCanonicalSpecSolanaAsm Examples.Backend.Solana.Contracts.SystemCpi.spec with
-  | .error error =>
-      require (error.contains "intent-only Solana CPI")
-        s!"CPI fail-closed diagnostic changed: {error}"
-  | .ok _ => throw <| IO.userError "canonical public route silently dropped Solana CPI intents"
+  /- Check 7: public Solana authoring reaches typed canonical CPI lowering. -/
+  match renderCanonicalAuthoredSolanaAsm Examples.Backend.Solana.Contracts.SystemCpi.contract with
+  | .error error => throw <| IO.userError s!"direct Authored Solana CPI failed: {error}"
+  | .ok source =>
+      require (source.contains "solana.cpi.action lamport_transfer" &&
+          source.contains "sol_cpi_lamport_transfer")
+        "direct Authored Solana CPI disappeared before sBPF lowering"
 
   IO.println "solana-public-route: ok"

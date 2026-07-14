@@ -5,6 +5,8 @@ import Examples.Backend.Solana.Contracts.Vault
 import ProofForge.Target.Formal
 import ProofForge.Target.FormalBoundary
 import ProofForge.IR.Contract
+import ProofForge.Frontend.Authored
+import ProofForge.Backend.Solana.Plan.Core
 
 /-!
 # FV-1 target-routing anchors
@@ -71,14 +73,23 @@ def checkUnsupportedCapability : IO Unit := do
         s!"NEAR PDA reject must name HostRuntime, got: {err.render}"
 
 def checkSolanaExtensionIsolation : IO Unit := do
-  requireError (resolveSpec evm Examples.Backend.Solana.Contracts.Vault.spec)
-    "target `evm` cannot use Solana target extension metadata on operation `solana.runtime.allocator`"
-    "Solana target-extension metadata must be rejected on EVM"
-  let solanaPlan ← requireOk
-    (resolveSpec solanaSbpfAsm Examples.Backend.Solana.Contracts.Vault.spec)
-    "Solana Vault routing failed"
-  require (solanaPlan.checkedBy solanaSbpfAsm)
-    "Solana Vault plan failed FV-1 checkedBy predicate"
+  let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored
+      Examples.Backend.Solana.Contracts.Vault.contract with
+    | .ok bundle => pure bundle
+    | .error error => throw <| IO.userError s!"direct Solana Vault normalization failed: {repr error}"
+  let calls := bundle.contract.contract.requirements
+  match requireCapabilityPlan evm { targetId := evm.id, calls } with
+  | .ok _ => throw <| IO.userError "EVM accepted typed Solana target operations"
+  | .error error =>
+      require (error.render.contains "HostRuntime" ||
+        error.render.contains "has no handler for operation")
+        s!"foreign typed Solana operation rejection changed: {error.render}"
+  let capabilityPlan : CapabilityPlan := { targetId := solanaSbpfAsm.id, calls }
+  match ProofForge.Backend.Solana.Plan.Core.buildFromCore bundle.contract capabilityPlan with
+  | .error error => throw <| IO.userError s!"direct Solana Vault plan failed: {error.message}"
+  | .ok plan =>
+      require (plan.extensions.pdas == #["vault"] && plan.extensions.cpis == #["token_transfer"])
+        "direct Solana Vault plan lost typed target extensions"
 
 /-- FV-1 full-boundary soundness: the new `native_decide` theorems in
 `Target.Formal` cover the full `resolveSpec` boundary (not just the

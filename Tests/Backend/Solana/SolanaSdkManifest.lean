@@ -1,14 +1,11 @@
 import ProofForge.Backend.Solana.Manifest
 import ProofForge.Backend.Solana.Package
 import ProofForge.Backend.Solana.Idl
+import ProofForge.Cli.SolanaArtifacts
 import ProofForge.IR.Examples.ErrorRefProbe
 import Examples.Backend.Solana.Contracts.Vault
-import ProofForge.Target.Adapter
-import ProofForge.Target.Registry
 
 namespace ProofForge.Tests.SolanaSdkManifest
-
-open ProofForge.Target
 
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then
@@ -20,14 +17,13 @@ def contains (haystack needle : String) : Bool :=
   haystack.contains needle
 
 def main : IO UInt32 := do
-  let spec := Examples.Backend.Solana.Contracts.Vault.spec
-  let plan ←
-    match resolveSpec solanaSbpfAsm spec with
+  let plan ← match ProofForge.Cli.buildCanonicalAuthoredSolanaPlan
+      Examples.Backend.Solana.Contracts.Vault.contract with
     | .ok plan => pure plan
-    | .error err => throw <| IO.userError s!"Solana Vault SDK routing failed: {err.render}"
+    | .error err => throw <| IO.userError s!"Solana Vault direct planning failed: {err}"
 
-  let manifest := ProofForge.Backend.Solana.Manifest.renderManifestWithPlan spec.module plan
-  let idl := ProofForge.Backend.Solana.Idl.renderWithPlan spec.module plan
+  let manifest := ProofForge.Backend.Solana.Package.renderManifestFromPlan plan
+  let idl := ProofForge.Backend.Solana.Package.renderIdlFromPlan plan
   require (contains manifest "[[solana.account]]") "manifest missing Solana declared account section"
   require (contains idl "\"schema\": \"proof-forge.solana.idl.v0\"")
     "IDL missing schema marker"
@@ -68,7 +64,7 @@ def main : IO UInt32 := do
   require (contains manifest "model = \"downward-bump\"") "manifest missing bump allocator model"
   require (contains manifest "heap_start = \"0x300000000\"") "manifest missing allocator heap start"
   require (contains manifest "heap_bytes = 32768") "manifest missing allocator heap size"
-  require (contains manifest "{ name = \"nonce\", index = 0, signer = false, writable = true, owner = \"program\" },")
+  require (contains manifest "{ name = \"program_state\", index = 0, signer = false, writable = true, owner = \"program\" },")
     "manifest missing state account schema"
   require (contains manifest "{ name = \"vault_account\", index = 1, signer = false, writable = true, owner = \"program\" },")
     "manifest missing PDA account schema"
@@ -115,8 +111,8 @@ def main : IO UInt32 := do
     "manifest missing readonly mint account"
   require (contains manifest "{ name = \"authority\", access = \"readonly\", signer = \"pda-signer\" }")
     "manifest missing PDA signer authority account"
-  require (contains manifest "signer_seeds = [\"vault\", \"vault_bump\"]")
-    "manifest missing CPI signer seeds"
+  require (contains manifest "signer_seeds = [\"literal:vault\", \"bump:vault_bump\"]")
+    "manifest missing typed CPI signer seeds"
   require (contains manifest "[[solana.entrypoint_pda]]")
     "manifest missing entrypoint PDA action section"
   require (contains manifest "entrypoint = \"touch\"")
@@ -128,7 +124,7 @@ def main : IO UInt32 := do
   require (contains manifest "cpi = \"token_transfer\"")
     "manifest missing touch CPI action"
 
-  match ProofForge.Backend.Solana.Package.renderPackageForSpec "solana-vault" spec with
+  match ProofForge.Backend.Solana.Package.renderPackageFromPlan "solana-vault" plan with
   | .ok pkg =>
       let some manifestFile := pkg.files.find? (fun file => file.path == "manifest.toml")
         | throw <| IO.userError "package missing manifest.toml"

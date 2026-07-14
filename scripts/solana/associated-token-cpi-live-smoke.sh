@@ -82,7 +82,7 @@ if [instruction.get("name") for instruction in instructions] != ["create_associa
     raise SystemExit(f"instruction schema mismatch: {instructions}")
 instruction = instructions[0]
 expected_accounts = [
-    "last_created_marker",
+    "program_state",
     "payer",
     "associated_account",
     "wallet",

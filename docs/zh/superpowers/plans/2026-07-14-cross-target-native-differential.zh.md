@@ -1,12 +1,12 @@
 # 跨目标原生差分验证实施计划
 
-状态：**已接受；与架构切换队列混合推进（2026-07-14）**
+状态：**已接受；CMP-0 进行中（2026-07-14）**
 
 设计文档：[跨目标原生差分验证设计](../specs/2026-07-14-cross-target-native-differential-design.zh.md)
 
 ## 执行规则
 
-这是验证轨道，不替代当前架构队列。先完成 A-CUT1e-c2。CMP-0 可以独立落地，但 CMP-1 至 CMP-3 分别成为 A-CUT2/A-CUT3 的验收组成部分。Target-extension 测试附着在对应 target 的迁移任务上，不能借此提前开启无关 backend 工作。
+这是验证轨道，不替代当前架构队列。A-CUT1e-c2 已完成，现在先执行 CMP-0；CMP-1 至 CMP-3 分别成为 A-CUT2/A-CUT3 的验收组成部分。Target-extension 测试附着在对应 target 的迁移任务上，不能借此提前开启无关 backend 工作。
 
 状态只能使用 `pending`、`in_progress`、`blocked` 和 `done (verified at <sha>)`。每个完成任务必须记录精确门禁并更新 implementation log。
 
@@ -24,7 +24,7 @@
 
 ### CMP-0 - 冻结资产清单与共享契约
 
-状态：`pending after A-CUT1e-c2; may be developed independently`
+状态：`in_progress`
 
 - 盘点所有 native reference、runner、manifest schema、scenario 和 CI gate，并诚实标记历史 measurement-only 报告。
 - 定义版本化 reference provenance、logical scenario、normalized observation、required coverage 和 allowed divergence schema。

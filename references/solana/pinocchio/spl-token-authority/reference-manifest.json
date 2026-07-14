@@ -13,7 +13,7 @@
   ],
   "accounts": [
     {
-      "name": "last_authority_marker",
+      "name": "program_state",
       "index": 0,
       "signer": false,
       "writable": true,

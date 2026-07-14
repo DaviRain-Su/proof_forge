@@ -43,4 +43,17 @@ def invokeCpi (spec : CpiSpec) : EntryM Unit :=
   entryIntent (operationIntent ProofForge.Target.HostOps.Solana.cpiInvokeId
     .crosscallCpi spec.encode)
 
+def configureAllocator (spec : AllocatorSpec) : ModuleM Unit :=
+  intent (operationIntent ProofForge.Target.HostOps.Solana.allocatorConfigureId
+    .runtimeAllocator spec.encode)
+
+def reallocAccount (spec : AccountReallocSpec) : EntryM Unit :=
+  entryIntent (operationIntent ProofForge.Target.HostOps.Solana.accountReallocId
+    .accountExplicit spec.encode)
+
+def initializeTransferHookExtraAccountMeta
+    (spec : TransferHookExtraAccountMetaSpec) : EntryM Unit :=
+  entryIntent (operationIntent ProofForge.Target.HostOps.Solana.transferHookExtraAccountMetaId
+    .accountExplicit spec.encode)
+
 end ProofForge.Contract.Source.Solana.Internal.Authored

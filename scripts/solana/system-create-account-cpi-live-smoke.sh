@@ -80,7 +80,7 @@ instructions = artifact.get("solanaInstructions", [])
 if len(instructions) != 1 or instructions[0].get("name") != "create":
     raise SystemExit(f"instruction schema mismatch: {instructions}")
 accounts = [account.get("name") for account in instructions[0].get("accounts", [])]
-if accounts != ["last_created_lamports", "payer", "new_account", "system_program"]:
+if accounts != ["program_state", "payer", "new_account", "system_program"]:
     raise SystemExit(f"account schema mismatch: {accounts}")
 params = instructions[0].get("params", [])
 expected_params = [

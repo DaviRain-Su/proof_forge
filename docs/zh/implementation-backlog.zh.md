@@ -37,6 +37,7 @@
 | A4 | 审查 ERC-721/Metaplex/NEAR NFT 候选实现 | done（审查修复完成） | 可执行最小生命周期与明确合规限制 |
 | A5 | 主三链 NFT intent 物化 | done（审查修复完成） | 所有接受路径进入严格 target plan；Solana 对完整 account pubkey 做哈希 |
 | A6 | NFT CLI/product/runtime 路线 | done（在 `6a6022ea` 验证） | 三套诚实制品以及 EVM/Surfpool/NEAR 生命周期运行时证据均通过 |
+| A-CUT1e | 将公开 Solana authoring 切换到 target-owned HostOps | done（2026-07-14 验证） | public/internal macro 仅生成 direct Authored contract；plan-only sidecar 和 sBPF lowering 通过 focused Pinocchio 对比；不存在 public/internal Legacy import 或 fallback |
 | B1 | 中立 Wasm-host plan 与 ABI | done（在 `c8d2bbb6` 验证） | 保持 NEAR 输出与运行时行为 |
 | B2 | 严格 canonical target gate | done（在 `d4df51bc` 验证） | adapter/validator/HostOp/builder 错误 fail closed |
 | B3 | Soroban Counter 晋级 | B2 后 pending | 严格 plan、原生 ABI/auth 与运行时证据 |
@@ -44,18 +45,19 @@
 | C2 | Aleo semantic plan | C1 后 pending | Core -> plan -> Leo；不晋级公开路线 |
 | C3 | 有来源的 OpenVM brief | pending | 写代码前完成 go/defer 决策 |
 
-Legacy 替换采用渐进方式：只有在测试证明可观察等价且所有调用方已经迁移后，
-才能删除对应 adapter 或兼容调用。
+Legacy 删除按切片推进，但兼容不是最终目标。不得新增 adapter、dual-write route
+或 fallback。现有 Legacy 调用方必须保持显式隔离；focused equivalence gate 将其迁移
+到 direct boundary 后，在 IR-B8/A-CUT5 删除零调用 Legacy 代码。
 
 ## 原生差分验证轨道（D-055）
 
 该验证轨道统一现有 NEAR Rust/Sandbox、Solana Pinocchio、EVM runtime、
 Stylus Rust 和共享 testkit 比较。它不向可移植 IR 增加 target-specific
-operation，也不阻塞 A-CUT1e-c2。
+operation。A-CUT1e-c2 已完成。
 
 | 顺序 | 切片 | 状态 | 关联的架构退出条件 |
 |---:|---|---|---|
-| CMP-0 | 盘点并版本化 provenance/scenario/observation 共享契约 | A-CUT1e-c2 后 pending | 新增 reference format 前必须完成 |
+| CMP-0 | 盘点并版本化 provenance/scenario/observation 共享契约 | in_progress | 新增 reference format 前必须完成 |
 | CMP-1 | 实现 fail-closed normalized observation 与 coverage validator | CMP-0 后 pending | A-CUT2 前置 |
 | CMP-2 | Counter 原生试点：Solidity EVM、Rust Solana、Rust NEAR | CMP-1 后 pending | A-CUT2 完成条件 |
 | CMP-3 | ValueVault 和代表性 stateful portable family | CMP-2 后 pending | 附着 A-CUT3 |

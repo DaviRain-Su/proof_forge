@@ -33,6 +33,19 @@ Gate A1 closes only when every row is met on one tested revision. Wasm-host or
 ZK research may proceed independently, but public promotion requires its own
 strict gate and does not count toward A1.
 
+## Gate A-CUT1e — Direct Solana authoring cutover
+
+**Status: Closed**
+
+**Closed: 2026-07-14**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| A-CUT1e-1 | Public/internal Solana authoring has no Legacy builder dependency | ✅ met | `Source.Solana` emits one `AuthoredContract`; boundary search finds no `Source.Solana.Legacy`, `ContractSpec`, or `IR.Module` dependency in the public/internal modules; `just source-dsl-isolation` passes |
+| A-CUT1e-2 | Typed target operations survive strict planning and plan-only lowering | ✅ met | account/PDA/CPI/allocator/realloc payloads decode fail closed; `Tests/Canonical/SolanaHostOpCatalog.lean`, `Tests/SourceDslSolanaAcceptance.lean`, and `Tests/Backend/Solana/SolanaCpiPacking.lean` pass |
+| A-CUT1e-3 | Plan-only artifacts preserve SDK and runtime constraints | ✅ met | `Tests/Backend/Solana/SolanaSdkManifest.lean` and `SolanaAccountRealloc.lean` pass; canonical lowering enforces instruction length and signer/writable/owner validation; System, Memo, close-account, and authority Pinocchio structural comparisons pass |
+| A-CUT1e-4 | No fallback was introduced | ✅ met | public fixtures expose `.contract` only; public CLI fixture routes call `compileSolanaAuthoredSbpf`/`compileSolanaAuthoredElf`; failures from normalization, planning, lowering, package generation, and sBPF build remain terminal |
+
 ## How to use
 
 - Add a new `## Gate GN` section when a Gate's first criterion starts.

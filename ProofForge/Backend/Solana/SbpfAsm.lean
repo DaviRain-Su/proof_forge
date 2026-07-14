@@ -175,7 +175,7 @@ def lowerAccountValidations (accounts : Array AccountEntry)
   ] ++ validation
 
 def lowerInstructionDataLengthCheck (requiredLen : Nat) : Array AstNode :=
-  if requiredLen <= 1 then
+  if requiredLen == 0 then
     #[]
   else
     #[

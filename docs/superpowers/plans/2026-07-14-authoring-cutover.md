@@ -105,12 +105,11 @@ and one-way import rules. Continue with A-CUT2.
 
 ### A-CUT1e - Solana source and target ownership cutover
 
-The old top-level `ProofForge/Solana*` placement has already been removed, but
-the move is not an architectural cutover by itself. The public
-`ProofForge.Contract.Source.Solana` module and its `Internal` implementation
-still import `Source.Solana.Legacy`, whose values construct the old
-`Contract.Builder` / `IR.Module` path. Complete this task before resuming the
-remaining A-CUT2 builder work.
+The old top-level `ProofForge/Solana*` placement was removed before this task,
+but that move was not an architectural cutover by itself. A-CUT1e is now
+complete: the public `ProofForge.Contract.Source.Solana` module and its
+`Internal` implementation emit direct Authored operations and do not import
+`Source.Solana.Legacy`, `Contract.Builder`, or `IR.Module`.
 
 - Keep `ProofForge.Contract.Source.Solana` as the opt-in public syntax layer.
   It may define macros and author-facing references, but it must not own target
@@ -146,8 +145,7 @@ Pinocchio structural/runtime evidence. It does not wait for CMP-0, but the
 public-macro fixture must prove the direct Authored route produces the expected
 target-owned account/PDA/CPI plan without importing Solana Legacy.
 
-Checkpoint (2026-07-14): A-CUT1e-a, A-CUT1e-b, and the backend-plan slice
-A-CUT1e-c1 are complete. Canonical and Authored
+Checkpoint (2026-07-14): A-CUT1e-a through A-CUT1e-c2 are complete. Canonical and Authored
 materialization intents carry the open `CapabilityOperation` identity rather
 than a closed target enum or untyped Canonical label. The initial typed Solana
 catalog registers remaining-compute-units and the three Solana hash syscalls,
@@ -164,9 +162,17 @@ merges typed declared/CPI accounts into a deterministic layout, retains scoped
 PDA/CPI actions, constructs extension bindings from plan data rather than
 `IR.Module`, and emits helper calls that pass the sBPF encoder. `BpfEncode`
 distinguishes local label calls from hashed runtime syscalls and encodes local
-calls as relative pseudo-calls. Switching the public/internal macro
-implementations off the legacy builder and deleting their Legacy imports remain
-in A-CUT1e-c2.
+calls as relative pseudo-calls. A-CUT1e-c2 replaced the public/internal Solana
+macro implementation with direct `AuthoredContract` construction, added strict
+typed allocator/realloc/transfer-hook payloads, and made manifest, IDL, client,
+artifact metadata, and sBPF assembly consume `SolanaModulePlan` without
+reconstructing `ContractSpec` or `IR.Module`. Canonical lowering now enforces
+instruction-data length and signer/writable/owner account constraints before
+dispatch. Public System, Memo, SPL Token close/set-authority, Associated Token,
+Vault, and realloc fixtures have no `.spec`/`.module` callers; their focused
+Pinocchio reference comparisons pass with the target-owned `program_state`
+account role. Remaining explicit Legacy fixtures are deletion work for IR-B5
+and A-CUT5, not a compatibility or fallback route.
 
 ### A-CUT2 - Direct `contract_source` frontend
 

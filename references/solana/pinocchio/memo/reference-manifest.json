@@ -14,7 +14,7 @@
       "params": [
         {
           "name": "memoArg",
-          "type": "U64",
+          "type": "u64",
           "offset": 1,
           "byteSize": 8,
           "encoding": "le-u64"
@@ -28,7 +28,7 @@
       "params": [
         {
           "name": "memoBytes",
-          "type": "Array<U8,16>",
+          "type": "array",
           "offset": 1,
           "byteSize": 16,
           "encoding": "raw-bytes"
@@ -38,7 +38,7 @@
   ],
   "accounts": [
     {
-      "name": "last_memo_word",
+      "name": "program_state",
       "index": 0,
       "signer": false,
       "writable": true,

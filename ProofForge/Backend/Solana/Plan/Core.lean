@@ -49,6 +49,9 @@ def coreScalarByteSize : CoreType -> Except PlanError Nat
   | .u32 => .ok 4
   | .u64 => .ok 8
   | .u128 => .ok 16
+  | .fixedArray .u8 length =>
+      if length > 0 && length <= 128 then .ok length
+      else .error { message := s!"Solana fixed byte-array width {length} must be in 1..128" }
   /- Canonical Solana represents identities as the portable SHA-256 limb-0
      handle used by callerHash and the existing product materializer. -/
   | .address | .hash => .ok 8
@@ -126,7 +129,7 @@ def coreDefaultAccounts (dataSize : Nat) (hasCrosscall needsSender : Bool) : Arr
     index := 0
     signer := false
     writable := true
-    owner := "BPFLoaderUpgradeable"
+    owner := "program"
     dataSize := dataSize }
   let authority : SolanaAccountPlan := {
     name := "authority", index := 0, signer := true, writable := false,

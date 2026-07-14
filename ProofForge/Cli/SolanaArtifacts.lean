@@ -19,6 +19,7 @@ import ProofForge.Compiler.CanonicalPipeline
 import ProofForge.IR
 import ProofForge.IR.Canonical
 import ProofForge.Frontend.ContractSpec.Normalize
+import ProofForge.Frontend.Authored
 import ProofForge.IR.Examples.ControlFlowAssertProbe
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ErrorRefProbe
@@ -30,6 +31,36 @@ open System
 open ProofForge.Cli.JsonUtil
 
 namespace ProofForge.Cli
+
+def buildCanonicalAuthoredSolanaPlans
+    (contract : ProofForge.Frontend.Authored.AuthoredContract) :
+    Except String (ProofForge.Target.CapabilityPlan ×
+      ProofForge.Backend.Solana.Plan.SolanaModulePlan) := do
+  let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored contract with
+    | .ok bundle => .ok bundle
+    | .error error => .error s!"canonical: Authored normalization failed: {repr error}"
+  let capabilityPlan : ProofForge.Target.CapabilityPlan := {
+    targetId := ProofForge.Target.solanaSbpfAsm.id
+    calls := bundle.contract.contract.requirements
+  }
+  match ProofForge.Backend.Solana.Plan.Core.buildFromCore bundle.contract capabilityPlan with
+  | .ok plan => .ok (capabilityPlan, plan)
+  | .error error => .error s!"canonical: Solana plan failed: {error.message}"
+
+def buildCanonicalAuthoredSolanaPlan
+    (contract : ProofForge.Frontend.Authored.AuthoredContract) :
+    Except String ProofForge.Backend.Solana.Plan.SolanaModulePlan := do
+  return (← buildCanonicalAuthoredSolanaPlans contract).2
+
+/-- Direct public-source route: Authored -> checked Canonical Core -> Solana
+ModulePlan -> sBPF AST. There is no ContractSpec or Legacy fallback. -/
+def renderCanonicalAuthoredSolanaAsm
+    (contract : ProofForge.Frontend.Authored.AuthoredContract) : Except String String := do
+  let plan ← buildCanonicalAuthoredSolanaPlan contract
+  let nodes ← match ProofForge.Backend.Solana.Plan.lowerFromPlan plan with
+    | .ok nodes => .ok nodes
+    | .error error => .error s!"canonical: Solana lowering failed: {error.message}"
+  return ProofForge.Backend.Solana.Asm.renderNodes nodes
 
 /-- Materialize a Solana contract exclusively through canonical Core and the
 existing semantic Solana plan. Failures are terminal; there is no Legacy
@@ -283,80 +314,47 @@ def compileControlIrSbpf (opts : CliOptions) : IO UInt32 := do
 
 def compileSolanaSdkSbpf (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/solana/SolanaVault.s")
-  let spec := Examples.Backend.Solana.Contracts.Vault.spec
-  let plan ←
-    match ProofForge.Target.resolveSpec ProofForge.Target.solanaSbpfAsm spec with
-    | .ok plan => pure plan
-    | .error err => throw <| IO.userError err.render
-  match ProofForge.Backend.Solana.SbpfAsm.renderModuleWithPlan spec.module plan with
-  | .ok source =>
-      if let some parent := output.parent then
-        IO.FS.createDirAll parent
-      writeTextFile output source
-      IO.println s!"wrote {output}"
-      let manifestOutput ← writeSbpfManifestWithPlan output spec.module plan
-      IO.println s!"wrote {manifestOutput}"
-      let idlOutput ← writeSbpfIdlWithPlan output spec.module plan
-      IO.println s!"wrote {idlOutput}"
-      let clientOutput ← writeSbpfClientWithPlan output spec.module plan
-      IO.println s!"wrote {clientOutput}"
-      let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput output)
-      if let some parent := metadataOutput.parent then
-        IO.FS.createDirAll parent
-      let sourceArtifact ← artifactEntryJson output
-      let manifestArtifact ← artifactEntryJson manifestOutput
-      let idlArtifact ← artifactEntryJson idlOutput
-      let clientArtifact ← artifactEntryJson clientOutput
-      let metadata := jsonObject #[
-        ("schemaVersion", "1"),
-        ("target", jsonString ProofForge.Backend.Solana.SbpfAsm.targetId),
-        ("targetFamily", jsonString "solana"),
-        ("artifactKind", jsonString ProofForge.Backend.Solana.SbpfAsm.artifactKind),
-        ("fixture", jsonString "solana-sdk-vault-sbpf"),
-        ("sourceKind", jsonString "contract-sdk"),
-        ("irVersion", jsonString ProofForge.Backend.Solana.SbpfAsm.irVersion),
-        ("sourceModule", jsonString spec.name),
-        ("capabilities", jsonStringArray (dedupStrings (plan.capabilities.map fun capability => capability.id))),
-        ("capabilityPlan", capabilityPlanJson plan),
-        ("materialization",
-          ProofForge.Target.Materialize.Report.json
-            (ProofForge.Target.Materialize.forSolana spec.module
-              (ProofForge.Backend.Solana.Extension.ProgramExtensions.fromPlan plan))),
-        ("preflight",
-          ProofForge.Target.Preflight.Report.json
-            (ProofForge.Target.Preflight.run ProofForge.Target.solanaSbpfAsm spec.module)),
-        ("solanaMaterialization",
-          ProofForge.Backend.Solana.Materialize.reportJson
-            (ProofForge.Backend.Solana.Materialize.report spec.module
-              (ProofForge.Backend.Solana.Extension.ProgramExtensions.fromPlan plan))),
-        ("solanaInstructions", solanaInstructionsJson spec.module plan),
-        ("solanaExtensions", solanaExtensionsJson plan),
-        ("solanaIdl", ProofForge.Backend.Solana.Idl.renderWithPlan spec.module plan),
-        ("toolchain", jsonObject #[
-          ("sbpf", jsonObject #[
-            ("path", jsonString "sbpf"),
-            ("version", "null")
-          ])
-        ]),
-        ("artifacts", jsonObject #[
-          ("sbpfAsm", sourceArtifact),
-          ("manifestToml", manifestArtifact),
-          ("solanaIdl", idlArtifact),
-          ("solanaClientTs", clientArtifact)
-        ]),
-        ("validation", jsonObject #[
-          ("targetRouting", jsonString "passed"),
-          ("manifestGeneration", jsonString "passed"),
-          ("sbpfBuild", jsonString "pending"),
-          ("cpiLowering", jsonString "helper-emitted"),
-          ("pdaLowering", jsonString "helper-emitted")
-        ])
-      ]
-      IO.FS.writeFile metadataOutput (metadata ++ "\n")
-      IO.println s!"wrote {metadataOutput}"
-      return 0
-  | .error err =>
-      throw <| IO.userError err.render
+  let contract := Examples.Backend.Solana.Contracts.Vault.contract
+  let (capabilityPlan, modulePlan) ← match buildCanonicalAuthoredSolanaPlans contract with
+    | .ok plans => pure plans
+    | .error error => throw <| IO.userError error
+  let source ← match ProofForge.Backend.Solana.Plan.lowerFromPlan modulePlan with
+    | .ok nodes => pure (ProofForge.Backend.Solana.Asm.renderNodes nodes)
+    | .error error => throw <| IO.userError error.message
+  if let some parent := output.parent then
+    IO.FS.createDirAll parent
+  writeTextFile output source
+  IO.println s!"wrote {output}"
+  let metadataOutput := opts.artifactOutput?.getD (defaultArtifactOutput output)
+  if let some parent := metadataOutput.parent then
+    IO.FS.createDirAll parent
+  let sourceArtifact ← artifactEntryJson output
+  let metadata := jsonObject #[
+    ("schemaVersion", "1"),
+    ("target", jsonString ProofForge.Backend.Solana.SbpfAsm.targetId),
+    ("targetFamily", jsonString "solana"),
+    ("artifactKind", jsonString ProofForge.Backend.Solana.SbpfAsm.artifactKind),
+    ("fixture", jsonString "solana-sdk-vault-sbpf"),
+    ("sourceKind", jsonString "contract-source-authored"),
+    ("irVersion", jsonString "canonical-core-v1"),
+    ("sourceModule", jsonString contract.name),
+    ("capabilities", jsonStringArray
+      (dedupStrings (capabilityPlan.capabilities.map fun capability => capability.id))),
+    ("capabilityPlan", capabilityPlanJson capabilityPlan),
+    ("solanaInstructions", solanaPlanInstructionsJson modulePlan),
+    ("solanaExtensions", solanaExtensionsValueJson modulePlan.lowerCtxSeed.extensions),
+    ("artifacts", jsonObject #[("sbpfAsm", sourceArtifact)]),
+    ("validation", jsonObject #[
+      ("targetRouting", jsonString "passed"),
+      ("canonicalPlan", jsonString "passed"),
+      ("sbpfBuild", jsonString "pending"),
+      ("cpiLowering", jsonString "helper-emitted"),
+      ("pdaLowering", jsonString "helper-emitted")
+    ])
+  ]
+  IO.FS.writeFile metadataOutput (metadata ++ "\n")
+  IO.println s!"wrote {metadataOutput}"
+  return 0
 
 def compileValueVaultIrSbpf (opts : CliOptions) : IO UInt32 := do
   let output := opts.output?.getD (FilePath.mk "build/solana/ValueVault.s")
