@@ -297,8 +297,8 @@ def generate_inventory() -> dict[str, object]:
                 "nativeReference",
                 manifest,
                 "referenceManifestV1",
-                "none",
-                "CMP-3e independent Pausable reference with pinned provenance; VM evidence is pending",
+                "verified",
+                "CMP-3e independent Pausable reference with pinned provenance and primary-triad VM evidence",
                 sourcePaths=[reference["source"]["path"]],
             )
         )
@@ -314,8 +314,31 @@ def generate_inventory() -> dict[str, object]:
                 "scenario",
                 cmp3_pausable_scenario,
                 "portableScenarioV1",
-                "none",
-                "nine-step Pausable lifecycle is pinned but has not completed primary-triad VM execution",
+                "verified",
+                "nine-step guarded Pausable lifecycle executed on both implementations for every primary target",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-runner-pausable-primary-triad",
+                "portable",
+                "runner",
+                REPO_ROOT / "scripts/differential/pausable_pilot.py",
+                "deterministicRunner",
+                "verified",
+                "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-gate-pausable-primary-triad",
+                "portable",
+                "gate",
+                REPO_ROOT / "justfile",
+                "focusedGate",
+                "verified",
+                "focused fail-closed CMP-3 Pausable gate",
+                selectors=["differential-pausable"],
             )
         )
 

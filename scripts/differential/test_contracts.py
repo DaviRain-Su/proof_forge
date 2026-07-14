@@ -134,7 +134,7 @@ class ContractTests(unittest.TestCase):
 
     def test_all_near_v0_manifests_migrate_fail_closed(self) -> None:
         paths = sorted((REPO_ROOT / "testkit/compare/near").glob("*/reference-manifest.json"))
-        self.assertEqual(27, len(paths))
+        self.assertEqual(26, len(paths))
         for path in paths:
             migrated = migrate_manifest(path, REPO_ROOT)
             self.assertFalse(migrated["reference"]["semanticEligibility"]["eligible"])
@@ -150,21 +150,27 @@ class ContractTests(unittest.TestCase):
 
     def test_generated_inventory_has_no_semantic_overclaim(self) -> None:
         inventory = generate_inventory()
-        self.assertEqual(18, inventory["summary"]["semanticVerifiedCount"])
+        self.assertEqual(24, inventory["summary"]["semanticVerifiedCount"])
         verified_ids = {
             item["id"] for item in inventory["assets"] if item["semanticEvidence"] == "verified"
         }
         self.assertEqual(
             {
                 "cmp3-gate-ownable-primary-triad",
+                "cmp3-gate-pausable-primary-triad",
                 "cmp3-reference-evm-value-vault",
                 "cmp3-reference-evm-ownable",
+                "cmp3-reference-evm-pausable",
                 "cmp3-reference-near-value-vault",
                 "cmp3-reference-near-ownable",
+                "cmp3-reference-near-pausable",
                 "cmp3-reference-solana-value-vault",
                 "cmp3-reference-solana-ownable",
+                "cmp3-reference-solana-pausable",
                 "cmp3-runner-ownable-primary-triad",
+                "cmp3-runner-pausable-primary-triad",
                 "cmp3-scenario-ownable-primary-triad",
+                "cmp3-scenario-pausable-primary-triad",
                 "cmp3-scenario-value-vault-primary-triad",
                 "cmp3-runner-value-vault-primary-triad",
                 "cmp3-gate-value-vault-primary-triad",
@@ -404,6 +410,10 @@ class ContractTests(unittest.TestCase):
         self.assertIn("state.owned_by(program_id)", solana_source)
         self.assertIn('env::panic_str("already paused")', near_source)
         self.assertIn('env::panic_str("not paused")', near_source)
+        near_compare = (REPO_ROOT / "testkit/compare/src/main.rs").read_text(encoding="utf-8")
+        self.assertIn(
+            '"testkit/differential/pausable/references/near.v1.json"', near_compare
+        )
 
         inventory = generate_inventory()
         pausable_assets = {
@@ -413,10 +423,12 @@ class ContractTests(unittest.TestCase):
         }
         self.assertEqual(
             {
-                "cmp3-reference-evm-pausable": "none",
-                "cmp3-reference-near-pausable": "none",
-                "cmp3-reference-solana-pausable": "none",
-                "cmp3-scenario-pausable-primary-triad": "none",
+                "cmp3-gate-pausable-primary-triad": "verified",
+                "cmp3-reference-evm-pausable": "verified",
+                "cmp3-reference-near-pausable": "verified",
+                "cmp3-reference-solana-pausable": "verified",
+                "cmp3-runner-pausable-primary-triad": "verified",
+                "cmp3-scenario-pausable-primary-triad": "verified",
             },
             pausable_assets,
         )

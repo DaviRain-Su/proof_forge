@@ -1956,7 +1956,7 @@ fn run_near_pausable(repo_root: &Path, args: &Args) -> Result<()> {
         args,
         "pausable",
         "testkit/compare/near/pausable",
-        "testkit/compare/near/pausable/reference-manifest.json",
+        "testkit/differential/pausable/references/near.v1.json",
         "Examples/Product/Pausable.lean",
         "Pausable.near-artifact.json",
         "pf_near_sdk_pausable_reference.wasm",
