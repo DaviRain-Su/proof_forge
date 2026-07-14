@@ -635,34 +635,13 @@ def viewInvokeContract : CanonicalContract :=
         { entrypoint with mutability := .view })
     } }
 
-def customErrorContract (abiType : String) (word : Nat) : CanonicalContract :=
-  let module : Module := { baseModule with errors := #[{
-    id := ⟨0⟩, namespace_ := "test", name := "Custom", code := 1
-  }] }
-  let synced := syncEnvelope { baseContract with module := module }
-  let materialization := { synced.materialization with errorEncodings := #[{
-    errorId := ⟨0⟩
-    form := .solidityCustom
-    soliditySelector? := some "deadbeef"
-    solidityArgWords := #[word]
-    solidityArgTypes := #[abiType]
-  }] }
-  withDerivedRequirements { synced with materialization := materialization }
-
-def unsupportedCustomErrorTypeContract : CanonicalContract :=
-  customErrorContract "string" 0
-
-def unsupportedUint16CustomErrorContract : CanonicalContract :=
-  customErrorContract "uint16" 0
-
-def overflowingUint8CustomErrorContract : CanonicalContract :=
-  customErrorContract "uint8" 256
-
-def overflowingAddressCustomErrorContract : CanonicalContract :=
-  customErrorContract "address" (2 ^ 160)
-
-def overflowingBoolCustomErrorContract : CanonicalContract :=
-  customErrorContract "bool" 2
+def unknownErrorExtensionContract : CanonicalContract := {
+  baseContract with
+  interfaceExtensions := #[{
+    id := { namespace_ := "test", name := "unknown", version := { major := 1, minor := 0, patch := 0 } }
+    subject := .error ⟨999⟩
+  }]
+}
 
 def mismatchedEventSchemaContract : CanonicalContract := {
   baseContract with
@@ -1356,11 +1335,7 @@ def main : IO Unit := do
   expectErrorPass .invalidMaterialization "capability" missingCrosscallRequirementsContract
   expectError .invalidInterface viewStorageContract
   expectError .invalidInterface viewInvokeContract
-  expectError .invalidMaterialization unsupportedCustomErrorTypeContract
-  expectError .invalidMaterialization unsupportedUint16CustomErrorContract
-  expectError .invalidMaterialization overflowingUint8CustomErrorContract
-  expectError .invalidMaterialization overflowingAddressCustomErrorContract
-  expectError .invalidMaterialization overflowingBoolCustomErrorContract
+  expectError .invalidInterface unknownErrorExtensionContract
   unless moduleCapabilities emitOnlyModule == #[.eventsEmit] do
     throw <| IO.userError s!"emit-only capabilities changed: {repr (moduleCapabilities emitOnlyModule)}"
   unless moduleCapabilities storageOnlyModule == #[.storageScalar] do

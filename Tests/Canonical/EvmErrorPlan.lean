@@ -47,6 +47,19 @@ def main : IO Unit := do
     "custom errors did not normalize to the exact EVM interface extension ID"
   require ((ProofForge.Compiler.checkInterfaceOpHandlers "wasm-near" checked).size == 2)
     "NEAR accepted EVM custom-error interface extensions"
+  let invalidContract := {
+    checked.contract with
+    interfaceExtensions := checked.contract.interfaceExtensions.map fun extension =>
+      { extension with args := #[.string "9432a7ee", .strings #["string", "string"]] }
+  }
+  let invalidChecked <- match validateCanonical invalidContract with
+    | .ok contract => pure contract
+    | .error error => throw (IO.userError s!"generic extension validation overreached: {repr error}")
+  match ProofForge.Backend.Evm.Plan.Core.buildFromCore invalidChecked capabilityPlan with
+  | .error error => do
+      require (error.message.contains "unsupported EVM custom-error ABI type")
+        "EVM decoder returned the wrong invalid-extension diagnostic"
+  | .ok _ => throw (IO.userError "EVM accepted an unsupported custom-error ABI type")
   let plan <- match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capabilityPlan with
     | .ok plan => pure plan
     | .error error => throw (IO.userError s!"EVM error planning failed: {error.message}")

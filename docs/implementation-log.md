@@ -2924,3 +2924,24 @@ Rules:
   No full `just check` ran.
 - Next: delete the old Solidity-named error fields and custom form from
   canonical materialization and update all prior canonical tests.
+
+## 2026-07-14 - EVM-R1m: delete canonical Solidity error fields
+
+- Status: `done (verified 2026-07-14)`; IR-B7 item 2 is complete.
+- Deleted `ErrorEncodingForm.solidityCustom`, `soliditySelector?`,
+  `solidityArgWords`, `solidityArgTypes`, and their Solidity-specific validators
+  from shared canonical materialization.
+- Portable error encoding now contains only fallback/message/envelope policy.
+  Exact EVM selector/type data is decoded exclusively from the registered
+  interface extension into `EvmErrorPlan`; unsupported EVM ABI types fail in
+  the EVM planner, while generic canonical validation remains target-neutral.
+- Updated earlier Core validation and Legacy adapter assertions so they no
+  longer require target data in shared records.
+- Verification passed: targeted Canonical/Adapter/EVM Core-plan and EVM CLI
+  artifact builds, `Tests/Canonical/CoreValidate.lean`,
+  `Tests/Canonical/EvmErrorPlan.lean`, `Tests/Canonical/LegacyAdapter.lean`,
+  `just ir-target-boundary`, `just legacy-freeze`, and `git diff --check`.
+  `EvmPublicRoute` was attempted separately but the local Lean process reached
+  its memory limit before producing a test result; no full `just check` ran.
+- Next: move fallback/receive dispatch ownership out of the shared interface,
+  then move proxy and host-string pools out of canonical materialization.

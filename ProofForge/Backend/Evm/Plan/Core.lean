@@ -710,6 +710,17 @@ private def coreEventToPlan (event : InterfaceEvent) : Except PlanError EventPla
   return EventPlan.mk event.name
     s!"{event.name}({String.intercalate "," abiTypes.toList})" fields
 
+private def isEvmErrorSelector (selector : String) : Bool :=
+  selector.length == 8 && selector.toList.all (fun ch =>
+    "0123456789abcdefABCDEF".toList.contains ch)
+
+private def evmErrorAbiCompatible (type : CoreType) (abiType : String) : Bool :=
+  match type, abiType with
+  | .u8, "uint8" | .u32, "uint32" | .u64, "uint64"
+  | .u128, "uint128" | .bool, "bool" | .address, "address"
+  | .hash, "uint256" | .hash, "bytes32" => true
+  | _, _ => false
+
 private def coreErrorPlans
     (interface : InterfaceContract)
     (materialization : MaterializationContract)
@@ -726,7 +737,15 @@ private def coreErrorPlans
     let customPlan? ← match customExtension? with
       | none => pure none
       | some extension => match extension.args with
-        | #[.string selector, .strings argTypes] => pure (some {
+        | #[.string selector, .strings argTypes] => do
+          unless isEvmErrorSelector selector do
+            throw { message := s!"invalid EVM custom-error selector `{selector}`" }
+          unless argTypes.size == interfaceError.params.size do
+            throw { message := s!"EVM custom-error schema mismatch for {encoding.errorId.value}" }
+          for (type, abiType) in interfaceError.params.zip argTypes do
+            unless evmErrorAbiCompatible type abiType do
+              throw { message := s!"unsupported EVM custom-error ABI type `{abiType}`" }
+          pure (some {
             assertionId := UInt32.ofNat interfaceError.code
             userCode? := interfaceError.userCode?
             soliditySelector? := some selector
@@ -740,13 +759,6 @@ private def coreErrorPlans
       | .proofForgeEnvelope => some {
           assertionId := UInt32.ofNat interfaceError.code
           userCode? := interfaceError.userCode?
-        }
-      | .solidityCustom => some {
-          assertionId := UInt32.ofNat interfaceError.code
-          userCode? := interfaceError.userCode?
-          soliditySelector? := encoding.soliditySelector?
-          solidityArgWords := encoding.solidityArgWords
-          solidityArgTypes := encoding.solidityArgTypes
         }
     errors := errors.push (encoding.errorId, errorRef?)
   return errors

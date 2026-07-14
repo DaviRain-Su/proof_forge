@@ -219,18 +219,13 @@ inductive ErrorEncodingForm where
   | assertFallback
   | revertMessage
   | proofForgeEnvelope
-  | solidityCustom
   deriving Repr, BEq, DecidableEq, Inhabited
 
-/-- Static target-specific error payload owned by one Core error site. Portable
-message/catalogue data lives in `InterfaceError`; this structure only owns the
-Solidity materialization encoding. -/
+/-- Target-neutral error presentation policy owned by one Core error site.
+Target-specific encodings use open `InterfaceExtension` attachments. -/
 structure ErrorEncoding where
   errorId : ErrorId
   form : ErrorEncodingForm
-  soliditySelector? : Option String := none
-  solidityArgWords : Array Nat := #[]
-  solidityArgTypes : Array String := #[]
   deriving Repr, BEq
 
 structure MaterializationContract where
@@ -560,10 +555,6 @@ private def validateInterface (module : Core.Module) (catalog : Core.HostOp.Host
         error.params == declaration.params do
       throw <| interfaceError s!"error schema mismatch for {repr error.errorId}"
 
-private def isHexSelector (selector : String) : Bool :=
-  selector.length == 8 && selector.toList.all (fun ch =>
-    "0123456789abcdefABCDEF".toList.contains ch)
-
 def constructorAbiTypeSupported (abiType : String) : Bool :=
   #["uint256", "uint64", "uint32", "bool", "bytes32", "address",
     "string", "bytes", "uint256[]"].contains abiType
@@ -585,19 +576,6 @@ private def constructorBindingCompatible (kind : ConstructorBindingKind)
   | .arrayLength, "uint256[]", .scalar .u64
   | .arraySumU64, "uint256[]", .scalar .u64 => true
   | _, _, _ => false
-
-/-- Static Solidity ABI words supported by canonical custom-error metadata.
-This matches the current EVM materializer exactly. -/
-def solidityStaticArgBitWidth? : String → Option Nat
-  | "uint8" => some 8
-  | "uint32" => some 32
-  | "uint64" => some 64
-  | "uint128" => some 128
-  | "uint256" => some 256
-  | "bool" => some 1
-  | "address" => some 160
-  | "bytes32" => some 256
-  | _ => none
 
 private def validateMaterialization (module : Core.Module)
     (interface : InterfaceContract)
@@ -709,35 +687,7 @@ private def validateMaterialization (module : Core.Module)
       | none => throw (materializationError
           s!"error encoding references unknown error {repr encoding.errorId}")
     match encoding.form with
-    | .assertFallback | .revertMessage | .proofForgeEnvelope =>
-        unless encoding.soliditySelector?.isNone &&
-            encoding.solidityArgWords.isEmpty && encoding.solidityArgTypes.isEmpty do
-          throw (materializationError
-            s!"non-custom error {repr encoding.errorId} carries a Solidity custom encoding")
-    | .solidityCustom =>
-        let abiTypes := encoding.solidityArgTypes
-        let staticWords := encoding.solidityArgWords
-        let selector ← match encoding.soliditySelector? with
-          | some selector => pure selector
-          | none => throw (materializationError s!"custom error {repr encoding.errorId} is missing its Solidity selector")
-        unless isHexSelector selector do
-          throw (materializationError
-            s!"error {repr encoding.errorId} has invalid Solidity selector `{selector}`")
-        unless abiTypes.size == owner.params.size do
-          throw (materializationError
-            s!"error {repr encoding.errorId} has mismatched Solidity argument schema")
-        unless staticWords.isEmpty || staticWords.size == abiTypes.size do
-          throw (materializationError
-            s!"error {repr encoding.errorId} has mismatched static Solidity arguments")
-        for ((abiType, word), index) in
-            (abiTypes.zip staticWords).zipIdx do
-          let width ← match solidityStaticArgBitWidth? abiType with
-            | some width => pure width
-            | none => throw (materializationError
-                s!"error {repr encoding.errorId} argument {index} has unsupported static ABI type `{abiType}`")
-          if word >= 2 ^ width then
-            throw <| materializationError
-              s!"error {repr encoding.errorId} argument {index} value `{word}` exceeds `{abiType}` range"
+    | .assertFallback | .revertMessage | .proofForgeEnvelope => pure ()
     let _ := owner
 
 private def validateRequirements (module : Core.Module)

@@ -528,11 +528,14 @@ def runAssertions : IO Unit := do
       (·.errorId == configuredError.errorId) with
     | some encoding => pure encoding
     | none => throw <| IO.userError "Denied materialization encoding missing"
-  require (errorEncoding.form == .solidityCustom &&
-      errorEncoding.soliditySelector? == some "deadbeef" &&
-      errorEncoding.solidityArgTypes == #["uint256"] &&
-      errorEncoding.solidityArgWords.isEmpty)
-    "custom error selector/schema was not separated from Core arguments"
+  require (errorEncoding.form == .proofForgeEnvelope)
+    "portable error fallback policy changed"
+  let customExtension ← match probe.interfaceExtensions.find? (fun extension =>
+      extension.subject == .error configuredError.errorId) with
+    | some extension => pure extension
+    | none => throw <| IO.userError "Denied EVM interface extension missing"
+  require (customExtension.args == #[.string "deadbeef", .strings #["uint256"]])
+    "custom error selector/schema did not move to the interface extension"
 
   let probeMaterialization := probe.materialization
   require (probeMaterialization.constructorParams == #[{

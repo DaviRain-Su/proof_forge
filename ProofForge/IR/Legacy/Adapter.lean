@@ -61,7 +61,7 @@ def adaptErrorEncodingForm : RegisteredErrorForm → ErrorEncodingForm
   | .assertFallback => .assertFallback
   | .revertMessage => .revertMessage
   | .proofForgeEnvelope => .proofForgeEnvelope
-  | .solidityCustom => .solidityCustom
+  | .solidityCustom => .proofForgeEnvelope
 
 /- Convert a legacy constructor binding without dropping the named parameter or
 typed initialization operation. -/
@@ -132,9 +132,6 @@ def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv)
   let errorEncodings : Array ErrorEncoding := registeredErrors.map (fun error => {
     errorId := error.id
     form := adaptErrorEncodingForm error.form
-    soliditySelector? := error.soliditySelector?
-    solidityArgWords := error.solidityArgWords
-    solidityArgTypes := error.solidityArgTypes
   })
   return {
     constructorBindings := bindings,
