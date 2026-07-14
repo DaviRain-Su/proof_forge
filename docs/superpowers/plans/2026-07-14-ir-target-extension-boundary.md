@@ -132,7 +132,9 @@ Progress (2026-07-14):
    HostOps. Delete the obsolete shared constructors after all legacy-only
    exhaustive match arms have been removed.
 2. Replace EVM ABI-packed call payloads with a semantic call description whose
-   ABI layout is built in the EVM plan.
+   ABI layout is built in the EVM plan. The Multicall producer and tests now
+   consume `AbiEncode.Plan`/`AbiPackedHelperSpec` directly; removal of the dead
+   legacy `Expr.crosscallAbiPacked` constructor is the follow-up slice.
 3. Classify create/static/delegate behavior as portable semantics or explicit
    target extensions and migrate accordingly.
 4. Delete EVM/protocol-specific `Expr` and `Effect` constructors.

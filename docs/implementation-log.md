@@ -2796,3 +2796,20 @@ Rules:
 - Verification passed: `Tests/ChainAgnosticRoute.lean` and `git diff --check`.
 - Remaining direct legacy crypto constructors are compatibility inventory and
   exhaustive match arms, not product/test authoring calls.
+
+## 2026-07-14 - EVM-R1f: remove ABI-packed IR producers
+
+- Status: `done (verified 2026-07-14)` for producer/API migration; dead legacy
+  constructor cleanup follows.
+- Removed every `irAggregate*`, `irFromPlan`, and protocol `aggregateIr*` API
+  that encoded EVM Multicall ABI layouts as a shared `IR.Expr`.
+- Kept layout and dynamic patch semantics in their owning EVM modules:
+  `AbiEncode.Plan`, `AbiPackedHelperSpec`, target/argument offset planners, and
+  Yul helper generation.
+- Rewrote `Tests/AbiEncode.lean` to directly verify static stores, runtime
+  length offset, target patch offsets, ABI argument patch offsets, helper
+  parameters, and generated CALL/revert Yul without a portable-IR round trip.
+- Verification passed: targeted EVM ABI/Multicall builds,
+  `Tests/AbiEncode.lean`, and `git diff --check`.
+- Next: delete `Expr.crosscallAbiPacked` and its now-dead shared/backend match
+  arms, then tighten the target-boundary baseline.

@@ -19,7 +19,6 @@ Memory at `memBase..memBase+4+size` should be zeroed or unused free memory
 -/
 import ProofForge.Backend.Evm.AbiEncode
 import ProofForge.Backend.Evm.Plan
-import ProofForge.IR.Contract
 import ProofForge.Compiler.Yul.AST
 import ProofForge.Compiler.Yul.Printer
 
@@ -268,22 +267,6 @@ def abiPackedHelperCallExpr (target : Lean.Compiler.Yul.Expr) (spec : AbiPackedH
     base ++ dynTargets
   Lean.Compiler.Yul.call (abiPackedHelperName spec) args
 
-/-- Build IR `crosscallAbiPacked` from an AbiEncode plan (args region). -/
-def irFromPlan (target : ProofForge.IR.Expr) (selector : Nat) (plan : Plan)
-    (outSize : Nat := 32)
-    (dynLenOffset? : Option Nat := none)
-    (dynLen? : Option ProofForge.IR.Expr := none)
-    (dynTargetOffsets : Array Nat := #[])
-    (dynTargets : Array ProofForge.IR.Expr := #[]) : ProofForge.IR.Expr :=
-  ProofForge.IR.Expr.crosscallAbiPacked target selector
-    (plan.stores.map fun s => (s.offset, wordNat s.value))
-    plan.size
-    outSize
-    dynLenOffset?
-    dynLen?
-    dynTargetOffsets
-    dynTargets
-
 /-- Args-region offsets of each `Call.address` word in `encodeAggregateArgs`. -/
 def aggregateCallTargetOffsets (calls : Array Call) : Array Nat :=
   Id.run do
@@ -318,71 +301,5 @@ def aggregateCallArgWordOffsets (calls : Array Call) : Array Nat :=
       let (_, endOff) := encodeCallAt cursor calls[i]!
       cursor := endOff
     offs
-
-/-- Multicall3 `aggregate(Call[])` as IR expr (compile-time calls / length). -/
-def irAggregate (target : ProofForge.IR.Expr) (calls : Array Call) (outSize : Nat := 32) :
-    ProofForge.IR.Expr :=
-  irFromPlan target 0x252dba42 (encodeAggregateArgs calls) outSize
-
-/-- Multicall3 `aggregate(Call[])` with **runtime** length `n` (0..calls.size].
-    Packs the full static Call[] then overwrites the array length word at
-    args offset `0x20` with `n`. Multicall only iterates `n` elements. -/
-def irAggregateDynLen (target n : ProofForge.IR.Expr) (calls : Array Call)
-    (outSize : Nat := 32) : ProofForge.IR.Expr :=
-  irFromPlan target 0x252dba42 (encodeAggregateArgs calls) outSize (some 0x20) (some n)
-
-/-- Aggregate with **runtime Call targets** and static calldata templates.
-    `calls[i].target` is ignored (overwritten by `dynTargets[i]`). Optional
-    runtime length `n?` (default = full max). -/
-def irAggregateDynTargets (target : ProofForge.IR.Expr)
-    (dynTargets : Array ProofForge.IR.Expr) (calls : Array Call)
-    (n? : Option ProofForge.IR.Expr := none) (outSize : Nat := 32) : ProofForge.IR.Expr :=
-  let plan := encodeAggregateArgs calls
-  let offs := aggregateCallTargetOffsets calls
-  let (dynLenOff, dynLen) :=
-    match n? with
-    | none => (none, none)
-    | some n => (some 0x20, some n)
-  irFromPlan target 0x252dba42 plan outSize dynLenOff dynLen offs dynTargets
-
-/-- One multicall element with **runtime** target + ABI arg words and a static selector. -/
-structure DynCall where
-  target : ProofForge.IR.Expr
-  selector : Nat
-  args : Array ProofForge.IR.Expr
-  deriving Repr
-
-/-- Aggregate with runtime targets **and** runtime ABI arg words (static selectors).
-    Calldata templates use zero arg words; helper mstores each arg at payload+4+32*j.
-    Optional runtime length `n?`. This is the dynamic Call-element wedge (fixed
-    ABI shape: selector ‖ uint256*). -/
-def irAggregateDynCalls (target : ProofForge.IR.Expr) (dynCalls : Array DynCall)
-    (n? : Option ProofForge.IR.Expr := none) (outSize : Nat := 32) : ProofForge.IR.Expr :=
-  let staticCalls : Array Call :=
-    dynCalls.map fun c =>
-      let zeros : Array Nat := Array.replicate c.args.size 0
-      { target := 0, data := callDataFromSelectorArgs c.selector zeros }
-  let plan := encodeAggregateArgs staticCalls
-  let tgtOffs := aggregateCallTargetOffsets staticCalls
-  let argOffs := aggregateCallArgWordOffsets staticCalls
-  let patchOffs := tgtOffs ++ argOffs
-  let patchVals : Array ProofForge.IR.Expr :=
-    (dynCalls.map (·.target)) ++
-      dynCalls.foldl (init := #[]) fun acc c => acc ++ c.args
-  let (dynLenOff, dynLen) :=
-    match n? with
-    | none => (none, none)
-    | some n => (some 0x20, some n)
-  irFromPlan target 0x252dba42 plan outSize dynLenOff dynLen patchOffs patchVals
-
-/-- Multicall3 `aggregate3(Call3[])` as IR expr. -/
-def irAggregate3 (target : ProofForge.IR.Expr) (calls : Array Call3) (outSize : Nat := 32) :
-    ProofForge.IR.Expr :=
-  irFromPlan target 0x82ad56cb (encodeAggregate3Args calls) outSize
-
-/-- Runtime-length aggregate3: length word at args offset `0x20`. -/
-def irAggregate3DynLen (target n : ProofForge.IR.Expr) (calls : Array Call3)
-    (outSize : Nat := 32) : ProofForge.IR.Expr :=
-  irFromPlan target 0x82ad56cb (encodeAggregate3Args calls) outSize (some 0x20) (some n)
 
 end ProofForge.Backend.Evm.ToYul.AbiEncode
