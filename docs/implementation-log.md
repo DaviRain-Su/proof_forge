@@ -3142,3 +3142,16 @@ Rules:
   `Legacy.Adapter`.
 - Verification: `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`
   and `git diff --check`.
+
+## 2026-07-14 - EVM-R2e: direct portable policy stdlib
+
+- Status: `done (verified 2026-07-14)`; EVM-R2 remains in progress.
+- Moved the direct Ownable definition out of the example and into the new
+  target-neutral `Contract.Stdlib.Surface.Policies` layer, then added direct
+  Pausable and ReentrancyGuard state machines beside it.
+- Canonical product modules now expose thin Surface v2 values; none of the
+  three policies imports the old `contract_source` mixins or produces a
+  `ContractSpec`.
+- Verification: targeted builds of the policy stdlib and product modules,
+  `lake env lean --run Tests/Canonical/EvmDirectProducts.lean`, and `git diff
+  --check`.
