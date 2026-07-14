@@ -654,6 +654,20 @@ private inductive EvmDispatchKind
   | function | fallback | receive
   deriving BEq
 
+private inductive EvmProxyPattern
+  | uups | transparent
+
+private def evmProxyPattern (extensions : Array InterfaceExtension) :
+    Except PlanError (Option EvmProxyPattern) := do
+  let some extension := extensions.find? fun extension =>
+      extension.id == ProofForge.Target.InterfaceOps.Evm.proxyPatternId &&
+        extension.subject == .contract
+    | pure none
+  match extension.args with
+  | #[.string "uups"] => pure (some .uups)
+  | #[.string "transparent"] => pure (some .transparent)
+  | _ => throw { message := "invalid EVM proxy-pattern interface extension" }
+
 private def evmEntrypointKind (extensions : Array InterfaceExtension)
     (functionId : FunctionId) : Except PlanError EvmDispatchKind := do
   let fallback := extensions.any fun extension =>
@@ -822,6 +836,7 @@ def buildFromCore (checked : CheckedCanonicalContract)
     .error { message := s!"EVM buildFromCore requires target `{ProofForge.Target.evm.id}`, got `{capPlan.targetId}`" }
   let m := checked.contract.module
   let iface := checked.contract.interface
+  let proxyPattern? ← evmProxyPattern checked.contract.interfaceExtensions
   /- Build storage layout from Core state declarations. -/
   let storage ← coreStorageLayout m checked.contract.materialization
   let events ← iface.events.mapM coreEventToPlan
@@ -924,16 +939,17 @@ def buildFromCore (checked : CheckedCanonicalContract)
             unless crosscalls.contains helper do
               crosscalls := crosscalls.push helper
         | _ => pure ()
-  let dispatchDefault :=
-    if checked.contract.materialization.moduleProxyPattern? == some .uups ||
-        checked.contract.materialization.proxyPattern? == some .uups then
-      DispatchDefaultPlan.uupsProxy
-    else if receiveFunction?.isSome then
-      DispatchDefaultPlan.receive
-    else if fallbackFunction?.isSome then
-      DispatchDefaultPlan.fallback
-    else
-      DispatchDefaultPlan.revert
+  let dispatchDefault ← match proxyPattern? with
+    | some .uups => pure DispatchDefaultPlan.uupsProxy
+    | some .transparent =>
+        throw { message := "EVM transparent proxy materialization is not implemented" }
+    | none =>
+        if receiveFunction?.isSome then
+          pure DispatchDefaultPlan.receive
+        else if fallbackFunction?.isSome then
+          pure DispatchDefaultPlan.fallback
+        else
+          pure DispatchDefaultPlan.revert
   let creates := coreCreateHelperSpecs entrypoints
   .ok {
     name := iface.contractName

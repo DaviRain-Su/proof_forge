@@ -38,12 +38,8 @@ def adaptUpgradePolicy : ProofForge.Contract.UpgradePolicy → CanonicalUpgradeP
   | .authority keyRef => .authority keyRef
   | .governance ref => .governance ref
 
-def adaptProxyPattern : ProofForge.Contract.ProxyPattern → CanonicalProxyPattern
-  | .uups => .uups
-  | .transparent => .transparent
-
 def adaptModuleProxyPattern (pattern? : Option String) :
-    Except CanonicalizeError (Option CanonicalProxyPattern) :=
+    Except CanonicalizeError (Option ProofForge.Contract.ProxyPattern) :=
   match pattern? with
   | none => .ok none
   | some "uups" => .ok (some .uups)
@@ -102,7 +98,6 @@ def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv)
     (interface : InterfaceContract) (registeredErrors : Array RegisteredError) :
     Except CanonicalizeError MaterializationContract := do
   let bindings ← spec.constructorInitBindings.mapM (adaptConstructorBinding env)
-  let moduleProxyPattern? ← adaptModuleProxyPattern spec.module.proxyPattern?
   let constructorParams : Array ProofForge.IR.Canonical.ConstructorParam :=
     spec.constructorParams.map (fun p => {
       name := p.name
@@ -132,8 +127,6 @@ def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv)
     constructorParams := constructorParams,
     allocator := spec.module.allocator,
     upgradePolicy? := spec.upgradePolicy?.map adaptUpgradePolicy,
-    proxyPattern? := spec.proxyPattern?.map adaptProxyPattern,
-    moduleProxyPattern? := moduleProxyPattern?,
     crosscallStrings := spec.module.crosscallStrings,
     stateSymbols := stateSymbols,
     typeLayouts := typeLayouts,
@@ -144,6 +137,17 @@ def adaptMaterialization (spec : ContractSpec) (env : AdapterEnv)
 
 def adaptInterfaceExtensions (spec : ContractSpec) (interface : InterfaceContract)
     (registeredErrors : Array RegisteredError) : Except CanonicalizeError (Array InterfaceExtension) := do
+  let moduleProxyPattern? ← adaptModuleProxyPattern spec.module.proxyPattern?
+  unless spec.proxyPattern? == moduleProxyPattern? do
+    throw <| CanonicalizeError.unsupportedConstructor "proxyPattern?"
+      "spec and module proxy patterns disagree"
+  let proxyExtensions : Array InterfaceExtension := match spec.proxyPattern? with
+    | none => #[]
+    | some pattern => #[{
+        id := ProofForge.Target.InterfaceOps.Evm.proxyPatternId
+        subject := .contract
+        args := #[.string pattern.kind]
+      }]
   let errorExtensions := registeredErrors.filterMap fun error =>
     error.soliditySelector?.map fun selector => {
       id := ProofForge.Target.InterfaceOps.Evm.solidityCustomErrorId
@@ -164,7 +168,7 @@ def adaptInterfaceExtensions (spec : ContractSpec) (interface : InterfaceContrac
         id
         subject := .entrypoint interfaceEntrypoint.functionId
       }
-  return errorExtensions ++ dispatchExtensions
+  return errorExtensions ++ dispatchExtensions ++ proxyExtensions
 
 /- Event catalogue extracted from source traversal. Field ordering is canonical:
 indexed fields first, followed by data fields. Every occurrence of a named

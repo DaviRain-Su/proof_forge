@@ -498,16 +498,6 @@ def mismatchedConstructorStateContract : CanonicalContract := {
   }
 }
 
-def specOnlyProxyContract : CanonicalContract := {
-  baseContract with
-  materialization := { baseMaterialization with proxyPattern? := some .uups }
-}
-
-def moduleOnlyProxyContract : CanonicalContract := {
-  baseContract with
-  materialization := { baseMaterialization with moduleProxyPattern? := some .uups }
-}
-
 def capabilityIntentWithoutCapabilityContract : CanonicalContract := {
   baseContract with
   materialization := {
@@ -1310,8 +1300,6 @@ def main : IO Unit := do
   expectError .invalidMaterialization unsupportedConstructorAbiContract
   expectError .invalidMaterialization mismatchedConstructorAbiContract
   expectError .invalidMaterialization mismatchedConstructorStateContract
-  expectError .invalidMaterialization specOnlyProxyContract
-  expectError .invalidMaterialization moduleOnlyProxyContract
   expectError .invalidMaterialization capabilityIntentWithoutCapabilityContract
   expectError .invalidMaterialization nonCapabilityIntentWithCapabilityContract
   expectErrorPass .invalidMaterialization "capability" leakingRequirementContract

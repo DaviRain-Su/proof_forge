@@ -534,6 +534,13 @@ def runAssertions : IO Unit := do
     | none => throw <| IO.userError "Denied EVM interface extension missing"
   require (customExtension.args == #[.string "deadbeef", .strings #["uint256"]])
     "custom error selector/schema did not move to the interface extension"
+  let proxyExtension ← match probe.interfaceExtensions.find?
+      (·.id == ProofForge.Target.InterfaceOps.Evm.proxyPatternId) with
+    | some extension => pure extension
+    | none => throw <| IO.userError "EVM proxy-pattern interface extension missing"
+  require (proxyExtension.subject == .contract &&
+      proxyExtension.args == #[.string "uups"])
+    "proxy pattern did not move to the EVM interface extension"
 
   let probeMaterialization := probe.materialization
   require (probeMaterialization.constructorParams == #[{
@@ -552,9 +559,6 @@ def runAssertions : IO Unit := do
     "allocator configuration changed"
   require (probeMaterialization.upgradePolicy? == some (.authority "deployment-admin"))
     "upgrade authority keyRef changed"
-  require (probeMaterialization.proxyPattern? == some .uups &&
-      probeMaterialization.moduleProxyPattern? == some .uups)
-    "spec/module proxy policy changed"
   require (probeMaterialization.crosscallStrings == #["remote.near", "configure"])
     "NEAR host string pool changed"
   require (probeMaterialization.stateSymbols.map (·.name) ==

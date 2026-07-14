@@ -20,7 +20,7 @@ on top of the current NEAR-specific `Expr` surface would enlarge the coupling.
 | IR-B4 | in_progress | Move EVM protocol/ABI operations out of shared IR | EVM focused plan/Foundry gates and non-EVM diagnostics |
 | IR-B5 | pending | Audit and migrate Solana-native PDA/CPI/account behavior | Solana grammar-isolation, intent, manifest, and light sBPF gates |
 | IR-B6 | pending | Audit and migrate other implemented target families | focused Wasm-host, Move, Aleo, Psy, and Quint gates |
-| IR-B7 | in_progress (context subtask verified 2026-07-14) | Move target environment, error, dispatch, and materialization fields | interface/materialization tests across registered targets |
+| IR-B7 | in_progress (EVM B7a-B7f verified 2026-07-14) | Move target environment, error, dispatch, and materialization fields | interface/materialization tests across registered targets |
 | IR-B8 | pending | Enforce the boundary and close compatibility debt | empty source-scan allowlist, product gate, affected runtime gates |
 
 ## IR-B0 - Audit and Freeze
@@ -195,8 +195,12 @@ constructor into shared IR.
    the attachments and emits the special functions outside selector cases.
    Shared `InterfaceEntrypoint` no longer contains a chain-specific dispatch
    kind; fallback/receive validation belongs to the EVM planner.
-4. Move proxy and host-string pools out of portable `Module` and canonical
-   materialization records.
+4. [~] Move proxy and host-string pools out of portable `Module` and canonical
+   materialization records. EVM proxy patterns now use the registered
+   contract-scoped `evm.dispatch/proxy_pattern@1.0.0` attachment; the duplicate
+   proxy fields and `CanonicalProxyPattern` have been deleted. The shared
+   `crosscallStrings` pool remains and must be replaced without assigning its
+   multi-target values to one chain.
 
 ## IR-B8 - Enforcement and Sign-off
 

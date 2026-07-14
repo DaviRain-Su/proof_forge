@@ -165,11 +165,6 @@ inductive CanonicalUpgradePolicy where
   | governance (ref : String)
   deriving Repr, BEq
 
-inductive CanonicalProxyPattern where
-  | uups
-  | transparent
-  deriving Repr, BEq, DecidableEq, Inhabited
-
 structure StateDisplaySymbol where
   stateId : StateId
   name : String
@@ -226,8 +221,6 @@ structure MaterializationContract where
   constructorParams : Array ConstructorParam := #[]
   allocator : ProofForge.IR.AllocatorConfig := ProofForge.IR.defaultAllocator
   upgradePolicy? : Option CanonicalUpgradePolicy := none
-  proxyPattern? : Option CanonicalProxyPattern := none
-  moduleProxyPattern? : Option CanonicalProxyPattern := none
   crosscallStrings : Array String := #[]
   stateSymbols : Array StateDisplaySymbol := #[]
   typeLayouts : Array TypeLayoutMetadata := #[]
@@ -583,8 +576,6 @@ private def validateMaterialization (module : Core.Module)
       throw <| materializationError
         s!"constructor binding {repr binding.kind} is incompatible with ABI `{param.abiType}` and state shape {repr state.shape}"
 
-  unless materialization.proxyPattern? == materialization.moduleProxyPattern? do
-    throw <| materializationError "spec and module proxy patterns disagree"
   match materialization.upgradePolicy? with
   | some (.authority keyRef) =>
       if keyRef.isEmpty then

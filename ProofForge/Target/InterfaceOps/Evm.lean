@@ -23,10 +23,17 @@ def receiveDispatchId : ProofForge.Target.HostOpId := {
   version := { major := 1, minor := 0, patch := 0 }
 }
 
+def proxyPatternId : ProofForge.Target.HostOpId := {
+  namespace_ := "evm.dispatch"
+  name := "proxy_pattern"
+  version := { major := 1, minor := 0, patch := 0 }
+}
+
 def supportedIds : Array ProofForge.Target.HostOpId := #[
   solidityCustomErrorId,
   fallbackDispatchId,
-  receiveDispatchId
+  receiveDispatchId,
+  proxyPatternId
 ]
 
 end ProofForge.Target.InterfaceOps.Evm

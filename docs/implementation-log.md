@@ -3002,3 +3002,26 @@ Rules:
   `CanonicalNearPlan` were attempted separately but the local Lean processes
   exited with status 139 and no diagnostic output. No full `just check` ran.
 - Next: move proxy and host-string pools out of canonical materialization.
+
+## 2026-07-14 - EVM-R1q: target-owned proxy pattern
+
+- Status: `done (verified 2026-07-14)`; the host-string half of IR-B7 item 4
+  remains.
+- Registered the contract-scoped
+  `evm.dispatch/proxy_pattern@1.0.0` interface extension. Legacy adaptation now
+  checks its two old proxy declarations for agreement at the compatibility
+  boundary and emits one typed target attachment.
+- Deleted `CanonicalProxyPattern`, `proxyPattern?`, and
+  `moduleProxyPattern?` from shared canonical materialization. The EVM planner
+  selects UUPS dispatch only from the registered attachment and rejects the
+  unimplemented transparent pattern explicitly.
+- Added `Tests/Canonical/EvmProxyExtension.lean` for UUPS planning,
+  wrong-target rejection, transparent rejection, and mismatched legacy input.
+  Updated Core and Legacy adapter tests to assert the new ownership boundary.
+- Verification passed: targeted Canonical, Adapter, Registry, EVM Core-plan,
+  and Canonical-pipeline builds; EVM proxy, EVM dispatch, EVM Canonical-plan,
+  Legacy adapter, and Canonical Core validation tests; `just
+  ir-target-boundary`, `just legacy-freeze`, and `git diff --check`. No full
+  `just check` ran.
+- Next: replace indexed `crosscallStrings` with direct portable values or
+  target-owned attachments, then delete the shared pool.
