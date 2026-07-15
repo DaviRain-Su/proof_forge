@@ -198,6 +198,18 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT3d1-4 | 主目标拥有具体 memory 物化 | ✅ met | EVM 发射 Yul helper 与边界检查，Solana 发射 `sol_alloc_free_` 加 typed sBPF load/store，NEAR 从 target-owned plan 发射 Wasm 线性内存分配与越界 trap |
 | A-CUT3d1-5 | 公开 artifact 仅使用 Canonical 且可执行 | ✅ met | 主目标 artifact 报告 `contract-source-authored` / `canonical-core-v1`，EVM Yul 编译通过，Solana package metadata 通过，NEAR offline host 返回 3、20、60，且没有 retired sidecar |
 
+## Gate A-CUT3e1 —— Direct portable map authoring
+
+**状态：已关闭**
+
+**关闭时间：2026-07-15，提交 `9f4bd403`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT3e1-1 | 公开 map authoring 只构造当前 frontend | ✅ met | `mapping`、`mapRead` 与 `mapWrite` 直接 lowering 到 `Frontend.Authored`；实现不导入 ContractSpec、v1 IR 或 `Source.Legacy` |
+| A-CUT3e1-2 | map 语义在 checked Core 中保持 target-neutral | ✅ met | `just authored-map` 观察到一个 `.map .u64 .u64 (some 256)` state 与 map-key storage load/store operation；Product source 或 Core shape 中没有 target layout |
+| A-CUT3e1-3 | 主 target plan 保留同一个 checked contract | ✅ met | focused EVM、Solana 与 NEAR `buildFromCore` 调用都接受同一个 normalized map probe；Solana 接收 portable 有限边界，而不是 target-specific frontend 默认值 |
+
 ## Gate CMP-3g1 —— 独立 ArrayExample reference 契约
 
 **状态：仅 reference 固定阶段已关闭**

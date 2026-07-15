@@ -40,7 +40,7 @@
 | A-CUT1e | 将公开 Solana authoring 切换到 target-owned HostOps | done（在 `50e32b58` 验证） | public/internal macro 仅生成 direct Authored contract；plan-only sidecar 和 sBPF lowering 通过 focused Pinocchio 对比；不存在 public/internal Legacy import 或 fallback |
 | A-CUT2g | 将公开 portable Source/Loader 与 Counter target 路线切换到 direct Authored/Core/Plan | done（在 `356e91d7` 验证） | EVM、Solana assembly/ELF 和 NEAR/Wasm 制品使用 `canonical-core-v1`；无 ContractSpec sidecar/fallback；focused 三目标行为通过 |
 | A-CUT2h | 删除残留 Counter `.spec`/`.module` 消费者与过时 backend wrapper | done（在 `fbc69309` 验证） | 调用方改用 Authored/Canonical 或显式 v1-only fixture；wrapper 已删除；EVM constructor config 归 target 所有，共享 payload fail closed |
-| A-CUT3 | 迁移 Product/stdlib 调用方并删除其 `Source.Legacy` 依赖 | in_progress（ArrayExample VM 证据完成于 `0035138e`） | 增加 target-neutral direct map authoring，无兼容 facade 地切换 StatusMessage，再扩展到 GuestBook 与后续 crosscall family |
+| A-CUT3 | 迁移 Product/stdlib 调用方并删除其 `Source.Legacy` 依赖 | in_progress（direct map authoring 完成于 `9f4bd403`） | 无兼容 facade 地切换 StatusMessage，固定其原生证据，再扩展到 GuestBook 与后续 crosscall family |
 | B1 | 中立 Wasm-host plan 与 ABI | done（在 `c8d2bbb6` 验证） | 保持 NEAR 输出与运行时行为 |
 | B2 | 严格 canonical target gate | done（在 `d4df51bc` 验证） | adapter/validator/HostOp/builder 错误 fail closed |
 | B3 | Soroban Counter 晋级 | done（2026-07-12 验证） | 严格 plan、bridge-aware lowering、原生 ABI/auth 与运行时证据 |

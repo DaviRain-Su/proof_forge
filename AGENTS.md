@@ -26,8 +26,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | A-CUT3e1 - add target-neutral direct map authoring and prove checked Core plus primary target-plan preservation |
-| Next task | A-CUT3e2 - switch Product StatusMessage to the direct-only map/event route and delete its Legacy callers |
+| Active task | A-CUT3e2 - switch Product StatusMessage to the direct-only map/event route and delete its Legacy callers |
+| Next task | CMP-3h1 - pin independent StatusMessage references and a versioned map/event scenario before VM execution |
 | Validation track | CMP-0 is done at `6273dfe2`; CMP-1 at `25ef8eb3`; A-CUT2/CMP-2 at `bec50074`; ValueVault, Ownable, Pausable, ReentrancyGuard, and ArrayExample primary-triad VM evidence is verified through `0035138e` |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
@@ -177,7 +177,7 @@ Core are internal compiler representations.
 | A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
 | A-CUT1e | done (verified at `50e32b58`) | Public Solana macros emit only direct Authored contracts; typed target operations survive strict Canonical planning, plan-only package generation, sBPF lowering, and Pinocchio structural comparison without public/internal Legacy imports |
 | A-CUT2 | done (verified at `bec50074`) | Public Counter routes, reverse dependencies, and independent primary-triad behavior are direct-only and fully covered by CMP-2 |
-| A-CUT3 | in_progress (ArrayExample VM evidence verified at `0035138e`) | Migrate the full product catalog from the single abstract source; A-CUT3e now adds direct target-neutral map authoring, then cuts over StatusMessage without a compatibility facade |
+| A-CUT3 | in_progress (direct map authoring verified at `9f4bd403`) | Migrate the full product catalog from the single abstract source; A-CUT3e2 now cuts over StatusMessage without a compatibility facade |
 | A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
 | A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
 

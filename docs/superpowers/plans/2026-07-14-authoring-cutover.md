@@ -383,6 +383,14 @@ StatusMessage as the smallest map/event family. A-CUT3e1 first adds
 target-neutral direct map declarations/reads/writes; A-CUT3e2 then rewrites and
 deletes the StatusMessage Legacy route.
 
+Direct map authoring checkpoint (2026-07-15): `9f4bd403` adds the public
+`mapping`, `mapRead`, and `mapWrite` forms directly to Authored construction.
+The compact map declaration preserves the existing portable capacity bound of
+256 in checked Canonical Core; target plans own storage layout. `just
+authored-map` proves the same checked contract reaches EVM, Solana, and NEAR
+plans, while an unsupported source action still fails without Legacy fallback.
+A-CUT3e2 now applies this boundary to the sole Product StatusMessage source.
+
 ### A-CUT4 - Delete duplicate source and version split
 
 - Delete the temporary `TestFixtures/SurfaceProducts` values and their

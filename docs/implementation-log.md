@@ -4605,3 +4605,23 @@ Rules:
   check and Rust formatting for the Mollusk runner; Python bytecode compilation;
   generated evidence inspection; and `git diff --check`. No full aggregate was
   run.
+
+## 2026-07-15 - A-CUT3e1: direct portable map authoring
+
+- Status: `done (verified at 9f4bd403)`; A-CUT3e2 Product StatusMessage direct
+  cutover is now active.
+- Added public `mapping`, `mapRead`, and `mapWrite` lowering directly to the
+  compiler-owned Authored frontend. The builder emits the existing Authored map
+  statement; no ContractSpec, v1 IR, compatibility adapter, or target branch was
+  introduced.
+- Preserved the compact DSL's portable capacity bound of 256 as Canonical map
+  semantics. EVM, Solana, and NEAR remain responsible for concrete storage
+  layout; Solana therefore receives a finite shared bound without a hidden
+  target-only default.
+- Added the failing-first `Tests/Canonical/AuthoredMap.lean` and `just
+  authored-map`. It checks exact Core map state and map-key load/store shapes,
+  then builds all three primary target plans from the same checked contract.
+- Verification: failing parser baseline before implementation; `just
+  authored-map`; `just authored-authorization`; sequential Source/ArrayExample
+  rebuild and focused ArrayExample test; and `git diff --check`. No full
+  aggregate was run.

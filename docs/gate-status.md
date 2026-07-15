@@ -205,6 +205,18 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | A-CUT3d1-4 | Primary targets own concrete memory materialization | ✅ met | EVM emits Yul helpers and bounds checks, Solana emits `sol_alloc_free_` plus typed sBPF loads/stores, and NEAR emits Wasm linear-memory allocation and bounds traps from target-owned plans |
 | A-CUT3d1-5 | Public artifacts are Canonical-only and executable | ✅ met | primary artifacts report `contract-source-authored` / `canonical-core-v1`, EVM Yul compiles, Solana package metadata passes, and the NEAR offline host returns 3, 20, and 60 with no retired sidecars |
 
+## Gate A-CUT3e1 - Direct portable map authoring
+
+**Status: Closed**
+
+**Closed: 2026-07-15 at `9f4bd403`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| A-CUT3e1-1 | Public map authoring constructs only the current frontend | ✅ met | `mapping`, `mapRead`, and `mapWrite` lower directly to `Frontend.Authored`; the implementation does not import ContractSpec, v1 IR, or `Source.Legacy` |
+| A-CUT3e1-2 | Map semantics remain target-neutral in checked Core | ✅ met | `just authored-map` observes one `.map .u64 .u64 (some 256)` state plus map-key storage load/store operations; no target layout enters the Product source or Core shape |
+| A-CUT3e1-3 | Primary target plans preserve the same checked contract | ✅ met | focused EVM, Solana, and NEAR `buildFromCore` calls all accept the same normalized map probe; Solana receives the portable finite bound rather than a target-specific frontend default |
+
 ## Gate CMP-3g1 - Independent ArrayExample reference contracts
 
 **Status: Closed for reference pinning only**
