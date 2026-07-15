@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-D4-01..03**：以非 Counter 的 `Accumulator` 打通真实 `SemanticProgram → EvmPlan → Yul/ABI`；移除 EVM exact-fixture matcher |
-| Next task | 用 CLI/solc/Anvil 验证 Accumulator 初始化、checked add、查询和 overflow rollback 后提交产品里程碑；H1e-b/H1e-c 暂停 |
+| Active task | **TASK-A0-14**：以同一 `Accumulator` 打通真实 `SemanticProgram → SolanaPlan → sBPF assembly/IDL`，移除 Solana exact-fixture matcher |
+| Next task | 先增加 Accumulator 的 Solana 失败验收，再实现 target-owned state/instruction Plan 与数据驱动 assembly；ELF/runtime 仍受工具缺口约束 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |

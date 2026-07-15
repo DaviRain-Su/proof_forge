@@ -373,6 +373,33 @@ normative: false
 - Next：停止继续扩展 evidence 前置工作，回到 DSL → SemanticProgram → target-owned Plan/IR
   产品主链路，先以代码/测试审计确定第一个真实编译缺口；H1e-b 保留为后续独立任务。
 
+## 2026-07-16 — TASK-A0-13 / generic EVM semantic lowering
+
+- Commit：`351104f08d0831c863d5c15a1c4d24c575750324`。
+- Spec/Test：`TST-EVM-001` 至 `TST-EVM-005` 的 pre-acceptance UInt64 slice；不关闭
+  依赖仍未满足的正式 D4 任务。
+- Changed：新增非 Counter 的 `Accumulator` 统一 DSL；EVM 从 `SemanticProgram` 构造
+  target-owned storage/constructor/entry/expression Plan，再由 Plan 单独生成 Yul/ABI。selector
+  改为 Lean 实现的 Ethereum Keccak-256 动态计算；加入 schema/requirement/origin/selector/
+  dangling reference、标识符、深度与 aggregate-node fail-closed validation。CLI 经锁定 solc
+  生成 bytecode，artifact validator 与 isolation core gate 纳入 Accumulator。
+- Commands：`lake build ProofForgeV2.Targets.Evm proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just docs-check`；`just check`；
+  `bash -n scripts/smoke_evm.sh`；`just evm-runtime`；`git diff --check`；两轮独立实现复核。
+- Results：全部 exit 0。Keccak empty、135/136/137-byte padding、multi-rate 与四个 ABI
+  selector golden 通过，并由 PyCryptodome 对 11 个长度独立交叉验证。CLI/solc/Anvil 对
+  Counter 与 Accumulator 验证 constructor、`eth_call` 返回但不提交、transaction state、
+  nonpayable 与 max+1 revert 后状态不变；artifact validation 通过。端口预占负例稳定拒绝且
+  不终止 incumbent；最终独立复核 P0=0/P1=0。
+- Evidence：`EV-20260716-0018`，manual development product evidence；没有生成
+  schema-complete immutable EV JSON。
+- Limitations：只覆盖 verifier-visible `UInt64`、literal/param/state/checked-add/store/return。
+  frontend 在递归 type-check 前仍没有 nesting/node preflight，不能宣称端到端恶意 DSL 资源
+  安全闭合。clean-room core stage 会编译 Accumulator，但 clean-room runtime 仍只执行 Counter；
+  正式 D4 Plan hash/IR/差分与其前置依赖保持 open。Solana/NEAR/Noir 仍拒绝 Accumulator。
+- Next：`TASK-A0-14` 直接实现同一 Accumulator 的 Solana target-owned Plan、数据驱动 sBPF
+  assembly 与 IDL；没有 SBF platform tools 时保持 non-deployable 且不声称 ELF/runtime。
+
 ## 记录模板
 
 ```markdown

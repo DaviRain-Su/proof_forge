@@ -32,6 +32,8 @@ normative: true
 | TASK-A0-10 | deny-default materialize/core/exact-local-port runtime continuation | EV-20260715-0015 | done |
 | TASK-A0-11 | evidence v1 exact-local-port 条件端口、current-reader legacy-v1 compatibility 与攻击 self-tests | EV-20260715-0016 | done |
 | TASK-A0-12 | H1e-a opt-in run/invocation contexts、canonical metadata receipt 与 single-writer receipt-last publication | EV-20260716-0017 | done |
+| TASK-A0-13 | 通用 UInt64 EvmPlan/Yul/ABI、动态 Keccak selector 与 Accumulator Anvil runtime | EV-20260716-0018 | done |
+| TASK-A0-14 | 通用 UInt64 SolanaPlan/sBPF assembly/IDL 与 Accumulator artifact | pending | in_progress |
 
 ## Milestone D0：文档与独立工程
 
@@ -81,7 +83,7 @@ normative: true
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D4-01 | EvmPlan schema/invariants | D3 | TST-EVM-001 | in_progress |
+| TASK-D4-01 | EvmPlan schema/invariants | D3 | TST-EVM-001 | pending |
 | TASK-D4-02 | SemanticProgram → EvmPlan | D4-01 | TST-EVM-002 | pending |
 | TASK-D4-03 | EvmPlan → Yul + ABI | D4-02 | TST-EVM-003 | pending |
 | TASK-D4-04 | solc bytecode packaging | D4-03 | TST-EVM-004 | pending |
