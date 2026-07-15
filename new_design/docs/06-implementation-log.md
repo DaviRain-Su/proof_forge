@@ -239,6 +239,35 @@ normative: false
   `TASK-D0-03` 保持 `in_progress`，`TASK-D0-04` 与 `TST-ISO-002/003` 保持 open。
 - Next：H1b strict evidence core/finalizer，再实现 deny-default stage profiles 与负向 probes。
 
+## 2026-07-15 — TASK-D0-03 H1b strict development evidence core
+
+- Commit：`ac55da706c575f3d308e9bfa383797b89f05032c`；实现脚本 SHA-256
+  `a16f16e80ab03f279fb3a2222f5c1e7d293005ad6a7157593abf64b04a6ebb7a`。
+- Spec/Test：`TRACE-EV-001`、`MOD-TEST-001`、`TST-EVIDENCE-001` 的 pre-acceptance
+  development slice；未关闭正式验收。
+- Changed：新增标准库-only strict parser/validator、PF integer-only/ASCII-graphic-key JCS
+  restricted profile、result/attempt/qualification 代数、candidate-archive claim binding 与
+  domain-separated artifact-set digest。`verify-bundle` 以逐组件 `O_NOFOLLOW`、single-link、
+  exact/casefold/inode alias rejection 和 1,024-file/64-MiB/256-MiB budgets 复核声明文件；
+  development publisher 使用固定 `<root>/<gate>/<EV>.json`、不可覆盖 hard-link 发布与
+  inode/exact-byte readback。formal publication 在 gate catalog 不存在时稳定 fail closed。
+- Review repair：第一次独立攻击矩阵复现 formal 自声明、attempt/probe/log 矛盾、祖先 symlink、
+  staging close→link replacement 和 schema/JCS 漂移；重写后第二轮又复现 input/artifact exact
+  path 复用与 case-insensitive APFS alias。最终增加全局 claim namespace、observed inode 去重、
+  I/O 预算、stable EIO 与 Python literal duplicate-key AST 自检；冻结哈希未发现 P0/P1。
+- Commands：`just evidence-core`；`just docs-check`；`git diff --check`；`just check`；formal
+  publish、missing bundle、artifact mutation、retry/timeout/signal、failed probe/observation/scan、
+  candidate mismatch、path alias、symlink、TOCTOU、limit 与 injected EIO 独立负向矩阵。
+- Results：全部 exit 0 或按预期稳定拒绝；完整 `just check` exit 0。`validate` 只输出
+  `claims-not-verified`，`verify-bundle` 只输出 `gate-catalog-not-verified`；formal publish
+  exit 2、`PF-EVIDENCE-FORMAL-UNVERIFIED` 且不生成文件。post-commit targeted gate 再次通过。
+- Evidence：`EV-20260715-0014`，仅为 development evidence-core implementation evidence。
+- Limitations：没有 gate catalog、freshness/clock authority、revocation store、private-data 实际
+  scanner、remote attestation 或受控 formal workspace；同 UID/privileged actor 的剩余时序风险
+  未消除。`TASK-D0-03`、`TST-EVIDENCE-001`、`TST-ISO-002/003` 保持 open。
+- Next：H1c 验收 deny-default stage policy renderer，然后接入 clean-room continuation 与
+  development finalizer；当前 ineligible host 仍不得产生 formal EV。
+
 ## 记录模板
 
 ```markdown

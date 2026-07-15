@@ -27,9 +27,11 @@ normative: false
 | EV-20260715-0011 | authoritative `env -i ... verify_host_stage0.sh` development/formal；`just host-stage0-negative`；`just check` | passed (development attestation; expected formal rejection) | profile `darwin-arm64-25E253-xcode17C529-development`、host lock `0af42570…e0fa8`、launcher `95fdf6c5…fb095`、verifier `7d6000a3…032c9`；development observation 精确匹配 macOS `26.4.1/25E253`、native arm64、SIP/authenticated-root enabled、seal broken、Xcode `26.3/17C529` 且 pathname current-user-mutable；formal 稳定 `PF-HOST-INELIGIBLE`；bootstrap/host-lock/BASH_ENV negatives fail closed；仅为 local point-in-time evidence，不关闭 TST-ISO-002/003 |
 | EV-20260715-0012 | post-commit `just v2-clean-room-alpha` | passed (development alpha) | commit `4c6756a4e83cd461520bcacc713a8b13a81cfe3b`、archive `2af10f30458bf98c261802632f1096b54ab015c767cec4f76dfa16d99bd0037b`；committed Stage-0/Host Profile v1 先输出 `eligible=false`，再从锁定 cache 物化 Lean/Lake/external closure，61-job clean build/test、四目标 19-file 复现、sandbox policy probes 与 EVM localhost runtime 全通过；临时 tool root 完整清理；host ineligible/allow-default/schema EV 仍未闭合，不关闭 TST-ISO-002/003 |
 | EV-20260715-0013 | `just candidate-binding`; anchored post-commit `verify_isolation.sh --development ...` | passed (development candidate binding) | commit `7b143aa7e7043a4f93dab78fe168b5c518b15fa1`、tree `0dc77113aa2e63d45a21ee99f971b0e23d351329`、stable archive `5a18767e…c821a`；commit-object+pathspec tar 两次 byte-identical、embedded commit 反查、三项 external anchor、NUL-safe pre/post status、61-job clean build/test、四目标 19-file 复现及 EVM localhost runtime；旧 tree-object archive hash 是历史时点 observation，不可作为可重算 anchor；host ineligible/allow-default/schema EV 仍未闭合 |
+| EV-20260715-0014 | `just evidence-core`; `just check`; independent exploit matrix | passed (development evidence-core slice) | commit `ac55da706c575f3d308e9bfa383797b89f05032c`、script `a16f16e8…ebb7a`；restricted PF JCS/schema/cross-field negatives、domain-separated artifact digest、global exact/casefold claim namespace、safe bundle inode/size/hash 与 1,024-file/64-MiB/256-MiB budgets、stable EIO、atomic no-clobber/staging-swap rejection 均通过；formal CLI publish 稳定 `PF-EVIDENCE-FORMAL-UNVERIFIED` 且无输出；尚无 gate catalog/freshness/revocation/private scan finalizer，不关闭 TST-EVIDENCE-001/ISO-002/003 |
 
-Lean cache consumer、H0 development host observation 与 H1 candidate binding 已闭合；因 host
-profile 不合格、deny-default sandbox 与正式 schema EV 未闭合，`TASK-D0-03` 保持
+Lean cache consumer、H0 development host observation、H1 candidate binding 与 strict development
+evidence core 已闭合；因 host profile 不合格、deny-default sandbox 与 gate-catalog-bound formal
+EV finalizer 未闭合，`TASK-D0-03` 保持
 `in_progress`。
 
 未取得：Solana ELF/runtime、NEAR sandbox receipt、Noir ACIR/proof/VK/verify、任何公网部署。

@@ -28,6 +28,7 @@ normative: true
 | TASK-A0-06 | network-denied clean-room alpha（非正式 hermetic） | EV-20260715-0008 | done |
 | TASK-A0-07 | content-addressed external tool/Mach-O closure slice | EV-20260715-0009 | done |
 | TASK-A0-08 | Host Stage-0 development attestation 与 formal-ineligible negative | EV-20260715-0011/0012 | done |
+| TASK-A0-09 | strict development evidence schema/bundle/publication core | EV-20260715-0014 | done |
 
 ## Milestone D0：文档与独立工程
 
