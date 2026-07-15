@@ -54,19 +54,19 @@ normative: true
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D2-01 | name/type checker | D1 | TST-TYPE-001/002 | in_progress |
-| TASK-D2-02 | effect/call/view checker | D2-01 | TST-EFFECT-001 | pending |
-| TASK-D2-03 | bound/termination checker | D2-01 | TST-BOUND-001 | pending |
-| TASK-D2-04 | disclosure/authority/custody checker | D2-01 | TST-VIS-001/002 | pending |
-| TASK-D2-05 | SemanticProgram canonical serializer | D2-01–04 | TST-SEM-001 | pending |
-| TASK-D2-06 | reference step interpreter | D2-05 | TST-SEM-002/003 | pending |
-| TASK-D2-07 | requirement inference + origin | D2-05 | TST-REQ-001/002 | pending |
+| TASK-D2-01 | name/type checker | D1 | TST-TYPE-001/002 | done (EV-20260716-0017; Pipeline unknown/dup/type mismatch) |
+| TASK-D2-02 | effect/call/view checker | D2-01 | TST-EFFECT-001 | done (EV-20260716-0017; view write reject) |
+| TASK-D2-03 | bound/termination checker | D2-01 | TST-BOUND-001 | done (EV-20260716-0017; Tests.Compiler.Bound) |
+| TASK-D2-04 | disclosure/authority/custody checker | D2-01 | TST-VIS-001/002 | done (EV-20260716-0017; privateWitness + EVM reject) |
+| TASK-D2-05 | SemanticProgram canonical serializer | D2-01–04 | TST-SEM-001 | done (EV-20260716-0017; semanticHash golden) |
+| TASK-D2-06 | reference step interpreter | D2-05 | TST-SEM-002/003 | done (EV-20260716-0017; Tests.Core.Semantics) |
+| TASK-D2-07 | requirement inference + origin | D2-05 | TST-REQ-001/002 | done (EV-20260716-0017; req from semantic ops) |
 
 ## Milestone D3：目标解析与制品框架
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D3-01 | Target/Profile ID parsers | D2 | TST-REG-001 | pending |
+| TASK-D3-01 | Target/Profile ID parsers | D2 | TST-REG-001 | in_progress |
 | TASK-D3-02 | static registry duplicate/exact lookup | D3-01 | TST-REG-002 | pending |
 | TASK-D3-03 | support resolver + aggregate rejection | D3-02/D2-07 | TST-REQ-003 | pending |
 | TASK-D3-04 | materializer associated-type protocol | D3-03 | TST-MAT-001 | pending |

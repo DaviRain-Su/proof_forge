@@ -15,6 +15,13 @@ private def expectInvalid (result : CompileResult α) (message : String) : IO Un
   | .error error => throw <| IO.userError s!"{message}: unexpected {error.render}"
   | .ok _ => throw <| IO.userError message
 
+private def expectErrorCode (result : CompileResult α) (code : String) (message : String) : IO Unit :=
+  match result with
+  | .error error =>
+      unless error.code == code do
+        throw <| IO.userError s!"{message}: expected {code}, got {error.render}"
+  | .ok _ => throw <| IO.userError message
+
 private def mkProgram (name : String) (states : Array Source.StateDecl)
     (entries : Array Source.Entry) : Source.Program := {
   qualifiedName := s!"Tests.{name}"
@@ -94,37 +101,45 @@ def run : IO Unit := do
   expect (privateSum.requirements.contains .privateWitness)
     "private parameter visibility must derive the private-witness requirement"
 
+  -- TST-TYPE-001/002: name resolution + type mismatch fail closed on Compiler.compile.
   let unknown := mkProgram "Unknown" #[] #[mkEntry "run" #[] #[.returnValue (.variable "missing")]]
-  expectInvalid (Compiler.compile unknown) "unknown values must be rejected"
+  expectErrorCode (Compiler.compile unknown) "PF-SRC-INVALID" "unknown values must be rejected"
 
   let duplicateState := mkProgram "DuplicateState"
     #[{ name := "value", type := .u64 }, { name := "value", type := .u64 }]
     #[mkEntry "run" #[] #[.returnValue (.literal 0)]]
-  expectInvalid (Compiler.compile duplicateState) "duplicate state declarations must be rejected"
+  expectErrorCode (Compiler.compile duplicateState) "PF-SRC-INVALID"
+    "duplicate state declarations must be rejected"
 
   let duplicateEntry := mkProgram "DuplicateEntry" #[] #[
     mkEntry "run" #[] #[.returnValue (.literal 0)],
     mkEntry "run" #[] #[.returnValue (.literal 1)]]
-  expectInvalid (Compiler.compile duplicateEntry) "duplicate entries must be rejected"
+  expectErrorCode (Compiler.compile duplicateEntry) "PF-SRC-INVALID"
+    "duplicate entries must be rejected"
 
   let duplicateParam := mkProgram "DuplicateParam" #[] #[mkEntry "run"
     #[{ name := "x", type := .u64 }, { name := "x", type := .u64 }]
     #[.returnValue (.variable "x")]]
-  expectInvalid (Compiler.compile duplicateParam) "duplicate parameters must be rejected"
+  expectErrorCode (Compiler.compile duplicateParam) "PF-SRC-INVALID"
+    "duplicate parameters must be rejected"
 
+  -- TST-EFFECT-001: view cannot write state.
   let viewWrite := mkProgram "ViewWrite" #[{ name := "value", type := .u64 }] #[
     mkEntry "get" #[] #[.assign "value" (.literal 1), .returnValue (.variable "value")] .view]
-  expectInvalid (Compiler.compile viewWrite) "view state writes must be rejected"
+  expectErrorCode (Compiler.compile viewWrite) "PF-SRC-INVALID" "view state writes must be rejected"
 
   let missingReturn := mkProgram "MissingReturn" #[] #[mkEntry "run" #[] #[.synchronousCall "peer"]]
-  expectInvalid (Compiler.compile missingReturn) "entries without return must be rejected"
+  expectErrorCode (Compiler.compile missingReturn) "PF-SRC-INVALID"
+    "entries without return must be rejected"
 
   let illegalAssignment := mkProgram "IllegalAssignment" #[] #[mkEntry "run" #[]
     #[.assign "missing" (.literal 1), .returnValue (.literal 1)]]
-  expectInvalid (Compiler.compile illegalAssignment) "assignment to undeclared state must be rejected"
+  expectErrorCode (Compiler.compile illegalAssignment) "PF-SRC-INVALID"
+    "assignment to undeclared state must be rejected"
 
   let typeMismatch := mkProgram "TypeMismatch" #[{ name := "flag", type := .bool }] #[
     mkEntry "run" #[] #[.assign "flag" (.literal 1), .returnValue (.literal 1)]]
-  expectInvalid (Compiler.compile typeMismatch) "assignment type mismatches must be rejected"
+  expectErrorCode (Compiler.compile typeMismatch) "PF-SRC-INVALID"
+    "assignment type mismatches must be rejected"
 
 end Tests.Compiler

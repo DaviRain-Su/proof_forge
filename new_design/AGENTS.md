@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-D2-01`：name/type checker（TST-TYPE-001/002） |
-| Next task | D2-01 后 D2-02…；D1 formal milestone closed with EV-0013..0016 |
+| Active task | `TASK-D3-01`：Target/Profile ID parsers（TST-REG-001） |
+| Next task | D3 后 D4–D7 materializers；D1–D2 formal closed EV-0013..0017 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04`/`TST-ISO-002`：host `eligibleForHermetic=false`；Solana ELF / NEAR sandbox / Noir BB 未冻结 |

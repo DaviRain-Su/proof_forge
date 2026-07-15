@@ -285,6 +285,16 @@ normative: false
 - Evidence：`EV-20260716-0016`.
 - Next：`TASK-D2-01` in_progress.
 
+## 2026-07-16 — TASK-D2-01..07 type/effect/bound/semantic
+
+- Spec/Test：`TST-TYPE/EFFECT/BOUND/VIS/SEM/REQ-*` via shipped `Compiler.compile`,
+  `Source.validateLimits`, Semantics interpreter, Targets.checkSupport.
+- Commands：`lake env .lake/build/bin/proof-forge-next-tests` (log d2-tests).
+- Results：exit 0；Pipeline asserts PF-SRC-INVALID codes；Bound asserts PF-BOUND-001；
+  Semantics Counter overflow；Targets privateWitness EVM reject.
+- Evidence：`EV-20260716-0017`.
+- Next：`TASK-D3-01` in_progress.
+
 ## 记录模板
 
 
