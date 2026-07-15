@@ -67,9 +67,10 @@ closure。首次运行前显式执行 `just toolchains-provision-lean` 和
 `toolchains-materialize-external` 可用于独立检查物化结果，普通 build 和 clean-room gate
 本身不联网。
 
-它仍是 alpha：Lean cache consumer 尚需在本里程碑候选提交上完成完整主线 gate 证据；当前
-macOS host profile 报告 `Sealed: Broken`，且 deny-default sandbox 与 schema evidence 尚未
-完成。因此不能作为正式 hermetic 或 release evidence。
+commit `0b0aebda…643c8` 已完成这条完整 development clean-room gate（archive
+`05b5bda6…2115c`）。它仍是 alpha：当前 macOS host profile 报告 `Sealed: Broken`，且
+deny-default sandbox 与 schema evidence 尚未完成。因此不能作为正式 hermetic 或 release
+evidence。
 
 ## 文档权威顺序
 

@@ -48,9 +48,9 @@ Core 全断网、EVM localhost-only、clean build/test、四目标复现与 EVM 
 实现已把 Lean ZIP 与 external solc/WABT+libcrypto/Foundry 都改为从 content-addressed cache
 离线物化，不再读取 elan/Homebrew/Foundry install tree；物化本身使用 isolated/no-site
 Python、`env -i` 与 no-network sandbox，包含其 Lean/Lake/external version probes。Lean
-consumer 仍需候选提交的完整 archive gate 证据。当前 macOS host profile 不具备 hermetic
-资格，deny-default sandbox/evidence 也未闭合。因此 `TASK-D0-03` 仍在进行，`TASK-D0-04`
-仍为 blocked。
+consumer 已在 commit `0b0aebda…643c8` 完成完整 development archive gate。当前 macOS host
+profile 不具备 hermetic 资格，deny-default sandbox/evidence 也未闭合。因此
+`TASK-D0-03` 仍在进行，`TASK-D0-04` 仍为 blocked。
 
 ## Cache Policy
 

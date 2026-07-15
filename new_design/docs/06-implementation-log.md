@@ -136,7 +136,8 @@ normative: false
 
 ## 2026-07-15 — TASK-D0-03 Lean cache consumer preparation
 
-- Commit/worktree：基于 `c61f46d6` 的 dirty task-owned slice；等待里程碑候选提交。
+- Commit/evidence：实现 commit `0b0aebda8b020d083b8fca37626ae9646fd643c8`；post-commit
+  clean-room archive SHA-256 `05b5bda6e83b4bbf53856e65a3b4a9df6c0b9ebc76c803099f94156e9cf2115c`。
 - Changed：`verify_isolation.sh` 删除 elan lookup/tree copy，改由 committed archive 内的
   `toolchain_assets.py materialize-lean` 从显式 content-addressed cache 离线生成临时 Lean
   root；同一 cache 继续物化 external root。增加独立的 Lean provision/materialize recipes；
@@ -156,14 +157,12 @@ normative: false
   15,194 entries 与 2,761,381,330 unpacked file bytes；Lean/Lake 的静态可达内部 Mach-O
   closure 分别为 5/6 节点，且与实际 dyld 集合一致；V2 全套静态/负向 gate、EVM localhost
   runtime 和四目标 19-file reproducibility 均通过；临时 2.6 GiB root 已完整清除。
-- Evidence：无新增 `EV-*`；代码切换与静态门禁不等于 archive clean-room 运行证据。
-- Limitations：770 MB official Lean asset 已完成 provision、物化与聚焦 build，但尚未在包含
-  本切片的 committed archive 上运行完整 `v2-clean-room-alpha`。当前 host 仍
-  `eligibleForHermetic=false`；
+- Evidence：`EV-20260715-0010`；精确 commit 的 locked-cache archive clean-room 已通过，但
+  仍是 development alpha，不关闭 `TST-ISO-003`。
+- Limitations：当前 host 仍 `eligibleForHermetic=false`；
   allow-default sandbox、Stage-0 host attestation 与 schema EV 未闭合；`TASK-D0-03` 保持
   `in_progress`，`TASK-D0-04` 保持 blocked。
-- Next：候选提交上完成 locked Lean materialize + clean-room full alpha，记录精确 commit、
-  archive/tool hashes；随后继续 host Stage-0/deny-default/evidence。
+- Next：继续 host Stage-0/deny-default/schema evidence；完成前不解除 `TASK-D0-04` blocker。
 
 ## 记录模板
 

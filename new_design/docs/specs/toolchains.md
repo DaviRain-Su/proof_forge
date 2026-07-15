@@ -132,8 +132,8 @@ library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
 `PF-TOOLCHAIN-MISSING` 不允许 required gate skip。本 external slice 已覆盖 duplicate/unknown/
 malformed lock、cache miss、partial/tampered archive、member/path attack、tool/dylib mutation、
 extra/symlink/hardlink/writable bundle 与 PATH/DYLD shadow。Lean cache consumer 已接入 alpha
-harness，但仍需候选提交完整 gate 证据。正式 gate 仍需覆盖版本 probe 的 timeout/huge
-output、完整 host profile/Rosetta、sandbox 失效和 schema evidence。
+harness，并在 `0b0aebda…643c8` 完成完整 development gate。正式 gate 仍需覆盖版本 probe
+的 timeout/huge output、完整 host profile/Rosetta、sandbox 失效和 schema evidence。
 
 关联 `NFR-001/009`、`TST-TOOL-001`、`TST-XTARGET-002`、`TST-ISO-003`。manifest/evidence
 记录全部 asset、executable、runtime dependency 与 host-profile digest。

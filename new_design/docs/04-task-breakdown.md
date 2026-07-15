@@ -33,7 +33,7 @@ normative: true
 | TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | pending |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | D0-01 | TST-ISO-001 | pending |
 | TASK-D0-03 | 锁定 Lean archive、外部工具 dependency closure 与 harness runtime schema/checksums | D0-02 | TST-TOOL-001 | in_progress |
-| TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：Lean cache consumer 尚缺候选提交 gate，eligible host/deny-default/evidence 未闭合 | D0-02/03 | TST-ISO-002 | blocked |
+| TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：eligible host/deny-default/schema evidence 未闭合 | D0-02/03 | TST-ISO-002 | blocked |
 
 ## Milestone D1：语言前端
 
