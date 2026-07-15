@@ -1,10 +1,13 @@
-//! Experimental `buildFromCore` pilot surface (D-057 Seam A).
+//! Experimental **surface sketch** only (D-057 Seam A; **D-058**).
 //!
 //! **EVM scalar storage sketch** for modules whose Core walk uses pure +
 //! storage ops, plus optional `contextRead` / `emit` / `assert` (e.g. Counter,
 //! ValueVault, Ownable). Emits a JSON sketch of provisional slots + entrypoints
-//! — not bytecode and not a product CLI path. HostCalls, memory, and crosscall
-//! still refuse.
+//! — not bytecode, not Yul, and **not** a product compile path.
+//!
+//! Product lowering remains Lean (Yul → solc). This module must not grow into a
+//! Rust re-implementation of EVM/Solana/Wasm machine-IR printers without a new
+//! decision superseding D-058. HostCalls, memory, and crosscall still refuse.
 
 use crate::{walk::CoreWalkSummary, ExportPackage};
 use anyhow::{bail, Context, Result};
@@ -27,7 +30,10 @@ pub struct LoweredArtifacts {
     pub sketch: Option<EvmStorageSketch>,
 }
 
-/// Experimental lowerer trait.
+/// Experimental **surface sketch** builder (name is historical).
+///
+/// Not a product `buildFromCore` lowerer (D-058). Implementors may only emit
+/// inspect/observe sketches, never deployable bytecode or assembly.
 pub trait BuildFromCore {
     fn target_id(&self) -> &str;
     fn build_from_core(&self, package: &ExportPackage) -> Result<LoweredArtifacts>;
@@ -258,11 +264,14 @@ pub fn write_evm_storage_sketch(
     })
 }
 
-/// EVM pilot: storage-only sketch for eligible modules.
+/// EVM **storage surface sketch** pilot (not a product lowerer; D-058).
 #[derive(Debug, Default, Clone, Copy)]
-pub struct EvmLowererPilot;
+pub struct EvmStorageSketchPilot;
 
-impl BuildFromCore for EvmLowererPilot {
+/// Historical alias — prefer [`EvmStorageSketchPilot`].
+pub type EvmLowererPilot = EvmStorageSketchPilot;
+
+impl BuildFromCore for EvmStorageSketchPilot {
     fn target_id(&self) -> &str {
         "evm"
     }

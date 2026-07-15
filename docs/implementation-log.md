@@ -4314,3 +4314,16 @@ Rules:
   - `export-core` requires `--experimental`; product CLI default remains Lean
   - `tools/pf-core` + `pf-core-inspect` Cargo.toml: zero chain SDK deps
 - Remaining: land/review PR #105; do not start LR-3 without a new human goal.
+
+## 2026-07-15 - D-058: freeze Rust machine-IR product lower
+
+- Status: `done` (PR #105 branch)
+- Result: Decision **D-058** — do not invest in Rust re-implementation of
+  primary-triad machine IR printers (sBPF `.s`, WAT, parallel Yul) without a
+  ready library or intentional sourcegen strategy. Product lower stays Lean.
+  Rust keeps evidence runners + Seam A read-only inspect/sketch only. Updated
+  boundary Phase 2/3 to deferred; backlog LR-2/LR-3 deferred; pf-core honesty
+  (`EvmStorageSketchPilot`, `ready_for_rust_lower_pilot` always false, dual-run
+  notes cite D-058).
+- Verification: `cargo test --manifest-path tools/pf-core/Cargo.toml`.
+- Remaining: land PR #105; invest Lean product lower / cutover, not Rust printers.

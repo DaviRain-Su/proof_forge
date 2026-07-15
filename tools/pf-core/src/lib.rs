@@ -5,6 +5,10 @@
 //!
 //! **Not** a compile backend and **not** product ABI/SDK JSON.
 //! Zero chain SDK dependencies by design.
+//!
+//! **D-058:** product machine-IR lower (Yul / sBPF / WAT) stays in Lean. This
+//! crate must not grow Solana/Wasm/Yul product printers without a superseding
+//! decision.
 
 mod lower;
 mod observe;
@@ -12,7 +16,7 @@ mod walk;
 
 pub use lower::{
     build_evm_storage_sketch, write_evm_storage_sketch, BuildFromCore, EntrypointSketch,
-    EvmLowererPilot, EvmStorageSketch, LoweredArtifacts, StorageSlotSketch,
+    EvmLowererPilot, EvmStorageSketch, EvmStorageSketchPilot, LoweredArtifacts, StorageSlotSketch,
     EVM_STORAGE_SKETCH_SCHEMA,
 };
 pub use observe::{

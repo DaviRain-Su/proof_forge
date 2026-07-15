@@ -72,8 +72,8 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 | LR-2i | validation-gates note for core-export-v0 / artifact-contract-v1 | done (PR #105 branch) | docs only; not required CI lane yet |
 | LR-2j | Stop-condition review vs Seam A goal charter | done (verified at `5929e3b0`; re-run green) | Counter+ValueVault dual-run + export/Rust gates met; goal complete |
 | LR-1 | Product/source `export-core` + full HostOp handlers | pending after cutover quieter | product path + resolveSpec handlers; dual-run ready |
-| LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | pending after LR-1 | dual-run on declared dimensions; CLI default remains Lean |
-| LR-3+ | Triad backends / default Rust lower | pending | release-cycle dual-run + measurable benefit; Lean path still switchable |
+| LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | **deferred (D-058)** | only reopen with ready lib stack or intentional sourcegen + dual-run policy |
+| LR-3+ | Triad backends / default Rust lower | **deferred / wont without new decision (D-058)** | do not re-implement sBPF/WAT/Yul printers in Rust; product lower stays Lean |
 
 Specs: [lean-rust-boundary](superpowers/specs/2026-07-15-lean-rust-boundary-design.md)
 ([中文](superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)),

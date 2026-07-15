@@ -5,7 +5,7 @@ It is a continuous execution charter, not a request for another audit or plan.
 
 | Field | Value |
 |---|---|
-| Status | **Success met** (2026-07-15) — do not auto-start LR-3 |
+| Status | **Success met** (2026-07-15); **D-058** freezes LR-3 Rust machine-IR lower |
 | Branch | `DaviRain-Su/artifact-contract-v1` |
 | PR | https://github.com/DaviRain-Su/proof_forge/pull/105 |
 | Worktree | `/Users/davirian/orca/workspaces/proof_forge/artifact-contract-v1` |
@@ -84,8 +84,8 @@ with commands and results recorded in `docs/implementation-log.md`:
      release-cycle goal.
 
 When complete: update AGENTS checkpoint, log, backlog; set goal `completed`
-with summary + SHA + PR link. Do **not** auto-start LR-3 default Rust lower
-without a new human goal.
+with summary + SHA + PR link. **D-058:** do not start LR-3 / Rust sBPF-WAT-Yul
+product lower without a decision naming ready libraries or intentional sourcegen.
 
 ---
 

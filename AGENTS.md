@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **PR #105** Seam A goal charter **success met** (LR-0…2j): export-core + pf-core + Counter/ValueVault/Ownable dual-run observe; see [`docs/agent-goal-prompt-lean-rust-seam-a.md`](docs/agent-goal-prompt-lean-rust-seam-a.md) |
-| Next task | Land/review PR #105; merge main when available. Do **not** auto-start LR-3 default Rust lower. #104 remains separate |
+| Active task | **PR #105** Seam A success met; **D-058** freezes “no Rust machine-IR product lower” (sBPF/WAT re-print) without ready libs / sourcegen strategy |
+| Next task | Land/review PR #105; product lower stays Lean (Yul/`sbpf`/WAT). Rust = evidence + optional Seam A inspect only. #104 cutover remains separate |
 | Parallel on main (done) | C3 OpenVM research brief → **defer** backend; D-057 design docs at `d9c132a0` |
 | Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
 | Execution queue | [PR #105](https://github.com/DaviRain-Su/proof_forge/pull/105); [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |

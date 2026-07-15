@@ -196,6 +196,7 @@ pub struct DualRunReadiness {
     pub content_hash_ok: bool,
     pub host_body_matches_plan: bool,
     pub host_ops_available: bool,
+    /// Always false under D-058: product lower stays Lean; Rust has no machine-IR lowerer.
     pub lowerer_implemented: bool,
     pub notes: Vec<String>,
 }
@@ -207,17 +208,19 @@ impl DualRunReadiness {
             && self.content_hash_ok
             && self.host_body_matches_plan
             && self.host_ops_available
-        // lowerer not required for observe-only dual-run on Lean artifacts
+        // surface sketch not required for observe-only dual-run on Lean artifacts
     }
 
+    /// Product Rust lower pilot readiness. **Always false** under D-058 (no
+    /// Rust sBPF/WAT/Yul product lower without a superseding decision).
     pub fn ready_for_rust_lower_pilot(&self) -> bool {
-        self.ready_for_dual_run_observe() && self.lowerer_implemented
+        false
     }
 
     pub fn lines(&self) -> Vec<String> {
         let mut lines = vec![
             format!(
-                "dualRun: core={} plan={} interface={} contentHash={} hostBody↔plan={} hostAvailable={} lowerer={}",
+                "dualRun: core={} plan={} interface={} contentHash={} hostBody↔plan={} hostAvailable={} productRustLower={}",
                 yn(self.core_ok),
                 yn(self.plan_ok),
                 yn(self.interface_present),
@@ -227,7 +230,7 @@ impl DualRunReadiness {
                 yn(self.lowerer_implemented)
             ),
             format!(
-                "dualRun: observeReady={} rustLowerPilot={}",
+                "dualRun: observeReady={} productRustLowerPilot={} (D-058: product lower stays Lean)",
                 yn(self.ready_for_dual_run_observe()),
                 yn(self.ready_for_rust_lower_pilot())
             ),
@@ -299,15 +302,19 @@ impl ExportPackage {
             });
         if scalar_storage_sketch_eligible {
             notes.push(
-                "EvmLowererPilot scalar storage sketch available (pure+storage±contextRead/emit/assert; not bytecode)"
+                "EvmStorageSketchPilot surface sketch available (slots+entrypoints; not Yul/bytecode; D-058)"
                     .into(),
             );
         } else {
             notes.push(
-                "EvmLowererPilot scalar storage sketch not eligible (unsupported ops/hostCalls)"
+                "EvmStorageSketchPilot surface sketch not eligible (unsupported ops/hostCalls)"
                     .into(),
             );
         }
+        notes.push(
+            "product machine-IR lower remains Lean (Yul/sBPF/WAT); no Rust product lowerer (D-058)"
+                .into(),
+        );
         DualRunReadiness {
             core_ok: self.core.core_schema == "core.v0",
             plan_ok: self.plan.capability_plan_schema == "capability-plan.v0"
@@ -316,7 +323,7 @@ impl ExportPackage {
             content_hash_ok,
             host_body_matches_plan,
             host_ops_available,
-            // Storage-only sketch is a pilot step, not full lower.
+            // D-058: never claim a product Rust lowerer is implemented.
             lowerer_implemented: false,
             notes,
         }

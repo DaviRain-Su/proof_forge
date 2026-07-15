@@ -65,8 +65,8 @@
 | LR-2i | validation-gates 记录 core-export-v0 / artifact-contract-v1 | done（PR #105 分支） | 仅文档；尚未接入必需 CI lane |
 | LR-2j | Seam A goal 停止条件审查 | done（verified at `5929e3b0`；重跑绿） | Counter+ValueVault dual-run 与 export/Rust 门禁满足；goal 完成 |
 | LR-1 | 产品/源路径 `export-core` + 完整 HostOp handlers | cutover 更安静后 pending | 产品路径 + resolveSpec handlers；为 dual-run 就绪 |
-| LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | 待 LR-1 后 | 声明维度 dual-run；CLI 默认仍为 Lean |
-| LR-3+ | 三链后端 / 默认 Rust lower | 待定 | 一个发布周期 dual-run + 可衡量收益；Lean 路径仍可切换 |
+| LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | **延期（D-058）** | 仅在有现成库栈或有意 sourcegen + dual-run 策略时重开 |
+| LR-3+ | 三链后端 / 默认 Rust lower | **延期/无新决策则 wont（D-058）** | 不用 Rust 重做 sBPF/WAT/Yul 打印机；产品 lower 仍在 Lean |
 
 规格（中文）：
 [lean-rust-boundary](../superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)、

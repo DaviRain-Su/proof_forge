@@ -27,10 +27,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "8b2defc8fe13c2302ac976bf43ed46d01e97a0a5b92c9e68b22f3dc80a22e0f2",
+    "sha256": "30baa6a74293fd1112b5c5b92128f2a145bb9600b2a412dc74cb91f96ce5c2ec",
     "zh": "docs/zh/decisions.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
+    "note": "synced after D-058"
   },
   "docs/capability-registry.md": {
     "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
@@ -84,10 +84,10 @@
     "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/validation-gates.md": {
-    "sha256": "a140a9fd57ce77a4780b94d25930ea68654d87d84e2b4affdf445bea78e0f9bd",
+    "sha256": "9aae55f6eb8882b4f99ee7534a9f5987ea1989c455611521a4e01bea38cab7d7",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "synced after LR-2f..2j Seam A goal success"
+    "note": "synced after D-058"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -187,9 +187,9 @@
     "note": "EN overview + §12 internals; zh is full deep-dive"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "1cc65a8d49b578ef53ff9cb9e0c616375c857faaef216c5f4d0fcb0c9160dafe",
+    "sha256": "7106258d1ae38f42b62ca38170c994531a753c8fb5631e70f04d5d1f72d35491",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced after Seam A re-verify stop"
+    "note": "synced after D-058"
   }
 }

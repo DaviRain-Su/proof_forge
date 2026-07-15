@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use pf_core::{
     compare_packages, dual_run_observe_dir, write_evm_storage_sketch, BuildFromCore,
-    EvmLowererPilot, ExportPackage,
+    EvmStorageSketchPilot, ExportPackage,
 };
 use std::env;
 use std::path::PathBuf;
@@ -66,7 +66,7 @@ fn main() -> Result<()> {
             let pkg = ExportPackage::load(&dir)?;
             let arts = match out.as_deref() {
                 Some(path) => write_evm_storage_sketch(&pkg, Some(path))?,
-                None => EvmLowererPilot.build_from_core(&pkg)?,
+                None => EvmStorageSketchPilot.build_from_core(&pkg)?,
             };
             println!(
                 "pf-core-inspect: lower-sketch ok module={} target={} path={}",
@@ -169,7 +169,8 @@ USAGE:
   pf-core-inspect dual-run-observe <export-dir>
   pf-core-inspect hash-file <path>
 
-lower-sketch: experimental EVM storage-only sketch (not bytecode; not product CLI)
-dual-run-observe: compare sketch vs lean-evm-observe.v0.json in the same dir"
+lower-sketch: experimental EVM surface sketch only (slots+entrypoints; not Yul/bytecode; D-058)
+dual-run-observe: compare sketch vs lean-evm-observe.v0.json (declared dimensions only)
+product machine-IR lower (Yul/sBPF/WAT) remains Lean; no Rust product lowerer"
     );
 }
