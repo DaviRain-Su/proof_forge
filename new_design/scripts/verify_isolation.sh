@@ -35,13 +35,18 @@ sha256_file() {
 }
 
 run_core_gate() {
-  [[ -n "${PF_CLEAN_SOURCE:-}" && -n "${PF_CLEAN_OUTPUT:-}" && -n "${PF_LEAN_ROOT:-}" ]] ||
+  [[ -n "${PF_CLEAN_SOURCE:-}" && -n "${PF_CLEAN_OUTPUT:-}" &&
+    -n "${PF_CLEAN_WORK:-}" && -n "${PF_LEAN_ROOT:-}" &&
+    -n "${PF_XCODE_PYTHON:-}" && -n "${PF_XCODE_GIT:-}" ]] ||
     die "internal clean-room environment is incomplete"
+  [[ -x "$PF_XCODE_PYTHON" && -x "$PF_XCODE_GIT" ]] ||
+    die "locked direct Xcode tools are unavailable"
   [[ -z "${LEAN_PATH+x}" && -z "${LEAN_SRC_PATH+x}" && -z "${ELAN_HOME+x}" ]] ||
     die "Lean or Elan environment leaked into clean room"
   [[ "$PATH" == "$PF_LEAN_ROOT/bin:$PROOF_FORGE_TOOL_ROOT" ]] ||
     die "unexpected PATH in clean room: $PATH"
-  if /usr/bin/git -C "$PF_CLEAN_SOURCE" rev-parse --show-toplevel >/dev/null 2>&1; then
+  if "$PF_XCODE_GIT" --no-replace-objects -C "$PF_CLEAN_SOURCE" \
+      rev-parse --show-toplevel >/dev/null 2>&1; then
     die "archive can discover a parent Git repository"
   fi
 
@@ -51,7 +56,7 @@ run_core_gate() {
   local targets="$PF_CLEAN_OUTPUT/targets"
   local repro="$PF_CLEAN_OUTPUT/repro"
 
-  /usr/bin/python3 -I -S "$PF_CLEAN_SOURCE/scripts/docs_check.py"
+  "$PF_XCODE_PYTHON" -I -S "$PF_CLEAN_SOURCE/scripts/docs_check.py"
   "$lake" --dir "$PF_CLEAN_SOURCE" --no-cache build \
     ProofForgeV2 proof_forge_next proof_forge_next_tests
   "$lake" --dir "$PF_CLEAN_SOURCE" env "$tests"
@@ -63,7 +68,7 @@ run_core_gate() {
     "$lake" --dir "$PF_CLEAN_SOURCE" env "$compiler" build Examples/Counter.lean \
       --root "$PF_CLEAN_SOURCE" --program Examples.Counter --target "$target" -o "$targets/$target"
   done
-  /usr/bin/python3 -I -S "$PF_CLEAN_SOURCE/scripts/validate_artifacts.py" "$targets"
+  "$PF_XCODE_PYTHON" -I -S "$PF_CLEAN_SOURCE/scripts/validate_artifacts.py" "$targets"
 
   for run in a b; do
     for target in evm solana near noir; do
@@ -71,42 +76,87 @@ run_core_gate() {
         --root "$PF_CLEAN_SOURCE" --program Examples.Counter --target "$target" -o "$repro/$run/$target"
     done
   done
-  /usr/bin/python3 -I -S "$PF_CLEAN_SOURCE/scripts/check_reproducibility.py" "$repro/a" "$repro/b"
+  "$PF_XCODE_PYTHON" -I -S "$PF_CLEAN_SOURCE/scripts/check_reproducibility.py" \
+    "$repro/a" "$repro/b"
   echo "clean-room-alpha: docs/build/tests/target-smoke/reproducibility ok"
 }
 
 run_evm_gate() {
-  [[ -n "${PF_CLEAN_OUTPUT:-}" && -n "${PROOF_FORGE_TOOL_ROOT:-}" ]] ||
+  local lan_probe_ip="$1"
+  local expected_chain_id="$2"
+  [[ "$expected_chain_id" =~ ^[1-9][0-9]{0,9}$ && "$expected_chain_id" -le 2147483647 ]] ||
+    die "internal EVM gate received an invalid chain id"
+  [[ -n "${PF_CLEAN_OUTPUT:-}" && -n "${PF_CLEAN_WORK:-}" &&
+    -n "${PROOF_FORGE_TOOL_ROOT:-}" && -n "${PF_XCODE_PYTHON:-}" ]] ||
     die "internal EVM environment is incomplete"
-  [[ "$PATH" == "$PF_LEAN_ROOT/bin:$PROOF_FORGE_TOOL_ROOT" ]] ||
+  [[ "$PATH" == "$PROOF_FORGE_TOOL_ROOT" ]] ||
     die "unexpected PATH in EVM clean room: $PATH"
+  [[ -x "$PF_XCODE_PYTHON" ]] || die "locked direct Xcode Python is unavailable"
 
   local anvil="$PROOF_FORGE_TOOL_ROOT/anvil"
   local cast="$PROOF_FORGE_TOOL_ROOT/cast"
   local bytecode_file="$PF_CLEAN_OUTPUT/targets/evm/Counter.bin"
-  local log="$PF_CLEAN_OUTPUT/anvil.log"
+  local log="$PF_CLEAN_WORK/anvil.log"
   local rpc="http://127.0.0.1:${PF_EVM_PORT}"
   local private_key="ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
   [[ -x "$anvil" && -x "$cast" && -f "$bytecode_file" ]] || die "EVM runtime inputs are missing"
 
-  "$anvil" --port "$PF_EVM_PORT" --silent >"$log" 2>&1 &
+  "$anvil" --host 127.0.0.1 --port "$PF_EVM_PORT" \
+    --chain-id "$expected_chain_id" --silent >"$log" 2>&1 &
   local anvil_pid=$!
   cleanup_anvil() {
-    kill "$anvil_pid" 2>/dev/null || true
-    wait "$anvil_pid" 2>/dev/null || true
+    if [[ -n "$anvil_pid" ]]; then
+      kill "$anvil_pid" 2>/dev/null || true
+      wait "$anvil_pid" 2>/dev/null || true
+      anvil_pid=""
+    fi
+  }
+  require_anvil_running() {
+    local running_jobs
+    running_jobs="$(jobs -pr)"
+    if [[ "$running_jobs" != "$anvil_pid" ]]; then
+      wait "$anvil_pid" 2>/dev/null || true
+      anvil_pid=""
+      die "the launched Anvil process is not the running child; see $log"
+    fi
   }
   trap cleanup_anvil EXIT
 
   local ready=0
   local attempt
   for ((attempt = 0; attempt < 50; attempt++)); do
-    if "$cast" chain-id --rpc-url "$rpc" >/dev/null 2>&1; then
+    require_anvil_running
+    if [[ "$("$cast" chain-id --rpc-url "$rpc" 2>/dev/null || true)" == \
+        "$expected_chain_id" ]]; then
       ready=1
       break
     fi
     /bin/sleep 0.1
   done
   [[ "$ready" == 1 ]] || die "Anvil failed to start; see $log"
+  /bin/sleep 0.1
+  require_anvil_running
+  [[ "$("$cast" chain-id --rpc-url "$rpc" 2>/dev/null || true)" == \
+      "$expected_chain_id" ]] || die "Anvil identity changed after readiness"
+
+  "$PF_XCODE_PYTHON" -I -S -c '
+import errno
+import ipaddress
+import socket
+import sys
+
+address = ipaddress.ip_address(sys.argv[1])
+if address.version != 4 or address.is_loopback or address.is_unspecified:
+    raise SystemExit("invalid non-loopback probe address")
+try:
+    connection = socket.create_connection((str(address), int(sys.argv[2])), 0.5)
+except OSError as error:
+    if error.errno != errno.ECONNREFUSED:
+        raise
+else:
+    connection.close()
+    raise SystemExit("Anvil is reachable through a non-loopback interface")
+' "$lan_probe_ip" "$PF_EVM_PORT"
 
   deploy_counter() {
     local initial="$1"
@@ -115,7 +165,8 @@ run_evm_gate() {
     encoded="$("$cast" abi-encode 'constructor(uint64)' "$initial")"
     receipt="$("$cast" send --json --rpc-url "$rpc" --private-key "$private_key" \
       --create "0x${bytecode}${encoded#0x}")"
-    /usr/bin/python3 -I -S -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])' <<<"$receipt"
+    "$PF_XCODE_PYTHON" -I -S -c \
+      'import json,sys; print(json.loads(sys.argv[1])["contractAddress"])' "$receipt"
   }
 
   local counter before after balance bytecode encoded max_counter preserved
@@ -148,6 +199,9 @@ run_evm_gate() {
   preserved="$("$cast" call --rpc-url "$rpc" "$max_counter" 'get()(uint64)')"
   preserved="${preserved%% *}"
   [[ "$preserved" == 18446744073709551615 ]] || die "overflow changed state: $preserved"
+  require_anvil_running
+  [[ "$("$cast" chain-id --rpc-url "$rpc" 2>/dev/null || true)" == \
+      "$expected_chain_id" ]] || die "Anvil identity changed during the runtime gate"
   cleanup_anvil
   trap - EXIT
   echo "clean-room-alpha: EVM localhost runtime ok"
@@ -159,7 +213,8 @@ case "${1:-}" in
     exit 0
     ;;
   --internal-evm)
-    run_evm_gate
+    [[ $# -eq 3 ]] || die "internal EVM gate requires LAN address and chain id"
+    run_evm_gate "$2" "$3"
     exit 0
     ;;
 esac
@@ -234,10 +289,12 @@ export GIT_CONFIG_NOSYSTEM=1
 export GIT_NO_REPLACE_OBJECTS=1
 export GIT_OPTIONAL_LOCKS=0
 command -v /usr/bin/sandbox-exec >/dev/null 2>&1 || die "macOS sandbox-exec is unavailable"
-materialize_profile='(version 1)(allow default)(deny network*)'
 
 git_bin=/Applications/Xcode.app/Contents/Developer/usr/bin/git
+xcode_python=/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9
 [[ -x "$git_bin" && ! -L "$git_bin" ]] || die "verified direct Git is unavailable"
+[[ -x "$xcode_python" && ! -L "$xcode_python" ]] ||
+  die "verified direct Xcode Python is unavailable"
 repo_root="$("$git_bin" --no-replace-objects -C "$root" rev-parse --show-toplevel)"
 prefix="$("$git_bin" --no-replace-objects -C "$root" rev-parse --show-prefix)"
 [[ "$prefix" == new_design/ ]] || die "expected new_design/ to be a tracked subtree, got '$prefix'"
@@ -256,11 +313,9 @@ if [[ -n "$expected_tree" && "$tree_oid" != "$expected_tree" ]]; then
 fi
 
 tmp="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/proof-forge-v2-clean-room.XXXXXX")"
+tmp="$(cd "$tmp" && pwd -P)"
+/bin/chmod 700 "$tmp"
 cleanup() {
-  if [[ -n "${probe_pid:-}" ]]; then
-    kill "$probe_pid" 2>/dev/null || true
-    wait "$probe_pid" 2>/dev/null || true
-  fi
   # Locked tool trees are deliberately materialized read-only. Restore only
   # owner write permission inside this private temporary root so rm can remove
   # the exact-tree directories without leaving multi-gigabyte residue.
@@ -280,11 +335,16 @@ source_root="$tmp/source"
 home_root="$tmp/home"
 cache_root="$tmp/cache"
 tool_root="$tmp/tools"
+lean_root="$tool_root/lean"
 external_bin="$tool_root/external"
 output_root="$tmp/output"
+work_root="$tmp/work"
+policies_root="$tmp/policies"
 runner="$tmp/clean-room-runner.sh"
-/bin/mkdir -p "$source_root" "$home_root" "$cache_root" "$tool_root" "$output_root" "$tmp/work"
-/bin/chmod 700 "$home_root" "$cache_root" "$tool_root" "$output_root" "$tmp/work"
+/bin/mkdir -p "$source_root" "$home_root" "$cache_root" "$tool_root" \
+  "$output_root" "$work_root" "$policies_root"
+/bin/chmod 700 "$source_root" "$home_root" "$cache_root" "$tool_root" \
+  "$output_root" "$work_root" "$policies_root"
 
 archive="$tmp/new-design.tar"
 "$git_bin" --no-replace-objects -C "$repo_root" archive --format=tar "$commit" -- new_design >"$archive"
@@ -317,108 +377,168 @@ if /usr/bin/grep -R -F "$repo_root" "$source_root" >/dev/null 2>&1; then
   die "archive embeds the parent repository absolute path"
 fi
 
-lean_root="$tool_root/lean"
-/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
-  "HOME=$home_root" "LC_ALL=C" "PATH=/usr/bin:/bin" \
-  "PROOF_FORGE_ASSET_CACHE=$asset_cache" "TZ=UTC" /usr/bin/python3 -I -S \
+/bin/mkdir -p "$source_root/.lake"
+/bin/chmod 700 "$source_root/.lake"
+/bin/cp "$source_root/scripts/verify_isolation.sh" "$runner"
+/bin/chmod 500 "$runner"
+
+render_policy() {
+  local stage="$1"
+  shift
+  /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC \
+    PYTHONDONTWRITEBYTECODE=1 "$xcode_python" -I -S \
+    "$source_root/scripts/sandbox_policy.py" render "$stage" \
+    --temp-root "$tmp" --asset-cache "$asset_cache" \
+    --xcode-python "$xcode_python" --lean-root "$lean_root" \
+    --external-root "$external_bin" --source-root "$source_root" "$@" \
+    -o "$policies_root/$stage.sb"
+}
+
+sandbox_run() {
+  /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC \
+    PYTHONDONTWRITEBYTECODE=1 "$xcode_python" -I -S \
+    "$source_root/scripts/sandbox_exec.py" run "$@"
+}
+
+expect_permission_denied() {
+  local stage="$1"
+  local invocation="$2"
+  local stderr_receipt="$policies_root/sandbox-$stage-$invocation.stderr.log"
+  shift 2
+  if sandbox_run "$stage" --invocation "$invocation" --temp-root "$tmp" "$@"; then
+    die "$stage/$invocation unexpectedly succeeded"
+  fi
+  [[ -f "$stderr_receipt" ]] || die "$stage/$invocation produced no stderr receipt"
+  /usr/bin/grep -Eq 'PermissionError|Operation not permitted' "$stderr_receipt" ||
+    die "$stage/$invocation failed without a sandbox permission denial"
+}
+
+render_policy materialize
+echo "clean-room-alpha: materialize policy sha256=$(sha256_file "$policies_root/materialize.sb")"
+
+source_probe="$source_root/lakefile.lean"
+source_probe_hash="$(sha256_file "$source_probe")"
+expect_permission_denied materialize source-write \
+  --asset-cache "$asset_cache" -- "$xcode_python" -I -S -c \
+  'import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(b"mutated")' "$source_probe"
+[[ "$(sha256_file "$source_probe")" == "$source_probe_hash" ]] ||
+  die "materialize source-write probe changed the source"
+
+sandbox_run materialize --invocation lean-materialize --temp-root "$tmp" \
+  --asset-cache "$asset_cache" -- "$xcode_python" -I -S \
   "$source_root/scripts/toolchain_assets.py" \
   --lock "$source_root/toolchains.lock.json" \
   --host-lock "$source_root/host-profiles.lock.json" \
   materialize-lean --destination "$lean_root"
-[[ -z "$(/usr/bin/find "$lean_root" -type l -print -quit)" ]] || die "materialized Lean toolchain contains symlinks"
-/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
-  "HOME=$home_root" "LC_ALL=C" "PATH=$lean_root/bin:/usr/bin:/bin" "TZ=UTC" \
-  "$lean_root/bin/lean" --version | /usr/bin/grep -Fq 'version 4.31.0'
-/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
-  "HOME=$home_root" "LC_ALL=C" "PATH=$lean_root/bin:/usr/bin:/bin" "TZ=UTC" \
-  "$lean_root/bin/lean" --version | /usr/bin/grep -Fq 'commit 68218e876d2a38b1985b8590fff244a83c321783'
-/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
-  "HOME=$home_root" "LC_ALL=C" "PATH=$lean_root/bin:/usr/bin:/bin" "TZ=UTC" \
-  "$lean_root/bin/lake" --version | /usr/bin/grep -Fq 'Lean version 4.31.0'
+[[ -z "$(/usr/bin/find "$lean_root" -type l -print -quit)" ]] ||
+  die "materialized Lean toolchain contains symlinks"
+
+sandbox_run materialize --invocation lean-version --temp-root "$tmp" \
+  --asset-cache "$asset_cache" -- "$lean_root/bin/lean" --version
+/usr/bin/grep -Fq 'version 4.31.0' \
+  "$policies_root/sandbox-materialize-lean-version.stdout.log"
+/usr/bin/grep -Fq 'commit 68218e876d2a38b1985b8590fff244a83c321783' \
+  "$policies_root/sandbox-materialize-lean-version.stdout.log"
+sandbox_run materialize --invocation lake-version --temp-root "$tmp" \
+  --asset-cache "$asset_cache" -- "$lean_root/bin/lake" --version
+/usr/bin/grep -Fq 'Lean version 4.31.0' \
+  "$policies_root/sandbox-materialize-lake-version.stdout.log"
 echo "clean-room-alpha: materialized locked Lean sha256=$(sha256_file "$lean_root/bin/lean")"
 echo "clean-room-alpha: materialized locked Lake sha256=$(sha256_file "$lean_root/bin/lake")"
 
-/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
-  "HOME=$home_root" "LC_ALL=C" "PATH=/usr/bin:/bin" \
-  "PROOF_FORGE_ASSET_CACHE=$asset_cache" "TZ=UTC" /usr/bin/python3 -I -S \
+sandbox_run materialize --invocation external-materialize --temp-root "$tmp" \
+  --asset-cache "$asset_cache" -- "$xcode_python" -I -S \
   "$source_root/scripts/toolchain_assets.py" \
   --lock "$source_root/toolchains.lock.json" \
   --host-lock "$source_root/host-profiles.lock.json" \
   materialize-external --destination "$external_bin"
 echo "clean-room-alpha: materialized locked external asset bundle"
 
-/bin/cp "$source_root/scripts/verify_isolation.sh" "$runner"
-/bin/chmod 500 "$runner"
+render_policy core
+echo "clean-room-alpha: core policy sha256=$(sha256_file "$policies_root/core.sb")"
+expect_permission_denied core network \
+  -- "$xcode_python" -I -S -c \
+  'import socket; socket.create_connection(("127.0.0.1", 9), 0.2)'
+expect_permission_denied core policy-read \
+  -- "$xcode_python" -I -S -c \
+  'import pathlib,sys; pathlib.Path(sys.argv[1]).read_bytes()' "$policies_root/core.sb"
+source_probe_hash="$(sha256_file "$source_probe")"
+expect_permission_denied core source-write \
+  -- "$xcode_python" -I -S -c \
+  'import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(b"mutated")' "$source_probe"
+[[ "$(sha256_file "$source_probe")" == "$source_probe_hash" ]] ||
+  die "core source-write probe changed the source"
+expect_permission_denied core exec \
+  -- /bin/echo forbidden
 
-escape_sandbox_string() {
-  /usr/bin/python3 -I -S -c 'import sys; print(sys.argv[1].replace("\\", "\\\\").replace("\"", "\\\""))' "$1"
-}
-denied_home="$(escape_sandbox_string "$source_home")"
-denied_repo="$(escape_sandbox_string "$repo_root")"
-deny_network_profile="(version 1)(allow default)(deny network*)(deny file-read* (subpath \"/opt/homebrew\"))(deny file-write* (subpath \"/opt/homebrew\"))(deny file-read* (subpath \"$denied_home\"))(deny file-write* (subpath \"$denied_home\"))(deny file-read* (subpath \"$denied_repo\"))(deny file-write* (subpath \"$denied_repo\"))"
-localhost_profile="(version 1)(allow default)(deny network*)(allow network-inbound (local ip \"localhost:*\"))(allow network-outbound (remote ip \"localhost:*\"))(deny file-read* (subpath \"/opt/homebrew\"))(deny file-write* (subpath \"/opt/homebrew\"))(deny file-read* (subpath \"$denied_home\"))(deny file-write* (subpath \"$denied_home\"))(deny file-read* (subpath \"$denied_repo\"))(deny file-write* (subpath \"$denied_repo\"))"
+sandbox_run core --invocation build-test --temp-root "$tmp" -- \
+  /bin/bash "$runner" --internal-core
 
-probe_port_file="$tmp/network-probe.port"
-/usr/bin/python3 -I -S - "$probe_port_file" <<'PY' &
-import pathlib
+evm_port="$(/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC \
+  "$xcode_python" -I -S -c \
+  'import socket; s=socket.socket(); s.bind(("0.0.0.0",0)); print(s.getsockname()[1]); s.close()')"
+evm_chain_id="$(/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC \
+  "$xcode_python" -I -S -c \
+  'import secrets; print(secrets.randbelow(2147483647) + 1)')"
+lan_probe_ip="$(/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC \
+  "$xcode_python" -I -S -c '
+import ipaddress
 import socket
-import sys
 
-listener = socket.socket()
-listener.bind(("127.0.0.1", 0))
-listener.listen(1)
-pathlib.Path(sys.argv[1]).write_text(str(listener.getsockname()[1]), encoding="ascii")
-connection, _ = listener.accept()
-connection.close()
-listener.close()
-PY
-probe_pid=$!
-for ((attempt = 0; attempt < 50; attempt++)); do
-  [[ -s "$probe_port_file" ]] && break
-  /bin/sleep 0.02
-done
-[[ -s "$probe_port_file" ]] || die "could not start sandbox network probe"
-probe_port="$(<"$probe_port_file")"
-if (cd "$tmp" && /usr/bin/sandbox-exec -p "$deny_network_profile" /usr/bin/python3 -I -S -c \
-    "import socket; socket.create_connection(('127.0.0.1',$probe_port),1)") >/dev/null 2>&1; then
-  die "sandbox network-deny policy allowed a localhost connection"
+addresses = {
+    item[4][0]
+    for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+    if not ipaddress.ip_address(item[4][0]).is_loopback
+}
+if not addresses:
+    raise SystemExit("no non-loopback IPv4 address for runtime exposure probe")
+print(sorted(addresses)[0])
+')"
+render_policy evm-runtime --port "$evm_port"
+echo "clean-room-alpha: runtime exact-local-port policy sha256=$(sha256_file \
+  "$policies_root/evm-runtime.sb")"
+
+evm_artifact="$output_root/targets/evm/Counter.bin"
+evm_artifact_hash="$(sha256_file "$evm_artifact")"
+expect_permission_denied evm-runtime output-write \
+  --runtime-port "$evm_port" -- "$xcode_python" -I -S -c \
+  'import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(b"mutated")' "$evm_artifact"
+[[ "$(sha256_file "$evm_artifact")" == "$evm_artifact_hash" ]] ||
+  die "runtime output-write probe changed the core artifact"
+expect_permission_denied evm-runtime source-read \
+  --runtime-port "$evm_port" -- "$xcode_python" -I -S -c \
+  'import pathlib,sys; pathlib.Path(sys.argv[1]).read_bytes()' "$source_probe"
+if [[ "$evm_port" -lt 65535 ]]; then
+  adjacent_port=$((evm_port + 1))
+else
+  adjacent_port=$((evm_port - 1))
 fi
-(cd "$tmp" && /usr/bin/sandbox-exec -p "$localhost_profile" /usr/bin/python3 -I -S -c \
-  "import socket; socket.create_connection(('127.0.0.1',$probe_port),1)")
-wait "$probe_pid"
-probe_pid=""
-network_error="$tmp/network-probe.err"
-if (cd "$tmp" && /usr/bin/sandbox-exec -p "$localhost_profile" /usr/bin/python3 -I -S -c \
-    "import socket; socket.create_connection(('192.0.2.1',9),1)") 2>"$network_error"; then
-  die "localhost-only sandbox policy allowed a non-local connection"
-fi
-/usr/bin/grep -Eq 'PermissionError|Operation not permitted' "$network_error" ||
-  die "localhost-only policy failed without a sandbox permission denial"
-echo "clean-room-alpha: sandbox policy verified (core=no-network, runtime=localhost-only)"
+expect_permission_denied evm-runtime adjacent-port \
+  --runtime-port "$evm_port" -- "$xcode_python" -I -S -c \
+  'import socket,sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 0.2)' \
+  "$adjacent_port"
+expect_permission_denied evm-runtime non-local \
+  --runtime-port "$evm_port" -- "$xcode_python" -I -S -c \
+  'import socket,sys; socket.create_connection(("192.0.2.1", int(sys.argv[1])), 0.2)' \
+  "$evm_port"
 
-common_env=(
-  "HOME=$home_root"
-  "XDG_CACHE_HOME=$cache_root/xdg"
-  "LAKE_HOME=$cache_root/lake"
-  "LAKE_CACHE_DIR=$cache_root/lake-packages"
-  "LAKE_NO_CACHE=1"
-  "TMPDIR=$tmp/work"
-  "TZ=UTC"
-  "LC_ALL=C"
-  "SOURCE_DATE_EPOCH=0"
-  "PATH=$lean_root/bin:$external_bin"
-  "PROOF_FORGE_TOOL_ROOT=$external_bin"
-  "PF_CLEAN_SOURCE=$source_root"
-  "PF_CLEAN_OUTPUT=$output_root"
-  "PF_LEAN_ROOT=$lean_root"
-)
+sandbox_run evm-runtime --invocation anvil-counter --temp-root "$tmp" \
+  --runtime-port "$evm_port" -- /bin/bash "$runner" --internal-evm \
+  "$lan_probe_ip" "$evm_chain_id"
 
-(cd "$tmp" && /usr/bin/sandbox-exec -p "$deny_network_profile" /usr/bin/env -i "${common_env[@]}" \
-  /bin/bash "$runner" --internal-core)
-
-evm_port="$(/usr/bin/python3 -I -S -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
-(cd "$tmp" && /usr/bin/sandbox-exec -p "$localhost_profile" /usr/bin/env -i "${common_env[@]}" \
-  "PF_EVM_PORT=$evm_port" /bin/bash "$runner" --internal-evm)
+while IFS= read -r -d '' receipt; do
+  [[ "$(/usr/bin/stat -f %Lp "$receipt")" == 400 ]] ||
+    die "sandbox receipt is not mode 0400: $receipt"
+  [[ "$(/usr/bin/stat -f %l "$receipt")" == 1 ]] ||
+    die "sandbox receipt has multiple hard links: $receipt"
+done < <(/usr/bin/find -P "$policies_root" -type f -print0)
+echo "clean-room-alpha: sandbox verified (materialize/core=no-network;"
+echo "clean-room-alpha: runtime=exact-local-port + 127.0.0.1 bind/LAN negative)"
+echo "clean-room-alpha: sandbox engine sha256=$(sha256_file /usr/bin/sandbox-exec)"
+echo "clean-room-alpha: sandbox renderer sha256=$(sha256_file \
+  "$source_root/scripts/sandbox_policy.py")"
+echo "clean-room-alpha: sandbox launcher sha256=$(sha256_file \
+  "$source_root/scripts/sandbox_exec.py")"
 
 [[ "$("$git_bin" --no-replace-objects -C "$repo_root" rev-parse --verify 'HEAD^{commit}')" == "$commit" ]] ||
   die "candidate HEAD changed during the gate"
@@ -432,4 +552,7 @@ candidate_status_after_hash="$(sha256_file "$candidate_status_after_file")"
   die "candidate worktree status changed during the gate"
 
 echo "clean-room-alpha: ok qualification=$qualification commit=$commit tree=$tree_oid archive_sha256=$archive_hash"
-echo "clean-room-alpha: NOT hermetic: Lean and external tools come from the locked cache, but the current host profile is ineligible and deny-default/evidence closure remain open; D0-03/D0-04 remain open"
+echo "clean-room-alpha: NOT hermetic: deny-default development stages are integrated,"
+echo "clean-room-alpha: but the host is ineligible and formal Stage-0 handoff, process-session"
+echo "clean-room-alpha: containment, gate catalog, freshness/revocation/private scan/finalizer"
+echo "clean-room-alpha: remain open; D0-03/D0-04 remain open"
