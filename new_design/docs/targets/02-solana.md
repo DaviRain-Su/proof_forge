@@ -65,6 +65,9 @@ Phase 1 在本地 runtime/validator 创建 program 与 state accounts，发送 i
 1. account schema/PDA/IDL golden。
 2. Plan account-flow invariant 与 ELF validation。
 3. Semantic interpreter 对照 sBPF emulator。
+   - 研究中的 ISA 地基：sibling `assembler-semantics`（`SbpfSemantics.Api` /
+     `Observation`），见 [`../research/09-assembler-semantics-bridge.md`](../research/09-assembler-semantics-bridge.md)。
+     未 pin 前不得作为 clean-room 或 release 证据。
 4. local runtime 完成 Counter 正常与 overflow rollback。
 5. 可用时增加官方 validator deployment evidence。
 

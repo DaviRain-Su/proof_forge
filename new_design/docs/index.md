@@ -3,7 +3,7 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -36,7 +36,8 @@ normative: true
 - 工程可信度：[`specs/security.md`](specs/security.md)、
   [`specs/toolchains.md`](specs/toolchains.md)、
   [`specs/versioning.md`](specs/versioning.md)、
-  [`specs/reproducibility.md`](specs/reproducibility.md)。
+  [`specs/reproducibility.md`](specs/reproducibility.md)、
+  [`specs/gate-catalog-finalization.md`](specs/gate-catalog-finalization.md)。
 
 ## 模块、目标与证据
 
@@ -45,6 +46,7 @@ normative: true
 - ADR：[`adr/README.md`](adr/README.md)。
 - 调研：[`research/README.md`](research/README.md)。
 - V1/V2 前端与 IR 对照：[`research/08-v1-v2-frontend-ir-comparison.md`](research/08-v1-v2-frontend-ir-comparison.md)。
+- Solana ISA 地基（研究）：[`research/09-assembler-semantics-bridge.md`](research/09-assembler-semantics-bridge.md)。
 - 追踪矩阵：[`traceability/README.md`](traceability/README.md)。
 - 治理：[`governance/README.md`](governance/README.md)。
 
