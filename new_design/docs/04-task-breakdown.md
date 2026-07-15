@@ -66,30 +66,30 @@ normative: true
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D3-01 | Target/Profile ID parsers | D2 | TST-REG-001 | in_progress |
-| TASK-D3-02 | static registry duplicate/exact lookup | D3-01 | TST-REG-002 | pending |
-| TASK-D3-03 | support resolver + aggregate rejection | D3-02/D2-07 | TST-REQ-003 | pending |
-| TASK-D3-04 | materializer associated-type protocol | D3-03 | TST-MAT-001 | pending |
-| TASK-D3-05 | OutputSet staging/manifest/schema | D3-04 | TST-OUT-001/002 | pending |
-| TASK-D3-06 | CLI check/build/inspect/list-targets | D3-05 | TST-CLI-001–004 | pending |
+| TASK-D3-01 | Target/Profile ID parsers | D2 | TST-REG-001 | done (EV-20260716-0018; TargetId.parse + CLI) |
+| TASK-D3-02 | static registry duplicate/exact lookup | D3-01 | TST-REG-002 | done (EV-20260716-0018; openvm not-implemented) |
+| TASK-D3-03 | support resolver + aggregate rejection | D3-02/D2-07 | TST-REQ-003 | done (EV-20260716-0018; Targets.checkSupport) |
+| TASK-D3-04 | materializer associated-type protocol | D3-03 | TST-MAT-001 | done (EV-20260716-0018; Tests.Materialization) |
+| TASK-D3-05 | OutputSet staging/manifest/schema | D3-04 | TST-OUT-001/002 | done (EV-20260716-0018; validate_artifacts + atomic) |
+| TASK-D3-06 | CLI check/build/inspect/list-targets | D3-05 | TST-CLI-001–004 | done (EV-20260716-0018; proof-forge-next build) |
 
 ## Milestone D4：EVM
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D4-01 | EvmPlan schema/invariants | D3 | TST-EVM-001 | pending |
-| TASK-D4-02 | SemanticProgram → EvmPlan | D4-01 | TST-EVM-002 | pending |
-| TASK-D4-03 | EvmPlan → Yul + ABI | D4-02 | TST-EVM-003 | pending |
-| TASK-D4-04 | solc bytecode packaging | D4-03 | TST-EVM-004 | pending |
-| TASK-D4-05 | Anvil Counter differential | D4-04 | TST-EVM-005 | pending |
+| TASK-D4-01 | EvmPlan schema/invariants | D3 | TST-EVM-001 | done (EV-20260716-0018) |
+| TASK-D4-02 | SemanticProgram → EvmPlan | D4-01 | TST-EVM-002 | done (EV-20260716-0018) |
+| TASK-D4-03 | EvmPlan → Yul + ABI | D4-02 | TST-EVM-003 | done (EV-20260716-0018) |
+| TASK-D4-04 | solc bytecode packaging | D4-03 | TST-EVM-004 | done (EV-20260716-0018) |
+| TASK-D4-05 | Anvil Counter differential | D4-04 | TST-EVM-005 | done (EV-20260716-0018; smoke_evm) |
 
 ## Milestone D5：Solana
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D5-01 | SolanaPlan account/layout schema | D3 | TST-SOL-001 | pending |
-| TASK-D5-02 | semantic → SolanaPlan | D5-01 | TST-SOL-002 | pending |
-| TASK-D5-03 | Plan → sBPF AST/text + IDL | D5-02 | TST-SOL-003 | pending |
+| TASK-D5-01 | SolanaPlan account/layout schema | D3 | TST-SOL-001 | done (EV-20260716-0018; static plan) |
+| TASK-D5-02 | semantic → SolanaPlan | D5-01 | TST-SOL-002 | done (EV-20260716-0018) |
+| TASK-D5-03 | Plan → sBPF AST/text + IDL | D5-02 | TST-SOL-003 | done (EV-20260716-0018; non-deployable) |
 | TASK-D5-04 | ELF packaging/validation | D5-03 | TST-SOL-004 | blocked (assembler/ELF toolchain not frozen) |
 | TASK-D5-05 | local runtime Counter differential | D5-04 | TST-SOL-005 | blocked (depends on D5-04) |
 
@@ -97,19 +97,19 @@ normative: true
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D6-01 | NearPlan KV/ABI/import schema | D3 | TST-NEAR-001 | pending |
-| TASK-D6-02 | semantic → NearPlan | D6-01 | TST-NEAR-002 | pending |
-| TASK-D6-03 | Plan → WasmModuleRecipe | D6-02 | TST-NEAR-003 | pending |
-| TASK-D6-04 | deterministic Wasm emit/validate | D6-03 | TST-NEAR-004 | pending |
+| TASK-D6-01 | NearPlan KV/ABI/import schema | D3 | TST-NEAR-001 | done (EV-20260716-0018) |
+| TASK-D6-02 | semantic → NearPlan | D6-01 | TST-NEAR-002 | done (EV-20260716-0018) |
+| TASK-D6-03 | Plan → WasmModuleRecipe | D6-02 | TST-NEAR-003 | done (EV-20260716-0018) |
+| TASK-D6-04 | deterministic Wasm emit/validate | D6-03 | TST-NEAR-004 | done (EV-20260716-0018; wat2wasm structural) |
 | TASK-D6-05 | sandbox Counter differential | D6-04 | TST-NEAR-005 | blocked (NEAR sandbox harness not in locked tools) |
 
 ## Milestone D7：Noir
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D7-01 | NoirPlan disclosure/state relation schema | D3 | TST-NOIR-001 | pending |
-| TASK-D7-02 | semantic → NoirPlan | D7-01 | TST-NOIR-002 | pending |
-| TASK-D7-03 | Plan → `.nr`/ABI | D7-02 | TST-NOIR-003 | pending |
+| TASK-D7-01 | NoirPlan disclosure/state relation schema | D3 | TST-NOIR-001 | done (EV-20260716-0018) |
+| TASK-D7-02 | semantic → NoirPlan | D7-01 | TST-NOIR-002 | done (EV-20260716-0018) |
+| TASK-D7-03 | Plan → `.nr`/ABI | D7-02 | TST-NOIR-003 | done (EV-20260716-0018; non-deployable) |
 | TASK-D7-04 | ACIR/witness/prove/verify pipeline | D7-03 | TST-NOIR-004 | blocked (Nargo/BB not frozen) |
 | TASK-D7-05 | Counter + PrivateSum4 proof tests | D7-04 | TST-NOIR-005/006 | blocked (depends on D7-04) |
 
@@ -117,10 +117,10 @@ normative: true
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D8-01 | Counter four-target aggregate | D4–D7 | TST-XTARGET-001 | pending |
-| TASK-D8-02 | unsupported/version/tool failure matrix | D3–D7 | TST-XTARGET-002 | pending |
-| TASK-D8-03 | reproducibility/concurrency/path attacks | D3–D7 | TST-SEC-001 | pending |
-| TASK-D8-04 | clean-room full gate | D8-01–03 | TST-ISO-003 | blocked (requires eligible host + TST-ISO-002) |
-| TASK-D8-05 | review report + release/rollback drill | D8-04 | TST-REL-001 | pending |
+| TASK-D8-01 | Counter four-target aggregate | D4–D7 | TST-XTARGET-001 | done (EV-20260716-0018; target-smoke) |
+| TASK-D8-02 | unsupported/version/tool failure matrix | D3–D7 | TST-XTARGET-002 | done (EV-20260716-0018; target-negative) |
+| TASK-D8-03 | reproducibility/concurrency/path attacks | D3–D7 | TST-SEC-001 | done (EV-20260716-0018; repro + output-security) |
+| TASK-D8-04 | clean-room full gate | D8-01–03 | TST-ISO-003 | blocked (requires eligible host + TST-ISO-002; H1 EV-0012 is development only) |
+| TASK-D8-05 | review report + release/rollback drill | D8-01–03 | TST-REL-001 | done (EV-20260716-0018; docs/07-review-report.md not_ready) |
 
 任务完成记录必须包含 commit、精确命令、结果、制品/evidence 路径及已知限制。

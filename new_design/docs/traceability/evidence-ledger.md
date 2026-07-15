@@ -32,9 +32,11 @@ normative: false
 | EV-20260716-0015 | `proof-forge-next-tests` + `Tests.Language.Declarations` | passed | state/init/entry/view structure；checkedAdd/return AST；duplicate init + UInt64 overflow reject；empty callables `PF-SRC-INVALID`；closes `TASK-D1-03/04` / `TST-SRC-004/005` |
 | EV-20260716-0016 | `proof-forge-next-tests` + `Tests.Language.Export` | passed | qualifiedName/sourceHash export；multi-program `PF-EXPORT-002`；duplicate export `PF-EXPORT-001`；stable `code: message` render；closes `TASK-D1-05/06/07` |
 | EV-20260716-0017 | `proof-forge-next-tests` Pipeline/Bound/Semantics/Targets | passed | TYPE name/dup/type-mismatch；EFFECT view-write；BOUND unbounded/0/4097；VIS privateWitness+EVM reject；SEM hash golden + Counter overflow；REQ inference；closes `TASK-D2-01..07` |
+| EV-20260716-0018 | `just target-negative target-smoke output-security`；`just evm-runtime`；`just reproducibility`；`proof-forge-next-tests` Materials | passed | four-target artifacts；openvm/tool negatives；atomic output；Anvil Counter；19-file repro；closes runnable D3–D8 rows at proven maturity |
 
-Formal closed: `D0-01..03`, `D1-01..07`, `D2-01..07`. Blocked: `D0-04`,
-`D5-04/05`, `D6-05`, `D7-04/05`, `D8-04`.
+Formal closed with per-EV mapping: `D0-01..03`, `D1-01..07`, `D2-01..07`, runnable
+`D3–D8` (except blocked tool/host rows). Blocked: `D0-04`, `D5-04/05`, `D6-05`,
+`D7-04/05`, `D8-04`. Review decision remains `not_ready` for public release.
 
-未取得：formal hermetic、remaining formal D1–D8 closures、Solana ELF/runtime、NEAR
-sandbox、Noir prove/verify、public release。
+未取得：formal hermetic clean-room、Solana ELF/runtime、NEAR sandbox receipt、Noir
+ACIR/proof/VK/verify、signed public release。

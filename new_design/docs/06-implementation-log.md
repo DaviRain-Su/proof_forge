@@ -295,6 +295,17 @@ normative: false
 - Evidence：`EV-20260716-0017`.
 - Next：`TASK-D3-01` in_progress.
 
+## 2026-07-16 — TASK-D3..D8 runnable Phase-1 targets + integration
+
+- Spec/Test：`TST-REG/MAT/OUT/CLI/EVM/SOL/NEAR/NOIR/XTARGET/SEC/REL-*` at maturity gates prove.
+- Commands：`just target-negative target-smoke output-security`；`just evm-runtime`；
+  `just reproducibility`；unit Materials/CLI tests in `proof-forge-next-tests`.
+- Results：exit 0；four targets emit；EVM Anvil init/increment/overflow；19-file repro；
+  Solana/Noir non-deployable；NEAR wat2wasm structural only.
+- Evidence：`EV-20260716-0018`；H1 clean-room remains `EV-20260715-0012` (development).
+- Limitations：no ELF/sandbox/proof/formal hermetic; review `not_ready`.
+- Next：none open for Phase-1 implementation; only blocked host/tool rows.
+
 ## 记录模板
 
 

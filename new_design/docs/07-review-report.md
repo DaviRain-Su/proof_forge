@@ -52,8 +52,8 @@ Finding severity：P0 安全/语义破坏、P1 发布阻断、P2 可带明确跟
 
 ## 最终决策
 
-- Candidate version/commit：`0298b19a` 起 H1 证据；后续 control-plane 文档提交见 log
-- Evidence set：上表；Merkle root 未做 release 级汇总
+- Candidate version/commit：formal D1 NodeId/export + D2/D3–D8 gates through `458e696f`+（见 log）
+- Evidence set：EV-20260715-0011/0012 + EV-20260716-0013..0018；Merkle root 未做 release 级汇总
 - Supported targets/profiles（Phase-1 engineering maturity）：
   - `evm`：solc bytecode + Anvil Counter（local_runtime）
   - `near`：Wasm structural validate（artifact_validated；无 sandbox receipt）
@@ -61,7 +61,7 @@ Finding severity：P0 安全/语义破坏、P1 发布阻断、P2 可带明确跟
   - `noir`：`.nr` + Prover input（non-deployable；无 proof）
 - Unsupported claims：formal hermetic、Solana ELF/runtime、NEAR sandbox、Noir prove/verify、公网部署、signed release
 - Rollback version/drill：未执行（无 release 通道）
-- Decision：`not_ready`（engineering D0–D8 在 host/tool 限制下已诚实闭合；**不**批准 public release）
+- Decision：`not_ready`（runnable Phase-1 formal tasks closed with TST/EV；blocked host/tool rows remain；**不**批准 public release）
 - Approvers/date：implementer self-review 2026-07-16；独立 multi-party release approval 未进行
 
 ## Rollback 笔记（若未来 release）
