@@ -4421,3 +4421,18 @@ Rules:
   `document-status.md`.
 - Verification: documentation only; cross-links to scan/selectors/decisions.
 - Remaining: execute capability-table + differential packages when scheduled.
+
+## 2026-07-15 - main CI: RemoteCall NEAR WAT golden refresh
+
+- Status: `done` (pending verify at merge sha)
+- Result: Refreshed `Examples/Backend/WasmNear/RemoteCall.golden.wat` after
+  `79a23df3` NEP-145-lite deposit routing: cross-call deposit args now lower to
+  pooled `"1"` string (`i32` + `_len`) instead of `i64.const 0`. Unblocks
+  `just portable-remote-call-multi-target` / `just product` on main.
+- Interfaces: `Examples/Backend/WasmNear/RemoteCall.golden.wat`, `AGENTS.md`
+  checkpoint (#105 landed → #104 queue).
+- Verification: `bash scripts/portable/remote-call-multi-target.sh` passed;
+  `just product` passed through remote-call (full aggregate blocked locally on
+  missing `solc` for NFT EVM emit — CI has solc).
+- Remaining: land PR; babysit PR #104 cutover conflicts/CI.
+- Documentation: `AGENTS.md`, `docs/implementation-log.md`.

@@ -24,11 +24,11 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **PR #105** LR-S5/M1 done + **P3**: Solana `Asm.numStr` hex for ≥2^63 imm (AccessControl sbpf); Seam A maintain; **D-058** |
-| Next task | Land/review #105; further P3 only with new repros; #104 cutover separate |
-| Parallel on main (done) | C3 OpenVM research brief → **defer** backend; D-057 design docs at `d9c132a0` |
-| Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
-| Execution queue | [PR #105](https://github.com/DaviRain-Su/proof_forge/pull/105); [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
+| Active task | **main CI green**: refresh RemoteCall NEAR WAT golden for NEP-145-lite deposit string (`79a23df3` ABI path) |
+| Next task | [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104) authoring cutover (resolve conflicts, replay CI); further P3 only with new repros |
+| Parallel on main (done) | **PR #105** landed (`3be48f42`): Seam B + D-058 + Seam A + Solana large-imm fix; C3 OpenVM → **defer**; D-057 at `d9c132a0` |
+| Known blocker | PR #104 **CONFLICTING** + CI red on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
+| Execution queue | main CI fix → [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Soroban note | Counter MVP only; gap list and S0–S5 order in [`docs/targets/stellar-soroban.md`](docs/targets/stellar-soroban.md) |
 | Architecture orientation | Portable capability → target Plan → assembly (not full SDK / not Lean VMs): [EN](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md) · [中文](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md); D-058 no Rust product lower; scan [solana-wasm coverage](docs/targets/solana-wasm-coverage-scan-2026-07-15.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
