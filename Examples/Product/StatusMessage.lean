@@ -15,25 +15,31 @@ reference uses AccountId → u64 for a fair dual-deploy compare.
 
 NEAR compare: `just near-compare-status-message` / `-live`
 -/
-import ProofForge.Contract.Source.Legacy
+import ProofForge.Contract.Source
 
 namespace Examples.Product.StatusMessage
 
-open ProofForge.Contract.Source.Legacy
+open ProofForge.Contract.Source
 
 contract_source StatusMessage do
   state version : .u64
   mapping records from .u64 to .u64
 
-  event StatusSet
+  event StatusSet #[
+    indexedField account .u64,
+    field status .u64
+  ]
 
   entry init do
     version := u64 1;
 
   entry set_status (status : .u64) do
-    let who : .u64 := caller;
+    let who : .u64 := cast caller .u64;
     do mapWrite records who status;
-    emit StatusSet indexed #[fieldAsName "account" who] data #[fieldAsName "status" status];
+    emit StatusSet #[
+      indexedFieldAs account who,
+      fieldAs status status
+    ];
 
   query get_status (who : .u64) returns(.u64) do
     return mapRead records who;

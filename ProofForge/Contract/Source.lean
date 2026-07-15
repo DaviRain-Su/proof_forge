@@ -101,6 +101,11 @@ Canonical Core and materialized by each target plan. -/
 def arrayGet (array index : AuthoredExpr) : AuthoredExpr :=
   .index array index
 
+/-- Explicit target-neutral value conversion. The source owns the logical
+conversion; target plans own the concrete carrier representation. -/
+def cast (value : AuthoredExpr) (to : AuthoredType) : AuthoredExpr :=
+  .cast to value
+
 class ToExpr (alpha : Type) where
   toExpr : alpha -> AuthoredExpr
 
@@ -216,6 +221,9 @@ partial def lowerExpr (states locals : Array String) (source : TSyntax `term) :
       let loweredArray <- lowerExpr states locals array
       let loweredIndex <- lowerExpr states locals index
       `(.index $loweredArray $loweredIndex)
+  | `(cast $value:term $targetType:term) =>
+      let loweredValue <- lowerExpr states locals value
+      `(.cast $targetType $loweredValue)
   | `(mapRead $mapName:ident $key:term) =>
       let loweredKey <- lowerExpr states locals key
       let mapNameTerm := nameLit mapName

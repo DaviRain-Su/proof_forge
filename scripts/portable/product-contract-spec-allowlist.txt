@@ -23,7 +23,6 @@ Examples/Product/ProRataVault.lean:contract_source
 Examples/Product/RemoteCall.lean:contract_source
 Examples/Product/RoleGatedToken.lean:contract_source
 Examples/Product/StakingVault.lean:contract_source
-Examples/Product/StatusMessage.lean:contract_source
 Examples/Product/StorageDeposit.lean:contract_source
 Examples/Product/TimelockVault.lean:contract_source
 Examples/Product/ValueVault.lean:contract_source

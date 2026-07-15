@@ -444,6 +444,14 @@ authored-map:
     lake build ProofForge.Contract.Source
     lake env lean --run Tests/Canonical/AuthoredMap.lean
 
+# A-CUT3e2: Product StatusMessage has one direct map/event route and no
+# ContractSpec, v1 IR, or duplicate Surface authoring source.
+status-message-authoring-cutover:
+    scripts/canonical/check-status-message-authoring-cutover.sh
+    lake build proof-forge ProofForge.Contract.Source Examples.Product.StatusMessage
+    lake env lean --run Tests/StatusMessageExample.lean
+    scripts/canonical/status-message-target-first-smoke.sh
+
 # A-CUT3b2: Product Ownable has one direct Authored/Core route to all primary plans.
 ownable-authoring-cutover:
     scripts/canonical/check-ownable-authoring-cutover.sh

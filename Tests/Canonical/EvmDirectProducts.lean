@@ -8,7 +8,6 @@ import TestFixtures.SurfaceProducts.AccessControl
 import TestFixtures.SurfaceProducts.OwnableHash
 import TestFixtures.SurfaceProducts.OwnablePausable
 import TestFixtures.SurfaceProducts.GuestBook
-import TestFixtures.SurfaceProducts.StatusMessage
 import TestFixtures.SurfaceProducts.HostEnvProbe
 import TestFixtures.SurfaceProducts.HeightLockVault
 import TestFixtures.SurfaceProducts.TimelockVault
@@ -120,7 +119,6 @@ def main : IO Unit := do
   checkProduct TestFixtures.SurfaceProducts.OwnableHash.contract 3
   checkProduct TestFixtures.SurfaceProducts.OwnablePausable.contract 6
   checkProduct TestFixtures.SurfaceProducts.GuestBook.contract 5
-  checkProduct TestFixtures.SurfaceProducts.StatusMessage.contract 3
   checkProduct TestFixtures.SurfaceProducts.HostEnvProbe.contract 6
   checkProduct TestFixtures.SurfaceProducts.HeightLockVault.contract 7
   checkProduct TestFixtures.SurfaceProducts.TimelockVault.contract 7

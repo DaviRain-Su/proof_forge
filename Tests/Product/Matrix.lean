@@ -143,8 +143,14 @@ def testPolicies : IO Unit := do
       #["acquire", "release", "locked"])
     "direct ReentrancyGuard authored entrypoint drift"
   require (Examples.Product.ArrayExample.contract.entrypoints.map (·.name) ==
-      #["sizeOf3", "getElem", "sumOf3"])
+      #["sizeOf3", "getElem", "sumOf3", "outOfBounds"])
     "direct ArrayExample authored entrypoint drift"
+  require (Examples.Product.StatusMessage.contract.state.map (·.name) ==
+      #["version", "records"])
+    "direct StatusMessage authored state drift"
+  require (Examples.Product.StatusMessage.contract.entrypoints.map (·.name) ==
+      #["init", "set_status", "get_status"])
+    "direct StatusMessage authored entrypoint drift"
   /- Direct Pausable and ReentrancyGuard target-plan coverage lives in their
   focused authoring gates; do not adapt either source back to v1 IR here. -/
   for (label, m) in #[
@@ -163,7 +169,6 @@ def testVaultsAndTokens : IO Unit := do
     ("HeightLockVault", Examples.Product.HeightLockVault.module),
     ("ProRataVault", Examples.Product.ProRataVault.module),
     ("SoulboundTokenBody", Examples.Product.SoulboundTokenBody.module),
-    ("StatusMessage", Examples.Product.StatusMessage.module),
     ("TimelockVault", Examples.Product.TimelockVault.module),
     ("VestingVault", Examples.Product.VestingVault.module)
   ] do
