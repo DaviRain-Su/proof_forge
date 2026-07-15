@@ -100,9 +100,10 @@ Expr          ::= literal | Place | constructor | unary | binary | call | match
 
 ## Elaboration 与导出
 
-当前 alpha parser/decoder 产生 `Source.Program`；完整 D1 parser 将为节点补齐 `NodeId`、
-byte span、line/column。NodeId 是
+`Source.Program` 由 parser/decoder 产出；`TASK-D1-01` 已为 inventory 提供 `NodeId`、
+`Span` 与 portable `tokenize`。NodeId 是
 `SHA-256(moduleName, programName, normalized syntactic path)` 前 128 bit，不含绝对路径。
+Lean syntax elaborator 当前仍可使用 synthetic span；NodeId 不依赖绝对路径。
 每个 command 生成：
 
 ```lean

@@ -46,15 +46,15 @@ normative: true
 | TASK-D1-02 | `program ... where` command parser | D1-01 | TST-SRC-003 | done (EV-20260716-0014; Loader kind reject + ProgramSyntax) |
 | TASK-D1-03 | declaration grammar/elaboration | D1-02 | TST-SRC-004 | done (EV-20260716-0015; Tests.Language.Declarations) |
 | TASK-D1-04 | statement/expression grammar | D1-03 | TST-SRC-005 | done (EV-20260716-0015; Tests.Language.Declarations) |
-| TASK-D1-05 | `Source.Program` stable attribute export/schema | D1-03 | TST-SRC-006/007 | in_progress |
-| TASK-D1-06 | multi-program loader/selection | D1-05 | TST-SRC-008 | pending |
-| TASK-D1-07 | stable source diagnostics | D1-02–06 | TST-DIAG-001 | pending |
+| TASK-D1-05 | `Source.Program` stable attribute export/schema | D1-03 | TST-SRC-006/007 | done (EV-20260716-0016; Tests.Language.Export) |
+| TASK-D1-06 | multi-program loader/selection | D1-05 | TST-SRC-008 | done (EV-20260716-0016; PF-EXPORT-002 selection) |
+| TASK-D1-07 | stable source diagnostics | D1-02–06 | TST-DIAG-001 | done (EV-20260716-0016; PF-EXPORT-001/002 render) |
 
 ## Milestone D2：检查与语义
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D2-01 | name/type checker | D1 | TST-TYPE-001/002 | pending |
+| TASK-D2-01 | name/type checker | D1 | TST-TYPE-001/002 | in_progress |
 | TASK-D2-02 | effect/call/view checker | D2-01 | TST-EFFECT-001 | pending |
 | TASK-D2-03 | bound/termination checker | D2-01 | TST-BOUND-001 | pending |
 | TASK-D2-04 | disclosure/authority/custody checker | D2-01 | TST-VIS-001/002 | pending |

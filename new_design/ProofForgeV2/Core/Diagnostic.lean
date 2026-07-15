@@ -77,6 +77,8 @@ inductive CompileError where
   | unsupportedRequirement (requirement : ProgramRequirement) (target : TargetId)
   | invalidProgram (message : String)
   | resourceBound (message : String)
+  | exportDuplicate (qualifiedName : String)
+  | exportAmbiguous (count : Nat)
   | unknownEntry (name : String)
   | wrongArity (expected actual : Nat)
   | arithmeticOverflow
@@ -95,6 +97,8 @@ def code : CompileError → String
   | .unsupportedRequirement .. => "PF-REQ-UNSUPPORTED"
   | .invalidProgram .. => "PF-SRC-INVALID"
   | .resourceBound .. => "PF-BOUND-001"
+  | .exportDuplicate .. => "PF-EXPORT-001"
+  | .exportAmbiguous .. => "PF-EXPORT-002"
   | .unknownEntry .. => "PF-SEM-UNKNOWN-ENTRY"
   | .wrongArity .. => "PF-SEM-WRONG-ARITY"
   | .arithmeticOverflow => "PF-SEM-ARITHMETIC-OVERFLOW"
@@ -111,6 +115,9 @@ def message : CompileError → String
       s!"target '{target}' cannot preserve requirement '{requirement}'"
   | .invalidProgram detail => detail
   | .resourceBound detail => detail
+  | .exportDuplicate name => s!"duplicate exported program '{name}'"
+  | .exportAmbiguous count =>
+      s!"source contains {count} programs; pass --program <qualified-name>"
   | .unknownEntry name => s!"unknown entry '{name}'"
   | .wrongArity expected actual => s!"expected {expected} arguments, received {actual}"
   | .arithmeticOverflow => "checked UInt64 arithmetic overflow"

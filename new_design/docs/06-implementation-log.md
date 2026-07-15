@@ -275,6 +275,16 @@ normative: false
 - Evidence：`EV-20260716-0015`.
 - Next：`TASK-D1-05` in_progress.
 
+## 2026-07-16 — TASK-D1-05/06/07 export, selection, diagnostics
+
+- Spec/Test：`TST-SRC-006/007/008`、`TST-DIAG-001`；`Tests.Language.Export`.
+- Changed：`CompileError.exportDuplicate/exportAmbiguous` → `PF-EXPORT-001/002`；
+  Loader uses them for duplicate identity and multi-program ambiguity.
+- Commands：`lake env .lake/build/bin/proof-forge-next-tests`.
+- Results：exit 0；namespace-stable sourceHash；EXPORT codes stable render.
+- Evidence：`EV-20260716-0016`.
+- Next：`TASK-D2-01` in_progress.
+
 ## 记录模板
 
 

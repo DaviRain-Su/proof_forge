@@ -4,6 +4,7 @@ import Tests.Compiler.Bound
 import Tests.Language.ProgramSyntax
 import Tests.Language.SourceIdentity
 import Tests.Language.Declarations
+import Tests.Language.Export
 import Tests.Language.Loader
 import Tests.Materialization.Targets
 import Tests.CLI.Emit
@@ -15,6 +16,7 @@ unsafe def main : IO Unit := do
   Tests.Language.run
   Tests.Language.SourceIdentity.run
   Tests.Language.Declarations.run
+  Tests.Language.Export.run
   Tests.Language.Loader.run
   Tests.Materialization.run
   Tests.CLI.Emit.run

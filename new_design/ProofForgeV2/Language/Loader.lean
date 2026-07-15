@@ -57,7 +57,7 @@ private def processCommands (commands : Array Syntax) :
     | .ok _ =>
         let contractProgram ← decodeProgram (currentNamespace scopes) command
         if programs.any (·.qualifiedName == contractProgram.qualifiedName) then
-          throw <| invalid s!"duplicate program '{contractProgram.qualifiedName}'"
+          throw <| .exportDuplicate contractProgram.qualifiedName
         programs := programs.push contractProgram
     | .error _ =>
         match command with
@@ -115,6 +115,6 @@ unsafe def selectProgram (source fileName : String) (requested : Option String) 
         match programs with
         | #[contractProgram] => .ok contractProgram
         | #[] => .error <| invalid "source contains no program"
-        | _ => .error <| invalid "source contains multiple programs; pass --program <qualified-name>"
+        | many => .error <| .exportAmbiguous many.size
 
 end ProofForgeV2.Language.Loader

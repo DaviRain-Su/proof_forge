@@ -30,8 +30,9 @@ normative: false
 | EV-20260716-0013 | `lake env .lake/build/bin/proof-forge-next-tests`（incl. `Tests.Language.SourceIdentity`） | passed | `Source.Token`/`Span`/`NodeId`/`tokenize`/`Program.enumerateNodes`/`validateLimits`；NodeId = SHA-256(module,program,path)[:128]；token spans non-overlapping；node/nesting limit negatives → `PF-BOUND-001`；closes formal `TASK-D1-01` / `TST-SRC-001/002` only |
 | EV-20260716-0014 | `proof-forge-next-tests` Loader/ProgramSyntax；`just dsl-negative` | passed | positive `program ... where` export；`program Invalid : contract where` rejected by loader + lean dsl-negative；closes `TASK-D1-02` / `TST-SRC-003` only |
 | EV-20260716-0015 | `proof-forge-next-tests` + `Tests.Language.Declarations` | passed | state/init/entry/view structure；checkedAdd/return AST；duplicate init + UInt64 overflow reject；empty callables `PF-SRC-INVALID`；closes `TASK-D1-03/04` / `TST-SRC-004/005` |
+| EV-20260716-0016 | `proof-forge-next-tests` + `Tests.Language.Export` | passed | qualifiedName/sourceHash export；multi-program `PF-EXPORT-002`；duplicate export `PF-EXPORT-001`；stable `code: message` render；closes `TASK-D1-05/06/07` |
 
-Formal closed with matching TST/EV: `D0-01..03`, `D1-01..04`. Blocked: `D0-04`,
+Formal closed with matching TST/EV: `D0-01..03`, `D1-01..07`. Blocked: `D0-04`,
 `D5-04/05`, `D6-05`, `D7-04/05`, `D8-04`.
 
 未取得：formal hermetic、remaining formal D1–D8 closures、Solana ELF/runtime、NEAR
