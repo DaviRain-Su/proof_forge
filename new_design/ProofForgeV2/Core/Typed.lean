@@ -148,7 +148,7 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
         throw <| .invalidProgram s!"checked addition in {scope.owner} requires two UInt64 operands"
       return .checkedAdd lhs rhs
 
-private def checkStatement (scope : Scope) (mode : EntryMode) :
+private partial def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement
   | .assign stateName value => do
       if mode == .view then
@@ -168,6 +168,10 @@ private def checkStatement (scope : Scope) (mode : EntryMode) :
         invalid s!"synchronous call target in {scope.owner} cannot be empty"
       else
         .ok (.synchronousCall callee)
+  | .loopBounded _ _
+  | .unboundedLoop _ =>
+      -- Bound/termination is fail-closed before typing via Source.Program.validateLimits.
+      invalid s!"loop control in {scope.owner} must be rejected by bound checking before typing"
 
 private def checkInitializer (state : Array StateDecl)
     (initializer : Source.Initializer) : CompileResult Initializer := do
@@ -211,6 +215,7 @@ private def checkEntry (state : Array StateDecl) (entry : Source.Entry) : Compil
 No requirement is trusted from `Source.Program`; requirements are derived later
 from the checked Semantic IR. -/
 def check (source : Source.Program) : CompileResult Program := do
+  Source.Program.validateLimits source
   if source.qualifiedName.isEmpty then
     throw <| .invalidProgram "program qualified identity cannot be empty"
   if source.name.isEmpty then

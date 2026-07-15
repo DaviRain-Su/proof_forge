@@ -13,13 +13,13 @@
 
 | Field | Current value |
 |---|---|
-| Program | V2 Phase-1 engineering candidate：统一 `program ... where` → SemanticProgram → 四目标 Plan/制品 |
-| Active task | none（无 open Phase-1 实现任务；仅 host/tool blocked 项） |
-| Next task | eligible host 上解除 `TASK-D0-04`/`TASK-D8-04`；冻结 Solana ELF / NEAR sandbox / Noir BB 工具链后再提升 maturity |
-| Phase 1 targets | `evm` (local_runtime)、`near` (wasm-validated)、`solana`/`noir` (non-deployable static) |
+| Program | V2 独立编译管线：Lean syntax 到 target-owned Plan/IR |
+| Active task | `TASK-D1-02`：`program ... where` command parser（TST-SRC-003） |
+| Next task | D1-02 后 D1-03…；bound checker 代码已入主路径但 `TASK-D2-03` 待 D2-01 完成后关闭 |
+| Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | formal hermetic：`eligibleForHermetic=false`；Solana ELF、NEAR sandbox、Noir prove/verify 工具未锁定；**无 public release** |
-| Source of status | [`docs/document-status.md`](docs/document-status.md)、[`docs/07-review-report.md`](docs/07-review-report.md) |
+| Known blocker | `TASK-D0-04`/`TST-ISO-002`：host `eligibleForHermetic=false`；Solana ELF / NEAR sandbox / Noir BB 未冻结 |
+| Source of status | [`docs/document-status.md`](docs/document-status.md) |
 
 检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
 当前 EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证，NEAR 有 `wat2wasm` 结构验证

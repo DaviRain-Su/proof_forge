@@ -27,9 +27,11 @@ normative: false
 | EV-20260715-0011 | authoritative `env -i ... verify_host_stage0.sh` development/formal；`just host-stage0-negative`；`just check` | passed (development attestation; expected formal rejection) | profile `darwin-arm64-25E253-xcode17C529-development`、host lock `0af42570…e0fa8`、launcher `95fdf6c5…fb095`、verifier `7d6000a3…032c9`；development observation 精确匹配 macOS `26.4.1/25E253`、native arm64、SIP/authenticated-root enabled、seal broken、Xcode `26.3/17C529` 且 pathname current-user-mutable；formal 稳定 `PF-HOST-INELIGIBLE`；bootstrap/host-lock/BASH_ENV negatives fail closed；仅为 local point-in-time evidence，不关闭 TST-ISO-002/003 |
 | EV-20260715-0012 | `just host-h1-unit`；`just v2-clean-room-h1`；formal Stage-0 `--require-eligible` | passed (H1 development clean-room; formal host rejection expected) | commit `0298b19a…`、archive `2910c0a1…b726`、deny-default sandbox、candidate/archive binding、schema-complete immutable EV under `build/evidence/clean-room/EV-20260715-0012.json`（`sandboxPolicy=deny-default`，`eligibleForHermetic=false`）；formal Stage-0 稳定 `PF-HOST-INELIGIBLE`；关闭 `TASK-D0-03/H1`，**不**关闭 `TST-ISO-002`/`TASK-D0-04`/`TST-ISO-003` |
 
-H0 + H1 repo-side 与 Phase-1 engineering tasks 已在 host/tool 限制下诚实闭合。
-`TASK-D0-04`、`TASK-D5-04/05`、`TASK-D6-05`、`TASK-D7-04/05`、`TASK-D8-04` 保持 blocked。
-Review：`docs/07-review-report.md` decision `not_ready`（无 public release）。
+| EV-20260716-0013 | `lake env .lake/build/bin/proof-forge-next-tests`（incl. `Tests.Language.SourceIdentity`） | passed | `Source.Token`/`Span`/`NodeId`/`tokenize`/`Program.enumerateNodes`/`validateLimits`；NodeId = SHA-256(module,program,path)[:128]；token spans non-overlapping；node/nesting limit negatives → `PF-BOUND-001`；closes formal `TASK-D1-01` / `TST-SRC-001/002` only |
 
-未取得：formal hermetic clean-room、Solana ELF/runtime、NEAR sandbox receipt、Noir
-ACIR/proof/VK/verify、任何公网部署、signed release。
+Formal D1+ is reopened after revoking bulk alpha re-labeling. Closed formal tasks:
+`D0-01..03`, `D1-01`. Blocked: `D0-04`, `D5-04/05`, `D6-05`, `D7-04/05`, `D8-04`.
+All other formal rows remain `pending` until per-task TST/EV.
+
+未取得：formal hermetic、remaining formal D1–D8 closures、Solana ELF/runtime、NEAR
+sandbox、Noir prove/verify、public release。

@@ -12,7 +12,9 @@ lean_lib ProofForgeV2Tests where
   roots := #[
     `Tests.Core.Semantics,
     `Tests.Compiler.Pipeline,
+    `Tests.Compiler.Bound,
     `Tests.Language.ProgramSyntax,
+    `Tests.Language.SourceIdentity,
     `Tests.Language.Loader,
     `Tests.Materialization.Targets,
     `Tests.CLI.Emit

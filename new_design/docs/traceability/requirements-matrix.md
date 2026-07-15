@@ -9,13 +9,13 @@ normative: true
 
 # Phase 1 需求追踪矩阵
 
-当前所有 evidence 状态均为 `specified`；不得把 planned test 视为已通过。
+Evidence 仅在有可复现 EV 时从 `specified` 升级；不得把 planned test 视为已通过。
 
 | Requirement | ADR/INV | Spec/Module | Task | Test | Evidence |
 |---|---|---|---|---|---|
 | FR-001 | ADR-0002, ADR-0003, INV-001 | SPEC-LANG-001, MOD-SOURCE-001 | TASK-D1-02 | TST-SRC-003 | specified |
 | FR-002 | ADR-0002 | SPEC-LANG-001 | TASK-D1-03/04 | TST-SRC-004/005 | specified |
-| FR-003 | INV-001, INV-002 | SPEC-TYPE-001, SPEC-DIAG-001 | TASK-D2-01..04 | TST-TYPE/EFFECT/BOUND/VIS-* | specified |
+| FR-003 | INV-001, INV-002 | SPEC-TYPE-001, SPEC-DIAG-001 | TASK-D2-01..04 | TST-TYPE/EFFECT/BOUND/VIS-* | specified (partial Bound impl; D2 not closed) |
 | FR-004 | ADR-0004, INV-003 | SPEC-SEM-001, MOD-SEM-001 | TASK-D2-05..07 | TST-SEM-001, TST-REQ-001 | specified |
 | FR-005 | ADR-0003, ADR-0004, INV-002 | SPEC-SEM-001, SPEC-REG-001 | TASK-D3-01..03 | TST-XTARGET-001 | specified |
 | FR-006 | ADR-0005, INV-005 | SPEC-CAP-001 | TASK-D2-07/D3-03 | TST-REQ-003 | specified |

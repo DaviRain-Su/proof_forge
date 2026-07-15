@@ -76,6 +76,7 @@ inductive CompileError where
   | targetNotImplemented (target : TargetId)
   | unsupportedRequirement (requirement : ProgramRequirement) (target : TargetId)
   | invalidProgram (message : String)
+  | resourceBound (message : String)
   | unknownEntry (name : String)
   | wrongArity (expected actual : Nat)
   | arithmeticOverflow
@@ -93,6 +94,7 @@ def code : CompileError → String
   | .targetNotImplemented .. => "PF-TARGET-NOT-IMPLEMENTED"
   | .unsupportedRequirement .. => "PF-REQ-UNSUPPORTED"
   | .invalidProgram .. => "PF-SRC-INVALID"
+  | .resourceBound .. => "PF-BOUND-001"
   | .unknownEntry .. => "PF-SEM-UNKNOWN-ENTRY"
   | .wrongArity .. => "PF-SEM-WRONG-ARITY"
   | .arithmeticOverflow => "PF-SEM-ARITHMETIC-OVERFLOW"
@@ -108,6 +110,7 @@ def message : CompileError → String
   | .unsupportedRequirement requirement target =>
       s!"target '{target}' cannot preserve requirement '{requirement}'"
   | .invalidProgram detail => detail
+  | .resourceBound detail => detail
   | .unknownEntry name => s!"unknown entry '{name}'"
   | .wrongArity expected actual => s!"expected {expected} arguments, received {actual}"
   | .arithmeticOverflow => "checked UInt64 arithmetic overflow"

@@ -134,6 +134,74 @@ end ProofForgeV2.Crypto
 
 namespace ProofForgeV2.Source
 
+/-- Inclusive-exclusive byte range plus 1-based line/column of the start. -/
+structure Span where
+  byteStart : Nat
+  byteEnd : Nat
+  line : Nat
+  column : Nat
+  deriving BEq, DecidableEq, Hashable, Inhabited, Repr
+
+namespace Span
+
+def synthetic : Span := { byteStart := 0, byteEnd := 0, line := 0, column := 0 }
+
+def isWellFormed (span : Span) : Bool :=
+  span.byteStart ≤ span.byteEnd
+
+end Span
+
+/-- First 128 bits of SHA-256(module, program, syntactic path) as 32 lower-case hex chars. -/
+structure NodeId where
+  hex128 : String
+  deriving BEq, DecidableEq, Hashable, Inhabited, Repr
+
+namespace NodeId
+
+def isWellFormed (id : NodeId) : Bool :=
+  id.hex128.length == 32 && id.hex128.toList.all fun char =>
+    "0123456789abcdef".toList.contains char
+
+private def firstChars (value : String) (count : Nat) : String :=
+  String.ofList (value.toList.take count)
+
+def ofPath (moduleName programName path : String) : NodeId :=
+  let material := (moduleName ++ "\u0000" ++ programName ++ "\u0000" ++ path).toUTF8
+  let digest := ProofForgeV2.Crypto.sha256Hex material
+  { hex128 := firstChars digest 32 }
+
+end NodeId
+
+inductive TokenKind where
+  | keyword (name : String)
+  | ident (name : String)
+  | number (text : String)
+  | stringLit (text : String)
+  | symbol (text : String)
+  | eof
+  deriving BEq, DecidableEq, Hashable, Inhabited, Repr
+
+structure Token where
+  kind : TokenKind
+  span : Span
+  deriving BEq, Inhabited, Repr
+
+structure Limits where
+  maxNodes : Nat := 100000
+  maxNesting : Nat := 256
+  maxSourceBytes : Nat := 16 * 1024 * 1024
+  maxLoopBound : Nat := 4096
+  deriving BEq, Inhabited, Repr
+
+def defaultLimits : Limits := {}
+
+structure NodeRecord where
+  path : String
+  nodeId : NodeId
+  span : Span
+  kind : String
+  deriving BEq, Inhabited, Repr
+
 inductive ValueType where
   | u64
   | bool
@@ -168,6 +236,10 @@ inductive Statement where
   | assign (stateName : String) (value : Expr)
   | returnValue (value : Expr)
   | synchronousCall (callee : String)
+  /-- Explicitly bounded loop; `bound` must be in 1..Limits.maxLoopBound. -/
+  | loopBounded (bound : Nat) (body : Array Statement)
+  /-- Unbounded/recursive control form; bound checker must fail closed with PF-BOUND-001. -/
+  | unboundedLoop (body : Array Statement)
   deriving BEq, Inhabited, Repr
 
 inductive EntryMode where
@@ -260,10 +332,14 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .state name => appendString (appendTag bytes 2) name
   | .checkedAdd lhs rhs => appendExpr (appendExpr (appendTag bytes 3) lhs) rhs
 
-private def appendStatement (bytes : ByteArray) : Statement → ByteArray
+private partial def appendStatement (bytes : ByteArray) : Statement → ByteArray
   | .assign name value => appendExpr (appendString (appendTag bytes 0) name) value
   | .returnValue value => appendExpr (appendTag bytes 1) value
   | .synchronousCall callee => appendString (appendTag bytes 2) callee
+  | .loopBounded bound body =>
+      appendArray appendStatement (appendNat (appendTag bytes 3) bound) body
+  | .unboundedLoop body =>
+      appendArray appendStatement (appendTag bytes 4) body
 
 private def appendEntryMode (bytes : ByteArray) : EntryMode → ByteArray
   | .mutate => appendTag bytes 0
@@ -296,6 +372,270 @@ def Program.canonicalBytes (program : Program) : ByteArray :=
 
 def Program.sourceHash (program : Program) : String :=
   ProofForgeV2.Crypto.sha256Hex program.canonicalBytes
+
+namespace Inventory
+
+private def moduleOf (qualifiedName : String) : String := Id.run do
+  let chars := qualifiedName.toList
+  let mut lastDot : Option Nat := none
+  let mut index : Nat := 0
+  for c in chars do
+    if c == '.' then
+      lastDot := some index
+    index := index + 1
+  match lastDot with
+  | none => ""
+  | some idx => String.ofList (chars.take idx)
+
+private def pushNode (moduleName programName : String) (path kind : String)
+    (span : Span) (acc : Array NodeRecord) : Array NodeRecord :=
+  acc.push {
+    path
+    nodeId := NodeId.ofPath moduleName programName path
+    span
+    kind
+  }
+
+private partial def exprNesting : Expr → Nat
+  | .literal _ | .variable _ | .state _ => 1
+  | .checkedAdd lhs rhs => 1 + max (exprNesting lhs) (exprNesting rhs)
+
+private partial def collectExpr (moduleName programName path : String)
+    (span : Span) (expr : Expr) (acc : Array NodeRecord) : Array NodeRecord :=
+  let acc := pushNode moduleName programName path "expr" span acc
+  match expr with
+  | .literal _ | .variable _ | .state _ => acc
+  | .checkedAdd lhs rhs =>
+      let acc := collectExpr moduleName programName (path ++ "/lhs") span lhs acc
+      collectExpr moduleName programName (path ++ "/rhs") span rhs acc
+
+private partial def stmtNesting : Statement → Nat
+  | .assign _ value => 1 + exprNesting value
+  | .returnValue value => 1 + exprNesting value
+  | .synchronousCall _ => 1
+  | .loopBounded _ body =>
+      1 + body.foldl (fun acc stmt => max acc (stmtNesting stmt)) 0
+  | .unboundedLoop body =>
+      1 + body.foldl (fun acc stmt => max acc (stmtNesting stmt)) 0
+
+mutual
+  private partial def collectStatement (moduleName programName path : String)
+      (span : Span) (stmt : Statement) (acc : Array NodeRecord) : Array NodeRecord :=
+    let acc := pushNode moduleName programName path "stmt" span acc
+    match stmt with
+    | .assign _ value =>
+        collectExpr moduleName programName (path ++ "/value") span value acc
+    | .returnValue value =>
+        collectExpr moduleName programName (path ++ "/value") span value acc
+    | .synchronousCall _ => acc
+    | .loopBounded _ body =>
+        collectStatements moduleName programName (path ++ "/body") span body acc
+    | .unboundedLoop body =>
+        collectStatements moduleName programName (path ++ "/body") span body acc
+
+  private partial def collectStatements (moduleName programName basePath : String)
+      (span : Span) (body : Array Statement) (acc : Array NodeRecord) : Array NodeRecord := Id.run do
+    let mut acc := acc
+    let mut idx : Nat := 0
+    for child in body do
+      acc := collectStatement moduleName programName (basePath ++ s!"/{idx}") span child acc
+      idx := idx + 1
+    return acc
+end
+
+end Inventory
+
+/-- Deterministic NodeId inventory for a program. Spans are synthetic until the
+Lean syntax decoder attaches real byte ranges; NodeIds still depend only on
+module/program/path. -/
+def Program.enumerateNodes (program : Program) (span : Span := Span.synthetic) :
+    Array NodeRecord := Id.run do
+  let moduleName := Inventory.moduleOf program.qualifiedName
+  let programName := program.name
+  let mut acc : Array NodeRecord := #[]
+  acc := Inventory.pushNode moduleName programName "program" "program" span acc
+  for state in program.state do
+    let path := s!"state/{state.name}"
+    acc := Inventory.pushNode moduleName programName path "state" span acc
+  match program.initializer with
+  | none => pure ()
+  | some initializer =>
+      acc := Inventory.pushNode moduleName programName "init" "initializer" span acc
+      for param in initializer.params do
+        acc := Inventory.pushNode moduleName programName s!"init/param/{param.name}" "param" span acc
+      acc := Inventory.collectStatements moduleName programName "init/body" span initializer.body acc
+  for entry in program.entries do
+    let entryPath := s!"entry/{entry.name}"
+    acc := Inventory.pushNode moduleName programName entryPath "entry" span acc
+    for param in entry.params do
+      acc := Inventory.pushNode moduleName programName s!"{entryPath}/param/{param.name}" "param" span acc
+    acc := Inventory.collectStatements moduleName programName s!"{entryPath}/body" span entry.body acc
+  return acc
+
+def Program.nodeCount (program : Program) : Nat :=
+  program.enumerateNodes.size
+
+def Program.maxNesting (program : Program) : Nat := Id.run do
+  let mut depth : Nat := 1
+  match program.initializer with
+  | none => pure ()
+  | some initializer =>
+      for stmt in initializer.body do
+        depth := max depth (1 + Inventory.stmtNesting stmt)
+  for entry in program.entries do
+    for stmt in entry.body do
+      depth := max depth (1 + Inventory.stmtNesting stmt)
+  return depth
+
+private partial def checkStatementBounds (limits : Limits) : Statement → CompileResult Unit
+  | .unboundedLoop _ =>
+      throw <| .resourceBound "unbounded loop is not permitted (PF-BOUND-001)"
+  | .loopBounded bound body => do
+      if bound == 0 || bound > limits.maxLoopBound then
+        throw <| .resourceBound
+          s!"loop bound {bound} is outside 1..{limits.maxLoopBound}"
+      for child in body do
+        checkStatementBounds limits child
+  | .assign _ _ | .returnValue _ | .synchronousCall _ => .ok ()
+
+private def checkControlBounds (program : Program) (limits : Limits) : CompileResult Unit := do
+  match program.initializer with
+  | none => pure ()
+  | some initializer =>
+      for stmt in initializer.body do
+        checkStatementBounds limits stmt
+  for entry in program.entries do
+    for stmt in entry.body do
+      checkStatementBounds limits stmt
+
+/-- Structural resource / termination precheck used by D1 identity and D2 bound gates. -/
+def Program.validateLimits (program : Program) (limits : Limits := defaultLimits) :
+    CompileResult Unit := do
+  let nodes := program.enumerateNodes
+  if nodes.size > limits.maxNodes then
+    throw <| .resourceBound
+      s!"AST node count {nodes.size} exceeds limit {limits.maxNodes}"
+  let nesting := program.maxNesting
+  if nesting > limits.maxNesting then
+    throw <| .resourceBound
+      s!"AST nesting depth {nesting} exceeds limit {limits.maxNesting}"
+  let mut seen : Array String := #[]
+  for record in nodes do
+    unless record.nodeId.isWellFormed do
+      throw <| .invalidProgram s!"malformed NodeId at path {record.path}"
+    unless record.span.isWellFormed do
+      throw <| .invalidProgram s!"malformed span at path {record.path}"
+    if seen.contains record.nodeId.hex128 then
+      throw <| .invalidProgram s!"duplicate NodeId at path {record.path}"
+    seen := seen.push record.nodeId.hex128
+  checkControlBounds program limits
+
+private def isIdentStart (c : Char) : Bool :=
+  c.isAlpha || c == '_'
+
+private def isIdentContinue (c : Char) : Bool :=
+  c.isAlphanum || c == '_'
+
+private def reservedKeywords : Array String :=
+  #["program", "where", "state", "init", "entry", "view", "return", "call",
+    "public", "private", "do", "for", "bounded", "UInt64"]
+
+private def classifyWord (word : String) : TokenKind :=
+  if reservedKeywords.contains word then .keyword word else .ident word
+
+private def lineColumnAt (source : String) (byteOffset : Nat) : Nat × Nat := Id.run do
+  let mut line : Nat := 1
+  let mut column : Nat := 1
+  let mut index : Nat := 0
+  for c in source.toList do
+    if index >= byteOffset then
+      return (line, column)
+    if c == '\n' then
+      line := line + 1
+      column := 1
+    else
+      column := column + 1
+    index := index + 1
+  return (line, column)
+
+private def sliceString (chars : Array Char) (start stop : Nat) : String :=
+  String.ofList (chars.extract start stop).toList
+
+/-- Portable DSL tokenizer for identity/span tests. Comments and whitespace are skipped
+and do not receive tokens (and therefore do not enter source identity). -/
+def tokenize (source : String) : CompileResult (Array Token) := Id.run do
+  if source.toUTF8.size > defaultLimits.maxSourceBytes then
+    return .error <| .resourceBound
+      s!"source size {source.toUTF8.size} exceeds limit {defaultLimits.maxSourceBytes}"
+  let chars := source.toList.toArray
+  let mut tokens : Array Token := #[]
+  let mut i : Nat := 0
+  while i < chars.size do
+    let c := chars[i]!
+    if c.isWhitespace then
+      i := i + 1
+    else if c == '/' && i + 1 < chars.size && chars[i + 1]! == '/' then
+      i := i + 2
+      while i < chars.size && chars[i]! != '\n' do
+        i := i + 1
+    else if isIdentStart c then
+      let start := i
+      i := i + 1
+      while i < chars.size && isIdentContinue chars[i]! do
+        i := i + 1
+      let word := sliceString chars start i
+      let (line, column) := lineColumnAt source start
+      tokens := tokens.push {
+        kind := classifyWord word
+        span := { byteStart := start, byteEnd := i, line, column }
+      }
+    else if c.isDigit then
+      let start := i
+      i := i + 1
+      while i < chars.size && chars[i]!.isDigit do
+        i := i + 1
+      let text := sliceString chars start i
+      let (line, column) := lineColumnAt source start
+      tokens := tokens.push {
+        kind := .number text
+        span := { byteStart := start, byteEnd := i, line, column }
+      }
+    else if c == '"' then
+      let start := i
+      i := i + 1
+      while i < chars.size && chars[i]! != '"' do
+        i := i + 1
+      if i >= chars.size then
+        return .error <| .invalidProgram "unterminated string literal"
+      i := i + 1
+      let text := sliceString chars (start + 1) (i - 1)
+      let (line, column) := lineColumnAt source start
+      tokens := tokens.push {
+        kind := .stringLit text
+        span := { byteStart := start, byteEnd := i, line, column }
+      }
+    else
+      let start := i
+      i := i + 1
+      let text := String.ofList [c]
+      let (line, column) := lineColumnAt source start
+      tokens := tokens.push {
+        kind := .symbol text
+        span := { byteStart := start, byteEnd := i, line, column }
+      }
+  let (line, column) := lineColumnAt source chars.size
+  tokens := tokens.push {
+    kind := .eof
+    span := { byteStart := chars.size, byteEnd := chars.size, line, column }
+  }
+  let mut prevEnd : Nat := 0
+  for token in tokens do
+    unless token.span.isWellFormed do
+      return .error <| .invalidProgram "token span is malformed"
+    if token.span.byteStart < prevEnd then
+      return .error <| .invalidProgram "token spans overlap or go backwards"
+    prevEnd := token.span.byteEnd
+  return .ok tokens
 
 end ProofForgeV2.Source
 

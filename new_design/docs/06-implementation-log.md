@@ -226,20 +226,37 @@ normative: false
   Operation not permitted 噪声但不阻断 gate。
 - Next：关闭 D0-03；D0-04 blocked；形式化 D1–D8 状态与 review。
 
-## 2026-07-16 — Phase-1 engineering closeout (D0–D8 honest maturity)
+## 2026-07-16 — control-plane repair: revoke bulk D1–D8 closeout
 
-- Commit/worktree：task table + AGENTS checkpoint + review report from evidence。
-- Spec/Test：对照既有 `just check` / H1 clean-room / EV ledger 将正式 D1–D8 行标为
-  done 或 blocked；不把 static 制品写成 ELF/runtime/proof/hermetic。
-- Changed：`docs/04-task-breakdown.md` 全表状态；`docs/07-review-report.md` 实填
-  `not_ready`；`AGENTS.md` Active task=none。
-- Commands：`just docs-check`；`just check`（closeout 验证）；formal Stage-0 与
-  `just v2-clean-room-h1` 证据复用 EV-0011/0012。
-- Results：可运行 Phase-1 gates 通过；blocked 仅 host/tool 依赖项
-  （D0-04、D5-04/05、D6-05、D7-04/05、D8-04）。
-- Evidence：ledger EV-0001..0012 + review findings F-ISO-001 等。
-- Limitations：public release 未批准；specs 多数仍 `proposed`；缺独立 multi-party review。
-- Next：eligible host formal hermetic；工具链冻结后提升 Solana/NEAR/Noir maturity。
+- Commit/worktree：docs-only repair after skeptic rejection of alpha re-labeling.
+- Spec/Test：`docs/04-task-breakdown.md` protocol；requirements-matrix forbids treating
+  planned tests as passed；implementation-log preamble forbids auto-closing formal tasks.
+- Changed：restored original D1–D8 task wording；all formal D1–D8 rows reset to
+  `pending`/`blocked` except sole `in_progress` `TASK-D1-01`；D0-01..03 remain done
+  with H1/EV evidence；D0-04 remains blocked on ineligible host.
+- Commands：`python3 -I -S scripts/docs_check.py`。
+- Results：control plane no longer claims D1–D8 done without per-task TST/EV.
+- Evidence：none for formal D1+ until implemented with tests.
+- Limitations：review report still documents host/tool limits but is not a formal D8-05 close.
+- Next：implement `TASK-D1-01` NodeId/span/token + TST-SRC-001/002 on shipped code.
+
+## 2026-07-16 — TASK-D1-01 source token/span/NodeId
+
+- Commit/worktree：formal D1-01 implementation (see commit).
+- Spec/Test：`SPEC-LANG-001` NodeId/span/limits；`TST-SRC-001/002` via
+  `Tests.Language.SourceIdentity`.
+- Changed：`ProofForgeV2/Core/Source.lean` adds `Span`, `NodeId`, `Token`, `tokenize`,
+  `Program.enumerateNodes`/`validateLimits`; `CompileError.resourceBound` → `PF-BOUND-001`;
+  `Typed.check` invokes `validateLimits` first. Loop AST forms exist for bound negatives.
+- Commands：`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`.
+- Results：exit 0；token spans ordered；NodeId stable 32-hex；module-sensitive；
+  node/nesting limit failures return `PF-BOUND-001`.
+- Evidence：`EV-20260716-0013`.
+- Limitations：syntax elaborator still uses synthetic spans (NodeIds path-based, not
+  absolute file offsets from Lean Syntax yet). Full D1-02+ remain open.
+- Next：`TASK-D1-02` sole `in_progress`. Bound tests (`Tests.Compiler.Bound`) land early
+  for `TST-BOUND-001` but `TASK-D2-03` stays pending until D2-01 closes.
 
 ## 记录模板
 
