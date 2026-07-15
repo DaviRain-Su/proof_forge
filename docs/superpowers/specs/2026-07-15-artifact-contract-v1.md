@@ -1,7 +1,12 @@
 # Artifact Contract v1 (draft)
 
 Status: **Accepted consumer contract for Seam B (evidence layer); LR-0 enforced**
+
 Parent design: [Lean / Rust boundary](2026-07-15-lean-rust-boundary-design.md)
+([中文](2026-07-15-lean-rust-boundary-design.zh.md))
+
+Chinese: [2026-07-15-artifact-contract-v1.zh.md](2026-07-15-artifact-contract-v1.zh.md)
+
 Authority: **checked-in Lean emitters + this document +
 `ProofForge.Target.ArtifactContract` + testkit `validate_artifact_contract_v1`**;
 when they disagree, code wins and this document must be updated in the same change.

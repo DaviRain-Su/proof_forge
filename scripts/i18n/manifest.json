@@ -60,12 +60,6 @@
     "zh": "docs/zh/multi-chain-gap-audit-2026-07-10.zh.md",
     "model": "manual-zh"
   },
-  "docs/implementation-backlog.md": {
-    "sha256": "ff945614067ac26bc9ef72445bce50fd74b12525bb45d575e86471ea4db12a96",
-    "zh": "docs/zh/implementation-backlog.zh.md",
-    "model": "manual-zh",
-    "note": "synced EN/zh after LR-1d general export package"
-  },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
     "zh": "docs/zh/review-checklist.zh.md",
@@ -191,5 +185,11 @@
     "zh": "docs/zh/system-architecture.zh.md",
     "model": "manual-zh",
     "note": "EN overview + §12 internals; zh is full deep-dive"
+  },
+  "docs/implementation-backlog.md": {
+    "sha256": "c4baa339ddb8239212dfcd0beb75f283fafcbd6781f1a6367f189886a1e554fa",
+    "zh": "docs/zh/implementation-backlog.zh.md",
+    "model": "manual-zh",
+    "note": "synced EN/zh after merge main Chinese specs into LR branch (2026-07-15)"
   }
 }
