@@ -187,9 +187,9 @@
     "note": "EN overview + §12 internals; zh is full deep-dive"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "b82c42894778c97a6bb9891d87fd15f3a7225418f47b2d721ea77e617ca48211",
+    "sha256": "226cf881ce0fbbf0b287373deb93222c2d4a9c10e2e65c8823007b82b2caf5d6",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced after LR-S1/S2"
+    "note": "synced after LR-S3/S4 pure Lean keccak"
   }
 }

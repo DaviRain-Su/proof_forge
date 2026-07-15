@@ -69,8 +69,8 @@
 | LR-3+ | 三链后端 / 默认 Rust lower | **延期/无新决策则 wont（D-058）** | 不用 Rust 重做 sBPF/WAT/Yul 打印机；产品 lower 仍在 Lean |
 | LR-S1 | Dual-run 缺失 selector hydrate（cast） | done（PR #105） | 有 Foundry `cast` 时 Ownable 走完整 buildFromCore observe；无 cast 则 surface dump |
 | LR-S2 | `just export-inspect` 编排（export + check/summary） | done（PR #105） | Seam A 一键编排；无产品 lower |
-| LR-S3 | 纯 Lean keccak 补 selector（无 cast） | pending | dual-run / 便携产品 plan dump 去掉 Foundry 依赖 |
-| LR-S4 | CLI 可选导出 `lean-evm-observe` | pending | export-core 标志或后处理；仍非 Rust lower |
+| LR-S3 | 纯 Lean keccak 补 selector（无 cast） | done（PR #105） | `ProofForge.Util.Keccak256`；`selectorForLean`；DualRunObserve 无 Foundry 即可补 selector |
+| LR-S4 | dual-run observe 配方 + 包旁 observe dump | done（PR #105） | `just dual-run-observe-seam-a`；DualRunObserve 写 `lean-evm-observe.v0.json`（export-core 标志可后补） |
 | LR-S5 | Lean 产品 lower 质量（Yul / sBPF / WAT） | ongoing | D-058 下主投入 — 非 Seam A Rust |
 
 规格（中文）：

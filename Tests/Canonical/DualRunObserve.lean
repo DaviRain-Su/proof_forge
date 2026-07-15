@@ -33,37 +33,21 @@ open ProofForge.IR.Canonical
 def require (cond : Bool) (msg : String) : IO Unit :=
   if cond then pure () else throw (IO.userError msg)
 
-/-- Resolve `cast` like product EVM path (PATH, then common Foundry install). -/
-def resolveCast : IO (Option String) := do
-  let home := (← IO.getEnv "HOME").getD ""
-  let foundryCast := (System.FilePath.mk home / ".foundry" / "bin" / "cast").toString
-  let candidates := #["cast", foundryCast]
-  for c in candidates do
-    try
-      let out ← IO.Process.output { cmd := c, args := #["--version"] }
-      if out.exitCode == 0 then
-        return some c
-    catch _ => pure ()
-  return none
+/-- Align dual-run with product EVM when selectors are absent on portable IR.
 
-/-- Align dual-run with product EVM when selectors are absent on portable IR. -/
+Uses pure Lean keccak (LR-S3); no Foundry `cast` required. -/
 def hydrateSpecSelectors (label : String) (spec : ProofForge.Contract.ContractSpec) :
     IO ProofForge.Contract.ContractSpec := do
-  match ← resolveCast with
-  | none =>
-      IO.println s!"{label}: cast not found; skip selector hydrate (plan may fall back to surface dump)"
-      pure spec
-  | some cast =>
-      try
-        let before := (spec.module.entrypoints.filter (·.selector?.isNone)).size
-        let module ← ProofForge.Cli.hydrateEvmSelectorsMissing cast spec.module
-        let after := (module.entrypoints.filter (·.selector?.isNone)).size
-        if before > after then
-          IO.println s!"{label}: filled {before - after} missing selector(s) via {cast}"
-        pure { spec with module }
-      catch e =>
-        IO.println s!"{label}: selector hydrate failed ({e}); continuing without"
-        pure spec
+  try
+    let before := (spec.module.entrypoints.filter (·.selector?.isNone)).size
+    let module ← ProofForge.Cli.hydrateEvmSelectorsMissingLean spec.module
+    let after := (module.entrypoints.filter (·.selector?.isNone)).size
+    if before > after then
+      IO.println s!"{label}: filled {before - after} missing selector(s) via Lean keccak"
+    pure { spec with module }
+  catch e =>
+    IO.println s!"{label}: selector hydrate failed ({e}); continuing without"
+    pure spec
 
 def mutabilityName : InterfaceMutability → String
   | .call => "call"

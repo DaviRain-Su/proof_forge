@@ -430,6 +430,7 @@ core-export-v0:
       build/export/lr2e-dual-run/value-vault-evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
       build/export/lr2f-dual-run/ownable-evm
+    lake env lean --run Tests/Util/Keccak256.lean
 
 # Seam A pipeline (D-057/D-058): export-core + read-only inspect — no product Rust lower.
 # Usage (positional out dir, no `out=` prefix):
@@ -455,6 +456,21 @@ export-inspect path out="build/export/inspect-run" target="evm":
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check "$OUT_DIR"
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- summary "$OUT_DIR"
     echo "export-inspect: ok dir=$OUT_DIR (export + check + summary; no product lower; D-058)"
+
+# Pure Lean keccak vectors (LR-S3) — no cast / no mathlib.
+keccak256:
+    lake env lean --run Tests/Util/Keccak256.lean
+
+# Dual-run observe dumps + Rust compare (Seam A; Lean selectors via keccak).
+dual-run-observe-seam-a:
+    lake env lean --run Tests/Util/Keccak256.lean
+    lake env lean --run Tests/Canonical/DualRunObserve.lean
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2d-dual-run/counter-evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2e-dual-run/value-vault-evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2f-dual-run/ownable-evm
 
 # PF-P1-04: preflight L0+L1+L2 readiness via TargetBackend hooks.
 preflight-l2:

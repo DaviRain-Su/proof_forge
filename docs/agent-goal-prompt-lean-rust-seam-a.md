@@ -145,9 +145,9 @@ Re-run gates after merge-from-main or large conflicts.
 |---|---|---|
 | LR-S1 | Dual-run fill missing selectors via cast | done |
 | LR-S2 | `just export-inspect` export+check+summary | done |
-| LR-S3 | Pure Lean keccak selectors | pending |
-| LR-S4 | Optional lean-observe from CLI | pending |
-| LR-S5 | Lean product Yul/sBPF/WAT quality | ongoing |
+| LR-S3 | Pure Lean keccak selectors | **done** |
+| LR-S4 | dual-run-observe-seam-a + observe dumps | **done** |
+| LR-S5 | Lean product Yul/sBPF/WAT quality | **next** (product, not Rust lower) |
 
 ---
 

@@ -4342,3 +4342,18 @@ Rules:
 - Verification: `lake env lean --run Tests/Canonical/DualRunObserve.lean`
   (Ownable: buildFromCore ModulePlan); dual-run-observe ownable-evm ok.
 - Remaining: LR-S3 pure Lean keccak; product Lean lower quality; land PR #105.
+
+## 2026-07-15 - LR-S3/S4: pure Lean keccak + dual-run-observe recipe
+
+- Status: `done` (PR #105 branch)
+- Result: Mathlib-free `ProofForge.Util.Keccak256` (Ethereum original-Keccak
+  padding). `selectorForLean` / `hydrateEvmSelectorsMissingLean` fill missing
+  ABI selectors without Foundry; `selectorFor` falls back to Lean when cast is
+  missing. DualRunObserve uses Lean keccak for Ownable ModulePlan dumps.
+  `just keccak256` and `just dual-run-observe-seam-a` recipes. LR-S4 covered by
+  DualRunObserve writing `lean-evm-observe.v0.json` + dual-run recipe (full
+  export-core --write-observe flag deferred).
+- Verification: `lake env lean --run Tests/Util/Keccak256.lean` (empty/abc/
+  transfer/owner/initialize selectors); DualRunObserve Ownable via Lean keccak;
+  dual-run-observe CLI ok.
+- Remaining: LR-S5 Lean product lower quality; optional export-core observe flag.
