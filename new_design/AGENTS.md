@@ -14,11 +14,11 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-D0-03/H0`：Host Stage-0 development attestation 已验证；profile 精确匹配但 `eligibleForHermetic=false` |
-| Next task | `TASK-D0-03/H1`：实现 deny-default sandbox 与 schema-complete evidence |
+| Active task | `TASK-D0-03/H1`：deny-default sandbox、candidate/archive binding、schema-complete EV（in_progress） |
+| Next task | 关闭 `TASK-D0-03` 后：`TASK-D0-04` 在 ineligible host 上保持 `blocked`；推进正式 D0-01/02 与 D1 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | `TASK-D0-04` 尚缺 eligible host、deny-default policy 与正式 EV；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
+| Known blocker | `TASK-D0-04` / `TST-ISO-002` 需要 `eligibleForHermetic=true` host；当前 host `systemVolumeSeal=broken` 且 Xcode pathname current-user-mutable；不得伪造 hermetic |
 | Source of status | [`docs/document-status.md`](docs/document-status.md) |
 
 检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
@@ -58,12 +58,11 @@
 2. 在任务表中只标记一个 `in_progress`。
 3. 先提交失败的验收测试或可执行验证脚本。
 4. 实现满足规格的最小切片，遇到规格缺口先改规格并重新评审。
-5. 运行聚焦测试；合并前运行完整 V2 gate。当前 `isolated-check`/
-   `v2-clean-room-alpha` 会隔离 HOME/cache、限制网络并拒绝父仓库访问，Lean/external tool
-   都从锁定 cache 离线物化，non-system dylib closure 已锁定；H0 会先做本地、时点性的
-   development host attestation，但 eligible host、
-   deny-default sandbox 与 schema evidence 尚未闭合，所以仍不是正式
-   hermetic clean-room gate，不得混称。
+5. 运行聚焦测试；合并前运行完整 V2 gate。当前 `isolated-check` /
+   `v2-clean-room-h1` 在 deny-default sandbox 中隔离 HOME/cache、网络与父仓库，
+   Lean/external 从锁定 cache 离线物化，并写入 schema-complete EV 与 candidate/archive
+   binding。H0 development host attestation 仍会先运行；因 host
+   `eligibleForHermetic=false`，这不是正式 hermetic clean-room（`TST-ISO-002`），不得混称。
 6. 检查不支持的声明、父项目泄漏、非确定制品、无关变更和生成垃圾。
 7. 同一变更中更新 task、traceability、evidence、implementation log 和 checkpoint。
 8. 交接时给出精确文件、命令、结果、限制和下一任务。

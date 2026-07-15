@@ -147,7 +147,8 @@ malformed lock、cache miss、partial/tampered archive、member/path attack、to
 extra/symlink/hardlink/writable bundle 与 PATH/DYLD shadow。Lean cache consumer 已接入 alpha
 harness，并在 `0b0aebda…643c8` 完成完整 development gate。H0 已覆盖严格 Stage-0 record、
 duplicate JSON、完整 live host/Xcode/tool observation 和 formal-ineligible 拒绝。正式 gate 仍需
-eligible host、deny-default sandbox、版本 probe timeout/huge output 与 schema evidence。
+eligible host（本机仍 false）、版本 probe timeout/huge output。deny-default sandbox 与
+schema-complete EV 由 `TASK-D0-03/H1` 落地；正式 hermetic 仍需 eligible host。
 
 关联 `NFR-001/009`、`TST-TOOL-001`、`TST-HOST-001`、`TST-XTARGET-002`、
 `TST-ISO-002/003`。manifest/evidence

@@ -26,6 +26,15 @@ host-stage0-development:
 host-stage0-formal:
     /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible
 
+# H1 unit gates: deny-default policy + schema-complete evidence (no full clean-room).
+sandbox-policy-self-test:
+    /usr/bin/python3 -I -S scripts/sandbox_policy.py self-test
+
+evidence-self-test:
+    /usr/bin/python3 -I -S scripts/evidence.py self-test
+
+host-h1-unit: sandbox-policy-self-test evidence-self-test host-stage0-negative
+
 host-stage0-negative:
     #!/bin/bash
     set -euo pipefail
@@ -193,10 +202,15 @@ evm-runtime: target-smoke
 reproducibility: build
     bash scripts/reproducibility.sh
 
-check: docs-check python-isolation-negative toolchains-validate host-stage0-development toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
+check: docs-check python-isolation-negative toolchains-validate host-stage0-development host-h1-unit toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
 
 isolated-check:
     bash scripts/verify_isolation.sh
 
 v2-clean-room-alpha:
+    bash scripts/verify_isolation.sh
+
+# Development clean-room with H1 deny-default + binding + schema EV.
+# Not formal hermetic while eligibleForHermetic=false.
+v2-clean-room-h1:
     bash scripts/verify_isolation.sh

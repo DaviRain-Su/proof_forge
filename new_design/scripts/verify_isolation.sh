@@ -148,18 +148,19 @@ root="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
 started_utc="$(/bin/date -u +"%Y-%m-%dT%H:%M:%SZ")"
 start_epoch="$(/bin/date +%s)"
 evidence_out="${PROOF_FORGE_EVIDENCE_OUT:-$root/build/evidence/clean-room}"
-evidence_id="${PROOF_FORGE_EVIDENCE_ID:-EV-$(/bin/date -u +%Y%m%d)-0012}"
+evidence_day="$(/bin/date -u +%Y%m%d)"
+evidence_id="${PROOF_FORGE_EVIDENCE_ID:-EV-${evidence_day}-0012}"
 
+/bin/mkdir -p "$root/build"
+host_observation="$root/build/host-stage0-development.json"
 /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC \
   /bin/bash --noprofile --norc "$root/scripts/verify_host_stage0.sh" \
-  --allow-ineligible-development >"$root/build/host-stage0-development.json" 2>"$root/build/host-stage0-development.err" ||
+  --allow-ineligible-development >"$host_observation" 2>"$root/build/host-stage0-development.err" ||
   {
     /bin/cat "$root/build/host-stage0-development.err" >&2 || true
     die "Stage-0 development attestation failed"
   }
-/bin/mkdir -p "$root/build"
 # Stage-0 prints canonical JSON on stdout; keep it for EV binding.
-host_observation="$root/build/host-stage0-development.json"
 [[ -s "$host_observation" ]] || die "Stage-0 observation JSON is missing"
 
 unset BASH_ENV ENV CDPATH DEVELOPER_DIR GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_DIR \
@@ -412,38 +413,45 @@ duration_ms=$(( (end_epoch - start_epoch) * 1000 ))
 lean_sha="$(sha256_file "$lean_root/bin/lean")"
 lake_sha="$(sha256_file "$lean_root/bin/lake")"
 solc_sha="$(sha256_file "$external_bin/solc")"
-eligible_for_hermetic="$(/usr/bin/python3 -I -S -c 'import json,sys; print("true" if json.load(open(sys.argv[1],encoding="utf-8")).get("eligibleForHermetic") else "false")' "$host_observation")"
-host_profile_id="$(/usr/bin/python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["profileId"])' "$host_observation" 2>/dev/null || true)"
-if [[ -z "$host_profile_id" ]]; then
-  host_profile_id="$(/usr/bin/python3 -I -S -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print(d.get("profile",{}).get("id") or d.get("id") or "unknown")' "$host_observation")"
-fi
-os_version="$(/usr/bin/python3 -I -S -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print(d.get("platform",{}).get("productVersion") or d.get("productVersion") or "unknown")' "$host_observation")"
-arch_value="$(/usr/bin/python3 -I -S -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print(d.get("platform",{}).get("arch") or d.get("arch") or "arm64")' "$host_observation")"
-env_digest="$(/usr/bin/python3 -I -S -c 'import hashlib,json,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$host_observation")"
-
-# Emit schema-complete immutable EV (development clean-room; not formal hermetic).
-/bin/mkdir -p "$evidence_out"
-evidence_path="$evidence_out/${evidence_id}.json"
+archive_size="$(/usr/bin/stat -f%z "$archive")"
+binding_size="$(/usr/bin/stat -f%z "$binding_file")"
 log_path="$tmp/clean-room.log"
 {
   echo "commit=$commit"
   echo "archive_sha256=$archive_hash"
   echo "sandboxPolicy=deny-default"
-  echo "eligibleForHermetic=$eligible_for_hermetic"
 } >"$log_path"
 log_sha="$(sha256_file "$log_path")"
 binding_sha="$(sha256_file "$binding_file")"
 
-/usr/bin/python3 -I -S - "$evidence_path" <<PY
-import json, pathlib, sys
-from pathlib import Path
-sys.path.insert(0, "$source_root/scripts")
-# Import by path without relying on package install.
+/bin/mkdir -p "$evidence_out"
+# Resolve non-colliding EV path before writing (immutable files).
+evidence_path="$evidence_out/${evidence_id}.json"
+if [[ -e "$evidence_path" ]]; then
+  for n in $(seq 13 9999); do
+    candidate="$evidence_out/EV-${evidence_day}-$(printf '%04d' "$n").json"
+    if [[ ! -e "$candidate" ]]; then
+      evidence_path="$candidate"
+      evidence_id="EV-${evidence_day}-$(printf '%04d' "$n")"
+      break
+    fi
+  done
+fi
+
+/usr/bin/python3 -I -S - <<PY
 import importlib.util
-spec = importlib.util.spec_from_file_location("evidence", "$source_root/scripts/evidence.py")
+import json
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location(
+    "evidence", Path("$source_root/scripts/evidence.py")
+)
 evidence = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(evidence)
 
+host = json.loads(Path("$host_observation").read_text(encoding="utf-8"))
+platform = host.get("platform") or {}
+eligible = bool(host.get("eligibleForHermetic"))
 document = {
   "schema": "proof-forge.evidence.v1",
   "id": "$evidence_id",
@@ -456,14 +464,14 @@ document = {
     "diffDigest": None,
   },
   "environment": {
-    "os": "macOS $os_version",
-    "arch": "$arch_value",
-    "envDigest": "$env_digest",
+    "os": f"macOS {platform.get('productVersion', 'unknown')}",
+    "arch": platform.get("arch") or "arm64",
+    "envDigest": evidence.sha256_file(Path("$host_observation")),
     "cleanRoom": True,
     "cacheMode": "empty",
     "sandboxPolicy": "deny-default",
-    "eligibleForHermetic": True if "$eligible_for_hermetic" == "true" else False,
-    "hostProfileId": "$host_profile_id",
+    "eligibleForHermetic": eligible,
+    "hostProfileId": host.get("hostProfileId") or "unknown",
   },
   "toolchains": [
     {"id": "lean", "version": "4.31.0", "executableSha256": "$lean_sha"},
@@ -485,8 +493,8 @@ document = {
     {"path": "scripts/sandbox_policy.py", "sha256": "$sandbox_policy_sha"},
   ],
   "outputs": [
-    {"path": "new-design.tar", "sha256": "$archive_hash", "size": $(/usr/bin/stat -f%z "$archive")},
-    {"path": "candidate-binding.json", "sha256": "$binding_sha", "size": $(/usr/bin/stat -f%z "$binding_file")},
+    {"path": "new-design.tar", "sha256": "$archive_hash", "size": $archive_size},
+    {"path": "candidate-binding.json", "sha256": "$binding_sha", "size": $binding_size},
   ],
   "observations": [
     {"step": "stage0-development", "status": "ok", "return": None, "logicalState": None, "effects": [], "errorClass": None},
@@ -510,21 +518,12 @@ document = {
     "evidenceSchema": "proof-forge.evidence.v1",
   },
 }
-# If an earlier development EV id collides, allocate a unique suffix under the same day.
 target = Path("$evidence_path")
-if target.exists():
-    stem = target.stem
-    parent = target.parent
-    for n in range(13, 10000):
-        candidate = parent / f"EV-$(/bin/date -u +%Y%m%d)-{n:04d}.json"
-        if not candidate.exists():
-            target = candidate
-            document["id"] = candidate.stem
-            break
 evidence.write_evidence(target, document)
 print(f"clean-room: schema-complete evidence wrote {target}")
-print(f"clean-room: evidence.eligibleForHermetic={document['environment']['eligibleForHermetic']}")
+print(f"clean-room: evidence.eligibleForHermetic={eligible}")
 PY
+eligible_for_hermetic="$(/usr/bin/python3 -I -S -c 'import json,sys; print("true" if json.load(open(sys.argv[1],encoding="utf-8")).get("eligibleForHermetic") else "false")' "$host_observation")"
 
 echo "clean-room: ok commit=$commit archive_sha256=$archive_hash sandbox=deny-default"
 if [[ "$eligible_for_hermetic" == "true" ]]; then

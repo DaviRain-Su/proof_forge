@@ -23,10 +23,9 @@ flaky retries、malformed observation、stale artifact、dirty tree、missing to
 jobs、proof invalid/private leak、network wrong identity。关联 `PHASE-5`、`TASK-D8-*`、所有
 `TST-*`；证据 schema 必须可独立复核。
 
-当前 `scripts/verify_isolation.sh` 是 network-denied clean-room alpha：它已隔离父仓库、
-HOME/cache 与网络并跑通四目标/Anvil。Lean/Lake 与 external bundle 的 development closure
-已经锁定；`TASK-D0-03/H0` 会在任何未验证的 Git/Python 前完成 Stage-0 bootstrap，随后只
-允许已锁定的 direct Python 完成 live profile，并区分 development observation 与 formal
-eligibility。当前 host 精确匹配 development profile，
-但正式模式按策略拒绝。eligible host、deny-default sandbox 与 schema-complete
-`GateResult`/`EV-ISO-*` 仍阻止正式 gate，不得视为本模块规格已实现。
+当前 `scripts/verify_isolation.sh`（`just v2-clean-room-h1`）在 deny-default sandbox 中
+隔离父仓库、HOME/cache 与网络，跑通四目标/Anvil，并写入 candidate/archive binding 与
+schema-complete `proof-forge.evidence.v1` JSON。H0 Stage-0 在 harness 入口先完成
+development attestation；formal `--require-eligible` 在本 host 稳定
+`PF-HOST-INELIGIBLE`。因此 H1 repo-side 前提已闭合，但 formal hermetic
+（`TASK-D0-04`/`TST-ISO-002`）仍被 ineligible host 阻断，不得混称。

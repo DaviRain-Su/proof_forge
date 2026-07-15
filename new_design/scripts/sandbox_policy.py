@@ -197,14 +197,15 @@ def self_test() -> None:
     if not Path("/usr/bin/sandbox-exec").is_file():
         fail("macOS sandbox-exec is unavailable")
 
+    # Allowed work root lives under the process temp dir. Denied paths must sit
+    # outside SYSTEM_READ_ROOTS (for example /private/tmp and $HOME).
     with tempfile.TemporaryDirectory(prefix="pf-sandbox-policy-") as raw:
         root = realpath(raw)
         allowed = root / "allowed"
-        denied = root / "denied"
         allowed.mkdir()
-        denied.mkdir()
         (allowed / "ok.txt").write_text("ok\n", encoding="ascii")
-        (denied / "secret.txt").write_text("secret\n", encoding="ascii")
+        denied_tmp = realpath(tempfile.mkdtemp(prefix="pf-sandbox-denied-", dir="/tmp"))
+        (denied_tmp / "secret.txt").write_text("secret\n", encoding="ascii")
         home_probe = Path.home() / f".pf-sandbox-policy-probe-{os.getpid()}"
         home_probe.write_text("home-secret\n", encoding="ascii")
         try:
@@ -217,16 +218,16 @@ def self_test() -> None:
                 fail("policy must not contain allow default")
             if "(deny default)" not in core:
                 fail("policy must deny by default")
-            if "network*" in core and "localhost" not in core:
+            if "(allow network" in core:
                 fail("core policy must not allow network")
 
             ok = _run_sandbox(core, ["/bin/cat", str(allowed / "ok.txt")])
             if ok.returncode != 0 or ok.stdout != "ok\n":
                 fail(f"allowed read failed: rc={ok.returncode} out={ok.stdout!r} err={ok.stderr!r}")
 
-            secret = _run_sandbox(core, ["/bin/cat", str(denied / "secret.txt")])
+            secret = _run_sandbox(core, ["/bin/cat", str(denied_tmp / "secret.txt")])
             if secret.returncode == 0:
-                fail("deny-default unexpectedly allowed sibling path read")
+                fail("deny-default unexpectedly allowed /tmp path outside work root")
 
             home = _run_sandbox(core, ["/bin/cat", str(home_probe)])
             if home.returncode == 0:
@@ -287,12 +288,23 @@ def self_test() -> None:
             if remote.returncode == 0:
                 fail("localhost profile unexpectedly allowed non-local network")
             err = remote.stderr + remote.stdout
-            if "PermissionError" not in err and "Operation not permitted" not in err and "timed out" not in err.lower() and "Errno" not in err:
+            if (
+                "PermissionError" not in err
+                and "Operation not permitted" not in err
+                and "timed out" not in err.lower()
+                and "Errno" not in err
+            ):
                 fail(f"localhost non-local denial missing sandbox signal: {err!r}")
         finally:
             try:
                 home_probe.unlink()
             except FileNotFoundError:
+                pass
+            try:
+                for child in denied_tmp.iterdir():
+                    child.unlink()
+                denied_tmp.rmdir()
+            except OSError:
                 pass
 
     print("sandbox-policy: self-test ok (deny-default)")

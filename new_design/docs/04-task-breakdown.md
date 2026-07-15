@@ -35,8 +35,8 @@ normative: true
 |---|---|---|---|---|
 | TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | pending |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | D0-01 | TST-ISO-001 | pending |
-| TASK-D0-03 | 锁定 Lean/external closure、Host Profile v1 与 Stage-0 bootstrap/attestation | 完成依赖 D0-01/02；当前 alpha 输入 A0-02 | TST-TOOL-001/TST-HOST-001 | in_progress |
-| TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：eligible host/deny-default/schema evidence 未闭合 | D0-02/03 | TST-ISO-002 | blocked |
+| TASK-D0-03 | 锁定 Lean/external closure、Host Profile v1、Stage-0、deny-default sandbox、candidate binding 与 schema EV | 完成依赖 D0-01/02；alpha 输入 A0-02..A0-08 + H1 | TST-TOOL-001/TST-HOST-001/TST-EVIDENCE-001 | in_progress |
+| TASK-D0-04 | 正式 hermetic archive clean-room；blocker：host `eligibleForHermetic=false`（seal broken / Xcode mutable）；repo-side H1 prerequisites landed | D0-02/03 | TST-ISO-002 | blocked |
 
 ## Milestone D1：语言前端
 

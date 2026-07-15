@@ -54,9 +54,10 @@ Core 全断网、EVM localhost-only、clean build/test、四目标复现与 EVM 
 Python、`env -i` 与 no-network sandbox，包含其 Lean/Lake/external version probes。Lean
 consumer 已在 commit `0b0aebda…643c8` 完成完整 development archive gate。当前 macOS host
 的 H0 development attestation 已闭合，但 formal mode 因 broken seal 与 current-user-mutable
-Xcode pathname 正确拒绝；这只是 local、point-in-time observation。deny-default
-sandbox/evidence 也未闭合。因此
-`TASK-D0-03` 仍在进行，`TASK-D0-04` 仍为 blocked。
+Xcode pathname 正确拒绝；这只是 local、point-in-time observation。H1 将 sandbox 升级为
+deny-default，写入 candidate/archive binding 与 schema-complete `proof-forge.evidence.v1`
+EV；因 host 仍 `eligibleForHermetic=false`，`TASK-D0-04`/`TST-ISO-002` 保持 blocked，
+不得称为 formal hermetic。
 
 ## Cache Policy
 

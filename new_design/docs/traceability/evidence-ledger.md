@@ -25,8 +25,11 @@ normative: false
 | EV-20260715-0009 | toolchain v2 validate/provision/materialize/closure + exact-tree/DYLD negatives + `just evm-runtime` | passed (development slice) | official solc/WABT/OpenSSL/Foundry assets；strict schema、五 file hash/mode/link、Mach-O graph、actual dyld load、tamper/symlink/hardlink/writable/DYLD negatives、Counter runtime；Lean/eligible host/deny-default/EV JSON 未闭合，D0-03 in_progress |
 | EV-20260715-0010 | `just v2-clean-room-alpha` | passed (development alpha) | commit `0b0aebda…643c8`、archive `05b5bda6…2115c`；official Lean ZIP `e8cd241b…e0656` 以 isolated/no-site Python、`env -i` 和 no-network sandbox 离线物化；15,194 entries / 2,761,381,330 bytes、Lean/Lake 5/6-node reachable closure 与 dyld 一致；61-job clean build/test、四目标 19-file 复现、EVM localhost runtime；host ineligible/deny-default/schema EV 未闭合，不关闭 TST-ISO-003 |
 | EV-20260715-0011 | authoritative `env -i ... verify_host_stage0.sh` development/formal；`just host-stage0-negative`；`just check` | passed (development attestation; expected formal rejection) | profile `darwin-arm64-25E253-xcode17C529-development`、host lock `0af42570…e0fa8`、launcher `95fdf6c5…fb095`、verifier `7d6000a3…032c9`；development observation 精确匹配 macOS `26.4.1/25E253`、native arm64、SIP/authenticated-root enabled、seal broken、Xcode `26.3/17C529` 且 pathname current-user-mutable；formal 稳定 `PF-HOST-INELIGIBLE`；bootstrap/host-lock/BASH_ENV negatives fail closed；仅为 local point-in-time evidence，不关闭 TST-ISO-002/003 |
+| EV-20260716-0012 | `just host-h1-unit`；`just v2-clean-room-h1`；formal Stage-0 `--require-eligible` | passed (H1 development clean-room; formal host rejection expected) | deny-default sandbox self-test + isolation；candidate/archive binding；schema-complete immutable `proof-forge.evidence.v1` under `build/evidence/clean-room/`；EV JSON 记录 `sandboxPolicy=deny-default` 与 `eligibleForHermetic=false`；formal Stage-0 稳定 `PF-HOST-INELIGIBLE`；关闭 H1 repo-side 前提，**不**关闭 `TST-ISO-002`/`TASK-D0-04` |
 
-Lean cache consumer 与 H0 development host observation 已闭合；因 host profile 不合格、
-deny-default sandbox 与正式 schema EV 未闭合，`TASK-D0-03` 保持 `in_progress`。
+H0 + H1 repo-side（deny-default、binding、schema EV）已落地；因 host
+`eligibleForHermetic=false`，`TASK-D0-04` 与 `TST-ISO-002` 保持 blocked。`TASK-D0-03`
+在 H1 clean-room 验证后可关闭。
 
-未取得：Solana ELF/runtime、NEAR sandbox receipt、Noir ACIR/proof/VK/verify、任何公网部署。
+未取得：formal hermetic clean-room、Solana ELF/runtime、NEAR sandbox receipt、Noir
+ACIR/proof/VK/verify、任何公网部署。

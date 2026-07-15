@@ -208,7 +208,34 @@ normative: false
   schema；当前 host 不得运行或声明正式 hermetic gate。`TASK-D0-03`、`TST-ISO-002/003`
   均保持 open。
 
+## 2026-07-16 — TASK-D0-03/H1 deny-default sandbox + candidate binding + schema EV
+
+- Commit/worktree：H1 candidate（见随后 commit）；新增 `scripts/sandbox_policy.py`、
+  `scripts/evidence.py`；重写 `scripts/verify_isolation.sh` 使用 deny-default SBPL、
+  candidate/archive binding 与 immutable `proof-forge.evidence.v1` 写出。
+- Spec/Test：`ADR-0013`、`SPEC-REPRO-001`、`SPEC-TOOL-001`、`TRACE-EV-001`、
+  `TST-HOST-001`、`TST-EVIDENCE-001`；`TST-ISO-002` 仍要求 eligible host。
+- Changed：
+  - `sandbox_policy.py`：`(deny default)` + `system.sb` import；core 无网络，localhost
+    profile 仅 loopback；self-test 覆盖 HOME/`/tmp` 外路径/`/opt/homebrew`/网络正负例。
+  - `evidence.py`：schema-complete 校验、JCS 写出、0444 不可变、拒绝 overwrite。
+  - `verify_isolation.sh`：Stage-0 development → policy/evidence self-test → archive →
+    binding digests → deny-default materialize/core/evm → HOME/repo/homebrew deny probes →
+    写出 `build/evidence/clean-room/EV-*.json`。
+  - `just host-h1-unit` / `v2-clean-room-h1`；`check` 纳入 H1 unit。
+- Commands（单位）：`python3 -I -S scripts/sandbox_policy.py self-test`；
+  `python3 -I -S scripts/evidence.py self-test`；权威 formal Stage-0
+  `env -i ... verify_host_stage0.sh --require-eligible`（期望 `PF-HOST-INELIGIBLE`）；
+  full clean-room 在 commit 后执行 `just v2-clean-room-h1`。
+- Results：单位门禁通过；formal Stage-0 稳定 ineligible（见 EV / scratch logs）。
+- Evidence：`EV-20260716-0012`（clean-room H1，development；`eligibleForHermetic=false`）。
+- Limitations：本 host 不能关闭 `TASK-D0-04`/`TST-ISO-002`；EV 为 development clean-room
+  而非 formal hermetic release evidence。同 UID TOCTOU 边界仍在。
+- Next：验证 clean-room H1 通过后关闭 `TASK-D0-03`；`TASK-D0-04` 保持 blocked；推进
+  正式 D0-01/D0-02 与 D1。
+
 ## 记录模板
+
 
 ```markdown
 ### YYYY-MM-DD — TASK-*
