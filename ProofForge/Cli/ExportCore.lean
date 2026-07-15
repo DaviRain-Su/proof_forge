@@ -149,6 +149,18 @@ def targetHostOpSignatures (targetId : String) : Array HostOpSig :=
   else
     #[]
 
+private def sigToHandler (targetId : String) (sig : HostOpSig) : HostOpHandlerEntry :=
+  {
+    id := sig.id
+    available := true
+    handler := s!"{targetId}:{ProofForge.Target.HostOpId.render sig.id}"
+    requiredCapabilities := sig.requiredCapabilities.map (·.id)
+  }
+
+/-- Full target HostOp inventory (general catalog, not module-specific). -/
+def targetHostOpCatalog (targetId : String) : Array HostOpHandlerEntry :=
+  (targetHostOpSignatures targetId).map (sigToHandler targetId)
+
 /-- Resolve used Core hostCalls against the target catalog (fail closed). -/
 def resolveHostOpHandlers
     (module : ProofForge.IR.Core.Module) (targetId : String)
@@ -161,21 +173,45 @@ def resolveHostOpHandlers
     | none =>
         throw s!"host op `{ProofForge.Target.HostOpId.render id}` is used by Core but has no handler on target `{targetId}`"
     | some sig =>
-        handlers := handlers.push {
-          id := id
-          available := true
-          handler := s!"{targetId}:{ProofForge.Target.HostOpId.render id}"
-          requiredCapabilities := sig.requiredCapabilities.map (·.id)
-        }
+        handlers := handlers.push (sigToHandler targetId sig)
   pure handlers
 
-/-- Write the four-file experimental export package. -/
+private def mutabilityName : ProofForge.IR.Canonical.InterfaceMutability → String
+  | .call => "call"
+  | .view => "view"
+
+private def interfaceFromCanonical
+    (iface : ProofForge.IR.Canonical.InterfaceContract) : String :=
+  let entrypoints := iface.entrypoints.map fun ep =>
+    ({
+      name := ep.name
+      mutability := mutabilityName ep.mutability
+      paramTypes := ep.params.map (fun p => coreTypeName p.type)
+      retType := coreTypeName ep.retType
+    } : InterfaceExportEntrypoint)
+  interfaceJson
+    iface.contractName
+    entrypoints
+    (iface.events.map (·.name))
+    (iface.errors.map (·.coreName))
+
+private def requirementsFromCanonical
+    (reqs : Array ProofForge.Target.CapabilityCall) : Array CapabilityRequirementEntry :=
+  reqs.map fun call =>
+    {
+      capability := call.capability.id
+      operation := call.operation.render
+    }
+
+/-- Write the general experimental export package (Core + plan + interface). -/
 def writeExportPackage
     (dir : FilePath)
     (targetId : String)
     (module : ProofForge.IR.Core.Module)
     (capabilityIds : Array String)
-    (handlers : Array HostOpHandlerEntry)
+    (requirements : Array CapabilityRequirementEntry)
+    (usedHandlers : Array HostOpHandlerEntry)
+    (ifaceJson : String)
     (sourceKind : String)
     (productPath? : String)
     (catalog? : Option ProofForge.IR.Core.HostOp.HostOpCatalog)
@@ -183,31 +219,34 @@ def writeExportPackage
   let coreJson ← match exportModuleJson module catalog? with
     | .ok json => pure json
     | .error err => throw <| IO.userError err.message
+  let targetCatalog := targetHostOpCatalog targetId
   let notes :=
-    if handlers.isEmpty then
-      s!"experimental: no hostCalls in module; target catalog size={targetHostOpSignatures targetId |>.size}"
-    else
-      s!"experimental: {handlers.size} hostOp handler(s) resolved for target"
-  let capJson := capabilityPlanJson targetId capabilityIds handlers notes
+    s!"experimental general package: usedHostOps={usedHandlers.size} targetCatalog={targetCatalog.size} requirements={requirements.size}"
+  let capJson := capabilityPlanJson
+    targetId capabilityIds requirements usedHandlers targetCatalog notes
   -- Hash the exact on-disk bodies (trailing newline included) so pf-core-inspect
   -- can recompute contentHash from files without a second encoding policy.
+  -- interface.v0.json is intentionally outside contentHash (ABI surface dimension).
   let coreBody := coreJson ++ "\n"
   let capBody := capJson ++ "\n"
+  let ifaceBody := ifaceJson ++ "\n"
   let contentHash ← sha256Utf8 (coreBody ++ capBody)
   let leanPin ← readToolchainPin root?
   let metaJson := exportMetaJson
-    targetId module.name contentHash leanPin Lean.versionString
+    targetId module.name contentHash leanPin Lean.versionString true
   let manifestJson := sourceManifestJson sourceKind productPath? targetId
   IO.FS.createDirAll dir
   IO.FS.writeFile (dir / "core.v0.json") coreBody
   IO.FS.writeFile (dir / "capability-plan.v0.json") capBody
+  IO.FS.writeFile (dir / "interface.v0.json") ifaceBody
   IO.FS.writeFile (dir / "export-meta.json") (metaJson ++ "\n")
   IO.FS.writeFile (dir / "source-manifest.json") (manifestJson ++ "\n")
   IO.println s!"wrote {dir / "core.v0.json"}"
   IO.println s!"wrote {dir / "capability-plan.v0.json"}"
+  IO.println s!"wrote {dir / "interface.v0.json"}"
   IO.println s!"wrote {dir / "export-meta.json"}"
   IO.println s!"wrote {dir / "source-manifest.json"}"
-  IO.println s!"export-core: experimental package ok module={module.name} target={targetId} handlers={handlers.size} hash={contentHash.take 12}…"
+  IO.println s!"export-core: package ok module={module.name} target={targetId} usedHostOps={usedHandlers.size} catalog={targetCatalog.size} hash={contentHash.take 12}…"
 
 private def exportFromSpec
     (opts : ExportCoreOptions)
@@ -225,6 +264,8 @@ private def exportFromSpec
   | .ok bundle => do
       let canonical := bundle.contract.contract
       let caps := dedupIds (canonical.requirements.map (fun call => call.capability.id))
+      let reqs := requirementsFromCanonical canonical.requirements
+      let iface := interfaceFromCanonical canonical.interface
       match resolveHostOpHandlers canonical.module opts.targetId with
       | .error msg =>
           IO.eprintln s!"export-core: {msg}"
@@ -236,7 +277,9 @@ private def exportFromSpec
               opts.targetId
               canonical.module
               caps
+              reqs
               handlers
+              iface
               sourceKind
               productPath
               (some canonical.hostOpCatalog)

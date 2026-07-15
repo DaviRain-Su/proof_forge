@@ -77,10 +77,14 @@ def main : IO UInt32 := do
       require (err.message.contains "core export refused")
         s!"expected refuse diagnostic, got {err.message}"
 
-  let cap := capabilityPlanJson "evm" #["storage.scalar"] #[]
+  let cap := capabilityPlanJson "evm" #["storage.scalar"]
+    #[{ capability := "storage.scalar", operation := "storage.scalar" }]
+    #[] #[]
   require (cap.contains "capability-plan.v0") "capability plan schema"
   require (cap.contains "\"targetId\": \"evm\"") "capability plan target"
-  require (cap.contains "\"hostOpHandlers\": []") "empty handlers for no hostCalls"
+  require (cap.contains "\"hostOpHandlers\": []") "empty used handlers"
+  require (cap.contains "\"targetHostOpCatalog\": []") "empty catalog ok in unit test"
+  require (cap.contains "\"requirements\"") "requirements array"
 
   -- Used host-op collector + handler row shape.
   let hostMod : Module := {
@@ -116,9 +120,10 @@ def main : IO UInt32 := do
     handler := "evm:evm.context/origin@1.0.0"
     requiredCapabilities := #["caller.sender"]
   }]
-  let cap2 := capabilityPlanJson "evm" #[] handlers
+  let cap2 := capabilityPlanJson "evm" #[] #[] handlers handlers
   require (cap2.contains "\"available\": true") "handler available"
   require (cap2.contains "origin") "handler id"
+  require (cap2.contains "targetHostOpCatalog") "target catalog field"
 
   IO.println "core-export-v0: ok (tiny validated export + invalid refuse)"
   pure 0

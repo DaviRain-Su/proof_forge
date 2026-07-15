@@ -4157,3 +4157,18 @@ Rules:
   packages; resolveHostOpHandlers NEAR-on-evm refuse / wasm-near accept.
 - Remaining: more hostCall-heavy products; optional full target catalog dump;
   merge main when available. Still not product default compile.
+
+## 2026-07-15 - LR-1d: general Seam A export package
+
+- Status: `done` (PR #105 branch)
+- Result: Shifted from example stacking to a **general** export package:
+  (1) Normalize HostOp catalog registers EVM+Solana+NEAR; (2) capability-plan
+  carries structured `requirements`, used `hostOpHandlers`, and full
+  `targetHostOpCatalog`; (3) `interface.v0.json` for entrypoint surface
+  (outside contentHash); (4) multi-target property that Core body is identical
+  across the primary triad; (5) data-driven product smoke (Counter/ValueVault/
+  Ownable). Products are smokes for the general path, not the feature itself.
+- Verification: `CoreExport` + `CoreExportPackage` + `CoreExportGeneral`;
+  pf-core-inspect on multi-target packages.
+- Remaining: hostCall-heavy modules exercise non-empty used handlers;
+  optional CLI matrix; merge main when available. Still experimental.

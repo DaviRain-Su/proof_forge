@@ -77,6 +77,23 @@ partial def coreTypeJson : CoreType → String
         ("typeId", idJson typeId.value)
       ]
 
+/-- Compact type name for interface.v0 surface (not full Core type tree). -/
+partial def coreTypeName : CoreType → String
+  | .unit => "unit"
+  | .bool => "bool"
+  | .u8 => "u8"
+  | .u32 => "u32"
+  | .u64 => "u64"
+  | .u128 => "u128"
+  | .address => "address"
+  | .bytes => "bytes"
+  | .string => "string"
+  | .hash => "hash"
+  | .fixedArray element length => s!"fixedArray[{coreTypeName element};{length}]"
+  | .array element => s!"array[{coreTypeName element}]"
+  | .memoryRef element => s!"memoryRef[{coreTypeName element}]"
+  | .structType typeId => s!"struct#{typeId.value}"
+
 def valueDefJson (v : ValueDef) : String :=
   jsonObject #[
     ("id", idJson v.id.value),
@@ -510,19 +527,66 @@ def collectUsedHostOpIds (m : Module) : Array ProofForge.Target.HostOpId :=
         (fromInsn insn.op).foldl (init := acc) fun acc id =>
           if acc.any (· == id) then acc else acc.push id
 
-/-- Capability-plan companion with capabilities + hostOpHandlers. -/
+/-- One capability requirement row (from Canonical requirements / CapabilityPlan). -/
+structure CapabilityRequirementEntry where
+  capability : String
+  operation : String
+  deriving Repr
+
+def capabilityRequirementJson (r : CapabilityRequirementEntry) : String :=
+  jsonObject #[
+    ("capability", jsonString r.capability),
+    ("operation", jsonString r.operation)
+  ]
+
+/-- Capability-plan companion: requirements + used handlers + full target catalog. -/
 def capabilityPlanJson
     (targetId : String)
     (capabilityIds : Array String)
-    (handlers : Array HostOpHandlerEntry)
+    (requirements : Array CapabilityRequirementEntry)
+    (usedHandlers : Array HostOpHandlerEntry)
+    (targetCatalog : Array HostOpHandlerEntry)
     (profileNotes : String := "experimental core.v0 capability plan") : String :=
   jsonObject #[
     ("schemaVersion", natJson envelopeSchemaVersion),
     ("capabilityPlanSchema", jsonString capabilityPlanSchema),
     ("targetId", jsonString targetId),
     ("capabilities", jsonStringArray capabilityIds),
-    ("hostOpHandlers", jsonArray (handlers.map hostOpHandlerJson)),
+    ("requirements", jsonArray (requirements.map capabilityRequirementJson)),
+    ("hostOpHandlers", jsonArray (usedHandlers.map hostOpHandlerJson)),
+    ("targetHostOpCatalog", jsonArray (targetCatalog.map hostOpHandlerJson)),
     ("profileNotes", jsonString profileNotes)
+  ]
+
+/-- Interface surface for Rust dual-run / ABI dimensions (not part of Core hash). -/
+def interfaceSchema : String := "interface.v0"
+
+structure InterfaceExportEntrypoint where
+  name : String
+  mutability : String
+  paramTypes : Array String
+  retType : String
+  deriving Repr
+
+def interfaceEntrypointJson (e : InterfaceExportEntrypoint) : String :=
+  jsonObject #[
+    ("name", jsonString e.name),
+    ("mutability", jsonString e.mutability),
+    ("paramTypes", jsonStringArray e.paramTypes),
+    ("retType", jsonString e.retType)
+  ]
+
+def interfaceJson
+    (contractName : String)
+    (entrypoints : Array InterfaceExportEntrypoint)
+    (eventNames errorNames : Array String) : String :=
+  jsonObject #[
+    ("schemaVersion", natJson envelopeSchemaVersion),
+    ("interfaceSchema", jsonString interfaceSchema),
+    ("contractName", jsonString contractName),
+    ("entrypoints", jsonArray (entrypoints.map interfaceEntrypointJson)),
+    ("events", jsonStringArray eventNames),
+    ("errors", jsonStringArray errorNames)
   ]
 
 /-- source-manifest sketch (not part of contentHash). -/
@@ -541,16 +605,19 @@ def sourceManifestJson
 /-- Export-meta without contentHash (caller may fill after hashing bodies). -/
 def exportMetaJson
     (targetId moduleName contentHash leanToolchain leanVersionObserved : String)
-    : String :=
+    (hasInterface : Bool := true) : String :=
   jsonObject #[
     ("schemaVersion", natJson envelopeSchemaVersion),
     ("coreSchema", jsonString coreSchema),
     ("capabilityPlanSchema", jsonString capabilityPlanSchema),
+    ("interfaceSchema", if hasInterface then jsonString interfaceSchema else "null"),
     ("leanToolchain", jsonString leanToolchain),
     ("leanVersionObserved", jsonString leanVersionObserved),
     ("targetId", jsonString targetId),
     ("moduleName", jsonString moduleName),
     ("contentHash", jsonString contentHash),
+    ("contentHashIncludes", jsonStringArray #["core.v0.json", "capability-plan.v0.json"]),
+    ("notPartOfContentHash", jsonStringArray #["export-meta.json", "source-manifest.json", "interface.v0.json"]),
     ("createdBy", jsonString "proof-forge export-core (experimental)")
   ]
 

@@ -110,22 +110,47 @@ fn check_export_dir(dir: &Path) -> Result<()> {
             .and_then(Value::as_array)
             .context("capability-plan.v0.json missing hostOpHandlers array")?;
         for (i, handler) in handlers.iter().enumerate() {
-            let available = handler
-                .get("available")
-                .and_then(Value::as_bool)
-                .with_context(|| format!("hostOpHandlers[{i}].available must be bool"))?;
-            if !available {
-                bail!("hostOpHandlers[{i}] is not available (fail-closed)");
-            }
-            let _handler = handler
-                .get("handler")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .with_context(|| format!("hostOpHandlers[{i}].handler must be non-empty"))?;
-            let _id = handler
-                .get("id")
-                .context(format!("hostOpHandlers[{i}].id missing"))?;
+            check_handler_entry(handler, &format!("hostOpHandlers[{i}]"))?;
         }
+        if let Some(catalog) = cap.get("targetHostOpCatalog") {
+            let catalog = catalog
+                .as_array()
+                .context("targetHostOpCatalog must be an array")?;
+            for (i, handler) in catalog.iter().enumerate() {
+                check_handler_entry(handler, &format!("targetHostOpCatalog[{i}]"))?;
+            }
+        }
+        if let Some(reqs) = cap.get("requirements") {
+            let reqs = reqs.as_array().context("requirements must be an array")?;
+            for (i, req) in reqs.iter().enumerate() {
+                let _cap = req
+                    .get("capability")
+                    .and_then(Value::as_str)
+                    .with_context(|| format!("requirements[{i}].capability missing"))?;
+                let _op = req
+                    .get("operation")
+                    .and_then(Value::as_str)
+                    .with_context(|| format!("requirements[{i}].operation missing"))?;
+            }
+        }
+    }
+
+    let iface_path = dir.join("interface.v0.json");
+    if iface_path.exists() {
+        let iface_text = fs::read_to_string(&iface_path)?;
+        let iface: Value = serde_json::from_str(&iface_text)
+            .with_context(|| format!("invalid JSON in `{}`", iface_path.display()))?;
+        let schema = iface
+            .get("interfaceSchema")
+            .and_then(Value::as_str)
+            .context("interface.v0.json missing interfaceSchema")?;
+        if schema != "interface.v0" {
+            bail!("unexpected interfaceSchema `{schema}`");
+        }
+        let _eps = iface
+            .get("entrypoints")
+            .and_then(Value::as_array)
+            .context("interface.v0.json missing entrypoints array")?;
     }
 
     let meta_path = dir.join("export-meta.json");
@@ -152,6 +177,25 @@ fn check_export_dir(dir: &Path) -> Result<()> {
         "pf-core-inspect: ok module={name} functions={} coreSchema=core.v0",
         functions.len()
     );
+    Ok(())
+}
+
+fn check_handler_entry(handler: &Value, label: &str) -> Result<()> {
+    let available = handler
+        .get("available")
+        .and_then(Value::as_bool)
+        .with_context(|| format!("{label}.available must be bool"))?;
+    if !available {
+        bail!("{label} is not available (fail-closed)");
+    }
+    let _handler = handler
+        .get("handler")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .with_context(|| format!("{label}.handler must be non-empty"))?;
+    let _id = handler
+        .get("id")
+        .with_context(|| format!("{label}.id missing"))?;
     Ok(())
 }
 

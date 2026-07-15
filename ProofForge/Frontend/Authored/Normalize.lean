@@ -4,6 +4,7 @@ import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
 import ProofForge.Target.HostOps.Near
 import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.HostOps.Solana
 import ProofForge.Target.InterfaceOps.Evm
 
 namespace ProofForge.Frontend.Authored.Normalize
@@ -468,8 +469,11 @@ def normalizeContractSpec (spec : ContractSpec) : Except CanonicalizeError Canon
   let materialization ← adaptMaterialization spec finalSt.env interface registeredErrors
   let interfaceExtensions ← adaptInterfaceExtensions spec interface registeredErrors
   let evidence := adaptEvidence spec
+  -- Primary-triad HostOp catalogs (general Seam A/export precondition).
   let hostOpCatalog ← match ProofForge.IR.Core.HostOp.HostOpCatalog.empty.registerAll
-      (ProofForge.Target.HostOps.Near.signatures ++ ProofForge.Target.HostOps.Evm.signatures) with
+      (ProofForge.Target.HostOps.Evm.signatures ++
+        ProofForge.Target.HostOps.Solana.signatures ++
+        ProofForge.Target.HostOps.Near.signatures) with
     | .ok catalog => pure catalog
     | .error error => throw (.other s!"HostOp catalog registration failed: {repr error}")
   let requirements := ProofForge.IR.Canonical.deriveCapabilityRequirements
