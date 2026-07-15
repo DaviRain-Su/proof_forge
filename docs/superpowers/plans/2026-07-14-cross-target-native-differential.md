@@ -305,7 +305,7 @@ ArrayExample fixed-array execution slices:
 | Slice | State | Scope |
 |---|---|---|
 | CMP-3g1 | done (verified at `b8448961`) | Pin independent Solidity, Pinocchio, and near-sdk ArrayExample references plus one versioned scenario for length, valid indexing, sum, and out-of-bounds rejection. Keep every new semantic asset at `none`. |
-| CMP-3g2 | in_progress | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; promote evidence only after all observation dimensions and failure behavior match. |
+| CMP-3g2 | done (verified at `0035138e`) | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; promote evidence only after all observation dimensions and failure behavior match. |
 
 `ccb9221a` is the architecture prerequisite for these slices: Product
 ArrayExample now reaches target-owned EVM, Solana, and NEAR plans only through
@@ -322,6 +322,17 @@ failure across all eight observation dimensions. The native sources compile
 with Solidity 0.8.30, cargo-build-sbf 3.1.12/platform-tools v1.52, and Rust
 1.94.0 respectively. Inventory now contains 124 assets and still exactly 30
 verified assets; all four new semantic assets remain `none` until CMP-3g2.
+
+CMP-3g2 completion evidence (2026-07-15): `just
+differential-array-example` builds only the direct Authored Product source and
+the three independent references. Both EVM artifacts execute on Anvil, both
+Solana ELFs on Mollusk, and both NEAR Wasm artifacts on upstream
+`near-vm-runner`. Length, valid indexing, sum, and normalized out-of-bounds
+failure match across all eight observation dimensions; state, balances,
+events, and external actions remain empty. The old called NEAR v0 manifest is
+deleted. Inventory now contains 125 assets and exactly 36 verified assets.
+The next A-CUT3 slice adds target-neutral direct map authoring before migrating
+StatusMessage; it does not reopen a Legacy frontend path.
 
 Acceptance:
 

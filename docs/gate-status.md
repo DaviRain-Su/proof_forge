@@ -218,6 +218,19 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | CMP-3g1-3 | Native sources build with pinned target toolchains | ✅ met | Solidity 0.8.30 compiles the EVM reference; cargo-build-sbf 3.1.12/platform-tools v1.52 builds the Pinocchio ELF; Rust 1.94.0 builds the near-sdk Wasm |
 | CMP-3g1-4 | Reference pinning does not claim equivalence | ✅ met | inventory contains 124 assets and exactly 30 verified assets; all three references and the scenario remain `semanticEvidence=none` until CMP-3g2 VM execution |
 
+## Gate CMP-3g2 - Primary-triad ArrayExample native differential
+
+**Status: Closed**
+
+**Closed: 2026-07-15 at `0035138e`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3g2-1 | ProofForge artifacts come only from the direct Product source | ✅ met | `just differential-array-example` builds `Examples/Product/ArrayExample.lean`; all target artifacts report `contract-source-authored` / `canonical-core-v1`, and forbidden ContractSpec/IR sidecars fail the gate |
+| CMP-3g2-2 | Independent references execute on the primary target VMs | ✅ met | both EVM artifacts run on Anvil, both Solana ELFs on Mollusk, and both NEAR Wasm artifacts on upstream `near-vm-runner` |
+| CMP-3g2-3 | Positive and negative behavior match completely | ✅ met | length 3, element 20, sum 60, and normalized out-of-bounds failure match across all eight observation dimensions; no state, balance, event, or external-action effects are observed |
+| CMP-3g2-4 | Evidence promotion is fail-closed and replaces v0 | ✅ met | the called NEAR v0 manifest is deleted; inventory contains 125 assets and exactly 36 verified assets, including the three references, scenario, runner, and focused gate |
+
 ## Gate CMP-3d1 - Independent Ownable reference contracts
 
 **Status: Closed**

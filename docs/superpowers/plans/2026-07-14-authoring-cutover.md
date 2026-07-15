@@ -283,7 +283,7 @@ independent primary-triad behavior requirement at `bec50074`.
 
 ### A-CUT3 - Product migration
 
-State: `in_progress; ValueVault, Ownable, Pausable, and ReentrancyGuard use the direct-only Product route with primary-triad VM evidence; ArrayExample is direct-only, its independent references are pinned, and CMP-3g2 VM execution is active`
+State: `in_progress; ValueVault, Ownable, Pausable, ReentrancyGuard, and ArrayExample use direct-only Product routes with primary-triad VM evidence; direct map authoring and StatusMessage are next`
 
 - Migrate every `catalog.json` source through the direct frontend.
 - Product files remain chain-neutral. EVM/ERC, NEAR/NEP, and Solana SDK details
@@ -373,6 +373,15 @@ ArrayExample reference checkpoint (2026-07-15): `b8448961` adds the portable
 references plus a four-step v1 scenario. All new reference/scenario assets
 remain `semanticEvidence=none`; CMP-3g2 must execute both sides on Anvil,
 Mollusk, and upstream `near-vm-runner` before evidence is promoted.
+
+ArrayExample execution checkpoint (2026-07-15): `0035138e` executes the direct
+artifact and all independent references on Anvil, Mollusk, and upstream
+`near-vm-runner`. All four steps and eight observation dimensions match, the
+old NEAR v0 manifest is deleted, and the deterministic inventory records 125
+assets with exactly 36 verified. The remaining catalog audit selects
+StatusMessage as the smallest map/event family. A-CUT3e1 first adds
+target-neutral direct map declarations/reads/writes; A-CUT3e2 then rewrites and
+deletes the StatusMessage Legacy route.
 
 ### A-CUT4 - Delete duplicate source and version split
 

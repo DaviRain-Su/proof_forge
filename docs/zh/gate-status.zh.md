@@ -211,6 +211,19 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | CMP-3g1-3 | 原生 source 由固定目标工具链构建 | ✅ met | Solidity 0.8.30 编译 EVM reference；cargo-build-sbf 3.1.12/platform-tools v1.52 构建 Pinocchio ELF；Rust 1.94.0 构建 near-sdk Wasm |
 | CMP-3g1-4 | 固定 reference 不宣称等价 | ✅ met | inventory 包含 124 项资产和恰好 30 项 verified；三个 reference 与场景在 CMP-3g2 VM 执行前保持 `semanticEvidence=none` |
 
+## Gate CMP-3g2 —— 主三链 ArrayExample 原生差分
+
+**状态：已关闭**
+
+**关闭时间：2026-07-15，提交 `0035138e`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-3g2-1 | ProofForge artifact 只来自 direct Product source | ✅ met | `just differential-array-example` 构建 `Examples/Product/ArrayExample.lean`；所有 target artifact 报告 `contract-source-authored` / `canonical-core-v1`，ContractSpec/IR sidecar 会使 gate 失败 |
+| CMP-3g2-2 | 独立 reference 在主 target VM 上执行 | ✅ met | 两份 EVM artifact 在 Anvil 上运行，两份 Solana ELF 在 Mollusk 上运行，两份 NEAR Wasm artifact 在 upstream `near-vm-runner` 上运行 |
+| CMP-3g2-3 | 正向与负向行为完整匹配 | ✅ met | 长度 3、元素 20、求和 60 与归一化越界失败在全部八个 observation dimension 上一致；未观察到 state、balance、event 或 external-action 效果 |
+| CMP-3g2-4 | 证据晋级 fail-closed 并替换 v0 | ✅ met | 被调用的 NEAR v0 manifest 已删除；inventory 包含 125 项资产和恰好 36 项 verified，包括三个 reference、scenario、runner 与 focused gate |
+
 ## Gate CMP-3d1 —— 独立 Ownable reference 契约
 
 **状态：已关闭**

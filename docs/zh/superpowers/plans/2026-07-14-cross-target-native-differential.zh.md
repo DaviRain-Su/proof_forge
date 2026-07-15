@@ -250,7 +250,7 @@ ArrayExample fixed-array 执行切片：
 | 切片 | 状态 | 范围 |
 |---|---|---|
 | CMP-3g1 | done（在 `b8448961` 验证） | 固定独立 Solidity、Pinocchio 与 near-sdk ArrayExample reference，并定义一个覆盖长度、合法索引、求和和越界拒绝的版本化场景。所有新增语义资产保持 `none`。 |
-| CMP-3g2 | in_progress | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；只有全部 observation dimension 与失败行为一致后才晋级证据。 |
+| CMP-3g2 | done（在 `0035138e` 验证） | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 和原生 reference；只有全部 observation dimension 与失败行为一致后才晋级证据。 |
 
 `ccb9221a` 是这些切片的架构前置：Product ArrayExample 现在只通过
 checked Canonical Core 到达 target-owned EVM、Solana 与 NEAR plan，Legacy
@@ -265,6 +265,15 @@ dimension 上覆盖长度、合法索引、求和与归一化越界失败。原�
 Solidity 0.8.30、cargo-build-sbf 3.1.12/platform-tools v1.52 与 Rust 1.94.0
 编译。Inventory 现含 124 项资产，仍恰有 30 项 verified；四项新增语义资产在
 CMP-3g2 前保持 `none`。
+
+CMP-3g2 完成证据（2026-07-15）：`just differential-array-example`
+只构建 direct Authored Product source 与三份独立 reference。两份 EVM artifact
+在 Anvil 上执行，两份 Solana ELF 在 Mollusk 上执行，两份 NEAR Wasm artifact
+在 upstream `near-vm-runner` 上执行。长度、合法索引、求和与归一化越界失败在
+全部八个 observation dimension 上一致；state、balance、event 与 external action
+保持为空。旧的被调用 NEAR v0 manifest 已删除。Inventory 现含 125 项资产，
+恰有 36 项 verified。下一个 A-CUT3 切片先增加 target-neutral direct map
+authoring，再迁移 StatusMessage；不会重开 Legacy frontend 路线。
 
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 

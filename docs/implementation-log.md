@@ -4584,3 +4584,24 @@ Rules:
   compilation; Pinocchio host tests plus cargo-build-sbf
   3.1.12/platform-tools v1.52; near-sdk host tests plus Rust 1.94.0 Wasm build;
   source-digest audit; and `git diff --check`. No full aggregate was run.
+
+## 2026-07-15 - CMP-3g2: primary-triad native ArrayExample differential
+
+- Status: `done (verified at 0035138e)`; A-CUT3e1 target-neutral direct map
+  authoring is now active, followed by the StatusMessage direct cutover.
+- Added `scripts/differential/array_example_pilot.py`, `just
+  differential-array-example`, and a dedicated accountless Mollusk runner.
+  The gate builds only the direct Product source and target-owned artifacts,
+  and rejects ContractSpec/IR sidecars.
+- Executed both EVM artifacts on Anvil, both Solana ELFs on Mollusk, and both
+  NEAR Wasm artifacts on upstream `near-vm-runner`. Length 3, element 20, sum
+  60, and normalized out-of-bounds failure match across all eight observation
+  dimensions; no state, balances, events, or external actions are observed.
+- Deleted the called NEAR ArrayExample v0 manifest and promoted only the three
+  references, four-step scenario, runner, and gate. The deterministic inventory
+  now contains 125 assets with exactly 36 verified.
+- Verification: `just differential-array-example`; `just
+  differential-contracts`; `just near-compare-array-example`; focused Cargo
+  check and Rust formatting for the Mollusk runner; Python bytecode compilation;
+  generated evidence inspection; and `git diff --check`. No full aggregate was
+  run.
