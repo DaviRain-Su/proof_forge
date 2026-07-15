@@ -111,6 +111,9 @@ def assign (target : AuthoredLValue) (value : AuthoredExpr) : EntryM Unit :=
 def stateWrite (name : String) (value : AuthoredExpr) : EntryM Unit :=
   pushStmt (.stateWrite name value)
 
+def mapWrite (name : String) (key value : AuthoredExpr) : EntryM Unit :=
+  pushStmt (.mapWrite name key value)
+
 def emit (name : String) (args : Array AuthoredExpr) : EntryM Unit :=
   pushStmt (.emit name args)
 

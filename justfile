@@ -438,6 +438,12 @@ authored-authorization:
     lake build ProofForge.Contract.Source
     lake env lean --run Tests/Canonical/AuthoredAuthorization.lean
 
+# A-CUT3e1: portable map declarations/reads/writes normalize directly to Core
+# and reach all primary target plans without ContractSpec or v1 IR.
+authored-map:
+    lake build ProofForge.Contract.Source
+    lake env lean --run Tests/Canonical/AuthoredMap.lean
+
 # A-CUT3b2: Product Ownable has one direct Authored/Core route to all primary plans.
 ownable-authoring-cutover:
     scripts/canonical/check-ownable-authoring-cutover.sh

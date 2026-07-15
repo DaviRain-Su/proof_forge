@@ -20,6 +20,11 @@ open ProofForge.Frontend.Authored
 
 def sourceDslVersion : String := "contract-source"
 
+/-- Portable bound used by the compact `mapping` authoring form. The bound is
+part of Canonical state semantics; targets may choose different layouts but
+must preserve the same maximum entry count. -/
+def defaultMapCapacity : Nat := 256
+
 abbrev ModuleM := ProofForge.Frontend.Authored.Builder.ModuleM
 abbrev EntryM := ProofForge.Frontend.Authored.Builder.EntryM
 
@@ -135,6 +140,7 @@ declare_syntax_cat contractItem
 declare_syntax_cat entryStmt
 
 scoped syntax "state " ident " : " term : contractItem
+scoped syntax "mapping " ident " from " term " to " term : contractItem
 scoped syntax "binding " ident " : " term : contractItem
 scoped syntax "event " ident term : contractItem
 scoped syntax "quint_invariant " ident " := " str : contractItem
@@ -210,6 +216,10 @@ partial def lowerExpr (states locals : Array String) (source : TSyntax `term) :
       let loweredArray <- lowerExpr states locals array
       let loweredIndex <- lowerExpr states locals index
       `(.index $loweredArray $loweredIndex)
+  | `(mapRead $mapName:ident $key:term) =>
+      let loweredKey <- lowerExpr states locals key
+      let mapNameTerm := nameLit mapName
+      `(.mapRead $mapNameTerm $loweredKey)
   | `(term| $name:ident) =>
       let value := name.getId.toString
       let valueTerm : TSyntax `term := quote value
@@ -288,6 +298,13 @@ def lowerEntryBody (states : Array String) (params : Array String)
             let right <- lowerExpr states locals rhs
             actions := actions.push (←
               `(ProofForge.Frontend.Authored.Builder.assert (.compare .ne $left $right) $message))
+        | `(mapWrite $mapName:ident $key:term $value:term) =>
+            let loweredKey <- lowerExpr states locals key
+            let loweredValue <- lowerExpr states locals value
+            let mapNameTerm := nameLit mapName
+            actions := actions.push (←
+              `(ProofForge.Frontend.Authored.Builder.mapWrite
+                $mapNameTerm $loweredKey $loweredValue))
         | _ => Macro.throwErrorAt action "unsupported direct authored action; no Legacy fallback exists"
     | _ => Macro.throwErrorAt statement "unsupported direct authored statement; no Legacy fallback exists"
   chain actions
@@ -335,6 +352,11 @@ def lowerItem (states : Array String) (item : TSyntax `contractItem) :
   | `(contractItem| state $name:ident : $type:term) =>
       let stateName := nameLit name
       return some (← `(ProofForge.Frontend.Authored.Builder.scalarState $stateName $type))
+  | `(contractItem| mapping $name:ident from $keyType:term to $valueType:term) =>
+      let stateName := nameLit name
+      return some (← `(ProofForge.Frontend.Authored.Builder.mapState
+        $stateName $keyType $valueType
+        (some ProofForge.Contract.Source.defaultMapCapacity)))
   | `(contractItem| binding $_name:ident : $_type:term) =>
       return none
   | `(contractItem| event $name:ident $fieldsTerm:term) =>
