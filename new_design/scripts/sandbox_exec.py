@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Launch one sandbox stage with a closed descriptor table and fixed logs."""
+"""Launch one development sandbox stage with closed FDs and fixed receipts.
+
+The launcher cleans the dedicated process group before reaping its leader.  A
+child can still create a new session on macOS, so this is not formal orphan or
+fork-bomb containment; formal qualification needs a stronger host runner.
+"""
 
 from __future__ import annotations
 
 import argparse
 import os
 import re
+import select
 import secrets
 import selectors
 import signal
@@ -386,11 +392,14 @@ def atomic_receipt(directory_fd: int, name: str, data: bytes) -> None:
 
 
 def kill_process_group(process: subprocess.Popen[bytes]) -> None:
-    if process.poll() is None:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+    # The group leader may have exited while a descendant still holds a pipe.
+    # Always address the dedicated session by PGID before reaping the leader.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (PermissionError, ProcessLookupError):
+        # macOS reports EPERM when the reserved group contains only an exited
+        # zombie leader, which is the expected no-descendant success case.
+        pass
     process.wait()
 
 
@@ -401,6 +410,7 @@ def collect_bounded_output(
         fail("PF-SANDBOX-LAUNCH", "launcher pipes are missing")
     output = {"stdout": bytearray(), "stderr": bytearray()}
     selector = selectors.DefaultSelector()
+    exit_queue = select.kqueue()
     streams = {
         process.stdout.fileno(): ("stdout", process.stdout),
         process.stderr.fileno(): ("stderr", process.stderr),
@@ -409,12 +419,61 @@ def collect_bounded_output(
         os.set_blocking(descriptor, False)
         selector.register(descriptor, selectors.EVENT_READ, (name, stream))
     deadline = time.monotonic() + timeout_seconds
+    leader_exited = False
+    group_cleaned = False
     try:
-        while selector.get_map():
-            if time.monotonic() >= deadline:
+        try:
+            exit_queue.control(
+                [
+                    select.kevent(
+                        process.pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=(
+                            select.KQ_EV_ADD
+                            | select.KQ_EV_ENABLE
+                            | select.KQ_EV_ONESHOT
+                        ),
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                ],
+                0,
+                0,
+            )
+        except ProcessLookupError:
+            # A fast leader can exit between Popen and kqueue registration.
+            # Its reserved process group must still be cleaned before wait()
+            # reaps the leader and permits PGID reuse.
+            kill_process_group(process)
+            leader_exited = True
+            group_cleaned = True
+        # KQ_NOTE_EXIT observes completion without wait()/poll() reaping the
+        # leader.  Its zombie keeps the PGID reserved until descendants have
+        # been killed and the original status can be collected safely.
+        while selector.get_map() or not leader_exited:
+            if not leader_exited and exit_queue.control([], 1, 0):
+                leader_exited = True
+                # Keep the exited leader unreaped until this point so its PGID
+                # cannot be reused.  Then kill every member still in that
+                # process group immediately; waiting for inherited pipes to
+                # reach EOF would otherwise consume the stage timeout.
                 kill_process_group(process)
+                group_cleaned = True
+            if leader_exited and not selector.get_map():
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if not group_cleaned:
+                    kill_process_group(process)
+                    group_cleaned = True
                 fail("PF-SANDBOX-LAUNCH-TIMEOUT", "sandbox stage exceeded fixed timeout")
-            for key, _ in selector.select(timeout=0.25):
+            events = (
+                selector.select(timeout=min(0.25, remaining))
+                if selector.get_map()
+                else ()
+            )
+            if not events:
+                time.sleep(min(0.01, remaining))
+            for key, _ in events:
                 name, stream = key.data
                 try:
                     chunk = os.read(key.fd, 64 * 1024)
@@ -429,11 +488,19 @@ def collect_bounded_output(
                     len(output[name]) > MAX_STREAM_BYTES
                     or len(output["stdout"]) + len(output["stderr"]) > MAX_TOTAL_BYTES
                 ):
-                    kill_process_group(process)
+                    if not group_cleaned:
+                        kill_process_group(process)
+                        group_cleaned = True
                     fail("PF-SANDBOX-LAUNCH-OUTPUT", "sandbox output exceeded byte cap")
-        return_code = process.wait()
+        if not group_cleaned:
+            kill_process_group(process)
+            group_cleaned = True
+        return_code = process.returncode
+        if return_code is None:
+            fail("PF-SANDBOX-LAUNCH", "sandbox leader was not reaped")
     finally:
         selector.close()
+        exit_queue.close()
         for _, stream in streams.values():
             if not stream.closed:
                 stream.close()
@@ -503,7 +570,7 @@ def launch(
             raise
         return return_code if return_code >= 0 else 128 - return_code
     finally:
-        if process is not None and process.poll() is None:
+        if process is not None and process.returncode is None:
             kill_process_group(process)
         os.close(policies_fd)
 
@@ -516,6 +583,21 @@ def expect_error(code: str, operation) -> None:  # type: ignore[no-untyped-def]
             fail("PF-SANDBOX-LAUNCH-SELFTEST", f"expected {code}, got {error.code}")
         return
     fail("PF-SANDBOX-LAUNCH-SELFTEST", f"expected rejection {code}")
+
+
+def expect_process_exit(pid: int, label: str) -> None:
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.02)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    fail("PF-SANDBOX-LAUNCH-SELFTEST", f"{label} survived process-group cleanup")
 
 
 def self_test() -> None:
@@ -645,6 +727,77 @@ def self_test() -> None:
             MAX_STREAM_BYTES = original_stream_cap
         if any(policies.glob("sandbox-core-output-cap.*.log")):
             fail("PF-SANDBOX-LAUNCH-SELFTEST", "output-cap failure published receipts")
+        fast_process = subprocess.Popen(
+            [sys.executable, "-I", "-S", "-c", "print('fast-exit')"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+            start_new_session=True,
+        )
+        time.sleep(0.15)
+        fast_code, fast_stdout, fast_stderr = collect_bounded_output(fast_process, 2)
+        if fast_code != 0 or fast_stdout != b"fast-exit\n" or fast_stderr:
+            fail("PF-SANDBOX-LAUNCH-SELFTEST", "fast-exit collection mismatch")
+        detached_marker = work / "detached.pid"
+        detached_code = (
+            "import os,time\n"
+            f"marker={str(detached_marker)!r}\n"
+            "pid=os.fork()\n"
+            "if pid == 0:\n"
+            "    fd=os.open(marker,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n"
+            "    os.write(fd,str(os.getpid()).encode())\n"
+            "    os.close(fd)\n"
+            "    time.sleep(30)\n"
+            "    os._exit(0)\n"
+            "while not os.path.exists(marker): time.sleep(0.01)\n"
+            "os._exit(0)\n"
+        )
+        detached_result = launch(
+            "core",
+            "detached-child",
+            temp_root,
+            validated_policies,
+            policy_bytes,
+            environment,
+            [sys.executable, "-I", "-S", "-c", detached_code],
+        )
+        if detached_result != 0:
+            fail("PF-SANDBOX-LAUNCH-SELFTEST", "detached-child leader failed")
+        expect_process_exit(int(detached_marker.read_text()), "detached child")
+        orphan_marker = work / "orphan.pid"
+        original_timeout = STAGE_TIMEOUT_SECONDS["core"]
+        STAGE_TIMEOUT_SECONDS["core"] = 0.5
+        orphan_code = (
+            "import os,time\n"
+            f"marker={str(orphan_marker)!r}\n"
+            "pid=os.fork()\n"
+            "if pid == 0:\n"
+            "    fd=os.open(marker,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n"
+            "    os.write(fd,str(os.getpid()).encode())\n"
+            "    os.close(fd)\n"
+            "else:\n"
+            "    while not os.path.exists(marker): time.sleep(0.01)\n"
+            "time.sleep(30)\n"
+        )
+        try:
+            expect_error(
+                "PF-SANDBOX-LAUNCH-TIMEOUT",
+                lambda: launch(
+                    "core",
+                    "orphan-timeout",
+                    temp_root,
+                    validated_policies,
+                    policy_bytes,
+                    environment,
+                    [sys.executable, "-I", "-S", "-c", orphan_code],
+                ),
+            )
+        finally:
+            STAGE_TIMEOUT_SECONDS["core"] = original_timeout
+        if any(policies.glob("sandbox-core-orphan-timeout.*.log")):
+            fail("PF-SANDBOX-LAUNCH-SELFTEST", "timeout failure published receipts")
+        expect_process_exit(int(orphan_marker.read_text()), "timed-out descendant")
         expect_error("PF-SANDBOX-LAUNCH-ID", lambda: validate_invocation("Invalid_ID"))
         expect_error("PF-SANDBOX-LAUNCH-ID", lambda: validate_invocation("x" * 49))
         expect_error(
