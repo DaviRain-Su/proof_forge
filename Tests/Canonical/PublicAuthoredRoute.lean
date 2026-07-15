@@ -45,6 +45,8 @@ unsafe def run : IO Unit := do
         "Loader changed the direct authored contract identity"
   | .surfaceFixture _ =>
       throw <| IO.userError "public Counter was loaded as an internal Surface fixture"
+  | .legacySpec _ =>
+      throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   let vaultInput := System.FilePath.mk "Examples/Product/ValueVault.lean"
   let (vaultEnv, vaultModName) <- ProofForge.Cli.ContractLoader.runTrustedLocalFrontend
     vaultInput (some (System.FilePath.mk ".")) none
@@ -60,6 +62,8 @@ unsafe def run : IO Unit := do
         "Loader changed the direct authored ValueVault identity"
   | .surfaceFixture _ =>
       throw <| IO.userError "public ValueVault was loaded as an internal Surface fixture"
+  | .legacySpec _ =>
+      throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   let ownableInput := System.FilePath.mk "Examples/Product/Ownable.lean"
   let (ownableEnv, ownableModName) <- ProofForge.Cli.ContractLoader.runTrustedLocalFrontend
     ownableInput (some (System.FilePath.mk ".")) none
@@ -75,6 +79,8 @@ unsafe def run : IO Unit := do
         "Loader changed the direct authored Ownable identity"
   | .surfaceFixture _ =>
       throw <| IO.userError "public Ownable was loaded as an internal Surface fixture"
+  | .legacySpec _ =>
+      throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   let pausableInput := System.FilePath.mk "Examples/Product/Pausable.lean"
   let (pausableEnv, pausableModName) <- ProofForge.Cli.ContractLoader.runTrustedLocalFrontend
     pausableInput (some (System.FilePath.mk ".")) none
@@ -90,6 +96,8 @@ unsafe def run : IO Unit := do
         "Loader changed the direct authored Pausable identity"
   | .surfaceFixture _ =>
       throw <| IO.userError "public Pausable was loaded as an internal Surface fixture"
+  | .legacySpec _ =>
+      throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   let guardInput := System.FilePath.mk "Examples/Product/ReentrancyGuard.lean"
   let (guardEnv, guardModName) <- ProofForge.Cli.ContractLoader.runTrustedLocalFrontend
     guardInput (some (System.FilePath.mk ".")) none
@@ -105,6 +113,8 @@ unsafe def run : IO Unit := do
         "Loader changed the direct authored ReentrancyGuard identity"
   | .surfaceFixture _ =>
       throw <| IO.userError "public ReentrancyGuard was loaded as an internal Surface fixture"
+  | .legacySpec _ =>
+      throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   IO.println "public-authored-route: ok"
 
 end ProofForge.Tests.Canonical.PublicAuthoredRoute

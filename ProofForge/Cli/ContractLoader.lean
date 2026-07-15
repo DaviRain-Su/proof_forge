@@ -136,24 +136,36 @@ private def resolveSurfaceConstName (env : Environment) (modName : Name) : Optio
   (candidateSurfaceNames modName).find? fun candidate =>
     env.constants.contains candidate && isSurfaceContractConst env candidate
 
-/-- Discover exactly one supported source constant. Fails on ambiguity or missing. -/
+/-- Discover exactly one supported source constant. Fails on ambiguity or missing.
+
+Transitional A-CUT3: modules that still export `spec : ContractSpec` via
+`Source.Legacy` load as `.legacySpec`. Prefer `contract : AuthoredContract`. -/
 unsafe def loadSourceFromEnv (env : Environment) (modName : Name) :
     IO LoadedContractSource := do
   let authoredContract? := resolveAuthoredConstName env modName
   let surfaceSpec? := resolveSurfaceConstName env modName
-  match authoredContract?, surfaceSpec? with
-  | some _, some _ =>
+  let legacySpec? := resolveSpecConstName env modName
+  match authoredContract?, surfaceSpec?, legacySpec? with
+  | some _, some _, _ =>
       throw <| IO.userError s!"module `{modName}` exports both an AuthoredContract and an internal Surface fixture; ambiguousContractSource"
-  | none, none =>
-      throw <| IO.userError s!"module `{modName}` exports neither contract : AuthoredContract nor surfaceFixture : SurfaceContract; missingContractSource"
-  | some constName, none =>
+  | some _, _, some _ =>
+      throw <| IO.userError s!"module `{modName}` exports both contract : AuthoredContract and Legacy spec : ContractSpec; ambiguousContractSource"
+  | _, some _, some _ =>
+      throw <| IO.userError s!"module `{modName}` exports both an internal Surface fixture and Legacy spec : ContractSpec; ambiguousContractSource"
+  | none, none, none =>
+      throw <| IO.userError s!"module `{modName}` exports neither contract : AuthoredContract, surfaceFixture : SurfaceContract, nor Legacy spec : ContractSpec; missingContractSource"
+  | some constName, none, none =>
       match env.evalConstCheck ProofForge.Frontend.Authored.AuthoredContract {}
           `ProofForge.Frontend.Authored.AuthoredContract constName with
       | .ok contract => pure (ProofForge.Compiler.LoadedContractSource.authored contract)
       | .error msg => throw <| IO.userError msg
-  | none, some constName =>
+  | none, some constName, none =>
       match env.evalConstCheck ProofForge.Frontend.Surface.SurfaceContract {} `ProofForge.Frontend.Surface.SurfaceContract constName with
       | .ok contract => pure (ProofForge.Compiler.LoadedContractSource.surfaceFixture contract)
+      | .error msg => throw <| IO.userError msg
+  | none, none, some constName =>
+      match env.evalConstCheck ProofForge.Contract.ContractSpec {} `ProofForge.Contract.ContractSpec constName with
+      | .ok spec => pure (ProofForge.Compiler.LoadedContractSource.legacySpec spec)
       | .error msg => throw <| IO.userError msg
 
 unsafe def loadSource

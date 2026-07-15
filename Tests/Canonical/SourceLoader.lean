@@ -39,11 +39,13 @@ unsafe def main : IO Unit := do
   match authoredCounter with
   | .authored _ => pure ()
   | .surfaceFixture _ => throw <| IO.userError "authored Counter discovered as an internal Surface fixture"
+  | .legacySpec _ => throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
 
   let surfaceCounter ← load "TestFixtures/SurfaceProducts/Counter.lean"
   match surfaceCounter with
   | .surfaceFixture _ => pure ()
   | .authored _ => throw <| IO.userError "internal Surface Counter discovered as an authored source"
+  | .legacySpec _ => throw <| IO.userError "expected Surface fixture; got Legacy ContractSpec"
 
   let authoredBundle ← canonicalize authoredCounter
   let surfaceBundle ← canonicalize surfaceCounter
@@ -63,6 +65,7 @@ unsafe def main : IO Unit := do
   match authoredVault with
   | .authored _ => pure ()
   | .surfaceFixture _ => throw <| IO.userError "authored ValueVault discovered as an internal Surface fixture"
+  | .legacySpec _ => throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   let authoredVaultBundle ← canonicalize authoredVault
   let surfaceVault ← canonicalize (← load "TestFixtures/SurfaceProducts/ValueVault.lean")
   require (surfaceVault.contract.contract.module.state.size == 6) "Surface ValueVault state drift"
@@ -81,6 +84,8 @@ unsafe def main : IO Unit := do
   | .authored _ => pure ()
   | .surfaceFixture _ =>
       throw (IO.userError "authored Ownable discovered as an internal Surface fixture")
+  | .legacySpec _ =>
+      throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   let authoredOwnableBundle <- canonicalize authoredOwnable
   require (authoredOwnableBundle.contract.contract.module.state.size == 2)
     "Authored Ownable state drift"
@@ -94,6 +99,8 @@ unsafe def main : IO Unit := do
   | .authored _ => pure ()
   | .surfaceFixture _ =>
       throw (IO.userError "authored Pausable discovered as an internal Surface fixture")
+  | .legacySpec _ =>
+      throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   let authoredPausableBundle <- canonicalize authoredPausable
   require (authoredPausableBundle.contract.contract.module.state.size == 1)
     "Authored Pausable state drift"
@@ -107,6 +114,8 @@ unsafe def main : IO Unit := do
   | .authored _ => pure ()
   | .surfaceFixture _ =>
       throw (IO.userError "authored ReentrancyGuard discovered as an internal Surface fixture")
+  | .legacySpec _ =>
+      throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   let authoredGuardBundle <- canonicalize authoredGuard
   require (authoredGuardBundle.contract.contract.module.state.size == 1)
     "Authored ReentrancyGuard state drift"

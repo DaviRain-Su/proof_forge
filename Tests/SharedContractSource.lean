@@ -17,6 +17,8 @@ unsafe def requireCounterDirectSource : IO Unit := do
     | .authored contract => pure contract
     | .surfaceFixture _ =>
         throw <| IO.userError "Product Counter loaded as an internal Surface fixture"
+    | .legacySpec _ =>
+        throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   require (contract.name == ProofForge.Contract.Examples.Counter.contract.name)
     "direct Counter contract identity mismatch"
   require (contract.quintInvariants.any (fun annotation =>
@@ -40,6 +42,8 @@ unsafe def requireValueVaultDirectSource : IO Unit := do
     | .authored contract => pure contract
     | .surfaceFixture _ =>
         throw <| IO.userError "Product ValueVault loaded as an internal Surface fixture"
+    | .legacySpec _ =>
+        throw <| IO.userError "expected AuthoredContract; got Legacy ContractSpec"
   require (contract.quintInvariants.size == 2)
     "direct ValueVault lost quint_invariant annotations"
   let bundle ← match ProofForge.Frontend.Authored.Canonicalize.normalizeAuthored contract with

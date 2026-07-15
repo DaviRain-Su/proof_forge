@@ -3,6 +3,7 @@ import ProofForge.Frontend.ContractSpec.Normalize
 import ProofForge.IR.Canonical
 import ProofForge.Contract.Spec
 import ProofForge.Frontend.Authored
+import ProofForge.Frontend.Authored.Normalize
 import ProofForge.Frontend.Surface
 import ProofForge.Target.ArtifactBundle
 import ProofForge.Target.Plan
@@ -45,15 +46,20 @@ structure CompileDiagnostic where
   deriving Repr
 
 /-- A contract source discovered by the Lean frontend.
-`surfaceFixture` is an internal migration input, not a public source version. -/
+`surfaceFixture` is an internal migration input, not a public source version.
+`legacySpec` is a transitional A-CUT3 input for Product modules that still
+expand `contract_source` through `Source.Legacy` into `ContractSpec`. Delete
+once every product catalog entry exports `AuthoredContract`. -/
 inductive LoadedContractSource
   | authored (contract : ProofForge.Frontend.Authored.AuthoredContract)
   | surfaceFixture (contract : ProofForge.Frontend.Surface.SurfaceContract)
+  | legacySpec (spec : ProofForge.Contract.ContractSpec)
 
 namespace LoadedContractSource
 
-/-- Normalize an authored source or internal Surface fixture without translating
-Surface back to Legacy. Fixtures are canonical-only. -/
+/-- Normalize an authored source, internal Surface fixture, or transitional
+Legacy `ContractSpec` without translating Surface back to Legacy. Fixtures are
+canonical-only. -/
 def toCanonical (mode : CompilerPipeline) : LoadedContractSource →
     Except CompileDiagnostic CanonicalBundle
   | .authored contract =>
@@ -71,6 +77,12 @@ def toCanonical (mode : CompilerPipeline) : LoadedContractSource →
         | .ok bundle => .ok bundle
         | .error e => .error {
             mode, targetId := "source", message := s!"Surface fixture normalization failed: {repr e}" }
+  | .legacySpec spec =>
+      match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
+      | .ok bundle => .ok bundle
+      | .error e => .error {
+          mode, targetId := "source",
+          message := s!"Legacy ContractSpec normalization failed: {repr e}" }
 
 end LoadedContractSource
 

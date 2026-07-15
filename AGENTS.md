@@ -26,7 +26,7 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | **PR #104 cutover rebase onto main** — resolve merge conflicts; restore CI; resume CMP-3h2 StatusMessage VM evidence |
+| Active task | **PR #104 cutover rebase** — conflicts resolved; transitional legacySpec loader + RemoteCall goldens; awaiting hosted product CI |
 | Next task | CMP-3h2 StatusMessage Anvil/Mollusk/`near-vm-runner`; then A-CUT3f1 GuestBook primitives |
 | Validation track | CMP-0–CMP-2 + ValueVault/Ownable/Pausable/ReentrancyGuard/ArrayExample primary-triad evidence through `0035138e`; StatusMessage cutover through `21bc7a72` |
 | Parallel on main (done) | **PR #105** landed (`3be48f42`): Seam B + D-058 + Seam A + Solana large-imm; C3 OpenVM → **defer**; D-057 at `d9c132a0`; RemoteCall NEAR golden fix (#106) |

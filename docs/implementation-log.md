@@ -5073,3 +5073,18 @@ Rules:
 - Remaining: push cutover rebase branch; restore hosted CI; resume CMP-3h2.
 - Documentation: checkpoint + implementation-log updated in this merge.
 
+## 2026-07-15 - PR #104 rebase: merge main + restore product loaders
+
+- Status: `in_progress` (hosted CI pending on cursor/authoring-cutover-rebase-8661)
+- Result: Merged `origin/main` into cutover branch. Fixed SourceDslIsolation for
+  portable `mapping`. Restored transitional `LoadedContractSource.legacySpec` so
+  unmigrated Product modules (e.g. RemoteCall via `Source.Legacy`) still build
+  through ContractSpec normalize/render paths. Refreshed RemoteCall Solana +
+  NEAR goldens after main Seams/#105 ABI/account-validation changes.
+- Interfaces: CanonicalPipeline, ContractLoader, ContractSourceArtifacts,
+  SolanaCommands, Check, isolation test, RemoteCall goldens.
+- Verification: `lake build proof-forge`; `lake env lean --run Tests/SourceDslIsolation.lean`;
+  `bash scripts/portable/remote-call-multi-target.sh` (ok).
+- Remaining: hosted `just product` CI; optional stylus/near-sandbox; resume CMP-3h2.
+- Documentation: AGENTS checkpoint already points at this rebase.
+

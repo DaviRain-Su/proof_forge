@@ -473,6 +473,17 @@ unsafe def checkContractSource (profile : ProofForge.Target.TargetProfile) (inpu
       return ← checkEvmSurfaceContractSource input contract constructorConfig report
   | .ok (.surfaceFixture contract, constructorConfig) =>
       return ← checkEvmSurfaceContractSource input contract constructorConfig report
+  | .ok (.legacySpec _, _) =>
+      return {
+        report with
+        diagnostics := pushDiagnostic report.diagnostics {
+          severity := .error
+          code := "contract.load"
+          message := "EVM check route for Legacy ContractSpec Product sources is deferred during A-CUT3; migrate the module to AuthoredContract"
+          file? := some input.toString
+        }
+        validation := pushValidation report.validation "contractSource" "failed"
+      }
 
 def checkFixture (profile : ProofForge.Target.TargetProfile) (targetId fixtureId : String)
     (format? : Option String) (report : Report) : Except String Report := do

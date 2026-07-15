@@ -52,6 +52,12 @@ entrypoint_account_scan_done:
   mov64 r9, r3
   add64 r9, 8
   stxdw [r10-4008], r9
+  ; instruction_data.length >= 1
+  mov64 r3, r9
+  mov64 r4, r3
+  sub64 r4, 8
+  ldxdw r2, [r4+0]
+  jlt r2, 1, error_instruction_data
   ldxb r2, [r9+0]
   jeq r2, 0, sol_core_0_0
   jeq r2, 1, sol_core_1_1
@@ -60,6 +66,76 @@ entrypoint_account_scan_done:
   exit
 sol_initialize:
 sol_core_0_0:
+  ; account.graph: exact runtime count = 5
+  ldxdw r2, [r1+0]
+  jne r2, 5, error_account_count
+  ; account.validation: generated account schema
+  ; account.validation[0:program_state]: writable=true
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+0]
+  add64 r7, 2
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_not_writable
+  ; account.validation[0:program_state]: owner=program
+  mov64 r4, r9
+  mov64 r2, r4
+  sub64 r2, 8
+  ldxdw r2, [r2+0]
+  add64 r4, r2
+  stxdw [r10-3600], r4
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+0]
+  add64 r7, 40
+  ldxdw r4, [r10-3600]
+  ldxdw r5, [r7+0]
+  ldxdw r6, [r4+0]
+  jne r5, r6, error_owner
+  ldxdw r5, [r7+8]
+  ldxdw r6, [r4+8]
+  jne r5, r6, error_owner
+  ldxdw r5, [r7+16]
+  ldxdw r6, [r4+16]
+  jne r5, r6, error_owner
+  ldxdw r5, [r7+24]
+  ldxdw r6, [r4+24]
+  jne r5, r6, error_owner
+  ; account.validation[1:payer]: signer=true
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+8]
+  add64 r7, 1
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_signer
+  ; account.validation[1:payer]: writable=true
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+8]
+  add64 r7, 2
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_not_writable
+  ; account.validation[2:peer_program]: owner=executable
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+16]
+  add64 r7, 3
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_owner
+  ; account.validation[3:system_program]: owner=executable
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+24]
+  add64 r7, 3
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_owner
+  ; account.validation[4:callee_program]: owner=executable
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+32]
+  add64 r7, 3
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_owner
   mov64 r2, 0
   stxdw [r10-8], r2
   ldxdw r2, [r10-8]
@@ -68,6 +144,76 @@ sol_core_0_0:
   exit
 sol_call_remote:
 sol_core_1_1:
+  ; account.graph: exact runtime count = 5
+  ldxdw r2, [r1+0]
+  jne r2, 5, error_account_count
+  ; account.validation: generated account schema
+  ; account.validation[0:program_state]: writable=true
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+0]
+  add64 r7, 2
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_not_writable
+  ; account.validation[0:program_state]: owner=program
+  mov64 r4, r9
+  mov64 r2, r4
+  sub64 r2, 8
+  ldxdw r2, [r2+0]
+  add64 r4, r2
+  stxdw [r10-3600], r4
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+0]
+  add64 r7, 40
+  ldxdw r4, [r10-3600]
+  ldxdw r5, [r7+0]
+  ldxdw r6, [r4+0]
+  jne r5, r6, error_owner
+  ldxdw r5, [r7+8]
+  ldxdw r6, [r4+8]
+  jne r5, r6, error_owner
+  ldxdw r5, [r7+16]
+  ldxdw r6, [r4+16]
+  jne r5, r6, error_owner
+  ldxdw r5, [r7+24]
+  ldxdw r6, [r4+24]
+  jne r5, r6, error_owner
+  ; account.validation[1:payer]: signer=true
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+8]
+  add64 r7, 1
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_signer
+  ; account.validation[1:payer]: writable=true
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+8]
+  add64 r7, 2
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_not_writable
+  ; account.validation[2:peer_program]: owner=executable
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+16]
+  add64 r7, 3
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_owner
+  ; account.validation[3:system_program]: owner=executable
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+24]
+  add64 r7, 3
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_owner
+  ; account.validation[4:callee_program]: owner=executable
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+32]
+  add64 r7, 3
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_owner
   mov64 r2, 0
   stxdw [r10-16], r2
   mov64 r2, 1
@@ -159,6 +305,76 @@ core_cpi_1_1_2_return_end:
   exit
 sol_call_with_args:
 sol_core_2_2:
+  ; account.graph: exact runtime count = 5
+  ldxdw r2, [r1+0]
+  jne r2, 5, error_account_count
+  ; account.validation: generated account schema
+  ; account.validation[0:program_state]: writable=true
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+0]
+  add64 r7, 2
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_not_writable
+  ; account.validation[0:program_state]: owner=program
+  mov64 r4, r9
+  mov64 r2, r4
+  sub64 r2, 8
+  ldxdw r2, [r2+0]
+  add64 r4, r2
+  stxdw [r10-3600], r4
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+0]
+  add64 r7, 40
+  ldxdw r4, [r10-3600]
+  ldxdw r5, [r7+0]
+  ldxdw r6, [r4+0]
+  jne r5, r6, error_owner
+  ldxdw r5, [r7+8]
+  ldxdw r6, [r4+8]
+  jne r5, r6, error_owner
+  ldxdw r5, [r7+16]
+  ldxdw r6, [r4+16]
+  jne r5, r6, error_owner
+  ldxdw r5, [r7+24]
+  ldxdw r6, [r4+24]
+  jne r5, r6, error_owner
+  ; account.validation[1:payer]: signer=true
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+8]
+  add64 r7, 1
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_signer
+  ; account.validation[1:payer]: writable=true
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+8]
+  add64 r7, 2
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_not_writable
+  ; account.validation[2:peer_program]: owner=executable
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+16]
+  add64 r7, 3
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_owner
+  ; account.validation[3:system_program]: owner=executable
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+24]
+  add64 r7, 3
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_owner
+  ; account.validation[4:callee_program]: owner=executable
+  mov64 r7, r10
+  sub64 r7, 3488
+  ldxdw r7, [r7+32]
+  add64 r7, 3
+  ldxb r2, [r7+0]
+  jeq r2, 0, error_owner
   mov64 r2, 0
   stxdw [r10-40], r2
   mov64 r2, 1
@@ -277,6 +493,18 @@ error_duplicate_account:
   exit
 error_account_count:
   mov64 r0, 14
+  exit
+error_not_writable:
+  mov64 r0, 4
+  exit
+error_signer:
+  mov64 r0, 5
+  exit
+error_owner:
+  mov64 r0, 6
+  exit
+error_instruction_data:
+  mov64 r0, 9
   exit
 error_cpi:
   mov64 r0, 8

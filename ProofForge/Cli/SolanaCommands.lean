@@ -577,6 +577,8 @@ unsafe def compileContractSourceSolanaElf (opts : CliOptions) : IO UInt32 := do
       compileSolanaAuthoredElf opts defaultOutput base base contract
   | .surfaceFixture contract =>
       compileSolanaAuthoredElf opts defaultOutput base base contract
+  | .legacySpec _ =>
+      compileLegacyContractSourceSolanaElf opts
 
 def compileSolanaSystemCpiSbpf (opts : CliOptions) : IO UInt32 :=
   compileSolanaAuthoredSbpf opts

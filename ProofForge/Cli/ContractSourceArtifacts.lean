@@ -160,6 +160,22 @@ unsafe def compileContractSourceEvmBytecode (opts : CliOptions) : IO UInt32 := d
         requireEvmRuntimeSize bytecode
         writeTextFile output (bytecode ++ "\n")
         writeEvmPlanArtifactMetadata opts input plan yulOutput output
+    | .legacySpec spec =>
+        let opts ← match finalizeConstructorOptionsForSpec opts spec with
+          | .ok opts => pure opts
+          | .error msg => throw <| IO.userError msg
+        let (yul, module) ← renderContractSpecEvmYul opts spec
+        writeTextFile yulOutput yul
+        let bytecode ← solcOptimizedBytecode opts.solc yulOutput
+        requireEvmRuntimeSize bytecode
+        writeTextFile output (bytecode ++ "\n")
+        let hydratedSpec := { spec with module := module }
+        writeEvmContractSdkArtifactMetadata opts (leanBaseName input) {
+          moduleName := hydratedSpec.name
+          path? := some input.toString
+          kind := "legacy-contract-spec"
+          leanElaborated := true
+        } hydratedSpec module yulOutput output
   IO.println s!"wrote {output}"
   return 0
 
@@ -181,6 +197,8 @@ unsafe def compileContractSourceYul (opts : CliOptions) : IO UInt32 := do
           pure (← renderAuthoredEvmYul opts contract constructorConfig).fst
       | .surfaceFixture contract =>
           pure (← renderSurfaceEvmYul opts contract constructorConfig).fst
+      | .legacySpec spec =>
+          pure (← renderContractSpecEvmYul opts spec).fst
   writeTextFile output yul
   IO.println s!"wrote {output}"
   return 0
@@ -197,6 +215,8 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
         return ← compileSolanaAuthoredSbpf opts defaultOutput (leanBaseName input) contract
     | .surfaceFixture contract =>
         return ← compileSolanaAuthoredSbpf opts defaultOutput (leanBaseName input) contract
+    | .legacySpec _ =>
+        pure ()
   let spec ← loadContractSpecForOptions opts input "solana-sbpf-asm"
   let output := opts.output?.getD defaultOutput
   let plan ←
@@ -379,21 +399,58 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
         leanElaborated := true
       }
   let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
-  let (contract, sourceKind) := match source with
-    | .authored contract => (contract, "contract-source-authored")
-    | .surfaceFixture contract => (contract, "internal-surface-fixture")
-  let built ← match renderAuthoredWasmHostWat profile opts.peerMap.targetMetadata contract with
-    | .ok built => pure built
-    | .error error => throw <| IO.userError error
-  let fixtureSlug := built.modulePlan.moduleName.toLower
-  let (watPath, wasmPath?) ← writeWatPackage outputDir fixtureSlug built.wat
-    (requireWasm := emitWatRequireWasm opts')
-  writeCanonicalEmitWatArtifactMetadata opts' profile.id fixtureSlug {
-    moduleName := built.modulePlan.moduleName
-    path? := some input.toString
-    kind := sourceKind
-    leanElaborated := true
-  } built.checked built.capabilityPlan built.modulePlan outputDir watPath wasmPath?
-  return 0
+  match source with
+  | .authored contract =>
+      let built ← match renderAuthoredWasmHostWat profile opts.peerMap.targetMetadata contract with
+        | .ok built => pure built
+        | .error error => throw <| IO.userError error
+      let fixtureSlug := built.modulePlan.moduleName.toLower
+      let (watPath, wasmPath?) ← writeWatPackage outputDir fixtureSlug built.wat
+        (requireWasm := emitWatRequireWasm opts')
+      writeCanonicalEmitWatArtifactMetadata opts' profile.id fixtureSlug {
+        moduleName := built.modulePlan.moduleName
+        path? := some input.toString
+        kind := "contract-source-authored"
+        leanElaborated := true
+      } built.checked built.capabilityPlan built.modulePlan outputDir watPath wasmPath?
+      return 0
+  | .surfaceFixture contract =>
+      let built ← match renderAuthoredWasmHostWat profile opts.peerMap.targetMetadata contract with
+        | .ok built => pure built
+        | .error error => throw <| IO.userError error
+      let fixtureSlug := built.modulePlan.moduleName.toLower
+      let (watPath, wasmPath?) ← writeWatPackage outputDir fixtureSlug built.wat
+        (requireWasm := emitWatRequireWasm opts')
+      writeCanonicalEmitWatArtifactMetadata opts' profile.id fixtureSlug {
+        moduleName := built.modulePlan.moduleName
+        path? := some input.toString
+        kind := "internal-surface-fixture"
+        leanElaborated := true
+      } built.checked built.capabilityPlan built.modulePlan outputDir watPath wasmPath?
+      return 0
+  | .legacySpec spec =>
+      let plan ← match ProofForge.Target.resolveSpec profile spec with
+        | .ok plan => pure plan
+        | .error err => throw <| IO.userError err.render
+      if profile.id == ProofForge.Target.wasmNear.id then
+        let wat ← match renderCanonicalSpecNearWat spec opts.peerMap with
+          | .ok wat => pure wat
+          | .error error => throw <| IO.userError error
+        let (watPath, wasmPath?) ← writeWatPackage outputDir spec.name.toLower wat
+          (requireWasm := emitWatRequireWasm opts')
+        writeEmitWatArtifactMetadata opts' profile.id spec.name.toLower {
+          moduleName := spec.name
+          path? := some input.toString
+          kind := "legacy-contract-spec"
+          leanElaborated := true
+        } spec.module outputDir watPath wasmPath?
+        return 0
+      else
+        return ← compileEmitWatWithPlan opts' spec.name.toLower spec.module plan {
+          moduleName := spec.name
+          path? := some input.toString
+          kind := "legacy-contract-spec"
+          leanElaborated := true
+        }
 
 end ProofForge.Cli
