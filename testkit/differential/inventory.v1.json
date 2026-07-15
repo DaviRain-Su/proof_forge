@@ -67,6 +67,18 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-gate-array-example-primary-triad",
+      "kind": "gate",
+      "maturity": "focusedGate",
+      "notes": "focused fail-closed CMP-3 ArrayExample gate",
+      "path": "justfile",
+      "selectors": [
+        "differential-array-example"
+      ],
+      "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
       "id": "cmp3-gate-ownable-primary-triad",
       "kind": "gate",
       "maturity": "focusedGate",
@@ -118,9 +130,9 @@
       "id": "cmp3-reference-evm-array-example",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
-      "notes": "CMP-3g independent ArrayExample reference with pinned provenance; VM evidence is pending",
+      "notes": "CMP-3g2 executes the direct Authored artifact and this native reference on the target VM",
       "path": "testkit/differential/array-example/references/evm.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "sourcePaths": [
         "benchmarks/native/evm/ArrayExample.sol"
       ],
@@ -178,9 +190,9 @@
       "id": "cmp3-reference-near-array-example",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
-      "notes": "CMP-3g independent ArrayExample reference with pinned provenance; VM evidence is pending",
+      "notes": "CMP-3g2 executes the direct Authored artifact and this native reference on the target VM",
       "path": "testkit/differential/array-example/references/near.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "sourcePaths": [
         "testkit/compare/near/array-example/src/lib.rs"
       ],
@@ -238,9 +250,9 @@
       "id": "cmp3-reference-solana-array-example",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
-      "notes": "CMP-3g independent ArrayExample reference with pinned provenance; VM evidence is pending",
+      "notes": "CMP-3g2 executes the direct Authored artifact and this native reference on the target VM",
       "path": "testkit/differential/array-example/references/solana.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "sourcePaths": [
         "benchmarks/native/solana/array-example/src/lib.rs"
       ],
@@ -295,6 +307,15 @@
       "targetFamily": "solana"
     },
     {
+      "id": "cmp3-runner-array-example-primary-triad",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+      "path": "scripts/differential/array_example_pilot.py",
+      "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
       "id": "cmp3-runner-ownable-primary-triad",
       "kind": "runner",
       "maturity": "deterministicRunner",
@@ -334,9 +355,9 @@
       "id": "cmp3-scenario-array-example-primary-triad",
       "kind": "scenario",
       "maturity": "portableScenarioV1",
-      "notes": "four-step fixed-array scenario with VM evidence pending CMP-3g2",
+      "notes": "four-step fixed-array scenario executed on both implementations for every primary target",
       "path": "testkit/differential/array-example/scenario.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "targetFamily": "portable"
     },
     {
@@ -586,19 +607,6 @@
       "semanticEvidence": "none",
       "sourcePaths": [
         "testkit/compare/near/access-control/src/lib.rs"
-      ],
-      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
-      "targetFamily": "near"
-    },
-    {
-      "id": "near-reference-array-example",
-      "kind": "nativeReference",
-      "maturity": "referenceManifestV0",
-      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
-      "path": "testkit/compare/near/array-example/reference-manifest.json",
-      "semanticEvidence": "none",
-      "sourcePaths": [
-        "testkit/compare/near/array-example/src/lib.rs"
       ],
       "sourceSchema": "proof-forge.near.reference-equivalence.v0",
       "targetFamily": "near"
@@ -1446,14 +1454,14 @@
   "schema": "proof-forge.differential.inventory.v1",
   "scope": "tracked comparison assets through verified stateful CMP-3 execution and pinned ArrayExample CMP-3g references",
   "summary": {
-    "assetCount": 124,
+    "assetCount": 125,
     "byTargetFamily": {
       "evm": 16,
-      "near": 36,
-      "portable": 36,
+      "near": 35,
+      "portable": 38,
       "solana": 28,
       "stylus": 8
     },
-    "semanticVerifiedCount": 30
+    "semanticVerifiedCount": 36
   }
 }

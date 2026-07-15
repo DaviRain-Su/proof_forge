@@ -70,6 +70,11 @@ differential-pausable:
 differential-reentrancy-guard:
     python3 scripts/differential/reentrancy_guard_pilot.py
 
+# Compare direct Authored ArrayExample artifacts with independent native EVM,
+# Solana, and NEAR implementations across the fixed-array CMP-3 scenario.
+differential-array-example:
+    python3 scripts/differential/array_example_pilot.py
+
 # Typed open capability/HostOp identity and target-owned catalog contract.
 hostop-protocol:
     lake env lean --run Tests/Canonical/HostOpCatalog.lean

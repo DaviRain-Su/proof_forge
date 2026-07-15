@@ -409,8 +409,8 @@ def generate_inventory() -> dict[str, object]:
                 "nativeReference",
                 manifest,
                 "referenceManifestV1",
-                "none",
-                "CMP-3g independent ArrayExample reference with pinned provenance; VM evidence is pending",
+                "verified",
+                "CMP-3g2 executes the direct Authored artifact and this native reference on the target VM",
                 sourcePaths=[reference["source"]["path"]],
             )
         )
@@ -426,8 +426,31 @@ def generate_inventory() -> dict[str, object]:
                 "scenario",
                 cmp3_array_scenario,
                 "portableScenarioV1",
-                "none",
-                "four-step fixed-array scenario with VM evidence pending CMP-3g2",
+                "verified",
+                "four-step fixed-array scenario executed on both implementations for every primary target",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-runner-array-example-primary-triad",
+                "portable",
+                "runner",
+                REPO_ROOT / "scripts/differential/array_example_pilot.py",
+                "deterministicRunner",
+                "verified",
+                "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-gate-array-example-primary-triad",
+                "portable",
+                "gate",
+                REPO_ROOT / "justfile",
+                "focusedGate",
+                "verified",
+                "focused fail-closed CMP-3 ArrayExample gate",
+                selectors=["differential-array-example"],
             )
         )
 
