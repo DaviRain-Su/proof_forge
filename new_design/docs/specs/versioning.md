@@ -12,8 +12,8 @@ normative: true
 ## 版本轴
 
 Compiler release 使用 SemVer。DSL、SourceModule、SemanticProgram、Requirement semantics、
-Plan、TargetIR、Output manifest、diagnostic JSON 和 registry 各自有 schema ID/version，
-不能由 compiler version 隐式代替。
+Plan、TargetIR、Output manifest、diagnostic JSON、gate evidence/revocation 和 registry 各自有
+schema ID/version，不能由 compiler version 隐式代替。
 
 ## 兼容规则
 
@@ -27,6 +27,13 @@ Plan、TargetIR、Output manifest、diagnostic JSON 和 registry 各自有 schem
 - CodegenProfile：任何影响 ABI、state layout、proof、artifact bytes 或 tool compatibility 的
   变化新 profile ID 或 major version。
 - NetworkProfile：endpoint/fees 可 patch；chain identity/genesis 改变是新 ID。
+- Gate evidence：`proposed` v1 可以加入不重解释旧 variant、且由新 reader 保持全部旧 records
+  有效的条件字段。当前 `networkPort` 只对新 `exact-local-port` variant 必填；新 reader 必须
+  继续接受旧 deny-all/loopback v1 records，旧 reader 拒绝新 record 是预期 fail-closed，不构成
+  forward compatibility。当前 formal publisher disabled，仓库没有 tracked formal v1 fixture；
+  这不是对外部 consumer 的穷举证明。schema 一旦 accepted，字段重解释/删除、旧 record 失效
+  或要求旧 reader 理解新语义都必须升级 schema major；validator digest 必须进入正式 evidence
+  信任链。
 
 ## Source Compatibility
 
@@ -45,5 +52,6 @@ experimental profile 可一个 minor 后删除，但 release notes 必须列出�
 覆盖 patch/minor/major fixtures、unknown optional/required fields、old/new reader matrix、
 same requirement version different digest、profile ABI/layout drift、network identity drift、
 deprecated warning、revoked profile、migration roundtrip、hash domain separation、compiler newer/
-older、prerelease SemVer、malformed version。关联 `NFR-006`；compatibility matrix 必须成为
-release gate，任何 golden 更新都需对应 ADR/version justification。
+older、prerelease SemVer、malformed version，并冻结 legacy-v1 deny-all/loopback 与 exact-port
+fixtures。关联 `NFR-006`；compatibility matrix 必须成为 release gate，任何 golden 更新都需
+对应 ADR/version justification。

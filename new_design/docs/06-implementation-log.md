@@ -312,6 +312,39 @@ normative: false
 - Next：先扩展 evidence schema/validator 的 exact-local-port + port 表达，再实现
   gate-catalog-bound development finalizer；formal process containment 与 eligible runner 分开解决。
 
+## 2026-07-15 — TASK-A0-11 / TASK-D0-03 H1d exact-local-port evidence schema
+
+- Commit：`aac4bbbffefda45d69e8e5527c44e5271dbc1c46`；实现脚本 SHA-256
+  `06f739b2785a5eec6175b159956e839ef80ef20f7e379c18a4bd0742da9da87e`。
+- Spec/Test：`TRACE-EV-001`、`SPEC-VER-001`、`MOD-TEST-001`、`TST-EVIDENCE-001` 的
+  pre-acceptance development slice；不关闭完整 evidence 或 isolation 验收。
+- Changed：`sandboxPolicies[].network` 新增 `exact-local-port`；`networkPort` 当且仅当该
+  variant 存在且为严格整数 `1..65535`，其他 network variant 携带该字段立即 fail closed。
+  sample/self-test 同时保留旧 deny-all/loopback v1 正例，并覆盖缺失、边界、越界、bool、
+  float、string、null、unknown enum/field、非 exact 携带 port、formal 缺 deny-all，以及 passed
+  evidence 中 exact-port probe failed/skipped。
+- Compatibility：新 validator 向后读取旧 v1 records；旧 validator 会拒绝带条件字段的新
+  record。当前 schema 仍为 proposed，formal publisher disabled，仓库没有 tracked formal v1
+  JSON fixture；保留 `proof-forge.evidence.v1`。这不是完整 old/new reader fixture matrix，也不
+  关闭 `TST-VER-001`；accepted 后同类不兼容变化必须升级 schema major。
+- Commands：`/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9 -I -S -m py_compile scripts/gate_evidence.py`；
+  `/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9 -O -I -S scripts/gate_evidence.py self-test`；
+  `just evidence-core`；`just check`；`git diff --check`；独立复核
+  `git show --check aac4bbbf` 与同一 pinned self-test。
+- Results：全部 exit 0；完整 `just check` 覆盖 docs/toolchain/Stage-0/evidence/sandbox、Lean
+  44/54-job builds/tests、tool-root 攻击矩阵、四目标 artifact validation 与 output atomicity。
+  两轮独立实现审查均无 P0/P1，最终 `aac4bbbf` implementation diff 复核无 P0/P1/P2。
+- Evidence：`EV-20260715-0016`，仅为 manual development schema implementation evidence；未
+  生成 schema-complete immutable EV JSON。
+- Limitations：`networkPort` 尚未与 `renderedSha256` 对应 policy bytes/digest、retained
+  launcher logs/receipts 或 required probe catalog 绑定；formal publisher 仍 fail closed。gate
+  catalog、freshness/revocation/private scan、eligible host、digest-bound Stage-0 handoff、
+  session containment 与受控 workspace 均未闭合；`TASK-D0-03`、`TST-EVIDENCE-001`、
+  `TST-ISO-002/003`、`TST-VER-001` 保持 open。
+- Next：`TASK-D0-03/H1e` 实现 gate-catalog-bound development finalizer，先绑定 required
+  gate/test/tool/probe、rendered policy bytes/digest、retained launcher logs/receipts 与
+  `networkPort`，再处理 freshness/revocation/private scan。
+
 ## 记录模板
 
 ```markdown

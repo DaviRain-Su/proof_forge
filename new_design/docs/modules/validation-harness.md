@@ -45,7 +45,10 @@ stdout/stderr 以 bounded current-user `0400` single-link receipts 发布，原 
 leader reap 前清理。
 
 当前 host 不 eligible，formal Stage-0 handoff、`setsid()` session-escape containment、
-`exact-local-port` evidence schema、gate catalog、freshness/revocation/private scan、remote
-attestation 和正式 finalizer 仍未闭合。失败时回显的 ASCII-escaped 32 KiB tail 只属于
-development diagnostics，不能作为已脱敏或 retained formal evidence。`TST-EVIDENCE-001`、
-`TST-ISO-002`、`TASK-D0-03` 均保持未完成。
+gate catalog、`networkPort` 与 rendered policy bytes/digest、retained launcher logs/receipts 及
+required probes 的绑定、freshness/revocation/private scan、remote attestation 和正式 finalizer
+仍未闭合。evidence v1 candidate 已能条件表达
+`exact-local-port` + `networkPort`，但 schema field 本身不证明实际 policy bytes 或 required
+probes。失败时回显的 ASCII-escaped 32 KiB tail 只属于 development diagnostics，不能作为已
+脱敏或 retained formal evidence。`TST-EVIDENCE-001`、`TST-ISO-002`、`TASK-D0-03` 均保持
+未完成。

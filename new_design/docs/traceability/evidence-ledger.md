@@ -29,11 +29,14 @@ normative: false
 | EV-20260715-0013 | `just candidate-binding`; anchored post-commit `verify_isolation.sh --development ...` | passed (development candidate binding) | commit `7b143aa7e7043a4f93dab78fe168b5c518b15fa1`、tree `0dc77113aa2e63d45a21ee99f971b0e23d351329`、stable archive `5a18767e…c821a`；commit-object+pathspec tar 两次 byte-identical、embedded commit 反查、三项 external anchor、NUL-safe pre/post status、61-job clean build/test、四目标 19-file 复现及 EVM localhost runtime；旧 tree-object archive hash 是历史时点 observation，不可作为可重算 anchor；host ineligible/allow-default/schema EV 仍未闭合 |
 | EV-20260715-0014 | `just evidence-core`; `just check`; independent exploit matrix | passed (development evidence-core slice) | commit `ac55da706c575f3d308e9bfa383797b89f05032c`、script `a16f16e8…ebb7a`；restricted PF JCS/schema/cross-field negatives、domain-separated artifact digest、global exact/casefold claim namespace、safe bundle inode/size/hash 与 1,024-file/64-MiB/256-MiB budgets、stable EIO、atomic no-clobber/staging-swap rejection 均通过；formal CLI publish 稳定 `PF-EVIDENCE-FORMAL-UNVERIFIED` 且无输出；尚无 gate catalog/freshness/revocation/private scan finalizer，不关闭 TST-EVIDENCE-001/ISO-002/003 |
 | EV-20260715-0015 | `just sandbox-policy`；`just candidate-binding`；`just check`；anchored `verify_isolation.sh --development`（完整实参见实现日志） | passed (manual development alpha) | candidate `171f586fd48dbc7250d32124660452352f1e4b38`、tree `a393793293c4e8bfdf931522d068afcf288b5045`、archive `18fa2be…eaf2`（931840 bytes）；deny-default materialize/core 全断网，runtime 为 exact-local-port + Anvil `127.0.0.1` bind/LAN refusal；closed FD/bounded receipt/原 PGID cleanup、stage read/write/network/exec negatives、61-job clean build/test、四目标两轮复现与 EVM runtime 全通过；renderer `13bde90c…3bab`、launcher `e5209dc0…ea39`、engine `d1ee30db…6d42`；host ineligible、`setsid()` escape、formal handoff、exact-local-port schema/gate catalog/freshness/revocation/private scan/finalizer 未闭合，不关闭 TST-EVIDENCE-001/ISO-002/003 |
+| EV-20260715-0016 | pinned Python py_compile/self-test；`just evidence-core`；`just check`；independent review | passed (manual development schema slice) | commit `aac4bbbffefda45d69e8e5527c44e5271dbc1c46`、script `06f739b2…a87e`；evidence v1 candidate 新增 exact-local-port 条件 `networkPort`，覆盖 current-reader legacy deny-all/loopback compatibility、1/65535 边界、缺失/禁用/越界/错误类型/unknown 字段与 failed/skipped probe negatives；旧 reader 对新 record fail closed，但未运行完整 old/new reader fixture matrix；未生成 immutable EV JSON，且 `networkPort` 与 rendered policy bytes/digest、retained launcher logs/receipts、required probes 的绑定、gate catalog、formal finalizer 未闭合，不关闭 TST-EVIDENCE-001/ISO-002/003 或 TST-VER-001 |
 
-Lean cache consumer、H0 development host observation、H1 candidate binding 与 strict development
-evidence core、H1c deny-default development continuation 已闭合；因 host profile 不合格、
-formal Stage-0 handoff/process-session containment、exact-local-port schema 与 gate-catalog-bound
-formal EV finalizer 未闭合，`TASK-D0-03` 保持 `in_progress`。
+Lean cache consumer、H0 development host observation、H1 candidate binding、strict development
+evidence core、H1c deny-default continuation 与 H1d exact-local-port schema slice 已闭合；因 host
+profile 不合格、formal Stage-0 handoff/process-session containment，以及 `networkPort` 与
+rendered policy bytes/digest、retained launcher logs/receipts、required probes 的绑定、gate
+catalog/freshness/revocation/private scan 和 formal EV finalizer 未闭合，`TASK-D0-03` 保持
+`in_progress`。
 
 早期 evidence 中的 “localhost-only” 是历史 application-level 命名，不证明 SBPL policy 只允许
 loopback；H1c 起统一记录为 exact-local-port，并单独记录 `127.0.0.1` bind/LAN refusal negative。

@@ -88,9 +88,10 @@ continuation 又在 commit `171f586f…4b38` 的外部 commit/tree/archive ancho
 current-user-mutable Xcode pathname 正确拒绝；这只是 local、point-in-time observation。
 当前 continuation 只接受显式 `--development`；formal 入口还必须由 Stage-0 在验证
 continuation digest 后直接 handoff，不能从 continuation 内部反向调用 Stage-0 冒充权威
-入口。eligible host、process-session containment、`exact-local-port` evidence schema、gate
-catalog、freshness/revocation/private scan 与 formal finalizer 均未闭合。因此
-`TASK-D0-03` 仍在进行，`TASK-D0-04` 仍为 blocked。
+入口。evidence v1 candidate 已能以条件 `networkPort` 表达 exact-local-port，但还未把字段与
+rendered policy bytes/digest、retained launcher logs/receipts 或 required probe catalog 绑定。
+eligible host、process-session containment、gate catalog、freshness/revocation/private scan 与
+formal finalizer 均未闭合。因此 `TASK-D0-03` 仍在进行，`TASK-D0-04` 仍为 blocked。
 
 ## Cache Policy
 

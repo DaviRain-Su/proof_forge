@@ -169,7 +169,8 @@ formal passed 要求 `cleanRoom=true` 且 `sourceDateEpoch=0`。
 {
   id, engine, engineSha256,
   defaultAction: "allow" | "deny",
-  network: "deny-all" | "loopback-only",
+  network: "deny-all" | "exact-local-port" | "loopback-only",
+  networkPort?: integer 1..65535,
   templateSha256, renderedSha256,
   probes: [{id, status: "passed" | "failed" | "skipped"}, ...]
 }
@@ -180,10 +181,19 @@ probe 都 passed。formal passed 要求每项 `defaultAction="deny"`，且至少
 `network="deny-all"`。v1 schema 尚没有 required gate/policy catalog，因此“列出的 probes
 全部通过”不等于“formal gate 所需 probes 完整”。
 
-当前 enum 也不能诚实表示 macOS SBPL 的 exact-local-port 语义或关联端口；
-`loopback-only` 不得用于代替。完成 `network="exact-local-port"` + exact port 的 schema/
-validator/self-test 扩展前，H1c runtime 结果只能记入 manual development ledger，不能发布为
-schema-complete EV JSON。
+`networkPort` 当且仅当 `network="exact-local-port"` 时必填；此时必须是严格整数
+`1..65535`。`deny-all` 与 `loopback-only` 必须不含该字段，不能用 `null` 表示缺席。新
+validator 可读取扩展前不含 `networkPort` 的旧 v1 deny-all/loopback records；旧 validator 会因
+未知字段拒绝新 exact-port record，这是预期的 fail-closed，不是 forward wire compatibility。
+当前 schema 仍为 proposed；本次条件扩展不重解释旧 variant，且新 reader 保持旧 records
+有效，因此在 pre-acceptance v1 candidate 内完成。当前 formal publisher disabled，仓库没有
+tracked formal v1 JSON fixture；这只是仓库内事实，不是对外部 consumer 的穷举证明。schema
+accepted 后，同类不兼容变化必须按 [`SPEC-VER-001`](../specs/versioning.md) 升级版本。
+
+该字段只能诚实**声明** macOS SBPL 的 exact-local-port 语义；schema validation 还不会把
+`networkPort` 与 `renderedSha256` 对应的 policy bytes、retained launcher logs/receipts 或
+required probe catalog 重新绑定。H1c runtime 仍只是 manual development observation；在
+gate-catalog finalizer 完成这些绑定前，不能据此发布 formal evidence。
 
 ### `tools`
 
@@ -366,6 +376,8 @@ revocation ledger，遇到 missing link、重复 revocation ID、未知 authorit
   actor 在两个检查点之间修改后恢复；formal 仍需受控 workspace。
 - v1 没有 gate catalog、required probe/tool/test completeness、freshness、clock authority、
   evidence-set Merkle root 或 revocation lookup 实现。
+- `networkPort` 已可条件表达，但尚未与 rendered policy bytes/digest、retained launcher
+  logs/receipts 和 required probe catalog 绑定。
 - `verify-bundle` 不扫描业务 private data；它只校验 evidence 声明的 scan 状态和 log bytes。
 - `TST-EVIDENCE-001` 与 `TASK-D0-03` 继续未闭合。还需覆盖 malformed/duplicate ID、stale
   network evidence、wrong candidate、clock skew、revoked evidence、private witness/log、partial

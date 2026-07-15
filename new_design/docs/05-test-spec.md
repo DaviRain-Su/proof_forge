@@ -102,7 +102,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-VER-001 | schema/profile compatibility matrix |
 | TST-PERF-001 | cold/incremental/resource benchmark budgets |
 | TST-BOUNDARY-001 | Lean import graph、symbol ownership、target cross-import |
-| TST-EVIDENCE-001 | restricted PF JCS/schema、artifact-set domain hash、safe bundle read、atomic layout、gate catalog、revocation/freshness/private scan |
+| TST-EVIDENCE-001 | restricted PF JCS/schema、exact-local-port 条件 port、artifact-set domain hash、safe bundle read、atomic layout、gate catalog、revocation/freshness/private scan |
 | TST-REL-001 | install/upgrade/build/rollback drill |
 
 ## 边界与攻击用例
@@ -120,6 +120,9 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   不匹配、运行中 HEAD/tree/worktree 改变。
 - EV duplicate/unknown/non-graphic key、float/unsafe integer、set-like array 乱序/重复、非法
   result/attempt 终态、ID/UTC 日期不符、artifact-set digest 不符。
+- exact-local-port 缺 `networkPort`、端口为 bool/float/string/null/越界、非 exact policy 携带
+  端口、unknown network/字段，以及 passed evidence 中 exact-port probe failed/skipped；同时
+  保留无 port 的旧 deny-all/loopback v1 正例。
 - evidence publish basename/gate directory 不匹配、existing output、symlink/hardlink、
   group/world-writable parent、staging pathname replacement；bundle claim 跨 role 复用 path、
   casefold/inode alias、单文件/文件数/总字节超限、read 时 inode/size/hash 改变或 I/O error。
@@ -145,8 +148,11 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 
 当前 development alpha 已实际覆盖 deny-default `materialize`/`core`/`evm-runtime` stages、
 closed-FD launcher、bounded private receipts、原 process-group cleanup、exact-local-port 与
-Anvil `127.0.0.1` bind/LAN refusal。`setsid()` session escape、eligible host、formal Stage-0
-handoff、gate catalog/freshness/revocation/private scan 和正式 finalizer 仍是验收缺口。
+Anvil `127.0.0.1` bind/LAN refusal；evidence v1 candidate 也已覆盖 exact-port 条件字段、边界、
+错误类型与 current-reader 对旧 record 的兼容。`networkPort` 与 rendered policy bytes/digest、
+retained launcher logs/receipts、required probes 的绑定，完整 old/new reader fixture matrix、
+`setsid()` session escape、eligible host、formal Stage-0 handoff、gate catalog/freshness/revocation/
+private scan 和正式 finalizer 仍是验收缺口。
 
 ## 证据要求
 
@@ -157,7 +163,8 @@ digest、normalized observations 和 logs。
 
 验收必须分别覆盖：
 
-1. restricted integer-only/ASCII-graphic-key PF JCS 和所有 schema/cross-field negative；
+1. restricted integer-only/ASCII-graphic-key PF JCS、exact-local-port 条件 port matrix 和所有
+   schema/cross-field negative；
 2. inputs、retained artifacts、logs 的逐组件 no-follow point-in-time size/hash 复核；
 3. formal gate catalog 对 required tests/tools/probes、freshness、host/candidate、private scan 和
    revocation lookup 的完整 finalization。
