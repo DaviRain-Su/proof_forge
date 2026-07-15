@@ -4145,3 +4145,15 @@ Rules:
 - Verification: `Tests/Canonical/CoreExportPackage.lean`; `pf-core-inspect`
   on counter, value-vault, product-counter packages.
 - Remaining: HostOp handler table; more product modules; main merge when ready.
+
+## 2026-07-15 - LR-1c: HostOp handlers + product ValueVault export
+
+- Status: `done` (PR #105 branch)
+- Result: capability-plan.v0 now carries `hostOpHandlers` resolved from Core
+  hostCalls against target signature catalogs (evm/solana/near). Missing
+  handler fail-closed. Product ValueVault export added. Counter/ValueVault
+  still have 0 handlers (no hostCalls) which is honest.
+- Verification: CoreExport + CoreExportPackage; pf-core-inspect on product
+  packages; resolveHostOpHandlers NEAR-on-evm refuse / wasm-near accept.
+- Remaining: more hostCall-heavy products; optional full target catalog dump;
+  merge main when available. Still not product default compile.

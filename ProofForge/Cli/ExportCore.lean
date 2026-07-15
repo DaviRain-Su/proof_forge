@@ -27,13 +27,18 @@ import ProofForge.Cli.Process
 import ProofForge.Contract.Spec
 import ProofForge.Frontend.Authored.Normalize
 import ProofForge.IR.Core.Export
+import ProofForge.IR.Core.HostOp
 import ProofForge.IR.Examples.Counter
 import ProofForge.IR.Examples.ValueVault
 import ProofForge.Target
+import ProofForge.Target.HostOps.Evm
+import ProofForge.Target.HostOps.Near
+import ProofForge.Target.HostOps.Solana
 
 open System
 open ProofForge.Cli.HexUtil
 open ProofForge.IR.Core.Export
+open ProofForge.IR.Core.HostOp
 
 namespace ProofForge.Cli.ExportCore
 
@@ -133,12 +138,44 @@ private def dedupIds (ids : Array String) : Array String :=
   ids.foldl (init := #[]) fun acc id =>
     if acc.any (· == id) then acc else acc.push id
 
+/-- Target-owned HostOp signature tables for primary triad (+ empty otherwise). -/
+def targetHostOpSignatures (targetId : String) : Array HostOpSig :=
+  if targetId == ProofForge.Target.evm.id then
+    ProofForge.Target.HostOps.Evm.signatures
+  else if targetId == ProofForge.Target.solanaSbpfAsm.id then
+    ProofForge.Target.HostOps.Solana.signatures
+  else if targetId == ProofForge.Target.wasmNear.id then
+    ProofForge.Target.HostOps.Near.signatures
+  else
+    #[]
+
+/-- Resolve used Core hostCalls against the target catalog (fail closed). -/
+def resolveHostOpHandlers
+    (module : ProofForge.IR.Core.Module) (targetId : String)
+    : Except String (Array HostOpHandlerEntry) := do
+  let used := collectUsedHostOpIds module
+  let sigs := targetHostOpSignatures targetId
+  let mut handlers : Array HostOpHandlerEntry := #[]
+  for id in used do
+    match sigs.find? (·.id == id) with
+    | none =>
+        throw s!"host op `{ProofForge.Target.HostOpId.render id}` is used by Core but has no handler on target `{targetId}`"
+    | some sig =>
+        handlers := handlers.push {
+          id := id
+          available := true
+          handler := s!"{targetId}:{ProofForge.Target.HostOpId.render id}"
+          requiredCapabilities := sig.requiredCapabilities.map (·.id)
+        }
+  pure handlers
+
 /-- Write the four-file experimental export package. -/
 def writeExportPackage
     (dir : FilePath)
     (targetId : String)
     (module : ProofForge.IR.Core.Module)
     (capabilityIds : Array String)
+    (handlers : Array HostOpHandlerEntry)
     (sourceKind : String)
     (productPath? : String)
     (catalog? : Option ProofForge.IR.Core.HostOp.HostOpCatalog)
@@ -146,7 +183,12 @@ def writeExportPackage
   let coreJson ← match exportModuleJson module catalog? with
     | .ok json => pure json
     | .error err => throw <| IO.userError err.message
-  let capJson := capabilityPlanJson targetId capabilityIds
+  let notes :=
+    if handlers.isEmpty then
+      s!"experimental: no hostCalls in module; target catalog size={targetHostOpSignatures targetId |>.size}"
+    else
+      s!"experimental: {handlers.size} hostOp handler(s) resolved for target"
+  let capJson := capabilityPlanJson targetId capabilityIds handlers notes
   -- Hash the exact on-disk bodies (trailing newline included) so pf-core-inspect
   -- can recompute contentHash from files without a second encoding policy.
   let coreBody := coreJson ++ "\n"
@@ -165,7 +207,7 @@ def writeExportPackage
   IO.println s!"wrote {dir / "capability-plan.v0.json"}"
   IO.println s!"wrote {dir / "export-meta.json"}"
   IO.println s!"wrote {dir / "source-manifest.json"}"
-  IO.println s!"export-core: experimental package ok module={module.name} target={targetId} hash={contentHash.take 12}…"
+  IO.println s!"export-core: experimental package ok module={module.name} target={targetId} handlers={handlers.size} hash={contentHash.take 12}…"
 
 private def exportFromSpec
     (opts : ExportCoreOptions)
@@ -183,20 +225,26 @@ private def exportFromSpec
   | .ok bundle => do
       let canonical := bundle.contract.contract
       let caps := dedupIds (canonical.requirements.map (fun call => call.capability.id))
-      try
-        writeExportPackage
-          output
-          opts.targetId
-          canonical.module
-          caps
-          sourceKind
-          productPath
-          (some canonical.hostOpCatalog)
-          opts.root?
-        pure (0 : UInt32)
-      catch e =>
-        IO.eprintln s!"export-core: {e}"
-        pure (1 : UInt32)
+      match resolveHostOpHandlers canonical.module opts.targetId with
+      | .error msg =>
+          IO.eprintln s!"export-core: {msg}"
+          pure (1 : UInt32)
+      | .ok handlers =>
+          try
+            writeExportPackage
+              output
+              opts.targetId
+              canonical.module
+              caps
+              handlers
+              sourceKind
+              productPath
+              (some canonical.hostOpCatalog)
+              opts.root?
+            pure (0 : UInt32)
+          catch e =>
+            IO.eprintln s!"export-core: {e}"
+            pure (1 : UInt32)
 
 unsafe def exportCoreCommand (opts : ExportCoreOptions) : IO UInt32 := do
   match opts.fixture?, opts.input? with

@@ -24,7 +24,7 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **PR #105** branch: LR-0 + LR-1a/b Core export (`core.v0`, not ABI); next HostOp handlers / more products |
+| Active task | **PR #105** branch: LR-0…1c Core export + HostOp handlers; next more products / main merge when ready |
 | Next task | Continue LR on this branch (product-source export later). Merge main when available. No LR-2 default Rust lower / dual-run product until cutover quieter. #104 remains separate |
 | Parallel on main (done) | C3 OpenVM research brief → **defer** backend; D-057 design docs at `d9c132a0` |
 | Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |

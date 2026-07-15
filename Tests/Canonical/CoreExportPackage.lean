@@ -69,8 +69,55 @@ unsafe def main : IO UInt32 := do
     "contract-source"
   requireFileContains (System.FilePath.mk "build/export/lr1b-product-counter/evm/source-manifest.json")
     "Examples/Product/Counter.lean"
+  -- Counter has no hostCalls; handlers array is present and empty.
+  requireFileContains (System.FilePath.mk "build/export/lr1b-product-counter/evm/capability-plan.v0.json")
+    "\"hostOpHandlers\""
 
-  IO.println "core-export-package: ok (counter + value-vault + product Counter)"
+  -- Product ValueVault (stateful)
+  let productVaultOpts ← match parseExportCoreOptions
+      ["--experimental", "--target", "evm",
+       "-o", "build/export/lr1b-product-value-vault/evm",
+       "Examples/Product/ValueVault.lean"] with
+    | .error msg => throw (IO.userError s!"product vault parse failed: {msg}")
+    | .ok opts => pure opts
+  require ((← exportCoreCommand productVaultOpts) == 0) "product ValueVault export failed"
+  requireFileContains (System.FilePath.mk "build/export/lr1b-product-value-vault/evm/core.v0.json")
+    "\"name\": \"ValueVault\""
+  requireFileContains (System.FilePath.mk "build/export/lr1b-product-value-vault/evm/capability-plan.v0.json")
+    "\"targetId\": \"evm\""
+
+  -- resolveHostOpHandlers fail-closed when target lacks a used host op.
+  let hostOnly : ProofForge.IR.Core.Module := {
+    name := "NearOnly"
+    functions := #[{
+      id := ⟨0⟩, params := #[], retType := .string, entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        instructions := #[{
+          results := #[{ id := ⟨0⟩, type := .string }]
+          op := .hostCall {
+            id := {
+              namespace_ := "near.context", name := "predecessor_account_id"
+              version := { major := 1, minor := 0, patch := 0 }
+            }
+            args := #[]
+          }
+        }]
+        terminator := .return #[{ id := ⟨0⟩, type := .string }]
+      }]
+    }]
+  }
+  match resolveHostOpHandlers hostOnly "evm" with
+  | .ok _ => throw (IO.userError "NEAR host op must not resolve on evm")
+  | .error msg =>
+      require (msg.contains "no handler") s!"unexpected resolve error: {msg}"
+  match resolveHostOpHandlers hostOnly "wasm-near" with
+  | .error msg => throw (IO.userError s!"NEAR host op should resolve on wasm-near: {msg}")
+  | .ok handlers =>
+      require (handlers.size == 1) "expected one NEAR handler"
+      require (handlers.any (·.available)) "expected available NEAR handler"
+
+  IO.println "core-export-package: ok (fixtures + product Counter/ValueVault + hostOp handlers)"
   pure 0
 
 end ProofForge.Tests.Canonical.CoreExportPackage

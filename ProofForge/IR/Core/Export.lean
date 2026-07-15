@@ -482,15 +482,47 @@ def moduleBodyJson (m : Module) : String :=
     ])
   ]
 
-/-- Minimal capability-plan companion (target declared; host handlers later). -/
-def capabilityPlanJson (targetId : String) (capabilityIds : Array String) : String :=
+/-- One host-op handler row for capability-plan.v0. -/
+structure HostOpHandlerEntry where
+  id : ProofForge.Target.HostOpId
+  available : Bool
+  handler : String
+  requiredCapabilities : Array String := #[]
+  deriving Repr
+
+def hostOpHandlerJson (h : HostOpHandlerEntry) : String :=
+  jsonObject #[
+    ("id", hostOpIdJson h.id),
+    ("available", jsonBool h.available),
+    ("handler", jsonString h.handler),
+    ("requiredCapabilities", jsonStringArray h.requiredCapabilities)
+  ]
+
+/-- Collect exact HostOp ids used by instructions in a Core module (stable order). -/
+def collectUsedHostOpIds (m : Module) : Array ProofForge.Target.HostOpId :=
+  let rec fromInsn (op : InstructionOp) : Array ProofForge.Target.HostOpId :=
+    match op with
+    | .hostCall call => #[call.id]
+    | _ => #[]
+  m.functions.foldl (init := #[]) fun acc f =>
+    f.blocks.foldl (init := acc) fun acc b =>
+      b.instructions.foldl (init := acc) fun acc insn =>
+        (fromInsn insn.op).foldl (init := acc) fun acc id =>
+          if acc.any (· == id) then acc else acc.push id
+
+/-- Capability-plan companion with capabilities + hostOpHandlers. -/
+def capabilityPlanJson
+    (targetId : String)
+    (capabilityIds : Array String)
+    (handlers : Array HostOpHandlerEntry)
+    (profileNotes : String := "experimental core.v0 capability plan") : String :=
   jsonObject #[
     ("schemaVersion", natJson envelopeSchemaVersion),
     ("capabilityPlanSchema", jsonString capabilityPlanSchema),
     ("targetId", jsonString targetId),
     ("capabilities", jsonStringArray capabilityIds),
-    ("hostOpHandlers", jsonArray #[]),
-    ("profileNotes", jsonString "experimental: hostOpHandlers empty until resolveSpec wiring (LR-1b)")
+    ("hostOpHandlers", jsonArray (handlers.map hostOpHandlerJson)),
+    ("profileNotes", jsonString profileNotes)
   ]
 
 /-- source-manifest sketch (not part of contentHash). -/

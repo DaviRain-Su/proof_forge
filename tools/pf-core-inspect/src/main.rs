@@ -105,6 +105,27 @@ fn check_export_dir(dir: &Path) -> Result<()> {
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
             .context("capability-plan.v0.json missing non-empty targetId")?;
+        let handlers = cap
+            .get("hostOpHandlers")
+            .and_then(Value::as_array)
+            .context("capability-plan.v0.json missing hostOpHandlers array")?;
+        for (i, handler) in handlers.iter().enumerate() {
+            let available = handler
+                .get("available")
+                .and_then(Value::as_bool)
+                .with_context(|| format!("hostOpHandlers[{i}].available must be bool"))?;
+            if !available {
+                bail!("hostOpHandlers[{i}] is not available (fail-closed)");
+            }
+            let _handler = handler
+                .get("handler")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .with_context(|| format!("hostOpHandlers[{i}].handler must be non-empty"))?;
+            let _id = handler
+                .get("id")
+                .context(format!("hostOpHandlers[{i}].id missing"))?;
+        }
     }
 
     let meta_path = dir.join("export-meta.json");

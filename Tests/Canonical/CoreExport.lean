@@ -77,9 +77,48 @@ def main : IO UInt32 := do
       require (err.message.contains "core export refused")
         s!"expected refuse diagnostic, got {err.message}"
 
-  let cap := capabilityPlanJson "evm" #["storage.scalar"]
+  let cap := capabilityPlanJson "evm" #["storage.scalar"] #[]
   require (cap.contains "capability-plan.v0") "capability plan schema"
   require (cap.contains "\"targetId\": \"evm\"") "capability plan target"
+  require (cap.contains "\"hostOpHandlers\": []") "empty handlers for no hostCalls"
+
+  -- Used host-op collector + handler row shape.
+  let hostMod : Module := {
+    name := "HostProbe"
+    functions := #[{
+      id := ⟨0⟩, params := #[], retType := .u64, entry := ⟨0⟩
+      blocks := #[{
+        id := ⟨0⟩
+        instructions := #[{
+          results := #[{ id := ⟨0⟩, type := .u64 }]
+          op := .hostCall {
+            id := {
+              namespace_ := "evm.context", name := "origin"
+              version := { major := 1, minor := 0, patch := 0 }
+            }
+            args := #[]
+          }
+        }]
+        terminator := .return #[{ id := ⟨0⟩, type := .u64 }]
+      }]
+    }]
+  }
+  let used := collectUsedHostOpIds hostMod
+  require (used.size == 1) "one used host op"
+  let originId := {
+    namespace_ := "evm.context", name := "origin"
+    version := { major := 1, minor := 0, patch := 0 }
+  }
+  require (used.any (· == originId)) "origin host op collected"
+  let handlers : Array HostOpHandlerEntry := #[{
+    id := originId
+    available := true
+    handler := "evm:evm.context/origin@1.0.0"
+    requiredCapabilities := #["caller.sender"]
+  }]
+  let cap2 := capabilityPlanJson "evm" #[] handlers
+  require (cap2.contains "\"available\": true") "handler available"
+  require (cap2.contains "origin") "handler id"
 
   IO.println "core-export-v0: ok (tiny validated export + invalid refuse)"
   pure 0

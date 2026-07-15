@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "7fabb22813f57ec624a0492c771db9eb46dde3114c785ecdd4cd5ff6aedeea2d",
+    "sha256": "dd7efe69178cdbe2b91dfbe3a11c25c4df8c12540416cc9dd35d002b8371a0d6",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after LR-1b product-source export"
+    "note": "synced EN/zh after LR-1c hostOp handlers"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
