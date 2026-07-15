@@ -134,7 +134,7 @@ class ContractTests(unittest.TestCase):
 
     def test_all_near_v0_manifests_migrate_fail_closed(self) -> None:
         paths = sorted((REPO_ROOT / "testkit/compare/near").glob("*/reference-manifest.json"))
-        self.assertEqual(24, len(paths))
+        self.assertEqual(23, len(paths))
         for path in paths:
             migrated = migrate_manifest(path, REPO_ROOT)
             self.assertFalse(migrated["reference"]["semanticEligibility"]["eligible"])
@@ -150,7 +150,7 @@ class ContractTests(unittest.TestCase):
 
     def test_generated_inventory_has_no_semantic_overclaim(self) -> None:
         inventory = generate_inventory()
-        self.assertEqual(36, inventory["summary"]["semanticVerifiedCount"])
+        self.assertEqual(42, inventory["summary"]["semanticVerifiedCount"])
         verified_ids = {
             item["id"] for item in inventory["assets"] if item["semanticEvidence"] == "verified"
         }
@@ -160,7 +160,9 @@ class ContractTests(unittest.TestCase):
                 "cmp3-gate-pausable-primary-triad",
                 "cmp3-gate-reentrancy-guard-primary-triad",
                 "cmp3-gate-array-example-primary-triad",
+                "cmp3-gate-status-message-primary-triad",
                 "cmp3-reference-evm-array-example",
+                "cmp3-reference-evm-status-message",
                 "cmp3-reference-evm-value-vault",
                 "cmp3-reference-evm-ownable",
                 "cmp3-reference-evm-pausable",
@@ -170,12 +172,15 @@ class ContractTests(unittest.TestCase):
                 "cmp3-reference-near-pausable",
                 "cmp3-reference-near-reentrancy-guard",
                 "cmp3-reference-near-array-example",
+                "cmp3-reference-near-status-message",
                 "cmp3-reference-solana-value-vault",
                 "cmp3-reference-solana-ownable",
                 "cmp3-reference-solana-pausable",
                 "cmp3-reference-solana-reentrancy-guard",
                 "cmp3-reference-solana-array-example",
+                "cmp3-reference-solana-status-message",
                 "cmp3-runner-array-example-primary-triad",
+                "cmp3-runner-status-message-primary-triad",
                 "cmp3-runner-ownable-primary-triad",
                 "cmp3-runner-pausable-primary-triad",
                 "cmp3-runner-reentrancy-guard-primary-triad",
@@ -183,6 +188,7 @@ class ContractTests(unittest.TestCase):
                 "cmp3-scenario-pausable-primary-triad",
                 "cmp3-scenario-reentrancy-guard-primary-triad",
                 "cmp3-scenario-array-example-primary-triad",
+                "cmp3-scenario-status-message-primary-triad",
                 "cmp3-scenario-value-vault-primary-triad",
                 "cmp3-runner-value-vault-primary-triad",
                 "cmp3-gate-value-vault-primary-triad",
@@ -682,16 +688,20 @@ class ContractTests(unittest.TestCase):
         }
         self.assertEqual(
             {
-                "cmp3-reference-evm-status-message": "none",
-                "cmp3-reference-near-status-message": "none",
-                "cmp3-reference-solana-status-message": "none",
-                "cmp3-scenario-status-message-primary-triad": "none",
+                "cmp3-reference-evm-status-message": "verified",
+                "cmp3-reference-near-status-message": "verified",
+                "cmp3-reference-solana-status-message": "verified",
+                "cmp3-scenario-status-message-primary-triad": "verified",
+                "cmp3-runner-status-message-primary-triad": "verified",
+                "cmp3-gate-status-message-primary-triad": "verified",
             },
             status_assets,
         )
-        self.assertTrue(
+        self.assertFalse(
             (REPO_ROOT / "testkit/compare/near/status-message/reference-manifest.json").exists()
         )
+        compare_source = (REPO_ROOT / "testkit/compare/src/main.rs").read_text(encoding="utf-8")
+        self.assertIn("testkit/differential/status-message/references/near.v1.json", compare_source)
 
     def test_compiler_does_not_import_comparison_contracts(self) -> None:
         needles = (

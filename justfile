@@ -75,6 +75,12 @@ differential-reentrancy-guard:
 differential-array-example:
     python3 scripts/differential/array_example_pilot.py
 
+# Compare direct Authored StatusMessage artifacts with independent native EVM,
+# Solana, and NEAR implementations across the portable map CMP-3 scenario.
+differential-status-message:
+    lake build proof-forge
+    python3 scripts/differential/status_message_pilot.py
+
 # Typed open capability/HostOp identity and target-owned catalog contract.
 hostop-protocol:
     lake env lean --run Tests/Canonical/HostOpCatalog.lean

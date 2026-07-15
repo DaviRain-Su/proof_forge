@@ -198,6 +198,21 @@ def storagePathReadExprFromExprPlan
     (slot : StorageSlotExprPlan) : Except ε Lean.Compiler.Yul.Expr := do
   .ok (Lean.Compiler.Yul.builtin "sload" #[← storageSlotExprPlan mkError lowerPlanExpr slot])
 
+/-- Materialize checked Core cast semantics inside a 256-bit EVM word. -/
+def castExpr (source : Lean.Compiler.Yul.Expr) : ValueType → Lean.Compiler.Yul.Expr
+  | .bool =>
+      Lean.Compiler.Yul.builtin "iszero" #[
+        Lean.Compiler.Yul.builtin "iszero" #[source]
+      ]
+  | .u8 => Lean.Compiler.Yul.builtin "and" #[source, Lean.Compiler.Yul.Expr.num 255]
+  | .u32 => Lean.Compiler.Yul.builtin "and" #[source, Lean.Compiler.Yul.Expr.num 4294967295]
+  | .u64 => Lean.Compiler.Yul.builtin "and" #[source, Lean.Compiler.Yul.Expr.num 18446744073709551615]
+  | .u128 => Lean.Compiler.Yul.builtin "and" #[source,
+      Lean.Compiler.Yul.Expr.num 340282366920938463463374607431768211455]
+  | .address => Lean.Compiler.Yul.builtin "and" #[source,
+      Lean.Compiler.Yul.Expr.num 1461501637330902918203684832716283019655932542975]
+  | _ => source
+
 partial def exprPlanExprWithArithmeticWidths
     {ε : Type}
     (useNarrowArithmetic : Bool)
@@ -262,8 +277,8 @@ partial def exprPlanExprWithArithmeticWidths
         (← lowerPlan callValue)
         (← salt?.mapM lowerPlan)
         initCodeHex
-  | .cast source _ =>
-      lowerPlan source
+  | .cast source target =>
+      .ok (castExpr (← lowerPlan source) target)
   | .structField base fieldName =>
       localStructFieldExpr
         mkError

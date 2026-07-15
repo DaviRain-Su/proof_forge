@@ -1,7 +1,9 @@
 import Examples.Product.StatusMessage
 import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Backend.Evm.IR
 import ProofForge.Backend.Solana.Plan.Core
 import ProofForge.Backend.WasmHost.NearModulePlan.Core
+import ProofForge.Compiler.Yul.Printer
 import ProofForge.Frontend.Authored.Canonicalize
 import ProofForge.Target.Registry
 
@@ -74,7 +76,13 @@ def main : IO Unit := do
   let evmChecked <- withEvmSelectors bundle.contract
   match ProofForge.Backend.Evm.Plan.Core.buildFromCore evmChecked
       (capabilityPlan evm.id bundle) with
-  | .ok _ => pure ()
+  | .ok plan =>
+      let object <- match ProofForge.Backend.Evm.IR.lowerCanonicalModuleWithPlan plan with
+        | .ok object => pure object
+        | .error error => throw <| IO.userError s!"EVM StatusMessage rendering failed: {error.message}"
+      let yul := Lean.Compiler.Yul.Printer.render object
+      require (yul.contains "let v3 := and(v2, 18446744073709551615)")
+        "EVM StatusMessage caller-to-u64 cast did not truncate the address word"
   | .error error => throw <| IO.userError s!"EVM StatusMessage plan failed: {error.message}"
   match ProofForge.Backend.Solana.Plan.Core.buildFromCore bundle.contract
       (capabilityPlan solanaSbpfAsm.id bundle) with

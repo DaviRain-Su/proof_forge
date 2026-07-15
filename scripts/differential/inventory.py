@@ -465,8 +465,8 @@ def generate_inventory() -> dict[str, object]:
                 "nativeReference",
                 manifest,
                 "referenceManifestV1",
-                "none",
-                "CMP-3h1 pins independent StatusMessage provenance; VM equivalence remains CMP-3h2 work",
+                "verified",
+                "CMP-3h2 executes the direct Authored artifact and this native reference on the target VM",
                 sourcePaths=[reference["source"]["path"]],
             )
         )
@@ -482,8 +482,31 @@ def generate_inventory() -> dict[str, object]:
                 "scenario",
                 cmp3_status_scenario,
                 "portableScenarioV1",
-                "none",
-                "five-step caller-projected map/event scenario pinned for CMP-3h2 VM execution",
+                "verified",
+                "five-step caller-projected map/event scenario executed on both implementations for every primary target",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-runner-status-message-primary-triad",
+                "portable",
+                "runner",
+                REPO_ROOT / "scripts/differential/status_message_pilot.py",
+                "deterministicRunner",
+                "verified",
+                "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+            )
+        )
+        assets.append(
+            asset(
+                "cmp3-gate-status-message-primary-triad",
+                "portable",
+                "gate",
+                REPO_ROOT / "justfile",
+                "focusedGate",
+                "verified",
+                "focused fail-closed CMP-3 StatusMessage gate",
+                selectors=["differential-status-message"],
             )
         )
 
@@ -598,7 +621,7 @@ def generate_inventory() -> dict[str, object]:
     assets.sort(key=lambda item: item["id"])
     inventory: dict[str, object] = {
         "schema": INVENTORY_SCHEMA,
-        "scope": "tracked comparison assets through verified ArrayExample CMP-3g execution and pinned StatusMessage CMP-3h references",
+        "scope": "tracked comparison assets through verified StatusMessage CMP-3h execution",
         "summary": {
             "assetCount": len(assets),
             "semanticVerifiedCount": sum(1 for item in assets if item["semanticEvidence"] == "verified"),

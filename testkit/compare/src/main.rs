@@ -1745,7 +1745,7 @@ fn run_near_status_message(repo_root: &Path, args: &Args) -> Result<()> {
         args,
         "status-message",
         "testkit/compare/near/status-message",
-        "testkit/compare/near/status-message/reference-manifest.json",
+        "testkit/differential/status-message/references/near.v1.json",
         "Examples/Product/StatusMessage.lean",
         "StatusMessage.near-artifact.json",
         "pf_near_sdk_status_message_reference.wasm",

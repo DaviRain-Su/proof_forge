@@ -115,6 +115,18 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-gate-status-message-primary-triad",
+      "kind": "gate",
+      "maturity": "focusedGate",
+      "notes": "focused fail-closed CMP-3 StatusMessage gate",
+      "path": "justfile",
+      "selectors": [
+        "differential-status-message"
+      ],
+      "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
       "id": "cmp3-gate-value-vault-primary-triad",
       "kind": "gate",
       "maturity": "focusedGate",
@@ -178,9 +190,9 @@
       "id": "cmp3-reference-evm-status-message",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
-      "notes": "CMP-3h1 pins independent StatusMessage provenance; VM equivalence remains CMP-3h2 work",
+      "notes": "CMP-3h2 executes the direct Authored artifact and this native reference on the target VM",
       "path": "testkit/differential/status-message/references/evm.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "sourcePaths": [
         "benchmarks/native/evm/StatusMessage.sol"
       ],
@@ -250,9 +262,9 @@
       "id": "cmp3-reference-near-status-message",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
-      "notes": "CMP-3h1 pins independent StatusMessage provenance; VM equivalence remains CMP-3h2 work",
+      "notes": "CMP-3h2 executes the direct Authored artifact and this native reference on the target VM",
       "path": "testkit/differential/status-message/references/near.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "sourcePaths": [
         "testkit/compare/near/status-message/src/lib.rs"
       ],
@@ -322,9 +334,9 @@
       "id": "cmp3-reference-solana-status-message",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
-      "notes": "CMP-3h1 pins independent StatusMessage provenance; VM equivalence remains CMP-3h2 work",
+      "notes": "CMP-3h2 executes the direct Authored artifact and this native reference on the target VM",
       "path": "testkit/differential/status-message/references/solana.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "sourcePaths": [
         "benchmarks/native/solana/status-message/src/lib.rs"
       ],
@@ -379,6 +391,15 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-runner-status-message-primary-triad",
+      "kind": "runner",
+      "maturity": "deterministicRunner",
+      "notes": "direct Authored artifacts compared with native Solidity, Pinocchio, and near-sdk execution",
+      "path": "scripts/differential/status_message_pilot.py",
+      "semanticEvidence": "verified",
+      "targetFamily": "portable"
+    },
+    {
       "id": "cmp3-runner-value-vault-primary-triad",
       "kind": "runner",
       "maturity": "deterministicRunner",
@@ -427,9 +448,9 @@
       "id": "cmp3-scenario-status-message-primary-triad",
       "kind": "scenario",
       "maturity": "portableScenarioV1",
-      "notes": "five-step caller-projected map/event scenario pinned for CMP-3h2 VM execution",
+      "notes": "five-step caller-projected map/event scenario executed on both implementations for every primary target",
       "path": "testkit/differential/status-message/scenario.v1.json",
-      "semanticEvidence": "none",
+      "semanticEvidence": "verified",
       "targetFamily": "portable"
     },
     {
@@ -895,19 +916,6 @@
       "semanticEvidence": "none",
       "sourcePaths": [
         "testkit/compare/near/staking-vault/src/lib.rs"
-      ],
-      "sourceSchema": "proof-forge.near.reference-equivalence.v0",
-      "targetFamily": "near"
-    },
-    {
-      "id": "near-reference-status-message",
-      "kind": "nativeReference",
-      "maturity": "referenceManifestV0",
-      "notes": "near-sdk Rust reference; explicit v0 migration remains semantically ineligible until provenance and normalized coverage are complete",
-      "path": "testkit/compare/near/status-message/reference-manifest.json",
-      "semanticEvidence": "none",
-      "sourcePaths": [
-        "testkit/compare/near/status-message/src/lib.rs"
       ],
       "sourceSchema": "proof-forge.near.reference-equivalence.v0",
       "targetFamily": "near"
@@ -1506,16 +1514,16 @@
     }
   ],
   "schema": "proof-forge.differential.inventory.v1",
-  "scope": "tracked comparison assets through verified ArrayExample CMP-3g execution and pinned StatusMessage CMP-3h references",
+  "scope": "tracked comparison assets through verified StatusMessage CMP-3h execution",
   "summary": {
-    "assetCount": 130,
+    "assetCount": 131,
     "byTargetFamily": {
       "evm": 18,
-      "near": 36,
-      "portable": 39,
+      "near": 35,
+      "portable": 41,
       "solana": 29,
       "stylus": 8
     },
-    "semanticVerifiedCount": 36
+    "semanticVerifiedCount": 42
   }
 }
