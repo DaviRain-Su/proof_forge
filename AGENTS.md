@@ -30,6 +30,7 @@ Keep this section short and update it whenever the active task changes.
 | Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
 | Execution queue | [PR #105](https://github.com/DaviRain-Su/proof_forge/pull/105); [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Soroban note | Counter MVP only; gap list and S0–S5 order in [`docs/targets/stellar-soroban.md`](docs/targets/stellar-soroban.md) |
+| Architecture orientation | Portable capability → target Plan → assembly (not full SDK / not Lean VMs): [EN](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md) · [中文](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md); D-058 no Rust product lower; scan [solana-wasm coverage](docs/targets/solana-wasm-coverage-scan-2026-07-15.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task
@@ -46,9 +47,12 @@ Before editing code or accepting a task:
 3. Read the [documentation lifecycle index](docs/document-status.md).
 4. Read the [current architecture design](docs/superpowers/specs/2026-07-12-portable-intent-abstraction-design.md).
 5. Read the [current implementation plan](docs/superpowers/plans/2026-07-12-portable-intent-abstraction.md).
-6. Read the active task section, its referenced source/tests, and the relevant
+6. For multi-target lower / SDK-parity questions, read the
+   [portable capability → Plan → assembly orientation](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md)
+   ([中文](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md)).
+7. Read the active task section, its referenced source/tests, and the relevant
    target note or RFC.
-7. Check the [backlog](docs/implementation-backlog.md),
+8. Check the [backlog](docs/implementation-backlog.md),
    [gate ledger](docs/gate-status.md), and
    [validation catalog](docs/validation-gates.md) before claiming completion.
 
