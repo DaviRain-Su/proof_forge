@@ -187,9 +187,9 @@
     "note": "EN overview + §12 internals; zh is full deep-dive"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "694b70a82fcd50d628c0373c956567563954ab11932ce03c1519a6bd093c6c24",
+    "sha256": "131064b0d1b8656744fb5f76b604acafbc9941b845d6aac89d2c84a19b4dba85",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after LR-2d dual-run observe"
+    "note": "synced EN/zh after LR-2e ValueVault dual-run + goal charter"
   }
 }

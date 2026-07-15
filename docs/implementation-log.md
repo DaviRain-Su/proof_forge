@@ -4245,3 +4245,21 @@ Rules:
   Counter green. Not bytecode dual-run.
 - Verification: `Tests/Canonical/DualRunObserve.lean`; dual-run-observe CLI.
 - Remaining: more modules; optional Yul/bytecode dual-run later.
+
+## 2026-07-15 - GOAL + LR-2e: durable Seam A charter; ValueVault dual-run
+
+- Status: `done` (PR #105 branch; SHA at commit)
+- Result: Added continuous execution charter
+  `docs/agent-goal-prompt-lean-rust-seam-a.md`. Extended EVM scalar storage
+  sketch to allow Core `contextRead` and `emit` (still no hostCall/memory/
+  crosscall; not bytecode). ValueVault observe dual-run green: 7 entrypoints
+  + 6 scalar slots align with Lean `buildFromCore`. CREATE still refuses.
+  `just core-export-v0` dual-run steps cover Counter and ValueVault.
+- Verification: `cargo test --manifest-path tools/pf-core/Cargo.toml`;
+  `lake env lean --run Tests/Canonical/DualRunObserve.lean`;
+  `pf-core-inspect dual-run-observe` on
+  `build/export/lr2d-dual-run/counter-evm` and
+  `build/export/lr2e-dual-run/value-vault-evm`.
+- Remaining: LR-2f Ownable dual-run; contentHash stability; promote
+  core-export-v0 checklist; stop-condition review against goal success.
+- Documentation: charter, backlog EN+zh, `AGENTS.md` checkpoint.

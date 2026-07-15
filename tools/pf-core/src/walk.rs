@@ -282,23 +282,28 @@ impl ExportPackage {
                     .collect::<Vec<_>>()
             ));
         }
-        let storage_only = walk.host_calls_in_body.is_empty()
+        let scalar_storage_sketch_eligible = walk.host_calls_in_body.is_empty()
             && walk.crosscall_count == 0
             && walk.memory_op_count == 0
             && walk.op_kind_counts.keys().all(|k| {
                 matches!(
                     k.as_str(),
-                    "pure" | "storageLoad" | "storageStore" | "storageContains"
+                    "pure"
+                        | "storageLoad"
+                        | "storageStore"
+                        | "storageContains"
+                        | "contextRead"
+                        | "emit"
                 )
             });
-        if storage_only {
+        if scalar_storage_sketch_eligible {
             notes.push(
-                "EvmLowererPilot storage-only sketch available (not bytecode; experimental)"
+                "EvmLowererPilot scalar storage sketch available (pure+storage±contextRead/emit; not bytecode)"
                     .into(),
             );
         } else {
             notes.push(
-                "EvmLowererPilot storage-only sketch not eligible (unsupported ops/hostCalls)"
+                "EvmLowererPilot scalar storage sketch not eligible (unsupported ops/hostCalls)"
                     .into(),
             );
         }

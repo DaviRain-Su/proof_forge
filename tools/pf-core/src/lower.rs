@@ -1,8 +1,9 @@
 //! Experimental `buildFromCore` pilot surface (D-057 Seam A).
 //!
-//! First slice: **EVM storage-only sketch** for modules whose Core walk uses
-//! only pure + storage ops (e.g. Counter). Emits a JSON sketch — not bytecode
-//! and not a product CLI path.
+//! **EVM scalar storage sketch** for modules whose Core walk uses pure +
+//! storage ops, plus optional `contextRead` / `emit` (e.g. Counter, ValueVault).
+//! Emits a JSON sketch of provisional slots + entrypoints — not bytecode and
+//! not a product CLI path. HostCalls, memory, and crosscall still refuse.
 
 use crate::{walk::CoreWalkSummary, ExportPackage};
 use anyhow::{bail, Context, Result};
@@ -77,11 +78,22 @@ pub struct WalkSketch {
     pub op_kinds: Vec<String>,
 }
 
-/// Allowed instruction kinds for the storage-only pilot.
-fn is_storage_only_walk(walk: &CoreWalkSummary) -> Result<(), String> {
-    let allowed: BTreeSet<&str> = ["pure", "storageLoad", "storageStore", "storageContains"]
-        .into_iter()
-        .collect();
+/// Allowed instruction kinds for the scalar storage sketch pilot.
+///
+/// `contextRead` and `emit` are surface-level Core ops that do not allocate
+/// storage slots or hostCalls; the sketch still only materializes scalar slots
+/// + entrypoint names (no event ABI / context semantics).
+fn is_scalar_storage_sketch_walk(walk: &CoreWalkSummary) -> Result<(), String> {
+    let allowed: BTreeSet<&str> = [
+        "pure",
+        "storageLoad",
+        "storageStore",
+        "storageContains",
+        "contextRead",
+        "emit",
+    ]
+    .into_iter()
+    .collect();
     let mut bad = Vec::new();
     for kind in walk.op_kind_counts.keys() {
         if !allowed.contains(kind.as_str()) {
@@ -90,24 +102,26 @@ fn is_storage_only_walk(walk: &CoreWalkSummary) -> Result<(), String> {
     }
     if !walk.host_calls_in_body.is_empty() {
         return Err(format!(
-            "hostCalls not allowed in storage-only pilot: {:?}",
+            "hostCalls not allowed in scalar storage sketch: {:?}",
             walk.host_calls_in_body
         ));
     }
     if walk.crosscall_count > 0 {
-        return Err("crosscall not allowed in storage-only pilot".into());
+        return Err("crosscall not allowed in scalar storage sketch".into());
     }
     if walk.memory_op_count > 0 {
-        return Err("memory ops not allowed in storage-only pilot".into());
+        return Err("memory ops not allowed in scalar storage sketch".into());
     }
     if !bad.is_empty() {
-        return Err(format!("unsupported op kinds for storage-only pilot: {bad:?}"));
+        return Err(format!(
+            "unsupported op kinds for scalar storage sketch: {bad:?}"
+        ));
     }
     // Terminators: only return for this pilot.
     for kind in walk.terminator_kind_counts.keys() {
         if kind != "return" {
             return Err(format!(
-                "unsupported terminator `{kind}` in storage-only pilot (only return)"
+                "unsupported terminator `{kind}` in scalar storage sketch (only return)"
             ));
         }
     }
@@ -143,8 +157,8 @@ pub fn build_evm_storage_sketch(package: &ExportPackage) -> Result<EvmStorageSke
     }
 
     let walk = package.walk();
-    if let Err(msg) = is_storage_only_walk(&walk) {
-        bail!("EVM storage-only pilot refused: {msg}");
+    if let Err(msg) = is_scalar_storage_sketch_walk(&walk) {
+        bail!("EVM scalar storage sketch refused: {msg}");
     }
 
     let mut slots = Vec::new();
@@ -154,7 +168,7 @@ pub fn build_evm_storage_sketch(package: &ExportPackage) -> Result<EvmStorageSke
         let (shape_kind, value_type) = shape_label(&shape);
         if shape_kind != "scalar" {
             bail!(
-                "EVM storage-only pilot only supports scalar state (state_id={state_id} shape={shape_kind})"
+                "EVM scalar storage sketch only supports scalar state (state_id={state_id} shape={shape_kind})"
             );
         }
         slots.push(StorageSlotSketch {
@@ -183,7 +197,7 @@ pub fn build_evm_storage_sketch(package: &ExportPackage) -> Result<EvmStorageSke
             });
         }
     } else {
-        bail!("EVM storage-only pilot requires interface.v0.json");
+        bail!("EVM scalar storage sketch requires interface.v0.json");
     }
 
     let op_kinds: Vec<String> = walk
@@ -191,6 +205,18 @@ pub fn build_evm_storage_sketch(package: &ExportPackage) -> Result<EvmStorageSke
         .iter()
         .map(|(k, n)| format!("{k}={n}"))
         .collect();
+
+    let mut notes = vec![
+        "provisional slots are sequential scalars only".into(),
+        "not bytecode; not a product compile path".into(),
+        "product CLI default remains Lean".into(),
+    ];
+    if walk.context_read_count > 0 || walk.emit_count > 0 {
+        notes.push(format!(
+            "contextRead={} emit={} counted in walk but not materialized in sketch surface",
+            walk.context_read_count, walk.emit_count
+        ));
+    }
 
     Ok(EvmStorageSketch {
         schema_version: 0,
@@ -207,11 +233,7 @@ pub fn build_evm_storage_sketch(package: &ExportPackage) -> Result<EvmStorageSke
             op_kinds,
         },
         status: "experimental-storage-sketch".into(),
-        notes: vec![
-            "provisional slots are sequential scalars only".into(),
-            "not bytecode; not a product compile path".into(),
-            "product CLI default remains Lean".into(),
-        ],
+        notes,
     })
 }
 

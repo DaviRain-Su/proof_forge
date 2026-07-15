@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **PR #105** branch: LR-0…2d Seam A observe dual-run (Lean plan vs sketch); not product default |
-| Next task | Continue LR on this branch (product-source export later). Merge main when available. No LR-2 default Rust lower / dual-run product until cutover quieter. #104 remains separate |
+| Active task | **PR #105** Seam A long-running goal: [`docs/agent-goal-prompt-lean-rust-seam-a.md`](docs/agent-goal-prompt-lean-rust-seam-a.md) (LR-0…2e done; next LR-2f Ownable dual-run) |
+| Next task | Continue LR queue on this branch until charter success. Merge main when available. No product-default Rust lower. #104 remains separate |
 | Parallel on main (done) | C3 OpenVM research brief → **defer** backend; D-057 design docs at `d9c132a0` |
 | Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
 | Execution queue | [PR #105](https://github.com/DaviRain-Su/proof_forge/pull/105); [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |

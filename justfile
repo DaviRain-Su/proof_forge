@@ -426,6 +426,8 @@ core-export-v0:
     lake env lean --run Tests/Canonical/DualRunObserve.lean
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
       build/export/lr2d-dual-run/counter-evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2e-dual-run/value-vault-evm
 
 # PF-P1-04: preflight L0+L1+L2 readiness via TargetBackend hooks.
 preflight-l2:

@@ -58,6 +58,8 @@
 | LR-2b | Core op walker + dual-run 就绪 + lowerer stub | done（PR #105 分支） | 遍历指令 kind；host body↔plan；observeReady；EvmLowererPilot 明确未实现 |
 | LR-2c | EVM storage-only lower sketch | done（PR #105 分支） | Counter 类模块 → evm-storage-sketch.v0；hostCall 模块拒绝；非 bytecode |
 | LR-2d | Observe dual-run（Lean plan vs sketch） | done（PR #105 分支） | lean-evm-observe.v0 + dual-run-observe；Counter 入口/slot 对齐 |
+| LR-2e | ValueVault observe dual-run | done（PR #105 分支） | scalar sketch 允许 contextRead+emit；7 入口 + 6 slot 对齐；CREATE 仍拒绝 |
+| LR-2f | Ownable（或第二个 scalar/policy）observe dual-run | pending | 绿通或明确拒绝（若不可 sketch） |
 | LR-1 | 产品/源路径 `export-core` + 完整 HostOp handlers | cutover 更安静后 pending | 产品路径 + resolveSpec handlers；为 dual-run 就绪 |
 | LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | 待 LR-1 后 | 声明维度 dual-run；CLI 默认仍为 Lean |
 | LR-3+ | 三链后端 / 默认 Rust lower | 待定 | 一个发布周期 dual-run + 可衡量收益；Lean 路径仍可切换 |

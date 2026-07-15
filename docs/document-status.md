@@ -38,6 +38,8 @@ generated artifacts remain the implementation truth.
 | OpenVM research brief (C3, defer) | [targets/openvm-research.md](targets/openvm-research.md) |
 | Lean/Rust ownership boundary (D-057, deferred impl) | [Lean/Rust boundary design](superpowers/specs/2026-07-15-lean-rust-boundary-design.md) ([中文](superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)) |
 | Artifact consumer contract v1 (Seam B / LR-0 enforced) | [Artifact Contract v1](superpowers/specs/2026-07-15-artifact-contract-v1.md) ([中文](superpowers/specs/2026-07-15-artifact-contract-v1.zh.md); `just artifact-contract-v1`) |
+| Seam A long-running goal (export-core + pf-core + dual-run) | [agent-goal-prompt-lean-rust-seam-a.md](agent-goal-prompt-lean-rust-seam-a.md) (branch PR #105) |
+| Core export v0 draft (Seam A) | [core-export-v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
 | Checked Core export draft (Seam A / Phase 1, experimental) | [Core export v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
 
 ## Historical Baselines
