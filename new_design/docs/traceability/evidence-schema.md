@@ -3,7 +3,7 @@ id: TRACE-EV-001
 title: Gate Evidence Schema
 status: proposed
 owner: quality
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -326,6 +326,11 @@ host eligibility、required probes/tools/tests 或 release policy 完整。
 required gate/test/tool/probe catalog、bundle safe-open、freshness、private scan、revocation lookup
 和发布动作绑定为一次 fail-closed protocol。该 finalizer 当前不存在。因此 `publish` 只允许
 `qualification="development"`；formal 输入返回 `PF-EVIDENCE-FORMAL-UNVERIFIED`。
+
+H1e 的 catalog、typed EV references、launcher receipt、single-snapshot 与独立 development
+finalization record candidate 契约已在
+[`SPEC-EVFINAL-001`](../specs/gate-catalog-finalization.md) 提出；当前实现尚未完成这些字段或
+真实 retained bundle，因此本节的“future”状态和 formal fail-closed 结论不变。
 
 development publish 会 canonicalize 并原子 no-clobber 写入固定布局：
 

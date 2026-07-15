@@ -3,7 +3,7 @@ id: PHASE-5
 title: 测试与验收规格
 status: proposed
 owner: quality
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -134,6 +134,10 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   output-cap cleanup、PGID reuse 与 `setsid()` session escape。
 - policy/receipt preexistence、symlink/hardlink/path replacement；failure tail 的 ANSI/OSC/control
   byte 必须 ASCII-escape，但 printable secret 仍需 formal retained/private scan/redaction。
+- invocation receipt 的 policy/port/argv/env/terminal/raw-stream digest、receipt-last commit
+  marker、rollback/partial-set rejection；catalog content/domain digest、exact-set、split-brain、single-snapshot 与
+  development-only finalization negatives。完整矩阵见
+  [`SPEC-EVFINAL-001`](specs/gate-catalog-finalization.md)。
 
 ## Gate 设计
 
@@ -153,6 +157,10 @@ Anvil `127.0.0.1` bind/LAN refusal；evidence v1 candidate 也已覆盖 exact-po
 retained launcher logs/receipts、required probes 的绑定，完整 old/new reader fixture matrix、
 `setsid()` session escape、eligible host、formal Stage-0 handoff、gate catalog/freshness/revocation/
 private scan 和正式 finalizer 仍是验收缺口。
+
+H1e 固定按 invocation receipt → catalog core → real retained bundle integration 三个切片实施；前
+两个切片通过不能追溯升级 H1c/EV-0015，也不能关闭 `TST-EVIDENCE-001`、`TST-ISO-002/003`
+或 `TST-VER-001`。
 
 ## 证据要求
 

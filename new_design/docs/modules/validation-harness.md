@@ -3,7 +3,7 @@ id: MOD-TEST-001
 title: ValidationHarness 模块规格
 status: proposed
 owner: quality
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -52,3 +52,9 @@ required probes 的绑定、freshness/revocation/private scan、remote attestati
 probes。失败时回显的 ASCII-escaped 32 KiB tail 只属于 development diagnostics，不能作为已
 脱敏或 retained formal evidence。`TST-EVIDENCE-001`、`TST-ISO-002`、`TASK-D0-03` 均保持
 未完成。
+
+H1e 的完整契约见 [`SPEC-EVFINAL-001`](../specs/gate-catalog-finalization.md)。Catalog 必须是
+独立 lock；launcher 先为每个 invocation 产生绑定 policy/port/terminal/raw streams 的 canonical
+metadata receipt；finalizer 再以一次 safe-open snapshot 做 exact-set evaluation，并发布独立
+development finalization record。Schema-only `publish` 不得复用该 namespace 或声称 catalog
+已验证。

@@ -3,7 +3,7 @@ id: SPEC-VER-001
 title: 版本与兼容策略
 status: proposed
 owner: release
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -34,6 +34,10 @@ schema ID/version，不能由 compiler version 隐式代替。
   这不是对外部 consumer 的穷举证明。schema 一旦 accepted，字段重解释/删除、旧 record 失效
   或要求旧 reader 理解新语义都必须升级 schema major；validator digest 必须进入正式 evidence
   信任链。
+- Gate catalog：schema version、catalog exact SemVer 与 domain-separated digest 是三个独立轴；
+  任何 required set、lock、host/candidate policy 或 binding 语义变化都使用新的 exact catalog
+  version/digest，不允许 range、`latest`、alias 或同 `(id,version)` 不同 digest。Finalization record
+  使用独立 schema；已发布 record 不因 catalog 更新被原地重解释。
 
 ## Source Compatibility
 

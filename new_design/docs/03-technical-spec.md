@@ -3,7 +3,7 @@ id: PHASE-3
 title: 技术规格总索引
 status: proposed
 owner: engineering
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -78,6 +78,7 @@ class Materializer (target : TargetId) where
 | Toolchains | [`specs/toolchains.md`](specs/toolchains.md) | NFR-001/009 |
 | Versioning | [`specs/versioning.md`](specs/versioning.md) | NFR-006 |
 | Reproducibility | [`specs/reproducibility.md`](specs/reproducibility.md) | NFR-001/004 |
+| Gate finalization | [`specs/gate-catalog-finalization.md`](specs/gate-catalog-finalization.md) | NFR-003/004/005/009 |
 
 ## 全局前置与后置条件
 

@@ -3,7 +3,7 @@ id: GOV-CI-001
 title: CI 与证据策略
 status: proposed
 owner: quality
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -49,3 +49,9 @@ branch protection 要求所有 required lanes 来自同 candidate commit，禁�
 v1 formal passed 只允许一次 command attempt；development 可记录一次重试，但该记录不能升级成
 formal。上述 retention、branch protection 和 retry policy 都仍需 gate catalog/finalizer 实现
 后才能成为机器可执行证据规则。
+
+Development catalog finalization 将使用 [`SPEC-EVFINAL-001`](../specs/gate-catalog-finalization.md)
+定义的独立 catalog lock、typed EV bindings 和 immutable finalization record。它只会证明 catalog
+exact-set 与 point-in-time bundle bindings，不构成 lane attestation 或 evidence-set root；正式
+CI 仍必须汇总同一 candidate/host/catalog 的全部 required gates，并验证 freshness、revocation
+与 private scan。

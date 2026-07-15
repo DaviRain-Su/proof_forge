@@ -3,7 +3,7 @@ id: PHASE-4
 title: 实施任务拆解
 status: proposed
 owner: engineering
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -38,7 +38,7 @@ normative: true
 |---|---|---|---|---|
 | TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | pending |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | D0-01 | TST-ISO-001 | pending |
-| TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；formal handoff/finalizer 待完成 | 完成依赖 D0-01/02；当前 alpha 输入 A0-02 | TST-TOOL-001/TST-HOST-001/TST-EVIDENCE-001/TST-ISO-002 | in_progress |
+| TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；H1e 按 receipt→catalog core→retained bundle 实施，formal handoff/finalizer 待完成 | 完成依赖 D0-01/02；当前 alpha 输入 A0-02 | TST-TOOL-001/TST-HOST-001/TST-EVIDENCE-001/TST-ISO-002 | in_progress |
 | TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：eligible host、formal handoff/process-session containment 与 gate-catalog finalizer 未闭合 | D0-02/03 | TST-ISO-002 | blocked |
 
 ## Milestone D1：语言前端
