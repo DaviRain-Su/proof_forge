@@ -27,10 +27,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "8b2defc8fe13c2302ac976bf43ed46d01e97a0a5b92c9e68b22f3dc80a22e0f2",
+    "sha256": "30baa6a74293fd1112b5c5b92128f2a145bb9600b2a412dc74cb91f96ce5c2ec",
     "zh": "docs/zh/decisions.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
+    "note": "synced after D-058"
   },
   "docs/capability-registry.md": {
     "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
@@ -60,12 +60,6 @@
     "zh": "docs/zh/multi-chain-gap-audit-2026-07-10.zh.md",
     "model": "manual-zh"
   },
-  "docs/implementation-backlog.md": {
-    "sha256": "1f1dfdde2fa8b41ad5fcd0a5c93a4b637a1601fe911e8d24480ad847feadf57b",
-    "zh": "docs/zh/implementation-backlog.zh.md",
-    "model": "manual-zh",
-    "note": "synced EN/zh after D-057 Chinese specs (2026-07-15)"
-  },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
     "zh": "docs/zh/review-checklist.zh.md",
@@ -90,10 +84,10 @@
     "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/validation-gates.md": {
-    "sha256": "7c5c835ffb980f92edb9441c0f6004a6932b369deabb26ba06af1d9e3bf7554d",
+    "sha256": "5db9fb7941d47d1b09de44b1865d63a63292e4a9fa48ec98c817400a5d222b1c",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for canonical EVM CREATE HostOp coverage; includes Stylus; includes NEP-145"
+    "note": "synced after P3 AccessControl solana imm fix"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -191,5 +185,17 @@
     "zh": "docs/zh/system-architecture.zh.md",
     "model": "manual-zh",
     "note": "EN overview + §12 internals; zh is full deep-dive"
+  },
+  "docs/implementation-backlog.md": {
+    "sha256": "87066157f60049ac491e8cfb88dbd8b500dfd9e31a7473d839f380e151df12c3",
+    "zh": "docs/zh/implementation-backlog.zh.md",
+    "model": "manual-zh",
+    "note": "synced after P3 AccessControl solana imm fix"
+  },
+  "docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md": {
+    "sha256": "3e0ccf5009763774fdaf529925518c87648845a7c6f4f1ed0ce24b2ff9a7a2a8",
+    "zh": "docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md",
+    "model": "manual-zh",
+    "note": "architecture consensus EN/zh 2026-07-15"
   }
 }

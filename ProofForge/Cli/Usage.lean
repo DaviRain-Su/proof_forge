@@ -10,6 +10,7 @@ def usage : String :=
     "  proof-forge build --target <id> --token …    # TokenSpec → chain-native token plan/artifact",
     "  proof-forge build --target <id> --nft …      # NFTSpec → ERC-721 / Metaplex / NEP-171 artifact",
     "  proof-forge check --target <id> …",
+    "  proof-forge export-core --experimental …    # experimental core.v0 package (D-057; not product)",
     "  proof-forge --list-targets                  # registered targets with ≥1 CLI command",
     "  proof-forge --list-targets --json           # machine-readable support matrix (PF-P1-02)",
     "",

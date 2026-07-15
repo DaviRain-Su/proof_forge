@@ -1,16 +1,17 @@
 # Artifact Contract v1 (draft)
 
-Status: **Draft contract for Seam B (evidence layer)**
+Status: **Accepted consumer contract for Seam B (evidence layer); LR-0 enforced**
 
 Parent design: [Lean / Rust boundary](2026-07-15-lean-rust-boundary-design.md)
 ([中文](2026-07-15-lean-rust-boundary-design.zh.md))
 
 Chinese: [2026-07-15-artifact-contract-v1.zh.md](2026-07-15-artifact-contract-v1.zh.md)
 
-Authority until code freezes fields: **checked-in Lean emitters + this document**;
-when they disagree, code wins and this draft must be updated in the same change.
+Authority: **checked-in Lean emitters + this document +
+`ProofForge.Target.ArtifactContract` + testkit `validate_artifact_contract_v1`**;
+when they disagree, code wins and this document must be updated in the same change.
 
-This is the Phase 0 deliverable shape: document what Rust harnesses and
+This is the Phase 0 deliverable: document and enforce what Rust harnesses and
 differential scripts may rely on. It does **not** introduce a Rust compile path.
 
 ## Purpose
@@ -198,17 +199,65 @@ When comparing Lean-produced vs future Rust-produced artifacts, gate on:
 Do **not** require full JSON deep equality of entire artifact documents
 (toolchain path strings and free-form notes drift).
 
-## Phase 0 implementation checklist (future branch)
+## Phase 0 implementation checklist (LR-0)
 
-- [ ] Inventory all CLI emitters of `proof-forge-artifact.json` against this table
-- [ ] Add a Lean or golden test that fails when required consumer fields disappear
-- [ ] Teach testkit core to reject missing `schemaVersion` / `target` /
-      final output when a scenario declares execution
-- [ ] Document observation JSON fields next to this contract (separate version)
-- [ ] Keep per-harness packages free of multi-chain SDK package deps
+- [x] Inventory all CLI emitters of `proof-forge-artifact.json` against this table
+      (see **Emitter inventory** below; frozen in
+      `ProofForge.Target.ArtifactContract.primaryTriadEmitters` /
+      `secondaryEmitters`)
+- [x] Add a Lean or golden test that fails when required consumer fields disappear
+      (`just artifact-contract-v1` → `Tests/ArtifactContractV1.lean`)
+- [x] Teach testkit core to reject missing `schemaVersion` / `target` /
+      final-or-primary output when a scenario declares execution
+      (`proof_forge_testkit_core::validate_artifact_contract_v1`, applied to
+      metadata artifacts in `assert_artifact_expectations`)
+- [x] Document observation JSON fields next to this contract (separate version)
+      (see **Observation contract (separate)** below)
+- [x] Keep per-harness packages free of multi-chain SDK package deps
+      (workspace still splits `harness-evm` / `harness-solana` / `harness-near`;
+      no multi-chain SDK mega-crate)
+
+## Emitter inventory (LR-0)
+
+Primary triad product routes (must emit full consumer minimum + `artifactBundle`):
+
+| Module | Targets | Notes |
+|---|---|---|
+| `ProofForge/Cli/EvmArtifacts.lean` | `evm` | Yul + bytecode (+ initcode); full fields |
+| `ProofForge/Cli/EmitWatArtifacts.lean` | `wasm-near` (+ other EmitWat hosts) | WAT/Wasm; full fields |
+| `ProofForge/Cli/ContractSourceArtifacts.lean` | `solana-sbpf-asm` | Assembly intermediate; bundle intermediate-only |
+| `ProofForge/Cli/SolanaCommands.lean` | `solana-sbpf-asm` | ELF + assembly package paths with bundle |
+
+Secondary / spike paths (documented; not all match full primary minimum yet):
+
+| Module | Targets | Notes |
+|---|---|---|
+| `ProofForge/Cli/SolanaArtifacts.lean` | `solana-sbpf-asm` | Legacy IR fixtures; some lack `artifactBundle` |
+| `ProofForge/Cli/LearnArtifacts.lean` | `solana-sbpf-asm` | Learn-source assembly; no bundle yet |
+| `ProofForge/Cli/StylusArtifacts.lean` | `wasm-arbitrum-stylus` | Minimal metadata + bundle |
+| `ProofForge/Cli/PsyArtifacts.lean` | `psy-dpn` | Research path |
+
+Gate: `just artifact-contract-v1` re-reads primary emitter sources for the
+required emission markers (`schemaVersion`, `target`, `artifactKind`,
+`sourceModule`, `artifacts`, `artifactBundle`).
+
+## Observation contract (separate)
+
+Runtime observation / scenario traces are **not** part of Artifact Contract v1.
+They version independently under testkit and differential harnesses:
+
+| Surface | Identity / location | Notes |
+|---|---|---|
+| Scenario TOML | `testkit/scenarios/*.toml` | Steps, expectations, artifact checks |
+| Call outcomes | `proof_forge_testkit_core::{CallOutcome, BudgetOutcome, ErrorOutcome}` | Harness trace lines |
+| Differential scenario | e.g. `scenario.v1.json` under `testkit/compare` / scripts | Chain-specific benches |
+| Benchmark result | `proof-forge.benchmark-result.v1` | Cost/behavior benches (already separate) |
+
+Do not fold observation schema bumps into `proof-forge-artifact` `schemaVersion`.
 
 ## Non-goals for this draft
 
 - Freezing Core export (see [core export v0](2026-07-15-core-export-v0-draft.md))
 - Changing on-disk artifact layout
 - Declaring Rust backends production-ready
+- Closing every secondary emitter gap in the same slice (inventory only)

@@ -219,28 +219,27 @@ work still reshape HostOps and public routes.
 
 ### Phase 2 — One-chain Rust pilot (after cutover stability)
 
-Goal: prove a Rust backend without rewriting all three chains.
+**Status under D-058 (2026-07-15): deferred / not scheduled.**  
+Do **not** open a Rust product lower that re-prints sBPF/WAT/Yul without a
+ready library or an explicit sourcegen decision. Seam A on PR #105 stops at
+export + read-only inspect + surface observe sketch.
+
+Historical guidance (kept for traceability only):
 
 | Choice | Guidance |
 |---|---|
-| Pilot target | Prefer **EVM** after Lean EVM path is quiet (tools mature, EVM-R* further along). Avoid using the pilot to finish NEAR residual cutover. Solana last among the triad for first knife. |
-| Prefer first | A0 render/orchestration if the pain is CI/tooling; A1 full `buildFromCore` only if plan logic itself is the bottleneck |
-| Crate | `pf-backend-evm` (or near) with isolated Cargo deps |
-| Inputs | Phase 1 export + target id |
-| Outputs | Same layout as Lean CLI + compatible artifact JSON |
-| Gate | Counter + one stateful product dual-run on declared dimensions |
-| Rollback | CLI default remains Lean; opt-in `--backend rust` or dual-run env |
+| Pilot target | Prefer **EVM** only if the win is orchestration around `solc`, not re-authoring Yul in Rust. Solana/Wasm machine IR rewrite is **wont** without a sourcegen strategy (e.g. Pinocchio). |
+| Prefer first | A0 tool orchestration / evidence; not A1 full `buildFromCore` for assembly printers |
+| Crate | Would be `pf-backend-*` with isolated Cargo deps — **not started** |
+| Gate | Would require dual-run + measurable benefit + new decision superseding D-058 |
 
 ### Phase 3 — Primary-triad Rust backends + policy
 
-- Packages: `pf-backend-evm` / `pf-backend-solana` / `pf-backend-near`, deps isolated.
-- Thin `pf-lower` dispatches by target.
-- `proof-forge build` configurable: `lean` / `rust` / `dual`.
-- Catalog subset dual-run, fail-closed.
-- Document trust boundary: external `solc` / `wat2wasm` / assemblers remain assumptions.
+**Status under D-058: deferred.** No `pf-backend-solana` / `pf-backend-near`
+machine-IR printers; no default CLI switch to Rust lower.
 
-Default switch to Rust only after dual-run is green for a full release cycle
-**and** measurable CI/integration benefit is recorded.
+Default switch to Rust would require dual-run green for a full release cycle,
+measurable benefit, **and** an explicit decision reopening D-058.
 
 ### Phase 4 — Optional production split
 

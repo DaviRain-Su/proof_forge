@@ -14,6 +14,7 @@ import ProofForge.Cli.Check
 import ProofForge.Cli.ContractSourceArtifacts
 import ProofForge.Cli.StylusArtifacts
 import ProofForge.Cli.Metadata
+import ProofForge.Cli.ExportCore
 import ProofForge.Cli.Quint
 import ProofForge.IR.Examples.AbiAggregateProbe
 import ProofForge.IR.Examples.AbiScalarProbe
@@ -402,6 +403,19 @@ unsafe def dispatch (args : List String) : IO UInt32 := do
       | Except.error msg =>
           IO.eprintln msg
           return 1
+  | "export-core" :: rest =>
+      if wantsHelp rest then
+        IO.println ProofForge.Cli.ExportCore.usage
+        return 0
+      match ProofForge.Cli.ExportCore.parseExportCoreOptions rest with
+      | Except.ok opts => ProofForge.Cli.ExportCore.exportCoreCommand opts
+      | Except.error "help" =>
+          IO.println ProofForge.Cli.ExportCore.usage
+          return 0
+      | Except.error msg =>
+          IO.eprintln msg
+          IO.eprintln "try: proof-forge export-core --help"
+          return 1
   | _ =>
       let parseResult : Except String ProofForge.Cli.CliOptions :=
         match args with
@@ -540,6 +554,12 @@ unsafe def main (args : List String) : IO UInt32 := do
   | "check" :: rest =>
       if wantsHelp rest then
         IO.println ProofForge.Cli.checkUsage
+        return 0
+      else
+        dispatch args
+  | "export-core" :: rest =>
+      if wantsHelp rest then
+        IO.println ProofForge.Cli.ExportCore.usage
         return 0
       else
         dispatch args

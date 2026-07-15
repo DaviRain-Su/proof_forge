@@ -48,10 +48,30 @@
 
 | 顺序 | 切片 | 状态 | 验收边界 |
 |---:|---|---|---|
-| LR-0 | Artifact Contract v1 文档 + harness 字段白名单 | 设计完成 (2026-07-15)；代码待单独分支 | testkit/runners 只依赖文档化制品字段；诚实性规则不变 |
-| LR-1 | 实验性 `export-core`（`core.v0`） | 待 #104 / cutover 安静后 | 确定性导出；Validate fail-closed；Counter + 一个 stateful 子集 |
-| LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | 待 LR-1 后 | 声明维度 dual-run；CLI 默认仍为 Lean |
-| LR-3+ | 三链后端 / 默认 Rust lower | 待定 | 一个发布周期 dual-run + 可衡量收益；Lean 路径仍可切换 |
+| LR-0 | Artifact Contract v1 文档 + harness 字段白名单 | done（验证于 `1716904d`；PR #105） | testkit/runners 只依赖文档化制品字段；诚实性规则不变；`just artifact-contract-v1` 通过 |
+| LR-1a | 实验性 Core JSON export + `pf-core-inspect`（无 CLI 产品路径） | done（PR #105 分支） | validate→JSON fail-closed；确定性 body；Rust inspect 零链 SDK |
+| LR-1b | 实验性 `export-core` CLI（仅 `--experimental`） | done（PR #105 分支） | fixture + product Counter/ValueVault；contentHash；CapabilityPlan ids；inspect 绿 |
+| LR-1c | capability-plan 中的 HostOp handlers | done（PR #105 分支） | 已用 hostCall 对 target catalog 解析；缺失 fail-closed；无 hostCall 时可为空 |
+| LR-1d | 通用导出包（非例子驱动） | done（PR #105 分支） | 三链 Core 同体；targetHostOpCatalog；requirements；interface.v0；Normalize 注册三链 HostOps；product 矩阵冒烟 |
+| LR-1e | hostCall 压力 + inspect compare | done（PR #105 分支） | 非空 used handlers（CREATE）；错误 target 拒绝；pf-core-inspect compare；多 product evm 冒烟 |
+| LR-2a | Rust `pf-core` 只读包加载器 | done（PR #105 分支） | 解析 core.v0+plan+interface；contentHash；used⊆catalog；inspect 使用 pf-core；零链 SDK |
+| LR-2b | Core op walker + dual-run 就绪 + lowerer stub | done（PR #105 分支） | 遍历指令 kind；host body↔plan；observeReady；EvmLowererPilot 明确未实现 |
+| LR-2c | EVM storage-only lower sketch | done（PR #105 分支） | Counter 类模块 → evm-storage-sketch.v0；hostCall 模块拒绝；非 bytecode |
+| LR-2d | Observe dual-run（Lean plan vs sketch） | done（PR #105 分支） | lean-evm-observe.v0 + dual-run-observe；Counter 入口/slot 对齐 |
+| LR-2e | ValueVault observe dual-run | done（PR #105 分支） | scalar sketch 允许 contextRead+emit；7 入口 + 6 slot 对齐；CREATE 仍拒绝 |
+| LR-2f | Ownable observe dual-run | done（PR #105 分支） | sketch 允许 assert；缺 selector 时 surface dump；4 入口 + 2 slot |
+| LR-2g | Fixture counter contentHash 稳定性 | done（PR #105 分支） | 重导出 core/plan/meta 一致；pf-core 重载 hash 匹配 |
+| LR-2h | 文档：包布局 + dual-run 维度 | done（PR #105 分支） | core-export-v0 draft 与已实现 Seam A 对齐 |
+| LR-2i | validation-gates 记录 core-export-v0 / artifact-contract-v1 | done（PR #105 分支） | 仅文档；尚未接入必需 CI lane |
+| LR-2j | Seam A goal 停止条件审查 | done（verified at `5929e3b0`；重跑绿） | Counter+ValueVault dual-run 与 export/Rust 门禁满足；goal 完成 |
+| LR-1 | 产品/源路径 `export-core` + 完整 HostOp handlers | cutover 更安静后 pending | 产品路径 + resolveSpec handlers；为 dual-run 就绪 |
+| LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | **延期（D-058）** | 仅在有现成库栈或有意 sourcegen + dual-run 策略时重开 |
+| LR-3+ | 三链后端 / 默认 Rust lower | **延期/无新决策则 wont（D-058）** | 不用 Rust 重做 sBPF/WAT/Yul 打印机；产品 lower 仍在 Lean |
+| LR-S1 | Dual-run 缺失 selector hydrate（cast） | done（PR #105） | 有 Foundry `cast` 时 Ownable 走完整 buildFromCore observe；无 cast 则 surface dump |
+| LR-S2 | `just export-inspect` 编排（export + check/summary） | done（PR #105） | Seam A 一键编排；无产品 lower |
+| LR-S3 | 纯 Lean keccak 补 selector（无 cast） | done（PR #105） | `ProofForge.Util.Keccak256`；`selectorForLean`；DualRunObserve 无 Foundry 即可补 selector |
+| LR-S4 | dual-run observe 配方 + 包旁 observe dump | done（PR #105） | `just dual-run-observe-seam-a`；DualRunObserve 写 `lean-evm-observe.v0.json`（export-core 标志可后补） |
+| LR-S5 | Lean 产品 lower 质量（Yul / sBPF / WAT） | **in_progress（M1 完；P3 AccessControl Solana imm 已修）** | M1 Ownable EVM 烟雾；P3 `Asm.numStr` ≥2^63 十六进制 + `just access-control-solana-smoke` |
 
 规格（中文）：
 [lean-rust-boundary](../superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)、

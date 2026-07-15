@@ -1,9 +1,9 @@
 # 制品契约 v1（草稿）
 
-状态：**接缝 B（证据层）契约草稿**  
+状态：**接缝 B（证据层）已接受的消费者契约；LR-0 已强制**  
 父设计：[Lean / Rust 边界](2026-07-15-lean-rust-boundary-design.zh.md)  
-字段冻结前的权威：**已入库的 Lean 发射器 + 本文**；
-若二者冲突，以代码为准，并在同一次变更中更新本草稿。
+权威：**已入库的 Lean 发射器 + 本文 + `ProofForge.Target.ArtifactContract` + testkit `validate_artifact_contract_v1`**；
+若二者冲突，以代码为准，并在同一次变更中更新本文。
 
 英文原文：[2026-07-15-artifact-contract-v1.md](2026-07-15-artifact-contract-v1.md)
 

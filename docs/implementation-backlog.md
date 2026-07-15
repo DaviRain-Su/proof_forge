@@ -55,10 +55,30 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 
 | Order | Slice | State | Acceptance boundary |
 |---:|---|---|---|
-| LR-0 | Artifact Contract v1 docs + harness field allowlist | design done (2026-07-15); code pending separate branch | testkit/runners depend only on documented artifact fields; honesty rules unchanged |
-| LR-1 | Experimental `export-core` (`core.v0`) | pending after #104 / cutover quiet | deterministic export; Validate fail-closed; Counter + one stateful subset |
-| LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | pending after LR-1 | dual-run on declared dimensions; CLI default remains Lean |
-| LR-3+ | Triad backends / default Rust lower | pending | release-cycle dual-run + measurable benefit; Lean path still switchable |
+| LR-0 | Artifact Contract v1 docs + harness field allowlist | done (verified at `1716904d`; PR #105) | testkit/runners depend only on documented artifact fields; honesty rules unchanged; `just artifact-contract-v1` green |
+| LR-1a | Experimental Core JSON export + `pf-core-inspect` (no CLI product path) | done (on PR #105 branch) | validate→JSON fail-closed; deterministic body; Rust inspect zero chain SDKs |
+| LR-1b | Experimental `export-core` CLI (`--experimental` only) | done (PR #105 branch) | fixture + product Counter/ValueVault; contentHash; CapabilityPlan ids; inspect green |
+| LR-1c | HostOp handlers in capability-plan | done (PR #105 branch) | used hostCalls resolved against target catalog; fail-closed if missing; empty ok when no hostCalls |
+| LR-1d | General export package (not example-driven) | done (PR #105 branch) | triad Core identity; targetHostOpCatalog; requirements; interface.v0; Normalize registers full triad HostOps; product matrix smoke |
+| LR-1e | hostCall stress + inspect compare | done (PR #105 branch) | non-empty used handlers (CREATE); refuse wrong target; pf-core-inspect compare; multi-product evm smoke |
+| LR-2a | Rust `pf-core` read-only package loader | done (PR #105 branch) | parse core.v0+plan+interface; contentHash; used⊆catalog; inspect uses pf-core; zero chain SDKs |
+| LR-2b | Core op walker + dual-run readiness + lowerer stub | done (PR #105 branch) | walk instruction kinds; host body↔plan; observeReady; EvmLowererPilot not-implemented |
+| LR-2c | EVM storage-only lower sketch | done (PR #105 branch) | Counter-class modules → evm-storage-sketch.v0; hostCall modules refuse; not bytecode |
+| LR-2d | Observe dual-run (Lean plan vs sketch) | done (PR #105 branch) | lean-evm-observe.v0 + dual-run-observe; entrypoints+slots align for Counter |
+| LR-2e | ValueVault observe dual-run | done (PR #105 branch) | scalar sketch allows contextRead+emit; 7 entrypoints + 6 slots align; CREATE still refuses |
+| LR-2f | Ownable observe dual-run | done (PR #105 branch) | sketch allows assert; surface dump when buildFromCore missing selectors; 4 eps + 2 slots |
+| LR-2g | Fixture counter contentHash stability | done (PR #105 branch) | re-export core/plan/meta identical; pf-core reload hash match |
+| LR-2h | Document package layout + dual-run dimensions | done (PR #105 branch) | core-export-v0 draft matches implemented Seam A |
+| LR-2i | validation-gates note for core-export-v0 / artifact-contract-v1 | done (PR #105 branch) | docs only; not required CI lane yet |
+| LR-2j | Stop-condition review vs Seam A goal charter | done (verified at `5929e3b0`; re-run green) | Counter+ValueVault dual-run + export/Rust gates met; goal complete |
+| LR-1 | Product/source `export-core` + full HostOp handlers | pending after cutover quieter | product path + resolveSpec handlers; dual-run ready |
+| LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | **deferred (D-058)** | only reopen with ready lib stack or intentional sourcegen + dual-run policy |
+| LR-3+ | Triad backends / default Rust lower | **deferred / wont without new decision (D-058)** | do not re-implement sBPF/WAT/Yul printers in Rust; product lower stays Lean |
+| LR-S1 | Dual-run selector hydrate (missing-only via cast) | done (PR #105) | Ownable takes full `buildFromCore` observe when Foundry `cast` present; surface dump fallback without cast |
+| LR-S2 | `just export-inspect` pipeline (export + check/summary) | done (PR #105) | one-shot Seam A orchestration; no product lower |
+| LR-S3 | Pure Lean keccak selector fill (no `cast`) | done (PR #105) | `ProofForge.Util.Keccak256`; `selectorForLean`; DualRunObserve fills missing selectors without Foundry |
+| LR-S4 | Dual-run observe recipe + package-side observe dumps | done (PR #105) | `just dual-run-observe-seam-a`; DualRunObserve writes `lean-evm-observe.v0.json` (full CLI export-core flag still optional later) |
+| LR-S5 | Lean product lower quality (EVM Yul / Solana sBPF / WAT) | **in_progress (M1 done; P3 AccessControl Solana imm fixed)** | M1 Ownable EVM smoke; P3 `Asm.numStr` hex ≥2^63 + `just access-control-solana-smoke` |
 
 Specs: [lean-rust-boundary](superpowers/specs/2026-07-15-lean-rust-boundary-design.md)
 ([中文](superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)),

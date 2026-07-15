@@ -1,6 +1,6 @@
 # Core Export v0 (draft)
 
-Status: **Experimental draft (not a stable product API)**
+Status: **Experimental draft (not a stable product API); Seam A LR-0…2g landed on PR #105 branch**
 
 Parent design: [Lean / Rust boundary](2026-07-15-lean-rust-boundary-design.md)
 ([中文](2026-07-15-lean-rust-boundary-design.zh.md))
@@ -36,20 +36,23 @@ Export only after all of the following succeed:
 On any failure: **no export directory** (or only a diagnostics JSON outside the
 semantic hash tree). Fail-closed alignment with Validate is a Phase 1 gate.
 
-## Suggested directory layout
+## Package directory layout (normative for experimental Seam A)
 
 ```text
-build/export/<module>/<targetId>/
-  export-meta.json           # versions, hashes, toolchain, git identity
-  source-manifest.json       # product path, target request, input digests
-  core.v0.json               # checked module (experimental schema)
-  capability-plan.v0.json    # resolved capabilities for this target
+build/export/<id>/<targetId>/
+  core.v0.json                 # checked Canonical Core (in contentHash)
+  capability-plan.v0.json      # requirements + hostOpHandlers + targetHostOpCatalog (in contentHash)
+  interface.v0.json            # entrypoint surface (outside contentHash)
+  export-meta.json             # contentHash = sha256(core file bytes ‖ plan file bytes)
+  source-manifest.json         # provenance; outside contentHash
+  lean-evm-observe.v0.json     # optional; Lean dual-run surface dump
+  evm-storage-sketch.v0.json   # optional; from pf-core-inspect lower-sketch
 ```
 
-Optional later:
+Optional later (not required for dual-run observe):
 
 ```text
-  plan.v0.json               # A0: Lean-built TargetPlan dump for dual-run
+  plan.v0.json               # full Lean ModulePlan dump for richer dual-run
   core.v0.bincode            # optional compact encoding; JSON remains reference
 ```
 
@@ -70,21 +73,27 @@ Optional later:
 
 ### Content hash scope
 
-Include in `contentHash` (canonical bytes, deterministic key order):
+**Implemented rule (LR-1b+):** `contentHash` is the hex SHA-256 of the
+**concatenation of the on-disk file bytes** of `core.v0.json` and
+`capability-plan.v0.json` in that order (same bytes Lean wrote; do not
+re-canonicalize before hashing).
 
-- `core.v0` semantic body
-- `capability-plan.v0` body
-- `targetId`, `moduleName`, schema ids
+Include in the hashed semantic package:
+
+- `core.v0.json` file bytes
+- `capability-plan.v0.json` file bytes (includes `requirements`,
+  `hostOpHandlers`, `targetHostOpCatalog`)
 
 **Exclude** from `contentHash`:
 
+- `interface.v0.json`, `source-manifest.json`, observe/sketch sidecars
 - absolute paths, wall-clock timestamps
 - CanonicalEvidence (source maps, diagnostic spans, migration traces)
-- free-form notes, pretty-print whitespace variants (hash canonical encoding only)
-- git dirty flags if they do not affect semantic body
+- free-form notes
 
-This matches architecture: evidence must not affect capability selection, target
-plans, rendered artifacts, or semantic artifact hashes.
+Gates: re-export of the same Counter fixture must yield identical core, plan,
+and `export-meta` (including `contentHash`); `pf-core` reloads must recompute
+the same hash.
 
 ## `source-manifest.json` (sketch)
 
@@ -131,15 +140,34 @@ cutover quiets.
 | `hostOpHandlers` | Exact HostOp id/version → handler identity available on target |
 | `profileNotes` | Optional non-hashed diagnostics |
 
-## Rust consumers (Phase 1)
+## Rust consumers (Seam A pilot)
 
 | Consumer | Role |
 |---|---|
-| `pf-core-inspect` | Schema validate, print summary, recompute contentHash (no chain SDK) |
-| Future `pf-backend-*` | Phase 2+ lowering only after dual-run policy exists |
+| `tools/pf-core` | Load package, verify contentHash, walk ops, dual-run readiness, storage sketch |
+| `tools/pf-core-inspect` | CLI: `check`, `summary`, `compare`, `lower-sketch`, `dual-run-observe` (no chain SDKs) |
+| Future `pf-backend-*` | Phase 2+ full lower only after dual-run policy + release cycle |
 
 Rust must not treat missing Validate as soft-success. If Lean would refuse to
 export, Rust backends must refuse to lower.
+
+## Observe dual-run dimensions (declared; not bytecode)
+
+`pf-core-inspect dual-run-observe <export-dir>` compares:
+
+1. **Entrypoint names** (and mutability when present) — Lean observe vs sketch
+   from `interface.v0.json`.
+2. **Scalar storage slot order** — Lean provisional slots (from EVM
+   `buildFromCore` when available, else sequential Core state indices) vs
+   Rust `evm-storage-sketch.v0` provisional slots.
+
+**Not compared:** selectors, event ABI, context semantics, bytecode, gas.
+
+**Sketch eligibility:** pure + storage ops, plus optional `contextRead`,
+`emit`, `assert`. HostCall / memory / crosscall modules refuse fail-closed.
+
+Verified products/fixtures: Counter, ValueVault, Ownable (Ownable may use
+interface+Core surface dump when ModulePlan selectors are missing).
 
 ## Determinism gates (Phase 1)
 
@@ -176,3 +204,15 @@ Promote only when:
 - Replacing Lean Validate with Rust schema checks alone
 - Claiming formal verification of a future Rust lowerer by virtue of consuming
   this export
+
+
+## Implementation status (PR #105 / LR-0…2g)
+
+| Piece | Location | Notes |
+|---|---|---|
+| Lean serializer | `ProofForge/IR/Core/Export.lean` | Validate then JSON; refuse on Validate error |
+| CLI experimental | `proof-forge export-core --experimental` | Fixtures + product paths; not product default |
+| Lean gates | `just core-export-v0`, `Tests/Canonical/CoreExport*.lean`, `DualRunObserve.lean` | Determinism, package, hostCall, dual-run dumps |
+| Rust loader | `tools/pf-core` | contentHash, walk, sketch, dual-run-observe |
+| Rust CLI | `tools/pf-core-inspect` | Zero chain SDKs |
+| Goal charter | `docs/agent-goal-prompt-lean-rust-seam-a.md` | Continuous Seam A execution |

@@ -783,7 +783,13 @@ private def coreEntrypointToPlan (m : Core.Module) (baseEnv : CorePlanEnv)
   | some func =>
       let selector ← match kind, ep.selector? with
         | .function, some selector => pure selector
-        | .function, none => throw { message := s!"entrypoint {ep.name} is missing its EVM selector" }
+        | .function, none => throw {
+            message :=
+              s!"entrypoint {ep.name} is missing its EVM selector. \
+Portable products should run hydrateEvmSelectors / hydrateEvmSelectorsMissingLean \
+(product Yul path does this via cast or pure Lean keccak; see docs/targets/evm-selectors.md) \
+before buildFromCore."
+          }
         | .fallback, none | .receive, none => pure ""
         | .fallback, some _ | .receive, some _ =>
             throw { message := s!"EVM fallback/receive entrypoint {ep.name} cannot have a selector" }

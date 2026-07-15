@@ -24,12 +24,13 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **Land PR #104** (`DaviRain-Su/authoring-cutover-comparison`): direct Authored → Canonical Core cutover + primary-triad native differential |
-| Next task | After #104 merges: continue cutover residual (CMP-3g*) and NEAR canonical replay; **do not** start deep Soroban HostABI/Env work until then (D-056) |
-| Parallel on main (done) | C3 OpenVM research brief → **defer** backend ([`docs/targets/openvm-research.md`](docs/targets/openvm-research.md)) |
-| Known blocker | PR #104 babysit (CI/ready); real NEAR receipt/testnet still needs a sandbox harness |
-| Execution queue | [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
+| Active task | **PR #105** LR-S5/M1 done + **P3**: Solana `Asm.numStr` hex for ≥2^63 imm (AccessControl sbpf); Seam A maintain; **D-058** |
+| Next task | Land/review #105; further P3 only with new repros; #104 cutover separate |
+| Parallel on main (done) | C3 OpenVM research brief → **defer** backend; D-057 design docs at `d9c132a0` |
+| Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
+| Execution queue | [PR #105](https://github.com/DaviRain-Su/proof_forge/pull/105); [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Soroban note | Counter MVP only; gap list and S0–S5 order in [`docs/targets/stellar-soroban.md`](docs/targets/stellar-soroban.md) |
+| Architecture orientation | Portable capability → target Plan → assembly (not full SDK / not Lean VMs): [EN](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md) · [中文](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md); D-058 no Rust product lower; scan [solana-wasm coverage](docs/targets/solana-wasm-coverage-scan-2026-07-15.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task
@@ -46,9 +47,12 @@ Before editing code or accepting a task:
 3. Read the [documentation lifecycle index](docs/document-status.md).
 4. Read the [current architecture design](docs/superpowers/specs/2026-07-12-portable-intent-abstraction-design.md).
 5. Read the [current implementation plan](docs/superpowers/plans/2026-07-12-portable-intent-abstraction.md).
-6. Read the active task section, its referenced source/tests, and the relevant
+6. For multi-target lower / SDK-parity questions, read the
+   [portable capability → Plan → assembly orientation](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md)
+   ([中文](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md)).
+7. Read the active task section, its referenced source/tests, and the relevant
    target note or RFC.
-7. Check the [backlog](docs/implementation-backlog.md),
+8. Check the [backlog](docs/implementation-backlog.md),
    [gate ledger](docs/gate-status.md), and
    [validation catalog](docs/validation-gates.md) before claiming completion.
 
