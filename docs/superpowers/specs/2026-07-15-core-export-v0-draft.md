@@ -179,4 +179,5 @@ Promote only when:
 | Lean serializer | `ProofForge/IR/Core/Export.lean` | Validate then JSON; refuse on Validate error |
 | Lean gate | `just core-export-v0` / `Tests/Canonical/CoreExport.lean` | Determinism + fail-closed |
 | Rust inspect | `tools/pf-core-inspect` | Zero chain SDKs; checks `core.v0` / optional plan |
-| CLI product path | not yet | Full `export-core` waits for quieter cutover + LR-1 |
+| CLI experimental | `proof-forge export-core --experimental` | Fixture counter/value-vault; not product default |
+| CLI product path | not yet | Product source + HostOp handlers after cutover quieter |

@@ -4118,3 +4118,19 @@ Rules:
 - Remaining: wire experimental CLI under non-default flag; fill CapabilityPlan
   via resolveSpec; avoid Examples/Product / authoring paths until #104 quieter.
 - Documentation: backlog LR-1a; this entry; core-export draft status note.
+
+## 2026-07-15 - LR-1b: experimental export-core CLI package
+
+- Status: `in_progress`→package path done (PR #105 branch)
+- Result: Added `proof-forge export-core --experimental` (fixture counter /
+  value-vault) writing `core.v0.json`, `capability-plan.v0.json`,
+  `export-meta.json` (contentHash over on-disk bodies), and
+  `source-manifest.json`. Fail-closed without `--experimental`. Capability ids
+  come from normalize requirements; hostOpHandlers remain stub.
+- Interfaces: `ProofForge/Cli/ExportCore.lean`, `just core-export-v0`,
+  `tools/pf-core-inspect check`.
+- Verification: `lake env lean --run Tests/Canonical/CoreExportPackage.lean`;
+  `pf-core-inspect check build/export/lr1b-counter/evm`.
+- Remaining: product-source input path; full HostOp handler table; optional
+  proof-forge binary e2e once CI recovers. Stay off default product build.
+- Documentation: backlog LR-1b; this entry.

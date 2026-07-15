@@ -490,7 +490,20 @@ def capabilityPlanJson (targetId : String) (capabilityIds : Array String) : Stri
     ("targetId", jsonString targetId),
     ("capabilities", jsonStringArray capabilityIds),
     ("hostOpHandlers", jsonArray #[]),
-    ("profileNotes", jsonString "LR-1a stub: handlers filled when export is wired to resolveSpec")
+    ("profileNotes", jsonString "experimental: hostOpHandlers empty until resolveSpec wiring (LR-1b)")
+  ]
+
+/-- source-manifest sketch (not part of contentHash). -/
+def sourceManifestJson
+    (sourceKind productPath? requestedTarget : String)
+    (inputDigests : Array (String × String) := #[]) : String :=
+  let digests := jsonObject (inputDigests.map fun pair => (pair.fst, jsonString pair.snd))
+  jsonObject #[
+    ("productPath", if productPath?.isEmpty then "null" else jsonString productPath?),
+    ("sourceKind", jsonString sourceKind),
+    ("requestedTarget", jsonString requestedTarget),
+    ("inputDigests", digests),
+    ("notPartOfContentHash", jsonStringArray #["productPath", "inputDigests"])
   ]
 
 /-- Export-meta without contentHash (caller may fill after hashing bodies). -/
