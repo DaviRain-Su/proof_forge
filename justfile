@@ -410,12 +410,14 @@ core-export-v0:
     lake env lean --run Tests/Canonical/CoreExportPackage.lean
     lake env lean --run Tests/Canonical/CoreExportGeneral.lean
     lake env lean --run Tests/Canonical/CoreExportHostCall.lean
+    cargo test --manifest-path tools/pf-core/Cargo.toml
     cargo build --manifest-path tools/pf-core-inspect/Cargo.toml
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-counter/evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-counter/solana-sbpf-asm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- compare \
       build/export/lr1d-counter/evm build/export/lr1d-counter/wasm-near
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1e-create/evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- summary build/export/lr1e-create/evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-valuevault/evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-guestbook/evm
 

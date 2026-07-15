@@ -3,9 +3,9 @@ name = "pf-core-inspect"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Read-only core.v0 export inspector (no chain SDKs; LR-1 / D-057)"
+description = "CLI for pf-core Seam A packages (zero chain SDKs)"
 
 [dependencies]
 anyhow = "1.0"
-serde_json = "1.0"
+pf-core = { path = "../pf-core" }
 sha2 = "0.10"

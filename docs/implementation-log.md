@@ -4199,3 +4199,16 @@ Rules:
   Counter+ValueVault and multi-product on evm only (memory-bounded).
 - Verification: CoreExportHostCall; CoreExportGeneral; inspect check+compare.
 - Remaining: optional full catalog sweep in CI lane; main merge as available.
+
+## 2026-07-15 - LR-2a: Rust pf-core read-only package loader
+
+- Status: `done` (PR #105 branch)
+- Result: Added `tools/pf-core` library that loads Seam A packages
+  (`core.v0`, capability-plan, optional interface), verifies contentHash,
+  checks used hostOps ⊆ targetHostOpCatalog, and supports Core identity
+  compare. `pf-core-inspect` is now a thin CLI over `pf-core` with
+  check/summary/compare. Checked-in fixtures under
+  `tools/pf-core/tests/fixtures/`. Still zero chain SDKs; not a compile backend.
+- Verification: `cargo test -p pf-core`; inspect check/summary/compare on fixtures.
+- Remaining: optional typed Core op walk / interpreter; dual-run hooks later
+  (LR-2+). Default product compile remains Lean.

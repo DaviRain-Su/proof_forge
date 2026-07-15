@@ -190,6 +190,6 @@
     "sha256": "b071bf7b28c95a807b634e40ed723551acc1adb52eb51f07133096b68e31c1b0",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after LR-1e hostCall compare"
+    "note": "synced EN/zh after LR-2a pf-core loader"
   }
 }
