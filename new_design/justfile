@@ -234,9 +234,10 @@ target-negative: build
     rg -q "PF-TOOLCHAIN-MISMATCH" build/tool-mismatch.log
 
 target-smoke: build
-    rm -rf build/v2/standalone build/v2/evm build/v2/solana build/v2/near build/v2/noir
+    rm -rf build/v2/standalone build/v2/evm build/v2/evm-accumulator build/v2/solana build/v2/near build/v2/noir
     lake env .lake/build/bin/proof-forge-next build testdata/valid/Standalone.lean --program UserStandalone.Counter --target evm -o build/v2/standalone
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target evm -o build/v2/evm
+    lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --program Examples.Accumulator --target evm -o build/v2/evm-accumulator
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target solana -o build/v2/solana
     DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target near -o build/v2/near
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target noir -o build/v2/noir

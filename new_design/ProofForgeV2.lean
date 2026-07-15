@@ -8,6 +8,7 @@ import ProofForgeV2.Language.Syntax
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Materialization.Protocol
 import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.Accumulator
 import ProofForgeV2.Examples.PrivateSum4
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.CLI.Emit

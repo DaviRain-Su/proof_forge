@@ -105,6 +105,19 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-EVIDENCE-001 | restricted PF JCS/schema、exact-local-port 条件 port、artifact-set domain hash、safe bundle read、atomic layout、gate catalog、revocation/freshness/private scan |
 | TST-REL-001 | install/upgrade/build/rollback drill |
 
+### EVM 通用 UInt64 lowering 首个验收切片
+
+- `TST-EVM-001`：`EvmPlan` 拥有 storage、constructor、entry、ABI selector 和 target-owned
+  expression/statement；重复 selector/slot、dangling state/param、非 `UInt64` 或非 public 参数失败。
+- `TST-EVM-002`：除 Counter 外，`Accumulator` 的 `total`、`seed`、`add(amount)`、
+  `current()` 必须逐项从 `SemanticProgram` 映射，生产路径不得依赖 `isExactCounter`。
+- `TST-EVM-003`：Keccak selector 使用 Ethereum padding 并通过 empty/increment/get/add/current
+  golden；Yul/ABI 使用 Plan 内名字、selector、slot 和 body，不含 Counter 固定正文。
+- `TST-EVM-004`：CLI 从 `Examples/Accumulator.lean` 生成可由锁定 `solc` 接受的 Yul、ABI
+  与 deploy bytecode。
+- `TST-EVM-005`：保留 Counter 回归，并在隔离 Anvil 验证 Accumulator `init(7)`、
+  `add(5)=12`、`current()=12`、max+1 revert 且 state 仍为 max。
+
 ## 边界与攻击用例
 
 - 空/多程序、重复名字、Unicode normalization、非法 UTF-8、最大 nesting/node count。

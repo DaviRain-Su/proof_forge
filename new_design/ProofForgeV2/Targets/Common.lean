@@ -5,6 +5,18 @@ namespace ProofForgeV2.Targets
 
 open ProofForgeV2 Source
 
+def maxRequirementKinds : Nat := 8
+
+def validateRequirementEnvelope (program : SemanticProgram) : CompileResult Unit := do
+  if program.requirements.size > maxRequirementKinds then
+    throw <| .invalidProgram
+      s!"semantic requirement count exceeds canonical limit {maxRequirementKinds}"
+  let mut seen : Array ProgramRequirement := #[]
+  for requirement in program.requirements do
+    if seen.contains requirement then
+      throw <| .invalidProgram s!"duplicate semantic requirement '{requirement}'"
+    seen := seen.push requirement
+
 private def expectedCounter (name : String) : CompileResult SemanticProgram :=
   Compiler.compile <| Program.build name #[
     .stateDecl { name := "count", type := .u64 },
@@ -68,6 +80,7 @@ def isExactPrivateSum4 (program : SemanticProgram) : Bool :=
         program.requirements == expected.requirements
 
 def resolve (descriptor : TargetDescriptor) (program : SemanticProgram) : CompileResult (ResolvedProgram descriptor.targetId) := do
+  validateRequirementEnvelope program
   for requirement in program.requirements do
     unless descriptor.supportedRequirements.contains requirement do
       throw <| .unsupportedRequirement requirement descriptor.targetId

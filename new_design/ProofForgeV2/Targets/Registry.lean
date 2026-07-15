@@ -29,6 +29,7 @@ def checkSupport (target : TargetId) (program : SemanticProgram) : CompileResult
   let descriptor ← match descriptor? target with
     | some descriptor => .ok descriptor
     | none => .error <| .targetNotImplemented target
+  validateRequirementEnvelope program
   for requirement in program.requirements do
     unless descriptor.supportedRequirements.contains requirement do
       throw <| CompileError.unsupportedRequirement requirement target

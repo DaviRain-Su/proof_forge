@@ -74,6 +74,9 @@ run_core_gate() {
     "$lake" --dir "$PF_CLEAN_SOURCE" env "$compiler" build Examples/Counter.lean \
       --root "$PF_CLEAN_SOURCE" --program Examples.Counter --target "$target" -o "$targets/$target"
   done
+  "$lake" --dir "$PF_CLEAN_SOURCE" env "$compiler" build Examples/Accumulator.lean \
+    --root "$PF_CLEAN_SOURCE" --program Examples.Accumulator --target evm \
+    -o "$targets/evm-accumulator"
   "$PF_XCODE_PYTHON" -I -S "$PF_CLEAN_SOURCE/scripts/validate_artifacts.py" "$targets"
 
   for run in a b; do

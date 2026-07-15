@@ -19,7 +19,7 @@ private def validArtifactName (value : String) : Bool :=
 
 private def safeRelativePath (value : String) : Bool :=
   let path := FilePath.mk value
-  !value.isEmpty && !path.isAbsolute &&
+  !value.isEmpty && value.toUTF8.size <= 240 && !path.isAbsolute &&
     !(path.components.contains "..") && !(path.components.contains ".") &&
     !value.contains "\u0000" && !value.contains "\r" && !value.contains "\n"
 
@@ -139,6 +139,11 @@ private def renderIntoStaging (target : TargetId) (program : SemanticProgram)
   return manifest
 
 def emitProgram (target : TargetId) (program : SemanticProgram) (outputDir : FilePath) : IO OutputManifest := do
+  -- Reject unsafe artifact identity before entering a target materializer. A
+  -- backend may impose stricter ABI identifier rules, but path safety is a CLI
+  -- boundary and must retain its stable diagnostic independently of target.
+  unless validArtifactName program.name do
+    throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{program.name}'"
   let output ← match Targets.materializeResult target program with
     | .ok output => pure output
     | .error error => throw <| IO.userError error.render

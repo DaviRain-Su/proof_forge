@@ -39,7 +39,7 @@ normative: true
 |---|---|---|---|---|
 | TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | pending |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | D0-01 | TST-ISO-001 | pending |
-| TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；H1e 按 receipt→catalog core→retained bundle 实施，formal handoff/finalizer 待完成 | 完成依赖 D0-01/02；当前 alpha 输入 A0-02 | TST-TOOL-001/TST-HOST-001/TST-EVIDENCE-001/TST-ISO-002 | in_progress |
+| TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；H1e 按 receipt→catalog core→retained bundle 实施，formal handoff/finalizer 待完成 | 完成依赖 D0-01/02；当前 alpha 输入 A0-02 | TST-TOOL-001/TST-HOST-001/TST-EVIDENCE-001/TST-ISO-002 | pending |
 | TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：eligible host、formal handoff/process-session containment 与 gate-catalog finalizer 未闭合 | D0-02/03 | TST-ISO-002 | blocked |
 
 ## Milestone D1：语言前端
@@ -81,7 +81,7 @@ normative: true
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D4-01 | EvmPlan schema/invariants | D3 | TST-EVM-001 | pending |
+| TASK-D4-01 | EvmPlan schema/invariants | D3 | TST-EVM-001 | in_progress |
 | TASK-D4-02 | SemanticProgram → EvmPlan | D4-01 | TST-EVM-002 | pending |
 | TASK-D4-03 | EvmPlan → Yul + ABI | D4-02 | TST-EVM-003 | pending |
 | TASK-D4-04 | solc bytecode packaging | D4-03 | TST-EVM-004 | pending |

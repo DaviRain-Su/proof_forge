@@ -44,6 +44,22 @@ EvmPlan {
 
 Plan 不再读取源码符号来猜 storage slot；每个 entry 的 selector、mutability、payability、return/error ABI 在 Plan 中完整确定。
 
+Phase-1 的首个通用 lowering 切片只接收 verifier-visible `UInt64` 状态、参数与返回值，
+以及 literal、parameter/state load、checked addition、state store 和 return。Plan 必须逐项拥有：
+
+- 由 `StateId` 决定且经唯一性验证的 storage slot；
+- constructor 参数与 target-owned body；
+- 每个 entry 的 Keccak-256 ABI selector、calldata 布局、mutability 与 target-owned body；
+- checked-add 的 `UInt64` overflow → revert 映射和交易回滚语义。
+
+`makePlan` 不得调用 fixture matcher，也不得按 program/entry/state 名特判。当前 semantic fragment
+之外的类型、visibility 或 statement 必须以 `PF-PLAN-INVARIANT` fail closed。
+当前 `evm-yul-solc-0.8.34-v1` profile 在 selector hashing 前只接受 ASCII
+`[A-Za-z_][A-Za-z0-9_]*` identifier，byte length 限制为 240，
+program artifact stem 因 `.abi.json` 后缀限制为 231 bytes；state/entry 各 1024、每 callable
+参数 256、body statements 4096、表达式深度 256、整份 Plan nodes 100000。超限不进入
+Keccak/Yul lowering；CLI 另对所有 target 的完整 artifact relative path 强制 240-byte 上限。
+
 ## 5. Target IR 与制品
 
 Phase 1 路径：`EvmPlan → EvmIR → Yul → init/runtime bytecode`。输出 ABI JSON、Yul、runtime bytecode、deploy bytecode、source/semantic/plan hashes 和 manifest。Yul/bytecode 必须经过独立语法/字节码验证。
@@ -66,7 +82,9 @@ EVM 输出是 `deployable-contract`：生成 init code，模拟 constructor，�
 2. Yul/bytecode validation。
 3. Semantic interpreter 与 EVM execution 差分。
 4. Anvil deploy + Counter init/increment/get/overflow rollback。
-5. 固定 network profile 后才可记录 network evidence。
+5. 非 Counter 的 Accumulator（`total`/`add`/`current`）必须从同一 DSL 经动态 selector 和
+   storage/body lowering 完成 init/add/read/overflow rollback，证明后端不是模板发射器。
+6. 固定 network profile 后才可记录 network evidence。
 
 ## 10. 不支持、风险与成熟度退出
 
