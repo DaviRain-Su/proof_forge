@@ -58,6 +58,41 @@ host-stage0-negative:
     fi
     rg -q 'PF-HOST-INELIGIBLE' "$tmp/formal.log"
 
+candidate-binding:
+    #!/bin/bash
+    set -euo pipefail
+    tmp="$PWD/build/candidate-binding"
+    /bin/rm -rf "$tmp"
+    /bin/mkdir -p "$tmp/extracted"
+    git_bin=/Applications/Xcode.app/Contents/Developer/usr/bin/git
+    export GIT_NO_REPLACE_OBJECTS=1 GIT_OPTIONAL_LOCKS=0
+    repo_root="$("$git_bin" --no-replace-objects rev-parse --show-toplevel)"
+    commit="$("$git_bin" --no-replace-objects rev-parse --verify 'HEAD^{commit}')"
+    tree="$("$git_bin" --no-replace-objects rev-parse --verify "$commit:new_design")"
+    "$git_bin" --no-replace-objects -C "$repo_root" archive --format=tar "$commit" -- new_design > "$tmp/a.tar"
+    /bin/sleep 2
+    "$git_bin" --no-replace-objects -C "$repo_root" archive --format=tar "$commit" -- new_design > "$tmp/b.tar"
+    /usr/bin/cmp "$tmp/a.tar" "$tmp/b.tar"
+    test "$("$git_bin" get-tar-commit-id < "$tmp/a.tar")" = "$commit"
+    test -n "$tree"
+    /usr/bin/tar -C "$tmp/extracted" --strip-components=1 -xf "$tmp/a.tar"
+    test -f "$tmp/extracted/scripts/verify_isolation.sh"
+    if /bin/bash scripts/verify_isolation.sh --development --candidate-commit bad --candidate-tree 0000000000000000000000000000000000000000 --candidate-archive-sha256 0000000000000000000000000000000000000000000000000000000000000000 > "$tmp/commit.log" 2>&1; then
+      echo "malformed candidate commit unexpectedly passed" >&2
+      exit 1
+    fi
+    rg -q 'candidate-commit must be a full lowercase SHA-1 object id' "$tmp/commit.log"
+    if /bin/bash scripts/verify_isolation.sh --development --candidate-commit 0000000000000000000000000000000000000000 --candidate-tree bad --candidate-archive-sha256 0000000000000000000000000000000000000000000000000000000000000000 > "$tmp/tree.log" 2>&1; then
+      echo "malformed candidate tree unexpectedly passed" >&2
+      exit 1
+    fi
+    rg -q 'candidate-tree must be a full lowercase SHA-1 object id' "$tmp/tree.log"
+    if /bin/bash scripts/verify_isolation.sh --development --candidate-commit 0000000000000000000000000000000000000000 --candidate-tree 0000000000000000000000000000000000000000 --candidate-archive-sha256 bad > "$tmp/archive.log" 2>&1; then
+      echo "malformed candidate archive digest unexpectedly passed" >&2
+      exit 1
+    fi
+    rg -q 'candidate-archive-sha256 must be a lowercase SHA-256' "$tmp/archive.log"
+
 python-isolation-negative:
     #!/bin/bash
     set -euo pipefail
@@ -193,10 +228,10 @@ evm-runtime: target-smoke
 reproducibility: build
     bash scripts/reproducibility.sh
 
-check: docs-check python-isolation-negative toolchains-validate host-stage0-development toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
+check: docs-check python-isolation-negative toolchains-validate host-stage0-development candidate-binding toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
 
 isolated-check:
-    bash scripts/verify_isolation.sh
+    bash scripts/verify_isolation.sh --development
 
 v2-clean-room-alpha:
-    bash scripts/verify_isolation.sh
+    bash scripts/verify_isolation.sh --development

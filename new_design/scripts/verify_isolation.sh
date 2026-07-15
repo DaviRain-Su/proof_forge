@@ -6,6 +6,28 @@ die() {
   exit 1
 }
 
+usage() {
+  printf '%s\n' \
+    'usage: verify_isolation.sh --development' \
+    '         [--candidate-commit <oid> --candidate-tree <oid>' \
+    '          --candidate-archive-sha256 <sha256>]' \
+    '         [--asset-cache <absolute-path>]' \
+    '' \
+    'Development mode derives the committed candidate from the current checkout.' \
+    'Supplying all three candidate fields additionally checks an external anchor.' \
+    'The formal gate is not exposed here: it must start at Stage-0 and hand off to' \
+    'a digest-bound continuation, which remains an H1 prerequisite.' >&2
+  exit 2
+}
+
+require_sha256() {
+  [[ ${#1} -eq 64 && "$1" != *[!0-9a-f]* ]] || die "$2 must be a lowercase SHA-256"
+}
+
+require_git_oid() {
+  [[ ${#1} -eq 40 && "$1" != *[!0-9a-f]* ]] || die "$2 must be a full lowercase SHA-1 object id"
+}
+
 sha256_file() {
   local output
   output="$(/usr/bin/openssl dgst -sha256 -r "$1")"
@@ -142,8 +164,61 @@ case "${1:-}" in
     ;;
 esac
 
+qualification=development
+mode_seen=0
+expected_commit=""
+expected_tree=""
+expected_archive_hash=""
+asset_cache_arg=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --development)
+      [[ "$mode_seen" == 0 ]] || usage
+      mode_seen=1
+      shift
+      ;;
+    --candidate-commit)
+      [[ $# -ge 2 && -z "$expected_commit" ]] || usage
+      expected_commit="$2"
+      shift 2
+      ;;
+    --candidate-tree)
+      [[ $# -ge 2 && -z "$expected_tree" ]] || usage
+      expected_tree="$2"
+      shift 2
+      ;;
+    --candidate-archive-sha256)
+      [[ $# -ge 2 && -z "$expected_archive_hash" ]] || usage
+      expected_archive_hash="$2"
+      shift 2
+      ;;
+    --asset-cache)
+      [[ $# -ge 2 && -z "$asset_cache_arg" ]] || usage
+      asset_cache_arg="$2"
+      shift 2
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+[[ "$mode_seen" == 1 ]] || usage
+
+if [[ -n "$expected_commit" || -n "$expected_tree" || -n "$expected_archive_hash" ]]; then
+  [[ -n "$expected_commit" && -n "$expected_tree" && -n "$expected_archive_hash" ]] || usage
+  require_git_oid "$expected_commit" candidate-commit
+  require_git_oid "$expected_tree" candidate-tree
+  require_sha256 "$expected_archive_hash" candidate-archive-sha256
+fi
+
 source_home="${HOME:?HOME is required while provisioning the locked cache}"
-asset_cache="${PROOF_FORGE_ASSET_CACHE:-${XDG_CACHE_HOME:-$source_home/.cache}/proof-forge-v2/assets}"
+if [[ -n "$asset_cache_arg" ]]; then
+  asset_cache="$asset_cache_arg"
+else
+  asset_cache="${PROOF_FORGE_ASSET_CACHE:-${XDG_CACHE_HOME:-$source_home/.cache}/proof-forge-v2/assets}"
+fi
+[[ "$asset_cache" == /* ]] || die "asset cache must be an absolute path"
 root="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
 /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC \
   /bin/bash --noprofile --norc "$root/scripts/verify_host_stage0.sh" \
@@ -156,16 +231,29 @@ export PATH=/usr/bin:/bin
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
+export GIT_NO_REPLACE_OBJECTS=1
+export GIT_OPTIONAL_LOCKS=0
 command -v /usr/bin/sandbox-exec >/dev/null 2>&1 || die "macOS sandbox-exec is unavailable"
 materialize_profile='(version 1)(allow default)(deny network*)'
 
-repo_root="$(/usr/bin/git -C "$root" rev-parse --show-toplevel)"
-prefix="$(/usr/bin/git -C "$root" rev-parse --show-prefix)"
+git_bin=/Applications/Xcode.app/Contents/Developer/usr/bin/git
+[[ -x "$git_bin" && ! -L "$git_bin" ]] || die "verified direct Git is unavailable"
+repo_root="$("$git_bin" --no-replace-objects -C "$root" rev-parse --show-toplevel)"
+prefix="$("$git_bin" --no-replace-objects -C "$root" rev-parse --show-prefix)"
 [[ "$prefix" == new_design/ ]] || die "expected new_design/ to be a tracked subtree, got '$prefix'"
-commit="$(/usr/bin/git -C "$repo_root" rev-parse HEAD)"
+commit="$("$git_bin" --no-replace-objects -C "$repo_root" rev-parse --verify 'HEAD^{commit}')"
+require_git_oid "$commit" candidate-commit
+if [[ -n "$expected_commit" && "$commit" != "$expected_commit" ]]; then
+  die "candidate commit mismatch: expected $expected_commit, got $commit"
+fi
 treeish="$commit:new_design"
-[[ "$(/usr/bin/git -C "$repo_root" cat-file -t "$treeish" 2>/dev/null)" == tree ]] ||
+[[ "$("$git_bin" --no-replace-objects -C "$repo_root" cat-file -t "$treeish" 2>/dev/null)" == tree ]] ||
   die "HEAD does not contain new_design"
+tree_oid="$("$git_bin" --no-replace-objects -C "$repo_root" rev-parse --verify "$treeish")"
+require_git_oid "$tree_oid" candidate-tree-object
+if [[ -n "$expected_tree" && "$tree_oid" != "$expected_tree" ]]; then
+  die "candidate tree mismatch: expected $expected_tree, got $tree_oid"
+fi
 
 tmp="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/proof-forge-v2-clean-room.XXXXXX")"
 cleanup() {
@@ -183,6 +271,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+candidate_status_before_file="$tmp/candidate-status-before"
+"$git_bin" --no-replace-objects -C "$repo_root" status --porcelain=v2 -z \
+  --untracked-files=all -- new_design >"$candidate_status_before_file"
+candidate_status_before_hash="$(sha256_file "$candidate_status_before_file")"
+
 source_root="$tmp/source"
 home_root="$tmp/home"
 cache_root="$tmp/cache"
@@ -194,16 +287,24 @@ runner="$tmp/clean-room-runner.sh"
 /bin/chmod 700 "$home_root" "$cache_root" "$tool_root" "$output_root" "$tmp/work"
 
 archive="$tmp/new-design.tar"
-/usr/bin/git -C "$repo_root" archive --format=tar "$treeish" . >"$archive"
+"$git_bin" --no-replace-objects -C "$repo_root" archive --format=tar "$commit" -- new_design >"$archive"
 archive_hash="$(sha256_file "$archive")"
-if /usr/bin/git -C "$repo_root" ls-tree -r "$treeish" | /usr/bin/awk '$1 == "120000" || $1 == "160000" { found=1 } END { exit !found }'; then
+archive_commit="$("$git_bin" get-tar-commit-id <"$archive")"
+[[ "$archive_commit" == "$commit" ]] || die "candidate archive does not bind the selected commit"
+if [[ -n "$expected_archive_hash" && "$archive_hash" != "$expected_archive_hash" ]]; then
+  die "candidate archive mismatch: expected $expected_archive_hash, got $archive_hash"
+fi
+if "$git_bin" --no-replace-objects -C "$repo_root" ls-tree -r "$treeish" | /usr/bin/awk '$1 == "120000" || $1 == "160000" { found=1 } END { exit !found }'; then
   die "tracked symlink or submodule found in archive tree"
 fi
 /usr/bin/tar -tf "$archive" | while IFS= read -r entry; do
-  [[ "$entry" != /* && "$entry" != ../* && "$entry" != */../* ]] ||
+  [[ "$entry" == new_design || "$entry" == new_design/ || "$entry" == new_design/* ]] ||
+    die "archive escaped the new_design subtree: $entry"
+  relative_entry="${entry#new_design/}"
+  [[ "$relative_entry" != /* && "$relative_entry" != ../* && "$relative_entry" != */../* ]] ||
     die "unsafe archive path: $entry"
 done
-/usr/bin/tar -C "$source_root" -xf "$archive"
+/usr/bin/tar -C "$source_root" --strip-components=1 -xf "$archive"
 [[ ! -e "$source_root/.git" ]] || die "archive unexpectedly contains Git metadata"
 if /usr/bin/find "$source_root" -type l -print -quit | /usr/bin/grep -q .; then
   die "archive contains a symlink"
@@ -319,5 +420,16 @@ evm_port="$(/usr/bin/python3 -I -S -c 'import socket; s=socket.socket(); s.bind(
 (cd "$tmp" && /usr/bin/sandbox-exec -p "$localhost_profile" /usr/bin/env -i "${common_env[@]}" \
   "PF_EVM_PORT=$evm_port" /bin/bash "$runner" --internal-evm)
 
-echo "clean-room-alpha: ok commit=$commit archive_sha256=$archive_hash"
+[[ "$("$git_bin" --no-replace-objects -C "$repo_root" rev-parse --verify 'HEAD^{commit}')" == "$commit" ]] ||
+  die "candidate HEAD changed during the gate"
+[[ "$("$git_bin" --no-replace-objects -C "$repo_root" rev-parse --verify "$treeish")" == "$tree_oid" ]] ||
+  die "candidate subtree changed during the gate"
+candidate_status_after_file="$tmp/candidate-status-after"
+"$git_bin" --no-replace-objects -C "$repo_root" status --porcelain=v2 -z \
+  --untracked-files=all -- new_design >"$candidate_status_after_file"
+candidate_status_after_hash="$(sha256_file "$candidate_status_after_file")"
+[[ "$candidate_status_after_hash" == "$candidate_status_before_hash" ]] ||
+  die "candidate worktree status changed during the gate"
+
+echo "clean-room-alpha: ok qualification=$qualification commit=$commit tree=$tree_oid archive_sha256=$archive_hash"
 echo "clean-room-alpha: NOT hermetic: Lean and external tools come from the locked cache, but the current host profile is ineligible and deny-default/evidence closure remain open; D0-03/D0-04 remain open"

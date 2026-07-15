@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-D0-03/H0`：Host Stage-0 development attestation 已在 `4c6756a4` 验证；profile 精确匹配但 `eligibleForHermetic=false` |
-| Next task | `TASK-D0-03/H1`：实现 deny-default sandbox 与 schema-complete evidence |
+| Active task | `TASK-D0-03/H1`：绑定 candidate/archive，接入 deny-default sandbox 与 schema-complete development evidence |
+| Next task | 在 eligible host 上执行正式 H1 gate；当前 profile 只能生成 development evidence |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、deny-default policy 与正式 EV；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |

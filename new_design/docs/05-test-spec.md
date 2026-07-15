@@ -65,7 +65,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-XTARGET-001 | 一份 Counter 四 target | 四 OutputSet 均合法 | aggregate |
 | TST-XTARGET-002 | unsupported/version/missing tool | 稳定错误，无 fallback | aggregate |
 | TST-HOST-001 | Stage-0 host attestation | development observation；formal fail closed | security/isolation |
-| TST-ISO-002 | 正式 hermetic archive harness | eligible host、deny-default、schema EV 全部通过 | isolation |
+| TST-ISO-002 | 正式 hermetic archive harness | 外部 candidate anchor、eligible host、deny-default、schema EV 全部通过 | isolation |
 | TST-ISO-003 | release-candidate clean-room aggregate | 所有 required Phase 1 gates 完整通过 | release/isolation |
 
 ## 完整 Test ID Catalog
@@ -77,7 +77,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-DOC-001 | frontmatter、状态、ID、链接、claim/ADR/trace 闭合 |
 | TST-HOST-001 | 权威 `env -i` 入口、严格 bootstrap/JSON、live OS/Xcode/tool 匹配、development observation、formal ineligible 与环境/lock mutation negatives |
 | TST-ISO-001 | 独立 Lake/package/namespace 与父依赖边界 |
-| TST-ISO-002 | Stage-0 eligible host、committed archive、空环境/cache、deny-default sandbox 与正式 evidence 的 hermetic harness |
+| TST-ISO-002 | Stage-0 eligible host、外部 commit/tree/archive anchor、稳定 committed archive、前后 unchanged、空环境/cache、deny-default sandbox 与正式 evidence 的 hermetic harness |
 | TST-ISO-003 | D8 release-candidate 全量 clean-room aggregate |
 | TST-TOOL-001 | exact tool version/checksum、missing/shadow/timeout |
 | TST-SRC-001/002 | token/span/NodeId canonicalization 与 limits |
@@ -116,6 +116,8 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 - output path `..`、absolute path、symlink、case collision、并发同目录、磁盘写满。
 - 外部工具缺失、版本错误、timeout、signal、巨大 stdout、恶意 artifact path。
 - `LEAN_PATH`、`PATH`、Lake cache、HOME 和父 Git root 泄漏。
+- tree-object archive 的不稳定 mtime、错误 external commit/archive digest、archive 内嵌 commit
+  不匹配、运行中 HEAD/tree/worktree 改变。
 
 ## Gate 设计
 
