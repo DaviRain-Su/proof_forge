@@ -59,8 +59,14 @@ oracle、兼容入口或失败回退。最终 clean-room 门禁必须能将本�
 
 当前 `just v2-clean-room-alpha`（`just isolated-check` 为兼容别名）已在随机归档目录、空 HOME/cache、受控 PATH 与 macOS
 网络沙箱中完成 clean build/test、四目标制品验证、逐字节复现和 localhost-only EVM
-runtime。它仍是 alpha：Lean 发布归档、Homebrew 动态库闭包及 Python/macOS harness
-尚未内容锁定，因此不能作为正式 hermetic 或 release evidence。
+runtime。外部工具现已从精确 archive/file 进入 content-addressed cache：官方 solc 只使用
+系统库，WABT 的 `libcrypto` 与 Foundry archive 也在 bundle 中逐文件校验，并验证实际
+Mach-O load closure。首次运行前显式执行 `just toolchains-provision-external` 和
+`just toolchains-materialize-external`；普通 build 不联网。
+
+它仍是 alpha：Lean 目前仍从 elan tree 复制；当前 macOS host profile 报告
+`Sealed: Broken`，且 deny-default sandbox 与 schema evidence 尚未完成。因此不能作为正式
+hermetic 或 release evidence。
 
 ## 文档权威顺序
 

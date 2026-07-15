@@ -39,4 +39,6 @@ def run : IO Unit := do
   expect ((← IO.FS.readFile (collision / "important.txt")) == "preserve-me\n")
     "output collision must preserve pre-existing files"
 
+  ProofForgeV2.CLI.Toolchain.environmentIsolationSelfTest
+
 end Tests.CLI.Emit

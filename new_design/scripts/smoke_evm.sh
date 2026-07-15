@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-foundry_bin="${FOUNDRY_BIN:-$HOME/.foundry/bin}"
+foundry_bin="${FOUNDRY_BIN:-${PROOF_FORGE_TOOL_ROOT:-$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64}}"
 anvil="$foundry_bin/anvil"
 cast="$foundry_bin/cast"
 port="${PF_EVM_PORT:-18545}"

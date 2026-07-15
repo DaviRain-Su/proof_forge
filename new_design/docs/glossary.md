@@ -42,6 +42,8 @@ normative: true
 | network-denied clean-room alpha | 从 committed archive 在新 HOME/cache、受控 PATH 和网络沙箱中执行的开发门禁；外部动态库与宿主 harness closure 尚未锁定 |
 | clean-room gate | 使用内容锁定的完整 tool/runtime closure，在新 HOME/cache、受控 PATH/工具根且不可发现父 Git/path 的独立构建和测试 |
 | hermetic | 构建和运行依赖均被完整识别、内容寻址，或由明确受信 host profile 约束；只校验顶层 executable hash 不足以满足 |
+| content-addressed tool | 由精确 archive/file SHA 标识、离线安全物化并验证完整非系统运行闭包的工具 |
+| host profile | 对不可打包的 OS/Xcode/system runtime 记录精确 build、实现路径/hash、签名/行为与 hermetic 资格的信任边界 |
 
 `private`/`public` 描述信息披露；authority 描述谁能授权；state custody 描述谁持有
 状态。这三个维度不可互相替代。

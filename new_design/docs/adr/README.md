@@ -28,3 +28,4 @@ ADR 是 V2 架构决定的最高规范性记录。状态使用 `proposed | accep
 | [ADR-0010](0010-artifact-contract-and-provenance.md) | 制品契约与来源 | proposed |
 | [ADR-0011](0011-static-target-registry.md) | 静态目标注册表 | proposed |
 | [ADR-0012](0012-parent-research-only.md) | 父项目仅作研究参考 | proposed |
+| [ADR-0013](0013-content-addressed-tools-and-host-profile.md) | 内容工具闭包与受信 host profile 分离 | proposed |

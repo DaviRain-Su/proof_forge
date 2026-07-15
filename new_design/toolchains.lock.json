@@ -1,14 +1,159 @@
 {
-  "schema": "proof-forge.toolchains.v1",
+  "schema": "proof-forge.toolchains.v2",
+  "platform": "darwin-arm64",
+  "assets": [
+    {
+      "id": "foundry-v0.3.0-darwin-arm64",
+      "url": "https://github.com/foundry-rs/foundry/releases/download/v0.3.0/foundry_v0.3.0_darwin_arm64.tar.gz",
+      "size": 49415553,
+      "sha256": "38756791594aaf57eb85bdeaacb0aaaa285dff691c6d454125e2b640e8e83e94",
+      "format": "tar.gz"
+    },
+    {
+      "id": "lean-4.31.0-darwin-arm64",
+      "url": "https://github.com/leanprover/lean4/releases/download/v4.31.0/lean-4.31.0-darwin_aarch64.zip",
+      "size": 770470574,
+      "sha256": "e8cd241b8d2b81c70415920f0900c9ec5b156e98e6b62163cb14b8288c6e0656",
+      "format": "zip"
+    },
+    {
+      "id": "openssl-3.6.3-homebrew-arm64-tahoe",
+      "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:2d995a1bbbd8e6ee6a9042990dde87e7321d1ddd5716ffee53b140d23cb9f92f",
+      "size": 10916538,
+      "sha256": "2d995a1bbbd8e6ee6a9042990dde87e7321d1ddd5716ffee53b140d23cb9f92f",
+      "format": "tar.gz",
+      "auth": {
+        "type": "oci-bearer",
+        "realm": "https://ghcr.io/token",
+        "service": "ghcr.io",
+        "scope": "repository:homebrew/core/openssl/3:pull"
+      }
+    },
+    {
+      "id": "solc-0.8.34-macos-universal",
+      "url": "https://github.com/argotorg/solidity/releases/download/v0.8.34/solc-macos",
+      "size": 35743568,
+      "sha256": "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746",
+      "format": "file"
+    },
+    {
+      "id": "wabt-1.0.41-macos-arm64",
+      "url": "https://github.com/WebAssembly/wabt/releases/download/1.0.41/wabt-1.0.41-macos-arm64.tar.gz",
+      "size": 3871425,
+      "sha256": "e5269d6bbe05dfeb179e4f21111b3a641d6ccaa38b0b21d472ae5c65f8c4ff5d",
+      "format": "tar.gz"
+    }
+  ],
+  "compilerToolchain": {
+    "id": "lean",
+    "version": "4.31.0",
+    "sourceCommit": "68218e876d2a38b1985b8590fff244a83c321783",
+    "platform": "darwin-arm64",
+    "assetId": "lean-4.31.0-darwin-arm64",
+    "archiveRoot": "lean-4.31.0-darwin_aarch64",
+    "stripComponents": 1,
+    "executables": [
+      {
+        "path": "bin/lake",
+        "sha256": "58261a1a2fa1a362376c71e02ca854a093e71cc5e6ea64b287a931cb2565273d"
+      },
+      {
+        "path": "bin/lean",
+        "sha256": "1b370cfcbf44e80d1b004ab1b1ab9a4c73951f9f7c242140bcff9bc577576554"
+      }
+    ],
+    "versionArgs": ["--version"],
+    "expectedVersion": "Lean (version 4.31.0, commit 68218e876d2a38b1985b8590fff244a83c321783"
+  },
+  "bundleFiles": [
+    {
+      "path": "anvil",
+      "assetId": "foundry-v0.3.0-darwin-arm64",
+      "member": "anvil",
+      "size": 16650648,
+      "sha256": "888500bc210752e71a355ed4d492ad6dcb4c0ef54d283c105a29a5ccc73d0dbd",
+      "mode": "0555"
+    },
+    {
+      "path": "cast",
+      "assetId": "foundry-v0.3.0-darwin-arm64",
+      "member": "cast",
+      "size": 31242408,
+      "sha256": "bd48e86b566eaffeb03638789a8f757079683f6f95f115e60c150ccdee874f37",
+      "mode": "0555"
+    },
+    {
+      "path": "lib/libcrypto.3.dylib",
+      "assetId": "openssl-3.6.3-homebrew-arm64-tahoe",
+      "member": "openssl@3/3.6.3/lib/libcrypto.3.dylib",
+      "size": 4846032,
+      "sha256": "64bc88540449292800458aa64fb0ca8b6fdb913413fd691f5f057b16315c06f4",
+      "mode": "0444"
+    },
+    {
+      "path": "solc",
+      "assetId": "solc-0.8.34-macos-universal",
+      "member": null,
+      "size": 35743568,
+      "sha256": "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746",
+      "mode": "0555"
+    },
+    {
+      "path": "wat2wasm",
+      "assetId": "wabt-1.0.41-macos-arm64",
+      "member": "wabt-1.0.41/bin/wat2wasm",
+      "size": 1582328,
+      "sha256": "1c0791a1e06a2c5447976ebd2558b8505f65cb8f17e470f55dd4e7be3355b55e",
+      "mode": "0555"
+    }
+  ],
+  "machoPolicy": {
+    "allowedSystemLoadRoots": ["/System/Library/", "/usr/lib/"],
+    "files": [
+      {
+        "path": "anvil",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "cast",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "lib/libcrypto.3.dylib",
+        "installId": "@@HOMEBREW_PREFIX@@/opt/openssl@3/lib/libcrypto.3.dylib",
+        "externalLoads": []
+      },
+      {
+        "path": "solc",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "wat2wasm",
+        "installId": null,
+        "externalLoads": [
+          {
+            "installName": "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib",
+            "bundlePath": "lib/libcrypto.3.dylib"
+          }
+        ]
+      }
+    ]
+  },
   "tools": [
     {
       "id": "anvil",
       "version": "0.3.0+5a8bd89",
-      "sourceUrl": "https://github.com/foundry-rs/foundry",
+      "sourceUrl": "https://github.com/foundry-rs/foundry/releases/tag/v0.3.0",
       "platform": "darwin-arm64",
+      "assetId": "foundry-v0.3.0-darwin-arm64",
       "executable": "anvil",
-      "defaultPath": "~/.foundry/bin/anvil",
-      "executableSha256": "b1d817136e56df2ab0c6a17b5774e65c117140e08fa7c5ac2c7c4f59e7802cde",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/anvil",
+      "executableSha256": "888500bc210752e71a355ed4d492ad6dcb4c0ef54d283c105a29a5ccc73d0dbd",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
       "versionArgs": ["--version"],
       "expectedVersion": "0.3.0 (5a8bd89",
       "licenseSpdx": "MIT OR Apache-2.0",
@@ -17,11 +162,14 @@
     {
       "id": "cast",
       "version": "0.3.0+5a8bd89",
-      "sourceUrl": "https://github.com/foundry-rs/foundry",
+      "sourceUrl": "https://github.com/foundry-rs/foundry/releases/tag/v0.3.0",
       "platform": "darwin-arm64",
+      "assetId": "foundry-v0.3.0-darwin-arm64",
       "executable": "cast",
-      "defaultPath": "~/.foundry/bin/cast",
-      "executableSha256": "80d8e65f75ce03a325d23a40cddb54df1363f84a7a001161f489ad03f0853c71",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/cast",
+      "executableSha256": "bd48e86b566eaffeb03638789a8f757079683f6f95f115e60c150ccdee874f37",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
       "versionArgs": ["--version"],
       "expectedVersion": "0.3.0 (5a8bd89",
       "licenseSpdx": "MIT OR Apache-2.0",
@@ -30,11 +178,14 @@
     {
       "id": "solc",
       "version": "0.8.34+commit.80d5c536",
-      "sourceUrl": "https://github.com/ethereum/solidity/releases/tag/v0.8.34",
+      "sourceUrl": "https://github.com/argotorg/solidity/releases/tag/v0.8.34",
       "platform": "darwin-arm64",
+      "assetId": "solc-0.8.34-macos-universal",
       "executable": "solc",
-      "defaultPath": "/opt/homebrew/bin/solc",
-      "executableSha256": "bca9624c258e3a6e9b7013c92f7cc1311a8bcbd94d9fe9a7f5912443fd3a5261",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/solc",
+      "executableSha256": "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
       "versionArgs": ["--version"],
       "expectedVersion": "0.8.34+commit.80d5c536",
       "licenseSpdx": "GPL-3.0-only",
@@ -45,9 +196,17 @@
       "version": "1.0.41",
       "sourceUrl": "https://github.com/WebAssembly/wabt/releases/tag/1.0.41",
       "platform": "darwin-arm64",
+      "assetId": "wabt-1.0.41-macos-arm64",
       "executable": "wat2wasm",
-      "defaultPath": "/opt/homebrew/bin/wat2wasm",
-      "executableSha256": "b7ac6610f423ffc120443bb49dc80621044985767159a240ddf02ccc63ace50d",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/wat2wasm",
+      "executableSha256": "1c0791a1e06a2c5447976ebd2558b8505f65cb8f17e470f55dd4e7be3355b55e",
+      "runtimeLibrarySubdir": "lib",
+      "runtimeFiles": [
+        {
+          "path": "lib/libcrypto.3.dylib",
+          "sha256": "64bc88540449292800458aa64fb0ca8b6fdb913413fd691f5f057b16315c06f4"
+        }
+      ],
       "versionArgs": ["--version"],
       "expectedVersion": "1.0.41",
       "licenseSpdx": "Apache-2.0",

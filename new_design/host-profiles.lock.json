@@ -1,0 +1,65 @@
+{
+  "schema": "proof-forge.host-profiles.v1",
+  "profiles": [
+    {
+      "id": "darwin-arm64-25E253-xcode17C529-development",
+      "platform": {
+        "productVersion": "26.4.1",
+        "buildVersion": "25E253",
+        "kernelRelease": "25.4.0",
+        "arch": "arm64",
+        "procTranslated": false,
+        "sip": "enabled",
+        "authenticatedRoot": "enabled",
+        "systemVolumeSeal": "broken"
+      },
+      "eligibleForHermetic": false,
+      "ineligibilityReason": "APFS root reports Sealed: Broken; this profile is development evidence only",
+      "developerTools": {
+        "developerDir": "/Applications/Xcode.app/Contents/Developer",
+        "xcodeVersion": "26.3",
+        "xcodeBuildVersion": "17C529",
+        "gitPath": "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
+        "gitSha256": "757d680693a1889040fce7f5b62230b4edd1e8a082bb198a2a13386decae8011",
+        "gitVersion": "git version 2.50.1 (Apple Git-155)",
+        "otoolPath": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/llvm-otool",
+        "otoolSha256": "9ea8e5cc5dc74779f49d731f5d27b8c23b07f5bab919425eaabe44899bbbffd9",
+        "pythonPath": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+        "pythonSha256": "6b24be8ba00c4abc8b3e7e2620bd710e2cf7a4312d00c147f8f05fbb6f3d297a",
+        "pythonVersion": "Python 3.9.6"
+      },
+      "digestBootstrap": {
+        "path": "/usr/bin/openssl",
+        "sha256": "5b46d2a62a0f6fd1bec2236936991e13f23896fa5e0c6d0a4a69ad6928411ae9",
+        "knownAnswerInput": "abc",
+        "knownAnswerSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      },
+      "systemRuntime": {
+        "allowedLoadRoots": ["/System/Library/", "/usr/lib/"]
+      },
+      "systemTools": [
+        {"id": "bash", "path": "/bin/bash", "sha256": "35536aea9733aa345b61134a98d00232380898e55b2ea2a07c497011f7dfc7a3"},
+        {"id": "chmod", "path": "/bin/chmod", "sha256": "378aded8fd0852a4930c39bd8ff8584be2c8b590ec8f74a298e56300264164c7"},
+        {"id": "codesign", "path": "/usr/bin/codesign", "sha256": "06eacc36d43376972d3bca0a2137ea4efd6d0fe27de8a7af0e6b11d599e8f337"},
+        {"id": "cp", "path": "/bin/cp", "sha256": "abdacc2fc3183df9a2e68d22556cf5509fbd62799bb71ec2a38febfb4fbd9c5c"},
+        {"id": "curl", "path": "/usr/bin/curl", "sha256": "5ef748580e05e8208c8faacc9be88d1aa48d9970101c0a29ba26896e017e6226"},
+        {"id": "env", "path": "/usr/bin/env", "sha256": "9eb7c5aed7f3c7fe07b77d9a84d0a7c6a8c68c17a15aa3dace0d8ff02d352776"},
+        {"id": "find", "path": "/usr/bin/find", "sha256": "cba00ca2fb86aaafa7f8448b2b3d94fd792d28f079562b9547425fda1fa683a4"},
+        {"id": "grep", "path": "/usr/bin/grep", "sha256": "468ff46a0b9f0e88de268ce12640bfa37610d585f968127cf32cf4e86d5c70ab"},
+        {"id": "mkdir", "path": "/bin/mkdir", "sha256": "7b98111d92aba1c3679a6633db281945f55f2e2581ca3cf982c999f1865e3b4c"},
+        {"id": "mktemp", "path": "/usr/bin/mktemp", "sha256": "eab827ffdacc768a1fd3aae419480906ca3b44d7942504343f0c5fcf055048cb"},
+        {"id": "rm", "path": "/bin/rm", "sha256": "eac5b0e334d4c89493b505c72191a106af3b42bfe4ae5224967d71f11cc7f9ba"},
+        {"id": "sandbox-exec", "path": "/usr/bin/sandbox-exec", "sha256": "d1ee30dbde955aaa75c7f801fdfea4df05b10129454d7982eb6453f771436d42"},
+        {"id": "sleep", "path": "/bin/sleep", "sha256": "00c84d198e2b80da7dc47c0e30d311cd632f74c257793c4b45723f2cb7ca5d2c"},
+        {"id": "stat", "path": "/usr/bin/stat", "sha256": "a1de52ec9a6c81a62e4a320d90d694e65a32976f51154e998199de7030afc263"},
+        {"id": "sw_vers", "path": "/usr/bin/sw_vers", "sha256": "19944ce73b498bbc997043b8530984aff4c6ca9741cb3a044c9320369bb019dd"},
+        {"id": "tar", "path": "/usr/bin/tar", "sha256": "bdccb76a715fbebc4915a1a1b1de0e7050ad842ebb730c47935b3a22c13e3af9"},
+        {"id": "tr", "path": "/usr/bin/tr", "sha256": "960e2fe0e8ede52e11ee228d90b6f37cfe81410f0e22fc327413dd3ed7b572e4"},
+        {"id": "uname", "path": "/usr/bin/uname", "sha256": "9abecf7a88117e093ff6c34ce07bacf7dc1277af1193b1cb0a0bf8fa4b2d4696"},
+        {"id": "unzip", "path": "/usr/bin/unzip", "sha256": "ef493b7349bfa1603a24aaa87b44677f76f5fe37eae7da4c151f53df9518e847"},
+        {"id": "xcode-select", "path": "/usr/bin/xcode-select", "sha256": "46db1db75076c31d7e13960c3640abcf9f960e566304ffba44b1b81f47e58a3e"},
+        {"id": "xcrun", "path": "/usr/bin/xcrun", "sha256": "234a81668b43d610a78d9293a5ccef397f561a88af84757194aedaa1ec728ad3"}
+      ]
+    }
+  ]
+}

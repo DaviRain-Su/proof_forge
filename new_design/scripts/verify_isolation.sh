@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 die() {
@@ -7,26 +7,9 @@ die() {
 }
 
 sha256_file() {
-  /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'
-}
-
-lock_field() {
-  /usr/bin/python3 - "$1" "$2" "$3" <<'PY'
-import json
-import sys
-
-lock_path, tool_id, field = sys.argv[1:]
-with open(lock_path, encoding="utf-8") as handle:
-    lock = json.load(handle)
-matches = [tool for tool in lock["tools"] if tool["id"] == tool_id]
-if len(matches) != 1:
-    raise SystemExit(f"expected exactly one lock entry for {tool_id}")
-value = matches[0][field]
-if isinstance(value, list):
-    print("\n".join(value))
-else:
-    print(value)
-PY
+  local output
+  output="$(/usr/bin/openssl dgst -sha256 -r "$1")"
+  echo "${output%% *}"
 }
 
 copy_tree() {
@@ -35,35 +18,6 @@ copy_tree() {
   if ! /bin/cp -cR "$source" "$destination" 2>/dev/null; then
     /bin/cp -R "$source" "$destination"
   fi
-}
-
-provision_external_tool() {
-  local tool_id="$1"
-  local lock="$2"
-  local destination_root="$3"
-  local source_home="$4"
-  local platform path executable expected_hash actual_hash expected_version version_output
-
-  platform="$(lock_field "$lock" "$tool_id" platform)"
-  [[ "$platform" == "darwin-arm64" ]] || die "$tool_id is locked for $platform, not darwin-arm64"
-  path="$(lock_field "$lock" "$tool_id" defaultPath)"
-  path="${path/#\~/$source_home}"
-  executable="$(lock_field "$lock" "$tool_id" executable)"
-  expected_hash="$(lock_field "$lock" "$tool_id" executableSha256)"
-  expected_version="$(lock_field "$lock" "$tool_id" expectedVersion)"
-  [[ -x "$path" ]] || die "missing locked tool $tool_id at $path"
-  path="$(/usr/bin/python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path")"
-  [[ -f "$path" && ! -L "$path" ]] || die "locked tool $tool_id did not resolve to a regular file"
-  actual_hash="$(sha256_file "$path")"
-  [[ "$actual_hash" == "$expected_hash" ]] || die "$tool_id checksum mismatch: expected $expected_hash, got $actual_hash"
-
-  /bin/cp -p "$path" "$destination_root/$executable"
-  [[ "$(sha256_file "$destination_root/$executable")" == "$expected_hash" ]] ||
-    die "$tool_id changed while copying into the clean-room tool root"
-  version_output="$("$destination_root/$executable" --version 2>&1)"
-  [[ "$version_output" == *"$expected_version"* ]] ||
-    die "$tool_id version mismatch: expected '$expected_version'"
-  echo "clean-room-alpha: provisioned $tool_id sha256=$expected_hash"
 }
 
 run_core_gate() {
@@ -196,11 +150,23 @@ case "${1:-}" in
     ;;
 esac
 
+source_home="${HOME:?HOME is required while provisioning the locked cache}"
+unset BASH_ENV ENV CDPATH DEVELOPER_DIR GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_DIR \
+  GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_REPLACE_REF_BASE PYTHONHOME \
+  PYTHONPATH PYTHONSTARTUP LEAN_PATH LEAN_SRC_PATH ELAN_HOME
+export PATH=/usr/bin:/bin
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+export GIT_CONFIG_NOSYSTEM=1
+kat_output="$(printf abc | /usr/bin/openssl dgst -sha256)"
+[[ "${kat_output##* }" == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" ]] ||
+  die "SHA-256 bootstrap known-answer test failed"
+
 [[ "$(/usr/bin/uname -s)" == Darwin && "$(/usr/bin/uname -m)" == arm64 ]] ||
   die "this locked clean-room profile currently supports darwin-arm64 only"
 command -v /usr/bin/sandbox-exec >/dev/null 2>&1 || die "macOS sandbox-exec is unavailable"
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
 repo_root="$(/usr/bin/git -C "$root" rev-parse --show-toplevel)"
 prefix="$(/usr/bin/git -C "$root" rev-parse --show-prefix)"
 [[ "$prefix" == new_design/ ]] || die "expected new_design/ to be a tracked subtree, got '$prefix'"
@@ -223,10 +189,10 @@ source_root="$tmp/source"
 home_root="$tmp/home"
 cache_root="$tmp/cache"
 tool_root="$tmp/tools"
-external_bin="$tool_root/external/bin"
+external_bin="$tool_root/external"
 output_root="$tmp/output"
 runner="$tmp/clean-room-runner.sh"
-/bin/mkdir -p "$source_root" "$home_root" "$cache_root" "$external_bin" "$output_root" "$tmp/work"
+/bin/mkdir -p "$source_root" "$home_root" "$cache_root" "$tool_root" "$output_root" "$tmp/work"
 /bin/chmod 700 "$home_root" "$cache_root" "$tool_root" "$output_root" "$tmp/work"
 
 archive="$tmp/new-design.tar"
@@ -252,12 +218,11 @@ if /usr/bin/grep -R -F "$repo_root" "$source_root" >/dev/null 2>&1; then
   die "archive embeds the parent repository absolute path"
 fi
 
-source_home="${HOME:?HOME is required while provisioning the locked cache}"
-elan="$(command -v elan || true)"
+elan="$source_home/.elan/bin/elan"
 [[ -x "$elan" ]] || die "elan is required only for audited Lean toolchain provisioning"
 lean_source="$(cd "$root" && "$elan" which lean)"
 lake_source="$(cd "$root" && "$elan" which lake)"
-lean_source_root="$(dirname "$(dirname "$lean_source")")"
+lean_source_root="${lean_source%/bin/lean}"
 [[ "$lake_source" == "$lean_source_root/bin/lake" ]] || die "Lean and Lake resolve to different toolchains"
 copy_tree "$lean_source_root" "$tool_root/lean"
 lean_root="$tool_root/lean"
@@ -270,11 +235,13 @@ lean_root="$tool_root/lean"
 echo "clean-room-alpha: provisioned Lean sha256=$(sha256_file "$lean_root/bin/lean")"
 echo "clean-room-alpha: provisioned Lake sha256=$(sha256_file "$lean_root/bin/lake")"
 
-for tool in solc wat2wasm anvil cast; do
-  provision_external_tool "$tool" "$source_root/toolchains.lock.json" "$external_bin" "$source_home"
-done
+/usr/bin/python3 "$source_root/scripts/toolchain_assets.py" \
+  --lock "$source_root/toolchains.lock.json" \
+  --host-lock "$source_root/host-profiles.lock.json" \
+  materialize-external --destination "$external_bin"
+echo "clean-room-alpha: materialized locked external asset bundle"
 
-/bin/cp "$root/scripts/verify_isolation.sh" "$runner"
+/bin/cp "$source_root/scripts/verify_isolation.sh" "$runner"
 /bin/chmod 500 "$runner"
 
 escape_sandbox_string() {
@@ -282,8 +249,8 @@ escape_sandbox_string() {
 }
 denied_home="$(escape_sandbox_string "$source_home")"
 denied_repo="$(escape_sandbox_string "$repo_root")"
-deny_network_profile="(version 1)(allow default)(deny network*)(deny file-read* (subpath \"$denied_home\"))(deny file-write* (subpath \"$denied_home\"))(deny file-read* (subpath \"$denied_repo\"))(deny file-write* (subpath \"$denied_repo\"))"
-localhost_profile="(version 1)(allow default)(deny network*)(allow network-inbound (local ip \"localhost:*\"))(allow network-outbound (remote ip \"localhost:*\"))(deny file-read* (subpath \"$denied_home\"))(deny file-write* (subpath \"$denied_home\"))(deny file-read* (subpath \"$denied_repo\"))(deny file-write* (subpath \"$denied_repo\"))"
+deny_network_profile="(version 1)(allow default)(deny network*)(deny file-read* (subpath \"/opt/homebrew\"))(deny file-write* (subpath \"/opt/homebrew\"))(deny file-read* (subpath \"$denied_home\"))(deny file-write* (subpath \"$denied_home\"))(deny file-read* (subpath \"$denied_repo\"))(deny file-write* (subpath \"$denied_repo\"))"
+localhost_profile="(version 1)(allow default)(deny network*)(allow network-inbound (local ip \"localhost:*\"))(allow network-outbound (remote ip \"localhost:*\"))(deny file-read* (subpath \"/opt/homebrew\"))(deny file-write* (subpath \"/opt/homebrew\"))(deny file-read* (subpath \"$denied_home\"))(deny file-write* (subpath \"$denied_home\"))(deny file-read* (subpath \"$denied_repo\"))(deny file-write* (subpath \"$denied_repo\"))"
 
 probe_port_file="$tmp/network-probe.port"
 /usr/bin/python3 - "$probe_port_file" <<'PY' &
@@ -348,4 +315,4 @@ evm_port="$(/usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.
   "PF_EVM_PORT=$evm_port" /bin/bash "$runner" --internal-evm)
 
 echo "clean-room-alpha: ok commit=$commit archive_sha256=$archive_hash"
-echo "clean-room-alpha: NOT hermetic: Homebrew dylib closure and host macOS utilities/Python/sandbox-exec are not locked; D0-04 remains open"
+echo "clean-room-alpha: NOT hermetic: Lean still comes from the elan tree, the current host profile is ineligible, and deny-default/evidence closure remain open; D0-03/D0-04 remain open"

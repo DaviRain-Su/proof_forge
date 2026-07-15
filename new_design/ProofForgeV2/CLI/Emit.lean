@@ -68,12 +68,7 @@ private structure Finalization where
 private def finalizeEvm (outputDir : FilePath) (programName : String) : IO Finalization := do
   let source := s!"{programName}.yul"
   let solc ← Toolchain.resolve "solc"
-  let process ← IO.Process.output {
-    cmd := solc.path.toString
-    args := #["--strict-assembly", "--bin", source]
-    cwd := some outputDir
-    env := Toolchain.scrubbedEnvironment
-  }
+  let process ← solc.run #["--strict-assembly", "--bin", source] (some outputDir)
   if process.exitCode == 0 then
     let binary := (process.stdout.splitOn "Binary representation:\n").getLast!.trimAscii.copy
     if binary.isEmpty then
@@ -91,12 +86,7 @@ private def finalizeNear (outputDir : FilePath) (programName : String) : IO Fina
   let source := s!"{programName}.wat"
   let target := s!"{programName}.wasm"
   let wat2wasm ← Toolchain.resolve "wat2wasm"
-  let process ← IO.Process.output {
-    cmd := wat2wasm.path.toString
-    args := #[source, "-o", target]
-    cwd := some outputDir
-    env := Toolchain.scrubbedEnvironment
-  }
+  let process ← wat2wasm.run #[source, "-o", target] (some outputDir)
   if process.exitCode == 0 then
     pure {
       deployable := true

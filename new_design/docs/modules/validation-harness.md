@@ -26,3 +26,7 @@ jobs、proof invalid/private leak、network wrong identity。关联 `PHASE-5`、
 当前 `scripts/verify_isolation.sh` 是 network-denied clean-room alpha：它已隔离父仓库、
 HOME/cache 与网络并跑通四目标/Anvil，但尚未锁定完整 tool/runtime closure，也尚未输出
 schema-complete `GateResult`/`EV-ISO-*`；不得视为本模块规格已实现。
+
+`TASK-A0-07` 已把 solc、WABT+libcrypto 与 Anvil/Cast 切到 content-addressed external
+bundle，并同时验证静态 Mach-O 图、实际 dyld load 与 tamper negative；剩余 Lean/host/
+deny-default/evidence closure 继续阻止正式 gate。

@@ -1,4 +1,6 @@
-set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
+set shell := ["/bin/bash", "-eu", "-o", "pipefail", "-c"]
+
+tool_root := env_var_or_default("PROOF_FORGE_TOOL_ROOT", env_var("HOME") + "/.cache/proof-forge-v2/tool-root/darwin-arm64")
 
 default: check
 
@@ -11,6 +13,67 @@ test:
 
 docs-check:
     python3 scripts/docs_check.py
+
+toolchains-validate:
+    /usr/bin/python3 scripts/toolchain_assets.py validate
+    /usr/bin/python3 scripts/toolchain_assets.py self-test
+
+toolchains-provision-external:
+    /usr/bin/python3 scripts/toolchain_assets.py provision --group external
+
+toolchains-materialize-external destination="$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64":
+    /usr/bin/python3 scripts/toolchain_assets.py materialize-external --destination "{{destination}}"
+
+toolchains-verify-external:
+    /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "{{tool_root}}"
+
+toolchains-closure-negative: build
+    rm -rf build/toolchain-closure-negative
+    rm -rf build/v2/runtime-mismatch
+    mkdir -p build
+    cp -R "{{tool_root}}" build/toolchain-closure-negative
+    chmod u+w build/toolchain-closure-negative/lib/libcrypto.3.dylib
+    dd if=/dev/zero of=build/toolchain-closure-negative/lib/libcrypto.3.dylib bs=1 count=1 conv=notrunc >/dev/null 2>&1
+    chmod 0444 build/toolchain-closure-negative/lib/libcrypto.3.dylib
+    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-closure-negative" > build/toolchain-closure-negative.log 2>&1; then echo "tampered runtime dependency unexpectedly verified" >&2; exit 1; fi
+    rg -q "bundle hash mismatch" build/toolchain-closure-negative.log
+    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-closure-negative" lake env .lake/build/bin/proof-forge-next build-counter --target near -o build/v2/runtime-mismatch > build/runtime-mismatch.log 2>&1; then echo "compiler unexpectedly accepted tampered runtime dependency" >&2; exit 1; fi
+    rg -q "PF-TOOLCHAIN-MISMATCH" build/runtime-mismatch.log
+    test ! -e build/v2/runtime-mismatch
+
+toolchains-environment-negative: build
+    rm -rf build/toolchain-environment-negative build/v2/environment-negative
+    lake build proof_forge_next_tests
+    DYLD_IMAGE_SUFFIX=_debug lake env .lake/build/bin/proof-forge-next-tests
+    cp -R "{{tool_root}}" build/toolchain-environment-negative
+    dd if=/dev/zero of=build/toolchain-environment-negative/lib/libcrypto.3_debug.dylib bs=16 count=1 >/dev/null 2>&1
+    if DYLD_IMAGE_SUFFIX=_debug PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-environment-negative" lake env .lake/build/bin/proof-forge-next build-counter --target near -o build/v2/environment-negative > build/toolchain-environment-negative.log 2>&1; then echo "compiler unexpectedly accepted an extra DYLD image-suffix candidate" >&2; exit 1; fi
+    rg -q "PF-TOOLCHAIN-MISMATCH.*unexpected node" build/toolchain-environment-negative.log
+    test ! -e build/v2/environment-negative
+
+toolchains-root-negative: build
+    mkdir -p build
+    rm -rf build/toolchain-root-world build/toolchain-root-extra build/toolchain-root-hardlink build/toolchain-root-symlink build/toolchain-root-outside build/v2/root-world-negative build/v2/root-hardlink-negative build/v2/root-symlink-negative
+    cp -R "{{tool_root}}" build/toolchain-root-world
+    chmod 0777 build/toolchain-root-world
+    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-world" > build/toolchain-root-world.log 2>&1; then echo "world-writable tool root unexpectedly verified" >&2; exit 1; fi
+    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-world" lake env .lake/build/bin/proof-forge-next build-counter --target near -o build/v2/root-world-negative > build/toolchain-root-world-compiler.log 2>&1; then echo "compiler unexpectedly accepted a world-writable tool root" >&2; exit 1; fi
+    rg -q "PF-TOOLCHAIN-MISMATCH" build/toolchain-root-world-compiler.log
+    cp -R "{{tool_root}}" build/toolchain-root-extra
+    ln -s /opt/homebrew build/toolchain-root-extra/unexpected-link
+    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-extra" > build/toolchain-root-extra.log 2>&1; then echo "tool root with an extra symlink unexpectedly verified" >&2; exit 1; fi
+    cp -R "{{tool_root}}" build/toolchain-root-hardlink
+    ln build/toolchain-root-hardlink/lib/libcrypto.3.dylib build/toolchain-root-outside
+    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-hardlink" > build/toolchain-root-hardlink.log 2>&1; then echo "tool root containing a multiply-linked file unexpectedly verified" >&2; exit 1; fi
+    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-hardlink" lake env .lake/build/bin/proof-forge-next build-counter --target near -o build/v2/root-hardlink-negative > build/toolchain-root-hardlink-compiler.log 2>&1; then echo "compiler unexpectedly accepted a multiply-linked runtime file" >&2; exit 1; fi
+    rg -q "PF-TOOLCHAIN-MISMATCH" build/toolchain-root-hardlink-compiler.log
+    ln -s "{{tool_root}}" build/toolchain-root-symlink
+    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-symlink" > build/toolchain-root-symlink.log 2>&1; then echo "symlink tool root unexpectedly verified" >&2; exit 1; fi
+    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-symlink" lake env .lake/build/bin/proof-forge-next build-counter --target near -o build/v2/root-symlink-negative > build/toolchain-root-symlink-compiler.log 2>&1; then echo "compiler unexpectedly accepted a symlink tool root" >&2; exit 1; fi
+    rg -q "PF-TOOLCHAIN-MISMATCH" build/toolchain-root-symlink-compiler.log
+    test ! -e build/v2/root-world-negative
+    test ! -e build/v2/root-hardlink-negative
+    test ! -e build/v2/root-symlink-negative
 
 dsl-negative:
     mkdir -p build
@@ -34,7 +97,7 @@ target-smoke: build
     lake env .lake/build/bin/proof-forge-next build testdata/valid/Standalone.lean --program UserStandalone.Counter --target evm -o build/v2/standalone
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target evm -o build/v2/evm
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target solana -o build/v2/solana
-    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target near -o build/v2/near
+    DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target near -o build/v2/near
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target noir -o build/v2/noir
     python3 scripts/validate_artifacts.py build/v2
 
@@ -62,7 +125,7 @@ evm-runtime: target-smoke
 reproducibility: build
     bash scripts/reproducibility.sh
 
-check: docs-check build test dsl-negative target-negative target-smoke output-security
+check: docs-check toolchains-validate toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
 
 isolated-check:
     bash scripts/verify_isolation.sh

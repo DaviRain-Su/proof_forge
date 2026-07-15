@@ -82,8 +82,8 @@ normative: false
 ## 2026-07-15 — TASK-A0-06
 
 - Commit/input：clean-room 输入为已提交树
-  `6d1d0b5a334e2575e140e1be28392da2710c013c:new_design`；归档 SHA-256 为
-  `fa875a84201428e4bbc4f2d1681ce4845cd099a9d27a30844a07d8ff24d506d7`。
+  `e3b16063a97964d1da1958c5bfc2a6ed075206d5:new_design`；归档 SHA-256 为
+  `c3bbb8dbf1d888eb6ce9446e865e7a02e2df47fbc70f407030f1786246c00bdc`。
 - Spec/Test：`SPEC-REPRO-001`、`TST-ISO-002`、`TST-EVM-005`。
 - Changed：`verify_isolation.sh` 只归档已提交 V2 子树，拒绝 symlink/submodule、父路径和
   父 `ProofForge` import；在随机 HOME/cache/tool/output 下以 `env -i` 运行，Core sandbox
@@ -100,6 +100,39 @@ normative: false
   runtime 也未锁定。未生成 schema-complete `EV-ISO-*` JSON，且只验证 Darwin arm64。
 - Next：完成 `TASK-D0-03` 的完整工具/运行时 closure 锁定后解除 `TASK-D0-04` blocker；
   在此之前不得把 alpha 改称 hermetic 或 release evidence。
+
+## 2026-07-15 — TASK-A0-07 / TASK-D0-03 external closure slice
+
+- Changed：增加 `proof-forge.toolchains.v2` 与 `proof-forge.host-profiles.v1`；冻结 Lean、
+  official solc、official WABT、OpenSSL bottle dependency 与 official Foundry archive 的
+  URL/size/archive SHA/member/file SHA。`toolchain_assets.py` 实现严格 schema、自测、独立
+  network provision、content-addressed private snapshot、安全 member extraction、原子 external
+  bundle、Mach-O 静态图和 `DYLD_PRINT_LIBRARIES` 实际闭包验证。Compiler 在每次 managed spawn
+  前验证 exact bundle tree、file size/hash/mode/link count 与目录权限，只通过 hash-locked
+  `/usr/bin/env -i` 注入固定 allowlist。clean-room 外层改用 OpenSSL KAT、显式 Git/Python
+  环境净化、锁定 external bundle，并从 committed archive 复制 runner；sandbox 拒绝
+  `/opt/homebrew`。
+- Commands：`just toolchains-validate`；`python3 scripts/toolchain_assets.py provision --group
+  external`；`materialize-external`；`verify-external`；`just toolchains-closure-negative`；
+  `just toolchains-environment-negative`；`just toolchains-root-negative`；`just target-smoke`；
+  `just evm-runtime`。
+- Results：全部 exit 0；五个 bundle file hash/mode 与 archive member 一致；official solc
+  仅加载 Apple system dylib；WABT 实际从 bundle 加载 `lib/libcrypto.3.dylib`；Anvil/Cast
+  official archive 运行 Counter nonpayable、7+5=12 与 max+1 rollback。篡改 libcrypto 后
+  verifier 与 compiler 均按预期失败；用户注入错误 `DYLD_LIBRARY_PATH` 不影响锁定 WABT
+  resolution。world-writable root、root/child symlink、extra node 与 hardlink 均 fail closed。
+- Review repair：独立审查复现 `DYLD_IMAGE_SUFFIX=_debug` 可令有限 denylist 选择未锁库；工具
+  子进程现改为 hash-locked `/usr/bin/env -i` + `inheritEnv=false`；在带该父环境变量运行的
+  self-test 中，child environment 逐字等于单项 allowlist，另以同目录 `_debug` dylib 证明
+  exact tree 会先拒绝未锁候选。
+- Evidence：`EV-20260715-0009`。
+- Limitations：`TASK-D0-03` 仍为 in_progress。Lean archive 已记录但尚未从 770 MB official
+  ZIP 在 gate 中物化；当前 host profile 因 APFS root `Sealed: Broken` 为
+  `eligibleForHermetic=false`，且目前只是局部 system-tool hash 检查、尚非完整 Stage-0
+  attestation；sandbox 仍是 allow-default 加 deny 列表；同 UID 主动 race 与不可变 EV JSON
+  尚未闭合。
+- Next：官方 Lean ZIP 离线物化/closure → host Stage-0/profile 判定 → deny-default sandbox 与
+  schema evidence；完成前不解除 `TASK-D0-04` blocker。
 
 ## 记录模板
 

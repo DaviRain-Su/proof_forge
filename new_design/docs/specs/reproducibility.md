@@ -45,8 +45,10 @@ sourceHash、semanticHash、planHash、TargetIR hash、所有 artifact hash 和 
 
 当前 `v2-clean-room-alpha` 已实现 committed archive、空 HOME/cache、`env -i`、父目录 deny、
 Core 全断网、EVM localhost-only、clean build/test、四目标复现与 EVM runtime。它尚未满足
-第 6 步的“content-addressed tool cache”：Lean 发布 archive、Homebrew dylib closure 和
-Python/macOS harness runtime 未锁定；因此 `TASK-D0-04` 仍为 blocked。
+第 6 步的完整闭包：external solc/WABT+libcrypto/Foundry 已进入 content-addressed cache 并
+验证实际 Mach-O load，但 Lean 仍从 elan tree 复制；当前 macOS host profile 不具备
+hermetic 资格，sandbox/evidence 也未闭合。因此 `TASK-D0-03` 仍在进行，`TASK-D0-04`
+仍为 blocked。
 
 ## Cache Policy
 
