@@ -66,3 +66,9 @@ approved explicitly with a new decision and deadline.
 
 See [Backend interface](backend-interface.md) for target author obligations and
 [Validation gates](validation-gates.md) for executable enforcement.
+
+If a Rust path is introduced later, it hangs **after** checked Core +
+CapabilityPlan (or after final artifacts for evidence only). Authors still write
+Lean; exchange is versioned files, not Lean objects. See D-057 and the
+[Lean/Rust boundary design](superpowers/specs/2026-07-15-lean-rust-boundary-design.md)
+(deferred implementation until primary-triad cutover stabilizes).

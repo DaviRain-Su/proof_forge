@@ -27,10 +27,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "13465871571c125f64019203700c0d3f37eeec2ea78955cbaaa51c07f47b9dc9",
+    "sha256": "8b2defc8fe13c2302ac976bf43ed46d01e97a0a5b92c9e68b22f3dc80a22e0f2",
     "zh": "docs/zh/decisions.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after D-055/D-056"
+    "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/capability-registry.md": {
     "sha256": "e67404632b81d526fd167ad4b720f854d2a4af98c396ffb574e9b82ace80d5e3",
@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "cad9e24b8e8a9153978ebbbefdf1af4d730d94d29c9083d7ba990271c150b505",
+    "sha256": "4b3861c278a63cc0a99e734c586f070ebc4d06dac0af4dfe04397c63bcdea3ae",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after OpenVM research brief (C3 defer 2026-07-15)"
+    "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
@@ -78,16 +78,16 @@
     "note": "manually synced through the Runtime.Psy ownership move"
   },
   "docs/architecture.md": {
-    "sha256": "87e789caf797508a7cde164973d3ba158307436870de73117fbf8cbeb417da70",
+    "sha256": "f702215700b5ac413ff89a66a515d450149cf6f5e4bde8eb2991344f9213ed32",
     "zh": "docs/zh/architecture.zh.md",
     "model": "manual-zh",
-    "note": "synced after system-architecture EN/zh deep map (2026-07-15)"
+    "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/backend-interface.md": {
-    "sha256": "96975e84c6832bc7d99a1832b79a717e82173e7e65f7759c00e6c2a51005faf7",
+    "sha256": "e96080c03dac0fd6c2d9a8b6f6d915fa6dbef5fc0019cf82bb7c7b52eb150b32",
     "zh": "docs/zh/backend-interface.zh.md",
     "model": "manual-zh",
-    "note": "manually translated for canonical backend interface"
+    "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/validation-gates.md": {
     "sha256": "7c5c835ffb980f92edb9441c0f6004a6932b369deabb26ba06af1d9e3bf7554d",

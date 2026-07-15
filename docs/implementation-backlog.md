@@ -49,6 +49,21 @@ July 12 implementation plan.
 | C2 | Add Aleo semantic plan | pending after C1 | Core-to-plan-to-Leo; no route promotion |
 | C3 | Write sourced OpenVM brief | done (2026-07-15) | [`targets/openvm-research.md`](targets/openvm-research.md): **defer** backend/registry; revisit after #104 + C1/C2 |
 
+### Deferred: Lean/Rust boundary (D-057)
+
+Not on the active cutover queue. Design only is accepted; code stays gated.
+
+| Order | Slice | State | Acceptance boundary |
+|---:|---|---|---|
+| LR-0 | Artifact Contract v1 docs + harness field allowlist | design done (2026-07-15); code pending separate branch | testkit/runners depend only on documented artifact fields; honesty rules unchanged |
+| LR-1 | Experimental `export-core` (`core.v0`) | pending after #104 / cutover quiet | deterministic export; Validate fail-closed; Counter + one stateful subset |
+| LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | pending after LR-1 | dual-run on declared dimensions; CLI default remains Lean |
+| LR-3+ | Triad backends / default Rust lower | pending | release-cycle dual-run + measurable benefit; Lean path still switchable |
+
+Specs: [lean-rust-boundary](superpowers/specs/2026-07-15-lean-rust-boundary-design.md),
+[artifact-contract-v1](superpowers/specs/2026-07-15-artifact-contract-v1.md),
+[core-export-v0](superpowers/specs/2026-07-15-core-export-v0-draft.md).
+
 Legacy replacement is incremental. A legacy adapter or compatibility call is
 removed only after tests establish observable equivalence and all callers use
 the new boundary.

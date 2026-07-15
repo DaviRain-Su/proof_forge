@@ -42,6 +42,21 @@
 | C2 | Aleo semantic plan | C1 后 pending | Core -> plan -> Leo；不晋级公开路线 |
 | C3 | 有来源的 OpenVM brief | done (2026-07-15) | [`targets/openvm-research.md`](../targets/openvm-research.md)：**defer** 后端/注册表；#104 与 C1/C2 之后再评估 |
 
+### 延期：Lean/Rust 边界（D-057）
+
+不在当前 cutover 执行队列。仅设计已接受；代码仍受门闩约束。
+
+| 顺序 | 切片 | 状态 | 验收边界 |
+|---:|---|---|---|
+| LR-0 | Artifact Contract v1 文档 + harness 字段白名单 | 设计完成 (2026-07-15)；代码待单独分支 | testkit/runners 只依赖文档化制品字段；诚实性规则不变 |
+| LR-1 | 实验性 `export-core`（`core.v0`） | 待 #104 / cutover 安静后 | 确定性导出；Validate fail-closed；Counter + 一个 stateful 子集 |
+| LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | 待 LR-1 后 | 声明维度 dual-run；CLI 默认仍为 Lean |
+| LR-3+ | 三链后端 / 默认 Rust lower | 待定 | 一个发布周期 dual-run + 可衡量收益；Lean 路径仍可切换 |
+
+规格：[lean-rust-boundary](../superpowers/specs/2026-07-15-lean-rust-boundary-design.md)、
+[artifact-contract-v1](../superpowers/specs/2026-07-15-artifact-contract-v1.md)、
+[core-export-v0](../superpowers/specs/2026-07-15-core-export-v0-draft.md)。
+
 Legacy 替换采用渐进方式：只有在测试证明可观察等价且所有调用方已经迁移后，
 才能删除对应 adapter 或兼容调用。
 

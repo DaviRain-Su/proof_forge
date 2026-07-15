@@ -4061,3 +4061,22 @@ Rules:
 - Remaining: none for C3; implementation remains closed until reopen checklist
   in the brief is satisfied. Active merge priority is still PR #104.
 - Documentation: this entry.
+
+## 2026-07-15 - D-057: Lean/Rust boundary design (docs only)
+
+- Status: `done` (documentation only; implementation deferred)
+- Result: Accepted the Lean/Rust ownership boundary as deferred design: Lean
+  owns product meaning through checked Core + CapabilityPlan; Rust owns
+  evidence runners now and optional later plan/render behind dual-run. Recorded
+  Phase 0–4 order, A0/A1 sub-seams, equivalence dimensions, lockfile reality vs
+  goal, and companion Artifact Contract v1 + Core export v0 drafts. Did not
+  change the active AGENTS checkpoint (still PR #104 / cutover).
+- Interfaces: `docs/superpowers/specs/2026-07-15-lean-rust-boundary-design.md`,
+  `docs/superpowers/specs/2026-07-15-artifact-contract-v1.md`,
+  `docs/superpowers/specs/2026-07-15-core-export-v0-draft.md`, D-057 in
+  `docs/decisions.md`, deferred LR-0… slices in backlog, lifecycle index,
+  architecture pointer.
+- Verification: `just docs-check`; `git diff --check` (run with this change).
+- Remaining: implement LR-0 on a dedicated branch/worktree after cutover
+  priority allows; do not start LR-2+ while Core single-path is still moving.
+- Documentation: this entry.

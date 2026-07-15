@@ -57,3 +57,8 @@ Canonical 提升后的一个发布版本内，冻结的 Legacy 适配器和 dual
 
 目标实现约束见[后端接口](backend-interface.zh.md)，可执行门禁见
 [验证门禁](validation-gates.zh.md)。
+
+若日后引入 Rust 路径，应挂在 **checked Core + CapabilityPlan 之后**（证据层则挂在
+最终制品之后）。作者仍写 Lean；交换的是版本化文件，不是 Lean 对象。见 D-057 与
+[Lean/Rust 边界设计](../superpowers/specs/2026-07-15-lean-rust-boundary-design.md)
+（实现延期至主三链 cutover 稳定）。

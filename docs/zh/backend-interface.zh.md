@@ -41,3 +41,5 @@ Mollusk/Surfpool/Pinocchio 套件；NEAR 使用 `wat2wasm` 和 offline host。�
 工具的 live-network 套件保持可选，不进入默认 required CI。
 
 另见[规范编译器架构](architecture.zh.md)和[验证门禁](validation-gates.zh.md)。
+未来可选的 Rust 后端仍从同一 checked-Core + CapabilityPlan 边界起步（D-057）；
+见 [Lean/Rust 边界设计](../superpowers/specs/2026-07-15-lean-rust-boundary-design.md)。
