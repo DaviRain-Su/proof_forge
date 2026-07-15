@@ -4645,3 +4645,22 @@ Rules:
   `Tests/Canonical/EvmDirectProducts.lean` still stops at its pre-existing
   RemoteCall fixture and was not counted as StatusMessage evidence. No full
   aggregate was run.
+
+## 2026-07-15 - CMP-3h1: pin independent StatusMessage references
+
+- Status: `done (verified at 8bd968fb)`; CMP-3h2 primary-triad VM execution is
+  now active, and all four new semantic assets remain deliberately unverified.
+- Added independent Solidity and Pinocchio implementations and corrected the
+  near-sdk reference to store the target-owned u64 identity projection. EVM
+  narrows the full address; Solana and NEAR hash the full native identity before
+  reading digest word zero little-endian.
+- Added complete v1 provenance manifests and a five-step scenario covering
+  initialize, map write/read 7, overwrite/read 99, ordered `StatusSet` events,
+  and all eight required observation dimensions. Inventory now contains 130
+  assets and still exactly 36 verified assets.
+- Verification: failing-first focused contract test; Solidity 0.8.30 compile;
+  Pinocchio host test and cargo-build-sbf 3.1.12/platform-tools v1.52 build;
+  near-sdk host test and Rust 1.94.0 Wasm build; `just
+  near-compare-status-message`; sandbox typecheck; `just
+  differential-contracts`; source-digest audit; and `git diff --check`. No full
+  aggregate was run.

@@ -275,6 +275,21 @@ CMP-3g2 完成证据（2026-07-15）：`just differential-array-example`
 恰有 36 项 verified。下一个 A-CUT3 切片先增加 target-neutral direct map
 authoring，再迁移 StatusMessage；不会重开 Legacy frontend 路线。
 
+StatusMessage map/event 执行切片：
+
+| 切片 | 状态 | 范围 |
+|---|---|---|
+| CMP-3h1 | done（在 `8bd968fb` 验证） | 固定独立 Solidity、Pinocchio 与 near-sdk StatusMessage reference，并定义一个五步版本化 map/event 场景。所有新增语义资产保持 `none`。 |
+| CMP-3h2 | in_progress | 在 Anvil、Mollusk 与 upstream `near-vm-runner` 上执行 direct Authored artifact 与原生 reference；在晋级前比较 caller-projected state、ordered event、return、interface 与 target-local resource。 |
+
+CMP-3h1 完成证据（2026-07-15）：三份原生 source 显式实现各 target 的
+caller-to-u64 projection，而不是将其隐藏进 shared IR。场景覆盖 initialize、
+写入/读回 7、覆盖/读回 99 和全部八个 observation dimension。Solidity
+0.8.30、Pinocchio host/SBF 构建与 near-sdk host/Rust 1.94.0 Wasm 构建通过。
+所有 v1 source digest 均已固定；inventory 现含 130 项资产，仍恰有 36 项
+verified。三份 reference 与 scenario 保持 `none`，被调用 NEAR v0 manifest
+保留到 CMP-3h2 用可执行证据替换它。
+
 验收：ValueVault 在主三链通过状态快照和负面用例；每个代表族有明确 observation contract 和诚实 support matrix；A-CUT3 不能仅靠 golden artifact 宣称迁移完成。
 
 ### CMP-SOL - Solana extension conformance

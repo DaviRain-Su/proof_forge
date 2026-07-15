@@ -66,7 +66,7 @@ add target-specific operations to portable IR. A-CUT1e-c2 is complete.
 | CMP-0 | Inventory and version the shared provenance/scenario/observation contracts | done (verified at `6273dfe2`) | 85 tracked assets; 35 v0 manifests migrate explicitly but remain semantically ineligible |
 | CMP-1 | Implement fail-closed normalized observation and coverage validation | done (verified at `25ef8eb3`) | 23 focused contract/comparator tests; target-local resources cannot become a cross-chain score |
 | CMP-2 | Counter native pilot: Solidity EVM, Rust Solana, Rust NEAR | done (verified at `bec50074`) | closes A-CUT2 with complete primary-triad v1 evidence |
-| CMP-3 | ValueVault and representative stateful portable families | in_progress | five primary-triad families are verified through `0035138e`; StatusMessage is direct at `2ea8b134` and CMP-3h1 now pins its independent map/event references |
+| CMP-3 | ValueVault and representative stateful portable families | in_progress | five primary-triad families are verified through `0035138e`; StatusMessage references are pinned at `8bd968fb` with all four new semantic assets still `none`, and CMP-3h2 VM execution is active |
 | CMP-SOL | Account/PDA/CPI conformance against independent Solana Rust references | pending with IR-B5 | IR-B5 exit |
 | CMP-NEAR | Replay existing Rust/Sandbox references from canonical-only artifacts | pending with NEAR-R4 | NEAR-R4 exit |
 | CMP-EVM | Normalize independent Solidity references and EVM observations | pending with A-CUT3 | A-CUT3 EVM slices |

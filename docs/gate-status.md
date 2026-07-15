@@ -257,6 +257,20 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | CMP-3g2-3 | Positive and negative behavior match completely | ✅ met | length 3, element 20, sum 60, and normalized out-of-bounds failure match across all eight observation dimensions; no state, balance, event, or external-action effects are observed |
 | CMP-3g2-4 | Evidence promotion is fail-closed and replaces v0 | ✅ met | the called NEAR v0 manifest is deleted; inventory contains 125 assets and exactly 36 verified assets, including the three references, scenario, runner, and focused gate |
 
+## Gate CMP-3h1 - Independent StatusMessage reference contracts
+
+**Status: Closed for reference pinning only**
+
+**Closed: 2026-07-15 at `8bd968fb`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| CMP-3h1-1 | Every primary target has an independent native reference | ✅ met | Solidity, Pinocchio Rust, and near-sdk Rust implement init, caller-projected map writes/reads, and `StatusSet` without importing ProofForge compiler or IR modules; all v1 manifests match their source SHA-256 |
+| CMP-3h1-2 | Caller identity projection remains target-owned and explicit | ✅ met | EVM narrows the full address to u64, Solana hashes the full authority pubkey then reads digest word zero little-endian, and NEAR hashes the full predecessor AccountId then reads the same u64 limb |
+| CMP-3h1-3 | The scenario covers overwrite, readback, state, and events | ✅ met | the five-step v1 scenario initializes, writes 7, reads 7, overwrites with 99, and reads 99 while requiring all eight observation dimensions |
+| CMP-3h1-4 | Native sources build with pinned target toolchains | ✅ met | Solidity 0.8.30 compiles; the Pinocchio host test and cargo-build-sbf 3.1.12/platform-tools v1.52 pass; near-sdk host tests and Rust 1.94.0 Wasm build pass |
+| CMP-3h1-5 | Reference pinning does not claim VM equivalence | ✅ met | inventory contains 130 assets and exactly 36 verified assets; all three references and the scenario remain `semanticEvidence=none`, and the called NEAR v0 manifest remains explicit CMP-3h2 deletion work |
+
 ## Gate CMP-3d1 - Independent Ownable reference contracts
 
 **Status: Closed**

@@ -250,6 +250,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | CMP-3g2-3 | 正向与负向行为完整匹配 | ✅ met | 长度 3、元素 20、求和 60 与归一化越界失败在全部八个 observation dimension 上一致；未观察到 state、balance、event 或 external-action 效果 |
 | CMP-3g2-4 | 证据晋级 fail-closed 并替换 v0 | ✅ met | 被调用的 NEAR v0 manifest 已删除；inventory 包含 125 项资产和恰好 36 项 verified，包括三个 reference、scenario、runner 与 focused gate |
 
+## Gate CMP-3h1 —— 独立 StatusMessage reference 契约
+
+**状态：仅 reference 固定阶段已关闭**
+
+**关闭时间：2026-07-15，提交 `8bd968fb`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| CMP-3h1-1 | 每个主 target 都有独立原生 reference | ✅ met | Solidity、Pinocchio Rust 与 near-sdk Rust 实现 init、caller-projected map write/read 与 `StatusSet`，不导入 ProofForge compiler 或 IR module；所有 v1 manifest 均匹配 source SHA-256 |
+| CMP-3h1-2 | caller identity projection 保持 target-owned 且显式 | ✅ met | EVM 将完整 address 收窄为 u64；Solana 哈希完整 authority pubkey 后以 little-endian 读取 digest word zero；NEAR 哈希完整 predecessor AccountId 后读取同一 u64 limb |
+| CMP-3h1-3 | 场景覆盖 overwrite、readback、state 与 event | ✅ met | 五步 v1 场景执行 initialize、写入 7、读回 7、覆盖为 99、读回 99，并要求全部八个 observation dimension |
+| CMP-3h1-4 | 原生 source 使用固定目标工具链构建 | ✅ met | Solidity 0.8.30 编译通过；Pinocchio host test 与 cargo-build-sbf 3.1.12/platform-tools v1.52 通过；near-sdk host test 与 Rust 1.94.0 Wasm 构建通过 |
+| CMP-3h1-5 | reference 固定不宣称 VM 等价 | ✅ met | inventory 包含 130 项资产和恰好 36 项 verified；三个 reference 与 scenario 均保持 `semanticEvidence=none`，被调用 NEAR v0 manifest 仍是 CMP-3h2 的显式删除工作 |
+
 ## Gate CMP-3d1 —— 独立 Ownable reference 契约
 
 **状态：已关闭**

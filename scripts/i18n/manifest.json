@@ -39,10 +39,10 @@
     "note": "initial native differential validation design"
   },
   "docs/superpowers/plans/2026-07-14-cross-target-native-differential.md": {
-    "sha256": "72b30006eb7d15d488a781935100fca40cc0cf998d1055fb5715f45be8f39eba",
+    "sha256": "83fa145bb8aa15cb8137792a8899c6d606cdbd7e7009f4bf706ae46a34a60c85",
     "zh": "docs/zh/superpowers/plans/2026-07-14-cross-target-native-differential.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through verified CMP-3g2 and active direct map authoring"
+    "note": "manually synced through verified CMP-3h1 and active StatusMessage VM execution"
   },
   "docs/capability-registry.md": {
     "sha256": "15c07590251894b4d8dbf6baf927ee6d4a5d80ea69a74ce02e79e0da3168ac4c",
@@ -74,10 +74,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "e437391f9222667ffe987712935a88f5e229df984441cd6cc81256116a6372cb",
+    "sha256": "632151c09e3962b5b95d7d688ff6bb1d184aca1934c3f8a5e9ffed6ebb6fb5a9",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through verified StatusMessage direct cutover and active CMP-3h1"
+    "note": "synced EN/zh through verified CMP-3h1 and active CMP-3h2"
   },
   "docs/review-checklist.md": {
     "sha256": "c0101e0013610519412a5dc9bd2cdc1ea4dbbd67836ddcceedc16aa35598a56f",
@@ -184,10 +184,10 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "3cadd7f85de034c6cf251528554c522c33119177d07f49086ec7dfa1cff5b5b5",
+    "sha256": "f69a284041749a5b4d0d64c961b1ea2de37fe5e273988df8fc78946fb75db748",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "3cadd7f85de034c6cf251528554c522c33119177d07f49086ec7dfa1cff5b5b5"
+    "en_sha256": "f69a284041749a5b4d0d64c961b1ea2de37fe5e273988df8fc78946fb75db748"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {

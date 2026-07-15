@@ -26,8 +26,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | CMP-3h1 - pin independent StatusMessage references and a versioned map/event scenario without claiming VM equivalence |
-| Next task | CMP-3h2 - execute direct StatusMessage and native references on Anvil, Mollusk, and upstream `near-vm-runner` |
+| Active task | CMP-3h2 - execute direct StatusMessage and native references on Anvil, Mollusk, and upstream `near-vm-runner` |
+| Next task | A-CUT3f1 - identify the target-neutral primitives required to move Product GuestBook onto the direct-only route |
 | Validation track | CMP-0 is done at `6273dfe2`; CMP-1 at `25ef8eb3`; A-CUT2/CMP-2 at `bec50074`; ValueVault, Ownable, Pausable, ReentrancyGuard, and ArrayExample primary-triad VM evidence is verified through `0035138e` |
 | Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
 | Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
@@ -186,7 +186,7 @@ Native-reference differential validation follows
 It extends the existing testkit, NEAR Sandbox, Solana Pinocchio, EVM runtime,
 and Stylus differential assets; it is not another compiler route. CMP-0 is
 done at `6273dfe2`, CMP-1 at `25ef8eb3`, and A-CUT2/CMP-2 at `bec50074`.
-CMP-3 is the active A-CUT3 catalog evidence; ArrayExample is complete and direct map authoring is next. CMP-SOL attaches to IR-B5, CMP-NEAR
+CMP-3 is the active A-CUT3 catalog evidence; StatusMessage references are pinned at `8bd968fb` and VM execution is active. CMP-SOL attaches to IR-B5, CMP-NEAR
 attaches to NEAR-R4, and the final fail-closed matrix attaches to IR-B8/A-CUT5.
 
 The D-052 cross-program routing index remains below for work not superseded by

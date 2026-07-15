@@ -334,6 +334,22 @@ deleted. Inventory now contains 125 assets and exactly 36 verified assets.
 The next A-CUT3 slice adds target-neutral direct map authoring before migrating
 StatusMessage; it does not reopen a Legacy frontend path.
 
+StatusMessage map/event execution slices:
+
+| Slice | State | Scope |
+|---|---|---|
+| CMP-3h1 | done (verified at `8bd968fb`) | Pin independent Solidity, Pinocchio, and near-sdk StatusMessage references plus one five-step versioned map/event scenario. Keep every new semantic asset at `none`. |
+| CMP-3h2 | in_progress | Execute the direct Authored artifact and native references on Anvil, Mollusk, and upstream `near-vm-runner`; compare caller-projected state, ordered events, returns, interfaces, and target-local resources before promotion. |
+
+CMP-3h1 completion evidence (2026-07-15): the three native sources explicitly
+implement each target's caller-to-u64 projection instead of hiding it in shared
+IR. The scenario covers initialize, write/read 7, overwrite/read 99, and all
+eight observation dimensions. Solidity 0.8.30, the Pinocchio host/SBF builds,
+and near-sdk host/Rust 1.94.0 Wasm builds pass. Every v1 source digest is pinned;
+inventory now contains 130 assets and still exactly 36 verified assets. The
+three references and scenario remain `none`, and the called NEAR v0 manifest is
+retained until CMP-3h2 replaces it with executable evidence.
+
 Acceptance:
 
 - ValueVault passes the primary triad with state snapshots and negative cases.
