@@ -30,7 +30,11 @@ sourceHash、semanticHash、planHash、TargetIR hash、所有 artifact hash 和 
 
 ## Clean-room Gate
 
-1. `git archive` 只包含 `new_design/` allowlist；扫描拒绝 symlink 和指向外部的 submodule。
+0. 调用者以 `env -i` + `/bin/bash --noprofile --norc` 直接执行 Stage-0
+   `--require-eligible`；只有最小 bootstrap 与 Xcode closure 验证后才可启动锁定的 direct
+   Python 完成 live attestation，失败时不得启动 Git 或正式 clean-room。
+1. 以已验证的 direct Git 对 committed `new_design/` tree 生成 archive；扫描拒绝 symlink 和
+   指向外部的 submodule，并绑定 candidate commit、launcher/bootstrap/lock digest。
 2. 解包到随机空目录，建立空 HOME、Lake cache、tool root 和 output。
 3. `env -i` 仅注入 HOME、XDG/Lake cache、TMPDIR、内部 source/output/tool root、PATH
    （只含锁定 tool shims）、TZ、LC_ALL、SOURCE_DATE_EPOCH。
@@ -49,7 +53,9 @@ Core 全断网、EVM localhost-only、clean build/test、四目标复现与 EVM 
 离线物化，不再读取 elan/Homebrew/Foundry install tree；物化本身使用 isolated/no-site
 Python、`env -i` 与 no-network sandbox，包含其 Lean/Lake/external version probes。Lean
 consumer 已在 commit `0b0aebda…643c8` 完成完整 development archive gate。当前 macOS host
-profile 不具备 hermetic 资格，deny-default sandbox/evidence 也未闭合。因此
+的 H0 development attestation 已闭合，但 formal mode 因 broken seal 与 current-user-mutable
+Xcode pathname 正确拒绝；这只是 local、point-in-time observation。deny-default
+sandbox/evidence 也未闭合。因此
 `TASK-D0-03` 仍在进行，`TASK-D0-04` 仍为 blocked。
 
 ## Cache Policy

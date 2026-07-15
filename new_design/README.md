@@ -72,6 +72,13 @@ commit `0b0aebda…643c8` 已完成这条完整 development clean-room gate（ar
 deny-default sandbox 与 schema evidence 尚未完成。因此不能作为正式 hermetic 或 release
 evidence。
 
+H0 现已能由外部净化入口先验证固定 bootstrap 与 Xcode bundle，避免启动任何未验证的
+Git/Python；随后只启动已锁定的 direct Xcode Python 完成 live host profile observation，
+并在 development 模式输出规范化结果。正式模式会 fail closed：当前机器同时因
+system-volume seal broken 和 Xcode pathname 可由当前 admin 用户替换而不具备 hermetic 资格。
+这不是 remote attestation；deny-default sandbox 与正式 evidence schema 仍未完成，所以
+`v2-clean-room-alpha` 仍不是 release gate。
+
 ## 文档权威顺序
 
 1. 已接受 ADR 与 PRD。

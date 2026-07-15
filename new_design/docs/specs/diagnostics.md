@@ -55,6 +55,8 @@ major version 内稳定。多错误按 source location/code/context 排序；默
 | `PF-PLAN-INVARIANT` | Plan 非法 |
 | `PF-LOWER-INVARIANT` | TargetIR 非法 |
 | `PF-TOOLCHAIN-MISMATCH` | tool missing/version/hash mismatch |
+| `PF-HOST-STAGE0` | Stage-0 record、bootstrap digest、签名或启动环境无效 |
+| `PF-HOST-INELIGIBLE` | live host 匹配 development profile，但不具备 formal hermetic 资格 |
 | `PF-ARTIFACT-INVALID` | 制品/manifest 校验失败 |
 | `PF-ARTIFACT-NONDEPLOYABLE` | 请求部署不可部署制品 |
 | `PF-SETTLEMENT-UNAVAILABLE` | 无 settlement adapter |

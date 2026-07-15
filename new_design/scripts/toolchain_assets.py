@@ -14,15 +14,19 @@ import hashlib
 import io
 import json
 import os
+import plistlib
 import posixpath
 import re
+import selectors
 import secrets
+import signal
 import shutil
 import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.parse
 import urllib.error
 import urllib.request
@@ -46,6 +50,10 @@ MAX_ZIP_ENTRY_METADATA_BYTES = 1024 * 1024
 MAX_ZIP_TOTAL_METADATA_BYTES = 64 * 1024 * 1024
 MAX_OCI_TOKEN_BYTES = 64 * 1024
 MAX_HTTPS_REDIRECTS = 5
+MAX_HOST_COMMAND_OUTPUT_BYTES = 1024 * 1024
+DEFAULT_HOST_COMMAND_TIMEOUT_SECONDS = 15
+XCODE_VERIFY_TIMEOUT_SECONDS = 180
+FILE_MODE_RE = re.compile(r"0[0-7]{3}")
 MACHO_MAGICS = {
     b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",  # universal 32-bit
     b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca",  # universal 64-bit
@@ -85,6 +93,12 @@ def require_sha256(value: object, where: str) -> str:
     if SHA256_RE.fullmatch(text) is None:
         fail(f"{where} must be a lowercase SHA-256")
     return text
+
+
+def require_nullable_string(value: object, where: str) -> str | None:
+    if value is None:
+        return None
+    return require_string(value, where)
 
 
 def require_keys(value: dict, required: set[str], where: str,
@@ -461,8 +475,8 @@ def validate_host_lock(lock: dict) -> dict:
     if lock.get("schema") != "proof-forge.host-profiles.v1":
         fail("unsupported host profile lock schema")
     profiles = require_list(lock.get("profiles"), "profiles")
-    if not profiles:
-        fail("host profile lock must contain at least one profile")
+    if len(profiles) != 1:
+        fail("host profile lock must contain exactly one profile")
     unique_sorted(profiles, "id", "profiles")
     for index, raw in enumerate(profiles):
         profile = require_dict(raw, f"profiles[{index}]")
@@ -481,6 +495,12 @@ def validate_host_lock(lock: dict) -> dict:
             require_string(platform.get(field), f"profile {profile_id}.platform.{field}")
         if not isinstance(platform.get("procTranslated"), bool):
             fail(f"profile {profile_id}.platform.procTranslated must be boolean")
+        if platform["sip"] not in {"disabled", "enabled"}:
+            fail(f"profile {profile_id}.platform.sip has an unsupported value")
+        if platform["authenticatedRoot"] not in {"disabled", "enabled"}:
+            fail(f"profile {profile_id}.platform.authenticatedRoot has an unsupported value")
+        if platform["systemVolumeSeal"] not in {"broken", "sealed", "unsealed"}:
+            fail(f"profile {profile_id}.platform.systemVolumeSeal has an unsupported value")
         if not isinstance(profile.get("eligibleForHermetic"), bool):
             fail(f"profile {profile_id}.eligibleForHermetic must be boolean")
         if profile["eligibleForHermetic"]:
@@ -518,27 +538,102 @@ def validate_host_lock(lock: dict) -> dict:
         unique_sorted(tools, "id", f"profile {profile_id}.systemTools")
         for tool in tools:
             tool = require_dict(tool, f"profile {profile_id}.systemTools[]")
-            require_keys(tool, {"id", "path", "sha256"},
+            require_keys(tool, {
+                "id", "path", "sha256", "nodeKind", "linkTarget", "resolvedPath",
+                "resolvedNlink", "mode",
+            },
                          f"profile {profile_id}.systemTools[]")
             require_safe_asset_id(tool.get("id"), f"profile {profile_id} system tool id")
-            require_absolute_file_path(tool.get("path"),
-                                       f"profile {profile_id} system tool path")
+            path = require_absolute_file_path(tool.get("path"),
+                                              f"profile {profile_id} system tool path")
             require_sha256(tool.get("sha256"), f"profile {profile_id} system tool sha256")
+            node_kind = tool.get("nodeKind")
+            if node_kind not in {"regular", "symlink"}:
+                fail(f"profile {profile_id} system tool nodeKind must be regular or symlink")
+            link_target = require_nullable_string(
+                tool.get("linkTarget"), f"profile {profile_id} system tool linkTarget")
+            if node_kind == "regular" and link_target is not None:
+                fail(f"profile {profile_id} regular system tool must have null linkTarget")
+            if node_kind == "symlink":
+                if link_target is None:
+                    fail(f"profile {profile_id} symlink system tool must lock linkTarget")
+                if "\x00" in link_target or "\\" in link_target:
+                    fail(f"profile {profile_id} system tool linkTarget is invalid")
+                if posixpath.normpath(link_target) != link_target:
+                    fail(f"profile {profile_id} system tool linkTarget must be normalized")
+            resolved_path = require_absolute_file_path(
+                tool.get("resolvedPath"), f"profile {profile_id} system tool resolvedPath")
+            if node_kind == "regular" and resolved_path != path:
+                fail(f"profile {profile_id} regular system tool must resolve to itself")
+            resolved_nlink = tool.get("resolvedNlink")
+            if (not isinstance(resolved_nlink, int) or isinstance(resolved_nlink, bool) or
+                    resolved_nlink < 1):
+                fail(f"profile {profile_id} system tool resolvedNlink must be positive")
+            mode = require_string(tool.get("mode"),
+                                  f"profile {profile_id} system tool mode")
+            if FILE_MODE_RE.fullmatch(mode) is None:
+                fail(f"profile {profile_id} system tool mode must be a four-digit octal mode")
         developer = require_dict(profile.get("developerTools"), f"profile {profile_id}.developerTools")
         require_keys(developer, {
-            "developerDir", "xcodeVersion", "xcodeBuildVersion", "gitPath", "gitSha256",
-            "gitVersion", "otoolPath", "otoolSha256", "pythonPath", "pythonSha256",
+            "developerDir", "xcodeAppPath", "xcodeVersion", "xcodeBuildVersion",
+            "xcodeIdentifier", "xcodeTeamIdentifier", "xcodeDesignatedRequirement",
+            "xcodeCdHash", "xcodeMutableByCurrentUser", "allowedRuntimeRoots",
+            "gitPath", "gitSha256", "gitVersion", "otoolPath", "otoolSha256",
+            "otoolVersion", "pythonDispatchPath", "pythonPath", "pythonSha256",
             "pythonVersion",
         }, f"profile {profile_id}.developerTools")
-        require_absolute_file_path(developer.get("developerDir"),
-                                   f"profile {profile_id}.developerTools.developerDir")
-        for field in ("xcodeVersion", "xcodeBuildVersion", "gitVersion", "pythonVersion"):
+        developer_dir = require_absolute_file_path(
+            developer.get("developerDir"), f"profile {profile_id}.developerTools.developerDir")
+        xcode_app = require_absolute_file_path(
+            developer.get("xcodeAppPath"), f"profile {profile_id}.developerTools.xcodeAppPath")
+        if not developer_dir.startswith(xcode_app + "/"):
+            fail(f"profile {profile_id} developerDir must be inside xcodeAppPath")
+        for field in (
+                "xcodeVersion", "xcodeBuildVersion", "xcodeIdentifier",
+                "xcodeTeamIdentifier", "xcodeDesignatedRequirement", "gitVersion",
+                "otoolVersion", "pythonVersion"):
             require_string(developer.get(field), f"profile {profile_id}.developerTools.{field}")
+        if re.fullmatch(r"[0-9a-f]{40}", str(developer.get("xcodeCdHash"))) is None:
+            fail(f"profile {profile_id}.developerTools.xcodeCdHash must be lowercase 40-hex")
+        if not isinstance(developer.get("xcodeMutableByCurrentUser"), bool):
+            fail(f"profile {profile_id}.developerTools.xcodeMutableByCurrentUser must be boolean")
+        developer_roots = require_list(
+            developer.get("allowedRuntimeRoots"),
+            f"profile {profile_id}.developerTools.allowedRuntimeRoots")
+        if (not developer_roots or developer_roots != sorted(developer_roots) or
+                len(developer_roots) != len(set(developer_roots))):
+            fail(f"profile {profile_id} developer runtime roots must be non-empty, unique, and sorted")
+        for root_index, root in enumerate(developer_roots):
+            require_absolute_directory_prefix(
+                root, f"profile {profile_id}.developerTools.allowedRuntimeRoots[{root_index}]")
+        if xcode_app + "/" not in developer_roots:
+            fail(f"profile {profile_id} developer runtime roots must include xcodeAppPath")
         for field in ("gitSha256", "pythonSha256", "otoolSha256"):
             require_sha256(developer.get(field), f"profile {profile_id}.developerTools.{field}")
-        for field in ("gitPath", "pythonPath", "otoolPath"):
-            require_absolute_file_path(developer.get(field),
-                                       f"profile {profile_id}.developerTools.{field}")
+        for field in ("gitPath", "pythonDispatchPath", "pythonPath", "otoolPath"):
+            path = require_absolute_file_path(developer.get(field),
+                                              f"profile {profile_id}.developerTools.{field}")
+            if not path.startswith(developer_dir + "/"):
+                fail(f"profile {profile_id}.developerTools.{field} must be inside developerDir")
+
+        eligible_state = (
+            platform["arch"] == "arm64" and
+            not platform["procTranslated"] and
+            platform["sip"] == "enabled" and
+            platform["authenticatedRoot"] == "enabled" and
+            platform["systemVolumeSeal"] == "sealed" and
+            not developer["xcodeMutableByCurrentUser"]
+        )
+        if profile["eligibleForHermetic"] and not eligible_state:
+            fail(f"profile {profile_id} is marked eligible but does not satisfy the host policy")
+
+        bootstrap = profile["digestBootstrap"]
+        matching_bootstrap = [
+            tool for tool in tools if tool["path"] == bootstrap["path"]
+        ]
+        if (len(matching_bootstrap) != 1 or
+                matching_bootstrap[0]["sha256"] != bootstrap["sha256"]):
+            fail(f"profile {profile_id} digest bootstrap must match one locked system tool")
     return lock
 
 
@@ -550,12 +645,29 @@ def validate_lock_pair(tool_lock: dict, host_lock: dict) -> None:
             fail(f"profile {profile['id']} system runtime roots disagree with Mach-O policy")
 
 
+def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            fail(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def parse_json_text(text: str, where: str) -> dict:
+    try:
+        value = json.loads(text, object_pairs_hook=reject_duplicate_json_keys)
+    except (AssetError, json.JSONDecodeError) as error:
+        fail(f"cannot parse {where}: {error}")
+    return require_dict(value, where)
+
+
 def load_json(path: Path) -> dict:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
         fail(f"cannot read {path}: {error}")
-    return require_dict(value, str(path))
+    return parse_json_text(text, str(path))
 
 
 def load_locks(tool_path: Path, host_path: Path) -> tuple[dict, dict]:
@@ -929,6 +1041,420 @@ def sha256_regular_snapshot(path: Path, expected_metadata: os.stat_result,
         if any(getattr(before, field) != getattr(after, field) for field in stable_fields):
             fail(f"{where} changed while being hashed")
         return digest
+
+
+def bounded_host_command(argv: list[str], *, input_bytes: bytes | None = None,
+                         timeout: int = DEFAULT_HOST_COMMAND_TIMEOUT_SECONDS,
+                         max_output: int = MAX_HOST_COMMAND_OUTPUT_BYTES,
+                         extra_env: dict[str, str] | None = None,
+                         check: bool = True) -> subprocess.CompletedProcess[str]:
+    if (not argv or any(not isinstance(arg, str) or "\x00" in arg for arg in argv) or
+            not argv[0].startswith("/")):
+        fail("host command must use an absolute executable and valid string arguments")
+    if (not isinstance(timeout, int) or timeout < 1 or
+            not isinstance(max_output, int) or max_output < 1):
+        fail("host command limits must be positive integers")
+    if input_bytes is not None and len(input_bytes) > max_output:
+        fail("host command input exceeds the byte limit")
+    environment = {
+        "HOME": "/var/empty",
+        "LC_ALL": "C",
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "TZ": "UTC",
+    }
+    if extra_env is not None:
+        allowed = {"DYLD_PRINT_LIBRARIES"}
+        if set(extra_env) - allowed:
+            fail("host command requested a forbidden environment variable")
+        environment.update(extra_env)
+    process = subprocess.Popen(
+        argv,
+        stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+        close_fds=True,
+        start_new_session=True,
+    )
+
+    def kill_process_group() -> None:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
+    if process.stdout is None or process.stderr is None:
+        kill_process_group()
+        fail("host command pipes were not created")
+    if input_bytes is not None:
+        if process.stdin is None:
+            kill_process_group()
+            fail("host command input pipe was not created")
+        try:
+            process.stdin.write(input_bytes)
+            process.stdin.close()
+        except BrokenPipeError:
+            pass
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+    selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+    chunks: dict[str, list[bytes]] = {"stdout": [], "stderr": []}
+    total = 0
+    deadline = time.monotonic() + timeout
+    try:
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                kill_process_group()
+                fail(f"host command timed out after {timeout}s: {argv[0]}")
+            events = selector.select(remaining)
+            if not events:
+                kill_process_group()
+                fail(f"host command timed out after {timeout}s: {argv[0]}")
+            for key, _ in events:
+                data = os.read(key.fileobj.fileno(), min(64 * 1024, max_output + 1 - total))
+                if not data:
+                    selector.unregister(key.fileobj)
+                    key.fileobj.close()
+                    continue
+                chunks[key.data].append(data)
+                total += len(data)
+                if total > max_output:
+                    kill_process_group()
+                    fail(f"host command output exceeded {max_output} bytes: {argv[0]}")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            kill_process_group()
+            fail(f"host command timed out after {timeout}s: {argv[0]}")
+        returncode = process.wait(timeout=remaining)
+    finally:
+        selector.close()
+        if process.poll() is None:
+            kill_process_group()
+    try:
+        stdout = b"".join(chunks["stdout"]).decode("utf-8", errors="strict")
+        stderr = b"".join(chunks["stderr"]).decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        fail(f"host command emitted non-UTF-8 output: {argv[0]}")
+    result = subprocess.CompletedProcess(argv, returncode, stdout, stderr)
+    if check and returncode != 0:
+        detail = (stderr or stdout).strip().replace("\n", " ")[:512]
+        fail(f"host command failed ({returncode}): {argv[0]}: {detail}")
+    return result
+
+
+def require_host_tool(tools: dict[str, dict], tool_id: str) -> dict:
+    record = tools.get(tool_id)
+    if record is None:
+        fail(f"host profile is missing required system tool {tool_id}")
+    return record
+
+
+def verify_locked_regular(path: Path, expected_hash: str, where: str,
+                          *, require_root_owner: bool = True) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        fail(f"{where} is missing: {path}")
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+        fail(f"{where} must be a regular non-symlink file: {path}")
+    if require_root_owner and metadata.st_uid != 0:
+        fail(f"{where} must be owned by root: {path}")
+    if sha256_regular_snapshot(path, metadata, where) != expected_hash:
+        fail(f"{where} hash mismatch: {path}")
+    return metadata
+
+
+def verify_system_tool_nodes(profile: dict) -> dict[str, dict]:
+    tools = {record["id"]: record for record in profile["systemTools"]}
+    for tool_id in sorted(tools):
+        record = tools[tool_id]
+        path = Path(record["path"])
+        try:
+            node = path.lstat()
+        except FileNotFoundError:
+            fail(f"system tool {tool_id} is missing: {path}")
+        if node.st_uid != 0:
+            fail(f"system tool {tool_id} pathname is not root-owned")
+        if record["nodeKind"] == "regular":
+            if not stat.S_ISREG(node.st_mode) or stat.S_ISLNK(node.st_mode):
+                fail(f"system tool {tool_id} node kind mismatch")
+        elif not stat.S_ISLNK(node.st_mode):
+            fail(f"system tool {tool_id} node kind mismatch")
+        if stat.S_ISLNK(node.st_mode):
+            if os.readlink(path) != record["linkTarget"]:
+                fail(f"system tool {tool_id} symlink target mismatch")
+        try:
+            resolved = path.resolve(strict=True)
+        except (FileNotFoundError, RuntimeError) as error:
+            fail(f"system tool {tool_id} cannot be resolved: {error}")
+        if str(resolved) != record["resolvedPath"]:
+            fail(f"system tool {tool_id} resolved path mismatch: {resolved}")
+        resolved_metadata = verify_locked_regular(
+            resolved, record["sha256"], f"system tool {tool_id}")
+        if resolved_metadata.st_nlink != record["resolvedNlink"]:
+            fail(f"system tool {tool_id} resolved link count mismatch")
+        if stat.S_IMODE(resolved_metadata.st_mode) != int(record["mode"], 8):
+            fail(f"system tool {tool_id} resolved mode mismatch")
+        after = path.lstat()
+        if any(getattr(node, field) != getattr(after, field)
+               for field in ("st_dev", "st_ino", "st_mode", "st_nlink", "st_uid", "st_size")):
+            fail(f"system tool {tool_id} pathname changed during verification")
+        if stat.S_ISLNK(after.st_mode) and os.readlink(path) != record["linkTarget"]:
+            fail(f"system tool {tool_id} symlink changed during verification")
+    return tools
+
+
+def verify_code_signatures(tools: dict[str, dict], paths: list[Path]) -> None:
+    codesign = Path(require_host_tool(tools, "codesign")["resolvedPath"])
+    for path in paths:
+        bounded_host_command([str(codesign), "--verify", "--strict", str(path)])
+
+
+def parse_single_prefixed_line(output: str, prefix: str, where: str) -> str:
+    matches = [line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)]
+    if len(matches) != 1 or not matches[0]:
+        fail(f"cannot parse {where}")
+    return matches[0]
+
+
+def normalized_csrutil_state(output: str, prefix: str, where: str) -> str:
+    match = re.fullmatch(re.escape(prefix) + r" (enabled|disabled)\.?\n?", output)
+    if match is None:
+        fail(f"cannot parse {where}")
+    return match.group(1)
+
+
+def normalized_volume_seal(output: bytes) -> str:
+    try:
+        record = plistlib.loads(output)
+    except (plistlib.InvalidFileException, ValueError) as error:
+        fail(f"cannot parse diskutil seal evidence: {error}")
+    if not isinstance(record, dict) or "Sealed" not in record:
+        fail("diskutil seal evidence is missing Sealed")
+    observed = record["Sealed"]
+    if observed is True or observed in {"Yes", "Sealed"}:
+        return "sealed"
+    if observed is False or observed in {"No", "Unsealed"}:
+        return "unsealed"
+    if observed == "Broken":
+        return "broken"
+    fail(f"diskutil returned an unsupported seal state: {observed!r}")
+
+
+def xcode_path_mutable_by_current_user(xcode_app: Path) -> bool:
+    candidate = xcode_app
+    while True:
+        try:
+            metadata = candidate.lstat()
+        except FileNotFoundError:
+            fail(f"Xcode pathname ancestor is missing: {candidate}")
+        if stat.S_ISLNK(metadata.st_mode):
+            fail(f"Xcode pathname ancestor must not be a symlink: {candidate}")
+        if not stat.S_ISDIR(metadata.st_mode):
+            fail(f"Xcode pathname ancestor must be a directory: {candidate}")
+        if metadata.st_uid != 0:
+            return True
+        if os.access(candidate, os.W_OK | os.X_OK, effective_ids=True):
+            return True
+        parent = candidate.parent
+        if parent == candidate:
+            return False
+        candidate = parent
+
+
+def verify_runtime_probe(path: Path, args: list[str], expected_line: str,
+                         allowed_roots: tuple[str, ...], where: str) -> None:
+    probe = bounded_host_command(
+        [str(path), *args], extra_env={"DYLD_PRINT_LIBRARIES": "1"},
+    )
+    output = probe.stdout + probe.stderr
+    non_dyld_lines = [
+        line for line in output.splitlines()
+        if line and not line.startswith("dyld[")
+    ]
+    if expected_line not in non_dyld_lines:
+        fail(f"{where} version mismatch")
+    loaded: list[str] = []
+    for line in probe.stderr.splitlines():
+        match = re.fullmatch(r"dyld\[\d+\]: <[^>]+> (/.+)", line)
+        if match is not None:
+            loaded.append(match.group(1))
+    if not loaded:
+        fail(f"{where} runtime load observation was empty")
+    for loaded_path in loaded:
+        if not loaded_path.startswith("/") or posixpath.normpath(loaded_path) != loaded_path:
+            fail(f"{where} runtime emitted a non-canonical load path: {loaded_path}")
+        if not loaded_path.startswith(allowed_roots):
+            fail(f"{where} runtime escaped allowed roots: {loaded_path}")
+
+
+def verify_host(profile: dict, *, require_eligible: bool) -> None:
+    tools = verify_system_tool_nodes(profile)
+    required_ids = {
+        "codesign", "csrutil", "diskutil", "openssl", "sw_vers", "sysctl",
+        "uname", "xcode-select", "xcodebuild", "xcrun",
+    }
+    for tool_id in sorted(required_ids):
+        require_host_tool(tools, tool_id)
+    verify_code_signatures(
+        tools, [Path(record["resolvedPath"]) for record in profile["systemTools"]],
+    )
+
+    bootstrap = profile["digestBootstrap"]
+    digest_probe = bounded_host_command(
+        [bootstrap["path"], "dgst", "-sha256"],
+        input_bytes=bootstrap["knownAnswerInput"].encode("utf-8"),
+    )
+    digest_lines = [line.strip() for line in digest_probe.stdout.splitlines() if line.strip()]
+    if digest_lines != [bootstrap["knownAnswerSha256"]]:
+        fail("digest bootstrap known-answer test failed")
+
+    platform = profile["platform"]
+    sw_vers = require_host_tool(tools, "sw_vers")["resolvedPath"]
+    uname = require_host_tool(tools, "uname")["resolvedPath"]
+    sysctl = require_host_tool(tools, "sysctl")["resolvedPath"]
+    csrutil = require_host_tool(tools, "csrutil")["resolvedPath"]
+    diskutil = require_host_tool(tools, "diskutil")["resolvedPath"]
+    observed_platform = {
+        "productVersion": bounded_host_command([sw_vers, "-productVersion"]).stdout.strip(),
+        "buildVersion": bounded_host_command([sw_vers, "-buildVersion"]).stdout.strip(),
+        "kernelRelease": bounded_host_command([uname, "-r"]).stdout.strip(),
+        "arch": bounded_host_command([uname, "-m"]).stdout.strip(),
+    }
+    translated_text = bounded_host_command(
+        [sysctl, "-in", "sysctl.proc_translated"]
+    ).stdout.strip()
+    if translated_text not in {"0", "1"}:
+        fail("sysctl.proc_translated must be 0 or 1")
+    observed_platform["procTranslated"] = translated_text == "1"
+    observed_platform["sip"] = normalized_csrutil_state(
+        bounded_host_command([csrutil, "status"]).stdout,
+        "System Integrity Protection status:", "SIP status",
+    )
+    observed_platform["authenticatedRoot"] = normalized_csrutil_state(
+        bounded_host_command([csrutil, "authenticated-root", "status"]).stdout,
+        "Authenticated Root status:", "authenticated-root status",
+    )
+    seal_probe = bounded_host_command([diskutil, "info", "-plist", "/"])
+    observed_platform["systemVolumeSeal"] = normalized_volume_seal(
+        seal_probe.stdout.encode("utf-8"))
+    if observed_platform != platform:
+        fail(f"host platform observation mismatch: expected={platform}, observed={observed_platform}")
+
+    developer = profile["developerTools"]
+    xcode_app = Path(developer["xcodeAppPath"])
+    developer_dir = Path(developer["developerDir"])
+    for path, label in ((xcode_app, "Xcode app"), (developer_dir, "developer directory")):
+        metadata = path.lstat()
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            fail(f"{label} must be a non-symlink directory")
+        if metadata.st_uid != 0:
+            fail(f"{label} must be root-owned")
+        if path.resolve(strict=True) != path:
+            fail(f"{label} pathname must be canonical")
+    mutable = xcode_path_mutable_by_current_user(xcode_app)
+    if mutable != developer["xcodeMutableByCurrentUser"]:
+        fail("Xcode current-user mutability observation mismatch")
+
+    codesign = Path(require_host_tool(tools, "codesign")["resolvedPath"])
+    bounded_host_command(
+        [str(codesign), "--verify", "--deep", "--strict", str(xcode_app)],
+        timeout=XCODE_VERIFY_TIMEOUT_SECONDS,
+    )
+    signature = bounded_host_command(
+        [str(codesign), "-d", "--verbose=4", str(xcode_app)],
+    ).stderr
+    signature_observed = {
+        "xcodeIdentifier": parse_single_prefixed_line(signature, "Identifier=", "Xcode identifier"),
+        "xcodeTeamIdentifier": parse_single_prefixed_line(
+            signature, "TeamIdentifier=", "Xcode team identifier"),
+        "xcodeCdHash": parse_single_prefixed_line(signature, "CDHash=", "Xcode CDHash"),
+    }
+    requirement_probe = bounded_host_command(
+        [str(codesign), "-d", "-r-", str(xcode_app)],
+    )
+    requirement_output = requirement_probe.stdout + requirement_probe.stderr
+    signature_observed["xcodeDesignatedRequirement"] = parse_single_prefixed_line(
+        requirement_output, "designated => ", "Xcode designated requirement")
+    for field, observed in signature_observed.items():
+        if observed != developer[field]:
+            fail(f"{field} mismatch")
+
+    xcode_select = require_host_tool(tools, "xcode-select")["resolvedPath"]
+    xcodebuild = require_host_tool(tools, "xcodebuild")["resolvedPath"]
+    xcrun = require_host_tool(tools, "xcrun")["resolvedPath"]
+    if bounded_host_command([xcode_select, "-p"]).stdout.strip() != str(developer_dir):
+        fail("xcode-select developer directory mismatch")
+    xcode_lines = [
+        line for line in bounded_host_command([xcodebuild, "-version"]).stdout.splitlines()
+        if line
+    ]
+    if xcode_lines != [
+            f"Xcode {developer['xcodeVersion']}",
+            f"Build version {developer['xcodeBuildVersion']}"]:
+        fail("xcodebuild version mismatch")
+    xcrun_probes = {
+        "git": developer["gitPath"],
+        "llvm-otool": developer["otoolPath"],
+        "python3": developer["pythonDispatchPath"],
+    }
+    for name, expected in xcrun_probes.items():
+        observed = bounded_host_command([xcrun, "--find", name]).stdout.strip()
+        if observed != expected:
+            fail(f"xcrun resolved path mismatch for {name}: {observed}")
+
+    python_dispatch = Path(developer["pythonDispatchPath"])
+    try:
+        dispatch_resolved = python_dispatch.resolve(strict=True)
+    except (FileNotFoundError, RuntimeError) as error:
+        fail(f"Python dispatch path cannot be resolved: {error}")
+    if str(dispatch_resolved) != developer["pythonPath"]:
+        fail("Python dispatch path does not resolve to locked Python")
+    if python_dispatch.lstat().st_uid != 0:
+        fail("Python dispatch pathname must be root-owned")
+
+    developer_paths = [
+        (Path(developer["gitPath"]), developer["gitSha256"], "Xcode Git"),
+        (Path(developer["otoolPath"]), developer["otoolSha256"], "Xcode otool"),
+        (Path(developer["pythonPath"]), developer["pythonSha256"], "Xcode Python"),
+    ]
+    for path, expected_hash, label in developer_paths:
+        verify_locked_regular(path, expected_hash, label)
+    verify_code_signatures(tools, [path for path, _, _ in developer_paths])
+    runtime_roots = tuple(
+        developer["allowedRuntimeRoots"] + profile["systemRuntime"]["allowedLoadRoots"])
+    verify_runtime_probe(
+        Path(developer["gitPath"]), ["--version"], developer["gitVersion"],
+        runtime_roots, "Xcode Git",
+    )
+    verify_runtime_probe(
+        Path(developer["otoolPath"]), ["--version"], developer["otoolVersion"],
+        runtime_roots, "Xcode otool",
+    )
+    verify_runtime_probe(
+        Path(developer["pythonPath"]), ["--version"], developer["pythonVersion"],
+        runtime_roots, "Xcode Python",
+    )
+
+    summary = {
+        "attestationScope": "local-observation-only",
+        "eligibleForHermetic": profile["eligibleForHermetic"],
+        "hostProfileId": profile["id"],
+        "platform": observed_platform,
+        "remoteAttestation": False,
+        "xcode": {
+            "buildVersion": developer["xcodeBuildVersion"],
+            "cdHash": developer["xcodeCdHash"],
+            "identifier": developer["xcodeIdentifier"],
+            "mutableByCurrentUser": mutable,
+            "version": developer["xcodeVersion"],
+        },
+    }
+    if require_eligible and not profile["eligibleForHermetic"]:
+        fail(f"PF-HOST-INELIGIBLE: {profile['id']}: {profile['ineligibilityReason']}")
+    print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
 
 
 def verify_external_tree(root: Path, bundle: dict[str, dict]) -> Path:
@@ -1660,6 +2186,14 @@ def materialize_lean(lock: dict, host_lock: dict, destination: Path) -> None:
 
 
 def self_test(lock: dict, host_lock: dict) -> None:
+    try:
+        parse_json_text('{"outer":{"id":"first","id":"second"}}',
+                        "duplicate-key self-test")
+    except AssetError:
+        pass
+    else:
+        fail("self-test failed to reject duplicate JSON keys")
+
     mutations: list[tuple[str, dict]] = []
     duplicate = copy.deepcopy(lock)
     duplicate["assets"].append(copy.deepcopy(duplicate["assets"][0]))
@@ -1720,6 +2254,44 @@ def self_test(lock: dict, host_lock: dict) -> None:
     relative_bootstrap = copy.deepcopy(host_lock)
     relative_bootstrap["profiles"][0]["digestBootstrap"]["path"] = "usr/bin/openssl"
     host_mutations.append(("relative digest bootstrap", relative_bootstrap))
+    multiple_profiles = copy.deepcopy(host_lock)
+    second_profile = copy.deepcopy(multiple_profiles["profiles"][0])
+    second_profile["id"] = second_profile["id"] + "-other"
+    multiple_profiles["profiles"].append(second_profile)
+    host_mutations.append(("multiple host profiles", multiple_profiles))
+    eligible_baseline = copy.deepcopy(host_lock)
+    eligible_profile = eligible_baseline["profiles"][0]
+    eligible_profile["eligibleForHermetic"] = True
+    eligible_profile["ineligibilityReason"] = None
+    eligible_profile["platform"].update({
+        "arch": "arm64",
+        "procTranslated": False,
+        "sip": "enabled",
+        "authenticatedRoot": "enabled",
+        "systemVolumeSeal": "sealed",
+    })
+    eligible_profile["developerTools"]["xcodeMutableByCurrentUser"] = False
+    validate_host_lock(eligible_baseline)
+    eligibility_mutations = (
+        ("non-arm64 eligible host", ("platform", "arch"), "x86_64"),
+        ("translated eligible host", ("platform", "procTranslated"), True),
+        ("SIP-disabled eligible host", ("platform", "sip"), "disabled"),
+        ("authenticated-root-disabled eligible host",
+         ("platform", "authenticatedRoot"), "disabled"),
+        ("unsealed eligible host", ("platform", "systemVolumeSeal"), "broken"),
+        ("mutable-Xcode eligible host",
+         ("developerTools", "xcodeMutableByCurrentUser"), True),
+    )
+    for name, (section, field), value in eligibility_mutations:
+        candidate = copy.deepcopy(eligible_baseline)
+        candidate["profiles"][0][section][field] = value
+        host_mutations.append((name, candidate))
+    invalid_node_kind = copy.deepcopy(host_lock)
+    invalid_node_kind["profiles"][0]["systemTools"][0]["nodeKind"] = "file"
+    host_mutations.append(("invalid system tool node kind", invalid_node_kind))
+    invalid_mode = copy.deepcopy(host_lock)
+    invalid_mode["profiles"][0]["systemTools"][0]["mode"] = "755"
+    host_mutations.append(("invalid system tool mode", invalid_mode))
     for name, candidate in host_mutations:
         try:
             validate_host_lock(candidate)
@@ -1896,6 +2468,9 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--root", type=Path, required=True)
     lean = commands.add_parser("materialize-lean")
     lean.add_argument("--destination", type=Path, required=True)
+    host = commands.add_parser("verify-host")
+    host.add_argument("--profile-id", required=True)
+    host.add_argument("--require-eligible", action="store_true")
     return parser
 
 
@@ -1919,6 +2494,11 @@ def main() -> None:
         verify_external(lock, host_lock, args.root)
     elif args.command == "materialize-lean":
         materialize_lean(lock, host_lock, args.destination.resolve())
+    elif args.command == "verify-host":
+        profile = host_lock["profiles"][0]
+        if args.profile_id != profile["id"]:
+            fail(f"unknown host profile: {args.profile_id}")
+        verify_host(profile, require_eligible=args.require_eligible)
     else:  # pragma: no cover - argparse owns this boundary
         fail(f"unsupported command {args.command}")
 

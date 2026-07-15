@@ -164,6 +164,50 @@ normative: false
   `in_progress`，`TASK-D0-04` 保持 blocked。
 - Next：继续 host Stage-0/deny-default/schema evidence；完成前不解除 `TASK-D0-04` blocker。
 
+## 2026-07-15 — TASK-A0-08 / TASK-D0-03 H0 Host Stage-0
+
+- Commit/worktree：H0 milestone candidate；task-owned diff 包含 bootstrap/host lock、live verifier、
+  isolation 入口、gates 与同步规格文档。
+- Spec/Test：`ADR-0013`、`SPEC-TOOL-001`、`SPEC-REPRO-001`、`TST-HOST-001`；同时澄清
+  `TST-ISO-002` 是正式 hermetic harness，`TST-ISO-003` 是 D8 release aggregate。
+- Changed：新增严格固定顺序的 `host-bootstrap.lock` 与
+  `scripts/verify_host_stage0.sh`。调用者必须直接以 `env -i` +
+  `/bin/bash --noprofile --norc` 启动；record 只用 Bash builtin 读取，不执行 `source`/`eval`。
+  Bootstrap 绑定 launcher、Python verifier、tool/host locks、Apple env/bash/sleep/rm/openssl/
+  codesign、direct Xcode Python/Git，并在启动锁定 Python 前完成 KAT、摘要与 Xcode
+  deep/strict signature。Python verifier 拒绝 duplicate JSON key 和多 profile，逐项验证系统
+  tool node/symlink target/resolved path/hardlink count/mode/hash/signature，观察 live OS、Rosetta、
+  SIP、authenticated root、volume seal、Xcode identity/team/designated requirement/CDHash/build、
+  direct tool version 与 allowed runtime roots；eligibility 由严格 policy 与 exact observation 推导。
+- Review repair：独立审查指出 inherited Bash 可在脚本第一行前执行 `BASH_ENV`，因此 `just`
+  明确降为 convenience wrapper，权威入口保留在调用者侧；又指出前置 OpenSSL/codesign 无
+  timeout/output bound，现以独立 process group、wall/CPU/file limits 和残留 group reap 修复，
+  Python runner 同样以新 session + `killpg` 收敛 timeout/overflow。Xcode pathname 祖先 symlink
+  或非 canonical path 直接失败；eligible policy 的 arch/Rosetta/SIP/authenticated-root/seal/
+  mutability 分项 self-test 与 dyld canonical-path 检查已补齐。
+- Commands：权威 development Stage-0；同入口 `--require-eligible`；
+  `just host-stage0-negative`；`just toolchains-validate`；`just check`；
+  `just evm-runtime`；`just reproducibility`；
+  `/bin/bash -n scripts/verify_host_stage0.sh scripts/verify_isolation.sh`；
+  `/usr/bin/python3 -I -S scripts/docs_check.py`；`git diff --check`。
+- Results：development exit 0 并输出 canonical JSON：macOS `26.4.1/25E253`、kernel `25.4.0`、
+  native arm64、SIP/authenticated-root enabled、`systemVolumeSeal=broken`、Xcode `26.3/17C529`、
+  `mutableByCurrentUser=true`、`eligibleForHermetic=false`。formal exit 1 且稳定
+  `PF-HOST-INELIGIBLE`。host-lock mutation、bootstrap trailing field 与 `BASH_ENV` marker 均按
+  预期失败/未执行；完整 V2 static/negative/build/test/四目标 gate exit 0；EVM localhost
+  nonpayable/init/increment/overflow rollback 与四目标 19-file reproducibility 再次通过。
+- Evidence：`EV-20260715-0011`。这是 development attestation 加预期 formal rejection，
+  不是 eligible/hermetic evidence。
+- Limitations：Stage-0 是 local、point-in-time attestation，不是 remote proof；`/usr/bin/env`、
+  `/bin/bash` 及 bootstrap watchdog 工具属于 Apple platform 前置 TCB，KAT 不能独立建立信任。
+  同一 checkout 内 launcher/record 不能自证外部真实性；candidate archive binding、同 UID/
+  privileged TOCTOU、Xcode bundle 内部 current-user-writable-node 扫描、eligible host、
+  deny-default sandbox 与 schema-complete immutable EV 均未闭合。当前 alpha isolation 外层仍先
+  经过 inherited Bash，不能替代权威入口。
+- Next：`TASK-D0-03/H1` 实现 candidate/archive binding、deny-default policy 与正式 evidence
+  schema；当前 host 不得运行或声明正式 hermetic gate。`TASK-D0-03`、`TST-ISO-002/003`
+  均保持 open。
+
 ## 记录模板
 
 ```markdown

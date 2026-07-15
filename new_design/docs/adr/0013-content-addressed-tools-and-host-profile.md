@@ -34,6 +34,12 @@ V2 明确分成两类信任：
 host profile 不合格，内容资产全部正确也必须 fail closed。开发 alpha 可记录不合格 host
 观察，但不得提升 release evidence。
 
+Stage-0 是 local、point-in-time attestation，不是 remote proof。权威入口必须在任何
+Git/Python 前由调用者直接净化启动；`just` 只能作为开发便利包装。Xcode 整个 bundle 是
+developer TCB，必须验证 deep/strict signature、identity/team/designated requirement/CDHash、
+精确版本/build 与 runtime root。system-volume seal broken 或 Xcode pathname 可由当前用户
+替换，都直接取消 hermetic 资格。
+
 ## 后果
 
 - `toolchains.lock.json` 升级为 v2，并成为官方资产与 bundle file 的权威。
@@ -41,6 +47,8 @@ host profile 不合格，内容资产全部正确也必须 fail closed。开发 
 - 普通 build 不联网；缺 cache 返回明确错误，用户单独运行 provision。
 - 正式 clean-room 使用净化 launcher、离线 cache 和 deny-default sandbox；alpha 命令名
   保留到这些条件全部闭合。
+- 同一 checkout 内的 launcher 与 bootstrap record 不能彼此建立外部真实性；正式 evidence
+  还必须绑定受信 candidate archive/release digest，并保留同 UID/特权进程 TOCTOU 边界。
 
 ## 验证
 

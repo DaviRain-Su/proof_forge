@@ -24,9 +24,9 @@ jobs、proof invalid/private leak、network wrong identity。关联 `PHASE-5`、
 `TST-*`；证据 schema 必须可独立复核。
 
 当前 `scripts/verify_isolation.sh` 是 network-denied clean-room alpha：它已隔离父仓库、
-HOME/cache 与网络并跑通四目标/Anvil，但尚未锁定完整 tool/runtime closure，也尚未输出
-schema-complete `GateResult`/`EV-ISO-*`；不得视为本模块规格已实现。
-
-`TASK-A0-07` 已把 solc、WABT+libcrypto 与 Anvil/Cast 切到 content-addressed external
-bundle，并同时验证静态 Mach-O 图、实际 dyld load 与 tamper negative；剩余 Lean/host/
-deny-default/evidence closure 继续阻止正式 gate。
+HOME/cache 与网络并跑通四目标/Anvil。Lean/Lake 与 external bundle 的 development closure
+已经锁定；`TASK-D0-03/H0` 会在任何未验证的 Git/Python 前完成 Stage-0 bootstrap，随后只
+允许已锁定的 direct Python 完成 live profile，并区分 development observation 与 formal
+eligibility。当前 host 精确匹配 development profile，
+但正式模式按策略拒绝。eligible host、deny-default sandbox 与 schema-complete
+`GateResult`/`EV-ISO-*` 仍阻止正式 gate，不得视为本模块规格已实现。

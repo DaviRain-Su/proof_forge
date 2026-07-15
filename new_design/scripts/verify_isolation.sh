@@ -144,6 +144,10 @@ esac
 
 source_home="${HOME:?HOME is required while provisioning the locked cache}"
 asset_cache="${PROOF_FORGE_ASSET_CACHE:-${XDG_CACHE_HOME:-$source_home/.cache}/proof-forge-v2/assets}"
+root="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
+/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC \
+  /bin/bash --noprofile --norc "$root/scripts/verify_host_stage0.sh" \
+  --allow-ineligible-development
 unset BASH_ENV ENV CDPATH DEVELOPER_DIR GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_DIR \
   GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_REPLACE_REF_BASE PYTHONHOME \
   PYTHONPATH PYTHONSTARTUP LEAN_PATH LEAN_SRC_PATH ELAN_HOME PROOF_FORGE_ASSET_CACHE \
@@ -152,16 +156,9 @@ export PATH=/usr/bin:/bin
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
-kat_output="$(printf abc | /usr/bin/openssl dgst -sha256)"
-[[ "${kat_output##* }" == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" ]] ||
-  die "SHA-256 bootstrap known-answer test failed"
-
-[[ "$(/usr/bin/uname -s)" == Darwin && "$(/usr/bin/uname -m)" == arm64 ]] ||
-  die "this locked clean-room profile currently supports darwin-arm64 only"
 command -v /usr/bin/sandbox-exec >/dev/null 2>&1 || die "macOS sandbox-exec is unavailable"
 materialize_profile='(version 1)(allow default)(deny network*)'
 
-root="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
 repo_root="$(/usr/bin/git -C "$root" rev-parse --show-toplevel)"
 prefix="$(/usr/bin/git -C "$root" rev-parse --show-prefix)"
 [[ "$prefix" == new_design/ ]] || die "expected new_design/ to be a tracked subtree, got '$prefix'"

@@ -39,7 +39,7 @@ normative: true
 | `EvidenceGrade` | `specified`、`artifact_validated`、`local_runtime`、`network_or_proof_validated` |
 | fail closed | 缺少支持、版本、工具或证据时返回稳定错误，绝不降级为成功 |
 | archive isolation smoke | 历史开发检查：把允许文件复制到临时目录并重建/测试；不等于完整 clean-room |
-| network-denied clean-room alpha | 从 committed archive 在新 HOME/cache、受控 PATH 和网络沙箱中执行的开发门禁；外部动态库与宿主 harness closure 尚未锁定 |
+| network-denied clean-room alpha | 从 committed archive 在新 HOME/cache、受控 PATH 和网络沙箱中执行的开发门禁；Lean/external closure 与 development host observation 已锁定，但 eligible host、deny-default policy 和正式 EV 尚未闭合 |
 | clean-room gate | 使用内容锁定的完整 tool/runtime closure，在新 HOME/cache、受控 PATH/工具根且不可发现父 Git/path 的独立构建和测试 |
 | hermetic | 构建和运行依赖均被完整识别、内容寻址，或由明确受信 host profile 约束；只校验顶层 executable hash 不足以满足 |
 | content-addressed tool | 由精确 archive/file SHA 标识、离线安全物化并验证完整非系统运行闭包的工具 |

@@ -17,7 +17,8 @@ normative: true
 - `host-profiles.lock.json`：不能打包进 cache 的 macOS/Xcode/system runtime TCB。
 
 正式 hermetic 只相对于一个验证通过且 `eligibleForHermetic=true` 的 host profile。当前
-Darwin profile 因系统卷 seal broken 明确为 development-only；它不能关闭 `TASK-D0-03/04`。
+Darwin profile 因系统卷 seal broken 且 Xcode pathname 可由当前 admin 用户替换而明确为
+development-only；它不能关闭 `TASK-D0-03/04`。
 
 ## Tool Lock v2
 
@@ -62,16 +63,28 @@ schema, profile.id
 platform {productVersion, buildVersion, kernelRelease, arch,
           procTranslated, sip, authenticatedRoot, systemVolumeSeal}
 eligibleForHermetic, ineligibilityReason (string or null)
-developerTools {developerDir, xcodeVersion/build, resolved Git/Python path/hash/version}
+developerTools {developerDir, xcodeAppPath, xcodeVersion/build,
+                identifier/team/designatedRequirement/CDHash,
+                xcodeMutableByCurrentUser, allowedRuntimeRoots,
+                Git/otool path/hash/version,
+                Python dispatchPath + resolved path/hash/version}
 digestBootstrap {path, sha256, known-answer input/hash}
 systemRuntime.allowedLoadRoots[]
-systemTools[] {id, absolute path, sha256}
+systemTools[] {id, path, nodeKind, linkTarget, resolvedPath,
+               resolvedNlink, mode, sha256}
 ```
 
-Stage 0 从 `env -i /bin/bash` 启动，先以 Apple system trust anchor、OpenSSL SHA-256 KAT
-和固定 bootstrap record 验证 digest/Xcode Python/Git，再允许 Python 解析完整 JSON。清除
-`BASH_ENV`、`PYTHON*`、`GIT_*`、`DEVELOPER_DIR` 和配置文件影响。系统工具既不是 content
-asset，也不能只凭 PATH 名称接受。
+JSON 拒绝 duplicate key，且 v1 当前恰好包含一个 profile。`eligible=true` 必须蕴含 native
+arm64、非 Rosetta、SIP enabled、authenticated root enabled、system volume sealed 且 Xcode
+pathname 不可由当前用户替换。
+
+Stage 0 必须在任何 Git/Python 前由调用者直接以 `env -i`、`/bin/bash --noprofile --norc`
+启动。它用 Bash builtin 按固定顺序解析 `host-bootstrap.lock`，不得 `source`/`eval`；先绑定
+launcher、Python verifier、两份 lock、direct Xcode Python/Git 和最小 Apple platform TCB，
+验证 Xcode deep/strict signature 后才允许 Python 解析完整 JSON。OpenSSL SHA-256 KAT 只是
+行为/完整性探针，不是独立信任根；Apple SSV/AMFI 和外部审阅的 candidate/release digest
+仍是起始信任。开发模式可输出 ineligible 的本地时点 observation；正式模式必须 fail closed。
+系统工具既不是 content asset，也不能只凭 PATH 名称接受。
 
 ## 当前精确资产
 
@@ -132,8 +145,10 @@ library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
 `PF-TOOLCHAIN-MISSING` 不允许 required gate skip。本 external slice 已覆盖 duplicate/unknown/
 malformed lock、cache miss、partial/tampered archive、member/path attack、tool/dylib mutation、
 extra/symlink/hardlink/writable bundle 与 PATH/DYLD shadow。Lean cache consumer 已接入 alpha
-harness，并在 `0b0aebda…643c8` 完成完整 development gate。正式 gate 仍需覆盖版本 probe
-的 timeout/huge output、完整 host profile/Rosetta、sandbox 失效和 schema evidence。
+harness，并在 `0b0aebda…643c8` 完成完整 development gate。H0 已覆盖严格 Stage-0 record、
+duplicate JSON、完整 live host/Xcode/tool observation 和 formal-ineligible 拒绝。正式 gate 仍需
+eligible host、deny-default sandbox、版本 probe timeout/huge output 与 schema evidence。
 
-关联 `NFR-001/009`、`TST-TOOL-001`、`TST-XTARGET-002`、`TST-ISO-003`。manifest/evidence
+关联 `NFR-001/009`、`TST-TOOL-001`、`TST-HOST-001`、`TST-XTARGET-002`、
+`TST-ISO-002/003`。manifest/evidence
 记录全部 asset、executable、runtime dependency 与 host-profile digest。
