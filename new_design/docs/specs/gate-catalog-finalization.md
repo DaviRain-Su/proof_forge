@@ -51,6 +51,16 @@ link。stdout/stderr 先发布，receipt JSON 最后发布并作为 complete-set
 finalizer 必须拒绝，不能把多文件协议描述成物理原子 rename。Schema 固定为
 `proof-forge.sandbox-invocation.v1`。canonical receipt 最大 1 MiB，root object 恰含：
 
+同一 `(stage,invocation)` 在执行前必须以 `O_EXCL|O_NOFOLLOW` 获取 policies 目录内的
+`.sandbox-<stage>-<invocation>.reservation`，保持其 fd 打开，并在 spawn 前、publication 前后
+核对 token、inode、owner、mode 与 pathname identity。已有或 stale reservation 必须在 spawn
+前失败。Launcher 在两份 raw receipt 发布并复核后释放自己的 reservation；release 成功后 raw
+路径本身会阻止后来的 launcher 通过 no-clobber preflight，随后才允许发布最后的 metadata marker。
+如果 reservation cleanup 失败，必须在 marker 前回滚 raw。只有已经持有 reservation 且证明三条
+输出路径起初均不存在的 writer，才可在 publication failure 时清理这三个保留名；未取得
+reservation 或在初始 no-clobber 检查前失败的 launcher 不得清理。Reservation 只提供 launcher
+间的 single-writer ownership，不是对同 UID hostile actor 的锁，也不是 retained evidence。
+
 ```text
 {
   schema,
@@ -81,6 +91,8 @@ finalizer 必须拒绝，不能把多文件协议描述成物理原子 rename。
 - `runBindingSha256` 与 `invocationBindingSha256` 必须分别等于本节后述 base run context 与
   per-invocation context 的 domain-separated digest；它们阻止不同 context 之间 mix-and-match，
   但没有 freshness 或受保护 nonce registry，不能声称阻止一整套旧 context/receipt 被完整重放。
+  两份 context 在 decode 后、Popen 紧前以及 child cleanup 后都必须再次 stable-read 并确认
+  pathname identity；任何 pre-spawn mismatch 必须 no-spawn/no-marker。
 - `policy.path` 固定为 `policies/<stage>.sb`；SHA-256/size 来自 launcher 已稳定读取的 exact
   bytes。`runtimePort` 字段始终存在：非 runtime stage 必须为 `null`，`evm-runtime` 必须为
   `1..65535`，并且已与 policy 的唯一 inbound/outbound `localhost:PORT` 规则一致。
@@ -101,7 +113,7 @@ finalizer 必须拒绝，不能把多文件协议描述成物理原子 rename。
 - terminal 三字段始终存在。已提交 receipt 必须 `timedOut=false`，且恰有一个 `exitCode` 或
   `signal` 非 null；普通 nonzero exit 仍应留 receipt。timeout、output-cap、spawn/cleanup failure
   是 launcher internal failure，必须在 marker 前回滚且不得留下 complete receipt。
-- stdout/stderr path 固定为对应 raw receipt；digest/size 对 launcher 已收集的 exact bytes
+- stdout/stderr path 固定为对应 raw receipt
   `policies/sandbox-<stage>-<invocation>.stdout.log` 与 `.stderr.log`；digest/size 对 launcher 已
   收集的 exact bytes 计算。当前输出无截断，`truncated=false`。
 - `durationMs` 使用 `monotonic_ns()` 向下取整到毫秒：起点紧邻 `Popen` 前，终点在 terminal、
@@ -112,7 +124,9 @@ finalizer 必须拒绝，不能把多文件协议描述成物理原子 rename。
 size 分别不超过 128 KiB/4 MiB；exitCode 为 `0..255`、signal 为 `1..255`。receipt path 是
 bundle-root-relative normalized POSIX path。argv 非空，每项是无 NUL、最多 64 KiB UTF-8 的
 string；environment name 匹配 `[A-Za-z_][A-Za-z0-9_]{0,254}`，value 无 NUL且最多 64 KiB，
-entries 按 name 唯一升序。launcher 必须在 spawn 前以最大宽度 duration/terminal/stream fields
+entries 按 name 唯一升序。engine/launcher/payload executable 的 observed file 上限为 256 MiB，
+超限在 spawn 前失败；该上限属于 catalog/launcher profile，改变时必须升 catalog version。
+launcher 必须在 spawn 前以最大宽度 duration/terminal/stream fields
 构造 canonical receipt preflight，确保最终一定小于 1 MiB；preflight 失败不得执行 payload。
 
 ### Clean-room run context
@@ -164,6 +178,9 @@ ID、asset cache 等值只能在需要它们的 invocation context 中出现。D
 `SHA256("pf.sandbox.invocation-context.v1" || NUL || canonical_pf_jcs(context))`。同名 binding
 在 selected gate 的多个 contexts 中出现时必须 type/value 相等。每个 context 作为唯一
 `inputs[].role="sandbox-invocation-context"` retained，且 stage/invocation 必须与 receipt 相等。
+Base 禁止 late dynamic names、跨 invocation 同名 binding 一致性与 catalog binding-name joins
+需要 selected gate 全集，属于 H1e-b finalizer；H1e-a launcher 只验证当前两份 context，不猜测
+业务 binding 名。
 
 H1e-a 的 launcher CLI 使用一组 all-or-none opt-in 参数：
 
@@ -556,8 +573,9 @@ freshness-not-verified revocation-not-verified private-scan-not-verified
    - exit 0、普通 nonzero、signal 三种 committed terminal；timeout/output-cap/spawn/cleanup/
      post-run identity failure 均无 metadata marker；
    - stdout/stderr/metadata 各自 preexisting、每个 publication step injected failure、receipt-last
-     marker、无 marker orphan、raw/metadata/context/path replacement tamper。H1e-a 只证明“无
-     marker 即未提交”；orphan exact-set rejection 属于 H1e-b。
+     marker、无 marker orphan、raw/metadata/context/path replacement tamper；同 invocation
+     reservation 竞争必须在 spawn 前失败且不能删除 owner 的 receipts。H1e-a 只证明“无
+     marker 即未提交”；orphan/counterfeit exact-set rejection 属于 H1e-b。
 2. H1e-b：catalog/ref/binding validators、single snapshot 与 synthetic realistic bundle 的 exact-set/
    digest/port/receipt/formal negatives。
 3. H1e-c：`verify_isolation.sh` 捕获 Stage-0 observation，保留 candidate/policies/15 invocation
