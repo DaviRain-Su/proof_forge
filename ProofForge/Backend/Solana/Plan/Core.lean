@@ -368,7 +368,11 @@ private def lowerInstructionPlan (fields : Array SolanaStateFieldPlan)
       return .memoryStore (valuePlan base) (valuePlan index) (valuePlan value)
         (<- coreScalarByteSize elementType)
   | .memoryRelease base => return .memoryRelease (valuePlan base)
-  | .contextRead field => return .context (<- resultPlan instr) (reprStr field)
+  | .contextRead field =>
+      let name := reprStr field
+      if name.endsWith "sender" || name.endsWith "signer" then
+        return .hashAccount0 (<- resultPlan instr)
+      return .context (<- resultPlan instr) name
   | .emit event args =>
       let eventName ← match events.find? (fun declaration => declaration.eventId == event) with
         | some declaration => pure declaration.name

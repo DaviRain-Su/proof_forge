@@ -78,7 +78,21 @@ def main : IO Unit := do
   | .error error => throw <| IO.userError s!"EVM StatusMessage plan failed: {error.message}"
   match ProofForge.Backend.Solana.Plan.Core.buildFromCore bundle.contract
       (capabilityPlan solanaSbpfAsm.id bundle) with
-  | .ok _ => pure ()
+  | .ok plan =>
+      let solanaOps := plan.functions.flatMap fun function =>
+        function.blocks.flatMap fun block => block.ops
+      require (solanaOps.any fun operation => match operation with
+          | .hashAccount0 _ => true
+          | _ => false)
+        "Solana StatusMessage plan did not own the full-pubkey caller projection"
+      let nodes <- match ProofForge.Backend.Solana.Plan.lowerFromPlan plan with
+        | .ok nodes => pure nodes
+        | .error error => throw <| IO.userError s!"Solana StatusMessage lowering failed: {error.message}"
+      let asm := ProofForge.Backend.Solana.Asm.renderNodes nodes
+      require (asm.contains "canonical hash(sender): sha256(account[0] full 32-byte pubkey)")
+        "Solana StatusMessage lowering did not preserve the caller hash plan"
+      require (asm.contains "call sol_sha256")
+        "Solana StatusMessage lowering did not invoke sol_sha256"
   | .error error => throw <| IO.userError s!"Solana StatusMessage plan failed: {error.message}"
   match ProofForge.Backend.WasmHost.NearModulePlan.Core.buildFromCore bundle.contract
       (capabilityPlan wasmNear.id bundle) with

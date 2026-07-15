@@ -807,10 +807,7 @@ private def lowerCanonicalOp (fnId blockId opIndex : Nat) : SolanaOpPlan -> Exce
       .instruction { opcode := .jeq, dst := some .r2, imm := some (.num 0), off := some (.sym "assert_fail") }]
   | .context result field => do
       if field.endsWith "sender" || field.endsWith "signer" then
-        return #[
-          .comment "solana.context.userId: account[0] pubkey u64-le word 0 handle",
-          .instruction { opcode := .ldxdw, dst := some .r2, src := some .r1, off := some (.num 16) },
-          canonicalStoreValue result .r2]
+        throw { message := "canonical Solana sender/signer must be represented by hashAccount0" }
       unless field.endsWith "blockNumber" || field.endsWith "blockTimestamp" do
         throw { message := s!"canonical Solana context `{field}` has no target handler" }
       let bufferOff := 480
