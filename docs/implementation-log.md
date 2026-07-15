@@ -4080,3 +4080,19 @@ Rules:
 - Remaining: implement LR-0 on a dedicated branch/worktree after cutover
   priority allows; do not start LR-2+ while Core single-path is still moving.
 - Documentation: this entry.
+
+## 2026-07-15 - D-057: Chinese translations for Lean/Rust boundary specs
+
+- Status: `done` (documentation only)
+- Result: Added co-located Chinese translations for the three D-057 specs
+  (boundary, artifact contract v1, core export v0), following the existing
+  `*.zh.md` sibling pattern used by other superpowers designs. Linked EN↔zh
+  and pointed zh architecture/backlog/decisions at the Chinese paths.
+- Interfaces:
+  `docs/superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md`,
+  `docs/superpowers/specs/2026-07-15-artifact-contract-v1.zh.md`,
+  `docs/superpowers/specs/2026-07-15-core-export-v0-draft.zh.md`, plus EN
+  Chinese: lines and lifecycle/index zh link updates.
+- Verification: `just docs-check`; `git diff --check` (run with this change).
+- Remaining: none for translation; LR-0 code still deferred.
+- Documentation: this entry.

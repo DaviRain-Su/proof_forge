@@ -36,9 +36,9 @@ generated artifacts remain the implementation truth.
 | Wasm-host promotion analysis | [Wasm-host analysis](superpowers/specs/2026-07-12-wasm-host-target-analysis.md) |
 | ZK promotion analysis | [ZK target analysis](superpowers/specs/2026-07-12-psy-integration-analysis.md) |
 | OpenVM research brief (C3, defer) | [targets/openvm-research.md](targets/openvm-research.md) |
-| Lean/Rust ownership boundary (D-057, deferred impl) | [Lean/Rust boundary design](superpowers/specs/2026-07-15-lean-rust-boundary-design.md) |
-| Artifact consumer contract draft (Seam B / Phase 0) | [Artifact Contract v1 draft](superpowers/specs/2026-07-15-artifact-contract-v1.md) |
-| Checked Core export draft (Seam A / Phase 1, experimental) | [Core export v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) |
+| Lean/Rust ownership boundary (D-057, deferred impl) | [Lean/Rust boundary design](superpowers/specs/2026-07-15-lean-rust-boundary-design.md) ([中文](superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)) |
+| Artifact consumer contract draft (Seam B / Phase 0) | [Artifact Contract v1 draft](superpowers/specs/2026-07-15-artifact-contract-v1.md) ([中文](superpowers/specs/2026-07-15-artifact-contract-v1.zh.md)) |
+| Checked Core export draft (Seam A / Phase 1, experimental) | [Core export v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
 
 ## Historical Baselines
 

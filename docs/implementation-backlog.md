@@ -60,9 +60,12 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 | LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | pending after LR-1 | dual-run on declared dimensions; CLI default remains Lean |
 | LR-3+ | Triad backends / default Rust lower | pending | release-cycle dual-run + measurable benefit; Lean path still switchable |
 
-Specs: [lean-rust-boundary](superpowers/specs/2026-07-15-lean-rust-boundary-design.md),
-[artifact-contract-v1](superpowers/specs/2026-07-15-artifact-contract-v1.md),
-[core-export-v0](superpowers/specs/2026-07-15-core-export-v0-draft.md).
+Specs: [lean-rust-boundary](superpowers/specs/2026-07-15-lean-rust-boundary-design.md)
+([中文](superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)),
+[artifact-contract-v1](superpowers/specs/2026-07-15-artifact-contract-v1.md)
+([中文](superpowers/specs/2026-07-15-artifact-contract-v1.zh.md)),
+[core-export-v0](superpowers/specs/2026-07-15-core-export-v0-draft.md)
+([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)).
 
 Legacy replacement is incremental. A legacy adapter or compatibility call is
 removed only after tests establish observable equivalence and all callers use

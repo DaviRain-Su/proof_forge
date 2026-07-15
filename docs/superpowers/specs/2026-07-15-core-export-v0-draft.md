@@ -1,8 +1,14 @@
 # Core Export v0 (draft)
 
-Status: **Experimental draft (not a stable product API)**  
-Parent design: [Lean / Rust boundary](2026-07-15-lean-rust-boundary-design.md)  
+Status: **Experimental draft (not a stable product API)**
+
+Parent design: [Lean / Rust boundary](2026-07-15-lean-rust-boundary-design.md)
+([中文](2026-07-15-lean-rust-boundary-design.zh.md))
+
 Companion: [Artifact Contract v1](2026-07-15-artifact-contract-v1.md)
+([中文](2026-07-15-artifact-contract-v1.zh.md))
+
+Chinese: [2026-07-15-core-export-v0-draft.zh.md](2026-07-15-core-export-v0-draft.zh.md)
 
 Do **not** implement as a default CLI product path until primary-triad authoring
 cutover and HostOp identity work have settled enough that export churn is

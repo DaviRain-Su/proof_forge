@@ -6,13 +6,17 @@ Not active execution ledger: do not schedule Phase 2+ against the current
 [AGENTS.md](../../../AGENTS.md) checkpoint while [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104)
 and residual cutover work remain open.
 
+Chinese: [2026-07-15-lean-rust-boundary-design.zh.md](2026-07-15-lean-rust-boundary-design.zh.md)
+
 Related:
 
 - [Canonical Core design](2026-07-11-core-ir-target-plan-design.md)
 - [Backend interface](../../backend-interface.md)
 - [Architecture](../../architecture.md)
 - [Artifact Contract v1 draft](2026-07-15-artifact-contract-v1.md)
+  ([中文](2026-07-15-artifact-contract-v1.zh.md))
 - [Core export v0 draft](2026-07-15-core-export-v0-draft.md)
+  ([中文](2026-07-15-core-export-v0-draft.zh.md))
 
 ## Intent
 

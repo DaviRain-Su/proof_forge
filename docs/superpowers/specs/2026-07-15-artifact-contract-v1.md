@@ -1,7 +1,12 @@
 # Artifact Contract v1 (draft)
 
-Status: **Draft contract for Seam B (evidence layer)**  
-Parent design: [Lean / Rust boundary](2026-07-15-lean-rust-boundary-design.md)  
+Status: **Draft contract for Seam B (evidence layer)**
+
+Parent design: [Lean / Rust boundary](2026-07-15-lean-rust-boundary-design.md)
+([中文](2026-07-15-lean-rust-boundary-design.zh.md))
+
+Chinese: [2026-07-15-artifact-contract-v1.zh.md](2026-07-15-artifact-contract-v1.zh.md)
+
 Authority until code freezes fields: **checked-in Lean emitters + this document**;
 when they disagree, code wins and this draft must be updated in the same change.
 

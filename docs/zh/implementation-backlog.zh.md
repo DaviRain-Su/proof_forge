@@ -53,9 +53,10 @@
 | LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | 待 LR-1 后 | 声明维度 dual-run；CLI 默认仍为 Lean |
 | LR-3+ | 三链后端 / 默认 Rust lower | 待定 | 一个发布周期 dual-run + 可衡量收益；Lean 路径仍可切换 |
 
-规格：[lean-rust-boundary](../superpowers/specs/2026-07-15-lean-rust-boundary-design.md)、
-[artifact-contract-v1](../superpowers/specs/2026-07-15-artifact-contract-v1.md)、
-[core-export-v0](../superpowers/specs/2026-07-15-core-export-v0-draft.md)。
+规格（中文）：
+[lean-rust-boundary](../superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)、
+[artifact-contract-v1](../superpowers/specs/2026-07-15-artifact-contract-v1.zh.md)、
+[core-export-v0](../superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)。
 
 Legacy 替换采用渐进方式：只有在测试证明可观察等价且所有调用方已经迁移后，
 才能删除对应 adapter 或兼容调用。
