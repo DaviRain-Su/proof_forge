@@ -258,6 +258,15 @@ normative: false
 - Next：`TASK-D1-02` sole `in_progress`. Bound tests (`Tests.Compiler.Bound`) land early
   for `TST-BOUND-001` but `TASK-D2-03` stays pending until D2-01 closes.
 
+## 2026-07-16 — TASK-D1-02 program ... where parser
+
+- Spec/Test：`TST-SRC-003`；shipped `Language.Syntax` + `Language.Loader.parsePrograms`.
+- Commands：`lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`.
+- Results：positive Counter elaborates；`program Invalid : contract where` rejected
+  (loader + lean compile of `testdata/invalid/program-kind.lean`).
+- Evidence：`EV-20260716-0014`.
+- Next：`TASK-D1-03` in_progress.
+
 ## 记录模板
 
 

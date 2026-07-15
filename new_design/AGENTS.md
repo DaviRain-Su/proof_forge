@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-D1-02`：`program ... where` command parser（TST-SRC-003） |
-| Next task | D1-02 后 D1-03…；bound checker 代码已入主路径但 `TASK-D2-03` 待 D2-01 完成后关闭 |
+| Active task | `TASK-D1-03`：declaration grammar/elaboration（TST-SRC-004） |
+| Next task | D1-03 后 D1-04…；bound checker 已在主路径，`TASK-D2-03` 待 D2-01 依赖闭合 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04`/`TST-ISO-002`：host `eligibleForHermetic=false`；Solana ELF / NEAR sandbox / Noir BB 未冻结 |

@@ -28,10 +28,10 @@ normative: false
 | EV-20260715-0012 | `just host-h1-unit`；`just v2-clean-room-h1`；formal Stage-0 `--require-eligible` | passed (H1 development clean-room; formal host rejection expected) | commit `0298b19a…`、archive `2910c0a1…b726`、deny-default sandbox、candidate/archive binding、schema-complete immutable EV under `build/evidence/clean-room/EV-20260715-0012.json`（`sandboxPolicy=deny-default`，`eligibleForHermetic=false`）；formal Stage-0 稳定 `PF-HOST-INELIGIBLE`；关闭 `TASK-D0-03/H1`，**不**关闭 `TST-ISO-002`/`TASK-D0-04`/`TST-ISO-003` |
 
 | EV-20260716-0013 | `lake env .lake/build/bin/proof-forge-next-tests`（incl. `Tests.Language.SourceIdentity`） | passed | `Source.Token`/`Span`/`NodeId`/`tokenize`/`Program.enumerateNodes`/`validateLimits`；NodeId = SHA-256(module,program,path)[:128]；token spans non-overlapping；node/nesting limit negatives → `PF-BOUND-001`；closes formal `TASK-D1-01` / `TST-SRC-001/002` only |
+| EV-20260716-0014 | `proof-forge-next-tests` Loader/ProgramSyntax；`just dsl-negative` | passed | positive `program ... where` export；`program Invalid : contract where` rejected by loader + lean dsl-negative；closes `TASK-D1-02` / `TST-SRC-003` only |
 
-Formal D1+ is reopened after revoking bulk alpha re-labeling. Closed formal tasks:
-`D0-01..03`, `D1-01`. Blocked: `D0-04`, `D5-04/05`, `D6-05`, `D7-04/05`, `D8-04`.
-All other formal rows remain `pending` until per-task TST/EV.
+Formal D1+ closed only with matching TST/EV: `D0-01..03`, `D1-01`, `D1-02`.
+Blocked: `D0-04`, `D5-04/05`, `D6-05`, `D7-04/05`, `D8-04`. Remaining formal rows `pending`/`in_progress`.
 
 未取得：formal hermetic、remaining formal D1–D8 closures、Solana ELF/runtime、NEAR
 sandbox、Noir prove/verify、public release。
