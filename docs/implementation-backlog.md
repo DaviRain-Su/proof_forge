@@ -57,7 +57,7 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 |---:|---|---|---|
 | LR-0 | Artifact Contract v1 docs + harness field allowlist | done (verified at `1716904d`; PR #105) | testkit/runners depend only on documented artifact fields; honesty rules unchanged; `just artifact-contract-v1` green |
 | LR-1a | Experimental Core JSON export + `pf-core-inspect` (no CLI product path) | done (on PR #105 branch) | validate→JSON fail-closed; deterministic body; Rust inspect zero chain SDKs |
-| LR-1b | Experimental `export-core` CLI (`--experimental` only) | in_progress (PR #105 branch) | writes export dir; fixture counter (+ value-vault); contentHash; CapabilityPlan ids filled; not product default |
+| LR-1b | Experimental `export-core` CLI (`--experimental` only) | done (PR #105 branch) | fixture counter/value-vault + product Counter path; contentHash; CapabilityPlan ids; inspect green; not product default |
 | LR-1 | Product/source `export-core` + full HostOp handlers | pending after cutover quieter | product path + resolveSpec handlers; dual-run ready |
 | LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | pending after LR-1 | dual-run on declared dimensions; CLI default remains Lean |
 | LR-3+ | Triad backends / default Rust lower | pending | release-cycle dual-run + measurable benefit; Lean path still switchable |

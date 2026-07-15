@@ -401,12 +401,15 @@ artifact-contract-v1:
     cargo test --manifest-path testkit/Cargo.toml -p proof-forge-testkit-core artifact_contract -- --nocapture
 
 # LR-1a/b / D-057 Seam A: experimental core.v0 export + package + Rust inspect.
+# This is the Rust-backend Core interface (core.v0), NOT product ABI/SDK JSON.
 core-export-v0:
-    lake build ProofForge.IR.Core.Export ProofForge.Cli.ExportCore
+    lake build ProofForge.IR.Core.Export ProofForge.Cli.ExportCore Examples.Product.Counter
     lake env lean --run Tests/Canonical/CoreExport.lean
     lake env lean --run Tests/Canonical/CoreExportPackage.lean
     cargo build --manifest-path tools/pf-core-inspect/Cargo.toml
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1b-counter/evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1b-value-vault/evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1b-product-counter/evm
 
 # PF-P1-04: preflight L0+L1+L2 readiness via TargetBackend hooks.
 preflight-l2:

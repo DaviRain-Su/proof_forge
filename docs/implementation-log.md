@@ -4134,3 +4134,14 @@ Rules:
 - Remaining: product-source input path; full HostOp handler table; optional
   proof-forge binary e2e once CI recovers. Stay off default product build.
 - Documentation: backlog LR-1b; this entry.
+
+## 2026-07-15 - LR-1b+: product-source + ValueVault core export
+
+- Status: `done` (stacked on PR #105)
+- Result: `export-core --experimental` accepts fixtures `counter`/`value-vault`
+  and product `Examples/Product/Counter.lean`. Clarified in usage that this is
+  Seam A Core export for Rust backends, not ABI/SDK JSON. Product Counter and
+  IR fixture Counter produced the same contentHash on this pin (39fdcf2f…).
+- Verification: `Tests/Canonical/CoreExportPackage.lean`; `pf-core-inspect`
+  on counter, value-vault, product-counter packages.
+- Remaining: HostOp handler table; more product modules; main merge when ready.

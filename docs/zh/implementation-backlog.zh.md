@@ -50,7 +50,7 @@
 |---:|---|---|---|
 | LR-0 | Artifact Contract v1 文档 + harness 字段白名单 | done（验证于 `1716904d`；PR #105） | testkit/runners 只依赖文档化制品字段；诚实性规则不变；`just artifact-contract-v1` 通过 |
 | LR-1a | 实验性 Core JSON export + `pf-core-inspect`（无 CLI 产品路径） | done（PR #105 分支） | validate→JSON fail-closed；确定性 body；Rust inspect 零链 SDK |
-| LR-1b | 实验性 `export-core` CLI（仅 `--experimental`） | in_progress（PR #105 分支） | 写出 export 目录；fixture counter（+ value-vault）；contentHash；CapabilityPlan ids；非产品默认 |
+| LR-1b | 实验性 `export-core` CLI（仅 `--experimental`） | done（PR #105 分支） | fixture counter/value-vault + product Counter；contentHash；CapabilityPlan ids；inspect 绿；非产品默认 |
 | LR-1 | 产品/源路径 `export-core` + 完整 HostOp handlers | cutover 更安静后 pending | 产品路径 + resolveSpec handlers；为 dual-run 就绪 |
 | LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | 待 LR-1 后 | 声明维度 dual-run；CLI 默认仍为 Lean |
 | LR-3+ | 三链后端 / 默认 Rust lower | 待定 | 一个发布周期 dual-run + 可衡量收益；Lean 路径仍可切换 |
