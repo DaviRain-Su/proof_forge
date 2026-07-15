@@ -4083,7 +4083,7 @@ Rules:
 
 ## 2026-07-15 - LR-0: Artifact Contract v1 (Seam B)
 
-- Status: `done` (on branch `DaviRain-Su/artifact-contract-v1`; merge pending)
+- Status: `done` (verified at `1716904d`; PR [#105](https://github.com/DaviRain-Su/proof_forge/pull/105))
 - Result: Froze consumer field allowlist and primary-triad emitter inventory in
   `ProofForge.Target.ArtifactContract`; added Lean inventory/field gate
   `Tests/ArtifactContractV1.lean`; taught testkit core
@@ -4098,9 +4098,8 @@ Rules:
   checklist + observation contract note in
   `docs/superpowers/specs/2026-07-15-artifact-contract-v1.md`.
 - Verification: `just artifact-contract-v1`; `cargo test -p proof-forge-testkit-core artifact_contract`;
-  `just docs-check`; `git diff --check` (run with this change).
-- Remaining: open PR for this branch; do not start LR-1 Core export until
-  cutover quiet; optional follow-up to add `artifactBundle` to secondary
-  Solana/learn emitters when their harnesses need execution metadata.
-- Documentation: this entry; backlog LR-0 → done; AGENTS checkpoint on this
-  worktree points at LR-0.
+  `git diff --check`; i18n backlog hash sync (run with this change).
+- Remaining: merge PR #105; do not start LR-1 Core export until cutover quiet;
+  optional follow-up to add `artifactBundle` to secondary Solana/learn emitters
+  when their harnesses need execution metadata.
+- Documentation: this entry; backlog LR-0 → done; AGENTS checkpoint → land #105.

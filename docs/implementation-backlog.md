@@ -55,7 +55,7 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 
 | Order | Slice | State | Acceptance boundary |
 |---:|---|---|---|
-| LR-0 | Artifact Contract v1 docs + harness field allowlist | done (verified on branch `DaviRain-Su/artifact-contract-v1`) | testkit/runners depend only on documented artifact fields; honesty rules unchanged; `just artifact-contract-v1` green |
+| LR-0 | Artifact Contract v1 docs + harness field allowlist | done (verified at `1716904d`; PR #105) | testkit/runners depend only on documented artifact fields; honesty rules unchanged; `just artifact-contract-v1` green |
 | LR-1 | Experimental `export-core` (`core.v0`) | pending after #104 / cutover quiet | deterministic export; Validate fail-closed; Counter + one stateful subset |
 | LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | pending after LR-1 | dual-run on declared dimensions; CLI default remains Lean |
 | LR-3+ | Triad backends / default Rust lower | pending | release-cycle dual-run + measurable benefit; Lean path still switchable |

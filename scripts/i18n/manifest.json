@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "b4e67fc205a4f36efd2261e2037cce3fd4a8a2242b48b583078187b028515615",
+    "sha256": "907b311a4413236e60138a45c12b6f9c17a6f32afc1a837df71c6e33edab8107",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after LR-0 Artifact Contract v1 (2026-07-15)"
+    "note": "synced EN/zh after LR-0 PR #105 pointer (2026-07-15)"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",
