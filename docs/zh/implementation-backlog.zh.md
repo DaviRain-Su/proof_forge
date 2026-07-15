@@ -59,7 +59,11 @@
 | LR-2c | EVM storage-only lower sketch | done（PR #105 分支） | Counter 类模块 → evm-storage-sketch.v0；hostCall 模块拒绝；非 bytecode |
 | LR-2d | Observe dual-run（Lean plan vs sketch） | done（PR #105 分支） | lean-evm-observe.v0 + dual-run-observe；Counter 入口/slot 对齐 |
 | LR-2e | ValueVault observe dual-run | done（PR #105 分支） | scalar sketch 允许 contextRead+emit；7 入口 + 6 slot 对齐；CREATE 仍拒绝 |
-| LR-2f | Ownable（或第二个 scalar/policy）observe dual-run | pending | 绿通或明确拒绝（若不可 sketch） |
+| LR-2f | Ownable observe dual-run | done（PR #105 分支） | sketch 允许 assert；缺 selector 时 surface dump；4 入口 + 2 slot |
+| LR-2g | Fixture counter contentHash 稳定性 | done（PR #105 分支） | 重导出 core/plan/meta 一致；pf-core 重载 hash 匹配 |
+| LR-2h | 文档：包布局 + dual-run 维度 | done（PR #105 分支） | core-export-v0 draft 与已实现 Seam A 对齐 |
+| LR-2i | validation-gates 记录 core-export-v0 / artifact-contract-v1 | done（PR #105 分支） | 仅文档；尚未接入必需 CI lane |
+| LR-2j | Seam A goal 停止条件审查 | done（PR #105 分支） | Counter+ValueVault dual-run 与 export/Rust 门禁满足；goal 完成 |
 | LR-1 | 产品/源路径 `export-core` + 完整 HostOp handlers | cutover 更安静后 pending | 产品路径 + resolveSpec handlers；为 dual-run 就绪 |
 | LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | 待 LR-1 后 | 声明维度 dual-run；CLI 默认仍为 Lean |
 | LR-3+ | 三链后端 / 默认 Rust lower | 待定 | 一个发布周期 dual-run + 可衡量收益；Lean 路径仍可切换 |

@@ -508,6 +508,25 @@ mod tests {
     }
 
     #[test]
+    fn counter_fixture_content_hash_stable() {
+        // Reloading the same fixture twice must yield identical contentHash
+        // (core + capability-plan file bytes). Declared meta hash must match.
+        let pkg1 = ExportPackage::load(fixture("counter-evm")).expect("load counter");
+        let pkg2 = ExportPackage::load(fixture("counter-evm")).expect("reload counter");
+        let h1 = pkg1.content_hash();
+        let h2 = pkg2.content_hash();
+        assert_eq!(h1, h2, "contentHash must be deterministic across loads");
+        assert_eq!(h1.len(), 64, "sha256 hex");
+        if let Some(meta) = &pkg1.meta {
+            if let Some(declared) = meta.content_hash.as_deref() {
+                if declared != "unset" && !declared.is_empty() {
+                    assert_eq!(declared, h1, "export-meta contentHash must match recomputed");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn walk_create_host_calls_match_plan() {
         let pkg = ExportPackage::load(fixture("create-evm")).expect("load create");
         let walk = pkg.walk();

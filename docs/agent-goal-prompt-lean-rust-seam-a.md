@@ -5,7 +5,7 @@ It is a continuous execution charter, not a request for another audit or plan.
 
 | Field | Value |
 |---|---|
-| Status | **Active** (2026-07-15) |
+| Status | **Success met** (2026-07-15) — do not auto-start LR-3 |
 | Branch | `DaviRain-Su/artifact-contract-v1` |
 | PR | https://github.com/DaviRain-Su/proof_forge/pull/105 |
 | Worktree | `/Users/davirian/orca/workspaces/proof_forge/artifact-contract-v1` |
@@ -131,6 +131,9 @@ without a new human goal.
 | LR-2c EVM storage sketch | `lower-sketch` on Counter; refuse CREATE |
 | LR-2d observe dual-run Counter | `Tests/Canonical/DualRunObserve.lean` + `dual-run-observe` |
 | LR-2e ValueVault dual-run | sketch allows `contextRead`+`emit`; 7 eps + 6 slots |
+| LR-2f Ownable dual-run | sketch allows `assert`; surface dump fallback; 4 eps + 2 slots |
+| LR-2g contentHash stability | re-export + pf-core reload |
+| LR-2h–2j docs + stop review | core-export-v0 + validation-gates; **goal success** |
 
 Re-run gates after merge-from-main or large conflicts.
 
@@ -156,12 +159,12 @@ Work top-down; skip only with recorded reason.
 
 | Order | ID | Task | Acceptance |
 |---:|---|---|---|
-| 1 | LR-2e | ValueVault observe dual-run | **done** — slots+entrypoints green |
-| 2 | LR-2f | **Ownable (or second scalar/policy product) observe dual-run** | Green or explicit refuse if not sketch-eligible |
-| 3 | LR-2g | **Fixture counter contentHash stability** across re-export in CI-friendly gate | Deterministic hash assertion |
-| 4 | LR-2h | **Document package layout + dual-run dimensions** in core-export-v0 spec (promote checklist) | Spec matches code |
-| 5 | LR-2i | **Optional:** wire `core-export-v0` into a CI lane note / validation-gates row | Docs + recipe only unless CI edit approved |
-| 6 | LR-2j | **Stop condition review** against Success section; if met, complete goal | Log + PR summary |
+| 1 | LR-2e | ValueVault observe dual-run | **done** |
+| 2 | LR-2f | Ownable observe dual-run | **done** (surface dump if selectors missing) |
+| 3 | LR-2g | Fixture counter contentHash stability | **done** |
+| 4 | LR-2h | Document package layout + dual-run dimensions | **done** |
+| 5 | LR-2i | validation-gates note for core-export-v0 | **done** (docs only) |
+| 6 | LR-2j | Stop condition review against Success section | **done** — success met |
 
 After success condition: **do not** implement full solc bytecode dual-run or
 default Rust compile in this goal.
@@ -249,7 +252,7 @@ Otherwise keep implementing.
 Read docs/agent-goal-prompt-lean-rust-seam-a.md fully.
 You are on worktree artifact-contract-v1, branch DaviRain-Su/artifact-contract-v1, PR #105.
 Execute the charter continuously until the Success condition is met.
-Start at the first incomplete queue row (currently LR-2f Ownable observe dual-run unless log says otherwise).
+Start at the first incomplete queue row (currently LR-2j stop review; optional LR-2i CI note).
 Do not switch product CLI default to Rust. Prefer general infrastructure over new examples.
 ```
 

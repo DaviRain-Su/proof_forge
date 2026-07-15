@@ -37,11 +37,17 @@ unsafe def main : IO UInt32 := do
   requireFileContains (System.FilePath.mk "build/export/lr1b-counter/evm/export-meta.json")
     "\"contentHash\""
 
-  -- Determinism on second write.
+  -- Determinism on second write (Core body + contentHash + capability plan).
   let core1 ← IO.FS.readFile (System.FilePath.mk "build/export/lr1b-counter/evm/core.v0.json")
+  let plan1 ← IO.FS.readFile (System.FilePath.mk "build/export/lr1b-counter/evm/capability-plan.v0.json")
+  let meta1 ← IO.FS.readFile (System.FilePath.mk "build/export/lr1b-counter/evm/export-meta.json")
   require ((← exportCoreCommand counterOpts) == 0) "counter re-export failed"
   let core2 ← IO.FS.readFile (System.FilePath.mk "build/export/lr1b-counter/evm/core.v0.json")
+  let plan2 ← IO.FS.readFile (System.FilePath.mk "build/export/lr1b-counter/evm/capability-plan.v0.json")
+  let meta2 ← IO.FS.readFile (System.FilePath.mk "build/export/lr1b-counter/evm/export-meta.json")
   require (core1 == core2) "counter core.v0.json not deterministic"
+  require (plan1 == plan2) "counter capability-plan.v0.json not deterministic"
+  require (meta1 == meta2) "counter export-meta.json (contentHash) not deterministic"
 
   -- Fixture: value-vault (stateful subset)
   let vaultOpts ← match parseExportCoreOptions

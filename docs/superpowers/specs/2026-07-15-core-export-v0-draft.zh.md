@@ -34,17 +34,20 @@ Lean 仍是 Validate 与 Semantics 的权威。Export 是对已检查语义程�
 ## 建议目录布局
 
 ```text
-build/export/<module>/<targetId>/
-  export-meta.json           # 版本、hash、工具链、git 身份
-  source-manifest.json       # 产品路径、target 请求、输入摘要
-  core.v0.json               # 已检查模块（experimental schema）
-  capability-plan.v0.json    # 本目标解析后的 capabilities
+build/export/<id>/<targetId>/
+  core.v0.json                 # 已检查 Canonical Core（计入 contentHash）
+  capability-plan.v0.json      # requirements + hostOpHandlers + targetHostOpCatalog
+  interface.v0.json            # 入口面（不计入 contentHash）
+  export-meta.json             # contentHash = sha256(core ‖ plan 文件字节)
+  source-manifest.json         # 溯源
+  lean-evm-observe.v0.json     # 可选；Lean dual-run 面 dump
+  evm-storage-sketch.v0.json   # 可选；pf-core-inspect lower-sketch
 ```
 
-以后可选：
+以后可选（observe dual-run 不强制）：
 
 ```text
-  plan.v0.json               # A0：Lean 建好的 TargetPlan dump，供 dual-run
+  plan.v0.json               # 完整 Lean ModulePlan dump
   core.v0.bincode            # 可选紧凑编码；JSON 仍为参考
 ```
 
@@ -65,11 +68,13 @@ build/export/<module>/<targetId>/
 
 ### Content hash 范围
 
-`contentHash` 包含（canonical 字节、确定性键序）：
+**已实现（LR-1b+）：** `contentHash` 为 `core.v0.json` 与
+`capability-plan.v0.json` **磁盘文件字节按序拼接** 的 SHA-256 hex。
 
-- `core.v0` 语义体
-- `capability-plan.v0` 体
-- `targetId`、`moduleName`、schema id
+计入：
+
+- `core.v0.json` 文件字节
+- `capability-plan.v0.json` 文件字节
 
 **排除**在 `contentHash` 之外：
 

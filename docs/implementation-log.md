@@ -4248,7 +4248,7 @@ Rules:
 
 ## 2026-07-15 - GOAL + LR-2e: durable Seam A charter; ValueVault dual-run
 
-- Status: `done` (PR #105 branch; SHA at commit)
+- Status: `done` (verified at `842994d6`)
 - Result: Added continuous execution charter
   `docs/agent-goal-prompt-lean-rust-seam-a.md`. Extended EVM scalar storage
   sketch to allow Core `contextRead` and `emit` (still no hostCall/memory/
@@ -4263,3 +4263,40 @@ Rules:
 - Remaining: LR-2f Ownable dual-run; contentHash stability; promote
   core-export-v0 checklist; stop-condition review against goal success.
 - Documentation: charter, backlog EN+zh, `AGENTS.md` checkpoint.
+
+## 2026-07-15 - LR-2f: Ownable observe dual-run
+
+- Status: `done` (PR #105 branch)
+- Result: Extended scalar storage sketch to allow Core `assert` (Ownable).
+  Product Ownable still lacks EVM selectors for full `buildFromCore`; DualRunObserve
+  falls back to interface + sequential Core state surface dump for Seam A
+  dimensions. dual-run-observe green: 4 entrypoints + 2 slots. CREATE still
+  refuses hostCall modules.
+- Verification: DualRunObserve + dual-run-observe on
+  `build/export/lr2f-dual-run/ownable-evm`.
+- Remaining: LR-2g contentHash stability; LR-2h docs; stop review.
+  Optional later: fill Ownable selectors for full ModulePlan dump.
+
+## 2026-07-15 - LR-2g/2h: contentHash stability + core-export-v0 docs
+
+- Status: `done` (PR #105 branch)
+- Result: Counter re-export asserts identical core/plan/export-meta bytes;
+  pf-core unit test reloads fixture contentHash. core-export-v0 draft documents
+  package layout, hash rule, dual-run dimensions, and implementation status
+  through LR-2g. EN+zh backlog/spec synced.
+- Verification: `cargo test` pf-core (9); CoreExportPackage.lean.
+- Remaining: optional LR-2i CI note; LR-2j stop-condition review (success
+  largely met for Counter+ValueVault dual-run).
+
+## 2026-07-15 - LR-2f…2j: Ownable dual-run through Seam A goal success
+
+- Status: `done` (PR #105 branch; SHA at commit)
+- Result: Ownable dual-run with assert-eligible sketch + surface dump fallback;
+  contentHash stability gates; core-export-v0 package/dual-run docs; validation-gates
+  rows for `just core-export-v0` and `just artifact-contract-v1`. Goal charter
+  success condition met: general export-core, pf-core/inspect, Counter+ValueVault
+  observe dual-run, CREATE refuse, product CLI remains Lean.
+- Verification: DualRunObserve; dual-run-observe Counter/ValueVault/Ownable;
+  pf-core tests; CoreExportPackage; docs-check i18n.
+- Remaining: land PR #105; optional later Ownable selectors for full ModulePlan;
+  no LR-3 default Rust lower without new human goal.

@@ -294,11 +294,12 @@ impl ExportPackage {
                         | "storageContains"
                         | "contextRead"
                         | "emit"
+                        | "assert"
                 )
             });
         if scalar_storage_sketch_eligible {
             notes.push(
-                "EvmLowererPilot scalar storage sketch available (pure+storage±contextRead/emit; not bytecode)"
+                "EvmLowererPilot scalar storage sketch available (pure+storage±contextRead/emit/assert; not bytecode)"
                     .into(),
             );
         } else {

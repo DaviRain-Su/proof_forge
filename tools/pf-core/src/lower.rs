@@ -1,9 +1,10 @@
 //! Experimental `buildFromCore` pilot surface (D-057 Seam A).
 //!
 //! **EVM scalar storage sketch** for modules whose Core walk uses pure +
-//! storage ops, plus optional `contextRead` / `emit` (e.g. Counter, ValueVault).
-//! Emits a JSON sketch of provisional slots + entrypoints — not bytecode and
-//! not a product CLI path. HostCalls, memory, and crosscall still refuse.
+//! storage ops, plus optional `contextRead` / `emit` / `assert` (e.g. Counter,
+//! ValueVault, Ownable). Emits a JSON sketch of provisional slots + entrypoints
+//! — not bytecode and not a product CLI path. HostCalls, memory, and crosscall
+//! still refuse.
 
 use crate::{walk::CoreWalkSummary, ExportPackage};
 use anyhow::{bail, Context, Result};
@@ -80,9 +81,9 @@ pub struct WalkSketch {
 
 /// Allowed instruction kinds for the scalar storage sketch pilot.
 ///
-/// `contextRead` and `emit` are surface-level Core ops that do not allocate
-/// storage slots or hostCalls; the sketch still only materializes scalar slots
-/// + entrypoint names (no event ABI / context semantics).
+/// `contextRead`, `emit`, and `assert` are surface-level Core ops that do not
+/// allocate storage slots or hostCalls; the sketch still only materializes
+/// scalar slots + entrypoint names (no event ABI / context / assert codegen).
 fn is_scalar_storage_sketch_walk(walk: &CoreWalkSummary) -> Result<(), String> {
     let allowed: BTreeSet<&str> = [
         "pure",
@@ -91,6 +92,7 @@ fn is_scalar_storage_sketch_walk(walk: &CoreWalkSummary) -> Result<(), String> {
         "storageContains",
         "contextRead",
         "emit",
+        "assert",
     ]
     .into_iter()
     .collect();
@@ -211,10 +213,10 @@ pub fn build_evm_storage_sketch(package: &ExportPackage) -> Result<EvmStorageSke
         "not bytecode; not a product compile path".into(),
         "product CLI default remains Lean".into(),
     ];
-    if walk.context_read_count > 0 || walk.emit_count > 0 {
+    if walk.context_read_count > 0 || walk.emit_count > 0 || walk.assert_count > 0 {
         notes.push(format!(
-            "contextRead={} emit={} counted in walk but not materialized in sketch surface",
-            walk.context_read_count, walk.emit_count
+            "contextRead={} emit={} assert={} counted in walk but not materialized in sketch surface",
+            walk.context_read_count, walk.emit_count, walk.assert_count
         ));
     }
 

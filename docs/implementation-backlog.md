@@ -66,7 +66,11 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 | LR-2c | EVM storage-only lower sketch | done (PR #105 branch) | Counter-class modules → evm-storage-sketch.v0; hostCall modules refuse; not bytecode |
 | LR-2d | Observe dual-run (Lean plan vs sketch) | done (PR #105 branch) | lean-evm-observe.v0 + dual-run-observe; entrypoints+slots align for Counter |
 | LR-2e | ValueVault observe dual-run | done (PR #105 branch) | scalar sketch allows contextRead+emit; 7 entrypoints + 6 slots align; CREATE still refuses |
-| LR-2f | Ownable (or second scalar/policy) observe dual-run | pending | green or explicit refuse if not sketch-eligible |
+| LR-2f | Ownable observe dual-run | done (PR #105 branch) | sketch allows assert; surface dump when buildFromCore missing selectors; 4 eps + 2 slots |
+| LR-2g | Fixture counter contentHash stability | done (PR #105 branch) | re-export core/plan/meta identical; pf-core reload hash match |
+| LR-2h | Document package layout + dual-run dimensions | done (PR #105 branch) | core-export-v0 draft matches implemented Seam A |
+| LR-2i | validation-gates note for core-export-v0 / artifact-contract-v1 | done (PR #105 branch) | docs only; not required CI lane yet |
+| LR-2j | Stop-condition review vs Seam A goal charter | done (PR #105 branch) | Counter+ValueVault dual-run + export/Rust gates met; goal complete |
 | LR-1 | Product/source `export-core` + full HostOp handlers | pending after cutover quieter | product path + resolveSpec handlers; dual-run ready |
 | LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | pending after LR-1 | dual-run on declared dimensions; CLI default remains Lean |
 | LR-3+ | Triad backends / default Rust lower | pending | release-cycle dual-run + measurable benefit; Lean path still switchable |

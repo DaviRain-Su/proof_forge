@@ -84,10 +84,10 @@
     "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/validation-gates.md": {
-    "sha256": "7c5c835ffb980f92edb9441c0f6004a6932b369deabb26ba06af1d9e3bf7554d",
+    "sha256": "a140a9fd57ce77a4780b94d25930ea68654d87d84e2b4affdf445bea78e0f9bd",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for canonical EVM CREATE HostOp coverage; includes Stylus; includes NEP-145"
+    "note": "synced after LR-2f..2j Seam A goal success"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -187,9 +187,9 @@
     "note": "EN overview + §12 internals; zh is full deep-dive"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "131064b0d1b8656744fb5f76b604acafbc9941b845d6aac89d2c84a19b4dba85",
+    "sha256": "f360c1bd99688ca7f18006ea91c1845e989362bc3d8f3e8dacee20d82ac9b6b5",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after LR-2e ValueVault dual-run + goal charter"
+    "note": "synced after LR-2f..2j Seam A goal success"
   }
 }
