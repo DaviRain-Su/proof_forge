@@ -61,3 +61,5 @@ id.json
 tools/near-vm-runner/target/
 runtime/stylus-host/target/
 tools/soroban-vm-runner/target/
+tools/pf-core-inspect/target/
+
