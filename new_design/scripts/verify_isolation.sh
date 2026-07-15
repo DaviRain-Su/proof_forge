@@ -59,7 +59,13 @@ run_core_gate() {
   "$PF_XCODE_PYTHON" -I -S "$PF_CLEAN_SOURCE/scripts/docs_check.py"
   "$lake" --dir "$PF_CLEAN_SOURCE" --no-cache build \
     ProofForgeV2 proof_forge_next proof_forge_next_tests
-  "$lake" --dir "$PF_CLEAN_SOURCE" env "$tests"
+  # The CLI emission tests intentionally exercise relative build/v2 paths.
+  # Keep those scratch writes in the stage-owned work root, never in source or
+  # the clean-room top-level directory.
+  (
+    cd "$PF_CLEAN_WORK"
+    "$lake" --dir "$PF_CLEAN_SOURCE" env "$tests"
+  )
 
   /bin/mkdir -p "$targets"
   "$lake" --dir "$PF_CLEAN_SOURCE" env "$compiler" build testdata/valid/Standalone.lean \
@@ -403,16 +409,28 @@ sandbox_run() {
 sandbox_must_succeed() {
   local stage="$1"
   local invocation="$2"
+  local stdout_receipt="$policies_root/sandbox-$stage-$invocation.stdout.log"
   local stderr_receipt="$policies_root/sandbox-$stage-$invocation.stderr.log"
   shift 2
   if sandbox_run "$stage" --invocation "$invocation" "$@"; then
     return 0
   fi
   echo "clean-room-alpha: $stage/$invocation failed" >&2
+  if [[ -f "$stdout_receipt" ]]; then
+    echo "clean-room-alpha: protected stdout sha256=$(sha256_file \
+      "$stdout_receipt") (ASCII-escaped last 32768 bytes follow)" >&2
+    "$xcode_python" -I -S -c \
+      'import pathlib,sys; print(ascii(pathlib.Path(sys.argv[1]).read_bytes()[-32768:]))' \
+      "$stdout_receipt" >&2 || true
+  else
+    echo "clean-room-alpha: launcher published no child stdout receipt" >&2
+  fi
   if [[ -f "$stderr_receipt" ]]; then
     echo "clean-room-alpha: protected stderr sha256=$(sha256_file \
-      "$stderr_receipt") (last 32768 bytes follow)" >&2
-    /usr/bin/tail -c 32768 "$stderr_receipt" >&2 || true
+      "$stderr_receipt") (ASCII-escaped last 32768 bytes follow)" >&2
+    "$xcode_python" -I -S -c \
+      'import pathlib,sys; print(ascii(pathlib.Path(sys.argv[1]).read_bytes()[-32768:]))' \
+      "$stderr_receipt" >&2 || true
   else
     echo "clean-room-alpha: launcher published no child stderr receipt" >&2
   fi
