@@ -391,6 +391,16 @@ authored-map` proves the same checked contract reaches EVM, Solana, and NEAR
 plans, while an unsupported source action still fails without Legacy fallback.
 A-CUT3e2 now applies this boundary to the sole Product StatusMessage source.
 
+StatusMessage checkpoint (2026-07-15): `2ea8b134` rewrites the sole Product
+source to direct `ProofForge.Contract.Source`, makes the caller-to-u64
+projection an explicit target-neutral cast, and preserves the bounded map plus
+typed event through checked Core. The Surface duplicate, ContractSpec
+allowlist entry, Product `.module` caller, and obsolete Surface aggregate row
+are deleted. `just status-message-authoring-cutover` rebuilds the CLI, proves
+EVM/Solana/NEAR plans, and emits only `contract-source-authored` /
+`canonical-core-v1` final artifacts with no retired sidecars. CMP-3h now owns
+independent native map/event evidence before GuestBook begins.
+
 ### A-CUT4 - Delete duplicate source and version split
 
 - Delete the temporary `TestFixtures/SurfaceProducts` values and their

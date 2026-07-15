@@ -210,6 +210,20 @@ D-034）。每个 Gate 都有一条记录，列出验收标准、逐项状态、
 | A-CUT3e1-2 | map 语义在 checked Core 中保持 target-neutral | ✅ met | `just authored-map` 观察到一个 `.map .u64 .u64 (some 256)` state 与 map-key storage load/store operation；Product source 或 Core shape 中没有 target layout |
 | A-CUT3e1-3 | 主 target plan 保留同一个 checked contract | ✅ met | focused EVM、Solana 与 NEAR `buildFromCore` 调用都接受同一个 normalized map probe；Solana 接收 portable 有限边界，而不是 target-specific frontend 默认值 |
 
+## Gate A-CUT3e2 —— Product StatusMessage direct 切换
+
+**状态：已关闭**
+
+**关闭时间：2026-07-15，提交 `2ea8b134`**
+
+| # | 标准 | 状态 | 证据 |
+|---|---|---|---|
+| A-CUT3e2-1 | Product StatusMessage 只有一个当前 source identity | ✅ met | `just status-message-authoring-cutover` 要求唯一 Product source 导出 `contract : AuthoredContract`，并拒绝 `.spec`/`.module`、`Source.Legacy`、compatibility allowlist 条目和恢复重复 Surface source |
+| A-CUT3e2-2 | caller projection、map state 与 event schema 保持 target-neutral | ✅ met | direct source 将显式 address-to-u64 cast、有界 map load/store 与 typed `StatusSet` event lowering 到 checked Canonical Core，未嵌入 EVM、Solana 或 NEAR storage/event layout |
+| A-CUT3e2-3 | 同一个 checked contract 到达全部主 target plan | ✅ met | focused Lean gate 从同一个 normalized contract 构建 EVM、Solana 与 NEAR plan，并在 target materialization 前观察 caller context、Core cast、map operation 与 event operation |
+| A-CUT3e2-4 | 公开 artifact 仅使用 direct Canonical 路线 | ✅ met | target-first EVM Yul/bytecode、Solana assembly/package/IDL 与 NEAR WAT/Wasm 报告 `contract-source-authored` / `canonical-core-v1`；retired ContractSpec/IR sidecar 均不存在 |
+| A-CUT3e2-5 | 过时调用方与重复实现已删除 | ✅ met | temporary Surface fixture 不存在，StatusMessage 已从 compatibility allowlist 移除，Product Matrix 与 direct-product 调用方不再消费已退役 `.module` |
+
 ## Gate CMP-3g1 —— 独立 ArrayExample reference 契约
 
 **状态：仅 reference 固定阶段已关闭**

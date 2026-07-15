@@ -217,6 +217,20 @@ Status: **closed with primary-triad native differential evidence; catalog migrat
 | A-CUT3e1-2 | Map semantics remain target-neutral in checked Core | ✅ met | `just authored-map` observes one `.map .u64 .u64 (some 256)` state plus map-key storage load/store operations; no target layout enters the Product source or Core shape |
 | A-CUT3e1-3 | Primary target plans preserve the same checked contract | ✅ met | focused EVM, Solana, and NEAR `buildFromCore` calls all accept the same normalized map probe; Solana receives the portable finite bound rather than a target-specific frontend default |
 
+## Gate A-CUT3e2 - Product StatusMessage direct cutover
+
+**Status: Closed**
+
+**Closed: 2026-07-15 at `2ea8b134`**
+
+| # | Criterion | Status | Evidence |
+|---|---|---|---|
+| A-CUT3e2-1 | Product StatusMessage has one current source identity | ✅ met | `just status-message-authoring-cutover` requires the sole Product source to export `contract : AuthoredContract` and rejects `.spec`/`.module`, `Source.Legacy`, compatibility allowlist entries, and restored duplicate Surface sources |
+| A-CUT3e2-2 | Caller projection, map state, and event schema stay target-neutral | ✅ met | the direct source lowers the explicit address-to-u64 cast, bounded map load/store, and typed `StatusSet` event into checked Canonical Core without embedding an EVM, Solana, or NEAR storage/event layout |
+| A-CUT3e2-3 | The same checked contract reaches every primary target plan | ✅ met | the focused Lean gate builds EVM, Solana, and NEAR plans from one normalized contract and observes the caller context, Core cast, map operations, and event operation before target materialization |
+| A-CUT3e2-4 | Public artifacts are direct and Canonical-only | ✅ met | target-first EVM Yul/bytecode, Solana assembly/package/IDL, and NEAR WAT/Wasm report `contract-source-authored` / `canonical-core-v1`; retired ContractSpec/IR sidecars are absent |
+| A-CUT3e2-5 | Obsolete callers and duplicate implementations are deleted | ✅ met | the temporary Surface fixture is absent, StatusMessage is removed from the compatibility allowlist, and Product Matrix plus direct-product callers no longer consume a retired `.module` |
+
 ## Gate CMP-3g1 - Independent ArrayExample reference contracts
 
 **Status: Closed for reference pinning only**

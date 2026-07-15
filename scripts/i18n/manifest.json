@@ -74,10 +74,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "446ebd499458d69c9477f029dd3323a0df9e79c4e171e765b2e7df1befdcaafd",
+    "sha256": "e437391f9222667ffe987712935a88f5e229df984441cd6cc81256116a6372cb",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through verified direct map authoring and active StatusMessage cutover"
+    "note": "synced EN/zh through verified StatusMessage direct cutover and active CMP-3h1"
   },
   "docs/review-checklist.md": {
     "sha256": "c0101e0013610519412a5dc9bd2cdc1ea4dbbd67836ddcceedc16aa35598a56f",
@@ -104,10 +104,10 @@
     "note": "manually translated for canonical backend interface"
   },
   "docs/validation-gates.md": {
-    "sha256": "463d65e7841c7b6574f546cb7b64cac98cd1d36e3981f6acef0092c9980a6ff3",
+    "sha256": "85778408f43e26fbf1fb0d1b816ffd9d3fc07b19f4c64dcd4af285901973a56f",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through verified direct portable map authoring"
+    "note": "manually synced through verified Product StatusMessage direct cutover"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -184,10 +184,10 @@
     "note": "manually synced for target-owned NEAR HostOps and Source authoring paths"
   },
   "docs/gate-status.md": {
-    "sha256": "a071aea9e4a3f86c93efa9b6bafba536de16ab6ff9d7ce10e164cda279dddd18",
+    "sha256": "3cadd7f85de034c6cf251528554c522c33119177d07f49086ec7dfa1cff5b5b5",
     "zh": "docs/zh/gate-status.zh.md",
     "model": "manual-zh",
-    "en_sha256": "a071aea9e4a3f86c93efa9b6bafba536de16ab6ff9d7ce10e164cda279dddd18"
+    "en_sha256": "3cadd7f85de034c6cf251528554c522c33119177d07f49086ec7dfa1cff5b5b5"
   },
   "docs/sdk-ecosystem-gaps-2026-07.md": "438b8dd731312fb722517cdac6d2fe146d55f38646813a018f1a8d62674db355",
   "docs/tutorials/portable-shared-path.md": {

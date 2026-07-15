@@ -4625,3 +4625,23 @@ Rules:
   authored-map`; `just authored-authorization`; sequential Source/ArrayExample
   rebuild and focused ArrayExample test; and `git diff --check`. No full
   aggregate was run.
+
+## 2026-07-15 - A-CUT3e2: Product StatusMessage direct cutover
+
+- Status: `done (verified at 2ea8b134)`; CMP-3h1 independent native reference
+  pinning is now active.
+- Rewrote the sole Product StatusMessage source onto the current public Source
+  frontend. Its explicit caller cast, bounded status map, and typed `StatusSet`
+  event now normalize directly to checked Canonical Core; no ContractSpec,
+  v1 IR, compatibility adapter, or target-specific frontend branch remains.
+- Deleted the duplicate Surface fixture, removed the compatibility allowlist
+  entry, and moved Matrix/direct-product callers away from the retired
+  `.module` identity. The same checked contract now builds EVM, Solana, and
+  NEAR plans and target-first artifacts with direct/canonical provenance.
+- Verification: failing-first `Tests/StatusMessageExample.lean`; `just
+  status-message-authoring-cutover`; `lake env lean --run
+  Tests/Product/Matrix.lean`; `just near-compare-status-message`; focused
+  topology and portable-default gates; and `git diff --check`. The broader
+  `Tests/Canonical/EvmDirectProducts.lean` still stops at its pre-existing
+  RemoteCall fixture and was not counted as StatusMessage evidence. No full
+  aggregate was run.
