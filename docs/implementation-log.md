@@ -4327,3 +4327,18 @@ Rules:
   notes cite D-058).
 - Verification: `cargo test --manifest-path tools/pf-core/Cargo.toml`.
 - Remaining: land PR #105; invest Lean product lower / cutover, not Rust printers.
+
+## 2026-07-15 - LR-S1/S2: dual-run selector hydrate + export-inspect (no Rust lower)
+
+- Status: `done` (PR #105 branch)
+- Result: Under D-058, improve Seam A **without** product Rust lower:
+  (1) `hydrateEvmSelectorsMissing` + DualRunObserve resolve Foundry `cast` so
+  portable Ownable fills missing selectors and takes full ModulePlan observe
+  dump (surface fallback remains if cast absent);
+  (2) `just export-inspect` orchestrates `export-core --experimental` +
+  pf-core-inspect check/summary as a one-shot pipeline.
+  Backlog LR-S1…S5 records pure Lean keccak / optional observe export / product
+  lower quality as next non-Rust-lower work.
+- Verification: `lake env lean --run Tests/Canonical/DualRunObserve.lean`
+  (Ownable: buildFromCore ModulePlan); dual-run-observe ownable-evm ok.
+- Remaining: LR-S3 pure Lean keccak; product Lean lower quality; land PR #105.

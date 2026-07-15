@@ -121,6 +121,26 @@ def hydrateEvmSelectors (cast : String) (module : ProofForge.IR.Module) :
         entrypoints := entrypoints.push { entrypoint with selector? := some derived }
   return { module with entrypoints := entrypoints }
 
+/-- Fill **missing** selectors only; leave pinned fixture selectors untouched.
+
+Use for dual-run / inspect paths that need `buildFromCore` on portable products
+without re-validating historical IR fixture pins (which may use non-Solidity
+canonical type spellings). Product Yul still uses `hydrateEvmSelectors`. -/
+def hydrateEvmSelectorsMissing (cast : String) (module : ProofForge.IR.Module) :
+    IO ProofForge.IR.Module := do
+  let mut entrypoints := #[]
+  for entrypoint in module.entrypoints do
+    match entrypoint.selector? with
+    | some _ => entrypoints := entrypoints.push entrypoint
+    | none =>
+        let signature ←
+          match entrypointSoliditySignature module entrypoint with
+          | .ok signature => pure signature
+          | .error msg => throw <| IO.userError msg
+        let derived ← selectorFor cast signature
+        entrypoints := entrypoints.push { entrypoint with selector? := some derived }
+  return { module with entrypoints := entrypoints }
+
 def entrypointJson (module : ProofForge.IR.Module) (entrypoint : ProofForge.IR.Entrypoint) : Except String String := do
   let mut params := #[]
   let mut paramAbiTypes := #[]

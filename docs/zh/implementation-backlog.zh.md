@@ -67,6 +67,11 @@
 | LR-1 | 产品/源路径 `export-core` + 完整 HostOp handlers | cutover 更安静后 pending | 产品路径 + resolveSpec handlers；为 dual-run 就绪 |
 | LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | **延期（D-058）** | 仅在有现成库栈或有意 sourcegen + dual-run 策略时重开 |
 | LR-3+ | 三链后端 / 默认 Rust lower | **延期/无新决策则 wont（D-058）** | 不用 Rust 重做 sBPF/WAT/Yul 打印机；产品 lower 仍在 Lean |
+| LR-S1 | Dual-run 缺失 selector hydrate（cast） | done（PR #105） | 有 Foundry `cast` 时 Ownable 走完整 buildFromCore observe；无 cast 则 surface dump |
+| LR-S2 | `just export-inspect` 编排（export + check/summary） | done（PR #105） | Seam A 一键编排；无产品 lower |
+| LR-S3 | 纯 Lean keccak 补 selector（无 cast） | pending | dual-run / 便携产品 plan dump 去掉 Foundry 依赖 |
+| LR-S4 | CLI 可选导出 `lean-evm-observe` | pending | export-core 标志或后处理；仍非 Rust lower |
+| LR-S5 | Lean 产品 lower 质量（Yul / sBPF / WAT） | ongoing | D-058 下主投入 — 非 Seam A Rust |
 
 规格（中文）：
 [lean-rust-boundary](../superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)、

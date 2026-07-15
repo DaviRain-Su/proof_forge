@@ -10,6 +10,7 @@ export package, for Rust `dual-run-observe` against the storage sketch.
 Covers Counter (LR-2d), ValueVault (LR-2e), and product Ownable (LR-2f).
 -/
 import ProofForge.Backend.Evm.Plan.Core
+import ProofForge.Cli.EvmAbi
 import ProofForge.Cli.ExportCore
 import ProofForge.Contract.Spec
 import Examples.Product.Ownable
@@ -31,6 +32,38 @@ open ProofForge.IR.Canonical
 
 def require (cond : Bool) (msg : String) : IO Unit :=
   if cond then pure () else throw (IO.userError msg)
+
+/-- Resolve `cast` like product EVM path (PATH, then common Foundry install). -/
+def resolveCast : IO (Option String) := do
+  let home := (← IO.getEnv "HOME").getD ""
+  let foundryCast := (System.FilePath.mk home / ".foundry" / "bin" / "cast").toString
+  let candidates := #["cast", foundryCast]
+  for c in candidates do
+    try
+      let out ← IO.Process.output { cmd := c, args := #["--version"] }
+      if out.exitCode == 0 then
+        return some c
+    catch _ => pure ()
+  return none
+
+/-- Align dual-run with product EVM when selectors are absent on portable IR. -/
+def hydrateSpecSelectors (label : String) (spec : ProofForge.Contract.ContractSpec) :
+    IO ProofForge.Contract.ContractSpec := do
+  match ← resolveCast with
+  | none =>
+      IO.println s!"{label}: cast not found; skip selector hydrate (plan may fall back to surface dump)"
+      pure spec
+  | some cast =>
+      try
+        let before := (spec.module.entrypoints.filter (·.selector?.isNone)).size
+        let module ← ProofForge.Cli.hydrateEvmSelectorsMissing cast spec.module
+        let after := (module.entrypoints.filter (·.selector?.isNone)).size
+        if before > after then
+          IO.println s!"{label}: filled {before - after} missing selector(s) via {cast}"
+        pure { spec with module }
+      catch e =>
+        IO.println s!"{label}: selector hydrate failed ({e}); continuing without"
+        pure spec
 
 def mutabilityName : InterfaceMutability → String
   | .call => "call"
@@ -112,13 +145,18 @@ def leanObserveFromSurface
     ("interfaceEntrypointNames", ifaceNames)
   ]
 
-/-- Export package + Lean observe dump for one ContractSpec (fixture or product). -/
+/-- Export package + Lean observe dump for one ContractSpec (fixture or product).
+
+Selector hydrate uses Foundry `cast` (same as product EVM Yul path) so portable
+products like Ownable can take the full `buildFromCore` observe dump when cast
+is available. Without cast, surface dump remains valid for Seam A dimensions. -/
 def observeSpec
     (label : String)
-    (spec : ProofForge.Contract.ContractSpec)
+    (spec0 : ProofForge.Contract.ContractSpec)
     (outRel : String)
     (minEntrypoints minStates : Nat)
     (sourceKind : String := "portable-ir-fixture") : IO Unit := do
+  let spec ← hydrateSpecSelectors label spec0
   let bundle ← match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
     | .ok b => pure b
     | .error e => throw (IO.userError s!"{label}: normalize failed: {repr e}")
@@ -135,8 +173,7 @@ def observeSpec
   require (core.state.size ≥ minStates)
     s!"{label}: expected ≥{minStates} storage states, got {core.state.size}"
 
-  -- Prefer full EVM ModulePlan dump; fall back to interface+Core surface when
-  -- plan construction fails (e.g. product Ownable missing selectors today).
+  -- Prefer full EVM ModulePlan dump (product-aligned after selector hydrate).
   let observe ← match ProofForge.Backend.Evm.Plan.Core.buildFromCore checked capPlan with
     | .ok plan =>
       match plan.storage.states[0]? with
@@ -146,10 +183,10 @@ def observeSpec
       let ifaceNames := iface.entrypoints.map (·.name)
       require (planNames == ifaceNames)
         s!"{label}: plan entrypoint names must match interface order"
+      IO.println s!"{label}: buildFromCore observe dump (ModulePlan)"
       pure (leanObserveJson plan iface)
     | .error e =>
       IO.println s!"{label}: buildFromCore unavailable ({e.message}); using interface+Core surface dump"
-      -- Sequential scalar slots only (matches Rust provisional sketch).
       for st in core.state do
         match st.shape with
         | .scalar _ => pure ()
@@ -157,6 +194,7 @@ def observeSpec
       pure (leanObserveFromSurface core.name iface core)
 
   let outDir := System.FilePath.mk outRel
+  -- Export uses original/hydrated IR-backed package (selectors not in contentHash body).
   let code ← exportContractSpec "evm" outDir spec sourceKind s!"{label} dual-run observe"
   require (code == 0) s!"{label}: exportContractSpec failed exit={code}"
 

@@ -74,6 +74,11 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 | LR-1 | Product/source `export-core` + full HostOp handlers | pending after cutover quieter | product path + resolveSpec handlers; dual-run ready |
 | LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | **deferred (D-058)** | only reopen with ready lib stack or intentional sourcegen + dual-run policy |
 | LR-3+ | Triad backends / default Rust lower | **deferred / wont without new decision (D-058)** | do not re-implement sBPF/WAT/Yul printers in Rust; product lower stays Lean |
+| LR-S1 | Dual-run selector hydrate (missing-only via cast) | done (PR #105) | Ownable takes full `buildFromCore` observe when Foundry `cast` present; surface dump fallback without cast |
+| LR-S2 | `just export-inspect` pipeline (export + check/summary) | done (PR #105) | one-shot Seam A orchestration; no product lower |
+| LR-S3 | Pure Lean keccak selector fill (no `cast`) | pending | remove Foundry dependency for dual-run / portable product plan dump |
+| LR-S4 | Optional export of `lean-evm-observe` from CLI | pending | product `export-core` flag or post-step; still not Rust lower |
+| LR-S5 | Lean product lower quality (EVM Yul / Solana sBPF / WAT) | ongoing | primary investment under D-058 — not Seam A Rust |
 
 Specs: [lean-rust-boundary](superpowers/specs/2026-07-15-lean-rust-boundary-design.md)
 ([中文](superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)),

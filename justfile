@@ -431,6 +431,31 @@ core-export-v0:
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
       build/export/lr2f-dual-run/ownable-evm
 
+# Seam A pipeline (D-057/D-058): export-core + read-only inspect — no product Rust lower.
+# Usage (positional out dir, no `out=` prefix):
+#   just export-inspect Examples/Product/Counter.lean
+#   just export-inspect Examples/Product/Ownable.lean build/export/ownable-evm
+# Optional named: just export-inspect path=Examples/Product/Counter.lean target=evm
+export-inspect path out="build/export/inspect-run" target="evm":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    OUT_DIR="{{out}}"
+    # Guard against accidental `out=...` passed as a positional value.
+    if [[ "$OUT_DIR" == out=* ]]; then
+      OUT_DIR="${OUT_DIR#out=}"
+    fi
+    mkdir -p "$OUT_DIR"
+    if [[ -x .lake/build/bin/proof-forge ]]; then
+      PF=".lake/build/bin/proof-forge"
+    else
+      lake build proof-forge
+      PF=".lake/build/bin/proof-forge"
+    fi
+    lake env "$PF" export-core --experimental --target "{{target}}" -o "$OUT_DIR" "{{path}}"
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check "$OUT_DIR"
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- summary "$OUT_DIR"
+    echo "export-inspect: ok dir=$OUT_DIR (export + check + summary; no product lower; D-058)"
+
 # PF-P1-04: preflight L0+L1+L2 readiness via TargetBackend hooks.
 preflight-l2:
     lake env lean --run Tests/PreflightL2.lean

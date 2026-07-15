@@ -134,8 +134,20 @@ product lower without a decision naming ready libraries or intentional sourcegen
 | LR-2f Ownable dual-run | sketch allows `assert`; surface dump fallback; 4 eps + 2 slots |
 | LR-2g contentHash stability | re-export + pf-core reload |
 | LR-2h–2j docs + stop review | core-export-v0 + validation-gates; **goal success** |
+| D-058 | freeze Rust machine-IR product lower |
+| LR-S1/S2 | selector hydrate missing-only; `just export-inspect` |
 
 Re-run gates after merge-from-main or large conflicts.
+
+### Post-success improvements (no Rust lower; D-058)
+
+| ID | Task | State |
+|---|---|---|
+| LR-S1 | Dual-run fill missing selectors via cast | done |
+| LR-S2 | `just export-inspect` export+check+summary | done |
+| LR-S3 | Pure Lean keccak selectors | pending |
+| LR-S4 | Optional lean-observe from CLI | pending |
+| LR-S5 | Lean product Yul/sBPF/WAT quality | ongoing |
 
 ---
 
