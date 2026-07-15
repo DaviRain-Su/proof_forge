@@ -15,6 +15,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.Bound,
     `Tests.Language.ProgramSyntax,
     `Tests.Language.SourceIdentity,
+    `Tests.Language.Declarations,
     `Tests.Language.Loader,
     `Tests.Materialization.Targets,
     `Tests.CLI.Emit

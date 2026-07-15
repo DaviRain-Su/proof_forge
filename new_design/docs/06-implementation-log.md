@@ -267,6 +267,14 @@ normative: false
 - Evidence：`EV-20260716-0014`.
 - Next：`TASK-D1-03` in_progress.
 
+## 2026-07-16 — TASK-D1-03/D1-04 declaration + statement grammar
+
+- Spec/Test：`TST-SRC-004/005`；`Tests.Language.Declarations` drives shipped elaborator/loader.
+- Commands：`lake build proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`.
+- Results：exit 0；Counter decls/stmts match expected AST；dup-init/overflow/empty-callables fail closed.
+- Evidence：`EV-20260716-0015`.
+- Next：`TASK-D1-05` in_progress.
+
 ## 记录模板
 
 

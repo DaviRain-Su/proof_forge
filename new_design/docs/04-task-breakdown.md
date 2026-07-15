@@ -44,9 +44,9 @@ normative: true
 |---|---|---|---|---|
 | TASK-D1-01 | source token、span、NodeId | D0 | TST-SRC-001/002 | done (EV-20260716-0013; Tests.Language.SourceIdentity) |
 | TASK-D1-02 | `program ... where` command parser | D1-01 | TST-SRC-003 | done (EV-20260716-0014; Loader kind reject + ProgramSyntax) |
-| TASK-D1-03 | declaration grammar/elaboration | D1-02 | TST-SRC-004 | in_progress |
-| TASK-D1-04 | statement/expression grammar | D1-03 | TST-SRC-005 | pending |
-| TASK-D1-05 | `Source.Program` stable attribute export/schema | D1-03 | TST-SRC-006/007 | pending |
+| TASK-D1-03 | declaration grammar/elaboration | D1-02 | TST-SRC-004 | done (EV-20260716-0015; Tests.Language.Declarations) |
+| TASK-D1-04 | statement/expression grammar | D1-03 | TST-SRC-005 | done (EV-20260716-0015; Tests.Language.Declarations) |
+| TASK-D1-05 | `Source.Program` stable attribute export/schema | D1-03 | TST-SRC-006/007 | in_progress |
 | TASK-D1-06 | multi-program loader/selection | D1-05 | TST-SRC-008 | pending |
 | TASK-D1-07 | stable source diagnostics | D1-02–06 | TST-DIAG-001 | pending |
 
