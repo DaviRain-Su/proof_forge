@@ -211,6 +211,34 @@ normative: false
   schema；当前 host 不得运行或声明正式 hermetic gate。`TASK-D0-03`、`TST-ISO-002/003`
   均保持 open。
 
+## 2026-07-15 — TASK-D0-03 H1a candidate/archive binding
+
+- Commit/candidate：实现 commit `7b143aa7e7043a4f93dab78fe168b5c518b15fa1`；subtree tree
+  `0dc77113aa2e63d45a21ee99f971b0e23d351329`；稳定 archive SHA-256
+  `5a18767ed0dcc8a5cd73d61675df020b625b3054fefe45b551b6df542fac821a`。
+- Spec/Test：`SPEC-REPRO-001`、`TST-ISO-002`；新增 `just candidate-binding`，覆盖两次 tar
+  byte equality、embedded commit、提取路径和 malformed commit/tree/archive anchors。
+- Changed：archive 从不稳定的 `git archive "$commit:new_design" .` 改为已验证 direct Git
+  对 commit object + `new_design` pathspec 归档；显式禁用 replace objects/optional locks，绑定
+  external commit/tree/archive 三元组，并用 `git get-tar-commit-id` 复核 tar。pre/post 以
+  porcelain-v2 NUL stream digest 复核 HEAD、subtree tree 与 status。continuation 现在必须显式
+  `--development`；未实现 Stage-0 digest-bound handoff 前不暴露 formal 模式。
+- Commands：`just candidate-binding`；`just docs-check`；`bash -n scripts/verify_isolation.sh`；
+  `git diff --check`；`just check`；post-commit 以 checkout 外生成的上述三项 anchor 执行
+  `scripts/verify_isolation.sh --development --candidate-commit ... --candidate-tree ...
+  --candidate-archive-sha256 ...`。
+- Results：全部 exit 0。post-commit gate 从精确 candidate 物化锁定 Lean/Lake/external root，
+  61-job clean build/test、四目标 19-file reproducibility 与 EVM localhost runtime 均通过；
+  candidate HEAD/tree/status 前后相同。
+- Evidence：`EV-20260715-0013`，仅为 development candidate-binding evidence。旧 evidence
+  使用 tree object 归档时的 SHA 受调用时刻 mtime 影响；历史记录保持不可变，不把旧值改写成
+  可重算 anchor。
+- Limitations：formal 必须从权威 Stage-0 直接 handoff 到 digest-bound continuation，external
+  anchor 必须来自 checkout 外受保护元数据；same-UID/privileged TOCTOU 仍需受控 runner。
+  当前 host ineligible，sandbox 仍 allow-default，schema-complete JSON EV 未接入，所以
+  `TASK-D0-03` 保持 `in_progress`，`TASK-D0-04` 与 `TST-ISO-002/003` 保持 open。
+- Next：H1b strict evidence core/finalizer，再实现 deny-default stage profiles 与负向 probes。
+
 ## 记录模板
 
 ```markdown

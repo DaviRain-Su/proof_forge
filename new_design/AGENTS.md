@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-D0-03/H1`：绑定 candidate/archive，接入 deny-default sandbox 与 schema-complete development evidence |
-| Next task | 在 eligible host 上执行正式 H1 gate；当前 profile 只能生成 development evidence |
+| Active task | `TASK-D0-03/H1b`：candidate binding 已在 `7b143aa7` 验证；实现 strict gate evidence 与 deny-default continuation |
+| Next task | 接入 `proof-forge.evidence.v1` development finalizer，再替换 allow-default sandbox |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、deny-default policy 与正式 EV；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
