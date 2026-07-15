@@ -493,6 +493,7 @@ def _validate_sandbox_policies(value: object) -> list[dict[str, object]]:
                 "probes",
             },
             where,
+            optional={"networkPort"},
         )
         policy_id = require_safe_id(policy["id"], _where(where, "id"))
         if policy_id in ids:
@@ -501,9 +502,28 @@ def _validate_sandbox_policies(value: object) -> list[dict[str, object]]:
         require_safe_id(policy["engine"], _where(where, "engine"))
         require_sha256(policy["engineSha256"], _where(where, "engineSha256"))
         require_enum(policy["defaultAction"], {"allow", "deny"}, _where(where, "defaultAction"))
-        require_enum(
-            policy["network"], {"deny-all", "loopback-only"}, _where(where, "network")
+        network = require_enum(
+            policy["network"],
+            {"deny-all", "exact-local-port", "loopback-only"},
+            _where(where, "network"),
         )
+        if network == "exact-local-port":
+            if "networkPort" not in policy:
+                fail(
+                    "PF-EVIDENCE-SCHEMA",
+                    f"{where}.networkPort is required for exact-local-port",
+                )
+            require_int(
+                policy["networkPort"],
+                _where(where, "networkPort"),
+                minimum=1,
+                maximum=65535,
+            )
+        elif "networkPort" in policy:
+            fail(
+                "PF-EVIDENCE-INVARIANT",
+                f"{where}.networkPort is forbidden unless network is exact-local-port",
+            )
         require_sha256(policy["templateSha256"], _where(where, "templateSha256"))
         require_sha256(policy["renderedSha256"], _where(where, "renderedSha256"))
         probes = require_array(policy["probes"], _where(where, "probes"), nonempty=True)
@@ -1502,6 +1522,20 @@ def _sample_document(*, formal: bool = False) -> dict[str, object]:
                 "templateSha256": digit("9"),
                 "renderedSha256": digit("a"),
                 "probes": [{"id": "network-denied", "status": "passed"}],
+            },
+            {
+                "id": "evm-runtime-exact-port",
+                "engine": "sandbox-exec",
+                "engineSha256": digit("8"),
+                "defaultAction": "deny",
+                "network": "exact-local-port",
+                "networkPort": 8545,
+                "templateSha256": digit("b"),
+                "renderedSha256": digit("c"),
+                "probes": [
+                    {"id": "adjacent-port-denied", "status": "passed"},
+                    {"id": "lan-refused", "status": "passed"},
+                ],
             }
         ],
         "tools": [
@@ -1716,6 +1750,70 @@ def self_test() -> None:
     bad_artifact_set = copy.deepcopy(development)
     bad_artifact_set["artifactSetSha256"] = "0" * 64
     _expect_rejected("artifact-set digest mismatch", bad_artifact_set)
+
+    legacy_loopback = copy.deepcopy(development)
+    legacy_loopback_policy = legacy_loopback["sandboxPolicies"][1]  # type: ignore[index]
+    legacy_loopback_policy["network"] = "loopback-only"
+    legacy_loopback_policy.pop("networkPort")
+    validate_evidence(legacy_loopback)
+
+    legacy_deny_all = copy.deepcopy(development)
+    legacy_deny_all["sandboxPolicies"] = [
+        legacy_deny_all["sandboxPolicies"][0]  # type: ignore[index]
+    ]
+    validate_evidence(legacy_deny_all)
+
+    missing_exact_port = copy.deepcopy(development)
+    missing_exact_port["sandboxPolicies"][1].pop("networkPort")  # type: ignore[index]
+    _expect_rejected("exact-local-port without networkPort", missing_exact_port)
+
+    for boundary_port in (1, 65535):
+        valid_exact_port = copy.deepcopy(development)
+        valid_exact_port["sandboxPolicies"][1]["networkPort"] = boundary_port  # type: ignore[index]
+        validate_evidence(valid_exact_port)
+
+    port_on_deny_all = copy.deepcopy(development)
+    port_on_deny_all["sandboxPolicies"][0]["networkPort"] = 8545  # type: ignore[index]
+    _expect_rejected("networkPort on deny-all policy", port_on_deny_all)
+
+    port_on_loopback = copy.deepcopy(legacy_loopback)
+    port_on_loopback["sandboxPolicies"][1]["networkPort"] = 8545  # type: ignore[index]
+    _expect_rejected("networkPort on loopback-only policy", port_on_loopback)
+
+    for label, invalid_port in (
+        ("negative", -1),
+        ("zero", 0),
+        ("above maximum", 65536),
+        ("boolean", True),
+        ("float", 8545.0),
+        ("string", "8545"),
+        ("null", None),
+    ):
+        invalid_exact_port = copy.deepcopy(development)
+        invalid_exact_port["sandboxPolicies"][1]["networkPort"] = invalid_port  # type: ignore[index]
+        _expect_rejected(f"exact-local-port {label} networkPort", invalid_exact_port)
+
+    unknown_network = copy.deepcopy(development)
+    unknown_network["sandboxPolicies"][1]["network"] = "localhost"  # type: ignore[index]
+    _expect_rejected("unknown sandbox network policy", unknown_network)
+
+    unknown_network_field = copy.deepcopy(development)
+    unknown_network_field["sandboxPolicies"][1]["networkPortTypo"] = 8545  # type: ignore[index]
+    _expect_rejected("unknown sandbox network field", unknown_network_field)
+
+    formal_without_deny_all = copy.deepcopy(formal)
+    formal_without_deny_all["sandboxPolicies"] = [
+        formal_without_deny_all["sandboxPolicies"][1]  # type: ignore[index]
+    ]
+    _expect_rejected("formal exact-local-port without deny-all policy", formal_without_deny_all)
+
+    for probe_status in ("failed", "skipped"):
+        nonpassing_exact_probe = copy.deepcopy(development)
+        nonpassing_exact_probe["sandboxPolicies"][1]["probes"][0]["status"] = probe_status  # type: ignore[index]
+        _expect_rejected(
+            f"passed evidence with {probe_status} exact-local-port probe",
+            nonpassing_exact_probe,
+        )
 
     ordering_mutations: list[tuple[str, dict[str, object]]] = []
     candidate = copy.deepcopy(development)
