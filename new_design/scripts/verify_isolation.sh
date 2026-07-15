@@ -460,7 +460,7 @@ document = {
   "taskId": "TASK-D0-03/H1",
   "repository": {
     "commit": "$commit",
-    "dirty": $dirty,
+    "dirty": True if "$dirty" == "true" else False,
     "diffDigest": None,
   },
   "environment": {
