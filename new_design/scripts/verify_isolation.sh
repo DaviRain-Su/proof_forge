@@ -400,6 +400,25 @@ sandbox_run() {
     "$source_root/scripts/sandbox_exec.py" run "$@"
 }
 
+sandbox_must_succeed() {
+  local stage="$1"
+  local invocation="$2"
+  local stderr_receipt="$policies_root/sandbox-$stage-$invocation.stderr.log"
+  shift 2
+  if sandbox_run "$stage" --invocation "$invocation" "$@"; then
+    return 0
+  fi
+  echo "clean-room-alpha: $stage/$invocation failed" >&2
+  if [[ -f "$stderr_receipt" ]]; then
+    echo "clean-room-alpha: protected stderr sha256=$(sha256_file \
+      "$stderr_receipt") (last 32768 bytes follow)" >&2
+    /usr/bin/tail -c 32768 "$stderr_receipt" >&2 || true
+  else
+    echo "clean-room-alpha: launcher published no child stderr receipt" >&2
+  fi
+  die "$stage/$invocation did not complete"
+}
+
 expect_permission_denied() {
   local stage="$1"
   local invocation="$2"
@@ -424,7 +443,7 @@ expect_permission_denied materialize source-write \
 [[ "$(sha256_file "$source_probe")" == "$source_probe_hash" ]] ||
   die "materialize source-write probe changed the source"
 
-sandbox_run materialize --invocation lean-materialize --temp-root "$tmp" \
+sandbox_must_succeed materialize lean-materialize --temp-root "$tmp" \
   --asset-cache "$asset_cache" -- "$xcode_python" -I -S \
   "$source_root/scripts/toolchain_assets.py" \
   --lock "$source_root/toolchains.lock.json" \
@@ -433,20 +452,20 @@ sandbox_run materialize --invocation lean-materialize --temp-root "$tmp" \
 [[ -z "$(/usr/bin/find "$lean_root" -type l -print -quit)" ]] ||
   die "materialized Lean toolchain contains symlinks"
 
-sandbox_run materialize --invocation lean-version --temp-root "$tmp" \
+sandbox_must_succeed materialize lean-version --temp-root "$tmp" \
   --asset-cache "$asset_cache" -- "$lean_root/bin/lean" --version
 /usr/bin/grep -Fq 'version 4.31.0' \
   "$policies_root/sandbox-materialize-lean-version.stdout.log"
 /usr/bin/grep -Fq 'commit 68218e876d2a38b1985b8590fff244a83c321783' \
   "$policies_root/sandbox-materialize-lean-version.stdout.log"
-sandbox_run materialize --invocation lake-version --temp-root "$tmp" \
+sandbox_must_succeed materialize lake-version --temp-root "$tmp" \
   --asset-cache "$asset_cache" -- "$lean_root/bin/lake" --version
 /usr/bin/grep -Fq 'Lean version 4.31.0' \
   "$policies_root/sandbox-materialize-lake-version.stdout.log"
 echo "clean-room-alpha: materialized locked Lean sha256=$(sha256_file "$lean_root/bin/lean")"
 echo "clean-room-alpha: materialized locked Lake sha256=$(sha256_file "$lean_root/bin/lake")"
 
-sandbox_run materialize --invocation external-materialize --temp-root "$tmp" \
+sandbox_must_succeed materialize external-materialize --temp-root "$tmp" \
   --asset-cache "$asset_cache" -- "$xcode_python" -I -S \
   "$source_root/scripts/toolchain_assets.py" \
   --lock "$source_root/toolchains.lock.json" \
@@ -471,7 +490,7 @@ expect_permission_denied core source-write \
 expect_permission_denied core exec \
   -- /bin/echo forbidden
 
-sandbox_run core --invocation build-test --temp-root "$tmp" -- \
+sandbox_must_succeed core build-test --temp-root "$tmp" -- \
   /bin/bash "$runner" --internal-core
 
 evm_port="$(/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC \
@@ -522,7 +541,7 @@ expect_permission_denied evm-runtime non-local \
   'import socket,sys; socket.create_connection(("192.0.2.1", int(sys.argv[1])), 0.2)' \
   "$evm_port"
 
-sandbox_run evm-runtime --invocation anvil-counter --temp-root "$tmp" \
+sandbox_must_succeed evm-runtime anvil-counter --temp-root "$tmp" \
   --runtime-port "$evm_port" -- /bin/bash "$runner" --internal-evm \
   "$lan_probe_ip" "$evm_chain_id"
 
