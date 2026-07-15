@@ -166,8 +166,8 @@ normative: false
 
 ## 2026-07-15 — TASK-A0-08 / TASK-D0-03 H0 Host Stage-0
 
-- Commit/worktree：H0 milestone candidate；task-owned diff 包含 bootstrap/host lock、live verifier、
-  isolation 入口、gates 与同步规格文档。
+- Commit/worktree：实现 commit `4c6756a4e83cd461520bcacc713a8b13a81cfe3b`；post-commit
+  clean-room archive SHA-256 `2af10f30458bf98c261802632f1096b54ab015c767cec4f76dfa16d99bd0037b`。
 - Spec/Test：`ADR-0013`、`SPEC-TOOL-001`、`SPEC-REPRO-001`、`TST-HOST-001`；同时澄清
   `TST-ISO-002` 是正式 hermetic harness，`TST-ISO-003` 是 D8 release aggregate。
 - Changed：新增严格固定顺序的 `host-bootstrap.lock` 与
@@ -196,8 +196,11 @@ normative: false
   `PF-HOST-INELIGIBLE`。host-lock mutation、bootstrap trailing field 与 `BASH_ENV` marker 均按
   预期失败/未执行；完整 V2 static/negative/build/test/四目标 gate exit 0；EVM localhost
   nonpayable/init/increment/overflow rollback 与四目标 19-file reproducibility 再次通过。
-- Evidence：`EV-20260715-0011`。这是 development attestation 加预期 formal rejection，
-  不是 eligible/hermetic evidence。
+- Post-commit：`just v2-clean-room-alpha` 从上述 committed archive 重跑 Stage-0、锁定
+  Lean/Lake/external 物化、61-job clean build/test、四目标 19-file reproducibility、sandbox
+  policy probes 与 EVM localhost runtime，exit 0；临时 2.6 GiB tool root 已完整清理。
+- Evidence：`EV-20260715-0011/0012`。这是 development attestation、预期 formal rejection 与
+  committed development clean-room evidence，不是 eligible/hermetic evidence。
 - Limitations：Stage-0 是 local、point-in-time attestation，不是 remote proof；`/usr/bin/env`、
   `/bin/bash` 及 bootstrap watchdog 工具属于 Apple platform 前置 TCB，KAT 不能独立建立信任。
   同一 checkout 内 launcher/record 不能自证外部真实性；candidate archive binding、同 UID/

@@ -14,7 +14,7 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-D0-03/H0`：Host Stage-0 development attestation 已验证；profile 精确匹配但 `eligibleForHermetic=false` |
+| Active task | `TASK-D0-03/H0`：Host Stage-0 development attestation 已在 `4c6756a4` 验证；profile 精确匹配但 `eligibleForHermetic=false` |
 | Next task | `TASK-D0-03/H1`：实现 deny-default sandbox 与 schema-complete evidence |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
