@@ -59,6 +59,20 @@ Promotion path (when ready):
 4. Keep product ELF path independent (sbpf toolchain); formal lane fail-closed
    if pin missing.
 
+## Concrete integration surface (sibling Phase 1)
+
+```lean
+import SbpfSemantics.Api
+import SbpfSemantics.CounterScenario
+
+-- Portable Counter L2 (input cell = stand-in for account data)
+open SbpfSemantics.CounterScenario
+#eval (runInc 0#64 1#64).r0   -- expected 1
+```
+
+Stable modules: `Api`, `Observation`, `AccountLayout`, `CounterScenario`.
+Contract: sibling `docs/proof-forge-interface.md`.
+
 ## Explicit non-claims
 
 - Does not replace SolanaPlan, account schema, CPI, or IDL.
