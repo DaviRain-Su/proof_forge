@@ -350,6 +350,31 @@ unsafe def compileContractSourceSbpf (opts : CliOptions) : IO UInt32 := do
   | .error error =>
       throw <| IO.userError error
 
+/-- Try loading a `ContractSpec` first; if that fails and the source defines a
+    `TokenSpec`, materialize a target-appropriate `ContractSpec` from it.
+
+    This lets authors run `proof-forge build --target wasm-near Token.lean`
+    without `--token` when the source is a `TokenSpec` (P0-NEAR-1). -/
+unsafe def tryLoadSpecOrTokenSpec
+    (input : System.FilePath) (root? : Option System.FilePath)
+    (moduleName? : Option Lean.Name) (targetId : String) :
+    IO (Except String (ProofForge.Contract.ContractSpec ×
+      Option ProofForge.Contract.Token.TokenSpec)) := do
+  try
+    let spec ← ProofForge.Cli.ContractLoader.loadSpec input root? moduleName?
+    pure (.ok (spec, none))
+  catch _ =>
+    try
+      let (_, tokenSpec) ← ProofForge.Cli.TokenLoader.loadToken input root? moduleName?
+      if targetId == ProofForge.Target.wasmNear.id then
+        match ProofForge.Contract.Token.planForTarget ProofForge.Target.wasmNear tokenSpec with
+        | .ok _ => pure (.ok (ProofForge.Contract.Token.NearSpec.specFor tokenSpec, some tokenSpec))
+        | .error error => pure (.error error)
+      else
+        pure (.error s!"source defines a TokenSpec but target `{targetId}` has no TokenSpec auto-detect lane; use `--token`")
+    catch err =>
+      pure (.error s!"{err}")
+
 unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
   let some input := opts.input?
     | IO.eprintln usage
@@ -398,9 +423,15 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
         kind := "legacy-nft-source"
         leanElaborated := true
       }
-  let source ← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?
-  match source with
-  | .authored contract =>
+  -- Prefer Authored / Surface / Legacy ContractSpec Product sources. Fall back to
+  -- TokenSpec auto-materialization (P0-NEAR-1) when the module is only a TokenSpec.
+  let source? ←
+    try
+      pure (some (← ProofForge.Cli.ContractLoader.loadSource input opts.root? opts.moduleName?))
+    catch _ =>
+      pure none
+  match source? with
+  | some (.authored contract) =>
       let built ← match renderAuthoredWasmHostWat profile opts.peerMap.targetMetadata contract with
         | .ok built => pure built
         | .error error => throw <| IO.userError error
@@ -414,7 +445,7 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
         leanElaborated := true
       } built.checked built.capabilityPlan built.modulePlan outputDir watPath wasmPath?
       return 0
-  | .surfaceFixture contract =>
+  | some (.surfaceFixture contract) =>
       let built ← match renderAuthoredWasmHostWat profile opts.peerMap.targetMetadata contract with
         | .ok built => pure built
         | .error error => throw <| IO.userError error
@@ -428,7 +459,7 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
         leanElaborated := true
       } built.checked built.capabilityPlan built.modulePlan outputDir watPath wasmPath?
       return 0
-  | .legacySpec spec =>
+  | some (.legacySpec spec) =>
       let plan ← match ProofForge.Target.resolveSpec profile spec with
         | .ok plan => pure plan
         | .error err => throw <| IO.userError err.render
@@ -452,5 +483,33 @@ unsafe def compileContractSourceEmitWat (opts : CliOptions) : IO UInt32 := do
           kind := "legacy-contract-spec"
           leanElaborated := true
         }
+  | none =>
+      match (← tryLoadSpecOrTokenSpec input opts.root? opts.moduleName? profile.id) with
+      | .error err => throw <| IO.userError err
+      | .ok (spec, tokenSpec?) =>
+          let plan ← match ProofForge.Target.resolveSpec profile spec with
+            | .ok plan => pure plan
+            | .error err => throw <| IO.userError err.render
+          let fixtureSlug := spec.name.toLower
+          if profile.id == ProofForge.Target.wasmNear.id then
+            let wat ← match renderCanonicalSpecNearWat spec opts.peerMap with
+              | .ok wat => pure wat
+              | .error error => throw <| IO.userError error
+            let (watPath, wasmPath?) ← writeWatPackage outputDir fixtureSlug wat
+              (requireWasm := emitWatRequireWasm opts')
+            writeEmitWatArtifactMetadata opts' profile.id fixtureSlug {
+              moduleName := spec.name
+              path? := some input.toString
+              kind := "contract-sdk"
+              leanElaborated := true
+            } spec.module outputDir watPath wasmPath? tokenSpec?
+            return 0
+          else
+            return ← compileEmitWatWithPlan opts' fixtureSlug spec.module plan {
+              moduleName := spec.name
+              path? := some input.toString
+              kind := "contract-sdk"
+              leanElaborated := true
+            }
 
 end ProofForge.Cli

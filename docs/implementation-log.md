@@ -5088,3 +5088,15 @@ Rules:
 - Remaining: hosted `just product` CI; optional stylus/near-sandbox; resume CMP-3h2.
 - Documentation: AGENTS checkpoint already points at this rebase.
 
+## 2026-07-15 - product-token-near: JSON client + TokenSpec EmitWat path
+
+- Status: `in_progress` (hosted CI pending)
+- Result: (1) `renderNearWrapperChecked` skips Borsh dynamic-type refusal for
+  JSON-planned entrypoints (restores `ft_balance_of` String params after
+  NearAbiPlan String→JSON); (2) restored P0-NEAR-1 `tryLoadSpecOrTokenSpec`
+  fallthrough in cutover `compileContractSourceEmitWat` so FungibleToken
+  auto-builds without `--token`.
+- Verification: `lake build proof-forge`; `Tests/ContractClient.lean`; TokenSpec
+  EmitWat package + near client written (local near-vm-runner blocked on Cargo
+  edition2024 / rustc 1.83).
+- Remaining: hosted product CI on #106/#107.
