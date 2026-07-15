@@ -9,8 +9,8 @@ normative: false
 
 # Alpha Evidence Ledger
 
-这些是未提交 worktree 上的开发证据，只证明当前 alpha 观察结果；release 前必须在候选
-commit 重跑，生成符合 [`evidence-schema.md`](evidence-schema.md) 的不可变 JSON。
+这些是 alpha 开发/候选提交上的观察证据；release 前必须在正式候选 commit 重跑，并生成
+符合 [`evidence-schema.md`](evidence-schema.md) 的不可变 JSON。
 
 | ID | Gate / command | Result | Scope and limitation |
 |---|---|---|---|
@@ -21,5 +21,6 @@ commit 重跑，生成符合 [`evidence-schema.md`](evidence-schema.md) 的不�
 | EV-20260715-0005 | `just isolated-check` | passed | archive isolation smoke：临时目录重建/测试/docs-check；未隔离 HOME/cache/受控 PATH，不是完整 clean-room |
 | EV-20260715-0006 | `just check` | passed | Lean Parser、Source/Typed/Semantic、四 target alpha、fail-closed target/tool、existing/source-output collision |
 | EV-20260715-0007 | `just evm-runtime`; `just reproducibility`; `just isolated-check` | passed | Anvil Counter/rollback；四 target 19 文件两次一致；archive isolation smoke，仍非 hermetic clean-room |
+| EV-20260715-0008 | `just v2-clean-room-alpha` | passed (development alpha) | committed archive、空 HOME/cache、`env -i`、父 repo deny、Core 断网、EVM localhost-only、61-job clean build/test、四目标 19 文件复现及 Anvil；dylib/toolchain/harness closure 未锁定，非 hermetic，未关闭 TST-ISO-003 |
 
 未取得：Solana ELF/runtime、NEAR sandbox receipt、Noir ACIR/proof/VK/verify、任何公网部署。

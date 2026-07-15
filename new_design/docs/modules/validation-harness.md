@@ -22,3 +22,7 @@ logs/resources 作为附加维度，不能掩盖核心 mismatch。覆盖 runner 
 flaky retries、malformed observation、stale artifact、dirty tree、missing tool、different roots/
 jobs、proof invalid/private leak、network wrong identity。关联 `PHASE-5`、`TASK-D8-*`、所有
 `TST-*`；证据 schema 必须可独立复核。
+
+当前 `scripts/verify_isolation.sh` 是 network-denied clean-room alpha：它已隔离父仓库、
+HOME/cache 与网络并跑通四目标/Anvil，但尚未锁定完整 tool/runtime closure，也尚未输出
+schema-complete `GateResult`/`EV-ISO-*`；不得视为本模块规格已实现。

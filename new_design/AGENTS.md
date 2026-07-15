@@ -14,11 +14,11 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-A0-05` done：Lean Parser → Source → Typed → Semantic → target Plan/IR 首个里程碑已验证 |
-| Next task | `TASK-D0-04`：把 archive isolation smoke 提升为规范要求的 hermetic clean-room gate；随后继续 D1/D2 |
+| Active task | `TASK-A0-06` done：network-denied clean-room alpha 已验证；不等于正式 hermetic gate |
+| Next task | `TASK-D0-03`：锁定 Lean archive、Homebrew dylib closure 与 harness runtime；解除 D0-04 blocker |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | Phase 0 尚无 10 位访谈与 3 位付费意向证据；不得伪造接受状态 |
+| Known blocker | `TASK-D0-04` 尚缺 Lean archive、外部工具动态库闭包及 Python/macOS harness 锁定；Phase 0 也尚无 10 位访谈与 3 位付费意向证据 |
 | Source of status | [`docs/document-status.md`](docs/document-status.md) |
 
 检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
@@ -58,8 +58,9 @@
 2. 在任务表中只标记一个 `in_progress`。
 3. 先提交失败的验收测试或可执行验证脚本。
 4. 实现满足规格的最小切片，遇到规格缺口先改规格并重新评审。
-5. 运行聚焦测试；合并前运行完整 V2 gate。当前 `isolated-check` 只是 archive
-   isolation smoke；完整 clean-room gate 尚未实现，不得混称。
+5. 运行聚焦测试；合并前运行完整 V2 gate。当前 `isolated-check`/
+   `v2-clean-room-alpha` 会隔离 HOME/cache、限制网络并拒绝父仓库访问，但动态库闭包和
+   宿主 harness 尚未锁定；它仍不是正式 hermetic clean-room gate，不得混称。
 6. 检查不支持的声明、父项目泄漏、非确定制品、无关变更和生成垃圾。
 7. 同一变更中更新 task、traceability、evidence、implementation log 和 checkpoint。
 8. 交接时给出精确文件、命令、结果、限制和下一任务。

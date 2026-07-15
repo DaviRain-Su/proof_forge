@@ -32,13 +32,21 @@ sourceHash、semanticHash、planHash、TargetIR hash、所有 artifact hash 和 
 
 1. `git archive` 只包含 `new_design/` allowlist；扫描拒绝 symlink 和指向外部的 submodule。
 2. 解包到随机空目录，建立空 HOME、Lake cache、tool root 和 output。
-3. `env -i` 仅注入 HOME、PATH（只含锁定 tool shims）、TZ、LC_ALL、SOURCE_DATE_EPOCH。
+3. `env -i` 仅注入 HOME、XDG/Lake cache、TMPDIR、内部 source/output/tool root、PATH
+   （只含锁定 tool shims）、TZ、LC_ALL、SOURCE_DATE_EPOCH。
 4. 确认 `git rev-parse` 不可见父 repo；`LEAN_PATH`/`LEAN_SRC_PATH`/Lake env 为空。
 5. 静态扫描拒绝 `import ProofForge.`、`require ..`、父路径、父 binary/fixtures/scripts hashes。
 6. 从 content-addressed tool cache 执行 docs-check、Lake build/tests、四目标 gates。
 7. 记录 archive/tool/environment/artifact hashes 到 `EV-ISO-*`。
 
-网络默认完全禁止；首次 tool cache provision 是独立、可审计步骤，不属于 gate。
+网络默认完全禁止；需要本地 RPC 的 runtime 子门禁可使用独立 profile 仅放行 loopback，
+并必须有非 loopback 连接失败的负向断言。首次 tool cache provision 是独立、可审计步骤，
+不属于 gate。
+
+当前 `v2-clean-room-alpha` 已实现 committed archive、空 HOME/cache、`env -i`、父目录 deny、
+Core 全断网、EVM localhost-only、clean build/test、四目标复现与 EVM runtime。它尚未满足
+第 6 步的“content-addressed tool cache”：Lean 发布 archive、Homebrew dylib closure 和
+Python/macOS harness runtime 未锁定；因此 `TASK-D0-04` 仍为 blocked。
 
 ## Cache Policy
 

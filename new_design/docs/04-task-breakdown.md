@@ -23,6 +23,7 @@ normative: true
 | TASK-A0-03 | 四目标 alpha artifacts 与 EVM runtime | EV-20260715-0003/0004 | done |
 | TASK-A0-04 | archive isolation smoke（非完整 clean-room） | EV-20260715-0005 | done |
 | TASK-A0-05 | Lean parser 前端与独立 Typed/Semantic IR 集成 | EV-20260715-0006/0007 | done |
+| TASK-A0-06 | network-denied clean-room alpha（非正式 hermetic） | EV-20260715-0008 | done |
 
 ## Milestone D0：文档与独立工程
 
@@ -31,7 +32,7 @@ normative: true
 | TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | pending |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | D0-01 | TST-ISO-001 | pending |
 | TASK-D0-03 | 锁定 Lean/外部工具 schema 与 checksums | D0-02 | TST-TOOL-001 | pending |
-| TASK-D0-04 | 实现 archive clean-room harness | D0-02/03 | TST-ISO-002 | pending |
+| TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：Lean archive、dylib closure、host harness 未锁定 | D0-02/03 | TST-ISO-002 | blocked |
 
 ## Milestone D1：语言前端
 

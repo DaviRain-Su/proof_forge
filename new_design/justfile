@@ -66,3 +66,6 @@ check: docs-check build test dsl-negative target-negative target-smoke output-se
 
 isolated-check:
     bash scripts/verify_isolation.sh
+
+v2-clean-room-alpha:
+    bash scripts/verify_isolation.sh

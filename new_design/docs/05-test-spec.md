@@ -119,6 +119,9 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 `v2-runtime-primary-triad`、`v2-zk-noir-e2e`、`v2-clean-room`、`v2-check`。
 命令未实现前它们是 specified，不得记录为通过。
 
+`v2-clean-room-alpha` 是 pre-acceptance development command，`isolated-check` 是其兼容
+别名；二者不占用正式 `v2-clean-room` 命令名，也不关闭 `TST-ISO-003`。
+
 ## 证据要求
 
 每次 gate 写 `EV-*` JSON：commit、dirty state、平台、工具版本、命令、开始/结束、

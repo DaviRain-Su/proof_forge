@@ -60,8 +60,7 @@ normative: false
 
 ## 2026-07-15 — TASK-A0-05
 
-- Commit/worktree：以父仓库 `26d2a8dd33b76201eb7062e3a86fbf87641697cd` 为 parent 的首个
-  `new_design/` 里程碑提交；精确 SHA 以包含本条的 Git commit 为准。
+- Commit：`6d1d0b5a334e2575e140e1be28392da2710c013c`。
 - Changed：CLI source loader 改为 Lean Parser 加 DSL command 白名单，不 elaboration 用户
   module；command elaborator 与 loader 共用 syntax decoder。编译边界拆成独立
   `Source.Program → Typed.Program → Semantic.Program`，target materializer 只接收后者；
@@ -79,6 +78,28 @@ normative: false
   仍无 sandbox receipt、Noir 仍无 ACIR/prove/verify。
 - Next：先完成 `TASK-D0-04` hermetic clean-room gate，再继续正式 D1/D2；不能以本条提升
   目标 maturity。
+
+## 2026-07-15 — TASK-A0-06
+
+- Commit/input：clean-room 输入为已提交树
+  `6d1d0b5a334e2575e140e1be28392da2710c013c:new_design`；归档 SHA-256 为
+  `fa875a84201428e4bbc4f2d1681ce4845cd099a9d27a30844a07d8ff24d506d7`。
+- Spec/Test：`SPEC-REPRO-001`、`TST-ISO-002`、`TST-EVM-005`。
+- Changed：`verify_isolation.sh` 只归档已提交 V2 子树，拒绝 symlink/submodule、父路径和
+  父 `ProofForge` import；在随机 HOME/cache/tool/output 下以 `env -i` 运行，Core sandbox
+  禁止全部网络，EVM sandbox 仅允许 localhost；复制并校验 Lean/Lake 与外部工具可执行文件，
+  clean build/test 后验证四目标制品、19 个文件逐字节复现及 Anvil Counter runtime。
+- Command：`just v2-clean-room-alpha`。
+- Results：Darwin arm64 上 exit 0；61-job clean build、测试、docs-check、四目标 artifact
+  validator 和两轮 reproducibility 通过；sandbox probe 证明 Core 无 localhost，EVM profile
+  允许 localhost 且拒绝非本地地址；EVM 验证 nonpayable、7+5=12 与 max+1 回滚。
+- Evidence：`EV-20260715-0008`。
+- Limitations：这是 network-denied clean-room alpha，不是正式 hermetic gate。复制的
+  `/opt/homebrew/bin/solc` 与 `wat2wasm` 仍从宿主加载未锁定 dylib；Lean toolchain closure
+  不是内容寻址发布归档；`/usr/bin/python3`、Git、tar、shasum、`sandbox-exec` 等 harness
+  runtime 也未锁定。未生成 schema-complete `EV-ISO-*` JSON，且只验证 Darwin arm64。
+- Next：完成 `TASK-D0-03` 的完整工具/运行时 closure 锁定后解除 `TASK-D0-04` blocker；
+  在此之前不得把 alpha 改称 hermetic 或 release evidence。
 
 ## 记录模板
 

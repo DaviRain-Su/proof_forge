@@ -57,6 +57,11 @@ CosmWasm、Soroban、Internet Computer、OpenVM、Aleo 和 Psy 本阶段只形�
 oracle、兼容入口或失败回退。最终 clean-room 门禁必须能将本目录复制到空目录，
 清理父项目相关环境后独立构建和测试。
 
+当前 `just v2-clean-room-alpha`（`just isolated-check` 为兼容别名）已在随机归档目录、空 HOME/cache、受控 PATH 与 macOS
+网络沙箱中完成 clean build/test、四目标制品验证、逐字节复现和 localhost-only EVM
+runtime。它仍是 alpha：Lean 发布归档、Homebrew 动态库闭包及 Python/macOS harness
+尚未内容锁定，因此不能作为正式 hermetic 或 release evidence。
+
 ## 文档权威顺序
 
 1. 已接受 ADR 与 PRD。
