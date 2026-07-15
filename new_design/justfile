@@ -93,6 +93,22 @@ candidate-binding:
     fi
     rg -q 'candidate-archive-sha256 must be a lowercase SHA-256' "$tmp/archive.log"
 
+evidence-core:
+    #!/bin/bash
+    set -euo pipefail
+    tmp="$PWD/build/evidence-core"
+    xcode_python=/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9
+    /bin/rm -rf "$tmp"
+    /bin/mkdir -p "$tmp"
+    test -x "$xcode_python"
+    "$xcode_python" -O -I -S scripts/gate_evidence.py self-test
+    "$xcode_python" -I -S -m py_compile scripts/gate_evidence.py
+    if "$xcode_python" -S scripts/gate_evidence.py self-test > "$tmp/nonisolated.stdout" 2> "$tmp/nonisolated.stderr"; then
+      echo "gate evidence unexpectedly accepted a site-enabled interpreter" >&2
+      exit 1
+    fi
+    rg -q 'PF-EVIDENCE-PYTHON-MODE' "$tmp/nonisolated.stderr"
+
 python-isolation-negative:
     #!/bin/bash
     set -euo pipefail
@@ -228,7 +244,7 @@ evm-runtime: target-smoke
 reproducibility: build
     bash scripts/reproducibility.sh
 
-check: docs-check python-isolation-negative toolchains-validate host-stage0-development candidate-binding toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
+check: docs-check python-isolation-negative toolchains-validate host-stage0-development candidate-binding evidence-core toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
 
 isolated-check:
     bash scripts/verify_isolation.sh --development

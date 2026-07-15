@@ -102,7 +102,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-VER-001 | schema/profile compatibility matrix |
 | TST-PERF-001 | cold/incremental/resource benchmark budgets |
 | TST-BOUNDARY-001 | Lean import graph、symbol ownership、target cross-import |
-| TST-EVIDENCE-001 | EV schema/hash/revoke/freshness/private scan |
+| TST-EVIDENCE-001 | restricted PF JCS/schema、artifact-set domain hash、safe bundle read、atomic layout、gate catalog、revocation/freshness/private scan |
 | TST-REL-001 | install/upgrade/build/rollback drill |
 
 ## 边界与攻击用例
@@ -118,6 +118,13 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 - `LEAN_PATH`、`PATH`、Lake cache、HOME 和父 Git root 泄漏。
 - tree-object archive 的不稳定 mtime、错误 external commit/archive digest、archive 内嵌 commit
   不匹配、运行中 HEAD/tree/worktree 改变。
+- EV duplicate/unknown/non-graphic key、float/unsafe integer、set-like array 乱序/重复、非法
+  result/attempt 终态、ID/UTC 日期不符、artifact-set digest 不符。
+- evidence publish basename/gate directory 不匹配、existing output、symlink/hardlink、
+  group/world-writable parent、staging pathname replacement；bundle claim 跨 role 复用 path、
+  casefold/inode alias、单文件/文件数/总字节超限、read 时 inode/size/hash 改变或 I/O error。
+- formal record 缺 external anchor/eligible host/deny-default/required inputs、出现 retry、未 retained
+  artifact、截断/未扫描日志；revocation ledger 缺链、分叉、未知 authority 或 replacement 不符。
 
 ## Gate 设计
 
@@ -132,9 +139,22 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 
 ## 证据要求
 
-每次 gate 写 `EV-*` JSON：commit、dirty state、平台、工具版本、命令、开始/结束、
-exit status、artifact hashes、normalized observations 和日志路径。外部工具缺失必须让
-相应 required gate 失败，不能 skip 后仍标绿。flaky 重试必须记录全部尝试。
+每次 gate 的目标输出是符合 [`TRACE-EV-001`](traceability/evidence-schema.md) 的不可变 `EV-*`
+JSON：candidate commit/tree/git-tar anchor、dirty/unchanged、local host observation、环境、sandbox
+policies/probes、工具 closure、全部 attempts、inputs/artifacts、domain-separated artifact-set
+digest、normalized observations 和 logs。
+
+验收必须分别覆盖：
+
+1. restricted integer-only/ASCII-graphic-key PF JCS 和所有 schema/cross-field negative；
+2. inputs、retained artifacts、logs 的逐组件 no-follow point-in-time size/hash 复核；
+3. formal gate catalog 对 required tests/tools/probes、freshness、host/candidate、private scan 和
+   revocation lookup 的完整 finalization。
+
+前两层不能代替第三层。当前 formal publisher 继续 fail closed；development schema/bundle
+结果不能关闭 `TST-EVIDENCE-001`。外部工具缺失必须让相应 required gate 失败，不能 skip 后仍
+标绿。development flaky retry 必须记录全部 attempts；formal passed 只允许一次 attempt。
+撤销/修正必须追加独立 revocation record 并保留原 EV；该 revocation parser/store 尚未实现。
 
 ## Release Acceptance
 
