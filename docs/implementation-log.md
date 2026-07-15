@@ -4408,3 +4408,16 @@ Rules:
   debt, FT `--token` path — not Rust assemblers (D-058).
 - Verification: product matrix build; fixture emit matrix; code/doc gap audit.
 - Remaining: implement P0 hash honesty test if scheduled.
+
+## 2026-07-15 - Architecture consensus: portable → Plan → assembly
+
+- Status: `done` (docs on PR #105)
+- Result: Consolidated multi-turn architecture discussion into
+  `docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md`
+  (+ `.zh.md`): shared vs chain-unique capabilities; high-level unique APIs into
+  target Plans before assembly; codegen vs Lean VMs; expression vs ecosystem
+  metrics; official SDK non-parity; differential graduation + Supported Surface
+  as the completion system; D-057/D-058 Seam A scope. Indexed from
+  `document-status.md`.
+- Verification: documentation only; cross-links to scan/selectors/decisions.
+- Remaining: execute capability-table + differential packages when scheduled.

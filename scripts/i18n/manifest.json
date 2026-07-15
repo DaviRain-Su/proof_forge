@@ -191,5 +191,11 @@
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
     "note": "synced after P3 AccessControl solana imm fix"
+  },
+  "docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md": {
+    "sha256": "3e0ccf5009763774fdaf529925518c87648845a7c6f4f1ed0ce24b2ff9a7a2a8",
+    "zh": "docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md",
+    "model": "manual-zh",
+    "note": "architecture consensus EN/zh 2026-07-15"
   }
 }

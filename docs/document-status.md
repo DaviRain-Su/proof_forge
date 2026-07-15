@@ -43,6 +43,7 @@ generated artifacts remain the implementation truth.
 | Checked Core export draft (Seam A / Phase 1, experimental) | [Core export v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
 | EVM ABI selector policy (pin / Lean keccak / cast) | [targets/evm-selectors.md](targets/evm-selectors.md) |
 | Solana/Wasm assembly coverage scan (2026-07-15) | [targets/solana-wasm-coverage-scan-2026-07-15.md](targets/solana-wasm-coverage-scan-2026-07-15.md) |
+| Portable capability → Plan → assembly model (architecture consensus) | [portable-capability-plan-assembly-model](superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md) ([中文](superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md)) |
 | Seam A local gates (no Rust product lower) | `just keccak256`, `just export-inspect`, `just dual-run-observe-seam-a`, `just ownable-evm-smoke` |
 
 ## Historical Baselines
