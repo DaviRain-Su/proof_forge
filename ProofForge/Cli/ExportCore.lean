@@ -248,14 +248,15 @@ def writeExportPackage
   IO.println s!"wrote {dir / "source-manifest.json"}"
   IO.println s!"export-core: package ok module={module.name} target={targetId} usedHostOps={usedHandlers.size} catalog={targetCatalog.size} hash={contentHash.take 12}…"
 
-private def exportFromSpec
-    (opts : ExportCoreOptions)
+/-- General entry: normalize a ContractSpec and write a Seam A package. -/
+def exportContractSpec
+    (targetId : String)
+    (output : FilePath)
     (spec : ProofForge.Contract.ContractSpec)
-    (sourceKind productPath : String) : IO UInt32 := do
-  let some output := opts.output?
-    | IO.eprintln "export-core: missing -o"; pure (1 : UInt32)
-  if ProofForge.Target.find? opts.targetId |>.isNone then
-    IO.eprintln s!"export-core: unknown target `{opts.targetId}`"
+    (sourceKind productPath : String)
+    (root? : Option FilePath := none) : IO UInt32 := do
+  if ProofForge.Target.find? targetId |>.isNone then
+    IO.eprintln s!"export-core: unknown target `{targetId}`"
     return (1 : UInt32)
   match ProofForge.Frontend.Authored.Normalize.normalizeContractSpec spec with
   | .error err =>
@@ -266,7 +267,7 @@ private def exportFromSpec
       let caps := dedupIds (canonical.requirements.map (fun call => call.capability.id))
       let reqs := requirementsFromCanonical canonical.requirements
       let iface := interfaceFromCanonical canonical.interface
-      match resolveHostOpHandlers canonical.module opts.targetId with
+      match resolveHostOpHandlers canonical.module targetId with
       | .error msg =>
           IO.eprintln s!"export-core: {msg}"
           pure (1 : UInt32)
@@ -274,7 +275,7 @@ private def exportFromSpec
           try
             writeExportPackage
               output
-              opts.targetId
+              targetId
               canonical.module
               caps
               reqs
@@ -283,11 +284,19 @@ private def exportFromSpec
               sourceKind
               productPath
               (some canonical.hostOpCatalog)
-              opts.root?
+              root?
             pure (0 : UInt32)
           catch e =>
             IO.eprintln s!"export-core: {e}"
             pure (1 : UInt32)
+
+private def exportFromSpec
+    (opts : ExportCoreOptions)
+    (spec : ProofForge.Contract.ContractSpec)
+    (sourceKind productPath : String) : IO UInt32 := do
+  let some output := opts.output?
+    | IO.eprintln "export-core: missing -o"; pure (1 : UInt32)
+  exportContractSpec opts.targetId output spec sourceKind productPath opts.root?
 
 unsafe def exportCoreCommand (opts : ExportCoreOptions) : IO UInt32 := do
   match opts.fixture?, opts.input? with

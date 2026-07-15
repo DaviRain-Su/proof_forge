@@ -20,7 +20,19 @@ fn main() -> Result<()> {
                 .next()
                 .map(PathBuf::from)
                 .context("usage: pf-core-inspect check <export-dir>")?;
-            check_export_dir(&dir)
+            check_export_dir(&dir)?;
+            Ok(())
+        }
+        "compare" => {
+            let left = args
+                .next()
+                .map(PathBuf::from)
+                .context("usage: pf-core-inspect compare <export-dir-a> <export-dir-b>")?;
+            let right = args
+                .next()
+                .map(PathBuf::from)
+                .context("usage: pf-core-inspect compare <export-dir-a> <export-dir-b>")?;
+            compare_export_dirs(&left, &right)
         }
         "hash-file" => {
             let path = args
@@ -46,13 +58,113 @@ pf-core-inspect — experimental core.v0 reader (no chain SDKs)
 
 USAGE:
   pf-core-inspect check <export-dir>
+  pf-core-inspect compare <export-dir-a> <export-dir-b>
   pf-core-inspect hash-file <path>
 
 Expected files in <export-dir>:
   core.v0.json
-  capability-plan.v0.json   (optional for LR-1a)
-  export-meta.json          (optional)"
+  capability-plan.v0.json
+  interface.v0.json         (optional)
+  export-meta.json          (optional)
+
+compare checks:
+  - both packages pass `check`
+  - core.v0.json byte identity (target-neutral Core)
+  - reports targetId / contentHash / used hostOpHandlers counts"
     );
+}
+
+/// Compare two Seam A packages: Core must match; plans may differ by target.
+fn compare_export_dirs(left: &Path, right: &Path) -> Result<()> {
+    check_export_dir(left)?;
+    check_export_dir(right)?;
+
+    let left_core = fs::read(left.join("core.v0.json"))
+        .with_context(|| format!("read `{}`", left.join("core.v0.json").display()))?;
+    let right_core = fs::read(right.join("core.v0.json"))
+        .with_context(|| format!("read `{}`", right.join("core.v0.json").display()))?;
+    let core_same = left_core == right_core;
+
+    let left_plan: Value = serde_json::from_str(&fs::read_to_string(
+        left.join("capability-plan.v0.json"),
+    )?)?;
+    let right_plan: Value = serde_json::from_str(&fs::read_to_string(
+        right.join("capability-plan.v0.json"),
+    )?)?;
+    let left_target = left_plan
+        .get("targetId")
+        .and_then(Value::as_str)
+        .unwrap_or("?");
+    let right_target = right_plan
+        .get("targetId")
+        .and_then(Value::as_str)
+        .unwrap_or("?");
+    let left_handlers = left_plan
+        .get("hostOpHandlers")
+        .and_then(Value::as_array)
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let right_handlers = right_plan
+        .get("hostOpHandlers")
+        .and_then(Value::as_array)
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let left_catalog = left_plan
+        .get("targetHostOpCatalog")
+        .and_then(Value::as_array)
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let right_catalog = right_plan
+        .get("targetHostOpCatalog")
+        .and_then(Value::as_array)
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    let left_hash = read_content_hash(left)?;
+    let right_hash = read_content_hash(right)?;
+
+    println!("pf-core-inspect compare:");
+    println!(
+        "  left:  {} target={} usedHostOps={} catalog={} contentHash={}",
+        left.display(),
+        left_target,
+        left_handlers,
+        left_catalog,
+        left_hash
+    );
+    println!(
+        "  right: {} target={} usedHostOps={} catalog={} contentHash={}",
+        right.display(),
+        right_target,
+        right_handlers,
+        right_catalog,
+        right_hash
+    );
+    println!(
+        "  core.v0.json identical: {}",
+        if core_same { "yes" } else { "NO" }
+    );
+
+    if !core_same {
+        bail!(
+            "core.v0.json differs between packages (Core must be target-neutral for the same module)"
+        );
+    }
+    println!("pf-core-inspect: compare ok (Core match)");
+    Ok(())
+}
+
+fn read_content_hash(dir: &Path) -> Result<String> {
+    let meta_path = dir.join("export-meta.json");
+    if !meta_path.exists() {
+        return Ok("missing".into());
+    }
+    let meta: Value = serde_json::from_str(&fs::read_to_string(meta_path)?)?;
+    Ok(meta
+        .get("contentHash")
+        .and_then(Value::as_str)
+        .unwrap_or("unset")
+        .to_string())
 }
 
 fn check_export_dir(dir: &Path) -> Result<()> {

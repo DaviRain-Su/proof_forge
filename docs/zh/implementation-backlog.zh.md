@@ -53,6 +53,7 @@
 | LR-1b | 实验性 `export-core` CLI（仅 `--experimental`） | done（PR #105 分支） | fixture + product Counter/ValueVault；contentHash；CapabilityPlan ids；inspect 绿 |
 | LR-1c | capability-plan 中的 HostOp handlers | done（PR #105 分支） | 已用 hostCall 对 target catalog 解析；缺失 fail-closed；无 hostCall 时可为空 |
 | LR-1d | 通用导出包（非例子驱动） | done（PR #105 分支） | 三链 Core 同体；targetHostOpCatalog；requirements；interface.v0；Normalize 注册三链 HostOps；product 矩阵冒烟 |
+| LR-1e | hostCall 压力 + inspect compare | done（PR #105 分支） | 非空 used handlers（CREATE）；错误 target 拒绝；pf-core-inspect compare；多 product evm 冒烟 |
 | LR-1 | 产品/源路径 `export-core` + 完整 HostOp handlers | cutover 更安静后 pending | 产品路径 + resolveSpec handlers；为 dual-run 就绪 |
 | LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | 待 LR-1 后 | 声明维度 dual-run；CLI 默认仍为 Lean |
 | LR-3+ | 三链后端 / 默认 Rust lower | 待定 | 一个发布周期 dual-run + 可衡量收益；Lean 路径仍可切换 |

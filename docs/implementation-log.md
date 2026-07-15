@@ -4188,3 +4188,14 @@ Rules:
   pf-core-inspect on multi-target packages.
 - Remaining: hostCall-heavy modules exercise non-empty used handlers;
   optional CLI matrix; merge main when available. Still experimental.
+
+## 2026-07-15 - LR-1e: hostCall stress + inspect compare
+
+- Status: `done` (PR #105 branch)
+- Result: (1) Public `exportContractSpec` for programmatic packages;
+  (2) CREATE/CREATE2 export yields non-empty `hostOpHandlers` on evm and
+  fail-closes on near/solana; (3) `pf-core-inspect compare` checks Core
+  identity across targets; (4) general smoke keeps triad identity on
+  Counter+ValueVault and multi-product on evm only (memory-bounded).
+- Verification: CoreExportHostCall; CoreExportGeneral; inspect check+compare.
+- Remaining: optional full catalog sweep in CI lane; main merge as available.

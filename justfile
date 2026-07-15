@@ -403,15 +403,21 @@ artifact-contract-v1:
 # LR-1 / D-057 Seam A: general core.v0 export (Rust backend interface, NOT ABI/SDK).
 core-export-v0:
     lake build ProofForge.IR.Core.Export ProofForge.Cli.ExportCore \
-      Examples.Product.Counter Examples.Product.ValueVault Examples.Product.Ownable
+      Examples.Product.Counter Examples.Product.ValueVault Examples.Product.Ownable \
+      Examples.Product.Pausable Examples.Product.GuestBook \
+      ProofForge.Contract.Source.Evm
     lake env lean --run Tests/Canonical/CoreExport.lean
     lake env lean --run Tests/Canonical/CoreExportPackage.lean
     lake env lean --run Tests/Canonical/CoreExportGeneral.lean
+    lake env lean --run Tests/Canonical/CoreExportHostCall.lean
     cargo build --manifest-path tools/pf-core-inspect/Cargo.toml
-    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1b-product-counter/evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-counter/evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-counter/solana-sbpf-asm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- compare \
+      build/export/lr1d-counter/evm build/export/lr1d-counter/wasm-near
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1e-create/evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-valuevault/evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-guestbook/evm
 
 # PF-P1-04: preflight L0+L1+L2 readiness via TargetBackend hooks.
 preflight-l2:

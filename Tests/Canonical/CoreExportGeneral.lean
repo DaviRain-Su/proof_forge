@@ -19,11 +19,15 @@ def require (cond : Bool) (msg : String) : IO Unit :=
 
 def triad : Array String := #["evm", "solana-sbpf-asm", "wasm-near"]
 
-/-- Portable product sources used as smoke for the *general* path (not features). -/
+/-- Portable product sources used as smoke for the *general* path (not features).
+Drawn from catalog products that claim primary-triad support; the list is a
+smoke matrix, not an exhaustive catalog sweep. -/
 def productSmoke : Array String := #[
   "Examples/Product/Counter.lean",
   "Examples/Product/ValueVault.lean",
-  "Examples/Product/Ownable.lean"
+  "Examples/Product/Ownable.lean",
+  "Examples/Product/Pausable.lean",
+  "Examples/Product/GuestBook.lean"
 ]
 
 def corePath (stem target : String) : System.FilePath :=
@@ -60,7 +64,7 @@ unsafe def main : IO UInt32 := do
     let cat := targetHostOpCatalog t
     require (cat.size > 0) s!"targetHostOpCatalog empty for {t}"
 
-  -- Multi-target: Counter Core body identical across triad; plans differ by targetId.
+  -- Multi-target Core identity: prove once on Counter (full triad).
   for t in triad do
     exportProduct "Examples/Product/Counter.lean" t
   let coreEvm ← IO.FS.readFile (corePath "counter" "evm")
@@ -78,7 +82,16 @@ unsafe def main : IO UInt32 := do
   require (iface.contains "\"interfaceSchema\": \"interface.v0\"") "interface schema"
   require (iface.contains "initialize" || iface.contains "\"name\"") "interface entrypoints"
 
-  -- Data-driven product smoke on evm (proves path is not Counter-special).
+  -- Second product on triad (stateful) without exploding the matrix.
+  for t in triad do
+    exportProduct "Examples/Product/ValueVault.lean" t
+  let vvE ← IO.FS.readFile (corePath "valuevault" "evm")
+  let vvS ← IO.FS.readFile (corePath "valuevault" "solana-sbpf-asm")
+  let vvN ← IO.FS.readFile (corePath "valuevault" "wasm-near")
+  require (vvE == vvS && vvS == vvN) "ValueVault Core must match across triad"
+
+  -- Broader product smoke on a single target (proves path is not Counter-special).
+  -- Full product×triad is too heavy for lean --run memory; keep that for CI lanes later.
   for product in productSmoke do
     exportProduct product "evm"
     let stem := (stemOf product).toLower
@@ -87,7 +100,7 @@ unsafe def main : IO UInt32 := do
     let core ← IO.FS.readFile (corePath stem "evm")
     require (core.contains "\"coreSchema\": \"core.v0\"") s!"{product} bad core schema"
 
-  IO.println s!"core-export-general: ok (triad Core identity + {productSmoke.size} product smokes)"
+  IO.println s!"core-export-general: ok (Counter+ValueVault triad identity + {productSmoke.size} evm product smokes)"
   pure 0
 
 end ProofForge.Tests.Canonical.CoreExportGeneral
