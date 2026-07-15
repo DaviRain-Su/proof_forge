@@ -3,7 +3,8 @@
 
 use anyhow::{Context, Result};
 use pf_core::{
-    compare_packages, write_evm_storage_sketch, BuildFromCore, EvmLowererPilot, ExportPackage,
+    compare_packages, dual_run_observe_dir, write_evm_storage_sketch, BuildFromCore,
+    EvmLowererPilot, ExportPackage,
 };
 use std::env;
 use std::path::PathBuf;
@@ -83,6 +84,20 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        "dual-run-observe" => {
+            let dir = args
+                .next()
+                .map(PathBuf::from)
+                .context(
+                    "usage: pf-core-inspect dual-run-observe <export-dir-with-lean-evm-observe.v0.json>",
+                )?;
+            let report = dual_run_observe_dir(&dir)?;
+            for line in report.lines() {
+                println!("{line}");
+            }
+            println!("pf-core-inspect: dual-run-observe ok");
+            Ok(())
+        }
         "hash-file" => {
             let path = args
                 .next()
@@ -151,8 +166,10 @@ USAGE:
   pf-core-inspect summary <export-dir>
   pf-core-inspect compare <export-dir-a> <export-dir-b>
   pf-core-inspect lower-sketch <export-dir> [--out DIR]
+  pf-core-inspect dual-run-observe <export-dir>
   pf-core-inspect hash-file <path>
 
-lower-sketch: experimental EVM storage-only sketch (not bytecode; not product CLI)"
+lower-sketch: experimental EVM storage-only sketch (not bytecode; not product CLI)
+dual-run-observe: compare sketch vs lean-evm-observe.v0.json in the same dir"
     );
 }

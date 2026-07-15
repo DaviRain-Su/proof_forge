@@ -4234,3 +4234,14 @@ Rules:
   and not product CLI default.
 - Verification: cargo test pf-core (7 tests); lower-sketch on counter fixture.
 - Remaining: optional Yul/render dual-run later; keep Lean product path.
+
+## 2026-07-15 - LR-2d: observe dual-run Lean plan vs storage sketch
+
+- Status: `done` (PR #105 branch)
+- Result: Lean dumps `lean-evm-observe.v0.json` from EVM `buildFromCore`
+  (entrypoint names/mutability/selectors + storage slots). Rust
+  `pf-core-inspect dual-run-observe` builds storage sketch from the export
+  package and checks entrypoint name order and provisional slot alignment.
+  Counter green. Not bytecode dual-run.
+- Verification: `Tests/Canonical/DualRunObserve.lean`; dual-run-observe CLI.
+- Remaining: more modules; optional Yul/bytecode dual-run later.

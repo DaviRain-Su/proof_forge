@@ -422,6 +422,10 @@ core-export-v0:
       tools/pf-core/tests/fixtures/counter-evm --out build/export/lr2c-counter-sketch
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-valuevault/evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-guestbook/evm
+    # Observe dual-run: Lean ModulePlan dump vs Rust storage sketch
+    lake env lean --run Tests/Canonical/DualRunObserve.lean
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2d-dual-run/counter-evm
 
 # PF-P1-04: preflight L0+L1+L2 readiness via TargetBackend hooks.
 preflight-l2:

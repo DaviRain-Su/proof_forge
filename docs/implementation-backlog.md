@@ -64,6 +64,7 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 | LR-2a | Rust `pf-core` read-only package loader | done (PR #105 branch) | parse core.v0+plan+interface; contentHash; used⊆catalog; inspect uses pf-core; zero chain SDKs |
 | LR-2b | Core op walker + dual-run readiness + lowerer stub | done (PR #105 branch) | walk instruction kinds; host body↔plan; observeReady; EvmLowererPilot not-implemented |
 | LR-2c | EVM storage-only lower sketch | done (PR #105 branch) | Counter-class modules → evm-storage-sketch.v0; hostCall modules refuse; not bytecode |
+| LR-2d | Observe dual-run (Lean plan vs sketch) | done (PR #105 branch) | lean-evm-observe.v0 + dual-run-observe; entrypoints+slots align for Counter |
 | LR-1 | Product/source `export-core` + full HostOp handlers | pending after cutover quieter | product path + resolveSpec handlers; dual-run ready |
 | LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | pending after LR-1 | dual-run on declared dimensions; CLI default remains Lean |
 | LR-3+ | Triad backends / default Rust lower | pending | release-cycle dual-run + measurable benefit; Lean path still switchable |

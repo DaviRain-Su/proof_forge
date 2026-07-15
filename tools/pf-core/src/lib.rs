@@ -7,12 +7,17 @@
 //! Zero chain SDK dependencies by design.
 
 mod lower;
+mod observe;
 mod walk;
 
 pub use lower::{
     build_evm_storage_sketch, write_evm_storage_sketch, BuildFromCore, EntrypointSketch,
     EvmLowererPilot, EvmStorageSketch, LoweredArtifacts, StorageSlotSketch,
     EVM_STORAGE_SKETCH_SCHEMA,
+};
+pub use observe::{
+    compare_sketch_to_lean_observe, dual_run_observe_dir, load_lean_observe, LeanEvmObserve,
+    ObserveCompareReport, LEAN_EVM_OBSERVE_SCHEMA,
 };
 pub use walk::{
     host_calls_match_plan, walk_module, CoreWalkSummary, DualRunReadiness,
