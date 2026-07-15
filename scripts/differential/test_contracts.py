@@ -620,6 +620,79 @@ class ContractTests(unittest.TestCase):
             array_assets,
         )
 
+    def test_cmp3_status_message_scenario_and_references_are_pinned(self) -> None:
+        root = REPO_ROOT / "testkit/differential/status-message"
+        scenario = json.loads((root / "scenario.v1.json").read_text(encoding="utf-8"))
+        validate_scenario(scenario)
+        self.assertEqual(
+            set(scenario["requiredObservations"]),
+            {
+                "callStatus",
+                "returnValue",
+                "state",
+                "balances",
+                "events",
+                "externalActions",
+                "interface",
+                "resources",
+            },
+        )
+        self.assertEqual(
+            ["initialize", "set-seven", "get-seven", "set-ninety-nine", "get-ninety-nine"],
+            [step["id"] for step in scenario["steps"]],
+        )
+        self.assertEqual(len(scenario["steps"]), len(scenario["allowedDivergences"]))
+
+        manifests = sorted((root / "references").glob("*.v1.json"))
+        self.assertEqual(
+            ["evm.v1.json", "near.v1.json", "solana.v1.json"],
+            [path.name for path in manifests],
+        )
+        for manifest_path in manifests:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            validate_reference(manifest)
+            source = REPO_ROOT / manifest["source"]["path"]
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            self.assertEqual(manifest["provenance"]["revision"], f"sha256:{digest}")
+            source_text = source.read_text(encoding="utf-8")
+            self.assertNotIn("proof_forge::", source_text)
+            self.assertNotIn("ProofForge/", source_text)
+
+        evm_source = (REPO_ROOT / "benchmarks/native/evm/StatusMessage.sol").read_text(
+            encoding="utf-8"
+        )
+        solana_source = (
+            REPO_ROOT / "benchmarks/native/solana/status-message/src/lib.rs"
+        ).read_text(encoding="utf-8")
+        near_source = (
+            REPO_ROOT / "testkit/compare/near/status-message/src/lib.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("uint64(uint160(msg.sender))", evm_source)
+        self.assertIn("solana_sha256_hasher::hash", solana_source)
+        self.assertIn("env::sha256_array", near_source)
+        self.assertIn("event StatusSet", evm_source)
+        self.assertIn("fn status_set", solana_source)
+        self.assertIn('"event":"StatusSet"', near_source)
+
+        inventory = generate_inventory()
+        status_assets = {
+            item["id"]: item["semanticEvidence"]
+            for item in inventory["assets"]
+            if item["id"].startswith("cmp3-") and "status-message" in item["id"]
+        }
+        self.assertEqual(
+            {
+                "cmp3-reference-evm-status-message": "none",
+                "cmp3-reference-near-status-message": "none",
+                "cmp3-reference-solana-status-message": "none",
+                "cmp3-scenario-status-message-primary-triad": "none",
+            },
+            status_assets,
+        )
+        self.assertTrue(
+            (REPO_ROOT / "testkit/compare/near/status-message/reference-manifest.json").exists()
+        )
+
     def test_compiler_does_not_import_comparison_contracts(self) -> None:
         needles = (
             "proof-forge.differential.reference.v1",

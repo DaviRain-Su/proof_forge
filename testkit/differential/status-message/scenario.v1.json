@@ -1,0 +1,30 @@
+{
+  "schema": "proof-forge.differential.scenario.v1",
+  "id": "portable-status-message-primary-triad",
+  "kind": "portable",
+  "targetFamily": "portable",
+  "steps": [
+    {"id": "initialize", "action": "init", "inputs": {"actor": {"type": "address", "value": "alice"}}},
+    {"id": "set-seven", "action": "set_status", "inputs": {"actor": {"type": "address", "value": "alice"}, "status": {"type": "u64", "value": 7}}},
+    {"id": "get-seven", "action": "get_status", "inputs": {"actor": {"type": "address", "value": "alice"}, "who": {"type": "address", "value": "alice"}}},
+    {"id": "set-ninety-nine", "action": "set_status", "inputs": {"actor": {"type": "address", "value": "alice"}, "status": {"type": "u64", "value": 99}}},
+    {"id": "get-ninety-nine", "action": "get_status", "inputs": {"actor": {"type": "address", "value": "alice"}, "who": {"type": "address", "value": "alice"}}}
+  ],
+  "requiredObservations": [
+    "callStatus",
+    "returnValue",
+    "state",
+    "balances",
+    "events",
+    "externalActions",
+    "interface",
+    "resources"
+  ],
+  "allowedDivergences": [
+    {"dimension": "resources", "scope": "/steps/initialize/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/set-seven/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-seven/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/set-ninety-nine/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."},
+    {"dimension": "resources", "scope": "/steps/get-ninety-nine/observations/resources/metrics/execution/value", "reason": "Target-local execution cost is retained as evidence, not required to be equal across independent implementations."}
+  ]
+}

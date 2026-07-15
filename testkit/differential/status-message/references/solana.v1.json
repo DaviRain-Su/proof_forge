@@ -1,0 +1,32 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "solana-status-message-pinocchio",
+  "targetFamily": "solana",
+  "program": "status-message",
+  "framework": "Pinocchio",
+  "source": {
+    "path": "benchmarks/native/solana/status-message/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "ProofForge independent native comparison corpus",
+      "url": null
+    },
+    "revision": "sha256:c43b96110d1685ab60f209888e294bf88845af0ebb3056572d1e5b27ee41e6e9",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "pinocchio", "version": "0.11.2"},
+      {"name": "solana-define-syscall", "version": "5.1.0"},
+      {"name": "solana-sha256-hasher", "version": "3.1.0"},
+      {"name": "cargo-build-sbf", "version": "3.1.12"},
+      {"name": "platform-tools", "version": "v1.52"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

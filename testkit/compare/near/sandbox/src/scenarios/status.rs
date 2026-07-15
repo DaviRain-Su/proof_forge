@@ -27,9 +27,9 @@ pub(crate) async fn run_status_side(
     } else {
         ctx.call_json("init", json!({}), "sdk init").await?;
         ctx.call_json("set_status", json!({ "status": 7 }), "sdk set").await?;
-        ctx.view_json_u64("get_status", json!({ "account": alice.clone() }), "sdk get", Some(7)).await?;
+        ctx.view_json_u64("get_status", json!({ "who": alice_u64 }), "sdk get", Some(7)).await?;
         ctx.call_json("set_status", json!({ "status": 99 }), "sdk set 99").await?;
-        ctx.view_json_u64("get_status", json!({ "account": alice }), "sdk get 99", Some(99)).await?;
+        ctx.view_json_u64("get_status", json!({ "who": alice_u64 }), "sdk get 99", Some(99)).await?;
     }
     ctx.finish().await
 }

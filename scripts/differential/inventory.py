@@ -454,6 +454,39 @@ def generate_inventory() -> dict[str, object]:
             )
         )
 
+    cmp3_status_root = REPO_ROOT / "testkit/differential/status-message"
+    for manifest in sorted((cmp3_status_root / "references").glob("*.v1.json")):
+        reference = json.loads(manifest.read_text(encoding="utf-8"))
+        validate_reference(reference, relative(manifest))
+        assets.append(
+            asset(
+                f"cmp3-reference-{reference['targetFamily']}-status-message",
+                reference["targetFamily"],
+                "nativeReference",
+                manifest,
+                "referenceManifestV1",
+                "none",
+                "CMP-3h1 pins independent StatusMessage provenance; VM equivalence remains CMP-3h2 work",
+                sourcePaths=[reference["source"]["path"]],
+            )
+        )
+
+    cmp3_status_scenario = cmp3_status_root / "scenario.v1.json"
+    if cmp3_status_scenario.is_file():
+        scenario_document = json.loads(cmp3_status_scenario.read_text(encoding="utf-8"))
+        validate_scenario(scenario_document, relative(cmp3_status_scenario))
+        assets.append(
+            asset(
+                "cmp3-scenario-status-message-primary-triad",
+                "portable",
+                "scenario",
+                cmp3_status_scenario,
+                "portableScenarioV1",
+                "none",
+                "five-step caller-projected map/event scenario pinned for CMP-3h2 VM execution",
+            )
+        )
+
     for scenario in sorted((REPO_ROOT / "testkit/scenarios").glob("*.toml")):
         assets.append(
             asset(
@@ -565,7 +598,7 @@ def generate_inventory() -> dict[str, object]:
     assets.sort(key=lambda item: item["id"])
     inventory: dict[str, object] = {
         "schema": INVENTORY_SCHEMA,
-        "scope": "tracked comparison assets through verified stateful CMP-3 execution and pinned ArrayExample CMP-3g references",
+        "scope": "tracked comparison assets through verified ArrayExample CMP-3g execution and pinned StatusMessage CMP-3h references",
         "summary": {
             "assetCount": len(assets),
             "semanticVerifiedCount": sum(1 for item in assets if item["semanticEvidence"] == "verified"),

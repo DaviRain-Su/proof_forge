@@ -15,13 +15,13 @@
     "steps": [
       { "call": "init" },
       { "call": "set_status", "status": 7 },
-      { "call": "get_status", "account": "self", "expect": 7 },
+      { "call": "get_status", "who": "sha256-prefix(self)", "expect": 7 },
       { "call": "set_status", "status": 99 },
-      { "call": "get_status", "expect": 99 }
+      { "call": "get_status", "who": "sha256-prefix(self)", "expect": 99 }
     ]
   },
   "honesty": [
     "Official sample stores UTF-8 strings; this matrix stores U64 codes until EmitWat string KV lands.",
-    "PF keys by u64 caller projection; sdk uses AccountId LookupMap."
+    "Both sides key by the u64 little-endian prefix of SHA-256 over the full AccountId; the projection remains target-owned."
   ]
 }

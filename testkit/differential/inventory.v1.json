@@ -175,6 +175,18 @@
       "targetFamily": "evm"
     },
     {
+      "id": "cmp3-reference-evm-status-message",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3h1 pins independent StatusMessage provenance; VM equivalence remains CMP-3h2 work",
+      "path": "testkit/differential/status-message/references/evm.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/evm/StatusMessage.sol"
+      ],
+      "targetFamily": "evm"
+    },
+    {
       "id": "cmp3-reference-evm-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -235,6 +247,18 @@
       "targetFamily": "near"
     },
     {
+      "id": "cmp3-reference-near-status-message",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3h1 pins independent StatusMessage provenance; VM equivalence remains CMP-3h2 work",
+      "path": "testkit/differential/status-message/references/near.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "testkit/compare/near/status-message/src/lib.rs"
+      ],
+      "targetFamily": "near"
+    },
+    {
       "id": "cmp3-reference-near-value-vault",
       "kind": "nativeReference",
       "maturity": "referenceManifestV1",
@@ -291,6 +315,18 @@
       "semanticEvidence": "verified",
       "sourcePaths": [
         "benchmarks/native/solana/reentrancy-guard/src/lib.rs"
+      ],
+      "targetFamily": "solana"
+    },
+    {
+      "id": "cmp3-reference-solana-status-message",
+      "kind": "nativeReference",
+      "maturity": "referenceManifestV1",
+      "notes": "CMP-3h1 pins independent StatusMessage provenance; VM equivalence remains CMP-3h2 work",
+      "path": "testkit/differential/status-message/references/solana.v1.json",
+      "semanticEvidence": "none",
+      "sourcePaths": [
+        "benchmarks/native/solana/status-message/src/lib.rs"
       ],
       "targetFamily": "solana"
     },
@@ -388,6 +424,15 @@
       "targetFamily": "portable"
     },
     {
+      "id": "cmp3-scenario-status-message-primary-triad",
+      "kind": "scenario",
+      "maturity": "portableScenarioV1",
+      "notes": "five-step caller-projected map/event scenario pinned for CMP-3h2 VM execution",
+      "path": "testkit/differential/status-message/scenario.v1.json",
+      "semanticEvidence": "none",
+      "targetFamily": "portable"
+    },
+    {
       "id": "cmp3-scenario-value-vault-primary-triad",
       "kind": "scenario",
       "maturity": "portableScenarioV1",
@@ -470,6 +515,15 @@
       "maturity": "structuralReference",
       "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
       "path": "benchmarks/native/evm/ReentrancyGuard.sol",
+      "semanticEvidence": "none",
+      "targetFamily": "evm"
+    },
+    {
+      "id": "evm-reference-statusmessage",
+      "kind": "nativeReference",
+      "maturity": "structuralReference",
+      "notes": "handwritten Solidity reference without a v1 provenance manifest or normalized differential report",
+      "path": "benchmarks/native/evm/StatusMessage.sol",
       "semanticEvidence": "none",
       "targetFamily": "evm"
     },
@@ -1452,14 +1506,14 @@
     }
   ],
   "schema": "proof-forge.differential.inventory.v1",
-  "scope": "tracked comparison assets through verified stateful CMP-3 execution and pinned ArrayExample CMP-3g references",
+  "scope": "tracked comparison assets through verified ArrayExample CMP-3g execution and pinned StatusMessage CMP-3h references",
   "summary": {
-    "assetCount": 125,
+    "assetCount": 130,
     "byTargetFamily": {
-      "evm": 16,
-      "near": 35,
-      "portable": 38,
-      "solana": 28,
+      "evm": 18,
+      "near": 36,
+      "portable": 39,
+      "solana": 29,
       "stylus": 8
     },
     "semanticVerifiedCount": 36

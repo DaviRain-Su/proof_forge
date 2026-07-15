@@ -1,0 +1,30 @@
+{
+  "schema": "proof-forge.differential.reference.v1",
+  "id": "near-status-message-near-sdk-rs",
+  "targetFamily": "near",
+  "program": "status-message",
+  "framework": "near-sdk-rs",
+  "source": {
+    "path": "testkit/compare/near/status-message/src/lib.rs",
+    "language": "rust"
+  },
+  "provenance": {
+    "status": "complete",
+    "origin": {
+      "name": "near-examples/rust-status-message adapted to the portable u64 status subset",
+      "url": "https://github.com/near-examples/rust-status-message"
+    },
+    "revision": "sha256:35ef010241f4a709cfba870adfacddb2605e0d811f9aadfa6c63b28170698e8b",
+    "license": "Apache-2.0",
+    "toolchain": [
+      {"name": "near-sdk", "version": "5.28.3"},
+      {"name": "rustc", "version": "1.94.0"},
+      {"name": "near-vm-runner", "version": "0.37.0"}
+    ],
+    "missing": []
+  },
+  "semanticEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}

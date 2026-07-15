@@ -7,12 +7,16 @@
 #![allow(clippy::needless_pass_by_value)]
 
 use near_sdk::store::LookupMap;
-use near_sdk::{env, near, AccountId, PanicOnDefault};
+use near_sdk::{env, near, PanicOnDefault};
 
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct StatusMessage {
-    records: LookupMap<AccountId, u64>,
+    records: LookupMap<u64, u64>,
+}
+
+fn account_handle(account: &str) -> u64 {
+    u64::from_le_bytes(env::sha256_array(account.as_bytes())[..8].try_into().unwrap())
 }
 
 #[near]
@@ -25,15 +29,15 @@ impl StatusMessage {
     }
 
     pub fn set_status(&mut self, status: u64) {
-        let who = env::predecessor_account_id();
-        self.records.insert(who.clone(), status);
+        let who = account_handle(env::predecessor_account_id().as_str());
+        self.records.insert(who, status);
         env::log_str(&format!(
-            "{{\"event\":\"StatusSet\",\"account\":\"{who}\",\"status\":{status}}}"
+            r#"EVENT_JSON:{{"standard":"proof_forge","version":"1.0.0","event":"StatusSet","data":[{{"account":{who},"status":{status}}}]}}"#
         ));
     }
 
-    pub fn get_status(&self, account: AccountId) -> u64 {
-        self.records.get(&account).copied().unwrap_or(0)
+    pub fn get_status(&self, who: u64) -> u64 {
+        self.records.get(&who).copied().unwrap_or(0)
     }
 }
 
@@ -54,7 +58,7 @@ mod tests {
         ctx("alice.testnet");
         let mut c = StatusMessage::init();
         c.set_status(7);
-        let alice: AccountId = "alice.testnet".parse().unwrap();
+        let alice = account_handle("alice.testnet");
         assert_eq!(c.get_status(alice), 7);
     }
 }
