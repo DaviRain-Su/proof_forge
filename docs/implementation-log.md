@@ -4080,3 +4080,27 @@ Rules:
 - Remaining: implement LR-0 on a dedicated branch/worktree after cutover
   priority allows; do not start LR-2+ while Core single-path is still moving.
 - Documentation: this entry.
+
+## 2026-07-15 - LR-0: Artifact Contract v1 (Seam B)
+
+- Status: `done` (on branch `DaviRain-Su/artifact-contract-v1`; merge pending)
+- Result: Froze consumer field allowlist and primary-triad emitter inventory in
+  `ProofForge.Target.ArtifactContract`; added Lean inventory/field gate
+  `Tests/ArtifactContractV1.lean`; taught testkit core
+  `validate_artifact_contract_v1` to fail closed on missing
+  `schemaVersion`/`target`/`artifactKind`/`sourceModule` and, for execution
+  scenarios, missing `artifacts` + advertised `finalOutput`/`primaryOutput`.
+  Nested `ArtifactBundle` honesty rules unchanged. Secondary emitters
+  inventoried without forcing full primary-triad shape in this slice.
+- Interfaces: `ProofForge/Target/ArtifactContract.lean`,
+  `Tests/ArtifactContractV1.lean`, `testkit/core/src/lib.rs`
+  (`validate_artifact_contract_v1`), `just artifact-contract-v1`, design
+  checklist + observation contract note in
+  `docs/superpowers/specs/2026-07-15-artifact-contract-v1.md`.
+- Verification: `just artifact-contract-v1`; `cargo test -p proof-forge-testkit-core artifact_contract`;
+  `just docs-check`; `git diff --check` (run with this change).
+- Remaining: open PR for this branch; do not start LR-1 Core export until
+  cutover quiet; optional follow-up to add `artifactBundle` to secondary
+  Solana/learn emitters when their harnesses need execution metadata.
+- Documentation: this entry; backlog LR-0 → done; AGENTS checkpoint on this
+  worktree points at LR-0.

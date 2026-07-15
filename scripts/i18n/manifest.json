@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "4b3861c278a63cc0a99e734c586f070ebc4d06dac0af4dfe04397c63bcdea3ae",
+    "sha256": "b4e67fc205a4f36efd2261e2037cce3fd4a8a2242b48b583078187b028515615",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
+    "note": "synced EN/zh after LR-0 Artifact Contract v1 (2026-07-15)"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",

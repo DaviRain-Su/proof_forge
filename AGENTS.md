@@ -24,11 +24,11 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **Land PR #104** (`DaviRain-Su/authoring-cutover-comparison`): direct Authored → Canonical Core cutover + primary-triad native differential |
-| Next task | After #104 merges: continue cutover residual (CMP-3g*) and NEAR canonical replay; **do not** start deep Soroban HostABI/Env work until then (D-056) |
-| Parallel on main (done) | C3 OpenVM research brief → **defer** backend ([`docs/targets/openvm-research.md`](docs/targets/openvm-research.md)) |
-| Known blocker | PR #104 babysit (CI/ready); real NEAR receipt/testnet still needs a sandbox harness |
-| Execution queue | [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
+| Active task | **LR-0 Artifact Contract v1** on `DaviRain-Su/artifact-contract-v1` (Seam B; isolated from cutover) |
+| Next task | Land/merge LR-0; resume PR #104 cutover babysit; then cutover residual (CMP-3g*) / NEAR replay. Do not start LR-1 Core export or deep Soroban HostABI until cutover quiet (D-056/D-057) |
+| Parallel on main (done) | C3 OpenVM research brief → **defer** backend ([`docs/targets/openvm-research.md`](docs/targets/openvm-research.md)); D-057 design docs at `d9c132a0` |
+| Known blocker | PR #104 babysit (CI/ready) remains on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
+| Execution queue | This branch LR-0; [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
 | Soroban note | Counter MVP only; gap list and S0–S5 order in [`docs/targets/stellar-soroban.md`](docs/targets/stellar-soroban.md) |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
