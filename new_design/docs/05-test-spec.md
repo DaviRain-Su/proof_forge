@@ -153,10 +153,12 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 当前 development alpha 已实际覆盖 deny-default `materialize`/`core`/`evm-runtime` stages、
 closed-FD launcher、bounded private receipts、原 process-group cleanup、exact-local-port 与
 Anvil `127.0.0.1` bind/LAN refusal；evidence v1 candidate 也已覆盖 exact-port 条件字段、边界、
-错误类型与 current-reader 对旧 record 的兼容。`networkPort` 与 rendered policy bytes/digest、
-retained launcher logs/receipts、required probes 的绑定，完整 old/new reader fixture matrix、
-`setsid()` session escape、eligible host、formal Stage-0 handoff、gate catalog/freshness/revocation/
-private scan 和正式 finalizer 仍是验收缺口。
+错误类型与 current-reader 对旧 record 的兼容。H1e-a 还提供 opt-in 的 canonical run/invocation
+contexts、policy/port/argv/env/terminal/raw-stream-bound metadata receipt、single-writer reservation
+和 receipt-last publication；当前 alpha runner 尚未传入这些 opt-in contexts，也未 retained 新
+metadata receipt。`networkPort` 与真实 retained policy/receipts/probes 的 catalog binding、完整
+old/new reader fixture matrix、`setsid()` session escape、eligible host、formal Stage-0 handoff、
+gate catalog/freshness/revocation/private scan 和正式 finalizer 仍是验收缺口。
 
 H1e 固定按 invocation receipt → catalog core → real retained bundle integration 三个切片实施；前
 两个切片通过不能追溯升级 H1c/EV-0015，也不能关闭 `TST-EVIDENCE-001`、`TST-ISO-002/003`

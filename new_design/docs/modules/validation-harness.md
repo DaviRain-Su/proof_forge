@@ -42,7 +42,9 @@ revocation ledger，不能改写原 EV；该 ledger 尚未实现。
 runtime payload 已接入 deny-default policies 和 closed-FD launcher。materialize/core 全断网；
 runtime 为 exact-local-port，并由 Anvil `127.0.0.1` bind 与 LAN refusal negative 补充。
 stdout/stderr 以 bounded current-user `0400` single-link receipts 发布，原 process group 会在
-leader reap 前清理。
+leader reap 前清理。H1e-a 已增加 opt-in canonical invocation metadata receipt 和 single-writer
+receipt-last publication，但当前 alpha runner 保持 legacy two-raw-stream 调用，尚未保留这些
+metadata receipts。
 
 当前 host 不 eligible，formal Stage-0 handoff、`setsid()` session-escape containment、
 gate catalog、`networkPort` 与 rendered policy bytes/digest、retained launcher logs/receipts 及

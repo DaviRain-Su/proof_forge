@@ -329,8 +329,10 @@ required gate/test/tool/probe catalog、bundle safe-open、freshness、private s
 
 H1e 的 catalog、typed EV references、launcher receipt、single-snapshot 与独立 development
 finalization record candidate 契约已在
-[`SPEC-EVFINAL-001`](../specs/gate-catalog-finalization.md) 提出；当前实现尚未完成这些字段或
-真实 retained bundle，因此本节的“future”状态和 formal fail-closed 结论不变。
+[`SPEC-EVFINAL-001`](../specs/gate-catalog-finalization.md) 提出。H1e-a 已实现 opt-in launcher
+contexts 与 invocation metadata receipt producer；catalog、typed EV references、single-snapshot
+finalizer 和真实 retained bundle 尚未实现，因此本节的“future”状态和 formal fail-closed 结论
+不变。
 
 development publish 会 canonicalize 并原子 no-clobber 写入固定布局：
 

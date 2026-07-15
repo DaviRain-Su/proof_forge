@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-07-15
+updated: 2026-07-16
 normative: false
 ---
 
@@ -344,6 +344,34 @@ normative: false
 - Next：`TASK-D0-03/H1e` 实现 gate-catalog-bound development finalizer，先绑定 required
   gate/test/tool/probe、rendered policy bytes/digest、retained launcher logs/receipts 与
   `networkPort`，再处理 freshness/revocation/private scan。
+
+## 2026-07-16 — TASK-A0-12 / TASK-D0-03 H1e-a invocation receipts
+
+- Commit：`799ad09d0b7928f01745346f4376e7af3acba2f2`；launcher SHA-256
+  `cc8fd88bb1de01f5df388071b55f390f1f0e16d8d046b123a9b0f91ac603d591`。
+- Spec/Test：`SPEC-EVFINAL-001`、`MOD-TEST-001`、`TST-EVIDENCE-001/TST-ISO-002` 的
+  pre-acceptance H1e-a slice；不关闭完整 evidence/isolation 验收。
+- Changed：`sandbox_exec.py` 新增 all-or-none opt-in run/invocation contexts、独立 restricted
+  canonical JSON codec、domain bindings、policy/port/observed engine+launcher+payload、exact
+  argv/env、terminal 与 raw-stream-bound metadata receipt。stdout/stderr 先发布；同 invocation
+  reservation 在 raw stable verification 后、metadata marker 前释放；preexisting、并发 writer、
+  layout/context/executable/path drift 与 publication failure 均 fail closed。legacy runner 不传
+  contexts 时继续只发布两份 raw receipts。
+- Commands：pinned Xcode Python 3.9 py_compile/self-test；`ruff check`；`just sandbox-policy`；
+  `just docs-check`；`just check`；post-commit `just v2-clean-room-alpha`；`git diff --check`；两轮
+  independent security/acceptance review。
+- Results：全部 exit 0；最终独立复审 P0=0/P1=0。post-commit alpha 绑定 commit
+  `799ad09d…a2f2`、tree `7c22400e…790c`、archive `0bd7236c…c2e`；materialize/core/runtime
+  policy SHA-256 为 `4e36fcd2…c1ff`/`2baaf2d6…6995`/`cd1299dd…c9ed`，launcher 为
+  `cc8fd88b…d591`。
+- Evidence：`EV-20260716-0017`，仅为 manual development invocation-receipt implementation
+  evidence；没有生成 schema-complete immutable EV JSON。
+- Limitations：现有 alpha runner 尚未传入 contexts 或 retained metadata receipts；H1e-b catalog/
+  typed EV bindings/single-snapshot finalizer 与 H1e-c real retained bundle 均未实现。同 UID
+  replace-and-restore、`Popen(pathname)` TOCTOU、stale crash reservation、eligible host、formal
+  Stage-0 handoff 与 session containment 仍未闭合；`TASK-D0-03` 保持 `in_progress`。
+- Next：停止继续扩展 evidence 前置工作，回到 DSL → SemanticProgram → target-owned Plan/IR
+  产品主链路，先以代码/测试审计确定第一个真实编译缺口；H1e-b 保留为后续独立任务。
 
 ## 记录模板
 

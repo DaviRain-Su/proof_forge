@@ -31,6 +31,7 @@ normative: true
 | TASK-A0-09 | strict development evidence schema/bundle/publication core | EV-20260715-0014 | done |
 | TASK-A0-10 | deny-default materialize/core/exact-local-port runtime continuation | EV-20260715-0015 | done |
 | TASK-A0-11 | evidence v1 exact-local-port 条件端口、current-reader legacy-v1 compatibility 与攻击 self-tests | EV-20260715-0016 | done |
+| TASK-A0-12 | H1e-a opt-in run/invocation contexts、canonical metadata receipt 与 single-writer receipt-last publication | EV-20260716-0017 | done |
 
 ## Milestone D0：文档与独立工程
 

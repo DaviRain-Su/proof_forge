@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-D0-03/H1e-a`：先实现 canonical sandbox invocation metadata receipts；H1e 契约见 `SPEC-EVFINAL-001` |
-| Next task | H1e-b 独立 gate catalog + typed EV bindings + single-snapshot development finalizer；H1e-c 再接 real retained bundle |
+| Active task | 产品主线恢复：审计并实现 DSL → `SemanticProgram` → target-owned Plan/IR 的第一个真实缺口；H1e-a receipts 已在 `799ad09d` 验证，H1e-b 暂停 |
+| Next task | 由代码与失败验收测试确定，不从历史 prose 猜测；H1e-b/H1e-c 保留为独立 evidence 后续 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
