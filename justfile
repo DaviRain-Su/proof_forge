@@ -333,7 +333,10 @@ evm-canonical-check-route: build
     PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge check --target evm --root . --report-format json TestFixtures/SurfaceProducts/Counter.lean | jq -e '.status == "ok" and .validation.sourceVersion == "contract-source" and .validation.canonicalNormalize == "passed" and .validation.backendPlan == "passed" and .validation.lowering == "passed"' >/dev/null
 
 # Exact catalog coverage through temporary internal Surface fixtures.
-evm-canonical-product-route: build
+# Surface fixtures must be lake-built so `proof-forge` runFrontend can import
+# TestFixtures.SurfaceProducts.* oleans (CI fails closed if only `lake build`
+# of the default package leaves them stale/missing).
+evm-canonical-product-route: build test-fixtures
     scripts/evm/canonical-product-route.sh
 
 # Wave 3B Task 12.2: materialization and diagnostic parity gate.
