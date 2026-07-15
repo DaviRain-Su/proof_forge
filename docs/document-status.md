@@ -42,6 +42,7 @@ generated artifacts remain the implementation truth.
 | Core export v0 draft (Seam A) | [core-export-v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
 | Checked Core export draft (Seam A / Phase 1, experimental) | [Core export v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
 | EVM ABI selector policy (pin / Lean keccak / cast) | [targets/evm-selectors.md](targets/evm-selectors.md) |
+| Solana/Wasm assembly coverage scan (2026-07-15) | [targets/solana-wasm-coverage-scan-2026-07-15.md](targets/solana-wasm-coverage-scan-2026-07-15.md) |
 | Seam A local gates (no Rust product lower) | `just keccak256`, `just export-inspect`, `just dual-run-observe-seam-a`, `just ownable-evm-smoke` |
 
 ## Historical Baselines

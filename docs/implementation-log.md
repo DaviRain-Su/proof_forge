@@ -4394,3 +4394,17 @@ Rules:
 - Verification: `lake env lean --run Tests/Backend/Solana/AsmImm.lean`;
   AccessControl `proof-forge build --target solana-sbpf-asm` green.
 - Remaining: optional more P3 knives; land #105.
+
+## 2026-07-15 - Solana/Wasm production-coverage analysis
+
+- Status: `done` (docs evidence on PR #105)
+- Result: Written
+  `docs/targets/solana-wasm-coverage-scan-2026-07-15.md`. Conclusion: product
+  scalar compile is healthy; **not** production-complete. Largest semantic risk
+  is Solana **hash4 Phase-1 limb0-only**; NEAR EmitWat still refuses multi-arg
+  dynamic string params, full U128 literals, some bytes paths. Fixture `emit`
+  matrix lags product (`value-vault` NEAR unmapped while product builds).
+  Recommended next tests: limb0 honesty, AccessControl runtime, fixture map
+  debt, FT `--token` path — not Rust assemblers (D-058).
+- Verification: product matrix build; fixture emit matrix; code/doc gap audit.
+- Remaining: implement P0 hash honesty test if scheduled.
