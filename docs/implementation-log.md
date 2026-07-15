@@ -4303,7 +4303,7 @@ Rules:
 
 ## 2026-07-15 - Seam A goal re-verify (stop condition)
 
-- Status: `done` (re-verified at `5929e3b0`; doc follow-up commit if any)
+- Status: `done` (code re-verified at `5929e3b0`; docs at `3cdbaf14`)
 - Result: Full success-condition re-run on PR #105 branch. No code fix required.
   Stale human paste template that still said “start at LR-2j” updated to success-met
   stop guidance. Pipeline composition / in-process FFI remains out of scope.
