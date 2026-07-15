@@ -4223,3 +4223,14 @@ Rules:
   prints walk + dualRun lines.
 - Verification: `cargo test` in tools/pf-core (6 tests).
 - Remaining: real EVM lower pilot (still optional); keep product CLI Lean.
+
+## 2026-07-15 - LR-2c: EVM storage-only lower sketch
+
+- Status: `done` (PR #105 branch)
+- Result: First real `buildFromCore` pilot slice: modules whose Core walk is
+  pure+storage only (e.g. Counter) produce `evm-storage-sketch.v0.json` with
+  provisional scalar slots and entrypoint surface. HostCall modules (CREATE)
+  refuse fail-closed. CLI: `pf-core-inspect lower-sketch`. Still not bytecode
+  and not product CLI default.
+- Verification: cargo test pf-core (7 tests); lower-sketch on counter fixture.
+- Remaining: optional Yul/render dual-run later; keep Lean product path.

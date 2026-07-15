@@ -9,7 +9,11 @@
 mod lower;
 mod walk;
 
-pub use lower::{BuildFromCore, EvmLowererPilot, LoweredArtifacts};
+pub use lower::{
+    build_evm_storage_sketch, write_evm_storage_sketch, BuildFromCore, EntrypointSketch,
+    EvmLowererPilot, EvmStorageSketch, LoweredArtifacts, StorageSlotSketch,
+    EVM_STORAGE_SKETCH_SCHEMA,
+};
 pub use walk::{
     host_calls_match_plan, walk_module, CoreWalkSummary, DualRunReadiness,
 };

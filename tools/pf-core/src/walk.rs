@@ -282,9 +282,23 @@ impl ExportPackage {
                     .collect::<Vec<_>>()
             ));
         }
-        if !self.lowerer_implemented_note() {
+        let storage_only = walk.host_calls_in_body.is_empty()
+            && walk.crosscall_count == 0
+            && walk.memory_op_count == 0
+            && walk.op_kind_counts.keys().all(|k| {
+                matches!(
+                    k.as_str(),
+                    "pure" | "storageLoad" | "storageStore" | "storageContains"
+                )
+            });
+        if storage_only {
             notes.push(
-                "Rust buildFromCore lowerer not implemented (observe-only dual-run possible)"
+                "EvmLowererPilot storage-only sketch available (not bytecode; experimental)"
+                    .into(),
+            );
+        } else {
+            notes.push(
+                "EvmLowererPilot storage-only sketch not eligible (unsupported ops/hostCalls)"
                     .into(),
             );
         }
@@ -296,12 +310,9 @@ impl ExportPackage {
             content_hash_ok,
             host_body_matches_plan,
             host_ops_available,
+            // Storage-only sketch is a pilot step, not full lower.
             lowerer_implemented: false,
             notes,
         }
-    }
-
-    fn lowerer_implemented_note(&self) -> bool {
-        false
     }
 }

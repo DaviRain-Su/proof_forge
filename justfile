@@ -418,6 +418,8 @@ core-export-v0:
       build/export/lr1d-counter/evm build/export/lr1d-counter/wasm-near
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1e-create/evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- summary build/export/lr1e-create/evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- lower-sketch \
+      tools/pf-core/tests/fixtures/counter-evm --out build/export/lr2c-counter-sketch
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-valuevault/evm
     cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-guestbook/evm
 

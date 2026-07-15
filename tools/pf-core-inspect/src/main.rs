@@ -2,7 +2,9 @@
 //! Zero chain SDK dependencies.
 
 use anyhow::{Context, Result};
-use pf_core::{compare_packages, ExportPackage};
+use pf_core::{
+    compare_packages, write_evm_storage_sketch, BuildFromCore, EvmLowererPilot, ExportPackage,
+};
 use std::env;
 use std::path::PathBuf;
 
@@ -40,6 +42,45 @@ fn main() -> Result<()> {
             let report = compare_packages(&left_pkg, &right_pkg)?;
             println!("pf-core-inspect compare:\n{}", report.summary());
             println!("pf-core-inspect: compare ok (Core match)");
+            Ok(())
+        }
+        "lower-sketch" => {
+            let dir = args
+                .next()
+                .map(PathBuf::from)
+                .context("usage: pf-core-inspect lower-sketch <export-dir> [--out DIR]")?;
+            let mut out: Option<PathBuf> = None;
+            while let Some(a) = args.next() {
+                match a.as_str() {
+                    "--out" => {
+                        out = Some(
+                            args.next()
+                                .map(PathBuf::from)
+                                .context("--out requires a directory")?,
+                        );
+                    }
+                    other => anyhow::bail!("unknown lower-sketch argument `{other}`"),
+                }
+            }
+            let pkg = ExportPackage::load(&dir)?;
+            let arts = match out.as_deref() {
+                Some(path) => write_evm_storage_sketch(&pkg, Some(path))?,
+                None => EvmLowererPilot.build_from_core(&pkg)?,
+            };
+            println!(
+                "pf-core-inspect: lower-sketch ok module={} target={} path={}",
+                pkg.module_name(),
+                arts.target_id,
+                arts.sketch_path.as_deref().unwrap_or("?")
+            );
+            if let Some(sketch) = arts.sketch {
+                println!(
+                    "  slots={} entrypoints={} status={}",
+                    sketch.storage_slots.len(),
+                    sketch.entrypoints.len(),
+                    sketch.status
+                );
+            }
             Ok(())
         }
         "hash-file" => {
@@ -109,6 +150,9 @@ USAGE:
   pf-core-inspect check <export-dir>
   pf-core-inspect summary <export-dir>
   pf-core-inspect compare <export-dir-a> <export-dir-b>
-  pf-core-inspect hash-file <path>"
+  pf-core-inspect lower-sketch <export-dir> [--out DIR]
+  pf-core-inspect hash-file <path>
+
+lower-sketch: experimental EVM storage-only sketch (not bytecode; not product CLI)"
     );
 }
