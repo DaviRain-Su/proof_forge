@@ -84,10 +84,10 @@
     "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/validation-gates.md": {
-    "sha256": "b9ed2a735d3627de35082ab45f40a1dc0bc0867846d3d1366294549c4163ddb5",
+    "sha256": "5db9fb7941d47d1b09de44b1865d63a63292e4a9fa48ec98c817400a5d222b1c",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "synced after LR-S5 M1"
+    "note": "synced after P3 AccessControl solana imm fix"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -187,9 +187,9 @@
     "note": "EN overview + §12 internals; zh is full deep-dive"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "d467233b6d8d1f82f6c1466119aff0dca533e13b6d6e0c3738403761f04d41c3",
+    "sha256": "87066157f60049ac491e8cfb88dbd8b500dfd9e31a7473d839f380e151df12c3",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced after LR-S5 M1"
+    "note": "synced after P3 AccessControl solana imm fix"
   }
 }

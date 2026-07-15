@@ -18,6 +18,8 @@
 | 纯 Lean Keccak-256 / ABI selector | `just keccak256` | 仅 Lean/Lake | 以太坊 empty/abc digest 与 selector 向量（`owner()` 等），无需 Foundry | 形式化密码证明；NIST SHA-3 变体 |
 | Seam A dual-run observe（本地） | `just dual-run-observe-seam-a` | Lean/Lake；`pf-core-inspect` | Counter/ValueVault/Ownable Lean observe 与 storage sketch 在入口+slot 上对齐；Lean keccak 补缺失 selector | bytecode dual-run；产品默认 CLI |
 | 便携 Ownable EVM 产品烟雾 | `just ownable-evm-smoke` | Lean/Lake；`solc`；`cast` 可选（Lean keccak 回退） | `Examples/Product/Ownable.lean` → Yul → solc 十六进制字节码（非空） | Anvil 部署；全 catalog；Rust lower |
+| Solana 大立即数汇编 | `just solana-asm-imm` | Lean/Lake | `numStr` 对 `≥ 2^63` 输出 `0x…`，sbpf 可接受 hash4 limb | 全产品矩阵 |
+| 便携 AccessControl Solana 产品烟雾 | `just access-control-solana-smoke` | Lean/Lake；PATH 上有 `sbpf` | AccessControl → `.s` + sbpf 包；无 ≥2^63 十进制 imm | 链上 validator 部署 |
 | Artifact Contract v1 harness | `just artifact-contract-v1` | Lean/Lake；`testkit` core crate 的 Rust/Cargo | 冻结 Seam B `proof-forge-artifact.json` 字段 allowlist 与 testkit 消费者的诚实规则 | Core export 包；运行时部署行为 |
 | Canonical 语义门禁 | `just canonical-core` | 来自 `lean-toolchain` 的 Lean 工具链 | 验证 Legacy v1 与 Surface v2 规范化、已检查 canonical 语义、精确 HostOp 签名、evidence 独立性、有界 Queue/Set 展开和共享 fixture | 目标语法或运行时执行 |
 | Canonical 目标 parity | `just canonical-parity` | 来自 `lean-toolchain` 的 Lean 工具链；可用时使用子门禁所需的目标语法工具 | 在冻结的 Legacy 共享子集上运行 EVM、Solana、NEAR canonical 计划与制品 parity | live network 部署或 Legacy 独有形状 |

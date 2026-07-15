@@ -78,7 +78,7 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 | LR-S2 | `just export-inspect` pipeline (export + check/summary) | done (PR #105) | one-shot Seam A orchestration; no product lower |
 | LR-S3 | Pure Lean keccak selector fill (no `cast`) | done (PR #105) | `ProofForge.Util.Keccak256`; `selectorForLean`; DualRunObserve fills missing selectors without Foundry |
 | LR-S4 | Dual-run observe recipe + package-side observe dumps | done (PR #105) | `just dual-run-observe-seam-a`; DualRunObserve writes `lean-evm-observe.v0.json` (full CLI export-core flag still optional later) |
-| LR-S5 | Lean product lower quality (EVM Yul / Solana sBPF / WAT) | **in_progress (M1 P0–P1 done; P2/P3 next)** | M1: `docs/targets/evm-selectors.md` + `just ownable-evm-smoke`; next P2 export invariants / P3 Solana-NEAR knives |
+| LR-S5 | Lean product lower quality (EVM Yul / Solana sBPF / WAT) | **in_progress (M1 done; P3 AccessControl Solana imm fixed)** | M1 Ownable EVM smoke; P3 `Asm.numStr` hex ≥2^63 + `just access-control-solana-smoke` |
 
 Specs: [lean-rust-boundary](superpowers/specs/2026-07-15-lean-rust-boundary-design.md)
 ([中文](superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)),

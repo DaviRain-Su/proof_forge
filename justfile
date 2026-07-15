@@ -465,6 +465,13 @@ keccak256:
 ownable-evm-smoke:
     ./scripts/evm/ownable-product-smoke.sh
 
+# P3: Solana AccessControl product (hash4 limb ≥2^63 imm must be hex for sbpf).
+access-control-solana-smoke:
+    ./scripts/solana/access-control-product-smoke.sh
+
+# Solana asm immediate rendering unit check.
+solana-asm-imm:
+    lake env lean --run Tests/Backend/Solana/AsmImm.lean
 # Dual-run observe dumps + Rust compare (Seam A; Lean selectors via keccak).
 dual-run-observe-seam-a:
     lake env lean --run Tests/Util/Keccak256.lean

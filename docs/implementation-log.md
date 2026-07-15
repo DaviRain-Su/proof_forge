@@ -4380,3 +4380,17 @@ Rules:
   for P2; invariants hold.
 - Verification: CoreExportHostCall.lean; export-core fixture counter check.
 - Remaining: P3 Solana/NEAR pain knives only with repros; land #105.
+
+## 2026-07-15 - P3 scan + Solana large-imm asm fix (AccessControl)
+
+- Status: `done` (PR #105 branch)
+- Result: Scanned portable products on `solana-sbpf-asm` and `wasm-near`.
+  Green: Counter, Ownable, ValueVault, Pausable, GuestBook, RemoteCall;
+  FungibleToken/Nft OK with `--token` / `--nft`. AccessControl NEAR+EVM OK;
+  **Solana AccessControl failed `sbpf build`**: `mov64` decimal immediates
+  `≥ 2^63` from hash4 limb0 rejected by assembler. Fixed `Asm.numStr` to emit
+  `0x…` hex for those values. Unit test `Tests/Backend/Solana/AsmImm.lean`;
+  smoke `just access-control-solana-smoke`.
+- Verification: `lake env lean --run Tests/Backend/Solana/AsmImm.lean`;
+  AccessControl `proof-forge build --target solana-sbpf-asm` green.
+- Remaining: optional more P3 knives; land #105.
