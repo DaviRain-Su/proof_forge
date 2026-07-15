@@ -32,7 +32,7 @@ normative: true
 | 实施计划 | [`04-task-breakdown.md`](04-task-breakdown.md) | `proposed` | 任务顺序与任务验收 |
 | 测试 | [`05-test-spec.md`](05-test-spec.md) | `proposed` | 验收和证据要求 |
 | 实现事实 | [`06-implementation-log.md`](06-implementation-log.md) | `draft` | alpha 实际命令、结果与限制 |
-| 最终评审 | [`07-review-report.md`](07-review-report.md) | `not_started` | 发布判断 |
+| 最终评审 | [`07-review-report.md`](07-review-report.md) | `draft` | engineering closeout `not_ready`；无 public release |
 
 ## 权威优先级
 

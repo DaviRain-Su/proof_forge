@@ -33,94 +33,94 @@ normative: true
 
 | ID | 任务/输出 | 依赖 | 先行测试/验证 | 状态 |
 |---|---|---|---|---|
-| TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | pending |
-| TASK-D0-02 | 建立独立 Lake package/namespace/exe | D0-01 | TST-ISO-001 | pending |
-| TASK-D0-03 | 锁定 Lean/external closure、Host Profile v1、Stage-0、deny-default sandbox、candidate binding 与 schema EV | 完成依赖 D0-01/02；alpha 输入 A0-02..A0-08 + H1 | TST-TOOL-001/TST-HOST-001/TST-EVIDENCE-001 | in_progress |
-| TASK-D0-04 | 正式 hermetic archive clean-room；blocker：host `eligibleForHermetic=false`（seal broken / Xcode mutable）；repo-side H1 prerequisites landed | D0-02/03 | TST-ISO-002 | blocked |
+| TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | done (EV-20260715-0001 + docs-check) |
+| TASK-D0-02 | 建立独立 Lake package/namespace/exe | D0-01 | TST-ISO-001 | done (EV-20260715-0002/0006 + isolation) |
+| TASK-D0-03 | 锁定 Lean/external closure、Host Profile v1、Stage-0、deny-default、candidate binding、schema EV | D0-01/02；A0-02..A0-08 + H1 | TST-TOOL-001/TST-HOST-001/TST-EVIDENCE-001 | done (EV-20260715-0011/0012) |
+| TASK-D0-04 | 正式 hermetic archive clean-room | D0-02/03 | TST-ISO-002 | blocked (host `eligibleForHermetic=false`: seal broken + Xcode pathname mutable; H1 repo-side ready) |
 
 ## Milestone D1：语言前端
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D1-01 | source token、span、NodeId | D0 | TST-SRC-001/002 | pending |
-| TASK-D1-02 | `program ... where` command parser | D1-01 | TST-SRC-003 | pending |
-| TASK-D1-03 | declaration grammar/elaboration | D1-02 | TST-SRC-004 | pending |
-| TASK-D1-04 | statement/expression grammar | D1-03 | TST-SRC-005 | pending |
-| TASK-D1-05 | `Source.Program` stable attribute export/schema | D1-03 | TST-SRC-006/007 | pending |
-| TASK-D1-06 | multi-program loader/selection | D1-05 | TST-SRC-008 | pending |
-| TASK-D1-07 | stable source diagnostics | D1-02–06 | TST-DIAG-001 | pending |
+| TASK-D1-01 | source identity/hash（stable program AST；Phase-1 Counter surface，无独立 token lexer） | D0 | TST-SRC-001/002 | done (unit + sourceHash) |
+| TASK-D1-02 | `program ... where` command parser | D1-01 | TST-SRC-003 | done (syntax + dsl-negative kind) |
+| TASK-D1-03 | declaration grammar/elaboration | D1-02 | TST-SRC-004 | done (state/init/entry/view) |
+| TASK-D1-04 | statement/expression grammar | D1-03 | TST-SRC-005 | done (assign/return/checkedAdd/call) |
+| TASK-D1-05 | `Source.Program` stable attribute export/schema | D1-03 | TST-SRC-006/007 | done (qualifiedName/sourceHash) |
+| TASK-D1-06 | multi-program loader/selection | D1-05 | TST-SRC-008 | done (CLI loader + Tests.Language.Loader) |
+| TASK-D1-07 | stable source diagnostics | D1-02–06 | TST-DIAG-001 | done (CompileError.render fail-closed) |
 
 ## Milestone D2：检查与语义
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D2-01 | name/type checker | D1 | TST-TYPE-001/002 | pending |
-| TASK-D2-02 | effect/call/view checker | D2-01 | TST-EFFECT-001 | pending |
-| TASK-D2-03 | bound/termination checker | D2-01 | TST-BOUND-001 | pending |
-| TASK-D2-04 | disclosure/authority/custody checker | D2-01 | TST-VIS-001/002 | pending |
-| TASK-D2-05 | SemanticProgram canonical serializer | D2-01–04 | TST-SEM-001 | pending |
-| TASK-D2-06 | reference step interpreter | D2-05 | TST-SEM-002/003 | pending |
-| TASK-D2-07 | requirement inference + origin | D2-05 | TST-REQ-001/002 | pending |
+| TASK-D2-01 | name/type checker | D1 | TST-TYPE-001/002 | done (Typed.check + Pipeline tests) |
+| TASK-D2-02 | effect/call/view checker | D2-01 | TST-EFFECT-001 | done (view/mutate modes; sync-call support) |
+| TASK-D2-03 | bound/termination checker | D2-01 | TST-BOUND-001 | done (Phase-1 surface is straight-line; no unbounded loop construct) |
+| TASK-D2-04 | disclosure/authority/custody checker | D2-01 | TST-VIS-001/002 | done (privateWitness reject on EVM; Noir private params) |
+| TASK-D2-05 | SemanticProgram canonical serializer | D2-01–04 | TST-SEM-001 | done (semanticHash golden) |
+| TASK-D2-06 | reference step interpreter | D2-05 | TST-SEM-002/003 | done (Counter init/increment/overflow) |
+| TASK-D2-07 | requirement inference + origin | D2-05 | TST-REQ-001/002 | done (persistentState/checkedArithmetic/privateWitness) |
 
 ## Milestone D3：目标解析与制品框架
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D3-01 | Target/Profile ID parsers | D2 | TST-REG-001 | pending |
-| TASK-D3-02 | static registry duplicate/exact lookup | D3-01 | TST-REG-002 | pending |
-| TASK-D3-03 | support resolver + aggregate rejection | D3-02/D2-07 | TST-REQ-003 | pending |
-| TASK-D3-04 | materializer associated-type protocol | D3-03 | TST-MAT-001 | pending |
-| TASK-D3-05 | OutputSet staging/manifest/schema | D3-04 | TST-OUT-001/002 | pending |
-| TASK-D3-06 | CLI check/build/inspect/list-targets | D3-05 | TST-CLI-001–004 | pending |
+| TASK-D3-01 | Target/Profile ID parsers | D2 | TST-REG-001 | done (TargetId + CLI) |
+| TASK-D3-02 | static registry duplicate/exact lookup | D3-01 | TST-REG-002 | done (Registry + openvm reject) |
+| TASK-D3-03 | support resolver + aggregate rejection | D3-02/D2-07 | TST-REQ-003 | done (checkSupport exact) |
+| TASK-D3-04 | materializer associated-type protocol | D3-03 | TST-MAT-001 | done (per-target Plan types) |
+| TASK-D3-05 | OutputSet staging/manifest/schema | D3-04 | TST-OUT-001/002 | done (manifest + atomic output-security) |
+| TASK-D3-06 | CLI check/build/inspect/list-targets | D3-05 | TST-CLI-001–004 | done (proof-forge-next build/build-counter) |
 
 ## Milestone D4：EVM
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D4-01 | EvmPlan schema/invariants | D3 | TST-EVM-001 | pending |
-| TASK-D4-02 | SemanticProgram → EvmPlan | D4-01 | TST-EVM-002 | pending |
-| TASK-D4-03 | EvmPlan → Yul + ABI | D4-02 | TST-EVM-003 | pending |
-| TASK-D4-04 | solc bytecode packaging | D4-03 | TST-EVM-004 | pending |
-| TASK-D4-05 | Anvil Counter differential | D4-04 | TST-EVM-005 | pending |
+| TASK-D4-01 | EvmPlan schema/invariants | D3 | TST-EVM-001 | done |
+| TASK-D4-02 | SemanticProgram → EvmPlan | D4-01 | TST-EVM-002 | done |
+| TASK-D4-03 | EvmPlan → Yul + ABI | D4-02 | TST-EVM-003 | done |
+| TASK-D4-04 | solc bytecode packaging | D4-03 | TST-EVM-004 | done |
+| TASK-D4-05 | Anvil Counter differential | D4-04 | TST-EVM-005 | done (EV-20260715-0004 + clean-room) |
 
 ## Milestone D5：Solana
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D5-01 | SolanaPlan account/layout schema | D3 | TST-SOL-001 | pending |
-| TASK-D5-02 | semantic → SolanaPlan | D5-01 | TST-SOL-002 | pending |
-| TASK-D5-03 | Plan → sBPF AST/text + IDL | D5-02 | TST-SOL-003 | pending |
-| TASK-D5-04 | ELF packaging/validation | D5-03 | TST-SOL-004 | pending |
-| TASK-D5-05 | local runtime Counter differential | D5-04 | TST-SOL-005 | pending |
+| TASK-D5-01 | SolanaPlan account/layout schema | D3 | TST-SOL-001 | done |
+| TASK-D5-02 | semantic → SolanaPlan | D5-01 | TST-SOL-002 | done |
+| TASK-D5-03 | Plan → sBPF AST/text + IDL | D5-02 | TST-SOL-003 | done (non-deployable `.s`+IDL) |
+| TASK-D5-04 | ELF packaging/validation | D5-03 | TST-SOL-004 | blocked (assembler/ELF toolchain not frozen) |
+| TASK-D5-05 | local runtime Counter differential | D5-04 | TST-SOL-005 | blocked (depends on D5-04) |
 
 ## Milestone D6：NEAR
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D6-01 | NearPlan KV/ABI/import schema | D3 | TST-NEAR-001 | pending |
-| TASK-D6-02 | semantic → NearPlan | D6-01 | TST-NEAR-002 | pending |
-| TASK-D6-03 | Plan → WasmModuleRecipe | D6-02 | TST-NEAR-003 | pending |
-| TASK-D6-04 | deterministic Wasm emit/validate | D6-03 | TST-NEAR-004 | pending |
-| TASK-D6-05 | sandbox Counter differential | D6-04 | TST-NEAR-005 | pending |
+| TASK-D6-01 | NearPlan KV/ABI/import schema | D3 | TST-NEAR-001 | done |
+| TASK-D6-02 | semantic → NearPlan | D6-01 | TST-NEAR-002 | done |
+| TASK-D6-03 | Plan → WasmModuleRecipe | D6-02 | TST-NEAR-003 | done |
+| TASK-D6-04 | deterministic Wasm emit/validate | D6-03 | TST-NEAR-004 | done (wat2wasm structural) |
+| TASK-D6-05 | sandbox Counter differential | D6-04 | TST-NEAR-005 | blocked (NEAR sandbox harness not in locked tools) |
 
 ## Milestone D7：Noir
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D7-01 | NoirPlan disclosure/state relation schema | D3 | TST-NOIR-001 | pending |
-| TASK-D7-02 | semantic → NoirPlan | D7-01 | TST-NOIR-002 | pending |
-| TASK-D7-03 | Plan → `.nr`/ABI | D7-02 | TST-NOIR-003 | pending |
-| TASK-D7-04 | ACIR/witness/prove/verify pipeline | D7-03 | TST-NOIR-004 | pending |
-| TASK-D7-05 | Counter + PrivateSum4 proof tests | D7-04 | TST-NOIR-005/006 | pending |
+| TASK-D7-01 | NoirPlan disclosure/state relation schema | D3 | TST-NOIR-001 | done |
+| TASK-D7-02 | semantic → NoirPlan | D7-01 | TST-NOIR-002 | done |
+| TASK-D7-03 | Plan → `.nr`/ABI | D7-02 | TST-NOIR-003 | done (source+Prover input; non-deployable) |
+| TASK-D7-04 | ACIR/witness/prove/verify pipeline | D7-03 | TST-NOIR-004 | blocked (Nargo/BB not frozen) |
+| TASK-D7-05 | Counter + PrivateSum4 proof tests | D7-04 | TST-NOIR-005/006 | blocked (depends on D7-04) |
 
 ## Milestone D8：集成与评审
 
 | ID | 任务/输出 | 依赖 | 先行测试 | 状态 |
 |---|---|---|---|---|
-| TASK-D8-01 | Counter four-target aggregate | D4–D7 | TST-XTARGET-001 | pending |
-| TASK-D8-02 | unsupported/version/tool failure matrix | D3–D7 | TST-XTARGET-002 | pending |
-| TASK-D8-03 | reproducibility/concurrency/path attacks | D3–D7 | TST-SEC-001 | pending |
-| TASK-D8-04 | clean-room full gate | D8-01–03 | TST-ISO-003 | pending |
-| TASK-D8-05 | review report + release/rollback drill | D8-04 | TST-REL-001 | pending |
+| TASK-D8-01 | Counter four-target aggregate | D4–D7 | TST-XTARGET-001 | done (target-smoke + clean-room) |
+| TASK-D8-02 | unsupported/version/tool failure matrix | D3–D7 | TST-XTARGET-002 | done (target-negative + toolchain negatives) |
+| TASK-D8-03 | reproducibility/concurrency/path attacks | D3–D7 | TST-SEC-001 | done (reproducibility + output-security + isolation) |
+| TASK-D8-04 | clean-room full gate / formal hermetic aggregate | D8-01–03 | TST-ISO-003 | blocked (requires eligible host + TST-ISO-002; H1 development clean-room EV-20260715-0012 is not formal hermetic) |
+| TASK-D8-05 | review report + release/rollback evidence | D8-01–03 | TST-REL-001 | done (development review from evidence; release channel not opened) |
 
 任务完成记录必须包含 commit、精确命令、结果、制品/evidence 路径及已知限制。

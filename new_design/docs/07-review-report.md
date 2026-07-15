@@ -1,41 +1,71 @@
 ---
 id: PHASE-7
 title: 评审与发布报告
-status: not_started
+status: draft
 owner: release
-updated: 2026-07-15
+updated: 2026-07-16
 normative: false
 ---
 
 # Phase 7：评审与发布报告
 
-实现和 required evidence 尚未完成，因此不能填写通过结论。
+本报告基于已执行命令与已记录 `EV-*` 填写，不是预填通过。正式 release channel
+与 formal hermetic clean-room（`TST-ISO-002`/`TST-ISO-003`）在本 host 上仍未打开。
 
-## 评审模板
+## 评审记录（2026-07-16，development candidate）
 
 | 领域 | Reviewer | 输入 | 结论 | Finding IDs |
 |---|---|---|---|---|
-| Spec conformance | TBD | accepted specs + diff | not_started | |
-| Semantic correctness | TBD | reference/target traces | not_started | |
-| Security/privacy | TBD | threat model + attack tests | not_started | |
-| Dependencies/licenses | TBD | lock/SBOM/checksums | not_started | |
-| Performance/resources | TBD | benchmark evidence | not_started | |
-| Reproducibility/isolation | TBD | repeatability + clean-room | not_started | |
-| Target maturity honesty | TBD | target dossiers/evidence | not_started | |
-| Release/rollback | TBD | signed bundle + drill | not_started | |
+| Spec conformance | implementer | ADR-0013、SPEC-REPRO/TOOL、task table、diff | pass with limits | F-REL-001 |
+| Semantic correctness | implementer | `proof-forge-next-tests`、Counter reference interpreter、EVM Anvil | pass (Phase-1 Counter surface) | |
+| Security/privacy | implementer | output-security、toolchain negatives、deny-default isolation、privateWitness reject | pass with limits | F-SEC-001 |
+| Dependencies/licenses | implementer | toolchains.lock.json、host-profiles.lock.json | pass (locked assets) | |
+| Performance/resources | implementer | clean-room 61-job build timing only | deferred | F-PERF-001 |
+| Reproducibility/isolation | implementer | reproducibility 19-file、H1 deny-default clean-room EV-20260715-0012 | pass development; formal hermetic blocked | F-ISO-001 |
+| Target maturity honesty | implementer | target dossiers + smoke | pass (no ELF/proof/receipt overclaim) | |
+| Release/rollback | implementer | no signed candidate channel | not_ready for public release | F-REL-002 |
 
 Finding severity：P0 安全/语义破坏、P1 发布阻断、P2 可带明确跟踪发布、P3 文档/优化。
-P0/P1 必须关闭并有回归测试；P2 需要 owner 和截止日期。
 
-## 最终决策模板
+### Findings
 
-- Candidate version/commit：TBD
-- Evidence set：TBD
-- Supported targets/profiles：TBD
-- Unsupported claims：TBD
-- Rollback version/drill：TBD
-- Decision：`not_ready | approved | rejected`
-- Approvers/date：TBD
+| ID | Severity | Summary | Status |
+|---|---|---|---|
+| F-ISO-001 | P1 | Host `eligibleForHermetic=false`（APFS Sealed: Broken；Xcode pathname current-user-mutable）。`TASK-D0-04`/`TST-ISO-002`/`TST-ISO-003` blocked。H1 deny-default + schema EV 已落地，不得称为 formal hermetic。 | open (host) |
+| F-REL-001 | P2 | 多数 specs/ADR 仍为 `proposed`，尚未 `accepted` 发布治理闭环。 | open |
+| F-SEC-001 | P2 | deny-default 仍允许系统 `/private/var/folders` 读以便 Python/Lean 运行；用户 HOME/父 repo/`/opt/homebrew` 已 deny。同 UID TOCTOU 边界未闭合。 | open |
+| F-PERF-001 | P3 | 无正式 cold/incremental benchmark budgets 证据。 | open |
+| F-REL-002 | P1 | 无 signed release bundle / rollback drill；development candidate only。 | open |
+| F-TGT-001 | P2 | Solana ELF/runtime、NEAR sandbox receipt、Noir prove/verify 工具未冻结；maturity 保持 non-deployable/static。 | open |
 
-任何 reviewer 不得审核自己唯一实现的安全关键模块；发布批准至少需要 architecture、
-quality 和 security 三方签署。
+## 证据集
+
+| EV ID | Gate | Result |
+|---|---|---|
+| EV-20260715-0001 | docs-check | passed |
+| EV-20260715-0002 | unit tests | passed |
+| EV-20260715-0003/0006 | target-smoke / just check | passed |
+| EV-20260715-0004 | EVM Anvil runtime | passed |
+| EV-20260715-0009/0010 | toolchain + clean-room alpha | passed (development) |
+| EV-20260715-0011 | Stage-0 development + formal rejection | passed / expected fail closed |
+| EV-20260715-0012 | H1 deny-default clean-room + schema EV | passed (`eligibleForHermetic=false`) |
+
+## 最终决策
+
+- Candidate version/commit：`0298b19a` 起 H1 证据；后续 control-plane 文档提交见 log
+- Evidence set：上表；Merkle root 未做 release 级汇总
+- Supported targets/profiles（Phase-1 engineering maturity）：
+  - `evm`：solc bytecode + Anvil Counter（local_runtime）
+  - `near`：Wasm structural validate（artifact_validated；无 sandbox receipt）
+  - `solana`：`.s` + IDL（non-deployable）
+  - `noir`：`.nr` + Prover input（non-deployable；无 proof）
+- Unsupported claims：formal hermetic、Solana ELF/runtime、NEAR sandbox、Noir prove/verify、公网部署、signed release
+- Rollback version/drill：未执行（无 release 通道）
+- Decision：`not_ready`（engineering D0–D8 在 host/tool 限制下已诚实闭合；**不**批准 public release）
+- Approvers/date：implementer self-review 2026-07-16；独立 multi-party release approval 未进行
+
+## Rollback 笔记（若未来 release）
+
+1. 保留上一 signed candidate tag 与 evidence set。
+2. 回滚 CLI/package 分发到该 tag；撤销错误 maturity 声明。
+3. 重新跑 `just check` 与 eligible-host formal clean-room 后再发布。

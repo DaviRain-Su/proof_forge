@@ -13,18 +13,18 @@
 
 | Field | Current value |
 |---|---|
-| Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-D0-03/H1`：deny-default sandbox、candidate/archive binding、schema-complete EV（in_progress） |
-| Next task | 关闭 `TASK-D0-03` 后：`TASK-D0-04` 在 ineligible host 上保持 `blocked`；推进正式 D0-01/02 与 D1 |
-| Phase 1 targets | `evm`, `solana`, `near`, `noir` |
+| Program | V2 Phase-1 engineering candidate：统一 `program ... where` → SemanticProgram → 四目标 Plan/制品 |
+| Active task | none（无 open Phase-1 实现任务；仅 host/tool blocked 项） |
+| Next task | eligible host 上解除 `TASK-D0-04`/`TASK-D8-04`；冻结 Solana ELF / NEAR sandbox / Noir BB 工具链后再提升 maturity |
+| Phase 1 targets | `evm` (local_runtime)、`near` (wasm-validated)、`solana`/`noir` (non-deployable static) |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | `TASK-D0-04` / `TST-ISO-002` 需要 `eligibleForHermetic=true` host；当前 host `systemVolumeSeal=broken` 且 Xcode pathname current-user-mutable；不得伪造 hermetic |
-| Source of status | [`docs/document-status.md`](docs/document-status.md) |
+| Known blocker | formal hermetic：`eligibleForHermetic=false`；Solana ELF、NEAR sandbox、Noir prove/verify 工具未锁定；**无 public release** |
+| Source of status | [`docs/document-status.md`](docs/document-status.md)、[`docs/07-review-report.md`](docs/07-review-report.md) |
 
 检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
 当前 EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证，NEAR 有 `wat2wasm` 结构验证
 但没有 sandbox receipt；Solana 只有 `.s`+IDL，Noir
-只有 source+Prover input，且 manifest 为 non-deployable。不得写成 ELF/runtime 或 proof 完成。
+只有 source+Prover input，且 manifest 为 non-deployable。不得写成 ELF/runtime、proof 或 formal hermetic 完成。
 
 ## Mandatory Reading Order
 
