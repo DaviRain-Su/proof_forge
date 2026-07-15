@@ -187,9 +187,9 @@
     "note": "EN overview + §12 internals; zh is full deep-dive"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "f360c1bd99688ca7f18006ea91c1845e989362bc3d8f3e8dacee20d82ac9b6b5",
+    "sha256": "1cc65a8d49b578ef53ff9cb9e0c616375c857faaef216c5f4d0fcb0c9160dafe",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced after LR-2f..2j Seam A goal success"
+    "note": "synced after Seam A re-verify stop"
   }
 }

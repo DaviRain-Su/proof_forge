@@ -4290,7 +4290,7 @@ Rules:
 
 ## 2026-07-15 - LR-2f…2j: Ownable dual-run through Seam A goal success
 
-- Status: `done` (PR #105 branch; SHA at commit)
+- Status: `done` (verified at `5929e3b0`)
 - Result: Ownable dual-run with assert-eligible sketch + surface dump fallback;
   contentHash stability gates; core-export-v0 package/dual-run docs; validation-gates
   rows for `just core-export-v0` and `just artifact-contract-v1`. Goal charter
@@ -4300,3 +4300,17 @@ Rules:
   pf-core tests; CoreExportPackage; docs-check i18n.
 - Remaining: land PR #105; optional later Ownable selectors for full ModulePlan;
   no LR-3 default Rust lower without new human goal.
+
+## 2026-07-15 - Seam A goal re-verify (stop condition)
+
+- Status: `done` (re-verified at `5929e3b0`; doc follow-up commit if any)
+- Result: Full success-condition re-run on PR #105 branch. No code fix required.
+  Stale human paste template that still said “start at LR-2j” updated to success-met
+  stop guidance. Pipeline composition / in-process FFI remains out of scope.
+- Verification (all exit 0):
+  - `just core-export-v0` (export package, triad Core identity, hostCall refuse on
+    near/solana, pf-core 9 tests, dual-run Counter/ValueVault/Ownable)
+  - CREATE `lower-sketch` refuse: hostCalls not allowed
+  - `export-core` requires `--experimental`; product CLI default remains Lean
+  - `tools/pf-core` + `pf-core-inspect` Cargo.toml: zero chain SDK deps
+- Remaining: land/review PR #105; do not start LR-3 without a new human goal.

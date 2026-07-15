@@ -70,7 +70,7 @@ Not on the active cutover queue. Design only is accepted; code stays gated.
 | LR-2g | Fixture counter contentHash stability | done (PR #105 branch) | re-export core/plan/meta identical; pf-core reload hash match |
 | LR-2h | Document package layout + dual-run dimensions | done (PR #105 branch) | core-export-v0 draft matches implemented Seam A |
 | LR-2i | validation-gates note for core-export-v0 / artifact-contract-v1 | done (PR #105 branch) | docs only; not required CI lane yet |
-| LR-2j | Stop-condition review vs Seam A goal charter | done (PR #105 branch) | Counter+ValueVault dual-run + export/Rust gates met; goal complete |
+| LR-2j | Stop-condition review vs Seam A goal charter | done (verified at `5929e3b0`; re-run green) | Counter+ValueVault dual-run + export/Rust gates met; goal complete |
 | LR-1 | Product/source `export-core` + full HostOp handlers | pending after cutover quieter | product path + resolveSpec handlers; dual-run ready |
 | LR-2 | Optional single-chain Rust pilot (prefer EVM; prefer A0 before A1) | pending after LR-1 | dual-run on declared dimensions; CLI default remains Lean |
 | LR-3+ | Triad backends / default Rust lower | pending | release-cycle dual-run + measurable benefit; Lean path still switchable |

@@ -251,8 +251,8 @@ Otherwise keep implementing.
 ```text
 Read docs/agent-goal-prompt-lean-rust-seam-a.md fully.
 You are on worktree artifact-contract-v1, branch DaviRain-Su/artifact-contract-v1, PR #105.
-Execute the charter continuously until the Success condition is met.
-Start at the first incomplete queue row (currently LR-2j stop review; optional LR-2i CI note).
+Seam A charter Success is already met (LR-0…2j). Re-verify gates if needed; do not reopen
+finished slices unless a gate is red. Do not start LR-3 / product-default Rust lower.
 Do not switch product CLI default to Rust. Prefer general infrastructure over new examples.
 ```
 
