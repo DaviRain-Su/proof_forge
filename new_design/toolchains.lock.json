@@ -1,0 +1,63 @@
+{
+  "schema": "proof-forge.toolchains.v1",
+  "tools": [
+    {
+      "id": "anvil",
+      "version": "0.3.0+5a8bd89",
+      "sourceUrl": "https://github.com/foundry-rs/foundry",
+      "platform": "darwin-arm64",
+      "executable": "anvil",
+      "defaultPath": "~/.foundry/bin/anvil",
+      "executableSha256": "b1d817136e56df2ab0c6a17b5774e65c117140e08fa7c5ac2c7c4f59e7802cde",
+      "versionArgs": ["--version"],
+      "expectedVersion": "0.3.0 (5a8bd89",
+      "licenseSpdx": "MIT OR Apache-2.0",
+      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1-runtime"]
+    },
+    {
+      "id": "cast",
+      "version": "0.3.0+5a8bd89",
+      "sourceUrl": "https://github.com/foundry-rs/foundry",
+      "platform": "darwin-arm64",
+      "executable": "cast",
+      "defaultPath": "~/.foundry/bin/cast",
+      "executableSha256": "80d8e65f75ce03a325d23a40cddb54df1363f84a7a001161f489ad03f0853c71",
+      "versionArgs": ["--version"],
+      "expectedVersion": "0.3.0 (5a8bd89",
+      "licenseSpdx": "MIT OR Apache-2.0",
+      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1-runtime"]
+    },
+    {
+      "id": "solc",
+      "version": "0.8.34+commit.80d5c536",
+      "sourceUrl": "https://github.com/ethereum/solidity/releases/tag/v0.8.34",
+      "platform": "darwin-arm64",
+      "executable": "solc",
+      "defaultPath": "/opt/homebrew/bin/solc",
+      "executableSha256": "bca9624c258e3a6e9b7013c92f7cc1311a8bcbd94d9fe9a7f5912443fd3a5261",
+      "versionArgs": ["--version"],
+      "expectedVersion": "0.8.34+commit.80d5c536",
+      "licenseSpdx": "GPL-3.0-only",
+      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1"]
+    },
+    {
+      "id": "wat2wasm",
+      "version": "1.0.41",
+      "sourceUrl": "https://github.com/WebAssembly/wabt/releases/tag/1.0.41",
+      "platform": "darwin-arm64",
+      "executable": "wat2wasm",
+      "defaultPath": "/opt/homebrew/bin/wat2wasm",
+      "executableSha256": "b7ac6610f423ffc120443bb49dc80621044985767159a240ddf02ccc63ace50d",
+      "versionArgs": ["--version"],
+      "expectedVersion": "1.0.41",
+      "licenseSpdx": "Apache-2.0",
+      "requiredByProfiles": ["near-wasm-raw-u64-v1"]
+    }
+  ],
+  "unresolved": {
+    "nearSandbox": "2.13.0",
+    "solanaAssembler": null,
+    "nargo": null,
+    "barretenberg": null
+  }
+}

@@ -1,0 +1,30 @@
+---
+id: ADR-INDEX
+title: Architecture Decision Records
+status: proposed
+owner: architecture
+updated: 2026-07-15
+normative: true
+---
+
+# Architecture Decision Records
+
+状态：`proposed`
+更新日期：2026-07-15
+
+ADR 是 V2 架构决定的最高规范性记录。状态使用 `proposed | accepted | rejected | superseded`；修改 accepted 决定必须新增 ADR，并在旧 ADR 中写明 `supersededBy`，不得静默改写历史。
+
+| ID | 决定 | 状态 |
+|---|---|---|
+| [ADR-0001](0001-isolated-v2.md) | 独立 V2 工程 | proposed |
+| [ADR-0002](0002-unified-program-dsl.md) | 统一 `program ... where` DSL | proposed |
+| [ADR-0003](0003-target-selects-materialization.md) | target 选择物化，源码无类别 | proposed |
+| [ADR-0004](0004-semantic-core-and-target-plan.md) | 语义 Core 与 target Plan 分离 | proposed |
+| [ADR-0005](0005-exact-capabilities-and-extensions.md) | 精确能力/扩展，默认拒绝 | proposed |
+| [ADR-0006](0006-associated-plan-and-ir.md) | 关联 Plan/TargetIR 不擦除 | proposed |
+| [ADR-0007](0007-wasm-encoding-not-host-semantics.md) | Wasm 只共享编码层 | proposed |
+| [ADR-0008](0008-separate-zk-execution-models.md) | circuit、zkVM、ZK 链分离 | proposed |
+| [ADR-0009](0009-separate-target-codegen-network-profiles.md) | Target/Codegen/Network profile 分离 | proposed |
+| [ADR-0010](0010-artifact-contract-and-provenance.md) | 制品契约与来源 | proposed |
+| [ADR-0011](0011-static-target-registry.md) | 静态目标注册表 | proposed |
+| [ADR-0012](0012-parent-research-only.md) | 父项目仅作研究参考 | proposed |
