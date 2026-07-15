@@ -63,7 +63,6 @@ def aggregateEntrypoint (functionId : Nat) (name selector : String) (type : Core
     (setter : Bool) : InterfaceEntrypoint := {
   functionId := ⟨functionId⟩
   name
-  kind := .function
   mutability := if setter then .call else .view
   selector? := some selector
   params := if setter then #[{ valueId := ⟨0⟩, name := "value", type }] else #[]
@@ -101,7 +100,8 @@ def checkedAggregateContract : Except String CheckedCanonicalContract := do
     interface := aggregateInterface
     materialization
     requirements := deriveCapabilityRequirements module materialization
-    hostOpCatalog := ProofForge.IR.Core.HostOp.canonicalHostOpCatalog
+    -- Aggregate fixture uses only Core storage ops; empty catalog is enough.
+    hostOpCatalog := .empty
   }
   match validateCanonical contract with
   | .ok checked => pure checked
