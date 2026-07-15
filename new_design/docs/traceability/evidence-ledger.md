@@ -28,10 +28,14 @@ normative: false
 | EV-20260715-0012 | post-commit `just v2-clean-room-alpha` | passed (development alpha) | commit `4c6756a4e83cd461520bcacc713a8b13a81cfe3b`、archive `2af10f30458bf98c261802632f1096b54ab015c767cec4f76dfa16d99bd0037b`；committed Stage-0/Host Profile v1 先输出 `eligible=false`，再从锁定 cache 物化 Lean/Lake/external closure，61-job clean build/test、四目标 19-file 复现、sandbox policy probes 与 EVM localhost runtime 全通过；临时 tool root 完整清理；host ineligible/allow-default/schema EV 仍未闭合，不关闭 TST-ISO-002/003 |
 | EV-20260715-0013 | `just candidate-binding`; anchored post-commit `verify_isolation.sh --development ...` | passed (development candidate binding) | commit `7b143aa7e7043a4f93dab78fe168b5c518b15fa1`、tree `0dc77113aa2e63d45a21ee99f971b0e23d351329`、stable archive `5a18767e…c821a`；commit-object+pathspec tar 两次 byte-identical、embedded commit 反查、三项 external anchor、NUL-safe pre/post status、61-job clean build/test、四目标 19-file 复现及 EVM localhost runtime；旧 tree-object archive hash 是历史时点 observation，不可作为可重算 anchor；host ineligible/allow-default/schema EV 仍未闭合 |
 | EV-20260715-0014 | `just evidence-core`; `just check`; independent exploit matrix | passed (development evidence-core slice) | commit `ac55da706c575f3d308e9bfa383797b89f05032c`、script `a16f16e8…ebb7a`；restricted PF JCS/schema/cross-field negatives、domain-separated artifact digest、global exact/casefold claim namespace、safe bundle inode/size/hash 与 1,024-file/64-MiB/256-MiB budgets、stable EIO、atomic no-clobber/staging-swap rejection 均通过；formal CLI publish 稳定 `PF-EVIDENCE-FORMAL-UNVERIFIED` 且无输出；尚无 gate catalog/freshness/revocation/private scan finalizer，不关闭 TST-EVIDENCE-001/ISO-002/003 |
+| EV-20260715-0015 | `just sandbox-policy`；`just candidate-binding`；`just check`；anchored `verify_isolation.sh --development`（完整实参见实现日志） | passed (manual development alpha) | candidate `171f586fd48dbc7250d32124660452352f1e4b38`、tree `a393793293c4e8bfdf931522d068afcf288b5045`、archive `18fa2be…eaf2`（931840 bytes）；deny-default materialize/core 全断网，runtime 为 exact-local-port + Anvil `127.0.0.1` bind/LAN refusal；closed FD/bounded receipt/原 PGID cleanup、stage read/write/network/exec negatives、61-job clean build/test、四目标两轮复现与 EVM runtime 全通过；renderer `13bde90c…3bab`、launcher `e5209dc0…ea39`、engine `d1ee30db…6d42`；host ineligible、`setsid()` escape、formal handoff、exact-local-port schema/gate catalog/freshness/revocation/private scan/finalizer 未闭合，不关闭 TST-EVIDENCE-001/ISO-002/003 |
 
 Lean cache consumer、H0 development host observation、H1 candidate binding 与 strict development
-evidence core 已闭合；因 host profile 不合格、deny-default sandbox 与 gate-catalog-bound formal
-EV finalizer 未闭合，`TASK-D0-03` 保持
-`in_progress`。
+evidence core、H1c deny-default development continuation 已闭合；因 host profile 不合格、
+formal Stage-0 handoff/process-session containment、exact-local-port schema 与 gate-catalog-bound
+formal EV finalizer 未闭合，`TASK-D0-03` 保持 `in_progress`。
+
+早期 evidence 中的 “localhost-only” 是历史 application-level 命名，不证明 SBPL policy 只允许
+loopback；H1c 起统一记录为 exact-local-port，并单独记录 `127.0.0.1` bind/LAN refusal negative。
 
 未取得：Solana ELF/runtime、NEAR sandbox receipt、Noir ACIR/proof/VK/verify、任何公网部署。

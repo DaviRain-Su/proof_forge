@@ -129,6 +129,15 @@ symlink、父 fixture/script/build/binary、`LEAN_PATH`/`PATH` 旧入口及父 c
 允许文件归档到空目录，设置新的 `HOME`/Lake cache，清理相关环境，只使用锁定工具
 和明确网络策略执行 docs/build/test。
 
+development continuation 分为 materialize、core 与 runtime 三个 deny-default stage；每个
+stage 拥有独立 read/write/exec/network allowlist，payload 不能读取 policy/receipt。
+launcher 关闭继承 FD、使用 `/dev/null` stdin、限制输出与运行时间，并把 stdout/stderr
+发布为私有只读 receipt。
+
+该开发实现只清理 launcher 建立的原 process group；子进程仍可通过 `setsid()` 建立新
+session，因此不构成 formal orphan/fork-bomb containment。正式执行必须由 eligible host
+上的 Stage-0 直接 handoff 到具备 process-session containment 的受控 runner。
+
 ## 关键风险
 
 - 抽象过宽：以 requirement + honest rejection 控制。

@@ -117,9 +117,11 @@ gate 不调用 elan，也不从 Homebrew/Foundry install root 复制。
 显式联网步骤为 `just toolchains-provision-lean` 和
 `just toolchains-provision-external`。`just toolchains-materialize-lean` 与
 `just toolchains-materialize-external` 是离线检查入口；clean-room harness 自己从同一 cache
-物化临时 Lean/external roots，且不把 provision 隐藏在 build 中。所有 toolchain Python
-入口固定为 `/usr/bin/python3 -I -S`，拒绝 site-enabled interpreter；clean-room 物化再由
-`env -i` 清空环境并置于 no-network sandbox，版本探针子进程也继承该策略。
+物化临时 Lean/external roots，且不把 provision 隐藏在 build 中。普通 development
+convenience recipes 可使用 `/usr/bin/python3 -I -S` dispatch；Stage-0、clean-room policy
+renderer/launcher、物化与 stage 内 validator 必须使用 Host Profile 锁定的 direct Xcode
+Python 并带 `-I -S`，不得退回 dispatch 或 site-enabled interpreter。clean-room 物化由
+`env -i` 清空环境并置于 deny-default/no-network stage，版本探针子进程继承同一策略。
 
 ## Runtime Resolution
 
@@ -146,8 +148,10 @@ library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
 malformed lock、cache miss、partial/tampered archive、member/path attack、tool/dylib mutation、
 extra/symlink/hardlink/writable bundle 与 PATH/DYLD shadow。Lean cache consumer 已接入 alpha
 harness，并在 `0b0aebda…643c8` 完成完整 development gate。H0 已覆盖严格 Stage-0 record、
-duplicate JSON、完整 live host/Xcode/tool observation 和 formal-ineligible 拒绝。正式 gate 仍需
-eligible host、deny-default sandbox、版本 probe timeout/huge output 与 schema evidence。
+duplicate JSON、完整 live host/Xcode/tool observation 和 formal-ineligible 拒绝。H1c 已接入
+deny-default development stages，并由 launcher 对每次 invocation 施加 stage timeout 与
+bounded output。正式 gate 仍需 eligible host、Stage-0 direct digest handoff、process-session
+containment、明确的 version-probe attack catalog 与 gate-catalog-bound schema evidence。
 
 关联 `NFR-001/009`、`TST-TOOL-001`、`TST-HOST-001`、`TST-XTARGET-002`、
 `TST-ISO-002/003`。manifest/evidence

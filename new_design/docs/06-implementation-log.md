@@ -268,6 +268,50 @@ normative: false
 - Next：H1c 验收 deny-default stage policy renderer，然后接入 clean-room continuation 与
   development finalizer；当前 ineligible host 仍不得产生 formal EV。
 
+## 2026-07-15 — TASK-A0-10 / TASK-D0-03 H1c deny-default continuation
+
+- Commits/candidate：policy/launcher `9eb6c64a`，原 process-group cleanup `578345ab`，
+  continuation integration `1bce6b33`，failure receipts `fa0621f8`，最终 test-scratch 与安全
+  diagnostics 修复 `171f586fd48dbc7250d32124660452352f1e4b38`；candidate subtree tree
+  `a393793293c4e8bfdf931522d068afcf288b5045`，stable archive SHA-256
+  `18fa2be56daa4c9271f76c4e9c553f9edb875f010418afb0c15909b3777aeaf2`（931840 bytes）。
+- Spec/Test：`SPEC-REPRO-001`、`SPEC-SEC-001`、`SPEC-TOOL-001`、`MOD-TEST-001`；
+  `TST-SEC-001` 与 `TST-ISO-002` 的 pre-acceptance development slice，不关闭正式验收。
+- Changed：新增 hash-locked SBPL templates/renderer 和 direct Xcode Python launcher。
+  `materialize`/`core` 为 deny-default + deny-all-network；`evm-runtime` 为 exact-local-port，
+  同时强制 Anvil `--host 127.0.0.1`，以 LAN `ECONNREFUSED`、相邻端口和非本机地址负测补强。
+  launcher 固定环境、stdin `/dev/null`、关闭继承 FD、限制每流 4 MiB/总计 8 MiB 与 stage
+  timeout，在 reap leader 前清理原 process group，并原子发布 current-user `0400` single-link
+  policy/stdout/stderr receipts。runtime 还绑定 Bash child job identity 与随机 chain id，避免
+  端口已有 Anvil 时误接旧节点。
+- Review/repair：独立攻击审查先后复现 inherited writable FD、SBPL `localhost` 术语过度声明、
+  descendant-held pipes、fast-exit/PGID reuse、runtime here-string 临时文件拒绝、同端口旧 Anvil
+  误接和原始 ANSI/binary failure tail。以上均修复并复验；same-chain incumbent 现在 fail closed
+  且不被误杀。post-commit 首次 integration run 暴露静默 receipt，第二次显示测试二进制把相对
+  `build/v2` 写到未授权 TEMP root；最终把测试 scratch cwd 固定到 `PF_CLEAN_WORK`，并只以
+  ASCII representation 回显 bounded failure tails。
+- Commands：
+  - `/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9 -I -S -m py_compile scripts/sandbox_exec.py`；
+  - `/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9 -O -I -S scripts/sandbox_exec.py self-test`；
+  - `just sandbox-policy`；`just candidate-binding`；`just check`；
+  - `/bin/bash scripts/verify_isolation.sh --development --candidate-commit 171f586fd48dbc7250d32124660452352f1e4b38 --candidate-tree a393793293c4e8bfdf931522d068afcf288b5045 --candidate-archive-sha256 18fa2be56daa4c9271f76c4e9c553f9edb875f010418afb0c15909b3777aeaf2`。
+- Results：最终 anchored gate exit 0。Stage-0 输出同一 development-only host observation；锁定
+  Lean/Lake/external roots 离线物化；61-job clean build/test、四目标 artifact validation、两轮
+  reproducibility 与 Counter nonpayable/init/increment/overflow rollback 全部通过。rendered
+  materialize/core/runtime policy SHA-256 分别为 `1dc04d8d…d0e3`、`0728168e…ed67`、
+  `826e0124…1d77`；renderer `13bde90c…3bab`、launcher `e5209dc0…ea39`、sandbox engine
+  `d1ee30db…6d42`。candidate HEAD/tree/status 前后相同，临时 2.6 GiB tool root 已清理。
+- Evidence：`EV-20260715-0015`，仅为 manual development alpha ledger observation。现有
+  `proof-forge.evidence.v1` 只有 `deny-all|loopback-only`，不能诚实表达 exact-local-port，且
+  本次没有补造 schema-complete JSON。
+- Limitations：当前 host 仍 ineligible；formal Stage-0 digest-bound handoff、gate catalog、
+  freshness/revocation/private scan/finalizer 与受控 workspace 未实现。launcher 只清理原 process
+  group，child 可用 `setsid()` 逃逸；LAN discovery 只选择 hostname 的首个 non-loopback IPv4；
+  ASCII escape 不等于 printable-secret redaction。`TASK-D0-03`、`TST-EVIDENCE-001`、
+  `TST-ISO-002/003` 保持 open，`TASK-D0-04` 保持 blocked。
+- Next：先扩展 evidence schema/validator 的 exact-local-port + port 表达，再实现
+  gate-catalog-bound development finalizer；formal process containment 与 eligible runner 分开解决。
+
 ## 记录模板
 
 ```markdown

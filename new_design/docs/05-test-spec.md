@@ -65,7 +65,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-XTARGET-001 | 一份 Counter 四 target | 四 OutputSet 均合法 | aggregate |
 | TST-XTARGET-002 | unsupported/version/missing tool | 稳定错误，无 fallback | aggregate |
 | TST-HOST-001 | Stage-0 host attestation | development observation；formal fail closed | security/isolation |
-| TST-ISO-002 | 正式 hermetic archive harness | 外部 candidate anchor、eligible host、deny-default、schema EV 全部通过 | isolation |
+| TST-ISO-002 | 正式 hermetic archive harness | 外部 candidate anchor、eligible host、deny-default stages、process containment、gate-catalog EV 全部通过 | isolation |
 | TST-ISO-003 | release-candidate clean-room aggregate | 所有 required Phase 1 gates 完整通过 | release/isolation |
 
 ## 完整 Test ID Catalog
@@ -77,7 +77,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-DOC-001 | frontmatter、状态、ID、链接、claim/ADR/trace 闭合 |
 | TST-HOST-001 | 权威 `env -i` 入口、严格 bootstrap/JSON、live OS/Xcode/tool 匹配、development observation、formal ineligible 与环境/lock mutation negatives |
 | TST-ISO-001 | 独立 Lake/package/namespace 与父依赖边界 |
-| TST-ISO-002 | Stage-0 eligible host、外部 commit/tree/archive anchor、稳定 committed archive、前后 unchanged、空环境/cache、deny-default sandbox 与正式 evidence 的 hermetic harness |
+| TST-ISO-002 | Stage-0 eligible host、外部 commit/tree/archive anchor、稳定 committed archive、前后 unchanged、空环境/cache；materialize/core deny-all-network；runtime exact-local-port + Anvil 127 bind/LAN refusal；stage read/write/exec negatives、closed FD/stdin EOF/output cap/timeout、formal session containment、0400 single-link receipts 与 gate-catalog-bound evidence |
 | TST-ISO-003 | D8 release-candidate 全量 clean-room aggregate |
 | TST-TOOL-001 | exact tool version/checksum、missing/shadow/timeout |
 | TST-SRC-001/002 | token/span/NodeId canonicalization 与 limits |
@@ -125,6 +125,12 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   casefold/inode alias、单文件/文件数/总字节超限、read 时 inode/size/hash 改变或 I/O error。
 - formal record 缺 external anchor/eligible host/deny-default/required inputs、出现 retry、未 retained
   artifact、截断/未扫描日志；revocation ledger 缺链、分叉、未知 authority 或 replacement 不符。
+- allow-default/wildcard policy、policy read、stage source/output write、未批准 exec；runtime 相邻
+  端口、外部地址、同机 LAN exact-port 暴露、Anvil chain-id/process identity 变化。
+- inherited writable FD、interactive stdin、descendant-held pipe、fast leader exit、timeout/
+  output-cap cleanup、PGID reuse 与 `setsid()` session escape。
+- policy/receipt preexistence、symlink/hardlink/path replacement；failure tail 的 ANSI/OSC/control
+  byte 必须 ASCII-escape，但 printable secret 仍需 formal retained/private scan/redaction。
 
 ## Gate 设计
 
@@ -136,6 +142,11 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 `v2-clean-room-alpha` 是 pre-acceptance development command，`isolated-check` 是其兼容
 别名；二者不占用正式 `v2-clean-room` 命令名，也不关闭 `TST-ISO-002` 或
 `TST-ISO-003`。
+
+当前 development alpha 已实际覆盖 deny-default `materialize`/`core`/`evm-runtime` stages、
+closed-FD launcher、bounded private receipts、原 process-group cleanup、exact-local-port 与
+Anvil `127.0.0.1` bind/LAN refusal。`setsid()` session escape、eligible host、formal Stage-0
+handoff、gate catalog/freshness/revocation/private scan 和正式 finalizer 仍是验收缺口。
 
 ## 证据要求
 

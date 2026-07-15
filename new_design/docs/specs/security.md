@@ -35,6 +35,16 @@ runtime、RPC、network profile 和父项目均不可信。编译器不执行 so
 - 供应链：exact commit/version、asset checksum、license、SBOM、签名/来源记录。
 - 构建：registry 静态、dirty release 禁止、reproducible/clean-room gate required。
 
+development sandbox 使用独立 deny-default stage policies、关闭继承 FD、`/dev/null` stdin、
+bounded pipes、固定 timeout 和 current-user `0400` single-link receipts。launcher 在 leader
+被 reap 前清理其原 process group，以降低 descendant-held pipe、timeout/output-cap 与
+PGID-reuse 风险。
+
+这不是 formal process containment：fork 后的 descendant 可调用 `setsid()` 逃离原 group。
+formal runner 必须提供 workload 无法逃逸的 session/job/VM 边界。stage 外的失败 tail 先转成
+ASCII representation 再输出，可阻止 ANSI/OSC/control bytes 操纵终端，但不会自动删除
+printable secret；正式日志在 retained/private scan/redaction 前不得直接回显。
+
 ## ZK 特有控制
 
 Noir Phase 1 禁止 unconstrained functions、foreign/oracle、未批准 Brillig、递归证明和动态
@@ -57,7 +67,9 @@ writable/order/PDA；NEAR predecessor/signer、attached value、Promise callback
 ## Attack Matrix 与验收
 
 必须测试 path traversal/symlink/TOCTOU、argument injection、恶意 executable shadowing、
-env poisoning、巨大/二进制/ANSI stderr、timeout/fork bomb、artifact zip bomb、hash collision
+env poisoning、inherited writable FD/interactive stdin、巨大/二进制/ANSI stderr、
+descendant-held pipe、fast leader/PGID reuse、`setsid()` escape、timeout/fork bomb、
+policy/receipt replacement、diagnostic printable-secret leak、artifact zip bomb、hash collision
 格式、manifest duplicate key、private explicit/implicit leak、malicious proof/VK/public input、
 RPC wrong chain/replay、registry/profile spoof、parent cache/import/binary 泄漏、concurrent output、
 disk-full rollback、compiler panic。关联 `NFR-003/004/008/009`、`TST-SEC-001`、

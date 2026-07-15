@@ -14,11 +14,11 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | `TASK-D0-03/H1c`：strict development evidence core 已在 `ac55da70` 验证；验收并接入 deny-default stage policies |
-| Next task | 将 deny-default policies 接入 clean-room，再实现 gate-catalog-bound development finalizer |
+| Active task | `TASK-D0-03/H1d`：扩展 evidence schema 的 `exact-local-port` + port 语义；H1c 已在 `171f586f` 验证 |
+| Next task | 完成 schema/validator self-tests，再实现 gate-catalog-bound development finalizer |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | `TASK-D0-04` 尚缺 eligible host、已接入的 deny-default policy、gate catalog 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
+| Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
 | Source of status | [`docs/document-status.md`](docs/document-status.md) |
 
 检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
@@ -61,8 +61,9 @@
 5. 运行聚焦测试；合并前运行完整 V2 gate。当前 `isolated-check`/
    `v2-clean-room-alpha` 会隔离 HOME/cache、限制网络并拒绝父仓库访问，Lean/external tool
    都从锁定 cache 离线物化，non-system dylib closure 已锁定；H0 会先做本地、时点性的
-   development host attestation，但 eligible host、
-   deny-default sandbox 与 gate-catalog-bound formal evidence 尚未闭合，所以仍不是正式
+   development host attestation，并已接入 deny-default materialize/core/exact-local-port
+   runtime stages；但 eligible host、formal Stage-0 handoff、process-session containment 与
+   gate-catalog-bound formal evidence 尚未闭合，所以仍不是正式
    hermetic clean-room gate，不得混称。
 6. 检查不支持的声明、父项目泄漏、非确定制品、无关变更和生成垃圾。
 7. 同一变更中更新 task、traceability、evidence、implementation log 和 checkpoint。

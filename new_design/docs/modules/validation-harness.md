@@ -38,8 +38,14 @@ summary 改写为 formal pass。当前 publisher 仅接受 development qualifica
 稳定返回 `PF-EVIDENCE-FORMAL-UNVERIFIED`。修正/撤销旧 EV 必须使用未来独立 append-only
 revocation ledger，不能改写原 EV；该 ledger 尚未实现。
 
-当前 `scripts/verify_isolation.sh` 仍是 development clean-room alpha。Lean/Lake、external
-bundle、Stage-0 development host observation 与 candidate commit/tree/git-tar binding 已有
-可执行切片，但当前 host 不 eligible，deny-default continuation、gate catalog、remote
-attestation、revocation lookup 和正式 finalizer 尚未闭合。`TST-EVIDENCE-001`、
+当前 `scripts/verify_isolation.sh` 仍是 development clean-room alpha，但 materialize/core/
+runtime payload 已接入 deny-default policies 和 closed-FD launcher。materialize/core 全断网；
+runtime 为 exact-local-port，并由 Anvil `127.0.0.1` bind 与 LAN refusal negative 补充。
+stdout/stderr 以 bounded current-user `0400` single-link receipts 发布，原 process group 会在
+leader reap 前清理。
+
+当前 host 不 eligible，formal Stage-0 handoff、`setsid()` session-escape containment、
+`exact-local-port` evidence schema、gate catalog、freshness/revocation/private scan、remote
+attestation 和正式 finalizer 仍未闭合。失败时回显的 ASCII-escaped 32 KiB tail 只属于
+development diagnostics，不能作为已脱敏或 retained formal evidence。`TST-EVIDENCE-001`、
 `TST-ISO-002`、`TASK-D0-03` 均保持未完成。

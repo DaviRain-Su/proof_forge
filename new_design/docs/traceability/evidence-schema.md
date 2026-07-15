@@ -180,6 +180,11 @@ probe 都 passed。formal passed 要求每项 `defaultAction="deny"`，且至少
 `network="deny-all"`。v1 schema 尚没有 required gate/policy catalog，因此“列出的 probes
 全部通过”不等于“formal gate 所需 probes 完整”。
 
+当前 enum 也不能诚实表示 macOS SBPL 的 exact-local-port 语义或关联端口；
+`loopback-only` 不得用于代替。完成 `network="exact-local-port"` + exact port 的 schema/
+validator/self-test 扩展前，H1c runtime 结果只能记入 manual development ledger，不能发布为
+schema-complete EV JSON。
+
 ### `tools`
 
 ```text

@@ -29,6 +29,7 @@ normative: true
 | TASK-A0-07 | content-addressed external tool/Mach-O closure slice | EV-20260715-0009 | done |
 | TASK-A0-08 | Host Stage-0 development attestation 与 formal-ineligible negative | EV-20260715-0011/0012 | done |
 | TASK-A0-09 | strict development evidence schema/bundle/publication core | EV-20260715-0014 | done |
+| TASK-A0-10 | deny-default materialize/core/exact-local-port runtime continuation | EV-20260715-0015 | done |
 
 ## Milestone D0：文档与独立工程
 
@@ -36,8 +37,8 @@ normative: true
 |---|---|---|---|---|
 | TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | pending |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | D0-01 | TST-ISO-001 | pending |
-| TASK-D0-03 | 锁定 Lean/external closure、Host Profile v1 与 Stage-0 bootstrap/attestation | 完成依赖 D0-01/02；当前 alpha 输入 A0-02 | TST-TOOL-001/TST-HOST-001 | in_progress |
-| TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：eligible host/deny-default/schema evidence 未闭合 | D0-02/03 | TST-ISO-002 | blocked |
+| TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core 与 deny-default development continuation；formal handoff/finalizer 待完成 | 完成依赖 D0-01/02；当前 alpha 输入 A0-02 | TST-TOOL-001/TST-HOST-001/TST-EVIDENCE-001/TST-ISO-002 | in_progress |
+| TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：eligible host、formal handoff/process-session containment 与 gate-catalog finalizer 未闭合 | D0-02/03 | TST-ISO-002 | blocked |
 
 ## Milestone D1：语言前端
 

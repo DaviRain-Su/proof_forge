@@ -73,6 +73,11 @@ diagnostic 只显示 source lexeme 的安全截断；private literal、witness�
 private key 一律替换为 `<redacted>`。路径默认 project-relative；`--verbose-paths` 也不进入
 JSON/reproducible evidence。外部工具 stderr 以 64 KiB 截断、去 ANSI、标记 untrusted。
 
+clean-room stage failure receipt 不属于公共 `Diagnostic v1`。development continuation 只把
+stdout/stderr 各最后 32768 bytes 转成 ASCII representation 后回显，并同时输出 receipt
+digest；该转义阻止控制字节操纵终端，但不会自动删除 printable secret。formal evidence
+必须先 retained、private-scanned/redacted，再决定可公开的诊断摘要。
+
 ## 边界与验收
 
 覆盖无 span、多个 origin、Unicode、100/101 errors、related cycle、private literal、外部工具
