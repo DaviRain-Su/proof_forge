@@ -88,6 +88,7 @@ DOC_MAP: dict[str, str] = {
     "docs/targets/wasm-family.md": "docs/zh/targets/wasm-family.zh.md",
     "docs/targets/wasm-near.md": "docs/zh/targets/wasm-near.zh.md",
     "docs/targets/solana-sbf.md": "docs/zh/targets/solana-sbf.zh.md",
+    # move-family removed with D-055 (2026-07-15); do not re-add without EN source.
     "Examples/Backend/Evm/README.md": "docs/zh/examples-evm-README.zh.md",
 }
 

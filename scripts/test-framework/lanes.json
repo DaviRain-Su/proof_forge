@@ -36,6 +36,7 @@
     "target-backend",
     "target-support",
     "artifact-bundle",
+    "artifact-contract-v1",
     "standard-compliance",
     "preflight-l2",
     "source-dsl-arity",
@@ -390,6 +391,15 @@
     },
     {
       "name": "artifact-bundle",
+      "lane": "core-product",
+      "execution": "lane_serial",
+      "tags": [
+        "core",
+        "full"
+      ]
+    },
+    {
+      "name": "artifact-contract-v1",
       "lane": "core-product",
       "execution": "lane_serial",
       "tags": [

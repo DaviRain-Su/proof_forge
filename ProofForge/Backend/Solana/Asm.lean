@@ -169,7 +169,15 @@ inductive AstNode where
 -- Rendering
 -- ============================================================================
 
-def numStr (n : Nat) : String := toString n
+/-- Decimal for small values; hex when the high bit would make a signed decimal
+parser reject the token (sbpf parses some immediates as signed i64). Values
+`≥ 2^63` must use `0x…` so AccessControl-style hash4 limb0 constants assemble. -/
+def numStr (n : Nat) : String :=
+  let signedMax : Nat := 9223372036854775807 -- 2^63 - 1
+  if n ≤ signedMax then
+    toString n
+  else
+    "0x" ++ String.ofList (Nat.toDigits 16 n)
 
 def Imm.render : Imm → String
   | .num n => numStr n

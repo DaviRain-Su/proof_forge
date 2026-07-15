@@ -440,7 +440,7 @@ target-first migration。
 
 **状态：Not started。** Gate P0 已关闭，因此 D-045 freeze 不再阻塞排期。
 下一步仍受 backlog 控制：先完成 CLI M3/M4 target-first migration，再推进该
-spike 到 M3/M4 或启动 `move-sui`。
+spike 到 M3/M4。（Move 目标已于 2026-07-15 从 main 移除，D-055。）
 
 ## Gate G2 — 两个 Tier-1 退出（未开始）
 

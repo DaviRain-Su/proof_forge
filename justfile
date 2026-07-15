@@ -377,7 +377,10 @@ evm-canonical-check-route: build
     PATH="$HOME/.foundry/bin:$PATH" lake env proof-forge check --target evm --root . --report-format json TestFixtures/SurfaceProducts/Counter.lean | jq -e '.status == "ok" and .validation.sourceVersion == "contract-source" and .validation.canonicalNormalize == "passed" and .validation.backendPlan == "passed" and .validation.lowering == "passed"' >/dev/null
 
 # Exact catalog coverage through temporary internal Surface fixtures.
-evm-canonical-product-route: build
+# Surface fixtures must be lake-built so `proof-forge` runFrontend can import
+# TestFixtures.SurfaceProducts.* oleans (CI fails closed if only `lake build`
+# of the default package leaves them stale/missing).
+evm-canonical-product-route: build test-fixtures
     scripts/evm/canonical-product-route.sh
 
 # Wave 3B Task 12.2: materialization and diagnostic parity gate.
@@ -516,6 +519,95 @@ target-support:
 # PF-P1-03: ArtifactBundle honesty schema (intermediate/final/missing-tool).
 artifact-bundle:
     lake env lean --run Tests/ArtifactBundle.lean
+
+# LR-0 / D-057 Seam B: Artifact Contract v1 consumer fields + emitter inventory.
+artifact-contract-v1:
+    lake build ProofForge.Target.ArtifactContract ProofForge.Target.ArtifactBundle
+    lake env lean --run Tests/ArtifactContractV1.lean
+    cargo test --manifest-path testkit/Cargo.toml -p proof-forge-testkit-core artifact_contract -- --nocapture
+
+# LR-1 / D-057 Seam A: general core.v0 export (Rust backend interface, NOT ABI/SDK).
+core-export-v0:
+    lake build ProofForge.IR.Core.Export ProofForge.Cli.ExportCore \
+      Examples.Product.Counter Examples.Product.ValueVault Examples.Product.Ownable \
+      Examples.Product.Pausable Examples.Product.GuestBook \
+      ProofForge.Contract.Source.Evm
+    lake env lean --run Tests/Canonical/CoreExport.lean
+    lake env lean --run Tests/Canonical/CoreExportPackage.lean
+    lake env lean --run Tests/Canonical/CoreExportGeneral.lean
+    lake env lean --run Tests/Canonical/CoreExportHostCall.lean
+    cargo test --manifest-path tools/pf-core/Cargo.toml
+    cargo build --manifest-path tools/pf-core-inspect/Cargo.toml
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-counter/evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-counter/solana-sbpf-asm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- compare \
+      build/export/lr1d-counter/evm build/export/lr1d-counter/wasm-near
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1e-create/evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- summary build/export/lr1e-create/evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- lower-sketch \
+      tools/pf-core/tests/fixtures/counter-evm --out build/export/lr2c-counter-sketch
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-valuevault/evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check build/export/lr1d-guestbook/evm
+    # Observe dual-run: Lean ModulePlan dump vs Rust storage sketch
+    lake env lean --run Tests/Canonical/DualRunObserve.lean
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2d-dual-run/counter-evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2e-dual-run/value-vault-evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2f-dual-run/ownable-evm
+    lake env lean --run Tests/Util/Keccak256.lean
+
+# Seam A pipeline (D-057/D-058): export-core + read-only inspect — no product Rust lower.
+# Usage (positional out dir, no `out=` prefix):
+#   just export-inspect Examples/Product/Counter.lean
+#   just export-inspect Examples/Product/Ownable.lean build/export/ownable-evm
+# Optional named: just export-inspect path=Examples/Product/Counter.lean target=evm
+export-inspect path out="build/export/inspect-run" target="evm":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    OUT_DIR="{{out}}"
+    # Guard against accidental `out=...` passed as a positional value.
+    if [[ "$OUT_DIR" == out=* ]]; then
+      OUT_DIR="${OUT_DIR#out=}"
+    fi
+    mkdir -p "$OUT_DIR"
+    if [[ -x .lake/build/bin/proof-forge ]]; then
+      PF=".lake/build/bin/proof-forge"
+    else
+      lake build proof-forge
+      PF=".lake/build/bin/proof-forge"
+    fi
+    lake env "$PF" export-core --experimental --target "{{target}}" -o "$OUT_DIR" "{{path}}"
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- check "$OUT_DIR"
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- summary "$OUT_DIR"
+    echo "export-inspect: ok dir=$OUT_DIR (export + check + summary; no product lower; D-058)"
+
+# Pure Lean keccak vectors (LR-S3) — no cast / no mathlib.
+keccak256:
+    lake env lean --run Tests/Util/Keccak256.lean
+
+# LR-S5/M1: portable Ownable product → Yul → solc bytecode (D-058: Lean product path only).
+ownable-evm-smoke:
+    ./scripts/evm/ownable-product-smoke.sh
+
+# P3: Solana AccessControl product (hash4 limb ≥2^63 imm must be hex for sbpf).
+access-control-solana-smoke:
+    ./scripts/solana/access-control-product-smoke.sh
+
+# Solana asm immediate rendering unit check.
+solana-asm-imm:
+    lake env lean --run Tests/Backend/Solana/AsmImm.lean
+# Dual-run observe dumps + Rust compare (Seam A; Lean selectors via keccak).
+dual-run-observe-seam-a:
+    lake env lean --run Tests/Util/Keccak256.lean
+    lake env lean --run Tests/Canonical/DualRunObserve.lean
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2d-dual-run/counter-evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2e-dual-run/value-vault-evm
+    cargo run --manifest-path tools/pf-core-inspect/Cargo.toml -- dual-run-observe \
+      build/export/lr2f-dual-run/ownable-evm
 
 # PF-P1-04: preflight L0+L1+L2 readiness via TargetBackend hooks.
 preflight-l2:
@@ -1771,7 +1863,7 @@ wave-t-check:
 
 # Same as `just check` minus `worker-limits` and `worker-cgroup`, so the Wave-T
 # evidence gate stays skip-free on hosts without a cgroup/RLIMIT_AS memory backend.
-wave-t-baseline: build build-test-deps product target-registry target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-vm-conformance near-vm-conformance-product near-vm-conformance-ft near-vm-u128-scalar near-vm-u128-map near-vm-string-key-map near-u128-fmt-smoke near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+wave-t-baseline: build build-test-deps product target-registry target-backend target-support artifact-bundle artifact-contract-v1 standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-vm-conformance near-vm-conformance-product near-vm-conformance-ft near-vm-u128-scalar near-vm-u128-map near-vm-string-key-map near-u128-fmt-smoke near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
 
 # Check shared-vs-target example topology.
 examples-topology:
@@ -2040,7 +2132,7 @@ testkit-remote-call:
 
 # Run the fast local baseline used before broader target smokes.
 # Product gate runs early so business multi-target failures surface first.
-check-serial: build build-test-deps product intent-registry nft-intent nft-implementation-contract nft-materialization strict-intent-materialization strict-target-gate nft-artifact-schema portable-nft-multi-target target-registry legacy-freeze legacy-replacement-freeze canonical-foundation canonical-core canonical-parity wasm-host-plan-preservation soroban-public-route soroban-counter-offline canonical-product canonical-boundary target-backend target-support artifact-bundle standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-vm-conformance near-vm-conformance-product near-vm-conformance-ft near-vm-u128-scalar near-vm-u128-map near-vm-string-key-map near-u128-fmt-smoke near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e stylus-plan-contract stylus-core-plan stylus-diagnostics stylus-rust-render stylus-package stylus-rust-counter stylus-counter-lifecycle stylus-public-route stylus-cli-matrix stylus-direct-storage stylus-direct-abi stylus-counter-differential stylus-value-vault-differential stylus-value-vault-canonical stylus-mapping-events stylus-nested-map stylus-token-differential stylus-token-evm-interop stylus-aggregate-differential stylus-aggregate-storage stylus-remote-call-differential stylus-scalar-params stylus-wide-values stylus-wide-arithmetic stylus-vm-runner stylus-nitro-scripts docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
+check-serial: build build-test-deps product intent-registry nft-intent nft-implementation-contract nft-materialization strict-intent-materialization strict-target-gate nft-artifact-schema portable-nft-multi-target target-registry legacy-freeze legacy-replacement-freeze canonical-foundation canonical-core canonical-parity wasm-host-plan-preservation soroban-public-route soroban-counter-offline canonical-product canonical-boundary target-backend target-support artifact-bundle artifact-contract-v1 standard-compliance preflight-l2 source-dsl-arity leo-printer-fail-closed contract-spec-json contract-client sdk-schema cli-deploy cli-check cli-version cli-help evm-abi-schema evm-standard-identity evm-plan evm-semantic-plan shared-validate-smoke diagnostic-smoke ir-step-semantics-smoke ir-counter-semantics-smoke ir-portability-smoke semantics-fuel-smoke constructor-coverage-smoke counter-universal-refinement-smoke supported-fragment-smoke track14-fragment-theorems-smoke evm-counter-shape-name-totality lean-invariants-smoke target-semantics-instances-smoke wasm-exec-smoke wasm-near-host-smoke emitwat-aggregate-abi wasm-cosmwasm-host-smoke wasm-soroban-host-smoke zk-portability-smoke aleo-leo-codegen-smoke wasm-cosmwasm-refinement-smoke value-vault-wasm-refinement-smoke evm-bytecode-semantics-smoke evm-yul-host-refinement-smoke ir-exec-result-smoke fv5-overflow-smoke solana-light portable-counter-multi-target cli-target-first source-identity registry-command solana-source-elf soroban-profile wat2wasm-fail-closed check-l2-parity hosted-isolation rebuild-hash worker-limits worker-cgroup contract-source-diagnostics near-target-first near-abi-plan near-abi-client near-map-hash-alias near-ft-security wasm-near-plan near-plan-smoke wasm-near-scalar-safety near-promise-amount-pointer near-offline-host-transaction near-offline-host-fuel near-vm-conformance near-vm-conformance-product near-vm-conformance-ft near-vm-u128-scalar near-vm-u128-map near-vm-string-key-map near-u128-fmt-smoke near-budget-honesty near-deploy-honesty near-compare-matrix-test wasm-near-ft-transfer-call wasm-near-ft-transfer-call-e2e stylus-plan-contract stylus-core-plan stylus-diagnostics stylus-rust-render stylus-package stylus-rust-counter stylus-counter-lifecycle stylus-public-route stylus-cli-matrix stylus-direct-storage stylus-direct-abi stylus-counter-differential stylus-value-vault-differential stylus-value-vault-canonical stylus-mapping-events stylus-nested-map stylus-token-differential stylus-token-evm-interop stylus-aggregate-differential stylus-aggregate-storage stylus-remote-call-differential stylus-scalar-params stylus-wide-values stylus-wide-arithmetic stylus-vm-runner stylus-nitro-scripts docs-check testkit evm-diagnostics evm-upgrade-policy-honesty evm-coverage psy-diagnostics psy-test-naming psy-coverage psy-metadata psy-metadata-validation psy-metadata-cli quint-mbt-gate quint-ir-model-gate ci-install-script
 
 # Qualified default full gate. Use check-serial to diagnose suspected races.
 check: check-parallel

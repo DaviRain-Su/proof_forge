@@ -237,6 +237,9 @@
 
 ### Task 12: Write the OpenVM Target Brief
 
+State: `done (2026-07-15)` — decision **defer** backend/registry; brief at
+[`docs/targets/openvm-research.md`](../../targets/openvm-research.md).
+
 **Files:**
 - Create: `docs/targets/openvm-research.md`
 - Modify after approval only: `docs/target-roadmap.md`
@@ -244,11 +247,11 @@
 **Interfaces:**
 - Produces: a sourced go/defer decision, not code or registry entries.
 
-- [ ] Pin release, ISA, executable, proof, verifier, I/O, license, and tool commands from primary sources.
-- [ ] Record exact CI hardware/time requirements.
-- [ ] Identify the pinned Lean semantics dependency and proof boundary.
-- [ ] Compare direct RV32 lowering with generated Rust guest approaches.
-- [ ] Obtain design approval before creating implementation tasks.
+- [x] Pin release, ISA, executable, proof, verifier, I/O, license, and tool commands from primary sources.
+- [x] Record exact CI hardware/time requirements.
+- [x] Identify the pinned Lean semantics dependency and proof boundary.
+- [x] Compare direct RV32 lowering with generated Rust guest approaches.
+- [x] Obtain design approval before creating implementation tasks.
 
 ## Deferred Work
 

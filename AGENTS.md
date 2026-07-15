@@ -26,11 +26,14 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Product catalog direct-authoring migration with fail-closed native differential evidence |
-| Active task | CMP-3h2 - execute direct StatusMessage and native references on Anvil, Mollusk, and upstream `near-vm-runner` |
-| Next task | A-CUT3f1 - identify the target-neutral primitives required to move Product GuestBook onto the direct-only route |
-| Validation track | CMP-0 is done at `6273dfe2`; CMP-1 at `25ef8eb3`; A-CUT2/CMP-2 at `bec50074`; ValueVault, Ownable, Pausable, ReentrancyGuard, and ArrayExample primary-triad VM evidence is verified through `0035138e` |
-| Known blocker | Real receipt scheduling and peer-contract execution require a sandbox/node harness; `near-vm-runner` is VM conformance only |
-| Execution queue | [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
+| Active task | **PR #104 cutover rebase onto main** — resolve merge conflicts; restore CI; resume CMP-3h2 StatusMessage VM evidence |
+| Next task | CMP-3h2 StatusMessage Anvil/Mollusk/`near-vm-runner`; then A-CUT3f1 GuestBook primitives |
+| Validation track | CMP-0–CMP-2 + ValueVault/Ownable/Pausable/ReentrancyGuard/ArrayExample primary-triad evidence through `0035138e`; StatusMessage cutover through `21bc7a72` |
+| Parallel on main (done) | **PR #105** landed (`3be48f42`): Seam B + D-058 + Seam A + Solana large-imm; C3 OpenVM → **defer**; D-057 at `d9c132a0`; RemoteCall NEAR golden fix (#106) |
+| Known blocker | Real receipt scheduling needs sandbox/node harness; host CI on cutover branch was red before rebase |
+| Execution queue | This rebase → [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104) CI → [`docs/superpowers/plans/2026-07-14-cross-target-native-differential.md`](docs/superpowers/plans/2026-07-14-cross-target-native-differential.md) |
+| Soroban note | Counter MVP only; gap list and S0–S5 order in [`docs/targets/stellar-soroban.md`](docs/targets/stellar-soroban.md) |
+| Architecture orientation | Portable capability → target Plan → assembly: [EN](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md) · [中文](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md); D-058 no Rust product lower |
 | Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
 
 The checkpoint is a navigation aid, not proof that a task is complete. A task
@@ -47,9 +50,12 @@ Before editing code or accepting a task:
 3. Read the [documentation lifecycle index](docs/document-status.md).
 4. Read the [current architecture design](docs/superpowers/specs/2026-07-12-portable-intent-abstraction-design.md).
 5. Read the [current implementation plan](docs/superpowers/plans/2026-07-12-portable-intent-abstraction.md).
-6. Read the active task section, its referenced source/tests, and the relevant
+6. For multi-target lower / SDK-parity questions, read the
+   [portable capability → Plan → assembly orientation](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md)
+   ([中文](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md)).
+7. Read the active task section, its referenced source/tests, and the relevant
    target note or RFC.
-7. Check the [backlog](docs/implementation-backlog.md),
+8. Check the [backlog](docs/implementation-backlog.md),
    [gate ledger](docs/gate-status.md), and
    [validation catalog](docs/validation-gates.md) before claiming completion.
 
@@ -208,10 +214,10 @@ This table is only the agent routing index.
 | D4 | done (verified at 19c93baf) | Open NFT through native target-first dispatch | Legacy replacement Task D4 |
 | B1 | done (verified at c8d2bbb6) | Extract a neutral Wasm-host plan | Plan Task 7 |
 | B2 | done (verified at d4df51bc) | Add a strict canonical target gate | Plan Task 8 |
-| B3 | done | Promote Soroban Counter (full bridge-aware lowering) | Plan Task 9 |
+| B3 | done (Counter MVP only; depth deferred D-056) | Soroban Counter six-gate + public route; S0–S5 remaining | Plan Task 9; [stellar-soroban.md](docs/targets/stellar-soroban.md) |
 | C1 | pending after A6 | Add PSy canonical planning | Plan Task 10 |
 | C2 | pending after C1 | Add an Aleo semantic plan | Plan Task 11 |
-| C3 | pending | Write the sourced OpenVM target brief | Plan Task 12 |
+| C3 | done (2026-07-15) | Sourced OpenVM brief; decision **defer** backend/registry | Plan Task 12; [openvm-research.md](docs/targets/openvm-research.md) |
 
 Allowed task states are `pending`, `in_progress`, `blocked`, and
 `done (verified at <sha>)`. Use `blocked` only with a concrete blocker and the

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Record D-056: finish primary-triad authoring cutover (PR #104) before deep
+  Soroban/CosmWasm host work; refresh `wasm-stellar-soroban` Counter MVP honesty,
+  gap inventory, and S0–S5 slice order in `docs/targets/stellar-soroban.md`.
+
 ### Removed
 - Dropped research backends **`move-aptos`**, **`move-sui`**, and
   **`wasm-cloudflare-workers`** from the product registry and CLI on `main`

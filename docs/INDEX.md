@@ -90,6 +90,10 @@ Accepted engineering direction ([rfcs/README](rfcs/README.md)):
 
 ## Engineering
 
+- [**System architecture · visual guide**](system-architecture-visual.md): SVG + Excalidraw PNG (recommended first read).
+- [系统架构 · 视觉导览（中文）](zh/system-architecture-visual.zh.md): SVG 总图 + Excalidraw 图库（推荐先读）。
+- [System architecture map](system-architecture.md): whole-repo structure inventory (Mermaid + tables).
+- [系统架构全景（中文·分层内部）](zh/system-architecture.zh.md): 文字深拆；各层与组件内部。
 - [Canonical compiler architecture](architecture.md): input, semantic,
   state-ownership, target-routing, and rollback boundaries.
 - [Canonical backend interface](backend-interface.md): target-plan ownership,

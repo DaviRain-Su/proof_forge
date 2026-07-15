@@ -1,9 +1,9 @@
 {
   "README.md": {
-    "sha256": "426221c56f4726594d8f4c9847890242a3b5aabf9d2df57422c32e4fe0bcc03c",
+    "sha256": "ced54466fcb18a613b64caeb305b8e35b45affe498baff75913881dc6b9cc5e3",
     "zh": "docs/zh/README-root.zh.md",
     "model": "manual-zh",
-    "note": "manually synced for D-057 backend removal and the direct-only architecture"
+    "note": "Direct Authored pipelines + main Soroban/custom-bridge honesty after #104/#105 merge"
   },
   "CONTRIBUTING.md": {
     "sha256": "b47c1fcaf0d003718e5487575f74486b403ed4bbfb88dc7fc1891cbe23cc7b64",
@@ -11,7 +11,7 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/INDEX.md": {
-    "sha256": "676fa0152fd6159b20c11d62d1109e8295a2aac06302c526b0efc63e5ea2e989",
+    "sha256": "0c84d1633663f6cbabc1cef4f45a2d25bf060332a11598c7bc5163c12f8b5863",
     "zh": "docs/zh/INDEX.zh.md",
     "model": "manual-zh",
     "note": "manually synced after the D-057 target removal"
@@ -27,10 +27,10 @@
     "model": "gemini-3-flash-preview"
   },
   "docs/decisions.md": {
-    "sha256": "fe570646e5ad8e85ab833595798361613ea1e4b8912d941084b3a3588b5684f2",
+    "sha256": "1ce77b52deca545c821de90f691082b9028736061539d1b4c443883e5db199c9",
     "zh": "docs/zh/decisions.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through D-057 backend removal"
+    "note": "merged D-055–D-058 with native differential + direct cutover decisions"
   },
   "docs/superpowers/specs/2026-07-14-cross-target-native-differential-design.md": {
     "sha256": "4a2e4320904bd02248b9175294e3660b85f3a30e8ad7b43dba24988a20176d9c",
@@ -74,10 +74,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "632151c09e3962b5b95d7d688ff6bb1d184aca1934c3f8a5e9ffed6ebb6fb5a9",
+    "sha256": "4d24728e0299db7ac8ad96fda2696154bca7be8c4336e2a06c21ae4cfa8fb46b",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh through verified CMP-3h1 and active CMP-3h2"
+    "note": "Soroban Counter MVP honest row + cutover CMP track after merge"
   },
   "docs/review-checklist.md": {
     "sha256": "c0101e0013610519412a5dc9bd2cdc1ea4dbbd67836ddcceedc16aa35598a56f",
@@ -92,22 +92,22 @@
     "note": "manually synced through the Runtime.Psy ownership move"
   },
   "docs/architecture.md": {
-    "sha256": "97ba93b5c8ff67fb24e80f7eee0d777ca1279b53f0b4761bdf68c5117ce7110b",
+    "sha256": "f702215700b5ac413ff89a66a515d450149cf6f5e4bde8eb2991344f9213ed32",
     "zh": "docs/zh/architecture.zh.md",
     "model": "manual-zh",
-    "note": "manually translated for canonical compiler architecture"
+    "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/backend-interface.md": {
-    "sha256": "96975e84c6832bc7d99a1832b79a717e82173e7e65f7759c00e6c2a51005faf7",
+    "sha256": "e96080c03dac0fd6c2d9a8b6f6d915fa6dbef5fc0019cf82bb7c7b52eb150b32",
     "zh": "docs/zh/backend-interface.zh.md",
     "model": "manual-zh",
-    "note": "manually translated for canonical backend interface"
+    "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/validation-gates.md": {
-    "sha256": "85778408f43e26fbf1fb0d1b816ffd9d3fc07b19f4c64dcd4af285901973a56f",
+    "sha256": "d75ddeda0547cfb240376e2595e37d621e7cd395d281cb6019200e1ea7edce7b",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "manually synced through verified Product StatusMessage direct cutover"
+    "note": "Counter authoring cutover + Seam A/B + Solana gates after merge"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -143,10 +143,10 @@
     "note": "synced after optional ProofForgeFormal library consolidation"
   },
   "docs/targets/README.md": {
-    "sha256": "3238cd7bd98159ff0846a055599edd2264e24f51e9f88afc8dc130bf3a06bdb5",
+    "sha256": "6511b8bc08621e7f77d5feed2e2929851a7f6e2f7c9021de77aa95bb674bf38e",
     "zh": "docs/zh/targets-README.zh.md",
     "model": "gemini-3-flash-preview",
-    "note": "manually synced after the D-057 target removal"
+    "note": "OpenVM C3 defer + D-057 removal + cutover inventory"
   },
   "docs/targets/evm.md": {
     "sha256": "43d42b07d7a571a46bd522000ea97c11a524d0212ea0b572c36c54ab04b020da",
@@ -200,5 +200,17 @@
     "sha256": "fb36d60c71c095f1ea75c4ff3229eac5a6668244eb014242fa4bba7019255da0",
     "zh": "docs/zh/examples-and-tests-taxonomy.zh.md",
     "model": "manual-zh"
+  },
+  "docs/system-architecture.md": {
+    "sha256": "890552f2d0a747052d8cbdf338b5b6236db7e3252b7d314761f931e35286366f",
+    "zh": "docs/zh/system-architecture.zh.md",
+    "model": "manual-zh",
+    "note": "EN overview + §12 internals; zh is full deep-dive"
+  },
+  "docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md": {
+    "sha256": "3e0ccf5009763774fdaf529925518c87648845a7c6f4f1ed0ce24b2ff9a7a2a8",
+    "zh": "docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md",
+    "model": "manual-zh",
+    "note": "architecture consensus EN/zh 2026-07-15"
   }
 }

@@ -51,4 +51,6 @@ assembler/verifier and optional Mollusk/Surfpool/Pinocchio suites; NEAR uses
 tooling remain optional and are not part of default required CI.
 
 See [Canonical compiler architecture](architecture.md) and
-[Validation gates](validation-gates.md).
+[Validation gates](validation-gates.md). Optional future Rust backends still
+start at this same checked-Core + CapabilityPlan boundary (D-057);
+[Lean/Rust boundary design](superpowers/specs/2026-07-15-lean-rust-boundary-design.md).

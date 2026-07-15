@@ -1,6 +1,6 @@
 # Documentation Status and Archive Index
 
-Status: **Authoritative documentation lifecycle index (2026-07-12)**
+Status: **Authoritative documentation lifecycle index (2026-07-15)**
 
 This page answers which documents are current, which are execution ledgers,
 and which are retained only as historical evidence. Code, runnable gates, and
@@ -11,12 +11,17 @@ generated artifacts remain the implementation truth.
 | Responsibility | Authoritative document |
 |---|---|
 | Settled decisions | [decisions.md](decisions.md) |
+| Architecture visual guide (SVG + PNG) | [system-architecture-visual.md](system-architecture-visual.md) |
+| 系统架构视觉导览（中文） | [zh/system-architecture-visual.zh.md](zh/system-architecture-visual.zh.md) |
+| Whole-repo architecture map (structure) | [system-architecture.md](system-architecture.md) |
+| 系统架构全景（中文·文字深拆） | [zh/system-architecture.zh.md](zh/system-architecture.zh.md) |
 | Current compiler architecture | [Canonical Core design](superpowers/specs/2026-07-11-core-ir-target-plan-design.md) |
 | IR versus target-extension ownership | [IR Target Extension Boundary design](superpowers/specs/2026-07-14-ir-target-extension-boundary-design.md) |
 | Native-reference validation architecture | [Cross-Target Native Differential design](superpowers/specs/2026-07-14-cross-target-native-differential-design.md) |
 | Next architecture and product direction | [Portable Intent design](superpowers/specs/2026-07-12-portable-intent-abstraction-design.md) |
 | Incremental legacy replacement policy | [Legacy Replacement design](superpowers/specs/2026-07-12-incremental-legacy-replacement-design.md) |
-| Current execution order | [NEAR NEP-141 / NEP-145 interop plan](superpowers/plans/2026-07-13-near-nep141-interop-execution.md) |
+| **Active merge priority (D-056)** | [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104) direct authoring cutover + primary-triad native differential — rebase onto `main` and land before deep secondary-host work |
+| Current execution order | [NEAR NEP-141 / NEP-145 interop plan](superpowers/plans/2026-07-13-near-nep141-interop-execution.md) (after cutover baseline) |
 | Active architecture prerequisite | [IR Target Extension Boundary plan](superpowers/plans/2026-07-14-ir-target-extension-boundary.md) |
 | Native differential validation track | [Cross-Target Native Differential plan](superpowers/plans/2026-07-14-cross-target-native-differential.md) |
 | Cross-program portable-intent order | [Portable Intent implementation plan](superpowers/plans/2026-07-12-portable-intent-abstraction.md) |
@@ -29,8 +34,19 @@ generated artifacts remain the implementation truth.
 | Phase/gate decisions | [gate-status.md](gate-status.md) |
 | Validation commands | [validation-gates.md](validation-gates.md) |
 | Target maturity and per-target facts | [targets/README.md](targets/README.md) and target notes |
+| Soroban Counter MVP + gap / slice order | [targets/stellar-soroban.md](targets/stellar-soroban.md) |
 | Wasm-host promotion analysis | [Wasm-host analysis](superpowers/specs/2026-07-12-wasm-host-target-analysis.md) |
 | ZK promotion analysis | [ZK target analysis](superpowers/specs/2026-07-12-psy-integration-analysis.md) |
+| OpenVM research brief (C3, defer) | [targets/openvm-research.md](targets/openvm-research.md) |
+| Lean/Rust ownership boundary (D-057, deferred impl) | [Lean/Rust boundary design](superpowers/specs/2026-07-15-lean-rust-boundary-design.md) ([中文](superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)) |
+| Artifact consumer contract v1 (Seam B / LR-0 enforced) | [Artifact Contract v1](superpowers/specs/2026-07-15-artifact-contract-v1.md) ([中文](superpowers/specs/2026-07-15-artifact-contract-v1.zh.md); `just artifact-contract-v1`) |
+| Seam A long-running goal (export-core + pf-core + dual-run) | [agent-goal-prompt-lean-rust-seam-a.md](agent-goal-prompt-lean-rust-seam-a.md) (branch PR #105) |
+| Core export v0 draft (Seam A) | [core-export-v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
+| Checked Core export draft (Seam A / Phase 1, experimental) | [Core export v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
+| EVM ABI selector policy (pin / Lean keccak / cast) | [targets/evm-selectors.md](targets/evm-selectors.md) |
+| Solana/Wasm assembly coverage scan (2026-07-15) | [targets/solana-wasm-coverage-scan-2026-07-15.md](targets/solana-wasm-coverage-scan-2026-07-15.md) |
+| Portable capability → Plan → assembly model (architecture consensus) | [portable-capability-plan-assembly-model](superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md) ([中文](superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md)) |
+| Seam A local gates (no Rust product lower) | `just keccak256`, `just export-inspect`, `just dual-run-observe-seam-a`, `just ownable-evm-smoke` |
 
 ## Historical Baselines
 

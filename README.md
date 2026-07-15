@@ -50,7 +50,7 @@ EVM, Solana, and NEAR via `just portable-counter-multi-target` and
 | `evm` | `AuthoredContract` → checked Canonical Core → EVM `ModulePlan` → Yul → `solc` → bytecode | Experimental (broad CI gates; not a full Solidity SDK) | golden Yul, canonical plan/artifact parity, diagnostics, Foundry runtime smoke (35 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2 — see [sdk-ecosystem-gaps](docs/sdk-ecosystem-gaps-2026-07.md)) |
 | `solana-sbpf-asm` | `AuthoredContract` → checked Canonical Core → `SolanaModulePlan` → sBPF assembly → ELF | Experimental | canonical plan/artifact parity, Mollusk tests, Surfpool/Rust live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Associated Token `create_idempotent` CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner/permanent_delegate/interest_bearing/memo_transfer/transfer_hook_init/pausable), map storage, nativeValue lamports read |
 | `wasm-near` | `AuthoredContract` → checked Canonical Core → `NearModulePlan` → Wasm AST/WAT → Wasm | Experimental | canonical plan/artifact parity, diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening, real upstream NEAR VM conformance (IR fixture + product source + NEP-141 FT incl. storage_remove and the full promise ABI + `ft_resolve_transfer` callback dispatch via real `promise_result`, through `near-vm-runner`/Wasmtime) |
-| `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just soroban-promotion` (source identity · fail-closed · HostBridge · wat2wasm · offline-host lifecycle · docs); auth still spike-always; Stellar CLI/TTL remain follow-on |
+| `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP (custom offline bridge, not real Env) | `just soroban-promotion` / `soroban-public-route`; auth always-auth; `invoke_contract` stub; HostABI still hybrid; real Env/Stellar CLI deferred (D-056, [stellar-soroban](docs/targets/stellar-soroban.md)) |
 | `wasm-arbitrum-stylus` | checked Canonical contract → `StylusPlan` → direct HostIO Wasm (default) or pinned Rust SDK oracle | Research | `just stylus-all`; atomic WAT/Wasm or Rust bundles, plan-derived Solidity ABI/client, hashed plan/storage/evidence, and local VM/differential coverage for Counter, ValueVault, Token, RemoteCall, and bounded aggregates; Nitro activation/E2E evidence is still required for promotion |
 | `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just cosmwasm-promotion` (product Counter source · offline-host 0→1 · no NEAR swap); `execute_msg` still stub; fixture `cosmwasm-check` via `just cosmwasm-counter-smoke` |
 | `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Spike (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
@@ -63,10 +63,12 @@ for formal/model-checking fixtures but is **not** in `Target.knownIds` /
 
 **Spike honesty (U7):** CosmWasm / Soroban are **not** primary-product hosts.
 CosmWasm portable crosscall is a WasmMsg-shaped `execute_msg` stub; Soroban
-interpreter `require_auth_for_args` is always-auth in Lean. Move (Aptos/Sui)
-and Cloudflare Workers backends were removed from `main` (archived on branch
-`archive/move-cloudflare-2026-07-15`). Gate G1a (CosmWasm M3–M4) stays **not
-started** until explicitly scheduled — see [gate-status](docs/gate-status.md).
+uses a **custom** offline-host bridge (not real Soroban Env), with always-auth
+and stub `invoke_contract`. Deep Soroban/CosmWasm work waits for the
+primary-triad authoring cutover ([PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104),
+D-056). Move (Aptos/Sui) and Cloudflare Workers were removed from `main`
+(archived on `archive/move-cloudflare-2026-07-15`, D-055). Gate G1a (CosmWasm
+M3–M4) stays **not started** — see [gate-status](docs/gate-status.md).
 
 The multi-chain Token SDK (`TokenSpec`, [RFC 0006](docs/rfcs/0006-multichain-token-sdk.md))
 routes one token intent to ERC-20 bytecode on EVM or SPL Token / Token-2022

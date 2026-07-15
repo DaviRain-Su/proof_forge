@@ -41,11 +41,11 @@ flowchart TB
   BL --> TGT
 ```
 
-## 架构图 (Excalidraw)
+## 架构图（视觉优先）
 
-用于演示和入职培训的可编辑手绘风格图表 —— 可在 [excalidraw.com](https://excalidraw.com) 或编辑器内通过 Excalidraw 插件打开：
-
-- [图表目录](../diagrams/README.md) —— 七个 `.excalidraw` 文件，涵盖平台概览、编译流水线、多目标 Counter、能力路由、开发人员工作流、代码库布局和目标全景。
+- **[系统架构 · 视觉导览](system-architecture-visual.zh.md)** —— **推荐入口**：新版 SVG 总图（GitHub 可直接看）+ Excalidraw PNG 图库。
+- [系统架构全景（文字深拆）](system-architecture.zh.md) —— 分层与组件内部说明。
+- [图表目录](../diagrams/README.md) —— 七个可编辑 `.excalidraw` + PNG；可在 [excalidraw.com](https://excalidraw.com) 打开。
 
 ## 规范与决策
 
@@ -82,6 +82,7 @@ flowchart TB
 
 ## 工程
 
+- [系统架构全景（中文·分层内部）](system-architecture.zh.md)：CLI / Frontend / Core / Target / 各 Backend 内部结构与全局数据流。
 - [规范编译器架构](architecture.zh.md)：输入、语义、状态所有权、目标路由和回滚边界。
 - [规范后端接口](backend-interface.zh.md)：目标计划所有权、精确 HostOp 失败规则和 Queue/Set 展开。
 - [开发标准](development-standards.zh.md)：贡献者规则和单一事实来源地图。
@@ -128,6 +129,7 @@ flowchart TB
   - [Algorand AVM 目标](../targets/algorand-avm.md)
   - [Solana sBPF Asm](../targets/solana-sbpf-asm.md) (规范的直接汇编路径)
   - [Solana sBPF](targets/solana-sbf.zh.md) (已废弃的 Zig/sbpf-linker 路径)
+  - [OpenVM research brief](../targets/openvm-research.md) (C3，defer)
   - [Cardano Plutus/Aiken 目标](../targets/cardano-plutus-aiken.md)
   - [Tezos Michelson/LIGO 目标](../targets/tezos-michelson-ligo.md)
   - [Starknet Cairo 目标](../targets/starknet-cairo.md)

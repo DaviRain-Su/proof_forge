@@ -2,8 +2,13 @@
 
 ## Status
 
-Refreshed after the 2026-07-12 merge. This is a promotion analysis, not a
-claim that Soroban or CosmWasm is equivalent to the primary `wasm-near` route.
+Refreshed **2026-07-15**. This is a promotion analysis, not a claim that
+Soroban or CosmWasm is equivalent to the primary `wasm-near` route.
+
+**Scheduling:** deep Soroban/CosmWasm host work is **queued after** the
+primary-triad direct authoring cutover
+([PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); D-056).
+Parallel work allowed: documentation honesty and pure design notes only.
 
 ## Baseline
 
@@ -76,29 +81,47 @@ Required evidence:
 
 ## Soroban Current State
 
-Available:
+Available (Counter MVP, custom bridge — not real Env):
 
-- `contract_source` build routing through EmitWat.
-- `_get`/`_put`, event, return, auth, and invoke-contract bridge code.
-- host interpreter and Counter refinement anchors.
+- `contract_source` `build`/`check` via EmitWat + `HostBridge.soroban`.
+- Canonical `ModulePlan.Core.buildFromCore` accepts `.soroban` (NEAR layout
+  builder + bridge tag); Counter `lowerFromPlan` emits `_get`/`_put` /
+  `set_return_data` (see `just soroban-public-route`).
+- Offline-host lifecycle (`just soroban-promotion` / `soroban-counter-offline`).
+- Host interpreter + `SorobanHost` lemmas + Counter refinement anchors.
+- Portable crosscall label `soroban-invoke`; EmitWat can emit stub
+  `invoke_contract` (returns handle `0`).
 
-Not sufficient for promotion:
+Not sufficient for Experimental / production claims:
 
-- no Soroban canonical `buildFromCore` branch;
-- no Soroban-native parameter/result ABI plan;
-- auth behavior is not yet production evidence;
-- no fail-closed canonical public route;
-- no TokenSpec/NFTSpec materializer;
-- fixture `emit` routing remains limited.
+- HostABI is still hybrid (Soroban storage names + retained NEAR helpers).
+- No Soroban-native parameter/result ABI (XDR / contract-spec / ScVal).
+- Auth is always-auth; `invoke_contract` is a stub; no real Env harness
+  (`tools/soroban-vm-runner` placeholder only).
+- Registry capabilities are wider than proven product evidence (`env.block`
+  rejects ValueVault; maps/crypto/crosscall depth incomplete).
+- No TokenSpec/NFTSpec materializer; fixture `emit` unmapped.
+- Dual EmitWat vs plan paths not yet collapsed to one product route.
 
-### Soroban Promotion Gates
+### Soroban promotion order (post–authoring cutover)
 
-1. Neutral Wasm-host plan extraction passes all NEAR gates.
-2. Soroban ABI/auth contract has explicit tests.
-3. Counter canonical plan builds fail closed.
-4. Counter runtime/host-interpreter parity passes.
-5. ValueVault is added only if every capability it uses is supported.
-6. Portable remote call is tested through `invoke_contract`.
+Align with [stellar-soroban.md](../../targets/stellar-soroban.md) S0–S5:
+
+1. **S0** Capability/docs honesty and fail-closed diagnostics.
+2. **S1** De-NEAR HostABI for the supported fragment.
+3. **S2** Single Authored → canonical plan → lower product path.
+4. **S3** Offline crosscall depth (still custom bridge).
+5. **S4** Real Soroban Env + (later) Stellar CLI deploy.
+6. **S5** ValueVault / Token / SDK only after Env truth.
+
+Gates that remain required before maturity promotion:
+
+1. Neutral Wasm-host plan extraction continues to preserve NEAR gates.
+2. Soroban ABI/auth contract has explicit tests matching HostABI.
+3. Counter canonical plan builds and lowers fail closed on unsupported shapes.
+4. Counter runtime evidence on **Env-faithful** harness (not only offline-host).
+5. ValueVault only if every used capability is implemented.
+6. Portable remote call evidence beyond stub `invoke_contract`.
 7. NEAR-only HostOps reject with `missingHostOpHandler`.
 8. CLI route, artifact, SDK, and maturity metadata agree.
 

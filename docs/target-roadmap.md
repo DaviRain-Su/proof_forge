@@ -89,15 +89,21 @@ not a new target. Exit is Gate A1 in `gate-status.md`.
 ### 1b. Neutral Wasm-host plan and Soroban strict promotion
 
 Extract target-neutral plan/ABI contracts while preserving NEAR behavior, add
-strict canonical target gates, then promote Soroban Counter. CosmWasm remains
-blocked on a real message/reply ABI and is not promoted merely because it
-shares EmitWat.
+strict canonical target gates, then promote Soroban Counter. **Status
+2026-07-15:** B1/B2 and Counter MVP six-gate + public route are landed;
+remaining depth is S0–S5 in [stellar-soroban.md](targets/stellar-soroban.md).
+**Do not schedule S1+ HostABI/Env work until the primary-triad authoring
+cutover is on `main` (D-056 / [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104)).**
+CosmWasm remains blocked on a real message/reply ABI and is not promoted
+merely because it shares EmitWat.
 
 ### 1c. ZK plan-only promotion
 
 Add strict canonical planning for PSy, then an Aleo semantic plan. Registry
-maturity and public input modes do not change. OpenVM remains docs-first until
-a sourced target brief is approved.
+maturity and public input modes do not change. OpenVM research brief is written
+([openvm-research.md](targets/openvm-research.md), 2026-07-15) with a reviewed
+**defer** on backend/registry until after authoring cutover and C1/C2; no
+implementation tasks are opened from this inventory alone.
 
 ## Historical Tier-1 candidates
 

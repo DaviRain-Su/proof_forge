@@ -710,12 +710,189 @@ pub fn discover_scenarios(dir: &Path) -> Result<Vec<ScenarioCase>> {
     Ok(scenarios)
 }
 
+/// Artifact Contract v1 consumer options (Seam B / LR-0).
+///
+/// When `require_execution_outputs` is true, metadata must advertise a runnable
+/// `artifactBundle.finalOutput` or `primaryOutput` with a matching `outputs[]`
+/// entry. Honesty rules for emitters remain owned by Lean `ArtifactBundle`.
+#[derive(Debug, Clone, Copy)]
+pub struct ArtifactContractOptions {
+    pub require_execution_outputs: bool,
+}
+
+impl Default for ArtifactContractOptions {
+    fn default() -> Self {
+        Self {
+            require_execution_outputs: false,
+        }
+    }
+}
+
+/// Validate a `proof-forge-artifact.json` document against Artifact Contract v1.
+///
+/// Accepts top-level `schemaVersion` as integer `1` or string `"1"`. Does not
+/// deep-validate planning fields (`materialization`, `preflight`, …).
+pub fn validate_artifact_contract_v1(
+    json: &JsonValue,
+    options: ArtifactContractOptions,
+) -> Result<()> {
+    let object = json.as_object().context(
+        "artifact contract v1: top-level document must be a JSON object",
+    )?;
+
+    let schema_version = object
+        .get("schemaVersion")
+        .context("artifact contract v1: missing required field `schemaVersion`")?;
+    ensure!(
+        schema_version_is_v1(schema_version),
+        "artifact contract v1: `schemaVersion` must be 1 or \"1\", got {schema_version}"
+    );
+
+    let _target = require_non_empty_string(object, "target")?;
+    let _artifact_kind = require_non_empty_string(object, "artifactKind")?;
+    let _source_module = require_non_empty_string(object, "sourceModule")?;
+
+    if options.require_execution_outputs {
+        let artifacts = object
+            .get("artifacts")
+            .context("artifact contract v1: execution requires top-level `artifacts`")?;
+        ensure!(
+            artifacts.is_object(),
+            "artifact contract v1: `artifacts` must be an object"
+        );
+
+        let bundle = object
+            .get("artifactBundle")
+            .context("artifact contract v1: execution requires top-level `artifactBundle`")?;
+        validate_artifact_bundle_for_execution(bundle)?;
+    }
+
+    Ok(())
+}
+
+fn schema_version_is_v1(value: &JsonValue) -> bool {
+    match value {
+        JsonValue::Number(n) => n.as_u64() == Some(1) || n.as_i64() == Some(1),
+        JsonValue::String(s) => s == "1",
+        _ => false,
+    }
+}
+
+fn require_non_empty_string<'a>(
+    object: &'a serde_json::Map<String, JsonValue>,
+    field: &str,
+) -> Result<&'a str> {
+    let value = object
+        .get(field)
+        .with_context(|| format!("artifact contract v1: missing required field `{field}`"))?;
+    let text = value
+        .as_str()
+        .with_context(|| format!("artifact contract v1: `{field}` must be a string"))?;
+    ensure!(
+        !text.trim().is_empty(),
+        "artifact contract v1: `{field}` must be non-empty"
+    );
+    Ok(text)
+}
+
+fn validate_artifact_bundle_for_execution(bundle: &JsonValue) -> Result<()> {
+    let object = bundle
+        .as_object()
+        .context("artifact contract v1: `artifactBundle` must be an object")?;
+
+    let schema_version = object
+        .get("schemaVersion")
+        .context("artifact contract v1: `artifactBundle.schemaVersion` missing")?;
+    ensure!(
+        schema_version_is_v1(schema_version),
+        "artifact contract v1: `artifactBundle.schemaVersion` must be 1 or \"1\""
+    );
+
+    let kind = require_non_empty_string(object, "kind")?;
+    ensure!(
+        kind == "proof-forge-artifact-bundle",
+        "artifact contract v1: unexpected artifactBundle.kind `{kind}`"
+    );
+
+    let outputs = object
+        .get("outputs")
+        .and_then(JsonValue::as_array)
+        .context("artifact contract v1: `artifactBundle.outputs` must be an array")?;
+
+    let final_output = object.get("finalOutput").and_then(json_optional_string);
+    let primary_output = object.get("primaryOutput").and_then(json_optional_string);
+    let advertised = final_output.or(primary_output).context(
+        "artifact contract v1: execution requires artifactBundle.finalOutput or primaryOutput",
+    )?;
+
+    let matching = outputs.iter().find(|output| {
+        output
+            .get("kind")
+            .and_then(JsonValue::as_str)
+            .is_some_and(|kind| kind == advertised)
+    });
+    let matching = matching.with_context(|| {
+        format!(
+            "artifact contract v1: advertised output kind `{advertised}` missing from artifactBundle.outputs"
+        )
+    })?;
+
+    if let Some(role) = matching.get("role").and_then(JsonValue::as_str) {
+        if final_output.is_some() {
+            ensure!(
+                role == "final-deployable" || role == "primary",
+                "artifact contract v1: finalOutput `{advertised}` has role `{role}`, expected final-deployable or primary"
+            );
+        }
+    }
+
+    // Fail closed only when a required-looking validation is explicitly bad.
+    // `notRun` is allowed for optional stages; emitters must not claim `passed`
+    // for missing tools (Lean honesty). Reject failed/unavailable entries so
+    // runners do not treat a red stage as runnable final output.
+    if let Some(validations) = object.get("validations").and_then(JsonValue::as_array) {
+        for entry in validations {
+            let Some(state) = entry.get("state").and_then(JsonValue::as_str) else {
+                continue;
+            };
+            if state != "failed" && state != "unavailable" {
+                continue;
+            }
+            let name = entry
+                .get("name")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("<unnamed>");
+            // Only gate when a final deployable is advertised: intermediate-only
+            // bundles may record unavailable final-link tools honestly.
+            if final_output.is_some() {
+                bail!(
+                    "artifact contract v1: validation `{name}` is `{state}` while finalOutput is set (fail-closed)"
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn json_optional_string(value: &JsonValue) -> Option<&str> {
+    match value {
+        JsonValue::String(s) if !s.trim().is_empty() => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+fn is_metadata_artifact_name(name: &str) -> bool {
+    name == "metadata" || name.ends_with("-metadata") || name.ends_with(".metadata")
+}
+
 pub fn assert_artifact_expectations(
     case: &ScenarioCase,
     target_id: &str,
     repo_root: &Path,
     artifacts: &[ArtifactOutput<'_>],
 ) -> Result<()> {
+    let declares_execution = !case.manifest.steps.is_empty();
     for expectation in case
         .manifest
         .artifacts
@@ -791,6 +968,7 @@ pub fn assert_artifact_expectations(
         if !expectation.json_checks.is_empty()
             || !expectation.file_checks.is_empty()
             || !expectation.json_artifact_checks.is_empty()
+            || is_metadata_artifact_name(&expectation.name)
         {
             let text = fs::read_to_string(artifact.path).with_context(|| {
                 format!(
@@ -806,6 +984,24 @@ pub fn assert_artifact_expectations(
                     artifact.path.display()
                 )
             })?;
+
+            // LR-0: metadata always hits Artifact Contract v1; execution
+            // scenarios additionally require artifacts + advertised outputs.
+            if is_metadata_artifact_name(&expectation.name) {
+                validate_artifact_contract_v1(
+                    &json,
+                    ArtifactContractOptions {
+                        require_execution_outputs: declares_execution,
+                    },
+                )
+                .with_context(|| {
+                    format!(
+                        "scenario `{}` target `{target_id}` metadata `{}` failed Artifact Contract v1",
+                        case.manifest.scenario.name, expectation.name
+                    )
+                })?;
+            }
+
             for check in &expectation.json_checks {
                 assert_json_artifact_check(
                     &case.manifest.scenario.name,
@@ -2610,5 +2806,197 @@ name = "crosscall.invoke unsupported"
         });
 
         assert_expectations(&case, "wasm-near", &[actual]).unwrap();
+    }
+
+    fn sample_metadata_json(include_bundle: bool, final_output: Option<&str>) -> JsonValue {
+        let mut map = serde_json::Map::new();
+        map.insert("schemaVersion".into(), JsonValue::from(1));
+        map.insert("target".into(), JsonValue::String("evm".into()));
+        map.insert("artifactKind".into(), JsonValue::String("evm-bytecode".into()));
+        map.insert("sourceModule".into(), JsonValue::String("Counter".into()));
+        map.insert(
+            "artifacts".into(),
+            serde_json::json!({
+                "bytecode": {
+                    "path": "Counter.bin",
+                    "sha256": "00",
+                    "bytes": 1
+                }
+            }),
+        );
+        if include_bundle {
+            let outputs = if let Some(final_kind) = final_output {
+                serde_json::json!([
+                    {"kind": "yul", "role": "intermediate"},
+                    {"kind": final_kind, "role": "final-deployable"}
+                ])
+            } else {
+                serde_json::json!([{"kind": "yul", "role": "intermediate"}])
+            };
+            map.insert(
+                "artifactBundle".into(),
+                serde_json::json!({
+                    "schemaVersion": "1",
+                    "kind": "proof-forge-artifact-bundle",
+                    "targetId": "evm",
+                    "outputs": outputs,
+                    "primaryOutput": final_output.unwrap_or("yul"),
+                    "finalOutput": final_output,
+                    "validations": []
+                }),
+            );
+        }
+        JsonValue::Object(map)
+    }
+
+    #[test]
+    fn artifact_contract_accepts_integer_and_string_schema_version() {
+        let mut json = sample_metadata_json(true, Some("evm-bytecode"));
+        validate_artifact_contract_v1(
+            &json,
+            ArtifactContractOptions {
+                require_execution_outputs: true,
+            },
+        )
+        .unwrap();
+
+        json.as_object_mut()
+            .unwrap()
+            .insert("schemaVersion".into(), JsonValue::String("1".into()));
+        validate_artifact_contract_v1(
+            &json,
+            ArtifactContractOptions {
+                require_execution_outputs: true,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn artifact_contract_rejects_missing_schema_version() {
+        let mut json = sample_metadata_json(false, None);
+        json.as_object_mut().unwrap().remove("schemaVersion");
+        let err = validate_artifact_contract_v1(&json, ArtifactContractOptions::default())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("schemaVersion"), "{err}");
+    }
+
+    #[test]
+    fn artifact_contract_rejects_execution_without_final_or_primary() {
+        let mut json = sample_metadata_json(true, None);
+        // Force both advertised outputs to null.
+        json.as_object_mut().unwrap().insert(
+            "artifactBundle".into(),
+            serde_json::json!({
+                "schemaVersion": "1",
+                "kind": "proof-forge-artifact-bundle",
+                "targetId": "evm",
+                "outputs": [{"kind": "yul", "role": "intermediate"}],
+                "primaryOutput": null,
+                "finalOutput": null,
+                "validations": []
+            }),
+        );
+        let err = validate_artifact_contract_v1(
+            &json,
+            ArtifactContractOptions {
+                require_execution_outputs: true,
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("finalOutput") || err.contains("primaryOutput"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn artifact_contract_rejects_failed_validation_with_final_output() {
+        let mut json = sample_metadata_json(true, Some("evm-bytecode"));
+        json.as_object_mut().unwrap().insert(
+            "artifactBundle".into(),
+            serde_json::json!({
+                "schemaVersion": "1",
+                "kind": "proof-forge-artifact-bundle",
+                "targetId": "evm",
+                "outputs": [
+                    {"kind": "yul", "role": "intermediate"},
+                    {"kind": "evm-bytecode", "role": "final-deployable"}
+                ],
+                "primaryOutput": "evm-bytecode",
+                "finalOutput": "evm-bytecode",
+                "validations": [{"name": "solc", "state": "failed"}]
+            }),
+        );
+        let err = validate_artifact_contract_v1(
+            &json,
+            ArtifactContractOptions {
+                require_execution_outputs: true,
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("fail-closed"), "{err}");
+    }
+
+    #[test]
+    fn metadata_expectations_enforce_artifact_contract() {
+        let dir = std::env::temp_dir().join(format!(
+            "pf-artifact-contract-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let metadata_path = dir.join("proof-forge-artifact.json");
+        // Missing target/sourceModule/artifactKind.
+        fs::write(
+            &metadata_path,
+            r#"{"schemaVersion":1,"artifacts":{},"artifactBundle":{"schemaVersion":"1","kind":"proof-forge-artifact-bundle","targetId":"evm","outputs":[{"kind":"yul","role":"intermediate"}],"primaryOutput":"yul","finalOutput":null,"validations":[]}}"#,
+        )
+        .unwrap();
+
+        let case = ScenarioCase {
+            path: PathBuf::from("counter.toml"),
+            manifest: ScenarioManifest {
+                scenario: Scenario {
+                    name: "counter".into(),
+                    fixture: "counter".into(),
+                    source: None,
+                    targets: vec!["evm".into()],
+                    capabilities: vec![],
+                    reference: None,
+                },
+                steps: vec![step("initialize", None)],
+                artifacts: vec![ArtifactExpectation {
+                    target: "evm".into(),
+                    name: "metadata".into(),
+                    matches_file: None,
+                    contains: vec![],
+                    json_checks: vec![],
+                    toml_checks: vec![],
+                    file_checks: vec![],
+                    json_artifact_checks: vec![],
+                }],
+                diagnostics: vec![],
+                quint: vec![],
+            },
+        };
+        let err = assert_artifact_expectations(
+            &case,
+            "evm",
+            &dir,
+            &[ArtifactOutput {
+                name: "metadata",
+                path: &metadata_path,
+            }],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("Artifact Contract v1"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

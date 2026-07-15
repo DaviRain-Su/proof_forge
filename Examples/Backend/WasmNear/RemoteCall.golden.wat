@@ -48,7 +48,7 @@
       br 0
     end
   )
-  (func $call_remote (export "call_remote") (local $pc i32) (local $v1 i64) (local $v2 i64) (local $v3 i64)
+  (func $call_remote (export "call_remote") (local $pc i32) (local $v1 i64) (local $v2 i32) (local $v2_len i32) (local $v3 i64)
     i32.const 1
     local.set $pc
     loop
@@ -58,8 +58,10 @@
       if
         i64.const 0
         local.set $v1
-        i64.const 0
+        i32.const 43000
         local.set $v2
+        i32.const 1
+        local.set $v2_len
         i32.const 47000
         i32.const 91
         i32.store8
@@ -90,7 +92,7 @@
       br 0
     end
   )
-  (func $call_with_args (export "call_with_args") (local $pc i32) (local $v4 i64) (local $v5 i64) (local $v6 i64) (local $v7 i64) (local $v8 i64)
+  (func $call_with_args (export "call_with_args") (local $pc i32) (local $v4 i64) (local $v5 i32) (local $v5_len i32) (local $v6 i64) (local $v7 i64) (local $v8 i64)
     i32.const 2
     local.set $pc
     loop
@@ -100,8 +102,10 @@
       if
         i64.const 0
         local.set $v4
-        i64.const 0
+        i32.const 43000
         local.set $v5
+        i32.const 1
+        local.set $v5_len
         i64.const 42
         local.set $v6
         i64.const 7
@@ -153,6 +157,7 @@
   (data (i32.const 12000) "true")
   (data (i32.const 12006) "false")
   (data (i32.const 12012) "0123456789abcdef")
+  (data (i32.const 43000) "1")
   (data (i32.const 49000) "callee.example.near")
   (data (i32.const 49019) "remote_call")
 )

@@ -141,31 +141,55 @@ def jsonSchemasForSignature (structs : Array StructPlan.Struct) (name : String)
       throw "NEAR private callback `ft_resolve_transfer` must have signature (transfer_id : U64, sender : String, receiver : String) -> U128"
     return (some (← buildJsonObjectSchema structs params),
       some (← buildJsonValueSchema structs returns))
+  -- Extension methods used by NearFungibleToken / TokenSpec mintable+burnable
+  -- (not core NEP-141; still JSON-object input so multi-field string params
+  -- do not fall through to the Borsh sole-dynamic-param restriction).
+  if name == "ft_mint" then
+    unless params == #[("receiver_id", .string), ("amount", .u128)] && returns == .unit do
+      throw "NEAR extension entrypoint `ft_mint` must have signature (receiver_id : String, amount : U128) -> Unit"
+    return (some (← buildJsonObjectSchema structs params), none)
+  if name == "ft_burn" then
+    unless params == #[("amount", .u128)] && returns == .unit do
+      throw "NEAR extension entrypoint `ft_burn` must have signature (amount : U128) -> Unit"
+    return (some (← buildJsonObjectSchema structs params), none)
   if name == "storage_balance_bounds" then
-    unless params.isEmpty && returns == .structType "StorageBalanceBounds" do
-      throw "NEAR standard entrypoint `storage_balance_bounds` must have signature () -> StorageBalanceBounds"
-    let output ← buildJsonValueSchema structs returns
-    return (some (← buildJsonObjectSchema structs params),
-      some (← output.withOptionalRootField "max"))
+    -- Full NEP-145 JSON object form.
+    if params.isEmpty && returns == .structType "StorageBalanceBounds" then
+      let output ← buildJsonValueSchema structs returns
+      return (some (← buildJsonObjectSchema structs params),
+        some (← output.withOptionalRootField "max"))
+    -- Portable Product StorageDeposit NEP-145-lite: U64 min deposit only.
+    if params.isEmpty && returns == .u64 then
+      return (none, none)
+    throw "NEAR standard entrypoint `storage_balance_bounds` must have signature () -> StorageBalanceBounds (or portable () -> U64)"
   if name == "storage_balance_of" then
-    unless params == #[("account_id", .string)] && returns == .structType "StorageBalance" do
-      throw "NEAR standard entrypoint `storage_balance_of` must have signature (account_id : String) -> Option<StorageBalance>"
-    return (some (← buildJsonObjectSchema structs params),
-      some (← withOptionalRoot (← buildJsonValueSchema structs returns)))
+    if params == #[("account_id", .string)] && returns == .structType "StorageBalance" then
+      return (some (← buildJsonObjectSchema structs params),
+        some (← withOptionalRoot (← buildJsonValueSchema structs returns)))
+    -- Portable lite: map-key account as Hash, cumulative deposit as U64.
+    if params == #[("account_id", .hash)] && returns == .u64 then
+      return (none, none)
+    throw "NEAR standard entrypoint `storage_balance_of` must have signature (account_id : String) -> Option<StorageBalance> (or portable (account_id : Hash) -> U64)"
   if name == "storage_deposit" then
-    unless params == #[("account_id", .string), ("registration_only", .bool)] &&
-        returns == .structType "StorageBalance" do
-      throw "NEAR standard entrypoint `storage_deposit` must have signature (account_id : Option<String>, registration_only : Option<Bool>) -> StorageBalance"
-    let input ← buildJsonObjectSchema structs params
-    let input ← input.withOptionalRootField "account_id"
-    let input ← input.withOptionalRootField "registration_only"
-    return (some input, some (← buildJsonValueSchema structs returns))
+    if params == #[("account_id", .string), ("registration_only", .bool)] &&
+        returns == .structType "StorageBalance" then
+      let input ← buildJsonObjectSchema structs params
+      let input ← input.withOptionalRootField "account_id"
+      let input ← input.withOptionalRootField "registration_only"
+      return (some input, some (← buildJsonValueSchema structs returns))
+    -- Portable lite: credit nativeValue for one Hash account key.
+    if params == #[("account_id", .hash)] && returns == .unit then
+      return (none, none)
+    throw "NEAR standard entrypoint `storage_deposit` must have signature (account_id : Option<String>, registration_only : Option<Bool>) -> StorageBalance (or portable (account_id : Hash) -> Unit)"
   if name == "storage_withdraw" then
-    unless params == #[("amount", .u128)] && returns == .structType "StorageBalance" do
-      throw "NEAR standard entrypoint `storage_withdraw` must have signature (amount : Option<U128>) -> StorageBalance"
-    let input ← buildJsonObjectSchema structs params
-    return (some (← input.withOptionalRootField "amount"),
-      some (← buildJsonValueSchema structs returns))
+    if params == #[("amount", .u128)] && returns == .structType "StorageBalance" then
+      let input ← buildJsonObjectSchema structs params
+      return (some (← input.withOptionalRootField "amount"),
+        some (← buildJsonValueSchema structs returns))
+    -- Portable lite: caller-bound debit for one Hash account key.
+    if params == #[("account_id", .hash), ("amount", .u64)] && returns == .unit then
+      return (none, none)
+    throw "NEAR standard entrypoint `storage_withdraw` must have signature (amount : Option<U128>) -> StorageBalance (or portable (account_id : Hash, amount : U64) -> Unit)"
   if name == "storage_unregister" then
     unless params == #[("force", .bool)] && returns == .bool do
       throw "NEAR standard entrypoint `storage_unregister` must have signature (force : Option<Bool>) -> Bool"

@@ -7,6 +7,7 @@ import ProofForge.Cli.IrJson
 import ProofForge.Cli.JsonUtil
 import ProofForge.Cli.Process
 import ProofForge.IR
+import ProofForge.Util.Keccak256
 
 open ProofForge.Cli.ConstructorAbi
 open ProofForge.Cli.HexUtil
@@ -14,12 +15,28 @@ open ProofForge.Cli.JsonUtil
 
 namespace ProofForge.Cli
 
+/-- Pure Lean ABI selector (LR-S3): first 4 bytes of Ethereum keccak256(sig). -/
+def selectorForLean (sig : String) : String :=
+  ProofForge.Util.Keccak256.selectorHex sig
+
+/-- Prefer Foundry `cast sig` when provided; always available pure Lean fallback. -/
 def selectorFor (cast : String) (sig : String) : IO String := do
-  let stdout ← runProcess cast #["sig", sig]
-  let selector := stripHexPrefix (trimAsciiString stdout)
-  if selector.length != 8 || !isHexString selector then
-    throw <| IO.userError s!"cast returned invalid selector for {sig}: {trimAsciiString stdout}"
-  return selector
+  if cast.isEmpty || cast == "lean" || cast == "pure" then
+    return selectorForLean sig
+  try
+    let stdout ← runProcess cast #["sig", sig]
+    let selector := stripHexPrefix (trimAsciiString stdout)
+    if selector.length != 8 || !isHexString selector then
+      throw <| IO.userError s!"cast returned invalid selector for {sig}: {trimAsciiString stdout}"
+    -- Optional: warn if cast disagrees with Lean (should not happen for valid ABI).
+    let lean := selectorForLean sig
+    if selector.toLower != lean.toLower then
+      throw <| IO.userError
+        s!"cast selector `{selector}` disagrees with Lean keccak `{lean}` for `{sig}`"
+    return selector
+  catch _ =>
+    -- Missing cast binary / PATH issues: Lean path (D-058 / LR-S3).
+    return selectorForLean sig
 
 def entrypointAbiScalarTypeName
     (context : String)
@@ -120,6 +137,31 @@ def hydrateEvmSelectors (cast : String) (module : ProofForge.IR.Module) :
     | none =>
         entrypoints := entrypoints.push { entrypoint with selector? := some derived }
   return { module with entrypoints := entrypoints }
+
+/-- Fill **missing** selectors only; leave pinned fixture selectors untouched.
+
+Use for dual-run / inspect paths that need `buildFromCore` on portable products
+without re-validating historical IR fixture pins (which may use non-Solidity
+canonical type spellings). Product Yul still uses `hydrateEvmSelectors`. -/
+def hydrateEvmSelectorsMissing (cast : String) (module : ProofForge.IR.Module) :
+    IO ProofForge.IR.Module := do
+  let mut entrypoints := #[]
+  for entrypoint in module.entrypoints do
+    match entrypoint.selector? with
+    | some _ => entrypoints := entrypoints.push entrypoint
+    | none =>
+        let signature ←
+          match entrypointSoliditySignature module entrypoint with
+          | .ok signature => pure signature
+          | .error msg => throw <| IO.userError msg
+        let derived ← selectorFor cast signature
+        entrypoints := entrypoints.push { entrypoint with selector? := some derived }
+  return { module with entrypoints := entrypoints }
+
+/-- Fill missing selectors using pure Lean keccak only (no `cast` required). -/
+def hydrateEvmSelectorsMissingLean (module : ProofForge.IR.Module) :
+    IO ProofForge.IR.Module :=
+  hydrateEvmSelectorsMissing "lean" module
 
 def entrypointJson (module : ProofForge.IR.Module) (entrypoint : ProofForge.IR.Entrypoint) : Except String String := do
   let mut params := #[]

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560" role="img" aria-label="Layer stack · outside-in">
+  <defs>
+    <filter id="s" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#5c6570"/>
+    </marker>
+    <style>
+      .t { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      .title { font-size: 22px; font-weight: 700; fill: #1a1d23; }
+      .sub { font-size: 13px; fill: #5c6570; }
+      .b { font-size: 13px; font-weight: 600; fill: #1a1d23; }
+      .s { font-size: 11px; fill: #5c6570; }
+      .tiny { font-size: 10px; fill: #5c6570; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#fafbfc"/>
+
+<text x="40" y="36" class="t title" text-anchor="start">Layer stack · outside-in</text>
+<text x="40" y="58" class="t sub" text-anchor="start">Lower layers are closer to chains &amp; proofs; upper layers to authors</text>
+<rect x="40" y="80" width="820" height="70" rx="12" ry="12" fill="#d6ebff" stroke="#3b82f6" stroke-width="2" filter="url(#s)"/>
+<text x="60" y="108" class="t b" text-anchor="start">Author / Product</text>
+<text x="60" y="130" class="t s" text-anchor="start">Examples/Product · Stdlib · TokenSpec · NFTSpec</text>
+<rect x="40" y="155" width="820" height="70" rx="12" ry="12" fill="#f1f5f9" stroke="#64748b" stroke-width="2" filter="url(#s)"/>
+<text x="60" y="183" class="t b" text-anchor="start">CLI</text>
+<text x="60" y="205" class="t s" text-anchor="start">proof-forge · TargetFirst · TargetDriver · Loaders · Artifacts</text>
+<rect x="40" y="230" width="820" height="70" rx="12" ry="12" fill="#e0f2fe" stroke="#0284c7" stroke-width="2" filter="url(#s)"/>
+<text x="60" y="258" class="t b" text-anchor="start">Frontend</text>
+<text x="60" y="280" class="t s" text-anchor="start">Authored.Canonicalize · ContractSpec · Surface · Materialize</text>
+<rect x="40" y="305" width="820" height="70" rx="12" ry="12" fill="#dcfce7" stroke="#16a34a" stroke-width="2" filter="url(#s)"/>
+<text x="60" y="333" class="t b" text-anchor="start">Canonical Core</text>
+<text x="60" y="355" class="t s" text-anchor="start">IR.Core Syntax · Type · Validate · Semantics · HostOp refs</text>
+<rect x="40" y="380" width="820" height="70" rx="12" ry="12" fill="#fef9c3" stroke="#ca8a04" stroke-width="2" filter="url(#s)"/>
+<text x="60" y="408" class="t b" text-anchor="start">Target ownership</text>
+<text x="60" y="430" class="t s" text-anchor="start">Registry · Capability · HostOps · StorageBinding · Crosscall</text>
+<rect x="40" y="455" width="820" height="90" rx="12" ry="12" fill="#ffedd5" stroke="#ea580c" stroke-width="2" filter="url(#s)"/>
+<text x="60" y="483" class="t b" text-anchor="start">Backend plans</text>
+<text x="60" y="505" class="t s" text-anchor="start">Evm.Plan · Solana.Plan · WasmHost/NearModulePlan · Stylus/Psy/…</text>
+</svg>

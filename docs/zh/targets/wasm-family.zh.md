@@ -8,10 +8,13 @@ Workers research backend 已按 D-057 从 `main` 删除，只保留在归档分�
 ## Spike 诚实性 (U7)
 
 - **NEAR (`wasm-near`)** 是主要 Wasm 产品 host（Experimental）。
-- **CosmWasm：**portable remote 使用 WasmMsg 形状的 `execute_msg` **stub**；
+- **CosmWasm：** Counter MVP 六门（`just cosmwasm-promotion`）；portable remote
+  仍使用 WasmMsg 形状的 `execute_msg` **stub**；
   Gate G1a（M3/M4）**未开始**。
-- **Soroban：**Counter MVP host adapter（`PF-P3-02` six-gate）；在真实 Env auth
-  落地前，interpreter auth 始终授权。
+- **Soroban：** Counter MVP host adapter（`PF-P3-02` six-gate）；在真实 Env auth
+  落地前，interpreter auth 始终授权。深度工作等待 D-056 authoring cutover。
+- **Cloudflare Workers：** 历史 research / off-chain 目标；**已从 `main` 移除**
+  （D-057，归档 `archive/move-cloudflare-2026-07-15`）。
 - **Arbitrum Stylus（`wasm-arbitrum-stylus`）：**已实现的 Research 目标。Stylus 的
   产物是 Wasm，但语义属于 EVM；它拥有独立 `StylusPlan`，不得经过
   `NearModulePlan`。Direct Wasm 是 CLI 默认 renderer，固定版本 Rust SDK

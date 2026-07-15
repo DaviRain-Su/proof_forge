@@ -4664,3 +4664,412 @@ Rules:
   near-compare-status-message`; sandbox typecheck; `just
   differential-contracts`; source-digest audit; and `git diff --check`. No full
   aggregate was run.
+
+## 2026-07-15 - DOC: Soroban honesty + D-056 sequencing before PR #104 depth
+
+- Status: `done` (documentation only)
+- Result: refreshed Soroban Counter MVP docs for custom offline-bridge honesty,
+  open gap inventory (P0–P3), and S0–S5 slice order. Recorded D-056: land
+  primary-triad direct authoring cutover
+  ([PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104)) before deep
+  Soroban HostABI/Env or CosmWasm M3/M4. Updated agent checkpoint, backlog B3
+  state, Wasm-host analysis, targets index, and README Backend Status row.
+- Interfaces: `docs/targets/stellar-soroban.md`, `docs/decisions.md` (D-055/D-056),
+  `docs/document-status.md`, `docs/implementation-backlog.md`,
+  `docs/superpowers/specs/2026-07-12-wasm-host-target-analysis.md`,
+  `docs/target-roadmap.md`, `docs/targets/README.md`, `README.md`, `AGENTS.md`.
+- Verification: documentation edit only; no code or gate change.
+- Remaining: rebase/merge PR #104; then schedule Soroban S0 if desired.
+- Documentation: this entry.
+
+## 2026-07-15 - C3: OpenVM research brief (defer)
+
+- Status: `done` (documentation only)
+- Result: Wrote a primary-sourced OpenVM target brief and recorded a reviewed
+  **defer** on backend, registry id, CLI target, and shared ZK HostOps. Preferred
+  future spike (if reopened) is Rust guest sourcegen + `cargo openvm` oracle,
+  not hand-written Core→RV32. Upstream Lean FV (openvm-fv, Lean 4.26) is
+  documented as a non-drop-in proof boundary relative to ProofForge's v4.31.0.
+- Interfaces: `docs/targets/openvm-research.md`; index updates in
+  `docs/targets/README.md`, `docs/target-roadmap.md`, `docs/document-status.md`,
+  `docs/implementation-backlog.md`, portable-intent plan Task 12, ZK analysis,
+  `AGENTS.md`, and zh backlog/targets index.
+- Verification: `just docs-check`; `git diff --check` (run with this change).
+- Remaining: none for C3; implementation remains closed until reopen checklist
+  in the brief is satisfied. Active merge priority is still PR #104.
+- Documentation: this entry.
+
+## 2026-07-15 - D-057: Lean/Rust boundary design (docs only)
+
+- Status: `done` (documentation only; implementation deferred)
+- Result: Accepted the Lean/Rust ownership boundary as deferred design: Lean
+  owns product meaning through checked Core + CapabilityPlan; Rust owns
+  evidence runners now and optional later plan/render behind dual-run. Recorded
+  Phase 0–4 order, A0/A1 sub-seams, equivalence dimensions, lockfile reality vs
+  goal, and companion Artifact Contract v1 + Core export v0 drafts. Did not
+  change the active AGENTS checkpoint (still PR #104 / cutover).
+- Interfaces: `docs/superpowers/specs/2026-07-15-lean-rust-boundary-design.md`,
+  `docs/superpowers/specs/2026-07-15-artifact-contract-v1.md`,
+  `docs/superpowers/specs/2026-07-15-core-export-v0-draft.md`, D-057 in
+  `docs/decisions.md`, deferred LR-0… slices in backlog, lifecycle index,
+  architecture pointer.
+- Verification: `just docs-check`; `git diff --check` (run with this change).
+- Remaining: implement LR-0 on a dedicated branch/worktree after cutover
+  priority allows; do not start LR-2+ while Core single-path is still moving.
+- Documentation: this entry.
+
+## 2026-07-15 - D-057: Chinese translations for Lean/Rust boundary specs
+
+- Status: `done` (documentation only)
+- Result: Added co-located Chinese translations for the three D-057 specs
+  (boundary, artifact contract v1, core export v0), following the existing
+  `*.zh.md` sibling pattern used by other superpowers designs. Linked EN↔zh
+  and pointed zh architecture/backlog/decisions at the Chinese paths.
+- Interfaces:
+  `docs/superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md`,
+  `docs/superpowers/specs/2026-07-15-artifact-contract-v1.zh.md`,
+  `docs/superpowers/specs/2026-07-15-core-export-v0-draft.zh.md`, plus EN
+  Chinese: lines and lifecycle/index zh link updates.
+- Verification: `just docs-check`; `git diff --check` (run with this change).
+- Remaining: none for translation; LR-0 code still deferred.
+- Documentation: this entry.
+
+## 2026-07-15 - LR-0: Artifact Contract v1 (Seam B)
+
+- Status: `done` (verified at `1716904d`; PR [#105](https://github.com/DaviRain-Su/proof_forge/pull/105))
+- Result: Froze consumer field allowlist and primary-triad emitter inventory in
+  `ProofForge.Target.ArtifactContract`; added Lean inventory/field gate
+  `Tests/ArtifactContractV1.lean`; taught testkit core
+  `validate_artifact_contract_v1` to fail closed on missing
+  `schemaVersion`/`target`/`artifactKind`/`sourceModule` and, for execution
+  scenarios, missing `artifacts` + advertised `finalOutput`/`primaryOutput`.
+  Nested `ArtifactBundle` honesty rules unchanged. Secondary emitters
+  inventoried without forcing full primary-triad shape in this slice.
+- Interfaces: `ProofForge/Target/ArtifactContract.lean`,
+  `Tests/ArtifactContractV1.lean`, `testkit/core/src/lib.rs`
+  (`validate_artifact_contract_v1`), `just artifact-contract-v1`, design
+  checklist + observation contract note in
+  `docs/superpowers/specs/2026-07-15-artifact-contract-v1.md`.
+- Verification: `just artifact-contract-v1`; `cargo test -p proof-forge-testkit-core artifact_contract`;
+  `git diff --check`; i18n backlog hash sync (run with this change).
+- Remaining: merge PR #105; do not start LR-1 Core export until cutover quiet;
+  optional follow-up to add `artifactBundle` to secondary Solana/learn emitters
+  when their harnesses need execution metadata.
+- Documentation: this entry; backlog LR-0 → done; AGENTS checkpoint → land #105.
+
+## 2026-07-15 - LR-1a: experimental core.v0 export + pf-core-inspect
+
+- Status: `in_progress` (stacked on PR #105; not a product CLI path)
+- Result: Added `ProofForge.IR.Core.Export` (validate→deterministic JSON body),
+  Lean gate `Tests/Canonical/CoreExport.lean`, and standalone Rust
+  `tools/pf-core-inspect` with zero chain SDK deps. Capability-plan companion is
+  a stub; full CLI `export-core` and product Counter export remain LR-1.
+- Interfaces: `ProofForge/IR/Core/Export.lean`, `tools/pf-core-inspect`,
+  `just core-export-v0`.
+- Verification: `just core-export-v0`; inspect smoke on
+  `build/export/tiny-lr1a/evm` (local, not committed).
+- Remaining: wire experimental CLI under non-default flag; fill CapabilityPlan
+  via resolveSpec; avoid Examples/Product / authoring paths until #104 quieter.
+- Documentation: backlog LR-1a; this entry; core-export draft status note.
+
+## 2026-07-15 - LR-1b: experimental export-core CLI package
+
+- Status: `in_progress`→package path done (PR #105 branch)
+- Result: Added `proof-forge export-core --experimental` (fixture counter /
+  value-vault) writing `core.v0.json`, `capability-plan.v0.json`,
+  `export-meta.json` (contentHash over on-disk bodies), and
+  `source-manifest.json`. Fail-closed without `--experimental`. Capability ids
+  come from normalize requirements; hostOpHandlers remain stub.
+- Interfaces: `ProofForge/Cli/ExportCore.lean`, `just core-export-v0`,
+  `tools/pf-core-inspect check`.
+- Verification: `lake env lean --run Tests/Canonical/CoreExportPackage.lean`;
+  `pf-core-inspect check build/export/lr1b-counter/evm`.
+- Remaining: product-source input path; full HostOp handler table; optional
+  proof-forge binary e2e once CI recovers. Stay off default product build.
+- Documentation: backlog LR-1b; this entry.
+
+## 2026-07-15 - LR-1b+: product-source + ValueVault core export
+
+- Status: `done` (stacked on PR #105)
+- Result: `export-core --experimental` accepts fixtures `counter`/`value-vault`
+  and product `Examples/Product/Counter.lean`. Clarified in usage that this is
+  Seam A Core export for Rust backends, not ABI/SDK JSON. Product Counter and
+  IR fixture Counter produced the same contentHash on this pin (39fdcf2f…).
+- Verification: `Tests/Canonical/CoreExportPackage.lean`; `pf-core-inspect`
+  on counter, value-vault, product-counter packages.
+- Remaining: HostOp handler table; more product modules; main merge when ready.
+
+## 2026-07-15 - LR-1c: HostOp handlers + product ValueVault export
+
+- Status: `done` (PR #105 branch)
+- Result: capability-plan.v0 now carries `hostOpHandlers` resolved from Core
+  hostCalls against target signature catalogs (evm/solana/near). Missing
+  handler fail-closed. Product ValueVault export added. Counter/ValueVault
+  still have 0 handlers (no hostCalls) which is honest.
+- Verification: CoreExport + CoreExportPackage; pf-core-inspect on product
+  packages; resolveHostOpHandlers NEAR-on-evm refuse / wasm-near accept.
+- Remaining: more hostCall-heavy products; optional full target catalog dump;
+  merge main when available. Still not product default compile.
+
+## 2026-07-15 - LR-1d: general Seam A export package
+
+- Status: `done` (PR #105 branch)
+- Result: Shifted from example stacking to a **general** export package:
+  (1) Normalize HostOp catalog registers EVM+Solana+NEAR; (2) capability-plan
+  carries structured `requirements`, used `hostOpHandlers`, and full
+  `targetHostOpCatalog`; (3) `interface.v0.json` for entrypoint surface
+  (outside contentHash); (4) multi-target property that Core body is identical
+  across the primary triad; (5) data-driven product smoke (Counter/ValueVault/
+  Ownable). Products are smokes for the general path, not the feature itself.
+- Verification: `CoreExport` + `CoreExportPackage` + `CoreExportGeneral`;
+  pf-core-inspect on multi-target packages.
+- Remaining: hostCall-heavy modules exercise non-empty used handlers;
+  optional CLI matrix; merge main when available. Still experimental.
+
+## 2026-07-15 - LR-1e: hostCall stress + inspect compare
+
+- Status: `done` (PR #105 branch)
+- Result: (1) Public `exportContractSpec` for programmatic packages;
+  (2) CREATE/CREATE2 export yields non-empty `hostOpHandlers` on evm and
+  fail-closes on near/solana; (3) `pf-core-inspect compare` checks Core
+  identity across targets; (4) general smoke keeps triad identity on
+  Counter+ValueVault and multi-product on evm only (memory-bounded).
+- Verification: CoreExportHostCall; CoreExportGeneral; inspect check+compare.
+- Remaining: optional full catalog sweep in CI lane; main merge as available.
+
+## 2026-07-15 - LR-2a: Rust pf-core read-only package loader
+
+- Status: `done` (PR #105 branch)
+- Result: Added `tools/pf-core` library that loads Seam A packages
+  (`core.v0`, capability-plan, optional interface), verifies contentHash,
+  checks used hostOps ⊆ targetHostOpCatalog, and supports Core identity
+  compare. `pf-core-inspect` is now a thin CLI over `pf-core` with
+  check/summary/compare. Checked-in fixtures under
+  `tools/pf-core/tests/fixtures/`. Still zero chain SDKs; not a compile backend.
+- Verification: `cargo test -p pf-core`; inspect check/summary/compare on fixtures.
+- Remaining: optional typed Core op walk / interpreter; dual-run hooks later
+  (LR-2+). Default product compile remains Lean.
+
+## 2026-07-15 - LR-2b: Core op walker and dual-run readiness
+
+- Status: `done` (PR #105 branch)
+- Result: `pf-core` walks Core instruction/terminator kinds, collects hostCalls
+  from body, checks body↔plan handler equality, and reports dual-run readiness
+  (observeReady yes; rustLowerPilot no). Added explicit `EvmLowererPilot`
+  stub that fail-closes with a clear not-implemented error. Inspect `summary`
+  prints walk + dualRun lines.
+- Verification: `cargo test` in tools/pf-core (6 tests).
+- Remaining: real EVM lower pilot (still optional); keep product CLI Lean.
+
+## 2026-07-15 - LR-2c: EVM storage-only lower sketch
+
+- Status: `done` (PR #105 branch)
+- Result: First real `buildFromCore` pilot slice: modules whose Core walk is
+  pure+storage only (e.g. Counter) produce `evm-storage-sketch.v0.json` with
+  provisional scalar slots and entrypoint surface. HostCall modules (CREATE)
+  refuse fail-closed. CLI: `pf-core-inspect lower-sketch`. Still not bytecode
+  and not product CLI default.
+- Verification: cargo test pf-core (7 tests); lower-sketch on counter fixture.
+- Remaining: optional Yul/render dual-run later; keep Lean product path.
+
+## 2026-07-15 - LR-2d: observe dual-run Lean plan vs storage sketch
+
+- Status: `done` (PR #105 branch)
+- Result: Lean dumps `lean-evm-observe.v0.json` from EVM `buildFromCore`
+  (entrypoint names/mutability/selectors + storage slots). Rust
+  `pf-core-inspect dual-run-observe` builds storage sketch from the export
+  package and checks entrypoint name order and provisional slot alignment.
+  Counter green. Not bytecode dual-run.
+- Verification: `Tests/Canonical/DualRunObserve.lean`; dual-run-observe CLI.
+- Remaining: more modules; optional Yul/bytecode dual-run later.
+
+## 2026-07-15 - GOAL + LR-2e: durable Seam A charter; ValueVault dual-run
+
+- Status: `done` (verified at `842994d6`)
+- Result: Added continuous execution charter
+  `docs/agent-goal-prompt-lean-rust-seam-a.md`. Extended EVM scalar storage
+  sketch to allow Core `contextRead` and `emit` (still no hostCall/memory/
+  crosscall; not bytecode). ValueVault observe dual-run green: 7 entrypoints
+  + 6 scalar slots align with Lean `buildFromCore`. CREATE still refuses.
+  `just core-export-v0` dual-run steps cover Counter and ValueVault.
+- Verification: `cargo test --manifest-path tools/pf-core/Cargo.toml`;
+  `lake env lean --run Tests/Canonical/DualRunObserve.lean`;
+  `pf-core-inspect dual-run-observe` on
+  `build/export/lr2d-dual-run/counter-evm` and
+  `build/export/lr2e-dual-run/value-vault-evm`.
+- Remaining: LR-2f Ownable dual-run; contentHash stability; promote
+  core-export-v0 checklist; stop-condition review against goal success.
+- Documentation: charter, backlog EN+zh, `AGENTS.md` checkpoint.
+
+## 2026-07-15 - LR-2f: Ownable observe dual-run
+
+- Status: `done` (PR #105 branch)
+- Result: Extended scalar storage sketch to allow Core `assert` (Ownable).
+  Product Ownable still lacks EVM selectors for full `buildFromCore`; DualRunObserve
+  falls back to interface + sequential Core state surface dump for Seam A
+  dimensions. dual-run-observe green: 4 entrypoints + 2 slots. CREATE still
+  refuses hostCall modules.
+- Verification: DualRunObserve + dual-run-observe on
+  `build/export/lr2f-dual-run/ownable-evm`.
+- Remaining: LR-2g contentHash stability; LR-2h docs; stop review.
+  Optional later: fill Ownable selectors for full ModulePlan dump.
+
+## 2026-07-15 - LR-2g/2h: contentHash stability + core-export-v0 docs
+
+- Status: `done` (PR #105 branch)
+- Result: Counter re-export asserts identical core/plan/export-meta bytes;
+  pf-core unit test reloads fixture contentHash. core-export-v0 draft documents
+  package layout, hash rule, dual-run dimensions, and implementation status
+  through LR-2g. EN+zh backlog/spec synced.
+- Verification: `cargo test` pf-core (9); CoreExportPackage.lean.
+- Remaining: optional LR-2i CI note; LR-2j stop-condition review (success
+  largely met for Counter+ValueVault dual-run).
+
+## 2026-07-15 - LR-2f…2j: Ownable dual-run through Seam A goal success
+
+- Status: `done` (verified at `5929e3b0`)
+- Result: Ownable dual-run with assert-eligible sketch + surface dump fallback;
+  contentHash stability gates; core-export-v0 package/dual-run docs; validation-gates
+  rows for `just core-export-v0` and `just artifact-contract-v1`. Goal charter
+  success condition met: general export-core, pf-core/inspect, Counter+ValueVault
+  observe dual-run, CREATE refuse, product CLI remains Lean.
+- Verification: DualRunObserve; dual-run-observe Counter/ValueVault/Ownable;
+  pf-core tests; CoreExportPackage; docs-check i18n.
+- Remaining: land PR #105; optional later Ownable selectors for full ModulePlan;
+  no LR-3 default Rust lower without new human goal.
+
+## 2026-07-15 - Seam A goal re-verify (stop condition)
+
+- Status: `done` (code re-verified at `5929e3b0`; docs at `3cdbaf14`)
+- Result: Full success-condition re-run on PR #105 branch. No code fix required.
+  Stale human paste template that still said “start at LR-2j” updated to success-met
+  stop guidance. Pipeline composition / in-process FFI remains out of scope.
+- Verification (all exit 0):
+  - `just core-export-v0` (export package, triad Core identity, hostCall refuse on
+    near/solana, pf-core 9 tests, dual-run Counter/ValueVault/Ownable)
+  - CREATE `lower-sketch` refuse: hostCalls not allowed
+  - `export-core` requires `--experimental`; product CLI default remains Lean
+  - `tools/pf-core` + `pf-core-inspect` Cargo.toml: zero chain SDK deps
+- Remaining: land/review PR #105; do not start LR-3 without a new human goal.
+
+## 2026-07-15 - D-058: freeze Rust machine-IR product lower
+
+- Status: `done` (PR #105 branch)
+- Result: Decision **D-058** — do not invest in Rust re-implementation of
+  primary-triad machine IR printers (sBPF `.s`, WAT, parallel Yul) without a
+  ready library or intentional sourcegen strategy. Product lower stays Lean.
+  Rust keeps evidence runners + Seam A read-only inspect/sketch only. Updated
+  boundary Phase 2/3 to deferred; backlog LR-2/LR-3 deferred; pf-core honesty
+  (`EvmStorageSketchPilot`, `ready_for_rust_lower_pilot` always false, dual-run
+  notes cite D-058).
+- Verification: `cargo test --manifest-path tools/pf-core/Cargo.toml`.
+- Remaining: land PR #105; invest Lean product lower / cutover, not Rust printers.
+
+## 2026-07-15 - LR-S1/S2: dual-run selector hydrate + export-inspect (no Rust lower)
+
+- Status: `done` (PR #105 branch)
+- Result: Under D-058, improve Seam A **without** product Rust lower:
+  (1) `hydrateEvmSelectorsMissing` + DualRunObserve resolve Foundry `cast` so
+  portable Ownable fills missing selectors and takes full ModulePlan observe
+  dump (surface fallback remains if cast absent);
+  (2) `just export-inspect` orchestrates `export-core --experimental` +
+  pf-core-inspect check/summary as a one-shot pipeline.
+  Backlog LR-S1…S5 records pure Lean keccak / optional observe export / product
+  lower quality as next non-Rust-lower work.
+- Verification: `lake env lean --run Tests/Canonical/DualRunObserve.lean`
+  (Ownable: buildFromCore ModulePlan); dual-run-observe ownable-evm ok.
+- Remaining: LR-S3 pure Lean keccak; product Lean lower quality; land PR #105.
+
+## 2026-07-15 - LR-S3/S4: pure Lean keccak + dual-run-observe recipe
+
+- Status: `done` (PR #105 branch)
+- Result: Mathlib-free `ProofForge.Util.Keccak256` (Ethereum original-Keccak
+  padding). `selectorForLean` / `hydrateEvmSelectorsMissingLean` fill missing
+  ABI selectors without Foundry; `selectorFor` falls back to Lean when cast is
+  missing. DualRunObserve uses Lean keccak for Ownable ModulePlan dumps.
+  `just keccak256` and `just dual-run-observe-seam-a` recipes. LR-S4 covered by
+  DualRunObserve writing `lean-evm-observe.v0.json` + dual-run recipe (full
+  export-core --write-observe flag deferred).
+- Verification: `lake env lean --run Tests/Util/Keccak256.lean` (empty/abc/
+  transfer/owner/initialize selectors); DualRunObserve Ownable via Lean keccak;
+  dual-run-observe CLI ok.
+- Remaining: LR-S5 Lean product lower quality; optional export-core observe flag.
+
+## 2026-07-15 - LR-S5/M1: EVM selector policy + Ownable product smoke
+
+- Status: `done` (PR #105 branch; P0–P1 of M1 plan)
+- Result: Documented pin / Lean keccak / cast priority in
+  `docs/targets/evm-selectors.md`. Product smoke
+  `scripts/evm/ownable-product-smoke.sh` + `just ownable-evm-smoke` builds
+  portable Ownable through Yul→solc (works with or without `cast` on PATH).
+  `buildFromCore` missing-selector error points at hydrate + docs. Validation
+  gates index keccak / dual-run / ownable smoke. D-058 still holds (no Rust
+  product lower).
+- Verification: `just ownable-evm-smoke` (with cast and PATH without cast);
+  `just keccak256`.
+- Remaining: P2 export invariants if gaps; P3 Solana/NEAR pain knives; land #105.
+
+## 2026-07-15 - LR-S5/M1 P2 light: export hostCall fail-closed still green
+
+- Status: `done` (PR #105 branch)
+- Result: Re-ran `CoreExportHostCall` (CREATE handlers on evm; refuse near/solana)
+  and a Counter `export-core` + `pf-core-inspect check`. No code change required
+  for P2; invariants hold.
+- Verification: CoreExportHostCall.lean; export-core fixture counter check.
+- Remaining: P3 Solana/NEAR pain knives only with repros; land #105.
+
+## 2026-07-15 - P3 scan + Solana large-imm asm fix (AccessControl)
+
+- Status: `done` (PR #105 branch)
+- Result: Scanned portable products on `solana-sbpf-asm` and `wasm-near`.
+  Green: Counter, Ownable, ValueVault, Pausable, GuestBook, RemoteCall;
+  FungibleToken/Nft OK with `--token` / `--nft`. AccessControl NEAR+EVM OK;
+  **Solana AccessControl failed `sbpf build`**: `mov64` decimal immediates
+  `≥ 2^63` from hash4 limb0 rejected by assembler. Fixed `Asm.numStr` to emit
+  `0x…` hex for those values. Unit test `Tests/Backend/Solana/AsmImm.lean`;
+  smoke `just access-control-solana-smoke`.
+- Verification: `lake env lean --run Tests/Backend/Solana/AsmImm.lean`;
+  AccessControl `proof-forge build --target solana-sbpf-asm` green.
+- Remaining: optional more P3 knives; land #105.
+
+## 2026-07-15 - Solana/Wasm production-coverage analysis
+
+- Status: `done` (docs evidence on PR #105)
+- Result: Written
+  `docs/targets/solana-wasm-coverage-scan-2026-07-15.md`. Conclusion: product
+  scalar compile is healthy; **not** production-complete. Largest semantic risk
+  is Solana **hash4 Phase-1 limb0-only**; NEAR EmitWat still refuses multi-arg
+  dynamic string params, full U128 literals, some bytes paths. Fixture `emit`
+  matrix lags product (`value-vault` NEAR unmapped while product builds).
+  Recommended next tests: limb0 honesty, AccessControl runtime, fixture map
+  debt, FT `--token` path — not Rust assemblers (D-058).
+- Verification: product matrix build; fixture emit matrix; code/doc gap audit.
+- Remaining: implement P0 hash honesty test if scheduled.
+
+## 2026-07-15 - Architecture consensus: portable → Plan → assembly
+
+- Status: `done` (docs on PR #105)
+- Result: Consolidated multi-turn architecture discussion into
+  `docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md`
+  (+ `.zh.md`): shared vs chain-unique capabilities; high-level unique APIs into
+  target Plans before assembly; codegen vs Lean VMs; expression vs ecosystem
+  metrics; official SDK non-parity; differential graduation + Supported Surface
+  as the completion system; D-057/D-058 Seam A scope. Indexed from
+  `document-status.md`.
+- Verification: documentation only; cross-links to scan/selectors/decisions.
+- Remaining: execute capability-table + differential packages when scheduled.
+
+## 2026-07-15 - PR #104: merge main into cutover branch
+
+- Status: `in_progress` (merge commit pending CI)
+- Result: Merged `origin/main` into cutover worktree to clear CONFLICTING state.
+  Kept Authored → Canonical pipelines and CMP/A-CUT checkpoints; absorbed
+  PR #105 Seam B/D-058/Seam A/Solana imm fixes; refreshed RemoteCall NEAR WAT
+  golden for NEP-145-lite deposit string (same as #106).
+- Interfaces: `AGENTS.md`, README Backend Status, Counter EVM golden (full-slot
+  u64), i18n manifest, decisions/backlog/log/validation-gates, RemoteCall golden.
+- Verification: conflict markers cleared; focused product gates pending after
+  merge commit.
+- Remaining: push cutover rebase branch; restore hosted CI; resume CMP-3h2.
+- Documentation: checkpoint + implementation-log updated in this merge.
+

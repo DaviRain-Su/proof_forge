@@ -112,7 +112,9 @@ Lean contract source
 | 闭包 | 随 sBPF spike 待定 | 拒绝 |
 | 无界循环 | 随 sBPF spike 待定 | 拒绝；需要电路友好的有界形状 |
 
-有关特定家族的限制，请参阅 [targets/solana-sbf.md](targets/solana-sbf.zh.md) 和 [targets/psy-dpn.md](../targets/psy-dpn.md)。
+有关特定家族的限制，请参阅 [targets/solana-sbf.md](targets/solana-sbf.zh.md) 和
+[targets/psy-dpn.md](../targets/psy-dpn.md)。（Move 家族目标说明已随 D-057 从
+`main` 移除；历史见 `archive/move-cloudflare-2026-07-15`。）
 
 ## Counter IR 示例 (v0)
 
