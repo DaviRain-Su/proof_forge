@@ -20,7 +20,7 @@ while IFS= read -r file; do
     echo "missing internal EVM Surface fixture: $FIXTURE_DIR/$file" >&2
     exit 1
   fi
-  lake env proof-forge build \
+  if ! lake env proof-forge build \
     --target evm \
     --format yul \
     --root . \
@@ -28,7 +28,11 @@ while IFS= read -r file; do
     --peer usdc.peer=0x000000000000000000000000000000000000ca12 \
     --peer vault.peer=0x000000000000000000000000000000000000ca13 \
     -o "$OUT/$base.yul" \
-    "$FIXTURE_DIR/$file" >/dev/null
+    "$FIXTURE_DIR/$file"
+  then
+    echo "canonical product route failed for fixture: $FIXTURE_DIR/$file" >&2
+    exit 1
+  fi
   grep -Fq "object \"" "$OUT/$base.yul"
 done < "$EXPECTED"
 
