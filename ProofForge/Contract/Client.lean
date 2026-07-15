@@ -536,12 +536,18 @@ partial def nearClientCodecSupported (structs : Array StructDecl) : ValueType â†
   | _ => true
 
 def renderNearWrapperChecked (spec : ContractSpec) : Except String String := do
-  for entrypoint in spec.module.entrypoints do
-    let paramsSupported := entrypoint.params.all (fun param =>
-      nearClientCodecSupported spec.module.structs param.snd)
-    unless paramsSupported && nearClientCodecSupported spec.module.structs entrypoint.returns do
-      .error s!"NEAR client codec does not support dynamic or unresolved type in entrypoint `{entrypoint.name}`"
   let plans <- ProofForge.Backend.WasmHost.NearAbiPlan.buildModulePlans spec.module
+  for entrypoint in spec.module.entrypoints do
+    let some plan := plans.find? (fun plan => plan.name == entrypoint.name)
+      | .error s!"NEAR ABI plan missing for entrypoint `{entrypoint.name}`"
+    -- JSON-codec entrypoints may use String/Hash params; Borsh client codegen
+    -- still refuses unsupported dynamic ValueTypes.
+    let usesJson := plan.inputJson?.isSome || plan.outputJson?.isSome
+    unless usesJson do
+      let paramsSupported := entrypoint.params.all (fun param =>
+        nearClientCodecSupported spec.module.structs param.snd)
+      unless paramsSupported && nearClientCodecSupported spec.module.structs entrypoint.returns do
+        .error s!"NEAR client codec does not support dynamic or unresolved type in entrypoint `{entrypoint.name}`"
   let entrypointLines := String.intercalate "" <| (spec.module.entrypoints.filterMap fun entrypoint =>
     plans.find? (fun plan => plan.name == entrypoint.name) |>.map
       (fun plan => nearEntrypointWrapperWithPlan entrypoint plan spec.module.structs)).toList
