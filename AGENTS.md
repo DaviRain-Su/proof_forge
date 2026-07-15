@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **Land PR #105** (`DaviRain-Su/artifact-contract-v1`): LR-0 Artifact Contract v1 (Seam B) — `1716904d` |
-| Next task | After #105 merges: resume **PR #104** cutover babysit; then cutover residual (CMP-3g*) / NEAR replay. Do not start LR-1 Core export or deep Soroban HostABI until cutover quiet (D-056/D-057) |
+| Active task | **PR #105** LR-0 landed + **LR-1a** experimental `core.v0` export / `pf-core-inspect` (no product CLI) |
+| Next task | Finish LR-1a on #105 (CLI optional later); do **not** dual-run product routes against #104. After #105 merge: #104 cutover. No LR-2 default Rust lower / deep Soroban until cutover quieter |
 | Parallel on main (done) | C3 OpenVM research brief → **defer** backend; D-057 design docs at `d9c132a0` |
 | Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
 | Execution queue | [PR #105](https://github.com/DaviRain-Su/proof_forge/pull/105); [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |

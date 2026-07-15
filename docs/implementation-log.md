@@ -4103,3 +4103,18 @@ Rules:
   optional follow-up to add `artifactBundle` to secondary Solana/learn emitters
   when their harnesses need execution metadata.
 - Documentation: this entry; backlog LR-0 → done; AGENTS checkpoint → land #105.
+
+## 2026-07-15 - LR-1a: experimental core.v0 export + pf-core-inspect
+
+- Status: `in_progress` (stacked on PR #105; not a product CLI path)
+- Result: Added `ProofForge.IR.Core.Export` (validate→deterministic JSON body),
+  Lean gate `Tests/Canonical/CoreExport.lean`, and standalone Rust
+  `tools/pf-core-inspect` with zero chain SDK deps. Capability-plan companion is
+  a stub; full CLI `export-core` and product Counter export remain LR-1.
+- Interfaces: `ProofForge/IR/Core/Export.lean`, `tools/pf-core-inspect`,
+  `just core-export-v0`.
+- Verification: `just core-export-v0`; inspect smoke on
+  `build/export/tiny-lr1a/evm` (local, not committed).
+- Remaining: wire experimental CLI under non-default flag; fill CapabilityPlan
+  via resolveSpec; avoid Examples/Product / authoring paths until #104 quieter.
+- Documentation: backlog LR-1a; this entry; core-export draft status note.

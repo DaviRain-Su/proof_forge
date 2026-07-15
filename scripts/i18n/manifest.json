@@ -61,10 +61,10 @@
     "model": "manual-zh"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "907b311a4413236e60138a45c12b6f9c17a6f32afc1a837df71c6e33edab8107",
+    "sha256": "3082dee52423675ee96a72cabede597098ea778f22a56a7b2f37775fa34ff247",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after LR-0 PR #105 pointer (2026-07-15)"
+    "note": "synced EN/zh after LR-1a start on PR #105"
   },
   "docs/review-checklist.md": {
     "sha256": "47b59810d5d68b2dd741d19b4ff006ec50c0427be5aff8fb294bdc567d050c25",

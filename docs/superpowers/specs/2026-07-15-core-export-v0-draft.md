@@ -1,6 +1,6 @@
 # Core Export v0 (draft)
 
-Status: **Experimental draft (not a stable product API)**  
+Status: **Experimental draft (not a stable product API); LR-1a serializer + pf-core-inspect landed on PR #105 branch**  
 Parent design: [Lean / Rust boundary](2026-07-15-lean-rust-boundary-design.md)  
 Companion: [Artifact Contract v1](2026-07-15-artifact-contract-v1.md)
 
@@ -170,3 +170,13 @@ Promote only when:
 - Replacing Lean Validate with Rust schema checks alone
 - Claiming formal verification of a future Rust lowerer by virtue of consuming
   this export
+
+
+## Implementation status (LR-1a)
+
+| Piece | Location | Notes |
+|---|---|---|
+| Lean serializer | `ProofForge/IR/Core/Export.lean` | Validate then JSON; refuse on Validate error |
+| Lean gate | `just core-export-v0` / `Tests/Canonical/CoreExport.lean` | Determinism + fail-closed |
+| Rust inspect | `tools/pf-core-inspect` | Zero chain SDKs; checks `core.v0` / optional plan |
+| CLI product path | not yet | Full `export-core` waits for quieter cutover + LR-1 |

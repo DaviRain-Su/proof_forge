@@ -1,0 +1,1 @@
+/Users/davirian/orca/workspaces/proof_forge/artifact-contract-v1/tools/pf-core-inspect/target/debug/pf-core-inspect: /Users/davirian/orca/workspaces/proof_forge/artifact-contract-v1/tools/pf-core-inspect/src/main.rs

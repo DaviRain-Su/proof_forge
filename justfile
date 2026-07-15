@@ -400,6 +400,12 @@ artifact-contract-v1:
     lake env lean --run Tests/ArtifactContractV1.lean
     cargo test --manifest-path testkit/Cargo.toml -p proof-forge-testkit-core artifact_contract -- --nocapture
 
+# LR-1a / D-057 Seam A: experimental core.v0 export + read-only Rust inspect.
+core-export-v0:
+    lake build ProofForge.IR.Core.Export
+    lake env lean --run Tests/Canonical/CoreExport.lean
+    cargo build --manifest-path tools/pf-core-inspect/Cargo.toml
+
 # PF-P1-04: preflight L0+L1+L2 readiness via TargetBackend hooks.
 preflight-l2:
     lake env lean --run Tests/PreflightL2.lean

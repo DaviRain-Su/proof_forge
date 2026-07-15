@@ -49,7 +49,8 @@
 | 顺序 | 切片 | 状态 | 验收边界 |
 |---:|---|---|---|
 | LR-0 | Artifact Contract v1 文档 + harness 字段白名单 | done（验证于 `1716904d`；PR #105） | testkit/runners 只依赖文档化制品字段；诚实性规则不变；`just artifact-contract-v1` 通过 |
-| LR-1 | 实验性 `export-core`（`core.v0`） | 待 #104 / cutover 安静后 | 确定性导出；Validate fail-closed；Counter + 一个 stateful 子集 |
+| LR-1a | 实验性 Core JSON export + `pf-core-inspect`（无 CLI 产品路径） | in_progress（PR #105 分支；与 cutover 隔离） | validate→JSON fail-closed；确定性 body；Rust inspect 零链 SDK；无默认产品路由 |
+| LR-1 | 实验性 `export-core` CLI（`core.v0`） | 待 LR-1a 后 + cutover 更安静 | CLI 写出 export 目录；Counter + 一个 stateful 子集；CapabilityPlan 填满 |
 | LR-2 | 可选单链 Rust 试点（优先 EVM；优先 A0 再 A1） | 待 LR-1 后 | 声明维度 dual-run；CLI 默认仍为 Lean |
 | LR-3+ | 三链后端 / 默认 Rust lower | 待定 | 一个发布周期 dual-run + 可衡量收益；Lean 路径仍可切换 |
 
