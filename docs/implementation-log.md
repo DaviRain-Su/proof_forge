@@ -4357,3 +4357,26 @@ Rules:
   transfer/owner/initialize selectors); DualRunObserve Ownable via Lean keccak;
   dual-run-observe CLI ok.
 - Remaining: LR-S5 Lean product lower quality; optional export-core observe flag.
+
+## 2026-07-15 - LR-S5/M1: EVM selector policy + Ownable product smoke
+
+- Status: `done` (PR #105 branch; P0–P1 of M1 plan)
+- Result: Documented pin / Lean keccak / cast priority in
+  `docs/targets/evm-selectors.md`. Product smoke
+  `scripts/evm/ownable-product-smoke.sh` + `just ownable-evm-smoke` builds
+  portable Ownable through Yul→solc (works with or without `cast` on PATH).
+  `buildFromCore` missing-selector error points at hydrate + docs. Validation
+  gates index keccak / dual-run / ownable smoke. D-058 still holds (no Rust
+  product lower).
+- Verification: `just ownable-evm-smoke` (with cast and PATH without cast);
+  `just keccak256`.
+- Remaining: P2 export invariants if gaps; P3 Solana/NEAR pain knives; land #105.
+
+## 2026-07-15 - LR-S5/M1 P2 light: export hostCall fail-closed still green
+
+- Status: `done` (PR #105 branch)
+- Result: Re-ran `CoreExportHostCall` (CREATE handlers on evm; refuse near/solana)
+  and a Counter `export-core` + `pf-core-inspect check`. No code change required
+  for P2; invariants hold.
+- Verification: CoreExportHostCall.lean; export-core fixture counter check.
+- Remaining: P3 Solana/NEAR pain knives only with repros; land #105.

@@ -24,8 +24,8 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **PR #105** post-D-058: LR-S1…S4 done (export-inspect, Lean keccak selectors, dual-run-observe-seam-a); **no Rust product lower** (D-058) |
-| Next task | Land/review PR #105; **LR-S5** invest Lean product lower quality (Yul/sBPF/WAT). #104 cutover remains separate |
+| Active task | **PR #105** **LR-S5/M1 P0–P1 done**: selector policy + `just ownable-evm-smoke` (Ownable Yul→solc); Seam A maintain; **D-058** |
+| Next task | P2 triad export invariants if needed; P3 Solana/NEAR pain knives. Land/review #105; #104 cutover separate |
 | Parallel on main (done) | C3 OpenVM research brief → **defer** backend; D-057 design docs at `d9c132a0` |
 | Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
 | Execution queue | [PR #105](https://github.com/DaviRain-Su/proof_forge/pull/105); [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |

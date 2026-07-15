@@ -461,6 +461,10 @@ export-inspect path out="build/export/inspect-run" target="evm":
 keccak256:
     lake env lean --run Tests/Util/Keccak256.lean
 
+# LR-S5/M1: portable Ownable product → Yul → solc bytecode (D-058: Lean product path only).
+ownable-evm-smoke:
+    ./scripts/evm/ownable-product-smoke.sh
+
 # Dual-run observe dumps + Rust compare (Seam A; Lean selectors via keccak).
 dual-run-observe-seam-a:
     lake env lean --run Tests/Util/Keccak256.lean

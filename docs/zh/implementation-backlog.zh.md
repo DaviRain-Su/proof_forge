@@ -71,7 +71,7 @@
 | LR-S2 | `just export-inspect` 编排（export + check/summary） | done（PR #105） | Seam A 一键编排；无产品 lower |
 | LR-S3 | 纯 Lean keccak 补 selector（无 cast） | done（PR #105） | `ProofForge.Util.Keccak256`；`selectorForLean`；DualRunObserve 无 Foundry 即可补 selector |
 | LR-S4 | dual-run observe 配方 + 包旁 observe dump | done（PR #105） | `just dual-run-observe-seam-a`；DualRunObserve 写 `lean-evm-observe.v0.json`（export-core 标志可后补） |
-| LR-S5 | Lean 产品 lower 质量（Yul / sBPF / WAT） | ongoing | D-058 下主投入 — 非 Seam A Rust |
+| LR-S5 | Lean 产品 lower 质量（Yul / sBPF / WAT） | **in_progress（M1 P0–P1 完；P2/P3 待续）** | M1：`docs/targets/evm-selectors.md` + `just ownable-evm-smoke`；下一步 P2 export / P3 Solana-NEAR |
 
 规格（中文）：
 [lean-rust-boundary](../superpowers/specs/2026-07-15-lean-rust-boundary-design.zh.md)、

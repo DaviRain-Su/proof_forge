@@ -84,10 +84,10 @@
     "note": "synced EN/zh after D-057 lean-rust boundary design (2026-07-15)"
   },
   "docs/validation-gates.md": {
-    "sha256": "9aae55f6eb8882b4f99ee7534a9f5987ea1989c455611521a4e01bea38cab7d7",
+    "sha256": "b9ed2a735d3627de35082ab45f40a1dc0bc0867846d3d1366294549c4163ddb5",
     "zh": "docs/zh/validation-gates.zh.md",
     "model": "manual-zh",
-    "note": "synced after D-058"
+    "note": "synced after LR-S5 M1"
   },
   "docs/rfcs/README.md": {
     "sha256": "9ad1054225c1661b2f9dbe5cdaaf81fb6fdaa412276b56461ce52edf503e7aa5",
@@ -187,9 +187,9 @@
     "note": "EN overview + §12 internals; zh is full deep-dive"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "226cf881ce0fbbf0b287373deb93222c2d4a9c10e2e65c8823007b82b2caf5d6",
+    "sha256": "d467233b6d8d1f82f6c1466119aff0dca533e13b6d6e0c3738403761f04d41c3",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced after LR-S3/S4 pure Lean keccak"
+    "note": "synced after LR-S5 M1"
   }
 }

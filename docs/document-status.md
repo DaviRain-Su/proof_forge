@@ -41,6 +41,8 @@ generated artifacts remain the implementation truth.
 | Seam A long-running goal (export-core + pf-core + dual-run) | [agent-goal-prompt-lean-rust-seam-a.md](agent-goal-prompt-lean-rust-seam-a.md) (branch PR #105) |
 | Core export v0 draft (Seam A) | [core-export-v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
 | Checked Core export draft (Seam A / Phase 1, experimental) | [Core export v0 draft](superpowers/specs/2026-07-15-core-export-v0-draft.md) ([中文](superpowers/specs/2026-07-15-core-export-v0-draft.zh.md)) |
+| EVM ABI selector policy (pin / Lean keccak / cast) | [targets/evm-selectors.md](targets/evm-selectors.md) |
+| Seam A local gates (no Rust product lower) | `just keccak256`, `just export-inspect`, `just dual-run-observe-seam-a`, `just ownable-evm-smoke` |
 
 ## Historical Baselines
 
