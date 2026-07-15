@@ -1,0 +1,18 @@
+;; ProofForge V2 locked-tool materialization policy. Generated; do not edit output.
+(version 1)
+(deny default)
+
+(allow process-fork)
+(allow signal (target self) (target children))
+(allow sysctl-read (sysctl-name "hw.ncpu" "hw.pagesize_compat"))
+(allow process-exec
+@@PROCESS_EXEC_FILTERS@@)
+
+(allow file-read-metadata file-test-existence
+@@METADATA_FILTERS@@)
+(allow file-read*
+@@READ_FILTERS@@)
+(allow file-map-executable
+@@MAP_EXEC_FILTERS@@)
+(allow file-write*
+@@WRITE_FILTERS@@)
