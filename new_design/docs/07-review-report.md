@@ -40,20 +40,26 @@ Finding severity：P0 安全/语义破坏、P1 发布阻断、P2 可带明确跟
 
 ## 证据集
 
-| EV ID | Gate | Result |
-|---|---|---|
-| EV-20260715-0001 | docs-check | passed |
-| EV-20260715-0002 | unit tests | passed |
-| EV-20260715-0003/0006 | target-smoke / just check | passed |
-| EV-20260715-0004 | EVM Anvil runtime | passed |
-| EV-20260715-0009/0010 | toolchain + clean-room alpha | passed (development) |
-| EV-20260715-0011 | Stage-0 development + formal rejection | passed / expected fail closed |
-| EV-20260715-0012 | H1 deny-default clean-room + schema EV | passed (`eligibleForHermetic=false`) |
+| EV ID | Gate | Result | Closes / scope |
+|---|---|---|---|
+| EV-20260715-0001 | docs-check | passed | TST-DOC-001 / NFR-005 |
+| EV-20260715-0002 | unit tests | passed | alpha unit baseline |
+| EV-20260715-0003/0006 | target-smoke / just check | passed | early four-target / product gate |
+| EV-20260715-0004 | EVM Anvil runtime | passed | TST-EVM-005 baseline |
+| EV-20260715-0009/0010 | toolchain + clean-room alpha | passed (development) | tool closure / isolation alpha |
+| EV-20260715-0011 | Stage-0 development + formal rejection | passed / expected fail closed | TST-HOST-001；formal `PF-HOST-INELIGIBLE` |
+| EV-20260715-0012 | H1 deny-default clean-room + schema EV | passed (`eligibleForHermetic=false`) | TASK-D0-03/H1；not TST-ISO-002 |
+| EV-20260716-0013 | SourceIdentity (NodeId/span/tokenize/limits) | passed | TASK-D1-01 / TST-SRC-001/002 |
+| EV-20260716-0014 | program parser + kind negative | passed | TASK-D1-02 / TST-SRC-003 / FR-001 |
+| EV-20260716-0015 | Declarations (state/init/entry/stmt) | passed | TASK-D1-03/04 / TST-SRC-004/005 / FR-002 |
+| EV-20260716-0016 | Export + PF-EXPORT-001/002 | passed | TASK-D1-05/06/07 / TST-SRC-006..008 / TST-DIAG-001 / FR-010 / NFR-002 |
+| EV-20260716-0017 | Pipeline/Bound/Semantics/Targets | passed | TASK-D2-01..07 / TYPE/EFFECT/BOUND/VIS/SEM/REQ / FR-003/004/006/012/013 / NFR-008 |
+| EV-20260716-0018 | target-smoke/negatives/Anvil/repro/output-security | passed | runnable D3–D8 / FR-005..009/011/014 / NFR-001/003/009/010 at proven maturity |
 
 ## 最终决策
 
-- Candidate version/commit：formal D1 NodeId/export + D2/D3–D8 gates through `458e696f`+（见 log）
-- Evidence set：EV-20260715-0011/0012 + EV-20260716-0013..0018；Merkle root 未做 release 级汇总
+- Candidate version/commit：formal D1 NodeId/export through D3–D8 maturity closeout (`2a21a962`+)
+- Evidence set：EV-20260715-0001..0012 + EV-20260716-0013..0018；Merkle root 未做 release 级汇总
 - Supported targets/profiles（Phase-1 engineering maturity）：
   - `evm`：solc bytecode + Anvil Counter（local_runtime）
   - `near`：Wasm structural validate（artifact_validated；无 sandbox receipt）

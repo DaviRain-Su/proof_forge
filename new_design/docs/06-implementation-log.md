@@ -306,6 +306,17 @@ normative: false
 - Limitations：no ELF/sandbox/proof/formal hermetic; review `not_ready`.
 - Next：none open for Phase-1 implementation; only blocked host/tool rows.
 
+## 2026-07-16 — control-plane: matrix + review EV sync
+
+- Spec/Test：skeptic gap — requirements-matrix and review evidence table lagged task ledger.
+- Changed：`docs/traceability/requirements-matrix.md` upgrades FR-005..014 and NFR rows to
+  matching EV-0016..0018 (or honest partial/blocked); `docs/07-review-report.md` evidence
+  table lists EV-20260716-0013..0018 with closeout scope.
+- Commands：`python3 -I -S scripts/docs_check.py`；`git diff --check`.
+- Results：docs-check ok；matrix no longer claims `specified` for closed formal tasks.
+- Evidence：control-plane only; no new runtime gate.
+- Next：none for Phase-1 implementation; blocked host/tool rows unchanged.
+
 ## 记录模板
 
 
