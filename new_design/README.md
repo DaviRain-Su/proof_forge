@@ -57,16 +57,19 @@ CosmWasm、Soroban、Internet Computer、OpenVM、Aleo 和 Psy 本阶段只形�
 oracle、兼容入口或失败回退。最终 clean-room 门禁必须能将本目录复制到空目录，
 清理父项目相关环境后独立构建和测试。
 
-当前 `just v2-clean-room-alpha`（`just isolated-check` 为兼容别名）已在随机归档目录、空 HOME/cache、受控 PATH 与 macOS
-网络沙箱中完成 clean build/test、四目标制品验证、逐字节复现和 localhost-only EVM
-runtime。外部工具现已从精确 archive/file 进入 content-addressed cache：官方 solc 只使用
-系统库，WABT 的 `libcrypto` 与 Foundry archive 也在 bundle 中逐文件校验，并验证实际
-Mach-O load closure。首次运行前显式执行 `just toolchains-provision-external` 和
-`just toolchains-materialize-external`；普通 build 不联网。
+当前 `just v2-clean-room-alpha`（`just isolated-check` 为兼容别名）在随机归档目录、空
+HOME/cache、受控 PATH 与 macOS 网络沙箱中执行 clean build/test、四目标制品验证、逐字节
+复现和 localhost-only EVM runtime。Lean/Lake 与外部工具都从精确 archive/file 进入
+content-addressed cache：官方 Lean ZIP 离线物化完整 toolchain；官方 solc 只使用系统库，
+WABT 的 `libcrypto` 与 Foundry archive 也在 bundle 中逐文件校验，并验证实际 Mach-O load
+closure。首次运行前显式执行 `just toolchains-provision-lean` 和
+`just toolchains-provision-external`；`toolchains-materialize-lean` 与
+`toolchains-materialize-external` 可用于独立检查物化结果，普通 build 和 clean-room gate
+本身不联网。
 
-它仍是 alpha：Lean 目前仍从 elan tree 复制；当前 macOS host profile 报告
-`Sealed: Broken`，且 deny-default sandbox 与 schema evidence 尚未完成。因此不能作为正式
-hermetic 或 release evidence。
+它仍是 alpha：Lean cache consumer 尚需在本里程碑候选提交上完成完整主线 gate 证据；当前
+macOS host profile 报告 `Sealed: Broken`，且 deny-default sandbox 与 schema evidence 尚未
+完成。因此不能作为正式 hermetic 或 release evidence。
 
 ## 文档权威顺序
 

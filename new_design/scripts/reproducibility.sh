@@ -13,5 +13,5 @@ for run in a b; do
   done
 done
 
-python3 "$root/scripts/check_reproducibility.py" \
+/usr/bin/python3 -I -S "$root/scripts/check_reproducibility.py" \
   "$root/build/repro/a" "$root/build/repro/b"

@@ -12,20 +12,48 @@ test:
     lake env .lake/build/bin/proof-forge-next-tests
 
 docs-check:
-    python3 scripts/docs_check.py
+    /usr/bin/python3 -I -S scripts/docs_check.py
 
 toolchains-validate:
-    /usr/bin/python3 scripts/toolchain_assets.py validate
-    /usr/bin/python3 scripts/toolchain_assets.py self-test
+    /usr/bin/python3 -I -S scripts/toolchain_assets.py validate
+    /usr/bin/python3 -I -S scripts/toolchain_assets.py self-test
+
+python-isolation-negative:
+    #!/bin/bash
+    set -euo pipefail
+    tmp="$PWD/build/python-site-negative"
+    rm -rf "$tmp"
+    version="$(/usr/bin/python3 -I -S -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    site="$tmp/Library/Python/$version/lib/python/site-packages"
+    mkdir -p "$site"
+    printf 'import sys; print("PTH_EXECUTED_BEFORE_TOOLCHAIN_VALIDATION")\n' > "$site/probe.pth"
+    if HOME="$tmp" /usr/bin/python3 scripts/toolchain_assets.py validate > "$tmp/unisolated.log" 2>&1; then
+      echo "toolchain validator unexpectedly accepted a site-enabled interpreter" >&2
+      exit 1
+    fi
+    rg -q "PTH_EXECUTED_BEFORE_TOOLCHAIN_VALIDATION" "$tmp/unisolated.log"
+    rg -q "run toolchain-assets with /usr/bin/python3 -I -S" "$tmp/unisolated.log"
+    HOME="$tmp" /usr/bin/python3 -I -S scripts/toolchain_assets.py validate > "$tmp/isolated.log" 2>&1
+    if rg -q "PTH_EXECUTED_BEFORE_TOOLCHAIN_VALIDATION" "$tmp/isolated.log"; then
+      echo "isolated Python executed a user .pth file" >&2
+      exit 1
+    fi
+    rg -q "toolchain-assets: lock validation ok" "$tmp/isolated.log"
 
 toolchains-provision-external:
-    /usr/bin/python3 scripts/toolchain_assets.py provision --group external
+    /usr/bin/python3 -I -S scripts/toolchain_assets.py provision --group external
+
+toolchains-provision-lean:
+    /usr/bin/python3 -I -S scripts/toolchain_assets.py provision --group lean
 
 toolchains-materialize-external destination="$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64":
-    /usr/bin/python3 scripts/toolchain_assets.py materialize-external --destination "{{destination}}"
+    /usr/bin/python3 -I -S scripts/toolchain_assets.py materialize-external --destination "{{destination}}"
+
+toolchains-materialize-lean destination="$HOME/.cache/proof-forge-v2/lean-root/darwin-arm64":
+    /usr/bin/python3 -I -S scripts/toolchain_assets.py materialize-lean --destination "{{destination}}"
 
 toolchains-verify-external:
-    /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "{{tool_root}}"
+    /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "{{tool_root}}"
 
 toolchains-closure-negative: build
     rm -rf build/toolchain-closure-negative
@@ -35,7 +63,7 @@ toolchains-closure-negative: build
     chmod u+w build/toolchain-closure-negative/lib/libcrypto.3.dylib
     dd if=/dev/zero of=build/toolchain-closure-negative/lib/libcrypto.3.dylib bs=1 count=1 conv=notrunc >/dev/null 2>&1
     chmod 0444 build/toolchain-closure-negative/lib/libcrypto.3.dylib
-    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-closure-negative" > build/toolchain-closure-negative.log 2>&1; then echo "tampered runtime dependency unexpectedly verified" >&2; exit 1; fi
+    if /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-closure-negative" > build/toolchain-closure-negative.log 2>&1; then echo "tampered runtime dependency unexpectedly verified" >&2; exit 1; fi
     rg -q "bundle hash mismatch" build/toolchain-closure-negative.log
     if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-closure-negative" lake env .lake/build/bin/proof-forge-next build-counter --target near -o build/v2/runtime-mismatch > build/runtime-mismatch.log 2>&1; then echo "compiler unexpectedly accepted tampered runtime dependency" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISMATCH" build/runtime-mismatch.log
@@ -56,19 +84,19 @@ toolchains-root-negative: build
     rm -rf build/toolchain-root-world build/toolchain-root-extra build/toolchain-root-hardlink build/toolchain-root-symlink build/toolchain-root-outside build/v2/root-world-negative build/v2/root-hardlink-negative build/v2/root-symlink-negative
     cp -R "{{tool_root}}" build/toolchain-root-world
     chmod 0777 build/toolchain-root-world
-    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-world" > build/toolchain-root-world.log 2>&1; then echo "world-writable tool root unexpectedly verified" >&2; exit 1; fi
+    if /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-world" > build/toolchain-root-world.log 2>&1; then echo "world-writable tool root unexpectedly verified" >&2; exit 1; fi
     if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-world" lake env .lake/build/bin/proof-forge-next build-counter --target near -o build/v2/root-world-negative > build/toolchain-root-world-compiler.log 2>&1; then echo "compiler unexpectedly accepted a world-writable tool root" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISMATCH" build/toolchain-root-world-compiler.log
     cp -R "{{tool_root}}" build/toolchain-root-extra
     ln -s /opt/homebrew build/toolchain-root-extra/unexpected-link
-    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-extra" > build/toolchain-root-extra.log 2>&1; then echo "tool root with an extra symlink unexpectedly verified" >&2; exit 1; fi
+    if /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-extra" > build/toolchain-root-extra.log 2>&1; then echo "tool root with an extra symlink unexpectedly verified" >&2; exit 1; fi
     cp -R "{{tool_root}}" build/toolchain-root-hardlink
     ln build/toolchain-root-hardlink/lib/libcrypto.3.dylib build/toolchain-root-outside
-    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-hardlink" > build/toolchain-root-hardlink.log 2>&1; then echo "tool root containing a multiply-linked file unexpectedly verified" >&2; exit 1; fi
+    if /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-hardlink" > build/toolchain-root-hardlink.log 2>&1; then echo "tool root containing a multiply-linked file unexpectedly verified" >&2; exit 1; fi
     if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-hardlink" lake env .lake/build/bin/proof-forge-next build-counter --target near -o build/v2/root-hardlink-negative > build/toolchain-root-hardlink-compiler.log 2>&1; then echo "compiler unexpectedly accepted a multiply-linked runtime file" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISMATCH" build/toolchain-root-hardlink-compiler.log
     ln -s "{{tool_root}}" build/toolchain-root-symlink
-    if /usr/bin/python3 scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-symlink" > build/toolchain-root-symlink.log 2>&1; then echo "symlink tool root unexpectedly verified" >&2; exit 1; fi
+    if /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-symlink" > build/toolchain-root-symlink.log 2>&1; then echo "symlink tool root unexpectedly verified" >&2; exit 1; fi
     if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-symlink" lake env .lake/build/bin/proof-forge-next build-counter --target near -o build/v2/root-symlink-negative > build/toolchain-root-symlink-compiler.log 2>&1; then echo "compiler unexpectedly accepted a symlink tool root" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISMATCH" build/toolchain-root-symlink-compiler.log
     test ! -e build/v2/root-world-negative
@@ -99,7 +127,7 @@ target-smoke: build
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target solana -o build/v2/solana
     DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target near -o build/v2/near
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target noir -o build/v2/noir
-    python3 scripts/validate_artifacts.py build/v2
+    /usr/bin/python3 -I -S scripts/validate_artifacts.py build/v2
 
 output-security: build
     rm -rf build/v2/atomic-output build/v2/atomic-before build/v2/atomic-new build/source-overlap
@@ -125,7 +153,7 @@ evm-runtime: target-smoke
 reproducibility: build
     bash scripts/reproducibility.sh
 
-check: docs-check toolchains-validate toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
+check: docs-check python-isolation-negative toolchains-validate toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
 
 isolated-check:
     bash scripts/verify_isolation.sh

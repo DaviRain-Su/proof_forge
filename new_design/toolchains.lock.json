@@ -52,6 +52,8 @@
     "assetId": "lean-4.31.0-darwin-arm64",
     "archiveRoot": "lean-4.31.0-darwin_aarch64",
     "stripComponents": 1,
+    "entryCount": 15194,
+    "unpackedSize": 2761381330,
     "executables": [
       {
         "path": "bin/lake",
@@ -62,8 +64,18 @@
         "sha256": "1b370cfcbf44e80d1b004ab1b1ab9a4c73951f9f7c242140bcff9bc577576554"
       }
     ],
-    "versionArgs": ["--version"],
-    "expectedVersion": "Lean (version 4.31.0, commit 68218e876d2a38b1985b8590fff244a83c321783"
+    "versionProbes": [
+      {
+        "path": "bin/lake",
+        "args": ["--version"],
+        "expected": "Lake version 5.0.0-src+68218e8 (Lean version 4.31.0)"
+      },
+      {
+        "path": "bin/lean",
+        "args": ["--version"],
+        "expected": "Lean (version 4.31.0, arm64-apple-darwin24.6.0, commit 68218e876d2a38b1985b8590fff244a83c321783, Release)"
+      }
+    ]
   },
   "bundleFiles": [
     {

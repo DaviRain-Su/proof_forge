@@ -12,14 +12,6 @@ sha256_file() {
   echo "${output%% *}"
 }
 
-copy_tree() {
-  local source="$1"
-  local destination="$2"
-  if ! /bin/cp -cR "$source" "$destination" 2>/dev/null; then
-    /bin/cp -R "$source" "$destination"
-  fi
-}
-
 run_core_gate() {
   [[ -n "${PF_CLEAN_SOURCE:-}" && -n "${PF_CLEAN_OUTPUT:-}" && -n "${PF_LEAN_ROOT:-}" ]] ||
     die "internal clean-room environment is incomplete"
@@ -37,7 +29,7 @@ run_core_gate() {
   local targets="$PF_CLEAN_OUTPUT/targets"
   local repro="$PF_CLEAN_OUTPUT/repro"
 
-  /usr/bin/python3 "$PF_CLEAN_SOURCE/scripts/docs_check.py"
+  /usr/bin/python3 -I -S "$PF_CLEAN_SOURCE/scripts/docs_check.py"
   "$lake" --dir "$PF_CLEAN_SOURCE" --no-cache build \
     ProofForgeV2 proof_forge_next proof_forge_next_tests
   "$lake" --dir "$PF_CLEAN_SOURCE" env "$tests"
@@ -49,7 +41,7 @@ run_core_gate() {
     "$lake" --dir "$PF_CLEAN_SOURCE" env "$compiler" build Examples/Counter.lean \
       --root "$PF_CLEAN_SOURCE" --program Examples.Counter --target "$target" -o "$targets/$target"
   done
-  /usr/bin/python3 "$PF_CLEAN_SOURCE/scripts/validate_artifacts.py" "$targets"
+  /usr/bin/python3 -I -S "$PF_CLEAN_SOURCE/scripts/validate_artifacts.py" "$targets"
 
   for run in a b; do
     for target in evm solana near noir; do
@@ -57,7 +49,7 @@ run_core_gate() {
         --root "$PF_CLEAN_SOURCE" --program Examples.Counter --target "$target" -o "$repro/$run/$target"
     done
   done
-  /usr/bin/python3 "$PF_CLEAN_SOURCE/scripts/check_reproducibility.py" "$repro/a" "$repro/b"
+  /usr/bin/python3 -I -S "$PF_CLEAN_SOURCE/scripts/check_reproducibility.py" "$repro/a" "$repro/b"
   echo "clean-room-alpha: docs/build/tests/target-smoke/reproducibility ok"
 }
 
@@ -101,7 +93,7 @@ run_evm_gate() {
     encoded="$("$cast" abi-encode 'constructor(uint64)' "$initial")"
     receipt="$("$cast" send --json --rpc-url "$rpc" --private-key "$private_key" \
       --create "0x${bytecode}${encoded#0x}")"
-    /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])' <<<"$receipt"
+    /usr/bin/python3 -I -S -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])' <<<"$receipt"
   }
 
   local counter before after balance bytecode encoded max_counter preserved
@@ -151,9 +143,11 @@ case "${1:-}" in
 esac
 
 source_home="${HOME:?HOME is required while provisioning the locked cache}"
+asset_cache="${PROOF_FORGE_ASSET_CACHE:-${XDG_CACHE_HOME:-$source_home/.cache}/proof-forge-v2/assets}"
 unset BASH_ENV ENV CDPATH DEVELOPER_DIR GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_DIR \
   GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_REPLACE_REF_BASE PYTHONHOME \
-  PYTHONPATH PYTHONSTARTUP LEAN_PATH LEAN_SRC_PATH ELAN_HOME
+  PYTHONPATH PYTHONSTARTUP LEAN_PATH LEAN_SRC_PATH ELAN_HOME PROOF_FORGE_ASSET_CACHE \
+  XDG_CACHE_HOME
 export PATH=/usr/bin:/bin
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
@@ -165,6 +159,7 @@ kat_output="$(printf abc | /usr/bin/openssl dgst -sha256)"
 [[ "$(/usr/bin/uname -s)" == Darwin && "$(/usr/bin/uname -m)" == arm64 ]] ||
   die "this locked clean-room profile currently supports darwin-arm64 only"
 command -v /usr/bin/sandbox-exec >/dev/null 2>&1 || die "macOS sandbox-exec is unavailable"
+materialize_profile='(version 1)(allow default)(deny network*)'
 
 root="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
 repo_root="$(/usr/bin/git -C "$root" rev-parse --show-toplevel)"
@@ -180,6 +175,12 @@ cleanup() {
   if [[ -n "${probe_pid:-}" ]]; then
     kill "$probe_pid" 2>/dev/null || true
     wait "$probe_pid" 2>/dev/null || true
+  fi
+  # Locked tool trees are deliberately materialized read-only. Restore only
+  # owner write permission inside this private temporary root so rm can remove
+  # the exact-tree directories without leaving multi-gigabyte residue.
+  if [[ -n "${tool_root:-}" ]]; then
+    /usr/bin/find -P "$tool_root" -type d -exec /bin/chmod u+w {} + 2>/dev/null || true
   fi
   /bin/rm -rf -- "$tmp"
 }
@@ -218,24 +219,31 @@ if /usr/bin/grep -R -F "$repo_root" "$source_root" >/dev/null 2>&1; then
   die "archive embeds the parent repository absolute path"
 fi
 
-elan="$source_home/.elan/bin/elan"
-[[ -x "$elan" ]] || die "elan is required only for audited Lean toolchain provisioning"
-lean_source="$(cd "$root" && "$elan" which lean)"
-lake_source="$(cd "$root" && "$elan" which lake)"
-lean_source_root="${lean_source%/bin/lean}"
-[[ "$lake_source" == "$lean_source_root/bin/lake" ]] || die "Lean and Lake resolve to different toolchains"
-copy_tree "$lean_source_root" "$tool_root/lean"
 lean_root="$tool_root/lean"
-[[ -z "$(/usr/bin/find "$lean_root" -type l -print -quit)" ]] || die "copied Lean toolchain contains symlinks"
-[[ "$(sha256_file "$lean_source")" == "$(sha256_file "$lean_root/bin/lean")" ]] || die "Lean changed while copying"
-[[ "$(sha256_file "$lake_source")" == "$(sha256_file "$lean_root/bin/lake")" ]] || die "Lake changed while copying"
-"$lean_root/bin/lean" --version | /usr/bin/grep -Fq 'version 4.31.0'
-"$lean_root/bin/lean" --version | /usr/bin/grep -Fq 'commit 68218e876d2a38b1985b8590fff244a83c321783'
-"$lean_root/bin/lake" --version | /usr/bin/grep -Fq 'Lean version 4.31.0'
-echo "clean-room-alpha: provisioned Lean sha256=$(sha256_file "$lean_root/bin/lean")"
-echo "clean-room-alpha: provisioned Lake sha256=$(sha256_file "$lean_root/bin/lake")"
+/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
+  "HOME=$home_root" "LC_ALL=C" "PATH=/usr/bin:/bin" \
+  "PROOF_FORGE_ASSET_CACHE=$asset_cache" "TZ=UTC" /usr/bin/python3 -I -S \
+  "$source_root/scripts/toolchain_assets.py" \
+  --lock "$source_root/toolchains.lock.json" \
+  --host-lock "$source_root/host-profiles.lock.json" \
+  materialize-lean --destination "$lean_root"
+[[ -z "$(/usr/bin/find "$lean_root" -type l -print -quit)" ]] || die "materialized Lean toolchain contains symlinks"
+/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
+  "HOME=$home_root" "LC_ALL=C" "PATH=$lean_root/bin:/usr/bin:/bin" "TZ=UTC" \
+  "$lean_root/bin/lean" --version | /usr/bin/grep -Fq 'version 4.31.0'
+/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
+  "HOME=$home_root" "LC_ALL=C" "PATH=$lean_root/bin:/usr/bin:/bin" "TZ=UTC" \
+  "$lean_root/bin/lean" --version | /usr/bin/grep -Fq 'commit 68218e876d2a38b1985b8590fff244a83c321783'
+/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
+  "HOME=$home_root" "LC_ALL=C" "PATH=$lean_root/bin:/usr/bin:/bin" "TZ=UTC" \
+  "$lean_root/bin/lake" --version | /usr/bin/grep -Fq 'Lean version 4.31.0'
+echo "clean-room-alpha: materialized locked Lean sha256=$(sha256_file "$lean_root/bin/lean")"
+echo "clean-room-alpha: materialized locked Lake sha256=$(sha256_file "$lean_root/bin/lake")"
 
-/usr/bin/python3 "$source_root/scripts/toolchain_assets.py" \
+/usr/bin/sandbox-exec -p "$materialize_profile" /usr/bin/env -i \
+  "HOME=$home_root" "LC_ALL=C" "PATH=/usr/bin:/bin" \
+  "PROOF_FORGE_ASSET_CACHE=$asset_cache" "TZ=UTC" /usr/bin/python3 -I -S \
+  "$source_root/scripts/toolchain_assets.py" \
   --lock "$source_root/toolchains.lock.json" \
   --host-lock "$source_root/host-profiles.lock.json" \
   materialize-external --destination "$external_bin"
@@ -245,7 +253,7 @@ echo "clean-room-alpha: materialized locked external asset bundle"
 /bin/chmod 500 "$runner"
 
 escape_sandbox_string() {
-  /usr/bin/python3 -c 'import sys; print(sys.argv[1].replace("\\", "\\\\").replace("\"", "\\\""))' "$1"
+  /usr/bin/python3 -I -S -c 'import sys; print(sys.argv[1].replace("\\", "\\\\").replace("\"", "\\\""))' "$1"
 }
 denied_home="$(escape_sandbox_string "$source_home")"
 denied_repo="$(escape_sandbox_string "$repo_root")"
@@ -253,7 +261,7 @@ deny_network_profile="(version 1)(allow default)(deny network*)(deny file-read* 
 localhost_profile="(version 1)(allow default)(deny network*)(allow network-inbound (local ip \"localhost:*\"))(allow network-outbound (remote ip \"localhost:*\"))(deny file-read* (subpath \"/opt/homebrew\"))(deny file-write* (subpath \"/opt/homebrew\"))(deny file-read* (subpath \"$denied_home\"))(deny file-write* (subpath \"$denied_home\"))(deny file-read* (subpath \"$denied_repo\"))(deny file-write* (subpath \"$denied_repo\"))"
 
 probe_port_file="$tmp/network-probe.port"
-/usr/bin/python3 - "$probe_port_file" <<'PY' &
+/usr/bin/python3 -I -S - "$probe_port_file" <<'PY' &
 import pathlib
 import socket
 import sys
@@ -273,16 +281,16 @@ for ((attempt = 0; attempt < 50; attempt++)); do
 done
 [[ -s "$probe_port_file" ]] || die "could not start sandbox network probe"
 probe_port="$(<"$probe_port_file")"
-if (cd "$tmp" && /usr/bin/sandbox-exec -p "$deny_network_profile" /usr/bin/python3 -c \
+if (cd "$tmp" && /usr/bin/sandbox-exec -p "$deny_network_profile" /usr/bin/python3 -I -S -c \
     "import socket; socket.create_connection(('127.0.0.1',$probe_port),1)") >/dev/null 2>&1; then
   die "sandbox network-deny policy allowed a localhost connection"
 fi
-(cd "$tmp" && /usr/bin/sandbox-exec -p "$localhost_profile" /usr/bin/python3 -c \
+(cd "$tmp" && /usr/bin/sandbox-exec -p "$localhost_profile" /usr/bin/python3 -I -S -c \
   "import socket; socket.create_connection(('127.0.0.1',$probe_port),1)")
 wait "$probe_pid"
 probe_pid=""
 network_error="$tmp/network-probe.err"
-if (cd "$tmp" && /usr/bin/sandbox-exec -p "$localhost_profile" /usr/bin/python3 -c \
+if (cd "$tmp" && /usr/bin/sandbox-exec -p "$localhost_profile" /usr/bin/python3 -I -S -c \
     "import socket; socket.create_connection(('192.0.2.1',9),1)") 2>"$network_error"; then
   die "localhost-only sandbox policy allowed a non-local connection"
 fi
@@ -310,9 +318,9 @@ common_env=(
 (cd "$tmp" && /usr/bin/sandbox-exec -p "$deny_network_profile" /usr/bin/env -i "${common_env[@]}" \
   /bin/bash "$runner" --internal-core)
 
-evm_port="$(/usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+evm_port="$(/usr/bin/python3 -I -S -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
 (cd "$tmp" && /usr/bin/sandbox-exec -p "$localhost_profile" /usr/bin/env -i "${common_env[@]}" \
   "PF_EVM_PORT=$evm_port" /bin/bash "$runner" --internal-evm)
 
 echo "clean-room-alpha: ok commit=$commit archive_sha256=$archive_hash"
-echo "clean-room-alpha: NOT hermetic: Lean still comes from the elan tree, the current host profile is ineligible, and deny-default/evidence closure remain open; D0-03/D0-04 remain open"
+echo "clean-room-alpha: NOT hermetic: Lean and external tools come from the locked cache, but the current host profile is ineligible and deny-default/evidence closure remain open; D0-03/D0-04 remain open"

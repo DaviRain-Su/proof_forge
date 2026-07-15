@@ -44,10 +44,12 @@ sourceHash、semanticHash、planHash、TargetIR hash、所有 artifact hash 和 
 不属于 gate。
 
 当前 `v2-clean-room-alpha` 已实现 committed archive、空 HOME/cache、`env -i`、父目录 deny、
-Core 全断网、EVM localhost-only、clean build/test、四目标复现与 EVM runtime。它尚未满足
-第 6 步的完整闭包：external solc/WABT+libcrypto/Foundry 已进入 content-addressed cache 并
-验证实际 Mach-O load，但 Lean 仍从 elan tree 复制；当前 macOS host profile 不具备
-hermetic 资格，sandbox/evidence 也未闭合。因此 `TASK-D0-03` 仍在进行，`TASK-D0-04`
+Core 全断网、EVM localhost-only、clean build/test、四目标复现与 EVM runtime。consumer
+实现已把 Lean ZIP 与 external solc/WABT+libcrypto/Foundry 都改为从 content-addressed cache
+离线物化，不再读取 elan/Homebrew/Foundry install tree；物化本身使用 isolated/no-site
+Python、`env -i` 与 no-network sandbox，包含其 Lean/Lake/external version probes。Lean
+consumer 仍需候选提交的完整 archive gate 证据。当前 macOS host profile 不具备 hermetic
+资格，deny-default sandbox/evidence 也未闭合。因此 `TASK-D0-03` 仍在进行，`TASK-D0-04`
 仍为 blocked。
 
 ## Cache Policy

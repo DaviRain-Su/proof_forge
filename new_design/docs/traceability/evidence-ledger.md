@@ -24,4 +24,8 @@ normative: false
 | EV-20260715-0008 | `just v2-clean-room-alpha` | passed (development alpha) | commit `e3b16063…06d5`、archive `c3bbb8db…bdc`；空 HOME/cache、`env -i`、父 repo deny、Core 断网、EVM localhost-only、61-job clean build/test、四目标 19 文件复现及 Anvil；当时 closure 未锁定，非 hermetic，未关闭 TST-ISO-003 |
 | EV-20260715-0009 | toolchain v2 validate/provision/materialize/closure + exact-tree/DYLD negatives + `just evm-runtime` | passed (development slice) | official solc/WABT/OpenSSL/Foundry assets；strict schema、五 file hash/mode/link、Mach-O graph、actual dyld load、tamper/symlink/hardlink/writable/DYLD negatives、Counter runtime；Lean/eligible host/deny-default/EV JSON 未闭合，D0-03 in_progress |
 
+Lean cache consumer 的代码切换本身不是新 evidence；只有候选提交上的 locked Lean cache
+物化和完整 `v2-clean-room-alpha` 运行通过后，才能追加新的 `EV-*`。在此之前
+`TASK-D0-03` 保持 `in_progress`。
+
 未取得：Solana ELF/runtime、NEAR sandbox receipt、Noir ACIR/proof/VK/verify、任何公网部署。

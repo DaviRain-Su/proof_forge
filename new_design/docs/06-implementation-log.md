@@ -134,6 +134,37 @@ normative: false
 - Next：官方 Lean ZIP 离线物化/closure → host Stage-0/profile 判定 → deny-default sandbox 与
   schema evidence；完成前不解除 `TASK-D0-04` blocker。
 
+## 2026-07-15 — TASK-D0-03 Lean cache consumer preparation
+
+- Commit/worktree：基于 `c61f46d6` 的 dirty task-owned slice；等待里程碑候选提交。
+- Changed：`verify_isolation.sh` 删除 elan lookup/tree copy，改由 committed archive 内的
+  `toolchain_assets.py materialize-lean` 从显式 content-addressed cache 离线生成临时 Lean
+  root；同一 cache 继续物化 external root。增加独立的 Lean provision/materialize recipes；
+  Lean 默认 materialize root 与 external exact bundle root 分离；clean-room 退出时只对私有
+  临时 tool root 的只读目录恢复 owner 写权限，确保完整清除 2.6 GiB 工具树。
+- Review repair：独立审查复现 user-site `.pth` 可在 toolchain validator 之前执行，并指出
+  materialize 内的 version probe 尚在网络 sandbox 外。所有 toolchain/gate Python 调用现固定
+  `/usr/bin/python3 -I -S`，validator 拒绝 site-enabled interpreter，并加入真实 `.pth` 注入
+  负向 gate；clean-room materialize 及其子进程改由 `env -i` + no-network sandbox 执行。
+- Commands：`/bin/bash -n scripts/verify_isolation.sh`；`just toolchains-validate`；
+  `/usr/bin/python3 -I -S scripts/toolchain_assets.py materialize-lean --destination
+  build/lean-official-audit`；从该 root 以 `env -i` 执行 Lean/Lake version probe 与
+  `lake --no-cache build ProofForgeV2.CLI.Toolchain`；`just python-isolation-negative`；
+  `just check`；`just evm-runtime`；`just reproducibility`；`just docs-check`；
+  `git diff --check`。
+- Results：以上聚焦门禁全部 exit 0；schema/ZIP 负向 self-test 同时通过。官方 ZIP 精确匹配
+  15,194 entries 与 2,761,381,330 unpacked file bytes；Lean/Lake 的静态可达内部 Mach-O
+  closure 分别为 5/6 节点，且与实际 dyld 集合一致；V2 全套静态/负向 gate、EVM localhost
+  runtime 和四目标 19-file reproducibility 均通过；临时 2.6 GiB root 已完整清除。
+- Evidence：无新增 `EV-*`；代码切换与静态门禁不等于 archive clean-room 运行证据。
+- Limitations：770 MB official Lean asset 已完成 provision、物化与聚焦 build，但尚未在包含
+  本切片的 committed archive 上运行完整 `v2-clean-room-alpha`。当前 host 仍
+  `eligibleForHermetic=false`；
+  allow-default sandbox、Stage-0 host attestation 与 schema EV 未闭合；`TASK-D0-03` 保持
+  `in_progress`，`TASK-D0-04` 保持 blocked。
+- Next：候选提交上完成 locked Lean materialize + clean-room full alpha，记录精确 commit、
+  archive/tool hashes；随后继续 host Stage-0/deny-default/evidence。
+
 ## 记录模板
 
 ```markdown

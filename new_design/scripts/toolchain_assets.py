@@ -11,6 +11,7 @@ import argparse
 import contextlib
 import copy
 import hashlib
+import io
 import json
 import os
 import posixpath
@@ -39,8 +40,18 @@ SAFE_ASSET_ID_RE = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?")
 SAFE_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,254}[A-Za-z0-9])?")
 FORMATS = {"file", "tar.gz", "zip"}
 MAX_ARCHIVE_MEMBERS = 100_000
+MAX_COMPILER_UNPACKED_BYTES = 8 * 1024 * 1024 * 1024
+MAX_ZIP_ENTRY_NAME_BYTES = 4096
+MAX_ZIP_ENTRY_METADATA_BYTES = 1024 * 1024
+MAX_ZIP_TOTAL_METADATA_BYTES = 64 * 1024 * 1024
 MAX_OCI_TOKEN_BYTES = 64 * 1024
 MAX_HTTPS_REDIRECTS = 5
+MACHO_MAGICS = {
+    b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",  # universal 32-bit
+    b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca",  # universal 64-bit
+    b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",  # Mach-O 32-bit
+    b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",  # Mach-O 64-bit
+}
 
 
 class AssetError(RuntimeError):
@@ -214,7 +225,8 @@ def validate_tool_lock(lock: dict) -> dict:
     compiler = require_dict(lock.get("compilerToolchain"), "compilerToolchain")
     require_keys(compiler, {
         "id", "version", "sourceCommit", "platform", "assetId", "archiveRoot",
-        "stripComponents", "executables", "versionArgs", "expectedVersion",
+        "stripComponents", "entryCount", "unpackedSize", "executables",
+        "versionProbes",
     }, "compilerToolchain")
     require_safe_asset_id(compiler.get("id"), "compilerToolchain.id")
     require_string(compiler.get("version"), "compilerToolchain.version")
@@ -234,6 +246,14 @@ def validate_tool_lock(lock: dict) -> dict:
         fail("compilerToolchain.archiveRoot must be one path component")
     if compiler.get("stripComponents") != 1:
         fail("compilerToolchain.stripComponents must be 1")
+    entry_count = compiler.get("entryCount")
+    if (not isinstance(entry_count, int) or isinstance(entry_count, bool) or
+            entry_count <= 1 or entry_count > MAX_ARCHIVE_MEMBERS):
+        fail(f"compilerToolchain.entryCount must be in [2, {MAX_ARCHIVE_MEMBERS}]")
+    unpacked_size = compiler.get("unpackedSize")
+    if (not isinstance(unpacked_size, int) or isinstance(unpacked_size, bool) or
+            unpacked_size <= 0 or unpacked_size > MAX_COMPILER_UNPACKED_BYTES):
+        fail("compilerToolchain.unpackedSize must be in (0, 8 GiB]")
     compiler_executables = require_list(compiler.get("executables"), "compilerToolchain.executables")
     if not compiler_executables:
         fail("compilerToolchain.executables must be non-empty")
@@ -244,10 +264,30 @@ def validate_tool_lock(lock: dict) -> dict:
                      f"compilerToolchain.executables[{index}]")
         safe_relative(executable.get("path"), f"compilerToolchain.executables[{index}].path")
         require_sha256(executable.get("sha256"), f"compilerToolchain.executables[{index}].sha256")
-    version_args = require_list(compiler.get("versionArgs"), "compilerToolchain.versionArgs")
-    if not version_args or not all(isinstance(arg, str) and arg for arg in version_args):
-        fail("compilerToolchain.versionArgs must contain non-empty strings")
-    require_string(compiler.get("expectedVersion"), "compilerToolchain.expectedVersion")
+    executable_paths = {record["path"] for record in compiler_executables}
+    version_probes = require_list(compiler.get("versionProbes"),
+                                  "compilerToolchain.versionProbes")
+    if not version_probes:
+        fail("compilerToolchain.versionProbes must be non-empty")
+    unique_sorted(version_probes, "path", "compilerToolchain.versionProbes")
+    probe_paths: set[str] = set()
+    for index, raw in enumerate(version_probes):
+        probe = require_dict(raw, f"compilerToolchain.versionProbes[{index}]")
+        require_keys(probe, {"path", "args", "expected"},
+                     f"compilerToolchain.versionProbes[{index}]")
+        path = safe_relative(probe.get("path"),
+                             f"compilerToolchain.versionProbes[{index}].path")
+        if path not in executable_paths:
+            fail(f"compiler version probe references undeclared executable {path}")
+        args = require_list(probe.get("args"),
+                            f"compilerToolchain.versionProbes[{index}].args")
+        if not args or not all(isinstance(arg, str) and arg for arg in args):
+            fail("compiler version probe args must contain non-empty strings")
+        require_string(probe.get("expected"),
+                       f"compilerToolchain.versionProbes[{index}].expected")
+        probe_paths.add(path)
+    if probe_paths != executable_paths:
+        fail("every compiler executable must have exactly one version probe")
 
     bundle_files = require_list(lock.get("bundleFiles"), "bundleFiles")
     if not bundle_files:
@@ -1074,8 +1114,15 @@ def materialize_external(lock: dict, host_lock: dict, destination: Path) -> None
 def safe_zip_name(name: str, root: str) -> PurePosixPath | None:
     if "\x00" in name or "\\" in name or name.startswith("/"):
         fail(f"unsafe Lean ZIP path: {name!r}")
+    try:
+        encoded = name.encode("ascii")
+    except UnicodeEncodeError:
+        fail(f"Lean ZIP paths must be ASCII: {name!r}")
+    if len(encoded) > MAX_ZIP_ENTRY_NAME_BYTES:
+        fail(f"Lean ZIP path exceeds {MAX_ZIP_ENTRY_NAME_BYTES} bytes: {name!r}")
     path = PurePosixPath(name)
-    if any(part in {"", ".", ".."} for part in path.parts):
+    if (path.as_posix() != name or
+            any(part in {"", ".", ".."} for part in path.parts)):
         fail(f"non-normal Lean ZIP path: {name!r}")
     if not path.parts or path.parts[0] != root:
         fail(f"Lean ZIP has an unexpected top-level path: {name!r}")
@@ -1084,62 +1131,530 @@ def safe_zip_name(name: str, root: str) -> PurePosixPath | None:
     return PurePosixPath(*path.parts[1:])
 
 
-def materialize_lean(lock: dict, destination: Path) -> None:
+def validate_lean_zip(archive: zipfile.ZipFile, compiler: dict,
+                      asset_id: str) -> list[tuple[zipfile.ZipInfo, str | None]]:
+    """Validate the complete central directory before writing any output."""
+
+    members = archive.infolist()
+    if len(members) != compiler["entryCount"]:
+        fail(f"asset {asset_id} ZIP entry count mismatch: expected "
+             f"{compiler['entryCount']}, got {len(members)}")
+    metadata_total = len(archive.comment)
+    if metadata_total > MAX_ZIP_TOTAL_METADATA_BYTES:
+        fail(f"asset {asset_id} ZIP metadata exceeds the limit")
+
+    root_entry = compiler["archiveRoot"] + "/"
+    root_count = 0
+    unpacked_total = 0
+    manifest: dict[str, str] = {}
+    validated: list[tuple[zipfile.ZipInfo, str | None]] = []
+    for info in members:
+        name = info.filename
+        is_directory = info.is_dir()
+        if is_directory:
+            if not name.endswith("/") or name.endswith("//"):
+                fail(f"Lean ZIP has a malformed directory path: {name!r}")
+            normalized_name = name[:-1]
+        else:
+            if name.endswith("/"):
+                fail(f"Lean ZIP has a malformed file path: {name!r}")
+            normalized_name = name
+
+        relative = safe_zip_name(normalized_name, compiler["archiveRoot"])
+        metadata_size = (46 + len(name.encode("ascii")) + len(info.extra) +
+                         len(info.comment))
+        if metadata_size > MAX_ZIP_ENTRY_METADATA_BYTES:
+            fail(f"Lean ZIP entry metadata exceeds the limit: {name!r}")
+        metadata_total += metadata_size
+        if metadata_total > MAX_ZIP_TOTAL_METADATA_BYTES:
+            fail(f"asset {asset_id} ZIP metadata exceeds the limit")
+        if info.flag_bits & 0x1:
+            fail(f"encrypted Lean ZIP entry is forbidden: {name!r}")
+        if info.create_system != 3:
+            fail(f"Lean ZIP entry lacks Unix metadata: {name!r}")
+        mode = info.external_attr >> 16
+        if mode & 0o7000:
+            fail(f"Lean ZIP privilege mode bits are forbidden: {name!r}")
+        file_type = stat.S_IFMT(mode)
+        if is_directory:
+            if file_type != stat.S_IFDIR or info.file_size != 0:
+                fail(f"Lean ZIP directory metadata is invalid: {name!r}")
+        elif file_type != stat.S_IFREG:
+            fail(f"Lean ZIP entry is not a regular file: {name!r}")
+
+        if relative is None:
+            if name != root_entry or not is_directory:
+                fail(f"Lean ZIP root entry is malformed: {name!r}")
+            root_count += 1
+            validated.append((info, None))
+            continue
+        normalized = relative.as_posix()
+        if normalized in manifest:
+            fail(f"duplicate Lean ZIP path: {normalized}")
+        manifest[normalized] = "directory" if is_directory else "file"
+        if not is_directory:
+            unpacked_total += info.file_size
+            if unpacked_total > compiler["unpackedSize"]:
+                fail(f"asset {asset_id} exceeded locked unpacked size")
+        validated.append((info, normalized))
+
+    if root_count != 1:
+        fail(f"asset {asset_id} must contain exactly one explicit archive root")
+    if len(manifest) != compiler["entryCount"] - 1:
+        fail(f"asset {asset_id} ZIP tree entry count mismatch")
+    if unpacked_total != compiler["unpackedSize"]:
+        fail(f"asset {asset_id} unpacked size mismatch: expected "
+             f"{compiler['unpackedSize']}, got {unpacked_total}")
+    for path, kind in manifest.items():
+        parent = PurePosixPath(path).parent
+        while parent != PurePosixPath("."):
+            parent_text = parent.as_posix()
+            if manifest.get(parent_text) != "directory":
+                fail(f"Lean ZIP omits or conflicts with parent directory {parent_text}")
+            parent = parent.parent
+        if kind == "directory" and not any(
+                candidate.startswith(path + "/") for candidate in manifest if candidate != path):
+            # Empty directories are permitted; this branch documents that they remain part
+            # of the exact final tree rather than being discarded.
+            continue
+    return validated
+
+
+def extract_lean_zip(archive: zipfile.ZipFile,
+                     validated: list[tuple[zipfile.ZipInfo, str | None]],
+                     staging: Path, expected_total: int) -> dict[str, dict]:
+    manifest: dict[str, dict] = {}
+    for info, relative in validated:
+        if relative is None:
+            continue
+        is_directory = info.is_dir()
+        archive_mode = info.external_attr >> 16
+        manifest[relative] = {
+            "kind": "directory" if is_directory else "file",
+            "size": 0 if is_directory else info.file_size,
+            "mode": 0o555 if is_directory or archive_mode & 0o111 else 0o444,
+        }
+
+    directories = sorted(
+        (path for path, record in manifest.items() if record["kind"] == "directory"),
+        key=lambda path: (len(PurePosixPath(path).parts), path),
+    )
+    for relative in directories:
+        (staging / relative).mkdir()
+
+    total = 0
+    for info, relative in validated:
+        if relative is None or info.is_dir():
+            continue
+        output = staging / relative
+        written = 0
+        with archive.open(info, "r") as source, output.open("xb") as target:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                total += len(chunk)
+                if written > info.file_size or total > expected_total:
+                    fail(f"Lean ZIP output exceeded locked size at {relative}")
+                target.write(chunk)
+        if written != info.file_size:
+            fail(f"Lean ZIP output size mismatch at {relative}")
+        os.chmod(output, manifest[relative]["mode"])
+    if total != expected_total:
+        fail(f"Lean ZIP total output mismatch: expected {expected_total}, got {total}")
+    for relative in reversed(directories):
+        os.chmod(staging / relative, manifest[relative]["mode"])
+    os.chmod(staging, 0o555)
+    return manifest
+
+
+def verify_lean_tree(root: Path, manifest: dict[str, dict],
+                     expected_total: int) -> tuple[Path, list[Path]]:
+    root_metadata = root.lstat()
+    if (not stat.S_ISDIR(root_metadata.st_mode) or stat.S_ISLNK(root_metadata.st_mode) or
+            root_metadata.st_uid != os.getuid() or
+            stat.S_IMODE(root_metadata.st_mode) != 0o555):
+        fail("materialized Lean root metadata mismatch")
+    actual_paths: set[str] = set()
+    macho_paths: list[Path] = []
+    total = 0
+
+    def walk(directory: Path, relative_directory: PurePosixPath) -> None:
+        nonlocal total
+        for entry in os.scandir(directory):
+            relative_path = (relative_directory / entry.name
+                             if relative_directory != PurePosixPath(".")
+                             else PurePosixPath(entry.name))
+            relative = relative_path.as_posix()
+            record = manifest.get(relative)
+            if record is None:
+                fail(f"materialized Lean tree contains unexpected path: {relative}")
+            metadata = entry.stat(follow_symlinks=False)
+            if stat.S_ISLNK(metadata.st_mode):
+                fail(f"materialized Lean symlink is forbidden: {relative}")
+            if metadata.st_uid != os.getuid():
+                fail(f"materialized Lean owner mismatch: {relative}")
+            if record["kind"] == "directory":
+                if (not stat.S_ISDIR(metadata.st_mode) or
+                        stat.S_IMODE(metadata.st_mode) != record["mode"]):
+                    fail(f"materialized Lean directory metadata mismatch: {relative}")
+                walk(Path(entry.path), relative_path)
+            else:
+                if not stat.S_ISREG(metadata.st_mode):
+                    fail(f"materialized Lean entry is not regular: {relative}")
+                if metadata.st_nlink != 1:
+                    fail(f"materialized Lean file must have one hard link: {relative}")
+                if (metadata.st_size != record["size"] or
+                        stat.S_IMODE(metadata.st_mode) != record["mode"]):
+                    fail(f"materialized Lean file metadata mismatch: {relative}")
+                total += metadata.st_size
+                flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+                descriptor = os.open(entry.path, flags)
+                try:
+                    before = os.fstat(descriptor)
+                    if ((before.st_dev, before.st_ino) !=
+                            (metadata.st_dev, metadata.st_ino)):
+                        fail(f"materialized Lean file changed before inspection: {relative}")
+                    magic = os.read(descriptor, 4)
+                    after = os.fstat(descriptor)
+                    if any(getattr(before, field) != getattr(after, field)
+                           for field in ("st_dev", "st_ino", "st_mode", "st_nlink",
+                                         "st_uid", "st_size")):
+                        fail(f"materialized Lean file changed during inspection: {relative}")
+                finally:
+                    os.close(descriptor)
+                if magic in MACHO_MAGICS:
+                    macho_paths.append(Path(entry.path))
+            actual_paths.add(relative)
+
+    walk(root, PurePosixPath("."))
+    if actual_paths != set(manifest):
+        fail("materialized Lean tree has missing paths")
+    if len(actual_paths) != len(manifest):
+        fail("materialized Lean tree entry count mismatch")
+    if total != expected_total:
+        fail(f"materialized Lean tree byte count mismatch: expected {expected_total}, got {total}")
+    return root, sorted(macho_paths)
+
+
+def locked_otool(host_lock: dict) -> Path:
+    developer = host_lock["profiles"][0]["developerTools"]
+    otool = Path(developer["otoolPath"])
+    try:
+        metadata = otool.lstat()
+    except FileNotFoundError:
+        fail("effective Xcode otool is missing")
+    if (not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode) or
+            sha256_regular_snapshot(otool, metadata, "effective Xcode otool") !=
+            developer["otoolSha256"]):
+        fail("effective Xcode otool does not match the host profile")
+    return otool
+
+
+def internal_load_path(root: Path, base: Path, suffix: str,
+                       macho_set: set[Path]) -> Path | None:
+    candidate = (base / suffix).resolve(strict=False)
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate if candidate in macho_set else None
+
+
+def parse_otool_rpaths(output: str) -> list[str]:
+    lines = output.splitlines()
+    result: list[str] = []
+    for index, line in enumerate(lines):
+        if line.strip() != "cmd LC_RPATH":
+            continue
+        for detail in lines[index + 1:index + 5]:
+            match = re.fullmatch(r"\s*path (.+) \(offset \d+\)", detail)
+            if match is not None:
+                result.append(match.group(1))
+                break
+        else:
+            fail("otool emitted LC_RPATH without a path")
+    return result
+
+
+def resolve_internal_rpath(root: Path, loader: Path, executable: Path, value: str,
+                           system_roots: tuple[str, ...], *,
+                           require_exists: bool = True) -> Path:
+    if value.startswith(system_roots):
+        return Path(value)
+    if value.startswith(str(root) + "/"):
+        candidate = Path(value)
+    elif value == "@loader_path":
+        candidate = loader.parent
+    elif value.startswith("@loader_path/"):
+        candidate = loader.parent / value[len("@loader_path/"):]
+    elif value == "@executable_path":
+        candidate = executable.parent
+    elif value.startswith("@executable_path/"):
+        candidate = executable.parent / value[len("@executable_path/"):]
+    else:
+        fail(f"Mach-O RPATH escapes Lean toolchain closure: "
+             f"{loader.relative_to(root)} -> {value}")
+    candidate = candidate.resolve(strict=False)
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        fail(f"Mach-O RPATH escapes Lean toolchain root: "
+             f"{loader.relative_to(root)} -> {value}")
+    if require_exists and (not candidate.is_dir() or candidate.is_symlink()):
+        fail(f"Mach-O RPATH does not resolve to a toolchain directory: "
+             f"{loader.relative_to(root)} -> {value}")
+    return candidate
+
+
+def resolve_reachable_macho_load(root: Path, loader: Path, executable: Path,
+                                 load: str, active_rpaths: list[Path],
+                                 macho_set: set[Path],
+                                 system_roots: tuple[str, ...]) -> Path | None:
+    if load.startswith(system_roots):
+        return None
+    if load.startswith(str(root) + "/"):
+        candidate = Path(load).resolve(strict=False)
+    elif load.startswith("@loader_path/"):
+        candidate = (loader.parent / load[len("@loader_path/"):]).resolve(strict=False)
+    elif load.startswith("@executable_path/"):
+        candidate = (executable.parent /
+                     load[len("@executable_path/"):]).resolve(strict=False)
+    elif load.startswith("@rpath/"):
+        suffix = safe_relative(load[len("@rpath/"):], "Mach-O @rpath suffix")
+        for runpath in active_rpaths:
+            candidate = (runpath / suffix).resolve(strict=False)
+            candidate_text = str(candidate)
+            if candidate_text.startswith(system_roots):
+                if candidate.exists():
+                    return None
+                continue
+            if candidate in macho_set:
+                return candidate
+        return None
+    else:
+        return None
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate if candidate in macho_set else None
+
+
+def verify_lean_macho_static(lock: dict, host_lock: dict, root: Path,
+                             macho_paths: list[Path]) -> dict[Path, set[Path]]:
+    if not macho_paths:
+        fail("materialized Lean tree contains no Mach-O files")
+    otool = locked_otool(host_lock)
+    system_roots = tuple(lock["machoPolicy"]["allowedSystemLoadRoots"])
+    runtime_macho_paths: list[Path] = []
+    for path in macho_paths:
+        headers = subprocess.run(
+            [str(otool), "-hv", str(path)], check=True, capture_output=True, text=True,
+            env={"LC_ALL": "C"}, timeout=10,
+        )
+        file_types = set(re.findall(
+            r"\b(?:OBJECT|EXECUTE|DYLIB|DYLINKER|BUNDLE)\b", headers.stdout,
+        ))
+        if not file_types:
+            fail(f"cannot classify Mach-O file type: {path.relative_to(root)}")
+        if file_types <= {"OBJECT"}:
+            # Static archives and relocatable objects are link inputs, not dyld
+            # runtime nodes. Their headers are still parsed above, but they have
+            # no process-time load closure to admit.
+            continue
+        if "OBJECT" in file_types:
+            fail(f"Mach-O mixes runtime and object file types: {path.relative_to(root)}")
+        runtime_macho_paths.append(path)
+    if not runtime_macho_paths:
+        fail("materialized Lean tree contains no runtime Mach-O files")
+
+    macho_set = {path.resolve() for path in runtime_macho_paths}
+    load_graph: dict[Path, list[str]] = {}
+    rpath_graph: dict[Path, list[str]] = {}
+    for path in runtime_macho_paths:
+        commands = subprocess.run(
+            [str(otool), "-l", str(path)], check=True, capture_output=True, text=True,
+            env={"LC_ALL": "C"}, timeout=10,
+        )
+        rpath_graph[path.resolve()] = parse_otool_rpaths(commands.stdout)
+        for raw_rpath in rpath_graph[path.resolve()]:
+            # All standalone runtime images must be free of external runpaths,
+            # including SDK dylibs that are not reachable from lean/lake.
+            resolve_internal_rpath(
+                root, path, root / "bin" / "lean", raw_rpath, system_roots,
+                require_exists=False,
+            )
+        loads = subprocess.run(
+            [str(otool), "-L", str(path)], check=True, capture_output=True, text=True,
+            env={"LC_ALL": "C"}, timeout=10,
+        )
+        observed = parse_otool_lines(loads.stdout)
+        ids = subprocess.run(
+            [str(otool), "-D", str(path)], check=False, capture_output=True, text=True,
+            env={"LC_ALL": "C"}, timeout=10,
+        )
+        if ids.returncode == 0:
+            id_lines = [line.strip() for line in ids.stdout.splitlines()[1:]
+                        if line.strip() and not line.rstrip().endswith(":")]
+            unique_ids = set(id_lines)
+            if len(unique_ids) > 1:
+                fail(f"Mach-O has multiple install IDs: {path.relative_to(root)}")
+            if unique_ids:
+                install_id = next(iter(unique_ids))
+                observed = [load for load in observed if load != install_id]
+        load_graph[path.resolve()] = observed
+        for load in observed:
+            if load.startswith(system_roots):
+                continue
+            if load.startswith(str(root) + "/"):
+                target = Path(load)
+                if target.resolve() not in macho_set:
+                    fail(f"Mach-O load targets non-Mach-O toolchain path: {load}")
+                continue
+            if load.startswith("@loader_path/"):
+                if internal_load_path(root, path.parent, load[len("@loader_path/"):],
+                                      macho_set) is not None:
+                    continue
+            elif load.startswith("@executable_path/"):
+                if internal_load_path(root, root / "bin", load[len("@executable_path/"):],
+                                      macho_set) is not None:
+                    continue
+            elif load.startswith("@rpath/"):
+                # An unreachable SDK dylib may intentionally leave an @rpath
+                # dependency to the final link environment. Resolve these only
+                # when walking a declared compiler entrypoint below.
+                safe_relative(load[len("@rpath/"):], "Mach-O @rpath suffix")
+                continue
+            fail(f"Mach-O load escapes Lean toolchain closure: {path.relative_to(root)} -> {load}")
+
+    declared_entrypoints = [
+        (root / record["path"]).resolve() for record in lock["compilerToolchain"]["executables"]
+    ]
+    for entrypoint in declared_entrypoints:
+        if entrypoint not in macho_set:
+            fail(f"compiler entrypoint is not a runtime Mach-O: {entrypoint.relative_to(root)}")
+    closures: dict[Path, set[Path]] = {}
+    for entrypoint in declared_entrypoints:
+        pending: list[tuple[Path, list[Path]]] = [(entrypoint, [])]
+        reachable: set[Path] = set()
+        while pending:
+            loader, inherited_rpaths = pending.pop()
+            if loader in reachable:
+                continue
+            own_rpaths = [
+                resolve_internal_rpath(root, loader, entrypoint, raw, system_roots)
+                for raw in rpath_graph[loader]
+            ]
+            active_rpaths = own_rpaths + inherited_rpaths
+            reachable.add(loader)
+            for load in load_graph[loader]:
+                if load.startswith(system_roots):
+                    continue
+                target = resolve_reachable_macho_load(
+                    root, loader, entrypoint, load, active_rpaths,
+                    macho_set, system_roots,
+                )
+                if target is None:
+                    fail(f"reachable compiler Mach-O dependency is unresolved: "
+                         f"{loader.relative_to(root)} -> {load}")
+                pending.append((target, active_rpaths))
+        closures[entrypoint] = reachable
+    return closures
+
+
+def probe_lean_versions_and_runtime(lock: dict, root: Path,
+                                    closures: dict[Path, set[Path]]) -> None:
+    compiler = lock["compilerToolchain"]
+    system_roots = tuple(lock["machoPolicy"]["allowedSystemLoadRoots"])
+    macho_set = set().union(*closures.values())
+    for probe_record in compiler["versionProbes"]:
+        executable = root / probe_record["path"]
+        environment = {
+            "HOME": "/var/empty",
+            "LC_ALL": "C",
+            "PATH": f"{root / 'bin'}:/usr/bin:/bin",
+            "TZ": "UTC",
+            "DYLD_PRINT_LIBRARIES": "1",
+        }
+        probe = subprocess.run(
+            [str(executable), *probe_record["args"]], check=False,
+            capture_output=True, text=True, env=environment, timeout=10,
+        )
+        observed = probe.stdout + probe.stderr
+        if probe.returncode != 0 or probe_record["expected"] not in observed:
+            fail(f"compiler version probe failed for {probe_record['path']}: "
+                 f"{observed.strip()}")
+        loaded: set[Path] = set()
+        for line in probe.stderr.splitlines():
+            match = re.fullmatch(r"dyld\[\d+\]: <[^>]+> (/.+)", line)
+            if match is not None:
+                loaded.add(Path(match.group(1)))
+        if not loaded:
+            fail(f"DYLD load observation was empty for {probe_record['path']}")
+        internal_loaded: set[Path] = set()
+        for path in loaded:
+            text = str(path)
+            if text.startswith(system_roots):
+                continue
+            if text.startswith(str(root) + "/") and path.resolve() in macho_set:
+                internal_loaded.add(path.resolve())
+                continue
+            fail(f"compiler runtime escaped toolchain closure: "
+                 f"{probe_record['path']} -> {text}")
+        executable_path = executable.resolve()
+        internal_loaded.discard(executable_path)
+        expected_internal = closures[executable_path] - {executable_path}
+        if internal_loaded != expected_internal:
+            missing = sorted(str(path.relative_to(root))
+                             for path in expected_internal - internal_loaded)
+            unexpected = sorted(str(path.relative_to(root))
+                                for path in internal_loaded - expected_internal)
+            fail(f"compiler runtime/static closure mismatch for {probe_record['path']}: "
+                 f"missing={missing}, unexpected={unexpected}")
+
+
+def make_tree_removable(root: Path) -> None:
+    for directory, child_directories, _ in os.walk(root, topdown=True):
+        try:
+            os.chmod(directory, 0o700)
+        except FileNotFoundError:
+            continue
+        for child in child_directories:
+            try:
+                os.chmod(Path(directory) / child, 0o700)
+            except FileNotFoundError:
+                continue
+
+
+def materialize_lean(lock: dict, host_lock: dict, destination: Path) -> None:
     compiler = lock["compilerToolchain"]
     asset = asset_map(lock)[compiler["assetId"]]
     staging = prepare_destination(destination)
-    seen: set[str] = set()
     try:
         with cached_asset_snapshot(asset) as snapshot:
             with zipfile.ZipFile(snapshot) as archive:
-                members = archive.infolist()
-                if len(members) > MAX_ARCHIVE_MEMBERS:
-                    fail(f"asset {asset['id']} exceeds the archive member limit")
-                for info in members:
-                    relative = safe_zip_name(info.filename.rstrip("/"),
-                                             compiler["archiveRoot"])
-                    if relative is None:
-                        continue
-                    normalized = relative.as_posix()
-                    if normalized in seen:
-                        fail(f"duplicate Lean ZIP path: {normalized}")
-                    seen.add(normalized)
-                    mode = info.external_attr >> 16
-                    if stat.S_ISLNK(mode):
-                        fail(f"Lean ZIP symlink is forbidden: {normalized}")
-                    output = staging / normalized
-                    if info.is_dir():
-                        output.mkdir(parents=True, exist_ok=True)
-                        continue
-                    file_type = stat.S_IFMT(mode)
-                    if file_type not in {0, stat.S_IFREG}:
-                        fail(f"Lean ZIP special file is forbidden: {normalized}")
-                    output.parent.mkdir(parents=True, exist_ok=True)
-                    with archive.open(info, "r") as source, output.open("xb") as target:
-                        shutil.copyfileobj(source, target, length=1024 * 1024)
-                    os.chmod(output, 0o555 if mode & 0o111 else 0o444)
+                validated = validate_lean_zip(archive, compiler, asset["id"])
+                manifest = extract_lean_zip(
+                    archive, validated, staging, compiler["unpackedSize"],
+                )
+        root, macho_paths = verify_lean_tree(staging, manifest, compiler["unpackedSize"])
         for record in compiler["executables"]:
-            path = staging / record["path"]
-            if not path.is_file() or path.is_symlink():
+            path = root / record["path"]
+            metadata = path.lstat()
+            if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
                 fail(f"Lean executable is missing: {record['path']}")
-            actual = sha256_file(path)
+            actual = sha256_regular_snapshot(path, metadata,
+                                             f"Lean executable {record['path']}")
             if actual != record["sha256"]:
                 fail(f"Lean executable hash mismatch for {record['path']}: {actual}")
-        environment = {"HOME": str(staging / ".home"), "LC_ALL": "C", "TZ": "UTC"}
-        probe = subprocess.run(
-            [str(staging / "bin/lean"), *compiler["versionArgs"]],
-            check=False,
-            capture_output=True,
-            text=True,
-            env=environment,
-            timeout=10,
-        )
-        observed = probe.stdout + probe.stderr
-        if probe.returncode != 0 or compiler["expectedVersion"] not in observed:
-            fail(f"Lean version probe failed: {observed.strip()}")
+        closures = verify_lean_macho_static(lock, host_lock, root, macho_paths)
+        probe_lean_versions_and_runtime(lock, root, closures)
         os.replace(staging, destination)
     finally:
         if staging.exists():
+            make_tree_removable(staging)
             shutil.rmtree(staging)
     print(f"toolchain-assets: materialized Lean toolchain {destination}")
 
@@ -1170,6 +1685,18 @@ def self_test(lock: dict, host_lock: dict) -> None:
     missing_compiler_field = copy.deepcopy(lock)
     missing_compiler_field["compilerToolchain"].pop("sourceCommit")
     mutations.append(("missing compiler field", missing_compiler_field))
+    invalid_entry_count = copy.deepcopy(lock)
+    invalid_entry_count["compilerToolchain"]["entryCount"] = 0
+    mutations.append(("invalid compiler entry count", invalid_entry_count))
+    invalid_unpacked_size = copy.deepcopy(lock)
+    invalid_unpacked_size["compilerToolchain"]["unpackedSize"] = MAX_COMPILER_UNPACKED_BYTES + 1
+    mutations.append(("invalid compiler unpacked size", invalid_unpacked_size))
+    missing_version_probe = copy.deepcopy(lock)
+    missing_version_probe["compilerToolchain"]["versionProbes"].pop()
+    mutations.append(("missing compiler version probe", missing_version_probe))
+    foreign_version_probe = copy.deepcopy(lock)
+    foreign_version_probe["compilerToolchain"]["versionProbes"][0]["path"] = "bin/foreign"
+    mutations.append(("foreign compiler version probe", foreign_version_probe))
     tool_asset_mismatch = copy.deepcopy(lock)
     tool_asset_mismatch["tools"][0]["assetId"] = lock["compilerToolchain"]["assetId"]
     mutations.append(("tool/executable asset mismatch", tool_asset_mismatch))
@@ -1229,6 +1756,126 @@ def self_test(lock: dict, host_lock: dict) -> None:
         pass
     else:
         fail("self-test failed to reject an HTTPS downgrade redirect")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as archive:
+        root_info = zipfile.ZipInfo("compiler/")
+        root_info.create_system = 3
+        root_info.external_attr = (stat.S_IFDIR | 0o755) << 16
+        archive.writestr(root_info, b"")
+        bin_info = zipfile.ZipInfo("compiler/bin/")
+        bin_info.create_system = 3
+        bin_info.external_attr = (stat.S_IFDIR | 0o755) << 16
+        archive.writestr(bin_info, b"")
+        file_info = zipfile.ZipInfo("compiler/bin/tool")
+        file_info.create_system = 3
+        file_info.external_attr = (stat.S_IFREG | 0o755) << 16
+        archive.writestr(file_info, b"x")
+    synthetic_compiler = {
+        "archiveRoot": "compiler",
+        "entryCount": 3,
+        "unpackedSize": 1,
+    }
+    zip_buffer.seek(0)
+    with zipfile.ZipFile(zip_buffer) as archive:
+        validate_lean_zip(archive, synthetic_compiler, "synthetic")
+        wrong_count = dict(synthetic_compiler, entryCount=4)
+        try:
+            validate_lean_zip(archive, wrong_count, "synthetic")
+        except AssetError:
+            pass
+        else:
+            fail("self-test failed to reject a Lean ZIP entry count mismatch")
+        wrong_size = dict(synthetic_compiler, unpackedSize=2)
+        try:
+            validate_lean_zip(archive, wrong_size, "synthetic")
+        except AssetError:
+            pass
+        else:
+            fail("self-test failed to reject a Lean ZIP output size mismatch")
+
+    symlink_buffer = io.BytesIO()
+    with zipfile.ZipFile(symlink_buffer, "w") as archive:
+        root_info = zipfile.ZipInfo("compiler/")
+        root_info.create_system = 3
+        root_info.external_attr = (stat.S_IFDIR | 0o755) << 16
+        archive.writestr(root_info, b"")
+        link_info = zipfile.ZipInfo("compiler/bin")
+        link_info.create_system = 3
+        link_info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        archive.writestr(link_info, b"target")
+    symlink_buffer.seek(0)
+    with zipfile.ZipFile(symlink_buffer) as archive:
+        try:
+            validate_lean_zip(
+                archive,
+                {"archiveRoot": "compiler", "entryCount": 2, "unpackedSize": 6},
+                "synthetic-symlink",
+            )
+        except AssetError:
+            pass
+        else:
+            fail("self-test failed to reject a Lean ZIP symlink")
+
+    def expect_zip_rejection(name: str,
+                             entries: list[tuple[str, int, bytes]],
+                             unpacked_size: int) -> None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for path, mode, payload in entries:
+                info = zipfile.ZipInfo(path)
+                info.create_system = 3
+                info.external_attr = mode << 16
+                archive.writestr(info, payload)
+        buffer.seek(0)
+        with zipfile.ZipFile(buffer) as archive:
+            try:
+                validate_lean_zip(
+                    archive,
+                    {
+                        "archiveRoot": "compiler",
+                        "entryCount": len(entries),
+                        "unpackedSize": unpacked_size,
+                    },
+                    f"synthetic-{name}",
+                )
+            except AssetError:
+                return
+        fail(f"self-test failed to reject Lean ZIP {name}")
+
+    directory_mode = stat.S_IFDIR | 0o755
+    regular_mode = stat.S_IFREG | 0o755
+    expect_zip_rejection(
+        "traversal",
+        [("compiler/", directory_mode, b""),
+         ("compiler/../escape", regular_mode, b"x")],
+        1,
+    )
+    expect_zip_rejection(
+        "duplicate normalized path",
+        [("compiler/", directory_mode, b""),
+         ("compiler/bin/", directory_mode, b""),
+         ("compiler/bin", regular_mode, b"x")],
+        1,
+    )
+    expect_zip_rejection(
+        "missing parent",
+        [("compiler/", directory_mode, b""),
+         ("compiler/bin/tool", regular_mode, b"x")],
+        1,
+    )
+    expect_zip_rejection(
+        "privilege bits",
+        [("compiler/", directory_mode, b""),
+         ("compiler/tool", stat.S_IFREG | 0o4755, b"x")],
+        1,
+    )
+    expect_zip_rejection(
+        "special node",
+        [("compiler/", directory_mode, b""),
+         ("compiler/fifo", stat.S_IFIFO | 0o644, b"x")],
+        1,
+    )
     print("toolchain-assets: self-test ok")
 
 
@@ -1253,6 +1900,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    if not sys.flags.isolated or not sys.flags.no_site:
+        fail("run toolchain-assets with /usr/bin/python3 -I -S")
     args = build_parser().parse_args()
     lock, host_lock = load_locks(args.lock.resolve(), args.host_lock.resolve())
     if args.command == "validate":
@@ -1269,7 +1918,7 @@ def main() -> None:
     elif args.command == "verify-external":
         verify_external(lock, host_lock, args.root)
     elif args.command == "materialize-lean":
-        materialize_lean(lock, args.destination.resolve())
+        materialize_lean(lock, host_lock, args.destination.resolve())
     else:  # pragma: no cover - argparse owns this boundary
         fail(f"unsupported command {args.command}")
 

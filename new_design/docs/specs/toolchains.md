@@ -32,7 +32,9 @@ assets[]: {
 }
 compilerToolchain: {
   id, version, sourceCommit, platform, assetId,
-  archiveRoot, stripComponents, executables[], versionArgs, expectedVersion
+  archiveRoot, stripComponents, entryCount, unpackedSize,
+  executables[] {path, sha256},
+  versionProbes[] {path, args, expected}
 }
 bundleFiles[]: {path, assetId, member?, size, sha256, mode}
 machoPolicy: {
@@ -75,7 +77,7 @@ asset，也不能只凭 PATH 名称接受。
 
 | Asset | Pin | Archive/file SHA-256 | 闭包状态 |
 |---|---|---|---|
-| Lean/Lake | `v4.31.0`, commit `68218e8…1783` Darwin arm64 ZIP | `e8cd241b…e0656` | ZIP 含完整 2.6 GiB toolchain；非系统库均在内部 `@rpath` |
+| Lean/Lake | `v4.31.0`, commit `68218e8…1783` Darwin arm64 ZIP | `e8cd241b…e0656` | ZIP 含完整 2.6 GiB toolchain；Lean/Lake 声明入口的可达非系统闭包均在树内；不可达 SDK dylib 不作为独立入口承诺 |
 | solc | official universal macOS `0.8.34+commit.80d5c536` | `0a282929…7746` | 仅 Apple system dylib；替代 Homebrew+Boost build |
 | WABT | official macOS arm64 `1.0.41` | `e5269d6b…ff5d` | executable 仍需 bundle `libcrypto.3.dylib` |
 | OpenSSL dependency | Homebrew arm64 Tahoe bottle `3.6.3_1` | `2d995a1b…f92f` | 仅取锁定 `libcrypto.3.dylib`，file SHA `64bc8854…6f4` |
@@ -90,10 +92,21 @@ asset，也不能只凭 PATH 名称接受。
 blob，不进入 lock/evidence。partial、redirect 降级、HTTP、额外 bytes、已有错误 cache、
 symlink/hardlink/特殊文件均失败。
 
-离线物化只读 cache：安全读取精确 member，生成私有 staging，验证每个最终 file hash/mode
-与 Mach-O closure，再原子 publish tool root。Lean ZIP 只接受单一固定 root，strip 1 后拒绝
-symlink/特殊文件并重验入口、版本/commit 和内部 closure。正式 gate 不调用 elan，也不从
-Homebrew/Foundry install root 复制。
+离线物化只读 cache：安全读取精确 member，生成私有 staging；external bundle 的每个最终
+file 都验证 hash/mode 与 Mach-O closure，再原子 publish tool root。Lean ZIP 只接受单一固定
+root；锁定 15,194 个 central-directory entry 和 2,761,381,330 个解压文件字节，strip 1 后
+拒绝路径穿越、重复/缺失父目录、symlink、特殊文件和 privilege bits。最终 Lean 树必须逐项
+匹配 path/kind/size、owner、单 hardlink 与规范化的 `0444/0555` mode；内容信任来自已复验的
+完整 archive SHA-256，并额外验证 Lean/Lake executable hash 与独立 version probe。最后从
+两个声明入口按真实 `LC_RPATH` 计算可达 Mach-O 闭包，与 dyld 实际加载集合精确比较。正式
+gate 不调用 elan，也不从 Homebrew/Foundry install root 复制。
+
+显式联网步骤为 `just toolchains-provision-lean` 和
+`just toolchains-provision-external`。`just toolchains-materialize-lean` 与
+`just toolchains-materialize-external` 是离线检查入口；clean-room harness 自己从同一 cache
+物化临时 Lean/external roots，且不把 provision 隐藏在 build 中。所有 toolchain Python
+入口固定为 `/usr/bin/python3 -I -S`，拒绝 site-enabled interpreter；clean-room 物化再由
+`env -i` 清空环境并置于 no-network sandbox，版本探针子进程也继承该策略。
 
 ## Runtime Resolution
 
@@ -118,8 +131,9 @@ library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
 `PF-TOOLCHAIN-MISMATCH` 带 tool/asset、expected/actual version/hash/path；
 `PF-TOOLCHAIN-MISSING` 不允许 required gate skip。本 external slice 已覆盖 duplicate/unknown/
 malformed lock、cache miss、partial/tampered archive、member/path attack、tool/dylib mutation、
-extra/symlink/hardlink/writable bundle 与 PATH/DYLD shadow。正式 gate 仍需覆盖版本 probe 的
-timeout/huge output、完整 host profile/Rosetta、sandbox 失效和 schema evidence。
+extra/symlink/hardlink/writable bundle 与 PATH/DYLD shadow。Lean cache consumer 已接入 alpha
+harness，但仍需候选提交完整 gate 证据。正式 gate 仍需覆盖版本 probe 的 timeout/huge
+output、完整 host profile/Rosetta、sandbox 失效和 schema evidence。
 
 关联 `NFR-001/009`、`TST-TOOL-001`、`TST-XTARGET-002`、`TST-ISO-003`。manifest/evidence
 记录全部 asset、executable、runtime dependency 与 host-profile digest。

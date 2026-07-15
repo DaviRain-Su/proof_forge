@@ -18,7 +18,7 @@ for tool in "$anvil" "$cast"; do
 done
 
 expected_hash() {
-  python3 -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); print(next(tool["executableSha256"] for tool in data["tools"] if tool["id"] == sys.argv[2]))' \
+  /usr/bin/python3 -I -S -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); print(next(tool["executableSha256"] for tool in data["tools"] if tool["id"] == sys.argv[2]))' \
     "$root/toolchains.lock.json" "$1"
 }
 
@@ -58,7 +58,7 @@ deploy() {
   bytecode="$(tr -d '\n\r ' < "$root/build/v2/evm/Counter.bin")"
   encoded="$($cast abi-encode 'constructor(uint64)' "$initial")"
   receipt="$($cast send --json --rpc-url "$rpc" --private-key "$private_key" --create "0x${bytecode}${encoded#0x}")"
-  python3 -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])' <<<"$receipt"
+  /usr/bin/python3 -I -S -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])' <<<"$receipt"
 }
 
 counter="$(deploy 7)"
