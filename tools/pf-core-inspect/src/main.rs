@@ -82,6 +82,14 @@ fn main() -> Result<()> {
                 }
             }
             println!("contentHash: {}", pkg.content_hash());
+            let walk = pkg.walk();
+            for line in walk.lines() {
+                println!("{line}");
+            }
+            let ready = pkg.dual_run_readiness();
+            for line in ready.lines() {
+                println!("{line}");
+            }
             Ok(())
         }
         "help" | "-h" | "--help" => {

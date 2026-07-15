@@ -24,7 +24,7 @@ Keep this section short and update it whenever the active task changes.
 | Field | Current value |
 |---|---|
 | Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **PR #105** branch: LR-0…2a Seam A (`export-core` + `pf-core` loader); continue toward dual-run readiness |
+| Active task | **PR #105** branch: LR-0…2b Seam A (export + pf-core walk/dual-run readiness); lowerer still stub |
 | Next task | Continue LR on this branch (product-source export later). Merge main when available. No LR-2 default Rust lower / dual-run product until cutover quieter. #104 remains separate |
 | Parallel on main (done) | C3 OpenVM research brief → **defer** backend; D-057 design docs at `d9c132a0` |
 | Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |

@@ -6,6 +6,14 @@
 //! **Not** a compile backend and **not** product ABI/SDK JSON.
 //! Zero chain SDK dependencies by design.
 
+mod lower;
+mod walk;
+
+pub use lower::{BuildFromCore, EvmLowererPilot, LoweredArtifacts};
+pub use walk::{
+    host_calls_match_plan, walk_module, CoreWalkSummary, DualRunReadiness,
+};
+
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
@@ -472,5 +480,33 @@ mod tests {
         for r in &renders {
             assert!(catalog.contains(r), "missing {r} in catalog");
         }
+    }
+
+    #[test]
+    fn walk_counter_storage_ops() {
+        let pkg = ExportPackage::load(fixture("counter-evm")).expect("load counter");
+        let walk = pkg.walk();
+        assert_eq!(walk.function_count, 3);
+        assert!(walk.instruction_count > 0);
+        assert!(walk.storage_op_count >= 2);
+        assert!(walk.host_calls_in_body.is_empty());
+        assert!(walk.op_kind_counts.contains_key("storageLoad")
+            || walk.op_kind_counts.contains_key("storageStore"));
+        let ready = pkg.dual_run_readiness();
+        assert!(ready.ready_for_dual_run_observe());
+        assert!(!ready.ready_for_rust_lower_pilot());
+        assert!(ready.host_body_matches_plan);
+    }
+
+    #[test]
+    fn walk_create_host_calls_match_plan() {
+        let pkg = ExportPackage::load(fixture("create-evm")).expect("load create");
+        let walk = pkg.walk();
+        assert_eq!(walk.host_calls_in_body.len(), 2);
+        assert!(walk.op_kind_counts.get("hostCall").copied().unwrap_or(0) >= 2);
+        assert!(host_calls_match_plan(&walk, &pkg.plan.host_op_handlers));
+        let ready = pkg.dual_run_readiness();
+        assert!(ready.host_body_matches_plan);
+        assert!(ready.ready_for_dual_run_observe());
     }
 }

@@ -187,9 +187,9 @@
     "note": "EN overview + §12 internals; zh is full deep-dive"
   },
   "docs/implementation-backlog.md": {
-    "sha256": "0eec0a2c081113da7d99377a683dfacb0bd034a1ca39bdd6478bb3bc9e68894c",
+    "sha256": "aa0dbcbc6505fbc8db6b3236393a61498096dac8c9a1ef0b35f3b3a9acc4d341",
     "zh": "docs/zh/implementation-backlog.zh.md",
     "model": "manual-zh",
-    "note": "synced EN/zh after LR-2a pf-core loader"
+    "note": "synced EN/zh after LR-2b walker dual-run"
   }
 }

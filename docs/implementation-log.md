@@ -4212,3 +4212,14 @@ Rules:
 - Verification: `cargo test -p pf-core`; inspect check/summary/compare on fixtures.
 - Remaining: optional typed Core op walk / interpreter; dual-run hooks later
   (LR-2+). Default product compile remains Lean.
+
+## 2026-07-15 - LR-2b: Core op walker and dual-run readiness
+
+- Status: `done` (PR #105 branch)
+- Result: `pf-core` walks Core instruction/terminator kinds, collects hostCalls
+  from body, checks body↔plan handler equality, and reports dual-run readiness
+  (observeReady yes; rustLowerPilot no). Added explicit `EvmLowererPilot`
+  stub that fail-closes with a clear not-implemented error. Inspect `summary`
+  prints walk + dualRun lines.
+- Verification: `cargo test` in tools/pf-core (6 tests).
+- Remaining: real EVM lower pilot (still optional); keep product CLI Lean.
