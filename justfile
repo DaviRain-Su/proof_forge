@@ -230,10 +230,23 @@ toolchains-root-negative: build
     test ! -e build/v2/root-hardlink-negative
     test ! -e build/v2/root-symlink-negative
 
-dsl-negative:
+dsl-negative: build
+    #!/bin/bash
+    set -euo pipefail
     mkdir -p build
     if lake env lean testdata/invalid/program-kind.lean > build/program-kind.log 2>&1; then echo "kind syntax unexpectedly compiled" >&2; exit 1; fi
     rg -q "unexpected token|unexpected identifier|expected" build/program-kind.log
+    rm -rf build/syntax-bounds
+    /usr/bin/python3 -I -S scripts/generate_syntax_bound_fixtures.py build/syntax-bounds
+    lake env lean build/syntax-bounds/namespace-at-limit.lean -o build/syntax-bounds/namespace-at-limit.olean
+    lake env .lake/build/bin/proof-forge-next build namespace-at-limit.lean --root build/syntax-bounds --target solana -o cli-at-limit
+    for fixture in namespace-over-limit expression-over-limit nodes-over-limit; do
+        if lake env lean "build/syntax-bounds/$fixture.lean" -o "build/syntax-bounds/$fixture.olean" > "build/syntax-bounds/$fixture.lean.log" 2>&1; then echo "$fixture unexpectedly compiled through Lean command elaboration" >&2; exit 1; fi
+        rg -q "PF-BOUND-001" "build/syntax-bounds/$fixture.lean.log"
+        if lake env .lake/build/bin/proof-forge-next build "$fixture.lean" --root build/syntax-bounds --target solana -o "$fixture-cli" > "build/syntax-bounds/$fixture.cli.log" 2>&1; then echo "$fixture unexpectedly compiled through CLI loader" >&2; exit 1; fi
+        rg -q "PF-BOUND-001" "build/syntax-bounds/$fixture.cli.log"
+        test ! -e "build/syntax-bounds/$fixture-cli"
+    done
     if lake env .lake/build/bin/proof-forge-next build source-over-limit.lean --root build/syntax-bounds --target solana -o source-over-limit-cli > build/syntax-bounds/source-over-limit.cli.log 2>&1; then echo "oversized source unexpectedly passed the CLI loader" >&2; exit 1; fi
     rg -q "PF-SRC-INVALID.*16 MiB" build/syntax-bounds/source-over-limit.cli.log
     test ! -e build/syntax-bounds/source-over-limit-cli

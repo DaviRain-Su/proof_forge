@@ -44,6 +44,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 
 | ID | 场景 | 预期 | 证据级别 |
 |---|---|---|---|
+| TST-SRC-002 | per-program Syntax 256/257 nesting、100000/100001 nodes、qualified identity 与 CLI 16 MiB | 精确边界；Syntax/identity 超限 `PF-BOUND-001`，CLI byte 超限 `PF-SRC-INVALID` | unit/integration/security |
 | TST-SRC-003 | `program Counter where` 与非法顶层形式 | 正例导出；非法稳定诊断 | unit |
 | TST-SRC-006 | attribute export 跨模块/import 顺序 | identity 稳定，无重复 | integration |
 | TST-TYPE-001 | widths、map、struct、enum | 类型成功/精确失败 | property |
@@ -80,7 +81,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-ISO-002 | Stage-0 eligible host、外部 commit/tree/archive anchor、稳定 committed archive、前后 unchanged、空环境/cache；materialize/core deny-all-network；runtime exact-local-port + Anvil 127 bind/LAN refusal；stage read/write/exec negatives、closed FD/stdin EOF/output cap/timeout、formal session containment、0400 single-link receipts 与 gate-catalog-bound evidence |
 | TST-ISO-003 | D8 release-candidate 全量 clean-room aggregate |
 | TST-TOOL-001 | exact tool version/checksum、missing/shadow/timeout |
-| TST-SRC-001/002 | token/span/NodeId canonicalization 与 limits |
+| TST-SRC-001/002 | token/span/NodeId canonicalization；CLI byte cap 与 post-parser per-program Syntax/identity limits |
 | TST-SRC-003/004/005 | program command、declarations、statements/expressions 正负例 |
 | TST-SRC-006/007/008 | attribute export、import/identity、multi-program selection |
 | TST-DIAG-001 | diagnostic code/schema/order/redaction |
@@ -104,6 +105,23 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-BOUNDARY-001 | Lean import graph、symbol ownership、target cross-import |
 | TST-EVIDENCE-001 | restricted PF JCS/schema、exact-local-port 条件 port、artifact-set domain hash、safe bundle read、atomic layout、gate catalog、revocation/freshness/private scan |
 | TST-REL-001 | install/upgrade/build/rollback drill |
+
+### Source Syntax resource preflight 首个验收切片
+
+- `TST-SRC-002` unit：显式构造 root-inclusive linear Syntax 256/257 与 wide Syntax
+  100000/100001，验证 `≤ limit` 接受、`> limit` 返回
+  `CompileError.resourceBound` / `PF-BOUND-001`。expression、statement、item 和 program 的
+  公共 decoder 必须先使用同一 walker；qualified identity 256 components 接受、257 拒绝。
+- `TST-SRC-002` loader integration：真实 300-term addition、20000-state wide source 与
+  namespace/qualified-name 256/257 边界必须稳定拒绝或接受；重复检查和 namespace tracking
+  不得重新引入输入相关 O(n²) scan。
+- `just dsl-negative`：同一组生成的 namespace/deep/wide `.lean` 分别通过
+  `lake env lean` command elaborator 和 `proof-forge-next build` CLI loader；两路超限都必须
+  含 `PF-BOUND-001`，恰好 256-component identity 两路都通过。CLI-only 16 MiB+1 source
+  必须在 parser 前以 `PF-SRC-INVALID` 拒绝且不创建 output。
+- 本切片不关闭 Lean parser fuzz/containment、module aggregate node policy、完整
+  Diagnostic v1/NodeId/span、直接 `Source.Program` API bounds 或 `TST-BOUND-001`；后者仍专指
+  D2-03 的循环/递归 termination checker。
 
 ### EVM 通用 UInt64 lowering 首个验收切片
 

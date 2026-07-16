@@ -1,5 +1,6 @@
 import Lean.Parser.Module
 import Lean.Util.Path
+import Std.Data.HashSet
 import ProofForgeV2.Language.Syntax
 
 namespace ProofForgeV2.Language.Loader
@@ -9,8 +10,20 @@ open Lean Parser ProofForgeV2
 private def invalid (message : String) : CompileError :=
   .invalidProgram message
 
-private def currentNamespace (scopes : Array Name) : Name :=
-  scopes.foldl (· ++ ·) .anonymous
+private structure NamespaceFrame where
+  declared : Name
+  previous : Name
+  previousParts : Nat
+  deriving Inhabited
+
+private def hasDuplicate (values : Array String) : Bool := Id.run do
+  let mut seen : Std.HashSet String := {}
+  for value in values do
+    let (alreadyPresent, updated) := seen.containsThenInsert value
+    if alreadyPresent then
+      return true
+    seen := updated
+  return false
 
 private def validateHeader (header : Syntax) : Except CompileError Unit := do
   match header with
@@ -28,55 +41,74 @@ private def validateProgram (contractProgram : Source.Program) : Except CompileE
   if contractProgram.entries.isEmpty then
     throw <| invalid s!"program '{contractProgram.qualifiedName}' must declare at least one entry or view"
   let stateNames := contractProgram.state.map (·.name)
-  unless stateNames.toList.eraseDups.length == stateNames.size do
+  if hasDuplicate stateNames then
     throw <| invalid s!"program '{contractProgram.qualifiedName}' contains duplicate state declarations"
   let entryNames := contractProgram.entries.map (·.name)
-  unless entryNames.toList.eraseDups.length == entryNames.size do
+  if hasDuplicate entryNames then
     throw <| invalid s!"program '{contractProgram.qualifiedName}' contains duplicate entry declarations"
   for entrypoint in contractProgram.entries do
     let paramNames := entrypoint.params.map (·.name)
-    unless paramNames.toList.eraseDups.length == paramNames.size do
+    if hasDuplicate paramNames then
       throw <| invalid s!"entry '{entrypoint.name}' contains duplicate parameters"
-
-private def decodeProgram (namespaceName : Name) (command : Syntax) :
-    Except CompileError Source.Program := do
-  let contractProgram ← match Language.decodeProgramCommand namespaceName command with
-    | .ok contractProgram => .ok contractProgram
-    | .error message => .error <| invalid message
-  validateProgram contractProgram
-  return contractProgram
 
 private def processCommands (commands : Array Syntax) :
     Except CompileError (Array Source.Program) := do
-  let mut scopes : Array Name := #[]
+  let mut scopes : Array NamespaceFrame := #[]
+  let mut namespaceName : Name := .anonymous
+  let mut namespaceParts := 0
   let mut programs : Array Source.Program := #[]
+  let mut programNames : Std.HashSet String := {}
   for command in commands do
     if command.isOfKind ``Parser.Command.eoi then
       continue
-    match Language.decodeProgramCommand (currentNamespace scopes) command with
-    | .ok _ =>
-        let contractProgram ← decodeProgram (currentNamespace scopes) command
-        if programs.any (·.qualifiedName == contractProgram.qualifiedName) then
+    match command with
+    | `(program $_name:ident where $_items:pfItem*) =>
+        let contractProgram ←
+          Language.decodeProgramCommandChecked namespaceName command
+        validateProgram contractProgram
+        let (alreadyPresent, updatedNames) :=
+          programNames.containsThenInsert contractProgram.qualifiedName
+        if alreadyPresent then
           throw <| invalid s!"duplicate program '{contractProgram.qualifiedName}'"
+        programNames := updatedNames
         programs := programs.push contractProgram
-    | .error _ =>
-        match command with
-        | `(command| open ProofForgeV2.Language) => pure ()
-        | `(command| namespace $name:ident) =>
-            scopes := scopes.push name.getId
-        | `(command| end) =>
-            if scopes.isEmpty then
-              throw <| invalid "unmatched namespace end"
-            scopes := scopes.pop
-        | `(command| end $name:ident) =>
-            if scopes.isEmpty then
-              throw <| invalid "unmatched namespace end"
-            let expected := scopes.back!
-            unless name.getId == expected do
-              throw <| invalid s!"namespace end '{name.getId}' does not match '{expected}'"
-            scopes := scopes.pop
-        | _ =>
-            throw <| invalid s!"Lean command '{command.getKind}' is outside the portable program DSL"
+    | `(command| open ProofForgeV2.Language) => pure ()
+    | `(command| namespace $name:ident) =>
+        let declared := name.getId
+        let addedParts ←
+          match Language.boundedNamePartCount
+              (Language.maxSyntaxNesting - namespaceParts) declared with
+          | some count => .ok count
+          | none => .error (.resourceBound
+              s!"portable namespace nesting exceeds limit {Language.maxSyntaxNesting}")
+        scopes := scopes.push {
+          declared
+          previous := namespaceName
+          previousParts := namespaceParts
+        }
+        namespaceName := namespaceName ++ declared
+        namespaceParts := namespaceParts + addedParts
+    | `(command| end) =>
+        if scopes.isEmpty then
+          throw <| invalid "unmatched namespace end"
+        let frame := scopes.back!
+        scopes := scopes.pop
+        namespaceName := frame.previous
+        namespaceParts := frame.previousParts
+    | `(command| end $name:ident) =>
+        if scopes.isEmpty then
+          throw <| invalid "unmatched namespace end"
+        if (Language.boundedNamePartCount Language.maxSyntaxNesting name.getId).isNone then
+          throw <| .resourceBound
+            s!"portable namespace nesting exceeds limit {Language.maxSyntaxNesting}"
+        let frame := scopes.back!
+        unless name.getId == frame.declared do
+          throw <| invalid s!"namespace end '{name.getId}' does not match '{frame.declared}'"
+        scopes := scopes.pop
+        namespaceName := frame.previous
+        namespaceParts := frame.previousParts
+    | _ =>
+        throw <| invalid s!"Lean command '{command.getKind}' is outside the portable program DSL"
   unless scopes.isEmpty do
     throw <| invalid "unterminated namespace"
   return programs
@@ -93,9 +125,6 @@ unsafe def parsePrograms (source fileName : String) : IO (Except CompileError (A
   try
     let environment ← parserEnvironment
     let parsedSyntax ← Parser.testParseModule environment fileName source
-    match Language.preflightSyntax parsedSyntax with
-    | .error error => return .error error
-    | .ok () => pure ()
     match parsedSyntax.getArgs with
     | #[header, commands] =>
         return do

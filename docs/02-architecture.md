@@ -19,7 +19,7 @@ Author / CI
     │ Lean source + explicit CLI target/profile
     ▼
 proof-forge-next
-    ├─ Lean Parser + ProofForge syntax decoder → Source.Program
+    ├─ Lean Parser → bounded Syntax preflight → ProofForge decoder → Source.Program
     ├─ name/type/effect checker → Typed.Program
     ├─ target-neutral normalization → Semantic.Program + ProgramRequirements
     ├─ Support resolver → ResolvedProgram target
@@ -31,10 +31,11 @@ proof-forge-next
 ```
 
 编译器是代码生成与语义检查工具，不是链 VM、密钥托管器或默认网络执行器。
-Lean Parser 提供可靠的 token/layout/syntax tree；它不替代业务 IR。CLI loader 只加载受信任
-的 ProofForge grammar initializer，解析后拒绝 DSL 白名单之外的 Lean command，不执行用户
-模块 elaboration。随后三个互不等同的领域类型依次承担 surface、checked source 和 canonical
-semantics 责任。
+Lean Parser 提供 token/layout/syntax tree；它不替代业务 IR。parser 成功后，每个 portable
+program command 先经过有界、非递归 Syntax preflight，再进入递归 decoder。CLI loader 只加载
+受信任的 ProofForge grammar initializer，解析后拒绝 DSL 白名单之外的 Lean command，不执行
+用户模块 elaboration。当前 preflight 不保护 Lean parser 本身。随后三个互不等同的领域类型
+依次承担 surface、checked source 和 canonical semantics 责任。
 
 ## 架构不变量
 

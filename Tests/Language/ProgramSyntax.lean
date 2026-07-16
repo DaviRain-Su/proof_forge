@@ -29,6 +29,13 @@ open ProofForgeV2
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
+private def expectDecoderBound (result : Except String α) (label : String) : IO Unit :=
+  match result with
+  | .error message =>
+      expect (message.startsWith "PF-BOUND-001:")
+        s!"{label} must preserve PF-BOUND-001, found: {message}"
+  | .ok _ => throw <| IO.userError s!"{label} unexpectedly accepted over-nested syntax"
+
 private def isSha256Hex (value : String) : Bool :=
   value.length == 64 && value.toList.all fun char =>
     "0123456789abcdef".toList.contains char
@@ -43,21 +50,47 @@ private def wideSyntax (nodeCount : Nat) : Lean.Syntax :=
   Lean.Syntax.node .none `ProofForgeV2.Tests.wideSyntax <|
     Array.replicate (nodeCount - 1) (Lean.Syntax.atom .none "x")
 
+private def repeatedName (partCount : Nat) : Lean.Name := Id.run do
+  let mut name := Lean.Name.anonymous
+  for _ in [:partCount] do
+    name := Lean.Name.mkStr name "N"
+  return name
+
 def run : IO Unit := do
   expect (Language.maxSyntaxNodes == 100000 && Language.maxSyntaxNesting == 256)
     "portable Syntax budgets must match SPEC-LANG-001"
+  expect ((CompileError.resourceBound "test").code == "PF-BOUND-001")
+    "resource-bound diagnostics must have a stable code"
   match Language.preflightSyntax (linearSyntax Language.maxSyntaxNesting) with
   | .ok () => pure ()
   | .error error => throw <| IO.userError s!"Syntax at the nesting limit must be accepted: {CompileError.render error}"
   match Language.preflightSyntax (linearSyntax (Language.maxSyntaxNesting + 1)) with
   | .error (.resourceBound _) => pure ()
   | _ => throw <| IO.userError "Syntax above the nesting limit must fail with PF-BOUND-001"
-  match Language.preflightSyntax (wideSyntax Language.maxSyntaxNodes) with
+  let atNodeLimit := wideSyntax Language.maxSyntaxNodes
+  let overNodeLimit := wideSyntax (Language.maxSyntaxNodes + 1)
+  match Language.preflightSyntax atNodeLimit with
   | .ok () => pure ()
   | .error error => throw <| IO.userError s!"Syntax at the node limit must be accepted: {CompileError.render error}"
-  match Language.preflightSyntax (wideSyntax (Language.maxSyntaxNodes + 1)) with
+  match Language.preflightSyntax overNodeLimit with
   | .error (.resourceBound _) => pure ()
   | _ => throw <| IO.userError "Syntax above the node limit must fail with PF-BOUND-001"
+  let overNested := linearSyntax (Language.maxSyntaxNesting + 1)
+  expectDecoderBound (Language.decodeExpr overNested) "expression decoder"
+  expectDecoderBound (Language.decodeStatement overNested) "statement decoder"
+  expectDecoderBound (Language.decodeItem overNested) "item decoder"
+  expectDecoderBound (Language.decodeProgramCommand .anonymous overNested)
+    "program command decoder"
+  expectDecoderBound (Language.decodeProgramCommand .anonymous overNodeLimit)
+    "program command node budget"
+  match Language.preflightProgramIdentity
+      (repeatedName (Language.maxSyntaxNesting - 1)) `BoundProbe with
+  | .ok () => pure ()
+  | .error error => throw <| IO.userError s!"identity at the nesting limit failed: {error.render}"
+  match Language.preflightProgramIdentity
+      (repeatedName Language.maxSyntaxNesting) `BoundProbe with
+  | .error (.resourceBound _) => pure ()
+  | _ => throw <| IO.userError "qualified program identity above the nesting limit must fail"
   expect (Crypto.sha256Hex "".toUTF8 ==
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     "SHA-256 must match the empty-message reference vector"

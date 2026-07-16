@@ -34,6 +34,17 @@ private def nestedAdditionSource (terms : Nat) : String :=
   "program Deep where\n  view get() : UInt64 do\n    return " ++
   String.intercalate " + " (List.replicate terms "1") ++ "\n"
 
+private def nestedNamespaceSource (depth : Nat) : String :=
+  "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+  String.intercalate "" (List.replicate depth "namespace N\n") ++
+  "program Bounded where\n  view get() : UInt64 do\n    return 0\n" ++
+  String.intercalate "" (List.replicate depth "end N\n")
+
+private def wideProgramSource (stateCount : Nat) : String :=
+  "import ProofForgeV2\nopen ProofForgeV2.Language\nprogram Wide where\n" ++
+  String.intercalate "" (List.replicate stateCount "  state cell : UInt64\n") ++
+  "  view get() : UInt64 do\n    return 0\n"
+
 unsafe def run : IO Unit := do
   let decoded ← Language.Loader.selectProgram counterSource "<counter>" (some "ProofForgeV2.Examples.Counter")
   match decoded with
@@ -83,5 +94,22 @@ unsafe def run : IO Unit := do
   | .error (.resourceBound _) => pure ()
   | .error error => throw <| IO.userError s!"deep portable syntax must use PF-BOUND-001, found {CompileError.render error}"
   | .ok _ => throw <| IO.userError "deep portable syntax unexpectedly passed the loader"
+
+  match ← Language.Loader.selectProgram
+      (nestedNamespaceSource (Language.maxSyntaxNesting - 1)) "<namespace-limit>" none with
+  | .ok contractProgram =>
+      expect (contractProgram.name == "Bounded")
+        "qualified program identity at the nesting limit must pass the loader"
+  | .error error => throw <| IO.userError s!"namespace limit unexpectedly failed: {error.render}"
+  match ← Language.Loader.parsePrograms
+      (nestedNamespaceSource Language.maxSyntaxNesting) "<namespace-over-limit>" with
+  | .error (.resourceBound _) => pure ()
+  | .error error => throw <| IO.userError s!"namespace overflow must use PF-BOUND-001, found {error.render}"
+  | .ok _ => throw <| IO.userError "namespace identity above the limit unexpectedly passed"
+
+  match ← Language.Loader.parsePrograms (wideProgramSource 20000) "<wide-syntax>" with
+  | .error (.resourceBound _) => pure ()
+  | .error error => throw <| IO.userError s!"wide portable syntax must use PF-BOUND-001, found {error.render}"
+  | .ok _ => throw <| IO.userError "wide portable syntax unexpectedly passed the loader"
 
 end Tests.Language.Loader

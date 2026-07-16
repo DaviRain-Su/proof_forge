@@ -3,7 +3,7 @@ id: SPEC-LANG-001
 title: Program DSL 语言规格
 status: proposed
 owner: frontend
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -114,6 +114,24 @@ persistent environment extension 只登记 fully-qualified name 与 schema versi
 由常量求值获得。导入顺序不影响排序，loader 按 UTF-8 qualified name 排序。重复 identity
 为 `PF-EXPORT-001`；多候选且缺少 `--program` 为 `PF-EXPORT-002`。
 
+## Syntax 资源预检
+
+当前 alpha 把预算域冻结为**单个 portable `program` command 的 Lean `Syntax` 子树**，
+不是整个 `.lean` module 的累计 AST。`preflightSyntax` 使用显式 Array 工作栈，不递归；root
+depth 从 1 开始，沿 `Syntax.getArgs` 可达的 node、atom、identifier 与 missing 值都计入节点数。
+每个 command 最多 100000 nodes、root-inclusive nesting 最多 256；fully-qualified program
+identity 和单个 identifier 也最多 256 个 `Name` components。恰好 100000/256 接受，
+100001/257 以 `PF-BOUND-001` 拒绝。
+
+两条生产路径共享 `decodeProgramCommandChecked`：CLI 在 Lean parser 产出每个 program
+command 后预检，再 whitelist/decode；Lean command elaborator 在递归 decode 和
+`expandItem/expandExpr` 前预检。CLI 另在调用 Lean parser 前执行 16 MiB source-byte 上限，
+该上限当前返回 `PF-SRC-INVALID`；直接 `lake env lean` 的 command 路径没有这项 CLI 文件上限。
+
+这个边界不保护 Lean parser 本身，不是多 program module 的累计 node 上限，也不约束直接
+构造 `Source.Program` 后调用 compiler API 的代码。parser fuzz、parser 进程 time/memory
+containment、完整 NodeId/span 和 module aggregate policy 仍属于后续 D1/security 工作。
+
 ## SourceHash
 
 hash 输入为 schema tag、qualified identity、NFC identifier/string、规范 literal 和 AST
@@ -125,11 +143,13 @@ hash 输入为 schema tag、qualified identity、NFC identifier/string、规范 
 `PF-SRC-001` 非法 token/grammar；`PF-SRC-010` 重复声明；`PF-SRC-020` 非法 item；
 `PF-EXPORT-001/002` 导出冲突/选择歧义。必须覆盖：空 program、零 callable、重复 init、
 重复 field/variant、NFC 冲突、跨 module 同短名、嵌套注释、非法转义、literal 超宽、
-长度 0/4096/4097、loop bound 0/4096/4097、AST 深度 >256、节点 >100000、import
+长度 0/4096/4097、loop bound 0/4096/4097、portable Syntax 深度 >256、单 command 节点
+>100000、import
 diamond、attribute schema mismatch、proof name 缺失、绝对路径改变但 hash 不变。
 
 ## 安全与验收
 
-限制 source 16 MiB、AST 100000 nodes、nesting 256；diagnostic 不回显 private literal。
+CLI source 限制 16 MiB；每个 portable program Syntax 子树限制 100000 nodes、nesting 256；
+diagnostic 不回显 private literal。
 验收关联 `FR-001/002/010`、`TST-SRC-001..008`、`TST-DIAG-001`，并要求 parser
 fuzz 在 100 万 case 内无 crash/超限资源、跨 module identity 与 source hash 决定性通过。

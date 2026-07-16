@@ -3,7 +3,7 @@ id: SPEC-SEC-001
 title: 安全与隐私规格
 status: proposed
 owner: security
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -23,7 +23,9 @@ runtime、RPC、network profile 和父项目均不可信。编译器不执行 so
 
 ## 强制控制
 
-- 输入：16 MiB/source、100000 nodes、nesting 256、循环/调用/effect/output limits。
+- 输入：CLI parser 前 16 MiB/source；parser 后每个 portable program command 100000 Syntax
+  nodes、nesting/qualified identity 256；循环/调用/effect/output limits。Syntax preflight 不保护
+  Lean parser，parser containment/fuzz 仍是开放工作。
 - 进程：tool path 来自 lock-resolved absolute path；清理 env；timeout；stdout/stderr cap；
   不经 shell 拼接参数；验证 exit code、version、hash 和产物。
 - 文件：output root containment、open-no-follow、拒绝 symlink/hardlink escape、临时目录
@@ -60,7 +62,9 @@ writable/order/PDA；NEAR predecessor/signer、attached value、Promise callback
 
 ## 安全失败
 
-安全检查失败一律 error，不允许 warning override。资源超限 `PF-RESOURCE-LIMIT`，不可信
+安全检查失败一律 error，不允许 warning override。当前 Syntax/identity 资源超限
+`PF-BOUND-001`，CLI source 16 MiB 超限 `PF-SRC-INVALID`；未来其他资源错误码须先进入
+diagnostic 规格，不能使用未注册的 `PF-RESOURCE-LIMIT`。不可信
 工具 `PF-TOOL-UNTRUSTED`，路径 `PF-OUTPUT-PATH`，披露 `PF-VIS-001`。`--force` 只允许
 替换输出目录，不绕过任何安全/语义/版本检查。
 

@@ -16,7 +16,7 @@ Phase 3 模块规格，不能只引用系统架构。
 
 ```text
 SourceFile
-→ Lean Parser + ProofForge syntax decode → Source.Program
+→ Lean Parser → per-program bounded Syntax preflight → ProofForge decode → Source.Program
 → resolve/type/effect/bound/disclosure → Typed.Program
 → normalize → Semantic.Program + ProgramRequirements
 → resolve(TargetId, minimumEvidence) → ResolvedProgram target

@@ -32,25 +32,48 @@ syntax "view " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIn
 
 syntax (name := programDecl) "program " ident " where" ppLine ppIndent(pfItem*) : command
 
+/-- Maximum nodes in one portable decoder subtree, including its root. -/
 def maxSyntaxNodes : Nat := 100000
+
+/-- Maximum root-inclusive depth in one portable decoder subtree. -/
 def maxSyntaxNesting : Nat := 256
 
-/-- Iterative preflight over Lean's parsed Syntax tree. This must run before
-the recursive DSL decoder or macro expander so hostile nesting cannot consume
-the compiler's call stack. -/
+/-- Count name components iteratively, returning `none` before exceeding `limit`. -/
+def boundedNamePartCount (limit : Nat) (name : Name) : Option Nat := Id.run do
+  let mut current := name
+  let mut count := 0
+  while current != .anonymous do
+    if count >= limit then
+      return none
+    count := count + 1
+    current := current.getPrefix
+  return some count
+
+/-- Iterative post-parser preflight over one portable Syntax subtree. This runs
+before the recursive DSL decoder or macro expander; it does not protect Lean's
+parser itself or impose an aggregate limit across multiple programs. -/
 def preflightSyntax (root : Syntax) : CompileResult Unit := do
   let mut pending : Array (Syntax × Nat) := #[(root, 1)]
-  let mut visited := 0
+  let mut discovered := 1
   while !pending.isEmpty do
     let (current, nesting) := pending.back!
     pending := pending.pop
     if nesting > maxSyntaxNesting then
       throw <| .resourceBound s!"portable syntax exceeds nesting limit {maxSyntaxNesting}"
-    if visited >= maxSyntaxNodes then
-      throw <| .resourceBound s!"portable syntax exceeds node limit {maxSyntaxNodes}"
-    visited := visited + 1
+    match current with
+    | .ident _ _ name _ =>
+        if (boundedNamePartCount maxSyntaxNesting name).isNone then
+          throw <| .resourceBound
+            s!"portable identifier nesting exceeds limit {maxSyntaxNesting}"
+    | _ => pure ()
     for child in current.getArgs do
-      pending := pending.push (child, nesting + 1)
+      let childNesting := nesting + 1
+      if childNesting > maxSyntaxNesting then
+        throw <| .resourceBound s!"portable syntax exceeds nesting limit {maxSyntaxNesting}"
+      if discovered >= maxSyntaxNodes then
+        throw <| .resourceBound s!"portable syntax exceeds node limit {maxSyntaxNodes}"
+      discovered := discovered + 1
+      pending := pending.push (child, childNesting)
 
 private def preflightForDecoder (stx : Syntax) : Except String Unit :=
   (preflightSyntax stx).mapError CompileError.render
@@ -94,29 +117,33 @@ def decodeExpr (stx : Syntax) : Except String ProofForgeV2.Source.Expr := do
   preflightForDecoder stx
   decodeExprUnchecked stx
 
-def decodeStatement : Syntax → Except String ProofForgeV2.Source.Statement
+private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Source.Statement
   | `(pfStmt| $name:ident := $value:pfExpr) => do
-      return .assign name.getId.toString (← decodeExpr value)
+      return .assign name.getId.toString (← decodeExprUnchecked value)
   | `(pfStmt| return $value:pfExpr) => do
-      return .returnValue (← decodeExpr value)
+      return .returnValue (← decodeExprUnchecked value)
   | `(pfStmt| call $callee:str) => .ok <| .synchronousCall callee.getString
   | _ => .error "unsupported portable statement"
+
+def decodeStatement (stx : Syntax) : Except String ProofForgeV2.Source.Statement := do
+  preflightForDecoder stx
+  decodeStatementUnchecked stx
 
 private def decodeParams (params : Array Syntax) :
     Except String (Array ProofForgeV2.Source.Param) :=
   params.mapM decodeParam
 
-private def decodeStatements (statements : Array Syntax) :
+private def decodeStatementsUnchecked (statements : Array Syntax) :
     Except String (Array ProofForgeV2.Source.Statement) :=
-  statements.mapM decodeStatement
+  statements.mapM decodeStatementUnchecked
 
-def decodeItem : Syntax → Except String ProofForgeV2.Source.Item
+private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.Item
   | `(pfItem| state $name:ident : $type:pfType) => do
       return .stateDecl { name := name.getId.toString, type := ← decodeType type }
   | `(pfItem| init ($params:pfParam,*) do $statements:pfStmt*) => do
       return .initializer {
         params := ← decodeParams params
-        body := ← decodeStatements statements
+        body := ← decodeStatementsUnchecked statements
       }
   | `(pfItem| entry $name:ident ($params:pfParam,*) : $type:pfType do $statements:pfStmt*) => do
       return .entry {
@@ -124,7 +151,7 @@ def decodeItem : Syntax → Except String ProofForgeV2.Source.Item
         params := ← decodeParams params
         result := ← decodeType type
         mode := .mutate
-        body := ← decodeStatements statements
+        body := ← decodeStatementsUnchecked statements
       }
   | `(pfItem| view $name:ident ($params:pfParam,*) : $type:pfType do $statements:pfStmt*) => do
       return .entry {
@@ -132,16 +159,20 @@ def decodeItem : Syntax → Except String ProofForgeV2.Source.Item
         params := ← decodeParams params
         result := ← decodeType type
         mode := .view
-        body := ← decodeStatements statements
+        body := ← decodeStatementsUnchecked statements
       }
   | _ => .error "unsupported portable program item"
+
+def decodeItem (stx : Syntax) : Except String ProofForgeV2.Source.Item := do
+  preflightForDecoder stx
+  decodeItemUnchecked stx
 
 private def decodeProgramCommandUnchecked (currentNamespace : Name) : Syntax →
     Except String ProofForgeV2.Source.Program
   | `(program $name:ident where $items:pfItem*) => do
       let shortName := name.getId.toString
       let qualifiedName := (currentNamespace ++ name.getId).toString
-      let decodedItems ← items.mapM decodeItem
+      let decodedItems ← items.mapM decodeItemUnchecked
       let initializerCount : Nat := decodedItems.foldl (fun count item =>
         match item with | .initializer .. => count + 1 | _ => count) 0
       if initializerCount > 1 then
@@ -150,10 +181,33 @@ private def decodeProgramCommandUnchecked (currentNamespace : Name) : Syntax →
         qualifiedName shortName decodedItems
   | _ => .error "expected a program declaration"
 
+/-- Bound the fully qualified identity before recursive `Name.toString`. -/
+def preflightProgramIdentity (currentNamespace programName : Name) :
+    CompileResult Unit := do
+  let namespaceParts ←
+    match boundedNamePartCount maxSyntaxNesting currentNamespace with
+    | some count => .ok count
+    | none => .error (.resourceBound
+        s!"portable program identity exceeds nesting limit {maxSyntaxNesting}")
+  match boundedNamePartCount (maxSyntaxNesting - namespaceParts) programName with
+  | some _ => .ok ()
+  | none => .error (.resourceBound
+      s!"portable program identity exceeds nesting limit {maxSyntaxNesting}")
+
+def decodeProgramCommandChecked (currentNamespace : Name) (stx : Syntax) :
+    CompileResult ProofForgeV2.Source.Program := do
+  preflightSyntax stx
+  match stx with
+  | `(program $name:ident where $_items:pfItem*) =>
+      preflightProgramIdentity currentNamespace name.getId
+  | _ => pure ()
+  match decodeProgramCommandUnchecked currentNamespace stx with
+  | .ok contractProgram => .ok contractProgram
+  | .error message => .error <| .invalidProgram message
+
 def decodeProgramCommand (currentNamespace : Name) (stx : Syntax) :
-    Except String ProofForgeV2.Source.Program := do
-  preflightForDecoder stx
-  decodeProgramCommandUnchecked currentNamespace stx
+    Except String ProofForgeV2.Source.Program :=
+  (decodeProgramCommandChecked currentNamespace stx).mapError CompileError.render
 
 private def expandType (type : Syntax) : MacroM (TSyntax `term) :=
   match type with

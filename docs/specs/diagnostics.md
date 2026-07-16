@@ -3,7 +3,7 @@ id: SPEC-DIAG-001
 title: 稳定诊断规格
 status: proposed
 owner: frontend
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -40,7 +40,7 @@ major version 内稳定。多错误按 source location/code/context 排序；默
 | `PF-SRC-001/010/020` | grammar、重复、非法 item |
 | `PF-TYPE-001..004` | mismatch、name、cast、interface type |
 | `PF-EFFECT-001/002` | callable effect、未声明 effect |
-| `PF-BOUND-001` | 无界控制/资源 |
+| `PF-BOUND-001` | portable Syntax/identifier/program identity 超过 100000 nodes 或 nesting/components 256；未来也用于无法证明的控制流 bound |
 | `PF-VIS-001` | 信息披露违规 |
 | `PF-EXT-001` | 未声明 extension syntax |
 | `PF-EXPORT-001/002` | identity 冲突、program 选择歧义 |
@@ -66,6 +66,11 @@ major version 内稳定。多错误按 source location/code/context 排序；默
 Requirement rejection 必须带 target、requirementId、version/digest、所有 source origins、
 expected claim 和 actual/missing；toolchain error 带预期版本/checksum、解析到的 executable
 路径与实际版本，但不输出敏感环境。
+
+当前 alpha 尚未实现上面的完整 `Diagnostic v1` record/JSON/span。Syntax preflight 通过
+`CompileError.resourceBound` 保留稳定 code `PF-BOUND-001`，human message 只说明超出的
+node/nesting/identity limit。CLI 的 16 MiB parser 前文件上限仍是
+`CompileError.invalidProgram` / `PF-SRC-INVALID`；这两个边界不得在证据中混写。
 
 ## 隐私与安全
 
