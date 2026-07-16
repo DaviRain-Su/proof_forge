@@ -67,8 +67,8 @@ normative: true
 | TASK-A0-20 | Lean command/CLI Loader 共用唯一 validated decoded `Source.Program`，移除第二套 raw-Syntax AST construction | — | — | TST-A0-020 | EV-20260716-0025 | done |
 
 本 checkpoint 截止 `TASK-A0-20` 冻结。2026-07-16 对账确认：A0 的 `done` 只表示 alpha
-切片；它们不自动关闭 D0/D1。D0 四项原状态没有漏勾，D1 七项也都缺正式依赖、完整 TST 或
-EV。下一工作回到第一个正式任务 `TASK-D0-01`。
+切片；它们不自动关闭 D0/D1。2026-07-17：`TASK-D0-01` 经 `FX-2026-07-17-D0-01` 关闭；
+下一正式任务为 `TASK-D0-02`。
 
 ## Milestone D0：文档与独立工程
 
