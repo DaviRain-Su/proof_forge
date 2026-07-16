@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import hashlib
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -40,6 +42,12 @@ def load_gate_evidence() -> object:
 
 def write_secure(path: Path, body: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.write_bytes(body)
+    path.chmod(0o400)
+
+
+def replace_secure(path: Path, body: bytes) -> None:
+    path.chmod(0o600)
     path.write_bytes(body)
     path.chmod(0o400)
 
@@ -921,6 +929,108 @@ def invoke(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
         ) from error
 
 
+def rewrite_catalog_binding(
+    module: object,
+    bundle_root: Path,
+    document: dict[str, object],
+    catalog_path: str,
+    mutator: object,
+) -> tuple[dict[str, object], str, str]:
+    rebound = copy.deepcopy(document)
+    catalog_file = bundle_root / catalog_path
+    catalog = module.decode_json(catalog_file.read_bytes())
+    if not callable(mutator):
+        raise AssertionError("catalog mutator is not callable")
+    mutator(catalog)
+    catalog_bytes = module.canonical_bytes(catalog)
+    content_sha256 = sha256(catalog_bytes)
+    catalog_digest = domain_sha256(b"pf.gate-catalog.v1", catalog_bytes)
+    replace_secure(catalog_file, catalog_bytes)
+    rebound["gateCatalog"] = {
+        "schema": catalog["schema"],
+        "id": catalog["id"],
+        "version": catalog["version"],
+        "contentSha256": content_sha256,
+        "catalogDigest": catalog_digest,
+    }
+    catalog_claim = next(
+        entry for entry in rebound["inputs"] if entry["role"] == "gate-catalog"
+    )
+    catalog_claim["sha256"] = content_sha256
+    catalog_claim["size"] = len(catalog_bytes)
+    module.validate_evidence(rebound)
+    replace_secure(
+        bundle_root / "development-evidence.json",
+        module.canonical_bytes(rebound),
+    )
+    return rebound, content_sha256, catalog_digest
+
+
+def assert_catalog_rejection(
+    module: object,
+    temporary_root: Path,
+    source_root: Path,
+    document: dict[str, object],
+    catalog_path: str,
+    run_binding_sha256: str,
+    *,
+    label: str,
+    expected_code: str,
+    mutator: object | None = None,
+    catalog_argument: str | None = None,
+    content_override: str | None = None,
+) -> None:
+    case_root = temporary_root / f"catalog-negative-{label}"
+    shutil.copytree(source_root, case_root, copy_function=shutil.copy2)
+    case_document = copy.deepcopy(document)
+    content_sha256 = case_document["gateCatalog"]["contentSha256"]
+    catalog_digest = case_document["gateCatalog"]["catalogDigest"]
+    if mutator is not None:
+        case_document, content_sha256, catalog_digest = rewrite_catalog_binding(
+            module,
+            case_root,
+            case_document,
+            catalog_path,
+            mutator,
+        )
+    if content_override is not None:
+        content_sha256 = content_override
+    output_root = temporary_root / f"catalog-negative-output-{label}"
+    output = (
+        output_root
+        / "finalized-development"
+        / case_document["gateCatalog"]["id"]
+        / case_document["gate"]["id"]
+        / "EVF-20260715-9001.json"
+    )
+    result = invoke(
+        [
+            "finalize-development",
+            "--catalog",
+            catalog_argument if catalog_argument is not None else catalog_path,
+            "--catalog-sha256",
+            content_sha256,
+            "--catalog-digest",
+            catalog_digest,
+            "--run-binding-sha256",
+            run_binding_sha256,
+            "--evidence",
+            "development-evidence.json",
+            "--bundle-root",
+            os.fspath(case_root),
+            "--output",
+            os.fspath(output),
+        ]
+    )
+    if result.returncode != 2 or result.stdout or expected_code.encode("ascii") not in result.stderr:
+        raise AssertionError(
+            f"catalog negative {label} did not fail at {expected_code}:\n"
+            + result.stderr.decode("utf-8", errors="replace")
+        )
+    if output_root.exists():
+        raise AssertionError(f"catalog negative {label} touched its output namespace")
+
+
 def main() -> int:
     if not sys.flags.isolated or not sys.flags.no_site:
         raise AssertionError("invoke this test with isolated Python using -I -S")
@@ -1001,6 +1111,97 @@ def main() -> int:
             catalog_digest,
             run_binding_sha256,
         ) = write_realistic_development_bundle(module, development_root)
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="caller-content-digest",
+            expected_code="PF-EVIDENCE-CATALOG-DIGEST",
+            content_override="0" * 64,
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="absolute-catalog-path",
+            expected_code="PF-EVIDENCE-PATH",
+            catalog_argument=os.fspath((development_root / catalog_path).resolve(strict=True)),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="hidden-malformed-gate",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"].append(
+                {
+                    **copy.deepcopy(catalog["gates"][0]),
+                    "id": "zz-hidden-malformed",
+                    "requiredTools": [],
+                }
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="selected-task",
+            expected_code="PF-EVIDENCE-CATALOG-GATE",
+            mutator=lambda catalog: catalog["gates"][0].update(
+                {"taskId": "TASK-D0-99"}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="implementation-core-lock",
+            expected_code="PF-EVIDENCE-CATALOG-DIGEST",
+            mutator=lambda catalog: catalog["locks"].update(
+                {"evidenceSchemaCoreSha256": "0" * 64}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="candidate-policy",
+            expected_code="PF-EVIDENCE-CANDIDATE-BINDING",
+            mutator=lambda catalog: catalog["gates"][0]["candidatePolicy"].update(
+                {"dirty": True}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="host-policy",
+            expected_code="PF-EVIDENCE-HOST-BINDING",
+            mutator=lambda catalog: catalog["gates"][0]["hostPolicy"].update(
+                {"eligibleForHermetic": True}
+            ),
+        )
         finalized_id = "EVF-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d") + "-0001"
         output_root = temporary_root / "trusted-output"
         output_parent = (
