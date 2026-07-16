@@ -336,7 +336,7 @@ compiler-core、external-tool 与 artifact-output 三 stage 的 limits、whole-c
 product archive extracted into a fresh directory without `.git` or `active/`, run
 the test executable and `proof-forge-next --help`, and show that both executable
 paths are owned by that extracted Lake workspace. The archive must carry the root
-`lakefile.lean`, `lake-manifest.json`, `lean-toolchain`, `Justfile`, and
+`lakefile.lean`, `lake-manifest.json`, `lean-toolchain`, `justfile`, and
 `ProofForgeV2.lean`; package/library/executable identities are exactly
 `proof-forge-next`, `ProofForgeV2`, and `proof-forge-next`.
 
