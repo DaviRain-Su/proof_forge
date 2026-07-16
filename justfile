@@ -125,6 +125,14 @@ evidence-core:
     fi
     rg -q 'PF-EVIDENCE-PYTHON-MODE' "$tmp/nonisolated.stderr"
 
+evidence-finalization:
+    #!/bin/bash
+    set -euo pipefail
+    xcode_python=/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9
+    test -x "$xcode_python"
+    "$xcode_python" -I -S -m py_compile scripts/gate_evidence_finalization_self_test.py
+    "$xcode_python" -I -S scripts/gate_evidence_finalization_self_test.py
+
 sandbox-policy:
     #!/bin/bash
     set -euo pipefail
