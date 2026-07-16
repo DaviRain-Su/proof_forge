@@ -362,11 +362,74 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
     assert parsed_safe_ids.principals[0].principalId == "Principal_1:ops+arch"
     assert parsed_safe_ids.verifier.id == "Verifier_1:prod+receipt"
 
+    oversized_principals = copy.deepcopy(policy)
+    oversized_principals["principals"] = [
+        {
+            "principalId": f"principal-bulk-{index:03d}",
+            "keyId": f"key-bulk-{index:03d}",
+            "publicKey": RFC_8032_PUBLIC_KEYS[0],
+            "roles": ["quality"],
+        }
+        for index in range(257)
+    ]
+    duplicate_key_material = copy.deepcopy(policy)
+    duplicate_key_material["principals"][1]["publicKey"] = (
+        duplicate_key_material["principals"][0]["publicKey"]
+    )
+    original_decode_point = module._decode_point
+    curve_calls = 0
+
+    def counted_decode_point(encoded: bytes) -> object:
+        nonlocal curve_calls
+        curve_calls += 1
+        return object()
+
+    module._decode_point = counted_decode_point
+    try:
+        assert_rejected(
+            module,
+            lambda: module.parse_bootstrap_authority_policy(
+                module.canonical_pf_jcs(oversized_principals)
+            ),
+        )
+        assert curve_calls == 0, "257 principals must reject before curve work"
+        assert_rejected(
+            module,
+            lambda: module.parse_bootstrap_authority_policy(
+                module.canonical_pf_jcs(duplicate_key_material)
+            ),
+        )
+        assert curve_calls == 0, (
+            "duplicate publicKey must reject before repeated subgroup validation"
+        )
+    finally:
+        module._decode_point = original_decode_point
+
     mutations = []
 
     wrong_schema = copy.deepcopy(policy)
     wrong_schema["schema"] = "proof-forge.bootstrap-authority-policy.v2"
     mutations.append(("wrong policy schema", wrong_schema))
+
+    empty_principals = copy.deepcopy(policy)
+    empty_principals["principals"] = []
+    mutations.append(("empty principals", empty_principals))
+
+    overflow_policy_version = copy.deepcopy(policy)
+    overflow_policy_version["version"] = "18446744073709551616.0.0"
+    mutations.append(("policy version exceeds UInt64", overflow_policy_version))
+
+    overflow_nested_version = copy.deepcopy(policy)
+    overflow_nested_version["authorityStoreService"]["version"] = (
+        "18446744073709551616.0.0"
+    )
+    mutations.append(("nested ContentRef version exceeds UInt64", overflow_nested_version))
+
+    wrong_store_schema = copy.deepcopy(policy)
+    wrong_store_schema["authorityStoreService"]["schema"] = (
+        "proof-forge.unrelated-service.v1"
+    )
+    mutations.append(("wrong authority store service schema", wrong_store_schema))
 
     unknown_field = copy.deepcopy(policy)
     unknown_field["futurePolicy"] = {}
@@ -588,6 +651,17 @@ def test_common_identities(module: ModuleType) -> object:
     assert content_ref.id == "phase-5-required-tests"
     assert content_ref.version == "1.0.0"
     assert content_ref.digest == digest
+
+    max_semver_ref = dict(
+        schema="proof-forge.required-test-set.v1",
+        id="phase-5-required-tests",
+        version="18446744073709551615.0.0",
+        digest=zero_digest,
+    )
+    assert module.parse_content_ref(max_semver_ref).version == max_semver_ref["version"]
+    overflow_semver_ref = dict(max_semver_ref)
+    overflow_semver_ref["version"] = "18446744073709551616.0.0"
+    assert_rejected(module, lambda: module.parse_content_ref(overflow_semver_ref))
 
     candidate_payload = {
         "commit": "a" * 40,
