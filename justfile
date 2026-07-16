@@ -238,16 +238,45 @@ dsl-negative: build
     rg -q "unexpected token|unexpected identifier|expected" build/program-kind.log
     rm -rf build/frontend-parity-negative
     mkdir -p build/frontend-parity-negative
-    for fixture in zero-callable duplicate-state duplicate-entry duplicate-initializer-param duplicate-entry-param duplicate-initializer; do
+    expected_diagnostic() {
+        case "$1" in
+            zero-callable) echo "PF-SRC-INVALID: program 'ZeroCallable' must declare at least one entry or view" ;;
+            duplicate-state) echo "PF-SRC-INVALID: program 'DuplicateState' contains duplicate state declarations" ;;
+            duplicate-entry) echo "PF-SRC-INVALID: program 'DuplicateEntry' contains duplicate entry declarations" ;;
+            duplicate-initializer-param) echo "PF-SRC-INVALID: initializer contains duplicate parameters" ;;
+            duplicate-entry-param) echo "PF-SRC-INVALID: entry 'run' contains duplicate parameters" ;;
+            duplicate-initializer) echo "PF-SRC-INVALID: program may declare at most one initializer" ;;
+            priority-identity-before-decode) echo "PF-BOUND-001: portable program identity exceeds nesting limit 256" ;;
+            priority-decode-before-initializer) echo "PF-SRC-INVALID: UInt64 literal is out of range: 18446744073709551616" ;;
+            priority-initializer-before-zero) echo "PF-SRC-INVALID: program may declare at most one initializer" ;;
+            priority-zero-before-state) echo "PF-SRC-INVALID: program 'PriorityZeroBeforeState' must declare at least one entry or view" ;;
+            priority-state-before-entry) echo "PF-SRC-INVALID: program 'PriorityStateBeforeEntry' contains duplicate state declarations" ;;
+            priority-entry-before-initializer-param) echo "PF-SRC-INVALID: program 'PriorityEntryBeforeInitializerParam' contains duplicate entry declarations" ;;
+            priority-initializer-param-before-entry-param) echo "PF-SRC-INVALID: initializer contains duplicate parameters" ;;
+            priority-entry-param-declaration-order) echo "PF-SRC-INVALID: entry 'first' contains duplicate parameters" ;;
+            *) echo "missing expected diagnostic for $1" >&2; return 1 ;;
+        esac
+    }
+    fixtures=(
+        zero-callable duplicate-state duplicate-entry duplicate-initializer-param
+        duplicate-entry-param duplicate-initializer priority-identity-before-decode
+        priority-decode-before-initializer
+        priority-initializer-before-zero priority-zero-before-state priority-state-before-entry
+        priority-entry-before-initializer-param priority-initializer-param-before-entry-param
+        priority-entry-param-declaration-order
+    )
+    for fixture in "${fixtures[@]}"; do
         lean_log="build/frontend-parity-negative/$fixture.lean.log"
         cli_log="build/frontend-parity-negative/$fixture.cli.log"
         lean_output="build/frontend-parity-negative/$fixture.olean"
         cli_output="build/frontend-parity-negative/$fixture-cli"
         if lake env lean "testdata/invalid/$fixture.lean" -o "$lean_output" > "$lean_log" 2>&1; then echo "$fixture unexpectedly compiled through Lean command elaboration" >&2; exit 1; fi
-        rg -q "PF-SRC-INVALID" "$lean_log"
+        rg -q "PF-(SRC-INVALID|BOUND-001)" "$lean_log"
         if lake env .lake/build/bin/proof-forge-next build "$fixture.lean" --root testdata/invalid --target solana -o "$cli_output" > "$cli_log" 2>&1; then echo "$fixture unexpectedly compiled through CLI loader" >&2; exit 1; fi
-        rg -q "PF-SRC-INVALID" "$cli_log"
-        test "$(rg -o 'PF-SRC-INVALID:.*' "$lean_log" | head -1)" = "$(rg -o 'PF-SRC-INVALID:.*' "$cli_log" | head -1)"
+        rg -q "PF-(SRC-INVALID|BOUND-001)" "$cli_log"
+        expected="$(expected_diagnostic "$fixture")"
+        test "$(rg -o 'PF-(SRC-INVALID|BOUND-001):.*' "$lean_log" | head -1)" = "$expected"
+        test "$(rg -o 'PF-(SRC-INVALID|BOUND-001):.*' "$cli_log" | head -1)" = "$expected"
         test ! -e "$lean_output"
         test ! -e "$cli_output"
     done

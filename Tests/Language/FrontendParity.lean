@@ -18,6 +18,11 @@ program CompleteAlpha where
   view literal() : UInt64 do
     return 7
 
+program EdgeAlpha where
+  entry callEdge() : UInt64 do
+    call "peer\n\"quoted\"\\path"
+    return 18446744073709551615
+
 end Tests.Language.FrontendParityFixture
 
 namespace Tests.Language.FrontendParity
@@ -41,17 +46,26 @@ private def source : String :=
   "    return total\n\n" ++
   "  view literal() : UInt64 do\n" ++
   "    return 7\n\n" ++
+  "program EdgeAlpha where\n" ++
+  "  entry callEdge() : UInt64 do\n" ++
+  "    call \"peer\\n\\\"quoted\\\"\\\\path\"\n" ++
+  "    return 18446744073709551615\n\n" ++
   "end Tests.Language.FrontendParityFixture\n"
 
 unsafe def run : IO Unit := do
   let session ← Language.Loader.ParserSession.create
   match ← session.parsePrograms source "<frontend-parity>" with
-  | .ok #[decoded] =>
-      let elaborated := Tests.Language.FrontendParityFixture.CompleteAlpha
-      expect (decoded == elaborated)
-        "Lean command and Loader must produce the same decoded Source.Program"
-      expect (decoded.sourceHash == elaborated.sourceHash)
-        "Lean command and Loader must produce the same source hash"
+  | .ok #[decodedComplete, decodedEdge] =>
+      let elaboratedComplete := Tests.Language.FrontendParityFixture.CompleteAlpha
+      let elaboratedEdge := Tests.Language.FrontendParityFixture.EdgeAlpha
+      expect (decodedComplete == elaboratedComplete)
+        "Lean command and Loader must produce the same complete Source.Program"
+      expect (decodedComplete.sourceHash == elaboratedComplete.sourceHash)
+        "Lean command and Loader must produce the same complete source hash"
+      expect (decodedEdge == elaboratedEdge)
+        "Lean command and Loader must preserve empty arrays, Option.none, escaped strings, and UInt64.max"
+      expect (decodedEdge.sourceHash == elaboratedEdge.sourceHash)
+        "Lean command and Loader must produce the same edge source hash"
   | .ok programs =>
       throw <| IO.userError s!"frontend parity source produced {programs.size} programs"
   | .error error => throw <| IO.userError error.render

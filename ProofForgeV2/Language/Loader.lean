@@ -47,15 +47,6 @@ private def namesEqual (left right : Name) : Bool := Id.run do
         done := true
   return equal
 
-private def hasDuplicate (values : Array String) : Bool := Id.run do
-  let mut seen : Std.HashSet String := {}
-  for value in values do
-    let (alreadyPresent, updated) := seen.containsThenInsert value
-    if alreadyPresent then
-      return true
-    seen := updated
-  return false
-
 private def validateHeader (header : Syntax) : Except CompileError Unit := do
   match header with
   | `(Parser.Module.header| $[module%$_]? $[prelude%$_]? $imports*) =>
@@ -67,20 +58,6 @@ private def validateHeader (header : Syntax) : Except CompileError Unit := do
             throw <| invalid "unsupported import; only ProofForgeV2 is allowed"
       | _ => throw <| invalid "public/meta/import-all forms are not allowed in program source"
   | _ => throw <| invalid "invalid Lean module header"
-
-private def validateProgram (contractProgram : Source.Program) : Except CompileError Unit := do
-  if contractProgram.entries.isEmpty then
-    throw <| invalid s!"program '{contractProgram.qualifiedName}' must declare at least one entry or view"
-  let stateNames := contractProgram.state.map (·.name)
-  if hasDuplicate stateNames then
-    throw <| invalid s!"program '{contractProgram.qualifiedName}' contains duplicate state declarations"
-  let entryNames := contractProgram.entries.map (·.name)
-  if hasDuplicate entryNames then
-    throw <| invalid s!"program '{contractProgram.qualifiedName}' contains duplicate entry declarations"
-  for entrypoint in contractProgram.entries do
-    let paramNames := entrypoint.params.map (·.name)
-    if hasDuplicate paramNames then
-      throw <| invalid s!"entry '{entrypoint.name}' contains duplicate parameters"
 
 private def processCommands (commands : Array Syntax) :
     Except CompileError (Array Source.Program) := do
@@ -101,7 +78,6 @@ private def processCommands (commands : Array Syntax) :
           | .overLimit _ _ => Language.ProgramNamespace.overLimit
         let contractProgram ←
           Language.decodeProgramCommandChecked currentNamespace command
-        validateProgram contractProgram
         let (alreadyPresent, updatedNames) :=
           programNames.containsThenInsert contractProgram.qualifiedName
         if alreadyPresent then

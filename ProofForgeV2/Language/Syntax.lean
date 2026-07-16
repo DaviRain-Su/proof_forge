@@ -1,5 +1,6 @@
 import Lean
 import ProofForgeV2.Core.Source
+import Std.Data.HashSet
 
 open Lean Parser Command
 open ProofForgeV2
@@ -175,6 +176,36 @@ def decodeItem (stx : Syntax) : Except String ProofForgeV2.Source.Item := do
   preflightForDecoder stx
   decodeItemUnchecked stx
 
+private def hasDuplicate (values : Array String) : Bool := Id.run do
+  let mut seen := Std.HashSet.emptyWithCapacity values.size
+  for value in values do
+    let (alreadyPresent, updated) := seen.containsThenInsert value
+    if alreadyPresent then
+      return true
+    seen := updated
+  return false
+
+/-- Validate declaration-scope invariants shared by the CLI Loader and Lean
+command elaborator. Error order is part of the alpha frontend contract. -/
+def validateDecodedProgram (sourceProgram : ProofForgeV2.Source.Program) : CompileResult Unit := do
+  if sourceProgram.entries.isEmpty then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' must declare at least one entry or view"
+  if hasDuplicate (sourceProgram.state.map (·.name)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate state declarations"
+  if hasDuplicate (sourceProgram.entries.map (·.name)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate entry declarations"
+  match sourceProgram.initializer with
+  | some initializer =>
+      if hasDuplicate (initializer.params.map (·.name)) then
+        throw <| .invalidProgram "initializer contains duplicate parameters"
+  | none => pure ()
+  for sourceEntry in sourceProgram.entries do
+    if hasDuplicate (sourceEntry.params.map (·.name)) then
+      throw <| .invalidProgram s!"entry '{sourceEntry.name}' contains duplicate parameters"
+
 private def decodeProgramCommandUnchecked (currentNamespace : Name) : Syntax →
     Except String ProofForgeV2.Source.Program
   | `(program $name:ident where $items:pfItem*) => do
@@ -218,7 +249,9 @@ def decodeProgramCommandChecked (currentNamespace : ProgramNamespace) (stx : Syn
             s!"portable program identity exceeds nesting limit {maxSyntaxNesting}")
       preflightProgramIdentity namespaceName name.getId
       match decodeProgramCommandUnchecked namespaceName stx with
-      | .ok contractProgram => .ok contractProgram
+      | .ok contractProgram => do
+          validateDecodedProgram contractProgram
+          return contractProgram
       | .error message => .error <| .invalidProgram message
   | _ => .error <| .invalidProgram "expected a program declaration"
 
@@ -226,103 +259,114 @@ def decodeProgramCommand (currentNamespace : Name) (stx : Syntax) :
     Except String ProofForgeV2.Source.Program :=
   (decodeProgramCommandChecked (.bounded currentNamespace) stx).mapError CompileError.render
 
-private def expandType (type : Syntax) : MacroM (TSyntax `term) :=
-  match type with
-  | `(pfType| UInt64) => `(ProofForgeV2.Source.ValueType.u64)
-  | _ => Macro.throwUnsupported
+private def quoteValueType : ProofForgeV2.Source.ValueType → MacroM (TSyntax `term)
+  | .u64 => `(ProofForgeV2.Source.ValueType.u64)
+  | .bool => `(ProofForgeV2.Source.ValueType.bool)
+  | .field => `(ProofForgeV2.Source.ValueType.field)
 
-private def expandParam (param : Syntax) : MacroM (TSyntax `term) :=
-  match param with
-  | `(pfParam| $name:ident : $type:pfType) => do
-      let typeExpr ← expandType type
-      let nameLit := Syntax.mkStrLit name.getId.toString
-      `({ name := $nameLit, type := $typeExpr : ProofForgeV2.Source.Param })
-  | `(pfParam| public $name:ident : $type:pfType) => do
-      let typeExpr ← expandType type
-      let nameLit := Syntax.mkStrLit name.getId.toString
-      `({ name := $nameLit, type := $typeExpr,
-          visibility := ProofForgeV2.Source.Visibility.verifierVisible : ProofForgeV2.Source.Param })
-  | `(pfParam| private $name:ident : $type:pfType) => do
-      let typeExpr ← expandType type
-      let nameLit := Syntax.mkStrLit name.getId.toString
-      `({ name := $nameLit, type := $typeExpr,
-          visibility := ProofForgeV2.Source.Visibility.proverWitness : ProofForgeV2.Source.Param })
-  | _ => Macro.throwUnsupported
+private def quoteVisibility : ProofForgeV2.Source.Visibility → MacroM (TSyntax `term)
+  | .verifierVisible => `(ProofForgeV2.Source.Visibility.verifierVisible)
+  | .proverWitness => `(ProofForgeV2.Source.Visibility.proverWitness)
+  | .commitmentOnly => `(ProofForgeV2.Source.Visibility.commitmentOnly)
 
-private partial def expandExpr (expr : Syntax) : MacroM (TSyntax `term) :=
-  match expr with
-  | `(pfExpr| $value:num) => `(ProofForgeV2.Source.Expr.literal (UInt64.ofNat $value))
-  | `(pfExpr| $name:ident) =>
-      let nameLit := Syntax.mkStrLit name.getId.toString
-      `(ProofForgeV2.Source.Expr.variable $nameLit)
-  | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
-      let lhsExpr ← expandExpr lhs
-      let rhsExpr ← expandExpr rhs
-      `(ProofForgeV2.Source.Expr.checkedAdd $lhsExpr $rhsExpr)
-  | _ => Macro.throwUnsupported
+private def quoteParam (param : ProofForgeV2.Source.Param) : MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit param.name
+  let typeExpr ← quoteValueType param.type
+  let visibility ← quoteVisibility param.visibility
+  `(ProofForgeV2.Source.Param.mk $name $typeExpr $visibility)
 
-private def expandStatement (statement : Syntax) : MacroM (TSyntax `term) :=
-  match statement with
-  | `(pfStmt| $name:ident := $value:pfExpr) => do
-      let nameLit := Syntax.mkStrLit name.getId.toString
-      let valueExpr ← expandExpr value
-      `(ProofForgeV2.Source.Statement.assign $nameLit $valueExpr)
-  | `(pfStmt| return $value:pfExpr) => do
-      let valueExpr ← expandExpr value
-      `(ProofForgeV2.Source.Statement.returnValue $valueExpr)
-  | `(pfStmt| call $callee:str) =>
+private def quoteParams (params : Array ProofForgeV2.Source.Param) : MacroM (TSyntax `term) := do
+  let values ← params.mapM quoteParam
+  `(#[$[$values],*])
+
+private def quoteStateDecl (sourceState : ProofForgeV2.Source.StateDecl) : MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit sourceState.name
+  let typeExpr ← quoteValueType sourceState.type
+  `(ProofForgeV2.Source.StateDecl.mk $name $typeExpr)
+
+private def quoteState (states : Array ProofForgeV2.Source.StateDecl) : MacroM (TSyntax `term) := do
+  let values ← states.mapM quoteStateDecl
+  `(#[$[$values],*])
+
+private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `term)
+  | .literal value =>
+      let value := Syntax.mkNumLit (toString value.toNat)
+      `(ProofForgeV2.Source.Expr.literal (UInt64.ofNat $value))
+  | .variable value =>
+      let value := Syntax.mkStrLit value
+      `(ProofForgeV2.Source.Expr.variable $value)
+  | .state value =>
+      let value := Syntax.mkStrLit value
+      `(ProofForgeV2.Source.Expr.state $value)
+  | .checkedAdd lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.checkedAdd $lhs $rhs)
+
+private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `term)
+  | .assign stateName value => do
+      let stateName := Syntax.mkStrLit stateName
+      let value ← quoteExpr value
+      `(ProofForgeV2.Source.Statement.assign $stateName $value)
+  | .returnValue value => do
+      let value ← quoteExpr value
+      `(ProofForgeV2.Source.Statement.returnValue $value)
+  | .synchronousCall callee =>
+      let callee := Syntax.mkStrLit callee
       `(ProofForgeV2.Source.Statement.synchronousCall $callee)
-  | _ => Macro.throwUnsupported
 
-private def expandStatements (statements : Array Syntax) : MacroM (TSyntax `term) := do
-  let values ← statements.mapM expandStatement
+private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
+    MacroM (TSyntax `term) := do
+  let values ← statements.mapM quoteStatement
   `(#[$[$values],*])
 
-private def expandParams (params : Array Syntax) : MacroM (TSyntax `term) := do
-  let values ← params.mapM expandParam
+private def quoteInitializer (initializer : ProofForgeV2.Source.Initializer) :
+    MacroM (TSyntax `term) := do
+  let params ← quoteParams initializer.params
+  let body ← quoteStatements initializer.body
+  `(ProofForgeV2.Source.Initializer.mk $params $body)
+
+private def quoteInitializer? : Option ProofForgeV2.Source.Initializer → MacroM (TSyntax `term)
+  | none => `(Option.none)
+  | some initializer => do
+      let initializer ← quoteInitializer initializer
+      `(Option.some $initializer)
+
+private def quoteEntryMode : ProofForgeV2.Source.EntryMode → MacroM (TSyntax `term)
+  | .mutate => `(ProofForgeV2.Source.EntryMode.mutate)
+  | .view => `(ProofForgeV2.Source.EntryMode.view)
+
+private def quoteEntry (sourceEntry : ProofForgeV2.Source.Entry) : MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit sourceEntry.name
+  let params ← quoteParams sourceEntry.params
+  let result ← quoteValueType sourceEntry.result
+  let mode ← quoteEntryMode sourceEntry.mode
+  let body ← quoteStatements sourceEntry.body
+  `(ProofForgeV2.Source.Entry.mk $name $params $result $mode $body)
+
+private def quoteEntries (entries : Array ProofForgeV2.Source.Entry) : MacroM (TSyntax `term) := do
+  let values ← entries.mapM quoteEntry
   `(#[$[$values],*])
 
-private def expandItem (item : Syntax) : MacroM (TSyntax `term) :=
-  match item with
-  | `(pfItem| state $name:ident : $type:pfType) => do
-      let nameLit := Syntax.mkStrLit name.getId.toString
-      let typeExpr ← expandType type
-      `(ProofForgeV2.Source.Item.stateDecl { name := $nameLit, type := $typeExpr })
-  | `(pfItem| init ($params:pfParam,*) do $statements:pfStmt*) => do
-      let paramsExpr ← expandParams params
-      let statementsExpr ← expandStatements statements
-      `(ProofForgeV2.Source.Item.initializer { params := $paramsExpr, body := $statementsExpr })
-  | `(pfItem| entry $name:ident ($params:pfParam,*) : $type:pfType do $statements:pfStmt*) => do
-      let nameLit := Syntax.mkStrLit name.getId.toString
-      let paramsExpr ← expandParams params
-      let typeExpr ← expandType type
-      let statementsExpr ← expandStatements statements
-      `(ProofForgeV2.Source.Item.entry {
-          name := $nameLit, params := $paramsExpr, result := $typeExpr,
-          mode := ProofForgeV2.Source.EntryMode.mutate, body := $statementsExpr })
-  | `(pfItem| view $name:ident ($params:pfParam,*) : $type:pfType do $statements:pfStmt*) => do
-      let nameLit := Syntax.mkStrLit name.getId.toString
-      let paramsExpr ← expandParams params
-      let typeExpr ← expandType type
-      let statementsExpr ← expandStatements statements
-      `(ProofForgeV2.Source.Item.entry {
-          name := $nameLit, params := $paramsExpr, result := $typeExpr,
-          mode := ProofForgeV2.Source.EntryMode.view, body := $statementsExpr })
-  | _ => Macro.throwUnsupported
+/-- Quote an already decoded source value without reinterpreting raw grammar. -/
+private def quoteProgram (sourceProgram : ProofForgeV2.Source.Program) : MacroM (TSyntax `term) := do
+  let qualifiedName := Syntax.mkStrLit sourceProgram.qualifiedName
+  let name := Syntax.mkStrLit sourceProgram.name
+  let stateExpr ← quoteState sourceProgram.state
+  let initializer ← quoteInitializer? sourceProgram.initializer
+  let entries ← quoteEntries sourceProgram.entries
+  `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $initializer $entries)
 
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do
       let currentNamespace ← getCurrNamespace
       let commandStx ← `(program $name:ident where $items:pfItem*)
-      match decodeProgramCommand currentNamespace commandStx with
+      let decoded ← match decodeProgramCommand currentNamespace commandStx with
       | .error message => throwError message
-      | .ok _ => pure ()
-      let itemExprs ← Lean.Elab.liftMacroM <| items.mapM expandItem
-      let qualifiedName := currentNamespace.append name.getId
-      let sourceName := Syntax.mkStrLit name.getId.toString
-      let qualifiedNameLit := Syntax.mkStrLit qualifiedName.toString
+      | .ok decoded => pure decoded
+      let programExpr ← Lean.Elab.liftMacroM <| quoteProgram decoded
       let expanded ← `(@[proof_forge_program] def $name : ProofForgeV2.Source.Program :=
-          ProofForgeV2.Source.Program.buildQualified $qualifiedNameLit $sourceName #[$[$itemExprs],*])
+          $programExpr)
       Lean.Elab.Command.elabCommand expanded
 
 initialize Lean.registerBuiltinAttribute {

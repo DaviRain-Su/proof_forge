@@ -166,6 +166,10 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   parameter、duplicate entry parameter 和 duplicate initializer 均分别通过 `lake env lean` 与
   `proof-forge-next build` 执行；两路必须失败、首个 `PF-SRC-INVALID` 文本完全相同，Lean 不得
   生成 `.olean`，CLI 不得创建 output。
+- 组合错误向量必须把两路首个完整诊断同时钉死为规范期望值，覆盖 decode 优先于 duplicate
+  initializer、duplicate initializer 优先于 zero callable，以及 zero callable → state duplicate →
+  entry duplicate → initializer parameter → entry declaration-order parameter 的完整优先级链；不得只
+  比较两个入口彼此相等。
 - shared decoder 固定 validation/error priority 为 Syntax preflight → identity → decode/duplicate
   initializer → zero callable → duplicate state → duplicate entry → initializer parameter → entries
   declaration order parameter。Loader 只保留 module-level validation；command elaborator 必须 quote
