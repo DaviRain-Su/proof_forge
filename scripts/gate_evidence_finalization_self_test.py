@@ -957,6 +957,7 @@ def invoke(
 def invoke_prelude(
     arguments: list[str],
     *,
+    fake_os_exit: bool = False,
     monkeypatch_getframe: bool = False,
 ) -> subprocess.CompletedProcess[bytes]:
     getframe_patch = """
@@ -969,11 +970,23 @@ fake_frame.f_globals = {"__name__": "__main__"}
 real_getframe = sys._getframe
 sys._getframe = lambda depth=0: fake_frame if depth == 0 else real_getframe(depth)
 """ if monkeypatch_getframe else ""
+    os_patch = """
+import builtins
+real_import = builtins.__import__
+real_os = os
+class FakeOs:
+    write = staticmethod(real_os.write)
+    _exit = staticmethod(lambda code: None)
+fake_os = FakeOs()
+builtins.__import__ = lambda name, *args, **kwargs: (
+    fake_os if name == "os" else real_import(name, *args, **kwargs)
+)
+""" if fake_os_exit else ""
     prelude = """import os, sys
 sys.argv[0] = "-"
 size = os.fstat(0).st_size
 source = os.pread(0, size + 1, 0)
-""" + getframe_patch + """
+""" + getframe_patch + os_patch + """
 namespace = {
     "__name__": "__main__",
     "__file__": "<stdin>",
@@ -1428,6 +1441,24 @@ def main() -> int:
             monkeypatched_prelude_result,
             label="monkeypatched getframe prelude invocation",
             output_root=monkeypatched_prelude_output_root,
+        )
+        returning_exit_output_root = temporary_root / "returning-exit-prelude-output"
+        returning_exit_arguments = development_arguments(
+            returning_exit_output_root / "EVF-20260715-9000.json",
+            pathname_catalog_relative,
+        )
+        returning_exit_arguments[1:1] = [
+            "--executing-source",
+            os.fspath(GATE_EVIDENCE.resolve(strict=True)),
+        ]
+        returning_exit_result = invoke_prelude(
+            returning_exit_arguments,
+            fake_os_exit=True,
+        )
+        assert_identity_rejection(
+            returning_exit_result,
+            label="returning fake os exit prelude invocation",
+            output_root=returning_exit_output_root,
         )
 
         substituted_core_root = temporary_root / "substituted-core-source"
