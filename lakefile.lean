@@ -23,7 +23,10 @@ lean_lib ProofForgeV2Tests where
 lean_exe proof_forge_next where
   exeName := "proof-forge-next"
   root := `ProofForgeV2.CLI.Main
+  -- Parser / module loading pulls Init interpreter symbols (e.g. IO.getRandomBytes).
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests where
   exeName := "proof-forge-next-tests"
   root := `Tests
+  supportInterpreter := true
