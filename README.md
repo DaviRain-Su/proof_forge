@@ -1,6 +1,15 @@
 # ProofForge V2 (`proof-forge-next`)
 
+[![CI](https://github.com/DaviRain-Su/proof_forge/actions/workflows/ci.yml/badge.svg)](https://github.com/DaviRain-Su/proof_forge/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/DaviRain-Su/proof_forge)](LICENSE)
+[![Lean](https://img.shields.io/badge/Lean-4.31-purple)](lean-toolchain)
+
+**One portable program source → controlled materialization for many execution platforms.**  
 **一份 portable 业务程序源码 → 多个执行平台的受控物化。**
+
+ProofForge V2 is a **Lean 4** multi-target compiler (`proof-forge-next`): authors write a
+single `program … where` program; the compiler infers semantic **requirements**, then
+`--target` selects materialization for **EVM, Solana, NEAR, Noir** (and later platforms).
 
 ProofForge V2 是用 **Lean 4** 实现的多目标编译器：作者只写统一的
 `program … where` 源码；编译器从源码推导语义需求（requirements），再由
@@ -214,6 +223,19 @@ Core 与四目标 materializer 的最小连通性。**不等于 Phase 1 完成�
 
 ---
 
+## 社区与发现（GitHub）
+
+| 项 | 位置 |
+|---|---|
+| 问题 / 讨论 | GitHub Issues |
+| 贡献指南 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| 安全报告 | [`SECURITY.md`](SECURITY.md) |
+| 架构图 | [`docs/diagrams/`](docs/diagrams/) |
+| Agent 协议 | [`AGENTS.md`](AGENTS.md) |
+
+仓库 **About** 描述、Topics、Website 由 maintainer 在 GitHub 设置；Social preview
+建议使用 `docs/diagrams/01-architecture-overview.png`（Settings → General → Social preview）。
+
 ## 许可
 
-见根目录 [`LICENSE`](LICENSE)。
+Apache-2.0 — 见根目录 [`LICENSE`](LICENSE)。
