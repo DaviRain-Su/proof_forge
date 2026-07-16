@@ -1913,6 +1913,7 @@ freshness-not-verified revocation-not-verified private-scan-not-verified
 | Code | 含义 |
 |---|---|
 | `PF-EVIDENCE-FORMAL-UNVERIFIED` | formal 输入进入 development finalizer |
+| `PF-EVIDENCE-FINALIZER-IDENTITY` | development finalizer 未由只读 regular stdin source 直接启动，或 source/path/module identity 分裂 |
 | `PF-EVIDENCE-CATALOG` | catalog schema、identity、排序、重复、unknown gate |
 | `PF-EVIDENCE-CATALOG-DIGEST` | expected/content/domain/ref/input digest 不一致或 split-brain |
 | `PF-EVIDENCE-CATALOG-GATE` | gate/task/test/qualification/command exact set 不一致 |

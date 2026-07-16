@@ -1776,6 +1776,32 @@ def main() -> int:
             document,
             catalog_path,
             run_binding_sha256,
+            label="input-log-path-overlap",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["requiredLogs"][1].update(
+                {"path": catalog["gates"][0]["requiredInputs"][0]["path"]}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="artifact-log-path-overlap",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["requiredLogs"][0].update(
+                {"path": catalog["gates"][0]["requiredArtifacts"][0]["path"]}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
             label="casefold-input-alias",
             expected_code="PF-EVIDENCE-CATALOG",
             mutator=lambda catalog: (
@@ -1787,6 +1813,65 @@ def main() -> int:
                 ),
             ),
         )
+        retained_core_root = temporary_root / "retained-core-negative"
+        shutil.copytree(development_root, retained_core_root, copy_function=shutil.copy2)
+        retained_core_document = copy.deepcopy(document)
+        retained_core_path = "tcb/evidence_v1_core.py"
+        retained_core_bytes = EVIDENCE_CORE.read_bytes() + b"# retained substitution\n"
+        replace_secure(retained_core_root / retained_core_path, retained_core_bytes)
+        retained_core_claim = next(
+            entry
+            for entry in retained_core_document["inputs"]
+            if entry["role"] == "evidence-schema-core"
+        )
+        retained_core_claim["sha256"] = sha256(retained_core_bytes)
+        retained_core_claim["size"] = len(retained_core_bytes)
+        module.validate_evidence(retained_core_document)
+        replace_secure(
+            retained_core_root / "development-evidence.json",
+            module.canonical_bytes(retained_core_document),
+        )
+        retained_core_output_root = temporary_root / "retained-core-negative-output"
+        retained_core_result = invoke(
+            [
+                "finalize-development",
+                "--catalog",
+                catalog_path,
+                "--catalog-sha256",
+                catalog_sha256,
+                "--catalog-digest",
+                catalog_digest,
+                "--run-binding-sha256",
+                run_binding_sha256,
+                "--evidence",
+                "development-evidence.json",
+                "--bundle-root",
+                os.fspath(retained_core_root),
+                "--output",
+                os.fspath(
+                    retained_core_output_root
+                    / "finalized-development"
+                    / document["gateCatalog"]["id"]
+                    / document["gate"]["id"]
+                    / "EVF-20260715-9002.json"
+                ),
+            ]
+        )
+        retained_core_stderr = retained_core_result.stderr.splitlines()
+        if (
+            retained_core_result.returncode != 2
+            or retained_core_result.stdout
+            or len(retained_core_stderr) != 1
+            or not retained_core_stderr[0].startswith(
+                b"PF-EVIDENCE-CATALOG-DIGEST: "
+            )
+        ):
+            raise AssertionError(
+                "retained evidence core substitution did not fail closed:\n"
+                + retained_core_result.stderr.decode("utf-8", errors="replace")
+            )
+        if retained_core_output_root.exists():
+            raise AssertionError("retained evidence core substitution touched output")
         finalized_id = "EVF-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d") + "-0001"
         output_root = temporary_root / "trusted-output"
         output_parent = (
