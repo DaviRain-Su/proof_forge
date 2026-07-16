@@ -31,6 +31,9 @@ SCHEMA_RE = re.compile(
     r"(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+"
 )
 PROFILE_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[-.][a-z0-9]+)*")
+SAFE_ID_RE = re.compile(
+    r"[A-Za-z0-9](?:[A-Za-z0-9._:+-]{0,254}[A-Za-z0-9])?"
+)
 TASK_ID_RE = re.compile(r"TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*")
 TEST_ID_RE = re.compile(r"TST-[A-Z0-9]+(?:-[A-Z0-9]+)*")
 EVIDENCE_ID_RE = re.compile(r"EV-[0-9]{8}-[0-9]{4}")
@@ -82,6 +85,53 @@ class CandidateIdentity:
     treeObjectId: str
     archiveDigest: Digest
     digest: Digest
+
+
+@dataclass(frozen=True)
+class ApprovalRuleV1:
+    requiredRoles: Tuple[str, ...]
+    minimumDistinctSigners: int
+
+
+@dataclass(frozen=True)
+class BootstrapAuthorityPrincipalV1:
+    principalId: str
+    keyId: str
+    publicKey: bytes
+    roles: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BootstrapAuthorityTaskRuleV1:
+    taskId: str
+    rule: ApprovalRuleV1
+
+
+@dataclass(frozen=True)
+class BootstrapAuthorityVerifierV1:
+    id: str
+    executableDigest: Digest
+    receiptKeyId: str
+    receiptPublicKey: bytes
+
+
+@dataclass(frozen=True)
+class BootstrapAuthorityPolicyV1:
+    schema: str
+    id: str
+    version: str
+    principals: Tuple[BootstrapAuthorityPrincipalV1, ...]
+    taskRules: Tuple[BootstrapAuthorityTaskRuleV1, ...]
+    requiredTestSetRule: ApprovalRuleV1
+    formalCatalogRule: ApprovalRuleV1
+    bootstrapSetRule: ApprovalRuleV1
+    sessionContainmentRule: ApprovalRuleV1
+    freshnessAuthorityRule: ApprovalRuleV1
+    privateScanRule: ApprovalRuleV1
+    privateScanPolicy: ContentRef
+    revocationSnapshotRule: ApprovalRuleV1
+    authorityStoreService: ContentRef
+    verifier: BootstrapAuthorityVerifierV1
 
 
 @dataclass(frozen=True)
@@ -163,6 +213,18 @@ def _require_ascii_text(value: object, pattern: re.Pattern, where: str,
     if not 1 <= len(value.encode("ascii")) <= maximum or pattern.fullmatch(value) is None:
         _reject(f"{where} has an invalid format")
     return value
+
+
+def _require_semver(value: object, where: str) -> str:
+    version = _require_ascii_text(value, SEMVER_RE, where, 255)
+    core = version.split("+", 1)[0].split("-", 1)[0]
+    maximum_u64 = "18446744073709551615"
+    for component in core.split("."):
+        if (len(component) > len(maximum_u64)
+                or (len(component) == len(maximum_u64)
+                    and component > maximum_u64)):
+            _reject(f"{where} core component exceeds UInt64")
+    return version
 
 
 def _require_json_key(key: object) -> str:
@@ -296,7 +358,7 @@ def parse_content_ref(value: object) -> ContentRef:
                               "ContentRef")
     schema = _require_ascii_text(obj["schema"], SCHEMA_RE, "ContentRef.schema", 127)
     identifier = _require_ascii_text(obj["id"], PROFILE_ID_RE, "ContentRef.id", 127)
-    version = _require_ascii_text(obj["version"], SEMVER_RE, "ContentRef.version", 255)
+    version = _require_semver(obj["version"], "ContentRef.version")
     return ContentRef(schema, identifier, version, parse_digest(obj["digest"]))
 
 
@@ -433,6 +495,267 @@ def verify_ed25519(public_key: bytes, message: bytes, signature: bytes) -> bool:
     left = _scalar_multiply(scalar_s, _BASE)
     right = _point_add(r_point, _scalar_multiply(challenge, public_point))
     return _point_equal(left, right)
+
+
+_APPROVAL_ROLES = ("architecture", "quality", "security", "release")
+_APPROVAL_ROLE_INDEX = {
+    role: index for index, role in enumerate(_APPROVAL_ROLES)
+}
+_POLICY_FIELDS = (
+    "schema",
+    "id",
+    "version",
+    "principals",
+    "taskRules",
+    "requiredTestSetRule",
+    "formalCatalogRule",
+    "bootstrapSetRule",
+    "sessionContainmentRule",
+    "freshnessAuthorityRule",
+    "privateScanRule",
+    "privateScanPolicy",
+    "revocationSnapshotRule",
+    "authorityStoreService",
+    "verifier",
+)
+_TASK_RULE_MINIMA = (
+    ("TASK-D0-01", ("architecture", "quality"), 2),
+    ("TASK-D0-02", ("architecture", "quality"), 2),
+    ("TASK-D0-03", ("quality", "security"), 2),
+    ("TASK-D0-04", ("quality", "security", "release"), 3),
+    ("TASK-D0-05", ("quality", "security"), 2),
+    ("TASK-D0-06", ("architecture", "quality"), 2),
+)
+_NAMED_RULE_MINIMA = (
+    ("requiredTestSetRule", ("quality", "security"), 2),
+    ("formalCatalogRule", ("quality", "security"), 2),
+    ("bootstrapSetRule", ("quality", "security", "release"), 3),
+    ("sessionContainmentRule", ("quality", "security"), 2),
+    ("freshnessAuthorityRule", ("quality", "release"), 2),
+    ("privateScanRule", ("quality", "security"), 2),
+    ("revocationSnapshotRule", ("security", "release"), 2),
+)
+_ED25519_PUBLIC_KEY_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _require_safe_id(value: object, where: str) -> str:
+    return _require_ascii_text(value, SAFE_ID_RE, where, 256)
+
+
+def _parse_approval_roles(value: object, where: str) -> Tuple[str, ...]:
+    if type(value) is not list or not value:
+        _reject(f"{where} must be a non-empty array")
+    assert isinstance(value, list)
+    roles = tuple(value)
+    if any(type(role) is not str or role not in _APPROVAL_ROLE_INDEX
+           for role in roles):
+        _reject(f"{where} contains an unknown approval role")
+    expected = tuple(sorted(roles, key=_APPROVAL_ROLE_INDEX.__getitem__))
+    if roles != expected or len(set(roles)) != len(roles):
+        _reject(f"{where} must be unique and ordered by ApprovalRoleV1")
+    return roles
+
+
+def _parse_approval_rule(value: object, where: str) -> ApprovalRuleV1:
+    obj = _require_exact_keys(
+        value,
+        ("requiredRoles", "minimumDistinctSigners"),
+        where,
+    )
+    roles = _parse_approval_roles(obj["requiredRoles"], f"{where}.requiredRoles")
+    minimum = obj["minimumDistinctSigners"]
+    if type(minimum) is not int or not 1 <= minimum <= 0xFFFFFFFF:
+        _reject(f"{where}.minimumDistinctSigners must be a non-zero u32")
+    assert isinstance(minimum, int)
+    return ApprovalRuleV1(roles, minimum)
+
+
+def _decode_ed25519_public_key(value: object, where: str) -> bytes:
+    if type(value) is not str or _ED25519_PUBLIC_KEY_RE.fullmatch(value) is None:
+        _reject(f"{where} must be a 32-byte lowercase-hex Ed25519 public key")
+    assert isinstance(value, str)
+    return bytes.fromhex(value)
+
+
+def _require_prime_subgroup_public_key(encoded: bytes, where: str) -> bytes:
+    if _decode_point(encoded) is None:
+        _reject(f"{where} is not a canonical prime-subgroup Ed25519 public key")
+    return encoded
+
+
+def _parse_authority_principals(value: object) -> Tuple[BootstrapAuthorityPrincipalV1, ...]:
+    if type(value) is not list or not 1 <= len(value) <= 256:
+        _reject("BootstrapAuthorityPolicyV1.principals count must be 1..256")
+    assert isinstance(value, list)
+    principals = []
+    for index, entry in enumerate(value):
+        where = f"BootstrapAuthorityPolicyV1.principals[{index}]"
+        obj = _require_exact_keys(
+            entry, ("principalId", "keyId", "publicKey", "roles"), where
+        )
+        principals.append(BootstrapAuthorityPrincipalV1(
+            _require_safe_id(obj["principalId"], f"{where}.principalId"),
+            _require_safe_id(obj["keyId"], f"{where}.keyId"),
+            _decode_ed25519_public_key(obj["publicKey"], f"{where}.publicKey"),
+            _parse_approval_roles(obj["roles"], f"{where}.roles"),
+        ))
+    result = tuple(principals)
+    key_ids = tuple(principal.keyId for principal in result)
+    if key_ids != tuple(sorted(key_ids)) or len(set(key_ids)) != len(key_ids):
+        _reject("BootstrapAuthorityPolicyV1.principals must have unique ascending keyId")
+    public_keys = tuple(principal.publicKey for principal in result)
+    if len(set(public_keys)) != len(public_keys):
+        _reject("BootstrapAuthorityPolicyV1 principal publicKey values must be unique")
+    for index, principal in enumerate(result):
+        _require_prime_subgroup_public_key(
+            principal.publicKey,
+            f"BootstrapAuthorityPolicyV1.principals[{index}].publicKey",
+        )
+    return result
+
+
+def _parse_authority_task_rules(value: object) -> Tuple[BootstrapAuthorityTaskRuleV1, ...]:
+    if type(value) is not list:
+        _reject("BootstrapAuthorityPolicyV1.taskRules must be an array")
+    assert isinstance(value, list)
+    rules = []
+    for index, entry in enumerate(value):
+        where = f"BootstrapAuthorityPolicyV1.taskRules[{index}]"
+        obj = _require_exact_keys(entry, ("taskId", "rule"), where)
+        task_id = obj["taskId"]
+        if type(task_id) is not str or TASK_ID_RE.fullmatch(task_id) is None:
+            _reject(f"{where}.taskId is invalid")
+        rules.append(BootstrapAuthorityTaskRuleV1(
+            task_id,
+            _parse_approval_rule(obj["rule"], f"{where}.rule"),
+        ))
+    result = tuple(rules)
+    expected_ids = tuple(item[0] for item in _TASK_RULE_MINIMA)
+    if tuple(rule.taskId for rule in result) != expected_ids:
+        _reject("BootstrapAuthorityPolicyV1.taskRules must be exact TASK-D0-01..06 order")
+    return result
+
+
+def _parse_authority_verifier(value: object) -> BootstrapAuthorityVerifierV1:
+    where = "BootstrapAuthorityPolicyV1.verifier"
+    obj = _require_exact_keys(
+        value,
+        ("id", "executableDigest", "receiptKeyId", "receiptPublicKey"),
+        where,
+    )
+    return BootstrapAuthorityVerifierV1(
+        _require_safe_id(obj["id"], f"{where}.id"),
+        parse_digest(obj["executableDigest"]),
+        _require_safe_id(obj["receiptKeyId"], f"{where}.receiptKeyId"),
+        _decode_ed25519_public_key(
+            obj["receiptPublicKey"], f"{where}.receiptPublicKey"
+        ),
+    )
+
+
+def _require_rule_hard_minimum(
+    rule: ApprovalRuleV1,
+    required_roles: Tuple[str, ...],
+    minimum_signers: int,
+    where: str,
+) -> None:
+    if not set(required_roles).issubset(rule.requiredRoles):
+        _reject(f"{where} weakens the required ApprovalRoleV1 set")
+    if rule.minimumDistinctSigners < minimum_signers:
+        _reject(f"{where} weakens minimumDistinctSigners")
+
+
+def _require_rule_satisfiable(
+    rule: ApprovalRuleV1,
+    principals: Tuple[BootstrapAuthorityPrincipalV1, ...],
+    where: str,
+) -> None:
+    distinct_principals = {principal.principalId for principal in principals}
+    if rule.minimumDistinctSigners > len(distinct_principals):
+        _reject(f"{where} cannot be satisfied by distinct principalId values")
+    for role in rule.requiredRoles:
+        if not any(role in principal.roles for principal in principals):
+            _reject(f"{where} requires uncovered role {role}")
+
+
+def parse_bootstrap_authority_policy(
+    data: bytes,
+) -> Tuple[BootstrapAuthorityPolicyV1, ContentRef]:
+    """Parse and validate a canonical external bootstrap authority policy."""
+    decoded = decode_canonical_pf_jcs(data)
+    obj = _require_exact_keys(
+        decoded, _POLICY_FIELDS, "BootstrapAuthorityPolicyV1"
+    )
+    if obj["schema"] != "proof-forge.bootstrap-authority-policy.v1":
+        _reject("BootstrapAuthorityPolicyV1.schema is not v1")
+    identifier = _require_ascii_text(
+        obj["id"], PROFILE_ID_RE, "BootstrapAuthorityPolicyV1.id", 127
+    )
+    version = _require_semver(
+        obj["version"], "BootstrapAuthorityPolicyV1.version"
+    )
+    principals = _parse_authority_principals(obj["principals"])
+    task_rules = _parse_authority_task_rules(obj["taskRules"])
+    named_rules = {
+        field: _parse_approval_rule(
+            obj[field], f"BootstrapAuthorityPolicyV1.{field}"
+        )
+        for field, _, _ in _NAMED_RULE_MINIMA
+    }
+    verifier = _parse_authority_verifier(obj["verifier"])
+
+    principal_key_ids = {principal.keyId for principal in principals}
+    principal_public_keys = {principal.publicKey for principal in principals}
+    if verifier.receiptKeyId in principal_key_ids:
+        _reject("verifier receiptKeyId collides with a principal keyId")
+    if verifier.receiptPublicKey in principal_public_keys:
+        _reject("verifier receiptPublicKey collides with a principal publicKey")
+    _require_prime_subgroup_public_key(
+        verifier.receiptPublicKey,
+        "BootstrapAuthorityPolicyV1.verifier.receiptPublicKey",
+    )
+
+    for task_rule, (_, required_roles, minimum) in zip(
+        task_rules, _TASK_RULE_MINIMA
+    ):
+        where = f"BootstrapAuthorityPolicyV1.taskRules[{task_rule.taskId}]"
+        _require_rule_hard_minimum(
+            task_rule.rule, required_roles, minimum, where
+        )
+        _require_rule_satisfiable(task_rule.rule, principals, where)
+    for field, required_roles, minimum in _NAMED_RULE_MINIMA:
+        rule = named_rules[field]
+        where = f"BootstrapAuthorityPolicyV1.{field}"
+        _require_rule_hard_minimum(rule, required_roles, minimum, where)
+        _require_rule_satisfiable(rule, principals, where)
+
+    private_scan_policy = parse_content_ref(obj["privateScanPolicy"])
+    authority_store_service = parse_content_ref(obj["authorityStoreService"])
+    if authority_store_service.schema != "proof-forge.authority-store-service.v1":
+        _reject("authorityStoreService must reference the v1 authority store schema")
+
+    policy = BootstrapAuthorityPolicyV1(
+        "proof-forge.bootstrap-authority-policy.v1",
+        identifier,
+        version,
+        principals,
+        task_rules,
+        named_rules["requiredTestSetRule"],
+        named_rules["formalCatalogRule"],
+        named_rules["bootstrapSetRule"],
+        named_rules["sessionContainmentRule"],
+        named_rules["freshnessAuthorityRule"],
+        named_rules["privateScanRule"],
+        private_scan_policy,
+        named_rules["revocationSnapshotRule"],
+        authority_store_service,
+        verifier,
+    )
+    digest = Digest(
+        "sha256",
+        hashlib.sha256(b"pf.bootstrap-authority-policy.v1\x00" + data).digest(),
+    )
+    return policy, ContentRef(policy.schema, policy.id, policy.version, digest)
 
 
 def _require_sorted_unique(values: tuple, where: str, *, nonempty: bool) -> None:
