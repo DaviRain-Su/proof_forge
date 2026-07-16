@@ -1290,6 +1290,37 @@ def main() -> int:
             output_root=substituted_output_root,
         )
 
+        substituted_core_root = temporary_root / "substituted-core-source"
+        substituted_core_root.mkdir(mode=0o700)
+        substituted_gate = substituted_core_root / "gate_evidence.py"
+        substituted_core = substituted_core_root / "evidence_v1_core.py"
+        write_secure(substituted_gate, GATE_EVIDENCE.read_bytes())
+        write_secure(substituted_core, EVIDENCE_CORE.read_bytes() + b"# substituted\n")
+        substituted_core_output_root = temporary_root / "substituted-core-output"
+        substituted_core_result = invoke(
+            development_arguments(
+                substituted_core_output_root / "EVF-20260715-9000.json",
+                pathname_catalog_relative,
+            ),
+            descriptor_source=substituted_gate,
+            executing_source=substituted_gate,
+        )
+        substituted_core_stderr = substituted_core_result.stderr.splitlines()
+        if (
+            substituted_core_result.returncode != 2
+            or substituted_core_result.stdout
+            or len(substituted_core_stderr) != 1
+            or not substituted_core_stderr[0].startswith(
+                b"PF-EVIDENCE-CATALOG-DIGEST: "
+            )
+        ):
+            raise AssertionError(
+                "substituted exact sibling core did not fail before execution:\n"
+                + substituted_core_result.stderr.decode("utf-8", errors="replace")
+            )
+        if substituted_core_output_root.exists():
+            raise AssertionError("substituted exact sibling core touched output")
+
         duplicate_output_root = temporary_root / "duplicate-source-output"
         duplicate_arguments = development_arguments(
             duplicate_output_root / "EVF-20260715-9000.json",
