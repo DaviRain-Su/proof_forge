@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import importlib.util
 import os
@@ -14,6 +15,15 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 GATE_EVIDENCE = ROOT / "scripts" / "gate_evidence.py"
+EVIDENCE_CORE = ROOT / "scripts" / "evidence_v1_core.py"
+
+
+def sha256(body: bytes) -> str:
+    return hashlib.sha256(body).hexdigest()
+
+
+def domain_sha256(domain: bytes, body: bytes) -> str:
+    return hashlib.sha256(domain + b"\x00" + body).hexdigest()
 
 
 def load_gate_evidence() -> object:
@@ -58,6 +68,839 @@ def write_formal_bundle(module: object, root: Path) -> None:
     document["artifactSetSha256"] = module.artifact_set_sha256(document["artifacts"])
     module.validate_evidence(document)
     write_secure(root / "formal-evidence.json", module.canonical_bytes(document))
+
+
+def write_realistic_development_bundle(
+    module: object, root: Path
+) -> tuple[dict[str, object], str, str, str, str]:
+    """Write one canonical, internally consistent H1e-b development bundle."""
+    canonical = module.canonical_bytes
+    candidate = b"synthetic stable candidate archive\n"
+    artifact = b"synthetic retained Counter bytecode\n"
+    gate_launcher = (ROOT / "scripts" / "verify_isolation.sh").read_bytes()
+    host_bootstrap = (ROOT / "host-bootstrap.lock").read_bytes()
+    host_profile = (ROOT / "host-profiles.lock.json").read_bytes()
+    toolchain_lock = (ROOT / "toolchains.lock.json").read_bytes()
+    stage0_launcher = (ROOT / "scripts" / "verify_host_stage0.sh").read_bytes()
+    stage0_verifier = (ROOT / "scripts" / "toolchain_assets.py").read_bytes()
+    sandbox_launcher = (ROOT / "scripts" / "sandbox_exec.py").read_bytes()
+    sandbox_renderer = (ROOT / "scripts" / "sandbox_policy.py").read_bytes()
+    evidence_core = EVIDENCE_CORE.read_bytes()
+    evidence_validator = GATE_EVIDENCE.read_bytes()
+    probe_wrapper = (
+        b"#!/usr/bin/env python3\n"
+        b"# Synthetic, catalog-locked permission-denial probe fixture.\n"
+    )
+    engine_sha256 = sha256(b"synthetic observed /usr/bin/sandbox-exec bytes\n")
+    lean_executable_sha256 = sha256(b"synthetic observed lean executable bytes\n")
+    lean_closure_sha256 = sha256(b"synthetic lean runtime closure\n")
+    lean_runtime_executable_sha256 = sha256(b"synthetic closure-only executable\n")
+    lean_runtime_closure_sha256 = sha256(b"synthetic closure-only runtime closure\n")
+    environment_sha256 = domain_sha256(
+        b"pf.clean-room.environment.v1", b"synthetic environment"
+    )
+    core_template_sha256 = sha256(b"synthetic core policy template\n")
+    runtime_template_sha256 = sha256(b"synthetic runtime policy template\n")
+    core_policy = b"(version 1)\n(deny default)\n"
+    runtime_port = 18545
+    runtime_policy = (
+        b"(version 1)\n"
+        b"(deny default)\n"
+        + f'(allow network-inbound (local ip "localhost:{runtime_port}"))\n'.encode(
+            "ascii"
+        )
+        + f'(allow network-outbound (remote ip "localhost:{runtime_port}"))\n'.encode(
+            "ascii"
+        )
+    )
+    gate_stdout = b"synthetic clean-room gate passed\n"
+    gate_stderr = b""
+    core_stdout = b"Lean 4.31.0 synthetic\n"
+    core_stderr = b""
+    denial_stdout = b""
+    denial_stderr = b"PF-SANDBOX-PROBE-DENIED\n"
+    runtime_stdout = b"synthetic runtime returned 3\n"
+    runtime_stderr = b""
+
+    catalog_path = "catalog/development-alpha.json"
+    run_context_path = "run-context.json"
+    observation_path = "host/observation.json"
+    core_policy_path = "policies/core.sb"
+    runtime_policy_path = "policies/evm-runtime.sb"
+    core_context_path = "contexts/sandbox-core-core-success.json"
+    denial_context_path = "contexts/sandbox-core-file-read-denied.json"
+    runtime_context_path = "contexts/sandbox-evm-runtime-runtime-success.json"
+    core_receipt_path = "policies/sandbox-core-core-success.receipt.json"
+    denial_receipt_path = "policies/sandbox-core-file-read-denied.receipt.json"
+    runtime_receipt_path = "policies/sandbox-evm-runtime-runtime-success.receipt.json"
+    core_stdout_path = "policies/sandbox-core-core-success.stdout.log"
+    core_stderr_path = "policies/sandbox-core-core-success.stderr.log"
+    denial_stdout_path = "policies/sandbox-core-file-read-denied.stdout.log"
+    denial_stderr_path = "policies/sandbox-core-file-read-denied.stderr.log"
+    runtime_stdout_path = "policies/sandbox-evm-runtime-runtime-success.stdout.log"
+    runtime_stderr_path = "policies/sandbox-evm-runtime-runtime-success.stderr.log"
+    artifact_path = "build/evm/Counter.bin"
+    gate_stdout_path = "build/logs/gate.stdout"
+    gate_stderr_path = "build/logs/gate.stderr"
+    wrapper_path = "tcb/sandbox_probe_wrapper.py"
+
+    host_observation_value = {
+        "attestationScope": "local-observation-only",
+        "eligibleForHermetic": False,
+        "hostProfileId": "darwin-arm64-25E253-xcode17C529-development",
+        "platform": {
+            "arch": "arm64",
+            "authenticatedRoot": "enabled",
+            "buildVersion": "25E253",
+            "kernelRelease": "25.4.0",
+            "procTranslated": False,
+            "productVersion": "26.4.1",
+            "sip": "enabled",
+            "systemVolumeSeal": "broken",
+        },
+        "remoteAttestation": False,
+        "xcode": {
+            "buildVersion": "17C529",
+            "cdHash": "97d0bbc90eb11b42b3d2ae659800fb4dde9668e2",
+            "identifier": "com.apple.dt.Xcode",
+            "mutableByCurrentUser": True,
+            "version": "26.3",
+        },
+    }
+    host_observation = canonical(host_observation_value) + b"\n"
+
+    candidate_policy = {
+        "anchorSource": "derived-development",
+        "archiveFormat": "git-tar",
+        "dirty": False,
+        "subtree": ".",
+        "unchangedDuringRun": True,
+    }
+    host_policy = {
+        "eligibleForHermetic": False,
+        "observationInput": {"path": observation_path, "role": "host-observation"},
+        "profileId": "darwin-arm64-25E253-xcode17C529-development",
+        "remoteAttestation": False,
+        "scope": "local-point-in-time",
+    }
+    required_tools = [
+        {
+            "assetSha256": sha256(b"synthetic lean asset\n"),
+            "closureOf": None,
+            "closureSha256": lean_closure_sha256,
+            "executableSha256": lean_executable_sha256,
+            "id": "lean",
+            "source": "content-addressed-cache",
+            "usage": "invoked",
+            "version": "4.31.0",
+        },
+        {
+            "assetSha256": None,
+            "closureOf": "lean",
+            "closureSha256": lean_runtime_closure_sha256,
+            "executableSha256": lean_runtime_executable_sha256,
+            "id": "lean-runtime",
+            "source": "content-addressed-cache",
+            "usage": "closure-only",
+            "version": "4.31.0",
+        },
+    ]
+
+    def literal(value: object) -> dict[str, object]:
+        return {"kind": "literal", "value": value}
+
+    def binding(name: str) -> dict[str, object]:
+        return {"kind": "binding", "name": name}
+
+    def binding_decimal(name: str) -> dict[str, object]:
+        return {"kind": "binding-decimal", "name": name}
+
+    def run_path(relative: str) -> dict[str, object]:
+        return {"kind": "run-path", "relative": relative}
+
+    core_probe = {
+        "command": {
+            "argv": [literal("/opt/proof-forge/lean"), literal("--version")],
+            "environment": [
+                {"name": "HOME", "value": run_path("home")},
+            ],
+            "executable": {"id": "lean", "kind": "tool"},
+        },
+        "denial": None,
+        "id": "core-success",
+        "invocation": "core-success",
+        "invocationContextInput": {
+            "path": core_context_path,
+            "role": "sandbox-invocation-context",
+        },
+        "outcome": "success",
+        "receiptInput": {
+            "path": core_receipt_path,
+            "role": "sandbox-invocation-receipt",
+        },
+        "stage": "core",
+        "stderrLog": core_stderr_path,
+        "stdoutLog": core_stdout_path,
+    }
+    denial_probe = {
+        "command": {
+            "argv": [
+                run_path(wrapper_path),
+                literal("file-read"),
+                run_path("forbidden/secret"),
+            ],
+            "environment": [],
+            "executable": {
+                "kind": "input",
+                "path": wrapper_path,
+                "role": "sandbox-probe-wrapper",
+            },
+        },
+        "denial": {
+            "allowedErrnos": ["EACCES", "EPERM"],
+            "operation": "file-read",
+        },
+        "id": "file-read-denied",
+        "invocation": "file-read-denied",
+        "invocationContextInput": {
+            "path": denial_context_path,
+            "role": "sandbox-invocation-context",
+        },
+        "outcome": "permission-denied",
+        "receiptInput": {
+            "path": denial_receipt_path,
+            "role": "sandbox-invocation-receipt",
+        },
+        "stage": "core",
+        "stderrLog": denial_stderr_path,
+        "stdoutLog": denial_stdout_path,
+    }
+    runtime_probe = {
+        "command": {
+            "argv": [
+                run_path(artifact_path),
+                literal("--port"),
+                binding_decimal("runtime-port"),
+            ],
+            "environment": [
+                {"name": "CHAIN_ID", "value": binding_decimal("chain-id")},
+                {"name": "PORT", "value": binding_decimal("runtime-port")},
+            ],
+            "executable": {
+                "kind": "artifact",
+                "path": artifact_path,
+                "role": "bytecode",
+                "target": "evm",
+            },
+        },
+        "denial": None,
+        "id": "runtime-success",
+        "invocation": "runtime-success",
+        "invocationContextInput": {
+            "path": runtime_context_path,
+            "role": "sandbox-invocation-context",
+        },
+        "outcome": "success",
+        "receiptInput": {
+            "path": runtime_receipt_path,
+            "role": "sandbox-invocation-receipt",
+        },
+        "stage": "evm-runtime",
+        "stderrLog": runtime_stderr_path,
+        "stdoutLog": runtime_stdout_path,
+    }
+    catalog = {
+        "gates": [
+            {
+                "candidatePolicy": candidate_policy,
+                "commandPolicy": {
+                    "argv": [
+                        run_path("scripts/verify_isolation.sh"),
+                        literal("--development"),
+                    ],
+                    "attempts": 1,
+                    "cwdRelative": ".",
+                    "environmentSha256": binding("environment-sha256"),
+                    "result": "passed",
+                },
+                "hostPolicy": host_policy,
+                "id": "v2-clean-room-alpha",
+                "policies": [
+                    {
+                        "defaultAction": "deny",
+                        "engine": "sandbox-exec",
+                        "engineSha256": engine_sha256,
+                        "id": "core-no-network",
+                        "network": "deny-all",
+                        "networkPort": None,
+                        "probes": [core_probe, denial_probe],
+                        "renderedPolicyInput": {
+                            "path": core_policy_path,
+                            "role": "sandbox-rendered-policy",
+                        },
+                        "templateSha256": core_template_sha256,
+                    },
+                    {
+                        "defaultAction": "deny",
+                        "engine": "sandbox-exec",
+                        "engineSha256": engine_sha256,
+                        "id": "evm-runtime-exact-port",
+                        "network": "exact-local-port",
+                        "networkPort": binding("runtime-port"),
+                        "probes": [runtime_probe],
+                        "renderedPolicyInput": {
+                            "path": runtime_policy_path,
+                            "role": "sandbox-rendered-policy",
+                        },
+                        "templateSha256": runtime_template_sha256,
+                    },
+                ],
+                "requiredArtifacts": [
+                    {
+                        "mediaType": "application/octet-stream",
+                        "path": artifact_path,
+                        "retained": True,
+                        "role": "bytecode",
+                        "target": "evm",
+                    }
+                ],
+                "requiredInputs": [
+                    {"path": "candidate.tar", "role": "candidate-archive"},
+                    {
+                        "path": "scripts/verify_isolation.sh",
+                        "role": "gate-launcher",
+                    },
+                ],
+                "requiredLogs": [
+                    {
+                        "path": gate_stderr_path,
+                        "privateDataScan": "not-run",
+                        "truncated": False,
+                    },
+                    {
+                        "path": gate_stdout_path,
+                        "privateDataScan": "not-run",
+                        "truncated": False,
+                    },
+                ],
+                "requiredObservations": [
+                    {
+                        "effects": [],
+                        "errorClass": None,
+                        "logicalState": {"count": 3},
+                        "return": 3,
+                        "status": "passed",
+                        "step": "runtime-success",
+                    }
+                ],
+                "requiredTools": required_tools,
+                "taskId": "TASK-D0-03",
+                "testIds": ["TST-EVIDENCE-001", "TST-HOST-001", "TST-TOOL-001"],
+            }
+        ],
+        "id": "development-alpha",
+        "locks": {
+            "evidenceSchemaCoreSha256": sha256(evidence_core),
+            "evidenceValidatorSha256": sha256(evidence_validator),
+            "finalizerSha256": sha256(evidence_validator),
+            "hostBootstrapSha256": sha256(host_bootstrap),
+            "hostProfileLockSha256": sha256(host_profile),
+            "sandboxEngineSha256": engine_sha256,
+            "sandboxLauncherSha256": sha256(sandbox_launcher),
+            "sandboxProbeWrapperSha256": sha256(probe_wrapper),
+            "sandboxRendererSha256": sha256(sandbox_renderer),
+            "stage0LauncherSha256": sha256(stage0_launcher),
+            "stage0VerifierSha256": sha256(stage0_verifier),
+            "toolchainLockSha256": sha256(toolchain_lock),
+        },
+        "qualification": "development",
+        "requiredTestSet": None,
+        "schema": "proof-forge.gate-catalog.v1",
+        "version": "1.0.0",
+    }
+    catalog_bytes = canonical(catalog)
+    catalog_sha256 = sha256(catalog_bytes)
+    catalog_digest = domain_sha256(b"pf.gate-catalog.v1", catalog_bytes)
+    catalog_ref = {
+        "catalogDigest": catalog_digest,
+        "contentSha256": catalog_sha256,
+        "id": catalog["id"],
+        "schema": catalog["schema"],
+        "version": catalog["version"],
+    }
+    run_context = {
+        "bindings": [
+            {
+                "name": "environment-sha256",
+                "type": "sha256",
+                "value": environment_sha256,
+            }
+        ],
+        "candidate": {
+            "archiveSha256": sha256(candidate),
+            "commit": "a" * 40,
+            "treeObjectId": "b" * 40,
+        },
+        "catalog": catalog_ref,
+        "gate": {
+            "id": "v2-clean-room-alpha",
+            "taskId": "TASK-D0-03",
+            "testIds": ["TST-EVIDENCE-001", "TST-HOST-001", "TST-TOOL-001"],
+        },
+        "host": {
+            "observationSha256": sha256(host_observation),
+            "profileId": "darwin-arm64-25E253-xcode17C529-development",
+        },
+        "runId": "RUN-0123456789abcdef0123456789abcdef",
+        "runRoot": os.fspath(root),
+        "schema": "proof-forge.clean-room-run-context.v1",
+    }
+    run_context_bytes = canonical(run_context)
+    run_binding_sha256 = domain_sha256(
+        b"pf.clean-room-run-context.v1", run_context_bytes
+    )
+
+    def invocation_context(
+        stage: str, invocation: str, bindings: list[dict[str, object]]
+    ) -> bytes:
+        return canonical(
+            {
+                "bindings": bindings,
+                "invocation": invocation,
+                "runBindingSha256": run_binding_sha256,
+                "schema": "proof-forge.sandbox-invocation-context.v1",
+                "stage": stage,
+            }
+        )
+
+    core_context = invocation_context("core", "core-success", [])
+    denial_context = invocation_context("core", "file-read-denied", [])
+    runtime_context = invocation_context(
+        "evm-runtime",
+        "runtime-success",
+        [
+            {"name": "chain-id", "type": "integer", "value": 31337},
+            {"name": "runtime-port", "type": "integer", "value": runtime_port},
+        ],
+    )
+
+    def environment(entries: list[dict[str, str]]) -> dict[str, object]:
+        return {
+            "entries": entries,
+            "sha256": domain_sha256(b"pf.sandbox.environment.v1", canonical(entries)),
+        }
+
+    def receipt(
+        *,
+        stage: str,
+        invocation: str,
+        context_bytes: bytes,
+        policy_path: str,
+        policy_bytes: bytes,
+        port: int | None,
+        argv: list[str],
+        entries: list[dict[str, str]],
+        executable_sha256: str,
+        exit_code: int,
+        stdout_path: str,
+        stdout: bytes,
+        stderr_path: str,
+        stderr: bytes,
+    ) -> bytes:
+        return canonical(
+            {
+                "command": {
+                    "argv": argv,
+                    "argvSha256": domain_sha256(b"pf.sandbox.argv.v1", canonical(argv)),
+                    "observedExecutablePath": argv[0],
+                    "observedExecutableSha256": executable_sha256,
+                },
+                "durationMs": 7,
+                "engine": {
+                    "observedSha256": engine_sha256,
+                    "path": "/usr/bin/sandbox-exec",
+                },
+                "environment": environment(entries),
+                "invocation": invocation,
+                "invocationBindingSha256": domain_sha256(
+                    b"pf.sandbox.invocation-context.v1", context_bytes
+                ),
+                "observedLauncherSha256": sha256(sandbox_launcher),
+                "policy": {
+                    "path": policy_path,
+                    "sha256": sha256(policy_bytes),
+                    "size": len(policy_bytes),
+                },
+                "runBindingSha256": run_binding_sha256,
+                "runtimePort": port,
+                "schema": "proof-forge.sandbox-invocation.v1",
+                "stage": stage,
+                "stderr": {
+                    "path": stderr_path,
+                    "sha256": sha256(stderr),
+                    "size": len(stderr),
+                    "truncated": False,
+                },
+                "stdout": {
+                    "path": stdout_path,
+                    "sha256": sha256(stdout),
+                    "size": len(stdout),
+                    "truncated": False,
+                },
+                "terminal": {"exitCode": exit_code, "signal": None, "timedOut": False},
+            }
+        )
+
+    core_argv = ["/opt/proof-forge/lean", "--version"]
+    core_entries = [{"name": "HOME", "value": os.fspath(root / "home")}]
+    core_receipt = receipt(
+        stage="core",
+        invocation="core-success",
+        context_bytes=core_context,
+        policy_path=core_policy_path,
+        policy_bytes=core_policy,
+        port=None,
+        argv=core_argv,
+        entries=core_entries,
+        executable_sha256=lean_executable_sha256,
+        exit_code=0,
+        stdout_path=core_stdout_path,
+        stdout=core_stdout,
+        stderr_path=core_stderr_path,
+        stderr=core_stderr,
+    )
+    denial_argv = [
+        os.fspath(root / wrapper_path),
+        "file-read",
+        os.fspath(root / "forbidden" / "secret"),
+    ]
+    denial_receipt = receipt(
+        stage="core",
+        invocation="file-read-denied",
+        context_bytes=denial_context,
+        policy_path=core_policy_path,
+        policy_bytes=core_policy,
+        port=None,
+        argv=denial_argv,
+        entries=[],
+        executable_sha256=sha256(probe_wrapper),
+        exit_code=77,
+        stdout_path=denial_stdout_path,
+        stdout=denial_stdout,
+        stderr_path=denial_stderr_path,
+        stderr=denial_stderr,
+    )
+    runtime_argv = [
+        os.fspath(root / artifact_path),
+        "--port",
+        str(runtime_port),
+    ]
+    runtime_entries = [
+        {"name": "CHAIN_ID", "value": "31337"},
+        {"name": "PORT", "value": str(runtime_port)},
+    ]
+    runtime_receipt = receipt(
+        stage="evm-runtime",
+        invocation="runtime-success",
+        context_bytes=runtime_context,
+        policy_path=runtime_policy_path,
+        policy_bytes=runtime_policy,
+        port=runtime_port,
+        argv=runtime_argv,
+        entries=runtime_entries,
+        executable_sha256=sha256(artifact),
+        exit_code=0,
+        stdout_path=runtime_stdout_path,
+        stdout=runtime_stdout,
+        stderr_path=runtime_stderr_path,
+        stderr=runtime_stderr,
+    )
+
+    files = {
+        artifact_path: artifact,
+        "candidate.tar": candidate,
+        catalog_path: catalog_bytes,
+        core_context_path: core_context,
+        denial_context_path: denial_context,
+        runtime_context_path: runtime_context,
+        "host/host-bootstrap.lock": host_bootstrap,
+        "host/host-profiles.lock.json": host_profile,
+        observation_path: host_observation,
+        "host/toolchains.lock.json": toolchain_lock,
+        core_policy_path: core_policy,
+        core_receipt_path: core_receipt,
+        core_stderr_path: core_stderr,
+        core_stdout_path: core_stdout,
+        runtime_policy_path: runtime_policy,
+        denial_receipt_path: denial_receipt,
+        denial_stderr_path: denial_stderr,
+        denial_stdout_path: denial_stdout,
+        runtime_receipt_path: runtime_receipt,
+        runtime_stderr_path: runtime_stderr,
+        runtime_stdout_path: runtime_stdout,
+        run_context_path: run_context_bytes,
+        "scripts/verify_isolation.sh": gate_launcher,
+        "tcb/evidence_v1_core.py": evidence_core,
+        "tcb/sandbox_exec.py": sandbox_launcher,
+        "tcb/sandbox_policy.py": sandbox_renderer,
+        wrapper_path: probe_wrapper,
+        "tcb/toolchain_assets.py": stage0_verifier,
+        "tcb/verify_host_stage0.sh": stage0_launcher,
+        gate_stderr_path: gate_stderr,
+        gate_stdout_path: gate_stdout,
+    }
+    input_roles = {
+        "candidate.tar": "candidate-archive",
+        catalog_path: "gate-catalog",
+        core_context_path: "sandbox-invocation-context",
+        denial_context_path: "sandbox-invocation-context",
+        runtime_context_path: "sandbox-invocation-context",
+        "host/host-bootstrap.lock": "host-bootstrap-lock",
+        "host/host-profiles.lock.json": "host-profile-lock",
+        observation_path: "host-observation",
+        "host/toolchains.lock.json": "toolchain-lock",
+        core_policy_path: "sandbox-rendered-policy",
+        core_receipt_path: "sandbox-invocation-receipt",
+        runtime_policy_path: "sandbox-rendered-policy",
+        denial_receipt_path: "sandbox-invocation-receipt",
+        runtime_receipt_path: "sandbox-invocation-receipt",
+        run_context_path: "clean-room-run-context",
+        "scripts/verify_isolation.sh": "gate-launcher",
+        "tcb/evidence_v1_core.py": "evidence-schema-core",
+        "tcb/sandbox_exec.py": "sandbox-launcher",
+        "tcb/sandbox_policy.py": "sandbox-policy-renderer",
+        wrapper_path: "sandbox-probe-wrapper",
+        "tcb/toolchain_assets.py": "host-stage0-verifier",
+        "tcb/verify_host_stage0.sh": "host-stage0-launcher",
+    }
+    inputs = sorted(
+        (
+            {
+                "path": path,
+                "role": role,
+                "sha256": sha256(files[path]),
+                "size": len(files[path]),
+            }
+            for path, role in input_roles.items()
+        ),
+        key=lambda item: (item["role"], item["path"]),
+    )
+    logs = sorted(
+        (
+            {
+                "path": path,
+                "privateDataScan": "not-run",
+                "sha256": sha256(files[path]),
+                "size": len(files[path]),
+                "truncated": False,
+            }
+            for path in (
+                gate_stderr_path,
+                gate_stdout_path,
+                core_stderr_path,
+                core_stdout_path,
+                denial_stderr_path,
+                denial_stdout_path,
+                runtime_stderr_path,
+                runtime_stdout_path,
+            )
+        ),
+        key=lambda item: item["path"],
+    )
+    artifacts = [
+        {
+            "mediaType": "application/octet-stream",
+            "path": artifact_path,
+            "retained": True,
+            "role": "bytecode",
+            "sha256": sha256(artifact),
+            "size": len(artifact),
+            "target": "evm",
+        }
+    ]
+    document = {
+        "artifactSetSha256": module.artifact_set_sha256(artifacts),
+        "artifacts": artifacts,
+        "command": {
+            "argv": [
+                os.fspath(root / "scripts" / "verify_isolation.sh"),
+                "--development",
+            ],
+            "attempts": [
+                {
+                    "exitCode": 0,
+                    "number": 1,
+                    "signal": None,
+                    "stderrLog": gate_stderr_path,
+                    "stdoutLog": gate_stdout_path,
+                    "timedOut": False,
+                }
+            ],
+            "cwdRelative": ".",
+            "durationMs": 21,
+            "endedUtc": "2026-07-15T00:00:00Z",
+            "startedUtc": "2026-07-15T00:00:00Z",
+        },
+        "environment": {
+            "arch": "arm64",
+            "assetCache": "locked-read-only",
+            "buildCache": "empty",
+            "cleanRoom": True,
+            "environmentSha256": environment_sha256,
+            "os": "macOS 26.4.1",
+            "sourceDateEpoch": 0,
+        },
+        "gate": {
+            "id": "v2-clean-room-alpha",
+            "qualification": "development",
+            "taskId": "TASK-D0-03",
+            "testIds": ["TST-EVIDENCE-001", "TST-HOST-001", "TST-TOOL-001"],
+        },
+        "gateCatalog": catalog_ref,
+        "hostAttestation": {
+            "bootstrapLockSha256": sha256(host_bootstrap),
+            "eligibleForHermetic": False,
+            "hostProfileLockSha256": sha256(host_profile),
+            "launcherSha256": sha256(stage0_launcher),
+            "observationInput": {"path": observation_path, "role": "host-observation"},
+            "observationSha256": sha256(host_observation),
+            "profileId": "darwin-arm64-25E253-xcode17C529-development",
+            "remoteAttestation": False,
+            "scope": "local-point-in-time",
+            "toolchainLockSha256": sha256(toolchain_lock),
+            "verifierSha256": sha256(stage0_verifier),
+        },
+        "id": "EV-20260715-0001",
+        "inputs": inputs,
+        "logs": logs,
+        "observations": [
+            {
+                "effects": [],
+                "errorClass": None,
+                "logicalState": {"count": 3},
+                "return": 3,
+                "status": "passed",
+                "step": "runtime-success",
+            }
+        ],
+        "repository": {
+            "anchorSource": "derived-development",
+            "archive": {
+                "format": "git-tar",
+                "sha256": sha256(candidate),
+                "size": len(candidate),
+            },
+            "commit": "a" * 40,
+            "dirty": False,
+            "dirtyDigest": None,
+            "subtree": ".",
+            "treeObjectId": "b" * 40,
+            "unchangedDuringRun": True,
+        },
+        "result": "passed",
+        "runContextInput": {"path": run_context_path, "role": "clean-room-run-context"},
+        "sandboxPolicies": [
+            {
+                "defaultAction": "deny",
+                "engine": "sandbox-exec",
+                "engineSha256": engine_sha256,
+                "id": "core-no-network",
+                "network": "deny-all",
+                "probes": [
+                    {
+                        "id": "core-success",
+                        "receipt": {
+                            "invocationContextInput": {
+                                "path": core_context_path,
+                                "role": "sandbox-invocation-context",
+                            },
+                            "path": core_receipt_path,
+                            "role": "sandbox-invocation-receipt",
+                            "stderrLog": core_stderr_path,
+                            "stdoutLog": core_stdout_path,
+                        },
+                        "status": "passed",
+                    },
+                    {
+                        "id": "file-read-denied",
+                        "receipt": {
+                            "invocationContextInput": {
+                                "path": denial_context_path,
+                                "role": "sandbox-invocation-context",
+                            },
+                            "path": denial_receipt_path,
+                            "role": "sandbox-invocation-receipt",
+                            "stderrLog": denial_stderr_path,
+                            "stdoutLog": denial_stdout_path,
+                        },
+                        "status": "passed",
+                    },
+                ],
+                "renderedPolicyInput": {
+                    "path": core_policy_path,
+                    "role": "sandbox-rendered-policy",
+                },
+                "renderedSha256": sha256(core_policy),
+                "templateSha256": core_template_sha256,
+            },
+            {
+                "defaultAction": "deny",
+                "engine": "sandbox-exec",
+                "engineSha256": engine_sha256,
+                "id": "evm-runtime-exact-port",
+                "network": "exact-local-port",
+                "networkPort": runtime_port,
+                "probes": [
+                    {
+                        "id": "runtime-success",
+                        "receipt": {
+                            "invocationContextInput": {
+                                "path": runtime_context_path,
+                                "role": "sandbox-invocation-context",
+                            },
+                            "path": runtime_receipt_path,
+                            "role": "sandbox-invocation-receipt",
+                            "stderrLog": runtime_stderr_path,
+                            "stdoutLog": runtime_stdout_path,
+                        },
+                        "status": "passed",
+                    }
+                ],
+                "renderedPolicyInput": {
+                    "path": runtime_policy_path,
+                    "role": "sandbox-rendered-policy",
+                },
+                "renderedSha256": sha256(runtime_policy),
+                "templateSha256": runtime_template_sha256,
+            },
+        ],
+        "schema": "proof-forge.evidence.v1",
+        "skipAuthorization": None,
+        "tools": [
+            {
+                key: tool[key]
+                for key in (
+                    "assetSha256",
+                    "closureSha256",
+                    "executableSha256",
+                    "id",
+                    "source",
+                    "version",
+                )
+            }
+            for tool in required_tools
+        ],
+    }
+    module.validate_evidence(document)
+    evidence_path = "development-evidence.json"
+    evidence_bytes = canonical(document)
+    for relative, body in files.items():
+        write_secure(root / relative, body)
+    write_secure(root / evidence_path, evidence_bytes)
+    for directory in sorted((path for path in root.rglob("*") if path.is_dir())):
+        directory.chmod(0o700)
+    module.verify_bundle(document, root)
+    return document, catalog_path, catalog_sha256, catalog_digest, run_binding_sha256
 
 
 def invoke(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
@@ -122,7 +965,152 @@ def main() -> int:
             raise AssertionError("formal rejection created or replaced the catalog path")
         if output_root_must_not_be_touched.exists():
             raise AssertionError("formal rejection touched its output namespace")
-    print("gate evidence formal zero-output self-test passed")
+
+        development_root = temporary_root / "development-bundle"
+        development_root.mkdir(mode=0o700)
+        (
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+        ) = write_realistic_development_bundle(module, development_root)
+        finalized_id = "EVF-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d") + "-0001"
+        output_root = temporary_root / "trusted-output"
+        output_parent = (
+            output_root
+            / "finalized-development"
+            / document["gateCatalog"]["id"]
+            / document["gate"]["id"]
+        )
+        output_parent.mkdir(parents=True, mode=0o700)
+        for directory in (output_root, *output_root.parents):
+            if directory == temporary_root.parent:
+                break
+            if directory.exists() and directory != temporary_root.parent:
+                directory.chmod(0o700)
+        finalized_output = output_parent / f"{finalized_id}.json"
+        result = invoke(
+            [
+                "finalize-development",
+                "--catalog",
+                catalog_path,
+                "--catalog-sha256",
+                catalog_sha256,
+                "--catalog-digest",
+                catalog_digest,
+                "--run-binding-sha256",
+                run_binding_sha256,
+                "--evidence",
+                "development-evidence.json",
+                "--bundle-root",
+                os.fspath(development_root),
+                "--output",
+                os.fspath(finalized_output),
+            ]
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                "realistic development bundle did not produce an EVF record:\n"
+                + result.stderr.decode("utf-8", errors="replace")
+            )
+        success = result.stdout.decode("utf-8", errors="strict")
+        for marker in (
+            "development-catalog-verified",
+            "formal-not-verified",
+            "freshness-not-verified",
+            "revocation-not-verified",
+            "private-scan-not-verified",
+        ):
+            if marker not in success:
+                raise AssertionError(f"development success omitted stable marker: {marker}")
+        if result.stderr:
+            raise AssertionError("successful development finalization produced stderr")
+        if not finalized_output.is_file():
+            raise AssertionError("development finalization did not publish its EVF record")
+        finalized_bytes = finalized_output.read_bytes()
+        finalized = module.decode_json(finalized_bytes)
+        if module.canonical_bytes(finalized) != finalized_bytes:
+            raise AssertionError("development finalization record is not canonical")
+        evidence_bytes = (development_root / "development-evidence.json").read_bytes()
+        expected_claim_set = domain_sha256(
+            b"pf.evidence.claim-set.v1",
+            module.canonical_bytes(
+                {
+                    "artifacts": document["artifacts"],
+                    "inputs": document["inputs"],
+                    "logs": document["logs"],
+                }
+            ),
+        )
+        expected_limitations = [
+            "formal-not-verified",
+            "freshness-not-verified",
+            "private-scan-not-verified",
+            "revocation-not-verified",
+        ]
+        if set(finalized) != {
+            "candidate",
+            "catalog",
+            "claimSetSha256",
+            "evidence",
+            "finalizedUtc",
+            "finalizer",
+            "gate",
+            "host",
+            "id",
+            "limitations",
+            "qualification",
+            "result",
+            "run",
+            "schema",
+        }:
+            raise AssertionError("development EVF record has the wrong closed root")
+        if (
+            finalized["schema"] != "proof-forge.evidence-finalization.v1"
+            or finalized["id"] != finalized_id
+            or finalized["qualification"] != "development"
+            or finalized["catalog"] != document["gateCatalog"]
+            or finalized["gate"]
+            != {
+                "id": document["gate"]["id"],
+                "taskId": document["gate"]["taskId"],
+                "testIds": document["gate"]["testIds"],
+            }
+            or finalized["evidence"]
+            != {
+                "id": document["id"],
+                "path": "development-evidence.json",
+                "sha256": sha256(evidence_bytes),
+                "size": len(evidence_bytes),
+            }
+            or finalized["run"]
+            != {
+                "id": "RUN-0123456789abcdef0123456789abcdef",
+                "runBindingSha256": run_binding_sha256,
+            }
+            or finalized["claimSetSha256"] != expected_claim_set
+            or finalized["candidate"]
+            != {
+                "archiveSha256": document["repository"]["archive"]["sha256"],
+                "commit": document["repository"]["commit"],
+                "treeObjectId": document["repository"]["treeObjectId"],
+            }
+            or finalized["host"]
+            != {
+                "observationSha256": document["hostAttestation"]["observationSha256"],
+                "profileId": document["hostAttestation"]["profileId"],
+            }
+            or finalized["finalizer"] != {"sha256": sha256(GATE_EVIDENCE.read_bytes())}
+            or finalized["result"] != "catalog-verified"
+            or finalized["limitations"] != expected_limitations
+        ):
+            raise AssertionError("development EVF record does not preserve exact bindings")
+        if (finalized_output.stat().st_mode & 0o777) != 0o400:
+            raise AssertionError("development EVF record is not immutable mode 0400")
+        if finalized_output.stat().st_nlink != 1:
+            raise AssertionError("development EVF record is not single-linked")
+    print("gate evidence finalization self-test passed")
     return 0
 
 
