@@ -1346,7 +1346,8 @@ receipt 的 `observedLauncherSha256` 及唯一 `sandbox-launcher` input bytes；
 executing-finalizer identity。
 这仍是 development handoff，不能替代 D0-04 的 formal Stage-0 handoff。
 `evidenceSchemaCoreSha256` 必须对 exact sibling `evidence_v1_core.py` 做独立 stable-read，
-并与 CLI 实际加载的同一 `(device,inode)`/bytes 绑定；只锁 wrapper 而遗漏被调用的 schema core
+并在 `exec` 前命中 finalizer source 内固定的 core SHA-256 pin，再与 CLI 实际加载的同一
+`(device,inode)`/bytes 及 catalog lock 绑定；只锁 wrapper 而遗漏被调用的 schema core
 必须以 closure substitution 拒绝。H1e-b 不得再引入 catalog 未显式锁定的 production helper。
 任一 lock 无 consumer 或出现第二个 consumer claim都失败。
 
