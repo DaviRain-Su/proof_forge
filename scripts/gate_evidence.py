@@ -8,12 +8,41 @@ site packages cannot influence parsing, validation, or canonical encoding.
 
 from __future__ import annotations
 
+_frame_probe_holder = []
+
+
+def _capture_executing_module_frame():
+    yield _frame_probe_holder[0].gi_frame.f_back
+
+
+_frame_probe_generator = _capture_executing_module_frame()
+_frame_probe_holder.append(_frame_probe_generator)
+_executing_frame = _frame_probe_generator.send(None)
+_frame_probe_generator.close()
+_EXECUTING_MODULE_CODE = _executing_frame.f_code
+_EXECUTING_MODULE_HAS_CALLER = _executing_frame.f_back is not None
+del _capture_executing_module_frame
+del _executing_frame
+del _frame_probe_generator
+del _frame_probe_holder
+
+if _EXECUTING_MODULE_HAS_CALLER and (
+    __name__ == "__main__" or _EXECUTING_MODULE_CODE.co_filename == "<stdin>"
+):
+    _early_os = __import__("os")
+    _early_os.write(
+        2,
+        b"PF-EVIDENCE-FINALIZER-IDENTITY: finalizer module is not a direct stdin root frame\n",
+    )
+    _early_os._exit(2)
+    raise SystemExit(2)
+
 import argparse
 import ast
 import copy
 import datetime as dt
+import fcntl
 import hashlib
-import importlib.util
 import json
 import os
 import posixpath
@@ -29,6 +58,8 @@ from typing import NoReturn
 
 
 SCHEMA = "proof-forge.evidence.v1"
+GATE_CATALOG_SCHEMA = "proof-forge.gate-catalog.v1"
+GATE_CATALOG_DOMAIN = b"pf.gate-catalog.v1\x00"
 ARTIFACT_SET_DOMAIN = b"pf.evidence.artifact-set.v1\x00"
 MAX_INPUT_BYTES = 4 * 1024 * 1024
 MAX_JSON_DEPTH = 64
@@ -54,37 +85,13 @@ UTC_RE = re.compile(
     r"(?:0[1-9]|[12][0-9]|3[01])T"
     r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z"
 )
-
-
-_EVIDENCE_V1_CORE_PUBLIC = (
-    "EvidenceError",
-    "artifact_set_sha256",
-    "canonical_bytes",
-    "decode_json",
-    "validate_evidence",
+SEMVER_RE = re.compile(
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)"
 )
-
-
-def _load_evidence_v1_core() -> ModuleType:
-    """Load the repository sibling without consulting ``sys.path``."""
-    gate_path = Path(__file__).resolve(strict=True)
-    core_path = gate_path.with_name("evidence_v1_core.py")
-    spec = importlib.util.spec_from_file_location(
-        "_proof_forge_gate_evidence_v1_core",
-        core_path,
-    )
-    if spec is None or spec.loader is None or spec.origin is None:
-        raise RuntimeError(f"cannot load evidence v1 core from exact sibling: {core_path}")
-    if Path(spec.origin).resolve(strict=True) != core_path.resolve(strict=True):
-        raise RuntimeError("evidence v1 core loader changed the exact sibling origin")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if tuple(module.__dict__.get("__all__", ())) != _EVIDENCE_V1_CORE_PUBLIC:
-        raise RuntimeError("evidence v1 core public surface does not match the pinned ABI")
-    return module
-
-
-_EVIDENCE_V1_CORE = _load_evidence_v1_core()
+INVOCATION_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,47}")
+ENVIRONMENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,254}")
 
 
 class EvidenceError(RuntimeError):
@@ -97,6 +104,375 @@ class EvidenceError(RuntimeError):
 
 def fail(code: str, message: str) -> NoReturn:
     raise EvidenceError(code, message)
+
+
+_EVIDENCE_V1_CORE_PUBLIC = (
+    "EvidenceError",
+    "artifact_set_sha256",
+    "canonical_bytes",
+    "decode_json",
+    "validate_evidence",
+)
+_PINNED_EVIDENCE_V1_CORE_SHA256 = (
+    "7868d7ec30af6a32ebcbadec8cf794743ae9b0d14db4ba96e12e489b57d257e7"
+)
+
+
+_IMPLEMENTATION_STABLE_FIELDS = (
+    "st_dev",
+    "st_ino",
+    "st_mode",
+    "st_uid",
+    "st_nlink",
+    "st_size",
+    "st_mtime_ns",
+    "st_ctime_ns",
+)
+
+
+def _implementation_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return tuple(
+        int(getattr(metadata, field)) for field in _IMPLEMENTATION_STABLE_FIELDS
+    )
+
+
+def _stable_read_open_implementation(
+    descriptor: int,
+    *,
+    where: str,
+    code: str = "PF-EVIDENCE-CATALOG-DIGEST",
+) -> tuple[bytes, tuple[int, ...]]:
+    """Capture an already-open regular implementation without changing its offset."""
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid not in {0, os.geteuid()}
+            or before.st_nlink != 1
+            or stat.S_IMODE(before.st_mode) & 0o022
+            or before.st_size <= 0
+            or before.st_size > MAX_INPUT_BYTES
+        ):
+            fail(
+                code,
+                f"{where} implementation metadata is outside the stable source profile",
+            )
+        chunks: list[bytes] = []
+        offset = 0
+        while offset <= before.st_size:
+            chunk = os.pread(
+                descriptor,
+                min(before.st_size + 1 - offset, 128 * 1024),
+                offset,
+            )
+            if not chunk:
+                break
+            chunks.append(chunk)
+            offset += len(chunk)
+        data = b"".join(chunks)
+        after = os.fstat(descriptor)
+        before_identity = _implementation_identity(before)
+        if len(data) != before.st_size or before_identity != _implementation_identity(after):
+            fail(code, f"{where} implementation changed during stable capture")
+        return data, before_identity
+    except EvidenceError:
+        raise
+    except OSError as exc:
+        fail(code, f"cannot stable-read {where} implementation: {exc.strerror}")
+
+
+def _stable_read_implementation(
+    path: Path,
+    *,
+    where: str,
+    code: str = "PF-EVIDENCE-CATALOG-DIGEST",
+) -> tuple[bytes, tuple[int, ...]]:
+    """Capture one implementation file without following or reopening its pathname."""
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, flags)
+        data, before_identity = _stable_read_open_implementation(
+            descriptor,
+            where=where,
+            code=code,
+        )
+        try:
+            pathname = os.stat(path, follow_symlinks=False)
+        except OSError as exc:
+            fail(
+                code,
+                f"cannot restat {where} implementation: {exc.strerror}",
+            )
+        if before_identity != _implementation_identity(pathname):
+            fail(
+                code,
+                f"{where} implementation changed during stable capture",
+            )
+        return data, before_identity
+    except EvidenceError:
+        raise
+    except OSError as exc:
+        fail(
+            code,
+            f"cannot stable-read {where} implementation: {exc.strerror}",
+        )
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _bootstrap_executing_source_argument() -> Path:
+    option = "--executing-source"
+    positions = [index for index, value in enumerate(sys.argv[1:], start=1) if value == option]
+    if (
+        len(positions) != 1
+        or positions[0] + 1 >= len(sys.argv)
+        or any(value.startswith(option + "=") for value in sys.argv[1:])
+    ):
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "fd-bound finalization requires exactly one separate --executing-source argument",
+        )
+    value = sys.argv[positions[0] + 1]
+    try:
+        value_bytes = value.encode("utf-8")
+    except UnicodeError:
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "--executing-source must be scalar Unicode encodable as UTF-8",
+        )
+    if (
+        not value
+        or len(value_bytes) > 4096
+        or unicodedata.normalize("NFC", value) != value
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+        or not os.path.isabs(value)
+        or os.path.abspath(value) != value
+    ):
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "--executing-source must be one normalized absolute pathname",
+        )
+    source = Path(value)
+    if source.name != "gate_evidence.py":
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "--executing-source must name gate_evidence.py",
+        )
+    try:
+        if source.resolve(strict=True) != source:
+            fail(
+                "PF-EVIDENCE-FINALIZER-IDENTITY",
+                "--executing-source must not traverse a symlinked pathname",
+            )
+    except OSError as exc:
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            f"cannot resolve --executing-source: {exc.strerror}",
+        )
+    return source
+
+
+def _capture_bound_finalizer_context() -> dict[str, object] | None:
+    stdin_code = _EXECUTING_MODULE_CODE.co_filename == "<stdin>"
+    stdin_file = os.fspath(__file__) == "<stdin>"
+    stdin_argv = bool(sys.argv) and sys.argv[0] == "-"
+    if not stdin_code and not stdin_file and not stdin_argv:
+        return None
+    if not stdin_code or not stdin_file or not stdin_argv:
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "stdin finalizer source markers are internally inconsistent",
+        )
+    if _EXECUTING_MODULE_HAS_CALLER:
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "finalizer module must be the root frame of direct Python stdin execution",
+        )
+    executing_descriptor = 0
+    source_path = _bootstrap_executing_source_argument()
+    directory_descriptor: int | None = None
+    source_descriptor: int | None = None
+    core_descriptor: int | None = None
+    retained = False
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    try:
+        descriptor_flags = fcntl.fcntl(executing_descriptor, fcntl.F_GETFL)
+        if descriptor_flags & os.O_ACCMODE != os.O_RDONLY:
+            fail(
+                "PF-EVIDENCE-FINALIZER-IDENTITY",
+                "finalizer stdin source descriptor must be read-only",
+            )
+        directory_descriptor = os.open(
+            source_path.parent,
+            flags | getattr(os, "O_DIRECTORY", 0),
+        )
+        directory = os.fstat(directory_descriptor)
+        if (
+            not stat.S_ISDIR(directory.st_mode)
+            or directory.st_uid not in {0, os.geteuid()}
+            or stat.S_IMODE(directory.st_mode) & 0o022
+        ):
+            fail(
+                "PF-EVIDENCE-FINALIZER-IDENTITY",
+                "executing-source directory is outside the stable source profile",
+            )
+        executing_bytes, executing_identity = _stable_read_open_implementation(
+            executing_descriptor,
+            where="executing finalizer descriptor",
+            code="PF-EVIDENCE-FINALIZER-IDENTITY",
+        )
+        source_descriptor = os.open(
+            source_path.name,
+            flags,
+            dir_fd=directory_descriptor,
+        )
+        source_bytes, source_identity = _stable_read_open_implementation(
+            source_descriptor,
+            where="executing finalizer pathname",
+            code="PF-EVIDENCE-FINALIZER-IDENTITY",
+        )
+        if executing_identity != source_identity or executing_bytes != source_bytes:
+            fail(
+                "PF-EVIDENCE-FINALIZER-IDENTITY",
+                "executing descriptor and executing-source pathname are not one source image",
+            )
+        compiled = compile(
+            executing_bytes,
+            os.fspath(__file__),
+            "exec",
+            dont_inherit=True,
+            optimize=sys.flags.optimize,
+        )
+        if compiled != _EXECUTING_MODULE_CODE:
+            fail(
+                "PF-EVIDENCE-FINALIZER-IDENTITY",
+                "captured finalizer bytes do not compile to the executing module code",
+            )
+        core_path = source_path.with_name("evidence_v1_core.py")
+        core_descriptor = os.open(
+            core_path.name,
+            flags,
+            dir_fd=directory_descriptor,
+        )
+        core_bytes, core_identity = _stable_read_open_implementation(
+            core_descriptor,
+            where="evidence schema core sibling",
+            code="PF-EVIDENCE-FINALIZER-IDENTITY",
+        )
+        os.close(source_descriptor)
+        source_descriptor = None
+        retained = True
+        return {
+            "coreBytes": core_bytes,
+            "coreDescriptor": core_descriptor,
+            "coreIdentity": core_identity,
+            "corePath": core_path,
+            "directoryDescriptor": directory_descriptor,
+            "directoryIdentity": _implementation_identity(directory),
+            "executingBytes": executing_bytes,
+            "executingDescriptor": executing_descriptor,
+            "executingIdentity": executing_identity,
+            "sourcePath": source_path,
+        }
+    except EvidenceError:
+        raise
+    except (OSError, SyntaxError, UnicodeError, ValueError) as exc:
+        detail = getattr(exc, "strerror", None) or str(exc)
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            f"cannot bind the executing finalizer source image: {detail}",
+        )
+    finally:
+        if source_descriptor is not None:
+            os.close(source_descriptor)
+        if core_descriptor is not None and not retained:
+            os.close(core_descriptor)
+        if directory_descriptor is not None and not retained:
+            os.close(directory_descriptor)
+
+
+try:
+    _BOUND_FINALIZER_CONTEXT = _capture_bound_finalizer_context()
+except EvidenceError as _bootstrap_error:
+    print(f"{_bootstrap_error.code}: {_bootstrap_error}", file=sys.stderr)
+    raise SystemExit(2) from None
+
+
+def _load_evidence_v1_core(
+) -> tuple[ModuleType, Path, bytes, tuple[int, ...]]:
+    """Execute the exact stable-captured sibling without consulting ``sys.path``."""
+    if _BOUND_FINALIZER_CONTEXT is None:
+        gate_path = Path(os.path.abspath(__file__))
+        core_path = gate_path.with_name("evidence_v1_core.py")
+        core_bytes, core_identity = _stable_read_implementation(
+            core_path,
+            where="evidence schema core",
+        )
+    else:
+        core_path = _BOUND_FINALIZER_CONTEXT["corePath"]
+        core_bytes = _BOUND_FINALIZER_CONTEXT["coreBytes"]
+        core_identity = _BOUND_FINALIZER_CONTEXT["coreIdentity"]
+        if (
+            not isinstance(core_path, Path)
+            or not isinstance(core_bytes, bytes)
+            or not isinstance(core_identity, tuple)
+        ):
+            fail(
+                "PF-EVIDENCE-FINALIZER-IDENTITY",
+                "captured evidence core context has an invalid internal shape",
+            )
+    if hashlib.sha256(core_bytes).hexdigest() != _PINNED_EVIDENCE_V1_CORE_SHA256:
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "exact sibling evidence_v1_core.py does not match the finalizer source pin",
+        )
+    module = ModuleType("_proof_forge_gate_evidence_v1_core")
+    module.__file__ = os.fspath(core_path)
+    module.__package__ = ""
+    try:
+        code = compile(core_bytes, os.fspath(core_path), "exec", dont_inherit=True)
+        exec(code, module.__dict__)
+    except (SyntaxError, UnicodeError) as exc:
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            f"cannot execute the captured evidence schema core: {exc}",
+        )
+    except Exception as exc:
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "captured evidence schema core raised during loading: "
+            f"{type(exc).__name__}",
+        )
+    if tuple(module.__dict__.get("__all__", ())) != _EVIDENCE_V1_CORE_PUBLIC:
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "evidence v1 core public surface does not match the pinned ABI",
+        )
+    return module, core_path, core_bytes, core_identity
+
+
+try:
+    (
+        _EVIDENCE_V1_CORE,
+        _EVIDENCE_V1_CORE_PATH,
+        _EVIDENCE_V1_CORE_BYTES,
+        _EVIDENCE_V1_CORE_IDENTITY,
+    ) = _load_evidence_v1_core()
+except EvidenceError as _core_bootstrap_error:
+    print(f"{_core_bootstrap_error.code}: {_core_bootstrap_error}", file=sys.stderr)
+    raise SystemExit(2) from None
 
 
 def _where(parent: str, field: str) -> str:
@@ -1060,6 +1436,1108 @@ canonical_bytes = _EVIDENCE_V1_CORE.__dict__["canonical_bytes"]
 artifact_set_sha256 = _EVIDENCE_V1_CORE.__dict__["artifact_set_sha256"]
 _validate_gate = _EVIDENCE_V1_CORE.__dict__["_validate_gate"]
 validate_evidence = _EVIDENCE_V1_CORE.__dict__["validate_evidence"]
+
+
+_CATALOG_LOCK_FIELDS = {
+    "hostBootstrapSha256",
+    "hostProfileLockSha256",
+    "toolchainLockSha256",
+    "stage0LauncherSha256",
+    "stage0VerifierSha256",
+    "sandboxEngineSha256",
+    "sandboxRendererSha256",
+    "sandboxLauncherSha256",
+    "sandboxProbeWrapperSha256",
+    "evidenceValidatorSha256",
+    "evidenceSchemaCoreSha256",
+    "finalizerSha256",
+}
+_CATALOG_STRUCTURAL_INPUT_ROLES = {
+    "gate-catalog",
+    "clean-room-run-context",
+    "host-observation",
+    "host-bootstrap-lock",
+    "host-profile-lock",
+    "toolchain-lock",
+    "host-stage0-launcher",
+    "host-stage0-verifier",
+    "sandbox-launcher",
+    "sandbox-policy-renderer",
+    "sandbox-probe-wrapper",
+    "evidence-schema-core",
+    "sandbox-rendered-policy",
+    "sandbox-invocation-context",
+    "sandbox-invocation-receipt",
+}
+
+
+def _validate_catalog_role_path(
+    value: object,
+    where: str,
+    *,
+    expected_role: str | None = None,
+) -> dict[str, object]:
+    reference = require_keys(value, {"role", "path"}, where)
+    role = require_safe_id(reference["role"], _where(where, "role"))
+    require_relative_path(reference["path"], _where(where, "path"))
+    if expected_role is not None and role != expected_role:
+        fail(
+            "PF-EVIDENCE-CATALOG",
+            f"{where}.role must be {expected_role!r}",
+        )
+    return reference
+
+
+def _validate_catalog_value_matcher(value: object, where: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        fail("PF-EVIDENCE-CATALOG", f"{where} must be a value matcher object")
+    kind = value.get("kind")
+    if kind == "literal":
+        matcher = require_keys(value, {"kind", "value"}, where)
+        literal = matcher["value"]
+        if isinstance(literal, bool) or not isinstance(literal, (str, int)):
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"{where}.value must be a string or integer literal",
+            )
+        if isinstance(literal, str):
+            require_text(
+                literal,
+                _where(where, "value"),
+                allow_empty=True,
+                max_bytes=65536,
+            )
+        else:
+            require_int(literal, _where(where, "value"))
+        return matcher
+    if kind in {"binding", "binding-decimal"}:
+        matcher = require_keys(value, {"kind", "name"}, where)
+        require_safe_id(matcher["name"], _where(where, "name"))
+        return matcher
+    if kind == "run-path":
+        matcher = require_keys(value, {"kind", "relative"}, where)
+        require_relative_path(matcher["relative"], _where(where, "relative"))
+        return matcher
+    fail("PF-EVIDENCE-CATALOG", f"{where}.kind is not a supported value matcher")
+
+
+def _validate_catalog_executable(value: object, where: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        fail("PF-EVIDENCE-CATALOG", f"{where} must be an executable reference object")
+    kind = value.get("kind")
+    if kind == "tool":
+        reference = require_keys(value, {"kind", "id"}, where)
+        require_safe_id(reference["id"], _where(where, "id"))
+        return reference
+    if kind == "input":
+        reference = require_keys(value, {"kind", "role", "path"}, where)
+        require_safe_id(reference["role"], _where(where, "role"))
+        require_relative_path(reference["path"], _where(where, "path"))
+        return reference
+    if kind == "artifact":
+        reference = require_keys(
+            value,
+            {"kind", "target", "role", "path"},
+            where,
+        )
+        require_safe_id(reference["target"], _where(where, "target"))
+        require_safe_id(reference["role"], _where(where, "role"))
+        require_relative_path(reference["path"], _where(where, "path"))
+        return reference
+    fail("PF-EVIDENCE-CATALOG", f"{where}.kind is not a supported executable reference")
+
+
+def _validate_catalog_probe(
+    value: object,
+    where: str,
+) -> tuple[dict[str, object], tuple[str, str], dict[str, object]]:
+    probe = require_keys(
+        value,
+        {
+            "id",
+            "stage",
+            "invocation",
+            "outcome",
+            "invocationContextInput",
+            "receiptInput",
+            "stdoutLog",
+            "stderrLog",
+            "denial",
+            "command",
+        },
+        where,
+    )
+    require_safe_id(probe["id"], _where(where, "id"))
+    stage = require_enum(
+        probe["stage"],
+        {"materialize", "core", "evm-runtime"},
+        _where(where, "stage"),
+    )
+    invocation = require_pattern(
+        probe["invocation"],
+        INVOCATION_RE,
+        _where(where, "invocation"),
+    )
+    outcome = require_enum(
+        probe["outcome"],
+        {"success", "permission-denied"},
+        _where(where, "outcome"),
+    )
+    _validate_catalog_role_path(
+        probe["invocationContextInput"],
+        _where(where, "invocationContextInput"),
+        expected_role="sandbox-invocation-context",
+    )
+    _validate_catalog_role_path(
+        probe["receiptInput"],
+        _where(where, "receiptInput"),
+        expected_role="sandbox-invocation-receipt",
+    )
+    require_relative_path(probe["stdoutLog"], _where(where, "stdoutLog"))
+    require_relative_path(probe["stderrLog"], _where(where, "stderrLog"))
+    denial = probe["denial"]
+    denial_object: dict[str, object] | None = None
+    if outcome == "success":
+        if denial is not None:
+            fail("PF-EVIDENCE-CATALOG", f"{where}.denial must be null for success")
+    else:
+        denial_object = require_keys(
+            denial,
+            {"operation", "allowedErrnos"},
+            _where(where, "denial"),
+        )
+        require_enum(
+            denial_object["operation"],
+            {"file-read", "file-write", "process-exec", "tcp-connect", "tcp-bind"},
+            _where(_where(where, "denial"), "operation"),
+        )
+        errnos = require_array(
+            denial_object["allowedErrnos"],
+            _where(_where(where, "denial"), "allowedErrnos"),
+        )
+        if errnos != ["EACCES", "EPERM"]:
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"{where}.denial.allowedErrnos must be ['EACCES', 'EPERM']",
+            )
+
+    command_where = _where(where, "command")
+    command = require_keys(
+        probe["command"],
+        {"executable", "argv", "environment"},
+        command_where,
+    )
+    executable = _validate_catalog_executable(
+        command["executable"],
+        _where(command_where, "executable"),
+    )
+    argv = require_array(
+        command["argv"],
+        _where(command_where, "argv"),
+        nonempty=True,
+    )
+    for index, matcher in enumerate(argv):
+        _validate_catalog_value_matcher(
+            matcher,
+            f"{command_where}.argv[{index}]",
+        )
+    environment = require_array(
+        command["environment"],
+        _where(command_where, "environment"),
+    )
+    names: list[str] = []
+    for index, entry_value in enumerate(environment):
+        entry_where = f"{command_where}.environment[{index}]"
+        entry = require_keys(entry_value, {"name", "value"}, entry_where)
+        name = require_pattern(
+            entry["name"],
+            ENVIRONMENT_NAME_RE,
+            _where(entry_where, "name"),
+        )
+        names.append(name)
+        _validate_catalog_value_matcher(entry["value"], _where(entry_where, "value"))
+    require_sorted_unique(names, _where(command_where, "environment"))
+    if outcome == "permission-denied":
+        if denial_object is None:
+            fail("PF-EVIDENCE-CATALOG", f"{where}.denial is not a validated object")
+        executable_path = executable.get("path")
+        if (
+            executable.get("kind") != "input"
+            or executable.get("role") != "sandbox-probe-wrapper"
+            or not isinstance(executable_path, str)
+        ):
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"{command_where}.executable must be the sandbox-probe-wrapper input",
+            )
+        required_prefix = [
+            {"kind": "run-path", "relative": executable_path},
+            {"kind": "literal", "value": denial_object["operation"]},
+        ]
+        if len(argv) < len(required_prefix) or argv[:2] != required_prefix:
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"{command_where}.argv must begin with wrapper path and denial operation",
+            )
+    return probe, (stage, invocation), executable
+
+
+def _validate_catalog_policy(
+    value: object,
+    where: str,
+) -> tuple[dict[str, object], list[tuple[str, str]], list[dict[str, object]]]:
+    policy = require_keys(
+        value,
+        {
+            "id",
+            "engine",
+            "engineSha256",
+            "defaultAction",
+            "network",
+            "networkPort",
+            "templateSha256",
+            "renderedPolicyInput",
+            "probes",
+        },
+        where,
+    )
+    require_safe_id(policy["id"], _where(where, "id"))
+    require_safe_id(policy["engine"], _where(where, "engine"))
+    require_sha256(policy["engineSha256"], _where(where, "engineSha256"))
+    require_enum(policy["defaultAction"], {"allow", "deny"}, _where(where, "defaultAction"))
+    network = require_enum(
+        policy["network"],
+        {"deny-all", "exact-local-port", "loopback-only"},
+        _where(where, "network"),
+    )
+    if network == "exact-local-port":
+        matcher = _validate_catalog_value_matcher(
+            policy["networkPort"],
+            _where(where, "networkPort"),
+        )
+        if matcher["kind"] != "binding":
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"{where}.networkPort must use an integer binding matcher",
+            )
+    elif policy["networkPort"] is not None:
+        fail(
+            "PF-EVIDENCE-CATALOG",
+            f"{where}.networkPort must be null unless network is exact-local-port",
+        )
+    require_sha256(policy["templateSha256"], _where(where, "templateSha256"))
+    _validate_catalog_role_path(
+        policy["renderedPolicyInput"],
+        _where(where, "renderedPolicyInput"),
+        expected_role="sandbox-rendered-policy",
+    )
+    probes = require_array(policy["probes"], _where(where, "probes"), nonempty=True)
+    probe_ids: list[str] = []
+    invocations: list[tuple[str, str]] = []
+    executable_consumers: list[dict[str, object]] = []
+    for index, probe_value in enumerate(probes):
+        probe, invocation, executable = _validate_catalog_probe(
+            probe_value,
+            f"{where}.probes[{index}]",
+        )
+        probe_id = probe["id"]
+        if not isinstance(probe_id, str):
+            fail("PF-EVIDENCE-CATALOG", f"{where}.probes[{index}].id must be a string")
+        probe_ids.append(probe_id)
+        invocations.append(invocation)
+        executable_consumers.append(executable)
+    require_sorted_unique(probe_ids, _where(where, "probes"))
+    return policy, invocations, executable_consumers
+
+
+def _validate_catalog_tool(value: object, where: str) -> dict[str, object]:
+    tool = require_keys(
+        value,
+        {
+            "id",
+            "version",
+            "source",
+            "assetSha256",
+            "executableSha256",
+            "closureSha256",
+            "usage",
+            "closureOf",
+        },
+        where,
+    )
+    require_safe_id(tool["id"], _where(where, "id"))
+    require_text(tool["version"], _where(where, "version"), max_bytes=512)
+    require_text(tool["source"], _where(where, "source"), max_bytes=2048)
+    require_nullable_sha256(tool["assetSha256"], _where(where, "assetSha256"))
+    require_sha256(tool["executableSha256"], _where(where, "executableSha256"))
+    require_sha256(tool["closureSha256"], _where(where, "closureSha256"))
+    usage = require_enum(
+        tool["usage"],
+        {"invoked", "closure-only"},
+        _where(where, "usage"),
+    )
+    if usage == "invoked":
+        if tool["closureOf"] is not None:
+            fail("PF-EVIDENCE-CATALOG", f"{where}.closureOf must be null for invoked tools")
+    else:
+        require_safe_id(tool["closureOf"], _where(where, "closureOf"))
+    return tool
+
+
+def _validate_catalog_observation(value: object, where: str) -> dict[str, object]:
+    observation = require_keys(
+        value,
+        {"step", "status", "return", "logicalState", "effects", "errorClass"},
+        where,
+    )
+    require_safe_id(observation["step"], _where(where, "step"))
+    require_enum(
+        observation["status"],
+        {"passed", "failed", "skipped"},
+        _where(where, "status"),
+    )
+    if observation["errorClass"] is not None:
+        require_safe_id(observation["errorClass"], _where(where, "errorClass"))
+    return observation
+
+
+def _validate_catalog_gate_path_sets(gate: dict[str, object], where: str) -> None:
+    """Reject static claim aliases before any evidence/bundle evaluator runs."""
+    claims: list[tuple[str, str]] = []
+
+    def add(path: object, claim_where: str) -> None:
+        if not isinstance(path, str):
+            fail("PF-EVIDENCE-CATALOG", f"{claim_where} is not a validated path")
+        claims.append((path, claim_where))
+
+    host = gate["hostPolicy"]
+    if not isinstance(host, dict) or not isinstance(host.get("observationInput"), dict):
+        fail("PF-EVIDENCE-CATALOG", f"{where}.hostPolicy is not a validated object")
+    add(
+        host["observationInput"].get("path"),
+        f"{where}.hostPolicy.observationInput.path",
+    )
+
+    policies = gate["policies"]
+    if not isinstance(policies, list):
+        fail("PF-EVIDENCE-CATALOG", f"{where}.policies is not a validated array")
+    for policy_index, policy_value in enumerate(policies):
+        policy_where = f"{where}.policies[{policy_index}]"
+        if not isinstance(policy_value, dict):
+            fail("PF-EVIDENCE-CATALOG", f"{policy_where} is not a validated object")
+        rendered = policy_value.get("renderedPolicyInput")
+        probes = policy_value.get("probes")
+        if not isinstance(rendered, dict) or not isinstance(probes, list):
+            fail("PF-EVIDENCE-CATALOG", f"{policy_where} is not structurally validated")
+        add(rendered.get("path"), f"{policy_where}.renderedPolicyInput.path")
+        for probe_index, probe_value in enumerate(probes):
+            probe_where = f"{policy_where}.probes[{probe_index}]"
+            if not isinstance(probe_value, dict):
+                fail("PF-EVIDENCE-CATALOG", f"{probe_where} is not a validated object")
+            context = probe_value.get("invocationContextInput")
+            receipt = probe_value.get("receiptInput")
+            if not isinstance(context, dict) or not isinstance(receipt, dict):
+                fail("PF-EVIDENCE-CATALOG", f"{probe_where} is not structurally validated")
+            add(context.get("path"), f"{probe_where}.invocationContextInput.path")
+            add(receipt.get("path"), f"{probe_where}.receiptInput.path")
+            add(probe_value.get("stdoutLog"), f"{probe_where}.stdoutLog")
+            add(probe_value.get("stderrLog"), f"{probe_where}.stderrLog")
+
+    for field in ("requiredInputs", "requiredArtifacts", "requiredLogs"):
+        values = gate[field]
+        if not isinstance(values, list):
+            fail("PF-EVIDENCE-CATALOG", f"{where}.{field} is not a validated array")
+        for index, value in enumerate(values):
+            if not isinstance(value, dict):
+                fail(
+                    "PF-EVIDENCE-CATALOG",
+                    f"{where}.{field}[{index}] is not a validated object",
+                )
+            add(value.get("path"), f"{where}.{field}[{index}].path")
+
+    exact: dict[str, str] = {}
+    folded: dict[str, tuple[str, str]] = {}
+    for path, claim_where in claims:
+        previous = exact.get(path)
+        if previous is not None:
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"{claim_where} reuses static claim path {path!r} from {previous}",
+            )
+        exact[path] = claim_where
+        folded_key = unicodedata.normalize("NFC", path).casefold()
+        folded_previous = folded.get(folded_key)
+        if folded_previous is not None:
+            previous_path, previous_where = folded_previous
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"{claim_where} casefold-aliases {previous_path!r} from {previous_where}",
+            )
+        folded[folded_key] = (path, claim_where)
+
+
+def _validate_catalog_gate(value: object, where: str) -> dict[str, object]:
+    gate = require_keys(
+        value,
+        {
+            "id",
+            "taskId",
+            "testIds",
+            "candidatePolicy",
+            "hostPolicy",
+            "commandPolicy",
+            "requiredTools",
+            "policies",
+            "requiredInputs",
+            "requiredArtifacts",
+            "requiredObservations",
+            "requiredLogs",
+        },
+        where,
+    )
+    require_safe_id(gate["id"], _where(where, "id"))
+    require_pattern(gate["taskId"], TASK_ID_RE, _where(where, "taskId"))
+    tests = require_array(gate["testIds"], _where(where, "testIds"), nonempty=True)
+    test_ids = [
+        require_pattern(test_id, TEST_ID_RE, f"{where}.testIds[{index}]")
+        for index, test_id in enumerate(tests)
+    ]
+    require_sorted_unique(test_ids, _where(where, "testIds"))
+
+    candidate_where = _where(where, "candidatePolicy")
+    candidate = require_keys(
+        gate["candidatePolicy"],
+        {"subtree", "anchorSource", "dirty", "unchangedDuringRun", "archiveFormat"},
+        candidate_where,
+    )
+    require_relative_path(candidate["subtree"], _where(candidate_where, "subtree"), allow_dot=True)
+    require_enum(
+        candidate["anchorSource"],
+        {"derived-development", "external"},
+        _where(candidate_where, "anchorSource"),
+    )
+    require_bool(candidate["dirty"], _where(candidate_where, "dirty"))
+    require_bool(
+        candidate["unchangedDuringRun"],
+        _where(candidate_where, "unchangedDuringRun"),
+    )
+    require_enum(candidate["archiveFormat"], {"git-tar"}, _where(candidate_where, "archiveFormat"))
+
+    host_where = _where(where, "hostPolicy")
+    host = require_keys(
+        gate["hostPolicy"],
+        {
+            "scope",
+            "remoteAttestation",
+            "profileId",
+            "eligibleForHermetic",
+            "observationInput",
+        },
+        host_where,
+    )
+    require_enum(host["scope"], {"local-point-in-time"}, _where(host_where, "scope"))
+    if require_bool(host["remoteAttestation"], _where(host_where, "remoteAttestation")):
+        fail("PF-EVIDENCE-CATALOG", f"{host_where}.remoteAttestation must be false")
+    require_safe_id(host["profileId"], _where(host_where, "profileId"))
+    require_bool(host["eligibleForHermetic"], _where(host_where, "eligibleForHermetic"))
+    _validate_catalog_role_path(
+        host["observationInput"],
+        _where(host_where, "observationInput"),
+        expected_role="host-observation",
+    )
+
+    command_where = _where(where, "commandPolicy")
+    command = require_keys(
+        gate["commandPolicy"],
+        {"argv", "cwdRelative", "environmentSha256", "attempts", "result"},
+        command_where,
+    )
+    argv = require_array(command["argv"], _where(command_where, "argv"), nonempty=True)
+    for index, matcher in enumerate(argv):
+        _validate_catalog_value_matcher(matcher, f"{command_where}.argv[{index}]")
+    require_relative_path(command["cwdRelative"], _where(command_where, "cwdRelative"), allow_dot=True)
+    _validate_catalog_value_matcher(
+        command["environmentSha256"],
+        _where(command_where, "environmentSha256"),
+    )
+    attempts = require_int(command["attempts"], _where(command_where, "attempts"), minimum=1)
+    if attempts != 1:
+        fail("PF-EVIDENCE-CATALOG", f"{command_where}.attempts must be exactly 1")
+    require_enum(command["result"], {"passed"}, _where(command_where, "result"))
+
+    tools = require_array(gate["requiredTools"], _where(where, "requiredTools"), nonempty=True)
+    tool_ids: list[str] = []
+    tool_records: dict[str, dict[str, object]] = {}
+    for index, tool_value in enumerate(tools):
+        tool = _validate_catalog_tool(tool_value, f"{where}.requiredTools[{index}]")
+        tool_id = tool["id"]
+        if not isinstance(tool_id, str):
+            fail("PF-EVIDENCE-CATALOG", f"{where}.requiredTools[{index}].id must be a string")
+        tool_ids.append(tool_id)
+        tool_records[tool_id] = tool
+    require_sorted_unique(tool_ids, _where(where, "requiredTools"))
+
+    policies = require_array(gate["policies"], _where(where, "policies"), nonempty=True)
+    policy_ids: list[str] = []
+    invocation_keys: list[tuple[str, str]] = []
+    executable_consumers: list[dict[str, object]] = []
+    for index, policy_value in enumerate(policies):
+        policy, policy_invocations, policy_executables = _validate_catalog_policy(
+            policy_value,
+            f"{where}.policies[{index}]",
+        )
+        policy_id = policy["id"]
+        if not isinstance(policy_id, str):
+            fail("PF-EVIDENCE-CATALOG", f"{where}.policies[{index}].id must be a string")
+        policy_ids.append(policy_id)
+        invocation_keys.extend(policy_invocations)
+        executable_consumers.extend(policy_executables)
+    require_sorted_unique(policy_ids, _where(where, "policies"))
+    if len(set(invocation_keys)) != len(invocation_keys):
+        fail(
+            "PF-EVIDENCE-CATALOG",
+            f"{where}.policies reuses a stage/invocation identity",
+        )
+    consumed_tools = {
+        executable["id"]
+        for executable in executable_consumers
+        if executable.get("kind") == "tool" and isinstance(executable.get("id"), str)
+    }
+    for tool_id, tool in tool_records.items():
+        if tool["usage"] == "invoked":
+            if tool_id not in consumed_tools:
+                fail(
+                    "PF-EVIDENCE-CATALOG",
+                    f"{where}.requiredTools invoked tool is not consumed: {tool_id}",
+                )
+        else:
+            closure_of = tool["closureOf"]
+            if closure_of not in tool_records or tool_records[closure_of]["usage"] != "invoked":
+                fail(
+                    "PF-EVIDENCE-CATALOG",
+                    f"{where}.requiredTools closure-only tool has no invoked closure owner",
+                )
+            if tool_id in consumed_tools:
+                fail(
+                    "PF-EVIDENCE-CATALOG",
+                    f"{where}.requiredTools closure-only tool is an executable consumer",
+                )
+    unknown_tool_consumers = consumed_tools - set(tool_records)
+    if unknown_tool_consumers:
+        fail(
+            "PF-EVIDENCE-CATALOG",
+            f"{where}.policies references an undeclared required tool",
+        )
+
+    required_inputs = require_array(gate["requiredInputs"], _where(where, "requiredInputs"))
+    input_keys: list[tuple[str, str]] = []
+    for index, reference_value in enumerate(required_inputs):
+        reference = _validate_catalog_role_path(
+            reference_value,
+            f"{where}.requiredInputs[{index}]",
+        )
+        role = reference["role"]
+        path = reference["path"]
+        if not isinstance(role, str) or not isinstance(path, str):
+            fail("PF-EVIDENCE-CATALOG", f"{where}.requiredInputs[{index}] is not typed")
+        if role in _CATALOG_STRUCTURAL_INPUT_ROLES:
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"{where}.requiredInputs duplicates structural role {role!r}",
+            )
+        input_keys.append((role, path))
+    require_sorted_unique(input_keys, _where(where, "requiredInputs"))
+
+    required_artifacts = require_array(
+        gate["requiredArtifacts"],
+        _where(where, "requiredArtifacts"),
+    )
+    artifact_keys: list[tuple[str, str, str]] = []
+    artifact_records: dict[tuple[str, str, str], dict[str, object]] = {}
+    for index, artifact_value in enumerate(required_artifacts):
+        artifact_where = f"{where}.requiredArtifacts[{index}]"
+        artifact = require_keys(
+            artifact_value,
+            {"target", "role", "path", "mediaType", "retained"},
+            artifact_where,
+        )
+        target = require_safe_id(artifact["target"], _where(artifact_where, "target"))
+        role = require_safe_id(artifact["role"], _where(artifact_where, "role"))
+        path = require_relative_path(artifact["path"], _where(artifact_where, "path"))
+        require_pattern(artifact["mediaType"], MEDIA_TYPE_RE, _where(artifact_where, "mediaType"))
+        require_bool(artifact["retained"], _where(artifact_where, "retained"))
+        key = (target, role, path)
+        artifact_keys.append(key)
+        artifact_records[key] = artifact
+    require_sorted_unique(artifact_keys, _where(where, "requiredArtifacts"))
+
+    declared_input_keys = set(input_keys)
+    observation_input = host["observationInput"]
+    if not isinstance(observation_input, dict):
+        fail("PF-EVIDENCE-CATALOG", f"{host_where}.observationInput is not validated")
+    observation_role = observation_input.get("role")
+    observation_path = observation_input.get("path")
+    if not isinstance(observation_role, str) or not isinstance(observation_path, str):
+        fail("PF-EVIDENCE-CATALOG", f"{host_where}.observationInput is not typed")
+    declared_input_keys.add((observation_role, observation_path))
+    for policy_value in policies:
+        if not isinstance(policy_value, dict):
+            fail("PF-EVIDENCE-CATALOG", f"{where}.policies is not validated")
+        rendered = policy_value.get("renderedPolicyInput")
+        probes_value = policy_value.get("probes")
+        if not isinstance(rendered, dict) or not isinstance(probes_value, list):
+            fail("PF-EVIDENCE-CATALOG", f"{where}.policies is not structurally validated")
+        rendered_role = rendered.get("role")
+        rendered_path = rendered.get("path")
+        if not isinstance(rendered_role, str) or not isinstance(rendered_path, str):
+            fail("PF-EVIDENCE-CATALOG", f"{where}.policies rendered input is not typed")
+        declared_input_keys.add((rendered_role, rendered_path))
+        for probe_value in probes_value:
+            if not isinstance(probe_value, dict):
+                fail("PF-EVIDENCE-CATALOG", f"{where}.policies probe is not validated")
+            for field in ("invocationContextInput", "receiptInput"):
+                reference = probe_value.get(field)
+                if not isinstance(reference, dict):
+                    fail("PF-EVIDENCE-CATALOG", f"{where}.policies probe input is not typed")
+                role = reference.get("role")
+                path = reference.get("path")
+                if not isinstance(role, str) or not isinstance(path, str):
+                    fail("PF-EVIDENCE-CATALOG", f"{where}.policies probe input is not typed")
+                declared_input_keys.add((role, path))
+
+    path_deferred_singletons = _CATALOG_STRUCTURAL_INPUT_ROLES - {
+        "host-observation",
+        "sandbox-rendered-policy",
+        "sandbox-invocation-context",
+        "sandbox-invocation-receipt",
+    }
+    for executable in executable_consumers:
+        kind = executable.get("kind")
+        if kind == "input":
+            role = executable.get("role")
+            path = executable.get("path")
+            if (
+                not isinstance(role, str)
+                or not isinstance(path, str)
+                or (
+                    (role, path) not in declared_input_keys
+                    and role not in path_deferred_singletons
+                )
+            ):
+                fail(
+                    "PF-EVIDENCE-CATALOG",
+                    f"{where}.policies has an input executable outside the effective input set",
+                )
+        elif kind == "artifact":
+            target = executable.get("target")
+            role = executable.get("role")
+            path = executable.get("path")
+            key = (target, role, path)
+            artifact = artifact_records.get(key)  # type: ignore[arg-type]
+            if artifact is None or artifact.get("retained") is not True:
+                fail(
+                    "PF-EVIDENCE-CATALOG",
+                    f"{where}.policies has a missing or non-retained artifact executable",
+                )
+
+    observations = require_array(
+        gate["requiredObservations"],
+        _where(where, "requiredObservations"),
+    )
+    for index, observation in enumerate(observations):
+        _validate_catalog_observation(
+            observation,
+            f"{where}.requiredObservations[{index}]",
+        )
+
+    required_logs = require_array(gate["requiredLogs"], _where(where, "requiredLogs"))
+    log_paths: list[str] = []
+    for index, log_value in enumerate(required_logs):
+        log_where = f"{where}.requiredLogs[{index}]"
+        log = require_keys(
+            log_value,
+            {"path", "truncated", "privateDataScan"},
+            log_where,
+        )
+        path = require_relative_path(log["path"], _where(log_where, "path"))
+        require_bool(log["truncated"], _where(log_where, "truncated"))
+        require_enum(
+            log["privateDataScan"],
+            {"passed", "failed", "not-run"},
+            _where(log_where, "privateDataScan"),
+        )
+        log_paths.append(path)
+    require_sorted_unique(log_paths, _where(where, "requiredLogs"))
+    _validate_catalog_gate_path_sets(gate, where)
+    return gate
+
+
+def _parse_development_catalog(data: bytes) -> dict[str, object]:
+    """Parse every gate in one closed, canonical development catalog."""
+    try:
+        value = decode_json(data)
+        if canonical_bytes(value) != data:
+            fail("PF-EVIDENCE-CATALOG", "gate catalog bytes are not canonical PF JCS")
+        catalog = require_keys(
+            value,
+            {"schema", "id", "version", "qualification", "requiredTestSet", "locks", "gates"},
+            "catalog",
+        )
+        if catalog["schema"] != GATE_CATALOG_SCHEMA:
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"catalog.schema must be {GATE_CATALOG_SCHEMA!r}",
+            )
+        require_safe_id(catalog["id"], "catalog.id")
+        require_pattern(catalog["version"], SEMVER_RE, "catalog.version")
+        require_enum(catalog["qualification"], {"development"}, "catalog.qualification")
+        if catalog["requiredTestSet"] is not None:
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                "development catalog.requiredTestSet must be explicit null",
+            )
+        locks = require_keys(catalog["locks"], _CATALOG_LOCK_FIELDS, "catalog.locks")
+        for field in sorted(_CATALOG_LOCK_FIELDS):
+            require_sha256(locks[field], f"catalog.locks.{field}")
+        gates = require_array(catalog["gates"], "catalog.gates", nonempty=True)
+        gate_ids: list[str] = []
+        for index, gate_value in enumerate(gates):
+            gate = _validate_catalog_gate(gate_value, f"catalog.gates[{index}]")
+            gate_id = gate["id"]
+            if not isinstance(gate_id, str):
+                fail("PF-EVIDENCE-CATALOG", f"catalog.gates[{index}].id must be a string")
+            gate_ids.append(gate_id)
+        require_sorted_unique(gate_ids, "catalog.gates")
+        return catalog
+    except EvidenceError as exc:
+        if exc.code == "PF-EVIDENCE-CATALOG":
+            raise
+        fail("PF-EVIDENCE-CATALOG", f"invalid gate catalog: {exc}")
+
+
+def _require_catalog_cli_sha256(value: object, where: str) -> str:
+    try:
+        return require_sha256(value, where)
+    except EvidenceError as exc:
+        fail("PF-EVIDENCE-CATALOG-DIGEST", f"{where} is not a lowercase SHA-256: {exc}")
+
+
+def _require_single_input_claim(
+    document: dict[str, object],
+    role: str,
+    *,
+    code: str,
+) -> dict[str, object]:
+    inputs = document["inputs"]
+    if not isinstance(inputs, list):
+        fail(code, "validated evidence inputs are not an array")
+    matches = [
+        entry
+        for entry in inputs
+        if isinstance(entry, dict) and entry.get("role") == role
+    ]
+    if len(matches) != 1:
+        fail(code, f"evidence must contain exactly one input with role {role!r}")
+    return matches[0]
+
+
+def _join_development_catalog_identity(
+    document: dict[str, object],
+    catalog: dict[str, object],
+    catalog_bytes: bytes,
+    catalog_metadata: os.stat_result,
+    *,
+    catalog_relative: str,
+    expected_content_sha256: str,
+    expected_catalog_digest: str,
+) -> dict[str, object]:
+    content_sha256 = hashlib.sha256(catalog_bytes).hexdigest()
+    catalog_digest = hashlib.sha256(GATE_CATALOG_DOMAIN + catalog_bytes).hexdigest()
+    identity = {
+        "schema": catalog["schema"],
+        "id": catalog["id"],
+        "version": catalog["version"],
+        "contentSha256": content_sha256,
+        "catalogDigest": catalog_digest,
+    }
+    if (
+        expected_content_sha256 != content_sha256
+        or expected_catalog_digest != catalog_digest
+    ):
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "caller catalog identity does not match the captured canonical catalog bytes",
+        )
+    if document.get("gateCatalog") != identity:
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "evidence gateCatalog identity is split from the captured catalog bytes",
+        )
+    claim = _require_single_input_claim(
+        document,
+        "gate-catalog",
+        code="PF-EVIDENCE-CATALOG-DIGEST",
+    )
+    if (
+        claim.get("path") != catalog_relative
+        or claim.get("sha256") != content_sha256
+        or claim.get("size") != len(catalog_bytes)
+        or catalog_metadata.st_size != len(catalog_bytes)
+    ):
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "catalog CLI path, evidence claim, and captured bytes are not exact",
+        )
+    return identity
+
+
+def _select_development_catalog_gate(
+    document: dict[str, object],
+    catalog: dict[str, object],
+) -> dict[str, object]:
+    evidence_gate = document["gate"]
+    if not isinstance(evidence_gate, dict):
+        fail("PF-EVIDENCE-CATALOG-GATE", "validated evidence gate is not an object")
+    gate_id = evidence_gate.get("id")
+    gates = catalog["gates"]
+    if not isinstance(gates, list):
+        fail("PF-EVIDENCE-CATALOG", "validated catalog gates are not an array")
+    selected = [
+        gate
+        for gate in gates
+        if isinstance(gate, dict) and gate.get("id") == gate_id
+    ]
+    if len(selected) != 1:
+        fail(
+            "PF-EVIDENCE-CATALOG",
+            "evidence gate id does not select exactly one catalog gate",
+        )
+    selected_gate = selected[0]
+    if (
+        catalog.get("qualification") != "development"
+        or evidence_gate.get("qualification") != "development"
+        or selected_gate.get("taskId") != evidence_gate.get("taskId")
+        or selected_gate.get("testIds") != evidence_gate.get("testIds")
+    ):
+        fail(
+            "PF-EVIDENCE-CATALOG-GATE",
+            "selected catalog gate qualification/task/tests do not equal the evidence gate",
+        )
+    return selected_gate
+
+
+def _join_development_candidate_host(
+    document: dict[str, object],
+    selected_gate: dict[str, object],
+) -> None:
+    repository = document["repository"]
+    host = document["hostAttestation"]
+    if not isinstance(repository, dict) or not isinstance(host, dict):
+        fail(
+            "PF-EVIDENCE-CANDIDATE-BINDING",
+            "validated candidate or host record is not an object",
+        )
+    archive = repository.get("archive")
+    if not isinstance(archive, dict):
+        fail("PF-EVIDENCE-CANDIDATE-BINDING", "validated candidate archive is not an object")
+    expected_candidate = {
+        "subtree": repository.get("subtree"),
+        "anchorSource": repository.get("anchorSource"),
+        "dirty": repository.get("dirty"),
+        "unchangedDuringRun": repository.get("unchangedDuringRun"),
+        "archiveFormat": archive.get("format"),
+    }
+    if selected_gate.get("candidatePolicy") != expected_candidate:
+        fail(
+            "PF-EVIDENCE-CANDIDATE-BINDING",
+            "selected catalog candidate policy does not equal the evidence candidate facts",
+        )
+    expected_host = {
+        "scope": host.get("scope"),
+        "remoteAttestation": host.get("remoteAttestation"),
+        "profileId": host.get("profileId"),
+        "eligibleForHermetic": host.get("eligibleForHermetic"),
+        "observationInput": host.get("observationInput"),
+    }
+    if selected_gate.get("hostPolicy") != expected_host:
+        fail(
+            "PF-EVIDENCE-HOST-BINDING",
+            "selected catalog host policy does not equal the evidence host facts",
+        )
+
+
+def _require_bound_development_execution(executing_source: object) -> dict[str, object]:
+    context = _BOUND_FINALIZER_CONTEXT
+    if context is None:
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "development finalization requires fd-bound gate_evidence.py execution",
+        )
+    source_path = context.get("sourcePath")
+    if (
+        not isinstance(executing_source, str)
+        or not isinstance(source_path, Path)
+        or executing_source != os.fspath(source_path)
+    ):
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "parsed --executing-source does not equal the stdin-bound source pathname",
+        )
+    return context
+
+
+def _join_development_implementation_closure(
+    document: dict[str, object],
+    catalog: dict[str, object],
+    bundle_root: Path,
+    executing_source: object,
+) -> tuple[str, str]:
+    context = _require_bound_development_execution(executing_source)
+    source_path = context.get("sourcePath")
+    if not isinstance(source_path, Path):
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "fd-bound finalizer source path has an invalid internal shape",
+        )
+    executing_descriptor = context.get("executingDescriptor")
+    directory_descriptor = context.get("directoryDescriptor")
+    core_descriptor = context.get("coreDescriptor")
+    executing_bytes = context.get("executingBytes")
+    executing_identity = context.get("executingIdentity")
+    directory_identity = context.get("directoryIdentity")
+    core_bytes = context.get("coreBytes")
+    core_identity = context.get("coreIdentity")
+    core_path = context.get("corePath")
+    if (
+        not isinstance(executing_descriptor, int)
+        or not isinstance(directory_descriptor, int)
+        or not isinstance(core_descriptor, int)
+        or not isinstance(executing_bytes, bytes)
+        or not isinstance(executing_identity, tuple)
+        or not isinstance(directory_identity, tuple)
+        or not isinstance(core_bytes, bytes)
+        or not isinstance(core_identity, tuple)
+        or not isinstance(core_path, Path)
+    ):
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "fd-bound finalizer context has an invalid internal shape",
+        )
+    fresh_directory_descriptor: int | None = None
+    try:
+        current_gate_bytes, current_gate_identity = _stable_read_open_implementation(
+            executing_descriptor,
+            where="executing finalizer descriptor",
+            code="PF-EVIDENCE-FINALIZER-IDENTITY",
+        )
+        current_core_bytes, current_core_identity = _stable_read_open_implementation(
+            core_descriptor,
+            where="evidence schema core descriptor",
+            code="PF-EVIDENCE-FINALIZER-IDENTITY",
+        )
+        current_source_entry = os.stat(
+            source_path.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        current_core_entry = os.stat(
+            core_path.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        current_directory = os.fstat(directory_descriptor)
+        if source_path.resolve(strict=True) != source_path:
+            fail(
+                "PF-EVIDENCE-FINALIZER-IDENTITY",
+                "executing-source pathname became symlinked after bootstrap capture",
+            )
+        fresh_directory_descriptor = os.open(
+            source_path.parent,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_DIRECTORY", 0),
+        )
+        fresh_directory = os.fstat(fresh_directory_descriptor)
+        fresh_source_entry = os.stat(
+            source_path.name,
+            dir_fd=fresh_directory_descriptor,
+            follow_symlinks=False,
+        )
+        fresh_core_entry = os.stat(
+            core_path.name,
+            dir_fd=fresh_directory_descriptor,
+            follow_symlinks=False,
+        )
+    except EvidenceError:
+        raise
+    except OSError as exc:
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            f"cannot revalidate the fd-bound finalizer closure: {exc.strerror}",
+        )
+    finally:
+        if fresh_directory_descriptor is not None:
+            os.close(fresh_directory_descriptor)
+    if (
+        current_gate_bytes != executing_bytes
+        or current_gate_identity != executing_identity
+        or _implementation_identity(current_source_entry) != executing_identity
+        or _implementation_identity(current_directory) != directory_identity
+        or _implementation_identity(fresh_directory) != directory_identity
+        or _implementation_identity(fresh_source_entry) != executing_identity
+        or current_core_bytes != core_bytes
+        or current_core_identity != core_identity
+        or _implementation_identity(current_core_entry) != core_identity
+        or _implementation_identity(fresh_core_entry) != core_identity
+        or current_core_bytes != _EVIDENCE_V1_CORE_BYTES
+        or current_core_identity != _EVIDENCE_V1_CORE_IDENTITY
+    ):
+        fail(
+            "PF-EVIDENCE-FINALIZER-IDENTITY",
+            "stdin-bound finalizer or exact sibling core changed after source capture",
+        )
+    gate_sha256 = hashlib.sha256(executing_bytes).hexdigest()
+    core_sha256 = hashlib.sha256(_EVIDENCE_V1_CORE_BYTES).hexdigest()
+    locks = catalog["locks"]
+    if not isinstance(locks, dict):
+        fail("PF-EVIDENCE-CATALOG-DIGEST", "validated catalog locks are not an object")
+    if (
+        locks.get("evidenceValidatorSha256") != gate_sha256
+        or locks.get("finalizerSha256") != gate_sha256
+        or locks.get("evidenceSchemaCoreSha256") != core_sha256
+    ):
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "catalog implementation locks do not equal the stable wrapper/core closure",
+        )
+    core_claim = _require_single_input_claim(
+        document,
+        "evidence-schema-core",
+        code="PF-EVIDENCE-CATALOG-DIGEST",
+    )
+    core_claim_path = core_claim.get("path")
+    if not isinstance(core_claim_path, str):
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "evidence-schema-core input path is not a validated relative path",
+        )
+    retained_core_bytes, retained_metadata = _read_bundle_relative_file(
+        bundle_root,
+        core_claim_path,
+        maximum=MAX_INPUT_BYTES,
+    )
+    if (
+        retained_core_bytes != _EVIDENCE_V1_CORE_BYTES
+        or retained_metadata.st_size != len(_EVIDENCE_V1_CORE_BYTES)
+        or core_claim.get("sha256") != core_sha256
+        or core_claim.get("size") != len(_EVIDENCE_V1_CORE_BYTES)
+    ):
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "retained evidence-schema-core is not the exact loaded sibling implementation",
+        )
+    return gate_sha256, core_sha256
 
 
 def _read_regular_file(path: Path) -> bytes:
@@ -2920,6 +4398,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "finalize-development",
         help="finalize one development gate against an exact retained catalog bundle",
     )
+    finalizer_parser.add_argument("--executing-source")
     finalizer_parser.add_argument("--catalog", required=True)
     finalizer_parser.add_argument("--catalog-sha256", required=True)
     finalizer_parser.add_argument("--catalog-digest", required=True)
@@ -2982,11 +4461,60 @@ def main(argv: list[str] | None = None) -> int:
                 fail(
                     "PF-EVIDENCE-NONCANONICAL",
                     "evidence bytes are not canonical ASCII-key JSON",
-                )
+            )
             _require_development_publish(document)
+            _require_bound_development_execution(arguments.executing_source)
+            expected_content_sha256 = _require_catalog_cli_sha256(
+                arguments.catalog_sha256,
+                "CATALOG_SHA256",
+            )
+            expected_catalog_digest = _require_catalog_cli_sha256(
+                arguments.catalog_digest,
+                "CATALOG_DIGEST",
+            )
+            _require_catalog_cli_sha256(
+                arguments.run_binding_sha256,
+                "RUN_BINDING_SHA256",
+            )
+            catalog_relative = require_relative_path(arguments.catalog, "CATALOG")
+            catalog_claim = _require_single_input_claim(
+                document,
+                "gate-catalog",
+                code="PF-EVIDENCE-CATALOG-DIGEST",
+            )
+            if catalog_claim.get("path") != catalog_relative:
+                fail(
+                    "PF-EVIDENCE-CATALOG-DIGEST",
+                    "--catalog must exactly equal the evidence gate-catalog input path",
+                )
+            catalog_bytes, catalog_metadata = _read_bundle_relative_file(
+                bundle_root,
+                catalog_relative,
+                maximum=MAX_INPUT_BYTES,
+            )
+            catalog = _parse_development_catalog(catalog_bytes)
+            _join_development_catalog_identity(
+                document,
+                catalog,
+                catalog_bytes,
+                catalog_metadata,
+                catalog_relative=catalog_relative,
+                expected_content_sha256=expected_content_sha256,
+                expected_catalog_digest=expected_catalog_digest,
+            )
+            selected_gate = _select_development_catalog_gate(document, catalog)
+            _join_development_implementation_closure(
+                document,
+                catalog,
+                bundle_root,
+                arguments.executing_source,
+            )
+            _join_development_candidate_host(document, selected_gate)
             fail(
-                "PF-EVIDENCE-CATALOG",
-                "development catalog evaluation is not implemented by this pre-acceptance slice",
+                "PF-EVIDENCE-CATALOG-POLICIES",
+                "catalog schema, identity, selected gate, implementation closure, and "
+                "candidate/host static bindings verified; the context/policy/receipt "
+                "evaluator is not implemented by this slice",
             )
         elif arguments.command == "self-test":
             self_test()
