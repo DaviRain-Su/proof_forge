@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -904,14 +905,20 @@ def write_realistic_development_bundle(
 
 
 def invoke(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        [sys.executable, "-I", "-S", os.fspath(GATE_EVIDENCE), *arguments],
-        cwd=ROOT,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            [sys.executable, "-I", "-S", os.fspath(GATE_EVIDENCE), *arguments],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AssertionError(
+            "finalizer blocked on catalog or claimed-member I/O before its policy decision"
+        ) from error
 
 
 def main() -> int:
@@ -924,7 +931,14 @@ def main() -> int:
         bundle_root.mkdir(mode=0o700)
         write_formal_bundle(module, bundle_root)
 
+        candidate_trap = bundle_root / "candidate.tar"
+        candidate_trap.unlink()
+        os.mkfifo(candidate_trap, mode=0o400)
+        candidate_trap_before = os.lstat(candidate_trap)
+
         catalog_must_not_be_read = temporary_root / "catalog-must-not-be-read.json"
+        os.mkfifo(catalog_must_not_be_read, mode=0o400)
+        catalog_trap_before = os.lstat(catalog_must_not_be_read)
         output_root_must_not_be_touched = temporary_root / "output-must-not-be-touched"
         output = (
             output_root_must_not_be_touched
@@ -961,8 +975,20 @@ def main() -> int:
                 "formal input was not rejected before catalog/member/output I/O:\n"
                 + result.stderr.decode("utf-8", errors="replace")
             )
-        if catalog_must_not_be_read.exists():
-            raise AssertionError("formal rejection created or replaced the catalog path")
+        catalog_trap_after = os.lstat(catalog_must_not_be_read)
+        candidate_trap_after = os.lstat(candidate_trap)
+        if (
+            not stat.S_ISFIFO(catalog_trap_after.st_mode)
+            or (catalog_trap_after.st_dev, catalog_trap_after.st_ino)
+            != (catalog_trap_before.st_dev, catalog_trap_before.st_ino)
+        ):
+            raise AssertionError("formal rejection replaced the unread catalog trap")
+        if (
+            not stat.S_ISFIFO(candidate_trap_after.st_mode)
+            or (candidate_trap_after.st_dev, candidate_trap_after.st_ino)
+            != (candidate_trap_before.st_dev, candidate_trap_before.st_ino)
+        ):
+            raise AssertionError("formal rejection replaced the unread claimed-member trap")
         if output_root_must_not_be_touched.exists():
             raise AssertionError("formal rejection touched its output namespace")
 
@@ -1015,6 +1041,10 @@ def main() -> int:
                 + result.stderr.decode("utf-8", errors="replace")
             )
         success = result.stdout.decode("utf-8", errors="strict")
+        success_lines = success.splitlines()
+        if len(success_lines) != 1:
+            raise AssertionError("development success must be exactly one line")
+        success_tokens = success_lines[0].split()
         for marker in (
             "development-catalog-verified",
             "formal-not-verified",
@@ -1022,8 +1052,11 @@ def main() -> int:
             "revocation-not-verified",
             "private-scan-not-verified",
         ):
-            if marker not in success:
+            if marker not in success_tokens:
                 raise AssertionError(f"development success omitted stable marker: {marker}")
+        forbidden_claims = {"attested", "formal", "hermetic", "passed"}
+        if forbidden_claims.intersection(success_tokens):
+            raise AssertionError("development success emitted a forbidden stronger claim")
         if result.stderr:
             raise AssertionError("successful development finalization produced stderr")
         if not finalized_output.is_file():
@@ -1066,6 +1099,17 @@ def main() -> int:
             "schema",
         }:
             raise AssertionError("development EVF record has the wrong closed root")
+        finalized_utc = finalized.get("finalizedUtc")
+        if not isinstance(finalized_utc, str):
+            raise AssertionError("development EVF omitted its UTC instant")
+        try:
+            parsed_finalized_utc = dt.datetime.strptime(
+                finalized_utc, "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=dt.timezone.utc)
+        except ValueError as error:
+            raise AssertionError("development EVF UTC instant is not whole-second UTC") from error
+        if parsed_finalized_utc.strftime("%Y%m%d") != finalized_id[4:12]:
+            raise AssertionError("development EVF ID date does not match finalizedUtc")
         if (
             finalized["schema"] != "proof-forge.evidence-finalization.v1"
             or finalized["id"] != finalized_id
@@ -1106,8 +1150,8 @@ def main() -> int:
             or finalized["limitations"] != expected_limitations
         ):
             raise AssertionError("development EVF record does not preserve exact bindings")
-        if (finalized_output.stat().st_mode & 0o777) != 0o400:
-            raise AssertionError("development EVF record is not immutable mode 0400")
+        if (finalized_output.stat().st_mode & 0o777) != 0o444:
+            raise AssertionError("development EVF record is not immutable mode 0444")
         if finalized_output.stat().st_nlink != 1:
             raise AssertionError("development EVF record is not single-linked")
     print("gate evidence finalization self-test passed")
