@@ -118,6 +118,11 @@ gas allocation、跨 receipt workflow 和 upgrade/migration 不得通过隐式�
 第 1-2 级通过只构成静态 artifact evidence。当前没有第 3-5 级证据，尤其没有 sandbox
 receipt、NEAR runtime 执行或 overflow rollback 观测。
 
+`TASK-A0-15` / `EV-20260716-0020` 已让 Counter 与 Accumulator 通过第 1-2 级：Plan/recipe
+mutation、raw ABI/WAT golden、锁定 `wat2wasm`、Wasm header/size/digest 和双轮复现均通过。
+补充的 deterministic host model 只解释 typed recipe，并把 trap 后恢复调用前 snapshot 作为
+模型假设；它不构成本阶梯第 3 级的 Wasm host interpreter，更不构成第 4 级 receipt 观测。
+
 ## 10. 不支持、风险与成熟度退出
 
 通用 UInt64 首切片不支持 JSON ABI、Promise/callback、跨 receipt workflow、protocol calls、

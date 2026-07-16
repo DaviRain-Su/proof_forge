@@ -14,15 +14,16 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-A0-15**：以同一 `Accumulator` 打通真实 `SemanticProgram → NearPlan → Wasm recipe/WAT`，移除 NEAR exact-fixture matcher |
-| Next task | 先增加 Accumulator NEAR 失败验收，再实现 target-owned KV layout/export/host-call Plan；sandbox receipt 仍作为独立后续 |
+| Active task | **TASK-A0-16**：以同一 `Accumulator` 泛化 `SemanticProgram → NoirPlan → Noir AST/source`，删除 Noir Counter state-transition fixture matcher |
+| Next task | 先冻结 persistent state 到 external pre/post relation、public/private disclosure 与 range constraints，再写 Accumulator Plan/IR 失败验收；ACIR/prove/verify 仍作为独立后续 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
 | Source of status | [`docs/document-status.md`](docs/document-status.md) |
 
 检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
-当前 EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证，NEAR 有 `wat2wasm` 结构验证
+当前 EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证，NEAR 的 raw-u64 Counter 和
+Accumulator 已有 `wat2wasm` 结构验证
 但没有 sandbox receipt；Solana 只有 non-executable `.sbpf-plan`+IDL，Noir
 只有 source+Prover input，且 manifest 为 non-deployable。不得写成 ELF/runtime 或 proof 完成。
 

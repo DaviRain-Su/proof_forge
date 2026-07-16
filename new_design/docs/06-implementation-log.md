@@ -431,6 +431,43 @@ normative: false
 - Next：`TASK-A0-15` 直接把同一 Accumulator 泛化到 NEAR target-owned KV/export/host-call Plan
   与 Wasm recipe/WAT；先做结构/wasm validation，sandbox receipt 单独保留为 runtime 缺口。
 
+## 2026-07-16 — TASK-A0-15 / generic NEAR semantic lowering
+
+- Commit：`8d2697262d373228ae592b6f58ee0c72bdb2af9a`；post-commit subtree tree
+  `00be5f550b8a4ed23d786afb2996e83274337a4e`；archive SHA-256
+  `2b7146574b388ae8c9b9df26e4b32eff047797d8fb0d4a89ca004ab48d632ac7`。
+- Spec/Test：`TST-NEAR-001` 至 `TST-NEAR-004` 的 pre-acceptance static compilation
+  slice；`TST-NEAR-005` 与正式 D6 保持 open。
+- Changed：删除 `isExactCounter` 和 `Plan.source : SemanticProgram`。新 `NearPlan` 完整拥有
+  descriptor/schema/profile、target-owned KV fields/layout marker、zero-all-fields init、raw-u64
+  参数/return、动态 exports、typed host-import allowlist、五类 trap policy、完整 u128
+  zero-deposit policy、receipt-local rollback assumption 与 resource limits。Plan 降为 exact-bound
+  typed host-call recipe，再生成 WAT/raw ABI；CLI 仅在锁定 `wat2wasm` 成功并确认 regular file、
+  Wasm magic/version 后原子发布 `.wasm`。新增独立 deterministic recipe host model，但不把它
+  记作 runtime。
+- Commands：`lake build ProofForgeV2.Targets.Near proof_forge_next_tests`；test binary；`just test`；
+  `just target-smoke`；`just reproducibility`；`just check`；`just docs-check`；`git diff --check`；
+  post-commit `just v2-clean-room-alpha`；两轮独立 correctness/artifact review。
+- Results：全部 exit 0。Accumulator 与 changed-business literal 路径证明不是固定 WAT；future
+  schema、forged descriptor/profile/requirements/ID/host imports/failure/commit/resource policy、
+  view write、reserved export、dangling/deep/oversized expression、超过每 method 50,000 locals 与
+  forged recipe 均 fail closed。host model 覆盖 init twice、entry before init、u128 deposit、
+  7/8/9-byte input、zero-param trailing、missing/0/7/8-wrong/9-byte storage、store-read、`7+5=12`
+  和 max+1 trap。Accumulator ABI/WAT/manifest/evidence 全量比对，Wasm 为 827 bytes、SHA-256
+  `c1c835420646f8028bbca137f5866858f421c7afe01c2644a6cbe26c97da1b78`；repro 为 33 files。
+  clean-room policy SHA-256：materialize `e4be2185…727e`、core `acb05299…7fc`、runtime
+  `a3a36592…24f`；最终复核 P0=0/P1=0。
+- Evidence：`EV-20260716-0020`，manual development static compilation evidence；没有
+  schema-complete immutable EV JSON。
+- Limitations：只覆盖 verifier-visible `UInt64`、literal/param/state/checked-add/store/return 与
+  packed raw LE ABI。host model 在 trap 时恢复 snapshot 是模型公理，不是 NEAR receipt rollback
+  观测；没有 NEAR VM/sandbox、部署/调用、gas/storage staking、JSON ABI、Promise/callback 或
+  testnet 证据。clean-room 只在 core 阶段编译/复现该 Wasm；runtime stage 仍是 EVM Counter。
+  当前 host 与 formal evidence/containment 限制不变，正式 D6 和 `TST-NEAR-005` 不关闭。
+- Next：`TASK-A0-16` 直接把同一 Accumulator 泛化到 Noir target-owned public pre/post state、
+  witness/disclosure 与 range-constraint Plan/AST；在固定 nargo/bb 前保持 source-only/non-deployable，
+  不声称 ACIR/prove/verify。
+
 ## 记录模板
 
 ```markdown

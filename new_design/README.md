@@ -34,8 +34,9 @@ program Counter where
 
 V2 当前完成了文档/规格基线和一个不可发布的 alpha 骨架。alpha 只验证独立 Lake、
 统一入口、Core 与四目标 materializer 的最小连通性，不等于 Phase 1 完成：EVM 已验证
-`solc` bytecode，并在 Anvil 验证初始化、increment 与 overflow rollback；NEAR 已验证
-`wat2wasm`，但尚无 sandbox receipt 证据；Solana 当前只有 typed `.sbpf-plan` 与 IDL、没有
+`solc` bytecode，并在 Anvil 验证初始化、increment 与 overflow rollback；NEAR 的 raw-u64
+Counter 与 Accumulator 已通过 target-owned Plan/recipe、精确 WAT/Wasm 和 `wat2wasm`
+结构验证，但尚无 sandbox receipt 证据；Solana 当前只有 typed `.sbpf-plan` 与 IDL、没有
 sBPF instructions/object/ELF/runtime
 证据；Noir 当前只有 source 与 Prover input、没有 ACIR/proof/VK/verify 证据。生命周期状态以
 [`docs/document-status.md`](docs/document-status.md) 为准，研发入口是

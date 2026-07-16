@@ -3,14 +3,14 @@ id: TARGET-INDEX
 title: Target 研究与实现档案
 status: draft
 owner: architecture
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
 # Target 研究与实现档案
 
 状态：`draft`
-更新日期：2026-07-15
+更新日期：2026-07-16
 
 本目录按执行语义而不是文件后缀组织目标。`family` 是阅读视图，编译器实际依据多轴 `TargetDescriptor` 和 exact `SupportClaim` 决策。
 
@@ -20,7 +20,7 @@ normative: true
 |---|---|---|---|---|
 | `evm` | contract VM | Phase 1 implement | `runtime-validated-alpha`：Counter bytecode + Anvil；非完整 backend | [EVM](01-evm.md) |
 | `solana` | explicit-account SVM | Phase 1 implement | `plan-only`：typed non-executable `.sbpf-plan` + IDL；无 sBPF object/ELF/runtime | [Solana](02-solana.md) |
-| `near` | Wasm host | Phase 1 implement | `wasm-validated-alpha`：raw-u64 Counter Wasm；无 sandbox receipt | [NEAR](03-near.md) |
+| `near` | Wasm host | Phase 1 implement | `wasm-validated-alpha`：raw-u64 Counter + Accumulator Wasm；无 sandbox receipt | [NEAR](03-near.md) |
 | `cosmwasm` | Wasm host | design only | transaction profile provisional | [CosmWasm](04-cosmwasm.md) |
 | `soroban` | Wasm host | design only | official model verified | [Soroban](05-soroban.md) |
 | `icp` | Wasm actor host | design only | official model verified | [ICP](06-icp.md) |
