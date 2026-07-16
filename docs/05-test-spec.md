@@ -208,9 +208,9 @@ Counter 相同的 parser/type/semantic/resolver/materializer 通用路径，禁�
 
 ### Phase 1 required-set 分母
 
-完整 Test ID Catalog 是唯一测试分母：所有不匹配 `TST-A0-[0-9]{3}` 的 catalog ID 都是
-`phase1_required=true`；只有精确匹配该三位数形式的 A0 ID 保留历史 development
-evidence，永不计入正式分子或分母。
+完整 Test ID Catalog 是唯一测试分母：只有冻结的 `TST-A0-001..020` 二十项保留历史 development
+evidence，永不计入正式分子或分母；其他所有 catalog ID 都是 `phase1_required=true`，任何额外的
+`TST-A0-*` 形式直接拒绝，不能借三位数字形式静默逃出分母。
 新增/删除/重命名 required ID 必须与 task、requirements matrix、gate catalog 同一变更提交，
 docs-check 拒绝 catalog/matrix/task 的 unknown、orphan 或范围缩写。release coverage 定义为
 `具有 current non-revoked passed EV 的 required ID 数 / required catalog ID 数`，必须等于 1；
@@ -693,7 +693,15 @@ digest、normalized observations 和 logs。
    omission/duplication/错绑、formal output catalog/required-test-set path segment mismatch；pure parser
    必须从 policy bytes 重算 ref，且其 positive 不得替代 PHASE-5 snapshot/denominator/ancestry join；
    hard-bound 验收必须覆盖 TestId 127/128 bytes、required IDs 4096/4097、approvers 256/257、
-   reviewLink 4096/4097 bytes 与 signatures resolved-policy-count equal/over；
+   reviewLink 4096/4097 bytes 与 signatures resolved-policy-count equal/over；document join 还须覆盖
+   exact typed snapshot、canonical PHASE-5 path、0/4 MiB/4 MiB+1 bytes、BOM/NUL/CR/non-UTF-8/no-final-LF、
+   frontmatter delimiter/scalar/field-set/duplicate/unknown/accepted metadata mismatch、raw domain digest、
+   heading 0/1/2、reversed marker、table 0/1/2、header/delimiter/row/extra-cell/empty-description、
+   duplicate/malformed/range/wildcard ID、frozen A0-001..020 exact exclusion、signed denominator
+   missing/extra/reordered 与 malformed document 在 RequiredTestSet signature curve work 前拒绝，验收须
+   instrument internal preflight/finalize 顺序而非先调用已验签的 two-byte-input parser 再比较；
+   snapshot parser 与 document-bound signed join 必须分别存在可正向到达的验收，positive result 不得替代 archive
+   membership、single-snapshot 或 reviewCommit ancestry；
 6. bootstrap authority negatives：wrong policy schema、D0-01..06 缺项/乱序/额外项、principal
    间或同一 principal rotation 的 duplicate publicKey、receiptPublicKey alias principal key、按
    principalId 合并其他 key roles 的权限提升、role enum ASCII 误排序、principals 0/257 count，

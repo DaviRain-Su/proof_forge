@@ -582,12 +582,14 @@ RequiredTestSetV1 {
 `schema` 固定为 `proof-forge.required-test-set.v1`；id/version 使用 ContentRef 规则。
 `phase5Document.id` 必须是 `PHASE-5`。producer 从 accepted PHASE-5 exact bytes 中唯一标题
 `## 完整 Test ID Catalog` 下、`### Phase 1 required-set 分母` 前的唯一 `ID | 测试对象` 表提取
-TestId；所有且仅有不匹配 `TST-A0-[0-9]{3}` 的行进入 `requiredTestIds`，按 ASCII ID 唯一升序。
-duplicate heading/table/ID、malformed row、范围或通配符均拒绝。这样 statement 同时绑定 accepted
+TestId；只有冻结的 `TST-A0-001..020` 二十项 development IDs 可从分母排除，任何其他
+`TST-A0-*` 形式均拒绝；其余行全部进入 `requiredTestIds`，按 ASCII ID 唯一升序。duplicate
+heading/table/ID、malformed row、范围或通配符均拒绝。这样 statement 同时绑定 accepted
 PHASE-5 raw content digest、reviewCommit 与 exact required ID denominator。
 `requiredTestIds` count 必须为 1..4096；每项必须是 1..127-byte ASCII 且匹配
 `TST-[A-Z0-9]+(?:-[A-Z0-9]+)*`，按 ASCII byte 唯一
-升序。`signatures` count 必须为
+升序，并禁止任何 `TST-A0-` prefix；development A0 IDs 只能存在于 PHASE-5 完整 catalog，不能进入
+signed formal denominator。`signatures` count 必须为
 `1..min(resolved BootstrapAuthorityPolicyV1.principals.count, 256)`；consumer 必须在任何
 RequiredTestSet signature curve verification 前完成 signature
 closed-field、requiredTestIds grammar/order/unique、keyId ASCII 升序唯一、algorithm exact `ed25519`、
@@ -626,6 +628,77 @@ candidate ancestry 已验证。consumer 仍须把 phase5Document 与同一 subje
 以及 exact catalog denominator join；reviewCommit 对 candidate commit 的 ancestor relation仍只能由
 protected adapter 的预开 commit graph 验证。完成这些 join 前不得把中间值写成 authority verified、
 task complete 或 bootstrap closure。
+
+上述 snapshot content parser 的 public API 与 process-local result 固定为：
+
+```text
+Phase5SnapshotContentV1 {
+  document: NormativeDocumentRefV1,
+  requiredTestIds: NonEmptyArray<TestId>
+}
+
+parse_phase5_snapshot_content(
+  phase5Snapshot: BootstrapDocumentSnapshotV1
+) -> Phase5SnapshotContentV1
+```
+
+该 API 不接受 caller 构造的 document ref、expected digest、catalog array、boolean 或 selector。
+snapshot 必须是 exact `BootstrapDocumentSnapshotV1`（禁止 subclass/tag），id exact 为 `PHASE-5`，path exact 为
+`docs/05-test-spec.md`，bytes 为 1..4 MiB、无 UTF-8 BOM/NUL/CR、以 LF 结尾的 strict UTF-8。raw bytes
+digest 按 `pf.normative-document.v1` domain 重算。这里的 frontmatter grammar 是 formal PHASE-5
+authority snapshot 的 canonical subset；普通 docs-check 接受更宽语法也不构成 formal consumer 接受。
+
+frontmatter opening/closing delimiter 必须是 byte-exact `---\n` / 首个 `\n---\n`；其中每个非空行
+必须在首个 byte-exact `: ` 处分成 key/value，key/value 均非空且无 leading/trailing whitespace，禁止
+quote stripping、重复 key 与 unknown key；value 中后续 `:` 是普通内容，key declaration order 不影响
+解析。字段集合必须 exact 为
+`id/title/status/owner/updated/normative` 加五个 accepted 字段；
+`id/status/normative/openFindings` 分别 exact 为 `PHASE-5`/`accepted`/`true`/`none`，两个日期均为真实
+Gregorian `YYYY-MM-DD`，其余 approval scalar 按 `DOC-STATUS` 规则验证。解析出的
+`id/reviewCommit/reviewLink/approvedAt/approvers` 和重算的 raw digest 构成返回的
+`NormativeDocumentRefV1`；该单参 parser 自身不接收或比较 signed ref。
+
+catalog 解析不实现 Markdown renderer，而对 frontmatter 后 body 做单次有界 raw-line scan。只有
+byte-exact raw line 才识别为 heading/header/delimiter；parser 不维护 fence/comment/inline-code state，
+因此位于多行 fence/comment 之间的 exact reserved line 仍会被识别并计数，禁止通过 renderer 差异隐藏
+第二份 catalog。scanner 对全部 raw bytes（含 frontmatter）
+要求每个 LF-terminated line 在去掉 LF 后为 0..65536 UTF-8 bytes，`rawBytes.count(0x0A)` 为
+1..100000，且不得使用按每个 token 反向重扫 prefix 的算法。raw LF-split line 上 byte-exact、各恰
+出现一次且顺序正确的
+`## 完整 Test ID Catalog` 与 `### Phase 1 required-set 分母`，且后者必须是 catalog section 的首个
+raw `###` heading。两者之间必须只有一个 byte-exact
+`| ID | 测试对象 |` header，下一行 exact 为 `|---|---|`；其后 non-empty contiguous rows 必须逐行是
+exact two-cell `| <TestId> | <non-empty-description> |`，table 结束至分母标题前只允许空行。header 前
+或 table 结束后出现任何首 byte 或尾 byte 为 `|` 的 raw line、额外 header/delimiter/table、空
+description、额外 cell、malformed/range/wildcard
+ID、重复 ID 全部拒绝；description 必须为 1..4096 UTF-8 bytes、无 `|` 或 Unicode `Cc` code point。
+所有 catalog TestId 先按 1..127-byte ASCII exact grammar 验证；development
+例外集合必须是 exact `TST-A0-001..020`，缺少其中任一项或出现其他 `TST-A0-*` 均拒绝。其余 ID
+按 ASCII 排序后必须 non-empty、count 1..4096，总 catalog rows 必须为 21..4116。
+
+可正向验收两项 exact compare 的纯组合入口固定为：
+
+```text
+parse_document_bound_required_test_set(
+  requiredBytes,
+  authorityPolicyBytes,
+  phase5Snapshot: BootstrapDocumentSnapshotV1
+) -> (RequiredTestSetV1, ContentRef)
+```
+
+该入口先调用 `parse_phase5_snapshot_content`，再调用 two-byte-input
+`parse_required_test_set` 所共用的 internal structural preflight，在任何 RequiredTestSet signature
+verification 前要求 `snapshotContent.document == preflight.phase5Document` 与
+`snapshotContent.requiredTestIds == preflight.requiredTestIds`，然后才执行全部 signatures、role/quorum
+与完整 ContentRef finalization；它不接受 expected ref/IDs 或 caller 构造的 typed intermediate。
+two-byte-input public parser 同样使用该 internal preflight，但在无 snapshot join 的 intermediate 模式下
+直接继续 signature finalization。禁止为了组合该 API 而先调用已经完成验签的 public parser，再做
+事后 compare。`verifyBootstrapTaskObjects` 必须对同一 invocation 的 subject PHASE-5
+snapshot 与 object bytes 调用该组合入口。snapshot type/size/UTF-8/frontmatter/heading/table/row/
+duplicate/denominator 结构预检必须在任何 RequiredTestSet signature curve verification 前完成。
+`Phase5SnapshotContentV1` 与组合入口成功都不是 archive
+authority：snapshot 仍是 process-local bytes，candidate archive membership、single stable snapshot 与
+reviewCommit ancestry 继续只能由 protected adapter 证明。
 
 ### FormalGateCatalogApprovalV1 authority
 
