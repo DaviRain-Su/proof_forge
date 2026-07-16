@@ -1,7 +1,7 @@
 import Lake
 open Lake DSL
 
-package proof_forge_next where
+package «proof-forge-next» where
   version := v!"0.1.0"
 
 @[default_target]

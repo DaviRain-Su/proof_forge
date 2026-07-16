@@ -1,6 +1,6 @@
 {"version": "1.2.0",
  "packagesDir": ".lake/packages",
  "packages": [],
- "name": "proof_forge_next",
+ "name": "«proof-forge-next»",
  "lakeDir": ".lake",
  "fixedToolchain": false}

@@ -50,6 +50,9 @@ package «proof-forge-next» where
 lean_lib ProofForgeV2 where
   roots := #[`ProofForgeV2]
 
+lean_lib ProofForgeV2Tests where
+  roots := #[`Tests]
+
 lean_exe proof_forge_next where
   exeName := "proof-forge-next"
   root := `ProofForgeV2.CLI.Main
@@ -71,6 +74,7 @@ lean_exe proof_forge_next_tests where
                 "fixedToolchain": False,
             },
             indent=2,
+            ensure_ascii=False,
         ) + "\n",
     )
     write(root / "lean-toolchain", "leanprover/lean4:v4.31.0\n")
@@ -80,6 +84,7 @@ lean_exe proof_forge_next_tests where
         root / "ProofForgeV2/CLI/Main.lean",
         "namespace ProofForgeV2.CLI\n\ndef main : IO Unit := pure ()\n\nend ProofForgeV2.CLI\n",
     )
+    write(root / "ProofForgeV2/ActiveField.lean", "def active := true\n")
     write(root / "Tests.lean", "def main : IO Unit := pure ()\n")
 
 
@@ -106,6 +111,15 @@ def expect_rejected(
         raise AssertionError(f"negative mutation was accepted: {label}")
 
 
+def expect_git_tree_rejected(checker: ModuleType, label: str, mode: bytes) -> None:
+    payload = mode + b" blob " + (b"0" * 40) + b"\tlegacy\x00"
+    try:
+        checker.check_git_tree_records(payload)
+    except checker.IsolationError:
+        return
+    raise AssertionError(f"negative Git tree mutation was accepted: {label}")
+
+
 def main() -> int:
     checker = load_checker()
     with tempfile.TemporaryDirectory(prefix="pf-v2-isolation-positive-") as temp:
@@ -115,17 +129,33 @@ def main() -> int:
 
     mutations: tuple[tuple[str, Callable[[Path], None]], ...] = (
         ("missing lakefile", lambda root: (root / "lakefile.lean").unlink()),
+        ("missing manifest", lambda root: (root / "lake-manifest.json").unlink()),
+        ("missing toolchain", lambda root: (root / "lean-toolchain").unlink()),
         ("missing lowercase justfile", lambda root: (root / "justfile").rename(root / "Justfile")),
+        ("missing library root marker", lambda root: (root / "ProofForgeV2.lean").unlink()),
+        ("missing CLI root marker", lambda root: (root / "ProofForgeV2/CLI/Main.lean").unlink()),
         ("package drift", lambda root: replace(root / "lakefile.lean", "package «proof-forge-next»", "package proof_forge_next")),
         ("library drift", lambda root: replace(root / "lakefile.lean", "lean_lib ProofForgeV2", "lean_lib ProofForge")),
         ("library root drift", lambda root: replace(root / "lakefile.lean", "roots := #[`ProofForgeV2]", "roots := #[`ProofForge]")),
+        ("legacy extra library root", lambda root: replace(root / "lakefile.lean", "roots := #[`ProofForgeV2]", "roots := #[`ProofForgeV2, `ProofForge]")),
+        ("legacy extra library", lambda root: write(root / "lakefile.lean", (root / "lakefile.lean").read_text(encoding="utf-8") + "\nlean_lib ProofForge where\n  roots := #[`ProofForge]\n")),
         ("executable target drift", lambda root: replace(root / "lakefile.lean", "lean_exe proof_forge_next", "lean_exe proof_forge")),
         ("executable filename drift", lambda root: replace(root / "lakefile.lean", 'exeName := "proof-forge-next"', 'exeName := "proof-forge"')),
         ("executable root drift", lambda root: replace(root / "lakefile.lean", "root := `ProofForgeV2.CLI.Main", "root := `ProofForge.CLI.Main")),
         ("manifest name drift", lambda root: replace(root / "lake-manifest.json", "«proof-forge-next»", "proof_forge_next")),
         ("parent require", lambda root: write(root / "lakefile.lean", (root / "lakefile.lean").read_text(encoding="utf-8") + '\nrequire parent from "../parent"\n')),
+        ("relative local require", lambda root: write(root / "lakefile.lean", (root / "lakefile.lean").read_text(encoding="utf-8") + '\nrequire sibling from "sibling"\n')),
+        ("multiline local require", lambda root: write(root / "lakefile.lean", (root / "lakefile.lean").read_text(encoding="utf-8") + '\nrequire parent from\n  "../parent"\n')),
+        ("bare local Git require", lambda root: write(root / "lakefile.lean", (root / "lakefile.lean").read_text(encoding="utf-8") + '\nrequire sibling from git "sibling"\n')),
+        ("absolute local Git require", lambda root: write(root / "lakefile.lean", (root / "lakefile.lean").read_text(encoding="utf-8") + '\nrequire sibling from git "/tmp/sibling"\n')),
         ("manifest path dependency", lambda root: replace(root / "lake-manifest.json", '"packages": []', '"packages": [{"type":"path","name":"parent","url":"../parent"}]')),
+        ("manifest bare Git dependency", lambda root: replace(root / "lake-manifest.json", '"packages": []', '"packages": [{"type":"git","name":"sibling","url":"sibling"}]')),
+        ("manifest parent Git subdirectory", lambda root: replace(root / "lake-manifest.json", '"packages": []', '"packages": [{"type":"git","name":"dep","url":"https://example.invalid/dep.git","subDir":"../sibling"}]')),
         ("legacy import", lambda root: write(root / "ProofForgeV2/Legacy.lean", "import ProofForge.Backend\n")),
+        ("public legacy import outside library", lambda root: write(root / "Examples/Legacy.lean", "public import ProofForge.Backend\n")),
+        ("active module import", lambda root: write(root / "Tests/Legacy.lean", "import active.ProofForge\n")),
+        ("bare active module import", lambda root: write(root / "Tests/Legacy.lean", "import active\n")),
+        ("multiline active module import", lambda root: write(root / "Tests/Legacy.lean", "import\n  active\n")),
         ("active fallback", lambda root: write(root / "ProofForgeV2/Legacy.lean", 'def fallback := "active/ProofForge.lean"\n')),
         ("product symlink", lambda root: (root / "ProofForgeV2/Linked.lean").symlink_to(root / "ProofForgeV2.lean")),
         ("submodule marker", lambda root: write(root / ".gitmodules", "[submodule \"legacy\"]\n\tpath = legacy\n")),
@@ -135,11 +165,17 @@ def main() -> int:
         ("build output leakage", lambda root: write(root / "build/old.olean", "old\n")),
         ("old binary leakage", lambda root: write(root / "ProofForgeV2/old.wasm", "old\n")),
         ("absolute checkout path", lambda root: write(root / "ProofForgeV2/Path.lean", f'def oldRoot := "{FORBIDDEN_CHECKOUT}/active"\n')),
+        ("absolute checkout path in justfile", lambda root: write(root / "justfile", f'build:\n    lake --dir {FORBIDDEN_CHECKOUT} build\n')),
     )
     for label, mutation in mutations:
         expect_rejected(checker, label, mutation)
+    checker.check_git_tree_records(
+        b"100644 blob " + (b"0" * 40) + b"\tlakefile.lean\x00"
+    )
+    expect_git_tree_rejected(checker, "tracked symlink", b"120000")
+    expect_git_tree_rejected(checker, "tracked submodule", b"160000")
 
-    print(f"v2-isolation-self-test: ok ({len(mutations)} mutations)")
+    print(f"v2-isolation-self-test: ok ({len(mutations) + 2} mutations)")
     return 0
 
 

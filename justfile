@@ -351,11 +351,15 @@ reproducibility: build
     bash scripts/reproducibility.sh
 
 # Portable Linux / GitHub CI subset. Explicitly excludes macOS-only hermetic
-# host attestation, locked darwin tool roots, sandbox-exec, and clean-room
-# archive isolation. Those remain `just check` / `just v2-clean-room-alpha`.
-ci: docs-check build test dsl-negative target-negative
+# host attestation, locked darwin tool roots, sandbox-exec, and formal clean-room
+# isolation. `v2-isolation` below is only the focused D0 package-boundary gate.
+v2-isolation:
+    /usr/bin/python3 -I -S -B scripts/v2_isolation_self_test.py
+    bash scripts/test_v2_isolation.sh
 
-check: docs-check python-isolation-negative toolchains-validate host-stage0-development candidate-binding evidence-core sandbox-policy toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test test-host-isolation dsl-negative target-negative target-smoke output-security
+ci: v2-isolation docs-check build test dsl-negative target-negative
+
+check: v2-isolation docs-check python-isolation-negative toolchains-validate host-stage0-development candidate-binding evidence-core sandbox-policy toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test test-host-isolation dsl-negative target-negative target-smoke output-security
 
 isolated-check:
     bash scripts/verify_isolation.sh --development
