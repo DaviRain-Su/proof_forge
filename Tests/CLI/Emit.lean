@@ -39,6 +39,12 @@ def run : IO Unit := do
   expect ((← IO.FS.readFile (collision / "important.txt")) == "preserve-me\n")
     "output collision must preserve pre-existing files"
 
-  ProofForgeV2.CLI.Toolchain.environmentIsolationSelfTest
+  -- Host-locked env isolation pins darwin-arm64 system tool digests
+  -- (host:stat / env). Portable Linux CI and unprofiled hosts must not run it.
+  -- Full local gate: `PROOF_FORGE_HOST_ISOLATION_TEST=1 just test` or `just check`.
+  match ← IO.getEnv "PROOF_FORGE_HOST_ISOLATION_TEST" with
+  | some "1" =>
+      ProofForgeV2.CLI.Toolchain.environmentIsolationSelfTest
+  | _ => pure ()
 
 end Tests.CLI.Emit
