@@ -131,6 +131,35 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 - `TST-SOL-004/005`：当前切片没有 SBF assembler/ELF/local-runtime 工具证据，manifest
   必须保持 `deployable=false`；不得把 plan assembly 写成 ELF 或 runtime completion。
 
+### NEAR 通用 UInt64 Plan/recipe/WAT 首个验收切片
+
+- `TST-NEAR-001`：`NearPlan` 必须拥有 codegen profile、raw ABI、target-owned KV layout、
+  layout-bound initialized marker、zero-all-fields init policy、host import allowlist、method
+  mode/参数/body/return 与明确 trap/deposit policy；不得保存或重新读取整个 `SemanticProgram`。
+  forged descriptor、未知 Semantic schema、非 canonical requirements/ID、重复或悬空 KV binding
+  必须 fail closed。
+- `TST-NEAR-002`：除 Counter 外，`Accumulator` 的 `total`、`seed`、`add(amount)`、
+  `current()` 以及 literal-return lookalike 必须逐项从 target-neutral semantics 映射；生产路径
+  不得调用 `isExactCounter`、按 program/entry 名字特判或复用固定 Counter WAT。
+- `TST-NEAR-003`：Plan lowering 必须生成 typed NEAR module recipe，再由 recipe 生成 WAT；
+  Plan 和 recipe 分别验证，recipe 必须是 Plan 的 exact canonical lowering，WAT 随后交给锁定
+  `wat2wasm`。`near-wasm-raw-u64-v1` 对每个 export
+  使用 exact `8 * parameter-count` bytes little-endian input，包括零参数方法必须拒绝 trailing
+  bytes；`UInt64` return 固定为 8-byte little-endian。initializer 先确认 marker absent，再把所有
+  state fields 物化为零、执行业务 init、最后写 marker；entry/view 要求 marker present 且匹配。
+  每次 KV read 必须同时验证 found 与 register length `== 8`，view recipe 不得包含 write。
+  initializer/mutate 必须在 KV 操作前要求 `attached_deposit` 的 `u128 == 0`；view 固定
+  `query-only` 且不得调用在 ViewFunction context 中被禁用的 deposit host function。
+- `TST-NEAR-003` 的 mutation/host-model 向量至少覆盖 init twice、entry before init、零参数多余
+  输入、7/8/9-byte 输入、missing/0/7/9-byte storage、store 后读取新值、`7 + 5 = 12`，以及
+  `UInt64.max + 1` 失败。任何失败路径不得被 validator 接受为 partial recipe/artifact。
+- `TST-NEAR-004`：只允许 lock 中固定 pathname/version/digest 的 `wat2wasm` 把 WAT 编译为
+  Wasm；missing、shadow、version/hash mismatch、unknown import/export 和 structural validation
+  failure 必须 fail closed。该 gate 只证明确定性 WAT/Wasm 与结构合法，不是 NEAR runtime 证据。
+- `TST-NEAR-005` 在获得 sandbox receipt differential 前保持未闭合。本切片没有 sandbox
+  receipt、部署/调用观测、overflow rollback 观测、JSON ABI、Promise/callback 或跨 receipt
+  workflow 证据；不得从 typed recipe、WAT、`wat2wasm` 成功或 raw ABI metadata 推断这些能力。
+
 ## 边界与攻击用例
 
 - 空/多程序、重复名字、Unicode normalization、非法 UTF-8、最大 nesting/node count。

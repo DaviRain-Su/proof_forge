@@ -12,7 +12,11 @@ for run in a b; do
       --target "$target" -o "build/repro/$run/$target"
   done
   lake env "$compiler" build Examples/Accumulator.lean --program Examples.Accumulator \
+    --target evm -o "build/repro/$run/evm-accumulator"
+  lake env "$compiler" build Examples/Accumulator.lean --program Examples.Accumulator \
     --target solana -o "build/repro/$run/solana-accumulator"
+  lake env "$compiler" build Examples/Accumulator.lean --program Examples.Accumulator \
+    --target near -o "build/repro/$run/near-accumulator"
 done
 
 /usr/bin/python3 -I -S "$root/scripts/check_reproducibility.py" \

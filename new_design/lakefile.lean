@@ -15,6 +15,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramSyntax,
     `Tests.Language.Loader,
     `Tests.Materialization.Targets,
+    `Tests.Materialization.NearHostModel,
     `Tests.CLI.Emit
   ]
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-15",
+  "updatedAt": "2026-07-16",
   "hashPolicy": "contentHash is null until a versioned local snapshot is deliberately retained; URL hashes are not content hashes",
   "sources": [
     {
@@ -105,6 +105,19 @@
       "contentHash": null,
       "hashStatus": "not_snapshotted",
       "license": "documentation license not recorded",
+      "status": "verified"
+    },
+    {
+      "id": "SRC-NEAR-005",
+      "title": "NEAR Protocol Specification: Contract Preparation",
+      "authority": "official-specification",
+      "url": "https://nomicon.io/RuntimeSpec/Preparation",
+      "version": "current specification",
+      "locator": "Wasm contract preparation limits, including 50000 locals per function",
+      "accessedAt": "2026-07-16",
+      "contentHash": null,
+      "hashStatus": "not_snapshotted",
+      "license": "repository license applies",
       "status": "verified"
     },
     {

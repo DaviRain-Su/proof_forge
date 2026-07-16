@@ -88,6 +88,18 @@ private def finalizeNear (outputDir : FilePath) (programName : String) : IO Fina
   let wat2wasm ← Toolchain.resolve "wat2wasm"
   let process ← wat2wasm.run #[source, "-o", target] (some outputDir)
   if process.exitCode == 0 then
+    let targetPath := outputDir / target
+    unless ← targetPath.pathExists do
+      throw <| IO.userError "PF-ARTIFACT-NONDEPLOYABLE: wat2wasm returned no Wasm artifact"
+    let metadata ← targetPath.symlinkMetadata
+    unless metadata.type == .file do
+      throw <| IO.userError "PF-ARTIFACT-NONDEPLOYABLE: wat2wasm output is not a regular file"
+    let wasm ← IO.FS.readBinFile targetPath
+    unless wasm.size >= 8 && wasm[0]! == 0x00 && wasm[1]! == 0x61 &&
+        wasm[2]! == 0x73 && wasm[3]! == 0x6d && wasm[4]! == 0x01 &&
+        wasm[5]! == 0x00 && wasm[6]! == 0x00 && wasm[7]! == 0x00 do
+      throw <| IO.userError
+        "PF-ARTIFACT-NONDEPLOYABLE: wat2wasm output has an invalid Wasm header/version"
     pure {
       deployable := true
       extraFiles := #[target]

@@ -44,6 +44,17 @@ private partial def fullSolanaPlanExpr : Nat → Targets.Solana.Expr
       let child := fullSolanaPlanExpr level
       .checkedAdd child child
 
+private partial def nestedNearPlanExpr : Nat → Targets.Near.Expr
+  | 0 => .literal 0
+  | level + 1 => .checkedAdd (nestedNearPlanExpr level) (.literal 0)
+
+private partial def fullNearPlanExpr : Nat → Targets.Near.Expr
+  | 0 => .literal 0
+  | level + 1 =>
+      let child := fullNearPlanExpr level
+      .checkedAdd child child
+
+set_option maxRecDepth 10000 in
 def run : IO Unit := do
   let counter ← match Compiler.compile Examples.counter with
     | .ok value => pure value
@@ -472,6 +483,275 @@ def run : IO Unit := do
         some (Targets.Solana.Operation.loadState 0 0 16))
     "Solana initializer must zero all fields before evaluating a state-reading init expression"
 
+  let nearResolved ← liftResult <| Targets.resolve Targets.Near.descriptor accumulator
+  let forgedNearDescriptor := {
+    Targets.Near.descriptor with codegenProfile := "forged-profile"
+  }
+  let forgedNearResolved : ResolvedProgram .near := {
+    source := accumulator
+    descriptor := forgedNearDescriptor
+    targetMatches := rfl
+  }
+  match Targets.Near.makePlan forgedNearResolved with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NEAR must reject a forged resolved descriptor/profile"
+  let nearPlan ← liftResult <| Targets.Near.makePlan nearResolved
+  expect (nearPlan.storage.fields.size == 1 &&
+      nearPlan.storage.fields[0]!.sourceId == 0 &&
+      nearPlan.storage.fields[0]!.name == "total" &&
+      nearPlan.storage.fields[0]!.key == "pf:v1:state:0" &&
+      nearPlan.storage.markerKey == "pf:v1:layout" &&
+      nearPlan.storage.markerValue != 0)
+    "NearPlan must own the Accumulator KV layout and layout-bound marker"
+  expect (nearPlan.initializer.name == "init" &&
+      nearPlan.initializer.params[0]!.name == "seed" &&
+      nearPlan.initializer.exactInputLen == 8 &&
+      nearPlan.initializer.depositPolicy == .requireZero &&
+      nearPlan.entries.map (·.name) == #["add", "current"] &&
+      nearPlan.entries[0]!.depositPolicy == .requireZero &&
+      nearPlan.entries[1]!.depositPolicy == .queryOnly &&
+      nearPlan.entries[1]!.exactInputLen == 0)
+    "NearPlan must own dynamic exports, exact raw input, mode, and deposit policies"
+  expect (nearPlan.hostImports.size == 7 &&
+      nearPlan.hostImports.contains .attachedDeposit &&
+      nearPlan.failurePolicy.invalidInput == .trap &&
+      nearPlan.failurePolicy.corruptStorage == .trap &&
+      nearPlan.failurePolicy.arithmeticOverflow == .trap &&
+      nearPlan.commitPolicy == .rollbackOnTrap &&
+      nearPlan.resourceLimits.maxMethodLocals == 50000 &&
+      nearPlan.resourceLimits.wasmMemoryPages == 1)
+    "NearPlan must own its host allowlist, failure/receipt policy, and resource envelope"
+  match Targets.Near.validatePlan {
+      nearPlan with targetDescriptor := forgedNearDescriptor
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject a forged descriptor/profile"
+  match Targets.Near.validatePlan { nearPlan with hostImports := #[] } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject a forged host-import allowlist"
+  match Targets.Near.validatePlan {
+      nearPlan with failurePolicy := {
+        nearPlan.failurePolicy with invalidInput := .returnStatus
+      }
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject a forged failure policy"
+  match Targets.Near.validatePlan {
+      nearPlan with commitPolicy := .retainWritesOnTrap
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject a non-rollback receipt policy"
+  match Targets.Near.validatePlan {
+      nearPlan with resourceLimits := {
+        nearPlan.resourceLimits with maxMethodLocals := 50001
+      }
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject a forged resource envelope"
+  match Targets.Near.validatePlan {
+      nearPlan with storage := { nearPlan.storage with markerValue := 0 }
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reserve zero for an absent layout marker"
+  let forgedNearField := {
+    nearPlan.storage.fields[0]! with key := "fixed-counter-key"
+  }
+  match Targets.Near.validatePlan {
+      nearPlan with storage := {
+        nearPlan.storage with fields := nearPlan.storage.fields.set! 0 forgedNearField
+      }
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject a forged target-owned KV binding"
+  let nearViewStore := {
+    nearPlan.entries[1]! with
+    body := #[.store { fieldIndex := 0, value := .literal 1 }, .returnValue (.literal 1)]
+  }
+  match Targets.Near.validatePlan {
+      nearPlan with entries := nearPlan.entries.set! 1 nearViewStore
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject a view method that writes KV state"
+  let nearMemoryExport := { nearPlan.entries[1]! with name := "memory" }
+  match Targets.Near.validatePlan {
+      nearPlan with entries := nearPlan.entries.set! 1 nearMemoryExport
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject collision with the exported Wasm memory"
+  let forgedNearParam := {
+    nearPlan.initializer.params[0]! with sourceId := 9
+  }
+  match Targets.Near.validatePlan {
+      nearPlan with initializer := {
+        nearPlan.initializer with
+        params := nearPlan.initializer.params.set! 0 forgedNearParam
+      }
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject forged semantic parameter origins"
+  let wrongNearDeposit := {
+    nearPlan.entries[0]! with depositPolicy := .queryOnly
+  }
+  match Targets.Near.validatePlan {
+      nearPlan with entries := nearPlan.entries.set! 0 wrongNearDeposit
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject a mutable method without zero-deposit policy"
+  let nearAdd := nearPlan.entries[0]!
+  let nearDepth256 := nearPlan.entries.set! 0 {
+    nearAdd with body := #[.returnValue (nestedNearPlanExpr 255)]
+  }
+  match Targets.Near.validatePlan { nearPlan with entries := nearDepth256 } with
+  | .ok () => pure ()
+  | _ => throw <| IO.userError "NearPlan must accept expression depth 256"
+  let nearDepth257 := nearPlan.entries.set! 0 {
+    nearAdd with body := #[.returnValue (nestedNearPlanExpr 256)]
+  }
+  match Targets.Near.validatePlan { nearPlan with entries := nearDepth257 } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject expression depth 257"
+  let nearOversized := nearPlan.entries.set! 0 {
+    nearAdd with body := #[.returnValue (fullNearPlanExpr 16)]
+  }
+  match Targets.Near.validatePlan { nearPlan with entries := nearOversized } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject aggregate expression nodes above 100000"
+  let nearTooManyLocals := nearPlan.entries.set! 0 {
+    nearAdd with body := #[.returnValue (fullNearPlanExpr 15)]
+  }
+  match Targets.Near.validatePlan { nearPlan with entries := nearTooManyLocals } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NearPlan must reject methods above NEAR's 50000-local limit"
+  let nearFutureResolved ← liftResult <| Targets.resolve Targets.Near.descriptor futureSchema
+  match Targets.Near.makePlan nearFutureResolved with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NEAR must reject unknown SemanticProgram schema versions"
+  let nearOmittedRequirementsResolved ← liftResult <|
+    Targets.resolve Targets.Near.descriptor omittedRequirements
+  match Targets.Near.makePlan nearOmittedRequirementsResolved with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NEAR must reject omitted canonical semantic requirements"
+  let nearNoncanonicalResolved ← liftResult <|
+    Targets.resolve Targets.Near.descriptor noncanonicalProgram
+  match Targets.Near.makePlan nearNoncanonicalResolved with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NEAR must reject non-canonical SemanticProgram parameter IDs"
+  let nearStateWithoutInitResolved ← liftResult <|
+    Targets.resolve Targets.Near.descriptor stateWithoutInit
+  match Targets.Near.makePlan nearStateWithoutInitResolved with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NEAR must reject KV-state programs without an initializer"
+  let nearDeepResolved ← liftResult <|
+    Targets.resolve Targets.Near.descriptor deepSemanticProgram
+  match Targets.Near.makePlan nearDeepResolved with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NEAR must reject deep SemanticProgram expressions before lowering"
+
+  let nearIR ← liftResult <| Targets.Near.lower nearPlan
+  let nearMarker := nearIR.keys[0]!
+  let nearField := nearIR.keys[1]!
+  expect (nearIR.methods[0]!.operations == #[
+      .checkInputLen 8,
+      .requireZeroAttachedDeposit,
+      .requireLayoutAbsent nearMarker,
+      .zeroState nearField,
+      .loadParam 0 0,
+      .storeState nearField 0,
+      .setLayout nearMarker nearPlan.storage.markerValue
+    ])
+    "NEAR initializer recipe must check input/deposit/layout, zero state, apply init, then mark layout"
+  expect (nearIR.methods[1]!.operations == #[
+      .checkInputLen 8,
+      .requireZeroAttachedDeposit,
+      .requireLayout nearMarker nearPlan.storage.markerValue,
+      .loadState 0 nearField,
+      .loadParam 1 0,
+      .checkedAdd 2 0 1,
+      .storeState nearField 2,
+      .loadState 3 nearField,
+      .setReturnData 3
+    ])
+    "NEAR mutable recipe must preserve checked Accumulator statement order"
+  expect (nearIR.methods[2]!.operations == #[
+      .checkInputLen 0,
+      .requireLayout nearMarker nearPlan.storage.markerValue,
+      .loadState 0 nearField,
+      .setReturnData 0
+    ])
+    "NEAR view recipe must require empty input/layout and contain no deposit or write operation"
+  let forgedNearOperations := #[
+    Targets.Near.Operation.checkInputLen 0,
+    .requireLayout nearMarker nearPlan.storage.markerValue,
+    .literal 0 99,
+    .setReturnData 0
+  ]
+  let forgedNearMethod := {
+    nearIR.methods[2]! with operations := forgedNearOperations
+  }
+  match Targets.Near.validateIR {
+      nearIR with methods := nearIR.methods.set! 2 forgedNearMethod
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "typed NEAR recipe must remain exactly bound to its source Plan"
+  let partialNearResolved ← liftResult <|
+    Targets.resolve Targets.Near.descriptor partialInitProgram
+  let partialNearPlan ← liftResult <| Targets.Near.makePlan partialNearResolved
+  let partialNearIR ← liftResult <| Targets.Near.lower partialNearPlan
+  expect (partialNearIR.methods[0]!.operations[3]? ==
+      some (Targets.Near.Operation.zeroState partialNearIR.keys[1]!) &&
+      partialNearIR.methods[0]!.operations[4]? ==
+        some (Targets.Near.Operation.zeroState partialNearIR.keys[2]!))
+    "NEAR initialization must materialize zero for every declared KV field"
+  let readOtherNearResolved ← liftResult <|
+    Targets.resolve Targets.Near.descriptor readOtherProgram
+  let readOtherNearPlan ← liftResult <| Targets.Near.makePlan readOtherNearResolved
+  let readOtherNearIR ← liftResult <| Targets.Near.lower readOtherNearPlan
+  expect (readOtherNearIR.methods[0]!.operations[3]? ==
+      some (Targets.Near.Operation.zeroState readOtherNearIR.keys[1]!) &&
+      readOtherNearIR.methods[0]!.operations[4]? ==
+        some (Targets.Near.Operation.zeroState readOtherNearIR.keys[2]!) &&
+      readOtherNearIR.methods[0]!.operations[5]? ==
+        some (Targets.Near.Operation.loadState 0 readOtherNearIR.keys[2]!))
+    "NEAR initializer must zero all KV fields before an initializer state read"
+  let manyNearStates : Array Semantic.StateDecl := (Array.range 11).map fun index => {
+    id := ⟨index⟩
+    name := s!"field{index}"
+    type := .u64
+  }
+  let manyNearEntry : Semantic.Entry := {
+    name := "last"
+    params := #[]
+    result := .u64
+    mode := .view
+    body := #[.returnValue (.state ⟨10⟩)]
+  }
+  let manyNearDraft : Semantic.Program := {
+    accumulator with
+    qualifiedName := "Tests.ManyNearFields"
+    name := "ManyNearFields"
+    «state» := manyNearStates
+    initializer := some { params := #[], body := #[] }
+    entries := #[manyNearEntry]
+    requirements := #[]
+  }
+  let manyNearProgram := {
+    manyNearDraft with requirements := Semantic.deriveRequirements manyNearDraft
+  }
+  let manyNearResolved ← liftResult <|
+    Targets.resolve Targets.Near.descriptor manyNearProgram
+  let manyNearPlan ← liftResult <| Targets.Near.makePlan manyNearResolved
+  let manyNearIR ← liftResult <| Targets.Near.lower manyNearPlan
+  let lastNearKey := manyNearIR.keys[11]!
+  expect (lastNearKey.key == "pf:v1:state:10" && lastNearKey.length == 14)
+    "NEAR KV recipe must derive variable key lengths instead of retaining Counter's fixed length"
+  let manyNearFiles ← liftResult <| Targets.Near.emit manyNearIR
+  let manyNearWat ← match manyNearFiles.find? (·.path == "ManyNearFields.wat") with
+    | some file => pure file.contents
+    | none => throw <| IO.userError "multi-field NEAR recipe must emit WAT"
+  expect (manyNearWat.contains
+      s!"(call $pf_storage_read (i64.const 14) (i64.const {lastNearKey.offset})")
+    "NEAR WAT must consume the typed key length and offset from its recipe"
+
   -- The same supported semantic fragment must compile even when its business
   -- body is not the checked Counter transition.
   let differentOutput ← Targets.materialize .evm differentLogic
@@ -489,17 +769,27 @@ def run : IO Unit := do
   expect (differentSolanaPlan.contains "const_u64 99")
     "Solana lowering must preserve a literal return from SemanticProgram"
 
-  for target in [TargetId.near, .noir] do
-    match Targets.materializeResult target differentLogic with
-    | .error (.planInvariant rejectedTarget _) =>
-        expect (rejectedTarget == target) "shape rejection must identify its target"
-    | _ => throw <| IO.userError s!"{target} must reject lookalike programs with different business logic"
+  let differentNearOutput ← Targets.materialize .near differentLogic
+  let differentNearWat ← match differentNearOutput.files.find?
+      (·.path == "CounterDifferentLogic.wat") with
+    | some file => pure file.contents
+    | none => throw <| IO.userError "NEAR different-logic program must emit WAT"
+  expect (differentNearWat.contains "i64.const 99")
+    "NEAR lowering must preserve a literal return from SemanticProgram"
 
-  for target in [TargetId.near, .noir] do
-    match Targets.materializeResult target accumulator with
-    | .error (.planInvariant rejectedTarget _) =>
-        expect (rejectedTarget == target) "unsupported Accumulator target must identify itself"
-    | _ => throw <| IO.userError s!"{target} is not yet generalized for Accumulator"
+  match Targets.materializeResult .noir differentLogic with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "Noir must reject lookalike programs with different business logic"
+
+  let nearAccumulator ← Targets.materialize .near accumulator
+  expect (nearAccumulator.files.any (·.path == "Accumulator.wat"))
+    "NEAR Accumulator must emit target-derived WAT"
+  expect (nearAccumulator.files.any (·.path == "Accumulator.near-abi.json"))
+    "NEAR Accumulator must emit target-derived ABI"
+
+  match Targets.materializeResult .noir accumulator with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "Noir is not yet generalized for Accumulator"
 
   match Targets.materializeResult .solana accumulator with
   | .ok output =>

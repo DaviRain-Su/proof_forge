@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -76,7 +77,7 @@ def validate_evm_accumulator(root: Path) -> dict:
     return manifest
 
 
-def validate_solana_accumulator(root: Path, evm_manifest: dict) -> None:
+def validate_solana_accumulator(root: Path, evm_manifest: dict) -> dict:
     output = root / "solana-accumulator"
     manifest_path = output / "manifest.json"
     evidence_path = output / "evidence.json"
@@ -283,6 +284,216 @@ def validate_solana_accumulator(root: Path, evm_manifest: dict) -> None:
         raise SystemExit("Solana Accumulator plan contains assembler entrypoint syntax")
     if plan != expected_plan:
         raise SystemExit("Solana Accumulator typed plan does not match the accepted contract")
+    return manifest
+
+
+def validate_near_accumulator(
+    root: Path, evm_manifest: dict, solana_manifest: dict
+) -> None:
+    output = root / "near-accumulator"
+    manifest_path = output / "manifest.json"
+    evidence_path = output / "evidence.json"
+    wat_path = output / "Accumulator.wat"
+    abi_path = output / "Accumulator.near-abi.json"
+    wasm_path = output / "Accumulator.wasm"
+    expected_names = {
+        "manifest.json",
+        "evidence.json",
+        "Accumulator.wat",
+        "Accumulator.near-abi.json",
+        "Accumulator.wasm",
+    }
+    if not output.is_dir():
+        raise SystemExit(f"missing {output}")
+    actual_names = {
+        str(path.relative_to(output)) for path in output.rglob("*") if path.is_file()
+    }
+    if actual_names != expected_names:
+        raise SystemExit(
+            f"NEAR Accumulator output file set is invalid: {sorted(actual_names)}"
+        )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for digest_name in ("sourceHash", "semanticHash"):
+        if not re.fullmatch(r"[0-9a-f]{64}", manifest.get(digest_name, "")):
+            raise SystemExit(f"NEAR Accumulator manifest has invalid {digest_name}")
+    expected_manifest = {
+        "schemaVersion": "proof-forge-output/v2alpha1",
+        "target": "near",
+        "codegenProfile": "near-wasm-raw-u64-v1",
+        "sourceHash": manifest["sourceHash"],
+        "semanticHash": manifest["semanticHash"],
+        "deployable": True,
+        "files": [
+            "Accumulator.wat",
+            "Accumulator.near-abi.json",
+            "Accumulator.wasm",
+        ],
+    }
+    if manifest != expected_manifest:
+        raise SystemExit(f"NEAR Accumulator manifest is invalid: {manifest}")
+    for other_name, other_manifest in (
+        ("EVM", evm_manifest),
+        ("Solana", solana_manifest),
+    ):
+        for digest_name in ("sourceHash", "semanticHash"):
+            if manifest[digest_name] != other_manifest[digest_name]:
+                raise SystemExit(
+                    f"Accumulator {digest_name} differs between NEAR and {other_name}: "
+                    f"{manifest[digest_name]} != {other_manifest[digest_name]}"
+                )
+
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    expected_evidence = {
+        "target": "near",
+        "sourceHash": manifest["sourceHash"],
+        "semanticHash": manifest["semanticHash"],
+        "deployable": True,
+        "note": (
+            "wat2wasm 1.0.41 "
+            "sha256=1c0791a1e06a2c5447976ebd2558b8505f65cb8f17e470f55dd4e7be3355b55e "
+            "completed; runtime remains separate"
+        ),
+    }
+    if evidence != expected_evidence:
+        raise SystemExit(f"NEAR Accumulator evidence is invalid: {evidence}")
+
+    expected_abi = {
+        "schema": "proof-forge-near-abi/v1alpha1",
+        "program": "Accumulator",
+        "codegenProfile": "near-wasm-raw-u64-v1",
+        "hostAbi": "near-host-abi-v1",
+        "encoding": "packed-raw-little-endian-u64",
+        "storage": {
+            "markerKey": "pf:v1:layout",
+            "layoutMarker": "0x6e2484750dd85e01",
+            "initializerPayloadPolicy": "zero-all-fields",
+            "fields": [
+                {
+                    "name": "total",
+                    "sourceId": 0,
+                    "key": "pf:v1:state:0",
+                    "type": "u64-le",
+                }
+            ],
+        },
+        "exports": [
+            {
+                "name": "init",
+                "mode": "initialize",
+                "depositPolicy": "zero-required",
+                "exactInputLen": 8,
+                "args": [{"name": "seed", "type": "u64-le", "inputOffset": 0}],
+                "returns": None,
+            },
+            {
+                "name": "add",
+                "mode": "mutate",
+                "depositPolicy": "zero-required",
+                "exactInputLen": 8,
+                "args": [
+                    {"name": "amount", "type": "u64-le", "inputOffset": 0}
+                ],
+                "returns": "u64-le",
+            },
+            {
+                "name": "current",
+                "mode": "view",
+                "depositPolicy": "query-only",
+                "exactInputLen": 0,
+                "args": [],
+                "returns": "u64-le",
+            },
+        ],
+    }
+    abi = json.loads(abi_path.read_text(encoding="utf-8"))
+    if abi != expected_abi:
+        raise SystemExit(f"NEAR Accumulator ABI is invalid: {abi}")
+
+    expected_wat = """(module
+  (import "env" "input" (func $pf_input (param i64)))
+  (import "env" "register_len" (func $pf_register_len (param i64) (result i64)))
+  (import "env" "read_register" (func $pf_read_register (param i64 i64)))
+  (import "env" "storage_read" (func $pf_storage_read (param i64 i64 i64) (result i64)))
+  (import "env" "storage_write" (func $pf_storage_write (param i64 i64 i64 i64 i64) (result i64)))
+  (import "env" "value_return" (func $pf_value_return (param i64 i64)))
+  (import "env" "attached_deposit" (func $pf_attached_deposit (param i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "pf:v1:layout")
+  (data (i32.const 12) "pf:v1:state:0")
+  (func (export "init") (local $t0 i64)
+    (call $pf_input (i64.const 0))
+    (if (i64.ne (call $pf_register_len (i64.const 0)) (i64.const 8)) (then unreachable))
+    (call $pf_read_register (i64.const 0) (i64.const 32))
+    (call $pf_attached_deposit (i64.const 40))
+    (if (i64.ne (i64.load (i32.const 40)) (i64.const 0)) (then unreachable))
+    (if (i64.ne (i64.load (i32.const 48)) (i64.const 0)) (then unreachable))
+    (if (i64.ne (call $pf_storage_read (i64.const 12) (i64.const 0) (i64.const 1)) (i64.const 0)) (then unreachable))
+    (i64.store (i32.const 56) (i64.const 0))
+    (if (i64.ne (call $pf_storage_write (i64.const 13) (i64.const 12) (i64.const 8) (i64.const 56) (i64.const 2)) (i64.const 0)) (then unreachable))
+    (local.set $t0 (i64.load (i32.const 32)))
+    (i64.store (i32.const 56) (local.get $t0))
+    (if (i64.ne (call $pf_storage_write (i64.const 13) (i64.const 12) (i64.const 8) (i64.const 56) (i64.const 2)) (i64.const 1)) (then unreachable))
+    (if (i64.ne (call $pf_register_len (i64.const 2)) (i64.const 8)) (then unreachable))
+    (i64.store (i32.const 56) (i64.const 7936614081611980289))
+    (if (i64.ne (call $pf_storage_write (i64.const 12) (i64.const 0) (i64.const 8) (i64.const 56) (i64.const 2)) (i64.const 0)) (then unreachable))
+  )
+  (func (export "add") (local $t0 i64) (local $t1 i64) (local $t2 i64) (local $t3 i64)
+    (call $pf_input (i64.const 0))
+    (if (i64.ne (call $pf_register_len (i64.const 0)) (i64.const 8)) (then unreachable))
+    (call $pf_read_register (i64.const 0) (i64.const 32))
+    (call $pf_attached_deposit (i64.const 40))
+    (if (i64.ne (i64.load (i32.const 40)) (i64.const 0)) (then unreachable))
+    (if (i64.ne (i64.load (i32.const 48)) (i64.const 0)) (then unreachable))
+    (if (i64.ne (call $pf_storage_read (i64.const 12) (i64.const 0) (i64.const 1)) (i64.const 1)) (then unreachable))
+    (if (i64.ne (call $pf_register_len (i64.const 1)) (i64.const 8)) (then unreachable))
+    (call $pf_read_register (i64.const 1) (i64.const 56))
+    (if (i64.ne (i64.load (i32.const 56)) (i64.const 7936614081611980289)) (then unreachable))
+    (if (i64.ne (call $pf_storage_read (i64.const 13) (i64.const 12) (i64.const 1)) (i64.const 1)) (then unreachable))
+    (if (i64.ne (call $pf_register_len (i64.const 1)) (i64.const 8)) (then unreachable))
+    (call $pf_read_register (i64.const 1) (i64.const 56))
+    (local.set $t0 (i64.load (i32.const 56)))
+    (local.set $t1 (i64.load (i32.const 32)))
+    (local.set $t2 (i64.add (local.get $t0) (local.get $t1)))
+    (if (i64.lt_u (local.get $t2) (local.get $t0)) (then unreachable))
+    (i64.store (i32.const 56) (local.get $t2))
+    (if (i64.ne (call $pf_storage_write (i64.const 13) (i64.const 12) (i64.const 8) (i64.const 56) (i64.const 2)) (i64.const 1)) (then unreachable))
+    (if (i64.ne (call $pf_register_len (i64.const 2)) (i64.const 8)) (then unreachable))
+    (if (i64.ne (call $pf_storage_read (i64.const 13) (i64.const 12) (i64.const 1)) (i64.const 1)) (then unreachable))
+    (if (i64.ne (call $pf_register_len (i64.const 1)) (i64.const 8)) (then unreachable))
+    (call $pf_read_register (i64.const 1) (i64.const 56))
+    (local.set $t3 (i64.load (i32.const 56)))
+    (i64.store (i32.const 56) (local.get $t3))
+    (call $pf_value_return (i64.const 8) (i64.const 56))
+  )
+  (func (export "current") (local $t0 i64)
+    (call $pf_input (i64.const 0))
+    (if (i64.ne (call $pf_register_len (i64.const 0)) (i64.const 0)) (then unreachable))
+    (if (i64.ne (call $pf_storage_read (i64.const 12) (i64.const 0) (i64.const 1)) (i64.const 1)) (then unreachable))
+    (if (i64.ne (call $pf_register_len (i64.const 1)) (i64.const 8)) (then unreachable))
+    (call $pf_read_register (i64.const 1) (i64.const 56))
+    (if (i64.ne (i64.load (i32.const 56)) (i64.const 7936614081611980289)) (then unreachable))
+    (if (i64.ne (call $pf_storage_read (i64.const 13) (i64.const 12) (i64.const 1)) (i64.const 1)) (then unreachable))
+    (if (i64.ne (call $pf_register_len (i64.const 1)) (i64.const 8)) (then unreachable))
+    (call $pf_read_register (i64.const 1) (i64.const 56))
+    (local.set $t0 (i64.load (i32.const 56)))
+    (i64.store (i32.const 56) (local.get $t0))
+    (call $pf_value_return (i64.const 8) (i64.const 56))
+  )
+)
+"""
+    wat = wat_path.read_text(encoding="utf-8")
+    if wat != expected_wat:
+        raise SystemExit("NEAR Accumulator WAT does not match the accepted contract")
+
+    wasm = wasm_path.read_bytes()
+    if wasm[:8] != b"\x00asm\x01\x00\x00\x00":
+        raise SystemExit("NEAR Accumulator artifact has an invalid Wasm header/version")
+    if len(wasm) != 827:
+        raise SystemExit(f"NEAR Accumulator Wasm has invalid size: {len(wasm)}")
+    wasm_digest = hashlib.sha256(wasm).hexdigest()
+    if wasm_digest != "c1c835420646f8028bbca137f5866858f421c7afe01c2644a6cbe26c97da1b78":
+        raise SystemExit(f"NEAR Accumulator Wasm digest is invalid: {wasm_digest}")
 
 
 def main() -> None:
@@ -305,7 +516,8 @@ def main() -> None:
     if manifests["noir"]["deployable"]:
         raise SystemExit("Noir must remain non-deployable until nargo/bb proof evidence exists")
     evm_accumulator = validate_evm_accumulator(root)
-    validate_solana_accumulator(root, evm_accumulator)
+    solana_accumulator = validate_solana_accumulator(root, evm_accumulator)
+    validate_near_accumulator(root, evm_accumulator, solana_accumulator)
     print("artifact-validation: ok")
 
 

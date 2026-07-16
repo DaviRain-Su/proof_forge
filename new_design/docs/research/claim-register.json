@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-15",
+  "updatedAt": "2026-07-16",
   "claims": [
     {
       "id": "CLM-LANG-001",
@@ -41,6 +41,14 @@
       "status": "verified",
       "sources": ["SRC-NEAR-001", "SRC-NEAR-002", "SRC-NEAR-003"],
       "impact": "NearPlan must model promise DAGs and receipt-local commit boundaries."
+    },
+    {
+      "id": "CLM-NEAR-002",
+      "claim": "NEAR contract preparation rejects a Wasm function with more than 50000 locals.",
+      "kind": "constraint",
+      "status": "verified",
+      "sources": ["SRC-NEAR-005"],
+      "impact": "NearPlan and its typed recipe must bound generated locals per exported method before rendering Wasm."
     },
     {
       "id": "CLM-CW-001",
