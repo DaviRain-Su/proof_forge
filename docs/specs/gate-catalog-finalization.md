@@ -504,13 +504,18 @@ object set 的五个 root bytes 各恰有一个。`dependencyObjects` count 固�
 TaskApproval taskId 唯一升序，并 exact 等于 Task Breakdown DAG 的全部 transitive dependency taskId。
 每项三个字段都必须是 non-empty canonical PF-JCS bytes；consumer 必须使用该项自己的
 `stage0HandoffBytes` 验证其 run-specific TaskApproval/receipt，禁止用 root handoff 或其他 dependency
-handoff 代替。consumer 从 receipt 中的 TaskApprovalRef 解析同项 approval，memoize 后拒绝 cycle、
+handoff 代替。root 与全部 dependency 的 handoff ContentRef 以及 `(runId, nonce)` pair 必须分别唯一；
+同一次 Stage-0 run 不得为两个 task 重签复用。consumer 从 receipt 中的 TaskApprovalRef 解析同项 approval，memoize 后拒绝 cycle、
 missing、duplicate、reorder、extra object 或 bundle 内 task/ref/handoff mismatch。evidence objects 按解析后的
 EvidenceRef.id 唯一升序，并 exact 等于 root 与 dependency TaskApproval 引用的全部 evidence refs；每个
 task 的 refs 还必须 exact 等于 subject 中该 task 的 evidenceRows。reviewReports 按 digest raw bytes
 唯一升序，并 exact 等于 root 与 dependency TaskApproval independentReviews 引用的全部集合。review
 report digest 固定为
 `SHA-256("pf.independent-review-report.v1" || NUL || bytes)`，wire 使用 SPEC-COMMON-001 Digest。
+在 dynamic exact-set join 前，`evidenceObjectBytes` carrier count 固定为 `1..24576`（六项 task 各最多
+4096），`reviewReports` 固定为 `1..1536`（六项 task 各最多 256）；over-bound 必须在任何 entry decode、
+hash 或 signature work 前拒绝。这两个 coarse upper bound 不替代后续由已验证 approval refs 派生的
+更小 dynamic exact count。
 
 内部入口固定为
 `verifyBootstrapTaskObjects(subject, objects) -> ObjectVerifiedV1 | Rejected(code)`。consumer 负责

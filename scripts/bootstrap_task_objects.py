@@ -26,6 +26,8 @@ MAX_STRING_BYTES = 1024 * 1024
 MAX_SAFE_INTEGER = (1 << 53) - 1
 MAX_DOCUMENT_LINE_BYTES = 65_536
 MAX_DOCUMENT_LINES = 100_000
+MAX_BOOTSTRAP_EVIDENCE_OBJECTS = 6 * 4096
+MAX_BOOTSTRAP_REVIEW_REPORTS = 6 * 256
 
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 GIT_OBJECT_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
@@ -327,6 +329,34 @@ class _BootstrapTaskVerifierReceiptPreflightV1:
 
 
 @dataclass(frozen=True)
+class _BootstrapTaskSignedPreflightV1:
+    approval: _TaskApprovalPreflightV1
+    receipt: _BootstrapTaskVerifierReceiptPreflightV1
+
+
+@dataclass(frozen=True)
+class _BootstrapTaskObjectPreflightV1:
+    approval: _TaskApprovalPreflightV1
+    receipt: _BootstrapTaskVerifierReceiptPreflightV1
+    handoff: _EligibleStage0HandoffPreflightV1
+
+
+@dataclass(frozen=True)
+class _VerifiedBootstrapTaskObjectV1:
+    approval: TaskApprovalV1
+    approvalRef: TaskApprovalRefV1
+    receipt: BootstrapTaskVerifierReceiptV1
+    receiptRef: BootstrapTaskVerifierReceiptRefV1
+    stage0Handoff: ContentRef
+
+
+@dataclass(frozen=True)
+class _BootstrapTaskObjectGraphV1:
+    root: _VerifiedBootstrapTaskObjectV1
+    dependencies: Tuple[_VerifiedBootstrapTaskObjectV1, ...]
+
+
+@dataclass(frozen=True)
 class BootstrapTaskRowSubjectV1:
     taskId: str
     dependencies: Tuple[str, ...]
@@ -345,14 +375,20 @@ class BootstrapTaskSubjectV1:
 
 
 @dataclass(frozen=True)
+class DependencyTaskObjectV1:
+    approvalBytes: bytes
+    receiptBytes: bytes
+    stage0HandoffBytes: bytes
+
+
+@dataclass(frozen=True)
 class BootstrapTaskObjectSetV1:
     authorityPolicyBytes: bytes
     stage0HandoffBytes: bytes
     requiredTestSetBytes: bytes
     taskApprovalBytes: bytes
     taskReceiptBytes: bytes
-    dependencyApprovalBytes: Tuple[bytes, ...]
-    dependencyReceiptBytes: Tuple[bytes, ...]
+    dependencyObjects: Tuple[DependencyTaskObjectV1, ...]
     evidenceObjectBytes: Tuple[bytes, ...]
     reviewReports: Tuple[object, ...]
 
@@ -2238,6 +2274,93 @@ def parse_task_approval(
     )
 
 
+def _preflight_bootstrap_task_signed_content(
+    task_receipt_bytes: bytes,
+    task_approval_bytes: bytes,
+) -> _BootstrapTaskSignedPreflightV1:
+    receipt = _preflight_bootstrap_task_verifier_receipt(task_receipt_bytes)
+    approval = _preflight_task_approval(task_approval_bytes)
+    return _BootstrapTaskSignedPreflightV1(
+        approval,
+        receipt,
+    )
+
+
+def _require_bootstrap_task_object_input_joins(
+    task_object: _BootstrapTaskObjectPreflightV1,
+    snapshot_content: Phase5SnapshotContentV1,
+    required_preflight: _RequiredTestSetPreflightV1,
+) -> None:
+    _require_task_approval_input_joins(
+        task_object.approval,
+        snapshot_content,
+        required_preflight,
+    )
+    _require_bootstrap_task_receipt_input_joins(
+        task_object.receipt,
+        task_object.approval,
+        required_preflight,
+        task_object.handoff,
+    )
+
+
+def _finalize_bootstrap_task_object(
+    task_object: _BootstrapTaskObjectPreflightV1,
+    policy: BootstrapAuthorityPolicyV1,
+) -> _VerifiedBootstrapTaskObjectV1:
+    approval, approval_ref = _finalize_task_approval(
+        task_object.approval,
+        policy,
+    )
+    if task_object.receipt.receipt.taskApproval.digest != approval_ref.digest:
+        _reject("task receipt TaskApprovalRefV1 digest does not match exact bytes")
+    receipt, receipt_ref = _finalize_bootstrap_task_verifier_receipt(
+        task_object.receipt,
+        policy,
+    )
+    return _VerifiedBootstrapTaskObjectV1(
+        approval,
+        approval_ref,
+        receipt,
+        receipt_ref,
+        task_object.handoff.handoffRef,
+    )
+
+
+def _parse_bootstrap_task_object_content(
+    task_receipt_bytes: bytes,
+    task_approval_bytes: bytes,
+    required_test_set_bytes: bytes,
+    authority_policy_bytes: bytes,
+    phase5_snapshot: BootstrapDocumentSnapshotV1,
+    stage0_handoff_bytes: bytes,
+) -> _VerifiedBootstrapTaskObjectV1:
+    signed = _preflight_bootstrap_task_signed_content(
+        task_receipt_bytes,
+        task_approval_bytes,
+    )
+    snapshot_content = parse_phase5_snapshot_content(phase5_snapshot)
+    required_preflight = _preflight_required_test_set(
+        required_test_set_bytes,
+        authority_policy_bytes,
+    )
+    task_object = _BootstrapTaskObjectPreflightV1(
+        signed.approval,
+        signed.receipt,
+        _preflight_eligible_stage0_handoff(stage0_handoff_bytes),
+    )
+    _require_bootstrap_task_object_input_joins(
+        task_object,
+        snapshot_content,
+        required_preflight,
+    )
+    _finalize_required_test_set(required_preflight)
+    return _finalize_bootstrap_task_object(
+        task_object,
+        required_preflight.policy,
+    )
+
+
 def parse_bootstrap_task_verifier_receipt(
     task_receipt_bytes: bytes,
     task_approval_bytes: bytes,
@@ -2254,42 +2377,15 @@ def parse_bootstrap_task_verifier_receipt(
     This function establishes content closure only.  It does not authenticate
     the live Stage-0 process, authority-store state, or filesystem provenance.
     """
-    receipt_preflight = _preflight_bootstrap_task_verifier_receipt(
-        task_receipt_bytes
-    )
-    approval_preflight = _preflight_task_approval(task_approval_bytes)
-    snapshot_content = parse_phase5_snapshot_content(phase5_snapshot)
-    required_preflight = _preflight_required_test_set(
+    verified = _parse_bootstrap_task_object_content(
+        task_receipt_bytes,
+        task_approval_bytes,
         required_test_set_bytes,
         authority_policy_bytes,
+        phase5_snapshot,
+        stage0_handoff_bytes,
     )
-    handoff_preflight = _preflight_eligible_stage0_handoff(
-        stage0_handoff_bytes
-    )
-
-    _require_task_approval_input_joins(
-        approval_preflight,
-        snapshot_content,
-        required_preflight,
-    )
-    _require_bootstrap_task_receipt_input_joins(
-        receipt_preflight,
-        approval_preflight,
-        required_preflight,
-        handoff_preflight,
-    )
-
-    _finalize_required_test_set(required_preflight)
-    _, approval_ref = _finalize_task_approval(
-        approval_preflight,
-        required_preflight.policy,
-    )
-    if receipt_preflight.receipt.taskApproval.digest != approval_ref.digest:
-        _reject("task receipt TaskApprovalRefV1 digest does not match exact bytes")
-    return _finalize_bootstrap_task_verifier_receipt(
-        receipt_preflight,
-        required_preflight.policy,
-    )
+    return verified.receipt, verified.receiptRef
 
 
 def _require_sorted_unique(values: tuple, where: str, *, nonempty: bool) -> None:
@@ -2492,19 +2588,183 @@ def _validate_object_shell(objects: BootstrapTaskObjectSetV1) -> None:
         encoded = getattr(objects, field)
         if type(encoded) is not bytes or not encoded:
             _reject(f"{field} must be non-empty bytes")
-        decode_canonical_pf_jcs(encoded)
-    for field in (
-        "dependencyApprovalBytes", "dependencyReceiptBytes", "evidenceObjectBytes",
-    ):
-        values = getattr(objects, field)
-        if type(values) is not tuple:
-            _reject(f"{field} must be a tuple")
-        for encoded in values:
+    if (type(objects.dependencyObjects) is not tuple
+            or len(objects.dependencyObjects) > 5):
+        _reject("dependencyObjects must be a tuple with 0..5 entries")
+    for dependency in objects.dependencyObjects:
+        if type(dependency) is not DependencyTaskObjectV1:
+            _reject("dependencyObjects contain an untyped bundle")
+        for field in (
+            "approvalBytes", "receiptBytes", "stage0HandoffBytes",
+        ):
+            encoded = getattr(dependency, field)
             if type(encoded) is not bytes or not encoded:
-                _reject(f"{field} contains invalid bytes")
-            decode_canonical_pf_jcs(encoded)
-    if type(objects.reviewReports) is not tuple:
-        _reject("reviewReports must be a tuple")
+                _reject(f"dependencyObjects.{field} must be non-empty bytes")
+    evidence_objects = objects.evidenceObjectBytes
+    if (type(evidence_objects) is not tuple
+            or not 1 <= len(evidence_objects) <= MAX_BOOTSTRAP_EVIDENCE_OBJECTS):
+        _reject("evidenceObjectBytes count must be 1..24576")
+    if (type(objects.reviewReports) is not tuple
+            or not 1 <= len(objects.reviewReports) <= MAX_BOOTSTRAP_REVIEW_REPORTS):
+        _reject("reviewReports count must be 1..1536")
+    for encoded in evidence_objects:
+        if type(encoded) is not bytes or not encoded:
+            _reject("evidenceObjectBytes contains invalid bytes")
+        decode_canonical_pf_jcs(encoded)
+
+
+def _parse_bootstrap_task_object_graph(
+    subject: BootstrapTaskSubjectV1,
+    objects: BootstrapTaskObjectSetV1,
+) -> _BootstrapTaskObjectGraphV1:
+    _validate_object_shell(objects)
+    phase5_snapshot = next(
+        (
+            document for document in subject.documents
+            if document.id == "PHASE-5"
+        ),
+        None,
+    )
+    if phase5_snapshot is None:
+        _reject("subject lacks the PHASE-5 document snapshot")
+
+    root_signed = _preflight_bootstrap_task_signed_content(
+        objects.taskReceiptBytes,
+        objects.taskApprovalBytes,
+    )
+    dependency_signed = tuple(
+        _preflight_bootstrap_task_signed_content(
+            dependency.receiptBytes,
+            dependency.approvalBytes,
+        )
+        for dependency in objects.dependencyObjects
+    )
+    expected_dependency_ids = tuple(
+        row.taskId for row in subject.taskRows
+        if row.taskId != subject.rootTaskId
+    )
+    actual_dependency_ids = tuple(
+        dependency.approval.taskApproval.taskId
+        for dependency in dependency_signed
+    )
+    if actual_dependency_ids != expected_dependency_ids:
+        _reject(
+            "dependencyObjects do not match the sorted transitive dependency set"
+        )
+    if root_signed.approval.taskApproval.taskId != subject.rootTaskId:
+        _reject("root TaskApprovalV1 taskId does not match subject rootTaskId")
+
+    signed_objects = (root_signed,) + dependency_signed
+    row_by_task = {row.taskId: row for row in subject.taskRows}
+    for task_object in signed_objects:
+        approval = task_object.approval.taskApproval
+        if approval.candidate != subject.candidate:
+            _reject("TaskApprovalV1 candidate does not match subject candidate")
+        expected_direct_ids = row_by_task[approval.taskId].dependencies
+        actual_direct_ids = tuple(
+            completion.taskId
+            for completion in approval.dependencyCompletions
+        )
+        if actual_direct_ids != expected_direct_ids:
+            _reject(
+                "TaskApprovalV1 dependencies do not match the subject DAG row"
+            )
+
+    snapshot_content = parse_phase5_snapshot_content(phase5_snapshot)
+    required_preflight = _preflight_required_test_set(
+        objects.requiredTestSetBytes,
+        objects.authorityPolicyBytes,
+    )
+    handoff_preflights = (
+        _preflight_eligible_stage0_handoff(objects.stage0HandoffBytes),
+    ) + tuple(
+        _preflight_eligible_stage0_handoff(
+            dependency.stage0HandoffBytes
+        )
+        for dependency in objects.dependencyObjects
+    )
+    handoff_refs = tuple(
+        handoff.handoffRef for handoff in handoff_preflights
+    )
+    if len(set(handoff_refs)) != len(handoff_refs):
+        _reject("root and dependency Stage-0 handoffs must be unique per task")
+    handoff_run_keys = tuple(
+        (handoff.handoff.runId, handoff.handoff.nonce)
+        for handoff in handoff_preflights
+    )
+    if len(set(handoff_run_keys)) != len(handoff_run_keys):
+        _reject("Stage-0 handoff runId/nonce pairs must be unique per task")
+    preflights = tuple(
+        _BootstrapTaskObjectPreflightV1(
+            signed.approval,
+            signed.receipt,
+            handoff,
+        )
+        for signed, handoff in zip(signed_objects, handoff_preflights)
+    )
+    for task_object in preflights:
+        _require_bootstrap_task_object_input_joins(
+            task_object,
+            snapshot_content,
+            required_preflight,
+        )
+
+    _finalize_required_test_set(required_preflight)
+    finalized_approvals = tuple(
+        _finalize_task_approval(
+            task_object.approval,
+            required_preflight.policy,
+        )
+        for task_object in preflights
+    )
+    for task_object, (_, approval_ref) in zip(
+        preflights,
+        finalized_approvals,
+    ):
+        if task_object.receipt.receipt.taskApproval.digest != approval_ref.digest:
+            _reject(
+                "task receipt TaskApprovalRefV1 digest does not match exact bytes"
+            )
+    finalized_receipts = tuple(
+        _finalize_bootstrap_task_verifier_receipt(
+            task_object.receipt,
+            required_preflight.policy,
+        )
+        for task_object in preflights
+    )
+    verified = tuple(
+        _VerifiedBootstrapTaskObjectV1(
+            approval,
+            approval_ref,
+            receipt,
+            receipt_ref,
+            task_object.handoff.handoffRef,
+        )
+        for task_object, (approval, approval_ref), (receipt, receipt_ref) in zip(
+            preflights,
+            finalized_approvals,
+            finalized_receipts,
+        )
+    )
+    receipt_ref_by_task = {
+        task_object.receiptRef.taskId: task_object.receiptRef
+        for task_object in verified
+    }
+    for task_object in verified:
+        expected_refs = tuple(
+            receipt_ref_by_task[dependency_id]
+            for dependency_id in row_by_task[
+                task_object.approval.taskId
+            ].dependencies
+        )
+        if task_object.approval.dependencyCompletions != expected_refs:
+            _reject(
+                "TaskApprovalV1 dependency receipt refs do not match exact bytes"
+            )
+    return _BootstrapTaskObjectGraphV1(
+        verified[0],
+        verified[1:],
+    )
 
 
 def verifyBootstrapTaskObjects(
@@ -2513,35 +2773,19 @@ def verifyBootstrapTaskObjects(
 ) -> Union[ObjectVerifiedV1, Rejected]:
     """Validate the frozen shell, retaining fail-closed object semantics.
 
-    Full policy/approval/receipt verification is intentionally not claimed by
-    this initial slice.  Until that graph is complete the function can only
-    return the stable rejection, never ObjectVerifiedV1.
+    The signed root/dependency approval, receipt, RequiredSet, policy, and
+    run-specific handoff graph is verified here.  PHASE-4 raw content,
+    evidence objects, review reports, and protected provenance remain open, so
+    the function can only return the stable rejection, never ObjectVerifiedV1.
     """
     try:
         _validate_subject(subject)
-        _validate_object_shell(objects)
-        phase5_snapshot = next(
-            (
-                document for document in subject.documents
-                if document.id == "PHASE-5"
-            ),
-            None,
-        )
-        if phase5_snapshot is None:
-            _reject("subject lacks the PHASE-5 document snapshot")
-        parse_bootstrap_task_verifier_receipt(
-            objects.taskReceiptBytes,
-            objects.taskApprovalBytes,
-            objects.requiredTestSetBytes,
-            objects.authorityPolicyBytes,
-            phase5_snapshot,
-            objects.stage0HandoffBytes,
-        )
+        _parse_bootstrap_task_object_graph(subject, objects)
     except Rejected as rejected:
         return rejected
     except (TypeError, ValueError, UnicodeError, AttributeError) as error:
         return Rejected(BOOTSTRAP_REJECTION, f"invalid process-local input: {error}")
     return Rejected(
         BOOTSTRAP_REJECTION,
-        "bootstrap policy/approval/receipt graph verification is not complete",
+        "bootstrap object/provenance joins are not complete",
     )

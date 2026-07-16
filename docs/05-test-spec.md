@@ -406,8 +406,10 @@ synthetic positive 只能得到 exact `ObjectVerifiedV1` projection，并逐项 
 missing/extra/duplicate/order、policy/required-set/handoff/approval/receipt/dependency/document/review/
 evidence 的 schema、canonical bytes、domain digest、签名、quorum、role 和 exact joins；dependency
 对象还须覆盖 `0/5/6` bundle count、bundle 顺序/重复/错配，以及每项 run-specific handoff 被 root 或
-其他 dependency handoff 替换；D0-04 positive 的 raw bundle exact set 是五个 transitive dependency，
-但 root approval/receipt 的 `dependencyCompletions` exact set 只能是四个 direct dependency；第二层调用
+其他 dependency handoff 替换、重签后 handoff ContentRef 或 `(runId, nonce)` 跨 task 复用；D0-04 positive 的 raw bundle exact set 是五个 transitive dependency，
+但 root approval/receipt 的 `dependencyCompletions` exact set 只能是四个 direct dependency；object-set
+carrier 还须覆盖 evidence `1/24576/24577` 与 review report `1/1536/1537` count，并在 over-bound entry
+decode/hash/curve 前拒绝；第二层调用
 默认 docs checker，同一 bootstrap ledger/task fixture 必须稳定返回
 `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`。CLI/env/path/普通 file fd 不得选择 authority，也不得新增
 `check(root, capability)` 把 `ObjectVerifiedV1` 升级成 closure。synthetic object set 永不构成 successful

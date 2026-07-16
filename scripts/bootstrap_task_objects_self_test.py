@@ -5493,29 +5493,33 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
             "bytes": b"review",
         },),
     )
-    original_receipt_parser = module.parse_bootstrap_task_verifier_receipt
+    original_graph_parser = module._parse_bootstrap_task_object_graph
     original_object_shell_validator = module._validate_object_shell
     events: list[str] = []
     shell_arguments: list[object] = []
-
-    def capture_receipt_parser(*args: object, **kwargs: object) -> tuple:
-        del args, kwargs
-        events.append("receipt")
-        return object(), object()
 
     def capture_object_shell(objects: object) -> None:
         events.append("shell")
         shell_arguments.append(objects)
         original_object_shell_validator(objects)
 
-    module.parse_bootstrap_task_verifier_receipt = capture_receipt_parser
+    def capture_graph_parser(
+        captured_subject: object,
+        captured_objects: object,
+    ) -> object:
+        del captured_subject
+        module._validate_object_shell(captured_objects)
+        events.append("graph")
+        return object()
+
+    module._parse_bootstrap_task_object_graph = capture_graph_parser
     module._validate_object_shell = capture_object_shell
     try:
         result = module.verifyBootstrapTaskObjects(subject, shell_objects)
         assert isinstance(result, module.Rejected)
-        assert events == ["shell", "receipt"], (
+        assert events == ["shell", "graph"], (
             "valid subject graph must validate the object shell before "
-            "receipt signature work"
+            "object graph work"
         )
         assert shell_arguments == [shell_objects], (
             "object shell validation must receive the caller's exact object set"
@@ -5529,7 +5533,7 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
         result = module.verifyBootstrapTaskObjects(subject, malformed_shell)
         assert isinstance(result, module.Rejected)
         assert events == ["shell"], (
-            "malformed object shell must reject before receipt signature work"
+            "malformed object shell must reject before object graph work"
         )
         assert shell_arguments == [malformed_shell]
         for label, invalid_subject in invalid_subjects:
@@ -5545,7 +5549,7 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
             )
             assert shell_arguments == []
     finally:
-        module.parse_bootstrap_task_verifier_receipt = original_receipt_parser
+        module._parse_bootstrap_task_object_graph = original_graph_parser
         module._validate_object_shell = original_object_shell_validator
 
 
@@ -5562,6 +5566,101 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
     assert zero_graph.dependencies == (), (
         "D0-01 must accept the exact zero-dependency bundle boundary"
     )
+    zero_phase5 = next(
+        document for document in zero_subject.documents
+        if document.id == "PHASE-5"
+    )
+    public_order_events: list[str] = []
+    public_order_hooks = (
+        ("_preflight_bootstrap_task_verifier_receipt", "receipt"),
+        ("_preflight_task_approval", "approval"),
+        ("parse_phase5_snapshot_content", "phase5"),
+        ("_preflight_required_test_set", "required"),
+        ("_preflight_eligible_stage0_handoff", "handoff"),
+    )
+    original_public_order_hooks = {
+        name: getattr(module, name) for name, _ in public_order_hooks
+    }
+    for name, event in public_order_hooks:
+        original = original_public_order_hooks[name]
+
+        def capture_public_order(
+            *args: object,
+            _event: str = event,
+            _original: Callable = original,
+            **kwargs: object,
+        ) -> object:
+            public_order_events.append(_event)
+            return _original(*args, **kwargs)
+
+        setattr(module, name, capture_public_order)
+    try:
+        module.parse_bootstrap_task_verifier_receipt(
+            zero_objects.taskReceiptBytes,
+            zero_objects.taskApprovalBytes,
+            zero_objects.requiredTestSetBytes,
+            zero_objects.authorityPolicyBytes,
+            zero_phase5,
+            zero_objects.stage0HandoffBytes,
+        )
+    finally:
+        for name, original in original_public_order_hooks.items():
+            setattr(module, name, original)
+    assert public_order_events == [
+        "receipt", "approval", "phase5", "required", "handoff",
+    ], "public receipt parser must preserve its frozen cross-input order"
+
+    zero_built = zero_fixture["built"]
+    wrong_approval_digest_receipt = copy.deepcopy(
+        zero_built["TASK-D0-01"]["receiptWire"]
+    )
+    wrong_approval_digest_receipt.pop("signature")
+    wrong_approval_digest_receipt["taskApproval"]["digest"] = digest_text(
+        bytes.fromhex("9e" * 32)
+    )
+    wrong_approval_digest_receipt_wire, _, _ = (
+        sign_bootstrap_task_receipt_statement(
+            module,
+            wrong_approval_digest_receipt,
+        )
+    )
+    wrong_approval_digest_objects = dataclasses.replace(
+        zero_objects,
+        taskReceiptBytes=module.canonical_pf_jcs(
+            wrong_approval_digest_receipt_wire
+        ),
+    )
+    original_verify_ed25519 = module.verify_ed25519
+    signature_messages: list[bytes] = []
+
+    def capture_signature_messages(
+        public_key: bytes,
+        message: bytes,
+        signature: bytes,
+    ) -> bool:
+        signature_messages.append(message)
+        return original_verify_ed25519(public_key, message, signature)
+
+    module.verify_ed25519 = capture_signature_messages
+    try:
+        assert_rejected(
+            module,
+            lambda: module._parse_bootstrap_task_object_graph(
+                zero_subject,
+                wrong_approval_digest_objects,
+            ),
+        )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+    assert len(signature_messages) == 4, (
+        "wrong approval digest must follow RequiredSet and TaskApproval curves"
+    )
+    assert not any(
+        message.startswith(
+            b"pf.bootstrap-task-verifier-receipt-signature.v1\x00"
+        )
+        for message in signature_messages
+    ), "wrong approval digest must reject before receipt signature work"
 
     full_fixture = signed_d0_object_graph_fixture(module, "TASK-D0-04")
     subject = full_fixture["subject"]
@@ -5593,23 +5692,64 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         module._preflight_bootstrap_task_verifier_receipt
     )
     original_handoff_preflight = module._preflight_eligible_stage0_handoff
+    original_phase5_parser = module.parse_phase5_snapshot_content
+    original_required_preflight = module._preflight_required_test_set
+    original_required_finalize = module._finalize_required_test_set
+    original_approval_finalize = module._finalize_task_approval
+    original_receipt_finalize = (
+        module._finalize_bootstrap_task_verifier_receipt
+    )
     preflight_calls = {"approval": [], "receipt": [], "handoff": []}
+    preflight_events: list[str] = []
+    finalize_events: list[str] = []
+    shared_calls = {"phase5": 0, "requiredPreflight": 0, "requiredFinalize": 0}
 
     def capture_approval_preflight(encoded: bytes) -> object:
+        preflight_events.append("approval")
         preflight_calls["approval"].append(encoded)
         return original_approval_preflight(encoded)
 
     def capture_receipt_preflight(encoded: bytes) -> object:
+        preflight_events.append("receipt")
         preflight_calls["receipt"].append(encoded)
         return original_receipt_preflight(encoded)
 
     def capture_handoff_preflight(encoded: bytes) -> object:
+        preflight_events.append("handoff")
         preflight_calls["handoff"].append(encoded)
         return original_handoff_preflight(encoded)
+
+    def capture_phase5(snapshot: object) -> object:
+        preflight_events.append("phase5")
+        shared_calls["phase5"] += 1
+        return original_phase5_parser(snapshot)
+
+    def capture_required_preflight(*args: object, **kwargs: object) -> object:
+        preflight_events.append("required")
+        shared_calls["requiredPreflight"] += 1
+        return original_required_preflight(*args, **kwargs)
+
+    def capture_required_finalize(*args: object, **kwargs: object) -> object:
+        shared_calls["requiredFinalize"] += 1
+        finalize_events.append("required")
+        return original_required_finalize(*args, **kwargs)
+
+    def capture_approval_finalize(*args: object, **kwargs: object) -> object:
+        finalize_events.append("approval")
+        return original_approval_finalize(*args, **kwargs)
+
+    def capture_receipt_finalize(*args: object, **kwargs: object) -> object:
+        finalize_events.append("receipt")
+        return original_receipt_finalize(*args, **kwargs)
 
     module._preflight_task_approval = capture_approval_preflight
     module._preflight_bootstrap_task_verifier_receipt = capture_receipt_preflight
     module._preflight_eligible_stage0_handoff = capture_handoff_preflight
+    module.parse_phase5_snapshot_content = capture_phase5
+    module._preflight_required_test_set = capture_required_preflight
+    module._finalize_required_test_set = capture_required_finalize
+    module._finalize_task_approval = capture_approval_finalize
+    module._finalize_bootstrap_task_verifier_receipt = capture_receipt_finalize
     try:
         graph = module._parse_bootstrap_task_object_graph(subject, objects)
     finally:
@@ -5618,6 +5758,13 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
             original_receipt_preflight
         )
         module._preflight_eligible_stage0_handoff = original_handoff_preflight
+        module.parse_phase5_snapshot_content = original_phase5_parser
+        module._preflight_required_test_set = original_required_preflight
+        module._finalize_required_test_set = original_required_finalize
+        module._finalize_task_approval = original_approval_finalize
+        module._finalize_bootstrap_task_verifier_receipt = (
+            original_receipt_finalize
+        )
     assert graph.root.approval.taskId == "TASK-D0-04"
     assert tuple(
         dependency.approval.taskId for dependency in graph.dependencies
@@ -5625,6 +5772,48 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
     assert tuple(
         dependency.receiptRef.taskId for dependency in graph.dependencies
     ) == dependency_task_ids
+
+    maximum_evidence_carrier = dataclasses.replace(
+        objects,
+        evidenceObjectBytes=(b"{}",) * (6 * 4096),
+    )
+    assert module._validate_object_shell(maximum_evidence_carrier) is None
+    maximum_review_carrier = dataclasses.replace(
+        objects,
+        reviewReports=objects.reviewReports * (6 * 256),
+    )
+    assert module._validate_object_shell(maximum_review_carrier) is None
+    overbound_evidence_carrier = dataclasses.replace(
+        objects,
+        evidenceObjectBytes=(b"{}",) * (6 * 4096 + 1),
+    )
+    original_decode = module.decode_canonical_pf_jcs
+    overbound_carrier_decode_calls = 0
+
+    def count_overbound_evidence_decode(encoded: bytes) -> object:
+        nonlocal overbound_carrier_decode_calls
+        overbound_carrier_decode_calls += 1
+        return original_decode(encoded)
+
+    module.decode_canonical_pf_jcs = count_overbound_evidence_decode
+    try:
+        assert_rejected(
+            module,
+            lambda: module._validate_object_shell(overbound_evidence_carrier),
+        )
+        assert_rejected(
+            module,
+            lambda: module._validate_object_shell(dataclasses.replace(
+                objects,
+                reviewReports=objects.reviewReports * (6 * 256 + 1),
+            )),
+        )
+    finally:
+        module.decode_canonical_pf_jcs = original_decode
+    assert overbound_carrier_decode_calls == 0, (
+        "carrier overflow must reject before any evidence entry decode"
+    )
+
     expected_approval_bytes = (objects.taskApprovalBytes,) + tuple(
         bundle.approvalBytes for bundle in objects.dependencyObjects
     )
@@ -5637,6 +5826,19 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
     assert tuple(preflight_calls["approval"]) == expected_approval_bytes
     assert tuple(preflight_calls["receipt"]) == expected_receipt_bytes
     assert tuple(preflight_calls["handoff"]) == expected_handoff_bytes
+    assert preflight_events == (
+        ["receipt", "approval"] * 6
+        + ["phase5", "required"]
+        + ["handoff"] * 6
+    ), "graph preflight order must preserve the frozen receipt boundary"
+    assert shared_calls == {
+        "phase5": 1,
+        "requiredPreflight": 1,
+        "requiredFinalize": 1,
+    }, "graph must parse/finalize its shared authority inputs exactly once"
+    assert finalize_events == (
+        ["required"] + ["approval"] * 6 + ["receipt"] * 6
+    ), "graph must finalize RequiredSet, then all approvals, then all receipts"
     assert len({id(value) for value in preflight_calls["approval"]}) == 6
     assert len({id(value) for value in preflight_calls["receipt"]}) == 6
     assert len({id(value) for value in preflight_calls["handoff"]}) == 6
@@ -5647,17 +5849,70 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         receiptBytes=objects.taskReceiptBytes,
         stage0HandoffBytes=objects.stage0HandoffBytes,
     )
+    overbound_dependency_objects = dataclasses.replace(
+        objects,
+        dependencyObjects=bundles + (root_bundle,),
+    )
     invalid_objects = (
+        (
+            "evidence object carrier is empty",
+            dataclasses.replace(objects, evidenceObjectBytes=()),
+        ),
+        (
+            "review report carrier is empty",
+            dataclasses.replace(objects, reviewReports=()),
+        ),
+        (
+            "dependency bundle carrier is not a tuple",
+            dataclasses.replace(objects, dependencyObjects=list(bundles)),
+        ),
+        (
+            "dependency bundle entry is untyped",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=({
+                    "approvalBytes": bundles[0].approvalBytes,
+                    "receiptBytes": bundles[0].receiptBytes,
+                    "stage0HandoffBytes": bundles[0].stage0HandoffBytes,
+                },) + bundles[1:],
+            ),
+        ),
+        (
+            "dependency approval bytes are empty",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=(
+                    dataclasses.replace(bundles[0], approvalBytes=b""),
+                ) + bundles[1:],
+            ),
+        ),
+        (
+            "dependency receipt bytes are noncanonical",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=(
+                    dataclasses.replace(
+                        bundles[0], receiptBytes=b'{"z":0,"a":0}'
+                    ),
+                ) + bundles[1:],
+            ),
+        ),
+        (
+            "dependency handoff bytes are empty",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=(
+                    dataclasses.replace(bundles[0], stage0HandoffBytes=b""),
+                ) + bundles[1:],
+            ),
+        ),
         (
             "missing transitive dependency bundle",
             dataclasses.replace(objects, dependencyObjects=bundles[1:]),
         ),
         (
             "sixth extra dependency bundle",
-            dataclasses.replace(
-                objects,
-                dependencyObjects=bundles + (root_bundle,),
-            ),
+            overbound_dependency_objects,
         ),
         (
             "duplicate dependency bundle",
@@ -5748,7 +6003,327 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         wrong_direct_dependency_set,
     ),)
 
+    sparse_fixture = signed_d0_object_graph_fixture(module, "TASK-D0-02")
+    sparse_subject = sparse_fixture["subject"]
+    sparse_objects = sparse_fixture["objects"]
+    sparse_bundle = sparse_objects.dependencyObjects[0]
+    sparse_root = sparse_fixture["built"]["TASK-D0-02"]
+    sparse_extra = module.DependencyTaskObjectV1(
+        approvalBytes=sparse_root["approvalBytes"],
+        receiptBytes=sparse_root["receiptBytes"],
+        stage0HandoffBytes=sparse_root["handoffBytes"],
+    )
+    isolated_exact_set_invalids = (
+        (
+            "sparse graph extra bundle below count limit",
+            dataclasses.replace(
+                sparse_objects,
+                dependencyObjects=(sparse_bundle, sparse_extra),
+            ),
+        ),
+        (
+            "sparse graph duplicate bundle with exact set preserved",
+            dataclasses.replace(
+                sparse_objects,
+                dependencyObjects=(sparse_bundle, sparse_bundle),
+            ),
+        ),
+    )
+    sparse_built = sparse_fixture["built"]
+    shared_handoff_bytes = sparse_built["TASK-D0-01"]["handoffBytes"]
+    shared_handoff_ref = eligible_stage0_handoff_ref_wire(
+        module,
+        sparse_built["TASK-D0-01"]["handoffWire"],
+        shared_handoff_bytes,
+    )
+    shared_handoff_approval = copy.deepcopy(
+        sparse_built["TASK-D0-02"]["approvalWire"]
+    )
+    shared_handoff_approval.pop("signatures")
+    shared_handoff_approval["stage0Handoff"] = shared_handoff_ref
+    shared_handoff_approval_wire, _, _ = sign_task_approval_statement(
+        module,
+        shared_handoff_approval,
+        ("key-architecture", "key-quality"),
+    )
+    shared_handoff_approval_bytes = module.canonical_pf_jcs(
+        shared_handoff_approval_wire
+    )
+    shared_handoff_receipt = copy.deepcopy(
+        sparse_built["TASK-D0-02"]["receiptWire"]
+    )
+    shared_handoff_receipt.pop("signature")
+    shared_handoff_receipt["stage0Handoff"] = shared_handoff_ref
+    shared_handoff_receipt["taskApproval"]["digest"] = digest_text(
+        hashlib.sha256(
+            b"pf.bootstrap-task-approval.v1\x00"
+            + shared_handoff_approval_bytes
+        ).digest()
+    )
+    shared_handoff_receipt_wire, _, _ = sign_bootstrap_task_receipt_statement(
+        module,
+        shared_handoff_receipt,
+    )
+    shared_handoff_objects = dataclasses.replace(
+        sparse_objects,
+        stage0HandoffBytes=shared_handoff_bytes,
+        taskApprovalBytes=shared_handoff_approval_bytes,
+        taskReceiptBytes=module.canonical_pf_jcs(
+            shared_handoff_receipt_wire
+        ),
+    )
+    isolated_exact_set_invalids += ((
+        "two tasks fully re-signed to the same run-specific handoff",
+        shared_handoff_objects,
+    ),)
+    reused_run_handoff_wire = copy.deepcopy(
+        sparse_built["TASK-D0-01"]["handoffWire"]
+    )
+    reused_run_handoff_wire["id"] = "task-d0-02-reused-run-handoff"
+    reused_run_handoff_bytes = module.canonical_pf_jcs(
+        reused_run_handoff_wire
+    )
+    reused_run_handoff_ref = eligible_stage0_handoff_ref_wire(
+        module,
+        reused_run_handoff_wire,
+        reused_run_handoff_bytes,
+    )
+    reused_run_approval = copy.deepcopy(
+        sparse_built["TASK-D0-02"]["approvalWire"]
+    )
+    reused_run_approval.pop("signatures")
+    reused_run_approval["stage0Handoff"] = reused_run_handoff_ref
+    reused_run_approval_wire, _, _ = sign_task_approval_statement(
+        module,
+        reused_run_approval,
+        ("key-architecture", "key-quality"),
+    )
+    reused_run_approval_bytes = module.canonical_pf_jcs(
+        reused_run_approval_wire
+    )
+    reused_run_receipt = copy.deepcopy(
+        sparse_built["TASK-D0-02"]["receiptWire"]
+    )
+    reused_run_receipt.pop("signature")
+    reused_run_receipt["stage0Handoff"] = reused_run_handoff_ref
+    reused_run_receipt["taskApproval"]["digest"] = digest_text(
+        hashlib.sha256(
+            b"pf.bootstrap-task-approval.v1\x00"
+            + reused_run_approval_bytes
+        ).digest()
+    )
+    reused_run_receipt_wire, _, _ = sign_bootstrap_task_receipt_statement(
+        module,
+        reused_run_receipt,
+    )
+    reused_run_objects = dataclasses.replace(
+        sparse_objects,
+        stage0HandoffBytes=reused_run_handoff_bytes,
+        taskApprovalBytes=reused_run_approval_bytes,
+        taskReceiptBytes=module.canonical_pf_jcs(reused_run_receipt_wire),
+    )
+    isolated_exact_set_invalids += ((
+        "distinct handoff refs reuse the same Stage-0 runId and nonce",
+        reused_run_objects,
+    ),)
+
+    nested_approval = copy.deepcopy(built["TASK-D0-05"]["approvalWire"])
+    nested_approval.pop("signatures")
+    nested_approval["dependencyCompletions"] = [
+        copy.deepcopy(built[task_id]["receiptRefWire"])
+        for task_id in ("TASK-D0-01", "TASK-D0-02", "TASK-D0-03")
+    ]
+    nested_approval_wire, _, _ = sign_task_approval_statement(
+        module,
+        nested_approval,
+        ("key-quality", "key-security"),
+    )
+    nested_approval_bytes = module.canonical_pf_jcs(nested_approval_wire)
+    nested_receipt = copy.deepcopy(built["TASK-D0-05"]["receiptWire"])
+    nested_receipt.pop("signature")
+    nested_receipt["dependencyCompletions"] = copy.deepcopy(
+        nested_approval_wire["dependencyCompletions"]
+    )
+    nested_receipt["taskApproval"]["digest"] = digest_text(hashlib.sha256(
+        b"pf.bootstrap-task-approval.v1\x00" + nested_approval_bytes
+    ).digest())
+    nested_receipt_wire, _, _ = sign_bootstrap_task_receipt_statement(
+        module,
+        nested_receipt,
+    )
+    nested_receipt_bytes = module.canonical_pf_jcs(nested_receipt_wire)
+    nested_receipt_ref = bootstrap_task_receipt_ref_wire(
+        module,
+        "TASK-D0-05",
+        nested_receipt_wire["id"],
+        nested_receipt_bytes,
+    )
+    nested_root_approval = copy.deepcopy(
+        built["TASK-D0-04"]["approvalWire"]
+    )
+    nested_root_approval.pop("signatures")
+    nested_root_approval["dependencyCompletions"] = [
+        nested_receipt_ref if ref["taskId"] == "TASK-D0-05" else ref
+        for ref in nested_root_approval["dependencyCompletions"]
+    ]
+    nested_root_approval_wire, _, _ = sign_task_approval_statement(
+        module,
+        nested_root_approval,
+        ("key-quality", "key-release", "key-security"),
+    )
+    nested_root_approval_bytes = module.canonical_pf_jcs(
+        nested_root_approval_wire
+    )
+    nested_root_receipt = copy.deepcopy(
+        built["TASK-D0-04"]["receiptWire"]
+    )
+    nested_root_receipt.pop("signature")
+    nested_root_receipt["dependencyCompletions"] = copy.deepcopy(
+        nested_root_approval_wire["dependencyCompletions"]
+    )
+    nested_root_receipt["taskApproval"]["digest"] = digest_text(hashlib.sha256(
+        b"pf.bootstrap-task-approval.v1\x00" + nested_root_approval_bytes
+    ).digest())
+    nested_root_receipt_wire, _, _ = sign_bootstrap_task_receipt_statement(
+        module,
+        nested_root_receipt,
+    )
+    nested_bundles = tuple(
+        dataclasses.replace(
+            bundle,
+            approvalBytes=nested_approval_bytes,
+            receiptBytes=nested_receipt_bytes,
+        ) if task_id == "TASK-D0-05" else bundle
+        for task_id, bundle in zip(dependency_task_ids, bundles)
+    )
+    nested_wrong_direct_dependency_set = dataclasses.replace(
+        objects,
+        taskApprovalBytes=nested_root_approval_bytes,
+        taskReceiptBytes=module.canonical_pf_jcs(nested_root_receipt_wire),
+        dependencyObjects=nested_bundles,
+    )
+    invalid_objects += ((
+        "nested D0-05 transitive refs substituted for its direct dependency",
+        nested_wrong_direct_dependency_set,
+    ),)
+
+    wrong_digest_root_approval = copy.deepcopy(
+        built["TASK-D0-04"]["approvalWire"]
+    )
+    wrong_digest_root_approval.pop("signatures")
+    for completion in wrong_digest_root_approval["dependencyCompletions"]:
+        if completion["taskId"] == "TASK-D0-05":
+            completion["digest"] = digest_text(bytes.fromhex("9f" * 32))
+    wrong_digest_root_approval_wire, _, _ = sign_task_approval_statement(
+        module,
+        wrong_digest_root_approval,
+        ("key-quality", "key-release", "key-security"),
+    )
+    wrong_digest_root_approval_bytes = module.canonical_pf_jcs(
+        wrong_digest_root_approval_wire
+    )
+    wrong_digest_root_receipt = copy.deepcopy(
+        built["TASK-D0-04"]["receiptWire"]
+    )
+    wrong_digest_root_receipt.pop("signature")
+    wrong_digest_root_receipt["dependencyCompletions"] = copy.deepcopy(
+        wrong_digest_root_approval_wire["dependencyCompletions"]
+    )
+    wrong_digest_root_receipt["taskApproval"]["digest"] = digest_text(
+        hashlib.sha256(
+            b"pf.bootstrap-task-approval.v1\x00"
+            + wrong_digest_root_approval_bytes
+        ).digest()
+    )
+    wrong_digest_root_receipt_wire, _, _ = sign_bootstrap_task_receipt_statement(
+        module,
+        wrong_digest_root_receipt,
+    )
+    wrong_dependency_receipt_digest = dataclasses.replace(
+        objects,
+        taskApprovalBytes=wrong_digest_root_approval_bytes,
+        taskReceiptBytes=module.canonical_pf_jcs(
+            wrong_digest_root_receipt_wire
+        ),
+    )
+
+    wrong_id_root_approval = copy.deepcopy(
+        built["TASK-D0-04"]["approvalWire"]
+    )
+    wrong_id_root_approval.pop("signatures")
+    for completion in wrong_id_root_approval["dependencyCompletions"]:
+        if completion["taskId"] == "TASK-D0-05":
+            completion["id"] = "BTV-20260717-9999"
+    wrong_id_root_approval_wire, _, _ = sign_task_approval_statement(
+        module,
+        wrong_id_root_approval,
+        ("key-quality", "key-release", "key-security"),
+    )
+    wrong_id_root_approval_bytes = module.canonical_pf_jcs(
+        wrong_id_root_approval_wire
+    )
+    wrong_id_root_receipt = copy.deepcopy(
+        built["TASK-D0-04"]["receiptWire"]
+    )
+    wrong_id_root_receipt.pop("signature")
+    wrong_id_root_receipt["dependencyCompletions"] = copy.deepcopy(
+        wrong_id_root_approval_wire["dependencyCompletions"]
+    )
+    wrong_id_root_receipt["taskApproval"]["digest"] = digest_text(
+        hashlib.sha256(
+            b"pf.bootstrap-task-approval.v1\x00"
+            + wrong_id_root_approval_bytes
+        ).digest()
+    )
+    wrong_id_root_receipt_wire, _, _ = sign_bootstrap_task_receipt_statement(
+        module,
+        wrong_id_root_receipt,
+    )
+    wrong_dependency_receipt_id = dataclasses.replace(
+        objects,
+        taskApprovalBytes=wrong_id_root_approval_bytes,
+        taskReceiptBytes=module.canonical_pf_jcs(
+            wrong_id_root_receipt_wire
+        ),
+    )
+
+    original_signed_preflight = module._preflight_bootstrap_task_signed_content
+    overbound_preflight_calls = 0
+
+    def count_overbound_preflight(*args: object, **kwargs: object) -> object:
+        nonlocal overbound_preflight_calls
+        overbound_preflight_calls += 1
+        return original_signed_preflight(*args, **kwargs)
+
+    module._preflight_bootstrap_task_signed_content = count_overbound_preflight
+    try:
+        assert_rejected(
+            module,
+            lambda: module._parse_bootstrap_task_object_graph(
+                subject,
+                overbound_dependency_objects,
+            ),
+        )
+    finally:
+        module._preflight_bootstrap_task_signed_content = (
+            original_signed_preflight
+        )
+    assert overbound_preflight_calls == 0, (
+        "dependency count overflow must reject before any task-object preflight"
+    )
+
+    original_verify_ed25519 = module.verify_ed25519
+    curve_calls = 0
+
+    def count_curve_calls(*args: object, **kwargs: object) -> bool:
+        del args, kwargs
+        nonlocal curve_calls
+        curve_calls += 1
+        return True
+
+    module.verify_ed25519 = count_curve_calls
     for label, invalid in invalid_objects:
+        curve_calls = 0
         try:
             assert_rejected(
                 module,
@@ -5757,8 +6332,41 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
                     invalid,
                 ),
             )
+            assert curve_calls == 0, (
+                f"{label} must reject before signature verification work"
+            )
         except AssertionError as error:
             raise AssertionError(f"{label}: {error}") from error
+    for label, invalid in isolated_exact_set_invalids:
+        curve_calls = 0
+        try:
+            assert_rejected(
+                module,
+                lambda invalid=invalid: module._parse_bootstrap_task_object_graph(
+                    sparse_subject,
+                    invalid,
+                ),
+            )
+            assert curve_calls == 0, (
+                f"{label} must reject before signature verification work"
+            )
+        except AssertionError as error:
+            raise AssertionError(f"{label}: {error}") from error
+    module.verify_ed25519 = original_verify_ed25519
+    assert_rejected(
+        module,
+        lambda: module._parse_bootstrap_task_object_graph(
+            subject,
+            wrong_dependency_receipt_digest,
+        ),
+    )
+    assert_rejected(
+        module,
+        lambda: module._parse_bootstrap_task_object_graph(
+            subject,
+            wrong_dependency_receipt_id,
+        ),
+    )
 
     original_graph_parser = module._parse_bootstrap_task_object_graph
     original_public_receipt_parser = module.parse_bootstrap_task_verifier_receipt
@@ -5858,59 +6466,11 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
         assert rejected.code == BOOTSTRAP_REJECTION
 
     complete_objects = module.BootstrapTaskObjectSetV1(**base)
-    original_task_receipt_parser = module.parse_bootstrap_task_verifier_receipt
-    original_task_approval_parser = module.parse_task_approval
-    task_receipt_calls = []
-
-    def capture_task_receipt_call(
-        task_receipt_bytes: bytes,
-        task_approval_bytes: bytes,
-        required_test_set_bytes: bytes,
-        authority_policy_bytes: bytes,
-        phase5_snapshot: object,
-        stage0_handoff_bytes: bytes,
-    ) -> tuple[object, object]:
-        task_receipt_calls.append((
-            task_receipt_bytes,
-            task_approval_bytes,
-            required_test_set_bytes,
-            authority_policy_bytes,
-            phase5_snapshot,
-            stage0_handoff_bytes,
-        ))
-        return object(), object()
-
-    module.parse_bootstrap_task_verifier_receipt = capture_task_receipt_call
-    module.parse_task_approval = lambda *args, **kwargs: (_ for _ in ()).throw(
-        AssertionError("legacy TaskApproval parser must not be called")
+    still_incomplete = module.verifyBootstrapTaskObjects(
+        subject, complete_objects
     )
-    try:
-        still_incomplete = module.verifyBootstrapTaskObjects(
-            subject, complete_objects
-        )
-    finally:
-        module.parse_bootstrap_task_verifier_receipt = original_task_receipt_parser
-        module.parse_task_approval = original_task_approval_parser
     assert isinstance(still_incomplete, module.Rejected)
-    assert len(task_receipt_calls) == 1, (
-        "object consumer must invoke the six-input task receipt parser once"
-    )
-    (
-        called_receipt,
-        called_approval,
-        called_required,
-        called_policy,
-        called_snapshot,
-        called_handoff,
-    ) = task_receipt_calls[0]
-    assert called_receipt is complete_objects.taskReceiptBytes
-    assert called_approval is complete_objects.taskApprovalBytes
-    assert called_required is complete_objects.requiredTestSetBytes
-    assert called_policy is complete_objects.authorityPolicyBytes
-    assert called_snapshot is documents[-1], (
-        "object consumer must pass the same subject PHASE-5 snapshot identity"
-    )
-    assert called_handoff is complete_objects.stage0HandoffBytes
+    assert still_incomplete.code == BOOTSTRAP_REJECTION
 
     mixed_task_ids = dataclasses.replace(
         subject,
@@ -5952,7 +6512,7 @@ def main() -> int:
         test_subject_graph_preflight(module, candidate)
         test_dependency_bundle_graph(module)
         test_subject_and_missing_root_bytes(module, candidate)
-    except (AssertionError, OSError, ImportError, SyntaxError) as error:
+    except (AssertionError, AttributeError, OSError, ImportError, SyntaxError) as error:
         print(f"bootstrap-task-objects-self-test: FAIL: {error}", file=sys.stderr)
         return 1
     print("bootstrap-task-objects-self-test: ok")
