@@ -1,10 +1,15 @@
 ---
 id: PHASE-3
 title: 技术规格总索引
-status: proposed
+status: accepted
 owner: engineering
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
+approvers: architecture-owner, engineering-owner, quality-owner
+approvedAt: 2026-07-17
+reviewCommit: 5dbc9cd09b3e06deab613e713c10838998aa8520
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/5dbc9cd09b3e06deab613e713c10838998aa8520
+openFindings: none
 ---
 
 # Phase 3：技术规格总索引

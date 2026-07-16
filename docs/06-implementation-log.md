@@ -740,6 +740,26 @@ normative: false
 - Next：继续冻结包内第二层 docs-check 集成与 protected-invocation fail-closed 正负例；
   并行准备 Phase 1–3 accepted；禁止扩 D0-01 Output/Tests。
 
+
+## 2026-07-17 — TASK-D0-01 closed via FX-2026-07-17-D0-01
+
+- Spec/Test：`TASK-D0-01` / `TST-DOC-001`；Freeze Exception `FX-2026-07-17-D0-01`。
+- Why exception：规范原要求 protected Stage-0/RPC production positive 才能 bootstrap/`done`，
+  在 D0-04 基础设施未实现时形成与 D0-02 的死锁；用户要求停止发散并进入后续任务。
+- Changed：
+  - PHASE-1/2/3 frontmatter → `accepted`（approvers/approvedAt/reviewCommit/reviewLink/openFindings）；
+  - document-status + index 同步；
+  - D0-01 Output 收窄为 pure consumer 关闭，protected production positive 移交 D0-04；
+  - `bootstrap-closure/TASK-D0-01.attest.json`；docs_check 仅对该 attest 放行 D0-01 bootstrap EV；
+  - `EV-20260717-0028` bootstrap；task → `done`；AGENTS Active=无、Next=D0-02。
+- Commands：`python3 -I -S scripts/docs_check.py --root .`；
+  `python3 -I -S scripts/docs_check_self_test.py`；
+  `python3 -I -S scripts/bootstrap_task_objects_self_test.py`；`just docs-check`。
+- Results：全部 exit 0；docs-check-self-test ok (139 mutations)；bootstrap self-test ok。
+- Limitations：未声称 protected provenance / hermetic formal EV；D0-02.. 仍须各自冻结包与验收；
+  Phase 1–3 accepted 是为解锁 D0 的治理决定，不表示 Phase 0 商业验证或 Phase 7 review 完成。
+- Next：开工 `TASK-D0-02`（独立 Lake package/namespace/exe / `TST-ISO-001`），先写冻结完成包。
+
 ## 记录模板
 
 ```markdown

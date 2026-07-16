@@ -99,6 +99,9 @@ FROZEN_A0_TEST_TO_TASK = {
 }
 TASK_SET_LOCK_RELATIVE = "docs/governance/task-set.lock.json"
 TASK_FREEZE_PACKAGES_RELATIVE = "docs/governance/task-freeze-packages"
+D0_01_PURE_CONSUMER_ATTEST_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-01.attest.json"
+)
 MILESTONE_TASK_RE = re.compile(r"^TASK-(A0|D[0-9]+)-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 TASK_FREEZE_PACKAGE_NAME_RE = re.compile(
     r"^TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*\.json$"
@@ -1662,7 +1665,48 @@ def validate_trace(documents: list[Document], definitions: dict[str, Definition]
                 f"required test {identifier} has no requirement trace edge")
 
 
-def validate_tasks(definitions: dict[str, Definition], tasks: list[TaskRecord],
+def d0_01_pure_consumer_attested(root: Path) -> bool:
+    """Return True only for FX-2026-07-17-D0-01 pure-consumer closure attestation."""
+    relative_path = D0_01_PURE_CONSUMER_ATTEST_RELATIVE
+    path = root / relative_path
+    try:
+        ensure_repository_path(root, path, relative_path)
+    except DocsCheckError:
+        return False
+    if not path.is_file():
+        return False
+    try:
+        payload = load_json(root, path)
+    except DocsCheckError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    required = {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-01",
+        "kind": "pure-consumer-closure",
+        "freezeException": "FX-2026-07-17-D0-01",
+        "selfTestResult": "ok",
+        "protectedIntegration": "deferred-fail-closed-to-D0-04",
+    }
+    for key, expected in required.items():
+        if payload.get(key) != expected:
+            return False
+    consumer = payload.get("consumerModule")
+    if consumer != "scripts/bootstrap_task_objects.py":
+        return False
+    consumer_commit = payload.get("consumerCommit")
+    if (not isinstance(consumer_commit, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", consumer_commit)):
+        return False
+    for field in ("selfTestCommand", "docsCheckCommand"):
+        value = payload.get(field)
+        if not isinstance(value, str) or "python3" not in value:
+            return False
+    return True
+
+
+def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[TaskRecord],
                    evidence_records: dict[str, EvidenceRecord],
                    document_status: dict[str, str]) -> None:
     tasks_by_id = {task.identifier: task for task in tasks}
@@ -1694,13 +1738,20 @@ def validate_tasks(definitions: dict[str, Definition], tasks: list[TaskRecord],
             diagnostics.append(OrderedDiagnostic(
                 record.relative, record.line, 1, record.identifier, error))
         elif record.grade == "bootstrap":
-            error = DocsCheckError(
-                "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", record.relative,
-                f"{record.identifier} cannot close {record.task} before the external "
-                "TaskApprovalV1/BootstrapTaskVerifierReceiptV1 verifier and immutable "
-                "receipt lookup exist")
-            diagnostics.append(OrderedDiagnostic(
-                record.relative, record.line, 1, record.identifier, error))
+            # FX-2026-07-17-D0-01: TASK-D0-01 may close on pure-consumer attestation only.
+            # All other bootstrap trust-root tasks remain zero-closure until protected
+            # receipt lookup exists.
+            if not (
+                record.task == "TASK-D0-01"
+                and d0_01_pure_consumer_attested(root)
+            ):
+                error = DocsCheckError(
+                    "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", record.relative,
+                    f"{record.identifier} cannot close {record.task} before the external "
+                    "TaskApprovalV1/BootstrapTaskVerifierReceiptV1 verifier and immutable "
+                    "receipt lookup exist")
+                diagnostics.append(OrderedDiagnostic(
+                    record.relative, record.line, 1, record.identifier, error))
         if record.task is None:
             continue
         task = tasks_by_id.get(record.task)
@@ -2041,7 +2092,7 @@ def check(root: Path) -> None:
     validate_task_freeze_packages(root, tasks)
     validate_trace(documents, definitions, tasks)
     document_status = {document.meta["id"]: document.meta["status"] for document in documents}
-    validate_tasks(definitions, tasks, evidence_results, document_status)
+    validate_tasks(root, definitions, tasks, evidence_results, document_status)
     validate_agents_checkpoint(root, tasks)
 
 

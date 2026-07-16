@@ -14,6 +14,9 @@ normative: true
 表中依赖是任务完成依赖；前置任务未完成时可以收集明确标注的 pre-acceptance evidence，
 但不能据此把正式任务标为 `done`。
 
+> **2026-07-17：** `TASK-D0-01` 经 `FX-2026-07-17-D0-01` 关闭为 `done`（pure consumer +
+> docs-check；protected production positive 移交 D0-04）。下一正式任务为 `TASK-D0-02`。
+
 ## 全局任务冻结（所有 TASK，强制）
 
 全部任务遵守 [`governance/task-freeze.md`](governance/task-freeze.md)
@@ -71,7 +74,7 @@ EV。下一工作回到第一个正式任务 `TASK-D0-01`。
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D0-01 | 建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker，以及 external TaskApproval/task-receipt pure consumer 与 candidate-external protected integration；后者未通过 TST-DOC-001 前对 bootstrap closure fail closed | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | EV-20260716-0026, EV-20260716-0027 | in_progress |
+| TASK-D0-01 | 建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker 与 external TaskApproval/task-receipt pure consumer（FX-2026-07-17-D0-01：candidate-external protected production positive 移交 D0-04，缺失时 fail closed 不阻塞本任务 done） | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | EV-20260717-0028 | done |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | TASK-D0-01 | — | TST-ISO-001 | — | pending |
 | TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；只交付 development evidence schema/bundle/catalog finalizer 及 formal zero-output rejection，当前 alpha 输入为 `TASK-A0-02` | TASK-D0-01, TASK-D0-02 | — | TST-EVIDENCE-001, TST-HOST-001, TST-TOOL-001 | — | pending |
 | TASK-D0-04 | 实现 bootstrap foundation：eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal-catalog authority、per-task verifier receipt/protected service，以及 six-item BootstrapApprovalSet/activation producer-consumer；owned TST 只在 pre-activation 运行，task done 另须随后取得 set+activation receipt，且二者不得回填 TST/TaskApproval/task receipt | TASK-D0-02, TASK-D0-03, TASK-D0-05, TASK-D0-06 | — | TST-BOOTSTRAP-001 | — | blocked |

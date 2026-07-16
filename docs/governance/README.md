@@ -14,6 +14,7 @@ normative: true
 - [**全局任务冻结协议**](task-freeze.md)（全部 `TASK-*` 完成面守恒；禁止执行中扩 scope）
 - [任务集合 lock](task-set.lock.json)（A0/D0–D8 exact `TASK-*` 集合；M1 机器强制）
 - [任务冻结包目录](task-freeze-packages/)（每个 `in_progress` 的完成面 JSON；M2 机器强制）
+- [D0-01 pure-consumer 关闭证明](bootstrap-closure/TASK-D0-01.attest.json)（`FX-2026-07-17-D0-01`）
 - [版本与兼容治理](version-compatibility.md)
 - [依赖与供应链](dependency-policy.md)
 - [CI 与证据](ci-evidence.md)

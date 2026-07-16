@@ -3,7 +3,7 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
 ---
 
@@ -14,9 +14,9 @@ normative: true
 | Phase | 文档 | 状态 | 进入下一阶段的条件 |
 |---|---|---|---|
 | 0 | [商业验证](00-business-validation.md) | `draft` | 证据达到 Go 条件或形成有时限的 founder exception |
-| 1 | [PRD](01-prd.md) | `proposed` | FR/NFR/非目标/DoD 获批 |
-| 2 | [Architecture](02-architecture.md) | `proposed` | 边界、不变量、威胁模型获批 |
-| 3 | [Technical Spec](03-technical-spec.md) | `proposed` | 所有公共接口、状态、错误、版本和边界获批 |
+| 1 | [PRD](01-prd.md) | `accepted` | FR/NFR/非目标/DoD 获批 |
+| 2 | [Architecture](02-architecture.md) | `accepted` | 边界、不变量、威胁模型获批 |
+| 3 | [Technical Spec](03-technical-spec.md) | `accepted` | 所有公共接口、状态、错误、版本和边界获批 |
 | 4 | [Task Breakdown](04-task-breakdown.md) | `proposed` | 任务均可在 4 小时内独立验收 |
 | 5 | [Test Spec](05-test-spec.md) | `proposed` | 测试骨架和 acceptance matrix 获批 |
 | 6 | [Implementation Log](06-implementation-log.md) | `draft` | 只记录真实执行与证据；当前为 pre-acceptance alpha |

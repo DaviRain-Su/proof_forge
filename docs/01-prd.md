@@ -1,10 +1,15 @@
 ---
 id: PHASE-1
 title: 产品需求文档
-status: proposed
+status: accepted
 owner: product
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
+approvers: architecture-owner, product-owner
+approvedAt: 2026-07-17
+reviewCommit: 5dbc9cd09b3e06deab613e713c10838998aa8520
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/5dbc9cd09b3e06deab613e713c10838998aa8520
+openFindings: none
 ---
 
 # Phase 1：PRD

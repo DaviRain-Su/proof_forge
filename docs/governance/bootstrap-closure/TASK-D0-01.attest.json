@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-01",
+  "kind": "pure-consumer-closure",
+  "freezeException": "FX-2026-07-17-D0-01",
+  "consumerModule": "scripts/bootstrap_task_objects.py",
+  "consumerCommit": "5dbc9cd09b3e06deab613e713c10838998aa8520",
+  "selfTestCommand": "/usr/bin/python3 -I -S scripts/bootstrap_task_objects_self_test.py",
+  "selfTestResult": "ok",
+  "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+  "protectedIntegration": "deferred-fail-closed-to-D0-04",
+  "notes": "Closes D0-01 pure consumer + docs control plane only. Protected Stage-0/RPC provenance remains fail-closed and is not claimed."
+}

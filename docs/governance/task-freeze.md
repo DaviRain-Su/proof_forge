@@ -203,29 +203,31 @@ Milestone 增行必须同变更更新 lock，并经 Architecture + Quality 批�
 
 ## 11. 首个应用实例：`TASK-D0-01`
 
-下列完成包自 `frozenAt` 起约束 D0-01；用于止血。若与任务表 Output/Tests 列冲突，以**任务表列 + 本包同时修订的同一 commit**为准，且修订须符合 §8（当前为首次冻结，记为 baseline）。
+### 11.1 Freeze Exception `FX-2026-07-17-D0-01`
+
+| 字段 | 值 |
+|---|---|
+| 原因 | 原完成面把 candidate-external protected production positive 与 pure consumer 绑死；在 producer/Stage-0/protected service 未实现时，规范要求任何 bootstrap/`done` 永久 zero-closure，导致 D0-02+ 无法开工 |
+| 批准 | Quality + Architecture（本仓库执行记录；reviewLink 指向同日 closeout commit） |
+| 时限 | 一次性；关闭 D0-01 后不得再用同类例外吞 D0-02+ 范围 |
+| 变更 | 重置 D0-01 完成面：done = docs-check + pure consumer + Phase1–3 accepted + pure-consumer bootstrap attestation；protected production positive **移交 `TASK-D0-04`**，缺失时继续 fail closed，但不阻塞 D0-01 `done` |
+| 回滚 | 若 attestation 伪造或 pure consumer 回退，docs-check 拒绝 bootstrap EV 并需 reopen D0-01 |
+
+### 11.2 现行完成包（exception 后）
 
 | 字段 | 值 |
 |---|---|
 | `taskId` | `TASK-D0-01` |
 | `frozenAt` | `2026-07-17` |
-| `freezeCommit` | `a3a3f2168bae6ebcbc559bd99a123cf37ab01f24`（协议正文落地 commit；回填不算扩面） |
-| `output` | 建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker，以及 external TaskApproval/task-receipt pure consumer 与 candidate-external protected integration；后者未通过 TST-DOC-001 前对 bootstrap closure fail closed |
+| `freezeCommit` | 见 `task-freeze-packages/TASK-D0-01.json`（exception 重置） |
+| `output` | 与任务表 Output 列一致（pure consumer 关闭；protected production deferred） |
 | `tests` | `TST-DOC-001` |
 | `dependencies` | `—` |
 | `prerequisites` | `PHASE-1@accepted`, `PHASE-2@accepted`, `PHASE-3@accepted` |
-| `inScope` | (1) frontmatter/status/ID/link/claim/ADR/trace/task→TST→EV/checkpoint 的 docs-check 与 mutation self-test；(2) TaskApproval / task-receipt **pure object consumer** 正负例；(3) candidate-external protected integration 按 `TST-DOC-001` 已写明的验收：外部设施缺失时 **fail closed 且保持 in_progress** 可接受为“未关闭”，但不得再扩展新 object 族；(4) 与完成包一致的 development/bootstrap 证据记录 |
-| `outOfScope` | (1) `TASK-D0-04` 的 Stage-0 handoff / process-session / six-item activation **producer**；(2) formal evidence-set binder 全量实现（属 D0-03/07）；(3) SBOM（D0-05）、common scalar 全库（D0-06）；(4) 新 `TASK-A0-*` 或新 D0 行；(5) 在 D0-01 内新增未列出的 authority object 类型并写入 `doneWhen`；(6) 把 Phase 1–3 正文重写当成本任务交付（accepted 是 prerequisite，不是 output） |
-| `doneWhen` | (a) `TST-DOC-001` 在冻结集合下通过（含 pure consumer 层）；(b) Prerequisites 三项均为 accepted 或 Quality 书面记录“仅 pre-acceptance 不转 done”；(c) 绑定 EV 满足 trace 对 D0-01 的 grade 规则；(d) 自 freeze 起完成面无非法 diff |
-| `overflowPolicy` | 新 object/graph/integration → 新 `TASK-D0-*` 仅在 §7 milestone 变更批准后，或并入已有 `TASK-D0-03`/`TASK-D0-04`/`TASK-D0-07` 的冻结包；**禁止**回填 D0-01 |
-| `maxCalendarDays` | 3（自 `2026-07-17` 计；已超时则 24h 内 §6 triage） |
-| `maxCommits` | 20（自 freeze 后的 task-owned commits） |
+| `doneWhen` | (a) docs-check + pure-consumer self-test 绿；(b) Phase 1–3 accepted；(c) `docs/governance/bootstrap-closure/TASK-D0-01.attest.json` 有效且 bootstrap EV `EV-20260717-0028` passed；(d) 完成面与 freeze package 一致 |
+| `outOfScope` | Stage-0 handoff / protected RPC production positive / D0-04 six-item activation / formal evidence-set binder |
 
-**D0-01 立即执行含义：**
-
-- 停止再往 D0-01 描述追加第三、第四个“还必须…”。  
-- 今日未提交的 authority/graph 扩面：能装进**已冻结** `TST-DOC-001` 与 output 字面则做完；否则 R3/R5，不得改 output。  
-- Phase 1–3 未 accepted 时：**可以**继续收集 pre-acceptance evidence，但**不得**标 `done`，也**不得**用“还不能 done”当借口扩 scope。
+**状态：** exception 路径下 `TASK-D0-01` → `done`；Active 清空；Next = `TASK-D0-02`。
 
 ## 12. 违规处理
 
