@@ -214,6 +214,69 @@ class TaskApprovalV1:
 
 
 @dataclass(frozen=True)
+class Stage0ChannelV1:
+    role: str
+    fd: int
+    transport: str
+    access: str
+    bindingDigest: Digest
+
+
+@dataclass(frozen=True)
+class EligibleStage0TcbV1:
+    stage0VerifierDigest: Digest
+    bootstrapVerifierDigest: Digest
+    continuationDigest: Digest
+    formalFinalizerDigest: Digest
+
+
+@dataclass(frozen=True)
+class EligibleStage0EnvironmentV1:
+    mode: str
+    home: str
+    path: str
+    lcAll: str
+    tz: str
+    network: str
+
+
+@dataclass(frozen=True)
+class EligibleStage0HandoffV1:
+    schema: str
+    id: str
+    version: str
+    runId: str
+    nonce: bytes
+    candidate: CandidateIdentity
+    authorityPolicy: ContentRef
+    authorityStoreService: ContentRef
+    hostObservation: ContentRef
+    hostProfile: ContentRef
+    eligible: bool
+    tcb: EligibleStage0TcbV1
+    environment: EligibleStage0EnvironmentV1
+    channels: Tuple[Stage0ChannelV1, ...]
+    pathnameReopen: bool
+    fallback: str
+
+
+@dataclass(frozen=True)
+class BootstrapTaskVerifierReceiptV1:
+    schema: str
+    id: str
+    taskId: str
+    candidate: CandidateIdentity
+    authorityPolicy: ContentRef
+    requiredTestSet: ContentRef
+    taskApproval: TaskApprovalRefV1
+    stage0Handoff: ContentRef
+    dependencyCompletions: Tuple[BootstrapTaskVerifierReceiptRefV1, ...]
+    verifierDigest: Digest
+    result: str
+    signature: ApprovalSignatureV1
+
+
+@dataclass(frozen=True)
 class BootstrapLedgerSubjectV1:
     id: str
     taskId: str
@@ -246,6 +309,19 @@ class _RequiredTestSetPreflightV1:
 @dataclass(frozen=True)
 class _TaskApprovalPreflightV1:
     taskApproval: TaskApprovalV1
+    signatureMessage: bytes
+    signedBytes: bytes
+
+
+@dataclass(frozen=True)
+class _EligibleStage0HandoffPreflightV1:
+    handoff: EligibleStage0HandoffV1
+    handoffRef: ContentRef
+
+
+@dataclass(frozen=True)
+class _BootstrapTaskVerifierReceiptPreflightV1:
+    receipt: BootstrapTaskVerifierReceiptV1
     signatureMessage: bytes
     signedBytes: bytes
 
@@ -638,6 +714,7 @@ _NAMED_RULE_MINIMA = (
 )
 _ED25519_PUBLIC_KEY_RE = re.compile(r"[0-9a-f]{64}")
 _ED25519_SIGNATURE_RE = re.compile(r"[0-9a-f]{128}")
+_LOWERCASE_32_BYTE_HEX_RE = re.compile(r"[0-9a-f]{64}")
 _LOWERCASE_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 _GREGORIAN_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _DEVELOPMENT_A0_TEST_IDS = tuple(
@@ -704,6 +781,66 @@ _TASK_APPROVAL_FIELDS = (
     "stage0Handoff",
     "independentReviews",
     "signatures",
+)
+_TASK_APPROVAL_REF_FIELDS = ("taskId", "digest")
+_STAGE0_CHANNEL_FIELDS = (
+    "role",
+    "fd",
+    "transport",
+    "access",
+    "bindingDigest",
+)
+_ELIGIBLE_STAGE0_TCB_FIELDS = (
+    "stage0VerifierDigest",
+    "bootstrapVerifierDigest",
+    "continuationDigest",
+    "formalFinalizerDigest",
+)
+_ELIGIBLE_STAGE0_ENVIRONMENT_FIELDS = (
+    "mode",
+    "home",
+    "path",
+    "lcAll",
+    "tz",
+    "network",
+)
+_ELIGIBLE_STAGE0_HANDOFF_FIELDS = (
+    "schema",
+    "id",
+    "version",
+    "runId",
+    "nonce",
+    "candidate",
+    "authorityPolicy",
+    "authorityStoreService",
+    "hostObservation",
+    "hostProfile",
+    "eligible",
+    "tcb",
+    "environment",
+    "channels",
+    "pathnameReopen",
+    "fallback",
+)
+_BOOTSTRAP_TASK_RECEIPT_FIELDS = (
+    "schema",
+    "id",
+    "taskId",
+    "candidate",
+    "authorityPolicy",
+    "requiredTestSet",
+    "taskApproval",
+    "stage0Handoff",
+    "dependencyCompletions",
+    "verifierDigest",
+    "result",
+    "signature",
+)
+_STAGE0_CHANNEL_SPECS = (
+    ("authority-policy", "regular-file", "read-only"),
+    ("authority-store", "authenticated-stream", "request-response"),
+    ("candidate-archive", "regular-file", "read-only"),
+    ("evidence-root", "regular-file", "read-only"),
 )
 
 
@@ -1201,6 +1338,26 @@ def _parse_required_test_ids(value: object) -> Tuple[str, ...]:
     return test_ids
 
 
+def _parse_approval_signature_syntax(
+    value: object,
+    where: str,
+) -> ApprovalSignatureV1:
+    obj = _require_exact_keys(value, _APPROVAL_SIGNATURE_FIELDS, where)
+    key_id = _require_safe_id(obj["keyId"], f"{where}.keyId")
+    if obj["algorithm"] != "ed25519":
+        _reject(f"{where}.algorithm must be ed25519")
+    encoded_signature = obj["signature"]
+    if (type(encoded_signature) is not str
+            or _ED25519_SIGNATURE_RE.fullmatch(encoded_signature) is None):
+        _reject(f"{where}.signature must be 64-byte lowercase hex")
+    assert isinstance(encoded_signature, str)
+    return ApprovalSignatureV1(
+        key_id,
+        "ed25519",
+        bytes.fromhex(encoded_signature),
+    )
+
+
 def _parse_approval_signatures_syntax(
     value: object,
     where: str,
@@ -1209,32 +1366,14 @@ def _parse_approval_signatures_syntax(
     if type(value) is not list or not 1 <= len(value) <= maximum:
         _reject(f"{where} count must be 1..{maximum}")
     assert isinstance(value, list)
-    signatures = []
-    for index, entry in enumerate(value):
-        entry_where = f"{where}[{index}]"
-        obj = _require_exact_keys(
-            entry, _APPROVAL_SIGNATURE_FIELDS, entry_where
-        )
-        key_id = _require_safe_id(obj["keyId"], f"{entry_where}.keyId")
-        if obj["algorithm"] != "ed25519":
-            _reject(f"{entry_where}.algorithm must be ed25519")
-        encoded_signature = obj["signature"]
-        if (type(encoded_signature) is not str
-                or _ED25519_SIGNATURE_RE.fullmatch(encoded_signature) is None):
-            _reject(
-                f"{entry_where}.signature must be 64-byte lowercase hex"
-            )
-        assert isinstance(encoded_signature, str)
-        signatures.append(ApprovalSignatureV1(
-            key_id,
-            "ed25519",
-            bytes.fromhex(encoded_signature),
-        ))
-    result = tuple(signatures)
-    key_ids = tuple(signature.keyId for signature in result)
+    signatures = tuple(
+        _parse_approval_signature_syntax(entry, f"{where}[{index}]")
+        for index, entry in enumerate(value)
+    )
+    key_ids = tuple(signature.keyId for signature in signatures)
     if key_ids != tuple(sorted(key_ids)) or len(set(key_ids)) != len(key_ids):
         _reject(f"{where} must have unique ascending keyId")
-    return result
+    return signatures
 
 
 def _require_signature_policy_membership(
@@ -1498,10 +1637,22 @@ def _parse_task_receipt_ref(
     )
 
 
+def _parse_task_approval_ref(
+    value: object,
+    where: str,
+) -> TaskApprovalRefV1:
+    obj = _require_exact_keys(value, _TASK_APPROVAL_REF_FIELDS, where)
+    task_id = obj["taskId"]
+    if type(task_id) is not str or task_id not in _D0_TASK_IDS:
+        _reject(f"{where}.taskId must be exact TASK-D0-01..06")
+    assert isinstance(task_id, str)
+    return TaskApprovalRefV1(task_id, parse_digest(obj["digest"]))
+
+
 def _parse_dependency_completion_refs(
     value: object,
+    where: str = "TaskApprovalV1.dependencyCompletions",
 ) -> Tuple[BootstrapTaskVerifierReceiptRefV1, ...]:
-    where = "TaskApprovalV1.dependencyCompletions"
     if type(value) is not list or len(value) > 5:
         _reject(f"{where} count must be 0..5")
     assert isinstance(value, list)
@@ -1581,6 +1732,239 @@ def _parse_independent_reviews_syntax(
     if len(set(report_digests)) != len(report_digests):
         _reject(f"{where} must have unique reportDigest values")
     return result
+
+
+def _parse_eligible_stage0_tcb(value: object) -> EligibleStage0TcbV1:
+    where = "EligibleStage0HandoffV1.tcb"
+    obj = _require_exact_keys(value, _ELIGIBLE_STAGE0_TCB_FIELDS, where)
+    return EligibleStage0TcbV1(
+        parse_digest(obj["stage0VerifierDigest"]),
+        parse_digest(obj["bootstrapVerifierDigest"]),
+        parse_digest(obj["continuationDigest"]),
+        parse_digest(obj["formalFinalizerDigest"]),
+    )
+
+
+def _parse_eligible_stage0_environment(
+    value: object,
+) -> EligibleStage0EnvironmentV1:
+    where = "EligibleStage0HandoffV1.environment"
+    obj = _require_exact_keys(
+        value, _ELIGIBLE_STAGE0_ENVIRONMENT_FIELDS, where
+    )
+    expected = {
+        "mode": "env-i",
+        "home": "/var/empty",
+        "path": "/usr/bin:/bin",
+        "lcAll": "C",
+        "tz": "UTC",
+        "network": "deny-default",
+    }
+    for field, expected_value in expected.items():
+        if obj[field] != expected_value:
+            _reject(f"{where}.{field} is not the frozen Stage-0 value")
+    return EligibleStage0EnvironmentV1(
+        obj["mode"],
+        obj["home"],
+        obj["path"],
+        obj["lcAll"],
+        obj["tz"],
+        obj["network"],
+    )
+
+
+def _parse_stage0_channels(value: object) -> Tuple[Stage0ChannelV1, ...]:
+    where = "EligibleStage0HandoffV1.channels"
+    if type(value) is not list or len(value) != len(_STAGE0_CHANNEL_SPECS):
+        _reject(f"{where} must contain the exact four channels")
+    assert isinstance(value, list)
+    channels = []
+    for index, (entry, expected) in enumerate(
+        zip(value, _STAGE0_CHANNEL_SPECS)
+    ):
+        entry_where = f"{where}[{index}]"
+        obj = _require_exact_keys(entry, _STAGE0_CHANNEL_FIELDS, entry_where)
+        expected_role, expected_transport, expected_access = expected
+        if obj["role"] != expected_role:
+            _reject(f"{entry_where}.role is not the fixed channel role")
+        fd = obj["fd"]
+        if type(fd) is not int or not 3 <= fd <= 0xFFFFFFFF:
+            _reject(f"{entry_where}.fd must be a u32 greater than 2")
+        assert isinstance(fd, int)
+        if obj["transport"] != expected_transport:
+            _reject(f"{entry_where}.transport is not valid for its role")
+        if obj["access"] != expected_access:
+            _reject(f"{entry_where}.access is not valid for its role")
+        channels.append(Stage0ChannelV1(
+            expected_role,
+            fd,
+            expected_transport,
+            expected_access,
+            parse_digest(obj["bindingDigest"]),
+        ))
+    result = tuple(channels)
+    fds = tuple(channel.fd for channel in result)
+    if len(set(fds)) != len(fds):
+        _reject(f"{where} fd values must be unique")
+    return result
+
+
+def _preflight_eligible_stage0_handoff(
+    stage0_handoff_bytes: bytes,
+) -> _EligibleStage0HandoffPreflightV1:
+    decoded = decode_canonical_pf_jcs(stage0_handoff_bytes)
+    obj = _require_exact_keys(
+        decoded,
+        _ELIGIBLE_STAGE0_HANDOFF_FIELDS,
+        "EligibleStage0HandoffV1",
+    )
+    if obj["schema"] != "proof-forge.eligible-stage0-handoff.v1":
+        _reject("EligibleStage0HandoffV1.schema is not v1")
+    identifier = _require_ascii_text(
+        obj["id"], PROFILE_ID_RE, "EligibleStage0HandoffV1.id", 127
+    )
+    version = _require_semver(
+        obj["version"], "EligibleStage0HandoffV1.version"
+    )
+    run_id = _require_safe_id(
+        obj["runId"], "EligibleStage0HandoffV1.runId"
+    )
+    encoded_nonce = obj["nonce"]
+    if (type(encoded_nonce) is not str
+            or _LOWERCASE_32_BYTE_HEX_RE.fullmatch(encoded_nonce) is None):
+        _reject("EligibleStage0HandoffV1.nonce must be 32-byte lowercase hex")
+    assert isinstance(encoded_nonce, str)
+    candidate = parse_candidate_identity(obj["candidate"])
+    authority_policy = parse_content_ref(obj["authorityPolicy"])
+    authority_store = parse_content_ref(obj["authorityStoreService"])
+    host_observation = parse_content_ref(obj["hostObservation"])
+    host_profile = parse_content_ref(obj["hostProfile"])
+    if obj["eligible"] is not True:
+        _reject("EligibleStage0HandoffV1.eligible must be true")
+    tcb = _parse_eligible_stage0_tcb(obj["tcb"])
+    environment = _parse_eligible_stage0_environment(obj["environment"])
+    channels = _parse_stage0_channels(obj["channels"])
+    if obj["pathnameReopen"] is not False:
+        _reject("EligibleStage0HandoffV1.pathnameReopen must be false")
+    if obj["fallback"] != "none":
+        _reject("EligibleStage0HandoffV1.fallback must be none")
+
+    if channels[0].bindingDigest != authority_policy.digest:
+        _reject("EligibleStage0HandoffV1 authority-policy binding mismatch")
+    if channels[1].bindingDigest != authority_store.digest:
+        _reject("EligibleStage0HandoffV1 authority-store binding mismatch")
+    if channels[2].bindingDigest != candidate.archiveDigest:
+        _reject("EligibleStage0HandoffV1 candidate-archive binding mismatch")
+
+    handoff = EligibleStage0HandoffV1(
+        "proof-forge.eligible-stage0-handoff.v1",
+        identifier,
+        version,
+        run_id,
+        bytes.fromhex(encoded_nonce),
+        candidate,
+        authority_policy,
+        authority_store,
+        host_observation,
+        host_profile,
+        True,
+        tcb,
+        environment,
+        channels,
+        False,
+        "none",
+    )
+    handoff_digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.eligible-stage0-handoff.v1\x00" + stage0_handoff_bytes
+        ).digest(),
+    )
+    handoff_ref = ContentRef(
+        handoff.schema,
+        handoff.id,
+        handoff.version,
+        handoff_digest,
+    )
+    return _EligibleStage0HandoffPreflightV1(handoff, handoff_ref)
+
+
+def _preflight_bootstrap_task_verifier_receipt(
+    task_receipt_bytes: bytes,
+) -> _BootstrapTaskVerifierReceiptPreflightV1:
+    decoded = decode_canonical_pf_jcs(task_receipt_bytes)
+    obj = _require_exact_keys(
+        decoded,
+        _BOOTSTRAP_TASK_RECEIPT_FIELDS,
+        "BootstrapTaskVerifierReceiptV1",
+    )
+    if obj["schema"] != "proof-forge.bootstrap-task-verifier-receipt.v1":
+        _reject("BootstrapTaskVerifierReceiptV1.schema is not v1")
+    identifier = _parse_compact_gregorian_id(
+        obj["id"], BTV_ID_RE, 4, "BootstrapTaskVerifierReceiptV1.id"
+    )
+    task_id = obj["taskId"]
+    if type(task_id) is not str or task_id not in _D0_TASK_IDS:
+        _reject(
+            "BootstrapTaskVerifierReceiptV1.taskId must be exact "
+            "TASK-D0-01..06"
+        )
+    assert isinstance(task_id, str)
+    candidate = parse_candidate_identity(obj["candidate"])
+    authority_policy = parse_content_ref(obj["authorityPolicy"])
+    required_test_set = parse_content_ref(obj["requiredTestSet"])
+    task_approval = _parse_task_approval_ref(
+        obj["taskApproval"],
+        "BootstrapTaskVerifierReceiptV1.taskApproval",
+    )
+    if task_approval.taskId != task_id:
+        _reject(
+            "BootstrapTaskVerifierReceiptV1.taskApproval.taskId does not "
+            "match receipt taskId"
+        )
+    stage0_handoff = parse_content_ref(obj["stage0Handoff"])
+    dependency_completions = _parse_dependency_completion_refs(
+        obj["dependencyCompletions"],
+        "BootstrapTaskVerifierReceiptV1.dependencyCompletions",
+    )
+    verifier_digest = parse_digest(obj["verifierDigest"])
+    if obj["result"] != "task-approved":
+        _reject("BootstrapTaskVerifierReceiptV1.result must be task-approved")
+    signature = _parse_approval_signature_syntax(
+        obj["signature"],
+        "BootstrapTaskVerifierReceiptV1.signature",
+    )
+
+    statement = {
+        field: obj[field] for field in _BOOTSTRAP_TASK_RECEIPT_FIELDS[:-1]
+    }
+    statement_digest = hashlib.sha256(
+        b"pf.bootstrap-task-verifier-receipt-statement.v1\x00"
+        + canonical_pf_jcs(statement)
+    ).digest()
+    signature_message = (
+        b"pf.bootstrap-task-verifier-receipt-signature.v1\x00"
+        + statement_digest
+    )
+    receipt = BootstrapTaskVerifierReceiptV1(
+        "proof-forge.bootstrap-task-verifier-receipt.v1",
+        identifier,
+        task_id,
+        candidate,
+        authority_policy,
+        required_test_set,
+        task_approval,
+        stage0_handoff,
+        dependency_completions,
+        verifier_digest,
+        "task-approved",
+        signature,
+    )
+    return _BootstrapTaskVerifierReceiptPreflightV1(
+        receipt,
+        signature_message,
+        task_receipt_bytes,
+    )
 
 
 def _preflight_task_approval(
@@ -1732,6 +2116,102 @@ def _finalize_task_approval(
     return approval, TaskApprovalRefV1(approval.taskId, approval_digest)
 
 
+def _require_task_approval_input_joins(
+    approval_preflight: _TaskApprovalPreflightV1,
+    snapshot_content: Phase5SnapshotContentV1,
+    required_preflight: _RequiredTestSetPreflightV1,
+) -> None:
+    _require_phase5_required_set_join(snapshot_content, required_preflight)
+    approval = approval_preflight.taskApproval
+    required_set = required_preflight.requiredTestSet
+    if approval.authorityPolicy != required_set.authorityPolicy:
+        _reject(
+            "TaskApprovalV1 authority policy ref does not match "
+            "RequiredTestSetV1"
+        )
+    if approval.requiredTestSet != required_preflight.requiredTestSetRef:
+        _reject(
+            "TaskApprovalV1 required-test-set ref does not match exact bytes"
+        )
+    required_test_ids = set(required_set.requiredTestIds)
+    if any(test_id not in required_test_ids for test_id in approval.testIds):
+        _reject(
+            "TaskApprovalV1 testIds are not members of RequiredTestSetV1"
+        )
+    _resolve_task_approval_authority(approval, required_preflight.policy)
+
+
+def _require_bootstrap_task_receipt_input_joins(
+    receipt_preflight: _BootstrapTaskVerifierReceiptPreflightV1,
+    approval_preflight: _TaskApprovalPreflightV1,
+    required_preflight: _RequiredTestSetPreflightV1,
+    handoff_preflight: _EligibleStage0HandoffPreflightV1,
+) -> None:
+    receipt = receipt_preflight.receipt
+    approval = approval_preflight.taskApproval
+    required_set = required_preflight.requiredTestSet
+    policy = required_preflight.policy
+    handoff = handoff_preflight.handoff
+
+    if receipt.taskId != approval.taskId:
+        _reject("task receipt taskId does not match TaskApprovalV1")
+    if receipt.taskApproval.taskId != approval.taskId:
+        _reject("task receipt TaskApprovalRefV1 taskId does not match approval")
+    if receipt.candidate != approval.candidate:
+        _reject("task receipt candidate does not match TaskApprovalV1")
+    if receipt.authorityPolicy != required_set.authorityPolicy:
+        _reject("task receipt authority policy does not match RequiredTestSetV1")
+    if receipt.requiredTestSet != required_preflight.requiredTestSetRef:
+        _reject("task receipt required-test-set ref does not match exact bytes")
+    if receipt.stage0Handoff != handoff_preflight.handoffRef:
+        _reject("task receipt Stage-0 handoff ref does not match exact bytes")
+    if approval.stage0Handoff != handoff_preflight.handoffRef:
+        _reject("TaskApprovalV1 Stage-0 handoff ref does not match exact bytes")
+    if receipt.dependencyCompletions != approval.dependencyCompletions:
+        _reject("task receipt dependencies do not match TaskApprovalV1")
+    if receipt.verifierDigest != policy.verifier.executableDigest:
+        _reject("task receipt verifier digest does not match authority policy")
+    if receipt.signature.keyId != policy.verifier.receiptKeyId:
+        _reject("task receipt signature key is not the policy receipt key")
+
+    if handoff.candidate != approval.candidate:
+        _reject("raw Stage-0 handoff candidate does not match TaskApprovalV1")
+    if handoff.authorityPolicy != required_set.authorityPolicy:
+        _reject("raw Stage-0 handoff authority policy ref does not match")
+    if handoff.authorityStoreService != policy.authorityStoreService:
+        _reject("raw Stage-0 handoff authority-store service ref does not match")
+    if handoff.tcb.bootstrapVerifierDigest != policy.verifier.executableDigest:
+        _reject("raw Stage-0 handoff bootstrap verifier digest does not match")
+
+
+def _finalize_bootstrap_task_verifier_receipt(
+    preflight: _BootstrapTaskVerifierReceiptPreflightV1,
+    policy: BootstrapAuthorityPolicyV1,
+) -> Tuple[
+    BootstrapTaskVerifierReceiptV1,
+    BootstrapTaskVerifierReceiptRefV1,
+]:
+    receipt = preflight.receipt
+    if not verify_ed25519(
+        policy.verifier.receiptPublicKey,
+        preflight.signatureMessage,
+        receipt.signature.signature,
+    ):
+        _reject("BootstrapTaskVerifierReceiptV1 signature is invalid")
+    receipt_digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.bootstrap-task-verifier-receipt.v1\x00"
+            + preflight.signedBytes
+        ).digest(),
+    )
+    return receipt, BootstrapTaskVerifierReceiptRefV1(
+        receipt.taskId,
+        receipt.id,
+        receipt_digest,
+    )
+
+
 def parse_task_approval(
     task_approval_bytes: bytes,
     required_test_set_bytes: bytes,
@@ -1745,22 +2225,69 @@ def parse_task_approval(
         required_test_set_bytes,
         authority_policy_bytes,
     )
-    _require_phase5_required_set_join(snapshot_content, required_preflight)
-
-    approval = approval_preflight.taskApproval
-    required_set = required_preflight.requiredTestSet
-    if approval.authorityPolicy != required_set.authorityPolicy:
-        _reject("TaskApprovalV1 authority policy ref does not match RequiredTestSetV1")
-    if approval.requiredTestSet != required_preflight.requiredTestSetRef:
-        _reject("TaskApprovalV1 required-test-set ref does not match exact bytes")
-    required_test_ids = set(required_set.requiredTestIds)
-    if any(test_id not in required_test_ids for test_id in approval.testIds):
-        _reject("TaskApprovalV1 testIds are not members of RequiredTestSetV1")
-    _resolve_task_approval_authority(approval, required_preflight.policy)
+    _require_task_approval_input_joins(
+        approval_preflight,
+        snapshot_content,
+        required_preflight,
+    )
 
     _finalize_required_test_set(required_preflight)
     return _finalize_task_approval(
         approval_preflight,
+        required_preflight.policy,
+    )
+
+
+def parse_bootstrap_task_verifier_receipt(
+    task_receipt_bytes: bytes,
+    task_approval_bytes: bytes,
+    required_test_set_bytes: bytes,
+    authority_policy_bytes: bytes,
+    phase5_snapshot: BootstrapDocumentSnapshotV1,
+    stage0_handoff_bytes: bytes,
+) -> Tuple[
+    BootstrapTaskVerifierReceiptV1,
+    BootstrapTaskVerifierReceiptRefV1,
+]:
+    """Validate the signed receipt and its exact six content inputs.
+
+    This function establishes content closure only.  It does not authenticate
+    the live Stage-0 process, authority-store state, or filesystem provenance.
+    """
+    receipt_preflight = _preflight_bootstrap_task_verifier_receipt(
+        task_receipt_bytes
+    )
+    approval_preflight = _preflight_task_approval(task_approval_bytes)
+    snapshot_content = parse_phase5_snapshot_content(phase5_snapshot)
+    required_preflight = _preflight_required_test_set(
+        required_test_set_bytes,
+        authority_policy_bytes,
+    )
+    handoff_preflight = _preflight_eligible_stage0_handoff(
+        stage0_handoff_bytes
+    )
+
+    _require_task_approval_input_joins(
+        approval_preflight,
+        snapshot_content,
+        required_preflight,
+    )
+    _require_bootstrap_task_receipt_input_joins(
+        receipt_preflight,
+        approval_preflight,
+        required_preflight,
+        handoff_preflight,
+    )
+
+    _finalize_required_test_set(required_preflight)
+    _, approval_ref = _finalize_task_approval(
+        approval_preflight,
+        required_preflight.policy,
+    )
+    if receipt_preflight.receipt.taskApproval.digest != approval_ref.digest:
+        _reject("task receipt TaskApprovalRefV1 digest does not match exact bytes")
+    return _finalize_bootstrap_task_verifier_receipt(
+        receipt_preflight,
         required_preflight.policy,
     )
 
@@ -1919,11 +2446,13 @@ def verifyBootstrapTaskObjects(
         )
         if phase5_snapshot is None:
             _reject("subject lacks the PHASE-5 document snapshot")
-        parse_task_approval(
+        parse_bootstrap_task_verifier_receipt(
+            objects.taskReceiptBytes,
             objects.taskApprovalBytes,
             objects.requiredTestSetBytes,
             objects.authorityPolicyBytes,
             phase5_snapshot,
+            objects.stage0HandoffBytes,
         )
     except Rejected as rejected:
         return rejected

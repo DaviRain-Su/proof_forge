@@ -4044,6 +4044,126 @@ def test_bootstrap_task_verifier_receipt(module: ModuleType) -> None:
                 module.canonical_pf_jcs(invalid_channel),
             ))
 
+    propagated_handoff_zero_curve_cases = []
+
+    def append_handoff_preflight_case(
+        label: str,
+        mutator: Callable[[dict], None],
+    ) -> None:
+        propagated_fixture = signed_task_receipt_fixture(
+            module,
+            mutate_handoff=mutator,
+        )
+        propagated_handoff_zero_curve_cases.append((
+            label,
+            propagated_fixture["receiptBytes"],
+            propagated_fixture["approvalBytes"],
+            propagated_fixture["requiredBytes"],
+            propagated_fixture["policyBytes"],
+            propagated_fixture["phase5Snapshot"],
+            propagated_fixture["handoffBytes"],
+        ))
+
+    for field, invalid_value in (
+        ("schema", "proof-forge.eligible-stage0-handoff.v2"),
+        ("id", "Invalid/Handoff/Id"),
+        ("version", "01.0.0"),
+        ("runId", "invalid/run/id"),
+        ("nonce", "AA" * 32),
+        ("eligible", False),
+        ("pathnameReopen", True),
+        ("fallback", "repository"),
+    ):
+        append_handoff_preflight_case(
+            f"handoff frozen root scalar {field}",
+            lambda handoff, field=field, invalid_value=invalid_value: (
+                handoff.__setitem__(field, invalid_value)
+            ),
+        )
+
+    for field, invalid_value in (
+        ("schema", "proof-forge.eligible-stage0-handoff.v2"),
+        ("id", "Invalid/Handoff/Id"),
+        ("version", "01.0.0"),
+    ):
+        raw_handoff = copy.deepcopy(fixture["handoffWire"])
+        assert isinstance(raw_handoff, dict)
+        raw_handoff[field] = invalid_value
+        raw_handoff_bytes = module.canonical_pf_jcs(raw_handoff)
+        assert_rejected(
+            module,
+            lambda raw_handoff_bytes=raw_handoff_bytes: (
+                module._preflight_eligible_stage0_handoff(raw_handoff_bytes)
+            ),
+        )
+
+    for field, invalid_value in (
+        ("mode", "inherit"),
+        ("home", "/tmp"),
+        ("path", "/usr/local/bin:/usr/bin:/bin"),
+        ("lcAll", "en_US.UTF-8"),
+        ("tz", "Asia/Shanghai"),
+        ("network", "allow"),
+    ):
+        append_handoff_preflight_case(
+            f"handoff frozen environment scalar {field}",
+            lambda handoff, field=field, invalid_value=invalid_value: (
+                handoff["environment"].__setitem__(field, invalid_value)
+            ),
+        )
+
+    for invalid_fd in (True, 2, 0x1_0000_0000):
+        append_handoff_preflight_case(
+            f"handoff channel fd boundary {invalid_fd!r}",
+            lambda handoff, invalid_fd=invalid_fd: (
+                handoff["channels"][0].__setitem__("fd", invalid_fd)
+            ),
+        )
+
+    for field in (
+        "stage0VerifierDigest",
+        "bootstrapVerifierDigest",
+        "continuationDigest",
+        "formalFinalizerDigest",
+    ):
+        append_handoff_preflight_case(
+            f"handoff malformed tcb digest {field}",
+            lambda handoff, field=field: handoff["tcb"].__setitem__(
+                field, "sha256:" + "0" * 63
+            ),
+        )
+
+    for field in (
+        "authorityPolicy",
+        "authorityStoreService",
+        "hostObservation",
+        "hostProfile",
+    ):
+        append_handoff_preflight_case(
+            f"handoff closed ContentRef {field}",
+            lambda handoff, field=field: handoff[field].__setitem__(
+                "futureField", True
+            ),
+        )
+    append_handoff_preflight_case(
+        "handoff malformed host observation digest",
+        lambda handoff: handoff["hostObservation"].__setitem__(
+            "digest", "sha256:" + "0" * 63
+        ),
+    )
+    append_handoff_preflight_case(
+        "handoff malformed host profile version",
+        lambda handoff: handoff["hostProfile"].__setitem__(
+            "version", "01.0.0"
+        ),
+    )
+    append_handoff_preflight_case(
+        "handoff malformed evidence-root digest",
+        lambda handoff: handoff["channels"][3].__setitem__(
+            "bindingDigest", "sha256:" + "0" * 63
+        ),
+    )
+
     def receipt_join_mutation(mutator: Callable[[dict], None]) -> bytes:
         mutation = copy.deepcopy(receipt_wire)
         mutator(mutation)
@@ -4140,6 +4260,69 @@ def test_bootstrap_task_verifier_receipt(module: ModuleType) -> None:
         ),
     ))
 
+    for ref_field in (
+        "authorityPolicy",
+        "requiredTestSet",
+        "stage0Handoff",
+    ):
+        for component, replacement in (
+            ("schema", "proof-forge.unrelated.v1"),
+            ("id", "different-content-ref"),
+            ("version", "2.0.0"),
+        ):
+            zero_curve_cases.append((
+                f"receipt {ref_field} full ContentRef {component} join",
+                receipt_join_mutation(
+                    lambda wire,
+                    ref_field=ref_field,
+                    component=component,
+                    replacement=replacement: wire[ref_field].__setitem__(
+                        component, replacement
+                    )
+                ),
+                fixture["approvalBytes"],
+                fixture["handoffBytes"],
+            ))
+
+    for component, replacement in (
+        ("schema", "proof-forge.unrelated.v1"),
+        ("id", "different-content-ref"),
+        ("version", "2.0.0"),
+    ):
+        changed_approval_handoff = copy.deepcopy(fixture["approvalWire"])
+        assert isinstance(changed_approval_handoff, dict)
+        changed_approval_handoff["stage0Handoff"][component] = replacement
+        zero_curve_cases.append((
+            f"TaskApproval stage0Handoff full ContentRef {component} join",
+            fixture["receiptBytes"],
+            module.canonical_pf_jcs(resign_task_approval_wire(
+                module, changed_approval_handoff
+            )),
+            fixture["handoffBytes"],
+        ))
+
+    one_dependency_fixture = signed_task_receipt_fixture(
+        module,
+        dependency_completions=tuple(dependency_receipt_refs(1)),
+    )
+    one_dependency_receipt = one_dependency_fixture["receiptWire"]
+    assert isinstance(one_dependency_receipt, dict)
+    for component, replacement in (
+        ("taskId", "TASK-D0-03"),
+        ("id", "BTV-20260718-0002"),
+        ("digest", digest_text(bytes.fromhex("d1" * 32))),
+    ):
+        changed_dependency = copy.deepcopy(one_dependency_receipt)
+        changed_dependency["dependencyCompletions"][0][component] = replacement
+        zero_curve_cases.append((
+            f"receipt dependency full ref {component} join",
+            module.canonical_pf_jcs(resign_bootstrap_task_receipt_wire(
+                module, changed_dependency
+            )),
+            one_dependency_fixture["approvalBytes"],
+            one_dependency_fixture["handoffBytes"],
+        ))
+
     def break_policy_channel_binding(handoff: dict) -> None:
         handoff["channels"][0]["bindingDigest"] = digest_text(
             bytes.fromhex("b1" * 32)
@@ -4165,12 +4348,25 @@ def test_bootstrap_task_verifier_receipt(module: ModuleType) -> None:
             bytes.fromhex("b5" * 32)
         )
 
+    def break_handoff_candidate_semantic_join(handoff: dict) -> None:
+        handoff["candidate"] = candidate_identity_wire(module, "c" * 40)
+        handoff["channels"][2]["bindingDigest"] = (
+            handoff["candidate"]["archiveDigest"]
+        )
+
+    def break_handoff_policy_semantic_join(handoff: dict) -> None:
+        wrong_policy_digest = digest_text(bytes.fromhex("b6" * 32))
+        handoff["authorityPolicy"]["digest"] = wrong_policy_digest
+        handoff["channels"][0]["bindingDigest"] = wrong_policy_digest
+
     for label, mutator in (
         ("authority-policy channel binding double pin", break_policy_channel_binding),
         ("bootstrap verifier policy/handoff double pin", break_bootstrap_verifier_pin),
         ("authority-store policy/handoff double pin", break_authority_store_pin),
         ("candidate archive channel binding", break_candidate_archive_binding),
         ("authority-store channel binding", break_authority_store_channel_binding),
+        ("raw handoff propagated candidate semantic join", break_handoff_candidate_semantic_join),
+        ("raw handoff propagated policy semantic join", break_handoff_policy_semantic_join),
     ):
         broken_fixture = signed_task_receipt_fixture(
             module, mutate_handoff=mutator
@@ -4181,6 +4377,31 @@ def test_bootstrap_task_verifier_receipt(module: ModuleType) -> None:
             broken_fixture["approvalBytes"],
             broken_fixture["handoffBytes"],
         ))
+
+    for ref_field in ("authorityPolicy", "authorityStoreService"):
+        for component, replacement in (
+            ("schema", "proof-forge.unrelated.v1"),
+            ("id", "different-content-ref"),
+            ("version", "2.0.0"),
+        ):
+            def mutate_handoff_ref(
+                handoff: dict,
+                ref_field: str = ref_field,
+                component: str = component,
+                replacement: str = replacement,
+            ) -> None:
+                handoff[ref_field][component] = replacement
+
+            broken_fixture = signed_task_receipt_fixture(
+                module,
+                mutate_handoff=mutate_handoff_ref,
+            )
+            zero_curve_cases.append((
+                f"raw handoff {ref_field} full ContentRef {component} join",
+                broken_fixture["receiptBytes"],
+                broken_fixture["approvalBytes"],
+                broken_fixture["handoffBytes"],
+            ))
 
     original_verify_ed25519 = module.verify_ed25519
     curve_calls = 0
@@ -4215,6 +4436,38 @@ def test_bootstrap_task_verifier_receipt(module: ModuleType) -> None:
             assert curve_calls == 0, (
                 f"{label} must reject before RequiredTestSet, TaskApproval, "
                 "or receipt signature verification"
+            )
+        for (
+            label,
+            case_receipt,
+            case_approval,
+            case_required,
+            case_policy,
+            case_snapshot,
+            case_handoff,
+        ) in propagated_handoff_zero_curve_cases:
+            curve_calls = 0
+            assert_rejected(
+                module,
+                lambda case_receipt=case_receipt,
+                case_approval=case_approval,
+                case_required=case_required,
+                case_policy=case_policy,
+                case_snapshot=case_snapshot,
+                case_handoff=case_handoff: (
+                    module.parse_bootstrap_task_verifier_receipt(
+                        case_receipt,
+                        case_approval,
+                        case_required,
+                        case_policy,
+                        case_snapshot,
+                        case_handoff,
+                    )
+                ),
+            )
+            assert curve_calls == 0, (
+                f"{label} with propagated handoff ref must reject before "
+                "RequiredTestSet, TaskApproval, or receipt signature verification"
             )
     finally:
         module.verify_ed25519 = original_verify_ed25519
@@ -4500,6 +4753,7 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
 
     complete_objects = module.BootstrapTaskObjectSetV1(**base)
     original_task_receipt_parser = module.parse_bootstrap_task_verifier_receipt
+    original_task_approval_parser = module.parse_task_approval
     task_receipt_calls = []
 
     def capture_task_receipt_call(
@@ -4521,12 +4775,16 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
         return object(), object()
 
     module.parse_bootstrap_task_verifier_receipt = capture_task_receipt_call
+    module.parse_task_approval = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("legacy TaskApproval parser must not be called")
+    )
     try:
         still_incomplete = module.verifyBootstrapTaskObjects(
             subject, complete_objects
         )
     finally:
         module.parse_bootstrap_task_verifier_receipt = original_task_receipt_parser
+        module.parse_task_approval = original_task_approval_parser
     assert isinstance(still_incomplete, module.Rejected)
     assert len(task_receipt_calls) == 1, (
         "object consumer must invoke the six-input task receipt parser once"
