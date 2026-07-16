@@ -588,6 +588,41 @@ normative: false
   子进程中；以实际 GitHub
   candidate run 判定 CI 是否修复。
 
+## 2026-07-16 — TASK-A0-19 completion / Loader CI resource isolation
+
+- Commits：spec/checkpoint `79fee63d1280fc8865d3f3a951e2342d2a2c8e31`；implementation
+  `00db2564710b68f1920f91e8d86fe4b2f784aad9`。post-commit tree
+  `5126d53c450937366d022e3ad4b547f7ad090f3c`；archive SHA-256
+  `eae0117a9dc194b33bc58caaf202c518af9ac3e43788edcb209c21192efc8456`。
+- Spec/Test：`MOD-SOURCE-001`、`TST-SRC-002`、hosted CI evidence policy。20,000-state、
+  >100,000-node fixture 继续由 `dsl-negative` 分别启动 Lean command 与 CLI loader，并在第
+  100,001 节点以相同 `PF-BOUND-001` 拒绝；只移除 resident test process 内的重复执行。
+- Changed：新增 single-control-thread create、可复用 immutable environment 的
+  `Loader.ParserSession`，one-shot API 保持兼容并在导入 environment 前执行 16 MiB fast reject，
+  session method 内再次 fail closed。Loader unit vectors 共用同一 session；parser diagnostic 由
+  Lean in-memory stdout stream 捕获。保留 malicious `run_cmd` 未执行断言，并新增 qualified
+  namespace overflow regression，防止 over-limit prefix 被截断后物化成合法 identity。
+- Commands：`lake build proof_forge_next_tests`；test binary；`/usr/bin/time -l just test`；
+  `/usr/bin/time -l just dsl-negative`；`/usr/bin/time -l just ci`；`just docs-check`；
+  `git diff --check`；`just check`；post-commit `just v2-clean-room-alpha`；两组 independent
+  read-only review；`gh run watch 29473988975 --exit-status`；
+  `gh run view 29473989014 --json status,conclusion,headSha,url,jobs`。
+- Results：全部有效候选命令 exit 0。修复前 resident test 为 49.64 s、maximum RSS
+  5,256,871,936 bytes；修复后 `just test` 为 1.43 s、maximum RSS 1,224,753,152 bytes，
+  `just ci` 峰值为 1,298,743,296 bytes。development full check 与 clean-room 通过，最终复核
+  P0=0/P1=0/P2=0。GitHub CI run `29473988975` 精确绑定 implementation SHA：`docs` 7 s、
+  `source-core` 1m45s，均 success；Secret Scan `29473989014` success。此前 SHA `648be570`
+  的 run `29472971887` 在 resident tests 约 39 s 后 signal 15，且没有并发新 push，故按资源压力
+  修复而不是误归类为 workflow concurrency cancel。
+- Evidence：`EV-20260716-0024`，local development + GitHub hosted CI evidence；没有
+  schema-complete immutable formal EV JSON。
+- Limitations：`ParserSession.create` 依赖 Lean initializer/import 的全局初始化，只支持单线程
+  create 后共享/复用；没有 concurrent-create contract。16 MiB cap 之后的 Lean parser 本身仍不受
+  Syntax preflight 保护。GitHub Linux 成功不是 host/toolchain/hermetic qualification；当前 host
+  仍因 broken seal/current-user-mutable Xcode 不合格，D0-03/D0-04 blocker 不变。
+- Next：从当前代码与正式任务依赖重新选择下一 implementation slice；不得由本证据声称
+  parser containment、完整 D1/D2 或正式 hermetic clean-room 已闭合。
+
 ## 记录模板
 
 ```markdown

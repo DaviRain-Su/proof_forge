@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-A0-19**：复用 immutable Loader `ParserSession`，并把 hosted `source-core` 的 20000-state / >100000-node（第 100001 节点拒绝）重资源向量隔离到现有 `dsl-negative` 子进程；不得削弱 `PF-BOUND-001` 双路径验收 |
-| Next task | 运行完整 V2/开发隔离门禁，提交 Loader CI 修复并以候选 SHA 对应的 GitHub `docs` + `source-core` 结果闭合 `EV-20260716-0024` |
+| Active task | 无；**TASK-A0-19** 已在 `00db2564` 完成并记录为 `EV-20260716-0024` |
+| Next task | 待从当前代码与正式任务依赖重新选择下一 implementation slice；不得把本次 hosted CI 修复写成 parser containment、正式 D1/D2 或 hermetic evidence 完成 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |

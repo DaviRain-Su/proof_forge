@@ -38,7 +38,7 @@ normative: true
 | TASK-A0-16 | 通用 UInt64 NoirPlan/typed relation IR/source 与 Accumulator external-state relation artifact | EV-20260716-0021 | done |
 | TASK-A0-17 | 递归 decode/type-check 前的共享 Syntax node/nesting preflight 与稳定 boundary diagnostics | EV-20260716-0022 | done |
 | TASK-A0-18 | accepted-width `Source.Program` 的线性 duplicate/name index 与 typecheck complexity regression | EV-20260716-0023 | done |
-| TASK-A0-19 | reusable Loader `ParserSession` 与 hosted `source-core` 重资源向量进程隔离 | TST-SRC-002 / `just ci` / GitHub `source-core` | in_progress |
+| TASK-A0-19 | reusable Loader `ParserSession` 与 hosted `source-core` 重资源向量进程隔离 | EV-20260716-0024 | done |
 
 ## Milestone D0：文档与独立工程
 
