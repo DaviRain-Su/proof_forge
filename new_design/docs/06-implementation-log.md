@@ -400,6 +400,37 @@ normative: false
 - Next：`TASK-A0-14` 直接实现同一 Accumulator 的 Solana target-owned Plan、数据驱动 sBPF
   assembly 与 IDL；没有 SBF platform tools 时保持 non-deployable 且不声称 ELF/runtime。
 
+## 2026-07-16 — TASK-A0-14 / generic Solana semantic planning
+
+- Commit：`4467a8450326288e64648b07825882877e53ba61`；post-commit tree
+  `60c561145d85dc394ea20011a8f7a1c1486dac25`；archive SHA-256
+  `1f86533b8bb28479e65db150794fbe144d4a3a7992a6633dfd55140f6473ae05`。
+- Spec/Test：`TST-SOL-001` 至 `TST-SOL-003` 的 pre-acceptance typed-plan slice；
+  `TST-SOL-004/005` 与正式 D5 保持 open。
+- Changed：删除 `isExactCounter` 和 `Plan.source : SemanticProgram`。新 `SolanaPlan` 完整拥有
+  codegen/error policy、state account header/fields、exact owner/length/signer/writable/init access、
+  layout-bound nonzero marker、zero-all-fields initializer policy、domain-separated 8-byte instruction
+  discriminator、LE 参数/state offset、checked-add/store/return body。Plan 降为 typed operation IR，
+  IR 携带 source Plan 并在 emit 前重新降低逐项相等；输出改成不可被 assembler 误认的
+  `.sbpf-plan` 与结构化 IDL，registry/manifest 保持 plan-only/non-deployable。
+- Commands：`lake build ProofForgeV2.Targets.Solana proof_forge_next_tests`；test binary；
+  `just target-smoke`；`just reproducibility`；`just check`；Python py_compile；shell syntax；
+  `git diff --check`；post-commit `just v2-clean-room-alpha`；三轮独立 correctness/artifact review。
+- Results：全部 exit 0。Accumulator 与 changed-business literal 路径证明不是模板；future schema、
+  forged descriptor/profile、noncanonical IDs/requirements、wrong layout/marker/access/discriminator、
+  dangling/deep/oversized expr、view store 与 forged IR 均 fail closed。多字段 partial init 和 init
+  state-read 与 reference zero-state 语义一致。artifact validator 精确核对 manifest/evidence/IDL/
+  plan 全文件以及 EVM/Solana source+semantic hash；repro 为 23 files。clean-room policy SHA-256：
+  materialize `2125326d…aa0a`、core `3bb085f9…3e2b`、runtime `2712c0de…d72`；最终复核 P0=0/P1=0。
+- Evidence：`EV-20260716-0019`，manual development plan evidence；没有 schema-complete immutable
+  EV JSON。
+- Limitations：`.sbpf-plan` 是 typed audit artifact，不含 sBPF instruction、object 或 ELF；没有
+  assembler/loader/local-runtime evidence，owner/signer/writable/return-data/rollback 仍未被 Solana
+  runtime 观测。clean-room 只在 core 阶段构建/复现该 artifact；runtime stage 仍是 EVM Counter。
+  当前 host 与 formal evidence/containment 限制不变，正式 D5 和 `TST-SOL-004/005` 不关闭。
+- Next：`TASK-A0-15` 直接把同一 Accumulator 泛化到 NEAR target-owned KV/export/host-call Plan
+  与 Wasm recipe/WAT；先做结构/wasm validation，sandbox receipt 单独保留为 runtime 缺口。
+
 ## 记录模板
 
 ```markdown

@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-A0-14**：以同一 `Accumulator` 打通真实 `SemanticProgram → SolanaPlan → typed audit IR/plan + IDL`，移除 Solana exact-fixture matcher |
-| Next task | 完成 Plan/IR mutation review 与完整 V2 gates 后提交；sBPF instruction/object/ELF/runtime 仍受未锁定工具链约束 |
+| Active task | **TASK-A0-15**：以同一 `Accumulator` 打通真实 `SemanticProgram → NearPlan → Wasm recipe/WAT`，移除 NEAR exact-fixture matcher |
+| Next task | 先增加 Accumulator NEAR 失败验收，再实现 target-owned KV layout/export/host-call Plan；sandbox receipt 仍作为独立后续 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
