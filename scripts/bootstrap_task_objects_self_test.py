@@ -12,6 +12,7 @@ import copy
 import dataclasses
 import hashlib
 import importlib.util
+import inspect
 import sys
 import time
 from pathlib import Path
@@ -41,8 +42,108 @@ RFC_8032_PUBLIC_KEYS = (
     "ec172b93ad5e563bf4932c70e1245034"
     "c35467ef2efd4d64ebf819683467e2bf",
 )
+RFC_8032_SEEDS_BY_KEY_ID = {
+    "key-architecture": bytes.fromhex(
+        "9d61b19deffd5a60ba844af492ec2cc4"
+        "4449c5697b326919703bac031cae7f60"
+    ),
+    "key-quality": bytes.fromhex(
+        "4ccd089b28ff96da9db6c346ec114e0f"
+        "5b8a319f35aba624da8cf6ed4fb8a6fb"
+    ),
+    "key-release": bytes.fromhex(
+        "c5aa8df43f9f837bedb7442f31dcb7b1"
+        "66d38535076f094b85ce3a2e0b4458f7"
+    ),
+    "key-security": bytes.fromhex(
+        "f5e5767cf153319517630f226876b86c"
+        "8160cc583bc013744c6bf255f5cc0ee5"
+    ),
+}
 ED25519_BASEPOINT = "58" + "66" * 31
 ED25519_MIXED_ORDER_POINT = "95" + "99" * 31
+
+
+def ed25519_sign_from_rfc_seed(seed: bytes, message: bytes) -> tuple[bytes, bytes]:
+    """Minimal test-only pure-Ed25519 signer for fixed RFC 8032 seeds."""
+    field = 2**255 - 19
+    subgroup_order = 2**252 + 27742317777372353535851937790883648493
+    curve_d = (-121665 * pow(121666, field - 2, field)) % field
+
+    def recover_x(y: int) -> int:
+        xx = ((y * y - 1) * pow(curve_d * y * y + 1, field - 2, field)) % field
+        x = pow(xx, (field + 3) // 8, field)
+        if (x * x - xx) % field != 0:
+            x = (x * pow(2, (field - 1) // 4, field)) % field
+        assert (x * x - xx) % field == 0
+        return field - x if x & 1 else x
+
+    def add(
+        left: tuple[int, int, int, int],
+        right: tuple[int, int, int, int],
+    ) -> tuple[int, int, int, int]:
+        x1, y1, z1, t1 = left
+        x2, y2, z2, t2 = right
+        a = ((y1 - x1) * (y2 - x2)) % field
+        b = ((y1 + x1) * (y2 + x2)) % field
+        c = (2 * curve_d * t1 * t2) % field
+        d = (2 * z1 * z2) % field
+        e = (b - a) % field
+        f = (d - c) % field
+        g = (d + c) % field
+        h = (b + a) % field
+        return e * f % field, g * h % field, f * g % field, e * h % field
+
+    def double(point: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+        x, y, z, _ = point
+        a = x * x % field
+        b = y * y % field
+        c = 2 * z * z % field
+        d = -a % field
+        e = ((x + y) * (x + y) - a - b) % field
+        g = (d + b) % field
+        f = (g - c) % field
+        h = (d - b) % field
+        return e * f % field, g * h % field, f * g % field, e * h % field
+
+    base_y = 4 * pow(5, field - 2, field) % field
+    base_x = recover_x(base_y)
+    base = (base_x, base_y, 1, base_x * base_y % field)
+
+    def scalar_multiply(scalar: int) -> tuple[int, int, int, int]:
+        result = (0, 1, 1, 0)
+        addend = base
+        while scalar:
+            if scalar & 1:
+                result = add(result, addend)
+            addend = double(addend)
+            scalar >>= 1
+        return result
+
+    def encode(point: tuple[int, int, int, int]) -> bytes:
+        x, y, z, _ = point
+        inverse_z = pow(z, field - 2, field)
+        affine_x = x * inverse_z % field
+        affine_y = y * inverse_z % field
+        encoded_y = affine_y | ((affine_x & 1) << 255)
+        return encoded_y.to_bytes(32, "little")
+
+    expanded = hashlib.sha512(seed).digest()
+    secret_scalar_bytes = bytearray(expanded[:32])
+    secret_scalar_bytes[0] &= 248
+    secret_scalar_bytes[31] &= 63
+    secret_scalar_bytes[31] |= 64
+    secret_scalar = int.from_bytes(secret_scalar_bytes, "little")
+    public_key = encode(scalar_multiply(secret_scalar))
+    nonce = int.from_bytes(
+        hashlib.sha512(expanded[32:] + message).digest(), "little"
+    ) % subgroup_order
+    encoded_r = encode(scalar_multiply(nonce))
+    challenge = int.from_bytes(
+        hashlib.sha512(encoded_r + public_key + message).digest(), "little"
+    ) % subgroup_order
+    scalar_s = (nonce + challenge * secret_scalar) % subgroup_order
+    return public_key, encoded_r + scalar_s.to_bytes(32, "little")
 
 
 def load_consumer() -> ModuleType:
@@ -68,6 +169,7 @@ def assert_public_api(module: ModuleType) -> None:
         "parse_content_ref",
         "parse_candidate_identity",
         "parse_bootstrap_authority_policy",
+        "parse_required_test_set",
         "verify_ed25519",
         "verifyBootstrapTaskObjects",
     )
@@ -81,6 +183,9 @@ def assert_public_api(module: ModuleType) -> None:
         "BootstrapAuthorityTaskRuleV1",
         "BootstrapAuthorityVerifierV1",
         "BootstrapAuthorityPolicyV1",
+        "ApprovalSignatureV1",
+        "NormativeDocumentRefV1",
+        "RequiredTestSetV1",
         "BootstrapLedgerSubjectV1",
         "BootstrapDocumentSnapshotV1",
         "BootstrapTaskRowSubjectV1",
@@ -93,6 +198,18 @@ def assert_public_api(module: ModuleType) -> None:
     for name in required_types:
         value = getattr(module, name, None)
         assert isinstance(value, type), f"missing type {name}"
+
+    required_set_parameters = tuple(
+        inspect.signature(module.parse_required_test_set).parameters.values()
+    )
+    assert tuple(parameter.name for parameter in required_set_parameters) == (
+        "required_bytes", "authority_policy_bytes",
+    ), "required-set parser must not expose a policy/ref/selector seam"
+    assert all(
+        parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        and parameter.default is inspect.Parameter.empty
+        for parameter in required_set_parameters
+    ), "required-set parser arguments must be exactly two required byte inputs"
 
     expected_fields = {
         "Digest": ("algorithm", "bytes"),
@@ -122,6 +239,25 @@ def assert_public_api(module: ModuleType) -> None:
             "revocationSnapshotRule",
             "authorityStoreService",
             "verifier",
+        ),
+        "ApprovalSignatureV1": ("keyId", "algorithm", "signature"),
+        "NormativeDocumentRefV1": (
+            "id",
+            "contentDigest",
+            "status",
+            "reviewCommit",
+            "reviewLink",
+            "approvedAt",
+            "approvers",
+        ),
+        "RequiredTestSetV1": (
+            "schema",
+            "id",
+            "version",
+            "phase5Document",
+            "authorityPolicy",
+            "requiredTestIds",
+            "signatures",
         ),
         "BootstrapLedgerSubjectV1": (
             "id", "taskId", "testIds", "grade", "result",
@@ -646,6 +782,586 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
         )
 
 
+def content_ref_wire(ref: object) -> dict:
+    digest = getattr(ref, "digest")
+    assert getattr(digest, "algorithm") == "sha256"
+    return {
+        "schema": getattr(ref, "schema"),
+        "id": getattr(ref, "id"),
+        "version": getattr(ref, "version"),
+        "digest": digest_text(getattr(digest, "bytes")),
+    }
+
+
+def required_test_set_statement(policy_ref: object) -> dict:
+    phase5_bytes = (
+        b"---\nid: PHASE-5\nstatus: accepted\n---\n"
+        b"# Phase 5 acceptance fixture\n"
+    )
+    phase5_digest = hashlib.sha256(
+        b"pf.normative-document.v1\x00PHASE-5\x00" + phase5_bytes
+    ).digest()
+    return {
+        "schema": "proof-forge.required-test-set.v1",
+        "id": "phase-5-required-tests",
+        "version": "1.0.0",
+        "phase5Document": {
+            "id": "PHASE-5",
+            "contentDigest": digest_text(phase5_digest),
+            "status": "accepted",
+            "reviewCommit": "a" * 40,
+            "reviewLink": "https://review.example/phase-5",
+            "approvedAt": "2026-07-16",
+            "approvers": ["principal-quality", "principal-security"],
+        },
+        "authorityPolicy": content_ref_wire(policy_ref),
+        "requiredTestIds": [
+            "TST-BOOTSTRAP-001",
+            "TST-DOC-001",
+            "TST-EVIDENCE-001",
+        ],
+    }
+
+
+def sign_required_test_set_statement(
+    module: ModuleType,
+    statement: dict,
+    signer_key_ids: tuple[str, ...] = ("key-quality", "key-security"),
+) -> tuple[dict, bytes, bytes]:
+    statement = copy.deepcopy(statement)
+    assert "signatures" not in statement, "signer accepts the unsigned statement"
+    statement_digest = hashlib.sha256(
+        b"pf.required-test-set-statement.v1\x00"
+        + module.canonical_pf_jcs(statement)
+    ).digest()
+    signature_message = (
+        b"pf.required-test-set-signature.v1\x00" + statement_digest
+    )
+    expected_public_keys = {
+        "key-architecture": RFC_8032_PUBLIC_KEYS[0],
+        "key-quality": RFC_8032_PUBLIC_KEYS[1],
+        "key-release": RFC_8032_PUBLIC_KEYS[2],
+        "key-security": RFC_8032_PUBLIC_KEYS[3],
+    }
+    signatures = []
+    for key_id in signer_key_ids:
+        public_key, signature = ed25519_sign_from_rfc_seed(
+            RFC_8032_SEEDS_BY_KEY_ID[key_id], signature_message
+        )
+        assert public_key.hex() == expected_public_keys[key_id], (
+            f"test signer seed must reproduce RFC 8032 public key for {key_id}"
+        )
+        signatures.append({
+            "keyId": key_id,
+            "algorithm": "ed25519",
+            "signature": signature.hex(),
+        })
+    wire = dict(statement)
+    wire["signatures"] = signatures
+    return wire, statement_digest, signature_message
+
+
+def signed_required_test_set(
+    module: ModuleType,
+    policy_ref: object,
+    signer_key_ids: tuple[str, ...] = ("key-quality", "key-security"),
+) -> tuple[dict, bytes, bytes]:
+    return sign_required_test_set_statement(
+        module,
+        required_test_set_statement(policy_ref),
+        signer_key_ids,
+    )
+
+
+def test_required_test_set(module: ModuleType) -> None:
+    policy_wire = valid_bootstrap_authority_policy()
+    policy_bytes = module.canonical_pf_jcs(policy_wire)
+    _policy, policy_ref = module.parse_bootstrap_authority_policy(
+        policy_bytes
+    )
+    wire, statement_digest, signature_message = signed_required_test_set(
+        module, policy_ref
+    )
+    encoded = module.canonical_pf_jcs(wire)
+    parsed, parsed_ref = module.parse_required_test_set(
+        encoded, policy_bytes
+    )
+    expected_content_digest = hashlib.sha256(
+        b"pf.required-test-set.v1\x00" + encoded
+    ).digest()
+    assert statement_digest.hex() == (
+        "6009663bd14f189802f396ebbfb9a5a7d"
+        "abcc643e35c3b0d23364af67d5814ad"
+    ), "required-test-set statement domain/wire golden changed"
+    assert expected_content_digest.hex() == (
+        "613220d9f9c49763364fc1dd1be4c8ce"
+        "abb8ca639199c86e69aab617e4eb5d9a"
+    ), "required-test-set content domain/wire golden changed"
+    expected_ref = module.ContentRef(
+        "proof-forge.required-test-set.v1",
+        "phase-5-required-tests",
+        "1.0.0",
+        module.Digest("sha256", expected_content_digest),
+    )
+    assert isinstance(parsed, module.RequiredTestSetV1)
+    assert parsed.schema == "proof-forge.required-test-set.v1"
+    assert isinstance(parsed.phase5Document, module.NormativeDocumentRefV1)
+    assert isinstance(parsed.phase5Document.contentDigest, module.Digest)
+    assert parsed.phase5Document.id == "PHASE-5"
+    assert parsed.phase5Document.status == "accepted"
+    assert parsed.phase5Document.approvers == (
+        "principal-quality", "principal-security",
+    )
+    assert parsed.authorityPolicy == policy_ref
+    assert parsed.requiredTestIds == (
+        "TST-BOOTSTRAP-001", "TST-DOC-001", "TST-EVIDENCE-001",
+    )
+    assert all(
+        isinstance(signature, module.ApprovalSignatureV1)
+        and signature.algorithm == "ed25519"
+        and isinstance(signature.signature, bytes)
+        and len(signature.signature) == 64
+        for signature in parsed.signatures
+    )
+    assert tuple(signature.keyId for signature in parsed.signatures) == (
+        "key-quality", "key-security",
+    )
+    assert parsed_ref == expected_ref
+    assert statement_digest == hashlib.sha256(
+        b"pf.required-test-set-statement.v1\x00"
+        + module.canonical_pf_jcs({
+            key: value for key, value in wire.items() if key != "signatures"
+        })
+    ).digest()
+    assert signature_message == (
+        b"pf.required-test-set-signature.v1\x00" + statement_digest
+    )
+
+    max_test_id = "TST-" + "Z" * 123
+    assert len(max_test_id.encode("ascii")) == 127
+    max_review_link_prefix = "hTtPs://review.example/phase-5/"
+    max_review_link = max_review_link_prefix + "a" * (
+        4096 - len(max_review_link_prefix.encode("ascii"))
+    )
+    assert len(max_review_link.encode("utf-8")) == 4096
+    max_required_ids = [
+        f"TST-BOUNDARY-{index:04d}" for index in range(4095)
+    ]
+    max_required_ids.append(max_test_id)
+    max_required_ids.sort()
+    assert len(max_required_ids) == 4096
+    max_approvers = [
+        f"principal-boundary-{index:03d}" for index in range(256)
+    ]
+    all_policy_key_ids = tuple(
+        principal["keyId"] for principal in policy_wire["principals"]
+    )
+    assert all_policy_key_ids == tuple(sorted(all_policy_key_ids))
+
+    equal_bound_statement = required_test_set_statement(policy_ref)
+    equal_bound_statement["phase5Document"]["reviewLink"] = max_review_link
+    equal_bound_statement["phase5Document"]["approvers"] = max_approvers
+    equal_bound_statement["requiredTestIds"] = max_required_ids
+    equal_bound_wire, _, _ = sign_required_test_set_statement(
+        module,
+        equal_bound_statement,
+        signer_key_ids=all_policy_key_ids,
+    )
+    equal_bound_parsed, _ = module.parse_required_test_set(
+        module.canonical_pf_jcs(equal_bound_wire), policy_bytes
+    )
+    assert max_test_id in equal_bound_parsed.requiredTestIds
+    assert len(equal_bound_parsed.requiredTestIds) == 4096
+    assert len(equal_bound_parsed.phase5Document.approvers) == 256
+    assert equal_bound_parsed.phase5Document.reviewLink == max_review_link
+    assert len(equal_bound_parsed.signatures) == len(policy_wire["principals"])
+
+    over_test_id_statement = required_test_set_statement(policy_ref)
+    over_test_id = "TST-" + "Z" * 124
+    assert len(over_test_id.encode("ascii")) == 128
+    over_test_id_statement["requiredTestIds"][2] = over_test_id
+    over_test_id_statement["requiredTestIds"].sort()
+    over_test_id_wire, _, _ = sign_required_test_set_statement(
+        module, over_test_id_statement
+    )
+
+    over_required_ids_statement = required_test_set_statement(policy_ref)
+    over_required_ids_statement["requiredTestIds"] = [
+        f"TST-BOUNDARY-{index:04d}" for index in range(4096)
+    ] + [max_test_id]
+    over_required_ids_statement["requiredTestIds"].sort()
+    assert len(over_required_ids_statement["requiredTestIds"]) == 4097
+    over_required_ids_wire, _, _ = sign_required_test_set_statement(
+        module, over_required_ids_statement
+    )
+
+    over_approvers_statement = required_test_set_statement(policy_ref)
+    over_approvers_statement["phase5Document"]["approvers"] = [
+        f"principal-boundary-{index:03d}" for index in range(257)
+    ]
+    over_approvers_wire, _, _ = sign_required_test_set_statement(
+        module, over_approvers_statement
+    )
+
+    over_review_link_statement = required_test_set_statement(policy_ref)
+    over_review_link_statement["phase5Document"]["reviewLink"] = (
+        max_review_link + "a"
+    )
+    assert len(
+        over_review_link_statement["phase5Document"]["reviewLink"].encode(
+            "utf-8"
+        )
+    ) == 4097
+    over_review_link_wire, _, _ = sign_required_test_set_statement(
+        module, over_review_link_statement
+    )
+
+    over_signatures_wire, _, _ = sign_required_test_set_statement(
+        module,
+        required_test_set_statement(policy_ref),
+        signer_key_ids=all_policy_key_ids,
+    )
+    over_signatures_wire["signatures"].append({
+        "keyId": "key-unknown",
+        "algorithm": "ed25519",
+        "signature": "00" * 64,
+    })
+    assert len(over_signatures_wire["signatures"]) == (
+        len(policy_wire["principals"]) + 1
+    )
+
+    for label, over_bound_wire in (
+        ("128-byte TestId", over_test_id_wire),
+        ("4097 required IDs", over_required_ids_wire),
+        ("257 approvers", over_approvers_wire),
+        ("4097-byte reviewLink", over_review_link_wire),
+        ("signature count over resolved policy", over_signatures_wire),
+    ):
+        assert_rejected(
+            module,
+            lambda over_bound_wire=over_bound_wire: module.parse_required_test_set(
+                module.canonical_pf_jcs(over_bound_wire), policy_bytes
+            ),
+        )
+
+    malformed_preflight_wire = copy.deepcopy(wire)
+    malformed_preflight_wire["requiredTestIds"][0] = "TST-*"
+    malformed_preflight_wire["requiredTestIds"].sort()
+    reordered_ids_preflight_wire = copy.deepcopy(wire)
+    reordered_ids_preflight_wire["requiredTestIds"].reverse()
+    duplicate_id_preflight_wire = copy.deepcopy(wire)
+    duplicate_id_preflight_wire["requiredTestIds"][1] = (
+        duplicate_id_preflight_wire["requiredTestIds"][0]
+    )
+    unknown_signature_field_preflight_wire = copy.deepcopy(wire)
+    unknown_signature_field_preflight_wire["signatures"][0]["futureField"] = True
+    reordered_signatures_preflight_wire = copy.deepcopy(wire)
+    reordered_signatures_preflight_wire["signatures"].reverse()
+    duplicate_signature_preflight_wire = copy.deepcopy(wire)
+    duplicate_signature_preflight_wire["signatures"][1]["keyId"] = (
+        duplicate_signature_preflight_wire["signatures"][0]["keyId"]
+    )
+    wrong_algorithm_preflight_wire = copy.deepcopy(wire)
+    wrong_algorithm_preflight_wire["signatures"][0]["algorithm"] = "ed25519ph"
+    malformed_signature_preflight_wire = copy.deepcopy(wire)
+    malformed_signature_preflight_wire["signatures"][0]["signature"] = "00" * 63
+    uppercase_signature_preflight_wire = copy.deepcopy(wire)
+    uppercase_signature_preflight_wire["signatures"][0]["signature"] = (
+        uppercase_signature_preflight_wire["signatures"][0]["signature"].upper()
+    )
+    unknown_key_preflight_wire = copy.deepcopy(wire)
+    unknown_key_preflight_wire["signatures"][1]["keyId"] = "key-unknown"
+    original_verify_ed25519 = module.verify_ed25519
+    required_set_curve_calls = 0
+
+    def counted_verify_ed25519(
+        public_key: bytes, message: bytes, signature: bytes
+    ) -> bool:
+        del public_key, message, signature
+        nonlocal required_set_curve_calls
+        required_set_curve_calls += 1
+        return True
+
+    module.verify_ed25519 = counted_verify_ed25519
+    try:
+        for label, preflight_wire in (
+            ("128-byte TestId", over_test_id_wire),
+            ("malformed TestId grammar", malformed_preflight_wire),
+            ("4097 required IDs", over_required_ids_wire),
+            ("reordered required IDs", reordered_ids_preflight_wire),
+            ("duplicate required ID", duplicate_id_preflight_wire),
+            ("unknown signature field", unknown_signature_field_preflight_wire),
+            ("reordered signatures", reordered_signatures_preflight_wire),
+            ("duplicate signature key", duplicate_signature_preflight_wire),
+            ("wrong signature algorithm", wrong_algorithm_preflight_wire),
+            ("malformed signature scalar", malformed_signature_preflight_wire),
+            ("uppercase signature hex", uppercase_signature_preflight_wire),
+            ("unknown signature key", unknown_key_preflight_wire),
+            ("signature count over resolved policy", over_signatures_wire),
+        ):
+            required_set_curve_calls = 0
+            assert_rejected(
+                module,
+                lambda preflight_wire=preflight_wire: module.parse_required_test_set(
+                    module.canonical_pf_jcs(preflight_wire), policy_bytes
+                ),
+            )
+            assert required_set_curve_calls == 0, (
+                f"{label} must reject before RequiredTestSet curve verification"
+            )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+
+    mutations = []
+
+    unknown_root = copy.deepcopy(wire)
+    unknown_root["futureField"] = True
+    mutations.append(("unknown required-set field", unknown_root))
+
+    wrong_required_set_schema = copy.deepcopy(wire)
+    wrong_required_set_schema["schema"] = "proof-forge.required-test-set.v2"
+    mutations.append(("wrong required-set schema", wrong_required_set_schema))
+
+    wrong_required_set_id = copy.deepcopy(wire)
+    wrong_required_set_id["id"] = "Phase_5_Required_Set"
+    mutations.append(("invalid required-set profile ID", wrong_required_set_id))
+
+    overflow_required_set_version = copy.deepcopy(wire)
+    overflow_required_set_version["version"] = "18446744073709551616.0.0"
+    mutations.append(("required-set version exceeds UInt64", overflow_required_set_version))
+
+    missing_root = copy.deepcopy(wire)
+    del missing_root["requiredTestIds"]
+    mutations.append(("missing requiredTestIds field", missing_root))
+
+    unknown_document = copy.deepcopy(wire)
+    unknown_document["phase5Document"]["futureField"] = True
+    mutations.append(("unknown normative document field", unknown_document))
+
+    unknown_signature = copy.deepcopy(wire)
+    unknown_signature["signatures"][0]["futureField"] = True
+    mutations.append(("unknown signature field", unknown_signature))
+
+    empty_ids = copy.deepcopy(wire)
+    empty_ids["requiredTestIds"] = []
+    mutations.append(("empty required IDs", empty_ids))
+
+    reordered_ids = copy.deepcopy(wire)
+    reordered_ids["requiredTestIds"][0], reordered_ids["requiredTestIds"][1] = (
+        reordered_ids["requiredTestIds"][1],
+        reordered_ids["requiredTestIds"][0],
+    )
+    mutations.append(("reordered required IDs", reordered_ids))
+
+    duplicate_ids = copy.deepcopy(wire)
+    duplicate_ids["requiredTestIds"].insert(
+        1, duplicate_ids["requiredTestIds"][0]
+    )
+    mutations.append(("duplicate required ID", duplicate_ids))
+
+    malformed_id = copy.deepcopy(wire)
+    malformed_id["requiredTestIds"][0] = "TST-*"
+    mutations.append(("malformed required ID", malformed_id))
+
+    development_a0_id = copy.deepcopy(wire)
+    development_a0_id["requiredTestIds"][0] = "TST-A0-001"
+    mutations.append(("development A0 ID in formal required set", development_a0_id))
+
+    missing_signatures = copy.deepcopy(wire)
+    del missing_signatures["signatures"]
+    mutations.append(("missing signatures field", missing_signatures))
+
+    empty_signatures = copy.deepcopy(wire)
+    empty_signatures["signatures"] = []
+    mutations.append(("empty signatures", empty_signatures))
+
+    reordered_signatures = copy.deepcopy(wire)
+    reordered_signatures["signatures"].reverse()
+    mutations.append(("reordered signatures", reordered_signatures))
+
+    duplicate_signatures = copy.deepcopy(wire)
+    duplicate_signatures["signatures"].insert(
+        1, copy.deepcopy(duplicate_signatures["signatures"][0])
+    )
+    mutations.append(("duplicate signature keyId", duplicate_signatures))
+
+    wrong_policy_ref = copy.deepcopy(wire)
+    wrong_policy_ref["authorityPolicy"]["digest"] = digest_text(bytes(32))
+    mutations.append(("wrong authority policy ref", wrong_policy_ref))
+
+    wrong_policy_schema = copy.deepcopy(wire)
+    wrong_policy_schema["authorityPolicy"]["schema"] = (
+        "proof-forge.bootstrap-authority-policy.v2"
+    )
+    mutations.append(("wrong authority policy schema", wrong_policy_schema))
+
+    wrong_phase = copy.deepcopy(wire)
+    wrong_phase["phase5Document"]["id"] = "PHASE-4"
+    mutations.append(("wrong Phase-5 document ID", wrong_phase))
+
+    wrong_status = copy.deepcopy(wire)
+    wrong_status["phase5Document"]["status"] = "proposed"
+    mutations.append(("unaccepted Phase-5 document", wrong_status))
+
+    bad_document_digest = copy.deepcopy(wire)
+    bad_document_digest["phase5Document"]["contentDigest"] = "sha256:" + "A" * 64
+    mutations.append(("invalid Phase-5 content digest scalar", bad_document_digest))
+
+    bad_review_commit = copy.deepcopy(wire)
+    bad_review_commit["phase5Document"]["reviewCommit"] = "a" * 39
+    mutations.append(("invalid Phase-5 review commit", bad_review_commit))
+
+    uppercase_review_commit = copy.deepcopy(wire)
+    uppercase_review_commit["phase5Document"]["reviewCommit"] = "A" * 40
+    mutations.append(("uppercase Phase-5 review commit", uppercase_review_commit))
+
+    bad_review_link = copy.deepcopy(wire)
+    bad_review_link["phase5Document"]["reviewLink"] = "http://review.example/phase-5"
+    mutations.append(("invalid Phase-5 review link", bad_review_link))
+
+    control_review_link = copy.deepcopy(wire)
+    control_review_link["phase5Document"]["reviewLink"] = (
+        "https://review.example/phase-5\n"
+    )
+    mutations.append(("control character in Phase-5 review link", control_review_link))
+
+    bad_approved_at = copy.deepcopy(wire)
+    bad_approved_at["phase5Document"]["approvedAt"] = "2026-02-30"
+    mutations.append(("invalid Phase-5 approval date", bad_approved_at))
+
+    empty_approvers = copy.deepcopy(wire)
+    empty_approvers["phase5Document"]["approvers"] = []
+    mutations.append(("empty Phase-5 approvers", empty_approvers))
+
+    reordered_approvers = copy.deepcopy(wire)
+    reordered_approvers["phase5Document"]["approvers"].reverse()
+    mutations.append(("reordered Phase-5 approvers", reordered_approvers))
+
+    duplicate_approvers = copy.deepcopy(wire)
+    duplicate_approvers["phase5Document"]["approvers"][1] = (
+        duplicate_approvers["phase5Document"]["approvers"][0]
+    )
+    mutations.append(("duplicate Phase-5 approver", duplicate_approvers))
+
+    invalid_approver = copy.deepcopy(wire)
+    invalid_approver["phase5Document"]["approvers"][0] = "-principal"
+    mutations.append(("invalid Phase-5 approver safe-id", invalid_approver))
+
+    tampered_document = copy.deepcopy(wire)
+    tampered_document["phase5Document"]["contentDigest"] = digest_text(
+        bytes.fromhex("7f" * 32)
+    )
+    mutations.append(("tampered Phase-5 content", tampered_document))
+
+    tampered_ids = copy.deepcopy(wire)
+    tampered_ids["requiredTestIds"].append("TST-ISO-002")
+    tampered_ids["requiredTestIds"].sort()
+    mutations.append(("tampered required ID content", tampered_ids))
+
+    wrong_algorithm = copy.deepcopy(wire)
+    wrong_algorithm["signatures"][0]["algorithm"] = "ed25519ph"
+    mutations.append(("wrong signature algorithm", wrong_algorithm))
+
+    wrong_key = copy.deepcopy(wire)
+    wrong_key["signatures"][0]["signature"] = wire["signatures"][1]["signature"]
+    mutations.append(("signature under wrong key", wrong_key))
+
+    bad_signature = copy.deepcopy(wire)
+    first_signature = bytes.fromhex(bad_signature["signatures"][0]["signature"])
+    bad_signature["signatures"][0]["signature"] = (
+        bytes([first_signature[0] ^ 1]) + first_signature[1:]
+    ).hex()
+    mutations.append(("tampered signature", bad_signature))
+
+    invalid_signature_scalar = copy.deepcopy(wire)
+    invalid_signature_scalar["signatures"][0]["signature"] = "00" * 63
+    mutations.append(("invalid signature scalar", invalid_signature_scalar))
+
+    unknown_key = copy.deepcopy(wire)
+    unknown_key["signatures"][0]["keyId"] = "key-unknown"
+    mutations.append(("unknown signature keyId", unknown_key))
+
+    for label, mutation in mutations:
+        assert_rejected(
+            module,
+            lambda mutation=mutation: module.parse_required_test_set(
+                module.canonical_pf_jcs(mutation), policy_bytes
+            ),
+        )
+
+    alternate_policy_wire = copy.deepcopy(policy_wire)
+    alternate_policy_wire["id"] = "alternate-bootstrap-authority-root"
+    alternate_policy_bytes = module.canonical_pf_jcs(alternate_policy_wire)
+    module.parse_bootstrap_authority_policy(alternate_policy_bytes)
+    assert_rejected(
+        module,
+        lambda: module.parse_required_test_set(encoded, alternate_policy_bytes),
+    )
+
+    same_principal_policy_wire = copy.deepcopy(policy_wire)
+    same_principal_policy_wire["principals"][3]["principalId"] = (
+        same_principal_policy_wire["principals"][1]["principalId"]
+    )
+    same_principal_policy_bytes = module.canonical_pf_jcs(
+        same_principal_policy_wire
+    )
+    _, same_principal_policy_ref = module.parse_bootstrap_authority_policy(
+        same_principal_policy_bytes
+    )
+    same_principal_wire, _, _ = signed_required_test_set(
+        module, same_principal_policy_ref
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_required_test_set(
+            module.canonical_pf_jcs(same_principal_wire),
+            same_principal_policy_bytes,
+        ),
+    )
+
+    unsigned_rotation_role_wire, _, _ = signed_required_test_set(
+        module,
+        same_principal_policy_ref,
+        signer_key_ids=("key-architecture", "key-quality"),
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_required_test_set(
+            module.canonical_pf_jcs(unsigned_rotation_role_wire),
+            same_principal_policy_bytes,
+        ),
+    )
+
+    role_insufficient_wire, _, _ = signed_required_test_set(
+        module,
+        policy_ref,
+        signer_key_ids=("key-architecture", "key-quality"),
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_required_test_set(
+            module.canonical_pf_jcs(role_insufficient_wire), policy_bytes
+        ),
+    )
+
+    threshold_policy_wire = copy.deepcopy(policy_wire)
+    threshold_policy_wire["requiredTestSetRule"]["minimumDistinctSigners"] = 3
+    threshold_policy_bytes = module.canonical_pf_jcs(threshold_policy_wire)
+    _, threshold_policy_ref = module.parse_bootstrap_authority_policy(
+        threshold_policy_bytes
+    )
+    threshold_insufficient_wire, _, _ = signed_required_test_set(
+        module, threshold_policy_ref
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_required_test_set(
+            module.canonical_pf_jcs(threshold_insufficient_wire),
+            threshold_policy_bytes,
+        ),
+    )
+
+
 def test_common_identities(module: ModuleType) -> object:
     zero_digest = digest_text(bytes(32))
     digest = module.parse_digest(zero_digest)
@@ -832,6 +1548,7 @@ def main() -> int:
         assert_public_api(module)
         test_pf_jcs(module)
         test_bootstrap_authority_policy(module)
+        test_required_test_set(module)
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_and_missing_root_bytes(module, candidate)
