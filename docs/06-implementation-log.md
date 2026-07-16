@@ -777,6 +777,42 @@ normative: false
 
 禁止用“看起来正常”“应该通过”代替命令结果；失败和回退尝试也应记录。
 
+## 2026-07-17 — TASK-D0-02 package boundary implemented; blocked on bootstrap authority
+
+- Commits：freeze `f424e5a4`；canonical `justfile` casing 修正 `ad8a2582`；RED
+  `ac3bedca`；GREEN `2d9bb628525445fdc8537589ed341f1ee93f4715`。
+- Spec/Test：`TASK-D0-02` / `TST-ISO-001`；完成面保持
+  `task-freeze-packages/TASK-D0-02.json` 冻结值，未增加 task/TST/dependency/prerequisite。
+- Changed：Lake package 使用 quoted identifier `«proof-forge-next»`，library namespace 保持
+  `ProofForgeV2`，target identifier 保持 `proof_forge_next`，产出文件为 `proof-forge-next`；新增
+  portable product/Git-tree checker、40 个 single-mutation corpus 与 committed-product-archive gate，
+  并接入 `just ci` / `just check`。gate 排除 `active/` 与 Git metadata，拒绝旧 import/fallback、
+  本地/父路径 dependency、tracked symlink/gitlink、绝对 checkout path、构建 symlink escape；执行
+  tests/CLI 前先验证两个 executable 的 archive-local physical ownership。
+- Commands：`/usr/bin/python3 -I -S -B scripts/v2_isolation_self_test.py`；
+  `lake --no-cache build ProofForgeV2 proof_forge_next proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just docs-check`；post-commit
+  `just v2-isolation`；`just ci`；`git diff --check`；bounded independent read-only review。
+- Results：全部 exit 0；mutation self-test `ok (40 mutations)`；committed archive 两次完整重建均
+  74 jobs，test binary `ok`，CLI help 与 Lake query ownership 通过；`just ci` 的 docs 139-mutation、
+  bootstrap self-test、48/66-job workspace build/test、DSL/target negatives 全部通过；review
+  P0/P1=0。GREEN tree `fff8119ccb91af8b4078d76cef3d8880fe9b2f20`；排除 `active/` 的 product
+  archive SHA-256 `d92ac3fb8cb78f5fbf5c1f6fdcc8582473083142c4742a00f6ebefe9350aec6d`
+  （5335040 bytes）。
+- Evidence：`EV-20260717-0029`，精确绑定 `TASK-D0-02` / `TST-ISO-001` / `development`；
+  不是 schema-complete bootstrap/formal EV JSON。
+- Triage：**Block（R5 外部前置）**。现行 grade 规则要求 D0-02 的 exact signed
+  `TaskApprovalV1` 与 authenticated `BootstrapTaskVerifierReceiptV1`；仓库没有 eligible Stage-0、
+  external authority policy/signer 或 protected receipt service，且 `FX-2026-07-17-D0-01` 明确不得
+  推广到 D0-02..06。因此实现完成后任务仍从 `in_progress` 转为 `blocked`，不能伪造 bootstrap
+  ledger 行或标 `done`。
+- Limitations：本 gate 是 package-boundary development isolation，不锁定 host/tool closure，不证明
+  process-session/network containment，也不关闭 `TST-ISO-002/003`。本机 `just ci` 成功不等于远程
+  GitHub CI 或正式 hermetic evidence。
+- Next：唯一下一任务仍为 blocked 的 `TASK-D0-02`。取得规范要求的 approval/receipt 后才能关闭；
+  在此之前不得启动依赖其 `done` 的 `TASK-D0-03`。若要改依赖/自举策略，必须由 Architecture +
+  Quality 书面批准 Freeze Exception 或治理修订，agent 不自动发散。
+
 ## 2026-07-16 — TASK-D0-01 strict normative-contract closure
 
 - Commits：required-test ownership RED `67e78e7f`；GREEN

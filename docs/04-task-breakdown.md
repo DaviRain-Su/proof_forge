@@ -15,7 +15,8 @@ normative: true
 但不能据此把正式任务标为 `done`。
 
 > **2026-07-17：** `TASK-D0-01` 经 `FX-2026-07-17-D0-01` 关闭为 `done`（pure consumer +
-> docs-check；protected production positive 移交 D0-04）。下一正式任务为 `TASK-D0-02`。
+> docs-check；protected production positive 移交 D0-04）。`TASK-D0-02` 的实现与 development
+> gate 已在 `2d9bb628` 通过，但缺受保护的 bootstrap TaskApproval/receipt，按 R5 保持 `blocked`。
 
 ## 全局任务冻结（所有 TASK，强制）
 
@@ -68,19 +69,25 @@ normative: true
 
 本 checkpoint 截止 `TASK-A0-20` 冻结。2026-07-16 对账确认：A0 的 `done` 只表示 alpha
 切片；它们不自动关闭 D0/D1。2026-07-17：`TASK-D0-01` 经 `FX-2026-07-17-D0-01` 关闭；
-下一正式任务为 `TASK-D0-02`。
+下一正式任务仍为 `TASK-D0-02`；其 implementation slice 已通过，等待合法 bootstrap closure。
 
 ## Milestone D0：文档与独立工程
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
 | TASK-D0-01 | 建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker 与 external TaskApproval/task-receipt pure consumer（FX-2026-07-17-D0-01：candidate-external protected production positive 移交 D0-04，缺失时 fail closed 不阻塞本任务 done） | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | EV-20260717-0028 | done |
-| TASK-D0-02 | 建立独立 Lake package/namespace/exe | TASK-D0-01 | — | TST-ISO-001 | — | in_progress |
+| TASK-D0-02 | 建立独立 Lake package/namespace/exe | TASK-D0-01 | — | TST-ISO-001 | EV-20260717-0029 | blocked |
 | TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；只交付 development evidence schema/bundle/catalog finalizer 及 formal zero-output rejection，当前 alpha 输入为 `TASK-A0-02` | TASK-D0-01, TASK-D0-02 | — | TST-EVIDENCE-001, TST-HOST-001, TST-TOOL-001 | — | pending |
 | TASK-D0-04 | 实现 bootstrap foundation：eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal-catalog authority、per-task verifier receipt/protected service，以及 six-item BootstrapApprovalSet/activation producer-consumer；owned TST 只在 pre-activation 运行，task done 另须随后取得 set+activation receipt，且二者不得回填 TST/TaskApproval/task receipt | TASK-D0-02, TASK-D0-03, TASK-D0-05, TASK-D0-06 | — | TST-BOOTSTRAP-001 | — | blocked |
 | TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding | TASK-D0-03 | — | TST-SBOM-001 | — | pending |
 | TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | — | pending |
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | pending |
+
+`TASK-D0-02` 的冻结 Output/Tests/Dependencies/Prerequisites 未变；阻塞项是候选外部 authority
+才能产生的 exact signed TaskApproval 与 authenticated task receipt。`EV-20260717-0029` 只记录
+package-boundary development GREEN，不满足 bootstrap grade，故不得把本行标为 `done`，也不得启动
+依赖它完成的 `TASK-D0-03`。解除方式只能是取得规范对象，或经 Architecture + Quality 批准书面
+Freeze Exception / 依赖修订；agent 不得自行选择后者。
 
 ## Milestone D1：语言前端
 
