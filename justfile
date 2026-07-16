@@ -19,6 +19,7 @@ test-host-isolation: build
 docs-check:
     /usr/bin/python3 -I -S scripts/docs_check.py
     /usr/bin/python3 -I -S scripts/docs_check_self_test.py
+    /usr/bin/python3 -I -S scripts/bootstrap_task_objects_self_test.py
 
 toolchains-validate:
     /usr/bin/python3 -I -S scripts/toolchain_assets.py validate
