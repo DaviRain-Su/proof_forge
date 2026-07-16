@@ -718,6 +718,28 @@ normative: false
 - Next：在 D0-01 冻结包内收口 pure consumer 验收；并行准备 Phase 1–3 accepted 评审材料；
   不得启动 D0-02 实施。
 
+
+## 2026-07-17 — TASK-D0-01 pure consumer evidence-graph slice (freeze-bound)
+
+- Commit：`e98fb3e689098daec910f8ce5cf4f3a869ab647e`。
+- Spec/Test：`TASK-D0-01` / `TST-DOC-001` 第一层 pure object API 切片；完成面未改，
+  仍受 `task-freeze-packages/TASK-D0-01.json` 约束。
+- Changed：抽出 `scripts/evidence_v1_core.py` 作为 exact sibling pure core；
+  `gate_evidence.py` 与 `bootstrap_task_objects.py` 共用该 core；bootstrap object graph
+  增加 per-task evidence manifest、raw EV 校验与 typed `ObjectVerifiedV1` evidence/receipt
+  投影；self-test 覆盖 manifest/raw/graph mutation。
+- Commands：`python3 -I -S scripts/docs_check.py --root .`；
+  `python3 -I -S scripts/docs_check_self_test.py`；
+  `python3 -I -S scripts/bootstrap_task_objects_self_test.py`；
+  `python3 -I -S scripts/gate_evidence.py self-test`；`just docs-check`。
+- Results：全部 exit 0；bootstrap-task-objects-self-test ok；gate evidence self-test passed；
+  docs-check-self-test ok (139 mutations)。
+- Limitations：candidate-external protected invocation 仍未闭合（外部治理缺失时 fail closed，
+  保持 `in_progress` 合法）；Phase 1–3 仍 `proposed`，不得标 `done`、不得开 D0-02；未生成
+  schema-complete immutable bootstrap/formal EV JSON。
+- Next：继续冻结包内第二层 docs-check 集成与 protected-invocation fail-closed 正负例；
+  并行准备 Phase 1–3 accepted；禁止扩 D0-01 Output/Tests。
+
 ## 记录模板
 
 ```markdown
