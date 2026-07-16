@@ -1064,6 +1064,21 @@ def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
     assert reordered_content.document.reviewLink == PHASE5_FRONTMATTER["reviewLink"], (
         "frontmatter key declaration order must not affect scalar decoding"
     )
+    non_a0_prefix_snapshot = make_phase5_snapshot(
+        module,
+        required_ids=PHASE5_REQUIRED_IDS + ("TST-A0X-001",),
+    )
+    assert "TST-A0X-001" in module.parse_phase5_snapshot_content(
+        non_a0_prefix_snapshot
+    ).requiredTestIds, "only the exact TST-A0- prefix is reserved"
+    non_h3_raw_lines = snapshot.bytes.replace(
+        b"| ID | ",
+        b"#### H4 is not H3\n   ### leading-space raw prose\n| ID | ",
+        1,
+    )
+    assert module.parse_phase5_snapshot_content(
+        dataclasses.replace(snapshot, bytes=non_h3_raw_lines)
+    ).requiredTestIds == tuple(sorted(PHASE5_REQUIRED_IDS))
 
     required_wire = signed_document_bound_required_set(
         module, policy_ref, snapshot
@@ -1178,6 +1193,11 @@ def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
         b"###\tHidden subsection\n| ID | ",
         1,
     )
+    space_h3_before_denominator = snapshot.bytes.replace(
+        b"| ID | ",
+        b"### Hidden subsection\n| ID | ",
+        1,
+    )
     duplicate_table_header = snapshot.bytes.replace(
         "| ID | 测试对象 |\n".encode(),
         "| ID | 测试对象 |\n| ID | 测试对象 |\n".encode(),
@@ -1202,6 +1222,18 @@ def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
     missing_closing_delimiter = snapshot.bytes.replace(
         b"\n---\n", b"\n--\n", 1
     )
+    start_marker = "## 完整 Test ID Catalog".encode()
+    end_marker = "### Phase 1 required-set 分母".encode()
+    reversed_markers = snapshot.bytes.replace(
+        start_marker, b"PHASE5-CATALOG-START-PLACEHOLDER", 1
+    ).replace(
+        end_marker, start_marker, 1
+    ).replace(
+        b"PHASE5-CATALOG-START-PLACEHOLDER", end_marker, 1
+    )
+    missing_table_header = snapshot.bytes.replace(
+        "| ID | 测试对象 |".encode(), b"ID / test object", 1
+    )
     duplicate_id = snapshot.bytes.replace(
         b"| TST-DOC-001 | fixture for TST-DOC-001 |\n",
         b"| TST-DOC-001 | fixture for TST-DOC-001 |\n"
@@ -1213,20 +1245,29 @@ def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
         b"|---|---|\n| TST-A0-021 | forbidden A0 |\n",
         1,
     )
+    range_id = snapshot.bytes.replace(
+        b"| TST-DOC-001 | fixture for TST-DOC-001 |",
+        b"| TST-DOC-001..003 | forbidden range |",
+        1,
+    )
     snapshot_mutations.extend((
         ("duplicate frontmatter key", dataclasses.replace(snapshot, bytes=duplicate_frontmatter)),
         ("unknown frontmatter key", dataclasses.replace(snapshot, bytes=unknown_frontmatter)),
         ("duplicate heading even inside fence", dataclasses.replace(snapshot, bytes=duplicate_heading)),
         ("bare raw H3 before denominator", dataclasses.replace(snapshot, bytes=bare_h3_before_denominator)),
         ("tab raw H3 before denominator", dataclasses.replace(snapshot, bytes=tab_h3_before_denominator)),
+        ("space raw H3 before denominator", dataclasses.replace(snapshot, bytes=space_h3_before_denominator)),
         ("duplicate table header", dataclasses.replace(snapshot, bytes=duplicate_table_header)),
         ("duplicate table delimiter", dataclasses.replace(snapshot, bytes=duplicate_table_delimiter)),
         ("missing denominator heading", dataclasses.replace(snapshot, bytes=missing_denominator)),
         ("duplicate denominator heading", dataclasses.replace(snapshot, bytes=duplicate_denominator)),
+        ("reversed catalog markers", dataclasses.replace(snapshot, bytes=reversed_markers)),
+        ("missing table header", dataclasses.replace(snapshot, bytes=missing_table_header)),
         ("missing frontmatter field", dataclasses.replace(snapshot, bytes=missing_frontmatter_field)),
         ("missing closing delimiter", dataclasses.replace(snapshot, bytes=missing_closing_delimiter)),
         ("duplicate catalog ID", dataclasses.replace(snapshot, bytes=duplicate_id)),
         ("extra A0 form", dataclasses.replace(snapshot, bytes=extra_a0)),
+        ("range catalog ID", dataclasses.replace(snapshot, bytes=range_id)),
     ))
     for label, invalid_snapshot in snapshot_mutations:
         assert_rejected(
@@ -1428,6 +1469,41 @@ def test_phase5_snapshot_resource_bounds(module: ModuleType) -> None:
         module,
         lambda: module.parse_phase5_snapshot_content(
             dataclasses.replace(base, bytes=over_description)
+        ),
+    )
+
+    review_link_prefix = "hTtPs://review.example/phase-5/"
+    maximum_review_link = review_link_prefix + "r" * (
+        4096 - len(review_link_prefix.encode("ascii"))
+    )
+    maximum_approvers = ", ".join(
+        f"principal-boundary-{index:03d}" for index in range(256)
+    )
+    maximum_metadata = dict(PHASE5_FRONTMATTER)
+    maximum_metadata["reviewLink"] = maximum_review_link
+    maximum_metadata["approvers"] = maximum_approvers
+    maximum_metadata_content = module.parse_phase5_snapshot_content(
+        make_phase5_snapshot(module, metadata=maximum_metadata)
+    )
+    assert maximum_metadata_content.document.reviewLink == maximum_review_link
+    assert len(maximum_metadata_content.document.approvers) == 256
+
+    over_review_link = dict(maximum_metadata)
+    over_review_link["reviewLink"] = maximum_review_link + "r"
+    assert_rejected(
+        module,
+        lambda: module.parse_phase5_snapshot_content(
+            make_phase5_snapshot(module, metadata=over_review_link)
+        ),
+    )
+    over_approvers = dict(PHASE5_FRONTMATTER)
+    over_approvers["approvers"] = ", ".join(
+        f"principal-boundary-{index:03d}" for index in range(257)
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_phase5_snapshot_content(
+            make_phase5_snapshot(module, metadata=over_approvers)
         ),
     )
 
@@ -2162,6 +2238,43 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
         assert rejected.code == BOOTSTRAP_REJECTION
 
     complete_objects = module.BootstrapTaskObjectSetV1(**base)
+    original_document_bound_parser = (
+        module.parse_document_bound_required_test_set
+    )
+    document_bound_calls = []
+
+    def capture_document_bound_call(
+        required_bytes: bytes,
+        authority_policy_bytes: bytes,
+        phase5_snapshot: object,
+    ) -> tuple[object, object]:
+        document_bound_calls.append((
+            required_bytes,
+            authority_policy_bytes,
+            phase5_snapshot,
+        ))
+        return object(), object()
+
+    module.parse_document_bound_required_test_set = capture_document_bound_call
+    try:
+        still_incomplete = module.verifyBootstrapTaskObjects(
+            subject, complete_objects
+        )
+    finally:
+        module.parse_document_bound_required_test_set = (
+            original_document_bound_parser
+        )
+    assert isinstance(still_incomplete, module.Rejected)
+    assert len(document_bound_calls) == 1, (
+        "object consumer must invoke the PHASE-5 document-bound parser once"
+    )
+    called_required, called_policy, called_snapshot = document_bound_calls[0]
+    assert called_required is complete_objects.requiredTestSetBytes
+    assert called_policy is complete_objects.authorityPolicyBytes
+    assert called_snapshot is documents[-1], (
+        "object consumer must pass the same subject PHASE-5 snapshot identity"
+    )
+
     mixed_task_ids = dataclasses.replace(
         subject,
         taskRows=(row, dataclasses.replace(row, taskId=1)),

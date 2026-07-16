@@ -24,6 +24,8 @@ MAX_JSON_DEPTH = 64
 MAX_JSON_NODES = 100_000
 MAX_STRING_BYTES = 1024 * 1024
 MAX_SAFE_INTEGER = (1 << 53) - 1
+MAX_DOCUMENT_LINE_BYTES = 65_536
+MAX_DOCUMENT_LINES = 100_000
 
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 GIT_OBJECT_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
@@ -178,6 +180,20 @@ class BootstrapDocumentSnapshotV1:
     id: str
     path: str
     bytes: bytes
+
+
+@dataclass(frozen=True)
+class Phase5SnapshotContentV1:
+    document: NormativeDocumentRefV1
+    requiredTestIds: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _RequiredTestSetPreflightV1:
+    policy: BootstrapAuthorityPolicyV1
+    requiredTestSet: RequiredTestSetV1
+    requiredTestSetRef: ContentRef
+    signatureMessage: bytes
 
 
 @dataclass(frozen=True)
@@ -569,7 +585,27 @@ _ED25519_PUBLIC_KEY_RE = re.compile(r"[0-9a-f]{64}")
 _ED25519_SIGNATURE_RE = re.compile(r"[0-9a-f]{128}")
 _LOWERCASE_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 _GREGORIAN_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_DEVELOPMENT_A0_TEST_ID_RE = re.compile(r"TST-A0-[0-9]{3}")
+_DEVELOPMENT_A0_TEST_IDS = tuple(
+    f"TST-A0-{index:03d}" for index in range(1, 21)
+)
+_PHASE5_DOCUMENT_PATH = "docs/05-test-spec.md"
+_PHASE5_CATALOG_HEADING = "## 完整 Test ID Catalog"
+_PHASE5_DENOMINATOR_HEADING = "### Phase 1 required-set 分母"
+_PHASE5_CATALOG_HEADER = "| ID | 测试对象 |"
+_PHASE5_CATALOG_DELIMITER = "|---|---|"
+_PHASE5_FRONTMATTER_FIELDS = frozenset({
+    "id",
+    "title",
+    "status",
+    "owner",
+    "updated",
+    "normative",
+    "approvers",
+    "approvedAt",
+    "reviewCommit",
+    "reviewLink",
+    "openFindings",
+})
 _REQUIRED_TEST_SET_FIELDS = (
     "schema",
     "id",
@@ -879,6 +915,195 @@ def _parse_normative_document_ref(
     )
 
 
+def _parse_phase5_frontmatter(
+    data: bytes,
+) -> tuple[dict[str, str], int]:
+    if not data.startswith(b"---\n"):
+        _reject("PHASE-5 snapshot lacks the exact opening frontmatter delimiter")
+    closing = data.find(b"\n---\n", 4)
+    if closing < 0:
+        _reject("PHASE-5 snapshot lacks the exact closing frontmatter delimiter")
+    try:
+        frontmatter_text = data[4:closing].decode("utf-8", errors="strict")
+    except UnicodeError:
+        _reject("PHASE-5 frontmatter is not UTF-8")
+    metadata: dict[str, str] = {}
+    for line_number, line in enumerate(frontmatter_text.split("\n"), start=2):
+        if line == "":
+            continue
+        separator = line.find(": ")
+        if separator <= 0:
+            _reject(f"PHASE-5 frontmatter line {line_number} is not key: value")
+        key = line[:separator]
+        value = line[separator + 2:]
+        if (not value or key != key.strip() or value != value.strip()
+                or key in metadata):
+            _reject(f"PHASE-5 frontmatter line {line_number} is noncanonical")
+        metadata[key] = value
+    if set(metadata) != _PHASE5_FRONTMATTER_FIELDS:
+        _reject("PHASE-5 frontmatter field set is not exact")
+    if (metadata["id"] != "PHASE-5"
+            or metadata["status"] != "accepted"
+            or metadata["normative"] != "true"
+            or metadata["openFindings"] != "none"):
+        _reject("PHASE-5 frontmatter is not an accepted normative document")
+    _parse_gregorian_date(metadata["updated"], "PHASE-5.updated")
+    _parse_gregorian_date(metadata["approvedAt"], "PHASE-5.approvedAt")
+    if _LOWERCASE_COMMIT_RE.fullmatch(metadata["reviewCommit"]) is None:
+        _reject("PHASE-5.reviewCommit must be 40 lowercase hex digits")
+    _parse_review_link(metadata["reviewLink"], "PHASE-5.reviewLink")
+    return metadata, closing + len(b"\n---\n")
+
+
+def _parse_phase5_approvers(value: str) -> Tuple[str, ...]:
+    approver_values = tuple(value.split(", "))
+    if (not value or ", ".join(approver_values) != value
+            or not 1 <= len(approver_values) <= 256):
+        _reject("PHASE-5.approvers must use the exact bounded ', ' grammar")
+    approvers = tuple(
+        _require_safe_id(approver, f"PHASE-5.approvers[{index}]")
+        for index, approver in enumerate(approver_values)
+    )
+    if (approvers != tuple(sorted(approvers))
+            or len(set(approvers)) != len(approvers)):
+        _reject("PHASE-5.approvers must be unique ascending ASCII safe-id")
+    return approvers
+
+
+def _parse_phase5_catalog(body: bytes) -> Tuple[str, ...]:
+    try:
+        text = body.decode("utf-8", errors="strict")
+    except UnicodeError:
+        _reject("PHASE-5 body is not UTF-8")
+    lines = text[:-1].split("\n") if text else []
+    heading_indices: list[int] = []
+    denominator_indices: list[int] = []
+    header_indices: list[int] = []
+    delimiter_indices: list[int] = []
+    for index, line in enumerate(lines):
+        if line == _PHASE5_CATALOG_HEADING:
+            heading_indices.append(index)
+        if line == _PHASE5_DENOMINATOR_HEADING:
+            denominator_indices.append(index)
+        if line == _PHASE5_CATALOG_HEADER:
+            header_indices.append(index)
+        if line == _PHASE5_CATALOG_DELIMITER:
+            delimiter_indices.append(index)
+    if (len(heading_indices) != 1 or len(denominator_indices) != 1
+            or len(header_indices) != 1 or len(delimiter_indices) != 1):
+        _reject("PHASE-5 catalog reserved lines must each occur exactly once")
+    heading = heading_indices[0]
+    denominator = denominator_indices[0]
+    header = header_indices[0]
+    delimiter = delimiter_indices[0]
+    if not heading < header < delimiter < denominator or delimiter != header + 1:
+        _reject("PHASE-5 catalog section/table order is invalid")
+    for line in lines[heading + 1:denominator]:
+        if (line == "###" or line.startswith("### ")
+                or line.startswith("###\t")):
+            _reject("PHASE-5 denominator heading is not the first H3")
+    for line in lines[heading + 1:header]:
+        if line.startswith("|") or line.endswith("|"):
+            _reject("PHASE-5 catalog has a table-like line before its header")
+
+    catalog_ids: list[str] = []
+    table_ended = False
+    for line in lines[delimiter + 1:denominator]:
+        if line == "":
+            table_ended = True
+            continue
+        if table_ended:
+            _reject("PHASE-5 catalog table must be contiguous")
+        if not line.startswith("| ") or not line.endswith(" |"):
+            _reject("PHASE-5 catalog row is malformed")
+        cells = line[2:-2].split(" | ")
+        if len(cells) != 2:
+            _reject("PHASE-5 catalog row must contain exactly two cells")
+        test_id, description = cells
+        if test_id != test_id.strip() or description != description.strip():
+            _reject("PHASE-5 catalog cells contain outer whitespace")
+        parsed_test_id = _require_ascii_text(
+            test_id, TEST_ID_RE, "PHASE-5 catalog TestId", 127
+        )
+        try:
+            encoded_description = description.encode("utf-8")
+        except UnicodeError:
+            _reject("PHASE-5 catalog description is not UTF-8")
+        if (not 1 <= len(encoded_description) <= 4096 or "|" in description
+                or any(unicodedata.category(character) == "Cc"
+                       for character in description)):
+            _reject("PHASE-5 catalog description is invalid")
+        catalog_ids.append(parsed_test_id)
+        if len(catalog_ids) > 4116:
+            _reject("PHASE-5 catalog row count exceeds 4116")
+    if not catalog_ids or len(set(catalog_ids)) != len(catalog_ids):
+        _reject("PHASE-5 catalog TestIds must be non-empty and unique")
+    development_ids = {
+        test_id for test_id in catalog_ids if test_id.startswith("TST-A0-")
+    }
+    if development_ids != set(_DEVELOPMENT_A0_TEST_IDS):
+        _reject("PHASE-5 catalog must contain exact TST-A0-001..020")
+    required_test_ids = tuple(sorted(
+        test_id for test_id in catalog_ids
+        if not test_id.startswith("TST-A0-")
+    ))
+    if not 1 <= len(required_test_ids) <= 4096:
+        _reject("PHASE-5 required catalog denominator count must be 1..4096")
+    if len(catalog_ids) != len(_DEVELOPMENT_A0_TEST_IDS) + len(required_test_ids):
+        _reject("PHASE-5 catalog contains a forbidden A0-prefixed TestId")
+    return required_test_ids
+
+
+def parse_phase5_snapshot_content(
+    phase5_snapshot: BootstrapDocumentSnapshotV1,
+) -> Phase5SnapshotContentV1:
+    """Derive PHASE-5 metadata and its formal test denominator from bytes."""
+    if type(phase5_snapshot) is not BootstrapDocumentSnapshotV1:
+        _reject("phase5_snapshot must be exact BootstrapDocumentSnapshotV1")
+    if (type(phase5_snapshot.id) is not str
+            or type(phase5_snapshot.path) is not str
+            or phase5_snapshot.id != "PHASE-5"
+            or phase5_snapshot.path != _PHASE5_DOCUMENT_PATH):
+        _reject("PHASE-5 snapshot identity/path is not canonical")
+    data = phase5_snapshot.bytes
+    if type(data) is not bytes or not 1 <= len(data) <= MAX_INPUT_BYTES:
+        _reject("PHASE-5 snapshot bytes must be 1..4 MiB")
+    if data.startswith(b"\xef\xbb\xbf") or b"\x00" in data or b"\r" in data:
+        _reject("PHASE-5 snapshot contains a forbidden byte sequence")
+    if not data.endswith(b"\n"):
+        _reject("PHASE-5 snapshot must end with LF")
+    line_count = data.count(b"\n")
+    if not 1 <= line_count <= MAX_DOCUMENT_LINES:
+        _reject("PHASE-5 snapshot line count is outside 1..100000")
+    raw_lines = data[:-1].split(b"\n")
+    if any(len(line) > MAX_DOCUMENT_LINE_BYTES for line in raw_lines):
+        _reject("PHASE-5 snapshot line exceeds 65536 UTF-8 bytes")
+    try:
+        data.decode("utf-8", errors="strict")
+    except UnicodeError:
+        _reject("PHASE-5 snapshot is not strict UTF-8")
+
+    metadata, body_offset = _parse_phase5_frontmatter(data)
+    approvers = _parse_phase5_approvers(metadata["approvers"])
+    digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.normative-document.v1\x00PHASE-5\x00" + data
+        ).digest(),
+    )
+    document = NormativeDocumentRefV1(
+        "PHASE-5",
+        digest,
+        "accepted",
+        metadata["reviewCommit"],
+        metadata["reviewLink"],
+        metadata["approvedAt"],
+        approvers,
+    )
+    required_test_ids = _parse_phase5_catalog(data[body_offset:])
+    return Phase5SnapshotContentV1(document, required_test_ids)
+
+
 def _parse_required_test_ids(value: object) -> Tuple[str, ...]:
     where = "RequiredTestSetV1.requiredTestIds"
     if type(value) is not list or not 1 <= len(value) <= 4096:
@@ -891,9 +1116,8 @@ def _parse_required_test_ids(value: object) -> Tuple[str, ...]:
     if (test_ids != tuple(sorted(test_ids))
             or len(set(test_ids)) != len(test_ids)):
         _reject(f"{where} must be unique ascending ASCII TestId")
-    if any(_DEVELOPMENT_A0_TEST_ID_RE.fullmatch(test_id) is not None
-           for test_id in test_ids):
-        _reject(f"{where} must exclude development TST-A0-NNN IDs")
+    if any(test_id.startswith("TST-A0-") for test_id in test_ids):
+        _reject(f"{where} must exclude every TST-A0-prefixed ID")
     return test_ids
 
 
@@ -958,11 +1182,10 @@ def _require_signature_rule(
         _reject("RequiredTestSetV1 signatures do not cover required roles")
 
 
-def parse_required_test_set(
+def _preflight_required_test_set(
     required_bytes: bytes,
     authority_policy_bytes: bytes,
-) -> Tuple[RequiredTestSetV1, ContentRef]:
-    """Validate a canonical signed RequiredTestSet against policy bytes."""
+) -> _RequiredTestSetPreflightV1:
     policy, policy_ref = parse_bootstrap_authority_policy(
         authority_policy_bytes
     )
@@ -997,18 +1220,6 @@ def parse_required_test_set(
         + canonical_pf_jcs(statement)
     ).digest()
     message = b"pf.required-test-set-signature.v1\x00" + statement_digest
-    principal_by_key = {
-        principal.keyId: principal for principal in policy.principals
-    }
-    _require_signature_rule(
-        signatures, policy.principals, policy.requiredTestSetRule
-    )
-    for signature in signatures:
-        principal = principal_by_key[signature.keyId]
-        if not verify_ed25519(
-            principal.publicKey, message, signature.signature
-        ):
-            _reject(f"RequiredTestSetV1 signature {signature.keyId} is invalid")
     required_set = RequiredTestSetV1(
         "proof-forge.required-test-set.v1",
         identifier,
@@ -1022,12 +1233,70 @@ def parse_required_test_set(
         "sha256",
         hashlib.sha256(b"pf.required-test-set.v1\x00" + required_bytes).digest(),
     )
-    return required_set, ContentRef(
+    required_set_ref = ContentRef(
         required_set.schema,
         required_set.id,
         required_set.version,
         digest,
     )
+    return _RequiredTestSetPreflightV1(
+        policy,
+        required_set,
+        required_set_ref,
+        message,
+    )
+
+
+def _finalize_required_test_set(
+    preflight: _RequiredTestSetPreflightV1,
+) -> Tuple[RequiredTestSetV1, ContentRef]:
+    _require_signature_rule(
+        preflight.requiredTestSet.signatures,
+        preflight.policy.principals,
+        preflight.policy.requiredTestSetRule,
+    )
+    principal_by_key = {
+        principal.keyId: principal for principal in preflight.policy.principals
+    }
+    for signature in preflight.requiredTestSet.signatures:
+        principal = principal_by_key[signature.keyId]
+        if not verify_ed25519(
+            principal.publicKey,
+            preflight.signatureMessage,
+            signature.signature,
+        ):
+            _reject(f"RequiredTestSetV1 signature {signature.keyId} is invalid")
+    return preflight.requiredTestSet, preflight.requiredTestSetRef
+
+
+def parse_required_test_set(
+    required_bytes: bytes,
+    authority_policy_bytes: bytes,
+) -> Tuple[RequiredTestSetV1, ContentRef]:
+    """Validate a canonical signed RequiredTestSet against policy bytes."""
+    return _finalize_required_test_set(_preflight_required_test_set(
+        required_bytes,
+        authority_policy_bytes,
+    ))
+
+
+def parse_document_bound_required_test_set(
+    required_bytes: bytes,
+    authority_policy_bytes: bytes,
+    phase5_snapshot: BootstrapDocumentSnapshotV1,
+) -> Tuple[RequiredTestSetV1, ContentRef]:
+    """Bind a signed RequiredTestSet to exact PHASE-5 snapshot content."""
+    snapshot_content = parse_phase5_snapshot_content(phase5_snapshot)
+    preflight = _preflight_required_test_set(
+        required_bytes,
+        authority_policy_bytes,
+    )
+    if snapshot_content.document != preflight.requiredTestSet.phase5Document:
+        _reject("RequiredTestSetV1 PHASE-5 document ref does not match snapshot")
+    if (snapshot_content.requiredTestIds
+            != preflight.requiredTestSet.requiredTestIds):
+        _reject("RequiredTestSetV1 denominator does not match PHASE-5 catalog")
+    return _finalize_required_test_set(preflight)
 
 
 def _require_sorted_unique(values: tuple, where: str, *, nonempty: bool) -> None:
@@ -1175,6 +1444,20 @@ def verifyBootstrapTaskObjects(
     try:
         _validate_subject(subject)
         _validate_object_shell(objects)
+        phase5_snapshot = next(
+            (
+                document for document in subject.documents
+                if document.id == "PHASE-5"
+            ),
+            None,
+        )
+        if phase5_snapshot is None:
+            _reject("subject lacks the PHASE-5 document snapshot")
+        parse_document_bound_required_test_set(
+            objects.requiredTestSetBytes,
+            objects.authorityPolicyBytes,
+            phase5_snapshot,
+        )
     except Rejected as rejected:
         return rejected
     except (TypeError, ValueError, UnicodeError, AttributeError) as error:
