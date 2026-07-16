@@ -690,7 +690,10 @@ digest、normalized observations 和 logs。
    reviewCommit substitution、missing/extra/duplicate/reordered required ID、wrong policy ref、签名
    缺失/伪造/同一 principal 多 key/role 或 threshold 不足、缺/错 FormalGateCatalogApproval、弱/no-op
    gate policy、GateCatalogRef 使用 `contentDigest` alias 或 prefixed digest，以及 catalog/gates/evidence
-   omission/duplication/错绑、formal output catalog/required-test-set path segment mismatch；
+   omission/duplication/错绑、formal output catalog/required-test-set path segment mismatch；pure parser
+   必须从 policy bytes 重算 ref，且其 positive 不得替代 PHASE-5 snapshot/denominator/ancestry join；
+   hard-bound 验收必须覆盖 TestId 127/128 bytes、required IDs 4096/4097、approvers 256/257、
+   reviewLink 4096/4097 bytes 与 signatures resolved-policy-count equal/over；
 6. bootstrap authority negatives：wrong policy schema、D0-01..06 缺项/乱序/额外项、principal
    间或同一 principal rotation 的 duplicate publicKey、receiptPublicKey alias principal key、按
    principalId 合并其他 key roles 的权限提升、role enum ASCII 误排序、principals 0/257 count，

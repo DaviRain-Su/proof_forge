@@ -557,7 +557,12 @@ ref 必须与该文件 accepted frontmatter 的 `id/reviewCommit/reviewLink/appr
 一致；frontmatter 的 scalar `approvers` 必须先按 `DOC-STATUS` 的 exact `, ` 分隔规则解码为
 ASCII safe-id array，禁止 trim、重排或接受其他 delimiter，所得 array 原样进入本 object。review
 commit 必须是 candidate commit 的 ancestor，且 candidate 中该文档 bytes 仍等于
-contentDigest。approvers、independent reviews 分别按 ASCII ID、keyId 唯一升序。review ref 的
+contentDigest。该 object 字段按 declaration order、`additionalProperties=false`；id 使用 safe-id，
+contentDigest 使用 SPEC-COMMON-001 Digest，status exact 为 `accepted`，reviewCommit 恰为 40 位
+lowercase hex，approvedAt 是真实 Gregorian `YYYY-MM-DD`。reviewLink 为 1..4096 UTF-8 bytes、无
+Unicode General_Category=`Cc` code point 且 scheme 按 ASCII case-insensitive 比较为 `https://`；
+approvers count 为 1..256。
+approvers、independent reviews 分别按 ASCII ID、keyId 唯一升序。review ref 的
 keyId/role 必须由 authority policy 授权，reviewCommit 必须等于正在批准的 candidate commit，
 reportDigest 是对应 immutable review report 的 `Digest`；review key 经 policy 映射后只有不同
 principalId 才算独立审阅者。
@@ -580,6 +585,15 @@ RequiredTestSetV1 {
 TestId；所有且仅有不匹配 `TST-A0-[0-9]{3}` 的行进入 `requiredTestIds`，按 ASCII ID 唯一升序。
 duplicate heading/table/ID、malformed row、范围或通配符均拒绝。这样 statement 同时绑定 accepted
 PHASE-5 raw content digest、reviewCommit 与 exact required ID denominator。
+`requiredTestIds` count 必须为 1..4096；每项必须是 1..127-byte ASCII 且匹配
+`TST-[A-Z0-9]+(?:-[A-Z0-9]+)*`，按 ASCII byte 唯一
+升序。`signatures` count 必须为
+`1..min(resolved BootstrapAuthorityPolicyV1.principals.count, 256)`；consumer 必须在任何
+RequiredTestSet signature curve verification 前完成 signature
+closed-field、requiredTestIds grammar/order/unique、keyId ASCII 升序唯一、algorithm exact `ed25519`、
+signature 128 位 lowercase-hex 与 keyId policy membership 检查。所有 signatures 都必须验签通过；
+禁止选择有效子集或忽略 extra/unknown signature。quorum 按有效 signatures 映射出的 distinct
+principalId 计算，role coverage 只合并这些 signature exact key entry 的 roles。
 
 signature statement 是移除 `signatures` 后的同序 object；其 digest 与 signature message 为：
 
@@ -598,6 +612,20 @@ requiredTestSetDigest = SHA-256(
   "pf.required-test-set.v1" || NUL || canonical_pf_jcs(RequiredTestSetV1)
 )
 ```
+
+其 ContentRef exact 为
+`{schema="proof-forge.required-test-set.v1",id=record.id,version=record.version,digest=requiredTestSetDigest}`；
+statement digest 只用于签名，禁止代替完整 signed-object digest。pure public API 固定为
+`parse_required_test_set(requiredBytes, authorityPolicyBytes) -> (RequiredTestSetV1, ContentRef)`；它必须
+从 canonical authorityPolicyBytes 重新解析 policy 并重算 policy ContentRef，再与 record 中
+authorityPolicy exact join，不接受 caller 提供的 typed policy/ref 或 selector。
+
+该 API 的成功只表示 required-set canonical bytes、所给 policy 内容、签名、role/quorum 与自身
+ContentRef 已验证，是后续 object consumer 的 typed intermediate；它不表示 PHASE-5 snapshot 或
+candidate ancestry 已验证。consumer 仍须把 phase5Document 与同一 subject document bytes/frontmatter
+以及 exact catalog denominator join；reviewCommit 对 candidate commit 的 ancestor relation仍只能由
+protected adapter 的预开 commit graph 验证。完成这些 join 前不得把中间值写成 authority verified、
+task complete 或 bootstrap closure。
 
 ### FormalGateCatalogApprovalV1 authority
 
