@@ -13,6 +13,7 @@ normative: true
 - [变更控制](change-control.md)
 - [**全局任务冻结协议**](task-freeze.md)（全部 `TASK-*` 完成面守恒；禁止执行中扩 scope）
 - [任务集合 lock](task-set.lock.json)（A0/D0–D8 exact `TASK-*` 集合；M1 机器强制）
+- [任务冻结包目录](task-freeze-packages/)（每个 `in_progress` 的完成面 JSON；M2 机器强制）
 - [版本与兼容治理](version-compatibility.md)
 - [依赖与供应链](dependency-policy.md)
 - [CI 与证据](ci-evidence.md)

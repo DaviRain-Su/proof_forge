@@ -74,6 +74,30 @@ def write_task_set_lock(root: Path, *d0_tasks: str) -> None:
     path.write_text(synthetic_task_set_lock(*d0_tasks), encoding="utf-8")
 
 
+def write_task_freeze_package(
+        root: Path,
+        task_id: str,
+        *,
+        output: str,
+        tests: list[str] | None = None,
+        dependencies: list[str] | None = None,
+        prerequisites: list[str] | None = None,
+) -> None:
+    path = root / "docs/governance/task-freeze-packages" / f"{task_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schemaVersion": 1,
+        "taskId": task_id,
+        "frozenAt": "2026-07-16",
+        "freezeCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "output": output,
+        "dependencies": list(dependencies or []),
+        "prerequisites": list(prerequisites or []),
+        "tests": list(tests or ["TST-DOC-902"]),
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def markdown(doc_id: str, body: str = "", *, status: str = "proposed",
              normative: bool = True) -> str:
     return (
@@ -372,6 +396,11 @@ def make_unfinished_dependency(root: Path) -> None:
             "| GOAL-901 | FR-902 | ADR-9001, INV-901 | SPEC-DOC-901 | "
             "TASK-D0-93 | TST-DOC-903 | specified |")
     write_task_set_lock(root, "TASK-D0-92", "TASK-D0-93")
+    write_task_freeze_package(
+        root, "TASK-D0-92",
+        output="Active synthetic task",
+        dependencies=["TASK-D0-93"],
+        tests=["TST-DOC-902"])
 
 
 def add_evidence_extra_column(root: Path) -> None:
@@ -501,6 +530,11 @@ def main() -> None:
             "TST-DOC-902 | — | pending |",
             "| TASK-D0-92 | Active synthetic task | TASK-A0-20 | — | "
             "TST-DOC-902 | — | in_progress |"),
+        write_task_freeze_package(
+            root, "TASK-D0-92",
+            output="Active synthetic task",
+            dependencies=["TASK-A0-20"],
+            tests=["TST-DOC-902"]),
         replace(root / "AGENTS.md", "| Active task | 无 |",
                 "| Active task | TASK-D0-92 |"),
         replace(root / "AGENTS.md", "| Next task | TASK-D0-92 |",
@@ -1192,8 +1226,43 @@ def main() -> None:
                 "| TASK-D0-92 | TST-DOC-902 | specified |",
                 "| TASK-D0-92, TASK-D0-93, TASK-D0-94 | TST-DOC-902 | specified |"),
             write_task_set_lock(root, "TASK-D0-92", "TASK-D0-93", "TASK-D0-94"),
+            write_task_freeze_package(
+                root, "TASK-D0-93", output="Active one", tests=["TST-DOC-902"]),
+            write_task_freeze_package(
+                root, "TASK-D0-94", output="Active two", tests=["TST-DOC-902"]),
         ),
          "PF-DOC-TASK-ACTIVE", "TASK-D0-93"),
+        ("task-freeze-package-missing", lambda root: (
+            replace(
+                root / "docs/04-task-breakdown.md",
+                "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+                "TST-DOC-902 | — | pending |",
+                "| TASK-D0-92 | Active synthetic task | TASK-A0-20 | — | "
+                "TST-DOC-902 | — | in_progress |"),
+            replace(root / "AGENTS.md", "| Active task | 无 |",
+                    "| Active task | TASK-D0-92 |"),
+            replace(root / "AGENTS.md", "| Next task | TASK-D0-92 |",
+                    "| Next task | 无 |"),
+        ),
+         "PF-DOC-TASK-FREEZE", "requires freeze package"),
+        ("task-freeze-package-output-drift", lambda root: (
+            replace(
+                root / "docs/04-task-breakdown.md",
+                "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+                "TST-DOC-902 | — | pending |",
+                "| TASK-D0-92 | Active synthetic task | TASK-A0-20 | — | "
+                "TST-DOC-902 | — | in_progress |"),
+            write_task_freeze_package(
+                root, "TASK-D0-92",
+                output="Different frozen output",
+                dependencies=["TASK-A0-20"],
+                tests=["TST-DOC-902"]),
+            replace(root / "AGENTS.md", "| Active task | 无 |",
+                    "| Active task | TASK-D0-92 |"),
+            replace(root / "AGENTS.md", "| Next task | TASK-D0-92 |",
+                    "| Next task | 无 |"),
+        ),
+         "PF-DOC-TASK-FREEZE", "output drifted"),
         ("task-set-lock-missing", lambda root: (
             root / "docs/governance/task-set.lock.json").unlink(),
          "PF-DOC-REQUIRED", "docs/governance/task-set.lock.json"),

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-01",
+  "frozenAt": "2026-07-17",
+  "freezeCommit": "a3a3f2168bae6ebcbc559bd99a123cf37ab01f24",
+  "output": "建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker，以及 external TaskApproval/task-receipt pure consumer 与 candidate-external protected integration；后者未通过 TST-DOC-001 前对 bootstrap closure fail closed",
+  "dependencies": [],
+  "prerequisites": [
+    "PHASE-1@accepted",
+    "PHASE-2@accepted",
+    "PHASE-3@accepted"
+  ],
+  "tests": [
+    "TST-DOC-001"
+  ],
+  "maxCalendarDays": 3,
+  "maxCommits": 20,
+  "notes": "Evidence cells may append EV IDs without a freeze-package change. Output/Tests/Dependencies/Prerequisites must stay byte-identical to the task table row."
+}

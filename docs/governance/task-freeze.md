@@ -171,12 +171,13 @@ Milestone 封顶**不**阻止把过胖任务**拆出**到新 milestone；拆出�
 |---|---|---|
 | M0 | 本文件 + 任务表引用 + 人工 review 按清单 | **生效** |
 | M1 | docs-check：至多一个 `in_progress`；A0 集合冻结；A0/D0–D8 ID 集合相对 [`task-set.lock.json`](task-set.lock.json) exact | **生效**（`PF-DOC-TASK-SET-LOCK` / 既有 active/A0 规则） |
-| M2 | docs-check：`in_progress` 行哈希 = freeze package 哈希；完成包字段齐全 | 待实现 |
-| M3 | CI 对完成面 diff 无 exception 则失败 | 待实现 |
+| M2 | docs-check：每个 `in_progress` 必须有 `task-freeze-packages/TASK-*.json`，且 Output/Tests/Dependencies/Prerequisites 与任务表行一致 | **生效**（`PF-DOC-TASK-FREEZE`） |
+| M3 | CI 对完成面 diff 无 exception 则失败 | 待实现（可由 M1+M2 在 docs-check/CI 中近似覆盖） |
 
-M2–M3 未落地前，**§2–§6 仍为规范**；不得以“更高阶段 checker 未实现”为由违反。
+M3 未单独落地前，**§2–§6 与 M0–M2 仍为规范**；不得以“更高阶段未实现”为由违反。
 
 Lock 文件：`docs/governance/task-set.lock.json`（`schemaVersion: 1`，`milestones` → exact `TASK-*` 列表）。  
+完成包目录：`docs/governance/task-freeze-packages/TASK-*.json`。  
 Milestone 增行必须同变更更新 lock，并经 Architecture + Quality 批准。
 
 ## 10. Agent / 人类执行清单

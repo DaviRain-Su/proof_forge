@@ -98,7 +98,11 @@ FROZEN_A0_TEST_TO_TASK = {
     test: task for task, test in FROZEN_A0_TASK_TEST_PAIRS
 }
 TASK_SET_LOCK_RELATIVE = "docs/governance/task-set.lock.json"
+TASK_FREEZE_PACKAGES_RELATIVE = "docs/governance/task-freeze-packages"
 MILESTONE_TASK_RE = re.compile(r"^TASK-(A0|D[0-9]+)-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
+TASK_FREEZE_PACKAGE_NAME_RE = re.compile(
+    r"^TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*\.json$"
+)
 
 
 def is_frozen_a0_task(identifier: str) -> bool:
@@ -1305,6 +1309,165 @@ def validate_task_set_lock(root: Path, tasks: list[TaskRecord]) -> None:
                 f"missing={missing}, unexpected={unexpected}")
 
 
+def _package_id_list(values: Any, *, field: str, relative: str) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, list):
+        raise_error(
+            "PF-DOC-TASK-FREEZE", relative,
+            f"{field} must be an array")
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        if not isinstance(item, str) or not item:
+            raise_error(
+                "PF-DOC-TASK-FREEZE", relative,
+                f"{field} entries must be non-empty strings")
+        if item in seen:
+            raise_error(
+                "PF-DOC-TASK-FREEZE", relative,
+                f"{field} repeats {item}")
+        seen.add(item)
+        ordered.append(item)
+    return tuple(ordered)
+
+
+def load_task_freeze_package(root: Path, task_id: str) -> dict[str, Any]:
+    relative = f"{TASK_FREEZE_PACKAGES_RELATIVE}/{task_id}.json"
+    path = root / relative
+    ensure_repository_path(root, path, relative)
+    if not path.is_file():
+        raise_error(
+            "PF-DOC-TASK-FREEZE", relative,
+            f"in_progress task {task_id} requires freeze package")
+    payload = load_json(root, path)
+    if not isinstance(payload, dict):
+        raise_error("PF-DOC-TASK-FREEZE", relative, "package root must be a JSON object")
+    if payload.get("schemaVersion") != 1:
+        raise_error(
+            "PF-DOC-TASK-FREEZE", relative,
+            f"schemaVersion must be 1, got {payload.get('schemaVersion')!r}")
+    if payload.get("taskId") != task_id:
+        raise_error(
+            "PF-DOC-TASK-FREEZE", relative,
+            f"taskId must equal filename id {task_id}")
+    output = payload.get("output")
+    if not isinstance(output, str) or not output.strip():
+        raise_error("PF-DOC-TASK-FREEZE", relative, "output must be a non-empty string")
+    freeze_commit = payload.get("freezeCommit")
+    if (not isinstance(freeze_commit, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", freeze_commit)):
+        raise_error(
+            "PF-DOC-TASK-FREEZE", relative,
+            "freezeCommit must be a 40-char lowercase hex git commit")
+    frozen_at = payload.get("frozenAt")
+    if not isinstance(frozen_at, str):
+        raise_error("PF-DOC-TASK-FREEZE", relative, "frozenAt must be a string date")
+    parse_exact_date(frozen_at, code="PF-DOC-TASK-FREEZE", path=relative, field="frozenAt")
+    return payload
+
+
+def validate_task_freeze_packages(root: Path, tasks: list[TaskRecord]) -> None:
+    packages_dir = root / TASK_FREEZE_PACKAGES_RELATIVE
+    ensure_repository_path(root, packages_dir, TASK_FREEZE_PACKAGES_RELATIVE)
+    if packages_dir.is_file():
+        raise_error(
+            "PF-DOC-TASK-FREEZE", TASK_FREEZE_PACKAGES_RELATIVE,
+            "path must be a directory")
+    if packages_dir.is_dir():
+        ensure_no_tree_symlinks(root, packages_dir)
+        for path in sorted(packages_dir.iterdir(), key=lambda item: item.name):
+            rel = relative(root, path)
+            ensure_repository_path(root, path, rel)
+            if path.name.startswith("."):
+                continue
+            if path.is_dir() or not TASK_FREEZE_PACKAGE_NAME_RE.fullmatch(path.name):
+                raise_error(
+                    "PF-DOC-TASK-FREEZE", rel,
+                    "freeze package files must be exactly TASK-*.json")
+
+    tasks_by_id = {task.identifier: task for task in tasks}
+    for task in sorted(
+            (item for item in tasks if item.status == "in_progress"),
+            key=lambda item: (item.relative, item.line, item.identifier)):
+        relative_pkg = f"{TASK_FREEZE_PACKAGES_RELATIVE}/{task.identifier}.json"
+        package = load_task_freeze_package(root, task.identifier)
+        package_output = package["output"].strip()
+        # Output is the second table cell; TaskRecord does not store it yet.
+        # Re-parse from the task row text via package binding: require tests/deps/prereqs.
+        deps = _package_id_list(
+            package.get("dependencies"), field="dependencies", relative=relative_pkg)
+        tests = _package_id_list(
+            package.get("tests"), field="tests", relative=relative_pkg)
+        raw_prereqs = package.get("prerequisites")
+        if raw_prereqs is None:
+            prereq_tokens: tuple[str, ...] = ()
+        elif not isinstance(raw_prereqs, list):
+            raise_error(
+                "PF-DOC-TASK-FREEZE", relative_pkg,
+                "prerequisites must be an array")
+        else:
+            prereq_tokens = _package_id_list(
+                raw_prereqs, field="prerequisites", relative=relative_pkg)
+        for token in prereq_tokens:
+            if not re.fullmatch(r"[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+@accepted", token):
+                raise_error(
+                    "PF-DOC-TASK-FREEZE", relative_pkg,
+                    f"prerequisite {token!r} must be DOCUMENT-ID@accepted")
+
+        task_prereq_tokens = tuple(
+            f"{doc}@{status}" for doc, status in task.prerequisites)
+        if task.dependencies != deps:
+            raise_error(
+                "PF-DOC-TASK-FREEZE", relative_pkg,
+                f"{task.identifier} dependencies drifted from freeze package: "
+                f"task={list(task.dependencies)} package={list(deps)}")
+        if task.tests != tests:
+            raise_error(
+                "PF-DOC-TASK-FREEZE", relative_pkg,
+                f"{task.identifier} tests drifted from freeze package: "
+                f"task={list(task.tests)} package={list(tests)}")
+        if task_prereq_tokens != prereq_tokens:
+            raise_error(
+                "PF-DOC-TASK-FREEZE", relative_pkg,
+                f"{task.identifier} prerequisites drifted from freeze package: "
+                f"task={list(task_prereq_tokens)} package={list(prereq_tokens)}")
+
+        if not _task_output_matches(root, task, package_output):
+            raise_error(
+                "PF-DOC-TASK-FREEZE", relative_pkg,
+                f"{task.identifier} output drifted from freeze package")
+
+    # Packages without a matching in_progress task are allowed (historical/pending prep),
+    # but taskId must still parse and match filename when the file exists and is loaded
+    # only for in_progress above. Validate orphan package filenames reference known tasks.
+    if packages_dir.is_dir():
+        for path in sorted(packages_dir.glob("TASK-*.json"), key=lambda item: item.name):
+            task_id = path.stem
+            if task_id not in tasks_by_id:
+                raise_error(
+                    "PF-DOC-TASK-FREEZE", relative(root, path),
+                    f"freeze package {task_id} has no task row")
+
+
+def _task_output_matches(root: Path, task: TaskRecord, expected_output: str) -> bool:
+    path = root / task.relative
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise_error("PF-DOC-ENCODING", task.relative, str(error))
+    lines = text.splitlines()
+    if task.line < 1 or task.line > len(lines):
+        return False
+    line = lines[task.line - 1]
+    if not line.startswith("|"):
+        return False
+    cells = list(split_table_line(line))
+    if len(cells) < 2 or cells[0] != task.identifier:
+        return False
+    return cells[1] == expected_output
+
+
 def validate_frozen_a0_pairs(definitions: dict[str, Definition],
                              tasks: list[TaskRecord]) -> None:
     tasks_by_id = {task.identifier: task for task in tasks}
@@ -1875,6 +2038,7 @@ def check(root: Path) -> None:
     definitions, _tables, tasks, evidence_results = collect_definitions(documents, json_values)
     validate_claims(definitions, json_values)
     validate_task_set_lock(root, tasks)
+    validate_task_freeze_packages(root, tasks)
     validate_trace(documents, definitions, tasks)
     document_status = {document.meta["id"]: document.meta["status"] for document in documents}
     validate_tasks(definitions, tasks, evidence_results, document_status)
