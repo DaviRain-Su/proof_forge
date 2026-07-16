@@ -654,6 +654,47 @@ normative: false
   漏勾；严格回到 `TASK-D0-01`，先以 mutation RED 补齐 `TST-DOC-001` checker。Phase 1–3
   仍为 `proposed`，没有 approver/date/review commit，因此 D0-01 即使技术门禁转绿也不能标 done。
 
+## 2026-07-16 — TASK-D0-01 pre-acceptance / document control plane
+
+- Commits：milestone realignment `10639bf8`；RED `646b02a5`；review-gap RED
+  `dd2d449e`；GREEN `a9e377e7c3ba8b32f194418b6a5a2965680fb4f7`。post-commit tree
+  `6b14fccef3075e476c2d14f1204a40212ccebe89`；排除 legacy `active/` 的 product archive
+  SHA-256 `acc920db6c0e2b27ecbc22774eb14365078996c7af90021e1e74a16275d45e3f`，
+  4,352,000 bytes，tar commit id 精确绑定回 GREEN commit。
+- Spec/Test：`TASK-D0-01`、`TST-DOC-001`；本次只是 pre-acceptance development
+  技术切片，不改变 Phase 1–3 或 D0/D1 任务的 lifecycle 状态。
+- Changed：将 `docs/04-task-breakdown.md` 恢复为唯一正式 milestone 顺序，并将
+  status/index、frontmatter/lifecycle/approval/supersession、ID/JSON/link/fragment、claim source、
+  requirement trace、task dependency/prerequisite/status 与 task→TST→EV 精确绑定接入
+  `scripts/docs_check.py`。Evidence Ledger 固定 canonical columns；`development`/
+  `bootstrap`/`formal` 分级 fail closed，`bootstrap` 仅保留给 D0-01/02，D0-03 binder
+  接入前拒绝所有文本自声明 `formal`。诊断统一按 repo-relative path/line/ID
+  排序；JSON nesting 上限 256，link target 上限 2048，并将 I/O/解析异常收敛为
+  稳定单行 `PF-DOC-*` 诊断。
+- Commands：`/usr/bin/python3 -I -S -m py_compile scripts/docs_check.py
+  scripts/docs_check_self_test.py`；使用 `/usr/bin/python3` 3.9.6、
+  `/opt/homebrew/bin/python3.12` 3.12.13、`/opt/homebrew/bin/python3.14` 3.14.5
+  分别运行 `-I -S scripts/docs_check_self_test.py`；`just docs-check`；`just ci`；`just check`；
+  post-commit `just v2-clean-room-alpha`；`git diff --check`；两组 independent read-only
+  review。
+- Results：上述有效候选命令全部 exit 0；三个 Python 版本均报告
+  `docs-check-self-test: ok (97 mutations)`；3.12/3.14 只是本机 Homebrew compatibility
+  observations，未进入 lock/digest closure。Lean build/tests、四 target alpha artifact、
+  fail-closed tool/target/output negatives、artifact validation 与 development clean-room 通过；
+  两组最终复核 P0=0/P1=0。Stage-0 开发观测精确报告
+  `eligibleForHermetic=false`，system volume seal `broken`，Xcode pathname
+  `mutableByCurrentUser=true`。
+- Evidence：`EV-20260716-0026`，精确绑定 `TASK-D0-01` / `TST-DOC-001` /
+  `development`；它是 pre-acceptance 开发证据，不是 schema-complete immutable EV JSON。
+- Limitations：Phase 1、2、3 仍是 `proposed`，所以 `TASK-D0-01` 必须保持
+  `in_progress`；不得由本 EV 声称 `TST-DOC-001` 正式验收或 Milestone D0
+  完成。最终关闭仍需 Phase 1–3 accepted、完整 review 与单独 `bootstrap` EV。
+  D0-03 的 formal evidence-set binder、eligible host、digest-bound Stage-0 handoff、
+  process-session containment、gate catalog/freshness/revocation/private scan/finalizer 仍未闭合。
+- Next：继续停留在 `TASK-D0-01` acceptance，先完成 Phase 1–3 的正式评审与批准记录；
+  在 D0-01 满足 prerequisites、review 和 bootstrap evidence 之前，不启动唯一后续
+  `TASK-D0-02`。
+
 ## 记录模板
 
 ```markdown

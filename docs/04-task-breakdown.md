@@ -56,7 +56,7 @@ EV。下一工作回到第一个正式任务 `TASK-D0-01`。
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D0-01 | 建立文档 status、ID、link checker | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | — | in_progress |
+| TASK-D0-01 | 建立文档 status、ID、link checker | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | EV-20260716-0026 | in_progress |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | TASK-D0-01 | — | TST-ISO-001 | — | pending |
 | TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；H1e 按 receipt→catalog core→retained bundle 实施，formal handoff/finalizer 待完成；当前 alpha 输入为 `TASK-A0-02` | TASK-D0-01, TASK-D0-02 | — | TST-TOOL-001, TST-HOST-001, TST-EVIDENCE-001 | — | pending |
 | TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：eligible host、formal handoff/process-session containment 与 gate-catalog finalizer 未闭合 | TASK-D0-02, TASK-D0-03 | — | TST-ISO-002 | — | blocked |
