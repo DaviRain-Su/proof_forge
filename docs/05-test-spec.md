@@ -722,7 +722,15 @@ digest、normalized observations 和 logs。
    principal/report uniqueness、review↔signature distinct-principal exact set、review role authorization 与
    signature rule threshold/roles、rotation key positive、statement/content domain golden、全部结构失败在
    approval signature curve 前拒绝，以及
-   positive 不得替代 PHASE-4/EV/dependency/review-report/handoff/provenance join。
+   positive 不得替代 PHASE-4/EV/dependency/review-report/handoff/provenance join。Task receipt
+   signed-content matrix 还须覆盖六输入 API、receipt/handoff exact frozen typed records、receipt 与 handoff
+   closed fields、BTV real date、dependency `0/5/6` bounds 与排序/duplicate、candidate/policy/required-set/
+   approval/handoff/dependency/verifier/result exact joins、handoff 四 channel order/fd/transport/access/binding、
+   policy+handoff verifier double pin、wrong receipt key/algorithm/signature、statement/content domain golden、
+   malformed receipt/handoff 与 `taskApproval.taskId` 等 pre-digest join failure 的 zero approval-curve、
+   RequiredSet→TaskApproval→receipt signature→receipt digest 顺序，wrong approval digest 在 approval finalize
+   后且 receipt curve 前拒绝，以及 positive 不得替代 fd/host/peer/publish-readback/revocation/PHASE-4/EV/
+   dependency/review/archive closure。
 
 前两层不能代替后四层。当前 formal publisher 和 bootstrap closure 继续 fail closed；development schema/bundle/
 catalog 结果不能关闭 `TST-BOOTSTRAP-001`、`TST-EVIDENCE-002` 或 `TST-ISO-002`。外部工具缺失必须让相应 required gate 失败，不能 skip 后仍

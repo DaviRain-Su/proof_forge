@@ -892,6 +892,66 @@ bootstrapTaskReceiptDigest = SHA-256(
   canonical_pf_jcs(BootstrapTaskVerifierReceiptV1))
 ```
 
+首个 receipt signed-content consumer 的 public API 固定为：
+
+```text
+parse_bootstrap_task_verifier_receipt(
+  taskReceiptBytes,
+  taskApprovalBytes,
+  requiredTestSetBytes,
+  authorityPolicyBytes,
+  phase5Snapshot: BootstrapDocumentSnapshotV1,
+  stage0HandoffBytes
+) -> (BootstrapTaskVerifierReceiptV1, BootstrapTaskVerifierReceiptRefV1)
+```
+
+六个参数均为 required positional input。除既有 process-local `phase5Snapshot` 外，其余输入必须是
+canonical raw bytes；API 不接受 caller 构造的 policy/approval/required-set/handoff typed value、ref、
+expected candidate/digest、boolean 或 selector。`Stage0ChannelV1`、
+`EligibleStage0TcbV1{stage0VerifierDigest,bootstrapVerifierDigest,continuationDigest,formalFinalizerDigest}`、
+`EligibleStage0EnvironmentV1{mode,home,path,lcAll,tz,network}`、`EligibleStage0HandoffV1` 与
+`BootstrapTaskVerifierReceiptV1` 都必须成为 exact frozen typed records，wire array 进入 typed tuple，不得
+保留 dict/opaque payload。
+
+handoff content preflight 必须按本节既有 `EligibleStage0HandoffV1` closed schema 验证 exact field set、
+scalar 与四通道顺序/唯一性。content-level exact joins 固定为：handoff `candidate` 与 TaskApproval
+candidate 相等；`authorityPolicy` 与 raw policy 重算 ContentRef 相等；`authorityStoreService` 与 policy
+相等；`tcb.bootstrapVerifierDigest` 与 policy verifier `executableDigest` 相等；`authority-policy`、
+`candidate-archive`、`authority-store` 三个 channel `bindingDigest` 分别等于 policy ContentRef digest、
+candidate `archiveDigest` 与 authority-store ContentRef digest。`evidence-root` binding 只在本 API 做 Digest
+syntax/content preservation，raw evidence-root manifest join 由后续 object graph 完成。handoff 完整
+ContentRef digest 必须按本节 `pf.eligible-stage0-handoff.v1` domain 重算，并与 TaskApproval/receipt 的
+`stage0Handoff` exact equality；不得从两个 ref 相等推断 raw bytes 已验证。
+
+receipt `id` 必须匹配 `BTV-[0-9]{8}-[0-9]{4}` 且日期是真实 Gregorian date；
+`dependencyCompletions` count 为 `0..5` 并按 taskId 唯一 ASCII 升序。receipt 的 schema、taskId、
+candidate、authorityPolicy、requiredTestSet、stage0Handoff、dependencyCompletions、verifierDigest、result
+与 singular signature 都是 closed/scalar preflight 的一部分；`result` exact 为 `task-approved`。
+signature 必须使用 policy verifier 的 exact `receiptKeyId`、`receiptPublicKey` 与 pure Ed25519；它不参与
+principal quorum，也不得命中普通 principal key。receipt 的 task/candidate/policy/required-set/handoff/
+dependency refs 必须与已验证 TaskApproval exact，`verifierDigest` 必须同时等于 policy verifier 与
+handoff `tcb.bootstrapVerifierDigest`。
+
+实现顺序固定为：先完成 receipt canonical/closed-field/bounds/scalar/signature-syntax structural
+preflight，再完成 TaskApproval structural preflight、PHASE-5 snapshot parse、RequiredTestSet/policy internal
+preflight 与 raw handoff content preflight；在任何 approval-signature curve work 前完成所有不依赖最终
+TaskApproval digest 的 exact joins、policy membership/rule 与 receipt-key selection；其中 receipt
+`taskApproval.taskId` 必须与 receipt/approval `taskId` pre-curve exact，不能与 digest 一起延后。随后依次
+finalize 全部 RequiredTestSet signatures、全部 TaskApproval signatures 与 TaskApproval digest；再只对
+receipt `taskApproval.digest` 做 final exact join，验证 receipt signature，最后才计算 receipt 完整
+digest/ref。malformed receipt
+不得先触发 RequiredTestSet/TaskApproval curve work；wrong `taskApproval.digest` 必须在 TaskApproval finalize
+后、receipt curve work 前拒绝；禁止调用已完成验签的 public TaskApproval parser 后才解析 malformed
+receipt。
+
+该 API 成功只证明 raw policy、PHASE-5 raw snapshot、signed RequiredTestSet、signed TaskApproval、raw
+handoff content 与 signed receipt 六项输入的内容闭合。它不证明 Stage-0 carrier/fd/fstat/stable-read、
+host eligibility 的真实性、
+service peer/executable/signed hello、publish ack/exact readback/current/non-revoked lookup，也不验证 PHASE-4
+raw row、EV bytes/test union、dependency approval/receipt raw bytes、review report bytes、archive membership、
+single snapshot、reviewCommit ancestry，或 `authorityPolicyBytes` 的 external governance-root provenance 与
+expected-ref selection；因此仍不产生 task closure 或 `ObjectVerifiedV1`。
+
 protected service 的 task lookup key 固定为
 `(authorityPolicy,requiredTestSet,taskId,candidate,taskApproval,stage0Handoff)`；verifier 必须通过
 handoff 的预开 `authority-store` RPC 先 publish signed receipt、验证 stored ack，再 lookup 得到唯一、
