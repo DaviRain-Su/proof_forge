@@ -923,17 +923,16 @@ def invoke(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
                 sys.executable,
                 "-I",
                 "-S",
-                f"/dev/fd/{gate_descriptor}",
+                "-",
                 arguments[0],
                 "--executing-source",
                 os.fspath(GATE_EVIDENCE.resolve(strict=True)),
                 *arguments[1:],
             ],
             cwd=ROOT,
-            stdin=subprocess.DEVNULL,
+            stdin=gate_descriptor,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            pass_fds=(gate_descriptor,),
             check=False,
             timeout=10,
         )
@@ -1284,29 +1283,55 @@ def main() -> int:
             document,
             catalog_path,
             run_binding_sha256,
-            label="cross-policy-structural-reuse",
+            label="rendered-policy-reuse",
             expected_code="PF-EVIDENCE-CATALOG",
-            mutator=lambda catalog: (
-                catalog["gates"][0]["policies"][1].update(
+            mutator=lambda catalog: catalog["gates"][0]["policies"][1].update(
+                {
+                    "renderedPolicyInput": copy.deepcopy(
+                        catalog["gates"][0]["policies"][0]["renderedPolicyInput"]
+                    )
+                }
+            ),
+        )
+        for field, label in (
+            ("invocationContextInput", "invocation-context-reuse"),
+            ("receiptInput", "invocation-receipt-reuse"),
+            ("stdoutLog", "probe-stream-reuse"),
+        ):
+            assert_catalog_rejection(
+                module,
+                temporary_root,
+                development_root,
+                document,
+                catalog_path,
+                run_binding_sha256,
+                label=label,
+                expected_code="PF-EVIDENCE-CATALOG",
+                mutator=lambda catalog, field=field: catalog["gates"][0]["policies"][1][
+                    "probes"
+                ][0].update(
                     {
-                        "renderedPolicyInput": copy.deepcopy(
-                            catalog["gates"][0]["policies"][0]["renderedPolicyInput"]
+                        field: copy.deepcopy(
+                            catalog["gates"][0]["policies"][0]["probes"][0][field]
                         )
                     }
                 ),
-                catalog["gates"][0]["policies"][1]["probes"][0].update(
-                    {
-                        key: copy.deepcopy(
-                            catalog["gates"][0]["policies"][0]["probes"][0][key]
-                        )
-                        for key in (
-                            "invocationContextInput",
-                            "receiptInput",
-                            "stdoutLog",
-                            "stderrLog",
-                        )
-                    }
-                ),
+            )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="same-probe-stream-reuse",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["policies"][0]["probes"][0].update(
+                {
+                    "stderrLog": catalog["gates"][0]["policies"][0]["probes"][0][
+                        "stdoutLog"
+                    ]
+                }
             ),
         )
         assert_catalog_rejection(
@@ -1324,6 +1349,67 @@ def main() -> int:
                         "stdoutLog"
                     ]
                 }
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="required-input-structural-overlap",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["requiredInputs"][0].update(
+                {
+                    "path": catalog["gates"][0]["policies"][0]["renderedPolicyInput"][
+                        "path"
+                    ]
+                }
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="required-input-path-reuse",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["requiredInputs"][1].update(
+                {"path": catalog["gates"][0]["requiredInputs"][0]["path"]}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="input-artifact-path-overlap",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["requiredArtifacts"][0].update(
+                {"path": catalog["gates"][0]["requiredInputs"][0]["path"]}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="casefold-input-alias",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: (
+                catalog["gates"][0]["requiredInputs"][0].update(
+                    {"path": "fixtures/CaseAlias.bin"}
+                ),
+                catalog["gates"][0]["requiredInputs"][1].update(
+                    {"path": "fixtures/casealias.bin"}
+                ),
             ),
         )
         finalized_id = "EVF-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d") + "-0001"

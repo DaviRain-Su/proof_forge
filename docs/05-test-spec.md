@@ -766,8 +766,9 @@ structural repeated-role alias/substitution，以及 `gate_evidence.py` digest �
 `evidence_v1_core.py`/retained `evidence-schema-core` 被替换的 closure negative；base context 还须
 拒绝 `runtime-port`、`adjacent-port`、`lan-ipv4`、`chain-id`、`asset-cache` 五个 late-dynamic 名；
 这些失败不得进入 catalog success 或创建 EVF 输出。还必须拒绝 development finalizer 的普通
-pathname 启动、descriptor/path/module-code 任一错绑、跨 policy/probe 重用 rendered policy/context/
-receipt/stream，以及 probe stream 与 `requiredLogs` 相交。
+pathname 启动、stdin descriptor/path/module-code 任一错绑、跨 policy/probe 重用 rendered policy/
+context/receipt/stream，以及 probe stream 与 `requiredLogs` 相交；非 regular stdin 与 source-path
+substitution 也必须在 catalog/member/output I/O 前失败。
 
 ## 证据要求
 
