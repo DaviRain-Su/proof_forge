@@ -404,7 +404,10 @@ evidence-set binder 校验对应不可变 EV JSON；ledger 中的文字标签不
 `TST-DOC-001` 对 D0-01 consumer 先固定两层互不替代的验收：第一层直接调用 pure object API，
 synthetic positive 只能得到 exact `ObjectVerifiedV1` projection，并逐项 mutation subject/object-set 的
 missing/extra/duplicate/order、policy/required-set/handoff/approval/receipt/dependency/document/review/
-evidence 的 schema、canonical bytes、domain digest、签名、quorum、role 和 exact joins；第二层调用
+evidence 的 schema、canonical bytes、domain digest、签名、quorum、role 和 exact joins；dependency
+对象还须覆盖 `0/5/6` bundle count、bundle 顺序/重复/错配，以及每项 run-specific handoff 被 root 或
+其他 dependency handoff 替换；D0-04 positive 的 raw bundle exact set 是五个 transitive dependency，
+但 root approval/receipt 的 `dependencyCompletions` exact set 只能是四个 direct dependency；第二层调用
 默认 docs checker，同一 bootstrap ledger/task fixture 必须稳定返回
 `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`。CLI/env/path/普通 file fd 不得选择 authority，也不得新增
 `check(root, capability)` 把 `ObjectVerifiedV1` 升级成 closure。synthetic object set 永不构成 successful

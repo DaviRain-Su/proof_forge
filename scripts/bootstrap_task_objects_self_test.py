@@ -209,6 +209,7 @@ def assert_public_api(module: ModuleType) -> None:
         "BootstrapDocumentSnapshotV1",
         "BootstrapTaskRowSubjectV1",
         "BootstrapTaskSubjectV1",
+        "DependencyTaskObjectV1",
         "BootstrapTaskObjectSetV1",
         "ObjectVerifiedV1",
     )
@@ -421,14 +422,16 @@ def assert_public_api(module: ModuleType) -> None:
         "BootstrapTaskSubjectV1": (
             "candidate", "rootTaskId", "taskRows", "evidenceRows", "documents",
         ),
+        "DependencyTaskObjectV1": (
+            "approvalBytes", "receiptBytes", "stage0HandoffBytes",
+        ),
         "BootstrapTaskObjectSetV1": (
             "authorityPolicyBytes",
             "stage0HandoffBytes",
             "requiredTestSetBytes",
             "taskApprovalBytes",
             "taskReceiptBytes",
-            "dependencyApprovalBytes",
-            "dependencyReceiptBytes",
+            "dependencyObjects",
             "evidenceObjectBytes",
             "reviewReports",
         ),
@@ -1556,6 +1559,319 @@ def signed_task_receipt_fixture(
         "receiptBytes": module.canonical_pf_jcs(receipt_wire),
         "receiptStatementDigest": receipt_statement_digest,
         "receiptSignatureMessage": receipt_signature_message,
+    }
+
+
+D0_GRAPH_ROWS = {
+    "TASK-D0-01": {
+        "dependencies": (),
+        "prerequisites": ("PHASE-1", "PHASE-2", "PHASE-3"),
+        "testIds": ("TST-DOC-001",),
+        "evidenceIds": ("EV-20260717-0001",),
+        "signers": (
+            ("key-architecture", "architecture"),
+            ("key-quality", "quality"),
+        ),
+    },
+    "TASK-D0-02": {
+        "dependencies": ("TASK-D0-01",),
+        "prerequisites": (),
+        "testIds": ("TST-ISO-001",),
+        "evidenceIds": ("EV-20260717-0002",),
+        "signers": (
+            ("key-architecture", "architecture"),
+            ("key-quality", "quality"),
+        ),
+    },
+    "TASK-D0-03": {
+        "dependencies": ("TASK-D0-01", "TASK-D0-02"),
+        "prerequisites": (),
+        "testIds": (
+            "TST-EVIDENCE-001",
+            "TST-HOST-001",
+            "TST-TOOL-001",
+        ),
+        "evidenceIds": ("EV-20260717-0003", "EV-20260717-0004"),
+        "signers": (
+            ("key-quality", "quality"),
+            ("key-security", "security"),
+        ),
+    },
+    "TASK-D0-04": {
+        "dependencies": (
+            "TASK-D0-02",
+            "TASK-D0-03",
+            "TASK-D0-05",
+            "TASK-D0-06",
+        ),
+        "prerequisites": (),
+        "testIds": ("TST-BOOTSTRAP-001",),
+        "evidenceIds": ("EV-20260717-0005",),
+        "signers": (
+            ("key-quality", "quality"),
+            ("key-release", "release"),
+            ("key-security", "security"),
+        ),
+    },
+    "TASK-D0-05": {
+        "dependencies": ("TASK-D0-03",),
+        "prerequisites": (),
+        "testIds": ("TST-SBOM-001",),
+        "evidenceIds": ("EV-20260717-0006",),
+        "signers": (
+            ("key-quality", "quality"),
+            ("key-security", "security"),
+        ),
+    },
+    "TASK-D0-06": {
+        "dependencies": ("TASK-D0-01", "TASK-D0-02"),
+        "prerequisites": (),
+        "testIds": ("TST-COMMON-001",),
+        "evidenceIds": ("EV-20260717-0007",),
+        "signers": (
+            ("key-architecture", "architecture"),
+            ("key-quality", "quality"),
+        ),
+    },
+}
+
+
+def signed_d0_object_graph_fixture(
+    module: ModuleType,
+    root_task_id: str,
+) -> dict[str, object]:
+    policy_wire = valid_bootstrap_authority_policy()
+    policy_bytes = module.canonical_pf_jcs(policy_wire)
+    _, policy_ref = module.parse_bootstrap_authority_policy(policy_bytes)
+    required_ids = tuple(sorted({
+        test_id
+        for row in D0_GRAPH_ROWS.values()
+        for test_id in row["testIds"]
+    }))
+    phase5_snapshot = make_phase5_snapshot(
+        module,
+        required_ids=required_ids,
+    )
+    required_wire = signed_document_bound_required_set(
+        module,
+        policy_ref,
+        phase5_snapshot,
+        required_ids=required_ids,
+    )
+    required_bytes = module.canonical_pf_jcs(required_wire)
+    candidate_wire = candidate_identity_wire(module)
+    candidate = module.parse_candidate_identity(candidate_wire)
+    built: dict[str, dict[str, object]] = {}
+
+    for task_id in (
+        "TASK-D0-01",
+        "TASK-D0-02",
+        "TASK-D0-03",
+        "TASK-D0-05",
+        "TASK-D0-06",
+        "TASK-D0-04",
+    ):
+        row = D0_GRAPH_ROWS[task_id]
+        task_number = int(task_id[-2:])
+        dependency_refs = [
+            built[dependency]["receiptRefWire"]
+            for dependency in row["dependencies"]
+        ]
+        handoff_wire = eligible_stage0_handoff_wire(
+            module,
+            policy_wire,
+            policy_ref,
+            candidate_wire,
+        )
+        handoff_wire["id"] = f"task-d0-{task_number:02d}-stage0-handoff"
+        handoff_wire["runId"] = f"task-d0-{task_number:02d}-run-20260717"
+        handoff_wire["nonce"] = f"{0x80 + task_number:02x}" * 32
+        handoff_bytes = module.canonical_pf_jcs(handoff_wire)
+        handoff_ref = eligible_stage0_handoff_ref_wire(
+            module,
+            handoff_wire,
+            handoff_bytes,
+        )
+        signers = row["signers"]
+        approval_statement = {
+            "schema": "proof-forge.bootstrap-task-approval.v1",
+            "taskId": task_id,
+            "candidate": copy.deepcopy(candidate_wire),
+            "taskBreakdown": normative_document_ref_wire(
+                "PHASE-4", candidate_wire["commit"]
+            ),
+            "requiredTestSet": task_approval_required_set_ref(
+                module, required_bytes
+            ),
+            "testIds": list(row["testIds"]),
+            "evidence": [
+                {
+                    "id": evidence_id,
+                    "digest": digest_text(bytes([0x20 + int(evidence_id[-1])]) * 32),
+                }
+                for evidence_id in row["evidenceIds"]
+            ],
+            "dependencyCompletions": copy.deepcopy(dependency_refs),
+            "prerequisiteDocuments": [
+                normative_document_ref_wire(
+                    document_id,
+                    candidate_wire["commit"],
+                )
+                for document_id in row["prerequisites"]
+            ],
+            "authorityPolicy": content_ref_wire(policy_ref),
+            "stage0Handoff": handoff_ref,
+            "independentReviews": [
+                independent_review_wire(
+                    key_id,
+                    role,
+                    candidate_wire["commit"],
+                    report_label=f"{task_id}:{key_id}",
+                )
+                for key_id, role in signers
+            ],
+        }
+        signer_key_ids = tuple(key_id for key_id, _ in signers)
+        approval_wire, _, _ = sign_task_approval_statement(
+            module,
+            approval_statement,
+            signer_key_ids,
+        )
+        approval_bytes = module.canonical_pf_jcs(approval_wire)
+        approval_ref = {
+            "taskId": task_id,
+            "digest": digest_text(hashlib.sha256(
+                b"pf.bootstrap-task-approval.v1\x00" + approval_bytes
+            ).digest()),
+        }
+        receipt_id = f"BTV-20260717-{task_number:04d}"
+        receipt_statement = {
+            "schema": "proof-forge.bootstrap-task-verifier-receipt.v1",
+            "id": receipt_id,
+            "taskId": task_id,
+            "candidate": copy.deepcopy(candidate_wire),
+            "authorityPolicy": content_ref_wire(policy_ref),
+            "requiredTestSet": task_approval_required_set_ref(
+                module, required_bytes
+            ),
+            "taskApproval": approval_ref,
+            "stage0Handoff": handoff_ref,
+            "dependencyCompletions": copy.deepcopy(dependency_refs),
+            "verifierDigest": policy_wire["verifier"]["executableDigest"],
+            "result": "task-approved",
+        }
+        receipt_wire, _, _ = sign_bootstrap_task_receipt_statement(
+            module,
+            receipt_statement,
+        )
+        receipt_bytes = module.canonical_pf_jcs(receipt_wire)
+        built[task_id] = {
+            "approvalWire": approval_wire,
+            "approvalBytes": approval_bytes,
+            "receiptWire": receipt_wire,
+            "receiptBytes": receipt_bytes,
+            "receiptRefWire": bootstrap_task_receipt_ref_wire(
+                module,
+                task_id,
+                receipt_id,
+                receipt_bytes,
+            ),
+            "handoffWire": handoff_wire,
+            "handoffBytes": handoff_bytes,
+        }
+
+    transitive: set[str] = set()
+
+    def collect(task_id: str) -> None:
+        for dependency in D0_GRAPH_ROWS[task_id]["dependencies"]:
+            if dependency not in transitive:
+                transitive.add(dependency)
+                collect(dependency)
+
+    collect(root_task_id)
+    included_task_ids = tuple(sorted(transitive | {root_task_id}))
+    dependency_task_ids = tuple(sorted(transitive))
+    task_rows = tuple(
+        module.BootstrapTaskRowSubjectV1(
+            taskId=task_id,
+            dependencies=D0_GRAPH_ROWS[task_id]["dependencies"],
+            prerequisites=tuple(
+                {
+                    "documentId": document_id,
+                    "requiredStatus": "accepted",
+                }
+                for document_id in D0_GRAPH_ROWS[task_id]["prerequisites"]
+            ),
+            testIds=D0_GRAPH_ROWS[task_id]["testIds"],
+            evidenceIds=D0_GRAPH_ROWS[task_id]["evidenceIds"],
+        )
+        for task_id in included_task_ids
+    )
+    evidence_rows = tuple(
+        module.BootstrapLedgerSubjectV1(
+            id=evidence_id,
+            taskId=task_id,
+            testIds=D0_GRAPH_ROWS[task_id]["testIds"],
+            grade="bootstrap",
+            result="passed",
+        )
+        for task_id in included_task_ids
+        for evidence_id in D0_GRAPH_ROWS[task_id]["evidenceIds"]
+    )
+    evidence_rows = tuple(sorted(evidence_rows, key=lambda row: row.id))
+    documents = (
+        module.BootstrapDocumentSnapshotV1(
+            "PHASE-1", "docs/01-prd.md", b"phase 1\n"
+        ),
+        module.BootstrapDocumentSnapshotV1(
+            "PHASE-2", "docs/02-architecture.md", b"phase 2\n"
+        ),
+        module.BootstrapDocumentSnapshotV1(
+            "PHASE-3", "docs/03-technical-spec.md", b"phase 3\n"
+        ),
+        module.BootstrapDocumentSnapshotV1(
+            "PHASE-4", "docs/04-task-breakdown.md", b"phase 4\n"
+        ),
+        phase5_snapshot,
+    )
+    subject = module.BootstrapTaskSubjectV1(
+        candidate=candidate,
+        rootTaskId=root_task_id,
+        taskRows=task_rows,
+        evidenceRows=evidence_rows,
+        documents=documents,
+    )
+    root = built[root_task_id]
+    objects = module.BootstrapTaskObjectSetV1(
+        authorityPolicyBytes=policy_bytes,
+        stage0HandoffBytes=root["handoffBytes"],
+        requiredTestSetBytes=required_bytes,
+        taskApprovalBytes=root["approvalBytes"],
+        taskReceiptBytes=root["receiptBytes"],
+        dependencyObjects=tuple(
+            module.DependencyTaskObjectV1(
+                approvalBytes=built[task_id]["approvalBytes"],
+                receiptBytes=built[task_id]["receiptBytes"],
+                stage0HandoffBytes=built[task_id]["handoffBytes"],
+            )
+            for task_id in dependency_task_ids
+        ),
+        evidenceObjectBytes=tuple(
+            module.canonical_pf_jcs({"id": row.id})
+            for row in evidence_rows
+        ),
+        reviewReports=({
+            "digest": digest_text(hashlib.sha256(
+                b"pf.independent-review-report.v1\x00review\n"
+            ).digest()),
+            "bytes": b"review\n",
+        },),
+    )
+    return {
+        "subject": subject,
+        "objects": objects,
+        "built": built,
+        "dependencyTaskIds": dependency_task_ids,
     }
 
 
@@ -5152,18 +5468,12 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
         requiredTestSetBytes=b"{}",
         taskApprovalBytes=b"{}",
         taskReceiptBytes=b"{}",
-        dependencyApprovalBytes=tuple(
-            module.canonical_pf_jcs({"taskId": task_id})
-            for task_id in (
-                "TASK-D0-01",
-                "TASK-D0-02",
-                "TASK-D0-03",
-                "TASK-D0-05",
-                "TASK-D0-06",
+        dependencyObjects=tuple(
+            module.DependencyTaskObjectV1(
+                approvalBytes=module.canonical_pf_jcs({"taskId": task_id}),
+                receiptBytes=module.canonical_pf_jcs({"taskId": task_id}),
+                stage0HandoffBytes=module.canonical_pf_jcs({"taskId": task_id}),
             )
-        ),
-        dependencyReceiptBytes=tuple(
-            module.canonical_pf_jcs({"taskId": task_id})
             for task_id in (
                 "TASK-D0-01",
                 "TASK-D0-02",
@@ -5239,6 +5549,247 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
         module._validate_object_shell = original_object_shell_validator
 
 
+def test_dependency_bundle_graph(module: ModuleType) -> None:
+    zero_fixture = signed_d0_object_graph_fixture(module, "TASK-D0-01")
+    zero_subject = zero_fixture["subject"]
+    zero_objects = zero_fixture["objects"]
+    assert module._validate_subject(zero_subject) is None
+    zero_graph = module._parse_bootstrap_task_object_graph(
+        zero_subject,
+        zero_objects,
+    )
+    assert zero_graph.root.approval.taskId == "TASK-D0-01"
+    assert zero_graph.dependencies == (), (
+        "D0-01 must accept the exact zero-dependency bundle boundary"
+    )
+
+    full_fixture = signed_d0_object_graph_fixture(module, "TASK-D0-04")
+    subject = full_fixture["subject"]
+    objects = full_fixture["objects"]
+    built = full_fixture["built"]
+    dependency_task_ids = full_fixture["dependencyTaskIds"]
+    assert dependency_task_ids == (
+        "TASK-D0-01",
+        "TASK-D0-02",
+        "TASK-D0-03",
+        "TASK-D0-05",
+        "TASK-D0-06",
+    )
+    assert tuple(
+        ref["taskId"]
+        for ref in built["TASK-D0-04"]["approvalWire"][
+            "dependencyCompletions"
+        ]
+    ) == (
+        "TASK-D0-02",
+        "TASK-D0-03",
+        "TASK-D0-05",
+        "TASK-D0-06",
+    ), "D0-04 direct dependency refs must remain distinct from transitive bundles"
+    assert module._validate_subject(subject) is None
+
+    original_approval_preflight = module._preflight_task_approval
+    original_receipt_preflight = (
+        module._preflight_bootstrap_task_verifier_receipt
+    )
+    original_handoff_preflight = module._preflight_eligible_stage0_handoff
+    preflight_calls = {"approval": [], "receipt": [], "handoff": []}
+
+    def capture_approval_preflight(encoded: bytes) -> object:
+        preflight_calls["approval"].append(encoded)
+        return original_approval_preflight(encoded)
+
+    def capture_receipt_preflight(encoded: bytes) -> object:
+        preflight_calls["receipt"].append(encoded)
+        return original_receipt_preflight(encoded)
+
+    def capture_handoff_preflight(encoded: bytes) -> object:
+        preflight_calls["handoff"].append(encoded)
+        return original_handoff_preflight(encoded)
+
+    module._preflight_task_approval = capture_approval_preflight
+    module._preflight_bootstrap_task_verifier_receipt = capture_receipt_preflight
+    module._preflight_eligible_stage0_handoff = capture_handoff_preflight
+    try:
+        graph = module._parse_bootstrap_task_object_graph(subject, objects)
+    finally:
+        module._preflight_task_approval = original_approval_preflight
+        module._preflight_bootstrap_task_verifier_receipt = (
+            original_receipt_preflight
+        )
+        module._preflight_eligible_stage0_handoff = original_handoff_preflight
+    assert graph.root.approval.taskId == "TASK-D0-04"
+    assert tuple(
+        dependency.approval.taskId for dependency in graph.dependencies
+    ) == dependency_task_ids
+    assert tuple(
+        dependency.receiptRef.taskId for dependency in graph.dependencies
+    ) == dependency_task_ids
+    expected_approval_bytes = (objects.taskApprovalBytes,) + tuple(
+        bundle.approvalBytes for bundle in objects.dependencyObjects
+    )
+    expected_receipt_bytes = (objects.taskReceiptBytes,) + tuple(
+        bundle.receiptBytes for bundle in objects.dependencyObjects
+    )
+    expected_handoff_bytes = (objects.stage0HandoffBytes,) + tuple(
+        bundle.stage0HandoffBytes for bundle in objects.dependencyObjects
+    )
+    assert tuple(preflight_calls["approval"]) == expected_approval_bytes
+    assert tuple(preflight_calls["receipt"]) == expected_receipt_bytes
+    assert tuple(preflight_calls["handoff"]) == expected_handoff_bytes
+    assert len({id(value) for value in preflight_calls["approval"]}) == 6
+    assert len({id(value) for value in preflight_calls["receipt"]}) == 6
+    assert len({id(value) for value in preflight_calls["handoff"]}) == 6
+
+    bundles = objects.dependencyObjects
+    root_bundle = module.DependencyTaskObjectV1(
+        approvalBytes=objects.taskApprovalBytes,
+        receiptBytes=objects.taskReceiptBytes,
+        stage0HandoffBytes=objects.stage0HandoffBytes,
+    )
+    invalid_objects = (
+        (
+            "missing transitive dependency bundle",
+            dataclasses.replace(objects, dependencyObjects=bundles[1:]),
+        ),
+        (
+            "sixth extra dependency bundle",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=bundles + (root_bundle,),
+            ),
+        ),
+        (
+            "duplicate dependency bundle",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=(bundles[0], bundles[0]) + bundles[2:],
+            ),
+        ),
+        (
+            "reordered dependency bundles",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=(bundles[1], bundles[0]) + bundles[2:],
+            ),
+        ),
+        (
+            "approval and receipt from different dependency tasks",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=(
+                    dataclasses.replace(
+                        bundles[0], receiptBytes=bundles[1].receiptBytes
+                    ),
+                ) + bundles[1:],
+            ),
+        ),
+        (
+            "dependency bundle substitutes root handoff",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=(
+                    dataclasses.replace(
+                        bundles[0],
+                        stage0HandoffBytes=objects.stage0HandoffBytes,
+                    ),
+                ) + bundles[1:],
+            ),
+        ),
+        (
+            "dependency bundles cross-substitute handoffs",
+            dataclasses.replace(
+                objects,
+                dependencyObjects=(
+                    dataclasses.replace(
+                        bundles[0],
+                        stage0HandoffBytes=bundles[1].stage0HandoffBytes,
+                    ),
+                    dataclasses.replace(
+                        bundles[1],
+                        stage0HandoffBytes=bundles[0].stage0HandoffBytes,
+                    ),
+                ) + bundles[2:],
+            ),
+        ),
+    )
+
+    root_approval = copy.deepcopy(built["TASK-D0-04"]["approvalWire"])
+    root_approval.pop("signatures")
+    root_approval["dependencyCompletions"] = [
+        copy.deepcopy(built[task_id]["receiptRefWire"])
+        for task_id in dependency_task_ids
+    ]
+    root_approval_wire, _, _ = sign_task_approval_statement(
+        module,
+        root_approval,
+        ("key-quality", "key-release", "key-security"),
+    )
+    root_approval_bytes = module.canonical_pf_jcs(root_approval_wire)
+    root_receipt = copy.deepcopy(built["TASK-D0-04"]["receiptWire"])
+    root_receipt.pop("signature")
+    root_receipt["dependencyCompletions"] = copy.deepcopy(
+        root_approval_wire["dependencyCompletions"]
+    )
+    root_receipt["taskApproval"]["digest"] = digest_text(hashlib.sha256(
+        b"pf.bootstrap-task-approval.v1\x00" + root_approval_bytes
+    ).digest())
+    root_receipt_wire, _, _ = sign_bootstrap_task_receipt_statement(
+        module,
+        root_receipt,
+    )
+    wrong_direct_dependency_set = dataclasses.replace(
+        objects,
+        taskApprovalBytes=root_approval_bytes,
+        taskReceiptBytes=module.canonical_pf_jcs(root_receipt_wire),
+    )
+    invalid_objects += ((
+        "D0-04 transitive set substituted for direct dependency refs",
+        wrong_direct_dependency_set,
+    ),)
+
+    for label, invalid in invalid_objects:
+        try:
+            assert_rejected(
+                module,
+                lambda invalid=invalid: module._parse_bootstrap_task_object_graph(
+                    subject,
+                    invalid,
+                ),
+            )
+        except AssertionError as error:
+            raise AssertionError(f"{label}: {error}") from error
+
+    original_graph_parser = module._parse_bootstrap_task_object_graph
+    original_public_receipt_parser = module.parse_bootstrap_task_verifier_receipt
+    graph_calls: list[tuple[object, object]] = []
+
+    def capture_graph_parser(
+        captured_subject: object,
+        captured_objects: object,
+    ) -> object:
+        graph_calls.append((captured_subject, captured_objects))
+        return graph
+
+    module._parse_bootstrap_task_object_graph = capture_graph_parser
+    module.parse_bootstrap_task_verifier_receipt = (
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError(
+            "object consumer must not reparse the root receipt outside graph"
+        ))
+    )
+    try:
+        result = module.verifyBootstrapTaskObjects(subject, objects)
+    finally:
+        module._parse_bootstrap_task_object_graph = original_graph_parser
+        module.parse_bootstrap_task_verifier_receipt = (
+            original_public_receipt_parser
+        )
+    assert isinstance(result, module.Rejected)
+    assert graph_calls == [(subject, objects)], (
+        "public consumer must invoke the verified dependency graph exactly once"
+    )
+
+
 def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -> None:
     evidence_id = "EV-20260716-9999"
     row = module.BootstrapTaskRowSubjectV1(
@@ -5292,8 +5843,7 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
         "requiredTestSetBytes": b"{}",
         "taskApprovalBytes": b"{}",
         "taskReceiptBytes": b"{}",
-        "dependencyApprovalBytes": (),
-        "dependencyReceiptBytes": (),
+        "dependencyObjects": (),
         "evidenceObjectBytes": (b"{}",),
         "reviewReports": ({"digest": digest_text(bytes(32)), "bytes": b"review"},),
     }
@@ -5400,6 +5950,7 @@ def main() -> int:
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_graph_preflight(module, candidate)
+        test_dependency_bundle_graph(module)
         test_subject_and_missing_root_bytes(module, candidate)
     except (AssertionError, OSError, ImportError, SyntaxError) as error:
         print(f"bootstrap-task-objects-self-test: FAIL: {error}", file=sys.stderr)

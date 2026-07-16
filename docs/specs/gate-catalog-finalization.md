@@ -458,14 +458,19 @@ BootstrapTaskSubjectV1 {
   documents: NonEmptyArray<BootstrapDocumentSnapshotV1>
 }
 
+DependencyTaskObjectV1 {
+  approvalBytes: bytes,
+  receiptBytes: bytes,
+  stage0HandoffBytes: bytes
+}
+
 BootstrapTaskObjectSetV1 {
   authorityPolicyBytes,
   stage0HandoffBytes,
   requiredTestSetBytes,
   taskApprovalBytes,
   taskReceiptBytes,
-  dependencyApprovalBytes: Array<bytes>,
-  dependencyReceiptBytes: Array<bytes>,
+  dependencyObjects: Array<DependencyTaskObjectV1>,
   evidenceObjectBytes: NonEmptyArray<bytes>,
   reviewReports: NonEmptyArray<{digest, bytes}>
 }
@@ -495,9 +500,12 @@ stable snapshot 与 `reviewCommit` 对 candidate commit 的 ancestor relation �
 对预开 candidate archive/commit graph 验证。`candidate` 在 pure API 中只用于 exact join；仅凭
 process-local subject 不能证明 archive provenance。
 
-object set 的五个 root bytes 各恰有一个。dependency approval/receipt 按 Task Breakdown DAG 的全部
-transitive dependency taskId 一一对应并按 taskId 升序；consumer 从 receipt 中的 TaskApprovalRef 解析
-对应 approval，memoize 后拒绝 cycle、missing、duplicate 或 extra object。evidence objects 按解析后的
+object set 的五个 root bytes 各恰有一个。`dependencyObjects` count 固定为 `0..5`，按每项解析后的
+TaskApproval taskId 唯一升序，并 exact 等于 Task Breakdown DAG 的全部 transitive dependency taskId。
+每项三个字段都必须是 non-empty canonical PF-JCS bytes；consumer 必须使用该项自己的
+`stage0HandoffBytes` 验证其 run-specific TaskApproval/receipt，禁止用 root handoff 或其他 dependency
+handoff 代替。consumer 从 receipt 中的 TaskApprovalRef 解析同项 approval，memoize 后拒绝 cycle、
+missing、duplicate、reorder、extra object 或 bundle 内 task/ref/handoff mismatch。evidence objects 按解析后的
 EvidenceRef.id 唯一升序，并 exact 等于 root 与 dependency TaskApproval 引用的全部 evidence refs；每个
 task 的 refs 还必须 exact 等于 subject 中该 task 的 evidenceRows。reviewReports 按 digest raw bytes
 唯一升序，并 exact 等于 root 与 dependency TaskApproval independentReviews 引用的全部集合。review
