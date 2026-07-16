@@ -4683,6 +4683,463 @@ def test_ed25519(module: ModuleType) -> None:
     assert module.verify_ed25519(identity, b"forgery", identity_forgery) is False
 
 
+def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
+    rows = (
+        module.BootstrapTaskRowSubjectV1(
+            taskId="TASK-D0-01",
+            dependencies=(),
+            prerequisites=(
+                {"documentId": "PHASE-1", "requiredStatus": "accepted"},
+                {"documentId": "PHASE-2", "requiredStatus": "accepted"},
+                {"documentId": "PHASE-3", "requiredStatus": "accepted"},
+            ),
+            testIds=("TST-DOC-001",),
+            evidenceIds=("EV-20260717-0001",),
+        ),
+        module.BootstrapTaskRowSubjectV1(
+            taskId="TASK-D0-02",
+            dependencies=("TASK-D0-01",),
+            prerequisites=(),
+            testIds=("TST-ISO-001",),
+            evidenceIds=("EV-20260717-0002",),
+        ),
+        module.BootstrapTaskRowSubjectV1(
+            taskId="TASK-D0-03",
+            dependencies=("TASK-D0-01", "TASK-D0-02"),
+            prerequisites=(),
+            testIds=("TST-EVIDENCE-001", "TST-HOST-001", "TST-TOOL-001"),
+            evidenceIds=("EV-20260717-0003", "EV-20260717-0004"),
+        ),
+        module.BootstrapTaskRowSubjectV1(
+            taskId="TASK-D0-04",
+            dependencies=(
+                "TASK-D0-02",
+                "TASK-D0-03",
+                "TASK-D0-05",
+                "TASK-D0-06",
+            ),
+            prerequisites=(),
+            testIds=("TST-BOOTSTRAP-001",),
+            evidenceIds=("EV-20260717-0005",),
+        ),
+        module.BootstrapTaskRowSubjectV1(
+            taskId="TASK-D0-05",
+            dependencies=("TASK-D0-03",),
+            prerequisites=(),
+            testIds=("TST-SBOM-001",),
+            evidenceIds=("EV-20260717-0006",),
+        ),
+        module.BootstrapTaskRowSubjectV1(
+            taskId="TASK-D0-06",
+            dependencies=("TASK-D0-01", "TASK-D0-02"),
+            prerequisites=(),
+            testIds=("TST-COMMON-001",),
+            evidenceIds=("EV-20260717-0007",),
+        ),
+    )
+    evidence_rows = (
+        module.BootstrapLedgerSubjectV1(
+            id="EV-20260717-0001",
+            taskId="TASK-D0-01",
+            testIds=("TST-DOC-001",),
+            grade="bootstrap",
+            result="passed",
+        ),
+        module.BootstrapLedgerSubjectV1(
+            id="EV-20260717-0002",
+            taskId="TASK-D0-02",
+            testIds=("TST-ISO-001",),
+            grade="bootstrap",
+            result="passed",
+        ),
+        module.BootstrapLedgerSubjectV1(
+            id="EV-20260717-0003",
+            taskId="TASK-D0-03",
+            testIds=("TST-EVIDENCE-001", "TST-HOST-001"),
+            grade="bootstrap",
+            result="passed",
+        ),
+        module.BootstrapLedgerSubjectV1(
+            id="EV-20260717-0004",
+            taskId="TASK-D0-03",
+            testIds=("TST-HOST-001", "TST-TOOL-001"),
+            grade="bootstrap",
+            result="passed",
+        ),
+        module.BootstrapLedgerSubjectV1(
+            id="EV-20260717-0005",
+            taskId="TASK-D0-04",
+            testIds=("TST-BOOTSTRAP-001",),
+            grade="bootstrap",
+            result="passed",
+        ),
+        module.BootstrapLedgerSubjectV1(
+            id="EV-20260717-0006",
+            taskId="TASK-D0-05",
+            testIds=("TST-SBOM-001",),
+            grade="bootstrap",
+            result="passed",
+        ),
+        module.BootstrapLedgerSubjectV1(
+            id="EV-20260717-0007",
+            taskId="TASK-D0-06",
+            testIds=("TST-COMMON-001",),
+            grade="bootstrap",
+            result="passed",
+        ),
+    )
+    documents = tuple(
+        module.BootstrapDocumentSnapshotV1(
+            id=document_id,
+            path=f"docs/{index:02d}-{document_id.lower()}.md",
+            bytes=(
+                "---\n"
+                f"id: {document_id}\n"
+                "status: accepted\n"
+                "---\n"
+            ).encode("utf-8"),
+        )
+        for index, document_id in enumerate(
+            ("PHASE-1", "PHASE-2", "PHASE-3", "PHASE-4", "PHASE-5"),
+            start=1,
+        )
+    )
+    subject = module.BootstrapTaskSubjectV1(
+        candidate=candidate,
+        rootTaskId="TASK-D0-04",
+        taskRows=rows,
+        evidenceRows=evidence_rows,
+        documents=documents,
+    )
+    assert module._validate_subject(subject) is None
+
+    missing_dependency_row = dataclasses.replace(
+        subject,
+        taskRows=rows[1:],
+        evidenceRows=evidence_rows[1:],
+        documents=(documents[3], documents[4]),
+    )
+    extra_unreachable_row = dataclasses.replace(
+        subject,
+        rootTaskId="TASK-D0-02",
+    )
+    cyclic_subject = dataclasses.replace(
+        subject,
+        taskRows=(
+            dataclasses.replace(rows[0], dependencies=("TASK-D0-04",)),
+        ) + rows[1:],
+    )
+    owner_isolation_rows = (
+        dataclasses.replace(rows[0], testIds=("TST-DOC-001",)),
+        dataclasses.replace(rows[1], testIds=("TST-DOC-001",)),
+    ) + rows[2:]
+    owner_isolation_evidence = (
+        dataclasses.replace(evidence_rows[0], testIds=("TST-DOC-001",)),
+        dataclasses.replace(evidence_rows[1], testIds=("TST-DOC-001",)),
+    ) + evidence_rows[2:]
+    owner_isolation_subject = dataclasses.replace(
+        subject,
+        taskRows=owner_isolation_rows,
+        evidenceRows=owner_isolation_evidence,
+    )
+    assert module._validate_subject(owner_isolation_subject) is None
+    wrong_evidence_task = dataclasses.replace(
+        owner_isolation_subject,
+        evidenceRows=(
+            dataclasses.replace(
+                owner_isolation_evidence[0],
+                taskId="TASK-D0-02",
+            ),
+            dataclasses.replace(
+                owner_isolation_evidence[1],
+                taskId="TASK-D0-01",
+            ),
+        ) + owner_isolation_evidence[2:],
+    )
+    wrong_evidence_test_union = dataclasses.replace(
+        subject,
+        evidenceRows=(
+            dataclasses.replace(
+                evidence_rows[0], testIds=evidence_rows[1].testIds
+            ),
+            dataclasses.replace(
+                evidence_rows[1], testIds=evidence_rows[0].testIds
+            ),
+        ) + evidence_rows[2:],
+    )
+    malformed_evidence_test_id = dataclasses.replace(
+        subject,
+        evidenceRows=(
+            dataclasses.replace(evidence_rows[0], testIds=("not-a-test-id",)),
+        ) + evidence_rows[1:],
+    )
+    impossible_evidence_date = "EV-20260230-0001"
+    impossible_evidence_date_subject = dataclasses.replace(
+        subject,
+        taskRows=(
+            dataclasses.replace(
+                rows[0], evidenceIds=(impossible_evidence_date,)
+            ),
+        ) + rows[1:],
+        evidenceRows=(
+            dataclasses.replace(
+                evidence_rows[0], id=impossible_evidence_date
+            ),
+        ) + evidence_rows[1:],
+    )
+    missing_phase4_document = dataclasses.replace(
+        subject,
+        documents=tuple(
+            document for document in documents if document.id != "PHASE-4"
+        ),
+    )
+    missing_phase5_document = dataclasses.replace(
+        subject,
+        documents=tuple(
+            document for document in documents if document.id != "PHASE-5"
+        ),
+    )
+    missing_prerequisite_document = dataclasses.replace(
+        subject,
+        documents=documents[1:],
+    )
+    extra_document = module.BootstrapDocumentSnapshotV1(
+        id="PHASE-6",
+        path="docs/06-phase-6.md",
+        bytes=b"---\nid: PHASE-6\nstatus: accepted\n---\n",
+    )
+    extra_document_subject = dataclasses.replace(
+        subject,
+        documents=documents + (extra_document,),
+    )
+    same_count_wrong_documents = dataclasses.replace(
+        subject,
+        documents=documents[1:] + (extra_document,),
+    )
+    invalid_utf8_subject = dataclasses.replace(
+        subject,
+        documents=(
+            dataclasses.replace(documents[0], bytes=b"\xff"),
+        ) + documents[1:],
+    )
+    malformed_document_id = "0/invalid"
+    malformed_document_id_subject = dataclasses.replace(
+        subject,
+        taskRows=(
+            dataclasses.replace(
+                rows[0],
+                prerequisites=(
+                    {
+                        "documentId": malformed_document_id,
+                        "requiredStatus": "accepted",
+                    },
+                    {"documentId": "PHASE-2", "requiredStatus": "accepted"},
+                    {"documentId": "PHASE-3", "requiredStatus": "accepted"},
+                ),
+            ),
+        ) + rows[1:],
+        documents=(
+            dataclasses.replace(documents[0], id=malformed_document_id),
+        ) + documents[1:],
+    )
+    generic_task_row = dataclasses.replace(
+        rows[0],
+        taskId="TASK-UNRELATED-01",
+        prerequisites=(),
+    )
+    generic_task_subject = dataclasses.replace(
+        subject,
+        rootTaskId="TASK-UNRELATED-01",
+        taskRows=(generic_task_row,),
+        evidenceRows=(dataclasses.replace(
+            evidence_rows[0], taskId="TASK-UNRELATED-01"
+        ),),
+        documents=(documents[3], documents[4]),
+    )
+    out_of_domain_dependency_row = dataclasses.replace(
+        rows[0],
+        taskId="TASK-D0-07",
+        prerequisites=(),
+        evidenceIds=("EV-20260717-0005",),
+    )
+    out_of_domain_dependency_subject = dataclasses.replace(
+        subject,
+        rootTaskId="TASK-D0-02",
+        taskRows=(
+            dataclasses.replace(
+                rows[1], dependencies=("TASK-D0-07",)
+            ),
+            out_of_domain_dependency_row,
+        ),
+        evidenceRows=(
+            evidence_rows[1],
+            module.BootstrapLedgerSubjectV1(
+                id="EV-20260717-0005",
+                taskId="TASK-D0-07",
+                testIds=rows[0].testIds,
+                grade="bootstrap",
+                result="passed",
+            ),
+        ),
+        documents=(documents[3], documents[4]),
+    )
+    self_cycle_subject = dataclasses.replace(
+        subject,
+        rootTaskId="TASK-D0-01",
+        taskRows=(dataclasses.replace(
+            rows[0], dependencies=("TASK-D0-01",)
+        ),),
+        evidenceRows=(evidence_rows[0],),
+        documents=documents,
+    )
+    missing_evidence_row_subject = dataclasses.replace(
+        subject,
+        evidenceRows=evidence_rows[:2] + (
+            dataclasses.replace(
+                evidence_rows[2],
+                testIds=(
+                    "TST-EVIDENCE-001",
+                    "TST-HOST-001",
+                    "TST-TOOL-001",
+                ),
+            ),
+        ) + evidence_rows[4:],
+    )
+    extra_evidence_row = module.BootstrapLedgerSubjectV1(
+        id="EV-20260717-0008",
+        taskId="TASK-D0-03",
+        testIds=("TST-TOOL-001",),
+        grade="bootstrap",
+        result="passed",
+    )
+    extra_evidence_row_subject = dataclasses.replace(
+        subject,
+        evidenceRows=evidence_rows + (extra_evidence_row,),
+    )
+    casefold_path_subject = dataclasses.replace(
+        subject,
+        documents=(
+            dataclasses.replace(documents[0], path="docs/Straße.md"),
+            dataclasses.replace(documents[1], path="docs/STRASSE.md"),
+        ) + documents[2:],
+    )
+
+    invalid_subjects = (
+        ("generic non-D0 task identity", generic_task_subject),
+        ("D0-prefix task outside exact bootstrap set", out_of_domain_dependency_subject),
+        ("missing transitive dependency row", missing_dependency_row),
+        ("extra unreachable task row", extra_unreachable_row),
+        ("task self dependency", self_cycle_subject),
+        ("task dependency cycle", cyclic_subject),
+        ("evidence row task mismatch", wrong_evidence_task),
+        ("per-task evidence test union mismatch", wrong_evidence_test_union),
+        ("malformed evidence test ID", malformed_evidence_test_id),
+        ("impossible Gregorian evidence date", impossible_evidence_date_subject),
+        ("missing exact evidence row", missing_evidence_row_subject),
+        ("extra unreferenced evidence row", extra_evidence_row_subject),
+        ("missing PHASE-4 document", missing_phase4_document),
+        ("missing PHASE-5 document", missing_phase5_document),
+        ("missing prerequisite document", missing_prerequisite_document),
+        ("extra unreferenced document", extra_document_subject),
+        ("same-count wrong document set", same_count_wrong_documents),
+        ("document bytes are not strict UTF-8", invalid_utf8_subject),
+        ("malformed prerequisite document ID", malformed_document_id_subject),
+        ("casefold-colliding document paths", casefold_path_subject),
+    )
+    for label, invalid_subject in invalid_subjects:
+        try:
+            assert_rejected(
+                module,
+                lambda invalid_subject=invalid_subject: (
+                    module._validate_subject(invalid_subject)
+                ),
+            )
+        except AssertionError as error:
+            raise AssertionError(f"{label}: {error}") from error
+
+    shell_objects = module.BootstrapTaskObjectSetV1(
+        authorityPolicyBytes=b"{}",
+        stage0HandoffBytes=b"{}",
+        requiredTestSetBytes=b"{}",
+        taskApprovalBytes=b"{}",
+        taskReceiptBytes=b"{}",
+        dependencyApprovalBytes=tuple(
+            module.canonical_pf_jcs({"taskId": task_id})
+            for task_id in (
+                "TASK-D0-01",
+                "TASK-D0-02",
+                "TASK-D0-03",
+                "TASK-D0-05",
+                "TASK-D0-06",
+            )
+        ),
+        dependencyReceiptBytes=tuple(
+            module.canonical_pf_jcs({"taskId": task_id})
+            for task_id in (
+                "TASK-D0-01",
+                "TASK-D0-02",
+                "TASK-D0-03",
+                "TASK-D0-05",
+                "TASK-D0-06",
+            )
+        ),
+        evidenceObjectBytes=tuple(
+            module.canonical_pf_jcs({"id": index})
+            for index in range(1, 8)
+        ),
+        reviewReports=({
+            "digest": digest_text(hashlib.sha256(
+                b"pf.independent-review-report.v1\x00review"
+            ).digest()),
+            "bytes": b"review",
+        },),
+    )
+    original_receipt_parser = module.parse_bootstrap_task_verifier_receipt
+    original_object_shell_validator = module._validate_object_shell
+    receipt_calls = 0
+    shell_calls = 0
+
+    def capture_receipt_parser(*args: object, **kwargs: object) -> tuple:
+        del args, kwargs
+        nonlocal receipt_calls
+        receipt_calls += 1
+        return object(), object()
+
+    def capture_object_shell(objects: object) -> None:
+        del objects
+        nonlocal shell_calls
+        shell_calls += 1
+
+    module.parse_bootstrap_task_verifier_receipt = capture_receipt_parser
+    module._validate_object_shell = capture_object_shell
+    try:
+        result = module.verifyBootstrapTaskObjects(subject, shell_objects)
+        assert isinstance(result, module.Rejected)
+        assert shell_calls == 1, (
+            "valid subject graph must reach the object shell boundary"
+        )
+        assert receipt_calls == 1, (
+            "valid subject graph must reach the receipt content boundary"
+        )
+        for label, invalid_subject in invalid_subjects:
+            receipt_calls = 0
+            shell_calls = 0
+            result = module.verifyBootstrapTaskObjects(
+                invalid_subject,
+                shell_objects,
+            )
+            assert isinstance(result, module.Rejected)
+            assert shell_calls == 0, (
+                f"{label} must reject before object shell validation"
+            )
+            assert receipt_calls == 0, (
+                f"{label} must reject before receipt signature work"
+            )
+    finally:
+        module.parse_bootstrap_task_verifier_receipt = original_receipt_parser
+        module._validate_object_shell = original_object_shell_validator
+
+
 def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -> None:
     evidence_id = "EV-20260716-9999"
     row = module.BootstrapTaskRowSubjectV1(
@@ -4843,6 +5300,7 @@ def main() -> int:
         test_bootstrap_task_verifier_receipt(module)
         candidate = test_common_identities(module)
         test_ed25519(module)
+        test_subject_graph_preflight(module, candidate)
         test_subject_and_missing_root_bytes(module, candidate)
     except (AssertionError, OSError, ImportError, SyntaxError) as error:
         print(f"bootstrap-task-objects-self-test: FAIL: {error}", file=sys.stderr)
