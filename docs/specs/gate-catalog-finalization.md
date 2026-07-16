@@ -464,6 +464,11 @@ DependencyTaskObjectV1 {
   stage0HandoffBytes: bytes
 }
 
+ReviewReportObjectV1 {
+  digest: Digest,
+  bytes: bytes
+}
+
 BootstrapTaskObjectSetV1 {
   authorityPolicyBytes,
   stage0HandoffBytes,
@@ -472,7 +477,7 @@ BootstrapTaskObjectSetV1 {
   taskReceiptBytes,
   dependencyObjects: Array<DependencyTaskObjectV1>,
   evidenceObjectBytes: NonEmptyArray<bytes>,
-  reviewReports: NonEmptyArray<{digest, bytes}>
+  reviewReports: NonEmptyArray<ReviewReportObjectV1>
 }
 
 ObjectVerifiedV1 {
@@ -512,6 +517,24 @@ task 的 refs 还必须 exact 等于 subject 中该 task 的 evidenceRows。revi
 唯一升序，并 exact 等于 root 与 dependency TaskApproval independentReviews 引用的全部集合。review
 report digest 固定为
 `SHA-256("pf.independent-review-report.v1" || NUL || bytes)`，wire 使用 SPEC-COMMON-001 Digest。
+`ReviewReportObjectV1` 是 exact frozen process-local record，不是 wire schema；`digest` 是 typed Digest，
+`bytes` 是 opaque exact bytes。consumer 不对 report bytes 做 PF-JCS/JSON、UTF-8、Markdown、MIME、
+frontmatter、trim、换行或 Unicode normalization，也不从 bytes 推导 decision/key/role/commit/link。
+NUL、CRLF、invalid UTF-8 与 noncanonical JSON-looking bytes 均按原 bytes 参与 digest。每项 bytes 长度
+固定为 `1..1048576`，全部 report raw bytes 长度总和固定为 `1..16777216`；必须先完成全部 entry type、
+Digest 结构、单项/总长度、digest raw-32-byte 排序与唯一性检查，再进行第一次 report SHA-256。
+aggregate overflow、duplicate 或 reorder 不得触发 report hash/signature work。intrinsic preflight 只证明
+caller 提供的 raw bytes 与 digest 自洽；只有与全部已验证 TaskApproval review digest 的唯一升序 union
+做 exact equality 后，才建立本次 object graph 的 report content join；同一 digest 可被多个 task
+引用，carrier 中仍只出现一次，不得以 concat/sort 代替 set union。该 join 仍不证明
+reviewer/provenance。
+object graph 的固定执行顺序是：shell/count preflight；完整 report intrinsic preflight（含全部
+structure/resource/order/unique 检查及随后逐项 raw-byte digest 自洽检查）；RequiredTestSet finalize；
+全部 root/dependency TaskApproval finalize；上述唯一升序 union exact join；最后才允许第一次 receipt
+finalize。任一 report intrinsic failure 都不得进入 RequiredSet、TaskApproval 或 receipt curve work。
+内部入口固定为
+`_preflight_review_reports(values: object) -> Tuple[Digest, ...]`；它返回 caller carrier 的同序 typed
+digest tuple，且不解析、不规范化也不投影 report bytes。
 在 dynamic exact-set join 前，`evidenceObjectBytes` carrier count 固定为 `1..24576`（六项 task 各最多
 4096），`reviewReports` 固定为 `1..1536`（六项 task 各最多 256）；over-bound 必须在任何 entry decode、
 hash 或 signature work 前拒绝。这两个 coarse upper bound 不替代后续由已验证 approval refs 派生的

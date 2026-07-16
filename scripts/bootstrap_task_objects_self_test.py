@@ -210,6 +210,7 @@ def assert_public_api(module: ModuleType) -> None:
         "BootstrapTaskRowSubjectV1",
         "BootstrapTaskSubjectV1",
         "DependencyTaskObjectV1",
+        "ReviewReportObjectV1",
         "BootstrapTaskObjectSetV1",
         "ObjectVerifiedV1",
     )
@@ -425,6 +426,7 @@ def assert_public_api(module: ModuleType) -> None:
         "DependencyTaskObjectV1": (
             "approvalBytes", "receiptBytes", "stage0HandoffBytes",
         ),
+        "ReviewReportObjectV1": ("digest", "bytes"),
         "BootstrapTaskObjectSetV1": (
             "authorityPolicyBytes",
             "stage0HandoffBytes",
@@ -1208,12 +1210,17 @@ def independent_review_wire(
     review_commit: str,
     *,
     report_label: str | None = None,
+    report_bytes: bytes | None = None,
 ) -> dict:
+    assert not (
+        report_label is not None and report_bytes is not None
+    ), "review fixture must select either a label or exact raw bytes"
     label = key_id if report_label is None else report_label
-    report_digest = hashlib.sha256(
-        b"pf.independent-review-report.v1\x00"
-        + f"approved review by {label}\n".encode("ascii")
-    ).digest()
+    report_digest = independent_review_report_digest(
+        independent_review_report_bytes(label)
+        if report_bytes is None
+        else report_bytes
+    )
     return {
         "keyId": key_id,
         "role": role,
@@ -1222,6 +1229,26 @@ def independent_review_wire(
         "reportDigest": digest_text(report_digest),
         "decision": "approved",
     }
+
+
+def independent_review_report_bytes(label: str) -> bytes:
+    return f"approved review by {label}\n".encode("ascii")
+
+
+def independent_review_report_digest(raw: bytes) -> bytes:
+    return hashlib.sha256(
+        b"pf.independent-review-report.v1\x00" + raw
+    ).digest()
+
+
+def review_report_object(module: ModuleType, raw: bytes) -> object:
+    return module.ReviewReportObjectV1(
+        digest=module.Digest(
+            "sha256",
+            independent_review_report_digest(raw),
+        ),
+        bytes=raw,
+    )
 
 
 def task_approval_statement(
@@ -1639,6 +1666,8 @@ D0_GRAPH_ROWS = {
 def signed_d0_object_graph_fixture(
     module: ModuleType,
     root_task_id: str,
+    *,
+    shared_quality_review_bytes: bytes | None = None,
 ) -> dict[str, object]:
     policy_wire = valid_bootstrap_authority_policy()
     policy_bytes = module.canonical_pf_jcs(policy_wire)
@@ -1726,7 +1755,19 @@ def signed_d0_object_graph_fixture(
                     key_id,
                     role,
                     candidate_wire["commit"],
-                    report_label=f"{task_id}:{key_id}",
+                    report_label=(
+                        None
+                        if (
+                            shared_quality_review_bytes is not None
+                            and key_id == "key-quality"
+                        )
+                        else f"{task_id}:{key_id}"
+                    ),
+                    report_bytes=(
+                        shared_quality_review_bytes
+                        if key_id == "key-quality"
+                        else None
+                    ),
                 )
                 for key_id, role in signers
             ],
@@ -1860,12 +1901,22 @@ def signed_d0_object_graph_fixture(
             module.canonical_pf_jcs({"id": row.id})
             for row in evidence_rows
         ),
-        reviewReports=({
-            "digest": digest_text(hashlib.sha256(
-                b"pf.independent-review-report.v1\x00review\n"
-            ).digest()),
-            "bytes": b"review\n",
-        },),
+        reviewReports=tuple(sorted(
+            {
+                review_report_object(
+                    module,
+                    shared_quality_review_bytes
+                    if (
+                        shared_quality_review_bytes is not None
+                        and key_id == "key-quality"
+                    )
+                    else independent_review_report_bytes(f"{task_id}:{key_id}"),
+                )
+                for task_id in included_task_ids
+                for key_id, _ in D0_GRAPH_ROWS[task_id]["signers"]
+            },
+            key=lambda report: report.digest.bytes,
+        )),
     )
     return {
         "subject": subject,
@@ -5486,12 +5537,7 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
             module.canonical_pf_jcs({"id": index})
             for index in range(1, 8)
         ),
-        reviewReports=({
-            "digest": digest_text(hashlib.sha256(
-                b"pf.independent-review-report.v1\x00review"
-            ).digest()),
-            "bytes": b"review",
-        },),
+        reviewReports=(review_report_object(module, b"review"),),
     )
     original_graph_parser = module._parse_bootstrap_task_object_graph
     original_object_shell_validator = module._validate_object_shell
@@ -5778,9 +5824,16 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         evidenceObjectBytes=(b"{}",) * (6 * 4096),
     )
     assert module._validate_object_shell(maximum_evidence_carrier) is None
+    maximum_count_review_reports = tuple(sorted(
+        (
+            review_report_object(module, index.to_bytes(2, "big"))
+            for index in range(6 * 256)
+        ),
+        key=lambda report: report.digest.bytes,
+    ))
     maximum_review_carrier = dataclasses.replace(
         objects,
-        reviewReports=objects.reviewReports * (6 * 256),
+        reviewReports=maximum_count_review_reports,
     )
     assert module._validate_object_shell(maximum_review_carrier) is None
     overbound_evidence_carrier = dataclasses.replace(
@@ -5805,7 +5858,9 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
             module,
             lambda: module._validate_object_shell(dataclasses.replace(
                 objects,
-                reviewReports=objects.reviewReports * (6 * 256 + 1),
+                reviewReports=maximum_count_review_reports + (
+                    review_report_object(module, (6 * 256).to_bytes(2, "big")),
+                ),
             )),
         )
     finally:
@@ -6398,6 +6453,551 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
     )
 
 
+def test_review_report_preflight(module: ModuleType) -> None:
+    minimum_item = review_report_object(module, b"x")
+    assert module._preflight_review_reports((minimum_item,)) == (
+        minimum_item.digest,
+    )
+    opaque_vectors = (
+        b"\x00",
+        b" \t\r\n ",
+        b"\xff",
+        b'{"z":0,"a":1}',
+        b"e\xcc\x81\r\n ",
+    )
+    for opaque_raw in opaque_vectors:
+        opaque_report = review_report_object(module, opaque_raw)
+        assert module._preflight_review_reports((opaque_report,)) == (
+            opaque_report.digest,
+        ), "review report bytes must remain opaque and digest exact raw bytes"
+
+    maximum_item_raw = b"m" * (1024 * 1024)
+    maximum_item = review_report_object(module, maximum_item_raw)
+    assert module._preflight_review_reports((maximum_item,)) == (
+        maximum_item.digest,
+    )
+    maximum_count_reports = tuple(sorted(
+        (
+            review_report_object(module, f"report-{index:04d}".encode("ascii"))
+            for index in range(6 * 256)
+        ),
+        key=lambda report: report.digest.bytes,
+    ))
+    assert len(maximum_count_reports) == 1536
+    assert len(module._preflight_review_reports(maximum_count_reports)) == 1536
+    over_count_reports = tuple(sorted(
+        maximum_count_reports + (
+            review_report_object(module, b"report-over-count"),
+        ),
+        key=lambda report: report.digest.bytes,
+    ))
+    assert len(over_count_reports) == 1537
+
+    aggregate_reports = tuple(sorted(
+        (
+            review_report_object(
+                module,
+                bytes([index]) + b"a" * (1024 * 1024 - 1),
+            )
+            for index in range(16)
+        ),
+        key=lambda report: report.digest.bytes,
+    ))
+    assert sum(len(report.bytes) for report in aggregate_reports) == 16 * 1024 * 1024
+    assert len(module._preflight_review_reports(aggregate_reports)) == 16
+    aggregate_overflow = tuple(sorted(
+        aggregate_reports + (review_report_object(module, b"z"),),
+        key=lambda report: report.digest.bytes,
+    ))
+    assert sum(
+        len(report.bytes) for report in aggregate_overflow
+    ) == 16 * 1024 * 1024 + 1
+
+    ordered_pair = tuple(sorted(
+        (
+            review_report_object(module, b"first"),
+            review_report_object(module, b"second"),
+        ),
+        key=lambda report: report.digest.bytes,
+    ))
+    assert module._preflight_review_reports(ordered_pair) == tuple(
+        report.digest for report in ordered_pair
+    ), "preflight must retain the caller's exact digest order"
+
+    class TupleSubclass(tuple):
+        pass
+
+    class ReviewReportSubclass(module.ReviewReportObjectV1):
+        pass
+
+    class DigestSubclass(module.Digest):
+        pass
+
+    class BytesSubclass(bytes):
+        pass
+
+    class StrSubclass(str):
+        pass
+
+    duplicate_digest = module.Digest("sha256", bytes(32))
+    structural_invalids = (
+        ("outer carrier is list", list(ordered_pair)),
+        ("outer carrier is tuple subclass", TupleSubclass(ordered_pair)),
+        ("outer carrier is empty", ()),
+        ("entry is dict", ({"digest": ordered_pair[0].digest, "bytes": b"x"},)),
+        (
+            "late invalid entry follows a structurally valid report",
+            (
+                ordered_pair[0],
+                {"digest": module.Digest("sha256", b"\xff" * 32), "bytes": b"x"},
+            ),
+        ),
+        (
+            "entry is ReviewReportObjectV1 subclass",
+            (ReviewReportSubclass(
+                digest=ordered_pair[0].digest,
+                bytes=ordered_pair[0].bytes,
+            ),),
+        ),
+        (
+            "digest is untyped",
+            (module.ReviewReportObjectV1(
+                digest=digest_text(bytes(32)),
+                bytes=b"x",
+            ),),
+        ),
+        (
+            "digest is Digest subclass",
+            (module.ReviewReportObjectV1(
+                digest=DigestSubclass("sha256", bytes(32)),
+                bytes=b"x",
+            ),),
+        ),
+        (
+            "digest algorithm is str subclass",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest(StrSubclass("sha256"), bytes(32)),
+                bytes=b"x",
+            ),),
+        ),
+        (
+            "digest algorithm is not sha256",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha512", bytes(32)),
+                bytes=b"x",
+            ),),
+        ),
+        (
+            "digest bytes are str",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", "00" * 32),
+                bytes=b"x",
+            ),),
+        ),
+        (
+            "digest bytes are bytearray",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", bytearray(32)),
+                bytes=b"x",
+            ),),
+        ),
+        (
+            "digest bytes are memoryview",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", memoryview(bytes(32))),
+                bytes=b"x",
+            ),),
+        ),
+        (
+            "digest bytes are bytes subclass",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", BytesSubclass(bytes(32))),
+                bytes=b"x",
+            ),),
+        ),
+        (
+            "digest length is not 32 bytes",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", bytes(31)),
+                bytes=b"x",
+            ),),
+        ),
+        (
+            "bytes field is str",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", bytes(32)),
+                bytes="x",
+            ),),
+        ),
+        (
+            "bytes field is bytearray",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", bytes(32)),
+                bytes=bytearray(b"x"),
+            ),),
+        ),
+        (
+            "bytes field is memoryview",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", bytes(32)),
+                bytes=memoryview(b"x"),
+            ),),
+        ),
+        (
+            "bytes field is bytes subclass",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", bytes(32)),
+                bytes=BytesSubclass(b"x"),
+            ),),
+        ),
+        (
+            "raw bytes are empty",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", bytes(32)),
+                bytes=b"",
+            ),),
+        ),
+        (
+            "raw bytes exceed per-item maximum",
+            (module.ReviewReportObjectV1(
+                digest=module.Digest("sha256", bytes(32)),
+                bytes=b"x" * (1024 * 1024 + 1),
+            ),),
+        ),
+        ("report count exceeds maximum", over_count_reports),
+        ("aggregate raw bytes exceed maximum", aggregate_overflow),
+        ("reports are reordered", tuple(reversed(ordered_pair))),
+        ("report digest is duplicated", (ordered_pair[0], ordered_pair[0])),
+        (
+            "same digest is duplicated across different raw bytes",
+            (
+                module.ReviewReportObjectV1(duplicate_digest, b"a"),
+                module.ReviewReportObjectV1(duplicate_digest, b"b"),
+            ),
+        ),
+    )
+    original_sha256 = module.hashlib.sha256
+    structural_hash_calls = 0
+
+    def count_structural_hashes(*args: object, **kwargs: object) -> object:
+        nonlocal structural_hash_calls
+        structural_hash_calls += 1
+        return original_sha256(*args, **kwargs)
+
+    module.hashlib.sha256 = count_structural_hashes
+    try:
+        for label, invalid in structural_invalids:
+            try:
+                assert_rejected(
+                    module,
+                    lambda invalid=invalid: module._preflight_review_reports(
+                        invalid
+                    ),
+                )
+            except AssertionError as error:
+                raise AssertionError(f"{label}: {error}") from error
+    finally:
+        module.hashlib.sha256 = original_sha256
+    assert structural_hash_calls == 0, (
+        "all review report structure/resource/order checks must precede hashing"
+    )
+
+    raw = b"domain-bound-review"
+    digest_mismatch_cases = (
+        module.ReviewReportObjectV1(
+            module.Digest("sha256", hashlib.sha256(raw).digest()), raw
+        ),
+        module.ReviewReportObjectV1(
+            module.Digest("sha256", hashlib.sha256(
+                b"pf.independent-review-report.v1" + raw
+            ).digest()),
+            raw,
+        ),
+        module.ReviewReportObjectV1(
+            module.Digest("sha256", hashlib.sha256(
+                b"pf.other-review-report.v1\x00" + raw
+            ).digest()),
+            raw,
+        ),
+        dataclasses.replace(
+            review_report_object(module, raw),
+            bytes=raw + b"-mutated",
+        ),
+    )
+    for invalid in digest_mismatch_cases:
+        assert_rejected(
+            module,
+            lambda invalid=invalid: module._preflight_review_reports((invalid,)),
+        )
+    interior_reports = tuple(sorted(
+        (
+            review_report_object(module, b"interior-first"),
+            review_report_object(module, b"interior-middle"),
+            review_report_object(module, b"interior-last"),
+        ),
+        key=lambda report: report.digest.bytes,
+    ))
+    mutated_interior_reports = list(interior_reports)
+    mutated_interior_reports[1] = dataclasses.replace(
+        mutated_interior_reports[1],
+        bytes=mutated_interior_reports[1].bytes + b"-mutated",
+    )
+    assert_rejected(
+        module,
+        lambda: module._preflight_review_reports(tuple(mutated_interior_reports)),
+    )
+
+    fixture = signed_d0_object_graph_fixture(module, "TASK-D0-04")
+    subject = fixture["subject"]
+    objects = fixture["objects"]
+    original_review_preflight = module._preflight_review_reports
+    preflight_calls: list[object] = []
+
+    def capture_review_preflight(values: object) -> object:
+        preflight_calls.append(values)
+        return original_review_preflight(values)
+
+    module._preflight_review_reports = capture_review_preflight
+    try:
+        graph = module._parse_bootstrap_task_object_graph(subject, objects)
+    finally:
+        module._preflight_review_reports = original_review_preflight
+    assert graph.root.approval.taskId == "TASK-D0-04"
+    assert preflight_calls == [objects.reviewReports], (
+        "object graph must preflight the report carrier exactly once"
+    )
+
+    extra_report = review_report_object(module, b"unreferenced-review")
+    missing_report_objects = dataclasses.replace(
+        objects,
+        reviewReports=objects.reviewReports[1:],
+    )
+    extra_report_objects = dataclasses.replace(
+        objects,
+        reviewReports=tuple(sorted(
+            objects.reviewReports + (extra_report,),
+            key=lambda report: report.digest.bytes,
+        )),
+    )
+    substituted_report_objects = dataclasses.replace(
+        objects,
+        reviewReports=tuple(sorted(
+            objects.reviewReports[1:] + (extra_report,),
+            key=lambda report: report.digest.bytes,
+        )),
+    )
+    required_wire = module.decode_canonical_pf_jcs(
+        objects.requiredTestSetBytes
+    )
+    required_statement = {
+        key: value
+        for key, value in required_wire.items()
+        if key != "signatures"
+    }
+    required_message = (
+        b"pf.required-test-set-signature.v1\x00"
+        + hashlib.sha256(
+            b"pf.required-test-set-statement.v1\x00"
+            + module.canonical_pf_jcs(required_statement)
+        ).digest()
+    )
+    expected_signature_messages = [
+        required_message
+        for _ in required_wire["signatures"]
+    ]
+    for task_id in (subject.rootTaskId,) + fixture["dependencyTaskIds"]:
+        approval_wire = fixture["built"][task_id]["approvalWire"]
+        approval_statement = {
+            key: value
+            for key, value in approval_wire.items()
+            if key != "signatures"
+        }
+        approval_message = (
+            b"pf.bootstrap-task-approval-signature.v1\x00"
+            + hashlib.sha256(
+                b"pf.bootstrap-task-approval-statement.v1\x00"
+                + module.canonical_pf_jcs(approval_statement)
+            ).digest()
+        )
+        expected_signature_messages.extend(
+            approval_message for _ in approval_wire["signatures"]
+        )
+    assert len(expected_signature_messages) == 15
+    for label, invalid in (
+        ("missing signed review report", missing_report_objects),
+        ("extra unreferenced review report", extra_report_objects),
+        (
+            "same-count missing and unreferenced review reports",
+            substituted_report_objects,
+        ),
+    ):
+        original_verify = module.verify_ed25519
+        signature_messages: list[bytes] = []
+
+        def capture_signatures(
+            public_key: bytes,
+            message: bytes,
+            signature: bytes,
+        ) -> bool:
+            signature_messages.append(message)
+            return original_verify(public_key, message, signature)
+
+        module.verify_ed25519 = capture_signatures
+        try:
+            assert_rejected(
+                module,
+                lambda invalid=invalid: module._parse_bootstrap_task_object_graph(
+                    subject,
+                    invalid,
+                ),
+            )
+        except AssertionError as error:
+            raise AssertionError(f"{label}: {error}") from error
+        finally:
+            module.verify_ed25519 = original_verify
+        receipt_prefix = (
+            b"pf.bootstrap-task-verifier-receipt-signature.v1\x00"
+        )
+        assert signature_messages == expected_signature_messages, (
+            f"{label} must follow every exact RequiredSet and TaskApproval "
+            "signature message"
+        )
+        assert not any(
+            message.startswith(receipt_prefix)
+            for message in signature_messages
+        ), f"{label} must reject before receipt signature verification"
+
+    shared_fixture = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-04",
+        shared_quality_review_bytes=(
+            b'{"role":"release","decision":"rejected",'
+            b'"keyId":"attacker"}\r\n '
+        ),
+    )
+    shared_objects = shared_fixture["objects"]
+    assert len(shared_objects.reviewReports) == 8, (
+        "six cross-task references to one quality report must occupy one "
+        "carrier entry"
+    )
+    shared_graph = module._parse_bootstrap_task_object_graph(
+        shared_fixture["subject"],
+        shared_objects,
+    )
+    assert shared_graph.root.approval.taskId == "TASK-D0-04", (
+        "review report join must deduplicate a digest shared across tasks"
+    )
+
+    graph_zero_work_invalids = (
+        ("reordered carrier", dataclasses.replace(
+            objects,
+            reviewReports=tuple(reversed(objects.reviewReports)),
+        )),
+        ("duplicate digest carrier", dataclasses.replace(
+            objects,
+            reviewReports=(objects.reviewReports[0],) + objects.reviewReports,
+        )),
+        ("1537-entry carrier", dataclasses.replace(
+            objects,
+            reviewReports=over_count_reports,
+        )),
+        ("aggregate max-plus-one carrier", dataclasses.replace(
+            objects,
+            reviewReports=aggregate_overflow,
+        )),
+    )
+    graph_digest_mismatches = tuple(
+        (
+            label,
+            dataclasses.replace(
+                objects,
+                reviewReports=tuple(
+                    dataclasses.replace(
+                        report,
+                        bytes=report.bytes + b"-mutated",
+                    )
+                    if report_index == index
+                    else report
+                    for report_index, report in enumerate(
+                        objects.reviewReports
+                    )
+                ),
+            ),
+        )
+        for label, index in (
+            ("first digest mismatch", 0),
+            ("interior digest mismatch", len(objects.reviewReports) // 2),
+            ("last digest mismatch", len(objects.reviewReports) - 1),
+        )
+    )
+    original_verify = module.verify_ed25519
+    original_graph_sha256 = module.hashlib.sha256
+    graph_signature_calls = 0
+    graph_hash_calls = 0
+
+    def count_graph_signatures(*args: object, **kwargs: object) -> bool:
+        del args, kwargs
+        nonlocal graph_signature_calls
+        graph_signature_calls += 1
+        return True
+
+    def count_graph_hashes(*args: object, **kwargs: object) -> object:
+        nonlocal graph_hash_calls
+        graph_hash_calls += 1
+        return original_graph_sha256(*args, **kwargs)
+
+    module.verify_ed25519 = count_graph_signatures
+    module.hashlib.sha256 = count_graph_hashes
+    try:
+        for label, invalid in graph_zero_work_invalids:
+            graph_signature_calls = 0
+            graph_hash_calls = 0
+            try:
+                assert_rejected(
+                    module,
+                    lambda invalid=invalid: (
+                        module._parse_bootstrap_task_object_graph(
+                            subject,
+                            invalid,
+                        )
+                    ),
+                )
+            except AssertionError as error:
+                raise AssertionError(f"{label}: {error}") from error
+            assert graph_hash_calls == 0, (
+                f"{label} must reject before any graph hash work"
+            )
+            assert graph_signature_calls == 0, (
+                f"{label} must reject before signature work"
+            )
+
+        for label, invalid in graph_digest_mismatches:
+            graph_signature_calls = 0
+            graph_hash_calls = 0
+            assert_rejected(
+                module,
+                lambda invalid=invalid: (
+                    module._parse_bootstrap_task_object_graph(
+                        subject,
+                        invalid,
+                    )
+                ),
+            )
+            assert graph_hash_calls > 0, (
+                f"{label} must hash exact report bytes before rejection"
+            )
+            assert graph_signature_calls == 0, (
+                f"{label} must reject before signature work"
+            )
+    finally:
+        module.verify_ed25519 = original_verify
+        module.hashlib.sha256 = original_graph_sha256
+
+    result = module.verifyBootstrapTaskObjects(subject, objects)
+    assert isinstance(result, module.Rejected)
+    assert result.code == BOOTSTRAP_REJECTION
+
+
 def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -> None:
     evidence_id = "EV-20260716-9999"
     row = module.BootstrapTaskRowSubjectV1(
@@ -6453,7 +7053,7 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
         "taskReceiptBytes": b"{}",
         "dependencyObjects": (),
         "evidenceObjectBytes": (b"{}",),
-        "reviewReports": ({"digest": digest_text(bytes(32)), "bytes": b"review"},),
+        "reviewReports": (review_report_object(module, b"review"),),
     }
     for missing in ROOT_BYTE_FIELDS:
         fields = dict(base)
@@ -6511,6 +7111,7 @@ def main() -> int:
         test_ed25519(module)
         test_subject_graph_preflight(module, candidate)
         test_dependency_bundle_graph(module)
+        test_review_report_preflight(module)
         test_subject_and_missing_root_bytes(module, candidate)
     except (AssertionError, AttributeError, OSError, ImportError, SyntaxError) as error:
         print(f"bootstrap-task-objects-self-test: FAIL: {error}", file=sys.stderr)
