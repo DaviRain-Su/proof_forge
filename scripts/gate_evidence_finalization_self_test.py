@@ -912,10 +912,16 @@ def write_realistic_development_bundle(
     return document, catalog_path, catalog_sha256, catalog_digest, run_binding_sha256
 
 
-def invoke(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
+def invoke(
+    arguments: list[str],
+    *,
+    descriptor_source: Path = GATE_EVIDENCE,
+    executing_source: Path = GATE_EVIDENCE,
+    source_flags: int = os.O_RDONLY,
+) -> subprocess.CompletedProcess[bytes]:
     gate_descriptor = os.open(
-        GATE_EVIDENCE,
-        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+        descriptor_source,
+        source_flags | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
     )
     try:
         return subprocess.run(
@@ -926,7 +932,7 @@ def invoke(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
                 "-",
                 arguments[0],
                 "--executing-source",
-                os.fspath(GATE_EVIDENCE.resolve(strict=True)),
+                os.fspath(executing_source.resolve(strict=True)),
                 *arguments[1:],
             ],
             cwd=ROOT,
@@ -942,6 +948,30 @@ def invoke(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
         ) from error
     finally:
         os.close(gate_descriptor)
+
+
+def invoke_pipe(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
+    try:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "-",
+                arguments[0],
+                "--executing-source",
+                os.fspath(GATE_EVIDENCE.resolve(strict=True)),
+                *arguments[1:],
+            ],
+            cwd=ROOT,
+            input=GATE_EVIDENCE.read_bytes(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AssertionError("pipe finalizer invocation blocked") from error
 
 
 def invoke_path(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
@@ -1067,6 +1097,27 @@ def assert_catalog_rejection(
         raise AssertionError(f"catalog negative {label} touched its output namespace")
 
 
+def assert_identity_rejection(
+    result: subprocess.CompletedProcess[bytes],
+    *,
+    label: str,
+    output_root: Path,
+) -> None:
+    stderr_lines = result.stderr.splitlines()
+    if (
+        result.returncode != 2
+        or result.stdout
+        or len(stderr_lines) != 1
+        or not stderr_lines[0].startswith(b"PF-EVIDENCE-FINALIZER-IDENTITY: ")
+    ):
+        raise AssertionError(
+            f"{label} did not fail with one stable finalizer-identity diagnostic:\n"
+            + result.stderr.decode("utf-8", errors="replace")
+        )
+    if output_root.exists():
+        raise AssertionError(f"{label} touched its output namespace")
+
+
 def main() -> int:
     if not sys.flags.isolated or not sys.flags.no_site:
         raise AssertionError("invoke this test with isolated Python using -I -S")
@@ -1147,19 +1198,12 @@ def main() -> int:
             catalog_digest,
             run_binding_sha256,
         ) = write_realistic_development_bundle(module, development_root)
-        pathname_output_root = temporary_root / "pathname-output-must-not-be-touched"
-        pathname_output = (
-            pathname_output_root
-            / "finalized-development"
-            / document["gateCatalog"]["id"]
-            / document["gate"]["id"]
-            / "EVF-20260715-9000.json"
-        )
-        pathname_result = invoke_path(
-            [
+
+        def development_arguments(output_path: Path, selected_catalog: str) -> list[str]:
+            return [
                 "finalize-development",
                 "--catalog",
-                catalog_path,
+                selected_catalog,
                 "--catalog-sha256",
                 catalog_sha256,
                 "--catalog-digest",
@@ -1171,20 +1215,96 @@ def main() -> int:
                 "--bundle-root",
                 os.fspath(development_root),
                 "--output",
-                os.fspath(pathname_output),
+                os.fspath(output_path),
             ]
+
+        pathname_catalog_relative = "catalog/pathname-must-not-be-read.json"
+        pathname_catalog_trap = development_root / pathname_catalog_relative
+        os.mkfifo(pathname_catalog_trap, mode=0o400)
+        pathname_catalog_before = os.lstat(pathname_catalog_trap)
+        pathname_output_root = temporary_root / "pathname-output-must-not-be-touched"
+        pathname_output = (
+            pathname_output_root
+            / "finalized-development"
+            / document["gateCatalog"]["id"]
+            / document["gate"]["id"]
+            / "EVF-20260715-9000.json"
         )
+        pathname_result = invoke_path(
+            development_arguments(pathname_output, pathname_catalog_relative)
+        )
+        assert_identity_rejection(
+            pathname_result,
+            label="pathname finalizer invocation",
+            output_root=pathname_output_root,
+        )
+        pathname_catalog_after = os.lstat(pathname_catalog_trap)
         if (
-            pathname_result.returncode != 2
-            or pathname_result.stdout
-            or b"PF-EVIDENCE-FINALIZER-IDENTITY" not in pathname_result.stderr
+            not stat.S_ISFIFO(pathname_catalog_after.st_mode)
+            or (pathname_catalog_after.st_dev, pathname_catalog_after.st_ino)
+            != (pathname_catalog_before.st_dev, pathname_catalog_before.st_ino)
         ):
-            raise AssertionError(
-                "pathname finalizer invocation did not fail closed:\n"
-                + pathname_result.stderr.decode("utf-8", errors="replace")
+            raise AssertionError("pathname finalizer rejection replaced the unread catalog trap")
+
+        for label, result in (
+            (
+                "writable stdin finalizer invocation",
+                invoke(
+                    development_arguments(
+                        temporary_root / "writable-stdin-output" / "EVF-20260715-9000.json",
+                        pathname_catalog_relative,
+                    ),
+                    source_flags=os.O_RDWR,
+                ),
+            ),
+            (
+                "pipe stdin finalizer invocation",
+                invoke_pipe(
+                    development_arguments(
+                        temporary_root / "pipe-stdin-output" / "EVF-20260715-9000.json",
+                        pathname_catalog_relative,
+                    )
+                ),
+            ),
+        ):
+            assert_identity_rejection(
+                result,
+                label=label,
+                output_root=temporary_root
+                / ("writable-stdin-output" if label.startswith("writable") else "pipe-stdin-output"),
             )
-        if pathname_output_root.exists():
-            raise AssertionError("pathname finalizer invocation touched output")
+
+        substituted_source = temporary_root / "substituted-source" / "gate_evidence.py"
+        write_secure(substituted_source, GATE_EVIDENCE.read_bytes() + b"# substituted\n")
+        substituted_output_root = temporary_root / "substituted-source-output"
+        substituted_result = invoke(
+            development_arguments(
+                substituted_output_root / "EVF-20260715-9000.json",
+                pathname_catalog_relative,
+            ),
+            executing_source=substituted_source,
+        )
+        assert_identity_rejection(
+            substituted_result,
+            label="substituted executing-source invocation",
+            output_root=substituted_output_root,
+        )
+
+        duplicate_output_root = temporary_root / "duplicate-source-output"
+        duplicate_arguments = development_arguments(
+            duplicate_output_root / "EVF-20260715-9000.json",
+            pathname_catalog_relative,
+        )
+        duplicate_arguments.extend(
+            ["--executing-source", os.fspath(GATE_EVIDENCE.resolve(strict=True))]
+        )
+        duplicate_result = invoke(duplicate_arguments)
+        assert_identity_rejection(
+            duplicate_result,
+            label="duplicate executing-source invocation",
+            output_root=duplicate_output_root,
+        )
+        pathname_catalog_trap.unlink()
         assert_catalog_rejection(
             module,
             temporary_root,
