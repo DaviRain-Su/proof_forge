@@ -243,15 +243,21 @@ BootstrapAuthorityPolicyV1 {
 }
 ```
 
-wire field order 恰为 declaration order；所有 object `additionalProperties=false`。root `id` 使用
+wire field order 恰为 declaration order；所有 object `additionalProperties=false`；root `schema` 固定为
+`proof-forge.bootstrap-authority-policy.v1`。root `id` 使用
 ContentRef id grammar，`principalId`/`keyId`/verifier `id` 使用 safe-id；version 是 exact SemVer。
 `publicKey` 是 32-byte Ed25519 key 的 64 位
 lowercase hex，`signature` 是 64-byte signature 的 128 位 lowercase hex；receiptPublicKey 采用同一
-encoding，receiptKeyId 不得出现在 principals。principals、taskRules、signatures 分别按 keyId、
+encoding。principals 中 keyId 与 publicKey 分别全局唯一；同一 principal 的 key rotation 也必须使用
+不同 publicKey。receiptKeyId 不得出现在 principals，receiptPublicKey 也不得等于任一 principal
+publicKey。principals、taskRules、signatures 分别按 keyId、
 taskId、keyId 唯一升序；roles/requiredRoles 按上列 enum 顺序唯一升序。同一 principalId 可轮换
 多把 key，但 quorum、minimumDistinctSigners 和 independent review 独立性一律按 distinct
 principalId 计算；每个 requiredRole 必须至少由一个拥有该 role 的 distinct principal 覆盖，不能用
-同一人多 key 伪造 quorum。
+同一人多 key 伪造 quorum。对每个 ApprovalRule，requiredRoles 的覆盖集合只能由已通过 Ed25519
+验证的 signatures 各自 keyId exact 命中的 principal entry.roles 取并集；未出现在 signatures 的
+同 principalId 其他 key roles 不得参与。minimumDistinctSigners 也只按这些有效 signatures 映射出的
+distinct principalId 计数。
 严格 Ed25519 验证使用 RFC 8032 pure mode、无 prehash/context；拒绝 non-canonical encoding、
 invalid/small-order public key 和 invalid signature。
 
@@ -274,7 +280,9 @@ bootstrapAuthorityPolicyDigest = SHA-256(
 )
 ```
 
-它以 `ContentRef{schema="proof-forge.bootstrap-authority-policy.v1",id,version,digest}` 表示。
+它以 `ContentRef{schema="proof-forge.bootstrap-authority-policy.v1",id,version,digest}` 表示，其中
+id/version exact 来自 policy 同名字段，digest 必须按上式重算；所有 authorityPolicy ref 必须与该
+完整 ContentRef exact equality。
 `authorityStoreService` 必须 resolve 到下节 exact service descriptor；handoff 中同名 ref 必须与
 policy exact 相等，禁止 Stage-0/caller 临时替换 store namespace、service key 或 executable。
 eligible Stage-0 caller 必须从 checkout/archive/candidate 之外的只读 external governance root
