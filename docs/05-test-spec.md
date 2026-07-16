@@ -415,8 +415,8 @@ review digest union 的 missing/extra exact join；union 还须有跨 task 共�
 只保留一项的 positive，missing/extra 须在全部 RequiredSet/TaskApproval 签名验证后且 receipt
 签名验证前拒绝；还须覆盖同 cardinality 的 missing+extra substitution，防止仅比较 count。完整 graph
 固定为 shell/count → intrinsic report digest → RequiredSet → 全部 TaskApproval → union → receipt；
-structural/aggregate failure 时 report hash 与 curve 均为零，digest mismatch 可触发 report hash 但
-curve 仍为零；第二层调用
+structural/aggregate failure 时任何 graph hash 与 curve 均为零；first/interior/last digest mismatch
+只能依序触发截至 mismatch 项的 report-domain hash，其他 graph hash 与 curve 仍为零；第二层调用
 默认 docs checker，同一 bootstrap ledger/task fixture 必须稳定返回
 `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`。CLI/env/path/普通 file fd 不得选择 authority，也不得新增
 `check(root, capability)` 把 `ObjectVerifiedV1` 升级成 closure。synthetic object set 永不构成 successful

@@ -6909,6 +6909,7 @@ def test_review_report_preflight(module: ModuleType) -> None:
     graph_digest_mismatches = tuple(
         (
             label,
+            index + 1,
             dataclasses.replace(
                 objects,
                 reviewReports=tuple(
@@ -6934,6 +6935,7 @@ def test_review_report_preflight(module: ModuleType) -> None:
     original_graph_sha256 = module.hashlib.sha256
     graph_signature_calls = 0
     graph_hash_calls = 0
+    graph_hash_inputs: list[object] = []
 
     def count_graph_signatures(*args: object, **kwargs: object) -> bool:
         del args, kwargs
@@ -6944,6 +6946,7 @@ def test_review_report_preflight(module: ModuleType) -> None:
     def count_graph_hashes(*args: object, **kwargs: object) -> object:
         nonlocal graph_hash_calls
         graph_hash_calls += 1
+        graph_hash_inputs.append(args[0] if args else None)
         return original_graph_sha256(*args, **kwargs)
 
     module.verify_ed25519 = count_graph_signatures
@@ -6971,9 +6974,11 @@ def test_review_report_preflight(module: ModuleType) -> None:
                 f"{label} must reject before signature work"
             )
 
-        for label, invalid in graph_digest_mismatches:
+        report_hash_domain = b"pf.independent-review-report.v1\x00"
+        for label, expected_hash_count, invalid in graph_digest_mismatches:
             graph_signature_calls = 0
             graph_hash_calls = 0
+            graph_hash_inputs.clear()
             assert_rejected(
                 module,
                 lambda invalid=invalid: (
@@ -6983,8 +6988,17 @@ def test_review_report_preflight(module: ModuleType) -> None:
                     )
                 ),
             )
-            assert graph_hash_calls > 0, (
-                f"{label} must hash exact report bytes before rejection"
+            assert graph_hash_calls == expected_hash_count, (
+                f"{label} must reject after exactly {expected_hash_count} "
+                "ordered report hashes"
+            )
+            assert all(
+                type(value) is bytes
+                and value.startswith(report_hash_domain)
+                for value in graph_hash_inputs
+            ), (
+                f"{label} must perform only report-domain hashes before "
+                "rejection"
             )
             assert graph_signature_calls == 0, (
                 f"{label} must reject before signature work"

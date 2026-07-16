@@ -528,10 +528,12 @@ caller 提供的 raw bytes 与 digest 自洽；只有与全部已验证 TaskAppr
 做 exact equality 后，才建立本次 object graph 的 report content join；同一 digest 可被多个 task
 引用，carrier 中仍只出现一次，不得以 concat/sort 代替 set union。该 join 仍不证明
 reviewer/provenance。
-object graph 的固定执行顺序是：shell/count preflight；完整 report intrinsic preflight（含全部
+以下固定的是 object graph 的 hash/curve/finalize authority 顺序：shell/count preflight；完整 report
+intrinsic preflight（含全部
 structure/resource/order/unique 检查及随后逐项 raw-byte digest 自洽检查）；RequiredTestSet finalize；
 全部 root/dependency TaskApproval finalize；上述唯一升序 union exact join；最后才允许第一次 receipt
-finalize。任一 report intrinsic failure 都不得进入 RequiredSet、TaskApproval 或 receipt curve work。
+finalize。完成 report intrinsic preflight 前，只允许不触发 hash/curve 的结构检查；任一 report
+intrinsic failure 都不得触发其他 graph hash，也不得进入 RequiredSet、TaskApproval 或 receipt curve work。
 内部入口固定为
 `_preflight_review_reports(values: object) -> Tuple[Digest, ...]`；它返回 caller carrier 的同序 typed
 digest tuple，且不解析、不规范化也不投影 report bytes。
