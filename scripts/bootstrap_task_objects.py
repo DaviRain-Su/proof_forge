@@ -297,6 +297,21 @@ class BootstrapDocumentSnapshotV1:
 
 
 @dataclass(frozen=True)
+class Phase4TaskRowV1:
+    taskId: str
+    dependencies: Tuple[str, ...]
+    prerequisiteDocumentIds: Tuple[str, ...]
+    testIds: Tuple[str, ...]
+    evidenceIds: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Phase4SnapshotContentV1:
+    document: NormativeDocumentRefV1
+    bootstrapTaskRows: Tuple[Phase4TaskRowV1, ...]
+
+
+@dataclass(frozen=True)
 class Phase5SnapshotContentV1:
     document: NormativeDocumentRefV1
     requiredTestIds: Tuple[str, ...]
@@ -764,6 +779,15 @@ _GREGORIAN_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _DEVELOPMENT_A0_TEST_IDS = tuple(
     f"TST-A0-{index:03d}" for index in range(1, 21)
 )
+_PHASE4_DOCUMENT_PATH = "docs/04-task-breakdown.md"
+_PHASE4_D0_HEADING = "## Milestone D0：文档与独立工程"
+_PHASE4_D1_HEADING = "## Milestone D1：语言前端"
+_PHASE4_TABLE_HEADER = (
+    "| ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |"
+)
+_PHASE4_TABLE_DELIMITER = "|---|---|---|---|---|---|---|"
+_PHASE4_ALL_TASK_IDS = tuple(f"TASK-D0-{index:02d}" for index in range(1, 8))
+_PHASE4_TASK_STATUSES = frozenset({"pending", "in_progress", "blocked", "done"})
 _PHASE5_DOCUMENT_PATH = "docs/05-test-spec.md"
 _PHASE5_CATALOG_HEADING = "## 完整 Test ID Catalog"
 _PHASE5_DENOMINATOR_HEADING = "### Phase 1 required-set 分母"
@@ -1176,59 +1200,113 @@ def _parse_normative_document_ref(
     )
 
 
-def _parse_phase5_frontmatter(
+def _validate_document_snapshot_envelope(
+    snapshot: BootstrapDocumentSnapshotV1,
+    expected_id: str,
+    expected_path: str,
+) -> bytes:
+    where = f"{expected_id} snapshot"
+    if type(snapshot) is not BootstrapDocumentSnapshotV1:
+        _reject(f"{where} must be exact BootstrapDocumentSnapshotV1")
+    if (type(snapshot.id) is not str
+            or type(snapshot.path) is not str
+            or snapshot.id != expected_id
+            or snapshot.path != expected_path):
+        _reject(f"{where} identity/path is not canonical")
+    data = snapshot.bytes
+    if type(data) is not bytes or not 1 <= len(data) <= MAX_INPUT_BYTES:
+        _reject(f"{where} bytes must be exact bytes with length 1..4 MiB")
+    if data.startswith(b"\xef\xbb\xbf") or b"\x00" in data or b"\r" in data:
+        _reject(f"{where} contains a forbidden byte sequence")
+    if not data.endswith(b"\n"):
+        _reject(f"{where} must end with LF")
+    line_count = data.count(b"\n")
+    if not 1 <= line_count <= MAX_DOCUMENT_LINES:
+        _reject(f"{where} line count is outside 1..100000")
+    raw_lines = data[:-1].split(b"\n")
+    if any(len(line) > MAX_DOCUMENT_LINE_BYTES for line in raw_lines):
+        _reject(f"{where} line exceeds 65536 UTF-8 bytes")
+    try:
+        data.decode("utf-8", errors="strict")
+    except UnicodeError:
+        _reject(f"{where} is not strict UTF-8")
+    return data
+
+
+def _parse_accepted_frontmatter(
     data: bytes,
+    expected_id: str,
 ) -> tuple[dict[str, str], int]:
     if not data.startswith(b"---\n"):
-        _reject("PHASE-5 snapshot lacks the exact opening frontmatter delimiter")
+        _reject(
+            f"{expected_id} snapshot lacks the exact opening frontmatter delimiter"
+        )
     closing = data.find(b"\n---\n", 4)
     if closing < 0:
-        _reject("PHASE-5 snapshot lacks the exact closing frontmatter delimiter")
+        _reject(
+            f"{expected_id} snapshot lacks the exact closing frontmatter delimiter"
+        )
     try:
         frontmatter_text = data[4:closing].decode("utf-8", errors="strict")
     except UnicodeError:
-        _reject("PHASE-5 frontmatter is not UTF-8")
+        _reject(f"{expected_id} frontmatter is not UTF-8")
     metadata: dict[str, str] = {}
     for line_number, line in enumerate(frontmatter_text.split("\n"), start=2):
         if line == "":
             continue
         separator = line.find(": ")
         if separator <= 0:
-            _reject(f"PHASE-5 frontmatter line {line_number} is not key: value")
+            _reject(
+                f"{expected_id} frontmatter line {line_number} is not key: value"
+            )
         key = line[:separator]
         value = line[separator + 2:]
         if (not value or key != key.strip() or value != value.strip()
                 or key in metadata):
-            _reject(f"PHASE-5 frontmatter line {line_number} is noncanonical")
+            _reject(
+                f"{expected_id} frontmatter line {line_number} is noncanonical"
+            )
         metadata[key] = value
     if set(metadata) != _PHASE5_FRONTMATTER_FIELDS:
-        _reject("PHASE-5 frontmatter field set is not exact")
-    if (metadata["id"] != "PHASE-5"
+        _reject(f"{expected_id} frontmatter field set is not exact")
+    if (metadata["id"] != expected_id
             or metadata["status"] != "accepted"
             or metadata["normative"] != "true"
             or metadata["openFindings"] != "none"):
-        _reject("PHASE-5 frontmatter is not an accepted normative document")
-    _parse_gregorian_date(metadata["updated"], "PHASE-5.updated")
-    _parse_gregorian_date(metadata["approvedAt"], "PHASE-5.approvedAt")
+        _reject(
+            f"{expected_id} frontmatter is not an accepted normative document"
+        )
+    _parse_gregorian_date(metadata["updated"], f"{expected_id}.updated")
+    _parse_gregorian_date(metadata["approvedAt"], f"{expected_id}.approvedAt")
     if _LOWERCASE_COMMIT_RE.fullmatch(metadata["reviewCommit"]) is None:
-        _reject("PHASE-5.reviewCommit must be 40 lowercase hex digits")
-    _parse_review_link(metadata["reviewLink"], "PHASE-5.reviewLink")
+        _reject(f"{expected_id}.reviewCommit must be 40 lowercase hex digits")
+    _parse_review_link(metadata["reviewLink"], f"{expected_id}.reviewLink")
     return metadata, closing + len(b"\n---\n")
 
 
-def _parse_phase5_approvers(value: str) -> Tuple[str, ...]:
+def _parse_accepted_approvers(value: str, where: str) -> Tuple[str, ...]:
     approver_values = tuple(value.split(", "))
     if (not value or ", ".join(approver_values) != value
             or not 1 <= len(approver_values) <= 256):
-        _reject("PHASE-5.approvers must use the exact bounded ', ' grammar")
+        _reject(f"{where} must use the exact bounded ', ' grammar")
     approvers = tuple(
-        _require_safe_id(approver, f"PHASE-5.approvers[{index}]")
+        _require_safe_id(approver, f"{where}[{index}]")
         for index, approver in enumerate(approver_values)
     )
     if (approvers != tuple(sorted(approvers))
             or len(set(approvers)) != len(approvers)):
-        _reject("PHASE-5.approvers must be unique ascending ASCII safe-id")
+        _reject(f"{where} must be unique ascending ASCII safe-id")
     return approvers
+
+
+def _parse_phase5_frontmatter(
+    data: bytes,
+) -> tuple[dict[str, str], int]:
+    return _parse_accepted_frontmatter(data, "PHASE-5")
+
+
+def _parse_phase5_approvers(value: str) -> Tuple[str, ...]:
+    return _parse_accepted_approvers(value, "PHASE-5.approvers")
 
 
 def _parse_phase5_catalog(body: bytes) -> Tuple[str, ...]:
@@ -1315,34 +1393,246 @@ def _parse_phase5_catalog(body: bytes) -> Tuple[str, ...]:
     return required_test_ids
 
 
+def _parse_phase4_list_cell(
+    value: str,
+    kind: str,
+    *,
+    nonempty: bool,
+) -> Tuple[str, ...]:
+    where = f"PHASE-4 {kind} cell"
+    if value == "—":
+        if nonempty:
+            _reject(f"{where} must be non-empty")
+        return ()
+    tokens = tuple(value.split(", "))
+    if (not value or not tokens or ", ".join(tokens) != value
+            or any(not token or token != token.strip() or "`" in token
+                   for token in tokens)):
+        _reject(f"{where} does not use the exact canonical list grammar")
+
+    if kind == "Dependencies":
+        parsed = tuple(
+            _require_ascii_text(
+                token,
+                TASK_ID_RE,
+                f"{where}[{index}]",
+                127,
+            )
+            for index, token in enumerate(tokens)
+        )
+        if any(task_id not in _PHASE4_ALL_TASK_IDS for task_id in parsed):
+            _reject(f"{where} references a task outside TASK-D0-01..07")
+    elif kind == "Prerequisites":
+        document_ids = []
+        for index, token in enumerate(tokens):
+            if token.count("@") != 1 or not token.endswith("@accepted"):
+                _reject(
+                    f"{where}[{index}] must be exact <safe-id>@accepted"
+                )
+            document_ids.append(_require_safe_id(
+                token[:-len("@accepted")],
+                f"{where}[{index}].documentId",
+            ))
+        parsed = tuple(document_ids)
+    elif kind == "Tests":
+        parsed = tuple(
+            _require_ascii_text(
+                token,
+                TEST_ID_RE,
+                f"{where}[{index}]",
+                127,
+            )
+            for index, token in enumerate(tokens)
+        )
+    elif kind == "Evidence":
+        parsed = tuple(
+            _parse_compact_gregorian_id(
+                token,
+                EVIDENCE_ID_RE,
+                3,
+                f"{where}[{index}]",
+            )
+            for index, token in enumerate(tokens)
+        )
+    else:
+        _reject("PHASE-4 parser contains an unknown list-cell kind")
+
+    if parsed != tuple(sorted(parsed)) or len(set(parsed)) != len(parsed):
+        _reject(f"{where} must contain unique ascending ASCII IDs")
+    return parsed
+
+
+def _parse_phase4_task_table(body: bytes) -> Tuple[Phase4TaskRowV1, ...]:
+    try:
+        text = body.decode("utf-8", errors="strict")
+    except UnicodeError:
+        _reject("PHASE-4 body is not UTF-8")
+    lines = text[:-1].split("\n") if text else []
+    reserved = (
+        (_PHASE4_D0_HEADING, "D0 heading"),
+        (_PHASE4_D1_HEADING, "D1 boundary"),
+        (_PHASE4_TABLE_HEADER, "table header"),
+        (_PHASE4_TABLE_DELIMITER, "table delimiter"),
+    )
+    label_by_line = {exact_line: label for exact_line, label in reserved}
+    matches_by_label = {label: [] for _, label in reserved}
+    for index, line in enumerate(lines):
+        label = label_by_line.get(line)
+        if label is not None:
+            matches_by_label[label].append(index)
+    positions: dict[str, int] = {}
+    for _, label in reserved:
+        matches = matches_by_label[label]
+        if len(matches) != 1:
+            _reject(f"PHASE-4 {label} must occur exactly once")
+        positions[label] = matches[0]
+
+    d0_index = positions["D0 heading"]
+    d1_index = positions["D1 boundary"]
+    header_index = positions["table header"]
+    delimiter_index = positions["table delimiter"]
+    if (not d0_index < header_index < delimiter_index < d1_index
+            or delimiter_index != header_index + 1):
+        _reject("PHASE-4 D0 table section order is invalid")
+    if any(line != "" for line in lines[d0_index + 1:header_index]):
+        _reject("PHASE-4 permits only blank lines before the D0 table")
+
+    row_start = delimiter_index + 1
+    row_end = row_start + len(_PHASE4_ALL_TASK_IDS)
+    if row_end > len(lines) or row_end > d1_index:
+        _reject("PHASE-4 D0 table lacks seven contiguous rows")
+    row_lines = lines[row_start:row_end]
+    if any(line == "" for line in row_lines):
+        _reject("PHASE-4 D0 table rows must be contiguous")
+    if any(line != "" for line in lines[row_end:d1_index]):
+        _reject("PHASE-4 permits only blank lines after the D0 table")
+
+    rows = []
+    for row_index, line in enumerate(row_lines):
+        where = f"PHASE-4 D0 row {row_index + 1}"
+        if not line.startswith("| ") or not line.endswith(" |"):
+            _reject(f"{where} is malformed")
+        cells = line[2:-2].split(" | ")
+        if len(cells) != 7:
+            _reject(f"{where} must contain exactly seven cells")
+        if any(cell != cell.strip() for cell in cells):
+            _reject(f"{where} cells contain outer whitespace")
+        (
+            task_id,
+            description,
+            dependencies_cell,
+            prerequisites_cell,
+            tests_cell,
+            evidence_cell,
+            status,
+        ) = cells
+        expected_task_id = _PHASE4_ALL_TASK_IDS[row_index]
+        if task_id != expected_task_id:
+            _reject("PHASE-4 task rows are not the exact TASK-D0-01..07 sequence")
+        try:
+            encoded_description = description.encode("utf-8")
+        except UnicodeError:
+            _reject(f"{where} description is not UTF-8")
+        if (not 1 <= len(encoded_description) <= 4096
+                or "|" in description
+                or any(unicodedata.category(character) == "Cc"
+                       for character in description)):
+            _reject(f"{where} description is invalid")
+        if status not in _PHASE4_TASK_STATUSES:
+            _reject(f"{where} status is invalid")
+        dependencies = _parse_phase4_list_cell(
+            dependencies_cell,
+            "Dependencies",
+            nonempty=False,
+        )
+        prerequisite_ids = _parse_phase4_list_cell(
+            prerequisites_cell,
+            "Prerequisites",
+            nonempty=False,
+        )
+        test_ids = _parse_phase4_list_cell(
+            tests_cell,
+            "Tests",
+            nonempty=True,
+        )
+        evidence_ids = _parse_phase4_list_cell(
+            evidence_cell,
+            "Evidence",
+            nonempty=False,
+        )
+        if task_id in _D0_TASK_IDS and "TASK-D0-07" in dependencies:
+            _reject("bootstrap tasks must not depend on TASK-D0-07")
+        rows.append(Phase4TaskRowV1(
+            task_id,
+            dependencies,
+            prerequisite_ids,
+            test_ids,
+            evidence_ids,
+        ))
+
+    row_by_task = {row.taskId: row for row in rows}
+    visit_state: dict[str, int] = {}
+
+    def visit(task_id: str) -> None:
+        state = visit_state.get(task_id, 0)
+        if state == 1:
+            _reject("PHASE-4 task dependency graph contains a cycle")
+        if state == 2:
+            return
+        visit_state[task_id] = 1
+        for dependency in row_by_task[task_id].dependencies:
+            visit(dependency)
+        visit_state[task_id] = 2
+
+    for task_id in _PHASE4_ALL_TASK_IDS:
+        visit(task_id)
+    return tuple(rows[:len(_D0_TASK_IDS)])
+
+
+def parse_phase4_snapshot_content(
+    phase4_snapshot: BootstrapDocumentSnapshotV1,
+) -> Phase4SnapshotContentV1:
+    """Derive the accepted PHASE-4 ref and frozen bootstrap task rows."""
+    data = _validate_document_snapshot_envelope(
+        phase4_snapshot,
+        "PHASE-4",
+        _PHASE4_DOCUMENT_PATH,
+    )
+    metadata, body_offset = _parse_accepted_frontmatter(data, "PHASE-4")
+    approvers = _parse_accepted_approvers(
+        metadata["approvers"],
+        "PHASE-4.approvers",
+    )
+    digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.normative-document.v1\x00PHASE-4\x00" + data
+        ).digest(),
+    )
+    document = NormativeDocumentRefV1(
+        "PHASE-4",
+        digest,
+        "accepted",
+        metadata["reviewCommit"],
+        metadata["reviewLink"],
+        metadata["approvedAt"],
+        approvers,
+    )
+    return Phase4SnapshotContentV1(
+        document,
+        _parse_phase4_task_table(data[body_offset:]),
+    )
+
+
 def parse_phase5_snapshot_content(
     phase5_snapshot: BootstrapDocumentSnapshotV1,
 ) -> Phase5SnapshotContentV1:
     """Derive PHASE-5 metadata and its formal test denominator from bytes."""
-    if type(phase5_snapshot) is not BootstrapDocumentSnapshotV1:
-        _reject("phase5_snapshot must be exact BootstrapDocumentSnapshotV1")
-    if (type(phase5_snapshot.id) is not str
-            or type(phase5_snapshot.path) is not str
-            or phase5_snapshot.id != "PHASE-5"
-            or phase5_snapshot.path != _PHASE5_DOCUMENT_PATH):
-        _reject("PHASE-5 snapshot identity/path is not canonical")
-    data = phase5_snapshot.bytes
-    if type(data) is not bytes or not 1 <= len(data) <= MAX_INPUT_BYTES:
-        _reject("PHASE-5 snapshot bytes must be 1..4 MiB")
-    if data.startswith(b"\xef\xbb\xbf") or b"\x00" in data or b"\r" in data:
-        _reject("PHASE-5 snapshot contains a forbidden byte sequence")
-    if not data.endswith(b"\n"):
-        _reject("PHASE-5 snapshot must end with LF")
-    line_count = data.count(b"\n")
-    if not 1 <= line_count <= MAX_DOCUMENT_LINES:
-        _reject("PHASE-5 snapshot line count is outside 1..100000")
-    raw_lines = data[:-1].split(b"\n")
-    if any(len(line) > MAX_DOCUMENT_LINE_BYTES for line in raw_lines):
-        _reject("PHASE-5 snapshot line exceeds 65536 UTF-8 bytes")
-    try:
-        data.decode("utf-8", errors="strict")
-    except UnicodeError:
-        _reject("PHASE-5 snapshot is not strict UTF-8")
+    data = _validate_document_snapshot_envelope(
+        phase5_snapshot,
+        "PHASE-5",
+        _PHASE5_DOCUMENT_PATH,
+    )
 
     metadata, body_offset = _parse_phase5_frontmatter(data)
     approvers = _parse_phase5_approvers(metadata["approvers"])

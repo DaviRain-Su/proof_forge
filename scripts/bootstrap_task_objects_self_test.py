@@ -2296,6 +2296,9 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
     class ForgedSnapshot(module.BootstrapDocumentSnapshotV1):
         pass
 
+    class ForgedBytes(bytes):
+        pass
+
     class ExplosiveScalar:
         def __eq__(self, other: object) -> bool:
             del other
@@ -2315,6 +2318,15 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
             dataclasses.replace(snapshot, path="docs/phase-4.md"),
         ),
         ("empty snapshot", dataclasses.replace(snapshot, bytes=b"")),
+        ("one-byte snapshot", dataclasses.replace(snapshot, bytes=b"\n")),
+        (
+            "untyped snapshot bytes",
+            dataclasses.replace(snapshot, bytes=bytearray(snapshot.bytes)),
+        ),
+        (
+            "snapshot bytes subclass",
+            dataclasses.replace(snapshot, bytes=ForgedBytes(snapshot.bytes)),
+        ),
         (
             "snapshot over 4 MiB",
             dataclasses.replace(snapshot, bytes=b"x" * (4 * 1024 * 1024 + 1)),
@@ -2379,7 +2391,11 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
     ).encode()
     table_delimiter = b"|---|---|---|---|---|---|---|"
     mutations = (
-        ("missing opening delimiter", mutated(b"---\n", b"")),
+        (
+            "missing opening delimiter",
+            dataclasses.replace(snapshot, bytes=snapshot.bytes[4:]),
+        ),
+        ("missing closing delimiter", mutated(b"\n---\n", b"\n--\n")),
         (
             "noncanonical scalar delimiter",
             mutated(b"title: Synthetic", b"title:  Synthetic"),
@@ -2387,11 +2403,41 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
         ("wrong accepted status", mutated(b"status: accepted", b"status: proposed")),
         ("wrong normative flag", mutated(b"normative: true", b"normative: false")),
         ("open finding", mutated(b"openFindings: none", b"openFindings: P1")),
+        ("invalid updated date", mutated(b"updated: 2026-07-16", b"updated: 2026-02-30")),
+        (
+            "invalid approved date",
+            mutated(b"approvedAt: 2026-07-16", b"approvedAt: 2026-13-01"),
+        ),
+        (
+            "invalid review commit",
+            mutated(b"reviewCommit: " + b"a" * 40, b"reviewCommit: " + b"A" * 40),
+        ),
+        (
+            "invalid review link",
+            mutated(
+                b"https://review.example/phase-4:443/approval",
+                b"http://review.example/phase-4/approval",
+            ),
+        ),
         (
             "noncanonical approver delimiter",
             mutated(
                 b"principal-quality, principal-security",
                 b"principal-quality,principal-security",
+            ),
+        ),
+        (
+            "duplicate approver",
+            mutated(
+                b"principal-quality, principal-security",
+                b"principal-quality, principal-quality",
+            ),
+        ),
+        (
+            "unsorted approvers",
+            mutated(
+                b"principal-quality, principal-security",
+                b"principal-security, principal-quality",
             ),
         ),
         ("missing D0 heading", mutated(d0_heading, b"## Missing D0")),
@@ -2408,7 +2454,21 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
         ),
         ("missing row", mutated(row_02 + b"\n", b"")),
         ("duplicate row", mutated(row_02 + b"\n", row_02 + b"\n" + row_02 + b"\n")),
-        ("reordered row", mutated(row_02, row_03)),
+        (
+            "reordered rows",
+            mutated(
+                row_02 + b"\n" + row_03,
+                row_03 + b"\n" + row_02,
+            ),
+        ),
+        (
+            "noncontiguous rows",
+            mutated(row_02 + b"\n", row_02 + b"\n\n"),
+        ),
+        (
+            "extra row",
+            mutated(row_07 + b"\n", row_07 + b"\n" + row_07 + b"\n"),
+        ),
         (
             "extra cell",
             mutated(row_02, row_02[:-2] + b" | extra |"),
@@ -2417,14 +2477,40 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
             "empty description",
             mutated(b"fixture for TASK-D0-02", b""),
         ),
+        (
+            "description control",
+            mutated(b"fixture for TASK-D0-02", b"fixture\x01for TASK-D0-02"),
+        ),
+        (
+            "description embedded pipe",
+            mutated(b"fixture for TASK-D0-02", b"fixture | for TASK-D0-02"),
+        ),
         ("bad status", mutated(b"| pending |\n" + row_03, b"| complete |\n" + row_03)),
         (
             "noncanonical comma delimiter",
-            mutated(b"TASK-D0-01, TASK-D0-02", b"TASK-D0-01,TASK-D0-02"),
+            mutated(
+                row_03,
+                row_03.replace(
+                    b"TASK-D0-01, TASK-D0-02",
+                    b"TASK-D0-01,TASK-D0-02",
+                    1,
+                ),
+            ),
         ),
         (
             "backtick token",
             mutated(b"TST-ISO-001", b"`TST-ISO-001`"),
+        ),
+        (
+            "trimmed token",
+            mutated(
+                row_03,
+                row_03.replace(
+                    b"TASK-D0-01, TASK-D0-02",
+                    b"TASK-D0-01,  TASK-D0-02",
+                    1,
+                ),
+            ),
         ),
         (
             "duplicate source ID",
@@ -2444,6 +2530,18 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
         (
             "wrong prerequisite status",
             mutated(b"PHASE-1@accepted", b"PHASE-1@proposed"),
+        ),
+        (
+            "missing prerequisite status",
+            mutated(b"PHASE-1@accepted", b"PHASE-1"),
+        ),
+        (
+            "range test ID",
+            mutated(b"TST-ISO-001", b"TST-ISO-001..003"),
+        ),
+        (
+            "empty list token",
+            mutated(b"TST-ISO-001", b"TST-ISO-001, "),
         ),
         (
             "unknown dependency",
@@ -2478,6 +2576,7 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
         b"owner: delivery\n",
         b"owner: delivery\nowner: security\n",
     )
+    missing_frontmatter = mutated(b"owner: delivery\n", b"")
     unknown_frontmatter = mutated(
         b"owner: delivery\n",
         b"owner: delivery\nfutureField: no\n",
@@ -2486,19 +2585,53 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
         d0_heading + b"\n",
         b"```\n" + d0_heading + b"\n```\n" + d0_heading + b"\n",
     )
+    duplicate_d0_in_html = mutated(
+        d0_heading + b"\n",
+        b"<!--\n" + d0_heading + b"\n-->\n" + d0_heading + b"\n",
+    )
     duplicate_d1 = mutated(d1_heading + b"\n", d1_heading + b"\n" + d1_heading + b"\n")
     duplicate_header = mutated(table_header + b"\n", table_header + b"\n" + table_header + b"\n")
     duplicate_delimiter = mutated(
         table_delimiter + b"\n",
         table_delimiter + b"\n" + table_delimiter + b"\n",
     )
+    reversed_milestones = snapshot.bytes.replace(
+        d0_heading,
+        b"PHASE4-D0-PLACEHOLDER",
+        1,
+    ).replace(
+        d1_heading,
+        d0_heading,
+        1,
+    ).replace(
+        b"PHASE4-D0-PLACEHOLDER",
+        d1_heading,
+        1,
+    )
+    reversed_table_markers = snapshot.bytes.replace(
+        table_header,
+        b"PHASE4-TABLE-HEADER-PLACEHOLDER",
+        1,
+    ).replace(
+        table_delimiter,
+        table_header,
+        1,
+    ).replace(
+        b"PHASE4-TABLE-HEADER-PLACEHOLDER",
+        table_delimiter,
+        1,
+    )
     for invalid_snapshot in (
         duplicate_frontmatter,
+        missing_frontmatter,
         unknown_frontmatter,
         duplicate_d0,
+        duplicate_d0_in_html,
         duplicate_d1,
         duplicate_header,
         duplicate_delimiter,
+        dataclasses.replace(snapshot, bytes=reversed_milestones),
+        dataclasses.replace(snapshot, bytes=reversed_table_markers),
     ):
         assert_rejected(
             module,
@@ -2506,6 +2639,16 @@ def test_phase4_snapshot_authority(module: ModuleType) -> None:
                 module.parse_phase4_snapshot_content(invalid_snapshot)
             ),
         )
+
+    nonexact_decoys = snapshot.bytes.replace(
+        d0_heading + b"\n",
+        b"`" + d0_heading + b"`\n<!-- " + d0_heading + b" -->\n"
+        + d0_heading + b"\n",
+        1,
+    )
+    assert module.parse_phase4_snapshot_content(
+        dataclasses.replace(snapshot, bytes=nonexact_decoys)
+    ).bootstrapTaskRows == expected_rows
 
 
 def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
@@ -2838,6 +2981,12 @@ def _insert_before_phase5_catalog(encoded: bytes, padding: bytes) -> bytes:
     return encoded.replace(marker, padding + marker, 1)
 
 
+def _insert_before_phase4_d0(encoded: bytes, padding: bytes) -> bytes:
+    marker = "## Milestone D0：文档与独立工程\n".encode("utf-8")
+    assert encoded.count(marker) == 1
+    return encoded.replace(marker, padding + marker, 1)
+
+
 def _bounded_line_padding(size: int) -> bytes:
     parts = []
     remaining = size
@@ -2852,6 +3001,83 @@ def _bounded_line_padding(size: int) -> bytes:
     assert len(result) == size
     assert all(len(line) <= 65_536 for line in result[:-1].split(b"\n"))
     return result
+
+
+def test_phase4_snapshot_resource_bounds(module: ModuleType) -> None:
+    base = make_phase4_snapshot(module)
+    maximum_bytes = 4 * 1024 * 1024
+    maximum_encoded = _insert_before_phase4_d0(
+        base.bytes,
+        _bounded_line_padding(maximum_bytes - len(base.bytes)),
+    )
+    assert len(maximum_encoded) == maximum_bytes
+    assert len(
+        module.parse_phase4_snapshot_content(
+            dataclasses.replace(base, bytes=maximum_encoded)
+        ).bootstrapTaskRows
+    ) == 6
+    assert_rejected(
+        module,
+        lambda: module.parse_phase4_snapshot_content(
+            dataclasses.replace(base, bytes=maximum_encoded + b"\n")
+        ),
+    )
+
+    maximum_line = _insert_before_phase4_d0(
+        base.bytes,
+        b"x" * 65_536 + b"\n",
+    )
+    module.parse_phase4_snapshot_content(
+        dataclasses.replace(base, bytes=maximum_line)
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_phase4_snapshot_content(dataclasses.replace(
+            base,
+            bytes=_insert_before_phase4_d0(
+                base.bytes,
+                b"x" * 65_537 + b"\n",
+            ),
+        )),
+    )
+
+    base_line_count = base.bytes.count(b"\n")
+    maximum_lines = _insert_before_phase4_d0(
+        base.bytes,
+        b"\n" * (100_000 - base_line_count),
+    )
+    assert maximum_lines.count(b"\n") == 100_000
+    module.parse_phase4_snapshot_content(
+        dataclasses.replace(base, bytes=maximum_lines)
+    )
+    over_lines = _insert_before_phase4_d0(
+        base.bytes,
+        b"\n" * (100_001 - base_line_count),
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_phase4_snapshot_content(
+            dataclasses.replace(base, bytes=over_lines)
+        ),
+    )
+
+    description = b"fixture for TASK-D0-02"
+    assert base.bytes.count(description) == 1
+    maximum_description = base.bytes.replace(
+        description,
+        b"d" * 4096,
+        1,
+    )
+    module.parse_phase4_snapshot_content(
+        dataclasses.replace(base, bytes=maximum_description)
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_phase4_snapshot_content(dataclasses.replace(
+            base,
+            bytes=base.bytes.replace(description, b"d" * 4097, 1),
+        )),
+    )
 
 
 def test_phase5_snapshot_resource_bounds(module: ModuleType) -> None:
@@ -7538,6 +7764,7 @@ def main() -> int:
         test_bootstrap_authority_policy(module)
         test_required_test_set(module)
         test_phase4_snapshot_authority(module)
+        test_phase4_snapshot_resource_bounds(module)
         test_phase5_snapshot_and_document_bound_join(module)
         test_phase5_snapshot_resource_bounds(module)
         test_task_approval(module)
