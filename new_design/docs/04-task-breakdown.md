@@ -35,7 +35,8 @@ normative: true
 | TASK-A0-13 | 通用 UInt64 EvmPlan/Yul/ABI、动态 Keccak selector 与 Accumulator Anvil runtime | EV-20260716-0018 | done |
 | TASK-A0-14 | 通用 UInt64 SolanaPlan/typed audit IR/plan text/IDL 与 Accumulator artifact | EV-20260716-0019 | done |
 | TASK-A0-15 | 通用 UInt64 NearPlan/Wasm recipe/WAT 与 Accumulator artifact | EV-20260716-0020 | done |
-| TASK-A0-16 | 通用 UInt64 NoirPlan/Noir AST/source 与 Accumulator external-state relation artifact | pending | in_progress |
+| TASK-A0-16 | 通用 UInt64 NoirPlan/typed relation IR/source 与 Accumulator external-state relation artifact | EV-20260716-0021 | done |
+| TASK-A0-17 | 递归 decode/type-check 前的共享 Syntax node/nesting preflight 与稳定 boundary diagnostics | pending | in_progress |
 
 ## Milestone D0：文档与独立工程
 

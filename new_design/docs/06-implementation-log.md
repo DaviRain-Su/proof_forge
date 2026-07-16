@@ -468,6 +468,46 @@ normative: false
   witness/disclosure 与 range-constraint Plan/AST；在固定 nargo/bb 前保持 source-only/non-deployable，
   不声称 ACIR/prove/verify。
 
+## 2026-07-16 — TASK-A0-16 / generic Noir semantic relations
+
+- Commit：`c394cb7d1f82a0fe0e86169995abed27b3bb72e2`；post-commit subtree tree
+  `5011a646b3ff1f075874c4b083dd198bc622ecb4`；archive SHA-256
+  `9953de3a48cafba5f55dfd7e36219d6ffd7583e9508b8e7c1b2f90df21f693ff`。
+- Spec/Test：`TST-NOIR-001` 至 `TST-NOIR-003` 的 pre-acceptance source-relation slice；
+  `TST-NOIR-004/005/006` 与正式 D7 保持 open。
+- Changed：删除 Counter/PrivateSum4 fixture matchers 和 `Plan.source : SemanticProgram`。新
+  `NoirPlan` 完整拥有 descriptor/schema/profile/dialect、external public pre/post continuity、
+  lifecycle、disclosure/failure/proof/resource policy、state/relation catalog 与覆盖全部身份/策略/
+  body 的 domain-separated `planHash`。initializer、mutate、view 各自降为 independent typed
+  relation IR，再生成独立 Noir package 和根 interface；private 参数保持 witness，state/result
+  保持 public。CLI 明确只产 source/schema，不伪造 `Prover.toml`、ACIR 或 proof evidence。
+- Review repair：初审发现 Plan hash 未绑定 source/semantic identity、hash 早于 resource
+  preflight、`maxParams` 漏检，以及 unused Noir integer computation 可能被优化删除而丢失
+  overflow。最终实现先做 count/params/input/body/depth/node 与 IR incremental limit，再在末尾
+  验 complete Plan hash；checked-add 从最终 post-state/result equality 反向做 liveness，
+  initializer/mutate 中被覆盖的 dead arithmetic fail closed。PrivateSum4 最终 `.nr` 与 interface
+  的四 private witness/一 public result 也直接验收。
+- Commands：`lake build ProofForgeV2.Targets.Noir proof_forge_next_tests`；test binary；
+  `/usr/bin/python3 -I -S -m py_compile scripts/validate_artifacts.py`；`just target-smoke`；
+  `just reproducibility`；`just docs-check`；`just check`；`git diff --check`；post-commit
+  `just v2-clean-room-alpha`；两组 independent correctness/artifact review。
+- Results：全部 exit 0。Accumulator `init/add/current` lifecycle、pre/post state、checked-add、
+  result、forged descriptor/profile/hash/disclosure/IR、resource/depth limits 与 dead-overflow negatives
+  通过；PrivateSum4 disclosure source/interface 与 typed model 的 valid/invalid result 通过；
+  Counter/Accumulator Plan hashes 分别为 `58b2284d…0e44`/`974f2a6a…7917`，repro 为 46 files。
+  clean-room policy SHA-256：materialize `cdff0498…ecd9`、core `7b6b8bc1…cc71`、runtime
+  `5769c50d…88a3`；最终独立复核 P0=0/P1=0。
+- Evidence：`EV-20260716-0021`，manual development static relation evidence；没有生成
+  schema-complete immutable EV JSON。
+- Limitations：只有 verifier-visible state/result 与 `UInt64`/Bool lifecycle、literal/param/state/
+  checked-add/store/return。`planHash` 是锁定 Lean 版本下的 in-process mutation detector，不是
+  untrusted serialized Plan 的真实性证书；正式 proof identity 前应以显式 canonical serializer
+  替换 `reprStr`。无 pinned Nargo/noirc/Barretenberg/CRS、ACIR、真实 witness execution、proof、
+  VK、verify 或 settlement evidence，manifest 保持 non-deployable；正式 D7 与
+  `TST-NOIR-004/005/006` 不关闭。
+- Next：`TASK-A0-17` 在 Lean parser 产出 Syntax 后、递归 decode/type-check 前实现共享
+  node/nesting budget preflight，并让 CLI loader 与 command elaborator 使用同一限制。
+
 ## 记录模板
 
 ```markdown
