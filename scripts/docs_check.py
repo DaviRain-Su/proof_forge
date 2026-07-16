@@ -74,6 +74,10 @@ TRACE_ID_RE = re.compile(
 INLINE_LINK_RE = re.compile(r"(!?)\[[^\]]*\]\(([^)]+)\)")
 MAX_JSON_NESTING = 256
 MAX_LINK_TARGET_LENGTH = 2048
+UNRESOLVED_MARKER_RE = re.compile(
+    r"\b(?:TODO|TBD)\b|待补充|待决定|待锁",
+    re.IGNORECASE,
+)
 STATUS_INDEX_TARGETS = (
     "docs/00-business-validation.md",
     "docs/01-prd.md",
@@ -221,7 +225,7 @@ def validate_approval(rel: str, result: dict[str, str], text: str, *, check_todo
         raise_error("PF-DOC-APPROVAL", rel, "reviewLink must use https")
     if not result["approvers"].strip() or result["openFindings"] != "none":
         raise_error("PF-DOC-APPROVAL", rel, "approvers must be nonempty and openFindings none")
-    if check_todo and re.search(r"\bTODO\b|待补充|待决定", text, re.IGNORECASE):
+    if check_todo and UNRESOLVED_MARKER_RE.search(text):
         raise_error("PF-DOC-ACCEPTED-TODO", rel, "accepted document has unresolved marker")
 
 
@@ -804,7 +808,7 @@ def check_links(root: Path, docs_root: Path, documents: list[Document],
         check_document_links(document)
         if document.meta["status"] == "accepted":
             visible = mask_inline_code(mask_nonrendered(document.text))
-            unresolved = re.search(r"\bTODO\b|待补充|待决定", visible, re.IGNORECASE)
+            unresolved = UNRESOLVED_MARKER_RE.search(visible)
             if unresolved:
                 line, column = source_position(visible, unresolved.start())
                 error = DocsCheckError(
