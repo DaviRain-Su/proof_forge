@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-02",
+  "frozenAt": "2026-07-17",
+  "freezeCommit": "3e6562e0d3937e2169ba5e3d276a1da71a9022e5",
+  "output": "建立独立 Lake package/namespace/exe",
+  "dependencies": [
+    "TASK-D0-01"
+  ],
+  "prerequisites": [],
+  "tests": [
+    "TST-ISO-001"
+  ],
+  "inScope": [
+    "root proof-forge-next Lake package, ProofForgeV2 library namespace, and proof-forge-next executable identity",
+    "committed product archive excluding active and git metadata",
+    "archive-local library, CLI, and test build plus CLI help smoke",
+    "legacy import, parent dependency, symlink, submodule, and absolute checkout path rejection",
+    "focused TST-ISO-001 synthetic mutation checker and CI gate wiring"
+  ],
+  "outOfScope": [
+    "eligible host or formal Stage-0 handoff",
+    "locked Lean and external tool closure",
+    "network sandbox and process-session containment",
+    "formal evidence finalization or release clean-room aggregate",
+    "compiler language, semantic, target Plan, or materializer behavior"
+  ],
+  "doneWhen": [
+    "just v2-isolation passes from the frozen product archive",
+    "just ci passes with the focused isolation gate wired in",
+    "TST-ISO-001 evidence satisfies the traceability grade rule",
+    "the task completion surface has no unapproved drift"
+  ],
+  "overflowPolicy": "Evidence/tool closure goes to TASK-D0-03; Stage-0 or protected integration goes to TASK-D0-04 or TASK-D0-07; no new task without milestone-change approval.",
+  "maxCalendarDays": 3,
+  "maxCommits": 20,
+  "notes": "TST-ISO-001 is a focused development package-boundary gate, not formal hermetic evidence."
+}

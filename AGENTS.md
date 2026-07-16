@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | 无 |
-| Next task | **TASK-D0-02**：独立 Lake package/namespace/exe 与 `TST-ISO-001`；不得跳到 D1/D2 或自动新增 A0 任务 |
+| Active task | **TASK-D0-02**：建立独立 Lake package/namespace/exe |
+| Next task | **TASK-D0-03**：仅在 D0-02 完成后进入 evidence/toolchain/host closure；不得跳到 D1/D2 或自动新增 A0 任务 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、signed required-set/catalog authority、per-task receipt/authenticated append-only service 与 six-item activation producer/consumer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；activation 后的 formal finalizer/freshness/private scan/revocation/support binding 仍未开始，Phase 0 商业证据也未闭合 |

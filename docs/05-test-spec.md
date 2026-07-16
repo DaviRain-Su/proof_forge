@@ -328,6 +328,27 @@ compiler-core、external-tool 与 artifact-output 三 stage 的 limits、whole-c
 不变和 receipt。D8-03 必须在同一 release candidate 上重跑两者；aggregate rerun 不改变上述实现
 责任边界。
 
+### D0 package isolation acceptance
+
+`TST-ISO-001` only closes `TASK-D0-02`'s package boundary; it does not replace
+`TST-HOST-001` or `TST-ISO-002/003`. The positive fixture must build
+`ProofForgeV2`, `proof_forge_next`, and `proof_forge_next_tests` from a committed
+product archive extracted into a fresh directory without `.git` or `active/`, run
+the test executable and `proof-forge-next --help`, and show that both executable
+paths are owned by that extracted Lake workspace. The archive must carry the root
+`lakefile.lean`, `lake-manifest.json`, `lean-toolchain`, `Justfile`, and
+`ProofForgeV2.lean`; package/library/executable identities are exactly
+`proof-forge-next`, `ProofForgeV2`, and `proof-forge-next`.
+
+The focused checker and its synthetic single-mutation corpus must reject missing
+root markers, package/library/executable/root drift, manifest-name drift, local
+parent dependencies (`require ..` or equivalent path dependency), legacy
+`ProofForge.*`/`active` imports outside the archive, tracked symlink/submodule,
+`active/` leakage, and an embedded checkout absolute path. It must not scan
+ignored build output as product source. This is a development package-isolation
+gate only; it does not claim eligible-host, locked tool closure, network denial,
+formal clean-room evidence, or release readiness.
+
 ### 文档控制面验收
 
 `TST-DOC-001` 使用独立临时 synthetic corpus，不复制当前 `docs/`，并对每个 case 只引入一个
