@@ -172,6 +172,7 @@ def assert_public_api(module: ModuleType) -> None:
         "parse_required_test_set",
         "parse_phase5_snapshot_content",
         "parse_document_bound_required_test_set",
+        "parse_task_approval",
         "verify_ed25519",
         "verifyBootstrapTaskObjects",
     )
@@ -189,6 +190,11 @@ def assert_public_api(module: ModuleType) -> None:
         "NormativeDocumentRefV1",
         "RequiredTestSetV1",
         "Phase5SnapshotContentV1",
+        "EvidenceRef",
+        "TaskApprovalRefV1",
+        "BootstrapTaskVerifierReceiptRefV1",
+        "IndependentReviewRefV1",
+        "TaskApprovalV1",
         "BootstrapLedgerSubjectV1",
         "BootstrapDocumentSnapshotV1",
         "BootstrapTaskRowSubjectV1",
@@ -242,6 +248,21 @@ def assert_public_api(module: ModuleType) -> None:
         for parameter in document_bound_parameters
     ), "document-bound parser arguments must be exactly three required inputs"
 
+    task_approval_parameters = tuple(
+        inspect.signature(module.parse_task_approval).parameters.values()
+    )
+    assert tuple(parameter.name for parameter in task_approval_parameters) == (
+        "task_approval_bytes",
+        "required_test_set_bytes",
+        "authority_policy_bytes",
+        "phase5_snapshot",
+    ), "task-approval parser must expose exactly four authoritative inputs"
+    assert all(
+        parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        and parameter.default is inspect.Parameter.empty
+        for parameter in task_approval_parameters
+    ), "task-approval parser arguments must be exactly four required inputs"
+
     expected_fields = {
         "Digest": ("algorithm", "bytes"),
         "ContentRef": ("schema", "id", "version", "digest"),
@@ -291,6 +312,32 @@ def assert_public_api(module: ModuleType) -> None:
             "signatures",
         ),
         "Phase5SnapshotContentV1": ("document", "requiredTestIds"),
+        "EvidenceRef": ("id", "digest"),
+        "TaskApprovalRefV1": ("taskId", "digest"),
+        "BootstrapTaskVerifierReceiptRefV1": ("taskId", "id", "digest"),
+        "IndependentReviewRefV1": (
+            "keyId",
+            "role",
+            "reviewCommit",
+            "reviewLink",
+            "reportDigest",
+            "decision",
+        ),
+        "TaskApprovalV1": (
+            "schema",
+            "taskId",
+            "candidate",
+            "taskBreakdown",
+            "requiredTestSet",
+            "testIds",
+            "evidence",
+            "dependencyCompletions",
+            "prerequisiteDocuments",
+            "authorityPolicy",
+            "stage0Handoff",
+            "independentReviews",
+            "signatures",
+        ),
         "BootstrapLedgerSubjectV1": (
             "id", "taskId", "testIds", "grade", "result",
         ),
@@ -1035,6 +1082,159 @@ def signed_document_bound_required_set(
     statement["requiredTestIds"] = sorted(required_ids)
     wire, _, _ = sign_required_test_set_statement(module, statement)
     return wire
+
+
+def candidate_identity_wire(module: ModuleType, commit: str = "a" * 40) -> dict:
+    payload = {
+        "commit": commit,
+        "treeObjectId": "b" * len(commit),
+        "archiveDigest": digest_text(bytes.fromhex("51" * 32)),
+    }
+    candidate_digest = hashlib.sha256(
+        b"pf.candidate-identity.v1\x00" + module.canonical_pf_jcs(payload)
+    ).digest()
+    return {**payload, "digest": digest_text(candidate_digest)}
+
+
+def normative_document_ref_wire(identifier: str, review_commit: str) -> dict:
+    raw_bytes = f"synthetic normative document {identifier}\n".encode("ascii")
+    content_digest = hashlib.sha256(
+        b"pf.normative-document.v1\x00"
+        + identifier.encode("ascii")
+        + b"\x00"
+        + raw_bytes
+    ).digest()
+    return {
+        "id": identifier,
+        "contentDigest": digest_text(content_digest),
+        "status": "accepted",
+        "reviewCommit": review_commit,
+        "reviewLink": f"https://review.example/{identifier.lower()}",
+        "approvedAt": "2026-07-16",
+        "approvers": ["principal-architecture", "principal-quality"],
+    }
+
+
+def task_approval_required_set_ref(module: ModuleType, required_bytes: bytes) -> dict:
+    return {
+        "schema": "proof-forge.required-test-set.v1",
+        "id": "phase-5-required-tests",
+        "version": "1.0.0",
+        "digest": digest_text(hashlib.sha256(
+            b"pf.required-test-set.v1\x00" + required_bytes
+        ).digest()),
+    }
+
+
+def independent_review_wire(
+    key_id: str,
+    role: str,
+    review_commit: str,
+    *,
+    report_label: str | None = None,
+) -> dict:
+    label = key_id if report_label is None else report_label
+    report_digest = hashlib.sha256(
+        b"pf.independent-review-report.v1\x00"
+        + f"approved review by {label}\n".encode("ascii")
+    ).digest()
+    return {
+        "keyId": key_id,
+        "role": role,
+        "reviewCommit": review_commit,
+        "reviewLink": f"https://review.example/task-d0-01/{key_id}",
+        "reportDigest": digest_text(report_digest),
+        "decision": "approved",
+    }
+
+
+def task_approval_statement(
+    module: ModuleType,
+    policy_ref: object,
+    required_bytes: bytes,
+    *,
+    review_keys: tuple[tuple[str, str], ...] = (
+        ("key-architecture", "architecture"),
+        ("key-quality", "quality"),
+    ),
+    commit: str = "a" * 40,
+) -> dict:
+    return {
+        "schema": "proof-forge.bootstrap-task-approval.v1",
+        "taskId": "TASK-D0-01",
+        "candidate": candidate_identity_wire(module, commit),
+        "taskBreakdown": normative_document_ref_wire("PHASE-4", commit),
+        "requiredTestSet": task_approval_required_set_ref(module, required_bytes),
+        "testIds": ["TST-DOC-001"],
+        "evidence": [
+            {
+                "id": "EV-20260716-0026",
+                "digest": digest_text(bytes.fromhex("61" * 32)),
+            },
+            {
+                "id": "EV-20260716-0027",
+                "digest": digest_text(bytes.fromhex("62" * 32)),
+            },
+        ],
+        "dependencyCompletions": [],
+        "prerequisiteDocuments": [
+            normative_document_ref_wire(identifier, commit)
+            for identifier in ("PHASE-1", "PHASE-2", "PHASE-3")
+        ],
+        "authorityPolicy": content_ref_wire(policy_ref),
+        "stage0Handoff": {
+            "schema": "proof-forge.eligible-stage0-handoff.v1",
+            "id": "task-d0-01-stage0-handoff",
+            "version": "1.0.0",
+            "digest": digest_text(bytes.fromhex("63" * 32)),
+        },
+        "independentReviews": [
+            independent_review_wire(key_id, role, commit)
+            for key_id, role in review_keys
+        ],
+    }
+
+
+def sign_task_approval_statement(
+    module: ModuleType,
+    statement: dict,
+    signer_key_ids: tuple[str, ...] = ("key-architecture", "key-quality"),
+    signer_seeds: dict[str, bytes] | None = None,
+) -> tuple[dict, bytes, bytes]:
+    statement = copy.deepcopy(statement)
+    assert "signatures" not in statement, "signer accepts the unsigned statement"
+    statement_digest = hashlib.sha256(
+        b"pf.bootstrap-task-approval-statement.v1\x00"
+        + module.canonical_pf_jcs(statement)
+    ).digest()
+    signature_message = (
+        b"pf.bootstrap-task-approval-signature.v1\x00" + statement_digest
+    )
+    seeds = RFC_8032_SEEDS_BY_KEY_ID if signer_seeds is None else signer_seeds
+    signatures = []
+    for key_id in signer_key_ids:
+        _, signature = ed25519_sign_from_rfc_seed(seeds[key_id], signature_message)
+        signatures.append({
+            "keyId": key_id,
+            "algorithm": "ed25519",
+            "signature": signature.hex(),
+        })
+    wire = dict(statement)
+    wire["signatures"] = signatures
+    return wire, statement_digest, signature_message
+
+
+def resign_task_approval_wire(
+    module: ModuleType,
+    wire: dict,
+    signer_key_ids: tuple[str, ...] = ("key-architecture", "key-quality"),
+) -> dict:
+    statement = copy.deepcopy(wire)
+    statement.pop("signatures", None)
+    resigned, _, _ = sign_task_approval_statement(
+        module, statement, signer_key_ids
+    )
+    return resigned
 
 
 def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
@@ -2081,6 +2281,921 @@ def test_required_test_set(module: ModuleType) -> None:
     )
 
 
+def test_task_approval(module: ModuleType) -> None:
+    policy_bytes = module.canonical_pf_jcs(valid_bootstrap_authority_policy())
+    _, policy_ref = module.parse_bootstrap_authority_policy(policy_bytes)
+    phase5_snapshot = make_phase5_snapshot(module)
+    required_wire = signed_document_bound_required_set(
+        module, policy_ref, phase5_snapshot
+    )
+    required_bytes = module.canonical_pf_jcs(required_wire)
+    approval_statement = task_approval_statement(
+        module, policy_ref, required_bytes
+    )
+    approval_wire, statement_digest, signature_message = (
+        sign_task_approval_statement(module, approval_statement)
+    )
+    approval_bytes = module.canonical_pf_jcs(approval_wire)
+    parsed, parsed_ref = module.parse_task_approval(
+        approval_bytes,
+        required_bytes,
+        policy_bytes,
+        phase5_snapshot,
+    )
+
+    def typed_document(wire: dict) -> object:
+        return module.NormativeDocumentRefV1(
+            wire["id"],
+            module.parse_digest(wire["contentDigest"]),
+            wire["status"],
+            wire["reviewCommit"],
+            wire["reviewLink"],
+            wire["approvedAt"],
+            tuple(wire["approvers"]),
+        )
+
+    expected_signatures = tuple(
+        module.ApprovalSignatureV1(
+            signature["keyId"],
+            "ed25519",
+            bytes.fromhex(signature["signature"]),
+        )
+        for signature in approval_wire["signatures"]
+    )
+    expected_reviews = tuple(
+        module.IndependentReviewRefV1(
+            review["keyId"],
+            review["role"],
+            review["reviewCommit"],
+            review["reviewLink"],
+            module.parse_digest(review["reportDigest"]),
+            review["decision"],
+        )
+        for review in approval_wire["independentReviews"]
+    )
+    expected_approval = module.TaskApprovalV1(
+        approval_wire["schema"],
+        approval_wire["taskId"],
+        module.parse_candidate_identity(approval_wire["candidate"]),
+        typed_document(approval_wire["taskBreakdown"]),
+        module.parse_content_ref(approval_wire["requiredTestSet"]),
+        tuple(approval_wire["testIds"]),
+        tuple(
+            module.EvidenceRef(
+                evidence["id"], module.parse_digest(evidence["digest"])
+            )
+            for evidence in approval_wire["evidence"]
+        ),
+        tuple(
+            module.BootstrapTaskVerifierReceiptRefV1(
+                receipt["taskId"],
+                receipt["id"],
+                module.parse_digest(receipt["digest"]),
+            )
+            for receipt in approval_wire["dependencyCompletions"]
+        ),
+        tuple(
+            typed_document(document)
+            for document in approval_wire["prerequisiteDocuments"]
+        ),
+        policy_ref,
+        module.parse_content_ref(approval_wire["stage0Handoff"]),
+        expected_reviews,
+        expected_signatures,
+    )
+    approval_digest = hashlib.sha256(
+        b"pf.bootstrap-task-approval.v1\x00" + approval_bytes
+    ).digest()
+    expected_ref = module.TaskApprovalRefV1(
+        "TASK-D0-01", module.Digest("sha256", approval_digest)
+    )
+    assert parsed == expected_approval, (
+        "TaskApproval positive must preserve every frozen typed field"
+    )
+    assert parsed_ref == expected_ref, (
+        "TaskApprovalRef must use the full signed-object domain digest"
+    )
+    assert statement_digest == hashlib.sha256(
+        b"pf.bootstrap-task-approval-statement.v1\x00"
+        + module.canonical_pf_jcs(approval_statement)
+    ).digest()
+    assert signature_message == (
+        b"pf.bootstrap-task-approval-signature.v1\x00" + statement_digest
+    )
+
+    lower_bound_statement = copy.deepcopy(approval_statement)
+    lower_bound_statement["evidence"] = lower_bound_statement["evidence"][:1]
+    lower_bound_statement["dependencyCompletions"] = []
+    lower_bound_statement["prerequisiteDocuments"] = []
+    lower_bound_wire, _, _ = sign_task_approval_statement(
+        module, lower_bound_statement
+    )
+    lower_bound_parsed, _ = module.parse_task_approval(
+        module.canonical_pf_jcs(lower_bound_wire),
+        required_bytes,
+        policy_bytes,
+        phase5_snapshot,
+    )
+    assert (
+        len(lower_bound_parsed.testIds),
+        len(lower_bound_parsed.evidence),
+        len(lower_bound_parsed.dependencyCompletions),
+        len(lower_bound_parsed.prerequisiteDocuments),
+        len(lower_bound_parsed.independentReviews),
+        len(lower_bound_parsed.signatures),
+    ) == (1, 1, 0, 0, 2, 2), (
+        "TaskApproval must accept all effective lower bounds; task policy makes "
+        "review/signature minimum two even though their structural minimum is one"
+    )
+
+    preflight_mutations = []
+
+    wrong_schema = copy.deepcopy(approval_wire)
+    wrong_schema["schema"] = "proof-forge.bootstrap-task-approval.v2"
+    preflight_mutations.append(("wrong TaskApproval schema", wrong_schema))
+
+    unknown_root_field = copy.deepcopy(approval_wire)
+    unknown_root_field["futureField"] = True
+    preflight_mutations.append((
+        "unknown TaskApproval root field", unknown_root_field
+    ))
+    unknown_evidence_field = copy.deepcopy(approval_wire)
+    unknown_evidence_field["evidence"][0]["futureField"] = True
+    preflight_mutations.append((
+        "unknown nested EvidenceRef field", unknown_evidence_field
+    ))
+    missing_root_field = copy.deepcopy(approval_wire)
+    del missing_root_field["taskBreakdown"]
+    preflight_mutations.append((
+        "missing TaskApproval root field", missing_root_field
+    ))
+    missing_nested_field = copy.deepcopy(approval_wire)
+    del missing_nested_field["evidence"][0]["digest"]
+    preflight_mutations.append((
+        "missing nested EvidenceRef field", missing_nested_field
+    ))
+    wrong_task_id = copy.deepcopy(approval_wire)
+    wrong_task_id["taskId"] = "TASK-D0-07"
+    preflight_mutations.append((
+        "TaskApproval outside exact D0-01..06 set",
+        resign_task_approval_wire(module, wrong_task_id),
+    ))
+    wrong_task_document = copy.deepcopy(approval_wire)
+    wrong_task_document["taskBreakdown"]["id"] = "PHASE-5"
+    preflight_mutations.append((
+        "task breakdown ref is not PHASE-4",
+        resign_task_approval_wire(module, wrong_task_document),
+    ))
+
+    wrong_required_ref = copy.deepcopy(approval_wire)
+    wrong_required_ref["requiredTestSet"]["digest"] = digest_text(bytes(32))
+    preflight_mutations.append((
+        "wrong RequiredTestSet ref",
+        resign_task_approval_wire(module, wrong_required_ref),
+    ))
+
+    nonmember_test = copy.deepcopy(approval_wire)
+    nonmember_test["testIds"] = ["TST-ISO-001"]
+    preflight_mutations.append((
+        "task test outside signed denominator",
+        resign_task_approval_wire(module, nonmember_test),
+    ))
+
+    review_principal_mismatch = copy.deepcopy(approval_wire)
+    review_principal_mismatch["independentReviews"][0] = (
+        independent_review_wire("key-security", "security", "a" * 40)
+    )
+    review_principal_mismatch["independentReviews"].sort(
+        key=lambda review: review["keyId"]
+    )
+    preflight_mutations.append((
+        "review and signature principal sets differ",
+        resign_task_approval_wire(module, review_principal_mismatch),
+    ))
+
+    unauthorized_review_role = copy.deepcopy(approval_wire)
+    unauthorized_review_role["independentReviews"][0]["role"] = "quality"
+    preflight_mutations.append((
+        "review role is not authorized for its exact key",
+        resign_task_approval_wire(module, unauthorized_review_role),
+    ))
+
+    duplicate_report = copy.deepcopy(approval_wire)
+    duplicate_report["independentReviews"][1]["reportDigest"] = (
+        duplicate_report["independentReviews"][0]["reportDigest"]
+    )
+    preflight_mutations.append((
+        "duplicate independent review report digest",
+        resign_task_approval_wire(module, duplicate_report),
+    ))
+
+    for field in ("testIds", "evidence", "independentReviews"):
+        empty_nonempty = copy.deepcopy(approval_wire)
+        empty_nonempty[field] = []
+        preflight_mutations.append((
+            f"empty nonempty array {field}",
+            resign_task_approval_wire(module, empty_nonempty),
+        ))
+    empty_signatures = copy.deepcopy(approval_wire)
+    empty_signatures["signatures"] = []
+    preflight_mutations.append(("empty signatures", empty_signatures))
+
+    over_tests = copy.deepcopy(approval_wire)
+    over_tests["testIds"] = [
+        f"TST-BOUND-{index:04d}" for index in range(4097)
+    ]
+    preflight_mutations.append((
+        "4097 task test IDs",
+        resign_task_approval_wire(module, over_tests),
+    ))
+
+    over_evidence = copy.deepcopy(approval_wire)
+    over_evidence["evidence"] = [
+        {
+            "id": f"EV-20260716-{index:04d}",
+            "digest": digest_text(bytes.fromhex("64" * 32)),
+        }
+        for index in range(4097)
+    ]
+    preflight_mutations.append((
+        "4097 evidence refs",
+        resign_task_approval_wire(module, over_evidence),
+    ))
+
+    def receipt_ref(task_number: int, *, day: str = "20260716") -> dict:
+        return {
+            "taskId": f"TASK-D0-0{task_number}",
+            "id": f"BTV-{day}-{task_number:04d}",
+            "digest": digest_text(bytes([task_number]) * 32),
+        }
+
+    over_dependencies = copy.deepcopy(approval_wire)
+    over_dependencies["dependencyCompletions"] = [
+        receipt_ref(task_number) for task_number in range(1, 7)
+    ]
+    preflight_mutations.append((
+        "six dependency completion refs",
+        resign_task_approval_wire(module, over_dependencies),
+    ))
+
+    over_prerequisites = copy.deepcopy(approval_wire)
+    over_prerequisites["prerequisiteDocuments"] = [
+        normative_document_ref_wire(f"PHASE-BOUND-{index:03d}", "a" * 40)
+        for index in range(257)
+    ]
+    preflight_mutations.append((
+        "257 prerequisite document refs",
+        resign_task_approval_wire(module, over_prerequisites),
+    ))
+
+    over_reviews = copy.deepcopy(approval_wire)
+    over_reviews["independentReviews"] = [
+        independent_review_wire(key_id, role, "a" * 40)
+        for key_id, role in (
+            ("key-architecture", "architecture"),
+            ("key-quality", "quality"),
+            ("key-release", "release"),
+            ("key-security", "security"),
+            ("key-z-over-bound", "architecture"),
+        )
+    ]
+    preflight_mutations.append((
+        "reviews over distinct-principal bound",
+        resign_task_approval_wire(module, over_reviews),
+    ))
+
+    over_signatures = copy.deepcopy(approval_wire)
+    over_signatures["signatures"] = [
+        {
+            "keyId": key_id,
+            "algorithm": "ed25519",
+            "signature": "00" * 64,
+        }
+        for key_id in (
+            "key-architecture", "key-quality", "key-release", "key-security",
+            "key-z-over-bound",
+        )
+    ]
+    preflight_mutations.append((
+        "signatures over policy-entry bound", over_signatures
+    ))
+
+    two_tests = copy.deepcopy(approval_wire)
+    two_tests["testIds"] = ["TST-DOC-001", "TST-EVIDENCE-001"]
+    reordered_tests = copy.deepcopy(two_tests)
+    reordered_tests["testIds"].reverse()
+    duplicate_tests = copy.deepcopy(two_tests)
+    duplicate_tests["testIds"][1] = duplicate_tests["testIds"][0]
+    for label, mutation in (
+        ("reordered task test IDs", reordered_tests),
+        ("duplicate task test ID", duplicate_tests),
+    ):
+        preflight_mutations.append((
+            label, resign_task_approval_wire(module, mutation)
+        ))
+
+    reordered_evidence = copy.deepcopy(approval_wire)
+    reordered_evidence["evidence"].reverse()
+    duplicate_evidence = copy.deepcopy(approval_wire)
+    duplicate_evidence["evidence"][1]["id"] = (
+        duplicate_evidence["evidence"][0]["id"]
+    )
+    for label, mutation in (
+        ("reordered evidence refs", reordered_evidence),
+        ("duplicate EvidenceRef id", duplicate_evidence),
+    ):
+        preflight_mutations.append((
+            label, resign_task_approval_wire(module, mutation)
+        ))
+
+    two_dependencies = copy.deepcopy(approval_wire)
+    two_dependencies["dependencyCompletions"] = [receipt_ref(2), receipt_ref(3)]
+    reordered_dependencies = copy.deepcopy(two_dependencies)
+    reordered_dependencies["dependencyCompletions"].reverse()
+    duplicate_dependencies = copy.deepcopy(two_dependencies)
+    duplicate_dependencies["dependencyCompletions"][1]["taskId"] = (
+        duplicate_dependencies["dependencyCompletions"][0]["taskId"]
+    )
+    for label, mutation in (
+        ("reordered dependency completion refs", reordered_dependencies),
+        ("duplicate dependency taskId", duplicate_dependencies),
+    ):
+        preflight_mutations.append((
+            label, resign_task_approval_wire(module, mutation)
+        ))
+
+    reordered_prerequisites = copy.deepcopy(approval_wire)
+    reordered_prerequisites["prerequisiteDocuments"].reverse()
+    duplicate_prerequisites = copy.deepcopy(approval_wire)
+    duplicate_prerequisites["prerequisiteDocuments"][1]["id"] = (
+        duplicate_prerequisites["prerequisiteDocuments"][0]["id"]
+    )
+    for label, mutation in (
+        ("reordered prerequisite document refs", reordered_prerequisites),
+        ("duplicate prerequisite document id", duplicate_prerequisites),
+    ):
+        preflight_mutations.append((
+            label, resign_task_approval_wire(module, mutation)
+        ))
+
+    reordered_reviews = copy.deepcopy(approval_wire)
+    reordered_reviews["independentReviews"].reverse()
+    duplicate_review_key = copy.deepcopy(approval_wire)
+    duplicate_review_key["independentReviews"].append(
+        copy.deepcopy(duplicate_review_key["independentReviews"][0])
+    )
+    duplicate_review_key["independentReviews"][-1]["reportDigest"] = (
+        digest_text(bytes.fromhex("65" * 32))
+    )
+    duplicate_review_key["independentReviews"].sort(
+        key=lambda review: review["keyId"]
+    )
+    for label, mutation in (
+        ("reordered independent reviews", reordered_reviews),
+        ("duplicate independent review keyId", duplicate_review_key),
+    ):
+        preflight_mutations.append((
+            label, resign_task_approval_wire(module, mutation)
+        ))
+
+    reordered_signatures = copy.deepcopy(approval_wire)
+    reordered_signatures["signatures"].reverse()
+    duplicate_signature_key = copy.deepcopy(approval_wire)
+    duplicate_signature_key["signatures"].append(
+        copy.deepcopy(duplicate_signature_key["signatures"][0])
+    )
+    duplicate_signature_key["signatures"].sort(
+        key=lambda signature: signature["keyId"]
+    )
+    preflight_mutations.extend((
+        ("reordered TaskApproval signatures", reordered_signatures),
+        ("duplicate TaskApproval signature keyId", duplicate_signature_key),
+    ))
+
+    impossible_evidence_date = copy.deepcopy(approval_wire)
+    impossible_evidence_date["evidence"][0]["id"] = "EV-20260230-0026"
+    preflight_mutations.append((
+        "impossible Gregorian EvidenceRef date",
+        resign_task_approval_wire(module, impossible_evidence_date),
+    ))
+    impossible_receipt_date = copy.deepcopy(approval_wire)
+    impossible_receipt_date["dependencyCompletions"] = [
+        receipt_ref(2, day="20260230")
+    ]
+    preflight_mutations.append((
+        "impossible Gregorian BTV ref date",
+        resign_task_approval_wire(module, impossible_receipt_date),
+    ))
+    malformed_receipt_id = copy.deepcopy(approval_wire)
+    malformed_receipt_id["dependencyCompletions"] = [receipt_ref(2)]
+    malformed_receipt_id["dependencyCompletions"][0]["id"] = "BTV-20260716-1"
+    preflight_mutations.append((
+        "malformed BTV ref ID grammar",
+        resign_task_approval_wire(module, malformed_receipt_id),
+    ))
+
+    wrong_policy_ref = copy.deepcopy(approval_wire)
+    wrong_policy_ref["authorityPolicy"]["digest"] = digest_text(bytes(32))
+    wrong_stage0_schema = copy.deepcopy(approval_wire)
+    wrong_stage0_schema["stage0Handoff"]["schema"] = (
+        "proof-forge.eligible-stage0-handoff.v2"
+    )
+    for label, mutation in (
+        ("wrong authority policy ref", wrong_policy_ref),
+        ("wrong Stage-0 handoff schema", wrong_stage0_schema),
+    ):
+        preflight_mutations.append((
+            label, resign_task_approval_wire(module, mutation)
+        ))
+
+    review_mutations = []
+    unknown_review_key = copy.deepcopy(approval_wire)
+    unknown_review_key["independentReviews"][0] = independent_review_wire(
+        "key-a-unknown", "architecture", "a" * 40
+    )
+    review_mutations.append(("unknown independent review key", unknown_review_key))
+    bad_review_commit = copy.deepcopy(approval_wire)
+    bad_review_commit["independentReviews"][0]["reviewCommit"] = "c" * 40
+    review_mutations.append(("review commit differs from candidate", bad_review_commit))
+    bad_review_link = copy.deepcopy(approval_wire)
+    bad_review_link["independentReviews"][0]["reviewLink"] = (
+        "http://review.example/not-https"
+    )
+    review_mutations.append(("non-HTTPS review link", bad_review_link))
+    bad_review_digest = copy.deepcopy(approval_wire)
+    bad_review_digest["independentReviews"][0]["reportDigest"] = (
+        "sha256:" + "A" * 64
+    )
+    review_mutations.append(("malformed review report digest", bad_review_digest))
+    bad_review_decision = copy.deepcopy(approval_wire)
+    bad_review_decision["independentReviews"][0]["decision"] = "rejected"
+    review_mutations.append(("non-approved review decision", bad_review_decision))
+    for label, mutation in review_mutations:
+        mutation["independentReviews"].sort(key=lambda review: review["keyId"])
+        preflight_mutations.append((
+            label, resign_task_approval_wire(module, mutation)
+        ))
+
+    wrong_task_rule = copy.deepcopy(approval_wire)
+    wrong_task_rule["taskId"] = "TASK-D0-03"
+    preflight_mutations.append((
+        "D0-03 signatures do not cover its security role",
+        resign_task_approval_wire(module, wrong_task_rule),
+    ))
+
+    single_principal_statement = copy.deepcopy(approval_statement)
+    single_principal_statement["independentReviews"] = [
+        independent_review_wire("key-architecture", "architecture", "a" * 40)
+    ]
+    single_principal_wire, _, _ = sign_task_approval_statement(
+        module,
+        single_principal_statement,
+        signer_key_ids=("key-architecture",),
+    )
+    preflight_mutations.append((
+        "structural review/signature lower bound below D0-01 task rule",
+        single_principal_wire,
+    ))
+
+    signature_syntax_mutations = []
+    wrong_signature_algorithm = copy.deepcopy(approval_wire)
+    wrong_signature_algorithm["signatures"][0]["algorithm"] = "ed25519ph"
+    signature_syntax_mutations.append((
+        "wrong TaskApproval signature algorithm", wrong_signature_algorithm
+    ))
+    malformed_signature = copy.deepcopy(approval_wire)
+    malformed_signature["signatures"][0]["signature"] = "00" * 63
+    signature_syntax_mutations.append((
+        "short TaskApproval signature", malformed_signature
+    ))
+    uppercase_signature = copy.deepcopy(approval_wire)
+    uppercase_signature["signatures"][0]["signature"] = (
+        uppercase_signature["signatures"][0]["signature"].upper()
+    )
+    signature_syntax_mutations.append((
+        "uppercase TaskApproval signature", uppercase_signature
+    ))
+    unknown_signature_key = copy.deepcopy(approval_wire)
+    unknown_signature_key["signatures"][0]["keyId"] = "key-a-unknown"
+    unknown_signature_key["signatures"].sort(
+        key=lambda signature: signature["keyId"]
+    )
+    signature_syntax_mutations.append((
+        "unknown TaskApproval signature key", unknown_signature_key
+    ))
+    preflight_mutations.extend(signature_syntax_mutations)
+
+    context_preflight_mutations = []
+    stronger_policy_wire = copy.deepcopy(valid_bootstrap_authority_policy())
+    stronger_policy_wire["taskRules"][0]["rule"] = approval_rule(
+        "architecture", "quality", "security", minimum=3
+    )
+    stronger_policy_bytes = module.canonical_pf_jcs(stronger_policy_wire)
+    _, stronger_policy_ref = module.parse_bootstrap_authority_policy(
+        stronger_policy_bytes
+    )
+    stronger_required_wire = signed_document_bound_required_set(
+        module, stronger_policy_ref, phase5_snapshot
+    )
+    stronger_required_bytes = module.canonical_pf_jcs(stronger_required_wire)
+    stronger_approval_statement = task_approval_statement(
+        module, stronger_policy_ref, stronger_required_bytes
+    )
+    stronger_approval_wire, _, _ = sign_task_approval_statement(
+        module, stronger_approval_statement
+    )
+    context_preflight_mutations.append((
+        "stronger task-specific threshold and role rule",
+        stronger_approval_wire,
+        stronger_required_bytes,
+        stronger_policy_bytes,
+        phase5_snapshot,
+    ))
+
+    rotation_seed = bytes.fromhex("71" * 32)
+    rotation_public_key, _ = ed25519_sign_from_rfc_seed(rotation_seed, b"")
+    rotation_policy_wire = copy.deepcopy(valid_bootstrap_authority_policy())
+    rotation_policy_wire["principals"].insert(1, {
+        "principalId": "principal-architecture",
+        "keyId": "key-architecture-rotation",
+        "publicKey": rotation_public_key.hex(),
+        "roles": ["architecture"],
+    })
+    rotation_policy_bytes = module.canonical_pf_jcs(rotation_policy_wire)
+    _, rotation_policy_ref = module.parse_bootstrap_authority_policy(
+        rotation_policy_bytes
+    )
+    rotation_required_wire = signed_document_bound_required_set(
+        module, rotation_policy_ref, phase5_snapshot
+    )
+    rotation_required_bytes = module.canonical_pf_jcs(rotation_required_wire)
+    rotation_statement = task_approval_statement(
+        module,
+        rotation_policy_ref,
+        rotation_required_bytes,
+        review_keys=(
+            ("key-architecture-rotation", "architecture"),
+            ("key-quality", "quality"),
+        ),
+    )
+    rotation_wire, _, _ = sign_task_approval_statement(
+        module, rotation_statement
+    )
+    rotation_parsed, _ = module.parse_task_approval(
+        module.canonical_pf_jcs(rotation_wire),
+        rotation_required_bytes,
+        rotation_policy_bytes,
+        phase5_snapshot,
+    )
+    assert tuple(
+        review.keyId for review in rotation_parsed.independentReviews
+    ) == ("key-architecture-rotation", "key-quality")
+    assert tuple(
+        signature.keyId for signature in rotation_parsed.signatures
+    ) == ("key-architecture", "key-quality"), (
+        "review and signature keys may rotate when their principal sets match"
+    )
+
+    duplicate_review_principal = copy.deepcopy(rotation_wire)
+    duplicate_review_principal["independentReviews"].append(
+        independent_review_wire("key-architecture", "architecture", "a" * 40)
+    )
+    duplicate_review_principal["independentReviews"].sort(
+        key=lambda review: review["keyId"]
+    )
+    duplicate_review_principal = resign_task_approval_wire(
+        module, duplicate_review_principal
+    )
+    context_preflight_mutations.append((
+        "duplicate review principal through two rotation keys",
+        duplicate_review_principal,
+        rotation_required_bytes,
+        rotation_policy_bytes,
+        phase5_snapshot,
+    ))
+
+    rotation_threshold_policy = copy.deepcopy(rotation_policy_wire)
+    rotation_threshold_policy["taskRules"][0]["rule"] = approval_rule(
+        "architecture", "quality", minimum=3
+    )
+    rotation_threshold_policy_bytes = module.canonical_pf_jcs(
+        rotation_threshold_policy
+    )
+    _, rotation_threshold_policy_ref = module.parse_bootstrap_authority_policy(
+        rotation_threshold_policy_bytes
+    )
+    rotation_threshold_required_wire = signed_document_bound_required_set(
+        module, rotation_threshold_policy_ref, phase5_snapshot
+    )
+    rotation_threshold_required_bytes = module.canonical_pf_jcs(
+        rotation_threshold_required_wire
+    )
+    rotation_threshold_statement = task_approval_statement(
+        module,
+        rotation_threshold_policy_ref,
+        rotation_threshold_required_bytes,
+        review_keys=(
+            ("key-architecture-rotation", "architecture"),
+            ("key-quality", "quality"),
+        ),
+    )
+    rotation_threshold_seeds = dict(RFC_8032_SEEDS_BY_KEY_ID)
+    rotation_threshold_seeds["key-architecture-rotation"] = rotation_seed
+    rotation_threshold_wire, _, _ = sign_task_approval_statement(
+        module,
+        rotation_threshold_statement,
+        signer_key_ids=(
+            "key-architecture",
+            "key-architecture-rotation",
+            "key-quality",
+        ),
+        signer_seeds=rotation_threshold_seeds,
+    )
+    context_preflight_mutations.append((
+        "same principal rotation keys cannot forge distinct quorum",
+        rotation_threshold_wire,
+        rotation_threshold_required_bytes,
+        rotation_threshold_policy_bytes,
+        phase5_snapshot,
+    ))
+
+    misleading_review_policy = copy.deepcopy(valid_bootstrap_authority_policy())
+    review_quality_seed = bytes.fromhex("72" * 32)
+    review_architecture_seed = bytes.fromhex("73" * 32)
+    review_quality_key, _ = ed25519_sign_from_rfc_seed(
+        review_quality_seed, b""
+    )
+    review_architecture_key, _ = ed25519_sign_from_rfc_seed(
+        review_architecture_seed, b""
+    )
+    misleading_review_policy["principals"].extend((
+        {
+            "principalId": "principal-architecture",
+            "keyId": "key-a-review-quality",
+            "publicKey": review_quality_key.hex(),
+            "roles": ["quality"],
+        },
+        {
+            "principalId": "principal-security",
+            "keyId": "key-security-review-architecture",
+            "publicKey": review_architecture_key.hex(),
+            "roles": ["architecture"],
+        },
+    ))
+    misleading_review_policy["principals"].sort(
+        key=lambda principal: principal["keyId"]
+    )
+    misleading_review_policy_bytes = module.canonical_pf_jcs(
+        misleading_review_policy
+    )
+    _, misleading_review_policy_ref = module.parse_bootstrap_authority_policy(
+        misleading_review_policy_bytes
+    )
+    misleading_review_required_wire = signed_document_bound_required_set(
+        module, misleading_review_policy_ref, phase5_snapshot
+    )
+    misleading_review_required_bytes = module.canonical_pf_jcs(
+        misleading_review_required_wire
+    )
+    misleading_review_statement = task_approval_statement(
+        module,
+        misleading_review_policy_ref,
+        misleading_review_required_bytes,
+        review_keys=(
+            ("key-a-review-quality", "quality"),
+            ("key-security-review-architecture", "architecture"),
+        ),
+    )
+    misleading_review_wire, _, _ = sign_task_approval_statement(
+        module,
+        misleading_review_statement,
+        signer_key_ids=("key-architecture", "key-security"),
+    )
+    context_preflight_mutations.append((
+        "review roles cannot replace exact signature-key role coverage",
+        misleading_review_wire,
+        misleading_review_required_bytes,
+        misleading_review_policy_bytes,
+        phase5_snapshot,
+    ))
+
+    malformed_phase5_snapshot = dataclasses.replace(
+        phase5_snapshot,
+        bytes=b"not a canonical PHASE-5 snapshot\n",
+    )
+    context_preflight_mutations.append((
+        "malformed PHASE-5 snapshot through four-input API",
+        approval_wire,
+        required_bytes,
+        policy_bytes,
+        malformed_phase5_snapshot,
+    ))
+    alternate_phase5_metadata = dict(PHASE5_FRONTMATTER)
+    alternate_phase5_metadata["reviewLink"] = (
+        "https://review.example/phase-5/alternate-approval"
+    )
+    alternate_phase5_document = make_phase5_snapshot(
+        module, metadata=alternate_phase5_metadata
+    )
+    context_preflight_mutations.append((
+        "individually valid but different PHASE-5 document ref",
+        approval_wire,
+        required_bytes,
+        policy_bytes,
+        alternate_phase5_document,
+    ))
+    alternate_phase5_denominator = make_phase5_snapshot(
+        module,
+        required_ids=PHASE5_REQUIRED_IDS + ("TST-ISO-002",),
+    )
+    context_preflight_mutations.append((
+        "individually valid but different PHASE-5 denominator",
+        approval_wire,
+        required_bytes,
+        policy_bytes,
+        alternate_phase5_denominator,
+    ))
+
+    original_verify_ed25519 = module.verify_ed25519
+    curve_calls = 0
+
+    def counted_verify_ed25519(
+        public_key: bytes, message: bytes, signature: bytes
+    ) -> bool:
+        del public_key, message, signature
+        nonlocal curve_calls
+        curve_calls += 1
+        return True
+
+    module.verify_ed25519 = counted_verify_ed25519
+    try:
+        for label, mutation in preflight_mutations:
+            curve_calls = 0
+            assert_rejected(
+                module,
+                lambda mutation=mutation: module.parse_task_approval(
+                    module.canonical_pf_jcs(mutation),
+                    required_bytes,
+                    policy_bytes,
+                    phase5_snapshot,
+                ),
+            )
+            assert curve_calls == 0, (
+                f"{label} must reject before RequiredTestSet or TaskApproval "
+                "signature verification"
+            )
+        for (
+            label,
+            mutation,
+            case_required_bytes,
+            case_policy_bytes,
+            case_phase5_snapshot,
+        ) in context_preflight_mutations:
+            curve_calls = 0
+            assert_rejected(
+                module,
+                lambda mutation=mutation,
+                case_required_bytes=case_required_bytes,
+                case_policy_bytes=case_policy_bytes,
+                case_phase5_snapshot=case_phase5_snapshot: (
+                    module.parse_task_approval(
+                        module.canonical_pf_jcs(mutation),
+                        case_required_bytes,
+                        case_policy_bytes,
+                        case_phase5_snapshot,
+                    )
+                ),
+            )
+            assert curve_calls == 0, (
+                f"{label} must reject before RequiredTestSet or TaskApproval "
+                "signature verification"
+            )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+
+    required_statement = {
+        key: value for key, value in required_wire.items() if key != "signatures"
+    }
+    required_statement_digest = hashlib.sha256(
+        b"pf.required-test-set-statement.v1\x00"
+        + module.canonical_pf_jcs(required_statement)
+    ).digest()
+    required_signature_message = (
+        b"pf.required-test-set-signature.v1\x00" + required_statement_digest
+    )
+    all_signatures_statement = copy.deepcopy(approval_statement)
+    all_signatures_statement["independentReviews"].append(
+        independent_review_wire("key-security", "security", "a" * 40)
+    )
+    all_signatures_statement["independentReviews"].sort(
+        key=lambda review: review["keyId"]
+    )
+    all_signatures_wire, _, all_signatures_message = sign_task_approval_statement(
+        module,
+        all_signatures_statement,
+        signer_key_ids=("key-architecture", "key-quality", "key-security"),
+    )
+    verification_messages = []
+
+    def traced_verify_ed25519(
+        public_key: bytes, message: bytes, signature: bytes
+    ) -> bool:
+        verification_messages.append(message)
+        return original_verify_ed25519(public_key, message, signature)
+
+    module.verify_ed25519 = traced_verify_ed25519
+    try:
+        all_signatures_parsed, _ = module.parse_task_approval(
+            module.canonical_pf_jcs(all_signatures_wire),
+            required_bytes,
+            policy_bytes,
+            phase5_snapshot,
+        )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+    assert len(all_signatures_parsed.signatures) == 3
+    assert verification_messages == (
+        [required_signature_message, required_signature_message]
+        + [all_signatures_message, all_signatures_message, all_signatures_message]
+    ), "all RequiredTestSet signatures must precede every TaskApproval signature"
+
+    invalid_redundant_signature = copy.deepcopy(all_signatures_wire)
+    encoded_redundant = bytes.fromhex(
+        invalid_redundant_signature["signatures"][-1]["signature"]
+    )
+    invalid_redundant_signature["signatures"][-1]["signature"] = (
+        bytes([encoded_redundant[0] ^ 1]) + encoded_redundant[1:]
+    ).hex()
+    verification_messages = []
+    module.verify_ed25519 = traced_verify_ed25519
+    try:
+        assert_rejected(
+            module,
+            lambda: module.parse_task_approval(
+                module.canonical_pf_jcs(invalid_redundant_signature),
+                required_bytes,
+                policy_bytes,
+                phase5_snapshot,
+            ),
+        )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+    assert verification_messages == (
+        [required_signature_message, required_signature_message]
+        + [all_signatures_message, all_signatures_message, all_signatures_message]
+    ), "a redundant invalid signature must not be ignored after quorum is met"
+
+    invalid_required_wire = copy.deepcopy(required_wire)
+    encoded_required = bytes.fromhex(
+        invalid_required_wire["signatures"][-1]["signature"]
+    )
+    invalid_required_wire["signatures"][-1]["signature"] = (
+        bytes([encoded_required[0] ^ 1]) + encoded_required[1:]
+    ).hex()
+    invalid_required_bytes = module.canonical_pf_jcs(invalid_required_wire)
+    approval_for_invalid_required_statement = task_approval_statement(
+        module, policy_ref, invalid_required_bytes
+    )
+    approval_for_invalid_required, _, _ = sign_task_approval_statement(
+        module, approval_for_invalid_required_statement
+    )
+    verification_messages = []
+    module.verify_ed25519 = traced_verify_ed25519
+    try:
+        assert_rejected(
+            module,
+            lambda: module.parse_task_approval(
+                module.canonical_pf_jcs(approval_for_invalid_required),
+                invalid_required_bytes,
+                policy_bytes,
+                phase5_snapshot,
+            ),
+        )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+    assert verification_messages == [
+        required_signature_message, required_signature_message
+    ], "invalid RequiredTestSet signature must prevent all TaskApproval curve work"
+
+    wrong_domain = copy.deepcopy(approval_wire)
+    wrong_domain_message = (
+        b"pf.required-test-set-signature.v1\x00" + statement_digest
+    )
+    _, wrong_domain_signature = ed25519_sign_from_rfc_seed(
+        RFC_8032_SEEDS_BY_KEY_ID["key-architecture"], wrong_domain_message
+    )
+    wrong_domain["signatures"][0]["signature"] = wrong_domain_signature.hex()
+    assert_rejected(
+        module,
+        lambda: module.parse_task_approval(
+            module.canonical_pf_jcs(wrong_domain),
+            required_bytes,
+            policy_bytes,
+            phase5_snapshot,
+        ),
+    )
+
+
 def test_common_identities(module: ModuleType) -> object:
     zero_digest = digest_text(bytes(32))
     digest = module.parse_digest(zero_digest)
@@ -2238,37 +3353,38 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
         assert rejected.code == BOOTSTRAP_REJECTION
 
     complete_objects = module.BootstrapTaskObjectSetV1(**base)
-    original_document_bound_parser = (
-        module.parse_document_bound_required_test_set
-    )
-    document_bound_calls = []
+    original_task_approval_parser = module.parse_task_approval
+    task_approval_calls = []
 
-    def capture_document_bound_call(
+    def capture_task_approval_call(
+        task_approval_bytes: bytes,
         required_bytes: bytes,
         authority_policy_bytes: bytes,
         phase5_snapshot: object,
     ) -> tuple[object, object]:
-        document_bound_calls.append((
+        task_approval_calls.append((
+            task_approval_bytes,
             required_bytes,
             authority_policy_bytes,
             phase5_snapshot,
         ))
         return object(), object()
 
-    module.parse_document_bound_required_test_set = capture_document_bound_call
+    module.parse_task_approval = capture_task_approval_call
     try:
         still_incomplete = module.verifyBootstrapTaskObjects(
             subject, complete_objects
         )
     finally:
-        module.parse_document_bound_required_test_set = (
-            original_document_bound_parser
-        )
+        module.parse_task_approval = original_task_approval_parser
     assert isinstance(still_incomplete, module.Rejected)
-    assert len(document_bound_calls) == 1, (
-        "object consumer must invoke the PHASE-5 document-bound parser once"
+    assert len(task_approval_calls) == 1, (
+        "object consumer must invoke the four-input TaskApproval parser once"
     )
-    called_required, called_policy, called_snapshot = document_bound_calls[0]
+    called_approval, called_required, called_policy, called_snapshot = (
+        task_approval_calls[0]
+    )
+    assert called_approval is complete_objects.taskApprovalBytes
     assert called_required is complete_objects.requiredTestSetBytes
     assert called_policy is complete_objects.authorityPolicyBytes
     assert called_snapshot is documents[-1], (
@@ -2307,6 +3423,7 @@ def main() -> int:
         test_required_test_set(module)
         test_phase5_snapshot_and_document_bound_join(module)
         test_phase5_snapshot_resource_bounds(module)
+        test_task_approval(module)
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_and_missing_root_bytes(module, candidate)
