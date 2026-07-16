@@ -417,6 +417,109 @@ process/executable 属于 Stage-0 TCB，candidate/verifier 只有该 request-res
 store pathname、directory fd 或 root mutation capability。该协议使 receipt 在 handoff 后追加并回查，
 同时不让 handoff digest 预承诺未来 store contents。
 
+### TASK-D0-01 pure object consumer 与 protected integration 边界
+
+`TASK-D0-01` 的首个实现切片是 deterministic、无 I/O 的 bootstrap task object consumer。其
+process-local typed input 固定为以下 exact records；它们不是 wire schema，也不是 authority：
+
+```text
+BootstrapLedgerSubjectV1 {
+  id, taskId, testIds, grade: "bootstrap", result: "passed"
+}
+
+BootstrapDocumentSnapshotV1 {id, path, bytes}
+
+BootstrapTaskRowSubjectV1 {
+  taskId,
+  dependencies: Array<TaskId>,
+  prerequisites: Array<{documentId, requiredStatus: "accepted"}>,
+  testIds: NonEmptyArray<TestId>,
+  evidenceIds: NonEmptyArray<EvidenceId>
+}
+
+BootstrapTaskSubjectV1 {
+  candidate: CandidateIdentity,
+  rootTaskId,
+  taskRows: NonEmptyArray<BootstrapTaskRowSubjectV1>,
+  evidenceRows: NonEmptyArray<BootstrapLedgerSubjectV1>,
+  documents: NonEmptyArray<BootstrapDocumentSnapshotV1>
+}
+
+BootstrapTaskObjectSetV1 {
+  authorityPolicyBytes,
+  stage0HandoffBytes,
+  requiredTestSetBytes,
+  taskApprovalBytes,
+  taskReceiptBytes,
+  dependencyApprovalBytes: Array<bytes>,
+  dependencyReceiptBytes: Array<bytes>,
+  evidenceObjectBytes: NonEmptyArray<bytes>,
+  reviewReports: NonEmptyArray<{digest, bytes}>
+}
+
+ObjectVerifiedV1 {
+  taskId, candidate: CandidateIdentity,
+  authorityPolicy: ContentRef,
+  requiredTestSet: ContentRef,
+  taskApproval: TaskApprovalRefV1,
+  taskReceipt: BootstrapTaskVerifierReceiptRefV1,
+  stage0Handoff: ContentRef,
+  dependencyReceipts: Array<BootstrapTaskVerifierReceiptRefV1>,
+  evidence: NonEmptyArray<EvidenceRef>
+}
+```
+
+`subject.taskRows` 必须恰含 rootTaskId 与其 Task Breakdown DAG 的全部 transitive dependency rows，
+按 taskId 唯一升序；每行 dependencies、prerequisites、testIds、evidenceIds 分别按 ID 唯一升序，
+且不得引用 taskRows 外 dependency。evidenceRows 按 ID 唯一升序并 exact 等于全部 taskRows 的
+evidenceIds；每行必须绑定对应 task，且每个 task 的 evidence testIds 并集 exact 等于该 task row
+testIds。documents 的 exact set 是 `PHASE-4`、`PHASE-5` 与全部 taskRows prerequisites 中出现的
+document ID，按 ID 唯一升序；path 必须是当前
+candidate archive 中的 normalized project-relative path，bytes 必须是 UTF-8。pure consumer 只验证
+path lexical normalization/全局唯一、frontmatter 与 document ID、raw bytes 的 normative digest 以及
+ref 字段 exact equality；它不把 process-local bytes 自证为 archive member。archive membership、同一次
+stable snapshot 与 `reviewCommit` 对 candidate commit 的 ancestor relation 必须由 protected adapter
+对预开 candidate archive/commit graph 验证。`candidate` 在 pure API 中只用于 exact join；仅凭
+process-local subject 不能证明 archive provenance。
+
+object set 的五个 root bytes 各恰有一个。dependency approval/receipt 按 Task Breakdown DAG 的全部
+transitive dependency taskId 一一对应并按 taskId 升序；consumer 从 receipt 中的 TaskApprovalRef 解析
+对应 approval，memoize 后拒绝 cycle、missing、duplicate 或 extra object。evidence objects 按解析后的
+EvidenceRef.id 唯一升序，并 exact 等于 root 与 dependency TaskApproval 引用的全部 evidence refs；每个
+task 的 refs 还必须 exact 等于 subject 中该 task 的 evidenceRows。reviewReports 按 digest raw bytes
+唯一升序，并 exact 等于 root 与 dependency TaskApproval independentReviews 引用的全部集合。review
+report digest 固定为
+`SHA-256("pf.independent-review-report.v1" || NUL || bytes)`，wire 使用 SPEC-COMMON-001 Digest。
+
+内部入口固定为
+`verifyBootstrapTaskObjects(subject, objects) -> ObjectVerifiedV1 | Rejected(code)`。consumer 负责
+restricted canonical PF-JCS decode/re-encode、closed schema、domain digest、ContentRef、RFC 8032
+Ed25519、quorum/role/review independence、document bytes/ref、task row/test/evidence/dependency/
+prerequisite exact join，以及 task receipt signature/verifier/result。任一 unknown、duplicate、
+noncanonical、missing、extra、unused 或 mismatch 都返回
+`Rejected(PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED)`。返回值必须完全由上列已重算 refs 投影，不含
+caller 提供的 boolean/tag/opaque payload。`ObjectVerifiedV1.taskId` exact 等于 subject rootTaskId；
+dependencyReceipts 是全部 transitive dependency receipts 的 taskId 升序 array；evidence 只投影 root
+TaskApproval 的 evidence refs 并按 EvidenceRef.id 升序，dependency evidence 已由各 dependency receipt
+的递归验证承诺，不重复并入 root projection。
+
+`ObjectVerifiedV1` 只证明给定对象内容闭合，不证明 subject/candidate snapshot 的来源，也不证明实际
+eligible host、handoff fd、authority-store peer/executable、signed hello、publish-readback 或
+current/non-revoked lookup；因此不得单独关闭 ledger 或 task。真实 bootstrap closure 还必须由
+candidate 外部的 eligible Stage-0 protected adapter 从预开 candidate archive/policy/evidence/store
+channels 自行 stable-read 并派生同一 subject/object set，验证 transport 与 execution provenance 后再
+调用 pure consumer。该 external adapter 是 D0-01 可独立消费的治理基础设施，不以 `TASK-D0-04`
+完成为前置；`TASK-D0-04` 后续拥有仓库内 bootstrap foundation 与 aggregate activation 的实现验收，
+不能反向成为 D0-01 的任务依赖。
+
+protected integration 的 handoff 自身 carrier、candidate/evidence snapshot、peer credential、crypto
+closure 与 invocation transcript 在冻结并实现前继续 fail closed；不得临时增加
+`check(root, capability)`、Python type/tag、CLI/env/path/fd selector 或 repository fallback 来冒充该
+边界。公开 `docs_check.py` CLI 仍只接受 `--root`，默认对 bootstrap closure 返回
+`PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`。`TST-DOC-001` 可以直接覆盖 pure object consumer 的 synthetic
+positive/mutation matrix，但 `ObjectVerifiedV1` 永远不是 bootstrap evidence；production integration
+positive 只能来自上述 candidate-external protected invocation。
+
 ### Normative document 与 review references
 
 ```text

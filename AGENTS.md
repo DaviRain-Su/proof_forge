@@ -14,7 +14,7 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-D0-01**：按 `TST-DOC-001` 补齐文档 status/ID/link/claim/ADR/trace/task→TST→EV/checkpoint checker 与 external task-receipt consumer；当前 consumer 仍 fail-closed、Phase 1–3 尚未正式批准，只可收集 pre-acceptance evidence |
+| Active task | **TASK-D0-01**：按 `TST-DOC-001` 实现 external TaskApproval/task-receipt pure object consumer；candidate-external protected integration 尚未冻结/接入，公开 docs checker 继续 fail-closed，Phase 1–3 尚未正式批准，只可收集 pre-acceptance evidence |
 | Next task | **TASK-D0-02**：仅在 D0-01 完成后验收独立 Lake package/namespace/exe 与 `TST-ISO-001`；不得跳到 D1/D2 或自动新增 A0 任务 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |

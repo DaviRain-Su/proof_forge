@@ -390,8 +390,10 @@ review independence 按 distinct principalId 而非 keyId 计算；TaskApproval/
 handoff，所以每次 task completion/aggregate activation 都需在线 quorum，旧 run approval 不得复用。
 task/activation receipt 必须由 policy-pinned key 签名，并只能通过 external policy/handoff 共同绑定的
 预开 authenticated authority-store RPC 进行 signed publish ack + exact readback，按各自包含
-requiredTestSet 的 exact tuple 唯一、non-revoked lookup。当前 producer/policy root/handoff/signer/verifier/protected service/
-receipt consumer 未实现，因此任何 `Grade=bootstrap` 行或 D0 `done` 转换都必须以
+requiredTestSet 的 exact tuple 唯一、non-revoked lookup。D0-01 的 pure object consumer 即使通过
+synthetic signed vectors，也只证明对象内容闭合；它不证明实际 Stage-0/fd/RPC provenance。当前
+producer/policy root/handoff/signer/verifier/protected service 与 production capability adapter 未实现，
+因此任何 `Grade=bootstrap` 行或 D0 `done` 转换仍必须以
 `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED` 拒绝；`passed` 文本本身不充分。`formal` 还必须由正式
 evidence-set binder 校验对应不可变 EV JSON；ledger 中的文字标签不能自行把 development
 观察升级为 formal evidence；在 `TASK-D0-07` 的 formal finalizer/binder 落地并接入 docs-check 前，任何
@@ -399,13 +401,27 @@ evidence-set binder 校验对应不可变 EV JSON；ledger 中的文字标签不
 在当前尚未闭合的阶段，Evidence 单元格只
 允许精确 `specified`，不得以 `passed`、`closed` 或自由文本替代正式 EV 绑定。
 
-receipt consumer 落地后的 positive matrix 必须证明：D0-01 可由自身 task receipt 独立关闭；D0-02
+`TST-DOC-001` 对 D0-01 consumer 先固定两层互不替代的验收：第一层直接调用 pure object API，
+synthetic positive 只能得到 exact `ObjectVerifiedV1` projection，并逐项 mutation subject/object-set 的
+missing/extra/duplicate/order、policy/required-set/handoff/approval/receipt/dependency/document/review/
+evidence 的 schema、canonical bytes、domain digest、签名、quorum、role 和 exact joins；第二层调用
+默认 docs checker，同一 bootstrap ledger/task fixture 必须稳定返回
+`PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`。CLI/env/path/普通 file fd 不得选择 authority，也不得新增
+`check(root, capability)` 把 `ObjectVerifiedV1` 升级成 closure。synthetic object set 永不构成 successful
+closure。
+
+production capability 落地后的 positive matrix 必须证明：D0-01 可由自身 task receipt 独立关闭；D0-02
 只有在同 candidate/policy/required-set 的 D0-01 authenticated completion ref 存在时关闭；D0-04 的
 `TST-BOOTSTRAP-001` 不得读取或要求既有 aggregate activation，D0-04 仅有自身 task receipt 仍拒绝，
 其 activation positive vector 必须使用与 production lookup tuple 不相交的 fixture namespace且永不
 关闭当前 task；真实流程加入 exact six-item set 与 activation receipt 后才关闭。`TASK-D0-07` 只在该 current activation
 存在后运行 `TST-ISO-002`/`TST-EVIDENCE-002`。该 future positive 不改变当前 bootstrap/formal
 fail-closed baseline。
+
+其中 D0-01 的 candidate-external protected invocation positive 是 `TASK-D0-01` 所属
+`TST-DOC-001` 的最终 integration 分支，不归 `TASK-D0-04`，也不新增任务依赖；外部治理基础设施缺失时
+该分支未通过，D0-01 必须保持 `in_progress`。`TST-BOOTSTRAP-001` 只验收 D0-04 的仓库内 foundation、
+six-item set 与 activation producer/consumer。
 
 校验顺序固定为 root/required → JSON/frontmatter → status/link/supersession → definition/reference →
 claim source → requirement trace → task/evidence → checkpoint；同阶段按 repo-relative path/line/ID 排序。
