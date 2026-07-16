@@ -916,7 +916,7 @@ def invoke(
     arguments: list[str],
     *,
     descriptor_source: Path = GATE_EVIDENCE,
-    executing_source: Path = GATE_EVIDENCE,
+    executing_source: Path | str = GATE_EVIDENCE,
     source_flags: int = os.O_RDONLY,
 ) -> subprocess.CompletedProcess[bytes]:
     gate_descriptor = os.open(
@@ -932,7 +932,11 @@ def invoke(
                 "-",
                 arguments[0],
                 "--executing-source",
-                os.fspath(executing_source.resolve(strict=True)),
+                (
+                    os.fspath(executing_source.resolve(strict=True))
+                    if isinstance(executing_source, Path)
+                    else executing_source
+                ),
                 *arguments[1:],
             ],
             cwd=ROOT,
@@ -946,6 +950,39 @@ def invoke(
         raise AssertionError(
             "finalizer blocked on catalog or claimed-member I/O before its policy decision"
         ) from error
+    finally:
+        os.close(gate_descriptor)
+
+
+def invoke_prelude(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
+    prelude = """import os, sys
+sys.argv[0] = "-"
+size = os.fstat(0).st_size
+source = os.pread(0, size + 1, 0)
+namespace = {
+    "__name__": "__main__",
+    "__file__": "<stdin>",
+    "__package__": None,
+    "__cached__": None,
+}
+exec(compile(source, "<stdin>", "exec", dont_inherit=True), namespace, namespace)
+"""
+    gate_descriptor = os.open(
+        GATE_EVIDENCE,
+        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        return subprocess.run(
+            [sys.executable, "-I", "-S", "-c", prelude, *arguments],
+            cwd=ROOT,
+            stdin=gate_descriptor,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AssertionError("prelude finalizer invocation blocked") from error
     finally:
         os.close(gate_descriptor)
 
@@ -1290,6 +1327,72 @@ def main() -> int:
             output_root=substituted_output_root,
         )
 
+        same_bytes_root = temporary_root / "same-bytes-source"
+        same_bytes_root.mkdir(mode=0o700)
+        same_bytes_gate = same_bytes_root / "gate_evidence.py"
+        write_secure(same_bytes_gate, GATE_EVIDENCE.read_bytes())
+        same_bytes_output_root = temporary_root / "same-bytes-source-output"
+        same_bytes_result = invoke(
+            development_arguments(
+                same_bytes_output_root / "EVF-20260715-9000.json",
+                pathname_catalog_relative,
+            ),
+            executing_source=same_bytes_gate,
+        )
+        assert_identity_rejection(
+            same_bytes_result,
+            label="same-bytes different-inode executing-source invocation",
+            output_root=same_bytes_output_root,
+        )
+
+        source_fifo_root = temporary_root / "source-fifo"
+        source_fifo_root.mkdir(mode=0o700)
+        source_fifo = source_fifo_root / "gate_evidence.py"
+        os.mkfifo(source_fifo, mode=0o400)
+        source_fifo_output_root = temporary_root / "source-fifo-output"
+        source_fifo_result = invoke(
+            development_arguments(
+                source_fifo_output_root / "EVF-20260715-9000.json",
+                pathname_catalog_relative,
+            ),
+            executing_source=source_fifo,
+        )
+        assert_identity_rejection(
+            source_fifo_result,
+            label="FIFO executing-source invocation",
+            output_root=source_fifo_output_root,
+        )
+
+        surrogate_output_root = temporary_root / "surrogate-source-output"
+        surrogate_result = invoke(
+            development_arguments(
+                surrogate_output_root / "EVF-20260715-9000.json",
+                pathname_catalog_relative,
+            ),
+            executing_source="/tmp/\udcff/gate_evidence.py",
+        )
+        assert_identity_rejection(
+            surrogate_result,
+            label="surrogate executing-source invocation",
+            output_root=surrogate_output_root,
+        )
+
+        prelude_output_root = temporary_root / "prelude-output"
+        prelude_arguments = development_arguments(
+            prelude_output_root / "EVF-20260715-9000.json",
+            pathname_catalog_relative,
+        )
+        prelude_arguments[1:1] = [
+            "--executing-source",
+            os.fspath(GATE_EVIDENCE.resolve(strict=True)),
+        ]
+        prelude_result = invoke_prelude(prelude_arguments)
+        assert_identity_rejection(
+            prelude_result,
+            label="unlocked -c prelude invocation",
+            output_root=prelude_output_root,
+        )
+
         substituted_core_root = temporary_root / "substituted-core-source"
         substituted_core_root.mkdir(mode=0o700)
         substituted_gate = substituted_core_root / "gate_evidence.py"
@@ -1320,6 +1423,27 @@ def main() -> int:
             )
         if substituted_core_output_root.exists():
             raise AssertionError("substituted exact sibling core touched output")
+
+        fifo_core_root = temporary_root / "fifo-core-source"
+        fifo_core_root.mkdir(mode=0o700)
+        fifo_core_gate = fifo_core_root / "gate_evidence.py"
+        fifo_core = fifo_core_root / "evidence_v1_core.py"
+        write_secure(fifo_core_gate, GATE_EVIDENCE.read_bytes())
+        os.mkfifo(fifo_core, mode=0o400)
+        fifo_core_output_root = temporary_root / "fifo-core-output"
+        fifo_core_result = invoke(
+            development_arguments(
+                fifo_core_output_root / "EVF-20260715-9000.json",
+                pathname_catalog_relative,
+            ),
+            descriptor_source=fifo_core_gate,
+            executing_source=fifo_core_gate,
+        )
+        assert_identity_rejection(
+            fifo_core_result,
+            label="FIFO exact sibling core invocation",
+            output_root=fifo_core_output_root,
+        )
 
         duplicate_output_root = temporary_root / "duplicate-source-output"
         duplicate_arguments = development_arguments(
@@ -1357,6 +1481,28 @@ def main() -> int:
             label="absolute-catalog-path",
             expected_code="PF-EVIDENCE-PATH",
             catalog_argument=os.fspath((development_root / catalog_path).resolve(strict=True)),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="parent-catalog-path",
+            expected_code="PF-EVIDENCE-PATH",
+            catalog_argument="catalog/../catalog/development-alpha.json",
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="catalog-path-claim-split",
+            expected_code="PF-EVIDENCE-CATALOG-DIGEST",
+            catalog_argument="catalog/alternate-development-alpha.json",
         )
         assert_catalog_rejection(
             module,
@@ -1425,6 +1571,84 @@ def main() -> int:
             expected_code="PF-EVIDENCE-HOST-BINDING",
             mutator=lambda catalog: catalog["gates"][0]["hostPolicy"].update(
                 {"eligibleForHermetic": True}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="denial-non-wrapper-executable",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["policies"][0]["probes"][
+                1
+            ]["command"].update({"executable": {"kind": "tool", "id": "lean"}}),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="denial-operation-argv-mismatch",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["policies"][0]["probes"][
+                1
+            ]["command"]["argv"].__setitem__(
+                1,
+                {"kind": "literal", "value": "tcp-bind"},
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="dangling-input-executable",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["policies"][1]["probes"][
+                0
+            ]["command"].update(
+                {
+                    "executable": {
+                        "kind": "input",
+                        "path": "tcb/missing-input",
+                        "role": "missing-input",
+                    }
+                }
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="dangling-artifact-executable",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["policies"][1]["probes"][
+                0
+            ]["command"]["executable"].update(
+                {"path": "build/evm/Missing.bin"}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="non-retained-artifact-executable",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["requiredArtifacts"][0].update(
+                {"retained": False}
             ),
         )
         assert_catalog_rejection(
