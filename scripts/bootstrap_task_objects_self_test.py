@@ -41,6 +41,8 @@ RFC_8032_PUBLIC_KEYS = (
     "ec172b93ad5e563bf4932c70e1245034"
     "c35467ef2efd4d64ebf819683467e2bf",
 )
+ED25519_BASEPOINT = "58" + "66" * 31
+ED25519_MIXED_ORDER_POINT = "95" + "99" * 31
 
 
 def load_consumer() -> ModuleType:
@@ -299,19 +301,56 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
     assert isinstance(parsed_policy.principals, tuple)
     assert len(parsed_policy.principals) == 4
     assert all(
-        isinstance(principal.publicKey, bytes)
+        isinstance(principal, module.BootstrapAuthorityPrincipalV1)
+        and isinstance(principal.publicKey, bytes)
+        and isinstance(principal.roles, tuple)
         for principal in parsed_policy.principals
     )
     assert isinstance(parsed_policy.taskRules, tuple)
+    assert all(
+        isinstance(task_rule, module.BootstrapAuthorityTaskRuleV1)
+        and isinstance(task_rule.rule, module.ApprovalRuleV1)
+        and isinstance(task_rule.rule.requiredRoles, tuple)
+        for task_rule in parsed_policy.taskRules
+    )
     assert tuple(rule.taskId for rule in parsed_policy.taskRules) == tuple(
         f"TASK-D0-0{number}" for number in range(1, 7)
     )
     assert isinstance(parsed_policy.privateScanPolicy, module.ContentRef)
     assert isinstance(parsed_policy.authorityStoreService, module.ContentRef)
+    assert isinstance(parsed_policy.verifier, module.BootstrapAuthorityVerifierV1)
     assert isinstance(parsed_policy.verifier.executableDigest, module.Digest)
     assert isinstance(parsed_policy.verifier.receiptPublicKey, bytes)
     assert parsed_ref == expected_ref, (
         "valid policy must return its recomputed ContentRef projection"
+    )
+
+    valid_rotation = copy.deepcopy(policy)
+    valid_rotation["principals"].insert(1, {
+        "principalId": valid_rotation["principals"][0]["principalId"],
+        "keyId": "key-architecture-rotation",
+        "publicKey": ED25519_BASEPOINT,
+        "roles": ["quality"],
+    })
+    rotated_policy, _ = module.parse_bootstrap_authority_policy(
+        module.canonical_pf_jcs(valid_rotation)
+    )
+    assert len(rotated_policy.principals) == 5, (
+        "same-principal rotation with distinct key material must remain legal"
+    )
+
+    stronger_policy = copy.deepcopy(policy)
+    stronger_policy["taskRules"][0]["rule"] = approval_rule(
+        "architecture", "quality", "security", minimum=3
+    )
+    stronger_policy["requiredTestSetRule"] = approval_rule(
+        "quality", "security", "release", minimum=3
+    )
+    parsed_stronger, _ = module.parse_bootstrap_authority_policy(
+        module.canonical_pf_jcs(stronger_policy)
+    )
+    assert parsed_stronger.taskRules[0].rule.minimumDistinctSigners == 3, (
+        "policy may strengthen role and signer minima"
     )
 
     mutations = []
@@ -323,6 +362,22 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
     unknown_field = copy.deepcopy(policy)
     unknown_field["futurePolicy"] = {}
     mutations.append(("unknown top-level field", unknown_field))
+
+    for container, label in (
+        (("principals", 0), "principal"),
+        (("taskRules", 0), "task rule"),
+    ):
+        nested_unknown = copy.deepcopy(policy)
+        nested_unknown[container[0]][container[1]]["futureField"] = True
+        mutations.append((f"unknown {label} field", nested_unknown))
+
+    unknown_rule_field = copy.deepcopy(policy)
+    unknown_rule_field["taskRules"][0]["rule"]["futureField"] = True
+    mutations.append(("unknown approval rule field", unknown_rule_field))
+
+    unknown_verifier_field = copy.deepcopy(policy)
+    unknown_verifier_field["verifier"]["futureField"] = True
+    mutations.append(("unknown verifier field", unknown_verifier_field))
 
     missing_task_rule = copy.deepcopy(policy)
     del missing_task_rule["taskRules"][3]
@@ -340,6 +395,19 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
         1, copy.deepcopy(duplicate_task_rule["taskRules"][0])
     )
     mutations.append(("duplicate task rule", duplicate_task_rule))
+
+    reordered_principals = copy.deepcopy(policy)
+    reordered_principals["principals"][0], reordered_principals["principals"][1] = (
+        reordered_principals["principals"][1],
+        reordered_principals["principals"][0],
+    )
+    mutations.append(("reordered principals", reordered_principals))
+
+    duplicate_key_id = copy.deepcopy(policy)
+    duplicate_key_id["principals"][1]["keyId"] = (
+        duplicate_key_id["principals"][0]["keyId"]
+    )
+    mutations.append(("duplicate principal keyId", duplicate_key_id))
 
     task_minima = (
         (("architecture", "quality"), 2),
@@ -410,6 +478,18 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
     ]
     mutations.append(("ASCII rather than enum role order", ascii_role_order))
 
+    principal_role_order = copy.deepcopy(policy)
+    principal_role_order["principals"][1]["roles"] = ["security", "quality"]
+    mutations.append(("principal roles out of enum order", principal_role_order))
+
+    duplicate_principal_role = copy.deepcopy(policy)
+    duplicate_principal_role["principals"][1]["roles"] = ["quality", "quality"]
+    mutations.append(("duplicate principal role", duplicate_principal_role))
+
+    unknown_principal_role = copy.deepcopy(policy)
+    unknown_principal_role["principals"][1]["roles"] = ["quality", "owner"]
+    mutations.append(("unknown principal role", unknown_principal_role))
+
     invalid_key = copy.deepcopy(policy)
     invalid_key["principals"][0]["publicKey"] = "ff" * 32
     mutations.append(("invalid Ed25519 public key", invalid_key))
@@ -429,6 +509,14 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
         receipt_public_key_collision["principals"][0]["publicKey"]
     )
     mutations.append(("receipt publicKey collision", receipt_public_key_collision))
+
+    for label, public_key in (
+        ("small-order receipt public key", "01" + "00" * 31),
+        ("mixed-order receipt public key", ED25519_MIXED_ORDER_POINT),
+    ):
+        bad_receipt_key = copy.deepcopy(policy)
+        bad_receipt_key["verifier"]["receiptPublicKey"] = public_key
+        mutations.append((label, bad_receipt_key))
 
     for label, mutation in mutations:
         assert_rejected(
