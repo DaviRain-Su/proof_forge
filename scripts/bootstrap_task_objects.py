@@ -13,6 +13,7 @@ import json
 import posixpath
 import re
 import unicodedata
+from datetime import date
 from dataclasses import dataclass
 from typing import Any, NoReturn, Tuple, Union
 
@@ -132,6 +133,35 @@ class BootstrapAuthorityPolicyV1:
     revocationSnapshotRule: ApprovalRuleV1
     authorityStoreService: ContentRef
     verifier: BootstrapAuthorityVerifierV1
+
+
+@dataclass(frozen=True)
+class ApprovalSignatureV1:
+    keyId: str
+    algorithm: str
+    signature: bytes
+
+
+@dataclass(frozen=True)
+class NormativeDocumentRefV1:
+    id: str
+    contentDigest: Digest
+    status: str
+    reviewCommit: str
+    reviewLink: str
+    approvedAt: str
+    approvers: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RequiredTestSetV1:
+    schema: str
+    id: str
+    version: str
+    phase5Document: NormativeDocumentRefV1
+    authorityPolicy: ContentRef
+    requiredTestIds: Tuple[str, ...]
+    signatures: Tuple[ApprovalSignatureV1, ...]
 
 
 @dataclass(frozen=True)
@@ -536,6 +566,29 @@ _NAMED_RULE_MINIMA = (
     ("revocationSnapshotRule", ("security", "release"), 2),
 )
 _ED25519_PUBLIC_KEY_RE = re.compile(r"[0-9a-f]{64}")
+_ED25519_SIGNATURE_RE = re.compile(r"[0-9a-f]{128}")
+_LOWERCASE_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+_GREGORIAN_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_DEVELOPMENT_A0_TEST_ID_RE = re.compile(r"TST-A0-[0-9]{3}")
+_REQUIRED_TEST_SET_FIELDS = (
+    "schema",
+    "id",
+    "version",
+    "phase5Document",
+    "authorityPolicy",
+    "requiredTestIds",
+    "signatures",
+)
+_NORMATIVE_DOCUMENT_FIELDS = (
+    "id",
+    "contentDigest",
+    "status",
+    "reviewCommit",
+    "reviewLink",
+    "approvedAt",
+    "approvers",
+)
+_APPROVAL_SIGNATURE_FIELDS = ("keyId", "algorithm", "signature")
 
 
 def _require_safe_id(value: object, where: str) -> str:
@@ -756,6 +809,225 @@ def parse_bootstrap_authority_policy(
         hashlib.sha256(b"pf.bootstrap-authority-policy.v1\x00" + data).digest(),
     )
     return policy, ContentRef(policy.schema, policy.id, policy.version, digest)
+
+
+def _parse_review_link(value: object, where: str) -> str:
+    if type(value) is not str:
+        _reject(f"{where} must be text")
+    assert isinstance(value, str)
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeError:
+        _reject(f"{where} must be valid UTF-8 text")
+    if not 1 <= len(encoded) <= 4096:
+        _reject(f"{where} must be 1..4096 UTF-8 bytes")
+    if value[:8].lower() != "https://":
+        _reject(f"{where} must use the https scheme")
+    if any(unicodedata.category(character) == "Cc" for character in value):
+        _reject(f"{where} must not contain control characters")
+    return value
+
+
+def _parse_gregorian_date(value: object, where: str) -> str:
+    if type(value) is not str or _GREGORIAN_DATE_RE.fullmatch(value) is None:
+        _reject(f"{where} must be Gregorian YYYY-MM-DD")
+    assert isinstance(value, str)
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        _reject(f"{where} must be a real Gregorian date")
+    return value
+
+
+def _parse_normative_document_ref(
+    value: object,
+    where: str,
+) -> NormativeDocumentRefV1:
+    obj = _require_exact_keys(value, _NORMATIVE_DOCUMENT_FIELDS, where)
+    identifier = _require_safe_id(obj["id"], f"{where}.id")
+    content_digest = parse_digest(obj["contentDigest"])
+    if obj["status"] != "accepted":
+        _reject(f"{where}.status must be accepted")
+    review_commit = obj["reviewCommit"]
+    if (type(review_commit) is not str
+            or _LOWERCASE_COMMIT_RE.fullmatch(review_commit) is None):
+        _reject(f"{where}.reviewCommit must be 40 lowercase hex digits")
+    assert isinstance(review_commit, str)
+    review_link = _parse_review_link(obj["reviewLink"], f"{where}.reviewLink")
+    approved_at = _parse_gregorian_date(
+        obj["approvedAt"], f"{where}.approvedAt"
+    )
+    approver_values = obj["approvers"]
+    if type(approver_values) is not list or not 1 <= len(approver_values) <= 256:
+        _reject(f"{where}.approvers count must be 1..256")
+    assert isinstance(approver_values, list)
+    approvers = tuple(
+        _require_safe_id(approver, f"{where}.approvers[{index}]")
+        for index, approver in enumerate(approver_values)
+    )
+    if (approvers != tuple(sorted(approvers))
+            or len(set(approvers)) != len(approvers)):
+        _reject(f"{where}.approvers must be unique ascending ASCII safe-id")
+    return NormativeDocumentRefV1(
+        identifier,
+        content_digest,
+        "accepted",
+        review_commit,
+        review_link,
+        approved_at,
+        approvers,
+    )
+
+
+def _parse_required_test_ids(value: object) -> Tuple[str, ...]:
+    where = "RequiredTestSetV1.requiredTestIds"
+    if type(value) is not list or not 1 <= len(value) <= 4096:
+        _reject(f"{where} count must be 1..4096")
+    assert isinstance(value, list)
+    test_ids = tuple(
+        _require_ascii_text(item, TEST_ID_RE, f"{where}[{index}]", 127)
+        for index, item in enumerate(value)
+    )
+    if (test_ids != tuple(sorted(test_ids))
+            or len(set(test_ids)) != len(test_ids)):
+        _reject(f"{where} must be unique ascending ASCII TestId")
+    if any(_DEVELOPMENT_A0_TEST_ID_RE.fullmatch(test_id) is not None
+           for test_id in test_ids):
+        _reject(f"{where} must exclude development TST-A0-NNN IDs")
+    return test_ids
+
+
+def _parse_required_set_signatures(
+    value: object,
+    principals: Tuple[BootstrapAuthorityPrincipalV1, ...],
+) -> Tuple[ApprovalSignatureV1, ...]:
+    where = "RequiredTestSetV1.signatures"
+    maximum = min(len(principals), 256)
+    if type(value) is not list or not 1 <= len(value) <= maximum:
+        _reject(f"{where} count exceeds the resolved authority policy")
+    assert isinstance(value, list)
+    principal_by_key = {principal.keyId: principal for principal in principals}
+    signatures = []
+    for index, entry in enumerate(value):
+        entry_where = f"{where}[{index}]"
+        obj = _require_exact_keys(
+            entry, _APPROVAL_SIGNATURE_FIELDS, entry_where
+        )
+        key_id = _require_safe_id(obj["keyId"], f"{entry_where}.keyId")
+        if obj["algorithm"] != "ed25519":
+            _reject(f"{entry_where}.algorithm must be ed25519")
+        encoded_signature = obj["signature"]
+        if (type(encoded_signature) is not str
+                or _ED25519_SIGNATURE_RE.fullmatch(encoded_signature) is None):
+            _reject(
+                f"{entry_where}.signature must be 64-byte lowercase hex"
+            )
+        assert isinstance(encoded_signature, str)
+        if key_id not in principal_by_key:
+            _reject(f"{entry_where}.keyId is not in the authority policy")
+        signatures.append(ApprovalSignatureV1(
+            key_id,
+            "ed25519",
+            bytes.fromhex(encoded_signature),
+        ))
+    result = tuple(signatures)
+    key_ids = tuple(signature.keyId for signature in result)
+    if key_ids != tuple(sorted(key_ids)) or len(set(key_ids)) != len(key_ids):
+        _reject(f"{where} must have unique ascending keyId")
+    return result
+
+
+def _require_signature_rule(
+    signatures: Tuple[ApprovalSignatureV1, ...],
+    principals: Tuple[BootstrapAuthorityPrincipalV1, ...],
+    rule: ApprovalRuleV1,
+) -> None:
+    principal_by_key = {principal.keyId: principal for principal in principals}
+    signed_principals = tuple(
+        principal_by_key[signature.keyId] for signature in signatures
+    )
+    distinct_principal_ids = {
+        principal.principalId for principal in signed_principals
+    }
+    if len(distinct_principal_ids) < rule.minimumDistinctSigners:
+        _reject("RequiredTestSetV1 signatures do not satisfy distinct-principal quorum")
+    signed_roles = {
+        role for principal in signed_principals for role in principal.roles
+    }
+    if not set(rule.requiredRoles).issubset(signed_roles):
+        _reject("RequiredTestSetV1 signatures do not cover required roles")
+
+
+def parse_required_test_set(
+    required_bytes: bytes,
+    authority_policy_bytes: bytes,
+) -> Tuple[RequiredTestSetV1, ContentRef]:
+    """Validate a canonical signed RequiredTestSet against policy bytes."""
+    policy, policy_ref = parse_bootstrap_authority_policy(
+        authority_policy_bytes
+    )
+    decoded = decode_canonical_pf_jcs(required_bytes)
+    obj = _require_exact_keys(
+        decoded, _REQUIRED_TEST_SET_FIELDS, "RequiredTestSetV1"
+    )
+    if obj["schema"] != "proof-forge.required-test-set.v1":
+        _reject("RequiredTestSetV1.schema is not v1")
+    identifier = _require_ascii_text(
+        obj["id"], PROFILE_ID_RE, "RequiredTestSetV1.id", 127
+    )
+    version = _require_semver(obj["version"], "RequiredTestSetV1.version")
+    phase5_document = _parse_normative_document_ref(
+        obj["phase5Document"], "RequiredTestSetV1.phase5Document"
+    )
+    if phase5_document.id != "PHASE-5":
+        _reject("RequiredTestSetV1.phase5Document.id must be PHASE-5")
+    authority_policy = parse_content_ref(obj["authorityPolicy"])
+    if authority_policy != policy_ref:
+        _reject("RequiredTestSetV1.authorityPolicy does not match policy bytes")
+    required_test_ids = _parse_required_test_ids(obj["requiredTestIds"])
+    signatures = _parse_required_set_signatures(
+        obj["signatures"], policy.principals
+    )
+
+    statement = {
+        field: obj[field] for field in _REQUIRED_TEST_SET_FIELDS[:-1]
+    }
+    statement_digest = hashlib.sha256(
+        b"pf.required-test-set-statement.v1\x00"
+        + canonical_pf_jcs(statement)
+    ).digest()
+    message = b"pf.required-test-set-signature.v1\x00" + statement_digest
+    principal_by_key = {
+        principal.keyId: principal for principal in policy.principals
+    }
+    _require_signature_rule(
+        signatures, policy.principals, policy.requiredTestSetRule
+    )
+    for signature in signatures:
+        principal = principal_by_key[signature.keyId]
+        if not verify_ed25519(
+            principal.publicKey, message, signature.signature
+        ):
+            _reject(f"RequiredTestSetV1 signature {signature.keyId} is invalid")
+    required_set = RequiredTestSetV1(
+        "proof-forge.required-test-set.v1",
+        identifier,
+        version,
+        phase5_document,
+        authority_policy,
+        required_test_ids,
+        signatures,
+    )
+    digest = Digest(
+        "sha256",
+        hashlib.sha256(b"pf.required-test-set.v1\x00" + required_bytes).digest(),
+    )
+    return required_set, ContentRef(
+        required_set.schema,
+        required_set.id,
+        required_set.version,
+        digest,
+    )
 
 
 def _require_sorted_unique(values: tuple, where: str, *, nonempty: bool) -> None:
