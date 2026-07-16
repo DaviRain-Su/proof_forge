@@ -557,6 +557,36 @@ normative: false
   再把 Typed duplicate/name resolution 改为单次 HashSet/HashMap index；不改变 target-neutral
   semantic IDs、声明顺序或诊断。
 
+## 2026-07-16 — TASK-A0-18 completion / typed name index
+
+- Commits：RED `813dd14f`；GREEN
+  `648be570ee41defbbb8cdefd94523caaa90486c2`。post-commit tree
+  `5e9ad6c519881fbd6f5eb62288182763dbc41ee1`；archive SHA-256
+  `0fe0fbe713a6f3d41dd8b051f55373305d1870881cfa1300b9bd822420b262e9`。
+- Spec/Test：`SPEC-TYPE-001`、`TST-TYPE-002` 的 accepted-width alpha 名称索引切片。
+- Changed：state index 在 `Typed.check` 中单次构建并由 initializer/entries 共用；entry
+  duplicate 使用 `HashSet`，每个 callable 的 parameter lookup 使用 `HashMap`。state/param ID、
+  typed arrays 与 entry 输出保持声明顺序，`.variable` parameter shadowing、显式 `.state`
+  resolution、同步未知 callee 合法性与固定诊断优先级不变。结构门禁沿 Typed module-owned
+  definition graph 拒绝已列出的 Array name-search family，并要求三项 hash API 与唯一、直接的
+  `resolveState` 调用位置。
+- Commands：`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`；post-commit
+  `just v2-clean-room-alpha`；两组 independent read-only review。
+- Results：上述有效候选命令 exit 0；2048-state/parameter、late lookup、duplicate/error priority、
+  shadowing 与结构依赖门禁通过，最终复核 P0=0/P1=0。development clean-room 绑定上述
+  commit/tree/archive。一次在并发 Loader worktree 修改期间启动的 `just check` 因该未提交测试
+  当时不能编译而失效，不作为 A0-18 候选结果；精确 committed candidate 已由 clean-room gate
+  从 archive 重建并通过。
+- Evidence：`EV-20260716-0023`，manual development evidence；没有 schema-complete immutable
+  EV JSON。
+- Limitations：HashMap/HashSet 给出预期/摊销线性索引，不是 adversarial collision worst-case
+  保证；不关闭完整 D2 checker、Diagnostic v1、`TST-PERF-001`、正式 hermetic evidence。
+  当前 host 继续因 broken seal/current-user-mutable Xcode 不合格，其余 D0-04 blocker 不变。
+- Next：`TASK-A0-19` 复用 immutable Loader parser environment，并把 hosted `source-core` 的
+  20000-state / 100001-node 重资源验收保留在独立 `dsl-negative` 子进程中；以实际 GitHub
+  candidate run 判定 CI 是否修复。
+
 ## 记录模板
 
 ```markdown

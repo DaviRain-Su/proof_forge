@@ -31,6 +31,12 @@ and hermetic host/toolchain/clean-room evidence remain local macOS development
 gates until a linux host profile and locked external tool root exist. Do not
 treat hosted green as formal EV or hermetic qualification.
 
+Hosted `source-core` 的 20000-state / 100001-node parser resource vectors 由
+`dsl-negative` 分别启动 Lean command 与 CLI loader 子进程；常驻 unit-test executable 不再
+重复加载该 fixture。这样每条规范路径和精确 `PF-BOUND-001` 断言仍执行，同时避免 Lean
+environment/AST 在单进程中累计到 hosted runner 的内存上限。CI 取消或 runner SIGTERM 不是
+测试通过，必须保留为失败并从实际 run log 重新分类。
+
 ## Evidence
 
 目标状态是每个 lane 输出符合 [`TRACE-EV-001`](../traceability/evidence-schema.md) 的 JSON、

@@ -11,8 +11,9 @@ normative: true
 
 输入为 Lean syntax/environment 和 UTF-8 source metadata；当前 alpha 输出
 `Source.Program`，完整规格后再增加 `SourceOrigin`，或返回 `PF-SRC/EXPORT-*`。
-API：共享 syntax decoder、`parsePrograms`、`selectProgram(name?)`，以及供 Lean 源码直接
-编译使用的 command elaborator。它拥有 grammar、NodeId、span、SourceHash；
+API：共享 syntax decoder、one-shot `parsePrograms`/`selectProgram(name?)`、可复用不可变
+Lean parser environment 的 `ParserSession`，以及供 Lean 源码直接编译使用的 command
+elaborator。它拥有 grammar、NodeId、span、SourceHash；
 不做 target lookup、storage/ABI planning 或外部 I/O。
 
 状态：CLI 路径为 `16 MiB byte cap → Lean parser → per-program iterative Syntax preflight →
@@ -23,6 +24,12 @@ iterative Syntax preflight → shared decode validation → macro expansion → 
 command；失败不得修改 environment extension。namespace scope 可以临时超过 256 components；
 Loader 此时只保存可恢复的 overflow state，不构造超限聚合 `Name`，并在退回合法 scope 后按
 最终 program identity 判定。
+
+`ParserSession.create` 只导入锁定的 `ProofForgeV2.Language.Syntax` environment；同一进程内
+连续解析多个独立 source 时必须复用该 immutable session，不能为每个 negative vector 重复
+执行 `enableInitializersExecution/initSearchPath/importModules`。one-shot API 仍为 CLI 单文件
+调用保留，并必须在创建 session 前执行 16 MiB byte-cap fast rejection；session method 内仍
+重复同一 byte-cap 检查。session 不保存用户 source、program 或 target 状态。
 
 parser 前置只有 CLI byte cap；Syntax/node/nesting budget 在 parser 成功后、递归 decoder 前
 验证，因此不保护 Lean parser。后置：payload schema v1、所有引用 span 有效、hash canonical。

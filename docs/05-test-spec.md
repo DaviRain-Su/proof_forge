@@ -118,6 +118,10 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   namespace/qualified-name 256/257 边界必须稳定拒绝或接受；257 层瞬时 namespace 退回
   255 层后声明的完整 256-component identity 必须恢复并接受。Loader 的重复检查、program
   identity 和 namespace tracking 不得重新引入输入相关 O(n²) scan 或递归渲染超限 `Name`。
+- 20000-state / 100001-node loader integration 必须由 `dsl-negative` 的独立 Lean command 与
+  CLI loader 子进程执行；不得在常驻 `proof-forge-next-tests` 进程内重复该向量。每条重资源
+  路径仍必须执行且精确检查 `PF-BOUND-001`，进程拆分只用于释放 parser/environment 峰值内存，
+  不得降低 node limit、state count 或验收路径。
 - `just dsl-negative`：同一组生成的 namespace/deep/wide `.lean` 分别通过
   `lake env lean` command elaborator 和 `proof-forge-next build` CLI loader；两路超限都必须
   返回相同 `PF-BOUND-001` 文本，恰好 256-component identity 与 transient unwind 两路都通过。
@@ -125,8 +129,10 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   拒绝且不创建 output。
 - 本切片不关闭 Lean parser fuzz/containment、module aggregate node policy、完整
   Diagnostic v1/NodeId/span、直接 `Source.Program` API bounds 或 `TST-BOUND-001`；后者仍专指
-  D2-03 的循环/递归 termination checker。accepted-width `Source.Program` 后续进入
-  `Typed.check` 时仍有数组式 duplicate/name lookup；其线性索引化由 `TASK-A0-18` 跟踪。
+  D2-03 的循环/递归 termination checker。accepted-width `Source.Program` 进入
+  `Typed.check` 的 duplicate/name lookup 已由 `TASK-A0-18` 线性索引化，并由
+  `TST-TYPE-002` 回归保护；这不关闭完整 D2、Diagnostic v1、`TST-PERF-001` 或
+  adversarial hash-collision worst-case 保证。
 
 ### Typed name index 首个验收切片
 
