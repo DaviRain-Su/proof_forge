@@ -522,6 +522,41 @@ normative: false
 - Next：`TASK-A0-17` 在 Lean parser 产出 Syntax 后、递归 decode/type-check 前实现共享
   node/nesting budget preflight，并让 CLI loader 与 command elaborator 使用同一限制。
 
+## 2026-07-16 — TASK-A0-17 completion / shared bounded Syntax decode
+
+- Commits：首版 `d3a34a6230f3a2e49786027ed8c4d3c31f996dd5`；namespace 双入口与边界修复
+  `feab23ad6a68510d8231591317770eaa50928fa3`。post-commit tree
+  `2394b1fe39a8e7820abdb00d84cabc5df67c853b`；archive SHA-256
+  `d52b22326c88f7ff4c36cf74371b84b4a74188c561ebdb1f4fcd06493f36903d`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-DIAG-001`、`MOD-SOURCE-001`、`TST-SRC-002`。
+- Changed：`preflightSyntax` 以显式 Array 工作栈在 push child 前约束每个 portable program 的
+  100000 nodes / root-inclusive depth 256，并在任何 recursive decoder 或 macro expansion 前运行。
+  type/parameter/expression/statement/item/program 公共 decoder 共享 checked boundary。CLI
+  namespace tracker 以可恢复的 bounded/over-limit state 避免构造或递归渲染超限 `Name`；
+  257 层 scope 退回 255 层后可生成精确 256-component identity。CLI 与 command 共同通过
+  `decodeProgramCommandChecked`，Syntax 与 identity 同时超限时保持相同错误优先级。
+- Commands：`lake build Tests.Language.ProgramSyntax Tests.Language.Loader proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；`just check`；
+  `just v2-clean-room-alpha`；`git diff --check`；两组 independent read-only review。
+- Results：全部 exit 0。synthetic 256/257 depth、100000/100001 nodes、identifier/identity
+  256/257 与真实 deep/wide/combined overflow 通过；四类 negative 的 Lean/CLI 完整
+  `PF-BOUND-001` 文本一致。有效 16 MiB source 生成完整 Solana plan artifact，16 MiB+1
+  在 parser 前以 `PF-SRC-INVALID` 拒绝。`just check` 的 host/schema/sandbox/toolchain/两次 test、
+  四目标 smoke/artifact/output-security 全绿；独立复核最终 P0=0/P1=0。clean-room policy
+  SHA-256：materialize `2c476987…f234`、core `8ce777c6…eb97`、runtime `341200ff…0f4b`。
+- Evidence：`EV-20260716-0022`，manual development evidence；没有 schema-complete immutable
+  EV JSON。
+- Limitations：16 MiB 之外的 Syntax budget 位于 Lean parser 之后，不保护 parser 本身；没有
+  module aggregate policy，也不覆盖直接构造 `Source.Program` 的 compiler API。完整 Diagnostic
+  v1/NodeId/span、parser fuzz/time/memory containment、D1/D2/termination 和正式 clean-room evidence
+  仍未闭合。development host 继续因 broken seal/current-user-mutable Xcode 不合格；formal
+  Stage-0 handoff、process-session containment、gate catalog/freshness/revocation/private scan/finalizer
+  仍开放。`Typed.check` 的 accepted-width duplicate/name lookup 仍是数组扫描，由
+  `TASK-A0-18` 跟踪。
+- Next：`TASK-A0-18` 先以宽但低于 Syntax limit 的唯一/重复/late-reference source 写失败验收，
+  再把 Typed duplicate/name resolution 改为单次 HashSet/HashMap index；不改变 target-neutral
+  semantic IDs、声明顺序或诊断。
+
 ## 记录模板
 
 ```markdown

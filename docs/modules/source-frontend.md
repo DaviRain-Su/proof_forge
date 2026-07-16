@@ -20,7 +20,9 @@ whitelist/checked decode → Source.Program`；直接 Lean 编译路径为 `Lean
 iterative Syntax preflight → shared decode validation → macro expansion → registered constant`。
 两路共享 100000 nodes、root-inclusive nesting 256 与 qualified identity components 256；
 预算按 program command 计算，不按整个 module 累计。CLI 路径不得 elaboration 或执行用户
-command；失败不得修改 environment extension。
+command；失败不得修改 environment extension。namespace scope 可以临时超过 256 components；
+Loader 此时只保存可恢复的 overflow state，不构造超限聚合 `Name`，并在退回合法 scope 后按
+最终 program identity 判定。
 
 parser 前置只有 CLI byte cap；Syntax/node/nesting budget 在 parser 成功后、递归 decoder 前
 验证，因此不保护 Lean parser。后置：payload schema v1、所有引用 span 有效、hash canonical。

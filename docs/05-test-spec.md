@@ -110,18 +110,22 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 
 - `TST-SRC-002` unit：显式构造 root-inclusive linear Syntax 256/257 与 wide Syntax
   100000/100001，验证 `≤ limit` 接受、`> limit` 返回
-  `CompileError.resourceBound` / `PF-BOUND-001`。expression、statement、item 和 program 的
-  公共 decoder 必须先使用同一 walker；qualified identity 256 components 接受、257 拒绝。
+  `CompileError.resourceBound` / `PF-BOUND-001`。type、parameter、expression、statement、item
+  和 program 的公共 decoder 必须先使用同一 walker；identifier 与 qualified identity
+  256 components 接受、257 拒绝。
 - `TST-SRC-002` loader integration：真实 300-term addition、20000-state wide source 与
-  namespace/qualified-name 256/257 边界必须稳定拒绝或接受；重复检查和 namespace tracking
-  不得重新引入输入相关 O(n²) scan。
+  namespace/qualified-name 256/257 边界必须稳定拒绝或接受；257 层瞬时 namespace 退回
+  255 层后声明的完整 256-component identity 必须恢复并接受。Loader 的重复检查、program
+  identity 和 namespace tracking 不得重新引入输入相关 O(n²) scan 或递归渲染超限 `Name`。
 - `just dsl-negative`：同一组生成的 namespace/deep/wide `.lean` 分别通过
   `lake env lean` command elaborator 和 `proof-forge-next build` CLI loader；两路超限都必须
-  含 `PF-BOUND-001`，恰好 256-component identity 两路都通过。CLI-only 16 MiB+1 source
-  必须在 parser 前以 `PF-SRC-INVALID` 拒绝且不创建 output。
+  返回相同 `PF-BOUND-001` 文本，恰好 256-component identity 与 transient unwind 两路都通过。
+  CLI-only 有效源码恰好 16 MiB 必须成功；16 MiB+1 必须在 parser 前以 `PF-SRC-INVALID`
+  拒绝且不创建 output。
 - 本切片不关闭 Lean parser fuzz/containment、module aggregate node policy、完整
   Diagnostic v1/NodeId/span、直接 `Source.Program` API bounds 或 `TST-BOUND-001`；后者仍专指
-  D2-03 的循环/递归 termination checker。
+  D2-03 的循环/递归 termination checker。accepted-width `Source.Program` 后续进入
+  `Typed.check` 时仍有数组式 duplicate/name lookup；其线性索引化由 `TASK-A0-18` 跟踪。
 
 ### EVM 通用 UInt64 lowering 首个验收切片
 

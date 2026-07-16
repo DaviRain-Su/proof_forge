@@ -123,10 +123,17 @@ depth 从 1 开始，沿 `Syntax.getArgs` 可达的 node、atom、identifier 与
 identity 和单个 identifier 也最多 256 个 `Name` components。恰好 100000/256 接受，
 100001/257 以 `PF-BOUND-001` 拒绝。
 
+namespace scope 的瞬时深度不是 program identity。CLI Loader 允许 scope 临时超过 256
+components，并以不构造超限聚合 `Name` 的可恢复状态跟踪；若随后退回 255 components 再声明
+单 component program，最终 256-component identity 必须与 Lean command 路径一致地接受。
+若 program 仍位于超限 scope 则拒绝。program Syntax 与 identity 同时超限时，两个入口都先
+返回 Syntax preflight 的诊断，再判断 identity。
+
 两条生产路径共享 `decodeProgramCommandChecked`：CLI 在 Lean parser 产出每个 program
 command 后预检，再 whitelist/decode；Lean command elaborator 在递归 decode 和
 `expandItem/expandExpr` 前预检。CLI 另在调用 Lean parser 前执行 16 MiB source-byte 上限，
-该上限当前返回 `PF-SRC-INVALID`；直接 `lake env lean` 的 command 路径没有这项 CLI 文件上限。
+该上限当前返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受，16 MiB+1 拒绝。直接
+`lake env lean` 的 command 路径没有这项 CLI 文件上限。
 
 这个边界不保护 Lean parser 本身，不是多 program module 的累计 node 上限，也不约束直接
 构造 `Source.Program` 后调用 compiler API 的代码。parser fuzz、parser 进程 time/memory
