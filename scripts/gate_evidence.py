@@ -1618,8 +1618,8 @@ def _sample_document(*, formal: bool = False) -> dict[str, object]:
         "command": {
             "argv": ["scripts/verify_isolation.sh"],
             "cwdRelative": ".",
-            "startedUtc": "2026-07-15T00:00:00.000Z",
-            "endedUtc": "2026-07-15T00:00:00.125Z",
+            "startedUtc": "2026-07-15T00:00:00Z",
+            "endedUtc": "2026-07-15T00:00:00Z",
             "durationMs": 125,
             "attempts": [
                 {
@@ -1748,6 +1748,9 @@ def self_test() -> None:
     formal = _sample_document(formal=True)
     validate_evidence(development)
     validate_evidence(formal)
+    fractional_utc = copy.deepcopy(development)
+    fractional_utc["command"]["endedUtc"] = "2026-07-15T00:00:00.125Z"  # type: ignore[index]
+    _expect_rejected("fractional UTC wire form", fractional_utc)
     _require_development_publish(development)
     _expect_rejected("formal publication without catalog finalizer", lambda: _require_development_publish(formal))
     encoded = canonical_bytes(development)
