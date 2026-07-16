@@ -170,6 +170,8 @@ def assert_public_api(module: ModuleType) -> None:
         "parse_candidate_identity",
         "parse_bootstrap_authority_policy",
         "parse_required_test_set",
+        "parse_phase5_snapshot_content",
+        "parse_document_bound_required_test_set",
         "verify_ed25519",
         "verifyBootstrapTaskObjects",
     )
@@ -186,6 +188,7 @@ def assert_public_api(module: ModuleType) -> None:
         "ApprovalSignatureV1",
         "NormativeDocumentRefV1",
         "RequiredTestSetV1",
+        "Phase5SnapshotContentV1",
         "BootstrapLedgerSubjectV1",
         "BootstrapDocumentSnapshotV1",
         "BootstrapTaskRowSubjectV1",
@@ -210,6 +213,34 @@ def assert_public_api(module: ModuleType) -> None:
         and parameter.default is inspect.Parameter.empty
         for parameter in required_set_parameters
     ), "required-set parser arguments must be exactly two required byte inputs"
+
+    snapshot_parameters = tuple(
+        inspect.signature(module.parse_phase5_snapshot_content).parameters.values()
+    )
+    assert tuple(parameter.name for parameter in snapshot_parameters) == (
+        "phase5_snapshot",
+    ), "Phase-5 snapshot parser must expose exactly one typed snapshot input"
+    assert all(
+        parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        and parameter.default is inspect.Parameter.empty
+        for parameter in snapshot_parameters
+    ), "Phase-5 snapshot parser argument must be required"
+
+    document_bound_parameters = tuple(
+        inspect.signature(
+            module.parse_document_bound_required_test_set
+        ).parameters.values()
+    )
+    assert tuple(parameter.name for parameter in document_bound_parameters) == (
+        "required_bytes",
+        "authority_policy_bytes",
+        "phase5_snapshot",
+    ), "document-bound parser must not expose expected refs, IDs, or selectors"
+    assert all(
+        parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        and parameter.default is inspect.Parameter.empty
+        for parameter in document_bound_parameters
+    ), "document-bound parser arguments must be exactly three required inputs"
 
     expected_fields = {
         "Digest": ("algorithm", "bytes"),
@@ -259,6 +290,7 @@ def assert_public_api(module: ModuleType) -> None:
             "requiredTestIds",
             "signatures",
         ),
+        "Phase5SnapshotContentV1": ("document", "requiredTestIds"),
         "BootstrapLedgerSubjectV1": (
             "id", "taskId", "testIds", "grade", "result",
         ),
@@ -887,6 +919,358 @@ def resign_required_test_set_wire(
     return resigned
 
 
+FROZEN_PHASE5_A0_IDS = tuple(
+    f"TST-A0-{index:03d}" for index in range(1, 21)
+)
+PHASE5_REQUIRED_IDS = (
+    "TST-BOOTSTRAP-001",
+    "TST-DOC-001",
+    "TST-EVIDENCE-001",
+)
+PHASE5_FRONTMATTER = {
+    "id": "PHASE-5",
+    "title": "Synthetic Phase 5 acceptance",
+    "status": "accepted",
+    "owner": "quality",
+    "updated": "2026-07-16",
+    "normative": "true",
+    "approvers": "principal-quality, principal-security",
+    "approvedAt": "2026-07-16",
+    "reviewCommit": "a" * 40,
+    "reviewLink": "https://review.example/phase-5:443/approval",
+    "openFindings": "none",
+}
+
+
+def phase5_snapshot_bytes(
+    *,
+    required_ids: tuple[str, ...] = PHASE5_REQUIRED_IDS,
+    catalog_ids: tuple[str, ...] | None = None,
+    metadata: dict[str, str] | None = None,
+) -> bytes:
+    """Build the strict synthetic PHASE-5 authority snapshot."""
+    frontmatter = dict(PHASE5_FRONTMATTER if metadata is None else metadata)
+    ids = catalog_ids
+    if ids is None:
+        # Source order is intentionally non-canonical; the parser owns sorting.
+        ids = tuple(reversed(required_ids)) + tuple(reversed(FROZEN_PHASE5_A0_IDS))
+    lines = ["---"]
+    lines.extend(f"{key}: {value}" for key, value in frontmatter.items())
+    lines.extend((
+        "---",
+        "# Phase 5 synthetic authority fixture",
+        "",
+        "## 完整 Test ID Catalog",
+        "",
+        "| ID | 测试对象 |",
+        "|---|---|",
+    ))
+    lines.extend(f"| {test_id} | fixture for {test_id} |" for test_id in ids)
+    lines.extend((
+        "",
+        "### Phase 1 required-set 分母",
+        "",
+        "Synthetic denominator prose.",
+    ))
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def make_phase5_snapshot(
+    module: ModuleType,
+    *,
+    required_ids: tuple[str, ...] = PHASE5_REQUIRED_IDS,
+    catalog_ids: tuple[str, ...] | None = None,
+    metadata: dict[str, str] | None = None,
+    encoded: bytes | None = None,
+    identifier: str = "PHASE-5",
+    path: str = "docs/05-test-spec.md",
+) -> object:
+    return module.BootstrapDocumentSnapshotV1(
+        id=identifier,
+        path=path,
+        bytes=(
+            phase5_snapshot_bytes(
+                required_ids=required_ids,
+                catalog_ids=catalog_ids,
+                metadata=metadata,
+            )
+            if encoded is None else encoded
+        ),
+    )
+
+
+def expected_phase5_document_wire(
+    snapshot: object,
+    metadata: dict[str, str] | None = None,
+) -> dict:
+    frontmatter = PHASE5_FRONTMATTER if metadata is None else metadata
+    encoded = getattr(snapshot, "bytes")
+    digest = hashlib.sha256(
+        b"pf.normative-document.v1\x00PHASE-5\x00" + encoded
+    ).digest()
+    return {
+        "id": "PHASE-5",
+        "contentDigest": digest_text(digest),
+        "status": "accepted",
+        "reviewCommit": frontmatter["reviewCommit"],
+        "reviewLink": frontmatter["reviewLink"],
+        "approvedAt": frontmatter["approvedAt"],
+        "approvers": frontmatter["approvers"].split(", "),
+    }
+
+
+def signed_document_bound_required_set(
+    module: ModuleType,
+    policy_ref: object,
+    snapshot: object,
+    *,
+    required_ids: tuple[str, ...] = PHASE5_REQUIRED_IDS,
+    document_overrides: dict[str, object] | None = None,
+) -> dict:
+    statement = required_test_set_statement(policy_ref)
+    document = expected_phase5_document_wire(snapshot)
+    if document_overrides:
+        document.update(document_overrides)
+    statement["phase5Document"] = document
+    statement["requiredTestIds"] = sorted(required_ids)
+    wire, _, _ = sign_required_test_set_statement(module, statement)
+    return wire
+
+
+def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
+    policy_bytes = module.canonical_pf_jcs(valid_bootstrap_authority_policy())
+    _, policy_ref = module.parse_bootstrap_authority_policy(policy_bytes)
+    snapshot = make_phase5_snapshot(module)
+
+    parsed_content = module.parse_phase5_snapshot_content(snapshot)
+    expected_document_wire = expected_phase5_document_wire(snapshot)
+    expected_document = module.NormativeDocumentRefV1(
+        "PHASE-5",
+        module.parse_digest(expected_document_wire["contentDigest"]),
+        "accepted",
+        PHASE5_FRONTMATTER["reviewCommit"],
+        PHASE5_FRONTMATTER["reviewLink"],
+        PHASE5_FRONTMATTER["approvedAt"],
+        tuple(PHASE5_FRONTMATTER["approvers"].split(", ")),
+    )
+    assert parsed_content == module.Phase5SnapshotContentV1(
+        expected_document,
+        tuple(sorted(PHASE5_REQUIRED_IDS)),
+    ), "snapshot parser must derive the exact document ref and sorted denominator"
+    reordered_metadata = dict(reversed(tuple(PHASE5_FRONTMATTER.items())))
+    reordered_snapshot = make_phase5_snapshot(module, metadata=reordered_metadata)
+    reordered_content = module.parse_phase5_snapshot_content(reordered_snapshot)
+    assert reordered_content.requiredTestIds == tuple(sorted(PHASE5_REQUIRED_IDS))
+    assert reordered_content.document.reviewLink == PHASE5_FRONTMATTER["reviewLink"], (
+        "frontmatter key declaration order must not affect scalar decoding"
+    )
+
+    required_wire = signed_document_bound_required_set(
+        module, policy_ref, snapshot
+    )
+    required_bytes = module.canonical_pf_jcs(required_wire)
+    standalone = module.parse_required_test_set(required_bytes, policy_bytes)
+    document_bound = module.parse_document_bound_required_test_set(
+        required_bytes, policy_bytes, snapshot
+    )
+    assert document_bound == standalone, (
+        "document-bound positive must return the fully signed object/ref pair"
+    )
+
+    class ForgedSnapshot(module.BootstrapDocumentSnapshotV1):
+        pass
+
+    for label, invalid_snapshot in (
+        ("untyped snapshot", {"id": "PHASE-5"}),
+        (
+            "snapshot subclass",
+            ForgedSnapshot(snapshot.id, snapshot.path, snapshot.bytes),
+        ),
+        ("wrong snapshot ID", dataclasses.replace(snapshot, id="PHASE-4")),
+        (
+            "wrong snapshot path",
+            dataclasses.replace(snapshot, path="docs/phase-5.md"),
+        ),
+        ("empty snapshot", dataclasses.replace(snapshot, bytes=b"")),
+        (
+            "snapshot over 4 MiB",
+            dataclasses.replace(snapshot, bytes=b"x" * (4 * 1024 * 1024 + 1)),
+        ),
+        ("UTF-8 BOM", dataclasses.replace(snapshot, bytes=b"\xef\xbb\xbf" + snapshot.bytes)),
+        ("NUL byte", dataclasses.replace(snapshot, bytes=snapshot.bytes + b"\x00\n")),
+        ("CR byte", dataclasses.replace(snapshot, bytes=snapshot.bytes.replace(b"\n", b"\r\n", 1))),
+        ("invalid UTF-8", dataclasses.replace(snapshot, bytes=snapshot.bytes + b"\xff\n")),
+        ("missing final LF", dataclasses.replace(snapshot, bytes=snapshot.bytes[:-1])),
+    ):
+        assert_rejected(
+            module,
+            lambda invalid_snapshot=invalid_snapshot: (
+                module.parse_phase5_snapshot_content(invalid_snapshot)
+            ),
+        )
+
+    snapshot_mutations = []
+    for label, old, new in (
+        ("missing opening delimiter", b"---\n", b""),
+        ("noncanonical scalar delimiter", b"title: Synthetic", b"title:  Synthetic"),
+        ("wrong accepted status", b"status: accepted", b"status: proposed"),
+        ("wrong normative flag", b"normative: true", b"normative: false"),
+        ("open finding", b"openFindings: none", b"openFindings: P1"),
+        (
+            "noncanonical approver delimiter",
+            b"principal-quality, principal-security",
+            b"principal-quality,principal-security",
+        ),
+        ("missing catalog heading", "## 完整 Test ID Catalog".encode(), b"## Missing"),
+        ("wrong table delimiter", b"|---|---|", b"|:---|---:|"),
+        (
+            "extra table cell",
+            b"| TST-DOC-001 | fixture for TST-DOC-001 |",
+            b"| TST-DOC-001 | fixture for TST-DOC-001 | extra |",
+        ),
+        (
+            "empty description",
+            b"| TST-DOC-001 | fixture for TST-DOC-001 |",
+            b"| TST-DOC-001 |  |",
+        ),
+        (
+            "missing frozen A0 ID",
+            b"| TST-A0-020 | fixture for TST-A0-020 |\n",
+            b"",
+        ),
+        (
+            "wildcard ID",
+            b"| TST-DOC-001 | fixture for TST-DOC-001 |",
+            b"| TST-* | wildcard |",
+        ),
+    ):
+        assert old in snapshot.bytes, f"fixture mutation {label} must match once"
+        snapshot_mutations.append((
+            label,
+            dataclasses.replace(snapshot, bytes=snapshot.bytes.replace(old, new, 1)),
+        ))
+
+    duplicate_frontmatter = snapshot.bytes.replace(
+        b"owner: quality\n", b"owner: quality\nowner: security\n", 1
+    )
+    unknown_frontmatter = snapshot.bytes.replace(
+        b"owner: quality\n", b"owner: quality\nfutureField: no\n", 1
+    )
+    duplicate_heading = snapshot.bytes.replace(
+        "## 完整 Test ID Catalog\n".encode(),
+        "```\n## 完整 Test ID Catalog\n```\n## 完整 Test ID Catalog\n".encode(),
+        1,
+    )
+    duplicate_id = snapshot.bytes.replace(
+        b"| TST-DOC-001 | fixture for TST-DOC-001 |\n",
+        b"| TST-DOC-001 | fixture for TST-DOC-001 |\n"
+        b"| TST-DOC-001 | duplicate |\n",
+        1,
+    )
+    extra_a0 = snapshot.bytes.replace(
+        b"|---|---|\n",
+        b"|---|---|\n| TST-A0-021 | forbidden A0 |\n",
+        1,
+    )
+    snapshot_mutations.extend((
+        ("duplicate frontmatter key", dataclasses.replace(snapshot, bytes=duplicate_frontmatter)),
+        ("unknown frontmatter key", dataclasses.replace(snapshot, bytes=unknown_frontmatter)),
+        ("duplicate heading even inside fence", dataclasses.replace(snapshot, bytes=duplicate_heading)),
+        ("duplicate catalog ID", dataclasses.replace(snapshot, bytes=duplicate_id)),
+        ("extra A0 form", dataclasses.replace(snapshot, bytes=extra_a0)),
+    ))
+    for label, invalid_snapshot in snapshot_mutations:
+        assert_rejected(
+            module,
+            lambda invalid_snapshot=invalid_snapshot: (
+                module.parse_phase5_snapshot_content(invalid_snapshot)
+            ),
+        )
+
+    mismatch_wires = []
+    wrong_digest = signed_document_bound_required_set(
+        module,
+        policy_ref,
+        snapshot,
+        document_overrides={"contentDigest": digest_text(bytes(32))},
+    )
+    mismatch_wires.append(("document digest mismatch", wrong_digest))
+    wrong_review = signed_document_bound_required_set(
+        module,
+        policy_ref,
+        snapshot,
+        document_overrides={"reviewLink": "https://review.example/other"},
+    )
+    mismatch_wires.append(("frontmatter metadata mismatch", wrong_review))
+    missing_id = signed_document_bound_required_set(
+        module, policy_ref, snapshot, required_ids=PHASE5_REQUIRED_IDS[:-1]
+    )
+    mismatch_wires.append(("signed denominator missing ID", missing_id))
+    extra_id = signed_document_bound_required_set(
+        module,
+        policy_ref,
+        snapshot,
+        required_ids=PHASE5_REQUIRED_IDS + ("TST-ISO-002",),
+    )
+    mismatch_wires.append(("signed denominator extra ID", extra_id))
+    reordered = copy.deepcopy(required_wire)
+    reordered["requiredTestIds"].reverse()
+    reordered = resign_required_test_set_wire(module, reordered)
+    mismatch_wires.append(("signed denominator reordered", reordered))
+
+    for label, mismatch_wire in mismatch_wires[:-1]:
+        parsed_mismatch, _ = module.parse_required_test_set(
+            module.canonical_pf_jcs(mismatch_wire), policy_bytes
+        )
+        assert isinstance(parsed_mismatch, module.RequiredTestSetV1), (
+            f"{label} must be a valid signed intermediate before the document join"
+        )
+
+    original_verify_ed25519 = module.verify_ed25519
+    signature_curve_calls = 0
+
+    def counted_verify_ed25519(
+        public_key: bytes, message: bytes, signature: bytes
+    ) -> bool:
+        del public_key, message, signature
+        nonlocal signature_curve_calls
+        signature_curve_calls += 1
+        return True
+
+    module.verify_ed25519 = counted_verify_ed25519
+    try:
+        malformed_snapshot = dataclasses.replace(
+            snapshot, bytes=snapshot.bytes.replace(b"|---|---|", b"|--|---|", 1)
+        )
+        signature_curve_calls = 0
+        assert_rejected(
+            module,
+            lambda: module.parse_document_bound_required_test_set(
+                required_bytes, policy_bytes, malformed_snapshot
+            ),
+        )
+        assert signature_curve_calls == 0, (
+            "malformed snapshot must reject before RequiredTestSet signature work"
+        )
+        for label, mismatch_wire in mismatch_wires:
+            signature_curve_calls = 0
+            assert_rejected(
+                module,
+                lambda mismatch_wire=mismatch_wire: (
+                    module.parse_document_bound_required_test_set(
+                        module.canonical_pf_jcs(mismatch_wire),
+                        policy_bytes,
+                        snapshot,
+                    )
+                ),
+            )
+            assert signature_curve_calls == 0, (
+                f"{label} must reject during structural join before signature work"
+            )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+
+
 def test_required_test_set(module: ModuleType) -> None:
     policy_wire = valid_bootstrap_authority_policy()
     policy_bytes = module.canonical_pf_jcs(policy_wire)
@@ -1203,6 +1587,10 @@ def test_required_test_set(module: ModuleType) -> None:
     development_a0_id = copy.deepcopy(wire)
     development_a0_id["requiredTestIds"][0] = "TST-A0-001"
     mutations.append(("development A0 ID in formal required set", development_a0_id))
+
+    nonnumeric_a0_id = copy.deepcopy(wire)
+    nonnumeric_a0_id["requiredTestIds"][0] = "TST-A0-XYZ"
+    mutations.append(("nonnumeric A0-prefixed formal ID", nonnumeric_a0_id))
 
     missing_signatures = copy.deepcopy(wire)
     del missing_signatures["signatures"]
@@ -1643,6 +2031,7 @@ def main() -> int:
         test_pf_jcs(module)
         test_bootstrap_authority_policy(module)
         test_required_test_set(module)
+        test_phase5_snapshot_and_document_bound_join(module)
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_and_missing_root_bytes(module, candidate)
