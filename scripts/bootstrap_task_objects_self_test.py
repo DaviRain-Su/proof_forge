@@ -60,6 +60,10 @@ RFC_8032_SEEDS_BY_KEY_ID = {
         "8160cc583bc013744c6bf255f5cc0ee5"
     ),
 }
+RFC_8032_RECEIPT_SEED = bytes.fromhex(
+    "833fe62409237b9d62ec77587520911e"
+    "9a759cec1d19755b7da901b96dca3d42"
+)
 ED25519_BASEPOINT = "58" + "66" * 31
 ED25519_MIXED_ORDER_POINT = "95" + "99" * 31
 
@@ -173,6 +177,7 @@ def assert_public_api(module: ModuleType) -> None:
         "parse_phase5_snapshot_content",
         "parse_document_bound_required_test_set",
         "parse_task_approval",
+        "parse_bootstrap_task_verifier_receipt",
         "verify_ed25519",
         "verifyBootstrapTaskObjects",
     )
@@ -195,6 +200,11 @@ def assert_public_api(module: ModuleType) -> None:
         "BootstrapTaskVerifierReceiptRefV1",
         "IndependentReviewRefV1",
         "TaskApprovalV1",
+        "Stage0ChannelV1",
+        "EligibleStage0TcbV1",
+        "EligibleStage0EnvironmentV1",
+        "EligibleStage0HandoffV1",
+        "BootstrapTaskVerifierReceiptV1",
         "BootstrapLedgerSubjectV1",
         "BootstrapDocumentSnapshotV1",
         "BootstrapTaskRowSubjectV1",
@@ -262,6 +272,25 @@ def assert_public_api(module: ModuleType) -> None:
         and parameter.default is inspect.Parameter.empty
         for parameter in task_approval_parameters
     ), "task-approval parser arguments must be exactly four required inputs"
+
+    task_receipt_parameters = tuple(
+        inspect.signature(
+            module.parse_bootstrap_task_verifier_receipt
+        ).parameters.values()
+    )
+    assert tuple(parameter.name for parameter in task_receipt_parameters) == (
+        "task_receipt_bytes",
+        "task_approval_bytes",
+        "required_test_set_bytes",
+        "authority_policy_bytes",
+        "phase5_snapshot",
+        "stage0_handoff_bytes",
+    ), "task-receipt parser must expose exactly six authoritative inputs"
+    assert all(
+        parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        and parameter.default is inspect.Parameter.empty
+        for parameter in task_receipt_parameters
+    ), "task-receipt parser arguments must be exactly six required inputs"
 
     expected_fields = {
         "Digest": ("algorithm", "bytes"),
@@ -337,6 +366,50 @@ def assert_public_api(module: ModuleType) -> None:
             "stage0Handoff",
             "independentReviews",
             "signatures",
+        ),
+        "Stage0ChannelV1": (
+            "role", "fd", "transport", "access", "bindingDigest",
+        ),
+        "EligibleStage0TcbV1": (
+            "stage0VerifierDigest",
+            "bootstrapVerifierDigest",
+            "continuationDigest",
+            "formalFinalizerDigest",
+        ),
+        "EligibleStage0EnvironmentV1": (
+            "mode", "home", "path", "lcAll", "tz", "network",
+        ),
+        "EligibleStage0HandoffV1": (
+            "schema",
+            "id",
+            "version",
+            "runId",
+            "nonce",
+            "candidate",
+            "authorityPolicy",
+            "authorityStoreService",
+            "hostObservation",
+            "hostProfile",
+            "eligible",
+            "tcb",
+            "environment",
+            "channels",
+            "pathnameReopen",
+            "fallback",
+        ),
+        "BootstrapTaskVerifierReceiptV1": (
+            "schema",
+            "id",
+            "taskId",
+            "candidate",
+            "authorityPolicy",
+            "requiredTestSet",
+            "taskApproval",
+            "stage0Handoff",
+            "dependencyCompletions",
+            "verifierDigest",
+            "result",
+            "signature",
         ),
         "BootstrapLedgerSubjectV1": (
             "id", "taskId", "testIds", "grade", "result",
@@ -1235,6 +1308,255 @@ def resign_task_approval_wire(
         module, statement, signer_key_ids
     )
     return resigned
+
+
+def eligible_stage0_handoff_wire(
+    module: ModuleType,
+    policy_wire: dict,
+    policy_ref: object,
+    candidate: dict,
+) -> dict:
+    policy_ref_wire = content_ref_wire(policy_ref)
+    store_ref = copy.deepcopy(policy_wire["authorityStoreService"])
+    return {
+        "schema": "proof-forge.eligible-stage0-handoff.v1",
+        "id": "task-d0-01-stage0-handoff",
+        "version": "1.0.0",
+        "runId": "task-d0-01-run-20260717-0001",
+        "nonce": "70" * 32,
+        "candidate": copy.deepcopy(candidate),
+        "authorityPolicy": policy_ref_wire,
+        "authorityStoreService": store_ref,
+        "hostObservation": {
+            "schema": "proof-forge.host-observation.v1",
+            "id": "eligible-host-observation",
+            "version": "1.0.0",
+            "digest": digest_text(bytes.fromhex("71" * 32)),
+        },
+        "hostProfile": {
+            "schema": "proof-forge.host-profile.v1",
+            "id": "eligible-host-profile",
+            "version": "1.0.0",
+            "digest": digest_text(bytes.fromhex("72" * 32)),
+        },
+        "eligible": True,
+        "tcb": {
+            "stage0VerifierDigest": digest_text(bytes.fromhex("73" * 32)),
+            "bootstrapVerifierDigest": policy_wire["verifier"]["executableDigest"],
+            "continuationDigest": digest_text(bytes.fromhex("74" * 32)),
+            "formalFinalizerDigest": digest_text(bytes.fromhex("75" * 32)),
+        },
+        "environment": {
+            "mode": "env-i",
+            "home": "/var/empty",
+            "path": "/usr/bin:/bin",
+            "lcAll": "C",
+            "tz": "UTC",
+            "network": "deny-default",
+        },
+        "channels": [
+            {
+                "role": "authority-policy",
+                "fd": 3,
+                "transport": "regular-file",
+                "access": "read-only",
+                "bindingDigest": policy_ref_wire["digest"],
+            },
+            {
+                "role": "authority-store",
+                "fd": 4,
+                "transport": "authenticated-stream",
+                "access": "request-response",
+                "bindingDigest": store_ref["digest"],
+            },
+            {
+                "role": "candidate-archive",
+                "fd": 5,
+                "transport": "regular-file",
+                "access": "read-only",
+                "bindingDigest": candidate["archiveDigest"],
+            },
+            {
+                "role": "evidence-root",
+                "fd": 6,
+                "transport": "regular-file",
+                "access": "read-only",
+                "bindingDigest": digest_text(bytes.fromhex("76" * 32)),
+            },
+        ],
+        "pathnameReopen": False,
+        "fallback": "none",
+    }
+
+
+def eligible_stage0_handoff_ref_wire(
+    module: ModuleType,
+    handoff_wire: dict,
+    handoff_bytes: bytes,
+) -> dict:
+    return {
+        "schema": handoff_wire["schema"],
+        "id": handoff_wire["id"],
+        "version": handoff_wire["version"],
+        "digest": digest_text(hashlib.sha256(
+            b"pf.eligible-stage0-handoff.v1\x00" + handoff_bytes
+        ).digest()),
+    }
+
+
+def bootstrap_task_receipt_ref_wire(
+    module: ModuleType,
+    task_id: str,
+    receipt_id: str,
+    receipt_bytes: bytes,
+) -> dict:
+    return {
+        "taskId": task_id,
+        "id": receipt_id,
+        "digest": digest_text(hashlib.sha256(
+            b"pf.bootstrap-task-verifier-receipt.v1\x00" + receipt_bytes
+        ).digest()),
+    }
+
+
+def sign_bootstrap_task_receipt_statement(
+    module: ModuleType,
+    statement: dict,
+    *,
+    key_id: str = "key-verifier-receipt",
+    seed: bytes = RFC_8032_RECEIPT_SEED,
+) -> tuple[dict, bytes, bytes]:
+    statement = copy.deepcopy(statement)
+    assert "signature" not in statement, "signer accepts the unsigned statement"
+    statement_digest = hashlib.sha256(
+        b"pf.bootstrap-task-verifier-receipt-statement.v1\x00"
+        + module.canonical_pf_jcs(statement)
+    ).digest()
+    signature_message = (
+        b"pf.bootstrap-task-verifier-receipt-signature.v1\x00"
+        + statement_digest
+    )
+    public_key, signature = ed25519_sign_from_rfc_seed(seed, signature_message)
+    assert public_key.hex() == RFC_8032_PUBLIC_KEYS[4], (
+        "receipt signer seed must reproduce the policy receipt public key"
+    )
+    wire = dict(statement)
+    wire["signature"] = {
+        "keyId": key_id,
+        "algorithm": "ed25519",
+        "signature": signature.hex(),
+    }
+    return wire, statement_digest, signature_message
+
+
+def resign_bootstrap_task_receipt_wire(
+    module: ModuleType,
+    wire: dict,
+    *,
+    key_id: str = "key-verifier-receipt",
+) -> dict:
+    statement = copy.deepcopy(wire)
+    statement.pop("signature", None)
+    resigned, _, _ = sign_bootstrap_task_receipt_statement(
+        module, statement, key_id=key_id
+    )
+    return resigned
+
+
+def dependency_receipt_refs(count: int) -> list[dict]:
+    return [
+        {
+            "taskId": f"TASK-D0-0{index}",
+            "id": f"BTV-20260717-{index:04d}",
+            "digest": digest_text(bytes([0x80 + index]) * 32),
+        }
+        for index in range(2, 2 + count)
+    ]
+
+
+def signed_task_receipt_fixture(
+    module: ModuleType,
+    *,
+    dependency_completions: tuple[dict, ...] = (),
+    mutate_handoff: Callable[[dict], None] | None = None,
+) -> dict[str, object]:
+    policy_wire = valid_bootstrap_authority_policy()
+    policy_bytes = module.canonical_pf_jcs(policy_wire)
+    _, policy_ref = module.parse_bootstrap_authority_policy(policy_bytes)
+    phase5_snapshot = make_phase5_snapshot(module)
+    required_wire = signed_document_bound_required_set(
+        module, policy_ref, phase5_snapshot
+    )
+    required_bytes = module.canonical_pf_jcs(required_wire)
+    candidate = candidate_identity_wire(module)
+    handoff_wire = eligible_stage0_handoff_wire(
+        module, policy_wire, policy_ref, candidate
+    )
+    if mutate_handoff is not None:
+        mutate_handoff(handoff_wire)
+    handoff_bytes = module.canonical_pf_jcs(handoff_wire)
+    handoff_ref = eligible_stage0_handoff_ref_wire(
+        module, handoff_wire, handoff_bytes
+    )
+
+    approval_statement = task_approval_statement(
+        module, policy_ref, required_bytes
+    )
+    approval_statement["candidate"] = copy.deepcopy(candidate)
+    approval_statement["stage0Handoff"] = handoff_ref
+    approval_statement["dependencyCompletions"] = copy.deepcopy(
+        list(dependency_completions)
+    )
+    approval_wire, approval_statement_digest, approval_signature_message = (
+        sign_task_approval_statement(module, approval_statement)
+    )
+    approval_bytes = module.canonical_pf_jcs(approval_wire)
+    approval_ref = {
+        "taskId": approval_wire["taskId"],
+        "digest": digest_text(hashlib.sha256(
+            b"pf.bootstrap-task-approval.v1\x00" + approval_bytes
+        ).digest()),
+    }
+    receipt_statement = {
+        "schema": "proof-forge.bootstrap-task-verifier-receipt.v1",
+        "id": "BTV-20260717-0001",
+        "taskId": approval_wire["taskId"],
+        "candidate": copy.deepcopy(candidate),
+        "authorityPolicy": content_ref_wire(policy_ref),
+        "requiredTestSet": task_approval_required_set_ref(
+            module, required_bytes
+        ),
+        "taskApproval": approval_ref,
+        "stage0Handoff": handoff_ref,
+        "dependencyCompletions": copy.deepcopy(list(dependency_completions)),
+        "verifierDigest": policy_wire["verifier"]["executableDigest"],
+        "result": "task-approved",
+    }
+    receipt_wire, receipt_statement_digest, receipt_signature_message = (
+        sign_bootstrap_task_receipt_statement(module, receipt_statement)
+    )
+    return {
+        "policyWire": policy_wire,
+        "policyBytes": policy_bytes,
+        "policyRef": policy_ref,
+        "phase5Snapshot": phase5_snapshot,
+        "requiredWire": required_wire,
+        "requiredBytes": required_bytes,
+        "candidate": candidate,
+        "handoffWire": handoff_wire,
+        "handoffBytes": handoff_bytes,
+        "handoffRef": handoff_ref,
+        "approvalStatement": approval_statement,
+        "approvalWire": approval_wire,
+        "approvalBytes": approval_bytes,
+        "approvalStatementDigest": approval_statement_digest,
+        "approvalSignatureMessage": approval_signature_message,
+        "receiptStatement": receipt_statement,
+        "receiptWire": receipt_wire,
+        "receiptBytes": module.canonical_pf_jcs(receipt_wire),
+        "receiptStatementDigest": receipt_statement_digest,
+        "receiptSignatureMessage": receipt_signature_message,
+    }
 
 
 def test_task_approval_exact_upper_and_sha256_identity(
@@ -3357,6 +3679,669 @@ def test_task_approval(module: ModuleType) -> None:
     )
 
 
+def test_bootstrap_task_verifier_receipt(module: ModuleType) -> None:
+    fixture = signed_task_receipt_fixture(module)
+    parsed, parsed_ref = module.parse_bootstrap_task_verifier_receipt(
+        fixture["receiptBytes"],
+        fixture["approvalBytes"],
+        fixture["requiredBytes"],
+        fixture["policyBytes"],
+        fixture["phase5Snapshot"],
+        fixture["handoffBytes"],
+    )
+    receipt_wire = fixture["receiptWire"]
+    assert isinstance(receipt_wire, dict)
+    expected_receipt = module.BootstrapTaskVerifierReceiptV1(
+        receipt_wire["schema"],
+        receipt_wire["id"],
+        receipt_wire["taskId"],
+        module.parse_candidate_identity(receipt_wire["candidate"]),
+        module.parse_content_ref(receipt_wire["authorityPolicy"]),
+        module.parse_content_ref(receipt_wire["requiredTestSet"]),
+        module.TaskApprovalRefV1(
+            receipt_wire["taskApproval"]["taskId"],
+            module.parse_digest(receipt_wire["taskApproval"]["digest"]),
+        ),
+        module.parse_content_ref(receipt_wire["stage0Handoff"]),
+        tuple(
+            module.BootstrapTaskVerifierReceiptRefV1(
+                dependency["taskId"],
+                dependency["id"],
+                module.parse_digest(dependency["digest"]),
+            )
+            for dependency in receipt_wire["dependencyCompletions"]
+        ),
+        module.parse_digest(receipt_wire["verifierDigest"]),
+        receipt_wire["result"],
+        module.ApprovalSignatureV1(
+            receipt_wire["signature"]["keyId"],
+            receipt_wire["signature"]["algorithm"],
+            bytes.fromhex(receipt_wire["signature"]["signature"]),
+        ),
+    )
+    receipt_bytes = fixture["receiptBytes"]
+    assert isinstance(receipt_bytes, bytes)
+    expected_ref_wire = bootstrap_task_receipt_ref_wire(
+        module, receipt_wire["taskId"], receipt_wire["id"], receipt_bytes
+    )
+    expected_ref = module.BootstrapTaskVerifierReceiptRefV1(
+        expected_ref_wire["taskId"],
+        expected_ref_wire["id"],
+        module.parse_digest(expected_ref_wire["digest"]),
+    )
+    assert parsed == expected_receipt, (
+        "task receipt positive must preserve every frozen typed field"
+    )
+    assert parsed_ref == expected_ref, (
+        "task receipt ref must use the full signed-object domain digest"
+    )
+
+    receipt_statement = fixture["receiptStatement"]
+    assert isinstance(receipt_statement, dict)
+    expected_statement_digest = hashlib.sha256(
+        b"pf.bootstrap-task-verifier-receipt-statement.v1\x00"
+        + module.canonical_pf_jcs(receipt_statement)
+    ).digest()
+    assert fixture["receiptStatementDigest"] == expected_statement_digest
+    assert fixture["receiptSignatureMessage"] == (
+        b"pf.bootstrap-task-verifier-receipt-signature.v1\x00"
+        + expected_statement_digest
+    )
+
+    five_dependency_fixture = signed_task_receipt_fixture(
+        module,
+        dependency_completions=tuple(dependency_receipt_refs(5)),
+    )
+    five_dependency_receipt, _ = module.parse_bootstrap_task_verifier_receipt(
+        five_dependency_fixture["receiptBytes"],
+        five_dependency_fixture["approvalBytes"],
+        five_dependency_fixture["requiredBytes"],
+        five_dependency_fixture["policyBytes"],
+        five_dependency_fixture["phase5Snapshot"],
+        five_dependency_fixture["handoffBytes"],
+    )
+    assert len(parsed.dependencyCompletions) == 0
+    assert len(five_dependency_receipt.dependencyCompletions) == 5, (
+        "task receipt dependencyCompletions bounds must include both 0 and 5"
+    )
+
+    malformed_receipt = copy.deepcopy(receipt_wire)
+    malformed_receipt["futureField"] = True
+    wrong_receipt_schema = copy.deepcopy(receipt_wire)
+    wrong_receipt_schema["schema"] = (
+        "proof-forge.bootstrap-task-verifier-receipt.v2"
+    )
+    wrong_receipt_schema = resign_bootstrap_task_receipt_wire(
+        module, wrong_receipt_schema
+    )
+    malformed_receipt_id = copy.deepcopy(receipt_wire)
+    malformed_receipt_id["id"] = "BTV-20260717-001"
+    malformed_receipt_id = resign_bootstrap_task_receipt_wire(
+        module, malformed_receipt_id
+    )
+    impossible_date_receipt = copy.deepcopy(receipt_wire)
+    impossible_date_receipt["id"] = "BTV-20260230-0001"
+    wrong_receipt_task = copy.deepcopy(receipt_wire)
+    wrong_receipt_task["taskId"] = "TASK-D0-02"
+    wrong_receipt_task = resign_bootstrap_task_receipt_wire(
+        module, wrong_receipt_task
+    )
+    malformed_signature = copy.deepcopy(receipt_wire)
+    malformed_signature["signature"]["signature"] = "00" * 63
+    unknown_signature_field = copy.deepcopy(receipt_wire)
+    unknown_signature_field["signature"]["futureField"] = True
+    unknown_task_approval_ref_field = copy.deepcopy(receipt_wire)
+    unknown_task_approval_ref_field["taskApproval"]["futureField"] = True
+    unknown_task_approval_ref_field = resign_bootstrap_task_receipt_wire(
+        module, unknown_task_approval_ref_field
+    )
+    wrong_signature_algorithm = copy.deepcopy(receipt_wire)
+    wrong_signature_algorithm["signature"]["algorithm"] = "ed25519ph"
+    wrong_result = copy.deepcopy(receipt_wire)
+    wrong_result["result"] = "task-rejected"
+    wrong_result = resign_bootstrap_task_receipt_wire(module, wrong_result)
+
+    malformed_approval = copy.deepcopy(fixture["approvalWire"])
+    malformed_approval["futureField"] = True
+
+    malformed_handoff = copy.deepcopy(fixture["handoffWire"])
+    malformed_handoff["futureField"] = True
+    reordered_channels = copy.deepcopy(fixture["handoffWire"])
+    reordered_channels["channels"][0], reordered_channels["channels"][1] = (
+        reordered_channels["channels"][1],
+        reordered_channels["channels"][0],
+    )
+    duplicate_channel_fd = copy.deepcopy(fixture["handoffWire"])
+    duplicate_channel_fd["channels"][1]["fd"] = (
+        duplicate_channel_fd["channels"][0]["fd"]
+    )
+    unknown_tcb_field = copy.deepcopy(fixture["handoffWire"])
+    unknown_tcb_field["tcb"]["futureField"] = True
+    unknown_environment_field = copy.deepcopy(fixture["handoffWire"])
+    unknown_environment_field["environment"]["futureField"] = True
+    unknown_channel_field = copy.deepcopy(fixture["handoffWire"])
+    unknown_channel_field["channels"][0]["futureField"] = True
+
+    different_handoff_candidate = copy.deepcopy(fixture["handoffWire"])
+    different_handoff_candidate["candidate"] = candidate_identity_wire(
+        module, "c" * 40
+    )
+    different_handoff_candidate["channels"][2]["bindingDigest"] = (
+        different_handoff_candidate["candidate"]["archiveDigest"]
+    )
+    different_handoff_policy = copy.deepcopy(fixture["handoffWire"])
+    different_handoff_policy["authorityPolicy"]["digest"] = digest_text(
+        bytes.fromhex("77" * 32)
+    )
+    different_handoff_policy["channels"][0]["bindingDigest"] = (
+        different_handoff_policy["authorityPolicy"]["digest"]
+    )
+    different_handoff_ref = copy.deepcopy(fixture["handoffWire"])
+    different_handoff_ref["nonce"] = "78" * 32
+
+    wrong_approval_handoff = copy.deepcopy(fixture["approvalWire"])
+    wrong_approval_handoff["stage0Handoff"]["digest"] = digest_text(
+        bytes.fromhex("79" * 32)
+    )
+    wrong_approval_handoff = resign_task_approval_wire(
+        module, wrong_approval_handoff
+    )
+
+    six_dependencies = copy.deepcopy(receipt_wire)
+    six_dependencies["dependencyCompletions"] = [
+        {
+            "taskId": f"TASK-D0-0{index}",
+            "id": f"BTV-20260717-{index:04d}",
+            "digest": digest_text(bytes([0x90 + index]) * 32),
+        }
+        for index in range(1, 7)
+    ]
+    five_dependency_wire = five_dependency_fixture["receiptWire"]
+    assert isinstance(five_dependency_wire, dict)
+    reordered_dependencies = copy.deepcopy(five_dependency_wire)
+    reordered_dependencies["dependencyCompletions"][0:2] = reversed(
+        reordered_dependencies["dependencyCompletions"][0:2]
+    )
+    duplicate_dependencies = copy.deepcopy(five_dependency_wire)
+    duplicate_dependencies["dependencyCompletions"][1] = copy.deepcopy(
+        duplicate_dependencies["dependencyCompletions"][0]
+    )
+    unknown_dependency_field = copy.deepcopy(five_dependency_wire)
+    unknown_dependency_field["dependencyCompletions"][0]["futureField"] = True
+    unknown_dependency_field = resign_bootstrap_task_receipt_wire(
+        module, unknown_dependency_field
+    )
+
+    zero_curve_cases = [
+        (
+            "malformed receipt closed field",
+            module.canonical_pf_jcs(malformed_receipt),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "wrong task receipt schema",
+            module.canonical_pf_jcs(wrong_receipt_schema),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "malformed task receipt ID grammar",
+            module.canonical_pf_jcs(malformed_receipt_id),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt ID contains an impossible Gregorian date",
+            module.canonical_pf_jcs(impossible_date_receipt),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt root taskId join",
+            module.canonical_pf_jcs(wrong_receipt_task),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "malformed singular receipt signature",
+            module.canonical_pf_jcs(malformed_signature),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "unknown singular receipt signature field",
+            module.canonical_pf_jcs(unknown_signature_field),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "unknown taskApproval ref field",
+            module.canonical_pf_jcs(unknown_task_approval_ref_field),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "wrong singular receipt signature algorithm",
+            module.canonical_pf_jcs(wrong_signature_algorithm),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "wrong task receipt result",
+            module.canonical_pf_jcs(wrong_result),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "malformed TaskApproval after receipt preflight",
+            fixture["receiptBytes"],
+            module.canonical_pf_jcs(malformed_approval),
+            fixture["handoffBytes"],
+        ),
+        (
+            "malformed raw handoff closed field",
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            module.canonical_pf_jcs(malformed_handoff),
+        ),
+        (
+            "handoff channel role order",
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            module.canonical_pf_jcs(reordered_channels),
+        ),
+        (
+            "handoff channel fd uniqueness",
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            module.canonical_pf_jcs(duplicate_channel_fd),
+        ),
+        (
+            "unknown handoff tcb field",
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            module.canonical_pf_jcs(unknown_tcb_field),
+        ),
+        (
+            "unknown handoff environment field",
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            module.canonical_pf_jcs(unknown_environment_field),
+        ),
+        (
+            "unknown handoff channel field",
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            module.canonical_pf_jcs(unknown_channel_field),
+        ),
+        (
+            "raw handoff candidate join",
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            module.canonical_pf_jcs(different_handoff_candidate),
+        ),
+        (
+            "raw handoff authority policy join",
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            module.canonical_pf_jcs(different_handoff_policy),
+        ),
+        (
+            "raw handoff ref join",
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            module.canonical_pf_jcs(different_handoff_ref),
+        ),
+        (
+            "TaskApproval handoff ref join",
+            fixture["receiptBytes"],
+            module.canonical_pf_jcs(wrong_approval_handoff),
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt dependency count above five",
+            module.canonical_pf_jcs(six_dependencies),
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt dependency order",
+            module.canonical_pf_jcs(reordered_dependencies),
+            five_dependency_fixture["approvalBytes"],
+            five_dependency_fixture["handoffBytes"],
+        ),
+        (
+            "receipt dependency duplicate",
+            module.canonical_pf_jcs(duplicate_dependencies),
+            five_dependency_fixture["approvalBytes"],
+            five_dependency_fixture["handoffBytes"],
+        ),
+        (
+            "unknown receipt dependency ref field",
+            module.canonical_pf_jcs(unknown_dependency_field),
+            five_dependency_fixture["approvalBytes"],
+            five_dependency_fixture["handoffBytes"],
+        ),
+    ]
+    for channel_index, channel_role in enumerate((
+        "authority-policy",
+        "authority-store",
+        "candidate-archive",
+        "evidence-root",
+    )):
+        for field, invalid_value in (
+            ("transport", "invalid-transport"),
+            ("access", "invalid-access"),
+        ):
+            invalid_channel = copy.deepcopy(fixture["handoffWire"])
+            assert isinstance(invalid_channel, dict)
+            invalid_channel["channels"][channel_index][field] = invalid_value
+            zero_curve_cases.append((
+                f"handoff {channel_role} wrong {field}",
+                fixture["receiptBytes"],
+                fixture["approvalBytes"],
+                module.canonical_pf_jcs(invalid_channel),
+            ))
+
+    def receipt_join_mutation(mutator: Callable[[dict], None]) -> bytes:
+        mutation = copy.deepcopy(receipt_wire)
+        mutator(mutation)
+        return module.canonical_pf_jcs(
+            resign_bootstrap_task_receipt_wire(module, mutation)
+        )
+
+    wrong_policy_ref = copy.deepcopy(receipt_wire["authorityPolicy"])
+    wrong_policy_ref["digest"] = digest_text(bytes.fromhex("a1" * 32))
+    wrong_required_ref = copy.deepcopy(receipt_wire["requiredTestSet"])
+    wrong_required_ref["digest"] = digest_text(bytes.fromhex("a2" * 32))
+    wrong_handoff_ref = copy.deepcopy(receipt_wire["stage0Handoff"])
+    wrong_handoff_ref["digest"] = digest_text(bytes.fromhex("a3" * 32))
+    wrong_task_approval_task = receipt_join_mutation(
+        lambda wire: wire["taskApproval"].__setitem__("taskId", "TASK-D0-02")
+    )
+    wrong_candidate = receipt_join_mutation(
+        lambda wire: wire.__setitem__(
+            "candidate", candidate_identity_wire(module, "c" * 40)
+        )
+    )
+    wrong_policy = receipt_join_mutation(
+        lambda wire: wire.__setitem__("authorityPolicy", wrong_policy_ref)
+    )
+    wrong_required = receipt_join_mutation(
+        lambda wire: wire.__setitem__("requiredTestSet", wrong_required_ref)
+    )
+    wrong_handoff = receipt_join_mutation(
+        lambda wire: wire.__setitem__("stage0Handoff", wrong_handoff_ref)
+    )
+    wrong_dependencies = receipt_join_mutation(
+        lambda wire: wire.__setitem__(
+            "dependencyCompletions", dependency_receipt_refs(1)
+        )
+    )
+    wrong_verifier = receipt_join_mutation(
+        lambda wire: wire.__setitem__(
+            "verifierDigest", digest_text(bytes.fromhex("a4" * 32))
+        )
+    )
+    wrong_receipt_key = module.canonical_pf_jcs(
+        resign_bootstrap_task_receipt_wire(
+            module, receipt_wire, key_id="key-quality"
+        )
+    )
+    zero_curve_cases.extend((
+        (
+            "receipt taskApproval.taskId join",
+            wrong_task_approval_task,
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt candidate join",
+            wrong_candidate,
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt authority policy join",
+            wrong_policy,
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt required-test-set join",
+            wrong_required,
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt stage0 handoff join",
+            wrong_handoff,
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt dependency join",
+            wrong_dependencies,
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "receipt verifier digest join",
+            wrong_verifier,
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+        (
+            "ordinary principal key cannot sign verifier receipt",
+            wrong_receipt_key,
+            fixture["approvalBytes"],
+            fixture["handoffBytes"],
+        ),
+    ))
+
+    def break_policy_channel_binding(handoff: dict) -> None:
+        handoff["channels"][0]["bindingDigest"] = digest_text(
+            bytes.fromhex("b1" * 32)
+        )
+
+    def break_bootstrap_verifier_pin(handoff: dict) -> None:
+        handoff["tcb"]["bootstrapVerifierDigest"] = digest_text(
+            bytes.fromhex("b2" * 32)
+        )
+
+    def break_authority_store_pin(handoff: dict) -> None:
+        wrong_store_digest = digest_text(bytes.fromhex("b3" * 32))
+        handoff["authorityStoreService"]["digest"] = wrong_store_digest
+        handoff["channels"][1]["bindingDigest"] = wrong_store_digest
+
+    def break_candidate_archive_binding(handoff: dict) -> None:
+        handoff["channels"][2]["bindingDigest"] = digest_text(
+            bytes.fromhex("b4" * 32)
+        )
+
+    def break_authority_store_channel_binding(handoff: dict) -> None:
+        handoff["channels"][1]["bindingDigest"] = digest_text(
+            bytes.fromhex("b5" * 32)
+        )
+
+    for label, mutator in (
+        ("authority-policy channel binding double pin", break_policy_channel_binding),
+        ("bootstrap verifier policy/handoff double pin", break_bootstrap_verifier_pin),
+        ("authority-store policy/handoff double pin", break_authority_store_pin),
+        ("candidate archive channel binding", break_candidate_archive_binding),
+        ("authority-store channel binding", break_authority_store_channel_binding),
+    ):
+        broken_fixture = signed_task_receipt_fixture(
+            module, mutate_handoff=mutator
+        )
+        zero_curve_cases.append((
+            label,
+            broken_fixture["receiptBytes"],
+            broken_fixture["approvalBytes"],
+            broken_fixture["handoffBytes"],
+        ))
+
+    original_verify_ed25519 = module.verify_ed25519
+    curve_calls = 0
+
+    def counted_verify_ed25519(
+        public_key: bytes, message: bytes, signature: bytes
+    ) -> bool:
+        del public_key, message, signature
+        nonlocal curve_calls
+        curve_calls += 1
+        return True
+
+    module.verify_ed25519 = counted_verify_ed25519
+    try:
+        for label, case_receipt, case_approval, case_handoff in zero_curve_cases:
+            curve_calls = 0
+            assert_rejected(
+                module,
+                lambda case_receipt=case_receipt,
+                case_approval=case_approval,
+                case_handoff=case_handoff: (
+                    module.parse_bootstrap_task_verifier_receipt(
+                        case_receipt,
+                        case_approval,
+                        fixture["requiredBytes"],
+                        fixture["policyBytes"],
+                        fixture["phase5Snapshot"],
+                        case_handoff,
+                    )
+                ),
+            )
+            assert curve_calls == 0, (
+                f"{label} must reject before RequiredTestSet, TaskApproval, "
+                "or receipt signature verification"
+            )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+
+    required_wire = fixture["requiredWire"]
+    assert isinstance(required_wire, dict)
+    required_statement = {
+        key: value for key, value in required_wire.items() if key != "signatures"
+    }
+    required_statement_digest = hashlib.sha256(
+        b"pf.required-test-set-statement.v1\x00"
+        + module.canonical_pf_jcs(required_statement)
+    ).digest()
+    required_signature_message = (
+        b"pf.required-test-set-signature.v1\x00" + required_statement_digest
+    )
+    approval_signature_message = fixture["approvalSignatureMessage"]
+    receipt_signature_message = fixture["receiptSignatureMessage"]
+
+    verification_messages = []
+    receipt_digest_after_curve_counts = []
+
+    def traced_verify_ed25519(
+        public_key: bytes, message: bytes, signature: bytes
+    ) -> bool:
+        verification_messages.append(message)
+        return original_verify_ed25519(public_key, message, signature)
+
+    original_sha256 = module.hashlib.sha256
+
+    def traced_sha256(data: bytes = b"") -> object:
+        if data.startswith(b"pf.bootstrap-task-verifier-receipt.v1\x00"):
+            receipt_digest_after_curve_counts.append(len(verification_messages))
+        return original_sha256(data)
+
+    module.verify_ed25519 = traced_verify_ed25519
+    module.hashlib.sha256 = traced_sha256
+    try:
+        module.parse_bootstrap_task_verifier_receipt(
+            fixture["receiptBytes"],
+            fixture["approvalBytes"],
+            fixture["requiredBytes"],
+            fixture["policyBytes"],
+            fixture["phase5Snapshot"],
+            fixture["handoffBytes"],
+        )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+        module.hashlib.sha256 = original_sha256
+    assert verification_messages == (
+        [required_signature_message, required_signature_message]
+        + [approval_signature_message, approval_signature_message]
+        + [receipt_signature_message]
+    ), (
+        "signature work must be ordered RequiredTestSet, TaskApproval, then receipt"
+    )
+    assert receipt_digest_after_curve_counts == [5], (
+        "full receipt digest must be computed exactly once after every signature"
+    )
+
+    wrong_approval_digest = copy.deepcopy(receipt_wire)
+    wrong_approval_digest["taskApproval"]["digest"] = digest_text(
+        bytes.fromhex("c1" * 32)
+    )
+    wrong_approval_digest = resign_bootstrap_task_receipt_wire(
+        module, wrong_approval_digest
+    )
+    verification_messages = []
+    module.verify_ed25519 = traced_verify_ed25519
+    try:
+        assert_rejected(
+            module,
+            lambda: module.parse_bootstrap_task_verifier_receipt(
+                module.canonical_pf_jcs(wrong_approval_digest),
+                fixture["approvalBytes"],
+                fixture["requiredBytes"],
+                fixture["policyBytes"],
+                fixture["phase5Snapshot"],
+                fixture["handoffBytes"],
+            ),
+        )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+    assert verification_messages == (
+        [required_signature_message, required_signature_message]
+        + [approval_signature_message, approval_signature_message]
+    ), (
+        "wrong approval digest must reject after approval finalize and before "
+        "receipt curve work"
+    )
+
+    bad_receipt_signature = copy.deepcopy(receipt_wire)
+    encoded_signature = bytes.fromhex(
+        bad_receipt_signature["signature"]["signature"]
+    )
+    bad_receipt_signature["signature"]["signature"] = (
+        bytes([encoded_signature[0] ^ 1]) + encoded_signature[1:]
+    ).hex()
+    verification_messages = []
+    receipt_digest_after_curve_counts = []
+    module.verify_ed25519 = traced_verify_ed25519
+    module.hashlib.sha256 = traced_sha256
+    try:
+        assert_rejected(
+            module,
+            lambda: module.parse_bootstrap_task_verifier_receipt(
+                module.canonical_pf_jcs(bad_receipt_signature),
+                fixture["approvalBytes"],
+                fixture["requiredBytes"],
+                fixture["policyBytes"],
+                fixture["phase5Snapshot"],
+                fixture["handoffBytes"],
+            ),
+        )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+        module.hashlib.sha256 = original_sha256
+    assert verification_messages == (
+        [required_signature_message, required_signature_message]
+        + [approval_signature_message, approval_signature_message]
+        + [receipt_signature_message]
+    ), "tampered receipt signature must be checked after both signed prerequisites"
+    assert receipt_digest_after_curve_counts == [], (
+        "invalid receipt signature must prevent full receipt digest computation"
+    )
+
+
 def test_common_identities(module: ModuleType) -> object:
     zero_digest = digest_text(bytes(32))
     digest = module.parse_digest(zero_digest)
@@ -3514,43 +4499,54 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
         assert rejected.code == BOOTSTRAP_REJECTION
 
     complete_objects = module.BootstrapTaskObjectSetV1(**base)
-    original_task_approval_parser = module.parse_task_approval
-    task_approval_calls = []
+    original_task_receipt_parser = module.parse_bootstrap_task_verifier_receipt
+    task_receipt_calls = []
 
-    def capture_task_approval_call(
+    def capture_task_receipt_call(
+        task_receipt_bytes: bytes,
         task_approval_bytes: bytes,
-        required_bytes: bytes,
+        required_test_set_bytes: bytes,
         authority_policy_bytes: bytes,
         phase5_snapshot: object,
+        stage0_handoff_bytes: bytes,
     ) -> tuple[object, object]:
-        task_approval_calls.append((
+        task_receipt_calls.append((
+            task_receipt_bytes,
             task_approval_bytes,
-            required_bytes,
+            required_test_set_bytes,
             authority_policy_bytes,
             phase5_snapshot,
+            stage0_handoff_bytes,
         ))
         return object(), object()
 
-    module.parse_task_approval = capture_task_approval_call
+    module.parse_bootstrap_task_verifier_receipt = capture_task_receipt_call
     try:
         still_incomplete = module.verifyBootstrapTaskObjects(
             subject, complete_objects
         )
     finally:
-        module.parse_task_approval = original_task_approval_parser
+        module.parse_bootstrap_task_verifier_receipt = original_task_receipt_parser
     assert isinstance(still_incomplete, module.Rejected)
-    assert len(task_approval_calls) == 1, (
-        "object consumer must invoke the four-input TaskApproval parser once"
+    assert len(task_receipt_calls) == 1, (
+        "object consumer must invoke the six-input task receipt parser once"
     )
-    called_approval, called_required, called_policy, called_snapshot = (
-        task_approval_calls[0]
-    )
+    (
+        called_receipt,
+        called_approval,
+        called_required,
+        called_policy,
+        called_snapshot,
+        called_handoff,
+    ) = task_receipt_calls[0]
+    assert called_receipt is complete_objects.taskReceiptBytes
     assert called_approval is complete_objects.taskApprovalBytes
     assert called_required is complete_objects.requiredTestSetBytes
     assert called_policy is complete_objects.authorityPolicyBytes
     assert called_snapshot is documents[-1], (
         "object consumer must pass the same subject PHASE-5 snapshot identity"
     )
+    assert called_handoff is complete_objects.stage0HandoffBytes
 
     mixed_task_ids = dataclasses.replace(
         subject,
@@ -3586,6 +4582,7 @@ def main() -> int:
         test_phase5_snapshot_resource_bounds(module)
         test_task_approval(module)
         test_task_approval_exact_upper_and_sha256_identity(module)
+        test_bootstrap_task_verifier_receipt(module)
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_and_missing_root_bytes(module, candidate)
