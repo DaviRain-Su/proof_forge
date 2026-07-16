@@ -3,26 +3,36 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import re
 import sys
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
+from typing import Any, Callable, Iterable
+from urllib.parse import unquote
 
 
-ROOT = Path(__file__).resolve().parents[1]
-DOCS = ROOT / "docs"
+DEFAULT_ROOT = Path(__file__).absolute().parents[1]
 ALLOWED_STATUS = {
-    "planned",
     "draft",
     "proposed",
     "in_review",
     "accepted",
     "not_started",
-    "blocked",
     "superseded",
     "archived",
-    "research",
 }
+ACTIVE_NORMATIVE_STATUS = {"draft", "proposed", "in_review", "accepted"}
+TASK_STATUS = {"pending", "in_progress", "blocked", "done"}
+BASE_FRONTMATTER = {"id", "title", "status", "owner", "updated", "normative"}
+ACCEPTED_FRONTMATTER = {
+    "approvers", "approvedAt", "reviewCommit", "reviewLink", "openFindings",
+}
+SUPERSEDED_FRONTMATTER = {"successor"}
+DOCUMENT_KINDS = {"document", "adr", "spec", "module", "trace", "target", "release"}
 REQUIRED = [
     "index.md",
     "document-status.md",
@@ -52,75 +62,1473 @@ TARGETS = {
     "09-aleo.md",
     "10-psy.md",
 }
+PRIMARY_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
+RELEASE_ID_RE = re.compile(
+    r"^REL-(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+    r"(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"
+)
+TRACE_ID_RE = re.compile(
+    r"^(?:BV|GOAL|FR|NFR|OOS|INV|ADR|SRC|CLM|SPEC|CAP|MOD|TASK|TST|EV|TRACE|TARGET)-"
+    r"[A-Z0-9]+(?:-[A-Z0-9]+)*$"
+)
+INLINE_LINK_RE = re.compile(r"(!?)\[[^\]]*\]\(([^)]+)\)")
+MAX_JSON_NESTING = 256
+MAX_LINK_TARGET_LENGTH = 2048
+STATUS_INDEX_TARGETS = (
+    "docs/00-business-validation.md",
+    "docs/01-prd.md",
+    "docs/02-architecture.md",
+    "docs/03-technical-spec.md",
+    "docs/04-task-breakdown.md",
+    "docs/05-test-spec.md",
+    "docs/06-implementation-log.md",
+    "docs/07-review-report.md",
+)
 
 
-def fail(message: str) -> None:
-    print(f"docs-check: {message}", file=sys.stderr)
-    raise SystemExit(1)
+class DocsCheckError(Exception):
+    def __init__(self, code: str, path: str, detail: str):
+        super().__init__(detail)
+        self.code = code
+        self.path = path
+        self.detail = detail
+
+    def render(self) -> str:
+        return f"{self.code} {self.path}: {self.detail}"
 
 
-def frontmatter(path: Path, text: str) -> dict[str, str]:
+class DuplicateJsonKey(ValueError):
+    def __init__(self, key: str):
+        super().__init__(key)
+        self.key = key
+
+
+class NonStandardJsonConstant(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class Document:
+    path: Path
+    relative: str
+    text: str
+    meta: dict[str, str]
+
+
+@dataclass(frozen=True)
+class Definition:
+    identifier: str
+    relative: str
+    line: int
+    kind: str
+
+
+@dataclass(frozen=True)
+class TableRow:
+    relative: str
+    line: int
+    headers: tuple[str, ...]
+    cells: tuple[str, ...]
+
+    def value(self, names: set[str]) -> str | None:
+        for index, header in enumerate(self.headers):
+            if header in names and index < len(self.cells):
+                return self.cells[index]
+        return None
+
+
+@dataclass(frozen=True)
+class TaskRecord:
+    identifier: str
+    dependencies: tuple[str, ...]
+    prerequisites: tuple[tuple[str, str], ...]
+    tests: tuple[str, ...]
+    evidence: tuple[str, ...]
+    status: str
+    relative: str
+    line: int
+
+
+@dataclass(frozen=True)
+class EvidenceRecord:
+    identifier: str
+    task: str | None
+    tests: tuple[str, ...]
+    grade: str
+    result: str
+    relative: str
+    line: int
+
+
+@dataclass(frozen=True)
+class OrderedDiagnostic:
+    relative: str
+    line: int
+    column: int
+    identifier: str
+    error: DocsCheckError
+
+    def key(self) -> tuple[str, int, int, str, str]:
+        return (self.relative, self.line, self.column, self.identifier, self.error.code)
+
+
+def raise_error(code: str, path: str, detail: str) -> None:
+    raise DocsCheckError(code, path, detail)
+
+
+def raise_first(diagnostics: list[OrderedDiagnostic]) -> None:
+    if diagnostics:
+        raise min(diagnostics, key=OrderedDiagnostic.key).error
+
+
+def source_position(text: str, offset: int) -> tuple[int, int]:
+    line = text.count("\n", 0, offset) + 1
+    line_start = text.rfind("\n", 0, offset) + 1
+    return line, offset - line_start + 1
+
+
+def frontmatter_field_line(document: Document, field: str) -> int:
+    for line_number, line in enumerate(document.text.splitlines(), start=1):
+        if line.startswith(f"{field}:"):
+            return line_number
+        if line_number > 1 and line == "---":
+            break
+    return 1
+
+
+def parse_exact_date(value: str, *, code: str, path: str, field: str) -> None:
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        raise_error(code, path, f"{field} {value} must be YYYY-MM-DD")
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        raise_error(code, path, f"{field} {value} must be YYYY-MM-DD")
+
+
+def relative(root: Path, path: Path) -> str:
+    return path.relative_to(root).as_posix()
+
+
+def validate_approval(rel: str, result: dict[str, str], text: str, *, check_todo: bool) -> None:
+    missing_approval = ACCEPTED_FRONTMATTER - result.keys()
+    if missing_approval:
+        raise_error("PF-DOC-APPROVAL", rel, f"missing fields {sorted(missing_approval)}")
+    parse_exact_date(result["approvedAt"], code="PF-DOC-APPROVAL", path=rel,
+                     field="approvedAt")
+    if not re.fullmatch(r"[0-9a-f]{40}", result["reviewCommit"]):
+        raise_error("PF-DOC-APPROVAL", rel, "reviewCommit must be a full lowercase SHA-1")
+    if not result["reviewLink"].lower().startswith("https://"):
+        raise_error("PF-DOC-APPROVAL", rel, "reviewLink must use https")
+    if not result["approvers"].strip() or result["openFindings"] != "none":
+        raise_error("PF-DOC-APPROVAL", rel, "approvers must be nonempty and openFindings none")
+    if check_todo and re.search(r"\bTODO\b|待补充|待决定", text, re.IGNORECASE):
+        raise_error("PF-DOC-ACCEPTED-TODO", rel, "accepted document has unresolved marker")
+
+
+def parse_frontmatter(root: Path, path: Path, text: str) -> dict[str, str]:
+    rel = relative(root, path)
     if not text.startswith("---\n"):
-        fail(f"missing frontmatter: {path.relative_to(ROOT)}")
+        raise_error("PF-DOC-FRONTMATTER", rel, "missing opening frontmatter delimiter")
     end = text.find("\n---\n", 4)
     if end < 0:
-        fail(f"unterminated frontmatter: {path.relative_to(ROOT)}")
+        raise_error("PF-DOC-FRONTMATTER", rel, "unterminated frontmatter")
     result: dict[str, str] = {}
-    for line in text[4:end].splitlines():
-        if ":" in line:
-            key, value = line.split(":", 1)
-            result[key.strip()] = value.strip().strip("'\"")
+    for offset, line in enumerate(text[4:end].splitlines(), start=2):
+        if ":" not in line:
+            raise_error("PF-DOC-FRONTMATTER", rel, f"line {offset} is not key: value")
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if not key or not value:
+            raise_error("PF-DOC-FRONTMATTER", rel, f"empty key/value at line {offset}")
+        if key in result:
+            raise_error("PF-DOC-FRONTMATTER", rel, f"duplicate frontmatter key {key}")
+        result[key] = value
+    missing = BASE_FRONTMATTER - result.keys()
+    if missing:
+        raise_error("PF-DOC-FRONTMATTER", rel, f"missing fields {sorted(missing)}")
+    known_fields = BASE_FRONTMATTER | ACCEPTED_FRONTMATTER | SUPERSEDED_FRONTMATTER
+    unknown = result.keys() - known_fields
+    if unknown:
+        raise_error("PF-DOC-FRONTMATTER", rel, f"unknown fields {sorted(unknown)}")
+    primary_id = result["id"]
+    valid_primary = (RELEASE_ID_RE.fullmatch(primary_id) if primary_id.startswith("REL-")
+                     else PRIMARY_ID_RE.fullmatch(primary_id))
+    if not valid_primary:
+        raise_error("PF-DOC-FRONTMATTER", rel, f"invalid primary id {result['id']}")
+    parse_exact_date(result["updated"], code="PF-DOC-FRONTMATTER", path=rel,
+                     field="updated")
+    if result["normative"] not in {"true", "false"}:
+        raise_error("PF-DOC-FRONTMATTER", rel, "normative must be true or false")
     return result
 
 
-def check_json() -> None:
-    for path in ROOT.rglob("*.json"):
-        if any(part in {".lake", "build"} for part in path.parts):
+def validate_document_lifecycle(document: Document, by_id: dict[str, Document]) -> None:
+    result = document.meta
+    status = result["status"]
+    if status not in ALLOWED_STATUS:
+        raise_error("PF-DOC-STATUS", document.relative, f"invalid lifecycle status {status}")
+    allowed_fields = set(BASE_FRONTMATTER)
+    if status == "accepted":
+        allowed_fields.update(ACCEPTED_FRONTMATTER)
+    elif status == "superseded":
+        allowed_fields.update(SUPERSEDED_FRONTMATTER | ACCEPTED_FRONTMATTER)
+    conditional_unknown = result.keys() - allowed_fields
+    if conditional_unknown:
+        raise_error("PF-DOC-FRONTMATTER", document.relative,
+                    f"fields not allowed for {status}: {sorted(conditional_unknown)}")
+    if status == "accepted":
+        validate_approval(document.relative, result, document.text, check_todo=False)
+        if RELEASE_ID_RE.fullmatch(result["id"]):
+            raise_error("PF-DOC-RELEASE-EVIDENCE", document.relative,
+                        f"{result['id']} cannot be accepted before the formal evidence-set binder")
+    elif status == "superseded":
+        if "successor" not in result:
+            raise_error("PF-DOC-SUCCESSOR", document.relative,
+                        "superseded document lacks successor")
+        retained_approval = ACCEPTED_FRONTMATTER & result.keys()
+        if retained_approval:
+            validate_approval(document.relative, result, document.text, check_todo=False)
+        if result["successor"] not in by_id:
+            raise_error("PF-DOC-SUCCESSOR", document.relative,
+                        f"unknown successor {result['successor']}")
+
+
+def reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateJsonKey(key)
+        result[key] = value
+    return result
+
+
+def reject_nonstandard_json_constant(value: str) -> None:
+    raise NonStandardJsonConstant(value)
+
+
+def validate_json_nesting(rel: str, text: str) -> None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > MAX_JSON_NESTING:
+                raise_error("PF-DOC-JSON", rel,
+                            f"JSON nesting exceeds {MAX_JSON_NESTING}")
+        elif character in "]}":
+            depth = max(0, depth - 1)
+
+
+def load_json(root: Path, path: Path) -> Any:
+    rel = relative(root, path)
+    try:
+        text = path.read_text(encoding="utf-8")
+        validate_json_nesting(rel, text)
+        return json.loads(
+            text,
+            object_pairs_hook=reject_duplicate_json_keys,
+            parse_constant=reject_nonstandard_json_constant,
+        )
+    except DuplicateJsonKey as error:
+        raise_error("PF-DOC-JSON-DUPLICATE", rel, f"duplicate JSON key {error.key}")
+    except (OSError, UnicodeError, json.JSONDecodeError, NonStandardJsonConstant,
+            RecursionError, MemoryError, OverflowError) as error:
+        raise_error("PF-DOC-JSON", rel, str(error))
+
+
+def clean_cell(cell: str) -> str:
+    value = cell.strip()
+    if len(value) >= 2 and value[0] == "`" and value[-1] == "`":
+        return value[1:-1].strip()
+    return value
+
+
+def mask_fenced_blocks(text: str) -> str:
+    masked: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines():
+        if fence is None:
+            marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+            if marker and not (marker.group(1)[0] == "`" and "`" in marker.group(2)):
+                fence = (marker.group(1)[0], len(marker.group(1)))
+                masked.append("")
+            else:
+                masked.append(line)
+        else:
+            character, minimum = fence
+            closing = re.match(
+                rf"^ {{0,3}}({re.escape(character)}{{{minimum},}})[ \t]*$", line)
+            if closing:
+                fence = None
+            masked.append("")
+    return "\n".join(masked)
+
+
+def mask_html_comments(text: str) -> str:
+    return re.sub(
+        r"<!--.*?(?:-->|$)",
+        lambda match: "".join("\n" if character == "\n" else " "
+                              for character in match.group(0)),
+        text,
+        flags=re.DOTALL,
+    )
+
+
+def mask_indented_code(text: str) -> str:
+    return "\n".join(
+        "" if line.startswith(("    ", "\t")) else line
+        for line in text.splitlines()
+    )
+
+
+def mask_nonrendered(text: str) -> str:
+    return mask_indented_code(mask_html_comments(mask_fenced_blocks(text)))
+
+
+def mask_inline_code(text: str) -> str:
+    result = list(text)
+    index = 0
+    while index < len(text):
+        if text[index] != "`":
+            index += 1
+            continue
+        backslashes = 0
+        before = index - 1
+        while before >= 0 and text[before] == "\\":
+            backslashes += 1
+            before -= 1
+        if backslashes % 2 == 1:
+            index += 1
+            continue
+        end_open = index
+        while end_open < len(text) and text[end_open] == "`":
+            end_open += 1
+        width = end_open - index
+        search = end_open
+        closing = -1
+        while search < len(text):
+            candidate = text.find("`" * width, search)
+            if candidate < 0:
+                break
+            before_run = candidate > 0 and text[candidate - 1] == "`"
+            after_run = candidate + width < len(text) and text[candidate + width] == "`"
+            slash_count = 0
+            before = candidate - 1
+            while before >= 0 and text[before] == "\\":
+                slash_count += 1
+                before -= 1
+            if not before_run and not after_run and slash_count % 2 == 0:
+                closing = candidate
+                break
+            search = candidate + width
+        if closing < 0:
+            index = end_open
+            continue
+        for position in range(index, closing + width):
+            if result[position] != "\n":
+                result[position] = " "
+        index = closing + width
+    return "".join(result)
+
+
+def split_table_line(line: str) -> tuple[str, ...]:
+    value = line.strip()
+    if value.startswith("|"):
+        value = value[1:]
+    if value.endswith("|") and not value.endswith("\\|"):
+        value = value[:-1]
+    cells: list[str] = []
+    current: list[str] = []
+    escaped = False
+    in_code = False
+    for character in value:
+        if escaped:
+            current.append(character)
+            escaped = False
+        elif character == "\\":
+            current.append(character)
+            escaped = True
+        elif character == "`":
+            current.append(character)
+            in_code = not in_code
+        elif character == "|" and not in_code:
+            cells.append(clean_cell("".join(current)))
+            current = []
+        else:
+            current.append(character)
+    cells.append(clean_cell("".join(current)))
+    return tuple(cells)
+
+
+def parse_tables(document: Document,
+                 diagnostics: list[OrderedDiagnostic] | None = None,
+                 *, ignore_inline_code: bool = True) -> list[TableRow]:
+    visible = mask_nonrendered(document.text)
+    if ignore_inline_code:
+        visible = mask_inline_code(visible)
+    lines = visible.splitlines()
+    rows: list[TableRow] = []
+    index = 0
+    while index + 1 < len(lines):
+        header_line = lines[index].strip()
+        separator = lines[index + 1].strip()
+        if not header_line.startswith("|") or not separator.startswith("|"):
+            index += 1
+            continue
+        headers = split_table_line(header_line)
+        separators = split_table_line(separator)
+        if len(headers) != len(separators) or not all(re.fullmatch(r":?-{3,}:?", cell) for cell in separators):
+            index += 1
+            continue
+        index += 2
+        while index < len(lines) and lines[index].strip().startswith("|"):
+            cells = split_table_line(lines[index])
+            if len(cells) != len(headers):
+                marker = cells[0] if cells else "<empty>"
+                error = DocsCheckError(
+                    "PF-DOC-TABLE-SHAPE", document.relative,
+                    f"line {index + 1} row {marker} has {len(cells)} cells; "
+                    f"expected {len(headers)}")
+                if diagnostics is None:
+                    raise error
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, index + 1, 1, marker, error))
+                index += 1
+                continue
+            rows.append(TableRow(document.relative, index + 1, headers, cells))
+            index += 1
+    return rows
+
+
+def split_ids(cell: str, row: TableRow, allowed: tuple[str, ...], *, allow_empty: bool) -> tuple[str, ...]:
+    value = clean_cell(cell)
+    if value in {"", "—"}:
+        if allow_empty:
+            return ()
+        raise_error("PF-DOC-TRACE-INCOMPLETE", row.relative, f"line {row.line} has empty ID axis")
+    identifiers = tuple(part.strip().strip("`") for part in value.split(","))
+    for identifier in identifiers:
+        if not TRACE_ID_RE.fullmatch(identifier) or not identifier.startswith(allowed):
+            raise_error("PF-DOC-ID-FORMAT", row.relative,
+                        f"line {row.line} requires exact comma-separated IDs, got {identifier}")
+    if len(set(identifiers)) != len(identifiers):
+        raise_error("PF-DOC-ID-DUPLICATE", row.relative,
+                    f"line {row.line} repeats {next(x for x in identifiers if identifiers.count(x) > 1)}")
+    return identifiers
+
+
+def split_prerequisites(cell: str, row: TableRow) -> tuple[tuple[str, str], ...]:
+    value = clean_cell(cell)
+    if value in {"", "—"}:
+        return ()
+    result: list[tuple[str, str]] = []
+    for part in value.split(","):
+        item = part.strip().strip("`")
+        match = re.fullmatch(r"([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)@(accepted)", item)
+        if not match:
+            raise_error("PF-DOC-PREREQUISITE", row.relative,
+                        f"line {row.line} requires DOCUMENT-ID@accepted, got {item}")
+        result.append((match.group(1), match.group(2)))
+    if len(set(result)) != len(result):
+        raise_error("PF-DOC-ID-DUPLICATE", row.relative,
+                    f"line {row.line} repeats prerequisite {result[0][0]}")
+    return tuple(result)
+
+
+def ensure_known(definitions: dict[str, Definition], identifiers: Iterable[str], row: TableRow,
+                 *, kinds: set[str] | None = None) -> None:
+    for identifier in identifiers:
+        if identifier not in definitions:
+            raise_error("PF-DOC-ID-UNKNOWN", row.relative,
+                        f"line {row.line} references unknown {identifier}")
+        if kinds is not None and definitions[identifier].kind not in kinds:
+            raise_error("PF-DOC-ID-TYPE", row.relative,
+                        f"line {row.line} references {identifier} as {sorted(kinds)}, "
+                        f"but it is {definitions[identifier].kind}")
+
+
+def add_definition(definitions: dict[str, Definition], identifier: str,
+                   relative_path: str, line: int, kind: str) -> None:
+    if identifier in definitions:
+        first = definitions[identifier]
+        raise_error("PF-DOC-ID-DUPLICATE", relative_path,
+                    f"{identifier} already defined at {first.relative}:{first.line}")
+    definitions[identifier] = Definition(identifier, relative_path, line, kind)
+
+
+def primary_definition_kind(identifier: str) -> str:
+    if identifier.startswith("ADR-"):
+        return "adr"
+    if identifier.startswith("SPEC-"):
+        return "spec"
+    if identifier.startswith("MOD-"):
+        return "module"
+    if identifier.startswith("TRACE-"):
+        return "trace"
+    if identifier.startswith("TARGET-"):
+        return "target"
+    if identifier.startswith("REL-"):
+        return "release"
+    return "document"
+
+
+def ensure_repository_path(root: Path, path: Path, display: str) -> None:
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        raise_error("PF-DOC-PATH", display, "path is outside repository root")
+    current = root
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            raise_error("PF-DOC-PATH", display, f"symlink path component {current.name}")
+    try:
+        path.resolve().relative_to(root)
+    except ValueError:
+        raise_error("PF-DOC-PATH", display, "resolved path is outside repository root")
+
+
+def ensure_no_tree_symlinks(root: Path, tree: Path) -> None:
+    for current_text, directory_names, file_names in os.walk(tree, followlinks=False):
+        current = Path(current_text)
+        for name in sorted(directory_names + file_names):
+            candidate = current / name
+            if candidate.is_symlink():
+                raise_error("PF-DOC-PATH", relative(root, candidate),
+                            f"symlink path component {name}")
+
+
+def heading_anchors(text: str) -> set[str]:
+    anchors: set[str] = set()
+    counts: dict[str, int] = {}
+    for line in mask_nonrendered(text).splitlines():
+        stripped = line.strip()
+        for explicit in re.findall(r"<a\s+(?:[^>]*?\s)?id=[\"']([^\"']+)[\"']", line,
+                                   re.IGNORECASE):
+            anchors.add(explicit)
+        match = re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", stripped)
+        if not match:
+            continue
+        heading = re.sub(r"<[^>]+>", "", match.group(1))
+        heading = re.sub(r"[`*_~]", "", heading).strip().lower()
+        slug = re.sub(r"[^\w\-\s]", "", heading, flags=re.UNICODE)
+        slug = re.sub(r"\s+", "-", slug)
+        occurrence = counts.get(slug, 0)
+        counts[slug] = occurrence + 1
+        anchors.add(slug if occurrence == 0 else f"{slug}-{occurrence}")
+    return anchors
+
+
+def markdown_token_is_escaped(text: str, index: int) -> bool:
+    backslashes = 0
+    position = index - 1
+    while position >= 0 and text[position] == "\\":
+        backslashes += 1
+        position -= 1
+    return backslashes % 2 == 1
+
+
+def supersession_cycle_details(documents: list[Document],
+                               by_id: dict[str, Document]) -> dict[str, str]:
+    successors = {
+        document.meta["id"]: document.meta["successor"]
+        for document in documents
+        if (document.meta["status"] == "superseded"
+            and document.meta.get("successor") in by_id)
+    }
+    details: dict[str, str] = {}
+    for start in sorted(successors):
+        order: list[str] = []
+        positions: dict[str, int] = {}
+        current = start
+        while current in successors:
+            if current in positions:
+                cycle = order[positions[current]:] + [current]
+                details[start] = " -> ".join(cycle)
+                break
+            positions[current] = len(order)
+            order.append(current)
+            current = successors[current]
+    return details
+
+
+def check_links(root: Path, docs_root: Path, documents: list[Document],
+                by_id: dict[str, Document]) -> dict[Path, set[Path]]:
+    graph: dict[Path, set[Path]] = {document.path: set() for document in documents}
+    document_paths = set(graph)
+    anchors = {document.path: heading_anchors(document.text) for document in documents}
+    cycle_details = supersession_cycle_details(documents, by_id)
+    diagnostics: list[OrderedDiagnostic] = []
+
+    def validate_target(document: Document, raw_target: str, *, contributes_to_graph: bool) -> None:
+        target = raw_target.strip().strip("<>")
+        if target.lower().startswith(("http://", "https://", "mailto:")):
+            return
+        if len(target) > MAX_LINK_TARGET_LENGTH:
+            raise_error("PF-DOC-LINK", document.relative,
+                        f"local link target exceeds {MAX_LINK_TARGET_LENGTH} characters")
+        path_text, separator, fragment = target.partition("#")
+        path_text = unquote(path_text.strip())
+        fragment = unquote(fragment.strip()) if separator else ""
+        linked_lexical = document.path if not path_text else document.path.parent / path_text
+        try:
+            linked = linked_lexical.resolve()
+            linked.relative_to(root)
+        except ValueError:
+            raise_error("PF-DOC-LINK-ESCAPE", document.relative,
+                        f"link escapes repository root: {target}")
+        except (OSError, RuntimeError) as error:
+            raise_error("PF-DOC-LINK", document.relative,
+                        f"invalid local link target: {error}")
+        try:
+            if not linked_lexical.exists():
+                raise_error("PF-DOC-LINK", document.relative, f"broken link {target}")
+            ensure_repository_path(root, linked_lexical, document.relative)
+        except (OSError, RuntimeError) as error:
+            raise_error("PF-DOC-LINK", document.relative,
+                        f"invalid local link target: {error}")
+        if fragment and linked.suffix == ".md":
+            if linked not in anchors or fragment not in anchors[linked]:
+                raise_error("PF-DOC-LINK-FRAGMENT", document.relative,
+                            f"unknown fragment {fragment} in {target}")
+        if contributes_to_graph and linked in document_paths and linked.suffix == ".md":
+            graph[document.path].add(linked)
+
+    def check_document_links(document: Document) -> None:
+        visible = mask_inline_code(mask_nonrendered(document.text))
+        references: dict[str, str] = {}
+        occupied: list[tuple[int, int]] = []
+        events: list[tuple[int, int, str, str, bool]] = []
+        serial = 0
+
+        definition_pattern = re.compile(
+            r"(?m)^ {0,3}\[([^\]]+)\]:\s*(?:<([^>]+)>|(\S+))")
+        for match in definition_pattern.finditer(visible):
+            occupied.append(match.span())
+            label = " ".join(match.group(1).lower().split())
+            target = match.group(2) or match.group(3) or ""
+            if label in references:
+                events.append((match.start(), serial, "duplicate", label, False))
+                serial += 1
+            else:
+                references[label] = target
+
+        for match in INLINE_LINK_RE.finditer(visible):
+            occupied.append(match.span())
+            if markdown_token_is_escaped(visible, match.start()):
+                continue
+            events.append((match.start(), serial, "target", match.group(2),
+                           match.group(1) != "!"))
+            serial += 1
+
+        full_reference_pattern = re.compile(r"(!?)\[([^\]]+)\]\[([^\]]*)\]")
+        for match in full_reference_pattern.finditer(visible):
+            occupied.append(match.span())
+            if markdown_token_is_escaped(visible, match.start()):
+                continue
+            label = " ".join((match.group(3) or match.group(2)).lower().split())
+            if label in references:
+                events.append((match.start(), serial, "target", references[label],
+                               match.group(1) != "!"))
+            else:
+                events.append((match.start(), serial, "unknown", label, False))
+            serial += 1
+
+        def overlaps_occupied(start: int, end: int) -> bool:
+            return any(start < occupied_end and end > occupied_start
+                       for occupied_start, occupied_end in occupied)
+
+        shortcut_pattern = re.compile(r"(!?)\[([^\]\n]+)\]")
+        for match in shortcut_pattern.finditer(visible):
+            if overlaps_occupied(*match.span()):
+                continue
+            if markdown_token_is_escaped(visible, match.start()):
+                continue
+            label = " ".join(match.group(2).lower().split())
+            if label not in references:
+                continue
+            events.append((match.start(), serial, "target", references[label],
+                           match.group(1) != "!"))
+            serial += 1
+
+        for offset, _serial, kind, value, contributes_to_graph in sorted(events):
+            line, column = source_position(visible, offset)
+            if kind == "duplicate":
+                error = DocsCheckError(
+                    "PF-DOC-LINK", document.relative,
+                    f"duplicate reference-link definition {value}")
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, line, column, value, error))
+                continue
+            if kind == "unknown":
+                error = DocsCheckError(
+                    "PF-DOC-LINK", document.relative,
+                    f"unknown reference link {value}")
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, line, column, value, error))
+                continue
+            try:
+                validate_target(document, value,
+                                contributes_to_graph=contributes_to_graph)
+            except DocsCheckError as error:
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, line, column, value, error))
+
+    for document in documents:
+        try:
+            validate_document_lifecycle(document, by_id)
+        except DocsCheckError as error:
+            field = "successor" if error.code.startswith("PF-DOC-SUCCESSOR") else "status"
+            diagnostics.append(OrderedDiagnostic(
+                document.relative, frontmatter_field_line(document, field), 1,
+                document.meta["id"], error))
+        if document.meta["id"] in cycle_details:
+            error = DocsCheckError(
+                "PF-DOC-SUPERSESSION-CYCLE", document.relative,
+                cycle_details[document.meta["id"]])
+            diagnostics.append(OrderedDiagnostic(
+                document.relative, frontmatter_field_line(document, "successor"), 1,
+                document.meta["id"], error))
+        check_document_links(document)
+        if document.meta["status"] == "accepted":
+            visible = mask_inline_code(mask_nonrendered(document.text))
+            unresolved = re.search(r"\bTODO\b|待补充|待决定", visible, re.IGNORECASE)
+            if unresolved:
+                line, column = source_position(visible, unresolved.start())
+                error = DocsCheckError(
+                    "PF-DOC-ACCEPTED-TODO", document.relative,
+                    "accepted document has unresolved marker")
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, line, column, unresolved.group(0), error))
+    index = (docs_root / "index.md").resolve()
+    reachable: set[Path] = set()
+    pending = [index]
+    while pending:
+        current = pending.pop()
+        if current in reachable:
+            continue
+        reachable.add(current)
+        pending.extend(sorted(graph.get(current, ()), reverse=True))
+    for document in documents:
+        if (document.meta["normative"] == "true" and document.meta["status"] != "archived"
+                and document.path not in reachable):
+            error = DocsCheckError(
+                "PF-DOC-NORMATIVE-ORPHAN", document.relative,
+                f"normative document {document.meta['id']} is unreachable from docs/index.md")
+            diagnostics.append(OrderedDiagnostic(
+                document.relative, frontmatter_field_line(document, "id"), 1,
+                document.meta["id"], error))
+    diagnostics.extend(document_status_index_diagnostics(documents))
+    raise_first(diagnostics)
+    return graph
+
+
+def document_status_index_diagnostics(
+        documents: list[Document]) -> list[OrderedDiagnostic]:
+    by_relative = {document.relative: document for document in documents}
+    index = by_relative["docs/document-status.md"]
+    diagnostics: list[OrderedDiagnostic] = []
+    rows = parse_tables(index, diagnostics, ignore_inline_code=False)
+    counts = {target: 0 for target in STATUS_INDEX_TARGETS}
+    for row in rows:
+        if not {"当前文档", "状态"}.issubset(set(row.headers)):
+            continue
+        current = row.value({"当前文档"})
+        stated_status = row.value({"状态"})
+        if current is None or stated_status is None:
+            error = DocsCheckError(
+                "PF-DOC-STATUS", row.relative,
+                f"line {row.line} status index lacks 当前文档/状态")
+            diagnostics.append(OrderedDiagnostic(
+                row.relative, row.line, 1, "<status-index>", error))
+            continue
+        link = INLINE_LINK_RE.search(current)
+        if link is None:
+            error = DocsCheckError(
+                "PF-DOC-STATUS", row.relative,
+                f"line {row.line} current document is not a local link")
+            diagnostics.append(OrderedDiagnostic(
+                row.relative, row.line, 1, current, error))
+            continue
+        target = link.group(2).strip().strip("<>").partition("#")[0]
+        try:
+            target_path = (index.path.parent / unquote(target)).resolve()
+            target_relative = target_path.relative_to(index.path.parents[1]).as_posix()
+        except (ValueError, OSError, RuntimeError) as path_error:
+            error = DocsCheckError(
+                "PF-DOC-STATUS", row.relative,
+                f"line {row.line} has invalid current document {target}: {path_error}")
+            diagnostics.append(OrderedDiagnostic(
+                row.relative, row.line, 1, target, error))
+            continue
+        document = by_relative.get(target_relative)
+        if document is None or target_relative not in counts:
+            error = DocsCheckError(
+                "PF-DOC-STATUS", row.relative,
+                f"line {row.line} indexes non-canonical document {target}")
+            diagnostics.append(OrderedDiagnostic(
+                row.relative, row.line, 1, target, error))
+            continue
+        counts[target_relative] += 1
+        expected = clean_cell(stated_status)
+        if expected != document.meta["status"]:
+            error = DocsCheckError(
+                "PF-DOC-STATUS", row.relative,
+                f"line {row.line} states {document.meta['id']} as {expected}, "
+                f"frontmatter is {document.meta['status']}")
+            diagnostics.append(OrderedDiagnostic(
+                row.relative, row.line, 1, document.meta["id"], error))
+    for target, count in counts.items():
+        if count == 1:
+            continue
+        document = by_relative[target]
+        error = DocsCheckError(
+            "PF-DOC-STATUS", index.relative,
+            f"canonical status index requires exactly one {target}, got {count}")
+        diagnostics.append(OrderedDiagnostic(
+            index.relative, 1, 1, document.meta["id"], error))
+    return diagnostics
+
+
+def collect_definitions(documents: list[Document], json_values: dict[str, Any]) -> tuple[
+        dict[str, Definition], list[TableRow], list[TaskRecord],
+        dict[str, EvidenceRecord]]:
+    definitions: dict[str, Definition] = {}
+    by_relative = {document.relative: document for document in documents}
+    tables: list[TableRow] = []
+    evidence_records: dict[str, EvidenceRecord] = {}
+    task_records: list[TaskRecord] = []
+    diagnostics: list[OrderedDiagnostic] = []
+    source_path = "docs/research/source-register.json"
+    claim_path = "docs/research/claim-register.json"
+
+    def capture(relative_path: str, line: int, identifier: str,
+                action: Callable[[], None]) -> None:
+        try:
+            action()
+        except DocsCheckError as error:
+            diagnostics.append(OrderedDiagnostic(
+                relative_path, line, 1, identifier, error))
+
+    def collect_registry_item(relative_path: str, item_index: int, item: Any,
+                              prefix: str, kind: str) -> None:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            raise_error("PF-DOC-JSON", relative_path,
+                        f"each {kind} requires string id")
+        identifier = item["id"]
+        if not re.fullmatch(rf"{prefix}-[A-Z0-9]+(?:-[A-Z0-9]+)*", identifier):
+            raise_error("PF-DOC-ID-FORMAT", relative_path,
+                        f"malformed {kind} ID {identifier}")
+        add_definition(definitions, identifier, relative_path, item_index, kind)
+
+    def collect_business(row: TableRow) -> None:
+        identifier = row.value({"ID"})
+        if identifier is None:
+            return
+        if not re.fullmatch(r"BV-[A-Z0-9]+(?:-[A-Z0-9]+)*", identifier):
+            raise_error("PF-DOC-ID-FORMAT", row.relative,
+                        f"line {row.line} has malformed business ID {identifier}")
+        add_definition(definitions, identifier, row.relative, row.line, "business")
+
+    def collect_requirement(row: TableRow) -> None:
+        identifier = row.value({"ID"})
+        if identifier is None:
+            return
+        if not re.fullmatch(
+                r"(?:GOAL|FR|NFR|OOS)-[A-Z0-9]+(?:-[A-Z0-9]+)*", identifier):
+            raise_error("PF-DOC-ID-FORMAT", row.relative,
+                        f"line {row.line} has malformed requirement ID {identifier}")
+        kind = "goal" if identifier.startswith("GOAL-") else (
+            "out_of_scope" if identifier.startswith("OOS-") else "requirement")
+        add_definition(definitions, identifier, row.relative, row.line, kind)
+
+    def collect_task(row: TableRow) -> None:
+        headers = set(row.headers)
+        first = row.cells[0] if row.cells else ""
+        if "ID" not in headers and not first.lower().startswith("task"):
+            return
+        required_headers = {"ID", "Dependencies", "Prerequisites", "Tests", "Evidence"}
+        missing_headers = required_headers - headers
+        if not ({"Status", "状态"} & headers):
+            missing_headers.add("Status")
+        if missing_headers:
+            code = ("PF-DOC-PREREQUISITE" if missing_headers == {"Prerequisites"}
+                    else "PF-DOC-TASK-SCHEMA")
+            raise_error(code, row.relative,
+                        f"task table at line {row.line} lacks {sorted(missing_headers)}")
+        identifier = row.value({"ID"})
+        if identifier is None:
+            raise_error("PF-DOC-ID-FORMAT", row.relative,
+                        f"line {row.line} task row lacks ID")
+        if not re.fullmatch(r"TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*", identifier):
+            raise_error("PF-DOC-ID-FORMAT", row.relative,
+                        f"line {row.line} has malformed task ID {identifier}")
+        add_definition(definitions, identifier, row.relative, row.line, "task")
+        dependencies_cell = row.value({"Dependencies"})
+        prerequisites_cell = row.value({"Prerequisites"})
+        tests_cell = row.value({"Tests", "Test", "先行测试", "先行测试/验证"})
+        evidence_cell = row.value({"Evidence"})
+        status = row.value({"Status", "状态"})
+        if (dependencies_cell is None or prerequisites_cell is None
+                or tests_cell is None or evidence_cell is None or status is None):
+            raise_error("PF-DOC-TASK-SCHEMA", row.relative,
+                        f"task table at line {row.line} requires Dependencies, "
+                        "Prerequisites, Tests, Evidence, Status")
+        dependencies = split_ids(dependencies_cell, row, ("TASK-",), allow_empty=True)
+        prerequisites = split_prerequisites(prerequisites_cell, row)
+        tests = split_ids(tests_cell, row, ("TST-",), allow_empty=True)
+        evidence = split_ids(evidence_cell, row, ("EV-",), allow_empty=True)
+        if status not in TASK_STATUS:
+            raise_error("PF-DOC-STATUS", row.relative,
+                        f"task {identifier} has invalid status {status}")
+        task_records.append(TaskRecord(
+            identifier, dependencies, prerequisites, tests, evidence, status,
+            row.relative, row.line))
+
+    def collect_test(row: TableRow) -> None:
+        identifier = row.value({"ID"})
+        if identifier is None:
+            return
+        if not re.fullmatch(r"TST-[A-Z0-9]+(?:-[A-Z0-9]+)*", identifier):
+            raise_error("PF-DOC-ID-FORMAT", row.relative,
+                        f"catalog has malformed test ID {identifier}")
+        add_definition(definitions, identifier, row.relative, row.line, "test")
+
+    def collect_evidence(row: TableRow) -> None:
+        first = row.cells[0] if row.cells else ""
+        if "ID" not in set(row.headers) and not first.startswith("EV-"):
+            return
+        expected_headers = (
+            "ID", "Task", "Tests", "Grade", "Gate / command", "Result",
+            "Scope and limitation",
+        )
+        if row.headers != expected_headers:
+            raise_error("PF-DOC-EVIDENCE-SCHEMA", row.relative,
+                        f"evidence table at line {row.line} requires exact columns "
+                        f"{list(expected_headers)}, got {list(row.headers)}")
+        identifier = row.value({"ID"})
+        task_cell = row.value({"Task"})
+        tests_cell = row.value({"Tests"})
+        grade = row.value({"Grade"})
+        result = row.value({"Result"})
+        if None in {identifier, task_cell, tests_cell, grade, result}:
+            raise_error("PF-DOC-EVIDENCE-SCHEMA", row.relative,
+                        f"evidence row at line {row.line} is incomplete")
+        assert identifier is not None and task_cell is not None and tests_cell is not None
+        assert grade is not None and result is not None
+        if not re.fullmatch(r"EV-[0-9]{8}-[0-9]{4}", identifier):
+            raise_error("PF-DOC-ID-FORMAT", row.relative,
+                        f"line {row.line} has malformed evidence ID {identifier}")
+        task_ids = split_ids(task_cell, row, ("TASK-",), allow_empty=True)
+        if len(task_ids) > 1:
+            raise_error("PF-DOC-EVIDENCE-SCHEMA", row.relative,
+                        f"{identifier} must bind at most one task")
+        tests = split_ids(tests_cell, row, ("TST-",), allow_empty=True)
+        task = task_ids[0] if task_ids else None
+        if task is None and tests:
+            raise_error("PF-DOC-EVIDENCE-SCHEMA", row.relative,
+                        f"{identifier} has tests without a task")
+        if task is not None and not tests:
+            raise_error("PF-DOC-EVIDENCE-SCHEMA", row.relative,
+                        f"{identifier} binds {task} without tests")
+        if grade not in {"development", "bootstrap", "formal"}:
+            raise_error("PF-DOC-EVIDENCE-SCHEMA", row.relative,
+                        f"{identifier} has invalid grade {grade}")
+        add_definition(definitions, identifier, row.relative, row.line, "evidence")
+        evidence_records[identifier] = EvidenceRecord(
+            identifier, task, tests, grade, result, row.relative, row.line)
+
+    authoritative_paths = sorted({*by_relative, source_path, claim_path})
+    for relative_path in authoritative_paths:
+        if relative_path in {source_path, claim_path}:
+            data = json_values.get(relative_path)
+            array_name = "sources" if relative_path == source_path else "claims"
+            prefix = "SRC" if relative_path == source_path else "CLM"
+            kind = "source" if relative_path == source_path else "claim"
+            if not isinstance(data, dict) or not isinstance(data.get(array_name), list):
+                error = DocsCheckError(
+                    "PF-DOC-JSON", relative_path, f"{array_name} must be an array")
+                diagnostics.append(OrderedDiagnostic(
+                    relative_path, 1, 1, array_name, error))
+                continue
+            for item_index, item in enumerate(data[array_name], start=1):
+                identifier = item.get("id", f"<{kind}-{item_index}>") if isinstance(item, dict) else f"<{kind}-{item_index}>"
+                capture(relative_path, item_index, str(identifier),
+                        lambda item=item, item_index=item_index: collect_registry_item(
+                            relative_path, item_index, item, prefix, kind))
+            continue
+
+        document = by_relative[relative_path]
+        primary_id = document.meta["id"]
+        capture(document.relative, 2, primary_id,
+                lambda: add_definition(
+                    definitions, primary_id, document.relative, 2,
+                    primary_definition_kind(primary_id)))
+        document_tables = parse_tables(document, diagnostics)
+        tables.extend(document_tables)
+
+        if relative_path == "docs/00-business-validation.md":
+            for row in document_tables:
+                capture(row.relative, row.line, row.value({"ID"}) or "<business>",
+                        lambda row=row: collect_business(row))
+
+        elif relative_path == "docs/01-prd.md":
+            for row in document_tables:
+                capture(row.relative, row.line, row.value({"ID"}) or "<requirement>",
+                        lambda row=row: collect_requirement(row))
+
+        elif relative_path == "docs/02-architecture.md":
+            visible_lines = mask_inline_code(mask_nonrendered(document.text)).splitlines()
+            invariant_marker = "## 架构不变量"
+            try:
+                marker_index = next(
+                    index for index, line in enumerate(visible_lines)
+                    if line.strip() == invariant_marker)
+            except StopIteration:
+                error = DocsCheckError(
+                    "PF-DOC-REQUIRED", document.relative,
+                    f"missing section {invariant_marker}")
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, 1, 1, invariant_marker, error))
+                marker_index = len(visible_lines)
+            section_end = next(
+                (index for index in range(marker_index + 1, len(visible_lines))
+                 if re.match(r"^##\s+", visible_lines[index].strip())),
+                len(visible_lines),
+            )
+            for index in range(marker_index + 1, section_end):
+                line = visible_lines[index]
+                if not re.match(r"^\s*-\s+", line):
+                    continue
+                candidate = re.match(r"^\s*-\s+([^：:\s]+)[：:]", line)
+                line_number = index + 1
+                if not candidate:
+                    error = DocsCheckError(
+                        "PF-DOC-ID-FORMAT", document.relative,
+                        f"invariant row at line {line_number} lacks canonical ID")
+                    diagnostics.append(OrderedDiagnostic(
+                        document.relative, line_number, 1, "<invariant>", error))
+                    continue
+                identifier = candidate.group(1)
+                def collect_invariant(identifier: str = identifier,
+                                      line_number: int = line_number) -> None:
+                    if not re.fullmatch(r"INV-[A-Z0-9]+(?:-[A-Z0-9]+)*", identifier):
+                        raise_error("PF-DOC-ID-FORMAT", document.relative,
+                                    f"line {line_number} has malformed invariant ID {identifier}")
+                    add_definition(definitions, identifier, document.relative,
+                                   line_number, "invariant")
+                capture(document.relative, line_number, identifier, collect_invariant)
+
+        elif relative_path == "docs/04-task-breakdown.md":
+            for row in document_tables:
+                identifier = row.value({"ID"}) or (row.cells[0] if row.cells else "<task>")
+                capture(row.relative, row.line, identifier,
+                        lambda row=row: collect_task(row))
+
+        elif relative_path == "docs/05-test-spec.md":
+            visible_lines = mask_inline_code(mask_nonrendered(document.text)).splitlines()
+            marker = "## 完整 Test ID Catalog"
+            try:
+                marker_index = next(
+                    index for index, line in enumerate(visible_lines)
+                    if line.strip() == marker)
+            except StopIteration:
+                error = DocsCheckError(
+                    "PF-DOC-REQUIRED", document.relative, f"missing section {marker}")
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, 1, 1, marker, error))
+                marker_index = len(visible_lines)
+            catalog_end = next(
+                (index for index in range(marker_index + 1, len(visible_lines))
+                 if re.match(r"^###\s+", visible_lines[index].strip())),
+                len(visible_lines),
+            )
+            for row in document_tables:
+                if not (marker_index + 1 < row.line <= catalog_end):
+                    continue
+                capture(row.relative, row.line, row.value({"ID"}) or "<test>",
+                        lambda row=row: collect_test(row))
+
+        elif relative_path == "docs/traceability/evidence-ledger.md":
+            for row in document_tables:
+                capture(row.relative, row.line, row.value({"ID"}) or "<evidence>",
+                        lambda row=row: collect_evidence(row))
+
+    raise_first(diagnostics)
+    return definitions, tables, task_records, evidence_records
+
+
+def validate_claims(definitions: dict[str, Definition], json_values: dict[str, Any]) -> None:
+    claim_path = "docs/research/claim-register.json"
+    for claim in json_values[claim_path]["claims"]:
+        identifier = claim["id"]
+        sources = claim.get("sources")
+        if not isinstance(sources, list) or not sources or not all(isinstance(item, str) for item in sources):
+            raise_error("PF-DOC-CLAIM-SOURCE", claim_path,
+                        f"claim {identifier} requires at least one source")
+        for source in sources:
+            if (source not in definitions or not source.startswith("SRC-")
+                    or definitions[source].kind != "source"):
+                raise_error("PF-DOC-CLAIM-SOURCE", claim_path,
+                            f"claim {identifier} references unknown {source}")
+
+
+def validate_trace(documents: list[Document], definitions: dict[str, Definition],
+                   tasks: list[TaskRecord]) -> None:
+    matrix = next(document for document in documents
+                  if document.relative == "docs/traceability/requirements-matrix.md")
+    rows = [row for row in parse_tables(matrix)
+            if row.value({"Requirement"}) and row.value({"Requirement"}) != "Requirement"]
+    traced: dict[str, TableRow] = {}
+    used_goals: set[str] = set()
+    tasks_by_id = {task.identifier: task for task in tasks}
+    for row in rows:
+        requirement_cell = row.value({"Requirement"})
+        goal_cell = row.value({"Goal"})
+        adr_cell = row.value({"ADR/INV"})
+        spec_cell = row.value({"Spec/Module"})
+        task_cell = row.value({"Task"})
+        test_cell = row.value({"Test"})
+        evidence_cell = row.value({"Evidence"})
+        if None in {requirement_cell, goal_cell, adr_cell, spec_cell, task_cell, test_cell,
+                    evidence_cell}:
+            raise_error("PF-DOC-TRACE-INCOMPLETE", row.relative,
+                        f"line {row.line} lacks canonical trace columns")
+        requirements = split_ids(requirement_cell or "", row, ("FR-", "NFR-"), allow_empty=False)
+        if len(requirements) != 1:
+            raise_error("PF-DOC-TRACE-INCOMPLETE", row.relative,
+                        f"line {row.line} must identify one requirement")
+        requirement = requirements[0]
+        if requirement in traced:
+            raise_error("PF-DOC-ID-DUPLICATE", row.relative,
+                        f"trace row repeated for {requirement}")
+        def required_axis(cell: str, allowed: tuple[str, ...], label: str) -> tuple[str, ...]:
+            if clean_cell(cell) in {"", "—"}:
+                raise_error("PF-DOC-TRACE-INCOMPLETE", row.relative,
+                            f"{requirement} has empty {label} axis at line {row.line}")
+            return split_ids(cell, row, allowed, allow_empty=False)
+
+        goals = required_axis(goal_cell or "", ("GOAL-",), "Goal")
+        decisions = required_axis(adr_cell or "", ("ADR-", "INV-"), "ADR/INV")
+        specs = required_axis(spec_cell or "",
+                              ("SPEC-", "MOD-", "TRACE-", "TARGET-"), "Spec/Module")
+        task_ids = required_axis(task_cell or "", ("TASK-",), "Task")
+        test_ids = required_axis(test_cell or "", ("TST-",), "Test")
+        if clean_cell(evidence_cell or "") != "specified":
+            raise_error("PF-DOC-TRACE-INCOMPLETE", row.relative,
+                        f"{requirement} Evidence must be specified, got {evidence_cell}")
+        ensure_known(definitions, requirements, row, kinds={"requirement"})
+        ensure_known(definitions, goals, row, kinds={"goal"})
+        for decision in decisions:
+            expected = {"adr"} if decision.startswith("ADR-") else {"invariant"}
+            ensure_known(definitions, (decision,), row, kinds=expected)
+        for spec in specs:
+            if spec.startswith("SPEC-"):
+                expected = {"spec"}
+            elif spec.startswith("MOD-"):
+                expected = {"module"}
+            elif spec.startswith("TRACE-"):
+                expected = {"trace"}
+            else:
+                expected = {"target"}
+            ensure_known(definitions, (spec,), row, kinds=expected)
+        ensure_known(definitions, task_ids, row, kinds={"task"})
+        ensure_known(definitions, test_ids, row, kinds={"test"})
+        owned_tests = {
+            test
+            for task_identifier in task_ids
+            for test in tasks_by_id[task_identifier].tests
+        }
+        for test in test_ids:
+            if test not in owned_tests:
+                raise_error("PF-DOC-TRACE-OWNERSHIP", row.relative,
+                            f"{requirement} test {test} is not owned by any task in the row")
+        traced[requirement] = row
+        used_goals.update(goals)
+
+    prd = next(document for document in documents if document.relative == "docs/01-prd.md")
+    if prd.meta["normative"] == "true" and prd.meta["status"] in ACTIVE_NORMATIVE_STATUS:
+        for identifier, definition in sorted(definitions.items()):
+            if definition.relative != prd.relative:
+                continue
+            if identifier.startswith(("FR-", "NFR-")) and identifier not in traced:
+                raise_error("PF-DOC-TRACE-ORPHAN", prd.relative,
+                            f"active normative requirement {identifier} has no trace row")
+            if identifier.startswith("GOAL-") and identifier not in used_goals:
+                raise_error("PF-DOC-TRACE-ORPHAN", prd.relative,
+                            f"active product goal {identifier} has no requirement edge")
+
+
+def validate_tasks(definitions: dict[str, Definition], tasks: list[TaskRecord],
+                   evidence_records: dict[str, EvidenceRecord],
+                   document_status: dict[str, str]) -> None:
+    tasks_by_id = {task.identifier: task for task in tasks}
+    diagnostics: list[OrderedDiagnostic] = []
+
+    def add_task_error(task: TaskRecord, code: str, detail: str,
+                       identifier: str | None = None) -> None:
+        error = DocsCheckError(code, task.relative, detail)
+        diagnostics.append(OrderedDiagnostic(
+            task.relative, task.line, 1, identifier or task.identifier, error))
+
+    for record in sorted(evidence_records.values(),
+                         key=lambda item: (item.relative, item.line, item.identifier)):
+        if record.grade == "formal":
+            error = DocsCheckError(
+                "PF-DOC-EVIDENCE-FORMAL-UNVERIFIED", record.relative,
+                f"{record.identifier} cannot claim formal before the D0-03 "
+                "candidate-bound evidence-set binder exists")
+            diagnostics.append(OrderedDiagnostic(
+                record.relative, record.line, 1, record.identifier, error))
+        if (record.grade == "bootstrap"
+                and record.task not in {"TASK-D0-01", "TASK-D0-02"}):
+            error = DocsCheckError(
+                "PF-DOC-EVIDENCE-SCHEMA", record.relative,
+                f"{record.identifier} uses bootstrap grade outside TASK-D0-01/02")
+            diagnostics.append(OrderedDiagnostic(
+                record.relative, record.line, 1, record.identifier, error))
+        if record.task is None:
+            continue
+        task = tasks_by_id.get(record.task)
+        if task is None:
+            error = DocsCheckError(
+                "PF-DOC-ID-UNKNOWN", record.relative,
+                f"{record.identifier} binds unknown {record.task}")
+            diagnostics.append(OrderedDiagnostic(
+                record.relative, record.line, 1, record.task, error))
+            continue
+        owned = set(task.tests)
+        for test in record.tests:
+            definition = definitions.get(test)
+            if definition is None or definition.kind != "test":
+                error = DocsCheckError(
+                    "PF-DOC-ID-UNKNOWN", record.relative,
+                    f"{record.identifier} references unknown {test}")
+                diagnostics.append(OrderedDiagnostic(
+                    record.relative, record.line, 1, test, error))
+            elif test not in owned:
+                error = DocsCheckError(
+                    "PF-DOC-DONE-EV", record.relative,
+                    f"{record.identifier} test {test} is not owned by {record.task}")
+                diagnostics.append(OrderedDiagnostic(
+                    record.relative, record.line, 1, test, error))
+
+    for task in sorted(tasks, key=lambda item: (item.relative, item.line, item.identifier)):
+        for dependency in task.dependencies:
+            definition = definitions.get(dependency)
+            if dependency not in tasks_by_id or definition is None or definition.kind != "task":
+                add_task_error(
+                    task, "PF-DOC-ID-UNKNOWN",
+                    f"task {task.identifier} references unknown {dependency}", dependency)
+        for prerequisite, required_status in task.prerequisites:
+            definition = definitions.get(prerequisite)
+            if (definition is None or definition.kind not in DOCUMENT_KINDS
+                    or prerequisite not in document_status):
+                add_task_error(
+                    task, "PF-DOC-ID-UNKNOWN",
+                    f"task {task.identifier} references unknown prerequisite {prerequisite}",
+                    prerequisite)
+            elif (task.status == "done"
+                    and document_status[prerequisite] != required_status):
+                add_task_error(
+                    task, "PF-DOC-TASK-DEPENDENCY",
+                    f"task {task.identifier} requires {prerequisite}@{required_status}, "
+                    f"got {document_status[prerequisite]}", prerequisite)
+
+        if task.status in {"in_progress", "done"}:
+            for dependency in task.dependencies:
+                dependency_task = tasks_by_id.get(dependency)
+                if dependency_task is not None and dependency_task.status != "done":
+                    add_task_error(
+                        task, "PF-DOC-TASK-DEPENDENCY",
+                        f"task {task.identifier} depends on unfinished {dependency}", dependency)
+        if task.status == "done" and not task.tests:
+            add_task_error(task, "PF-DOC-DONE-TST",
+                           f"done task {task.identifier} has no TST")
+        for test in task.tests:
+            definition = definitions.get(test)
+            if definition is None or definition.kind != "test":
+                code = "PF-DOC-DONE-TST" if task.status == "done" else "PF-DOC-ID-UNKNOWN"
+                add_task_error(task, code,
+                               f"task {task.identifier} references unknown {test}", test)
+        if task.status == "done" and not task.evidence:
+            add_task_error(task, "PF-DOC-DONE-EV",
+                           f"done task {task.identifier} has no EV")
+
+        covered_tests: set[str] = set()
+        for evidence in task.evidence:
+            record = evidence_records.get(evidence)
+            definition = definitions.get(evidence)
+            if record is None or definition is None or definition.kind != "evidence":
+                code = "PF-DOC-DONE-EV" if task.status == "done" else "PF-DOC-ID-UNKNOWN"
+                add_task_error(task, code,
+                               f"task {task.identifier} references unknown {evidence}", evidence)
+                continue
+            if record.task != task.identifier:
+                add_task_error(
+                    task, "PF-DOC-DONE-EV",
+                    f"{evidence} is bound to {record.task or 'no task'}, not {task.identifier}",
+                    evidence)
+                continue
+            covered_tests.update(record.tests)
+            if task.status == "done":
+                if task.identifier.startswith("TASK-A0-"):
+                    required_grade = "development"
+                elif task.identifier in {"TASK-D0-01", "TASK-D0-02"}:
+                    required_grade = "bootstrap"
+                else:
+                    required_grade = "formal"
+                if record.grade != required_grade:
+                    add_task_error(
+                        task, "PF-DOC-DONE-EV",
+                        f"{evidence} for {task.identifier} requires {required_grade}, "
+                        f"got {record.grade}",
+                        evidence)
+                if not re.fullmatch(r"passed(?: \([^()]+\))?", record.result):
+                    add_task_error(
+                        task, "PF-DOC-DONE-EV",
+                        f"{evidence} for {task.identifier} is not passed: {record.result}",
+                        evidence)
+        if task.status == "done":
+            missing_tests = sorted(set(task.tests) - covered_tests)
+            if missing_tests:
+                add_task_error(
+                    task, "PF-DOC-DONE-EV",
+                    f"task {task.identifier} evidence does not cover {', '.join(missing_tests)}",
+                    missing_tests[0])
+
+    unseen, active_state, done_state = 0, 1, 2
+    state = {identifier: unseen for identifier in tasks_by_id}
+    ordered_tasks = sorted(
+        tasks_by_id,
+        key=lambda identifier: (
+            tasks_by_id[identifier].relative,
+            tasks_by_id[identifier].line,
+            identifier,
+        ),
+    )
+    for start in ordered_tasks:
+        if state[start] != unseen:
+            continue
+        stack: list[tuple[str, int, tuple[str, ...]]] = [
+            (start, 0, tuple(sorted(
+                dependency for dependency in tasks_by_id[start].dependencies
+                if dependency in tasks_by_id))),
+        ]
+        path: list[str] = []
+        active_index: dict[str, int] = {}
+        while stack:
+            identifier, next_dependency, dependencies = stack[-1]
+            if state[identifier] == unseen:
+                state[identifier] = active_state
+                active_index[identifier] = len(path)
+                path.append(identifier)
+            if next_dependency < len(dependencies):
+                dependency = dependencies[next_dependency]
+                stack[-1] = (identifier, next_dependency + 1, dependencies)
+                if state[dependency] == unseen:
+                    stack.append((
+                        dependency,
+                        0,
+                        tuple(sorted(
+                            child for child in tasks_by_id[dependency].dependencies
+                            if child in tasks_by_id)),
+                    ))
+                elif state[dependency] == active_state:
+                    cycle = path[active_index[dependency]:] + [dependency]
+                    task = tasks_by_id[dependency]
+                    add_task_error(task, "PF-DOC-TASK-CYCLE", " -> ".join(cycle),
+                                   dependency)
+                continue
+            stack.pop()
+            path.pop()
+            active_index.pop(identifier)
+            state[identifier] = done_state
+
+    active = sorted(task.identifier for task in tasks if task.status == "in_progress")
+    if len(active) > 1:
+        active_tasks = sorted(
+            (tasks_by_id[identifier] for identifier in active),
+            key=lambda item: (item.relative, item.line, item.identifier))
+        first = active_tasks[0]
+        add_task_error(first, "PF-DOC-TASK-ACTIVE",
+                       f"multiple in_progress tasks: {', '.join(active)}")
+    raise_first(diagnostics)
+
+
+def check(root: Path) -> None:
+    root_input = root.expanduser().absolute()
+    for component in (root_input, *root_input.parents):
+        if component.is_symlink():
+            raise_error("PF-DOC-PATH", ".",
+                        f"repository root has symlink component {component.as_posix()}")
+    root = root_input.resolve()
+    docs_root = root / "docs"
+    ensure_repository_path(root, docs_root, "docs")
+    if not docs_root.is_dir():
+        raise_error("PF-DOC-REQUIRED", "docs", "docs/ does not exist")
+    for required in sorted(REQUIRED):
+        required_path = docs_root / required
+        ensure_repository_path(root, required_path, f"docs/{required}")
+        if not required_path.is_file():
+            raise_error("PF-DOC-REQUIRED", f"docs/{required}", "required document is missing")
+    ensure_no_tree_symlinks(root, docs_root)
+    present_targets = {path.name for path in (docs_root / "targets").glob("*.md")}
+    missing_targets = sorted(TARGETS - present_targets)
+    if missing_targets:
+        raise_error("PF-DOC-REQUIRED", "docs/targets", f"missing target dossiers {missing_targets}")
+
+    json_values: dict[str, Any] = {}
+    documents: list[Document] = []
+    by_id: dict[str, Document] = {}
+    corpus_paths = sorted([
+        *docs_root.rglob("*.json"),
+        *docs_root.rglob("*.md"),
+    ], key=lambda path: relative(root, path))
+    for path in corpus_paths:
+        ensure_repository_path(root, path, relative(root, path))
+        if path.suffix == ".json":
+            json_values[relative(root, path)] = load_json(root, path)
             continue
         try:
-            json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:  # noqa: BLE001 - validation boundary
-            fail(f"invalid JSON {path.relative_to(ROOT)}: {exc}")
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise_error("PF-DOC-ENCODING", relative(root, path), str(error))
+        meta = parse_frontmatter(root, path, text)
+        document = Document(path.resolve(), relative(root, path), text, meta)
+        by_id.setdefault(meta["id"], document)
+        documents.append(document)
 
-
-def check_markdown() -> None:
-    ids: dict[str, Path] = {}
-    link_re = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-    for path in sorted(DOCS.rglob("*.md")):
-        text = path.read_text(encoding="utf-8")
-        meta = frontmatter(path, text)
-        doc_id = meta.get("id")
-        status = meta.get("status")
-        if not doc_id:
-            fail(f"missing frontmatter id: {path.relative_to(ROOT)}")
-        if doc_id in ids:
-            fail(f"duplicate document id {doc_id}: {ids[doc_id]} and {path}")
-        ids[doc_id] = path
-        if status not in ALLOWED_STATUS:
-            fail(f"invalid status '{status}' in {path.relative_to(ROOT)}")
-        if status == "accepted" and re.search(r"\bTODO\b|待补充|待决定", text, re.IGNORECASE):
-            fail(f"accepted document contains unresolved marker: {path.relative_to(ROOT)}")
-        for raw_target in link_re.findall(text):
-            target = raw_target.split("#", 1)[0].strip()
-            if not target or target.startswith(("http://", "https://", "mailto:")):
-                continue
-            linked = (path.parent / target).resolve()
-            if not linked.exists():
-                fail(f"broken link {target} in {path.relative_to(ROOT)}")
+    check_links(root, docs_root, documents, by_id)
+    definitions, _tables, tasks, evidence_results = collect_definitions(documents, json_values)
+    validate_claims(definitions, json_values)
+    validate_trace(documents, definitions, tasks)
+    document_status = {document.meta["id"]: document.meta["status"] for document in documents}
+    validate_tasks(definitions, tasks, evidence_results, document_status)
 
 
 def main() -> None:
-    if not DOCS.is_dir():
-        fail("docs/ does not exist")
-    for relative in REQUIRED:
-        if not (DOCS / relative).is_file():
-            fail(f"missing required document: docs/{relative}")
-    present_targets = {path.name for path in (DOCS / "targets").glob("*.md")}
-    missing_targets = TARGETS - present_targets
-    if missing_targets:
-        fail(f"missing target dossiers: {sorted(missing_targets)}")
-    check_json()
-    check_markdown()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=DEFAULT_ROOT,
+                        help="repository root containing docs/")
+    arguments = parser.parse_args()
+    try:
+        check(arguments.root)
+    except DocsCheckError as error:
+        print(f"docs-check: {error.render()}", file=sys.stderr)
+        raise SystemExit(1)
     print("docs-check: ok")
 
 

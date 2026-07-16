@@ -39,11 +39,11 @@ SDK 与安全约束。现有语言通常绑定单一 VM；跨链框架又常把�
 
 | ID | 假设 | 实验 | 通过条件 | 状态 |
 |---|---|---|---|---|
-| BV-01 | 团队会为减少重复实现投入迁移成本 | 访谈 10 名有两种以上目标经验的工程师 | ≥6 人确认高频问题，≥3 人愿意付费或投入试点时间 | pending |
-| BV-02 | fail-closed 比“尽量编译”更有价值 | 展示 capability rejection 原型 | ≥8/10 选择明确拒绝 | pending |
-| BV-03 | `program` 单入口比多个 DSL 更易理解 | 可用性测试：完成 Counter 四目标任务 | ≥8/10 无需解释顶层类别 | pending |
-| BV-04 | target-owned Plan 能支持原生能力 | 专家评审四个 Phase 1 Plan schema | 无阻断性语义缺口 | pending |
-| BV-05 | Lean 工具链门槛可接受 | 计时安装、首次构建和诊断修复 | 中位首次成功 ≤30 分钟 | pending |
+| BV-001 | 团队会为减少重复实现投入迁移成本 | 访谈 10 名有两种以上目标经验的工程师 | ≥6 人确认高频问题，≥3 人愿意付费或投入试点时间 | pending |
+| BV-002 | fail-closed 比“尽量编译”更有价值 | 展示 capability rejection 原型 | ≥8/10 选择明确拒绝 | pending |
+| BV-003 | `program` 单入口比多个 DSL 更易理解 | 可用性测试：完成 Counter 四目标任务 | ≥8/10 无需解释顶层类别 | pending |
+| BV-004 | target-owned Plan 能支持原生能力 | 专家评审四个 Phase 1 Plan schema | 无阻断性语义缺口 | pending |
+| BV-005 | Lean 工具链门槛可接受 | 计时安装、首次构建和诊断修复 | 中位首次成功 ≤30 分钟 | pending |
 
 访谈记录必须匿名化，存储参与者角色、平台经验、当前流程、失败案例、预算/试点
 承诺及日期；不得只记录赞同意见。

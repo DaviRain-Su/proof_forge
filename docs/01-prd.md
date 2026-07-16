@@ -14,6 +14,10 @@ normative: true
 让作者以一个 Lean `program` 描述业务语义，由命令行 target 选择平台物化；编译器
 证明自己理解了程序需要什么，并在无法等价实现时准确拒绝。
 
+| ID | 产品目标 |
+|---|---|
+| GOAL-001 | 一份 target-neutral Lean `program` 在保持业务语义的前提下按显式 target 物化，并对不等价能力 fail closed |
+
 ## 核心用户流程
 
 1. 作者导入 `ProofForgeV2` 并声明一个或多个 `program Name where`。

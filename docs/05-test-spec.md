@@ -64,7 +64,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-NEAR-005 | Counter on sandbox | reference trace 相同 | local_runtime |
 | TST-NOIR-005 | Counter witness/proof | prove+verify，state continuity explicit | proof |
 | TST-NOIR-006 | PrivateSum4 | 隐私检查 + prove/verify | proof/security |
-| TST-XTARGET-001 | 一份 Counter 四 target | 四 OutputSet 均合法 | aggregate |
+| TST-XTARGET-001 | 一份 Counter 四 target | 四目标 normalized runtime/proof observation 均与 reference trace 一致，含 overflow rollback；四 OutputSet 均合法 | aggregate/differential |
 | TST-XTARGET-002 | unsupported/version/missing tool | 稳定错误，无 fallback | aggregate |
 | TST-HOST-001 | Stage-0 host attestation | development observation；formal fail closed | security/isolation |
 | TST-ISO-002 | 正式 hermetic archive harness | 外部 candidate anchor、eligible host、deny-default stages、process containment、gate-catalog EV 全部通过 | isolation |
@@ -153,7 +153,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-NOIR-004 | ACIR/witness/prove/verify pipeline |
 | TST-NOIR-005 | Counter proof test |
 | TST-NOIR-006 | PrivateSum4 privacy/proof test |
-| TST-XTARGET-001 | 四目标 aggregate |
+| TST-XTARGET-001 | 四目标 normalized reference-trace differential + OutputSet aggregate |
 | TST-XTARGET-002 | unsupported/version/tool matrix |
 | TST-SEC-001 | path/env/process/supply-chain/privacy attack matrix |
 | TST-VER-001 | schema/profile compatibility matrix |
@@ -170,10 +170,32 @@ accepted→superseded 必须通过；以下 mutation 必须以稳定 `PF-DOC-*` 
 及同阶段首诊断排序、frontmatter 缺失/重复/非法字段、非法 lifecycle status、accepted 缺
 approval metadata 或含 TODO、superseded 缺 successor/形成环、accepted release 无 formal
 evidence-set binder、document/embedded/registry ID 或 JSON key 重复/畸形、authoritative table 行
-宽错误、corpus file/ancestor symlink、broken/escaping local link 或不存在的 fragment、unknown/
-empty CLM source、GOAL/FR/NFR orphan、trace 任一 ADR/INV、SPEC/MOD、TASK、TST 轴缺失或引用未知、
-matrix TST 不属于同一行 TASK、task dependency unknown/cycle/未完成、done task 缺 TST/EV、EV
-result 非精确 `passed` 语法、同时两个 `in_progress` task。
+宽错误、inline/fenced code 或 HTML comment 被误作定义/证据/链接来源、非 UTF-8 Markdown、
+corpus root/file/ancestor symlink、broken/escaping inline/reference/image local link、不存在的
+fragment、unused reference definition 伪造 index reachability、typed definition 被同名 primary
+document 冒充、unknown/empty CLM source、GOAL/FR/NFR orphan、trace 任一 ADR/INV、SPEC/MOD、TASK、
+TST 轴缺失或引用未知、matrix TST 不属于同一行 TASK、task dependency unknown/cycle/未完成、
+task header 非 canonical、Prerequisites 列缺失/引用未知、done task 缺 TST/EV、EV ID 非
+`EV-YYYYMMDD-NNNN`、Evidence Ledger 列非 canonical、Task/Tests/Grade 非法或错绑、task 使用
+不符合 A0/development、D0-01/02/bootstrap、其余/formal 规则的 EV、done task 的 EV 未覆盖其
+全部 Tests、result 非精确 `passed`
+语法、requirements matrix 的 Evidence 非精确 `specified`、同时两个
+`in_progress` task。`docs/` 外的 `active/` 或任意其他归档 JSON 不属于 docs-check corpus，必须不
+影响结果。
+
+Evidence Ledger 的 canonical columns 固定为
+`ID | Task | Tests | Grade | Gate / command | Result | Scope and limitation`。`Grade` 只能是
+`development`、`bootstrap` 或 `formal`。绑定任务的 EV 必须给出一个精确 `TASK-*` 与该任务拥有的非空
+`TST-*` 子集；未绑定的历史观察只能同时使用 `Task=—`、`Tests=—`，且不得关闭任务。每个
+`done` task 引用的所有 EV 必须绑定回该 task，Tests 的并集必须覆盖任务表中的全部 Tests；
+`TASK-A0-*` 只能使用 `development`；为打破 evidence binder 的 bootstrap 循环，只有
+`TASK-D0-01/02` 可使用 `bootstrap`，并继续受依赖、accepted prerequisites、测试覆盖与评审
+约束；其余 task 只能使用 `formal`。`formal` 还必须由正式
+evidence-set binder 校验对应不可变 EV JSON；ledger 中的文字标签不能自行把 development
+观察升级为 formal evidence；在 `TASK-D0-03` 的 binder 落地并接入 docs-check 前，任何
+`Grade=formal` 行都必须以 `PF-DOC-EVIDENCE-FORMAL-UNVERIFIED` 拒绝。requirements matrix
+在当前尚未闭合的阶段，Evidence 单元格只
+允许精确 `specified`，不得以 `passed`、`closed` 或自由文本替代正式 EV 绑定。
 
 校验顺序固定为 root/required → JSON/frontmatter → status/link/supersession → definition/reference →
 claim source → requirement trace → task/evidence；同阶段按 repo-relative path/line/ID 排序。

@@ -49,6 +49,13 @@ program command 先经过有界、非递归 Syntax preflight，再进入递归 d
 - INV-008：build 无网络和密钥副作用；deploy/prove/verify 显式执行。
 - INV-009：所有身份、序列化和输出顺序决定性。
 - INV-010：V2 在 clean-room 中不依赖父项目。
+- INV-011：compiler 的时间、内存、输出与进程预算必须版本化、可测量并在超限时稳定失败。
+- INV-012：每个 active normative `GOAL/FR/NFR` 必须以精确 ID 闭合到决定或不变量、
+  规格、任务及其 specified 验收测试；task 只有在 `done` 时才要求 `passed` EV，release 只有在
+  accepted 时才要求 formal candidate-bound evidence set。未知、缩写、范围和孤儿引用必须
+  fail closed，specified 不得冒充 closed。
+- INV-013：持久化 DSL、schema、target/codegen profile 的版本和兼容边界必须显式；破坏性
+  变更要求 major bump、迁移路径和 old/new reader 或 upgrade/rollback 验收，禁止隐式兼容。
 
 ## 中立语义
 

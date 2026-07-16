@@ -54,6 +54,7 @@ normative: true
 - Solana ISA 地基（研究）：[`research/09-assembler-semantics-bridge.md`](research/09-assembler-semantics-bridge.md)。
 - 追踪矩阵：[`traceability/README.md`](traceability/README.md)。
 - 治理：[`governance/README.md`](governance/README.md)。
+- 术语：[`glossary.md`](glossary.md)。
 
 目标与 ADR/调研目录由对应工作流维护。缺失页面表示该工作流尚未完成，不能推断
 目标已实现。

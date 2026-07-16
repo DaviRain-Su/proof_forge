@@ -1,7 +1,7 @@
 ---
 id: RESEARCH-09
 title: assembler-semantics as Solana ISA foundation
-status: research
+status: draft
 owner: architecture
 updated: 2026-07-16
 normative: false

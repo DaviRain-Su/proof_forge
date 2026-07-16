@@ -14,7 +14,7 @@
       "id": "CLM-LANG-002",
       "claim": "ProofForge V2 has one user-level program declaration and no user-written execution kind.",
       "kind": "decision",
-      "status": "accepted",
+      "status": "provisional",
       "sources": ["SRC-LEAN-001"],
       "impact": "Target selection performs materialization; requirements are inferred from semantics."
     },
@@ -182,7 +182,7 @@
       "id": "CLM-SCOPE-001",
       "claim": "Phase 1 implementation scope is EVM, Solana, NEAR and Noir only.",
       "kind": "decision",
-      "status": "accepted",
+      "status": "provisional",
       "sources": ["SRC-LOCAL-001"],
       "impact": "All other dossiers are design/research deliverables and may not advertise an implemented backend."
     },
