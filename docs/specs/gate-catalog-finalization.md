@@ -826,6 +826,53 @@ taskApprovalDigest = SHA-256(
 )
 ```
 
+首个 signed-content consumer 的 public API 固定为：
+
+```text
+parse_task_approval(
+  taskApprovalBytes,
+  requiredTestSetBytes,
+  authorityPolicyBytes,
+  phase5Snapshot: BootstrapDocumentSnapshotV1
+) -> (TaskApprovalV1, TaskApprovalRefV1)
+```
+
+四个参数均为 required positional input；API 不接受 caller 构造的 policy/required-set typed value、
+ref、expected IDs/candidate、boolean 或 selector。`EvidenceRef`、`TaskApprovalRefV1`、
+`BootstrapTaskVerifierReceiptRefV1`、`IndependentReviewRefV1` 与 `TaskApprovalV1` 都是 exact frozen typed
+records，wire array 进入 typed tuple，不得保留 dict/opaque payload。
+
+schema-specific bounds 固定为：`testIds` 与 `evidence` 各 `1..4096`，`dependencyCompletions` `0..5`，
+`prerequisiteDocuments` `0..256`；reviews 为
+`1..min(distinct policy principalId count,256)`，signatures 为
+`1..min(policy principal-entry count,256)`。test/evidence/dependency/prerequisite/review/signature
+分别按 TestId、EvidenceRef.id、taskId、document id、keyId、keyId 唯一 ASCII 升序；review
+principalId 与 reportDigest 也必须分别唯一。EvidenceRef.id 与 BTV id 中的 `YYYYMMDD` 必须是真实
+Gregorian date；BTV id exact grammar 为 `BTV-[0-9]{8}-[0-9]{4}`。任何 count/order/duplicate/closed-field/
+scalar error 都必须在 TaskApproval signature curve work 前拒绝。
+
+每个 independent review key 必须 exact 命中 policy principal entry，显式 role 必须属于该 exact key 的
+roles，decision exact 为 `approved`，reviewCommit 使用 40/64 位 lowercase GitObjectId grammar 并 exact
+等于 TaskApproval candidate.commit，reviewLink/reportDigest 按前述规则验证。reviews 中 principalId
+必须唯一；review principalId set 与 signatures 映射出的 distinct principalId set exact 相等，因此
+threshold 自动与 signatures 相同。显式 review role 只证明该 review key 对该角色获授权，不另行把
+单值 review role 集合当作 task rule role coverage；task rule 的 requiredRoles 只由已验证 signatures
+各自 exact key entry 的完整 roles 覆盖。rotation 可由 review key 与 signature key 映射到同一
+principalId，不要求 keyId set 相等；同一 principal 的多 signature key 始终只计一次。所有 signatures
+必须有效，禁止选择有效子集。
+
+实现顺序固定为：先完成 TaskApproval canonical/closed-field/bounds/scalar/array/signature-syntax structural
+preflight 与 PHASE-5 snapshot parse，再共用 RequiredTestSet internal preflight；随后 exact join snapshot
+document/denominator、policy ref、required-set ref 和 task test membership，并解析 review/signature policy
+membership/rule；完成全部上述结构检查后，先 finalize 全部 RequiredTestSet signatures，再 finalize 全部
+TaskApproval signatures 和完整 approval digest。禁止先调用已完成验签的 public document-bound parser，
+再解析 malformed TaskApproval。
+
+该 API 成功只表示 policy + document-bound RequiredTestSet + signed TaskApproval 自身内容闭合；它不验证
+PHASE-4 raw snapshot/task row、EV raw bytes/test union、dependency approval/receipt、review report bytes、
+handoff bytes/provenance、archive membership、single snapshot、reviewCommit ancestry、revocation 或
+protected execution，也不产生 task closure。上述对象只能由后续同一次 pure object consumer join。
+
 单项 D0 `done` 的 authority 是 exact TaskApproval 加其 authenticated task receipt，而不是六项
 aggregate set。Task receipt schema 固定为 `proof-forge.bootstrap-task-verifier-receipt.v1`，ID 使用
 `BTV-YYYYMMDD-NNNN`。receipt 的 task/candidate/policy/approval/handoff/dependency refs 必须与

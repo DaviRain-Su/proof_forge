@@ -716,7 +716,13 @@ digest、normalized observations 和 logs。
    lease/head sequence、unsigned/wrong-key hello/ack、schema publish allowlist 绕过、quorum-signed set
    无 publication path、publish conflict、missing/exact-head readback、revoked/non-unique tuple lookup、
    仅 ledger `passed` 或 synthetic
-   bootstrap without protected verifier receipt。
+   bootstrap without protected verifier receipt；TaskApproval signed-content matrix 还须覆盖四输入 API、
+   六个 schema-specific array equal/over bound、Evidence/BTV real date、各排序键/duplicate、wrong task rule、
+   required-set/policy/test membership、stage0 schema、review key/role/commit/link/report/decision、review
+   principal/report uniqueness、review↔signature distinct-principal exact set、review role authorization 与
+   signature rule threshold/roles、rotation key positive、statement/content domain golden、全部结构失败在
+   approval signature curve 前拒绝，以及
+   positive 不得替代 PHASE-4/EV/dependency/review-report/handoff/provenance join。
 
 前两层不能代替后四层。当前 formal publisher 和 bootstrap closure 继续 fail closed；development schema/bundle/
 catalog 结果不能关闭 `TST-BOOTSTRAP-001`、`TST-EVIDENCE-002` 或 `TST-ISO-002`。外部工具缺失必须让相应 required gate 失败，不能 skip 后仍
