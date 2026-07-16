@@ -40,6 +40,20 @@ private def nestedNamespaceSource (depth : Nat) : String :=
   "program Bounded where\n  view get() : UInt64 do\n    return 0\n" ++
   String.intercalate "" (List.replicate depth "end N\n")
 
+private def unwoundNamespaceSource (peakDepth retainedDepth : Nat) : String :=
+  "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+  String.intercalate "" (List.replicate peakDepth "namespace N\n") ++
+  String.intercalate "" (List.replicate (peakDepth - retainedDepth) "end N\n") ++
+  "program Bounded where\n  view get() : UInt64 do\n    return 0\n" ++
+  String.intercalate "" (List.replicate retainedDepth "end N\n")
+
+private def overLimitNamespaceAndExpressionSource (depth terms : Nat) : String :=
+  "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+  String.intercalate "" (List.replicate depth "namespace N\n") ++
+  "program Deep where\n  view get() : UInt64 do\n    return " ++
+  String.intercalate " + " (List.replicate terms "1") ++ "\n" ++
+  String.intercalate "" (List.replicate depth "end N\n")
+
 private def wideProgramSource (stateCount : Nat) : String :=
   "import ProofForgeV2\nopen ProofForgeV2.Language\nprogram Wide where\n" ++
   String.intercalate "" (List.replicate stateCount "  state cell : UInt64\n") ++
@@ -59,6 +73,15 @@ unsafe def run : IO Unit := do
   expectRejected (← Language.Loader.parsePrograms malicious "<malicious>")
     "arbitrary Lean commands must be rejected"
   expect (!(← marker.pathExists)) "parsing must never execute run_cmd"
+
+  let deepUnsupportedImport := "import " ++
+    String.intercalate "." (List.replicate (Language.maxSyntaxNesting + 1) "N") ++ "\n"
+  match ← Language.Loader.parsePrograms deepUnsupportedImport "<deep-import>" with
+  | .error (.invalidProgram message) =>
+      expect (message == "unsupported import; only ProofForgeV2 is allowed")
+        "unsupported imports must not recursively render attacker-controlled qualified names"
+  | .error error => throw <| IO.userError s!"deep unsupported import returned {error.render}"
+  | .ok _ => throw <| IO.userError "deep unsupported import unexpectedly passed"
 
   let duplicateInit := "import ProofForgeV2\nopen ProofForgeV2.Language\nprogram Duplicate where\n  init() do\n  init() do\n  view get() : UInt64 do\n    return 0\n"
   expectRejected (← Language.Loader.parsePrograms duplicateInit "<duplicate-init>")
@@ -106,6 +129,30 @@ unsafe def run : IO Unit := do
   | .error (.resourceBound _) => pure ()
   | .error error => throw <| IO.userError s!"namespace overflow must use PF-BOUND-001, found {error.render}"
   | .ok _ => throw <| IO.userError "namespace identity above the limit unexpectedly passed"
+
+  match ← Language.Loader.selectProgram
+      (unwoundNamespaceSource
+        (Language.maxSyntaxNesting + 1) (Language.maxSyntaxNesting - 1))
+      "<namespace-unwound-at-limit>" none with
+  | .ok contractProgram =>
+      expect (contractProgram.name == "Bounded")
+        "a transient over-limit namespace must pass after unwinding to a legal program identity"
+      let expectedQualifiedName := String.intercalate "." <|
+        List.replicate (Language.maxSyntaxNesting - 1) "N" ++ ["Bounded"]
+      expect (contractProgram.qualifiedName == expectedQualifiedName)
+        "unwinding must restore the exact bounded namespace prefix"
+  | .error error => throw <| IO.userError <|
+      s!"namespace unwound to the identity limit unexpectedly failed: {error.render}"
+
+  match ← Language.Loader.parsePrograms
+      (overLimitNamespaceAndExpressionSource
+        (Language.maxSyntaxNesting + 1) 300) "<namespace-and-syntax-over-limit>" with
+  | .error (.resourceBound message) =>
+      expect (message == s!"portable syntax exceeds nesting limit {Language.maxSyntaxNesting}")
+        "portable Syntax preflight must win before namespace identity rejection"
+  | .error error => throw <| IO.userError <|
+      s!"combined namespace/Syntax overflow returned the wrong error: {error.render}"
+  | .ok _ => throw <| IO.userError "combined namespace/Syntax overflow unexpectedly passed"
 
   match ← Language.Loader.parsePrograms (wideProgramSource 20000) "<wide-syntax>" with
   | .error (.resourceBound _) => pure ()

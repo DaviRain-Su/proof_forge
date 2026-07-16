@@ -76,6 +76,8 @@ def run : IO Unit := do
   | .error (.resourceBound _) => pure ()
   | _ => throw <| IO.userError "Syntax above the node limit must fail with PF-BOUND-001"
   let overNested := linearSyntax (Language.maxSyntaxNesting + 1)
+  expectDecoderBound (Language.decodeType overNested) "type decoder"
+  expectDecoderBound (Language.decodeParam overNested) "parameter decoder"
   expectDecoderBound (Language.decodeExpr overNested) "expression decoder"
   expectDecoderBound (Language.decodeStatement overNested) "statement decoder"
   expectDecoderBound (Language.decodeItem overNested) "item decoder"
@@ -91,6 +93,17 @@ def run : IO Unit := do
       (repeatedName Language.maxSyntaxNesting) `BoundProbe with
   | .error (.resourceBound _) => pure ()
   | _ => throw <| IO.userError "qualified program identity above the nesting limit must fail"
+  let identifierAtLimit := Lean.Syntax.ident .none "N".toRawSubstring
+    (repeatedName Language.maxSyntaxNesting) []
+  let identifierOverLimit := Lean.Syntax.ident .none "N".toRawSubstring
+    (repeatedName (Language.maxSyntaxNesting + 1)) []
+  match Language.preflightSyntax identifierAtLimit with
+  | .ok () => pure ()
+  | .error error => throw <| IO.userError <|
+      s!"identifier at the component limit unexpectedly failed: {error.render}"
+  match Language.preflightSyntax identifierOverLimit with
+  | .error (.resourceBound _) => pure ()
+  | _ => throw <| IO.userError "identifier above the component limit must fail"
   expect (Crypto.sha256Hex "".toUTF8 ==
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     "SHA-256 must match the empty-message reference vector"

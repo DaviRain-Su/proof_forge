@@ -22,6 +22,30 @@ def namespace_source(depth: int) -> str:
     )
 
 
+def unwound_namespace_source(peak_depth: int, retained_depth: int) -> str:
+    return (
+        HEADER
+        + "namespace N\n" * peak_depth
+        + "end N\n" * (peak_depth - retained_depth)
+        + "program Bounded where\n"
+        + "  state count : UInt64\n"
+        + "  init() do\n    count := 0\n"
+        + "  view get() : UInt64 do\n    return count\n"
+        + "end N\n" * retained_depth
+    )
+
+
+def namespace_expression_source(depth: int, terms: int) -> str:
+    return (
+        HEADER
+        + "namespace N\n" * depth
+        + "program Deep where\n  view get() : UInt64 do\n    return "
+        + " + ".join(["1"] * terms)
+        + "\n"
+        + "end N\n" * depth
+    )
+
+
 def expression_source(terms: int) -> str:
     return (
         HEADER
@@ -50,6 +74,8 @@ def main() -> None:
     fixtures = {
         "namespace-at-limit.lean": namespace_source(255),
         "namespace-over-limit.lean": namespace_source(256),
+        "namespace-unwound-at-limit.lean": unwound_namespace_source(257, 255),
+        "namespace-and-expression-over-limit.lean": namespace_expression_source(257, 300),
         "expression-over-limit.lean": expression_source(300),
         "nodes-over-limit.lean": wide_source(20_000),
     }
@@ -58,6 +84,10 @@ def main() -> None:
     (destination / "source-over-limit.lean").write_bytes(
         b" " * (16 * 1024 * 1024 + 1)
     )
+    source_at_limit = namespace_source(0).encode("utf-8")
+    source_at_limit += b" " * (16 * 1024 * 1024 - len(source_at_limit))
+    assert len(source_at_limit) == 16 * 1024 * 1024
+    (destination / "source-at-limit.lean").write_bytes(source_at_limit)
 
 
 if __name__ == "__main__":

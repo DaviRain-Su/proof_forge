@@ -80,26 +80,34 @@ private def preflightForDecoder (stx : Syntax) : Except String Unit :=
 
 /-- Decode the registered Lean syntax tree into the target-neutral source AST.
 This function is also used by the non-elaborating CLI loader. -/
-def decodeType : Syntax → Except String ProofForgeV2.Source.ValueType
+private def decodeTypeUnchecked : Syntax → Except String ProofForgeV2.Source.ValueType
   | `(pfType| UInt64) => .ok .u64
   | _ => .error "unsupported portable type"
 
-def decodeParam : Syntax → Except String ProofForgeV2.Source.Param
+def decodeType (stx : Syntax) : Except String ProofForgeV2.Source.ValueType := do
+  preflightForDecoder stx
+  decodeTypeUnchecked stx
+
+private def decodeParamUnchecked : Syntax → Except String ProofForgeV2.Source.Param
   | `(pfParam| $name:ident : $type:pfType) => do
-      return { name := name.getId.toString, type := ← decodeType type }
+      return { name := name.getId.toString, type := ← decodeTypeUnchecked type }
   | `(pfParam| public $name:ident : $type:pfType) => do
       return {
         name := name.getId.toString
-        type := ← decodeType type
+        type := ← decodeTypeUnchecked type
         visibility := .verifierVisible
       }
   | `(pfParam| private $name:ident : $type:pfType) => do
       return {
         name := name.getId.toString
-        type := ← decodeType type
+        type := ← decodeTypeUnchecked type
         visibility := .proverWitness
       }
   | _ => .error "unsupported portable parameter"
+
+def decodeParam (stx : Syntax) : Except String ProofForgeV2.Source.Param := do
+  preflightForDecoder stx
+  decodeParamUnchecked stx
 
 private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.Source.Expr
   | `(pfExpr| $value:num) =>
@@ -131,7 +139,7 @@ def decodeStatement (stx : Syntax) : Except String ProofForgeV2.Source.Statement
 
 private def decodeParams (params : Array Syntax) :
     Except String (Array ProofForgeV2.Source.Param) :=
-  params.mapM decodeParam
+  params.mapM decodeParamUnchecked
 
 private def decodeStatementsUnchecked (statements : Array Syntax) :
     Except String (Array ProofForgeV2.Source.Statement) :=
@@ -139,7 +147,7 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
 
 private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.Item
   | `(pfItem| state $name:ident : $type:pfType) => do
-      return .stateDecl { name := name.getId.toString, type := ← decodeType type }
+      return .stateDecl { name := name.getId.toString, type := ← decodeTypeUnchecked type }
   | `(pfItem| init ($params:pfParam,*) do $statements:pfStmt*) => do
       return .initializer {
         params := ← decodeParams params
@@ -149,7 +157,7 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
       return .entry {
         name := name.getId.toString
         params := ← decodeParams params
-        result := ← decodeType type
+        result := ← decodeTypeUnchecked type
         mode := .mutate
         body := ← decodeStatementsUnchecked statements
       }
@@ -157,7 +165,7 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
       return .entry {
         name := name.getId.toString
         params := ← decodeParams params
-        result := ← decodeType type
+        result := ← decodeTypeUnchecked type
         mode := .view
         body := ← decodeStatementsUnchecked statements
       }
@@ -194,20 +202,29 @@ def preflightProgramIdentity (currentNamespace programName : Name) :
   | none => .error (.resourceBound
       s!"portable program identity exceeds nesting limit {maxSyntaxNesting}")
 
-def decodeProgramCommandChecked (currentNamespace : Name) (stx : Syntax) :
+inductive ProgramNamespace where
+  | bounded (name : Name)
+  | overLimit
+  deriving Inhabited
+
+def decodeProgramCommandChecked (currentNamespace : ProgramNamespace) (stx : Syntax) :
     CompileResult ProofForgeV2.Source.Program := do
   preflightSyntax stx
   match stx with
   | `(program $name:ident where $_items:pfItem*) =>
-      preflightProgramIdentity currentNamespace name.getId
-  | _ => pure ()
-  match decodeProgramCommandUnchecked currentNamespace stx with
-  | .ok contractProgram => .ok contractProgram
-  | .error message => .error <| .invalidProgram message
+      let namespaceName ← match currentNamespace with
+        | .bounded namespaceName => .ok namespaceName
+        | .overLimit => .error (.resourceBound
+            s!"portable program identity exceeds nesting limit {maxSyntaxNesting}")
+      preflightProgramIdentity namespaceName name.getId
+      match decodeProgramCommandUnchecked namespaceName stx with
+      | .ok contractProgram => .ok contractProgram
+      | .error message => .error <| .invalidProgram message
+  | _ => .error <| .invalidProgram "expected a program declaration"
 
 def decodeProgramCommand (currentNamespace : Name) (stx : Syntax) :
     Except String ProofForgeV2.Source.Program :=
-  (decodeProgramCommandChecked currentNamespace stx).mapError CompileError.render
+  (decodeProgramCommandChecked (.bounded currentNamespace) stx).mapError CompileError.render
 
 private def expandType (type : Syntax) : MacroM (TSyntax `term) :=
   match type with
