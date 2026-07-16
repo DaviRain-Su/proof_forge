@@ -404,8 +404,38 @@ evidence-set binder 校验对应不可变 EV JSON；ledger 中的文字标签不
 `TST-DOC-001` 对 D0-01 consumer 先固定两层互不替代的验收：第一层直接调用 pure object API，
 synthetic positive 只能得到 exact `ObjectVerifiedV1` projection，并逐项 mutation subject/object-set 的
 missing/extra/duplicate/order、policy/required-set/handoff/approval/receipt/dependency/document/review/
-evidence 的 schema、canonical bytes、domain digest、签名、quorum、role 和 exact joins；dependency
-对象还须覆盖 `0/5/6` bundle count、bundle 顺序/重复/错配，以及每项 run-specific handoff 被 root 或
+evidence 的 schema、canonical bytes、domain digest、签名、quorum、role 和 exact joins。
+
+PHASE-4 下一切片必须先分别正向到达 public `parse_phase4_snapshot_content` 与 graph raw-document
+join。snapshot matrix 必须覆盖 exact typed record/subclass、id/path、`0/1/4194304/4194305` bytes、
+BOM/NUL/CR/non-UTF-8/no-final-LF、raw line `100000/100001` 与 line width `65536/65537`、frontmatter
+opening/closing delimiter、scalar、field-set、duplicate/unknown key、accepted metadata、approvers
+delimiter/order/duplicate、两项 Gregorian date、reviewCommit/reviewLink/openFindings 与 PHASE-4
+normative-document domain golden。raw scanner 必须覆盖 D0 heading 与 D1 boundary 的
+missing/duplicate/reorder、位于 fenced code/HTML comment/inline decoy 的 exact reserved line、heading 到
+header 或 table 到 D1 间插入 non-empty line、header/delimiter 的 missing/duplicate/substitution/reorder、
+row missing/duplicate/reorder/extra/non-contiguous、extra cell、empty/overlong/control-code description、
+embedded `|` 与非法 status。
+
+七行 cell matrix 必须覆盖 exact `TASK-D0-01..07` source order、D0-07 仅验证不投影、Tests empty、
+Dependencies/Prerequisites/Evidence 的合法 `—`、把 Tests 替换为 `—`、`, ` 以外 delimiter、leading/
+trailing whitespace、backtick、empty token、duplicate/unsorted/malformed/range/wildcard ID、
+prerequisite 缺/错 `@accepted`、dependency 指向表外 task、D0-01..06 指向 D0-07 与 cycle。positive 必须
+断言 frozen `Phase4TaskRowV1` 六行 projection 的每个字段与完整 `NormativeDocumentRefV1`，不得只断言
+count 或 digest。
+
+graph matrix 必须从 raw PHASE-4 root row 自行派生 transitive closure，并覆盖 subject rows 的
+missing/extra/reorder 及 dependencies/prerequisiteDocumentIds/testIds/evidenceIds 同 cardinality
+substitution；selected raw row 的 empty evidence 必须拒绝。root 与每个 dependency approval 都要在
+mutation 后使用有效重签对象，分别替换 taskBreakdown full ref 的 id/contentDigest/status/reviewCommit/
+reviewLink/approvedAt/approvers，以及 testIds、dependency taskIds、EvidenceRef.id、prerequisite document
+IDs，确保失败来自 raw exact join 而非 stale signature。PHASE-1/2/3 prerequisite snapshots 还须覆盖
+exact type、canonical path、accepted frontmatter、raw domain digest 与 full-ref 同 cardinality
+substitution；只比较 ID、digest、count、root approval、direct dependency 或 caller subject closure 的
+弱实现必须被 mutation 杀死。D0-04 positive 仍须区分五个 transitive bundles 与 root row 的四个 direct
+dependencies，D0-07 不得进入任何 subject/approval/bundle。
+
+dependency 对象还须覆盖 `0/5/6` bundle count、bundle 顺序/重复/错配，以及每项 run-specific handoff 被 root 或
 其他 dependency handoff 替换、重签后 handoff ContentRef 或 `(runId, nonce)` 跨 task 复用；D0-04 positive 的 raw bundle exact set 是五个 transitive dependency，
 但 root approval/receipt 的 `dependencyCompletions` exact set 只能是四个 direct dependency；object-set
 carrier 还须覆盖 evidence `1/24576/24577` 与 review report `1/1536/1537` count，并在 over-bound entry
@@ -414,9 +444,16 @@ decode/hash/curve 前拒绝；review report 还须覆盖 exact typed carrier、o
 review digest union 的 missing/extra exact join；union 还须有跨 task 共享同一 digest 且 carrier
 只保留一项的 positive，missing/extra 须在全部 RequiredSet/TaskApproval 签名验证后且 receipt
 签名验证前拒绝；还须覆盖同 cardinality 的 missing+extra substitution，防止仅比较 count。完整 graph
-固定为 shell/count → intrinsic report digest → RequiredSet → 全部 TaskApproval → union → receipt；
-structural/aggregate failure 时任何 graph hash 与 curve 均为零；first/interior/last digest mismatch
-只能依序触发截至 mismatch 项的 report-domain hash，其他 graph hash 与 curve 仍为零；第二层调用
+固定为 shell/count → intrinsic report digest → PHASE-4/PHASE-5/prerequisite raw parse + raw row/document
+joins → RequiredSet → 全部 TaskApproval → union → receipt；PHASE-4 snapshot 在同一 invocation 只能解析
+一次。report structural/aggregate failure 时任何 graph hash 与 curve 均为零；first/interior/last report
+digest mismatch 只能依序触发截至 mismatch 项的 report-domain hash，其他 graph hash 与 curve 仍为零。
+report intrinsic 通过后的任一 snapshot typing/resource/frontmatter/table/DAG、raw closure、same-cardinality
+row 或 full-ref mismatch，必须在第一次 RequiredSet/TaskApproval curve work 前拒绝；此时允许已经完成的
+report-domain 与 raw-document hash，但 RequiredSet、TaskApproval、receipt curve count 都必须 exact 为
+零。验收必须 instrument internal preflight/finalize/hash/curve 顺序，禁止先调用已验签 public parser 再
+事后 compare；raw parser/join positive 仍不得替代尚未闭合的 EV raw bytes、archive membership、stable
+snapshot、reviewCommit ancestry 或 protected provenance。第二层调用
 默认 docs checker，同一 bootstrap ledger/task fixture 必须稳定返回
 `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`。CLI/env/path/普通 file fd 不得选择 authority，也不得新增
 `check(root, capability)` 把 `ObjectVerifiedV1` 升级成 closure。synthetic object set 永不构成 successful
@@ -718,7 +755,12 @@ digest、normalized observations 和 logs。
 6. bootstrap authority negatives：wrong policy schema、D0-01..06 缺项/乱序/额外项、principal
    间或同一 principal rotation 的 duplicate publicKey、receiptPublicKey alias principal key、按
    principalId 合并其他 key roles 的权限提升、role enum ASCII 误排序、principals 0/257 count，
-   duplicate key material 在第二次 subgroup 运算前拒绝、Task Breakdown row/test/dependency/
+   duplicate key material 在第二次 subgroup 运算前拒绝；PHASE-4 raw snapshot 还须覆盖 exact type/id/path、
+   accepted frontmatter、byte/line resource bounds、normative domain、D0/D1 reserved-line decoy/duplicate/
+   order、exact seven-column table 与 D0-01..07 rows、description/status、`—`/`, ` cell grammar、source ID
+   order/duplicate、dependency table-membership/DAG、D0-07 non-bootstrap projection，以及 raw-derived
+   closure/subject/full approval/prerequisite raw-document same-cardinality joins；全部 raw mismatch 在 report
+   intrinsic 之后、RequiredSet/TaskApproval curve 前拒绝且 curve count 为零。Task Breakdown row/test/dependency/
    prerequisite substitution、missing/wrong/unsigned task RequiredTestSet、owned TST 非 required member、
    EV/review/candidate/handoff mismatch、同一 principal 多 key 满足伪 quorum、历史 candidate 或
    wrong-policy/required-set dependency completion、missing/wrong task receipt、aggregate 作为前五项 done 前置、D0-04 在自身

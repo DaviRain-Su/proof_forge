@@ -174,6 +174,7 @@ def assert_public_api(module: ModuleType) -> None:
         "parse_candidate_identity",
         "parse_bootstrap_authority_policy",
         "parse_required_test_set",
+        "parse_phase4_snapshot_content",
         "parse_phase5_snapshot_content",
         "parse_document_bound_required_test_set",
         "parse_task_approval",
@@ -194,6 +195,8 @@ def assert_public_api(module: ModuleType) -> None:
         "ApprovalSignatureV1",
         "NormativeDocumentRefV1",
         "RequiredTestSetV1",
+        "Phase4TaskRowV1",
+        "Phase4SnapshotContentV1",
         "Phase5SnapshotContentV1",
         "EvidenceRef",
         "TaskApprovalRefV1",
@@ -243,6 +246,18 @@ def assert_public_api(module: ModuleType) -> None:
         and parameter.default is inspect.Parameter.empty
         for parameter in snapshot_parameters
     ), "Phase-5 snapshot parser argument must be required"
+
+    phase4_snapshot_parameters = tuple(
+        inspect.signature(module.parse_phase4_snapshot_content).parameters.values()
+    )
+    assert tuple(parameter.name for parameter in phase4_snapshot_parameters) == (
+        "phase4_snapshot",
+    ), "Phase-4 snapshot parser must expose exactly one typed snapshot input"
+    assert all(
+        parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        and parameter.default is inspect.Parameter.empty
+        for parameter in phase4_snapshot_parameters
+    ), "Phase-4 snapshot parser argument must be required"
 
     document_bound_parameters = tuple(
         inspect.signature(
@@ -342,6 +357,14 @@ def assert_public_api(module: ModuleType) -> None:
             "requiredTestIds",
             "signatures",
         ),
+        "Phase4TaskRowV1": (
+            "taskId",
+            "dependencies",
+            "prerequisiteDocumentIds",
+            "testIds",
+            "evidenceIds",
+        ),
+        "Phase4SnapshotContentV1": ("document", "bootstrapTaskRows"),
         "Phase5SnapshotContentV1": ("document", "requiredTestIds"),
         "EvidenceRef": ("id", "digest"),
         "TaskApprovalRefV1": ("taskId", "digest"),
@@ -1662,6 +1685,151 @@ D0_GRAPH_ROWS = {
     },
 }
 
+ACCEPTED_DOCUMENT_PATHS = {
+    "PHASE-1": "docs/01-prd.md",
+    "PHASE-2": "docs/02-architecture.md",
+    "PHASE-3": "docs/03-technical-spec.md",
+    "PHASE-4": "docs/04-task-breakdown.md",
+}
+PHASE4_FRONTMATTER = {
+    "id": "PHASE-4",
+    "title": "Synthetic Phase 4 task breakdown",
+    "status": "accepted",
+    "owner": "delivery",
+    "updated": "2026-07-16",
+    "normative": "true",
+    "approvers": "principal-quality, principal-security",
+    "approvedAt": "2026-07-16",
+    "reviewCommit": "a" * 40,
+    "reviewLink": "https://review.example/phase-4:443/approval",
+    "openFindings": "none",
+}
+PHASE4_D0_07_ROW = {
+    "dependencies": ("TASK-D0-04",),
+    "prerequisites": (),
+    "testIds": ("TST-EVIDENCE-002", "TST-ISO-002"),
+    "evidenceIds": (),
+}
+PHASE4_STATUS_BY_TASK = {
+    "TASK-D0-01": "in_progress",
+    "TASK-D0-02": "pending",
+    "TASK-D0-03": "pending",
+    "TASK-D0-04": "blocked",
+    "TASK-D0-05": "pending",
+    "TASK-D0-06": "pending",
+    "TASK-D0-07": "pending",
+}
+
+
+def _phase4_list_cell(values: tuple[str, ...], *, accepted: bool = False) -> str:
+    if not values:
+        return "—"
+    if accepted:
+        return ", ".join(f"{value}@accepted" for value in values)
+    return ", ".join(values)
+
+
+def phase4_snapshot_bytes(
+    *,
+    metadata: dict[str, str] | None = None,
+    row_overrides: dict[str, dict[str, object]] | None = None,
+) -> bytes:
+    """Build the strict synthetic PHASE-4 authority snapshot."""
+    frontmatter = dict(PHASE4_FRONTMATTER if metadata is None else metadata)
+    rows = {
+        task_id: {
+            "dependencies": row["dependencies"],
+            "prerequisites": row["prerequisites"],
+            "testIds": row["testIds"],
+            "evidenceIds": row["evidenceIds"],
+            "status": PHASE4_STATUS_BY_TASK[task_id],
+            "description": f"fixture for {task_id}",
+        }
+        for task_id, row in D0_GRAPH_ROWS.items()
+    }
+    rows["TASK-D0-07"] = {
+        **PHASE4_D0_07_ROW,
+        "status": PHASE4_STATUS_BY_TASK["TASK-D0-07"],
+        "description": "fixture for TASK-D0-07",
+    }
+    for task_id, override in (row_overrides or {}).items():
+        rows[task_id].update(override)
+
+    lines = ["---"]
+    lines.extend(f"{key}: {value}" for key, value in frontmatter.items())
+    lines.extend((
+        "---",
+        "# Phase 4 synthetic authority fixture",
+        "",
+        "## Milestone D0：文档与独立工程",
+        "",
+        "| ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |",
+        "|---|---|---|---|---|---|---|",
+    ))
+    for task_id in tuple(D0_GRAPH_ROWS) + ("TASK-D0-07",):
+        row = rows[task_id]
+        lines.append(
+            "| "
+            + " | ".join((
+                task_id,
+                str(row["description"]),
+                _phase4_list_cell(row["dependencies"]),
+                _phase4_list_cell(row["prerequisites"], accepted=True),
+                _phase4_list_cell(row["testIds"]),
+                _phase4_list_cell(row["evidenceIds"]),
+                str(row["status"]),
+            ))
+            + " |"
+        )
+    lines.extend((
+        "",
+        "## Milestone D1：语言前端",
+        "",
+        "Synthetic next milestone prose.",
+    ))
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def make_phase4_snapshot(
+    module: ModuleType,
+    *,
+    metadata: dict[str, str] | None = None,
+    row_overrides: dict[str, dict[str, object]] | None = None,
+    encoded: bytes | None = None,
+    identifier: str = "PHASE-4",
+    path: str = "docs/04-task-breakdown.md",
+) -> object:
+    return module.BootstrapDocumentSnapshotV1(
+        id=identifier,
+        path=path,
+        bytes=(
+            phase4_snapshot_bytes(
+                metadata=metadata,
+                row_overrides=row_overrides,
+            )
+            if encoded is None else encoded
+        ),
+    )
+
+
+def expected_phase4_document_wire(
+    snapshot: object,
+    metadata: dict[str, str] | None = None,
+) -> dict:
+    frontmatter = PHASE4_FRONTMATTER if metadata is None else metadata
+    digest = hashlib.sha256(
+        b"pf.normative-document.v1\x00PHASE-4\x00" + getattr(snapshot, "bytes")
+    ).digest()
+    return {
+        "id": "PHASE-4",
+        "contentDigest": digest_text(digest),
+        "status": "accepted",
+        "reviewCommit": frontmatter["reviewCommit"],
+        "reviewLink": frontmatter["reviewLink"],
+        "approvedAt": frontmatter["approvedAt"],
+        "approvers": frontmatter["approvers"].split(", "),
+    }
+
 
 def signed_d0_object_graph_fixture(
     module: ModuleType,
@@ -2085,6 +2253,259 @@ def test_task_approval_exact_upper_and_sha256_identity(
         "illegal 63-digit independent review commit must reject before every "
         "RequiredTestSet or TaskApproval signature curve"
     )
+
+
+def test_phase4_snapshot_authority(module: ModuleType) -> None:
+    snapshot = make_phase4_snapshot(module)
+    parsed = module.parse_phase4_snapshot_content(snapshot)
+    expected_document_wire = expected_phase4_document_wire(snapshot)
+    expected_document = module.NormativeDocumentRefV1(
+        "PHASE-4",
+        module.parse_digest(expected_document_wire["contentDigest"]),
+        "accepted",
+        PHASE4_FRONTMATTER["reviewCommit"],
+        PHASE4_FRONTMATTER["reviewLink"],
+        PHASE4_FRONTMATTER["approvedAt"],
+        tuple(PHASE4_FRONTMATTER["approvers"].split(", ")),
+    )
+    expected_rows = tuple(
+        module.Phase4TaskRowV1(
+            task_id,
+            D0_GRAPH_ROWS[task_id]["dependencies"],
+            D0_GRAPH_ROWS[task_id]["prerequisites"],
+            D0_GRAPH_ROWS[task_id]["testIds"],
+            D0_GRAPH_ROWS[task_id]["evidenceIds"],
+        )
+        for task_id in D0_GRAPH_ROWS
+    )
+    assert parsed == module.Phase4SnapshotContentV1(
+        expected_document,
+        expected_rows,
+    ), "PHASE-4 parser must derive the exact accepted ref and six row projection"
+    assert all(
+        row.taskId != "TASK-D0-07" for row in parsed.bootstrapTaskRows
+    ), "TASK-D0-07 must be validated but excluded from the bootstrap projection"
+
+    reordered_metadata = dict(reversed(tuple(PHASE4_FRONTMATTER.items())))
+    reordered = module.parse_phase4_snapshot_content(
+        make_phase4_snapshot(module, metadata=reordered_metadata)
+    )
+    assert reordered.bootstrapTaskRows == expected_rows
+    assert reordered.document.reviewLink == PHASE4_FRONTMATTER["reviewLink"]
+
+    class ForgedSnapshot(module.BootstrapDocumentSnapshotV1):
+        pass
+
+    class ExplosiveScalar:
+        def __eq__(self, other: object) -> bool:
+            del other
+            raise AssertionError("untyped PHASE-4 scalar equality must not run")
+
+    for label, invalid_snapshot in (
+        ("untyped snapshot", {"id": "PHASE-4"}),
+        (
+            "snapshot subclass",
+            ForgedSnapshot(snapshot.id, snapshot.path, snapshot.bytes),
+        ),
+        ("untyped snapshot ID", dataclasses.replace(snapshot, id=ExplosiveScalar())),
+        ("untyped snapshot path", dataclasses.replace(snapshot, path=ExplosiveScalar())),
+        ("wrong snapshot ID", dataclasses.replace(snapshot, id="PHASE-5")),
+        (
+            "wrong snapshot path",
+            dataclasses.replace(snapshot, path="docs/phase-4.md"),
+        ),
+        ("empty snapshot", dataclasses.replace(snapshot, bytes=b"")),
+        (
+            "snapshot over 4 MiB",
+            dataclasses.replace(snapshot, bytes=b"x" * (4 * 1024 * 1024 + 1)),
+        ),
+        (
+            "UTF-8 BOM",
+            dataclasses.replace(snapshot, bytes=b"\xef\xbb\xbf" + snapshot.bytes),
+        ),
+        ("NUL byte", dataclasses.replace(snapshot, bytes=snapshot.bytes + b"\x00\n")),
+        (
+            "CR byte",
+            dataclasses.replace(
+                snapshot,
+                bytes=snapshot.bytes.replace(b"\n", b"\r\n", 1),
+            ),
+        ),
+        ("invalid UTF-8", dataclasses.replace(snapshot, bytes=snapshot.bytes + b"\xff\n")),
+        ("missing final LF", dataclasses.replace(snapshot, bytes=snapshot.bytes[:-1])),
+    ):
+        assert_rejected(
+            module,
+            lambda invalid_snapshot=invalid_snapshot: (
+                module.parse_phase4_snapshot_content(invalid_snapshot)
+            ),
+        )
+
+    def mutated(old: bytes, new: bytes) -> object:
+        assert snapshot.bytes.count(old) == 1, (
+            f"PHASE-4 fixture mutation must match once: {old!r}"
+        )
+        return dataclasses.replace(
+            snapshot,
+            bytes=snapshot.bytes.replace(old, new, 1),
+        )
+
+    row_01 = (
+        b"| TASK-D0-01 | fixture for TASK-D0-01 | \xe2\x80\x94 | "
+        b"PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | "
+        b"TST-DOC-001 | EV-20260717-0001 | in_progress |"
+    )
+    row_02 = (
+        b"| TASK-D0-02 | fixture for TASK-D0-02 | TASK-D0-01 | \xe2\x80\x94 | "
+        b"TST-ISO-001 | EV-20260717-0002 | pending |"
+    )
+    row_03 = (
+        b"| TASK-D0-03 | fixture for TASK-D0-03 | TASK-D0-01, TASK-D0-02 | "
+        b"\xe2\x80\x94 | TST-EVIDENCE-001, TST-HOST-001, TST-TOOL-001 | "
+        b"EV-20260717-0003, EV-20260717-0004 | pending |"
+    )
+    row_06 = (
+        b"| TASK-D0-06 | fixture for TASK-D0-06 | TASK-D0-01, TASK-D0-02 | "
+        b"\xe2\x80\x94 | TST-COMMON-001 | EV-20260717-0007 | pending |"
+    )
+    row_07 = (
+        b"| TASK-D0-07 | fixture for TASK-D0-07 | TASK-D0-04 | \xe2\x80\x94 | "
+        b"TST-EVIDENCE-002, TST-ISO-002 | \xe2\x80\x94 | pending |"
+    )
+    d0_heading = "## Milestone D0：文档与独立工程".encode()
+    d1_heading = "## Milestone D1：语言前端".encode()
+    table_header = (
+        "| ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |"
+    ).encode()
+    table_delimiter = b"|---|---|---|---|---|---|---|"
+    mutations = (
+        ("missing opening delimiter", mutated(b"---\n", b"")),
+        (
+            "noncanonical scalar delimiter",
+            mutated(b"title: Synthetic", b"title:  Synthetic"),
+        ),
+        ("wrong accepted status", mutated(b"status: accepted", b"status: proposed")),
+        ("wrong normative flag", mutated(b"normative: true", b"normative: false")),
+        ("open finding", mutated(b"openFindings: none", b"openFindings: P1")),
+        (
+            "noncanonical approver delimiter",
+            mutated(
+                b"principal-quality, principal-security",
+                b"principal-quality,principal-security",
+            ),
+        ),
+        ("missing D0 heading", mutated(d0_heading, b"## Missing D0")),
+        ("missing D1 boundary", mutated(d1_heading, b"## Missing D1")),
+        ("wrong table header", mutated(table_header, b"| ID | wrong |")),
+        ("wrong table delimiter", mutated(table_delimiter, b"|:---|---|---|---|---|---|---:|")),
+        (
+            "nonblank before table",
+            mutated(d0_heading + b"\n\n", d0_heading + b"\nprose\n"),
+        ),
+        (
+            "nonblank before D1",
+            mutated(row_07 + b"\n\n" + d1_heading, row_07 + b"\nprose\n" + d1_heading),
+        ),
+        ("missing row", mutated(row_02 + b"\n", b"")),
+        ("duplicate row", mutated(row_02 + b"\n", row_02 + b"\n" + row_02 + b"\n")),
+        ("reordered row", mutated(row_02, row_03)),
+        (
+            "extra cell",
+            mutated(row_02, row_02[:-2] + b" | extra |"),
+        ),
+        (
+            "empty description",
+            mutated(b"fixture for TASK-D0-02", b""),
+        ),
+        ("bad status", mutated(b"| pending |\n" + row_03, b"| complete |\n" + row_03)),
+        (
+            "noncanonical comma delimiter",
+            mutated(b"TASK-D0-01, TASK-D0-02", b"TASK-D0-01,TASK-D0-02"),
+        ),
+        (
+            "backtick token",
+            mutated(b"TST-ISO-001", b"`TST-ISO-001`"),
+        ),
+        (
+            "duplicate source ID",
+            mutated(
+                b"TST-EVIDENCE-001, TST-HOST-001, TST-TOOL-001",
+                b"TST-EVIDENCE-001, TST-EVIDENCE-001, TST-TOOL-001",
+            ),
+        ),
+        (
+            "unsorted source IDs",
+            mutated(
+                b"TST-EVIDENCE-001, TST-HOST-001, TST-TOOL-001",
+                b"TST-TOOL-001, TST-HOST-001, TST-EVIDENCE-001",
+            ),
+        ),
+        ("empty tests", mutated(b"TST-ISO-001", b"\xe2\x80\x94")),
+        (
+            "wrong prerequisite status",
+            mutated(b"PHASE-1@accepted", b"PHASE-1@proposed"),
+        ),
+        (
+            "unknown dependency",
+            mutated(b"TASK-D0-04 | \xe2\x80\x94", b"TASK-D0-99 | \xe2\x80\x94"),
+        ),
+        (
+            "dependency cycle",
+            mutated(row_01, row_01.replace(b"| \xe2\x80\x94 |", b"| TASK-D0-02 |", 1)),
+        ),
+        (
+            "bootstrap depends on D0-07",
+            mutated(row_06, row_06.replace(
+                b"TASK-D0-01, TASK-D0-02",
+                b"TASK-D0-01, TASK-D0-02, TASK-D0-07",
+                1,
+            )),
+        ),
+        (
+            "invalid D0-07 test",
+            mutated(b"TST-EVIDENCE-002, TST-ISO-002", b"TST-*"),
+        ),
+    )
+    for label, invalid_snapshot in mutations:
+        assert_rejected(
+            module,
+            lambda invalid_snapshot=invalid_snapshot: (
+                module.parse_phase4_snapshot_content(invalid_snapshot)
+            ),
+        )
+
+    duplicate_frontmatter = mutated(
+        b"owner: delivery\n",
+        b"owner: delivery\nowner: security\n",
+    )
+    unknown_frontmatter = mutated(
+        b"owner: delivery\n",
+        b"owner: delivery\nfutureField: no\n",
+    )
+    duplicate_d0 = mutated(
+        d0_heading + b"\n",
+        b"```\n" + d0_heading + b"\n```\n" + d0_heading + b"\n",
+    )
+    duplicate_d1 = mutated(d1_heading + b"\n", d1_heading + b"\n" + d1_heading + b"\n")
+    duplicate_header = mutated(table_header + b"\n", table_header + b"\n" + table_header + b"\n")
+    duplicate_delimiter = mutated(
+        table_delimiter + b"\n",
+        table_delimiter + b"\n" + table_delimiter + b"\n",
+    )
+    for invalid_snapshot in (
+        duplicate_frontmatter,
+        unknown_frontmatter,
+        duplicate_d0,
+        duplicate_d1,
+        duplicate_header,
+        duplicate_delimiter,
+    ):
+        assert_rejected(
+            module,
+            lambda invalid_snapshot=invalid_snapshot: (
+                module.parse_phase4_snapshot_content(invalid_snapshot)
+            ),
+        )
 
 
 def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
@@ -7116,6 +7537,7 @@ def main() -> int:
         test_pf_jcs(module)
         test_bootstrap_authority_policy(module)
         test_required_test_set(module)
+        test_phase4_snapshot_authority(module)
         test_phase5_snapshot_and_document_bound_join(module)
         test_phase5_snapshot_resource_bounds(module)
         test_task_approval(module)

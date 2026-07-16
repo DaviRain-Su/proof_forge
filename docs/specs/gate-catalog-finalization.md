@@ -492,18 +492,36 @@ ObjectVerifiedV1 {
 }
 ```
 
-`subject.taskRows` 必须恰含 rootTaskId 与其 Task Breakdown DAG 的全部 transitive dependency rows，
-按 taskId 唯一升序；每行 dependencies、prerequisites、testIds、evidenceIds 分别按 ID 唯一升序，
-且不得引用 taskRows 外 dependency。evidenceRows 按 ID 唯一升序并 exact 等于全部 taskRows 的
-evidenceIds；每行必须绑定对应 task，且每个 task 的 evidence testIds 并集 exact 等于该 task row
-testIds。documents 的 exact set 是 `PHASE-4`、`PHASE-5` 与全部 taskRows prerequisites 中出现的
+consumer 必须先从同一 subject 的 raw `PHASE-4` snapshot 调用
+`parse_phase4_snapshot_content`，再以其中 rootTaskId 对应 raw row 为根计算 Task Breakdown DAG 的
+transitive closure；禁止以 caller 提供的 `subject.taskRows`、approval 数组或 dependency bundle 选择
+closure。`subject.taskRows` 必须 exact 等于该 raw-derived closure 的 frozen row projection，按 taskId
+唯一升序；每行 dependencies、prerequisites、testIds、evidenceIds 分别与 raw row exact 相等并按 ID
+唯一升序，且不得引用 taskRows 外 dependency。进入该 closure 的每行 evidenceIds 必须 non-empty。
+evidenceRows 按 ID 唯一升序并 exact 等于全部 selected taskRows 的 evidenceIds；每行必须绑定对应
+task，且每个 task 的 evidence testIds 并集 exact 等于该 task row testIds。
+
+root 与全部 dependency TaskApproval 必须引用同一个由 raw PHASE-4 snapshot 重算的完整
+`NormativeDocumentRefV1`；每项 approval 的 testIds、dependencyCompletions 中的 taskId、evidence 中的
+EvidenceRef.id 与 prerequisiteDocuments 中的 id 必须分别 exact 等于对应 raw row 的 testIds、
+dependencies、evidenceIds 与 prerequisiteDocumentIds，禁止只比较 count、set 或 root row。
+`TASK-D0-07` 只在 PHASE-4 parser 中接受并验证，不得进入 subject、TaskApproval 或 object graph。
+
+documents 的 exact set 是 `PHASE-4`、`PHASE-5` 与全部 selected taskRows prerequisites 中出现的
 document ID，按 ID 唯一升序；path 必须是当前
 candidate archive 中的 normalized project-relative path，bytes 必须是 UTF-8。pure consumer 只验证
 path lexical normalization/全局唯一、frontmatter 与 document ID、raw bytes 的 normative digest 以及
 ref 字段 exact equality；它不把 process-local bytes 自证为 archive member。archive membership、同一次
 stable snapshot 与 `reviewCommit` 对 candidate commit 的 ancestor relation 必须由 protected adapter
 对预开 candidate archive/commit graph 验证。`candidate` 在 pure API 中只用于 exact join；仅凭
-process-local subject 不能证明 archive provenance。
+process-local subject 不能证明 archive provenance。bootstrap prerequisites 的 canonical path mapping
+固定为 `PHASE-1 -> docs/01-prd.md`、`PHASE-2 -> docs/02-architecture.md`、
+`PHASE-3 -> docs/03-technical-spec.md`；每个被引用 prerequisite snapshot 必须从 exact accepted
+frontmatter 与 raw bytes 重算完整 `NormativeDocumentRefV1`，并与对应 TaskApproval 中的 full ref
+exact 相等，禁止只比较 document ID 或 contentDigest。每项必须是 exact
+`BootstrapDocumentSnapshotV1`，id/path 与上述 mapping exact 相等，并采用 PHASE-4/5 相同的
+`1..4194304` bytes、BOM/NUL/CR/final-LF/strict-UTF-8、line-count/line-width 与 accepted frontmatter
+profile；contentDigest 的 document-id domain component 使用该 snapshot 自身 ID。
 
 object set 的五个 root bytes 各恰有一个。`dependencyObjects` count 固定为 `0..5`，按每项解析后的
 TaskApproval taskId 唯一升序，并 exact 等于 Task Breakdown DAG 的全部 transitive dependency taskId。
@@ -530,10 +548,16 @@ caller 提供的 raw bytes 与 digest 自洽；只有与全部已验证 TaskAppr
 reviewer/provenance。
 以下固定的是 object graph 的 hash/curve/finalize authority 顺序：shell/count preflight；完整 report
 intrinsic preflight（含全部
-structure/resource/order/unique 检查及随后逐项 raw-byte digest 自洽检查）；RequiredTestSet finalize；
-全部 root/dependency TaskApproval finalize；上述唯一升序 union exact join；最后才允许第一次 receipt
-finalize。完成 report intrinsic preflight 前，只允许不触发 hash/curve 的结构检查；任一 report
-intrinsic failure 都不得触发其他 graph hash，也不得进入 RequiredSet、TaskApproval 或 receipt curve work。
+structure/resource/order/unique 检查及随后逐项 raw-byte digest 自洽检查）；解析同一 subject 的 raw
+PHASE-4、PHASE-5 与 selected prerequisites snapshots，并完成 raw-derived closure、subject rows、
+TaskApproval taskBreakdown/row axes、RequiredTestSet PHASE-5 denominator 与 prerequisite full refs 的全部
+exact joins；RequiredTestSet finalize；全部 root/dependency TaskApproval finalize；上述 review digest
+唯一升序 union exact join；最后才允许第一次 receipt finalize。完成 report intrinsic preflight 前，只
+允许不触发 hash/curve 的结构检查；任一 report intrinsic failure 都不得触发其他 graph hash，也不得进入
+RequiredSet、TaskApproval 或 receipt curve work。report intrinsic 通过后，任一 PHASE-4/5/prerequisite
+snapshot、raw row、closure 或 full-ref mismatch 都必须在第一次 RequiredTestSet/TaskApproval signature
+curve work 前拒绝；此类失败允许已经完成的 report intrinsic hash，但 RequiredSet、TaskApproval 与
+receipt curve count 必须全部为零。禁止先调用已完成验签的 public parser，再做事后 raw document join。
 内部入口固定为
 `_preflight_review_reports(values: object) -> Tuple[Digest, ...]`；它返回 caller carrier 的同序 typed
 digest tuple，且不解析、不规范化也不投影 report bytes。
@@ -604,6 +628,90 @@ approvers、independent reviews 分别按 ASCII ID、keyId 唯一升序。review
 keyId/role 必须由 authority policy 授权，reviewCommit 必须等于正在批准的 candidate commit，
 reportDigest 是对应 immutable review report 的 `Digest`；review key 经 policy 映射后只有不同
 principalId 才算独立审阅者。
+
+### PHASE-4 Task Breakdown snapshot authority
+
+PHASE-4 raw snapshot 的 public API 与 exact frozen process-local result 固定为：
+
+```text
+Phase4TaskRowV1 {
+  taskId: TaskId,
+  dependencies: Array<TaskId>,
+  prerequisiteDocumentIds: Array<safe-id>,
+  testIds: NonEmptyArray<TestId>,
+  evidenceIds: Array<EvidenceId>
+}
+
+Phase4SnapshotContentV1 {
+  document: NormativeDocumentRefV1,
+  bootstrapTaskRows: [Phase4TaskRowV1; 6]
+}
+
+parse_phase4_snapshot_content(
+  phase4Snapshot: BootstrapDocumentSnapshotV1
+) -> Phase4SnapshotContentV1
+```
+
+该 API 不接受 caller 构造的 document ref、expected digest、task rows、root task、boolean 或 selector。
+snapshot 必须是 exact `BootstrapDocumentSnapshotV1`（禁止 subclass/tag），id exact 为 `PHASE-4`，
+path exact 为 `docs/04-task-breakdown.md`，bytes 为 `1..4194304`、无 UTF-8 BOM/NUL/CR、以 LF 结尾的
+strict UTF-8。全部 raw bytes（含 frontmatter）必须有 `1..100000` 个 LF；每个去掉终止 LF 后的 raw
+line 为 `0..65536` UTF-8 bytes。raw bytes digest 必须重算为：
+
+```text
+SHA-256("pf.normative-document.v1" || NUL || "PHASE-4" || NUL || raw-bytes)
+```
+
+frontmatter 使用与 PHASE-5 snapshot parser 相同的 accepted canonical subset：opening/closing delimiter
+byte-exact 为 `---\n` / 首个 `\n---\n`；每个非空行在首个 byte-exact `: ` 处分隔，key/value 非空且无
+leading/trailing whitespace，禁止 quote stripping、duplicate 与 unknown key，key declaration order 不
+影响解析。字段集合 exact 为 `id/title/status/owner/updated/normative` 加
+`approvers/approvedAt/reviewCommit/reviewLink/openFindings`；`id/status/normative/openFindings` 分别 exact
+为 `PHASE-4`/`accepted`/`true`/`none`，updated 与 approvedAt 都是真实 Gregorian date，其余 scalar 与
+approvers 按前述 NormativeDocumentRef/DOC-STATUS grammar 验证。解析出的 accepted metadata 与重算
+digest 构成唯一返回的 `document`；parser 不接受或比较 signed ref。
+
+body parser 不实现 Markdown renderer，而执行单次有界 raw-line scan；不维护 fence、HTML comment 或
+inline-code state，因此藏在这些区域中的 exact reserved line 仍参与唯一性计数并使 duplicate 拒绝。
+以下两条 raw line 必须各 byte-exact 出现一次且顺序正确：
+
+```text
+## Milestone D0：文档与独立工程
+## Milestone D1：语言前端
+```
+
+D0 heading 与 table header 之间只允许空 raw line；table 结束与 D1 boundary 之间也只允许空 raw line。
+table header 与其下一行 delimiter 必须各恰有一个且 byte-exact 为：
+
+```text
+| ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
+|---|---|---|---|---|---|---|
+```
+
+delimiter 后必须恰有七条 non-empty contiguous row，row taskId 源序 exact 为
+`TASK-D0-01`、`TASK-D0-02`、`TASK-D0-03`、`TASK-D0-04`、`TASK-D0-05`、`TASK-D0-06`、
+`TASK-D0-07`；missing、duplicate、reorder、extra row 或 section 内额外 table-like raw line 全部拒绝。
+每行必须是 exact seven-cell 形式
+`| <taskId> | <description> | <Dependencies> | <Prerequisites> | <Tests> | <Evidence> | <status> |`，
+禁止 outer-cell trim、backtick stripping、额外 cell 与 escaped/embedded `|`。description 为
+`1..4096` UTF-8 bytes、无 `|` 或 Unicode General_Category=`Cc` code point；status 只允许
+`pending`、`in_progress`、`blocked`、`done`。description/status 不进入 `Phase4TaskRowV1` projection，
+但仍由完整 raw document digest 绑定。
+
+Dependencies、Prerequisites 与 Evidence 可用唯一 empty token `—`，Tests 必须 non-empty；任何 non-empty
+list 的唯一 delimiter 是 byte-exact ASCII `, `。token 禁止 leading/trailing whitespace、backtick、空项
+或替代 delimiter，并必须在 source cell 中按其 ASCII ID 唯一升序，禁止 parser 帮 caller trim、sort 或
+deduplicate。Dependencies token 必须是该七行之一的 exact taskId；Prerequisites token exact 为
+`<safe-id>@accepted`，projection 只保留 `<safe-id>`；Tests 与 Evidence 分别使用冻结的 TestId 和
+Gregorian `EV-YYYYMMDD-NNNN` grammar。range、wildcard、malformed ID 全部拒绝。七行 dependencies
+必须构成 DAG；`TASK-D0-01..06` 不得依赖 non-bootstrap `TASK-D0-07`。
+
+parser 必须完整验证七行，但 `bootstrapTaskRows` 只按 taskId 升序返回 `TASK-D0-01..06` 六项；
+`TASK-D0-07` 是已验证但不投影的 non-bootstrap row。该 parser 成功只证明 process-local raw bytes 与
+typed projection 自洽，不证明 archive membership、single stable snapshot 或 reviewCommit ancestry。
+`verifyBootstrapTaskObjects` 对同一 invocation 的 exact PHASE-4 snapshot 只解析一次，以 raw rows 派生
+root transitive closure，并在任何 RequiredTestSet/TaskApproval curve work 前完成前述 subject、approval
+与 prerequisite document joins。
 
 ### RequiredTestSetV1 authority
 
