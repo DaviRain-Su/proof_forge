@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-03",
+  "frozenAt": "2026-07-17",
+  "freezeCommit": "7a6ebff7ed9c0b01235829024b40998796c25ea7",
+  "output": "锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；只交付 development evidence schema/bundle/catalog finalizer 及 formal zero-output rejection，当前 alpha 输入为 `TASK-A0-02`",
+  "dependencies": [
+    "TASK-D0-01",
+    "TASK-D0-02"
+  ],
+  "prerequisites": [],
+  "tests": [
+    "TST-EVIDENCE-001",
+    "TST-HOST-001",
+    "TST-TOOL-001"
+  ],
+  "inScope": [
+    "development gate catalog parser, exact-set evaluator, and typed evidence references",
+    "single safe-open retained-bundle snapshot and candidate/host/policy/receipt/tool/artifact joins",
+    "proof-forge.evidence-finalization.v1 canonical producer and no-clobber publisher",
+    "formal input rejection before catalog or claimed bundle-member reads and before output creation",
+    "real clean-room alpha retention of run contexts, host observation, rendered policies, invocation receipts, streams, tools, inputs, artifacts, and logs",
+    "focused TST-EVIDENCE-001, TST-HOST-001, and TST-TOOL-001 acceptance and attack vectors"
+  ],
+  "outOfScope": [
+    "eligible-host qualification or formal Stage-0 digest handoff",
+    "cross-process-session or setsid escape containment",
+    "signed RequiredTestSet or formal GateCatalog authority",
+    "TaskApproval, authenticated task receipt, six-item bootstrap activation, or protected authority store",
+    "freshness, revocation, private-data scan, formal evidence-set publication, or support binding",
+    "SBOM/license inventory owned by TASK-D0-05 and common ResourceProfileV1 primitives owned by TASK-D0-06"
+  ],
+  "doneWhen": [
+    "TST-EVIDENCE-001 proves a real retained development bundle reaches a canonical development finalization record and formal requests fail with zero output",
+    "TST-HOST-001 proves the locked development observation path and stable formal-ineligible rejection without claiming host eligibility",
+    "TST-TOOL-001 proves exact tool version, checksum, missing, shadow, and timeout behavior is catalog-bound",
+    "focused gates and the complete V2 development gate pass with deterministic outputs",
+    "bootstrap TaskApproval and authenticated receipt close the task only after TASK-D0-02 is formally done"
+  ],
+  "overflowPolicy": "Bootstrap authority and activation remain in TASK-D0-04; formal finalization remains in TASK-D0-07; SBOM moves to TASK-D0-05 and common primitives to TASK-D0-06 without expanding this package.",
+  "maxCalendarDays": 3,
+  "maxCommits": 20,
+  "notes": "Pending-prep freeze only. TASK-D0-02 remains blocked, so TASK-D0-03 stays pending and all results before dependency closure are explicitly pre-acceptance development evidence."
+}
