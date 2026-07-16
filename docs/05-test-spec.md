@@ -696,7 +696,8 @@ digest、normalized observations 和 logs。
    reviewLink 4096/4097 bytes 与 signatures resolved-policy-count equal/over；document join 还须覆盖
    exact typed snapshot、canonical PHASE-5 path、0/4 MiB/4 MiB+1 bytes、BOM/NUL/CR/non-UTF-8/no-final-LF、
    frontmatter delimiter/scalar/field-set/duplicate/unknown/accepted metadata mismatch、raw domain digest、
-   heading 0/1/2、reversed marker、table 0/1/2、header/delimiter/row/extra-cell/empty-description、
+   heading 0/1/2、bare/SP/HTAB raw-H3、reversed marker、table 0/1/2、
+   header/delimiter/row/extra-cell/empty-description、
    duplicate/malformed/range/wildcard ID、frozen A0-001..020 exact exclusion、signed denominator
    missing/extra/reordered 与 malformed document 在 RequiredTestSet signature curve work 前拒绝，验收须
    instrument internal preflight/finalize 顺序而非先调用已验签的 two-byte-input parser 再比较；

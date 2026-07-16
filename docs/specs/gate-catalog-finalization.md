@@ -666,7 +666,9 @@ byte-exact raw line 才识别为 heading/header/delimiter；parser 不维护 fen
 1..100000，且不得使用按每个 token 反向重扫 prefix 的算法。raw LF-split line 上 byte-exact、各恰
 出现一次且顺序正确的
 `## 完整 Test ID Catalog` 与 `### Phase 1 required-set 分母`，且后者必须是 catalog section 的首个
-raw `###` heading。两者之间必须只有一个 byte-exact
+raw H3 heading。raw H3 grammar 固定为 line 从 byte 0 开始 `###`，其后立即为 line end、ASCII SP 或
+ASCII HTAB；`####` 不是 H3，带 leading whitespace 的 line 也不作隐式 Markdown 修复。两者之间必须
+只有一个 byte-exact
 `| ID | 测试对象 |` header，下一行 exact 为 `|---|---|`；其后 non-empty contiguous rows 必须逐行是
 exact two-cell `| <TestId> | <non-empty-description> |`，table 结束至分母标题前只允许空行。header 前
 或 table 结束后出现任何首 byte 或尾 byte 为 `|` 的 raw line、额外 header/delimiter/table、空
