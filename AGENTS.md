@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | 无；**TASK-A0-19** 已在 `00db2564` 完成并记录为 `EV-20260716-0024` |
-| Next task | 待从当前代码与正式任务依赖重新选择下一 implementation slice；不得把本次 hosted CI 修复写成 parser containment、正式 D1/D2 或 hermetic evidence 完成 |
+| Active task | **TASK-A0-20**：让 Lean command 与 CLI Loader 消费同一个 validated decoded `Source.Program`，删除 command elaborator 的第二套 raw-Syntax AST builder；RED 双入口 parity/negative 验收待提交 |
+| Next task | **TASK-A0-21**：在 A0-20 闭合后实现当前 alpha fragment 的 target-neutral Typed effect summary 与 `PF-EFFECT-001` view guard |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |

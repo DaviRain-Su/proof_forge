@@ -156,6 +156,24 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   `Source.Program` 的新宽度上限，不关闭完整 D2 name/type checker、Diagnostic v1、
   `TST-PERF-001` 或 adversarial hash-collision worst-case 保证。
 
+### 双前端单一 decode/validation 首个验收切片
+
+- `TST-SRC-004/005` positive parity：一个 fixture 覆盖当前 alpha 的 state/init、默认/public/
+  private parameter、entry/view、literal/variable/checked-add、assign/return/synchronous-call；直接
+  Lean command 生成的 attributed constant 与 `ParserSession` Loader 对同一源码得到的
+  `Source.Program` 和 `sourceHash` 必须完全相等。
+- negative parity：zero callable、duplicate state、duplicate entry、duplicate initializer
+  parameter、duplicate entry parameter 和 duplicate initializer 均分别通过 `lake env lean` 与
+  `proof-forge-next build` 执行；两路必须失败、首个 `PF-SRC-INVALID` 文本完全相同，Lean 不得
+  生成 `.olean`，CLI 不得创建 output。
+- shared decoder 固定 validation/error priority 为 Syntax preflight → identity → decode/duplicate
+  initializer → zero callable → duplicate state → duplicate entry → initializer parameter → entries
+  declaration order parameter。Loader 只保留 module-level validation；command elaborator 必须 quote
+  decoded value，不能再从 raw Syntax 运行第二套 AST builder。
+- 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
+  pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
+  diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。
+
 ### EVM 通用 UInt64 lowering 首个验收切片
 
 - `TST-EVM-001`：`EvmPlan` 拥有 storage、constructor、entry、ABI selector 和 target-owned

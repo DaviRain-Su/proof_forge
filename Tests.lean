@@ -2,6 +2,7 @@ import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Language.ProgramSyntax
+import Tests.Language.FrontendParity
 import Tests.Language.Loader
 import Tests.Materialization.Targets
 import Tests.Materialization.NearHostModel
@@ -13,6 +14,7 @@ unsafe def main : IO Unit := do
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
   Tests.Language.run
+  Tests.Language.FrontendParity.run
   Tests.Language.Loader.run
   Tests.Materialization.run
   Tests.Materialization.NearHostModel.run

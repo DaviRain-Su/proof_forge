@@ -39,6 +39,7 @@ normative: true
 | TASK-A0-17 | 递归 decode/type-check 前的共享 Syntax node/nesting preflight 与稳定 boundary diagnostics | EV-20260716-0022 | done |
 | TASK-A0-18 | accepted-width `Source.Program` 的线性 duplicate/name index 与 typecheck complexity regression | EV-20260716-0023 | done |
 | TASK-A0-19 | reusable Loader `ParserSession` 与 hosted `source-core` 重资源向量进程隔离 | EV-20260716-0024 | done |
+| TASK-A0-20 | Lean command/CLI Loader 共用唯一 validated decoded `Source.Program`，移除第二套 raw-Syntax AST construction | TST-SRC-004/005（双入口 RED parity/negative） | in_progress |
 
 ## Milestone D0：文档与独立工程
 

@@ -18,7 +18,7 @@ elaborator。它拥有 grammar、NodeId、span、SourceHash；
 
 状态：CLI 路径为 `16 MiB byte cap → Lean parser → per-program iterative Syntax preflight →
 whitelist/checked decode → Source.Program`；直接 Lean 编译路径为 `Lean parser → per-program
-iterative Syntax preflight → shared decode validation → macro expansion → registered constant`。
+iterative Syntax preflight → shared decode validation → quote decoded Source.Program → registered constant`。
 两路共享 100000 nodes、root-inclusive nesting 256 与 qualified identity components 256；
 预算按 program command 计算，不按整个 module 累计。CLI 路径不得 elaboration 或执行用户
 command；失败不得修改 environment extension。namespace scope 可以临时超过 256 components；
@@ -37,6 +37,13 @@ parser 前置只有 CLI byte cap；Syntax/node/nesting budget 在 parser 成功�
 边界：零/多 program、重复名/import diamond、NFC、非法 UTF-8、deep Syntax、proof ref 缺失、
 attribute schema mismatch、路径变化、error recovery、并行 module build。安全：不执行任意
 term/macro callback、无文件/网络访问。直接构造 `Source.Program` 的 API 不经过本模块。
+
+`decodeProgramCommandChecked` 同时拥有当前 alpha declaration validation；其返回值是两条生产
+路径唯一的业务 AST。Loader 不得重复验证 program 内 declarations，command elaborator 不得从
+raw `Syntax` 重新构造第二份 AST，只能穷举 quote 已 decode 的 `Source.Program`。双入口对当前
+全部 constructor 的 `Source.Program` 与 `sourceHash` 必须相等；zero-callable、duplicate
+state/entry/initializer parameter/entry parameter 必须返回相同 code/message 且不注册常量或发布
+CLI output。
 
 关联 `SPEC-LANG-001`、`TASK-D1-*`、`TST-SRC-*`；验收为语法 golden、fuzz、跨模块
 loader 和 environment rollback tests。

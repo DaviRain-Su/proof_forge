@@ -130,10 +130,25 @@ components，并以不构造超限聚合 `Name` 的可恢复状态跟踪；若�
 返回 Syntax preflight 的诊断，再判断 identity。
 
 两条生产路径共享 `decodeProgramCommandChecked`：CLI 在 Lean parser 产出每个 program
-command 后预检，再 whitelist/decode；Lean command elaborator 在递归 decode 和
-`expandItem/expandExpr` 前预检。CLI 另在调用 Lean parser 前执行 16 MiB source-byte 上限，
+command 后预检，再 whitelist/decode；Lean command elaborator 调用同一 checked decoder，
+再 quote 其返回值。CLI 另在调用 Lean parser 前执行 16 MiB source-byte 上限，
 该上限当前返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受，16 MiB+1 拒绝。直接
 `lake env lean` 的 command 路径没有这项 CLI 文件上限。
+
+### 双前端单一 decode/validation 契约
+
+`decodeProgramCommandChecked` 返回的 validated `Source.Program` 是 CLI Loader 与 Lean
+command elaborator 的唯一业务 AST。共享 validation 在 decode 后按固定顺序检查：至少一个
+entry/view、state 名唯一、entry 名唯一、initializer 参数名唯一、每个 entry 参数名唯一；
+duplicate initializer 仍在构造 `Source.Program` 前拒绝。Loader 只拥有 module header/
+command whitelist、namespace stack、module 内 program identity 去重和 selection，不得另有
+per-program declaration validator。
+
+Lean command elaborator 必须从 decoded value quote 出 `@[proof_forge_program]` 常量；不得丢弃
+decoded value 后再沿原始 `Syntax` 运行第二套 `expandType/expandParam/expandExpr/expandStatement/
+expandItem` AST construction。quote 是 `Source.Program → Lean term` 的穷举编码，不重新解释
+grammar、名称、visibility、类型或 statement。当前 alpha 的两入口相同错误继续使用
+`PF-SRC-INVALID`；本切片不提前实现 Diagnostic v1。
 
 这个边界不保护 Lean parser 本身，不是多 program module 的累计 node 上限，也不约束直接
 构造 `Source.Program` 后调用 compiler API 的代码。parser fuzz、parser 进程 time/memory

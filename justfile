@@ -236,6 +236,21 @@ dsl-negative: build
     mkdir -p build
     if lake env lean testdata/invalid/program-kind.lean > build/program-kind.log 2>&1; then echo "kind syntax unexpectedly compiled" >&2; exit 1; fi
     rg -q "unexpected token|unexpected identifier|expected" build/program-kind.log
+    rm -rf build/frontend-parity-negative
+    mkdir -p build/frontend-parity-negative
+    for fixture in zero-callable duplicate-state duplicate-entry duplicate-initializer-param duplicate-entry-param duplicate-initializer; do
+        lean_log="build/frontend-parity-negative/$fixture.lean.log"
+        cli_log="build/frontend-parity-negative/$fixture.cli.log"
+        lean_output="build/frontend-parity-negative/$fixture.olean"
+        cli_output="build/frontend-parity-negative/$fixture-cli"
+        if lake env lean "testdata/invalid/$fixture.lean" -o "$lean_output" > "$lean_log" 2>&1; then echo "$fixture unexpectedly compiled through Lean command elaboration" >&2; exit 1; fi
+        rg -q "PF-SRC-INVALID" "$lean_log"
+        if lake env .lake/build/bin/proof-forge-next build "$fixture.lean" --root testdata/invalid --target solana -o "$cli_output" > "$cli_log" 2>&1; then echo "$fixture unexpectedly compiled through CLI loader" >&2; exit 1; fi
+        rg -q "PF-SRC-INVALID" "$cli_log"
+        test "$(rg -o 'PF-SRC-INVALID:.*' "$lean_log" | head -1)" = "$(rg -o 'PF-SRC-INVALID:.*' "$cli_log" | head -1)"
+        test ! -e "$lean_output"
+        test ! -e "$cli_output"
+    done
     rm -rf build/syntax-bounds
     /usr/bin/python3 -I -S scripts/generate_syntax_bound_fixtures.py build/syntax-bounds
     lake env lean build/syntax-bounds/namespace-at-limit.lean -o build/syntax-bounds/namespace-at-limit.olean
