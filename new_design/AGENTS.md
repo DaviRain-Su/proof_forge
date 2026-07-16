@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-A0-14**：以同一 `Accumulator` 打通真实 `SemanticProgram → SolanaPlan → sBPF assembly/IDL`，移除 Solana exact-fixture matcher |
-| Next task | 先增加 Accumulator 的 Solana 失败验收，再实现 target-owned state/instruction Plan 与数据驱动 assembly；ELF/runtime 仍受工具缺口约束 |
+| Active task | **TASK-A0-14**：以同一 `Accumulator` 打通真实 `SemanticProgram → SolanaPlan → typed audit IR/plan + IDL`，移除 Solana exact-fixture matcher |
+| Next task | 完成 Plan/IR mutation review 与完整 V2 gates 后提交；sBPF instruction/object/ELF/runtime 仍受未锁定工具链约束 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
@@ -23,7 +23,7 @@
 
 检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
 当前 EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证，NEAR 有 `wat2wasm` 结构验证
-但没有 sandbox receipt；Solana 只有 `.s`+IDL，Noir
+但没有 sandbox receipt；Solana 只有 non-executable `.sbpf-plan`+IDL，Noir
 只有 source+Prover input，且 manifest 为 non-deployable。不得写成 ELF/runtime 或 proof 完成。
 
 ## Mandatory Reading Order

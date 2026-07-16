@@ -11,6 +11,8 @@ for run in a b; do
     lake env "$compiler" build Examples/Counter.lean --program Examples.Counter \
       --target "$target" -o "build/repro/$run/$target"
   done
+  lake env "$compiler" build Examples/Accumulator.lean --program Examples.Accumulator \
+    --target solana -o "build/repro/$run/solana-accumulator"
 done
 
 /usr/bin/python3 -I -S "$root/scripts/check_reproducibility.py" \

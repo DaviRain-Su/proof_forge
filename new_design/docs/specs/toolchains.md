@@ -137,7 +137,8 @@ library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
 ## Profile Mapping
 
 - `evm-yul-solc-0.8.34-v1`：官方 solc asset；runtime profile 使用同一 Foundry archive。
-- `solana-sbpf-asm-v1`：Lean 已锁，assembler/ELF/runtime 未验证。
+- `solana-sbpf-plan-v1`：Lean typed audit-plan/IDL 已锁；没有 approved assembler，
+  sBPF instructions、object/ELF 与 runtime 均未验证。
 - `near-wasm-raw-u64-v1`：WABT + libcrypto bundle；sandbox runtime 未验证。
 - `noir-acir-bb-v1`：仅 Lean source materialization；Nargo/BB 未冻结。
 

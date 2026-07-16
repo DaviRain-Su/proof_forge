@@ -4,6 +4,7 @@ namespace ProofForgeV2
 
 inductive ArtifactEncoding where
   | evmYul
+  | sbpfPlanText
   | sbpfAssembly
   | wasmText
   | noirSource

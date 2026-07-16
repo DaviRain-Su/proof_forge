@@ -19,7 +19,7 @@ normative: true
 | Target | 视图 | 本阶段 | 证据状态 | Dossier |
 |---|---|---|---|---|
 | `evm` | contract VM | Phase 1 implement | `runtime-validated-alpha`：Counter bytecode + Anvil；非完整 backend | [EVM](01-evm.md) |
-| `solana` | explicit-account SVM | Phase 1 implement | `plan-only`：非可执行 `.s` skeleton + IDL；无 ELF/runtime | [Solana](02-solana.md) |
+| `solana` | explicit-account SVM | Phase 1 implement | `plan-only`：typed non-executable `.sbpf-plan` + IDL；无 sBPF object/ELF/runtime | [Solana](02-solana.md) |
 | `near` | Wasm host | Phase 1 implement | `wasm-validated-alpha`：raw-u64 Counter Wasm；无 sandbox receipt | [NEAR](03-near.md) |
 | `cosmwasm` | Wasm host | design only | transaction profile provisional | [CosmWasm](04-cosmwasm.md) |
 | `soroban` | Wasm host | design only | official model verified | [Soroban](05-soroban.md) |

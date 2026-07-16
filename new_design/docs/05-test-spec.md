@@ -118,6 +118,19 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 - `TST-EVM-005`：保留 Counter 回归，并在隔离 Anvil 验证 Accumulator `init(7)`、
   `add(5)=12`、`current()=12`、max+1 revert 且 state 仍为 max。
 
+### Solana 通用 UInt64 planning 首个验收切片
+
+- `TST-SOL-001`：`SolanaPlan` 必须拥有 state-account header/layout、owner/writable/init
+  约束、layout-bound marker、zero-all-fields init policy、instruction discriminator/参数/body；
+  不得保存或重新读取整个 `SemanticProgram`。
+- `TST-SOL-002`：除 Counter 外，`Accumulator` 的 `total`、`seed`、`add(amount)`、
+  `current()` 必须逐项映射；生产路径不得调用 `isExactCounter` 或按名字特判。
+- `TST-SOL-003`：Plan lowering 生成数据驱动的 typed audit IR/plan text 与 IDL；instruction
+  data 固定为 domain-separated SHA-256 前 8 bytes + little-endian `UInt64[]`，state account
+  先验证 owner/data/init，再执行 body。
+- `TST-SOL-004/005`：当前切片没有 SBF assembler/ELF/local-runtime 工具证据，manifest
+  必须保持 `deployable=false`；不得把 plan assembly 写成 ELF 或 runtime completion。
+
 ## 边界与攻击用例
 
 - 空/多程序、重复名字、Unicode normalization、非法 UTF-8、最大 nesting/node count。

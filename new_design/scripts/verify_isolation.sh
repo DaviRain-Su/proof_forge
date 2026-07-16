@@ -77,6 +77,9 @@ run_core_gate() {
   "$lake" --dir "$PF_CLEAN_SOURCE" env "$compiler" build Examples/Accumulator.lean \
     --root "$PF_CLEAN_SOURCE" --program Examples.Accumulator --target evm \
     -o "$targets/evm-accumulator"
+  "$lake" --dir "$PF_CLEAN_SOURCE" env "$compiler" build Examples/Accumulator.lean \
+    --root "$PF_CLEAN_SOURCE" --program Examples.Accumulator --target solana \
+    -o "$targets/solana-accumulator"
   "$PF_XCODE_PYTHON" -I -S "$PF_CLEAN_SOURCE/scripts/validate_artifacts.py" "$targets"
 
   for run in a b; do
@@ -84,6 +87,9 @@ run_core_gate() {
       "$lake" --dir "$PF_CLEAN_SOURCE" env "$compiler" build Examples/Counter.lean \
         --root "$PF_CLEAN_SOURCE" --program Examples.Counter --target "$target" -o "$repro/$run/$target"
     done
+    "$lake" --dir "$PF_CLEAN_SOURCE" env "$compiler" build Examples/Accumulator.lean \
+      --root "$PF_CLEAN_SOURCE" --program Examples.Accumulator --target solana \
+      -o "$repro/$run/solana-accumulator"
   done
   "$PF_XCODE_PYTHON" -I -S "$PF_CLEAN_SOURCE/scripts/check_reproducibility.py" \
     "$repro/a" "$repro/b"

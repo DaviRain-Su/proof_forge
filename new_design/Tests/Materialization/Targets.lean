@@ -2,6 +2,7 @@ import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Examples.Accumulator
 import ProofForgeV2.Examples.PrivateSum4
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.Semantics
 import ProofForgeV2.Targets.Registry
 
 namespace Tests.Materialization
@@ -32,6 +33,16 @@ private partial def fullPlanExpr : Nat → Targets.Evm.Expr
 private partial def nestedSemanticExpr : Nat → Semantic.Expr
   | 0 => .literal 0
   | level + 1 => .checkedAdd (nestedSemanticExpr level) (.literal 0)
+
+private partial def nestedSolanaPlanExpr : Nat → Targets.Solana.Expr
+  | 0 => .literal 0
+  | level + 1 => .checkedAdd (nestedSolanaPlanExpr level) (.literal 0)
+
+private partial def fullSolanaPlanExpr : Nat → Targets.Solana.Expr
+  | 0 => .literal 0
+  | level + 1 =>
+      let child := fullSolanaPlanExpr level
+      .checkedAdd child child
 
 def run : IO Unit := do
   let counter ← match Compiler.compile Examples.counter with
@@ -231,6 +242,236 @@ def run : IO Unit := do
   expect (!accumulatorAbi.contains "increment")
     "EVM ABI must not retain the Counter template"
 
+  let solanaResolved ← liftResult <| Targets.resolve Targets.Solana.descriptor accumulator
+  let forgedSolanaDescriptor := {
+    Targets.Solana.descriptor with codegenProfile := "forged-profile"
+  }
+  let forgedSolanaResolved : ResolvedProgram .solana := {
+    source := accumulator
+    descriptor := forgedSolanaDescriptor
+    targetMatches := rfl
+  }
+  match Targets.Solana.makePlan forgedSolanaResolved with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "Solana must reject a forged resolved descriptor/profile"
+  let solanaPlan ← liftResult <| Targets.Solana.makePlan solanaResolved
+  expect (solanaPlan.stateAccount.exactDataLen == 16 &&
+      solanaPlan.stateAccount.headerOffset == 0 &&
+      solanaPlan.stateAccount.initializedMarker == 0xb298024662f2309a &&
+      solanaPlan.stateAccount.payloadInitialization == .zeroAllFields &&
+      solanaPlan.stateAccount.fields.size == 1 &&
+      solanaPlan.stateAccount.fields[0]!.name == "total" &&
+      solanaPlan.stateAccount.fields[0]!.byteOffset == 8)
+    "SolanaPlan must own the initialized header and Accumulator UInt64 layout"
+  match Targets.Solana.validatePlan {
+      solanaPlan with arithmeticOverflowError := 0
+    } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must own its stable arithmetic error mapping"
+  expect (solanaPlan.initializer.name == "initialize" &&
+      solanaPlan.initializer.params[0]!.name == "seed" &&
+      solanaPlan.initializer.params[0]!.dataOffset == 8 &&
+      solanaPlan.initializer.accountAccess.signerRequired &&
+      solanaPlan.initializer.accountAccess.writableRequired)
+    "SolanaPlan must own initializer wire/account requirements"
+  expect (solanaPlan.entries.map (·.name) == #["add", "current"] &&
+      solanaPlan.entries[0]!.accountAccess.writableRequired &&
+      !solanaPlan.entries[1]!.accountAccess.writableRequired)
+    "SolanaPlan must derive mutable and readonly account metas per entry"
+  expect (solanaPlan.initializer.discriminator == "5e494767a7582864" &&
+      solanaPlan.entries[0]!.discriminator == "2999f319c883ec76" &&
+      solanaPlan.entries[1]!.discriminator == "8c07d3938c593e21")
+    "Solana instruction discriminators must match independent SHA-256 goldens"
+  let solanaAdd := solanaPlan.entries[0]!
+  let solanaDepth256 := solanaPlan.entries.set! 0 {
+    solanaAdd with body := #[.returnValue (nestedSolanaPlanExpr 255)]
+  }
+  match Targets.Solana.validatePlan { solanaPlan with entries := solanaDepth256 } with
+  | .ok () => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must accept expression depth 256"
+  let solanaDepth257 := solanaPlan.entries.set! 0 {
+    solanaAdd with body := #[.returnValue (nestedSolanaPlanExpr 256)]
+  }
+  match Targets.Solana.validatePlan { solanaPlan with entries := solanaDepth257 } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must reject expression depth 257"
+  let solanaOversized := solanaPlan.entries.set! 0 {
+    solanaAdd with body := #[.returnValue (fullSolanaPlanExpr 16)]
+  }
+  match Targets.Solana.validatePlan { solanaPlan with entries := solanaOversized } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must reject aggregate expression nodes above 100000"
+  let wrongSolanaDiscriminator := solanaPlan.entries.set! 0 {
+    solanaAdd with discriminator := "0000000000000000"
+  }
+  match Targets.Solana.validatePlan {
+      solanaPlan with entries := wrongSolanaDiscriminator
+    } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must bind discriminators to canonical signatures"
+  let collidedSolanaDiscriminator := solanaPlan.entries.set! 1 {
+    solanaPlan.entries[1]! with discriminator := solanaAdd.discriminator
+  }
+  match Targets.Solana.validatePlan {
+      solanaPlan with entries := collidedSolanaDiscriminator
+    } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must reject discriminator collisions"
+  match Targets.Solana.validatePlan {
+      solanaPlan with stateAccount := { solanaPlan.stateAccount with exactDataLen := 8 }
+    } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must reject an undersized state account"
+  match Targets.Solana.validatePlan {
+      solanaPlan with stateAccount := {
+        solanaPlan.stateAccount with initializedMarker := 0
+      }
+    } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must reserve zero exclusively for uninitialized accounts"
+  let maximumSolanaStem := String.ofList (List.replicate 230 's')
+  match Targets.Solana.validatePlan { solanaPlan with programName := maximumSolanaStem } with
+  | .ok () => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must accept a 230-byte artifact stem"
+  let oversizedSolanaStem := String.ofList (List.replicate 231 's')
+  match Targets.Solana.validatePlan { solanaPlan with programName := oversizedSolanaStem } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must reserve the .sbpf-plan suffix within 240 bytes"
+  let readonlyAdd := {
+    solanaAdd with accountAccess := {
+      solanaAdd.accountAccess with writableRequired := false
+    }
+  }
+  match Targets.Solana.validatePlan {
+      solanaPlan with entries := solanaPlan.entries.set! 0 readonlyAdd
+    } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must reject missing writable access for a mutating entry"
+  let viewStore := {
+    solanaPlan.entries[1]! with
+    body := #[.store {
+      accountIndex := 0
+      byteOffset := 8
+      value := .literal 1
+    }, .returnValue (.literal 1)]
+  }
+  match Targets.Solana.validatePlan {
+      solanaPlan with entries := solanaPlan.entries.set! 1 viewStore
+    } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must reject a view entry that stores state"
+  let falseSolanaParam := {
+    solanaPlan.initializer.params[0]! with sourceId := 9
+  }
+  match Targets.Solana.validatePlan {
+      solanaPlan with initializer := {
+        solanaPlan.initializer with
+        params := solanaPlan.initializer.params.set! 0 falseSolanaParam
+      }
+    } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "SolanaPlan must reject forged parameter origins"
+  let solanaFutureResolved ← liftResult <| Targets.resolve Targets.Solana.descriptor futureSchema
+  match Targets.Solana.makePlan solanaFutureResolved with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "Solana must reject unknown SemanticProgram schema versions"
+  let solanaOmittedRequirementsResolved ← liftResult <|
+    Targets.resolve Targets.Solana.descriptor omittedRequirements
+  match Targets.Solana.makePlan solanaOmittedRequirementsResolved with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "Solana must reject omitted canonical semantic requirements"
+  let solanaNoncanonicalResolved ← liftResult <|
+    Targets.resolve Targets.Solana.descriptor noncanonicalProgram
+  match Targets.Solana.makePlan solanaNoncanonicalResolved with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "Solana must reject non-canonical SemanticProgram parameter IDs"
+  let solanaStateWithoutInitResolved ← liftResult <|
+    Targets.resolve Targets.Solana.descriptor stateWithoutInit
+  match Targets.Solana.makePlan solanaStateWithoutInitResolved with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "Solana must reject state-account programs without an initializer"
+  let solanaDeepResolved ← liftResult <|
+    Targets.resolve Targets.Solana.descriptor deepSemanticProgram
+  match Targets.Solana.makePlan solanaDeepResolved with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "Solana must reject deep SemanticProgram expressions before lowering"
+  let solanaIR ← liftResult <| Targets.Solana.lower solanaPlan
+  expect (solanaIR.handlers[0]!.operations[0]? ==
+      some (Targets.Solana.Operation.zeroState 0 8))
+    "Solana initializer IR must zero state payload before applying semantic stores"
+  let removedChecks := solanaIR.handlers.set! 0 {
+    solanaIR.handlers[0]! with checks := #[]
+  }
+  match Targets.Solana.validateIR { solanaIR with handlers := removedChecks } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "Solana typed IR must reject missing account/data/init checks"
+  let forgedCurrentOperations := #[
+    Targets.Solana.Operation.literal 0 99,
+    Targets.Solana.Operation.setReturnData 0
+  ]
+  let forgedCurrentHandler := {
+    solanaIR.handlers[2]! with operations := forgedCurrentOperations
+  }
+  match Targets.Solana.validateIR {
+      solanaIR with handlers := solanaIR.handlers.set! 2 forgedCurrentHandler
+    } with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "Solana typed IR must remain exactly bound to its source Plan"
+  let untouchedState : Semantic.StateDecl := {
+    id := ⟨1⟩
+    name := "untouched"
+    type := .u64
+  }
+  let partialInitProgram : Semantic.Program := {
+    accumulator with
+    qualifiedName := "Tests.PartialInit"
+    name := "PartialInit"
+    «state» := accumulator.state.push untouchedState
+  }
+  let partialReference ← liftResult <| Semantics.initializeProgram partialInitProgram #[7]
+  expect (partialReference.storage == #[7, 0])
+    "reference initialization must start every declared state field at zero"
+  let partialResolved ← liftResult <|
+    Targets.resolve Targets.Solana.descriptor partialInitProgram
+  let partialPlan ← liftResult <| Targets.Solana.makePlan partialResolved
+  expect (partialPlan.stateAccount.exactDataLen == 24 &&
+      partialPlan.stateAccount.initializedMarker == 0x3b1b7ae87b315ebc)
+    "Solana layout marker must bind the full two-field account schema"
+  let partialIR ← liftResult <| Targets.Solana.lower partialPlan
+  expect (partialIR.handlers[0]!.operations[0]? ==
+      some (Targets.Solana.Operation.zeroState 0 8) &&
+      partialIR.handlers[0]!.operations[1]? ==
+        some (Targets.Solana.Operation.zeroState 0 16))
+    "Solana initialization must zero every field, including fields omitted by the DSL init body"
+  let readOtherInitializer : Semantic.Initializer := {
+    params := #[]
+    body := #[.store ⟨0⟩ (.state ⟨1⟩)]
+  }
+  let readOtherDraft := {
+    partialInitProgram with
+    qualifiedName := "Tests.ReadOtherInit"
+    name := "ReadOtherInit"
+    initializer := some readOtherInitializer
+    requirements := #[]
+  }
+  let readOtherProgram := {
+    readOtherDraft with requirements := Semantic.deriveRequirements readOtherDraft
+  }
+  let readOtherReference ← liftResult <| Semantics.initializeProgram readOtherProgram #[]
+  expect (readOtherReference.storage == #[0, 0])
+    "reference initializer state reads must observe canonical zero storage"
+  let readOtherResolved ← liftResult <|
+    Targets.resolve Targets.Solana.descriptor readOtherProgram
+  let readOtherPlan ← liftResult <| Targets.Solana.makePlan readOtherResolved
+  let readOtherIR ← liftResult <| Targets.Solana.lower readOtherPlan
+  expect (readOtherIR.handlers[0]!.operations[0]? ==
+      some (Targets.Solana.Operation.zeroState 0 8) &&
+      readOtherIR.handlers[0]!.operations[1]? ==
+        some (Targets.Solana.Operation.zeroState 0 16) &&
+      readOtherIR.handlers[0]!.operations[2]? ==
+        some (Targets.Solana.Operation.loadState 0 0 16))
+    "Solana initializer must zero all fields before evaluating a state-reading init expression"
+
   -- The same supported semantic fragment must compile even when its business
   -- body is not the checked Counter transition.
   let differentOutput ← Targets.materialize .evm differentLogic
@@ -240,16 +481,33 @@ def run : IO Unit := do
   expect (differentYul.contains "let expr0 := 99")
     "EVM lowering must preserve a literal return from SemanticProgram"
 
-  for target in [TargetId.solana, .near, .noir] do
+  let differentSolanaOutput ← Targets.materialize .solana differentLogic
+  let differentSolanaPlan ← match differentSolanaOutput.files.find?
+      (·.path == "CounterDifferentLogic.sbpf-plan") with
+    | some file => pure file.contents
+    | none => throw <| IO.userError "Solana different-logic program must emit a typed plan"
+  expect (differentSolanaPlan.contains "const_u64 99")
+    "Solana lowering must preserve a literal return from SemanticProgram"
+
+  for target in [TargetId.near, .noir] do
     match Targets.materializeResult target differentLogic with
     | .error (.planInvariant rejectedTarget _) =>
         expect (rejectedTarget == target) "shape rejection must identify its target"
     | _ => throw <| IO.userError s!"{target} must reject lookalike programs with different business logic"
 
-  for target in [TargetId.solana, .near, .noir] do
+  for target in [TargetId.near, .noir] do
     match Targets.materializeResult target accumulator with
     | .error (.planInvariant rejectedTarget _) =>
         expect (rejectedTarget == target) "unsupported Accumulator target must identify itself"
     | _ => throw <| IO.userError s!"{target} is not yet generalized for Accumulator"
+
+  match Targets.materializeResult .solana accumulator with
+  | .ok output =>
+      expect (output.files.any (·.path == "Accumulator.sbpf-plan"))
+        "Solana Accumulator must emit a target-owned typed audit plan"
+      expect (output.files.any (·.path == "Accumulator.idl.json"))
+        "Solana Accumulator must emit a target-derived IDL"
+  | .error error =>
+      throw <| IO.userError s!"Solana must lower Accumulator semantics: {error.render}"
 
 end Tests.Materialization

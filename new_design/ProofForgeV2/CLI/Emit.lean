@@ -102,7 +102,7 @@ private def finalize (target : TargetId) (outputDir : FilePath) (programName : S
   | .near => finalizeNear outputDir programName
   | .solana => pure {
       deployable := false
-      evidence := "sBPF assembler is not present; .s and IDL are plan-level artifacts only"
+      evidence := "no pinned/approved sBPF assembler is configured; typed plan and IDL artifacts are non-executable"
     }
   | .noir => pure {
       deployable := false

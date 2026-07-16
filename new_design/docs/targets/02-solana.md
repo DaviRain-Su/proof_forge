@@ -44,6 +44,30 @@ SolanaPlan {
 
 每个 instruction 完整列出 account index、role、owner、signer、writable、optional、PDA 约束。禁止 materializer 在 assembly 阶段猜账户顺序。
 
+Phase-1 的首个通用 planning 切片使用一个显式 state account：8-byte target-owned header
+后按声明顺序保存 little-endian `UInt64`。header 绑定 layout version 与 initialized 状态；
+initializer 只接受未初始化账户，entry/view 只接受已初始化账户。instruction data 使用
+`8-byte discriminator + little-endian UInt64 parameters`，Plan 明确记录每个参数 offset、state offset、
+checked-add、store/return 与 writable 要求。discriminator 固定为
+`SHA-256("proof-forge-solana-v1:" || canonical-signature)[0..8]`，避免按声明序编号造成 ABI
+漂移。这个边界仍是 non-deployable typed audit plan，不是 sBPF assembly/ELF，也没有 local
+runtime 证据。
+
+当前单账户 provisioning policy 要求 `initialize` 时 state account 自身为 signer、program-owned、
+writable 且 header 为 zero；成功后写入版本化 initialized marker。mutate 不再要求 signer，view
+声明 readonly。这个 signer 是 Solana 账户创建/初始化绑定，不是从业务 DSL 推导出的 authority；
+未来引入 PDA/authority 扩展时必须用新的显式 Plan policy/version，不能静默替换。
+
+initialized marker 是
+`SHA-256("proof-forge-solana-layout-v1:" || canonical-account-layout)[0..8]` 对应的 target
+word，而不是所有合约共用常量；同长度但不同字段 schema 不可复用旧 header。为保持参考语义中
+“init 从全零 state 开始”，initializer IR 在执行业务 init body 前显式清零全部 state fields，
+包括业务 body 没有赋值的字段。
+
+`solana-sbpf-plan-v1` 在 hash/lowering 前限制 ASCII identifier、最多 1024 个 UInt64 fields、
+255 个 entries、每 handler 64 个参数、4096 statements、表达式深度 256 和 aggregate nodes
+100000；`.sbpf-plan` 的 10-byte 后缀使 artifact stem 上限为 230 bytes。
+
 ## 5. Target IR 与制品
 
 `SolanaPlan → SbpfIR → sBPF assembly/ELF`。输出 ELF、可审计 assembly、IDL、account schema、program metadata、hash manifest。ELF loader/verifier 合法不代表账户语义正确，必须另做 runtime 测试。
