@@ -761,6 +761,12 @@ H1e 固定按 invocation receipt → catalog core → real retained bundle integ
 只在 real retained bundle 与 development catalog finalization 也通过、且 formal output 请求已证明
 zero-output fail closed 时关闭。
 
+H1e-b 还必须覆盖 catalog `--catalog` absolute/parent traversal 与 input-claim split-brain、三类
+structural repeated-role alias/substitution，以及 `gate_evidence.py` digest 不变但 exact sibling
+`evidence_v1_core.py`/retained `evidence-schema-core` 被替换的 closure negative；base context 还须
+拒绝 `runtime-port`、`adjacent-port`、`lan-ipv4`、`chain-id`、`asset-cache` 五个 late-dynamic 名；
+这些失败不得进入 catalog success 或创建 EVF 输出。
+
 ## 证据要求
 
 每次 gate 的目标输出是符合 [`TRACE-EV-001`](traceability/evidence-schema.md) 的不可变 `EV-*`

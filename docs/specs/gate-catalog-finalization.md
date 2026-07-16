@@ -3,7 +3,7 @@ id: SPEC-EVFINAL-001
 title: Gate Catalog 与 Development Finalization 规格
 status: proposed
 owner: quality
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
 ---
 
@@ -180,7 +180,9 @@ ID、asset cache 等值只能在需要它们的 invocation context 中出现。D
 `SHA256("pf.sandbox.invocation-context.v1" || NUL || canonical_pf_jcs(context))`。同名 binding
 在 selected gate 的多个 contexts 中出现时必须 type/value 相等。每个 context 作为唯一
 `inputs[].role="sandbox-invocation-context"` retained，且 stage/invocation 必须与 receipt 相等。
-Base 禁止 late dynamic names、跨 invocation 同名 binding 一致性与 catalog binding-name joins
+Base 禁止 late dynamic names；固定禁止集合为 `runtime-port`、`adjacent-port`、`lan-ipv4`、
+`chain-id`、`asset-cache`，这些名字只能出现在需要它们的 invocation context。跨 invocation
+同名 binding 必须 type/value exact 一致；catalog binding-name joins
 需要 selected gate 全集，属于 H1e-b finalizer；H1e-a launcher 只验证当前两份 context，不猜测
 业务 binding 名。
 
@@ -1282,7 +1284,7 @@ locks: {
   stage0LauncherSha256, stage0VerifierSha256,
   sandboxEngineSha256, sandboxRendererSha256, sandboxLauncherSha256,
   sandboxProbeWrapperSha256,
-  evidenceValidatorSha256, finalizerSha256
+  evidenceValidatorSha256, evidenceSchemaCoreSha256, finalizerSha256
 }
 gates: [GateRequirement, ...]  # non-empty
 ```
@@ -1321,7 +1323,7 @@ non-empty 并按 gate id 唯一升序。`locks` 恰含
 `stage0LauncherSha256`、`stage0VerifierSha256`、
 `sandboxEngineSha256`、`sandboxRendererSha256`、`sandboxLauncherSha256`、
 `sandboxProbeWrapperSha256`、
-`evidenceValidatorSha256`、`finalizerSha256`，值均为 SHA-256。
+`evidenceValidatorSha256`、`evidenceSchemaCoreSha256`、`finalizerSha256`，值均为 SHA-256。
 
 Lock join 也是 closed contract，不能混淆不同 TCB：前三个 lock 值分别等于 EV host 的
 bootstrap/profile/toolchain fields 及唯一 retained `host-bootstrap-lock`/`host-profile-lock`/
@@ -1333,8 +1335,12 @@ sandbox engine 值必须等于
 `inputs[].role="sandbox-policy-renderer"` 的 captured bytes；sandbox launcher 值必须等于每个
 receipt 的 `observedLauncherSha256` 及唯一 `sandbox-launcher` input bytes；probe wrapper 值必须等于唯一
 `inputs[].role="sandbox-probe-wrapper"` 的 captured bytes及每个 denial receipt 的
-`observedExecutableSha256`。evidence validator 与 finalizer 分别对其执行中的实现 bytes 做
-stable-read；当前两者可由同一 `gate_evidence.py` 提供且 digest 相等，但身份/版本轴不能合并。
+`observedExecutableSha256`。`evidenceSchemaCoreSha256` 还必须等于唯一
+`inputs[].role="evidence-schema-core"` 的 captured bytes。evidence validator 与 finalizer 分别对其执行中的
+`gate_evidence.py` bytes 做 stable-read；当前两者可由同一文件提供且 digest 相等，但身份/版本轴
+不能合并。`evidenceSchemaCoreSha256` 必须对 exact sibling `evidence_v1_core.py` 做独立 stable-read，
+并与 CLI 实际加载的同一 `(device,inode)`/bytes 绑定；只锁 wrapper 而遗漏被调用的 schema core
+必须以 closure substitution 拒绝。H1e-b 不得再引入 catalog 未显式锁定的 production helper。
 任一 lock 无 consumer 或出现第二个 consumer claim都失败。
 
 `GateRequirement` 恰含以下字段；`testIds`、`requiredTools` 与 `policies` 必须 non-empty，
@@ -1417,13 +1423,16 @@ gate 内唯一。每项 policy 固定 engine/default/network/template digest、r
 `runtimePort` 四方相等。
 
 Evidence 的 effective input exact set 恰为 catalog、base run context、host observation、三份
-host/toolchain locks、Stage-0 launcher/verifier、sandbox launcher/renderer/probe wrapper、每项
+host/toolchain locks、Stage-0 launcher/verifier、sandbox launcher/renderer/probe wrapper、evidence
+schema core、每项
 rendered policy、每个 invocation context、每个 invocation receipt，与 `requiredInputs` 的
 不相交并集；structural role 不得在 `requiredInputs` 重复。
 上述 singleton roles 精确为 `gate-catalog`、`clean-room-run-context`、`host-observation`、
 `host-bootstrap-lock`、`host-profile-lock`、`toolchain-lock`、`host-stage0-launcher`、
 `host-stage0-verifier`、`sandbox-launcher`、`sandbox-policy-renderer`、
-`sandbox-probe-wrapper`；policy/context/receipt 使用各自已定义的 repeated role。
+`sandbox-probe-wrapper`、`evidence-schema-core`；每项 rendered policy、invocation context、invocation receipt 的 repeated
+role 分别固定为 `sandbox-rendered-policy`、`sandbox-invocation-context`、
+`sandbox-invocation-receipt`，不得使用 alias 或 generic `policy`/`context`/`receipt` role。
 effective log exact set是每个 probe 的两条
 stream 与 `requiredLogs` 的不相交并集；probe streams 固定 `truncated=false`、
 `privateDataScan="not-run"`，sha256/size 必须与 receipt 相等。Artifacts 必须与
@@ -1471,7 +1480,8 @@ sandboxPolicies[].probes[].receipt?: {
   `hostAttestation.observationSha256`。
 - 必须恰有一个 `inputs[].role="sandbox-policy-renderer"`，其 captured bytes SHA-256 等于 catalog
   renderer lock。
-- 每个 policy 必须有 `renderedPolicyInput`，指向唯一 input claim；claim SHA-256 必须等于
+- 每个 policy 必须有 `renderedPolicyInput`，指向唯一
+  `inputs[].role="sandbox-rendered-policy"` claim；claim SHA-256 必须等于
   `renderedSha256`。
 - 每个 probe receipt 必须指向唯一 `inputs[].role="sandbox-invocation-receipt"`，stdout/stderr
   必须各指向唯一 log claim；`invocationContextInput` 必须指向唯一
@@ -1871,6 +1881,11 @@ Formal 输入必须在 catalog/claimed bundle/output I/O 前拒绝。Catalog/evi
 替代 caller expected digest；formal
 信任根未来必须由 eligible Stage-0 或受保护外部 caller 注入。
 
+Development 路径的 `--catalog` 必须是 normalized `bundleRoot`-relative path，且与 EV 中唯一
+`inputs[].role="gate-catalog"` 的 path exact 相等；absolute path、`..`、symlink、第二份 catalog
+claim 或 caller path/claim split-brain 全部拒绝。formal early rejection 不解析或访问该参数，避免
+在 qualification 决策前引入 catalog I/O。
+
 为读取 `gate.qualification`，finalizer 必须先以 `bundleRoot`-relative `INPUT` 做一次 bounded
 safe-open/canonical parse；这是 formal early rejection 唯一允许的 root read。若为 formal，立即
 关闭 fd，并在读取 catalog、任何 claimed bundle member 或 output state 前拒绝。Development
@@ -1936,7 +1951,8 @@ revocation、private scan、eligible runner、session containment 与 support-bi
 - Receipt：missing/extra、unknown field、错误 stage/invocation/policy/port、stdout/stderr 互换、
   raw hash/size 不符、terminal 矛盾、preexisting/link/path replacement、partial publish。
 - Catalog：non-canonical、wrong content/domain digest、duplicate/unsorted/unknown、version downgrade、
-  same identity split-brain、development/formal 混用、unsigned/substituted/weak formal catalog approval。
+  same identity split-brain、absolute/parent-traversing catalog path、caller path/claim split-brain、
+  development/formal 混用、unsigned/substituted/weak formal catalog approval。
 - Required set：candidate-owned policy、PHASE-5 digest/review substitution、required ID omit/extra/duplicate、
   catalog flatten 保留 ID 但 gate/command 语义错绑。
 - Bootstrap：同主体多 key 伪造 quorum、role/threshold 不足、D0 approval 缺项/乱序/依赖错绑、
@@ -1944,7 +1960,8 @@ revocation、private scan、eligible runner、session containment 与 support-bi
 - Exact sets：gate/test/tool/policy/probe/input/artifact/log 任一 missing/extra/duplicate。
 - Binding：EV A + catalog B、candidate A + archive B、host A + observation B、policy A + receipt B、
   EV/invocation-context/rendered-policy/receipt 四方端口任一变化、base/context/receipt 跨 gate/run/
-  probe 重用、tool record A + ExecutableRef/receipt executable B。
+  probe 重用、structural repeated-role alias/substitution、tool record A + ExecutableRef/receipt
+  executable B、wrapper digest 正确但 `evidence_v1_core.py` closure 被替换。
 - Filesystem：catalog/policy/receipt symlink/hardlink/casefold/inode alias、read-time mutation、
   capture budget、existing output、writable parent、staging replacement。
 - Qualification：formal passed/failed/skipped、eligible host + development catalog、hidden override/

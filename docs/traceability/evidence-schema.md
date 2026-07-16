@@ -3,7 +3,7 @@ id: TRACE-EV-001
 title: Gate Evidence Schema
 status: proposed
 owner: quality
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
 ---
 
@@ -374,6 +374,12 @@ H1e 的 catalog、typed EV references、launcher receipt、single-snapshot 与�
 finalization record candidate 契约也由 `SPEC-EVFINAL-001` 定义。H1e-a 已实现 opt-in launcher
 contexts 与 invocation metadata receipt producer；catalog、typed EV references、single-snapshot
 development finalizer 和真实 retained bundle 尚未实现，因此 formal fail-closed 结论不变。
+Catalog 必须分别锁定 `gate_evidence.py` wrapper/finalizer bytes 与 exact sibling
+`evidence_v1_core.py` schema-core bytes，后者还必须对应唯一 retained
+`inputs[].role="evidence-schema-core"`；只锁 wrapper 的 helper substitution 不构成有效 TCB closure。
+Development CLI 的 catalog path 只能来自 bundle-root-relative `gate-catalog` input claim；rendered
+policy/context/receipt 的 repeated roles 分别固定为 `sandbox-rendered-policy`、
+`sandbox-invocation-context`、`sandbox-invocation-receipt`。
 
 development finalization 即使实现，也不能生成 [`SPEC-CAP-001`](../specs/capabilities-extensions.md)
 的 `SupportEvidenceBinding`。formal support-binding producer 还必须把 canonical EV bytes 包装为
