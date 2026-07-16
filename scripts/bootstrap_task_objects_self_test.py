@@ -12,6 +12,7 @@ import dataclasses
 import hashlib
 import importlib.util
 import sys
+import time
 from pathlib import Path
 from types import ModuleType
 from typing import Callable
@@ -152,6 +153,16 @@ def test_pf_jcs(module: ModuleType) -> None:
     for encoded in invalid:
         assert_rejected(module, lambda encoded=encoded: module.decode_canonical_pf_jcs(encoded))
 
+    oversized_integer = b'{"a":' + (b"9" * 1_000_000) + b"}"
+    started = time.monotonic()
+    assert_rejected(
+        module,
+        lambda: module.decode_canonical_pf_jcs(oversized_integer),
+    )
+    assert time.monotonic() - started < 0.5, (
+        "unsafe integer must be rejected lexically before big-int conversion"
+    )
+
 
 def digest_text(raw: bytes) -> str:
     return "sha256:" + raw.hex()
@@ -217,8 +228,8 @@ def test_ed25519(module: ModuleType) -> None:
     signature = bytes.fromhex(
         "e5564300c360ac729086e2cc806e828a"
         "84877f1eb8e5d974d873e06522490155"
-        "fb8821590a33bacc61e39701cf9b46bd"
-        "25bf5f0595bbe24655141438e7a100b"
+        "5fb8821590a33bacc61e39701cf9b46b"
+        "d25bf5f0595bbe24655141438e7a100b"
     )
     assert module.verify_ed25519(public_key, b"", signature) is True
     assert module.verify_ed25519(public_key, b"tampered", signature) is False
@@ -301,6 +312,29 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
             f"missing {missing} must return Rejected"
         )
         assert rejected.code == BOOTSTRAP_REJECTION
+
+    complete_objects = module.BootstrapTaskObjectSetV1(**base)
+    mixed_task_ids = dataclasses.replace(
+        subject,
+        taskRows=(row, dataclasses.replace(row, taskId=1)),
+    )
+    assert_rejected(
+        module,
+        lambda: module.verifyBootstrapTaskObjects(mixed_task_ids, complete_objects),
+    )
+
+    surrogate_document = dataclasses.replace(
+        documents[0],
+        path="docs/\ud800.md",
+    )
+    surrogate_subject = dataclasses.replace(
+        subject,
+        documents=(surrogate_document,) + documents[1:],
+    )
+    assert_rejected(
+        module,
+        lambda: module.verifyBootstrapTaskObjects(surrogate_subject, complete_objects),
+    )
 
 
 def main() -> int:
