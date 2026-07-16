@@ -711,3 +711,37 @@ normative: false
 ```
 
 禁止用“看起来正常”“应该通过”代替命令结果；失败和回退尝试也应记录。
+
+## 2026-07-16 — TASK-D0-01 strict normative-contract closure
+
+- Commits：required-test ownership RED `67e78e7f`；GREEN
+  `1e97798b5e59c3a7c15db47f2865575dfd3e3dd3`；GREEN tree
+  `9dbe408ee546a5310db5b658dba78795294950df`。
+- Spec/Test：`TASK-D0-01`、`TST-DOC-001`、`SPEC-COMMON-001`、
+  `SPEC-SOURCE-WIRE-001`、`SPEC-SEM-WIRE-001`、`SPEC-EVFINAL-001`。本切片冻结 contract 与
+  executable documentation checker，不改变 proposed document lifecycle，也不关闭 D0-01。
+- Changed：补齐 common scalar、`Source.ProgramV1` 与 `SemanticProgramV1` exact model/wire/hash；
+  `semanticHash` 只绑定业务语义，sourceHash/origin/NodeId 进入 authenticated `.pfprov` companion，
+  ProofBundle 再做三方 exact join。冻结 target-neutral requirement/Outcome carriers、deterministic
+  TypeKey closure/TypeId allocation、external-response terminal exhaustion precedence，并明确当前
+  evidence v1 observation 只是有损 verdict projection，不能冒充 persisted structural Outcome。
+  authority/bootstrap 侧冻结 external policy、RequiredTestSet、per-task approval/receipt、six-item set、
+  authenticated authority-store publish/readback lease、formal core/private-scan/freshness/revocation joins；
+  尚无 producer/consumer 的路径继续 zero-closure。checker 新增强制 required test ownership、formal
+  task-owned TST joint trace、A0-01..20 exact task/test/done freeze 与 checkpoint authority mirror。
+- Commands：`python3 -I -S scripts/docs_check.py --root .`；
+  `python3 -I -S scripts/docs_check_self_test.py`；`git diff --check`；最终文本上的 `just check`；
+  三组 bounded independent read-only re-audit（trust protocol、task/trace checker、wire/hash/reference）。
+- Results：全部命令 exit 0；self-test 报告 `docs-check-self-test: ok (133 mutations)`；full check 完成
+  toolchain validate/self-test、Lean 48/66-job builds、test binary、host-isolation negative、四 target
+  Counter/Accumulator artifact validation 与 atomic output/source-overlap negatives。三组复核最终均为
+  P0=0/P1=0。Stage-0 observation 仍精确报告 `eligibleForHermetic=false`、system volume seal
+  `broken`、Xcode `mutableByCurrentUser=true`。
+- Evidence：`EV-20260716-0027`，绑定上述 GREEN commit/tree、`TASK-D0-01`、`TST-DOC-001` 与
+  `development`；不是 immutable schema-complete EV JSON。
+- Limitations：Phase 1–3 仍 `proposed`；external TaskApproval/task-receipt consumer、authority service、
+  exact tagged persisted Outcome、eligible Stage-0 handoff、跨 process-session containment、formal
+  finalizer/private scan/freshness/revocation 均未实现。不得将本记录写成 formal hermetic evidence，
+  `TASK-D0-01` 必须保持 `in_progress`，也不得启动 `TASK-D0-02` 实施。
+- Next：继续 D0-01；先取得 Phase 1–3 accepted review metadata，并实现 external
+  TaskApproval/BootstrapTaskVerifierReceipt consumer 的 fail-closed positive/negative acceptance。

@@ -56,7 +56,7 @@ EV。下一工作回到第一个正式任务 `TASK-D0-01`。
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D0-01 | 建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker，以及 external TaskApproval/task-receipt 验证 consumer；consumer 未接入前对 bootstrap closure fail closed | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | EV-20260716-0026 | in_progress |
+| TASK-D0-01 | 建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker，以及 external TaskApproval/task-receipt 验证 consumer；consumer 未接入前对 bootstrap closure fail closed | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | EV-20260716-0026, EV-20260716-0027 | in_progress |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | TASK-D0-01 | — | TST-ISO-001 | — | pending |
 | TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；只交付 development evidence schema/bundle/catalog finalizer 及 formal zero-output rejection，当前 alpha 输入为 `TASK-A0-02` | TASK-D0-01, TASK-D0-02 | — | TST-TOOL-001, TST-HOST-001, TST-EVIDENCE-001 | — | pending |
 | TASK-D0-04 | 实现 bootstrap foundation：eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal-catalog authority、per-task verifier receipt/protected service，以及 six-item BootstrapApprovalSet/activation producer-consumer；owned TST 只在 pre-activation 运行，task done 另须随后取得 set+activation receipt，且二者不得回填 TST/TaskApproval/task receipt | TASK-D0-02, TASK-D0-03, TASK-D0-05, TASK-D0-06 | — | TST-BOOTSTRAP-001 | — | blocked |

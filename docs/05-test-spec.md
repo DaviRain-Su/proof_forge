@@ -371,7 +371,7 @@ Evidence Ledger 的 canonical columns 固定为
 `development`、`bootstrap` 或 `formal`。绑定任务的 EV 必须给出一个精确 `TASK-*` 与该任务拥有的非空
 `TST-*` 子集；未绑定的历史观察只能同时使用 `Task=—`、`Tests=—`，且不得关闭任务。每个
 `done` task 引用的所有 EV 必须绑定回该 task，Tests 的并集必须覆盖任务表中的全部 Tests；
-只有精确 `TASK-A0-[0-9]{2}` 可使用 `development`；为打破 evidence binder
+只有冻结全集 `TASK-A0-01..20` 可使用 `development`；删除、增加或 reopen 其中任一项都必须拒绝。为打破 evidence binder
 的 bootstrap 循环，只有精确的 `TASK-D0-01..06` 六项 D0 trust-root task 可使用
 `bootstrap`，并继续受已完成依赖、accepted prerequisites、测试覆盖、eligible
 Stage-0 直接 handoff 与独立评审约束；其余 task 只能使用 `formal`。bootstrap task closure 还必须
