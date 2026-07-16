@@ -623,6 +623,37 @@ normative: false
 - Next：从当前代码与正式任务依赖重新选择下一 implementation slice；不得由本证据声称
   parser containment、完整 D1/D2 或正式 hermetic clean-room 已闭合。
 
+## 2026-07-16 — TASK-A0-20 completion / single decoded frontend
+
+- Commits：RED `fc92a1db`；GREEN
+  `8092472add885a6b6c775bf883b798b1d41dd51a`。post-commit tree
+  `d53f007f5d3625035b720fd217038c1a7edd5ab5`；archive SHA-256
+  `1521bfdcfd7a5f71266a7c22a4fd7e552aef9f69a6390637053e8e057378da0f`。
+- Spec/Test：`MOD-SOURCE-001`、`SPEC-LANG-001`、`TST-SRC-004/005` 的双入口单一
+  decode/validation alpha 切片。
+- Changed：`decodeProgramCommandChecked` 现在同时拥有 per-program declaration validation；
+  Loader 删除私有重复 validator，只保留 module header/whitelist/namespace/program identity。
+  Lean command 不再丢弃 decoded value 后从 raw Syntax 运行 `expand*`，而是以穷举、全字段
+  `Source.*.mk` quote 直接生成 attributed `Source.Program`。
+- Commands：focused `lake build`；`just test`；`just dsl-negative`；`just docs-check`；
+  `git diff --check`；post-commit `just check`；post-commit `just v2-clean-room-alpha`；
+  independent read-only frontend review。
+- Results：全部有效候选命令 exit 0。positive parity 同时比较 program value 和 `sourceHash`，
+  覆盖 state/init/entry/view、visibility、alpha statement/expression、escaped string、
+  `UInt64.max`、empty arrays 与 `Option.none`。六个单错和八个组合错误 fixture 分别经 Lean/CLI
+  两路失败，硬编码完整首诊断，固定 Syntax preflight → identity → decode → duplicate
+  initializer → zero callable → state → entry → initializer params → entry declaration-order params。
+  最终 review P0=0/P1=0。
+- Evidence：`EV-20260716-0025`，manual development evidence；没有 schema-complete immutable
+  formal EV JSON。
+- Limitations：只证明当前 alpha `Source` constructors；没有 token/span/NodeId、完整 declaration/
+  expression grammar、persistent environment export/schema/import diamond、Diagnostic v1 或 parser
+  containment，不关闭正式 D1。development host 仍因 broken seal/current-user-mutable Xcode 不合格，
+  D0-03/D0-04 的 formal blockers 不变。
+- Next：停止自动增加 pre-acceptance `A0` 任务。2026-07-16 对账确认 D0/D1 现有状态没有
+  漏勾；严格回到 `TASK-D0-01`，先以 mutation RED 补齐 `TST-DOC-001` checker。Phase 1–3
+  仍为 `proposed`，没有 approver/date/review commit，因此 D0-01 即使技术门禁转绿也不能标 done。
+
 ## 记录模板
 
 ```markdown

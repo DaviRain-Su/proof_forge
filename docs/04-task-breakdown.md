@@ -14,6 +14,10 @@ normative: true
 表中依赖是任务完成依赖；前置任务未完成时可以收集明确标注的 pre-acceptance evidence，
 但不能据此把正式任务标为 `done`。
 
+任务选择以本文件为准，`AGENTS.md` 只镜像当前指针。新增 pre-acceptance task 必须先在本文件
+说明为什么既有 Milestone 任务不能承载该工作；不得由 checkpoint 的 `Next task` 自动递增
+`TASK-A0-*`。表中 `D0` 表示整个 Milestone D0，除非通过任务表变更明确缩窄依赖。
+
 ## Pre-acceptance alpha checkpoint
 
 以下任务验证设计可行性，不等同于关闭后续完整任务；证据和限制见实现日志。
@@ -39,13 +43,17 @@ normative: true
 | TASK-A0-17 | 递归 decode/type-check 前的共享 Syntax node/nesting preflight 与稳定 boundary diagnostics | EV-20260716-0022 | done |
 | TASK-A0-18 | accepted-width `Source.Program` 的线性 duplicate/name index 与 typecheck complexity regression | EV-20260716-0023 | done |
 | TASK-A0-19 | reusable Loader `ParserSession` 与 hosted `source-core` 重资源向量进程隔离 | EV-20260716-0024 | done |
-| TASK-A0-20 | Lean command/CLI Loader 共用唯一 validated decoded `Source.Program`，移除第二套 raw-Syntax AST construction | TST-SRC-004/005（双入口 RED parity/negative） | in_progress |
+| TASK-A0-20 | Lean command/CLI Loader 共用唯一 validated decoded `Source.Program`，移除第二套 raw-Syntax AST construction | EV-20260716-0025 | done |
+
+本 checkpoint 截止 `TASK-A0-20` 冻结。2026-07-16 对账确认：A0 的 `done` 只表示 alpha
+切片；它们不自动关闭 D0/D1。D0 四项原状态没有漏勾，D1 七项也都缺正式依赖、完整 TST 或
+EV。下一工作回到第一个正式任务 `TASK-D0-01`。
 
 ## Milestone D0：文档与独立工程
 
 | ID | 任务/输出 | 依赖 | 先行测试/验证 | 状态 |
 |---|---|---|---|---|
-| TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | pending |
+| TASK-D0-01 | 建立文档 status、ID、link checker | accepted Phase 1–3 | TST-DOC-001 | in_progress |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | D0-01 | TST-ISO-001 | pending |
 | TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；H1e 按 receipt→catalog core→retained bundle 实施，formal handoff/finalizer 待完成 | 完成依赖 D0-01/02；当前 alpha 输入 A0-02 | TST-TOOL-001/TST-HOST-001/TST-EVIDENCE-001/TST-ISO-002 | pending |
 | TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：eligible host、formal handoff/process-session containment 与 gate-catalog finalizer 未闭合 | D0-02/03 | TST-ISO-002 | blocked |

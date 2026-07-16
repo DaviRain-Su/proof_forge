@@ -14,12 +14,13 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-A0-20**：让 Lean command 与 CLI Loader 消费同一个 validated decoded `Source.Program`，删除 command elaborator 的第二套 raw-Syntax AST builder；RED 双入口 parity/negative 验收待提交 |
-| Next task | **TASK-A0-21**：在 A0-20 闭合后实现当前 alpha fragment 的 target-neutral Typed effect summary 与 `PF-EFFECT-001` view guard |
+| Active task | **TASK-D0-01**：按 `TST-DOC-001` 补齐文档 status/ID/link/claim/ADR/trace/task→TST→EV checker；当前只可收集 pre-acceptance evidence，Phase 1–3 尚未正式批准，完成条件未满足 |
+| Next task | **TASK-D0-02**：仅在 D0-01 完成后验收独立 Lake package/namespace/exe 与 `TST-ISO-001`；不得跳到 D1/D2 或自动新增 A0 任务 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
-| Source of status | [`docs/document-status.md`](docs/document-status.md) |
+| Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
+| Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
 检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
 当前 EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证，NEAR 的 raw-u64 Counter 和
@@ -58,7 +59,8 @@ Accumulator 和 PrivateSum4 只有 target-owned Plan/typed relation IR 与 sourc
 ## Execution Protocol
 
 1. 对照代码、规格和实际工具链复核任务输入。
-2. 在任务表中只标记一个 `in_progress`。
+2. 严格按 [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) 的依赖顺序选择任务，并且
+   只标记一个 `in_progress`；不得仅依据本文件的 checkpoint 自动发散新 `TASK-A0-*`。
 3. 先提交失败的验收测试或可执行验证脚本。
 4. 实现满足规格的最小切片，遇到规格缺口先改规格并重新评审。
 5. 运行聚焦测试；合并前运行完整 V2 gate。当前 `isolated-check`/
