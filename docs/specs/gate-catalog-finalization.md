@@ -461,7 +461,8 @@ BootstrapTaskSubjectV1 {
 DependencyTaskObjectV1 {
   approvalBytes: bytes,
   receiptBytes: bytes,
-  stage0HandoffBytes: bytes
+  stage0HandoffBytes: bytes,
+  evidenceManifestBytes: bytes
 }
 
 ReviewReportObjectV1 {
@@ -475,6 +476,7 @@ BootstrapTaskObjectSetV1 {
   requiredTestSetBytes,
   taskApprovalBytes,
   taskReceiptBytes,
+  evidenceManifestBytes,
   dependencyObjects: Array<DependencyTaskObjectV1>,
   evidenceObjectBytes: NonEmptyArray<bytes>,
   reviewReports: NonEmptyArray<ReviewReportObjectV1>
@@ -491,6 +493,34 @@ ObjectVerifiedV1 {
   evidence: NonEmptyArray<EvidenceRef>
 }
 ```
+
+每个 root/dependency task 必须携带本 task 自己的 evidence-root manifest；不能把 closure 的全局
+evidence union、其他 task 的 manifest 或 handoff 中一个未解析的裸 digest 当作替代：
+
+```text
+BootstrapEvidenceRootManifestV1 {
+  schema: "proof-forge.bootstrap-evidence-root-manifest.v1",
+  taskId,
+  candidate: CandidateIdentity,
+  evidence: NonEmptyArray<EvidenceRef>
+}
+```
+
+manifest 必须是 exact canonical PF-JCS bytes，`evidence` count 固定为 `1..4096` 并按
+EvidenceRef.id 唯一升序。digest 固定为：
+
+```text
+SHA-256(
+  "pf.bootstrap-evidence-root-manifest.v1" || NUL ||
+  canonical_pf_jcs(BootstrapEvidenceRootManifestV1)
+)
+```
+
+root manifest 只属于 root task；每个 `DependencyTaskObjectV1.evidenceManifestBytes` 只属于该
+dependency task。manifest 的 taskId/candidate/evidence 必须分别 exact 等于同项已解析
+TaskApproval 的 taskId/candidate/evidence；manifest digest 必须 exact 等于同项
+EligibleStage0Handoff `evidence-root` channel 的 bindingDigest。manifest 不含 handoff ref，因而不得
+通过加入 handoff/approval/receipt 形成 digest cycle。
 
 consumer 必须先从同一 subject 的 raw `PHASE-4` snapshot 调用
 `parse_phase4_snapshot_content`，再以其中 rootTaskId 对应 raw row 为根计算 Task Breakdown DAG 的
@@ -523,9 +553,9 @@ exact 相等，禁止只比较 document ID 或 contentDigest。每项必须是 e
 `1..4194304` bytes、BOM/NUL/CR/final-LF/strict-UTF-8、line-count/line-width 与 accepted frontmatter
 profile；contentDigest 的 document-id domain component 使用该 snapshot 自身 ID。
 
-object set 的五个 root bytes 各恰有一个。`dependencyObjects` count 固定为 `0..5`，按每项解析后的
+object set 的六个 root bytes 各恰有一个。`dependencyObjects` count 固定为 `0..5`，按每项解析后的
 TaskApproval taskId 唯一升序，并 exact 等于 Task Breakdown DAG 的全部 transitive dependency taskId。
-每项三个字段都必须是 non-empty canonical PF-JCS bytes；consumer 必须使用该项自己的
+每项四个字段都必须是 non-empty canonical PF-JCS bytes；consumer 必须使用该项自己的
 `stage0HandoffBytes` 验证其 run-specific TaskApproval/receipt，禁止用 root handoff 或其他 dependency
 handoff 代替。root 与全部 dependency 的 handoff ContentRef 以及 `(runId, nonce)` pair 必须分别唯一；
 同一次 Stage-0 run 不得为两个 task 重签复用。consumer 从 receipt 中的 TaskApprovalRef 解析同项 approval，memoize 后拒绝 cycle、
@@ -551,20 +581,42 @@ intrinsic preflight（含全部
 structure/resource/order/unique 检查及随后逐项 raw-byte digest 自洽检查）；解析同一 subject 的 raw
 PHASE-4、PHASE-5 与 selected prerequisites snapshots，并完成 raw-derived closure、subject rows、
 TaskApproval taskBreakdown/row axes、RequiredTestSet PHASE-5 denominator 与 prerequisite full refs 的全部
-exact joins；RequiredTestSet finalize；全部 root/dependency TaskApproval finalize；上述 review digest
+exact joins；完成全部 signed object structural preflight；解析并 exact join per-task evidence manifest 与
+完整 raw EV；RequiredTestSet finalize；全部 root/dependency TaskApproval finalize；上述 review digest
 唯一升序 union exact join；最后才允许第一次 receipt finalize。完成 report intrinsic preflight 前，只
 允许不触发 hash/curve 的结构检查；任一 report intrinsic failure 都不得触发其他 graph hash，也不得进入
 RequiredSet、TaskApproval 或 receipt curve work。report intrinsic 通过后，任一 PHASE-4/5/prerequisite
 snapshot、raw row、closure 或 full-ref mismatch 都必须在第一次 RequiredTestSet/TaskApproval signature
 curve work 前拒绝；此类失败允许已经完成的 report intrinsic hash，但 RequiredSet、TaskApproval 与
-receipt curve count 必须全部为零。禁止先调用已完成验签的 public parser，再做事后 raw document join。
+receipt curve count 必须全部为零。manifest、raw EV schema/digest/candidate/task/test/qualification/result 或
+exact-set mismatch 同样必须在第一次 signature curve work 前拒绝。禁止先调用已完成验签的 public
+parser，再做事后 raw document/evidence join。
 内部入口固定为
 `_preflight_review_reports(values: object) -> Tuple[Digest, ...]`；它返回 caller carrier 的同序 typed
 digest tuple，且不解析、不规范化也不投影 report bytes。
 在 dynamic exact-set join 前，`evidenceObjectBytes` carrier count 固定为 `1..24576`（六项 task 各最多
 4096），`reviewReports` 固定为 `1..1536`（六项 task 各最多 256）；over-bound 必须在任何 entry decode、
 hash 或 signature work 前拒绝。这两个 coarse upper bound 不替代后续由已验证 approval refs 派生的
-更小 dynamic exact count。
+更小 dynamic exact count。每项 evidence raw bytes 固定为 `1..4194304`，全部 evidence raw bytes 的
+aggregate 上限固定为 `268435456`；root/dependency evidence manifest 各固定为 `1..4194304` bytes。
+type、单项长度、aggregate 长度与 coarse count 必须在第一次 evidence decode、artifact-set hash、raw
+EvidenceRef hash 或 signature work 前完成；shell 不得提前把 generic canonical JSON 当成已验证 EV。
+
+完整 raw evidence 验证必须复用 `scripts/gate_evidence.py` 使用的同一个纯
+`proof-forge.evidence.v1` schema core，不得在 bootstrap consumer 中维护只检查 root/gate/repository
+子集的第二套 validator。每个 object 必须是 exact canonical PF-JCS v1 bytes；EvidenceRef digest 是
+`SHA-256(exact raw bytes)`，不增加 domain prefix。按 raw EV id 唯一升序后，carrier 必须 exact 等于
+全部 selected TaskApproval evidence refs 的唯一升序 union；每项重建的 CandidateIdentity、
+`gate.taskId`、`gate.testIds`、`gate.qualification` 与 `result` 必须分别 exact 等于 subject/signed task、
+对应 BootstrapLedgerSubjectV1 testIds、`development` 与 `passed`。每个 task 的 raw EV testIds union
+仍须 exact 等于 raw PHASE-4 row tests；Ledger 的 `grade="bootstrap"` 不得进入 raw EV qualification。
+
+顺序扩展固定为：shell/coarse raw bounds；完整 report intrinsic；PHASE-4/5/prerequisite raw parse 与
+raw joins；全部 signed object structural preflight；所有 per-task evidence manifest parse/handoff join；
+完整 EV schema/intrinsic digest 与 manifest/subject/approval exact joins；RequiredTestSet finalize；全部
+TaskApproval finalize；review union；全部 receipt finalize；dependency receipt exact joins；最后才构造
+ObjectVerifiedV1。任一 manifest/EV 失败都必须发生在第一次 RequiredSet/TaskApproval/receipt curve
+work 前。approval 只有在随后签名验证成功后才能成为返回 projection 的 authority。
 
 内部入口固定为
 `verifyBootstrapTaskObjects(subject, objects) -> ObjectVerifiedV1 | Rejected(code)`。consumer 负责

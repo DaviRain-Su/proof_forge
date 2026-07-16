@@ -29,6 +29,7 @@ ROOT_BYTE_FIELDS = (
     "requiredTestSetBytes",
     "taskApprovalBytes",
     "taskReceiptBytes",
+    "evidenceManifestBytes",
 )
 RFC_8032_PUBLIC_KEYS = (
     "d75a980182b10ab7d54bfed3c964073a"
@@ -199,6 +200,7 @@ def assert_public_api(module: ModuleType) -> None:
         "Phase4SnapshotContentV1",
         "Phase5SnapshotContentV1",
         "EvidenceRef",
+        "BootstrapEvidenceRootManifestV1",
         "TaskApprovalRefV1",
         "BootstrapTaskVerifierReceiptRefV1",
         "IndependentReviewRefV1",
@@ -367,6 +369,9 @@ def assert_public_api(module: ModuleType) -> None:
         "Phase4SnapshotContentV1": ("document", "bootstrapTaskRows"),
         "Phase5SnapshotContentV1": ("document", "requiredTestIds"),
         "EvidenceRef": ("id", "digest"),
+        "BootstrapEvidenceRootManifestV1": (
+            "schema", "taskId", "candidate", "evidence",
+        ),
         "TaskApprovalRefV1": ("taskId", "digest"),
         "BootstrapTaskVerifierReceiptRefV1": ("taskId", "id", "digest"),
         "IndependentReviewRefV1": (
@@ -447,7 +452,10 @@ def assert_public_api(module: ModuleType) -> None:
             "candidate", "rootTaskId", "taskRows", "evidenceRows", "documents",
         ),
         "DependencyTaskObjectV1": (
-            "approvalBytes", "receiptBytes", "stage0HandoffBytes",
+            "approvalBytes",
+            "receiptBytes",
+            "stage0HandoffBytes",
+            "evidenceManifestBytes",
         ),
         "ReviewReportObjectV1": ("digest", "bytes"),
         "BootstrapTaskObjectSetV1": (
@@ -456,6 +464,7 @@ def assert_public_api(module: ModuleType) -> None:
             "requiredTestSetBytes",
             "taskApprovalBytes",
             "taskReceiptBytes",
+            "evidenceManifestBytes",
             "dependencyObjects",
             "evidenceObjectBytes",
             "reviewReports",
@@ -480,6 +489,16 @@ def assert_public_api(module: ModuleType) -> None:
         )
         params = getattr(record, "__dataclass_params__")
         assert params.frozen, f"{name} must be immutable"
+
+    object_verified_annotations = module.ObjectVerifiedV1.__annotations__
+    assert object_verified_annotations["taskApproval"] == "TaskApprovalRefV1"
+    assert object_verified_annotations["taskReceipt"] == (
+        "BootstrapTaskVerifierReceiptRefV1"
+    )
+    assert object_verified_annotations["dependencyReceipts"] == (
+        "Tuple[BootstrapTaskVerifierReceiptRefV1, ...]"
+    )
+    assert object_verified_annotations["evidence"] == "Tuple[EvidenceRef, ...]"
 
 
 def assert_rejected(module: ModuleType, operation: Callable[[], object]) -> object:
@@ -1274,6 +1293,169 @@ def review_report_object(module: ModuleType, raw: bytes) -> object:
     )
 
 
+def full_raw_evidence_wire(
+    module: ModuleType,
+    candidate: dict,
+    task_id: str,
+    test_ids: tuple[str, ...],
+    evidence_id: str,
+) -> dict:
+    """Build a complete canonical-schema EV without importing repo authority."""
+    bare_sha = lambda byte: f"{byte:02x}" * 32
+    archive_sha = candidate["archiveDigest"].removeprefix("sha256:")
+    artifacts = [{
+        "target": "docs",
+        "role": "acceptance-report",
+        "path": f"build/evidence/{evidence_id}.txt",
+        "mediaType": "text/plain",
+        "sha256": bare_sha(0x31),
+        "size": 32,
+        "retained": True,
+    }]
+    artifact_set_sha256 = hashlib.sha256(
+        b"pf.evidence.artifact-set.v1\x00"
+        + module.canonical_pf_jcs(artifacts)
+    ).hexdigest()
+    return {
+        "schema": "proof-forge.evidence.v1",
+        "id": evidence_id,
+        "gate": {
+            "id": f"bootstrap-{task_id.lower()}",
+            "taskId": task_id,
+            "testIds": list(test_ids),
+            "qualification": "development",
+        },
+        "repository": {
+            "commit": candidate["commit"],
+            "subtree": ".",
+            "treeObjectId": candidate["treeObjectId"],
+            "anchorSource": "external",
+            "dirty": False,
+            "dirtyDigest": None,
+            "unchangedDuringRun": True,
+            "archive": {
+                "format": "git-tar",
+                "sha256": archive_sha,
+                "size": 4096,
+            },
+        },
+        "hostAttestation": {
+            "scope": "local-point-in-time",
+            "remoteAttestation": False,
+            "profileId": "synthetic-eligible-host",
+            "eligibleForHermetic": True,
+            "bootstrapLockSha256": bare_sha(0x01),
+            "hostProfileLockSha256": bare_sha(0x02),
+            "toolchainLockSha256": bare_sha(0x03),
+            "launcherSha256": bare_sha(0x04),
+            "verifierSha256": bare_sha(0x05),
+            "observationSha256": bare_sha(0x06),
+        },
+        "environment": {
+            "os": "synthetic-darwin",
+            "arch": "arm64",
+            "environmentSha256": bare_sha(0x07),
+            "sourceDateEpoch": 0,
+            "cleanRoom": True,
+            "buildCache": "empty",
+            "assetCache": "locked-read-only",
+        },
+        "sandboxPolicies": [{
+            "id": "deny-default",
+            "engine": "synthetic-sandbox",
+            "engineSha256": bare_sha(0x08),
+            "defaultAction": "deny",
+            "network": "deny-all",
+            "templateSha256": bare_sha(0x09),
+            "renderedSha256": bare_sha(0x0A),
+            "probes": [{"id": "network-denied", "status": "passed"}],
+        }],
+        "tools": [{
+            "id": "python",
+            "version": "3.9.6",
+            "source": "host-profile",
+            "assetSha256": None,
+            "executableSha256": bare_sha(0x0B),
+            "closureSha256": bare_sha(0x0C),
+        }],
+        "command": {
+            "argv": ["bootstrap-object-self-test", task_id],
+            "cwdRelative": ".",
+            "startedUtc": "2026-07-17T00:00:00Z",
+            "endedUtc": "2026-07-17T00:00:01Z",
+            "durationMs": 1000,
+            "attempts": [{
+                "number": 1,
+                "exitCode": 0,
+                "signal": None,
+                "timedOut": False,
+                "stdoutLog": "build/logs/evidence.stdout",
+                "stderrLog": "build/logs/evidence.stderr",
+            }],
+        },
+        "inputs": [{
+            "role": "candidate-archive",
+            "path": "candidate.tar",
+            "sha256": archive_sha,
+            "size": 4096,
+        }],
+        "artifacts": artifacts,
+        "artifactSetSha256": artifact_set_sha256,
+        "observations": [{
+            "step": "bootstrap-object-consumer",
+            "status": "passed",
+            "return": True,
+            "logicalState": {"taskId": task_id},
+            "effects": [],
+            "errorClass": None,
+        }],
+        "logs": [
+            {
+                "path": "build/logs/evidence.stderr",
+                "sha256": bare_sha(0x0D),
+                "size": 0,
+                "truncated": False,
+                "privateDataScan": "passed",
+            },
+            {
+                "path": "build/logs/evidence.stdout",
+                "sha256": bare_sha(0x0E),
+                "size": 64,
+                "truncated": False,
+                "privateDataScan": "passed",
+            },
+        ],
+        "result": "passed",
+        "skipAuthorization": None,
+    }
+
+
+def evidence_ref_wire(raw_bytes: bytes, evidence_id: str) -> dict:
+    return {
+        "id": evidence_id,
+        "digest": digest_text(hashlib.sha256(raw_bytes).digest()),
+    }
+
+
+def evidence_manifest_wire(
+    task_id: str,
+    candidate: dict,
+    evidence_refs: tuple[dict, ...],
+) -> dict:
+    return {
+        "schema": "proof-forge.bootstrap-evidence-root-manifest.v1",
+        "taskId": task_id,
+        "candidate": copy.deepcopy(candidate),
+        "evidence": copy.deepcopy(list(evidence_refs)),
+    }
+
+
+def evidence_manifest_digest(raw_bytes: bytes) -> str:
+    return digest_text(hashlib.sha256(
+        b"pf.bootstrap-evidence-root-manifest.v1\x00" + raw_bytes
+    ).digest())
+
+
 def task_approval_statement(
     module: ModuleType,
     policy_ref: object,
@@ -1907,6 +2089,10 @@ def signed_d0_object_graph_fixture(
     *,
     shared_quality_review_bytes: bytes | None = None,
     approval_mutators: dict[str, Callable[[dict], None]] | None = None,
+    evidence_mutators: dict[str, Callable[[dict], None]] | None = None,
+    manifest_mutators: dict[str, Callable[[dict], None]] | None = None,
+    manifest_source_overrides: dict[str, str] | None = None,
+    handoff_mutators: dict[str, Callable[[dict], None]] | None = None,
     phase4_snapshot_override: object | None = None,
     prerequisite_snapshot_overrides: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -1959,6 +2145,51 @@ def signed_d0_object_graph_fixture(
     required_bytes = module.canonical_pf_jcs(required_wire)
     candidate_wire = candidate_identity_wire(module)
     candidate = module.parse_candidate_identity(candidate_wire)
+    evidence_wires: dict[str, dict] = {}
+    evidence_bytes: dict[str, bytes] = {}
+    evidence_refs: dict[str, dict] = {}
+    evidence_mutators = evidence_mutators or {}
+    for task_id, row in D0_GRAPH_ROWS.items():
+        for evidence_id in row["evidenceIds"]:
+            raw_wire = full_raw_evidence_wire(
+                module,
+                candidate_wire,
+                task_id,
+                row["testIds"],
+                evidence_id,
+            )
+            mutator = evidence_mutators.get(evidence_id)
+            if mutator is not None:
+                mutator(raw_wire)
+            raw_bytes = module.canonical_pf_jcs(raw_wire)
+            evidence_wires[evidence_id] = raw_wire
+            evidence_bytes[evidence_id] = raw_bytes
+            evidence_refs[evidence_id] = evidence_ref_wire(
+                raw_bytes,
+                evidence_id,
+            )
+
+    manifest_wires: dict[str, dict] = {}
+    manifest_bytes: dict[str, bytes] = {}
+    manifest_mutators = manifest_mutators or {}
+    manifest_source_overrides = manifest_source_overrides or {}
+    for task_id, row in D0_GRAPH_ROWS.items():
+        source_task_id = manifest_source_overrides.get(task_id, task_id)
+        source_row = D0_GRAPH_ROWS[source_task_id]
+        manifest = evidence_manifest_wire(
+            source_task_id,
+            candidate_wire,
+            tuple(
+                evidence_refs[evidence_id]
+                for evidence_id in source_row["evidenceIds"]
+            ),
+        )
+        mutator = manifest_mutators.get(task_id)
+        if mutator is not None:
+            mutator(manifest)
+        encoded_manifest = module.canonical_pf_jcs(manifest)
+        manifest_wires[task_id] = manifest
+        manifest_bytes[task_id] = encoded_manifest
     built: dict[str, dict[str, object]] = {}
 
     for task_id in (
@@ -1984,6 +2215,12 @@ def signed_d0_object_graph_fixture(
         handoff_wire["id"] = f"task-d0-{task_number:02d}-stage0-handoff"
         handoff_wire["runId"] = f"task-d0-{task_number:02d}-run-20260717"
         handoff_wire["nonce"] = f"{0x80 + task_number:02x}" * 32
+        handoff_wire["channels"][3]["bindingDigest"] = evidence_manifest_digest(
+            manifest_bytes[task_id]
+        )
+        handoff_mutator = (handoff_mutators or {}).get(task_id)
+        if handoff_mutator is not None:
+            handoff_mutator(handoff_wire)
         handoff_bytes = module.canonical_pf_jcs(handoff_wire)
         handoff_ref = eligible_stage0_handoff_ref_wire(
             module,
@@ -2000,13 +2237,10 @@ def signed_d0_object_graph_fixture(
                 module, required_bytes
             ),
             "testIds": list(row["testIds"]),
-            "evidence": [
-                {
-                    "id": evidence_id,
-                    "digest": digest_text(bytes([0x20 + int(evidence_id[-1])]) * 32),
-                }
+            "evidence": copy.deepcopy([
+                evidence_refs[evidence_id]
                 for evidence_id in row["evidenceIds"]
-            ],
+            ]),
             "dependencyCompletions": copy.deepcopy(dependency_refs),
             "prerequisiteDocuments": [
                 copy.deepcopy(document_refs[document_id])
@@ -2088,6 +2322,14 @@ def signed_d0_object_graph_fixture(
             ),
             "handoffWire": handoff_wire,
             "handoffBytes": handoff_bytes,
+            "handoffRefWire": handoff_ref,
+            "approvalRefWire": approval_ref,
+            "evidenceRefsWire": tuple(
+                copy.deepcopy(evidence_refs[evidence_id])
+                for evidence_id in row["evidenceIds"]
+            ),
+            "evidenceManifestWire": manifest_wires[task_id],
+            "evidenceManifestBytes": manifest_bytes[task_id],
         }
 
     transitive: set[str] = set()
@@ -2150,17 +2392,18 @@ def signed_d0_object_graph_fixture(
         requiredTestSetBytes=required_bytes,
         taskApprovalBytes=root["approvalBytes"],
         taskReceiptBytes=root["receiptBytes"],
+        evidenceManifestBytes=root["evidenceManifestBytes"],
         dependencyObjects=tuple(
             module.DependencyTaskObjectV1(
                 approvalBytes=built[task_id]["approvalBytes"],
                 receiptBytes=built[task_id]["receiptBytes"],
                 stage0HandoffBytes=built[task_id]["handoffBytes"],
+                evidenceManifestBytes=built[task_id]["evidenceManifestBytes"],
             )
             for task_id in dependency_task_ids
         ),
         evidenceObjectBytes=tuple(
-            module.canonical_pf_jcs({"id": row.id})
-            for row in evidence_rows
+            evidence_bytes[row.id] for row in evidence_rows
         ),
         reviewReports=tuple(sorted(
             {
@@ -2187,6 +2430,14 @@ def signed_d0_object_graph_fixture(
         "phase4Snapshot": phase4_snapshot,
         "documentSnapshots": document_snapshots,
         "documentRefs": document_refs,
+        "policyRef": policy_ref,
+        "requiredBytes": required_bytes,
+        "candidateWire": candidate_wire,
+        "evidenceWires": evidence_wires,
+        "evidenceBytes": evidence_bytes,
+        "evidenceRefs": evidence_refs,
+        "manifestWires": manifest_wires,
+        "manifestBytes": manifest_bytes,
     }
 
 
@@ -6262,11 +6513,13 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
         requiredTestSetBytes=b"{}",
         taskApprovalBytes=b"{}",
         taskReceiptBytes=b"{}",
+        evidenceManifestBytes=b"{}",
         dependencyObjects=tuple(
             module.DependencyTaskObjectV1(
                 approvalBytes=module.canonical_pf_jcs({"taskId": task_id}),
                 receiptBytes=module.canonical_pf_jcs({"taskId": task_id}),
                 stage0HandoffBytes=module.canonical_pf_jcs({"taskId": task_id}),
+                evidenceManifestBytes=module.canonical_pf_jcs({"taskId": task_id}),
             )
             for task_id in (
                 "TASK-D0-01",
@@ -7252,6 +7505,7 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         approvalBytes=objects.taskApprovalBytes,
         receiptBytes=objects.taskReceiptBytes,
         stage0HandoffBytes=objects.stage0HandoffBytes,
+        evidenceManifestBytes=objects.evidenceManifestBytes,
     )
     overbound_dependency_objects = dataclasses.replace(
         objects,
@@ -7278,6 +7532,7 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
                     "approvalBytes": bundles[0].approvalBytes,
                     "receiptBytes": bundles[0].receiptBytes,
                     "stage0HandoffBytes": bundles[0].stage0HandoffBytes,
+                    "evidenceManifestBytes": bundles[0].evidenceManifestBytes,
                 },) + bundles[1:],
             ),
         ),
@@ -7416,6 +7671,7 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         approvalBytes=sparse_root["approvalBytes"],
         receiptBytes=sparse_root["receiptBytes"],
         stage0HandoffBytes=sparse_root["handoffBytes"],
+        evidenceManifestBytes=sparse_root["evidenceManifestBytes"],
     )
     isolated_exact_set_invalids = (
         (
@@ -8361,6 +8617,214 @@ def test_review_report_preflight(module: ModuleType) -> None:
     assert result.code == BOOTSTRAP_REJECTION
 
 
+def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None:
+    def typed_evidence_ref(wire: dict) -> object:
+        return module.EvidenceRef(wire["id"], module.parse_digest(wire["digest"]))
+
+    def expected_projection(fixture: dict[str, object]) -> object:
+        subject = fixture["subject"]
+        built = fixture["built"]
+        root_task_id = subject.rootTaskId
+        root = built[root_task_id]
+        dependency_task_ids = fixture["dependencyTaskIds"]
+        return module.ObjectVerifiedV1(
+            taskId=root_task_id,
+            candidate=subject.candidate,
+            authorityPolicy=fixture["policyRef"],
+            requiredTestSet=module.parse_content_ref(
+                root["approvalWire"]["requiredTestSet"]
+            ),
+            taskApproval=module.TaskApprovalRefV1(
+                root_task_id,
+                module.parse_digest(root["approvalRefWire"]["digest"]),
+            ),
+            taskReceipt=module.BootstrapTaskVerifierReceiptRefV1(
+                root_task_id,
+                root["receiptRefWire"]["id"],
+                module.parse_digest(root["receiptRefWire"]["digest"]),
+            ),
+            stage0Handoff=module.parse_content_ref(root["handoffRefWire"]),
+            dependencyReceipts=tuple(
+                module.BootstrapTaskVerifierReceiptRefV1(
+                    task_id,
+                    built[task_id]["receiptRefWire"]["id"],
+                    module.parse_digest(
+                        built[task_id]["receiptRefWire"]["digest"]
+                    ),
+                )
+                for task_id in dependency_task_ids
+            ),
+            evidence=tuple(
+                typed_evidence_ref(wire)
+                for wire in root["evidenceRefsWire"]
+            ),
+        )
+
+    positive_fixtures = (
+        signed_d0_object_graph_fixture(module, "TASK-D0-01"),
+        signed_d0_object_graph_fixture(module, "TASK-D0-04"),
+    )
+    expected_raw_root_fields = {
+        "schema", "id", "gate", "repository", "hostAttestation",
+        "environment", "sandboxPolicies", "tools", "command", "inputs",
+        "artifacts", "artifactSetSha256", "observations", "logs", "result",
+        "skipAuthorization",
+    }
+    for fixture in positive_fixtures:
+        objects = fixture["objects"]
+        for encoded in objects.evidenceObjectBytes:
+            decoded = module.decode_canonical_pf_jcs(encoded)
+            assert set(decoded) == expected_raw_root_fields, (
+                "graph fixture must carry complete proof-forge.evidence.v1"
+            )
+            assert decoded["schema"] == "proof-forge.evidence.v1"
+        for task_id, task_object in fixture["built"].items():
+            manifest_bytes = task_object["evidenceManifestBytes"]
+            assert task_object["handoffWire"]["channels"][3][
+                "bindingDigest"
+            ] == evidence_manifest_digest(manifest_bytes)
+            manifest = module.decode_canonical_pf_jcs(manifest_bytes)
+            assert manifest["taskId"] == task_id
+            assert manifest["evidence"] == list(
+                task_object["evidenceRefsWire"]
+            )
+
+        result = module.verifyBootstrapTaskObjects(
+            fixture["subject"],
+            objects,
+        )
+        expected = expected_projection(fixture)
+        assert type(result) is module.ObjectVerifiedV1
+        assert result == expected
+        assert type(result.taskApproval) is module.TaskApprovalRefV1
+        assert type(result.taskReceipt) is module.BootstrapTaskVerifierReceiptRefV1
+        assert all(
+            type(ref) is module.BootstrapTaskVerifierReceiptRefV1
+            for ref in result.dependencyReceipts
+        )
+        assert all(type(ref) is module.EvidenceRef for ref in result.evidence)
+
+    def wrong_manifest_binding(handoff: dict) -> None:
+        handoff["channels"][3]["bindingDigest"] = digest_text(b"\x00" * 32)
+
+    def wrong_candidate(evidence: dict) -> None:
+        evidence["repository"]["commit"] = "d" * 40
+
+    def wrong_task(evidence: dict) -> None:
+        evidence["gate"]["taskId"] = "TASK-D0-02"
+
+    def wrong_tests(evidence: dict) -> None:
+        evidence["gate"]["testIds"] = ["TST-DOC-002"]
+
+    def wrong_qualification(evidence: dict) -> None:
+        evidence["gate"]["qualification"] = "formal"
+
+    def wrong_result(evidence: dict) -> None:
+        evidence["result"] = "failed"
+        evidence["command"]["attempts"][0]["exitCode"] = 1
+
+    zero_curve_cases: list[tuple[str, object, object]] = []
+    wrong_binding_fixture = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-01",
+        handoff_mutators={"TASK-D0-01": wrong_manifest_binding},
+    )
+    zero_curve_cases.append((
+        "manifest digest is not bound by evidence-root handoff channel",
+        wrong_binding_fixture["subject"],
+        wrong_binding_fixture["objects"],
+    ))
+    cross_task_manifest = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-04",
+        manifest_source_overrides={"TASK-D0-04": "TASK-D0-03"},
+    )
+    zero_curve_cases.append((
+        "root reuses a dependency task evidence manifest",
+        cross_task_manifest["subject"],
+        cross_task_manifest["objects"],
+    ))
+
+    for label, mutator in (
+        ("raw EV candidate mismatch", wrong_candidate),
+        ("raw EV task mismatch", wrong_task),
+        ("raw EV test mismatch", wrong_tests),
+        ("raw EV formal qualification", wrong_qualification),
+        ("raw EV failed result", wrong_result),
+    ):
+        fixture = signed_d0_object_graph_fixture(
+            module,
+            "TASK-D0-01",
+            evidence_mutators={"EV-20260717-0001": mutator},
+        )
+        zero_curve_cases.append((label, fixture["subject"], fixture["objects"]))
+
+    root_fixture = positive_fixtures[0]
+    root_objects = root_fixture["objects"]
+    changed_raw = copy.deepcopy(root_fixture["evidenceWires"]["EV-20260717-0001"])
+    changed_raw["gate"]["id"] = "bootstrap-task-d0-01-changed"
+    zero_curve_cases.append((
+        "raw EV SHA-256 differs from the signed EvidenceRef",
+        root_fixture["subject"],
+        dataclasses.replace(
+            root_objects,
+            evidenceObjectBytes=(module.canonical_pf_jcs(changed_raw),),
+        ),
+    ))
+
+    full_fixture = positive_fixtures[1]
+    full_objects = full_fixture["objects"]
+    evidence_values = full_objects.evidenceObjectBytes
+    extra_wire = full_raw_evidence_wire(
+        module,
+        full_fixture["candidateWire"],
+        "TASK-D0-04",
+        D0_GRAPH_ROWS["TASK-D0-04"]["testIds"],
+        "EV-20260717-0099",
+    )
+    extra_bytes = module.canonical_pf_jcs(extra_wire)
+    same_count_substitution = tuple(sorted(
+        evidence_values[1:] + (extra_bytes,),
+        key=lambda encoded: module.decode_canonical_pf_jcs(encoded)["id"],
+    ))
+    carrier_cases = (
+        ("missing raw EV", evidence_values[1:]),
+        ("extra raw EV", evidence_values + (extra_bytes,)),
+        (
+            "reordered raw EV",
+            (evidence_values[1], evidence_values[0]) + evidence_values[2:],
+        ),
+        ("same-count raw EV substitution", same_count_substitution),
+    )
+    for label, values in carrier_cases:
+        zero_curve_cases.append((
+            label,
+            full_fixture["subject"],
+            dataclasses.replace(full_objects, evidenceObjectBytes=values),
+        ))
+
+    original_verify_ed25519 = module.verify_ed25519
+    curve_calls = 0
+
+    def count_curve_calls(*args: object, **kwargs: object) -> bool:
+        nonlocal curve_calls
+        curve_calls += 1
+        return original_verify_ed25519(*args, **kwargs)
+
+    module.verify_ed25519 = count_curve_calls
+    try:
+        for label, subject, objects in zero_curve_cases:
+            curve_calls = 0
+            rejected = module.verifyBootstrapTaskObjects(subject, objects)
+            assert isinstance(rejected, module.Rejected), label
+            assert rejected.code == BOOTSTRAP_REJECTION, label
+            assert curve_calls == 0, (
+                f"{label} must reject before every signature curve"
+            )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+
+
 def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -> None:
     evidence_id = "EV-20260716-9999"
     row = module.BootstrapTaskRowSubjectV1(
@@ -8414,6 +8878,7 @@ def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -
         "requiredTestSetBytes": b"{}",
         "taskApprovalBytes": b"{}",
         "taskReceiptBytes": b"{}",
+        "evidenceManifestBytes": b"{}",
         "dependencyObjects": (),
         "evidenceObjectBytes": (b"{}",),
         "reviewReports": (review_report_object(module, b"review"),),
@@ -8478,6 +8943,7 @@ def main() -> int:
         test_phase4_graph_authority_join(module)
         test_dependency_bundle_graph(module)
         test_review_report_preflight(module)
+        test_evidence_manifest_raw_and_object_projection(module)
         test_subject_and_missing_root_bytes(module, candidate)
     except (AssertionError, AttributeError, OSError, ImportError, SyntaxError) as error:
         print(f"bootstrap-task-objects-self-test: FAIL: {error}", file=sys.stderr)

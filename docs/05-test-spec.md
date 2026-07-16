@@ -435,6 +435,28 @@ substitution；只比较 ID、digest、count、root approval、direct dependency
 弱实现必须被 mutation 杀死。D0-04 positive 仍须区分五个 transitive bundles 与 root row 的四个 direct
 dependencies，D0-07 不得进入任何 subject/approval/bundle。
 
+evidence-root 下一切片必须先补齐 per-task manifest 载体：root 与每个 dependency bundle 分别携带
+exact canonical `BootstrapEvidenceRootManifestV1` bytes，其 taskId/candidate/EvidenceRef array 与同项
+TaskApproval exact，domain digest 与该项 handoff `evidence-root.bindingDigest` exact。matrix 必须覆盖
+root/每个 dependency 的 manifest missing/empty/noncanonical/schema/task/candidate/evidence/digest、跨 task
+替换、same-count substitution，以及把全 closure union manifest 复用给单 task；所有 mutation 都须重签
+受影响 approval、receipt 与下游 completion，避免 stale signature 假覆盖。
+
+raw EV positive 必须使用完整 canonical `proof-forge.evidence.v1`，不得继续以 `{id}` fixture 代替。
+同一个 pure schema core 必须同时被 gate-evidence CLI 与 bootstrap consumer 使用，并覆盖完整 root/nested
+closed fields、canonical bytes、artifact-set digest 与全部 v1 cross-field invariants。bootstrap graph 还须
+覆盖 raw SHA-256（无额外 domain）、ID、candidate commit/tree/archive、gate task/test、
+`qualification="development"`、`result="passed"`、per-task test union，以及 carrier 对全部 manifest 与
+approval EvidenceRef union 的 missing/extra/reorder/duplicate/same-count substitution。dependency EV 即使
+不进入 root projection也必须完整验证。
+
+evidence carrier count 固定覆盖 `1/24576/24577`，单项 bytes 覆盖
+`0/1/4194304/4194305`，aggregate 覆盖 `268435456/268435457`；coarse/type/length/aggregate failure 在
+entry decode、artifact-set/raw-ref hash 与 curve 前拒绝。report intrinsic 必须先于 evidence intrinsic；
+manifest/EV 任一 schema、semantic、digest 或 exact-set failure 时 RequiredSet、TaskApproval、receipt 的
+curve/finalizer count 均为零。positive 最终返回 exact typed `ObjectVerifiedV1`：dependency receipts 按
+taskId 升序，evidence 只投影 root approval refs；默认 docs checker 仍必须稳定 bootstrap-unverified。
+
 dependency 对象还须覆盖 `0/5/6` bundle count、bundle 顺序/重复/错配，以及每项 run-specific handoff 被 root 或
 其他 dependency handoff 替换、重签后 handoff ContentRef 或 `(runId, nonce)` 跨 task 复用；D0-04 positive 的 raw bundle exact set 是五个 transitive dependency，
 但 root approval/receipt 的 `dependencyCompletions` exact set 只能是四个 direct dependency；object-set
