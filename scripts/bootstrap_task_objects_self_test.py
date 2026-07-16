@@ -873,6 +873,20 @@ def signed_required_test_set(
     )
 
 
+def resign_required_test_set_wire(
+    module: ModuleType,
+    wire: dict,
+    signer_key_ids: tuple[str, ...] = ("key-quality", "key-security"),
+) -> dict:
+    """Re-sign a structural mutation so stale signatures cannot explain rejection."""
+    statement = copy.deepcopy(wire)
+    statement.pop("signatures", None)
+    resigned, _, _ = sign_required_test_set_statement(
+        module, statement, signer_key_ids
+    )
+    return resigned
+
+
 def test_required_test_set(module: ModuleType) -> None:
     policy_wire = valid_bootstrap_authority_policy()
     policy_bytes = module.canonical_pf_jcs(policy_wire)
@@ -903,28 +917,41 @@ def test_required_test_set(module: ModuleType) -> None:
         "1.0.0",
         module.Digest("sha256", expected_content_digest),
     )
-    assert isinstance(parsed, module.RequiredTestSetV1)
-    assert parsed.schema == "proof-forge.required-test-set.v1"
-    assert isinstance(parsed.phase5Document, module.NormativeDocumentRefV1)
-    assert isinstance(parsed.phase5Document.contentDigest, module.Digest)
-    assert parsed.phase5Document.id == "PHASE-5"
-    assert parsed.phase5Document.status == "accepted"
-    assert parsed.phase5Document.approvers == (
-        "principal-quality", "principal-security",
+    expected_phase5_digest = hashlib.sha256(
+        b"pf.normative-document.v1\x00PHASE-5\x00"
+        b"---\nid: PHASE-5\nstatus: accepted\n---\n"
+        b"# Phase 5 acceptance fixture\n"
+    ).digest()
+    expected_phase5_document = module.NormativeDocumentRefV1(
+        "PHASE-5",
+        module.Digest("sha256", expected_phase5_digest),
+        "accepted",
+        "a" * 40,
+        "https://review.example/phase-5",
+        "2026-07-16",
+        ("principal-quality", "principal-security"),
     )
-    assert parsed.authorityPolicy == policy_ref
-    assert parsed.requiredTestIds == (
-        "TST-BOOTSTRAP-001", "TST-DOC-001", "TST-EVIDENCE-001",
+    expected_signatures = tuple(
+        module.ApprovalSignatureV1(
+            key_id,
+            "ed25519",
+            ed25519_sign_from_rfc_seed(
+                RFC_8032_SEEDS_BY_KEY_ID[key_id], signature_message
+            )[1],
+        )
+        for key_id in ("key-quality", "key-security")
     )
-    assert all(
-        isinstance(signature, module.ApprovalSignatureV1)
-        and signature.algorithm == "ed25519"
-        and isinstance(signature.signature, bytes)
-        and len(signature.signature) == 64
-        for signature in parsed.signatures
+    expected_required_set = module.RequiredTestSetV1(
+        "proof-forge.required-test-set.v1",
+        "phase-5-required-tests",
+        "1.0.0",
+        expected_phase5_document,
+        policy_ref,
+        ("TST-BOOTSTRAP-001", "TST-DOC-001", "TST-EVIDENCE-001"),
+        expected_signatures,
     )
-    assert tuple(signature.keyId for signature in parsed.signatures) == (
-        "key-quality", "key-security",
+    assert parsed == expected_required_set, (
+        "positive parse must preserve every scalar, nested record, and raw byte field"
     )
     assert parsed_ref == expected_ref
     assert statement_digest == hashlib.sha256(
@@ -1047,11 +1074,20 @@ def test_required_test_set(module: ModuleType) -> None:
     malformed_preflight_wire = copy.deepcopy(wire)
     malformed_preflight_wire["requiredTestIds"][0] = "TST-*"
     malformed_preflight_wire["requiredTestIds"].sort()
+    malformed_preflight_wire = resign_required_test_set_wire(
+        module, malformed_preflight_wire
+    )
     reordered_ids_preflight_wire = copy.deepcopy(wire)
     reordered_ids_preflight_wire["requiredTestIds"].reverse()
+    reordered_ids_preflight_wire = resign_required_test_set_wire(
+        module, reordered_ids_preflight_wire
+    )
     duplicate_id_preflight_wire = copy.deepcopy(wire)
     duplicate_id_preflight_wire["requiredTestIds"][1] = (
         duplicate_id_preflight_wire["requiredTestIds"][0]
+    )
+    duplicate_id_preflight_wire = resign_required_test_set_wire(
+        module, duplicate_id_preflight_wire
     )
     unknown_signature_field_preflight_wire = copy.deepcopy(wire)
     unknown_signature_field_preflight_wire["signatures"][0]["futureField"] = True
@@ -1113,6 +1149,7 @@ def test_required_test_set(module: ModuleType) -> None:
         module.verify_ed25519 = original_verify_ed25519
 
     mutations = []
+    signature_mutations = []
 
     unknown_root = copy.deepcopy(wire)
     unknown_root["futureField"] = True
@@ -1140,7 +1177,7 @@ def test_required_test_set(module: ModuleType) -> None:
 
     unknown_signature = copy.deepcopy(wire)
     unknown_signature["signatures"][0]["futureField"] = True
-    mutations.append(("unknown signature field", unknown_signature))
+    signature_mutations.append(("unknown signature field", unknown_signature))
 
     empty_ids = copy.deepcopy(wire)
     empty_ids["requiredTestIds"] = []
@@ -1169,21 +1206,21 @@ def test_required_test_set(module: ModuleType) -> None:
 
     missing_signatures = copy.deepcopy(wire)
     del missing_signatures["signatures"]
-    mutations.append(("missing signatures field", missing_signatures))
+    signature_mutations.append(("missing signatures field", missing_signatures))
 
     empty_signatures = copy.deepcopy(wire)
     empty_signatures["signatures"] = []
-    mutations.append(("empty signatures", empty_signatures))
+    signature_mutations.append(("empty signatures", empty_signatures))
 
     reordered_signatures = copy.deepcopy(wire)
     reordered_signatures["signatures"].reverse()
-    mutations.append(("reordered signatures", reordered_signatures))
+    signature_mutations.append(("reordered signatures", reordered_signatures))
 
     duplicate_signatures = copy.deepcopy(wire)
     duplicate_signatures["signatures"].insert(
         1, copy.deepcopy(duplicate_signatures["signatures"][0])
     )
-    mutations.append(("duplicate signature keyId", duplicate_signatures))
+    signature_mutations.append(("duplicate signature keyId", duplicate_signatures))
 
     wrong_policy_ref = copy.deepcopy(wire)
     wrong_policy_ref["authorityPolicy"]["digest"] = digest_text(bytes(32))
@@ -1247,41 +1284,70 @@ def test_required_test_set(module: ModuleType) -> None:
     invalid_approver["phase5Document"]["approvers"][0] = "-principal"
     mutations.append(("invalid Phase-5 approver safe-id", invalid_approver))
 
-    tampered_document = copy.deepcopy(wire)
-    tampered_document["phase5Document"]["contentDigest"] = digest_text(
+    alternate_document = copy.deepcopy(wire)
+    alternate_document["phase5Document"]["contentDigest"] = digest_text(
         bytes.fromhex("7f" * 32)
     )
-    mutations.append(("tampered Phase-5 content", tampered_document))
+    alternate_document = resign_required_test_set_wire(
+        module, alternate_document
+    )
+    alternate_document_parsed, _ = module.parse_required_test_set(
+        module.canonical_pf_jcs(alternate_document), policy_bytes
+    )
+    assert alternate_document_parsed.phase5Document.contentDigest.bytes == (
+        bytes.fromhex("7f" * 32)
+    ), (
+        "RequiredTestSet parser is an intermediate object consumer and must not "
+        "join the normative document snapshot"
+    )
 
-    tampered_ids = copy.deepcopy(wire)
-    tampered_ids["requiredTestIds"].append("TST-ISO-002")
-    tampered_ids["requiredTestIds"].sort()
-    mutations.append(("tampered required ID content", tampered_ids))
+    extended_ids = copy.deepcopy(wire)
+    extended_ids["requiredTestIds"].append("TST-ISO-002")
+    extended_ids["requiredTestIds"].sort()
+    extended_ids = resign_required_test_set_wire(module, extended_ids)
+    extended_ids_parsed, _ = module.parse_required_test_set(
+        module.canonical_pf_jcs(extended_ids), policy_bytes
+    )
+    assert extended_ids_parsed.requiredTestIds == tuple(
+        extended_ids["requiredTestIds"]
+    ), (
+        "RequiredTestSet parser must preserve signed IDs without performing the "
+        "later ledger denominator join"
+    )
 
     wrong_algorithm = copy.deepcopy(wire)
     wrong_algorithm["signatures"][0]["algorithm"] = "ed25519ph"
-    mutations.append(("wrong signature algorithm", wrong_algorithm))
+    signature_mutations.append(("wrong signature algorithm", wrong_algorithm))
 
     wrong_key = copy.deepcopy(wire)
     wrong_key["signatures"][0]["signature"] = wire["signatures"][1]["signature"]
-    mutations.append(("signature under wrong key", wrong_key))
+    signature_mutations.append(("signature under wrong key", wrong_key))
 
     bad_signature = copy.deepcopy(wire)
     first_signature = bytes.fromhex(bad_signature["signatures"][0]["signature"])
     bad_signature["signatures"][0]["signature"] = (
         bytes([first_signature[0] ^ 1]) + first_signature[1:]
     ).hex()
-    mutations.append(("tampered signature", bad_signature))
+    signature_mutations.append(("tampered signature", bad_signature))
 
     invalid_signature_scalar = copy.deepcopy(wire)
     invalid_signature_scalar["signatures"][0]["signature"] = "00" * 63
-    mutations.append(("invalid signature scalar", invalid_signature_scalar))
+    signature_mutations.append(("invalid signature scalar", invalid_signature_scalar))
 
     unknown_key = copy.deepcopy(wire)
     unknown_key["signatures"][0]["keyId"] = "key-unknown"
-    mutations.append(("unknown signature keyId", unknown_key))
+    signature_mutations.append(("unknown signature keyId", unknown_key))
 
     for label, mutation in mutations:
+        resigned_mutation = resign_required_test_set_wire(module, mutation)
+        assert_rejected(
+            module,
+            lambda resigned_mutation=resigned_mutation: module.parse_required_test_set(
+                module.canonical_pf_jcs(resigned_mutation), policy_bytes
+            ),
+        )
+
+    for label, mutation in signature_mutations:
         assert_rejected(
             module,
             lambda mutation=mutation: module.parse_required_test_set(
@@ -1311,13 +1377,53 @@ def test_required_test_set(module: ModuleType) -> None:
     same_principal_wire, _, _ = signed_required_test_set(
         module, same_principal_policy_ref
     )
-    assert_rejected(
+
+    role_insufficient_wire, _, _ = signed_required_test_set(
         module,
-        lambda: module.parse_required_test_set(
-            module.canonical_pf_jcs(same_principal_wire),
-            same_principal_policy_bytes,
-        ),
+        policy_ref,
+        signer_key_ids=("key-architecture", "key-quality"),
     )
+    original_verify_ed25519 = module.verify_ed25519
+    rule_failure_curve_calls = 0
+
+    def counted_rule_failure_verify_ed25519(
+        public_key: bytes, message: bytes, signature: bytes
+    ) -> bool:
+        del public_key, message, signature
+        nonlocal rule_failure_curve_calls
+        rule_failure_curve_calls += 1
+        return True
+
+    module.verify_ed25519 = counted_rule_failure_verify_ed25519
+    try:
+        for label, rejected_wire, rejected_policy_bytes in (
+            (
+                "same-principal signatures below distinct quorum",
+                same_principal_wire,
+                same_principal_policy_bytes,
+            ),
+            (
+                "architecture+quality signatures missing security role",
+                role_insufficient_wire,
+                policy_bytes,
+            ),
+        ):
+            rule_failure_curve_calls = 0
+            assert_rejected(
+                module,
+                lambda rejected_wire=rejected_wire,
+                rejected_policy_bytes=rejected_policy_bytes: (
+                    module.parse_required_test_set(
+                        module.canonical_pf_jcs(rejected_wire),
+                        rejected_policy_bytes,
+                    )
+                ),
+            )
+            assert rule_failure_curve_calls == 0, (
+                f"{label} must reject before RequiredTestSet curve verification"
+            )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
 
     unsigned_rotation_role_wire, _, _ = signed_required_test_set(
         module,
@@ -1329,18 +1435,6 @@ def test_required_test_set(module: ModuleType) -> None:
         lambda: module.parse_required_test_set(
             module.canonical_pf_jcs(unsigned_rotation_role_wire),
             same_principal_policy_bytes,
-        ),
-    )
-
-    role_insufficient_wire, _, _ = signed_required_test_set(
-        module,
-        policy_ref,
-        signer_key_ids=("key-architecture", "key-quality"),
-    )
-    assert_rejected(
-        module,
-        lambda: module.parse_required_test_set(
-            module.canonical_pf_jcs(role_insufficient_wire), policy_bytes
         ),
     )
 
