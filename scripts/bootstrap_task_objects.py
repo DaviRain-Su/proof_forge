@@ -28,6 +28,8 @@ MAX_DOCUMENT_LINE_BYTES = 65_536
 MAX_DOCUMENT_LINES = 100_000
 MAX_BOOTSTRAP_EVIDENCE_OBJECTS = 6 * 4096
 MAX_BOOTSTRAP_REVIEW_REPORTS = 6 * 256
+MAX_REVIEW_REPORT_BYTES = 1024 * 1024
+MAX_BOOTSTRAP_REVIEW_REPORT_TOTAL_BYTES = 16 * 1024 * 1024
 
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 GIT_OBJECT_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
@@ -382,6 +384,12 @@ class DependencyTaskObjectV1:
 
 
 @dataclass(frozen=True)
+class ReviewReportObjectV1:
+    digest: Digest
+    bytes: bytes
+
+
+@dataclass(frozen=True)
 class BootstrapTaskObjectSetV1:
     authorityPolicyBytes: bytes
     stage0HandoffBytes: bytes
@@ -390,7 +398,7 @@ class BootstrapTaskObjectSetV1:
     taskReceiptBytes: bytes
     dependencyObjects: Tuple[DependencyTaskObjectV1, ...]
     evidenceObjectBytes: Tuple[bytes, ...]
-    reviewReports: Tuple[object, ...]
+    reviewReports: Tuple[ReviewReportObjectV1, ...]
 
 
 @dataclass(frozen=True)
@@ -2613,11 +2621,58 @@ def _validate_object_shell(objects: BootstrapTaskObjectSetV1) -> None:
         decode_canonical_pf_jcs(encoded)
 
 
+def _preflight_review_reports(values: object) -> Tuple[Digest, ...]:
+    """Validate exact raw review-report carriers before any report hash."""
+    if (type(values) is not tuple
+            or not 1 <= len(values) <= MAX_BOOTSTRAP_REVIEW_REPORTS):
+        _reject("reviewReports count must be 1..1536")
+    assert isinstance(values, tuple)
+
+    reports = []
+    digest_bytes = []
+    total_bytes = 0
+    for index, report in enumerate(values):
+        where = f"reviewReports[{index}]"
+        if type(report) is not ReviewReportObjectV1:
+            _reject(f"{where} must be exact ReviewReportObjectV1")
+        digest = report.digest
+        if type(digest) is not Digest:
+            _reject(f"{where}.digest must be exact Digest")
+        if type(digest.algorithm) is not str or digest.algorithm != "sha256":
+            _reject(f"{where}.digest algorithm must be exact sha256")
+        if type(digest.bytes) is not bytes or len(digest.bytes) != 32:
+            _reject(f"{where}.digest must contain exact 32 bytes")
+        raw = report.bytes
+        if (type(raw) is not bytes
+                or not 1 <= len(raw) <= MAX_REVIEW_REPORT_BYTES):
+            _reject(f"{where}.bytes length must be 1..1048576")
+        total_bytes += len(raw)
+        if total_bytes > MAX_BOOTSTRAP_REVIEW_REPORT_TOTAL_BYTES:
+            _reject("reviewReports aggregate bytes exceed 16777216")
+        reports.append(report)
+        digest_bytes.append(digest.bytes)
+
+    digest_order = tuple(digest_bytes)
+    if digest_order != tuple(sorted(digest_order)):
+        _reject("reviewReports must be ascending by digest bytes")
+    if len(set(digest_order)) != len(digest_order):
+        _reject("reviewReports digest bytes must be unique")
+
+    for index, report in enumerate(reports):
+        expected = hashlib.sha256(
+            b"pf.independent-review-report.v1\x00" + report.bytes
+        ).digest()
+        if report.digest.bytes != expected:
+            _reject(f"reviewReports[{index}] digest does not match exact bytes")
+    return tuple(report.digest for report in reports)
+
+
 def _parse_bootstrap_task_object_graph(
     subject: BootstrapTaskSubjectV1,
     objects: BootstrapTaskObjectSetV1,
 ) -> _BootstrapTaskObjectGraphV1:
     _validate_object_shell(objects)
+    report_digests = _preflight_review_reports(objects.reviewReports)
     phase5_snapshot = next(
         (
             document for document in subject.documents
@@ -2717,6 +2772,19 @@ def _parse_bootstrap_task_object_graph(
         )
         for task_object in preflights
     )
+    referenced_reports = {
+        review.reportDigest.bytes: review.reportDigest
+        for approval, _ in finalized_approvals
+        for review in approval.independentReviews
+    }
+    expected_report_digests = tuple(
+        referenced_reports[digest_bytes]
+        for digest_bytes in sorted(referenced_reports)
+    )
+    if report_digests != expected_report_digests:
+        _reject(
+            "reviewReports do not match the verified TaskApproval digest union"
+        )
     for task_object, (_, approval_ref) in zip(
         preflights,
         finalized_approvals,
@@ -2773,10 +2841,11 @@ def verifyBootstrapTaskObjects(
 ) -> Union[ObjectVerifiedV1, Rejected]:
     """Validate the frozen shell, retaining fail-closed object semantics.
 
-    The signed root/dependency approval, receipt, RequiredSet, policy, and
-    run-specific handoff graph is verified here.  PHASE-4 raw content,
-    evidence objects, review reports, and protected provenance remain open, so
-    the function can only return the stable rejection, never ObjectVerifiedV1.
+    The signed root/dependency approval, receipt, RequiredSet, policy,
+    run-specific handoff graph, and exact raw review-report digest union are
+    verified here.  PHASE-4 raw content, evidence objects, reviewer provenance,
+    and protected provenance remain open, so the function can only return the
+    stable rejection, never ObjectVerifiedV1.
     """
     try:
         _validate_subject(subject)
