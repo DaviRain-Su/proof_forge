@@ -1183,6 +1183,73 @@ def assert_identity_rejection(
         raise AssertionError(f"{label} touched its output namespace")
 
 
+def assert_snapshot_rejection(
+    module: object,
+    temporary_root: Path,
+    source_root: Path,
+    document: dict[str, object],
+    catalog_path: str,
+    catalog_sha256: str,
+    catalog_digest: str,
+    run_binding_sha256: str,
+    *,
+    label: str,
+    expected_code: str,
+    mutator: object,
+) -> None:
+    """Run one post-catalog snapshot/evaluator negative against an isolated bundle."""
+    case_root = temporary_root / f"snapshot-negative-{label}"
+    shutil.copytree(source_root, case_root, copy_function=shutil.copy2)
+    case_document = copy.deepcopy(document)
+    if not callable(mutator):
+        raise AssertionError("snapshot mutator is not callable")
+    mutator(case_root, case_document)
+    module.validate_evidence(case_document)
+    replace_secure(
+        case_root / "development-evidence.json",
+        module.canonical_bytes(case_document),
+    )
+    output_root = temporary_root / f"snapshot-negative-output-{label}"
+    result = invoke(
+        [
+            "finalize-development",
+            "--catalog",
+            catalog_path,
+            "--catalog-sha256",
+            catalog_sha256,
+            "--catalog-digest",
+            catalog_digest,
+            "--run-binding-sha256",
+            run_binding_sha256,
+            "--evidence",
+            "development-evidence.json",
+            "--bundle-root",
+            os.fspath(case_root),
+            "--output",
+            os.fspath(
+                output_root
+                / "finalized-development"
+                / case_document["gateCatalog"]["id"]
+                / case_document["gate"]["id"]
+                / "EVF-20260715-9100.json"
+            ),
+        ]
+    )
+    stderr_lines = result.stderr.splitlines()
+    if (
+        result.returncode != 2
+        or result.stdout
+        or len(stderr_lines) != 1
+        or not stderr_lines[0].startswith(expected_code.encode("ascii") + b": ")
+    ):
+        raise AssertionError(
+            f"snapshot negative {label} did not fail at {expected_code}:\n"
+            + result.stderr.decode("utf-8", errors="replace")
+        )
+    if output_root.exists():
+        raise AssertionError(f"snapshot negative {label} touched its output namespace")
+
+
 def main() -> int:
     if not sys.flags.isolated or not sys.flags.no_site:
         raise AssertionError("invoke this test with isolated Python using -I -S")
@@ -2030,6 +2097,292 @@ def main() -> int:
             file_bytes=retained_core_bytes,
             claim_bytes=retained_core_bytes,
         )
+
+        def input_claim(case_document: dict[str, object], path: str) -> dict[str, object]:
+            matches = [
+                claim
+                for claim in case_document["inputs"]
+                if claim["path"] == path
+            ]
+            if len(matches) != 1:
+                raise AssertionError(f"expected one input claim for {path!r}")
+            return matches[0]
+
+        def replace_claimed_input(
+            case_root: Path,
+            case_document: dict[str, object],
+            path: str,
+            body: bytes,
+        ) -> None:
+            replace_secure(case_root / path, body)
+            claim = input_claim(case_document, path)
+            claim["sha256"] = sha256(body)
+            claim["size"] = len(body)
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="policies-orphan",
+            expected_code="PF-EVIDENCE-BUNDLE",
+            mutator=lambda case_root, _case_document: write_secure(
+                case_root / "policies" / ".unclaimed-orphan",
+                b"orphan\n",
+            ),
+        )
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="contexts-orphan",
+            expected_code="PF-EVIDENCE-BUNDLE",
+            mutator=lambda case_root, _case_document: write_secure(
+                case_root / "contexts" / "unexpected.json",
+                b"{}",
+            ),
+        )
+
+        def mutate_host_observation(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            observation_path = "host/observation.json"
+            raw = (case_root / observation_path).read_bytes()
+            if not raw.endswith(b"\n"):
+                raise AssertionError("host observation fixture lost its exact LF")
+            observation = module.decode_json(raw[:-1])
+            observation["platform"]["arch"] = "x86_64"
+            body = module.canonical_bytes(observation) + b"\n"
+            replace_claimed_input(case_root, case_document, observation_path, body)
+            case_document["hostAttestation"]["observationSha256"] = sha256(body)
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="host-observation-semantic-substitution",
+            expected_code="PF-EVIDENCE-HOST-BINDING",
+            mutator=mutate_host_observation,
+        )
+
+        def mutate_runtime_context(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            context_path = "contexts/sandbox-evm-runtime-runtime-success.json"
+            context = module.decode_json((case_root / context_path).read_bytes())
+            binding = next(
+                item for item in context["bindings"] if item["name"] == "runtime-port"
+            )
+            binding["value"] = 18546
+            replace_claimed_input(
+                case_root,
+                case_document,
+                context_path,
+                module.canonical_bytes(context),
+            )
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="invocation-context-substitution",
+            expected_code="PF-EVIDENCE-RECEIPT-BINDING",
+            mutator=mutate_runtime_context,
+        )
+
+        def mutate_rendered_policy(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            policy_path = "policies/evm-runtime.sb"
+            body = (case_root / policy_path).read_bytes() + b"; substituted\n"
+            replace_claimed_input(case_root, case_document, policy_path, body)
+            policy = next(
+                item
+                for item in case_document["sandboxPolicies"]
+                if item["renderedPolicyInput"]["path"] == policy_path
+            )
+            policy["renderedSha256"] = sha256(body)
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="rendered-policy-substitution",
+            expected_code="PF-EVIDENCE-POLICY-BINDING",
+            mutator=mutate_rendered_policy,
+        )
+
+        def mutate_receipt_terminal(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            receipt_path = "policies/sandbox-core-core-success.receipt.json"
+            receipt = module.decode_json((case_root / receipt_path).read_bytes())
+            receipt["terminal"]["exitCode"] = 1
+            replace_claimed_input(
+                case_root,
+                case_document,
+                receipt_path,
+                module.canonical_bytes(receipt),
+            )
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="receipt-terminal-substitution",
+            expected_code="PF-EVIDENCE-RECEIPT-BINDING",
+            mutator=mutate_receipt_terminal,
+        )
+
+        def exceed_semantic_file_limit(
+            _case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            claim = input_claim(case_document, "host/observation.json")
+            claim["size"] = module.MAX_INPUT_BYTES + 1
+            claim["sha256"] = "0" * 64
+            case_document["hostAttestation"]["observationSha256"] = "0" * 64
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="semantic-file-limit",
+            expected_code="PF-EVIDENCE-BUNDLE-LIMIT",
+            mutator=exceed_semantic_file_limit,
+        )
+
+        def exceed_semantic_total_limit(
+            _case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            semantic_roles = {
+                "clean-room-run-context",
+                "sandbox-invocation-context",
+                "sandbox-invocation-receipt",
+                "sandbox-rendered-policy",
+            }
+            selected = [
+                claim
+                for claim in case_document["inputs"]
+                if claim["role"] in semantic_roles
+            ] + list(case_document["logs"])
+            if len(selected) != 17:
+                raise AssertionError("semantic total fixture must select exactly 17 members")
+            for index, claim in enumerate(selected):
+                claim["size"] = module.MAX_INPUT_BYTES
+                claim["sha256"] = f"{index + 1:064x}"
+            rendered = {
+                policy["renderedPolicyInput"]["path"]: policy
+                for policy in case_document["sandboxPolicies"]
+            }
+            for claim in selected:
+                policy = rendered.get(claim["path"])
+                if policy is not None:
+                    policy["renderedSha256"] = claim["sha256"]
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="semantic-total-limit",
+            expected_code="PF-EVIDENCE-BUNDLE-LIMIT",
+            mutator=exceed_semantic_total_limit,
+        )
+
+        def exceed_bundle_total_limit(
+            _case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            for index in range(4):
+                case_document["inputs"].append(
+                    {
+                        "path": f"overflow-total/{index:04d}.bin",
+                        "role": f"overflow-total-{index:04d}",
+                        "sha256": f"{index + 1:064x}",
+                        "size": module.MAX_BUNDLE_FILE_BYTES,
+                    }
+                )
+            case_document["inputs"].sort(key=lambda claim: (claim["role"], claim["path"]))
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="bundle-total-limit",
+            expected_code="PF-EVIDENCE-BUNDLE-LIMIT",
+            mutator=exceed_bundle_total_limit,
+        )
+
+        def exceed_bundle_file_count(
+            _case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            for index in range(module.MAX_BUNDLE_FILES + 1):
+                case_document["inputs"].append(
+                    {
+                        "path": f"overflow-count/{index:04d}.bin",
+                        "role": f"overflow-count-{index:04d}",
+                        "sha256": sha256(b""),
+                        "size": 0,
+                    }
+                )
+            case_document["inputs"].sort(key=lambda claim: (claim["role"], claim["path"]))
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="bundle-file-count",
+            expected_code="PF-EVIDENCE-BUNDLE-LIMIT",
+            mutator=exceed_bundle_file_count,
+        )
+
         finalized_id = "EVF-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d") + "-0001"
         output_root = temporary_root / "trusted-output"
         output_parent = (
