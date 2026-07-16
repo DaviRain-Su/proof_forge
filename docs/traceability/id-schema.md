@@ -29,6 +29,15 @@ normative: true
 ID 分配后永不复用；删除对象标记 retired，保留 tombstone/successor。文档重命名不改 ID。
 一个文件只有一个 primary ID，但可定义多条 FR/INV/TST。ID 区分大小写并只用 ASCII。
 
-引用语法在 Markdown 使用反引号，JSON 使用字符串；docs-check 扫描定义与引用，拒绝
-重复定义、未知引用、循环 supersession 和 done→missing EV。研究 SRC/CLM registry
-由 JSON 定义，正文只能引用。
+机器校验表格中的 definition/reference cell 必须使用一个精确 ID，或使用逗号分隔的精确 ID
+列表；禁止 `001..005`、`001/002`、`*`、省略 prefix 或 Milestone shorthand。显示性 prose、
+code fence 与示例不作为机器引用来源，避免把解释文字误判成 trace edge。
+
+docs-check 只从以下权威位置收集定义：Markdown primary frontmatter；PRD 的 GOAL/FR/NFR/OOS；
+Architecture 的 INV；Task Breakdown 的 TASK；Test Spec catalog 的 TST；Evidence Ledger 的 EV；
+source/claim registry JSON 的 SRC/CLM。ADR、SPEC 与 MOD 由各自 primary frontmatter 定义。
+requirements matrix 和 task test/evidence columns 只允许引用已定义 ID。
+
+研究 SRC/CLM registry 由 JSON 定义；每个 CLM 必须至少引用一个已存在 SRC。staged claim/source
+允许暂未被正文消费，不视为 orphan。docs-check 拒绝定义重复、结构化引用未知、循环
+supersession 和 done→missing TST/passed EV。

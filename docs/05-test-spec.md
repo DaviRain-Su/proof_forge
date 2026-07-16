@@ -107,6 +107,20 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-EVIDENCE-001 | restricted PF JCS/schema、exact-local-port 条件 port、artifact-set domain hash、safe bundle read、atomic layout、gate catalog、revocation/freshness/private scan |
 | TST-REL-001 | install/upgrade/build/rollback drill |
 
+### 文档控制面验收
+
+`TST-DOC-001` 使用独立临时 synthetic corpus，不复制当前 `docs/`，并对每个 case 只引入一个
+mutation。baseline 与“pending task 无 EV”必须通过；以下 mutation 必须以稳定 `PF-DOC-*`
+失败：required file 缺失、frontmatter 缺失/重复/非法字段、非法 lifecycle status、accepted
+缺 approval metadata 或含 TODO、superseded 缺 successor/形成环、document ID/JSON key/结构化
+ID 重复、broken/escaping local link、unknown/empty CLM source、GOAL/FR/NFR orphan、trace 任一
+ADR/INV、SPEC/MOD、TASK、TST 轴缺失或引用未知、done task 缺 TST/EV 或 EV 非 passed、同时两个
+`in_progress` task。
+
+校验顺序固定为 root/required → JSON/frontmatter → status/link/supersession → definition/reference →
+claim source → requirement trace → task/evidence；同阶段按 repo-relative path/line/ID 排序。
+诊断测试固定 code、相对路径与 offending ID，不固定可读 detail 的完整英文句子。
+
 ### Source Syntax resource preflight 首个验收切片
 
 - `TST-SRC-002` unit：显式构造 root-inclusive linear Syntax 256/257 与 wide Syntax

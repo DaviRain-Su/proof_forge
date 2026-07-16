@@ -43,7 +43,14 @@ verified claim → synthesis。`proposed` 文档不能覆盖已接受决策。
 
 ## 接受与废弃
 
-- 接受记录必须包含 approver、日期、评审 commit 和已关闭意见。
+- 所有 Markdown frontmatter 必须且只能包含 `id`、`title`、`status`、`owner`、`updated`、
+  `normative` 以及下述条件字段；key 不得重复，`updated` 使用 `YYYY-MM-DD`，`normative` 只能是
+  `true|false`。
+- `accepted` 必须额外包含非空 `approvers`、`approvedAt`、40 位小写十六进制
+  `reviewCommit`、`https://` `reviewLink` 与 `openFindings: none`。这些字段是批准记录的机器入口；
+  角色数量与权限仍按 [`governance/authority.md`](governance/authority.md) 人工/评审校验。
+- `superseded` 必须额外包含精确 primary document ID 的 `successor`；successor 必须存在且
+  supersession graph 无环。其他状态不得携带 accepted/superseded 条件字段。
 - 修改 accepted 行为必须先增加 ADR；破坏性变化还需 migration 和版本提升。
 - supersede 时旧文件只加状态横幅与 successor，不改写历史正文。
 - 文档检查必须拒绝重复 ID、死链接、accepted TODO、无来源事实、无 successor 的

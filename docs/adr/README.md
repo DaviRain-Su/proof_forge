@@ -12,7 +12,10 @@ normative: true
 状态：`proposed`
 更新日期：2026-07-15
 
-ADR 是 V2 架构决定的最高规范性记录。状态使用 `proposed | accepted | rejected | superseded`；修改 accepted 决定必须新增 ADR，并在旧 ADR 中写明 `supersededBy`，不得静默改写历史。
+ADR 是 V2 架构决定的最高规范性记录。frontmatter 生命周期统一使用
+`draft | proposed | in_review | accepted | superseded | archived`；未采纳的提案使用 `archived`
+并在正文记录 decision=`rejected`，不得发明独立 document status。修改 accepted 决定必须新增
+ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史。
 
 | ID | 决定 | 状态 |
 |---|---|---|

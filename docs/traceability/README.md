@@ -20,10 +20,14 @@ GOAL → FR/NFR → CLM/ADR/INV → SPEC/CAP → TASK → TST → EV → RELEASE
 - [证据 schema](evidence-schema.md)
 - [alpha evidence ledger](evidence-ledger.md)
 
-`planned` 链表示规格已定义但尚无执行证据；只有 EV 经 gate 校验并由 release report 引用后
-才是 closed。任何 accepted FR/NFR 必须至少关联一个 SPEC、TASK、TST；任何 implemented
-行为必须有 EV。覆盖率按唯一 ID 计算，不以文档行数计算。
+`specified` 链表示规格已定义但尚无执行证据；只有 EV 经 gate 校验并由 release report 引用后
+才是 closed。为避免 proposed 阶段的 checker 退化为 vacuous pass，所有 active normative
+（`draft|proposed|in_review|accepted`）GOAL/FR/NFR 都必须在 matrix 中拥有完整
+GOAL → FR/NFR → ADR/INV → SPEC/MOD → TASK → TST forward chain。OOS 是显式非目标，不进入
+implementation/evidence chain。
 
-CI 的 docs-check 必须验证 ID 唯一、引用存在、无孤立 normative requirement、done task 有
-TST+EV、release 只引用通过且未过期 EV。默认证据新鲜度：同一 release commit；外部网络
-证据最多 30 天且 artifact hash 必须与 candidate 相同。
+CI 的 docs-check 必须验证 ID 唯一、结构化引用存在、无孤立 normative requirement、done task
+有 TST + `passed` EV、最多一个 `in_progress`，并拒绝无法绑定正式 evidence set 的 accepted
+release。same-candidate、artifact hash、revocation 与外部网络 30 天新鲜度由
+`TASK-D0-03` 的 formal finalizer 校验；docs-check 不以本机时钟或文件 mtime 重新解释历史 A0
+ledger。
