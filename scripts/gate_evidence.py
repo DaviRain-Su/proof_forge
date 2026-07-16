@@ -1932,6 +1932,413 @@ def self_test() -> None:
     validate_evidence(development)
     validate_evidence(formal)
     validate_evidence(typed)
+    typed_encoded = canonical_bytes(typed)
+    if canonical_bytes(validate_evidence(decode_json(typed_encoded))) != typed_encoded:
+        fail("PF-EVIDENCE-SELF-TEST", "typed binding canonical round trip changed bytes")
+
+    typed_without_catalog = copy.deepcopy(typed)
+    typed_without_catalog.pop("gateCatalog")
+    _expect_rejected("typed fields without gate catalog", typed_without_catalog)
+
+    for label, mutator in (
+        (
+            "legacy root run-context extension",
+            lambda candidate: candidate.update(
+                {"runContextInput": copy.deepcopy(typed["runContextInput"])}
+            ),
+        ),
+        (
+            "legacy host observation extension",
+            lambda candidate: candidate["hostAttestation"].update(  # type: ignore[union-attr]
+                {
+                    "observationInput": copy.deepcopy(
+                        typed["hostAttestation"]["observationInput"]  # type: ignore[index]
+                    )
+                }
+            ),
+        ),
+        (
+            "legacy rendered-policy extension",
+            lambda candidate: candidate["sandboxPolicies"][0].update(  # type: ignore[index,union-attr]
+                {
+                    "renderedPolicyInput": copy.deepcopy(
+                        typed["sandboxPolicies"][0]["renderedPolicyInput"]  # type: ignore[index]
+                    )
+                }
+            ),
+        ),
+        (
+            "legacy probe-receipt extension",
+            lambda candidate: candidate["sandboxPolicies"][0]["probes"][0].update(  # type: ignore[index,union-attr]
+                {
+                    "receipt": copy.deepcopy(
+                        typed["sandboxPolicies"][0]["probes"][0]["receipt"]  # type: ignore[index]
+                    )
+                }
+            ),
+        ),
+    ):
+        candidate = copy.deepcopy(development)
+        mutator(candidate)
+        _expect_rejected(label, candidate)
+
+    for label, path in (
+        ("catalog without run-context binding", ("runContextInput",)),
+        (
+            "catalog without host-observation binding",
+            ("hostAttestation", "observationInput"),
+        ),
+        (
+            "catalog without rendered-policy binding",
+            ("sandboxPolicies", "0", "renderedPolicyInput"),
+        ),
+        (
+            "catalog without probe-receipt binding",
+            ("sandboxPolicies", "0", "probes", "0", "receipt"),
+        ),
+    ):
+        candidate = copy.deepcopy(typed)
+        cursor: object = candidate
+        for component in path[:-1]:
+            cursor = cursor[int(component)] if component.isdigit() else cursor[component]  # type: ignore[index]
+        cursor.pop(path[-1])  # type: ignore[union-attr]
+        _expect_rejected(label, candidate)
+
+    for label, field, replacement in (
+        ("wrong catalog schema", "schema", "proof-forge.gate-catalog.v2"),
+        ("catalog SemVer leading zero", "version", "01.0.0"),
+        ("catalog SemVer range", "version", "^1.0.0"),
+        ("malformed catalog content digest", "contentSha256", "sha256:" + "0" * 64),
+        ("malformed catalog domain digest", "catalogDigest", "0" * 63),
+    ):
+        candidate = copy.deepcopy(typed)
+        candidate["gateCatalog"][field] = replacement  # type: ignore[index]
+        _expect_rejected(label, candidate)
+
+    wrong_run_role = copy.deepcopy(typed)
+    wrong_run_role["runContextInput"]["role"] = "candidate-archive"  # type: ignore[index]
+    _expect_rejected("wrong run-context role", wrong_run_role)
+    wrong_run_path = copy.deepcopy(typed)
+    wrong_run_path["runContextInput"]["path"] = "missing-run-context.json"  # type: ignore[index]
+    _expect_rejected("dangling run-context path", wrong_run_path)
+    for label, path, replacement in (
+        (
+            "wrong host-observation role",
+            ("hostAttestation", "observationInput", "role"),
+            "candidate-archive",
+        ),
+        (
+            "dangling host-observation path",
+            ("hostAttestation", "observationInput", "path"),
+            "missing-host-observation.json",
+        ),
+        (
+            "wrong rendered-policy role",
+            ("sandboxPolicies", "0", "renderedPolicyInput", "role"),
+            "candidate-archive",
+        ),
+        (
+            "dangling rendered-policy path",
+            ("sandboxPolicies", "0", "renderedPolicyInput", "path"),
+            "policies/missing.sb",
+        ),
+        (
+            "wrong invocation-context role",
+            (
+                "sandboxPolicies",
+                "0",
+                "probes",
+                "0",
+                "receipt",
+                "invocationContextInput",
+                "role",
+            ),
+            "candidate-archive",
+        ),
+        (
+            "dangling invocation-context path",
+            (
+                "sandboxPolicies",
+                "0",
+                "probes",
+                "0",
+                "receipt",
+                "invocationContextInput",
+                "path",
+            ),
+            "contexts/missing.json",
+        ),
+        (
+            "wrong invocation-receipt role",
+            ("sandboxPolicies", "0", "probes", "0", "receipt", "role"),
+            "candidate-archive",
+        ),
+        (
+            "dangling invocation-receipt path",
+            ("sandboxPolicies", "0", "probes", "0", "receipt", "path"),
+            "policies/missing.receipt.json",
+        ),
+    ):
+        candidate = copy.deepcopy(typed)
+        cursor = candidate
+        for component in path[:-1]:
+            cursor = cursor[int(component)] if component.isdigit() else cursor[component]  # type: ignore[index]
+        cursor[path[-1]] = replacement  # type: ignore[index]
+        _expect_rejected(label, candidate)
+    unknown_receipt_field = copy.deepcopy(typed)
+    unknown_receipt_field["sandboxPolicies"][0]["probes"][0]["receipt"][  # type: ignore[index]
+        "unknown"
+    ] = True
+    _expect_rejected("unknown probe receipt field", unknown_receipt_field)
+
+    for label, role in (
+        ("missing gate-catalog claim", "gate-catalog"),
+        ("missing clean-room run-context claim", "clean-room-run-context"),
+        ("missing host-observation claim", "host-observation"),
+        ("missing sandbox policy renderer claim", "sandbox-policy-renderer"),
+    ):
+        candidate = copy.deepcopy(typed)
+        candidate["inputs"] = [  # type: ignore[index]
+            entry for entry in candidate["inputs"] if entry["role"] != role  # type: ignore[index]
+        ]
+        _expect_rejected(label, candidate)
+
+    duplicate_catalog_claim = copy.deepcopy(typed)
+    duplicate_catalog_claim["inputs"].append(  # type: ignore[union-attr]
+        {
+            "role": "gate-catalog",
+            "path": "catalog-copy.json",
+            "sha256": duplicate_catalog_claim["gateCatalog"]["contentSha256"],  # type: ignore[index]
+            "size": 1,
+        }
+    )
+    duplicate_catalog_claim["inputs"].sort(  # type: ignore[union-attr]
+        key=lambda entry: (entry["role"], entry["path"])
+    )
+    _expect_rejected("duplicate gate-catalog role claim", duplicate_catalog_claim)
+
+    for label, role, path in (
+        (
+            "duplicate clean-room run-context role claim",
+            "clean-room-run-context",
+            "run-context-copy.json",
+        ),
+        (
+            "duplicate host-observation role claim",
+            "host-observation",
+            "host-observation-copy.json",
+        ),
+        (
+            "duplicate sandbox policy renderer role claim",
+            "sandbox-policy-renderer",
+            "scripts/sandbox_policy_copy.py",
+        ),
+    ):
+        candidate = copy.deepcopy(typed)
+        candidate["inputs"].append(  # type: ignore[union-attr]
+            {"role": role, "path": path, "sha256": "9" * 64, "size": 1}
+        )
+        candidate["inputs"].sort(  # type: ignore[union-attr]
+            key=lambda entry: (entry["role"], entry["path"])
+        )
+        _expect_rejected(label, candidate)
+
+    for label, role in (
+        ("gate-catalog claim hash mismatch", "gate-catalog"),
+        ("host-observation claim hash mismatch", "host-observation"),
+        ("rendered-policy claim hash mismatch", "sandbox-rendered-policy"),
+    ):
+        candidate = copy.deepcopy(typed)
+        next(entry for entry in candidate["inputs"] if entry["role"] == role)[  # type: ignore[index]
+            "sha256"
+        ] = "0" * 64
+        _expect_rejected(label, candidate)
+
+    dangling_context = copy.deepcopy(typed)
+    dangling_context["inputs"].append(  # type: ignore[union-attr]
+        {
+            "role": "sandbox-invocation-context",
+            "path": "contexts/dangling.json",
+            "sha256": "0" * 64,
+            "size": 1,
+        }
+    )
+    dangling_context["inputs"].sort(  # type: ignore[union-attr]
+        key=lambda entry: (entry["role"], entry["path"])
+    )
+    _expect_rejected("dangling invocation-context claim", dangling_context)
+    for label, role, path in (
+        (
+            "dangling rendered-policy claim",
+            "sandbox-rendered-policy",
+            "policies/dangling.sb",
+        ),
+        (
+            "dangling invocation-receipt claim",
+            "sandbox-invocation-receipt",
+            "policies/dangling.receipt.json",
+        ),
+    ):
+        candidate = copy.deepcopy(typed)
+        candidate["inputs"].append(  # type: ignore[union-attr]
+            {"role": role, "path": path, "sha256": "9" * 64, "size": 1}
+        )
+        candidate["inputs"].sort(  # type: ignore[union-attr]
+            key=lambda entry: (entry["role"], entry["path"])
+        )
+        _expect_rejected(label, candidate)
+
+    missing_probe_log = copy.deepcopy(typed)
+    missing_probe_log["sandboxPolicies"][0]["probes"][0]["receipt"][  # type: ignore[index]
+        "stdoutLog"
+    ] = "build/logs/missing.stdout"
+    _expect_rejected("probe receipt missing stdout log", missing_probe_log)
+
+    two_probe = copy.deepcopy(typed)
+    second_probe = copy.deepcopy(two_probe["sandboxPolicies"][0]["probes"][0])  # type: ignore[index]
+    second_probe["id"] = "second-probe"
+    second_probe["receipt"] = {  # type: ignore[index]
+        "invocationContextInput": {
+            "role": "sandbox-invocation-context",
+            "path": "contexts/sandbox-core-second-probe.json",
+        },
+        "role": "sandbox-invocation-receipt",
+        "path": "policies/sandbox-core-second-probe.receipt.json",
+        "stdoutLog": "build/logs/second-probe.stdout",
+        "stderrLog": "build/logs/second-probe.stderr",
+    }
+    two_probe["sandboxPolicies"][0]["probes"].append(second_probe)  # type: ignore[index]
+    two_probe["inputs"].extend(  # type: ignore[union-attr]
+        [
+            {
+                "role": "sandbox-invocation-context",
+                "path": "contexts/sandbox-core-second-probe.json",
+                "sha256": "5" * 64,
+                "size": 1,
+            },
+            {
+                "role": "sandbox-invocation-receipt",
+                "path": "policies/sandbox-core-second-probe.receipt.json",
+                "sha256": "6" * 64,
+                "size": 1,
+            },
+        ]
+    )
+    two_probe["inputs"].sort(  # type: ignore[union-attr]
+        key=lambda entry: (entry["role"], entry["path"])
+    )
+    two_probe["logs"].extend(  # type: ignore[union-attr]
+        [
+            {
+                "path": "build/logs/second-probe.stderr",
+                "sha256": "7" * 64,
+                "size": 0,
+                "truncated": False,
+                "privateDataScan": "not-run",
+            },
+            {
+                "path": "build/logs/second-probe.stdout",
+                "sha256": "8" * 64,
+                "size": 0,
+                "truncated": False,
+                "privateDataScan": "not-run",
+            },
+        ]
+    )
+    two_probe["logs"].sort(key=lambda entry: entry["path"])  # type: ignore[union-attr]
+    validate_evidence(two_probe)
+
+    two_policy = copy.deepcopy(two_probe)
+    first_policy = two_policy["sandboxPolicies"][0]  # type: ignore[index]
+    second_policy = copy.deepcopy(first_policy)
+    second_policy["id"] = "second-policy"
+    second_policy["renderedSha256"] = "9" * 64
+    second_policy["renderedPolicyInput"] = {
+        "role": "sandbox-rendered-policy",
+        "path": "policies/second.sb",
+    }
+    second_policy["probes"] = [first_policy["probes"].pop()]  # type: ignore[index]
+    two_policy["sandboxPolicies"].append(second_policy)  # type: ignore[union-attr]
+    two_policy["inputs"].append(  # type: ignore[union-attr]
+        {
+            "role": "sandbox-rendered-policy",
+            "path": "policies/second.sb",
+            "sha256": "9" * 64,
+            "size": 1,
+        }
+    )
+    two_policy["inputs"].sort(  # type: ignore[union-attr]
+        key=lambda entry: (entry["role"], entry["path"])
+    )
+    validate_evidence(two_policy)
+
+    reused_rendered_cross_policy = copy.deepcopy(two_policy)
+    reused_rendered_cross_policy["sandboxPolicies"][1][  # type: ignore[index]
+        "renderedPolicyInput"
+    ] = copy.deepcopy(
+        reused_rendered_cross_policy["sandboxPolicies"][0][  # type: ignore[index]
+            "renderedPolicyInput"
+        ]
+    )
+    _expect_rejected(
+        "rendered-policy claim reused across policies",
+        reused_rendered_cross_policy,
+    )
+    reused_context_cross_policy = copy.deepcopy(two_policy)
+    reused_context_cross_policy["sandboxPolicies"][1]["probes"][0]["receipt"][  # type: ignore[index]
+        "invocationContextInput"
+    ] = copy.deepcopy(
+        reused_context_cross_policy["sandboxPolicies"][0]["probes"][0]["receipt"][  # type: ignore[index]
+            "invocationContextInput"
+        ]
+    )
+    _expect_rejected(
+        "invocation-context claim reused across policies",
+        reused_context_cross_policy,
+    )
+    reused_receipt_cross_policy = copy.deepcopy(two_policy)
+    reused_receipt_cross_policy["sandboxPolicies"][1]["probes"][0]["receipt"][  # type: ignore[index]
+        "path"
+    ] = reused_receipt_cross_policy["sandboxPolicies"][0]["probes"][0]["receipt"][  # type: ignore[index]
+        "path"
+    ]
+    _expect_rejected(
+        "invocation-receipt claim reused across policies",
+        reused_receipt_cross_policy,
+    )
+    reused_stream_cross_policy = copy.deepcopy(two_policy)
+    reused_stream_cross_policy["sandboxPolicies"][1]["probes"][0]["receipt"][  # type: ignore[index]
+        "stdoutLog"
+    ] = reused_stream_cross_policy["sandboxPolicies"][0]["probes"][0]["receipt"][  # type: ignore[index]
+        "stdoutLog"
+    ]
+    _expect_rejected(
+        "sandbox stream reused across policies",
+        reused_stream_cross_policy,
+    )
+
+    reused_context = copy.deepcopy(two_probe)
+    reused_context["sandboxPolicies"][0]["probes"][1]["receipt"][  # type: ignore[index]
+        "invocationContextInput"
+    ] = copy.deepcopy(
+        reused_context["sandboxPolicies"][0]["probes"][0]["receipt"][  # type: ignore[index]
+            "invocationContextInput"
+        ]
+    )
+    _expect_rejected("invocation-context claim reused across probes", reused_context)
+    reused_receipt = copy.deepcopy(two_probe)
+    reused_receipt["sandboxPolicies"][0]["probes"][1]["receipt"]["path"] = (  # type: ignore[index]
+        reused_receipt["sandboxPolicies"][0]["probes"][0]["receipt"]["path"]  # type: ignore[index]
+    )
+    _expect_rejected("receipt claim reused across probes", reused_receipt)
+    reused_stream = copy.deepcopy(two_probe)
+    reused_stream["sandboxPolicies"][0]["probes"][1]["receipt"][  # type: ignore[index]
+        "stdoutLog"
+    ] = reused_stream["sandboxPolicies"][0]["probes"][0]["receipt"][  # type: ignore[index]
+        "stdoutLog"
+    ]
+    _expect_rejected("stream log reused across probes", reused_stream)
+
     fractional_utc = copy.deepcopy(development)
     fractional_utc["command"]["endedUtc"] = "2026-07-15T00:00:00.125Z"  # type: ignore[index]
     _expect_rejected("fractional UTC wire form", fractional_utc)

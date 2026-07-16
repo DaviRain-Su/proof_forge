@@ -26,6 +26,7 @@ __all__ = [
 
 
 SCHEMA = "proof-forge.evidence.v1"
+GATE_CATALOG_SCHEMA = "proof-forge.gate-catalog.v1"
 ARTIFACT_SET_DOMAIN = b"pf.evidence.artifact-set.v1\x00"
 MAX_INPUT_BYTES = 4 * 1024 * 1024
 MAX_JSON_DEPTH = 64
@@ -47,6 +48,11 @@ UTC_RE = re.compile(
     r"[0-9]{4}-(?:0[1-9]|1[0-2])-"
     r"(?:0[1-9]|[12][0-9]|3[01])T"
     r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z"
+)
+SEMVER_RE = re.compile(
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)"
 )
 
 
@@ -224,6 +230,63 @@ def require_relative_path(value: object, where: str, *, allow_dot: bool = False)
     if any(part in {"", ".", ".."} for part in parts):
         fail("PF-EVIDENCE-PATH", f"{where} contains a forbidden path component")
     return path
+
+
+def _require_typed_field(
+    obj: dict[str, object],
+    field: str,
+    enabled: bool,
+    where: str,
+) -> None:
+    present = field in obj
+    field_where = _where(where, field)
+    if enabled and not present:
+        fail(
+            "PF-EVIDENCE-SCHEMA",
+            f"{field_where} is required when $.gateCatalog is present",
+        )
+    if not enabled and present:
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            f"{field_where} is forbidden when $.gateCatalog is absent",
+        )
+
+
+def _validate_role_path_ref(
+    value: object,
+    where: str,
+    *,
+    expected_role: str,
+) -> dict[str, object]:
+    obj = require_keys(value, {"role", "path"}, where)
+    role = require_safe_id(obj["role"], _where(where, "role"))
+    require_relative_path(obj["path"], _where(where, "path"))
+    if role != expected_role:
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            f"{where}.role must be {expected_role!r}",
+        )
+    return obj
+
+
+def _validate_gate_catalog_ref(value: object) -> dict[str, object]:
+    where = "$.gateCatalog"
+    obj = require_keys(
+        value,
+        {"schema", "id", "version", "contentSha256", "catalogDigest"},
+        where,
+    )
+    schema = require_text(obj["schema"], _where(where, "schema"), ascii_only=True)
+    if schema != GATE_CATALOG_SCHEMA:
+        fail(
+            "PF-EVIDENCE-SCHEMA",
+            f"{where}.schema must be {GATE_CATALOG_SCHEMA!r}",
+        )
+    require_safe_id(obj["id"], _where(where, "id"))
+    require_pattern(obj["version"], SEMVER_RE, _where(where, "version"))
+    require_sha256(obj["contentSha256"], _where(where, "contentSha256"))
+    require_sha256(obj["catalogDigest"], _where(where, "catalogDigest"))
+    return obj
 
 
 def require_utc(value: object, where: str) -> tuple[str, dt.datetime]:
@@ -411,7 +474,11 @@ def _validate_repository(value: object) -> dict[str, object]:
     return obj
 
 
-def _validate_host(value: object) -> dict[str, object]:
+def _validate_host(
+    value: object,
+    *,
+    typed_bindings: bool = False,
+) -> dict[str, object]:
     where = "$.hostAttestation"
     fields = {
         "scope",
@@ -425,7 +492,8 @@ def _validate_host(value: object) -> dict[str, object]:
         "verifierSha256",
         "observationSha256",
     }
-    obj = require_keys(value, fields, where)
+    obj = require_keys(value, fields, where, optional={"observationInput"})
+    _require_typed_field(obj, "observationInput", typed_bindings, where)
     require_enum(obj["scope"], {"local-point-in-time"}, _where(where, "scope"))
     remote_attestation = require_bool(
         obj["remoteAttestation"], _where(where, "remoteAttestation")
@@ -441,6 +509,12 @@ def _validate_host(value: object) -> dict[str, object]:
         fields - {"scope", "remoteAttestation", "profileId", "eligibleForHermetic"}
     ):
         require_sha256(obj[field], _where(where, field))
+    if typed_bindings:
+        _validate_role_path_ref(
+            obj["observationInput"],
+            _where(where, "observationInput"),
+            expected_role="host-observation",
+        )
     return obj
 
 
@@ -469,7 +543,40 @@ def _validate_environment(value: object) -> dict[str, object]:
     return obj
 
 
-def _validate_sandbox_policies(value: object) -> list[dict[str, object]]:
+def _validate_probe_receipt(value: object, where: str) -> dict[str, object]:
+    receipt = require_keys(
+        value,
+        {
+            "invocationContextInput",
+            "role",
+            "path",
+            "stdoutLog",
+            "stderrLog",
+        },
+        where,
+    )
+    _validate_role_path_ref(
+        receipt["invocationContextInput"],
+        _where(where, "invocationContextInput"),
+        expected_role="sandbox-invocation-context",
+    )
+    role = require_safe_id(receipt["role"], _where(where, "role"))
+    if role != "sandbox-invocation-receipt":
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            f"{where}.role must be 'sandbox-invocation-receipt'",
+        )
+    require_relative_path(receipt["path"], _where(where, "path"))
+    require_relative_path(receipt["stdoutLog"], _where(where, "stdoutLog"))
+    require_relative_path(receipt["stderrLog"], _where(where, "stderrLog"))
+    return receipt
+
+
+def _validate_sandbox_policies(
+    value: object,
+    *,
+    typed_bindings: bool = False,
+) -> list[dict[str, object]]:
     policies = require_array(value, "$.sandboxPolicies", nonempty=True)
     result: list[dict[str, object]] = []
     ids: set[str] = set()
@@ -488,7 +595,13 @@ def _validate_sandbox_policies(value: object) -> list[dict[str, object]]:
                 "probes",
             },
             where,
-            optional={"networkPort"},
+            optional={"networkPort", "renderedPolicyInput"},
+        )
+        _require_typed_field(
+            policy,
+            "renderedPolicyInput",
+            typed_bindings,
+            where,
         )
         policy_id = require_safe_id(policy["id"], _where(where, "id"))
         if policy_id in ids:
@@ -521,11 +634,23 @@ def _validate_sandbox_policies(value: object) -> list[dict[str, object]]:
             )
         require_sha256(policy["templateSha256"], _where(where, "templateSha256"))
         require_sha256(policy["renderedSha256"], _where(where, "renderedSha256"))
+        if typed_bindings:
+            _validate_role_path_ref(
+                policy["renderedPolicyInput"],
+                _where(where, "renderedPolicyInput"),
+                expected_role="sandbox-rendered-policy",
+            )
         probes = require_array(policy["probes"], _where(where, "probes"), nonempty=True)
         probe_ids: set[str] = set()
         for probe_index, probe_value in enumerate(probes):
             probe_where = f"{where}.probes[{probe_index}]"
-            probe = require_keys(probe_value, {"id", "status"}, probe_where)
+            probe = require_keys(
+                probe_value,
+                {"id", "status"},
+                probe_where,
+                optional={"receipt"},
+            )
+            _require_typed_field(probe, "receipt", typed_bindings, probe_where)
             probe_id = require_safe_id(probe["id"], _where(probe_where, "id"))
             if probe_id in probe_ids:
                 fail(
@@ -536,6 +661,11 @@ def _validate_sandbox_policies(value: object) -> list[dict[str, object]]:
             require_enum(
                 probe["status"], {"passed", "failed", "skipped"}, _where(probe_where, "status")
             )
+            if typed_bindings:
+                _validate_probe_receipt(
+                    probe["receipt"],
+                    _where(probe_where, "receipt"),
+                )
         probe_order = [probe["id"] for probe in probes]
         require_sorted_unique(probe_order, f"{where}.probes")
         result.append(policy)
@@ -739,6 +869,221 @@ def _validate_logs(value: object) -> list[dict[str, object]]:
     return result
 
 
+def _require_single_input_role(
+    inputs: list[dict[str, object]],
+    role: str,
+) -> dict[str, object]:
+    matches = [entry for entry in inputs if entry["role"] == role]
+    if len(matches) != 1:
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            f"$.inputs must contain exactly one {role!r} role claim",
+        )
+    return matches[0]
+
+
+def _resolve_input_ref(
+    ref: dict[str, object],
+    inputs_by_key: dict[tuple[object, object], dict[str, object]],
+    where: str,
+) -> tuple[tuple[object, object], dict[str, object]]:
+    key = (ref["role"], ref["path"])
+    claim = inputs_by_key.get(key)
+    if claim is None:
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            f"{where} does not reference a declared $.inputs role/path claim",
+        )
+    return key, claim
+
+
+def _require_unreused_ref(
+    key: tuple[object, object],
+    used: set[tuple[object, object]],
+    where: str,
+) -> None:
+    if key in used:
+        fail("PF-EVIDENCE-INVARIANT", f"{where} reuses a typed input claim")
+    used.add(key)
+
+
+def _require_exact_role_refs(
+    inputs: list[dict[str, object]],
+    role: str,
+    referenced: set[tuple[object, object]],
+) -> None:
+    claimed = {
+        (entry["role"], entry["path"])
+        for entry in inputs
+        if entry["role"] == role
+    }
+    if claimed != referenced:
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            f"$.inputs role {role!r} must be referenced exactly once without dangling claims",
+        )
+
+
+def _validate_typed_bindings(
+    root: dict[str, object],
+    catalog: dict[str, object],
+    host: dict[str, object],
+    policies: list[dict[str, object]],
+    inputs: list[dict[str, object]],
+    logs: list[dict[str, object]],
+) -> None:
+    inputs_by_key = {
+        (entry["role"], entry["path"]): entry
+        for entry in inputs
+    }
+    logs_by_path = {entry["path"]: entry for entry in logs}
+
+    catalog_claim = _require_single_input_role(inputs, "gate-catalog")
+    if catalog_claim["sha256"] != catalog["contentSha256"]:
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            "the gate-catalog input SHA-256 must equal $.gateCatalog.contentSha256",
+        )
+
+    run_context_claim = _require_single_input_role(inputs, "clean-room-run-context")
+    run_context_ref = root["runContextInput"]
+    if not isinstance(run_context_ref, dict):
+        fail("PF-EVIDENCE-SCHEMA", "$.runContextInput must be an object")
+    _, resolved_run_context = _resolve_input_ref(
+        run_context_ref,
+        inputs_by_key,
+        "$.runContextInput",
+    )
+    if resolved_run_context is not run_context_claim:
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            "$.runContextInput must reference the unique clean-room-run-context claim",
+        )
+
+    observation_claim = _require_single_input_role(inputs, "host-observation")
+    observation_ref = host["observationInput"]
+    if not isinstance(observation_ref, dict):
+        fail("PF-EVIDENCE-SCHEMA", "$.hostAttestation.observationInput must be an object")
+    _, resolved_observation = _resolve_input_ref(
+        observation_ref,
+        inputs_by_key,
+        "$.hostAttestation.observationInput",
+    )
+    if resolved_observation is not observation_claim:
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            "$.hostAttestation.observationInput must reference the unique host-observation claim",
+        )
+    if observation_claim["sha256"] != host["observationSha256"]:
+        fail(
+            "PF-EVIDENCE-INVARIANT",
+            "the host-observation input SHA-256 must equal hostAttestation.observationSha256",
+        )
+
+    _require_single_input_role(inputs, "sandbox-policy-renderer")
+
+    rendered_refs: set[tuple[object, object]] = set()
+    context_refs: set[tuple[object, object]] = set()
+    receipt_refs: set[tuple[object, object]] = set()
+    stream_paths: set[object] = set()
+    for policy_index, policy in enumerate(policies):
+        rendered_ref = policy["renderedPolicyInput"]
+        if not isinstance(rendered_ref, dict):
+            fail(
+                "PF-EVIDENCE-SCHEMA",
+                f"$.sandboxPolicies[{policy_index}].renderedPolicyInput must be an object",
+            )
+        rendered_key, rendered_claim = _resolve_input_ref(
+            rendered_ref,
+            inputs_by_key,
+            f"$.sandboxPolicies[{policy_index}].renderedPolicyInput",
+        )
+        _require_unreused_ref(
+            rendered_key,
+            rendered_refs,
+            f"$.sandboxPolicies[{policy_index}].renderedPolicyInput",
+        )
+        if rendered_claim["sha256"] != policy["renderedSha256"]:
+            fail(
+                "PF-EVIDENCE-INVARIANT",
+                f"$.sandboxPolicies[{policy_index}].renderedPolicyInput SHA-256 "
+                "must equal renderedSha256",
+            )
+
+        probes = require_array(
+            policy["probes"],
+            f"$.sandboxPolicies[{policy_index}].probes",
+            nonempty=True,
+        )
+        for probe_index, probe in enumerate(probes):
+            if not isinstance(probe, dict):
+                fail(
+                    "PF-EVIDENCE-SCHEMA",
+                    f"$.sandboxPolicies[{policy_index}].probes[{probe_index}] must be an object",
+                )
+            receipt = probe["receipt"]
+            if not isinstance(receipt, dict):
+                fail(
+                    "PF-EVIDENCE-SCHEMA",
+                    f"$.sandboxPolicies[{policy_index}].probes[{probe_index}].receipt must be an object",
+                )
+            receipt_where = (
+                f"$.sandboxPolicies[{policy_index}].probes[{probe_index}].receipt"
+            )
+            context_ref = receipt["invocationContextInput"]
+            if not isinstance(context_ref, dict):
+                fail(
+                    "PF-EVIDENCE-SCHEMA",
+                    f"{receipt_where}.invocationContextInput must be an object",
+                )
+            context_key, _ = _resolve_input_ref(
+                context_ref,
+                inputs_by_key,
+                f"{receipt_where}.invocationContextInput",
+            )
+            _require_unreused_ref(
+                context_key,
+                context_refs,
+                f"{receipt_where}.invocationContextInput",
+            )
+            receipt_ref = {"role": receipt["role"], "path": receipt["path"]}
+            receipt_key, _ = _resolve_input_ref(
+                receipt_ref,
+                inputs_by_key,
+                receipt_where,
+            )
+            _require_unreused_ref(receipt_key, receipt_refs, receipt_where)
+            for stream in ("stdoutLog", "stderrLog"):
+                path = receipt[stream]
+                if path in stream_paths:
+                    fail(
+                        "PF-EVIDENCE-INVARIANT",
+                        f"{receipt_where}.{stream} reuses a sandbox probe stream path",
+                    )
+                stream_paths.add(path)
+                if path not in logs_by_path:
+                    fail(
+                        "PF-EVIDENCE-INVARIANT",
+                        f"{receipt_where}.{stream} does not reference $.logs",
+                    )
+
+    _require_exact_role_refs(
+        inputs,
+        "sandbox-rendered-policy",
+        rendered_refs,
+    )
+    _require_exact_role_refs(
+        inputs,
+        "sandbox-invocation-context",
+        context_refs,
+    )
+    _require_exact_role_refs(
+        inputs,
+        "sandbox-invocation-receipt",
+        receipt_refs,
+    )
+
+
 def _validate_claim_path_namespace(
     inputs: list[dict[str, object]],
     artifacts: list[dict[str, object]],
@@ -815,6 +1160,7 @@ def validate_evidence(value: object) -> dict[str, object]:
             "skipAuthorization",
         },
         "$",
+        optional={"gateCatalog", "runContextInput"},
     )
     if root["schema"] != SCHEMA:
         fail("PF-EVIDENCE-SCHEMA", f"$.schema must be {SCHEMA!r}")
@@ -824,11 +1170,24 @@ def validate_evidence(value: object) -> dict[str, object]:
     except ValueError:
         fail("PF-EVIDENCE-SCHEMA", "$.id contains a nonexistent UTC calendar date")
     result = require_enum(root["result"], {"passed", "failed", "skipped"}, "$.result")
+    typed_bindings = "gateCatalog" in root
+    _require_typed_field(root, "runContextInput", typed_bindings, "$")
+    catalog: dict[str, object] | None = None
+    if typed_bindings:
+        catalog = _validate_gate_catalog_ref(root["gateCatalog"])
+        _validate_role_path_ref(
+            root["runContextInput"],
+            "$.runContextInput",
+            expected_role="clean-room-run-context",
+        )
     qualification, _ = _validate_gate(root["gate"])
     repository = _validate_repository(root["repository"])
-    host = _validate_host(root["hostAttestation"])
+    host = _validate_host(root["hostAttestation"], typed_bindings=typed_bindings)
     environment = _validate_environment(root["environment"])
-    policies = _validate_sandbox_policies(root["sandboxPolicies"])
+    policies = _validate_sandbox_policies(
+        root["sandboxPolicies"],
+        typed_bindings=typed_bindings,
+    )
     tools = _validate_tools(root["tools"])
     command = _validate_command(root["command"], result)
     inputs = _validate_inputs(root["inputs"])
@@ -843,6 +1202,8 @@ def validate_evidence(value: object) -> dict[str, object]:
     observations = _validate_observations(root["observations"])
     logs = _validate_logs(root["logs"])
     _validate_claim_path_namespace(inputs, artifacts, logs)
+    if catalog is not None:
+        _validate_typed_bindings(root, catalog, host, policies, inputs, logs)
     _validate_skip_authorization(root["skipAuthorization"], result)
 
     _, ended_utc = require_utc(command["endedUtc"], "$.command.endedUtc")
