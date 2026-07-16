@@ -8,6 +8,7 @@ must not make a repository-relative import path into an authority selector.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import hashlib
 import importlib.util
@@ -27,6 +28,18 @@ ROOT_BYTE_FIELDS = (
     "requiredTestSetBytes",
     "taskApprovalBytes",
     "taskReceiptBytes",
+)
+RFC_8032_PUBLIC_KEYS = (
+    "d75a980182b10ab7d54bfed3c964073a"
+    "0ee172f3daa62325af021a68f707511a",
+    "3d4017c3e843895a92b70aa74d1b7ebc"
+    "9c982ccf2ec4968cc0cd55f12af4660c",
+    "fc51cd8e6218a1a38da47ed00230f058"
+    "0816ed13ba3303ac5deb911548908025",
+    "278117fc144c72340f67d0f2316e8386"
+    "ceffbf2b2428c9c51fef7c597f1d426e",
+    "ec172b93ad5e563bf4932c70e1245034"
+    "c35467ef2efd4d64ebf819683467e2bf",
 )
 
 
@@ -52,6 +65,7 @@ def assert_public_api(module: ModuleType) -> None:
         "parse_digest",
         "parse_content_ref",
         "parse_candidate_identity",
+        "parse_bootstrap_authority_policy",
         "verify_ed25519",
         "verifyBootstrapTaskObjects",
     )
@@ -60,6 +74,11 @@ def assert_public_api(module: ModuleType) -> None:
         "Digest",
         "ContentRef",
         "CandidateIdentity",
+        "ApprovalRuleV1",
+        "BootstrapAuthorityPrincipalV1",
+        "BootstrapAuthorityTaskRuleV1",
+        "BootstrapAuthorityVerifierV1",
+        "BootstrapAuthorityPolicyV1",
         "BootstrapLedgerSubjectV1",
         "BootstrapDocumentSnapshotV1",
         "BootstrapTaskRowSubjectV1",
@@ -77,6 +96,31 @@ def assert_public_api(module: ModuleType) -> None:
         "Digest": ("algorithm", "bytes"),
         "ContentRef": ("schema", "id", "version", "digest"),
         "CandidateIdentity": ("commit", "treeObjectId", "archiveDigest", "digest"),
+        "ApprovalRuleV1": ("requiredRoles", "minimumDistinctSigners"),
+        "BootstrapAuthorityPrincipalV1": (
+            "principalId", "keyId", "publicKey", "roles",
+        ),
+        "BootstrapAuthorityTaskRuleV1": ("taskId", "rule"),
+        "BootstrapAuthorityVerifierV1": (
+            "id", "executableDigest", "receiptKeyId", "receiptPublicKey",
+        ),
+        "BootstrapAuthorityPolicyV1": (
+            "schema",
+            "id",
+            "version",
+            "principals",
+            "taskRules",
+            "requiredTestSetRule",
+            "formalCatalogRule",
+            "bootstrapSetRule",
+            "sessionContainmentRule",
+            "freshnessAuthorityRule",
+            "privateScanRule",
+            "privateScanPolicy",
+            "revocationSnapshotRule",
+            "authorityStoreService",
+            "verifier",
+        ),
         "BootstrapLedgerSubjectV1": (
             "id", "taskId", "testIds", "grade", "result",
         ),
@@ -166,6 +210,233 @@ def test_pf_jcs(module: ModuleType) -> None:
 
 def digest_text(raw: bytes) -> str:
     return "sha256:" + raw.hex()
+
+
+def approval_rule(*roles: str, minimum: int) -> dict:
+    return {
+        "requiredRoles": list(roles),
+        "minimumDistinctSigners": minimum,
+    }
+
+
+def valid_bootstrap_authority_policy() -> dict:
+    principals = (
+        ("principal-architecture", "key-architecture", RFC_8032_PUBLIC_KEYS[0], "architecture"),
+        ("principal-quality", "key-quality", RFC_8032_PUBLIC_KEYS[1], "quality"),
+        ("principal-release", "key-release", RFC_8032_PUBLIC_KEYS[2], "release"),
+        ("principal-security", "key-security", RFC_8032_PUBLIC_KEYS[3], "security"),
+    )
+    task_rules = (
+        ("TASK-D0-01", approval_rule("architecture", "quality", minimum=2)),
+        ("TASK-D0-02", approval_rule("architecture", "quality", minimum=2)),
+        ("TASK-D0-03", approval_rule("quality", "security", minimum=2)),
+        ("TASK-D0-04", approval_rule("quality", "security", "release", minimum=3)),
+        ("TASK-D0-05", approval_rule("quality", "security", minimum=2)),
+        ("TASK-D0-06", approval_rule("architecture", "quality", minimum=2)),
+    )
+    return {
+        "schema": "proof-forge.bootstrap-authority-policy.v1",
+        "id": "bootstrap-authority-root",
+        "version": "1.0.0",
+        "principals": [
+            {
+                "principalId": principal_id,
+                "keyId": key_id,
+                "publicKey": public_key,
+                "roles": [role],
+            }
+            for principal_id, key_id, public_key, role in principals
+        ],
+        "taskRules": [
+            {"taskId": task_id, "rule": rule}
+            for task_id, rule in task_rules
+        ],
+        "requiredTestSetRule": approval_rule("quality", "security", minimum=2),
+        "formalCatalogRule": approval_rule("quality", "security", minimum=2),
+        "bootstrapSetRule": approval_rule(
+            "quality", "security", "release", minimum=3
+        ),
+        "sessionContainmentRule": approval_rule("quality", "security", minimum=2),
+        "freshnessAuthorityRule": approval_rule("quality", "release", minimum=2),
+        "privateScanRule": approval_rule("quality", "security", minimum=2),
+        "privateScanPolicy": {
+            "schema": "proof-forge.private-scan-policy.v1",
+            "id": "bootstrap-private-scan-policy",
+            "version": "1.0.0",
+            "digest": digest_text(bytes.fromhex("41" * 32)),
+        },
+        "revocationSnapshotRule": approval_rule("security", "release", minimum=2),
+        "authorityStoreService": {
+            "schema": "proof-forge.authority-store-service.v1",
+            "id": "bootstrap-authority-store",
+            "version": "1.0.0",
+            "digest": digest_text(bytes.fromhex("42" * 32)),
+        },
+        "verifier": {
+            "id": "bootstrap-task-verifier",
+            "executableDigest": digest_text(bytes.fromhex("43" * 32)),
+            "receiptKeyId": "key-verifier-receipt",
+            "receiptPublicKey": RFC_8032_PUBLIC_KEYS[4],
+        },
+    }
+
+
+def test_bootstrap_authority_policy(module: ModuleType) -> None:
+    policy = valid_bootstrap_authority_policy()
+    encoded = module.canonical_pf_jcs(policy)
+    parsed_policy, parsed_ref = module.parse_bootstrap_authority_policy(encoded)
+    expected_digest = hashlib.sha256(
+        b"pf.bootstrap-authority-policy.v1\x00" + encoded
+    ).digest()
+    expected_ref = module.ContentRef(
+        "proof-forge.bootstrap-authority-policy.v1",
+        "bootstrap-authority-root",
+        "1.0.0",
+        module.Digest("sha256", expected_digest),
+    )
+    assert isinstance(parsed_policy, module.BootstrapAuthorityPolicyV1)
+    assert parsed_policy.id == "bootstrap-authority-root"
+    assert isinstance(parsed_policy.principals, tuple)
+    assert len(parsed_policy.principals) == 4
+    assert all(
+        isinstance(principal.publicKey, bytes)
+        for principal in parsed_policy.principals
+    )
+    assert isinstance(parsed_policy.taskRules, tuple)
+    assert tuple(rule.taskId for rule in parsed_policy.taskRules) == tuple(
+        f"TASK-D0-0{number}" for number in range(1, 7)
+    )
+    assert isinstance(parsed_policy.privateScanPolicy, module.ContentRef)
+    assert isinstance(parsed_policy.authorityStoreService, module.ContentRef)
+    assert isinstance(parsed_policy.verifier.executableDigest, module.Digest)
+    assert isinstance(parsed_policy.verifier.receiptPublicKey, bytes)
+    assert parsed_ref == expected_ref, (
+        "valid policy must return its recomputed ContentRef projection"
+    )
+
+    mutations = []
+
+    wrong_schema = copy.deepcopy(policy)
+    wrong_schema["schema"] = "proof-forge.bootstrap-authority-policy.v2"
+    mutations.append(("wrong policy schema", wrong_schema))
+
+    unknown_field = copy.deepcopy(policy)
+    unknown_field["futurePolicy"] = {}
+    mutations.append(("unknown top-level field", unknown_field))
+
+    missing_task_rule = copy.deepcopy(policy)
+    del missing_task_rule["taskRules"][3]
+    mutations.append(("missing task rule", missing_task_rule))
+
+    reordered_task_rules = copy.deepcopy(policy)
+    reordered_task_rules["taskRules"][0], reordered_task_rules["taskRules"][1] = (
+        reordered_task_rules["taskRules"][1],
+        reordered_task_rules["taskRules"][0],
+    )
+    mutations.append(("reordered task rules", reordered_task_rules))
+
+    duplicate_task_rule = copy.deepcopy(policy)
+    duplicate_task_rule["taskRules"].insert(
+        1, copy.deepcopy(duplicate_task_rule["taskRules"][0])
+    )
+    mutations.append(("duplicate task rule", duplicate_task_rule))
+
+    task_minima = (
+        (("architecture", "quality"), 2),
+        (("architecture", "quality"), 2),
+        (("quality", "security"), 2),
+        (("quality", "security", "release"), 3),
+        (("quality", "security"), 2),
+        (("architecture", "quality"), 2),
+    )
+    for index, (required_roles, minimum) in enumerate(task_minima):
+        weak_threshold = copy.deepcopy(policy)
+        weak_threshold["taskRules"][index]["rule"]["minimumDistinctSigners"] = (
+            minimum - 1
+        )
+        mutations.append((f"weak task rule {index + 1} threshold", weak_threshold))
+
+        weak_role = copy.deepcopy(policy)
+        weak_role["taskRules"][index]["rule"]["requiredRoles"] = list(
+            required_roles[1:]
+        )
+        mutations.append((f"weak task rule {index + 1} roles", weak_role))
+
+    named_minima = (
+        ("requiredTestSetRule", ("quality", "security"), 2),
+        ("formalCatalogRule", ("quality", "security"), 2),
+        ("bootstrapSetRule", ("quality", "security", "release"), 3),
+        ("sessionContainmentRule", ("quality", "security"), 2),
+        ("freshnessAuthorityRule", ("quality", "release"), 2),
+        ("privateScanRule", ("quality", "security"), 2),
+        ("revocationSnapshotRule", ("security", "release"), 2),
+    )
+    for field, required_roles, minimum in named_minima:
+        weak_threshold = copy.deepcopy(policy)
+        weak_threshold[field]["minimumDistinctSigners"] = minimum - 1
+        mutations.append((f"weak {field} threshold", weak_threshold))
+
+        weak_role = copy.deepcopy(policy)
+        weak_role[field]["requiredRoles"] = list(required_roles[1:])
+        mutations.append((f"weak {field} roles", weak_role))
+
+    multi_key_single_principal = copy.deepcopy(policy)
+    for principal in multi_key_single_principal["principals"]:
+        principal["principalId"] = "principal-one-person"
+    mutations.append(("single principal multi-key quorum", multi_key_single_principal))
+
+    duplicate_principal_public_key = copy.deepcopy(policy)
+    duplicate_principal_public_key["principals"][1]["publicKey"] = (
+        duplicate_principal_public_key["principals"][0]["publicKey"]
+    )
+    mutations.append(
+        ("duplicate principal public key", duplicate_principal_public_key)
+    )
+
+    duplicate_rotation_public_key = copy.deepcopy(policy)
+    duplicate_rotation_public_key["principals"][1]["principalId"] = (
+        duplicate_rotation_public_key["principals"][0]["principalId"]
+    )
+    duplicate_rotation_public_key["principals"][1]["publicKey"] = (
+        duplicate_rotation_public_key["principals"][0]["publicKey"]
+    )
+    mutations.append(
+        ("duplicate public key within principal rotation", duplicate_rotation_public_key)
+    )
+
+    ascii_role_order = copy.deepcopy(policy)
+    ascii_role_order["taskRules"][3]["rule"]["requiredRoles"] = [
+        "quality", "release", "security",
+    ]
+    mutations.append(("ASCII rather than enum role order", ascii_role_order))
+
+    invalid_key = copy.deepcopy(policy)
+    invalid_key["principals"][0]["publicKey"] = "ff" * 32
+    mutations.append(("invalid Ed25519 public key", invalid_key))
+
+    small_order_key = copy.deepcopy(policy)
+    small_order_key["principals"][0]["publicKey"] = "01" + "00" * 31
+    mutations.append(("small-order Ed25519 public key", small_order_key))
+
+    receipt_key_id_collision = copy.deepcopy(policy)
+    receipt_key_id_collision["verifier"]["receiptKeyId"] = (
+        receipt_key_id_collision["principals"][0]["keyId"]
+    )
+    mutations.append(("receipt keyId collision", receipt_key_id_collision))
+
+    receipt_public_key_collision = copy.deepcopy(policy)
+    receipt_public_key_collision["verifier"]["receiptPublicKey"] = (
+        receipt_public_key_collision["principals"][0]["publicKey"]
+    )
+    mutations.append(("receipt publicKey collision", receipt_public_key_collision))
+
+    for label, mutation in mutations:
+        assert_rejected(
+            module,
+            lambda mutation=mutation: module.parse_bootstrap_authority_policy(
+                module.canonical_pf_jcs(mutation)
+            ),
+        )
 
 
 def test_common_identities(module: ModuleType) -> object:
@@ -342,6 +613,7 @@ def main() -> int:
         module = load_consumer()
         assert_public_api(module)
         test_pf_jcs(module)
+        test_bootstrap_authority_policy(module)
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_and_missing_root_bytes(module, candidate)
