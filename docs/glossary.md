@@ -3,7 +3,7 @@ id: DOC-GLOSSARY
 title: 术语表
 status: proposed
 owner: architecture
-updated: 2026-07-15
+updated: 2026-07-17
 normative: true
 ---
 
@@ -38,6 +38,9 @@ normative: true
 | `PlanHash` | 规范序列化 target Plan 的哈希 |
 | `SupportEvidenceGrade` | 单项 support claim 的 `specified`、`artifact_validated`、`local_runtime`、`network_or_proof_validated`；不同于 TargetMaturity 与 task evidence grade |
 | fail closed | 缺少支持、版本、工具或证据时返回稳定错误，绝不降级为成功 |
+| 完成面 / Completion Surface | 任务的 Output、Tests、Dependencies、Prerequisites 与 Done 语义；`in_progress`/`done` 后禁止变胖，见 `GOV-TASK-FREEZE-001` |
+| 冻结完成包 / Freeze Package | 开工前钉死的 inScope/outOfScope/doneWhen 等字段；执行中只许按包验收 |
+| Freeze Exception | 唯一合法扩大执行中任务完成面的书面批准，须 Quality（及必要时 Architecture）与时限 |
 | archive isolation smoke | 历史开发检查：把允许文件复制到临时目录并重建/测试；不等于完整 clean-room |
 | network-denied clean-room alpha | 从 committed archive 在新 HOME/cache、受控 PATH 和三阶段 deny-default sandbox 中执行的开发门禁；runtime 是 exact-local-port 并另有 127.0.0.1 bind/LAN refusal；eligible host、formal handoff/session containment 与 gate-catalog EV 尚未闭合 |
 | clean-room gate | 使用内容锁定的完整 tool/runtime closure，在新 HOME/cache、受控 PATH/工具根且不可发现父 Git/path 的独立构建和测试 |

@@ -40,9 +40,10 @@ Accumulator 和 PrivateSum4 只有 target-owned Plan/typed relation IR 与 sourc
    [`docs/03-technical-spec.md`](docs/03-technical-spec.md)。
 5. 阅读当前模块规格、相关 ADR、目标档案和
    [`docs/05-test-spec.md`](docs/05-test-spec.md)。
-6. 实施前检查 [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；一次只把
-   一个任务置为 `in_progress`。
-7. 声称完成前检查 traceability、验证证据和 review report。
+6. 实施前检查 [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) 与
+   [`docs/governance/task-freeze.md`](docs/governance/task-freeze.md)；一次只把
+   一个任务置为 `in_progress`，且必须已有冻结完成包。
+7. 声称完成前检查 traceability、验证证据和 review report；完成面不得相对冻结包变胖。
 
 ## Non-Negotiable Boundaries
 
@@ -55,14 +56,19 @@ Accumulator 和 PrivateSum4 只有 target-owned Plan/typed relation IR 与 sourc
 - 每个 materializer 保留关联 `Plan` 和 `TargetIR` 类型；不得擦除成 `Unit`、字符串或 JSON。
 - V2 禁止依赖 `active/` 归档（旧 v1）、`ProofForge.*` import、旧制品、旧二进制、symlink 或运行时回退。
 - 仓库根即 V2 产品树；`active/` 仅为研究/参考归档，不得作为 oracle、兼容入口或失败回退。
+- **全部 `TASK-*` 遵守全局任务冻结**（`GOV-TASK-FREEZE-001`）：`in_progress`/`done` 禁止
+  扩大 Output/Tests/Dependencies/Prerequisites 或 Done 语义；新缺口只能修实现、`blocked`、
+  新任务或书面 Freeze Exception，禁止回填当前任务；不得自动递增 A0/Dx 任务行。
 
 ## Execution Protocol
 
 1. 对照代码、规格和实际工具链复核任务输入。
 2. 严格按 [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) 的依赖顺序选择任务，并且
-   只标记一个 `in_progress`；不得仅依据本文件的 checkpoint 自动发散新 `TASK-A0-*`。
-3. 先提交失败的验收测试或可执行验证脚本。
-4. 实现满足规格的最小切片，遇到规格缺口先改规格并重新评审。
+   只标记一个 `in_progress`；开工前写入冻结完成包（见
+   [`docs/governance/task-freeze.md`](docs/governance/task-freeze.md)）；不得仅依据本文件的
+   checkpoint 自动发散新 `TASK-A0-*` 或改胖当前任务完成面。
+3. 先提交失败的验收测试或可执行验证脚本（Tests 集合以冻结包为准，执行中不得追加 TST）。
+4. 实现满足规格的最小切片，遇到规格缺口先改规格并重新评审；规格变化不得静默扩大完成面。
 5. 运行聚焦测试；合并前运行完整 V2 gate。当前 `isolated-check`/
    `v2-clean-room-alpha` 会隔离 HOME/cache、限制网络并拒绝父仓库访问，Lean/external tool
    都从锁定 cache 离线物化，non-system dylib closure 已锁定；H0 会先做本地、时点性的
@@ -71,8 +77,10 @@ Accumulator 和 PrivateSum4 只有 target-owned Plan/typed relation IR 与 sourc
    gate-catalog-bound formal evidence 尚未闭合，所以仍不是正式
    hermetic clean-room gate，不得混称。
 6. 检查不支持的声明、`active/`/v1 泄漏、非确定制品、无关变更和生成垃圾。
-7. 同一变更中更新 task、traceability、evidence、implementation log 和 checkpoint。
-8. 交接时给出精确文件、命令、结果、限制和下一任务。
+7. 同一变更中更新 task、traceability、evidence、implementation log 和 checkpoint；**不得**在
+   更新 checkpoint 时追加任务完成条件。
+8. 交接时给出精确文件、命令、结果、限制和下一任务；若触碰冻结包超时阈值，先做
+   Close/Split/Block/Exception triage。
 
 正式 Stage-0 证据只能由调用者直接执行
 `/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible`。

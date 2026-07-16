@@ -3,7 +3,7 @@ id: GOV-AUTH-001
 title: 权威、角色与批准
 status: proposed
 owner: maintainers
-updated: 2026-07-15
+updated: 2026-07-17
 normative: true
 ---
 
@@ -34,3 +34,15 @@ normative: true
 - Emergency disable：Security + Release，可先禁用后在 24h 内补 ADR/记录。
 
 批准必须记录 commit、日期、review link、开放 finding；聊天口头同意不算 accepted。
+
+## 任务冻结相关批准
+
+全局任务完成面规则见 [`task-freeze.md`](task-freeze.md)。
+
+| 事项 | 批准 |
+|---|---|
+| 任务开工冻结完成包 | 执行者自检 + 抽检由 Quality；无需额外仪式 |
+| Freeze Exception（扩大 `in_progress` 完成面） | Quality；涉及语义边界时加 Architecture |
+| Milestone 任务 ID 集合增行 | Architecture + Quality |
+| 超时强制 `blocked` | Quality |
+| 将 formal task 标 `done` | 仍受 trace/EV/prerequisite 与本矩阵其他角色约束 |

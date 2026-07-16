@@ -3,7 +3,7 @@ id: PHASE-4
 title: 实施任务拆解
 status: proposed
 owner: engineering
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
 ---
 
@@ -13,6 +13,21 @@ normative: true
 `in_progress`、`blocked`、`done`，同一时刻只能有一项 `in_progress`。
 表中依赖是任务完成依赖；前置任务未完成时可以收集明确标注的 pre-acceptance evidence，
 但不能据此把正式任务标为 `done`。
+
+## 全局任务冻结（所有 TASK，强制）
+
+全部任务遵守 [`governance/task-freeze.md`](governance/task-freeze.md)
+（`GOV-TASK-FREEZE-001`）：
+
+1. **`pending` → `in_progress` 前**必须具备冻结完成包（output / tests / inScope /
+   outOfScope / doneWhen）。  
+2. **`in_progress` 与 `done` 禁止完成面变胖**（不得改 Output/Tests/Dependencies/
+   Prerequisites 语义，不得在 AGENTS/checkpoint 追加“还必须…”）。  
+3. **新缺口**只能：修实现、标 `blocked`、开新 task、或书面 Freeze Exception——禁止回填当前任务。  
+4. **A0** 已冻结到 `TASK-A0-20`；**D0** 执行基线为 `TASK-D0-01`…`TASK-D0-07`；milestone
+   增行须 Architecture + Quality 批准。  
+5. 超时（默认 3 日或 20 个 task-owned commits）必须 24h 内 triage：Close / Split / Block /
+   Exception。
 
 任务选择以本文件为准，`AGENTS.md` 只镜像当前指针。新增 pre-acceptance task 必须先在本文件
 说明为什么既有 Milestone 任务不能承载该工作；不得由 checkpoint 的 `Next task` 自动递增
