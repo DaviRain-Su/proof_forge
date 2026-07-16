@@ -115,6 +115,14 @@
       "impact": "Phase 1 rejects unconstrained/foreign-oracle lowering unless a separate soundness proof is accepted."
     },
     {
+      "id": "CLM-NOIR-003",
+      "claim": "Noir native u64 inputs are range-constrained fixed-width integers and live ordinary u64 addition fails on overflow, but unused overflow computations may be removed; pub controls verifier-visible input disclosure.",
+      "kind": "fact",
+      "status": "verified",
+      "sources": ["SRC-NOIR-003", "SRC-NOIR-004", "SRC-NOIR-005"],
+      "impact": "The source-only profile preserves public/private visibility and rejects checked additions that are not live into a final relation assertion, instead of losing overflow through dead-code elimination or unconstrained Field arithmetic."
+    },
+    {
       "id": "CLM-OVM-001",
       "claim": "OpenVM proves execution of a guest compiled through RV32IM ELF/VmExe and offers application, STARK and EVM proof workflows.",
       "kind": "fact",

@@ -16,6 +16,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.Loader,
     `Tests.Materialization.Targets,
     `Tests.Materialization.NearHostModel,
+    `Tests.Materialization.NoirRelationModel,
     `Tests.CLI.Emit
   ]
 

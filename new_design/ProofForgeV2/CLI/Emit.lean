@@ -118,7 +118,7 @@ private def finalize (target : TargetId) (outputDir : FilePath) (programName : S
     }
   | .noir => pure {
       deployable := false
-      evidence := "nargo/bb are not present; Noir source and witness inputs were emitted without a proof"
+      evidence := "no approved and digest-pinned Noir compiler/proving backend is configured; relation source/schema were emitted without ACIR, witness execution, proof, or verification"
     }
   | other => pure {
       deployable := false

@@ -38,7 +38,9 @@ V2 当前完成了文档/规格基线和一个不可发布的 alpha 骨架。alp
 Counter 与 Accumulator 已通过 target-owned Plan/recipe、精确 WAT/Wasm 和 `wat2wasm`
 结构验证，但尚无 sandbox receipt 证据；Solana 当前只有 typed `.sbpf-plan` 与 IDL、没有
 sBPF instructions/object/ELF/runtime
-证据；Noir 当前只有 source 与 Prover input、没有 ACIR/proof/VK/verify 证据。生命周期状态以
+证据；Noir 当前为 source-only：Counter、Accumulator 与 PrivateSum4 经过 target-owned
+Plan/typed relation IR 生成逐 relation 的 `.nr` package 和 disclosure/continuity interface，
+但没有锁定 Nargo/Barretenberg，也没有 ACIR/witness/proof/VK/verify 证据。生命周期状态以
 [`docs/document-status.md`](docs/document-status.md) 为准，研发入口是
 [`AGENTS.md`](AGENTS.md)，文档导航位于 [`docs/index.md`](docs/index.md)。
 

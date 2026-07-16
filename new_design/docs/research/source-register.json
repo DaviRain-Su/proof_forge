@@ -277,6 +277,45 @@
       "status": "verified"
     },
     {
+      "id": "SRC-NOIR-003",
+      "title": "Noir Documentation: Data Types and Public Inputs",
+      "authority": "official",
+      "url": "https://noir-lang.org/docs/noir/concepts/data_types",
+      "version": "current documentation",
+      "locator": "function input visibility; pub marks verifier-visible inputs and unmarked inputs are private",
+      "accessedAt": "2026-07-16",
+      "contentHash": null,
+      "hashStatus": "not_snapshotted",
+      "license": "repository license applies",
+      "status": "verified"
+    },
+    {
+      "id": "SRC-NOIR-004",
+      "title": "Noir Documentation: Integers",
+      "authority": "official",
+      "url": "https://noir-lang.org/docs/noir/concepts/data_types/integers",
+      "version": "current documentation",
+      "locator": "fixed-width integer ranges, checked overflow, and warning that unused overflow computations may be removed",
+      "accessedAt": "2026-07-16",
+      "contentHash": null,
+      "hashStatus": "not_snapshotted",
+      "license": "repository license applies",
+      "status": "verified"
+    },
+    {
+      "id": "SRC-NOIR-005",
+      "title": "Noir Documentation: Assert",
+      "authority": "official",
+      "url": "https://noir-lang.org/docs/noir/concepts/assert",
+      "version": "current documentation",
+      "locator": "assert adds a circuit constraint and fails when the condition is false",
+      "accessedAt": "2026-07-16",
+      "contentHash": null,
+      "hashStatus": "not_snapshotted",
+      "license": "repository license applies",
+      "status": "verified"
+    },
+    {
       "id": "SRC-OVM-001",
       "title": "OpenVM Book: Overview of Basic Usage",
       "authority": "official",

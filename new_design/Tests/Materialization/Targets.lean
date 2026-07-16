@@ -54,6 +54,10 @@ private partial def fullNearPlanExpr : Nat → Targets.Near.Expr
       let child := fullNearPlanExpr level
       .checkedAdd child child
 
+private partial def nestedNoirPlanExpr : Nat → Targets.Noir.Expr
+  | 0 => .literal 0
+  | level + 1 => .checkedAdd (nestedNoirPlanExpr level) (.literal 0)
+
 set_option maxRecDepth 10000 in
 def run : IO Unit := do
   let counter ← match Compiler.compile Examples.counter with
@@ -107,8 +111,48 @@ def run : IO Unit := do
   | .error (.unsupportedRequirement .synchronousCall .noir) => pure ()
   | _ => throw <| IO.userError "Noir must reject synchronous chain calls"
   let privateCircuit ← Targets.materialize .noir privateSum
-  expect (privateCircuit.files.any (fun file => file.path == "src/main.nr"))
+  expect (privateCircuit.files.any (fun file =>
+      file.path == "relations/r0-sum/src/main.nr"))
     "Noir must materialize the private circuit in the same DSL"
+  let privateSource ← match privateCircuit.files.find?
+      (·.path == "relations/r0-sum/src/main.nr") with
+    | some file => pure file.contents
+    | none => throw <| IO.userError "PrivateSum4 Noir source is missing"
+  expect (privateSource ==
+      "fn main(arg_p0: u64, arg_p1: u64, arg_p2: u64, arg_p3: u64, result: pub u64) {\n" ++
+      "    let t0: u64 = arg_p0 + arg_p1;\n" ++
+      "    let t1: u64 = t0 + arg_p2;\n" ++
+      "    let t2: u64 = t1 + arg_p3;\n" ++
+      "    assert(result == t2);\n" ++
+      "}\n")
+    "PrivateSum4 source must keep four private witnesses and one public result"
+  let privateInterface ← match privateCircuit.files.find?
+      (·.path == "PrivateSum4.noir-relations.json") with
+    | some file => pure file.contents
+    | none => throw <| IO.userError "PrivateSum4 Noir relation interface is missing"
+  for (sourceName, sourceId) in [("a", 0), ("b", 1), ("c", 2), ("d", 3)] do
+    expect (privateInterface.contains
+        s!"\"sourceName\":\"{sourceName}\",\"sourceId\":{sourceId},\"role\":\"parameter\",\"visibility\":\"private-witness\",\"type\":\"u64\"")
+      s!"PrivateSum4 interface must preserve private witness '{sourceName}'"
+  expect (privateInterface.contains
+      "\"name\":\"result\",\"sourceName\":\"result\",\"sourceId\":null,\"role\":\"result\",\"visibility\":\"public\",\"type\":\"u64\"")
+    "PrivateSum4 interface must expose only the declared public result"
+  let privateResolved ← liftResult <| Targets.resolve Targets.Noir.descriptor privateSum
+  let privatePlan ← liftResult <| Targets.Noir.makePlan privateResolved
+  expect (privatePlan.states.isEmpty && privatePlan.continuity == .none &&
+      privatePlan.relations.size == 1 && privatePlan.relations[0]!.name == "sum" &&
+      (privatePlan.relations[0]!.inputs.take 4).all (·.visibility == .witness) &&
+      privatePlan.relations[0]!.inputs[4]!.role == .result &&
+      privatePlan.relations[0]!.inputs[4]!.visibility == .verifier)
+    "NoirPlan must derive PrivateSum4 witness/public disclosure without a fixture shape"
+  let privateIR ← liftResult <| Targets.Noir.lower privatePlan
+  expect (privateIR.relations[0]!.operations == #[
+      .checkedAdd 0 (.input 0) (.input 1),
+      .checkedAdd 1 (.temp 0) (.input 2),
+      .checkedAdd 2 (.temp 1) (.input 3),
+      .assertEqual (.input 4) (.temp 2)
+    ])
+    "Noir typed IR must preserve every checked PrivateSum4 addition"
   match Targets.checkSupport .evm privateSum with
   | .error (.unsupportedRequirement .privateWitness .evm) => pure ()
   | _ => throw <| IO.userError "EVM must reject private witness semantics instead of exposing it"
@@ -752,6 +796,219 @@ def run : IO Unit := do
       s!"(call $pf_storage_read (i64.const 14) (i64.const {lastNearKey.offset})")
     "NEAR WAT must consume the typed key length and offset from its recipe"
 
+  let noirResolved ← liftResult <| Targets.resolve Targets.Noir.descriptor accumulator
+  let forgedNoirDescriptor := {
+    Targets.Noir.descriptor with codegenProfile := "forged-profile"
+  }
+  let forgedNoirResolved : ResolvedProgram .noir := {
+    source := accumulator
+    descriptor := forgedNoirDescriptor
+    targetMatches := rfl
+  }
+  match Targets.Noir.makePlan forgedNoirResolved with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "Noir must reject a forged resolved descriptor/profile"
+  let noirPlan ← liftResult <| Targets.Noir.makePlan noirResolved
+  expect (noirPlan.sourceHash == accumulator.sourceHash &&
+      noirPlan.semanticHash == accumulator.semanticHash &&
+      noirPlan.states == #[{ sourceId := 0, name := "total" }] &&
+      noirPlan.continuity == .externalPublicPrePost &&
+      noirPlan.proofStatus == .notProduced &&
+      noirPlan.relations.map (·.name) == #["init", "add", "current"] &&
+      noirPlan.relations.map (·.mode) == #[.initialize, .mutate, .view])
+    "NoirPlan must own the full Accumulator init/mutate/view relation catalog"
+  expect (noirPlan.relations[0]!.inputs.map (·.name) ==
+      #["pre_initialized", "arg_p0", "post_s0", "post_initialized"] &&
+      noirPlan.relations[1]!.inputs.map (·.name) ==
+        #["pre_initialized", "pre_s0", "arg_p0", "post_s0", "post_initialized", "result"] &&
+      noirPlan.relations[2]!.inputs.map (·.name) ==
+        #["pre_initialized", "pre_s0", "post_s0", "post_initialized", "result"])
+    "NoirPlan must expose lifecycle, pre/post state, parameters, and result explicitly"
+  let zeroDigest := String.ofList (List.replicate 64 '0')
+  match Targets.Noir.validatePlan { noirPlan with sourceHash := zeroDigest } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must bind its source hash into the complete Plan hash"
+  match Targets.Noir.validatePlan { noirPlan with semanticHash := zeroDigest } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must bind its semantic hash into the complete Plan hash"
+  match Targets.Noir.validatePlan { noirPlan with programName := "ForgedAccumulator" } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must bind its program identity into the complete Plan hash"
+  match Targets.Noir.validatePlan {
+      noirPlan with targetDescriptor := forgedNoirDescriptor
+    } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must reject a forged target descriptor"
+  match Targets.Noir.validatePlan {
+      noirPlan with continuity := .none
+    } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must reject erased external state continuity"
+  match Targets.Noir.validatePlan {
+      noirPlan with resourceLimits := {
+        noirPlan.resourceLimits with maxRelations := 257
+      }
+    } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must reject a forged resource envelope"
+  let excessiveNoirParams := Array.replicate
+    (noirPlan.resourceLimits.maxParams + 1) noirPlan.relations[1]!.params[0]!
+  let excessiveNoirParamRelation := {
+    noirPlan.relations[1]! with params := excessiveNoirParams
+  }
+  match Targets.Noir.validatePlan {
+      noirPlan with relations := noirPlan.relations.set! 1 excessiveNoirParamRelation
+    } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must enforce the per-relation parameter limit"
+  let forgedNoirInput := {
+    noirPlan.relations[1]!.inputs[2]! with visibility := .witness
+  }
+  let forgedNoirRelation := {
+    noirPlan.relations[1]! with
+    inputs := noirPlan.relations[1]!.inputs.set! 2 forgedNoirInput
+  }
+  match Targets.Noir.validatePlan {
+      noirPlan with relations := noirPlan.relations.set! 1 forgedNoirRelation
+    } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must reject forged public/private disclosure"
+  let forgedNoirView := {
+    noirPlan.relations[2]! with body := #[
+      .store { fieldIndex := 0, value := .literal 1 },
+      .returnValue (.stateLoad 0)
+    ]
+  }
+  match Targets.Noir.validatePlan {
+      noirPlan with relations := noirPlan.relations.set! 2 forgedNoirView
+    } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must reject a view relation that writes state"
+  let deepNoirStore := Targets.Noir.Statement.store {
+    fieldIndex := 0
+    value := nestedNoirPlanExpr (noirPlan.resourceLimits.maxExprDepth + 1)
+  }
+  let deepNoirRelation := {
+    noirPlan.relations[1]! with
+    body := noirPlan.relations[1]!.body.set! 0 deepNoirStore
+  }
+  match Targets.Noir.validatePlan {
+      noirPlan with relations := noirPlan.relations.set! 1 deepNoirRelation
+    } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "NoirPlan must reject deep expressions before hashing the Plan"
+  let noirFutureResolved ← liftResult <|
+    Targets.resolve Targets.Noir.descriptor futureSchema
+  match Targets.Noir.makePlan noirFutureResolved with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "Noir must reject unknown SemanticProgram schema versions"
+  let noirOmittedRequirementsResolved ← liftResult <|
+    Targets.resolve Targets.Noir.descriptor omittedRequirements
+  match Targets.Noir.makePlan noirOmittedRequirementsResolved with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "Noir must reject omitted canonical semantic requirements"
+  let noirNoncanonicalResolved ← liftResult <|
+    Targets.resolve Targets.Noir.descriptor noncanonicalProgram
+  match Targets.Noir.makePlan noirNoncanonicalResolved with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "Noir must reject non-canonical SemanticProgram parameter IDs"
+  let noirDeepResolved ← liftResult <|
+    Targets.resolve Targets.Noir.descriptor deepSemanticProgram
+  match Targets.Noir.makePlan noirDeepResolved with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "Noir must reject deep SemanticProgram expressions before lowering"
+
+  let noirIR ← liftResult <| Targets.Noir.lower noirPlan
+  expect (noirIR.relations[0]!.operations == #[
+      .assertBool 0 false,
+      .assertEqual (.input 2) (.input 1),
+      .assertBool 3 true
+    ])
+    "Noir initializer relation must prove zero-origin initialization and lifecycle false-to-true"
+  expect (noirIR.relations[1]!.operations == #[
+      .assertBool 0 true,
+      .checkedAdd 0 (.input 1) (.input 2),
+      .assertEqual (.input 3) (.temp 0),
+      .assertBool 4 true,
+      .assertEqual (.input 5) (.temp 0)
+    ])
+    "Noir mutate relation must bind checked add to post-state/result and lifecycle true-to-true"
+  expect (noirIR.relations[2]!.operations == #[
+      .assertBool 0 true,
+      .assertEqual (.input 2) (.input 1),
+      .assertBool 3 true,
+      .assertEqual (.input 4) (.input 1)
+    ])
+    "Noir view relation must preserve pre/post state and bind its public result"
+  let forgedNoirOperations := noirIR.relations[1]!.operations.set! 1
+    (.checkedAdd 0 (.input 1) (.literal 99))
+  let forgedNoirIRRelation := {
+    noirIR.relations[1]! with operations := forgedNoirOperations
+  }
+  match Targets.Noir.validateIR {
+      noirIR with relations := noirIR.relations.set! 1 forgedNoirIRRelation
+    } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "typed Noir IR must remain exactly bound to its source Plan"
+  let oversizedNoirIRRelation := {
+    noirIR.relations[1]! with
+    tempCount := noirPlan.resourceLimits.maxIrOperations + 1
+  }
+  match Targets.Noir.validateIR {
+      noirIR with relations := noirIR.relations.set! 1 oversizedNoirIRRelation
+    } with
+  | .error (.planInvariant .noir _) => pure ()
+  | _ => throw <| IO.userError "typed Noir IR must stop at the operation resource limit"
+  let deadInitializerArithmetic ← liftResult <| Compiler.compile <| Source.Program.build
+    "DeadInitializerArithmetic" #[
+      .stateDecl { name := "total", type := .u64 },
+      .initializer {
+        params := #[{ name := "seed", type := .u64 }]
+        body := #[
+          .assign "total" (.checkedAdd
+            (.literal (UInt64.ofNat 18446744073709551615)) (.literal 1)),
+          .assign "total" (.variable "seed")
+        ]
+      },
+      .entry {
+        name := "current"
+        params := #[]
+        result := .u64
+        mode := .view
+        body := #[.returnValue (.variable "total")]
+      }
+    ]
+  match Targets.materializeResult .noir deadInitializerArithmetic with
+  | .error (.planInvariant .noir message) =>
+      expect (message.contains "dead checked arithmetic")
+        "Noir must explain why overwritten initializer arithmetic is rejected"
+  | _ => throw <| IO.userError "Noir must reject overwritten initializer arithmetic whose overflow could be eliminated"
+  let deadMutationArithmetic ← liftResult <| Compiler.compile <| Source.Program.build
+    "DeadMutationArithmetic" #[
+      .stateDecl { name := "total", type := .u64 },
+      .initializer {
+        params := #[{ name := "seed", type := .u64 }]
+        body := #[.assign "total" (.variable "seed")]
+      },
+      .entry {
+        name := "overwrite"
+        params := #[]
+        result := .u64
+        mode := .mutate
+        body := #[
+          .assign "total" (.checkedAdd
+            (.literal (UInt64.ofNat 18446744073709551615)) (.literal 1)),
+          .assign "total" (.literal 0),
+          .returnValue (.literal 0)
+        ]
+      }
+    ]
+  match Targets.materializeResult .noir deadMutationArithmetic with
+  | .error (.planInvariant .noir message) =>
+      expect (message.contains "dead checked arithmetic")
+        "Noir must explain why overwritten mutate arithmetic is rejected"
+  | _ => throw <| IO.userError "Noir must reject overwritten mutate arithmetic whose overflow could be eliminated"
+
   -- The same supported semantic fragment must compile even when its business
   -- body is not the checked Counter transition.
   let differentOutput ← Targets.materialize .evm differentLogic
@@ -777,9 +1034,17 @@ def run : IO Unit := do
   expect (differentNearWat.contains "i64.const 99")
     "NEAR lowering must preserve a literal return from SemanticProgram"
 
-  match Targets.materializeResult .noir differentLogic with
-  | .error (.planInvariant .noir _) => pure ()
-  | _ => throw <| IO.userError "Noir must reject lookalike programs with different business logic"
+  let differentNoirOutput ← Targets.materialize .noir differentLogic
+  let differentNoirMutation ← match differentNoirOutput.files.find?
+      (·.path == "relations/r1-increment/src/main.nr") with
+    | some file => pure file.contents
+    | none => throw <| IO.userError "Noir different-logic program must emit a mutate relation"
+  expect (differentNoirMutation.contains "assert(post_s0 == pre_s0);" &&
+      differentNoirMutation.contains "assert(result == 99);")
+    "Noir lowering must preserve literal return and unchanged state instead of matching Counter"
+  expect (differentNoirOutput.files.any
+      (·.path == "relations/r2-get/src/main.nr"))
+    "Noir lowering must materialize the view relation instead of silently dropping it"
 
   let nearAccumulator ← Targets.materialize .near accumulator
   expect (nearAccumulator.files.any (·.path == "Accumulator.wat"))
@@ -788,8 +1053,12 @@ def run : IO Unit := do
     "NEAR Accumulator must emit target-derived ABI"
 
   match Targets.materializeResult .noir accumulator with
-  | .error (.planInvariant .noir _) => pure ()
-  | _ => throw <| IO.userError "Noir is not yet generalized for Accumulator"
+  | .ok output =>
+      expect (output.files.any (·.path == "relations/r1-add/src/main.nr") &&
+          output.files.any (·.path == "Accumulator.noir-relations.json"))
+        "Noir Accumulator must emit a target-owned external-state transition circuit"
+  | .error error =>
+      throw <| IO.userError s!"Noir must lower Accumulator semantics: {error.render}"
 
   match Targets.materializeResult .solana accumulator with
   | .ok output =>

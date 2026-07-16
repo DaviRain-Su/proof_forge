@@ -1,4 +1,5 @@
 import ProofForgeV2.CLI.Emit
+import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
 

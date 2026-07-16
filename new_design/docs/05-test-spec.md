@@ -160,6 +160,42 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   receipt、部署/调用观测、overflow rollback 观测、JSON ABI、Promise/callback 或跨 receipt
   workflow 证据；不得从 typed recipe、WAT、`wat2wasm` 成功或 raw ABI metadata 推断这些能力。
 
+### Noir 通用 UInt64 relation/source 首个验收切片
+
+- `TST-NOIR-001`：`NoirPlan` 必须拥有 exact descriptor/schema/profile、source dialect、
+  source/semantic/complete-Plan hash、state bindings、完整 relation catalog、disclosure、failure/proof/
+  continuity/resource policy；不得保存或重新读取整个 `SemanticProgram`。有状态程序必须有且
+  只有一个首位 initializer；initializer、mutate、view 分别成为独立 relation，不允许 selector
+  或 inactive witness 把不同生命周期折叠为一个电路。forged descriptor/profile/hash、未知
+  Semantic schema、非 canonical requirements/ID、重复 relation/state、悬空引用、view write、
+  commitment-only input 和超过资源上限必须 fail closed。
+- `TST-NOIR-002`：除 Counter/PrivateSum4 外，`Accumulator` 的 `total`、`seed`、
+  `add(amount)`、`current()` 必须逐项映射；生产路径不得调用 fixture shape matcher、按
+  program/entry 名字特判或静默丢弃 initializer/view。initializer 显式约束
+  `pre_initialized=false`、零起始业务状态、post-state 与 `post_initialized=true`；mutate/view
+  约束 `true → true`，view 必须保持全部 state，mutate 必须把顺序 store 的最终值同时绑定到
+  post-state/result。
+- `TST-NOIR-003`：Plan 必须先降为 target-owned typed relation IR，再渲染 source；IR 只含
+  typed input/literal/temp references、native checked `u64` addition、equality 与 Bool assertion，
+  并在 emit 前验证是 Plan 的 exact lowering。每个 relation 输出独立
+  `relations/<index-name>/{Nargo.toml,src/main.nr}`；根 interface 精确记录 input role/type/
+  visibility、external continuity、`proofStatus=not-produced`。artifact validator 必须拒绝
+  symlink、非 regular/unexpected tree、任何 ACIR/witness/proof/VK/verify suffix，并核对
+  Accumulator 与其他目标的 source/semantic hash。
+- Noir 官方说明 unused integer computation 可能被优化删除并不产生 overflow。当前 source
+  profile 必须反向证明每个 checked-add temp 都传递到最终 post-state/result equality；initializer
+  或 mutate 中先 checked-add、随后覆盖 store 的 dead arithmetic 必须 fail closed，直到引入并
+  由 Nargo 验证不可消除的显式 overflow constraint。不能因为正常 Accumulator 的 add 是 live
+  就声称所有顺序 body 都保持 checked-overflow 语义。
+- 当前纯 Lean relation model 至少覆盖 Counter/Accumulator lifecycle、错误 initialized flag、
+  错误 post-state/result、`7 + 5 = 12`、`UInt64.max + 1` 失败、view state preservation，以及
+  PrivateSum4 public/private disclosure 正反例。它只验证 typed constraint recipe，不是 Nargo、
+  ACIR、witness generation、proof 或 settlement 证据。
+- `TST-NOIR-004/005/006` 在 exact Nargo/noirc/proving-backend/CRS lock、真实 compile、valid/
+  invalid witness、prove/verify 和隐私 artifact scan 完成前保持未闭合。当前 manifest 必须是
+  `source-only`、`deployable=false`，不得生成虚构输入的 `Prover.toml`，也不得把 `.nr` 成功
+  物化写成 ACIR 或 proof 完成。
+
 ## 边界与攻击用例
 
 - 空/多程序、重复名字、Unicode normalization、非法 UTF-8、最大 nesting/node count。

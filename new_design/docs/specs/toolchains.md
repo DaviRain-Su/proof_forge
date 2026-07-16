@@ -3,7 +3,7 @@ id: SPEC-TOOL-001
 title: 工具链锁定规格
 status: proposed
 owner: build
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -140,7 +140,9 @@ library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
 - `solana-sbpf-plan-v1`：Lean typed audit-plan/IDL 已锁；没有 approved assembler，
   sBPF instructions、object/ELF 与 runtime 均未验证。
 - `near-wasm-raw-u64-v1`：WABT + libcrypto bundle；sandbox runtime 未验证。
-- `noir-acir-bb-v1`：仅 Lean source materialization；Nargo/BB 未冻结。
+- `noir-source-u64-relations-v1`：仅由锁定 Lean 编译器生成 typed relation schema 与
+  independent Noir source packages；Nargo/noirc、Barretenberg 与 CRS 均未冻结，所以不生成
+  ACIR/witness/proof/VK/verify evidence，不允许把 package 的宽松 version range 当成 binary pin。
 
 ## 错误与验收
 

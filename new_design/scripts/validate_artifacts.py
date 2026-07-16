@@ -289,7 +289,7 @@ def validate_solana_accumulator(root: Path, evm_manifest: dict) -> dict:
 
 def validate_near_accumulator(
     root: Path, evm_manifest: dict, solana_manifest: dict
-) -> None:
+) -> dict:
     output = root / "near-accumulator"
     manifest_path = output / "manifest.json"
     evidence_path = output / "evidence.json"
@@ -494,6 +494,221 @@ def validate_near_accumulator(
     wasm_digest = hashlib.sha256(wasm).hexdigest()
     if wasm_digest != "c1c835420646f8028bbca137f5866858f421c7afe01c2644a6cbe26c97da1b78":
         raise SystemExit(f"NEAR Accumulator Wasm digest is invalid: {wasm_digest}")
+    return manifest
+
+
+def validate_noir_bundle(
+    root: Path,
+    directory: str,
+    program: str,
+    state_name: str,
+    init_param: str,
+    mutate_name: str,
+    mutate_param: str,
+    view_name: str,
+    plan_hash: str,
+    peer_manifests=(),
+) -> dict:
+    output = root / directory
+    interface_name = f"{program}.noir-relations.json"
+    relation_stems = ("r0-init", f"r1-{mutate_name}", f"r2-{view_name}")
+    logical_files = [interface_name]
+    for stem in relation_stems:
+        logical_files.extend(
+            [f"relations/{stem}/src/main.nr", f"relations/{stem}/Nargo.toml"]
+        )
+    expected_files = {"manifest.json", "evidence.json", *logical_files}
+    expected_dirs = {"relations"}
+    for stem in relation_stems:
+        expected_dirs.update({f"relations/{stem}", f"relations/{stem}/src"})
+
+    if not output.is_dir() or output.is_symlink():
+        raise SystemExit(f"missing or non-regular Noir bundle directory: {output}")
+    actual_files: set[str] = set()
+    actual_dirs: set[str] = set()
+    for path in output.rglob("*"):
+        relative = str(path.relative_to(output))
+        if path.is_symlink():
+            raise SystemExit(f"Noir bundle contains a symlink: {directory}/{relative}")
+        if path.is_dir():
+            actual_dirs.add(relative)
+        elif path.is_file():
+            actual_files.add(relative)
+        else:
+            raise SystemExit(f"Noir bundle contains a non-regular entry: {directory}/{relative}")
+    if actual_files != expected_files or actual_dirs != expected_dirs:
+        raise SystemExit(
+            f"Noir {program} physical tree is invalid: "
+            f"files={sorted(actual_files)} dirs={sorted(actual_dirs)}"
+        )
+    forbidden_suffixes = {".acir", ".proof", ".vk", ".witness"}
+    forbidden = sorted(
+        relative for relative in actual_files if Path(relative).suffix.lower() in forbidden_suffixes
+    )
+    if forbidden:
+        raise SystemExit(f"Noir source-only bundle contains proof-stage artifacts: {forbidden}")
+
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    for digest_name in ("sourceHash", "semanticHash"):
+        if not re.fullmatch(r"[0-9a-f]{64}", manifest.get(digest_name, "")):
+            raise SystemExit(f"Noir {program} manifest has invalid {digest_name}")
+    expected_manifest = {
+        "schemaVersion": "proof-forge-output/v2alpha1",
+        "target": "noir",
+        "codegenProfile": "noir-source-u64-relations-v1",
+        "sourceHash": manifest["sourceHash"],
+        "semanticHash": manifest["semanticHash"],
+        "deployable": False,
+        "files": logical_files,
+    }
+    if manifest != expected_manifest:
+        raise SystemExit(f"Noir {program} manifest is invalid: {manifest}")
+    for peer_name, peer_manifest in peer_manifests:
+        for digest_name in ("sourceHash", "semanticHash"):
+            if manifest[digest_name] != peer_manifest[digest_name]:
+                raise SystemExit(
+                    f"{program} {digest_name} differs between Noir and {peer_name}: "
+                    f"{manifest[digest_name]} != {peer_manifest[digest_name]}"
+                )
+
+    evidence = json.loads((output / "evidence.json").read_text(encoding="utf-8"))
+    expected_evidence = {
+        "target": "noir",
+        "sourceHash": manifest["sourceHash"],
+        "semanticHash": manifest["semanticHash"],
+        "deployable": False,
+        "note": (
+            "no approved and digest-pinned Noir compiler/proving backend is configured; "
+            "relation source/schema were emitted without ACIR, witness execution, proof, "
+            "or verification"
+        ),
+    }
+    if evidence != expected_evidence:
+        raise SystemExit(f"Noir {program} evidence is invalid: {evidence}")
+
+    def input_binding(
+        name: str,
+        source_name: str,
+        role: str,
+        value_type: str,
+        source_id=None,
+    ) -> dict:
+        return {
+            "name": name,
+            "sourceName": source_name,
+            "sourceId": source_id,
+            "role": role,
+            "visibility": "public",
+            "type": value_type,
+        }
+
+    init_inputs = [
+        input_binding("pre_initialized", "initialized", "pre-initialized", "bool"),
+        input_binding("arg_p0", init_param, "parameter", "u64", 0),
+        input_binding("post_s0", state_name, "post-state", "u64", 0),
+        input_binding("post_initialized", "initialized", "post-initialized", "bool"),
+    ]
+    mutate_inputs = [
+        input_binding("pre_initialized", "initialized", "pre-initialized", "bool"),
+        input_binding("pre_s0", state_name, "pre-state", "u64", 0),
+        input_binding("arg_p0", mutate_param, "parameter", "u64", 0),
+        input_binding("post_s0", state_name, "post-state", "u64", 0),
+        input_binding("post_initialized", "initialized", "post-initialized", "bool"),
+        input_binding("result", "result", "result", "u64"),
+    ]
+    view_inputs = [
+        input_binding("pre_initialized", "initialized", "pre-initialized", "bool"),
+        input_binding("pre_s0", state_name, "pre-state", "u64", 0),
+        input_binding("post_s0", state_name, "post-state", "u64", 0),
+        input_binding("post_initialized", "initialized", "post-initialized", "bool"),
+        input_binding("result", "result", "result", "u64"),
+    ]
+    expected_interface = {
+        "schema": "proof-forge-noir-relations/v1alpha1",
+        "program": program,
+        "codegenProfile": "noir-source-u64-relations-v1",
+        "sourceDialect": "noir-native-u64-relations-v1",
+        "sourceHash": manifest["sourceHash"],
+        "semanticHash": manifest["semanticHash"],
+        "planHash": plan_hash,
+        "artifactKind": "source-only",
+        "stateContinuity": "external-public-pre-post",
+        "arithmetic": "native-checked-u64",
+        "proofStatus": "not-produced",
+        "relations": [
+            {
+                "index": 0,
+                "name": "init",
+                "mode": "initialize",
+                "package": "relations/r0-init",
+                "operationCount": 3,
+                "inputs": init_inputs,
+            },
+            {
+                "index": 1,
+                "name": mutate_name,
+                "mode": "mutate",
+                "package": f"relations/r1-{mutate_name}",
+                "operationCount": 5,
+                "inputs": mutate_inputs,
+            },
+            {
+                "index": 2,
+                "name": view_name,
+                "mode": "view",
+                "package": f"relations/r2-{view_name}",
+                "operationCount": 4,
+                "inputs": view_inputs,
+            },
+        ],
+    }
+    interface = json.loads((output / interface_name).read_text(encoding="utf-8"))
+    if interface != expected_interface:
+        raise SystemExit(f"Noir {program} relation interface is invalid: {interface}")
+
+    expected_sources = {
+        "r0-init": (
+            "fn main(pre_initialized: pub bool, arg_p0: pub u64, post_s0: pub u64, "
+            "post_initialized: pub bool) {\n"
+            "    assert(pre_initialized == false);\n"
+            "    assert(post_s0 == arg_p0);\n"
+            "    assert(post_initialized == true);\n"
+            "}\n"
+        ),
+        f"r1-{mutate_name}": (
+            "fn main(pre_initialized: pub bool, pre_s0: pub u64, arg_p0: pub u64, "
+            "post_s0: pub u64, post_initialized: pub bool, result: pub u64) {\n"
+            "    assert(pre_initialized == true);\n"
+            "    let t0: u64 = pre_s0 + arg_p0;\n"
+            "    assert(post_s0 == t0);\n"
+            "    assert(post_initialized == true);\n"
+            "    assert(result == t0);\n"
+            "}\n"
+        ),
+        f"r2-{view_name}": (
+            "fn main(pre_initialized: pub bool, pre_s0: pub u64, post_s0: pub u64, "
+            "post_initialized: pub bool, result: pub u64) {\n"
+            "    assert(pre_initialized == true);\n"
+            "    assert(post_s0 == pre_s0);\n"
+            "    assert(post_initialized == true);\n"
+            "    assert(result == pre_s0);\n"
+            "}\n"
+        ),
+    }
+    for index, stem in enumerate(relation_stems):
+        source = (output / f"relations/{stem}/src/main.nr").read_text(encoding="utf-8")
+        if source != expected_sources[stem]:
+            raise SystemExit(f"Noir {program} relation source is invalid: {stem}")
+        package = (output / f"relations/{stem}/Nargo.toml").read_text(encoding="utf-8")
+        expected_package = (
+            "[package]\n"
+            f'name = "pf_relation_{index}"\n'
+            'type = "bin"\n'
+            'authors = ["ProofForge V2"]\n'
+        )
+        if package != expected_package:
+            raise SystemExit(f"Noir {program} package manifest is invalid: {stem}")
+    return manifest
 
 
 def main() -> None:
@@ -515,9 +730,37 @@ def main() -> None:
         raise SystemExit("Solana must remain non-deployable until an sBPF ELF is produced")
     if manifests["noir"]["deployable"]:
         raise SystemExit("Noir must remain non-deployable until nargo/bb proof evidence exists")
+    validate_noir_bundle(
+        root,
+        "noir",
+        "Counter",
+        "count",
+        "initial",
+        "increment",
+        "delta",
+        "get",
+        "58b2284d251426cbf9e6aa8201a851fdcb473f2b4458d50b35c87d6817360e44",
+        (("EVM", manifests["evm"]), ("Solana", manifests["solana"]), ("NEAR", manifests["near"])),
+    )
     evm_accumulator = validate_evm_accumulator(root)
     solana_accumulator = validate_solana_accumulator(root, evm_accumulator)
-    validate_near_accumulator(root, evm_accumulator, solana_accumulator)
+    near_accumulator = validate_near_accumulator(root, evm_accumulator, solana_accumulator)
+    validate_noir_bundle(
+        root,
+        "noir-accumulator",
+        "Accumulator",
+        "total",
+        "seed",
+        "add",
+        "amount",
+        "current",
+        "974f2a6a94109b982215b6aae0df34accc454674807748c69c466c0127d67917",
+        (
+            ("EVM", evm_accumulator),
+            ("Solana", solana_accumulator),
+            ("NEAR", near_accumulator),
+        ),
+    )
     print("artifact-validation: ok")
 
 

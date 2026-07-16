@@ -24,7 +24,7 @@ normative: true
 | `cosmwasm` | Wasm host | design only | transaction profile provisional | [CosmWasm](04-cosmwasm.md) |
 | `soroban` | Wasm host | design only | official model verified | [Soroban](05-soroban.md) |
 | `icp` | Wasm actor host | design only | official model verified | [ICP](06-icp.md) |
-| `noir` | circuit compiler | Phase 1 implement | `source-only`：`.nr`/Prover input；无 ACIR/prove/verify | [Noir](07-noir.md) |
+| `noir` | circuit compiler | Phase 1 implement | `source-only`：Counter/Accumulator/PrivateSum4 relation packages；无 Nargo/ACIR/prove/verify | [Noir](07-noir.md) |
 | `openvm` | zkVM | design only | version line provisional | [OpenVM](08-openvm.md) |
 | `aleo` | ZK application chain | design only | Leo 4.0 model verified | [Aleo](09-aleo.md) |
 | `psy` | ZK application chain | research only | pre-testnet/live workflow provisional | [Psy](10-psy.md) |

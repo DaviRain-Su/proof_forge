@@ -17,6 +17,8 @@ for run in a b; do
     --target solana -o "build/repro/$run/solana-accumulator"
   lake env "$compiler" build Examples/Accumulator.lean --program Examples.Accumulator \
     --target near -o "build/repro/$run/near-accumulator"
+  lake env "$compiler" build Examples/Accumulator.lean --program Examples.Accumulator \
+    --target noir -o "build/repro/$run/noir-accumulator"
 done
 
 /usr/bin/python3 -I -S "$root/scripts/check_reproducibility.py" \
