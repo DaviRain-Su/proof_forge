@@ -76,7 +76,7 @@ def main() -> int:
         raise AssertionError("invoke this test with isolated Python using -I -S")
     module = load_gate_evidence()
     with tempfile.TemporaryDirectory(prefix="proof-forge-evfinal-") as temporary:
-        temporary_root = Path(temporary)
+        temporary_root = Path(temporary).resolve(strict=True)
         bundle_root = temporary_root / "formal-bundle"
         bundle_root.mkdir(mode=0o700)
         write_formal_bundle(module, bundle_root)

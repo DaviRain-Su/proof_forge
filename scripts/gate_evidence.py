@@ -1218,6 +1218,106 @@ def _read_open_file(descriptor: int, maximum: int) -> bytes:
     return b"".join(chunks)
 
 
+def _read_bundle_relative_file(
+    root_path: Path,
+    relative_path: str,
+    *,
+    maximum: int,
+) -> tuple[bytes, os.stat_result]:
+    """Read one bounded bundle-relative file through a stable no-follow fd chain."""
+    checked_path = require_relative_path(relative_path, "EVIDENCE")
+    root = _open_secure_directory(root_path, "BUNDLE_ROOT")
+    current = os.dup(root)
+    descriptor: int | None = None
+    try:
+        components = checked_path.split("/")
+        for component in components[:-1]:
+            try:
+                following = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                    dir_fd=current,
+                )
+            except OSError as exc:
+                fail(
+                    "PF-EVIDENCE-BUNDLE",
+                    f"cannot safely open evidence component {_diagnostic_repr(component)}: "
+                    f"{exc.strerror}",
+                )
+            try:
+                _require_secure_directory(
+                    os.fstat(following),
+                    f"evidence component {_diagnostic_repr(component)}",
+                    final=True,
+                )
+            except BaseException:
+                os.close(following)
+                raise
+            os.close(current)
+            current = following
+        name = components[-1]
+        try:
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                dir_fd=current,
+            )
+        except OSError as exc:
+            fail(
+                "PF-EVIDENCE-BUNDLE",
+                f"cannot safely open evidence file {_diagnostic_repr(checked_path)}: "
+                f"{exc.strerror}",
+            )
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or before.st_nlink != 1
+            or stat.S_IMODE(before.st_mode) & 0o022
+            or before.st_size > maximum
+        ):
+            fail(
+                "PF-EVIDENCE-BUNDLE",
+                f"evidence file metadata mismatch: {_diagnostic_repr(checked_path)}",
+            )
+        data = _read_open_file(descriptor, maximum)
+        after = os.fstat(descriptor)
+        try:
+            path_after = os.stat(name, dir_fd=current, follow_symlinks=False)
+        except OSError as exc:
+            fail(
+                "PF-EVIDENCE-BUNDLE",
+                f"cannot restat evidence file {_diagnostic_repr(checked_path)}: "
+                f"{exc.strerror}",
+            )
+        stable = (
+            "st_dev", "st_ino", "st_mode", "st_uid", "st_nlink", "st_size",
+            "st_mtime_ns", "st_ctime_ns",
+        )
+        if (
+            len(data) != before.st_size
+            or any(getattr(before, field) != getattr(after, field) for field in stable)
+            or not _same_inode(before, path_after)
+        ):
+            fail(
+                "PF-EVIDENCE-BUNDLE",
+                f"evidence file changed while reading: {_diagnostic_repr(checked_path)}",
+            )
+        return data, before
+    except EvidenceError:
+        raise
+    except OSError as exc:
+        fail(
+            "PF-EVIDENCE-BUNDLE",
+            f"evidence file I/O failed for {_diagnostic_repr(checked_path)}: {exc.strerror}",
+        )
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(current)
+        os.close(root)
+
+
 def _cleanup_link(directory: int, name: str) -> None:
     try:
         os.unlink(name, dir_fd=directory)
@@ -2322,6 +2422,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     publish_parser.add_argument("input")
     publish_parser.add_argument("output")
+    finalizer_parser = subparsers.add_parser(
+        "finalize-development",
+        help="finalize one development gate against an exact retained catalog bundle",
+    )
+    finalizer_parser.add_argument("--catalog", required=True)
+    finalizer_parser.add_argument("--catalog-sha256", required=True)
+    finalizer_parser.add_argument("--catalog-digest", required=True)
+    finalizer_parser.add_argument("--run-binding-sha256", required=True)
+    finalizer_parser.add_argument("--evidence", required=True)
+    finalizer_parser.add_argument("--bundle-root", required=True)
+    finalizer_parser.add_argument("--output", required=True)
     subparsers.add_parser("self-test", help="run positive, negative, and atomicity tests")
     return parser
 
@@ -2362,6 +2473,26 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"development-schema-published {document['id']} claims-not-verified {output_path} "
                 f"sha256={hashlib.sha256(encoded).hexdigest()} size={len(encoded)}"
+            )
+        elif arguments.command == "finalize-development":
+            bundle_root = _normalized_cli_directory(arguments.bundle_root, "BUNDLE_ROOT")
+            evidence_relative = require_relative_path(arguments.evidence, "EVIDENCE")
+            evidence_bytes, _ = _read_bundle_relative_file(
+                bundle_root,
+                evidence_relative,
+                maximum=MAX_INPUT_BYTES,
+            )
+            evidence_value = decode_json(evidence_bytes)
+            document = validate_evidence(evidence_value)
+            if canonical_bytes(document) != evidence_bytes:
+                fail(
+                    "PF-EVIDENCE-NONCANONICAL",
+                    "evidence bytes are not canonical ASCII-key JSON",
+                )
+            _require_development_publish(document)
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                "development catalog evaluation is not implemented by this pre-acceptance slice",
             )
         elif arguments.command == "self-test":
             self_test()
