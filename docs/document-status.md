@@ -58,7 +58,8 @@ verified claim → synthesis。`proposed` 文档不能覆盖已接受决策。
 - `REL-<semver>` 是合法 primary ID；在 `TASK-D0-03` 的 formal evidence-set binder 落地前，
   docs-check 必须 fail closed，拒绝任何 `accepted` release document，不得以普通 `passed` alpha
   ledger 代替正式 candidate-bound evidence set。
-- 文档检查必须拒绝重复 ID、死链接、accepted TODO、无来源事实、无 successor 的
+- 文档检查必须拒绝重复 ID、死链接、accepted 文档中的 `TODO`/`TBD`/
+  `待补充`/`待决定`/`待锁`、无来源事实、无 successor 的
   superseded 状态以及未闭合的 normative trace。
 - “当前索引”必须且只能各包含一次 Phase 0–7 的八个 canonical 文档路径；索引状态必须与目标
   frontmatter 一致。缺行、重复行、额外文档或用索引文字伪造 `accepted` 均须 fail closed。

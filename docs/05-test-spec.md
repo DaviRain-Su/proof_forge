@@ -168,7 +168,8 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 mutation。baseline、“pending task 无 EV”、合法 `REL-<SemVer>` 与保留完整 approval metadata 的
 accepted→superseded 必须通过；以下 mutation 必须以稳定 `PF-DOC-*` 失败：required file 缺失
 及同阶段首诊断排序、frontmatter 缺失/重复/非法字段、非法 lifecycle status、accepted 缺
-approval metadata 或含 TODO、superseded 缺 successor/形成环、accepted release 无 formal
+approval metadata 或含 `TODO`/`TBD`/`待补充`/`待决定`/`待锁`、superseded 缺 successor/
+形成环、accepted release 无 formal
 evidence-set binder、document/embedded/registry ID 或 JSON key 重复/畸形、authoritative table 行
 宽错误、inline/fenced code 或 HTML comment 被误作定义/证据/链接来源、非 UTF-8 Markdown、
 corpus root/file/ancestor symlink、broken/escaping inline/reference/image local link、不存在的

@@ -429,6 +429,19 @@ def main() -> None:
                 encoding="utf-8"),
         ),
          "PF-DOC-ACCEPTED-TODO", "docs/glossary.md"),
+        ("accepted-tbd", lambda root: (
+            (root / "docs/glossary.md").write_text(
+                accepted((root / "docs/glossary.md").read_text(encoding="utf-8")) + "\nTBD\n",
+                encoding="utf-8"),
+        ),
+         "PF-DOC-ACCEPTED-TODO", "docs/glossary.md"),
+        ("accepted-unlocked-decision", lambda root: (
+            (root / "docs/glossary.md").write_text(
+                accepted((root / "docs/glossary.md").read_text(encoding="utf-8")) +
+                "\n基准机器待锁。\n",
+                encoding="utf-8"),
+        ),
+         "PF-DOC-ACCEPTED-TODO", "docs/glossary.md"),
         ("accepted-earlier-link-before-later-todo", lambda root: (
             (root / "docs/glossary.md").write_text(
                 accepted((root / "docs/glossary.md").read_text(encoding="utf-8")) +
