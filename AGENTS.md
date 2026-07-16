@@ -85,6 +85,9 @@ Accumulator 和 PrivateSum4 只有 target-owned Plan/typed relation IR 与 sourc
 - `06-implementation-log.md` 只追加已执行事实；`07-review-report.md` 不得预填通过。
 - 文档变更运行 `just docs-check`（脚本落地前运行等价静态检查）和
   `git diff --check`。
+- 远程 CI：GitHub `docs` + `source-core`（`just ci`）；macOS hermetic 全量
+  `just check` / `v2-clean-room-alpha` 仍为本地/开发门禁，不得把 Linux CI 成功
+  写成 hermetic evidence。
 
 ## Definition of Done
 

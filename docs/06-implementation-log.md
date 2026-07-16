@@ -12,6 +12,20 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-16 — repo cutover CI + TASK-A0-17 preflight land
+
+- Changed：仓库根已为 V2；补充 hosted CI（GitHub `docs`/`source-core`、Woodpecker、
+  secret-scan）与 `just ci` 可移植子集。实现 Syntax node/nesting preflight
+  （`PF-BOUND-001` / `CompileError.resourceBound`），并修复 decoder 参数名 `syntax`
+  与 Lean 关键字冲突。
+- Commands：`just docs-check`；`lake build ProofForgeV2 proof_forge_next`；
+  `lake build proof_forge_next_tests && lake env .lake/build/bin/proof-forge-next-tests`；
+  `just dsl-negative`；`just target-negative`。
+- Results：上述命令 exit 0。
+- Limitations：hosted CI 不跑 macOS hermetic `just check` / clean-room / locked
+  darwin tool root；不得写成 formal EV。
+- Next：push 后确认 GitHub Actions 绿；继续 A0-17 若尚有 CLI 双入口一致性缺口。
+
 ## 2026-07-15 — TASK-A0-01 / TASK-A0-02
 
 - Commit/worktree：父仓库 `26d2a8dd33b76201eb7062e3a86fbf87641697cd` 上的未提交

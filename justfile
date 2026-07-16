@@ -279,6 +279,11 @@ evm-runtime: target-smoke
 reproducibility: build
     bash scripts/reproducibility.sh
 
+# Portable Linux / GitHub CI subset. Explicitly excludes macOS-only hermetic
+# host attestation, locked darwin tool roots, sandbox-exec, and clean-room
+# archive isolation. Those remain `just check` / `just v2-clean-room-alpha`.
+ci: docs-check build test dsl-negative target-negative
+
 check: docs-check python-isolation-negative toolchains-validate host-stage0-development candidate-binding evidence-core sandbox-policy toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test dsl-negative target-negative target-smoke output-security
 
 isolated-check:

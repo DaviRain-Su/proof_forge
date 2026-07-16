@@ -1,0 +1,81 @@
+name: CI
+
+# ProofForge V2 portable CI (Linux).
+#
+# Required lanes for branch protection:
+#   docs         - documentation control-plane check
+#   source-core  - Lean build, unit tests, DSL/target negative gates
+#
+# Not run here (macOS / hermetic toolchain host only):
+#   just check full suite, host-stage0, sandbox-policy, locked toolchains,
+#   target-smoke with darwin-arm64 solc/wabt/foundry, v2-clean-room-alpha.
+# Those remain local/dev gates until a linux host profile and toolchain lock
+# land. See docs/governance/ci-evidence.md.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
+        with:
+          tool: just@1.48.0
+
+      - name: Documentation control plane
+        run: just docs-check
+
+      - name: Whitespace / conflict markers
+        run: git diff --check
+
+  source-core:
+    name: source-core
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
+        with:
+          tool: just@1.48.0
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Install Lean
+        run: |
+          scripts/ci/install-lean.sh
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Tool versions
+        run: |
+          lean --version
+          lake --version
+          just --version
+          rg --version
+          python3 --version
+
+      - name: Cache Lake build products
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .lake/build
+            .lake/packages
+          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}
+          restore-keys: |
+            ${{ runner.os }}-lake-v2-
+
+      - name: Portable source-core gate
+        run: just ci

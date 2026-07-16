@@ -30,6 +30,18 @@ program Counter where
 不能改变整数、状态迁移、回滚、调用顺序、授权或信息披露语义；无法保持语义时，
 编译器必须返回稳定诊断而不是降级或回退。
 
+## CI
+
+GitHub Actions（`.github/workflows/ci.yml`）与 Codeberg Woodpecker（`.woodpecker.yml`）
+运行可移植 Linux 子集 `just ci`：
+
+- `docs`：`just docs-check`
+- `source-core`：`just build`、`just test`、`dsl-negative`、`target-negative`
+
+完整本地 gate（`just check`、`just v2-clean-room-alpha`）仍依赖 macOS hermetic
+host / darwin-arm64 锁定工具链，不在本 CI 中宣称通过。密钥扫描见
+`secret-scan` workflow。
+
 ## 当前状态
 
 V2 当前完成了文档/规格基线和一个不可发布的 alpha 骨架。alpha 只验证独立 Lake、

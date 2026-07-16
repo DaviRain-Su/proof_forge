@@ -23,6 +23,14 @@ normative: true
 昂贵下游，不掩盖本 lane 已产生的失败 EV。required lane 不允许 continue-on-error 或 missing
 tool skip。
 
+### Current hosted subset (2026-07-16)
+
+Hosted GitHub/Woodpecker only enforce the portable Linux subset of lanes 1–2 via
+`just ci` (docs-check, lake build/test, DSL and target negative gates). Lanes 3–7
+and hermetic host/toolchain/clean-room evidence remain local macOS development
+gates until a linux host profile and locked external tool root exist. Do not
+treat hosted green as formal EV or hermetic qualification.
+
 ## Evidence
 
 目标状态是每个 lane 输出符合 [`TRACE-EV-001`](../traceability/evidence-schema.md) 的 JSON、

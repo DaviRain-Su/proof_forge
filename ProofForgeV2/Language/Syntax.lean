@@ -2,6 +2,7 @@ import Lean
 import ProofForgeV2.Core.Source
 
 open Lean Parser Command
+open ProofForgeV2
 
 namespace ProofForgeV2.Language
 
@@ -31,6 +32,29 @@ syntax "view " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIn
 
 syntax (name := programDecl) "program " ident " where" ppLine ppIndent(pfItem*) : command
 
+def maxSyntaxNodes : Nat := 100000
+def maxSyntaxNesting : Nat := 256
+
+/-- Iterative preflight over Lean's parsed Syntax tree. This must run before
+the recursive DSL decoder or macro expander so hostile nesting cannot consume
+the compiler's call stack. -/
+def preflightSyntax (root : Syntax) : CompileResult Unit := do
+  let mut pending : Array (Syntax × Nat) := #[(root, 1)]
+  let mut visited := 0
+  while !pending.isEmpty do
+    let (current, nesting) := pending.back!
+    pending := pending.pop
+    if nesting > maxSyntaxNesting then
+      throw <| .resourceBound s!"portable syntax exceeds nesting limit {maxSyntaxNesting}"
+    if visited >= maxSyntaxNodes then
+      throw <| .resourceBound s!"portable syntax exceeds node limit {maxSyntaxNodes}"
+    visited := visited + 1
+    for child in current.getArgs do
+      pending := pending.push (child, nesting + 1)
+
+private def preflightForDecoder (stx : Syntax) : Except String Unit :=
+  (preflightSyntax stx).mapError CompileError.render
+
 /-- Decode the registered Lean syntax tree into the target-neutral source AST.
 This function is also used by the non-elaborating CLI loader. -/
 def decodeType : Syntax → Except String ProofForgeV2.Source.ValueType
@@ -54,7 +78,7 @@ def decodeParam : Syntax → Except String ProofForgeV2.Source.Param
       }
   | _ => .error "unsupported portable parameter"
 
-partial def decodeExpr : Syntax → Except String ProofForgeV2.Source.Expr
+private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.Source.Expr
   | `(pfExpr| $value:num) =>
       let number := value.getNat
       if number > 18446744073709551615 then
@@ -63,8 +87,12 @@ partial def decodeExpr : Syntax → Except String ProofForgeV2.Source.Expr
         .ok <| .literal (UInt64.ofNat number)
   | `(pfExpr| $name:ident) => .ok <| .variable name.getId.toString
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
-      return .checkedAdd (← decodeExpr lhs) (← decodeExpr rhs)
+      return .checkedAdd (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | _ => .error "unsupported portable expression"
+
+def decodeExpr (stx : Syntax) : Except String ProofForgeV2.Source.Expr := do
+  preflightForDecoder stx
+  decodeExprUnchecked stx
 
 def decodeStatement : Syntax → Except String ProofForgeV2.Source.Statement
   | `(pfStmt| $name:ident := $value:pfExpr) => do
@@ -108,7 +136,7 @@ def decodeItem : Syntax → Except String ProofForgeV2.Source.Item
       }
   | _ => .error "unsupported portable program item"
 
-def decodeProgramCommand (currentNamespace : Name) : Syntax →
+private def decodeProgramCommandUnchecked (currentNamespace : Name) : Syntax →
     Except String ProofForgeV2.Source.Program
   | `(program $name:ident where $items:pfItem*) => do
       let shortName := name.getId.toString
@@ -121,6 +149,11 @@ def decodeProgramCommand (currentNamespace : Name) : Syntax →
       return ProofForgeV2.Source.Program.buildQualified
         qualifiedName shortName decodedItems
   | _ => .error "expected a program declaration"
+
+def decodeProgramCommand (currentNamespace : Name) (stx : Syntax) :
+    Except String ProofForgeV2.Source.Program := do
+  preflightForDecoder stx
+  decodeProgramCommandUnchecked currentNamespace stx
 
 private def expandType (type : Syntax) : MacroM (TSyntax `term) :=
   match type with

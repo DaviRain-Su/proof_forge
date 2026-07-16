@@ -93,6 +93,9 @@ unsafe def parsePrograms (source fileName : String) : IO (Except CompileError (A
   try
     let environment ← parserEnvironment
     let parsedSyntax ← Parser.testParseModule environment fileName source
+    match Language.preflightSyntax parsedSyntax with
+    | .error error => return .error error
+    | .ok () => pure ()
     match parsedSyntax.getArgs with
     | #[header, commands] =>
         return do

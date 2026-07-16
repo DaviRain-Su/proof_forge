@@ -1,0 +1,42 @@
+# Codeberg Woodpecker CI for ProofForge V2 (portable Linux subset).
+#
+# One-time setup (repo owner):
+#   1. Request access: https://codeberg.org/Codeberg-e.V./requests/issues/new?template=ISSUE_TEMPLATE%2fWoodpecker-CI.yaml
+#   2. Log in at https://ci.codeberg.org with your Codeberg account
+#   3. Enable this repo at https://ci.codeberg.org/repos/add
+#
+# macOS-only hermetic gates (host-stage0, locked toolchains, clean-room) are
+# not run here. Use local `just check` / `just v2-clean-room-alpha`.
+
+when:
+  - event: [push, pull_request]
+
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      partial: false
+      depth: 0
+      fetch-target-branch: true
+
+steps:
+  - name: proof-forge-v2-docs
+    image: ubuntu:24.04
+    commands:
+      - export DEBIAN_FRONTEND=noninteractive
+      - apt-get update
+      - apt-get install -y --no-install-recommends ca-certificates curl git python3
+      - curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+      - just docs-check
+      - git diff --check
+
+  - name: proof-forge-v2-source-core
+    image: ubuntu:24.04
+    commands:
+      - export DEBIAN_FRONTEND=noninteractive
+      - export PATH="$HOME/.elan/bin:/usr/local/bin:$PATH"
+      - apt-get update
+      - apt-get install -y --no-install-recommends ca-certificates curl git python3 build-essential ripgrep
+      - curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+      - scripts/ci/install-lean.sh
+      - just ci
