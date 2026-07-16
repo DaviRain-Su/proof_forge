@@ -26,7 +26,8 @@ Loader 此时只保存可恢复的 overflow state，不构造超限聚合 `Name`
 最终 program identity 判定。
 
 `ParserSession.create` 只导入锁定的 `ProofForgeV2.Language.Syntax` environment；同一进程内
-连续解析多个独立 source 时必须复用该 immutable session，不能为每个 negative vector 重复
+必须在单一 control thread 创建后复用/共享该 immutable session；不支持并发 create，且连续
+解析多个独立 source 时不能为每个 negative vector 重复
 执行 `enableInitializersExecution/initSearchPath/importModules`。one-shot API 仍为 CLI 单文件
 调用保留，并必须在创建 session 前执行 16 MiB byte-cap fast rejection；session method 内仍
 重复同一 byte-cap 检查。session 不保存用户 source、program 或 target 状态。

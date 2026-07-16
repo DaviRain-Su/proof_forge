@@ -14,7 +14,7 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-A0-19**：复用 immutable Loader `ParserSession`，并把 hosted `source-core` 的 20000-state / 100001-node 重资源向量隔离到现有 `dsl-negative` 子进程；不得削弱 `PF-BOUND-001` 双路径验收 |
+| Active task | **TASK-A0-19**：复用 immutable Loader `ParserSession`，并把 hosted `source-core` 的 20000-state / >100000-node（第 100001 节点拒绝）重资源向量隔离到现有 `dsl-negative` 子进程；不得削弱 `PF-BOUND-001` 双路径验收 |
 | Next task | 运行完整 V2/开发隔离门禁，提交 Loader CI 修复并以候选 SHA 对应的 GitHub `docs` + `source-core` 结果闭合 `EV-20260716-0024` |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |

@@ -12,7 +12,7 @@ private def invalid (message : String) : CompileError :=
 
 private inductive NamespaceState where
   | bounded (name : Name) (parts : Nat)
-  | overLimit
+  | overLimit (name : Name) (parts : Nat)
   deriving Inhabited
 
 private structure NamespaceFrame where
@@ -98,7 +98,7 @@ private def processCommands (commands : Array Syntax) :
     | `(program $_name:ident where $_items:pfItem*) =>
         let currentNamespace := match namespaceState with
           | .bounded name _ => Language.ProgramNamespace.bounded name
-          | .overLimit => Language.ProgramNamespace.overLimit
+          | .overLimit _ _ => Language.ProgramNamespace.overLimit
         let contractProgram ←
           Language.decodeProgramCommandChecked currentNamespace command
         validateProgram contractProgram
@@ -123,9 +123,9 @@ private def processCommands (commands : Array Syntax) :
                 namespaceState := .bounded
                   (currentName ++ declared) (currentParts + addedParts)
             | none =>
-                namespaceState := .overLimit
-        | .overLimit =>
-            namespaceState := .overLimit
+                namespaceState := .overLimit currentName currentParts
+        | .overLimit currentName currentParts =>
+            namespaceState := .overLimit currentName currentParts
     | `(command| end) =>
         if scopes.isEmpty then
           throw <| invalid "unmatched namespace end"
@@ -152,11 +152,17 @@ private unsafe def parserEnvironment : IO Environment := do
   importModules #[{ module := `ProofForgeV2.Language.Syntax }] {} 0
     (loadExts := true)
 
-unsafe def parsePrograms (source fileName : String) : IO (Except CompileError (Array Source.Program)) := do
+private def checkSourceSize (source : String) : Except CompileError Unit :=
   if source.toUTF8.size > 16 * 1024 * 1024 then
-    return .error <| invalid "source exceeds the 16 MiB limit"
+    .error <| invalid "source exceeds the 16 MiB limit"
+  else
+    .ok ()
+
+private unsafe def parseProgramsWithEnvironment (environment : Environment)
+    (source fileName : String) : IO (Except CompileError (Array Source.Program)) := do
+  if let .error error := checkSourceSize source then
+    return .error error
   try
-    let environment ← parserEnvironment
     let parsedSyntax ← Parser.testParseModule environment fileName source
     match parsedSyntax.getArgs with
     | #[header, commands] =>
@@ -167,10 +173,9 @@ unsafe def parsePrograms (source fileName : String) : IO (Except CompileError (A
   catch error =>
     return .error <| invalid s!"Lean parser rejected source: {error}"
 
-unsafe def selectProgram (source fileName : String) (requested : Option String) :
-    IO (Except CompileError Source.Program) := do
-  let parsed ← parsePrograms source fileName
-  return parsed >>= fun programs =>
+private def selectParsedProgram (parsed : Except CompileError (Array Source.Program))
+    (requested : Option String) : Except CompileError Source.Program :=
+  parsed >>= fun programs =>
     match requested with
     | some name =>
         match programs.find? (·.qualifiedName == name) with
@@ -181,5 +186,37 @@ unsafe def selectProgram (source fileName : String) (requested : Option String) 
         | #[contractProgram] => .ok contractProgram
         | #[] => .error <| invalid "source contains no program"
         | _ => .error <| invalid "source contains multiple programs; pass --program <qualified-name>"
+
+/-- Immutable locked Lean parser environment for parsing multiple independent
+sources without repeatedly importing the frontend module. Create a session on
+one control thread before sharing/reusing it; concurrent creation is unsupported. -/
+structure ParserSession where
+  private environment : Environment
+
+namespace ParserSession
+
+unsafe def create : IO ParserSession :=
+  return { environment := ← parserEnvironment }
+
+unsafe def parsePrograms (session : ParserSession) (source fileName : String) :
+    IO (Except CompileError (Array Source.Program)) :=
+  parseProgramsWithEnvironment session.environment source fileName
+
+unsafe def selectProgram (session : ParserSession) (source fileName : String)
+    (requested : Option String) : IO (Except CompileError Source.Program) := do
+  return selectParsedProgram (← session.parsePrograms source fileName) requested
+
+end ParserSession
+
+unsafe def parsePrograms (source fileName : String) :
+    IO (Except CompileError (Array Source.Program)) := do
+  if let .error error := checkSourceSize source then
+    return .error error
+  let session ← ParserSession.create
+  session.parsePrograms source fileName
+
+unsafe def selectProgram (source fileName : String) (requested : Option String) :
+    IO (Except CompileError Source.Program) := do
+  return selectParsedProgram (← parsePrograms source fileName) requested
 
 end ProofForgeV2.Language.Loader

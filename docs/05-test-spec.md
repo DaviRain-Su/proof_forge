@@ -118,7 +118,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   namespace/qualified-name 256/257 边界必须稳定拒绝或接受；257 层瞬时 namespace 退回
   255 层后声明的完整 256-component identity 必须恢复并接受。Loader 的重复检查、program
   identity 和 namespace tracking 不得重新引入输入相关 O(n²) scan 或递归渲染超限 `Name`。
-- 20000-state / 100001-node loader integration 必须由 `dsl-negative` 的独立 Lean command 与
+- 20000-state / >100000-node（第 100001 节点拒绝）loader integration 必须由 `dsl-negative` 的独立 Lean command 与
   CLI loader 子进程执行；不得在常驻 `proof-forge-next-tests` 进程内重复该向量。每条重资源
   路径仍必须执行且精确检查 `PF-BOUND-001`，进程拆分只用于释放 parser/environment 峰值内存，
   不得降低 node limit、state count 或验收路径。

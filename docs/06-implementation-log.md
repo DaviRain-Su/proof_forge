@@ -584,7 +584,8 @@ normative: false
   保证；不关闭完整 D2 checker、Diagnostic v1、`TST-PERF-001`、正式 hermetic evidence。
   当前 host 继续因 broken seal/current-user-mutable Xcode 不合格，其余 D0-04 blocker 不变。
 - Next：`TASK-A0-19` 复用 immutable Loader parser environment，并把 hosted `source-core` 的
-  20000-state / 100001-node 重资源验收保留在独立 `dsl-negative` 子进程中；以实际 GitHub
+  20000-state / >100000-node（第 100001 节点拒绝）重资源验收保留在独立 `dsl-negative`
+  子进程中；以实际 GitHub
   candidate run 判定 CI 是否修复。
 
 ## 记录模板
