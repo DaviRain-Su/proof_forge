@@ -14,10 +14,10 @@ normative: true
 
 ## 背景
 
-只锁顶层 executable 不能锁定真实运行闭包。Homebrew `solc` 还加载 Boost，WABT
-`wat2wasm` 还加载 OpenSSL；`/usr/bin/python3` 与 `/usr/bin/git` 又只是 Xcode dispatch
-shim。另一方面，macOS dyld shared cache、系统 framework 与 `sandbox-exec` 不能合理复制
-进项目 cache。
+只锁顶层 executable 不能锁定真实运行闭包（本地工具/宿主观察见 `CLM-HOST-001`）。
+当前锁定观察包含 WABT `wat2wasm` 的 OpenSSL dependency 以及 Xcode-dispatched
+Git/Python 宿主工具。另一方面，macOS dyld shared cache、系统 framework 与
+`sandbox-exec` 不能合理复制进项目 cache。
 
 ## 决定
 

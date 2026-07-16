@@ -31,41 +31,75 @@ happy、boundary、error/attack 三类测试。
 
 初始 `count=0`；`increment(1)` 返回 1；`increment(2)` 返回 3；`get()` 返回 3；
 从 `UInt64.max` 执行 `increment(1)` 必须失败、返回稳定 overflow 错误且状态仍为 max。
-四目标观测统一为 normalized `(status, return, logicalState, effects, error)`。
+四目标进程内语义观测统一为 structural `OutcomeV1`；当前 evidence v1 的
+`(status,return,logicalState,effects,errorClass)` 只保留 development verdict/diagnostic projection，
+不能充当无损 Outcome 或 formal differential evidence。
 
 ### PrivateSum4
 
-四个 private `Field` 输入求和，public expected sum；Noir prove/verify 成功，错误 sum 验证
-失败。private 值不得出现在 manifest、public ABI、日志、诊断或 verifier-visible witness。
+四个 private `UInt64` 输入以 checked-u64 语义求和，public `UInt64` expected sum；Noir
+prove/verify 成功，错误 sum 或任一步 overflow 的 witness 验证
+失败。public input vector 精确为 `[expectedSum]`；semantic/plan/circuit binding 放在 proof envelope
+而不是伪装成 private/public 业务参数。manifest、public ABI、日志、诊断、cache key 和被拒绝
+target 的 staging/partial artifact 不得含四个 runtime private value 的结构化字段或 canonical
+encoding。proof 可以依赖 witness 且 proof bytes 可以不同；不得用任意 byte-substring absence 冒充
+ZK 证明。验收依赖锁定并经批准的 backend/profile 的 ZK security contract，并要求同一 circuit/
+plan 的 VK 在不同 witness 间 byte-identical、proof envelope 不含 raw witness record。
+
+caller-owned `--inputs` 必须是 `0600` regular single-link file，compiler 只做 no-follow stable read，
+前后 inode/mode/size/hash 不变且绝不删除。只有 compiler-created private staging/witness file 使用
+`0700` 目录与 `0600` 文件，并在 success、invalid witness、tool failure、timeout 和 signal 后删除。
 EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ-UNSUPPORTED`
 拒绝。
+
+### Accumulator
+
+内部 genericity 向量拥有 `total : UInt64`、`init(seed)`、`add(amount)` 和 `current()`；执行
+`init(7) → add(5) → current()` 得 12，从 `UInt64.max` add 1 必须失败且状态不变。它必须经过与
+Counter 相同的 parser/type/semantic/resolver/materializer 通用路径，禁止 program/name matcher；
+四目标比较 source/semantic hash 和适用的 normalized artifact/runtime/proof observation。
 
 ## Acceptance Matrix
 
 | ID | 场景 | 预期 | 证据级别 |
 |---|---|---|---|
+| TST-SRC-001 | Source.ProgramV1 wire/span/NodeId canonicalization | exact constructor/field bytes 与 sourceHash cross-implementation golden；path sensitivity、span/file independence；forced truncated-ID collision 稳定零输出拒绝 | unit/property/golden/security |
 | TST-SRC-002 | per-program Syntax 256/257 nesting、100000/100001 nodes、qualified identity 与 CLI 16 MiB | 精确边界；Syntax/identity 超限 `PF-BOUND-001`，CLI byte 超限 `PF-SRC-INVALID` | unit/integration/security |
 | TST-SRC-003 | `program Counter where` 与非法顶层形式 | 正例导出；非法稳定诊断 | unit |
+| TST-SRC-004 | 每种 Phase 1 declaration（含 pure fn/proof reference） | 各有 parser 正例/反例与 stable Source AST；不要求 D1 完成 type check | unit/integration |
+| TST-SRC-005 | 每种 Phase 1 statement/expression（含 local fn/external call 分流） | 各有 parser 正例/反例与 stable Source AST；typed/effect/bound 由 D2 tests 负责 | unit/integration |
 | TST-SRC-006 | attribute export 跨模块/import 顺序 | identity 稳定，无重复 | integration |
-| TST-TYPE-001 | widths、map、struct、enum | 类型成功/精确失败 | property |
+| TST-TYPE-001 | widths、Field、map、struct、enum | `Field bn254_fr` exact 映射成功；其他/alternate field ID 与 modulus substitution 精确失败 | property |
 | TST-TYPE-002 | accepted-width duplicate/name index、late lookup 与错误顺序 | 声明序 ID/遮蔽/诊断不变；required hash ops、single state-builder 与已知数组搜索回归受门禁 | unit/structural/complexity |
+| TST-TYPE-003 | 全部 Phase 1 declaration + local fn + proof reference | typed fixture 全覆盖；exact fn lookup/type/effect/acyclicity、Bool invariant 与 proof-reference source binding；不装载 theorem | unit/integration/negative |
+| TST-PROOF-001 | immutable proof bundle + post-canonical theorem signature | exact current Source.Program + `.pfsem`/`.pfprov`/semanticProvenanceDigest + bundle/olean/toolchain/trust-policy join；wrong program/ordinal/provenance/closure/digest/unsafe declaration fail closed | integration/security |
 | TST-EFFECT-001 | view 写状态/发 effect | `PF-EFFECT-001` | negative |
 | TST-BOUND-001 | 无界循环/递归 | `PF-BOUND-001` | negative |
 | TST-VIS-001 | private 流入 public/log | `PF-VIS-001` | security |
-| TST-SEM-002 | Counter reference trace | 精确 normalized trace | model |
-| TST-SEM-003 | overflow/revert | unchangedState | model |
+| TST-SEM-002 | exact Invocation/context/responses/OutcomeV1 + Counter reference trace | initializer/no-init default state、context key/type、effect occurrence 与 normalized result 精确 | model |
+| TST-SEM-003 | revert/trap/overflow rollback | exact reason/fault constructor；unchangedState，零 committed effects | model |
 | TST-REQ-001 | requirement inference | 稳定集合、origin/span | property |
-| TST-REQ-003 | support exact version/digest | mismatch fail closed | negative |
+| TST-REQ-003 | requested predicates + support exact version/claim/binding | ProgramRequirements request/claim exact predicate-key set 与 implication 可重算；missing/extra/variant-substituted predicate/request、wrong candidate/build/profile/claim/ref digest、development/stale/revoked binding 全部 fail closed | negative/security |
 | TST-REG-002 | duplicate/unknown target | stable registry errors | unit |
 | TST-MAT-001 | associated Plan/IR | 不可擦除、invariants enforced | compile/unit |
-| TST-OUT-001 | manifest/hash/partial failure | 原子输出或无变化 | integration |
+| TST-OUT-001 | manifest/hash/support decisions/file closure/partial failure | candidate/decisionsDigest/binding 与 retained content 可重算；source/semantic/provenance/plan/IR 只有 exact external evidence join 后可报 formal；unlisted/aliased file 拒绝；原子输出或无变化 | integration |
+| TST-OUT-002 | repeatability/tamper/network identity | binding tamper、same network ID/different digest 稳定拒绝 | integration/security |
+| TST-CLI-001 | CLI parse/help/resource override | stage/field parse、duplicate、zero/equal/over 与 stable usage error | unit/golden |
+| TST-CLI-002 | check/build resource command surface | check 拒绝 tool/output stage；build receipt 保留 effective override | integration |
 | TST-EVM-005 | Counter on Anvil | reference trace 相同 | local_runtime |
 | TST-SOL-005 | Counter on Solana local runtime | reference trace 相同 | local_runtime |
 | TST-NEAR-005 | Counter on sandbox | reference trace 相同 | local_runtime |
 | TST-NOIR-005 | Counter witness/proof | prove+verify，state continuity explicit | proof |
-| TST-NOIR-006 | PrivateSum4 | 隐私检查 + prove/verify | proof/security |
+| TST-NOIR-006 | PrivateSum4 | 两组同 public sum 的 witness 均 prove/verify；VK 相同、public vector exact、无 raw witness record、caller input 不变、所有 compiler temp 清理 | proof/security |
+| TST-ZKSEC-001 | proof profile security contract/approval | exact profile/domain/allowlist/soundness/CRS/proof binding/privacy；wrong candidate/build/profile、development/stale/revoked approval 与 substitution 全部零输出拒绝 | proof/security/evidence |
 | TST-XTARGET-001 | 一份 Counter 四 target | 四目标 normalized runtime/proof observation 均与 reference trace 一致，含 overflow rollback；四 OutputSet 均合法 | aggregate/differential |
+| TST-XTARGET-003 | 一份 Accumulator 四 target + structural boundary | 非 Counter trace 等价；frontend/Core 无 TargetId branch，backend 无 program/name matcher | aggregate/differential/structural |
 | TST-XTARGET-002 | unsupported/version/missing tool | 稳定错误，无 fallback | aggregate |
+| TST-RESOURCE-001 | frontend safe-open/parser exact resource limits | equal 接受、over 对应稳定 code、无 escaped process/部分输出 | security/isolation |
+| TST-RESOURCE-002 | compiler-core/tool/output exact resource limits | 逐 stage effective override；equal 接受、over 对应稳定 code、旧输出不变、receipt 完整 | security/isolation |
+| TST-EVIDENCE-001 | development evidence/finalization | schema/bundle/catalog finalization 闭合，formal 请求 zero-output 拒绝 | evidence/security |
+| TST-BOOTSTRAP-001 | pre-activation bootstrap foundation | eligible handoff、session containment、signed required-set/catalog authority、per-task receipts、six-item set 与 activation verifier 在无既有 activation 前置下 exact 闭合 | evidence/security/isolation |
+| TST-EVIDENCE-002 | formal evidence/support binding | typed host/session/freshness/private-scan/revocation/finalizer refs、formal finalization 与 candidate/BuildIdentity/RequirementKey binding 全部 exact | evidence/security |
 | TST-HOST-001 | Stage-0 host attestation | development observation；formal fail closed | security/isolation |
 | TST-ISO-002 | 正式 hermetic archive harness | 外部 candidate anchor、eligible host、deny-default stages、process containment、gate-catalog EV 全部通过 | isolation |
 | TST-ISO-003 | release-candidate clean-room aggregate | 所有 required Phase 1 gates 完整通过 | release/isolation |
@@ -99,9 +133,14 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-A0-020 | alpha single validated decoded frontend slice |
 | TST-HOST-001 | 权威 `env -i` 入口、严格 bootstrap/JSON、live OS/Xcode/tool 匹配、development observation、formal ineligible 与环境/lock mutation negatives |
 | TST-ISO-001 | 独立 Lake/package/namespace 与父依赖边界 |
+| TST-BOOTSTRAP-001 | activation 前的 eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal catalog authority、per-task verifier receipt/authenticated append-only service、six-item approval set 与 aggregate activation producer/consumer；测试不得读取或要求本次运行之前已存在的 activation |
 | TST-ISO-002 | Stage-0 eligible host、外部 commit/tree/archive anchor、稳定 committed archive、前后 unchanged、空环境/cache；materialize/core deny-all-network；runtime exact-local-port + Anvil 127 bind/LAN refusal；stage read/write/exec negatives、closed FD/stdin EOF/output cap/timeout、formal session containment、0400 single-link receipts 与 gate-catalog-bound evidence |
 | TST-ISO-003 | D8 release-candidate 全量 clean-room aggregate |
 | TST-TOOL-001 | exact tool version/checksum、missing/shadow/timeout |
+| TST-SBOM-001 | SPDX license inventory、CycloneDX 1.6 SBOM schema/closure/hash/release binding |
+| TST-COMMON-001 | 公共 primitive、canonical encoding、domain-separated hash 边界 |
+| TST-RESOURCE-001 | frontend safe-open/parser resource profile equal/over/cleanup/receipt |
+| TST-RESOURCE-002 | compiler-core/external-tool/artifact-output resource profile equal/over/cleanup/receipt |
 | TST-SRC-001 | token/span/NodeId canonicalization |
 | TST-SRC-002 | CLI byte cap 与 post-parser per-program Syntax/identity limits |
 | TST-SRC-003 | program command 正负例 |
@@ -113,11 +152,13 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-DIAG-001 | diagnostic code/schema/order/redaction |
 | TST-TYPE-001 | 类型 happy/boundary/error |
 | TST-TYPE-002 | accepted-width name resolution/complexity |
+| TST-TYPE-003 | Phase 1 declaration typing、local-fn resolution/effect/acyclicity、Bool invariant 与 proof-reference source binding |
+| TST-PROOF-001 | immutable proof-bundle closure 与 post-canonical InvariantTheoremV1 signature |
 | TST-EFFECT-001 | effect restrictions |
 | TST-BOUND-001 | termination/resource bounds |
 | TST-VIS-001 | explicit disclosure flow |
 | TST-VIS-002 | implicit disclosure 与 authority/custody separation |
-| TST-SEM-001 | canonical serialization |
+| TST-SEM-001 | canonical `.pfsem` serialization、semanticHash 与 separate `.pfprov` provenance digest |
 | TST-SEM-002 | reference trace |
 | TST-SEM-003 | revert/overflow rollback |
 | TST-REQ-001 | requirement inference/origin |
@@ -153,14 +194,139 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-NOIR-004 | ACIR/witness/prove/verify pipeline |
 | TST-NOIR-005 | Counter proof test |
 | TST-NOIR-006 | PrivateSum4 privacy/proof test |
+| TST-ZKSEC-001 | ZK backend security profile 与 candidate/build formal approval |
 | TST-XTARGET-001 | 四目标 normalized reference-trace differential + OutputSet aggregate |
 | TST-XTARGET-002 | unsupported/version/tool matrix |
+| TST-XTARGET-003 | Accumulator 非模板化四目标差分 + target-neutral structural boundary |
 | TST-SEC-001 | path/env/process/supply-chain/privacy attack matrix |
 | TST-VER-001 | schema/profile compatibility matrix |
-| TST-PERF-001 | cold/incremental/resource benchmark budgets |
+| TST-PERF-001 | cold full check/same-session warm full recheck/resource benchmark budgets |
 | TST-BOUNDARY-001 | Lean import graph、symbol ownership、target cross-import |
-| TST-EVIDENCE-001 | restricted PF JCS/schema、exact-local-port 条件 port、artifact-set domain hash、safe bundle read、atomic layout、gate catalog、revocation/freshness/private scan |
+| TST-EVIDENCE-001 | restricted PF JCS/schema、exact-local-port 条件 port、artifact-set domain hash、safe bundle read、atomic layout、development gate catalog/finalization 与 formal zero-output rejection |
+| TST-EVIDENCE-002 | formal evidence-set finalization、freshness/private scan/revocation、candidate/BuildIdentity/RequirementKey acceptance/support binding producer/store |
 | TST-REL-001 | install/upgrade/build/rollback drill |
+
+### Phase 1 required-set 分母
+
+完整 Test ID Catalog 是唯一测试分母：所有不匹配 `TST-A0-[0-9]{3}` 的 catalog ID 都是
+`phase1_required=true`；只有精确匹配该三位数形式的 A0 ID 保留历史 development
+evidence，永不计入正式分子或分母。
+新增/删除/重命名 required ID 必须与 task、requirements matrix、gate catalog 同一变更提交，
+docs-check 拒绝 catalog/matrix/task 的 unknown、orphan 或范围缩写。release coverage 定义为
+`具有 current non-revoked passed EV 的 required ID 数 / required catalog ID 数`，必须等于 1；
+不存在 skip/optional/人工豁免。
+
+formal producer 不能直接把 caller 提供的 catalog 当作上述分母。它必须解析并验证
+`RequiredTestSetV1`：record 绑定 accepted PHASE-5 exact content digest/reviewCommit、按本节规则从
+完整 Catalog 提取的 ASCII 唯一升序 exact required IDs、candidate 外部 authority policy 和满足该
+policy 的签名。formal GateCatalog 携带该 record 的 exact ContentRef；所有 gate 的 testIds flatten
+后必须是 required IDs 的无重复 exact partition，formal finalization 再 exact join required-set、
+catalog、gates、evidence 与 bootstrap approval/receipt。缺失、删减、额外、重复、document/ref/
+signature substitution 或 caller omission 全部 fail closed；caller expected catalog digest 只检测
+split-brain，不授予修改分母的权限。
+
+完整 ID 分母仍不能授权弱/no-op gate policy；`FormalGateCatalogApprovalV1` 必须由 external policy
+的 distinct-principal quorum 签名绑定 exact required-set 与 catalog identity。formal record gate IDs
+与 catalog gates 必须 exact，每 gate testIds/task/build exact，evidenceRefs non-empty 且全局唯一；
+非 D0 EV 必须 formal/passed，D0 EV 保持 development 但必须由对应 signed TaskApproval/receipt 覆盖，
+全部 EV 还须 exact join candidate/catalog/gate/test/build 并通过 freshness/revocation/private scan。
+
+### Source.ProgramV1 canonical wire 与 NodeId
+
+`TST-SRC-001` 以 `SPEC-SOURCE-WIRE-001` 为唯一 oracle。golden corpus 必须覆盖每个
+ProgramItem/Type/Statement/Expr/Place/Pattern constructor、空/单/多 array、`none/some`、Unicode NFC、
+每个固定宽度整数边界和 ordered-field mutation；至少由 Lean production encoder 与一个不 import
+ProofForge 的小型 reference encoder 分别生成 bytes/sourceHash，再逐 byte 对比固定 golden。仅比较
+两个实现彼此相等而没有 checked-in bytes/hash 不算通过。
+`QualifiedId`、proof theorem 与 program identity 的 minimum component count 必须各有 `min-1/min`
+positive/negative vector，不能把 common `QualifiedName` 的一般 nonempty carrier 误当作 surface grammar。
+
+NodeId vectors 必须证明相同 module/program/path 在文件绝对/项目相对路径、span、行列、注释和
+分配/遍历容器顺序变化时不变，而任一 `parentTag/fieldTag/index` 或 qualified identity 改变时改变。
+生产 SHA-256 不可替换；测试构建暴露只接受 canonical preimage、返回 16 bytes 的 injectable digest
+stub，强制两个不同 preimage 得到同一 candidate ID，断言 `PF-SRC-NODEID-COLLISION`、无 attribute
+registration、无 `Source.Program` export、无 CLI staging。相同 preimage 被第二次插入是 traversal
+compiler bug，必须为 `PF-INTERNAL`/`duplicate-node-visit`，不能被当作合法 alias。release binary
+不得带 digest injection surface。
+
+### PerformanceProfileV1
+
+`TST-PERF-001` 的唯一 Phase 1 reference class 为 Apple M3 Pro 12-core/18-GB、native arm64、
+Darwin 26.4.1 build 25E253，AC power、Low Power Mode off、无 thermal pressure；host observation
+不得包含 serial/UUID。benchmark receipt 绑定 candidate commit/tree、`toolchains.lock.json` digest、
+host profile digest、fixture/source hash 与 benchmark harness digest；任一身份不符则结果 invalid，
+不能与其他机器结果平均。
+
+fixture 由版本化 generator 产生恰好 1000 个 SPEC-LANG-001 Syntax nodes，包含 state、pure fn、
+entry/view、checked arithmetic 和 bounded control；canonical source hash 固定在 fixture manifest。
+“cold full check”是预构建 compiler 的新 OS process、无先前 ProofForge session/cache，但不清 OS
+page cache。“same-session warm full recheck”只复用已初始化的 immutable `ParserSession`/trusted
+environment；它必须对修改后的完整 source 重新 parse、decode、type/effect/bound/disclosure check、
+normalize 和 hash，不复用旧 `Source.Program`、Typed/Semantic result，也不宣称 incremental
+compilation。baseline 后把一个 decimal literal 替换为同字节宽度但语义不同的 literal；计时样本
+只有在 edited sourceHash/semanticHash 分别命中 fixture manifest 的 edited golden、且都不同于
+baseline hash 时才有效，normalized reference observation 也必须命中 edited golden，防止 stale
+result 通过性能门禁。
+
+每种模式先 5 次不计入 warm-up，再连续 30 次测量；禁止 retry、删 outlier 或并行样本。p95 使用
+nearest-rank，即排序后第 29 个值；timeout/crash/error/任一 golden mismatch 按 infinity。cold full
+check p95 必须 ≤5000 ms，same-session warm full recheck p95 ≤1000 ms；同时记录 p50、max、
+aggregate memory peak。采样批开始时 1-minute load average 必须 ≤3.00，否则整批 invalid 并重新
+调度，不能挑选部分结果。TST-PERF-001 只有在上述 exact profile receipt 完整时才可 passed。
+
+`TST-SEM-001` 必须分别验证 canonical `.pfsem` 业务语义 bytes/semanticHash 与 `.pfprov`
+source-provenance bytes/semanticProvenanceDigest。只改变同一 `Source.Program` 的 source origin、文件
+path 或 span 时，`.pfsem` bytes 和 semanticHash 必须 byte-identical，仅 `.pfprov` 与
+semanticProvenanceDigest 改变；改变业务语义则 semanticHash 必须改变。consumer 不得把 provenance
+字段重新混入 semanticHash，也不得丢弃当前 Source.Program→`.pfsem`→`.pfprov` 的 exact binding。
+
+`TST-SEM-002/003` 只能使用 `SPEC-SEM-001` 的 `ReferenceV1` carriers。positive 覆盖有 initializer 的
+false default state→init、无 initializer 的 true default state、entry/view、canonical context 与同步
+external response returned/reverted；assert/declared revert、每个 standard revert code、invalid
+invocation/response/Core、resource/unreachable/internal-invariant trap 分别命中唯一 OutcomeV1 constructor。negative 覆盖
+wrong callable kind/arity/type、context missing/extra/duplicate/wrong type、同 key 不同 Core result type、
+response missing/extra/duplicate/reordered occurrence，以及 noncanonical value bytes。reverted/trapped
+必须逐 byte返回 pre-state 且无 committed effects；response precedence 还必须覆盖 matched reverted 后
+trailing extra，以及程序自行 declared/standard revert 或 Core/resource trap 时仍有 unconsumed response，
+两者都唯一得到 `.trapped(.invalidExternalResponse, pre)`。target adapter 结果必须在进程内与 structural
+OutcomeV1 相等，不能只比较自由文本 status/error；在 exact tagged reference-outcome retained artifact
+及 verifier 实现前，该断言不能升级为 formal persisted differential evidence。
+
+### Phase 1 declaration typing 与 proof reference
+
+`TST-TYPE-003` 的 positive typed fixture 必须在一个非 Counter program 中覆盖 struct、enum、const、
+event、error、init、entry、view、forward-declared pure fn、invariant、requires 和 proof reference；
+D1 的 `TST-SRC-004/005` 只断言 parser/Source AST，不得据此关闭本测试。
+
+local-fn vectors 固定覆盖 exact arity/type/return、参数 left-to-right evaluation、Unit fallthrough、
+forward call、checked-failure propagation 和两层 pure composition；negative 覆盖 unknown fn、
+entry/view/init 当表达式、arity/type mismatch、non-Unit missing return、state/context read、
+event/external/schedule/disclosure effect、direct recursion 和 indirect cycle。
+`TST-TYPE-003` 的 proof-reference vectors 固定覆盖同名 invariant exact binding、unknown/duplicate
+invariant、short-name alias 和 non-Bool predicate；该 stage 只产生 canonical theorem qualified name
+与 invariant identity，不查找或装载 Lean declaration。
+
+`TST-PROOF-001` 在 `TST-SEM-001` 已构造 canonical `SemanticProgramV1` 后运行。positive 必须 exact
+join 当前 `Source.Program`、canonical `.pfsem`、对应 `.pfprov` 与重算的
+semanticProvenanceDigest，再从 immutable proof bundle 装载 fully-qualified theorem，并与嵌入完整
+closed SemanticProgram value 和 invariant ordinal 的 `InvariantTheoremV1` definitionally equal。
+negative 至少覆盖 provenance digest/binding substitution、unknown theorem、
+axiom/unsafe/partial/extern、未列入 bundle 或 closure 的 import、source/olean/toolchain/ABI/trust-policy、
+`proof-forge.semantic-program.v1` schema 与 `pf.semantic.v1` domain substitution、digest mismatch、
+同名但不同 SemanticProgram、不同 invariant ID、metavariable、bundle/path/symlink/
+duplicate-key mutation；任一失败不得继续 requirement resolution 或 target materialization。不得在
+untrusted program source 中 elaboration 任意 Lean term。
+theorem expected-type mismatch 的 stable diagnostic 必须为 `PF-TYPE-001`。新增、删除或修改
+`ProofDecl` 必须改变 checked-in source bytes/sourceHash，同时保持相同 business program 的
+`.pfsem`/semanticHash 不变；只改变 validation result 不得再次改写任一 hash。
+
+### Resource test ownership
+
+`TST-RESOURCE-001` 只关闭 D1-08 的 source safe-open、frontend worker、parser/decode protocol 与
+frontend stage limits；它不声称 compiler-core 已受控。`TST-RESOURCE-002` 由 D3-07 关闭
+compiler-core、external-tool 与 artifact-output 三 stage 的 limits、whole-containment cleanup、旧输出
+不变和 receipt。D8-03 必须在同一 release candidate 上重跑两者；aggregate rerun 不改变上述实现
+责任边界。
 
 ### 文档控制面验收
 
@@ -168,38 +334,81 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 mutation。baseline、“pending task 无 EV”、合法 `REL-<SemVer>` 与保留完整 approval metadata 的
 accepted→superseded 必须通过；以下 mutation 必须以稳定 `PF-DOC-*` 失败：required file 缺失
 及同阶段首诊断排序、frontmatter 缺失/重复/非法字段、非法 lifecycle status、accepted 缺
-approval metadata 或含 `TODO`/`TBD`/`待补充`/`待决定`/`待锁`、superseded 缺 successor/
+approval metadata、`approvers` 非 exact `, ` 分隔 ASCII safe-id 唯一升序列表，或含
+`TODO`/`TBD`/`待补充`/`待决定`/`待锁`、superseded 缺 successor/
 形成环、accepted release 无 formal
 evidence-set binder、document/embedded/registry ID 或 JSON key 重复/畸形、authoritative table 行
 宽错误、inline/fenced code 或 HTML comment 被误作定义/证据/链接来源、非 UTF-8 Markdown、
 corpus root/file/ancestor symlink、broken/escaping inline/reference/image local link、不存在的
 fragment、unused reference definition 伪造 index reachability、typed definition 被同名 primary
 document 冒充、unknown/empty CLM source、GOAL/FR/NFR orphan、trace 任一 ADR/INV、SPEC/MOD、TASK、
-TST 轴缺失或引用未知、matrix TST 不属于同一行 TASK、task dependency unknown/cycle/未完成、
+TST 轴缺失或引用未知、required test catalog 中任一精确 `TST-*` 未被任何 task 拥有或未出现在
+requirements matrix、任一非精确两位数 A0 的 formal task 没有 requirement matrix edge、
+每个 formal task 拥有的每个 TST 未与该 TASK 在至少同一条 requirement row 联合出现、task 或
+matrix 引用未在 required test catalog 定义的 `TST-*`、task 或 matrix
+以范围/通配符代替精确 test ID、matrix TST 不属于同一行 TASK、task dependency
+unknown/cycle/未完成、
 task header 非 canonical、Prerequisites 列缺失/引用未知、done task 缺 TST/EV、EV ID 非
 `EV-YYYYMMDD-NNNN`、Evidence Ledger 列非 canonical、Task/Tests/Grade 非法或错绑、task 使用
-不符合 A0/development、D0-01/02/bootstrap、其余/formal 规则的 EV、done task 的 EV 未覆盖其
+不符合 exact A0/development、D0-01..06/bootstrap、其余/formal 规则的 EV、done task 的 EV 未覆盖其
 全部 Tests、result 非精确 `passed`
 语法、requirements matrix 的 Evidence 非精确 `specified`、同时两个
 `in_progress` task。`docs/` 外的 `active/` 或任意其他归档 JSON 不属于 docs-check corpus，必须不
 影响结果。
+
+根 `AGENTS.md` 的唯一 rendered `## Current Checkpoint` section 和其中唯一 canonical table
+也属于 `TST-DOC-001`。`Active task` 中的
+task ID set 必须 exact 等于任务表全部 `in_progress` 项；`Next task` 必须是表序中 active 项之后首个
+非 `done` task（没有 active 时从表首开始，没有剩余项时写“无”）；`Known blocker` 必须 exact
+列出全部 `blocked` task。`Task authority` 与 `Document authority` 必须分别指向
+`docs/04-task-breakdown.md` 与 `docs/document-status.md`；值为 inline link 时必须对 link target 做
+exact 比较，禁止 substring/alias。缺/重复 section 或 table、表在 section 外、缺字段、重复字段、未知或
+遗漏 task、状态漂移或 authority 漂移一律返回 `PF-DOC-CHECKPOINT`；AGENTS 只能镜像，不能产生
+task 或改变调度顺序。
 
 Evidence Ledger 的 canonical columns 固定为
 `ID | Task | Tests | Grade | Gate / command | Result | Scope and limitation`。`Grade` 只能是
 `development`、`bootstrap` 或 `formal`。绑定任务的 EV 必须给出一个精确 `TASK-*` 与该任务拥有的非空
 `TST-*` 子集；未绑定的历史观察只能同时使用 `Task=—`、`Tests=—`，且不得关闭任务。每个
 `done` task 引用的所有 EV 必须绑定回该 task，Tests 的并集必须覆盖任务表中的全部 Tests；
-`TASK-A0-*` 只能使用 `development`；为打破 evidence binder 的 bootstrap 循环，只有
-`TASK-D0-01/02` 可使用 `bootstrap`，并继续受依赖、accepted prerequisites、测试覆盖与评审
-约束；其余 task 只能使用 `formal`。`formal` 还必须由正式
+只有精确 `TASK-A0-[0-9]{2}` 可使用 `development`；为打破 evidence binder
+的 bootstrap 循环，只有精确的 `TASK-D0-01..06` 六项 D0 trust-root task 可使用
+`bootstrap`，并继续受已完成依赖、accepted prerequisites、测试覆盖、eligible
+Stage-0 直接 handoff 与独立评审约束；其余 task 只能使用 `formal`。bootstrap task closure 还必须
+验证 `SPEC-EVFINAL-001` 的 external authority policy、该 task 的 exact signed TaskApproval 与
+authenticated `BootstrapTaskVerifierReceiptV1`，并 exact join candidate、accepted PHASE-4 row、signed
+RequiredTestSet、owned TST/EV、prerequisite documents、handoff、review refs 和所有 dependency 的
+既有 authenticated completion refs。TaskApproval/receipt 必须绑定同一 required-set，task owned TST
+必须全部是其成员；每个 dependency receipt 的 candidate/policy/required-set 必须与当前 approval
+exact，因此 candidate 变化后必须按 DAG 重验依赖。D0-01/02/03/05/06 只要求各自 task receipt；D0-04 先取得自己的 task receipt，再按
+D0-01..06 exact 顺序聚合六项 current-candidate approval+task receipt，并额外要求 signed
+BootstrapApprovalSet activation receipt。固定顺序是 `D0-04 approval → D0-04 task receipt → six-item
+set → activation receipt`，aggregate 不能成为前五项 done 的前置。
+
+synthetic ledger-only bootstrap fixture 必须是 negative，不能再作为 successful closure。quorum/role/
+review independence 按 distinct principalId 而非 keyId 计算；TaskApproval/set 都签入各自本次 exact
+handoff，所以每次 task completion/aggregate activation 都需在线 quorum，旧 run approval 不得复用。
+task/activation receipt 必须由 policy-pinned key 签名，并只能通过 external policy/handoff 共同绑定的
+预开 authenticated authority-store RPC 进行 signed publish ack + exact readback，按各自包含
+requiredTestSet 的 exact tuple 唯一、non-revoked lookup。当前 producer/policy root/handoff/signer/verifier/protected service/
+receipt consumer 未实现，因此任何 `Grade=bootstrap` 行或 D0 `done` 转换都必须以
+`PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED` 拒绝；`passed` 文本本身不充分。`formal` 还必须由正式
 evidence-set binder 校验对应不可变 EV JSON；ledger 中的文字标签不能自行把 development
-观察升级为 formal evidence；在 `TASK-D0-03` 的 binder 落地并接入 docs-check 前，任何
+观察升级为 formal evidence；在 `TASK-D0-07` 的 formal finalizer/binder 落地并接入 docs-check 前，任何
 `Grade=formal` 行都必须以 `PF-DOC-EVIDENCE-FORMAL-UNVERIFIED` 拒绝。requirements matrix
 在当前尚未闭合的阶段，Evidence 单元格只
 允许精确 `specified`，不得以 `passed`、`closed` 或自由文本替代正式 EV 绑定。
 
+receipt consumer 落地后的 positive matrix 必须证明：D0-01 可由自身 task receipt 独立关闭；D0-02
+只有在同 candidate/policy/required-set 的 D0-01 authenticated completion ref 存在时关闭；D0-04 的
+`TST-BOOTSTRAP-001` 不得读取或要求既有 aggregate activation，D0-04 仅有自身 task receipt 仍拒绝，
+其 activation positive vector 必须使用与 production lookup tuple 不相交的 fixture namespace且永不
+关闭当前 task；真实流程加入 exact six-item set 与 activation receipt 后才关闭。`TASK-D0-07` 只在该 current activation
+存在后运行 `TST-ISO-002`/`TST-EVIDENCE-002`。该 future positive 不改变当前 bootstrap/formal
+fail-closed baseline。
+
 校验顺序固定为 root/required → JSON/frontmatter → status/link/supersession → definition/reference →
-claim source → requirement trace → task/evidence；同阶段按 repo-relative path/line/ID 排序。
+claim source → requirement trace → task/evidence → checkpoint；同阶段按 repo-relative path/line/ID 排序。
 诊断测试固定 exit=1、空 stdout、唯一一行 stderr、code、相对路径与 offending ID，不固定可读
 detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且不得出现 traceback。
 
@@ -298,7 +507,8 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   data 固定为 domain-separated SHA-256 前 8 bytes + little-endian `UInt64[]`，state account
   先验证 owner/data/init，再执行 body。
 - `TST-SOL-004/005`：当前切片没有 SBF assembler/ELF/local-runtime 工具证据，manifest
-  必须保持 `deployable=false`；不得把 plan assembly 写成 ELF 或 runtime completion。
+  必须保持 `ArtifactDeployability=intermediate-only`；不得把 plan assembly 写成 ELF 或 runtime
+  completion。
 
 ### NEAR 通用 UInt64 Plan/recipe/WAT 首个验收切片
 
@@ -362,8 +572,17 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   ACIR、witness generation、proof 或 settlement 证据。
 - `TST-NOIR-004/005/006` 在 exact Nargo/noirc/proving-backend/CRS lock、真实 compile、valid/
   invalid witness、prove/verify 和隐私 artifact scan 完成前保持未闭合。当前 manifest 必须是
-  `source-only`、`deployable=false`，不得生成虚构输入的 `Prover.toml`，也不得把 `.nr` 成功
-  物化写成 ACIR 或 proof 完成。
+  `CodegenProfileId=noir-source-u64-relations-v1`、`artifactRole=noir-source-package`、
+  `ArtifactDeployability=intermediate-only`，不得生成虚构输入的
+  `Prover.toml`，也不得把 `.nr` 成功物化写成 ACIR 或 proof 完成。
+- `TST-ZKSEC-001` 必须独立解析并重算 `ZkBackendSecurityProfileV1` 与
+  `ZkSecurityApprovalV1`，覆盖 feature allowlist、nonempty soundness assumptions、exact arithmetic/
+  CRS/proving backend、proof/VK/public-input envelope binding 和 privacy guarantee。missing/wrong
+  content ref、candidate、完整 BuildIdentity、formal finalization、freshness、clock authority 或
+  revocation ledger，以及 evidence-ref 非 finalization 成员或
+  `finalizedAt <= approvedAt <= currentTrustedTime < expiresAt <= finalization.expiresAt` 失败，均必须在产生
+  ACIR/witness/proof/VK 前以 `PF-REQ-EVIDENCE` 零输出失败；
+  development approval、intermediate-only source profile 或字符串 badge 不是正例。
 
 ## 边界与攻击用例
 
@@ -418,11 +637,16 @@ contexts、policy/port/argv/env/terminal/raw-stream-bound metadata receipt、sin
 和 receipt-last publication；当前 alpha runner 尚未传入这些 opt-in contexts，也未 retained 新
 metadata receipt。`networkPort` 与真实 retained policy/receipts/probes 的 catalog binding、完整
 old/new reader fixture matrix、`setsid()` session escape、eligible host、formal Stage-0 handoff、
-gate catalog/freshness/revocation/private scan 和正式 finalizer 仍是验收缺口。
+required-set/catalog authority、task/activation receipt protected service 仍是
+`TST-BOOTSTRAP-001` 的 pre-activation 缺口；取得 current activation 后，formal gate
+catalog/freshness/revocation/private scan、acceptance/support binding producer 和正式 finalizer 才是
+`TST-EVIDENCE-002`/`TST-ISO-002` 的验收缺口。
 
 H1e 固定按 invocation receipt → catalog core → real retained bundle integration 三个切片实施；前
-两个切片通过不能追溯升级 H1c/EV-0015，也不能关闭 `TST-EVIDENCE-001`、`TST-ISO-002/003`
-或 `TST-VER-001`。
+两个切片通过不能追溯升级 H1c/EV-0015，也不能单独关闭
+`TST-EVIDENCE-001/002`、`TST-ISO-002/003` 或 `TST-VER-001`。`TST-EVIDENCE-001`
+只在 real retained bundle 与 development catalog finalization 也通过、且 formal output 请求已证明
+zero-output fail closed 时关闭。
 
 ## 证据要求
 
@@ -436,11 +660,35 @@ digest、normalized observations 和 logs。
 1. restricted integer-only/ASCII-graphic-key PF JCS、exact-local-port 条件 port matrix 和所有
    schema/cross-field negative；
 2. inputs、retained artifacts、logs 的逐组件 no-follow point-in-time size/hash 复核；
-3. formal gate catalog 对 required tests/tools/probes、freshness、host/candidate、private scan 和
-   revocation lookup 的完整 finalization。
+3. `TST-BOOTSTRAP-001` 要求在没有既有 activation 的前提下完成 eligible handoff、session
+   containment、signed required-set/catalog authority、per-task receipt、six-item set 与 activation
+   producer/consumer；其通过证据先进入 D0-04 TaskApproval/task receipt，不能反向要求本次 activation；
+4. `TST-EVIDENCE-002` 要求在 current activation 之后由 formal gate catalog 对 required tests/tools/probes、freshness、
+   host/candidate、private scan 和 revocation lookup 的完整 finalization，以及对
+   candidate/BuildIdentity/RequirementKey 的 acceptance/support binding 产生与重算；host profile、
+   session containment、freshness authority、private scan、revocation snapshot 与 finalizer 必须是
+   exact typed ContentRef，覆盖 wrong schema/domain/id/version/digest、missing/extra ref、revocation
+   record order/chain/head/length-prefix aggregate、formal-input policy rule/quorum/signature domain、
+   privateScan→evidenceCore→final evidenceSet 单向 hash 与 finalizer closure substitution negatives；
+5. RequiredTestSet authority negatives：candidate/CLI/env 选择 policy、PHASE-5 content digest 或
+   reviewCommit substitution、missing/extra/duplicate/reordered required ID、wrong policy ref、签名
+   缺失/伪造/同一 principal 多 key/role 或 threshold 不足、缺/错 FormalGateCatalogApproval、弱/no-op
+   gate policy、GateCatalogRef 使用 `contentDigest` alias 或 prefixed digest，以及 catalog/gates/evidence
+   omission/duplication/错绑、formal output catalog/required-test-set path segment mismatch；
+6. bootstrap authority negatives：D0-01..06 缺项/乱序/额外项、Task Breakdown row/test/dependency/
+   prerequisite substitution、missing/wrong/unsigned task RequiredTestSet、owned TST 非 required member、
+   EV/review/candidate/handoff mismatch、同一 principal 多 key 满足伪 quorum、历史 candidate 或
+   wrong-policy/required-set dependency completion、missing/wrong task receipt、aggregate 作为前五项 done 前置、D0-04 在自身
+   task receipt 前 activation、旧 run approval/receipt/replayed set、wrong receipt key/verifier digest、
+   caller-selected receipt service、read-only file/directory 假冒 service、descriptor/policy/handoff
+   mismatch、policy↔descriptor 或 mutable-root-manifest self-binding、bad frame/requestId/runId/nonce/
+   lease/head sequence、unsigned/wrong-key hello/ack、schema publish allowlist 绕过、quorum-signed set
+   无 publication path、publish conflict、missing/exact-head readback、revoked/non-unique tuple lookup、
+   仅 ledger `passed` 或 synthetic
+   bootstrap without protected verifier receipt。
 
-前两层不能代替第三层。当前 formal publisher 继续 fail closed；development schema/bundle
-结果不能关闭 `TST-EVIDENCE-001`。外部工具缺失必须让相应 required gate 失败，不能 skip 后仍
+前两层不能代替后四层。当前 formal publisher 和 bootstrap closure 继续 fail closed；development schema/bundle/
+catalog 结果不能关闭 `TST-BOOTSTRAP-001`、`TST-EVIDENCE-002` 或 `TST-ISO-002`。外部工具缺失必须让相应 required gate 失败，不能 skip 后仍
 标绿。development flaky retry 必须记录全部 attempts；formal passed 只允许一次 attempt。
 撤销/修正必须追加独立 revocation record 并保留原 EV；该 revocation parser/store 尚未实现。
 

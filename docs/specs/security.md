@@ -23,9 +23,16 @@ runtime、RPC、network profile 和父项目均不可信。编译器不执行 so
 
 ## 强制控制
 
-- 输入：CLI parser 前 16 MiB/source；parser 后每个 portable program command 100000 Syntax
-  nodes、nesting/qualified identity 256；循环/调用/effect/output limits。Syntax preflight 不保护
-  Lean parser，parser containment/fuzz 仍是开放工作。
+- 输入：[`SPEC-COMMON-001`](common-types.md) 的 frontend wall budget 在 source open 前启动；
+  dirfd/no-follow/nonblocking `open` + `fstat` 只接受 regular single-link file，bounded read 强制
+  16 MiB/source。Lean parser、每个 portable program command 的 100000 Syntax nodes、
+  nesting/qualified identity 256 preflight 和 declaration decoder/check 都在 frontend stage；
+  name/type/effect/semantic 在独立 compiler-core stage。direct Lean command 只可由覆盖两 stage
+  的 outer build runner 执行；未受控 elaborator/library API 不属于 untrusted-source 或
+  formal-evidence surface。
+- 资源：frontend/core/external-tool/artifact-output 四 stage 使用 `ResourceProfileV1` hard maxima；
+  CLI/profile 只能降低。aggregate memory、进程/session、protocol/stderr/published bytes、归因优先级、
+  exact-limit 接受、over-limit kill/cleanup/零部分输出均以 SPEC-COMMON-001 为唯一规则。
 - 进程：tool path 来自 lock-resolved absolute path；清理 env；timeout；stdout/stderr cap；
   不经 shell 拼接参数；验证 exit code、version、hash 和产物。
 - 文件：output root containment、open-no-follow、拒绝 symlink/hardlink escape、临时目录
@@ -54,6 +61,97 @@ black-box op；出现时 `PF-REQ-UNSUPPORTED`。public input 顺序和 verificat
 semantic/plan hash；prove 前重算 circuit hash，verify 检查 proof/VK/public-input 三者。
 private input 不得出现在 error branch、artifact、diagnostic、telemetry 或 cache key。
 
+### ZK backend security contract 与审批绑定
+
+proof-producing Codegen profile 不能只以工具名称或“支持 ZK”作为安全前提。它必须引用一个
+content-addressed `ZkBackendSecurityProfileV1`；针对 release candidate 的启用还必须有独立
+`ZkSecurityApprovalV1`，从而避免 security profile 与包含其 digest 的 Codegen profile 形成
+自引用 hash。
+
+```lean
+structure ZkSecurityProfileId where value : String
+
+structure ZkBackendSecurityProfileV1 where
+  schema               : SchemaId
+  id                   : ZkSecurityProfileId
+  version              : SemVer
+  targetSemantics      : TargetSemanticIdentity
+  circuitLanguage      : ContentRef
+  provingSystem        : ContentRef
+  provingBackend       : ContentRef
+  crsPolicy            : ContentRef
+  arithmeticModel      : ContentRef
+  allowedFeatures      : Array ContentRef
+  soundnessAssumptions : NonEmptyArray ContentRef
+  proofBindingRule     : ContentRef
+  privacyGuarantee     : ContentRef
+
+structure ZkSecurityApprovalV1 where
+  schema                 : SchemaId
+  candidate              : CandidateIdentity
+  build                  : BuildIdentity
+  securityProfile        : ContentRef
+  reviewProfile          : ContentRef
+  evidence               : NonEmptyArray EvidenceRef
+  finalization           : FinalizationRef
+  approvedAt             : UtcInstant
+  expiresAt              : UtcInstant
+  revocationLedgerDigest : Digest
+```
+
+`revocationLedgerDigest` 必须 exact 等于 `finalization` resolved formal record 的 typed
+`revocationLedger.digest`；approval 不得选择另一 ledger/schema/domain。
+
+`ZkSecurityProfileId` 使用 1..127-byte profile ID grammar。security profile 的 wire object
+字段恰为上述 declaration order；`schema` 固定为
+`proof-forge.zk-backend-security-profile.v1`，digest 唯一为：
+
+```text
+SHA-256("pf.zk-backend-security-profile.v1" || NUL ||
+  JCS(ZkBackendSecurityProfileV1))
+```
+
+所有 `ContentRef` 均按 SPEC-COMMON-001 exact resolve；`allowedFeatures`、
+`soundnessAssumptions` 分别按 `(schema,id,version,digest)` 唯一升序。功能 allowlist 之外的
+black-box op、Brillig opcode、oracle、foreign call、recursive proof、aggregation 或 dynamic
+allocation 一律 `PF-REQ-UNSUPPORTED`，不能由 CLI 放宽。`crsPolicy` 必须承诺 CRS 获取方式、
+ceremony/transcript 或 deterministic test CRS 身份、尺寸边界和 digest；`arithmeticModel` 必须承诺
+integer width/range/overflow 与 Field modulus；`soundnessAssumptions` 不能为空，且每一项必须有
+不可变正文，而不能是自由文本标签。
+
+`proofBindingRule` 的 v1 payload 必须要求 proof envelope 同时承诺
+`CandidateIdentity`、完整 `BuildIdentity`、security-profile digest、source/semantic/Plan/circuit
+digest、VK digest、按 ABI 顺序的 typed public-input vector digest、proving-system/backend/CRS
+digest；verify 在调用外部 verifier 前逐项重算并 exact compare。`privacyGuarantee` 的 v1 payload
+必须区分“private input 不进入结构化公开面”和密码学 zero-knowledge 主张：前者由 taint、artifact
+schema 与 retained private scan 验证；后者只能来自所引用 proving system/backend/CRS 假设及
+formal review，不能由 proof byte substring scan 推导。
+
+approval 的 wire object 字段也恰为上述 declaration order；`schema` 固定为
+`proof-forge.zk-security-approval.v1`，digest 为：
+
+```text
+SHA-256("pf.zk-security-approval.v1" || NUL || JCS(ZkSecurityApprovalV1))
+```
+
+`evidence` 按 `(id,digest)` 唯一升序，`finalization.schema` 必须是
+`proof-forge.formal-evidence-finalization.v1`。formal evidence-set 中以
+`(candidate.digest,build,securityProfile.digest)` 为唯一 key，最多存在一个未过期、未撤销 approval；
+safe-read 后必须重算 profile、approval、evidence、finalization 和 revocation digest，并要求
+`securityProfile.targetSemantics == build.targetSemantics`、Codegen profile 的 exact
+`securityContract == securityProfile ref`、全部 evidence refs 都是 resolved formal finalization 的成员。
+时间关系固定为 `finalization.finalizedAt <= approvedAt <= currentTrustedTime < expiresAt <=
+finalization.expiresAt`；consumer 必须用同一受信 UTC snapshot 同时完成 not-before 与两项 expiry
+判断。任一缺失、development finalization、
+wrong candidate/build/profile、evidence 非成员、时间不等式、过期、撤销或 clock authority 不合格均以
+`PF-REQ-EVIDENCE` 零输出失败。
+
+`CodegenProfileV1.securityContract` 对不产生 circuit executable、witness、proof、verification key
+或 verification result 的 profile 必须为 `none`；任何产生其中一类制品的 profile 必须为 `some`
+且引用上述 exact security profile。`noir-acir-proof-v1` 只有在当前 candidate/build 的 approval 验证通过后才能进入 registry
+或被 build/prove 选择；approval 不得原地提升 `noir-source-u64-relations-v1`，也不得成为更换
+target-neutral 业务语义的入口。
+
 ## Chain 特有控制
 
 EVM selector/storage collision、delegate/static/value call 模式；Solana account owner/signer/
@@ -62,9 +160,11 @@ writable/order/PDA；NEAR predecessor/signer、attached value、Promise callback
 
 ## 安全失败
 
-安全检查失败一律 error，不允许 warning override。当前 Syntax/identity 资源超限
-`PF-BOUND-001`，CLI source 16 MiB 超限 `PF-SRC-INVALID`；未来其他资源错误码须先进入
-diagnostic 规格，不能使用未注册的 `PF-RESOURCE-LIMIT`。不可信
+安全检查失败一律 error，不允许 warning override。Syntax/identity 资源超限
+`PF-BOUND-001`，CLI source 16 MiB 超限 `PF-SRC-INVALID`；frontend worker 的 time/memory/
+process/protocol-output 超限分别为 `PF-RESOURCE-TIME`、`PF-RESOURCE-MEMORY`、
+`PF-RESOURCE-PROCESS`、`PF-RESOURCE-OUTPUT`，worker protocol/异常退出为
+`PF-FRONTEND-PROTOCOL`。不可信
 工具 `PF-TOOL-UNTRUSTED`，路径 `PF-OUTPUT-PATH`，披露 `PF-VIS-001`。`--force` 只允许
 替换输出目录，不绕过任何安全/语义/版本检查。
 
@@ -77,4 +177,6 @@ policy/receipt replacement、diagnostic printable-secret leak、artifact zip bom
 格式、manifest duplicate key、private explicit/implicit leak、malicious proof/VK/public input、
 RPC wrong chain/replay、registry/profile spoof、parent cache/import/binary 泄漏、concurrent output、
 disk-full rollback、compiler panic。关联 `NFR-003/004/008/009`、`TST-SEC-001`、
-`TST-VIS-*`、`TST-ISO-*`；P0/P1 finding 阻断 release。
+`TST-VIS-*`、`TST-ISO-*`；其中 parser containment 必须覆盖恰好等于/超过每个
+`ResourceProfileV1` 上限、hang、OOM、fork/`setsid()`、oversized protocol、truncated/
+malformed response 和 worker signal。P0/P1 finding 阻断 release。

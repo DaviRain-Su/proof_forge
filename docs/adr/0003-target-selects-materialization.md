@@ -21,6 +21,8 @@ normative: true
 源码中不提供 `kind` 或等价字段。`--target` 只选择 materializer；前端根据业务操作推导 `ProgramRequirements`。target 仅在能够保持全部语义时接受程序，否则返回精确错误。
 
 披露、授权和状态托管仍需在业务源码中显式描述，因为它们本身会改变语义；它们不是顶层执行类别。
+默认程序不可升级。upgrade authority、proxy/controller 和 migration 只能来自显式、版本化
+requirement/extension；target 不得自行增加管理员或升级路径。
 
 ## 后果
 

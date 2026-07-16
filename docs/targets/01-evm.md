@@ -15,7 +15,7 @@ Phase 1：实现
 
 ## 1. 身份与来源
 
-EVM 是带账户代码、持久 storage、同步 message call、gas 和交易状态转换的 contract VM。主要依据 [Ethereum Yellow Paper](https://ethereum.github.io/yellowpaper/paper.pdf)（`SRC-EVM-001`，verified）。具体 fork、chain id 和 precompile 集由 `NetworkProfile` 固定。
+EVM 是带账户代码、持久 storage、同步 message call、gas 和交易状态转换的 contract VM。主要依据 [Ethereum Yellow Paper](https://ethereum.github.io/yellowpaper/paper.pdf)（`SRC-EVM-001`，verified）。具体 fork、precompile 集和 gas schedule 进入 target semantics digest，`CodegenProfile` 只能 exact 引用并实现；chain/genesis identity 与部署端点由 `NetworkProfile` 固定。
 
 ## 2. 执行、状态、调用、失败与资源
 
@@ -23,7 +23,9 @@ EVM 是带账户代码、持久 storage、同步 message call、gas 和交易状
 - 状态：逻辑 state 映射到合约 account storage；布局是 ABI 稳定性的一部分。
 - 调用：`CALL` 等模式的 caller/value/static/delegate 语义不能合并。
 - 失败：业务 `revert`、VM trap/out-of-gas 与外部 call failure 分开记录；失败路径不得提交当前 frame 状态。
-- 资源：gas schedule 随 fork/profile 变化，不进入源语言语义。
+- 资源：gas schedule 随 target semantic fork 变化，不进入 target-neutral 源语言语义，但必须进入
+  target semantics digest、Plan 假设和 provenance；`CodegenProfile` 只能实现并 exact 引用该
+  schedule，不能选择另一套 gas 语义。
 
 ## 3. Portable fragment 与扩展
 

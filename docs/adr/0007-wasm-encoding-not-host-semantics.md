@@ -14,7 +14,7 @@ normative: true
 
 ## 背景
 
-NEAR、CosmWasm、Soroban、ICP 都输出 Wasm，但它们的 ABI、状态、权限、调用、提交、资源和升级语义不同。
+NEAR、CosmWasm、Soroban、ICP 都输出 Wasm，但它们的 ABI、状态、权限、调用、提交、资源和升级语义不同（`CLM-WASM-001`、`CLM-TAX-001`）。
 
 ## 决定
 

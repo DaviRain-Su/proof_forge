@@ -92,7 +92,8 @@ Noir 的整数 range/checked-overflow 语义，不先提升到 `Field` 后再遗
 生成可能消除 overflow 的 source。
 
 当前 profile 是 `noir-source-u64-relations-v1`、dialect 是
-`noir-native-u64-relations-v1`、manifest 为 `source-only` 且 `deployable=false`。它不生成
+`noir-native-u64-relations-v1`；OutputSet 的 primary role 是 `noir-source-package`，exact
+`ArtifactDeployability=intermediate-only`，`securityContract=null`。它不生成
 ACIR、noirc ABI、witness、proof、VK 或 verification result，也不生成伪造示例值的
 `Prover.toml`。未来完整路径才是 `.nr → ACIR/ABI → witness → proof/VK/verify`，届时所有
 proof-stage artifact 必须绑定 semantic/profile/catalog hash。
@@ -102,6 +103,11 @@ proof-stage artifact 必须绑定 semantic/profile/catalog hash。
 最终必须固定 `nargo/noirc` 与选定 proving backend（如 Barretenberg）的 exact version、
 binary digest 和 CRS/profile。当前 lock 未包含 Nargo/Barretenberg，本机也没有可作为证据的
 批准工具链；package 因此不写会被误解为 binary pin 的宽松 prerelease version range。
+当前 intermediate profile 的 `securityContract=null`。未来 `noir-acir-proof-v1` 必须引用
+[`SPEC-SEC-001`](../specs/security.md) 的 exact `ZkBackendSecurityProfileV1`，并在当前
+`CandidateIdentity`/`BuildIdentity` 上验证未过期、未撤销的 formal `ZkSecurityApprovalV1`；只锁
+Nargo/backend binary 而缺少 arithmetic、CRS、soundness、proof binding 与 privacy contract 时仍
+不得进入 registry、build 或 prove。
 
 ## 7. 证明流程
 
@@ -121,8 +127,9 @@ settlement adapter，作为独立 target/profile 评审。
 2. 纯 Lean relation model 的 lifecycle、wrong result/state 与 `UInt64.max + 1` negatives
    （当前已覆盖，但不是 Noir runtime evidence）。
 3. pinned Nargo compile + valid/invalid witness（未完成）。
-4. pinned backend prove/verify 与 proof binding 检查（未完成）。
-5. Counter 四目标差分和 PrivateSum4 不泄露 witness（proof 部分未完成）。
+4. exact ZK security profile/approval resolution 与 allowlist/CRS/substitution negatives（未完成）。
+5. pinned backend prove/verify 与 proof/VK/public-input binding 检查（未完成）。
+6. Counter 四目标差分和 UInt64 PrivateSum4 不泄露 witness（proof 部分未完成）。
 
 ## 10. 不支持、风险与成熟度退出
 
@@ -130,4 +137,6 @@ Phase 1 不支持 recursive proof、oracle、foreign call、dynamic collections�
 当前只达到 source relation alpha：generic Accumulator materialization、exact artifact validation
 和 repeatability 可以记录为静态编译证据，不能关闭 `TST-NOIR-004/005/006`。退出条件仍是
 Counter/Accumulator relation、PrivateSum4、invalid witness、overflow、完整 prove/verify 与
-repeatable proof-bound manifest 全部通过；输出标为 `provable-circuit` 而非 deployable contract。
+repeatable proof-bound manifest 全部通过；此外必须关闭 `TST-ZKSEC-001`，不能用 source profile
+或 development approval 代替。successor profile 的 proof artifact 使用 exact
+`ArtifactDeployability=verifiable-workload`；没有 settlement adapter 时仍不是 deployable contract。

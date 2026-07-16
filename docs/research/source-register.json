@@ -457,6 +457,19 @@
       "hashStatus": "git_commit",
       "license": "same project; V2 clean-room policy still forbids dependency or copy",
       "status": "verified"
+    },
+    {
+      "id": "SRC-LOCAL-002",
+      "title": "ProofForge V2 tool and host closure observation",
+      "authority": "local-evidence",
+      "url": null,
+      "version": "39046296cf94c956cfd7c630ab291e01ee0a8a1f",
+      "locator": "toolchains.lock.json, host-profiles.lock.json, EV-20260715-0009 and EV-20260715-0011",
+      "accessedAt": "2026-07-16",
+      "contentHash": "git:39046296cf94c956cfd7c630ab291e01ee0a8a1f",
+      "hashStatus": "git_commit",
+      "license": "same project",
+      "status": "verified"
     }
   ]
 }

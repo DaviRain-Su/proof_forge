@@ -3,7 +3,7 @@ id: PHASE-1
 title: 产品需求文档
 status: proposed
 owner: product
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -31,10 +31,10 @@ normative: true
 | ID | 需求 | 验收摘要 |
 |---|---|---|
 | FR-001 | 唯一顶层源码形式为 `program Name where` | parser 正负例；无顶层类别字段 |
-| FR-002 | DSL 支持 state、struct、enum、const、event、error、init、entry、view、invariant、requires | 每类至少一个 typed fixture |
+| FR-002 | DSL 支持 state、struct、enum、const、event、error、init、entry、view、pure fn、invariant、requires 与受约束 proof reference | 每类有 D1 parser/Source AST 正负例；D2 另有完整 typed fixture，含 fn call 与 proof signature |
 | FR-003 | 独立 type/effect/termination/disclosure 检查 | 稳定 `PF-SRC/TYPE/EFFECT/BOUND/VIS-*` |
 | FR-004 | 生成目标中立 `SemanticProgram` 和可定位 requirements | 规范序列化及确定性测试 |
-| FR-005 | `--target` 只选择物化，不改写业务语义 | 跨 target 参考 trace 对比 |
+| FR-005 | `--target` 只选择物化，不改写业务语义 | import/branch 边界 gate + Counter 与非 Counter 跨 target 参考 trace 对比 |
 | FR-006 | capability/extension 以 exact version + semantics digest 求解 | 缺失/不匹配必须 fail closed |
 | FR-007 | 每个 target 拥有类型化 Plan 和 TargetIR | 编译期接口及 plan invariant 测试 |
 | FR-008 | Phase 1 支持 `evm`、`solana`、`near`、`noir` | Counter 四目标 artifacts + runtime/proof evidence |
@@ -50,14 +50,14 @@ normative: true
 | ID | 要求 | 指标 |
 |---|---|---|
 | NFR-001 | 决定性 | 相同输入/锁文件连续构建 semantic/plan/artifact hash 相同 |
-| NFR-002 | 可诊断性 | 所有失败含 code、phase、target、requirement/span、expected/actual/suggestion |
+| NFR-002 | 可诊断性 | 所有失败必含 schemaVersion/code/severity/phase/message；target、origin、requirement、expected/actual/suggestion 按 diagnostic condition matrix 条件必填 |
 | NFR-003 | 安全默认 | 无 fallback、无动态插件、无 build-time network、无隐式部署 |
 | NFR-004 | 独立性 | clean-room 副本清空父路径与 cache 后完整 build/test |
 | NFR-005 | 可追踪性 | 所有 normative FR/NFR 均关联 SPEC、TASK、TST 和 EV |
 | NFR-006 | 兼容性 | schema/DSL semantic versioning；破坏变化有 migration 和 major bump |
-| NFR-007 | 性能 | 1000 AST nodes 的 check 冷启动 ≤5s、增量 ≤1s（基准机器待锁） |
-| NFR-008 | 资源可控 | 编译可设置 time/memory/output limits，超限稳定失败 |
-| NFR-009 | 供应链 | 所有依赖和外部工具 exact pin + checksum/license |
+| NFR-007 | 性能 | `PerformanceProfileV1` 上 1000-node `check` 的 30 次测量 p95：新进程 cold full check ≤5s、same-session single-token warm full recheck ≤1s；不宣称 incremental compilation |
+| NFR-008 | 资源可控 | check/build 显式接受 versioned time/memory/output limits；默认值、允许范围和超限 code 固定，parser 在限制生效后才读取不可信 source |
+| NFR-009 | 供应链 | 所有直接/传递依赖和外部工具 exact pin + checksum + SPDX license；release 生成并校验 CycloneDX 1.6 SBOM |
 | NFR-010 | 可维护性 | target backend 不反向依赖其他 target；boundary gate 强制 |
 
 ## 范围与非目标
@@ -65,6 +65,10 @@ normative: true
 第一阶段范围：语言核心、语义解释器、四个 materializer、Counter 和 PrivateSum4、
 制品/诊断/可复现/clean-room gate。设计但不实现的目标为 CosmWasm、Soroban、ICP、
 OpenVM、Aleo、Psy。
+
+`Accumulator` 是强制的内部 backend genericity/非模板化验收向量，不是新增公开 DSL 或 target；
+它与 Counter 共用产品范围内的 UInt64/state/entry/view 能力并进入四目标静态与适用 runtime/proof
+差分。`fn` 与受约束 `proof` reference 属于 Phase 1 语言范围；任意 Lean term escape 仍为 OOS-004。
 
 | ID | 非目标 |
 |---|---|
@@ -76,22 +80,33 @@ OpenVM、Aleo、Psy。
 | OOS-006 | 以二进制相等代替跨目标可观察语义等价 |
 | OOS-007 | 第一阶段生产就绪或审计完成声明 |
 
-## Maturity
+## TargetMaturity
 
-`research` 只有资料；`specified` 有 decision-complete dossier；`prototype` 有静态制品；
-`artifact_validated` 通过官方校验；`local_runtime` 有本地执行；
-`network_or_proof_validated` 有真实网络或完整 prove/verify。文档不得提升代码 maturity。
+唯一机器状态序为 `research → specified → prototype → artifact_validated → local_runtime →
+network_or_proof_validated`：`research` 只有资料；`specified` 有 decision-complete dossier；
+`prototype` 有目标制品但尚未通过官方结构校验；`artifact_validated` 通过官方或锁定的兼容
+validator；`local_runtime` 有本地执行；`network_or_proof_validated` 有真实网络或完整
+prove/verify。文档、`alpha`、`plan-only`、`source-only` 等说明不得成为平行状态或提升
+`TargetMaturity`。该状态与单项 capability 的 `SupportEvidenceGrade`、证据账本的 evidence grade
+相互独立。
 
 ## Phase 1 Definition of Done
 
 - 一份 Counter 源码构建四目标，checked overflow 均失败且状态不变。
 - EVM、Solana、NEAR 有本地 runtime trace；Noir 有 witness/prove/verify。
-- PrivateSum4 证明 private 输入不会出现在 verifier-visible 输出或非 ZK artifacts 中。
-- 所有 negative capability/version/toolchain cases 返回稳定诊断。
+- PrivateSum4 的 raw private fields/values 不得成为 manifest、public ABI、诊断、日志、public
+  inputs、cache key 或任何被拒绝目标的 staging/partial artifact 字段。proof 可以由 witness 派生，
+  但只能由锁定且获批准的 ZK backend/profile 生成，不得携带 raw witness record；同一 circuit/plan
+  的 VK 必须与 witness 无关。compiler-created witness staging 使用 `0700/0600` 并在成功/失败后
+  删除；caller-owned `--inputs` 只做 no-follow stable read，绝不修改或删除。
+- Diagnostic registry 登记的每个 rejection condition 至少有一个 required negative TST，并返回
+  该 condition 的稳定 code 与条件必填字段。
 - OutputSet 可重现，manifest schema 通过，clean-room gate 通过。
-- traceability 100%，Phase 7 review 无阻断意见；不含生产安全或全功能承诺。
+- 权威分母全部闭合：每个 active normative FR/NFR 有精确 SPEC/TASK/required TST；Test ID Catalog
+  中除 `TST-A0-*` 外的每个 ID 都有最新 passed EV；每个已注册 rejection condition 被 required
+  negative TST 覆盖。Phase 7 review 无 P0/P1；不含生产安全或全功能承诺。
 
 ## 成功指标
 
-工程指标：四目标 acceptance 全绿、零 silent fallback、规范覆盖率 100%、稳定诊断覆盖
-所有拒绝分支。产品指标沿用 Phase 0，未完成前不得宣称产品市场验证成功。
+工程指标：四目标 acceptance 全绿、零 silent fallback；覆盖率只按上述三个机器可枚举集合计算，
+不得用自由文本“100%”替代分母。产品指标沿用 Phase 0，未完成前不得宣称产品市场验证成功。

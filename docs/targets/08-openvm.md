@@ -65,4 +65,7 @@ frozen-version MWE → ELF/VmExe validation → deterministic execute → app pr
 
 ## 10. 不支持、风险与成熟度退出
 
-当前不实现、不注册为 production target。准入条件：冻结单一版本、决定 guest generation strategy、完成 Counter state-transition I/O 与 proof binding MWE、记录资源基线。输出始终为 `provable-guest`，没有 adapter 时 `nonDeployable`。
+当前不实现、不注册为 production target。准入条件：冻结单一版本、决定 guest generation strategy、
+完成 Counter state-transition I/O 与 proof binding MWE、记录资源基线。输出角色始终是 zkVM
+workload；生成可验证 proof/VK 时使用 `ArtifactDeployability=verifiable-workload`，没有 exact adapter
+时不得宣称 deployable contract。

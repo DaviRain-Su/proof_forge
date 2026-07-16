@@ -43,7 +43,9 @@ class Materializer (target : TargetId) where
 - requirements/support claim resolution；
 - diagnostics、proof/verification status、reproducibility status。
 
-`deployable-contract`、`provable-circuit`、`provable-guest` 是制品属性，不是源码类别。若没有 settlement adapter，Noir/OpenVM 输出必须标为 `nonDeployable`；CLI 不得把 proof/VK 包装成“已部署合约”。
+circuit workload、zkVM workload 与 deployable contract 是制品角色，不是源码类别。wire
+deployability 只使用 `ArtifactDeployability`；若没有 exact settlement adapter，Noir/OpenVM 的
+proof/VK 至多为 `verifiable-workload`，CLI 不得包装成“已部署合约”。
 
 ## Phase 1 输出
 
@@ -58,7 +60,8 @@ class Materializer (target : TargetId) where
 
 - `TargetId`：语义宿主，如 `near`。
 - `CodegenProfile`：编译器、ABI、VM feature、proof backend 的精确版本组合。
-- `NetworkProfile`：chain id、protocol/fork、部署限制、费用/资源上限和 RPC policy。
+- `NetworkProfile`：chain/genesis identity、endpoint、fee/deploy 限制和 RPC policy；
+  protocol/fork 与会改变执行结果的资源计量属于 target semantics。
 
 源码与 `TargetId` 相同不代表不同 profile 可互换。未锁版本、hash 不匹配或运行时 feature 缺失必须返回 `PF-TOOLCHAIN-MISMATCH`。
 

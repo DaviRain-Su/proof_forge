@@ -48,8 +48,11 @@ Evidence Ledger 的 canonical columns 是
 替代列。`Grade` 只允许 `development|bootstrap|formal`。绑定 EV 的 `Task` 必须是一个精确 `TASK-*`，
 `Tests` 必须是该 task 拥有的一个或多个精确 `TST-*`；不绑定任务的历史 observation 必须同时写
 `Task=—` 与 `Tests=—`。done task 引用的每个 EV 都必须绑定该 task，所有引用 EV 的 Tests 并集
-必须覆盖 task 的全部 Tests；`TASK-A0-*` 只能由 development EV 关闭；bootstrap grade 只允许
-`TASK-D0-01/02`，作为 binder 建立前受 accepted prerequisite、依赖和评审约束的显式信任根；
+必须覆盖 task 的全部 Tests；只有精确匹配 `TASK-A0-[0-9]{2}` 的历史 alpha task 可由
+development EV 关闭。为打破 formal binder 自举的循环，bootstrap grade 只允许
+精确集合 `TASK-D0-01`、`TASK-D0-02`、`TASK-D0-03`、`TASK-D0-04`、
+`TASK-D0-05`、`TASK-D0-06`；它们共同构成 binder 建立前受 accepted prerequisite、
+已完成依赖、eligible Stage-0 直接 handoff 和独立评审约束的显式 D0 信任根。
 其他 task 只能由 formal EV 关闭。formal grade 仍须通过正式 evidence-set binder 对不可变 EV JSON 的候选、gate、artifact
 与新鲜度绑定，不能由 ledger 文本自行声明；binder 接入前 docs-check 拒绝所有 `formal` 行，
 不得用自声明解除该 bootstrap 边界。requirements matrix 的 Evidence 在正式闭合模型

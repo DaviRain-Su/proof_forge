@@ -19,8 +19,14 @@ observations、artifacts/log hashes。可持久化表示必须使用
 JSON。缺 required tool 是 failed，不是 skipped；只有 target dossier 明确 optional 的 gate
 可 skipped，且不能提升 maturity。
 
-normalized observation 固定 `{step,status,return,logicalState,effects,errorClass}`；target-specific
-logs/resources 作为附加维度，不能掩盖核心 mismatch。覆盖 runner timeout/signal/huge output、
+runner 的进程内 normalized semantic result 必须直接使用 `SPEC-SEM-001 OutcomeV1` 并做 constructor/
+field structural equality，不允许自由字符串映射。当前持久化
+`proof-forge.evidence.v1 observations` 的固定 envelope
+`{step,status,return,logicalState,effects,errorClass}` 只是 verdict/diagnostic projection：它没有 exact
+SemanticRevert payload/tag wire，不能声称从 OutcomeV1 无损派生或单独证明 target differential。
+在 versioned exact tagged reference-outcome artifact、retained digest binding 与 verifier 实现前，相关
+formal target gate 必须 fail closed；model/unit runner 可以保留进程内 structural assertion 和
+development verdict。target-specific logs/resources 作为附加维度，不能掩盖核心 mismatch。覆盖 runner timeout/signal/huge output、
 flaky retries、malformed observation、stale artifact、dirty tree、missing tool、different roots/
 jobs、proof invalid/private leak、network wrong identity。关联 `PHASE-5`、`TASK-D8-*`、所有
 `TST-*`；证据 schema 必须可独立复核。
@@ -52,8 +58,10 @@ required probes 的绑定、freshness/revocation/private scan、remote attestati
 仍未闭合。evidence v1 candidate 已能条件表达
 `exact-local-port` + `networkPort`，但 schema field 本身不证明实际 policy bytes 或 required
 probes。失败时回显的 ASCII-escaped 32 KiB tail 只属于 development diagnostics，不能作为已
-脱敏或 retained formal evidence。`TST-EVIDENCE-001`、`TST-ISO-002`、`TASK-D0-03` 均保持
-未完成。
+脱敏或 retained formal evidence。development receipt/catalog/bundle 未集成前
+`TST-EVIDENCE-001`/`TASK-D0-03` 保持未完成；formal 缺口由
+activation 前 foundation 由 `TST-BOOTSTRAP-001`、`TASK-D0-04` 拥有；activation 后正式
+finalization 由 `TST-EVIDENCE-002`、`TST-ISO-002`、`TASK-D0-07` 拥有。
 
 H1e 的完整契约见 [`SPEC-EVFINAL-001`](../specs/gate-catalog-finalization.md)。Catalog 必须是
 独立 lock；launcher 先为每个 invocation 产生绑定 policy/port/terminal/raw streams 的 canonical

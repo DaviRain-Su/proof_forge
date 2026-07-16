@@ -14,7 +14,8 @@ normative: true
 
 ## 背景
 
-“都使用零知识证明”不能说明执行、状态和结算相同。Noir、OpenVM、Aleo、Psy 处在不同层次。
+“都使用零知识证明”不能说明执行、状态和结算相同。Noir、OpenVM、Aleo、Psy 处在不同层次
+（`CLM-TAX-001`）；Psy 的状态/聚合模型仍依据 provisional `CLM-PSY-001/002`。
 
 ## 决定
 
@@ -27,7 +28,9 @@ normative: true
 
 ## 后果
 
-制品标签诚实区分 `provable-circuit`、`provable-guest` 与 chain transaction/deployment。共享只限披露词汇、proof provenance 和密码类型。
+制品角色诚实区分 circuit workload、zkVM workload 与 chain transaction/deployment；wire
+deployability 只使用 `SPEC-COMMON-001` 的 `ArtifactDeployability`，其中可验证工作负载为
+`verifiable-workload`，且不得暗示已部署合约。共享只限披露词汇、proof provenance 和密码类型。
 
 ## 否决方案
 
@@ -35,4 +38,6 @@ normative: true
 
 ## 验证
 
-Noir/OpenVM 无 adapter 时 manifest 必须 `nonDeployable`；Aleo/Psy dossier 明确 chain settlement。
+Noir/OpenVM 无 exact adapter 时最多使用
+`ArtifactDeployability=verifiable-workload`，不得宣称 deployable contract；Aleo/Psy dossier 明确
+chain settlement。

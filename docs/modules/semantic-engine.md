@@ -11,8 +11,10 @@ normative: true
 
 当前 alpha API：`Typed.check : Source.Program → CompileResult Typed.Program`、
 `Semantic.fromTyped : SourceHash → Typed.Program → Semantic.Program`、
-`Compiler.compile : Source.Program → CompileResult Semantic.Program`。完整阶段还要求
-`step : Semantic.Program → State → Invocation → ExternalResponses → Outcome`。
+`Compiler.compile : Source.Program → CompileResult Semantic.Program`。完整阶段的 interpreter API exact 为
+`SPEC-SEM-001` 的
+`step : SemanticProgramV1 → LogicalStateV1 → InvocationV1 → ExternalResponsesV1 → OutcomeV1`；runtime
+carrier、revert/fault/effect constructor 不在模块页重声明。
 模块拥有 name/type/effect/bound/disclosure rules、canonical Core、serializer 和 interpreter；
 不读取 target/profile/network，不生成 ABI/layout/artifact。
 

@@ -19,9 +19,9 @@ Author / CI
     │ Lean source + explicit CLI target/profile
     ▼
 proof-forge-next
-    ├─ Lean Parser → bounded Syntax preflight → ProofForge decoder → Source.Program
-    ├─ name/type/effect checker → Typed.Program
-    ├─ target-neutral normalization → Semantic.Program + ProgramRequirements
+    ├─ contained frontend worker: Lean Parser → bounded Syntax preflight → declaration decoder/check → Source.Program
+    ├─ contained core worker: name/type/effect checker → Typed.Program
+    ├─ target-neutral normalization → SemanticProgramV1 + SemanticProvenanceV1
     ├─ Support resolver → ResolvedProgram target
     ├─ target Materializer → target Plan → TargetIR
     └─ emitter → OutputSet + provenance
@@ -32,10 +32,15 @@ proof-forge-next
 
 编译器是代码生成与语义检查工具，不是链 VM、密钥托管器或默认网络执行器。
 Lean Parser 提供 token/layout/syntax tree；它不替代业务 IR。parser 成功后，每个 portable
-program command 先经过有界、非递归 Syntax preflight，再进入递归 decoder。CLI loader 只加载
-受信任的 ProofForge grammar initializer，解析后拒绝 DSL 白名单之外的 Lean command，不执行
-用户模块 elaboration。当前 preflight 不保护 Lean parser 本身。随后三个互不等同的领域类型
-依次承担 surface、checked source 和 canonical semantics 责任。
+program command 先经过有界、非递归 Syntax preflight，再进入递归 checked decoder。CLI
+orchestration parent 不解析或 elaboration 用户模块，只启动受控 frontend worker；worker 只加载
+受信任的 ProofForge grammar initializer，并拒绝 DSL 白名单之外的 Lean command。parser、
+preflight、decoder 和 declaration validation 位于 frontend worker；返回的 `Source.Program` 再由
+独立 contained core worker 执行唯一 name/type/effect/semantic pipeline。两个 stage 都在 source
+处理前应用各自版本化 time/memory/output/process hard maxima。
+直接 Lean command 路径必须由同等或更严格的 outer build runner 包住整个 Lean process；未受控的
+library/elaborator 调用不接受不可信 source，也不得生成 formal evidence。随后三个互不等同的领域
+类型依次承担 surface、checked source 和 canonical semantics 责任。
 
 ## 架构不变量
 
@@ -56,33 +61,31 @@ program command 先经过有界、非递归 Syntax preflight，再进入递归 d
   fail closed，specified 不得冒充 closed。
 - INV-013：持久化 DSL、schema、target/codegen profile 的版本和兼容边界必须显式；破坏性
   变更要求 major bump、迁移路径和 old/new reader 或 upgrade/rollback 验收，禁止隐式兼容。
+- INV-014：攻击者可控 source 在进入 Lean parser 前必须已经处于版本化资源与 process-session
+  containment；parser timeout/OOM/process/output 超限必须由边界外 parent 转换为稳定诊断。
 
 ## 中立语义
 
-```lean
-structure SemanticProgram where
-  schemaVersion : SemanticSchemaVersion
-  identity      : ProgramIdentity
-  types         : Array SemanticType
-  logicalState  : Array StateDecl
-  entries       : Array EntryDecl
-  invariants    : Array InvariantDecl
-  requirements  : ProgramRequirements
+`SemanticProgramV1` 的唯一字段、constructor、wire 与 hash authority 是
+[`SPEC-SEM-WIRE-001`](specs/semantic-program-wire.md)：public carrier 是 validated canonical bytes，
+decoded data 包含 qualified name、types、constants、logical state、events/errors、callables、invariants
+和 embedded ProgramRequirements。架构页不重新声明缩减版结构。
 
-inductive Outcome where
-  | returned (postState : State) (value : Value) (effects : Array OrderedEffect)
-  | reverted (error : SemanticError) (unchangedState : State)
-  | trapped (fault : SemanticFault) (unchangedState : State)
-```
+`SemanticProgram` 的 canonical bytes 不含 sourceHash、path/span 或 origin。独立
+`SemanticProvenance` companion exact 绑定 qualifiedName、sourceHash、semanticHash 与 entity origin map；
+它只服务 diagnostics/audit/certification join，不能进入 target-neutral 业务求值或 target 选择。
 
-`step : State → Invocation → ExternalResponses → Outcome` 是 reference semantics。
+`SPEC-SEM-001`/`ProofForgeV2.Semantic.ReferenceV1` 唯一定义 `ReferenceValueV1`、`InvocationV1`、
+`ExternalResponsesV1`、`OrderedEffectV1`、revert/fault 与 `OutcomeV1`；本架构页不声明简化替身。
+`step : SemanticProgramV1 → LogicalStateV1 → InvocationV1 → ExternalResponsesV1 → OutcomeV1` 是
+reference semantics。
 失败时 logical state 原子回滚。NEAR receipt、ICP await 或外部 proof settlement 的额外提交
 边界由 target Plan 表达；若源程序要求的原子边界无法保持则拒绝。
 
 ## Requirements 与 Support
 
 requirements 是以下正交域的原子项：`value.*`、`control.*`、`state.*`、`effect.*`、
-`context.*`、`disclosure.*`、`authority.*`、`stateCustody.*`、`failure.*`、
+`context.*`、`disclosure.*`、`authority.*`、`state-custody.*`、`failure.*`、
 `extension.*`。Resolver 流程固定为：
 
 1. exact `TargetId` lookup。
@@ -93,24 +96,20 @@ requirements 是以下正交域的原子项：`value.*`、`control.*`、`state.*
 
 ## Target Descriptor
 
-目标不是单一 family enum：
+目标不是单一 family enum。`TargetSemanticsV1`、`TargetDescriptor`、`CodegenProfileV1`、
+`AcceptanceProfileV1` 和 `MaturitySnapshot` 的唯一 schema authority 是
+[`SPEC-REG-001`](specs/target-registry.md)；本架构页不重复定义字段。
 
-```lean
-structure TargetDescriptor where
-  targetId         : TargetId
-  artifactEncoding : ArtifactEncoding
-  executionHost    : ExecutionHost
-  commitModel      : CommitModel
-  stateBinding     : StateBinding
-  callModel        : CallModel
-  proofModel       : ProofModel
-  settlementModel  : SettlementModel
-  abiModel         : AbiModel
-  resourceModel    : ResourceModel
-```
-
-`TargetId` 定义语义身份；`CodegenProfileId` 固定 emitter/ABI/toolchain；
-`NetworkProfileId` 只用于部署网络。不得由 network profile 改变生成语义。
+`TargetId` 是稳定宿主名称，完整语义身份由 canonical `TargetSemanticsV1` 的
+`(TargetId, semanticsVersion, semanticsDigest)` 派生。fork/precompile/protocol/resource/
+failure 以及可观察 ABI 意义都只属于该 payload；CodegenProfile 只拥有实现它的
+ABI byte encoding、emitter、artifact encoding、toolchain 和非语义 lowering，不能覆盖语义。
+`TargetDescriptor` 只保留静态 semantics、`AcceptanceProfileRef`、support claim 和 codegen
+registration；动态 maturity snapshot 不进入 descriptor 或 registry hash。
+`NetworkProfileId` 只用于 chain/genesis identity、endpoint、fee 和部署政策。
+deploy/verify 以含 codegen profile digest 的完整 `BuildIdentity` 与 network 做 exact
+compatibility join；network
+不匹配只能拒绝，不得改变 SemanticProgram、Plan 或 artifact。
 
 ## Target-owned Plan
 
@@ -118,6 +117,9 @@ structure TargetDescriptor where
 `SolanaPlan`、`NearPlan`、`NoirPlan`。未来 Wasm host 各自拥有 Plan，只复用
 `WasmModuleRecipe → deterministic Wasm encoder`；ZK target 也按 circuit、zkVM、
 application chain 分开。
+所有 target 默认 immutable；upgrade authority、proxy/controller 或 migration 只能来自
+显式、版本化 requirement/extension。Plan 只能物化已 resolve 的决定，不得
+自行选择管理员或可升级策略。
 
 ## 状态物化
 
@@ -132,6 +134,9 @@ OutputSet 原子写入临时目录，校验后 rename。manifest 包含 source/s
 artifact/toolchain hash、profiles、support decisions、deployability、settlement 和 evidence。
 外部 packager、chain runtime、prover 和 RPC 均为不可信边界；stdout、路径、artifact
 大小、运行时间和环境继承必须限制并记录。
+完整资产—攻击者—入口—控制—剩余风险矩阵由
+[`SPEC-SEC-001`](specs/security.md) 约束，并以 `TST-SEC-001`、`TST-ISO-001/002/003`
+验收 INV-005/008/010/011 与 ADR-0010/0011/0013。
 
 ## Clean-room 边界
 

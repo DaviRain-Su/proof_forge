@@ -3,7 +3,7 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -15,9 +15,15 @@ human diagnostics 到 stderr。
 ## Commands
 
 ```text
-proof-forge-next check <source> [--program <qualified>] [--format human|json]
+proof-forge-next check <source> [--language-version <semver>]
+  [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
+  [--proof-bundle <dir> --proof-bundle-digest <sha256:64-lowercase-hex>]
+  [--format human|json]
 proof-forge-next build <source> --target <id> [--profile <id>]
-  [--program <qualified>] --output <dir> [--force] [--format human|json]
+  [--language-version <semver>] [--minimum-evidence <grade>]
+  [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
+  [--proof-bundle <dir> --proof-bundle-digest <sha256:64-lowercase-hex>]
+  --output <dir> [--force] [--format human|json]
 proof-forge-next inspect <output-dir> [--format human|json]
 proof-forge-next list-targets [--all] [--format human|json]
 proof-forge-next prove <output-dir> --inputs <private-input-file>
@@ -36,6 +42,68 @@ Phase 1 required：check/build/inspect/list-targets、Noir prove/verify；deploy
 一个候选自动选择；零候选 `PF-EXPORT-003`；多个候选必须 exact `--program`，否则
 `PF-EXPORT-002`。target/profile exact lookup；省略 profile 使用 registry 唯一 default。
 build 禁止 `--network`；deploy 不接受 source/target/profile，而是信任并重验 OutputSet。
+`--language-version` 只接受当前 compiler 内已登记 parser 的 exact SemVer；省略时使用
+当前 DSL major 的唯一 default。`--minimum-evidence` 只接受
+`specified | artifact_validated | local_runtime | network_or_proof_validated`；有效值是
+`max(profile.minimumEvidence, cliRequested)`，CLI 不得降低 profile 下限。
+
+`--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
+SPEC-COMMON-001，不创建第二套 resource profile：
+
+| CLI stage | `ResourceStage` | `check` | `build` |
+|---|---|---|---|
+| `frontend` | `frontend` | allowed | allowed |
+| `compiler-core` | `compilerCore` | allowed | allowed |
+| `external-tool` | `externalTool` | rejected | allowed |
+| `artifact-output` | `artifactOutput` | rejected | allowed |
+
+field 只允许 `wall-ms`、`memory-bytes`、`processes`、`protocol-bytes`、`stderr-bytes`、
+`published-bytes`，分别一一映射 `ResourceProfileV1` 的六个 limit 字段。值必须是无符号十进制
+正整数；同一 `(stage,field)` 重复、unknown stage/field、`0`、负数、指数、overflow、该 hard
+maximum 为 `0`，或值大于该 stage/field hard maximum，均在 spawn/source open/output staging 前
+以 usage error/exit 2 拒绝。不存在 clamp：合法 override 就是 effective limit，省略的字段恰为
+SPEC-COMMON-001 hard maximum。不同 stage 的 maximum 互不比较，因此例如 tool wall override
+不会被 frontend wall maximum 误拒绝。
+
+selection 后未执行的 target-specific external tool 仍可带合法 override，但 receipt 必须将该 stage
+记录为 `not-executed`，不能伪造 observed peak；`check` 因命令面明确没有 tool/output stage，直接
+拒绝对应 override。exact limit 接受，首次超过以对应 `PF-RESOURCE-*`、exit 6 终止并保持旧输出；
+receipt 记录全部 effective limits 与 override source。target execution gas/compute/proof limits 属于
+target semantics/Plan，不得通过这些 compiler-operation flags 改写。
+
+## Proof bundle input
+
+`--proof-bundle` 只用于 `check/build` 验证 source 中的 `proof ... using ...` certification reference；
+它与 Noir `prove --inputs` 产生的 ZK proof 完全不同。`--proof-bundle` 与
+`--proof-bundle-digest` 必须成对且各出现一次；digest 使用 SPEC-COMMON-001 的 exact lowercase
+SHA-256 wire form。缺一、重复、空值或把这两个 flag 传给其他 command，均在访问 source/bundle
+前作为 usage error、exit 2 拒绝。
+
+source 没有 proof reference 时禁止提供 bundle pair；source 有至少一个 proof reference 时必须提供
+恰好一个 pair，且 bundle manifest exports 必须与 source reference 的
+`(invariantName,theoremQualifiedName)` 集合一一 exact 相等，不允许遗漏、额外 export、短名或
+跨 bundle fallback。缺 bundle 或 theorem 使用 `PF-TYPE-002`/exit 3；source 无 reference 却提供
+bundle 是 usage error/exit 2。
+
+执行顺序固定为：frontend parse/decode → type/effect/bound/disclosure → canonical
+`SemanticProgramV1` normalize/validate/serialize/hash → ProofBundleV1 safe load/closed expected-type
+validation → target resolution/materialization。CLI 只能把当前 canonical program、其 semanticHash、
+当前 sourceHash、validated semanticProvenanceDigest、source proof bindings、bundle dirfd 和 expected bundle digest 传给 SPEC-SEM-001
+proof loader；不得把 source/import environment 或 ambient path 传入。bundle manifest sourceHash/
+semanticHash/semanticProvenanceDigest、toolchain lock、ABI、
+trusted base closure、trust policy、module closure、files 和 CLI digest 必须全部 exact match。
+
+bundle path/schema/layout/digest/closure/trust/kernel-load failure、stale sourceHash/semanticHash/
+semanticProvenanceDigest 或 forbidden
+declaration 使用 `PF-ARTIFACT-INVALID`/exit 6；export name/ordinal 不存在使用
+`PF-TYPE-002`/exit 3；theorem type 与
+`InvariantTheoremV1 canonicalProgram ordinal` 不 definitionally equal 使用
+`PF-TYPE-001`/exit 3。所有失败都不得进入 target Plan、不得创建/替换 output，也不得读取其他
+`.olean` 或 retry/fallback。成功结果的 certification summary 固定包含 sourceHash、semanticHash、
+semanticProvenanceDigest、
+proofBundleDigest，以及按 invariant name 排序的 `(invariantName,invariantOrdinal,theoremName)`；
+不得包含 theorem body、Environment、host path 或 private value，且该 summary 不参与
+sourceHash/semanticHash/semanticProvenanceDigest。
 
 ## JSON Results
 
@@ -61,6 +129,8 @@ build 禁止 `--network`；deploy 不接受 source/target/profile，而是信任
 ## Secret、Inputs 与副作用
 
 private witness 文件必须 mode 0600、regular file、非 symlink；prove 不复制到 bundle。
+ProofBundleV1 是只读 public certification input，不得放入 private witness、signer material 或
+任意 runtime input；其 safe-open、closure、trust 与 resource 规则由 SPEC-SEM-001 唯一定义。
 signer 只从已打开 FD 读取，CLI/env/JSON 禁止 key。check/build/inspect/list 不访问网络；
 deploy 先验证 network chain identity、artifact/profile/hash，再请求明确确认策略（CI 使用
 预批准 policy file，不使用 prompt）。
@@ -70,5 +140,10 @@ deploy 先验证 network chain identity、artifact/profile/hash，再请求明�
 覆盖无/多 source、unknown flag、重复 flag、missing value、`--`、Unicode path/name、
 多 program、unknown target/profile/network、build with network、output exists/force、JSON
 broken pipe、TTY/non-TTY、private file permissions/symlink、bad signer FD、proof mismatch、
-deploy non-deployable、signals、concurrent invocation。关联 `FR-008/010/011/014`、
+deploy non-deployable、unknown/unsupported language version、malformed/lower-than-profile minimum
+evidence、resource override duplicate/unknown stage-field/zero/equal/over/hard-max、check-with-tool-
+stage、unused build stage receipt、proof-bundle paired flags/unused/missing/stale digest、manifest/
+closure/path mutation、ambient `.olean` poisoning、forbidden declaration/signature mismatch、signals、
+concurrent invocation。关联
+`FR-008/010/011/014`、`NFR-008`、
 `TST-CLI-001..004`；help/version/list JSON golden，所有失败 exit code 和 schema 固定。

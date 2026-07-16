@@ -36,7 +36,7 @@ normative: true
 | `SourceHash` | 规范化源码语义身份；排除绝对路径、注释和非语义 span |
 | `SemanticHash` | 规范序列化 `SemanticProgram` 的哈希 |
 | `PlanHash` | 规范序列化 target Plan 的哈希 |
-| `EvidenceGrade` | `specified`、`artifact_validated`、`local_runtime`、`network_or_proof_validated` |
+| `SupportEvidenceGrade` | 单项 support claim 的 `specified`、`artifact_validated`、`local_runtime`、`network_or_proof_validated`；不同于 TargetMaturity 与 task evidence grade |
 | fail closed | 缺少支持、版本、工具或证据时返回稳定错误，绝不降级为成功 |
 | archive isolation smoke | 历史开发检查：把允许文件复制到临时目录并重建/测试；不等于完整 clean-room |
 | network-denied clean-room alpha | 从 committed archive 在新 HOME/cache、受控 PATH 和三阶段 deny-default sandbox 中执行的开发门禁；runtime 是 exact-local-port 并另有 127.0.0.1 bind/LAN refusal；eligible host、formal handoff/session containment 与 gate-catalog EV 尚未闭合 |

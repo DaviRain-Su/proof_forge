@@ -18,7 +18,7 @@ normative: true
 
 ## 决定
 
-共享 `SemanticProgram` 只描述类型、逻辑状态、entries、deterministic step/effects 和 requirements。每个 materializer 在 resolution 后创建 target-owned Plan，Plan 完整拥有 ABI、物理状态、调用、提交、资源、proof 和 upgrade 决策。
+共享 `SemanticProgram` 只描述类型、逻辑状态、entries、deterministic step/effects 和 requirements。每个 materializer 在 resolution 后创建 target-owned Plan，Plan 完整拥有 ABI、物理状态、调用、提交、资源和 proof wiring。默认程序不可升级；Plan 只能物化已由显式、版本化 requirement/extension resolve 的 upgrade authority、proxy/controller 或 migration 决定，不能自行选择管理员或升级策略。
 
 ## 后果
 

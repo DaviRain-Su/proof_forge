@@ -193,6 +193,14 @@
       "status": "verified",
       "sources": ["SRC-LOCAL-001"],
       "impact": "Create an independent package and use parent observations only through a reference ledger."
+    },
+    {
+      "id": "CLM-HOST-001",
+      "claim": "The locked V2 development observation contains non-system executable dependency closure and macOS/Xcode-dispatched host tools that cannot be represented by hashing only the top-level executable.",
+      "kind": "local-fact",
+      "status": "verified",
+      "sources": ["SRC-LOCAL-002"],
+      "impact": "Keep content-addressed assets separate from an attested host profile and fail closed when either closure is incomplete."
     }
   ]
 }

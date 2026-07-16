@@ -18,11 +18,22 @@ normative: true
 
 ## 决定
 
-- `TargetId` 表示语义宿主，如 `near`。
-- `CodegenProfile` 固定 compiler/ABI/VM/proof backend 与 binary digest。
-- `NetworkProfile` 固定 chain/fork/protocol、资源与部署策略。
+- `TargetId` 表示稳定的语义宿主名称，如 `near`；完整语义身份由
+  `SPEC-REG-001` 的 canonical `TargetSemanticsV1` 派生，包含 `semanticsVersion` 与
+  `semanticsDigest`。
+- protocol/fork/precompile/resource/failure 等会改变可观察执行结果的规则属于 target
+  semantics，并进入 `semanticsDigest`。
+- ABI 的 dispatch/input/output/error 可观察意义只属于 target semantics。`CodegenProfileV1`
+  只固定实现该语义的 ABI byte encoding、compiler/proof tool、artifact encoding、
+  lowering 与 toolchain，并 exact 引用 target semantic identity；不得覆盖或增加可观察规则。
+- `NetworkProfile` 只固定 chain/genesis identity、endpoint、fee、签名与部署策略；它可以声明
+  兼容的 exact target semantics/codegen 组合，但不能改变编译结果。
 
-解析必须 exact；没有 network profile 仍可生成标记为未部署的 artifact，但不能宣称 network-compatible。
+解析必须 exact；build 不读取 network profile。BuildIdentity 恰好为
+`(TargetId, semanticsVersion, semanticsDigest, CodegenProfileId, codegenProfileDigest)`。
+deploy/verify 先 exact resolve `NetworkProfileId` 及其 digest，再用完整 BuildIdentity 做
+`NetworkProfile.compatibleBuilds` membership join，不匹配只能拒绝。没有 network profile 仍可生成标记为未部署的 artifact，
+但不能宣称 network-compatible。
 
 ## 后果
 
@@ -30,4 +41,6 @@ normative: true
 
 ## 验证
 
-profile mismatch/unknown/withdrawn tests，manifest 包含三层身份与 lock digest。
+profile mismatch/unknown/withdrawn tests，包括相同 CodegenProfileId 但 digest 不同的 negative；
+network 不能改变 semantic/plan/artifact hash，manifest 包含完整 BuildIdentity 与 lock digest；
+deploy receipt 另记录 network ID/digest。

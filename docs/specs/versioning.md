@@ -41,9 +41,36 @@ schema ID/version，不能由 compiler version 隐式代替。
 
 ## Source Compatibility
 
-compiler 默认只接受当前 DSL major。`--language-version` 只能选择编译器内已实现 parser，
-不能调用父项目或下载转换器。migration tool 输出新文件和报告，不原地覆盖；转换后仍需
+```lean
+structure LanguageParserDescriptor where
+  languageVersion : SemVer
+  sourceSchema    : SchemaId
+  syntaxModule    : QualifiedName
+  decoderDigest   : Digest
+  enabled         : Bool
+  defaultForMajor : Bool
+
+def ParserRegistry.create
+  : Array LanguageParserDescriptor → Except Diagnostic ParserRegistry
+def ParserRegistry.resolveExact
+  : ParserRegistry → SemVer → Except Diagnostic LanguageParserDescriptor
+def ParserRegistry.defaultForCurrentMajor
+  : ParserRegistry → Except Diagnostic LanguageParserDescriptor
+```
+
+registry 是 compiler 内静态、按 exact SemVer 排序的 array；version/sourceSchema/decoderDigest 唯一，
+每个 enabled major 恰好一个 default。duplicate、零/多 default、disabled selection、unknown exact
+version 或 descriptor digest 不匹配分别 fail closed，不能扫描 cwd、父项目、网络或动态 module。
+
+compiler 默认只接受当前 DSL major。`check/build --language-version <semver>` 只能
+选择编译器内已实现且在 static parser registry 中有唯一 exact entry 的 parser，
+省略参数时使用当前 major 的唯一 default。它不能调用父项目或下载转换器。
+migration tool 输出新文件和报告，不原地覆盖；转换后仍需
 重新 type/semantic/target validation。
+
+unknown exact version 为 `PF-LANGUAGE-VERSION-UNKNOWN`，disabled/revoked parser 为
+`PF-LANGUAGE-VERSION-DISABLED`，无/多 default 或 descriptor 冲突为 `PF-LANGUAGE-DEFAULT`；
+migration partial/semantic mismatch 为 `PF-MIGRATION-FAILED`，旧文件保持不变。
 
 ## Deprecation 与 EOL
 

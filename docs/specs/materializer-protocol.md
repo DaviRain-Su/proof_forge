@@ -13,15 +13,15 @@ normative: true
 
 ```lean
 class Materializer (target : TargetId) where
-  Plan     : Type
-  TargetIR : Type
-  planSchema   : SchemaId
-  targetIrSchema : SchemaId
-  plan  : ResolvedProgram target → CodegenProfile target → CompileResult Plan
-  validatePlan : Plan → CompileResult Unit
-  lower : Plan → CompileResult TargetIR
+  Plan             : Type
+  TargetIR         : Type
+  planSchema       : SchemaId
+  targetIrSchema   : SchemaId
+  plan             : ResolvedProgram target → CodegenProfile target → CompileResult Plan
+  validatePlan     : Plan → CompileResult Unit
+  lower            : Plan → CompileResult TargetIR
   validateTargetIR : TargetIR → CompileResult Unit
-  emit  : TargetIR → EmitContext → IO (CompileResult OutputSet)
+  emit             : TargetIR → EmitContext → IO (CompileResult OutputSet)
 ```
 
 `ResolvedProgram target` 带 resolver decisions，不存在从裸 `SemanticProgram` 调 plan 的
@@ -46,7 +46,8 @@ Phase 1 类型：
 
 ## Plan Invariants
 
-- 所有 semantic entries/state/effects 一一映射且有 origin。
+- 所有 semantic entries/state/effects 一一映射；diagnostic origin 只通过与 semanticHash exact join 的
+  `SemanticProvenanceV1` companion 回查，不得复制进 Plan/TargetIR 或参与 target 选择。
 - layout/selector/account/export/constraint identity 唯一。
 - failure/commit/disclosure mapping 证明满足 resolved decisions。
 - target limits、alignment、width、call depth、memory pages 已检查。

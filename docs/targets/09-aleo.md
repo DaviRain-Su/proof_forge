@@ -49,7 +49,9 @@ AleoPlan {
 
 ## 6. 工具链
 
-实现时固定 Leo 4.x exact patch（研究基准候选 4.0.2，但必须现场验证）、Aleo SDK/VM 与 network profile。版本变化创建新 profile，不静默适配。
+实现时把 Leo 4.x exact patch（研究基准候选 4.0.2，但必须现场验证）与 Aleo SDK/VM 作为
+CodegenProfile/toolchain closure 固定；network profile 只固定 chain/genesis/endpoint/deploy policy
+并列出兼容 BuildIdentity。任一版本变化创建新 target semantics 或 CodegenProfile，不静默适配。
 
 ## 7. 部署/证明流程
 

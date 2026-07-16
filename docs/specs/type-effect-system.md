@@ -11,10 +11,13 @@ normative: true
 
 ## 类型
 
-整数宽度固定 `{8,16,32,64,128,256}`，two's complement signed，默认运算 checked；
+整数宽度固定 `{8,16,32,64,128,256}`。`UIntN` 的值域为 `0 .. 2^N-1`；
+`IntN` 使用 two's-complement 表示，值域为 `-2^(N-1) .. 2^(N-1)-1`。两者运算默认 checked；
 overflow、underflow、除零、非法 shift 产生 semantic revert。不同宽度无隐式转换，
-`cast<T>(x)` 仅在运行值可表示时成功。`Field id` 是 registry 中 exact modulus identity，
-运算按该素数域；不同 field 不可混合。
+`cast<T>(x)` 仅在运行值可表示时成功。Phase 1 surface `Field` identifier 只接受
+`bn254_fr`，并 exact 映射到 `proof-forge.field.bn254-fr.v1` 及 SPEC-SEM-WIRE-001 固定的 modulus；
+其他 identifier 以 `PF-TYPE-002` 拒绝。不得从 target/profile/ambient registry 改写该映射；不同
+field 不可混合。
 
 `Principal` 是不透明逻辑身份，不假定 20/32 bytes；target Plan 定义编码，不能无损编码
 则拒绝。`Bytes N` 固定长度；`Array T N` 固定长度；`Map K V` 是有限映射，K 仅允许
@@ -27,6 +30,13 @@ Struct/enum 递归必须经 `Option` 且 Phase 1 禁止运行时递归值。
 - logical operators 只接受 Bool；shift rhs 为 UInt32，必须小于 lhs width。
 - state/place assignment 要求 exact type；没有 implicit truncation。
 - callable 参数和返回必须可 canonical serialize；pure `fn` 可使用内部 struct/enum。
+- expression local call 只可命中同一 program 的 `fn`；参数 arity/type exact，表达式类型为 callee
+  return type。entry/view/init 和 external call 不进入该 lookup；非 `Unit` fn 每条可达路径必须
+  返回 exact type，直接/间接递归拒绝。
+- invariant 必须为 `Bool` 且只可读取 logical state、常量和 pure fn。`proof x using N` 先按 exact
+  invariant name 绑定，再按 SPEC-LANG-001 的 `InvariantTheoremV1` 对 canonical state schema、
+  typed pure-fn closure 和 typed predicate 做 definitional-equality 检查；proof reference 不参与
+  expression 类型推导或业务 IR normalization。
 - Map iteration 不提供；Array loop 必须有静态 bound。
 - const expression 不读 state/context，不调用函数，必须在 elaboration 时求值。
 
@@ -64,9 +74,12 @@ Effect ::= state.read | state.write | event.emit | external.call.sync
          | failure.revert | extension.<id>
 ```
 
-effect 从表达式和 statement 自底向上取集合；call graph 求最小不动点，禁止递归环。
-`fn` 只允许空 effect；`view` 只允许 `state.read/context.read/failure.revert`；`init/entry`
-允许除未声明 extension 外的 effect。调用方 effect 包含被调 pure helper effect。
+effect 从表达式和 statement 自底向上取集合；local-fn 与外部调用使用分离的 call graph，分别求
+最小不动点，任何 local-fn 递归环都拒绝。`fn` 只允许 `failure.revert`，不能读取 state/context、
+emit、external call、schedule 或 disclosure；checked arithmetic/assert/显式 revert 的确定性失败
+原样传播。调用方必须先并入被调 fn 的推导 effect，因此不能用错误标注把有副作用 helper 伪装成
+pure。`view` 只允许 `state.read/context.read/failure.revert`；`init/entry` 允许除未声明 extension
+外的 effect。
 
 错误：`PF-EFFECT-001` callable 不允许 effect；`PF-EFFECT-002` effect 未声明支持；
 `PF-BOUND-001` 无法证明终止/资源 bound。
@@ -87,7 +100,7 @@ commitment 参数映射 public inputs/commitment checks。
 
 authority 从 `context.caller/authorizers` 的读取及 guard 数据流推导；它不是 visibility。
 state custody 从 logical state 的 owner key、program global state 或 extension annotation
-推导；它也不是 authority。Requirement 分别使用 `authority.*`、`stateCustody.*`。
+推导；它也不是 authority。Requirement 分别使用 `authority.*`、`state-custody.*`。
 
 ## 终止与资源
 
@@ -98,7 +111,9 @@ state custody 从 logical state 的 owner key、program global state 或 extensi
 ## 边界与验收
 
 覆盖每个整数 min/max、overflow/underflow、除零、shift 0/width-1/width、合法/非法 cast、
-不同 Field、Bytes/Array 0/4096、Map missing key、enum exhaustiveness、recursive type、
+不同 Field、Bytes/Array 0/4096、Map missing key、enum exhaustiveness、recursive type、local fn
+forward call、arity/type mismatch、entry-as-expression、直接/间接 fn recursion、缺 return、
+proof unknown/duplicate invariant、axiom/unsafe theorem、signature mismatch，
 view 间接写 state、private 显式/隐式流、private error/log/index、commitment、authority
 与 custody 混淆、call graph cycle、bound 0/max/over-limit。验收关联 `FR-003/012`、
 `TST-TYPE-*`、`TST-EFFECT-*`、`TST-BOUND-*`、`TST-VIS-*`。

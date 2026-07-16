@@ -134,6 +134,20 @@ library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
 不可 group/world writable；不搜索 cwd、父目录或 PATH。WABT 仅可使用 tool root 内锁定的 `libcrypto`，sandbox
 同时拒绝 `/opt/homebrew`，并以实际 loaded-library observation 证明未回退。
 
+## License inventory 与 SBOM
+
+`license-policy.v1.json` 是 release allow/deny/review policy；每个 Lean package、source dependency、
+download asset、executable、runtime dylib 和 bundled license text 都必须有 canonical component ID、
+version/source commit、SHA-256、supplier、SPDX license expression、license-file path/hash 与 dependency
+edges。`NOASSERTION`、unknown expression、缺 license text、未入图传递依赖或 policy 状态为
+`review/deny` 都阻断 release；开发 build 可生成报告但不能把缺失项标 passed。
+
+release 从已验证 lock/manifest 生成 deterministic CycloneDX 1.6 JSON：`specVersion="1.6"`、
+`version=1`，无 timestamp/random serial/absolute path/username；`bom-ref` 为
+`urn:proofforge:component:<sha256>`，components 与 dependency refs 按 UTF-8 升序，hash 只用
+SHA-256。SBOM、policy、license inventory 的 digest 进入 OutputSet provenance、candidate evidence
+set 与 release manifest；consumer 必须重算 closure，禁止仅校验 JSON schema。
+
 ## Profile Mapping
 
 - `evm-yul-solc-0.8.34-v1`：官方 solc asset；runtime profile 使用同一 Foundry archive。
@@ -156,6 +170,6 @@ deny-default development stages，并由 launcher 对每次 invocation 施加 st
 bounded output。正式 gate 仍需 eligible host、Stage-0 direct digest handoff、process-session
 containment、明确的 version-probe attack catalog 与 gate-catalog-bound schema evidence。
 
-关联 `NFR-001/009`、`TST-TOOL-001`、`TST-HOST-001`、`TST-XTARGET-002`、
+关联 `NFR-001/009`、`TST-TOOL-001`、`TST-SBOM-001`、`TST-HOST-001`、`TST-XTARGET-002`、
 `TST-ISO-002/003`。manifest/evidence
 记录全部 asset、executable、runtime dependency 与 host-profile digest。

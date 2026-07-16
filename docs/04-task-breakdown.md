@@ -56,34 +56,38 @@ EV。下一工作回到第一个正式任务 `TASK-D0-01`。
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D0-01 | 建立文档 status、ID、link checker | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | EV-20260716-0026 | in_progress |
+| TASK-D0-01 | 建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker，以及 external TaskApproval/task-receipt 验证 consumer；consumer 未接入前对 bootstrap closure fail closed | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | EV-20260716-0026 | in_progress |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe | TASK-D0-01 | — | TST-ISO-001 | — | pending |
-| TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；H1e 按 receipt→catalog core→retained bundle 实施，formal handoff/finalizer 待完成；当前 alpha 输入为 `TASK-A0-02` | TASK-D0-01, TASK-D0-02 | — | TST-TOOL-001, TST-HOST-001, TST-EVIDENCE-001 | — | pending |
-| TASK-D0-04 | 实现正式 hermetic archive clean-room harness；blocker：eligible host、formal handoff/process-session containment 与 gate-catalog finalizer 未闭合 | TASK-D0-02, TASK-D0-03 | — | TST-ISO-002 | — | blocked |
+| TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；只交付 development evidence schema/bundle/catalog finalizer 及 formal zero-output rejection，当前 alpha 输入为 `TASK-A0-02` | TASK-D0-01, TASK-D0-02 | — | TST-TOOL-001, TST-HOST-001, TST-EVIDENCE-001 | — | pending |
+| TASK-D0-04 | 实现 bootstrap foundation：eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal-catalog authority、per-task verifier receipt/protected service，以及 six-item BootstrapApprovalSet/activation producer-consumer；owned TST 只在 pre-activation 运行，task done 另须随后取得 set+activation receipt，且二者不得回填 TST/TaskApproval/task receipt | TASK-D0-02, TASK-D0-03, TASK-D0-05, TASK-D0-06 | — | TST-BOOTSTRAP-001 | — | blocked |
+| TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding | TASK-D0-03 | — | TST-SBOM-001 | — | pending |
+| TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | — | pending |
+| TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-ISO-002, TST-EVIDENCE-002 | — | pending |
 
 ## Milestone D1：语言前端
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04 | — | TST-SRC-001, TST-SRC-002 | — | pending |
+| TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07 | — | TST-SRC-001, TST-SRC-002 | — | pending |
 | TASK-D1-02 | `program ... where` command parser | TASK-D1-01 | — | TST-SRC-003 | — | pending |
 | TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | — | pending |
 | TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | — | pending |
 | TASK-D1-05 | `Source.Program` stable attribute export/schema | TASK-D1-03 | — | TST-SRC-006, TST-SRC-007 | — | pending |
 | TASK-D1-06 | multi-program loader/selection | TASK-D1-05 | — | TST-SRC-008 | — | pending |
 | TASK-D1-07 | stable source diagnostics | TASK-D1-02, TASK-D1-03, TASK-D1-04, TASK-D1-05, TASK-D1-06 | — | TST-DIAG-001 | — | pending |
+| TASK-D1-08 | contained frontend worker、safe source open 与 ResourceProfileV1 supervisor | TASK-D0-04, TASK-D0-06, TASK-D0-07, TASK-D1-01, TASK-D1-02, TASK-D1-03, TASK-D1-04, TASK-D1-05, TASK-D1-06, TASK-D1-07 | — | TST-RESOURCE-001 | — | pending |
 
 ## Milestone D2：检查与语义
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D2-01 | name/type checker | TASK-D1-01, TASK-D1-02, TASK-D1-03, TASK-D1-04, TASK-D1-05, TASK-D1-06, TASK-D1-07 | — | TST-TYPE-001, TST-TYPE-002 | — | pending |
+| TASK-D2-01 | name/type checker + pure-fn call graph + invariant/proof-reference source binding（不装载 proof environment） | TASK-D1-01, TASK-D1-02, TASK-D1-03, TASK-D1-04, TASK-D1-05, TASK-D1-06, TASK-D1-07, TASK-D1-08 | — | TST-TYPE-001, TST-TYPE-002, TST-TYPE-003 | — | pending |
 | TASK-D2-02 | effect/call/view checker | TASK-D2-01 | — | TST-EFFECT-001 | — | pending |
 | TASK-D2-03 | bound/termination checker | TASK-D2-01 | — | TST-BOUND-001 | — | pending |
 | TASK-D2-04 | disclosure/authority/custody checker | TASK-D2-01 | — | TST-VIS-001, TST-VIS-002 | — | pending |
-| TASK-D2-05 | SemanticProgram canonical serializer | TASK-D2-01, TASK-D2-02, TASK-D2-03, TASK-D2-04 | — | TST-SEM-001 | — | pending |
-| TASK-D2-06 | reference step interpreter | TASK-D2-05 | — | TST-SEM-002, TST-SEM-003 | — | pending |
-| TASK-D2-07 | requirement inference + origin | TASK-D2-05 | — | TST-REQ-001, TST-REQ-002 | — | pending |
+| TASK-D2-05 | canonical ProgramRequirements inference、predicate merge + origin | TASK-D2-01, TASK-D2-02, TASK-D2-03, TASK-D2-04 | — | TST-REQ-001, TST-REQ-002 | — | pending |
+| TASK-D2-06 | closed SemanticProgram construction/canonical serializer + post-canonical proof-bundle/theorem signature validation | TASK-D2-05 | — | TST-SEM-001, TST-PROOF-001 | — | pending |
+| TASK-D2-07 | reference step interpreter | TASK-D2-06 | — | TST-SEM-002, TST-SEM-003 | — | pending |
 
 ## Milestone D3：目标解析与制品框架
 
@@ -91,16 +95,17 @@ EV。下一工作回到第一个正式任务 `TASK-D0-01`。
 |---|---|---|---|---|---|---|
 | TASK-D3-01 | Target/Profile ID parsers | TASK-D2-01, TASK-D2-02, TASK-D2-03, TASK-D2-04, TASK-D2-05, TASK-D2-06, TASK-D2-07 | — | TST-REG-001 | — | pending |
 | TASK-D3-02 | static registry duplicate/exact lookup | TASK-D3-01 | — | TST-REG-002 | — | pending |
-| TASK-D3-03 | support resolver + aggregate rejection | TASK-D3-02, TASK-D2-07 | — | TST-REQ-003 | — | pending |
+| TASK-D3-03 | ProgramRequirements requested predicates → exact static SupportClaim/claimDigest + selected BuildIdentity ProfileSupportIndex resolver；candidate/profile/ref/freshness/revocation exact fail closed 与 aggregate rejection | TASK-D3-02, TASK-D2-05 | — | TST-REQ-003 | — | pending |
 | TASK-D3-04 | materializer associated-type protocol | TASK-D3-03 | — | TST-MAT-001, TST-BOUNDARY-001 | — | pending |
-| TASK-D3-05 | OutputSet staging/manifest/schema | TASK-D3-04 | — | TST-OUT-001, TST-OUT-002 | — | pending |
-| TASK-D3-06 | CLI check/build/inspect/list-targets | TASK-D3-05 | — | TST-CLI-001, TST-CLI-002, TST-CLI-003, TST-CLI-004 | — | pending |
+| TASK-D3-05 | OutputSet staging/manifest/schema + support-decisions exact schema/digest/binding | TASK-D3-04 | — | TST-OUT-001, TST-OUT-002 | — | pending |
+| TASK-D3-06 | CLI check/build/inspect/list-targets + stage/field-specific lower-only resource override parser | TASK-D3-05 | — | TST-CLI-001, TST-CLI-002, TST-CLI-003, TST-CLI-004 | — | pending |
+| TASK-D3-07 | contained compiler-core/tool/output supervisor、effective resource profile digest/receipt 与 whole-containment cleanup | TASK-D3-06 | — | TST-RESOURCE-002 | — | pending |
 
 ## Milestone D4：EVM
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D4-01 | EvmPlan schema/invariants | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06 | — | TST-EVM-001 | — | pending |
+| TASK-D4-01 | EvmPlan schema/invariants | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06, TASK-D3-07 | — | TST-EVM-001 | — | pending |
 | TASK-D4-02 | SemanticProgram → EvmPlan | TASK-D4-01 | — | TST-EVM-002 | — | pending |
 | TASK-D4-03 | EvmPlan → Yul + ABI | TASK-D4-02 | — | TST-EVM-003 | — | pending |
 | TASK-D4-04 | solc bytecode packaging | TASK-D4-03 | — | TST-EVM-004 | — | pending |
@@ -110,17 +115,17 @@ EV。下一工作回到第一个正式任务 `TASK-D0-01`。
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D5-01 | SolanaPlan account/layout schema | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06 | — | TST-SOL-001 | — | pending |
+| TASK-D5-01 | SolanaPlan account/layout schema | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06, TASK-D3-07 | — | TST-SOL-001 | — | pending |
 | TASK-D5-02 | semantic → SolanaPlan | TASK-D5-01 | — | TST-SOL-002 | — | pending |
 | TASK-D5-03 | Plan → sBPF AST/text + IDL | TASK-D5-02 | — | TST-SOL-003 | — | pending |
-| TASK-D5-04 | ELF packaging/validation | TASK-D5-03 | — | TST-SOL-004 | — | pending |
+| TASK-D5-04 | 新建 `solana-sbpf-elf-v1` executable CodegenProfile，lock toolchain/ELF validation；formal gate 后以 registry 新版本切换 default，不得原地升级 plan profile | TASK-D5-03 | — | TST-SOL-004 | — | pending |
 | TASK-D5-05 | local runtime Counter differential | TASK-D5-04 | — | TST-SOL-005 | — | pending |
 
 ## Milestone D6：NEAR
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D6-01 | NearPlan KV/ABI/import schema | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06 | — | TST-NEAR-001 | — | pending |
+| TASK-D6-01 | NearPlan KV/ABI/import schema | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06, TASK-D3-07 | — | TST-NEAR-001 | — | pending |
 | TASK-D6-02 | semantic → NearPlan | TASK-D6-01 | — | TST-NEAR-002 | — | pending |
 | TASK-D6-03 | Plan → WasmModuleRecipe | TASK-D6-02 | — | TST-NEAR-003 | — | pending |
 | TASK-D6-04 | deterministic Wasm emit/validate | TASK-D6-03 | — | TST-NEAR-004 | — | pending |
@@ -130,19 +135,19 @@ EV。下一工作回到第一个正式任务 `TASK-D0-01`。
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D7-01 | NoirPlan disclosure/state relation schema | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06 | — | TST-NOIR-001 | — | pending |
+| TASK-D7-01 | NoirPlan disclosure/state relation schema | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06, TASK-D3-07 | — | TST-NOIR-001 | — | pending |
 | TASK-D7-02 | semantic → NoirPlan | TASK-D7-01 | — | TST-NOIR-002 | — | pending |
 | TASK-D7-03 | Plan → `.nr`/ABI | TASK-D7-02 | — | TST-NOIR-003 | — | pending |
-| TASK-D7-04 | ACIR/witness/prove/verify pipeline | TASK-D7-03 | — | TST-NOIR-004 | — | pending |
+| TASK-D7-04 | 新建 `noir-acir-proof-v1` CodegenProfile，lock ACIR/witness/prove/verify toolchain，并发布 exact ZK security profile + candidate/build formal approval；formal gate 后以 registry 新版本切换 default，不得原地升级 source profile | TASK-D7-03 | — | TST-NOIR-004, TST-ZKSEC-001 | — | pending |
 | TASK-D7-05 | Counter + PrivateSum4 proof tests | TASK-D7-04 | — | TST-NOIR-005, TST-NOIR-006 | — | pending |
 
 ## Milestone D8：集成与评审
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D8-01 | Counter four-target aggregate | TASK-D4-01, TASK-D4-02, TASK-D4-03, TASK-D4-04, TASK-D4-05, TASK-D5-01, TASK-D5-02, TASK-D5-03, TASK-D5-04, TASK-D5-05, TASK-D6-01, TASK-D6-02, TASK-D6-03, TASK-D6-04, TASK-D6-05, TASK-D7-01, TASK-D7-02, TASK-D7-03, TASK-D7-04, TASK-D7-05 | — | TST-XTARGET-001 | — | pending |
+| TASK-D8-01 | Counter + Accumulator four-target aggregate and target-neutral structural boundary | TASK-D4-01, TASK-D4-02, TASK-D4-03, TASK-D4-04, TASK-D4-05, TASK-D5-01, TASK-D5-02, TASK-D5-03, TASK-D5-04, TASK-D5-05, TASK-D6-01, TASK-D6-02, TASK-D6-03, TASK-D6-04, TASK-D6-05, TASK-D7-01, TASK-D7-02, TASK-D7-03, TASK-D7-04, TASK-D7-05 | — | TST-XTARGET-001, TST-XTARGET-003 | — | pending |
 | TASK-D8-02 | unsupported/version/tool failure matrix | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06, TASK-D4-01, TASK-D4-02, TASK-D4-03, TASK-D4-04, TASK-D4-05, TASK-D5-01, TASK-D5-02, TASK-D5-03, TASK-D5-04, TASK-D5-05, TASK-D6-01, TASK-D6-02, TASK-D6-03, TASK-D6-04, TASK-D6-05, TASK-D7-01, TASK-D7-02, TASK-D7-03, TASK-D7-04, TASK-D7-05 | — | TST-XTARGET-002 | — | pending |
-| TASK-D8-03 | reproducibility/concurrency/path attacks | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06, TASK-D4-01, TASK-D4-02, TASK-D4-03, TASK-D4-04, TASK-D4-05, TASK-D5-01, TASK-D5-02, TASK-D5-03, TASK-D5-04, TASK-D5-05, TASK-D6-01, TASK-D6-02, TASK-D6-03, TASK-D6-04, TASK-D6-05, TASK-D7-01, TASK-D7-02, TASK-D7-03, TASK-D7-04, TASK-D7-05 | — | TST-SEC-001, TST-PERF-001 | — | pending |
+| TASK-D8-03 | reproducibility/concurrency/path/resource/performance attacks | TASK-D3-01, TASK-D3-02, TASK-D3-03, TASK-D3-04, TASK-D3-05, TASK-D3-06, TASK-D3-07, TASK-D4-01, TASK-D4-02, TASK-D4-03, TASK-D4-04, TASK-D4-05, TASK-D5-01, TASK-D5-02, TASK-D5-03, TASK-D5-04, TASK-D5-05, TASK-D6-01, TASK-D6-02, TASK-D6-03, TASK-D6-04, TASK-D6-05, TASK-D7-01, TASK-D7-02, TASK-D7-03, TASK-D7-04, TASK-D7-05 | — | TST-SEC-001, TST-PERF-001, TST-RESOURCE-001, TST-RESOURCE-002 | — | pending |
 | TASK-D8-04 | clean-room full gate | TASK-D8-01, TASK-D8-02, TASK-D8-03 | — | TST-ISO-003 | — | pending |
 | TASK-D8-05 | review report + release/rollback drill | TASK-D8-04 | — | TST-REL-001, TST-VER-001 | — | pending |
 

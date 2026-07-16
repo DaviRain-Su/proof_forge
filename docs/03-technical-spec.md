@@ -18,7 +18,8 @@ Phase 3 模块规格，不能只引用系统架构。
 SourceFile
 → Lean Parser → per-program bounded Syntax preflight → ProofForge decode → Source.Program
 → resolve/type/effect/bound/disclosure → Typed.Program
-→ normalize → Semantic.Program + ProgramRequirements
+→ normalize → SemanticProgramV1 + SemanticProvenanceV1（ProgramRequirements 嵌入前者）
+→ optional proof-reference validation against digest-pinned ProofBundleV1
 → resolve(TargetId, minimumEvidence) → ResolvedProgram target
 → Materializer.plan(CodegenProfile) → target Plan
 → lower → target TargetIR
@@ -34,16 +35,14 @@ non-elaborating loader 共用同一个 syntax decoder，以 AST 等价测试防�
 ## 公共类型
 
 ```lean
-structure ProgramIdentity where
-  qualifiedName : Name
+structure SourceProgramIdentity where
+  qualifiedName : QualifiedName
   sourceHash    : Digest
-  semanticHash? : Option Digest
 
-structure RequirementRef where
-  id       : RequirementId
-  version  : SemVer
-  digest   : Digest
-  origin   : SourceOrigin
+structure SemanticProgramBinding where
+  source                   : SourceProgramIdentity
+  semanticHash             : Digest
+  semanticProvenanceDigest : Digest
 
 structure BuildSelection where
   program        : Name
@@ -52,22 +51,37 @@ structure BuildSelection where
   outputDir      : System.FilePath
 
 class Materializer (target : TargetId) where
-  Plan     : Type
-  TargetIR : Type
-  plan  : ResolvedProgram target → CodegenProfile target → CompileResult Plan
-  lower : Plan → CompileResult TargetIR
-  emit  : TargetIR → EmitContext → IO (CompileResult OutputSet)
+  Plan             : Type
+  TargetIR         : Type
+  planSchema       : SchemaId
+  targetIrSchema   : SchemaId
+  plan             : ResolvedProgram target → CodegenProfile target → CompileResult Plan
+  validatePlan     : Plan → CompileResult Unit
+  lower            : Plan → CompileResult TargetIR
+  validateTargetIR : TargetIR → CompileResult Unit
+  emit             : TargetIR → EmitContext → IO (CompileResult OutputSet)
 ```
 
+`RequirementRef`、`RequirementKey` 与 `SupportPredicate` 的唯一 type/wire authority 是
+[`SPEC-CAP-001`](specs/capabilities-extensions.md)；本集成页直接使用该类型，不重新声明字段。
+
 `NetworkProfileId` 不属于 `BuildSelection`；只允许出现在显式 deploy/verify 命令。
+`TargetId + targetSemanticsVersion + targetSemanticsDigest` 固定全部可观察执行宿主语义；
+`CodegenProfileId + codegenProfileDigest` 固定 emitter/ABI/toolchain/lowering，并 exact 引用而不
+覆盖 target semantics。`NetworkProfileId` 只记录 chain/genesis identity、endpoint、fee 与 deploy
+policy；deploy/verify 必须对三者做 exact compatibility join，不匹配只能拒绝，
+不得改写 SemanticProgram、Plan 或 artifact。
 
 ## 子规格
 
 | 领域 | 规格 | 主要 FR/NFR |
 |---|---|---|
+| Common types/resources | [`specs/common-types.md`](specs/common-types.md) | NFR-002/006/008 |
 | DSL | [`specs/language.md`](specs/language.md) | FR-001/002/010 |
+| Source.ProgramV1 wire | [`specs/source-program-wire.md`](specs/source-program-wire.md) | FR-001/002/010 |
 | Type/effect | [`specs/type-effect-system.md`](specs/type-effect-system.md) | FR-003/012 |
 | Semantics | [`specs/semantic-core.md`](specs/semantic-core.md) | FR-004/005 |
+| SemanticProgram wire/provenance | [`specs/semantic-program-wire.md`](specs/semantic-program-wire.md) | FR-004/005 |
 | Requirements | [`specs/capabilities-extensions.md`](specs/capabilities-extensions.md) | FR-006/013 |
 | Registry | [`specs/target-registry.md`](specs/target-registry.md) | FR-005/008 |
 | Materializer | [`specs/materializer-protocol.md`](specs/materializer-protocol.md) | FR-007 |

@@ -29,7 +29,7 @@ CosmWasm 是 Cosmos SDK `x/wasm` 合约环境，强调 Cosmos modules 与 IBC �
 
 Portable 候选：Cell/Map、JSON entry/query、checked arithmetic、event attributes、sender、funds、transaction-local failure。
 
-扩展：CosmosMsg、SubMsg/reply policy、bank/staking/custom module messages、IBC packet/ack/timeout、migrate/admin、chain query。每种 custom message schema 属于 network/profile extension。
+扩展：CosmosMsg、SubMsg/reply policy、bank/staking/custom module messages、IBC packet/ack/timeout、migrate/admin、chain query。每种 custom message schema 属于 target semantics/CodegenProfile exact 引用的版本化 extension；NetworkProfile 只能声明兼容 BuildIdentity，不能定义 schema。
 
 ## 4. `CosmWasmPlan` schema
 

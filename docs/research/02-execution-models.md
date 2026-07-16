@@ -69,4 +69,5 @@ normative: false
 - CosmWasm reply/savepoint 需要冻结具体 runtime/wasmd profile 后重验。
 - OpenVM 需要冻结单一版本线。
 - Psy live compiler/deploy/prover/network 流程尚未复现。
-- 各链资源计量会随网络升级变化，必须进入 `NetworkProfile`，不能硬编码为语言语义。
+- 各链 gas/compute/resource 计量会随 protocol/fork 升级改变可观察执行结果，因此必须进入
+  versioned target semantics digest；`NetworkProfile` 只声明某 network 兼容的 exact BuildIdentity。

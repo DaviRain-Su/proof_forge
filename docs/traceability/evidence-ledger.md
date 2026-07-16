@@ -45,8 +45,10 @@ Lean cache consumer、H0 development host observation、H1 candidate binding、s
 evidence core、H1c deny-default continuation、H1d exact-local-port schema 与 H1e-a invocation
 receipt producer slice 已闭合；因 host profile 不合格、formal Stage-0 handoff/process-session
 containment，新 contexts/metadata receipts 尚未由真实 runner retained，且 gate catalog/
-single-snapshot finalizer/freshness/revocation/private scan/formal EV 未闭合；`TASK-D0-03`
-任务表状态仍为 `pending`。
+development receipt/catalog/retained-bundle integration 仍未闭合，因此 `TASK-D0-03`
+任务表状态仍为 `pending`；eligible handoff/session containment/authority/activation foundation
+属于仍 `blocked` 的 `TASK-D0-04`，activation 后的 single-snapshot formal finalizer、freshness、
+revocation、private scan 与 support binding 属于尚未开始的 `TASK-D0-07`。
 
 早期 evidence 中的 “localhost-only” 是历史 application-level 命名，不证明 SBPL policy 只允许
 loopback；H1c 起统一记录为 exact-local-port，并单独记录 `127.0.0.1` bind/LAN refusal negative。

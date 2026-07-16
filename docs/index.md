@@ -30,14 +30,17 @@ normative: true
 ## 规范入口
 
 - 语言与语义：[`specs/language.md`](specs/language.md)、
+  [`specs/source-program-wire.md`](specs/source-program-wire.md)、
   [`specs/type-effect-system.md`](specs/type-effect-system.md)、
-  [`specs/semantic-core.md`](specs/semantic-core.md)。
+  [`specs/semantic-core.md`](specs/semantic-core.md)、
+  [`specs/semantic-program-wire.md`](specs/semantic-program-wire.md)。
 - 目标求解：[`specs/capabilities-extensions.md`](specs/capabilities-extensions.md)、
   [`specs/target-registry.md`](specs/target-registry.md)、
   [`specs/materializer-protocol.md`](specs/materializer-protocol.md)。
 - 公共产品面：[`specs/cli.md`](specs/cli.md)、
   [`specs/output-contract.md`](specs/output-contract.md)、
   [`specs/diagnostics.md`](specs/diagnostics.md)。
+- 公共 primitive 与资源 profile：[`specs/common-types.md`](specs/common-types.md)。
 - 工程可信度：[`specs/security.md`](specs/security.md)、
   [`specs/toolchains.md`](specs/toolchains.md)、
   [`specs/versioning.md`](specs/versioning.md)、

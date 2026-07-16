@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -46,20 +46,23 @@ verified claim → synthesis。`proposed` 文档不能覆盖已接受决策。
 - 所有 Markdown frontmatter 必须且只能包含 `id`、`title`、`status`、`owner`、`updated`、
   `normative` 以及下述条件字段；key 不得重复，`updated` 使用 `YYYY-MM-DD`，`normative` 只能是
   `true|false`。
-- `accepted` 必须额外包含非空 `approvers`、`approvedAt`、40 位小写十六进制
+- `accepted` 必须额外包含 `approvers`、`approvedAt`、40 位小写十六进制
   `reviewCommit`、`https://` `reviewLink` 与 `openFindings: none`。这些字段是批准记录的机器入口；
-  角色数量与权限仍按 [`governance/authority.md`](governance/authority.md) 人工/评审校验。
+  `approvers` 是一个 scalar，wire grammar 固定为 exact `, ` 分隔的 ASCII `safe-id` 列表：每项
+  1–256 字符，首尾为字母或数字，中间只允许字母、数字、`.`、`_`、`:`、`+`、`-`；列表非空、
+  唯一并按 ASCII byte 升序，禁止 email、trim 后修复、隐式重排或其他分隔符。角色数量与权限仍按
+  [`governance/authority.md`](governance/authority.md) 人工/评审校验。
 - `superseded` 必须额外包含精确 primary document ID 的 `successor`；successor 必须存在且
   supersession graph 无环。若旧文档曾为 `accepted`，五个 approval 字段必须完整保留并继续
   通过格式校验；从未 accepted 的文档不得伪造部分 approval metadata。除 `superseded` 的该历史
   保留例外外，其他状态不得携带 accepted/superseded 条件字段。
 - 修改 accepted 行为必须先增加 ADR；破坏性变化还需 migration 和版本提升。
 - supersede 时旧文件只加状态横幅与 successor，不改写历史正文。
-- `REL-<semver>` 是合法 primary ID；在 `TASK-D0-03` 的 formal evidence-set binder 落地前，
+- `REL-<semver>` 是合法 primary ID；在 `TASK-D0-07` 的 formal evidence-set binder 落地前，
   docs-check 必须 fail closed，拒绝任何 `accepted` release document，不得以普通 `passed` alpha
   ledger 代替正式 candidate-bound evidence set。
 - 文档检查必须拒绝重复 ID、死链接、accepted 文档中的 `TODO`/`TBD`/
-  `待补充`/`待决定`/`待锁`、无来源事实、无 successor 的
+  `待补充`/`待决定`/`待锁`、已登记 `CLM-*` 的空/未知 source、无 successor 的
   superseded 状态以及未闭合的 normative trace。
 - “当前索引”必须且只能各包含一次 Phase 0–7 的八个 canonical 文档路径；索引状态必须与目标
   frontmatter 一致。缺行、重复行、额外文档或用索引文字伪造 `accepted` 均须 fail closed。

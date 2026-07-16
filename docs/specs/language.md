@@ -51,6 +51,7 @@ ProgramItem   ::= StateDecl | StructDecl | EnumDecl | ConstDecl | EventDecl
 Visibility    ::= "public" | "private" | "commitment"
 StateDecl     ::= "state" Visibility? Ident ":" Type
 StructDecl    ::= "struct" Ident "where" FieldDecl+
+FieldDecl     ::= Ident ":" Type
 EnumDecl      ::= "enum" Ident "where" ("|" Ident ("(" TypeList ")")?)+
 ConstDecl     ::= "const" Ident ":" Type ":=" Expr
 EventDecl     ::= "event" Ident "(" ParamList? ")"
@@ -64,45 +65,154 @@ ExtensionReq  ::= "requires" "extension" QualifiedId "version" String
                   "digest" String
 ProofDecl     ::= "proof" Ident "using" QualifiedName
 Param         ::= Visibility? Ident ":" Type
+ParamList     ::= Param ("," Param)*
+TypeList      ::= Type ("," Type)*
+ExprList      ::= Expr ("," Expr)*
+PatternList   ::= Pattern ("," Pattern)*
 ReturnType    ::= ":" Type
+TypeAnn       ::= ":" Type
 Type          ::= Primitive | Ident | "Array" Type Nat | "Map" Type Type
                 | "Option" Type | "Bytes" Nat | "Field" Ident
 Block         ::= Stmt+
 Stmt          ::= "let" Ident TypeAnn? ":=" Expr
                 | Place ":=" Expr
                 | "if" Expr "then" Block ("else" Block)?
-                | "match" Expr "with" MatchArm+
+                | "match" Expr "with" StmtMatchArm+
                 | "for" Ident "in" Expr "..<" Expr "bounded" Nat "do" Block
                 | "assert" Expr ("else" Ident)?
                 | "revert" Ident ("(" ExprList? ")")?
                 | "emit" Ident "(" ExprList? ")"
                 | "return" Expr?
-                | "call" CallExpr
-                | "schedule" CallExpr
-Expr          ::= literal | Place | constructor | unary | binary | call | match
+                | "call" ExternalCallExpr
+                | "schedule" ExternalCallExpr
+StmtMatchArm  ::= "|" Pattern "=>" "do" Block
+ExprMatchArm  ::= "|" Pattern "=>" Expr
+LocalFnCall   ::= Ident "(" ExprList? ")"
+ExternalCallExpr ::= QualifiedId "(" ExprList? ")"
+ConstructorExpr ::= QualifiedId "(" ExprList? ")"
+MatchExpr     ::= "match" Expr "with" ExprMatchArm+
+Place         ::= Ident PlaceSuffix*
+PlaceSuffix   ::= "." Ident | "[" Expr "]"
+Pattern       ::= "_" | Ident | Literal | ConstructorPattern
+ConstructorPattern ::= QualifiedId "(" PatternList? ")"
+
+Expr          ::= MatchExpr | LogicOrExpr
+LogicOrExpr   ::= LogicAndExpr ("||" LogicAndExpr)*
+LogicAndExpr  ::= BitOrExpr ("&&" BitOrExpr)*
+BitOrExpr     ::= BitXorExpr ("|" BitXorExpr)*
+BitXorExpr    ::= BitAndExpr ("^" BitAndExpr)*
+BitAndExpr    ::= CompareExpr ("&" CompareExpr)*
+CompareExpr   ::= ShiftExpr (("==" | "!=" | "<" | "<=" | ">" | ">=") ShiftExpr)?
+ShiftExpr     ::= AddExpr (("<<" | ">>") AddExpr)*
+AddExpr       ::= MulExpr (("+" | "-") MulExpr)*
+MulExpr       ::= UnaryExpr (("*" | "/" | "%") UnaryExpr)*
+UnaryExpr     ::= ("-" | "!" | "~") UnaryExpr | PrimaryExpr
+PrimaryExpr   ::= Literal | ConstructorExpr | LocalFnCall | Place | "(" Expr ")"
+Literal       ::= "true" | "false" | IntegerLiteral | StringLiteral
+QualifiedId   ::= Ident "." Ident ("." Ident)*
+QualifiedName ::= Ident ("." Ident)+
 ```
 
 `Primitive` 为 `Bool`、`UInt8/16/32/64/128/256`、`Int8/16/32/64/128/256`、
 `Principal`、`Unit`。数组长度、Bytes 长度和 loop bound 必须是 0..4096 的十进制常量。
+Phase 1 的 `Field Ident` 只接受 exact identifier `bn254_fr`；它在 D2 target-neutral normalization
+中映射到 `proof-forge.field.bn254-fr.v1`。其他 field identifier 必须拒绝，不能由 target/profile 或
+ambient registry 解释。
+
+上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
+更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
+`StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
+`IntegerLiteral` 只允许无符号 decimal 或 `0x` lowercase-prefix hex token；`StringLiteral` 使用词法节的
+Lean escape 子集。parser 必须按上表 precedence 自低到高解析；除 comparison 为 non-associative 外，
+同层 binary operator 左结合，unary 右结合。`&&`/`||` 左到右 short-circuit，其他 binary operand
+均左到右求值。
+
+unqualified `Ident(...)` 在 Source AST 中只能是 `LocalFnCall`；constructor 必须使用至少两个 component
+的 `QualifiedId(...)`。Phase 1 canonical constructor identity 固定为 `StructName.new`、
+`EnumName.Variant`、`Option.some` 或 `Option.none`，即使零 payload 也必须写 `()`；pattern 使用相同
+qualified identity，因此 bare `Ident` 始终是 binding。`call`/`schedule` 关键字提供上下文，使相同
+QualifiedId call syntax 只构造 `ExternalCallExpr`。这些分类在 D1 即确定，D2 只做 exact declaration/
+type/arity lookup，不得根据 target 或运行时重新分类。
 
 ## 语义约束
 
 - program 至少有一个 `entry` 或 `view`；`init` 最多一个。
 - program item、field、variant、callable 和 parameter 在各自 scope 唯一。
 - 默认 parameter/state visibility 为 `public`；省略返回类型等价 `Unit`。
-- `fn` 只能是 pure local helper；不读取/写入 state，不发 effect。
+- `fn` 只能是 pure local helper；不读取/写入 state/context，不产生 host、state、workflow、
+  disclosure effect，只允许 checked arithmetic/assert/显式 revert 的确定性 `failure.revert`。表达式中的
+  `LocalFnCall` 只解析同一 program 的 `fn`，不会解析 entry/view/init 或外部目标；被调函数可在
+  调用点之后声明，但整个 local-fn call graph 必须无环。
 - `view` 可读 state，不可写 state、emit、call 或 schedule。
 - `entry/init` 可写 state；`init` 不可被普通 invocation 调用。
 - 表达式从左到右求值；不支持 operator overloading 或隐式 numeric coercion。
-- `call` 是同步外部调用，`schedule` 是异步 workflow intent；两者均产生 requirements。
-- `proof x using N` 中 N 必须解析为符合生成 theorem signature 的 Lean 常量；不展开
-  任意语法到业务 IR。
+- statement `call` 是同步外部调用，`schedule` 是异步 workflow intent；其
+  `ExternalCallExpr` 不参与 local-fn 名称解析，两者均产生 requirements。
+- `proof x using N` 中 `x` 精确绑定同一 program 内名为 `x` 的 invariant；`x` 不是新的 proof
+  名称。每个 invariant 最多一个 proof reference，未知 invariant、重复 reference 或短名/别名
+  匹配均失败。D1 只把 `(invariantName, theoremQualifiedName, origin)` 保存到 `Source.Program`；
+  invariant Bool typing 属于 type/effect 检查；theorem lookup/signature validation 必须等 canonical
+  `SemanticProgramV1` 生成、validate 与 hash 完成后执行。
+
+## Pure fn 与 proof reference 契约
+
+`LocalFnCall` 按同一 program 的 callable table 做 exact、case-sensitive lookup。callee 必须是
+`fn`，实参数量和每个参数类型必须 exact，返回类型就是表达式类型；没有默认参数、隐式 cast、
+overload 或 entry fallback。非 `Unit` `fn` 的每条可达路径必须返回一个 exact return type 的值；
+`Unit` 才允许无值 `return` 或末尾 fallthrough。参数按声明顺序求值，callee body 随后按普通
+left-to-right 语义执行；callee 的确定性 failure 原样传播且不提交 caller state/effect。直接或间接
+递归以 `PF-BOUND-001` 拒绝。
+
+type/effect 检查先确认 invariant 为 Bool、pure-fn closure 无环且只有允许的 pure failure；随后
+normalization 在不读取 proof bundle 的情况下产生并 validate 唯一 canonical
+`program : SemanticProgramV1`。compiler 按 canonical invariant array 的 exact NFC name 找到 `x`
+的 ordinal `i`，expected theorem type 唯一为：
+
+```lean
+ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1 program i
+```
+
+其 state conformance、predicate evaluation、revert/trap 和 closed-program binding 由
+[`SPEC-SEM-001`](semantic-core.md) 与
+[`SPEC-SEM-WIRE-001`](semantic-program-wire.md) 唯一定义；不得再次从 Source/Typed AST 拼装另一份 theorem
+statement，也不得只把 `semanticHash` 当成 proposition。`N` 必须与 CLI digest-pinned
+`ProofBundleV1` 的 exact export 对应；manifest 的 invariant name/ordinal/theorem name、bundle
+sourceHash/semanticHash/semanticProvenanceDigest 与 compiler 当前 canonical source/program/provenance
+必须全部匹配，且 theorem type 与上述 closed
+expected type definitionally equal。proof bundle trust policy、locked `.olean` closure 与 safe loader
+规则同样由 SPEC-SEM-001 拥有。
+
+同文件稍后声明、ambient Lean environment、project/parent `.lake`、`LEAN_PATH` 或任意 term
+elaboration 都不能满足 `N`。unknown theorem、bundle 缺失/过期、signature/ordinal/program
+mismatch、axiom/`sorryAx`/`unsafe`/`partial`/extern/initializer/plugin dependency 均 fail closed。
+proof reference 是 `Source.ProgramV1` 的 source-level certification metadata，因此新增、删除或修改
+`ProofDecl` 必须改变 canonical source bytes 与 `sourceHash`。successful validation record 不再改写
+Source.Program 或 `sourceHash`；proof reference 与 validation record 都不得改变 Typed/Semantic 业务执行、
+requirements、`semanticHash` 或 target 选择。失败不得进入 target resolution/Plan。
 
 ## Elaboration 与导出
 
 当前 alpha parser/decoder 产生 `Source.Program`；完整 D1 parser 将为节点补齐 `NodeId`、
-byte span、line/column。NodeId 是
-`SHA-256(moduleName, programName, normalized syntactic path)` 前 128 bit，不含绝对路径。
+byte span、line/column。`Source.ProgramV1` 的完整 constructor/ordered-field schema、node-bearing
+集合、binary wire 与 path traversal 由
+[`SPEC-SOURCE-WIRE-001`](source-program-wire.md) 唯一拥有。`normalizedSyntacticPath` 是从 program
+root 到该节点的序列，每段恰为 `{parentTag,fieldTag,index}`；tag/field 必须是该 wire 规格中的
+exact ASCII constructor/ordered-field 名，index 是该 field 内从 0 开始的无符号位置。
+module/program 名以 QualifiedName component array 表示，全部字符串先 NFC。NodeId 的 128-bit
+candidate 为：
+
+```text
+first-16-bytes(SHA-256("pf.source-node.v1" || NUL ||
+  JCS({module:[...], program:[...], path:[{parentTag,fieldTag,index}, ...]})))
+```
+
+root 的 path 为空 array。wire form 按 SPEC-COMMON-001 为 `nodeid:<32 lowercase hex>`；
+不含绝对/项目相对路径、span、line/column、注释或内存分配顺序。
+128-bit 截断值不是数学唯一性声明。D1 必须按 SPEC-SOURCE-WIRE-001 保存
+`NodeId -> exact canonical preimage`：不同 preimage 得到同一 candidate 时稳定返回
+`PF-SRC-NODEID-COLLISION` 并拒绝整个 program/attribute/output；相同 preimage 被二次访问是
+`PF-INTERNAL`/`duplicate-node-visit`。禁止 first/last winner、重新加盐、扩宽后静默继续或由 CLI/
+target 替换 production SHA-256。
 每个 command 生成：
 
 ```lean
@@ -129,11 +239,12 @@ components，并以不构造超限聚合 `Name` 的可恢复状态跟踪；若�
 若 program 仍位于超限 scope 则拒绝。program Syntax 与 identity 同时超限时，两个入口都先
 返回 Syntax preflight 的诊断，再判断 identity。
 
-两条生产路径共享 `decodeProgramCommandChecked`：CLI 在 Lean parser 产出每个 program
-command 后预检，再 whitelist/decode；Lean command elaborator 调用同一 checked decoder，
-再 quote 其返回值。CLI 另在调用 Lean parser 前执行 16 MiB source-byte 上限，
-该上限当前返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受，16 MiB+1 拒绝。直接
-`lake env lean` 的 command 路径没有这项 CLI 文件上限。
+两条生产路径共享 `decodeProgramCommandChecked`：CLI parent 先执行 bounded 16 MiB read，并在
+`proof-forge.resource.frontend.v1` containment 中启动 parser worker；worker 在 Lean parser 产出每个
+program command 后预检，再 whitelist/decode。Lean command elaborator 调用同一 checked
+decoder，再 quote 其返回值，但整个 Lean process 必须由同等或更严格的 outer build runner
+contain。文件上限返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受，16 MiB+1 拒绝。未受控的
+直接 `lake env lean`/library 调用不属于 untrusted-source 或 formal-evidence surface。
 
 ### 双前端单一 decode/validation 契约
 
@@ -150,15 +261,26 @@ expandItem` AST construction。quote 是 `Source.Program → Lean term` 的穷�
 grammar、名称、visibility、类型或 statement。当前 alpha 的两入口相同错误继续使用
 `PF-SRC-INVALID`；本切片不提前实现 Diagnostic v1。
 
-这个边界不保护 Lean parser 本身，不是多 program module 的累计 node 上限，也不约束直接
-构造 `Source.Program` 后调用 compiler API 的代码。parser fuzz、parser 进程 time/memory
-containment、完整 NodeId/span 和 module aggregate policy 仍属于后续 D1/security 工作。
+Syntax preflight 本身不保护 Lean parser；规范保护来自 parser 之前已经生效的
+`proof-forge.resource.frontend.v1` containment。该 node 边界不是多 program module 的累计上限，也不
+约束直接构造 `Source.Program` 后调用 compiler API 的代码。当前 alpha 尚未实现 parser worker/
+outer build containment，只能产生 development evidence；parser fuzz、完整 NodeId/span 和
+module aggregate policy 仍由后续 D1/security 任务实现。
 
 ## SourceHash
 
-hash 输入为 schema tag、qualified identity、NFC identifier/string、规范 literal 和 AST
-结构的 length-prefixed canonical bytes。排除注释、空白、绝对/相对文件路径、line/column
-和非语义括号；运算符优先级产生的 AST 不排除。算法固定 SHA-256。
+`canonicalSourceAstBytesV1` 只用于已经通过 declaration-shape validation 的
+`Source.ProgramV1`；它的 root、全部 constructor tag、`u16le` field count、ordered field、scalar/
+array/option encoding、default materialization、decoder unknown rejection 和 cross-implementation golden
+完全由 [`SPEC-SOURCE-WIRE-001`](source-program-wire.md) 定义。本文件不再维护第二份摘要编码表。
+
+```text
+sourceHash = SHA-256("pf.source.v1" || NUL || canonicalSourceAstBytesV1)
+```
+
+排除注释、空白、绝对/项目相对文件路径、span、line/column、NodeId 和非语义括号；
+运算符优先级产生的 AST 结构不排除。schema/domain 改变必须发布新 source hash
+version，不得重用 `pf.source.v1`。
 
 ## 错误与边界
 

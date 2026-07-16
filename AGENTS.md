@@ -14,11 +14,11 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-D0-01**：按 `TST-DOC-001` 补齐文档 status/ID/link/claim/ADR/trace/task→TST→EV checker；当前只可收集 pre-acceptance evidence，Phase 1–3 尚未正式批准，完成条件未满足 |
+| Active task | **TASK-D0-01**：按 `TST-DOC-001` 补齐文档 status/ID/link/claim/ADR/trace/task→TST→EV/checkpoint checker 与 external task-receipt consumer；当前 consumer 仍 fail-closed、Phase 1–3 尚未正式批准，只可收集 pre-acceptance evidence |
 | Next task | **TASK-D0-02**：仅在 D0-01 完成后验收独立 Lake package/namespace/exe 与 `TST-ISO-001`；不得跳到 D1/D2 或自动新增 A0 任务 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
+| Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、signed required-set/catalog authority、per-task receipt/authenticated append-only service 与 six-item activation producer/consumer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；activation 后的 formal finalizer/freshness/private scan/revocation/support binding 仍未开始，Phase 0 商业证据也未闭合 |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

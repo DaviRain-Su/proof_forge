@@ -11,9 +11,10 @@ normative: true
 
 本页描述当前 [`scripts/gate_evidence.py`](../../scripts/gate_evidence.py) 实现接受的
 `proof-forge.evidence.v1`，并把“结构有效”“文件在某一时点完整”和“gate 事实已获正式
-认可”分成三个不同判断。当前只有前两层工具；gate-catalog finalizer 尚未实现，因此正式
-证据发布继续 fail closed，不能用 schema 通过或 bundle hash 通过关闭
-`TST-EVIDENCE-001`、`TST-ISO-002`、`TASK-D0-03` 或提升 maturity。
+认可”分成三个不同判断。当前只有前两层工具；development gate-catalog finalizer 与 formal
+finalizer/producer 均尚未实现。因此 schema 通过或 bundle hash 通过既不能关闭
+`TST-EVIDENCE-001`/`TASK-D0-03`，也不能关闭 `TST-BOOTSTRAP-001`/`TASK-D0-04`，或
+`TST-EVIDENCE-002`、`TST-ISO-002`/`TASK-D0-07`，更不能提升 maturity。
 
 ## PF integer-only / ASCII-graphic-key JCS restricted profile
 
@@ -224,7 +225,8 @@ required tool catalog 是否完整。
 }
 ```
 
-`argv` 非空；UTC timestamp 允许零或三位小数，`durationMs` 必须精确等于 end-start。
+`argv` 非空；UTC timestamp 使用 SPEC-COMMON-001 `UtcInstant` 的整秒 `...SSZ` wire form；
+`durationMs` 由 monotonic clock 独立记录，不能从已截断为秒的 UTC 差值反推。
 attempt number 从 1 连续递增。每个 attempt 恰有一种终态：
 
 1. `timedOut=true` 且 `exitCode=signal=null`；
@@ -275,6 +277,15 @@ artifact claims，不读取 filesystem；实际 retained file 需要 bundle inte
 这是 sequence，不排序，因为执行/语义顺序本身是证据。development 可为空；任何 passed
 record 中已有 observation 必须全部 passed，formal passed 至少一项。
 
+该 object 是 gate step 的 verdict/diagnostic projection，不是 `SPEC-SEM-001 OutcomeV1` 的持久化
+schema：`status` 是 step verdict，`errorClass` 只是可选 coarse safe-id，`return/logicalState/effects`
+只是受 PF JSON profile 约束的业务 diagnostic payload，schema v1 没有为
+`SemanticRevert.declared(errorId,args)`、`externalCallReverted(occurrence)` 或所有 fault/effect value
+冻结 exact tags/field encoding。因此 observation presence、hash 或 equality 不能证明 structural
+OutcomeV1 equality。需要 target/reference semantic differential 的 formal catalog 必须额外要求未来
+versioned exact tagged reference-outcome retained artifact 与 verifier；它落地前该类 formal gate
+fail closed，不能把 `errorClass`/target JSON/pretty text 当替代物。
+
 ### `logs`
 
 ```text
@@ -320,19 +331,107 @@ I/O 不一致返回 `PF-EVIDENCE-BUNDLE`，不会继续无界读取。结果是 
 gate-catalog-not-verified`：只证明这些路径在读取时与 claims 相符，不证明命令执行、语义观察、
 host eligibility、required probes/tools/tests 或 release policy 完整。
 
-### 3. Future gate-catalog finalizer
+### 3. Development catalog finalizer 与 formal finalizer
 
-正式 finalizer 必须在一个受控 runner/workspace 内，把 Stage-0、external candidate anchor、
-required gate/test/tool/probe catalog、bundle safe-open、freshness、private scan、revocation lookup
-和发布动作绑定为一次 fail-closed protocol。该 finalizer 当前不存在。因此 `publish` 只允许
-`qualification="development"`；formal 输入返回 `PF-EVIDENCE-FORMAL-UNVERIFIED`。
+`TASK-D0-03` 的 development finalizer 只把 external candidate、required development
+gate/test/tool/probe catalog、bundle safe-open 与本次 launcher receipts 绑定为独立
+`proof-forge.evidence-finalization.v1` record；它不验证 freshness、private scan、revocation 或
+formal process containment，并且 formal 输入必须在 catalog/member/output I/O 前以
+`PF-EVIDENCE-FORMAL-UNVERIFIED` zero-output 拒绝。该 finalizer 当前尚未实现，所以
+`TST-EVIDENCE-001` 仍未闭合。
+
+`TASK-D0-04` 只建立不依赖既有 activation 的 bootstrap foundation；取得其 six-item set activation
+后，`TASK-D0-07` 的 formal finalizer/producer 才在受控 runner/workspace 内把 eligible Stage-0 direct
+handoff、external candidate anchor、由外部治理根签名的 `RequiredTestSetV1`、formal required gate set、不可逃逸 process-session
+containment、bundle safe-open、freshness、private scan、revocation lookup 和发布动作绑定为一次
+fail-closed protocol。其 `proof-forge.formal-evidence-finalization.v1` schema/domain 已在
+[`SPEC-EVFINAL-001`](../specs/gate-catalog-finalization.md) 冻结，但 producer 尚未实现。因此当前
+`publish` 只允许 `qualification="development"`；formal 输入返回
+`PF-EVIDENCE-FORMAL-UNVERIFIED`，且 `TST-EVIDENCE-002`/`TST-ISO-002` 仍未闭合。
+formal record 的 host profile、session containment、freshness authority、private scan、revocation
+ledger snapshot 与 finalizer identity 全部使用 SPEC-EVFINAL-001 exact ContentRef/schema/domain；禁止
+裸 `*Digest` 字段。revocation aggregate 必须重算其 domain-separated length-prefixed recordsDigest；
+四类 signed formal input 必须分别命中 external policy 的 exact rule/quorum/signature domain，private
+scan 绑定无 scan-ref 的 evidenceCoreDigest，最终 evidenceSetDigest 再单向绑定 scan ref。
+
+`RequiredTestSetV1` 是 formal 测试分母的唯一 authority record：它绑定 accepted PHASE-5 exact
+content digest/reviewCommit、从完整 Test ID Catalog 提取并排序的 exact required IDs、candidate
+外部 `BootstrapAuthorityPolicyV1` 以及满足该 policy 的 Ed25519 signatures。formal GateCatalog 必须
+携带该 record 的 exact ContentRef；catalog gates 的 testIds 必须形成 required IDs 的无重复 exact
+partition，formal finalization 再把同一 ref 与 catalog、gates、bootstrap approval 和 evidence-set
+digest exact join。caller 提供的 catalog/digest 只用于 split-brain 检测，不能授权 caller omit test。
+此外，policy-authorized `FormalGateCatalogApprovalV1` 必须签名绑定 exact required-set 与 catalog
+identity，防止 caller 把完整 ID 分母映射到弱/no-op gate policy；formal finalization 必须逐 gate
+exact join catalog gate ID/test/task/build 与全局唯一 evidence refs。GateCatalog identity 在 run
+context、EV、development/formal finalization 与 approval 中统一使用
+`{schema,id,version,contentSha256,catalogDigest}`，两个 hash 都是 64 位 lowercase hex；
+`contentDigest` alias 或 SPEC-COMMON prefixed Digest 均拒绝。当前 RequiredTestSet 与 catalog
+approval producer/signer/verifier 尚未实现，因此不能据此声称 formal completeness。
 
 H1e 的 catalog、typed EV references、launcher receipt、single-snapshot 与独立 development
-finalization record candidate 契约已在
-[`SPEC-EVFINAL-001`](../specs/gate-catalog-finalization.md) 提出。H1e-a 已实现 opt-in launcher
+finalization record candidate 契约也由 `SPEC-EVFINAL-001` 定义。H1e-a 已实现 opt-in launcher
 contexts 与 invocation metadata receipt producer；catalog、typed EV references、single-snapshot
-finalizer 和真实 retained bundle 尚未实现，因此本节的“future”状态和 formal fail-closed 结论
-不变。
+development finalizer 和真实 retained bundle 尚未实现，因此 formal fail-closed 结论不变。
+
+development finalization 即使实现，也不能生成 [`SPEC-CAP-001`](../specs/capabilities-extensions.md)
+的 `SupportEvidenceBinding`。formal support-binding producer 还必须把 canonical EV bytes 包装为
+`EvidenceRef{id,digest}`、把独立 formal finalization 包装为
+`FinalizationRef{schema,id,digest}`，并绑定
+CandidateIdentity、selected BuildIdentity、RequirementKey、完整 static SupportClaim 的
+`claimDigest`、freshness 与本次完整 revocation-ledger digest；其唯一 producer boundary 见
+`SPEC-EVFINAL-001`，当前由 `TASK-D0-04` activation 前置与后续 `TASK-D0-07` 阻塞。raw evidence
+schema 的 bare `sha256` 字段在进入这些 typed refs 时必须转换为 SPEC-COMMON-001 的
+`sha256:<64 lowercase hex>` Digest wire form，禁止混用两种表示做字符串相等。
+
+`FinalizationRef` 的 wire object 在 development 与 formal 路径都恰为
+`{schema,id,digest}`。development schema 固定为 `proof-forge.evidence-finalization.v1`，formal
+schema 固定为 `proof-forge.formal-evidence-finalization.v1`；consumer 必须先按 schema 选择对应
+domain，再 safe-read exact immutable record 并重算 digest。裸 ID、缺 schema、unknown schema 或
+跨 schema/domain 复用一律 fail closed。
+
+Evidence Ledger 的 `Grade=bootstrap` 是文档任务关闭所用的独立控制面等级，不是
+`proof-forge.evidence.v1.gate.qualification` 的第三个值，也不得写入 development/formal
+finalization record 冒充运行资格。它只允许精确的 `TASK-D0-01` 至 `TASK-D0-06` 六项 D0
+trust-root task，用于打破 formal binder 的自举循环；每项必须由 candidate 外部 authority policy
+授权的 `TaskApprovalV1` 绑定 accepted PHASE-4 row、signed `RequiredTestSetV1`、exact
+tests/dependencies/prerequisites、eligible
+Stage-0 direct handoff、canonical EV refs、独立 review refs、signatures 与所有 dependency 的既有
+authenticated completion refs。每个 D0 task 的单项 `done` 由该 TaskApproval 加 policy-pinned
+verifier 产生并签名的 `BootstrapTaskVerifierReceiptV1` 独立关闭；store 按
+`(policy,requiredTestSet,taskId,candidate,approval,handoff)` 唯一、non-revoked lookup。TaskApproval/
+receipt 的 requiredTestSet ref 必须 exact 相等、通过签名验证，且 task owned TST 全是其成员。
+每个 dependency completion receipt 的 candidate/policy/requiredTestSet 也必须与当前 TaskApproval
+exact；candidate 变化后按 DAG 重验依赖，禁止回放历史 completion。D0-01/02/03/05/06 不依赖
+六项 aggregate，因而不形成 dependency/checker deadlock。
+
+D0-04 的唯一 owned test `TST-BOOTSTRAP-001` 必须在没有既有 aggregate activation 的输入空间内
+运行；其 evidence、TaskApproval 与 task receipt 不得引用或查询本次即将生成的 activation。D0-04
+先取得自己的 TaskApproval 与 authenticated task receipt；随后 final candidate/run 按依赖拓扑
+重新验证并按 D0-01..06 exact 顺序把六项 approval+task receipt 放入 `BootstrapApprovalSetV1`，再由
+policy 锁定 verifier 产生 set activation `BootstrapApprovalVerifierReceiptV1`。只有 D0-04 的
+`done` 额外要求该 set/activation receipt；formal record 同时绑定 set ContentRef 和 activation receipt
+ref，并 exact join candidate/policy/handoff/RequiredTestSet/verifier/task approval/task receipt refs。
+`TASK-D0-07` 不属于 six-item bootstrap set；它只在 current、non-revoked activation 存在后运行
+formal `TST-ISO-002`/`TST-EVIDENCE-002` 并由 formal finalization record 关闭。
+
+authority quorum 按 policy 中 distinct principalId 而非 keyId 计算，每个 required role 都要由对应
+distinct principal 覆盖。TaskApproval 与 aggregate set 都签入各自本次 exact eligible Stage-0
+handoff，因此每次 task completion/aggregate activation 都需要在线 quorum，旧 run approval 不可
+复用。handoff 使用
+`EligibleStage0HandoffV1` closed object/ContentRef，绑定 candidate、external policy、eligible host
+observation/profile、pinned TCB digests、净化环境、exact inherited fd/channel set 和 zero fallback；
+formal record 保存该 ContentRef，不接受裸 digest。task/activation receipt 都必须由 policy-pinned
+receipt key 签名，并经 handoff 预开的 authenticated authority-store request/response service 执行
+signed publish ack + exact readback；service descriptor 与 external policy/handoff exact 绑定，caller
+不能选择 receipt path/store root/service。read-only directory/file、mutable root-manifest digest、
+missing/unsigned ack、request replay 或 publish 后不回查均拒绝。
+
+普通 Ledger `passed` 文本、完整 Tests 并集、`Grade=bootstrap` 字符串或 verifier 自报 digest 都不
+构成上述 authority。当前仓库没有 external policy root、approval producer/signer、eligible handoff、
+protected authority-store service、bootstrap verifier/receipt consumer；在它们全部实现前，任何 bootstrap
+closure 和 D0 `done` 转换必须以 `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED` fail closed。bootstrap
+不得关闭其他 task、提升 SupportEvidenceGrade/TargetMaturity 或替代后续 formal evidence；因此
+当前 `TASK-D0-01` 仍保持 `in_progress`。
 
 development publish 会 canonicalize 并原子 no-clobber 写入固定布局：
 
@@ -367,13 +466,17 @@ previousRecordSha256: null | SHA-256
 `revokedUtc` 使用与 EV command 相同的 UTC timestamp 格式。`evidence` 与非 null
 `replacement` 都恰含 `{id,sha256}`，replacement ID 不得等于被撤销 ID。
 revocation ID 日期必须真实并等于 `revokedUtc` UTC 日期；`previousRecordSha256` 建立 ledger
-hash chain，首条为 `null`。`authorityRef` 必须指向未来治理层认可的外部授权记录；replacement
+hash chain，首条为 `null`；非首条必须等于前一 canonical record bytes 的 raw SHA-256。
+用于 formal snapshot 的 exact `RevocationRecordRefV1` 为
+`{schema:"proof-forge.evidence-revocation.v1",id,version:"1.0.0",digest}`，其中 digest 固定为
+`SHA-256("pf.evidence-revocation.v1" || NUL || canonical_pf_jcs(record))`；raw chain hash 与该
+domain-separated ContentRef digest 不得混用。`authorityRef` 必须指向未来治理层认可的外部授权记录；replacement
 只能引用另一份不可变 evidence，不能覆盖原文件。consumer 必须同时读取 EV store 与完整
 revocation ledger，遇到 missing link、重复 revocation ID、未知 authority 或 hash chain 分叉
 时 fail closed。
 
 当前代码没有 revocation parser、publisher、authority verifier、append-only store 或 lookup；
-本节只是为后续 `TST-EVIDENCE-001` 实现冻结独立 schema，不构成通过证据。
+本节只是为后续 `TST-EVIDENCE-002`/`TASK-D0-07` 实现冻结独立 schema，不构成通过证据。
 
 ## 已知限制与验收状态
 
@@ -381,11 +484,20 @@ revocation ledger，遇到 missing link、重复 revocation ID、未知 authorit
 - 全局 exact/casefold path namespace、逐组件 safe-open、inode 去重和 readback 能拒绝路径别名、
   symlink、hardlink 及已观测的 pathname replacement，但不能完全排除同 UID 或 privileged
   actor 在两个检查点之间修改后恢复；formal 仍需受控 workspace。
-- v1 没有 gate catalog、required probe/tool/test completeness、freshness、clock authority、
-  evidence-set Merkle root 或 revocation lookup 实现。
+- v1 没有 development gate catalog/required probe/tool/test completeness；formal
+  RequiredTestSet/formal-catalog approval producer/signer/verifier、bootstrap approval
+  producer/verifier/receipt consumer、
+  evidence-set、freshness/clock authority、revocation lookup、private scan 与 support-binding producer
+  也尚未实现。
 - `networkPort` 已可条件表达，但尚未与 rendered policy bytes/digest、retained launcher
   logs/receipts 和 required probe catalog 绑定。
 - `verify-bundle` 不扫描业务 private data；它只校验 evidence 声明的 scan 状态和 log bytes。
-- `TST-EVIDENCE-001` 与 `TASK-D0-03` 继续未闭合。还需覆盖 malformed/duplicate ID、stale
-  network evidence、wrong candidate、clock skew、revoked evidence、private witness/log、partial
-  upload、concurrent publisher 和正式 finalizer 全链路。
+- `TST-EVIDENCE-001`/`TASK-D0-03` 继续未闭合：还需完成 development catalog、typed refs、真实
+  retained bundle、single-snapshot development finalizer、malformed/duplicate ID、wrong candidate、
+  partial upload/concurrent publisher，以及 formal 请求的 zero-output rejection。
+- `TST-BOOTSTRAP-001`/`TASK-D0-04` 拥有 activation 前缺口：eligible Stage-0 handoff、
+  RequiredTestSet/formal-catalog authority、bootstrap task/set/receipt protected validation 与
+  process-session containment；其 test/approval/task receipt 不得要求已有 activation。
+- `TST-EVIDENCE-002`/`TST-ISO-002`/`TASK-D0-07` 拥有 activation 后 formal 缺口：正式
+  archive gate、evidence-set finalizer/producer、freshness/clock、private witness/log scan、revocation
+  lookup 和 acceptance/support binding。

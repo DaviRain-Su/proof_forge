@@ -88,6 +88,22 @@ STATUS_INDEX_TARGETS = (
     "docs/06-implementation-log.md",
     "docs/07-review-report.md",
 )
+FROZEN_A0_TASK_TEST_PAIRS = tuple(
+    (f"TASK-A0-{index:02d}", f"TST-A0-{index:03d}")
+    for index in range(1, 21)
+)
+FROZEN_A0_TASK_TO_TEST = dict(FROZEN_A0_TASK_TEST_PAIRS)
+FROZEN_A0_TEST_TO_TASK = {
+    test: task for task, test in FROZEN_A0_TASK_TEST_PAIRS
+}
+
+
+def is_frozen_a0_task(identifier: str) -> bool:
+    return identifier in FROZEN_A0_TASK_TO_TEST
+
+
+def is_frozen_a0_test(identifier: str) -> bool:
+    return identifier in FROZEN_A0_TEST_TO_TASK
 
 
 class DocsCheckError(Exception):
@@ -223,8 +239,21 @@ def validate_approval(rel: str, result: dict[str, str], text: str, *, check_todo
         raise_error("PF-DOC-APPROVAL", rel, "reviewCommit must be a full lowercase SHA-1")
     if not result["reviewLink"].lower().startswith("https://"):
         raise_error("PF-DOC-APPROVAL", rel, "reviewLink must use https")
-    if not result["approvers"].strip() or result["openFindings"] != "none":
-        raise_error("PF-DOC-APPROVAL", rel, "approvers must be nonempty and openFindings none")
+    approvers = result["approvers"]
+    approver_ids = approvers.split(", ")
+    safe_id = re.compile(
+        r"[A-Za-z0-9](?:[A-Za-z0-9._:+-]{0,254}[A-Za-z0-9])?")
+    if (not approvers or ", ".join(approver_ids) != approvers
+            or any(safe_id.fullmatch(identifier) is None for identifier in approver_ids)):
+        raise_error(
+            "PF-DOC-APPROVAL", rel,
+            "approvers must be exact ', '-separated ASCII safe-id values")
+    if len(set(approver_ids)) != len(approver_ids):
+        raise_error("PF-DOC-APPROVAL", rel, "approvers must be unique")
+    if approver_ids != sorted(approver_ids, key=lambda item: item.encode("ascii")):
+        raise_error("PF-DOC-APPROVAL", rel, "approvers must be in ascending ASCII order")
+    if result["openFindings"] != "none":
+        raise_error("PF-DOC-APPROVAL", rel, "openFindings must be none")
     if check_todo and UNRESOLVED_MARKER_RE.search(text):
         raise_error("PF-DOC-ACCEPTED-TODO", rel, "accepted document has unresolved marker")
 
@@ -979,6 +1008,10 @@ def collect_definitions(documents: list[Document], json_values: dict[str, Any]) 
         if not re.fullmatch(r"TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*", identifier):
             raise_error("PF-DOC-ID-FORMAT", row.relative,
                         f"line {row.line} has malformed task ID {identifier}")
+        if identifier.startswith("TASK-A0-") and not is_frozen_a0_task(identifier):
+            raise_error(
+                "PF-DOC-ID-FORMAT", row.relative,
+                f"line {row.line} has A0 task outside frozen TASK-A0-01..20: {identifier}")
         add_definition(definitions, identifier, row.relative, row.line, "task")
         dependencies_cell = row.value({"Dependencies"})
         prerequisites_cell = row.value({"Prerequisites"})
@@ -1008,6 +1041,10 @@ def collect_definitions(documents: list[Document], json_values: dict[str, Any]) 
         if not re.fullmatch(r"TST-[A-Z0-9]+(?:-[A-Z0-9]+)*", identifier):
             raise_error("PF-DOC-ID-FORMAT", row.relative,
                         f"catalog has malformed test ID {identifier}")
+        if identifier.startswith("TST-A0-") and not is_frozen_a0_test(identifier):
+            raise_error(
+                "PF-DOC-ID-FORMAT", row.relative,
+                f"catalog has A0 test outside frozen TST-A0-001..020: {identifier}")
         add_definition(definitions, identifier, row.relative, row.line, "test")
 
     def collect_evidence(row: TableRow) -> None:
@@ -1189,13 +1226,74 @@ def validate_claims(definitions: dict[str, Definition], json_values: dict[str, A
                             f"claim {identifier} references unknown {source}")
 
 
+def validate_frozen_a0_pairs(definitions: dict[str, Definition],
+                             tasks: list[TaskRecord]) -> None:
+    tasks_by_id = {task.identifier: task for task in tasks}
+    expected_tasks = set(FROZEN_A0_TASK_TO_TEST)
+    actual_tasks = {
+        task.identifier for task in tasks
+        if task.identifier.startswith("TASK-A0-")
+    }
+    if actual_tasks != expected_tasks:
+        missing = sorted(expected_tasks - actual_tasks)
+        unexpected = sorted(actual_tasks - expected_tasks)
+        raise_error(
+            "PF-DOC-TASK-SCHEMA", "docs/04-task-breakdown.md",
+            f"frozen A0 task set must be exact; missing={missing}, unexpected={unexpected}")
+
+    expected_tests = set(FROZEN_A0_TEST_TO_TASK)
+    actual_tests = {
+        identifier for identifier, definition in definitions.items()
+        if definition.kind == "test" and identifier.startswith("TST-A0-")
+    }
+    if actual_tests != expected_tests:
+        missing = sorted(expected_tests - actual_tests)
+        unexpected = sorted(actual_tests - expected_tests)
+        raise_error(
+            "PF-DOC-TASK-SCHEMA", "docs/05-test-spec.md",
+            f"frozen A0 test set must be exact; missing={missing}, unexpected={unexpected}")
+
+    for task in sorted(tasks, key=lambda item: (item.relative, item.line, item.identifier)):
+        if is_frozen_a0_task(task.identifier):
+            expected = FROZEN_A0_TASK_TO_TEST[task.identifier]
+            if task.tests != (expected,):
+                raise_error(
+                    "PF-DOC-TASK-SCHEMA", task.relative,
+                    f"frozen {task.identifier} must own only {expected}, got {list(task.tests)}")
+            if task.status != "done":
+                raise_error(
+                    "PF-DOC-TASK-SCHEMA", task.relative,
+                    f"frozen {task.identifier} must remain done, got {task.status}")
+            continue
+        frozen_tests = [test for test in task.tests if is_frozen_a0_test(test)]
+        if frozen_tests:
+            test = frozen_tests[0]
+            raise_error(
+                "PF-DOC-TASK-SCHEMA", task.relative,
+                f"{test} may only be owned by {FROZEN_A0_TEST_TO_TASK[test]}, "
+                f"not {task.identifier}")
+
+    for test, task_identifier in FROZEN_A0_TEST_TO_TASK.items():
+        definition = definitions.get(test)
+        if definition is None or definition.kind != "test":
+            continue
+        if task_identifier not in tasks_by_id:
+            raise_error(
+                "PF-DOC-TRACE-ORPHAN", definition.relative,
+                f"frozen A0 test {test} has no corresponding {task_identifier}")
+
+
 def validate_trace(documents: list[Document], definitions: dict[str, Definition],
                    tasks: list[TaskRecord]) -> None:
+    validate_frozen_a0_pairs(definitions, tasks)
     matrix = next(document for document in documents
                   if document.relative == "docs/traceability/requirements-matrix.md")
     rows = [row for row in parse_tables(matrix)
             if row.value({"Requirement"}) and row.value({"Requirement"}) != "Requirement"]
     traced: dict[str, TableRow] = {}
+    traced_tests: set[str] = set()
+    traced_tasks: set[str] = set()
+    traced_task_test_pairs: set[tuple[str, str]] = set()
     used_goals: set[str] = set()
     tasks_by_id = {task.identifier: task for task in tasks}
     for row in rows:
@@ -1259,7 +1357,12 @@ def validate_trace(documents: list[Document], definitions: dict[str, Definition]
             if test not in owned_tests:
                 raise_error("PF-DOC-TRACE-OWNERSHIP", row.relative,
                             f"{requirement} test {test} is not owned by any task in the row")
+            for task_identifier in task_ids:
+                if test in tasks_by_id[task_identifier].tests:
+                    traced_task_test_pairs.add((task_identifier, test))
         traced[requirement] = row
+        traced_tests.update(test_ids)
+        traced_tasks.update(task_ids)
         used_goals.update(goals)
 
     prd = next(document for document in documents if document.relative == "docs/01-prd.md")
@@ -1273,6 +1376,48 @@ def validate_trace(documents: list[Document], definitions: dict[str, Definition]
             if identifier.startswith("GOAL-") and identifier not in used_goals:
                 raise_error("PF-DOC-TRACE-ORPHAN", prd.relative,
                             f"active product goal {identifier} has no requirement edge")
+
+    formal_tasks = sorted(
+        (
+            task for task in tasks
+            if not is_frozen_a0_task(task.identifier)
+        ),
+        key=lambda task: (task.relative, task.line, task.identifier),
+    )
+    for task in formal_tasks:
+        if task.identifier not in traced_tasks:
+            raise_error(
+                "PF-DOC-TRACE-ORPHAN", task.relative,
+                f"formal task {task.identifier} has no requirement trace edge")
+        for test in task.tests:
+            if (task.identifier, test) not in traced_task_test_pairs:
+                raise_error(
+                    "PF-DOC-TRACE-ORPHAN", task.relative,
+                    f"formal task {task.identifier} test {test} has no joint requirement trace edge")
+
+    task_owned_tests = {
+        test
+        for task in tasks
+        for test in task.tests
+    }
+    required_tests = sorted(
+        (
+            (identifier, definition)
+            for identifier, definition in definitions.items()
+            if definition.kind == "test"
+            and not is_frozen_a0_test(identifier)
+        ),
+        key=lambda item: (item[1].relative, item[1].line, item[0]),
+    )
+    for identifier, definition in required_tests:
+        if identifier not in task_owned_tests:
+            raise_error(
+                "PF-DOC-TRACE-ORPHAN", definition.relative,
+                f"required test {identifier} has no task owner")
+        if identifier not in traced_tests:
+            raise_error(
+                "PF-DOC-TRACE-ORPHAN", definition.relative,
+                f"required test {identifier} has no requirement trace edge")
 
 
 def validate_tasks(definitions: dict[str, Definition], tasks: list[TaskRecord],
@@ -1292,15 +1437,26 @@ def validate_tasks(definitions: dict[str, Definition], tasks: list[TaskRecord],
         if record.grade == "formal":
             error = DocsCheckError(
                 "PF-DOC-EVIDENCE-FORMAL-UNVERIFIED", record.relative,
-                f"{record.identifier} cannot claim formal before the D0-03 "
-                "candidate-bound evidence-set binder exists")
+                f"{record.identifier} cannot claim formal before the D0-07 "
+                "formal finalizer and candidate-bound evidence-set binder exist")
             diagnostics.append(OrderedDiagnostic(
                 record.relative, record.line, 1, record.identifier, error))
-        if (record.grade == "bootstrap"
-                and record.task not in {"TASK-D0-01", "TASK-D0-02"}):
+        bootstrap_tasks = {
+            "TASK-D0-01", "TASK-D0-02", "TASK-D0-03",
+            "TASK-D0-04", "TASK-D0-05", "TASK-D0-06",
+        }
+        if record.grade == "bootstrap" and record.task not in bootstrap_tasks:
             error = DocsCheckError(
                 "PF-DOC-EVIDENCE-SCHEMA", record.relative,
-                f"{record.identifier} uses bootstrap grade outside TASK-D0-01/02")
+                f"{record.identifier} uses bootstrap grade outside the exact D0 trust-root set")
+            diagnostics.append(OrderedDiagnostic(
+                record.relative, record.line, 1, record.identifier, error))
+        elif record.grade == "bootstrap":
+            error = DocsCheckError(
+                "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", record.relative,
+                f"{record.identifier} cannot close {record.task} before the external "
+                "TaskApprovalV1/BootstrapTaskVerifierReceiptV1 verifier and immutable "
+                "receipt lookup exist")
             diagnostics.append(OrderedDiagnostic(
                 record.relative, record.line, 1, record.identifier, error))
         if record.task is None:
@@ -1388,9 +1544,12 @@ def validate_tasks(definitions: dict[str, Definition], tasks: list[TaskRecord],
                 continue
             covered_tests.update(record.tests)
             if task.status == "done":
-                if task.identifier.startswith("TASK-A0-"):
+                if is_frozen_a0_task(task.identifier):
                     required_grade = "development"
-                elif task.identifier in {"TASK-D0-01", "TASK-D0-02"}:
+                elif task.identifier in {
+                    "TASK-D0-01", "TASK-D0-02", "TASK-D0-03",
+                    "TASK-D0-04", "TASK-D0-05", "TASK-D0-06",
+                }:
                     required_grade = "bootstrap"
                 else:
                     required_grade = "formal"
@@ -1472,6 +1631,124 @@ def validate_tasks(definitions: dict[str, Definition], tasks: list[TaskRecord],
     raise_first(diagnostics)
 
 
+def validate_agents_checkpoint(root: Path, tasks: list[TaskRecord]) -> None:
+    agents_path = root / "AGENTS.md"
+    ensure_repository_path(root, agents_path, "AGENTS.md")
+    if not agents_path.is_file():
+        raise_error("PF-DOC-CHECKPOINT", "AGENTS.md", "required checkpoint file is missing")
+    try:
+        text = agents_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise_error("PF-DOC-CHECKPOINT", "AGENTS.md", str(error))
+
+    lines = text.splitlines()
+    visible_lines = mask_nonrendered(text).splitlines()
+    checkpoint_headings = [
+        index for index, line in enumerate(visible_lines)
+        if line.strip() == "## Current Checkpoint"
+    ]
+    if len(checkpoint_headings) != 1:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "requires exactly one rendered ## Current Checkpoint section")
+    checkpoint_heading = checkpoint_headings[0]
+    section_end = next(
+        (
+            index for index in range(checkpoint_heading + 1, len(visible_lines))
+            if re.match(r"^#{1,2}\s+", visible_lines[index].strip())
+        ),
+        len(visible_lines),
+    )
+    checkpoint_headers = [
+        index for index, line in enumerate(visible_lines)
+        if line.strip() == "| Field | Current value |"
+    ]
+    if len(checkpoint_headers) != 1:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "requires exactly one rendered canonical Field/Current value table")
+    header = checkpoint_headers[0]
+    if not checkpoint_heading < header < section_end:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "canonical Field/Current value table must be inside Current Checkpoint")
+    if header + 1 >= len(lines) or lines[header + 1].strip() != "|---|---|":
+        raise_error("PF-DOC-CHECKPOINT", "AGENTS.md",
+                    "Current Checkpoint lacks canonical separator")
+
+    fields: dict[str, str] = {}
+    for line in lines[header + 2:]:
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 2 or not cells[0]:
+            raise_error("PF-DOC-CHECKPOINT", "AGENTS.md",
+                        f"invalid checkpoint row {line}")
+        if cells[0] in fields:
+            raise_error("PF-DOC-CHECKPOINT", "AGENTS.md",
+                        f"duplicate checkpoint field {cells[0]}")
+        fields[cells[0]] = cells[1]
+
+    for field in ("Active task", "Next task", "Known blocker",
+                  "Task authority", "Document authority"):
+        if field not in fields:
+            raise_error("PF-DOC-CHECKPOINT", "AGENTS.md",
+                        f"missing checkpoint field {field}")
+
+    def checkpoint_task_ids(field: str) -> set[str]:
+        return set(re.findall(
+            r"(?<![A-Za-z0-9_-])TASK-[A-Z0-9]+-[0-9]+(?![A-Za-z0-9_-])",
+            fields[field],
+        ))
+
+    active = [task.identifier for task in tasks if task.status == "in_progress"]
+    expected_active = set(active)
+    actual_active = checkpoint_task_ids("Active task")
+    if actual_active != expected_active or (not expected_active and "无" not in fields["Active task"]):
+        raise_error("PF-DOC-CHECKPOINT", "AGENTS.md",
+                    f"Active task mirrors {sorted(actual_active)}, expected {sorted(expected_active)}")
+
+    if active:
+        active_index = next(index for index, task in enumerate(tasks)
+                            if task.identifier == active[0])
+        remaining = [task for task in tasks[active_index + 1:]
+                     if task.status != "done"]
+    else:
+        remaining = [task for task in tasks if task.status != "done"]
+    expected_next = {remaining[0].identifier} if remaining else set()
+    actual_next = checkpoint_task_ids("Next task")
+    if actual_next != expected_next or (not expected_next and "无" not in fields["Next task"]):
+        raise_error("PF-DOC-CHECKPOINT", "AGENTS.md",
+                    f"Next task mirrors {sorted(actual_next)}, expected {sorted(expected_next)}")
+
+    expected_blocked = {task.identifier for task in tasks if task.status == "blocked"}
+    actual_blocked = checkpoint_task_ids("Known blocker")
+    if (actual_blocked != expected_blocked
+            or (not expected_blocked and "无" not in fields["Known blocker"])):
+        raise_error("PF-DOC-CHECKPOINT", "AGENTS.md",
+                    f"Known blocker mirrors {sorted(actual_blocked)}, "
+                    f"expected {sorted(expected_blocked)}")
+
+    def checkpoint_authority_target(field: str, expected: str) -> None:
+        value = fields[field]
+        links = list(INLINE_LINK_RE.finditer(value))
+        if links:
+            if len(links) != 1 or links[0].group(1):
+                raise_error(
+                    "PF-DOC-CHECKPOINT", "AGENTS.md",
+                    f"{field} must contain exactly one non-image inline link")
+            actual = links[0].group(2).strip().strip("<>")
+        else:
+            actual = clean_cell(value)
+        if actual != expected:
+            raise_error(
+                "PF-DOC-CHECKPOINT", "AGENTS.md",
+                f"{field} must point exactly to {expected}")
+
+    checkpoint_authority_target("Task authority", "docs/04-task-breakdown.md")
+    checkpoint_authority_target("Document authority", "docs/document-status.md")
+
+
 def check(root: Path) -> None:
     root_input = root.expanduser().absolute()
     for component in (root_input, *root_input.parents):
@@ -1521,6 +1798,7 @@ def check(root: Path) -> None:
     validate_trace(documents, definitions, tasks)
     document_status = {document.meta["id"]: document.meta["status"] for document in documents}
     validate_tasks(definitions, tasks, evidence_results, document_status)
+    validate_agents_checkpoint(root, tasks)
 
 
 def main() -> None:

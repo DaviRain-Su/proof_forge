@@ -20,6 +20,8 @@ H1e 不解决 eligible host、formal Stage-0 digest handoff、`setsid()` session
 freshness/clock authority、revocation lookup、业务 private-data scanner 或正式 evidence-set
 publication。上述任一项未闭合时，所有 formal 输入必须在 preliminary evidence read 后、读取
 catalog/claimed bundle members 或创建输出前以 `PF-EVIDENCE-FORMAL-UNVERIFIED` 拒绝。
+H1e 也不得生成 `proof-forge.support-evidence-binding.v1`；该 binding 只能由下文所述、在
+`TASK-D0-04` bootstrap activation 后由 `TASK-D0-07` 实现的 formal producer 生成。
 
 ## 分层协议
 
@@ -200,6 +202,546 @@ small restricted-PF-JCS codec 拒绝 duplicate/unknown/noncanonical JSON，stabl
 `runBindingSha256` 等于重算的 base digest，context `stage`/`invocation` 等于 CLI values；任一
 mismatch 都不得 spawn 或发布 metadata marker。
 
+## Bootstrap authority 与 RequiredTestSetV1
+
+Evidence Ledger 的 `Grade=bootstrap` 不是自证事实。它只能引用本节定义的、由 candidate 外部
+authority root 授权并经 eligible Stage-0 直接 handoff 验证的单项 TaskApproval+task receipt；D0-04
+还必须引用 six-item approval set+activation receipt。候选仓库内的
+`passed` 文本、review prose、`host-bootstrap.lock`、catalog digest 或 verifier 自报 digest 均不能
+单独成为该 root。
+
+### 外部 authority policy 与签名 primitive
+
+`BootstrapAuthorityPolicyV1` 是 candidate 外部、content-addressed 的治理根：
+
+```text
+ApprovalRoleV1 = "architecture" | "quality" | "security" | "release"
+
+ApprovalSignatureV1 {
+  keyId, algorithm: "ed25519", signature
+}
+
+ApprovalRuleV1 {
+  requiredRoles: NonEmptyArray<ApprovalRoleV1>,
+  minimumDistinctSigners: u32
+}
+
+BootstrapAuthorityPolicyV1 {
+  schema, id, version,
+  principals: [{principalId, keyId, publicKey, roles: NonEmptyArray<ApprovalRoleV1>}, ...],
+  taskRules: [{taskId, rule: ApprovalRuleV1}, ...],
+  requiredTestSetRule: ApprovalRuleV1,
+  formalCatalogRule: ApprovalRuleV1,
+  bootstrapSetRule: ApprovalRuleV1,
+  sessionContainmentRule: ApprovalRuleV1,
+  freshnessAuthorityRule: ApprovalRuleV1,
+  privateScanRule: ApprovalRuleV1,
+  privateScanPolicy: ContentRef,
+  revocationSnapshotRule: ApprovalRuleV1,
+  authorityStoreService: ContentRef,
+  verifier: {id, executableDigest, receiptKeyId, receiptPublicKey}
+}
+```
+
+wire field order 恰为 declaration order；所有 object `additionalProperties=false`。root `id` 使用
+ContentRef id grammar，`principalId`/`keyId`/verifier `id` 使用 safe-id；version 是 exact SemVer。
+`publicKey` 是 32-byte Ed25519 key 的 64 位
+lowercase hex，`signature` 是 64-byte signature 的 128 位 lowercase hex；receiptPublicKey 采用同一
+encoding，receiptKeyId 不得出现在 principals。principals、taskRules、signatures 分别按 keyId、
+taskId、keyId 唯一升序；roles/requiredRoles 按上列 enum 顺序唯一升序。同一 principalId 可轮换
+多把 key，但 quorum、minimumDistinctSigners 和 independent review 独立性一律按 distinct
+principalId 计算；每个 requiredRole 必须至少由一个拥有该 role 的 distinct principal 覆盖，不能用
+同一人多 key 伪造 quorum。
+严格 Ed25519 验证使用 RFC 8032 pure mode、无 prehash/context；拒绝 non-canonical encoding、
+invalid/small-order public key 和 invalid signature。
+
+`taskRules` 必须恰含 `TASK-D0-01` 至 `TASK-D0-06` 六项。每项至少要求 `quality` 且至少两个不同
+principal；D0-01/02/06 还必须要求 `architecture`，D0-03/04/05 还必须要求 `security`，D0-04 还必须要求
+`release`。`requiredTestSetRule` 与 `formalCatalogRule` 至少要求 `quality+security` 和两个不同
+principal；`bootstrapSetRule` 至少要求 `quality+security+release` 和三个不同 principal；
+`sessionContainmentRule` 与 `privateScanRule` 至少要求 `quality+security` 和两个不同 principal；
+`freshnessAuthorityRule` 至少要求 `quality+release` 和两个不同 principal；
+`revocationSnapshotRule` 至少要求 `security+release` 和两个不同 principal。policy 可
+增加 key/role/threshold，不能降低
+这些 v1 hard minima。
+
+policy content digest 为：
+
+```text
+bootstrapAuthorityPolicyDigest = SHA-256(
+  "pf.bootstrap-authority-policy.v1" || NUL ||
+  canonical_pf_jcs(BootstrapAuthorityPolicyV1)
+)
+```
+
+它以 `ContentRef{schema="proof-forge.bootstrap-authority-policy.v1",id,version,digest}` 表示。
+`authorityStoreService` 必须 resolve 到下节 exact service descriptor；handoff 中同名 ref 必须与
+policy exact 相等，禁止 Stage-0/caller 临时替换 store namespace、service key 或 executable。
+eligible Stage-0 caller 必须从 checkout/archive/candidate 之外的只读 external governance root
+取得 expected ContentRef，并经预打开 fd 交给 verifier；不得从 source、catalog、environment、普通
+CLI 字符串、仓库 lock 或失败后的 fallback 选择 policy。
+
+authority receipt storage 不是 candidate 可写目录，也不是预先 hash 后再原地修改的 file tree。
+Stage-0 必须启动 policy-pinned 的外部 append-only service，并把其已连接 authenticated channel
+直接交给 verifier。service identity 的 closed descriptor 为：
+
+```text
+AuthorityStoreServiceDescriptorV1 {
+  schema, id, version,
+  protocol: "pf.authority-store.rpc.v1",
+  serviceExecutableDigest: Digest,
+  servicePublicKey,
+  namespaceId,
+  maximumFrameBytes: u32
+}
+```
+
+schema 固定为 `proof-forge.authority-store-service.v1`；id/version 使用 ContentRef 规则，
+servicePublicKey 是 32-byte Ed25519 public key 的 lowercase hex，namespaceId 使用 safe-id，
+`maximumFrameBytes` 固定为 `4194304`。descriptor digest 固定为
+`SHA-256("pf.authority-store-service.v1" || NUL || canonical_pf_jcs(descriptor))`，以 exact
+ContentRef 表示；它绑定 immutable service executable/protocol/namespace identity，不绑定会随 append
+变化的 store root、head、receipt set 或 pathname。
+
+`EligibleStage0HandoffV1` 的 closed object 为：
+
+```text
+Stage0ChannelV1 {
+  role: "authority-policy" | "authority-store" | "candidate-archive" | "evidence-root",
+  fd: u32,
+  transport: "regular-file" | "authenticated-stream",
+  access: "read-only" | "request-response",
+  bindingDigest: Digest
+}
+
+EligibleStage0HandoffV1 {
+  schema, id, version, runId, nonce,
+  candidate: CandidateIdentity,
+  authorityPolicy: ContentRef,
+  authorityStoreService: ContentRef,
+  hostObservation: ContentRef,
+  hostProfile: ContentRef,
+  eligible: true,
+  tcb: {
+    stage0VerifierDigest, bootstrapVerifierDigest,
+    continuationDigest, formalFinalizerDigest
+  },
+  environment: {
+    mode: "env-i", home: "/var/empty", path: "/usr/bin:/bin",
+    lcAll: "C", tz: "UTC", network: "deny-default"
+  },
+  channels: [Stage0ChannelV1; 4],
+  pathnameReopen: false,
+  fallback: "none"
+}
+```
+
+schema 固定为 `proof-forge.eligible-stage0-handoff.v1`；root id 使用 ContentRef id grammar，version
+使用 exact SemVer，runId 使用 safe-id，
+nonce 是 32-byte unpredictable value 的 64 位 lowercase hex。tcb fields 是 Digest；channels 恰按
+上述 role 顺序出现，fd 必须大于 2 且唯一。`authority-policy`、`candidate-archive`、`evidence-root`
+必须是 `regular-file/read-only`，bindingDigest 分别绑定 policy exact bytes、candidate archive 和
+evidence-root manifest；`authority-store` 必须是 `authenticated-stream/request-response`，其
+bindingDigest exact 等于 resolved `authorityStoreService.digest`。host observation/profile 必须 safe-read、重算 ref 并
+证明当前 host `eligible=true`；candidate archive 与 candidate identity exact join。handoff 只能由
+external Stage-0 TCB 在净化环境中生成，通过预开只读 fd/继承的认证 channel 交付并由 consumer
+立即对 regular file `fstat`/stable-read、对 service channel 校验 socket type、peer identity 与下述
+signed hello；inherited fd set 必须恰为 `0,1,2` 加 channels 中四个 fd，stdin 为 EOF，
+stdout/stderr 是 caller-captured write-only channel。禁止 pathname reopen、额外继承 fd、
+environment/repository fallback。
+policy verifier executableDigest 必须等于 tcb.bootstrapVerifierDigest；本次实际 Stage-0 verifier、
+continuation、formal finalizer bytes 必须分别等于其余 tcb digest，禁止进程启动后替换。
+Stage-0 启动的 authority-store service executable bytes 必须等于 resolved descriptor
+`serviceExecutableDigest`，且 authenticated channel peer 必须是该 Stage-0 child；仅回报同一 public key
+但 executable/peer 不一致仍拒绝。
+handoff digest 为：
+
+```text
+eligibleStage0HandoffDigest = SHA-256(
+  "pf.eligible-stage0-handoff.v1" || NUL || canonical_pf_jcs(EligibleStage0HandoffV1)
+)
+```
+
+它以 exact ContentRef 表示。handoff 不绑定后生成的 approval set，避免
+authority-policy → approval-set → handoff hash cycle。
+
+authority-store RPC 使用 authenticated local byte-stream socket；每个 frame 是
+`u32be(payload.size) || canonical_pf_jcs(payload)`，payload 不得超过 descriptor maximum。连接后
+service 必须先返回 signed hello
+`{schema:"proof-forge.authority-store-hello.v1",descriptor:AuthorityStoreServiceDescriptorV1,runId,nonce,signature}`；
+consumer 先重算 descriptor ContentRef 并与 external policy、handoff 及 channel bindingDigest exact
+比较，再用其中 servicePublicKey 对
+`"pf.authority-store-hello.v1" || NUL || canonical_pf_jcs(unsignedHello)` 做 Ed25519 签名。
+descriptor/runId/nonce 任一不等于 handoff 即关闭 channel并失败。hello/response 的 signature wire
+均是 64-byte Ed25519 signature 的 128 位 lowercase hex，不是 ApprovalSignatureV1 object。
+
+后续 request closed object 恰为
+`{schema,requestId,runId,nonce,leaseId,operation,objectSchema,lookupKeyHex,objectBytesHex}`：schema 固定
+`proof-forge.authority-store-request.v1`，requestId 为本连接从 0 开始、不得超过 `2^53-1` 的单调递增
+UInt64；operation 只允许
+`lookup|publish`。普通 request 的 leaseId 为 null；publish 的 leaseId 必须为 null且携带 canonical object raw bytes
+的 lowercase even-length hex。`lookupKeyHex` 是对应 receipt schema 冻结的 canonical PF-JCS tuple
+bytes 的 lowercase even-length hex，service strict decode/re-encode 后才查询且不接受 pathname。
+response schema 固定为 `proof-forge.authority-store-response.v1`，closed object 恰为
+`{schema,requestId,runId,nonce,leaseId,result,objects,headSequence,headDigest,signature}`；result 只允许
+`stored|found|not-found|conflict|revoked|multiple`，objects 是 raw object bytes hex 的 canonical array，
+headSequence 是从 0 开始且不超过 `2^53-1` 的 append-only UInt64，headDigest 是
+SPEC-COMMON-001 Digest并绑定该 sequence 的 log head。response runId/nonce 必须与 handoff exact，
+signature 使用 service key 对
+`"pf.authority-store-response.v1" || NUL || canonical_pf_jcs(unsignedResponse)` 签名。
+
+publish objectSchema 只允许以下 closed allowlist，并必须先 strict decode/re-encode、重算 lookup key/
+content digest 与验证对应 authority，禁止 generic signed JSON：
+
+| schema | publish authority |
+|---|---|
+| `proof-forge.required-test-set.v1` | policy `requiredTestSetRule` |
+| `proof-forge.formal-gate-catalog-approval.v1` | policy `formalCatalogRule` |
+| `proof-forge.bootstrap-task-approval.v1` | matching policy `taskRules[taskId]` |
+| `proof-forge.bootstrap-task-verifier-receipt.v1` | policy verifier receipt key |
+| `proof-forge.bootstrap-approval-set.v1` | policy `bootstrapSetRule` |
+| `proof-forge.bootstrap-approval-verifier-receipt.v1` | policy verifier receipt key |
+
+因此 quorum-signed BootstrapApprovalSet 在 task receipts 后有独立合法 publication path，activation
+verifier 只能消费其 stored+readback exact bytes。key 不存在时 service 原子 no-clobber append object，
+返回 `stored`、exact single object、non-null 32-byte random lowercase-hex leaseId 与 head pair；任何
+既有 key 返回 `conflict` 且 leaseId=null。stored 后该 namespace 进入连接独占 readback window：
+consumer 的下一 request 必须是相同 key/schema、携带该 leaseId 的 lookup；service 不接受其他
+request/publisher，返回 `found`、exact single bytes、同 leaseId 和与 stored ack **完全相同** 的
+headSequence/headDigest 后才释放 window。普通 lookup/所有其他 result 的 leaseId 必须为 null。
+connection close、timeout、wrong next request 或 head change 都使本次 closure 失败；不得用“后继”
+但无 consistency proof 的 head 代替 exact equality。lookup 的 zero/revoked/multiple 结果均 fail closed。
+request/response ID、
+runId/nonce、signature、frame boundary、ack 或 readback 任一错误都不得发布 task closure。service
+process/executable 属于 Stage-0 TCB，candidate/verifier 只有该 request-response fd，没有 signer key、
+store pathname、directory fd 或 root mutation capability。该协议使 receipt 在 handoff 后追加并回查，
+同时不让 handoff digest 预承诺未来 store contents。
+
+### Normative document 与 review references
+
+```text
+NormativeDocumentRefV1 {
+  id, contentDigest, status: "accepted",
+  reviewCommit, reviewLink, approvedAt, approvers: NonEmptyArray<safe-id>
+}
+
+IndependentReviewRefV1 {
+  keyId, role: ApprovalRoleV1, reviewCommit, reviewLink,
+  reportDigest, decision: "approved"
+}
+```
+
+`NormativeDocumentRefV1.contentDigest` 对 candidate 中 committed exact UTF-8 bytes 计算：
+
+```text
+SHA-256("pf.normative-document.v1" || NUL || ASCII(document-id) || NUL || raw-bytes)
+```
+
+ref 必须与该文件 accepted frontmatter 的 `id/reviewCommit/reviewLink/approvedAt/approvers` exact
+一致；frontmatter 的 scalar `approvers` 必须先按 `DOC-STATUS` 的 exact `, ` 分隔规则解码为
+ASCII safe-id array，禁止 trim、重排或接受其他 delimiter，所得 array 原样进入本 object。review
+commit 必须是 candidate commit 的 ancestor，且 candidate 中该文档 bytes 仍等于
+contentDigest。approvers、independent reviews 分别按 ASCII ID、keyId 唯一升序。review ref 的
+keyId/role 必须由 authority policy 授权，reviewCommit 必须等于正在批准的 candidate commit，
+reportDigest 是对应 immutable review report 的 `Digest`；review key 经 policy 映射后只有不同
+principalId 才算独立审阅者。
+
+### RequiredTestSetV1 authority
+
+```text
+RequiredTestSetV1 {
+  schema, id, version,
+  phase5Document: NormativeDocumentRefV1,
+  authorityPolicy: ContentRef,
+  requiredTestIds: NonEmptyArray<TestId>,
+  signatures: NonEmptyArray<ApprovalSignatureV1>
+}
+```
+
+`schema` 固定为 `proof-forge.required-test-set.v1`；id/version 使用 ContentRef 规则。
+`phase5Document.id` 必须是 `PHASE-5`。producer 从 accepted PHASE-5 exact bytes 中唯一标题
+`## 完整 Test ID Catalog` 下、`### Phase 1 required-set 分母` 前的唯一 `ID | 测试对象` 表提取
+TestId；所有且仅有不匹配 `TST-A0-[0-9]{3}` 的行进入 `requiredTestIds`，按 ASCII ID 唯一升序。
+duplicate heading/table/ID、malformed row、范围或通配符均拒绝。这样 statement 同时绑定 accepted
+PHASE-5 raw content digest、reviewCommit 与 exact required ID denominator。
+
+signature statement 是移除 `signatures` 后的同序 object；其 digest 与 signature message 为：
+
+```text
+requiredTestSetStatementDigest = SHA-256(
+  "pf.required-test-set-statement.v1" || NUL || canonical_pf_jcs(statement)
+)
+signatureMessage = "pf.required-test-set-signature.v1" || NUL ||
+                   raw-32-byte(requiredTestSetStatementDigest)
+```
+
+signatures 必须按外部 policy 的 `requiredTestSetRule` 验证。完整 content digest 为：
+
+```text
+requiredTestSetDigest = SHA-256(
+  "pf.required-test-set.v1" || NUL || canonical_pf_jcs(RequiredTestSetV1)
+)
+```
+
+### FormalGateCatalogApprovalV1 authority
+
+RequiredTestSet 只锁定测试 ID 分母，不能授权一份把全部 ID 绑定到 no-op/弱 command policy 的
+catalog。formal catalog 必须另有单向签名 approval：
+
+```text
+GateCatalogRefV1 {schema, id, version, contentSha256, catalogDigest}
+
+FormalGateCatalogApprovalV1 {
+  schema, id, version,
+  authorityPolicy: ContentRef,
+  requiredTestSet: ContentRef,
+  catalog: GateCatalogRefV1,
+  signatures: NonEmptyArray<ApprovalSignatureV1>
+}
+```
+
+schema 固定为 `proof-forge.formal-gate-catalog-approval.v1`；id/version 使用 ContentRef id grammar/
+exact SemVer。catalog ref 必须指向后文 canonical
+formal GateCatalog exact bytes/identity；`contentSha256` 与 `catalogDigest` 都使用 GateCatalog 已冻结的
+64 位 lowercase hex SHA-256 wire form，禁止改名为 `contentDigest` 或换成 SPEC-COMMON Digest wire
+form。requiredTestSet 必须 resolve 并通过前节全部 authority 验证。
+signature statement 移除 `signatures`，exact derivation 为：
+
+```text
+formalCatalogApprovalStatementDigest = SHA-256(
+  "pf.formal-gate-catalog-approval-statement.v1" || NUL || canonical_pf_jcs(statement))
+formalCatalogApprovalSignatureMessage =
+  "pf.formal-gate-catalog-approval-signature.v1" || NUL ||
+  raw-32-byte(formalCatalogApprovalStatementDigest)
+formalCatalogApprovalDigest = SHA-256(
+  "pf.formal-gate-catalog-approval.v1" || NUL ||
+  canonical_pf_jcs(FormalGateCatalogApprovalV1))
+```
+
+签名满足 policy `formalCatalogRule`。RequiredTestSet 不回指 catalog，catalog approval 才回指二者，
+因此没有 digest cycle；caller 不能自行生成该 approval。
+
+### TaskApprovalV1、单任务 receipt 与 BootstrapApprovalSetV1
+
+```text
+TaskApprovalRefV1 {taskId, digest}
+BootstrapTaskVerifierReceiptRefV1 {taskId, id, digest}
+
+TaskApprovalV1 {
+  schema, taskId,
+  candidate: CandidateIdentity,
+  taskBreakdown: NormativeDocumentRefV1,
+  requiredTestSet: ContentRef,
+  testIds: NonEmptyArray<TestId>,
+  evidence: NonEmptyArray<EvidenceRef>,
+  dependencyCompletions: Array<BootstrapTaskVerifierReceiptRefV1>,
+  prerequisiteDocuments: Array<NormativeDocumentRefV1>,
+  authorityPolicy: ContentRef,
+  stage0Handoff: ContentRef,
+  independentReviews: NonEmptyArray<IndependentReviewRefV1>,
+  signatures: NonEmptyArray<ApprovalSignatureV1>
+}
+
+BootstrapTaskVerifierReceiptV1 {
+  schema, id, taskId,
+  candidate: CandidateIdentity,
+  authorityPolicy: ContentRef,
+  requiredTestSet: ContentRef,
+  taskApproval: TaskApprovalRefV1,
+  stage0Handoff: ContentRef,
+  dependencyCompletions: Array<BootstrapTaskVerifierReceiptRefV1>,
+  verifierDigest: Digest,
+  result: "task-approved",
+  signature: ApprovalSignatureV1
+}
+
+BootstrapApprovalSetV1 {
+  schema, id, version,
+  candidate: CandidateIdentity,
+  authorityPolicy: ContentRef,
+  taskBreakdown: NormativeDocumentRefV1,
+  requiredTestSet: ContentRef,
+  stage0Handoff: ContentRef,
+  taskApprovals: [TaskApprovalV1; 6],
+  taskReceipts: [BootstrapTaskVerifierReceiptRefV1; 6],
+  signatures: NonEmptyArray<ApprovalSignatureV1>
+}
+```
+
+TaskApproval schema 固定为 `proof-forge.bootstrap-task-approval.v1`。taskId 只允许精确 D0-01..06；
+`TaskApprovalRefV1` wire object 恰为 `{taskId,digest}`，digest 使用 SPEC-COMMON-001 Digest wire form。
+taskBreakdown.id 必须是 `PHASE-4`。testIds、dependencyCompletions、prerequisiteDocuments 必须分别
+exact 等于 accepted Task Breakdown 对应行的 Tests、Dependencies、Prerequisites，按 ID 唯一升序；
+requiredTestSet 必须 resolve 到前节签名验证通过的 exact `RequiredTestSetV1`，其 authorityPolicy
+与 TaskApproval exact 相等，且本 task 每个 testId 都必须是 requiredTestIds 成员。task verifier
+必须在产生每个 task receipt 前重新验证 PHASE-5 document ref、statement digest、policy/signatures 与
+membership，不能推迟到 D0-04 aggregate activation。
+每个 dependency completion 必须 safe-read、认证并重算对应既有
+`BootstrapTaskVerifierReceiptV1`，且 receipt taskId exact 等于 dependency ID、result 为
+`task-approved`、未撤销；dependency receipt 的 candidate、authorityPolicy、requiredTestSet 必须与
+当前 TaskApproval exact 相等，因此新 candidate 必须按依赖拓扑重验 completion，不能复用旧
+candidate receipt。evidence
+中的 canonical immutable `proof-forge.evidence.v1` 必须由 safe snapshot 重算 EvidenceRef digest，
+其 candidate、gate.taskId、passed result 与 testIds exact；bootstrap 是控制面 approval grade，
+因此 raw EV qualification 保持 `development`，不能伪造第三种 qualification。全部 evidence testIds
+的并集必须 exact 覆盖 task testIds。
+
+stage0Handoff schema 固定为 `proof-forge.eligible-stage0-handoff.v1`，必须由 candidate 外部 caller
+直接产生并证明 eligible host、candidate identity、authority policy ref、pinned verifier digest 与
+无 environment/repository fallback。每个 TaskApproval 绑定本次 task completion run 的 exact
+handoff；该 run-specific binding 是有意的，每次重验都必须取得在线 distinct-principal quorum，旧
+run approval 不得作为新 candidate 的 approval 复用。independentReviews 与 signatures 的
+principalId 集合 exact 相等，并满足 policy 对该 task 的 rule。
+
+TaskApproval 的 signature statement 是移除 `signatures` 后的同序 object：
+
+```text
+taskApprovalStatementDigest = SHA-256(
+  "pf.bootstrap-task-approval-statement.v1" || NUL || canonical_pf_jcs(statement)
+)
+taskApprovalSignatureMessage =
+  "pf.bootstrap-task-approval-signature.v1" || NUL ||
+  raw-32-byte(taskApprovalStatementDigest)
+taskApprovalDigest = SHA-256(
+  "pf.bootstrap-task-approval.v1" || NUL || canonical_pf_jcs(TaskApprovalV1)
+)
+```
+
+单项 D0 `done` 的 authority 是 exact TaskApproval 加其 authenticated task receipt，而不是六项
+aggregate set。Task receipt schema 固定为 `proof-forge.bootstrap-task-verifier-receipt.v1`，ID 使用
+`BTV-YYYYMMDD-NNNN`。receipt 的 task/candidate/policy/approval/handoff/dependency refs 必须与
+TaskApproval exact join，requiredTestSet 也必须与 TaskApproval 及 resolved signed record exact；
+verifierDigest 与 policy/handoff pinned verifier exact；signature 使用 policy
+verifier receipt key 与 Ed25519。signature statement 移除 `signature`，exact derivation 为：
+
+```text
+bootstrapTaskReceiptStatementDigest = SHA-256(
+  "pf.bootstrap-task-verifier-receipt-statement.v1" || NUL ||
+  canonical_pf_jcs(statement))
+bootstrapTaskReceiptSignatureMessage =
+  "pf.bootstrap-task-verifier-receipt-signature.v1" || NUL ||
+  raw-32-byte(bootstrapTaskReceiptStatementDigest)
+bootstrapTaskReceiptDigest = SHA-256(
+  "pf.bootstrap-task-verifier-receipt.v1" || NUL ||
+  canonical_pf_jcs(BootstrapTaskVerifierReceiptV1))
+```
+
+protected service 的 task lookup key 固定为
+`(authorityPolicy,requiredTestSet,taskId,candidate,taskApproval,stage0Handoff)`；verifier 必须通过
+handoff 的预开 `authority-store` RPC 先 publish signed receipt、验证 stored ack，再 lookup 得到唯一、
+当前、non-revoked exact bytes。caller 不能选择 path/store/root/service；read-only file/directory fd、
+未签 response 或省略 publish-readback 都拒绝。
+`BootstrapTaskVerifierReceiptRefV1` wire object 恰为 `{taskId,id,digest}`，digest 使用
+SPEC-COMMON-001 Digest wire form；consumer 必须 safe-read 该 receipt 并重算全部三个字段；dependency
+completion refs 递归执行同一验证，但按 Task Breakdown DAG memoize，禁止循环或遗漏。
+
+BootstrapApprovalSet schema 固定为 `proof-forge.bootstrap-approval-set.v1`；`id` 使用
+SPEC-COMMON-001 ContentRef id grammar，`version` 是 exact SemVer，必须恰含按 taskId 升序的六项
+approval 和按 taskId 同序的六项 authenticated task receipt。aggregate activation 必须在
+一个 final candidate/run 中按 Task Breakdown 依赖拓扑重新签发/验证六项 approval+receipt；每项
+candidate/policy/task document/stage0Handoff 都与 set root exact 相等，receipt 必须 exact 引用并认证
+同序 approval；每项 approval/receipt 的 requiredTestSet 必须与 set root exact 相等。历史上用于逐项
+`done` 的旧 candidate receipt 可保留审计，但不能进入当前 set。
+requiredTestSet 必须 resolve 到前节通过签名验证的 exact object；每个 task testId 都必须属于该 set。
+set signature statement 同样移除 signatures，并满足 policy `bootstrapSetRule`。exact derivation 为：
+
+```text
+bootstrapApprovalSetStatementDigest = SHA-256(
+  "pf.bootstrap-approval-set-statement.v1" || NUL || canonical_pf_jcs(statement))
+bootstrapApprovalSetSignatureMessage =
+  "pf.bootstrap-approval-set-signature.v1" || NUL ||
+  raw-32-byte(bootstrapApprovalSetStatementDigest)
+bootstrapApprovalSetDigest = SHA-256(
+  "pf.bootstrap-approval-set.v1" || NUL ||
+  canonical_pf_jcs(BootstrapApprovalSetV1)
+)
+```
+
+set 的唯一 ContentRef 为
+`{schema="proof-forge.bootstrap-approval-set.v1",id,version,digest=bootstrapApprovalSetDigest}`；
+所有 set consumer 必须从 authenticated authority-store RPC 返回的 exact immutable bytes strict decode、
+重算 digest 与六项 closure，不能从 ref、caller 或 manifest 自报字段构造 set。
+该 schema 的唯一 authority-store lookup tuple 固定为单成员 array `[setContentRef]`，其中
+`setContentRef` 必须是上式完整 closed object；`lookupKeyHex` 必须恰为
+`lowercase_hex(canonical_pf_jcs([setContentRef]))`。publish ack、同 lease 的独占 readback 以及后续
+普通 lookup 都必须使用完全相同的 `objectSchema` 与 key bytes，禁止按裸 id、digest、candidate 或
+caller alias 建立第二索引。
+
+关闭规则没有 aggregate 前置死锁：D0-01/02/03/05/06 各自只要求本 task approval+task receipt，且
+dependencyCompletions 已认证既有依赖。D0-04 唯一 owned test 是 `TST-BOOTSTRAP-001`；它必须在
+没有任何既有 aggregate activation 的输入空间中验收 foundation，不得读取、查询或要求本次即将
+产生的 set/activation。该测试的 activation positive vector 只能使用与 production lookup tuple
+不相交的 fixture candidate/policy/namespace，fixture receipt 永不满足当前 D0 closure。外部 verifier
+在该 pre-activation evidence 通过后签发 D0-04 的 TaskApproval
+与 task receipt，随后才构造六项 ApprovalSet，最后取得下节 aggregate activation receipt。只有
+D0-04 的 `done` 额外要求该 set 与 activation receipt。该顺序固定为
+`D0-04 TaskApproval → D0-04 task receipt → six-item set → set activation receipt`，set/receipt
+不回填到任何 TaskApproval 或 task receipt statement。`TASK-D0-07` 不是 bootstrap-set member；
+它依赖已关闭 D0-04 与 current、non-revoked activation，并在其后以 formal evidence 验收
+`TST-ISO-002`/`TST-EVIDENCE-002`。
+
+### Bootstrap verifier receipt 与 zero-trust ledger rule
+
+外部 policy 锁定的 verifier 必须在 eligible Stage-0 handoff 的同一次 protected execution 中对
+policy、PHASE-4/5 documents、required test set、六项 task approvals、EV bytes、review reports 与
+六项 task receipts、签名做一次 safe-open snapshot，并输出 aggregate activation：
+
+```text
+BootstrapApprovalVerifierReceiptV1 {
+  schema, id,
+  candidate: CandidateIdentity,
+  authorityPolicy: ContentRef,
+  requiredTestSet: ContentRef,
+  approvalSet: ContentRef,
+  stage0Handoff: ContentRef,
+  verifierDigest: Digest,
+  taskApprovals: [TaskApprovalRefV1; 6],
+  taskReceipts: [BootstrapTaskVerifierReceiptRefV1; 6],
+  result: "bootstrap-approved",
+  signature: ApprovalSignatureV1
+}
+```
+
+schema 固定为 `proof-forge.bootstrap-approval-verifier-receipt.v1`；receipt ID 使用
+`BAV-YYYYMMDD-NNNN`。字段与上游对象必须 exact join，task refs 按 ID 升序且 digest 重算相等，
+taskReceipts 必须与 set 的六项 receipt exact 同序并逐项认证；verifierDigest 必须等于 external policy
+与 stage0Handoff 锁定值。signature key/算法必须
+等于 policy verifier 的 receiptKeyId/receiptPublicKey 与 Ed25519；signature statement 是移除
+`signature` 后的同序 object，exact derivation 为：
+
+```text
+bootstrapVerifierReceiptStatementDigest = SHA-256(
+  "pf.bootstrap-approval-verifier-receipt-statement.v1" || NUL ||
+  canonical_pf_jcs(statement))
+bootstrapVerifierReceiptSignatureMessage =
+  "pf.bootstrap-approval-verifier-receipt-signature.v1" || NUL ||
+  raw-32-byte(bootstrapVerifierReceiptStatementDigest)
+bootstrapVerifierReceiptDigest = SHA-256(
+  "pf.bootstrap-approval-verifier-receipt.v1" || NUL || canonical_pf_jcs(receipt))
+```
+
+protected approval service 的 lookup key 固定为
+`(authorityPolicy,candidate,requiredTestSet,approvalSet,stage0Handoff)`，必须返回唯一、当前、
+non-revoked receipt；zero/multiple/revoked result 一律失败。service descriptor/channel 只能来自
+stage0Handoff 与 external policy exact 绑定的预开 `authority-store` RPC，caller 不得选择
+pathname/root/service/旧 receipt。verifier 必须先 publish、验证 signed stored ack，再 exact lookup；
+receipt 只是本次验证输出；
+consumer 必须在同一 protected invocation 中验证 pinned verifier 的 exit/result、receipt signature
+和 exact joins，不能只读取一份自报 verifierDigest 的旧文件。
+
+`BootstrapApprovalVerifierReceiptRefV1` 的 wire object 恰为 `{id,digest}`，其中 `id` 必须等于
+receipt ID，`digest` 使用 SPEC-COMMON-001 的 Digest wire form 并等于上式 receipt digest。consumer
+必须从受保护 approval store safe-read immutable receipt bytes，拒绝 symlink/hardlink/replacement，
+按 receipt schema 重算 digest，并把 receipt 的 candidate/policy/required-test-set/approval-set/
+stage0-handoff/verifier/task-approval/task-receipt refs 与本次 protected invocation 的输入逐字段 exact join；仅比较 ref
+中的自报 digest 不构成验证。
+
+在 producer、external authority policy root、eligible handoff、signature verifier、protected
+approval store 和 docs-check receipt consumer 全部实现前，任何 `Grade=bootstrap` 行以及任何 D0
+`done` 转换都必须以 `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED` zero-closure 拒绝。普通 ledger
+`passed` 文本、完整 Tests 并集或人工 prose 均不能绕过。本仓库当前没有这些 producer/verifier，
+所以 `TASK-D0-01` 仍只能保持 `in_progress`，其余 D0 状态不得提升。
+
 ## Gate catalog lock
 
 Catalog 是独立、canonical、不可自包含 self-hash 的 policy lock；最大 4 MiB，root object
@@ -210,6 +752,7 @@ schema: "proof-forge.gate-catalog.v1"
 id: safe-id
 version: exact SemVer
 qualification: "development" | "formal"
+requiredTestSet: null | ContentRef
 locks: {
   hostBootstrapSha256, hostProfileLockSha256, toolchainLockSha256,
   stage0LauncherSha256, stage0VerifierSha256,
@@ -220,7 +763,7 @@ locks: {
 gates: [GateRequirement, ...]  # non-empty
 ```
 
-Catalog identity 是 `(schema,id,version,catalogDigest)`：
+Catalog identity 是 `(schema,id,version,contentSha256,catalogDigest)`：
 
 ```text
 contentSha256 = SHA256(canonical catalog bytes)
@@ -228,11 +771,25 @@ catalogDigest = SHA256("pf.gate-catalog.v1" || NUL || canonical catalog bytes)
 ```
 
 同一次 finalizer 调用中 catalog bytes、caller expected identity、EV ref 或 retained catalog input
-对同一 `(id,version)` 给出不同 digest 是 split-brain，必须失败。H1e 不承诺跨调用的 immutable
+对同一 `(id,version)` 给出不同 `contentSha256` 或 `catalogDigest` 是 split-brain，必须失败；两个
+hash 都必须从同一 canonical catalog bytes 重算，不能只核对其中一个。H1e 不承诺跨调用的 immutable
 catalog registry；跨调用冲突检测属于未来受保护 catalog store。Catalog 不允许 version range、
 `latest`、alias、wildcard、regex、script、plugin 或 best-effort。gate/test/tool/policy/probe/input/
 artifact/log 均是 closed、sorted、unique exact sets；缺失和额外项同样失败。Catalog 内容改变必须
 使用新的 exact version/digest，不得覆盖旧 lock。
+
+development catalog 的 `requiredTestSet` 必须为显式 `null`，且只能得到 development 单-gate
+结论。formal catalog 必须给出 `proof-forge.required-test-set.v1` ContentRef；finalizer 必须从
+eligible Stage-0 handoff 取得 external `BootstrapAuthorityPolicyV1` expected ref，safe-read 并重算
+RequiredTestSetV1 content/document/statement digest 与全部签名。catalog 所有 gates 的 `testIds`
+必须形成 requiredTestIds 的 exact partition：每个 required ID 恰出现一次，且不存在 missing、extra
+或 duplicate。只对 caller 自选 catalog 做内部 exact-set 比较不满足 formal 验收；caller expected
+catalog digest 只能防 split-brain，不能代替 required-test-set authority。
+
+formal finalizer 还必须从 handoff 的 authenticated authority-store service 按
+`(policy,requiredTestSet,catalog identity)` 通过同一 authenticated RPC 唯一查得 non-revoked
+`FormalGateCatalogApprovalV1` 并验证
+policy `formalCatalogRule` signatures；caller/catalog 不能携带或选择 trusted approval/service/root。
 
 Catalog 的 exact SemVer 只接受 `MAJOR.MINOR.PATCH`，三个分量无 leading zero；`gates` 必须
 non-empty 并按 gate id 唯一升序。`locks` 恰含
@@ -489,7 +1046,7 @@ limitations: [
 ]
 ```
 
-Root 不接受其他字段。`finalizedUtc` 使用 UTC 秒或毫秒格式，EVF ID 的日期必须等于其 UTC
+Root 不接受其他字段。`finalizedUtc` 使用 SPEC-COMMON-001 的 UTC 整秒格式，EVF ID 的日期必须等于其 UTC
 日期；该时间仍不证明 freshness。`gate` 复制 selected EV/catalog identity，testIds 唯一升序。
 `evidence.path` 是 normalized `bundleRoot`-relative path，INPUT 必须由该 root safe-open；size/hash
 来自同一 snapshot。`run` 来自 captured base context。`claimSetSha256` 按上节公式计算。
@@ -499,11 +1056,273 @@ Root 不接受其他字段。`finalizedUtc` 使用 UTC 秒或毫秒格式，EVF 
 schema publication 与 catalog evaluation。Future `proof-forge.evidence-set.v1` 才表达同一
 candidate/host/catalog 下所有 required gates 的聚合事实；H1e 不把单 gate record伪装成 set。
 
+current development finalization 的 content digest authority 属于本规格，固定为：
+
+```text
+SHA-256("pf.evidence-finalization.v1" || NUL ||
+  canonical_pf_jcs(evidence-finalization.v1 record))
+```
+
+该值以 SPEC-COMMON-001 `Digest` wire form 进入
+`FinalizationRef{schema="proof-forge.evidence-finalization.v1",id,digest}`。所有
+`FinalizationRef` 的 wire object 都恰为 `{schema,id,digest}`；consumer 必须按 schema 选择 digest
+domain，拒绝裸 ID、缺 schema、unknown schema 或跨 schema/domain 复用。development ref 只证明
+record 的 exact bytes，不能把 `qualification="development"` 提升成 formal；formal finalization
+使用下节的独立 schema/domain，不得复用这个 digest tag。
+
 `--output` 必须精确匹配
 `<trusted-root>/finalized-development/<catalog-id>/<gate-id>/EVF-YYYYMMDD-NNNN.json`；basename
-提供 ID，finalizer 在全部验证成功后、publication 前读取 UTC clock 生成毫秒精度
+提供 ID，finalizer 在全部验证成功后、publication 前读取 UTC clock 并规范化为整秒
 `finalizedUtc`，并要求两者日期相同。NNNN 由 caller 分配，no-clobber publication 处理冲突；
 H1e 不把该 clock/sequence 当 freshness authority。
+
+## Formal finalization schema（specified，producer 尚未实现）
+
+formal record 使用独立 schema `proof-forge.formal-evidence-finalization.v1`，root object
+恰含：
+
+```text
+{
+  schema, id, qualification: "formal",
+  candidate: {commit, treeObjectId, archiveDigest, digest},
+  hostProfile: ContentRef,
+  stage0Handoff: ContentRef,
+  sessionContainment: ContentRef,
+  requiredTestSet: ContentRef,
+  catalog: {schema, id, version, contentSha256, catalogDigest},
+  catalogApproval: ContentRef,
+  gates: [{
+    id, testIds,
+    build: null | BuildIdentity,
+    evidenceRefs: [{id, digest}, ...]
+  }, ...],
+  evidenceCoreDigest,
+  evidenceSetDigest,
+  freshnessAuthority: ContentRef, finalizedAt, expiresAt,
+  privateScan: ContentRef,
+  revocationLedger: ContentRef,
+  finalizer: ContentRef,
+  bootstrapApproval: {
+    set: ContentRef,
+    verifierReceipt: BootstrapApprovalVerifierReceiptRefV1
+  }
+}
+```
+
+上述六个 formal input ref 不允许退化成裸 digest。`hostProfile` 必须 exact 等于 handoff 中已验证的
+hostProfile ContentRef；其余 closed payload 为：
+
+```text
+SessionContainmentReceiptV1 {
+  schema, id, version, candidate, stage0Handoff,
+  supervisorDigest, rootSessionId,
+  descendants: [{pid,parentPid,startToken,sessionId,executableDigest,termination}, ...],
+  escapeProbes: [{id,result:"contained"}, ...],
+  startedAt, finishedAt, result:"contained",
+  signatures: NonEmptyArray<ApprovalSignatureV1>
+}
+
+FreshnessAuthoritySnapshotV1 {
+  schema, id, version, authorityPolicy,
+  observedAt, maximumAgeSeconds, clockSourceDigest,
+  signatures: NonEmptyArray<ApprovalSignatureV1>
+}
+
+PrivateScanReceiptV1 {
+  schema, id, version, candidate, evidenceCoreDigest,
+  scannerDigest, policy: ContentRef,
+  scannedEvidenceRefs: [{id,digest}, ...],
+  scannedMembers: [ScannedMemberRefV1, ...],
+  findings: [], result:"clean",
+  signatures: NonEmptyArray<ApprovalSignatureV1>
+}
+
+ScannedMemberRefV1 {evidence:{id,digest},role,path,size,digest}
+
+RevocationLedgerSnapshotV1 {
+  schema, id, version, authorityPolicy,
+  records: [RevocationRecordRefV1, ...], head: null | RevocationRecordRefV1,
+  recordsDigest,
+  signatures: NonEmptyArray<ApprovalSignatureV1>
+}
+
+RevocationRecordRefV1 {schema, id, version, digest}
+
+FormalFinalizerIdentityV1 {
+  schema, id, version,
+  executableDigest, closureDigest, toolchainLockDigest
+}
+```
+
+schema/domain 分别固定为：
+
+| Formal input | schema | digest domain |
+|---|---|---|
+| sessionContainment | `proof-forge.session-containment-receipt.v1` | `pf.session-containment-receipt.v1` |
+| freshnessAuthority | `proof-forge.freshness-authority-snapshot.v1` | `pf.freshness-authority-snapshot.v1` |
+| privateScan | `proof-forge.private-scan-receipt.v1` | `pf.private-scan-receipt.v1` |
+| revocationLedger | `proof-forge.revocation-ledger-snapshot.v1` | `pf.revocation-ledger-snapshot.v1` |
+| finalizer | `proof-forge.formal-finalizer-identity.v1` | `pf.formal-finalizer-identity.v1` |
+
+四个 signed input 的 authority 与 signature domains 固定为：
+
+| Input | policy rule | statement domain | signature domain |
+|---|---|---|---|
+| sessionContainment | `sessionContainmentRule` | `pf.session-containment-receipt-statement.v1` | `pf.session-containment-receipt-signature.v1` |
+| freshnessAuthority | `freshnessAuthorityRule` | `pf.freshness-authority-snapshot-statement.v1` | `pf.freshness-authority-snapshot-signature.v1` |
+| privateScan | `privateScanRule` | `pf.private-scan-receipt-statement.v1` | `pf.private-scan-receipt-signature.v1` |
+| revocationLedger | `revocationSnapshotRule` | `pf.revocation-ledger-snapshot-statement.v1` | `pf.revocation-ledger-snapshot-signature.v1` |
+
+对每项，unsigned statement 是只移除 root `signatures` 后保持 declaration field order 的 closed
+object；`statementDigest = SHA-256(statementDomain || NUL || canonical_pf_jcs(unsigned))`，每个
+Ed25519 signature 的 message 是 `signatureDomain || NUL || raw-32-byte(statementDigest)`。consumer
+必须按表中 exact policy rule 校验 distinct principal/role/threshold；candidate、handoff、core digest、
+clock、scan 或 record-set 变化都必须重新签名，不能复用另一 schema/domain 的 signatures。
+
+formal consumer 必须先从 `stage0Handoff.authorityPolicy`、resolved
+`BootstrapApprovalSetV1.authorityPolicy` 与
+`BootstrapApprovalVerifierReceiptV1.authorityPolicy` 得到逐字节相等的唯一
+`externalAuthorityPolicy` ContentRef，并重新解析/验证该 external object；四类 signed input 的
+signatures 只能在这一个 policy 的对应 rule 下验证，禁止按 input 自报或 caller 选择另一个 authority。
+字段级 joins 还必须同时满足：
+
+- `SessionContainmentReceiptV1.candidate == formalRecord.candidate`，且其
+  `stage0Handoff == formalRecord.stage0Handoff`；
+- `PrivateScanReceiptV1.candidate == formalRecord.candidate`，且其
+  `evidenceCoreDigest` 等于 consumer 从本 formal record 重算的 exact `evidenceCoreDigest`；
+- `FreshnessAuthoritySnapshotV1.authorityPolicy == externalAuthorityPolicy`，且
+  `RevocationLedgerSnapshotV1.authorityPolicy == externalAuthorityPolicy`；
+- `PrivateScanReceiptV1.policy == resolvedPolicy.privateScanPolicy`。这里的 `policy` 是扫描范围、
+  member coverage 与 finding 判定的策略 ContentRef，不是签名 authority root；签名 authority 仍只能是
+  `externalAuthorityPolicy.privateScanRule`。
+
+任一 join 缺失、multiple、stale 或不相等都返回 `PF-EVIDENCE-FORMAL-UNVERIFIED`，不得发布
+formal record、support binding 或 staging。
+
+每个 object additionalProperties=false，id/version 使用 ContentRef 规则，ContentRef digest 为
+`SHA-256(ASCII(domain) || NUL || canonical_pf_jcs(object))`。时间是 UtcInstant；所有 array 按
+其完整 canonical tuple 唯一升序；所有 `signatures` 按 keyId 唯一升序并使用前文 exact
+ApprovalSignatureV1。
+containment 的 PID/session/start token 使用 UInt64，termination
+只允许 `exited|killed`；rootSessionId/escape probe ID 使用 safe-id。freshness maximumAgeSeconds 必须
+nonzero 且纳入 formal freshness 计算；private scan 的 empty findings 与 scannedEvidenceRefs exact
+覆盖本 record 全部 evidenceRefs，scannedMembers 必须无遗漏、无额外地覆盖这些 EV 所引用的全部
+retained input/artifact/log member。role 使用 EV catalog role，path 是 ProjectRelativePath，size 是
+不超过 `2^53-1` 的 UInt64，digest 对 member raw bytes 计算；同一 `(evidence,path)` 只出现一次并按该 tuple 排序。
+`PrivateScanReceiptV1.evidenceCoreDigest` 只绑定下文不含 privateScan ref 的 core digest；最终
+evidenceSetDigest 再单向绑定 `{evidenceCoreDigest,privateScan}`。private scan 不得直接包含最终
+evidenceSetDigest，从而不存在 scan-ref ↔ evidence-set hash cycle。
+
+revocation `records` 只允许 resolve 到 TRACE-EV-001 的
+`proof-forge.evidence-revocation.v1` canonical record。`RevocationRecordRefV1.schema` 固定为该
+schema，id 使用 `RVK-YYYYMMDD-NNNN`，version 固定 `1.0.0`，digest 固定为
+`SHA-256("pf.evidence-revocation.v1" || NUL || canonical_pf_jcs(record))`。records 按 record ID
+唯一升序且同时满足 record 内 previousRecordSha256 chain；head 为 empty 时 null，否则 exact 最后一项。
+aggregate 不是裸 concatenation：
+
+```text
+recordsDigest = SHA-256(
+  "pf.revocation-ledger-records.v1" || NUL ||
+  concat(for ref in records: u32be(ref.digest.bytes.size) || ref.digest.bytes))
+```
+
+snapshot signature 覆盖 including recordsDigest 的 unsigned object。finalizer ref 必须由 handoff
+`tcb.formalFinalizerDigest` 与 locked toolchain closure重算，不能引用当前输出 record 或 caller path。
+
+`id` 使用 `EVF-YYYYMMDD-NNNN` 并与 basename 一致；`finalizedAt < expiresAt`，
+两者使用 SPEC-COMMON-001 秒精度 UTC。catalog identity 必须来自
+`qualification="formal"` 的 exact gate catalog。gates 按 id 唯一升序，test IDs 和
+evidence refs 分别唯一升序；target support/acceptance gate 的 build 必须 non-null，
+非 target D0 gate 才可为 null。每个 evidence ref 必须 safe-read 同一 immutable bundle 中的
+canonical EV bytes 并重算 digest。`privateScan`、`revocationLedger`、
+freshness authority、Stage-0 handoff、session containment、finalizer 和 bootstrap approval 都必须
+指向本次 single-snapshot 评估的 exact content-addressed inputs，不允许 null或裸 label。
+`requiredTestSet` 必须与 formal catalog 的 requiredTestSet ref、resolved
+`RequiredTestSetV1` content digest 以及 bootstrap approval set/receipt 中的同名 ref exact 相等；
+finalizer 必须重新验证 accepted PHASE-5 document ref、external authority policy、statement、签名和
+required ID extraction。`gates[].testIds` 的 flatten 结果必须与 resolved requiredTestIds 是无重复 exact
+partition，且每个 ID 对应至少一个 passed、non-revoked、non-expired evidence ref；调用者不能通过
+catalog、gate selection 或 CLI omission 缩小分母。
+
+`catalogApproval` 必须 resolve 到 external policy 授权的 exact `FormalGateCatalogApprovalV1`，其
+policy/requiredTestSet/catalog refs 与本 record exact join并重新验证 role/threshold/signatures。
+record gate IDs 必须与 catalog gate IDs exact 相等；每个 record gate 的 testIds/build 必须与对应
+catalog requirement exact，evidenceRefs 必须 non-empty、各 gate 内和全局唯一。每份 EV 必须是
+passed，并与 record/catalog 的 candidate、catalog identity、gate/task/testIds、适用的 BuildIdentity
+exact 相等，同时通过 freshness、revocation 与 private scan。非 D0 gate 的 EV qualification 必须是
+formal；D0-01..06 gate 的 EV 必须保持 development，并且是对应 signed TaskApproval 与 verifier
+receipt 覆盖的 exact ref，不能改写 raw qualification。把全部 required IDs 放进错误 gate、弱 catalog
+或重复 evidence 同样失败。
+
+`bootstrapApproval.set` 只允许 resolve 到前节定义的、精确包含 `TASK-D0-01` 至
+`TASK-D0-06` 六项 D0 trust-root task 的 canonical `BootstrapApprovalSetV1`；finalizer 必须 safe-read
+set、六项 TaskApproval、evidence、reviews、PHASE-4/5 documents、policy 与 handoff，并重算全部 domain
+digest、依赖顺序、六项 authenticated task receipts、test coverage 和签名。`bootstrapApproval.verifierReceipt` 必须 resolve 到由
+external policy 锁定 verifier 在同一 eligible Stage-0 protected execution 中产生的 exact receipt，
+receipt 的 set/policy/stage0Handoff/candidate/required-test-set/verifier/task approval/task receipt refs 必须与 formal
+record 和当前 invocation exact join；record 的 hostProfile ContentRef 也必须与 handoff hostProfile
+exact 相等并重算 resolved content digest。任一 producer、external
+policy root、eligible handoff、protected authority-store service、签名
+verifier 或 receipt consumer 缺失都必须 fail closed；ledger 中的 `passed` 文本、Grade 字符串或裸
+approval digest 不能关闭 D0 task。这里的 bootstrap 是 Evidence Ledger task-closure grade，不是 gate
+catalog/EV 的 qualification，不能扩展到其他 task，也不能替代本 record 对 formal gate/evidence/
+freshness/private scan/revocation 的验证。
+
+```text
+evidenceCoreDigest = SHA-256("pf.formal-evidence-core.v1" || NUL ||
+  canonical_pf_jcs({candidate,hostProfile,stage0Handoff,sessionContainment,
+    requiredTestSet,catalog,catalogApproval,gates,freshnessAuthority,
+    revocationLedger,finalizer,bootstrapApproval}))
+
+evidenceSetDigest = SHA-256("pf.formal-evidence-set.v1" || NUL ||
+  canonical_pf_jcs({evidenceCoreDigest,privateScan}))
+
+formalFinalizationDigest = SHA-256(
+  "pf.formal-evidence-finalization.v1" || NUL ||
+  canonical_pf_jcs(formal record)
+)
+```
+
+`FinalizationRef` 必须恰为
+`{schema:"proof-forge.formal-evidence-finalization.v1",id,digest:formalFinalizationDigest}`。
+consumer 先以 ref 安全定位 immutable record，再重算两层 digest 和全部 input joins；
+任一 unknown/duplicate/unsorted field、development catalog/EV promotion、stale/revoked/private-scan
+失败、required-test-set omission/substitution、bootstrap approval/receipt 未验证或 split-brain 都为
+`PF-EVIDENCE-FORMAL-UNVERIFIED` 且 zero output。formal output
+只能发布到
+`<trusted-root>/finalized-formal/<catalog-id>/<required-test-set-id>/EVF-YYYYMMDD-NNNN.json`；两级目录
+名必须分别 exact 等于 record `catalog.id` 与 resolved `RequiredTestSetV1.id`，basename exact 等于
+record `id`。路径不得由 caller 另传 alias/未定义 gate-set identity，publication 使用 no-clobber
+staging、fsync 和 receipt-last marker。
+
+## Formal support-binding producer（specified，由 D0-07 实现）
+
+未来 formal producer 是 `proof-forge.support-evidence-binding.v1` 的唯一可信 producer。它必须在
+eligible Stage-0 直接 handoff、不可逃逸 process-session containment、formal gate/evidence-set
+finalization、受信 UTC freshness authority、完整 private scan 与 append-only revocation lookup
+全部成功后，才可按 [`SPEC-CAP-001`](capabilities-extensions.md) 生成 binding。输入必须同时精确绑定：
+
+- canonical EV bytes 与 `EvidenceRef.digest`；
+- qualification 为 formal 的独立 finalization record 与完整
+  `FinalizationRef{schema,id,digest}`；
+- `CandidateIdentity`、selected `BuildIdentity`、exact `RequirementKey` 与由完整 static
+  `SupportClaim` 重算的 `claimDigest`；
+- achieved support grade 所需的完整 gate vectors；
+- `finalizedAt < expiresAt`、clock policy 与本次读取的完整 revocation-ledger digest。
+
+producer 先一次 safe-open 捕获全部输入，再计算 candidate/binding domain digest，最后以 no-clobber、
+receipt-last 方式发布 binding 与其 `SupportBindingRef`。同一 EV 可以为不同 requirement/build 产生
+不同 binding；禁止只按 EV ID 复用。任何 development finalization、缺 profile digest、stale/revoked
+EV、wrong/stale claimDigest、clock/private-scan 未验证或 partial gate set 都返回
+`PF-EVIDENCE-FORMAL-UNVERIFIED`，且不得创建
+binding/output staging。
+
+当前仓库已冻结 formal finalization schema/domain，但没有 producer、formal support gate
+catalog、RequiredTestSet producer/signer/verifier、bootstrap approval producer/verifier/receipt
+consumer 或可信 binding store；因此本节只是冻结跨规格输入/输出边界，不能关闭
+`TASK-D0-07`、提升 SupportEvidenceGrade 或
+TargetMaturity。`finalize-development` 即使 catalog evaluation 成功也必须继续拒绝任何
+`--support-binding-output` 请求。
 
 ## CLI 与执行顺序
 
@@ -553,6 +1372,9 @@ freshness-not-verified revocation-not-verified private-scan-not-verified
 | `PF-EVIDENCE-CATALOG-TOOLS` | required tool set/record 不一致 |
 | `PF-EVIDENCE-CATALOG-POLICIES` | policy static semantics/set 不一致 |
 | `PF-EVIDENCE-CATALOG-PROBES` | probe set/status/receipt mapping 不一致 |
+| `PF-EVIDENCE-CATALOG-AUTHORITY` | FormalGateCatalogApproval policy/ref/signature 缺失或不一致 |
+| `PF-EVIDENCE-REQUIRED-TEST-SET` | RequiredTestSet authority/document/signature/ref/exact partition 缺失或不一致 |
+| `PF-EVIDENCE-BOOTSTRAP-UNVERIFIED` | bootstrap policy/set/task approvals/signatures/handoff/receipt 缺失或不一致 |
 | `PF-EVIDENCE-CANDIDATE-BINDING` | candidate/subtree/archive/status/argv 不一致 |
 | `PF-EVIDENCE-HOST-BINDING` | host observation/profile/lock/launcher/verifier 不一致 |
 | `PF-EVIDENCE-POLICY-BINDING` | rendered policy bytes/hash/port 不一致 |
@@ -583,14 +1405,18 @@ freshness-not-verified revocation-not-verified private-scan-not-verified
 
 H1e-c 前只能声称 invocation-receipt 或 catalog-core slice，不能声称 H1c 已被真实 finalization。
 完整 old/new reader fixture matrix 继续属于 `TST-VER-001`；formal evidence set、freshness、
-revocation、private scan、eligible runner 与 session containment 继续 open。
+revocation、private scan、eligible runner、session containment 与 support-binding producer 继续 open。
 
 ## Attack matrix
 
 - Receipt：missing/extra、unknown field、错误 stage/invocation/policy/port、stdout/stderr 互换、
   raw hash/size 不符、terminal 矛盾、preexisting/link/path replacement、partial publish。
 - Catalog：non-canonical、wrong content/domain digest、duplicate/unsorted/unknown、version downgrade、
-  same identity split-brain、development/formal 混用。
+  same identity split-brain、development/formal 混用、unsigned/substituted/weak formal catalog approval。
+- Required set：candidate-owned policy、PHASE-5 digest/review substitution、required ID omit/extra/duplicate、
+  catalog flatten 保留 ID 但 gate/command 语义错绑。
+- Bootstrap：同主体多 key 伪造 quorum、role/threshold 不足、D0 approval 缺项/乱序/依赖错绑、
+  closure/verification handoff substitution、receipt key/verifier/store tuple/revocation/replay mismatch。
 - Exact sets：gate/test/tool/policy/probe/input/artifact/log 任一 missing/extra/duplicate。
 - Binding：EV A + catalog B、candidate A + archive B、host A + observation B、policy A + receipt B、
   EV/invocation-context/rendered-policy/receipt 四方端口任一变化、base/context/receipt 跨 gate/run/
@@ -598,4 +1424,5 @@ revocation、private scan、eligible runner 与 session containment 继续 open�
 - Filesystem：catalog/policy/receipt symlink/hardlink/casefold/inode alias、read-time mutation、
   capture budget、existing output、writable parent、staging replacement。
 - Qualification：formal passed/failed/skipped、eligible host + development catalog、hidden override/
-  environment fallback 均不得产生 development 或 formal output。
+  environment fallback 均不得产生 development 或 formal output；development finalization 请求
+  support binding 也必须 zero-output 拒绝。

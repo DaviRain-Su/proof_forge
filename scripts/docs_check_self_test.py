@@ -21,8 +21,22 @@ EVIDENCE_HEADER = (
 )
 EVIDENCE_SEPARATOR = "|---|---|---|---|---|---|---|"
 EVIDENCE_ROW = (
-    "| EV-20260716-9001 | TASK-A0-91 | TST-A0-901 | development | synthetic | passed | "
+    "| EV-20260716-9001 | TASK-A0-20 | TST-A0-020 | development | synthetic | passed | "
     "synthetic evidence |"
+)
+FROZEN_A0_TASK_ROWS = "\n".join(
+    f"| TASK-A0-{index:02d} | Complete frozen synthetic task | — | — | "
+    f"TST-A0-{index:03d} | EV-20260716-{9100 + index:04d} | done |"
+    for index in range(1, 20)
+)
+FROZEN_A0_TEST_ROWS = "\n".join(
+    f"| TST-A0-{index:03d} | Frozen synthetic alpha acceptance |"
+    for index in range(1, 20)
+)
+FROZEN_A0_EVIDENCE_ROWS = "\n".join(
+    f"| EV-20260716-{9100 + index:04d} | TASK-A0-{index:02d} | "
+    f"TST-A0-{index:03d} | development | synthetic | passed | synthetic evidence |"
+    for index in range(1, 20)
 )
 EVIDENCE_ROW_9002_DEVELOPMENT = (
     "| EV-20260716-9002 | TASK-D0-92 | TST-DOC-902 | development | synthetic | "
@@ -31,6 +45,10 @@ EVIDENCE_ROW_9002_DEVELOPMENT = (
 EVIDENCE_ROW_9003_FORMAL = (
     "| EV-20260716-9003 | — | — | formal | synthetic | passed | "
     "unverified formal evidence |"
+)
+EVIDENCE_ROW_9004_BOOTSTRAP = (
+    "| EV-20260716-9004 | TASK-D0-03 | TST-DOC-902 | bootstrap | synthetic | "
+    "passed | synthetic D0 trust-root evidence |"
 )
 
 
@@ -78,18 +96,20 @@ def base_files() -> dict[str, str]:
         "docs/02-architecture.md": markdown(
             "PHASE-2-901", "## 架构不变量\n\n- INV-901: Synthetic invariant."),
         "docs/03-technical-spec.md": markdown("PHASE-3-901"),
-        "docs/04-task-breakdown.md": markdown("PHASE-4-901", """
+        "docs/04-task-breakdown.md": markdown("PHASE-4-901", f"""
 | ID | Task | Dependencies | Prerequisites | Tests | Evidence | Status |
 |---|---|---|---|---|---|---|
-| TASK-A0-91 | Complete synthetic task | — | — | TST-A0-901 | EV-20260716-9001 | done |
-| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | TST-DOC-902 | — | pending |
+{FROZEN_A0_TASK_ROWS}
+| TASK-A0-20 | Complete synthetic task | — | — | TST-A0-020 | EV-20260716-9001 | done |
+| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |
 """),
-        "docs/05-test-spec.md": markdown("PHASE-5-901", """
+        "docs/05-test-spec.md": markdown("PHASE-5-901", f"""
 ## 完整 Test ID Catalog
 
 | ID | Test object |
 |---|---|
-| TST-A0-901 | Synthetic alpha acceptance exempt from Phase 1 trace closure |
+{FROZEN_A0_TEST_ROWS}
+| TST-A0-020 | Synthetic alpha acceptance exempt from Phase 1 trace closure |
 | TST-DOC-902 | Synthetic pending-task acceptance |
 """),
         "docs/06-implementation-log.md": markdown("PHASE-6-901", normative=False),
@@ -109,7 +129,8 @@ def base_files() -> dict[str, str]:
 """),
         "docs/traceability/evidence-ledger.md": markdown(
             "TRACE-EV-LEDGER-901",
-            f"\n{EVIDENCE_HEADER}\n{EVIDENCE_SEPARATOR}\n{EVIDENCE_ROW}\n",
+            f"\n{EVIDENCE_HEADER}\n{EVIDENCE_SEPARATOR}\n"
+            f"{FROZEN_A0_EVIDENCE_ROWS}\n{EVIDENCE_ROW}\n",
             normative=False),
         "docs/research/source-register.json": json.dumps({
             "schemaVersion": 1,
@@ -132,6 +153,18 @@ def base_files() -> dict[str, str]:
         if relative.endswith(".md") and relative != "docs/index.md":
             links.append(f"- [{relative}]({relative.removeprefix('docs/')})")
     files["docs/index.md"] = markdown("DOC-INDEX-901", "\n".join(links))
+    files["AGENTS.md"] = """# AGENTS.md
+
+## Current Checkpoint
+
+| Field | Current value |
+|---|---|
+| Active task | 无 |
+| Next task | TASK-D0-92 |
+| Known blocker | 无 |
+| Task authority | docs/04-task-breakdown.md |
+| Document authority | docs/document-status.md |
+"""
     return files
 
 
@@ -158,7 +191,7 @@ def accepted(text: str) -> str:
     return text.replace(
         "status: proposed\n",
         "status: accepted\n"
-        "approvers: product@example.invalid, architecture@example.invalid\n"
+        "approvers: architecture-owner, product-owner\n"
         "approvedAt: 2026-07-16\n"
         "reviewCommit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
         "reviewLink: https://example.invalid/review/1\n"
@@ -200,10 +233,18 @@ def drop_task_prerequisites(root: Path) -> None:
         "| ID | Task | Dependencies | Prerequisites | Tests | Evidence | Status |",
         "| ID | Task | Dependencies | Tests | Evidence | Status |", 1)
     text = text.replace("|---|---|---|---|---|---|---|", "|---|---|---|---|---|---|", 1)
-    text = text.replace("| TASK-A0-91 | Complete synthetic task | — | — | TST-A0-901",
-                        "| TASK-A0-91 | Complete synthetic task | — | TST-A0-901", 1)
-    text = text.replace("| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | TST-DOC-902",
-                        "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | TST-DOC-902", 1)
+    for index in range(1, 20):
+        text = text.replace(
+            f"| TASK-A0-{index:02d} | Complete frozen synthetic task | — | — | "
+            f"TST-A0-{index:03d}",
+            f"| TASK-A0-{index:02d} | Complete frozen synthetic task | — | "
+            f"TST-A0-{index:03d}",
+            1,
+        )
+    text = text.replace("| TASK-A0-20 | Complete synthetic task | — | — | TST-A0-020",
+                        "| TASK-A0-20 | Complete synthetic task | — | TST-A0-020", 1)
+    text = text.replace("| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902",
+                        "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | TST-DOC-902", 1)
     path.write_text(text, encoding="utf-8")
 
 
@@ -233,13 +274,107 @@ def add_long_forward_dependency_chain(root: Path) -> None:
         dependency = f"TASK-LONG-{index + 1:04d}" if index < 1199 else "—"
         rows.append(
             f"| TASK-LONG-{index:04d} | Long dependency task {index} | {dependency} | — | "
-            "TST-A0-901 | — | pending |"
+            "TST-DOC-902 | — | pending |"
         )
     anchor = (
-        "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | "
+        "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
         "TST-DOC-902 | — | pending |"
     )
     replace(root / "docs/04-task-breakdown.md", anchor, anchor + "\n" + "\n".join(rows))
+    task_ids = ", ".join(["TASK-D0-92"] + [f"TASK-LONG-{index:04d}" for index in range(1200)])
+    replace(root / "docs/traceability/requirements-matrix.md",
+            "| TASK-D0-92 | TST-DOC-902 | specified |",
+            f"| {task_ids} | TST-DOC-902 | specified |")
+
+
+def complete_bootstrap_trust_root_task(root: Path) -> None:
+    replace(root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-03 | Completed bootstrap task | TASK-A0-20 | — | "
+            "TST-DOC-902 | EV-20260716-9004 | done |")
+    replace(root / "docs/traceability/requirements-matrix.md", "TASK-D0-92", "TASK-D0-03")
+    replace(root / "docs/traceability/evidence-ledger.md", EVIDENCE_ROW,
+            EVIDENCE_ROW + "\n" + EVIDENCE_ROW_9004_BOOTSTRAP)
+
+
+def remove_joint_task_test_trace_edge(root: Path) -> None:
+    replace(root / "docs/01-prd.md",
+            "| FR-901 | Synthetic functional requirement |",
+            "| FR-901 | Synthetic functional requirement |\n"
+            "| FR-902 | Synthetic pair-level trace requirement |")
+    replace(root / "docs/05-test-spec.md",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |\n"
+            "| TST-DOC-903 | Synthetic pair-level acceptance |")
+    replace(root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |\n"
+            "| TASK-D0-93 | Pair-level synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902, TST-DOC-903 | — | pending |")
+    replace(root / "docs/traceability/requirements-matrix.md",
+            "| GOAL-901 | FR-901 | ADR-9001, INV-901 | SPEC-DOC-901 | "
+            "TASK-D0-92 | TST-DOC-902 | specified |",
+            "| GOAL-901 | FR-901 | ADR-9001, INV-901 | SPEC-DOC-901 | "
+            "TASK-D0-92 | TST-DOC-902 | specified |\n"
+            "| GOAL-901 | FR-902 | ADR-9001, INV-901 | SPEC-DOC-901 | "
+            "TASK-D0-93 | TST-DOC-903 | specified |")
+
+
+def make_unfinished_dependency(root: Path) -> None:
+    replace(root / "docs/01-prd.md",
+            "| FR-901 | Synthetic functional requirement |",
+            "| FR-901 | Synthetic functional requirement |\n"
+            "| FR-902 | Synthetic dependency requirement |")
+    replace(root / "docs/05-test-spec.md",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |\n"
+            "| TST-DOC-903 | Synthetic dependency acceptance |")
+    replace(root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Active synthetic task | TASK-D0-93 | — | "
+            "TST-DOC-902 | — | in_progress |\n"
+            "| TASK-D0-93 | Unfinished synthetic dependency | TASK-A0-20 | — | "
+            "TST-DOC-903 | — | pending |")
+    replace(root / "docs/traceability/requirements-matrix.md",
+            "| GOAL-901 | FR-901 | ADR-9001, INV-901 | SPEC-DOC-901 | "
+            "TASK-D0-92 | TST-DOC-902 | specified |",
+            "| GOAL-901 | FR-901 | ADR-9001, INV-901 | SPEC-DOC-901 | "
+            "TASK-D0-92 | TST-DOC-902 | specified |\n"
+            "| GOAL-901 | FR-902 | ADR-9001, INV-901 | SPEC-DOC-901 | "
+            "TASK-D0-93 | TST-DOC-903 | specified |")
+
+
+def add_evidence_extra_column(root: Path) -> None:
+    path = root / "docs/traceability/evidence-ledger.md"
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(EVIDENCE_HEADER, EVIDENCE_HEADER[:-1] + "| Extra |", 1)
+    text = text.replace(EVIDENCE_SEPARATOR, EVIDENCE_SEPARATOR[:-1] + "|---|", 1)
+    for row in [*FROZEN_A0_EVIDENCE_ROWS.splitlines(), EVIDENCE_ROW]:
+        text = text.replace(row, row[:-1] + "| extra |", 1)
+    path.write_text(text, encoding="utf-8")
+
+
+def insert_checkpoint_decoy(root: Path) -> None:
+    path = root / "AGENTS.md"
+    original = path.read_text(encoding="utf-8").replace(
+        "| Next task | TASK-D0-92 |", "| Next task | TASK-D0-99 |", 1)
+    decoy = """| Field | Current value |
+|---|---|
+| Active task | 无 |
+| Next task | TASK-D0-92 |
+| Known blocker | 无 |
+| Task authority | docs/04-task-breakdown.md |
+| Document authority | docs/document-status.md |
+
+"""
+    path.write_text(
+        original.replace("# AGENTS.md\n\n", "# AGENTS.md\n\n" + decoy, 1),
+        encoding="utf-8",
+    )
 
 
 def replace_root_with_symlink(root: Path) -> None:
@@ -333,6 +468,34 @@ def main() -> None:
         "- [docs/specs/synthetic.md]\n\n"
         "[docs/specs/synthetic.md]: specs/synthetic.md"))
     expect_success("long-forward-dependency-chain", add_long_forward_dependency_chain)
+    expect_success("checkpoint-active-match", lambda root: (
+        replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Active synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | in_progress |"),
+        replace(root / "AGENTS.md", "| Active task | 无 |",
+                "| Active task | TASK-D0-92 |"),
+        replace(root / "AGENTS.md", "| Next task | TASK-D0-92 |",
+                "| Next task | 无 |"),
+    ))
+    expect_success("checkpoint-blocked-match", lambda root: (
+        replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Blocked synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | blocked |"),
+        replace(root / "AGENTS.md", "| Known blocker | 无 |",
+                "| Known blocker | TASK-D0-92 |"),
+    ))
+    expect_success("checkpoint-inline-authority-links", lambda root: (
+        replace(root / "AGENTS.md", "| Task authority | docs/04-task-breakdown.md |",
+                "| Task authority | [tasks](docs/04-task-breakdown.md); mirror only |"),
+        replace(root / "AGENTS.md", "| Document authority | docs/document-status.md |",
+                "| Document authority | [documents](docs/document-status.md) |"),
+    ))
     expect_success("uppercase-https-review-link", lambda root: (
         (root / "docs/glossary.md").write_text(
             accepted((root / "docs/glossary.md").read_text(encoding="utf-8")).replace(
@@ -348,6 +511,35 @@ def main() -> None:
     cases: list[tuple[str, Mutation, str, str]] = [
         ("required", lambda root: (root / "docs/index.md").unlink(),
          "PF-DOC-REQUIRED", "docs/index.md"),
+        ("checkpoint-required", lambda root: (root / "AGENTS.md").unlink(),
+         "PF-DOC-CHECKPOINT", "required checkpoint file is missing"),
+        ("checkpoint-header", lambda root: replace(
+            root / "AGENTS.md", "| Field | Current value |",
+            "| Checkpoint | Current value |"),
+         "PF-DOC-CHECKPOINT", "requires exactly one rendered canonical"),
+        ("checkpoint-duplicate-section", lambda root: replace(
+            root / "AGENTS.md", "## Current Checkpoint",
+            "## Current Checkpoint\n\n## Current Checkpoint"),
+         "PF-DOC-CHECKPOINT", "requires exactly one rendered ## Current Checkpoint section"),
+        ("checkpoint-decoy-table", insert_checkpoint_decoy,
+         "PF-DOC-CHECKPOINT", "requires exactly one rendered canonical"),
+        ("checkpoint-field-missing", lambda root: replace(
+            root / "AGENTS.md", "| Document authority | docs/document-status.md |\n", ""),
+         "PF-DOC-CHECKPOINT", "missing checkpoint field Document authority"),
+        ("checkpoint-field-duplicate", lambda root: replace(
+            root / "AGENTS.md", "| Active task | 无 |",
+            "| Active task | 无 |\n| Active task | 无 |"),
+         "PF-DOC-CHECKPOINT", "duplicate checkpoint field Active task"),
+        ("checkpoint-task-authority", lambda root: replace(
+            root / "AGENTS.md", "docs/04-task-breakdown.md", "docs/05-test-spec.md"),
+         "PF-DOC-CHECKPOINT", "Task authority must point exactly to docs/04-task-breakdown.md"),
+        ("checkpoint-task-authority-substring", lambda root: replace(
+            root / "AGENTS.md", "docs/04-task-breakdown.md",
+            "xdocs/04-task-breakdown.md.evil"),
+         "PF-DOC-CHECKPOINT", "Task authority must point exactly to docs/04-task-breakdown.md"),
+        ("checkpoint-document-authority", lambda root: replace(
+            root / "AGENTS.md", "docs/document-status.md", "docs/index.md"),
+         "PF-DOC-CHECKPOINT", "Document authority must point exactly to docs/document-status.md"),
         ("required-order", lambda root: (
             (root / "docs/index.md").unlink(),
             (root / "docs/00-business-validation.md").unlink(),
@@ -423,6 +615,34 @@ def main() -> None:
                 encoding="utf-8"),
         ),
          "PF-DOC-APPROVAL", "approvedAt"),
+        ("approval-approvers-malformed", lambda root: (
+            (root / "docs/glossary.md").write_text(
+                accepted((root / "docs/glossary.md").read_text(encoding="utf-8")).replace(
+                    "architecture-owner, product-owner",
+                    "architecture-owner,product-owner", 1),
+                encoding="utf-8"),
+        ), "PF-DOC-APPROVAL", "exact ', '-separated ASCII safe-id"),
+        ("approval-approvers-duplicate", lambda root: (
+            (root / "docs/glossary.md").write_text(
+                accepted((root / "docs/glossary.md").read_text(encoding="utf-8")).replace(
+                    "architecture-owner, product-owner",
+                    "architecture-owner, architecture-owner", 1),
+                encoding="utf-8"),
+        ), "PF-DOC-APPROVAL", "approvers must be unique"),
+        ("approval-approvers-unsorted", lambda root: (
+            (root / "docs/glossary.md").write_text(
+                accepted((root / "docs/glossary.md").read_text(encoding="utf-8")).replace(
+                    "architecture-owner, product-owner",
+                    "product-owner, architecture-owner", 1),
+                encoding="utf-8"),
+        ), "PF-DOC-APPROVAL", "ascending ASCII order"),
+        ("approval-approvers-email", lambda root: (
+            (root / "docs/glossary.md").write_text(
+                accepted((root / "docs/glossary.md").read_text(encoding="utf-8")).replace(
+                    "architecture-owner, product-owner",
+                    "architecture@example.invalid, product-owner", 1),
+                encoding="utf-8"),
+        ), "PF-DOC-APPROVAL", "exact ', '-separated ASCII safe-id"),
         ("accepted-todo", lambda root: (
             (root / "docs/glossary.md").write_text(
                 accepted((root / "docs/glossary.md").read_text(encoding="utf-8")) + "\nTODO\n",
@@ -606,16 +826,72 @@ def main() -> None:
         ("test-id-format", lambda root: replace(
             root / "docs/05-test-spec.md", "TST-DOC-902", "TST--BAD"),
          "PF-DOC-ID-FORMAT", "TST--BAD"),
+        ("a0-task-outside-frozen-range", lambda root: replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |\n"
+            "| TASK-A0-21 | Out-of-range frozen task | — | — | "
+            "TST-A0-020 | — | pending |"),
+         "PF-DOC-ID-FORMAT", "TASK-A0-21"),
+        ("a0-test-outside-frozen-range", lambda root: replace(
+            root / "docs/05-test-spec.md",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |\n"
+            "| TST-A0-021 | Out-of-range frozen test |"),
+         "PF-DOC-ID-FORMAT", "TST-A0-021"),
+        ("a0-complete-slice-removed", lambda root: (
+            replace(
+                root / "docs/04-task-breakdown.md",
+                "| TASK-A0-01 | Complete frozen synthetic task | — | — | "
+                "TST-A0-001 | EV-20260716-9101 | done |\n", ""),
+            replace(
+                root / "docs/05-test-spec.md",
+                "| TST-A0-001 | Frozen synthetic alpha acceptance |\n", ""),
+            replace(
+                root / "docs/traceability/evidence-ledger.md",
+                "| EV-20260716-9101 | TASK-A0-01 | TST-A0-001 | development | "
+                "synthetic | passed | synthetic evidence |\n", ""),
+        ), "PF-DOC-TASK-SCHEMA", "missing=['TASK-A0-01']"),
+        ("a0-completed-task-reopened", lambda root: replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-A0-01 | Complete frozen synthetic task | — | — | "
+            "TST-A0-001 | EV-20260716-9101 | done |",
+            "| TASK-A0-01 | Complete frozen synthetic task | — | — | "
+            "TST-A0-001 | EV-20260716-9101 | pending |"),
+         "PF-DOC-TASK-SCHEMA", "TASK-A0-01 must remain done"),
+        ("a0-task-owns-formal-test", lambda root: replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-A0-20 | Complete synthetic task | — | — | "
+            "TST-A0-020 | EV-20260716-9001 | done |",
+            "| TASK-A0-20 | Complete synthetic task | — | — | "
+            "TST-DOC-902 | EV-20260716-9001 | done |"),
+         "PF-DOC-TASK-SCHEMA", "TASK-A0-20 must own only TST-A0-020"),
+        ("a0-task-test-suffix-mismatch", lambda root: replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-A0-20 | Complete synthetic task | — | — | "
+            "TST-A0-020 | EV-20260716-9001 | done |",
+            "| TASK-A0-20 | Complete synthetic task | — | — | "
+            "TST-A0-019 | EV-20260716-9001 | done |"),
+         "PF-DOC-TASK-SCHEMA", "TASK-A0-20 must own only TST-A0-020"),
+        ("formal-task-owns-frozen-a0-test", lambda root: replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-A0-020 | — | pending |"),
+         "PF-DOC-TASK-SCHEMA", "TST-A0-020 may only be owned by TASK-A0-20"),
         ("task-before-test-path-order", lambda root: (
             replace(root / "docs/04-task-breakdown.md", "TASK-D0-92", "TASK--BAD"),
             replace(root / "docs/05-test-spec.md", "TST-DOC-902", "TST--BAD"),
         ), "PF-DOC-ID-FORMAT", "TASK--BAD"),
         ("earlier-task-id-before-later-table-width", lambda root: (
-            replace(root / "docs/04-task-breakdown.md", "TASK-A0-91", "TASK--BAD"),
+            replace(root / "docs/04-task-breakdown.md", "TASK-A0-20", "TASK--BAD"),
             replace(root / "docs/04-task-breakdown.md",
-                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | "
+                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
                     "TST-DOC-902 | — | pending |",
-                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | "
+                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
                     "TST-DOC-902 | — | pending | extra |"),
         ), "PF-DOC-ID-FORMAT", "TASK--BAD"),
         ("test-definition-type", confuse_test_definition,
@@ -631,8 +907,8 @@ def main() -> None:
          "PF-DOC-ID-FORMAT", "EV--BAD"),
         ("table-width", lambda root: replace(
             root / "docs/04-task-breakdown.md",
-            "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | TST-DOC-902 | — | pending |",
-            "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | TST-DOC-902 | — | pending | extra |"),
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending | extra |"),
          "PF-DOC-TABLE-SHAPE", "TASK-D0-92"),
         ("trace-reference", lambda root: replace(
             root / "docs/traceability/requirements-matrix.md", "SPEC-DOC-901", "SPEC-DOC-999"),
@@ -645,7 +921,56 @@ def main() -> None:
             root / "docs/05-test-spec.md", "| TST-DOC-902 | Synthetic pending-task acceptance |",
             "| TST-DOC-902 | Synthetic pending-task acceptance |\n"
             "| TST-ORPHAN-901 | Required test without task or requirement edge |"),
-         "PF-DOC-TRACE-ORPHAN", "TST-ORPHAN-901"),
+         "PF-DOC-TRACE-ORPHAN", "required test TST-ORPHAN-901 has no task owner"),
+        ("task-owned-test-without-requirement-edge", lambda root: (
+            replace(
+                root / "docs/05-test-spec.md",
+                "| TST-DOC-902 | Synthetic pending-task acceptance |",
+                "| TST-DOC-902 | Synthetic pending-task acceptance |\n"
+                "| TST-ORPHAN-902 | Task-owned test without requirement edge |"),
+            replace(
+                root / "docs/04-task-breakdown.md",
+                "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |",
+                "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+                "TST-DOC-902, TST-ORPHAN-902 | — | pending |"),
+        ), "PF-DOC-TRACE-ORPHAN",
+         "formal task TASK-D0-92 test TST-ORPHAN-902 has no joint requirement trace edge"),
+        ("a0-nondigit-prefix-not-exempt", lambda root: replace(
+            root / "docs/05-test-spec.md", "| TST-DOC-902 | Synthetic pending-task acceptance |",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |\n"
+            "| TST-A0-FOO | Noncanonical A0-like required test |"),
+         "PF-DOC-ID-FORMAT", "TST-A0-FOO"),
+        ("a0-short-prefix-not-exempt", lambda root: replace(
+            root / "docs/05-test-spec.md", "| TST-DOC-902 | Synthetic pending-task acceptance |",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |\n"
+            "| TST-A0-90 | Short A0-like required test |"),
+         "PF-DOC-ID-FORMAT", "TST-A0-90"),
+        ("a0-suffixed-prefix-not-exempt", lambda root: replace(
+            root / "docs/05-test-spec.md", "| TST-DOC-902 | Synthetic pending-task acceptance |",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |\n"
+            "| TST-A0-020-EXTRA | Suffixed A0-like required test |"),
+         "PF-DOC-ID-FORMAT", "TST-A0-020-EXTRA"),
+        ("required-test-orphan-source-order", lambda root: replace(
+            root / "docs/05-test-spec.md", "| TST-DOC-902 | Synthetic pending-task acceptance |",
+            "| TST-DOC-902 | Synthetic pending-task acceptance |\n"
+            "| TST-ORPHAN-903 | First required orphan |\n"
+            "| TST-ORPHAN-904 | Second required orphan |"),
+         "PF-DOC-TRACE-ORPHAN", "required test TST-ORPHAN-903 has no task owner"),
+        ("formal-task-orphan", lambda root: replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |\n"
+            "| TASK-D9-99 | Untraced formal task | — | — | TST-DOC-902 | — | pending |"),
+         "PF-DOC-TRACE-ORPHAN", "formal task TASK-D9-99 has no requirement trace edge"),
+        ("a0-like-task-not-exempt", lambda root: replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |\n"
+            "| TASK-A0-FOO | Noncanonical A0-like task | — | — | TST-DOC-902 | — | pending |"),
+         "PF-DOC-ID-FORMAT", "TASK-A0-FOO"),
+        ("joint-task-test-edge", remove_joint_task_test_trace_edge,
+         "PF-DOC-TRACE-ORPHAN",
+         "formal task TASK-D0-93 test TST-DOC-902 has no joint requirement trace edge"),
         ("goal-orphan", lambda root: replace(
             root / "docs/01-prd.md", "| GOAL-901 | Synthetic product goal |",
             "| GOAL-901 | Synthetic product goal |\n| GOAL-902 | Orphan goal |"),
@@ -668,71 +993,64 @@ def main() -> None:
          "PF-DOC-TRACE-INCOMPLETE", "FR-901"),
         ("trace-test-owner", lambda root: replace(
             root / "docs/traceability/requirements-matrix.md",
-            "TST-DOC-902", "TST-A0-901"),
-         "PF-DOC-TRACE-OWNERSHIP", "TST-A0-901"),
+            "TST-DOC-902", "TST-A0-020"),
+         "PF-DOC-TRACE-OWNERSHIP", "TST-A0-020"),
         ("task-dependency", lambda root: replace(
-            root / "docs/04-task-breakdown.md", "TASK-A0-91 | — | TST-DOC-902 | — | pending",
+            root / "docs/04-task-breakdown.md", "TASK-A0-20 | — | TST-DOC-902 | — | pending",
             "TASK-D0-999 | — | TST-DOC-902 | — | pending"),
          "PF-DOC-ID-UNKNOWN", "TASK-D0-999"),
         ("task-prerequisite-column", drop_task_prerequisites,
          "PF-DOC-PREREQUISITE", "Prerequisites"),
         ("task-prerequisite-unknown", lambda root: replace(
             root / "docs/04-task-breakdown.md",
-            "TASK-A0-91 | — | TST-DOC-902 | — | pending",
-            "TASK-A0-91 | PHASE-MISSING@accepted | TST-DOC-902 | — | pending"),
+            "TASK-A0-20 | — | TST-DOC-902 | — | pending",
+            "TASK-A0-20 | PHASE-MISSING@accepted | TST-DOC-902 | — | pending"),
          "PF-DOC-ID-UNKNOWN", "PHASE-MISSING"),
         ("task-prerequisite-unmet", lambda root: (
             replace(root / "docs/04-task-breakdown.md",
-                    "| TASK-A0-91 | Complete synthetic task | — | — | "
-                    "TST-A0-901 | EV-20260716-9001 | done |",
-                    "| TASK-A0-91 | Complete synthetic task | — | PHASE-3-901@accepted | "
-                    "TST-A0-901 | EV-20260716-9001 | done |"),
+                    "| TASK-A0-20 | Complete synthetic task | — | — | "
+                    "TST-A0-020 | EV-20260716-9001 | done |",
+                    "| TASK-A0-20 | Complete synthetic task | — | PHASE-3-901@accepted | "
+                    "TST-A0-020 | EV-20260716-9001 | done |"),
         ),
          "PF-DOC-TASK-DEPENDENCY", "PHASE-3-901"),
         ("task-dependency-cycle", lambda root: replace(
             root / "docs/04-task-breakdown.md", "Complete synthetic task | — | — |",
             "Complete synthetic task | TASK-D0-92 | — |"),
-         "PF-DOC-TASK-CYCLE", "TASK-A0-91"),
-        ("task-dependency-incomplete", lambda root: (
-            replace(root / "docs/04-task-breakdown.md",
-                    "| TASK-A0-91 | Complete synthetic task | — | — | TST-A0-901 | EV-20260716-9001 | done |",
-                    "| TASK-A0-91 | Complete synthetic task | — | — | TST-A0-901 | — | pending |"),
-            replace(root / "docs/04-task-breakdown.md",
-                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | TST-DOC-902 | — | pending |",
-                    "| TASK-D0-92 | Active synthetic task | TASK-A0-91 | — | TST-DOC-902 | — | in_progress |"),
-        ),
-         "PF-DOC-TASK-DEPENDENCY", "TASK-A0-91"),
+         "PF-DOC-TASK-CYCLE", "TASK-A0-20"),
+        ("task-dependency-incomplete", make_unfinished_dependency,
+         "PF-DOC-TASK-DEPENDENCY", "TASK-D0-93"),
         ("earlier-done-missing-ev-before-later-unknown-dependency", lambda root: (
             replace(root / "docs/04-task-breakdown.md",
-                    "| TASK-A0-91 | Complete synthetic task | — | — | "
-                    "TST-A0-901 | EV-20260716-9001 | done |",
-                    "| TASK-A0-91 | Complete synthetic task | — | — | "
-                    "TST-A0-901 | — | done |"),
+                    "| TASK-A0-20 | Complete synthetic task | — | — | "
+                    "TST-A0-020 | EV-20260716-9001 | done |",
+                    "| TASK-A0-20 | Complete synthetic task | — | — | "
+                    "TST-A0-020 | — | done |"),
             replace(root / "docs/04-task-breakdown.md",
-                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | "
+                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
                     "TST-DOC-902 | — | pending |",
                     "| TASK-D0-92 | Planned synthetic task | TASK-D0-999 | — | "
                     "TST-DOC-902 | — | pending |"),
-        ), "PF-DOC-DONE-EV", "TASK-A0-91"),
+        ), "PF-DOC-DONE-EV", "TASK-A0-20"),
         ("done-test", lambda root: replace(
-            root / "docs/04-task-breakdown.md", "| TST-A0-901 | EV-20260716-9001 | done |",
+            root / "docs/04-task-breakdown.md", "| TST-A0-020 | EV-20260716-9001 | done |",
             "| — | EV-20260716-9001 | done |"),
-         "PF-DOC-DONE-TST", "TASK-A0-91"),
+         "PF-DOC-TASK-SCHEMA", "TASK-A0-20 must own only TST-A0-020"),
         ("done-evidence", lambda root: replace(
             root / "docs/04-task-breakdown.md", "| EV-20260716-9001 | done |", "| — | done |"),
-         "PF-DOC-DONE-EV", "TASK-A0-91"),
+         "PF-DOC-DONE-EV", "TASK-A0-20"),
         ("formal-task-reuses-unrelated-evidence", lambda root: replace(
             root / "docs/04-task-breakdown.md",
-            "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | "
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
             "TST-DOC-902 | — | pending |",
-            "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | "
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
             "TST-DOC-902 | EV-20260716-9001 | done |"),
          "PF-DOC-DONE-EV", "EV-20260716-9001"),
         ("formal-task-development-evidence", lambda root: (
             replace(root / "docs/04-task-breakdown.md",
-                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | "
+                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
                     "TST-DOC-902 | — | pending |",
-                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | "
+                    "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
                     "TST-DOC-902 | EV-20260716-9002 | done |"),
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_ROW,
@@ -743,6 +1061,8 @@ def main() -> None:
             root / "docs/traceability/evidence-ledger.md",
             EVIDENCE_ROW, EVIDENCE_ROW + "\n" + EVIDENCE_ROW_9003_FORMAL),
          "PF-DOC-EVIDENCE-FORMAL-UNVERIFIED", "EV-20260716-9003"),
+        ("bootstrap-evidence-unverified", complete_bootstrap_trust_root_task,
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
         ("bootstrap-grade-outside-d0-bootstrap", lambda root: replace(
             root / "docs/traceability/evidence-ledger.md",
             EVIDENCE_ROW, EVIDENCE_ROW.replace(
@@ -759,17 +1079,8 @@ def main() -> None:
             root / "docs/traceability/evidence-ledger.md",
             EVIDENCE_ROW, EVIDENCE_ROW.replace("| passed |", "| passedly |", 1)),
          "PF-DOC-DONE-EV", "EV-20260716-9001"),
-        ("evidence-header-extra-column", lambda root: (
-            replace(root / "docs/traceability/evidence-ledger.md",
-                    EVIDENCE_HEADER,
-                    EVIDENCE_HEADER[:-1] + "| Extra |"),
-            replace(root / "docs/traceability/evidence-ledger.md",
-                    EVIDENCE_SEPARATOR,
-                    EVIDENCE_SEPARATOR[:-1] + "|---|"),
-            replace(root / "docs/traceability/evidence-ledger.md",
-                    EVIDENCE_ROW,
-                    EVIDENCE_ROW[:-1] + "| extra |"),
-        ), "PF-DOC-EVIDENCE-SCHEMA", "exact columns"),
+        ("evidence-header-extra-column", add_evidence_extra_column,
+         "PF-DOC-EVIDENCE-SCHEMA", "exact columns"),
         ("evidence-header-reordered", lambda root: replace(
             root / "docs/traceability/evidence-ledger.md",
             EVIDENCE_HEADER,
@@ -786,25 +1097,25 @@ def main() -> None:
                     EVIDENCE_HEADER, "```markdown\n" + EVIDENCE_HEADER),
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_ROW, EVIDENCE_ROW + "\n```"),
-        ), "PF-DOC-DONE-EV", "EV-20260716-9001"),
+        ), "PF-DOC-DONE-EV", "EV-20260716-9101"),
         ("evidence-table-long-fence", lambda root: (
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_HEADER, "````markdown\n```\n" + EVIDENCE_HEADER),
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_ROW, EVIDENCE_ROW + "\n````"),
-        ), "PF-DOC-DONE-EV", "EV-20260716-9001"),
+        ), "PF-DOC-DONE-EV", "EV-20260716-9101"),
         ("evidence-table-comment", lambda root: (
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_HEADER, "<!--\n" + EVIDENCE_HEADER),
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_ROW, EVIDENCE_ROW + "\n-->"),
-        ), "PF-DOC-DONE-EV", "EV-20260716-9001"),
+        ), "PF-DOC-DONE-EV", "EV-20260716-9101"),
         ("evidence-table-multiline-inline-code", lambda root: (
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_HEADER, "``\n" + EVIDENCE_HEADER),
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_ROW, EVIDENCE_ROW + "\n``"),
-        ), "PF-DOC-DONE-EV", "EV-20260716-9001"),
+        ), "PF-DOC-DONE-EV", "EV-20260716-9101"),
         ("evidence-table-indented-code", lambda root: (
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_HEADER, "    " + EVIDENCE_HEADER),
@@ -812,7 +1123,7 @@ def main() -> None:
                     EVIDENCE_SEPARATOR, "    " + EVIDENCE_SEPARATOR),
             replace(root / "docs/traceability/evidence-ledger.md",
                     EVIDENCE_ROW, "    " + EVIDENCE_ROW),
-        ), "PF-DOC-DONE-EV", "EV-20260716-9001"),
+        ), "PF-DOC-DONE-EV", "EV-20260716-9101"),
         ("invariant-fenced", lambda root: replace(
             root / "docs/02-architecture.md", "- INV-901: Synthetic invariant.",
             "```text\n- INV-901: Synthetic invariant.\n```"),
@@ -820,12 +1131,36 @@ def main() -> None:
         ("invariant-id-lowercase", lambda root: replace(
             root / "docs/02-architecture.md", "INV-901", "inv-901"),
          "PF-DOC-ID-FORMAT", "inv-901"),
-        ("active-task", lambda root: replace(
-            root / "docs/04-task-breakdown.md",
-            "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | TST-DOC-902 | — | pending |",
-            "| TASK-D0-92 | Planned synthetic task | TASK-A0-91 | — | TST-DOC-902 | — | pending |\n"
-            "| TASK-D0-93 | Active one | — | — | TST-A0-901 | — | in_progress |\n"
-            "| TASK-D0-94 | Active two | — | — | TST-A0-901 | — | in_progress |"),
+        ("checkpoint-active-drift", lambda root: replace(
+            root / "AGENTS.md", "| Active task | 无 |",
+            "| Active task | TASK-D0-92 |"),
+         "PF-DOC-CHECKPOINT", "Active task mirrors ['TASK-D0-92'], expected []"),
+        ("checkpoint-next-drift", lambda root: replace(
+            root / "AGENTS.md", "| Next task | TASK-D0-92 |",
+            "| Next task | TASK-D0-99 |"),
+         "PF-DOC-CHECKPOINT", "Next task mirrors ['TASK-D0-99'], expected ['TASK-D0-92']"),
+        ("checkpoint-next-invalid-token-suffix", lambda root: replace(
+            root / "AGENTS.md", "| Next task | TASK-D0-92 |",
+            "| Next task | TASK-D0-92evil |"),
+         "PF-DOC-CHECKPOINT", "Next task mirrors [], expected ['TASK-D0-92']"),
+        ("checkpoint-blocker-drift", lambda root: replace(
+            root / "AGENTS.md", "| Known blocker | 无 |",
+            "| Known blocker | TASK-D0-92 |"),
+         "PF-DOC-CHECKPOINT", "Known blocker mirrors ['TASK-D0-92'], expected []"),
+        ("active-task", lambda root: (
+            replace(
+                root / "docs/04-task-breakdown.md",
+                "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+                "TST-DOC-902 | — | pending |",
+                "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+                "TST-DOC-902 | — | pending |\n"
+                "| TASK-D0-93 | Active one | — | — | TST-DOC-902 | — | in_progress |\n"
+                "| TASK-D0-94 | Active two | — | — | TST-DOC-902 | — | in_progress |"),
+            replace(
+                root / "docs/traceability/requirements-matrix.md",
+                "| TASK-D0-92 | TST-DOC-902 | specified |",
+                "| TASK-D0-92, TASK-D0-93, TASK-D0-94 | TST-DOC-902 | specified |"),
+        ),
          "PF-DOC-TASK-ACTIVE", "TASK-D0-93"),
     ]
     for name, mutation, code, marker in cases:

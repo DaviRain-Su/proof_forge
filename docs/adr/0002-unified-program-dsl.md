@@ -25,7 +25,20 @@ program Name where
   ...
 ```
 
-通过 Lean custom command elaborator 实现专用 grammar、类型/effect 检查、source span 和稳定导出。除明确 proof reference 位置外，不接受任意 Lean term escape。
+锁定的 Lean grammar initializer 只负责产生 `Syntax`。两条入口必须共用唯一的 bounded checked
+decoder/declaration validation 和 `Source.Program`；该值随后进入唯一的 contained
+name/type/effect/semantic core pipeline：
+
+- CLI orchestration parent 不解析或 elaboration 用户 module；它在 frontend worker 中加载
+  grammar、解析、preflight、decode 和 declaration validation，再把 `Source.Program` 交给 core
+  worker。两个 worker 都使用 SPEC-COMMON-001 hard maxima，并由 parent 把 controller event 或
+  protocol failure 转换为稳定诊断。
+- Lean custom command elaborator 只可调用同一 checked decoder，并 quote 已验证的
+  `Source.Program`；不得从 raw `Syntax` 构造第二套 AST 或实现第二套业务检查逻辑。需要完整
+  compile/check 时仍调用同一 core pipeline，command elaboration 不能成为替代 checker。
+
+两路以 AST/source hash/diagnostic 等价测试防止漂移。除明确 proof reference 位置外，不接受任意
+Lean term escape；proof reference 也只能解析为受约束身份，不执行任意 host computation。
 
 ## 后果
 
@@ -38,4 +51,5 @@ program Name where
 
 ## 验证
 
-parser/elaborator 正负例、source span、跨模块导出、重复名称和任意 Lean escape tests。
+parser/elaborator 正负例、双入口 AST/diagnostic 等价、worker time/memory/process/output 边界、
+source span、跨模块导出、重复名称和任意 Lean escape tests。

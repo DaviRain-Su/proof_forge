@@ -18,14 +18,21 @@ bytes。编译设置 `TZ=UTC`、`LC_ALL=C`、`SOURCE_DATE_EPOCH=0`。
 
 ## Hash Domains
 
-每个 hash 以 ASCII domain tag + NUL 开头：`pf.source.v1`、`pf.semantic.v1`、
-`pf.plan.<target>.v1`、`pf.targetir.<target>.v1`、`pf.artifact.v1`。统一 SHA-256；array 保序，
-set/map canonical sort；JSON JCS；路径 project-relative NFC。
+结构化 identity/hash 的 preimage 必须使用 owning schema 固定的 ASCII domain tag + NUL：
+`sourceHash` 显式使用 `pf.source.v1`；SemanticProgram/Provenance canonical bytes 自身分别以
+`pf.semantic.v1`/`pf.semantic-provenance.v1` + NUL 开头；Plan/TargetIR 使用各 target 规格固定的
+`pf.plan.<target>.v1`/`pf.targetir.<target>.v1`。统一 SHA-256；array 保序，set/map canonical sort；
+JSON 使用 JCS；路径使用 project-relative NFC。
+
+raw file-content checksum 是明确例外：OutputSet artifact 的 `sha256`、`.olean` digest、archive/tool
+file checksum 只对实际 file bytes 做 SHA-256，不加 domain prefix。它们由 enclosing manifest/
+identity 的字段位置提供类型域；不得与结构化 artifact identity 混用。若未来需要独立 domain-separated
+artifact identity，必须增加不同字段与 schema，不能把 `pf.artifact.v1` 前缀静默塞入现有 `sha256`。
 
 ## Repeatability Gate
 
 在两个不同 absolute roots、不同 HOME、不同 allowed job counts 下各 build 两次；比较
-sourceHash、semanticHash、planHash、TargetIR hash、所有 artifact hash 和 manifest
+sourceHash、semanticHash、semanticProvenanceDigest、planHash、TargetIR hash、所有 artifact hash 和 manifest
 （排除显式 `compiler.dirty` development field）。任一差异输出首个 byte offset 和关联阶段。
 
 ## Clean-room Gate
@@ -90,8 +97,10 @@ current-user-mutable Xcode pathname 正确拒绝；这只是 local、point-in-ti
 continuation digest 后直接 handoff，不能从 continuation 内部反向调用 Stage-0 冒充权威
 入口。evidence v1 candidate 已能以条件 `networkPort` 表达 exact-local-port，但还未把字段与
 rendered policy bytes/digest、retained launcher logs/receipts 或 required probe catalog 绑定。
-eligible host、process-session containment、gate catalog、freshness/revocation/private scan 与
-formal finalizer 均未闭合。因此 `TASK-D0-03` 仍在进行，`TASK-D0-04` 仍为 blocked。
+eligible host、process-session containment、signed required-set/catalog authority 与 bootstrap
+activation 均未闭合。因此 development receipt/catalog/bundle 尚未集成的 `TASK-D0-03` 仍为
+pending，拥有 activation 前缺口的 `TASK-D0-04` 仍为 blocked；activation 后的
+freshness/revocation/private scan 与 formal finalizer 由 `TASK-D0-07` 承担，当前仍为 pending。
 
 ## Cache Policy
 
