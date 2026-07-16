@@ -353,6 +353,15 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
         "policy may strengthen role and signer minima"
     )
 
+    broad_safe_ids = copy.deepcopy(policy)
+    broad_safe_ids["principals"][0]["principalId"] = "Principal_1:ops+arch"
+    broad_safe_ids["verifier"]["id"] = "Verifier_1:prod+receipt"
+    parsed_safe_ids, _ = module.parse_bootstrap_authority_policy(
+        module.canonical_pf_jcs(broad_safe_ids)
+    )
+    assert parsed_safe_ids.principals[0].principalId == "Principal_1:ops+arch"
+    assert parsed_safe_ids.verifier.id == "Verifier_1:prod+receipt"
+
     mutations = []
 
     wrong_schema = copy.deepcopy(policy)
@@ -378,6 +387,20 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
     unknown_verifier_field = copy.deepcopy(policy)
     unknown_verifier_field["verifier"]["futureField"] = True
     mutations.append(("unknown verifier field", unknown_verifier_field))
+
+    for label, field_path, value in (
+        ("invalid root profile id", ("id",), "Bootstrap_Root"),
+        ("invalid policy version", ("version",), "v1.0.0"),
+        ("invalid principal safe-id", ("principals", 0, "principalId"), "-principal"),
+        ("invalid key safe-id", ("principals", 0, "keyId"), "key/architecture"),
+        ("invalid verifier safe-id", ("verifier", "id"), "verifier receipt"),
+    ):
+        invalid_scalar = copy.deepcopy(policy)
+        target = invalid_scalar
+        for component in field_path[:-1]:
+            target = target[component]
+        target[field_path[-1]] = value
+        mutations.append((label, invalid_scalar))
 
     missing_task_rule = copy.deepcopy(policy)
     del missing_task_rule["taskRules"][3]
@@ -448,6 +471,16 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
         weak_role[field]["requiredRoles"] = list(required_roles[1:])
         mutations.append((f"weak {field} roles", weak_role))
 
+    for label, minimum in (
+        ("boolean signer threshold", True),
+        ("zero signer threshold", 0),
+        ("out-of-u32 signer threshold", 2**32),
+        ("unsatisfiable signer threshold", 5),
+    ):
+        invalid_threshold = copy.deepcopy(policy)
+        invalid_threshold["requiredTestSetRule"]["minimumDistinctSigners"] = minimum
+        mutations.append((label, invalid_threshold))
+
     multi_key_single_principal = copy.deepcopy(policy)
     for principal in multi_key_single_principal["principals"]:
         principal["principalId"] = "principal-one-person"
@@ -493,6 +526,16 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
     invalid_key = copy.deepcopy(policy)
     invalid_key["principals"][0]["publicKey"] = "ff" * 32
     mutations.append(("invalid Ed25519 public key", invalid_key))
+
+    uppercase_key = copy.deepcopy(policy)
+    uppercase_key["principals"][0]["publicKey"] = (
+        uppercase_key["principals"][0]["publicKey"].upper()
+    )
+    mutations.append(("uppercase Ed25519 public key", uppercase_key))
+
+    empty_principal_roles = copy.deepcopy(policy)
+    empty_principal_roles["principals"][0]["roles"] = []
+    mutations.append(("empty principal roles", empty_principal_roles))
 
     small_order_key = copy.deepcopy(policy)
     small_order_key["principals"][0]["publicKey"] = "01" + "00" * 31
