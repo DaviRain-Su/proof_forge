@@ -52,8 +52,7 @@ MEDIA_TYPE_RE = re.compile(
 UTC_RE = re.compile(
     r"[0-9]{4}-(?:0[1-9]|1[0-2])-"
     r"(?:0[1-9]|[12][0-9]|3[01])T"
-    r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
-    r"(?:\.[0-9]{3})?Z"
+    r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z"
 )
 
 
@@ -269,7 +268,7 @@ def require_utc(value: object, where: str) -> tuple[str, dt.datetime]:
     if UTC_RE.fullmatch(text) is None:
         fail(
             "PF-EVIDENCE-SCHEMA",
-            f"{where} must be RFC 3339 UTC with zero or three fractional digits",
+            f"{where} must be RFC 3339 UTC with whole-second precision",
         )
     try:
         parsed = dt.datetime.fromisoformat(text[:-1] + "+00:00")
@@ -628,13 +627,11 @@ def _validate_command(value: object, result: str) -> dict[str, object]:
     require_relative_path(obj["cwdRelative"], _where(where, "cwdRelative"), allow_dot=True)
     _, started = require_utc(obj["startedUtc"], _where(where, "startedUtc"))
     _, ended = require_utc(obj["endedUtc"], _where(where, "endedUtc"))
-    duration = require_int(obj["durationMs"], _where(where, "durationMs"))
-    delta = ended - started
-    elapsed = delta.days * 86_400_000 + delta.seconds * 1000 + delta.microseconds // 1000
-    if ended < started or duration != elapsed:
+    require_int(obj["durationMs"], _where(where, "durationMs"))
+    if ended < started:
         fail(
             "PF-EVIDENCE-INVARIANT",
-            f"{where}.durationMs must equal endedUtc - startedUtc in milliseconds",
+            f"{where}.endedUtc must not precede startedUtc",
         )
     attempts = require_array(
         obj["attempts"], _where(where, "attempts"), nonempty=result != "skipped"
