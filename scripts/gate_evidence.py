@@ -13,6 +13,7 @@ import ast
 import copy
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 import posixpath
@@ -23,6 +24,7 @@ import sys
 import tempfile
 import unicodedata
 from pathlib import Path
+from types import ModuleType
 from typing import NoReturn
 
 
@@ -53,6 +55,37 @@ UTC_RE = re.compile(
     r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
     r"(?:\.[0-9]{3})?Z"
 )
+
+
+_EVIDENCE_V1_CORE_PUBLIC = (
+    "EvidenceError",
+    "artifact_set_sha256",
+    "canonical_bytes",
+    "decode_json",
+    "validate_evidence",
+)
+
+
+def _load_evidence_v1_core() -> ModuleType:
+    """Load the repository sibling without consulting ``sys.path``."""
+    gate_path = Path(__file__).resolve(strict=True)
+    core_path = gate_path.with_name("evidence_v1_core.py")
+    spec = importlib.util.spec_from_file_location(
+        "_proof_forge_gate_evidence_v1_core",
+        core_path,
+    )
+    if spec is None or spec.loader is None or spec.origin is None:
+        raise RuntimeError(f"cannot load evidence v1 core from exact sibling: {core_path}")
+    if Path(spec.origin).resolve(strict=True) != core_path.resolve(strict=True):
+        raise RuntimeError("evidence v1 core loader changed the exact sibling origin")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if tuple(module.__dict__.get("__all__", ())) != _EVIDENCE_V1_CORE_PUBLIC:
+        raise RuntimeError("evidence v1 core public surface does not match the pinned ABI")
+    return module
+
+
+_EVIDENCE_V1_CORE = _load_evidence_v1_core()
 
 
 class EvidenceError(RuntimeError):
@@ -998,6 +1031,40 @@ def validate_evidence(value: object) -> dict[str, object]:
     return root
 
 
+# Keep the legacy definitions above during the low-risk extraction, but route
+# every pure symbol consumed by the CLI/bundle layer to the exact sibling core.
+# Bound functions retain the core module's own globals, so their validation
+# behavior cannot fall back to the legacy definitions in this module.
+_EVIDENCE_V1_CORE_ROUTED = (
+    "EvidenceError",
+    "fail",
+    "_diagnostic_repr",
+    "require_array",
+    "require_int",
+    "require_pattern",
+    "require_sha256",
+    "require_relative_path",
+    "decode_json",
+    "canonical_bytes",
+    "artifact_set_sha256",
+    "_validate_gate",
+    "validate_evidence",
+)
+EvidenceError = _EVIDENCE_V1_CORE.__dict__["EvidenceError"]
+fail = _EVIDENCE_V1_CORE.__dict__["fail"]
+_diagnostic_repr = _EVIDENCE_V1_CORE.__dict__["_diagnostic_repr"]
+require_array = _EVIDENCE_V1_CORE.__dict__["require_array"]
+require_int = _EVIDENCE_V1_CORE.__dict__["require_int"]
+require_pattern = _EVIDENCE_V1_CORE.__dict__["require_pattern"]
+require_sha256 = _EVIDENCE_V1_CORE.__dict__["require_sha256"]
+require_relative_path = _EVIDENCE_V1_CORE.__dict__["require_relative_path"]
+decode_json = _EVIDENCE_V1_CORE.__dict__["decode_json"]
+canonical_bytes = _EVIDENCE_V1_CORE.__dict__["canonical_bytes"]
+artifact_set_sha256 = _EVIDENCE_V1_CORE.__dict__["artifact_set_sha256"]
+_validate_gate = _EVIDENCE_V1_CORE.__dict__["_validate_gate"]
+validate_evidence = _EVIDENCE_V1_CORE.__dict__["validate_evidence"]
+
+
 def _read_regular_file(path: Path) -> bytes:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -1633,30 +1700,49 @@ def _expect_rejected(label: str, operation: object) -> None:
     fail("PF-EVIDENCE-SELF-TEST", f"negative self-test was accepted: {label}")
 
 
+def _self_test_core_routing() -> None:
+    """Prove the CLI validation surface is the exact sibling core surface."""
+    for name in _EVIDENCE_V1_CORE_ROUTED:
+        if globals().get(name) is not _EVIDENCE_V1_CORE.__dict__.get(name):
+            fail(
+                "PF-EVIDENCE-SELF-TEST",
+                f"gate evidence symbol is not routed through evidence_v1_core: {name}",
+            )
+
+
 def _self_test_literal_dict_keys() -> None:
     """Reject duplicate string keys hidden by Python dict-literal semantics."""
-    try:
-        source = Path(__file__).read_text(encoding="utf-8")
-        tree = ast.parse(source, filename=__file__)
-    except (OSError, SyntaxError, UnicodeError) as exc:
-        fail("PF-EVIDENCE-SELF-TEST", f"cannot parse evidence source for duplicate keys: {exc}")
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Dict):
-            continue
-        seen: set[str] = set()
-        for key in node.keys:
-            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+    source_paths = (
+        Path(__file__).resolve(strict=True),
+        Path(_EVIDENCE_V1_CORE.__file__).resolve(strict=True),
+    )
+    for source_path in source_paths:
+        try:
+            source = source_path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(source_path))
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            fail(
+                "PF-EVIDENCE-SELF-TEST",
+                f"cannot parse evidence source for duplicate keys: {exc}",
+            )
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Dict):
                 continue
-            if key.value in seen:
-                fail(
-                    "PF-EVIDENCE-SELF-TEST",
-                    f"duplicate literal dict key at source line {key.lineno}: "
-                    f"{_diagnostic_repr(key.value)}",
-                )
-            seen.add(key.value)
+            seen: set[str] = set()
+            for key in node.keys:
+                if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                    continue
+                if key.value in seen:
+                    fail(
+                        "PF-EVIDENCE-SELF-TEST",
+                        f"duplicate literal dict key at {source_path.name}:"
+                        f"{key.lineno}: {_diagnostic_repr(key.value)}",
+                    )
+                seen.add(key.value)
 
 
 def self_test() -> None:
+    _self_test_core_routing()
     _self_test_literal_dict_keys()
     development = _sample_document()
     formal = _sample_document(formal=True)

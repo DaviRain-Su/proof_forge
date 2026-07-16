@@ -9,12 +9,15 @@ Stage-0 handoff or close a bootstrap task by itself.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import posixpath
 import re
 import unicodedata
 from datetime import date
 from dataclasses import dataclass
+from pathlib import Path
+from types import ModuleType
 from typing import Any, NoReturn, Tuple, Union
 
 
@@ -27,6 +30,7 @@ MAX_SAFE_INTEGER = (1 << 53) - 1
 MAX_DOCUMENT_LINE_BYTES = 65_536
 MAX_DOCUMENT_LINES = 100_000
 MAX_BOOTSTRAP_EVIDENCE_OBJECTS = 6 * 4096
+MAX_BOOTSTRAP_EVIDENCE_TOTAL_BYTES = 256 * 1024 * 1024
 MAX_BOOTSTRAP_REVIEW_REPORTS = 6 * 256
 MAX_REVIEW_REPORT_BYTES = 1024 * 1024
 MAX_BOOTSTRAP_REVIEW_REPORT_TOTAL_BYTES = 16 * 1024 * 1024
@@ -58,6 +62,36 @@ SEMVER_RE = re.compile(
     r"))*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
 )
+_BOOTSTRAP_TASK_IDS = tuple(f"TASK-D0-{number:02d}" for number in range(1, 7))
+_EVIDENCE_V1_CORE_PUBLIC = (
+    "EvidenceError",
+    "artifact_set_sha256",
+    "canonical_bytes",
+    "decode_json",
+    "validate_evidence",
+)
+
+
+def _load_evidence_v1_core() -> ModuleType:
+    """Load the exact sibling pure core without a sys.path authority seam."""
+    consumer_path = Path(__file__).resolve(strict=True)
+    core_path = consumer_path.with_name("evidence_v1_core.py")
+    spec = importlib.util.spec_from_file_location(
+        "proof_forge_evidence_v1_core_for_bootstrap",
+        core_path,
+    )
+    if spec is None or spec.loader is None or spec.origin is None:
+        raise ImportError("exact evidence-v1 core loader is unavailable")
+    if Path(spec.origin).resolve(strict=True) != core_path.resolve(strict=True):
+        raise ImportError("exact evidence-v1 core origin changed")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if tuple(module.__dict__.get("__all__", ())) != _EVIDENCE_V1_CORE_PUBLIC:
+        raise ImportError("exact evidence-v1 core ABI changed")
+    return module
+
+
+_EVIDENCE_V1_CORE = _load_evidence_v1_core()
 
 
 class Rejected(Exception):
@@ -175,6 +209,14 @@ class RequiredTestSetV1:
 class EvidenceRef:
     id: str
     digest: Digest
+
+
+@dataclass(frozen=True)
+class BootstrapEvidenceRootManifestV1:
+    schema: str
+    taskId: str
+    candidate: CandidateIdentity
+    evidence: Tuple[EvidenceRef, ...]
 
 
 @dataclass(frozen=True)
@@ -382,6 +424,16 @@ class _BootstrapTaskObjectGraphV1:
 
 
 @dataclass(frozen=True)
+class _BootstrapEvidenceObjectV1:
+    reference: EvidenceRef
+    candidate: CandidateIdentity
+    taskId: str
+    testIds: Tuple[str, ...]
+    qualification: str
+    result: str
+
+
+@dataclass(frozen=True)
 class BootstrapTaskRowSubjectV1:
     taskId: str
     dependencies: Tuple[str, ...]
@@ -404,6 +456,7 @@ class DependencyTaskObjectV1:
     approvalBytes: bytes
     receiptBytes: bytes
     stage0HandoffBytes: bytes
+    evidenceManifestBytes: bytes
 
 
 @dataclass(frozen=True)
@@ -419,6 +472,7 @@ class BootstrapTaskObjectSetV1:
     requiredTestSetBytes: bytes
     taskApprovalBytes: bytes
     taskReceiptBytes: bytes
+    evidenceManifestBytes: bytes
     dependencyObjects: Tuple[DependencyTaskObjectV1, ...]
     evidenceObjectBytes: Tuple[bytes, ...]
     reviewReports: Tuple[ReviewReportObjectV1, ...]
@@ -430,11 +484,11 @@ class ObjectVerifiedV1:
     candidate: CandidateIdentity
     authorityPolicy: ContentRef
     requiredTestSet: ContentRef
-    taskApproval: object
-    taskReceipt: object
+    taskApproval: TaskApprovalRefV1
+    taskReceipt: BootstrapTaskVerifierReceiptRefV1
     stage0Handoff: ContentRef
-    dependencyReceipts: Tuple[object, ...]
-    evidence: Tuple[object, ...]
+    dependencyReceipts: Tuple[BootstrapTaskVerifierReceiptRefV1, ...]
+    evidence: Tuple[EvidenceRef, ...]
 
 
 def _require_exact_keys(value: object, fields: Tuple[str, ...], where: str) -> dict:
@@ -1941,8 +1995,10 @@ def _parse_evidence_ref(value: object, where: str) -> EvidenceRef:
     )
 
 
-def _parse_evidence_refs(value: object) -> Tuple[EvidenceRef, ...]:
-    where = "TaskApprovalV1.evidence"
+def _parse_evidence_refs(
+    value: object,
+    where: str = "TaskApprovalV1.evidence",
+) -> Tuple[EvidenceRef, ...]:
     if type(value) is not list or not 1 <= len(value) <= 4096:
         _reject(f"{where} count must be 1..4096")
     assert isinstance(value, list)
@@ -3063,10 +3119,12 @@ def _validate_object_shell(objects: BootstrapTaskObjectSetV1) -> None:
         _reject("objects must be BootstrapTaskObjectSetV1")
     for field in (
         "authorityPolicyBytes", "stage0HandoffBytes", "requiredTestSetBytes",
-        "taskApprovalBytes", "taskReceiptBytes",
+        "taskApprovalBytes", "taskReceiptBytes", "evidenceManifestBytes",
     ):
         encoded = getattr(objects, field)
-        if type(encoded) is not bytes or not encoded:
+        if (type(encoded) is not bytes or not encoded
+                or (field == "evidenceManifestBytes"
+                    and len(encoded) > MAX_INPUT_BYTES)):
             _reject(f"{field} must be non-empty bytes")
     if (type(objects.dependencyObjects) is not tuple
             or len(objects.dependencyObjects) > 5):
@@ -3076,9 +3134,12 @@ def _validate_object_shell(objects: BootstrapTaskObjectSetV1) -> None:
             _reject("dependencyObjects contain an untyped bundle")
         for field in (
             "approvalBytes", "receiptBytes", "stage0HandoffBytes",
+            "evidenceManifestBytes",
         ):
             encoded = getattr(dependency, field)
-            if type(encoded) is not bytes or not encoded:
+            if (type(encoded) is not bytes or not encoded
+                    or (field == "evidenceManifestBytes"
+                        and len(encoded) > MAX_INPUT_BYTES)):
                 _reject(f"dependencyObjects.{field} must be non-empty bytes")
     evidence_objects = objects.evidenceObjectBytes
     if (type(evidence_objects) is not tuple
@@ -3087,10 +3148,14 @@ def _validate_object_shell(objects: BootstrapTaskObjectSetV1) -> None:
     if (type(objects.reviewReports) is not tuple
             or not 1 <= len(objects.reviewReports) <= MAX_BOOTSTRAP_REVIEW_REPORTS):
         _reject("reviewReports count must be 1..1536")
+    evidence_total_bytes = 0
     for encoded in evidence_objects:
-        if type(encoded) is not bytes or not encoded:
+        if (type(encoded) is not bytes
+                or not 1 <= len(encoded) <= MAX_INPUT_BYTES):
             _reject("evidenceObjectBytes contains invalid bytes")
-        decode_canonical_pf_jcs(encoded)
+        evidence_total_bytes += len(encoded)
+        if evidence_total_bytes > MAX_BOOTSTRAP_EVIDENCE_TOTAL_BYTES:
+            _reject("evidenceObjectBytes aggregate exceeds 268435456 bytes")
 
 
 def _preflight_review_reports(values: object) -> Tuple[Digest, ...]:
@@ -3137,6 +3202,164 @@ def _preflight_review_reports(values: object) -> Tuple[Digest, ...]:
         if report.digest.bytes != expected:
             _reject(f"reviewReports[{index}] digest does not match exact bytes")
     return tuple(report.digest for report in reports)
+
+
+def _parse_bootstrap_evidence_manifest(
+    encoded: bytes,
+) -> Tuple[BootstrapEvidenceRootManifestV1, Digest]:
+    value = decode_canonical_pf_jcs(encoded)
+    obj = _require_exact_keys(
+        value,
+        ("schema", "taskId", "candidate", "evidence"),
+        "BootstrapEvidenceRootManifestV1",
+    )
+    schema = obj["schema"]
+    if schema != "proof-forge.bootstrap-evidence-root-manifest.v1":
+        _reject("BootstrapEvidenceRootManifestV1.schema is invalid")
+    task_id = obj["taskId"]
+    if type(task_id) is not str or task_id not in _BOOTSTRAP_TASK_IDS:
+        _reject("BootstrapEvidenceRootManifestV1.taskId must be TASK-D0-01..06")
+    candidate = parse_candidate_identity(obj["candidate"])
+    evidence = _parse_evidence_refs(
+        obj["evidence"],
+        "BootstrapEvidenceRootManifestV1.evidence",
+    )
+    manifest = BootstrapEvidenceRootManifestV1(
+        schema,
+        task_id,
+        candidate,
+        evidence,
+    )
+    digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.bootstrap-evidence-root-manifest.v1\x00" + encoded
+        ).digest(),
+    )
+    return manifest, digest
+
+
+def _candidate_from_evidence_document(document: dict) -> CandidateIdentity:
+    repository = document["repository"]
+    assert isinstance(repository, dict)
+    archive = repository["archive"]
+    assert isinstance(archive, dict)
+    archive_digest = "sha256:" + archive["sha256"]
+    statement = {
+        "commit": repository["commit"],
+        "treeObjectId": repository["treeObjectId"],
+        "archiveDigest": archive_digest,
+    }
+    candidate_digest = hashlib.sha256(
+        b"pf.candidate-identity.v1\x00" + canonical_pf_jcs(statement)
+    ).digest()
+    return parse_candidate_identity({
+        **statement,
+        "digest": "sha256:" + candidate_digest.hex(),
+    })
+
+
+def _preflight_evidence_objects(
+    values: object,
+) -> Tuple[_BootstrapEvidenceObjectV1, ...]:
+    """Validate complete canonical EV objects before signed-object curves."""
+    if (type(values) is not tuple
+            or not 1 <= len(values) <= MAX_BOOTSTRAP_EVIDENCE_OBJECTS):
+        _reject("evidenceObjectBytes count must be 1..24576")
+    assert isinstance(values, tuple)
+
+    decoded = []
+    evidence_ids = []
+    for index, encoded in enumerate(values):
+        if (type(encoded) is not bytes
+                or not 1 <= len(encoded) <= MAX_INPUT_BYTES):
+            _reject(f"evidenceObjectBytes[{index}] is invalid")
+        try:
+            document = _EVIDENCE_V1_CORE.decode_json(encoded)
+            if _EVIDENCE_V1_CORE.canonical_bytes(document) != encoded:
+                _reject(f"evidenceObjectBytes[{index}] is not canonical")
+            validated = _EVIDENCE_V1_CORE.validate_evidence(document)
+        except _EVIDENCE_V1_CORE.EvidenceError as error:
+            _reject(f"evidenceObjectBytes[{index}] is invalid: {error}")
+        evidence_id = validated["id"]
+        if type(evidence_id) is not str:
+            _reject(f"evidenceObjectBytes[{index}].id is invalid")
+        decoded.append((encoded, validated))
+        evidence_ids.append(evidence_id)
+
+    if tuple(evidence_ids) != tuple(sorted(evidence_ids)):
+        _reject("evidenceObjectBytes must be ascending by EV id")
+    if len(set(evidence_ids)) != len(evidence_ids):
+        _reject("evidenceObjectBytes EV ids must be unique")
+
+    result = []
+    for encoded, document in decoded:
+        gate = document["gate"]
+        assert isinstance(gate, dict)
+        reference = EvidenceRef(
+            document["id"],
+            Digest("sha256", hashlib.sha256(encoded).digest()),
+        )
+        result.append(_BootstrapEvidenceObjectV1(
+            reference,
+            _candidate_from_evidence_document(document),
+            gate["taskId"],
+            tuple(gate["testIds"]),
+            gate["qualification"],
+            document["result"],
+        ))
+    return tuple(result)
+
+
+def _require_evidence_graph_joins(
+    subject: BootstrapTaskSubjectV1,
+    authority: _BootstrapGraphAuthorityV1,
+    task_objects: Tuple[_BootstrapTaskObjectPreflightV1, ...],
+    manifests: Tuple[Tuple[BootstrapEvidenceRootManifestV1, Digest], ...],
+    evidence_objects: Tuple[_BootstrapEvidenceObjectV1, ...],
+) -> None:
+    if len(manifests) != len(task_objects):
+        _reject("evidence manifests do not match the task closure")
+
+    expected_refs = []
+    for task_object, (manifest, manifest_digest) in zip(
+        task_objects,
+        manifests,
+    ):
+        approval = task_object.approval.taskApproval
+        if (manifest.taskId != approval.taskId
+                or manifest.candidate != approval.candidate
+                or manifest.evidence != approval.evidence):
+            _reject("evidence manifest does not match its TaskApprovalV1")
+        if task_object.handoff.handoff.channels[3].bindingDigest != manifest_digest:
+            _reject("evidence manifest digest does not match evidence-root channel")
+        expected_refs.extend(approval.evidence)
+
+    expected_refs_tuple = tuple(sorted(expected_refs, key=lambda ref: ref.id))
+    if (len({reference.id for reference in expected_refs_tuple})
+            != len(expected_refs_tuple)):
+        _reject("TaskApprovalV1 evidence refs are not globally unique")
+    actual_refs = tuple(item.reference for item in evidence_objects)
+    if actual_refs != expected_refs_tuple:
+        _reject("raw evidence objects do not match TaskApprovalV1 evidence refs")
+
+    evidence_rows = {row.id: row for row in subject.evidenceRows}
+    if tuple(evidence_rows) != tuple(item.reference.id for item in evidence_objects):
+        _reject("raw evidence objects do not match subject evidence rows")
+    tests_by_task = {row.taskId: set() for row in authority.selectedTaskRows}
+    for item in evidence_objects:
+        row = evidence_rows[item.reference.id]
+        if (item.candidate != subject.candidate
+                or item.taskId != row.taskId
+                or item.testIds != row.testIds
+                or item.qualification != "development"
+                or item.result != "passed"):
+            _reject("raw evidence semantic projection does not match subject")
+        tests_by_task[item.taskId].update(item.testIds)
+
+    for row in authority.selectedTaskRows:
+        if tuple(sorted(tests_by_task[row.taskId])) != row.testIds:
+            _reject("raw evidence test union does not match raw PHASE-4")
 
 
 def _require_phase4_approval_join(
@@ -3261,6 +3484,30 @@ def _parse_bootstrap_task_object_graph(
             required_preflight,
         )
 
+    expected_evidence_count = sum(
+        len(row.evidenceIds) for row in authority.selectedTaskRows
+    )
+    if len(objects.evidenceObjectBytes) != expected_evidence_count:
+        _reject("evidenceObjectBytes count does not match raw PHASE-4 closure")
+    manifest_bytes = (objects.evidenceManifestBytes,) + tuple(
+        dependency.evidenceManifestBytes
+        for dependency in objects.dependencyObjects
+    )
+    manifests = tuple(
+        _parse_bootstrap_evidence_manifest(encoded)
+        for encoded in manifest_bytes
+    )
+    evidence_objects = _preflight_evidence_objects(
+        objects.evidenceObjectBytes
+    )
+    _require_evidence_graph_joins(
+        subject,
+        authority,
+        preflights,
+        manifests,
+        evidence_objects,
+    )
+
     _finalize_required_test_set(required_preflight)
     finalized_approvals = tuple(
         _finalize_task_approval(
@@ -3336,23 +3583,34 @@ def verifyBootstrapTaskObjects(
     subject: BootstrapTaskSubjectV1,
     objects: BootstrapTaskObjectSetV1,
 ) -> Union[ObjectVerifiedV1, Rejected]:
-    """Validate the frozen shell, retaining fail-closed object semantics.
+    """Validate and project the complete pure bootstrap object graph.
 
     The raw PHASE-4 task authority, accepted prerequisite snapshots, signed
     root/dependency approval and receipt graph, RequiredSet, policy,
-    run-specific handoffs, and exact raw review-report digest union are
-    verified here.  Evidence-object semantics, reviewer provenance, and
-    protected provenance remain open, so the function can only return the
-    stable rejection, never ObjectVerifiedV1.
+    run-specific handoffs, per-task evidence manifests, complete canonical raw
+    EV objects, and exact raw review-report digest union are verified here.
+    The returned projection remains content-only: archive/fd/service/reviewer
+    and protected execution provenance are deliberately outside this API.
     """
     try:
         _validate_subject_shell(subject)
-        _parse_bootstrap_task_object_graph(subject, objects)
+        graph = _parse_bootstrap_task_object_graph(subject, objects)
+        root = graph.root
+        verified = ObjectVerifiedV1(
+            taskId=root.approval.taskId,
+            candidate=root.approval.candidate,
+            authorityPolicy=root.approval.authorityPolicy,
+            requiredTestSet=root.approval.requiredTestSet,
+            taskApproval=root.approvalRef,
+            taskReceipt=root.receiptRef,
+            stage0Handoff=root.stage0Handoff,
+            dependencyReceipts=tuple(
+                dependency.receiptRef for dependency in graph.dependencies
+            ),
+            evidence=root.approval.evidence,
+        )
     except Rejected as rejected:
         return rejected
     except (TypeError, ValueError, UnicodeError, AttributeError) as error:
         return Rejected(BOOTSTRAP_REJECTION, f"invalid process-local input: {error}")
-    return Rejected(
-        BOOTSTRAP_REJECTION,
-        "bootstrap object/provenance joins are not complete",
-    )
+    return verified

@@ -7424,6 +7424,41 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         evidenceObjectBytes=(b"{}",) * (6 * 4096),
     )
     assert module._validate_object_shell(maximum_evidence_carrier) is None
+    maximum_evidence_item = b"e" * (4 * 1024 * 1024)
+    assert module._validate_object_shell(dataclasses.replace(
+        objects,
+        evidenceObjectBytes=(maximum_evidence_item,),
+    )) is None
+    assert_rejected(
+        module,
+        lambda: module._validate_object_shell(dataclasses.replace(
+            objects,
+            evidenceObjectBytes=(maximum_evidence_item + b"e",),
+        )),
+    )
+    aggregate_maximum = (maximum_evidence_item,) * 64
+    assert module._validate_object_shell(dataclasses.replace(
+        objects,
+        evidenceObjectBytes=aggregate_maximum,
+    )) is None
+    assert_rejected(
+        module,
+        lambda: module._validate_object_shell(dataclasses.replace(
+            objects,
+            evidenceObjectBytes=aggregate_maximum + (b"e",),
+        )),
+    )
+    assert module._validate_object_shell(dataclasses.replace(
+        objects,
+        evidenceManifestBytes=maximum_evidence_item,
+    )) is None
+    assert_rejected(
+        module,
+        lambda: module._validate_object_shell(dataclasses.replace(
+            objects,
+            evidenceManifestBytes=maximum_evidence_item + b"e",
+        )),
+    )
     maximum_count_review_reports = tuple(sorted(
         (
             review_report_object(module, index.to_bytes(2, "big"))
@@ -8052,7 +8087,7 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         module.parse_bootstrap_task_verifier_receipt = (
             original_public_receipt_parser
         )
-    assert isinstance(result, module.Rejected)
+    assert type(result) is module.ObjectVerifiedV1
     assert graph_calls == [(subject, objects)], (
         "public consumer must invoke the verified dependency graph exactly once"
     )
@@ -8613,8 +8648,7 @@ def test_review_report_preflight(module: ModuleType) -> None:
         module.hashlib.sha256 = original_graph_sha256
 
     result = module.verifyBootstrapTaskObjects(subject, objects)
-    assert isinstance(result, module.Rejected)
-    assert result.code == BOOTSTRAP_REJECTION
+    assert type(result) is module.ObjectVerifiedV1
 
 
 def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None:
@@ -8704,6 +8738,33 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         )
         assert all(type(ref) is module.EvidenceRef for ref in result.evidence)
 
+    order_fixture = positive_fixtures[0]
+    original_report_preflight = module._preflight_review_reports
+    original_evidence_decode = module._EVIDENCE_V1_CORE.decode_json
+    intrinsic_events: list[str] = []
+
+    def capture_report_preflight(values: object) -> object:
+        intrinsic_events.append("report")
+        return original_report_preflight(values)
+
+    def capture_evidence_decode(encoded: bytes) -> object:
+        intrinsic_events.append("evidence")
+        return original_evidence_decode(encoded)
+
+    module._preflight_review_reports = capture_report_preflight
+    module._EVIDENCE_V1_CORE.decode_json = capture_evidence_decode
+    try:
+        ordered_result = module.verifyBootstrapTaskObjects(
+            order_fixture["subject"],
+            order_fixture["objects"],
+        )
+    finally:
+        module._preflight_review_reports = original_report_preflight
+        module._EVIDENCE_V1_CORE.decode_json = original_evidence_decode
+    assert type(ordered_result) is module.ObjectVerifiedV1
+    assert intrinsic_events[0] == "report"
+    assert "evidence" in intrinsic_events[1:]
+
     def wrong_manifest_binding(handoff: dict) -> None:
         handoff["channels"][3]["bindingDigest"] = digest_text(b"\x00" * 32)
 
@@ -8722,6 +8783,21 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
     def wrong_result(evidence: dict) -> None:
         evidence["result"] = "failed"
         evidence["command"]["attempts"][0]["exitCode"] = 1
+
+    def unknown_raw_field(evidence: dict) -> None:
+        evidence["callerClaim"] = True
+
+    def wrong_artifact_set(evidence: dict) -> None:
+        evidence["artifactSetSha256"] = "00" * 32
+
+    def wrong_manifest_schema(manifest: dict) -> None:
+        manifest["schema"] = "proof-forge.bootstrap-evidence-root.v1"
+
+    def wrong_manifest_candidate(manifest: dict) -> None:
+        manifest["candidate"] = candidate_identity_wire(module, "d" * 40)
+
+    def wrong_manifest_evidence(manifest: dict) -> None:
+        manifest["evidence"][0]["digest"] = digest_text(b"\x00" * 32)
 
     zero_curve_cases: list[tuple[str, object, object]] = []
     wrong_binding_fixture = signed_d0_object_graph_fixture(
@@ -8744,6 +8820,23 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         cross_task_manifest["subject"],
         cross_task_manifest["objects"],
     ))
+    for label, task_id, mutator in (
+        ("root manifest schema mismatch", "TASK-D0-01", wrong_manifest_schema),
+        ("root manifest candidate mismatch", "TASK-D0-01", wrong_manifest_candidate),
+        ("root manifest EvidenceRef mismatch", "TASK-D0-01", wrong_manifest_evidence),
+        (
+            "dependency manifest candidate mismatch",
+            "TASK-D0-03",
+            wrong_manifest_candidate,
+        ),
+    ):
+        root_task_id = "TASK-D0-01" if task_id == "TASK-D0-01" else "TASK-D0-04"
+        fixture = signed_d0_object_graph_fixture(
+            module,
+            root_task_id,
+            manifest_mutators={task_id: mutator},
+        )
+        zero_curve_cases.append((label, fixture["subject"], fixture["objects"]))
 
     for label, mutator in (
         ("raw EV candidate mismatch", wrong_candidate),
@@ -8751,6 +8844,8 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         ("raw EV test mismatch", wrong_tests),
         ("raw EV formal qualification", wrong_qualification),
         ("raw EV failed result", wrong_result),
+        ("raw EV unknown closed-schema field", unknown_raw_field),
+        ("raw EV artifact-set digest mismatch", wrong_artifact_set),
     ):
         fixture = signed_d0_object_graph_fixture(
             module,
@@ -8769,6 +8864,29 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         dataclasses.replace(
             root_objects,
             evidenceObjectBytes=(module.canonical_pf_jcs(changed_raw),),
+        ),
+    ))
+    zero_curve_cases.extend((
+        (
+            "root evidence manifest is empty",
+            root_fixture["subject"],
+            dataclasses.replace(root_objects, evidenceManifestBytes=b""),
+        ),
+        (
+            "root evidence manifest is noncanonical",
+            root_fixture["subject"],
+            dataclasses.replace(
+                root_objects,
+                evidenceManifestBytes=root_objects.evidenceManifestBytes + b" ",
+            ),
+        ),
+        (
+            "raw EV is noncanonical",
+            root_fixture["subject"],
+            dataclasses.replace(
+                root_objects,
+                evidenceObjectBytes=(root_objects.evidenceObjectBytes[0] + b" ",),
+            ),
         ),
     ))
 
@@ -8791,6 +8909,10 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         ("missing raw EV", evidence_values[1:]),
         ("extra raw EV", evidence_values + (extra_bytes,)),
         (
+            "duplicate raw EV",
+            (evidence_values[0],) + evidence_values[:-1],
+        ),
+        (
             "reordered raw EV",
             (evidence_values[1], evidence_values[0]) + evidence_values[2:],
         ),
@@ -8802,6 +8924,32 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
             full_fixture["subject"],
             dataclasses.replace(full_objects, evidenceObjectBytes=values),
         ))
+
+    original_evidence_decode = module._EVIDENCE_V1_CORE.decode_json
+    evidence_decode_calls = 0
+
+    def count_evidence_decode(encoded: bytes) -> object:
+        nonlocal evidence_decode_calls
+        evidence_decode_calls += 1
+        return original_evidence_decode(encoded)
+
+    module._EVIDENCE_V1_CORE.decode_json = count_evidence_decode
+    try:
+        for label, values in (
+            ("dynamic missing raw EV", evidence_values[1:]),
+            ("dynamic extra raw EV", evidence_values + (extra_bytes,)),
+        ):
+            evidence_decode_calls = 0
+            rejected = module.verifyBootstrapTaskObjects(
+                full_fixture["subject"],
+                dataclasses.replace(full_objects, evidenceObjectBytes=values),
+            )
+            assert isinstance(rejected, module.Rejected), label
+            assert evidence_decode_calls == 0, (
+                f"{label} must reject before any evidence entry decode"
+            )
+    finally:
+        module._EVIDENCE_V1_CORE.decode_json = original_evidence_decode
 
     original_verify_ed25519 = module.verify_ed25519
     curve_calls = 0
