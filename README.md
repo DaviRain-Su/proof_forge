@@ -1,12 +1,22 @@
 # ProofForge V2 (`proof-forge-next`)
 
-ProofForge V2 是一个独立的 Lean 4 多目标程序编译器设计。作者只写一份
-`program ... where` 业务源码，编译器从源码推导语义需求，再由 `--target`
-选择 EVM、Solana、NEAR、Noir 或后续平台的物化方式。
+**一份 portable 业务程序源码 → 多个执行平台的受控物化。**
 
-当前前端直接使用 Lean 4 parser 产生的 `Syntax`，但不会把 Lean AST 当成领域语义：
-`Syntax → Source.Program → Typed.Program → Semantic.Program → target Plan/IR`。CLI
-只解析允许的 portable command，不 elaboration/执行用户文件中的任意 Lean command。
+ProofForge V2 是用 **Lean 4** 实现的多目标编译器：作者只写统一的
+`program … where` 源码；编译器从源码推导语义需求（requirements），再由
+`--target` 选择 **EVM / Solana / NEAR / Noir**（及后续平台）的物化方式。
+
+- **改 target 只能改制品与物化**，不能改整数语义、状态迁移、回滚、调用顺序、
+  授权或信息披露语义。
+- **无法保持语义时必须拒绝**（稳定诊断），禁止 best-effort 降级或回退到旧路径。
+- 编译器是 **代码生成 + 语义检查工具**，不是链上 VM、密钥托管或默认网络执行器。
+
+仓库根目录即 V2 产品工程。旧版 ProofForge（v1）归档在 [`active/`](active/ARCHIVE.md)，
+仅作研究参考，**不是**运行时依赖。
+
+---
+
+## 30 秒上手
 
 ```lean
 import ProofForgeV2
@@ -26,81 +36,166 @@ program Counter where
     return count
 ```
 
-源码不声明“合约、电路或 zkVM workload”类别。`--target` 只能改变物化和制品，
-不能改变整数、状态迁移、回滚、调用顺序、授权或信息披露语义；无法保持语义时，
-编译器必须返回稳定诊断而不是降级或回退。
+```bash
+# 安装 Lean（见 lean-toolchain）后：
+just build
+just test
+# 或本地完整 gate（含 macOS hermetic 子集，见下文）
+just ci          # 可移植 Linux / GitHub CI 子集
+```
 
-## CI
+源码 **不** 声明 “合约 / 电路 / zkVM workload” 类别；类别由 `--target` 的物化决定，
+且不得偷偷改业务语义。
 
-GitHub Actions（`.github/workflows/ci.yml`）与 Codeberg Woodpecker（`.woodpecker.yml`）
-运行可移植 Linux 子集 `just ci`：
+---
 
-- `docs`：`just docs-check`
-- `source-core`：`just build`、`just test`、`dsl-negative`、`target-negative`
+## 架构一览
 
-完整本地 gate（`just check`、`just v2-clean-room-alpha`）仍依赖 macOS hermetic
-host / darwin-arm64 锁定工具链，不在本 CI 中宣称通过。密钥扫描见
-`secret-scan` workflow。
+权威文字规格：[`docs/02-architecture.md`](docs/02-architecture.md)。  
+可编辑架构图（Excalidraw）在 [`docs/diagrams/`](docs/diagrams/README.md)：
 
-## 当前状态
+| 图 | 说明 |
+|---|---|
+| [01 总览](docs/diagrams/01-architecture-overview.excalidraw) | Author → 编译器分层 → 四目标 → 外部工具边界 |
+| [02 编译管线](docs/diagrams/02-compilation-pipeline.excalidraw) | Parse → Preflight → Decode → Typed → Semantic → Resolve → Materialize |
+| [03 一源四目标](docs/diagrams/03-one-program-four-targets.excalidraw) | 同一 Counter 扇出到 EVM / Solana / NEAR / Noir |
+| [04 需求求解](docs/diagrams/04-requirements-support.excalidraw) | Requirements + exact SupportClaim，fail closed |
+| [05 目标地图](docs/diagrams/05-target-landscape.excalidraw) | Phase 1 vs design-only + 成熟度阶梯 |
+| [06 仓库布局](docs/diagrams/06-repo-layout.excalidraw) | 根 = V2；`active/` = v1 归档 |
+| [07 模块边界](docs/diagrams/07-module-boundaries.excalidraw) | Frontend / Semantic / Resolver / Materializer … |
 
-V2 当前完成了文档/规格基线和一个不可发布的 alpha 骨架。alpha 只验证独立 Lake、
-统一入口、Core 与四目标 materializer 的最小连通性，不等于 Phase 1 完成：EVM 已验证
-`solc` bytecode，并在 Anvil 验证初始化、increment 与 overflow rollback；NEAR 的 raw-u64
-Counter 与 Accumulator 已通过 target-owned Plan/recipe、精确 WAT/Wasm 和 `wat2wasm`
-结构验证，但尚无 sandbox receipt 证据；Solana 当前只有 typed `.sbpf-plan` 与 IDL、没有
-sBPF instructions/object/ELF/runtime
-证据；Noir 当前为 source-only：Counter、Accumulator 与 PrivateSum4 经过 target-owned
-Plan/typed relation IR 生成逐 relation 的 `.nr` package 和 disclosure/continuity interface，
-但没有锁定 Nargo/Barretenberg，也没有 ACIR/witness/proof/VK/verify 证据。生命周期状态以
-[`docs/document-status.md`](docs/document-status.md) 为准，研发入口是
-[`AGENTS.md`](AGENTS.md)，文档导航位于 [`docs/index.md`](docs/index.md)。
+**如何出图：** 打开 [excalidraw.com](https://excalidraw.com) → Open 上述 `.excalidraw` →
+微调 → Export image (PNG/SVG) → 放到 `docs/diagrams/` 并在本 README 中引用。
 
-第一阶段实现范围固定为：
+重新生成 JSON（会覆盖未备份的手改）：
 
-- `evm`
-- `solana`
-- `near`
-- `noir`
+```bash
+python3 scripts/generate-excalidraw-diagrams.py
+```
 
-CosmWasm、Soroban、Internet Computer、OpenVM、Aleo 和 Psy 本阶段只形成
-可实施的目标档案及路线图，不宣称已有后端。
+### 编译数据流（文字）
 
-## 独立性
+```text
+Author / CI
+    │  Lean source + explicit --target / profiles
+    ▼
+proof-forge-next
+    ├─ Lean Parser + portable decoder (+ Syntax preflight)
+    │     → Source.Program
+    ├─ name / type / effect check
+    │     → Typed.Program
+    ├─ target-neutral normalization
+    │     → Semantic.Program + ProgramRequirements
+    ├─ Support resolver (exact SupportClaim, fail closed)
+    │     → ResolvedProgram target
+    ├─ target Materializer
+    │     → target Plan → TargetIR
+    └─ emitter
+          → OutputSet + provenance (atomic write)
+                │
+                ├─ official packager / validator / local runtime
+                └─ deploy / prove / verify   ← 仅显式命令，不隐式联网
+```
 
-仓库根目录即 V2 产品工程。旧版 ProofForge（v1）已归档到 [`active/`](active/ARCHIVE.md)，
-仅作研究/参考资料，不能成为 V2 的运行时 oracle、兼容入口或失败回退。clean-room
-门禁从 **commit 的仓库根（排除 `active/`）** 生成 archive，在空目录与受控环境中独立
-构建和测试。
+前端直接使用 Lean 4 的 `Syntax`，但 **不把 Lean AST 当作领域语义**。CLI 只解析允许的
+portable command，不 elaboration / 执行用户文件中的任意 Lean command。
 
-当前 `just v2-clean-room-alpha`（`just isolated-check` 为兼容别名）在随机归档目录、空
-HOME/cache、受控 PATH 与 macOS 网络沙箱中执行 clean build/test、四目标制品验证、逐字节
-复现和 localhost-only EVM runtime。Lean/Lake 与外部工具都从精确 archive/file 进入
-content-addressed cache：官方 Lean ZIP 离线物化完整 toolchain；官方 solc 只使用系统库，
-WABT 的 `libcrypto` 与 Foundry archive 也在 bundle 中逐文件校验，并验证实际 Mach-O load
-closure。首次运行前显式执行 `just toolchains-provision-lean` 和
-`just toolchains-provision-external`；`toolchains-materialize-lean` 与
-`toolchains-materialize-external` 可用于独立检查物化结果，普通 build 和 clean-room gate
-本身不联网。
+关键不变量（摘要）：
 
-commit `0b0aebda…643c8` 已完成这条完整 development clean-room gate（archive
-`05b5bda6…2115c`）。它仍是 alpha：当前 macOS host profile 报告 `Sealed: Broken`，且
-deny-default sandbox 与 schema evidence 尚未完成。因此不能作为正式 hermetic 或 release
-evidence。
+| ID | 含义 |
+|---|---|
+| INV-001 | Source / Typed / Semantic 层不按 `TargetId` 分支 |
+| INV-002 | target 只能做等价物化；否则拒绝 |
+| INV-005 | 任一失败不得变成“成功”或 legacy fallback |
+| INV-008 | build 无网络与密钥副作用；deploy/prove/verify 显式 |
+| INV-010 | clean-room 不依赖 `active/` 或旧 v1 路径 |
 
-H0 现已能由外部净化入口先验证固定 bootstrap 与 Xcode bundle，避免启动任何未验证的
-Git/Python；随后只启动已锁定的 direct Xcode Python 完成 live host profile observation，
-并在 development 模式输出规范化结果。正式模式会 fail closed：当前机器同时因
-system-volume seal broken 和 Xcode pathname 可由当前 admin 用户替换而不具备 hermetic 资格。
-这不是 remote attestation；deny-default sandbox 与正式 evidence schema 仍未完成，所以
-`v2-clean-room-alpha` 仍不是 release gate。
+---
 
-## 文档权威顺序
+## 目标与成熟度（诚实表）
 
-1. 已接受 ADR 与 PRD。
-2. 已接受架构、技术规格和模块规格。
-3. 测试规格与可复现证据。
-4. 当前代码、制品和实际运行门禁。
+| Target | 角色 | 本阶段 | 证据状态（不得夸大） |
+|---|---|---|---|
+| `evm` | contract VM | Phase 1 | Counter bytecode + Anvil 初始化/increment/overflow；**非**完整 EVM 后端 |
+| `solana` | explicit-account SVM | Phase 1 | typed `.sbpf-plan` + IDL；**无** sBPF object / ELF / runtime |
+| `near` | Wasm host | Phase 1 | raw-u64 Counter/Accumulator WAT/Wasm + `wat2wasm`；**无** sandbox receipt |
+| `noir` | circuit | Phase 1 | target-owned Plan / relation IR → `.nr` packages；**无** Nargo/ACIR/proof/VK |
+| CosmWasm / Soroban / ICP / OpenVM / Aleo / Psy | — | design / research | 仅档案与路线图，**无** 产品后端宣称 |
 
-调研材料是证据输入，不会自动成为规范。所有开发工作必须遵循
-[`docs/governance/change-control.md`](docs/governance/change-control.md)。
+详情：[`docs/targets/README.md`](docs/targets/README.md)。
+
+---
+
+## 仓库结构
+
+```text
+.
+├── ProofForgeV2/          # 编译器（Core · Language · Targets · CLI）
+├── Examples/              # 可编译示例程序
+├── Tests/                 # 单元 / 物化测试
+├── docs/                  # PRD · 架构 · 规格 · ADR · diagrams
+├── scripts/               # CI · clean-room · toolchain · 文档检查
+├── justfile               # 本地与 CI 门禁入口
+├── active/                # 归档的 v1 全树（研究 only）
+└── AGENTS.md              # 给 agent / 贡献者的控制面
+```
+
+---
+
+## 文档从哪读
+
+| 想了解 | 打开 |
+|---|---|
+| 生命周期与权威索引 | [`docs/document-status.md`](docs/document-status.md) |
+| 文档导航 | [`docs/index.md`](docs/index.md) |
+| 产品需求 | [`docs/01-prd.md`](docs/01-prd.md) |
+| 系统架构 | [`docs/02-architecture.md`](docs/02-architecture.md) |
+| 任务与验收 | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) |
+| 实现事实日志 | [`docs/06-implementation-log.md`](docs/06-implementation-log.md) |
+| Agent 工作协议 | [`AGENTS.md`](AGENTS.md) |
+
+**权威顺序：** 已接受 ADR/PRD/架构/规格 → 可复现 gate/evidence → 当前代码与制品。  
+调研材料是证据输入，不会自动变成规范。
+
+---
+
+## 开发与 CI
+
+```bash
+just docs-check    # 文档控制面
+just build         # Lake: ProofForgeV2 + proof-forge-next
+just test          # proof-forge-next-tests
+just ci            # 可移植子集（GitHub / Woodpecker 使用）
+just check         # 完整本地 gate（含 macOS hermetic / 锁定工具链）
+just v2-clean-room-alpha   # clean-room 开发门禁（非正式 hermetic release）
+```
+
+| 表面 | 命令 / 配置 | 宣称 |
+|---|---|---|
+| Hosted CI | `.github/workflows/ci.yml`、`.woodpecker.yml` → `just ci` | Linux portable：docs + build/test + 负例 |
+| 密钥扫描 | `secret-scan` workflow | only-verified TruffleHog |
+| 本地 hermetic | `just check` / `v2-clean-room-alpha` | 需 macOS host profile + darwin-arm64 锁定工具；**不是** release EV |
+
+首次物化锁定工具（本地 hermetic，非普通 `just ci`）：
+
+```bash
+just toolchains-provision-lean
+just toolchains-provision-external
+```
+
+---
+
+## 当前状态（alpha）
+
+V2 完成了文档/规格基线与 **不可发布** 的 alpha 骨架：独立 Lake、统一 DSL 入口、
+Core 与四目标 materializer 的最小连通性。**不等于 Phase 1 完成。**
+
+- Clean-room development gate 已可跑，但当前 host 可能 `Sealed: Broken` 等，
+  **不能**当作正式 hermetic / release evidence。
+- 详见实现日志与 document status；写 maturity 时以 **代码 + 可复现 gate** 为准。
+
+---
+
+## 许可
+
+见根目录 [`LICENSE`](LICENSE)。

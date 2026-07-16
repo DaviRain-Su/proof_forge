@@ -22,6 +22,11 @@ normative: true
 | 6 | [Implementation Log](06-implementation-log.md) | `draft` | 只记录真实执行与证据；当前为 pre-acceptance alpha |
 | 7 | [Review Report](07-review-report.md) | `not_started` | 规格、安全、依赖、性能、发布与回滚签署 |
 
+## 架构图（Excalidraw）
+
+可编辑白板图：[`diagrams/README.md`](diagrams/README.md)。在
+[excalidraw.com](https://excalidraw.com) 打开 `.excalidraw` 后导出 PNG/SVG 用于 README。
+
 ## 规范入口
 
 - 语言与语义：[`specs/language.md`](specs/language.md)、
