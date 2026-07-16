@@ -318,6 +318,14 @@ class Phase5SnapshotContentV1:
 
 
 @dataclass(frozen=True)
+class _BootstrapGraphAuthorityV1:
+    phase4: Phase4SnapshotContentV1
+    selectedTaskRows: Tuple[Phase4TaskRowV1, ...]
+    phase5: Phase5SnapshotContentV1
+    prerequisiteDocuments: Tuple[NormativeDocumentRefV1, ...]
+
+
+@dataclass(frozen=True)
 class _RequiredTestSetPreflightV1:
     policy: BootstrapAuthorityPolicyV1
     requiredTestSet: RequiredTestSetV1
@@ -788,6 +796,11 @@ _PHASE4_TABLE_HEADER = (
 _PHASE4_TABLE_DELIMITER = "|---|---|---|---|---|---|---|"
 _PHASE4_ALL_TASK_IDS = tuple(f"TASK-D0-{index:02d}" for index in range(1, 8))
 _PHASE4_TASK_STATUSES = frozenset({"pending", "in_progress", "blocked", "done"})
+_PREREQUISITE_DOCUMENT_PATHS = {
+    "PHASE-1": "docs/01-prd.md",
+    "PHASE-2": "docs/02-architecture.md",
+    "PHASE-3": "docs/03-technical-spec.md",
+}
 _PHASE5_DOCUMENT_PATH = "docs/05-test-spec.md"
 _PHASE5_CATALOG_HEADING = "## 完整 Test ID Catalog"
 _PHASE5_DENOMINATOR_HEADING = "### Phase 1 required-set 分母"
@@ -1299,14 +1312,43 @@ def _parse_accepted_approvers(value: str, where: str) -> Tuple[str, ...]:
     return approvers
 
 
-def _parse_phase5_frontmatter(
-    data: bytes,
-) -> tuple[dict[str, str], int]:
-    return _parse_accepted_frontmatter(data, "PHASE-5")
-
-
-def _parse_phase5_approvers(value: str) -> Tuple[str, ...]:
-    return _parse_accepted_approvers(value, "PHASE-5.approvers")
+def _parse_accepted_normative_snapshot(
+    snapshot: BootstrapDocumentSnapshotV1,
+    expected_id: str,
+    expected_path: str,
+) -> tuple[NormativeDocumentRefV1, bytes, int]:
+    data = _validate_document_snapshot_envelope(
+        snapshot,
+        expected_id,
+        expected_path,
+    )
+    metadata, body_offset = _parse_accepted_frontmatter(data, expected_id)
+    approvers = _parse_accepted_approvers(
+        metadata["approvers"],
+        f"{expected_id}.approvers",
+    )
+    digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.normative-document.v1\x00"
+            + expected_id.encode("ascii")
+            + b"\x00"
+            + data
+        ).digest(),
+    )
+    return (
+        NormativeDocumentRefV1(
+            expected_id,
+            digest,
+            "accepted",
+            metadata["reviewCommit"],
+            metadata["reviewLink"],
+            metadata["approvedAt"],
+            approvers,
+        ),
+        data,
+        body_offset,
+    )
 
 
 def _parse_phase5_catalog(body: bytes) -> Tuple[str, ...]:
@@ -1593,30 +1635,10 @@ def parse_phase4_snapshot_content(
     phase4_snapshot: BootstrapDocumentSnapshotV1,
 ) -> Phase4SnapshotContentV1:
     """Derive the accepted PHASE-4 ref and frozen bootstrap task rows."""
-    data = _validate_document_snapshot_envelope(
+    document, data, body_offset = _parse_accepted_normative_snapshot(
         phase4_snapshot,
         "PHASE-4",
         _PHASE4_DOCUMENT_PATH,
-    )
-    metadata, body_offset = _parse_accepted_frontmatter(data, "PHASE-4")
-    approvers = _parse_accepted_approvers(
-        metadata["approvers"],
-        "PHASE-4.approvers",
-    )
-    digest = Digest(
-        "sha256",
-        hashlib.sha256(
-            b"pf.normative-document.v1\x00PHASE-4\x00" + data
-        ).digest(),
-    )
-    document = NormativeDocumentRefV1(
-        "PHASE-4",
-        digest,
-        "accepted",
-        metadata["reviewCommit"],
-        metadata["reviewLink"],
-        metadata["approvedAt"],
-        approvers,
     )
     return Phase4SnapshotContentV1(
         document,
@@ -1628,28 +1650,10 @@ def parse_phase5_snapshot_content(
     phase5_snapshot: BootstrapDocumentSnapshotV1,
 ) -> Phase5SnapshotContentV1:
     """Derive PHASE-5 metadata and its formal test denominator from bytes."""
-    data = _validate_document_snapshot_envelope(
+    document, data, body_offset = _parse_accepted_normative_snapshot(
         phase5_snapshot,
         "PHASE-5",
         _PHASE5_DOCUMENT_PATH,
-    )
-
-    metadata, body_offset = _parse_phase5_frontmatter(data)
-    approvers = _parse_phase5_approvers(metadata["approvers"])
-    digest = Digest(
-        "sha256",
-        hashlib.sha256(
-            b"pf.normative-document.v1\x00PHASE-5\x00" + data
-        ).digest(),
-    )
-    document = NormativeDocumentRefV1(
-        "PHASE-5",
-        digest,
-        "accepted",
-        metadata["reviewCommit"],
-        metadata["reviewLink"],
-        metadata["approvedAt"],
-        approvers,
     )
     required_test_ids = _parse_phase5_catalog(data[body_offset:])
     return Phase5SnapshotContentV1(document, required_test_ids)
@@ -2711,6 +2715,184 @@ def _require_project_path(value: object) -> str:
     return value
 
 
+def _validate_subject_shell(subject: BootstrapTaskSubjectV1) -> None:
+    """Validate process-local carrier types without selecting graph authority."""
+    if type(subject) is not BootstrapTaskSubjectV1:
+        _reject("subject must be exact BootstrapTaskSubjectV1")
+    if type(subject.candidate) is not CandidateIdentity:
+        _reject("subject candidate must be exact CandidateIdentity")
+    candidate = subject.candidate
+    if (type(candidate.commit) is not str
+            or type(candidate.treeObjectId) is not str):
+        _reject("subject candidate scalar fields must be exact strings")
+    for digest in (candidate.archiveDigest, candidate.digest):
+        if (type(digest) is not Digest
+                or type(digest.algorithm) is not str
+                or digest.algorithm != "sha256"
+                or type(digest.bytes) is not bytes
+                or len(digest.bytes) != 32):
+            _reject("subject candidate digests must be exact SHA-256 values")
+    if (type(subject.rootTaskId) is not str
+            or subject.rootTaskId not in _D0_TASK_IDS):
+        _reject("rootTaskId must be exact TASK-D0-01..06")
+    if (type(subject.taskRows) is not tuple
+            or not 1 <= len(subject.taskRows) <= len(_D0_TASK_IDS)
+            or any(type(row) is not BootstrapTaskRowSubjectV1
+                   for row in subject.taskRows)):
+        _reject("taskRows must contain 1..6 exact typed rows")
+    for row in subject.taskRows:
+        if type(row.taskId) is not str:
+            _reject("task row ID must be an exact string")
+        for values in (
+            row.dependencies,
+            row.testIds,
+            row.evidenceIds,
+        ):
+            if (type(values) is not tuple
+                    or any(type(value) is not str for value in values)):
+                _reject("task row ID collections must be exact string tuples")
+        if type(row.prerequisites) is not tuple:
+            _reject("task row prerequisites must be an exact tuple")
+        for prerequisite in row.prerequisites:
+            if type(prerequisite) is not dict:
+                _reject("task row prerequisite carriers are malformed")
+            prerequisite_keys = tuple(prerequisite.keys())
+            if (any(type(key) is not str for key in prerequisite_keys)
+                    or set(prerequisite_keys) != {
+                        "documentId", "requiredStatus",
+                    }
+                    or type(prerequisite.get("documentId")) is not str
+                    or type(prerequisite.get("requiredStatus")) is not str):
+                _reject("task row prerequisite carriers are malformed")
+    if (type(subject.evidenceRows) is not tuple
+            or not 1 <= len(subject.evidenceRows) <= MAX_BOOTSTRAP_EVIDENCE_OBJECTS
+            or any(type(row) is not BootstrapLedgerSubjectV1
+                   for row in subject.evidenceRows)):
+        _reject("evidenceRows must contain exact typed rows")
+    for row in subject.evidenceRows:
+        if (type(row.id) is not str
+                or type(row.taskId) is not str
+                or type(row.testIds) is not tuple
+                or any(type(test_id) is not str for test_id in row.testIds)
+                or type(row.grade) is not str
+                or type(row.result) is not str):
+            _reject("evidence row fields must use exact carrier types")
+    if (type(subject.documents) is not tuple
+            or not 2 <= len(subject.documents) <= 5
+            or any(type(document) is not BootstrapDocumentSnapshotV1
+                   for document in subject.documents)):
+        _reject("documents must contain 2..5 exact typed snapshots")
+    for document in subject.documents:
+        if (type(document.id) is not str
+                or type(document.path) is not str
+                or type(document.bytes) is not bytes):
+            _reject("document snapshot fields must be exact str/str/bytes")
+
+
+def _subject_document_index(
+    subject: BootstrapTaskSubjectV1,
+) -> dict[str, BootstrapDocumentSnapshotV1]:
+    documents: dict[str, BootstrapDocumentSnapshotV1] = {}
+    for document in subject.documents:
+        if document.id in documents:
+            _reject("document snapshot IDs must be unique")
+        documents[document.id] = document
+    return documents
+
+
+def _derive_phase4_closure(
+    content: Phase4SnapshotContentV1,
+    root_task_id: str,
+) -> Tuple[Phase4TaskRowV1, ...]:
+    row_by_task = {row.taskId: row for row in content.bootstrapTaskRows}
+    if root_task_id not in row_by_task:
+        _reject("PHASE-4 lacks the selected bootstrap root task")
+    selected: set[str] = set()
+
+    def collect(task_id: str) -> None:
+        if task_id in selected:
+            return
+        selected.add(task_id)
+        for dependency in row_by_task[task_id].dependencies:
+            if dependency not in row_by_task:
+                _reject("PHASE-4 bootstrap closure escapes TASK-D0-01..06")
+            collect(dependency)
+
+    collect(root_task_id)
+    rows = tuple(row_by_task[task_id] for task_id in sorted(selected))
+    if any(not row.evidenceIds for row in rows):
+        _reject("selected PHASE-4 bootstrap rows require non-empty evidence IDs")
+    return rows
+
+
+def _require_phase4_subject_join(
+    subject: BootstrapTaskSubjectV1,
+    rows: Tuple[Phase4TaskRowV1, ...],
+) -> None:
+    expected = tuple(
+        BootstrapTaskRowSubjectV1(
+            row.taskId,
+            row.dependencies,
+            tuple(
+                {
+                    "documentId": document_id,
+                    "requiredStatus": "accepted",
+                }
+                for document_id in row.prerequisiteDocumentIds
+            ),
+            row.testIds,
+            row.evidenceIds,
+        )
+        for row in rows
+    )
+    if subject.taskRows != expected:
+        _reject("subject taskRows do not equal the raw PHASE-4 closure projection")
+
+
+def _prepare_graph_authority(
+    subject: BootstrapTaskSubjectV1,
+) -> _BootstrapGraphAuthorityV1:
+    documents = _subject_document_index(subject)
+    phase4_snapshot = documents.get("PHASE-4")
+    if phase4_snapshot is None:
+        _reject("subject lacks the PHASE-4 document snapshot")
+    phase4 = parse_phase4_snapshot_content(phase4_snapshot)
+    selected_rows = _derive_phase4_closure(phase4, subject.rootTaskId)
+    _require_phase4_subject_join(subject, selected_rows)
+    _validate_subject(subject)
+
+    phase5_snapshot = documents.get("PHASE-5")
+    if phase5_snapshot is None:
+        _reject("subject lacks the PHASE-5 document snapshot")
+    phase5 = parse_phase5_snapshot_content(phase5_snapshot)
+
+    prerequisite_ids = tuple(sorted({
+        document_id
+        for row in selected_rows
+        for document_id in row.prerequisiteDocumentIds
+    }))
+    prerequisite_documents = []
+    for document_id in prerequisite_ids:
+        expected_path = _PREREQUISITE_DOCUMENT_PATHS.get(document_id)
+        if expected_path is None:
+            _reject("PHASE-4 references an unsupported prerequisite document")
+        snapshot = documents.get(document_id)
+        if snapshot is None:
+            _reject("subject lacks a selected prerequisite document snapshot")
+        document, _, _ = _parse_accepted_normative_snapshot(
+            snapshot,
+            document_id,
+            expected_path,
+        )
+        prerequisite_documents.append(document)
+    return _BootstrapGraphAuthorityV1(
+        phase4,
+        selected_rows,
+        phase5,
+        tuple(prerequisite_documents),
+    )
+
+
 def _validate_subject(subject: BootstrapTaskSubjectV1) -> None:
     if type(subject) is not BootstrapTaskSubjectV1:
         _reject("subject must be BootstrapTaskSubjectV1")
@@ -2957,21 +3139,56 @@ def _preflight_review_reports(values: object) -> Tuple[Digest, ...]:
     return tuple(report.digest for report in reports)
 
 
+def _require_phase4_approval_join(
+    approval: TaskApprovalV1,
+    row: Phase4TaskRowV1,
+    authority: _BootstrapGraphAuthorityV1,
+) -> None:
+    if approval.taskId != row.taskId:
+        _reject("TaskApprovalV1 taskId does not match its raw PHASE-4 row")
+    if approval.taskBreakdown != authority.phase4.document:
+        _reject("TaskApprovalV1 taskBreakdown does not match raw PHASE-4 bytes")
+    if approval.testIds != row.testIds:
+        _reject("TaskApprovalV1 testIds do not match raw PHASE-4")
+    if tuple(evidence.id for evidence in approval.evidence) != row.evidenceIds:
+        _reject("TaskApprovalV1 evidence IDs do not match raw PHASE-4")
+    if tuple(
+        completion.taskId for completion in approval.dependencyCompletions
+    ) != row.dependencies:
+        _reject("TaskApprovalV1 dependency task IDs do not match raw PHASE-4")
+    prerequisite_by_id = {
+        document.id: document for document in authority.prerequisiteDocuments
+    }
+    try:
+        expected_prerequisites = tuple(
+            prerequisite_by_id[document_id]
+            for document_id in row.prerequisiteDocumentIds
+        )
+    except KeyError:
+        _reject("raw PHASE-4 prerequisite lacks an accepted snapshot")
+    if approval.prerequisiteDocuments != expected_prerequisites:
+        _reject("TaskApprovalV1 prerequisites do not match accepted raw snapshots")
+
+
 def _parse_bootstrap_task_object_graph(
     subject: BootstrapTaskSubjectV1,
     objects: BootstrapTaskObjectSetV1,
 ) -> _BootstrapTaskObjectGraphV1:
+    _validate_subject_shell(subject)
     _validate_object_shell(objects)
     report_digests = _preflight_review_reports(objects.reviewReports)
-    phase5_snapshot = next(
-        (
-            document for document in subject.documents
-            if document.id == "PHASE-5"
-        ),
-        None,
+    authority = _prepare_graph_authority(subject)
+    row_by_task = {
+        row.taskId: row for row in authority.selectedTaskRows
+    }
+    expected_dependency_ids = tuple(
+        row.taskId for row in authority.selectedTaskRows
+        if row.taskId != subject.rootTaskId
     )
-    if phase5_snapshot is None:
-        _reject("subject lacks the PHASE-5 document snapshot")
+    if len(objects.dependencyObjects) != len(expected_dependency_ids):
+        _reject(
+            "dependencyObjects count does not match the raw PHASE-4 closure"
+        )
 
     root_signed = _preflight_bootstrap_task_signed_content(
         objects.taskReceiptBytes,
@@ -2983,10 +3200,6 @@ def _parse_bootstrap_task_object_graph(
             dependency.approvalBytes,
         )
         for dependency in objects.dependencyObjects
-    )
-    expected_dependency_ids = tuple(
-        row.taskId for row in subject.taskRows
-        if row.taskId != subject.rootTaskId
     )
     actual_dependency_ids = tuple(
         dependency.approval.taskApproval.taskId
@@ -3000,22 +3213,16 @@ def _parse_bootstrap_task_object_graph(
         _reject("root TaskApprovalV1 taskId does not match subject rootTaskId")
 
     signed_objects = (root_signed,) + dependency_signed
-    row_by_task = {row.taskId: row for row in subject.taskRows}
     for task_object in signed_objects:
         approval = task_object.approval.taskApproval
         if approval.candidate != subject.candidate:
             _reject("TaskApprovalV1 candidate does not match subject candidate")
-        expected_direct_ids = row_by_task[approval.taskId].dependencies
-        actual_direct_ids = tuple(
-            completion.taskId
-            for completion in approval.dependencyCompletions
-        )
-        if actual_direct_ids != expected_direct_ids:
-            _reject(
-                "TaskApprovalV1 dependencies do not match the subject DAG row"
-            )
+        row = row_by_task.get(approval.taskId)
+        if row is None:
+            _reject("TaskApprovalV1 taskId is outside the raw PHASE-4 closure")
+        _require_phase4_approval_join(approval, row, authority)
 
-    snapshot_content = parse_phase5_snapshot_content(phase5_snapshot)
+    snapshot_content = authority.phase5
     required_preflight = _preflight_required_test_set(
         objects.requiredTestSetBytes,
         objects.authorityPolicyBytes,
@@ -3131,14 +3338,15 @@ def verifyBootstrapTaskObjects(
 ) -> Union[ObjectVerifiedV1, Rejected]:
     """Validate the frozen shell, retaining fail-closed object semantics.
 
-    The signed root/dependency approval, receipt, RequiredSet, policy,
-    run-specific handoff graph, and exact raw review-report digest union are
-    verified here.  PHASE-4 raw content, evidence objects, reviewer provenance,
-    and protected provenance remain open, so the function can only return the
+    The raw PHASE-4 task authority, accepted prerequisite snapshots, signed
+    root/dependency approval and receipt graph, RequiredSet, policy,
+    run-specific handoffs, and exact raw review-report digest union are
+    verified here.  Evidence-object semantics, reviewer provenance, and
+    protected provenance remain open, so the function can only return the
     stable rejection, never ObjectVerifiedV1.
     """
     try:
-        _validate_subject(subject)
+        _validate_subject_shell(subject)
         _parse_bootstrap_task_object_graph(subject, objects)
     except Rejected as rejected:
         return rejected

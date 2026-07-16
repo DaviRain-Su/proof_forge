@@ -1907,6 +1907,8 @@ def signed_d0_object_graph_fixture(
     *,
     shared_quality_review_bytes: bytes | None = None,
     approval_mutators: dict[str, Callable[[dict], None]] | None = None,
+    phase4_snapshot_override: object | None = None,
+    prerequisite_snapshot_overrides: dict[str, object] | None = None,
 ) -> dict[str, object]:
     policy_wire = valid_bootstrap_authority_policy()
     policy_bytes = module.canonical_pf_jcs(policy_wire)
@@ -1920,9 +1922,18 @@ def signed_d0_object_graph_fixture(
         module,
         required_ids=required_ids,
     )
-    phase4_snapshot = make_phase4_snapshot(module)
+    phase4_snapshot = (
+        make_phase4_snapshot(module)
+        if phase4_snapshot_override is None
+        else phase4_snapshot_override
+    )
+    prerequisite_overrides = prerequisite_snapshot_overrides or {}
     document_snapshots = {
-        identifier: make_accepted_prerequisite_snapshot(module, identifier)
+        identifier: (
+            prerequisite_overrides[identifier]
+            if identifier in prerequisite_overrides
+            else make_accepted_prerequisite_snapshot(module, identifier)
+        )
         for identifier in ACCEPTED_PREREQUISITE_TITLES
     }
     document_snapshots["PHASE-4"] = phase4_snapshot
@@ -2053,7 +2064,9 @@ def signed_d0_object_graph_fixture(
             ),
             "taskApproval": approval_ref,
             "stage0Handoff": handoff_ref,
-            "dependencyCompletions": copy.deepcopy(dependency_refs),
+            "dependencyCompletions": copy.deepcopy(
+                approval_statement["dependencyCompletions"]
+            ),
             "verifierDigest": policy_wire["verifier"]["executableDigest"],
             "result": "task-approved",
         }
@@ -6312,7 +6325,10 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
             "malformed object shell must reject before object graph work"
         )
         assert shell_arguments == [malformed_shell]
-        for label, invalid_subject in invalid_subjects:
+        shell_invalid_subjects = (
+            ("generic non-D0 task identity", generic_task_subject),
+        )
+        for label, invalid_subject in shell_invalid_subjects:
             events.clear()
             shell_arguments.clear()
             result = module.verifyBootstrapTaskObjects(
@@ -6321,7 +6337,8 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
             )
             assert isinstance(result, module.Rejected)
             assert events == [], (
-                f"{label} must reject before object or signature work"
+                f"{label} must reject in the typed subject shell before "
+                "object or signature work"
             )
             assert shell_arguments == []
     finally:
@@ -6331,6 +6348,37 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
 
 def test_phase4_graph_authority_join(module: ModuleType) -> None:
     root_fixture = signed_d0_object_graph_fixture(module, "TASK-D0-01")
+
+    class EqualityGadget:
+        def __hash__(self) -> int:
+            return hash("documentId")
+
+        def __eq__(self, other: object) -> bool:
+            del other
+            raise AssertionError("subject shell reached prerequisite equality gadget")
+
+    gadget_row = dataclasses.replace(
+        root_fixture["subject"].taskRows[0],
+        prerequisites=(
+            {EqualityGadget(): "PHASE-1", "requiredStatus": "accepted"},
+        ),
+    )
+    gadget_subject = dataclasses.replace(
+        root_fixture["subject"],
+        taskRows=(gadget_row,),
+    )
+    assert_rejected(
+        module,
+        lambda: module._validate_subject_shell(gadget_subject),
+    )
+    assert isinstance(
+        module.verifyBootstrapTaskObjects(
+            gadget_subject,
+            root_fixture["objects"],
+        ),
+        module.Rejected,
+    )
+
     root_graph = module._parse_bootstrap_task_object_graph(
         root_fixture["subject"],
         root_fixture["objects"],
@@ -6367,28 +6415,502 @@ def test_phase4_graph_authority_join(module: ModuleType) -> None:
             for document in root_fixture["subject"].documents
         ),
     )
-    original_verify_ed25519 = module.verify_ed25519
-    curve_calls = 0
+    def assert_join_rejected_before_curves(
+        label: str,
+        invalid_subject: object,
+        invalid_objects: object,
+    ) -> None:
+        original_verify_ed25519 = module.verify_ed25519
+        curve_calls = 0
+        finalizer_names = (
+            "_finalize_required_test_set",
+            "_finalize_task_approval",
+            "_finalize_bootstrap_task_verifier_receipt",
+        )
+        original_finalizers = {
+            name: getattr(module, name) for name in finalizer_names
+        }
+        finalizer_calls = {name: 0 for name in finalizer_names}
 
-    def count_curve_calls(*args: object, **kwargs: object) -> bool:
-        nonlocal curve_calls
-        curve_calls += 1
-        return original_verify_ed25519(*args, **kwargs)
+        def count_curve_calls(*args: object, **kwargs: object) -> bool:
+            nonlocal curve_calls
+            curve_calls += 1
+            return original_verify_ed25519(*args, **kwargs)
 
-    module.verify_ed25519 = count_curve_calls
-    try:
-        assert_rejected(
+        module.verify_ed25519 = count_curve_calls
+        for name in finalizer_names:
+            original_finalizer = original_finalizers[name]
+
+            def count_finalizer_calls(
+                *args: object,
+                _name: str = name,
+                _original: Callable = original_finalizer,
+                **kwargs: object,
+            ) -> object:
+                finalizer_calls[_name] += 1
+                return _original(*args, **kwargs)
+
+            setattr(module, name, count_finalizer_calls)
+        try:
+            assert_rejected(
+                module,
+                lambda: module._parse_bootstrap_task_object_graph(
+                    invalid_subject,
+                    invalid_objects,
+                ),
+            )
+        finally:
+            module.verify_ed25519 = original_verify_ed25519
+            for name, original_finalizer in original_finalizers.items():
+                setattr(module, name, original_finalizer)
+        assert curve_calls == 0, (
+            f"{label} must reject before every signature curve"
+        )
+        assert not any(finalizer_calls.values()), (
+            f"{label} must reject before every signed-object finalizer"
+        )
+
+    assert_join_rejected_before_curves(
+        "PHASE-4 raw digest mismatch",
+        changed_subject,
+        root_fixture["objects"],
+    )
+
+    changed_closure_snapshot = make_phase4_snapshot(
+        module,
+        row_overrides={"TASK-D0-02": {"dependencies": ()}},
+    )
+    closure_fixture = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-02",
+        phase4_snapshot_override=changed_closure_snapshot,
+    )
+    assert_join_rejected_before_curves(
+        "raw-derived closure substitution",
+        closure_fixture["subject"],
+        closure_fixture["objects"],
+    )
+
+    root_row = root_fixture["subject"].taskRows[0]
+    root_evidence = root_fixture["subject"].evidenceRows[0]
+    substituted_tests_subject = dataclasses.replace(
+        root_fixture["subject"],
+        taskRows=(dataclasses.replace(
+            root_row,
+            testIds=("TST-DOC-999",),
+        ),),
+        evidenceRows=(dataclasses.replace(
+            root_evidence,
+            testIds=("TST-DOC-999",),
+        ),),
+    )
+    assert module._validate_subject(substituted_tests_subject) is None
+    assert_join_rejected_before_curves(
+        "same-cardinality subject test substitution",
+        substituted_tests_subject,
+        root_fixture["objects"],
+    )
+
+    substituted_evidence_id = "EV-20260717-0099"
+    substituted_evidence_subject = dataclasses.replace(
+        root_fixture["subject"],
+        taskRows=(dataclasses.replace(
+            root_row,
+            evidenceIds=(substituted_evidence_id,),
+        ),),
+        evidenceRows=(dataclasses.replace(
+            root_evidence,
+            id=substituted_evidence_id,
+        ),),
+    )
+    assert module._validate_subject(substituted_evidence_subject) is None
+    assert_join_rejected_before_curves(
+        "same-cardinality subject evidence substitution",
+        substituted_evidence_subject,
+        root_fixture["objects"],
+    )
+
+    dependency_rows = tuple(
+        dataclasses.replace(
+            row,
+            dependencies=(
+                "TASK-D0-01",
+                "TASK-D0-03",
+                "TASK-D0-05",
+                "TASK-D0-06",
+            ),
+        ) if row.taskId == "TASK-D0-04" else row
+        for row in full_fixture["subject"].taskRows
+    )
+    substituted_dependency_subject = dataclasses.replace(
+        full_fixture["subject"],
+        taskRows=dependency_rows,
+    )
+    assert module._validate_subject(substituted_dependency_subject) is None
+    assert_join_rejected_before_curves(
+        "same-cardinality subject dependency substitution",
+        substituted_dependency_subject,
+        full_fixture["objects"],
+    )
+
+    substituted_prerequisites = (
+        {"documentId": "PHASE-0", "requiredStatus": "accepted"},
+    ) + root_row.prerequisites[1:]
+    substituted_prerequisite_subject = dataclasses.replace(
+        root_fixture["subject"],
+        taskRows=(dataclasses.replace(
+            root_row,
+            prerequisites=substituted_prerequisites,
+        ),),
+        documents=tuple(
+            dataclasses.replace(
+                document,
+                id="PHASE-0",
+                path="docs/00-prerequisite-substitute.md",
+            ) if document.id == "PHASE-1" else document
+            for document in root_fixture["subject"].documents
+        ),
+    )
+    assert module._validate_subject(substituted_prerequisite_subject) is None
+    assert_join_rejected_before_curves(
+        "same-cardinality subject prerequisite substitution",
+        substituted_prerequisite_subject,
+        root_fixture["objects"],
+    )
+
+    reordered_subject = dataclasses.replace(
+        full_fixture["subject"],
+        taskRows=tuple(reversed(full_fixture["subject"].taskRows)),
+    )
+    assert_join_rejected_before_curves(
+        "subject task-row reorder",
+        reordered_subject,
+        full_fixture["objects"],
+    )
+    sparse_fixture = signed_d0_object_graph_fixture(module, "TASK-D0-02")
+    missing_raw_closure_row_subject = dataclasses.replace(
+        sparse_fixture["subject"],
+        taskRows=(sparse_fixture["subject"].taskRows[-1],),
+    )
+    assert_join_rejected_before_curves(
+        "subject missing raw closure row",
+        missing_raw_closure_row_subject,
+        sparse_fixture["objects"],
+    )
+    extra_task_row = next(
+        row for row in full_fixture["subject"].taskRows
+        if row.taskId == "TASK-D0-03"
+    )
+    extra_evidence_rows = tuple(
+        row for row in full_fixture["subject"].evidenceRows
+        if row.taskId == "TASK-D0-03"
+    )
+    extra_raw_closure_row_subject = dataclasses.replace(
+        sparse_fixture["subject"],
+        taskRows=sparse_fixture["subject"].taskRows + (extra_task_row,),
+        evidenceRows=(
+            sparse_fixture["subject"].evidenceRows + extra_evidence_rows
+        ),
+    )
+    assert_join_rejected_before_curves(
+        "subject extra raw closure row",
+        extra_raw_closure_row_subject,
+        sparse_fixture["objects"],
+    )
+
+    task_breakdown_substitutions = (
+        ("id", "PHASE-3"),
+        ("contentDigest", digest_text(bytes(32))),
+        ("status", "proposed"),
+        ("reviewCommit", "b" * 40),
+        ("reviewLink", "https://review.example/substituted-phase-4"),
+        ("approvedAt", "2026-07-15"),
+        ("approvers", ["principal-architecture", "principal-quality"]),
+    )
+    for field, replacement in task_breakdown_substitutions:
+        def mutate_root_breakdown(
+            statement: dict,
+            _field: str = field,
+            _replacement: object = replacement,
+        ) -> None:
+            statement["taskBreakdown"][_field] = copy.deepcopy(_replacement)
+
+        wrong_root_breakdown = signed_d0_object_graph_fixture(
             module,
-            lambda: module._parse_bootstrap_task_object_graph(
-                changed_subject,
-                root_fixture["objects"],
+            "TASK-D0-01",
+            approval_mutators={"TASK-D0-01": mutate_root_breakdown},
+        )
+        assert_join_rejected_before_curves(
+            f"re-signed root taskBreakdown {field} substitution",
+            wrong_root_breakdown["subject"],
+            wrong_root_breakdown["objects"],
+        )
+
+    for dependency_task_id in full_fixture["dependencyTaskIds"]:
+        for field, replacement in task_breakdown_substitutions:
+            def mutate_dependency_breakdown(
+                statement: dict,
+                _field: str = field,
+                _replacement: object = replacement,
+            ) -> None:
+                statement["taskBreakdown"][_field] = copy.deepcopy(_replacement)
+
+            wrong_dependency_breakdown = signed_d0_object_graph_fixture(
+                module,
+                "TASK-D0-04",
+                approval_mutators={
+                    dependency_task_id: mutate_dependency_breakdown,
+                },
+            )
+            assert_join_rejected_before_curves(
+                f"re-signed {dependency_task_id} taskBreakdown {field} substitution",
+                wrong_dependency_breakdown["subject"],
+                wrong_dependency_breakdown["objects"],
+            )
+
+    def mutate_approval_test_axis(statement: dict) -> None:
+        statement["testIds"] = ["TST-ISO-001"]
+
+    def mutate_approval_evidence_axis(statement: dict) -> None:
+        statement["evidence"][0]["id"] = "EV-20260717-0099"
+
+    for label, mutator in (
+        ("test", mutate_approval_test_axis),
+        ("evidence", mutate_approval_evidence_axis),
+    ):
+        wrong_approval_axis = signed_d0_object_graph_fixture(
+            module,
+            "TASK-D0-01",
+            approval_mutators={"TASK-D0-01": mutator},
+        )
+        assert_join_rejected_before_curves(
+            f"re-signed approval {label}-axis substitution",
+            wrong_approval_axis["subject"],
+            wrong_approval_axis["objects"],
+        )
+
+    def mutate_dependency_axis(statement: dict) -> None:
+        statement["dependencyCompletions"][0]["taskId"] = "TASK-D0-01"
+
+    wrong_dependency_axis = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-04",
+        approval_mutators={"TASK-D0-04": mutate_dependency_axis},
+    )
+    assert_join_rejected_before_curves(
+        "re-signed approval dependency-axis substitution",
+        wrong_dependency_axis["subject"],
+        wrong_dependency_axis["objects"],
+    )
+
+    dependency_test_substitutions = {
+        "TASK-D0-01": ["TST-ISO-001"],
+        "TASK-D0-02": ["TST-DOC-001"],
+        "TASK-D0-03": [
+            "TST-COMMON-001",
+            "TST-DOC-001",
+            "TST-ISO-001",
+        ],
+        "TASK-D0-05": ["TST-COMMON-001"],
+        "TASK-D0-06": ["TST-DOC-001"],
+    }
+    for dependency_task_id in full_fixture["dependencyTaskIds"]:
+        alternative_tests = dependency_test_substitutions[dependency_task_id]
+
+        def mutate_dependency_test_axis(
+            statement: dict,
+            _alternative_tests: list[str] = alternative_tests,
+        ) -> None:
+            statement["testIds"] = copy.deepcopy(_alternative_tests)
+
+        def mutate_dependency_evidence_axis(statement: dict) -> None:
+            replacement_ids = (
+                ["EV-20260717-0098", "EV-20260717-0099"]
+                if len(statement["evidence"]) == 2
+                else ["EV-20260717-0099"]
+            )
+            for evidence, replacement_id in zip(
+                statement["evidence"], replacement_ids
+            ):
+                evidence["id"] = replacement_id
+
+        for label, mutator in (
+            ("test", mutate_dependency_test_axis),
+            ("evidence", mutate_dependency_evidence_axis),
+        ):
+            wrong_dependency_approval_axis = signed_d0_object_graph_fixture(
+                module,
+                "TASK-D0-04",
+                approval_mutators={dependency_task_id: mutator},
+            )
+            assert_join_rejected_before_curves(
+                f"re-signed {dependency_task_id} approval {label}-axis substitution",
+                wrong_dependency_approval_axis["subject"],
+                wrong_dependency_approval_axis["objects"],
+            )
+
+    dependency_axis_substitutions = {
+        "TASK-D0-02": ("TASK-D0-03",),
+        "TASK-D0-03": ("TASK-D0-05", "TASK-D0-06"),
+        "TASK-D0-05": ("TASK-D0-06",),
+        "TASK-D0-06": ("TASK-D0-03", "TASK-D0-05"),
+    }
+    for dependency_task_id, replacement_task_ids in (
+        dependency_axis_substitutions.items()
+    ):
+        def mutate_dependency_dependencies_axis(
+            statement: dict,
+            _replacement_task_ids: tuple[str, ...] = replacement_task_ids,
+        ) -> None:
+            for completion, replacement_task_id in zip(
+                statement["dependencyCompletions"],
+                _replacement_task_ids,
+            ):
+                completion["taskId"] = replacement_task_id
+
+        wrong_dependency_axis = signed_d0_object_graph_fixture(
+            module,
+            "TASK-D0-04",
+            approval_mutators={
+                dependency_task_id: mutate_dependency_dependencies_axis,
+            },
+        )
+        assert_join_rejected_before_curves(
+            f"re-signed {dependency_task_id} dependency-axis substitution",
+            wrong_dependency_axis["subject"],
+            wrong_dependency_axis["objects"],
+        )
+
+    prerequisite_ref_substitutions = (
+        ("contentDigest", digest_text(bytes(32))),
+        ("status", "proposed"),
+        ("reviewCommit", "b" * 40),
+        ("reviewLink", "https://review.example/substituted-prerequisite"),
+        ("approvedAt", "2026-07-15"),
+        ("approvers", ["principal-architecture", "principal-security"]),
+    )
+    prerequisite_id_substitutions = {
+        "PHASE-1": "PHASE-0",
+        "PHASE-2": "PHASE-2A",
+        "PHASE-3": "PHASE-3A",
+    }
+    for graph_root, approval_task_id, approval_role in (
+        ("TASK-D0-01", "TASK-D0-01", "root"),
+        ("TASK-D0-04", "TASK-D0-01", "dependency"),
+    ):
+        for prerequisite_index, document_id in enumerate(
+            ("PHASE-1", "PHASE-2", "PHASE-3")
+        ):
+            substitutions = (
+                ("id", prerequisite_id_substitutions[document_id]),
+            ) + prerequisite_ref_substitutions
+            for field, replacement in substitutions:
+                def mutate_prerequisite_full_ref(
+                    statement: dict,
+                    _index: int = prerequisite_index,
+                    _field: str = field,
+                    _replacement: object = replacement,
+                ) -> None:
+                    statement["prerequisiteDocuments"][_index][
+                        _field
+                    ] = copy.deepcopy(_replacement)
+
+                wrong_prerequisite_ref = signed_d0_object_graph_fixture(
+                    module,
+                    graph_root,
+                    approval_mutators={
+                        approval_task_id: mutate_prerequisite_full_ref,
+                    },
+                )
+                assert_join_rejected_before_curves(
+                    f"re-signed {approval_role} {document_id} prerequisite {field} substitution",
+                    wrong_prerequisite_ref["subject"],
+                    wrong_prerequisite_ref["objects"],
+                )
+
+    class ForgedPrerequisiteSnapshot(module.BootstrapDocumentSnapshotV1):
+        pass
+
+    for document_id in ("PHASE-1", "PHASE-2", "PHASE-3"):
+        snapshot = root_fixture["documentSnapshots"][document_id]
+        body = f"Synthetic accepted authority fixture for {document_id}.".encode()
+        assert snapshot.bytes.count(body) == 1
+        changed_snapshot = dataclasses.replace(
+            snapshot,
+            bytes=snapshot.bytes.replace(
+                body,
+                f"Changed accepted authority fixture for {document_id}.".encode(),
+                1,
             ),
         )
-    finally:
-        module.verify_ed25519 = original_verify_ed25519
-    assert curve_calls == 0, (
-        "PHASE-4 raw digest mismatch must reject before every signature curve"
-    )
+        changed_subject = dataclasses.replace(
+            root_fixture["subject"],
+            documents=tuple(
+                changed_snapshot if document.id == document_id else document
+                for document in root_fixture["subject"].documents
+            ),
+        )
+        assert_join_rejected_before_curves(
+            f"{document_id} raw-byte/domain substitution",
+            changed_subject,
+            root_fixture["objects"],
+        )
+
+        wrong_path_subject = dataclasses.replace(
+            root_fixture["subject"],
+            documents=tuple(
+                dataclasses.replace(
+                    document,
+                    path=f"docs/{document_id.lower()}-substitute.md",
+                ) if document.id == document_id else document
+                for document in root_fixture["subject"].documents
+            ),
+        )
+        assert_join_rejected_before_curves(
+            f"{document_id} canonical-path substitution",
+            wrong_path_subject,
+            root_fixture["objects"],
+        )
+
+        assert snapshot.bytes.count(b"status: accepted") == 1
+        wrong_frontmatter = dataclasses.replace(
+            snapshot,
+            bytes=snapshot.bytes.replace(
+                b"status: accepted",
+                b"status: proposed",
+                1,
+            ),
+        )
+        wrong_frontmatter_fixture = signed_d0_object_graph_fixture(
+            module,
+            "TASK-D0-01",
+            prerequisite_snapshot_overrides={
+                document_id: wrong_frontmatter,
+            },
+        )
+        assert_join_rejected_before_curves(
+            f"{document_id} re-signed accepted-frontmatter substitution",
+            wrong_frontmatter_fixture["subject"],
+            wrong_frontmatter_fixture["objects"],
+        )
+
+        forged_snapshot = ForgedPrerequisiteSnapshot(
+            snapshot.id,
+            snapshot.path,
+            snapshot.bytes,
+        )
+        forged_type_subject = dataclasses.replace(
+            root_fixture["subject"],
+            documents=tuple(
+                forged_snapshot if document.id == document_id else document
+                for document in root_fixture["subject"].documents
+            ),
+        )
+        assert_join_rejected_before_curves(
+            f"{document_id} snapshot subtype substitution",
+            forged_type_subject,
+            root_fixture["objects"],
+        )
 
     parse_calls = 0
     original_parse_phase4 = module.parse_phase4_snapshot_content
@@ -6550,6 +7072,7 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         module._preflight_bootstrap_task_verifier_receipt
     )
     original_handoff_preflight = module._preflight_eligible_stage0_handoff
+    original_phase4_parser = module.parse_phase4_snapshot_content
     original_phase5_parser = module.parse_phase5_snapshot_content
     original_required_preflight = module._preflight_required_test_set
     original_required_finalize = module._finalize_required_test_set
@@ -6560,7 +7083,12 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
     preflight_calls = {"approval": [], "receipt": [], "handoff": []}
     preflight_events: list[str] = []
     finalize_events: list[str] = []
-    shared_calls = {"phase5": 0, "requiredPreflight": 0, "requiredFinalize": 0}
+    shared_calls = {
+        "phase4": 0,
+        "phase5": 0,
+        "requiredPreflight": 0,
+        "requiredFinalize": 0,
+    }
 
     def capture_approval_preflight(encoded: bytes) -> object:
         preflight_events.append("approval")
@@ -6581,6 +7109,11 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
         preflight_events.append("phase5")
         shared_calls["phase5"] += 1
         return original_phase5_parser(snapshot)
+
+    def capture_phase4(snapshot: object) -> object:
+        preflight_events.append("phase4")
+        shared_calls["phase4"] += 1
+        return original_phase4_parser(snapshot)
 
     def capture_required_preflight(*args: object, **kwargs: object) -> object:
         preflight_events.append("required")
@@ -6603,6 +7136,7 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
     module._preflight_task_approval = capture_approval_preflight
     module._preflight_bootstrap_task_verifier_receipt = capture_receipt_preflight
     module._preflight_eligible_stage0_handoff = capture_handoff_preflight
+    module.parse_phase4_snapshot_content = capture_phase4
     module.parse_phase5_snapshot_content = capture_phase5
     module._preflight_required_test_set = capture_required_preflight
     module._finalize_required_test_set = capture_required_finalize
@@ -6616,6 +7150,7 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
             original_receipt_preflight
         )
         module._preflight_eligible_stage0_handoff = original_handoff_preflight
+        module.parse_phase4_snapshot_content = original_phase4_parser
         module.parse_phase5_snapshot_content = original_phase5_parser
         module._preflight_required_test_set = original_required_preflight
         module._finalize_required_test_set = original_required_finalize
@@ -6694,11 +7229,13 @@ def test_dependency_bundle_graph(module: ModuleType) -> None:
     assert tuple(preflight_calls["receipt"]) == expected_receipt_bytes
     assert tuple(preflight_calls["handoff"]) == expected_handoff_bytes
     assert preflight_events == (
-        ["receipt", "approval"] * 6
-        + ["phase5", "required"]
+        ["phase4", "phase5"]
+        + ["receipt", "approval"] * 6
+        + ["required"]
         + ["handoff"] * 6
     ), "graph preflight order must preserve the frozen receipt boundary"
     assert shared_calls == {
+        "phase4": 1,
         "phase5": 1,
         "requiredPreflight": 1,
         "requiredFinalize": 1,
