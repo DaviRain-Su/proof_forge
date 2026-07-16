@@ -693,7 +693,8 @@ digest、normalized observations 和 logs。
    omission/duplication/错绑、formal output catalog/required-test-set path segment mismatch；
 6. bootstrap authority negatives：wrong policy schema、D0-01..06 缺项/乱序/额外项、principal
    间或同一 principal rotation 的 duplicate publicKey、receiptPublicKey alias principal key、按
-   principalId 合并其他 key roles 的权限提升、role enum ASCII 误排序、Task Breakdown row/test/dependency/
+   principalId 合并其他 key roles 的权限提升、role enum ASCII 误排序、principals 0/257 count，
+   duplicate key material 在第二次 subgroup 运算前拒绝、Task Breakdown row/test/dependency/
    prerequisite substitution、missing/wrong/unsigned task RequiredTestSet、owned TST 非 required member、
    EV/review/candidate/handoff mismatch、同一 principal 多 key 满足伪 quorum、历史 candidate 或
    wrong-policy/required-set dependency completion、missing/wrong task receipt、aggregate 作为前五项 done 前置、D0-04 在自身

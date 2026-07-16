@@ -258,6 +258,11 @@ principalId 计算；每个 requiredRole 必须至少由一个拥有该 role 的
 验证的 signatures 各自 keyId exact 命中的 principal entry.roles 取并集；未出现在 signatures 的
 同 principalId 其他 key roles 不得参与。minimumDistinctSigners 也只按这些有效 signatures 映射出的
 distinct principalId 计数。
+principals count 必须为 `1..256`。consumer 必须在任何逐 key curve/subgroup 运算前先检查该 count，
+并先完成 keyId 顺序/唯一性与 publicKey lowercase-hex 解码/唯一性；重复 key material 不得触发重复的
+昂贵曲线验证。每条 ApprovalRule 的 minimumDistinctSigners 不得超过 policy principals 中 distinct
+principalId count；超过该 count 的当前不可满足 policy 必须在解析时拒绝，允许的 stronger threshold
+仍受此上界约束。该 schema-specific bound 不能被 4 MiB/100k-node 通用 PF-JCS envelope 替代。
 严格 Ed25519 验证使用 RFC 8032 pure mode、无 prehash/context；拒绝 non-canonical encoding、
 invalid/small-order public key 和 invalid signature。
 
