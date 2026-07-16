@@ -1786,6 +1786,91 @@ def _sample_document(*, formal: bool = False) -> dict[str, object]:
     return document
 
 
+def _sample_typed_catalog_document() -> dict[str, object]:
+    """Return the smallest complete generic-reader typed-binding fixture."""
+    document = _sample_document()
+    policy = document["sandboxPolicies"][0]  # type: ignore[index]
+    probe = policy["probes"][0]  # type: ignore[index]
+    document["sandboxPolicies"] = [policy]
+    policy["probes"] = [probe]  # type: ignore[index]
+    catalog_ref = {
+        "schema": "proof-forge.gate-catalog.v1",
+        "id": "development-alpha",
+        "version": "1.0.0",
+        "contentSha256": "d" * 64,
+        "catalogDigest": "e" * 64,
+    }
+    document["gateCatalog"] = catalog_ref
+    document["runContextInput"] = {
+        "role": "clean-room-run-context",
+        "path": "run-context.json",
+    }
+    document["hostAttestation"]["observationInput"] = {  # type: ignore[index]
+        "role": "host-observation",
+        "path": "host-observation.json",
+    }
+    policy["renderedPolicyInput"] = {  # type: ignore[index]
+        "role": "sandbox-rendered-policy",
+        "path": "policies/core.sb",
+    }
+    probe["receipt"] = {  # type: ignore[index]
+        "invocationContextInput": {
+            "role": "sandbox-invocation-context",
+            "path": "contexts/sandbox-core-network-denied.json",
+        },
+        "role": "sandbox-invocation-receipt",
+        "path": "policies/sandbox-core-network-denied.receipt.json",
+        "stdoutLog": "build/logs/gate.stdout",
+        "stderrLog": "build/logs/gate.stderr",
+    }
+    document["inputs"].extend([  # type: ignore[union-attr]
+        {
+            "role": "clean-room-run-context",
+            "path": "run-context.json",
+            "sha256": "1" * 64,
+            "size": 1,
+        },
+        {
+            "role": "gate-catalog",
+            "path": "catalog.json",
+            "sha256": catalog_ref["contentSha256"],
+            "size": 1,
+        },
+        {
+            "role": "host-observation",
+            "path": "host-observation.json",
+            "sha256": document["hostAttestation"]["observationSha256"],  # type: ignore[index]
+            "size": 1,
+        },
+        {
+            "role": "sandbox-invocation-context",
+            "path": "contexts/sandbox-core-network-denied.json",
+            "sha256": "2" * 64,
+            "size": 1,
+        },
+        {
+            "role": "sandbox-invocation-receipt",
+            "path": "policies/sandbox-core-network-denied.receipt.json",
+            "sha256": "3" * 64,
+            "size": 1,
+        },
+        {
+            "role": "sandbox-policy-renderer",
+            "path": "scripts/sandbox_policy.py",
+            "sha256": "4" * 64,
+            "size": 1,
+        },
+        {
+            "role": "sandbox-rendered-policy",
+            "path": "policies/core.sb",
+            "sha256": policy["renderedSha256"],  # type: ignore[index]
+            "size": 1,
+        },
+    ])
+    document["inputs"].sort(key=lambda entry: (entry["role"], entry["path"]))  # type: ignore[union-attr,index]
+    return document
+
+
 def _expect_rejected(label: str, operation: object) -> None:
     try:
         if callable(operation):
@@ -1843,8 +1928,10 @@ def self_test() -> None:
     _self_test_literal_dict_keys()
     development = _sample_document()
     formal = _sample_document(formal=True)
+    typed = _sample_typed_catalog_document()
     validate_evidence(development)
     validate_evidence(formal)
+    validate_evidence(typed)
     fractional_utc = copy.deepcopy(development)
     fractional_utc["command"]["endedUtc"] = "2026-07-15T00:00:00.125Z"  # type: ignore[index]
     _expect_rejected("fractional UTC wire form", fractional_utc)
