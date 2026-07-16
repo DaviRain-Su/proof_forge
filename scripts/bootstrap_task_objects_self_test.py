@@ -1080,12 +1080,19 @@ def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
     class ForgedSnapshot(module.BootstrapDocumentSnapshotV1):
         pass
 
+    class ExplosiveScalar:
+        def __eq__(self, other: object) -> bool:
+            del other
+            raise AssertionError("untyped snapshot scalar equality must not run")
+
     for label, invalid_snapshot in (
         ("untyped snapshot", {"id": "PHASE-5"}),
         (
             "snapshot subclass",
             ForgedSnapshot(snapshot.id, snapshot.path, snapshot.bytes),
         ),
+        ("untyped snapshot ID", dataclasses.replace(snapshot, id=ExplosiveScalar())),
+        ("untyped snapshot path", dataclasses.replace(snapshot, path=ExplosiveScalar())),
         ("wrong snapshot ID", dataclasses.replace(snapshot, id="PHASE-4")),
         (
             "wrong snapshot path",
@@ -1161,6 +1168,40 @@ def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
         "```\n## 完整 Test ID Catalog\n```\n## 完整 Test ID Catalog\n".encode(),
         1,
     )
+    bare_h3_before_denominator = snapshot.bytes.replace(
+        b"| ID | ",
+        b"###\n| ID | ",
+        1,
+    )
+    tab_h3_before_denominator = snapshot.bytes.replace(
+        b"| ID | ",
+        b"###\tHidden subsection\n| ID | ",
+        1,
+    )
+    duplicate_table_header = snapshot.bytes.replace(
+        "| ID | 测试对象 |\n".encode(),
+        "| ID | 测试对象 |\n| ID | 测试对象 |\n".encode(),
+        1,
+    )
+    duplicate_table_delimiter = snapshot.bytes.replace(
+        b"|---|---|\n", b"|---|---|\n|---|---|\n", 1
+    )
+    missing_denominator = snapshot.bytes.replace(
+        "### Phase 1 required-set 分母".encode(),
+        b"Phase 1 denominator missing",
+        1,
+    )
+    duplicate_denominator = snapshot.bytes.replace(
+        "### Phase 1 required-set 分母\n".encode(),
+        "### Phase 1 required-set 分母\n### Phase 1 required-set 分母\n".encode(),
+        1,
+    )
+    missing_frontmatter_field = snapshot.bytes.replace(
+        b"owner: quality\n", b"", 1
+    )
+    missing_closing_delimiter = snapshot.bytes.replace(
+        b"\n---\n", b"\n--\n", 1
+    )
     duplicate_id = snapshot.bytes.replace(
         b"| TST-DOC-001 | fixture for TST-DOC-001 |\n",
         b"| TST-DOC-001 | fixture for TST-DOC-001 |\n"
@@ -1176,6 +1217,14 @@ def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
         ("duplicate frontmatter key", dataclasses.replace(snapshot, bytes=duplicate_frontmatter)),
         ("unknown frontmatter key", dataclasses.replace(snapshot, bytes=unknown_frontmatter)),
         ("duplicate heading even inside fence", dataclasses.replace(snapshot, bytes=duplicate_heading)),
+        ("bare raw H3 before denominator", dataclasses.replace(snapshot, bytes=bare_h3_before_denominator)),
+        ("tab raw H3 before denominator", dataclasses.replace(snapshot, bytes=tab_h3_before_denominator)),
+        ("duplicate table header", dataclasses.replace(snapshot, bytes=duplicate_table_header)),
+        ("duplicate table delimiter", dataclasses.replace(snapshot, bytes=duplicate_table_delimiter)),
+        ("missing denominator heading", dataclasses.replace(snapshot, bytes=missing_denominator)),
+        ("duplicate denominator heading", dataclasses.replace(snapshot, bytes=duplicate_denominator)),
+        ("missing frontmatter field", dataclasses.replace(snapshot, bytes=missing_frontmatter_field)),
+        ("missing closing delimiter", dataclasses.replace(snapshot, bytes=missing_closing_delimiter)),
         ("duplicate catalog ID", dataclasses.replace(snapshot, bytes=duplicate_id)),
         ("extra A0 form", dataclasses.replace(snapshot, bytes=extra_a0)),
     ))
@@ -1269,6 +1318,118 @@ def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
             )
     finally:
         module.verify_ed25519 = original_verify_ed25519
+
+
+def _insert_before_phase5_catalog(encoded: bytes, padding: bytes) -> bytes:
+    marker = "## 完整 Test ID Catalog\n".encode("utf-8")
+    assert encoded.count(marker) == 1
+    return encoded.replace(marker, padding + marker, 1)
+
+
+def _bounded_line_padding(size: int) -> bytes:
+    parts = []
+    remaining = size
+    while remaining:
+        if remaining == 1:
+            parts.append(b"\n")
+            break
+        payload_size = min(65_536, remaining - 1)
+        parts.append(b"x" * payload_size + b"\n")
+        remaining -= payload_size + 1
+    result = b"".join(parts)
+    assert len(result) == size
+    assert all(len(line) <= 65_536 for line in result[:-1].split(b"\n"))
+    return result
+
+
+def test_phase5_snapshot_resource_bounds(module: ModuleType) -> None:
+    base = make_phase5_snapshot(module)
+    maximum_bytes = 4 * 1024 * 1024
+    maximum_encoded = _insert_before_phase5_catalog(
+        base.bytes,
+        _bounded_line_padding(maximum_bytes - len(base.bytes)),
+    )
+    assert len(maximum_encoded) == maximum_bytes
+    assert module.parse_phase5_snapshot_content(
+        dataclasses.replace(base, bytes=maximum_encoded)
+    ).requiredTestIds == tuple(sorted(PHASE5_REQUIRED_IDS))
+    assert_rejected(
+        module,
+        lambda: module.parse_phase5_snapshot_content(
+            dataclasses.replace(base, bytes=maximum_encoded + b"\n")
+        ),
+    )
+
+    maximum_line = _insert_before_phase5_catalog(
+        base.bytes, b"x" * 65_536 + b"\n"
+    )
+    module.parse_phase5_snapshot_content(
+        dataclasses.replace(base, bytes=maximum_line)
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_phase5_snapshot_content(dataclasses.replace(
+            base,
+            bytes=_insert_before_phase5_catalog(
+                base.bytes, b"x" * 65_537 + b"\n"
+            ),
+        )),
+    )
+
+    base_line_count = base.bytes.count(b"\n")
+    maximum_lines = _insert_before_phase5_catalog(
+        base.bytes, b"\n" * (100_000 - base_line_count)
+    )
+    assert maximum_lines.count(b"\n") == 100_000
+    module.parse_phase5_snapshot_content(
+        dataclasses.replace(base, bytes=maximum_lines)
+    )
+    over_lines = _insert_before_phase5_catalog(
+        base.bytes, b"\n" * (100_001 - base_line_count)
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_phase5_snapshot_content(
+            dataclasses.replace(base, bytes=over_lines)
+        ),
+    )
+
+    maximum_required_ids = tuple(
+        f"TST-BOUNDARY-{index:04d}" for index in range(4096)
+    )
+    maximum_required = make_phase5_snapshot(
+        module, required_ids=maximum_required_ids
+    )
+    maximum_content = module.parse_phase5_snapshot_content(maximum_required)
+    assert maximum_content.requiredTestIds == maximum_required_ids
+    over_required = make_phase5_snapshot(
+        module,
+        required_ids=maximum_required_ids + ("TST-BOUNDARY-4096",),
+    )
+    assert_rejected(
+        module, lambda: module.parse_phase5_snapshot_content(over_required)
+    )
+
+    description_line = b"| TST-DOC-001 | fixture for TST-DOC-001 |"
+    maximum_description = base.bytes.replace(
+        description_line,
+        b"| TST-DOC-001 | " + b"d" * 4096 + b" |",
+        1,
+    )
+    module.parse_phase5_snapshot_content(
+        dataclasses.replace(base, bytes=maximum_description)
+    )
+    over_description = base.bytes.replace(
+        description_line,
+        b"| TST-DOC-001 | " + b"d" * 4097 + b" |",
+        1,
+    )
+    assert_rejected(
+        module,
+        lambda: module.parse_phase5_snapshot_content(
+            dataclasses.replace(base, bytes=over_description)
+        ),
+    )
 
 
 def test_required_test_set(module: ModuleType) -> None:
@@ -2032,6 +2193,7 @@ def main() -> int:
         test_bootstrap_authority_policy(module)
         test_required_test_set(module)
         test_phase5_snapshot_and_document_bound_join(module)
+        test_phase5_snapshot_resource_bounds(module)
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_and_missing_root_bytes(module, candidate)
