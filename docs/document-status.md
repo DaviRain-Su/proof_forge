@@ -50,8 +50,13 @@ verified claim → synthesis。`proposed` 文档不能覆盖已接受决策。
   `reviewCommit`、`https://` `reviewLink` 与 `openFindings: none`。这些字段是批准记录的机器入口；
   角色数量与权限仍按 [`governance/authority.md`](governance/authority.md) 人工/评审校验。
 - `superseded` 必须额外包含精确 primary document ID 的 `successor`；successor 必须存在且
-  supersession graph 无环。其他状态不得携带 accepted/superseded 条件字段。
+  supersession graph 无环。若旧文档曾为 `accepted`，五个 approval 字段必须完整保留并继续
+  通过格式校验；从未 accepted 的文档不得伪造部分 approval metadata。除 `superseded` 的该历史
+  保留例外外，其他状态不得携带 accepted/superseded 条件字段。
 - 修改 accepted 行为必须先增加 ADR；破坏性变化还需 migration 和版本提升。
 - supersede 时旧文件只加状态横幅与 successor，不改写历史正文。
+- `REL-<semver>` 是合法 primary ID；在 `TASK-D0-03` 的 formal evidence-set binder 落地前，
+  docs-check 必须 fail closed，拒绝任何 `accepted` release document，不得以普通 `passed` alpha
+  ledger 代替正式 candidate-bound evidence set。
 - 文档检查必须拒绝重复 ID、死链接、accepted TODO、无来源事实、无 successor 的
   superseded 状态以及未闭合的 normative trace。

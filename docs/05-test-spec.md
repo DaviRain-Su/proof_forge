@@ -74,32 +74,87 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 
 以下 ID 均为 specified；表中“测试对象”是必须实现的最小断言，不表示已有 gate。
 
-| IDs | 测试对象 |
+| ID | 测试对象 |
 |---|---|
 | TST-DOC-001 | frontmatter、状态、ID、链接、claim/ADR/trace 闭合 |
+| TST-A0-001 | alpha 文档 schema/ID/status/JSON/link checker slice |
+| TST-A0-002 | alpha 独立 Lake、DSL/Core/requirements/materializer slice |
+| TST-A0-003 | alpha 四目标静态 artifact 与 EVM Counter runtime slice |
+| TST-A0-004 | alpha archive isolation smoke（非正式 clean-room） |
+| TST-A0-005 | alpha Lean parser 与 Source/Typed/Semantic 集成 slice |
+| TST-A0-006 | alpha empty-HOME/cache network-denied clean-room slice |
+| TST-A0-007 | alpha external tool content/Mach-O closure slice |
+| TST-A0-008 | alpha Stage-0 development attestation/formal-ineligible slice |
+| TST-A0-009 | alpha development evidence schema/bundle/publication core slice |
+| TST-A0-010 | alpha deny-default runtime continuation slice |
+| TST-A0-011 | alpha exact-local-port evidence compatibility slice |
+| TST-A0-012 | alpha invocation context/receipt publication slice |
+| TST-A0-013 | alpha generic UInt64 EVM Plan/Yul/runtime slice |
+| TST-A0-014 | alpha generic UInt64 Solana Plan/IDL slice |
+| TST-A0-015 | alpha generic UInt64 NEAR Plan/Wasm slice |
+| TST-A0-016 | alpha generic UInt64 Noir Plan/relation/source slice |
+| TST-A0-017 | alpha shared Syntax resource preflight slice |
+| TST-A0-018 | alpha linear typed name-index slice |
+| TST-A0-019 | alpha reusable Loader/session hosted-resource slice |
+| TST-A0-020 | alpha single validated decoded frontend slice |
 | TST-HOST-001 | 权威 `env -i` 入口、严格 bootstrap/JSON、live OS/Xcode/tool 匹配、development observation、formal ineligible 与环境/lock mutation negatives |
 | TST-ISO-001 | 独立 Lake/package/namespace 与父依赖边界 |
 | TST-ISO-002 | Stage-0 eligible host、外部 commit/tree/archive anchor、稳定 committed archive、前后 unchanged、空环境/cache；materialize/core deny-all-network；runtime exact-local-port + Anvil 127 bind/LAN refusal；stage read/write/exec negatives、closed FD/stdin EOF/output cap/timeout、formal session containment、0400 single-link receipts 与 gate-catalog-bound evidence |
 | TST-ISO-003 | D8 release-candidate 全量 clean-room aggregate |
 | TST-TOOL-001 | exact tool version/checksum、missing/shadow/timeout |
-| TST-SRC-001/002 | token/span/NodeId canonicalization；CLI byte cap 与 post-parser per-program Syntax/identity limits |
-| TST-SRC-003/004/005 | program command、declarations、statements/expressions 正负例 |
-| TST-SRC-006/007/008 | attribute export、import/identity、multi-program selection |
+| TST-SRC-001 | token/span/NodeId canonicalization |
+| TST-SRC-002 | CLI byte cap 与 post-parser per-program Syntax/identity limits |
+| TST-SRC-003 | program command 正负例 |
+| TST-SRC-004 | declaration grammar/elaboration 正负例 |
+| TST-SRC-005 | statement/expression grammar 正负例 |
+| TST-SRC-006 | attribute export schema |
+| TST-SRC-007 | import/identity ordering |
+| TST-SRC-008 | multi-program selection |
 | TST-DIAG-001 | diagnostic code/schema/order/redaction |
-| TST-TYPE-001/002 | 类型 happy/boundary/error 与 name resolution |
-| TST-EFFECT-001, TST-BOUND-001 | effect restrictions 与 termination/resource bounds |
-| TST-VIS-001/002 | explicit/implicit disclosure flow 与 authority/custody separation |
-| TST-SEM-001/002/003 | serialization、reference trace、revert/overflow rollback |
-| TST-REQ-001/002/003 | inference/origin、merge/conflict、support exact match/rejection |
-| TST-REG-001/002 | ID/profile parsing、registry duplicate/lookup/design-only rejection |
+| TST-TYPE-001 | 类型 happy/boundary/error |
+| TST-TYPE-002 | accepted-width name resolution/complexity |
+| TST-EFFECT-001 | effect restrictions |
+| TST-BOUND-001 | termination/resource bounds |
+| TST-VIS-001 | explicit disclosure flow |
+| TST-VIS-002 | implicit disclosure 与 authority/custody separation |
+| TST-SEM-001 | canonical serialization |
+| TST-SEM-002 | reference trace |
+| TST-SEM-003 | revert/overflow rollback |
+| TST-REQ-001 | requirement inference/origin |
+| TST-REQ-002 | requirement merge/conflict |
+| TST-REQ-003 | support exact match/rejection |
+| TST-REG-001 | Target/Profile ID parsing |
+| TST-REG-002 | registry duplicate/lookup/design-only rejection |
 | TST-MAT-001 | associated Plan/IR、stage order、invariant mutation tests |
-| TST-OUT-001/002 | manifest/atomicity 与 repeatability/tamper |
-| TST-CLI-001/002/003/004 | parse/help、check/build、inspect/list、prove/verify/deploy guard |
-| TST-EVM-001..005 | Plan、materialize、Yul/ABI、bytecode validation、runtime differential |
-| TST-SOL-001..005 | Plan、materialize、sBPF/IDL、ELF validation、runtime differential |
-| TST-NEAR-001..005 | Plan、materialize、Wasm recipe、Wasm validation、sandbox differential |
-| TST-NOIR-001..006 | Plan、materialize、source/ABI、ACIR/prove/verify、Counter、PrivateSum4 |
-| TST-XTARGET-001/002 | 四目标 aggregate 与 unsupported/version/tool matrix |
+| TST-OUT-001 | manifest/atomicity |
+| TST-OUT-002 | repeatability/tamper |
+| TST-CLI-001 | CLI parse/help |
+| TST-CLI-002 | CLI check/build |
+| TST-CLI-003 | CLI inspect/list-targets |
+| TST-CLI-004 | CLI prove/verify/deploy guard |
+| TST-EVM-001 | EvmPlan schema/invariants |
+| TST-EVM-002 | semantic → EvmPlan |
+| TST-EVM-003 | EvmPlan → Yul/ABI |
+| TST-EVM-004 | bytecode packaging/validation |
+| TST-EVM-005 | Anvil runtime differential |
+| TST-SOL-001 | SolanaPlan schema/invariants |
+| TST-SOL-002 | semantic → SolanaPlan |
+| TST-SOL-003 | Plan → sBPF/IDL |
+| TST-SOL-004 | ELF packaging/validation |
+| TST-SOL-005 | local runtime differential |
+| TST-NEAR-001 | NearPlan schema/invariants |
+| TST-NEAR-002 | semantic → NearPlan |
+| TST-NEAR-003 | Plan → Wasm recipe |
+| TST-NEAR-004 | deterministic Wasm validation |
+| TST-NEAR-005 | sandbox differential |
+| TST-NOIR-001 | NoirPlan schema/invariants |
+| TST-NOIR-002 | semantic → NoirPlan |
+| TST-NOIR-003 | Plan → source/ABI |
+| TST-NOIR-004 | ACIR/witness/prove/verify pipeline |
+| TST-NOIR-005 | Counter proof test |
+| TST-NOIR-006 | PrivateSum4 privacy/proof test |
+| TST-XTARGET-001 | 四目标 aggregate |
+| TST-XTARGET-002 | unsupported/version/tool matrix |
 | TST-SEC-001 | path/env/process/supply-chain/privacy attack matrix |
 | TST-VER-001 | schema/profile compatibility matrix |
 | TST-PERF-001 | cold/incremental/resource benchmark budgets |
@@ -110,16 +165,20 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 ### 文档控制面验收
 
 `TST-DOC-001` 使用独立临时 synthetic corpus，不复制当前 `docs/`，并对每个 case 只引入一个
-mutation。baseline 与“pending task 无 EV”必须通过；以下 mutation 必须以稳定 `PF-DOC-*`
-失败：required file 缺失、frontmatter 缺失/重复/非法字段、非法 lifecycle status、accepted
-缺 approval metadata 或含 TODO、superseded 缺 successor/形成环、document ID/JSON key/结构化
-ID 重复、broken/escaping local link、unknown/empty CLM source、GOAL/FR/NFR orphan、trace 任一
-ADR/INV、SPEC/MOD、TASK、TST 轴缺失或引用未知、done task 缺 TST/EV 或 EV 非 passed、同时两个
-`in_progress` task。
+mutation。baseline、“pending task 无 EV”、合法 `REL-<SemVer>` 与保留完整 approval metadata 的
+accepted→superseded 必须通过；以下 mutation 必须以稳定 `PF-DOC-*` 失败：required file 缺失
+及同阶段首诊断排序、frontmatter 缺失/重复/非法字段、非法 lifecycle status、accepted 缺
+approval metadata 或含 TODO、superseded 缺 successor/形成环、accepted release 无 formal
+evidence-set binder、document/embedded/registry ID 或 JSON key 重复/畸形、authoritative table 行
+宽错误、corpus file/ancestor symlink、broken/escaping local link 或不存在的 fragment、unknown/
+empty CLM source、GOAL/FR/NFR orphan、trace 任一 ADR/INV、SPEC/MOD、TASK、TST 轴缺失或引用未知、
+matrix TST 不属于同一行 TASK、task dependency unknown/cycle/未完成、done task 缺 TST/EV、EV
+result 非精确 `passed` 语法、同时两个 `in_progress` task。
 
 校验顺序固定为 root/required → JSON/frontmatter → status/link/supersession → definition/reference →
 claim source → requirement trace → task/evidence；同阶段按 repo-relative path/line/ID 排序。
-诊断测试固定 code、相对路径与 offending ID，不固定可读 detail 的完整英文句子。
+诊断测试固定 exit=1、空 stdout、唯一一行 stderr、code、相对路径与 offending ID，不固定可读
+detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且不得出现 traceback。
 
 ### Source Syntax resource preflight 首个验收切片
 
