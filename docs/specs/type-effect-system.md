@@ -3,7 +3,7 @@ id: SPEC-TYPE-001
 title: 类型、Effect 与信息披露规格
 status: proposed
 owner: semantics
-updated: 2026-07-15
+updated: 2026-07-16
 normative: true
 ---
 
@@ -32,6 +32,29 @@ Struct/enum 递归必须经 `Option` 且 Phase 1 禁止运行时递归值。
 
 错误：`PF-TYPE-001` mismatch，`PF-TYPE-002` unknown/ambiguous name，
 `PF-TYPE-003` invalid cast，`PF-TYPE-004` non-serializable interface。
+
+### Alpha 名称索引契约
+
+当前 `Typed.check` 的 alpha 子集仍以 `CompileResult`/`CompileError.invalidProgram` 报错；
+本切片不提前宣称完整 `PF-TYPE-*` Diagnostic v1 已实现。accepted-width
+`Source.Program` 必须按以下方式完成名称解析：
+
+- state 在 `Typed.check` 中按源码顺序只构建一次 `HashMap String StateDecl`；initializer
+  与所有 entry 共用该索引。entry 名称按源码顺序用 `HashSet String` 检查重复。
+- 每个 initializer/entry 按参数声明顺序构建一次 `HashMap String Param`；参数 ID、state ID、
+  typed state/parameter/entry 数组仍严格来自声明顺序。HashMap/HashSet 只是临时环境，禁止
+  通过迭代哈希容器生成可观察输出、序列化或 semantic hash。
+- `.variable name` 先查当前 callable 参数，再查 state；同名参数遮蔽隐式 state 引用。
+  `.state name` 与 assignment target 只查 state。非空 synchronous callee 在当前 alpha
+  仍不做 entry resolution。
+- 重复检查和 lookup 使用 `Std.HashMap`/`Std.HashSet` 的预期/摊销常数时间操作，因此对
+  declaration/reference 数量和名称字节总量为预期/摊销线性；不得把该性质表述为抵抗
+  adversarial hash collision 的严格最坏情况线性保证。
+
+错误选择顺序也是可观察契约：空 qualified identity → 空 display name → 第一个重复 state
+→ 第一个重复 entry → 零 entry → initializer 参数重复/initializer body → 各 entry 按声明
+顺序的参数重复/body。body 内保持 left-to-right；view assignment 在 target/RHS lookup 前失败，
+mutate assignment 先查 target 再查 RHS，`checkedAdd` 先检查 lhs 再检查 rhs。
 
 ## Effect
 

@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | 无；**TASK-A0-17** 已在 `feab23ad` 完成并记录为 `EV-20260716-0022` |
-| Next task | **TASK-A0-18**：先写 accepted-width `Source.Program` 的 duplicate/late-name lookup 失败验收，再以 HashSet/HashMap 索引移除 `Typed.check` 的输入相关 O(n²) 扫描；不得改变 target-neutral 语义 |
+| Active task | **TASK-A0-18**：accepted-width `Source.Program` 的 duplicate/name index 与 typecheck complexity regression；当前先冻结错误顺序并提交 RED 验收 |
+| Next task | 完成 checker-owned dependency gate 与宽输入/late lookup 行为向量，再以 HashSet/HashMap 索引移除 `Typed.check` 的输入相关 O(n²) 扫描；不得改变 target-neutral 语义 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |

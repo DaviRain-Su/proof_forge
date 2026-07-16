@@ -48,6 +48,7 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
 | TST-SRC-003 | `program Counter where` 与非法顶层形式 | 正例导出；非法稳定诊断 | unit |
 | TST-SRC-006 | attribute export 跨模块/import 顺序 | identity 稳定，无重复 | integration |
 | TST-TYPE-001 | widths、map、struct、enum | 类型成功/精确失败 | property |
+| TST-TYPE-002 | accepted-width duplicate/name index、late lookup 与错误顺序 | 声明序 ID/遮蔽/诊断不变；checker 不含数组式名称扫描 | unit/structural/complexity |
 | TST-EFFECT-001 | view 写状态/发 effect | `PF-EFFECT-001` | negative |
 | TST-BOUND-001 | 无界循环/递归 | `PF-BOUND-001` | negative |
 | TST-VIS-001 | private 流入 public/log | `PF-VIS-001` | security |
@@ -126,6 +127,25 @@ EVM/Solana/NEAR 因不能保持 private witness 语义，在 Plan 前以 `PF-REQ
   Diagnostic v1/NodeId/span、直接 `Source.Program` API bounds 或 `TST-BOUND-001`；后者仍专指
   D2-03 的循环/递归 termination checker。accepted-width `Source.Program` 后续进入
   `Typed.check` 时仍有数组式 duplicate/name lookup；其线性索引化由 `TASK-A0-18` 跟踪。
+
+### Typed name index 首个验收切片
+
+- `TST-TYPE-002` structural RED gate 从 `Typed.check` 沿 checker-owned definitions 遍历 Lean
+  常量依赖，若可达实现仍引用 `Array.contains`、`Array.find?` 等数组式名称搜索则失败并输出
+  dependency path。该门禁验证本 checker 的结构边界，不把源码文本格式或机器 wall-clock
+  当成 oracle。
+- 直接构造 `Source.Program` 的宽输入向量，不经过 Loader：至少 2048 个有序 state 和
+  2048 个有序 parameter，并在 body 最后位置解析末尾 state/parameter。断言 state/param ID、
+  typed 数组和 entry 顺序保持声明顺序；宽 scope 的 missing variable/explicit state 仍返回
+  精确错误。
+- duplicate/priority 向量固定源码顺序中第一个再次出现的名称，并覆盖 state duplicate 优先于
+  entry/body、entry duplicate 优先于 initializer parameter、initializer parameter 优先于 entry
+  parameter/body、assignment target 优先于 RHS、`checkedAdd` lhs 优先于 rhs。
+- 同名 state/parameter 向量固定 `.variable` 的 parameter shadowing 与 `.state` 的显式 state
+  resolution；未知但非空 synchronous callee 继续合法，防止索引优化改变业务语义。
+- 本切片只关闭 alpha `Typed.check` 的 accepted-width 名称索引回归；不建立直接
+  `Source.Program` 的新宽度上限，不关闭完整 D2 name/type checker、Diagnostic v1、
+  `TST-PERF-001` 或 adversarial hash-collision worst-case 保证。
 
 ### EVM 通用 UInt64 lowering 首个验收切片
 
