@@ -695,6 +695,29 @@ normative: false
   在 D0-01 满足 prerequisites、review 和 bootstrap evidence 之前，不启动唯一后续
   `TASK-D0-02`。
 
+
+## 2026-07-17 — GOV-TASK-FREEZE-001 M0–M2 + TASK-D0-01 triage
+
+- Commits：协议 M0 `a3a3f2168bae6ebcbc559bd99a123cf37ab01f24`；M1 lock
+  `52ff3d24a3722f69c07ac315116d4fbb5156c60d`；M2 freeze-package
+  `af491fb77220836d20f8a4f29234e3127780e7e1`。
+- Spec：`GOV-TASK-FREEZE-001`；作用于**全部** `TASK-*`，非仅 D0-01。
+- Changed：全局任务冻结协议；`task-set.lock.json` exact A0/D0–D8；
+  `docs_check` 增加 `PF-DOC-TASK-SET-LOCK` 与 `PF-DOC-TASK-FREEZE`；
+  `task-freeze-packages/TASK-D0-01.json` 钉死当前 D0-01 完成面；self-test 139 mutations。
+- Commands：`python3 -I -S scripts/docs_check.py --root .`；
+  `python3 -I -S scripts/docs_check_self_test.py`。
+- Results：均 exit 0；`docs-check-self-test: ok (139 mutations)`。
+- **Triage（§6，D0-01 已超默认 3 日窗口）**：结论 **Exception（有时限）**，不是 Split。
+  - 原因：完成面已冻结；剩余为冻结包内 pure consumer / fail-closed integration 与 Phase 1–3
+    accepted 前置，不是无限扩 scope。
+  - 约束：自 2026-07-17 起 **48h** 内只允许冻结包内实现；禁止改 Output/Tests/Deps/Prereq；
+    禁止新增 authority object 族进 D0-01；超时未关则强制 Split（溢出任务）或 Block（等人审）。
+  - 仍不得标 `done` 直至 Prerequisites accepted 与 `TST-DOC-001` 关闭条件满足。
+- Limitations：M3 独立 CI 规则未做；工作区其他 bootstrap 脏文件不属于本切片。
+- Next：在 D0-01 冻结包内收口 pure consumer 验收；并行准备 Phase 1–3 accepted 评审材料；
+  不得启动 D0-02 实施。
+
 ## 记录模板
 
 ```markdown
