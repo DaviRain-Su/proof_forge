@@ -50,6 +50,28 @@ EVIDENCE_ROW_9004_BOOTSTRAP = (
     "| EV-20260716-9004 | TASK-D0-03 | TST-DOC-902 | bootstrap | synthetic | "
     "passed | synthetic D0 trust-root evidence |"
 )
+SYNTHETIC_A0_TASKS = [f"TASK-A0-{index:02d}" for index in range(1, 21)]
+
+
+def task_set_lock_json(milestones: dict[str, list[str]]) -> str:
+    return json.dumps({
+        "schemaVersion": 1,
+        "milestones": milestones,
+    }, indent=2) + "\n"
+
+
+def synthetic_task_set_lock(*d0_tasks: str) -> str:
+    tasks = list(d0_tasks) if d0_tasks else ["TASK-D0-92"]
+    return task_set_lock_json({
+        "A0": list(SYNTHETIC_A0_TASKS),
+        "D0": list(tasks),
+    })
+
+
+def write_task_set_lock(root: Path, *d0_tasks: str) -> None:
+    path = root / "docs/governance/task-set.lock.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(synthetic_task_set_lock(*d0_tasks), encoding="utf-8")
 
 
 def markdown(doc_id: str, body: str = "", *, status: str = "proposed",
@@ -145,6 +167,7 @@ def base_files() -> dict[str, str]:
                 "sources": ["SRC-DOC-901"],
             }],
         }, indent=2) + "\n",
+        "docs/governance/task-set.lock.json": synthetic_task_set_lock("TASK-D0-92"),
     }
     for index, target in enumerate(TARGETS, start=1):
         files[f"docs/targets/{target}"] = markdown(f"TARGET-SYNTH-{index:03d}")
@@ -296,6 +319,7 @@ def complete_bootstrap_trust_root_task(root: Path) -> None:
     replace(root / "docs/traceability/requirements-matrix.md", "TASK-D0-92", "TASK-D0-03")
     replace(root / "docs/traceability/evidence-ledger.md", EVIDENCE_ROW,
             EVIDENCE_ROW + "\n" + EVIDENCE_ROW_9004_BOOTSTRAP)
+    write_task_set_lock(root, "TASK-D0-03")
 
 
 def remove_joint_task_test_trace_edge(root: Path) -> None:
@@ -321,6 +345,7 @@ def remove_joint_task_test_trace_edge(root: Path) -> None:
             "TASK-D0-92 | TST-DOC-902 | specified |\n"
             "| GOAL-901 | FR-902 | ADR-9001, INV-901 | SPEC-DOC-901 | "
             "TASK-D0-93 | TST-DOC-903 | specified |")
+    write_task_set_lock(root, "TASK-D0-92", "TASK-D0-93")
 
 
 def make_unfinished_dependency(root: Path) -> None:
@@ -346,6 +371,7 @@ def make_unfinished_dependency(root: Path) -> None:
             "TASK-D0-92 | TST-DOC-902 | specified |\n"
             "| GOAL-901 | FR-902 | ADR-9001, INV-901 | SPEC-DOC-901 | "
             "TASK-D0-93 | TST-DOC-903 | specified |")
+    write_task_set_lock(root, "TASK-D0-92", "TASK-D0-93")
 
 
 def add_evidence_extra_column(root: Path) -> None:
@@ -853,7 +879,7 @@ def main() -> None:
                 root / "docs/traceability/evidence-ledger.md",
                 "| EV-20260716-9101 | TASK-A0-01 | TST-A0-001 | development | "
                 "synthetic | passed | synthetic evidence |\n", ""),
-        ), "PF-DOC-TASK-SCHEMA", "missing=['TASK-A0-01']"),
+        ), "PF-DOC-TASK-SET-LOCK", "missing=['TASK-A0-01']"),
         ("a0-completed-task-reopened", lambda root: replace(
             root / "docs/04-task-breakdown.md",
             "| TASK-A0-01 | Complete frozen synthetic task | — | — | "
@@ -956,12 +982,17 @@ def main() -> None:
             "| TST-ORPHAN-903 | First required orphan |\n"
             "| TST-ORPHAN-904 | Second required orphan |"),
          "PF-DOC-TRACE-ORPHAN", "required test TST-ORPHAN-903 has no task owner"),
-        ("formal-task-orphan", lambda root: replace(
-            root / "docs/04-task-breakdown.md",
-            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |",
-            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |\n"
-            "| TASK-D9-99 | Untraced formal task | — | — | TST-DOC-902 | — | pending |"),
-         "PF-DOC-TRACE-ORPHAN", "formal task TASK-D9-99 has no requirement trace edge"),
+        ("formal-task-orphan", lambda root: (
+            replace(
+                root / "docs/04-task-breakdown.md",
+                "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+                "TST-DOC-902 | — | pending |",
+                "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+                "TST-DOC-902 | — | pending |\n"
+                "| TASK-D0-99 | Untraced formal task | — | — | TST-DOC-902 | — | pending |"),
+            write_task_set_lock(root, "TASK-D0-92", "TASK-D0-99"),
+        ),
+         "PF-DOC-TRACE-ORPHAN", "formal task TASK-D0-99 has no requirement trace edge"),
         ("a0-like-task-not-exempt", lambda root: replace(
             root / "docs/04-task-breakdown.md",
             "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | TST-DOC-902 | — | pending |",
@@ -1160,8 +1191,32 @@ def main() -> None:
                 root / "docs/traceability/requirements-matrix.md",
                 "| TASK-D0-92 | TST-DOC-902 | specified |",
                 "| TASK-D0-92, TASK-D0-93, TASK-D0-94 | TST-DOC-902 | specified |"),
+            write_task_set_lock(root, "TASK-D0-92", "TASK-D0-93", "TASK-D0-94"),
         ),
          "PF-DOC-TASK-ACTIVE", "TASK-D0-93"),
+        ("task-set-lock-missing", lambda root: (
+            root / "docs/governance/task-set.lock.json").unlink(),
+         "PF-DOC-REQUIRED", "docs/governance/task-set.lock.json"),
+        ("task-set-lock-extra-task", lambda root: replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |\n"
+            "| TASK-D0-93 | Unlocked extra task | — | — | TST-DOC-902 | — | pending |"),
+         "PF-DOC-TASK-SET-LOCK", "unexpected=['TASK-D0-93']"),
+        ("task-set-lock-missing-task", lambda root: write_task_set_lock(
+            root, "TASK-D0-92", "TASK-D0-93"),
+         "PF-DOC-TASK-SET-LOCK", "missing=['TASK-D0-93']"),
+        ("task-set-lock-unlocked-milestone", lambda root: replace(
+            root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |\n"
+            "| TASK-D9-01 | Unlocked milestone task | — | — | "
+            "TST-DOC-902 | — | pending |"),
+         "PF-DOC-TASK-SET-LOCK", "unlocked milestone D9"),
     ]
     for name, mutation, code, marker in cases:
         expect_failure(name, mutation, code, marker)

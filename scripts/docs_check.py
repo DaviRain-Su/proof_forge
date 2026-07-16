@@ -49,6 +49,7 @@ REQUIRED = [
     "research/claim-register.json",
     "targets/README.md",
     "adr/README.md",
+    "governance/task-set.lock.json",
 ]
 TARGETS = {
     "01-evm.md",
@@ -96,6 +97,8 @@ FROZEN_A0_TASK_TO_TEST = dict(FROZEN_A0_TASK_TEST_PAIRS)
 FROZEN_A0_TEST_TO_TASK = {
     test: task for task, test in FROZEN_A0_TASK_TEST_PAIRS
 }
+TASK_SET_LOCK_RELATIVE = "docs/governance/task-set.lock.json"
+MILESTONE_TASK_RE = re.compile(r"^TASK-(A0|D[0-9]+)-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 
 
 def is_frozen_a0_task(identifier: str) -> bool:
@@ -104,6 +107,11 @@ def is_frozen_a0_task(identifier: str) -> bool:
 
 def is_frozen_a0_test(identifier: str) -> bool:
     return identifier in FROZEN_A0_TEST_TO_TASK
+
+
+def milestone_for_task(identifier: str) -> str | None:
+    match = MILESTONE_TASK_RE.fullmatch(identifier)
+    return match.group(1) if match else None
 
 
 class DocsCheckError(Exception):
@@ -1226,6 +1234,77 @@ def validate_claims(definitions: dict[str, Definition], json_values: dict[str, A
                             f"claim {identifier} references unknown {source}")
 
 
+def load_task_set_lock(root: Path) -> dict[str, tuple[str, ...]]:
+    relative = TASK_SET_LOCK_RELATIVE
+    path = root / relative
+    ensure_repository_path(root, path, relative)
+    if not path.is_file():
+        raise_error("PF-DOC-TASK-SET-LOCK", relative, "required task-set lock is missing")
+    payload = load_json(root, path)
+    if not isinstance(payload, dict):
+        raise_error("PF-DOC-TASK-SET-LOCK", relative, "lock root must be a JSON object")
+    schema_version = payload.get("schemaVersion")
+    if schema_version != 1:
+        raise_error(
+            "PF-DOC-TASK-SET-LOCK", relative,
+            f"schemaVersion must be 1, got {schema_version!r}")
+    milestones = payload.get("milestones")
+    if not isinstance(milestones, dict) or not milestones:
+        raise_error("PF-DOC-TASK-SET-LOCK", relative, "milestones must be a non-empty object")
+    locked: dict[str, tuple[str, ...]] = {}
+    for raw_name, raw_ids in milestones.items():
+        if not isinstance(raw_name, str) or not re.fullmatch(r"(?:A0|D[0-9]+)", raw_name):
+            raise_error(
+                "PF-DOC-TASK-SET-LOCK", relative,
+                f"invalid milestone key {raw_name!r}")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise_error(
+                "PF-DOC-TASK-SET-LOCK", relative,
+                f"milestone {raw_name} must be a non-empty array")
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for item in raw_ids:
+            if not isinstance(item, str) or milestone_for_task(item) != raw_name:
+                raise_error(
+                    "PF-DOC-TASK-SET-LOCK", relative,
+                    f"milestone {raw_name} has invalid task id {item!r}")
+            if item in seen:
+                raise_error(
+                    "PF-DOC-TASK-SET-LOCK", relative,
+                    f"milestone {raw_name} repeats {item}")
+            seen.add(item)
+            ordered.append(item)
+        locked[raw_name] = tuple(ordered)
+    return locked
+
+
+def validate_task_set_lock(root: Path, tasks: list[TaskRecord]) -> None:
+    locked = load_task_set_lock(root)
+    relative = TASK_SET_LOCK_RELATIVE
+    by_milestone: dict[str, set[str]] = {}
+    for task in tasks:
+        milestone = milestone_for_task(task.identifier)
+        if milestone is None:
+            continue
+        by_milestone.setdefault(milestone, set()).add(task.identifier)
+        if milestone not in locked:
+            raise_error(
+                "PF-DOC-TASK-SET-LOCK", task.relative,
+                f"{task.identifier} belongs to unlocked milestone {milestone}; "
+                f"add it only via approved lock update")
+
+    for milestone, expected_ids in sorted(locked.items()):
+        actual = by_milestone.get(milestone, set())
+        expected = set(expected_ids)
+        if actual != expected:
+            missing = sorted(expected - actual)
+            unexpected = sorted(actual - expected)
+            raise_error(
+                "PF-DOC-TASK-SET-LOCK", relative,
+                f"milestone {milestone} task set must be exact; "
+                f"missing={missing}, unexpected={unexpected}")
+
+
 def validate_frozen_a0_pairs(definitions: dict[str, Definition],
                              tasks: list[TaskRecord]) -> None:
     tasks_by_id = {task.identifier: task for task in tasks}
@@ -1795,6 +1874,7 @@ def check(root: Path) -> None:
     check_links(root, docs_root, documents, by_id)
     definitions, _tables, tasks, evidence_results = collect_definitions(documents, json_values)
     validate_claims(definitions, json_values)
+    validate_task_set_lock(root, tasks)
     validate_trace(documents, definitions, tasks)
     document_status = {document.meta["id"]: document.meta["status"] for document in documents}
     validate_tasks(definitions, tasks, evidence_results, document_status)

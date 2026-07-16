@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "description": "Exact milestone TASK-* ID sets for GOV-TASK-FREEZE-001 M1. Silent addition requires Architecture+Quality approval and a lock update in the same change.",
+  "milestones": {
+    "A0": [
+      "TASK-A0-01",
+      "TASK-A0-02",
+      "TASK-A0-03",
+      "TASK-A0-04",
+      "TASK-A0-05",
+      "TASK-A0-06",
+      "TASK-A0-07",
+      "TASK-A0-08",
+      "TASK-A0-09",
+      "TASK-A0-10",
+      "TASK-A0-11",
+      "TASK-A0-12",
+      "TASK-A0-13",
+      "TASK-A0-14",
+      "TASK-A0-15",
+      "TASK-A0-16",
+      "TASK-A0-17",
+      "TASK-A0-18",
+      "TASK-A0-19",
+      "TASK-A0-20"
+    ],
+    "D0": [
+      "TASK-D0-01",
+      "TASK-D0-02",
+      "TASK-D0-03",
+      "TASK-D0-04",
+      "TASK-D0-05",
+      "TASK-D0-06",
+      "TASK-D0-07"
+    ],
+    "D1": [
+      "TASK-D1-01",
+      "TASK-D1-02",
+      "TASK-D1-03",
+      "TASK-D1-04",
+      "TASK-D1-05",
+      "TASK-D1-06",
+      "TASK-D1-07",
+      "TASK-D1-08"
+    ],
+    "D2": [
+      "TASK-D2-01",
+      "TASK-D2-02",
+      "TASK-D2-03",
+      "TASK-D2-04",
+      "TASK-D2-05",
+      "TASK-D2-06",
+      "TASK-D2-07"
+    ],
+    "D3": [
+      "TASK-D3-01",
+      "TASK-D3-02",
+      "TASK-D3-03",
+      "TASK-D3-04",
+      "TASK-D3-05",
+      "TASK-D3-06",
+      "TASK-D3-07"
+    ],
+    "D4": [
+      "TASK-D4-01",
+      "TASK-D4-02",
+      "TASK-D4-03",
+      "TASK-D4-04",
+      "TASK-D4-05"
+    ],
+    "D5": [
+      "TASK-D5-01",
+      "TASK-D5-02",
+      "TASK-D5-03",
+      "TASK-D5-04",
+      "TASK-D5-05"
+    ],
+    "D6": [
+      "TASK-D6-01",
+      "TASK-D6-02",
+      "TASK-D6-03",
+      "TASK-D6-04",
+      "TASK-D6-05"
+    ],
+    "D7": [
+      "TASK-D7-01",
+      "TASK-D7-02",
+      "TASK-D7-03",
+      "TASK-D7-04",
+      "TASK-D7-05"
+    ],
+    "D8": [
+      "TASK-D8-01",
+      "TASK-D8-02",
+      "TASK-D8-03",
+      "TASK-D8-04",
+      "TASK-D8-05"
+    ]
+  }
+}

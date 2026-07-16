@@ -169,15 +169,15 @@ Milestone 封顶**不**阻止把过胖任务**拆出**到新 milestone；拆出�
 
 | 阶段 | 检查 | 状态 |
 |---|---|---|
-| M0 | 本文件 + 任务表引用 + 人工 review 按清单 | **当前生效** |
-| M1 | docs-check：至多一个 `in_progress`；A0 集合冻结；D0–D8 ID 集合相对 lock 文件 | 待 `TASK-D0-01` 控制面接入或独立 chore |
+| M0 | 本文件 + 任务表引用 + 人工 review 按清单 | **生效** |
+| M1 | docs-check：至多一个 `in_progress`；A0 集合冻结；A0/D0–D8 ID 集合相对 [`task-set.lock.json`](task-set.lock.json) exact | **生效**（`PF-DOC-TASK-SET-LOCK` / 既有 active/A0 规则） |
 | M2 | docs-check：`in_progress` 行哈希 = freeze package 哈希；完成包字段齐全 | 待实现 |
 | M3 | CI 对完成面 diff 无 exception 则失败 | 待实现 |
 
-在 M1–M3 落地前，**本文件正文仍为规范**；不得以“checker 未实现”为由违反 §2–§6。
+M2–M3 未落地前，**§2–§6 仍为规范**；不得以“更高阶段 checker 未实现”为由违反。
 
-建议 lock 文件（M1+）：`docs/governance/task-set.lock.json`（milestone → exact task ID list）与  
-每任务 `freezeCommit` 索引；格式另开 C1 变更，不在本文件固定 JSON schema 以免未实现时阻塞。
+Lock 文件：`docs/governance/task-set.lock.json`（`schemaVersion: 1`，`milestones` → exact `TASK-*` 列表）。  
+Milestone 增行必须同变更更新 lock，并经 Architecture + Quality 批准。
 
 ## 10. Agent / 人类执行清单
 
@@ -208,7 +208,7 @@ Milestone 封顶**不**阻止把过胖任务**拆出**到新 milestone；拆出�
 |---|---|
 | `taskId` | `TASK-D0-01` |
 | `frozenAt` | `2026-07-17` |
-| `freezeCommit` | 合并本协议之 commit（落地后回填 40-hex；回填本身不算扩面） |
+| `freezeCommit` | `a3a3f2168bae6ebcbc559bd99a123cf37ab01f24`（协议正文落地 commit；回填不算扩面） |
 | `output` | 建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker，以及 external TaskApproval/task-receipt pure consumer 与 candidate-external protected integration；后者未通过 TST-DOC-001 前对 bootstrap closure fail closed |
 | `tests` | `TST-DOC-001` |
 | `dependencies` | `—` |
