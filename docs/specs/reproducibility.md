@@ -33,10 +33,10 @@ sourceHash、semanticHash、planHash、TargetIR hash、所有 artifact hash 和 
 0. 调用者以 `env -i` + `/bin/bash --noprofile --norc` 直接执行 Stage-0
    `--require-eligible`；只有最小 bootstrap 与 Xcode closure 验证后才可启动锁定的 direct
    Python 完成 live attestation，失败时不得启动 Git 或正式 clean-room。
-1. 以已验证的 direct Git 对 **commit object + `new_design` pathspec** 生成 tar archive；禁止
+1. 以已验证的 direct Git 对 **commit object + 仓库根产品 pathspec（排除 `active/`）** 生成 tar archive；禁止
    直接对 subtree tree object 归档，因为 Git 会为 tree-ish 使用调用时刻 mtime，导致 archive
    SHA 不稳定。archive 必须由 `git get-tar-commit-id` 反查到外部选择的完整 candidate
-   commit，同时记录 `commit:new_design` tree object ID、archive SHA-256/size，并扫描拒绝
+   commit，同时记录 `commit^{tree}` object ID、archive SHA-256/size，并扫描拒绝
    symlink、submodule 与越界 path。
 2. 解包到随机空目录，建立空 HOME、Lake cache、tool root 和 output。
 3. `env -i` 仅注入 HOME、XDG/Lake cache、TMPDIR、内部 source/output/tool root、PATH

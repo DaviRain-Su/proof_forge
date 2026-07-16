@@ -1,354 +1,93 @@
 # AGENTS.md
 
-This file is the required entry point for agents working in this repository.
-It is a control plane, not a replacement for design specifications or task
-plans. Start here, follow the linked current documents, and leave the control
-plane synchronized when work is complete.
+这是 ProofForge V2 独立工程的 agent 控制面。它只负责导航、当前检查点和工作
+协议，不替代 PRD、架构、技术规格或测试规格。
 
 ## Project Mission
 
-ProofForge is a Lean 4 compiler/CLI (`proof-forge`) that lowers portable smart
-contract sources through checked canonical IR into target plans and artifacts.
-The current architecture program, D-052, adds a target-neutral intent and
-materializer boundary while preserving the existing primary-triad behavior.
-
-For the public beta, only three targets are advertised as `contract_source`
-compilers: `evm`, `solana-sbpf-asm`, and `wasm-near`. Legacy `ContractSpec`
-inputs and target adapters are migrated incrementally behind equivalence tests;
-do not delete a compatibility path until all callers and fixtures have moved.
+构建 Lean 4 编译器 `proof-forge-next`：统一的 `program ... where` 源码经类型化、
+目标中立语义和需求求解，进入 target-owned Plan/IR，最终生成平台制品。作者不写
+顶层 `kind`；目标决定物化形态，但不得改变业务语义。
 
 ## Current Checkpoint
 
-Keep this section short and update it whenever the active task changes.
-
 | Field | Current value |
 |---|---|
-| Program | Canonical target-plan ownership and incremental Legacy removal |
-| Active task | **PR #105** LR-S5/M1 done + **P3**: Solana `Asm.numStr` hex for ≥2^63 imm (AccessControl sbpf); Seam A maintain; **D-058** |
-| Next task | Land/review #105; further P3 only with new repros; #104 cutover separate |
-| Parallel on main (done) | C3 OpenVM research brief → **defer** backend; D-057 design docs at `d9c132a0` |
-| Known blocker | PR #104 babysit (CI/ready) on cutover branch; real NEAR receipt/testnet still needs a sandbox harness |
-| Execution queue | [PR #105](https://github.com/DaviRain-Su/proof_forge/pull/105); [PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104); then [`docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md`](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md) |
-| Soroban note | Counter MVP only; gap list and S0–S5 order in [`docs/targets/stellar-soroban.md`](docs/targets/stellar-soroban.md) |
-| Architecture orientation | Portable capability → target Plan → assembly (not full SDK / not Lean VMs): [EN](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md) · [中文](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md); D-058 no Rust product lower; scan [solana-wasm coverage](docs/targets/solana-wasm-coverage-scan-2026-07-15.md) |
-| Detailed history | [`docs/implementation-log.md`](docs/implementation-log.md) |
+| Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
+| Active task | **TASK-A0-17**：在递归 decode/type-check 前加入共享 source Syntax node/nesting preflight，关闭四后端共同的恶意深度输入缺口 |
+| Next task | 先写 256/257 nesting、100000/100001 nodes 与 CLI/command 两入口一致的失败验收，再实现有界、非递归 Syntax budget walker；不借 target Plan 限制代替 frontend 限制 |
+| Phase 1 targets | `evm`, `solana`, `near`, `noir` |
+| Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
+| Known blocker | `TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、gate catalog/freshness/revocation/private scan 与正式 EV finalizer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；Phase 0 商业证据也未闭合 |
+| Source of status | [`docs/document-status.md`](docs/document-status.md) |
 
-The checkpoint is a navigation aid, not proof that a task is complete. A task
-is complete only when its acceptance criteria and reproducible validation are
-recorded in the current plan and implementation log.
+检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
+当前 EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证，NEAR 的 raw-u64 Counter 和
+Accumulator 已有 `wat2wasm` 结构验证
+但没有 sandbox receipt；Solana 只有 non-executable `.sbpf-plan`+IDL；Noir 的 Counter、
+Accumulator 和 PrivateSum4 只有 target-owned Plan/typed relation IR 与 source packages，manifest
+仍为 non-deployable，且没有 Nargo/ACIR/witness/proof/VK/verify。不得写成 ELF/runtime 或 proof 完成。
 
 ## Mandatory Reading Order
 
-Before editing code or accepting a task:
+1. 完整阅读本文件。
+2. 运行 `git status --short` 并确认不会覆盖其他人的工作。
+3. 阅读 [`docs/document-status.md`](docs/document-status.md) 和
+   [`docs/index.md`](docs/index.md)。
+4. 阅读 [`docs/01-prd.md`](docs/01-prd.md)、
+   [`docs/02-architecture.md`](docs/02-architecture.md) 与
+   [`docs/03-technical-spec.md`](docs/03-technical-spec.md)。
+5. 阅读当前模块规格、相关 ADR、目标档案和
+   [`docs/05-test-spec.md`](docs/05-test-spec.md)。
+6. 实施前检查 [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；一次只把
+   一个任务置为 `in_progress`。
+7. 声称完成前检查 traceability、验证证据和 review report。
 
-1. Read this file completely.
-2. Check `git status --short` and recent commits; do not overwrite unrelated
-   worktree changes.
-3. Read the [documentation lifecycle index](docs/document-status.md).
-4. Read the [current architecture design](docs/superpowers/specs/2026-07-12-portable-intent-abstraction-design.md).
-5. Read the [current implementation plan](docs/superpowers/plans/2026-07-12-portable-intent-abstraction.md).
-6. For multi-target lower / SDK-parity questions, read the
-   [portable capability → Plan → assembly orientation](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.md)
-   ([中文](docs/superpowers/specs/2026-07-15-portable-capability-plan-assembly-model.zh.md)).
-7. Read the active task section, its referenced source/tests, and the relevant
-   target note or RFC.
-8. Check the [backlog](docs/implementation-backlog.md),
-   [gate ledger](docs/gate-status.md), and
-   [validation catalog](docs/validation-gates.md) before claiming completion.
+## Non-Negotiable Boundaries
 
-Do not load the full historical `docs/development-log.md` by default. Search it
-only when older implementation evidence is needed.
+- 用户源码只有统一 `program Name where` 入口，不得加入用户可写顶层类别标记。
+- frontend 和 `SemanticProgram` 不依据 `TargetId` 改写语义。
+- `TargetId`、`CodegenProfileId`、`NetworkProfileId` 是三个独立身份。
+- Wasm 只可共享 AST/编码/结构验证；NEAR、CosmWasm、Soroban、ICP 各自拥有 Plan。
+- Noir、OpenVM、Aleo、Psy 分别属于电路、zkVM、ZK 应用链边界，不共用伪通用 Plan。
+- 每项 capability/extension 必须精确版本并 fail closed；禁止 best effort 或隐式 fallback。
+- 每个 materializer 保留关联 `Plan` 和 `TargetIR` 类型；不得擦除成 `Unit`、字符串或 JSON。
+- V2 禁止依赖 `active/` 归档（旧 v1）、`ProofForge.*` import、旧制品、旧二进制、symlink 或运行时回退。
+- 仓库根即 V2 产品树；`active/` 仅为研究/参考归档，不得作为 oracle、兼容入口或失败回退。
 
-## Source Of Truth
+## Execution Protocol
 
-When sources disagree, use this precedence:
+1. 对照代码、规格和实际工具链复核任务输入。
+2. 在任务表中只标记一个 `in_progress`。
+3. 先提交失败的验收测试或可执行验证脚本。
+4. 实现满足规格的最小切片，遇到规格缺口先改规格并重新评审。
+5. 运行聚焦测试；合并前运行完整 V2 gate。当前 `isolated-check`/
+   `v2-clean-room-alpha` 会隔离 HOME/cache、限制网络并拒绝父仓库访问，Lean/external tool
+   都从锁定 cache 离线物化，non-system dylib closure 已锁定；H0 会先做本地、时点性的
+   development host attestation，并已接入 deny-default materialize/core/exact-local-port
+   runtime stages；但 eligible host、formal Stage-0 handoff、process-session containment 与
+   gate-catalog-bound formal evidence 尚未闭合，所以仍不是正式
+   hermetic clean-room gate，不得混称。
+6. 检查不支持的声明、`active/`/v1 泄漏、非确定制品、无关变更和生成垃圾。
+7. 同一变更中更新 task、traceability、evidence、implementation log 和 checkpoint。
+8. 交接时给出精确文件、命令、结果、限制和下一任务。
 
-1. Checked-in code, generated artifacts, and reproducible runnable gates.
-2. This file's current checkpoint for navigation only.
-3. Accepted decisions and current architecture design.
-4. The current implementation plan and gate ledger.
-5. The current backlog and target roadmap.
-6. Historical plans, audits, and development-log entries.
+正式 Stage-0 证据只能由调用者直接执行
+`/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible`。
+`just host-stage0-*` 先经过继承环境的 recipe shell，只是开发便利入口，不能作为该信任边界。
 
-Documentation claims must be verified against code before being repeated.
-Historical documents never reopen or reschedule work by themselves.
+## Documentation Protocol
 
-## Current Program
+- 状态只使用 `draft`、`proposed`、`in_review`、`accepted`、`superseded`、
+  `archived`、`not_started`。
+- 规范变更先更新 ADR/PRD/spec/test/traceability，再修改代码。
+- 调研事实必须引用 `SRC-*`；设计结论必须引用 `CLM-*` 或 `ADR-*`。
+- `06-implementation-log.md` 只追加已执行事实；`07-review-report.md` 不得预填通过。
+- 文档变更运行 `just docs-check`（脚本落地前运行等价静态检查）和
+  `git diff --check`。
 
-The active NEAR execution order lives in the
-[NEP-141 / NEP-145 interop plan](docs/superpowers/plans/2026-07-13-near-nep141-interop-execution.md).
-Do not reopen completed U128, AccountId-string, `storage_remove`, gas-context,
-or JSON balance/transfer slices from stale gap prose.
+## Definition of Done
 
-The target migration order is fixed. Do not start a later row while an earlier
-row still has a production path through `ContractSpec`, `IR.Module`, or a
-Legacy adapter.
-
-Module ownership is tracked by the
-[2026-07-14 audit](docs/module-ownership-audit-2026-07-14.md). Public Solana
-authoring enters through `ProofForge.Contract.Source.Solana`; the old builder is
-quarantined under `Source.Solana.Legacy`, Solana fixtures live under
-`Examples/Backend/Solana/Contracts`, and Psy externs live under
-`ProofForge.Runtime.Psy`. Optional heavyweight proofs live in the separate Lake
-libraries `ProofForgeFormalEvm` and `ProofForgeFormalSolana`, with modules under
-`ProofForgeFormal/Evm` and `ProofForgeFormal/Solana`; do not import them from the
-default `ProofForge` library.
-
-| Order | Target family | State | Exit condition |
-|---|---|---|---|
-| 1 | EVM | in_progress (public product route canonical; R4a-R4d complete) | Every EVM product route reaches `ModulePlan` without v1 IR and obsolete EVM compatibility code is deleted |
-| 2 | NEAR | pending after EVM | Product TokenSpec/Surface v2 reaches `NearModulePlan` without v1 IR and obsolete NEAR compatibility code is deleted |
-| 3 | Solana | pending | Product path reaches target-owned plan without v1 IR |
-| 4 | Other targets | pending | Each target is migrated or explicitly fixture/research-only |
-
-The immediate architecture prerequisite is the
-[IR Target Extension Boundary plan](docs/superpowers/plans/2026-07-14-ir-target-extension-boundary.md).
-Complete IR-B0 through IR-B3 before N-T4 resumes. IR-B4 through IR-B8 then
-apply the same boundary to EVM, Solana, every other implemented target family,
-and shared interface/materialization records.
-
-| ID | State | Task |
-|---|---|---|
-| IR-B0 | done (verified 2026-07-14) | Audit all shared-layer target leakage and freeze the boundary |
-| IR-B1 | done (verified 2026-07-14) | Open extension identities and split target catalogs |
-| IR-B2 | done (verified 2026-07-14) | Remove NEAR promise modes and semantics from Canonical Core |
-| IR-B3a | done (verified 2026-07-14) | Rename the shared crosscall string pool to target-neutral ownership |
-| IR-B3b | done (verified 2026-07-14) | Migrate legacy NEAR scalar operations to generic extension calls |
-| IR-B3c | done (verified 2026-07-14) | Migrate continuation calls and delete legacy NEAR constructors |
-| IR-B4 | in_progress (B4a-B4b verified) | Move EVM protocol and ABI operations out of shared IR |
-| IR-B5 | pending | Audit and migrate Solana PDA/CPI/account behavior |
-| IR-B6 | pending | Audit other Wasm-host, Move, Aleo, Psy, and Quint target ownership |
-| IR-B7 | in_progress (EVM B7a-B7g verified 2026-07-14) | Move target environment/interface/materialization fields |
-| IR-B8 | pending | Empty the compatibility allowlist and enforce the boundary |
-
-Legacy removal follows the
-[incremental replacement plan](docs/superpowers/plans/2026-07-12-incremental-legacy-replacement.md).
-The advisory canonical gate is removed (D3); do not reintroduce a path that
-turns adaptation, validation, HostOp, capability, or target-plan failure into
-success. The Canonical EVM renderer now consumes `ModulePlan` alone. Product
-`ContractSpec` removal proceeds through D5-D12; do not reintroduce an
-`IR.Module` argument or symbolic storage rediscovery into the strict route.
-
-| ID | State | Task | Authoritative section |
-|---|---|---|---|
-| N-T0 | done (verified at `337ee823`) | Reconcile stale NEAR task and capability claims | NEAR plan task index |
-| N-T1 | pending | Re-land the verified JSON ABI behavior on the canonical-only NEAR route | Phase 4 + NEAR-R4 |
-| N-T2 | pending | Re-land the verified NEP-141 behavior on the canonical-only NEAR route | Phase 5 + NEAR-R4 |
-| N-T3 | pending | Re-land the verified NEP-145 behavior on the canonical-only NEAR route | Phase 6 + NEAR-R4 |
-| N-T4 | pending | Re-land the verified NEP-148/297 behavior on the canonical-only NEAR route | Phase 6 + NEAR-R4 |
-| N-T5 | in_progress (N-T5a runtime package verified) | Remove the remaining `NearSpec`/Legacy route from the parameterized TokenSpec NEP-141 artifact | Phase 7 + NEAR-R3/R4 |
-| N-T6 | pending after N-T2/N-T3/N-T4 | Refresh sandbox compare and obtain verified evidence | Phase 8 |
-| N-T7 | pending after N-T6 | Real receipt/network runner, deploy evidence, and gas bands | Phase 8 extension |
-| N-T8 | pending | NEAR ecosystem extensions and formal preservation | Phase 9 extension |
-
-The previous N-T1 through N-T4 commits remain executable behavioral baselines;
-they are not accepted as architecture completion because the public FT source
-still enters through `NearSpec`/`ContractSpec` compatibility normalization. The NEAR
-cutover is split into reviewable removal slices:
-
-| ID | State | Task |
-|---|---|---|
-| NEAR-R0 | done (verified at `b8acc604`) | Isolate v1 `IR.Module` builders/lowerers behind an explicit Legacy module and enforce import boundaries |
-| NEAR-R1 | done (verified 2026-07-14) | Remove v1 `ValueType`, `StructDecl`, and allocator ownership from `NearModulePlan` |
-| NEAR-R2 | pending after EVM-R4 (context subtask landed) | Move NEAR-only context, value, receipt, and promise operations into typed Near HostOps |
-| NEAR-R3 | pending | Materialize TokenSpec/Surface v2 directly into checked Canonical Core |
-| NEAR-R4 | pending | Switch the public CLI route and replay N-T1 through N-T4 gates on the canonical artifact |
-| NEAR-R5 | pending | Delete `NearSpec`, the legacy FT product source, adapters, and zero-caller compatibility APIs |
-
-The EVM renderer-only commits are likewise baselines, not completion of the
-EVM migration. Finish these rows before resuming NEAR-R2:
-
-| ID | State | Task |
-|---|---|---|
-| EVM-R0 | done (`c988153b`, `f44be25d`, `4cc2700b`) | Make canonical storage/ABI plans complete enough that the strict renderer consumes `ModulePlan` alone |
-| EVM-R1 | done (verified 2026-07-14) | Move EVM-only context, protocol, ABI, call-mode, error, and dispatch semantics into EVM-owned HostOps and plan metadata |
-| EVM-R2 | done (28/28 EVM catalog products direct; exact catalog audit and ERC-4626 Anvil smoke verified 2026-07-14) | Materialize Counter, ValueVault, Token, RemoteCall, and remaining EVM product families directly into checked Canonical Core |
-| EVM-R3 | done (public Yul, optimized bytecode, check, plan metadata, and 28-product CLI catalog verified 2026-07-14) | Switch EVM build/emit/check and product dispatch to the direct canonical route and replay focused EVM behavior/runtime gates |
-| EVM-R4 | done (R4a-R4g verified 2026-07-14) | Delete obsolete EVM legacy lowering/adapters and preserve target-owned logical peer resolution after the direct frontend cutover |
-
-Before NEAR-R2, complete the single-authoring cutover in
-[the July 14 authoring plan](docs/superpowers/plans/2026-07-14-authoring-cutover.md).
-`Examples/Product` is the only product source; `Frontend.Surface` and Canonical
-Core are internal compiler representations.
-
-| ID | State | Task |
-|---|---|---|
-| A-CUT0 | done (verified 2026-07-14) | Move backend goldens out of Product and delete unused duplicates |
-| A-CUT1 | done (verified 2026-07-14) | Enforce the internal Surface boundary and isolate temporary AST fixtures outside Product |
-| A-CUT1b | done (verified 2026-07-14) | Audit Legacy callers and move obsolete Core/elaborator/refinement modules out of production |
-| A-CUT1c | done (verified at `52742ff5`) | Consolidate the optional EVM and Solana semantic-refinement roots under the independent `ProofForgeFormal` Lake libraries; keep heavyweight proof dependencies out of the default compiler library |
-| A-CUT1d | done (verified 2026-07-14) | Optional proof namespaces now use `ProofForgeFormal.Evm.*` / `ProofForgeFormal.Solana.*`; the boundary gate enforces one-way dependency ownership and rejects retired top-level roots |
-| A-CUT1e | in_progress (through A-CUT1e-c1 verified 2026-07-14) | Typed Solana account/PDA/CPI payloads now survive strict Canonical Plan construction and pure plan-to-sBPF lowering; next switch the public/internal macros to the direct Authored adapter and remove `Source.Solana.Legacy` imports |
-| A-CUT2 | in_progress (through A-CUT2f-c verified) | Direct Authored builder, portable Boolean Core operations, and inferred typed event schemas now cover the Counter/public expression path without `Contract.Builder`; public Source/loader cutover remains pending |
-| A-CUT3 | pending | Migrate the full product catalog from the single abstract source |
-| A-CUT4 | in_progress (public version split removed) | Delete temporary Surface fixtures; public source identity and loader naming are now unversioned |
-| A-CUT5 | pending | Delete all zero-caller Legacy production code and dual-run gates |
-
-The D-052 cross-program routing index remains below for work not superseded by
-the active NEAR sequence.
-
-The authoritative task details and acceptance criteria live in the
-[July 12 implementation plan](docs/superpowers/plans/2026-07-12-portable-intent-abstraction.md).
-This table is only the agent routing index.
-
-| ID | State | Task | Authoritative task section |
-|---|---|---|---|
-| A1 | done (verified at 6af4eb72) | Isolate Solana grammar ownership | Plan Task 1 |
-| A2 | done (review repaired) | Add the intent materializer contract | Plan Task 2 |
-| A3 | done | Define target-neutral NFT intent | Plan Task 3 |
-| A4 | done | Audit NFT implementation candidates | Plan Task 4 |
-| A5 | done (review repaired) | Add primary-triad NFT materializers | Plan Task 5 |
-| A6 | done (verified at 6a6022ea) | Open the NFT CLI and product route | Plan Task 6 |
-| D3 | done (verified at 545d7a51) | Make accepted NFT materialization strict | Legacy replacement Task D3 |
-| D4 | done (verified at 19c93baf) | Open NFT through native target-first dispatch | Legacy replacement Task D4 |
-| B1 | done (verified at c8d2bbb6) | Extract a neutral Wasm-host plan | Plan Task 7 |
-| B2 | done (verified at d4df51bc) | Add a strict canonical target gate | Plan Task 8 |
-| B3 | done (Counter MVP only; depth deferred D-056) | Soroban Counter six-gate + public route; S0–S5 remaining | Plan Task 9; [stellar-soroban.md](docs/targets/stellar-soroban.md) |
-| C1 | pending after A6 | Add PSy canonical planning | Plan Task 10 |
-| C2 | pending after C1 | Add an Aleo semantic plan | Plan Task 11 |
-| C3 | done (2026-07-15) | Sourced OpenVM brief; decision **defer** backend/registry | Plan Task 12; [openvm-research.md](docs/targets/openvm-research.md) |
-
-Allowed task states are `pending`, `in_progress`, `blocked`, and
-`done (verified at <sha>)`. Use `blocked` only with a concrete blocker and the
-command or dependency needed to clear it. Never use prose such as "mostly
-done" as a state.
-
-## Task Execution Protocol
-
-For every implementation or review task:
-
-1. Reconcile this checkpoint and the task plan with the actual branch,
-   worktree, code, and tests.
-2. Mark exactly one task `in_progress` in this file and the authoritative plan.
-3. Write or identify the failing acceptance test before changing behavior.
-4. Implement the smallest slice that satisfies the task boundary. Preserve the
-   shared architecture; do not bypass it with target-specific frontend routing.
-5. During implementation, run only gates directly affected by the current
-   change. Reserve `just product`, `just check`, `just stylus-all`, and other
-   full aggregates for the final integration checkpoint or an explicit request;
-   do not pay their cost after every development slice.
-6. Review the diff for unsupported claims, legacy-path regressions, accidental
-   generated output, and unrelated edits.
-7. Update the task plan, backlog, gate evidence, implementation log, and this
-   checkpoint in the same change.
-8. Commit or hand off with exact changed files, commands, results, limitations,
-   and the next task. A checkpoint without verification is not completion.
-
-If reviewing another agent's result, inspect its commit range and rerun the
-acceptance gates. Fix discovered problems before marking the task verified.
-
-## Documentation Update Protocol
-
-Update documentation according to the type of change:
-
-| Change | Required documentation |
-|---|---|
-| Task starts or ownership changes | Current checkpoint and current plan |
-| Task completes | Current plan, backlog, implementation log, current checkpoint |
-| Gate criterion changes | `docs/gate-status.md` with reproducible evidence |
-| Architecture boundary changes | `docs/decisions.md`, current design, lifecycle index |
-| Target support or maturity changes | target note, target roadmap, README status table |
-| Public validation command changes | `docs/validation-gates.md` and this file when baseline behavior changes |
-| Current document is superseded | `docs/document-status.md`; retain the old path as historical evidence |
-
-Append concise task records to
-[`docs/implementation-log.md`](docs/implementation-log.md). The log records
-what landed and how it was verified; it does not replace plan checklists or gate
-sign-off. `docs/development-log.md` remains the detailed historical stream and
-is not the current agent ledger.
-
-When an English document is mapped in `scripts/i18n/manifest.json`, update its
-translation in the same change. Run `just docs-check` after documentation
-changes and `git diff --check` before handoff.
-
-## Registry vs CLI-only Targets
-
-| Surface | Targets |
-|---|---|
-| Primary triad `contract_source` compilers (maturity `experimental`) | `evm`, `solana-sbpf-asm`, `wasm-near` |
-| `proof-forge --list-targets` / `ProofForge.Target.knownIds` | `evm`, `solana-sbpf-asm`, `wasm-near`, `wasm-cosmwasm`, `wasm-stellar-soroban`, `wasm-arbitrum-stylus`, `psy-dpn`, `aleo-leo` |
-| `proof-forge emit --target ...` fixture whitelist | Above plus `quint` (verification; CLI-only). `wasm-stellar-soroban` uses EmitWat plus `HostBridge.soroban`, not a separate codegen core. |
-
-The remaining registry entries are Counter-MVP, fixture, or research spikes.
-The formal-verification target `quint` is CLI-only and is not listed by
-`--list-targets`. See README "Backend Status" for the full stage table.
-
-## Product And Backend CI
-
-CI is product-first: required `just product` runs before backend-heavy suites.
-
-| Gate | Command | CI |
-|---|---|---|
-| Product (required, fail-fast) | `just product` | GitHub `product`; Woodpecker `proof-forge-product` |
-| Fast affected-path baseline | `just check-fast` (fixed core/product + focused changed targets) | Local inner loop |
-| Full parallel baseline | `just check` / `just check-parallel` (143 recipes, default max 4 workers) | GitHub lane matrix; Woodpecker `proof-forge-check`; local pre-push |
-| Serial full reference | `just check-serial` | Local race diagnosis and coverage reference |
-| Backend-heavy | `build-test` after `product` | GitHub `build-test` (`needs: product`) |
-
-Optional GitHub jobs with `continue-on-error` are `aleo-smoke`,
-`cosmwasm-smoke` and `solana-pinocchio-live`.
-
-`just ci` is a local CI-flavored aggregate, not a strict subset of GitHub's
-`build-test`. To reproduce `build-test`, run its steps from
-`.github/workflows/ci.yml`. `sdk-schema`, `cli-deploy`, and `cli-check` are in
-`just check` but not in that GitHub job.
-
-## Build, Test, And Run
-
-The root `justfile` is the canonical command catalog (`just --list`). Key gates:
-
-- Build: `just build` (`lake build`).
-- Product gate: `just product`. Run this first for authoring or portable-path
-  changes.
-- Fast inner loop: `just check-fast`. Set `CHECK_BASE=<rev>` to override the
-  upstream merge-base selection.
-- Full static baseline: `just check` (alias of `just check-parallel`). Automatic
-  concurrency is capped at four; set `JOBS=<positive integer>` to override.
-- Serial diagnostic fallback: `just check-serial`. Parallel logs and timings are
-  written under `build/test-lanes/<run-id>/`.
-- Full EVM gates: `just evm-all`.
-- Lean commands must run through `lake env ...`.
-
-Example target-first compile:
-
-```bash
-lake env proof-forge build --target evm --root . \
-  -o build/evm/Counter.bin Examples/Product/Counter.lean
-```
-
-Product sources contain business logic plus `--target`; chain fixtures belong
-under `Examples/Backend/`.
-
-## Toolchain And Environment
-
-- `lean` and `lake` come from `elan`; the version is pinned by
-  `lean-toolchain`. If missing, run
-  `elan toolchain install "$(cat lean-toolchain)"`.
-- `just`, `solc` 0.8.30, Foundry (`forge`, `cast`, `anvil`), `wat2wasm`, and
-  Rust/Cargo are expected on `PATH`. For non-interactive shells add
-  `$HOME/.elan/bin`, `$HOME/.local/bin`, and `$HOME/.foundry/bin`.
-- `sui`, `leo`, `wrangler`, Surfpool, Dargo, and Solana SBF platform tools are
-  not installed in the baseline VM. Do not claim live-gate verification when
-  those tools are absent.
-- `just evm-all` and `just evm-anvil-deploy` start their own Anvil instance.
-- Solana `*-web3` compatibility recipes are wrappers checked by
-  `just solana-light`; they must only forward to Rust/live gates.
-- Solana live Pinocchio and `just psy-all` are outside `just check`. Run them
-  only when their external tools are available or the task explicitly requires
-  them.
-- Build output lives in ignored `build/` and `.lake/` directories.
-
-## Remotes And Hosted CI
-
-- Codeberg remote: `git@codeberg.org:davirain/proof_forge.git` (`codeberg`).
-- Woodpecker configuration: `.woodpecker.yml`; it runs `just product` and then
-  `just check` after `scripts/ci/woodpecker-setup.sh`.
-- GitHub configuration: `.github/workflows/ci.yml`.
-
-## Historical Documentation
-
-The [documentation status index](docs/document-status.md) is authoritative for
-current versus historical classification. Do not treat a dated plan, audit, or
-completed agent ledger as a current queue merely because it remains in the
-repository. Preserve historical paths for traceability and update their status
-banner when they are superseded.
+任务只有在规格、测试、实现、可复现制品、目标运行/证明证据、追踪链和评审全部
+闭合时才可标为 done。缺少外部工具或网络证据时必须保留较低 maturity，不得把
+静态生成写成部署、执行或证明成功。

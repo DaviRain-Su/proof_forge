@@ -33,7 +33,31 @@ private def isSha256Hex (value : String) : Bool :=
   value.length == 64 && value.toList.all fun char =>
     "0123456789abcdef".toList.contains char
 
+private def linearSyntax (nodeCount : Nat) : Lean.Syntax := Id.run do
+  let mut current := Lean.Syntax.atom .none "x"
+  for _ in [1:nodeCount] do
+    current := Lean.Syntax.node .none `ProofForgeV2.Tests.linearSyntax #[current]
+  return current
+
+private def wideSyntax (nodeCount : Nat) : Lean.Syntax :=
+  Lean.Syntax.node .none `ProofForgeV2.Tests.wideSyntax <|
+    Array.replicate (nodeCount - 1) (Lean.Syntax.atom .none "x")
+
 def run : IO Unit := do
+  expect (Language.maxSyntaxNodes == 100000 && Language.maxSyntaxNesting == 256)
+    "portable Syntax budgets must match SPEC-LANG-001"
+  match Language.preflightSyntax (linearSyntax Language.maxSyntaxNesting) with
+  | .ok () => pure ()
+  | .error error => throw <| IO.userError s!"Syntax at the nesting limit must be accepted: {CompileError.render error}"
+  match Language.preflightSyntax (linearSyntax (Language.maxSyntaxNesting + 1)) with
+  | .error (.resourceBound _) => pure ()
+  | _ => throw <| IO.userError "Syntax above the nesting limit must fail with PF-BOUND-001"
+  match Language.preflightSyntax (wideSyntax Language.maxSyntaxNodes) with
+  | .ok () => pure ()
+  | .error error => throw <| IO.userError s!"Syntax at the node limit must be accepted: {CompileError.render error}"
+  match Language.preflightSyntax (wideSyntax (Language.maxSyntaxNodes + 1)) with
+  | .error (.resourceBound _) => pure ()
+  | _ => throw <| IO.userError "Syntax above the node limit must fail with PF-BOUND-001"
   expect (Crypto.sha256Hex "".toUTF8 ==
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     "SHA-256 must match the empty-message reference vector"

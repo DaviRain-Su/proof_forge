@@ -19,7 +19,7 @@ normative: true
 
 ## 决定
 
-`new_design/` 建立独立 Lake package `proof-forge-next`、命名空间 `ProofForgeV2`、可执行文件 `proof-forge-next`，拥有独立 `lean-toolchain`、manifest、justfile、dependency/toolchain lock 与 CI gates。
+仓库根建立独立 Lake package `proof-forge-next`、命名空间 `ProofForgeV2`、可执行文件 `proof-forge-next`，拥有独立 `lean-toolchain`、manifest、justfile、dependency/toolchain lock 与 CI gates。（历史：曾以 `new_design/` 子树孵化；现已提升为根产品树，旧 v1 在 `active/`。）
 
 禁止 `require ..`、`import ProofForge.*`、父路径 symlink、父源码/fixture/script/build output、旧 binary 和失败 fallback。最终 archive gate 在空目录与隔离环境中验证。
 

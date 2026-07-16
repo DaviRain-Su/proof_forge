@@ -327,20 +327,32 @@ xcode_python=/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Pytho
   die "verified direct Xcode Python is unavailable"
 repo_root="$("$git_bin" --no-replace-objects -C "$root" rev-parse --show-toplevel)"
 prefix="$("$git_bin" --no-replace-objects -C "$root" rev-parse --show-prefix)"
-[[ "$prefix" == new_design/ ]] || die "expected new_design/ to be a tracked subtree, got '$prefix'"
+# V2 product is the repository root. Legacy v1 lives under active/ (research archive only).
+[[ -z "$prefix" ]] || die "expected repository root (empty git prefix), got '$prefix'"
+[[ "$root" == "$repo_root" ]] || die "scripts must run from the repository root, not a nested worktree path"
 commit="$("$git_bin" --no-replace-objects -C "$repo_root" rev-parse --verify 'HEAD^{commit}')"
 require_git_oid "$commit" candidate-commit
 if [[ -n "$expected_commit" && "$commit" != "$expected_commit" ]]; then
   die "candidate commit mismatch: expected $expected_commit, got $commit"
 fi
-treeish="$commit:new_design"
-[[ "$("$git_bin" --no-replace-objects -C "$repo_root" cat-file -t "$treeish" 2>/dev/null)" == tree ]] ||
-  die "HEAD does not contain new_design"
+# Bind the full root tree; product archive below excludes the legacy active/ tree.
+treeish="$commit^{tree}"
 tree_oid="$("$git_bin" --no-replace-objects -C "$repo_root" rev-parse --verify "$treeish")"
 require_git_oid "$tree_oid" candidate-tree-object
 if [[ -n "$expected_tree" && "$tree_oid" != "$expected_tree" ]]; then
   die "candidate tree mismatch: expected $expected_tree, got $tree_oid"
 fi
+
+# Product pathspecs: every top-level tree entry except archived legacy `active/`.
+archive_paths=()
+while IFS= read -r name; do
+  [[ -n "$name" ]] || continue
+  [[ "$name" == "active" ]] && continue
+  archive_paths+=("$name")
+done < <("$git_bin" --no-replace-objects -C "$repo_root" ls-tree --name-only "$commit")
+[[ ${#archive_paths[@]} -gt 0 ]] || die "no product paths found at repository root (excluding active/)"
+[[ -f "$repo_root/ProofForgeV2.lean" && -f "$repo_root/lakefile.lean" ]] ||
+  die "repository root is missing V2 product markers (ProofForgeV2.lean / lakefile.lean)"
 
 tmp="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/proof-forge-v2-clean-room.XXXXXX")"
 tmp="$(cd "$tmp" && pwd -P)"
@@ -358,7 +370,8 @@ trap cleanup EXIT
 
 candidate_status_before_file="$tmp/candidate-status-before"
 "$git_bin" --no-replace-objects -C "$repo_root" status --porcelain=v2 -z \
-  --untracked-files=all -- new_design >"$candidate_status_before_file"
+  --untracked-files=all -- . ':(exclude)active' ':(exclude)active/**' \
+  >"$candidate_status_before_file"
 candidate_status_before_hash="$(sha256_file "$candidate_status_before_file")"
 
 source_root="$tmp/source"
@@ -376,35 +389,40 @@ runner="$tmp/clean-room-runner.sh"
 /bin/chmod 700 "$source_root" "$home_root" "$cache_root" "$tool_root" \
   "$output_root" "$work_root" "$policies_root"
 
-archive="$tmp/new-design.tar"
-"$git_bin" --no-replace-objects -C "$repo_root" archive --format=tar "$commit" -- new_design >"$archive"
+archive="$tmp/v2-product.tar"
+"$git_bin" --no-replace-objects -C "$repo_root" archive --format=tar "$commit" -- \
+  "${archive_paths[@]}" >"$archive"
 archive_hash="$(sha256_file "$archive")"
 archive_commit="$("$git_bin" get-tar-commit-id <"$archive")"
 [[ "$archive_commit" == "$commit" ]] || die "candidate archive does not bind the selected commit"
 if [[ -n "$expected_archive_hash" && "$archive_hash" != "$expected_archive_hash" ]]; then
   die "candidate archive mismatch: expected $expected_archive_hash, got $archive_hash"
 fi
-if "$git_bin" --no-replace-objects -C "$repo_root" ls-tree -r "$treeish" | /usr/bin/awk '$1 == "120000" || $1 == "160000" { found=1 } END { exit !found }'; then
-  die "tracked symlink or submodule found in archive tree"
-fi
+for product_path in "${archive_paths[@]}"; do
+  if "$git_bin" --no-replace-objects -C "$repo_root" ls-tree -r "$commit" -- "$product_path" |
+    /usr/bin/awk '$1 == "120000" || $1 == "160000" { found=1 } END { exit !found }'; then
+    die "tracked symlink or submodule found in product path: $product_path"
+  fi
+done
 /usr/bin/tar -tf "$archive" | while IFS= read -r entry; do
-  [[ "$entry" == new_design || "$entry" == new_design/ || "$entry" == new_design/* ]] ||
-    die "archive escaped the new_design subtree: $entry"
-  relative_entry="${entry#new_design/}"
-  [[ "$relative_entry" != /* && "$relative_entry" != ../* && "$relative_entry" != */../* ]] ||
+  [[ "$entry" != active && "$entry" != active/* ]] ||
+    die "archive leaked archived legacy path: $entry"
+  [[ "$entry" != /* && "$entry" != ../* && "$entry" != */../* ]] ||
     die "unsafe archive path: $entry"
 done
-/usr/bin/tar -C "$source_root" --strip-components=1 -xf "$archive"
+# Product paths are archived at archive root (no new_design/ prefix).
+/usr/bin/tar -C "$source_root" -xf "$archive"
 [[ ! -e "$source_root/.git" ]] || die "archive unexpectedly contains Git metadata"
+[[ ! -e "$source_root/active" ]] || die "archive unexpectedly contains active/ legacy tree"
 if /usr/bin/find "$source_root" -type l -print -quit | /usr/bin/grep -q .; then
   die "archive contains a symlink"
 fi
 if /usr/bin/find "$source_root" -name '*.lean' -type f -exec /usr/bin/grep -nE \
     '(^|[[:space:]])import[[:space:]]+ProofForge([[:space:].]|$)' {} +; then
-  die "archive contains a parent ProofForge import"
+  die "archive contains a legacy ProofForge import"
 fi
 if /usr/bin/grep -R -F "$repo_root" "$source_root" >/dev/null 2>&1; then
-  die "archive embeds the parent repository absolute path"
+  die "archive embeds the repository absolute path"
 fi
 
 /bin/mkdir -p "$source_root/.lake"
@@ -607,7 +625,8 @@ echo "clean-room-alpha: sandbox launcher sha256=$(sha256_file \
   die "candidate subtree changed during the gate"
 candidate_status_after_file="$tmp/candidate-status-after"
 "$git_bin" --no-replace-objects -C "$repo_root" status --porcelain=v2 -z \
-  --untracked-files=all -- new_design >"$candidate_status_after_file"
+  --untracked-files=all -- . ':(exclude)active' ':(exclude)active/**' \
+  >"$candidate_status_after_file"
 candidate_status_after_hash="$(sha256_file "$candidate_status_after_file")"
 [[ "$candidate_status_after_hash" == "$candidate_status_before_hash" ]] ||
   die "candidate worktree status changed during the gate"

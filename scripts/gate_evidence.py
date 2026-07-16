@@ -1483,7 +1483,7 @@ def _sample_document(*, formal: bool = False) -> dict[str, object]:
         },
         "repository": {
             "commit": "a" * 40,
-            "subtree": "new_design",
+            "subtree": ".",
             "treeObjectId": "b" * 40,
             "anchorSource": "external" if formal else "derived-development",
             "dirty": False,

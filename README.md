@@ -1,244 +1,94 @@
-# ProofForge
+# ProofForge V2 (`proof-forge-next`)
 
-Lean-first multi-chain smart contract platform.
+ProofForge V2 是一个独立的 Lean 4 多目标程序编译器设计。作者只写一份
+`program ... where` 业务源码，编译器从源码推导语义需求，再由 `--target`
+选择 EVM、Solana、NEAR、Noir 或后续平台的物化方式。
 
-ProofForge's goal is one verified Lean contract codebase that can be compiled,
-tested, and deployed across multiple blockchain target families. Contracts are
-written against a chain-neutral Contract Intent API; the compiler lowers them
-to a portable IR, routes capabilities per target, and emits chain-native
-artifacts. Unsupported target capabilities are rejected at compile time
-instead of silently changing semantics.
+当前前端直接使用 Lean 4 parser 产生的 `Syntax`，但不会把 Lean AST 当成领域语义：
+`Syntax → Source.Program → Typed.Program → Semantic.Program → target Plan/IR`。CLI
+只解析允许的 portable command，不 elaboration/执行用户文件中的任意 Lean command。
 
-Start here:
+```lean
+import ProofForgeV2
+open ProofForgeV2.Language
 
-- [docs/INDEX.md](docs/INDEX.md) — full documentation map.
-- [RFC 0001](docs/rfcs/0001-multichain-platform.md) — multi-chain architecture
-  and roadmap; [RFC 0002](docs/rfcs/0002-target-implementation-design.md) —
-  target implementation design.
-- [Design decisions](docs/decisions.md) — settled choices (D-001…D-045).
-- [Formal verification roadmap](docs/formal-verification.md) — existing proof
-  anchors and staged theorem targets.
-- [Demo recording](https://asciinema.org/a/fn6o6kSxB5RpMXJl) — terminal demo: author → compile → deploy → test.
+program Counter where
+  state count : UInt64
 
-中文文档：
+  init(initial : UInt64) do
+    count := initial
 
-- [中文文档索引](docs/zh/README.md)
-- [架构评审（2026-07）：统一 SDK 输入与分支收敛](docs/zh/architecture-review-2026-07.md)
-- [多链愿景可行性分析](docs/zh/feasibility-analysis.md)
+  entry increment(delta : UInt64) : UInt64 do
+    count := count + delta
+    return count
 
-## Backend Status
-
-The machine-readable support matrix (maturity, input modes, commands, output
-stages, validation level) is generated from `proof-forge --list-targets --json`
-into [`docs/generated/backend-status.md`](docs/generated/backend-status.md)
-(`just target-support` / `just backend-status-gen`). The narrative table below
-remains the human overview of pipelines and local validation; the generated
-table is the PF-P1-02 contract.
-
-All backends live on `main` (chains are directories and target ids, not
-branches). Lifecycle stages follow [docs/targets/README.md](docs/targets/README.md).
-The primary-chain P0 backend-gate covenant (D-045) is closed, but SDK depth is
-not: the current gap inventory records **2 open P0 SDK blockers** (both NEAR;
-EVM and Solana have 0). Unified SDK schema/layout outputs exist for `evm`,
-`solana-sbpf-asm`, and `wasm-near` via the portable Counter flow.
-Three-chain portable scenarios (Counter, ValueVault) compile and execute on
-EVM, Solana, and NEAR via `just portable-counter-multi-target` and
-`just portable-value-vault`.
-
-| Target id | Pipeline | Stage | Local validation |
-|---|---|---|---|
-| `evm` | Surface v2 / Legacy adapter → canonical contract → EVM `ModulePlan` → Yul → `solc` → bytecode | Experimental (broad CI gates; not a full Solidity SDK) | golden Yul, canonical plan/artifact parity, diagnostics, Foundry runtime smoke (35 tests), Anvil deploy, dynamic constructor Anvil, constructor body, deploy gas-limit/price/priority flags, stdlib (ERC-20/721/1155/165/AccessControl/Ownable/Pausable/ReentrancyGuard/UUPS/Create2 — see [sdk-ecosystem-gaps](docs/sdk-ecosystem-gaps-2026-07.md)) |
-| `solana-sbpf-asm` | Surface v2 / Legacy adapter → canonical contract → `SolanaModulePlan` → sBPF assembly → ELF | Experimental | canonical plan/artifact parity, Mollusk tests, Surfpool/Rust live smokes, Pinocchio equivalence gates, indexed events, Memo CPI, Associated Token `create_idempotent` CPI, Token-2022 extensions (transfer_fee/non_transferable/metadata_pointer/default_account_state/immutable_owner/permanent_delegate/interest_bearing/memo_transfer/transfer_hook_init/pausable), map storage, nativeValue lamports read |
-| `wasm-near` | Surface v2 / Legacy adapter → canonical contract → `NearModulePlan` → Wasm AST/WAT → Wasm | Experimental | canonical plan/artifact parity, diagnostics, IR coverage manifests, formal trace obligations, target-first smoke, offline host smoke (signer+deposit+promise stubs), artifact/deploy metadata, NEP-141 FT stdlib, aggregate ABI params, nested mapKey paths, nativeValue U64 truncation, eventEmitIndexed flattening, real upstream NEAR VM conformance (IR fixture + product source + NEP-141 FT incl. storage_remove and the full promise ABI + `ft_resolve_transfer` callback dispatch via real `promise_result`, through `near-vm-runner`/Wasmtime) |
-| `wasm-stellar-soroban` | portable IR → `EmitWat` + `HostBridge.soroban` → WAT → `wat2wasm` | Counter MVP (custom offline bridge, not real Env) | `just soroban-promotion` / `soroban-public-route`; auth always-auth; `invoke_contract` stub; HostABI still hybrid; real Env/Stellar CLI deferred (D-056, [stellar-soroban](docs/targets/stellar-soroban.md)) |
-| `wasm-arbitrum-stylus` | Surface v2 / Legacy adapter → canonical contract → `StylusPlan` → direct HostIO Wasm (default) or pinned Rust SDK oracle | Research | `just stylus-all`; atomic WAT/Wasm or Rust bundles, plan-derived Solidity ABI/client, hashed plan/storage/evidence, and local VM/differential coverage for Counter, ValueVault, Token, RemoteCall, and bounded aggregates; Nitro activation/E2E evidence is still required for promotion |
-| `wasm-cosmwasm` | portable IR → `EmitWat` + `HostBridge.cosmWasm` → WAT → `wat2wasm` | Counter MVP (PF-P3-02 six-gate) | `just cosmwasm-promotion` (product Counter source · offline-host 0→1 · no NEAR swap); `execute_msg` still stub; fixture `cosmwasm-check` via `just cosmwasm-counter-smoke` |
-| `psy-dpn` | portable IR → `.psy` → Dargo → DPN circuit JSON | Spike (restricted subset) | golden sources, diagnostics, `dargo` execute smokes |
-| `aleo-leo` | portable IR → Leo source package | Research sourcegen | validated pure, Unit-final, and state-independent `(T, Final)` fragment; ordered Poseidon pair hashing, record semantics, and plan-derived metadata; state-derived non-Unit returns fail closed under Leo 4.0.2 |
-
-**CLI-only verification target:** `quint` is accepted by `proof-forge emit --target quint`
-for formal/model-checking fixtures but is **not** in `Target.knownIds` /
-`--list-targets` (same class as a verification lane, not a product host).
-
-
-**Spike honesty (U7):** CosmWasm / Soroban are **not** primary-product hosts.
-CosmWasm portable crosscall is a WasmMsg-shaped `execute_msg` stub; Soroban
-uses a **custom** offline-host bridge (not real Soroban Env), with always-auth
-and stub `invoke_contract`. Deep Soroban/CosmWasm work waits for the
-primary-triad authoring cutover ([PR #104](https://github.com/DaviRain-Su/proof_forge/pull/104),
-D-056). Move (Aptos/Sui) and Cloudflare Workers were removed from `main`
-(archived on `archive/move-cloudflare-2026-07-15`, D-055). Gate G1a (CosmWasm
-M3–M4) stays **not started** — see [gate-status](docs/gate-status.md).
-
-The multi-chain Token SDK (`TokenSpec`, [RFC 0006](docs/rfcs/0006-multichain-token-sdk.md))
-routes one token intent to ERC-20 bytecode on EVM or SPL Token / Token-2022
-deployment plans on Solana.
-
-## Getting Started
-
-Install `just` from [casey/just](https://github.com/casey/just); the root
-`justfile` is the developer-facing command catalog and CI entrypoint.
-
-```sh
-just --list        # all recipes
-just build         # lake build
-just product       # product-first: Examples/Product multi-target matrix (required CI)
-just canonical-parity  # EVM/Solana/NEAR canonical plan and artifact parity
-just check-fast    # affected-path inner loop (core/product + focused target gates)
-just check         # parallel full baseline, automatically capped at four workers
-just check-serial  # serial full reference for suspected race diagnosis
-just evm-all       # full EVM gates: examples, Foundry smoke, Anvil deploy
-just portable-counter-four-target-sdk  # Counter SDK layout for EVM, Solana, NEAR
-just ci            # the full CI sequence locally
+  view get() : UInt64 do
+    return count
 ```
 
-Build directly with Lake:
+源码不声明“合约、电路或 zkVM workload”类别。`--target` 只能改变物化和制品，
+不能改变整数、状态迁移、回滚、调用顺序、授权或信息披露语义；无法保持语义时，
+编译器必须返回稳定诊断而不是降级或回退。
 
-```sh
-lake build
-```
+## 当前状态
 
-Compile the EVM Counter example to runtime bytecode:
+V2 当前完成了文档/规格基线和一个不可发布的 alpha 骨架。alpha 只验证独立 Lake、
+统一入口、Core 与四目标 materializer 的最小连通性，不等于 Phase 1 完成：EVM 已验证
+`solc` bytecode，并在 Anvil 验证初始化、increment 与 overflow rollback；NEAR 的 raw-u64
+Counter 与 Accumulator 已通过 target-owned Plan/recipe、精确 WAT/Wasm 和 `wat2wasm`
+结构验证，但尚无 sandbox receipt 证据；Solana 当前只有 typed `.sbpf-plan` 与 IDL、没有
+sBPF instructions/object/ELF/runtime
+证据；Noir 当前为 source-only：Counter、Accumulator 与 PrivateSum4 经过 target-owned
+Plan/typed relation IR 生成逐 relation 的 `.nr` package 和 disclosure/continuity interface，
+但没有锁定 Nargo/Barretenberg，也没有 ACIR/witness/proof/VK/verify 证据。生命周期状态以
+[`docs/document-status.md`](docs/document-status.md) 为准，研发入口是
+[`AGENTS.md`](AGENTS.md)，文档导航位于 [`docs/index.md`](docs/index.md)。
 
-```sh
-lake env proof-forge build --target evm --root . --module Counter \
-  -o build/evm/Counter.bin Examples/Backend/Evm/Contracts/Counter.lean
-```
+第一阶段实现范围固定为：
 
-Emit artifacts for other targets from built-in portable IR fixtures:
+- `evm`
+- `solana`
+- `near`
+- `noir`
 
-```sh
-lake env proof-forge emit --target wasm-near --fixture counter --format wat -o build/wasm-near
-lake env proof-forge emit --target solana-sbpf-asm --fixture counter --format elf -o build/solana/counter.so
-lake env proof-forge emit --target psy-dpn --fixture counter --format psy -o build/psy/Counter.psy
-lake env proof-forge emit --target aleo-leo --fixture pure-math --format leo -o build/aleo/PureMath.leo
-```
+CosmWasm、Soroban、Internet Computer、OpenVM、Aleo 和 Psy 本阶段只形成
+可实施的目标档案及路线图，不宣称已有后端。
 
-The complete, per-target list of runnable validation commands and their tool
-prerequisites (Foundry, `solc`, `sbpf`, `wat2wasm`, `dargo`, `leo`,
-`dargo`, `leo`, …) lives in [docs/validation-gates.md](docs/validation-gates.md).
-Cloud/agent environment notes are in [AGENTS.md](AGENTS.md).
+## 独立性
 
-## Architecture
+仓库根目录即 V2 产品工程。旧版 ProofForge（v1）已归档到 [`active/`](active/ARCHIVE.md)，
+仅作研究/参考资料，不能成为 V2 的运行时 oracle、兼容入口或失败回退。clean-room
+门禁从 **commit 的仓库根（排除 `active/`）** 生成 archive，在空目录与受控环境中独立
+构建和测试。
 
-The primary triad lowers through a checked canonical contract before entering
-the existing target semantic plans. Logical state belongs to the canonical
-layer; physical slots, account offsets, and linear-memory addresses belong to
-target plans. Non-semantic evidence cannot affect plans or artifacts. The
-frozen Legacy adapter remains test-only for one release comparison window and
-is never a public fallback. See [Canonical compiler architecture](docs/architecture.md)
-and [Canonical backend interface](docs/backend-interface.md).
+当前 `just v2-clean-room-alpha`（`just isolated-check` 为兼容别名）在随机归档目录、空
+HOME/cache、受控 PATH 与 macOS 网络沙箱中执行 clean build/test、四目标制品验证、逐字节
+复现和 localhost-only EVM runtime。Lean/Lake 与外部工具都从精确 archive/file 进入
+content-addressed cache：官方 Lean ZIP 离线物化完整 toolchain；官方 solc 只使用系统库，
+WABT 的 `libcrypto` 与 Foundry archive 也在 bundle 中逐文件校验，并验证实际 Mach-O load
+closure。首次运行前显式执行 `just toolchains-provision-lean` 和
+`just toolchains-provision-external`；`toolchains-materialize-lean` 与
+`toolchains-materialize-external` 可用于独立检查物化结果，普通 build 和 clean-room gate
+本身不联网。
 
-```mermaid
-flowchart TB
-  subgraph authoring ["Authoring (user-facing, chain-neutral)"]
-    SDK["Lean SDK<br/>contract_source / Contract Intent API"]
-    TOK["Token SDK<br/>TokenSpec"]
-    LEARN[".learn parser<br/>(frozen compatibility)"]
-  end
+commit `0b0aebda…643c8` 已完成这条完整 development clean-room gate（archive
+`05b5bda6…2115c`）。它仍是 alpha：当前 macOS host profile 报告 `Sealed: Broken`，且
+deny-default sandbox 与 schema evidence 尚未完成。因此不能作为正式 hermetic 或 release
+evidence。
 
-  subgraph core ["Compiler-owned core"]
-    SPEC["ContractSpec"]
-    IR["Portable IR<br/>+ AllocatorConfig + ownership rules"]
-    SEM["IR semantics + formal anchors<br/>(FV roadmap)"]
-  end
+H0 现已能由外部净化入口先验证固定 bootstrap 与 Xcode bundle，避免启动任何未验证的
+Git/Python；随后只启动已锁定的 direct Xcode Python 完成 live host profile observation，
+并在 development 模式输出规范化结果。正式模式会 fail closed：当前机器同时因
+system-volume seal broken 和 Xcode pathname 可由当前 admin 用户替换而不具备 hermetic 资格。
+这不是 remote attestation；deny-default sandbox 与正式 evidence schema 仍未完成，所以
+`v2-clean-room-alpha` 仍不是 release gate。
 
-  subgraph routing ["Target routing (--target)"]
-    REG["Target registry<br/>profiles + allocator bindings"]
-    CAP["Capability check<br/>reject unsupported intents"]
-    EXT["Target Extension SDKs<br/>Solana accounts/PDA/CPI, ..."]
-  end
+## 文档权威顺序
 
-  subgraph backends ["Backends"]
-    EVM["EVM<br/>Plan → Yul → solc"]
-    SOL["Solana<br/>sBPF asm → ELF"]
-    NEAR["NEAR<br/>EmitWat → WAT → wasm"]
-    PSY["Psy/DPN<br/>.psy → Dargo"]
-    ALEO["Aleo<br/>Leo package"]
-  end
+1. 已接受 ADR 与 PRD。
+2. 已接受架构、技术规格和模块规格。
+3. 测试规格与可复现证据。
+4. 当前代码、制品和实际运行门禁。
 
-  subgraph artifacts ["Artifacts + validation"]
-    ART["bytecode/ELF/wasm/circuit + ABI/IDL<br/>artifact + deploy manifests + TS clients"]
-    GATES["Gates: Lean tests · testkit (planned, RFC 0007)<br/>Foundry · Mollusk/Surfpool · offline host · dargo/leo"]
-  end
-
-  SDK --> SPEC
-  TOK --> SPEC
-  LEARN --> SPEC
-  SPEC --> IR
-  IR --- SEM
-  IR --> CAP
-  REG --> CAP
-  EXT --> CAP
-  CAP --> EVM & SOL & NEAR & PSY & ALEO
-  EVM & SOL & NEAR & PSY & ALEO --> ART
-  ART --> GATES
-```
-
-- **Contract Intent API** — the default SDK surface: state, entrypoints,
-  events, caller/value access, checked arithmetic, assertions, and proofs,
-  without importing a destination-chain module.
-- **Target Extension SDKs** — explicit chain-native semantics when a contract
-  needs them (Solana accounts/PDA/CPI, allocator selection, …). Extensions
-  lower through capability ids and target metadata, never by adding
-  chain-only constructors to the portable IR (D-027).
-- **Target adapters** — ABI, packaging, test-runner, and deployment logic per
-  chain family; `--target` selects the adapter, and unsupported intents are
-  rejected before artifact generation (D-028).
-
-See [docs/authoring-model.md](docs/authoring-model.md) for the authoring
-layers (the legacy `.learn` parser is a frozen compatibility surface, not a
-second product language) and [docs/portable-ir.md](docs/portable-ir.md) for
-the IR spec. Editable [Excalidraw architecture diagrams](docs/diagrams/README.md)
-(open on [excalidraw.com](https://excalidraw.com)) complement the Mermaid figure above.
-
-## Development Docs
-
-- [Development standards](docs/development-standards.md)
-- [Canonical compiler architecture](docs/architecture.md)
-- [Canonical backend interface](docs/backend-interface.md)
-- [Validation gates](docs/validation-gates.md)
-- [Implementation backlog](docs/implementation-backlog.md) — Workstream 24
-  (post-consolidation follow-ups) and Workstream 25 (formal verification)
-  are the current priority.
-- [Capability registry](docs/capability-registry.md)
-- [Shared scenario: Counter](docs/shared-scenario.md) — the cross-target
-  acceptance test; the current phase goal is passing it on `evm`,
-  `solana-sbpf-asm`, and `wasm-near`.
-- Target notes: [docs/targets/](docs/targets/README.md)
-
-## Authoring Module Naming
-
-- **Portable authoring module:** `ProofForge.Contract.Source` (default for new
-  chain-neutral contracts and templates).
-- **Target selection:** `proof-forge --target <id>` chooses EVM, Solana, NEAR,
-  Sui, or another backend at build/emission time; portable contract sources
-  should not import a destination-chain module just to select an output chain.
-- **EVM-native module:** `ProofForge.Evm` with namespace `Lean.Evm` remains for
-  legacy EVM examples and explicit EVM-only adapter work.
-
-The `Lean.Evm` namespace comes from the Lean fork migration. The rename to a
-uniform `ProofForge.*` namespace is tracked in the backlog (Workstream 24),
-because `Lean.Evm` shadows the Lean compiler's own `Lean` namespace.
-
-## Roadmap
-
-```text
-Phase 0: EVM baseline                      (done)
-Phase 1: target registry + portable IR     (done)
-Phase 2+: parallel backend spikes          (Solana, NEAR, Psy on main;
-                                            Sui Counter MVP;
-                                            Aleo, CF Workers research)
-Phase 3:  three-chain P0 backend gates      (done — Counter + ValueVault
-                                            portable on evm + solana-sbpf-asm
-                                            + wasm-near)
-Current:  2 open P0 SDK blockers — NEAR parameterized TokenSpec runtime +
-          NEP-145 predecessor refund Promise;
-          then P1 depth and formal verification (Workstream 25)
-Later:    Move family expansion, cloud platform (after two+ targets reach
-          Experimental with shared-scenario parity; D-010)
-```
-
-Canonical target ids and the full decision log: [docs/decisions.md](docs/decisions.md).
-The filename `docs/targets/solana-sbf.md` is a historical alias for the
-Solana target notes; the canonical route is `solana-sbpf-asm` (D-026).
+调研材料是证据输入，不会自动成为规范。所有开发工作必须遵循
+[`docs/governance/change-control.md`](docs/governance/change-control.md)。

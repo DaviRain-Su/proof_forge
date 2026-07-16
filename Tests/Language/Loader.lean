@@ -29,6 +29,11 @@ private def counterSource : String :=
   "    return count\n\n" ++
   "end ProofForgeV2.Examples\n"
 
+private def nestedAdditionSource (terms : Nat) : String :=
+  "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+  "program Deep where\n  view get() : UInt64 do\n    return " ++
+  String.intercalate " + " (List.replicate terms "1") ++ "\n"
+
 unsafe def run : IO Unit := do
   let decoded ← Language.Loader.selectProgram counterSource "<counter>" (some "ProofForgeV2.Examples.Counter")
   match decoded with
@@ -73,5 +78,10 @@ unsafe def run : IO Unit := do
   let tooLarge := "import ProofForgeV2\nopen ProofForgeV2.Language\nprogram TooLarge where\n  view get() : UInt64 do\n    return 18446744073709551616\n"
   expectRejected (← Language.Loader.parsePrograms tooLarge "<u64-overflow>")
     "UInt64 literals above the maximum must be rejected"
+
+  match ← Language.Loader.parsePrograms (nestedAdditionSource 300) "<deep-syntax>" with
+  | .error (.resourceBound _) => pure ()
+  | .error error => throw <| IO.userError s!"deep portable syntax must use PF-BOUND-001, found {CompileError.render error}"
+  | .ok _ => throw <| IO.userError "deep portable syntax unexpectedly passed the loader"
 
 end Tests.Language.Loader

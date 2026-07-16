@@ -1,0 +1,75 @@
+import Lake
+open Lake DSL
+
+package «proof-forge» where
+  version := v!"0.1.0-beta.1"
+
+require evm_semantics from git
+  "https://github.com/powdr-labs/evm-semantics.git"@"ae13dbc506158f9d0c7e05634636b17e2bccf850"
+
+/-- Opt-in Solana formal lane dependency (used by `ProofForgeFormalSolana` only).
+Mirrors the powdr pin: always declared so Lake can resolve the target, while
+default `ProofForge` roots do not import it. -/
+require solanalib from git
+  "https://github.com/solana-foundation/leanprover-solanalib.git" @ "6c115ef1ef6a0cde8dbd6fd875b7dc87d60939ec"
+
+lean_lib ProofForge where
+  roots := #[
+    `Examples,
+    `ProofForge,
+    `ProofForge.Runtime.Psy,
+    `ProofForge.Target,
+    `ProofForge.IR,
+    `ProofForge.Contract,
+    `ProofForge.Backend,
+    `ProofForge.Backend.Solana.SbpfAsm,
+    `ProofForge.Backend.Solana.SbpfExec,
+    `ProofForge.Backend.Solana.SbpfExecSmoke,
+    `ProofForge.Backend.Solana.ValueVaultSbpfExec,
+    `ProofForge.Backend.Solana.CounterSbpfExec,
+    `ProofForge.Backend.Solana.CounterSbpfRefinement,
+    `ProofForge.Backend.Solana.BpfEncode,
+    `ProofForge.Backend.Solana.LabeledSbpf,
+    `ProofForge.Compiler.Yul.AST,
+    `ProofForge.Compiler.Yul.Printer,
+    `ProofForge.Compiler.Wasm.AST,
+    `ProofForge.Compiler.Wasm.Printer,
+    `ProofForge.Compiler.Psy.AST,
+    `ProofForge.Compiler.Psy.Printer
+  ]
+
+/-- Compiler-internal migration fixtures, built only by focused test gates. -/
+lean_lib TestFixtures where
+  roots := #[`TestFixtures]
+
+lean_lib ProofForgeFormalEvm where
+  roots := #[
+    `ProofForgeFormal.Evm.CounterRuntime,
+    `ProofForgeFormal.Evm.HexWitness,
+    `ProofForgeFormal.Evm.PowdrAdapter,
+    `ProofForgeFormal.Evm.PowdrExec,
+    `ProofForgeFormal.Evm.PowdrExecSmoke,
+    `ProofForgeFormal.Evm.CounterRefinement
+  ]
+
+/-- Opt-in Solana formal lane: solanalib sBPF ISA + CompileCorrect pipeline.
+Imports solanalib the same way `ProofForgeFormalEvm` imports powdr. Default
+`ProofForge` / CLI roots do not import these modules. -/
+lean_lib ProofForgeFormalSolana where
+  roots := #[
+    `ProofForgeFormal.Solana.SolanalibAdapter,
+    `ProofForgeFormal.Solana.LabeledToSolanalib,
+    `ProofForgeFormal.Solana.HostBridge,
+    `ProofForgeFormal.Solana.FullProgramHost,
+    `ProofForgeFormal.Solana.CounterHostRefinement,
+    `ProofForgeFormal.Solana.CoreTailHostComposition,
+    `ProofForgeFormal.Solana.ValueVaultHostRefinement,
+    `ProofForgeFormal.Solana.FullHostTargetSemantics,
+    `ProofForgeFormal.Solana.CompileCorrect,
+    `ProofForgeFormal.Solana.CompileCorrectSmoke
+  ]
+
+@[default_target]
+lean_exe «proof-forge» where
+  root := `ProofForge.Cli
+  supportInterpreter := true
