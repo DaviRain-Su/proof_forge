@@ -1691,6 +1691,11 @@ ACCEPTED_DOCUMENT_PATHS = {
     "PHASE-3": "docs/03-technical-spec.md",
     "PHASE-4": "docs/04-task-breakdown.md",
 }
+ACCEPTED_PREREQUISITE_TITLES = {
+    "PHASE-1": "Synthetic Phase 1 product requirements",
+    "PHASE-2": "Synthetic Phase 2 architecture",
+    "PHASE-3": "Synthetic Phase 3 technical specification",
+}
 PHASE4_FRONTMATTER = {
     "id": "PHASE-4",
     "title": "Synthetic Phase 4 task breakdown",
@@ -1831,11 +1836,77 @@ def expected_phase4_document_wire(
     }
 
 
+def accepted_prerequisite_metadata(identifier: str) -> dict[str, str]:
+    assert identifier in ACCEPTED_PREREQUISITE_TITLES
+    return {
+        "id": identifier,
+        "title": ACCEPTED_PREREQUISITE_TITLES[identifier],
+        "status": "accepted",
+        "owner": "architecture",
+        "updated": "2026-07-16",
+        "normative": "true",
+        "approvers": "principal-architecture, principal-quality",
+        "approvedAt": "2026-07-16",
+        "reviewCommit": "a" * 40,
+        "reviewLink": (
+            f"https://review.example/{identifier.lower()}:443/approval"
+        ),
+        "openFindings": "none",
+    }
+
+
+def accepted_prerequisite_snapshot_bytes(identifier: str) -> bytes:
+    metadata = accepted_prerequisite_metadata(identifier)
+    lines = ["---"]
+    lines.extend(f"{key}: {value}" for key, value in metadata.items())
+    lines.extend((
+        "---",
+        f"# {metadata['title']}",
+        "",
+        f"Synthetic accepted authority fixture for {identifier}.",
+    ))
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def make_accepted_prerequisite_snapshot(
+    module: ModuleType,
+    identifier: str,
+) -> object:
+    return module.BootstrapDocumentSnapshotV1(
+        id=identifier,
+        path=ACCEPTED_DOCUMENT_PATHS[identifier],
+        bytes=accepted_prerequisite_snapshot_bytes(identifier),
+    )
+
+
+def snapshot_derived_normative_document_ref_wire(
+    snapshot: object,
+    metadata: dict[str, str],
+) -> dict:
+    identifier = getattr(snapshot, "id")
+    digest = hashlib.sha256(
+        b"pf.normative-document.v1\x00"
+        + identifier.encode("ascii")
+        + b"\x00"
+        + getattr(snapshot, "bytes")
+    ).digest()
+    return {
+        "id": identifier,
+        "contentDigest": digest_text(digest),
+        "status": "accepted",
+        "reviewCommit": metadata["reviewCommit"],
+        "reviewLink": metadata["reviewLink"],
+        "approvedAt": metadata["approvedAt"],
+        "approvers": metadata["approvers"].split(", "),
+    }
+
+
 def signed_d0_object_graph_fixture(
     module: ModuleType,
     root_task_id: str,
     *,
     shared_quality_review_bytes: bytes | None = None,
+    approval_mutators: dict[str, Callable[[dict], None]] | None = None,
 ) -> dict[str, object]:
     policy_wire = valid_bootstrap_authority_policy()
     policy_bytes = module.canonical_pf_jcs(policy_wire)
@@ -1849,6 +1920,25 @@ def signed_d0_object_graph_fixture(
         module,
         required_ids=required_ids,
     )
+    phase4_snapshot = make_phase4_snapshot(module)
+    document_snapshots = {
+        identifier: make_accepted_prerequisite_snapshot(module, identifier)
+        for identifier in ACCEPTED_PREREQUISITE_TITLES
+    }
+    document_snapshots["PHASE-4"] = phase4_snapshot
+    document_snapshots["PHASE-5"] = phase5_snapshot
+    document_refs = {
+        identifier: snapshot_derived_normative_document_ref_wire(
+            snapshot,
+            (
+                PHASE4_FRONTMATTER
+                if identifier == "PHASE-4"
+                else accepted_prerequisite_metadata(identifier)
+            ),
+        )
+        for identifier, snapshot in document_snapshots.items()
+        if identifier != "PHASE-5"
+    }
     required_wire = signed_document_bound_required_set(
         module,
         policy_ref,
@@ -1894,9 +1984,7 @@ def signed_d0_object_graph_fixture(
             "schema": "proof-forge.bootstrap-task-approval.v1",
             "taskId": task_id,
             "candidate": copy.deepcopy(candidate_wire),
-            "taskBreakdown": normative_document_ref_wire(
-                "PHASE-4", candidate_wire["commit"]
-            ),
+            "taskBreakdown": copy.deepcopy(document_refs["PHASE-4"]),
             "requiredTestSet": task_approval_required_set_ref(
                 module, required_bytes
             ),
@@ -1910,10 +1998,7 @@ def signed_d0_object_graph_fixture(
             ],
             "dependencyCompletions": copy.deepcopy(dependency_refs),
             "prerequisiteDocuments": [
-                normative_document_ref_wire(
-                    document_id,
-                    candidate_wire["commit"],
-                )
+                copy.deepcopy(document_refs[document_id])
                 for document_id in row["prerequisites"]
             ],
             "authorityPolicy": content_ref_wire(policy_ref),
@@ -1940,6 +2025,9 @@ def signed_d0_object_graph_fixture(
                 for key_id, role in signers
             ],
         }
+        mutator = (approval_mutators or {}).get(task_id)
+        if mutator is not None:
+            mutator(approval_statement)
         signer_key_ids = tuple(key_id for key_id, _ in signers)
         approval_wire, _, _ = sign_task_approval_statement(
             module,
@@ -2028,20 +2116,12 @@ def signed_d0_object_graph_fixture(
         for evidence_id in D0_GRAPH_ROWS[task_id]["evidenceIds"]
     )
     evidence_rows = tuple(sorted(evidence_rows, key=lambda row: row.id))
-    documents = (
-        module.BootstrapDocumentSnapshotV1(
-            "PHASE-1", "docs/01-prd.md", b"phase 1\n"
-        ),
-        module.BootstrapDocumentSnapshotV1(
-            "PHASE-2", "docs/02-architecture.md", b"phase 2\n"
-        ),
-        module.BootstrapDocumentSnapshotV1(
-            "PHASE-3", "docs/03-technical-spec.md", b"phase 3\n"
-        ),
-        module.BootstrapDocumentSnapshotV1(
-            "PHASE-4", "docs/04-task-breakdown.md", b"phase 4\n"
-        ),
-        phase5_snapshot,
+    selected_document_ids = {"PHASE-4", "PHASE-5"}
+    for task_id in included_task_ids:
+        selected_document_ids.update(D0_GRAPH_ROWS[task_id]["prerequisites"])
+    documents = tuple(
+        document_snapshots[identifier]
+        for identifier in sorted(selected_document_ids)
     )
     subject = module.BootstrapTaskSubjectV1(
         candidate=candidate,
@@ -2091,6 +2171,9 @@ def signed_d0_object_graph_fixture(
         "objects": objects,
         "built": built,
         "dependencyTaskIds": dependency_task_ids,
+        "phase4Snapshot": phase4_snapshot,
+        "documentSnapshots": document_snapshots,
+        "documentRefs": document_refs,
     }
 
 
@@ -6246,6 +6329,88 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
         module._validate_object_shell = original_object_shell_validator
 
 
+def test_phase4_graph_authority_join(module: ModuleType) -> None:
+    root_fixture = signed_d0_object_graph_fixture(module, "TASK-D0-01")
+    root_graph = module._parse_bootstrap_task_object_graph(
+        root_fixture["subject"],
+        root_fixture["objects"],
+    )
+    assert root_graph.root.approval.taskId == "TASK-D0-01"
+    assert root_graph.dependencies == ()
+
+    full_fixture = signed_d0_object_graph_fixture(module, "TASK-D0-04")
+    full_graph = module._parse_bootstrap_task_object_graph(
+        full_fixture["subject"],
+        full_fixture["objects"],
+    )
+    assert tuple(
+        dependency.approval.taskId for dependency in full_graph.dependencies
+    ) == full_fixture["dependencyTaskIds"]
+    assert "TASK-D0-07" not in full_fixture["dependencyTaskIds"]
+
+    phase4_snapshot = root_fixture["phase4Snapshot"]
+    old_description = b"fixture for TASK-D0-01"
+    new_description = b"changed fixture for TASK-D0-01"
+    assert phase4_snapshot.bytes.count(old_description) == 1
+    changed_phase4 = dataclasses.replace(
+        phase4_snapshot,
+        bytes=phase4_snapshot.bytes.replace(
+            old_description,
+            new_description,
+            1,
+        ),
+    )
+    changed_subject = dataclasses.replace(
+        root_fixture["subject"],
+        documents=tuple(
+            changed_phase4 if document.id == "PHASE-4" else document
+            for document in root_fixture["subject"].documents
+        ),
+    )
+    original_verify_ed25519 = module.verify_ed25519
+    curve_calls = 0
+
+    def count_curve_calls(*args: object, **kwargs: object) -> bool:
+        nonlocal curve_calls
+        curve_calls += 1
+        return original_verify_ed25519(*args, **kwargs)
+
+    module.verify_ed25519 = count_curve_calls
+    try:
+        assert_rejected(
+            module,
+            lambda: module._parse_bootstrap_task_object_graph(
+                changed_subject,
+                root_fixture["objects"],
+            ),
+        )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+    assert curve_calls == 0, (
+        "PHASE-4 raw digest mismatch must reject before every signature curve"
+    )
+
+    parse_calls = 0
+    original_parse_phase4 = module.parse_phase4_snapshot_content
+
+    def count_phase4_parse(snapshot: object) -> object:
+        nonlocal parse_calls
+        parse_calls += 1
+        return original_parse_phase4(snapshot)
+
+    module.parse_phase4_snapshot_content = count_phase4_parse
+    try:
+        module._parse_bootstrap_task_object_graph(
+            root_fixture["subject"],
+            root_fixture["objects"],
+        )
+    finally:
+        module.parse_phase4_snapshot_content = original_parse_phase4
+    assert parse_calls == 1, (
+        "one graph invocation must parse its exact PHASE-4 snapshot once"
+    )
+
+
 def test_dependency_bundle_graph(module: ModuleType) -> None:
     zero_fixture = signed_d0_object_graph_fixture(module, "TASK-D0-01")
     zero_subject = zero_fixture["subject"]
@@ -7773,6 +7938,7 @@ def main() -> int:
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_graph_preflight(module, candidate)
+        test_phase4_graph_authority_join(module)
         test_dependency_bundle_graph(module)
         test_review_report_preflight(module)
         test_subject_and_missing_root_bytes(module, candidate)
