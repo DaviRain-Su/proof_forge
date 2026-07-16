@@ -1,4 +1,6 @@
 import ProofForgeV2.Core.Source
+import Std.Data.HashMap
+import Std.Data.HashSet
 
 namespace ProofForgeV2.Typed
 
@@ -95,38 +97,78 @@ structure Program where
 private def invalid (message : String) : CompileResult α :=
   .error (.invalidProgram message)
 
-private def duplicateName? (names : Array String) : Option String := Id.run do
-  let mut found : Array String := #[]
-  for name in names do
-    if found.contains name then
-      return some name
-    found := found.push name
-  return none
+namespace NameIndex
 
-private def checkDistinct (kind owner : String) (names : Array String) : CompileResult Unit :=
-  match duplicateName? names with
-  | none => .ok ()
-  | some name => invalid s!"duplicate {kind} '{name}' in {owner}"
+/-- Internal alpha name environment. `ordered` is the only source of typed
+state output; `byName` is an ephemeral lookup index shared by all callables. -/
+structure StateEnv where
+  ordered : Array StateDecl
+  byName : Std.HashMap String StateDecl
 
-private def resolveParams (owner : String) (params : Array Source.Param) : CompileResult (Array Param) := do
-  checkDistinct "parameter" owner (params.map (·.name))
-  return params.mapIdx fun index param => {
-    id := ⟨index⟩
-    name := param.name
-    type := param.type
-    visibility := param.visibility
-  }
+/-- Internal alpha parameter environment local to one callable. -/
+structure ParamEnv where
+  ordered : Array Param
+  byName : Std.HashMap String Param
+
+/-- Build the declaration-order state output and its lookup index in one pass. -/
+def resolveState (owner : String) (declarations : Array Source.StateDecl) :
+    CompileResult StateEnv := do
+  let mut ordered : Array StateDecl := #[]
+  let mut byName := Std.HashMap.emptyWithCapacity declarations.size
+  for declaration in declarations do
+    let state : StateDecl := {
+      id := ⟨ordered.size⟩
+      name := declaration.name
+      type := declaration.type
+    }
+    let (existing, updated) := byName.getThenInsertIfNew? declaration.name state
+    if existing.isSome then
+      throw <| .invalidProgram s!"duplicate state declaration '{declaration.name}' in {owner}"
+    byName := updated
+    ordered := ordered.push state
+  return { ordered, byName }
+
+/-- Reject the first repeated entry name without using the set as output. -/
+def checkDistinctEntries (owner : String) (entries : Array Source.Entry) :
+    CompileResult Unit := do
+  let mut names := Std.HashSet.emptyWithCapacity entries.size
+  for entry in entries do
+    let (alreadyPresent, updated) := names.containsThenInsert entry.name
+    if alreadyPresent then
+      throw <| .invalidProgram s!"duplicate entry declaration '{entry.name}' in {owner}"
+    names := updated
+
+/-- Build one callable's declaration-order parameter output and lookup index. -/
+def resolveParams (owner : String) (params : Array Source.Param) :
+    CompileResult ParamEnv := do
+  let mut ordered : Array Param := #[]
+  let mut byName := Std.HashMap.emptyWithCapacity params.size
+  for sourceParam in params do
+    let param : Param := {
+      id := ⟨ordered.size⟩
+      name := sourceParam.name
+      type := sourceParam.type
+      visibility := sourceParam.visibility
+    }
+    let (existing, updated) := byName.getThenInsertIfNew? sourceParam.name param
+    if existing.isSome then
+      throw <| .invalidProgram s!"duplicate parameter '{sourceParam.name}' in {owner}"
+    byName := updated
+    ordered := ordered.push param
+  return { ordered, byName }
+
+end NameIndex
 
 private structure Scope where
   owner : String
-  state : Array StateDecl
-  params : Array Param
+  stateByName : Std.HashMap String StateDecl
+  paramByName : Std.HashMap String Param
 
 private def Scope.findParam? (scope : Scope) (name : String) : Option Param :=
-  scope.params.find? (·.name == name)
+  scope.paramByName.get? name
 
 private def Scope.findState? (scope : Scope) (name : String) : Option StateDecl :=
-  scope.state.find? (·.name == name)
+  scope.stateByName.get? name
 
 private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Expr
   | .literal value => .ok (.literal value)
@@ -169,27 +211,35 @@ private def checkStatement (scope : Scope) (mode : EntryMode) :
       else
         .ok (.synchronousCall callee)
 
-private def checkInitializer (state : Array StateDecl)
+private def checkInitializer (state : NameIndex.StateEnv)
     (initializer : Source.Initializer) : CompileResult Initializer := do
-  let params ← resolveParams "initializer" initializer.params
-  let scope : Scope := { owner := "initializer", state, params }
+  let params ← NameIndex.resolveParams "initializer" initializer.params
+  let scope : Scope := {
+    owner := "initializer"
+    stateByName := state.byName
+    paramByName := params.byName
+  }
   let mut body : Array Statement := #[]
   for statement in initializer.body do
     match statement with
     | .returnValue .. =>
         throw <| .invalidProgram "initializer cannot return a value"
     | _ => body := body.push (← checkStatement scope .mutate statement)
-  return { params, body }
+  return { params := params.ordered, body }
 
 private def adaptMode : Source.EntryMode → EntryMode
   | .mutate => .mutate
   | .view => .view
 
-private def checkEntry (state : Array StateDecl) (entry : Source.Entry) : CompileResult Entry := do
+private def checkEntry (state : NameIndex.StateEnv) (entry : Source.Entry) : CompileResult Entry := do
   let owner := s!"entry '{entry.name}'"
-  let params ← resolveParams owner entry.params
+  let params ← NameIndex.resolveParams owner entry.params
   let mode := adaptMode entry.mode
-  let scope : Scope := { owner := entry.name, state, params }
+  let scope : Scope := {
+    owner := entry.name
+    stateByName := state.byName
+    paramByName := params.byName
+  }
   let mut body : Array Statement := #[]
   let mut returned := false
   for statement in entry.body do
@@ -205,7 +255,7 @@ private def checkEntry (state : Array StateDecl) (entry : Source.Entry) : Compil
     body := body.push checked
   unless returned do
     throw <| .invalidProgram s!"{owner} is missing a return value"
-  return { name := entry.name, params, result := entry.result, mode, body }
+  return { name := entry.name, params := params.ordered, result := entry.result, mode, body }
 
 /-- Resolve source names and enforce the minimum Phase-1 type/effect rules.
 No requirement is trusted from `Source.Program`; requirements are derived later
@@ -215,23 +265,17 @@ def check (source : Source.Program) : CompileResult Program := do
     throw <| .invalidProgram "program qualified identity cannot be empty"
   if source.name.isEmpty then
     throw <| .invalidProgram "program name cannot be empty"
-  checkDistinct "state declaration" s!"program '{source.qualifiedName}'"
-    (source.state.map (·.name))
-  checkDistinct "entry declaration" s!"program '{source.qualifiedName}'"
-    (source.entries.map (·.name))
+  let owner := s!"program '{source.qualifiedName}'"
+  let state ← NameIndex.resolveState owner source.state
+  NameIndex.checkDistinctEntries owner source.entries
   if source.entries.isEmpty then
     throw <| .invalidProgram s!"program '{source.qualifiedName}' must declare at least one entry or view"
-  let state := source.state.mapIdx fun index declaration => {
-    id := ⟨index⟩
-    name := declaration.name
-    type := declaration.type
-  }
   let initializer ← source.initializer.mapM (checkInitializer state)
   let entries ← source.entries.mapM (checkEntry state)
   return {
     qualifiedName := source.qualifiedName
     name := source.name
-    state
+    state := state.ordered
     initializer
     entries
   }
