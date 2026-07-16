@@ -1338,7 +1338,12 @@ receipt 的 `observedLauncherSha256` 及唯一 `sandbox-launcher` input bytes；
 `observedExecutableSha256`。`evidenceSchemaCoreSha256` 还必须等于唯一
 `inputs[].role="evidence-schema-core"` 的 captured bytes。evidence validator 与 finalizer 分别对其执行中的
 `gate_evidence.py` bytes 做 stable-read；当前两者可由同一文件提供且 digest 相等，但身份/版本轴
-不能合并。`evidenceSchemaCoreSha256` 必须对 exact sibling `evidence_v1_core.py` 做独立 stable-read，
+不能合并。Development finalizer 禁止由普通 pathname 启动：调用方必须 no-follow 打开
+`gate_evidence.py` 并保持 descriptor，Python 必须从继承的 `/dev/fd/N` 执行；finalizer 必须把该
+descriptor 的稳定 identity/bytes、显式 executing-source pathname 的同一 inode/bytes、当前 module
+code 与 catalog lock 四方绑定。只在启动后重开 `__file__` 不构成 executing-finalizer identity。
+这仍是 development handoff，不能替代 D0-04 的 formal Stage-0 handoff。
+`evidenceSchemaCoreSha256` 必须对 exact sibling `evidence_v1_core.py` 做独立 stable-read，
 并与 CLI 实际加载的同一 `(device,inode)`/bytes 绑定；只锁 wrapper 而遗漏被调用的 schema core
 必须以 closure substitution 拒绝。H1e-b 不得再引入 catalog 未显式锁定的 production helper。
 任一 lock 无 consumer 或出现第二个 consumer claim都失败。

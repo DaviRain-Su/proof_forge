@@ -913,6 +913,39 @@ def write_realistic_development_bundle(
 
 
 def invoke(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
+    gate_descriptor = os.open(
+        GATE_EVIDENCE,
+        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                f"/dev/fd/{gate_descriptor}",
+                arguments[0],
+                "--executing-source",
+                os.fspath(GATE_EVIDENCE.resolve(strict=True)),
+                *arguments[1:],
+            ],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            pass_fds=(gate_descriptor,),
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AssertionError(
+            "finalizer blocked on catalog or claimed-member I/O before its policy decision"
+        ) from error
+    finally:
+        os.close(gate_descriptor)
+
+
+def invoke_path(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
     try:
         return subprocess.run(
             [sys.executable, "-I", "-S", os.fspath(GATE_EVIDENCE), *arguments],
@@ -924,9 +957,7 @@ def invoke(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
             timeout=10,
         )
     except subprocess.TimeoutExpired as error:
-        raise AssertionError(
-            "finalizer blocked on catalog or claimed-member I/O before its policy decision"
-        ) from error
+        raise AssertionError("pathname finalizer invocation blocked") from error
 
 
 def rewrite_catalog_binding(
@@ -1057,7 +1088,7 @@ def main() -> int:
             / "v2-clean-room-alpha"
             / "EVF-20260715-0001.json"
         )
-        result = invoke(
+        result = invoke_path(
             [
                 "finalize-development",
                 "--catalog",
@@ -1111,6 +1142,44 @@ def main() -> int:
             catalog_digest,
             run_binding_sha256,
         ) = write_realistic_development_bundle(module, development_root)
+        pathname_output_root = temporary_root / "pathname-output-must-not-be-touched"
+        pathname_output = (
+            pathname_output_root
+            / "finalized-development"
+            / document["gateCatalog"]["id"]
+            / document["gate"]["id"]
+            / "EVF-20260715-9000.json"
+        )
+        pathname_result = invoke_path(
+            [
+                "finalize-development",
+                "--catalog",
+                catalog_path,
+                "--catalog-sha256",
+                catalog_sha256,
+                "--catalog-digest",
+                catalog_digest,
+                "--run-binding-sha256",
+                run_binding_sha256,
+                "--evidence",
+                "development-evidence.json",
+                "--bundle-root",
+                os.fspath(development_root),
+                "--output",
+                os.fspath(pathname_output),
+            ]
+        )
+        if (
+            pathname_result.returncode != 2
+            or pathname_result.stdout
+            or b"PF-EVIDENCE-FINALIZER-IDENTITY" not in pathname_result.stderr
+        ):
+            raise AssertionError(
+                "pathname finalizer invocation did not fail closed:\n"
+                + pathname_result.stderr.decode("utf-8", errors="replace")
+            )
+        if pathname_output_root.exists():
+            raise AssertionError("pathname finalizer invocation touched output")
         assert_catalog_rejection(
             module,
             temporary_root,
@@ -1200,6 +1269,55 @@ def main() -> int:
             expected_code="PF-EVIDENCE-HOST-BINDING",
             mutator=lambda catalog: catalog["gates"][0]["hostPolicy"].update(
                 {"eligibleForHermetic": True}
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="cross-policy-structural-reuse",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: (
+                catalog["gates"][0]["policies"][1].update(
+                    {
+                        "renderedPolicyInput": copy.deepcopy(
+                            catalog["gates"][0]["policies"][0]["renderedPolicyInput"]
+                        )
+                    }
+                ),
+                catalog["gates"][0]["policies"][1]["probes"][0].update(
+                    {
+                        key: copy.deepcopy(
+                            catalog["gates"][0]["policies"][0]["probes"][0][key]
+                        )
+                        for key in (
+                            "invocationContextInput",
+                            "receiptInput",
+                            "stdoutLog",
+                            "stderrLog",
+                        )
+                    }
+                ),
+            ),
+        )
+        assert_catalog_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="required-log-probe-stream-overlap",
+            expected_code="PF-EVIDENCE-CATALOG",
+            mutator=lambda catalog: catalog["gates"][0]["requiredLogs"][1].update(
+                {
+                    "path": catalog["gates"][0]["policies"][0]["probes"][0][
+                        "stdoutLog"
+                    ]
+                }
             ),
         )
         finalized_id = "EVF-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d") + "-0001"

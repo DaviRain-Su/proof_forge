@@ -765,7 +765,9 @@ H1e-b 还必须覆盖 catalog `--catalog` absolute/parent traversal 与 input-cl
 structural repeated-role alias/substitution，以及 `gate_evidence.py` digest 不变但 exact sibling
 `evidence_v1_core.py`/retained `evidence-schema-core` 被替换的 closure negative；base context 还须
 拒绝 `runtime-port`、`adjacent-port`、`lan-ipv4`、`chain-id`、`asset-cache` 五个 late-dynamic 名；
-这些失败不得进入 catalog success 或创建 EVF 输出。
+这些失败不得进入 catalog success 或创建 EVF 输出。还必须拒绝 development finalizer 的普通
+pathname 启动、descriptor/path/module-code 任一错绑、跨 policy/probe 重用 rendered policy/context/
+receipt/stream，以及 probe stream 与 `requiredLogs` 相交。
 
 ## 证据要求
 
