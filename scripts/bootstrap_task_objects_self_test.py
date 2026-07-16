@@ -376,6 +376,10 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
     duplicate_key_material["principals"][1]["publicKey"] = (
         duplicate_key_material["principals"][0]["publicKey"]
     )
+    receipt_key_alias = copy.deepcopy(policy)
+    receipt_key_alias["verifier"]["receiptPublicKey"] = (
+        receipt_key_alias["principals"][0]["publicKey"]
+    )
     original_decode_point = module._decode_point
     curve_calls = 0
 
@@ -401,6 +405,15 @@ def test_bootstrap_authority_policy(module: ModuleType) -> None:
         )
         assert curve_calls == 0, (
             "duplicate publicKey must reject before repeated subgroup validation"
+        )
+        assert_rejected(
+            module,
+            lambda: module.parse_bootstrap_authority_policy(
+                module.canonical_pf_jcs(receipt_key_alias)
+            ),
+        )
+        assert curve_calls == len(policy["principals"]), (
+            "receipt key alias must reject before revalidating duplicate key material"
         )
     finally:
         module._decode_point = original_decode_point
