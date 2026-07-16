@@ -4813,6 +4813,50 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
     )
     assert module._validate_subject(subject) is None
 
+    leap_day_evidence_id = "EV-20280229-0001"
+    leap_day_subject = dataclasses.replace(
+        subject,
+        taskRows=rows[:-1] + (
+            dataclasses.replace(
+                rows[-1], evidenceIds=(leap_day_evidence_id,)
+            ),
+        ),
+        evidenceRows=evidence_rows[:-1] + (
+            dataclasses.replace(
+                evidence_rows[-1], id=leap_day_evidence_id
+            ),
+        ),
+    )
+    assert module._validate_subject(leap_day_subject) is None
+
+    unicode_document_subject = dataclasses.replace(
+        subject,
+        documents=(
+            dataclasses.replace(
+                documents[0],
+                path="docs/阶段一.md",
+                bytes=b"---\nid: PHASE-1\nstatus: accepted\n---\n"
+                + "标题: 阶段一\n".encode("utf-8"),
+            ),
+        ) + documents[1:],
+    )
+    assert module._validate_subject(unicode_document_subject) is None
+
+    maximum_test_id = "TST-" + "A" * 123
+    maximum_test_id_subject = dataclasses.replace(
+        subject,
+        taskRows=(
+            dataclasses.replace(rows[0], testIds=(maximum_test_id,)),
+        ) + rows[1:],
+        evidenceRows=(
+            dataclasses.replace(
+                evidence_rows[0], testIds=(maximum_test_id,)
+            ),
+        ) + evidence_rows[1:],
+    )
+    assert len(maximum_test_id.encode("ascii")) == 127
+    assert module._validate_subject(maximum_test_id_subject) is None
+
     missing_dependency_row = dataclasses.replace(
         subject,
         taskRows=rows[1:],
@@ -4867,12 +4911,53 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
             ),
         ) + evidence_rows[2:],
     )
+    missing_only_evidence_test = dataclasses.replace(
+        subject,
+        evidenceRows=evidence_rows[:3] + (
+            dataclasses.replace(
+                evidence_rows[3], testIds=("TST-HOST-001",)
+            ),
+        ) + evidence_rows[4:],
+    )
+    extra_only_evidence_test = dataclasses.replace(
+        subject,
+        evidenceRows=evidence_rows[:3] + (
+            dataclasses.replace(
+                evidence_rows[3],
+                testIds=(
+                    "TST-HOST-001",
+                    "TST-TOOL-001",
+                    "TST-UNRELATED-001",
+                ),
+            ),
+        ) + evidence_rows[4:],
+    )
     malformed_evidence_test_id = dataclasses.replace(
         subject,
         evidenceRows=(
             dataclasses.replace(evidence_rows[0], testIds=("not-a-test-id",)),
         ) + evidence_rows[1:],
     )
+    matched_malformed_test_id = dataclasses.replace(
+        subject,
+        taskRows=(
+            dataclasses.replace(rows[0], testIds=("not-a-test-id",)),
+        ) + rows[1:],
+        evidenceRows=(
+            dataclasses.replace(evidence_rows[0], testIds=("not-a-test-id",)),
+        ) + evidence_rows[1:],
+    )
+    overlong_test_id = "TST-" + "A" * 124
+    matched_overlong_test_id = dataclasses.replace(
+        subject,
+        taskRows=(
+            dataclasses.replace(rows[0], testIds=(overlong_test_id,)),
+        ) + rows[1:],
+        evidenceRows=(
+            dataclasses.replace(evidence_rows[0], testIds=(overlong_test_id,)),
+        ) + evidence_rows[1:],
+    )
+    assert len(overlong_test_id.encode("ascii")) == 128
     impossible_evidence_date = "EV-20260230-0001"
     impossible_evidence_date_subject = dataclasses.replace(
         subject,
@@ -5033,7 +5118,11 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
         ("task dependency cycle", cyclic_subject),
         ("evidence row task mismatch", wrong_evidence_task),
         ("per-task evidence test union mismatch", wrong_evidence_test_union),
+        ("per-task evidence test union missing member", missing_only_evidence_test),
+        ("per-task evidence test union extra member", extra_only_evidence_test),
         ("malformed evidence test ID", malformed_evidence_test_id),
+        ("matched malformed task/evidence test ID", matched_malformed_test_id),
+        ("matched overlong task/evidence test ID", matched_overlong_test_id),
         ("impossible Gregorian evidence date", impossible_evidence_date_subject),
         ("missing exact evidence row", missing_evidence_row_subject),
         ("extra unreferenced evidence row", extra_evidence_row_subject),
@@ -5096,45 +5185,55 @@ def test_subject_graph_preflight(module: ModuleType, candidate: object) -> None:
     )
     original_receipt_parser = module.parse_bootstrap_task_verifier_receipt
     original_object_shell_validator = module._validate_object_shell
-    receipt_calls = 0
-    shell_calls = 0
+    events: list[str] = []
+    shell_arguments: list[object] = []
 
     def capture_receipt_parser(*args: object, **kwargs: object) -> tuple:
         del args, kwargs
-        nonlocal receipt_calls
-        receipt_calls += 1
+        events.append("receipt")
         return object(), object()
 
     def capture_object_shell(objects: object) -> None:
-        del objects
-        nonlocal shell_calls
-        shell_calls += 1
+        events.append("shell")
+        shell_arguments.append(objects)
+        original_object_shell_validator(objects)
 
     module.parse_bootstrap_task_verifier_receipt = capture_receipt_parser
     module._validate_object_shell = capture_object_shell
     try:
         result = module.verifyBootstrapTaskObjects(subject, shell_objects)
         assert isinstance(result, module.Rejected)
-        assert shell_calls == 1, (
-            "valid subject graph must reach the object shell boundary"
+        assert events == ["shell", "receipt"], (
+            "valid subject graph must validate the object shell before "
+            "receipt signature work"
         )
-        assert receipt_calls == 1, (
-            "valid subject graph must reach the receipt content boundary"
+        assert shell_arguments == [shell_objects], (
+            "object shell validation must receive the caller's exact object set"
         )
+        events.clear()
+        shell_arguments.clear()
+        malformed_shell = dataclasses.replace(
+            shell_objects,
+            authorityPolicyBytes=b"",
+        )
+        result = module.verifyBootstrapTaskObjects(subject, malformed_shell)
+        assert isinstance(result, module.Rejected)
+        assert events == ["shell"], (
+            "malformed object shell must reject before receipt signature work"
+        )
+        assert shell_arguments == [malformed_shell]
         for label, invalid_subject in invalid_subjects:
-            receipt_calls = 0
-            shell_calls = 0
+            events.clear()
+            shell_arguments.clear()
             result = module.verifyBootstrapTaskObjects(
                 invalid_subject,
                 shell_objects,
             )
             assert isinstance(result, module.Rejected)
-            assert shell_calls == 0, (
-                f"{label} must reject before object shell validation"
+            assert events == [], (
+                f"{label} must reject before object or signature work"
             )
-            assert receipt_calls == 0, (
-                f"{label} must reject before receipt signature work"
-            )
+            assert shell_arguments == []
     finally:
         module.parse_bootstrap_task_verifier_receipt = original_receipt_parser
         module._validate_object_shell = original_object_shell_validator

@@ -2323,64 +2323,129 @@ def _validate_subject(subject: BootstrapTaskSubjectV1) -> None:
     if type(subject.candidate) is not CandidateIdentity:
         _reject("subject candidate must be typed")
     if (type(subject.rootTaskId) is not str
-            or TASK_ID_RE.fullmatch(subject.rootTaskId) is None):
-        _reject("rootTaskId is invalid")
-    if type(subject.taskRows) is not tuple or not subject.taskRows:
-        _reject("taskRows must be non-empty")
+            or subject.rootTaskId not in _D0_TASK_IDS):
+        _reject("rootTaskId must be exact TASK-D0-01..06")
+    if (type(subject.taskRows) is not tuple
+            or not 1 <= len(subject.taskRows) <= len(_D0_TASK_IDS)):
+        _reject("taskRows count must be 1..6")
     for row in subject.taskRows:
         if type(row) is not BootstrapTaskRowSubjectV1:
             _reject("taskRows contain an untyped row")
         if (type(row.taskId) is not str
-                or TASK_ID_RE.fullmatch(row.taskId) is None):
-            _reject("task row ID is invalid")
+                or row.taskId not in _D0_TASK_IDS):
+            _reject("task row ID must be exact TASK-D0-01..06")
     task_ids = tuple(row.taskId for row in subject.taskRows)
     if task_ids != tuple(sorted(task_ids)) or len(set(task_ids)) != len(task_ids):
         _reject("taskRows must be unique and sorted")
     if subject.rootTaskId not in task_ids:
         _reject("root task row is missing")
+    row_by_task = {row.taskId: row for row in subject.taskRows}
     for row in subject.taskRows:
         _require_sorted_unique(row.dependencies, f"{row.taskId}.dependencies", nonempty=False)
         _require_sorted_unique(row.testIds, f"{row.taskId}.testIds", nonempty=True)
         _require_sorted_unique(row.evidenceIds, f"{row.taskId}.evidenceIds", nonempty=True)
-        if any(TASK_ID_RE.fullmatch(value) is None for value in row.dependencies):
-            _reject("dependency task ID is invalid")
-        if any(TEST_ID_RE.fullmatch(value) is None for value in row.testIds):
-            _reject("test ID is invalid")
-        if any(EVIDENCE_ID_RE.fullmatch(value) is None for value in row.evidenceIds):
-            _reject("evidence ID is invalid")
+        if any(value not in _D0_TASK_IDS for value in row.dependencies):
+            _reject("dependency task ID must be exact TASK-D0-01..06")
+        if any(value not in row_by_task for value in row.dependencies):
+            _reject("dependency task row is missing")
+        for index, test_id in enumerate(row.testIds):
+            _require_ascii_text(
+                test_id,
+                TEST_ID_RE,
+                f"{row.taskId}.testIds[{index}]",
+                127,
+            )
+        for evidence_id in row.evidenceIds:
+            _parse_compact_gregorian_id(
+                evidence_id,
+                EVIDENCE_ID_RE,
+                3,
+                f"{row.taskId}.evidenceIds",
+            )
         if type(row.prerequisites) is not tuple:
             _reject("prerequisites must be a tuple")
         prerequisite_ids = []
         for prerequisite in row.prerequisites:
             obj = _require_exact_keys(
                 prerequisite, ("documentId", "requiredStatus"), "prerequisite")
-            if obj["requiredStatus"] != "accepted" or type(obj["documentId"]) is not str:
+            if obj["requiredStatus"] != "accepted":
                 _reject("prerequisite must require accepted")
-            prerequisite_ids.append(obj["documentId"])
+            prerequisite_ids.append(_require_safe_id(
+                obj["documentId"],
+                "prerequisite.documentId",
+            ))
         if prerequisite_ids != sorted(prerequisite_ids) or len(set(prerequisite_ids)) != len(prerequisite_ids):
             _reject("prerequisites must be unique and sorted")
+
+    visit_state: dict[str, int] = {}
+
+    def visit(task_id: str) -> None:
+        state = visit_state.get(task_id, 0)
+        if state == 1:
+            _reject("task dependency graph contains a cycle")
+        if state == 2:
+            return
+        visit_state[task_id] = 1
+        for dependency in row_by_task[task_id].dependencies:
+            visit(dependency)
+        visit_state[task_id] = 2
+
+    visit(subject.rootTaskId)
+    if set(visit_state) != set(row_by_task):
+        _reject("taskRows contain a row unreachable from rootTaskId")
 
     if type(subject.evidenceRows) is not tuple or not subject.evidenceRows:
         _reject("evidenceRows must be non-empty")
     evidence_ids = []
-    for row in subject.evidenceRows:
-        if type(row) is not BootstrapLedgerSubjectV1:
+    for evidence_row in subject.evidenceRows:
+        if type(evidence_row) is not BootstrapLedgerSubjectV1:
             _reject("evidenceRows contain an untyped row")
-        if (type(row.id) is not str or EVIDENCE_ID_RE.fullmatch(row.id) is None
-                or type(row.taskId) is not str
-                or TASK_ID_RE.fullmatch(row.taskId) is None):
-            _reject("evidence row identity is invalid")
-        if row.grade != "bootstrap" or row.result != "passed":
+        _parse_compact_gregorian_id(
+            evidence_row.id,
+            EVIDENCE_ID_RE,
+            3,
+            "evidence row ID",
+        )
+        if (type(evidence_row.taskId) is not str
+                or evidence_row.taskId not in _D0_TASK_IDS):
+            _reject("evidence row taskId must be exact TASK-D0-01..06")
+        if evidence_row.grade != "bootstrap" or evidence_row.result != "passed":
             _reject("bootstrap ledger row must be passed")
-        _require_sorted_unique(row.testIds, f"{row.id}.testIds", nonempty=True)
-        evidence_ids.append(row.id)
+        _require_sorted_unique(
+            evidence_row.testIds,
+            f"{evidence_row.id}.testIds",
+            nonempty=True,
+        )
+        for index, test_id in enumerate(evidence_row.testIds):
+            _require_ascii_text(
+                test_id,
+                TEST_ID_RE,
+                f"{evidence_row.id}.testIds[{index}]",
+                127,
+            )
+        evidence_ids.append(evidence_row.id)
     if evidence_ids != sorted(evidence_ids) or len(set(evidence_ids)) != len(evidence_ids):
         _reject("evidenceRows must be unique and sorted")
-    expected_evidence = sorted(
+    expected_evidence = tuple(sorted(
         evidence_id for row in subject.taskRows for evidence_id in row.evidenceIds
-    )
-    if evidence_ids != expected_evidence:
+    ))
+    if tuple(evidence_ids) != expected_evidence:
         _reject("evidenceRows do not match task row evidence IDs")
+
+    evidence_owner: dict[str, str] = {}
+    for task_row in subject.taskRows:
+        for evidence_id in task_row.evidenceIds:
+            if evidence_id in evidence_owner:
+                _reject("an evidence ID is referenced by multiple task rows")
+            evidence_owner[evidence_id] = task_row.taskId
+    tests_by_task = {task_id: set() for task_id in row_by_task}
+    for evidence_row in subject.evidenceRows:
+        if evidence_row.taskId != evidence_owner[evidence_row.id]:
+            _reject("evidence row taskId does not match its owning task row")
+        tests_by_task[evidence_row.taskId].update(evidence_row.testIds)
+    for task_row in subject.taskRows:
+        if tuple(sorted(tests_by_task[task_row.taskId])) != task_row.testIds:
+            _reject("evidence test union does not match task row testIds")
 
     if type(subject.documents) is not tuple or not subject.documents:
         _reject("documents must be non-empty")
@@ -2389,14 +2454,32 @@ def _validate_subject(subject: BootstrapTaskSubjectV1) -> None:
     for document in subject.documents:
         if type(document) is not BootstrapDocumentSnapshotV1:
             _reject("documents contain an untyped snapshot")
-        if type(document.id) is not str or type(document.bytes) is not bytes:
-            _reject("document snapshot fields are invalid")
-        document_ids.append(document.id)
+        document_ids.append(_require_safe_id(
+            document.id,
+            "document snapshot ID",
+        ))
+        if type(document.bytes) is not bytes:
+            _reject("document snapshot bytes must be bytes")
+        try:
+            document.bytes.decode("utf-8", errors="strict")
+        except UnicodeError:
+            _reject("document snapshot bytes must be strict UTF-8")
         document_paths.append(_require_project_path(document.path))
     if document_ids != sorted(document_ids) or len(set(document_ids)) != len(document_ids):
         _reject("documents must be unique and sorted by ID")
     if len(set(document_paths)) != len(document_paths):
         _reject("document paths must be unique")
+    casefolded_paths = tuple(path.casefold() for path in document_paths)
+    if len(set(casefolded_paths)) != len(casefolded_paths):
+        _reject("document paths must be unique after Unicode casefold")
+    expected_document_ids = {"PHASE-4", "PHASE-5"}
+    for task_row in subject.taskRows:
+        expected_document_ids.update(
+            prerequisite["documentId"]
+            for prerequisite in task_row.prerequisites
+        )
+    if tuple(document_ids) != tuple(sorted(expected_document_ids)):
+        _reject("documents do not match PHASE-4/5 and task prerequisites")
 
 
 def _validate_object_shell(objects: BootstrapTaskObjectSetV1) -> None:
