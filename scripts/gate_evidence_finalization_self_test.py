@@ -954,11 +954,26 @@ def invoke(
         os.close(gate_descriptor)
 
 
-def invoke_prelude(arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
+def invoke_prelude(
+    arguments: list[str],
+    *,
+    monkeypatch_getframe: bool = False,
+) -> subprocess.CompletedProcess[bytes]:
+    getframe_patch = """
+class FakeFrame:
+    pass
+fake_frame = FakeFrame()
+fake_frame.f_code = compile(source, "<stdin>", "exec", dont_inherit=True)
+fake_frame.f_back = None
+fake_frame.f_globals = {"__name__": "__main__"}
+real_getframe = sys._getframe
+sys._getframe = lambda depth=0: fake_frame if depth == 0 else real_getframe(depth)
+""" if monkeypatch_getframe else ""
     prelude = """import os, sys
 sys.argv[0] = "-"
 size = os.fstat(0).st_size
 source = os.pread(0, size + 1, 0)
+""" + getframe_patch + """
 namespace = {
     "__name__": "__main__",
     "__file__": "<stdin>",
@@ -1331,6 +1346,10 @@ def main() -> int:
         same_bytes_root.mkdir(mode=0o700)
         same_bytes_gate = same_bytes_root / "gate_evidence.py"
         write_secure(same_bytes_gate, GATE_EVIDENCE.read_bytes())
+        write_secure(
+            same_bytes_root / "evidence_v1_core.py",
+            EVIDENCE_CORE.read_bytes(),
+        )
         same_bytes_output_root = temporary_root / "same-bytes-source-output"
         same_bytes_result = invoke(
             development_arguments(
@@ -1392,13 +1411,40 @@ def main() -> int:
             label="unlocked -c prelude invocation",
             output_root=prelude_output_root,
         )
+        monkeypatched_prelude_output_root = temporary_root / "monkeypatched-prelude-output"
+        monkeypatched_prelude_arguments = development_arguments(
+            monkeypatched_prelude_output_root / "EVF-20260715-9000.json",
+            pathname_catalog_relative,
+        )
+        monkeypatched_prelude_arguments[1:1] = [
+            "--executing-source",
+            os.fspath(GATE_EVIDENCE.resolve(strict=True)),
+        ]
+        monkeypatched_prelude_result = invoke_prelude(
+            monkeypatched_prelude_arguments,
+            monkeypatch_getframe=True,
+        )
+        assert_identity_rejection(
+            monkeypatched_prelude_result,
+            label="monkeypatched getframe prelude invocation",
+            output_root=monkeypatched_prelude_output_root,
+        )
 
         substituted_core_root = temporary_root / "substituted-core-source"
         substituted_core_root.mkdir(mode=0o700)
         substituted_gate = substituted_core_root / "gate_evidence.py"
         substituted_core = substituted_core_root / "evidence_v1_core.py"
+        substituted_core_sentinel = temporary_root / "substituted-core-executed"
         write_secure(substituted_gate, GATE_EVIDENCE.read_bytes())
-        write_secure(substituted_core, EVIDENCE_CORE.read_bytes() + b"# substituted\n")
+        write_secure(
+            substituted_core,
+            EVIDENCE_CORE.read_bytes()
+            + (
+                "\n__import__('pathlib').Path("
+                + repr(os.fspath(substituted_core_sentinel))
+                + ").write_bytes(b'executed')\n"
+            ).encode("utf-8"),
+        )
         substituted_core_output_root = temporary_root / "substituted-core-output"
         substituted_core_result = invoke(
             development_arguments(
@@ -1423,6 +1469,8 @@ def main() -> int:
             )
         if substituted_core_output_root.exists():
             raise AssertionError("substituted exact sibling core touched output")
+        if substituted_core_sentinel.exists():
+            raise AssertionError("substituted exact sibling core executed before its pin check")
 
         fifo_core_root = temporary_root / "fifo-core-source"
         fifo_core_root.mkdir(mode=0o700)
@@ -1547,6 +1595,23 @@ def main() -> int:
                 {"evidenceSchemaCoreSha256": "0" * 64}
             ),
         )
+        for lock_field, label in (
+            ("evidenceValidatorSha256", "implementation-validator-lock"),
+            ("finalizerSha256", "implementation-finalizer-lock"),
+        ):
+            assert_catalog_rejection(
+                module,
+                temporary_root,
+                development_root,
+                document,
+                catalog_path,
+                run_binding_sha256,
+                label=label,
+                expected_code="PF-EVIDENCE-CATALOG-DIGEST",
+                mutator=lambda catalog, lock_field=lock_field: catalog["locks"].update(
+                    {lock_field: "0" * 64}
+                ),
+            )
         assert_catalog_rejection(
             module,
             temporary_root,
@@ -1813,65 +1878,87 @@ def main() -> int:
                 ),
             ),
         )
-        retained_core_root = temporary_root / "retained-core-negative"
-        shutil.copytree(development_root, retained_core_root, copy_function=shutil.copy2)
-        retained_core_document = copy.deepcopy(document)
-        retained_core_path = "tcb/evidence_v1_core.py"
         retained_core_bytes = EVIDENCE_CORE.read_bytes() + b"# retained substitution\n"
-        replace_secure(retained_core_root / retained_core_path, retained_core_bytes)
-        retained_core_claim = next(
-            entry
-            for entry in retained_core_document["inputs"]
-            if entry["role"] == "evidence-schema-core"
-        )
-        retained_core_claim["sha256"] = sha256(retained_core_bytes)
-        retained_core_claim["size"] = len(retained_core_bytes)
-        module.validate_evidence(retained_core_document)
-        replace_secure(
-            retained_core_root / "development-evidence.json",
-            module.canonical_bytes(retained_core_document),
-        )
-        retained_core_output_root = temporary_root / "retained-core-negative-output"
-        retained_core_result = invoke(
-            [
-                "finalize-development",
-                "--catalog",
-                catalog_path,
-                "--catalog-sha256",
-                catalog_sha256,
-                "--catalog-digest",
-                catalog_digest,
-                "--run-binding-sha256",
-                run_binding_sha256,
-                "--evidence",
-                "development-evidence.json",
-                "--bundle-root",
-                os.fspath(retained_core_root),
-                "--output",
-                os.fspath(
-                    retained_core_output_root
-                    / "finalized-development"
-                    / document["gateCatalog"]["id"]
-                    / document["gate"]["id"]
-                    / "EVF-20260715-9002.json"
-                ),
-            ]
-        )
-        retained_core_stderr = retained_core_result.stderr.splitlines()
-        if (
-            retained_core_result.returncode != 2
-            or retained_core_result.stdout
-            or len(retained_core_stderr) != 1
-            or not retained_core_stderr[0].startswith(
-                b"PF-EVIDENCE-CATALOG-DIGEST: "
+
+        def assert_retained_core_rejection(
+            label: str,
+            *,
+            file_bytes: bytes | None,
+            claim_bytes: bytes | None,
+        ) -> None:
+            case_root = temporary_root / f"retained-core-{label}"
+            shutil.copytree(development_root, case_root, copy_function=shutil.copy2)
+            case_document = copy.deepcopy(document)
+            if file_bytes is not None:
+                replace_secure(case_root / "tcb/evidence_v1_core.py", file_bytes)
+            if claim_bytes is not None:
+                claim = next(
+                    entry
+                    for entry in case_document["inputs"]
+                    if entry["role"] == "evidence-schema-core"
+                )
+                claim["sha256"] = sha256(claim_bytes)
+                claim["size"] = len(claim_bytes)
+            module.validate_evidence(case_document)
+            replace_secure(
+                case_root / "development-evidence.json",
+                module.canonical_bytes(case_document),
             )
-        ):
-            raise AssertionError(
-                "retained evidence core substitution did not fail closed:\n"
-                + retained_core_result.stderr.decode("utf-8", errors="replace")
+            output_root = temporary_root / f"retained-core-{label}-output"
+            result = invoke(
+                [
+                    "finalize-development",
+                    "--catalog",
+                    catalog_path,
+                    "--catalog-sha256",
+                    catalog_sha256,
+                    "--catalog-digest",
+                    catalog_digest,
+                    "--run-binding-sha256",
+                    run_binding_sha256,
+                    "--evidence",
+                    "development-evidence.json",
+                    "--bundle-root",
+                    os.fspath(case_root),
+                    "--output",
+                    os.fspath(
+                        output_root
+                        / "finalized-development"
+                        / document["gateCatalog"]["id"]
+                        / document["gate"]["id"]
+                        / "EVF-20260715-9002.json"
+                    ),
+                ]
             )
-        if retained_core_output_root.exists():
-            raise AssertionError("retained evidence core substitution touched output")
+            stderr_lines = result.stderr.splitlines()
+            if (
+                result.returncode != 2
+                or result.stdout
+                or len(stderr_lines) != 1
+                or not stderr_lines[0].startswith(b"PF-EVIDENCE-CATALOG-DIGEST: ")
+            ):
+                raise AssertionError(
+                    f"retained evidence core {label} did not fail closed:\n"
+                    + result.stderr.decode("utf-8", errors="replace")
+                )
+            if output_root.exists():
+                raise AssertionError(f"retained evidence core {label} touched output")
+
+        assert_retained_core_rejection(
+            "file-only",
+            file_bytes=retained_core_bytes,
+            claim_bytes=None,
+        )
+        assert_retained_core_rejection(
+            "claim-only",
+            file_bytes=None,
+            claim_bytes=retained_core_bytes,
+        )
+        assert_retained_core_rejection(
+            "file-and-claim",
+            file_bytes=retained_core_bytes,
+            claim_bytes=retained_core_bytes,
+        )
         finalized_id = "EVF-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d") + "-0001"
         output_root = temporary_root / "trusted-output"
         output_parent = (
