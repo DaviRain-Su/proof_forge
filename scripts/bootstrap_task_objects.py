@@ -40,6 +40,7 @@ SAFE_ID_RE = re.compile(
 TASK_ID_RE = re.compile(r"TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*")
 TEST_ID_RE = re.compile(r"TST-[A-Z0-9]+(?:-[A-Z0-9]+)*")
 EVIDENCE_ID_RE = re.compile(r"EV-[0-9]{8}-[0-9]{4}")
+BTV_ID_RE = re.compile(r"BTV-[0-9]{8}-[0-9]{4}")
 SEMVER_RE = re.compile(
     r"(?:0|[1-9][0-9]*)\."
     r"(?:0|[1-9][0-9]*)\."
@@ -167,6 +168,52 @@ class RequiredTestSetV1:
 
 
 @dataclass(frozen=True)
+class EvidenceRef:
+    id: str
+    digest: Digest
+
+
+@dataclass(frozen=True)
+class TaskApprovalRefV1:
+    taskId: str
+    digest: Digest
+
+
+@dataclass(frozen=True)
+class BootstrapTaskVerifierReceiptRefV1:
+    taskId: str
+    id: str
+    digest: Digest
+
+
+@dataclass(frozen=True)
+class IndependentReviewRefV1:
+    keyId: str
+    role: str
+    reviewCommit: str
+    reviewLink: str
+    reportDigest: Digest
+    decision: str
+
+
+@dataclass(frozen=True)
+class TaskApprovalV1:
+    schema: str
+    taskId: str
+    candidate: CandidateIdentity
+    taskBreakdown: NormativeDocumentRefV1
+    requiredTestSet: ContentRef
+    testIds: Tuple[str, ...]
+    evidence: Tuple[EvidenceRef, ...]
+    dependencyCompletions: Tuple[BootstrapTaskVerifierReceiptRefV1, ...]
+    prerequisiteDocuments: Tuple[NormativeDocumentRefV1, ...]
+    authorityPolicy: ContentRef
+    stage0Handoff: ContentRef
+    independentReviews: Tuple[IndependentReviewRefV1, ...]
+    signatures: Tuple[ApprovalSignatureV1, ...]
+
+
+@dataclass(frozen=True)
 class BootstrapLedgerSubjectV1:
     id: str
     taskId: str
@@ -194,6 +241,13 @@ class _RequiredTestSetPreflightV1:
     requiredTestSet: RequiredTestSetV1
     requiredTestSetRef: ContentRef
     signatureMessage: bytes
+
+
+@dataclass(frozen=True)
+class _TaskApprovalPreflightV1:
+    taskApproval: TaskApprovalV1
+    signatureMessage: bytes
+    signedBytes: bytes
 
 
 @dataclass(frozen=True)
@@ -572,6 +626,7 @@ _TASK_RULE_MINIMA = (
     ("TASK-D0-05", ("quality", "security"), 2),
     ("TASK-D0-06", ("architecture", "quality"), 2),
 )
+_D0_TASK_IDS = tuple(item[0] for item in _TASK_RULE_MINIMA)
 _NAMED_RULE_MINIMA = (
     ("requiredTestSetRule", ("quality", "security"), 2),
     ("formalCatalogRule", ("quality", "security"), 2),
@@ -625,6 +680,31 @@ _NORMATIVE_DOCUMENT_FIELDS = (
     "approvers",
 )
 _APPROVAL_SIGNATURE_FIELDS = ("keyId", "algorithm", "signature")
+_EVIDENCE_REF_FIELDS = ("id", "digest")
+_TASK_RECEIPT_REF_FIELDS = ("taskId", "id", "digest")
+_INDEPENDENT_REVIEW_FIELDS = (
+    "keyId",
+    "role",
+    "reviewCommit",
+    "reviewLink",
+    "reportDigest",
+    "decision",
+)
+_TASK_APPROVAL_FIELDS = (
+    "schema",
+    "taskId",
+    "candidate",
+    "taskBreakdown",
+    "requiredTestSet",
+    "testIds",
+    "evidence",
+    "dependencyCompletions",
+    "prerequisiteDocuments",
+    "authorityPolicy",
+    "stage0Handoff",
+    "independentReviews",
+    "signatures",
+)
 
 
 def _require_safe_id(value: object, where: str) -> str:
@@ -1121,16 +1201,14 @@ def _parse_required_test_ids(value: object) -> Tuple[str, ...]:
     return test_ids
 
 
-def _parse_required_set_signatures(
+def _parse_approval_signatures_syntax(
     value: object,
-    principals: Tuple[BootstrapAuthorityPrincipalV1, ...],
+    where: str,
+    maximum: int = 256,
 ) -> Tuple[ApprovalSignatureV1, ...]:
-    where = "RequiredTestSetV1.signatures"
-    maximum = min(len(principals), 256)
     if type(value) is not list or not 1 <= len(value) <= maximum:
-        _reject(f"{where} count exceeds the resolved authority policy")
+        _reject(f"{where} count must be 1..{maximum}")
     assert isinstance(value, list)
-    principal_by_key = {principal.keyId: principal for principal in principals}
     signatures = []
     for index, entry in enumerate(value):
         entry_where = f"{where}[{index}]"
@@ -1147,8 +1225,6 @@ def _parse_required_set_signatures(
                 f"{entry_where}.signature must be 64-byte lowercase hex"
             )
         assert isinstance(encoded_signature, str)
-        if key_id not in principal_by_key:
-            _reject(f"{entry_where}.keyId is not in the authority policy")
         signatures.append(ApprovalSignatureV1(
             key_id,
             "ed25519",
@@ -1161,10 +1237,35 @@ def _parse_required_set_signatures(
     return result
 
 
+def _require_signature_policy_membership(
+    signatures: Tuple[ApprovalSignatureV1, ...],
+    principals: Tuple[BootstrapAuthorityPrincipalV1, ...],
+    where: str,
+) -> None:
+    maximum = min(len(principals), 256)
+    if not 1 <= len(signatures) <= maximum:
+        _reject(f"{where} count exceeds the resolved authority policy")
+    principal_by_key = {principal.keyId: principal for principal in principals}
+    for index, signature in enumerate(signatures):
+        if signature.keyId not in principal_by_key:
+            _reject(f"{where}[{index}].keyId is not in the authority policy")
+
+
+def _parse_required_set_signatures(
+    value: object,
+    principals: Tuple[BootstrapAuthorityPrincipalV1, ...],
+) -> Tuple[ApprovalSignatureV1, ...]:
+    where = "RequiredTestSetV1.signatures"
+    signatures = _parse_approval_signatures_syntax(value, where)
+    _require_signature_policy_membership(signatures, principals, where)
+    return signatures
+
+
 def _require_signature_rule(
     signatures: Tuple[ApprovalSignatureV1, ...],
     principals: Tuple[BootstrapAuthorityPrincipalV1, ...],
     rule: ApprovalRuleV1,
+    where: str,
 ) -> None:
     principal_by_key = {principal.keyId: principal for principal in principals}
     signed_principals = tuple(
@@ -1174,12 +1275,29 @@ def _require_signature_rule(
         principal.principalId for principal in signed_principals
     }
     if len(distinct_principal_ids) < rule.minimumDistinctSigners:
-        _reject("RequiredTestSetV1 signatures do not satisfy distinct-principal quorum")
+        _reject(f"{where} do not satisfy distinct-principal quorum")
     signed_roles = {
         role for principal in signed_principals for role in principal.roles
     }
     if not set(rule.requiredRoles).issubset(signed_roles):
-        _reject("RequiredTestSetV1 signatures do not cover required roles")
+        _reject(f"{where} do not cover required roles")
+
+
+def _verify_approval_signatures(
+    signatures: Tuple[ApprovalSignatureV1, ...],
+    principals: Tuple[BootstrapAuthorityPrincipalV1, ...],
+    message: bytes,
+    where: str,
+) -> None:
+    principal_by_key = {principal.keyId: principal for principal in principals}
+    for signature in signatures:
+        principal = principal_by_key[signature.keyId]
+        if not verify_ed25519(
+            principal.publicKey,
+            message,
+            signature.signature,
+        ):
+            _reject(f"{where} signature {signature.keyId} is invalid")
 
 
 def _preflight_required_test_set(
@@ -1254,18 +1372,14 @@ def _finalize_required_test_set(
         preflight.requiredTestSet.signatures,
         preflight.policy.principals,
         preflight.policy.requiredTestSetRule,
+        "RequiredTestSetV1.signatures",
     )
-    principal_by_key = {
-        principal.keyId: principal for principal in preflight.policy.principals
-    }
-    for signature in preflight.requiredTestSet.signatures:
-        principal = principal_by_key[signature.keyId]
-        if not verify_ed25519(
-            principal.publicKey,
-            preflight.signatureMessage,
-            signature.signature,
-        ):
-            _reject(f"RequiredTestSetV1 signature {signature.keyId} is invalid")
+    _verify_approval_signatures(
+        preflight.requiredTestSet.signatures,
+        preflight.policy.principals,
+        preflight.signatureMessage,
+        "RequiredTestSetV1.signatures",
+    )
     return preflight.requiredTestSet, preflight.requiredTestSetRef
 
 
@@ -1280,6 +1394,17 @@ def parse_required_test_set(
     ))
 
 
+def _require_phase5_required_set_join(
+    snapshot_content: Phase5SnapshotContentV1,
+    preflight: _RequiredTestSetPreflightV1,
+) -> None:
+    if snapshot_content.document != preflight.requiredTestSet.phase5Document:
+        _reject("RequiredTestSetV1 PHASE-5 document ref does not match snapshot")
+    if (snapshot_content.requiredTestIds
+            != preflight.requiredTestSet.requiredTestIds):
+        _reject("RequiredTestSetV1 denominator does not match PHASE-5 catalog")
+
+
 def parse_document_bound_required_test_set(
     required_bytes: bytes,
     authority_policy_bytes: bytes,
@@ -1291,12 +1416,353 @@ def parse_document_bound_required_test_set(
         required_bytes,
         authority_policy_bytes,
     )
-    if snapshot_content.document != preflight.requiredTestSet.phase5Document:
-        _reject("RequiredTestSetV1 PHASE-5 document ref does not match snapshot")
-    if (snapshot_content.requiredTestIds
-            != preflight.requiredTestSet.requiredTestIds):
-        _reject("RequiredTestSetV1 denominator does not match PHASE-5 catalog")
+    _require_phase5_required_set_join(snapshot_content, preflight)
     return _finalize_required_test_set(preflight)
+
+
+def _parse_compact_gregorian_id(
+    value: object,
+    pattern: re.Pattern,
+    date_offset: int,
+    where: str,
+) -> str:
+    identifier = _require_ascii_text(value, pattern, where, 64)
+    compact_date = identifier[date_offset:date_offset + 8]
+    try:
+        date(
+            int(compact_date[0:4], 10),
+            int(compact_date[4:6], 10),
+            int(compact_date[6:8], 10),
+        )
+    except ValueError:
+        _reject(f"{where} must contain a real Gregorian date")
+    return identifier
+
+
+def _parse_task_approval_test_ids(value: object) -> Tuple[str, ...]:
+    where = "TaskApprovalV1.testIds"
+    if type(value) is not list or not 1 <= len(value) <= 4096:
+        _reject(f"{where} count must be 1..4096")
+    assert isinstance(value, list)
+    test_ids = tuple(
+        _require_ascii_text(item, TEST_ID_RE, f"{where}[{index}]", 127)
+        for index, item in enumerate(value)
+    )
+    if (test_ids != tuple(sorted(test_ids))
+            or len(set(test_ids)) != len(test_ids)):
+        _reject(f"{where} must be unique ascending ASCII TestId")
+    return test_ids
+
+
+def _parse_evidence_ref(value: object, where: str) -> EvidenceRef:
+    obj = _require_exact_keys(value, _EVIDENCE_REF_FIELDS, where)
+    return EvidenceRef(
+        _parse_compact_gregorian_id(
+            obj["id"], EVIDENCE_ID_RE, 3, f"{where}.id"
+        ),
+        parse_digest(obj["digest"]),
+    )
+
+
+def _parse_evidence_refs(value: object) -> Tuple[EvidenceRef, ...]:
+    where = "TaskApprovalV1.evidence"
+    if type(value) is not list or not 1 <= len(value) <= 4096:
+        _reject(f"{where} count must be 1..4096")
+    assert isinstance(value, list)
+    evidence = tuple(
+        _parse_evidence_ref(entry, f"{where}[{index}]")
+        for index, entry in enumerate(value)
+    )
+    identifiers = tuple(item.id for item in evidence)
+    if (identifiers != tuple(sorted(identifiers))
+            or len(set(identifiers)) != len(identifiers)):
+        _reject(f"{where} must be unique ascending by EvidenceRef.id")
+    return evidence
+
+
+def _parse_task_receipt_ref(
+    value: object,
+    where: str,
+) -> BootstrapTaskVerifierReceiptRefV1:
+    obj = _require_exact_keys(value, _TASK_RECEIPT_REF_FIELDS, where)
+    task_id = obj["taskId"]
+    if type(task_id) is not str or task_id not in _D0_TASK_IDS:
+        _reject(f"{where}.taskId must be exact TASK-D0-01..06")
+    assert isinstance(task_id, str)
+    return BootstrapTaskVerifierReceiptRefV1(
+        task_id,
+        _parse_compact_gregorian_id(
+            obj["id"], BTV_ID_RE, 4, f"{where}.id"
+        ),
+        parse_digest(obj["digest"]),
+    )
+
+
+def _parse_dependency_completion_refs(
+    value: object,
+) -> Tuple[BootstrapTaskVerifierReceiptRefV1, ...]:
+    where = "TaskApprovalV1.dependencyCompletions"
+    if type(value) is not list or len(value) > 5:
+        _reject(f"{where} count must be 0..5")
+    assert isinstance(value, list)
+    completions = tuple(
+        _parse_task_receipt_ref(entry, f"{where}[{index}]")
+        for index, entry in enumerate(value)
+    )
+    task_ids = tuple(item.taskId for item in completions)
+    if (task_ids != tuple(sorted(task_ids))
+            or len(set(task_ids)) != len(task_ids)):
+        _reject(f"{where} must be unique ascending by taskId")
+    return completions
+
+
+def _parse_prerequisite_documents(
+    value: object,
+) -> Tuple[NormativeDocumentRefV1, ...]:
+    where = "TaskApprovalV1.prerequisiteDocuments"
+    if type(value) is not list or len(value) > 256:
+        _reject(f"{where} count must be 0..256")
+    assert isinstance(value, list)
+    documents = tuple(
+        _parse_normative_document_ref(entry, f"{where}[{index}]")
+        for index, entry in enumerate(value)
+    )
+    identifiers = tuple(document.id for document in documents)
+    if (identifiers != tuple(sorted(identifiers))
+            or len(set(identifiers)) != len(identifiers)):
+        _reject(f"{where} must be unique ascending by document id")
+    return documents
+
+
+def _parse_independent_reviews_syntax(
+    value: object,
+    candidate_commit: str,
+) -> Tuple[IndependentReviewRefV1, ...]:
+    where = "TaskApprovalV1.independentReviews"
+    if type(value) is not list or not 1 <= len(value) <= 256:
+        _reject(f"{where} count must be 1..256")
+    assert isinstance(value, list)
+    reviews = []
+    for index, entry in enumerate(value):
+        entry_where = f"{where}[{index}]"
+        obj = _require_exact_keys(entry, _INDEPENDENT_REVIEW_FIELDS, entry_where)
+        key_id = _require_safe_id(obj["keyId"], f"{entry_where}.keyId")
+        role = obj["role"]
+        if type(role) is not str or role not in _APPROVAL_ROLE_INDEX:
+            _reject(f"{entry_where}.role is not an ApprovalRoleV1")
+        assert isinstance(role, str)
+        review_commit = obj["reviewCommit"]
+        if (type(review_commit) is not str
+                or GIT_OBJECT_RE.fullmatch(review_commit) is None):
+            _reject(f"{entry_where}.reviewCommit is not a GitObjectId")
+        if review_commit != candidate_commit:
+            _reject(f"{entry_where}.reviewCommit does not match candidate")
+        assert isinstance(review_commit, str)
+        review_link = _parse_review_link(
+            obj["reviewLink"], f"{entry_where}.reviewLink"
+        )
+        report_digest = parse_digest(obj["reportDigest"])
+        if obj["decision"] != "approved":
+            _reject(f"{entry_where}.decision must be approved")
+        reviews.append(IndependentReviewRefV1(
+            key_id,
+            role,
+            review_commit,
+            review_link,
+            report_digest,
+            "approved",
+        ))
+    result = tuple(reviews)
+    key_ids = tuple(review.keyId for review in result)
+    if (key_ids != tuple(sorted(key_ids))
+            or len(set(key_ids)) != len(key_ids)):
+        _reject(f"{where} must have unique ascending keyId")
+    report_digests = tuple(review.reportDigest.bytes for review in result)
+    if len(set(report_digests)) != len(report_digests):
+        _reject(f"{where} must have unique reportDigest values")
+    return result
+
+
+def _preflight_task_approval(
+    task_approval_bytes: bytes,
+) -> _TaskApprovalPreflightV1:
+    decoded = decode_canonical_pf_jcs(task_approval_bytes)
+    obj = _require_exact_keys(
+        decoded, _TASK_APPROVAL_FIELDS, "TaskApprovalV1"
+    )
+    if obj["schema"] != "proof-forge.bootstrap-task-approval.v1":
+        _reject("TaskApprovalV1.schema is not v1")
+    task_id = obj["taskId"]
+    if type(task_id) is not str or task_id not in _D0_TASK_IDS:
+        _reject("TaskApprovalV1.taskId must be exact TASK-D0-01..06")
+    assert isinstance(task_id, str)
+    candidate = parse_candidate_identity(obj["candidate"])
+    task_breakdown = _parse_normative_document_ref(
+        obj["taskBreakdown"], "TaskApprovalV1.taskBreakdown"
+    )
+    if task_breakdown.id != "PHASE-4":
+        _reject("TaskApprovalV1.taskBreakdown.id must be PHASE-4")
+    required_test_set = parse_content_ref(obj["requiredTestSet"])
+    if required_test_set.schema != "proof-forge.required-test-set.v1":
+        _reject("TaskApprovalV1.requiredTestSet schema is not v1")
+    test_ids = _parse_task_approval_test_ids(obj["testIds"])
+    evidence = _parse_evidence_refs(obj["evidence"])
+    dependency_completions = _parse_dependency_completion_refs(
+        obj["dependencyCompletions"]
+    )
+    prerequisite_documents = _parse_prerequisite_documents(
+        obj["prerequisiteDocuments"]
+    )
+    authority_policy = parse_content_ref(obj["authorityPolicy"])
+    if authority_policy.schema != "proof-forge.bootstrap-authority-policy.v1":
+        _reject("TaskApprovalV1.authorityPolicy schema is not v1")
+    stage0_handoff = parse_content_ref(obj["stage0Handoff"])
+    if stage0_handoff.schema != "proof-forge.eligible-stage0-handoff.v1":
+        _reject("TaskApprovalV1.stage0Handoff schema is not v1")
+    independent_reviews = _parse_independent_reviews_syntax(
+        obj["independentReviews"], candidate.commit
+    )
+    signatures = _parse_approval_signatures_syntax(
+        obj["signatures"], "TaskApprovalV1.signatures"
+    )
+
+    statement = {
+        field: obj[field] for field in _TASK_APPROVAL_FIELDS[:-1]
+    }
+    statement_digest = hashlib.sha256(
+        b"pf.bootstrap-task-approval-statement.v1\x00"
+        + canonical_pf_jcs(statement)
+    ).digest()
+    message = b"pf.bootstrap-task-approval-signature.v1\x00" + statement_digest
+    approval = TaskApprovalV1(
+        "proof-forge.bootstrap-task-approval.v1",
+        task_id,
+        candidate,
+        task_breakdown,
+        required_test_set,
+        test_ids,
+        evidence,
+        dependency_completions,
+        prerequisite_documents,
+        authority_policy,
+        stage0_handoff,
+        independent_reviews,
+        signatures,
+    )
+    return _TaskApprovalPreflightV1(
+        approval,
+        message,
+        task_approval_bytes,
+    )
+
+
+def _resolve_task_approval_authority(
+    approval: TaskApprovalV1,
+    policy: BootstrapAuthorityPolicyV1,
+) -> None:
+    signature_where = "TaskApprovalV1.signatures"
+    _require_signature_policy_membership(
+        approval.signatures,
+        policy.principals,
+        signature_where,
+    )
+    principal_by_key = {
+        principal.keyId: principal for principal in policy.principals
+    }
+    distinct_policy_principals = {
+        principal.principalId for principal in policy.principals
+    }
+    if len(approval.independentReviews) > min(
+        len(distinct_policy_principals), 256
+    ):
+        _reject(
+            "TaskApprovalV1.independentReviews count exceeds distinct policy principals"
+        )
+    review_principal_ids = []
+    for index, review in enumerate(approval.independentReviews):
+        principal = principal_by_key.get(review.keyId)
+        if principal is None:
+            _reject(
+                f"TaskApprovalV1.independentReviews[{index}].keyId is not in policy"
+            )
+        if review.role not in principal.roles:
+            _reject(
+                f"TaskApprovalV1.independentReviews[{index}].role is not authorized"
+            )
+        review_principal_ids.append(principal.principalId)
+    if len(set(review_principal_ids)) != len(review_principal_ids):
+        _reject("TaskApprovalV1 independent review principalId values are not unique")
+    signature_principal_ids = {
+        principal_by_key[signature.keyId].principalId
+        for signature in approval.signatures
+    }
+    if set(review_principal_ids) != signature_principal_ids:
+        _reject(
+            "TaskApprovalV1 review and signature principalId sets do not match"
+        )
+    task_rule = next(
+        task_rule.rule for task_rule in policy.taskRules
+        if task_rule.taskId == approval.taskId
+    )
+    _require_signature_rule(
+        approval.signatures,
+        policy.principals,
+        task_rule,
+        signature_where,
+    )
+
+
+def _finalize_task_approval(
+    preflight: _TaskApprovalPreflightV1,
+    policy: BootstrapAuthorityPolicyV1,
+) -> Tuple[TaskApprovalV1, TaskApprovalRefV1]:
+    approval = preflight.taskApproval
+    _verify_approval_signatures(
+        approval.signatures,
+        policy.principals,
+        preflight.signatureMessage,
+        "TaskApprovalV1.signatures",
+    )
+    approval_digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.bootstrap-task-approval.v1\x00" + preflight.signedBytes
+        ).digest(),
+    )
+    return approval, TaskApprovalRefV1(approval.taskId, approval_digest)
+
+
+def parse_task_approval(
+    task_approval_bytes: bytes,
+    required_test_set_bytes: bytes,
+    authority_policy_bytes: bytes,
+    phase5_snapshot: BootstrapDocumentSnapshotV1,
+) -> Tuple[TaskApprovalV1, TaskApprovalRefV1]:
+    """Validate signed TaskApproval content against its four authority inputs."""
+    approval_preflight = _preflight_task_approval(task_approval_bytes)
+    snapshot_content = parse_phase5_snapshot_content(phase5_snapshot)
+    required_preflight = _preflight_required_test_set(
+        required_test_set_bytes,
+        authority_policy_bytes,
+    )
+    _require_phase5_required_set_join(snapshot_content, required_preflight)
+
+    approval = approval_preflight.taskApproval
+    required_set = required_preflight.requiredTestSet
+    if approval.authorityPolicy != required_set.authorityPolicy:
+        _reject("TaskApprovalV1 authority policy ref does not match RequiredTestSetV1")
+    if approval.requiredTestSet != required_preflight.requiredTestSetRef:
+        _reject("TaskApprovalV1 required-test-set ref does not match exact bytes")
+    required_test_ids = set(required_set.requiredTestIds)
+    if any(test_id not in required_test_ids for test_id in approval.testIds):
+        _reject("TaskApprovalV1 testIds are not members of RequiredTestSetV1")
+    _resolve_task_approval_authority(approval, required_preflight.policy)
+
+    _finalize_required_test_set(required_preflight)
+    return _finalize_task_approval(
+        approval_preflight,
+        required_preflight.policy,
+    )
 
 
 def _require_sorted_unique(values: tuple, where: str, *, nonempty: bool) -> None:
@@ -1453,7 +1919,8 @@ def verifyBootstrapTaskObjects(
         )
         if phase5_snapshot is None:
             _reject("subject lacks the PHASE-5 document snapshot")
-        parse_document_bound_required_test_set(
+        parse_task_approval(
+            objects.taskApprovalBytes,
             objects.requiredTestSetBytes,
             objects.authorityPolicyBytes,
             phase5_snapshot,

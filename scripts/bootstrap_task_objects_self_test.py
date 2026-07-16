@@ -1237,6 +1237,167 @@ def resign_task_approval_wire(
     return resigned
 
 
+def test_task_approval_exact_upper_and_sha256_identity(
+    module: ModuleType,
+) -> None:
+    policy_bytes = module.canonical_pf_jcs(valid_bootstrap_authority_policy())
+    _, policy_ref = module.parse_bootstrap_authority_policy(policy_bytes)
+
+    upper_test_ids = tuple(
+        f"TST-BOUND-{index:04d}" for index in range(4096)
+    )
+    upper_phase5_snapshot = make_phase5_snapshot(
+        module,
+        required_ids=upper_test_ids,
+    )
+    upper_required_wire = signed_document_bound_required_set(
+        module,
+        policy_ref,
+        upper_phase5_snapshot,
+        required_ids=upper_test_ids,
+    )
+    upper_required_bytes = module.canonical_pf_jcs(upper_required_wire)
+    upper_statement = task_approval_statement(
+        module,
+        policy_ref,
+        upper_required_bytes,
+    )
+    upper_statement["testIds"] = list(upper_test_ids)
+    upper_statement["evidence"] = [
+        {
+            "id": f"EV-20260716-{index:04d}",
+            "digest": digest_text(bytes.fromhex("64" * 32)),
+        }
+        for index in range(4096)
+    ]
+    upper_statement["dependencyCompletions"] = [
+        {
+            "taskId": f"TASK-D0-0{task_number}",
+            "id": f"BTV-20260716-{task_number:04d}",
+            "digest": digest_text(bytes([task_number]) * 32),
+        }
+        for task_number in range(2, 7)
+    ]
+    upper_statement["prerequisiteDocuments"] = [
+        normative_document_ref_wire(
+            f"PHASE-BOUND-{index:03d}",
+            "a" * 40,
+        )
+        for index in range(256)
+    ]
+    upper_statement["independentReviews"] = [
+        independent_review_wire(key_id, role, "a" * 40)
+        for key_id, role in (
+            ("key-architecture", "architecture"),
+            ("key-quality", "quality"),
+            ("key-release", "release"),
+            ("key-security", "security"),
+        )
+    ]
+    upper_wire, _, _ = sign_task_approval_statement(
+        module,
+        upper_statement,
+        signer_key_ids=(
+            "key-architecture",
+            "key-quality",
+            "key-release",
+            "key-security",
+        ),
+    )
+    upper_approval_bytes = module.canonical_pf_jcs(upper_wire)
+    assert len(upper_phase5_snapshot.bytes) <= 4 * 1024 * 1024
+    assert len(upper_required_bytes) <= 4 * 1024 * 1024
+    assert len(upper_approval_bytes) <= 4 * 1024 * 1024
+    upper_parsed, _ = module.parse_task_approval(
+        upper_approval_bytes,
+        upper_required_bytes,
+        policy_bytes,
+        upper_phase5_snapshot,
+    )
+    assert (
+        len(upper_parsed.testIds),
+        len(upper_parsed.evidence),
+        len(upper_parsed.dependencyCompletions),
+        len(upper_parsed.prerequisiteDocuments),
+        len(upper_parsed.independentReviews),
+        len(upper_parsed.signatures),
+    ) == (4096, 4096, 5, 256, 4, 4), (
+        "TaskApproval public parser must accept every simultaneous exact upper "
+        "bound against the matching PHASE-5 denominator and RequiredTestSet"
+    )
+
+    sha256_commit = "c" * 64
+    phase5_snapshot = make_phase5_snapshot(module)
+    required_wire = signed_document_bound_required_set(
+        module,
+        policy_ref,
+        phase5_snapshot,
+    )
+    required_bytes = module.canonical_pf_jcs(required_wire)
+    sha256_statement = task_approval_statement(
+        module,
+        policy_ref,
+        required_bytes,
+        commit=sha256_commit,
+    )
+    # NormativeDocumentRefV1 remains the frozen 40-digit review-commit shape;
+    # TaskApproval's candidate and independent reviews separately accept either
+    # Git object width and require an exact match with one another.
+    sha256_statement["taskBreakdown"]["reviewCommit"] = "a" * 40
+    for document in sha256_statement["prerequisiteDocuments"]:
+        document["reviewCommit"] = "a" * 40
+    sha256_wire, _, _ = sign_task_approval_statement(module, sha256_statement)
+    sha256_parsed, _ = module.parse_task_approval(
+        module.canonical_pf_jcs(sha256_wire),
+        required_bytes,
+        policy_bytes,
+        phase5_snapshot,
+    )
+    assert sha256_parsed.candidate.commit == sha256_commit
+    assert sha256_parsed.candidate.treeObjectId == "b" * 64
+    assert all(
+        review.reviewCommit == sha256_commit
+        for review in sha256_parsed.independentReviews
+    ), "64-digit independent review commits must exactly match the candidate"
+
+    invalid_review_commit = copy.deepcopy(sha256_wire)
+    invalid_review_commit["independentReviews"][0]["reviewCommit"] = "c" * 63
+    invalid_review_commit = resign_task_approval_wire(
+        module,
+        invalid_review_commit,
+    )
+    original_verify_ed25519 = module.verify_ed25519
+    curve_calls = 0
+
+    def counted_verify_ed25519(
+        public_key: bytes,
+        message: bytes,
+        signature: bytes,
+    ) -> bool:
+        del public_key, message, signature
+        nonlocal curve_calls
+        curve_calls += 1
+        return True
+
+    module.verify_ed25519 = counted_verify_ed25519
+    try:
+        assert_rejected(
+            module,
+            lambda: module.parse_task_approval(
+                module.canonical_pf_jcs(invalid_review_commit),
+                required_bytes,
+                policy_bytes,
+                phase5_snapshot,
+            ),
+        )
+    finally:
+        module.verify_ed25519 = original_verify_ed25519
+    assert curve_calls == 0, (
+        "illegal 63-digit independent review commit must reject before every "
+        "RequiredTestSet or TaskApproval signature curve"
+    )
+
+
 def test_phase5_snapshot_and_document_bound_join(module: ModuleType) -> None:
     policy_bytes = module.canonical_pf_jcs(valid_bootstrap_authority_policy())
     _, policy_ref = module.parse_bootstrap_authority_policy(policy_bytes)
@@ -3424,6 +3585,7 @@ def main() -> int:
         test_phase5_snapshot_and_document_bound_join(module)
         test_phase5_snapshot_resource_bounds(module)
         test_task_approval(module)
+        test_task_approval_exact_upper_and_sha256_identity(module)
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_and_missing_root_bytes(module, candidate)
