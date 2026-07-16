@@ -52,22 +52,40 @@ just ci          # 可移植 Linux / GitHub CI 子集
 ## 架构一览
 
 权威文字规格：[`docs/02-architecture.md`](docs/02-architecture.md)。  
-可编辑架构图（Excalidraw）在 [`docs/diagrams/`](docs/diagrams/README.md)：
+图源（Excalidraw + PNG）在 [`docs/diagrams/`](docs/diagrams/README.md)。
 
-| 图 | 说明 |
-|---|---|
-| [01 总览](docs/diagrams/01-architecture-overview.excalidraw) | Author → 编译器分层 → 四目标 → 外部工具边界 |
-| [02 编译管线](docs/diagrams/02-compilation-pipeline.excalidraw) | Parse → Preflight → Decode → Typed → Semantic → Resolve → Materialize |
-| [03 一源四目标](docs/diagrams/03-one-program-four-targets.excalidraw) | 同一 Counter 扇出到 EVM / Solana / NEAR / Noir |
-| [04 需求求解](docs/diagrams/04-requirements-support.excalidraw) | Requirements + exact SupportClaim，fail closed |
-| [05 目标地图](docs/diagrams/05-target-landscape.excalidraw) | Phase 1 vs design-only + 成熟度阶梯 |
-| [06 仓库布局](docs/diagrams/06-repo-layout.excalidraw) | 根 = V2；`active/` = v1 归档 |
-| [07 模块边界](docs/diagrams/07-module-boundaries.excalidraw) | Frontend / Semantic / Resolver / Materializer … |
+### 系统总览
 
-**如何出图：** 打开 [excalidraw.com](https://excalidraw.com) → Open 上述 `.excalidraw` →
-微调 → Export image (PNG/SVG) → 放到 `docs/diagrams/` 并在本 README 中引用。
+一份 portable `program` 源码，经 target-neutral 语义与 exact support 求解后，进入
+**目标自有** Plan/IR 与制品；外部 packager / runtime / 网络在编译器边界之外。
 
-重新生成 JSON（会覆盖未备份的手改）：
+![Architecture overview](docs/diagrams/01-architecture-overview.png)
+
+### 编译管线
+
+`Syntax` 只是入口树，不是领域语义：Parse → Preflight → Decode → Typed → Semantic →
+Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallback。
+
+![Compilation pipeline](docs/diagrams/02-compilation-pipeline.png)
+
+### 一源四目标（Phase 1）
+
+同一 `Counter` 语义；`--target` 只改变物化与制品编码。成熟度必须诚实标注
+（runtime / plan-only / wasm / source-only）。
+
+![One program, four targets](docs/diagrams/03-one-program-four-targets.png)
+
+### 更多图
+
+| 预览 | 源文件 | 说明 |
+|---|---|---|
+| [PNG](docs/diagrams/04-requirements-support.png) · [Excalidraw](docs/diagrams/04-requirements-support.excalidraw) | Requirements + SupportClaim 求解（fail closed） |
+| [PNG](docs/diagrams/05-target-landscape.png) · [Excalidraw](docs/diagrams/05-target-landscape.excalidraw) | Phase 1 vs design-only + 成熟度阶梯 |
+| [PNG](docs/diagrams/06-repo-layout.png) · [Excalidraw](docs/diagrams/06-repo-layout.excalidraw) | 根 = V2；`active/` = v1 归档 |
+| [PNG](docs/diagrams/07-module-boundaries.png) · [Excalidraw](docs/diagrams/07-module-boundaries.excalidraw) | 模块边界与禁止依赖 |
+
+编辑白板：打开 [excalidraw.com](https://excalidraw.com) → Open 对应 `.excalidraw` →
+导出 PNG 覆盖同名 `0N-*.png`。重新生成 JSON（会覆盖未备份手改）：
 
 ```bash
 python3 scripts/generate-excalidraw-diagrams.py

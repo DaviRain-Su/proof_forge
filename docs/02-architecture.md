@@ -9,6 +9,9 @@ normative: true
 
 # Phase 2：系统架构
 
+视觉总览（非规范）：[`diagrams/01-architecture-overview.png`](diagrams/01-architecture-overview.png)
+与完整图目录 [`diagrams/README.md`](diagrams/README.md)。图与本文冲突时以本文与代码为准。
+
 ## 系统上下文
 
 ```text
