@@ -1053,7 +1053,13 @@ def assert_catalog_rejection(
             os.fspath(output),
         ]
     )
-    if result.returncode != 2 or result.stdout or expected_code.encode("ascii") not in result.stderr:
+    stderr_lines = result.stderr.splitlines()
+    if (
+        result.returncode != 2
+        or result.stdout
+        or len(stderr_lines) != 1
+        or not stderr_lines[0].startswith(expected_code.encode("ascii") + b": ")
+    ):
         raise AssertionError(
             f"catalog negative {label} did not fail at {expected_code}:\n"
             + result.stderr.decode("utf-8", errors="replace")
