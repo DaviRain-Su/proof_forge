@@ -1264,7 +1264,12 @@ def main() -> int:
             run_binding_sha256,
         ) = write_realistic_development_bundle(module, development_root)
 
-        def development_arguments(output_path: Path, selected_catalog: str) -> list[str]:
+        def development_arguments(
+            output_path: Path,
+            selected_catalog: str,
+            *,
+            selected_evidence: str = "development-evidence.json",
+        ) -> list[str]:
             return [
                 "finalize-development",
                 "--catalog",
@@ -1276,7 +1281,7 @@ def main() -> int:
                 "--run-binding-sha256",
                 run_binding_sha256,
                 "--evidence",
-                "development-evidence.json",
+                selected_evidence,
                 "--bundle-root",
                 os.fspath(development_root),
                 "--output",
@@ -1310,6 +1315,41 @@ def main() -> int:
             != (pathname_catalog_before.st_dev, pathname_catalog_before.st_ino)
         ):
             raise AssertionError("pathname finalizer rejection replaced the unread catalog trap")
+
+        pathname_evidence_relative = "pathname-preliminary-evidence.json"
+        write_secure(development_root / pathname_evidence_relative, b"{")
+        pathname_preliminary_result = invoke_path(
+            development_arguments(
+                temporary_root
+                / "pathname-preliminary-output-must-not-be-touched"
+                / "EVF-20260715-9000.json",
+                pathname_catalog_relative,
+                selected_evidence=pathname_evidence_relative,
+            )
+        )
+        pathname_preliminary_stderr = pathname_preliminary_result.stderr.splitlines()
+        if (
+            pathname_preliminary_result.returncode != 2
+            or pathname_preliminary_result.stdout
+            or len(pathname_preliminary_stderr) != 1
+            or not pathname_preliminary_stderr[0].startswith(b"PF-EVIDENCE-JSON: ")
+        ):
+            raise AssertionError(
+                "pathname finalizer did not validate preliminary evidence before "
+                "development source identity:\n"
+                + pathname_preliminary_result.stderr.decode("utf-8", errors="replace")
+            )
+        pathname_catalog_after = os.lstat(pathname_catalog_trap)
+        if (
+            not stat.S_ISFIFO(pathname_catalog_after.st_mode)
+            or (pathname_catalog_after.st_dev, pathname_catalog_after.st_ino)
+            != (pathname_catalog_before.st_dev, pathname_catalog_before.st_ino)
+        ):
+            raise AssertionError(
+                "preliminary evidence rejection replaced the unread catalog trap"
+            )
+        if (temporary_root / "pathname-preliminary-output-must-not-be-touched").exists():
+            raise AssertionError("preliminary evidence rejection touched its output namespace")
 
         for label, result in (
             (
