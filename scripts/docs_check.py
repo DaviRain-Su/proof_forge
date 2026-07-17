@@ -500,7 +500,7 @@ def mask_inline_code(text: str) -> str:
     return "".join(result)
 
 
-def split_table_line(line: str) -> tuple[str, ...]:
+def split_table_line(line: str, *, clean: bool = True) -> tuple[str, ...]:
     value = line.strip()
     if value.startswith("|"):
         value = value[1:]
@@ -521,11 +521,13 @@ def split_table_line(line: str) -> tuple[str, ...]:
             current.append(character)
             in_code = not in_code
         elif character == "|" and not in_code:
-            cells.append(clean_cell("".join(current)))
+            cells.append(clean_cell("".join(current)) if clean
+                         else "".join(current).strip())
             current = []
         else:
             current.append(character)
-    cells.append(clean_cell("".join(current)))
+    cells.append(clean_cell("".join(current)) if clean
+                 else "".join(current).strip())
     return tuple(cells)
 
 
@@ -959,7 +961,7 @@ def document_status_index_diagnostics(
     return diagnostics
 
 
-def collect_definitions(documents: list[Document], json_values: dict[str, Any]) -> tuple[
+def collect_definitions(root: Path, documents: list[Document], json_values: dict[str, Any]) -> tuple[
         dict[str, Definition], list[TableRow], list[TaskRecord],
         dict[str, EvidenceRecord]]:
     definitions: dict[str, Definition] = {}
@@ -1071,7 +1073,7 @@ def collect_definitions(documents: list[Document], json_values: dict[str, Any]) 
                 f"catalog has A0 test outside frozen TST-A0-001..020: {identifier}")
         add_definition(definitions, identifier, row.relative, row.line, "test")
 
-    def collect_evidence(row: TableRow) -> None:
+    def collect_evidence(row: TableRow, raw_lines: list[str]) -> None:
         first = row.cells[0] if row.cells else ""
         if "ID" not in set(row.headers) and not first.startswith("EV-"):
             return
@@ -1111,9 +1113,73 @@ def collect_definitions(documents: list[Document], json_values: dict[str, Any]) 
         if grade not in {"development", "bootstrap", "formal"}:
             raise_error("PF-DOC-EVIDENCE-SCHEMA", row.relative,
                         f"{identifier} has invalid grade {grade}")
+        gate_index = row.headers.index("Gate / command")
+        raw_cells = (split_table_line(raw_lines[row.line - 1], clean=False)
+                     if 0 < row.line <= len(raw_lines) else ())
+        gate = raw_cells[gate_index] if gate_index < len(raw_cells) else ""
+        if not gate.strip():
+            raise_error("PF-DOC-EVIDENCE-COMMANDS", row.relative,
+                        f"{identifier} has an empty Gate / command cell")
+        for segment in gate.split("；"):
+            segment = segment.strip()
+            if not segment:
+                raise_error("PF-DOC-EVIDENCE-COMMANDS", row.relative,
+                            f"{identifier} has an empty command segment")
+            attest = re.fullmatch(r"attest\s+`([^`]+)`", segment)
+            if attest is None:
+                continue
+            attest_relative = attest.group(1)
+            attest_path = root / attest_relative
+            ensure_repository_path(root, attest_path, row.relative)
+            if not attest_path.is_file():
+                raise_error("PF-DOC-EVIDENCE-COMMANDS", row.relative,
+                            f"{identifier} attests missing path {attest_relative}")
         add_definition(definitions, identifier, row.relative, row.line, "evidence")
         evidence_records[identifier] = EvidenceRecord(
             identifier, task, tests, grade, result, row.relative, row.line)
+
+    def collect_fx_approvals(document: Document) -> None:
+        visible_lines = mask_nonrendered(document.text).splitlines()
+        fx_identifier: str | None = None
+        fx_line = 0
+        approval_seen = False
+
+        def flush() -> None:
+            nonlocal approval_seen
+            if fx_identifier is not None and not approval_seen:
+                error = DocsCheckError(
+                    "PF-DOC-FX-APPROVAL", document.relative,
+                    f"freeze exception {fx_identifier} has no 批准 row "
+                    "citing GOV-GENESIS-001")
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, fx_line, 1, fx_identifier, error))
+            approval_seen = False
+
+        for index, line in enumerate(visible_lines):
+            if re.match(r"^#{1,6}\s", line):
+                flush()
+                fx_match = re.match(
+                    r"^#{1,6}\s+.*?Freeze Exception\s+`(FX-[^`]+)`", line)
+                fx_identifier = fx_match.group(1) if fx_match else None
+                fx_line = index + 1
+                continue
+            if fx_identifier is None or approval_seen:
+                continue
+            stripped = line.strip()
+            if not stripped.startswith("|"):
+                continue
+            cells = split_table_line(stripped)
+            if len(cells) < 2 or cells[0] != "批准":
+                continue
+            approval_seen = True
+            if "GOV-GENESIS-001" not in cells[1]:
+                error = DocsCheckError(
+                    "PF-DOC-FX-APPROVAL", document.relative,
+                    f"freeze exception {fx_identifier} approval must cite "
+                    "GOV-GENESIS-001")
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, index + 1, 1, fx_identifier, error))
+        flush()
 
     authoritative_paths = sorted({*by_relative, source_path, claim_path})
     for relative_path in authoritative_paths:
@@ -1227,9 +1293,13 @@ def collect_definitions(documents: list[Document], json_values: dict[str, Any]) 
                         lambda row=row: collect_test(row))
 
         elif relative_path == "docs/traceability/evidence-ledger.md":
+            raw_lines = document.text.splitlines()
             for row in document_tables:
                 capture(row.relative, row.line, row.value({"ID"}) or "<evidence>",
-                        lambda row=row: collect_evidence(row))
+                        lambda row=row: collect_evidence(row, raw_lines))
+
+        elif relative_path == "docs/governance/task-freeze.md":
+            collect_fx_approvals(document)
 
     raise_first(diagnostics)
     return definitions, tables, task_records, evidence_records
@@ -1772,7 +1842,7 @@ def d0_03_development_triad_attested(root: Path) -> bool:
         "hostFormalEligible": False,
         "toolchainResult": "ok",
         "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
-        "fullPolicyReceiptEvaluator": "deferred-incomplete",
+        "fullPolicyReceiptEvaluator": "implemented",
     }
     for key, expected in required.items():
         if payload.get(key) != expected:
@@ -2201,7 +2271,8 @@ def check(root: Path) -> None:
         documents.append(document)
 
     check_links(root, docs_root, documents, by_id)
-    definitions, _tables, tasks, evidence_results = collect_definitions(documents, json_values)
+    definitions, _tables, tasks, evidence_results = collect_definitions(
+        root, documents, json_values)
     validate_claims(definitions, json_values)
     validate_task_set_lock(root, tasks)
     validate_task_freeze_packages(root, tasks)

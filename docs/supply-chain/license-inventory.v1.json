@@ -2,6 +2,10 @@
   "schema": "proof-forge.license-inventory.v1",
   "schemaVersion": 1,
   "platform": "darwin-arm64",
+  "notes": [
+    "proof-forge-next carries no component sha256: binding the product archive digest is TASK-D0-08 scope (release binding / SBOM-lock closure recomputation). The inventory file is itself inside the product archive, so a checked-in archive digest cannot be stable or reproducible.",
+    "solc-0.8.34 is an inventory-only external CLI (redistributable=false): obtained from the pinned upstream URL in toolchains.lock.json, verified by SHA-256, executed only as an external CLI under the locked tool root, and never copied into product archives; full GPL-3.0 text at licenses/GPL-3.0.txt."
+  ],
   "components": [
     {
       "id": "foundry-v0.3.0",
@@ -12,7 +16,7 @@
       "supplier": "Foundry",
       "licenseSpdx": "MIT",
       "licenseFile": "licenses/MIT.txt",
-      "licenseFileSha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+      "licenseFileSha256": "a0ccf03ff91b5d7e23800026051ddc61fefdbd6a832b4ad253d2aa9d647c78e3",
       "redistributable": true,
       "dependsOn": []
     },
@@ -25,7 +29,7 @@
       "supplier": "Lean FRO / leanprover",
       "licenseSpdx": "Apache-2.0",
       "licenseFile": "licenses/Apache-2.0.txt",
-      "licenseFileSha256": "a969e2161ef377461b8de9bc35f0f7ad9410fb7a0b491d8b8b9245f14161832b",
+      "licenseFileSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "redistributable": true,
       "dependsOn": []
     },
@@ -38,7 +42,7 @@
       "supplier": "OpenSSL Project",
       "licenseSpdx": "Apache-2.0",
       "licenseFile": "licenses/Apache-2.0.txt",
-      "licenseFileSha256": "a969e2161ef377461b8de9bc35f0f7ad9410fb7a0b491d8b8b9245f14161832b",
+      "licenseFileSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "redistributable": true,
       "dependsOn": []
     },
@@ -47,7 +51,6 @@
       "name": "proof-forge-next",
       "version": "0.1.0",
       "type": "application",
-      "sha256": "67220e92dabb2c4ac8c008dc0566a6b2b86299ab813fbffdb1c76d59a3bdb120",
       "supplier": "ProofForge",
       "licenseSpdx": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -63,8 +66,8 @@
       "sha256": "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746",
       "supplier": "Ethereum Solidity",
       "licenseSpdx": "GPL-3.0-or-later",
-      "licenseFile": "licenses/GPL-3.0-NOTICE.txt",
-      "licenseFileSha256": "d850458434dffc44aec8b153317658d8e4fdd1436f7a34610d33abc54025b7da",
+      "licenseFile": "licenses/GPL-3.0.txt",
+      "licenseFileSha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
       "redistributable": false,
       "dependsOn": []
     },
@@ -77,7 +80,7 @@
       "supplier": "WebAssembly WABT",
       "licenseSpdx": "Apache-2.0",
       "licenseFile": "licenses/Apache-2.0.txt",
-      "licenseFileSha256": "a969e2161ef377461b8de9bc35f0f7ad9410fb7a0b491d8b8b9245f14161832b",
+      "licenseFileSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "redistributable": true,
       "dependsOn": [
         "openssl-3.6.3"

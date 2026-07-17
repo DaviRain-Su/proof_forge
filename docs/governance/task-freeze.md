@@ -208,7 +208,7 @@ Milestone 增行必须同变更更新 lock，并经 Architecture + Quality 批�
 | 字段 | 值 |
 |---|---|
 | 原因 | 原完成面把 candidate-external protected production positive 与 pure consumer 绑死；在 producer/Stage-0/protected service 未实现时，规范要求任何 bootstrap/`done` 永久 zero-closure，导致 D0-02+ 无法开工 |
-| 批准 | Quality + Architecture（本仓库执行记录；reviewLink 指向同日 closeout commit） |
+| 批准 | Quality + Architecture（经 `GOV-GENESIS-001` 追认；原始记录曾指向本仓库执行记录，已作废） |
 | 时限 | 一次性；关闭 D0-01 后不得再用同类例外吞 D0-02+ 范围 |
 | 变更 | 重置 D0-01 完成面：done = docs-check + pure consumer + Phase1–3 accepted + pure-consumer bootstrap attestation；protected production positive **移交 `TASK-D0-04`**，缺失时继续 fail closed，但不阻塞 D0-01 `done` |
 | 回滚 | 若 attestation 伪造或 pure consumer 回退，docs-check 拒绝 bootstrap EV 并需 reopen D0-01 |
@@ -234,7 +234,7 @@ Milestone 增行必须同变更更新 lock，并经 Architecture + Quality 批�
 | 字段 | 值 |
 |---|---|
 | 原因 | D0-02 的 Lake/package isolation 已 development 绿，但全局规则要求 bootstrap TaskApproval/authenticated receipt 才能 `done`；该基建属 D0-04，未实现则永久 blocked，阻断 D0-03+ |
-| 批准 | Quality + Architecture（本仓库 closeout 记录） |
+| 批准 | Quality + Architecture（经 `GOV-GENESIS-001` 追认；原始记录曾指向本仓库 closeout 记录，已作废） |
 | 时限 | 一次性；不得自动推广到 D0-03..06 |
 | 变更 | done = `v2-isolation`/`ci` + package-boundary attest + bootstrap EV；signed approval/receipt **移交 D0-04** |
 | 回滚 | 撤销 attest 后 docs-check 拒绝 D0-02 bootstrap EV，需 reopen |
@@ -246,8 +246,31 @@ Milestone 增行必须同变更更新 lock，并经 Architecture + Quality 批�
 | 字段 | 值 |
 |---|---|
 | 原因 | D0-03 development triad（evidence-core/host observation/toolchain）已绿，但 full context/policy/receipt evaluator 与 bootstrap receipt 未闭合，会再次永久 blocked |
+| 批准 | Quality + Architecture（经 `GOV-GENESIS-001` 追认；原记录缺批准/时限/回滚，本次补记） |
+| 时限 | 一次性；不得推广到 D0-04..06 |
 | 变更 | done = evidence self-test + host development/formal-ineligible + toolchain self-test + attest + bootstrap EV；full evaluator 与 signed receipt 移交 D0-04/后续 |
+| 回滚 | 撤销 attest 后 docs-check 拒绝 D0-03 bootstrap EV，需 reopen |
 | 状态 | `TASK-D0-03` → `done`；Active = `TASK-D0-06` |
+
+### 11.5 Freeze Exception `FX-2026-07-17-D0-05`
+
+| 字段 | 值 |
+|---|---|
+| 原因 | D0-05 的 license inventory + CycloneDX 1.6 generate/verify 已 development 绿，但 schema/closure/release binding 全量语义未闭合，按原 grade 规则会永久 blocked |
+| 批准 | Quality + Architecture（经 `GOV-GENESIS-001` 追认；原记录仅存在于任务表行与 attest，本文件补记） |
+| 时限 | 一次性；不得推广 |
+| 变更 | done = sbom self-test + generate/verify + attest + bootstrap EV；release binding、SBOM↔lock closure、executable/dylib 粒度移交 `TASK-D0-08` |
+| 回滚 | 撤销 attest 后 docs-check 拒绝 D0-05 bootstrap EV，需 reopen |
+
+**状态：** `TASK-D0-05` → `done`。
+
+### 11.6 Freeze Exception `FX-2026-07-17-D0-06`（作废记录）
+
+| 字段 | 值 |
+|---|---|
+| 原因 | D0-06 在开工 128 秒后于同一 commit 关闭：无 RED 先行证据，冻结 output 被收窄为 minimal surface 而 inScope 多数项（JCS encoder/domain-separated hash、ID/path parser、完整 ResourceProfileV1 profile）未交付 |
+| 处置 | 关闭无效：经 `1e57e362` reopen 纠正（程序上 reopen 超出 §2，实质为撤销错误关闭，`GOV-GENESIS-001` §3.2 予以认可）；`TASK-D0-06` 补全冻结 inScope 并经独立技术复审后按 genesis 关闭重新关闭 |
+| 批准 | 原记录自始未写入本文件，视为不存在；重新关闭的批准来源为 `GOV-GENESIS-001` |
 
 ## 12. 违规处理
 

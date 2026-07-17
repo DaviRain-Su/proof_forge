@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "description": "Exact genesis task set for GOV-GENESIS-001. Silent addition requires Architecture+Quality approval and a lock update in the same change.",
+  "genesisTasks": [
+    "TASK-D0-01",
+    "TASK-D0-02",
+    "TASK-D0-03",
+    "TASK-D0-05",
+    "TASK-D0-06"
+  ]
+}

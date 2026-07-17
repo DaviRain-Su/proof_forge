@@ -200,7 +200,7 @@
       "runtimeFiles": [],
       "versionArgs": ["--version"],
       "expectedVersion": "0.8.34+commit.80d5c536",
-      "licenseSpdx": "GPL-3.0-only",
+      "licenseSpdx": "GPL-3.0-or-later",
       "requiredByProfiles": ["evm-yul-solc-0.8.34-v1"]
     },
     {

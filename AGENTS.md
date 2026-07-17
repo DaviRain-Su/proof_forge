@@ -18,7 +18,7 @@
 | Next task | **TASK-D0-07**（formal hermetic/finalizer；依赖 D0-04 activation，当前仍远） |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-04** host seal broken + Stage-0/authority/receipt 未闭合；D0-01..03 仅 freeze-exception 关闭 development 切片，不表示 formal hermetic 完成 |
+| Known blocker | **TASK-D0-04** host seal broken + Stage-0/authority/receipt 未闭合；其余已关闭 D0 任务仅为 freeze-exception 关闭的 development 切片（genesis 追认见 [`docs/governance/genesis-authority.md`](docs/governance/genesis-authority.md)），不表示 formal hermetic 完成 |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

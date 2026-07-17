@@ -12,6 +12,6 @@
   "toolchainResult": "ok",
   "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
   "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
-  "fullPolicyReceiptEvaluator": "deferred-incomplete",
-  "notes": "Closes D0-03 development triad only: evidence-core self-test, host development observation with formal ineligible fail-closed, and toolchain lock self-test. Full context/policy/receipt finalizer evaluation, signed TaskApproval/receipt, and formal hermetic publication remain deferred."
+  "fullPolicyReceiptEvaluator": "implemented",
+  "notes": "Closes D0-03 development triad only: evidence-core self-test, host development observation with formal ineligible fail-closed, and toolchain lock self-test. The full context/policy/receipt finalizer evaluator is implemented (development catalog-verified only); signed TaskApproval/receipt and formal hermetic publication remain deferred."
 }

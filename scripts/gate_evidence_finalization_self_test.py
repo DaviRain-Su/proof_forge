@@ -3103,6 +3103,68 @@ def main() -> int:
             raise AssertionError("development EVF record is not immutable mode 0444")
         if finalized_output.stat().st_nlink != 1:
             raise AssertionError("development EVF record is not single-linked")
+
+        stale_date_output = output_parent / "EVF-19990101-0001.json"
+        stale_date_result = invoke(development_arguments(stale_date_output, catalog_path))
+        stale_date_stderr = stale_date_result.stderr.splitlines()
+        if (
+            stale_date_result.returncode != 2
+            or stale_date_result.stdout
+            or len(stale_date_stderr) != 1
+            or not stale_date_stderr[0].startswith(b"PF-EVIDENCE-PATH: ")
+        ):
+            raise AssertionError(
+                "non-current EVF id date was not rejected with PF-EVIDENCE-PATH:\n"
+                + stale_date_result.stderr.decode("utf-8", errors="replace")
+            )
+        if stale_date_output.exists():
+            raise AssertionError("non-current EVF id date published a record")
+
+        clobber_result = invoke(development_arguments(finalized_output, catalog_path))
+        clobber_stderr = clobber_result.stderr.splitlines()
+        if (
+            clobber_result.returncode != 2
+            or clobber_result.stdout
+            or len(clobber_stderr) != 1
+            or not clobber_stderr[0].startswith(b"PF-EVIDENCE-EXISTS: ")
+        ):
+            raise AssertionError(
+                "re-publication over an existing EVF record was not refused:\n"
+                + clobber_result.stderr.decode("utf-8", errors="replace")
+            )
+        if finalized_output.read_bytes() != finalized_bytes:
+            raise AssertionError("no-clobber refusal changed the original EVF record")
+
+        second_id = finalized_id[:-4] + "0002"
+        second_output = output_parent / f"{second_id}.json"
+        second_result = invoke(development_arguments(second_output, catalog_path))
+        if second_result.returncode != 0 or second_result.stderr:
+            raise AssertionError(
+                "same-day -0002 development finalization did not publish:\n"
+                + second_result.stderr.decode("utf-8", errors="replace")
+            )
+        if not second_output.is_file():
+            raise AssertionError("same-day -0002 finalization omitted its EVF record")
+        second_bytes = second_output.read_bytes()
+        second_finalized = module.decode_json(second_bytes)
+        if module.canonical_bytes(second_finalized) != second_bytes:
+            raise AssertionError("same-day -0002 EVF record is not canonical")
+        second_utc = second_finalized.get("finalizedUtc")
+        if not isinstance(second_utc, str):
+            raise AssertionError("same-day -0002 EVF omitted its UTC instant")
+        try:
+            parsed_second_utc = dt.datetime.strptime(
+                second_utc, "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=dt.timezone.utc)
+        except ValueError as error:
+            raise AssertionError(
+                "same-day -0002 EVF UTC instant is not whole-second UTC"
+            ) from error
+        if (
+            second_finalized.get("id") != second_id
+            or parsed_second_utc.strftime("%Y%m%d") != second_id[4:12]
+        ):
+            raise AssertionError("same-day -0002 EVF id date does not match finalizedUtc")
     print("gate evidence finalization self-test passed")
     return 0
 

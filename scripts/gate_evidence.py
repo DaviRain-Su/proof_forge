@@ -2976,10 +2976,13 @@ def _publish_development_finalization(
         finalized_id = finalized["id"]
         if not finalized_id.startswith("EVF-") or len(finalized_id) < 17:
             fail("PF-EVIDENCE-PATH", "OUTPUT EVF id is malformed")
-        # Keep finalizedUtc date aligned with the caller-chosen id date.
-        finalized["finalizedUtc"] = (
-            f"{finalized_id[4:8]}-{finalized_id[8:10]}-{finalized_id[10:12]}T00:00:00Z"
-        )
+        # finalizedUtc always comes from the real UTC clock read above; the
+        # caller-chosen id date must equal that date, never rewrite the clock.
+        if finalized_id[4:12] != now.strftime("%Y%m%d"):
+            fail(
+                "PF-EVIDENCE-PATH",
+                "OUTPUT EVF id date does not equal the real UTC finalization date",
+            )
         encoded = canonical_bytes(finalized)
     atomic_publish(
         encoded,
@@ -5576,7 +5579,6 @@ def main(argv: list[str] | None = None) -> int:
                 snapshot,
                 arguments.executing_source,
             )
-            _join_development_candidate_host(document, selected_gate)
             expected_run_binding = _require_catalog_cli_sha256(
                 arguments.run_binding_sha256,
                 "RUN_BINDING_SHA256",
@@ -5587,6 +5589,7 @@ def main(argv: list[str] | None = None) -> int:
                 snapshot,
                 expected_run_binding_sha256=expected_run_binding,
             )
+            _join_development_candidate_host(document, selected_gate)
             output_path = _normalized_cli_path(arguments.output, "OUTPUT")
             _publish_development_finalization(
                 document,

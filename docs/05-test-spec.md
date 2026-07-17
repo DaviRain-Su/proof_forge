@@ -138,6 +138,7 @@ Counter 相同的 parser/type/semantic/resolver/materializer 通用路径，禁�
 | TST-ISO-003 | D8 release-candidate 全量 clean-room aggregate |
 | TST-TOOL-001 | exact tool version/checksum、missing/shadow/timeout |
 | TST-SBOM-001 | SPDX license inventory、CycloneDX 1.6 SBOM schema/closure/hash/release binding |
+| TST-SBOM-002 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 |
 | TST-COMMON-001 | 公共 primitive、canonical encoding、domain-separated hash 边界 |
 | TST-RESOURCE-001 | frontend safe-open/parser resource profile equal/over/cleanup/receipt |
 | TST-RESOURCE-002 | compiler-core/external-tool/artifact-output resource profile equal/over/cleanup/receipt |
@@ -427,7 +428,7 @@ producer/policy root/handoff/signer/verifier/protected service 与 production ca
 - **`FX-2026-07-17-D0-03`**：`TASK-D0-03` 在存在精确
   `docs/governance/bootstrap-closure/TASK-D0-03.attest.json`（kind=`development-triad-closure`、
   `freezeException=FX-2026-07-17-D0-03`、`bootstrapAuthority=deferred-fail-closed-to-D0-04`、
-  `fullPolicyReceiptEvaluator=deferred-incomplete`、evidence/host/toolchain results `ok`）时，
+  `fullPolicyReceiptEvaluator=implemented`、evidence/host/toolchain results `ok`）时，
   以 development triad bootstrap EV 关闭。
 - **`FX-2026-07-17-D0-05`**：`TASK-D0-05` 在存在精确
   `docs/governance/bootstrap-closure/TASK-D0-05.attest.json`（kind=`sbom-inventory-closure`、

@@ -9,6 +9,7 @@ import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 
 CHECKER = Path(__file__).with_name("docs_check.py")
@@ -346,6 +347,107 @@ def complete_bootstrap_trust_root_task(root: Path) -> None:
     write_task_set_lock(root, "TASK-D0-03")
 
 
+def bootstrap_evidence_row(task_id: str) -> str:
+    return (f"| EV-20260716-9004 | {task_id} | TST-DOC-902 | bootstrap | synthetic | "
+            "passed | synthetic D0 trust-root evidence |")
+
+
+def valid_d0_02_attest() -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-02",
+        "kind": "package-boundary-closure",
+        "freezeException": "FX-2026-07-17-D0-02",
+        "implementationGreenCommit": "cccccccccccccccccccccccccccccccccccccccc",
+        "selfTestCommand": "/usr/bin/python3 -I -S -B scripts/v2_isolation_self_test.py",
+        "selfTestResult": "ok",
+        "isolationCommand": "just v2-isolation",
+        "isolationResult": "ok",
+        "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+    }
+
+
+def valid_d0_03_attest() -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-03",
+        "kind": "development-triad-closure",
+        "freezeException": "FX-2026-07-17-D0-03",
+        "evidenceCoreCommand": "/usr/bin/python3 -I -S scripts/gate_evidence.py self-test",
+        "evidenceCoreResult": "ok",
+        "hostDevelopmentCommand": (
+            "/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC "
+            "/bin/bash --noprofile --norc "
+            "scripts/verify_host_stage0.sh --allow-ineligible-development"),
+        "hostDevelopmentResult": "ok",
+        "hostFormalEligible": False,
+        "toolchainCommand": "/usr/bin/python3 -I -S scripts/toolchain_assets.py self-test",
+        "toolchainResult": "ok",
+        "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+        "fullPolicyReceiptEvaluator": "implemented",
+    }
+
+
+def valid_d0_05_attest() -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-05",
+        "kind": "sbom-inventory-closure",
+        "freezeException": "FX-2026-07-17-D0-05",
+        "selfTestCommand": "/usr/bin/python3 -I -S scripts/sbom_self_test.py",
+        "selfTestResult": "ok",
+        "generateCommand": (
+            "/usr/bin/python3 -I -S scripts/sbom_generate.py --root . "
+            "generate --output-dir build/sbom"),
+        "generateResult": "ok",
+        "verifyCommand": (
+            "/usr/bin/python3 -I -S scripts/sbom_generate.py --root . "
+            "verify --output-dir build/sbom"),
+        "verifyResult": "ok",
+        "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+    }
+
+
+def drop_attest_field(attest: dict[str, Any], field: str) -> dict[str, Any]:
+    return {key: value for key, value in attest.items() if key != field}
+
+
+def complete_attested_bootstrap_task(
+        root: Path, task_id: str, attest: dict[str, Any]) -> None:
+    replace(root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            f"| {task_id} | Completed bootstrap task | TASK-A0-20 | — | "
+            "TST-DOC-902 | EV-20260716-9004 | done |")
+    replace(root / "docs/traceability/requirements-matrix.md", "TASK-D0-92", task_id)
+    replace(root / "docs/traceability/evidence-ledger.md", EVIDENCE_ROW,
+            EVIDENCE_ROW + "\n" + bootstrap_evidence_row(task_id))
+    replace(root / "AGENTS.md", "| Next task | TASK-D0-92 |", "| Next task | 无 |")
+    write_task_set_lock(root, task_id)
+    path = root / "docs/governance/bootstrap-closure" / f"{task_id}.attest.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(attest, indent=2) + "\n", encoding="utf-8")
+
+
+def write_task_freeze_fx_doc(root: Path, approval: str) -> None:
+    (root / "docs/governance/task-freeze.md").write_text(
+        markdown("GOV-TASK-FREEZE-901", f"""
+## 11. 首个应用实例：`TASK-D0-01`
+
+### 11.1 Freeze Exception `FX-2026-07-17-D0-01`
+
+| 字段 | 值 |
+|---|---|
+| 原因 | synthetic freeze exception reason |
+| 批准 | {approval} |
+| 时限 | 一次性 |
+""", normative=False),
+        encoding="utf-8")
+
+
 def remove_joint_task_test_trace_edge(root: Path) -> None:
     replace(root / "docs/01-prd.md",
             "| FR-901 | Synthetic functional requirement |",
@@ -566,6 +668,21 @@ def main() -> None:
         (root / "active").mkdir(parents=True),
         (root / "active/bad.json").write_text("{not-json}\n", encoding="utf-8"),
     ))
+    expect_success("evidence-command-attest-existing", lambda root: replace(
+        root / "docs/traceability/evidence-ledger.md",
+        EVIDENCE_ROW,
+        EVIDENCE_ROW.replace(
+            "| development | synthetic | passed |",
+            "| development | `just check`；attest `docs/governance/task-set.lock.json` | "
+            "passed |", 1)))
+    expect_success("bootstrap-attest-d0-02", lambda root: (
+        complete_attested_bootstrap_task(root, "TASK-D0-02", valid_d0_02_attest())))
+    expect_success("bootstrap-attest-d0-03", lambda root: (
+        complete_attested_bootstrap_task(root, "TASK-D0-03", valid_d0_03_attest())))
+    expect_success("bootstrap-attest-d0-05", lambda root: (
+        complete_attested_bootstrap_task(root, "TASK-D0-05", valid_d0_05_attest())))
+    expect_success("fx-approval-genesis-cited", lambda root: write_task_freeze_fx_doc(
+        root, "Quality + Architecture（经 `GOV-GENESIS-001` 追认）"))
     expect_root_ancestor_failure()
 
     cases: list[tuple[str, Mutation, str, str]] = [
@@ -1133,6 +1250,42 @@ def main() -> None:
             EVIDENCE_ROW, EVIDENCE_ROW.replace(
                 "| development |", "| bootstrap |", 1)),
          "PF-DOC-DONE-EV", "EV-20260716-9001"),
+        ("evidence-command-empty", lambda root: replace(
+            root / "docs/traceability/evidence-ledger.md",
+            EVIDENCE_ROW, EVIDENCE_ROW.replace(
+                "| development | synthetic | passed |",
+                "| development |  | passed |", 1)),
+         "PF-DOC-EVIDENCE-COMMANDS", "empty Gate / command"),
+        ("evidence-command-empty-segment", lambda root: replace(
+            root / "docs/traceability/evidence-ledger.md",
+            EVIDENCE_ROW, EVIDENCE_ROW.replace(
+                "| development | synthetic | passed |",
+                "| development | synthetic； ；synthetic | passed |", 1)),
+         "PF-DOC-EVIDENCE-COMMANDS", "empty command segment"),
+        ("evidence-command-attest-missing", lambda root: replace(
+            root / "docs/traceability/evidence-ledger.md",
+            EVIDENCE_ROW, EVIDENCE_ROW.replace(
+                "| development | synthetic | passed |",
+                "| development | synthetic；attest "
+                "`docs/governance/bootstrap-closure/TASK-D0-99.attest.json` | passed |", 1)),
+         "PF-DOC-EVIDENCE-COMMANDS", "TASK-D0-99.attest.json"),
+        ("bootstrap-attest-d0-02-missing-field", lambda root: (
+            complete_attested_bootstrap_task(
+                root, "TASK-D0-02",
+                drop_attest_field(valid_d0_02_attest(), "isolationResult"))),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-03-wrong-value", lambda root: (
+            complete_attested_bootstrap_task(
+                root, "TASK-D0-03", {**valid_d0_03_attest(), "hostFormalEligible": True})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-05-missing-field", lambda root: (
+            complete_attested_bootstrap_task(
+                root, "TASK-D0-05",
+                drop_attest_field(valid_d0_05_attest(), "verifyResult"))),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("fx-approval-self-referential", lambda root: write_task_freeze_fx_doc(
+            root, "本仓库 closeout 记录"),
+         "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-01"),
         ("unknown-evidence", lambda root: replace(
             root / "docs/04-task-breakdown.md", "EV-20260716-9001", "EV-20260716-9999"),
          "PF-DOC-DONE-EV", "EV-20260716-9999"),

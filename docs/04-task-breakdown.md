@@ -68,8 +68,9 @@ normative: true
 | TASK-A0-20 | Lean command/CLI Loader 共用唯一 validated decoded `Source.Program`，移除第二套 raw-Syntax AST construction | — | — | TST-A0-020 | EV-20260716-0025 | done |
 
 本 checkpoint 截止 `TASK-A0-20` 冻结。2026-07-16 对账确认：A0 的 `done` 只表示 alpha
-切片；它们不自动关闭 D0/D1。2026-07-17：`TASK-D0-01` 经 `FX-2026-07-17-D0-01` 关闭；
-下一正式任务仍为 `TASK-D0-02`；其 implementation slice 已通过，等待合法 bootstrap closure。
+切片；它们不自动关闭 D0/D1。2026-07-17：`TASK-D0-01`/`TASK-D0-02`/`TASK-D0-03`/`TASK-D0-05`
+经 Freeze Exception 关闭，统一由 [`governance/genesis-authority.md`](governance/genesis-authority.md)
+追认；`TASK-D0-06` 的错误关闭经 reopen 纠正，在途补全后按 genesis 关闭重新关闭。
 
 ## Milestone D0：文档与独立工程
 
@@ -82,12 +83,12 @@ normative: true
 | TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding（FX-2026-07-17-D0-05：inventory+CycloneDX development gate） | TASK-D0-03 | — | TST-SBOM-001 | EV-20260717-0033 | done |
 | TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0032, EV-20260717-0034 | in_progress |
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | pending |
+| TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | — | pending |
 
-`TASK-D0-02` 的冻结 Output/Tests/Dependencies/Prerequisites 未变；阻塞项是候选外部 authority
-才能产生的 exact signed TaskApproval 与 authenticated task receipt。`EV-20260717-0029` 只记录
-package-boundary development GREEN，不满足 bootstrap grade，故不得把本行标为 `done`，也不得启动
-依赖它完成的 `TASK-D0-03`。解除方式只能是取得规范对象，或经 Architecture + Quality 批准书面
-Freeze Exception / 依赖修订；agent 不得自行选择后者。
+`TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
+authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
+关闭，signed 对象移交 `TASK-D0-04`。genesis 任务的定义、追认与补票义务见
+[`governance/genesis-authority.md`](governance/genesis-authority.md)。
 
 ## Milestone D1：语言前端
 

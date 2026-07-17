@@ -18,6 +18,7 @@ from typing import Any
 
 INVENTORY_SCHEMA = "proof-forge.license-inventory.v1"
 POLICY_SCHEMA = "proof-forge.license-policy.v1"
+ROOT_COMPONENT_ID = "proof-forge-next"
 SPDX_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -108,7 +109,7 @@ def load_policy(path: Path) -> dict[str, Any]:
 
 def validate_component(component: dict[str, Any], root: Path, policy: dict[str, Any]) -> None:
     required = (
-        "id", "name", "version", "type", "sha256", "supplier", "licenseSpdx",
+        "id", "name", "version", "type", "supplier", "licenseSpdx",
         "licenseFile", "licenseFileSha256", "redistributable", "dependsOn",
     )
     missing = [key for key in required if key not in component]
@@ -120,9 +121,14 @@ def validate_component(component: dict[str, Any], root: Path, policy: dict[str, 
     ctype = require_str(component["type"], "component.type")
     if ctype not in {"application", "library", "firmware", "file", "operating-system"}:
         fail("PF-SBOM-INVENTORY", f"{component_id}: unsupported type {ctype}")
-    digest = require_str(component["sha256"], "component.sha256")
-    if not HEX64_RE.fullmatch(digest):
-        fail("PF-SBOM-INVENTORY", f"{component_id}: sha256 must be 64 lowercase hex")
+    # sha256 is mandatory for every component except the root product component
+    # (enforced in load_inventory): the product archive digest cannot be pinned
+    # inside a file that is itself part of that archive (TASK-D0-08 scope).
+    digest = component.get("sha256")
+    if digest is not None:
+        digest = require_str(digest, "component.sha256")
+        if not HEX64_RE.fullmatch(digest):
+            fail("PF-SBOM-INVENTORY", f"{component_id}: sha256 must be 64 lowercase hex")
     require_str(component["supplier"], "component.supplier")
     license_spdx = require_str(component["licenseSpdx"], "component.licenseSpdx")
     if not SPDX_RE.fullmatch(license_spdx):
@@ -181,6 +187,11 @@ def load_inventory(path: Path, root: Path, policy: dict[str, Any]) -> dict[str, 
     for index, item in enumerate(components):
         component = require_dict(item, f"components[{index}]")
         validate_component(component, root, policy)
+        if "sha256" not in component and component["id"] != ROOT_COMPONENT_ID:
+            fail(
+                "PF-SBOM-INVENTORY",
+                f"{component['id']}: sha256 required for non-root components",
+            )
         ids.append(component["id"])
     if ids != sorted(ids):
         fail("PF-SBOM-INVENTORY", "components must be sorted by id ascending")
@@ -199,27 +210,95 @@ def load_inventory(path: Path, root: Path, policy: dict[str, Any]) -> dict[str, 
     return raw
 
 
-def bom_ref(sha256: str) -> str:
-    return f"urn:proofforge:component:{sha256}"
+def license_ids(expression: str) -> set[str]:
+    """Collect license ids from a simple SPDX expression (OR/AND/WITH, parens)."""
+    ids: set[str] = set()
+    tokens = expression.replace("(", " ").replace(")", " ").split()
+    skip_exception = False
+    for token in tokens:
+        if skip_exception:
+            skip_exception = False
+            continue
+        marker = token.upper()
+        if marker in {"OR", "AND"}:
+            continue
+        if marker == "WITH":
+            skip_exception = True
+            continue
+        ids.add(token)
+    return ids
+
+
+def check_lock_closure(root: Path, inventory: dict[str, Any]) -> None:
+    """Fail closed (PF-SBOM-CLOSURE) unless every locked asset/tool is covered by
+    the inventory with a matching SHA-256 and a consistent SPDX license id.
+    A dual-licensed tool expression (e.g. "MIT OR Apache-2.0") is consistent when
+    the inventory records one of the offered license ids."""
+    lock = require_dict(load_json(root / "toolchains.lock.json"), "toolchains.lock")
+    assets = lock.get("assets")
+    tools = lock.get("tools")
+    if not isinstance(assets, list) or not isinstance(tools, list):
+        fail("PF-SBOM-CLOSURE", "toolchains.lock.json must contain assets and tools arrays")
+    components_by_digest: dict[str, dict[str, Any]] = {}
+    for component in inventory["components"]:
+        digest = component.get("sha256")
+        if isinstance(digest, str):
+            components_by_digest[digest] = component
+    asset_digests: dict[str, str] = {}
+    for asset in assets:
+        if not isinstance(asset, dict):
+            fail("PF-SBOM-CLOSURE", "toolchains.lock.json asset entries must be objects")
+        asset_id = asset.get("id")
+        digest = asset.get("sha256")
+        if (not isinstance(asset_id, str) or not asset_id or
+                not isinstance(digest, str) or not HEX64_RE.fullmatch(digest)):
+            fail("PF-SBOM-CLOSURE", "toolchains.lock.json asset id/sha256 invalid")
+        if digest not in components_by_digest:
+            fail(
+                "PF-SBOM-CLOSURE",
+                f"locked asset {asset_id} ({digest[:12]}…) missing from license inventory",
+            )
+        asset_digests[asset_id] = digest
+    for tool in tools:
+        if not isinstance(tool, dict):
+            fail("PF-SBOM-CLOSURE", "toolchains.lock.json tool entries must be objects")
+        tool_id = tool.get("id")
+        asset_id = tool.get("assetId")
+        expression = tool.get("licenseSpdx")
+        if (not isinstance(tool_id, str) or not tool_id or
+                not isinstance(asset_id, str) or
+                not isinstance(expression, str) or not expression):
+            fail("PF-SBOM-CLOSURE", "toolchains.lock.json tool id/assetId/licenseSpdx invalid")
+        digest = asset_digests.get(asset_id)
+        if digest is None:
+            fail("PF-SBOM-CLOSURE", f"tool {tool_id} references unknown asset {asset_id}")
+        component = components_by_digest[digest]
+        if component["licenseSpdx"] not in license_ids(expression):
+            fail(
+                "PF-SBOM-CLOSURE",
+                f"tool {tool_id} license '{expression}' inconsistent with inventory "
+                f"component {component['id']} license '{component['licenseSpdx']}'",
+            )
+
+
+def component_ref(component: dict[str, Any]) -> str:
+    digest = component.get("sha256")
+    if isinstance(digest, str) and digest:
+        return f"urn:proofforge:component:{digest}"
+    return f"urn:proofforge:component:id:{component['id']}"
 
 
 def generate_cyclonedx(inventory: dict[str, Any]) -> dict[str, Any]:
     components_out: list[dict[str, Any]] = []
     dependencies_out: list[dict[str, Any]] = []
     for component in inventory["components"]:
-        ref = bom_ref(component["sha256"])
+        ref = component_ref(component)
         entry = {
             "bom-ref": ref,
             "type": component["type"],
             "name": component["name"],
             "version": component["version"],
             "supplier": {"name": component["supplier"]},
-            "hashes": [
-                {
-                    "alg": "SHA-256",
-                    "content": component["sha256"],
-                }
-            ],
             "licenses": [
                 {
                     "license": {
@@ -239,9 +318,16 @@ def generate_cyclonedx(inventory: dict[str, Any]) -> dict[str, Any]:
                 },
             ],
         }
+        if "sha256" in component:
+            entry["hashes"] = [
+                {
+                    "alg": "SHA-256",
+                    "content": component["sha256"],
+                }
+            ]
         components_out.append(entry)
-        dep_refs = [bom_ref(next(
-            c["sha256"] for c in inventory["components"] if c["id"] == dep_id
+        dep_refs = [component_ref(next(
+            c for c in inventory["components"] if c["id"] == dep_id
         )) for dep_id in component["dependsOn"]]
         dependencies_out.append({
             "ref": ref,
@@ -257,10 +343,10 @@ def generate_cyclonedx(inventory: dict[str, Any]) -> dict[str, Any]:
             "component": {
                 "type": "application",
                 "name": "proof-forge-next",
-                "bom-ref": bom_ref(
+                "bom-ref": component_ref(
                     next(
-                        c["sha256"] for c in inventory["components"]
-                        if c["id"] == "proof-forge-next"
+                        c for c in inventory["components"]
+                        if c["id"] == ROOT_COMPONENT_ID
                     )
                 ),
             },
@@ -290,6 +376,7 @@ def build_from_repo(root: Path) -> tuple[dict[str, Any], dict[str, Any], dict[st
     inventory_path = root / "docs/supply-chain/license-inventory.v1.json"
     policy = load_policy(policy_path)
     inventory = load_inventory(inventory_path, root, policy)
+    check_lock_closure(root, inventory)
     bom = generate_cyclonedx(inventory)
     digests = {
         "policySha256": sha256_bytes(canonical_json(policy)),

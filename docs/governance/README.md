@@ -12,6 +12,9 @@ normative: true
 - [权威与角色](authority.md)
 - [变更控制](change-control.md)
 - [**全局任务冻结协议**](task-freeze.md)（全部 `TASK-*` 完成面守恒；禁止执行中扩 scope）
+- [**自举信任根与 genesis 关闭协议**](genesis-authority.md)（`GOV-GENESIS-001`；C2，待 Architecture+Quality 批准）
+- [角色与人员映射](maintainers.md)（`GOV-MAINTAINERS-001`；authority.md 的角色绑定）
+- [genesis 任务集合 lock](genesis-set.lock.json)（`GOV-GENESIS-001` 的 exact genesis 集合）
 - [任务集合 lock](task-set.lock.json)（A0/D0–D8 exact `TASK-*` 集合；M1 机器强制）
 - [任务冻结包目录](task-freeze-packages/)（每个 `in_progress` 的完成面 JSON；M2 机器强制）
 - [D0-01 pure-consumer 关闭证明](bootstrap-closure/TASK-D0-01.attest.json)（`FX-2026-07-17-D0-01`）

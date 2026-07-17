@@ -378,9 +378,9 @@ v2-isolation:
     /usr/bin/python3 -I -S -B scripts/v2_isolation_self_test.py
     bash scripts/test_v2_isolation.sh
 
-ci: v2-isolation docs-check build test dsl-negative target-negative
+ci: v2-isolation docs-check sbom build test dsl-negative target-negative
 
-check: v2-isolation docs-check python-isolation-negative toolchains-validate host-stage0-development candidate-binding evidence-core sandbox-policy toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test test-host-isolation dsl-negative target-negative target-smoke output-security
+check: v2-isolation docs-check sbom python-isolation-negative toolchains-validate host-stage0-development candidate-binding evidence-core sandbox-policy toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test test-host-isolation dsl-negative target-negative target-smoke output-security
 
 isolated-check:
     bash scripts/verify_isolation.sh --development
