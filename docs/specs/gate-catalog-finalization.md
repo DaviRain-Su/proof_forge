@@ -1183,6 +1183,30 @@ bootstrapApprovalSetDigest = SHA-256(
 )
 ```
 
+首个 aggregate signed-content consumer 的 public API 固定为：
+
+```text
+parse_bootstrap_approval_set(
+  approvalSetBytes,
+  taskReceiptBytes: [bytes; 6],
+  requiredTestSetBytes,
+  authorityPolicyBytes,
+  phase5Snapshot: BootstrapDocumentSnapshotV1,
+  stage0HandoffBytes
+) -> (BootstrapApprovalSetV1, ContentRef)
+```
+
+六个参数均为 required positional input；除 process-local `phase5Snapshot` 与 exact 六成员 raw-byte
+tuple 外，其余输入都是 canonical raw bytes。该 API 必须先完成 set、六个 embedded approval、六份
+raw receipt、required set、policy 与 handoff 的全部 structural preflight 和 root exact join，再进行
+任何 curve work；随后依次验证 required-set、每项 approval、对应 receipt，最后验证满足
+`bootstrapSetRule` 的 set signatures 并计算完整 set ContentRef。它只建立 non-authoritative
+signed-content closure，不读取 authority store，不验证 PHASE-4 raw row、EV/review raw bytes、carrier/
+fd/provenance、current/non-revoked lookup、publish ack/readback 或 activation receipt，因而不得返回
+`ObjectVerifiedV1`、不得关闭 task，也不得作为 aggregate activation authority。protected consumer
+必须在同一 snapshot 中补齐下述全部输入与 store protocol，且不得把此 content-only 成功结果当作
+authenticated lookup 的替代。
+
 set 的唯一 ContentRef 为
 `{schema="proof-forge.bootstrap-approval-set.v1",id,version,digest=bootstrapApprovalSetDigest}`；
 所有 set consumer 必须从 authenticated authority-store RPC 返回的 exact immutable bytes strict decode、
