@@ -222,6 +222,8 @@ private def checkStatement (scope : Scope) (mode : EntryMode) :
         .ok (.synchronousCall callee)
   | .letDecl .. =>
       throw <| .invalidProgram "let statements are not yet supported by typed checking"
+  | .assertStmt .. =>
+      throw <| .invalidProgram "assert statements are not yet supported by typed checking"
 
 private def checkInitializer (state : NameIndex.StateEnv)
     (initializer : Source.Initializer) : CompileResult Initializer := do

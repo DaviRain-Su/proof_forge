@@ -44,6 +44,7 @@ declare_syntax_cat pfStmt
 syntax ident " := " pfExpr : pfStmt
 syntax "return " pfExpr : pfStmt
 syntax "call " str : pfStmt
+syntax "assert " pfExpr : pfStmt
 /-- Same-line annotated let (contextual, not a host Lean keyword). No low fallback. -/
 @[pfStmt_parser default+1] def letStmtAnnotated := leading_parser
   withPosition (
@@ -378,6 +379,8 @@ private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Sou
   | `(pfStmt| return $value:pfExpr) => do
       return .returnValue (← decodeExprUnchecked value)
   | `(pfStmt| call $callee:str) => .ok <| .synchronousCall callee.getString
+  | `(pfStmt| assert $condition:pfExpr) => do
+      return .assertStmt (← decodeExprUnchecked condition)
   | _ => .error "unsupported portable statement"
 
 def decodeStatement (stx : Syntax) : Except String ProofForgeV2.Source.Statement := do
@@ -861,6 +864,9 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
       | some type => do
           let typeExpr ← quoteValueType type
           `(ProofForgeV2.Source.Statement.letDecl $name (Option.some $typeExpr) $value)
+  | .assertStmt condition => do
+      let condition ← quoteExpr condition
+      `(ProofForgeV2.Source.Statement.assertStmt $condition)
 
 private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
     MacroM (TSyntax `term) := do
