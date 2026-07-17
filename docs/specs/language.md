@@ -162,8 +162,9 @@ statement tags `0..2` 后 append tag `3`，随后依次编码 name、`typeAnn` �
 时紧接既有 type bytes）与 value expression。frontend 只保存 Source statement structure；
 `Typed.check` 必须以 exact `let statements are not yet supported by typed checking` fail closed，且本切片
 不得新增 local scope、shadowing、type inference、SemanticIR、requirement 或 target behavior。
-`let` 使用 DSL category 内的 contextual parser，不注册宿主 Lean keyword；现有 `let := 1` 仍表示给
-identifier `let` 赋值，state/parameter identifier policy 也不在本切片改变。unknown annotated type 与
+`let` 使用 DSL category 内的 contextual parser，不新增宿主 Lean keyword；现有 escaped identifier
+`«let» := 1` 仍表示给 identifier `let` 赋值，而 bare `let := 1` 继续停在 parser boundary；
+state/parameter identifier policy 也不在本切片改变。unknown annotated type 与
 reserved binder 在 decoder fail closed；escaped/qualified introducer、缺失 name/type/value/`:=` 与跨行
 形态停在 parser boundary。不得为追求统一诊断而加入 generic fallback parser 或扩大已接受语法。
 

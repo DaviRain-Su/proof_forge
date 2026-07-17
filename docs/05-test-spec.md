@@ -781,8 +781,9 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   mutation 必须同时绑定 append-only statement tag `3`、name、`typeAnn` 的 `0/1` marker/type payload
   与 value；既有 statement tags `0..2` 和 goldens 不变。unknown annotated type 与 reserved binder
   必须在 decoder exact fail closed；escaped/qualified introducer、缺失 name/type/value/`:=`、额外或
-  跨行 payload 必须停在 parser boundary。`let := 1` 继续作为现有 assignment positive control，且
-  不得注册宿主 Lean keyword或增加 generic fallback parser。`Typed.check` 必须返回 exact
+  跨行 payload 必须停在 parser boundary。`«let» := 1` 继续作为 escaped-identifier assignment
+  positive control，bare `let := 1` 继续被 parser 拒绝；不得新增宿主 Lean keyword或 generic
+  fallback parser。`Typed.check` 必须返回 exact
   `let statements are not yet supported by typed checking` 且不产生 Semantic/target output；local
   binding、shadowing、resolution、type/effect rules、SemanticIR lowering 与 runtime semantics 属于后续
   D2/statement slices，不在本测试完成面。
