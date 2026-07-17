@@ -18,7 +18,7 @@ from datetime import date
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any, NoReturn, Tuple, Union
+from typing import NoReturn, Tuple, Union
 
 
 BOOTSTRAP_REJECTION = "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED"
@@ -323,6 +323,21 @@ class BootstrapTaskVerifierReceiptV1:
 
 
 @dataclass(frozen=True)
+class BootstrapApprovalSetV1:
+    schema: str
+    id: str
+    version: str
+    candidate: CandidateIdentity
+    authorityPolicy: ContentRef
+    taskBreakdown: NormativeDocumentRefV1
+    requiredTestSet: ContentRef
+    stage0Handoff: ContentRef
+    taskApprovals: Tuple[TaskApprovalV1, ...]
+    taskReceipts: Tuple[BootstrapTaskVerifierReceiptRefV1, ...]
+    signatures: Tuple[ApprovalSignatureV1, ...]
+
+
+@dataclass(frozen=True)
 class BootstrapLedgerSubjectV1:
     id: str
     taskId: str
@@ -391,6 +406,14 @@ class _EligibleStage0HandoffPreflightV1:
 @dataclass(frozen=True)
 class _BootstrapTaskVerifierReceiptPreflightV1:
     receipt: BootstrapTaskVerifierReceiptV1
+    signatureMessage: bytes
+    signedBytes: bytes
+
+
+@dataclass(frozen=True)
+class _BootstrapApprovalSetPreflightV1:
+    approvalSet: BootstrapApprovalSetV1
+    approvals: Tuple[_TaskApprovalPreflightV1, ...]
     signatureMessage: bytes
     signedBytes: bytes
 
@@ -824,6 +847,27 @@ _TASK_RULE_MINIMA = (
     ("TASK-D0-06", ("architecture", "quality"), 2),
 )
 _D0_TASK_IDS = tuple(item[0] for item in _TASK_RULE_MINIMA)
+_BOOTSTRAP_SET_DEPENDENCIES = {
+    "TASK-D0-01": (),
+    "TASK-D0-02": ("TASK-D0-01",),
+    "TASK-D0-03": ("TASK-D0-01", "TASK-D0-02"),
+    "TASK-D0-04": (
+        "TASK-D0-02",
+        "TASK-D0-03",
+        "TASK-D0-05",
+        "TASK-D0-06",
+    ),
+    "TASK-D0-05": ("TASK-D0-03",),
+    "TASK-D0-06": ("TASK-D0-01", "TASK-D0-02"),
+}
+_BOOTSTRAP_SET_TOPOLOGICAL_TASK_IDS = (
+    "TASK-D0-01",
+    "TASK-D0-02",
+    "TASK-D0-03",
+    "TASK-D0-05",
+    "TASK-D0-06",
+    "TASK-D0-04",
+)
 _NAMED_RULE_MINIMA = (
     ("requiredTestSetRule", ("quality", "security"), 2),
     ("formalCatalogRule", ("quality", "security"), 2),
@@ -971,6 +1015,19 @@ _BOOTSTRAP_TASK_RECEIPT_FIELDS = (
     "result",
     "signature",
 )
+_BOOTSTRAP_APPROVAL_SET_FIELDS = (
+    "schema",
+    "id",
+    "version",
+    "candidate",
+    "authorityPolicy",
+    "taskBreakdown",
+    "requiredTestSet",
+    "stage0Handoff",
+    "taskApprovals",
+    "taskReceipts",
+    "signatures",
+)
 _STAGE0_CHANNEL_SPECS = (
     ("authority-policy", "regular-file", "read-only"),
     ("authority-store", "authenticated-stream", "request-response"),
@@ -1047,11 +1104,6 @@ def _parse_authority_principals(value: object) -> Tuple[BootstrapAuthorityPrinci
     public_keys = tuple(principal.publicKey for principal in result)
     if len(set(public_keys)) != len(public_keys):
         _reject("BootstrapAuthorityPolicyV1 principal publicKey values must be unique")
-    for index, principal in enumerate(result):
-        _require_prime_subgroup_public_key(
-            principal.publicKey,
-            f"BootstrapAuthorityPolicyV1.principals[{index}].publicKey",
-        )
     return result
 
 
@@ -1119,10 +1171,31 @@ def _require_rule_satisfiable(
             _reject(f"{where} requires uncovered role {role}")
 
 
-def parse_bootstrap_authority_policy(
+def _require_authority_principal_prime_subgroups(
+    principals: Tuple[BootstrapAuthorityPrincipalV1, ...],
+) -> None:
+    for index, principal in enumerate(principals):
+        _require_prime_subgroup_public_key(
+            principal.publicKey,
+            f"BootstrapAuthorityPolicyV1.principals[{index}].publicKey",
+        )
+
+
+def _require_authority_policy_prime_subgroups(
+    policy: BootstrapAuthorityPolicyV1,
+) -> None:
+    _require_authority_principal_prime_subgroups(policy.principals)
+    _require_prime_subgroup_public_key(
+        policy.verifier.receiptPublicKey,
+        "BootstrapAuthorityPolicyV1.verifier.receiptPublicKey",
+    )
+
+
+def _parse_bootstrap_authority_policy(
     data: bytes,
+    *,
+    validate_prime_subgroups: bool,
 ) -> Tuple[BootstrapAuthorityPolicyV1, ContentRef]:
-    """Parse and validate a canonical external bootstrap authority policy."""
     decoded = decode_canonical_pf_jcs(data)
     obj = _require_exact_keys(
         decoded, _POLICY_FIELDS, "BootstrapAuthorityPolicyV1"
@@ -1145,17 +1218,19 @@ def parse_bootstrap_authority_policy(
     }
     verifier = _parse_authority_verifier(obj["verifier"])
 
+    if validate_prime_subgroups:
+        _require_authority_principal_prime_subgroups(principals)
     principal_key_ids = {principal.keyId for principal in principals}
     principal_public_keys = {principal.publicKey for principal in principals}
     if verifier.receiptKeyId in principal_key_ids:
         _reject("verifier receiptKeyId collides with a principal keyId")
     if verifier.receiptPublicKey in principal_public_keys:
         _reject("verifier receiptPublicKey collides with a principal publicKey")
-    _require_prime_subgroup_public_key(
-        verifier.receiptPublicKey,
-        "BootstrapAuthorityPolicyV1.verifier.receiptPublicKey",
-    )
-
+    if validate_prime_subgroups:
+        _require_prime_subgroup_public_key(
+            verifier.receiptPublicKey,
+            "BootstrapAuthorityPolicyV1.verifier.receiptPublicKey",
+        )
     for task_rule, (_, required_roles, minimum) in zip(
         task_rules, _TASK_RULE_MINIMA
     ):
@@ -1197,6 +1272,16 @@ def parse_bootstrap_authority_policy(
         hashlib.sha256(b"pf.bootstrap-authority-policy.v1\x00" + data).digest(),
     )
     return policy, ContentRef(policy.schema, policy.id, policy.version, digest)
+
+
+def parse_bootstrap_authority_policy(
+    data: bytes,
+) -> Tuple[BootstrapAuthorityPolicyV1, ContentRef]:
+    """Parse and validate a canonical external bootstrap authority policy."""
+    return _parse_bootstrap_authority_policy(
+        data,
+        validate_prime_subgroups=True,
+    )
 
 
 def _parse_review_link(value: object, where: str) -> str:
@@ -1834,9 +1919,12 @@ def _verify_approval_signatures(
 def _preflight_required_test_set(
     required_bytes: bytes,
     authority_policy_bytes: bytes,
+    *,
+    defer_policy_prime_subgroups: bool = False,
 ) -> _RequiredTestSetPreflightV1:
-    policy, policy_ref = parse_bootstrap_authority_policy(
-        authority_policy_bytes
+    policy, policy_ref = _parse_bootstrap_authority_policy(
+        authority_policy_bytes,
+        validate_prime_subgroups=not defer_policy_prime_subgroups,
     )
     decoded = decode_canonical_pf_jcs(required_bytes)
     obj = _require_exact_keys(
@@ -2744,6 +2832,324 @@ def parse_bootstrap_task_verifier_receipt(
         stage0_handoff_bytes,
     )
     return verified.receipt, verified.receiptRef
+
+
+def _preflight_bootstrap_approval_set(
+    approval_set_bytes: bytes,
+) -> _BootstrapApprovalSetPreflightV1:
+    decoded = decode_canonical_pf_jcs(approval_set_bytes)
+    obj = _require_exact_keys(
+        decoded,
+        _BOOTSTRAP_APPROVAL_SET_FIELDS,
+        "BootstrapApprovalSetV1",
+    )
+    if obj["schema"] != "proof-forge.bootstrap-approval-set.v1":
+        _reject("BootstrapApprovalSetV1.schema is not v1")
+    identifier = _require_ascii_text(
+        obj["id"], PROFILE_ID_RE, "BootstrapApprovalSetV1.id", 127
+    )
+    version = _require_semver(
+        obj["version"], "BootstrapApprovalSetV1.version"
+    )
+    candidate = parse_candidate_identity(obj["candidate"])
+    authority_policy = parse_content_ref(obj["authorityPolicy"])
+    if authority_policy.schema != "proof-forge.bootstrap-authority-policy.v1":
+        _reject("BootstrapApprovalSetV1.authorityPolicy schema is not v1")
+    task_breakdown = _parse_normative_document_ref(
+        obj["taskBreakdown"], "BootstrapApprovalSetV1.taskBreakdown"
+    )
+    if task_breakdown.id != "PHASE-4":
+        _reject("BootstrapApprovalSetV1.taskBreakdown.id must be PHASE-4")
+    required_test_set = parse_content_ref(obj["requiredTestSet"])
+    if required_test_set.schema != "proof-forge.required-test-set.v1":
+        _reject("BootstrapApprovalSetV1.requiredTestSet schema is not v1")
+    stage0_handoff = parse_content_ref(obj["stage0Handoff"])
+    if stage0_handoff.schema != "proof-forge.eligible-stage0-handoff.v1":
+        _reject("BootstrapApprovalSetV1.stage0Handoff schema is not v1")
+
+    approval_values = obj["taskApprovals"]
+    if type(approval_values) is not list or len(approval_values) != 6:
+        _reject("BootstrapApprovalSetV1.taskApprovals must contain six items")
+    assert isinstance(approval_values, list)
+    approvals = tuple(
+        _preflight_task_approval(canonical_pf_jcs(value))
+        for value in approval_values
+    )
+    if tuple(
+        approval.taskApproval.taskId for approval in approvals
+    ) != _D0_TASK_IDS:
+        _reject(
+            "BootstrapApprovalSetV1.taskApprovals must be exact "
+            "TASK-D0-01..06 order"
+        )
+
+    receipt_values = obj["taskReceipts"]
+    if type(receipt_values) is not list or len(receipt_values) != 6:
+        _reject("BootstrapApprovalSetV1.taskReceipts must contain six items")
+    assert isinstance(receipt_values, list)
+    receipt_refs = tuple(
+        _parse_task_receipt_ref(
+            value, f"BootstrapApprovalSetV1.taskReceipts[{index}]"
+        )
+        for index, value in enumerate(receipt_values)
+    )
+    if tuple(receipt.taskId for receipt in receipt_refs) != _D0_TASK_IDS:
+        _reject(
+            "BootstrapApprovalSetV1.taskReceipts must be exact "
+            "TASK-D0-01..06 order"
+        )
+    signatures = _parse_approval_signatures_syntax(
+        obj["signatures"], "BootstrapApprovalSetV1.signatures"
+    )
+    statement = {
+        field: obj[field] for field in _BOOTSTRAP_APPROVAL_SET_FIELDS[:-1]
+    }
+    statement_digest = hashlib.sha256(
+        b"pf.bootstrap-approval-set-statement.v1\x00"
+        + canonical_pf_jcs(statement)
+    ).digest()
+    signature_message = (
+        b"pf.bootstrap-approval-set-signature.v1\x00"
+        + statement_digest
+    )
+    approval_set = BootstrapApprovalSetV1(
+        "proof-forge.bootstrap-approval-set.v1",
+        identifier,
+        version,
+        candidate,
+        authority_policy,
+        task_breakdown,
+        required_test_set,
+        stage0_handoff,
+        tuple(approval.taskApproval for approval in approvals),
+        receipt_refs,
+        signatures,
+    )
+    return _BootstrapApprovalSetPreflightV1(
+        approval_set,
+        approvals,
+        signature_message,
+        approval_set_bytes,
+    )
+
+
+def _preflight_bootstrap_approval_set_receipts(
+    task_receipt_bytes: Tuple[bytes, ...],
+) -> Tuple[_BootstrapTaskVerifierReceiptPreflightV1, ...]:
+    if type(task_receipt_bytes) is not tuple or len(task_receipt_bytes) != 6:
+        _reject("bootstrap approval set requires six raw task receipt bytes")
+    receipts = tuple(
+        _preflight_bootstrap_task_verifier_receipt(value)
+        for value in task_receipt_bytes
+    )
+    if tuple(receipt.receipt.taskId for receipt in receipts) != _D0_TASK_IDS:
+        _reject("raw task receipts must be exact TASK-D0-01..06 order")
+    return receipts
+
+
+def _require_bootstrap_approval_set_input_joins(
+    set_preflight: _BootstrapApprovalSetPreflightV1,
+    receipt_preflights: Tuple[
+        _BootstrapTaskVerifierReceiptPreflightV1, ...
+    ],
+    snapshot_content: Phase5SnapshotContentV1,
+    required_preflight: _RequiredTestSetPreflightV1,
+    handoff_preflight: _EligibleStage0HandoffPreflightV1,
+) -> None:
+    approval_set = set_preflight.approvalSet
+    required_set = required_preflight.requiredTestSet
+    policy = required_preflight.policy
+    handoff = handoff_preflight.handoff
+
+    _require_phase5_required_set_join(snapshot_content, required_preflight)
+    if approval_set.authorityPolicy != required_set.authorityPolicy:
+        _reject(
+            "BootstrapApprovalSetV1 authority policy does not match "
+            "RequiredTestSetV1"
+        )
+    if approval_set.requiredTestSet != required_preflight.requiredTestSetRef:
+        _reject(
+            "BootstrapApprovalSetV1 required-test-set ref does not match "
+            "exact bytes"
+        )
+    if approval_set.stage0Handoff != handoff_preflight.handoffRef:
+        _reject(
+            "BootstrapApprovalSetV1 Stage-0 handoff ref does not match "
+            "exact bytes"
+        )
+    if handoff.candidate != approval_set.candidate:
+        _reject("BootstrapApprovalSetV1 candidate does not match raw handoff")
+    if handoff.authorityPolicy != approval_set.authorityPolicy:
+        _reject(
+            "BootstrapApprovalSetV1 authority policy does not match raw handoff"
+        )
+    if handoff.authorityStoreService != policy.authorityStoreService:
+        _reject("raw handoff authority-store service does not match policy")
+    if handoff.tcb.bootstrapVerifierDigest != policy.verifier.executableDigest:
+        _reject("raw handoff bootstrap verifier digest does not match policy")
+
+    receipt_refs_by_task = {
+        receipt.taskId: receipt for receipt in approval_set.taskReceipts
+    }
+    for approval_preflight, receipt_preflight in zip(
+        set_preflight.approvals, receipt_preflights
+    ):
+        approval = approval_preflight.taskApproval
+        receipt = receipt_preflight.receipt
+        receipt_index = _D0_TASK_IDS.index(receipt.taskId)
+        declared_receipt_ref = approval_set.taskReceipts[receipt_index]
+        raw_receipt_ref = BootstrapTaskVerifierReceiptRefV1(
+            receipt.taskId,
+            receipt.id,
+            Digest(
+                "sha256",
+                hashlib.sha256(
+                    b"pf.bootstrap-task-verifier-receipt.v1\x00"
+                    + receipt_preflight.signedBytes
+                ).digest(),
+            ),
+        )
+        if declared_receipt_ref != raw_receipt_ref:
+            _reject(
+                "BootstrapApprovalSetV1 task receipt ref does not match "
+                "exact raw bytes"
+            )
+        if approval.candidate != approval_set.candidate:
+            _reject("bootstrap task approval candidate does not match set root")
+        if approval.taskBreakdown != approval_set.taskBreakdown:
+            _reject(
+                "bootstrap task approval task breakdown does not match set root"
+            )
+        if approval.authorityPolicy != approval_set.authorityPolicy:
+            _reject(
+                "bootstrap task approval authority policy does not match set root"
+            )
+        if approval.requiredTestSet != approval_set.requiredTestSet:
+            _reject(
+                "bootstrap task approval required-test-set does not match set root"
+            )
+        if approval.stage0Handoff != approval_set.stage0Handoff:
+            _reject(
+                "bootstrap task approval Stage-0 handoff does not match set root"
+            )
+        expected_dependencies = tuple(
+            receipt_refs_by_task[dependency]
+            for dependency in _BOOTSTRAP_SET_DEPENDENCIES[approval.taskId]
+        )
+        if approval.dependencyCompletions != expected_dependencies:
+            _reject(
+                "bootstrap task approval dependencies do not match the "
+                "current six-item set topology"
+            )
+        _require_task_approval_input_joins(
+            approval_preflight,
+            snapshot_content,
+            required_preflight,
+        )
+        _require_bootstrap_task_receipt_input_joins(
+            receipt_preflight,
+            approval_preflight,
+            required_preflight,
+            handoff_preflight,
+        )
+
+    _require_signature_policy_membership(
+        approval_set.signatures,
+        policy.principals,
+        "BootstrapApprovalSetV1.signatures",
+    )
+    _require_signature_rule(
+        approval_set.signatures,
+        policy.principals,
+        policy.bootstrapSetRule,
+        "BootstrapApprovalSetV1.signatures",
+    )
+
+
+def parse_bootstrap_approval_set(
+    approval_set_bytes: bytes,
+    task_receipt_bytes: Tuple[bytes, ...],
+    required_test_set_bytes: bytes,
+    authority_policy_bytes: bytes,
+    phase5_snapshot: BootstrapDocumentSnapshotV1,
+    stage0_handoff_bytes: bytes,
+) -> Tuple[BootstrapApprovalSetV1, ContentRef]:
+    """Validate the exact six-task bootstrap approval-set content closure.
+
+    This pure consumer verifies signed content and exact raw-byte joins only;
+    it does not authenticate the authority-store transport or activate the set.
+    """
+    set_preflight = _preflight_bootstrap_approval_set(approval_set_bytes)
+    receipt_preflights = _preflight_bootstrap_approval_set_receipts(
+        task_receipt_bytes
+    )
+    snapshot_content = parse_phase5_snapshot_content(phase5_snapshot)
+    handoff_preflight = _preflight_eligible_stage0_handoff(
+        stage0_handoff_bytes
+    )
+    required_preflight = _preflight_required_test_set(
+        required_test_set_bytes,
+        authority_policy_bytes,
+        defer_policy_prime_subgroups=True,
+    )
+    _require_bootstrap_approval_set_input_joins(
+        set_preflight,
+        receipt_preflights,
+        snapshot_content,
+        required_preflight,
+        handoff_preflight,
+    )
+
+    _require_authority_policy_prime_subgroups(required_preflight.policy)
+    _finalize_required_test_set(required_preflight)
+    approvals_by_task = {
+        approval.taskApproval.taskId: approval
+        for approval in set_preflight.approvals
+    }
+    receipts_by_task = {
+        receipt.receipt.taskId: receipt for receipt in receipt_preflights
+    }
+    declared_receipts_by_task = {
+        receipt.taskId: receipt
+        for receipt in set_preflight.approvalSet.taskReceipts
+    }
+    for task_id in _BOOTSTRAP_SET_TOPOLOGICAL_TASK_IDS:
+        approval_preflight = approvals_by_task[task_id]
+        receipt_preflight = receipts_by_task[task_id]
+        task_object = _BootstrapTaskObjectPreflightV1(
+            approval_preflight,
+            receipt_preflight,
+            handoff_preflight,
+        )
+        verified = _finalize_bootstrap_task_object(
+            task_object,
+            required_preflight.policy,
+        )
+        if verified.receiptRef != declared_receipts_by_task[task_id]:
+            _reject(
+                "BootstrapApprovalSetV1 task receipt ref does not match "
+                "exact raw bytes"
+            )
+
+    _verify_approval_signatures(
+        set_preflight.approvalSet.signatures,
+        required_preflight.policy.principals,
+        set_preflight.signatureMessage,
+        "BootstrapApprovalSetV1.signatures",
+    )
+    digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.bootstrap-approval-set.v1\x00" + approval_set_bytes
+        ).digest(),
+    )
+    approval_set = set_preflight.approvalSet
+    return approval_set, ContentRef(
+        approval_set.schema,
+        approval_set.id,
+        approval_set.version,
+        digest,
+    )
 
 
 def _require_sorted_unique(values: tuple, where: str, *, nonempty: bool) -> None:
