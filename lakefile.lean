@@ -11,6 +11,7 @@ lean_lib ProofForgeV2 where
 lean_lib ProofForgeV2Tests where
   roots := #[
     `Tests.Core.Common,
+    `Tests.Core.CommonScalars,
     `Tests.Core.Semantics,
     `Tests.Compiler.Pipeline,
     `Tests.Compiler.TypedNameIndex,
