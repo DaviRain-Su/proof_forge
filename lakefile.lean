@@ -18,6 +18,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.Pipeline,
     `Tests.Compiler.TypedNameIndex,
     `Tests.Language.ProgramSyntax,
+    `Tests.Language.PrimitiveDeclarations,
     `Tests.Language.SourceIdentity,
     `Tests.Language.SourceSpan,
     `Tests.Language.FrontendParity,
