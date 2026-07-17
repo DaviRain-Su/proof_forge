@@ -106,6 +106,12 @@ structure InvariantDecl where
   predicate : Expr
   deriving BEq, Inhabited, Repr
 
+structure ExtensionReq where
+  id : String
+  version : String
+  digest : String
+  deriving BEq, Inhabited, Repr
+
 inductive Item where
   | stateDecl (decl : StateDecl)
   | structDecl (decl : StructDecl)
@@ -117,6 +123,7 @@ inductive Item where
   | entry (decl : Entry)
   | fnDecl (decl : FnDecl)
   | invariantDecl (decl : InvariantDecl)
+  | extensionReq (decl : ExtensionReq)
   deriving BEq, Inhabited, Repr
 
 structure Program where
@@ -132,6 +139,7 @@ structure Program where
   entries : Array Entry
   functions : Array FnDecl := #[]
   invariants : Array InvariantDecl := #[]
+  extensionRequirements : Array ExtensionReq := #[]
   deriving BEq, Inhabited, Repr
 
 def Program.buildQualified (qualifiedName name : String) (items : Array Item) : Program :=
@@ -145,8 +153,9 @@ def Program.buildQualified (qualifiedName name : String) (items : Array Item) : 
   let entries := items.foldl (fun acc item => match item with | .entry decl => acc.push decl | _ => acc) #[]
   let functions := items.foldl (fun acc item => match item with | .fnDecl decl => acc.push decl | _ => acc) #[]
   let invariants := items.foldl (fun acc item => match item with | .invariantDecl decl => acc.push decl | _ => acc) #[]
+  let extensionRequirements := items.foldl (fun acc item => match item with | .extensionReq decl => acc.push decl | _ => acc) #[]
   { qualifiedName, name, state, structs, enums, consts, events, errors, initializer, entries,
-    functions, invariants }
+    functions, invariants, extensionRequirements }
 
 def Program.build (name : String) (items : Array Item) : Program :=
   Program.buildQualified name name items
@@ -249,6 +258,11 @@ private def appendFnDecl (bytes : ByteArray) (decl : FnDecl) : ByteArray :=
 private def appendInvariantDecl (bytes : ByteArray) (decl : InvariantDecl) : ByteArray :=
   appendExpr (appendString bytes decl.name) decl.predicate
 
+private def appendExtensionReq (bytes : ByteArray) (decl : ExtensionReq) : ByteArray :=
+  let bytes := appendString bytes decl.id
+  let bytes := appendString bytes decl.version
+  appendString bytes decl.digest
+
 def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendString bytes program.qualifiedName
   let bytes := appendString bytes program.name
@@ -263,7 +277,8 @@ def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
     | some initializer => appendInitializer (appendTag bytes 1) initializer
   let bytes := appendArray appendEntry bytes program.entries
   let bytes := appendArray appendFnDecl bytes program.functions
-  appendArray appendInvariantDecl bytes program.invariants
+  let bytes := appendArray appendInvariantDecl bytes program.invariants
+  appendArray appendExtensionReq bytes program.extensionRequirements
 
 end Canonical
 
