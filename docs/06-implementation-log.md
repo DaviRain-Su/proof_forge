@@ -1154,3 +1154,41 @@ normative: false
   milestone 仍为 5/8，D1 formal task 仍 pending，本结果不是 eligible/hermetic/formal evidence。
 - Next：唯一 active development pointer 推进到 D1-PA-07（struct/enum declaration carriers）；
   D1-PA-08 排队为 const declaration carrier、canonical value binding 与 duplicate/type boundary。
+
+## 2026-07-17 — D1 struct/enum declaration pre-acceptance slice
+
+- Commits：initial RED `876770e5`；canonical hardening RED `0b5767d5`；parser/reserved-name RED
+  `71d10745`；carrier GREEN `9ce2227a`；declaration-name binding hardening `199e54f7`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-SOURCE-WIRE-001`、`TST-SRC-004`。本切片只追加
+  D1-PA-07 development evidence，不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或
+  Done 语义。
+- Changed：新增 `Source.FieldDecl`、`Source.StructDecl`、`Source.EnumVariant`、`Source.EnumDecl`，
+  对应 `Source.Item` alternatives 与 `Source.Program.structs/enums` declaration-order arrays；
+  Lean command 与 ParserSession 继续共享同一 decoder/validator/quote 路径。struct field 支持当前
+  alpha primitive 与 exact `Field bn254_fr`，enum 支持 bare nullary 与 nonempty typed payload。
+- Binding：struct/enum kind、declaration name/count/order、field name/type/count/order、variant
+  name/count/order 及 payload type/count/order 全部进入 canonical source bytes；每个维度均有单变量
+  sourceHash mutation，command/Loader 的完整 `Source.Program` 与 sourceHash 相等。
+- Validation：struct/enum declaration、field/variant duplicate 按声明序确定首错；empty aggregate 与
+  `Variant()` fail closed。`struct`/`enum` 只在 `pfItem` 首位按 raw contextual spelling 识别，escaped
+  introducer 不冒充关键字；共享 identifier decoder 同时拒绝普通/escaped 保留名，宿主 Lean 的
+  `def struct`/`def enum` positive control 保持通过。
+- Safety：named-type table 尚未进入 Typed/Semantic，因此 `Typed.check` 与 `Compiler.compile` 对
+  struct-only、enum-only 分别使用稳定诊断 fail closed，不能静默擦除后进入 resolver/target Plan。
+- Security review：首轮审查要求隔离 canonical count/order/kind 与普通/escaped identifier 攻击面；
+  补强后仅剩 declaration name 单变量 binding 的 P1，由 `199e54f7` 固定并关闭。最终 independent
+  re-review P0=0/P1=0。
+- Commands：`lake build Tests.Language.AggregateDeclarations proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed archive
+  `just ci` at `199e54f7`；`git diff --check`；bounded independent review/re-review。
+- Results：focused、aggregate、canonical mutation matrix、dual-entry negatives、host-positive control、
+  isolation archive、110-job build、186 项 docs mutation、治理/SBOM/runtime closure 与完整 `just ci`
+  exit 0；development evidence 为 `EV-20260717-0041`。
+- Limitations：alpha projection 只分别保留 structs/enums declaration order，尚无完整跨 kind
+  `Source.ProgramV1.items`；没有 named-type checker、constructor/match、Typed/Semantic aggregate
+  tables 或 target materialization。当前 alpha 全局 parser 也尚未强制 parent-relative 首 child
+  indentation；该统一 layout contract 不在本切片内。D0 formal milestone 仍为 5/8，D1 formal task
+  仍 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：唯一 active development pointer 推进到 D1-PA-08（const declaration carrier、canonical
+  value binding 与 duplicate/type boundary）；D1-PA-09 排队为 pure fn declaration carrier、
+  canonical signature/body binding 与 duplicate/fail-closed boundary。
