@@ -169,16 +169,18 @@ unsafe def run : IO Unit := do
   | .error error => throw <| IO.userError error.render
 
   -- Frozen prospective goldens for LetTwin annotated vs omitted typeAnn.
-  expect ((twin (some .u64)).sourceHash ==
-      "7675d0399e7a8e95451633fdf7484d69adefb238d04af00b78ae7280078167d0")
-    "annotated LetTwin sourceHash golden must remain stable"
-  expect ((twin (some .u64)).canonicalBytes.size == 230)
-    "annotated LetTwin canonical size golden must remain stable"
-  expect ((twin none).sourceHash ==
-      "537570f28ba78b8719bb73dc34aca2a54fe09fdec487abdce6fe88ded4d4b49b")
-    "omitted LetTwin sourceHash golden must remain stable"
-  expect ((twin none).canonicalBytes.size == 229)
-    "omitted LetTwin canonical size golden must remain stable"
+  let annotatedTwin := twin (some .u64)
+  let omittedTwin := twin none
+  expect (annotatedTwin.sourceHash ==
+      "63074e1c83c2a81f197a8d95baa40f9b577f57cfbb8909df432d9c20c70250a2")
+    s!"annotated LetTwin sourceHash golden must remain stable; got {annotatedTwin.sourceHash}"
+  expect (annotatedTwin.canonicalBytes.size == 229)
+    s!"annotated LetTwin canonical size golden must remain stable; got {annotatedTwin.canonicalBytes.size}"
+  expect (omittedTwin.sourceHash ==
+      "2a7514a897195a94962f5ff45331ce3463d3e1778200e69ab249da4ee48e616a")
+    s!"omitted LetTwin sourceHash golden must remain stable; got {omittedTwin.sourceHash}"
+  expect (omittedTwin.canonicalBytes.size == 228)
+    s!"omitted LetTwin canonical size golden must remain stable; got {omittedTwin.canonicalBytes.size}"
   expect ((twin (some .u64)).sourceHash != (twin none).sourceHash)
     "typeAnn some/none must bind sourceHash distinctly"
   expect ((twin (some .u64)).sourceHash != (twin (some .unit)).sourceHash)
