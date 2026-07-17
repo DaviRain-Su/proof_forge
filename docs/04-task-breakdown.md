@@ -121,14 +121,14 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-18 | TASK-D1-03 | bounded `Option` declaration carrier；alpha payload canonical encoding 与 transitive requirement propagation | `f6b2b2bf`, `06c56f78`, `9858ede0` | focused aggregate + dual-entry/parser-boundary negatives + clean `just ci` at `9858ede0`；final review P0/P1=0 | complete (development) |
 | D1-PA-19 | TASK-D1-03 | bounded `Bytes N` declaration carrier；exact decimal `0..4096` 与 encoder-local alpha canonical payload | `4849ae5b`, `119307ea`, `7a93fb07` | focused aggregate + dual-entry/parser-boundary negatives + clean `just ci` at `7a93fb07`；final reviews P0/P1=0 | complete (development) |
 | D1-PA-20 | TASK-D1-04 | bounded `let name [ : Type ] := Expr` Source statement carrier；Typed fail-closed boundary | `d815d400`, `bb3f9e27`, `bc0447f2` | focused aggregate + dual-entry/parser-boundary negatives + clean committed `just ci` at `bc0447f2`；final reviews P0/P1=0 | complete (development) |
-| D1-PA-21 | TASK-D1-04 | exact `true`/`false` Source-only literal carrier；append-only Expr tag `4` 与 Typed fail-closed boundary | — | residual/parser/canonical audits；spec freeze before RED | **active** |
+| D1-PA-21 | TASK-D1-04 | exact `true`/`false` Source-only literal carrier；append-only Expr tag `4` 与 Typed fail-closed boundary | `175545d6`, `10159066`, `76ebc809` | focused aggregate + dual-entry/parser-boundary controls + clean committed `just ci` at `76ebc809`；final reviews P0/P1=0 | complete (development) |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
 | TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07 | — | TST-SRC-001, TST-SRC-002 | EV-20260717-0036 | pending |
 | TASK-D1-02 | `program ... where` command parser | TASK-D1-01 | — | TST-SRC-003 | — | pending |
 | TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043, EV-20260717-0044, EV-20260717-0045, EV-20260717-0046, EV-20260717-0047, EV-20260718-0001, EV-20260718-0002, EV-20260718-0003, EV-20260718-0004, EV-20260718-0005 | pending |
-| TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | EV-20260718-0006 | pending |
+| TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | EV-20260718-0006, EV-20260718-0007 | pending |
 | TASK-D1-05 | `Source.Program` stable attribute export/schema | TASK-D1-03 | — | TST-SRC-006, TST-SRC-007 | — | pending |
 | TASK-D1-06 | multi-program loader/selection | TASK-D1-05 | — | TST-SRC-008 | — | pending |
 | TASK-D1-07 | stable source diagnostics | TASK-D1-02, TASK-D1-03, TASK-D1-04, TASK-D1-05, TASK-D1-06 | — | TST-DIAG-001 | — | pending |

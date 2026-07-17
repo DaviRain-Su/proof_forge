@@ -1659,3 +1659,37 @@ normative: false
 - Commands：`lake build Tests.Language.LetStatements`（14 jobs，exit 0）；`git diff --check`。
 - Boundary：这是对冻结测试的实现补齐，不生成新 `TST-*`/`EV-*`，不改变
   `EV-20260718-0006` 的历史观察，也不把 `TASK-D1-04` 从 pending 提升为 done。
+
+## 2026-07-18 — D1 exact Bool literal pre-acceptance slice
+
+- Commits：freeze `175545d6`；Bool literal RED `10159066`；Source/Syntax/Typed GREEN `76ebc809`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-21 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 追加 `boolLiteral(value : Bool)`；alpha source canonical encoder
+  使用 Expr tag `4` 后紧接单个 marker byte（`false = 0`、`true = 1`），既有 tags `0..3` 不变。
+  `pfExpr` category 内两个 `default+1` contextual named parser 使 exact bare `true`/`false` 优先于
+  generic identifier，decoder/quote 按命名 parser structure 往返且没有 global keyword、fallback 或
+  Syntax 扫描。portable identifier policy 未改变。
+- Binding/controls：BoolSurface 覆盖 initializer、entry、view、fn 的 return/let value，并固定 Lean
+  command 与 ParserSession AST/sourceHash parity。固定 BoolTwin identity 的 false/true rows 均为 201 bytes，
+  hash 分别为 `cbf554a833b9fd88fe8029b085547992d663c8e1fa13abc93a94e80e7ebf3ad4`、
+  `f979745e8773cfe7caee45cb003801af2db23dd151bbda1b4c860aca9d453676`；integer 0/1 controls
+  均为 208 bytes，hash 分别为 `4bac3a3ee625da64b5c70416a5a289e44ffa007ed08320ebffb1141286fe46b0`、
+  `b35a702ce96574ebb8abc004492d9a75cfc80f062c3765ca2a8e2bb17030a50f`。四者不 alias，
+  Bool 与 UInt64 payload size 精确相差 7 bytes。escaped/qualified/case/`trueValue`/`falseValue`
+  均保持 `.variable` control；literal 后额外独立 token 停在 parser boundary。
+- Boundary：`Typed.checkExpr` 对 `boolLiteral` 返回 exact
+  `boolean literals are not yet supported by typed checking`，因此 Typed.Expr、SemanticIR、requirements、
+  Semantics 与四 target 均无需也没有修改，不会生成 target Plan/artifact。
+- Review/Commands：Grok RED/GREEN；Pi RED/canonical/GREEN review、Claude RED/GREEN review 与 Kimi
+  GREEN seam audit 均 P0/P1=0。`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；clean committed `just ci` at `76ebc809`；
+  `git diff --check`。
+- Results：134-job clean build、126-job aggregate、186 项 docs mutation、治理/SBOM/runtime closure、
+  双入口 DSL negatives 与 target/toolchain negatives 全部 exit 0；development evidence 为
+  `EV-20260718-0007`。
+- Limitations：仅实现 Source Bool literal structure；没有 Typed/Semantic Bool expression、type/effect、
+  requirement、target ABI/runtime、eligible host 或 formal D1 evidence。D0 formal milestone 仍为 5/8，
+  `TASK-D1-04` 仍 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：residual audit 选择 binary checked subtraction 作为 D1-PA-22 candidate；必须先冻结同层
+  `+`/`-` precedence、left associativity、append-only Expr tag 与 Typed fail-closed boundary，再提交 RED。
