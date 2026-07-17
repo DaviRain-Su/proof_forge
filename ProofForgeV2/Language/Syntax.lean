@@ -92,6 +92,13 @@ private def rawIdentifierText? : Syntax → Option String
   | .ident _ rawValue _ _ => some rawValue.toString
   | _ => none
 
+private def decodeIdentifier (stx : Syntax) : Except String String :=
+  let name := stx.getId.toString
+  if name == "event" || name == "error" then
+    .error s!"reserved portable identifier '{name}'"
+  else
+    .ok name
+
 private def decodeTypeUnchecked : Syntax → Except String ProofForgeV2.Source.ValueType
   | `(pfType| $constructor:ident $fieldId:ident) =>
       match rawIdentifierText? constructor, rawIdentifierText? fieldId with
@@ -110,22 +117,22 @@ def decodeType (stx : Syntax) : Except String ProofForgeV2.Source.ValueType := d
 
 private def decodeParamUnchecked : Syntax → Except String ProofForgeV2.Source.Param
   | `(pfParam| $name:ident : $type:pfType) => do
-      return { name := name.getId.toString, type := ← decodeTypeUnchecked type }
+      return { name := ← decodeIdentifier name, type := ← decodeTypeUnchecked type }
   | `(pfParam| public $name:ident : $type:pfType) => do
       return {
-        name := name.getId.toString
+        name := ← decodeIdentifier name
         type := ← decodeTypeUnchecked type
         visibility := .verifierVisible
       }
   | `(pfParam| private $name:ident : $type:pfType) => do
       return {
-        name := name.getId.toString
+        name := ← decodeIdentifier name
         type := ← decodeTypeUnchecked type
         visibility := .proverWitness
       }
   | `(pfParam| commitment $name:ident : $type:pfType) => do
       return {
-        name := name.getId.toString
+        name := ← decodeIdentifier name
         type := ← decodeTypeUnchecked type
         visibility := .commitmentOnly
       }
@@ -142,7 +149,8 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
         .error s!"UInt64 literal is out of range: {number}"
       else
         .ok <| .literal (UInt64.ofNat number)
-  | `(pfExpr| $name:ident) => .ok <| .variable name.getId.toString
+  | `(pfExpr| $name:ident) => do
+      return .variable (← decodeIdentifier name)
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
       return .checkedAdd (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | _ => .error "unsupported portable expression"
@@ -153,7 +161,7 @@ def decodeExpr (stx : Syntax) : Except String ProofForgeV2.Source.Expr := do
 
 private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Source.Statement
   | `(pfStmt| $name:ident := $value:pfExpr) => do
-      return .assign name.getId.toString (← decodeExprUnchecked value)
+      return .assign (← decodeIdentifier name) (← decodeExprUnchecked value)
   | `(pfStmt| return $value:pfExpr) => do
       return .returnValue (← decodeExprUnchecked value)
   | `(pfStmt| call $callee:str) => .ok <| .synchronousCall callee.getString
@@ -173,22 +181,22 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
 
 private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.Item
   | `(pfItem| state $name:ident : $type:pfType) => do
-      return .stateDecl { name := name.getId.toString, type := ← decodeTypeUnchecked type }
+      return .stateDecl { name := ← decodeIdentifier name, type := ← decodeTypeUnchecked type }
   | `(pfItem| state public $name:ident : $type:pfType) => do
       return .stateDecl {
-        name := name.getId.toString
+        name := ← decodeIdentifier name
         type := ← decodeTypeUnchecked type
         visibility := .verifierVisible
       }
   | `(pfItem| state private $name:ident : $type:pfType) => do
       return .stateDecl {
-        name := name.getId.toString
+        name := ← decodeIdentifier name
         type := ← decodeTypeUnchecked type
         visibility := .proverWitness
       }
   | `(pfItem| state commitment $name:ident : $type:pfType) => do
       return .stateDecl {
-        name := name.getId.toString
+        name := ← decodeIdentifier name
         type := ← decodeTypeUnchecked type
         visibility := .commitmentOnly
       }
@@ -196,19 +204,19 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
       match rawIdentifierText? kind with
       | some "event" => do
           return .eventDecl {
-            name := name.getId.toString
+            name := ← decodeIdentifier name
             params := ← decodeParams params
           }
       | some "error" => do
           return .errorDecl {
-            name := name.getId.toString
+            name := ← decodeIdentifier name
             params := ← decodeParams params
           }
       | _ => .error "unsupported portable program item"
   | `(pfItem| $kind:ident $name:ident) =>
       match rawIdentifierText? kind with
       | some "error" =>
-          return .errorDecl { name := name.getId.toString, params := #[] }
+          return .errorDecl { name := ← decodeIdentifier name, params := #[] }
       | _ => .error "unsupported portable program item"
   | `(pfItem| init ($params:pfParam,*) do $statements:pfStmt*) => do
       return .initializer {
@@ -217,7 +225,7 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
       }
   | `(pfItem| entry $name:ident ($params:pfParam,*) : $type:pfType do $statements:pfStmt*) => do
       return .entry {
-        name := name.getId.toString
+        name := ← decodeIdentifier name
         params := ← decodeParams params
         result := ← decodeTypeUnchecked type
         mode := .mutate
@@ -225,7 +233,7 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
       }
   | `(pfItem| view $name:ident ($params:pfParam,*) : $type:pfType do $statements:pfStmt*) => do
       return .entry {
-        name := name.getId.toString
+        name := ← decodeIdentifier name
         params := ← decodeParams params
         result := ← decodeTypeUnchecked type
         mode := .view
@@ -282,7 +290,7 @@ def validateDecodedProgram (sourceProgram : ProofForgeV2.Source.Program) : Compi
 private def decodeProgramCommandUnchecked (currentNamespace : Name) : Syntax →
     Except String ProofForgeV2.Source.Program
   | `(program $name:ident where $items:pfItem*) => do
-      let shortName := name.getId.toString
+      let shortName ← decodeIdentifier name
       let qualifiedName := (currentNamespace ++ name.getId).toString
       let decodedItems ← items.mapM decodeItemUnchecked
       let initializerCount : Nat := decodedItems.foldl (fun count item =>

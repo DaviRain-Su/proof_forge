@@ -264,6 +264,12 @@ per-program declaration validator。
 projection 还不是 `SPEC-SOURCE-WIRE-001` 的完整 ordered `Program.items` 实现，不能作为正式
 `Source.ProgramV1` wire evidence。
 
+为避免 ProofForge import 把 Lean 宿主中的 `event`/`error` 变成全局 parser keyword，这两个词只在
+`pfItem` 首位按 raw token exact 识别；escaped keyword 或其他 leading identifier 失败。其 semantic
+identifier 同时属于 DSL 保留词：program、declaration、parameter、expression 与 assignment 的
+identifier decoder 对普通或 escaped 后值为 `event`/`error` 的名称统一返回
+`PF-SRC-INVALID`，但 DSL 外的 Lean declaration 仍可合法使用这两个名称。
+
 Lean command elaborator 必须从 decoded value quote 出 `@[proof_forge_program]` 常量；不得丢弃
 decoded value 后再沿原始 `Syntax` 运行第二套 `expandType/expandParam/expandExpr/expandStatement/
 expandItem` AST construction。quote 是 `Source.Program → Lean term` 的穷举编码，不重新解释

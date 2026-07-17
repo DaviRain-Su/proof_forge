@@ -708,6 +708,8 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   duplicate event/error name 与 duplicate parameter 通过 Lean command/Loader 两路得到相同的
   exact `PF-SRC-INVALID`，parameter 错误按各自 declaration order 选择首错。Typed/Semantic 尚无
   对应 declaration table 时必须在 `Typed.check` fail closed，不能静默丢弃后进入 target Plan。
+  `event`/`error` 不得污染宿主 Lean keyword 集；两者在 DSL identifier 位置的普通/escaped spelling
+  必须双入口拒绝，宿主 Lean declaration 使用同名 identifier 的 positive control 必须继续通过。
 - 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
   pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
   diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。
