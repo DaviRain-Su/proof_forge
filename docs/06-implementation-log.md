@@ -1192,3 +1192,37 @@ normative: false
 - Next：唯一 active development pointer 推进到 D1-PA-08（const declaration carrier、canonical
   value binding 与 duplicate/type boundary）；D1-PA-09 排队为 pure fn declaration carrier、
   canonical signature/body binding 与 duplicate/fail-closed boundary。
+
+## 2026-07-17 — D1 const declaration pre-acceptance slice
+
+- Commits：initial RED `1c792f72`；validation-priority RED `cd29bf21`；decode-binding RED
+  `05aa1efa`；carrier GREEN `8cc05c57`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-SOURCE-WIRE-001`、`TST-SRC-004`。本切片只追加
+  D1-PA-08 development evidence，不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或
+  Done 语义。
+- Changed：新增 `Source.ConstDecl{name,type,value}`、`Source.Item.constDecl` 与
+  `Source.Program.consts`；Lean command/ParserSession 共享 contextual raw `const` decoder、validator
+  与 quote。仅复用当前 alpha literal/variable/checked-add expression，不扩张 D1-04 grammar。
+- Binding：const 固定投影槽位于 enums/events 之间；declaration name/type/value/count/order、
+  expression kind/variable/literal/operand order 全部进入 canonical source bytes。新增 empty const slot
+  会改变既有 program 的 development sourceHash，因此完整 clean archive/aggregate 已重跑。
+- Validation：duplicate const 位于 enum duplicate 与 initializer parameter duplicate 之间；const item
+  内部显式按 name→type→value 解码。双入口 fixtures 固定两组邻接优先级、reserved-name/type/value
+  优先级、unknown type、UInt64 overflow、escaped introducer 与普通/escaped保留名。
+- Safety：`const` 只按 contextual raw spelling 识别，未污染宿主 Lean identifier。D2 const
+  type/name resolution 与 folding 尚未实现，因此 `Typed.check`/`Compiler.compile` 对任一非空 const
+  table 使用稳定诊断 fail closed，不能进入 Semantic、resolver 或 target Plan。
+- Review/commands：最终 independent review P0=0/P1=0；`lake build
+  Tests.Language.ConstDeclarations proof_forge_next_tests`；`lake env
+  .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed archive `just ci` at
+  `8cc05c57`；`git diff --check`。
+- Results：focused、104-job aggregate、dual-entry negatives、isolation archive、112-job clean build、
+  186 项 docs mutation、治理/SBOM/runtime closure 与完整 `just ci` exit 0；development evidence 为
+  `EV-20260717-0042`。
+- Limitations：只保证 const 同类 declaration order，不保留跨 kind `Source.ProgramV1.items`；没有
+  const type/name resolution、folding、forward reference、Semantic constant table 或 target
+  materialization。D0 formal milestone 仍为 5/8，D1 formal task 仍 pending，本结果不是
+  eligible/hermetic/formal evidence。
+- Next：唯一 active development pointer 推进到 D1-PA-09（pure fn declaration carrier、canonical
+  signature/body binding 与 duplicate/fail-closed boundary）；D1-PA-10 排队为 invariant declaration
+  carrier、canonical expression binding 与 duplicate/fail-closed boundary。
