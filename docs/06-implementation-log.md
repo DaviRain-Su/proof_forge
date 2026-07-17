@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-07-17
+updated: 2026-07-18
 normative: false
 ---
 
@@ -1421,3 +1421,38 @@ normative: false
   append-only 保持，`Field bn254_fr` 的 two-token same-line guard 不得回归。
 - Pointer：D1-PA-14 complete (development audit)；唯一 active development pointer 为 D1-PA-15；
   D1-PA-16 排队为 `Unit` carrier 与 omitted return type materialization。
+
+## 2026-07-18 — D1 closed integer-width declaration pre-acceptance slice
+
+- Commits：integer-width declaration RED `d26eb71f`；target-boundary initializer 修正 `bdbdfbf8`；
+  Source/Semantic carrier GREEN `db25328b`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-15 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.ValueType` 与 `SemanticIR.ValueType` 追加 `u8/u16/u32/u128/u256`、
+  `i8/i16/i32/i64/i128/i256`；`decodeTypeIdentifiers`/`quoteValueType` 只接受对应 exact
+  unqualified single-token spelling。既有 `u64/bool/field` canonical tags 保持 `0/1/2`，新增类型
+  按声明顺序使用 `3..13`；所有新增整数宽度推导零额外 requirement。
+- Binding/negatives：一个 declaration surface 覆盖 state、struct field、enum payload、const、init、
+  entry/view/fn parameter 与 result；Lean command 与 ParserSession 产生相同 Source AST/sourceHash。
+  UInt64 twin golden `89ce98102d576317548ab26a651ea04a09789f4d15704464434a239eb0865494`
+  固定旧 tag，width/sign mutation matrix 固定新类型互不别名。十个 Loader negatives 与四个双入口
+  fixtures 覆盖 invalid/escaped/qualified/extra-token spelling，均返回 exact
+  `PF-SRC-INVALID: unsupported portable type` 且零输出，`Field bn254_fr` two-token guard 未改变。
+- Boundary：`WidthBoundary` 使用 UInt8 state、initializer parameter 与 view result；compiler 只推导
+  `persistentState`，证明 width 本身没有新 requirement。EVM、Solana、NEAR、Noir 都在 target-owned
+  Plan 建立前以 `planInvariant` 的 `is not UInt64` 诊断拒绝，没有生成 artifact；首轮 review 发现
+  Solana/NEAR 会先检查 initializer，`bdbdfbf8` 补齐同类型 initializer 后该 P0 关闭。
+- Review/Commands：Pi 最终复核 P0/P1/P2=0；独立 production review P0/P1=0。
+  `lake build Tests.Language.IntegerWidthDeclarations proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed `just ci`
+  at `db25328b`；`git diff --check`。
+- Results：122-job clean build、114-job aggregate、186 项 docs mutation、治理/SBOM/runtime closure、
+  双入口 DSL negatives 与 toolchain negatives 全部 exit 0；development evidence 为
+  `EV-20260718-0001`。
+- Limitations：仅为 alpha Source declaration type carrier；没有 width-aware literal typing/bounds、
+  负数语义、Int arithmetic、跨 kind ordered `Program.items`、target materialization、eligible host 或
+  formal D1 evidence。D0 formal milestone 仍为 5/8，`TASK-D1-03` 仍 pending，本结果不是
+  eligible/hermetic/formal evidence。
+- Next：D1-PA-16 进入 active，范围为 explicit `Unit` carrier 与 omitted return type 的 parse-time
+  materialization；其 RED 必须先固定显式/省略形式的 AST/hash 等价与 fail-closed grammar。后续 slice
+  尚未冻结，不由 checkpoint 自动递增。

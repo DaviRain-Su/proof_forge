@@ -3,7 +3,7 @@ id: SPEC-LANG-001
 title: Program DSL 语言规格
 status: proposed
 owner: frontend
-updated: 2026-07-16
+updated: 2026-07-18
 normative: true
 ---
 
@@ -118,6 +118,11 @@ QualifiedName ::= Ident ("." Ident)+
 Phase 1 的 `Field Ident` 只接受 exact identifier `bn254_fr`；它在 D2 target-neutral normalization
 中映射到 `proof-forge.field.bn254-fr.v1`。其他 field identifier 必须拒绝，不能由 target/profile 或
 ambient registry 解释。
+
+当前 pre-acceptance alpha decoder 已把 closed `UInt8/16/32/64/128/256` 与
+`Int8/16/32/64/128/256` 的 exact 单 token spelling 保存为 declaration type carrier；width-aware
+literal typing/bounds、负数语义与 Int arithmetic 仍属于 D2。该扩展不得改变 `Field bn254_fr` 的
+two-token same-line guard，也不得重编号既有 canonical type tags。
 
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一

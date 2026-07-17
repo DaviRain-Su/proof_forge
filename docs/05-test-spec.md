@@ -3,7 +3,7 @@ id: PHASE-5
 title: 测试与验收规格
 status: proposed
 owner: quality
-updated: 2026-07-17
+updated: 2026-07-18
 normative: true
 ---
 
@@ -695,6 +695,14 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `Bool` 与 `commitment` 分别推导 `value.bool`、`disclosure.commitment`，不得把 commitment 混同为
   private witness；当前四个 target descriptor 在实现相应能力前必须由 support resolver pre-Plan
   fail closed。
+- closed integer-width declaration carrier 覆盖 `UInt8/16/32/128/256` 与
+  `Int8/16/32/64/128/256`；Lean command 与 Loader 必须保留 exact type/order 并生成相同 AST/sourceHash。
+  `UInt7`、`UInt512`、`Int0`、`UInt064`、lowercase/bare/escaped/qualified 与额外第二 token spelling
+  必须双入口返回 exact `PF-SRC-INVALID: unsupported portable type` 且零输出。width/sign 必须分别绑定
+  sourceHash；既有 `u64/bool/field` canonical tags `0/1/2` 保持 append-only，实际 UInt64 twin golden
+  `89ce98102d576317548ab26a651ea04a09789f4d15704464434a239eb0865494` 不得改变。新增 widths 不推导
+  requirement；当前四个 Phase 1 target 对无法保持的 non-UInt64 state 必须在 Plan 生成前 fail closed。
+  width-aware literal bounds/typing、负数语义与 Int arithmetic 不属于本切片。
 - Phase 1 field surface 只接受两个 raw identifier token 组成的 exact `Field bn254_fr`；escaped
   constructor、escaped/alternate/qualified/missing field identifier 与 unknown constructor 必须在
   Lean command/Loader 两路 fail closed。state、initializer parameter、entry parameter/result 与 view

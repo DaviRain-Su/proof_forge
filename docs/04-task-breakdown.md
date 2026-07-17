@@ -3,7 +3,7 @@ id: PHASE-4
 title: 实施任务拆解
 status: proposed
 owner: engineering
-updated: 2026-07-17
+updated: 2026-07-18
 normative: true
 ---
 
@@ -115,14 +115,14 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-12 | TASK-D1-03 | proof reference carrier、exact invariant/qualified theorem binding 与 duplicate/fail-closed boundary | `105a76e2`, `fc89664e`, `751844f8`, `2a5d1b1f`, `b0c679ef` | focused aggregate + dual-entry negatives + clean `just ci` at `b0c679ef`；final review P0/P1/P2=0 | complete (development) |
 | D1-PA-13 | TASK-D1-03 | entry/view/fn cross-kind callable namespace uniqueness 与 deterministic validation priority | `e8acaffa`, `9eec99dd`, `70965df3` | focused aggregate + six dual-entry exact-diagnostic vectors + clean `just ci` at `70965df3`；review P0=0，P1/P2 全关闭 | complete (development) |
 | D1-PA-14 | TASK-D1-03 | 对照 frozen TST-SRC-004 做 Phase 1 declaration residual gap audit，并冻结下一个 bounded RED slice | — | 13 种 declaration kind inventory + code/test cross-check；P0=0，剩余 gap 全为 type grammar | complete (development audit) |
-| D1-PA-15 | TASK-D1-03 | closed integer-width declaration types：`UInt8/16/32/128/256` 与 `Int8/16/32/64/128/256` | — | RED before GREEN；双入口 parity + append-only canonical golden + zero-requirement assertion | **active** |
-| D1-PA-16 | TASK-D1-03 | `Unit` declaration type carrier 与 omitted return type materialization | — | bounded scope review → RED before GREEN | **next** |
+| D1-PA-15 | TASK-D1-03 | closed integer-width declaration types：`UInt8/16/32/128/256` 与 `Int8/16/32/64/128/256` | `d26eb71f`, `bdbdfbf8`, `db25328b` | focused aggregate + four dual-entry negatives + clean `just ci` at `db25328b`；final review P0/P1/P2=0 | complete (development) |
+| D1-PA-16 | TASK-D1-03 | `Unit` declaration type carrier 与 omitted return type materialization | — | bounded scope review complete；RED before GREEN | **active** |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
 | TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07 | — | TST-SRC-001, TST-SRC-002 | EV-20260717-0036 | pending |
 | TASK-D1-02 | `program ... where` command parser | TASK-D1-01 | — | TST-SRC-003 | — | pending |
-| TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043, EV-20260717-0044, EV-20260717-0045, EV-20260717-0046, EV-20260717-0047 | pending |
+| TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043, EV-20260717-0044, EV-20260717-0045, EV-20260717-0046, EV-20260717-0047, EV-20260718-0001 | pending |
 | TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | — | pending |
 | TASK-D1-05 | `Source.Program` stable attribute export/schema | TASK-D1-03 | — | TST-SRC-006, TST-SRC-007 | — | pending |
 | TASK-D1-06 | multi-program loader/selection | TASK-D1-05 | — | TST-SRC-008 | — | pending |
