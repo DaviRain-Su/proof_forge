@@ -94,6 +94,13 @@ structure Entry where
   body : Array Statement
   deriving BEq, Inhabited, Repr
 
+structure FnDecl where
+  name : String
+  params : Array Param
+  result : ValueType
+  body : Array Statement
+  deriving BEq, Inhabited, Repr
+
 inductive Item where
   | stateDecl (decl : StateDecl)
   | structDecl (decl : StructDecl)
@@ -103,6 +110,7 @@ inductive Item where
   | errorDecl (decl : ErrorDecl)
   | initializer (decl : Initializer)
   | entry (decl : Entry)
+  | fnDecl (decl : FnDecl)
   deriving BEq, Inhabited, Repr
 
 structure Program where
@@ -116,6 +124,7 @@ structure Program where
   errors : Array ErrorDecl := #[]
   initializer : Option Initializer
   entries : Array Entry
+  functions : Array FnDecl := #[]
   deriving BEq, Inhabited, Repr
 
 def Program.buildQualified (qualifiedName name : String) (items : Array Item) : Program :=
@@ -127,7 +136,9 @@ def Program.buildQualified (qualifiedName name : String) (items : Array Item) : 
   let errors := items.foldl (fun acc item => match item with | .errorDecl decl => acc.push decl | _ => acc) #[]
   let initializer := items.foldl (fun acc item => match item with | .initializer decl => some decl | _ => acc) none
   let entries := items.foldl (fun acc item => match item with | .entry decl => acc.push decl | _ => acc) #[]
-  { qualifiedName, name, state, structs, enums, consts, events, errors, initializer, entries }
+  let functions := items.foldl (fun acc item => match item with | .fnDecl decl => acc.push decl | _ => acc) #[]
+  { qualifiedName, name, state, structs, enums, consts, events, errors, initializer, entries,
+    functions }
 
 def Program.build (name : String) (items : Array Item) : Program :=
   Program.buildQualified name name items
@@ -221,6 +232,12 @@ private def appendEntry (bytes : ByteArray) (entry : Entry) : ByteArray :=
   let bytes := appendEntryMode bytes entry.mode
   appendArray appendStatement bytes entry.body
 
+private def appendFnDecl (bytes : ByteArray) (decl : FnDecl) : ByteArray :=
+  let bytes := appendString bytes decl.name
+  let bytes := appendArray appendParam bytes decl.params
+  let bytes := appendValueType bytes decl.result
+  appendArray appendStatement bytes decl.body
+
 def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendString bytes program.qualifiedName
   let bytes := appendString bytes program.name
@@ -233,7 +250,8 @@ def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := match program.initializer with
     | none => appendTag bytes 0
     | some initializer => appendInitializer (appendTag bytes 1) initializer
-  appendArray appendEntry bytes program.entries
+  let bytes := appendArray appendEntry bytes program.entries
+  appendArray appendFnDecl bytes program.functions
 
 end Canonical
 
