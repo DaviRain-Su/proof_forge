@@ -15,8 +15,9 @@ normative: true
 但不能据此把正式任务标为 `done`。
 
 > **2026-07-17：** `TASK-D0-01` 经 `FX-2026-07-17-D0-01` 关闭为 `done`（pure consumer +
-> docs-check；protected production positive 移交 D0-04）。`TASK-D0-02` 的实现与 development
-> gate 已在 `2d9bb628` 通过，但缺受保护的 bootstrap TaskApproval/receipt，按 R5 保持 `blocked`。
+> docs-check；protected production positive 移交 D0-04）。`TASK-D0-02` 曾因缺受保护的 bootstrap
+> TaskApproval/receipt 而 `blocked`；现经 `FX-2026-07-17-D0-02` 以 development package-boundary
+> 切片记为 `done`，signed approval/receipt 仍移交 D0-04，且等待 genesis 追认生效。
 
 ## 全局任务冻结（所有 TASK，强制）
 
@@ -28,7 +29,7 @@ normative: true
 2. **`in_progress` 与 `done` 禁止完成面变胖**（不得改 Output/Tests/Dependencies/
    Prerequisites 语义，不得在 AGENTS/checkpoint 追加“还必须…”）。  
 3. **新缺口**只能：修实现、标 `blocked`、开新 task、或书面 Freeze Exception——禁止回填当前任务。  
-4. **A0** 已冻结到 `TASK-A0-20`；**D0** 执行基线为 `TASK-D0-01`…`TASK-D0-07`；milestone
+4. **A0** 已冻结到 `TASK-A0-20`；**D0** 执行基线为 `TASK-D0-01`…`TASK-D0-08`；milestone
    增行须 Architecture + Quality 批准。  
 5. 超时（默认 3 日或 20 个 task-owned commits）必须 24h 内 triage：Close / Split / Block /
    Exception。
@@ -81,7 +82,7 @@ normative: true
 | TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；只交付 development evidence schema/bundle/catalog finalizer 及 formal zero-output rejection，当前 alpha 输入为 `TASK-A0-02`（FX-2026-07-17-D0-03：development triad 关闭；full policy/receipt evaluator 与 signed receipt 移交后续） | TASK-D0-01, TASK-D0-02 | — | TST-EVIDENCE-001, TST-HOST-001, TST-TOOL-001 | EV-20260717-0031 | done |
 | TASK-D0-04 | 实现 bootstrap foundation：eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal-catalog authority、per-task verifier receipt/protected service，以及 six-item BootstrapApprovalSet/activation producer-consumer；owned TST 只在 pre-activation 运行，task done 另须随后取得 set+activation receipt，且二者不得回填 TST/TaskApproval/task receipt | TASK-D0-02, TASK-D0-03, TASK-D0-05, TASK-D0-06 | — | TST-BOOTSTRAP-001 | — | blocked |
 | TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding（FX-2026-07-17-D0-05：inventory+CycloneDX development gate） | TASK-D0-03 | — | TST-SBOM-001 | EV-20260717-0033 | done |
-| TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0032, EV-20260717-0034 | in_progress |
+| TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0032, EV-20260717-0034 | blocked |
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | pending |
 | TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | — | pending |
 

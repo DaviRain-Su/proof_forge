@@ -995,3 +995,22 @@ normative: false
 - Next：取得 `davirain` 对五份治理文档的明确书面批准，并由其离线仪式提供 public key/keyId
   生成 policy 后，先以独立接受变更落地治理状态与 fail-closed gate 并跑全量门禁；再以另一
   变更关闭 D0-06。不得把两步合并。
+
+## 2026-07-17 — TASK-D0-06 R5 external-prerequisite block triage
+
+- Trigger：`TASK-D0-06` 冻结包以 `68b0b528579b521fe6a3f172c1358af36853bdf5` 为基线、
+  `maxCommits=20`；到输入 HEAD `70717a20` 的 repository-level 距离为 33 个 commit，其中技术
+  GREEN 前的 20 个归属 D0-06，之后 13 个为治理/SBOM fail-closed 修复、不得冒充 task-owned
+  commit。D0-06 已到达冻结 budget 边界且剩余输入属于 R5 外部前置，因此在任何后续实现前
+  主动执行 Block triage。
+- Decision：选择 **Block**（R5 外部前置），只把任务状态由 `in_progress` 改为 `blocked`；冻结
+  output、dependencies、prerequisites、`TST-COMMON-001`、doneWhen 与 `EV-20260717-0034`
+  均不改变，不创建新 EV 或 closeout attest。
+- Blocker：五份 genesis 治理文档尚未取得实名书面批准，离线 maintainer 也尚未提供 Ed25519
+  public key/keyId；这些输入不允许由实现 agent 伪造、替代或通过生成私钥来绕过。
+- Proposal consistency：D0 task-set 文本统一为已登记并锁定的 `TASK-D0-01`…`TASK-D0-08`；
+  D0-02 顶部历史注记与表格 `done` 状态对齐；`TST-SBOM-002` 仍保持 catalog-only，待先解决
+  Tool Lock digest authority、完整 supply-chain closure 与 release-binding wire 后再写可执行验收；
+  本变更不把 D0-08 标为开工。
+- Validation boundary：本 triage 是任务控制面事实，不把 development common-primitives 证据提升为
+  bootstrap/formal，也不使仍为 `proposed` 的 genesis 治理生效。

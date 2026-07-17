@@ -14,11 +14,11 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | **TASK-D0-06**：common scalar parsers / canonical encoders / ResourceProfileV1 (`TST-COMMON-001`) |
-| Next task | **TASK-D0-07**（formal hermetic/finalizer；依赖 D0-04 activation，当前仍远） |
+| Active task | 无；common primitives 技术切片已完成，外部治理关单已按 R5 转为 blocked |
+| Next task | **TASK-D0-04**（blocked；等待其依赖与 eligible Stage-0/authority 条件） |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-04** host seal broken + Stage-0/authority/receipt 未闭合；其余已关闭 D0 任务仅为 freeze-exception 关闭的 development 切片（genesis 追认见 [`docs/governance/genesis-authority.md`](docs/governance/genesis-authority.md)），不表示 formal hermetic 完成 |
+| Known blocker | **TASK-D0-04** host seal broken + Stage-0/authority/receipt 未闭合；**TASK-D0-06** 技术证据已完成，但仍缺五文档人类批准与离线 genesis public key/keyId；其余已关闭 D0 任务仅为 freeze-exception 关闭的 development 切片，不表示 formal hermetic 完成 |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
