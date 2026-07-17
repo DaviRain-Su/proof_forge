@@ -83,10 +83,14 @@ inductive ArtifactDeployability
   payload digest 并 exact compare。Common 不为不同 schema 再套一层通用 content hash。
 - `EvidenceId` 只接受 `EV-[0-9]{8}-[0-9]{4}`；日期必须是真实 Gregorian UTC date。
 - `QualifiedName` 只允许 1..256 个非 anonymous、非 numeral Lean identifier component；每个
-  component 先 NFC，UTF-8 长度 1..240 bytes。wire form 是按声明次序保存的 nonempty JSON
+  component 先 NFC，UTF-8 长度 1..240 bytes。这里的 canonical component 必须由
+  `Lean.isIdFirst` + `Lean.isIdRest` 直接接受且不得为 exact `_`；`«...»` escape token spelling
+  不进入 wire。keyword reservation 属于产生该 `QualifiedName` 的语法 owner；Common 不复制
+  ambient parser keyword set，因此 keyword-shaped component 仍按上述固定字符规则验证。
+  wire form 是按声明次序保存的 nonempty JSON
   string array；比较和排序按各 component 的 NFC UTF-8 bytes，不按 locale。
 - `ProjectRelativePath.value` 使用 `/`，UTF-8 NFC，1..1024 bytes；其 wire form 是该 String 本身，
-  拒绝 absolute、空/`.`/`..`
+  拒绝 `/` 开头或 ASCII drive-prefix（如 `C:/`）absolute、空/`.`/`..`
   segment、反斜线和 Unicode General_Category=`Cc` code point。这只是 total lexical wire validation：它不访问文件系统，
   也不能单独判断 symlink、hardlink、mount 或 case-fold collision。
 - `SourceOrigin` wire object 恰为 `sourcePath,startByte,endByte,nodeId`；origin 集合的 canonical
@@ -116,7 +120,14 @@ JSON reader 必须在构造对象前拒绝 duplicate key、invalid UTF-8、lone 
 unknown enum 和 schema 禁止的 unknown field。字符串先按所属字段规则验证/NFC，再按 RFC 8785
 JCS 生成 UTF-8；array 顺序由所属 schema 决定，集合必须先按其 canonical key 排序并拒绝重复。
 schema digest 为 `SHA-256(UTF8(domainTag) || 0x00 || JCS(value))`，domainTag 是非空 lowercase
-ASCII 且由所属 schema 固定。不得 hash pretty JSON、map iteration order、absolute path 或时间。
+ASCII profile-style ID（1..127 bytes，使用本文件 profile ID grammar）且由所属 schema 固定。
+不得 hash pretty JSON、map iteration order、absolute path 或时间。
+
+PF-JCS v1 的公共 codec 只暴露当前 closed schemas 所需的 `null`、boolean、I-JSON safe integer
+（`-(2^53-1)..2^53-1`）、Unicode scalar string、array 与 object；object key 使用 RFC 8785 的
+UTF-16 code-unit 顺序。decimal fraction、exponent、negative zero 与超出 safe-integer 的 number
+全部拒绝，而不是借 ambient floating-point formatter 隐式接受。未来 schema 若需要非整数 number，
+必须先版本化扩展公共 codec 与验收向量。
 
 ## ResourceProfileV1
 
