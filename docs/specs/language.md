@@ -194,6 +194,20 @@ unary-minus spelling 停在 parser boundary。`Typed.check` 遇到 `checkedSub` 
 subtraction、arithmetic requirement、underflow rule、target behavior 或 runtime representation；既有
 `checkedAdd` Typed/Semantic 正常路径必须保持不变。
 
+D1-PA-23 冻结的 pre-acceptance alpha checked multiplication 子集把 binary `lhs * rhs` 解码为
+`Source.Expr.checkedMul(lhs, rhs)`。parser precedence 固定为 `70`，形状固定为
+`pfExpr:70 " * " pfExpr:71`；它高于既有 precedence `65` 的 `+`/`-`，且同层左结合，因此
+`2 * 3 * 4`、`2 + 3 * 4`、`2 * 3 + 4`、`2 - 3 * 4` 与 `2 * 3 - 4` 必须保留 EBNF
+`MulExpr`/`AddExpr` 的源码分组。Source alpha canonical encoder 在既有 Expr tags `0..5` 后 append
+tag `6`，随后递归编码 lhs、rhs；不得重编号既有 tag、交换 operand 或把 multiplication 伪装成
+repeated addition。decoder/quote 必须结构化往返既有 `pfExpr` syntax；binary operand 可使用当前 alpha
+expression，variable operand 保持 name。本切片不新增 parenthesized expression、unary operator、division、
+modulo 或其他 operator；缺失 lhs/rhs、重复 operator 与额外 token 停在 parser boundary。
+`Typed.check` 遇到 `checkedMul` 必须以 exact
+`checked multiplication is not yet supported by typed checking` fail closed；本切片不得新增
+Typed/Semantic multiplication、arithmetic requirement、overflow rule、target behavior 或 runtime
+representation。既有 `checkedAdd` 正常路径与 `checkedSub` exact fail-closed path 必须保持不变。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
