@@ -208,6 +208,23 @@ private def decodeTypeIdentifiers (first : Syntax) (second : Option Syntax) :
   | some "Int256", none => .ok .i256
   | some "Unit", none => .ok .unit
   | some "Principal", none => .ok .principal
+  -- Alpha Option subset: same-line Option + one single-token primitive atom only.
+  -- Reject Field, Named, nested Option, Array, Map, Bytes, missing/extra payloads.
+  | some "Option", some "Bool" => .ok (.option .bool)
+  | some "Option", some "UInt64" => .ok (.option .u64)
+  | some "Option", some "UInt8" => .ok (.option .u8)
+  | some "Option", some "UInt16" => .ok (.option .u16)
+  | some "Option", some "UInt32" => .ok (.option .u32)
+  | some "Option", some "UInt128" => .ok (.option .u128)
+  | some "Option", some "UInt256" => .ok (.option .u256)
+  | some "Option", some "Int8" => .ok (.option .i8)
+  | some "Option", some "Int16" => .ok (.option .i16)
+  | some "Option", some "Int32" => .ok (.option .i32)
+  | some "Option", some "Int64" => .ok (.option .i64)
+  | some "Option", some "Int128" => .ok (.option .i128)
+  | some "Option", some "Int256" => .ok (.option .i256)
+  | some "Option", some "Unit" => .ok (.option .unit)
+  | some "Option", some "Principal" => .ok (.option .principal)
   | _, _ => .error "unsupported portable type"
 
 private partial def collectTypeIdentifierSyntax (stx : Syntax) : Array Syntax :=
@@ -629,6 +646,9 @@ private def quoteValueType : ProofForgeV2.Source.ValueType → MacroM (TSyntax `
   | .i256 => `(ProofForgeV2.Source.ValueType.i256)
   | .unit => `(ProofForgeV2.Source.ValueType.unit)
   | .principal => `(ProofForgeV2.Source.ValueType.principal)
+  | .option element => do
+      let elementExpr ← quoteValueType element
+      `(ProofForgeV2.Source.ValueType.option $elementExpr)
 
 private def quoteVisibility : ProofForgeV2.Source.Visibility → MacroM (TSyntax `term)
   | .verifierVisible => `(ProofForgeV2.Source.Visibility.verifierVisible)

@@ -31,6 +31,7 @@ inductive ValueType where
   | i256
   | unit
   | principal
+  | option (element : ValueType)
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 inductive Visibility where
@@ -119,6 +120,7 @@ private def adaptType : Source.ValueType → ValueType
   | .i256 => .i256
   | .unit => .unit
   | .principal => .principal
+  | .option element => .option (adaptType element)
 
 private def adaptVisibility : Source.Visibility → Visibility
   | .verifierVisible => .verifierVisible
@@ -187,6 +189,8 @@ private def ValueType.requirements : ValueType → Array ProgramRequirement
   -- Principal is a declaration type carrier only: zero requirements, and not
   -- conflated with context.caller (callerContext).
   | .principal => #[]
+  -- Option adds no capability of its own; requirements are exactly the element's.
+  | .option element => element.requirements
 
 private def Visibility.requirements : Visibility → Array ProgramRequirement
   | .verifierVisible => #[]
@@ -284,6 +288,7 @@ private def appendValueType (bytes : ByteArray) : ValueType → ByteArray
   | .i256 => appendTag bytes 13
   | .unit => appendTag bytes 14
   | .principal => appendTag bytes 15
+  | .option element => appendValueType (appendTag bytes 16) element
 
 private def appendVisibility (bytes : ByteArray) : Visibility → ByteArray
   | .verifierVisible => appendTag bytes 0

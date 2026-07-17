@@ -20,6 +20,7 @@ inductive ValueType where
   | i256
   | unit
   | principal
+  | option (element : ValueType)
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 inductive Visibility where
@@ -225,6 +226,7 @@ private def appendValueType (bytes : ByteArray) : ValueType → ByteArray
   | .i256 => appendTag bytes 13
   | .unit => appendTag bytes 14
   | .principal => appendTag bytes 15
+  | .option element => appendValueType (appendTag bytes 16) element
 
 private def appendVisibility (bytes : ByteArray) : Visibility → ByteArray
   | .verifierVisible => appendTag bytes 0
