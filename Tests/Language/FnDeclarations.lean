@@ -113,6 +113,18 @@ unsafe def run : IO Unit := do
     (programSource "CanonicalFn"
       "  fn A(value : Bool) : UInt64 do\n    return 1\n")
     "<fn-param-type>"
+  let fnParamBindingBase ← select session
+    (programSource "CanonicalFn"
+      "  fn A(value : UInt64) : UInt64 do\n    return 1\n")
+    "<fn-param-binding-base>"
+  let fnParamNameOnly ← select session
+    (programSource "CanonicalFn"
+      "  fn A(other : UInt64) : UInt64 do\n    return 1\n")
+    "<fn-param-name-only>"
+  let fnParamTypeOnly ← select session
+    (programSource "CanonicalFn"
+      "  fn A(value : Bool) : UInt64 do\n    return 1\n")
+    "<fn-param-type-only>"
   let fnPrivateParam ← select session
     (programSource "CanonicalFn"
       "  fn A(private value : UInt64) : UInt64 do\n    return value\n")
@@ -145,6 +157,14 @@ unsafe def run : IO Unit := do
     (programSource "CanonicalFn"
       "  fn A(value : UInt64) : UInt64 do\n    call \"host\"\n    return value\n")
     "<fn-body-count>"
+  let fnCallA ← select session
+    (programSource "CanonicalFn"
+      "  fn A(value : UInt64) : UInt64 do\n    call \"host-a\"\n    return value\n")
+    "<fn-call-a>"
+  let fnCallB ← select session
+    (programSource "CanonicalFn"
+      "  fn A(value : UInt64) : UInt64 do\n    call \"host-b\"\n    return value\n")
+    "<fn-call-b>"
   let fnParamsAB ← select session
     (programSource "CanonicalFn"
       "  fn A(first : UInt64, second : Bool) : UInt64 do\n    return first\n")
@@ -184,6 +204,9 @@ unsafe def run : IO Unit := do
       fnOne.sourceHash != fnParamType.sourceHash &&
       fnOne.sourceHash != fnResult.sourceHash)
     "fn name, parameter name/type, and result must bind the source hash"
+  expect (fnParamBindingBase.sourceHash != fnParamNameOnly.sourceHash &&
+      fnParamBindingBase.sourceHash != fnParamTypeOnly.sourceHash)
+    "fn parameter name and type must bind independently of the body"
   expect (fnOne == fnPublicParam && fnOne.sourceHash == fnPublicParam.sourceHash)
     "omitted and explicit public fn parameters must canonicalize identically"
   expect (fnOne.sourceHash != fnPrivateParam.sourceHash &&
@@ -192,13 +215,17 @@ unsafe def run : IO Unit := do
     "private and commitment fn parameter visibility must bind distinctly"
   expect (fnOne.sourceHash != fnBodyLiteral.sourceHash &&
       fnOne.sourceHash != fnBodyCount.sourceHash &&
-      fnBodyAddAB.sourceHash != fnBodyAddBA.sourceHash)
-    "fn body statement count, expression kind/value, and operand order must bind the source hash"
+      fnBodyAddAB.sourceHash != fnBodyAddBA.sourceHash &&
+      fnCallA.sourceHash != fnCallB.sourceHash)
+    "fn body statement count, expression kind/value, operand order, and call callee must bind the source hash"
   expect (fnParamsAB.sourceHash != fnParamsBA.sourceHash &&
       fnOne.sourceHash != fnParamCount.sourceHash &&
       fnBodyOrderAB.sourceHash != fnBodyOrderBA.sourceHash &&
       fnsAB.sourceHash != fnsBA.sourceHash)
     "fn parameter count/order, body order, and declaration order must bind the source hash"
+  expect (fnOne.sourceHash != fnsAB.sourceHash &&
+      fnOne.sourceHash != fnBodyOrderBA.sourceHash)
+    "same-prefix fn declaration and body statement counts must bind the source hash"
 
   expectInvalid "duplicate fn declarations"
     "program 'DuplicateFn' contains duplicate fn declarations"

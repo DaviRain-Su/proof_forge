@@ -679,12 +679,15 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `proof-forge-next build` 执行；两路必须失败、首个 `PF-SRC-INVALID` 文本完全相同，Lean 不得
   生成 `.olean`，CLI 不得创建 output。
 - 组合错误向量必须把两路首个完整诊断同时钉死为规范期望值，覆盖 decode 优先于 duplicate
-  initializer、duplicate initializer 优先于 zero callable，以及 zero callable → state duplicate →
-  entry duplicate → initializer parameter → entry declaration-order parameter 的完整优先级链；不得只
+  initializer、duplicate initializer 优先于 zero callable，并按
+  [`language.md`](specs/language.md#双前端单一-decodevalidation-契约) 的现行完整优先级链固定每个相邻边界；不得只
   比较两个入口彼此相等。
 - shared decoder 固定 validation/error priority 为 Syntax preflight → identity → decode/duplicate
-  initializer → zero callable → duplicate state → duplicate entry → initializer parameter → entries
-  declaration order parameter。Loader 只保留 module-level validation；command elaborator 必须 quote
+  initializer → zero callable → duplicate state → duplicate entry → duplicate event → duplicate error →
+  duplicate struct → duplicate enum → duplicate const → duplicate fn → initializer parameter →
+  structs declaration-order field nonempty/duplicate → enums declaration-order variant nonempty/duplicate →
+  events declaration-order parameter → errors declaration-order parameter → entries declaration-order parameter →
+  fns declaration-order parameter/body nonempty。Loader 只保留 module-level validation；command elaborator 必须 quote
   decoded value，不能再从 raw Syntax 运行第二套 AST builder。
 - primitive type spelling 按原始 token exact 校验；`«Bool»`、unknown type 与 qualified type 必须在
   Lean command/Loader 两路得到同一 `PF-SRC-INVALID: unsupported portable type` 且零输出。
