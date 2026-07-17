@@ -1,5 +1,6 @@
 import Tests.Core.Common
 import Tests.Core.CommonScalars
+import Tests.Core.Unicode
 import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
@@ -14,6 +15,7 @@ import Tests.CLI.Emit
 unsafe def main : IO Unit := do
   Tests.Core.Common.run
   Tests.Core.CommonScalars.run
+  Tests.Core.Unicode.run
   Tests.Core.run
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run

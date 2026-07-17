@@ -12,6 +12,7 @@ lean_lib ProofForgeV2Tests where
   roots := #[
     `Tests.Core.Common,
     `Tests.Core.CommonScalars,
+    `Tests.Core.Unicode,
     `Tests.Core.Semantics,
     `Tests.Compiler.Pipeline,
     `Tests.Compiler.TypedNameIndex,

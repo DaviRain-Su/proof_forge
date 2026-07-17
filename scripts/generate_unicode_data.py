@@ -95,7 +95,8 @@ def load_lock(path: Path) -> dict:
             "PF-UNICODE-LOCK-SCHEMA",
             "lock fields must be exact: " + ", ".join(sorted(EXPECTED_LOCK_KEYS)),
         )
-    if raw.get("schemaVersion") != 1:
+    schema_version = raw.get("schemaVersion")
+    if type(schema_version) is not int or schema_version != 1:
         fail("PF-UNICODE-LOCK-SCHEMA", "schemaVersion must be 1")
     if raw.get("unicodeVersion") != EXPECTED_UNICODE_VERSION:
         fail(

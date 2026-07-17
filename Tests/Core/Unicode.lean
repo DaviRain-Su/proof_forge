@@ -6,8 +6,7 @@
   canonical string fields must already be NFC, fail closed on non-canonical
   spellings, reject `General_Category=Cc`; TST-COMMON-001).
 
-  Planned production API under test (module `ProofForgeV2.Core.Unicode` does not
-  exist yet, so this file is expected to fail compilation RED until it lands):
+  Production API under test:
 
     normalizeNfc : String -> Except String String
     requireNfc   : String -> Except String Unit
@@ -24,9 +23,8 @@
   than only through JSON/decoder paths, and so this file is immune to editor-
   or host-level normalization of its own source bytes.
 
-  Wiring (`ProofForgeV2Tests` roots in lakefile.lean, `Tests.lean` runner
-  import/call) is intentionally NOT part of this slice; it belongs to the
-  production task that creates `ProofForgeV2/Core/Unicode.lean`.
+  The production slice wires this module into `ProofForgeV2Tests` and the
+  aggregate `Tests.lean` runner.
 -/
 import ProofForgeV2.Core.Unicode
 
@@ -90,6 +88,19 @@ private def testCombiningOrder : IO Unit := do
   -- Equal combining classes keep their original relative order (stable sort).
   expectNfc "equal ccc stable order"
     [0x0061, 0x0301, 0x0300] [0x00E1, 0x0300]
+
+private def testLongAdversarialOrder : IO Unit := do
+  -- A single starter followed by alternating ccc=232/220 marks is the
+  -- adversarial shape for insertion-based canonical reordering. Keep this long
+  -- enough to catch a quadratic implementation while retaining an exact
+  -- independent golden: the first dot-below composes with `a`, the remaining
+  -- ccc=220 marks precede every ccc=232 mark, and equal classes stay stable.
+  let pairCount := 2000
+  let inputTail := (List.range pairCount).flatMap fun _ => [0x0315, 0x0323]
+  let expectedTail :=
+    List.replicate (pairCount - 1) 0x0323 ++ List.replicate pairCount 0x0315
+  expectNfc "long alternating combining classes"
+    (0x0061 :: inputTail) (0x1EA1 :: expectedTail)
 
 private def testBlocking : IO Unit := do
   -- Blocking: an intervening mark with ccc >= the candidate's ccc blocks
@@ -175,6 +186,7 @@ private def testCcBoundaries : IO Unit := do
 def run : IO Unit := do
   testLatin
   testCombiningOrder
+  testLongAdversarialOrder
   testBlocking
   testHangul
   testCompositionExclusion

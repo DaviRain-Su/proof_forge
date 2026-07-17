@@ -28,6 +28,9 @@ GENERATOR_PATH = ROOT / "scripts" / "generate_unicode_data.py"
 DEFAULT_LOCK = ROOT / "unicode.lock.json"
 DEFAULT_INPUT = ROOT / "build" / "unicode-input" / "17.0.0"
 CHECKED_IN_OUTPUT = ROOT / "ProofForgeV2" / "Core" / "UnicodeData.lean"
+EXPECTED_VECTOR_COUNT = 20034
+EXPECTED_COMPOSITION_COUNT = 961
+EXPECTED_C3_COMPLEMENT_COUNT = 280248
 
 
 def load_generator() -> ModuleType:
@@ -179,6 +182,8 @@ def test_closed_lock_schema(gen: ModuleType, lock_path: Path) -> None:
             expect_fail(label, lambda: gen.load_lock(path), "PF-UNICODE-LOCK-JSON")
 
     mutated("unknown root field", lambda value: value.__setitem__("extra", True))
+    mutated("boolean schema version", lambda value: value.__setitem__("schemaVersion", True))
+    mutated("floating schema version", lambda value: value.__setitem__("schemaVersion", 1.0))
     mutated("wrong Unicode version", lambda value: value.__setitem__("unicodeVersion", "18.0.0"))
     mutated(
         "wrong normalization annex",
@@ -279,13 +284,43 @@ def test_deterministic_emit(gen: ModuleType, input_dir: Path, lock_path: Path) -
         return lean1
 
 
+def test_atomic_replace_failure(gen: ModuleType) -> None:
+    with tempfile.TemporaryDirectory(prefix="pf-unicode-atomic-") as temporary:
+        base = Path(temporary)
+        output = base / "UnicodeData.lean"
+        original = b"existing checked-in bytes\n"
+        output.write_bytes(original)
+        real_replace = gen.os.replace
+
+        def injected_replace(_source: object, _destination: object) -> None:
+            raise OSError("injected replace failure")
+
+        gen.os.replace = injected_replace
+        try:
+            expect_fail(
+                "atomic replace failure",
+                lambda: gen.write_output(output, "replacement bytes\n"),
+                "injected replace failure",
+            )
+        finally:
+            gen.os.replace = real_replace
+        expect(output.read_bytes() == original, "failed replace must preserve old output")
+        expect(
+            list(base.glob(".UnicodeData.lean.*.tmp")) == [],
+            "failed replace must remove its private temporary file",
+        )
+
+
 def test_normalization_oracle(
     gen: ModuleType, input_dir: Path, lock_path: Path
 ) -> Tuple[int, int, int]:
     inputs = gen.load_pinned_inputs(input_dir, lock_path)
     tables = gen.extract_tables(inputs)
     vectors = gen.parse_normalization_test(inputs.normalization_test)
-    expect(len(vectors) > 1000, f"expected large corpus, got {len(vectors)}")
+    expect(
+        len(vectors) == EXPECTED_VECTOR_COUNT,
+        f"expected {EXPECTED_VECTOR_COUNT} vectors, got {len(vectors)}",
+    )
     complement_count = gen.verify_normalization_oracle(tables, vectors)
 
     # Spot checks for Hangul and combining order (still from official vectors).
@@ -295,7 +330,16 @@ def test_normalization_oracle(
             hangul_hits += 1
             break
     expect(hangul_hits >= 1, "corpus includes Hangul coverage")
-    expect(complement_count > 1000, "C3 assigned-code-point complement must be exercised")
+    expect(
+        len(tables.composition) == EXPECTED_COMPOSITION_COUNT,
+        f"expected {EXPECTED_COMPOSITION_COUNT} composition pairs, "
+        f"got {len(tables.composition)}",
+    )
+    expect(
+        complement_count == EXPECTED_C3_COMPLEMENT_COUNT,
+        f"expected {EXPECTED_C3_COMPLEMENT_COUNT} C3 complement scalars, "
+        f"got {complement_count}",
+    )
     return len(vectors), len(tables.composition), complement_count
 
 
@@ -333,7 +377,9 @@ def main() -> int:
     gen = load_generator()
     test_no_network_and_no_unicodedata_import(gen)
 
-    lock_path = Path(os.environ.get("PROOF_FORGE_UNICODE_LOCK", str(DEFAULT_LOCK)))
+    # The canonical self-test is always bound to the repository authority. Tests
+    # that exercise mutated locks pass an explicit temporary path instead.
+    lock_path = DEFAULT_LOCK
     input_dir = resolve_input_dir()
     print(f"unicode_data_self_test: lock={lock_path}")
     print(f"unicode_data_self_test: input_dir={input_dir}")
@@ -356,6 +402,9 @@ def main() -> int:
     print("unicode_data_self_test: deterministic emit")
     lean = test_deterministic_emit(gen, input_dir, lock_path)
     print(f"unicode_data_self_test: lean_bytes={len(lean.encode('utf-8'))}")
+
+    print("unicode_data_self_test: atomic replace failure")
+    test_atomic_replace_failure(gen)
 
     print("unicode_data_self_test: NormalizationTest oracle (full corpus)")
     vector_count, composition_count, complement_count = test_normalization_oracle(
