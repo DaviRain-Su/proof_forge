@@ -27,6 +27,13 @@ sbom:
     /usr/bin/python3 -I -S scripts/sbom_generate.py --root . generate --output-dir build/sbom
     /usr/bin/python3 -I -S scripts/sbom_generate.py --root . verify --output-dir build/sbom
 
+# Development-only Unicode regeneration/conformance check. The caller must
+# explicitly provide the digest-matched UCD directory until offline asset
+# materialization is governed by its owning task.
+unicode-data-self-test:
+    test -n "${PROOF_FORGE_UNICODE_INPUT:-}"
+    /usr/bin/python3 -I -S scripts/unicode_data_self_test.py
+
 toolchains-validate:
     /usr/bin/python3 -I -S scripts/toolchain_assets.py validate
     /usr/bin/python3 -I -S scripts/toolchain_assets.py self-test
