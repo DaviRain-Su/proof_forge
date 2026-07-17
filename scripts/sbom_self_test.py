@@ -4,25 +4,32 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "scripts" / "sbom_generate.py"
 
 
-def run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def run(
+    args: list[str],
+    cwd: Path,
+    timeout_seconds: Optional[float] = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-I", "-S", str(GENERATOR), *args],
         cwd=cwd,
         check=False,
         text=True,
         capture_output=True,
+        timeout=timeout_seconds,
     )
 
 
@@ -387,6 +394,83 @@ def main() -> int:
                 "intermediate licenseFile symlink escapes repository",
                 intermediate_result,
                 "PF-SBOM-LICENSE",
+            ),
+        )
+
+        # A final special file must not block before the regular-file check.
+        fifo_base = Path(temporary) / "fifo-repo"
+        fifo_base.mkdir()
+        copy_corpus(fifo_base)
+        fifo_inventory = fifo_base / "docs/supply-chain/license-inventory.v1.json"
+        os.mkfifo(fifo_base / "LICENSE.fifo")
+        set_root_license_reference(fifo_inventory, "LICENSE.fifo", "0" * 64)
+        try:
+            fifo_result = run(
+                [
+                    "--root", str(fifo_base), "generate", "--output-dir",
+                    str(fifo_base / "build/sbom"),
+                ],
+                fifo_base,
+                timeout_seconds=1.0,
+            )
+        except subprocess.TimeoutExpired:
+            duplicate_failures.append(
+                "FIFO licenseFile: generator blocked before rejecting special file"
+            )
+        else:
+            collect_assertion(
+                duplicate_failures,
+                lambda: expect_fail_before_hash(
+                    "FIFO licenseFile", fifo_result, "PF-SBOM-LICENSE"
+                ),
+            )
+
+        # Embedded NUL must be normalized to a stable PF-SBOM diagnostic, not
+        # leak an implementation traceback from os.open.
+        nul_base = Path(temporary) / "nul-repo"
+        nul_base.mkdir()
+        copy_corpus(nul_base)
+        nul_inventory = nul_base / "docs/supply-chain/license-inventory.v1.json"
+        set_root_license_reference(nul_inventory, "LICENSE\x00escape", "0" * 64)
+        nul_result = run(
+            [
+                "--root", str(nul_base), "generate", "--output-dir",
+                str(nul_base / "build/sbom"),
+            ],
+            nul_base,
+        )
+        collect_assertion(
+            duplicate_failures,
+            lambda: expect_fail_before_hash(
+                "NUL licenseFile", nul_result, "PF-SBOM-LICENSE"
+            ),
+        )
+
+        # A regular file with multiple hard links does not prove repository
+        # containment. It must be rejected before hashing, just like symlinks.
+        hardlink_base = Path(temporary) / "hardlink-repo"
+        hardlink_base.mkdir()
+        copy_corpus(hardlink_base)
+        hardlink_outside = Path(temporary) / "outside-hardlink-license"
+        shutil.copy2(hardlink_base / "LICENSE", hardlink_outside)
+        os.link(hardlink_outside, hardlink_base / "LICENSE.hardlink")
+        hardlink_inventory = (
+            hardlink_base / "docs/supply-chain/license-inventory.v1.json"
+        )
+        set_root_license_reference(
+            hardlink_inventory, "LICENSE.hardlink", "0" * 64
+        )
+        hardlink_result = run(
+            [
+                "--root", str(hardlink_base), "generate", "--output-dir",
+                str(hardlink_base / "build/sbom"),
+            ],
+            hardlink_base,
+        )
+        collect_assertion(
+            duplicate_failures,
+            lambda: expect_fail_before_hash(
+                "hardlink licenseFile", hardlink_result, "PF-SBOM-LICENSE"
             ),
         )
 
