@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-05",
+  "frozenAt": "2026-07-17",
+  "freezeCommit": "7064babedf99b4f1df8da3e2c22e425ab2b33f4e",
+  "output": "direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding（FX-2026-07-17-D0-05：inventory+CycloneDX development gate）",
+  "dependencies": [
+    "TASK-D0-03"
+  ],
+  "prerequisites": [],
+  "tests": [
+    "TST-SBOM-001"
+  ],
+  "inScope": [
+    "license-policy.v1 allow/deny/review policy for product and tool components",
+    "deterministic license inventory covering Lean package, source root, and toolchains.lock assets",
+    "CycloneDX 1.6 JSON generation with sorted components, SHA-256 only, no timestamp/random serial",
+    "schema/closure self-tests: regenerate stability, policy deny, missing license text, unknown SPDX",
+    "release-binding digests of inventory+policy+bom for provenance handoff"
+  ],
+  "outOfScope": [
+    "eligible host / Stage-0 / signed TaskApproval (D0-04)",
+    "formal hermetic clean-room evidence set (D0-07)",
+    "CVE scanning automation and Dependabot auto-merge",
+    "shipping GPL tool binaries inside product archives"
+  ],
+  "doneWhen": [
+    "scripts/sbom_self_test.py passes",
+    "just sbom produces deterministic CycloneDX 1.6 and inventory digests",
+    "docs-check and freeze package alignment pass",
+    "task evidence satisfies current grade policy for D0-05"
+  ],
+  "overflowPolicy": "Authority/receipt stays in D0-04; formal binder in D0-07; common parsers already D0-06.",
+  "maxCalendarDays": 3,
+  "maxCommits": 20,
+  "notes": "Development/release-prep SBOM. External CLI licenses recorded even when non-redistributable.",
+  "freezeException": "FX-2026-07-17-D0-05"
+}

@@ -1,0 +1,87 @@
+{
+  "schema": "proof-forge.license-inventory.v1",
+  "schemaVersion": 1,
+  "platform": "darwin-arm64",
+  "components": [
+    {
+      "id": "foundry-v0.3.0",
+      "name": "foundry",
+      "version": "v0.3.0",
+      "type": "application",
+      "sha256": "38756791594aaf57eb85bdeaacb0aaaa285dff691c6d454125e2b640e8e83e94",
+      "supplier": "Foundry",
+      "licenseSpdx": "MIT",
+      "licenseFile": "licenses/MIT.txt",
+      "licenseFileSha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+      "redistributable": true,
+      "dependsOn": []
+    },
+    {
+      "id": "lean-4.31.0",
+      "name": "lean",
+      "version": "4.31.0",
+      "type": "application",
+      "sha256": "e8cd241b8d2b81c70415920f0900c9ec5b156e98e6b62163cb14b8288c6e0656",
+      "supplier": "Lean FRO / leanprover",
+      "licenseSpdx": "Apache-2.0",
+      "licenseFile": "licenses/Apache-2.0.txt",
+      "licenseFileSha256": "a969e2161ef377461b8de9bc35f0f7ad9410fb7a0b491d8b8b9245f14161832b",
+      "redistributable": true,
+      "dependsOn": []
+    },
+    {
+      "id": "openssl-3.6.3",
+      "name": "openssl",
+      "version": "3.6.3",
+      "type": "library",
+      "sha256": "2d995a1bbbd8e6ee6a9042990dde87e7321d1ddd5716ffee53b140d23cb9f92f",
+      "supplier": "OpenSSL Project",
+      "licenseSpdx": "Apache-2.0",
+      "licenseFile": "licenses/Apache-2.0.txt",
+      "licenseFileSha256": "a969e2161ef377461b8de9bc35f0f7ad9410fb7a0b491d8b8b9245f14161832b",
+      "redistributable": true,
+      "dependsOn": []
+    },
+    {
+      "id": "proof-forge-next",
+      "name": "proof-forge-next",
+      "version": "0.1.0",
+      "type": "application",
+      "sha256": "67220e92dabb2c4ac8c008dc0566a6b2b86299ab813fbffdb1c76d59a3bdb120",
+      "supplier": "ProofForge",
+      "licenseSpdx": "Apache-2.0",
+      "licenseFile": "LICENSE",
+      "licenseFileSha256": "c13c5b6bfd05f786745bf328a140ebfbe8008650409cef36c30b675a37b7877a",
+      "redistributable": true,
+      "dependsOn": []
+    },
+    {
+      "id": "solc-0.8.34",
+      "name": "solc",
+      "version": "0.8.34",
+      "type": "application",
+      "sha256": "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746",
+      "supplier": "Ethereum Solidity",
+      "licenseSpdx": "GPL-3.0-or-later",
+      "licenseFile": "licenses/GPL-3.0-NOTICE.txt",
+      "licenseFileSha256": "d850458434dffc44aec8b153317658d8e4fdd1436f7a34610d33abc54025b7da",
+      "redistributable": false,
+      "dependsOn": []
+    },
+    {
+      "id": "wabt-1.0.41",
+      "name": "wabt",
+      "version": "1.0.41",
+      "type": "application",
+      "sha256": "e5269d6bbe05dfeb179e4f21111b3a641d6ccaa38b0b21d472ae5c65f8c4ff5d",
+      "supplier": "WebAssembly WABT",
+      "licenseSpdx": "Apache-2.0",
+      "licenseFile": "licenses/Apache-2.0.txt",
+      "licenseFileSha256": "a969e2161ef377461b8de9bc35f0f7ad9410fb7a0b491d8b8b9245f14161832b",
+      "redistributable": true,
+      "dependsOn": [
+        "openssl-3.6.3"
+      ]
+    }
+  ]
+}

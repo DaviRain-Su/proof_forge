@@ -1,0 +1,13 @@
+NOTICE — External GPL-3.0-or-later CLI (not redistributed by ProofForge)
+
+Component: solc (Solidity compiler) external toolchain pin
+License: GPL-3.0-or-later
+
+ProofForge does not redistribute solc binaries in product archives.
+The tool is obtained from the official upstream release URL recorded in
+toolchains.lock.json, verified by SHA-256, and executed only as an external
+CLI under the locked tool root.
+
+Redistributable: false
+Policy: allowed only as inventory-only external CLI under
+docs/supply-chain/license-policy.v1.json externalCli exceptions.

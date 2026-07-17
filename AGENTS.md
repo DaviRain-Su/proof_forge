@@ -15,7 +15,7 @@
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
 | Active task | 无 |
-| Next task | **TASK-D0-04**（blocked：host/Stage-0/authority；D0-05 可在 D0-03 done 后开工） |
+| Next task | **TASK-D0-04**（blocked：host seal / Stage-0 / authority — 全链 formal 依赖点） |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | **TASK-D0-04** host seal broken + Stage-0/authority/receipt 未闭合；D0-01..03 仅 freeze-exception 关闭 development 切片，不表示 formal hermetic 完成 |

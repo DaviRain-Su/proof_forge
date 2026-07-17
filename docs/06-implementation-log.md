@@ -804,6 +804,18 @@ normative: false
 - Limitations：minimal surface only；full JCS domain hash matrix not claimed；bootstrap authority still deferred。
 - Next：可选 `TASK-D0-05` SBOM，或处理 `TASK-D0-04` host/authority blocker；Active 清空。
 
+
+## 2026-07-17 — TASK-D0-05 SBOM inventory + CycloneDX 1.6 closed (FX-2026-07-17-D0-05)
+
+- Changed：`docs/supply-chain/license-policy.v1.json`、`license-inventory.v1.json`、
+  `licenses/*`、`scripts/sbom_generate.py`、`scripts/sbom_self_test.py`、`just sbom`；
+  attest + `EV-20260717-0033`；task → `done`。
+- Commands：`python3 -I -S scripts/sbom_self_test.py`；`just sbom`；`docs_check`。
+- Results：self-test ok；generate/verify deterministic；docs-check ok。
+- Limitations：development/release-prep SBOM only；not formal hermetic；GPL solc is
+  inventory-only non-redistributable；signed receipt still D0-04.
+- Next：Active 清空；全链 formal 仍卡在 **TASK-D0-04**。
+
 ## 记录模板
 
 ```markdown

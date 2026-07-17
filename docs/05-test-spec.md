@@ -433,7 +433,11 @@ producer/policy root/handoff/signer/verifier/protected service 与 production ca
   `docs/governance/bootstrap-closure/TASK-D0-06.attest.json`（kind=`common-primitives-closure`、
   `freezeException=FX-2026-07-17-D0-06`、`module=ProofForgeV2.Core.Common`、
   `selfTestResult=ok`）时，以 common-primitives bootstrap EV 关闭。
-上述例外均不得推广到 `TASK-D0-04`/`TASK-D0-05` 的 formal/bootstrap 关单，也不得把 protected
+- **`FX-2026-07-17-D0-05`**：`TASK-D0-05` 在存在精确
+  `docs/governance/bootstrap-closure/TASK-D0-05.attest.json`（kind=`sbom-inventory-closure`、
+  `freezeException=FX-2026-07-17-D0-05`、self/generate/verify results `ok`）时，
+  以 SBOM inventory bootstrap EV 关闭。
+上述例外均不得推广到 `TASK-D0-04` 的 formal/bootstrap 关单，也不得把 protected
 production positive 或 formal hermetic 证据宣称为已闭合。`formal` 还必须由正式
 evidence-set binder 校验对应不可变 EV JSON；ledger 中的文字标签不能自行把 development
 观察升级为 formal evidence；在 `TASK-D0-07` 的 formal finalizer/binder 落地并接入 docs-check 前，任何

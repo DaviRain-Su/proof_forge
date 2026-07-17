@@ -17,6 +17,8 @@ normative: true
 - [D0-01 pure-consumer 关闭证明](bootstrap-closure/TASK-D0-01.attest.json)（`FX-2026-07-17-D0-01`）
 - [D0-02 package-boundary 关闭证明](bootstrap-closure/TASK-D0-02.attest.json)（`FX-2026-07-17-D0-02`）
 - [D0-03 development triad 关闭证明](bootstrap-closure/TASK-D0-03.attest.json)（`FX-2026-07-17-D0-03`）
+- [D0-05 SBOM inventory 关闭证明](bootstrap-closure/TASK-D0-05.attest.json)（`FX-2026-07-17-D0-05`）
+- 供应链：[`../supply-chain/`](../supply-chain/)（license policy/inventory）
 - [版本与兼容治理](version-compatibility.md)
 - [依赖与供应链](dependency-policy.md)
 - [CI 与证据](ci-evidence.md)

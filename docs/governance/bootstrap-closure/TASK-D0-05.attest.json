@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-05",
+  "kind": "sbom-inventory-closure",
+  "freezeException": "FX-2026-07-17-D0-05",
+  "selfTestCommand": "/usr/bin/python3 -I -S scripts/sbom_self_test.py",
+  "selfTestResult": "ok",
+  "generateCommand": "/usr/bin/python3 -I -S scripts/sbom_generate.py --root . generate --output-dir build/sbom",
+  "generateResult": "ok",
+  "verifyCommand": "/usr/bin/python3 -I -S scripts/sbom_generate.py --root . verify --output-dir build/sbom",
+  "verifyResult": "ok",
+  "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+  "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+  "notes": "Closes D0-05 license inventory + deterministic CycloneDX 1.6 generation/self-tests. Not formal hermetic release evidence; signed receipt deferred."
+}

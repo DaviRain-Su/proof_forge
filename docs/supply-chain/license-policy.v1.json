@@ -1,0 +1,29 @@
+{
+  "schema": "proof-forge.license-policy.v1",
+  "schemaVersion": 1,
+  "allow": [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT"
+  ],
+  "review": [
+    "MPL-2.0"
+  ],
+  "deny": [
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+    "SSPL-1.0"
+  ],
+  "externalCli": {
+    "allowedDenyLicensesWhenNotRedistributable": [
+      "GPL-3.0-or-later"
+    ],
+    "notes": "External CLI tools may be inventory-only when redistributable=false and never copied into product archives."
+  }
+}

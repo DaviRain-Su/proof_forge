@@ -111,6 +111,9 @@ D0_03_DEVELOPMENT_TRIAD_ATTEST_RELATIVE = (
 D0_06_COMMON_PRIMITIVES_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-06.attest.json"
 )
+D0_05_SBOM_INVENTORY_ATTEST_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-05.attest.json"
+)
 MILESTONE_TASK_RE = re.compile(r"^TASK-(A0|D[0-9]+)-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 TASK_FREEZE_PACKAGE_NAME_RE = re.compile(
     r"^TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*\.json$"
@@ -1817,6 +1820,37 @@ def d0_06_common_primitives_attested(root: Path) -> bool:
         return False
     return True
 
+
+
+def d0_05_sbom_inventory_attested(root: Path) -> bool:
+    """Return True only for FX-2026-07-17-D0-05 SBOM inventory closure attestation."""
+    payload = _load_bootstrap_closure_attest(root, D0_05_SBOM_INVENTORY_ATTEST_RELATIVE)
+    if payload is None:
+        return False
+    required = {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-05",
+        "kind": "sbom-inventory-closure",
+        "freezeException": "FX-2026-07-17-D0-05",
+        "selfTestResult": "ok",
+        "generateResult": "ok",
+        "verifyResult": "ok",
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+    }
+    for key, expected in required.items():
+        if payload.get(key) != expected:
+            return False
+    for field, needle in (
+        ("selfTestCommand", "sbom_self_test"),
+        ("generateCommand", "sbom_generate"),
+        ("verifyCommand", "sbom_generate"),
+        ("docsCheckCommand", "docs_check"),
+    ):
+        value = payload.get(field)
+        if not isinstance(value, str) or needle not in value:
+            return False
+    return True
+
 def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[TaskRecord],
                    evidence_records: dict[str, EvidenceRecord],
                    document_status: dict[str, str]) -> None:
@@ -1856,6 +1890,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                 or (record.task == "TASK-D0-02" and d0_02_package_boundary_attested(root))
                 or (record.task == "TASK-D0-03" and d0_03_development_triad_attested(root))
                 or (record.task == "TASK-D0-06" and d0_06_common_primitives_attested(root))
+                or (record.task == "TASK-D0-05" and d0_05_sbom_inventory_attested(root))
             )
             if not allowed:
                 error = DocsCheckError(

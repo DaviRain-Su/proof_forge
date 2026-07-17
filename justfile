@@ -21,6 +21,12 @@ docs-check:
     /usr/bin/python3 -I -S scripts/docs_check_self_test.py
     /usr/bin/python3 -I -S scripts/bootstrap_task_objects_self_test.py
 
+# TASK-D0-05 / TST-SBOM-001: deterministic license inventory + CycloneDX 1.6.
+sbom:
+    /usr/bin/python3 -I -S scripts/sbom_self_test.py
+    /usr/bin/python3 -I -S scripts/sbom_generate.py --root . generate --output-dir build/sbom
+    /usr/bin/python3 -I -S scripts/sbom_generate.py --root . verify --output-dir build/sbom
+
 toolchains-validate:
     /usr/bin/python3 -I -S scripts/toolchain_assets.py validate
     /usr/bin/python3 -I -S scripts/toolchain_assets.py self-test
