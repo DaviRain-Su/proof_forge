@@ -3,7 +3,7 @@
   "taskId": "TASK-D0-06",
   "frozenAt": "2026-07-17",
   "freezeCommit": "68b0b528579b521fe6a3f172c1358af36853bdf5",
-  "output": "common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types",
+  "output": "common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types（FX-2026-07-17-D0-06：minimal Lean Common surface）",
   "dependencies": [
     "TASK-D0-01",
     "TASK-D0-02"
@@ -33,5 +33,6 @@
   "overflowPolicy": "SBOM stays in D0-05; authority in D0-04; formal binder in D0-07.",
   "maxCalendarDays": 3,
   "maxCommits": 20,
-  "notes": "Product-enabling common primitives after D0-03 development triad close."
+  "notes": "Product-enabling common primitives after D0-03 development triad close.",
+  "freezeException": "FX-2026-07-17-D0-06"
 }

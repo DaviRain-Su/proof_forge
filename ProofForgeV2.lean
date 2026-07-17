@@ -1,3 +1,4 @@
+import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.Source
 import ProofForgeV2.Core.Typed

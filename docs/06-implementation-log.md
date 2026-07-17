@@ -792,6 +792,18 @@ normative: false
 - Limitations：full policy/receipt evaluator incomplete；不声称 formal hermetic 或 D0-04 authority。
 - Next：实现 `TST-COMMON-001` / ResourceProfileV1 与 common scalar parsers（D0-06）。
 
+
+## 2026-07-17 — TASK-D0-06 Common primitives implemented and closed (FX-2026-07-17-D0-06)
+
+- Changed：`ProofForgeV2/Core/Common.lean` Digest/SemVer/ResourceProfileV1 hard-maxima helpers；
+  `Tests/Core/Common.lean`；wire into library/tests/`lakefile.lean`；
+  `TASK-D0-06.attest.json` + bootstrap `EV-20260717-0032`；task → `done`。
+- Commands：`lake build proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；
+  `python3 -I -S scripts/docs_check.py --root .`。
+- Results：tests print `Tests.Core.Common: ok` / `proof-forge-next-tests: ok`；docs-check ok。
+- Limitations：minimal surface only；full JCS domain hash matrix not claimed；bootstrap authority still deferred。
+- Next：可选 `TASK-D0-05` SBOM，或处理 `TASK-D0-04` host/authority blocker；Active 清空。
+
 ## 记录模板
 
 ```markdown

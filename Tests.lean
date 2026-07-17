@@ -1,3 +1,4 @@
+import Tests.Core.Common
 import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
@@ -10,6 +11,7 @@ import Tests.Materialization.NoirRelationModel
 import Tests.CLI.Emit
 
 unsafe def main : IO Unit := do
+  Tests.Core.Common.run
   Tests.Core.run
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
