@@ -60,6 +60,9 @@ open ProofForgeV2.Language
 program WidthBoundary where
   state value : UInt8
 
+  init(initial : UInt8) do
+    value := initial
+
   view get() : UInt8 do
     return value
 
