@@ -25,6 +25,14 @@ declare_syntax_cat pfExpr
 syntax num : pfExpr
 syntax ident : pfExpr
 syntax:65 pfExpr:65 " + " pfExpr:66 : pfExpr
+/-- Exact bare `true` bool literal (contextual, not a host Lean keyword).
+Higher priority than generic identifier; no low fallback. -/
+@[pfExpr_parser default+1] def boolTrueExpr := leading_parser
+  nonReservedSymbol "true" (includeIdent := true)
+/-- Exact bare `false` bool literal (contextual, not a host Lean keyword).
+Higher priority than generic identifier; no low fallback. -/
+@[pfExpr_parser default+1] def boolFalseExpr := leading_parser
+  nonReservedSymbol "false" (includeIdent := true)
 
 declare_syntax_cat pfStmt
 syntax ident " := " pfExpr : pfStmt
@@ -328,6 +336,8 @@ def decodeParam (stx : Syntax) : Except String ProofForgeV2.Source.Param := do
   decodeParamUnchecked stx
 
 private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.Source.Expr
+  | `(boolTrueExpr| true) => .ok (.boolLiteral true)
+  | `(boolFalseExpr| false) => .ok (.boolLiteral false)
   | `(pfExpr| $value:num) =>
       let number := value.getNat
       if number > 18446744073709551615 then
@@ -793,6 +803,8 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let lhs ← quoteExpr lhs
       let rhs ← quoteExpr rhs
       `(ProofForgeV2.Source.Expr.checkedAdd $lhs $rhs)
+  | .boolLiteral true => `(ProofForgeV2.Source.Expr.boolLiteral true)
+  | .boolLiteral false => `(ProofForgeV2.Source.Expr.boolLiteral false)
 
 private def quoteConstDecl (sourceConst : ProofForgeV2.Source.ConstDecl) :
     MacroM (TSyntax `term) := do

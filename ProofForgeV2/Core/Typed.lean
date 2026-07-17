@@ -191,6 +191,8 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       unless lhs.type == .u64 && rhs.type == .u64 do
         throw <| .invalidProgram s!"checked addition in {scope.owner} requires two UInt64 operands"
       return .checkedAdd lhs rhs
+  | .boolLiteral .. =>
+      throw <| .invalidProgram "boolean literals are not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement
