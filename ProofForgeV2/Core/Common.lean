@@ -1,3 +1,8 @@
+import Init.Meta
+import ProofForgeV2.Core.Canonical
+import ProofForgeV2.Core.Crypto
+import ProofForgeV2.Core.Unicode
+
 /-
   SPEC-COMMON-001 minimal Lean surface for TASK-D0-06 / TST-COMMON-001.
   Full wire/JCS authority remains docs/specs/common-types.md; this module provides
@@ -13,6 +18,13 @@ structure Digest where
   algorithm : DigestAlgorithm
   bytes : ByteArray
   deriving DecidableEq
+
+instance : Repr Digest where
+  reprPrec digest _ :=
+    (Std.Format.text "{ algorithm := ").append (repr digest.algorithm)
+      |>.append (Std.Format.text ", bytes := ")
+      |>.append (repr digest.bytes.data)
+      |>.append (Std.Format.text " }")
 
 /-- Validate the fixed-width invariant after any direct `Digest` construction. -/
 def validateDigest (digest : Digest) : Except String Unit := do
@@ -261,6 +273,33 @@ structure NodeId where
   bytes : ByteArray
   deriving DecidableEq
 
+instance : Repr NodeId where
+  reprPrec nodeId _ :=
+    (Std.Format.text "{ bytes := ").append (repr nodeId.bytes.data)
+      |>.append (Std.Format.text " }")
+
+structure ProjectRelativePath where
+  value : String
+  deriving DecidableEq, Repr
+
+structure QualifiedName where
+  components : NonEmptyArray String
+  deriving DecidableEq, Repr
+
+structure ContentRef where
+  schema : SchemaId
+  id : String
+  version : SemVer
+  digest : Digest
+  deriving DecidableEq, Repr
+
+structure SourceOrigin where
+  sourcePath : ProjectRelativePath
+  startByte : UInt64
+  endByte : UInt64
+  nodeId : NodeId
+  deriving DecidableEq, Repr
+
 structure UtcInstant where
   value : String
   deriving DecidableEq, Repr
@@ -425,6 +464,183 @@ def renderNodeId (nodeId : NodeId) : Except String String := do
   validateNodeId nodeId
   pure ("nodeid:" ++ encodeLowerHex nodeId.bytes)
 
+private def hasAsciiDrivePrefix (value : String) : Bool :=
+  match value.toList with
+  | first :: ':' :: '/' :: _ => isAsciiLetter first
+  | _ => false
+
+/-- Validate a lexical, NFC project-relative path without consulting a filesystem. -/
+def validateProjectRelativePath (path : ProjectRelativePath) : Except String Unit := do
+  let value := path.value
+  unless 1 ≤ value.utf8ByteSize && value.utf8ByteSize ≤ 1024 do
+    throw "project-relative path must contain 1..1024 UTF-8 bytes"
+  ProofForgeV2.Core.Unicode.requireNfc value
+  if value.startsWith "/" || hasAsciiDrivePrefix value then
+    throw "project-relative path must not be absolute"
+  if value.toList.any (· == '\\') then
+    throw "project-relative path must use forward slashes"
+  if value.toList.any ProofForgeV2.Core.Unicode.isUnicodeCc then
+    throw "project-relative path must not contain a Cc code point"
+  let segments := value.splitOn "/"
+  if segments.any (fun segment => segment.isEmpty || segment == "." || segment == "..") then
+    throw "project-relative path contains a forbidden segment"
+
+def parseProjectRelativePath (value : String) : Except String ProjectRelativePath := do
+  let path := { value }
+  validateProjectRelativePath path
+  pure path
+
+def renderProjectRelativePath (path : ProjectRelativePath) : Except String String := do
+  validateProjectRelativePath path
+  pure path.value
+
+private def validateQualifiedNameComponent (component : String) : Except String Unit := do
+  unless 1 ≤ component.utf8ByteSize && component.utf8ByteSize ≤ 240 do
+    throw "qualified-name component must contain 1..240 UTF-8 bytes"
+  ProofForgeV2.Core.Unicode.requireNfc component
+  if component == "_" then
+    throw "qualified-name component must not be anonymous"
+  match component.toList with
+  | [] => throw "qualified-name component must not be empty"
+  | first :: rest =>
+    unless Lean.isIdFirst first && rest.all Lean.isIdRest do
+      throw "qualified-name component must use Lean identifier characters"
+
+def validateQualifiedName (name : QualifiedName) : Except String Unit := do
+  let components := name.components.toArray
+  unless components.size ≤ 256 do
+    throw "qualified name must contain at most 256 components"
+  for component in components do
+    validateQualifiedNameComponent component
+
+def parseQualifiedName (components : Array String) : Except String QualifiedName := do
+  let nonempty ← NonEmptyArray.ofArray components
+  let name := { components := nonempty }
+  validateQualifiedName name
+  pure name
+
+def renderQualifiedNameComponents (name : QualifiedName) : Except String (Array String) := do
+  validateQualifiedName name
+  pure name.components.toArray
+
+def renderQualifiedNameJcs (name : QualifiedName) : Except String String := do
+  let components ← renderQualifiedNameComponents name
+  renderPfJcs (.array (components.map PfJson.string))
+
+def parseQualifiedNameJcs (input : String) : Except String QualifiedName := do
+  let value ← parsePfJcs input
+  match value with
+  | .array values =>
+    let mut components := #[]
+    for value in values do
+      match value with
+      | .string component => components := components.push component
+      | _ => throw "qualified-name wire components must be strings"
+    parseQualifiedName components
+  | _ => throw "qualified-name wire must be an array"
+
+def validateContentRef (content : ContentRef) : Except String Unit := do
+  validateSchemaId content.schema
+  validateProfileIdValue content.id
+  validateSemVer content.version
+  validateDigest content.digest
+
+def renderContentRefJcs (content : ContentRef) : Except String String := do
+  validateContentRef content
+  let digest ← renderDigest content.digest
+  let schema ← renderSchemaId content.schema
+  let version ← renderSemVer content.version
+  renderPfJcs (.object #[
+    ("schema", .string schema),
+    ("id", .string content.id),
+    ("version", .string version),
+    ("digest", .string digest)
+  ])
+
+def parseContentRefJcs (input : String) : Except String ContentRef := do
+  let value ← parsePfJcs input
+  match value with
+  | .object fields =>
+    match fields.toList with
+    | [("digest", .string digestValue), ("id", .string id),
+        ("schema", .string schemaValue), ("version", .string versionValue)] =>
+      let schema ← parseSchemaId schemaValue
+      let version ← parseSemVer versionValue
+      let digest ← parseDigest digestValue
+      let content := { schema, id, version, digest }
+      validateContentRef content
+      pure content
+    | _ => throw "content-ref wire must contain exactly digest,id,schema,version"
+  | _ => throw "content-ref wire must be an object"
+
+private def maxSafeJsonNat : Nat := 9007199254740991
+
+private def uint64ToPfInt (label : String) (value : UInt64) : Except String Int := do
+  let natural := value.toNat
+  unless natural ≤ maxSafeJsonNat do
+    throw s!"{label} exceeds the PF-JCS safe-integer range"
+  pure (Int.ofNat natural)
+
+private def pfIntToUInt64 (label : String) (value : Int) : Except String UInt64 := do
+  if value < 0 then
+    throw s!"{label} must be nonnegative"
+  let natural := value.toNat
+  unless natural ≤ maxSafeJsonNat do
+    throw s!"{label} exceeds the PF-JCS safe-integer range"
+  pure (UInt64.ofNat natural)
+
+def validateSourceOrigin (origin : SourceOrigin) : Except String Unit := do
+  validateProjectRelativePath origin.sourcePath
+  validateNodeId origin.nodeId
+  unless origin.startByte ≤ origin.endByte do
+    throw "source-origin startByte must not exceed endByte"
+
+def sourceOriginKey
+    (origin : SourceOrigin) : Except String (String × UInt64 × UInt64 × ByteArray) := do
+  validateSourceOrigin origin
+  pure (origin.sourcePath.value, origin.startByte, origin.endByte, origin.nodeId.bytes)
+
+def renderSourceOriginJcs (origin : SourceOrigin) : Except String String := do
+  validateSourceOrigin origin
+  let sourcePath ← renderProjectRelativePath origin.sourcePath
+  let startByte ← uint64ToPfInt "source-origin startByte" origin.startByte
+  let endByte ← uint64ToPfInt "source-origin endByte" origin.endByte
+  let nodeId ← renderNodeId origin.nodeId
+  renderPfJcs (.object #[
+    ("sourcePath", .string sourcePath),
+    ("startByte", .int startByte),
+    ("endByte", .int endByte),
+    ("nodeId", .string nodeId)
+  ])
+
+def parseSourceOriginJcs (input : String) : Except String SourceOrigin := do
+  let value ← parsePfJcs input
+  match value with
+  | .object fields =>
+    match fields.toList with
+    | [("endByte", .int endValue), ("nodeId", .string nodeValue),
+        ("sourcePath", .string pathValue), ("startByte", .int startValue)] =>
+      let sourcePath ← parseProjectRelativePath pathValue
+      let startByte ← pfIntToUInt64 "source-origin startByte" startValue
+      let endByte ← pfIntToUInt64 "source-origin endByte" endValue
+      let nodeId ← parseNodeId nodeValue
+      let origin := { sourcePath, startByte, endByte, nodeId }
+      validateSourceOrigin origin
+      pure origin
+    | _ => throw "source-origin wire must contain exactly endByte,nodeId,sourcePath,startByte"
+  | _ => throw "source-origin wire must be an object"
+
+/-- Raw SHA-256 over exact bytes. -/
+def sha256Bytes (input : ByteArray) : Digest :=
+  { algorithm := .sha256, bytes := ProofForgeV2.Crypto.sha256 input }
+
+/-- SHA-256 over `UTF8(domainTag) || 0x00 || payload`. -/
+def domainSeparatedSha256
+    (domainTag : String) (payload : ByteArray) : Except String Digest := do
+  validateProfileIdValue domainTag
+  let preimage := (domainTag.toUTF8.push 0).append payload
+  pure (sha256Bytes preimage)
+
 inductive DocumentStatus where
   | notStarted
   | draft
@@ -503,8 +719,8 @@ inductive MemoryMetric where
   deriving DecidableEq, Repr
 
 structure ResourceProfileV1 where
-  schema : String
-  profileId : String
+  schema : SchemaId
+  profileId : SchemaId
   stage : ResourceStage
   maxWallMillis : UInt64
   maxAggregateMemoryBytes : UInt64
@@ -515,11 +731,12 @@ structure ResourceProfileV1 where
   maxPublishedBytes : UInt64
   deriving DecidableEq, Repr
 
-def resourceProfileSchema : String := "proof-forge.resource-profile.v1"
+def resourceProfileSchema : SchemaId :=
+  { value := "proof-forge.resource-profile.v1" }
 
-def frontendProfile : ResourceProfileV1 :=
+def hardFrontendProfile : ResourceProfileV1 :=
   { schema := resourceProfileSchema
-    profileId := "proof-forge.resource.frontend.v1"
+    profileId := { value := "proof-forge.resource.frontend.v1" }
     stage := .frontend
     maxWallMillis := 10000
     maxAggregateMemoryBytes := 2 * 1024 * 1024 * 1024
@@ -529,9 +746,9 @@ def frontendProfile : ResourceProfileV1 :=
     maxStderrBytes := 64 * 1024
     maxPublishedBytes := 0 }
 
-def coreProfile : ResourceProfileV1 :=
+def hardCoreProfile : ResourceProfileV1 :=
   { schema := resourceProfileSchema
-    profileId := "proof-forge.resource.core.v1"
+    profileId := { value := "proof-forge.resource.core.v1" }
     stage := .compilerCore
     maxWallMillis := 30000
     maxAggregateMemoryBytes := 2 * 1024 * 1024 * 1024
@@ -541,24 +758,186 @@ def coreProfile : ResourceProfileV1 :=
     maxStderrBytes := 64 * 1024
     maxPublishedBytes := 0 }
 
-/-- Hard-maxima check: effective budgets must not exceed the named hard profile. -/
-def validateNotAboveHardMax (hard effective : ResourceProfileV1) : Except String Unit := do
-  unless effective.schema = resourceProfileSchema do
+def hardToolProfile : ResourceProfileV1 :=
+  { schema := resourceProfileSchema
+    profileId := { value := "proof-forge.resource.tool.v1" }
+    stage := .externalTool
+    maxWallMillis := 600000
+    maxAggregateMemoryBytes := 4 * 1024 * 1024 * 1024
+    memoryMetric := .darwinPhysFootprintAggregate
+    maxProcesses := 8
+    maxProtocolBytes := 64 * 1024 * 1024
+    maxStderrBytes := 64 * 1024
+    maxPublishedBytes := 0 }
+
+def hardOutputProfile : ResourceProfileV1 :=
+  { schema := resourceProfileSchema
+    profileId := { value := "proof-forge.resource.output.v1" }
+    stage := .artifactOutput
+    maxWallMillis := 60000
+    maxAggregateMemoryBytes := 2 * 1024 * 1024 * 1024
+    memoryMetric := .darwinPhysFootprintAggregate
+    maxProcesses := 1
+    maxProtocolBytes := 1024 * 1024
+    maxStderrBytes := 64 * 1024
+    maxPublishedBytes := 256 * 1024 * 1024 }
+
+/-- Compatibility names retained for the earlier focused Common acceptance. -/
+def frontendProfile : ResourceProfileV1 := hardFrontendProfile
+def coreProfile : ResourceProfileV1 := hardCoreProfile
+
+def parseResourceStage : String → Except String ResourceStage
+  | "frontend" => pure .frontend
+  | "compilerCore" => pure .compilerCore
+  | "externalTool" => pure .externalTool
+  | "artifactOutput" => pure .artifactOutput
+  | _ => throw "unknown resource stage"
+
+def renderResourceStage : ResourceStage → String
+  | .frontend => "frontend"
+  | .compilerCore => "compilerCore"
+  | .externalTool => "externalTool"
+  | .artifactOutput => "artifactOutput"
+
+def parseMemoryMetric : String → Except String MemoryMetric
+  | "darwinPhysFootprintAggregate" => pure .darwinPhysFootprintAggregate
+  | "linuxCgroupMemoryCurrent" => pure .linuxCgroupMemoryCurrent
+  | "jobObjectCommitAggregate" => pure .jobObjectCommitAggregate
+  | _ => throw "unknown resource memory metric"
+
+def renderMemoryMetric : MemoryMetric → String
+  | .darwinPhysFootprintAggregate => "darwinPhysFootprintAggregate"
+  | .linuxCgroupMemoryCurrent => "linuxCgroupMemoryCurrent"
+  | .jobObjectCommitAggregate => "jobObjectCommitAggregate"
+
+private def ensurePositiveUInt64 (label : String) (value : UInt64) : Except String Unit := do
+  unless 0 < value do throw s!"{label} must be positive"
+
+private def ensurePositiveUInt32 (label : String) (value : UInt32) : Except String Unit := do
+  unless 0 < value do throw s!"{label} must be positive"
+
+/-- Validate a closed ResourceProfileV1 value, including its PF-JCS integer domain. -/
+def validateResourceProfileV1 (profile : ResourceProfileV1) : Except String Unit := do
+  validateSchemaId profile.schema
+  unless profile.schema == resourceProfileSchema do
     throw "resource profile schema mismatch"
-  unless effective.stage = hard.stage do
-    throw "resource profile stage mismatch"
-  unless effective.maxWallMillis ≤ hard.maxWallMillis do
-    throw "wall budget exceeds hard maximum"
-  unless effective.maxAggregateMemoryBytes ≤ hard.maxAggregateMemoryBytes do
-    throw "memory budget exceeds hard maximum"
-  unless effective.maxProcesses ≤ hard.maxProcesses do
-    throw "process budget exceeds hard maximum"
-  unless effective.maxProtocolBytes ≤ hard.maxProtocolBytes do
-    throw "protocol budget exceeds hard maximum"
-  unless effective.maxStderrBytes ≤ hard.maxStderrBytes do
-    throw "stderr budget exceeds hard maximum"
-  unless effective.maxPublishedBytes ≤ hard.maxPublishedBytes do
-    throw "published budget exceeds hard maximum"
-  pure ()
+  validateProfileIdValue profile.profileId.value
+  ensurePositiveUInt64 "maxWallMillis" profile.maxWallMillis
+  ensurePositiveUInt64 "maxAggregateMemoryBytes" profile.maxAggregateMemoryBytes
+  ensurePositiveUInt32 "maxProcesses" profile.maxProcesses
+  ensurePositiveUInt64 "maxProtocolBytes" profile.maxProtocolBytes
+  ensurePositiveUInt64 "maxStderrBytes" profile.maxStderrBytes
+  let _ ← uint64ToPfInt "maxWallMillis" profile.maxWallMillis
+  let _ ← uint64ToPfInt "maxAggregateMemoryBytes" profile.maxAggregateMemoryBytes
+  let _ ← uint64ToPfInt "maxProtocolBytes" profile.maxProtocolBytes
+  let _ ← uint64ToPfInt "maxStderrBytes" profile.maxStderrBytes
+  let _ ← uint64ToPfInt "maxPublishedBytes" profile.maxPublishedBytes
+
+private def validateLowerUInt64
+    (label : String) (hard effective : UInt64) : Except String Unit := do
+  if hard == 0 then
+    unless effective == 0 do throw s!"{label} must remain zero"
+  else
+    unless 0 < effective && effective ≤ hard do
+      throw s!"{label} must be positive and not exceed its hard maximum"
+
+private def validateLowerUInt32
+    (label : String) (hard effective : UInt32) : Except String Unit := do
+  if hard == 0 then
+    unless effective == 0 do throw s!"{label} must remain zero"
+  else
+    unless 0 < effective && effective ≤ hard do
+      throw s!"{label} must be positive and not exceed its hard maximum"
+
+/-- Effective resource budgets may only lower a fixed hard-profile identity. -/
+def validateLowerOnlyResourceProfile
+    (hard effective : ResourceProfileV1) : Except String Unit := do
+  validateResourceProfileV1 hard
+  validateResourceProfileV1 effective
+  unless effective.schema == hard.schema do throw "resource profile schema mismatch"
+  unless effective.profileId == hard.profileId do throw "resource profile id mismatch"
+  unless effective.stage == hard.stage do throw "resource profile stage mismatch"
+  unless effective.memoryMetric == hard.memoryMetric do throw "resource memory metric mismatch"
+  validateLowerUInt64 "maxWallMillis" hard.maxWallMillis effective.maxWallMillis
+  validateLowerUInt64 "maxAggregateMemoryBytes"
+    hard.maxAggregateMemoryBytes effective.maxAggregateMemoryBytes
+  validateLowerUInt32 "maxProcesses" hard.maxProcesses effective.maxProcesses
+  validateLowerUInt64 "maxProtocolBytes" hard.maxProtocolBytes effective.maxProtocolBytes
+  validateLowerUInt64 "maxStderrBytes" hard.maxStderrBytes effective.maxStderrBytes
+  validateLowerUInt64 "maxPublishedBytes" hard.maxPublishedBytes effective.maxPublishedBytes
+
+/-- Historical name retained as a strict lower-only compatibility alias. -/
+def validateNotAboveHardMax (hard effective : ResourceProfileV1) : Except String Unit :=
+  validateLowerOnlyResourceProfile hard effective
+
+private def uint32ToPfInt (value : UInt32) : Int :=
+  Int.ofNat value.toNat
+
+private def pfIntToUInt32 (label : String) (value : Int) : Except String UInt32 := do
+  if value < 0 then throw s!"{label} must be nonnegative"
+  let natural := value.toNat
+  unless natural ≤ 4294967295 do throw s!"{label} exceeds UInt32"
+  pure (UInt32.ofNat natural)
+
+def renderResourceProfileJcs (profile : ResourceProfileV1) : Except String String := do
+  validateResourceProfileV1 profile
+  let maxWallMillis ← uint64ToPfInt "maxWallMillis" profile.maxWallMillis
+  let maxAggregateMemoryBytes ←
+    uint64ToPfInt "maxAggregateMemoryBytes" profile.maxAggregateMemoryBytes
+  let maxProtocolBytes ← uint64ToPfInt "maxProtocolBytes" profile.maxProtocolBytes
+  let maxStderrBytes ← uint64ToPfInt "maxStderrBytes" profile.maxStderrBytes
+  let maxPublishedBytes ← uint64ToPfInt "maxPublishedBytes" profile.maxPublishedBytes
+  renderPfJcs (.object #[
+    ("schema", .string profile.schema.value),
+    ("profileId", .string profile.profileId.value),
+    ("stage", .string (renderResourceStage profile.stage)),
+    ("maxWallMillis", .int maxWallMillis),
+    ("maxAggregateMemoryBytes", .int maxAggregateMemoryBytes),
+    ("memoryMetric", .string (renderMemoryMetric profile.memoryMetric)),
+    ("maxProcesses", .int (uint32ToPfInt profile.maxProcesses)),
+    ("maxProtocolBytes", .int maxProtocolBytes),
+    ("maxStderrBytes", .int maxStderrBytes),
+    ("maxPublishedBytes", .int maxPublishedBytes)
+  ])
+
+def parseResourceProfileJcs (input : String) : Except String ResourceProfileV1 := do
+  let value ← parsePfJcs input
+  match value with
+  | .object fields =>
+    match fields.toList with
+    | [("maxAggregateMemoryBytes", .int memoryValue),
+        ("maxProcesses", .int processesValue),
+        ("maxProtocolBytes", .int protocolValue),
+        ("maxPublishedBytes", .int publishedValue),
+        ("maxStderrBytes", .int stderrValue),
+        ("maxWallMillis", .int wallValue),
+        ("memoryMetric", .string metricValue),
+        ("profileId", .string profileIdValue),
+        ("schema", .string schemaValue),
+        ("stage", .string stageValue)] =>
+      let schema ← parseSchemaId schemaValue
+      validateProfileIdValue profileIdValue
+      let profileId : SchemaId := { value := profileIdValue }
+      let stage ← parseResourceStage stageValue
+      let maxWallMillis ← pfIntToUInt64 "maxWallMillis" wallValue
+      let maxAggregateMemoryBytes ←
+        pfIntToUInt64 "maxAggregateMemoryBytes" memoryValue
+      let memoryMetric ← parseMemoryMetric metricValue
+      let maxProcesses ← pfIntToUInt32 "maxProcesses" processesValue
+      let maxProtocolBytes ← pfIntToUInt64 "maxProtocolBytes" protocolValue
+      let maxStderrBytes ← pfIntToUInt64 "maxStderrBytes" stderrValue
+      let maxPublishedBytes ← pfIntToUInt64 "maxPublishedBytes" publishedValue
+      let profile :=
+        { schema, profileId, stage, maxWallMillis, maxAggregateMemoryBytes,
+          memoryMetric, maxProcesses, maxProtocolBytes, maxStderrBytes,
+          maxPublishedBytes }
+      validateResourceProfileV1 profile
+      pure profile
+    | _ => throw "resource-profile wire must contain exactly its ten closed fields"
+  | _ => throw "resource-profile wire must be an object"
+
+def resourceProfileDigest (profile : ResourceProfileV1) : Except String Digest := do
+  let canonical ← renderResourceProfileJcs profile
+  domainSeparatedSha256 resourceProfileSchema.value canonical.toUTF8
 
 end ProofForgeV2.Core.Common

@@ -840,6 +840,38 @@ normative: false
 - Next：严格按 `Tests/Core/Common.lean` RED → GREEN 补齐完整 common acceptance；D0-05 草稿可在
   独立 worktree 并行，但不得用其覆盖本任务状态或把 partial EV 写成 task closure。
 
+## 2026-07-17 — TASK-D0-06 frozen technical scope GREEN; governance closure pending
+
+- Commits：remaining RED `807d73ba`；GREEN 为本 evidence-bearing milestone commit；冻结点至今
+  exact 20 commits，未超过 `TASK-D0-06` package 的 `maxCommits=20`。
+- Spec/Test：`SPEC-COMMON-001` / `TST-COMMON-001`；未新增 task、TST、dependency、
+  prerequisite 或 top-level DSL kind。
+- Changed：
+  - 新增 pure-Lean restricted PF-JCS parser/renderer，拒绝 duplicate、invalid UTF-8、lone
+    surrogate、non-canonical escape/order/number，并按 UTF-16 code units 排 object key；
+  - 从 `Source.lean` 机械抽取无环 `Core/Crypto.lean` SHA-256；
+  - 完成 NFC/Cc project path、Lean identifier `QualifiedName`、closed `ContentRef`/
+    `SourceOrigin` wire、domain-separated hash；
+  - 完成四个 exact `ResourceProfileV1` hard profile、lower-only/zero/identity 规则、JCS 与 digest；
+  - `Tests/Core/CommonRemaining.lean` 232 个 focused assertions 接入 Lake 和 aggregate runner。
+- Commands：`lake build ProofForgeV2.Core.Common proof_forge_next_tests`；
+  `lake exe proof_forge_next_tests`；detached clean worktree `just ci`；`just check`；随后独立执行
+  `just toolchains-root-negative build test test-host-isolation dsl-negative target-negative target-smoke output-security`。
+- Results：clean archive isolation、92-job product build、84-job tests、139 个 docs mutations、
+  40 个 isolation mutations 与 aggregate `proof-forge-next-tests: ok` 全绿；两路独立复核
+  P0=0，RED 复核提出的三个 P1 均在 GREEN 关闭。GREEN 复核把 frozen
+  `profileId : SchemaId` carrier + profile grammar 报为 P1；按 `SPEC-COMMON-001` 的明确规则判定
+  为 false positive，未错误收窄成 schema grammar。
+- Evidence：`EV-20260717-0034`，grade=`development`，覆盖完整冻结技术切片。
+- Limitations：完整 `just check` 唯一失败是 task-independent
+  `toolchains-environment-negative`：HEAD 与 RED baseline 都先返回
+  `PF-TOOLCHAIN-MISMATCH: wat2wasm is group/world writable (mode 777)`，因而未匹配该 gate 预期的
+  `unexpected node`；其余 downstream recipes 已单独通过。当前 host 仍 ineligible；
+  `GOV-GENESIS-001` 仍为 `proposed`，没有 accepted Architecture + Quality 人类批准或 signed
+  bootstrap receipt，因此本记录不把 D0-06 标为 `done`，也不声称 formal/hermetic evidence。
+- Next：保持唯一 active task 为 D0-06；先合法化 genesis/authority closure，再单独更新 task、
+  checkpoint 与 bootstrap evidence。不得绕过该治理边界自动启动 D0-07/D0-08。
+
 ## 记录模板
 
 ```markdown

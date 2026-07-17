@@ -235,6 +235,9 @@ private def testQualifiedName : IO Unit := do
       (renderQualifiedNameComponents qn) #["Foo", "Bar", "baz"]
   | .error e => throw <| IO.userError s!"qname multi: {e}"
   expectErr "qname empty array" (parseQualifiedName #[])
+  expectOk "qname underscore-prefixed identifier"
+    (parseQualifiedName #["_value"])
+    { components := { head := "_value", tail := #[] } }
   expectErr "qname empty component" (parseQualifiedName #["Foo", ""])
   expectErr "qname numeral component" (parseQualifiedName #["123"])
   expectErr "qname leading digit" (parseQualifiedName #["1abc"])
@@ -385,6 +388,13 @@ private def testSourceOrigin : IO Unit := do
     "\"sourcePath\":\"src/Main.lean\",\"startByte\":0}"
   expectOk "origin exact JCS" (renderSourceOriginJcs good) wire
   expectOk "origin exact JCS roundtrip" (parseSourceOriginJcs wire) good
+  let safeBoundary : SourceOrigin :=
+    { good with startByte := 9007199254740991, endByte := 9007199254740991 }
+  match renderSourceOriginJcs safeBoundary with
+  | .ok safeWire =>
+    expectOk "origin accepts maximum safe JSON integer"
+      (parseSourceOriginJcs safeWire) safeBoundary
+  | .error e => throw <| IO.userError s!"origin safe boundary render: {e}"
   expectErr "origin JCS missing field"
     (parseSourceOriginJcs
       ("{\"endByte\":10,\"nodeId\":\"nodeid:00000000000000000000000000000000\"," ++
@@ -450,8 +460,19 @@ private def testPfJcs : IO Unit := do
     (renderPfJcs (.string "a/b")) "\"a/b\""
   expectOk "jcs string lf escape"
     (renderPfJcs (.string (ofScalars [0x61, 0x0A, 0x62]))) "\"a\\nb\""
+  expectOk "jcs string backspace short escape"
+    (renderPfJcs (.string (ofScalars [0x08]))) "\"\\b\""
+  expectOk "jcs string tab short escape"
+    (renderPfJcs (.string (ofScalars [0x09]))) "\"\\t\""
+  expectOk "jcs string form-feed short escape"
+    (renderPfJcs (.string (ofScalars [0x0C]))) "\"\\f\""
+  expectOk "jcs string carriage-return short escape"
+    (renderPfJcs (.string (ofScalars [0x0D]))) "\"\\r\""
   expectOk "jcs generic control escape"
     (renderPfJcs (.string (ofScalars [0x0001]))) "\"\\u0001\""
+  expectOk "jcs DEL is emitted raw"
+    (renderPfJcs (.string (ofScalars [0x007F])))
+    ("\"" ++ ofScalars [0x007F] ++ "\"")
   -- Nested fixture used by domain-hash tests.
   expectOk "jcs nested object"
     (renderPfJcs
@@ -493,6 +514,12 @@ private def testPfJcs : IO Unit := do
     (parsePfJcs "True")
   expectErr "jcs parse rejects single-quoted string"
     (parsePfJcs "'x'")
+  expectErr "jcs parse rejects escaped solidus as noncanonical"
+    (parsePfJcs "\"\\/\"")
+  expectErr "jcs parse rejects escaped printable scalar as noncanonical"
+    (parsePfJcs "\"\\u0041\"")
+  expectErr "jcs parse rejects long control escape when short form exists"
+    (parsePfJcs "\"\\u0008\"")
   expectErr "jcs parse rejects empty"
     (parsePfJcs "")
   expectErr "jcs byte parser rejects invalid UTF-8"
@@ -779,6 +806,12 @@ private def testResourceJcsAndDigest : IO Unit := do
     (renderResourceProfileJcs hardOutputProfile) outputHardJcs
   expectOk "frontend resource exact JCS parse"
     (parseResourceProfileJcs frontendHardJcs) hardFrontendProfile
+  expectOk "core resource exact JCS parse"
+    (parseResourceProfileJcs coreHardJcs) hardCoreProfile
+  expectOk "tool resource exact JCS parse"
+    (parseResourceProfileJcs toolHardJcs) hardToolProfile
+  expectOk "output resource exact JCS parse"
+    (parseResourceProfileJcs outputHardJcs) hardOutputProfile
   let frontendBody := String.ofList frontendHardJcs.toList.tail
   expectErr "resource JCS duplicate field"
     (parseResourceProfileJcs
@@ -835,6 +868,3 @@ def run : IO Unit := do
   IO.println "Tests.Core.CommonRemaining: ok"
 
 end Tests.Core.CommonRemaining
-
-def main : IO Unit :=
-  Tests.Core.CommonRemaining.run
