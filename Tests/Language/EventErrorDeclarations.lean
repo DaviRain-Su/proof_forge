@@ -6,7 +6,7 @@ namespace Tests.Language.EventErrorDeclarationsFixture
 open ProofForgeV2.Language
 
 program EventErrorSurface where
-  event Transfer(from : UInt64, to : UInt64)
+  event Transfer(sender : UInt64, recipient : UInt64)
   event Tick()
   error Unauthorized
   error Insufficient(balance : UInt64, needed : UInt64)
@@ -28,7 +28,7 @@ private def source : String :=
   "open ProofForgeV2.Language\n\n" ++
   "namespace Tests.Language.EventErrorDeclarationsFixture\n\n" ++
   "program EventErrorSurface where\n" ++
-  "  event Transfer(from : UInt64, to : UInt64)\n" ++
+  "  event Transfer(sender : UInt64, recipient : UInt64)\n" ++
   "  event Tick()\n" ++
   "  error Unauthorized\n" ++
   "  error Insufficient(balance : UInt64, needed : UInt64)\n\n" ++
@@ -66,7 +66,7 @@ unsafe def run : IO Unit := do
   | #[transfer, tick] =>
       expect (transfer.name == "Transfer" &&
           transfer.params.map (fun param => (param.name, param.type)) ==
-            #[("from", .u64), ("to", .u64)])
+            #[("sender", .u64), ("recipient", .u64)])
         "event name and parameter order must survive Lean command elaboration"
       expect (tick.name == "Tick" && tick.params.isEmpty)
         "an empty event parameter list must survive Lean command elaboration"
@@ -96,12 +96,45 @@ unsafe def run : IO Unit := do
   let canonicalEventBA ← select session
     (programSource "CanonicalEventError" "  event B()\n  event A(value : UInt64)\n")
     "<event-error-event-ba>"
+  let canonicalSameShapeEvent ← select session
+    (programSource "CanonicalEventError" "  event A(value : UInt64)\n")
+    "<event-error-same-shape-event>"
+  let canonicalEventParamName ← select session
+    (programSource "CanonicalEventError" "  event A(other : UInt64)\n")
+    "<event-error-event-param-name>"
+  let canonicalEventParamType ← select session
+    (programSource "CanonicalEventError" "  event A(value : Bool)\n")
+    "<event-error-event-param-type>"
+  let canonicalEventPublic ← select session
+    (programSource "CanonicalEventError" "  event A(public value : UInt64)\n")
+    "<event-error-event-public>"
+  let canonicalEventPrivate ← select session
+    (programSource "CanonicalEventError" "  event A(private value : UInt64)\n")
+    "<event-error-event-private>"
+  let canonicalEventCommitment ← select session
+    (programSource "CanonicalEventError" "  event A(commitment value : UInt64)\n")
+    "<event-error-event-commitment>"
+  let canonicalEventParamAB ← select session
+    (programSource "CanonicalEventError" "  event A(first : UInt64, second : Bool)\n")
+    "<event-error-event-param-ab>"
+  let canonicalEventParamBA ← select session
+    (programSource "CanonicalEventError" "  event A(second : Bool, first : UInt64)\n")
+    "<event-error-event-param-ba>"
   let canonicalErrorNoParens ← select session
     (programSource "CanonicalEventError" "  error Failed\n")
     "<event-error-error-no-parens>"
   let canonicalErrorEmptyParens ← select session
     (programSource "CanonicalEventError" "  error Failed()\n")
     "<event-error-error-empty-parens>"
+  let canonicalSameShapeError ← select session
+    (programSource "CanonicalEventError" "  error A(value : UInt64)\n")
+    "<event-error-same-shape-error>"
+  let canonicalErrorAB ← select session
+    (programSource "CanonicalEventError" "  error A(value : UInt64)\n  error B\n")
+    "<event-error-error-ab>"
+  let canonicalErrorBA ← select session
+    (programSource "CanonicalEventError" "  error B\n  error A(value : UInt64)\n")
+    "<event-error-error-ba>"
   expect (canonicalBase.sourceHash != canonicalEventAB.sourceHash &&
       canonicalEventAB.sourceHash != canonicalEventBA.sourceHash &&
       canonicalBase.sourceHash != canonicalErrorNoParens.sourceHash)
@@ -109,6 +142,22 @@ unsafe def run : IO Unit := do
   expect (canonicalErrorNoParens == canonicalErrorEmptyParens &&
       canonicalErrorNoParens.sourceHash == canonicalErrorEmptyParens.sourceHash)
     "omitted and explicit empty error parameter lists must canonicalize identically"
+  expect (canonicalSameShapeEvent.sourceHash != canonicalSameShapeError.sourceHash)
+    "event and error kinds with the same name and parameters must bind differently"
+  expect (canonicalSameShapeEvent.sourceHash != canonicalEventParamName.sourceHash &&
+      canonicalSameShapeEvent.sourceHash != canonicalEventParamType.sourceHash &&
+      canonicalSameShapeEvent.sourceHash != canonicalEventAB.sourceHash &&
+      canonicalEventParamAB.sourceHash != canonicalEventParamBA.sourceHash)
+    "event parameter name, type, count, and order must bind the source hash"
+  expect (canonicalSameShapeEvent == canonicalEventPublic &&
+      canonicalSameShapeEvent.sourceHash == canonicalEventPublic.sourceHash)
+    "omitted and explicit public event parameters must canonicalize identically"
+  expect (canonicalEventPrivate.sourceHash != canonicalSameShapeEvent.sourceHash &&
+      canonicalEventCommitment.sourceHash != canonicalSameShapeEvent.sourceHash &&
+      canonicalEventPrivate.sourceHash != canonicalEventCommitment.sourceHash)
+    "private and commitment event parameter visibility must bind distinctly"
+  expect (canonicalErrorAB.sourceHash != canonicalErrorBA.sourceHash)
+    "error declaration order must bind the source hash"
 
   expectInvalid "duplicate event declarations"
     "program 'DuplicateEvent' contains duplicate event declarations"
@@ -137,6 +186,10 @@ unsafe def run : IO Unit := do
   | .error (.invalidProgram "event declarations are not yet supported by typed checking") => pure ()
   | .error other => throw <| IO.userError s!"event declarations reached the wrong failure: {other.render}"
   | .ok _ => throw <| IO.userError "typed checking must not silently erase event declarations"
+  match Compiler.compile elaborated with
+  | .error (.invalidProgram "event declarations are not yet supported by typed checking") => pure ()
+  | .error other => throw <| IO.userError s!"event declarations bypassed the wrong compiler boundary: {other.render}"
+  | .ok _ => throw <| IO.userError "Compiler.compile must not bypass event fail-closed checking"
 
   let errorOnly ← select session
     (programSource "ErrorOnly" "  error Failed\n") "<error-only>"
@@ -144,5 +197,9 @@ unsafe def run : IO Unit := do
   | .error (.invalidProgram "error declarations are not yet supported by typed checking") => pure ()
   | .error other => throw <| IO.userError s!"error declarations reached the wrong failure: {other.render}"
   | .ok _ => throw <| IO.userError "typed checking must not silently erase error declarations"
+  match Compiler.compile errorOnly with
+  | .error (.invalidProgram "error declarations are not yet supported by typed checking") => pure ()
+  | .error other => throw <| IO.userError s!"error declarations bypassed the wrong compiler boundary: {other.render}"
+  | .ok _ => throw <| IO.userError "Compiler.compile must not bypass error fail-closed checking"
 
 end Tests.Language.EventErrorDeclarations
