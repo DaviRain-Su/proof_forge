@@ -27,6 +27,16 @@ structure StateDecl where
   visibility : Visibility := .verifierVisible
   deriving BEq, Inhabited, Repr
 
+structure EventDecl where
+  name : String
+  params : Array Param
+  deriving BEq, Inhabited, Repr
+
+structure ErrorDecl where
+  name : String
+  params : Array Param
+  deriving BEq, Inhabited, Repr
+
 inductive Expr where
   | literal (value : UInt64)
   | variable (name : String)
@@ -60,6 +70,8 @@ structure Entry where
 
 inductive Item where
   | stateDecl (decl : StateDecl)
+  | eventDecl (decl : EventDecl)
+  | errorDecl (decl : ErrorDecl)
   | initializer (decl : Initializer)
   | entry (decl : Entry)
   deriving BEq, Inhabited, Repr
@@ -68,15 +80,19 @@ structure Program where
   qualifiedName : String
   name : String
   state : Array StateDecl
+  events : Array EventDecl := #[]
+  errors : Array ErrorDecl := #[]
   initializer : Option Initializer
   entries : Array Entry
   deriving BEq, Inhabited, Repr
 
 def Program.buildQualified (qualifiedName name : String) (items : Array Item) : Program :=
   let state := items.foldl (fun acc item => match item with | .stateDecl decl => acc.push decl | _ => acc) #[]
+  let events := items.foldl (fun acc item => match item with | .eventDecl decl => acc.push decl | _ => acc) #[]
+  let errors := items.foldl (fun acc item => match item with | .errorDecl decl => acc.push decl | _ => acc) #[]
   let initializer := items.foldl (fun acc item => match item with | .initializer decl => some decl | _ => acc) none
   let entries := items.foldl (fun acc item => match item with | .entry decl => acc.push decl | _ => acc) #[]
-  { qualifiedName, name, state, initializer, entries }
+  { qualifiedName, name, state, events, errors, initializer, entries }
 
 def Program.build (name : String) (items : Array Item) : Program :=
   Program.buildQualified name name items
@@ -124,6 +140,12 @@ private def appendParam (bytes : ByteArray) (param : Param) : ByteArray :=
 private def appendStateDecl (bytes : ByteArray) (decl : StateDecl) : ByteArray :=
   appendValueType (appendString (appendVisibility bytes decl.visibility) decl.name) decl.type
 
+private def appendEventDecl (bytes : ByteArray) (decl : EventDecl) : ByteArray :=
+  appendArray appendParam (appendString bytes decl.name) decl.params
+
+private def appendErrorDecl (bytes : ByteArray) (decl : ErrorDecl) : ByteArray :=
+  appendArray appendParam (appendString bytes decl.name) decl.params
+
 private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .literal value => appendUInt64 (appendTag bytes 0) value
   | .variable name => appendString (appendTag bytes 1) name
@@ -153,6 +175,8 @@ def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendString bytes program.qualifiedName
   let bytes := appendString bytes program.name
   let bytes := appendArray appendStateDecl bytes program.state
+  let bytes := appendArray appendEventDecl bytes program.events
+  let bytes := appendArray appendErrorDecl bytes program.errors
   let bytes := match program.initializer with
     | none => appendTag bytes 0
     | some initializer => appendInitializer (appendTag bytes 1) initializer

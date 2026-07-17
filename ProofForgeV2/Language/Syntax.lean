@@ -32,6 +32,8 @@ syntax "state " ident " : " pfType : pfItem
 syntax "state " "public " ident " : " pfType : pfItem
 syntax "state " "private " ident " : " pfType : pfItem
 syntax "state " "commitment " ident " : " pfType : pfItem
+syntax ident ident : pfItem
+syntax ident ident "(" sepBy(pfParam, ", ") ")" : pfItem
 syntax "init" "(" sepBy(pfParam, ", ") ")" " do" ppLine ppIndent(pfStmt*) : pfItem
 syntax "entry " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
 syntax "view " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
@@ -190,6 +192,24 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
         type := ← decodeTypeUnchecked type
         visibility := .commitmentOnly
       }
+  | `(pfItem| $kind:ident $name:ident ($params:pfParam,*)) =>
+      match rawIdentifierText? kind with
+      | some "event" => do
+          return .eventDecl {
+            name := name.getId.toString
+            params := ← decodeParams params
+          }
+      | some "error" => do
+          return .errorDecl {
+            name := name.getId.toString
+            params := ← decodeParams params
+          }
+      | _ => .error "unsupported portable program item"
+  | `(pfItem| $kind:ident $name:ident) =>
+      match rawIdentifierText? kind with
+      | some "error" =>
+          return .errorDecl { name := name.getId.toString, params := #[] }
+      | _ => .error "unsupported portable program item"
   | `(pfItem| init ($params:pfParam,*) do $statements:pfStmt*) => do
       return .initializer {
         params := ← decodeParams params
@@ -238,11 +258,23 @@ def validateDecodedProgram (sourceProgram : ProofForgeV2.Source.Program) : Compi
   if hasDuplicate (sourceProgram.entries.map (·.name)) then
     throw <| .invalidProgram
       s!"program '{sourceProgram.qualifiedName}' contains duplicate entry declarations"
+  if hasDuplicate (sourceProgram.events.map (·.name)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate event declarations"
+  if hasDuplicate (sourceProgram.errors.map (·.name)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate error declarations"
   match sourceProgram.initializer with
   | some initializer =>
       if hasDuplicate (initializer.params.map (·.name)) then
         throw <| .invalidProgram "initializer contains duplicate parameters"
   | none => pure ()
+  for sourceEvent in sourceProgram.events do
+    if hasDuplicate (sourceEvent.params.map (·.name)) then
+      throw <| .invalidProgram s!"event '{sourceEvent.name}' contains duplicate parameters"
+  for sourceError in sourceProgram.errors do
+    if hasDuplicate (sourceError.params.map (·.name)) then
+      throw <| .invalidProgram s!"error '{sourceError.name}' contains duplicate parameters"
   for sourceEntry in sourceProgram.entries do
     if hasDuplicate (sourceEntry.params.map (·.name)) then
       throw <| .invalidProgram s!"entry '{sourceEntry.name}' contains duplicate parameters"
@@ -330,6 +362,24 @@ private def quoteState (states : Array ProofForgeV2.Source.StateDecl) : MacroM (
   let values ← states.mapM quoteStateDecl
   `(#[$[$values],*])
 
+private def quoteEventDecl (sourceEvent : ProofForgeV2.Source.EventDecl) : MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit sourceEvent.name
+  let params ← quoteParams sourceEvent.params
+  `(ProofForgeV2.Source.EventDecl.mk $name $params)
+
+private def quoteEvents (events : Array ProofForgeV2.Source.EventDecl) : MacroM (TSyntax `term) := do
+  let values ← events.mapM quoteEventDecl
+  `(#[$[$values],*])
+
+private def quoteErrorDecl (sourceError : ProofForgeV2.Source.ErrorDecl) : MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit sourceError.name
+  let params ← quoteParams sourceError.params
+  `(ProofForgeV2.Source.ErrorDecl.mk $name $params)
+
+private def quoteErrors (errors : Array ProofForgeV2.Source.ErrorDecl) : MacroM (TSyntax `term) := do
+  let values ← errors.mapM quoteErrorDecl
+  `(#[$[$values],*])
+
 private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `term)
   | .literal value =>
       let value := Syntax.mkNumLit (toString value.toNat)
@@ -395,9 +445,11 @@ private def quoteProgram (sourceProgram : ProofForgeV2.Source.Program) : MacroM 
   let qualifiedName := Syntax.mkStrLit sourceProgram.qualifiedName
   let name := Syntax.mkStrLit sourceProgram.name
   let stateExpr ← quoteState sourceProgram.state
+  let events ← quoteEvents sourceProgram.events
+  let errors ← quoteErrors sourceProgram.errors
   let initializer ← quoteInitializer? sourceProgram.initializer
   let entries ← quoteEntries sourceProgram.entries
-  `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $initializer $entries)
+  `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $events $errors $initializer $entries)
 
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do

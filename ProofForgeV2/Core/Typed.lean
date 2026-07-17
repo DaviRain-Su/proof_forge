@@ -267,6 +267,10 @@ def check (source : Source.Program) : CompileResult Program := do
     throw <| .invalidProgram "program qualified identity cannot be empty"
   if source.name.isEmpty then
     throw <| .invalidProgram "program name cannot be empty"
+  if !source.events.isEmpty then
+    throw <| .invalidProgram "event declarations are not yet supported by typed checking"
+  if !source.errors.isEmpty then
+    throw <| .invalidProgram "error declarations are not yet supported by typed checking"
   let owner := s!"program '{source.qualifiedName}'"
   let state ← NameIndex.resolveState owner source.state
   NameIndex.checkDistinctEntries owner source.entries
