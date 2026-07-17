@@ -26,6 +26,7 @@ syntax num : pfExpr
 syntax ident : pfExpr
 syntax:65 pfExpr:65 " + " pfExpr:66 : pfExpr
 syntax:65 pfExpr:65 " - " pfExpr:66 : pfExpr
+syntax:70 pfExpr:70 " * " pfExpr:71 : pfExpr
 /-- Exact bare `true` bool literal (contextual, not a host Lean keyword).
 Higher priority than generic identifier; no low fallback. -/
 @[pfExpr_parser default+1] def boolTrueExpr := leading_parser
@@ -351,6 +352,8 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
       return .checkedAdd (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| $lhs:pfExpr - $rhs:pfExpr) => do
       return .checkedSub (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| $lhs:pfExpr * $rhs:pfExpr) => do
+      return .checkedMul (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | _ => .error "unsupported portable expression"
 
 def decodeExpr (stx : Syntax) : Except String ProofForgeV2.Source.Expr := do
@@ -812,6 +815,10 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let lhs ← quoteExpr lhs
       let rhs ← quoteExpr rhs
       `(ProofForgeV2.Source.Expr.checkedSub $lhs $rhs)
+  | .checkedMul lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.checkedMul $lhs $rhs)
 
 private def quoteConstDecl (sourceConst : ProofForgeV2.Source.ConstDecl) :
     MacroM (TSyntax `term) := do
