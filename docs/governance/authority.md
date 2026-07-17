@@ -1,10 +1,15 @@
 ---
 id: GOV-AUTH-001
 title: 权威、角色与批准
-status: proposed
+status: accepted
 owner: maintainers
 updated: 2026-07-17
 normative: true
+approvers: architecture-owner, davirain, quality-owner
+approvedAt: 2026-07-17
+reviewCommit: 306b7b6a19855f1b7c9416543bd4aa4f3860a91f
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/306b7b6a19855f1b7c9416543bd4aa4f3860a91f
+openFindings: none
 ---
 
 # 权威、角色与批准
