@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import errno
 import hashlib
 import importlib.util
 import os
@@ -1264,6 +1265,78 @@ def assert_snapshot_rejection(
         raise AssertionError(f"snapshot negative {label} touched its output namespace")
 
 
+def assert_rebound_snapshot_rejection(
+    module: object,
+    temporary_root: Path,
+    source_root: Path,
+    document: dict[str, object],
+    catalog_path: str,
+    run_binding_sha256: str,
+    *,
+    label: str,
+    expected_code: str,
+    catalog_mutator: object,
+    bundle_mutator: object,
+) -> None:
+    """Run a snapshot negative whose catalog and EV are rebound together."""
+    case_root = temporary_root / f"snapshot-rebound-negative-{label}"
+    shutil.copytree(source_root, case_root, copy_function=shutil.copy2)
+    case_document, catalog_sha256, catalog_digest = rewrite_catalog_binding(
+        module,
+        case_root,
+        document,
+        catalog_path,
+        catalog_mutator,
+    )
+    if not callable(bundle_mutator):
+        raise AssertionError("rebound snapshot bundle mutator is not callable")
+    bundle_mutator(case_root, case_document)
+    module.validate_evidence(case_document)
+    replace_secure(
+        case_root / "development-evidence.json",
+        module.canonical_bytes(case_document),
+    )
+    output_root = temporary_root / f"snapshot-rebound-output-{label}"
+    result = invoke(
+        [
+            "finalize-development",
+            "--catalog",
+            catalog_path,
+            "--catalog-sha256",
+            catalog_sha256,
+            "--catalog-digest",
+            catalog_digest,
+            "--run-binding-sha256",
+            run_binding_sha256,
+            "--evidence",
+            "development-evidence.json",
+            "--bundle-root",
+            os.fspath(case_root),
+            "--output",
+            os.fspath(
+                output_root
+                / "finalized-development"
+                / case_document["gateCatalog"]["id"]
+                / case_document["gate"]["id"]
+                / "EVF-20260715-9200.json"
+            ),
+        ]
+    )
+    stderr_lines = result.stderr.splitlines()
+    if (
+        result.returncode != 2
+        or result.stdout
+        or len(stderr_lines) != 1
+        or not stderr_lines[0].startswith(expected_code.encode("ascii") + b": ")
+    ):
+        raise AssertionError(
+            f"rebound snapshot negative {label} did not fail at {expected_code}:\n"
+            + result.stderr.decode("utf-8", errors="replace")
+        )
+    if output_root.exists():
+        raise AssertionError(f"rebound snapshot negative {label} touched output")
+
+
 def main() -> int:
     if not sys.flags.isolated or not sys.flags.no_site:
         raise AssertionError("invoke this test with isolated Python using -I -S")
@@ -1344,6 +1417,42 @@ def main() -> int:
             catalog_digest,
             run_binding_sha256,
         ) = write_realistic_development_bundle(module, development_root)
+
+        duplicate_root = os.open(
+            development_root,
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        real_dup = module.os.dup
+
+        def fail_dup(_descriptor: int) -> int:
+            raise OSError(errno.EMFILE, "injected descriptor exhaustion")
+
+        module.os.dup = fail_dup
+        try:
+            try:
+                module._capture_bundle_file_at(
+                    duplicate_root,
+                    "candidate.tar",
+                    maximum=module.MAX_BUNDLE_FILE_BYTES,
+                    capture_content=False,
+                )
+            except module.EvidenceError as error:
+                if error.code != "PF-EVIDENCE-BUNDLE":
+                    raise AssertionError(
+                        "snapshot dup failure used the wrong stable diagnostic"
+                    ) from error
+            except OSError as error:
+                raise AssertionError(
+                    "snapshot dup failure leaked a raw OSError instead of EvidenceError"
+                ) from error
+            else:
+                raise AssertionError("snapshot dup failure was unexpectedly accepted")
+        finally:
+            module.os.dup = real_dup
+            os.close(duplicate_root)
 
         def development_arguments(
             output_path: Path,
@@ -2132,6 +2241,214 @@ def main() -> int:
             claim = input_claim(case_document, path)
             claim["sha256"] = sha256(body)
             claim["size"] = len(body)
+
+        def rename_rendered_policy_in_catalog(catalog: dict[str, object]) -> None:
+            policy = next(
+                item
+                for item in catalog["gates"][0]["policies"]
+                if item["id"] == "evm-runtime-exact-port"
+            )
+            policy["renderedPolicyInput"]["path"] = "policies/renamed-runtime.sb"
+
+        def rename_rendered_policy_in_bundle(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            old_path = "policies/evm-runtime.sb"
+            new_path = "policies/renamed-runtime.sb"
+            (case_root / old_path).rename(case_root / new_path)
+            claim = input_claim(case_document, old_path)
+            claim["path"] = new_path
+            case_document["inputs"].sort(
+                key=lambda item: (item["role"], item["path"])
+            )
+            policy = next(
+                item
+                for item in case_document["sandboxPolicies"]
+                if item["id"] == "evm-runtime-exact-port"
+            )
+            policy["renderedPolicyInput"]["path"] = new_path
+            receipt_path = "policies/sandbox-evm-runtime-runtime-success.receipt.json"
+            receipt = module.decode_json((case_root / receipt_path).read_bytes())
+            receipt["policy"]["path"] = new_path
+            replace_claimed_input(
+                case_root,
+                case_document,
+                receipt_path,
+                module.canonical_bytes(receipt),
+            )
+
+        assert_rebound_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="renamed-rendered-policy-path",
+            expected_code="PF-EVIDENCE-CATALOG",
+            catalog_mutator=rename_rendered_policy_in_catalog,
+            bundle_mutator=rename_rendered_policy_in_bundle,
+        )
+
+        renamed_invocation_paths = {
+            "context": (
+                "contexts/sandbox-core-core-success.json",
+                "contexts/sandbox-core-renamed-success.json",
+            ),
+            "receipt": (
+                "policies/sandbox-core-core-success.receipt.json",
+                "policies/sandbox-core-renamed-success.receipt.json",
+            ),
+            "stdout": (
+                "policies/sandbox-core-core-success.stdout.log",
+                "policies/sandbox-core-renamed-success.stdout.log",
+            ),
+            "stderr": (
+                "policies/sandbox-core-core-success.stderr.log",
+                "policies/sandbox-core-renamed-success.stderr.log",
+            ),
+        }
+
+        def rename_invocation_paths_in_catalog(catalog: dict[str, object]) -> None:
+            probe = next(
+                item
+                for item in catalog["gates"][0]["policies"][0]["probes"]
+                if item["id"] == "core-success"
+            )
+            probe["invocationContextInput"]["path"] = renamed_invocation_paths[
+                "context"
+            ][1]
+            probe["receiptInput"]["path"] = renamed_invocation_paths["receipt"][1]
+            probe["stdoutLog"] = renamed_invocation_paths["stdout"][1]
+            probe["stderrLog"] = renamed_invocation_paths["stderr"][1]
+
+        def rename_invocation_paths_in_bundle(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            for old_path, new_path in renamed_invocation_paths.values():
+                (case_root / old_path).rename(case_root / new_path)
+            for kind in ("context", "receipt"):
+                old_path, new_path = renamed_invocation_paths[kind]
+                input_claim(case_document, old_path)["path"] = new_path
+            case_document["inputs"].sort(
+                key=lambda item: (item["role"], item["path"])
+            )
+            for kind in ("stdout", "stderr"):
+                old_path, new_path = renamed_invocation_paths[kind]
+                claim = next(
+                    item for item in case_document["logs"] if item["path"] == old_path
+                )
+                claim["path"] = new_path
+            case_document["logs"].sort(key=lambda item: item["path"])
+            probe = next(
+                item
+                for item in case_document["sandboxPolicies"][0]["probes"]
+                if item["id"] == "core-success"
+            )
+            probe["receipt"]["invocationContextInput"]["path"] = (
+                renamed_invocation_paths["context"][1]
+            )
+            probe["receipt"]["path"] = renamed_invocation_paths["receipt"][1]
+            probe["receipt"]["stdoutLog"] = renamed_invocation_paths["stdout"][1]
+            probe["receipt"]["stderrLog"] = renamed_invocation_paths["stderr"][1]
+            receipt_path = renamed_invocation_paths["receipt"][1]
+            receipt = module.decode_json((case_root / receipt_path).read_bytes())
+            receipt["stdout"]["path"] = renamed_invocation_paths["stdout"][1]
+            receipt["stderr"]["path"] = renamed_invocation_paths["stderr"][1]
+            replace_claimed_input(
+                case_root,
+                case_document,
+                receipt_path,
+                module.canonical_bytes(receipt),
+            )
+
+        assert_rebound_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="renamed-invocation-paths",
+            expected_code="PF-EVIDENCE-CATALOG",
+            catalog_mutator=rename_invocation_paths_in_catalog,
+            bundle_mutator=rename_invocation_paths_in_bundle,
+        )
+
+        custom_executable_role = "custom-runtime-executable"
+        custom_executable_path = "tcb/custom-runtime-executable.bin"
+
+        def add_custom_executable_to_catalog(catalog: dict[str, object]) -> None:
+            gate = catalog["gates"][0]
+            gate["requiredInputs"].append(
+                {
+                    "path": custom_executable_path,
+                    "role": custom_executable_role,
+                }
+            )
+            gate["requiredInputs"].sort(
+                key=lambda item: (item["role"], item["path"])
+            )
+            probe = next(
+                item
+                for item in gate["policies"][1]["probes"]
+                if item["id"] == "runtime-success"
+            )
+            probe["command"]["executable"] = {
+                "kind": "input",
+                "path": custom_executable_path,
+                "role": custom_executable_role,
+            }
+            probe["command"]["argv"][0] = {
+                "kind": "run-path",
+                "relative": custom_executable_path,
+            }
+
+        def add_custom_executable_to_bundle(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            body = b"x" * (module.MAX_INPUT_BYTES + 1)
+            write_secure(case_root / custom_executable_path, body)
+            case_document["inputs"].append(
+                {
+                    "path": custom_executable_path,
+                    "role": custom_executable_role,
+                    "sha256": sha256(body),
+                    "size": len(body),
+                }
+            )
+            case_document["inputs"].sort(
+                key=lambda item: (item["role"], item["path"])
+            )
+            receipt_path = "policies/sandbox-evm-runtime-runtime-success.receipt.json"
+            receipt = module.decode_json((case_root / receipt_path).read_bytes())
+            observed_path = os.fspath(case_root / custom_executable_path)
+            receipt["command"]["argv"][0] = observed_path
+            receipt["command"]["argvSha256"] = domain_sha256(
+                b"pf.sandbox.argv.v1",
+                module.canonical_bytes(receipt["command"]["argv"]),
+            )
+            receipt["command"]["observedExecutablePath"] = observed_path
+            receipt["command"]["observedExecutableSha256"] = sha256(body)
+            replace_claimed_input(
+                case_root,
+                case_document,
+                receipt_path,
+                module.canonical_bytes(receipt),
+            )
+
+        assert_rebound_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="custom-input-executable-semantic-limit",
+            expected_code="PF-EVIDENCE-BUNDLE-LIMIT",
+            catalog_mutator=add_custom_executable_to_catalog,
+            bundle_mutator=add_custom_executable_to_bundle,
+        )
 
         assert_snapshot_rejection(
             module,
