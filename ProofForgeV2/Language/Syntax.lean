@@ -8,12 +8,13 @@ open ProofForgeV2
 namespace ProofForgeV2.Language
 
 declare_syntax_cat pfType
-syntax "UInt64" : pfType
+syntax ident : pfType
 
 declare_syntax_cat pfParam
 syntax ident " : " pfType : pfParam
 syntax "public " ident " : " pfType : pfParam
 syntax "private " ident " : " pfType : pfParam
+syntax "commitment " ident " : " pfType : pfParam
 
 declare_syntax_cat pfExpr
 syntax num : pfExpr
@@ -82,7 +83,11 @@ private def preflightForDecoder (stx : Syntax) : Except String Unit :=
 /-- Decode the registered Lean syntax tree into the target-neutral source AST.
 This function is also used by the non-elaborating CLI loader. -/
 private def decodeTypeUnchecked : Syntax → Except String ProofForgeV2.Source.ValueType
-  | `(pfType| UInt64) => .ok .u64
+  | `(pfType| $name:ident) =>
+      match name.getId.toString with
+      | "UInt64" => .ok .u64
+      | "Bool" => .ok .bool
+      | _ => .error "unsupported portable type"
   | _ => .error "unsupported portable type"
 
 def decodeType (stx : Syntax) : Except String ProofForgeV2.Source.ValueType := do
@@ -103,6 +108,12 @@ private def decodeParamUnchecked : Syntax → Except String ProofForgeV2.Source.
         name := name.getId.toString
         type := ← decodeTypeUnchecked type
         visibility := .proverWitness
+      }
+  | `(pfParam| commitment $name:ident : $type:pfType) => do
+      return {
+        name := name.getId.toString
+        type := ← decodeTypeUnchecked type
+        visibility := .commitmentOnly
       }
   | _ => .error "unsupported portable parameter"
 
