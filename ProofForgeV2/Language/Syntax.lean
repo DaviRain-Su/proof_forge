@@ -9,6 +9,7 @@ namespace ProofForgeV2.Language
 
 declare_syntax_cat pfType
 syntax ident : pfType
+syntax ident ident : pfType
 
 declare_syntax_cat pfParam
 syntax ident " : " pfType : pfParam
@@ -87,6 +88,10 @@ private def rawIdentifierText? : Syntax → Option String
   | _ => none
 
 private def decodeTypeUnchecked : Syntax → Except String ProofForgeV2.Source.ValueType
+  | `(pfType| $constructor:ident $fieldId:ident) =>
+      match rawIdentifierText? constructor, rawIdentifierText? fieldId with
+      | some "Field", some "bn254_fr" => .ok .field
+      | _, _ => .error "unsupported portable type"
   | `(pfType| $name:ident) =>
       match rawIdentifierText? name with
       | some "UInt64" => .ok .u64

@@ -55,6 +55,7 @@ inductive ProgramRequirement where
   | callerContext
   | boolValues
   | commitmentDisclosure
+  | fieldBn254
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 namespace ProgramRequirement
@@ -70,6 +71,7 @@ def id : ProgramRequirement → String
   | .callerContext => "context.caller"
   | .boolValues => "value.bool"
   | .commitmentDisclosure => "disclosure.commitment"
+  | .fieldBn254 => "value.field.bn254-fr"
 
 instance : ToString ProgramRequirement := ⟨id⟩
 

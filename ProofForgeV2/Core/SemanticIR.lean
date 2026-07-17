@@ -150,8 +150,9 @@ private def Statement.requirements : Statement → Array ProgramRequirement
   | .synchronousCall .. => #[.synchronousCall, .transactionalRollback]
 
 private def ValueType.requirements : ValueType → Array ProgramRequirement
-  | .u64 | .field => #[]
+  | .u64 => #[]
   | .bool => #[.boolValues]
+  | .field => #[.fieldBn254]
 
 private def Visibility.requirements : Visibility → Array ProgramRequirement
   | .verifierVisible => #[]
@@ -280,6 +281,7 @@ private def appendRequirement (bytes : ByteArray) : ProgramRequirement → ByteA
   | .callerContext => appendTag bytes 7
   | .boolValues => appendTag bytes 8
   | .commitmentDisclosure => appendTag bytes 9
+  | .fieldBn254 => appendTag bytes 10
 
 def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendNat bytes program.schemaVersion

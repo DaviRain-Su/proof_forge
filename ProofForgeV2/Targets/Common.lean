@@ -4,7 +4,7 @@ namespace ProofForgeV2.Targets
 
 open ProofForgeV2 Source
 
-def maxRequirementKinds : Nat := 10
+def maxRequirementKinds : Nat := 11
 
 def validateRequirementEnvelope (program : SemanticProgram) : CompileResult Unit := do
   if program.requirements.size > maxRequirementKinds then
