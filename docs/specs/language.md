@@ -181,6 +181,19 @@ policy。literal 后存在额外独立 token 的形态停在 parser boundary。`
 `boolean literals are not yet supported by typed checking` fail closed；本切片不得新增 Typed/Semantic
 Bool expression、requirement、target behavior 或 runtime representation。
 
+D1-PA-22 冻结的 pre-acceptance alpha checked subtraction 子集把 binary `lhs - rhs` 解码为
+`Source.Expr.checkedSub(lhs, rhs)`。`-` 与既有 `+` 同属 precedence `65`，parser 形状固定为
+`pfExpr:65 " - " pfExpr:66`；因此 `9 - 4 - 1`、`1 + 2 - 3` 与 `1 - 2 + 3` 必须按源码顺序
+左结合，且 operator kind/operand order 必须进入 Source AST 与 sourceHash。Source alpha canonical
+encoder 在既有 Expr tags `0..4` 后 append tag `5`，随后递归编码 lhs、rhs；不得重编号既有 tag、
+交换 operand 或把 subtraction 伪装成 addition/unary negation。decoder/quote 必须结构化往返既有
+`pfExpr` syntax；binary operand 可使用当前 alpha expression，variable operand 保持 name，不新增
+parenthesized expression、unary minus、signed literal、multiplication 或其他 operator。缺失 lhs/rhs 与
+unary-minus spelling 停在 parser boundary。`Typed.check` 遇到 `checkedSub` 必须以 exact
+`checked subtraction is not yet supported by typed checking` fail closed；本切片不得新增 Typed/Semantic
+subtraction、arithmetic requirement、underflow rule、target behavior 或 runtime representation；既有
+`checkedAdd` Typed/Semantic 正常路径必须保持不变。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

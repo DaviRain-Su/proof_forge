@@ -799,6 +799,18 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `boolean literals are not yet supported by typed checking` 且不产生 Semantic/target output；不得以
   UInt64 `0/1` 代替 Bool，不得加入 Typed/Semantic Bool expression、requirement、target ABI 或 runtime
   semantics。
+- D1-PA-22 的 alpha checked subtraction tests 只新增 binary `Source.Expr.checkedSub(lhs, rhs)`；positive
+  覆盖 initializer、entry、view、fn 的 return/let value 可达位置、variable operands 与 Lean command/
+  ParserSession AST/sourceHash parity。parser 必须使用与 `+` 相同的 precedence `65` 和 `lhs:65`/
+  `rhs:66` 约束；测试必须精确固定 `9 - 4 - 1 = (9 - 4) - 1`、
+  `1 + 2 - 3 = (1 + 2) - 3`、`1 - 2 + 3 = (1 - 2) + 3` 的左结合 AST，且不得借助尚未实现的
+  parentheses。canonical goldens 必须固定 append-only Expr tag `5` 后递归 lhs/rhs，证明 `7 - 3`
+  与 `7 + 3` operator tag 不 alias、`7 - 3` 与 `3 - 7` operand order 不 alias、left/right nested direct
+  Source twins 不 alias；既有 Expr tags `0..4` 与 goldens 不变。缺失 lhs/rhs、bare unary minus 与
+  binary 后 unary-minus operand 必须停在 parser boundary。`Typed.check` 必须返回 exact
+  `checked subtraction is not yet supported by typed checking` 且不产生 Semantic/target output；不得加入
+  Typed/Semantic subtraction、underflow semantics、Int/signed literal、unary、parentheses、其他 arithmetic
+  operator、requirement、target ABI 或 runtime semantics；既有 checked-add positive 必须继续通过。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
