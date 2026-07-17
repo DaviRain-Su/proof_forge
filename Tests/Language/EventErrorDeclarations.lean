@@ -135,6 +135,27 @@ unsafe def run : IO Unit := do
   let canonicalErrorBA ← select session
     (programSource "CanonicalEventError" "  error B\n  error A(value : UInt64)\n")
     "<event-error-error-ba>"
+  let canonicalErrorParamName ← select session
+    (programSource "CanonicalEventError" "  error A(other : UInt64)\n")
+    "<event-error-error-param-name>"
+  let canonicalErrorParamType ← select session
+    (programSource "CanonicalEventError" "  error A(value : Bool)\n")
+    "<event-error-error-param-type>"
+  let canonicalErrorPublic ← select session
+    (programSource "CanonicalEventError" "  error A(public value : UInt64)\n")
+    "<event-error-error-public>"
+  let canonicalErrorPrivate ← select session
+    (programSource "CanonicalEventError" "  error A(private value : UInt64)\n")
+    "<event-error-error-private>"
+  let canonicalErrorCommitment ← select session
+    (programSource "CanonicalEventError" "  error A(commitment value : UInt64)\n")
+    "<event-error-error-commitment>"
+  let canonicalErrorParamAB ← select session
+    (programSource "CanonicalEventError" "  error A(first : UInt64, second : Bool)\n")
+    "<event-error-error-param-ab>"
+  let canonicalErrorParamBA ← select session
+    (programSource "CanonicalEventError" "  error A(second : Bool, first : UInt64)\n")
+    "<event-error-error-param-ba>"
   expect (canonicalBase.sourceHash != canonicalEventAB.sourceHash &&
       canonicalEventAB.sourceHash != canonicalEventBA.sourceHash &&
       canonicalBase.sourceHash != canonicalErrorNoParens.sourceHash)
@@ -158,6 +179,17 @@ unsafe def run : IO Unit := do
     "private and commitment event parameter visibility must bind distinctly"
   expect (canonicalErrorAB.sourceHash != canonicalErrorBA.sourceHash)
     "error declaration order must bind the source hash"
+  expect (canonicalSameShapeError.sourceHash != canonicalErrorParamName.sourceHash &&
+      canonicalSameShapeError.sourceHash != canonicalErrorParamType.sourceHash &&
+      canonicalErrorParamAB.sourceHash != canonicalErrorParamBA.sourceHash)
+    "error parameter name, type, and order must bind the source hash"
+  expect (canonicalSameShapeError == canonicalErrorPublic &&
+      canonicalSameShapeError.sourceHash == canonicalErrorPublic.sourceHash)
+    "omitted and explicit public error parameters must canonicalize identically"
+  expect (canonicalErrorPrivate.sourceHash != canonicalSameShapeError.sourceHash &&
+      canonicalErrorCommitment.sourceHash != canonicalSameShapeError.sourceHash &&
+      canonicalErrorPrivate.sourceHash != canonicalErrorCommitment.sourceHash)
+    "private and commitment error parameter visibility must bind distinctly"
 
   expectInvalid "duplicate event declarations"
     "program 'DuplicateEvent' contains duplicate event declarations"
@@ -181,6 +213,14 @@ unsafe def run : IO Unit := do
       (programSource "DuplicateErrorParam"
         "  error First(value : UInt64, value : UInt64)\n  error Second(other : UInt64, other : UInt64)\n")
       "<duplicate-error-param>")
+  expectInvalid "escaped event keyword" "unsupported portable program item"
+    (← session.parsePrograms
+      (programSource "EscapedEventKeyword" "  «event» Changed()\n")
+      "<escaped-event-keyword>")
+  expectInvalid "escaped error keyword" "unsupported portable program item"
+    (← session.parsePrograms
+      (programSource "EscapedErrorKeyword" "  «error» Failed\n")
+      "<escaped-error-keyword>")
 
   match Typed.check elaborated with
   | .error (.invalidProgram "event declarations are not yet supported by typed checking") => pure ()
