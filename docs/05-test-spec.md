@@ -669,8 +669,9 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
 
 ### 双前端单一 decode/validation 首个验收切片
 
-- `TST-SRC-004/005` positive parity：一个 fixture 覆盖当前 alpha 的 state/init、默认/public/
-  private parameter、entry/view、literal/variable/checked-add、assign/return/synchronous-call；直接
+- `TST-SRC-004/005` positive parity：fixtures 覆盖当前 alpha 的 state/init、`UInt64`/`Bool`、
+  默认/public/private/commitment parameter、entry/view、literal/variable/checked-add、
+  assign/return/synchronous-call；直接
   Lean command 生成的 attributed constant 与 `ParserSession` Loader 对同一源码得到的
   `Source.Program` 和 `sourceHash` 必须完全相等。
 - negative parity：zero callable、duplicate state、duplicate entry、duplicate initializer
@@ -685,6 +686,11 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   initializer → zero callable → duplicate state → duplicate entry → initializer parameter → entries
   declaration order parameter。Loader 只保留 module-level validation；command elaborator 必须 quote
   decoded value，不能再从 raw Syntax 运行第二套 AST builder。
+- primitive type spelling 按原始 token exact 校验；`«Bool»`、unknown type 与 qualified type 必须在
+  Lean command/Loader 两路得到同一 `PF-SRC-INVALID: unsupported portable type` 且零输出。
+  `Bool` 与 `commitment` 分别推导 `value.bool`、`disclosure.commitment`，不得把 commitment 混同为
+  private witness；当前四个 target descriptor 在实现相应能力前必须由 support resolver pre-Plan
+  fail closed。
 - 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
   pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
   diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。

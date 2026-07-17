@@ -1031,3 +1031,35 @@ normative: false
 - Next：进入 D0-04 的冻结 bootstrap foundation 实现；当前机器的 broken system-volume seal 与
   current-user-mutable Xcode 继续使 eligible Stage-0 fail closed，因此先推进不伪造正式收据的
   pre-acceptance RED/GREEN 切片。
+
+## 2026-07-17 — D1 source/declaration pre-acceptance slices（formal tasks remain pending）
+
+- Commits：NodeId RED/GREEN/FIX `51cce575`/`75b7a62c`/`cdeff9d3`；source span
+  RED/GREEN/FIX `6e559103`/`0e2013f6`/`6dc5acaa`；`Bool`/`commitment` declaration
+  RED/GREEN `bc8324fe`/`d174e130`；review-gap RED/FIX `89a611b5`/
+  `4d4f7c7961b93b3ea20982a4eeafdc93cbfef89d`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-SOURCE-WIRE-001`、`TST-SRC-001`、`TST-SRC-002`、
+  `TST-SRC-004`。这是任务表明确允许的 pre-acceptance evidence，不改变 `TASK-D1-01`/
+  `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 canonical NodeId v1 preimage/path vocabulary 与 topology validation；新增从 Lean
+  original parser Syntax 整树提取并验证 byte span 的 snapshot/token 防伪边界；扩展共享 DSL decoder，
+  支持 `Bool` 和 `commitment` parameter，同时把 `pfType` 解析为 ident 后在 decoder 中对白名单
+  `UInt64`/`Bool` 的原始 token spelling fail closed，避免把 `Bool` 注册成污染宿主 Lean term grammar
+  的全局关键字或接受 escaped spelling。新增 `value.bool`/`disclosure.commitment` 独立 requirements；
+  当前四个 descriptor 不声明支持，从而在 target Plan 前拒绝。
+- Commands：`lake build Tests.Language.SourceIdentity Tests.Language.SourceSpan proof_forge_next_tests`；
+  `lake build Tests.Language.PrimitiveDeclarations proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；分别在 `6dc5acaa` 与 `d174e130` 执行 `just ci`；
+  `just dsl-negative`；final `just ci` at `4d4f7c79`；`git diff --check`；bounded independent
+  read-only review/re-review。
+- Results：focused aggregate、双入口 escaped/unknown/qualified type negatives 与前两次 `just ci`
+  exit 0；clean detached `4d4f7c79` 的 final `just ci` 也 exit 0。source identity/span review
+  P0=0/P1=0；首轮 Bool review 的三个 P1 已由 `89a611b5`/`4d4f7c79` 修复：raw spelling exact、
+  commitment 独立 requirement、Bool support envelope；re-review P0=0/P1=0。development evidence
+  为 `EV-20260717-0036` 与 `EV-20260717-0037`。
+- Limitations：D0 formal milestone 仍为 5/8；`TASK-D0-04` blocked，`TASK-D0-07`/`D0-08`
+  pending。D1 没有冻结完成包或 eligible formal authority，完整 grammar、ProgramV1 traversal、
+  Diagnostic v1、contained frontend worker 与 hermetic evidence 均未完成；不得把这些切片写成
+  `TASK-D1-01` 或 `TASK-D1-03` done。
+- Next：当前唯一 development pointer 是 D1-PA-03 的文档/evidence/review 收口；完成后进入
+  D1-PA-04，为 exact `Field bn254_fr` 写 RED，并固定其他 field identifier 的 fail-closed 行为。
