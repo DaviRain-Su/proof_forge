@@ -18,6 +18,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.Pipeline,
     `Tests.Compiler.TypedNameIndex,
     `Tests.Language.AggregateDeclarations,
+    `Tests.Language.BoolLiterals,
     `Tests.Language.BytesTypes,
     `Tests.Language.ConstDeclarations,
     `Tests.Language.EventErrorDeclarations,
