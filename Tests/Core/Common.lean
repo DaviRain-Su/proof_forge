@@ -52,8 +52,27 @@ def run : IO Unit := do
     (parseDigest "sha256:g123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
   expectErr "digest long"
     (parseDigest "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef00")
-  expectErr "digest render rejects invalid raw length"
-    (renderDigest { algorithm := .sha256, bytes := ByteArray.empty })
+  let invalidDigest : Digest := { algorithm := .sha256, bytes := ByteArray.empty }
+  expectErr "digest validation rejects invalid raw length" (validateDigest invalidDigest)
+  expectErr "digest render rejects invalid raw length" (renderDigest invalidDigest)
+  let rawPattern := ByteArray.mk #[
+    0x00, 0x09, 0x0a, 0x0f, 0x10, 0x7f, 0x80, 0xff,
+    0x00, 0x09, 0x0a, 0x0f, 0x10, 0x7f, 0x80, 0xff,
+    0x00, 0x09, 0x0a, 0x0f, 0x10, 0x7f, 0x80, 0xff,
+    0x00, 0x09, 0x0a, 0x0f, 0x10, 0x7f, 0x80, 0xff]
+  let rawPatternWire :=
+    "sha256:00090a0f107f80ff00090a0f107f80ff00090a0f107f80ff00090a0f107f80ff"
+  expectOk "digest direct raw golden"
+    (renderDigest { algorithm := .sha256, bytes := rawPattern }) rawPatternWire
+  match parseDigest rawPatternWire with
+  | .ok digest =>
+    unless digest.bytes == rawPattern do
+      throw <| IO.userError "digest independent raw-byte golden mismatch"
+  | .error e => throw <| IO.userError s!"digest raw-byte golden parse failed: {e}"
+  expectErr "digest validation rejects 31 bytes"
+    (validateDigest { algorithm := .sha256, bytes := ByteArray.mk (Array.replicate 31 0) })
+  expectErr "digest validation rejects 33 bytes"
+    (validateDigest { algorithm := .sha256, bytes := ByteArray.mk (Array.replicate 33 0) })
   expectOk "semver core" (parseSemVerCore "1.2.3") { major := 1, minor := 2, patch := 3 }
   expectErr "semver v prefix" (parseSemVerCore "v1.2.3")
   expectErr "semver leading zero" (parseSemVerCore "01.2.3")

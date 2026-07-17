@@ -11,11 +11,46 @@ inductive DigestAlgorithm where
 
 structure Digest where
   algorithm : DigestAlgorithm
-  hex : String
-  deriving DecidableEq, Repr
+  bytes : ByteArray
+  deriving DecidableEq
+
+/-- Validate the fixed-width invariant after any direct `Digest` construction. -/
+def validateDigest (digest : Digest) : Except String Unit := do
+  unless digest.bytes.size = 32 do
+    throw "digest must contain exactly 32 raw bytes"
 
 private def isLowerHex (c : Char) : Bool :=
   ('0' ≤ c ∧ c ≤ '9') ∨ ('a' ≤ c ∧ c ≤ 'f')
+
+private def lowerHexNibble? (c : Char) : Option UInt8 :=
+  if '0' ≤ c && c ≤ '9' then
+    some (UInt8.ofNat (c.toNat - '0'.toNat))
+  else if 'a' ≤ c && c ≤ 'f' then
+    some (UInt8.ofNat (10 + c.toNat - 'a'.toNat))
+  else
+    none
+
+private def decodeLowerHex : List Char → Except String (List UInt8)
+  | [] => pure []
+  | high :: low :: rest => do
+    let highNibble ← match lowerHexNibble? high with
+      | some value => pure value
+      | none => throw "digest hex must be lowercase [0-9a-f]"
+    let lowNibble ← match lowerHexNibble? low with
+      | some value => pure value
+      | none => throw "digest hex must be lowercase [0-9a-f]"
+    let tail ← decodeLowerHex rest
+    pure ((highNibble * 16 + lowNibble) :: tail)
+  | _ => throw "digest hex must contain complete byte pairs"
+
+private def lowerHexDigit (n : Nat) : Char :=
+  if n < 10 then Char.ofNat ('0'.toNat + n)
+  else Char.ofNat ('a'.toNat + n - 10)
+
+private def encodeLowerHex (bytes : ByteArray) : String :=
+  bytes.foldl (fun result byte =>
+    let value := byte.toNat
+    (result.push (lowerHexDigit (value / 16))).push (lowerHexDigit (value % 16))) ""
 
 /-- Parse `sha256:<64 lowercase hex>`; reject uppercase, bare hex, and wrong lengths. -/
 def parseDigest (s : String) : Except String Digest := do
@@ -27,7 +62,17 @@ def parseDigest (s : String) : Except String Digest := do
   let hex := String.ofList (s.toList.drop tag.length)
   unless hex.all isLowerHex do
     throw "digest hex must be lowercase [0-9a-f]"
-  pure { algorithm := .sha256, hex }
+  let raw ← decodeLowerHex hex.toList
+  let bytes := ByteArray.mk raw.toArray
+  let digest := { algorithm := .sha256, bytes }
+  validateDigest digest
+  pure digest
+
+/-- Render the exact lowercase digest wire form, rejecting invalid direct construction. -/
+def renderDigest (digest : Digest) : Except String String := do
+  validateDigest digest
+  match digest.algorithm with
+  | .sha256 => pure ("sha256:" ++ encodeLowerHex digest.bytes)
 
 structure SemVer where
   major : UInt64
