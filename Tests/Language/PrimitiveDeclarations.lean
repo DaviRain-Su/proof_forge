@@ -1,5 +1,6 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Loader
+import ProofForgeV2.Targets.Registry
 
 namespace Tests.Language.PrimitiveDeclarationsFixture
 
@@ -9,6 +10,10 @@ program BoolCommitment where
   state enabled : Bool
 
   entry reveal(commitment proof : Bool) : Bool do
+    return proof
+
+program CommitmentOnly where
+  entry reveal(commitment proof : UInt64) : UInt64 do
     return proof
 
 end Tests.Language.PrimitiveDeclarationsFixture
@@ -57,9 +62,22 @@ unsafe def run : IO Unit := do
   let semantic ← match Compiler.compile elaborated with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
-  expect (semantic.requirements.contains .persistentState)
-    "Bool state must still infer persistent-state requirements"
-  expect (semantic.requirements.contains .privateWitness)
-    "commitment visibility must infer the private-witness requirement"
+  expect (semantic.requirements == #[
+      .persistentState, .boolValues, .commitmentDisclosure
+    ])
+    "Bool and commitment must contribute distinct target-neutral requirements"
+  match Targets.checkSupport .evm semantic with
+  | .error (.unsupportedRequirement .boolValues .evm) => pure ()
+  | _ => throw <| IO.userError "EVM must reject Bool at support resolution before target planning"
+
+  let commitmentOnly ← match Compiler.compile
+      Tests.Language.PrimitiveDeclarationsFixture.CommitmentOnly with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error.render
+  expect (commitmentOnly.requirements == #[.commitmentDisclosure])
+    "commitment visibility must not be conflated with a private witness"
+  match Targets.checkSupport .noir commitmentOnly with
+  | .error (.unsupportedRequirement .commitmentDisclosure .noir) => pure ()
+  | _ => throw <| IO.userError "Noir must reject commitment disclosure before target planning"
 
 end Tests.Language.PrimitiveDeclarations
