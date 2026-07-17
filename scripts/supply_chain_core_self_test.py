@@ -46,6 +46,7 @@ EXPECTED_TOOL_LOCK_LEAF_KEYS = (
     ("asset", "foundry-v0.3.0-darwin-arm64", None),
     ("asset", "lean-4.31.0-darwin-arm64", None),
     ("asset", "openssl-3.6.3-homebrew-arm64-tahoe", None),
+    ("asset", "sbom-utility-v0.19.2-darwin-arm64", None),
     ("asset", "solc-0.8.34-macos-universal", None),
     ("asset", "wabt-1.0.41-macos-arm64", None),
     ("bundle-file", "foundry-v0.3.0-darwin-arm64", "anvil"),
@@ -55,15 +56,28 @@ EXPECTED_TOOL_LOCK_LEAF_KEYS = (
         "openssl-3.6.3-homebrew-arm64-tahoe",
         "lib/libcrypto.3.dylib",
     ),
+    (
+        "bundle-file",
+        "sbom-utility-v0.19.2-darwin-arm64",
+        "sbom-utility",
+    ),
     ("bundle-file", "solc-0.8.34-macos-universal", "solc"),
     ("bundle-file", "wabt-1.0.41-macos-arm64", "wat2wasm"),
     ("compiler-executable", "lean", "bin/lake"),
     ("compiler-executable", "lean", "bin/lean"),
     ("tool-executable", "anvil", "anvil"),
     ("tool-executable", "cast", "cast"),
+    ("tool-executable", "sbom-utility", "sbom-utility"),
     ("tool-executable", "solc", "solc"),
     ("tool-executable", "wat2wasm", "wat2wasm"),
     ("tool-runtime-file", "wat2wasm", "lib/libcrypto.3.dylib"),
+)
+
+SBOM_UTILITY_ASSET_SHA256 = (
+    "9cfdf6b2308fc39b182e64438c78f847a58514899858792f44846bf95026fedf"
+)
+SBOM_UTILITY_EXECUTABLE_SHA256 = (
+    "5d707f542cfc6f06b0c50abe1645ed18ec54263c29ed58bc67c2fe26c0058881"
 )
 
 
@@ -397,6 +411,74 @@ def test_tool_lock_identity(module: ModuleType) -> None:
         module._TOOLCHAIN_ASSETS_MODULE = original_validator_module
 
 
+def test_locked_cyclonedx_validator() -> None:
+    """Pin the offline validator before the formal D0-08 denominator freeze."""
+
+    lock = json.loads((ROOT / "toolchains.lock.json").read_text(encoding="utf-8"))
+    assets = [
+        item for item in lock["assets"]
+        if item["id"] == "sbom-utility-v0.19.2-darwin-arm64"
+    ]
+    if assets != [{
+        "id": "sbom-utility-v0.19.2-darwin-arm64",
+        "url": (
+            "https://github.com/CycloneDX/sbom-utility/releases/download/"
+            "v0.19.2/sbom-utility-v0.19.2-darwin-arm64.tar.gz"
+        ),
+        "size": 7_827_764,
+        "sha256": SBOM_UTILITY_ASSET_SHA256,
+        "format": "tar.gz",
+    }]:
+        raise AssertionError("offline CycloneDX validator asset is not exactly pinned")
+
+    bundle_files = [
+        item for item in lock["bundleFiles"] if item["path"] == "sbom-utility"
+    ]
+    if bundle_files != [{
+        "path": "sbom-utility",
+        "assetId": "sbom-utility-v0.19.2-darwin-arm64",
+        "member": "sbom-utility",
+        "size": 16_037_250,
+        "sha256": SBOM_UTILITY_EXECUTABLE_SHA256,
+        "mode": "0555",
+    }]:
+        raise AssertionError("offline CycloneDX validator executable is not pinned")
+
+    tools = [item for item in lock["tools"] if item["id"] == "sbom-utility"]
+    if tools != [{
+        "id": "sbom-utility",
+        "version": "0.19.2",
+        "sourceUrl": (
+            "https://github.com/CycloneDX/sbom-utility/releases/tag/v0.19.2"
+        ),
+        "platform": "darwin-arm64",
+        "assetId": "sbom-utility-v0.19.2-darwin-arm64",
+        "executable": "sbom-utility",
+        "defaultPath": (
+            "~/.cache/proof-forge-v2/tool-root/darwin-arm64/sbom-utility"
+        ),
+        "executableSha256": SBOM_UTILITY_EXECUTABLE_SHA256,
+        "runtimeLibrarySubdir": None,
+        "runtimeFiles": [],
+        "versionArgs": ["version"],
+        "expectedVersion": "v0.19.2",
+        "licenseSpdx": "Apache-2.0",
+        "requiredByProfiles": ["supply-chain-cyclonedx-1.6-v1"],
+    }]:
+        raise AssertionError("offline CycloneDX validator tool identity drifted")
+
+    policies = [
+        item for item in lock["machoPolicy"]["files"]
+        if item["path"] == "sbom-utility"
+    ]
+    if policies != [{
+        "path": "sbom-utility",
+        "installId": None,
+        "externalLoads": [],
+    }]:
+        raise AssertionError("offline CycloneDX validator runtime closure drifted")
+
+
 def direct_tool_component_sources(module: ModuleType) -> tuple[object, ...]:
     ref = module.ToolLockLeafRef
     source = module.ToolLockComponentSource
@@ -419,6 +501,11 @@ def direct_tool_component_sources(module: ModuleType) -> tuple[object, ...]:
             "asset-openssl",
             "download-asset",
             refs(("asset", "openssl-3.6.3-homebrew-arm64-tahoe", None)),
+        ),
+        source(
+            "asset-sbom-utility",
+            "download-asset",
+            refs(("asset", "sbom-utility-v0.19.2-darwin-arm64", None)),
         ),
         source(
             "asset-solc",
@@ -473,6 +560,18 @@ def direct_tool_component_sources(module: ModuleType) -> tuple[object, ...]:
             ),
         ),
         source(
+            "tool-sbom-utility",
+            "tool-executable",
+            refs(
+                (
+                    "bundle-file",
+                    "sbom-utility-v0.19.2-darwin-arm64",
+                    "sbom-utility",
+                ),
+                ("tool-executable", "sbom-utility", "sbom-utility"),
+            ),
+        ),
+        source(
             "tool-solc",
             "tool-executable",
             refs(
@@ -501,7 +600,7 @@ def test_direct_tool_lock_leaf_coverage(module: ModuleType) -> None:
         raise AssertionError(
             "Tool Lock direct-leaf denominator drifted from the reviewed pre-freeze baseline"
         )
-    if len(leaves) != 17:
+    if len(leaves) != 20:
         raise AssertionError(
             "Tool Lock direct-leaf count is not the reviewed pre-freeze baseline"
         )
@@ -510,7 +609,7 @@ def test_direct_tool_lock_leaf_coverage(module: ModuleType) -> None:
     verified = module.validate_direct_tool_lock_ref_coverage(raw, baseline)
     if verified != leaves:
         raise AssertionError("direct Tool Lock coverage returned a different snapshot")
-    if len(baseline) != 12:
+    if len(baseline) != 14:
         raise AssertionError("direct logical component count is not the baseline")
 
     by_id = {source.component_id: source for source in baseline}
@@ -1168,6 +1267,7 @@ def main() -> int:
     module = load_core()
     test_pf_jcs(module)
     test_tool_lock_identity(module)
+    test_locked_cyclonedx_validator()
     test_direct_tool_lock_leaf_coverage(module)
     test_logical_component_identity(module)
     print("supply-chain-core-self-test: ok")
