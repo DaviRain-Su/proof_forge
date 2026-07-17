@@ -6,6 +6,7 @@ import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Language.AggregateDeclarations
+import Tests.Language.BytesTypes
 import Tests.Language.ConstDeclarations
 import Tests.Language.EventErrorDeclarations
 import Tests.Language.ExtensionRequirements
@@ -38,6 +39,7 @@ unsafe def main : IO Unit := do
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
   Tests.Language.AggregateDeclarations.run
+  Tests.Language.BytesTypes.run
   Tests.Language.ConstDeclarations.run
   Tests.Language.EventErrorDeclarations.run
   Tests.Language.ExtensionRequirements.run
