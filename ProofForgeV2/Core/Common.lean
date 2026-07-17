@@ -235,9 +235,10 @@ structure NonEmptyArray (α : Type u) where
 namespace NonEmptyArray
 
 def ofArray (values : Array α) : Except String (NonEmptyArray α) :=
-  match values.toList with
-  | [] => .error "array must contain at least one value"
-  | head :: tail => .ok { head, tail := tail.toArray }
+  if h : 0 < values.size then
+    .ok { head := values[0], tail := values.extract 1 values.size }
+  else
+    .error "array must contain at least one value"
 
 def toArray (values : NonEmptyArray α) : Array α :=
   #[values.head] ++ values.tail
