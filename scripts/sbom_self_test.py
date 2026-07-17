@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -60,6 +61,68 @@ def expect_fail(label: str, result: subprocess.CompletedProcess[str], code: str)
         raise AssertionError(
             f"{label}: expected {code} in stderr, got:\n{result.stderr}"
         )
+
+
+def expect_fail_before_hash(
+    label: str,
+    result: subprocess.CompletedProcess[str],
+    code: str,
+) -> None:
+    expect_fail(label, result, code)
+    if "hash mismatch" in result.stderr:
+        raise AssertionError(
+            f"{label}: licenseFile node/containment must be rejected before hashing, "
+            f"got:\n{result.stderr}"
+        )
+
+
+def collect_assertion(
+    failures: list[str],
+    assertion: Callable[[], None],
+) -> None:
+    try:
+        assertion()
+    except AssertionError as error:
+        failures.append(str(error))
+
+
+def duplicate_exact_line(path: Path, line: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    needle = line + "\n"
+    if text.count(needle) != 1:
+        raise AssertionError(
+            f"duplicate-key fixture anchor must occur exactly once in {path}: {line!r}"
+        )
+    if line.endswith(","):
+        replacement = line + "\n" + line + "\n"
+    else:
+        replacement = line + ",\n" + line + "\n"
+    path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+
+
+def duplicate_root_scalar_key(path: Path, key: str) -> None:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    value = raw[key]
+    encoded = json.dumps(key) + ":" + json.dumps(value, separators=(",", ":"))
+    text = path.read_text(encoding="utf-8")
+    if text.count(encoded) != 1:
+        raise AssertionError(
+            f"duplicate-key scalar anchor must occur exactly once in {path}: {key!r}"
+        )
+    path.write_text(text.replace(encoded, encoded + "," + encoded, 1), encoding="utf-8")
+
+
+def set_root_license_reference(path: Path, license_file: str, digest: str) -> None:
+    inventory = json.loads(path.read_text(encoding="utf-8"))
+    roots = [
+        component for component in inventory["components"]
+        if component["id"] == "proof-forge-next"
+    ]
+    if len(roots) != 1:
+        raise AssertionError("expected exactly one proof-forge-next inventory component")
+    roots[0]["licenseFile"] = license_file
+    roots[0]["licenseFileSha256"] = digest
+    path.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> int:
@@ -179,6 +242,159 @@ def main() -> int:
             ["--root", str(base), "generate", "--output-dir", str(out / "closure-license")],
             base)
         expect_fail("lock tool license mismatch", license_drift, "PF-SBOM-CLOSURE")
+
+        # P1 RED: every JSON document consumed by the generator must reject
+        # duplicate object keys before schema-specific validation. Duplicate
+        # values are identical so a last-wins parser would otherwise accept
+        # each mutation without changing its decoded value.
+        duplicate_failures: list[str] = []
+        duplicate_cases = (
+            (
+                "policy duplicate root key",
+                "docs/supply-chain/license-policy.v1.json",
+                '  "schema": "proof-forge.license-policy.v1",',
+            ),
+            (
+                "policy duplicate nested key",
+                "docs/supply-chain/license-policy.v1.json",
+                '    "notes": "External CLI tools may be inventory-only when '
+                'redistributable=false and never copied into product archives."',
+            ),
+            (
+                "inventory duplicate root key",
+                "docs/supply-chain/license-inventory.v1.json",
+                '  "schema": "proof-forge.license-inventory.v1",',
+            ),
+            (
+                "inventory duplicate component key",
+                "docs/supply-chain/license-inventory.v1.json",
+                '      "id": "proof-forge-next",',
+            ),
+            (
+                "toolchains lock duplicate root key",
+                "toolchains.lock.json",
+                '  "schema": "proof-forge.toolchains.v2",',
+            ),
+            (
+                "toolchains lock duplicate asset key",
+                "toolchains.lock.json",
+                '      "id": "foundry-v0.3.0-darwin-arm64",',
+            ),
+            (
+                "toolchains lock duplicate tool key",
+                "toolchains.lock.json",
+                '      "id": "anvil",',
+            ),
+        )
+        for index, (label, relative_path, line) in enumerate(duplicate_cases):
+            copy_corpus(base)
+            duplicate_exact_line(base / relative_path, line)
+            duplicate_result = run(
+                [
+                    "--root", str(base), "generate", "--output-dir",
+                    str(out / f"duplicate-{index}"),
+                ],
+                base,
+            )
+            collect_assertion(
+                duplicate_failures,
+                lambda label=label, result=duplicate_result: expect_fail(
+                    label, result, "PF-SBOM-JSON"
+                ),
+            )
+
+        # verify additionally consumes the generated digest map as JSON.
+        copy_corpus(base)
+        duplicate_digest_out = out / "duplicate-digest-map"
+        duplicate_digest_baseline = run(
+            [
+                "--root", str(base), "generate", "--output-dir",
+                str(duplicate_digest_out),
+            ],
+            base,
+        )
+        expect_ok("duplicate digest map baseline", duplicate_digest_baseline)
+        duplicate_root_scalar_key(
+            duplicate_digest_out / "sbom-digests.v1.json", "bomSha256"
+        )
+        duplicate_digest_result = run(
+            [
+                "--root", str(base), "verify", "--output-dir",
+                str(duplicate_digest_out),
+            ],
+            base,
+        )
+        collect_assertion(
+            duplicate_failures,
+            lambda: expect_fail(
+                "digest map duplicate root key",
+                duplicate_digest_result,
+                "PF-SBOM-JSON",
+            ),
+        )
+
+        # P1 RED: licenseFile must be a regular, non-symlink file contained by
+        # the repository. A deliberately wrong digest makes the ordering
+        # observable: both path/node attacks must fail before file hashing.
+        direct_base = Path(temporary) / "direct-symlink-repo"
+        direct_base.mkdir()
+        copy_corpus(direct_base)
+        direct_inventory = direct_base / "docs/supply-chain/license-inventory.v1.json"
+        direct_target = direct_base / "LICENSE.direct-target"
+        shutil.copy2(direct_base / "LICENSE", direct_target)
+        (direct_base / "LICENSE").unlink()
+        (direct_base / "LICENSE").symlink_to(direct_target.name)
+        set_root_license_reference(direct_inventory, "LICENSE", "0" * 64)
+        direct_result = run(
+            [
+                "--root", str(direct_base), "generate", "--output-dir",
+                str(direct_base / "build/sbom"),
+            ],
+            direct_base,
+        )
+        collect_assertion(
+            duplicate_failures,
+            lambda: expect_fail_before_hash(
+                "direct licenseFile symlink", direct_result, "PF-SBOM-LICENSE"
+            ),
+        )
+
+        intermediate_base = Path(temporary) / "intermediate-symlink-repo"
+        intermediate_base.mkdir()
+        copy_corpus(intermediate_base)
+        outside = Path(temporary) / "outside-license-files"
+        outside.mkdir()
+        shutil.copy2(intermediate_base / "LICENSE", outside / "LICENSE")
+        (intermediate_base / "license-hop").symlink_to(
+            outside, target_is_directory=True
+        )
+        intermediate_inventory = (
+            intermediate_base / "docs/supply-chain/license-inventory.v1.json"
+        )
+        set_root_license_reference(
+            intermediate_inventory, "license-hop/LICENSE", "0" * 64
+        )
+        intermediate_result = run(
+            [
+                "--root", str(intermediate_base), "generate", "--output-dir",
+                str(intermediate_base / "build/sbom"),
+            ],
+            intermediate_base,
+        )
+        collect_assertion(
+            duplicate_failures,
+            lambda: expect_fail_before_hash(
+                "intermediate licenseFile symlink escapes repository",
+                intermediate_result,
+                "PF-SBOM-LICENSE",
+            ),
+        )
+
+        if duplicate_failures:
+            raise AssertionError(
+                "SBOM P1 RED acceptance failures:\n- "
+                + "\n- ".join(duplicate_failures)
+            )
 
     print("sbom-self-test: ok")
     return 0
