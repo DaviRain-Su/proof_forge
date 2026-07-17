@@ -69,6 +69,9 @@ MAX_SAFE_INTEGER = (1 << 53) - 1
 MAX_BUNDLE_FILES = 1024
 MAX_BUNDLE_FILE_BYTES = 64 * 1024 * 1024
 MAX_BUNDLE_TOTAL_BYTES = 256 * 1024 * 1024
+MAX_SNAPSHOT_FILE_BYTES = 4 * 1024 * 1024
+MAX_SNAPSHOT_TOTAL_BYTES = 64 * 1024 * 1024
+CLAIM_SET_DOMAIN = b"pf.evidence.claim-set.v1\x00"
 
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 GIT_OBJECT_RE = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
@@ -92,6 +95,53 @@ SEMVER_RE = re.compile(
 )
 INVOCATION_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,47}")
 ENVIRONMENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,254}")
+
+
+class _CapturedBundleFile:
+    __slots__ = ("relative_path", "content", "metadata", "sha256", "identity")
+
+    def __init__(
+        self,
+        *,
+        relative_path: str,
+        content: bytes | None,
+        metadata: os.stat_result,
+        sha256: str,
+        identity: tuple[int, ...],
+    ) -> None:
+        self.relative_path = relative_path
+        self.content = content
+        self.metadata = metadata
+        self.sha256 = sha256
+        self.identity = identity
+
+
+class _DevelopmentBundleSnapshot:
+    __slots__ = (
+        "root_text",
+        "evidence",
+        "files",
+        "checked_file_count",
+        "claim_set_sha256",
+        "identities",
+    )
+
+    def __init__(
+        self,
+        *,
+        root_text: str,
+        evidence: _CapturedBundleFile,
+        files: dict[str, _CapturedBundleFile],
+        checked_file_count: int,
+        claim_set_sha256: str,
+        identities: tuple[tuple[str, tuple[int, ...]], ...],
+    ) -> None:
+        self.root_text = root_text
+        self.evidence = evidence
+        self.files = files
+        self.checked_file_count = checked_file_count
+        self.claim_set_sha256 = claim_set_sha256
+        self.identities = identities
 
 
 class EvidenceError(RuntimeError):
@@ -1469,6 +1519,9 @@ _CATALOG_STRUCTURAL_INPUT_ROLES = {
     "sandbox-invocation-context",
     "sandbox-invocation-receipt",
 }
+_SNAPSHOT_SEMANTIC_INPUT_ROLES = _CATALOG_STRUCTURAL_INPUT_ROLES | {
+    "gate-launcher",
+}
 
 
 def _validate_catalog_role_path(
@@ -1583,18 +1636,42 @@ def _validate_catalog_probe(
         {"success", "permission-denied"},
         _where(where, "outcome"),
     )
-    _validate_catalog_role_path(
+    context_reference = _validate_catalog_role_path(
         probe["invocationContextInput"],
         _where(where, "invocationContextInput"),
         expected_role="sandbox-invocation-context",
     )
-    _validate_catalog_role_path(
+    receipt_reference = _validate_catalog_role_path(
         probe["receiptInput"],
         _where(where, "receiptInput"),
         expected_role="sandbox-invocation-receipt",
     )
-    require_relative_path(probe["stdoutLog"], _where(where, "stdoutLog"))
-    require_relative_path(probe["stderrLog"], _where(where, "stderrLog"))
+    stdout_log = require_relative_path(probe["stdoutLog"], _where(where, "stdoutLog"))
+    stderr_log = require_relative_path(probe["stderrLog"], _where(where, "stderrLog"))
+    fixed_paths = {
+        "invocationContextInput": (
+            context_reference["path"],
+            f"contexts/sandbox-{stage}-{invocation}.json",
+        ),
+        "receiptInput": (
+            receipt_reference["path"],
+            f"policies/sandbox-{stage}-{invocation}.receipt.json",
+        ),
+        "stdoutLog": (
+            stdout_log,
+            f"policies/sandbox-{stage}-{invocation}.stdout.log",
+        ),
+        "stderrLog": (
+            stderr_log,
+            f"policies/sandbox-{stage}-{invocation}.stderr.log",
+        ),
+    }
+    for field, (actual_path, expected_path) in fixed_paths.items():
+        if actual_path != expected_path:
+            fail(
+                "PF-EVIDENCE-CATALOG",
+                f"{where}.{field} must use the fixed stage/invocation path",
+            )
     denial = probe["denial"]
     denial_object: dict[str, object] | None = None
     if outcome == "success":
@@ -1747,6 +1824,19 @@ def _validate_catalog_policy(
         invocations.append(invocation)
         executable_consumers.append(executable)
     require_sorted_unique(probe_ids, _where(where, "probes"))
+    stages = {stage for stage, _ in invocations}
+    if len(stages) != 1:
+        fail(
+            "PF-EVIDENCE-CATALOG",
+            f"{where}.probes must all use one rendered-policy stage",
+        )
+    stage = next(iter(stages))
+    rendered = policy["renderedPolicyInput"]
+    if not isinstance(rendered, dict) or rendered.get("path") != f"policies/{stage}.sb":
+        fail(
+            "PF-EVIDENCE-CATALOG",
+            f"{where}.renderedPolicyInput.path must be policies/{stage}.sb",
+        )
     return policy, invocations, executable_consumers
 
 
@@ -1955,6 +2045,15 @@ def _validate_catalog_gate(value: object, where: str) -> dict[str, object]:
     argv = require_array(command["argv"], _where(command_where, "argv"), nonempty=True)
     for index, matcher in enumerate(argv):
         _validate_catalog_value_matcher(matcher, f"{command_where}.argv[{index}]")
+    launcher_matcher = argv[0]
+    if not isinstance(launcher_matcher, dict) or launcher_matcher.get("kind") != "run-path":
+        fail(
+            "PF-EVIDENCE-CATALOG",
+            f"{command_where}.argv[0] must be a retained run-path launcher",
+        )
+    launcher_relative = launcher_matcher.get("relative")
+    if not isinstance(launcher_relative, str):
+        fail("PF-EVIDENCE-CATALOG", f"{command_where}.argv[0] is not typed")
     require_relative_path(command["cwdRelative"], _where(command_where, "cwdRelative"), allow_dot=True)
     _validate_catalog_value_matcher(
         command["environmentSha256"],
@@ -2047,6 +2146,12 @@ def _validate_catalog_gate(value: object, where: str) -> dict[str, object]:
             )
         input_keys.append((role, path))
     require_sorted_unique(input_keys, _where(where, "requiredInputs"))
+    launcher_inputs = [key for key in input_keys if key[1] == launcher_relative]
+    if len(launcher_inputs) != 1:
+        fail(
+            "PF-EVIDENCE-CATALOG",
+            f"{command_where}.argv[0] must uniquely match one required input",
+        )
 
     required_artifacts = require_array(
         gate["requiredArtifacts"],
@@ -2389,7 +2494,7 @@ def _require_bound_development_execution(executing_source: object) -> dict[str, 
 def _join_development_implementation_closure(
     document: dict[str, object],
     catalog: dict[str, object],
-    bundle_root: Path,
+    snapshot: _DevelopmentBundleSnapshot,
     executing_source: object,
 ) -> tuple[str, str]:
     context = _require_bound_development_execution(executing_source)
@@ -2522,11 +2627,14 @@ def _join_development_implementation_closure(
             "PF-EVIDENCE-CATALOG-DIGEST",
             "evidence-schema-core input path is not a validated relative path",
         )
-    retained_core_bytes, retained_metadata = _read_bundle_relative_file(
-        bundle_root,
-        core_claim_path,
-        maximum=MAX_INPUT_BYTES,
-    )
+    retained_core = snapshot.files.get(core_claim_path)
+    if retained_core is None or retained_core.content is None:
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "retained evidence-schema-core is absent from the single bundle snapshot",
+        )
+    retained_core_bytes = retained_core.content
+    retained_metadata = retained_core.metadata
     if (
         retained_core_bytes != _EVIDENCE_V1_CORE_BYTES
         or retained_metadata.st_size != len(_EVIDENCE_V1_CORE_BYTES)
@@ -2696,30 +2804,51 @@ def _read_open_file(descriptor: int, maximum: int) -> bytes:
     return b"".join(chunks)
 
 
-def _read_bundle_relative_file(
-    root_path: Path,
+def _capture_bundle_file_at(
+    root: int,
     relative_path: str,
     *,
     maximum: int,
-) -> tuple[bytes, os.stat_result]:
-    """Read one bounded bundle-relative file through a stable no-follow fd chain."""
-    checked_path = require_relative_path(relative_path, "EVIDENCE")
-    root = _open_secure_directory(root_path, "BUNDLE_ROOT")
-    current = os.dup(root)
+    capture_content: bool,
+    expected_size: int | None = None,
+    expected_sha256: str | None = None,
+    directory_fds: dict[str, int] | None = None,
+    error_code: str = "PF-EVIDENCE-BUNDLE",
+) -> _CapturedBundleFile:
+    """Capture one member from a retained bundle root without reopening the root."""
+    checked_path = require_relative_path(relative_path, "bundle member path")
+    components = checked_path.split("/")
+    directory_fds = directory_fds or {}
+    current: int | None = None
     descriptor: int | None = None
     try:
-        components = checked_path.split("/")
-        for component in components[:-1]:
+        if components[0] in directory_fds:
+            if len(components) != 2:
+                fail(
+                    "PF-EVIDENCE-BUNDLE",
+                    f"dedicated bundle directory member must be a direct child: "
+                    f"{_diagnostic_repr(checked_path)}",
+                )
+            current = os.dup(directory_fds[components[0]])
+            remaining_components = components[1:]
+        else:
+            current = os.dup(root)
+            remaining_components = components
+        for component in remaining_components[:-1]:
             try:
                 following = os.open(
                     component,
-                    os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                    os.O_RDONLY
+                    | os.O_DIRECTORY
+                    | os.O_CLOEXEC
+                    | os.O_NOFOLLOW
+                    | getattr(os, "O_NONBLOCK", 0),
                     dir_fd=current,
                 )
             except OSError as exc:
                 fail(
-                    "PF-EVIDENCE-BUNDLE",
-                    f"cannot safely open evidence component {_diagnostic_repr(component)}: "
+                    error_code,
+                    f"cannot safely open bundle component {_diagnostic_repr(component)}: "
                     f"{exc.strerror}",
                 )
             try:
@@ -2733,17 +2862,20 @@ def _read_bundle_relative_file(
                 raise
             os.close(current)
             current = following
-        name = components[-1]
+        name = remaining_components[-1]
         try:
             descriptor = os.open(
                 name,
-                os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                os.O_RDONLY
+                | os.O_CLOEXEC
+                | os.O_NOFOLLOW
+                | getattr(os, "O_NONBLOCK", 0),
                 dir_fd=current,
             )
         except OSError as exc:
             fail(
-                "PF-EVIDENCE-BUNDLE",
-                f"cannot safely open evidence file {_diagnostic_repr(checked_path)}: "
+                error_code,
+                f"cannot safely open bundle file {_diagnostic_repr(checked_path)}: "
                 f"{exc.strerror}",
             )
         before = os.fstat(descriptor)
@@ -2752,47 +2884,99 @@ def _read_bundle_relative_file(
             or before.st_uid != os.geteuid()
             or before.st_nlink != 1
             or stat.S_IMODE(before.st_mode) & 0o022
-            or before.st_size > maximum
         ):
             fail(
-                "PF-EVIDENCE-BUNDLE",
-                f"evidence file metadata mismatch: {_diagnostic_repr(checked_path)}",
+                error_code,
+                f"bundle file metadata mismatch: {_diagnostic_repr(checked_path)}",
             )
-        data = _read_open_file(descriptor, maximum)
+        if before.st_size > maximum:
+            fail(
+                "PF-EVIDENCE-BUNDLE-LIMIT",
+                f"bundle member exceeds {maximum} bytes: {_diagnostic_repr(checked_path)}",
+            )
+        if expected_size is not None and before.st_size != expected_size:
+            fail(
+                error_code,
+                f"bundle file size mismatched its claim: {_diagnostic_repr(checked_path)}",
+            )
+        digest = hashlib.sha256()
+        chunks: list[bytes] | None = [] if capture_content else None
+        total = 0
+        while total <= maximum:
+            chunk = os.read(descriptor, min(maximum + 1 - total, 128 * 1024))
+            if not chunk:
+                break
+            total += len(chunk)
+            digest.update(chunk)
+            if chunks is not None:
+                chunks.append(chunk)
+        if total > maximum:
+            fail(
+                "PF-EVIDENCE-BUNDLE-LIMIT",
+                f"bundle member grew beyond {maximum} bytes: {_diagnostic_repr(checked_path)}",
+            )
         after = os.fstat(descriptor)
         try:
             path_after = os.stat(name, dir_fd=current, follow_symlinks=False)
         except OSError as exc:
             fail(
-                "PF-EVIDENCE-BUNDLE",
-                f"cannot restat evidence file {_diagnostic_repr(checked_path)}: "
+                error_code,
+                f"cannot restat bundle file {_diagnostic_repr(checked_path)}: "
                 f"{exc.strerror}",
             )
-        stable = (
-            "st_dev", "st_ino", "st_mode", "st_uid", "st_nlink", "st_size",
-            "st_mtime_ns", "st_ctime_ns",
-        )
+        identity = _implementation_identity(before)
+        actual_sha256 = digest.hexdigest()
         if (
-            len(data) != before.st_size
-            or any(getattr(before, field) != getattr(after, field) for field in stable)
-            or not _same_inode(before, path_after)
+            total != before.st_size
+            or identity != _implementation_identity(after)
+            or identity != _implementation_identity(path_after)
+            or (expected_sha256 is not None and actual_sha256 != expected_sha256)
         ):
             fail(
-                "PF-EVIDENCE-BUNDLE",
-                f"evidence file changed while reading: {_diagnostic_repr(checked_path)}",
+                error_code,
+                f"bundle file content or identity mismatched: "
+                f"{_diagnostic_repr(checked_path)}",
             )
-        return data, before
+        return _CapturedBundleFile(
+            relative_path=checked_path,
+            content=b"".join(chunks) if chunks is not None else None,
+            metadata=before,
+            sha256=actual_sha256,
+            identity=identity,
+        )
     except EvidenceError:
         raise
     except OSError as exc:
         fail(
-            "PF-EVIDENCE-BUNDLE",
-            f"evidence file I/O failed for {_diagnostic_repr(checked_path)}: {exc.strerror}",
+            error_code,
+            f"bundle file I/O failed for {_diagnostic_repr(checked_path)}: {exc.strerror}",
         )
     finally:
         if descriptor is not None:
             os.close(descriptor)
-        os.close(current)
+        if current is not None:
+            os.close(current)
+
+
+def _read_bundle_relative_file(
+    root_path: Path,
+    relative_path: str,
+    *,
+    maximum: int,
+) -> tuple[bytes, os.stat_result]:
+    """Compatibility wrapper for one standalone bounded bundle-relative read."""
+    root = _open_secure_directory(root_path, "BUNDLE_ROOT")
+    try:
+        captured = _capture_bundle_file_at(
+            root,
+            relative_path,
+            maximum=maximum,
+            capture_content=True,
+        )
+        if captured.content is None:
+            fail("PF-EVIDENCE-BUNDLE", "bundle capture omitted requested file content")
+        return captured.content, captured.metadata
+    finally:
         os.close(root)
 
 
@@ -2940,115 +3124,45 @@ def _verify_open_bundle_file(
     expected_size: int,
     expected_sha256: str,
 ) -> tuple[int, int]:
-    components = relative_path.split("/")
-    current = os.dup(root)
-    descriptor: int | None = None
-    try:
-        for component in components[:-1]:
-            try:
-                following = os.open(
-                    component,
-                    os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
-                    dir_fd=current,
-                )
-            except OSError as exc:
-                fail(
-                    "PF-EVIDENCE-BUNDLE",
-                    f"cannot safely open bundle component {_diagnostic_repr(component)}: "
-                    f"{exc.strerror}",
-                )
-            try:
-                _require_secure_directory(
-                    os.fstat(following),
-                    f"bundle component {_diagnostic_repr(component)}",
-                    final=True,
-                )
-            except BaseException:
-                os.close(following)
-                raise
-            os.close(current)
-            current = following
-        name = components[-1]
-        try:
-            descriptor = os.open(
-                name,
-                os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
-                dir_fd=current,
-            )
-        except OSError as exc:
-            fail(
-                "PF-EVIDENCE-BUNDLE",
-                f"cannot safely open bundle file {_diagnostic_repr(relative_path)}: {exc.strerror}",
-            )
-        before = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or before.st_uid != os.geteuid()
-            or before.st_nlink != 1
-            or stat.S_IMODE(before.st_mode) & 0o022
-            or before.st_size != expected_size
-        ):
-            fail(
-                "PF-EVIDENCE-BUNDLE",
-                f"bundle file metadata mismatch: {_diagnostic_repr(relative_path)}",
-            )
-        digest = hashlib.sha256()
-        total = 0
-        while True:
-            chunk = os.read(descriptor, 128 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > expected_size:
-                fail(
-                    "PF-EVIDENCE-BUNDLE",
-                    f"bundle file grew while reading: {_diagnostic_repr(relative_path)}",
-                )
-            digest.update(chunk)
-        after = os.fstat(descriptor)
-        path_after = os.stat(name, dir_fd=current, follow_symlinks=False)
-        stable = ("st_dev", "st_ino", "st_size", "st_nlink", "st_mtime_ns", "st_ctime_ns")
-        if (
-            total != expected_size
-            or digest.hexdigest() != expected_sha256
-            or any(getattr(before, field) != getattr(after, field) for field in stable)
-            or not _same_inode(before, path_after)
-        ):
-            fail(
-                "PF-EVIDENCE-BUNDLE",
-                f"bundle file content changed or hash mismatched: {_diagnostic_repr(relative_path)}",
-            )
-        return (before.st_dev, before.st_ino)
-    except EvidenceError:
-        raise
-    except OSError as exc:
-        fail(
-            "PF-EVIDENCE-BUNDLE",
-            f"bundle file I/O failed for {_diagnostic_repr(relative_path)}: {exc.strerror}",
-        )
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        os.close(current)
+    captured = _capture_bundle_file_at(
+        root,
+        relative_path,
+        maximum=MAX_BUNDLE_FILE_BYTES,
+        capture_content=False,
+        expected_size=expected_size,
+        expected_sha256=expected_sha256,
+    )
+    return (captured.metadata.st_dev, captured.metadata.st_ino)
 
 
-def verify_bundle(document: dict[str, object], root_path: Path) -> int:
-    """Verify referenced bundle files; this is not gate-catalog attestation."""
-    document = validate_evidence(document)
-    records: dict[str, tuple[int, str]] = {}
+def _collect_bundle_claims(
+    document: dict[str, object],
+    *,
+    enforce_semantic_limits: bool,
+    semantic_input_keys: set[tuple[str, str]] | None = None,
+) -> tuple[dict[str, tuple[int, str, bool, str | None]], str]:
+    """Build the one closed claim registry and reject all limits before I/O."""
+    records: dict[str, tuple[int, str, bool, str | None]] = {}
     portable_paths: dict[str, str] = {}
+    selected_semantic_inputs = semantic_input_keys or set()
 
-    def register(path: object, size: object, digest: object) -> None:
-        checked_path = require_relative_path(path, "bundle claim path")
-        checked_size = require_int(size, "bundle claim size")
-        checked_digest = require_sha256(digest, "bundle claim sha256")
+    def register(
+        entry: object,
+        *,
+        semantic: bool,
+        role: str | None,
+    ) -> None:
+        if not isinstance(entry, dict):
+            fail("PF-EVIDENCE-BUNDLE", "validated bundle claim is not an object")
+        checked_path = require_relative_path(entry.get("path"), "bundle claim path")
+        checked_size = require_int(entry.get("size"), "bundle claim size")
+        checked_digest = require_sha256(entry.get("sha256"), "bundle claim sha256")
         if checked_size > MAX_BUNDLE_FILE_BYTES:
             fail(
                 "PF-EVIDENCE-BUNDLE-LIMIT",
                 f"bundle claim exceeds {MAX_BUNDLE_FILE_BYTES} bytes: "
                 f"{_diagnostic_repr(checked_path)}",
             )
-        expected = (checked_size, checked_digest)
         if checked_path in records:
             fail(
                 "PF-EVIDENCE-BUNDLE",
@@ -3062,37 +3176,442 @@ def verify_bundle(document: dict[str, object], root_path: Path) -> int:
                 f"bundle claim paths collide under NFC/casefold: "
                 f"{_diagnostic_repr(previous_path)} and {_diagnostic_repr(checked_path)}",
             )
-        records[checked_path] = expected
+        records[checked_path] = (checked_size, checked_digest, semantic, role)
         portable_paths[alias] = checked_path
 
     inputs = require_array(document["inputs"], "$.inputs")
     artifacts = require_array(document["artifacts"], "$.artifacts")
     logs = require_array(document["logs"], "$.logs")
     for entry in inputs:
-        register(entry["path"], entry["size"], entry["sha256"])
+        if not isinstance(entry, dict):
+            fail("PF-EVIDENCE-BUNDLE", "validated input claim is not an object")
+        role_value = entry.get("role")
+        if not isinstance(role_value, str):
+            fail("PF-EVIDENCE-BUNDLE", "validated input role is not a string")
+        register(
+            entry,
+            semantic=(
+                role_value in _SNAPSHOT_SEMANTIC_INPUT_ROLES
+                or (role_value, entry["path"]) in selected_semantic_inputs
+            ),
+            role=role_value,
+        )
     for entry in artifacts:
-        if entry["retained"] is True:
-            register(entry["path"], entry["size"], entry["sha256"])
+        if not isinstance(entry, dict):
+            fail("PF-EVIDENCE-BUNDLE", "validated artifact claim is not an object")
+        if entry.get("retained") is True:
+            register(entry, semantic=False, role=None)
     for entry in logs:
-        register(entry["path"], entry["size"], entry["sha256"])
+        register(entry, semantic=True, role=None)
 
     if len(records) > MAX_BUNDLE_FILES:
         fail(
             "PF-EVIDENCE-BUNDLE-LIMIT",
             f"bundle contains more than {MAX_BUNDLE_FILES} declared files",
         )
-    total_size = sum(size for size, _ in records.values())
+    total_size = sum(size for size, _, _, _ in records.values())
     if total_size > MAX_BUNDLE_TOTAL_BYTES:
         fail(
             "PF-EVIDENCE-BUNDLE-LIMIT",
             f"bundle claims exceed {MAX_BUNDLE_TOTAL_BYTES} total bytes",
         )
+    if enforce_semantic_limits:
+        semantic_records = [
+            (path, size)
+            for path, (size, _, semantic, _) in records.items()
+            if semantic
+        ]
+        oversized = [path for path, size in semantic_records if size > MAX_SNAPSHOT_FILE_BYTES]
+        if oversized:
+            fail(
+                "PF-EVIDENCE-BUNDLE-LIMIT",
+                f"semantic snapshot member exceeds {MAX_SNAPSHOT_FILE_BYTES} bytes: "
+                f"{_diagnostic_repr(sorted(oversized)[0])}",
+            )
+        semantic_total = sum(size for _, size in semantic_records)
+        if semantic_total > MAX_SNAPSHOT_TOTAL_BYTES:
+            fail(
+                "PF-EVIDENCE-BUNDLE-LIMIT",
+                f"semantic snapshot exceeds {MAX_SNAPSHOT_TOTAL_BYTES} total bytes",
+            )
+
+    claim_set = {
+        "inputs": document["inputs"],
+        "artifacts": document["artifacts"],
+        "logs": document["logs"],
+    }
+    claim_set_sha256 = hashlib.sha256(
+        CLAIM_SET_DOMAIN + canonical_bytes(claim_set)
+    ).hexdigest()
+    return records, claim_set_sha256
+
+
+def _open_snapshot_directory(root: int, name: str) -> tuple[int, tuple[int, ...]]:
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | os.O_CLOEXEC
+            | os.O_NOFOLLOW
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=root,
+        )
+    except OSError as exc:
+        fail(
+            "PF-EVIDENCE-BUNDLE",
+            f"cannot open dedicated bundle directory {_diagnostic_repr(name)}: {exc.strerror}",
+        )
+    try:
+        metadata = os.fstat(descriptor)
+        _require_secure_directory(metadata, f"bundle {name} directory", final=True)
+        pathname = os.stat(name, dir_fd=root, follow_symlinks=False)
+        identity = _implementation_identity(metadata)
+        if identity != _implementation_identity(pathname):
+            fail(
+                "PF-EVIDENCE-BUNDLE",
+                f"dedicated bundle directory identity mismatch: {_diagnostic_repr(name)}",
+            )
+        return descriptor, identity
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _require_snapshot_directory_entries(
+    descriptor: int,
+    name: str,
+    expected: set[str],
+) -> None:
+    try:
+        entries = os.listdir(descriptor)
+    except OSError as exc:
+        fail(
+            "PF-EVIDENCE-BUNDLE",
+            f"cannot enumerate dedicated bundle directory {_diagnostic_repr(name)}: "
+            f"{exc.strerror}",
+        )
+    if len(entries) > MAX_BUNDLE_FILES:
+        fail(
+            "PF-EVIDENCE-BUNDLE-LIMIT",
+            f"dedicated bundle directory {name!r} exceeds {MAX_BUNDLE_FILES} entries",
+        )
+    actual = set(entries)
+    if len(actual) != len(entries) or actual != expected:
+        missing = sorted(expected - actual)[:4]
+        extra = sorted(actual - expected)[:4]
+        fail(
+            "PF-EVIDENCE-BUNDLE",
+            f"dedicated bundle directory {name!r} is not the exact selected-gate set "
+            f"missing={[_diagnostic_repr(item) for item in missing]} "
+            f"extra={[_diagnostic_repr(item) for item in extra]}",
+        )
+
+
+def _revalidate_snapshot_directory(
+    root: int,
+    descriptor: int,
+    name: str,
+    expected_identity: tuple[int, ...],
+) -> None:
+    try:
+        descriptor_identity = _implementation_identity(os.fstat(descriptor))
+        pathname_identity = _implementation_identity(
+            os.stat(name, dir_fd=root, follow_symlinks=False)
+        )
+    except OSError as exc:
+        fail(
+            "PF-EVIDENCE-BUNDLE",
+            f"cannot revalidate dedicated bundle directory {_diagnostic_repr(name)}: "
+            f"{exc.strerror}",
+        )
+    if descriptor_identity != expected_identity or pathname_identity != expected_identity:
+        fail(
+            "PF-EVIDENCE-BUNDLE",
+            f"dedicated bundle directory changed during snapshot: {_diagnostic_repr(name)}",
+        )
+
+
+def _selected_gate_directory_entries(
+    selected_gate: dict[str, object],
+) -> dict[str, set[str]]:
+    expected = {"policies": set(), "contexts": set()}
+
+    def add(path_value: object, directory: str, where: str) -> None:
+        path = require_relative_path(path_value, where)
+        components = path.split("/")
+        if len(components) != 2 or components[0] != directory:
+            fail(
+                "PF-EVIDENCE-BUNDLE",
+                f"{where} must be a direct member of {directory!r}",
+            )
+        expected[directory].add(components[1])
+
+    policies = selected_gate.get("policies")
+    if not isinstance(policies, list):
+        fail("PF-EVIDENCE-BUNDLE", "selected gate policies are not validated")
+    for policy_index, policy_value in enumerate(policies):
+        if not isinstance(policy_value, dict):
+            fail("PF-EVIDENCE-BUNDLE", "selected gate policy is not an object")
+        rendered = policy_value.get("renderedPolicyInput")
+        probes = policy_value.get("probes")
+        if not isinstance(rendered, dict) or not isinstance(probes, list):
+            fail("PF-EVIDENCE-BUNDLE", "selected gate policy refs are not validated")
+        add(
+            rendered.get("path"),
+            "policies",
+            f"selectedGate.policies[{policy_index}].renderedPolicyInput.path",
+        )
+        for probe_index, probe_value in enumerate(probes):
+            if not isinstance(probe_value, dict):
+                fail("PF-EVIDENCE-BUNDLE", "selected gate probe is not an object")
+            context = probe_value.get("invocationContextInput")
+            receipt = probe_value.get("receiptInput")
+            if not isinstance(context, dict) or not isinstance(receipt, dict):
+                fail("PF-EVIDENCE-BUNDLE", "selected gate probe refs are not validated")
+            prefix = f"selectedGate.policies[{policy_index}].probes[{probe_index}]"
+            add(context.get("path"), "contexts", f"{prefix}.invocationContextInput.path")
+            add(receipt.get("path"), "policies", f"{prefix}.receiptInput.path")
+            add(probe_value.get("stdoutLog"), "policies", f"{prefix}.stdoutLog")
+            add(probe_value.get("stderrLog"), "policies", f"{prefix}.stderrLog")
+    return expected
+
+
+def _selected_gate_semantic_input_keys(
+    selected_gate: dict[str, object],
+) -> dict[tuple[str, str], str]:
+    """Return selected input executables/launchers that require captured bytes."""
+    required_inputs = selected_gate.get("requiredInputs")
+    if not isinstance(required_inputs, list):
+        fail("PF-EVIDENCE-CATALOG-GATE", "selected gate inputs are not validated")
+    required_by_path: dict[str, tuple[str, str]] = {}
+    for reference in required_inputs:
+        if not isinstance(reference, dict):
+            fail("PF-EVIDENCE-CATALOG-GATE", "selected gate input is not an object")
+        role = reference.get("role")
+        path = reference.get("path")
+        if not isinstance(role, str) or not isinstance(path, str):
+            fail("PF-EVIDENCE-CATALOG-GATE", "selected gate input is not typed")
+        required_by_path[path] = (role, path)
+
+    semantic: dict[tuple[str, str], str] = {}
+    command_policy = selected_gate.get("commandPolicy")
+    if not isinstance(command_policy, dict):
+        fail("PF-EVIDENCE-CATALOG-GATE", "selected gate command is not validated")
+    command_argv = command_policy.get("argv")
+    if not isinstance(command_argv, list) or not command_argv:
+        fail("PF-EVIDENCE-CATALOG-GATE", "selected gate command argv is empty")
+    launcher_matcher = command_argv[0]
+    if isinstance(launcher_matcher, dict) and launcher_matcher.get("kind") == "run-path":
+        relative = launcher_matcher.get("relative")
+        if not isinstance(relative, str) or relative not in required_by_path:
+            fail(
+                "PF-EVIDENCE-CATALOG-GATE",
+                "selected gate run-path launcher is not a required input",
+            )
+        semantic[required_by_path[relative]] = "PF-EVIDENCE-CATALOG-GATE"
+
+    policies = selected_gate.get("policies")
+    if not isinstance(policies, list):
+        fail("PF-EVIDENCE-CATALOG-PROBES", "selected gate policies are not validated")
+    for policy in policies:
+        if not isinstance(policy, dict) or not isinstance(policy.get("probes"), list):
+            fail("PF-EVIDENCE-CATALOG-PROBES", "selected gate probes are not validated")
+        for probe in policy["probes"]:
+            if not isinstance(probe, dict) or not isinstance(probe.get("command"), dict):
+                fail("PF-EVIDENCE-CATALOG-PROBES", "selected gate probe is not typed")
+            executable = probe["command"].get("executable")
+            if not isinstance(executable, dict):
+                fail("PF-EVIDENCE-CATALOG-PROBES", "probe executable is not validated")
+            if executable.get("kind") != "input":
+                continue
+            role = executable.get("role")
+            path = executable.get("path")
+            if not isinstance(role, str) or not isinstance(path, str):
+                fail("PF-EVIDENCE-CATALOG-PROBES", "probe input executable is not typed")
+            semantic[(role, path)] = "PF-EVIDENCE-CATALOG-PROBES"
+    return semantic
+
+
+def _capture_development_bundle_snapshot(
+    root: int,
+    root_text: str,
+    document: dict[str, object],
+    selected_gate: dict[str, object],
+    *,
+    root_identity: tuple[int, ...],
+    evidence_capture: _CapturedBundleFile,
+    catalog_capture: _CapturedBundleFile,
+) -> _DevelopmentBundleSnapshot:
+    """Verify all claims once and retain only the bounded semantic member bytes."""
+    semantic_input_codes = _selected_gate_semantic_input_keys(selected_gate)
+    records, claim_set_sha256 = _collect_bundle_claims(
+        document,
+        enforce_semantic_limits=True,
+        semantic_input_keys=set(semantic_input_codes),
+    )
+    claimed_semantic_bytes = sum(
+        size for size, _, semantic, _ in records.values() if semantic
+    )
+    if evidence_capture.metadata.st_size + claimed_semantic_bytes > MAX_SNAPSHOT_TOTAL_BYTES:
+        fail(
+            "PF-EVIDENCE-BUNDLE-LIMIT",
+            "preliminary evidence plus semantic snapshot members exceed "
+            f"{MAX_SNAPSHOT_TOTAL_BYTES} total bytes",
+        )
+    for (role, path), code in semantic_input_codes.items():
+        record = records.get(path)
+        if record is None or record[3] != role:
+            fail(code, "selected executable input is absent from the evidence claim set")
+    expected_entries = _selected_gate_directory_entries(selected_gate)
+    expected_paths = {
+        f"{directory}/{entry}"
+        for directory, entries in expected_entries.items()
+        for entry in entries
+    }
+    missing_claims = sorted(expected_paths - set(records))
+    if missing_claims:
+        fail(
+            "PF-EVIDENCE-BUNDLE",
+            f"selected gate references an undeclared snapshot member: "
+            f"{_diagnostic_repr(missing_claims[0])}",
+        )
+    evidence_alias = unicodedata.normalize(
+        "NFC", evidence_capture.relative_path
+    ).casefold()
+    for claim_path in records:
+        if unicodedata.normalize("NFC", claim_path).casefold() == evidence_alias:
+            fail(
+                "PF-EVIDENCE-BUNDLE",
+                "preliminary evidence path aliases a declared bundle claim",
+            )
+    catalog_record = records.get(catalog_capture.relative_path)
+    if catalog_record is None:
+        fail("PF-EVIDENCE-CATALOG-DIGEST", "captured catalog is absent from bundle claims")
+    catalog_size, catalog_sha256, _, _ = catalog_record
+    if (
+        catalog_capture.metadata.st_size != catalog_size
+        or catalog_capture.sha256 != catalog_sha256
+        or catalog_capture.content is None
+    ):
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            "preloaded catalog does not equal its retained bundle claim",
+        )
+
+    directory_fds: dict[str, int] = {}
+    directory_identities: dict[str, tuple[int, ...]] = {}
+    files: dict[str, _CapturedBundleFile] = {}
+    inode_paths: dict[tuple[int, int], str] = {}
+
+    def register(captured: _CapturedBundleFile, *, evidence: bool = False) -> None:
+        inode = (captured.metadata.st_dev, captured.metadata.st_ino)
+        previous_path = inode_paths.get(inode)
+        if previous_path is not None and previous_path != captured.relative_path:
+            fail(
+                "PF-EVIDENCE-BUNDLE",
+                f"distinct snapshot members resolve to one inode: "
+                f"{_diagnostic_repr(previous_path)} and "
+                f"{_diagnostic_repr(captured.relative_path)}",
+            )
+        inode_paths[inode] = captured.relative_path
+        if not evidence:
+            if captured.relative_path in files:
+                fail(
+                    "PF-EVIDENCE-BUNDLE",
+                    f"snapshot member captured twice: "
+                    f"{_diagnostic_repr(captured.relative_path)}",
+                )
+            files[captured.relative_path] = captured
+
+    register(evidence_capture, evidence=True)
+    register(catalog_capture)
+    try:
+        for name in ("policies", "contexts"):
+            descriptor, identity = _open_snapshot_directory(root, name)
+            directory_fds[name] = descriptor
+            directory_identities[name] = identity
+            _require_snapshot_directory_entries(
+                descriptor,
+                name,
+                expected_entries[name],
+            )
+
+        for path in sorted(records):
+            if path == catalog_capture.relative_path:
+                continue
+            expected_size, expected_sha256, semantic, role = records[path]
+            captured = _capture_bundle_file_at(
+                root,
+                path,
+                maximum=(
+                    MAX_SNAPSHOT_FILE_BYTES if semantic else MAX_BUNDLE_FILE_BYTES
+                ),
+                capture_content=semantic,
+                expected_size=expected_size,
+                expected_sha256=expected_sha256,
+                directory_fds=directory_fds,
+                error_code=(
+                    "PF-EVIDENCE-CATALOG-DIGEST"
+                    if role == "evidence-schema-core"
+                    else "PF-EVIDENCE-BUNDLE"
+                ),
+            )
+            register(captured)
+
+        for name in ("policies", "contexts"):
+            _require_snapshot_directory_entries(
+                directory_fds[name],
+                name,
+                expected_entries[name],
+            )
+            _revalidate_snapshot_directory(
+                root,
+                directory_fds[name],
+                name,
+                directory_identities[name],
+            )
+        current_root = os.fstat(root)
+        _require_secure_directory(current_root, "BUNDLE_ROOT", final=True)
+        if _implementation_identity(current_root) != root_identity:
+            fail("PF-EVIDENCE-BUNDLE", "bundle root changed during single snapshot")
+    except EvidenceError:
+        raise
+    except OSError as exc:
+        fail("PF-EVIDENCE-BUNDLE", f"bundle snapshot I/O failed: {exc.strerror}")
+    finally:
+        for descriptor in directory_fds.values():
+            os.close(descriptor)
+
+    identities = tuple(
+        sorted(
+            [(evidence_capture.relative_path, evidence_capture.identity)]
+            + [(path, captured.identity) for path, captured in files.items()]
+        )
+    )
+    return _DevelopmentBundleSnapshot(
+        root_text=root_text,
+        evidence=evidence_capture,
+        files=files,
+        checked_file_count=len(records),
+        claim_set_sha256=claim_set_sha256,
+        identities=identities,
+    )
+
+
+def verify_bundle(document: dict[str, object], root_path: Path) -> int:
+    """Verify referenced bundle files; this is not gate-catalog attestation."""
+    document = validate_evidence(document)
+    records, _ = _collect_bundle_claims(
+        document,
+        enforce_semantic_limits=False,
+    )
 
     root = _open_secure_directory(root_path, "ROOT")
     try:
         identities: dict[tuple[int, int], str] = {}
         for path in sorted(records):
-            expected_size, expected_digest = records[path]
+            expected_size, expected_digest, _, _ = records[path]
             identity = _verify_open_bundle_file(root, path, expected_size, expected_digest)
             previous_path = identities.get(identity)
             if previous_path is not None:
@@ -4449,64 +4968,89 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif arguments.command == "finalize-development":
             bundle_root = _normalized_cli_directory(arguments.bundle_root, "BUNDLE_ROOT")
+            if not bundle_root.is_absolute():
+                fail("PF-EVIDENCE-PATH", "BUNDLE_ROOT must be an absolute canonical path")
+            bundle_root_text = os.fspath(bundle_root)
             evidence_relative = require_relative_path(arguments.evidence, "EVIDENCE")
-            evidence_bytes, _ = _read_bundle_relative_file(
-                bundle_root,
-                evidence_relative,
-                maximum=MAX_INPUT_BYTES,
-            )
-            evidence_value = decode_json(evidence_bytes)
-            document = validate_evidence(evidence_value)
-            if canonical_bytes(document) != evidence_bytes:
-                fail(
-                    "PF-EVIDENCE-NONCANONICAL",
-                    "evidence bytes are not canonical ASCII-key JSON",
-            )
-            _require_development_publish(document)
-            _require_bound_development_execution(arguments.executing_source)
-            expected_content_sha256 = _require_catalog_cli_sha256(
-                arguments.catalog_sha256,
-                "CATALOG_SHA256",
-            )
-            expected_catalog_digest = _require_catalog_cli_sha256(
-                arguments.catalog_digest,
-                "CATALOG_DIGEST",
-            )
-            _require_catalog_cli_sha256(
-                arguments.run_binding_sha256,
-                "RUN_BINDING_SHA256",
-            )
-            catalog_relative = require_relative_path(arguments.catalog, "CATALOG")
-            catalog_claim = _require_single_input_claim(
-                document,
-                "gate-catalog",
-                code="PF-EVIDENCE-CATALOG-DIGEST",
-            )
-            if catalog_claim.get("path") != catalog_relative:
-                fail(
-                    "PF-EVIDENCE-CATALOG-DIGEST",
-                    "--catalog must exactly equal the evidence gate-catalog input path",
+            root = _open_secure_directory(bundle_root, "BUNDLE_ROOT")
+            try:
+                root_identity = _implementation_identity(os.fstat(root))
+                evidence_capture = _capture_bundle_file_at(
+                    root,
+                    evidence_relative,
+                    maximum=MAX_INPUT_BYTES,
+                    capture_content=True,
                 )
-            catalog_bytes, catalog_metadata = _read_bundle_relative_file(
-                bundle_root,
-                catalog_relative,
-                maximum=MAX_INPUT_BYTES,
-            )
-            catalog = _parse_development_catalog(catalog_bytes)
-            _join_development_catalog_identity(
-                document,
-                catalog,
-                catalog_bytes,
-                catalog_metadata,
-                catalog_relative=catalog_relative,
-                expected_content_sha256=expected_content_sha256,
-                expected_catalog_digest=expected_catalog_digest,
-            )
-            selected_gate = _select_development_catalog_gate(document, catalog)
+                evidence_bytes = evidence_capture.content
+                if evidence_bytes is None:
+                    fail("PF-EVIDENCE-BUNDLE", "preliminary evidence capture omitted bytes")
+                evidence_value = decode_json(evidence_bytes)
+                document = validate_evidence(evidence_value)
+                if canonical_bytes(document) != evidence_bytes:
+                    fail(
+                        "PF-EVIDENCE-NONCANONICAL",
+                        "evidence bytes are not canonical ASCII-key JSON",
+                    )
+                _require_development_publish(document)
+                _require_bound_development_execution(arguments.executing_source)
+                expected_content_sha256 = _require_catalog_cli_sha256(
+                    arguments.catalog_sha256,
+                    "CATALOG_SHA256",
+                )
+                expected_catalog_digest = _require_catalog_cli_sha256(
+                    arguments.catalog_digest,
+                    "CATALOG_DIGEST",
+                )
+                _require_catalog_cli_sha256(
+                    arguments.run_binding_sha256,
+                    "RUN_BINDING_SHA256",
+                )
+                catalog_relative = require_relative_path(arguments.catalog, "CATALOG")
+                catalog_claim = _require_single_input_claim(
+                    document,
+                    "gate-catalog",
+                    code="PF-EVIDENCE-CATALOG-DIGEST",
+                )
+                if catalog_claim.get("path") != catalog_relative:
+                    fail(
+                        "PF-EVIDENCE-CATALOG-DIGEST",
+                        "--catalog must exactly equal the evidence gate-catalog input path",
+                    )
+                catalog_capture = _capture_bundle_file_at(
+                    root,
+                    catalog_relative,
+                    maximum=MAX_INPUT_BYTES,
+                    capture_content=True,
+                )
+                catalog_bytes = catalog_capture.content
+                if catalog_bytes is None:
+                    fail("PF-EVIDENCE-BUNDLE", "catalog capture omitted bytes")
+                catalog = _parse_development_catalog(catalog_bytes)
+                _join_development_catalog_identity(
+                    document,
+                    catalog,
+                    catalog_bytes,
+                    catalog_capture.metadata,
+                    catalog_relative=catalog_relative,
+                    expected_content_sha256=expected_content_sha256,
+                    expected_catalog_digest=expected_catalog_digest,
+                )
+                selected_gate = _select_development_catalog_gate(document, catalog)
+                snapshot = _capture_development_bundle_snapshot(
+                    root,
+                    bundle_root_text,
+                    document,
+                    selected_gate,
+                    root_identity=root_identity,
+                    evidence_capture=evidence_capture,
+                    catalog_capture=catalog_capture,
+                )
+            finally:
+                os.close(root)
             _join_development_implementation_closure(
                 document,
                 catalog,
-                bundle_root,
+                snapshot,
                 arguments.executing_source,
             )
             _join_development_candidate_host(document, selected_gate)
