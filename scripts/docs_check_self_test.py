@@ -818,6 +818,18 @@ def remove_void_d0_06_record(root: Path) -> None:
     path.write_text(text[:index].rstrip() + "\n", encoding="utf-8")
 
 
+def duplicate_void_d0_06_record(root: Path) -> None:
+    complete_accepted_genesis_fx(root)
+    path = root / "docs/governance/task-freeze.md"
+    text = path.read_text(encoding="utf-8")
+    marker = "### 11.6 Voided Freeze Exception `FX-2026-07-17-D0-06`"
+    index = text.find(marker)
+    if index < 0:
+        raise AssertionError("void D0-06 record mutation anchor missing")
+    duplicate = text[index:].strip()
+    path.write_text(text.rstrip() + "\n\n" + duplicate + "\n", encoding="utf-8")
+
+
 def remove_joint_task_test_trace_edge(root: Path) -> None:
     replace(root / "docs/01-prd.md",
             "| FR-901 | Synthetic functional requirement |",
@@ -1754,15 +1766,15 @@ def main() -> None:
         ("bootstrap-d0-06-technical-evidence-task", lambda root:
             complete_d0_06_with_technical_evidence_mutation(
                 root, "| TASK-D0-06 |", "| — |"),
-         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+         "PF-DOC-EVIDENCE-SCHEMA", "EV-20260717-0034"),
         ("bootstrap-d0-06-technical-evidence-test", lambda root:
             complete_d0_06_with_technical_evidence_mutation(
                 root, "| TST-COMMON-001 |", "| — |"),
-         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+         "PF-DOC-EVIDENCE-SCHEMA", "EV-20260717-0034"),
         ("bootstrap-d0-06-technical-evidence-grade", lambda root:
             complete_d0_06_with_technical_evidence_mutation(
                 root, "| development |", "| bootstrap |"),
-         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260717-0034"),
         ("bootstrap-d0-06-technical-evidence-result", lambda root:
             complete_d0_06_with_technical_evidence_mutation(
                 root,
@@ -1787,6 +1799,15 @@ def main() -> None:
                 "Voided Freeze Exception `FX-2026-07-17-D0-06`",
                 "Freeze Exception `FX-2026-07-17-D0-06`"),
         ), "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-06"),
+        ("fx-void-d0-06-record-disguised", lambda root: (
+            complete_accepted_genesis_fx(root),
+            replace(
+                root / "docs/governance/task-freeze.md",
+                "Voided Freeze Exception `FX-2026-07-17-D0-06`",
+                "NotVoided Freeze Exception `FX-2026-07-17-D0-06`"),
+        ), "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-06"),
+        ("fx-void-d0-06-record-duplicate", duplicate_void_d0_06_record,
+         "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-06"),
         ("unknown-evidence", lambda root: replace(
             root / "docs/04-task-breakdown.md", "EV-20260716-9001", "EV-20260716-9999"),
          "PF-DOC-DONE-EV", "EV-20260716-9999"),
