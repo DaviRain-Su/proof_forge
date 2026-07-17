@@ -684,7 +684,8 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   比较两个入口彼此相等。
 - shared decoder 固定 validation/error priority 为 Syntax preflight → identity → decode/duplicate
   initializer → zero callable → duplicate state → duplicate entry → duplicate event → duplicate error →
-  duplicate struct → duplicate enum → duplicate const → duplicate fn → duplicate invariant → initializer parameter →
+  duplicate struct → duplicate enum → duplicate const → duplicate fn → duplicate callable → duplicate invariant →
+  duplicate extension → duplicate proof → unknown proof invariant → initializer parameter →
   structs declaration-order field nonempty/duplicate → enums declaration-order variant nonempty/duplicate →
   events declaration-order parameter → errors declaration-order parameter → entries declaration-order parameter →
   fns declaration-order parameter/body nonempty。Loader 只保留 module-level validation；command elaborator 必须 quote
@@ -730,10 +731,13 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   return/acyclicity 尚未实现时必须在 `Typed.check` fail closed，不能静默丢弃或进入 target Plan；
   本 alpha 只覆盖 explicit result type，不声称 optional `Unit` return 已实现。`init`/`entry`/`view`
   block 回到引入列后紧随 `fn` 的三种合法 source order 必须同时通过 Lean command 与 ParserSession，
-  后继 declaration 不得被前一 block parser 吞噬或拒绝。
+  后继 declaration 不得被前一 block parser 吞噬或拒绝。entry、view 与 fn 共用 callable 名称空间：
+  entry/view 同名由更早的 duplicate entry slot 拒绝，entry/fn 与 view/fn 同名由 duplicate callable slot
+  拒绝；duplicate entry 优先于 callable、duplicate fn 优先于 callable、callable 优先于 invariant 的首错
+  必须由双入口 exact-diagnostic vectors 固定。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
-  canonical source binding。duplicate invariant 固定在 duplicate fn 与 initializer parameter 之间；
+  canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
   escaped contextual keyword、普通/escaped 保留名、reserved predicate 与 literal overflow 必须双入口
   exact fail closed，name decode 必须优先于 predicate decode。`invariant` 不得污染宿主 Lean keyword 集，
   普通 `state` declaration 不得被 generic contextual parser 误分类。D2 predicate Bool type checking、

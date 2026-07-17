@@ -250,11 +250,12 @@ contain。文件上限返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受
 
 `decodeProgramCommandChecked` 返回的 validated `Source.Program` 是 CLI Loader 与 Lean
 command elaborator 的唯一业务 AST。共享 validation 在 decode 后按固定顺序检查：至少一个
-entry/view、state 名唯一、entry 名唯一、event 名唯一、error 名唯一、struct 名唯一、enum 名唯一、
-const 名唯一、fn 名唯一、invariant 名唯一、extension ID 唯一、每个 invariant 最多一个 proof
-reference、每个 proof reference 精确绑定已声明 invariant、initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant
-按 enum 声明顺序非空且名称唯一、每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按
-error 声明顺序唯一、每个 entry 参数名唯一、每个 fn 参数名唯一且 body nonempty；
+entry/view、state 名唯一、entry/view declaration 名唯一、event 名唯一、error 名唯一、struct 名唯一、
+enum 名唯一、const 名唯一、fn 名唯一、entry/view/fn callable 名唯一、invariant 名唯一、extension ID
+唯一、每个 invariant 最多一个 proof reference、每个 proof reference 精确绑定已声明 invariant、
+initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant 按
+enum 声明顺序非空且名称唯一、每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按 error
+声明顺序唯一、每个 entry 参数名唯一、每个 fn 参数名唯一且 body nonempty；
 duplicate initializer 仍在构造 `Source.Program` 前拒绝。Loader 只拥有 module header/
 command whitelist、namespace stack、module 内 program identity 去重和 selection，不得另有
 per-program declaration validator。
@@ -281,7 +282,8 @@ development source binding。完整 `Program.items` 落地前只保证 const 同
 
 当前 D1 pre-acceptance alpha 把 pure fn 的 exact name、parameter、result 与当前 alpha statement/body
 保存在独立 Source projection，并把 signature/body/count/order 纳入 development source binding。完整
-`Program.items` 落地前只保证 fn 同类 declaration order，不声称跨 kind callable order 或名称唯一性。
+`Program.items` 落地前只保证 fn 同类 declaration order，不声称跨 kind callable source order；
+entry、view 与 fn 共用 callable 名称空间，跨 kind 同名由 shared validation fail closed。
 fn body 作为 `Block` 必须 nonempty。该切片不执行 D2 local-call lookup、type/effect/return/acyclicity
 检查；当前 alpha 只接受 explicit result type，省略返回类型到 `Unit` 的规范路径仍待完整类型语法。
 任一非空 fn table 必须在

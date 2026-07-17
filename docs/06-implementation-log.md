@@ -1383,3 +1383,41 @@ normative: false
 - Next：唯一 active development pointer推进到 D1-PA-13（entry/view/fn cross-kind callable namespace
   uniqueness与deterministic validation priority）；D1-PA-14排队为对照 frozen TST-SRC-004的Phase 1
   declaration residual gap audit与下一个 bounded RED slice冻结。
+
+## 2026-07-17 — D1 callable namespace pre-acceptance slice
+
+- Commits：callable namespace 与 priority RED `e8acaffa`；shared validation GREEN `9eec99dd`；
+  review coverage hardening `70965df3`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-13 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`validateDecodedProgram` 在 same-kind fn duplicate 之后、invariant duplicate 之前，以现有
+  `HashSet`-based `hasDuplicate` 对 `entries ++ functions` 做 expected-linear shared callable namespace
+  validation。entry/view 同名继续由更早的 duplicate entry slot 拒绝；entry/fn、view/fn 同名统一返回
+  `contains duplicate callable declarations`，两条前端共用同一 validator。
+- Priority/coverage：RED 固定 entry/fn、view/fn、fn duplicate→callable 与 callable→invariant；独立审查
+  后补 entry/view 同名及 entry duplicate→callable 两个 dual-entry vectors。六个 fixtures 均要求 Lean
+  command 与 CLI Loader 返回逐字相同首错，且无 `.olean`/CLI output。
+- Review/Commands：独立 review 对生产实现给出 P0=0；唯一 P1 为 test/spec priority chain 漂移，已在
+  同一 checkpoint 修复；三个 P2 中 stale language disclaimer 与两个缺失 coverage pins 均关闭。
+  `lake build proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；
+  clean committed `just ci` at `70965df3`；`git diff --check`。
+- Results：120-job clean build、112-job aggregate、186 项 docs mutation、六个 dual-entry callable
+  negatives、治理/SBOM/runtime closure 与完整 `just ci` exit 0；development evidence 为
+  `EV-20260717-0047`。
+- Limitations：本切片只关闭 Source shared validation 的 callable name uniqueness，不实现 D2 local-call
+  resolution/type/effect/return/acyclicity，不建立跨 kind ordered `Program.items`，也不改变 Typed/Semantic
+  或 target materialization。D0 formal milestone 仍为 5/8，D1 formal task 仍 pending，本结果不是
+  eligible/hermetic/formal evidence。
+
+## 2026-07-17 — D1 Phase 1 declaration residual audit
+
+- Scope：D1-PA-14 对照 frozen `TST-SRC-004`、`SPEC-LANG-001` 与当前 Source/Syntax/Typed/tests/fixtures
+  做只读 inventory；不重新打开 D1-PA-01..13，不进入 statement/expression、D2 或 target backend。
+- Result：13 种 Phase 1 declaration kind 已有 parser/Source coverage；剩余 declaration-shape gap 全部是
+  type grammar：integer widths、Unit/omitted return、Principal、Named、Array、Map、Option、Bytes。
+- Decision：最小下一 RED 为 D1-PA-15 closed integer-width family，只覆盖 type spelling、declaration
+  carrier、canonical binding、双入口 parity 与 zero requirements；literal bounds、negative literal 与 Int
+  arithmetic 明确留在 `TST-SRC-005`/D2。现有 `u64=0`、`bool=1`、`field=2` canonical tags/bytes 必须
+  append-only 保持，`Field bn254_fr` 的 two-token same-line guard 不得回归。
+- Pointer：D1-PA-14 complete (development audit)；唯一 active development pointer 为 D1-PA-15；
+  D1-PA-16 排队为 `Unit` carrier 与 omitted return type materialization。
