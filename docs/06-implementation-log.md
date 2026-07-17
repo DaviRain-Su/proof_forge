@@ -1837,3 +1837,41 @@ normative: false
   D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending。
 - Next：statement/expression residual audits 并行选择下一个单一 bounded slice；在审计与冻结完成前不自动
   递增 D1-PA 编号，也不把本 development evidence 写成正式 D1 完成。
+
+## 2026-07-18 — D1 bare assert statement pre-acceptance slice
+
+- Commits：freeze `0477e089`；tests-only RED `a6f052d3`；Source-only GREEN `ff7a6fee`；
+  literal-condition exact pin `de45d253`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-26 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Statement` append-only 新增 `assertStmt condition`，alpha canonical encoder 以
+  Statement tag `4` 后递归编码 condition；`pfStmt` 新增 bare `syntax "assert " pfExpr : pfStmt`，
+  decoder/quotation 均结构化保留 condition。`Typed.checkStatement` 在检查 condition 前逐字 fail closed 为
+  `assert statements are not yet supported by typed checking`。production 只修改 `Source.lean`、
+  `Syntax.lean`、`Typed.lean` 共 10 行，Typed Statement、SemanticIR、requirements 与 targets 未改。
+- Parser/AST：initializer、entry、view、fn body 覆盖 literal、Bool、variable、grouped 与 checked-add condition，
+  Lean command/ParserSession AST/sourceHash parity 全绿。相同 AssertTwin identity 下 `assert true` 与
+  `assert (true)` 的完整 Source.Program/canonical bytes/sourceHash 相等。
+- Binding：AssertTwin 的 `assert true` 与 `assert false` 均为 209 bytes，hash 分别为
+  `175f8718f5c59c0d4284e70de39b6bf51fe3990ede6401df10046e141bd9e3b2`、
+  `d53075d45436f72d54370b5f3ef3d10b21d4f30d6ee9ab706b96cdb7b118f66e`；同 identity
+  `return true` control 为 `cbee441c2ccee971516b1ea4e428ae21890bacc55ec4cd68517551a41efad014`/
+  209 bytes，因此 statement tag 与 condition payload 均不 alias。
+- Boundaries：bare `assert := 1` 拒绝；escaped `«assert» := 1` 精确保留 assignment，`assertValue := 1`
+  不被 keyword prefix 误收。bare/missing condition、extra payload、block-like 形态与
+  `assert true else Failure` 停在 parser boundary；optional `else Ident` 明确未实现。`assert true`
+  精确命中 statement-level diagnostic，不泄漏 Bool-expression diagnostic；既有 assign/return/call/let
+  controls 保持。
+- Review/Commands：Grok 实施 RED；Kimi/Claude/Pi 与 coordinator 分别审计 statement residual、production
+  seam、keyword/parser boundary 与 exhaustive matches。执行 `lake build Tests.Language.AssertStatements`；
+  `lake build proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+  post-GREEN review 的唯一 P1 是缺少独立 `assert 1` literal-condition AST pin；`de45d253` 补齐后增量
+  aggregate 再次全绿，最终 P0/P1=0。
+- Results：14-job focused build、136-job aggregate 与测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0012`。按批量验证策略，本切片的 checkpoint `just ci` 延后，未计入本条证据。
+- Limitations：仅有 bare Source assert carrier；没有 optional error binding、condition Bool checking、
+  Typed/Semantic assertion、failure/revert code、requirement/effect、target ABI/runtime、eligible host 或
+  formal D1 evidence。D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending。
+- Next：expression residual audit 选择 unary bitwise-not `~` Source-only carrier 作为 D1-PA-27 candidate；
+  必须先冻结 prefix precedence、append-only Expr tag、mixed-unary shape、canonical goldens 与 exact Typed
+  boundary，不得自动从 candidate 变为 active 或捆绑 `!`/shift/Semantic/target lowering。
