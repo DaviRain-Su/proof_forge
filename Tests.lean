@@ -9,6 +9,7 @@ import Tests.Language.AggregateDeclarations
 import Tests.Language.BoolLiterals
 import Tests.Language.BytesTypes
 import Tests.Language.CheckedMul
+import Tests.Language.CheckedNeg
 import Tests.Language.CheckedSub
 import Tests.Language.ConstDeclarations
 import Tests.Language.EventErrorDeclarations
@@ -47,6 +48,7 @@ unsafe def main : IO Unit := do
   Tests.Language.BoolLiterals.run
   Tests.Language.BytesTypes.run
   Tests.Language.CheckedMul.run
+  Tests.Language.CheckedNeg.run
   Tests.Language.CheckedSub.run
   Tests.Language.ConstDeclarations.run
   Tests.Language.EventErrorDeclarations.run

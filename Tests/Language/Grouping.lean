@@ -306,7 +306,7 @@ unsafe def run : IO Unit := do
       ("call-like", returnProgramSource "Bad" "f(1)"),
       ("inner slash", returnProgramSource "Bad" "(2 / 3)"),
       ("inner percent", returnProgramSource "Bad" "(2 % 3)"),
-      ("inner unary minus", returnProgramSource "Bad" "(- 3)"),
+      -- Grouped unary `(- 3)` migrated to CheckedNeg positives (D1-PA-25).
       ("type-position group",
         "import ProofForgeV2\n\n" ++
         "open ProofForgeV2.Language\n\n" ++

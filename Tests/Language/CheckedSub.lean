@@ -207,14 +207,11 @@ unsafe def run : IO Unit := do
   expect (leftNest.canonicalBytes.size == rightNest.canonicalBytes.size)
     "left/right nested checkedSub twins must share canonical size"
 
-  -- Parser-boundary: missing operands, bare unary minus, binary-unary operand.
+  -- Parser-boundary: missing binary operand only.
+  -- Unary shapes `- 3`/`-3`/`7 - - 3`/`1 + - 2` migrated to CheckedNeg positives (D1-PA-25).
   -- No parentheses tests in this slice.
   for (label, expr) in [
-      ("missing lhs", "- 3"),
-      ("missing rhs", "7 -"),
-      ("bare unary minus", "-3"),
-      ("binary unary-minus operand", "7 - - 3"),
-      ("add unary-minus operand", "1 + - 2")
+      ("missing rhs", "7 -")
     ] do
     let source := returnProgramSource "RejectedSubShape" expr
     let (_, result) ← IO.FS.withIsolatedStreams
