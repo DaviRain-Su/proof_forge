@@ -1265,3 +1265,42 @@ normative: false
 - Next：唯一 active development pointer 推进到 D1-PA-10（invariant declaration carrier、
   canonical expression binding 与 duplicate/fail-closed boundary）；D1-PA-11 排队为
   extension requirement carrier、exact version/digest binding 与 duplicate/fail-closed boundary。
+
+## 2026-07-17 — D1 invariant declaration pre-acceptance slice
+
+- Commits：carrier RED `c635815b`；dual-entry/priority RED `469c4d7a`；carrier GREEN 与 parser
+  boundary fix `5b01b4bf`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-SOURCE-WIRE-001`、`TST-SRC-004`。本切片只追加
+  D1-PA-10 development evidence，不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或
+  Done 语义。
+- Changed：新增 `Source.InvariantDecl{name,predicate}`、`Source.Item.invariantDecl` 与
+  `Source.Program.invariants`；Lean command/ParserSession 共享 contextual raw `invariant` decoder、
+  validator 与 quote，并保持 invariant 同类源码顺序。当前只复用 alpha expression carrier，未扩张
+  D1-04 expression grammar。
+- Binding：invariant declaration kind/name/count/order、predicate literal/variable/checked-add kind、
+  value与 operand order 全部进入 canonical source bytes；同前缀 count、declaration name 与各 expression
+  分量均有独立 mutation 回归。
+- Validation/Layout：duplicate invariant 位于 duplicate fn 与 initializer parameter 之间；item 内部按
+  name→predicate 解码。escaped introducer、普通/escaped保留名、reserved predicate 与 UInt64 overflow
+  均由 Lean command 和 ParserSession exact fail closed。实现时发现旧 `pfType ::= ident | ident ident`
+  会跨行把后继 `invariant` 吞作第二个 type identifier；现已统一为带同行约束的 portable type parser，
+  并由 state/legacy declaration 后接 invariant 的 parity fixture 固定。低优先级 shape fallback 同样带
+  同行约束，只把 malformed contextual forms 导向共享稳定诊断，不生成 Source item。
+- Safety：D2 predicate Bool typing、name/const/pure-fn resolution 与 proof binding 尚未实现，因此
+  `Typed.check` 与 `Compiler.compile` 对任一非空 invariant table 使用稳定诊断 fail closed，不能静默
+  擦除后进入 Semantic、resolver 或 target Plan。
+- Review/Commands：最终 independent review P0=0/P1=0；`lake build
+  Tests.Language.InvariantDeclarations Tests.Language.FieldDeclarations Tests.Language.ConstDeclarations
+  Tests.Language.EventErrorDeclarations Tests.Language.FnDeclarations`；`lake build
+  proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；clean committed `just ci`
+  at `5b01b4bf`；`git diff --check`。
+- Results：focused、aggregate、canonical mutation matrix、dual-entry negatives、isolation archive、
+  116-job clean build、108-job aggregate、186 项 docs mutation、治理/SBOM/runtime closure 与完整
+  `just ci` exit 0；development evidence 为 `EV-20260717-0044`。
+- Limitations：当前 alpha 只保留 invariant 同类 declaration order；没有 predicate Bool checking、
+  name/const/pure-fn resolution、proof reference binding、Semantic invariant table/ordinal/provenance/
+  requirements、完整 ordered `Source.ProgramV1.items` 或 target materialization。D0 formal milestone 仍为
+  5/8，D1 formal task 仍 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：唯一 active development pointer 推进到 D1-PA-11（extension requirement carrier、exact
+  version/digest binding 与 duplicate/fail-closed boundary）；D1-PA-12 排队为 proof reference carrier、
+  exact invariant/qualified theorem binding 与 duplicate/fail-closed boundary。

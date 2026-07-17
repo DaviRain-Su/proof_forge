@@ -110,14 +110,15 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-07 | TASK-D1-03 | struct/enum declaration carriers、canonical child binding 与 field/variant duplicate rejection | `876770e5`, `0b5767d5`, `71d10745`, `9ce2227a`, `199e54f7` | focused aggregate + dual-entry negatives + clean `just ci` at `199e54f7`；re-review P0/P1=0 | complete (development) |
 | D1-PA-08 | TASK-D1-03 | const declaration carrier、canonical value binding 与 duplicate/type boundary | `1c792f72`, `cd29bf21`, `05aa1efa`, `8cc05c57` | focused aggregate + dual-entry negatives + clean `just ci` at `8cc05c57`；re-review P0/P1=0 | complete (development) |
 | D1-PA-09 | TASK-D1-03 | pure fn declaration carrier、canonical signature/body binding 与 duplicate/fail-closed boundary | `0e8b82ca`, `337eedff`, `7df85988`, `ecb517da`, `c62937d1`, `419c1564`, `1c94e414`, `6c88b376` | focused aggregate + dual-entry/layout coverage + clean `just ci` at `6c88b376`；re-review P0/P1=0 | complete (development) |
-| D1-PA-10 | TASK-D1-03 | invariant declaration carrier、canonical expression binding 与 duplicate/fail-closed boundary | — | scope review complete → RED before GREEN | **active** |
-| D1-PA-11 | TASK-D1-03 | extension requirement carrier、exact version/digest binding 与 duplicate/fail-closed boundary | — | scope review → RED before GREEN | **next** |
+| D1-PA-10 | TASK-D1-03 | invariant declaration carrier、canonical expression binding 与 duplicate/fail-closed boundary | `c635815b`, `469c4d7a`, `5b01b4bf` | focused aggregate + dual-entry negatives + clean `just ci` at `5b01b4bf`；final review P0/P1=0 | complete (development) |
+| D1-PA-11 | TASK-D1-03 | extension requirement carrier、exact version/digest binding 与 duplicate/fail-closed boundary | — | scope review → RED before GREEN | **active** |
+| D1-PA-12 | TASK-D1-03 | proof reference carrier、exact invariant/qualified theorem binding 与 duplicate/fail-closed boundary | — | scope review → RED before GREEN | **next** |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
 | TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07 | — | TST-SRC-001, TST-SRC-002 | EV-20260717-0036 | pending |
 | TASK-D1-02 | `program ... where` command parser | TASK-D1-01 | — | TST-SRC-003 | — | pending |
-| TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043 | pending |
+| TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043, EV-20260717-0044 | pending |
 | TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | — | pending |
 | TASK-D1-05 | `Source.Program` stable attribute export/schema | TASK-D1-03 | — | TST-SRC-006, TST-SRC-007 | — | pending |
 | TASK-D1-06 | multi-program loader/selection | TASK-D1-05 | — | TST-SRC-008 | — | pending |
