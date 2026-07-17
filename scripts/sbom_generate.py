@@ -10,7 +10,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -29,6 +31,10 @@ class SbomError(RuntimeError):
         self.code = code
 
 
+class DuplicateJsonKey(ValueError):
+    pass
+
+
 def fail(code: str, message: str) -> None:
     raise SbomError(code, message)
 
@@ -37,15 +43,65 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while True:
-            chunk = handle.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-    return digest.hexdigest()
+def reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateJsonKey(f"duplicate object key {key!r}")
+        result[key] = value
+    return result
+
+
+def sha256_project_regular_file(root: Path, relative: str, component_id: str) -> str:
+    """Hash a repository file without following any path-component symlink."""
+    if "\x00" in relative:
+        fail(
+            "PF-SBOM-LICENSE",
+            f"{component_id}: licenseFile contains an embedded NUL",
+        )
+    parts = Path(relative).parts
+    if not parts:
+        fail("PF-SBOM-LICENSE", f"{component_id}: empty licenseFile path")
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+    file_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+    directory_fd = -1
+    file_fd = -1
+    try:
+        directory_fd = os.open(root, directory_flags)
+        for part in parts[:-1]:
+            next_fd = os.open(part, directory_flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+        file_fd = os.open(parts[-1], file_flags, dir_fd=directory_fd)
+        metadata = os.fstat(file_fd)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            fail(
+                "PF-SBOM-LICENSE",
+                f"{component_id}: licenseFile must be a regular single-link "
+                f"non-symlink file: {relative}",
+            )
+
+        digest = hashlib.sha256()
+        with os.fdopen(file_fd, "rb", closefd=True) as handle:
+            file_fd = -1
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+    except (OSError, ValueError) as error:
+        fail(
+            "PF-SBOM-LICENSE",
+            f"{component_id}: licenseFile must be a regular non-symlink file "
+            f"inside the repository: {relative}: {error}",
+        )
+    finally:
+        if file_fd >= 0:
+            os.close(file_fd)
+        if directory_fd >= 0:
+            os.close(directory_fd)
 
 
 def load_json(path: Path) -> Any:
@@ -54,7 +110,9 @@ def load_json(path: Path) -> Any:
     except OSError as error:
         fail("PF-SBOM-IO", f"cannot read {path}: {error}")
     try:
-        return json.loads(text)
+        return json.loads(text, object_pairs_hook=reject_duplicate_object_keys)
+    except DuplicateJsonKey as error:
+        fail("PF-SBOM-JSON", f"invalid JSON in {path}: {error}")
     except json.JSONDecodeError as error:
         fail("PF-SBOM-JSON", f"invalid JSON in {path}: {error}")
 
@@ -138,13 +196,10 @@ def validate_component(component: dict[str, Any], root: Path, policy: dict[str, 
     license_file = require_str(component["licenseFile"], "component.licenseFile")
     if Path(license_file).is_absolute() or ".." in Path(license_file).parts:
         fail("PF-SBOM-INVENTORY", f"{component_id}: licenseFile must be project-relative")
-    license_path = root / license_file
-    if not license_path.is_file():
-        fail("PF-SBOM-LICENSE", f"{component_id}: missing license file {license_file}")
-    actual = sha256_file(license_path)
     expected = require_str(component["licenseFileSha256"], "component.licenseFileSha256")
     if not HEX64_RE.fullmatch(expected):
         fail("PF-SBOM-INVENTORY", f"{component_id}: licenseFileSha256 invalid")
+    actual = sha256_project_regular_file(root, license_file, component_id)
     if actual != expected:
         fail(
             "PF-SBOM-LICENSE",
