@@ -227,6 +227,267 @@ def compareSemVerPrecedence (left right : SemVer) : Except String Ordering := do
   validateSemVer right
   pure (compareSemVerPrecedenceUnchecked left right)
 
+structure NonEmptyArray (α : Type u) where
+  head : α
+  tail : Array α
+  deriving DecidableEq, Repr
+
+namespace NonEmptyArray
+
+def ofArray (values : Array α) : Except String (NonEmptyArray α) :=
+  match values.toList with
+  | [] => .error "array must contain at least one value"
+  | head :: tail => .ok { head, tail := tail.toArray }
+
+def toArray (values : NonEmptyArray α) : Array α :=
+  #[values.head] ++ values.tail
+
+end NonEmptyArray
+
+structure SchemaId where
+  value : String
+  deriving DecidableEq, Repr
+
+structure EvidenceId where
+  value : String
+  deriving DecidableEq, Repr
+
+structure AcceptanceProfileId where
+  value : String
+  deriving DecidableEq, Repr
+
+structure NodeId where
+  bytes : ByteArray
+  deriving DecidableEq
+
+structure UtcInstant where
+  value : String
+  deriving DecidableEq, Repr
+
+private def isLowerAsciiLetter (c : Char) : Bool :=
+  'a' ≤ c && c ≤ 'z'
+
+private def isLowerAsciiAlphanumeric (c : Char) : Bool :=
+  isLowerAsciiLetter c || isAsciiDigit c
+
+private def validSeparatedRest
+    (isSeparator : Char → Bool) : List Char → Bool → Bool
+  | [], previousWasSeparator => !previousWasSeparator
+  | c :: rest, previousWasSeparator =>
+    if isLowerAsciiAlphanumeric c then
+      validSeparatedRest isSeparator rest false
+    else if isSeparator c && !previousWasSeparator then
+      validSeparatedRest isSeparator rest true
+    else
+      false
+
+private def validSeparatedId (value : String) (isSeparator : Char → Bool) : Bool :=
+  match value.toList with
+  | [] => false
+  | first :: rest =>
+    isLowerAsciiLetter first && validSeparatedRest isSeparator rest false
+
+private def validSchemaSegment (value : String) : Bool :=
+  validSeparatedId value (· == '-')
+
+def validateSchemaId (schema : SchemaId) : Except String Unit := do
+  let value := schema.value
+  unless 1 ≤ value.utf8ByteSize && value.utf8ByteSize ≤ 127 do
+    throw "schema id must contain 1..127 UTF-8 bytes"
+  unless value.toList.any (· == '.') do
+    throw "schema id must contain at least one dot"
+  unless (value.splitOn ".").all validSchemaSegment do
+    throw "schema id has an invalid segment"
+
+def parseSchemaId (value : String) : Except String SchemaId := do
+  let schema := { value }
+  validateSchemaId schema
+  pure schema
+
+def renderSchemaId (schema : SchemaId) : Except String String := do
+  validateSchemaId schema
+  pure schema.value
+
+def validateProfileIdValue (value : String) : Except String Unit := do
+  unless 1 ≤ value.utf8ByteSize && value.utf8ByteSize ≤ 127 do
+    throw "profile id must contain 1..127 UTF-8 bytes"
+  unless validSeparatedId value (fun c => c == '-' || c == '.') do
+    throw "profile id has an invalid spelling"
+
+def validateAcceptanceProfileId (profile : AcceptanceProfileId) : Except String Unit :=
+  validateProfileIdValue profile.value
+
+def parseAcceptanceProfileId (value : String) : Except String AcceptanceProfileId := do
+  let profile := { value }
+  validateAcceptanceProfileId profile
+  pure profile
+
+def renderAcceptanceProfileId (profile : AcceptanceProfileId) : Except String String := do
+  validateAcceptanceProfileId profile
+  pure profile.value
+
+private def isGregorianLeapYear (year : Nat) : Bool :=
+  year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+
+private def daysInGregorianMonth (year month : Nat) : Nat :=
+  match month with
+  | 1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
+  | 4 | 6 | 9 | 11 => 30
+  | 2 => if isGregorianLeapYear year then 29 else 28
+  | _ => 0
+
+private def validateGregorianDate (year month day : Nat) : Except String Unit := do
+  unless 1 ≤ month && month ≤ 12 do
+    throw "Gregorian month is out of range"
+  let maximumDay := daysInGregorianMonth year month
+  unless 1 ≤ day && day ≤ maximumDay do
+    throw "Gregorian day is out of range"
+
+private def parseAsciiDecimalSlice
+    (chars : List Char) (start count : Nat) : Except String Nat := do
+  let slice := (chars.drop start).take count
+  unless slice.length = count && slice.all isAsciiDigit do
+    throw "expected fixed-width ASCII decimal digits"
+  match (String.ofList slice).toNat? with
+  | some value => pure value
+  | none => throw "invalid fixed-width ASCII decimal digits"
+
+def validateEvidenceId (evidence : EvidenceId) : Except String Unit := do
+  let value := evidence.value
+  unless value.utf8ByteSize = 16 && value.length = 16 do
+    throw "evidence id must have exact EV-YYYYMMDD-NNNN width"
+  let chars := value.toList
+  unless value.startsWith "EV-" && chars[11]! == '-' do
+    throw "evidence id must use EV-YYYYMMDD-NNNN spelling"
+  let year ← parseAsciiDecimalSlice chars 3 4
+  let month ← parseAsciiDecimalSlice chars 7 2
+  let day ← parseAsciiDecimalSlice chars 9 2
+  let _ ← parseAsciiDecimalSlice chars 12 4
+  validateGregorianDate year month day
+
+def parseEvidenceId (value : String) : Except String EvidenceId := do
+  let evidence := { value }
+  validateEvidenceId evidence
+  pure evidence
+
+def renderEvidenceId (evidence : EvidenceId) : Except String String := do
+  validateEvidenceId evidence
+  pure evidence.value
+
+def validateUtcInstant (instant : UtcInstant) : Except String Unit := do
+  let value := instant.value
+  unless value.utf8ByteSize = 20 && value.length = 20 do
+    throw "UTC instant must have exact YYYY-MM-DDTHH:MM:SSZ width"
+  let chars := value.toList
+  unless chars[4]! == '-' && chars[7]! == '-' && chars[10]! == 'T' &&
+      chars[13]! == ':' && chars[16]! == ':' && chars[19]! == 'Z' do
+    throw "UTC instant must use YYYY-MM-DDTHH:MM:SSZ spelling"
+  let year ← parseAsciiDecimalSlice chars 0 4
+  let month ← parseAsciiDecimalSlice chars 5 2
+  let day ← parseAsciiDecimalSlice chars 8 2
+  let hour ← parseAsciiDecimalSlice chars 11 2
+  let minute ← parseAsciiDecimalSlice chars 14 2
+  let second ← parseAsciiDecimalSlice chars 17 2
+  validateGregorianDate year month day
+  unless hour < 24 do throw "UTC hour is out of range"
+  unless minute < 60 do throw "UTC minute is out of range"
+  unless second < 60 do throw "UTC second is out of range"
+
+def parseUtcInstant (value : String) : Except String UtcInstant := do
+  let instant := { value }
+  validateUtcInstant instant
+  pure instant
+
+def renderUtcInstant (instant : UtcInstant) : Except String String := do
+  validateUtcInstant instant
+  pure instant.value
+
+def validateNodeId (nodeId : NodeId) : Except String Unit := do
+  unless nodeId.bytes.size = 16 do
+    throw "node id must contain exactly 16 raw bytes"
+
+def parseNodeId (value : String) : Except String NodeId := do
+  let tag := "nodeid:"
+  unless value.startsWith tag do
+    throw "node id must use nodeid: tag"
+  unless value.length = tag.length + 32 do
+    throw "node id hex must contain exactly 32 lowercase characters"
+  let hex := String.ofList (value.toList.drop tag.length)
+  unless hex.all isLowerHex do
+    throw "node id hex must be lowercase [0-9a-f]"
+  let raw ← decodeLowerHex hex.toList
+  let nodeId := { bytes := ByteArray.mk raw.toArray }
+  validateNodeId nodeId
+  pure nodeId
+
+def renderNodeId (nodeId : NodeId) : Except String String := do
+  validateNodeId nodeId
+  pure ("nodeid:" ++ encodeLowerHex nodeId.bytes)
+
+inductive DocumentStatus where
+  | notStarted
+  | draft
+  | proposed
+  | inReview
+  | accepted
+  | superseded
+  | archived
+  deriving DecidableEq, Repr, Inhabited
+
+def parseDocumentStatus : String → Except String DocumentStatus
+  | "not_started" => pure .notStarted
+  | "draft" => pure .draft
+  | "proposed" => pure .proposed
+  | "in_review" => pure .inReview
+  | "accepted" => pure .accepted
+  | "superseded" => pure .superseded
+  | "archived" => pure .archived
+  | _ => throw "unknown document status"
+
+def renderDocumentStatus : DocumentStatus → String
+  | .notStarted => "not_started"
+  | .draft => "draft"
+  | .proposed => "proposed"
+  | .inReview => "in_review"
+  | .accepted => "accepted"
+  | .superseded => "superseded"
+  | .archived => "archived"
+
+def documentStatusRank : DocumentStatus → Nat
+  | .notStarted => 0
+  | .draft => 1
+  | .proposed => 2
+  | .inReview => 3
+  | .accepted => 4
+  | .superseded => 5
+  | .archived => 6
+
+inductive ArtifactDeployability where
+  | deployable
+  | verifiableWorkload
+  | intermediateOnly
+  | nonDeployable
+  deriving DecidableEq, Repr, Inhabited
+
+def parseArtifactDeployability : String → Except String ArtifactDeployability
+  | "deployable" => pure .deployable
+  | "verifiable-workload" => pure .verifiableWorkload
+  | "intermediate-only" => pure .intermediateOnly
+  | "non-deployable" => pure .nonDeployable
+  | _ => throw "unknown artifact deployability"
+
+def renderArtifactDeployability : ArtifactDeployability → String
+  | .deployable => "deployable"
+  | .verifiableWorkload => "verifiable-workload"
+  | .intermediateOnly => "intermediate-only"
+  | .nonDeployable => "non-deployable"
+
+def artifactDeployabilityRank : ArtifactDeployability → Nat
+  | .deployable => 0
+  | .verifiableWorkload => 1
+  | .intermediateOnly => 2
+  | .nonDeployable => 3
+
 inductive ResourceStage where
   | frontend
   | compilerCore
