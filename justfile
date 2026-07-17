@@ -319,6 +319,13 @@ dsl-negative: build
             priority-fn-name-before-param-result-body) echo "PF-SRC-INVALID: reserved portable identifier 'const'" ;;
             priority-fn-param-before-result-body) echo "PF-SRC-INVALID: reserved portable identifier 'fn'" ;;
             priority-fn-result-before-body) echo "PF-SRC-INVALID: unsupported portable type" ;;
+            duplicate-invariant) echo "PF-SRC-INVALID: program 'DuplicateInvariant' contains duplicate invariant declarations" ;;
+            escaped-invariant-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
+            ordinary-reserved-invariant-identifier|escaped-reserved-invariant-identifier|reserved-invariant-expression) echo "PF-SRC-INVALID: reserved portable identifier 'invariant'" ;;
+            invariant-literal-overflow) echo "PF-SRC-INVALID: UInt64 literal is out of range: 18446744073709551616" ;;
+            priority-fn-before-invariant) echo "PF-SRC-INVALID: program 'PriorityFnBeforeInvariant' contains duplicate fn declarations" ;;
+            priority-invariant-before-initializer-param) echo "PF-SRC-INVALID: program 'PriorityInvariantBeforeInitializerParam' contains duplicate invariant declarations" ;;
+            priority-invariant-name-before-predicate) echo "PF-SRC-INVALID: reserved portable identifier 'invariant'" ;;
             escaped-event-keyword|escaped-error-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             reserved-event-identifier|escaped-reserved-event-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'event'" ;;
             reserved-error-identifier|escaped-reserved-error-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'error'" ;;
@@ -355,6 +362,10 @@ dsl-negative: build
         priority-initializer-param-before-fn-param priority-entry-param-before-fn-param
         priority-fn-param-before-empty-body priority-fn-name-before-param-result-body
         priority-fn-param-before-result-body priority-fn-result-before-body
+        duplicate-invariant escaped-invariant-keyword ordinary-reserved-invariant-identifier
+        escaped-reserved-invariant-identifier reserved-invariant-expression invariant-literal-overflow
+        priority-fn-before-invariant priority-invariant-before-initializer-param
+        priority-invariant-name-before-predicate
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
         priority-identity-before-decode
