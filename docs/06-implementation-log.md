@@ -1118,3 +1118,39 @@ normative: false
   milestone 仍为 5/8，D1 formal task 仍 pending，本结果不是 eligible/hermetic/formal evidence。
 - Next：唯一 active development pointer 推进到 D1-PA-06（event/error declaration carriers）；
   D1-PA-07 排队为 struct/enum declaration carriers 与 field/variant duplicate rejection。
+
+## 2026-07-17 — D1 event/error declaration pre-acceptance slice
+
+- Commits：initial RED `4a85ffed`；canonical hardening RED `0a348f7e`；payload/escaped-keyword
+  RED `7ac2d531`；carrier GREEN `481b59fb`；reserved-identifier RED `795e1b45`；contextual
+  identifier FIX `3da5e09b`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-SOURCE-WIRE-001`、`TST-SRC-004`。本切片只追加
+  D1-PA-06 development evidence，不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或
+  Done 语义。
+- Changed：新增 `Source.EventDecl`/`Source.ErrorDecl`、对应 `Source.Item` alternatives 与
+  `Source.Program.events/errors` declaration-order arrays；Lean command 与 ParserSession 共享 decoder
+  并保留 exact name、parameter name/type/visibility/order。`error E` 与 `error E()` 物化为同一
+  carrier；同类 declaration order、kind、array count 与完整 parameter payload 都进入 alpha
+  canonical source binding。
+- Validation：event/error 名称分别唯一，parameter duplicate 按各自 declaration order 选择首错；
+  fixtures 通过 Lean command 与 CLI Loader 固定相同 `PF-SRC-INVALID` 且零输出。escaped leading
+  `«event»`/`«error»` 不冒充关键字。
+- Safety：声明表未进入 Typed/Semantic 前，`Typed.check` 与 `Compiler.compile` 对任一非空 table
+  fail closed，不能静默丢弃后进入 resolver/Plan；仅声明 event 不推导 `eventEmission`。为避免污染
+  Lean 宿主 keyword，event/error 仅在 `pfItem` 首位按 raw token 识别；共享 identifier decoder
+  同时拒绝 DSL 名称中的普通/escaped `event`/`error`，宿主 `def event`/`def error` positive control
+  保持通过。
+- Security review：首轮审查补出 parameter payload/kind/error-order/compiler-bypass 攻击向量；复核
+  又发现 contextual word 可被当作 DSL 名称的 P1，并由 `795e1b45`/`3da5e09b` 固定和关闭。最终
+  independent re-review P0=0/P1=0。
+- Commands：`lake build Tests.Language.EventErrorDeclarations proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed archive
+  `just ci` at `3da5e09b`；`git diff --check`；bounded independent review/re-review。
+- Results：focused、aggregate、canonical mutation matrix、dual-entry negatives、host-positive control、
+  isolation archive、108-job build、186 项 docs mutation、SBOM/runtime closure 与完整 `just ci` exit 0；
+  development evidence 为 `EV-20260717-0040`。
+- Limitations：alpha projection 尚未保留完整 `Source.ProgramV1.items` 的跨 kind source order；没有
+  Typed/Semantic event/error tables、emit/revert statement、ABI lowering 或 target support。D0 formal
+  milestone 仍为 5/8，D1 formal task 仍 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：唯一 active development pointer 推进到 D1-PA-07（struct/enum declaration carriers）；
+  D1-PA-08 排队为 const declaration carrier、canonical value binding 与 duplicate/type boundary。
