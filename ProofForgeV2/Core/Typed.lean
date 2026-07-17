@@ -212,6 +212,8 @@ private def checkStatement (scope : Scope) (mode : EntryMode) :
         invalid s!"synchronous call target in {scope.owner} cannot be empty"
       else
         .ok (.synchronousCall callee)
+  | .letDecl .. =>
+      throw <| .invalidProgram "let statements are not yet supported by typed checking"
 
 private def checkInitializer (state : NameIndex.StateEnv)
     (initializer : Source.Initializer) : CompileResult Initializer := do

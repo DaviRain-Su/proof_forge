@@ -30,6 +30,19 @@ declare_syntax_cat pfStmt
 syntax ident " := " pfExpr : pfStmt
 syntax "return " pfExpr : pfStmt
 syntax "call " str : pfStmt
+/-- Same-line annotated let (contextual, not a host Lean keyword). No low fallback. -/
+@[pfStmt_parser default+1] def letStmtAnnotated := leading_parser
+  withPosition (
+    nonReservedSymbol "let " (includeIdent := true) >>
+    checkLineEq >> ident >>
+    checkLineEq >> " : " >> checkLineEq >> categoryParser `pfType 0 >>
+    checkLineEq >> " := " >> checkLineEq >> categoryParser `pfExpr 0)
+/-- Same-line omitted-type let (contextual, not a host Lean keyword). No low fallback. -/
+@[pfStmt_parser default+1] def letStmtOmitted := leading_parser
+  withPosition (
+    nonReservedSymbol "let " (includeIdent := true) >>
+    checkLineEq >> ident >>
+    checkLineEq >> " := " >> checkLineEq >> categoryParser `pfExpr 0)
 
 declare_syntax_cat pfAggregateMember
 /-- Field name, type introducer, optional same-line second type atom (ident or
@@ -332,6 +345,11 @@ def decodeExpr (stx : Syntax) : Except String ProofForgeV2.Source.Expr := do
   decodeExprUnchecked stx
 
 private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Source.Statement
+  | `(letStmtAnnotated| let $name:ident : $type:pfType := $value:pfExpr) => do
+      return .letDecl (← decodeIdentifier name) (some (← decodeTypeUnchecked type))
+        (← decodeExprUnchecked value)
+  | `(letStmtOmitted| let $name:ident := $value:pfExpr) => do
+      return .letDecl (← decodeIdentifier name) none (← decodeExprUnchecked value)
   | `(pfStmt| $name:ident := $value:pfExpr) => do
       return .assign (← decodeIdentifier name) (← decodeExprUnchecked value)
   | `(pfStmt| return $value:pfExpr) => do
@@ -798,6 +816,15 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
   | .synchronousCall callee =>
       let callee := Syntax.mkStrLit callee
       `(ProofForgeV2.Source.Statement.synchronousCall $callee)
+  | .letDecl name typeAnn value => do
+      let name := Syntax.mkStrLit name
+      let value ← quoteExpr value
+      match typeAnn with
+      | none =>
+          `(ProofForgeV2.Source.Statement.letDecl $name (Option.none) $value)
+      | some type => do
+          let typeExpr ← quoteValueType type
+          `(ProofForgeV2.Source.Statement.letDecl $name (Option.some $typeExpr) $value)
 
 private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
     MacroM (TSyntax `term) := do

@@ -89,6 +89,7 @@ inductive Statement where
   | assign (stateName : String) (value : Expr)
   | returnValue (value : Expr)
   | synchronousCall (callee : String)
+  | letDecl (name : String) (typeAnn : Option ValueType) (value : Expr)
   deriving BEq, Inhabited, Repr
 
 inductive EntryMode where
@@ -272,6 +273,12 @@ private def appendStatement (bytes : ByteArray) : Statement → ByteArray
   | .assign name value => appendExpr (appendString (appendTag bytes 0) name) value
   | .returnValue value => appendExpr (appendTag bytes 1) value
   | .synchronousCall callee => appendString (appendTag bytes 2) callee
+  | .letDecl name typeAnn value =>
+      let bytes := appendString (appendTag bytes 3) name
+      let bytes := match typeAnn with
+        | none => appendTag bytes 0
+        | some type => appendValueType (appendTag bytes 1) type
+      appendExpr bytes value
 
 private def appendEntryMode (bytes : ByteArray) : EntryMode → ByteArray
   | .mutate => appendTag bytes 0
