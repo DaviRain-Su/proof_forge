@@ -46,6 +46,11 @@ private def programSource (name declarations : String) : String :=
   "  entry ping() : UInt64 do\n" ++
   "    return 0\n"
 
+private def programWithoutEntrySource (name declarations : String) : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program " ++ name ++ " where\n" ++ declarations
+
 private unsafe def select (session : Language.Loader.ParserSession)
     (input path : String) : IO Source.Program := do
   match ← session.selectProgram input path none with
@@ -66,7 +71,7 @@ unsafe def run : IO Unit := do
   expect (fn == 1) "fn must remain a legal host Lean identifier outside the ProofForge DSL"
 
   let elaborated := Tests.Language.FnDeclarationsFixture.FnSurface
-  match elaborated.fns with
+  match elaborated.functions with
   | #[addOne, choose] =>
       expect (addOne.name == "addOne" &&
           addOne.params.map (fun param => (param.name, param.type)) == #[("value", .u64)] &&
@@ -112,6 +117,14 @@ unsafe def run : IO Unit := do
     (programSource "CanonicalFn"
       "  fn A(private value : UInt64) : UInt64 do\n    return value\n")
     "<fn-private-param>"
+  let fnPublicParam ← select session
+    (programSource "CanonicalFn"
+      "  fn A(public value : UInt64) : UInt64 do\n    return value\n")
+    "<fn-public-param>"
+  let fnCommitmentParam ← select session
+    (programSource "CanonicalFn"
+      "  fn A(commitment value : UInt64) : UInt64 do\n    return value\n")
+    "<fn-commitment-param>"
   let fnResult ← select session
     (programSource "CanonicalFn"
       "  fn A(value : UInt64) : Bool do\n    return value\n")
@@ -152,12 +165,19 @@ unsafe def run : IO Unit := do
   expect (base.sourceHash != fnOne.sourceHash &&
       fnOne.sourceHash != sameSignatureEntry.sourceHash)
     "fn presence, count, and dedicated declaration kind must bind the source hash"
+  expect (fnOne.canonicalBytes != sameSignatureEntry.canonicalBytes)
+    "fn and entry declarations with the same signature/body must have different canonical bytes"
   expect (fnOne.sourceHash != fnName.sourceHash &&
       fnOne.sourceHash != fnParamName.sourceHash &&
       fnOne.sourceHash != fnParamType.sourceHash &&
-      fnOne.sourceHash != fnPrivateParam.sourceHash &&
       fnOne.sourceHash != fnResult.sourceHash)
-    "fn name, parameter name/type/visibility, and result must bind the source hash"
+    "fn name, parameter name/type, and result must bind the source hash"
+  expect (fnOne == fnPublicParam && fnOne.sourceHash == fnPublicParam.sourceHash)
+    "omitted and explicit public fn parameters must canonicalize identically"
+  expect (fnOne.sourceHash != fnPrivateParam.sourceHash &&
+      fnOne.sourceHash != fnCommitmentParam.sourceHash &&
+      fnPrivateParam.sourceHash != fnCommitmentParam.sourceHash)
+    "private and commitment fn parameter visibility must bind distinctly"
   expect (fnOne.sourceHash != fnBodyLiteral.sourceHash &&
       fnOne.sourceHash != fnBodyCount.sourceHash &&
       fnBodyAddAB.sourceHash != fnBodyAddBA.sourceHash)
@@ -172,6 +192,12 @@ unsafe def run : IO Unit := do
       (programSource "DuplicateFn"
         "  fn helper(value : UInt64) : UInt64 do\n    return value\n  fn helper(other : UInt64) : UInt64 do\n    return other\n")
       "<duplicate-fn>")
+  expectInvalid "fn does not satisfy the entry/view requirement"
+    "program 'FnOnly' must declare at least one entry or view"
+    (← session.parsePrograms
+      (programWithoutEntrySource "FnOnly"
+        "  fn helper(value : UInt64) : UInt64 do\n    return value\n")
+      "<fn-only>")
   expectInvalid "fn parameter declaration order" "fn 'first' contains duplicate parameters"
     (← session.parsePrograms
       (programSource "DuplicateFnParam"

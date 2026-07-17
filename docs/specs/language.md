@@ -282,7 +282,8 @@ development source binding。完整 `Program.items` 落地前只保证 const 同
 保存在独立 Source projection，并把 signature/body/count/order 纳入 development source binding。完整
 `Program.items` 落地前只保证 fn 同类 declaration order，不声称跨 kind callable order 或名称唯一性。
 fn body 作为 `Block` 必须 nonempty。该切片不执行 D2 local-call lookup、type/effect/return/acyclicity
-检查；任一非空 fn table 必须在
+检查；当前 alpha 只接受 explicit result type，省略返回类型到 `Unit` 的规范路径仍待完整类型语法。
+任一非空 fn table 必须在
 `Typed.check` fail closed，不能以未检查 body 进入 Semantic、resolver 或 target Plan。
 
 为避免 ProofForge import 把 Lean 宿主中的 `struct`/`enum`/`const`/`event`/`error`/`fn` 变成全局 parser keyword，
