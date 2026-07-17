@@ -1766,3 +1766,37 @@ normative: false
 - Next：residual audit 选择 parenthesized expression grouping parser sugar 作为 D1-PA-24 candidate；该切片
   不新增 Source.Expr ctor/tag，而把 `(expr)` 解码为同一 Source AST。必须先冻结 grouping precedence、
   direct-vs-parenthesized sourceHash equality、malformed boundary 与无 Typed/Semantic/target change，再提交 RED。
+
+## 2026-07-18 — D1 parenthesized expression grouping pre-acceptance slice
+
+- Commits：freeze `77c6b23b`；grouping RED `ddaadfb6`；Syntax-only GREEN `d321db74`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-24 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`pfExpr` 新增 exact `syntax:max "(" pfExpr:0 ")" : pfExpr`；外层是 high-precedence
+  primary，内部 precedence `0` 接受当前完整 `+`/`-`/`*` expression。`decodeExprUnchecked` 只以结构化
+  quotation 递归返回 inner expression；未新增 Source.Expr ctor/tag/field，也未修改 `quoteExpr`、
+  `Source.lean`、`Typed.lean`、SemanticIR、requirements 或任何 target。
+- Binding/equality：initializer、entry、view、fn 的 return/let value 覆盖 literal、variable、Bool 与
+  binary grouping，并固定 Lean command/ParserSession AST/sourceHash parity。相同 identity 下 `(42)`/`42`、
+  `((x))`/`x`、`((2+3))`/`2+3` 的完整 Source.Program、canonical bytes 与 sourceHash 相等。
+  `(2+3)*4`、`7-(3-1)`、`2*(3*4)`、`2*(3+4)` 固定 precedence override/right nesting；解析后的
+  CheckedSubTwin/CheckedMulTwin 与 direct Source twin 全程序相等。right-sub/right-mul/2*(3+4) 均为
+  238 bytes，hash 分别为 `7e6a2c24a6cad28e5984f2279dce0df9fdd863c6ea1062334cb32b69027e7e3a`、
+  `f4b9a861619b742361e41f69342f07dc9c338daa9b9a520073b8aa2fa990c13c`、
+  `7f86e7a891dcbe523eb1d608f3e4ffe864c66dce2bf53bffb671c977cd800aa3`，并与对应 left/default
+  shapes 不 alias。
+- Boundaries：empty/whitespace group、missing/nested-unmatched parentheses、tuple/comma、inner/trailing
+  extra payload、call-like、未支持 `/`/`%`/unary 与 type-position `(UInt64)` 均停在 parser boundary。
+  grouped checkedAdd 继续编译，grouped Bool/checkedSub/checkedMul 保留各自 byte-exact Typed diagnostic。
+- Review/Commands：Grok design/RED/GREEN；Pi parser/freeze/RED/GREEN；Kimi freeze/golden；Claude scope/RED；
+  coordinator 追加 same-identity parse-vs-direct 与 parsed-program Typed controls。执行
+  `lake build Tests.Language.Grouping proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：132-job aggregate 与测试二进制全部 exit 0，三组固定 hash 无需修正；development evidence 为
+  `EV-20260718-0010`。按批量验证策略，本切片的 checkpoint `just ci` 延后到较大阶段，未计入本条证据。
+- Limitations：grouping 在当前 alpha Source AST/canonical hash 中被有意擦除，没有保留括号 surface
+  provenance/span；没有 unit/tuple/call/constructor/unary、Typed/Semantic/requirement、target ABI/runtime、
+  eligible host 或 formal D1 evidence。D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending。
+- Next：residual audit 选择 unary checked negation Source-only carrier 作为 D1-PA-25 candidate；必须先冻结
+  prefix precedence、与 binary `-` 的消歧、append-only Expr tag `7`、grouped operand 与 exact Typed
+  fail-closed boundary，再提交 RED；不得捆绑 `!`/`~`、signed literal、Semantic arithmetic 或 target lowering。
