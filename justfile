@@ -341,6 +341,15 @@ dsl-negative: build
             wrong-length-extension-digest) echo "PF-SRC-INVALID: digest hex must be exactly 64 lowercase characters" ;;
             priority-invariant-before-extension) echo "PF-SRC-INVALID: program 'PriorityInvariantBeforeExtension' contains duplicate invariant declarations" ;;
             priority-extension-before-initializer-param) echo "PF-SRC-INVALID: program 'PriorityExtensionBeforeInitializerParam' contains duplicate extension requirements" ;;
+            duplicate-proof-reference) echo "PF-SRC-INVALID: program 'DuplicateProofReference' contains duplicate proof references" ;;
+            duplicate-proof-reference-conflict) echo "PF-SRC-INVALID: program 'DuplicateProofReferenceConflict' contains duplicate proof references" ;;
+            unknown-proof-invariant|priority-unknown-before-initializer-param) echo "PF-SRC-INVALID: proof reference names unknown invariant 'Missing'" ;;
+            unqualified-proof-theorem) echo "PF-SRC-INVALID: proof theorem name must contain at least two components" ;;
+            escaped-proof-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
+            escaped-dotted-proof-theorem) echo "PF-SRC-INVALID: qualified-name component must use Lean identifier characters" ;;
+            reserved-proof-invariant|priority-proof-invariant-before-theorem) echo "PF-SRC-INVALID: reserved portable identifier 'proof'" ;;
+            priority-extension-before-proof) echo "PF-SRC-INVALID: program 'PriorityExtensionBeforeProof' contains duplicate extension requirements" ;;
+            priority-proof-before-unknown) echo "PF-SRC-INVALID: program 'PriorityProofBeforeUnknown' contains duplicate proof references" ;;
             escaped-event-keyword|escaped-error-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             reserved-event-identifier|escaped-reserved-event-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'event'" ;;
             reserved-error-identifier|escaped-reserved-error-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'error'" ;;
@@ -389,6 +398,10 @@ dsl-negative: build
         wrong-length-extension-digest priority-extension-id-before-version-digest
         priority-extension-version-before-digest priority-invariant-before-extension
         priority-extension-before-initializer-param
+        duplicate-proof-reference duplicate-proof-reference-conflict unknown-proof-invariant
+        unqualified-proof-theorem escaped-proof-keyword escaped-dotted-proof-theorem
+        reserved-proof-invariant priority-extension-before-proof priority-proof-before-unknown
+        priority-unknown-before-initializer-param priority-proof-invariant-before-theorem
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
         priority-identity-before-decode
