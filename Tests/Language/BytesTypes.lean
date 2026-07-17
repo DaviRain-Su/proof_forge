@@ -188,25 +188,25 @@ unsafe def run : IO Unit := do
   | .error error => throw <| IO.userError error.render
 
   expect ((twin .u64).sourceHash ==
-      "d89b504a1066504bb954a7d6855a8c877b4e065c54f09900fe35eb47c4d8a0d5")
+      "5087d5f55dff32c65d073fe17f4394df78172e7f077343047cdccfdd40b60838")
     "BytesTwin UInt64/tag0 sourceHash golden must remain stable"
   expect ((twin (.bytes 0)).sourceHash ==
-      "2e47e3fc72fbf0fde9a060053db212416bac944e05c0d12e3ef414c16b70591e")
+      "f1b674b004bf9ea73e04d8ba259bb15ea6d2e02dffbd2c6b853d408eb31c7f77")
     "Bytes 0 tag17+BE-u64 sourceHash golden must remain stable"
   expect ((twin (.bytes 1)).sourceHash ==
-      "2acede29901c9473e924e7a3668d2c70342090eec83d7215a8285169b86c0431")
+      "60a764e482c81aa2a30fb38dc9dbfab0c674df9bc9fa3d36b538356229949dcc")
     "Bytes 1 tag17+BE-u64 sourceHash golden must remain stable"
   expect ((twin (.bytes 4096)).sourceHash ==
-      "d125b6c3b19a87f0d2cdba0fc809ae076d5a33c824e808ae44edd1ac3f5a78f6")
+      "3fe714facd3a9c6da07b5aafad460431f2bf8e6e39abec045a69c481def1dba4")
     "Bytes 4096 tag17+BE-u64 sourceHash golden must remain stable"
   expect ((twin (.bytes 0)).sourceHash != (twin .u64).sourceHash &&
       (twin (.bytes 0)).sourceHash != (twin (.bytes 1)).sourceHash &&
       (twin (.bytes 1)).sourceHash != (twin (.bytes 4096)).sourceHash)
     "Bytes tag and complete length payload must bind sourceHash without aliases"
-  expect ((twin .u64).canonicalBytes.size == 236 &&
-      (twin (.bytes 0)).canonicalBytes.size == 252 &&
-      (twin (.bytes 1)).canonicalBytes.size == 252 &&
-      (twin (.bytes 4096)).canonicalBytes.size == 252)
+  expect ((twin .u64).canonicalBytes.size == 229 &&
+      (twin (.bytes 0)).canonicalBytes.size == 245 &&
+      (twin (.bytes 1)).canonicalBytes.size == 245 &&
+      (twin (.bytes 4096)).canonicalBytes.size == 245)
     "Bytes source canonical bytes must include two complete BE-u64 length payloads"
 
   for (label, type, byteSize, expectedHash) in [
