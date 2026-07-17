@@ -77,10 +77,10 @@ shared decoder to emit the stable unsupported-item diagnostic. -/
     nonReservedSymbol "using " (includeIdent := true) >> checkLineEq >> ident)
 @[pfItem_parser low] def unsupportedBareItemDecl := leading_parser
   withPosition (ident >> checkLineEq >> ident >> checkLinebreakBefore)
-syntax ident ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine manyIndent(pfStmt) : pfItem
+syntax ident ident "(" sepBy(pfParam, ", ") ")" (" : " pfType)? " do" ppLine manyIndent(pfStmt) : pfItem
 syntax "init" "(" sepBy(pfParam, ", ") ")" " do" ppLine manyIndent(pfStmt) : pfItem
-syntax "entry " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine manyIndent(pfStmt) : pfItem
-syntax "view " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine manyIndent(pfStmt) : pfItem
+syntax "entry " ident "(" sepBy(pfParam, ", ") ")" (" : " pfType)? " do" ppLine manyIndent(pfStmt) : pfItem
+syntax "view " ident "(" sepBy(pfParam, ", ") ")" (" : " pfType)? " do" ppLine manyIndent(pfStmt) : pfItem
 
 syntax (name := programDecl) "program " ident " where" ppLine ppIndent(pfItem*) : command
 
@@ -206,6 +206,7 @@ private def decodeTypeIdentifiers (first : Syntax) (second : Option Syntax) :
   | some "Int64", none => .ok .i64
   | some "Int128", none => .ok .i128
   | some "Int256", none => .ok .i256
+  | some "Unit", none => .ok .unit
   | _, _ => .error "unsupported portable type"
 
 private partial def collectTypeIdentifierSyntax (stx : Syntax) : Array Syntax :=
@@ -384,6 +385,15 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
           let body ← decodeStatementsUnchecked body
           return .fnDecl { name, params, result, body }
       | _ => .error "unsupported portable program item"
+  | `(pfItem| $kind:ident $name:ident ($params:pfParam,*) do
+        $body:pfStmt*) =>
+      match rawIdentifierText? kind with
+      | some "fn" => do
+          let name ← decodeIdentifier name
+          let params ← decodeParams params.getElems
+          let body ← decodeStatementsUnchecked body
+          return .fnDecl { name, params, result := .unit, body }
+      | _ => .error "unsupported portable program item"
   | `(pfItem| $kind:ident $name:ident where $members:pfAggregateMember*) =>
       match rawIdentifierText? kind with
       | some "struct" => do
@@ -429,11 +439,27 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
         mode := .mutate
         body := ← decodeStatementsUnchecked statements
       }
+  | `(pfItem| entry $name:ident ($params:pfParam,*) do $statements:pfStmt*) => do
+      return .entry {
+        name := ← decodeIdentifier name
+        params := ← decodeParams params
+        result := .unit
+        mode := .mutate
+        body := ← decodeStatementsUnchecked statements
+      }
   | `(pfItem| view $name:ident ($params:pfParam,*) : $type:pfType do $statements:pfStmt*) => do
       return .entry {
         name := ← decodeIdentifier name
         params := ← decodeParams params
         result := ← decodeTypeUnchecked type
+        mode := .view
+        body := ← decodeStatementsUnchecked statements
+      }
+  | `(pfItem| view $name:ident ($params:pfParam,*) do $statements:pfStmt*) => do
+      return .entry {
+        name := ← decodeIdentifier name
+        params := ← decodeParams params
+        result := .unit
         mode := .view
         body := ← decodeStatementsUnchecked statements
       }
@@ -600,6 +626,7 @@ private def quoteValueType : ProofForgeV2.Source.ValueType → MacroM (TSyntax `
   | .i64 => `(ProofForgeV2.Source.ValueType.i64)
   | .i128 => `(ProofForgeV2.Source.ValueType.i128)
   | .i256 => `(ProofForgeV2.Source.ValueType.i256)
+  | .unit => `(ProofForgeV2.Source.ValueType.unit)
 
 private def quoteVisibility : ProofForgeV2.Source.Visibility → MacroM (TSyntax `term)
   | .verifierVisible => `(ProofForgeV2.Source.Visibility.verifierVisible)

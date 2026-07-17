@@ -29,6 +29,7 @@ inductive ValueType where
   | i64
   | i128
   | i256
+  | unit
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 inductive Visibility where
@@ -115,6 +116,7 @@ private def adaptType : Source.ValueType → ValueType
   | .i64 => .i64
   | .i128 => .i128
   | .i256 => .i256
+  | .unit => .unit
 
 private def adaptVisibility : Source.Visibility → Visibility
   | .verifierVisible => .verifierVisible
@@ -178,7 +180,8 @@ private def ValueType.requirements : ValueType → Array ProgramRequirement
   | .bool => #[.boolValues]
   | .field => #[.fieldBn254]
   | .u8 | .u16 | .u32 | .u128 | .u256
-  | .i8 | .i16 | .i32 | .i64 | .i128 | .i256 => #[]
+  | .i8 | .i16 | .i32 | .i64 | .i128 | .i256
+  | .unit => #[]
 
 private def Visibility.requirements : Visibility → Array ProgramRequirement
   | .verifierVisible => #[]
@@ -274,6 +277,7 @@ private def appendValueType (bytes : ByteArray) : ValueType → ByteArray
   | .i64 => appendTag bytes 11
   | .i128 => appendTag bytes 12
   | .i256 => appendTag bytes 13
+  | .unit => appendTag bytes 14
 
 private def appendVisibility (bytes : ByteArray) : Visibility → ByteArray
   | .verifierVisible => appendTag bytes 0
