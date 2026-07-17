@@ -879,6 +879,19 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   assert diagnostic 而不是 Bool-expression diagnostic，既有 assignment/return/call/let controls 保持。
   本切片不得新增 Typed Statement、Bool type checking、assertion failure/revert、SemanticIR、requirement、
   effect、target ABI 或 runtime semantics。
+- D1-PA-27 的 alpha unary bitwise-not tests 固定 production rule
+  `syntax:75 "~" pfExpr:75 : pfExpr` 与 `Source.Expr.bitwiseNot(operand)`。positive 必须覆盖 initializer、
+  entry、view、fn 的 return/let value 可达位置以及 Lean command/ParserSession parity，并精确固定
+  `~2`、`~x`、`~2 * 3`、`~(2 + 3)`、`1 - ~2`、`1 * ~2`、`~ ~ 2`、`(~2)`、
+  `- ~ 2` 与 `~ - 2` 的 AST；nested/mixed unary 必须保留 node 数量与顺序。Source canonical encoder
+  使用 append-only Expr tag `8` 后接 operand；既有 tags `0..7`/goldens 不变。BitwiseNotTwin identity
+  下 literal、variable、precedence/grouping/nested/mixed cases 的真实 bytes/hash 在 GREEN 前绑定，并以
+  literal `2`、checked-negation、operand mutation、wrong tree 与 mixed-unary reverse-order 作为 non-alias。
+  bare `~`、`~()`、`~*2`、`~+2`、`~2 3`、`1 - ~` 与缺失 operand/payload 必须停在 parser
+  boundary。`Typed.check` 必须逐字拒绝 `bitwise not is not yet supported by typed checking` 且不产生
+  Semantic/target output；既有 checkedAdd positive 与 Bool/sub/mul/neg exact fail-closed controls 保持。
+  本切片不得修改既有 tests 作为迁移，不得加入 logical `!`、shift/binary bitwise、folding、
+  Typed/Semantic bitwise、requirement、target ABI 或 runtime semantics。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

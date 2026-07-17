@@ -258,6 +258,21 @@ Bool expression 的既有 Typed diagnostic。本切片不得新增 Typed Stateme
 assertion failure/revert code、SemanticIR、requirement、effect、target behavior 或 runtime representation；
 bare/missing condition、extra payload、optional else 与 block-like 形态必须保持 fail closed。
 
+D1-PA-27 冻结的 pre-acceptance alpha unary bitwise-not 子集新增
+`Source.Expr.bitwiseNot(operand)`，parser 形状固定为 `syntax:75 "~" pfExpr:75 : pfExpr`。它与
+checked negation 使用同一 prefix precedence `75` 并右结合，高于 `*`、`+` 与 binary `-`：
+`~2 * 3` 必须解析为 `(~2) * 3`，`~(2 + 3)` 保留 grouped operand，`1 - ~2` 与
+`1 * ~2` 接受 unary operand，`~ ~ 2` 保留两个 bitwise-not node。mixed unary 的次序也必须保留：
+`- ~ 2` 是 checked-negation of bitwise-not，`~ - 2` 是 bitwise-not of checked-negation，不得
+constant-fold、互换或擦除节点。
+
+Source canonical encoder 以 append-only Expr tag `8` 后接递归 operand；既有 tags `0..7` 与 goldens
+不得改变。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 对其逐字 fail closed 为
+`bitwise not is not yet supported by typed checking`。本切片不新增 logical `!`、shift/bitwise binary、
+signed literal、constant folding、Typed/Semantic bitwise operation、requirement、target behavior 或
+runtime representation；bare/malformed `~` 与额外 payload 保持 parser reject。当前测试中没有 `~`
+parser-negative pin，因此本切片不得修改既有测试来制造迁移。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
