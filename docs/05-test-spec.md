@@ -710,6 +710,11 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   对应 declaration table 时必须在 `Typed.check` fail closed，不能静默丢弃后进入 target Plan。
   `event`/`error` 不得污染宿主 Lean keyword 集；两者在 DSL identifier 位置的普通/escaped spelling
   必须双入口拒绝，宿主 Lean declaration 使用同名 identifier 的 positive control 必须继续通过。
+- struct/enum declaration 覆盖 nonempty field/variant、bare nullary 与 nonempty typed payload variant；
+  declaration、field/variant name、type/payload 与同类 order 必须进入 canonical source binding，
+  `| V()` 必须拒绝。empty aggregate、duplicate declaration/field/variant、escaped contextual keyword
+  与普通/escaped 保留名必须双入口 exact fail closed；`struct`/`enum` 不得污染宿主 Lean keyword
+  集。Typed/Semantic 尚无 named-type table 时必须在 `Typed.check` fail closed，不能静默丢弃。
 - 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
   pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
   diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。

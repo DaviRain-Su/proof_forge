@@ -285,6 +285,16 @@ dsl-negative: build
             duplicate-error) echo "PF-SRC-INVALID: program 'DuplicateError' contains duplicate error declarations" ;;
             duplicate-event-param) echo "PF-SRC-INVALID: event 'First' contains duplicate parameters" ;;
             duplicate-error-param) echo "PF-SRC-INVALID: error 'First' contains duplicate parameters" ;;
+            duplicate-struct) echo "PF-SRC-INVALID: program 'DuplicateStruct' contains duplicate struct declarations" ;;
+            duplicate-enum) echo "PF-SRC-INVALID: program 'DuplicateEnum' contains duplicate enum declarations" ;;
+            duplicate-struct-field) echo "PF-SRC-INVALID: struct 'First' contains duplicate fields" ;;
+            duplicate-enum-variant) echo "PF-SRC-INVALID: enum 'First' contains duplicate variants" ;;
+            empty-struct) echo "PF-SRC-INVALID: struct 'Empty' must declare at least one field" ;;
+            empty-enum) echo "PF-SRC-INVALID: enum 'Empty' must declare at least one variant" ;;
+            empty-enum-payload) echo "PF-SRC-INVALID: enum variant 'Empty' payload must contain at least one type" ;;
+            escaped-struct-keyword|escaped-enum-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
+            reserved-struct-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'struct'" ;;
+            reserved-enum-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'enum'" ;;
             escaped-event-keyword|escaped-error-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             reserved-event-identifier|escaped-reserved-event-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'event'" ;;
             reserved-error-identifier|escaped-reserved-error-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'error'" ;;
@@ -306,6 +316,9 @@ dsl-negative: build
         zero-callable duplicate-state duplicate-entry duplicate-initializer-param
         duplicate-entry-param duplicate-event duplicate-error duplicate-event-param
         duplicate-error-param escaped-event-keyword escaped-error-keyword duplicate-initializer
+        duplicate-struct duplicate-enum duplicate-struct-field duplicate-enum-variant
+        empty-struct empty-enum empty-enum-payload escaped-struct-keyword escaped-enum-keyword
+        reserved-struct-identifier reserved-enum-identifier
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
         priority-identity-before-decode

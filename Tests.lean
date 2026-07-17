@@ -5,6 +5,7 @@ import Tests.Core.Unicode
 import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
+import Tests.Language.AggregateDeclarations
 import Tests.Language.EventErrorDeclarations
 import Tests.Language.FieldDeclarations
 import Tests.Language.ProgramSyntax
@@ -27,6 +28,7 @@ unsafe def main : IO Unit := do
   Tests.Core.run
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
+  Tests.Language.AggregateDeclarations.run
   Tests.Language.EventErrorDeclarations.run
   Tests.Language.FieldDeclarations.run
   Tests.Language.run

@@ -250,9 +250,10 @@ contain。文件上限返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受
 
 `decodeProgramCommandChecked` 返回的 validated `Source.Program` 是 CLI Loader 与 Lean
 command elaborator 的唯一业务 AST。共享 validation 在 decode 后按固定顺序检查：至少一个
-entry/view、state 名唯一、entry 名唯一、event 名唯一、error 名唯一、initializer 参数名唯一、
-每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按 error 声明顺序唯一、每个 entry
-参数名唯一；
+entry/view、state 名唯一、entry 名唯一、event 名唯一、error 名唯一、struct 名唯一、enum 名唯一、
+initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant
+按 enum 声明顺序非空且名称唯一、每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按
+error 声明顺序唯一、每个 entry 参数名唯一；
 duplicate initializer 仍在构造 `Source.Program` 前拒绝。Loader 只拥有 module header/
 command whitelist、namespace stack、module 内 program identity 去重和 selection，不得另有
 per-program declaration validator。
@@ -264,11 +265,18 @@ per-program declaration validator。
 projection 还不是 `SPEC-SOURCE-WIRE-001` 的完整 ordered `Program.items` 实现，不能作为正式
 `Source.ProgramV1` wire evidence。
 
-为避免 ProofForge import 把 Lean 宿主中的 `event`/`error` 变成全局 parser keyword，这两个词只在
-`pfItem` 首位按 raw token exact 识别；escaped keyword 或其他 leading identifier 失败。其 semantic
-identifier 同时属于 DSL 保留词：program、declaration、parameter、expression 与 assignment 的
-identifier decoder 对普通或 escaped 后值为 `event`/`error` 的名称统一返回
-`PF-SRC-INVALID`，但 DSL 外的 Lean declaration 仍可合法使用这两个名称。
+当前 D1 pre-acceptance alpha 同样把 struct/enum 的 exact declaration name、field name/type、variant
+name/payload type order 保存在独立 Source projection 并纳入 development source binding；完整
+`Program.items` 落地前只保证 struct 与 enum 各自的 declaration order，不声称跨 kind source order。
+`StructDecl.fields` 与 `EnumDecl.variants` 必须 nonempty；bare variant 是 nullary，带括号时 TypeList
+必须 nonempty，因此 `| V()` 失败。Typed/Semantic named-type tables 完成前，任一非空 struct/enum
+table 必须在 `Typed.check` fail closed。
+
+为避免 ProofForge import 把 Lean 宿主中的 `struct`/`enum`/`event`/`error` 变成全局 parser keyword，
+这些词只在 `pfItem` 首位按 raw token exact 识别；escaped keyword 或其他 leading identifier 失败。
+其 semantic identifier 同时属于 DSL 保留词：program、declaration、parameter、expression 与
+assignment 的 identifier decoder 对普通或 escaped 后值为上述名称统一返回 `PF-SRC-INVALID`，
+但 DSL 外的 Lean declaration 仍可合法使用这些名称。
 
 Lean command elaborator 必须从 decoded value quote 出 `@[proof_forge_program]` 常量；不得丢弃
 decoded value 后再沿原始 `Syntax` 运行第二套 `expandType/expandParam/expandExpr/expandStatement/
