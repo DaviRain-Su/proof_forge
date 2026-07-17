@@ -32,6 +32,7 @@ inductive ValueType where
   | unit
   | principal
   | option (element : ValueType)
+  | bytes (length : UInt32)
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 inductive Visibility where
@@ -121,6 +122,7 @@ private def adaptType : Source.ValueType → ValueType
   | .unit => .unit
   | .principal => .principal
   | .option element => .option (adaptType element)
+  | .bytes length => .bytes length
 
 private def adaptVisibility : Source.Visibility → Visibility
   | .verifierVisible => .verifierVisible
@@ -191,6 +193,8 @@ private def ValueType.requirements : ValueType → Array ProgramRequirement
   | .principal => #[]
   -- Option adds no capability of its own; requirements are exactly the element's.
   | .option element => element.requirements
+  -- Bytes declaration carrier only: zero requirements, no runtime bytes capability.
+  | .bytes _ => #[]
 
 private def Visibility.requirements : Visibility → Array ProgramRequirement
   | .verifierVisible => #[]
@@ -289,6 +293,7 @@ private def appendValueType (bytes : ByteArray) : ValueType → ByteArray
   | .unit => appendTag bytes 14
   | .principal => appendTag bytes 15
   | .option element => appendValueType (appendTag bytes 16) element
+  | .bytes length => appendNat (appendTag bytes 17) length.toNat
 
 private def appendVisibility (bytes : ByteArray) : Visibility → ByteArray
   | .verifierVisible => appendTag bytes 0
