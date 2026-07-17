@@ -1529,3 +1529,40 @@ normative: false
   carrying recursive type。D1-PA-18 先在 alpha authority 中冻结 exact bounded grammar、canonical
   `tag16 || elementType` payload、transitive element requirements 与 fail-closed exclusions，再提交 RED；
   不把 full Named/Bytes/Array/Map 或 D2 runtime Option semantics 吸收进来。
+
+## 2026-07-18 — D1 bounded Option declaration pre-acceptance slice
+
+- Commits：Option declaration RED `f6b2b2bf`；qualified-option rejection-layer correction
+  `06c56f78`；Source/Semantic/Syntax GREEN `9858ede0`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-18 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.ValueType` 与 `SemanticIR.ValueType` 追加 recursive `option(element)`；两侧 alpha
+  canonical encoder append-only 使用 tag `16` 后立即递归编码 element，保持 tags `0..15` 不变。
+  decoder 只接受同一行 `Option` 加已实现的 Bool/closed UInt/Int/Principal/Unit 单 token element；
+  quote/adapt 逐层保真，requirements 精确传播 `element.requirements`。
+- Binding/negatives：declaration surface 覆盖 state、struct field、enum payload、const、init、entry/view/fn
+  parameter/result；Lean command 与 ParserSession 产生相同 Source AST/sourceHash。同一 OptionTwin identity
+  的 UInt64/tag0、Option UInt64/tag16+0 与 Option Unit/tag16+14 goldens 分别为
+  `8bbe116fabb9ea37ec1c6a12c8283c56e62e6b2476d15b80b1d6bc09d8ff1c1a`、
+  `d90a6882abbf68c541eebb8a29a5af5667ed91b0862b385be2e5674ccd2b3318`、
+  `37d1b79cbb1e7a184e24dd5898954030b5d503033727ee3965fafe7bb0e3c6e6`。plural/escaped/unknown/
+  missing/qualified 形态在 decoder exact fail closed；nested/Field/extra payload 停在 parser boundary。
+- Boundary：`Option UInt64` 编译为 `requirements == #[]`，四个 target support resolver 接受；
+  `Option Bool` 精确保留 `#[.boolValues]` 并由四 target 在 support resolver fail closed。三个 stateful
+  rows 分别固定 Option UInt64 state、result 与 parameter，整体只含 `persistentState`，随后由 EVM、
+  Solana、NEAR、Noir 各自 target-owned Plan 以 `planInvariant` 拒绝，没有生成 artifact。
+- Review/Commands：Kimi RED review P0/P1=0；Pi GREEN review P0/P1=0，两个 P2 均为已冻结的 parser-
+  boundary/recursive-carrier 说明项；Claude 独立复算全部 goldens 精确一致，旧快照提出的 qualified-layer
+  P1 已由 `06c56f78` 先行关闭。`lake build Tests.Language.OptionDeclarations`；
+  `lake build proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；
+  `just dsl-negative`；clean committed `just ci` at `9858ede0`；`git diff --check`。
+- Results：128-job clean build、120-job aggregate、186 项 docs mutation、治理/SBOM/runtime closure、
+  双入口 DSL negatives 与 toolchain negatives 全部 exit 0；development evidence 为
+  `EV-20260718-0004`。
+- Limitations：仅实现 bounded declaration structure；没有 none/some expression、unwrap、runtime
+  representation、recursive/D2 legality、Option target ABI/materialization、eligible host 或 formal D1
+  evidence。D0 formal milestone 仍为 5/8，`TASK-D1-03` 仍 pending，本结果不是 eligible/hermetic/
+  formal evidence。
+- Next：四路 residual/canonical/parser/RED audit 选择 D1-PA-19 `Bytes N`。先冻结 exact same-line
+  canonical decimal `0..4096`、`bytes(UInt32)` carrier、tag `17` 加 encoder-local `appendNat` payload、
+  zero requirements 与 parser/decoder fail-closed 分层，再提交 RED；不吸收 bytes runtime 或 stable wire。

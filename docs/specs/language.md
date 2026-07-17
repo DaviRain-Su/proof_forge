@@ -143,6 +143,18 @@ Source/Semantic carrier 为 `option(element)`；alpha canonical encoding 必须 
 该切片只保存 declaration type structure，不实现 none/some expression、unwrap、runtime representation、
 recursive legality或 D2 type/effect semantics；超出该闭集的 payload 必须 fail closed。
 
+D1-PA-19 冻结的 pre-acceptance alpha Bytes 子集只接受同一行的 `Bytes N`，其中 `N` 的 lexical
+spelling 必须等于其 Nat 值的 canonical ASCII 十进制表示，且值位于 `0..4096`；因此除单个 `0`
+外禁止前导零，也禁止 `_`、`0x`/`0b`/`0o`、符号、identifier、缺失/额外 payload 或跨行 payload。
+Source/Semantic carrier 为 `bytes(length : UInt32)`，frontend 在构造 carrier 前完成 lexical 与 bound
+检查。alpha canonical encoding append tag `17` 后使用各 encoder 已有的 `appendNat(length.toNat)`：
+Source 为 8-byte big-endian，Semantic 为 8-byte little-endian；既有 tags `0..16` 不变。这个
+encoder-local alpha binding 明确不是 `SPEC-SOURCE-WIRE-001`/`SPEC-SEM-WIRE-001` 的正式 `u32le`
+Type wire，后者仍由其独立 stable encoder/decoder 负责。Bytes declaration 推导零 requirement；本切片
+不实现 bytes literal、index/slice/length op、runtime representation、Option/Array/Map nesting 或 D2
+type/value legality。直接伪造的 in-memory over-bound carrier 不属于 frontend accepted source；本切片
+不把 alpha total hash helper 冒充 stable wire validator。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

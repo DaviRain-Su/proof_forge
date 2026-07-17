@@ -766,6 +766,15 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   擦除。测试覆盖 declaration positions、双前端 parity、element/tag mutation、same-line/后继 item guard、
   support-vs-Plan boundary；none/some expression、unwrap、nested runtime representation 与 D2 legality
   明确不在本切片。
+- D1-PA-19 的 alpha Bytes tests 只接受同一行 canonical ASCII decimal `Bytes N`，边界精确为
+  `0..4096`。positive 覆盖 `0`、中间值与 `4096` 的 declaration positions、Lean command/ParserSession
+  parity、Source/Semantic `bytes(UInt32)` carrier、零 requirement 与四 target support-vs-Plan boundary。
+  canonical goldens 必须同时固定 tag `17` 与 encoder-local length payload：Source 使用现有 8-byte
+  big-endian `appendNat`，Semantic 使用现有 8-byte little-endian `appendNat`；tags `0..16` 和既有
+  goldens 不变。bare/plural/escaped/qualified/identifier payload、`0x`、前导零、`4097` 必须在 decoder
+  exact fail closed；负号、额外 token、跨行 payload 与 `Option Bytes N` 停在 parser boundary。测试不得
+  引入 bytes literal、index/slice/length op、runtime representation、nested aggregate 或 D2 legality，
+  也不得把 alpha hash helper 声称为 stable Type wire validator。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

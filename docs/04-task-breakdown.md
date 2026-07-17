@@ -118,13 +118,14 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-15 | TASK-D1-03 | closed integer-width declaration types：`UInt8/16/32/128/256` 与 `Int8/16/32/64/128/256` | `d26eb71f`, `bdbdfbf8`, `db25328b` | focused aggregate + four dual-entry negatives + clean `just ci` at `db25328b`；final review P0/P1/P2=0 | complete (development) |
 | D1-PA-16 | TASK-D1-03 | `Unit` declaration type carrier 与 omitted return type materialization | `dbaf9a20`, `25274210`, `a6dc9223` | focused aggregate + four dual-entry negatives + Loader bare-colon rejection + clean `just ci` at `a6dc9223`；final review P0/P1/P2=0 | complete (development) |
 | D1-PA-17 | TASK-D1-03 | exact `Principal` declaration type carrier；declaration-only zero-requirement boundary | `a69cc49c`, `c7aa6746` | focused aggregate + four dual-entry negatives + clean `just ci` at `c7aa6746`；independent RED/GREEN/canonical reviews P0/P1/P2=0 | complete (development) |
-| D1-PA-18 | TASK-D1-03 | bounded `Option` declaration carrier；alpha payload canonical encoding 与 transitive requirement propagation | — | residual audits select Option；spec freeze before RED | **active** |
+| D1-PA-18 | TASK-D1-03 | bounded `Option` declaration carrier；alpha payload canonical encoding 与 transitive requirement propagation | `f6b2b2bf`, `06c56f78`, `9858ede0` | focused aggregate + dual-entry/parser-boundary negatives + clean `just ci` at `9858ede0`；final review P0/P1=0 | complete (development) |
+| D1-PA-19 | TASK-D1-03 | bounded `Bytes N` declaration carrier；exact decimal `0..4096` 与 encoder-local alpha canonical payload | — | four-way residual/canonical/parser/RED audits；spec freeze before RED | **active** |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
 | TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07 | — | TST-SRC-001, TST-SRC-002 | EV-20260717-0036 | pending |
 | TASK-D1-02 | `program ... where` command parser | TASK-D1-01 | — | TST-SRC-003 | — | pending |
-| TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043, EV-20260717-0044, EV-20260717-0045, EV-20260717-0046, EV-20260717-0047, EV-20260718-0001, EV-20260718-0002, EV-20260718-0003 | pending |
+| TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043, EV-20260717-0044, EV-20260717-0045, EV-20260717-0046, EV-20260717-0047, EV-20260718-0001, EV-20260718-0002, EV-20260718-0003, EV-20260718-0004 | pending |
 | TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | — | pending |
 | TASK-D1-05 | `Source.Program` stable attribute export/schema | TASK-D1-03 | — | TST-SRC-006, TST-SRC-007 | — | pending |
 | TASK-D1-06 | multi-program loader/selection | TASK-D1-05 | — | TST-SRC-008 | — | pending |
