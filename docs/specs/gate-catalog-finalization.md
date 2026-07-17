@@ -1380,7 +1380,10 @@ Gate command matcher 从 base context 解析 binding；probe matcher 先从其 i
 base context 解析，若两处同名则 type/value 必须相等。`binding` 要求目标 type exact；
 `binding-decimal` 只把 integer 按无 `+`、无 leading zero 的 base-10 ASCII 投影为 string，使同一
 port/chain-id binding 能同时约束 numeric schema field 与 argv/env。`run-path` 精确解析为
-`runRoot + "/" + relative`。不允许其他 coercion、substring、glob、regex 或 executable callback。
+`runRoot + "/" + relative`。Gate `commandPolicy.argv[0]` 是唯一例外收紧：必须是 `run-path`，
+且其 `relative` 必须唯一命中 selected gate 的一个 `requiredInputs` `(role,path)`；finalizer 必须
+捕获该 input bytes，禁止用 `literal`、`binding` 或 `binding-decimal` 绕过 launcher claim。
+不允许其他 coercion、substring、glob、regex 或 executable callback。
 
 Catalog tool 的前六个字段必须与 EV tool record exact 相等；`usage` 是 `invoked` 或
 `closure-only`。前者必须被至少一个 probe `ExecutableRef(kind="tool")` 消费；后者必须有
@@ -1543,9 +1546,11 @@ base-run-context/invocation-context/host-observation/locks/launchers/verifiers/r
 snapshot。Capture path 必须已存在于 evidence claims，单文件
 和总 capture 大小另设严格上限；不得捕获 artifacts 或未声明路径。
 
-Snapshot semantic capture 限制为单文件 4 MiB、合计 64 MiB；整个 bundle integrity 仍使用
-单文件 64 MiB、合计 256 MiB。Snapshot 返回 checked file count、claim-set digest、verified
-inode identities 与 captured bytes。
+Snapshot semantic capture 限制为单文件 4 MiB、合计 64 MiB；development 路径复用并保留的
+preliminary evidence bytes 计入该 64 MiB resident-byte 总量，但不进入 bundle claim count 或
+claim-set digest；catalog 已属于 claimed semantic member，不重复计数。整个 bundle integrity
+仍使用单文件 64 MiB、合计 256 MiB。Snapshot 返回 checked file count、claim-set digest、
+verified inode identities 与 captured bytes。
 任何 path/inode/casefold alias、symlink/hardlink、size/hash/metadata 变化或 I/O error 都失败。
 Finalizer 必须用 directory fd 精确枚举 dedicated `policies/` 与 `contexts/`：前者的 rendered
 `.sb`、`sandbox-*.receipt.json`、`sandbox-*.stdout.log`、`sandbox-*.stderr.log`，后者的

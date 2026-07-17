@@ -2375,6 +2375,27 @@ def main() -> int:
             bundle_mutator=rename_invocation_paths_in_bundle,
         )
 
+        gate_argv0 = document["command"]["argv"][0]
+
+        def literalize_gate_command_argv0(catalog: dict[str, object]) -> None:
+            catalog["gates"][0]["commandPolicy"]["argv"][0] = {
+                "kind": "literal",
+                "value": gate_argv0,
+            }
+
+        assert_rebound_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            run_binding_sha256,
+            label="literal-gate-launcher-argv0",
+            expected_code="PF-EVIDENCE-CATALOG",
+            catalog_mutator=literalize_gate_command_argv0,
+            bundle_mutator=lambda _case_root, _case_document: None,
+        )
+
         custom_executable_role = "custom-runtime-executable"
         custom_executable_path = "tcb/custom-runtime-executable.bin"
 
@@ -2608,6 +2629,90 @@ def main() -> int:
             label="semantic-file-limit",
             expected_code="PF-EVIDENCE-BUNDLE-LIMIT",
             mutator=exceed_semantic_file_limit,
+        )
+
+        def fill_claimed_semantics_to_exact_limit(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            semantic_roles = {
+                "gate-catalog",
+                "clean-room-run-context",
+                "host-observation",
+                "host-bootstrap-lock",
+                "host-profile-lock",
+                "toolchain-lock",
+                "host-stage0-launcher",
+                "host-stage0-verifier",
+                "sandbox-launcher",
+                "sandbox-policy-renderer",
+                "sandbox-probe-wrapper",
+                "evidence-schema-core",
+                "sandbox-rendered-policy",
+                "sandbox-invocation-context",
+                "sandbox-invocation-receipt",
+                "gate-launcher",
+            }
+            must_remain_parseable = {
+                "gate-catalog",
+                "clean-room-run-context",
+                "host-observation",
+                "evidence-schema-core",
+                "sandbox-invocation-context",
+                "sandbox-invocation-receipt",
+            }
+            semantic_inputs = [
+                claim
+                for claim in case_document["inputs"]
+                if claim["role"] in semantic_roles
+            ]
+            mutable = [
+                claim
+                for claim in semantic_inputs
+                if claim["role"] not in must_remain_parseable
+            ] + list(case_document["logs"])
+            fixed = [claim for claim in semantic_inputs if claim not in mutable]
+            remaining = module.MAX_SNAPSHOT_TOTAL_BYTES - sum(
+                claim["size"] for claim in fixed
+            )
+            if remaining <= 0 or remaining > len(mutable) * module.MAX_SNAPSHOT_FILE_BYTES:
+                raise AssertionError("semantic exact-limit fixture has invalid capacity")
+            rendered = {
+                policy["renderedPolicyInput"]["path"]: policy
+                for policy in case_document["sandboxPolicies"]
+            }
+            for index, claim in enumerate(sorted(mutable, key=lambda item: item["path"])):
+                size = min(module.MAX_SNAPSHOT_FILE_BYTES, remaining)
+                remaining -= size
+                body = bytes([ord("a") + (index % 26)]) * size
+                replace_secure(case_root / claim["path"], body)
+                claim["size"] = size
+                claim["sha256"] = sha256(body)
+                policy = rendered.get(claim["path"])
+                if policy is not None:
+                    policy["renderedSha256"] = claim["sha256"]
+            if remaining != 0:
+                raise AssertionError("semantic exact-limit fixture did not exhaust its budget")
+            semantic_total = sum(
+                claim["size"]
+                for claim in semantic_inputs + list(case_document["logs"])
+            )
+            if semantic_total != module.MAX_SNAPSHOT_TOTAL_BYTES:
+                raise AssertionError("claimed semantic total is not the exact boundary")
+            if not module.canonical_bytes(case_document):
+                raise AssertionError("preliminary evidence unexpectedly became empty")
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="semantic-total-plus-preliminary-evidence",
+            expected_code="PF-EVIDENCE-BUNDLE-LIMIT",
+            mutator=fill_claimed_semantics_to_exact_limit,
         )
 
         def exceed_semantic_total_limit(

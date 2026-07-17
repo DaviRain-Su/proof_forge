@@ -773,7 +773,9 @@ structural repeated-role alias/substitution，以及 `gate_evidence.py` digest �
 这些失败不得进入 catalog success 或创建 EVF 输出。还必须拒绝 development finalizer 的普通
 pathname 启动、stdin descriptor/path/module-code 任一错绑、跨 policy/probe 重用 rendered policy/
 context/receipt/stream，以及 probe stream 与 `requiredLogs` 相交；非 regular stdin 与 source-path
-substitution 也必须在 catalog/member/output I/O 前失败。
+substitution 也必须在 catalog/member/output I/O 前失败。Gate command 的 `argv[0]` 必须拒绝
+`literal`/binding matcher 绕过 retained launcher input；single-snapshot 64 MiB semantic total 必须
+计入复用的 preliminary evidence bytes，并覆盖 claimed semantic subtotal 恰为 64 MiB 的边界负例。
 
 ## 证据要求
 
