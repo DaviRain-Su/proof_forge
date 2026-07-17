@@ -3,7 +3,7 @@ id: SPEC-SEM-001
 title: 目标中立语义核心
 status: proposed
 owner: semantics
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
 ---
 
@@ -284,9 +284,10 @@ proofBundleDigest = SHA-256(
 )
 ```
 
-manifest 的每个 `oleanDigest` 是对应 regular file bytes 的 SHA-256。`toolchainLockDigest` 固定为
-`SHA-256("proof-forge.toolchain-lock.v1" || 0x00 || JCS(validated toolchains.lock.json))`，且必须等于
-SPEC-TOOL-001 当前 lock digest；`abiOleanDigest` 必须等于当前 candidate 自带 ABI `.olean`。
+manifest 的每个 `oleanDigest` 是对应 regular file bytes 的 SHA-256。`toolchainLockDigest` 必须精确
+等于 SPEC-TOOL-001 从已验证完整 Tool Lock v2 payload 产生的唯一 `ToolLockV2Digest`；raw
+`toolchainLockSha256`、legacy `proof-forge.toolchain-lock.v1` domain 或其他同长摘要替代都以
+`PF-TOOLCHAIN-MISMATCH` 拒绝，不得 dual-read。`abiOleanDigest` 必须等于当前 candidate 自带 ABI `.olean`。
 trusted base 只包括该 candidate 的 ABI/Semantic Core closure 与 lock 中 Lean kernel/core `.olean`
 closure，按 module name 排序并以
 `SHA-256("proof-forge.trusted-olean-closure.v1" || 0x00 || JCS([{moduleName,oleanDigest,imports}...]))`

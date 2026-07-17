@@ -446,6 +446,32 @@
       "status": "provisional"
     },
     {
+      "id": "SRC-CDX-001",
+      "title": "CycloneDX 1.6 official JSON schema",
+      "authority": "official-specification",
+      "url": "https://github.com/CycloneDX/specification/blob/1.6/schema/bom-1.6.schema.json",
+      "version": "CycloneDX 1.6 release tag",
+      "locator": "root closed schema; component, dependency, hash and licenseChoice definitions",
+      "accessedAt": "2026-07-17",
+      "contentHash": null,
+      "hashStatus": "not_snapshotted; D0-08 freeze must retain exact commit and file hashes",
+      "license": "Apache-2.0",
+      "status": "verified"
+    },
+    {
+      "id": "SRC-SPDX-001",
+      "title": "SPDX 3.0.1 license expression grammar",
+      "authority": "official-specification",
+      "url": "https://spdx.github.io/spdx-spec/v3.0.1/annexes/spdx-license-expressions/",
+      "version": "SPDX 3.0.1",
+      "locator": "Annex B ABNF, operator precedence, case sensitivity and canonical identifiers",
+      "accessedAt": "2026-07-17",
+      "contentHash": null,
+      "hashStatus": "not_snapshotted; D0-08 freeze must retain exact spec and license-list revisions",
+      "license": "Community Specification License 1.0",
+      "status": "verified"
+    },
+    {
       "id": "SRC-UNICODE-001",
       "title": "Unicode Standard Annex #15: Unicode Normalization Forms",
       "authority": "official-specification",

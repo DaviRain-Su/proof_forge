@@ -3,7 +3,7 @@ id: SPEC-OUT-001
 title: OutputSet 与 Artifact Manifest 契约
 status: proposed
 owner: artifacts
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
 ---
 
@@ -66,7 +66,8 @@ provenance，但不得成为 target lowering 分支条件。`selection` 是 SPEC
 `plan`/`targetIR` 恰为 `schema,digest`，schema 必须 resolve 到 selected target/profile 的 exact
 typed schema。`toolchains` 的每项是 SPEC-REG-001 `ToolchainIdentity`，至少包含 selected
 CodegenProfile 的 `compilerToolchain` 及所有实际执行的 external tool closure，按
-`(id UTF-8,version UTF-8,lockDigest,digest)` 唯一升序。
+`(id UTF-8,version UTF-8,lockDigest,digest)` 唯一升序。每项 `lockDigest` 是 SPEC-TOOL-001 的
+canonical `ToolLockV2Digest`，不是 raw `toolchainLockSha256`。
 
 `support` 恰为 `registryDigest,minimumEvidence,decisionsPath,decisionsDigest`；
 `minimumEvidence` 是 effective minimum，必须 `>=` profile minimum 且等于 decision-set root

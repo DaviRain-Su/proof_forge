@@ -3,7 +3,7 @@ id: SPEC-REG-001
 title: Target 与 Profile 注册表
 status: proposed
 owner: targets
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
 ---
 
@@ -243,17 +243,19 @@ structure NetworkProfileIdentity where
 ```
 
 `ToolchainIdentity` wire object 恰为 `id,version,lockDigest,digest`。`id` 使用 profile ID grammar；
-`lockDigest` 必须由 [`SPEC-TOOL-001`](toolchains.md) 的已验证完整 Tool Lock v2 payload 重算：
+`lockDigest` 必须精确等于 [`SPEC-TOOL-001`](toolchains.md) 对已验证完整 Tool Lock v2 payload
+产生的唯一 `ToolLockV2Digest`：
 
 ```text
-lockDigest = SHA-256("proof-forge.toolchains.v2" || 0x00 || JCS(toolLockV2))
+lockDigest = SPEC-TOOL-001.ToolLockV2Digest
 digest = SHA-256("proof-forge.toolchain-identity.v1" || 0x00 ||
   JCS({id,version,lockDigest}))
 ```
 
 `id/version` 必须 exact resolve 到该 lock 的一个 compiler/tool closure；不能用 version probe、PATH
 命中或 manifest 自报值代替 lock resolution。这样 CodegenProfile 与 OutputSet consumer 都能从
-同一 lock payload 独立重算完整 identity。
+同一 lock payload 独立重算完整 identity。raw `toolchainLockSha256` 不能填入 `lockDigest`；本规格只
+拥有 `ToolchainIdentity.digest`，不得重新定义 Tool Lock payload 的摘要 authority。
 
 `ArtifactRoleSpecV1` wire object 恰为 `role,mediaType,deployability`；role 是 1..63-byte lowercase
 kebab ASCII `[a-z][a-z0-9]*(?:-[a-z0-9]+)*`，media type 是 lowercase ASCII `type/subtype`，禁止

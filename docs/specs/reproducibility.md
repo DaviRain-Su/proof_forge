@@ -3,7 +3,7 @@ id: SPEC-REPRO-001
 title: 可重现构建与 Clean-room 规格
 status: proposed
 owner: build
-updated: 2026-07-15
+updated: 2026-07-17
 normative: true
 ---
 
@@ -104,7 +104,8 @@ freshness/revocation/private scan 与 formal finalizer 由 `TASK-D0-07` 承担�
 
 ## Cache Policy
 
-cache key 必须含 toolchain lock digest、compiler/source/profile/schema/platform；cache value 取出
+cache key 必须含 SPEC-TOOL-001 canonical `ToolLockV2Digest`、compiler/source/profile/schema/platform；
+raw `toolchainLockSha256` 不得替代该 typed digest；cache value 取出
 后重验 hash/schema。release evidence 至少有一次 `cache=empty`。父项目 `.lake`、build、
 olean、binary 和通用 writable PATH 不得进入 cache search。
 

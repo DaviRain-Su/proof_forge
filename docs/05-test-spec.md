@@ -97,6 +97,7 @@ Counter 相同的 parser/type/semantic/resolver/materializer 通用路径，禁�
 | TST-XTARGET-002 | unsupported/version/missing tool | 稳定错误，无 fallback | aggregate |
 | TST-RESOURCE-001 | frontend safe-open/parser exact resource limits | equal 接受、over 对应稳定 code、无 escaped process/部分输出 | security/isolation |
 | TST-RESOURCE-002 | compiler-core/tool/output exact resource limits | 逐 stage effective override；equal 接受、over 对应稳定 code、旧输出不变、receipt 完整 | security/isolation |
+| TST-SBOM-002 | candidate-bound supply-chain closure + CycloneDX/release binding | 七种互斥 kind、全部 Tool Lock/Lake/compiler-runtime/license/standards leaf、logical/content identity、synthetic root、canonical/raw digest、三文件 sidecar 与 atomic no-clobber exact 重算；任一 substitution/extra/missing/race 零输出拒绝 | integration/security/reproducibility |
 | TST-EVIDENCE-001 | development evidence/finalization | schema/bundle/catalog finalization 闭合，formal 请求 zero-output 拒绝 | evidence/security |
 | TST-BOOTSTRAP-001 | pre-activation bootstrap foundation | eligible handoff、session containment、signed required-set/catalog authority、per-task receipts、six-item set 与 activation verifier 在无既有 activation 前置下 exact 闭合 | evidence/security/isolation |
 | TST-EVIDENCE-002 | formal evidence/support binding | typed host/session/freshness/private-scan/revocation/finalizer refs、formal finalization 与 candidate/BuildIdentity/RequirementKey binding 全部 exact | evidence/security |
@@ -349,6 +350,83 @@ parent dependencies (`require ..` or equivalent path dependency), legacy
 ignored build output as product source. This is a development package-isolation
 gate only; it does not claim eligible-host, locked tool closure, network denial,
 formal clean-room evidence, or release readiness.
+
+### D0-08 candidate-bound supply-chain acceptance
+
+`TST-SBOM-002` 是 `TASK-D0-08` 的唯一 task-owned acceptance，必须先以独立 fixture/validator
+提交 RED；现有 D0-05 `license-inventory.v1`、null-root BOM、asset-only closure 和
+`sbom-digests.v1.json` 只能作为 legacy negative。测试 authority 是 SPEC-TOOL-001 与 ADR-0015；
+production generator 的输出不能反向生成 expected golden。
+
+当前 Tool Lock v2 的 direct-leaf baseline 固定为 5 个 `assets[]`、2 个
+`compilerToolchain.executables[]`、5 个 `bundleFiles[]`、4 个 `tools[].executable` 与 1 个
+`tools[].runtimeFiles[]` ref；每个 leaf 恰覆盖一次。这一 baseline 映射为 5 个 download-asset、
+2 个 compiler-executable、4 个 tool-executable 与 1 个 external runtime-dylib logical component；
+再加 1 个 root lean-package 和当前 4 个 distinct license-text，得到 17 个 pre-freeze baseline
+components。candidate archive root 另为 synthetic BOM root，绝不兼任 inventory/source component。
+
+17 不是 D0-08 最终验收分母。进入 RED 前，freeze package 必须先保留所有 Lean compiler 可达
+non-system runtime file manifests，固定 official CycloneDX schema/SPDX grammar+list files 与离线
+validator ToolchainIdentity，并记录最终 exact counts：每种 Tool Lock ref、compiler-runtime file、
+component kind、content identity、typed relationship、standards file 和 sidecar file。测试 oracle 将这些
+counts 固化为常量；运行时不得从 production output 动态推导或放宽。bytes 相同的 solc
+asset/executable 必须有不同 `componentDigest/bom-ref`，但共享 content identity；libcrypto 的
+bundle-file/tool-runtime-file refs 必须 join 到同一个 runtime logical component。任何输入集合变化都
+必须先形成新的 freeze review 与 goldens。
+
+happy path 必须由 checkout 外的 fixed candidate tuple
+`(commit,treeObjectId,archiveDigest,archiveSize,digest)` 驱动，连续在两个 absolute root、空 HOME、
+不同 locale/umask 下生成 byte-identical 的三文件 sidecar；synthetic metadata root hash 等于 candidate
+archive raw SHA-256，closure/BOM/binding、CycloneDX schema identity 与 SPDX standards identity 的
+domain/raw hashes 全部由独立 test oracle 重算。sidecar regular-file closure 恰为
+`supply-chain-closure.v1.json,bom.cdx.json,sbom-release-binding.v1.json`，最终 mode 均为 `0444`。
+
+每个 case 只允许一个 mutation，至少实现下表；“零输出”表示 destination 不存在，或预先存在的
+destination tree byte-identical 且无残留 staging：
+
+| Case | 单一 mutation / boundary | Expected |
+|---|---|---|
+| `SB2-001` | exact frozen inventory/lock/runtime/standards/license + external candidate；双 root 重复生成 | freeze 中每类 exact denominator、3 sidecars、bytes/digests/mode 全部相等 |
+| `SB2-002` | Tool Lock 只改 whitespace/object-key layout，semantic payload 不变 | `ToolLockV2Digest` 不变；raw `toolchainLockSha256` 与 candidate/binding 相应改变 |
+| `SB2-003` | 把 `proof-forge.toolchain-lock.v1` legacy digest 填入任一 typed lock field | `PF-SBOM-BIND`，零输出 |
+| `SB2-004` | raw `toolchainLockSha256` 与 canonical `ToolLockV2Digest` 互换 | `PF-SBOM-BIND`，零输出 |
+| `SB2-005` | old inventory schema/null-root BOM/digest-map 输入 release validator | `PF-SBOM-SCHEMA`，零输出；无 fallback |
+| `SB2-006` | root/nested duplicate JSON key、unknown/missing field、Bool-as-integer、float/NaN 或 invalid UTF-8 | `PF-SBOM-JSON` 或 `PF-SBOM-SCHEMA`（按 SPEC-TOOL 错误族），零输出 |
+| `SB2-007` | solc asset 与 executable 因相同 content SHA 被合并成一个 logical identity | `PF-SBOM-CLOSURE`；必须保留两个 bom-ref |
+| `SB2-008` | libcrypto bundle/runtime refs 被拆成两个 owner，或只保留一条 ref | `PF-SBOM-CLOSURE` |
+| `SB2-009` | 删除/增加/重复任一 asset/compiler/bundle/tool/runtime leaf mapping | `PF-SBOM-CLOSURE` |
+| `SB2-010` | executable/runtime size 或 SHA 与 Tool Lock 漂移，或 tool ref join 到另一 bundle path | `PF-SBOM-CLOSURE` |
+| `SB2-011` | compiler archive 可达 runtime file/owner/load edge 缺失、额外或 ambient dylib substitution | `PF-SBOM-CLOSURE` |
+| `SB2-012` | root/Lake package/file-set member 缺失、额外 ambient `.lake/packages` 或 revision-only source | `PF-SBOM-CLOSURE` |
+| `SB2-013` | content orphan、wrong content ref、file-set size/member/order 或 same-count member substitution | `PF-SBOM-CLOSURE` |
+| `SB2-014` | component ID/order/kind/source/dependency duplicate、悬空、cycle、orphan 或 kind/source 不兼容 | `PF-SBOM-INVENTORY` |
+| `SB2-015` | license file 缺失、placeholder/tamper、symlink/hardlink 或 expression leaf 无正文 | `PF-SBOM-LICENSE` 或 unsafe node 的 `PF-SBOM-IO` |
+| `SB2-016` | SPDX grammar/list/exception file 或 revision substitution；malformed/unknown/case/order/noncanonical expression | `PF-SBOM-LICENSE` 或 identity substitution 的 `PF-SBOM-BIND` |
+| `SB2-017` | policy allow/review/deny overlap、external exception 非 deny 子集、unknown/review/deny expression | `PF-SBOM-POLICY` |
+| `SB2-018` | candidate commit/tree/archive/size/digest 任一错配或 archive marker 不符 | `PF-SBOM-BIND`，在解析 archive inventory 前失败 |
+| `SB2-019` | synthetic root hash/ref 不等于 candidate、root 在 components 重复或 sidecar 写回 candidate archive | `PF-SBOM-BIND`；拒绝重复与自引用 |
+| `SB2-020` | typed relationship missing/extra/self/cycle 或 same-count edge-kind substitution | `PF-SBOM-CLOSURE` |
+| `SB2-021` | closure component/property、BOM bom-ref/hash/dependency/root 任一 missing/extra/substitution | `PF-SBOM-BIND` |
+| `SB2-022` | CycloneDX schema file/commit/validator/version、license expression branch 或 offline validation mutation | `PF-SBOM-BIND`，零输出 |
+| `SB2-023` | binding candidate/lock/policy/inventory/standards/closure/BOM/generator 任一 path/size/raw/typed digest/mediaType substitution | `PF-SBOM-BIND` |
+| `SB2-024` | sidecar directory 含 extra/missing/partial file、symlink/hardlink/FIFO/device、traversal 或 casefold alias | `PF-SBOM-BIND` 或 `PF-SBOM-IO` |
+| `SB2-025` | input truncate/grow/replace race、blocking FIFO，或 candidate/JSON/license/sidecar exact byte maximum + 1 | `PF-SBOM-IO`/`PF-SBOM-LIMIT`，timeout 内零输出 |
+| `SB2-026` | destination parent symlink、wrong owner、group/world writable 或 path-component replacement | `PF-SBOM-IO`，旧 destination 不变 |
+| `SB2-027` | destination 预存在或两个 writer 并发 | 一个 no-clobber winner；其余 `PF-OUTPUT-ATOMICITY`，winner/旧目录完整 |
+| `SB2-028` | 每个 write/file-fsync/staging-dir-fsync/rename/parent-dir-fsync 点逐一 fault injection 与 signal | `PF-OUTPUT-ATOMICITY`；rename 前失败零输出且 staging 清零；parent fsync 失败只留下完整未确认 destination、不得报成功，`--verify-existing` 全量重算并确认 |
+| `SB2-029` | cwd/HOME/TZ/locale/umask/job count/mtime 变化 | 三个 sidecar bytes、mode 与全部 structured identity 不变 |
+| `SB2-030` | BOM 只通过 CycloneDX schema、但未重算 closure/component/standards identity | consumer 必须拒绝 `PF-SBOM-BIND` |
+| `SB2-031` | component/content/edge/file-set/runtime/standards/aggregate-content/sidecar limits 各自在其他边界 non-binding 时测 equal/over；另降低 effective published limit | schema equal 通过、over=`PF-SBOM-LIMIT`；profile over=`PF-RESOURCE-OUTPUT`；均零输出 |
+
+RED gate 至少应先让 `SB2-001/003/007/008/009/011/018/019/022/023/025/028` 因新 schema/API 尚不存在而
+失败，并证明 legacy generator 不能误绿；GREEN 才扩到完整 31-case matrix。`TST-PROOF-001` 另增加
+wrong ToolLock domain proof-bundle negative，`TST-REG-002` 另增加 wrong lockDigest 导致
+ToolchainIdentity/profile/BuildIdentity cascade rejection；不能回填或改写已关闭的 D0-03
+`TST-TOOL-001` evidence。
+
+D0-08 positive 只证明 candidate-bound deterministic development binding，不证明 eligible host、formal
+freshness/private scan/revocation/finalizer、OutputSet integration 或 release signature；它们分别仍由
+`TASK-D0-07`、`TASK-D3-05` 与 `TASK-D8-05` 关闭。
 
 ### 文档控制面验收
 

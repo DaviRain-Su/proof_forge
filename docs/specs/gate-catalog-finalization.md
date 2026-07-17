@@ -1701,6 +1701,10 @@ FormalFinalizerIdentityV1 {
 }
 ```
 
+`FormalFinalizerIdentityV1.toolchainLockDigest` 精确消费 SPEC-TOOL-001 canonical
+`ToolLockV2Digest`；TRACE-EV-001 host/candidate record 中命名为 `toolchainLockSha256` 的字段仍只表示
+retained lock file exact bytes 的 raw SHA-256。两者不可代换。
+
 schema/domain 分别固定为：
 
 | Formal input | schema | digest domain |

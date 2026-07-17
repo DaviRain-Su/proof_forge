@@ -195,6 +195,22 @@
       "impact": "Create an independent package and use parent observations only through a reference ledger."
     },
     {
+      "id": "CLM-SBOM-001",
+      "claim": "CycloneDX 1.6 defines a closed JSON schema in which components have typed hashes and dependencies, while an SPDX expression is represented by the single-expression licenseChoice branch rather than a license identifier field.",
+      "kind": "fact",
+      "status": "verified",
+      "sources": ["SRC-CDX-001"],
+      "impact": "The candidate-bound BOM projection pins the official schema closure and emits one concluded expression object for each non-license-text component."
+    },
+    {
+      "id": "CLM-SBOM-002",
+      "claim": "SPDX 3.0.1 specifies license expressions with ABNF, canonical license-list identifiers, WITH/AND/OR operators and explicit precedence rules.",
+      "kind": "fact",
+      "status": "verified",
+      "sources": ["SRC-SPDX-001"],
+      "impact": "The release validator pins the grammar and license-list inputs and canonicalizes parsed ASTs instead of accepting ambient parser behavior."
+    },
+    {
       "id": "CLM-UNICODE-001",
       "claim": "Canonical Unicode validation must be pinned to one UCD version and implemented without ambient host normalization libraries.",
       "kind": "constraint",

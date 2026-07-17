@@ -3,7 +3,7 @@ id: SPEC-TOOL-001
 title: 工具链锁定规格
 status: proposed
 owner: build
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
 ---
 
@@ -48,7 +48,30 @@ tools[]: {
   runtimeFiles[] {path, sha256},
   versionArgs, expectedVersion, licenseSpdx, requiredByProfiles[]
 }
+unresolved: {barretenberg, nargo, nearSandbox, solanaAssembler}
 ```
+
+root object 恰为
+`schema,platform,assets,compilerToolchain,bundleFiles,machoPolicy,tools,unresolved`；除
+`assets[].auth` 可缺失外，nested object 必须包含且只包含上面列出的字段，显式 nullable 字段必须保留
+为 `null`，不能用缺字段代替。`unresolved` 恰含上述四个 key，value 只允许 `null` 或 canonical
+version string；增加 root/nested field、unresolved key 或改变 nullable 语义必须升级 Tool Lock schema。
+consumer 必须在 hash 前拒绝 duplicate/unknown/missing field、错误 JSON scalar 类型、非 canonical
+array order、重复 ID/path/ref 和所有 cross-reference/leaf-closure 错误。
+
+`ToolLockV2Digest` 由本规格唯一拥有，使用 SPEC-COMMON-001 PF-JCS v1：
+
+```text
+ToolLockV2Digest = SHA-256(
+  "proof-forge.toolchains.v2" || 0x00 || PF-JCS(validated ToolLockV2)
+)
+```
+
+`toolchainLockSha256` 只表示 retained `toolchains.lock.json` exact file bytes 的 raw SHA-256；它与
+`ToolLockV2Digest` 是不同类型，whitespace/object-key layout 改变可以只改变前者。所有名为
+`lockDigest` 或 `toolchainLockDigest` 的 typed identity 字段都必须消费 `ToolLockV2Digest`；
+`proof-forge.toolchain-lock.v1` 是拒绝的 legacy domain，禁止 fallback 或 dual-domain acceptance。
+该决定由 [ADR-0015](../adr/0015-canonical-tool-lock-and-candidate-bound-sbom.md) 固定。
 
 数组按 ID/path 排序；ID 唯一；所有 size 是正整数；所有 SHA-256 是 64 位小写十六进制；URL 必须 HTTPS；
 member/path 必须相对且不能含 `.`、`..`、NUL、symlink 或特殊文件。asset cache 布局固定为
@@ -134,19 +157,524 @@ library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
 不可 group/world writable；不搜索 cwd、父目录或 PATH。WABT 仅可使用 tool root 内锁定的 `libcrypto`，sandbox
 同时拒绝 `/opt/homebrew`，并以实际 loaded-library observation 证明未回退。
 
-## License inventory 与 SBOM
+## Supply-chain inventory
 
-`license-policy.v1.json` 是 release allow/deny/review policy；每个 Lean package、source dependency、
-download asset、executable、runtime dylib 和 bundled license text 都必须有 canonical component ID、
-version/source commit、SHA-256、supplier、SPDX license expression、license-file path/hash 与 dependency
-edges。`NOASSERTION`、unknown expression、缺 license text、未入图传递依赖或 policy 状态为
-`review/deny` 都阻断 release；开发 build 可生成报告但不能把缺失项标 passed。
+D0-05 的 `proof-forge.license-inventory.v1` 是 bootstrap development format；它按 asset digest
+聚合且允许无 root hash，不能作为 release input。D0-08 的 release path 只接受新的
+`docs/supply-chain/supply-chain-inventory.v1.json`，schema 固定为
+`proof-forge.supply-chain-inventory.v1`，不 dual-read 旧 schema。
 
-release 从已验证 lock/manifest 生成 deterministic CycloneDX 1.6 JSON：`specVersion="1.6"`、
-`version=1`，无 timestamp/random serial/absolute path/username；`bom-ref` 为
-`urn:proofforge:component:<sha256>`，components 与 dependency refs 按 UTF-8 升序，hash 只用
-SHA-256。SBOM、policy、license inventory 的 digest 进入 OutputSet provenance、candidate evidence
-set 与 release manifest；consumer 必须重算 closure，禁止仅校验 JSON schema。
+```text
+SupplyChainInventoryV1 {
+  schema, schemaVersion, platform, rootPackageComponentId, components
+}
+
+InventoryComponentV1 {
+  id, kind, name, version, supplier, source,
+  licenseSpdx, licenseTextComponentIds, redistributable, dependencies
+}
+
+CandidateFileSourceV1 {kind, path}
+GitUpstreamV1 {kind, url, commit}
+CandidateFileSetSourceV1 {kind, roots, files, upstream}
+ToolLockSourceV1 {kind, lockRefs}
+CompilerRuntimeSourceV1 {kind, compilerToolchainId, path}
+ToolLockLeafRefV1 {kind, id, path}
+DependencyRefV1 {kind, to}
+```
+
+root/nested object 恰含上述字段；`schemaVersion` 精确为 integer `1`，`platform` 必须等于 Tool
+Lock v2 platform，`rootPackageComponentId` 必须唯一命中 `kind=lean-package` component。component
+`id` 是 1..127-byte
+lowercase ASCII `[a-z0-9][a-z0-9._-]*`，全局唯一并按 UTF-8 升序；`name/version/supplier` 是
+nonempty NFC string，禁止 Cc、absolute path 和 host/user data。`kind` 恰为下列互斥 enum 之一：
+
+```text
+lean-package
+source-dependency
+download-asset
+compiler-executable
+tool-executable
+runtime-dylib
+license-text
+```
+
+candidate archive 是 release/BOM synthetic root，不是 inventory component。bytes 相同不等于同一
+logical component：`id/kind` 进入 component identity，shared bytes 只通过独立 ContentIdentity
+复用；因此 `download-asset` 与 `tool-executable` 不能合并。
+
+下述 D0-08 新 schema 中所有名为 `digest` 或 `sha256` 的字段都使用 SPEC-COMMON-001
+`Digest` wire form `sha256:<64 lowercase hex>`；`sha256` 字段的 preimage 是 exact file bytes，
+`digest` 字段的 preimage 由所属 schema 的 domain 公式定义。唯一例外是嵌入读取的 Tool Lock v2
+legacy leaf checksum，其原 wire 仍按本规格前文的裸 64-hex 校验，resolve 进入新 schema 前必须构造
+typed Digest；两种表示不得按字符串相等、截前缀或隐式 coercion 比较。
+
+`source` 是四种 exact closed object union：
+
+| source.kind | exact fields | 允许的 component.kind | 规则 |
+|---|---|---|---|
+| `candidate-file` | `kind,path` | `license-text` | path 是同一 candidate 内的 ProjectRelativePath regular file |
+| `candidate-file-set` | `kind,roots,files,upstream` | `lean-package`,`source-dependency` | roots/files 是 ProjectRelativePath unique sorted arrays；每个 root 的完整 descendant regular-file closure 加 standalone files，不能只列部分成员 |
+| `tool-lock` | `kind,lockRefs` | `download-asset`,`compiler-executable`,`tool-executable`,`runtime-dylib` | refs 按下述 matrix exact resolve |
+| `compiler-runtime-file` | `kind,compilerToolchainId,path` | `runtime-dylib` | path 必须唯一来自本次 retained `CompilerRuntimeClosureManifestV1` |
+
+`candidate-file-set.roots/files` 不能为空集合，彼此不得 overlap、ancestor-alias、NFC/casefold collision；
+walker 在 candidate archive immutable snapshot 上拒绝 symlink/submodule/special file，生成完整 member
+set。`upstream` 对 root package 必须为 `null`；对每个 non-root Lean/source pair 必须是同一 closed
+`GitUpstreamV1`，kind 固定 `git`，url 是 exact HTTPS source URL，commit 是 SPEC-COMMON-001
+`GitObjectId`，并与 retained `lake-manifest.json` package URL/rev exact match；branch/tag/range 或
+revision-only 声明拒绝。file-set identity 固定为：
+
+```text
+SupplyChainFileSetV1Digest = SHA-256(
+  "proof-forge.supply-chain-file-set.v1" || 0x00 ||
+  PF-JCS({size,members:[{path,size,digest}...]})
+)
+```
+
+members 按 path NFC UTF-8 唯一升序，size 是全部 member size checked sum。Phase 1 non-root package/
+source dependency 必须 vendored 在 candidate file-set；revision-only、ambient `.lake/packages` 或未定义
+source snapshot 全部拒绝。根 `lake-manifest.json` package 与每个 transitive `packages[]` exact set
+必须由 `lean-package` components 覆盖；每个非-root Lean package 同时必须有一个对应
+`source-dependency` logical component，二者可以共享同一 file-set content identity，但 component
+identity 必须不同。跨 file-set 的 member path 必须形成 partition：唯一允许的重复 ownership 是一个
+non-root Lean package 与其对应 source-dependency 共享完全相同的 member set/content；root package
+必须排除所有 vendored Lean/standards dependency members，其他 partial/overlap ownership 全部拒绝。
+
+`ToolLockLeafRefV1.kind` 只允许 `asset|compiler-executable|bundle-file|tool-executable|tool-runtime-file`；
+`asset` 的 `id=assets[].id,path=null`，其他 kind 的 `id` 分别是 compiler toolchain ID、
+`bundleFiles[].assetId` 或 tool ID，`path` 是对应 exact locked path。refs 按 `(kind,id,path/null)`
+唯一升序。binding matrix 固定为：
+
+| component.kind | authoritative refs/source |
+|---|---|
+| `download-asset` | exactly one `asset` |
+| `compiler-executable` | exactly one `compiler-executable` |
+| `tool-executable` | exactly one `bundle-file` + one `tool-executable`，二者 size/digest/path join |
+| external `runtime-dylib` | exactly one `bundle-file` + one or more owner-specific `tool-runtime-file`，全部解析到相同 bytes |
+| compiler `runtime-dylib` | exactly one `compiler-runtime-file` source from retained compiler closure manifest |
+| `lean-package/source-dependency` | complete candidate file-set |
+| `license-text` | candidate regular file |
+
+每个 `assets[]`、`compilerToolchain.executables[]`、`bundleFiles[]`、`tools[].executable` 和
+`tools[].runtimeFiles[]` authoritative leaf 必须恰由一个 compatible logical component 消费；同一
+runtime dylib 可以有多个 owner refs，但仍只有一个 runtime component。missing/extra/duplicate/
+wrong-kind/multi-owner/path/size/digest substitution 全部 `PF-SBOM-CLOSURE`。
+
+`dependencies` 是 unique sorted `DependencyRefV1` array；kind 只允许
+`package-depends-on|build-uses|derived-from|runtime-depends-on`，按 `(kind rank,to UTF-8)` 排序。
+`package-depends-on` 从 Lean package 指向 transitive Lean package；`build-uses` 只从 root Lean package
+指向 inventory 中每个 compiler/tool executable logical component，以及每个不与 Lean package 配对的
+standalone source-dependency component，且各一次；`derived-from` 从
+executable/runtime 指向 exact
+asset，或从 non-root Lean package 指向与其共享 complete file-set 的 source-dependency；
+`runtime-depends-on` 从 executable 指向 runtime dylib。每个 executable 必须从 root 的 `build-uses`
+可达，且每个 non-root Lean package 必须恰有一条 source `derived-from` edge。dependency graph 必须
+acyclic；所有
+non-license components 必须从 synthetic root 经 `rootDependsOn`/dependencies 可达，所有 license text
+必须被可达 component 的 `licenseTextComponentIds` 引用，禁止 self-edge、悬空、orphan 和 same-count
+edge-kind substitution。Mach-O system load 仍由 Host Profile/TCB 拥有，不伪装成 content asset。
+
+`licenseSpdx` 对非-license-text component 是 canonical SPDX expression；对 `license-text` component
+是其代表的单个 official SPDX license/exception ID，而不是伪称 license-text file 自身的授权。
+`licenseTextComponentIds` 对前者为覆盖 expression 所有 license/exception leaf 的 nonempty unique
+sorted IDs，对后者必须为 `[]`。
+expression parser 必须按本节锁定的 SPDX ABNF、license list 与 exception list 解析，identifier 使用
+官方 canonical case，operator 固定大写；`AND`/`OR` 同类节点递归 flatten 后按 canonical subtree
+standalone printer 输出的 UTF-8 bytes 排序，重复 operand 拒绝，printer 按
+`+ > WITH > AND > OR` 的固定 precedence 只保留必需括号。child standalone output 先递归完成，因此
+排序不依赖 parent order 或实现 AST layout。v1 没有 custom-license-text wire，所以
+`DocumentRef`/`LicenseRef`/`AdditionRef` 全部拒绝；
+official ID 与 unary `+` 仍按 grammar 接受。parser 重新解析 printer 输出所得 AST 必须
+byte-identical；不得以字符串 split、host package 版本或网络查询决定语义。[CLM-SBOM-002]
+
+`NOASSERTION/NONE`、unknown/malformed expression、缺正文或 digest mismatch 都拒绝。
+`license-policy.v1.json` root 恰为
+`schema,schemaVersion,allow,review,deny,externalCli`；nested `externalCli` 恰为
+`allowedDenyLicensesWhenNotRedistributable,notes`。schema 固定 `proof-forge.license-policy.v1`，
+schemaVersion 精确为 integer `1`，notes 是 nonempty NFC string。三个 policy set 唯一升序且两两不交，
+external exception 必须是 deny 的子集。policy 只求值 non-license components：任一 review/未分类 leaf
+都 fail closed；任一 deny leaf 也拒绝，除非 component `redistributable=false`、kind 是
+`download-asset|tool-executable`、source.kind 是 `tool-lock`、所有 deny leaf 都属于 external exception，
+且其 bytes 不在 candidate/release archive。该 exception 仍保留 component 与 license-text metadata，
+不得把 deny 改写成 allow。license-text 的 `licenseSpdx` 只是 represented atom，不作为该正文文件自身
+license 再次求值。
+
+inventory/policy identity 分别为：
+
+```text
+SupplyChainInventoryV1Digest = SHA-256(
+  "proof-forge.supply-chain-inventory.v1" || 0x00 || PF-JCS(validated inventory)
+)
+LicensePolicyV1Digest = SHA-256(
+  "proof-forge.license-policy.v1" || 0x00 || PF-JCS(validated policy)
+)
+```
+
+## Resolved closure 与 component identity
+
+generator 必须先由 SPEC-REPRO-001 外部 caller 提供 candidate archive regular file、其 positive safe
+integer size 与完整 `CandidateIdentity`；重算 archive raw SHA-256、Git commit marker/tree binding 和
+candidate digest 后才读取 archive 中的 inventory/policy/Tool Lock。不能在 checkout 内自选 HEAD 或
+用 inventory 自报 root digest。
+
+```text
+ContentMemberV1 {path, size, digest}
+ContentIdentityV1 {kind, size, digest, members}
+
+CompilerRuntimeLoadV1 {installName, resolvedPath}
+CompilerRuntimeEntrypointV1 {path, size, digest, loads}
+CompilerRuntimeFileV1 {path, size, digest, owners, loads}
+CompilerRuntimeClosureManifestV1 {
+  schema, compilerToolchainId, assetId, assetDigest, entrypoints, files
+}
+CompilerRuntimeClosureRefV1 {manifest, digest}
+
+ClosureComponentV1 {
+  id, kind, name, version, supplier, source, content,
+  licenseSpdx, licenseTextComponentIds, redistributable, dependencies,
+  componentDigest, bomRef
+}
+
+RelationshipV1 {from, kind, to}
+
+SupplyChainClosureV1 {
+  schema, candidate, candidateArchive, rootBomRef,
+  toolchainLockDigest, toolchainLockSha256,
+  inventoryDigest, licensePolicyDigest, cycloneDxSchema, spdxStandards,
+  compilerRuntimeClosures, contents,
+  rootPackageComponentId, rootDependsOn, components, relationships
+}
+```
+
+`ContentIdentityV1.kind` 只允许 `file|file-set`。file 的 `members=[]`、size 是 raw byte count、digest
+是 raw file SHA-256；file-set 的 members nonempty 且按 path 唯一升序，size 是 checked sum，digest
+是上节 `SupplyChainFileSetV1Digest`。contents 按 `(kind rank,digest raw 32 bytes)` 唯一升序，每项必须
+被至少一个 component 引用，不能留下 content orphan；component 的 `content` 恰为
+`{kind,digest}`。相同 content 可由多个 logical components 引用。
+
+Lean compiler runtime closure 不能只凭运行时 observation 或 archive-level hash 省略。对每个 selected
+compiler toolchain，从已验证 archive/materialized tree 的全部声明 entrypoints 解析真实 Mach-O
+`LC_LOAD_*`/`LC_RPATH`，递归保留每个可达非-system regular file、owner entrypoint 与 resolved internal
+load edge；不得读取 ambient SDK/Homebrew。manifest schema 固定
+`proof-forge.compiler-runtime-closure.v1`，root/file/load objects 恰含上面字段。entrypoints、file path、
+owners 与 resolvedPath 均是 materialized compiler root-relative NFC ProjectRelativePath；installName 是
+Mach-O exact NFC load string。entrypoints/owners 按 UTF-8 唯一升序，loads 按
+`(installName,resolvedPath)` 唯一升序，files 按 path 唯一升序；每个 file size/digest 与 immutable tree
+bytes exact。`assetId` 必须等于 compilerToolchain.assetId；`assetDigest` 是该 ID 唯一解析的
+`assets[].sha256` raw archive checksum 转成的 typed Digest。entrypoints 恰与
+compilerToolchain.executables[] exact set 相等，path/digest exact join，size 来自 immutable tree；
+`files` 只含递归可达的非-system、非-entrypoint runtime files，禁止把 entrypoint 再编码为
+runtime-dylib。owners 是传递可达该 file 的 entrypoint path exact set；entrypoint/file 的 loads 恰含
+其每条 direct resolved internal load edge，resolvedPath 必须命中 files 中唯一 path。每条其他 Mach-O
+load 必须解析到 Host Profile allowed system root，否则 closure 失败。manifest 不自含 digest：
+
+```text
+CompilerRuntimeClosureV1Digest = SHA-256(
+  "proof-forge.compiler-runtime-closure.v1" || 0x00 ||
+  PF-JCS(CompilerRuntimeClosureManifestV1)
+)
+```
+
+`compilerRuntimeClosures` 是按 compilerToolchainId 唯一升序的 `{manifest,digest}`；每个 manifest file
+恰好对应一个 `kind=runtime-dylib,source.kind=compiler-runtime-file` component，反向也必须成立。
+unreachable archive dylib 不加入 closure；可达 file missing/extra/wrong owner/load/hash 均
+`PF-SBOM-CLOSURE`。Apple system dylib 只验证 allowed Host Profile root，不进入 content inventory。
+
+resolved component 保留 inventory 的全部字段并把 source exact resolve 到 `content`；
+`componentDigest` 与 `bomRef` 都不进入自身 preimage：
+
+```text
+componentDigest = SHA-256(
+  "proof-forge.supply-chain-component.v1" || 0x00 ||
+  PF-JCS(component fields except componentDigest and bomRef)
+)
+bomRef = "urn:proofforge:component:" || lowerhex(raw32(componentDigest))
+```
+
+`raw32` 是 Digest wire 中的 32 bytes，不把 `sha256:` prefix 放进 URN。因此相同 content 的 solc
+asset 与 solc executable 仍有不同 component identity；同一 runtime dylib 的 bundle/tool-owner refs
+留在一个 logical component。components 按 id 唯一升序，componentDigest/bomRef 也必须全局唯一。
+
+`RelationshipV1.kind` 只允许 inventory 的四种 dependency kind 与 `licensed-by`；前者从
+`dependencies` 一对一投影，后者从每个非-license component 到全部 licenseTextComponentIds 投影。
+relationships 按 `(from,kind rank,to)` 唯一升序，必须与 inventory exact set 相等。synthetic candidate
+root 不进入 components/contents；`rootBomRef` 固定为
+`urn:proofforge:candidate:<lowerhex(raw32(candidate.digest))>`，`rootDependsOn` 恰为
+`[rootPackageComponentId]`。从 root 经 rootDependsOn/relationships 必须到达全部 components，无
+missing/extra/orphan/self-edge/cycle 或 same-count edge-kind substitution。
+
+closure schema 固定为 `proof-forge.supply-chain-closure.v1`；candidate 是 SPEC-CAP-001 完整
+`CandidateIdentity`，`candidateArchive` 恰为 `{size,sha256}`，positive safe integer size 与 raw sha256
+必须等于外部 archive observation/`candidate.archiveDigest`。`toolchainLockDigest` 是 canonical `ToolLockV2Digest`，
+`toolchainLockSha256` 是 candidate 内 retained lock exact bytes 的 raw SHA-256。closure 不自含 digest：
+
+```text
+SupplyChainClosureV1Digest = SHA-256(
+  "proof-forge.supply-chain-closure.v1" || 0x00 || PF-JCS(SupplyChainClosureV1)
+)
+```
+
+## CycloneDX 1.6 与 release binding
+
+official CycloneDX 1.6 JSON schema 的完整 local `$ref` closure、SPDX expression/list inputs 与离线
+validator 必须先形成。[CLM-SBOM-001] [CLM-SBOM-002]
+
+```text
+CycloneDxSchemaFileV1 {path, size, sha256}
+CycloneDxSchemaIdentityV1 {
+  schema, specVersion, sourceRevision, files, validator, digest
+}
+
+SpdxStandardsFileV1 {role, path, size, sha256}
+SpdxStandardsIdentityV1 {
+  schema, specVersion, sourceRevision, licenseListVersion,
+  licenseListRevision, files, digest
+}
+```
+
+root/nested fields closed；schema 固定 `proof-forge.cyclonedx-schema-closure.v1`，specVersion 固定
+`1.6`，`sourceRevision` 是 official specification repository 的 exact 40-character lowercase Git commit；
+files 是 candidate-relative regular schema files，按 path 唯一升序并 exact 覆盖所有 transitive local
+`$ref`，不得读取 network/ambient schema cache。validator 是 SPEC-REG-001 `ToolchainIdentity`，
+必须由 Tool Lock exact resolve 且离线执行；跟随 floating branch/URL 或只记录版本字符串不合格。
+identity 不自含 digest：
+
+```text
+CycloneDxSchemaIdentityV1.digest = SHA-256(
+  "proof-forge.cyclonedx-schema-closure.v1" || 0x00 ||
+  PF-JCS({schema,specVersion,sourceRevision,files,validator})
+)
+```
+
+`SpdxStandardsIdentityV1.schema` 固定 `proof-forge.spdx-standards-closure.v1`，specVersion 固定 `3.0.1`；
+source/license-list revision 均为对应 official repository 的 exact 40-character lowercase Git commit，
+licenseListVersion 是该 revision 声明的 exact nonempty version。files 的 role 恰含一次
+`expression-grammar|license-list|exception-list`，按 role rank 唯一升序，path 是 candidate-relative
+regular file；size/sha256 绑定 exact bytes，不接受 webpage cache、URL 字符串 hash 或 ambient library。
+identity 不自含 digest：
+
+```text
+SpdxStandardsIdentityV1.digest = SHA-256(
+  "proof-forge.spdx-standards-closure.v1" || 0x00 ||
+  PF-JCS({schema,specVersion,sourceRevision,licenseListVersion,
+          licenseListRevision,files})
+)
+```
+
+closure 的 `cycloneDxSchema`/`spdxStandards` 是上述完整 identities。D0-08 freeze/RED 必须固定实际
+official files、commits、raw hashes、validator ToolchainIdentity 和最终 Tool Lock leaf 分母；缺任一项
+保持 RED，不能以手写字段检查冒充 official schema validation，也不能以未锁 SPDX parser/list
+接受 expression。每个 standards file 必须恰属于一个 standalone `source-dependency` complete file-set，
+其 Git upstream/revision 与 standards identity exact join，并由 inventory 的 license text/policy 正常覆盖；
+不得把 vendored official bytes 隐入 root package license。
+
+从 resolved closure 唯一投影 CycloneDX JSON，root exact fields 恰为
+`$schema,bomFormat,specVersion,version,metadata,components,dependencies`：
+
+```text
+$schema = "http://cyclonedx.org/schema/bom-1.6.schema.json"
+bomFormat = "CycloneDX"
+specVersion = "1.6"
+version = 1
+```
+
+禁止 serialNumber、timestamp、absolute path、username、环境值和随机字段。`metadata` 恰为
+`{component}`；其中 component 是 synthetic candidate archive root，exact fields 恰为
+`bom-ref,type,name,version,supplier,hashes,licenses,properties`。type 固定 `application`，
+`bom-ref=rootBomRef`，hashes 恰为
+`[{alg:"SHA-256",content:lowerhex(raw32(candidateArchive.sha256))}]`，name/version/supplier/license 从
+rootPackageComponent exact 投影，license 使用下述 expression branch；properties 恰为
+`proofforge:candidate-digest` 与 `proofforge:component-kind=candidate-archive`。synthetic root 只在
+`metadata.component` 出现，禁止在 `components[]` 重复同一 bom-ref。
+
+每个 closure logical component（包括 root Lean package）恰在 `components[]` 出现一次，type mapping
+固定为：
+
+| ProofForge kind | CycloneDX `type` |
+|---|---|
+| root `lean-package` | `application` |
+| other `lean-package` / `source-dependency` | `library` |
+| `download-asset` | `file` |
+| `compiler-executable` / `tool-executable` | `application` |
+| `runtime-dylib` | `library` |
+| `license-text` | `file` |
+
+non-license-text component exact fields 为
+`bom-ref,type,name,version,supplier,hashes,licenses,properties`；supplier 恰为 `{name}`，hashes 恰为
+`[{alg:"SHA-256",content:lowerhex(raw32(content.digest))}]`，compound SPDX 必须投影为
+`licenses:[{expression:<canonical expression>,acknowledgement:"concluded"}]`，不得错误塞入
+`license.id`。license-text component exact fields 去掉 `licenses`，不伪造该正文文件自身 license。
+
+所有 component 的 properties 至少且只含
+`proofforge:component-id,proofforge:component-kind,proofforge:content-kind,`
+`proofforge:redistributable,proofforge:source-kind`；带 nonnull upstream 的 file-set component 另含
+`proofforge:upstream-url,proofforge:upstream-commit`；non-license component 另含
+`proofforge:license-text-ids`（sorted IDs 以 `,` 连接），license-text 另含
+`proofforge:represented-spdx-id`。properties 按 `(name,value)` UTF-8 唯一升序；root properties 恰为
+`proofforge:candidate-digest` 与 `proofforge:component-kind=candidate-archive`。
+
+每个 property object 恰为 `{name,value}`，value 固定为下表字符串，不做 locale formatting、JSON
+scalar coercion 或 trim：
+
+| property name | exact value |
+|---|---|
+| `proofforge:component-id` | component `id` |
+| `proofforge:component-kind` | component `kind`；synthetic root 固定 `candidate-archive` |
+| `proofforge:content-kind` | `content.kind` |
+| `proofforge:redistributable` | lowercase ASCII `true` 或 `false` |
+| `proofforge:source-kind` | `source.kind` |
+| `proofforge:upstream-url` | `source.upstream.url` exact bytes |
+| `proofforge:upstream-commit` | canonical `source.upstream.commit` wire |
+| `proofforge:license-text-ids` | component IDs 按 UTF-8 排序后以单个 ASCII comma 连接，无空格 |
+| `proofforge:represented-spdx-id` | license-text `licenseSpdx` canonical ID |
+| `proofforge:candidate-digest` | synthetic root `candidate.digest` Digest wire |
+
+`dependencies[]` 恰含 synthetic root ref 与每个 component bom-ref 各一次，按 ref UTF-8 升序；root
+dependsOn 从 rootDependsOn 投影，每个 component dependsOn 是该 component 所有 typed relationship
+targets（含 `licensed-by`）的 bom-ref unique sort。edge kind 的 authority 仍是 closure relationships，
+因为 CycloneDX dependencies 不保存 edge kind。components 同样按 bom-ref 唯一升序。
+
+BOM 必须先通过 exact projection 重算，再由 `cycloneDxSchema.validator` 对锁定 official schema closure
+离线验证。BOM semantic digest 与 raw file hash分离：
+
+```text
+CycloneDx16Digest = SHA-256(
+  "proof-forge.cyclonedx-1-6.v1" || 0x00 || PF-JCS(BOM)
+)
+```
+
+consumer 必须重算 inventory/content/component/relationship/closure/BOM/schema/validator 全部 join，
+不能只跑 JSON schema，也不能只做手写 projection 检查。
+
+candidate-bound sidecar bundle 恰含三个 regular single-link files：
+
+```text
+supply-chain-closure.v1.json
+bom.cdx.json
+sbom-release-binding.v1.json
+```
+
+前两项 file bytes 分别是 PF-JCS(closure) 与 PF-JCS(BOM)，无 BOM/whitespace/trailing LF。binding：
+
+```text
+SbomReleaseBindingV1 {
+  schema, candidate, candidateArchive,
+  toolchainLock: {path, size, sha256, digest},
+  licensePolicy: {path, size, sha256, digest},
+  inventory: {path, size, sha256, digest},
+  cycloneDxSchema, spdxStandards,
+  closure: {path, size, sha256, digest},
+  bom: {path, size, mediaType, sha256, digest, schemaDigest},
+  generator: {path, size, sha256}
+}
+```
+
+root/nested object 只允许上述字段；schema 固定 `proof-forge.sbom-release-binding.v1`；
+`candidateArchive` 恰为 `{size,sha256}` 且与 closure/candidate exact。三项 input path 固定为
+`toolchains.lock.json`、`docs/supply-chain/license-policy.v1.json`、
+`docs/supply-chain/supply-chain-inventory.v1.json`，均为 candidate-relative；size/sha256 是 retained
+exact file bytes，digest 分别是 `ToolLockV2Digest`、`LicensePolicyV1Digest` 与
+`SupplyChainInventoryV1Digest`。
+
+`cycloneDxSchema` 是 closure 中同一完整 `CycloneDxSchemaIdentityV1`，`spdxStandards` 是同一完整
+`SpdxStandardsIdentityV1`。closure path 固定
+`supply-chain-closure.v1.json`，size/sha256 是 exact sidecar bytes，digest 是
+`SupplyChainClosureV1Digest`；BOM path 固定 `bom.cdx.json`，media type 固定
+`application/vnd.cyclonedx+json`，size/sha256 是 exact BOM bytes，digest 是 `CycloneDx16Digest`，
+schemaDigest 等于 cycloneDxSchema.digest。generator path 是 candidate 内实际执行的 project-relative
+regular file，size/sha256 是 raw bytes。所有 raw sha256 与 typed digest 都必须从同一 retained snapshot
+重算，不能由 caller 自报或互换。binding 不自含 digest：
+
+```text
+SbomReleaseBindingV1Digest = SHA-256(
+  "proof-forge.sbom-release-binding.v1" || 0x00 || PF-JCS(SbomReleaseBindingV1)
+)
+```
+
+三份 sidecar 必须位于 candidate archive 外；把它们写回 candidate 或让 root hash 指向含 sidecar 的
+outer package 都是 `PF-SBOM-BIND`。binding 本身不携带 `development/formal` 或时间字段；maturity、
+freshness、revocation 与 signature 属于 D0-07 formal evidence envelope，避免同一内容 identity 因
+运行时间变化。D3-05 将 exact binding digest/ref 接入 OutputSet，D8-05 才执行 release 签名。
+
+## SBOM v1 资源边界
+
+下表是 SPEC-TOOL-001 拥有的 v1 hard maxima，不从输入或 production output 推导。equal 接受，首次
+over 必须在分配/发布下一单位前以 `PF-SBOM-LIMIT` 失败；checked sum 溢出同样失败。提高任一值必须
+升级 supply-chain closure/binding schema、重审 ADR-0015 与 TST-SBOM-002，不能只改 runtime flag。
+
+| Boundary | v1 maximum |
+|---|---:|
+| candidate archive bytes | 1,073,741,824 |
+| each JSON input bytes | 16,777,216 |
+| each license text bytes | 16,777,216 |
+| logical components | 4,096 |
+| distinct content identities | 2,048 |
+| typed relationships | 16,384 |
+| members per file-set content | 131,072 |
+| members across all file-set contents | 262,144 |
+| compiler runtime files | 1,024 |
+| standards files | 64 |
+| distinct referenced content bytes checked sum | 8,589,934,592 |
+| each sidecar file bytes | 67,108,864 |
+| three sidecars aggregate bytes | 134,217,728 |
+
+publication aggregate 同时不得超过 effective artifact-output
+`ResourceProfileV1.maxPublishedBytes`；取上表与 effective profile 的较小值。上表 schema maximum
+超限是 `PF-SBOM-LIMIT`；effective profile/controller 超限遵循 SPEC-COMMON-001，返回
+`PF-RESOURCE-OUTPUT`，不能重标为 SBOM 错误。offline schema validator 另在 effective external-tool
+ResourceProfile containment 中运行，其 stdout/stderr/wall/memory/process 超限返回对应
+`PF-RESOURCE-*`，不由本表放宽。
+
+## Safe read、写盘与迁移
+
+所有 JSON、license text、generator 与 candidate file 都必须 component-by-component dirfd/no-follow/
+nonblocking safe-open，只接受 regular single-link node；bounded read 受上述 SBOM v1 maxima 控制，
+publication 另受 effective artifact-output `ResourceProfileV1` 控制。读取前后验证 stable
+device/inode/size/mtime，hash 后额外探测 EOF。duplicate
+JSON key、invalid UTF-8、non-PF-JCS scalar、truncate/grow/replace race、symlink/hardlink/FIFO/device、
+大小恰好 over limit 均在生成任何 output 前失败。
+
+验证顺序固定为：
+
+1. bounded safe-open candidate、Tool Lock、policy、inventory、standards、license/source files；
+2. duplicate-key/PF-JCS/closed-schema/scalar/order validation；
+3. 调用现有 authoritative `validate_tool_lock`，禁止 SBOM 模块实现宽松副本；
+4. candidate identity、archive membership 与 marker/tree binding；
+5. package/source/file-set exact closure；
+6. executable/runtime/retained Mach-O leaf exact closure；
+7. pinned SPDX parse、license-text coverage 与 policy evaluation；
+8. content/component identity；
+9. closure exact set、typed relationships 与 reachability；
+10. CycloneDX exact projection及锁定 official schema 的 offline validation；
+11. release binding 全量重算；
+12. atomic publication。
+
+destination parent 必须从 caller-owned dirfd 逐 component no-follow 打开，所有 path component 为当前
+effective uid 拥有且不可 group/world writable；不接受 caller 提供的预解析 absolute realpath。
+publish 在 destination 同父目录建立 private `0700` staging，closure/BOM 先写、binding 最后写，三文件
+最终 mode 固定 `0444`。全部写完后从 staging dirfd 重读并重算 closure/BOM/binding，逐文件 `fsync`，
+再 `fsync` staging directory，以 no-clobber atomic directory rename 发布；成功 rename 后必须
+`fsync` destination parent directory 才返回成功。destination 已存在、concurrent winner、disk-full、
+signal 以及 rename 前任一 write/file-fsync/staging-dir-fsync failure 都保持 caller-owned 旧目录
+byte-identical，清理本次 staging 且不得留下 partial output。若 directory rename 已成功但 parent
+`fsync` 失败，或进程在 rename 与成功确认之间被中断，则保留完整、只读、未确认 durability 的
+destination；可返回时命令返回 `PF-OUTPUT-ATOMICITY`，绝不报告成功。
+不得删除或覆盖它。后续只能用独立 `--verify-existing` 路径 safe-open 三文件、全量重算 binding，
+成功 `fsync` parent 后确认；该路径不得生成、rename 或修改 sidecar。release 命令没有 `--force`。
+
+D0-05 development files没有 accepted external consumer，D0-08 以首次 release schema 破坏性替代：
+旧 inventory/null-root BOM/digest-map 输入到 release validator 必须稳定拒绝。若未来发现已接受的
+legacy artifact，必须升级对应 schema/profile 并使用独立离线 migration tool；runtime 不 fallback。
+
+SBOM 稳定错误族固定为：raw JSON/UTF-8/duplicate key=`PF-SBOM-JSON`，closed wire/type/order=
+`PF-SBOM-SCHEMA`，component/graph/source declaration=`PF-SBOM-INVENTORY`，license text/expression=
+`PF-SBOM-LICENSE`，policy classification=`PF-SBOM-POLICY`，Tool Lock/Lake/kind exact closure=
+`PF-SBOM-CLOSURE`，candidate/root/BOM/sidecar/digest substitution=`PF-SBOM-BIND`，unsafe node/read race=
+`PF-SBOM-IO`，本规格表内 schema maximum over=`PF-SBOM-LIMIT`。effective ResourceProfile controller
+超限继续使用 SPEC-COMMON-001 `PF-RESOURCE-*`；staging/fsync/no-clobber/rename/cleanup 继续使用
+artifact-output authority 的 `PF-OUTPUT-ATOMICITY`。同一 fixture 只引入一个 mutation；实现不得按
+stderr substring 或检查偶然顺序把一种失败伪装成另一种。
 
 ## Profile Mapping
 
