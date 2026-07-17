@@ -471,6 +471,13 @@ def validateDecodedProgram (sourceProgram : ProofForgeV2.Source.Program) : Compi
   if hasDuplicate (sourceProgram.functions.map (·.name)) then
     throw <| .invalidProgram
       s!"program '{sourceProgram.qualifiedName}' contains duplicate fn declarations"
+  -- Entry/view (entries[]) and fn share one callable name namespace. Same-kind
+  -- duplicates keep their dedicated diagnostics above; this check only fires for
+  -- cross-kind collisions (linear HashSet via hasDuplicate, not nested scans).
+  if hasDuplicate (
+      sourceProgram.entries.map (·.name) ++ sourceProgram.functions.map (·.name)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate callable declarations"
   if hasDuplicate (sourceProgram.invariants.map (·.name)) then
     throw <| .invalidProgram
       s!"program '{sourceProgram.qualifiedName}' contains duplicate invariant declarations"
