@@ -1693,3 +1693,39 @@ normative: false
   `TASK-D1-04` 仍 pending，本结果不是 eligible/hermetic/formal evidence。
 - Next：residual audit 选择 binary checked subtraction 作为 D1-PA-22 candidate；必须先冻结同层
   `+`/`-` precedence、left associativity、append-only Expr tag 与 Typed fail-closed boundary，再提交 RED。
+
+## 2026-07-18 — D1 binary checked subtraction pre-acceptance slice
+
+- Commits：freeze `756afdc2`；checked subtraction RED `0d97da50`；Source/Syntax/Typed GREEN
+  `e8c3773f`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-22 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 追加 `checkedSub(lhs, rhs)`；alpha source canonical encoder
+  使用 Expr tag `5` 后依次递归编码 lhs、rhs，既有 tags `0..4` 不变。`pfExpr` 的 `-` 与 `+`
+  同为 precedence `65`，lhs `65`/rhs `66` 固定左结合；decoder/quote 使用结构化 quotation 往返，
+  没有新增 unary、parenthesis、fallback 或宿主 keyword。
+- Binding/controls：initializer、entry、view、fn 的 return/let value 与 variable operands 经 Lean command
+  和 ParserSession 产生相同 AST/sourceHash；`9-4-1`、`1+2-3`、`1-2+3` 固定同层左结合。
+  CheckedSubTwin 的 `7-3`、`7+3`、`3-7`、left/right nest 分别为 228/228/228/238/238 bytes，
+  hash 为 `bc13a1ffea38b78f4f86d7125ee5ebce869c38c4ecab322a0a0ac369f42e0369`、
+  `3beb6aeb92a9f8e556a9e4c97c2e383e102cc7b9bf2cc8b1966b17d358bad97f`、
+  `e1f474e6e23d73463d2ab2a4b16fddfd65737594cd4118bb80912453b42f5a15`、
+  `3e427798e7a530b6ea165e73e0a907e0f02246c49cacbac49f9ba292b4469966`、
+  `7e6a2c24a6cad28e5984f2279dce0df9fdd863c6ea1062334cb32b69027e7e3a`；operator、operand
+  order 与 nesting 均不 alias。missing lhs/rhs、bare unary minus 与 binary-unary operand 停在 parser
+  boundary；既有 checkedAdd twin 继续通过完整 Compiler positive path。
+- Boundary：`Typed.checkExpr` 对 `checkedSub` 返回 exact
+  `checked subtraction is not yet supported by typed checking`，因此没有新增 Typed.Expr、SemanticIR、
+  requirement、Semantics 或 target Plan/artifact；checkedAdd 既有路径未改变。
+- Review/Commands：Grok RED/GREEN；Pi RED/GREEN、Claude RED/post-commit 与 Kimi GREEN/canonical closeout
+  reviews 均 P0/P1=0。`lake build Tests.Language.CheckedSub proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：128-job aggregate 与测试二进制全部 exit 0，五组 goldens 无需修正；development evidence 为
+  `EV-20260718-0008`。按批量验证策略，本切片未完成的 checkpoint `just ci` 延后到较大阶段统一执行，
+  因而不把已中止的运行计入证据。
+- Limitations：仅实现 Source checked subtraction structure；没有 Typed/Semantic arithmetic、underflow/
+  revert rule、signed/unary literal、parentheses、multiplication、requirement、target ABI/runtime、eligible host
+  或 formal D1 evidence。D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending。
+- Next：residual audit 选择 binary checked multiplication 作为 D1-PA-23 candidate；必须先冻结高于
+  `+`/`-` 的 precedence、left associativity、append-only Expr tag `6`、golden controls 与 Typed exact
+  fail-closed boundary，再提交 RED；不得捆绑 division、modulo、parentheses 或 Semantic/target lowering。
