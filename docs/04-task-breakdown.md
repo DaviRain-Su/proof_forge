@@ -124,6 +124,7 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-21 | TASK-D1-04 | exact `true`/`false` Source-only literal carrier；append-only Expr tag `4` 与 Typed fail-closed boundary | `175545d6`, `10159066`, `76ebc809` | focused aggregate + dual-entry/parser-boundary controls + clean committed `just ci` at `76ebc809`；final reviews P0/P1=0 | complete (development) |
 | D1-PA-22 | TASK-D1-04 | binary checked subtraction Source-only carrier；`+`/`-` 同层左结合、Expr tag `5` 与 Typed fail-closed boundary | `756afdc2`, `0d97da50`, `e8c3773f` | focused 128-job aggregate + left-associative AST/sourceHash pins + parser-boundary negatives；final reviews P0/P1=0；checkpoint `just ci` deferred | complete (development) |
 | D1-PA-23 | TASK-D1-04 | binary checked multiplication Source-only carrier；高于 `+`/`-` 的 precedence、Expr tag `6` 与 Typed fail-closed boundary | `21a4157b`, `6b30cce4`, `2749d1c6` | focused 130-job aggregate + precedence/associativity AST/sourceHash pins + parser-boundary negatives；final reviews P0/P1=0；checkpoint `just ci` deferred | complete (development) |
+| D1-PA-24 | TASK-D1-04 | parenthesized expression grouping parser sugar；无新 Expr ctor/tag，等价 grouping canonical/sourceHash 不变 | — | grouping/scope/canonical audits；spec freeze before RED | **active** |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|

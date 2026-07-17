@@ -208,6 +208,22 @@ modulo 或其他 operator；缺失 lhs/rhs、重复 operator 与额外 token 停
 Typed/Semantic multiplication、arithmetic requirement、overflow rule、target behavior 或 runtime
 representation。既有 `checkedAdd` 正常路径与 `checkedSub` exact fail-closed path 必须保持不变。
 
+D1-PA-24 冻结的 pre-acceptance alpha parenthesized grouping 子集只接受 `(` `Expr` `)` 作为
+`PrimaryExpr` grouping sugar，parser 形状固定为 `syntax:max "(" pfExpr:0 ")" : pfExpr`：外层结果是
+可作为 `*` operand 的 high-precedence primary，内部 min precedence `0` 必须允许完整 `+`/`-`/`*`
+expression。decoder 必须以结构化 quotation 取得内部 `pfExpr` 并递归返回同一 `Source.Expr`；不得新增 Source Expr ctor、
+canonical tag/field、generic syntax scan 或 quote arm。因此冗余 grouping（如 `(42)`、`((x))`、
+`(2 + 3)`）与未分组的同一表达式产生相同 Source AST、canonical bytes 与 sourceHash；grouping 改变
+运算树时则必须保留改变后的结构，例如 `(2 + 3) * 4`、`7 - (3 - 1)`、`2 * (3 * 4)` 与
+`2 * (3 + 4)` 分别形成 addition-before-multiplication、right-nested subtraction、right-nested
+multiplication 与 multiplication-of-addition，且不得 alias 对应
+left-nested/default-precedence tree。empty/unit `()`、tuple `(1, 2)`、group 内额外 payload、缺失括号、
+group 后额外 token 与 call-like `f(1)` 必须停在 parser boundary；本切片不新增 tuple、call、constructor、
+unary 或其他 expression kind，type position 的 `(UInt64)` 也不得被误收为 `pfType`。`quoteExpr`、
+`Source.lean`、Source canonical encoder、`Typed.lean`/`Typed.check`、SemanticIR、requirements 与 target
+pipeline 必须保持不变；grouped checkedAdd 继续正常通过，grouped Bool/checkedSub/checkedMul
+只表现其内部表达式既有的 exact Typed boundary。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

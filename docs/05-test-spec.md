@@ -826,6 +826,24 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Typed/Semantic multiplication、overflow semantics、Int/signed literal、unary、parentheses、division、
   modulo、requirement、target ABI 或 runtime semantics；既有 checked-add positive 与 checked-sub exact
   fail-closed control 必须继续通过。
+- D1-PA-24 的 alpha parenthesized grouping tests 只接受 `(` `pfExpr` `)`，production rule 必须固定为
+  `syntax:max "(" pfExpr:0 ")" : pfExpr`，以 high-precedence outer primary 包裹 min-precedence `0` 的
+  完整 inner expression；decoder 递归返回内部 Source expression。positive 覆盖
+  initializer、entry、view、fn 的 return/let value 可达位置、literal/variable/Bool/binary operands 与
+  Lean command/ParserSession AST/sourceHash parity；`(42)`/`42`、`((x))`/`x`、`((2 + 3))`/`2 + 3`
+  必须产生相同 AST、canonical bytes 与 sourceHash，且所有既有 Expr tags `0..6`/goldens 不变。
+  grouping override 必须精确固定 `(2 + 3) * 4`、`7 - (3 - 1)`、`2 * (3 * 4)` 与
+  `2 * (3 + 4)` 的 AST；其中 `(2 + 3) * 4` 必须证明 inner `pfExpr:0` 没有错误排除低 precedence
+  addition；两个 right-nested 项在对应 CheckedSubTwin/CheckedMulTwin identity 下必须与 direct
+  right-nested Source twin 的 238-byte
+  canonical/hash `7e6a2c24a6cad28e5984f2279dce0df9fdd863c6ea1062334cb32b69027e7e3a`、
+  `f4b9a861619b742361e41f69342f07dc9c338daa9b9a520073b8aa2fa990c13c` 相同，并继续与各自 left-nested
+  twin 不 alias；`2 * (3 + 4)` 的真实 identity golden 必须在 GREEN 前重新绑定。empty/whitespace-only
+  group、缺失 open/close、tuple/comma、group 内或 group 后额外 payload、nested unmatched、call-like
+  `f(1)` 与 type-position `(UInt64)` 必须停在 parser boundary；不得接受 unit、tuple、call、constructor、
+  unary 或新增 expression。
+  本切片不得新增 Source ctor/tag/field、quote arm、Typed/Semantic rule、requirement、target ABI/runtime；
+  grouped checkedAdd positive 以及 grouped Bool/checkedSub/checkedMul 的既有 exact Typed controls 必须保持。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
