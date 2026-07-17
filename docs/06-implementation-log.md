@@ -1729,3 +1729,40 @@ normative: false
 - Next：residual audit 选择 binary checked multiplication 作为 D1-PA-23 candidate；必须先冻结高于
   `+`/`-` 的 precedence、left associativity、append-only Expr tag `6`、golden controls 与 Typed exact
   fail-closed boundary，再提交 RED；不得捆绑 division、modulo、parentheses 或 Semantic/target lowering。
+
+## 2026-07-18 — D1 binary checked multiplication pre-acceptance slice
+
+- Commits：freeze `21a4157b`；checked multiplication RED `6b30cce4`；Source/Syntax/Typed GREEN
+  `2749d1c6`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-23 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 追加 `checkedMul(lhs, rhs)`；alpha source canonical encoder
+  使用 Expr tag `6` 后依次递归编码 lhs、rhs，既有 tags `0..5` 不变。`pfExpr` 的 `*` 固定为
+  precedence `70`、lhs `70`/rhs `71`，高于 `+`/`-` 的 `65` 且同层左结合；decoder/quote 使用
+  结构化 quotation 往返，没有新增 `/`、`%`、unary、parenthesis、fallback 或宿主 keyword。
+- Binding/controls：initializer、entry、view、fn 的 return/let value 与 variable operands 经 Lean command
+  和 ParserSession 产生相同 AST/sourceHash；`2*3*4`、`2+3*4`、`2*3+4`、`2-3*4`、`2*3-4`
+  固定左结合及 `MulExpr` 高于 `AddExpr` 的分组。CheckedMulTwin 的 `2*3`、`2+3*4`、`2*3+4`、
+  left/right nest 分别为 228/238/238/238/238 bytes，hash 为
+  `8128548ccbf651b56e4e7fff2cf57a098f69486eb06464f506e1caed2e7f581a`、
+  `a6eb82bd2a1f6402c8157065926ee0fc80f613126fdc822801b3b2b514635a08`、
+  `2596095b9f9ca52d373c0f1997746032240e26608ed37191b7e35a2e4f37b576`、
+  `625cdaa2d54c15d8da241c4d069f225374429a03076d30bf0be23638a00e0f88`、
+  `f4b9a861619b742361e41f69342f07dc9c338daa9b9a520073b8aa2fa990c13c`；operator、operand
+  order 与 nesting 均不 alias。missing lhs/rhs、bare/repeated star、extra token、`/`、`%` 停在
+  parser boundary；checkedAdd positive 与 checkedSub exact fail-closed controls 保持通过。
+- Boundary：`Typed.checkExpr` 对 `checkedMul` 返回 exact
+  `checked multiplication is not yet supported by typed checking`，因此没有新增 Typed.Expr、SemanticIR、
+  requirement、Semantics 或 target Plan/artifact；checkedAdd/checkedSub 既有路径未改变。
+- Review/Commands：Grok RED/GREEN；Pi freeze/RED/GREEN、Kimi freeze/RED/canonical GREEN 与 Claude seam
+  review 均已执行。`lake build Tests.Language.CheckedMul proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：130-job aggregate 与测试二进制全部 exit 0，五组 goldens 无需修正；development evidence 为
+  `EV-20260718-0009`。按批量验证策略，本切片的 checkpoint `just ci` 延后到较大阶段统一执行，未计入
+  本条证据。
+- Limitations：仅实现 Source checked multiplication structure；没有 Typed/Semantic arithmetic、overflow/
+  revert rule、division/modulo、signed/unary literal、parentheses、requirement、target ABI/runtime、eligible
+  host 或 formal D1 evidence。D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending。
+- Next：residual audit 选择 parenthesized expression grouping parser sugar 作为 D1-PA-24 candidate；该切片
+  不新增 Source.Expr ctor/tag，而把 `(expr)` 解码为同一 Source AST。必须先冻结 grouping precedence、
+  direct-vs-parenthesized sourceHash equality、malformed boundary 与无 Typed/Semantic/target change，再提交 RED。
