@@ -85,6 +85,14 @@ class ToolLockClosureError(AssetError):
     """A typed Tool Lock cross-reference or leaf-closure failure."""
 
 
+def fail_sbom_observation(code: str, message: str) -> "None":
+    """Raise the sole coded failure channel for runtime SBOM observation."""
+
+    error = AssetError(f"{code}: {message}")
+    error.code = code  # type: ignore[attr-defined]
+    raise error from None
+
+
 def fail(message: str) -> "None":
     raise AssetError(message)
 
@@ -2367,6 +2375,534 @@ def _load_compiler_runtime_graph() -> ModuleType:
     return checked
 
 
+_COMPILER_RUNTIME_MANIFEST: ModuleType | None = None
+_COMPILER_RUNTIME_MANIFEST_API = (
+    "CompilerRuntimeObservation",
+    "RuntimeImageWitness",
+)
+
+
+def _require_compiler_runtime_manifest_api(module: ModuleType) -> ModuleType:
+    for name in _COMPILER_RUNTIME_MANIFEST_API:
+        if not hasattr(module, name):
+            fail(f"compiler_runtime_manifest.py missing symbol: {name}")
+    return module
+
+
+def _load_compiler_runtime_manifest() -> ModuleType:
+    """Load the exact sibling manifest module while preserving class identity."""
+
+    global _COMPILER_RUNTIME_MANIFEST
+    if _COMPILER_RUNTIME_MANIFEST is not None:
+        return _require_compiler_runtime_manifest_api(
+            _COMPILER_RUNTIME_MANIFEST
+        )
+
+    sibling = (
+        Path(__file__).resolve().parent / "compiler_runtime_manifest.py"
+    ).resolve()
+    for candidate in list(sys.modules.values()):
+        origin = getattr(candidate, "__file__", None)
+        if not origin:
+            continue
+        try:
+            if Path(origin).resolve() != sibling:
+                continue
+        except (OSError, RuntimeError):
+            continue
+        if hasattr(candidate, "CompilerRuntimeObservation"):
+            checked = _require_compiler_runtime_manifest_api(candidate)
+            _COMPILER_RUNTIME_MANIFEST = checked
+            return checked
+
+    module: ModuleType | None = None
+    try:
+        import compiler_runtime_manifest as imported  # type: ignore[no-redef]
+        imported_origin = getattr(imported, "__file__", None)
+        if imported_origin is not None:
+            try:
+                if Path(imported_origin).resolve() == sibling:
+                    module = imported
+            except (OSError, RuntimeError):
+                module = None
+    except ImportError:
+        module = None
+    if module is None:
+        if not sibling.is_file():
+            fail("compiler_runtime_manifest.py sibling is missing")
+        spec = importlib.util.spec_from_file_location(
+            "compiler_runtime_manifest",
+            sibling,
+        )
+        if spec is None or spec.loader is None:
+            fail("cannot load compiler_runtime_manifest.py sibling")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["compiler_runtime_manifest"] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:  # noqa: BLE001 - collapse loader failures
+            if sys.modules.get("compiler_runtime_manifest") is module:
+                del sys.modules["compiler_runtime_manifest"]
+            raise AssetError(
+                "cannot load compiler_runtime_manifest.py sibling"
+            ) from None
+
+    checked = _require_compiler_runtime_manifest_api(module)
+    _COMPILER_RUNTIME_MANIFEST = checked
+    return checked
+
+
+_OBSERVATION_STABLE_FIELDS = (
+    "st_dev",
+    "st_ino",
+    "st_mode",
+    "st_nlink",
+    "st_uid",
+    "st_size",
+    "st_mtime_ns",
+    "st_ctime_ns",
+)
+_OBSERVATION_OPEN_IDENTITY_FIELDS = (
+    "st_dev",
+    "st_ino",
+    "st_mode",
+    "st_nlink",
+    "st_uid",
+)
+
+
+def _observation_stat_tuple(metadata: os.stat_result) -> tuple[object, ...]:
+    return tuple(
+        getattr(metadata, field) for field in _OBSERVATION_STABLE_FIELDS
+    )
+
+
+def _observation_open_identity(
+    metadata: os.stat_result,
+) -> tuple[object, ...]:
+    return tuple(
+        getattr(metadata, field)
+        for field in _OBSERVATION_OPEN_IDENTITY_FIELDS
+    )
+
+
+def _require_observation_file_record(
+    tree_manifest: object,
+    relative: str,
+) -> dict:
+    if type(tree_manifest) is not dict:
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            "tree_manifest must be an exact dict",
+        )
+    if relative not in tree_manifest:
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            f"tree_manifest is missing runtime image {relative}",
+        )
+    record = tree_manifest[relative]
+    if type(record) is not dict or set(record) != {
+        "kind", "size", "mode", "sha256",
+    }:
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            f"tree_manifest record is not exact for {relative}",
+        )
+    if record["kind"] != "file":
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            f"tree_manifest runtime image is not a file: {relative}",
+        )
+    if type(record["size"]) is not int or not 0 <= record["size"] <= 2 ** 53 - 1:
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            f"tree_manifest size witness is invalid for {relative}",
+        )
+    if type(record["mode"]) is not int or record["mode"] not in {0o444, 0o555}:
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            f"tree_manifest mode witness is invalid for {relative}",
+        )
+    if (type(record["sha256"]) is not str or
+            SHA256_RE.fullmatch(record["sha256"]) is None):
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            f"tree_manifest digest witness is invalid for {relative}",
+        )
+    return record
+
+
+def _runtime_observation_paths(
+    root: Path,
+    macho_paths: object,
+) -> tuple[tuple[str, ...], tuple[Path, ...]]:
+    root_text = str(root)
+    if (not isinstance(root, Path) or not root.is_absolute() or
+            root_text in {"/", "//"} or root_text.startswith("//") or
+            "\x00" in root_text or posixpath.normpath(root_text) != root_text):
+        fail_sbom_observation(
+            "PF-SBOM-IO",
+            "runtime root must be a normalized absolute path",
+        )
+    if type(macho_paths) is not list or not macho_paths:
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            "macho_paths must be a nonempty exact list",
+        )
+
+    relative_paths: list[str] = []
+    absolute_paths: list[Path] = []
+    for index, path in enumerate(macho_paths):
+        if not isinstance(path, Path) or not path.is_absolute():
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                f"macho_paths[{index}] must be an absolute Path",
+            )
+        try:
+            lexical_relative = path.relative_to(root).as_posix()
+            relative = safe_relative(
+                lexical_relative,
+                f"macho_paths[{index}]",
+            )
+        except (AssetError, ValueError):
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                f"macho_paths[{index}] escapes the runtime root",
+            )
+        expected = root / PurePosixPath(relative)
+        if path != expected:
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                f"macho_paths[{index}] is not lexically normalized",
+            )
+        relative_paths.append(relative)
+        absolute_paths.append(expected)
+
+    if relative_paths != sorted(relative_paths):
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            "macho_paths must be sorted",
+        )
+    if len(relative_paths) != len(set(relative_paths)):
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            "macho_paths must be unique",
+        )
+    return tuple(relative_paths), tuple(absolute_paths)
+
+
+def _open_observation_root_chain(
+    root: Path,
+    descriptors: list[int],
+) -> tuple[int, os.stat_result]:
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    current = os.open("/", directory_flags)
+    descriptors.append(current)
+    opened = os.fstat(current)
+    for part in PurePosixPath(str(root)).parts[1:]:
+        before = os.stat(part, dir_fd=current, follow_symlinks=False)
+        if not stat.S_ISDIR(before.st_mode) or stat.S_ISLNK(before.st_mode):
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                "runtime root traverses a symlink or non-directory",
+            )
+        child = os.open(part, directory_flags, dir_fd=current)
+        descriptors.append(child)
+        opened = os.fstat(child)
+        if _observation_open_identity(before) != _observation_open_identity(opened):
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                "runtime root changed while being opened",
+            )
+        current = child
+    if (not stat.S_ISDIR(opened.st_mode) or stat.S_ISLNK(opened.st_mode) or
+            opened.st_uid != os.getuid()):
+        fail_sbom_observation(
+            "PF-SBOM-IO",
+            "runtime root must be an owned non-symlink directory",
+        )
+    return current, opened
+
+
+def _read_observation_file(
+    descriptor: int,
+    expected_size: int,
+) -> tuple[str, bytes]:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    digest = hashlib.sha256()
+    prefix = b""
+    remaining = expected_size
+    while remaining:
+        chunk = os.read(descriptor, min(remaining, 1024 * 1024))
+        if not chunk:
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                "runtime image ended while being observed",
+            )
+        if len(prefix) < 4:
+            prefix = (prefix + chunk)[:4]
+        digest.update(chunk)
+        remaining -= len(chunk)
+    if os.read(descriptor, 1):
+        fail_sbom_observation(
+            "PF-SBOM-IO",
+            "runtime image grew while being observed",
+        )
+    return digest.hexdigest(), prefix
+
+
+def _open_runtime_observation_window(
+    root: Path,
+    relative_paths: tuple[str, ...],
+    tree_manifest: object,
+) -> dict:
+    descriptors: list[int] = []
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        root_descriptor, root_snapshot = _open_observation_root_chain(
+            root,
+            descriptors,
+        )
+        directories: dict[str, tuple[int, os.stat_result, str, int]] = {
+            "": (root_descriptor, root_snapshot, "", -1),
+        }
+        files: dict[str, dict] = {}
+        for relative in relative_paths:
+            record = dict(
+                _require_observation_file_record(tree_manifest, relative)
+            )
+            parts = PurePosixPath(relative).parts
+            parent_key = ""
+            parent_descriptor = root_descriptor
+            for part in parts[:-1]:
+                key = f"{parent_key}/{part}" if parent_key else part
+                cached = directories.get(key)
+                if cached is not None:
+                    parent_descriptor = cached[0]
+                    parent_key = key
+                    continue
+                before = os.stat(
+                    part,
+                    dir_fd=parent_descriptor,
+                    follow_symlinks=False,
+                )
+                if (not stat.S_ISDIR(before.st_mode) or
+                        stat.S_ISLNK(before.st_mode) or
+                        before.st_uid != os.getuid()):
+                    fail_sbom_observation(
+                        "PF-SBOM-IO",
+                        f"runtime ancestor is unsafe: {key}",
+                    )
+                child = os.open(
+                    part,
+                    directory_flags,
+                    dir_fd=parent_descriptor,
+                )
+                descriptors.append(child)
+                opened = os.fstat(child)
+                if (_observation_open_identity(before) !=
+                        _observation_open_identity(opened)):
+                    fail_sbom_observation(
+                        "PF-SBOM-IO",
+                        f"runtime ancestor changed while opening: {key}",
+                    )
+                directories[key] = (
+                    child,
+                    opened,
+                    part,
+                    parent_descriptor,
+                )
+                parent_descriptor = child
+                parent_key = key
+
+            filename = parts[-1]
+            before = os.stat(
+                filename,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+            if (not stat.S_ISREG(before.st_mode) or
+                    stat.S_ISLNK(before.st_mode) or before.st_nlink != 1 or
+                    before.st_uid != os.getuid()):
+                fail_sbom_observation(
+                    "PF-SBOM-IO",
+                    f"runtime image is not an owned single-link file: {relative}",
+                )
+            if before.st_size != record["size"]:
+                fail_sbom_observation(
+                    "PF-SBOM-CLOSURE",
+                    f"runtime size witness mismatch: {relative}",
+                )
+            if stat.S_IMODE(before.st_mode) != record["mode"]:
+                fail_sbom_observation(
+                    "PF-SBOM-CLOSURE",
+                    f"runtime mode witness mismatch: {relative}",
+                )
+            descriptor = os.open(
+                filename,
+                file_flags,
+                dir_fd=parent_descriptor,
+            )
+            descriptors.append(descriptor)
+            opened = os.fstat(descriptor)
+            if _observation_stat_tuple(before) != _observation_stat_tuple(opened):
+                fail_sbom_observation(
+                    "PF-SBOM-IO",
+                    f"runtime image changed while opening: {relative}",
+                )
+            digest, magic = _read_observation_file(descriptor, record["size"])
+            after_read = os.fstat(descriptor)
+            if _observation_stat_tuple(opened) != _observation_stat_tuple(after_read):
+                fail_sbom_observation(
+                    "PF-SBOM-IO",
+                    f"runtime image changed while reading: {relative}",
+                )
+            if digest != record["sha256"]:
+                fail_sbom_observation(
+                    "PF-SBOM-CLOSURE",
+                    f"runtime digest witness mismatch: {relative}",
+                )
+            if magic not in MACHO_MAGICS:
+                fail_sbom_observation(
+                    "PF-SBOM-CLOSURE",
+                    f"runtime image is not Mach-O: {relative}",
+                )
+            files[relative] = {
+                "descriptor": descriptor,
+                "snapshot": opened,
+                "parent": parent_descriptor,
+                "filename": filename,
+                "record": record,
+                "digest": digest,
+            }
+        return {
+            "root": root,
+            "rootSnapshot": root_snapshot,
+            "descriptors": descriptors,
+            "directories": directories,
+            "files": files,
+        }
+    except Exception:
+        for descriptor in reversed(descriptors):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        raise
+
+
+def _verify_runtime_observation_window(window: dict) -> None:
+    for relative, item in window["files"].items():
+        descriptor = item["descriptor"]
+        snapshot = item["snapshot"]
+        current = os.fstat(descriptor)
+        path_current = os.stat(
+            item["filename"],
+            dir_fd=item["parent"],
+            follow_symlinks=False,
+        )
+        if (_observation_stat_tuple(snapshot) != _observation_stat_tuple(current) or
+                _observation_stat_tuple(current) !=
+                _observation_stat_tuple(path_current)):
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                f"runtime image changed during observation: {relative}",
+            )
+        digest, magic = _read_observation_file(
+            descriptor,
+            item["record"]["size"],
+        )
+        after_read = os.fstat(descriptor)
+        path_after_read = os.stat(
+            item["filename"],
+            dir_fd=item["parent"],
+            follow_symlinks=False,
+        )
+        if (_observation_stat_tuple(snapshot) !=
+                _observation_stat_tuple(after_read) or
+                _observation_stat_tuple(after_read) !=
+                _observation_stat_tuple(path_after_read)):
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                f"runtime image changed during final read: {relative}",
+            )
+        if digest != item["digest"] or magic not in MACHO_MAGICS:
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                f"runtime image bytes changed during observation: {relative}",
+            )
+
+    for relative, item in window["directories"].items():
+        descriptor, snapshot, name, parent = item
+        current = os.fstat(descriptor)
+        if _observation_stat_tuple(snapshot) != _observation_stat_tuple(current):
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                f"runtime directory changed during observation: {relative or '.'}",
+            )
+        if relative:
+            path_current = os.stat(
+                name,
+                dir_fd=parent,
+                follow_symlinks=False,
+            )
+            if _observation_stat_tuple(current) != _observation_stat_tuple(path_current):
+                fail_sbom_observation(
+                    "PF-SBOM-IO",
+                    f"runtime directory path changed during observation: {relative}",
+                )
+
+    reopened: list[int] = []
+    try:
+        _, root_path_current = _open_observation_root_chain(
+            window["root"],
+            reopened,
+        )
+        if (_observation_stat_tuple(window["rootSnapshot"]) !=
+                _observation_stat_tuple(root_path_current)):
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                "runtime root path changed during observation",
+            )
+    finally:
+        for descriptor in reversed(reopened):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _close_runtime_observation_window(window: dict) -> None:
+    close_error: OSError | None = None
+    for descriptor in reversed(window["descriptors"]):
+        try:
+            os.close(descriptor)
+        except OSError as error:
+            if close_error is None:
+                close_error = error
+    if close_error is not None:
+        fail_sbom_observation(
+            "PF-SBOM-IO",
+            f"cannot close runtime observation window: {close_error}",
+        )
+
+
 def _root_relative_posix(root: Path, path: Path) -> str:
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
@@ -2531,6 +3067,112 @@ def discover_lean_macho_static(
         raise AssetError(
             f"compiler Mach-O runtime graph failed ({error.code}): {error.detail}"
         ) from None
+
+
+def observe_compiler_runtime(
+    *,
+    lock: dict,
+    host_lock: dict,
+    root: Path,
+    macho_paths: list[Path],
+    tree_manifest: object,
+):
+    """Observe one typed runtime graph inside a retained safe-read window."""
+
+    window: dict | None = None
+    active_error = False
+    try:
+        relative_paths, absolute_paths = _runtime_observation_paths(
+            root,
+            macho_paths,
+        )
+        window = _open_runtime_observation_window(
+            root,
+            relative_paths,
+            tree_manifest,
+        )
+        try:
+            graph = discover_lean_macho_static(
+                lock,
+                host_lock,
+                root,
+                list(absolute_paths),
+            )
+        except AssetError as error:
+            fail_sbom_observation(
+                "PF-SBOM-CLOSURE",
+                f"compiler runtime graph discovery failed: {error}",
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            fail_sbom_observation(
+                "PF-SBOM-IO",
+                f"compiler runtime inspection failed: {error}",
+            )
+        except Exception as error:  # noqa: BLE001 - sole public channel
+            fail_sbom_observation(
+                "PF-SBOM-CLOSURE",
+                f"compiler runtime inspection failed: {error}",
+            )
+
+        _verify_runtime_observation_window(window)
+        manifest_mod = _load_compiler_runtime_manifest()
+        graph_paths = tuple(sorted(
+            [entry.path for entry in graph.entrypoints]
+            + [file_node.path for file_node in graph.files]
+        ))
+        if len(graph_paths) != len(set(graph_paths)):
+            fail_sbom_observation(
+                "PF-SBOM-CLOSURE",
+                "compiler runtime graph paths are not unique",
+            )
+        if any(path not in window["files"] for path in graph_paths):
+            fail_sbom_observation(
+                "PF-SBOM-CLOSURE",
+                "compiler runtime graph escapes the observed image set",
+            )
+        images = tuple(
+            manifest_mod.RuntimeImageWitness(
+                path=path,
+                size=window["files"][path]["record"]["size"],
+                mode=window["files"][path]["record"]["mode"],
+                sha256=window["files"][path]["digest"],
+            )
+            for path in graph_paths
+        )
+        return manifest_mod.CompilerRuntimeObservation(
+            graph=graph,
+            images=images,
+        )
+    except AssetError as error:
+        active_error = True
+        if getattr(error, "code", None) in {
+            "PF-SBOM-IO",
+            "PF-SBOM-CLOSURE",
+        }:
+            raise error from None
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            f"compiler runtime observation failed: {error}",
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        active_error = True
+        fail_sbom_observation(
+            "PF-SBOM-IO",
+            f"compiler runtime observation failed: {error}",
+        )
+    except Exception as error:  # noqa: BLE001 - sole public channel
+        active_error = True
+        fail_sbom_observation(
+            "PF-SBOM-CLOSURE",
+            f"compiler runtime observation failed: {error}",
+        )
+    finally:
+        if window is not None:
+            try:
+                _close_runtime_observation_window(window)
+            except AssetError:
+                if not active_error:
+                    raise
 
 
 def verify_lean_macho_static(lock: dict, host_lock: dict, root: Path,

@@ -37,6 +37,7 @@ supply-chain-core:
     /usr/bin/python3 -I -S -B scripts/compiler_runtime_closure_self_test.py
     /usr/bin/python3 -I -S -B scripts/compiler_runtime_graph_self_test.py
     /usr/bin/python3 -I -S -B scripts/compiler_runtime_discovery_self_test.py
+    /usr/bin/python3 -I -S -B scripts/compiler_runtime_observation_self_test.py
     /usr/bin/python3 -I -S -B scripts/compiler_runtime_manifest_self_test.py
 
 # Development-only Unicode regeneration/conformance check. The caller must

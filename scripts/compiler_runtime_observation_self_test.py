@@ -19,10 +19,14 @@ The API is deliberately bound to the existing production inputs:
 * ``macho_paths`` is the verified Mach-O set returned by ``verify_lean_tree``;
 * ``tree_manifest`` is the exact ``extract_lean_zip`` witness map.
 
-Tests monkeypatch only the existing ``locked_otool`` and ``subprocess.run``
-seams.  The production API does not accept an unverified executable or an
-ambient runner.  A successful observation must combine the exact typed graph
-with witnesses retained across one no-follow, single-link, stable-read window.
+Tests normally monkeypatch only the existing ``locked_otool`` and
+``subprocess.run`` seams.  One filesystem test wraps ``os.open`` solely to
+inject unrelated shared-ancestor activity between stat/open, and one wraps the
+exact sibling-manifest loader to mutate the caller's manifest alias after the
+final filesystem read.  The production API does not accept an unverified
+executable or an ambient runner.  A successful observation must combine the
+exact typed graph with witnesses retained across one no-follow, single-link,
+stable-read window.
 All public failures use the real ``AssetError`` channel with a nonempty stable
 ``code`` (``PF-SBOM-IO`` for unsafe nodes/races and ``PF-SBOM-CLOSURE`` for
 authoritative witness/graph mismatch), without leaking an unsuppressed cause.
@@ -558,9 +562,10 @@ def test_happy_exact_graph_and_witnesses(assets: ModuleType) -> None:
             runner=runner,
         )
 
-        if type(observation).__name__ != "CompilerRuntimeObservation":
+        manifest = assets._load_compiler_runtime_manifest()
+        if type(observation) is not manifest.CompilerRuntimeObservation:
             raise AssertionError(
-                "observe must return CompilerRuntimeObservation, got {0!r}".format(
+                "observe must return the exact sibling observation, got {0!r}".format(
                     type(observation)
                 )
             )
@@ -582,7 +587,7 @@ def test_happy_exact_graph_and_witnesses(assets: ModuleType) -> None:
         if tuple(image.path for image in images) != expected_paths:
             raise AssertionError("witnesses must be the exact sorted graph cover")
         for image in images:
-            if type(image).__name__ != "RuntimeImageWitness":
+            if type(image) is not manifest.RuntimeImageWitness:
                 raise AssertionError("image witness has the wrong public type")
             expected_digest = hashlib.sha256(payloads[image.path]).hexdigest()
             expected = tree_manifest[image.path]
@@ -595,6 +600,94 @@ def test_happy_exact_graph_and_witnesses(assets: ModuleType) -> None:
                     )
                 )
         runner.assert_exact_single_pass()
+
+
+def test_unrelated_shared_ancestor_activity_is_tolerated(
+    assets: ModuleType,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="pf-observe-shared-") as temporary:
+        base = Path(temporary)
+        root, macho_paths, tree_manifest, _payloads = write_runtime_tree(base)
+        shared_ancestor = base.parent
+        unrelated = shared_ancestor / (base.name + "-unrelated-activity")
+        original_open = assets.os.open
+        fired = {"count": 0}
+
+        def open_with_unrelated_activity(
+            path: object,
+            flags: int,
+            mode: int = 0o777,
+            *,
+            dir_fd: Optional[int] = None,
+        ) -> int:
+            if (
+                path == shared_ancestor.name
+                and dir_fd is not None
+                and not fired["count"]
+            ):
+                fired["count"] += 1
+                unrelated.mkdir(mode=0o700)
+                unrelated.rmdir()
+            if dir_fd is None:
+                return original_open(path, flags, mode)
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        assets.os.open = open_with_unrelated_activity
+        try:
+            host_lock = make_host_lock()
+            runner = OtoolRunner(root, host_lock)
+            observation = invoke_fixture(
+                assets,
+                root,
+                macho_paths,
+                tree_manifest,
+                host_lock=host_lock,
+                runner=runner,
+            )
+        finally:
+            assets.os.open = original_open
+        if fired["count"] != 1:
+            raise AssertionError("shared-ancestor activity hook did not fire")
+        if normalize_graph(observation.graph) != EXPECTED_GRAPH:
+            raise AssertionError("unrelated ancestor activity changed the graph")
+        runner.assert_exact_single_pass()
+
+
+def test_manifest_record_alias_cannot_rewrite_observed_witness(
+    assets: ModuleType,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="pf-observe-alias-") as temporary:
+        root, macho_paths, tree_manifest, _payloads = write_runtime_tree(
+            Path(temporary)
+        )
+        original_size = tree_manifest["lib/core.dylib"]["size"]
+        original_loader = assets._load_compiler_runtime_manifest
+        fired = {"count": 0}
+
+        def mutate_then_load() -> ModuleType:
+            fired["count"] += 1
+            tree_manifest["lib/core.dylib"]["size"] = original_size + 1
+            return original_loader()
+
+        assets._load_compiler_runtime_manifest = mutate_then_load
+        try:
+            observation = invoke_fixture(
+                assets,
+                root,
+                macho_paths,
+                tree_manifest,
+            )
+        finally:
+            assets._load_compiler_runtime_manifest = original_loader
+        if fired["count"] != 1:
+            raise AssertionError("manifest alias mutation hook did not fire")
+        core = next(
+            image
+            for image in observation.images
+            if image.path == "lib/core.dylib"
+        )
+        if core.size != original_size:
+            raise AssertionError("caller alias rewrote the observed witness")
 
 
 def test_witness_content_and_mode_mismatch_fail(assets: ModuleType) -> None:
@@ -845,6 +938,8 @@ def main() -> int:
     tests = (
         test_api_missing_is_red,
         test_happy_exact_graph_and_witnesses,
+        test_unrelated_shared_ancestor_activity_is_tolerated,
+        test_manifest_record_alias_cannot_rewrite_observed_witness,
         test_witness_content_and_mode_mismatch_fail,
         test_symlink_root_and_ancestor_fail,
         test_symlink_hardlink_and_fifo_leaf_fail,
