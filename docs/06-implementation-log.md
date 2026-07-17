@@ -804,7 +804,6 @@ normative: false
 - Limitations：minimal surface only；full JCS domain hash matrix not claimed；bootstrap authority still deferred。
 - Next：可选 `TASK-D0-05` SBOM，或处理 `TASK-D0-04` host/authority blocker；Active 清空。
 
-
 ## 2026-07-17 — TASK-D0-05 SBOM inventory + CycloneDX 1.6 closed (FX-2026-07-17-D0-05)
 
 - Changed：`docs/supply-chain/license-policy.v1.json`、`license-inventory.v1.json`、
@@ -830,6 +829,16 @@ normative: false
 - Limitations：still development catalog-verified only；formal/freshness/revocation/private-scan
   markers remain explicit not-verified；does not close D0-04 host/authority.
 - Next：Active still empty；formal path remains blocked on TASK-D0-04。
+
+## 2026-07-17 — TASK-D0-06 premature closure corrected
+
+- Review：`7064babe` 只实现 Digest、core-only SemVer、两份 ResourceProfileV1 常量和局部测试；
+  它自己的 Limitations 与 `EV-20260717-0032` 都承认 PF-JCS/domain hash、完整 SemVer、其余
+  scalar 和 exact ResourceProfile wire 未实现，不能满足冻结的 `TST-COMMON-001`。
+- Governance：撤销不符合 task-freeze §8 的 `FX-2026-07-17-D0-06` 自证路径；恢复原冻结
+  Output，任务重新置为 `in_progress`；`EV-20260717-0032` 保留为可追溯的 development partial slice。
+- Next：严格按 `Tests/Core/Common.lean` RED → GREEN 补齐完整 common acceptance；D0-05 草稿可在
+  独立 worktree 并行，但不得用其覆盖本任务状态或把 partial EV 写成 task closure。
 
 ## 记录模板
 

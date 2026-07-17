@@ -14,8 +14,8 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | 无 |
-| Next task | **TASK-D0-04**（blocked：host seal / Stage-0 / authority — 全链 formal 依赖点） |
+| Active task | **TASK-D0-06**：common scalar parsers / canonical encoders / ResourceProfileV1 (`TST-COMMON-001`) |
+| Next task | **TASK-D0-07**（formal hermetic/finalizer；依赖 D0-04 activation，当前仍远） |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | **TASK-D0-04** host seal broken + Stage-0/authority/receipt 未闭合；D0-01..03 仅 freeze-exception 关闭 development 切片，不表示 formal hermetic 完成 |

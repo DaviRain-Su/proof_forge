@@ -108,9 +108,6 @@ D0_02_PACKAGE_BOUNDARY_ATTEST_RELATIVE = (
 D0_03_DEVELOPMENT_TRIAD_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-03.attest.json"
 )
-D0_06_COMMON_PRIMITIVES_ATTEST_RELATIVE = (
-    "docs/governance/bootstrap-closure/TASK-D0-06.attest.json"
-)
 D0_05_SBOM_INVENTORY_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-05.attest.json"
 )
@@ -1794,34 +1791,6 @@ def d0_03_development_triad_attested(root: Path) -> bool:
 
 
 
-def d0_06_common_primitives_attested(root: Path) -> bool:
-    """Return True only for FX-2026-07-17-D0-06 common-primitives closure attestation."""
-    payload = _load_bootstrap_closure_attest(root, D0_06_COMMON_PRIMITIVES_ATTEST_RELATIVE)
-    if payload is None:
-        return False
-    required = {
-        "schemaVersion": 1,
-        "taskId": "TASK-D0-06",
-        "kind": "common-primitives-closure",
-        "freezeException": "FX-2026-07-17-D0-06",
-        "selfTestResult": "ok",
-        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
-    }
-    for key, expected in required.items():
-        if payload.get(key) != expected:
-            return False
-    if payload.get("module") != "ProofForgeV2.Core.Common":
-        return False
-    self_test = payload.get("selfTestCommand")
-    if not isinstance(self_test, str) or "proof-forge-next-tests" not in self_test:
-        return False
-    docs_check = payload.get("docsCheckCommand")
-    if not isinstance(docs_check, str) or "docs_check" not in docs_check:
-        return False
-    return True
-
-
-
 def d0_05_sbom_inventory_attested(root: Path) -> bool:
     """Return True only for FX-2026-07-17-D0-05 SBOM inventory closure attestation."""
     payload = _load_bootstrap_closure_attest(root, D0_05_SBOM_INVENTORY_ATTEST_RELATIVE)
@@ -1850,7 +1819,6 @@ def d0_05_sbom_inventory_attested(root: Path) -> bool:
         if not isinstance(value, str) or needle not in value:
             return False
     return True
-
 def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[TaskRecord],
                    evidence_records: dict[str, EvidenceRecord],
                    document_status: dict[str, str]) -> None:
@@ -1889,7 +1857,6 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                 (record.task == "TASK-D0-01" and d0_01_pure_consumer_attested(root))
                 or (record.task == "TASK-D0-02" and d0_02_package_boundary_attested(root))
                 or (record.task == "TASK-D0-03" and d0_03_development_triad_attested(root))
-                or (record.task == "TASK-D0-06" and d0_06_common_primitives_attested(root))
                 or (record.task == "TASK-D0-05" and d0_05_sbom_inventory_attested(root))
             )
             if not allowed:
