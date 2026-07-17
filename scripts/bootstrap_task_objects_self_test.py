@@ -3060,6 +3060,129 @@ def test_bootstrap_approval_set(module: ModuleType) -> None:
         "receipt task-approval ref mismatch",
     )
 
+    def coherently_replace_task_dependencies(
+        dependency_refs: list[dict],
+    ) -> tuple[bytes, tuple[bytes, ...]]:
+        task_id = "TASK-D0-04"
+        task_index = BOOTSTRAP_APPROVAL_SET_TASK_IDS.index(task_id)
+        approval_wire = copy.deepcopy(
+            aggregate_built[task_id]["approvalWire"]
+        )
+        approval_wire["dependencyCompletions"] = copy.deepcopy(
+            dependency_refs
+        )
+        approval_wire = resign_task_approval_wire(
+            module,
+            approval_wire,
+            tuple(
+                key_id for key_id, _ in D0_GRAPH_ROWS[task_id]["signers"]
+            ),
+        )
+        approval_bytes = module.canonical_pf_jcs(approval_wire)
+        approval_ref = {
+            "taskId": task_id,
+            "digest": digest_text(hashlib.sha256(
+                b"pf.bootstrap-task-approval.v1\x00" + approval_bytes
+            ).digest()),
+        }
+
+        receipt_wire = copy.deepcopy(
+            aggregate_built[task_id]["receiptWire"]
+        )
+        receipt_wire["dependencyCompletions"] = copy.deepcopy(
+            dependency_refs
+        )
+        receipt_wire["taskApproval"] = approval_ref
+        receipt_wire = resign_bootstrap_task_receipt_wire(
+            module, receipt_wire
+        )
+        receipt_bytes = module.canonical_pf_jcs(receipt_wire)
+
+        mutated_set = copy.deepcopy(set_wire)
+        mutated_set["taskApprovals"][task_index] = approval_wire
+        mutated_set["taskReceipts"][task_index] = (
+            bootstrap_task_receipt_ref_wire(
+                module,
+                task_id,
+                receipt_wire["id"],
+                receipt_bytes,
+            )
+        )
+        mutated_set = resign_bootstrap_approval_set_wire(
+            module, mutated_set
+        )
+        mutated_receipts = list(task_receipt_bytes)
+        mutated_receipts[task_index] = receipt_bytes
+        return module.canonical_pf_jcs(mutated_set), tuple(mutated_receipts)
+
+    empty_topology_set, empty_topology_receipts = (
+        coherently_replace_task_dependencies([])
+    )
+    expect_set_rejected(
+        lambda: parse_set(empty_topology_set, empty_topology_receipts),
+        "coherently signed D0-04 approval and receipt with empty dependencies",
+    )
+
+    foreign_dependency_refs = copy.deepcopy(
+        aggregate_built["TASK-D0-04"]["approvalWire"][
+            "dependencyCompletions"
+        ]
+    )
+    foreign_dependency_refs[0]["digest"] = digest_text(
+        bytes.fromhex("e7" * 32)
+    )
+    foreign_dependency_set, foreign_dependency_receipts = (
+        coherently_replace_task_dependencies(foreign_dependency_refs)
+    )
+    expect_set_rejected(
+        lambda: parse_set(
+            foreign_dependency_set, foreign_dependency_receipts
+        ),
+        "coherently signed D0-04 dependency ref absent from this set",
+    )
+
+    original_decode_point = module._decode_point
+    original_verify_ed25519 = module.verify_ed25519
+    subgroup_curve_calls = 0
+    signature_curve_calls = 0
+
+    def counted_decode_point(encoded: bytes) -> object:
+        nonlocal subgroup_curve_calls
+        subgroup_curve_calls += 1
+        return original_decode_point(encoded)
+
+    def counted_verify_ed25519(
+        public_key: bytes,
+        message: bytes,
+        signature: bytes,
+    ) -> bool:
+        nonlocal signature_curve_calls
+        signature_curve_calls += 1
+        return original_verify_ed25519(public_key, message, signature)
+
+    module._decode_point = counted_decode_point
+    module.verify_ed25519 = counted_verify_ed25519
+    try:
+        expect_set_rejected(
+            lambda: module.parse_bootstrap_approval_set(
+                set_bytes,
+                task_receipt_bytes,
+                required_bytes,
+                policy_bytes,
+                phase5_snapshot,
+                b"{",
+            ),
+            "malformed late Stage-0 handoff",
+        )
+    finally:
+        module._decode_point = original_decode_point
+        module.verify_ed25519 = original_verify_ed25519
+    if subgroup_curve_calls != 0 or signature_curve_calls != 0:
+        raise AssertionError(
+            "malformed late Stage-0 handoff must reject before every public-key "
+            "subgroup or signature curve operation"
+        )
+
 
 def test_task_approval_exact_upper_and_sha256_identity(
     module: ModuleType,
