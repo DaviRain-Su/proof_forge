@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-06",
+  "frozenAt": "2026-07-17",
+  "freezeCommit": "68b0b528579b521fe6a3f172c1358af36853bdf5",
+  "output": "common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types",
+  "dependencies": [
+    "TASK-D0-01",
+    "TASK-D0-02"
+  ],
+  "prerequisites": [],
+  "tests": [
+    "TST-COMMON-001"
+  ],
+  "inScope": [
+    "common scalar parsers for IDs, digests, semver, and relative paths",
+    "canonical PF-JCS encoders and domain-separated hashes used by wire formats",
+    "ResourceProfileV1 types and exact schema for resource budgets",
+    "focused TST-COMMON-001 positive and negative unit acceptance"
+  ],
+  "outOfScope": [
+    "frontend grammar and type checker (D1/D2)",
+    "target materializers and ABI",
+    "bootstrap authority, Stage-0, or formal evidence publication",
+    "SBOM/license inventory (D0-05)"
+  ],
+  "doneWhen": [
+    "TST-COMMON-001 unit acceptance passes",
+    "Lean/common module builds with focused tests",
+    "docs-check passes with freeze package alignment",
+    "evidence grade rules for task closure are satisfied under current policy"
+  ],
+  "overflowPolicy": "SBOM stays in D0-05; authority in D0-04; formal binder in D0-07.",
+  "maxCalendarDays": 3,
+  "maxCommits": 20,
+  "notes": "Product-enabling common primitives after D0-03 development triad close."
+}

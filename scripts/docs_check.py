@@ -105,6 +105,9 @@ D0_01_PURE_CONSUMER_ATTEST_RELATIVE = (
 D0_02_PACKAGE_BOUNDARY_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-02.attest.json"
 )
+D0_03_DEVELOPMENT_TRIAD_ATTEST_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-03.attest.json"
+)
 MILESTONE_TASK_RE = re.compile(r"^TASK-(A0|D[0-9]+)-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 TASK_FREEZE_PACKAGE_NAME_RE = re.compile(
     r"^TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*\.json$"
@@ -1751,6 +1754,38 @@ def d0_02_package_boundary_attested(root: Path) -> bool:
     return True
 
 
+def d0_03_development_triad_attested(root: Path) -> bool:
+    """Return True only for FX-2026-07-17-D0-03 development triad closure attestation."""
+    payload = _load_bootstrap_closure_attest(root, D0_03_DEVELOPMENT_TRIAD_ATTEST_RELATIVE)
+    if payload is None:
+        return False
+    required = {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-03",
+        "kind": "development-triad-closure",
+        "freezeException": "FX-2026-07-17-D0-03",
+        "evidenceCoreResult": "ok",
+        "hostDevelopmentResult": "ok",
+        "hostFormalEligible": False,
+        "toolchainResult": "ok",
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+        "fullPolicyReceiptEvaluator": "deferred-incomplete",
+    }
+    for key, expected in required.items():
+        if payload.get(key) != expected:
+            return False
+    for field, needle in (
+        ("evidenceCoreCommand", "gate_evidence"),
+        ("hostDevelopmentCommand", "verify_host_stage0"),
+        ("toolchainCommand", "toolchain_assets"),
+        ("docsCheckCommand", "docs_check"),
+    ):
+        value = payload.get(field)
+        if not isinstance(value, str) or needle not in value:
+            return False
+    return True
+
+
 def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[TaskRecord],
                    evidence_records: dict[str, EvidenceRecord],
                    document_status: dict[str, str]) -> None:
@@ -1788,6 +1823,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
             allowed = (
                 (record.task == "TASK-D0-01" and d0_01_pure_consumer_attested(root))
                 or (record.task == "TASK-D0-02" and d0_02_package_boundary_attested(root))
+                or (record.task == "TASK-D0-03" and d0_03_development_triad_attested(root))
             )
             if not allowed:
                 error = DocsCheckError(

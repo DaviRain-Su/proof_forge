@@ -424,8 +424,13 @@ producer/policy root/handoff/signer/verifier/protected service 与 production ca
   `docs/governance/bootstrap-closure/TASK-D0-02.attest.json`（kind=`package-boundary-closure`、
   `freezeException=FX-2026-07-17-D0-02`、`bootstrapAuthority=deferred-fail-closed-to-D0-04`、
   `selfTestResult=ok`、`isolationResult=ok`）时，以 package-boundary bootstrap EV 关闭。
-上述例外均不得推广到 `TASK-D0-03..06`，也不得把 protected production positive 或 formal hermetic
-证据宣称为已闭合。`formal` 还必须由正式
+- **`FX-2026-07-17-D0-03`**：`TASK-D0-03` 在存在精确
+  `docs/governance/bootstrap-closure/TASK-D0-03.attest.json`（kind=`development-triad-closure`、
+  `freezeException=FX-2026-07-17-D0-03`、`bootstrapAuthority=deferred-fail-closed-to-D0-04`、
+  `fullPolicyReceiptEvaluator=deferred-incomplete`、evidence/host/toolchain results `ok`）时，
+  以 development triad bootstrap EV 关闭。
+上述例外均不得推广到 `TASK-D0-04..06` 的 formal/bootstrap 关单，也不得把 protected production
+positive 或 formal hermetic 证据宣称为已闭合。`formal` 还必须由正式
 evidence-set binder 校验对应不可变 EV JSON；ledger 中的文字标签不能自行把 development
 观察升级为 formal evidence；在 `TASK-D0-07` 的 formal finalizer/binder 落地并接入 docs-check 前，任何
 `Grade=formal` 行都必须以 `PF-DOC-EVIDENCE-FORMAL-UNVERIFIED` 拒绝。requirements matrix

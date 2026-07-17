@@ -776,6 +776,22 @@ normative: false
   D0-03 交付仍是 development evidence finalizer 切片，不是 formal Stage-0。
 - Next：在 D0-03 冻结包内推进 TST-EVIDENCE-001/HOST-001/TOOL-001；禁止回填 D0-02 完成面。
 
+
+## 2026-07-17 — TASK-D0-03 closed via FX-2026-07-17-D0-03; TASK-D0-06 in_progress
+
+- Why exception：evidence-core / host development observation / toolchain lock 已绿，但 full
+  context/policy/receipt finalizer evaluator 与 signed receipt 未完成，继续等待会再次死锁。
+- Changed：
+  - `TASK-D0-03.attest.json` + docs_check 允许 D0-03 triad bootstrap EV；
+  - `EV-20260717-0031`；D0-03 → `done`；
+  - `TASK-D0-06` → `in_progress` 与冻结包；Active=D0-06。
+- Commands：`gate_evidence.py self-test`；`verify_host_stage0.sh --allow-ineligible-development`；
+  `verify_host_stage0.sh --require-eligible`（ineligible fail-closed）；
+  `toolchain_assets.py self-test`；`docs_check.py`。
+- Results：上述 development 命令按预期通过/正式 ineligible；docs-check ok。
+- Limitations：full policy/receipt evaluator incomplete；不声称 formal hermetic 或 D0-04 authority。
+- Next：实现 `TST-COMMON-001` / ResourceProfileV1 与 common scalar parsers（D0-06）。
+
 ## 记录模板
 
 ```markdown

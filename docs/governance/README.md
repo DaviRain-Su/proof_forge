@@ -16,6 +16,7 @@ normative: true
 - [任务冻结包目录](task-freeze-packages/)（每个 `in_progress` 的完成面 JSON；M2 机器强制）
 - [D0-01 pure-consumer 关闭证明](bootstrap-closure/TASK-D0-01.attest.json)（`FX-2026-07-17-D0-01`）
 - [D0-02 package-boundary 关闭证明](bootstrap-closure/TASK-D0-02.attest.json)（`FX-2026-07-17-D0-02`）
+- [D0-03 development triad 关闭证明](bootstrap-closure/TASK-D0-03.attest.json)（`FX-2026-07-17-D0-03`）
 - [版本与兼容治理](version-compatibility.md)
 - [依赖与供应链](dependency-policy.md)
 - [CI 与证据](ci-evidence.md)

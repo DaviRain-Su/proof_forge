@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-03",
+  "kind": "development-triad-closure",
+  "freezeException": "FX-2026-07-17-D0-03",
+  "evidenceCoreCommand": "/usr/bin/python3 -I -S scripts/gate_evidence.py self-test",
+  "evidenceCoreResult": "ok",
+  "hostDevelopmentCommand": "/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --allow-ineligible-development",
+  "hostDevelopmentResult": "ok",
+  "hostFormalEligible": false,
+  "toolchainCommand": "/usr/bin/python3 -I -S scripts/toolchain_assets.py self-test",
+  "toolchainResult": "ok",
+  "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+  "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+  "fullPolicyReceiptEvaluator": "deferred-incomplete",
+  "notes": "Closes D0-03 development triad only: evidence-core self-test, host development observation with formal ineligible fail-closed, and toolchain lock self-test. Full context/policy/receipt finalizer evaluation, signed TaskApproval/receipt, and formal hermetic publication remain deferred."
+}

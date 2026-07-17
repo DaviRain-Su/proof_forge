@@ -239,7 +239,15 @@ Milestone 增行必须同变更更新 lock，并经 Architecture + Quality 批�
 | 变更 | done = `v2-isolation`/`ci` + package-boundary attest + bootstrap EV；signed approval/receipt **移交 D0-04** |
 | 回滚 | 撤销 attest 后 docs-check 拒绝 D0-02 bootstrap EV，需 reopen |
 
-**状态：** `TASK-D0-02` → `done`；Active = `TASK-D0-03`。
+**状态：** `TASK-D0-02` → `done`。
+
+### 11.4 Freeze Exception `FX-2026-07-17-D0-03`
+
+| 字段 | 值 |
+|---|---|
+| 原因 | D0-03 development triad（evidence-core/host observation/toolchain）已绿，但 full context/policy/receipt evaluator 与 bootstrap receipt 未闭合，会再次永久 blocked |
+| 变更 | done = evidence self-test + host development/formal-ineligible + toolchain self-test + attest + bootstrap EV；full evaluator 与 signed receipt 移交 D0-04/后续 |
+| 状态 | `TASK-D0-03` → `done`；Active = `TASK-D0-06` |
 
 ## 12. 违规处理
 
