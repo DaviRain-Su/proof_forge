@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Independent RED tests for single-pass Lean Mach-O discovery (D0-08 seam).
+"""Pre-freeze tests for single-pass Lean Mach-O discovery (D0-08 seam).
 
-Frozen new API under test (not implemented yet — suite is expected RED):
+Shared API under test:
 
     toolchain_assets.discover_lean_macho_static(
         lock, host_lock, root, macho_paths,
@@ -309,10 +309,23 @@ def expect_fail(assets: ModuleType, operation: Callable[[], object]) -> None:
     raise AssertionError("expected fail-closed error")
 
 
-def test_discover_api_missing_is_red(assets: ModuleType) -> None:
-    """Primary RED gate: the new discovery entrypoint must exist."""
+def test_discover_api_exists(assets: ModuleType) -> None:
+    """The typed single-pass discovery entrypoint must exist."""
 
     require_discover(assets)
+
+
+def test_cached_graph_module_requires_complete_api(assets: ModuleType) -> None:
+    """A same-name or cached partial module must fail before discovery."""
+
+    incomplete = ModuleType("compiler_runtime_graph")
+    incomplete.resolve_compiler_runtime_graph = lambda **_kwargs: None  # type: ignore[attr-defined]
+    original = assets._COMPILER_RUNTIME_GRAPH
+    assets._COMPILER_RUNTIME_GRAPH = incomplete
+    try:
+        expect_fail(assets, assets._load_compiler_runtime_graph)
+    finally:
+        assets._COMPILER_RUNTIME_GRAPH = original
 
 
 def test_happy_shared_graph_single_otool_pass(assets: ModuleType) -> None:
@@ -736,7 +749,8 @@ def test_context_dependent_load_fails_closed(assets: ModuleType) -> None:
 def main() -> int:
     assets = load_assets()
     tests = (
-        test_discover_api_missing_is_red,
+        test_discover_api_exists,
+        test_cached_graph_module_requires_complete_api,
         test_happy_shared_graph_single_otool_pass,
         test_legacy_verify_projection_includes_entrypoint_self,
         test_legacy_verify_does_not_double_discover_when_wrapped,

@@ -29,12 +29,14 @@ sbom:
     /usr/bin/python3 -I -S scripts/sbom_generate.py --root . verify --output-dir build/sbom
 
 # TASK-D0-08 pre-freeze primitives only. This protects PF-JCS,
-# ToolLockV2Digest, direct leaf ownership, and logical component identities;
+# ToolLockV2Digest, direct leaf ownership, logical component identities, and
+# single-pass compiler runtime discovery;
 # it is not the formal TST-SBOM-002 RED or task-completion gate.
 supply-chain-core:
     /usr/bin/python3 -I -S -B scripts/supply_chain_core_self_test.py
     /usr/bin/python3 -I -S -B scripts/compiler_runtime_closure_self_test.py
     /usr/bin/python3 -I -S -B scripts/compiler_runtime_graph_self_test.py
+    /usr/bin/python3 -I -S -B scripts/compiler_runtime_discovery_self_test.py
 
 # Development-only Unicode regeneration/conformance check. The caller must
 # explicitly provide the digest-matched UCD directory until offline asset

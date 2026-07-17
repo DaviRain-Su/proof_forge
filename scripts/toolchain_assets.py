@@ -11,6 +11,7 @@ import argparse
 import contextlib
 import copy
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -32,6 +33,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
+from types import ModuleType
 from typing import BinaryIO, Iterator
 
 
@@ -2181,10 +2183,43 @@ def parse_otool_rpaths(output: str) -> list[str]:
     return result
 
 
+def _is_canonical_system_path(
+    value: str,
+    system_roots: tuple[str, ...],
+    *,
+    allow_trailing_slash: bool,
+) -> bool:
+    """Match a system path only after lexical canonicalization checks."""
+
+    if not value.startswith("/"):
+        return False
+    if any(
+        ord(char) < 0x20
+        or ord(char) == 0x7f
+        or 0x80 <= ord(char) <= 0x9f
+        for char in value
+    ):
+        return False
+    body = value[1:]
+    if body.endswith("/"):
+        if not allow_trailing_slash:
+            return False
+        body = body[:-1]
+    if not body:
+        return False
+    if any(part in ("", ".", "..") for part in body.split("/")):
+        return False
+    return any(value.startswith(root) for root in system_roots)
+
+
 def resolve_internal_rpath(root: Path, loader: Path, executable: Path, value: str,
                            system_roots: tuple[str, ...], *,
                            require_exists: bool = True) -> Path:
-    if value.startswith(system_roots):
+    if _is_canonical_system_path(
+        value,
+        system_roots,
+        allow_trailing_slash=True,
+    ):
         return Path(value)
     if value.startswith(str(root) + "/"):
         candidate = Path(value)
@@ -2215,7 +2250,11 @@ def resolve_reachable_macho_load(root: Path, loader: Path, executable: Path,
                                  load: str, active_rpaths: list[Path],
                                  macho_set: set[Path],
                                  system_roots: tuple[str, ...]) -> Path | None:
-    if load.startswith(system_roots):
+    if _is_canonical_system_path(
+        load,
+        system_roots,
+        allow_trailing_slash=False,
+    ):
         return None
     if load.startswith(str(root) + "/"):
         candidate = Path(load).resolve(strict=False)
@@ -2245,14 +2284,132 @@ def resolve_reachable_macho_load(root: Path, loader: Path, executable: Path,
     return candidate if candidate in macho_set else None
 
 
-def verify_lean_macho_static(lock: dict, host_lock: dict, root: Path,
-                             macho_paths: list[Path]) -> dict[Path, set[Path]]:
+_COMPILER_RUNTIME_GRAPH: ModuleType | None = None
+_COMPILER_RUNTIME_GRAPH_API = (
+    "CompilerRuntimeGraph",
+    "MachOInspection",
+    "RuntimeGraphError",
+    "resolve_compiler_runtime_graph",
+)
+
+
+def _require_compiler_runtime_graph_api(module: ModuleType) -> ModuleType:
+    for name in _COMPILER_RUNTIME_GRAPH_API:
+        if not hasattr(module, name):
+            fail(f"compiler_runtime_graph.py missing symbol: {name}")
+    return module
+
+
+def _load_compiler_runtime_graph() -> ModuleType:
+    """Load exact sibling compiler_runtime_graph.py (script + importlib safe).
+
+    Reuses any already-imported module object whose ``__file__`` resolves to the
+    sibling path so importlib self-tests that loaded the graph under a synthetic
+    name still share class identity with discover results.
+    """
+
+    global _COMPILER_RUNTIME_GRAPH
+    if _COMPILER_RUNTIME_GRAPH is not None:
+        return _require_compiler_runtime_graph_api(_COMPILER_RUNTIME_GRAPH)
+
+    sibling = (Path(__file__).resolve().parent / "compiler_runtime_graph.py").resolve()
+    for candidate in list(sys.modules.values()):
+        origin = getattr(candidate, "__file__", None)
+        if not origin:
+            continue
+        try:
+            if Path(origin).resolve() != sibling:
+                continue
+        except (OSError, RuntimeError):
+            continue
+        if hasattr(candidate, "resolve_compiler_runtime_graph"):
+            checked = _require_compiler_runtime_graph_api(candidate)
+            _COMPILER_RUNTIME_GRAPH = checked
+            return checked
+
+    module: ModuleType | None = None
+    # Prefer a direct import when the scripts directory is already importable
+    # (CLI: python scripts/toolchain_assets.py).
+    try:
+        import compiler_runtime_graph as imported  # type: ignore[no-redef]
+        imported_origin = getattr(imported, "__file__", None)
+        if imported_origin is not None:
+            try:
+                if Path(imported_origin).resolve() == sibling:
+                    module = imported
+            except (OSError, RuntimeError):
+                module = None
+    except ImportError:
+        module = None
+    if module is None:
+        if not sibling.is_file():
+            fail("compiler_runtime_graph.py sibling is missing")
+        # Stable public name so subsequent imports share the same module object.
+        spec = importlib.util.spec_from_file_location(
+            "compiler_runtime_graph",
+            sibling,
+        )
+        if spec is None or spec.loader is None:
+            fail("cannot load compiler_runtime_graph.py sibling")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["compiler_runtime_graph"] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:  # noqa: BLE001 - collapse loader failures to AssetError
+            if sys.modules.get("compiler_runtime_graph") is module:
+                del sys.modules["compiler_runtime_graph"]
+            raise AssetError(
+                "cannot load compiler_runtime_graph.py sibling"
+            ) from None
+
+    checked = _require_compiler_runtime_graph_api(module)
+    _COMPILER_RUNTIME_GRAPH = checked
+    return checked
+
+
+def _root_relative_posix(root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        fail(f"Mach-O path escapes Lean toolchain root: {path}")
+    raise AssertionError("unreachable")
+
+
+def _normalize_load_for_graph(root: Path, load: str) -> str:
+    """Map absolute-under-root install names to root-relative POSIX paths."""
+
+    root_prefix = str(root.resolve()) + "/"
+    if load.startswith(root_prefix):
+        return _root_relative_posix(root, Path(load))
+    return load
+
+
+def discover_lean_macho_static(
+    lock: dict,
+    host_lock: dict,
+    root: Path,
+    macho_paths: list[Path],
+):
+    """Single-pass otool discovery -> typed CompilerRuntimeGraph.
+
+    Each runtime image is inspected with otool -hv/-l/-L/-D at most once.
+    Unreachable images still receive the existing static rpath/load admit
+    checks.  Walk/resolution is delegated to compiler_runtime_graph.
+    """
+
+    graph_mod = _load_compiler_runtime_graph()
     if not macho_paths:
         fail("materialized Lean tree contains no Mach-O files")
+    resolved_root = root.resolve()
+    resolved_inputs = [path.resolve() for path in macho_paths]
+    if len(resolved_inputs) != len(set(resolved_inputs)):
+        fail("materialized Lean tree contains duplicate Mach-O paths")
+    for path in resolved_inputs:
+        _root_relative_posix(resolved_root, path)
     otool = locked_otool(host_lock)
     system_roots = tuple(lock["machoPolicy"]["allowedSystemLoadRoots"])
     runtime_macho_paths: list[Path] = []
-    for path in macho_paths:
+    for path in resolved_inputs:
         headers = subprocess.run(
             [str(otool), "-hv", str(path)], check=True, capture_output=True, text=True,
             env={"LC_ALL": "C"}, timeout=10,
@@ -2261,33 +2418,34 @@ def verify_lean_macho_static(lock: dict, host_lock: dict, root: Path,
             r"\b(?:OBJECT|EXECUTE|DYLIB|DYLINKER|BUNDLE)\b", headers.stdout,
         ))
         if not file_types:
-            fail(f"cannot classify Mach-O file type: {path.relative_to(root)}")
+            fail(f"cannot classify Mach-O file type: {path.relative_to(resolved_root)}")
         if file_types <= {"OBJECT"}:
             # Static archives and relocatable objects are link inputs, not dyld
             # runtime nodes. Their headers are still parsed above, but they have
             # no process-time load closure to admit.
             continue
         if "OBJECT" in file_types:
-            fail(f"Mach-O mixes runtime and object file types: {path.relative_to(root)}")
-        runtime_macho_paths.append(path)
+            fail(f"Mach-O mixes runtime and object file types: "
+                 f"{path.relative_to(resolved_root)}")
+        runtime_macho_paths.append(path.resolve())
     if not runtime_macho_paths:
         fail("materialized Lean tree contains no runtime Mach-O files")
 
-    macho_set = {path.resolve() for path in runtime_macho_paths}
-    load_graph: dict[Path, list[str]] = {}
-    rpath_graph: dict[Path, list[str]] = {}
+    macho_set = set(runtime_macho_paths)
+    inspections_by_path: dict[str, object] = {}
     for path in runtime_macho_paths:
+        relative = _root_relative_posix(resolved_root, path)
         commands = subprocess.run(
             [str(otool), "-l", str(path)], check=True, capture_output=True, text=True,
             env={"LC_ALL": "C"}, timeout=10,
         )
-        rpath_graph[path.resolve()] = parse_otool_rpaths(commands.stdout)
-        for raw_rpath in rpath_graph[path.resolve()]:
+        rpaths = parse_otool_rpaths(commands.stdout)
+        for raw_rpath in rpaths:
             # All standalone runtime images must be free of external runpaths,
             # including SDK dylibs that are not reachable from lean/lake.
             resolve_internal_rpath(
-                root, path, root / "bin" / "lean", raw_rpath, system_roots,
-                require_exists=False,
+                resolved_root, path, resolved_root / "bin" / "lean", raw_rpath,
+                system_roots, require_exists=False,
             )
         loads = subprocess.run(
             [str(otool), "-L", str(path)], check=True, capture_output=True, text=True,
@@ -2303,67 +2461,92 @@ def verify_lean_macho_static(lock: dict, host_lock: dict, root: Path,
                         if line.strip() and not line.rstrip().endswith(":")]
             unique_ids = set(id_lines)
             if len(unique_ids) > 1:
-                fail(f"Mach-O has multiple install IDs: {path.relative_to(root)}")
+                fail(f"Mach-O has multiple install IDs: {relative}")
             if unique_ids:
                 install_id = next(iter(unique_ids))
                 observed = [load for load in observed if load != install_id]
-        load_graph[path.resolve()] = observed
         for load in observed:
-            if load.startswith(system_roots):
+            if _is_canonical_system_path(
+                load,
+                system_roots,
+                allow_trailing_slash=False,
+            ):
                 continue
-            if load.startswith(str(root) + "/"):
+            if load.startswith(str(resolved_root) + "/"):
                 target = Path(load)
                 if target.resolve() not in macho_set:
                     fail(f"Mach-O load targets non-Mach-O toolchain path: {load}")
                 continue
             if load.startswith("@loader_path/"):
-                if internal_load_path(root, path.parent, load[len("@loader_path/"):],
-                                      macho_set) is not None:
+                if internal_load_path(
+                    resolved_root, path.parent, load[len("@loader_path/"):],
+                    macho_set,
+                ) is not None:
                     continue
             elif load.startswith("@executable_path/"):
-                if internal_load_path(root, root / "bin", load[len("@executable_path/"):],
-                                      macho_set) is not None:
+                if internal_load_path(
+                    resolved_root, resolved_root / "bin",
+                    load[len("@executable_path/"):], macho_set,
+                ) is not None:
                     continue
             elif load.startswith("@rpath/"):
                 # An unreachable SDK dylib may intentionally leave an @rpath
                 # dependency to the final link environment. Resolve these only
-                # when walking a declared compiler entrypoint below.
+                # when walking a declared compiler entrypoint in the graph.
                 safe_relative(load[len("@rpath/"):], "Mach-O @rpath suffix")
                 continue
-            fail(f"Mach-O load escapes Lean toolchain closure: {path.relative_to(root)} -> {load}")
+            fail(f"Mach-O load escapes Lean toolchain closure: {relative} -> {load}")
 
-    declared_entrypoints = [
-        (root / record["path"]).resolve() for record in lock["compilerToolchain"]["executables"]
-    ]
-    for entrypoint in declared_entrypoints:
-        if entrypoint not in macho_set:
-            fail(f"compiler entrypoint is not a runtime Mach-O: {entrypoint.relative_to(root)}")
+        graph_loads = tuple(
+            _normalize_load_for_graph(resolved_root, load) for load in observed
+        )
+        inspections_by_path[relative] = graph_mod.MachOInspection(
+            rpaths=tuple(rpaths),
+            loads=graph_loads,
+        )
+
+    entrypoint_rels: list[str] = []
+    for record in lock["compilerToolchain"]["executables"]:
+        relative = safe_relative(record["path"], "compiler entrypoint")
+        absolute = (resolved_root / relative).resolve()
+        if absolute not in macho_set:
+            fail(f"compiler entrypoint is not a runtime Mach-O: {relative}")
+        entrypoint_rels.append(relative)
+    if len(entrypoint_rels) != len(set(entrypoint_rels)):
+        fail("compiler entrypoints are not unique")
+    entrypoints = tuple(sorted(entrypoint_rels))
+
+    inspections = tuple(
+        (path, inspections_by_path[path])
+        for path in sorted(inspections_by_path)
+    )
+    try:
+        return graph_mod.resolve_compiler_runtime_graph(
+            entrypoints=entrypoints,
+            inspections=inspections,
+            allowed_system_roots=tuple(sorted(system_roots)),
+        )
+    except graph_mod.RuntimeGraphError as error:
+        # Typed fail-closed surface; suppress graph traceback as __context__.
+        raise AssetError(
+            f"compiler Mach-O runtime graph failed ({error.code}): {error.detail}"
+        ) from None
+
+
+def verify_lean_macho_static(lock: dict, host_lock: dict, root: Path,
+                             macho_paths: list[Path]) -> dict[Path, set[Path]]:
+    """D0-03 legacy projection: absolute Path closures including entrypoint self."""
+
+    graph = discover_lean_macho_static(lock, host_lock, root, macho_paths)
+    resolved_root = root.resolve()
     closures: dict[Path, set[Path]] = {}
-    for entrypoint in declared_entrypoints:
-        pending: list[tuple[Path, list[Path]]] = [(entrypoint, [])]
-        reachable: set[Path] = set()
-        while pending:
-            loader, inherited_rpaths = pending.pop()
-            if loader in reachable:
-                continue
-            own_rpaths = [
-                resolve_internal_rpath(root, loader, entrypoint, raw, system_roots)
-                for raw in rpath_graph[loader]
-            ]
-            active_rpaths = own_rpaths + inherited_rpaths
-            reachable.add(loader)
-            for load in load_graph[loader]:
-                if load.startswith(system_roots):
-                    continue
-                target = resolve_reachable_macho_load(
-                    root, loader, entrypoint, load, active_rpaths,
-                    macho_set, system_roots,
-                )
-                if target is None:
-                    fail(f"reachable compiler Mach-O dependency is unresolved: "
-                         f"{loader.relative_to(root)} -> {load}")
-                pending.append((target, active_rpaths))
-        closures[entrypoint] = reachable
+    legacy = graph.as_legacy_closures()
+    for entry_rel, members in legacy.items():
+        entry_abs = (resolved_root / entry_rel).resolve()
+        member_set = {(resolved_root / member).resolve() for member in members}
+        # D0-03 freeze: each closure set always contains the entrypoint itself.
+        member_set.add(entry_abs)
+        closures[entry_abs] = member_set
     return closures
 
 
