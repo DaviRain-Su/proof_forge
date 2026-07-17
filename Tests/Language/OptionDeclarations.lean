@@ -214,7 +214,8 @@ unsafe def run : IO Unit := do
       ("plural option", "PluralOptionType", "Options UInt64"),
       ("escaped option", "EscapedOptionType", "«Option» UInt64"),
       ("unknown option element", "UnknownOptionElement", "Option Mystery"),
-      ("missing option element", "MissingOptionElement", "Option")
+      ("missing option element", "MissingOptionElement", "Option"),
+      ("qualified option", "QualifiedOptionType", "Std.Option UInt64")
     ] do
     expectUnsupportedType label
       (← session.parsePrograms (negativeSource name spelling) s!"<option-{label}>")
@@ -222,8 +223,7 @@ unsafe def run : IO Unit := do
   for (label, spelling) in [
       ("nested option", "Option Option UInt64"),
       ("field option", "Option Field bn254_fr"),
-      ("extra option payload", "Option UInt64 Principal"),
-      ("qualified option", "Std.Option UInt64")
+      ("extra option payload", "Option UInt64 Principal")
     ] do
     let source := negativeSource "RejectedOptionShape" spelling
     let (_, result) ← IO.FS.withIsolatedStreams
