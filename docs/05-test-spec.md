@@ -775,6 +775,17 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   exact fail closed；负号、额外 token、跨行 payload 与 `Option Bytes N` 停在 parser boundary。测试不得
   引入 bytes literal、index/slice/length op、runtime representation、nested aggregate 或 D2 legality，
   也不得把 alpha hash helper 声称为 stable Type wire validator。
+- D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
+  `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
+  statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
+  mutation 必须同时绑定 append-only statement tag `3`、name、`typeAnn` 的 `0/1` marker/type payload
+  与 value；既有 statement tags `0..2` 和 goldens 不变。unknown annotated type 与 reserved binder
+  必须在 decoder exact fail closed；escaped/qualified introducer、缺失 name/type/value/`:=`、额外或
+  跨行 payload 必须停在 parser boundary。`let := 1` 继续作为现有 assignment positive control，且
+  不得注册宿主 Lean keyword或增加 generic fallback parser。`Typed.check` 必须返回 exact
+  `let statements are not yet supported by typed checking` 且不产生 Semantic/target output；local
+  binding、shadowing、resolution、type/effect rules、SemanticIR lowering 与 runtime semantics 属于后续
+  D2/statement slices，不在本测试完成面。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

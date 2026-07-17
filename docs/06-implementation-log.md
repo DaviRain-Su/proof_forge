@@ -1566,3 +1566,49 @@ normative: false
 - Next：四路 residual/canonical/parser/RED audit 选择 D1-PA-19 `Bytes N`。先冻结 exact same-line
   canonical decimal `0..4096`、`bytes(UInt32)` carrier、tag `17` 加 encoder-local `appendNat` payload、
   zero requirements 与 parser/decoder fail-closed 分层，再提交 RED；不吸收 bytes runtime 或 stable wire。
+
+## 2026-07-18 — D1 bounded Bytes declaration pre-acceptance slice
+
+- Commits：Bytes declaration RED `4849ae5b`；current-identity golden correction `119307ea`；
+  Source/Semantic/Syntax GREEN `7a93fb07`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-19 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.ValueType` 与 `SemanticIR.ValueType` append-only 追加 `bytes(length : UInt32)`；
+  两侧 alpha canonical encoder 使用 tag `17` 后接各自既有 `appendNat(length.toNat)`，因此 Source
+  payload 为 8-byte big-endian，Semantic payload 为 8-byte little-endian，既有 tags `0..16` 不变。
+  decoder 只接受同一行 canonical ASCII decimal `0..4096`，在调用任何 Nat literal convenience API
+  前先以 raw `numLitKind` spelling 检查长度、前导零、ASCII digit 与上界；struct field 与普通 type
+  共用同一 atom decoder，且移除了 guarded `atoms[0]!` partial indexing。
+- Binding/negatives：declaration surface 覆盖 state、struct field、enum payload、const、init、entry/view/fn
+  parameter/result；Lean command 与 ParserSession 产生相同 Source AST/sourceHash。相同 BytesTwin identity
+  的 UInt64、Bytes 0/1/4096 source rows 分别为 229/245/245/245 bytes，hash 为
+  `5087d5f55dff32c65d073fe17f4394df78172e7f077343047cdccfdd40b60838`、
+  `f1b674b004bf9ea73e04d8ba259bb15ea6d2e02dffbd2c6b853d408eb31c7f77`、
+  `60a764e482c81aa2a30fb38dc9dbfab0c674df9bc9fa3d36b538356229949dcc`、
+  `3fe714facd3a9c6da07b5aafad460431f2bf8e6e39abec045a69c481def1dba4`；Semantic UInt64/
+  Bytes 0/1/32/4096 rows 为 178/194/194/194/194 bytes，对应 hash `3f94b3895e74c237e17cc734c40c93bd026b92a8202a07bfde76b3985d06d735`、
+  `a0d095785a535fc1cf821d0ba106c904dac8aac0eb3ba3f14f458499c405af93`、
+  `0f7b37ecc8ab5cb335ff1721abedaa71d7a3d0c0a4110c34a057acc3d808bff3`、
+  `0849d407e4d47ca2b066f3d2f73069018bd34c34cd14b6b2dca389cef70499fa`、
+  `ddb99aa12fb552185a542c75f72800f98182123c27dd3ac99e10377b0357469c`。
+  bare/plural/escaped/qualified/identifier/hex/leading-zero/over-limit 形态双入口 exact fail closed；负号、
+  extra payload、`Option Bytes N` 与 split-line 形态停在 parser boundary。
+- Boundary：Bytes declaration 推导零 requirement；stateless carrier 通过四 target support resolver，三个
+  stateful rows 只推导 `persistentState`，随后 EVM、Solana、NEAR、Noir 各自 target-owned Plan 以既有
+  non-UInt64 invariant 拒绝且不生成 artifact。capture-for-fail-closed 使 `UInt64 32` 从 parser rejection
+  变为 decoder exact rejection，但没有新增被接受的业务语义；该诊断层变化由 grammar review 固定。
+- Review/Commands：Kimi grammar review 与 Claude canonical recheck 均 P0/P1=0；coordinator review 移除
+  partial indexing。`lake build Tests.Language.BytesTypes proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed `just ci` at
+  `7a93fb07`；`git diff --check`。
+- Results：130-job clean build、122-job aggregate、186 项 docs mutation、治理/SBOM/runtime closure、
+  双入口 DSL negatives 与 target/toolchain negatives 全部 exit 0；development evidence 为
+  `EV-20260718-0005`。
+- Limitations：仅实现 bounded declaration carrier；没有 bytes literal、index/slice/length op、runtime
+  representation、nested aggregate、stable Source/Semantic Type wire、target ABI/materialization、eligible
+  host 或 formal D1 evidence。Named/Array/Map source type structure 仍未实现；本结果不把 TST-SRC-004
+  development declaration-kind coverage冒充完整 Type wire 或 formal `TASK-D1-03` closure。
+- Next：task-authority audit 依据 `TST-SRC-004` 的 declaration-kind 完成面与 `TST-SRC-005` 的独立
+  statement/expression 面，选择 D1-PA-20 `let name [ : Type ] := Expr` Source carrier。该切片先固定
+  statement tag `3`、optional type marker、双前端 parity 与 Typed exact fail-closed boundary；不吸收
+  local binding/type/effect、SemanticIR 或 target semantics。

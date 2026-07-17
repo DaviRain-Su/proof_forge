@@ -155,6 +155,18 @@ Type wire，后者仍由其独立 stable encoder/decoder 负责。Bytes declarat
 type/value legality。直接伪造的 in-memory over-bound carrier 不属于 frontend accepted source；本切片
 不把 alpha total hash helper 冒充 stable wire validator。
 
+D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
+`let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
+`Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
+statement tags `0..2` 后 append tag `3`，随后依次编码 name、`typeAnn` 的 `0/1` marker（`some`
+时紧接既有 type bytes）与 value expression。frontend 只保存 Source statement structure；
+`Typed.check` 必须以 exact `let statements are not yet supported by typed checking` fail closed，且本切片
+不得新增 local scope、shadowing、type inference、SemanticIR、requirement 或 target behavior。
+`let` 使用 DSL category 内的 contextual parser，不注册宿主 Lean keyword；现有 `let := 1` 仍表示给
+identifier `let` 赋值，state/parameter identifier policy 也不在本切片改变。unknown annotated type 与
+reserved binder 在 decoder fail closed；escaped/qualified introducer、缺失 name/type/value/`:=` 与跨行
+形态停在 parser boundary。不得为追求统一诊断而加入 generic fallback parser 或扩大已接受语法。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
