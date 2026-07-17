@@ -816,6 +816,21 @@ normative: false
   inventory-only non-redistributable；signed receipt still D0-04.
 - Next：Active 清空；全链 formal 仍卡在 **TASK-D0-04**。
 
+
+## 2026-07-17 — D0-03 H1e context/policy/receipt evaluator completed (debt payoff)
+
+- Context：Option A after D0-01..03/05/06 exception closeouts; finish the previously
+  stubbed finalize-development evaluator so TST-EVIDENCE-001 development path is real.
+- Changed：`scripts/gate_evidence.py` implements host observation semantic join,
+  catalog claim closure, rendered-policy binding, context/receipt binding (including
+  denial probes), and EVF `proof-forge.evidence-finalization.v1` publish.
+- Commands：`python3 -I -S scripts/gate_evidence_finalization_self_test.py`；
+  `python3 -I -S scripts/gate_evidence.py self-test`；`python3 -I -S scripts/docs_check.py`。
+- Results：finalization self-test passed；gate evidence self-test passed；docs-check ok。
+- Limitations：still development catalog-verified only；formal/freshness/revocation/private-scan
+  markers remain explicit not-verified；does not close D0-04 host/authority.
+- Next：Active still empty；formal path remains blocked on TASK-D0-04。
+
 ## 记录模板
 
 ```markdown
