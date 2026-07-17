@@ -9,6 +9,7 @@ program AggregateSurface where
   struct Transfer where
     sender : UInt64
     amount : UInt64
+    digestValue : Field bn254_fr
 
   enum Status where
     | Pending
@@ -37,7 +38,8 @@ private def source : String :=
   "program AggregateSurface where\n" ++
   "  struct Transfer where\n" ++
   "    sender : UInt64\n" ++
-  "    amount : UInt64\n\n" ++
+  "    amount : UInt64\n" ++
+  "    digestValue : Field bn254_fr\n\n" ++
   "  enum Status where\n" ++
   "    | Pending\n" ++
   "    | Complete(UInt64)\n" ++
@@ -78,7 +80,7 @@ unsafe def run : IO Unit := do
   | #[transfer] =>
       expect (transfer.name == "Transfer" &&
           transfer.fields.map (fun field => (field.name, field.type)) ==
-            #[("sender", .u64), ("amount", .u64)])
+            #[("sender", .u64), ("amount", .u64), ("digestValue", .field)])
         "struct name, field names, types, and order must survive Lean command elaboration"
   | _ => throw <| IO.userError "AggregateSurface must retain one struct declaration"
   match elaborated.enums with
@@ -234,11 +236,20 @@ unsafe def run : IO Unit := do
     (← session.parsePrograms
       (programSource "EscapedEnumKeyword" "  «enum» A where\n    | Value\n")
       "<escaped-enum-keyword>")
-  expectInvalid "reserved struct identifier" "reserved portable identifier 'struct'"
+  expectInvalid "ordinary reserved struct identifier" "reserved portable identifier 'struct'"
+    (← session.parsePrograms
+      (programSource "OrdinaryReservedStructIdentifier"
+        "  struct struct where\n    value : UInt64\n")
+      "<ordinary-reserved-struct-identifier>")
+  expectInvalid "escaped reserved struct identifier" "reserved portable identifier 'struct'"
     (← session.parsePrograms
       (programSource "ReservedStructIdentifier" "  struct «struct» where\n    value : UInt64\n")
       "<reserved-struct-identifier>")
-  expectInvalid "reserved enum identifier" "reserved portable identifier 'enum'"
+  expectInvalid "ordinary reserved enum identifier" "reserved portable identifier 'enum'"
+    (← session.parsePrograms
+      (programSource "OrdinaryReservedEnumIdentifier" "  enum enum where\n    | Value\n")
+      "<ordinary-reserved-enum-identifier>")
+  expectInvalid "escaped reserved enum identifier" "reserved portable identifier 'enum'"
     (← session.parsePrograms
       (programSource "ReservedEnumIdentifier" "  enum A where\n    | «enum»\n")
       "<reserved-enum-identifier>")

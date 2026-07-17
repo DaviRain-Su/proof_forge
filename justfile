@@ -293,8 +293,8 @@ dsl-negative: build
             empty-enum) echo "PF-SRC-INVALID: enum 'Empty' must declare at least one variant" ;;
             empty-enum-payload) echo "PF-SRC-INVALID: enum variant 'Empty' payload must contain at least one type" ;;
             escaped-struct-keyword|escaped-enum-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
-            reserved-struct-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'struct'" ;;
-            reserved-enum-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'enum'" ;;
+            ordinary-reserved-struct-identifier|reserved-struct-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'struct'" ;;
+            ordinary-reserved-enum-identifier|reserved-enum-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'enum'" ;;
             escaped-event-keyword|escaped-error-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             reserved-event-identifier|escaped-reserved-event-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'event'" ;;
             reserved-error-identifier|escaped-reserved-error-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'error'" ;;
@@ -318,7 +318,8 @@ dsl-negative: build
         duplicate-error-param escaped-event-keyword escaped-error-keyword duplicate-initializer
         duplicate-struct duplicate-enum duplicate-struct-field duplicate-enum-variant
         empty-struct empty-enum empty-enum-payload escaped-struct-keyword escaped-enum-keyword
-        reserved-struct-identifier reserved-enum-identifier
+        ordinary-reserved-struct-identifier reserved-struct-identifier
+        ordinary-reserved-enum-identifier reserved-enum-identifier
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
         priority-identity-before-decode
