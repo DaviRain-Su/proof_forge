@@ -2787,6 +2787,107 @@ def test_bootstrap_approval_set(module: ModuleType) -> None:
     ):
         expect_set_rejected(operation, label)
 
+    tampered_set_signature = copy.deepcopy(set_wire)
+    tampered_set_signature["signatures"][0]["signature"] = "00" * 64
+    unknown_set_signer = copy.deepcopy(set_wire)
+    unknown_set_signer["signatures"][-1]["keyId"] = "key-unlisted"
+    under_quorum_set, _, _ = sign_bootstrap_approval_set_statement(
+        module,
+        fixture["setStatement"],
+        ("key-quality", "key-security"),
+    )
+    missing_required_role_set, _, _ = sign_bootstrap_approval_set_statement(
+        module,
+        fixture["setStatement"],
+        ("key-architecture", "key-quality", "key-release"),
+    )
+    for label, invalid_wire in (
+        ("tampered bootstrap-set signature", tampered_set_signature),
+        ("bootstrap-set signer absent from policy", unknown_set_signer),
+        ("bootstrap-set signer quorum below three", under_quorum_set),
+        (
+            "bootstrap-set signatures omit required security role",
+            missing_required_role_set,
+        ),
+    ):
+        expect_set_rejected(
+            lambda invalid_wire=invalid_wire: parse_set(
+                module.canonical_pf_jcs(invalid_wire)
+            ),
+            label,
+        )
+
+    tampered_embedded_set = copy.deepcopy(set_wire)
+    tampered_embedded_approval = tampered_embedded_set["taskApprovals"][0]
+    tampered_embedded_approval["signatures"][0]["signature"] = "00" * 64
+    tampered_embedded_approval_bytes = module.canonical_pf_jcs(
+        tampered_embedded_approval
+    )
+    tampered_embedded_receipt = copy.deepcopy(
+        aggregate_built["TASK-D0-01"]["receiptWire"]
+    )
+    tampered_embedded_receipt["taskApproval"]["digest"] = digest_text(
+        hashlib.sha256(
+            b"pf.bootstrap-task-approval.v1\x00"
+            + tampered_embedded_approval_bytes
+        ).digest()
+    )
+    tampered_embedded_receipt = resign_bootstrap_task_receipt_wire(
+        module, tampered_embedded_receipt
+    )
+    tampered_embedded_receipt_bytes = module.canonical_pf_jcs(
+        tampered_embedded_receipt
+    )
+    tampered_embedded_set["taskReceipts"][0] = (
+        bootstrap_task_receipt_ref_wire(
+            module,
+            "TASK-D0-01",
+            tampered_embedded_receipt["id"],
+            tampered_embedded_receipt_bytes,
+        )
+    )
+    tampered_embedded_set_bytes = module.canonical_pf_jcs(
+        resign_bootstrap_approval_set_wire(module, tampered_embedded_set)
+    )
+    tampered_embedded_receipts = list(task_receipt_bytes)
+    tampered_embedded_receipts[0] = tampered_embedded_receipt_bytes
+    expect_set_rejected(
+        lambda: parse_set(
+            tampered_embedded_set_bytes,
+            tuple(tampered_embedded_receipts),
+        ),
+        "tampered embedded TaskApproval signature with coherent receipt refs",
+    )
+
+    tampered_raw_receipt = copy.deepcopy(
+        aggregate_built["TASK-D0-01"]["receiptWire"]
+    )
+    tampered_raw_receipt["signature"]["signature"] = "00" * 64
+    tampered_raw_receipt_bytes = module.canonical_pf_jcs(
+        tampered_raw_receipt
+    )
+    tampered_receipt_set = copy.deepcopy(set_wire)
+    tampered_receipt_set["taskReceipts"][0] = (
+        bootstrap_task_receipt_ref_wire(
+            module,
+            "TASK-D0-01",
+            tampered_raw_receipt["id"],
+            tampered_raw_receipt_bytes,
+        )
+    )
+    tampered_receipt_set_bytes = module.canonical_pf_jcs(
+        resign_bootstrap_approval_set_wire(module, tampered_receipt_set)
+    )
+    tampered_raw_receipts = list(task_receipt_bytes)
+    tampered_raw_receipts[0] = tampered_raw_receipt_bytes
+    expect_set_rejected(
+        lambda: parse_set(
+            tampered_receipt_set_bytes,
+            tuple(tampered_raw_receipts),
+        ),
+        "tampered raw task-receipt signature with coherent set ref",
+    )
+
     def signed_set_mutation(mutator: Callable[[dict], None]) -> bytes:
         mutated = copy.deepcopy(set_wire)
         mutator(mutated)
@@ -2858,6 +2959,46 @@ def test_bootstrap_approval_set(module: ModuleType) -> None:
             signed_set_mutation(
                 lambda wire: wire["authorityPolicy"].__setitem__(
                     "digest", digest_text(bytes.fromhex("d2" * 32))
+                )
+            ),
+        ),
+        (
+            "task-breakdown root mismatch",
+            signed_set_mutation(
+                lambda wire: wire["taskBreakdown"].__setitem__(
+                    "contentDigest", digest_text(bytes.fromhex("d4" * 32))
+                )
+            ),
+        ),
+        (
+            "required-test-set root mismatch",
+            signed_set_mutation(
+                lambda wire: wire["requiredTestSet"].__setitem__(
+                    "digest", digest_text(bytes.fromhex("d5" * 32))
+                )
+            ),
+        ),
+        (
+            "Stage-0 handoff root mismatch",
+            signed_set_mutation(
+                lambda wire: wire["stage0Handoff"].__setitem__(
+                    "digest", digest_text(bytes.fromhex("d6" * 32))
+                )
+            ),
+        ),
+        (
+            "extra seventh task approval",
+            signed_set_mutation(
+                lambda wire: wire["taskApprovals"].append(
+                    copy.deepcopy(wire["taskApprovals"][-1])
+                )
+            ),
+        ),
+        (
+            "substitute TASK-D0-07 approval",
+            signed_set_mutation(
+                lambda wire: wire["taskApprovals"][-1].__setitem__(
+                    "taskId", "TASK-D0-07"
                 )
             ),
         ),
