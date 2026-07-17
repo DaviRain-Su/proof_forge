@@ -124,6 +124,11 @@ ambient registry 解释。
 literal typing/bounds、负数语义与 Int arithmetic 仍属于 D2。该扩展不得改变 `Field bn254_fr` 的
 two-token same-line guard，也不得重编号既有 canonical type tags。
 
+当前 alpha 也接受 exact unqualified single-token `Unit` declaration carrier。entry、view 与 fn 省略
+返回类型时，frontend 必须在构造 `Source.Program` 前 materialize 为 `Unit`；显式 `: Unit` 与省略形式
+必须产生相同的 result carrier 与 canonical binding。该切片不实现无值 `return`、`Unit` fallthrough
+或 D2 return-path/type checking，`init` 仍没有返回类型。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
@@ -290,7 +295,8 @@ development source binding。完整 `Program.items` 落地前只保证 const 同
 `Program.items` 落地前只保证 fn 同类 declaration order，不声称跨 kind callable source order；
 entry、view 与 fn 共用 callable 名称空间，跨 kind 同名由 shared validation fail closed。
 fn body 作为 `Block` 必须 nonempty。该切片不执行 D2 local-call lookup、type/effect/return/acyclicity
-检查；当前 alpha 只接受 explicit result type，省略返回类型到 `Unit` 的规范路径仍待完整类型语法。
+检查；当前 alpha 已把省略返回类型在 parse time materialize 为 `Unit`，但不据此声称无值 `return`、
+`Unit` fallthrough 或完整 return-path 语义已实现。
 任一非空 fn table 必须在
 `Typed.check` fail closed，不能以未检查 body 进入 Semantic、resolver 或 target Plan。
 

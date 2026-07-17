@@ -1456,3 +1456,40 @@ normative: false
 - Next：D1-PA-16 进入 active，范围为 explicit `Unit` carrier 与 omitted return type 的 parse-time
   materialization；其 RED 必须先固定显式/省略形式的 AST/hash 等价与 fail-closed grammar。后续 slice
   尚未冻结，不由 checkpoint 自动递增。
+
+## 2026-07-18 — D1 Unit return materialization pre-acceptance slice
+
+- Commits：Unit/omitted-return RED `dbaf9a20`；bare-colon parser-boundary test correction `25274210`；
+  Source/Semantic/Syntax GREEN `a6dc9223`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-16 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.ValueType` 与 `SemanticIR.ValueType` append-only 追加 `unit` canonical tag `14`，
+  保持既有 tags `0..13` 不变；decoder 只接受 exact unqualified `Unit`。entry、view、fn 的 optional
+  result 在 parse time 直接 materialize 为 `.unit`，`do` 仍 mandatory，`init`、event/error 分流与
+  `Field bn254_fr` same-line guard 均未改变。`Unit` 推导零额外 requirement。
+- Binding/negatives：declaration surface 覆盖 state、struct field、enum payload、const、init、entry/view/fn
+  parameter/result；Lean command 与 ParserSession parity 通过，显式 `: Unit` 与省略形式在相同 program
+  identity 下产生相同 AST/sourceHash。UInt64/tag0 twin golden
+  `91f17e1b7d027ed05cdea72f5d23d48effb6ed981c651eb7318405d1b761b9a1` 与 Unit/tag14 golden
+  `6e745638a42bf2a64c004fd001cf3072abb83d2c70a3b285d24966f98ef3a1c8` 固定 append-only binding。
+  四个 dual-entry fixtures 覆盖 invalid/escaped/qualified/extra-token spelling；Loader 单入口另固定 bare
+  colon 停在 parser boundary。
+- Boundary：stateless Unit parameter/result program 编译为 `requirements == #[]`，四个 Phase 1 target 的
+  support resolver 均接受；三个 stateful rows 分别固定 Unit state、result 与 parameter，整体只含
+  `persistentState`，随后由 EVM、Solana、NEAR、Noir 各自 target-owned Plan 以 `planInvariant` 拒绝，
+  没有生成 artifact。
+- Review/Commands：Kimi 的唯一 P1（bare-colon negative）由 `25274210` 关闭；Claude scope audit 与独立
+  GREEN review 最终均为 P0/P1/P2=0。`lake build Tests.Language.UnitReturnTypes proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed `just ci` at
+  `a6dc9223`；`git diff --check`。
+- Results：124-job clean build、116-job aggregate、186 项 docs mutation、治理/SBOM/runtime closure、
+  双入口 DSL negatives 与 toolchain negatives 全部 exit 0；development evidence 为
+  `EV-20260718-0002`。
+- Limitations：仅实现 declaration carrier 与 parse-time result materialization；没有无值 `return`、
+  `Unit` fallthrough、D2 return-path/type/effect checking、跨 kind ordered `Program.items`、target
+  materialization、eligible host 或 formal D1 evidence。D0 formal milestone 仍为 5/8，`TASK-D1-03`
+  仍 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：requirement/canonical/RED audits 共同选择 D1-PA-17 exact `Principal` declaration carrier；
+  declaration 本身必须推导零 requirement，不得误加只属于未来 runtime context expression 的
+  `callerContext`。其 RED 先固定 tag `15`、双前端 parity、fail-closed spellings 与 target Plan boundary；
+  D1-PA-18 尚未冻结。

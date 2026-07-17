@@ -737,12 +737,20 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   duplicate parameter、empty body、unknown result、literal overflow、escaped contextual keyword 与普通/escaped
   保留名必须双入口 exact fail closed；`fn` 不得污染宿主 Lean keyword 集。D2 local-call/type/effect/
   return/acyclicity 尚未实现时必须在 `Typed.check` fail closed，不能静默丢弃或进入 target Plan；
-  本 alpha 只覆盖 explicit result type，不声称 optional `Unit` return 已实现。`init`/`entry`/`view`
+  本 alpha 已覆盖 explicit `Unit` result 与 optional return 的 parse-time `Unit` materialization，但不实现
+  无值 `return`、`Unit` fallthrough 或 D2 return-path checking。`init`/`entry`/`view`
   block 回到引入列后紧随 `fn` 的三种合法 source order 必须同时通过 Lean command 与 ParserSession，
   后继 declaration 不得被前一 block parser 吞噬或拒绝。entry、view 与 fn 共用 callable 名称空间：
   entry/view 同名由更早的 duplicate entry slot 拒绝，entry/fn 与 view/fn 同名由 duplicate callable slot
   拒绝；duplicate entry 优先于 callable、duplicate fn 优先于 callable、callable 优先于 invariant 的首错
   必须由双入口 exact-diagnostic vectors 固定。
+- `Unit` declaration carrier 覆盖 state、struct field、enum payload、const、initializer parameter 以及
+  entry/view/fn parameter/result；只接受 exact unqualified single-token `Unit`。entry/view/fn 省略 result
+  必须在 Source AST 构造前 materialize 为 `Unit`，并与显式 `: Unit` 产生相同 AST/sourceHash；`init`
+  仍不接受 result。`Unit` 本身推导零 requirement；EVM、Solana、NEAR、Noir 的 support resolver 接受后，
+  non-UInt64 state/result/parameter 必须由各自 target-owned Plan fail closed 且不产生 artifact。
+  `Unit64`、escaped、qualified、extra-token spelling 必须双入口 exact fail closed；bare colon 必须停在
+  parser boundary。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
