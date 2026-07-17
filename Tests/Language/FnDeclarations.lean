@@ -228,13 +228,13 @@ unsafe def run : IO Unit := do
     "initializer contains duplicate parameters"
     (← session.parsePrograms
       (programSource "PriorityInitializerParamBeforeFnParam"
-        "  init(value : UInt64, value : Bool) do\n    return 0\n  fn helper(arg : UInt64, arg : Bool) : UInt64 do\n    return 0\n")
+        "  fn helper(arg : UInt64, arg : Bool) : UInt64 do\n    return 0\n  init(value : UInt64, value : Bool) do\n    return 0\n")
       "<priority-initializer-param-before-fn-param>")
   expectInvalid "entry parameter duplicate precedes fn parameter duplicate"
     "entry 'run' contains duplicate parameters"
     (← session.parsePrograms
       (programSource "PriorityEntryParamBeforeFnParam"
-        "  entry run(value : UInt64, value : Bool) : UInt64 do\n    return 0\n  fn helper(arg : UInt64, arg : Bool) : UInt64 do\n    return 0\n")
+        "  fn helper(arg : UInt64, arg : Bool) : UInt64 do\n    return 0\n  entry run(value : UInt64, value : Bool) : UInt64 do\n    return 0\n")
       "<priority-entry-param-before-fn-param>")
   expectInvalid "fn parameter duplicate precedes empty body"
     "fn 'helper' contains duplicate parameters"
