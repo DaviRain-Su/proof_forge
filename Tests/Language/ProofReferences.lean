@@ -192,6 +192,12 @@ unsafe def run : IO Unit := do
         (invariantDecl "Holds" "1" ++
           "  proof Holds using «Pkg.Theorem»\n"))
       "<escaped-dotted-proof-theorem>")
+  expectInvalid "escaped reserved theorem component" "reserved portable identifier 'proof'"
+    (← session.parsePrograms
+      (programSource "ReservedProofTheoremComponent"
+        (invariantDecl "Holds" "1" ++
+          "  proof Holds using Pkg.«proof»\n"))
+      "<reserved-proof-theorem-component>")
   expectInvalid "reserved proof invariant" "reserved portable identifier 'proof'"
     (← session.parsePrograms
       (programSource "ReservedProofInvariant"

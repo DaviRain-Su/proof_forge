@@ -347,6 +347,7 @@ dsl-negative: build
             unqualified-proof-theorem) echo "PF-SRC-INVALID: proof theorem name must contain at least two components" ;;
             escaped-proof-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             escaped-dotted-proof-theorem) echo "PF-SRC-INVALID: qualified-name component must use Lean identifier characters" ;;
+            reserved-proof-theorem-component) echo "PF-SRC-INVALID: reserved portable identifier 'proof'" ;;
             reserved-proof-invariant|priority-proof-invariant-before-theorem) echo "PF-SRC-INVALID: reserved portable identifier 'proof'" ;;
             priority-extension-before-proof) echo "PF-SRC-INVALID: program 'PriorityExtensionBeforeProof' contains duplicate extension requirements" ;;
             priority-proof-before-unknown) echo "PF-SRC-INVALID: program 'PriorityProofBeforeUnknown' contains duplicate proof references" ;;
@@ -400,7 +401,8 @@ dsl-negative: build
         priority-extension-before-initializer-param
         duplicate-proof-reference duplicate-proof-reference-conflict unknown-proof-invariant
         unqualified-proof-theorem escaped-proof-keyword escaped-dotted-proof-theorem
-        reserved-proof-invariant priority-extension-before-proof priority-proof-before-unknown
+        reserved-proof-theorem-component reserved-proof-invariant
+        priority-extension-before-proof priority-proof-before-unknown
         priority-unknown-before-initializer-param priority-proof-invariant-before-theorem
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
