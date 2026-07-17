@@ -24,10 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "scripts" / "supply_chain_core.py"
 
 RAW_TOOL_LOCK_SHA256 = (
-    "sha256:1f32aed697bd9d769bb3934a31387b8c62b43af2f192a1000301278a328bf0b4"
+    "sha256:28e376e281ce37258ea24c52d5da1ea79e5e82c237705811226fb461e8d873c6"
 )
 TOOL_LOCK_V2_DIGEST = (
-    "sha256:36de2d6f30de9ec541419f8a3085be7e24c406669a10d43ea58a4f894d39aa62"
+    "sha256:bde9dcdda557b323189871159f755406f78819821b4c130d860dc2e371f8e860"
 )
 LEGACY_TOOL_LOCK_DIGEST = (
     "sha256:d35cac0437ddaf1054cd5b5eabe7f2721b9f257ca557c2dc57ddf6e879291d36"
@@ -46,7 +46,7 @@ EXPECTED_TOOL_LOCK_LEAF_KEYS = (
     ("asset", "foundry-v0.3.0-darwin-arm64", None),
     ("asset", "lean-4.31.0-darwin-arm64", None),
     ("asset", "openssl-3.6.3-homebrew-arm64-tahoe", None),
-    ("asset", "sbom-utility-v0.19.2-darwin-arm64", None),
+    ("asset", "jv-v6.0.2-darwin-arm64", None),
     ("asset", "solc-0.8.34-macos-universal", None),
     ("asset", "wabt-1.0.41-macos-arm64", None),
     ("bundle-file", "foundry-v0.3.0-darwin-arm64", "anvil"),
@@ -58,8 +58,8 @@ EXPECTED_TOOL_LOCK_LEAF_KEYS = (
     ),
     (
         "bundle-file",
-        "sbom-utility-v0.19.2-darwin-arm64",
-        "sbom-utility",
+        "jv-v6.0.2-darwin-arm64",
+        "jv",
     ),
     ("bundle-file", "solc-0.8.34-macos-universal", "solc"),
     ("bundle-file", "wabt-1.0.41-macos-arm64", "wat2wasm"),
@@ -67,17 +67,17 @@ EXPECTED_TOOL_LOCK_LEAF_KEYS = (
     ("compiler-executable", "lean", "bin/lean"),
     ("tool-executable", "anvil", "anvil"),
     ("tool-executable", "cast", "cast"),
-    ("tool-executable", "sbom-utility", "sbom-utility"),
+    ("tool-executable", "jv", "jv"),
     ("tool-executable", "solc", "solc"),
     ("tool-executable", "wat2wasm", "wat2wasm"),
     ("tool-runtime-file", "wat2wasm", "lib/libcrypto.3.dylib"),
 )
 
-SBOM_UTILITY_ASSET_SHA256 = (
-    "9cfdf6b2308fc39b182e64438c78f847a58514899858792f44846bf95026fedf"
+JV_ASSET_SHA256 = (
+    "0ecdb9e9a598877b16e4017e09c209046cca29a58d1347c2d5458cab0dd5928f"
 )
-SBOM_UTILITY_EXECUTABLE_SHA256 = (
-    "5d707f542cfc6f06b0c50abe1645ed18ec54263c29ed58bc67c2fe26c0058881"
+JV_EXECUTABLE_SHA256 = (
+    "aa44150325875a6ba94d8fc29a8bfcff271ca0802b6faa9ac731d70056460ece"
 )
 
 
@@ -417,51 +417,53 @@ def test_locked_cyclonedx_validator() -> None:
     lock = json.loads((ROOT / "toolchains.lock.json").read_text(encoding="utf-8"))
     assets = [
         item for item in lock["assets"]
-        if item["id"] == "sbom-utility-v0.19.2-darwin-arm64"
+        if item["id"] == "jv-v6.0.2-darwin-arm64"
     ]
     if assets != [{
-        "id": "sbom-utility-v0.19.2-darwin-arm64",
+        "id": "jv-v6.0.2-darwin-arm64",
         "url": (
-            "https://github.com/CycloneDX/sbom-utility/releases/download/"
-            "v0.19.2/sbom-utility-v0.19.2-darwin-arm64.tar.gz"
+            "https://github.com/santhosh-tekuri/jsonschema/releases/download/"
+            "v6.0.2/jv-v6.0.2-darwin-arm64.tar.gz"
         ),
-        "size": 7_827_764,
-        "sha256": SBOM_UTILITY_ASSET_SHA256,
+        "size": 5_516_251,
+        "sha256": JV_ASSET_SHA256,
         "format": "tar.gz",
     }]:
         raise AssertionError("offline CycloneDX validator asset is not exactly pinned")
 
     bundle_files = [
-        item for item in lock["bundleFiles"] if item["path"] == "sbom-utility"
+        item for item in lock["bundleFiles"] if item["path"] == "jv"
     ]
     if bundle_files != [{
-        "path": "sbom-utility",
-        "assetId": "sbom-utility-v0.19.2-darwin-arm64",
-        "member": "sbom-utility",
-        "size": 16_037_250,
-        "sha256": SBOM_UTILITY_EXECUTABLE_SHA256,
+        "path": "jv",
+        "assetId": "jv-v6.0.2-darwin-arm64",
+        "member": "jv",
+        "size": 10_033_666,
+        "sha256": JV_EXECUTABLE_SHA256,
         "mode": "0555",
     }]:
         raise AssertionError("offline CycloneDX validator executable is not pinned")
 
-    tools = [item for item in lock["tools"] if item["id"] == "sbom-utility"]
+    tools = [item for item in lock["tools"] if item["id"] == "jv"]
     if tools != [{
-        "id": "sbom-utility",
-        "version": "0.19.2",
+        "id": "jv",
+        "version": "6.0.2",
         "sourceUrl": (
-            "https://github.com/CycloneDX/sbom-utility/releases/tag/v0.19.2"
+            "https://github.com/santhosh-tekuri/jsonschema/releases/tag/v6.0.2"
         ),
         "platform": "darwin-arm64",
-        "assetId": "sbom-utility-v0.19.2-darwin-arm64",
-        "executable": "sbom-utility",
+        "assetId": "jv-v6.0.2-darwin-arm64",
+        "executable": "jv",
         "defaultPath": (
-            "~/.cache/proof-forge-v2/tool-root/darwin-arm64/sbom-utility"
+            "~/.cache/proof-forge-v2/tool-root/darwin-arm64/jv"
         ),
-        "executableSha256": SBOM_UTILITY_EXECUTABLE_SHA256,
+        "executableSha256": JV_EXECUTABLE_SHA256,
         "runtimeLibrarySubdir": None,
         "runtimeFiles": [],
-        "versionArgs": ["version"],
-        "expectedVersion": "v0.19.2",
+        "versionArgs": ["-v"],
+        "expectedVersion": (
+            "github.com/santhosh-tekuri/jsonschema/cmd/jv (devel)"
+        ),
         "licenseSpdx": "Apache-2.0",
         "requiredByProfiles": ["supply-chain-cyclonedx-1.6-v1"],
     }]:
@@ -469,14 +471,39 @@ def test_locked_cyclonedx_validator() -> None:
 
     policies = [
         item for item in lock["machoPolicy"]["files"]
-        if item["path"] == "sbom-utility"
+        if item["path"] == "jv"
     ]
     if policies != [{
-        "path": "sbom-utility",
+        "path": "jv",
         "installId": None,
         "externalLoads": [],
     }]:
         raise AssertionError("offline CycloneDX validator runtime closure drifted")
+
+    inventory = json.loads(
+        (ROOT / "docs/supply-chain/license-inventory.v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    components = [
+        item for item in inventory["components"] if item["id"] == "jv-6.0.2"
+    ]
+    if components != [{
+        "id": "jv-6.0.2",
+        "name": "jv",
+        "version": "6.0.2",
+        "type": "application",
+        "sha256": JV_ASSET_SHA256,
+        "supplier": "santhosh-tekuri/jsonschema",
+        "licenseSpdx": "Apache-2.0",
+        "licenseFile": "licenses/Apache-2.0.txt",
+        "licenseFileSha256": (
+            "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        ),
+        "redistributable": True,
+        "dependsOn": [],
+    }]:
+        raise AssertionError("offline CycloneDX validator license closure drifted")
 
 
 def direct_tool_component_sources(module: ModuleType) -> tuple[object, ...]:
@@ -503,9 +530,9 @@ def direct_tool_component_sources(module: ModuleType) -> tuple[object, ...]:
             refs(("asset", "openssl-3.6.3-homebrew-arm64-tahoe", None)),
         ),
         source(
-            "asset-sbom-utility",
+            "asset-jv",
             "download-asset",
-            refs(("asset", "sbom-utility-v0.19.2-darwin-arm64", None)),
+            refs(("asset", "jv-v6.0.2-darwin-arm64", None)),
         ),
         source(
             "asset-solc",
@@ -560,15 +587,15 @@ def direct_tool_component_sources(module: ModuleType) -> tuple[object, ...]:
             ),
         ),
         source(
-            "tool-sbom-utility",
+            "tool-jv",
             "tool-executable",
             refs(
                 (
                     "bundle-file",
-                    "sbom-utility-v0.19.2-darwin-arm64",
-                    "sbom-utility",
+                    "jv-v6.0.2-darwin-arm64",
+                    "jv",
                 ),
-                ("tool-executable", "sbom-utility", "sbom-utility"),
+                ("tool-executable", "jv", "jv"),
             ),
         ),
         source(
