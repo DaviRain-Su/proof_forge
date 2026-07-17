@@ -1612,3 +1612,40 @@ normative: false
   statement/expression 面，选择 D1-PA-20 `let name [ : Type ] := Expr` Source carrier。该切片先固定
   statement tag `3`、optional type marker、双前端 parity 与 Typed exact fail-closed boundary；不吸收
   local binding/type/effect、SemanticIR 或 target semantics。
+
+## 2026-07-18 — D1 bounded let statement pre-acceptance slice
+
+- Commits：identifier-control spec correction `603c3bd7`；Let statement RED `d815d400`；
+  current-identity golden correction `bb3f9e27`；Source/Syntax/Typed GREEN `bc0447f2`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-20 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Statement` append-only 追加
+  `letDecl(name, typeAnn : Option ValueType, value)`；alpha canonical encoder 使用 statement tag `3`，
+  随后依次绑定 name、`typeAnn` 的 `0/1` marker（`some` 后紧接既有 type bytes）与 value expression，
+  既有 tags `0..2` 不变。DSL category 内两个 named contextual parser 分别解析 annotated/omitted form，
+  introducer、binder、colon/type 与 assign/value 边界均以 same-line guard 固定；decoder 使用命名 parser
+  quotation做结构化匹配，不扫描任意 Syntax 子树，也没有 generic fallback。
+- Binding/negatives：initializer、entry、view、fn body 覆盖 annotated/omitted form；Lean command 与
+  ParserSession 产生相同 Source AST/sourceHash。固定 identity 的 annotated/omitted LetTwin 分别为
+  229/228 bytes，hash 为 `63074e1c83c2a81f197a8d95baa40f9b577f57cfbb8909df432d9c20c70250a2`、
+  `2a7514a897195a94962f5ff45331ce3463d3e1778200e69ab249da4ee48e616a`；type marker/payload、binder 与
+  value mutation 均改变 hash。unknown annotated type 与 reserved binder 在 decoder exact fail closed；
+  escaped/qualified introducer、缺失 binder/type/value/assign 与 split-line form 停在 parser boundary。
+  `«let» := 1` 保持 `.assign "let"` positive control，bare `let := 1` 继续 parser reject。
+- Boundary：`Typed.check` 对任意 `letDecl` 返回 exact
+  `let statements are not yet supported by typed checking`，因此不会生成 SemanticProgram、requirements、
+  target Plan 或 artifact。本切片没有 local environment、shadowing、name resolution、type inference、
+  effect rule 或 runtime semantics。
+- Review/Commands：RED reviewers 独立发现 LetTwin identity 使用 `run` 而 prospective goldens 取自
+  `echo` 的 mismatch；`bb3f9e27` 在 GREEN 前按真实 identity 修正并增加实际值失败信息，随后聚焦与
+  aggregate tests 全绿。`lake build Tests.Language.LetStatements proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed `just ci` at
+  `bc0447f2`；`git diff --check`。
+- Results：132-job clean build、124-job aggregate、186 项 docs mutation、治理/SBOM/runtime closure、
+  双入口 DSL negatives 与 target/toolchain negatives 全部 exit 0；development evidence 为
+  `EV-20260718-0006`。
+- Limitations：仅实现 Source statement structure；没有 local binding/shadowing、D2 name/type/effect、
+  SemanticIR lowering、requirements、target ABI/materialization、eligible host 或 formal D1 evidence。
+  D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：residual audit 只把 exact `true`/`false` Source-only literal 作为 D1-PA-21 candidate；在 spec/test
+  freeze 与 review 完成前不提交 RED，也不把 Bool Typed/Semantic/target semantics 吸入该候选切片。
