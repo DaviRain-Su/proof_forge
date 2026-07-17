@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Pure identity primitives for the candidate-bound supply-chain pipeline.
+"""Pure pre-freeze primitives for the candidate-bound supply-chain pipeline.
 
-This module is the first pre-acceptance implementation slice for TASK-D0-08.
+This module is a pre-freeze preparation slice adjacent to pending TASK-D0-08.
 It deliberately performs no filesystem publication and does not implement the
 inventory, runtime-closure, CycloneDX, SPDX, or release-binding validators.
 Those layers may consume these primitives, but this module alone is not a
@@ -24,6 +24,7 @@ from typing import NoReturn
 
 MAX_JSON_INPUT_BYTES = 16_777_216
 MAX_SAFE_INTEGER = (1 << 53) - 1
+MAX_LOGICAL_COMPONENTS = 4_096
 
 TOOL_LOCK_DOMAIN = "proof-forge.toolchains.v2"
 COMPONENT_DOMAIN = "proof-forge.supply-chain-component.v1"
@@ -31,6 +32,28 @@ COMPONENT_DOMAIN = "proof-forge.supply-chain-component.v1"
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 DOMAIN_RE = re.compile(
     r"[a-z][a-z0-9]*(?:[-.][a-z0-9]+)*"
+)
+COMPONENT_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,126}")
+TOOL_LOCK_REF_ID_RE = re.compile(
+    r"[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?"
+)
+
+TOOL_LOCK_LEAF_KINDS = frozenset(
+    {
+        "asset",
+        "bundle-file",
+        "compiler-executable",
+        "tool-executable",
+        "tool-runtime-file",
+    }
+)
+DIRECT_TOOL_COMPONENT_KINDS = frozenset(
+    {
+        "download-asset",
+        "compiler-executable",
+        "tool-executable",
+        "runtime-dylib",
+    }
 )
 
 COMPONENT_PREIMAGE_FIELDS = frozenset(
@@ -77,6 +100,34 @@ class ComponentIdentity:
 
     component_digest: str
     bom_ref: str
+
+
+@dataclass(frozen=True, order=True)
+class ToolLockLeafRef:
+    """Exact identity of one authoritative direct Tool Lock leaf."""
+
+    kind: str
+    id: str
+    path: str | None
+
+
+@dataclass(frozen=True)
+class ToolLockLeaf:
+    """Validated leaf identity plus content metadata needed by later joins."""
+
+    ref: ToolLockLeafRef
+    asset_id: str
+    size: int | None
+    digest: str
+
+
+@dataclass(frozen=True)
+class ToolLockComponentSource:
+    """Narrow pre-inventory mapping from one logical kind to Tool Lock refs."""
+
+    component_id: str
+    component_kind: str
+    lock_refs: tuple[ToolLockLeafRef, ...]
 
 
 @dataclass(frozen=True)
@@ -430,10 +481,300 @@ def _validate_tool_lock(value: object) -> dict[str, object]:
     return value
 
 
+def _decode_validated_tool_lock(raw: bytes) -> dict[str, object]:
+    return _validate_tool_lock(decode_json_document(raw))
+
+
+def _leaf_ref_sort_key(ref: ToolLockLeafRef) -> tuple[str, str, str]:
+    return (ref.kind, ref.id, "" if ref.path is None else ref.path)
+
+
+def _require_tool_lock_leaf_ref(value: object) -> ToolLockLeafRef:
+    if type(value) is not ToolLockLeafRef:
+        fail("PF-SBOM-CLOSURE", "Tool Lock component ref has the wrong type")
+    assert isinstance(value, ToolLockLeafRef)
+    if type(value.kind) is not str or value.kind not in TOOL_LOCK_LEAF_KINDS:
+        fail("PF-SBOM-CLOSURE", "Tool Lock component ref has an unknown kind")
+    if (
+        type(value.id) is not str
+        or TOOL_LOCK_REF_ID_RE.fullmatch(value.id) is None
+    ):
+        fail("PF-SBOM-CLOSURE", "Tool Lock component ref has an invalid id")
+    if value.kind == "asset":
+        if value.path is not None:
+            fail("PF-SBOM-CLOSURE", "asset Tool Lock ref must have a null path")
+    elif type(value.path) is not str or not value.path:
+        fail("PF-SBOM-CLOSURE", "non-asset Tool Lock ref needs a path")
+    return value
+
+
+def _typed_leaf_digest(raw_digest: object) -> str:
+    if type(raw_digest) is not str or re.fullmatch(r"[0-9a-f]{64}", raw_digest) is None:
+        fail("PF-SBOM-CLOSURE", "validated Tool Lock leaf digest is malformed")
+    assert isinstance(raw_digest, str)
+    return "sha256:" + raw_digest
+
+
+def enumerate_tool_lock_leaves(raw: bytes) -> tuple[ToolLockLeaf, ...]:
+    """Enumerate the exact five-class direct-leaf denominator.
+
+    The authoritative Tool Lock validator runs first.  The returned immutable
+    records retain logical ref identity separately from shared content
+    metadata, so equal bytes cannot merge asset/executable roles.
+    """
+
+    lock = _decode_validated_tool_lock(raw)
+    leaves: list[ToolLockLeaf] = []
+
+    assets = lock["assets"]
+    compiler = lock["compilerToolchain"]
+    bundle_files = lock["bundleFiles"]
+    tools = lock["tools"]
+    assert isinstance(assets, list)
+    assert isinstance(compiler, dict)
+    assert isinstance(bundle_files, list)
+    assert isinstance(tools, list)
+
+    bundle_by_path: dict[str, dict[str, object]] = {}
+    for raw_bundle in bundle_files:
+        assert isinstance(raw_bundle, dict)
+        path = raw_bundle["path"]
+        assert isinstance(path, str)
+        bundle_by_path[path] = raw_bundle
+
+    for raw_asset in assets:
+        assert isinstance(raw_asset, dict)
+        asset_id = raw_asset["id"]
+        size = raw_asset["size"]
+        assert isinstance(asset_id, str)
+        assert type(size) is int
+        leaves.append(
+            ToolLockLeaf(
+                ref=ToolLockLeafRef("asset", asset_id, None),
+                asset_id=asset_id,
+                size=size,
+                digest=_typed_leaf_digest(raw_asset["sha256"]),
+            )
+        )
+
+    compiler_id = compiler["id"]
+    compiler_asset_id = compiler["assetId"]
+    compiler_executables = compiler["executables"]
+    assert isinstance(compiler_id, str)
+    assert isinstance(compiler_asset_id, str)
+    assert isinstance(compiler_executables, list)
+    for raw_executable in compiler_executables:
+        assert isinstance(raw_executable, dict)
+        path = raw_executable["path"]
+        assert isinstance(path, str)
+        leaves.append(
+            ToolLockLeaf(
+                ref=ToolLockLeafRef(
+                    "compiler-executable",
+                    compiler_id,
+                    path,
+                ),
+                asset_id=compiler_asset_id,
+                size=None,
+                digest=_typed_leaf_digest(raw_executable["sha256"]),
+            )
+        )
+
+    for raw_bundle in bundle_files:
+        assert isinstance(raw_bundle, dict)
+        asset_id = raw_bundle["assetId"]
+        path = raw_bundle["path"]
+        size = raw_bundle["size"]
+        assert isinstance(asset_id, str)
+        assert isinstance(path, str)
+        assert type(size) is int
+        leaves.append(
+            ToolLockLeaf(
+                ref=ToolLockLeafRef("bundle-file", asset_id, path),
+                asset_id=asset_id,
+                size=size,
+                digest=_typed_leaf_digest(raw_bundle["sha256"]),
+            )
+        )
+
+    for raw_tool in tools:
+        assert isinstance(raw_tool, dict)
+        tool_id = raw_tool["id"]
+        tool_asset_id = raw_tool["assetId"]
+        executable = raw_tool["executable"]
+        runtime_files = raw_tool["runtimeFiles"]
+        assert isinstance(tool_id, str)
+        assert isinstance(tool_asset_id, str)
+        assert isinstance(executable, str)
+        assert isinstance(runtime_files, list)
+        executable_bundle = bundle_by_path[executable]
+        executable_size = executable_bundle["size"]
+        assert type(executable_size) is int
+        leaves.append(
+            ToolLockLeaf(
+                ref=ToolLockLeafRef("tool-executable", tool_id, executable),
+                asset_id=tool_asset_id,
+                size=executable_size,
+                digest=_typed_leaf_digest(raw_tool["executableSha256"]),
+            )
+        )
+        for raw_runtime in runtime_files:
+            assert isinstance(raw_runtime, dict)
+            runtime_path = raw_runtime["path"]
+            assert isinstance(runtime_path, str)
+            runtime_bundle = bundle_by_path[runtime_path]
+            runtime_asset_id = runtime_bundle["assetId"]
+            runtime_size = runtime_bundle["size"]
+            assert isinstance(runtime_asset_id, str)
+            assert type(runtime_size) is int
+            leaves.append(
+                ToolLockLeaf(
+                    ref=ToolLockLeafRef(
+                        "tool-runtime-file",
+                        tool_id,
+                        runtime_path,
+                    ),
+                    asset_id=runtime_asset_id,
+                    size=runtime_size,
+                    digest=_typed_leaf_digest(raw_runtime["sha256"]),
+                )
+            )
+
+    leaves.sort(key=lambda leaf: _leaf_ref_sort_key(leaf.ref))
+    refs = tuple(leaf.ref for leaf in leaves)
+    if len(refs) != len(set(refs)):
+        fail("PF-SBOM-CLOSURE", "Tool Lock direct-leaf identities are not unique")
+    return tuple(leaves)
+
+
+def _require_component_source(value: object) -> ToolLockComponentSource:
+    if type(value) is not ToolLockComponentSource:
+        fail("PF-SBOM-CLOSURE", "Tool Lock component source has the wrong type")
+    assert isinstance(value, ToolLockComponentSource)
+    if (
+        type(value.component_id) is not str
+        or COMPONENT_ID_RE.fullmatch(value.component_id) is None
+    ):
+        fail("PF-SBOM-CLOSURE", "Tool Lock component source has an invalid id")
+    if (
+        type(value.component_kind) is not str
+        or value.component_kind not in DIRECT_TOOL_COMPONENT_KINDS
+    ):
+        fail("PF-SBOM-CLOSURE", "Tool Lock component source has an invalid kind")
+    if type(value.lock_refs) is not tuple or not value.lock_refs:
+        fail("PF-SBOM-CLOSURE", "Tool Lock component source refs must be nonempty")
+    checked_refs = tuple(_require_tool_lock_leaf_ref(ref) for ref in value.lock_refs)
+    if checked_refs != tuple(sorted(checked_refs, key=_leaf_ref_sort_key)):
+        fail("PF-SBOM-CLOSURE", "Tool Lock component refs are not sorted")
+    if len(checked_refs) != len(set(checked_refs)):
+        fail("PF-SBOM-CLOSURE", "Tool Lock component refs are duplicated")
+    return value
+
+
+def _validate_component_ref_shape(source: ToolLockComponentSource) -> None:
+    kinds = tuple(ref.kind for ref in source.lock_refs)
+    if source.component_kind == "download-asset":
+        valid = kinds == ("asset",)
+    elif source.component_kind == "compiler-executable":
+        valid = kinds == ("compiler-executable",)
+    elif source.component_kind == "tool-executable":
+        valid = kinds == ("bundle-file", "tool-executable")
+    else:
+        valid = (
+            len(kinds) >= 2
+            and kinds[0] == "bundle-file"
+            and all(kind == "tool-runtime-file" for kind in kinds[1:])
+        )
+    if not valid:
+        fail(
+            "PF-SBOM-CLOSURE",
+            f"logical component {source.component_id} has incompatible Tool Lock refs",
+        )
+
+
+def _same_leaf_content(left: ToolLockLeaf, right: ToolLockLeaf) -> bool:
+    return (
+        left.asset_id == right.asset_id
+        and left.size == right.size
+        and hmac.compare_digest(left.digest, right.digest)
+        and left.ref.path == right.ref.path
+    )
+
+
+def validate_direct_tool_lock_ref_coverage(
+    raw: bytes,
+    component_sources: tuple[ToolLockComponentSource, ...],
+) -> tuple[ToolLockLeaf, ...]:
+    """Require one compatible logical owner for every direct Tool Lock leaf."""
+
+    if type(component_sources) is not tuple:
+        fail("PF-SBOM-CLOSURE", "Tool Lock component sources must be a tuple")
+    if len(component_sources) > MAX_LOGICAL_COMPONENTS:
+        fail("PF-SBOM-LIMIT", "logical component count exceeds 4,096")
+    leaves = enumerate_tool_lock_leaves(raw)
+    leaf_by_ref = {leaf.ref: leaf for leaf in leaves}
+    checked = tuple(_require_component_source(source) for source in component_sources)
+    component_ids = tuple(source.component_id for source in checked)
+    if component_ids != tuple(sorted(component_ids)) or len(component_ids) != len(
+        set(component_ids)
+    ):
+        fail("PF-SBOM-CLOSURE", "Tool Lock component source IDs are not unique sorted")
+
+    owners: dict[ToolLockLeafRef, str] = {}
+    for source in checked:
+        _validate_component_ref_shape(source)
+        resolved: list[ToolLockLeaf] = []
+        for ref in source.lock_refs:
+            leaf = leaf_by_ref.get(ref)
+            if leaf is None:
+                fail(
+                    "PF-SBOM-CLOSURE",
+                    f"logical component {source.component_id} references an unknown Tool Lock leaf",
+                )
+            previous = owners.get(ref)
+            if previous is not None:
+                fail(
+                    "PF-SBOM-CLOSURE",
+                    "Tool Lock leaf has multiple logical owners: "
+                    f"{previous}, {source.component_id}",
+                )
+            owners[ref] = source.component_id
+            resolved.append(leaf)
+
+        if source.component_kind == "tool-executable":
+            if not _same_leaf_content(resolved[0], resolved[1]):
+                fail(
+                    "PF-SBOM-CLOSURE",
+                    f"tool executable {source.component_id} does not join its bundle leaf",
+                )
+        elif source.component_kind == "runtime-dylib":
+            if any(
+                not _same_leaf_content(resolved[0], owner)
+                for owner in resolved[1:]
+            ):
+                fail(
+                    "PF-SBOM-CLOSURE",
+                    f"runtime component {source.component_id} does not join all owner refs",
+                )
+
+    missing = sorted(
+        set(leaf_by_ref) - set(owners),
+        key=_leaf_ref_sort_key,
+    )
+    if missing:
+        first = missing[0]
+        fail(
+            "PF-SBOM-CLOSURE",
+            "Tool Lock leaf has no logical owner: "
+            f"{first.kind}/{first.id}/{first.path}",
+        )
+    return leaves
+
+
 def compute_tool_lock_identity(raw: bytes) -> ToolLockIdentity:
     """Validate Tool Lock v2, then derive canonical and exact-byte identities."""
 
-    value = _validate_tool_lock(decode_json_document(raw))
+    value = _decode_validated_tool_lock(raw)
     return ToolLockIdentity(
         tool_lock_v2_digest=domain_digest(
             TOOL_LOCK_DOMAIN,
@@ -518,13 +859,18 @@ def candidate_root_bom_ref(candidate_digest: str) -> str:
 __all__ = (
     "ComponentIdentity",
     "SupplyChainError",
+    "ToolLockComponentSource",
     "ToolLockIdentity",
+    "ToolLockLeaf",
+    "ToolLockLeafRef",
     "candidate_root_bom_ref",
     "canonical_pf_jcs",
     "compute_tool_lock_identity",
     "decode_json_document",
     "derive_component_identity",
     "domain_digest",
+    "enumerate_tool_lock_leaves",
     "raw_sha256",
+    "validate_direct_tool_lock_ref_coverage",
     "verify_tool_lock_binding",
 )

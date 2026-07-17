@@ -2,10 +2,11 @@
 """Pre-acceptance RED/GREEN tests for the D0-08 supply-chain identity core.
 
 This is intentionally independent from the legacy TASK-D0-05 generator.  It
-pins the first D0-08 implementation seam only: strict JSON/PF-JCS, the sole
-ToolLockV2Digest authority, typed raw-vs-structured lock binding, logical
-component identity, and the synthetic candidate BOM root.  It does not claim
-the full TST-SBOM-002 closure or publication acceptance.
+pins pre-freeze D0-08 implementation seams only: strict JSON/PF-JCS, the sole
+ToolLockV2Digest authority, typed raw-vs-structured lock binding, the direct
+Tool Lock leaf census/owner join, logical component identity, and the synthetic
+candidate BOM root.  It does not claim the full TST-SBOM-002 closure or
+publication acceptance.
 """
 
 from __future__ import annotations
@@ -39,6 +40,30 @@ SOLC_ASSET_COMPONENT_DIGEST = (
 )
 SOLC_EXECUTABLE_COMPONENT_DIGEST = (
     "sha256:a426c5a55c3e207d351f57abcf6d6e9deae2c2665a18ecab7aaeff1a1c51f733"
+)
+
+EXPECTED_TOOL_LOCK_LEAF_KEYS = (
+    ("asset", "foundry-v0.3.0-darwin-arm64", None),
+    ("asset", "lean-4.31.0-darwin-arm64", None),
+    ("asset", "openssl-3.6.3-homebrew-arm64-tahoe", None),
+    ("asset", "solc-0.8.34-macos-universal", None),
+    ("asset", "wabt-1.0.41-macos-arm64", None),
+    ("bundle-file", "foundry-v0.3.0-darwin-arm64", "anvil"),
+    ("bundle-file", "foundry-v0.3.0-darwin-arm64", "cast"),
+    (
+        "bundle-file",
+        "openssl-3.6.3-homebrew-arm64-tahoe",
+        "lib/libcrypto.3.dylib",
+    ),
+    ("bundle-file", "solc-0.8.34-macos-universal", "solc"),
+    ("bundle-file", "wabt-1.0.41-macos-arm64", "wat2wasm"),
+    ("compiler-executable", "lean", "bin/lake"),
+    ("compiler-executable", "lean", "bin/lean"),
+    ("tool-executable", "anvil", "anvil"),
+    ("tool-executable", "cast", "cast"),
+    ("tool-executable", "solc", "solc"),
+    ("tool-executable", "wat2wasm", "wat2wasm"),
+    ("tool-runtime-file", "wat2wasm", "lib/libcrypto.3.dylib"),
 )
 
 
@@ -372,6 +397,641 @@ def test_tool_lock_identity(module: ModuleType) -> None:
         module._TOOLCHAIN_ASSETS_MODULE = original_validator_module
 
 
+def direct_tool_component_sources(module: ModuleType) -> tuple[object, ...]:
+    ref = module.ToolLockLeafRef
+    source = module.ToolLockComponentSource
+
+    def refs(*items: tuple[str, str, str | None]) -> tuple[object, ...]:
+        return tuple(ref(*item) for item in items)
+
+    return (
+        source(
+            "asset-foundry",
+            "download-asset",
+            refs(("asset", "foundry-v0.3.0-darwin-arm64", None)),
+        ),
+        source(
+            "asset-lean",
+            "download-asset",
+            refs(("asset", "lean-4.31.0-darwin-arm64", None)),
+        ),
+        source(
+            "asset-openssl",
+            "download-asset",
+            refs(("asset", "openssl-3.6.3-homebrew-arm64-tahoe", None)),
+        ),
+        source(
+            "asset-solc",
+            "download-asset",
+            refs(("asset", "solc-0.8.34-macos-universal", None)),
+        ),
+        source(
+            "asset-wabt",
+            "download-asset",
+            refs(("asset", "wabt-1.0.41-macos-arm64", None)),
+        ),
+        source(
+            "compiler-lake",
+            "compiler-executable",
+            refs(("compiler-executable", "lean", "bin/lake")),
+        ),
+        source(
+            "compiler-lean",
+            "compiler-executable",
+            refs(("compiler-executable", "lean", "bin/lean")),
+        ),
+        source(
+            "runtime-libcrypto",
+            "runtime-dylib",
+            refs(
+                (
+                    "bundle-file",
+                    "openssl-3.6.3-homebrew-arm64-tahoe",
+                    "lib/libcrypto.3.dylib",
+                ),
+                (
+                    "tool-runtime-file",
+                    "wat2wasm",
+                    "lib/libcrypto.3.dylib",
+                ),
+            ),
+        ),
+        source(
+            "tool-anvil",
+            "tool-executable",
+            refs(
+                ("bundle-file", "foundry-v0.3.0-darwin-arm64", "anvil"),
+                ("tool-executable", "anvil", "anvil"),
+            ),
+        ),
+        source(
+            "tool-cast",
+            "tool-executable",
+            refs(
+                ("bundle-file", "foundry-v0.3.0-darwin-arm64", "cast"),
+                ("tool-executable", "cast", "cast"),
+            ),
+        ),
+        source(
+            "tool-solc",
+            "tool-executable",
+            refs(
+                ("bundle-file", "solc-0.8.34-macos-universal", "solc"),
+                ("tool-executable", "solc", "solc"),
+            ),
+        ),
+        source(
+            "tool-wat2wasm",
+            "tool-executable",
+            refs(
+                ("bundle-file", "wabt-1.0.41-macos-arm64", "wat2wasm"),
+                ("tool-executable", "wat2wasm", "wat2wasm"),
+            ),
+        ),
+    )
+
+
+def test_direct_tool_lock_leaf_coverage(module: ModuleType) -> None:
+    raw = (ROOT / "toolchains.lock.json").read_bytes()
+    leaves = module.enumerate_tool_lock_leaves(raw)
+    actual_keys = tuple(
+        (leaf.ref.kind, leaf.ref.id, leaf.ref.path) for leaf in leaves
+    )
+    if actual_keys != EXPECTED_TOOL_LOCK_LEAF_KEYS:
+        raise AssertionError(
+            "Tool Lock direct-leaf denominator drifted from the reviewed pre-freeze baseline"
+        )
+    if len(leaves) != 17:
+        raise AssertionError(
+            "Tool Lock direct-leaf count is not the reviewed pre-freeze baseline"
+        )
+
+    baseline = direct_tool_component_sources(module)
+    verified = module.validate_direct_tool_lock_ref_coverage(raw, baseline)
+    if verified != leaves:
+        raise AssertionError("direct Tool Lock coverage returned a different snapshot")
+    if len(baseline) != 12:
+        raise AssertionError("direct logical component count is not the baseline")
+
+    by_id = {source.component_id: source for source in baseline}
+    source = module.ToolLockComponentSource
+    ref = module.ToolLockLeafRef
+
+    trailing_punctuation_id = tuple(
+        source("asset-foundry-", item.component_kind, item.lock_refs)
+        if item.component_id == "asset-foundry"
+        else item
+        for item in baseline
+    )
+    module.validate_direct_tool_lock_ref_coverage(raw, trailing_punctuation_id)
+
+    component_id_127 = "a" * 127
+    max_component_id = tuple(
+        sorted(
+            (
+                source(component_id_127, item.component_kind, item.lock_refs)
+                if item.component_id == "asset-foundry"
+                else item
+                for item in baseline
+            ),
+            key=lambda item: item.component_id,
+        )
+    )
+    module.validate_direct_tool_lock_ref_coverage(raw, max_component_id)
+
+    component_id_128 = "a" * 128
+    oversized_component_id = tuple(
+        sorted(
+            (
+                source(component_id_128, item.component_kind, item.lock_refs)
+                if item.component_id == "asset-foundry"
+                else item
+                for item in baseline
+            ),
+            key=lambda item: item.component_id,
+        )
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(
+            raw, oversized_component_id
+        ),
+    )
+
+    compiler_id_128 = "b" * 128
+    max_tool_lock_id = json.loads(raw.decode("utf-8"))
+    max_tool_lock_id["compilerToolchain"]["id"] = compiler_id_128
+    max_tool_lock_raw = json.dumps(
+        max_tool_lock_id, separators=(",", ":")
+    ).encode("utf-8")
+    max_tool_lock_sources = tuple(
+        source(
+            item.component_id,
+            item.component_kind,
+            tuple(
+                ref(
+                    lock_ref.kind,
+                    compiler_id_128
+                    if lock_ref.kind == "compiler-executable"
+                    else lock_ref.id,
+                    lock_ref.path,
+                )
+                for lock_ref in item.lock_refs
+            ),
+        )
+        for item in baseline
+    )
+    module.validate_direct_tool_lock_ref_coverage(
+        max_tool_lock_raw, max_tool_lock_sources
+    )
+
+    oversized_tool_lock_id = json.loads(raw.decode("utf-8"))
+    oversized_tool_lock_id["compilerToolchain"]["id"] = "b" * 129
+    expect_error(
+        module,
+        "PF-SBOM-SCHEMA",
+        lambda: module.enumerate_tool_lock_leaves(
+            json.dumps(
+                oversized_tool_lock_id, separators=(",", ":")
+            ).encode("utf-8")
+        ),
+    )
+
+    def replace_refs(
+        sources: tuple[object, ...],
+        component_id: str,
+        lock_refs: tuple[object, ...] | list[object],
+    ) -> tuple[object, ...]:
+        return tuple(
+            source(item.component_id, item.component_kind, lock_refs)
+            if item.component_id == component_id
+            else item
+            for item in sources
+        )
+
+    representative_refs = (
+        ("asset-foundry", ref("asset", "foundry-v0.3.0-darwin-arm64", None)),
+        (
+            "compiler-lake",
+            ref("compiler-executable", "lean", "bin/lake"),
+        ),
+        (
+            "tool-anvil",
+            ref("bundle-file", "foundry-v0.3.0-darwin-arm64", "anvil"),
+        ),
+        ("tool-anvil", ref("tool-executable", "anvil", "anvil")),
+        (
+            "runtime-libcrypto",
+            ref(
+                "tool-runtime-file",
+                "wat2wasm",
+                "lib/libcrypto.3.dylib",
+            ),
+        ),
+    )
+    for component_id, representative in representative_refs:
+        original_refs = by_id[component_id].lock_refs
+        missing_ref = tuple(
+            lock_ref for lock_ref in original_refs if lock_ref != representative
+        )
+        expect_error(
+            module,
+            "PF-SBOM-CLOSURE",
+            lambda component_id=component_id, missing_ref=missing_ref: (
+                module.validate_direct_tool_lock_ref_coverage(
+                    raw,
+                    replace_refs(baseline, component_id, missing_ref),
+                )
+            ),
+        )
+
+        duplicated_refs = tuple(
+            sorted(
+                original_refs + (representative,),
+                key=lambda lock_ref: (
+                    lock_ref.kind,
+                    lock_ref.id,
+                    "" if lock_ref.path is None else lock_ref.path,
+                ),
+            )
+        )
+        expect_error(
+            module,
+            "PF-SBOM-CLOSURE",
+            lambda component_id=component_id, duplicated_refs=duplicated_refs: (
+                module.validate_direct_tool_lock_ref_coverage(
+                    raw,
+                    replace_refs(baseline, component_id, duplicated_refs),
+                )
+            ),
+        )
+
+        extra_ref = ref(
+            representative.kind,
+            "unknown",
+            None if representative.kind == "asset" else "unknown",
+        )
+        extra_refs = tuple(
+            sorted(
+                original_refs + (extra_ref,),
+                key=lambda lock_ref: (
+                    lock_ref.kind,
+                    lock_ref.id,
+                    "" if lock_ref.path is None else lock_ref.path,
+                ),
+            )
+        )
+        expect_error(
+            module,
+            "PF-SBOM-CLOSURE",
+            lambda component_id=component_id, extra_refs=extra_refs: (
+                module.validate_direct_tool_lock_ref_coverage(
+                    raw,
+                    replace_refs(baseline, component_id, extra_refs),
+                )
+            ),
+        )
+
+    reversed_refs = replace_refs(
+        baseline,
+        "tool-anvil",
+        tuple(reversed(by_id["tool-anvil"].lock_refs)),
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(raw, reversed_refs),
+    )
+
+    same_asset_wrong_path = replace_refs(
+        baseline,
+        "tool-anvil",
+        (
+            ref("bundle-file", "foundry-v0.3.0-darwin-arm64", "cast"),
+            ref("tool-executable", "anvil", "anvil"),
+        ),
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(
+            raw, same_asset_wrong_path
+        ),
+    )
+
+    wrong_runtime_join = replace_refs(
+        baseline,
+        "runtime-libcrypto",
+        (
+            ref("bundle-file", "wabt-1.0.41-macos-arm64", "wat2wasm"),
+            ref(
+                "tool-runtime-file",
+                "wat2wasm",
+                "lib/libcrypto.3.dylib",
+            ),
+        ),
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(
+            raw, wrong_runtime_join
+        ),
+    )
+
+    shared_runtime_lock = json.loads(raw.decode("utf-8"))
+    macho_files = shared_runtime_lock["machoPolicy"]["files"]
+    anvil_macho = next(item for item in macho_files if item["path"] == "anvil")
+    wat2wasm_macho = next(
+        item for item in macho_files if item["path"] == "wat2wasm"
+    )
+    anvil_macho["externalLoads"] = copy.deepcopy(
+        wat2wasm_macho["externalLoads"]
+    )
+    shared_tools = shared_runtime_lock["tools"]
+    anvil_tool = next(item for item in shared_tools if item["id"] == "anvil")
+    wat2wasm_tool = next(
+        item for item in shared_tools if item["id"] == "wat2wasm"
+    )
+    anvil_tool["runtimeLibrarySubdir"] = "lib"
+    anvil_tool["runtimeFiles"] = copy.deepcopy(wat2wasm_tool["runtimeFiles"])
+    shared_runtime_raw = json.dumps(
+        shared_runtime_lock, separators=(",", ":")
+    ).encode("utf-8")
+    shared_runtime_refs = (
+        ref(
+            "bundle-file",
+            "openssl-3.6.3-homebrew-arm64-tahoe",
+            "lib/libcrypto.3.dylib",
+        ),
+        ref("tool-runtime-file", "anvil", "lib/libcrypto.3.dylib"),
+        ref("tool-runtime-file", "wat2wasm", "lib/libcrypto.3.dylib"),
+    )
+    shared_runtime_sources = replace_refs(
+        baseline,
+        "runtime-libcrypto",
+        shared_runtime_refs,
+    )
+    module.validate_direct_tool_lock_ref_coverage(
+        shared_runtime_raw, shared_runtime_sources
+    )
+
+    split_shared_runtime = tuple(
+        item
+        for item in shared_runtime_sources
+        if item.component_id != "runtime-libcrypto"
+    ) + (
+        source(
+            "runtime-libcrypto-anvil",
+            "runtime-dylib",
+            shared_runtime_refs[:2],
+        ),
+        source(
+            "runtime-libcrypto-wat2wasm",
+            "runtime-dylib",
+            (shared_runtime_refs[0], shared_runtime_refs[2]),
+        ),
+    )
+    split_shared_runtime = tuple(
+        sorted(split_shared_runtime, key=lambda item: item.component_id)
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(
+            shared_runtime_raw, split_shared_runtime
+        ),
+    )
+
+    merged_solc = tuple(
+        item
+        for item in baseline
+        if item.component_id not in {"asset-solc", "tool-solc"}
+    ) + (
+        source(
+            "tool-solc",
+            "tool-executable",
+            by_id["asset-solc"].lock_refs + by_id["tool-solc"].lock_refs,
+        ),
+    )
+    merged_solc = tuple(sorted(merged_solc, key=lambda item: item.component_id))
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(raw, merged_solc),
+    )
+
+    runtime = by_id["runtime-libcrypto"]
+    missing_runtime_owner = tuple(
+        source(item.component_id, item.component_kind, runtime.lock_refs[:1])
+        if item.component_id == runtime.component_id
+        else item
+        for item in baseline
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(
+            raw, missing_runtime_owner
+        ),
+    )
+
+    split_runtime_owner = tuple(
+        item for item in baseline if item.component_id != runtime.component_id
+    ) + (
+        source(
+            "runtime-libcrypto",
+            "runtime-dylib",
+            runtime.lock_refs[:1],
+        ),
+        source(
+            "runtime-libcrypto-owner",
+            "runtime-dylib",
+            runtime.lock_refs[1:],
+        ),
+    )
+    split_runtime_owner = tuple(
+        sorted(split_runtime_owner, key=lambda item: item.component_id)
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(
+            raw, split_runtime_owner
+        ),
+    )
+
+    missing_component = tuple(
+        item for item in baseline if item.component_id != "tool-cast"
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(raw, missing_component),
+    )
+
+    duplicated_ref = tuple(
+        source(
+            item.component_id,
+            item.component_kind,
+            item.lock_refs + item.lock_refs[-1:],
+        )
+        if item.component_id == "tool-anvil"
+        else item
+        for item in baseline
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(raw, duplicated_ref),
+    )
+
+    duplicate_owner = tuple(
+        source(
+            item.component_id,
+            item.component_kind,
+            by_id["asset-foundry"].lock_refs,
+        )
+        if item.component_id == "asset-lean"
+        else item
+        for item in baseline
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(raw, duplicate_owner),
+    )
+
+    unknown_ref = tuple(
+        sorted(
+            baseline
+            + (
+                source(
+                    "tool-unknown",
+                    "tool-executable",
+                    (
+                        ref("bundle-file", "unknown-asset", "unknown"),
+                        ref("tool-executable", "unknown", "unknown"),
+                    ),
+                ),
+            ),
+            key=lambda item: item.component_id,
+        )
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(raw, unknown_ref),
+    )
+
+    wrong_bundle_join = tuple(
+        source(
+            item.component_id,
+            item.component_kind,
+            (
+                ref("bundle-file", "wabt-1.0.41-macos-arm64", "wat2wasm"),
+                item.lock_refs[1],
+            ),
+        )
+        if item.component_id == "tool-solc"
+        else item
+        for item in baseline
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(raw, wrong_bundle_join),
+    )
+
+    malformed_ref = tuple(
+        source(
+            item.component_id,
+            item.component_kind,
+            (ref([], "lean-4.31.0-darwin-arm64", None),),
+        )
+        if item.component_id == "asset-lean"
+        else item
+        for item in baseline
+    )
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.validate_direct_tool_lock_ref_coverage(raw, malformed_ref),
+    )
+
+    malformed_values = (
+        replace_refs(
+            baseline,
+            "asset-lean",
+            (ref("asset", [], None),),
+        ),
+        replace_refs(
+            baseline,
+            "tool-anvil",
+            (
+                ref("bundle-file", "foundry-v0.3.0-darwin-arm64", []),
+                by_id["tool-anvil"].lock_refs[1],
+            ),
+        ),
+        tuple(
+            source([], item.component_kind, item.lock_refs)
+            if item.component_id == "asset-lean"
+            else item
+            for item in baseline
+        ),
+        tuple(
+            source(item.component_id, [], item.lock_refs)
+            if item.component_id == "asset-lean"
+            else item
+            for item in baseline
+        ),
+        replace_refs(
+            baseline,
+            "asset-lean",
+            list(by_id["asset-lean"].lock_refs),
+        ),
+    )
+    for malformed_value in malformed_values:
+        expect_error(
+            module,
+            "PF-SBOM-CLOSURE",
+            lambda malformed_value=malformed_value: (
+                module.validate_direct_tool_lock_ref_coverage(raw, malformed_value)
+            ),
+        )
+
+    original_enumerator = module.enumerate_tool_lock_leaves
+
+    def unexpected_enumerator(_: bytes) -> tuple[object, ...]:
+        raise AssertionError("Tool Lock enumeration ran before the source limit")
+
+    module.enumerate_tool_lock_leaves = unexpected_enumerator
+    try:
+        expect_error(
+            module,
+            "PF-SBOM-LIMIT",
+            lambda: module.validate_direct_tool_lock_ref_coverage(
+                b"not parsed",
+                tuple(object() for _ in range(4_097)),
+            ),
+        )
+    finally:
+        module.enumerate_tool_lock_leaves = original_enumerator
+
+    digest_mismatch = json.loads(raw.decode("utf-8"))
+    next(
+        tool for tool in digest_mismatch["tools"] if tool["id"] == "solc"
+    )["executableSha256"] = "0" * 64
+    expect_error(
+        module,
+        "PF-SBOM-CLOSURE",
+        lambda: module.enumerate_tool_lock_leaves(
+            json.dumps(digest_mismatch, separators=(",", ":")).encode("utf-8")
+        ),
+    )
+
+
 def solc_asset_component() -> dict[str, object]:
     return {
         "id": "solc-0.8.34-asset",
@@ -508,6 +1168,7 @@ def main() -> int:
     module = load_core()
     test_pf_jcs(module)
     test_tool_lock_identity(module)
+    test_direct_tool_lock_leaf_coverage(module)
     test_logical_component_identity(module)
     print("supply-chain-core-self-test: ok")
     return 0
