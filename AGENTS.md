@@ -17,8 +17,8 @@
 | Formal milestone | **D0：5/8 done**；`TASK-D0-04` blocked，`TASK-D0-07`/`TASK-D0-08` pending；尚未正式进入 D1 |
 | Active task | 无；当前没有可合法置为 `in_progress` 的正式 TASK |
 | Next task | **TASK-D0-04**（blocked；仍是依赖序中的下一个正式任务） |
-| Active development slice | **D1-PA-05 / TASK-D1-03 pre-acceptance**：state visibility carrier、canonical source binding 与 disclosure support envelope |
-| Next development slice | **D1-PA-06 / TASK-D1-03 pre-acceptance**：event/error declaration carriers、canonical source binding 与 declaration-order duplicate rejection |
+| Active development slice | **D1-PA-06 / TASK-D1-03 pre-acceptance**：event/error declaration carriers、canonical source binding 与 declaration-order duplicate rejection |
+| Next development slice | **D1-PA-07 / TASK-D1-03 pre-acceptance**：struct/enum declaration carriers、canonical child binding 与 field/variant duplicate rejection |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | **TASK-D0-04** host seal broken + eligible Stage-0/authority/receipt 未闭合；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |

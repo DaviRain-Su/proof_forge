@@ -1088,3 +1088,33 @@ normative: false
 - Next：唯一 active development pointer 推进到 D1-PA-05（state visibility carrier、canonical source
   binding 与 disclosure support envelope）；D1-PA-06 排队为 event/error declaration carriers 与
   declaration-order duplicate rejection。
+
+## 2026-07-17 — D1 state visibility pre-acceptance slice
+
+- Commits：carrier RED `e1a61872`；GREEN `f2b3f02e`；forged-resolution RED `cf0805d3`；
+  support revalidation FIX `be71e864`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-SOURCE-WIRE-001`、`SPEC-TYPE-001`、`TST-SRC-004`。
+  本切片只追加 D1-PA-05 development evidence，不改变 `TASK-D1-03` 的 pending 状态、依赖、
+  Tests 集合或 Done 语义。
+- Changed：`state` declaration 支持 omitted/public/private/commitment visibility；omitted 与 explicit
+  public materialize 为同一值，private/commitment 保持不同 Source AST/sourceHash。visibility 逐 state
+  贯穿 Source→Typed→Semantic，并按 source wire 的 `visibility,name,type` 与 semantic wire 的
+  `id,name,type,visibility` 顺序进入 canonical bytes。
+- Support：private/commitment state 分别推导 `disclosure.private-state` 与
+  `disclosure.commitment-state`，canonical requirement tags 在既有 0..10 后追加 11/12；当前四个
+  Phase 1 descriptor 均在 Plan 前拒绝。该边界不借用 Noir 的 parameter-only private witness support。
+- Security review：首轮独立审查发现 public `ResolvedProgram` 可被伪造后直接送入 `makePlan`，从而
+  绕过 resolver；`cf0805d3` 固定 exploit，`be71e864` 新增共享 `validateResolved` 并让 EVM、Solana、
+  NEAR、Noir 在任何 Plan 构造前重验 exact descriptor、requirement envelope 与 support。复核
+  P0=0/P1=0；Noir private parameter/PrivateSum4 正常 witness 路径保持通过。
+- Commands：`lake build Tests.Language.StateVisibility Tests.Materialization.Targets
+  proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；
+  clean committed archive `just ci` at `be71e864`；`git diff --check`；bounded independent
+  review/re-review。
+- Results：focused、aggregate、parser negatives、forged resolver negative、DSL negatives 与完整
+  `just ci` exit 0；development evidence 为 `EV-20260717-0039`。
+- Limitations：只实现 declaration carrier、canonical binding 与 fail-closed support envelope；D2
+  visibility flow、state custody/continuity、target private/commitment state Plan 均未实现。D0 formal
+  milestone 仍为 5/8，D1 formal task 仍 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：唯一 active development pointer 推进到 D1-PA-06（event/error declaration carriers）；
+  D1-PA-07 排队为 struct/enum declaration carriers 与 field/variant duplicate rejection。
