@@ -199,6 +199,15 @@ unsafe def run : IO Unit := do
       | _ => throw <| IO.userError "assert true body must be assertStmt boolLiteral true"
   | _ => throw <| IO.userError "assert true program must have one entry"
 
+  let literalCondition ← select session
+    (bodyProgramSource "AssertLiteral" "assert 1") "<assert-literal>"
+  match literalCondition.entries with
+  | #[runEntry] =>
+      match runEntry.body with
+      | #[.assertStmt (.literal 1), .returnValue (.literal 0)] => pure ()
+      | _ => throw <| IO.userError "assert 1 body must retain a literal condition"
+  | _ => throw <| IO.userError "assert literal program must have one entry"
+
   -- Frozen prospective goldens for AssertTwin (Statement tag 4 + condition).
   let assertFalse := twin (.boolLiteral false)
   let returnTrue := returnTwin (.boolLiteral true)
