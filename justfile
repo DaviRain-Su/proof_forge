@@ -28,6 +28,11 @@ sbom:
     /usr/bin/python3 -I -S scripts/sbom_generate.py --root . generate --output-dir build/sbom
     /usr/bin/python3 -I -S scripts/sbom_generate.py --root . verify --output-dir build/sbom
 
+# TASK-D0-08 pre-acceptance identity core only. This protects PF-JCS,
+# ToolLockV2Digest and logical component identities; it is not TST-SBOM-002.
+supply-chain-core:
+    /usr/bin/python3 -I -S -B scripts/supply_chain_core_self_test.py
+
 # Development-only Unicode regeneration/conformance check. The caller must
 # explicitly provide the digest-matched UCD directory until offline asset
 # materialization is governed by its owning task.
@@ -379,7 +384,7 @@ v2-isolation:
     /usr/bin/python3 -I -S -B scripts/v2_isolation_self_test.py
     bash scripts/test_v2_isolation.sh
 
-ci: v2-isolation docs-check sbom build test dsl-negative target-negative
+ci: v2-isolation docs-check sbom supply-chain-core build test dsl-negative target-negative
 
 check: v2-isolation docs-check sbom python-isolation-negative toolchains-validate host-stage0-development candidate-binding evidence-core sandbox-policy toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test test-host-isolation dsl-negative target-negative target-smoke output-security
 

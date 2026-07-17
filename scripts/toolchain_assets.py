@@ -40,6 +40,19 @@ DEFAULT_LOCK = ROOT / "toolchains.lock.json"
 DEFAULT_HOST_LOCK = ROOT / "host-profiles.lock.json"
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 SOURCE_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+SEMVER_RE = re.compile(
+    r"(?P<major>0|[1-9][0-9]*)\."
+    r"(?P<minor>0|[1-9][0-9]*)\."
+    r"(?P<patch>0|[1-9][0-9]*)"
+    r"(?:-(?:"
+    r"(?:0|[1-9][0-9]*)|"
+    r"(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+    r")(?:\.(?:"
+    r"(?:0|[1-9][0-9]*)|"
+    r"(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+)
 SAFE_ASSET_ID_RE = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?")
 SAFE_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,254}[A-Za-z0-9])?")
 FORMATS = {"file", "tar.gz", "zip"}
@@ -66,8 +79,16 @@ class AssetError(RuntimeError):
     """A stable, user-facing asset validation failure."""
 
 
+class ToolLockClosureError(AssetError):
+    """A typed Tool Lock cross-reference or leaf-closure failure."""
+
+
 def fail(message: str) -> "None":
     raise AssetError(message)
+
+
+def fail_tool_lock_closure(message: str) -> "None":
+    raise ToolLockClosureError(message)
 
 
 def require_dict(value: object, where: str) -> dict:
@@ -86,6 +107,22 @@ def require_string(value: object, where: str) -> str:
     if not isinstance(value, str) or not value:
         fail(f"{where} must be a non-empty string")
     return value
+
+
+def require_semver(value: object, where: str) -> str:
+    text = require_string(value, where)
+    match = SEMVER_RE.fullmatch(text) if text.isascii() else None
+    if match is None:
+        fail(f"{where} must be a canonical SemVer 2.0.0 string")
+    maximum_u64 = "18446744073709551615"
+    for component in ("major", "minor", "patch"):
+        digits = match.group(component)
+        if (
+            len(digits) > len(maximum_u64)
+            or (len(digits) == len(maximum_u64) and digits > maximum_u64)
+        ):
+            fail(f"{where} {component} component exceeds UInt64")
+    return text
 
 
 def require_sha256(value: object, where: str) -> str:
@@ -243,22 +280,27 @@ def validate_tool_lock(lock: dict) -> dict:
         "versionProbes",
     }, "compilerToolchain")
     require_safe_asset_id(compiler.get("id"), "compilerToolchain.id")
-    require_string(compiler.get("version"), "compilerToolchain.version")
+    require_semver(compiler.get("version"), "compilerToolchain.version")
     source_commit = require_string(compiler.get("sourceCommit"),
                                    "compilerToolchain.sourceCommit")
     if SOURCE_COMMIT_RE.fullmatch(source_commit) is None:
         fail("compilerToolchain.sourceCommit must be a lowercase 40-hex commit")
     if compiler.get("platform") != lock["platform"]:
-        fail("compilerToolchain.platform does not match the lock")
+        fail_tool_lock_closure("compilerToolchain.platform does not match the lock")
     compiler_asset = require_string(compiler.get("assetId"), "compilerToolchain.assetId")
     if compiler_asset not in asset_by_id:
-        fail("compilerToolchain references an unknown asset")
+        fail_tool_lock_closure("compilerToolchain references an unknown asset")
     if asset_by_id[compiler_asset]["format"] != "zip":
-        fail("compilerToolchain asset must be a ZIP archive")
+        fail_tool_lock_closure("compilerToolchain asset must be a ZIP archive")
     archive_root = safe_relative(compiler.get("archiveRoot"), "compilerToolchain.archiveRoot")
     if len(PurePosixPath(archive_root).parts) != 1:
         fail("compilerToolchain.archiveRoot must be one path component")
-    if compiler.get("stripComponents") != 1:
+    strip_components = compiler.get("stripComponents")
+    if (
+        not isinstance(strip_components, int)
+        or isinstance(strip_components, bool)
+        or strip_components != 1
+    ):
         fail("compilerToolchain.stripComponents must be 1")
     entry_count = compiler.get("entryCount")
     if (not isinstance(entry_count, int) or isinstance(entry_count, bool) or
@@ -292,7 +334,9 @@ def validate_tool_lock(lock: dict) -> dict:
         path = safe_relative(probe.get("path"),
                              f"compilerToolchain.versionProbes[{index}].path")
         if path not in executable_paths:
-            fail(f"compiler version probe references undeclared executable {path}")
+            fail_tool_lock_closure(
+                f"compiler version probe references undeclared executable {path}"
+            )
         args = require_list(probe.get("args"),
                             f"compilerToolchain.versionProbes[{index}].args")
         if not args or not all(isinstance(arg, str) and arg for arg in args):
@@ -301,7 +345,9 @@ def validate_tool_lock(lock: dict) -> dict:
                        f"compilerToolchain.versionProbes[{index}].expected")
         probe_paths.add(path)
     if probe_paths != executable_paths:
-        fail("every compiler executable must have exactly one version probe")
+        fail_tool_lock_closure(
+            "every compiler executable must have exactly one version probe"
+        )
 
     bundle_files = require_list(lock.get("bundleFiles"), "bundleFiles")
     if not bundle_files:
@@ -315,11 +361,15 @@ def validate_tool_lock(lock: dict) -> dict:
         path = safe_relative(record.get("path"), f"bundleFiles[{index}].path")
         asset_id = require_string(record.get("assetId"), f"bundleFiles[{index}].assetId")
         if asset_id not in asset_by_id:
-            fail(f"bundle file {path} references an unknown asset")
+            fail_tool_lock_closure(
+                f"bundle file {path} references an unknown asset"
+            )
         member = record.get("member")
         if asset_by_id[asset_id]["format"] == "file":
             if member is not None:
-                fail(f"raw file asset {asset_id} must use a null member")
+                fail_tool_lock_closure(
+                    f"raw file asset {asset_id} must use a null member"
+                )
         else:
             safe_relative(member, f"bundleFiles[{index}].member")
         size = record.get("size")
@@ -350,7 +400,9 @@ def validate_tool_lock(lock: dict) -> dict:
                      f"machoPolicy.files[{index}]")
         path = safe_relative(record.get("path"), f"machoPolicy.files[{index}].path")
         if path not in bundle_by_path:
-            fail(f"Mach-O policy references unknown bundle path {path}")
+            fail_tool_lock_closure(
+                f"Mach-O policy references unknown bundle path {path}"
+            )
         install_id = record.get("installId")
         if install_id is not None:
             require_string(install_id, f"Mach-O install ID for {path}")
@@ -369,14 +421,20 @@ def validate_tool_lock(lock: dict) -> dict:
             bundle_path = safe_relative(edge.get("bundlePath"),
                                         f"Mach-O external load for {path}.bundlePath")
             if bundle_path not in bundle_by_path:
-                fail(f"Mach-O external load for {path} targets an unknown bundle path")
+                fail_tool_lock_closure(
+                    f"Mach-O external load for {path} targets an unknown bundle path"
+                )
             if bundle_path in bundle_targets:
-                fail(f"Mach-O external loads for {path} repeat bundle path {bundle_path}")
+                fail_tool_lock_closure(
+                    f"Mach-O external loads for {path} repeat bundle path {bundle_path}"
+                )
             bundle_targets.add(bundle_path)
         macho_paths.add(path)
         macho_by_path[path] = record
     if macho_paths != set(bundle_by_path):
-        fail("every bundle file must have an explicit Mach-O closure policy")
+        fail_tool_lock_closure(
+            "every bundle file must have an explicit Mach-O closure policy"
+        )
 
     tools = require_list(lock.get("tools"), "tools")
     if not tools:
@@ -391,18 +449,26 @@ def validate_tool_lock(lock: dict) -> dict:
             "requiredByProfiles",
         }, f"tools[{index}]")
         tool_id = require_safe_asset_id(tool.get("id"), f"tools[{index}].id")
-        require_string(tool.get("version"), f"tool {tool_id}.version")
+        require_semver(tool.get("version"), f"tool {tool_id}.version")
         require_https_url(tool.get("sourceUrl"), f"tool {tool_id}.sourceUrl")
         if tool.get("platform") != lock["platform"]:
-            fail(f"tool {tool_id} platform does not match the lock")
+            fail_tool_lock_closure(
+                f"tool {tool_id} platform does not match the lock"
+            )
         tool_asset = require_string(tool.get("assetId"), f"tool {tool_id}.assetId")
         if tool_asset not in asset_by_id:
-            fail(f"tool {tool_id} references an unknown asset")
+            fail_tool_lock_closure(
+                f"tool {tool_id} references an unknown asset"
+            )
         executable = safe_relative(tool.get("executable"), f"tool {tool_id}.executable")
         if executable not in bundle_by_path:
-            fail(f"tool {tool_id} executable is absent from bundleFiles")
+            fail_tool_lock_closure(
+                f"tool {tool_id} executable is absent from bundleFiles"
+            )
         if bundle_by_path[executable]["assetId"] != tool_asset:
-            fail(f"tool {tool_id} asset disagrees with its executable bundle asset")
+            fail_tool_lock_closure(
+                f"tool {tool_id} asset disagrees with its executable bundle asset"
+            )
         default_path = require_string(tool.get("defaultPath"), f"tool {tool_id}.defaultPath")
         if (not default_path.startswith("~/") or "\\" in default_path or
                 posixpath.normpath(default_path[2:]) != default_path[2:] or
@@ -411,7 +477,9 @@ def validate_tool_lock(lock: dict) -> dict:
         executable_hash = require_sha256(tool.get("executableSha256"),
                                            f"tool {tool_id}.executableSha256")
         if executable_hash != bundle_by_path[executable]["sha256"]:
-            fail(f"tool {tool_id} executable hash disagrees with bundleFiles")
+            fail_tool_lock_closure(
+                f"tool {tool_id} executable hash disagrees with bundleFiles"
+            )
         runtime_subdir = tool.get("runtimeLibrarySubdir")
         if runtime_subdir is not None:
             runtime_subdir = safe_relative(runtime_subdir, f"tool {tool_id}.runtimeLibrarySubdir")
@@ -423,11 +491,15 @@ def validate_tool_lock(lock: dict) -> dict:
             require_keys(runtime, {"path", "sha256"}, f"tool {tool_id}.runtimeFiles[]")
             runtime_path = safe_relative(runtime.get("path"), f"tool {tool_id} runtime file path")
             if runtime_path not in bundle_by_path:
-                fail(f"tool {tool_id} runtime file is absent from bundleFiles")
+                fail_tool_lock_closure(
+                    f"tool {tool_id} runtime file is absent from bundleFiles"
+                )
             runtime_hash = require_sha256(runtime.get("sha256"),
                                              f"tool {tool_id} runtime file sha256")
             if runtime_hash != bundle_by_path[runtime_path]["sha256"]:
-                fail(f"tool {tool_id} runtime file hash disagrees with bundleFiles")
+                fail_tool_lock_closure(
+                    f"tool {tool_id} runtime file hash disagrees with bundleFiles"
+                )
             declared_runtime.add(runtime_path)
 
         pending = [edge["bundlePath"] for edge in macho_by_path[executable]["externalLoads"]]
@@ -437,19 +509,29 @@ def validate_tool_lock(lock: dict) -> dict:
             if dependency in closure:
                 continue
             if dependency == executable:
-                fail(f"tool {tool_id} Mach-O bundle closure cycles to its executable")
+                fail_tool_lock_closure(
+                    f"tool {tool_id} Mach-O bundle closure cycles to its executable"
+                )
             closure.add(dependency)
             pending.extend(edge["bundlePath"]
                            for edge in macho_by_path[dependency]["externalLoads"])
         if declared_runtime != closure:
-            fail(f"tool {tool_id} runtimeFiles do not equal its Mach-O bundle closure")
+            fail_tool_lock_closure(
+                f"tool {tool_id} runtimeFiles do not equal its Mach-O bundle closure"
+            )
         if closure and runtime_subdir is None:
-            fail(f"tool {tool_id} with runtime files must declare runtimeLibrarySubdir")
+            fail_tool_lock_closure(
+                f"tool {tool_id} with runtime files must declare runtimeLibrarySubdir"
+            )
         if not closure and runtime_subdir is not None:
-            fail(f"tool {tool_id} without runtime files must not declare runtimeLibrarySubdir")
+            fail_tool_lock_closure(
+                f"tool {tool_id} without runtime files must not declare runtimeLibrarySubdir"
+            )
         if runtime_subdir is not None and any(
                 not path.startswith(runtime_subdir + "/") for path in closure):
-            fail(f"tool {tool_id} runtime file is outside runtimeLibrarySubdir")
+            fail_tool_lock_closure(
+                f"tool {tool_id} runtime file is outside runtimeLibrarySubdir"
+            )
         args = require_list(tool.get("versionArgs"), f"tool {tool_id}.versionArgs")
         if not args or not all(isinstance(arg, str) and arg for arg in args):
             fail(f"tool {tool_id} versionArgs must be non-empty strings")
@@ -465,7 +547,7 @@ def validate_tool_lock(lock: dict) -> dict:
                  "unresolved")
     for field, value in unresolved.items():
         if value is not None:
-            require_string(value, f"unresolved.{field}")
+            require_semver(value, f"unresolved.{field}")
 
     return lock
 
@@ -2222,6 +2304,12 @@ def self_test(lock: dict, host_lock: dict) -> None:
     invalid_entry_count = copy.deepcopy(lock)
     invalid_entry_count["compilerToolchain"]["entryCount"] = 0
     mutations.append(("invalid compiler entry count", invalid_entry_count))
+    boolean_strip_components = copy.deepcopy(lock)
+    boolean_strip_components["compilerToolchain"]["stripComponents"] = True
+    mutations.append(("boolean compiler strip components", boolean_strip_components))
+    invalid_compiler_version = copy.deepcopy(lock)
+    invalid_compiler_version["compilerToolchain"]["version"] = "latest"
+    mutations.append(("invalid compiler version", invalid_compiler_version))
     invalid_unpacked_size = copy.deepcopy(lock)
     invalid_unpacked_size["compilerToolchain"]["unpackedSize"] = MAX_COMPILER_UNPACKED_BYTES + 1
     mutations.append(("invalid compiler unpacked size", invalid_unpacked_size))
@@ -2234,6 +2322,15 @@ def self_test(lock: dict, host_lock: dict) -> None:
     tool_asset_mismatch = copy.deepcopy(lock)
     tool_asset_mismatch["tools"][0]["assetId"] = lock["compilerToolchain"]["assetId"]
     mutations.append(("tool/executable asset mismatch", tool_asset_mismatch))
+    invalid_tool_version = copy.deepcopy(lock)
+    invalid_tool_version["tools"][0]["version"] = "01.0.0"
+    mutations.append(("invalid tool version", invalid_tool_version))
+    invalid_unresolved_version = copy.deepcopy(lock)
+    invalid_unresolved_version["unresolved"]["nearSandbox"] = "^2.13"
+    mutations.append(("invalid unresolved version", invalid_unresolved_version))
+    over_u64_version = copy.deepcopy(lock)
+    over_u64_version["unresolved"]["nearSandbox"] = "18446744073709551616.0.0"
+    mutations.append(("over-UInt64 unresolved version", over_u64_version))
     runtime_closure_mismatch = copy.deepcopy(lock)
     next(tool for tool in runtime_closure_mismatch["tools"]
          if tool["id"] == "wat2wasm")["runtimeFiles"] = []
@@ -2244,6 +2341,18 @@ def self_test(lock: dict, host_lock: dict) -> None:
         except AssetError:
             continue
         fail(f"self-test failed to reject {name}")
+
+    closure_classification = copy.deepcopy(lock)
+    closure_classification["tools"][0]["assetId"] = lock["compilerToolchain"]["assetId"]
+    try:
+        validate_tool_lock(closure_classification)
+    except ToolLockClosureError:
+        pass
+    except AssetError:
+        fail("self-test classified a Tool Lock cross-reference as schema")
+    else:
+        fail("self-test accepted a broken Tool Lock cross-reference")
+
     host_mutations: list[tuple[str, dict]] = []
     ineligible = copy.deepcopy(host_lock)
     ineligible["profiles"][0].pop("ineligibilityReason", None)
