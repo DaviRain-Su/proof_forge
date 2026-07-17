@@ -691,6 +691,13 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `Bool` 与 `commitment` 分别推导 `value.bool`、`disclosure.commitment`，不得把 commitment 混同为
   private witness；当前四个 target descriptor 在实现相应能力前必须由 support resolver pre-Plan
   fail closed。
+- Phase 1 field surface 只接受两个 raw identifier token 组成的 exact `Field bn254_fr`；escaped
+  constructor、escaped/alternate/qualified/missing field identifier 与 unknown constructor 必须在
+  Lean command/Loader 两路 fail closed。state、initializer parameter、entry parameter/result 与 view
+  result 必须保持同一 `Source.ValueType.field` carrier、AST/sourceHash parity，并推导独立
+  `value.field.bn254-fr` requirement；当前四个 target descriptor 在 materializer 能完整保持该语义前
+  必须由 support resolver pre-Plan 拒绝。当前 nullary alpha carrier 只表示唯一 Phase 1 field，不能
+  据此声称完整 `Source.ProgramV1 Type.Field.spec` 已实现。
 - 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
   pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
   diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。

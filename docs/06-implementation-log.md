@@ -1063,3 +1063,28 @@ normative: false
   `TASK-D1-01` 或 `TASK-D1-03` done。
 - Next：当前唯一 development pointer 是 D1-PA-03 的文档/evidence/review 收口；完成后进入
   D1-PA-04，为 exact `Field bn254_fr` 写 RED，并固定其他 field identifier 的 fail-closed 行为。
+
+## 2026-07-17 — D1 exact Field declaration pre-acceptance slice
+
+- Commits：RED `1a81418e`；GREEN `d99d67a2`；coverage hardening `4c4b0eb2`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-TYPE-001`、`TST-SRC-004`。本切片只追加 D1-PA-04
+  development evidence，不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：portable type decoder 只接受 raw exact `Field bn254_fr` 并映射当前唯一 Phase 1
+  `Source.ValueType.field`；state、initializer parameter、entry parameter/result 与 view result 经 Lean
+  command/ParserSession 产生相同 AST/sourceHash。Semantic normalization 推导独立
+  `value.field.bn254-fr` requirement，canonical requirement tag 仅在既有 0..9 后追加 10；当前四个
+  descriptor 均不声明支持，因此在 target-owned Plan 前 fail closed。
+- Negatives：escaped constructor、escaped/alternate/qualified/missing field identifier 与 unknown
+  constructor 均由 direct Loader matrix 覆盖；六份 fixture 同时经过 Lean command 与 CLI build，固定
+  `PF-SRC-INVALID: unsupported portable type` 且零制品。
+- Commands：`lake build Tests.Language.FieldDeclarations proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed archive
+  `just ci` at `4c4b0eb2`；bounded independent read-only review。
+- Results：focused aggregate、dual-entry negatives 与完整 `just ci` exit 0；independent review
+  P0=0/P1=0。development evidence 为 `EV-20260717-0038`。
+- Limitations：当前 `.field` 是唯一 `bn254_fr` 的 alpha nullary carrier，不是完整
+  `Source.ProgramV1 Type.Field.spec`；没有 target materializer 声称 Field 支持。D0 formal milestone
+  仍为 5/8，D1 formal task 仍为 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：唯一 active development pointer 推进到 D1-PA-05（state visibility carrier、canonical source
+  binding 与 disclosure support envelope）；D1-PA-06 排队为 event/error declaration carriers 与
+  declaration-order duplicate rejection。

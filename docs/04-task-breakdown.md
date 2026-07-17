@@ -104,14 +104,15 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-01 | TASK-D1-01 | canonical NodeId v1 preimage、63 条 parent/field 路径与拓扑/深度拒绝 | `51cce575`, `75b7a62c`, `cdeff9d3` | focused tests + `just ci` at `6dc5acaa` | complete (development) |
 | D1-PA-02 | TASK-D1-01 | Lean original-parser byte span、整树 snapshot/token/boundary 防伪 | `6e559103`, `0e2013f6`, `6dc5acaa` | focused tests + independent P0/P1=0 + `just ci` | complete (development) |
 | D1-PA-03 | TASK-D1-03 | `Bool` 与 `commitment` parameter 的双前端 parity、独立 support requirements 与 pre-Plan rejection | `bc8324fe`, `d174e130`, `89a611b5`, `4d4f7c79`, `b1e37b8a` | focused aggregate + dual-entry negatives + clean `just ci` green；re-review P0/P1=0 | complete (development) |
-| D1-PA-04 | TASK-D1-03 | exact `Field bn254_fr` declaration grammar、独立 support requirement；其他 field identifier fail closed | — | RED before GREEN；focused + full gate | **active** |
-| D1-PA-05 | TASK-D1-03 | state visibility carrier、canonical source binding 与 disclosure support envelope | — | scope review → RED before GREEN | **next** |
+| D1-PA-04 | TASK-D1-03 | exact `Field bn254_fr` declaration grammar、独立 support requirement；其他 field identifier fail closed | `1a81418e`, `d99d67a2`, `4c4b0eb2` | focused aggregate + dual-entry negatives + clean `just ci` at `4c4b0eb2`；independent review P0/P1=0 | complete (development) |
+| D1-PA-05 | TASK-D1-03 | state visibility carrier、canonical source binding 与 disclosure support envelope | — | scope review → RED before GREEN | **active** |
+| D1-PA-06 | TASK-D1-03 | event/error declaration carriers、canonical source binding 与 declaration-order duplicate rejection | — | scope review → RED before GREEN | **next** |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
 | TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07 | — | TST-SRC-001, TST-SRC-002 | EV-20260717-0036 | pending |
 | TASK-D1-02 | `program ... where` command parser | TASK-D1-01 | — | TST-SRC-003 | — | pending |
-| TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037 | pending |
+| TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038 | pending |
 | TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | — | pending |
 | TASK-D1-05 | `Source.Program` stable attribute export/schema | TASK-D1-03 | — | TST-SRC-006, TST-SRC-007 | — | pending |
 | TASK-D1-06 | multi-program loader/selection | TASK-D1-05 | — | TST-SRC-008 | — | pending |
