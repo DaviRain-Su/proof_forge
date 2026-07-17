@@ -92,6 +92,14 @@ label 为 `public | commitment | private`。默认参数、state、return 为 pu
 计算。分支条件、index、错误 variant、event、call data 和返回值都参与隐式流检查：
 private condition 下对 public state/effect 的可观察差异为 `PF-VIS-001`。
 
+state visibility 必须作为 `StateDecl` 的 target-neutral 字段进入 Source、Typed 与 Semantic
+canonical binding；省略与显式 `public` materialize 为同一值。当前 alpha capability carrier 对
+显式 `private`/`commitment` state 分别推导 `disclosure.private-state` 与
+`disclosure.commitment-state`，不得借用 parameter 的 `disclosure.private-witness` 或
+`disclosure.commitment` support claim。这样 target 即使支持 private parameter，也不能据此接受尚未
+实现 custody/continuity binding 的 private state；Phase 1 descriptors 在实现完整 state disclosure
+Plan 前必须 pre-Plan fail closed。
+
 chain artifacts 的 calldata/accounts/KV 均按 public 处理；因此 private requirement 在
 EVM/Solana/NEAR Phase 1 必须拒绝。Noir Plan 把 private 参数映射 witness，把 public/
 commitment 参数映射 public inputs/commitment checks。

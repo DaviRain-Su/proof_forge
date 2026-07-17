@@ -37,6 +37,7 @@ structure StateDecl where
   id : StateId
   name : String
   type : ValueType
+  visibility : Visibility := .verifierVisible
   deriving BEq, Inhabited, Repr
 
 /-- Canonical value expression. References use stable IDs; checked arithmetic
@@ -109,6 +110,7 @@ private def adaptState (state : Typed.StateDecl) : StateDecl := {
   id := ⟨state.id.value⟩
   name := state.name
   type := adaptType state.type
+  visibility := adaptVisibility state.visibility
 }
 
 private partial def adaptExpr : Typed.Expr → Expr
@@ -162,6 +164,13 @@ private def Visibility.requirements : Visibility → Array ProgramRequirement
 private def Param.requirements (param : Param) : Array ProgramRequirement :=
   param.type.requirements ++ param.visibility.requirements
 
+private def StateDecl.requirements (state : StateDecl) : Array ProgramRequirement :=
+  let visibilityRequirements := match state.visibility with
+    | .verifierVisible => #[]
+    | .proverWitness => #[.privateState]
+    | .commitmentOnly => #[.commitmentState]
+  state.type.requirements ++ visibilityRequirements
+
 private def stableUnique [BEq α] (values : Array α) : Array α :=
   values.foldl (fun found value =>
     if found.contains value then found else found.push value) #[]
@@ -169,7 +178,7 @@ private def stableUnique [BEq α] (values : Array α) : Array α :=
 def deriveRequirements (program : Program) : Array ProgramRequirement :=
   let stateRequirements :=
     (if program.state.isEmpty then #[] else #[.persistentState]) ++
-      program.state.flatMap (·.type.requirements)
+      program.state.flatMap StateDecl.requirements
   let initializerRequirements := program.initializer.map (fun initializer =>
     initializer.params.flatMap Param.requirements ++
       initializer.body.flatMap Statement.requirements) |>.getD #[]
@@ -243,7 +252,9 @@ private def appendParam (bytes : ByteArray) (param : Param) : ByteArray :=
   appendVisibility bytes param.visibility
 
 private def appendState (bytes : ByteArray) (state : StateDecl) : ByteArray :=
-  appendValueType (appendString (appendStateId bytes state.id) state.name) state.type
+  appendVisibility
+    (appendValueType (appendString (appendStateId bytes state.id) state.name) state.type)
+    state.visibility
 
 private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .literal value => appendUInt64LE (appendTag bytes 0) value
@@ -282,6 +293,8 @@ private def appendRequirement (bytes : ByteArray) : ProgramRequirement → ByteA
   | .boolValues => appendTag bytes 8
   | .commitmentDisclosure => appendTag bytes 9
   | .fieldBn254 => appendTag bytes 10
+  | .privateState => appendTag bytes 11
+  | .commitmentState => appendTag bytes 12
 
 def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendNat bytes program.schemaVersion

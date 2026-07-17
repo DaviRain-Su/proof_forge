@@ -57,6 +57,21 @@ private def sameIdentitySource (statePrefix : String) : String :=
   "  entry ping() : UInt64 do\n" ++
   "    return 0\n"
 
+private def invalidVisibilitySource (programName stateDecl : String) : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program " ++ programName ++ " where\n" ++
+  "  " ++ stateDecl ++ "\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return 0\n"
+
+private def expectInvalidVisibility (label : String)
+    (result : CompileResult (Array Source.Program)) : IO Unit := do
+  match result with
+  | .error (.invalidProgram _) => pure ()
+  | .error other => throw <| IO.userError (s!"{label}: expected invalid-program, got {other.render}")
+  | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
+
 private unsafe def select (session : Language.Loader.ParserSession)
     (input path : String) : IO Source.Program := do
   match ← session.selectProgram input path none with
@@ -112,6 +127,17 @@ unsafe def run : IO Unit := do
       canonicalCommitment.sourceHash != canonicalPublic.sourceHash &&
       canonicalPrivate.sourceHash != canonicalCommitment.sourceHash)
     "state visibility must contribute to the canonical source binding"
+
+  expectInvalidVisibility "escaped visibility keyword"
+    (← session.parsePrograms
+      (invalidVisibilitySource "EscapedStateVisibility"
+        "state «public» value : UInt64")
+      "<state-visibility-escaped>")
+  expectInvalidVisibility "unknown visibility keyword"
+    (← session.parsePrograms
+      (invalidVisibilitySource "UnknownStateVisibility"
+        "state secret value : UInt64")
+      "<state-visibility-unknown>")
 
   let typedPrivate ← match Typed.check privateState with
     | .ok value => pure value

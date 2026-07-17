@@ -72,7 +72,7 @@ def run : IO Unit := do
   expect (counter.semanticHash == counterAgain.semanticHash && counter.semanticHash.length == 64)
     "semantic SHA-256 must be stable and use 64 lower-case hex characters"
   expect (counter.semanticHash ==
-      "3b21cb9e7a6ac9615fabbe35a4c84a4ae248089404c349656df32f9a7c10db28")
+      "c3b58be1a12e9d4f87a7e4730746b1b4f538d6a9e971a637f92cd508349ebcf8")
     "Counter semantic serialization must match its canonical SHA-256 golden"
   let renamed := { Examples.counter with qualifiedName := "Other.Counter" }
   let renamed ← match Compiler.compile renamed with

@@ -24,6 +24,7 @@ structure Param where
 structure StateDecl where
   name : String
   type : ValueType
+  visibility : Visibility := .verifierVisible
   deriving BEq, Inhabited, Repr
 
 inductive Expr where
@@ -121,7 +122,7 @@ private def appendParam (bytes : ByteArray) (param : Param) : ByteArray :=
   appendVisibility (appendValueType (appendString bytes param.name) param.type) param.visibility
 
 private def appendStateDecl (bytes : ByteArray) (decl : StateDecl) : ByteArray :=
-  appendValueType (appendString bytes decl.name) decl.type
+  appendValueType (appendString (appendVisibility bytes decl.visibility) decl.name) decl.type
 
 private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .literal value => appendUInt64 (appendTag bytes 0) value

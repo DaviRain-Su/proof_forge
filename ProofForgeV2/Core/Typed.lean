@@ -64,6 +64,7 @@ structure StateDecl where
   id : StateId
   name : String
   type : Source.ValueType
+  visibility : Source.Visibility := .verifierVisible
   deriving BEq, Inhabited, Repr
 
 structure Initializer where
@@ -120,6 +121,7 @@ def resolveState (owner : String) (declarations : Array Source.StateDecl) :
       id := ⟨ordered.size⟩
       name := declaration.name
       type := declaration.type
+      visibility := declaration.visibility
     }
     let (existing, updated) := byName.getThenInsertIfNew? declaration.name state
     if existing.isSome then

@@ -56,6 +56,8 @@ inductive ProgramRequirement where
   | boolValues
   | commitmentDisclosure
   | fieldBn254
+  | privateState
+  | commitmentState
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 namespace ProgramRequirement
@@ -72,6 +74,8 @@ def id : ProgramRequirement → String
   | .boolValues => "value.bool"
   | .commitmentDisclosure => "disclosure.commitment"
   | .fieldBn254 => "value.field.bn254-fr"
+  | .privateState => "disclosure.private-state"
+  | .commitmentState => "disclosure.commitment-state"
 
 instance : ToString ProgramRequirement := ⟨id⟩
 

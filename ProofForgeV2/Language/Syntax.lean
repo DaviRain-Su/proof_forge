@@ -29,6 +29,9 @@ syntax "call " str : pfStmt
 
 declare_syntax_cat pfItem
 syntax "state " ident " : " pfType : pfItem
+syntax "state " "public " ident " : " pfType : pfItem
+syntax "state " "private " ident " : " pfType : pfItem
+syntax "state " "commitment " ident " : " pfType : pfItem
 syntax "init" "(" sepBy(pfParam, ", ") ")" " do" ppLine ppIndent(pfStmt*) : pfItem
 syntax "entry " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
 syntax "view " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
@@ -169,6 +172,24 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
 private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.Item
   | `(pfItem| state $name:ident : $type:pfType) => do
       return .stateDecl { name := name.getId.toString, type := ← decodeTypeUnchecked type }
+  | `(pfItem| state public $name:ident : $type:pfType) => do
+      return .stateDecl {
+        name := name.getId.toString
+        type := ← decodeTypeUnchecked type
+        visibility := .verifierVisible
+      }
+  | `(pfItem| state private $name:ident : $type:pfType) => do
+      return .stateDecl {
+        name := name.getId.toString
+        type := ← decodeTypeUnchecked type
+        visibility := .proverWitness
+      }
+  | `(pfItem| state commitment $name:ident : $type:pfType) => do
+      return .stateDecl {
+        name := name.getId.toString
+        type := ← decodeTypeUnchecked type
+        visibility := .commitmentOnly
+      }
   | `(pfItem| init ($params:pfParam,*) do $statements:pfStmt*) => do
       return .initializer {
         params := ← decodeParams params
@@ -302,7 +323,8 @@ private def quoteParams (params : Array ProofForgeV2.Source.Param) : MacroM (TSy
 private def quoteStateDecl (sourceState : ProofForgeV2.Source.StateDecl) : MacroM (TSyntax `term) := do
   let name := Syntax.mkStrLit sourceState.name
   let typeExpr ← quoteValueType sourceState.type
-  `(ProofForgeV2.Source.StateDecl.mk $name $typeExpr)
+  let visibility ← quoteVisibility sourceState.visibility
+  `(ProofForgeV2.Source.StateDecl.mk $name $typeExpr $visibility)
 
 private def quoteState (states : Array ProofForgeV2.Source.StateDecl) : MacroM (TSyntax `term) := do
   let values ← states.mapM quoteStateDecl
