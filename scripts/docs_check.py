@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
 import json
 import os
 import re
+import stat
 import sys
 from dataclasses import dataclass
 from datetime import date
@@ -75,6 +78,7 @@ TRACE_ID_RE = re.compile(
 INLINE_LINK_RE = re.compile(r"(!?)\[[^\]]*\]\(([^)]+)\)")
 MAX_JSON_NESTING = 256
 MAX_LINK_TARGET_LENGTH = 2048
+MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
 UNRESOLVED_MARKER_RE = re.compile(
     r"\b(?:TODO|TBD)\b|待补充|待决定|待锁",
     re.IGNORECASE,
@@ -99,6 +103,8 @@ FROZEN_A0_TEST_TO_TASK = {
 }
 TASK_SET_LOCK_RELATIVE = "docs/governance/task-set.lock.json"
 TASK_FREEZE_PACKAGES_RELATIVE = "docs/governance/task-freeze-packages"
+GENESIS_SET_LOCK_RELATIVE = "docs/governance/genesis-set.lock.json"
+GENESIS_ROOT_POLICY_RELATIVE = "docs/governance/genesis-root-policy.json"
 D0_01_PURE_CONSUMER_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-01.attest.json"
 )
@@ -110,6 +116,9 @@ D0_03_DEVELOPMENT_TRIAD_ATTEST_RELATIVE = (
 )
 D0_05_SBOM_INVENTORY_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-05.attest.json"
+)
+D0_06_COMMON_PRIMITIVES_ATTEST_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-06.attest.json"
 )
 MILESTONE_TASK_RE = re.compile(r"^TASK-(A0|D[0-9]+)-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 TASK_FREEZE_PACKAGE_NAME_RE = re.compile(
@@ -214,6 +223,104 @@ class OrderedDiagnostic:
 
     def key(self) -> tuple[str, int, int, str, str]:
         return (self.relative, self.line, self.column, self.identifier, self.error.code)
+
+
+def genesis_set_lock_valid(root: Path) -> bool:
+    path = root / GENESIS_SET_LOCK_RELATIVE
+    try:
+        ensure_repository_path(root, path, GENESIS_SET_LOCK_RELATIVE)
+        payload = load_json(root, path)
+    except DocsCheckError:
+        return False
+    expected_description = (
+        "Exact genesis task set for GOV-GENESIS-001. Silent addition requires "
+        "Architecture+Quality approval and a lock update in the same change."
+    )
+    return (
+        isinstance(payload, dict)
+        and set(payload) == {"schemaVersion", "description", "genesisTasks"}
+        and type(payload.get("schemaVersion")) is int
+        and payload.get("schemaVersion") == 1
+        and payload.get("description") == expected_description
+        and payload.get("genesisTasks") == [
+            "TASK-D0-01",
+            "TASK-D0-02",
+            "TASK-D0-03",
+            "TASK-D0-05",
+            "TASK-D0-06",
+        ]
+    )
+
+
+def genesis_root_policy_valid(root: Path) -> bool:
+    """Validate the exact public-key-only pre-cutover root policy."""
+    policy_path = root / GENESIS_ROOT_POLICY_RELATIVE
+    try:
+        ensure_repository_path(root, policy_path, GENESIS_ROOT_POLICY_RELATIVE)
+        if not policy_path.is_file() or policy_path.is_symlink():
+            return False
+        checker_path = Path(__file__).resolve(strict=True)
+        tool_path = checker_path.with_name("genesis_root_policy.py")
+        if tool_path.is_symlink() or not tool_path.is_file():
+            return False
+        exact_tool_path = tool_path.resolve(strict=True)
+        if exact_tool_path != tool_path:
+            return False
+        spec = importlib.util.spec_from_file_location(
+            "proof_forge_genesis_root_policy_for_docs_check",
+            exact_tool_path,
+        )
+        if spec is None or spec.loader is None or spec.origin is None:
+            return False
+        if Path(spec.origin).resolve(strict=True) != exact_tool_path:
+            return False
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        reader = module.__dict__.get("read_genesis_root_policy")
+        if not callable(reader):
+            return False
+        data = reader(policy_path)
+        return type(data) is bytes
+    except Exception:
+        return False
+
+
+def genesis_authority_state(
+        root: Path, by_relative: dict[str, Document]) -> tuple[bool, str]:
+    """Resolve the exact human authority required by GOV-GENESIS-001."""
+    required = (
+        ("docs/governance/genesis-authority.md", "GOV-GENESIS-001"),
+        ("docs/governance/maintainers.md", "GOV-MAINTAINERS-001"),
+        ("docs/governance/authority.md", "GOV-AUTH-001"),
+        ("docs/governance/change-control.md", "GOV-CHANGE-001"),
+        ("docs/governance/task-freeze.md", "GOV-TASK-FREEZE-001"),
+    )
+    approval_action: tuple[str, str, str, str, str] | None = None
+    for relative_path, expected_id in required:
+        document = by_relative.get(relative_path)
+        if (document is None
+                or document.meta.get("id") != expected_id
+                or document.meta.get("status") != "accepted"
+                or document.meta.get("normative") != "true"
+                or document.meta.get("approvers")
+                != "architecture-owner, davirain, quality-owner"):
+            return False, expected_id
+        current_action = tuple(
+            document.meta.get(field, "")
+            for field in (
+                "approvers", "approvedAt", "reviewCommit", "reviewLink",
+                "openFindings",
+            )
+        )
+        if approval_action is None:
+            approval_action = current_action
+        elif current_action != approval_action:
+            return False, expected_id
+    if not genesis_set_lock_valid(root):
+        return False, GENESIS_SET_LOCK_RELATIVE
+    if not genesis_root_policy_valid(root):
+        return False, GENESIS_ROOT_POLICY_RELATIVE
+    return True, ""
 
 
 def raise_error(code: str, path: str, detail: str) -> None:
@@ -388,10 +495,152 @@ def validate_json_nesting(rel: str, text: str) -> None:
             depth = max(0, depth - 1)
 
 
+def _same_inode(left: os.stat_result, right: os.stat_result) -> bool:
+    return left.st_dev == right.st_dev and left.st_ino == right.st_ino
+
+
+def read_repository_regular_bytes(
+        root: Path,
+        path: Path,
+        display: str,
+        *,
+        maximum: int = MAX_DOCUMENT_BYTES,
+) -> bytes:
+    """Read one stable, bounded, single-link regular file below root."""
+    ensure_repository_path(root, path, display)
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        raise_error("PF-DOC-PATH", display, "path is outside repository root")
+    if not parts or maximum < 0:
+        raise_error("PF-DOC-PATH", display, "path must name one bounded file")
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        raise_error("PF-DOC-PATH", display, "host lacks no-follow file opens")
+
+    directory_flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | getattr(os, "O_CLOEXEC", 0)
+        | os.O_NOFOLLOW
+    )
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+        | os.O_NOFOLLOW
+    )
+    directory_fd: int | None = None
+    file_fd: int | None = None
+    try:
+        directory_fd = os.open(root, directory_flags)
+        for component in parts[:-1]:
+            next_fd: int | None = None
+            try:
+                next_fd = os.open(
+                    component, directory_flags, dir_fd=directory_fd)
+                opened = os.fstat(next_fd)
+                named = os.stat(
+                    component,
+                    dir_fd=directory_fd,
+                    follow_symlinks=False,
+                )
+            except Exception:
+                if next_fd is not None:
+                    os.close(next_fd)
+                raise
+            assert next_fd is not None
+            if not stat.S_ISDIR(opened.st_mode) or not _same_inode(opened, named):
+                os.close(next_fd)
+                raise_error(
+                    "PF-DOC-PATH", display,
+                    f"directory component {component} changed during open")
+            os.close(directory_fd)
+            directory_fd = next_fd
+
+        file_fd = os.open(parts[-1], file_flags, dir_fd=directory_fd)
+        before = os.fstat(file_fd)
+        named_before = os.stat(
+            parts[-1],
+            dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+        stable_fields = (
+            "st_dev", "st_ino", "st_mode", "st_nlink", "st_size",
+            "st_mtime_ns", "st_ctime_ns",
+        )
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size < 0
+            or before.st_size > maximum
+            or any(
+                getattr(before, field) != getattr(named_before, field)
+                for field in stable_fields
+            )
+        ):
+            raise_error(
+                "PF-DOC-PATH", display,
+                f"must be one stable single-link regular file <= {maximum} bytes")
+
+        chunks: list[bytes] = []
+        remaining = maximum + 1
+        while remaining > 0:
+            chunk = os.read(file_fd, min(remaining, 128 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        after = os.fstat(file_fd)
+        named_after = os.stat(
+            parts[-1],
+            dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+        if (
+            len(data) > maximum
+            or len(data) != before.st_size
+            or any(
+                getattr(before, field) != getattr(after, field)
+                for field in stable_fields
+            )
+            or any(
+                getattr(after, field) != getattr(named_after, field)
+                for field in stable_fields
+            )
+        ):
+            raise_error("PF-DOC-PATH", display, "file changed during bounded read")
+        return data
+    except DocsCheckError:
+        raise
+    except OSError as error:
+        raise_error("PF-DOC-PATH", display, f"cannot open stable file: {error}")
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        if directory_fd is not None:
+            os.close(directory_fd)
+
+
+def read_repository_text(
+        root: Path,
+        path: Path,
+        display: str,
+        *,
+        encoding_code: str = "PF-DOC-ENCODING",
+) -> str:
+    data = read_repository_regular_bytes(root, path, display)
+    try:
+        return data.decode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise_error(encoding_code, display, str(error))
+
+
 def load_json(root: Path, path: Path) -> Any:
     rel = relative(root, path)
     try:
-        text = path.read_text(encoding="utf-8")
+        text = read_repository_regular_bytes(root, path, rel).decode(
+            "utf-8", errors="strict")
         validate_json_nesting(rel, text)
         return json.loads(
             text,
@@ -972,6 +1221,7 @@ def collect_definitions(root: Path, documents: list[Document], json_values: dict
     diagnostics: list[OrderedDiagnostic] = []
     source_path = "docs/research/source-register.json"
     claim_path = "docs/research/claim-register.json"
+    genesis_effective, genesis_failure = genesis_authority_state(root, by_relative)
 
     def capture(relative_path: str, line: int, identifier: str,
                 action: Callable[[], None]) -> None:
@@ -1141,45 +1391,103 @@ def collect_definitions(root: Path, documents: list[Document], json_values: dict
     def collect_fx_approvals(document: Document) -> None:
         visible_lines = mask_nonrendered(document.text).splitlines()
         fx_identifier: str | None = None
+        fx_state: str | None = None
         fx_line = 0
         approval_seen = False
+        void_seen = False
+        required_void_record_seen = False
+        fx_counts: dict[str, int] = {}
 
         def flush() -> None:
-            nonlocal approval_seen
-            if fx_identifier is not None and not approval_seen:
+            nonlocal approval_seen, void_seen, required_void_record_seen
+            if fx_identifier is not None and fx_state == "active" and not approval_seen:
                 error = DocsCheckError(
                     "PF-DOC-FX-APPROVAL", document.relative,
                     f"freeze exception {fx_identifier} has no 批准 row "
                     "citing GOV-GENESIS-001")
                 diagnostics.append(OrderedDiagnostic(
                     document.relative, fx_line, 1, fx_identifier, error))
+            elif fx_identifier is not None and fx_state == "void" and not void_seen:
+                error = DocsCheckError(
+                    "PF-DOC-FX-APPROVAL", document.relative,
+                    f"voided freeze exception {fx_identifier} requires 状态 `void`")
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, fx_line, 1, fx_identifier, error))
+            if (fx_identifier == "FX-2026-07-17-D0-06"
+                    and fx_state == "void" and void_seen):
+                required_void_record_seen = True
             approval_seen = False
+            void_seen = False
 
         for index, line in enumerate(visible_lines):
             if re.match(r"^#{1,6}\s", line):
                 flush()
-                fx_match = re.match(
-                    r"^#{1,6}\s+.*?Freeze Exception\s+`(FX-[^`]+)`", line)
-                fx_identifier = fx_match.group(1) if fx_match else None
+                fx_match = re.fullmatch(
+                    r"#{1,6}\s+(?:[0-9]+(?:\.[0-9]+)*\s+)?"
+                    r"(Voided Freeze Exception|Freeze Exception)"
+                    r"\s+`(FX-[^`]+)`\s*", line)
+                fx_identifier = fx_match.group(2) if fx_match else None
+                fx_state = (
+                    "void" if fx_match and fx_match.group(1).startswith("Voided")
+                    else "active" if fx_match else None
+                )
                 fx_line = index + 1
+                if fx_identifier is not None:
+                    fx_counts[fx_identifier] = fx_counts.get(fx_identifier, 0) + 1
+                    if fx_counts[fx_identifier] > 1:
+                        error = DocsCheckError(
+                            "PF-DOC-FX-APPROVAL", document.relative,
+                            f"duplicate freeze exception {fx_identifier}")
+                        diagnostics.append(OrderedDiagnostic(
+                            document.relative, fx_line, 1, fx_identifier, error))
                 continue
-            if fx_identifier is None or approval_seen:
+            if fx_identifier is None:
                 continue
             stripped = line.strip()
             if not stripped.startswith("|"):
                 continue
             cells = split_table_line(stripped)
+            if fx_state == "void":
+                if len(cells) >= 2 and cells[0] == "状态" and cells[1] == "void":
+                    void_seen = True
+                elif len(cells) >= 1 and cells[0] == "批准":
+                    error = DocsCheckError(
+                        "PF-DOC-FX-APPROVAL", document.relative,
+                        f"voided freeze exception {fx_identifier} must not contain "
+                        "an active 批准 row")
+                    diagnostics.append(OrderedDiagnostic(
+                        document.relative, index + 1, 1, fx_identifier, error))
+                continue
+            if approval_seen:
+                continue
             if len(cells) < 2 or cells[0] != "批准":
                 continue
             approval_seen = True
-            if "GOV-GENESIS-001" not in cells[1]:
+            approval_value = cells[1]
+            if approval_value != (
+                    "Quality + Architecture（经 `GOV-GENESIS-001` 追认）"):
                 error = DocsCheckError(
                     "PF-DOC-FX-APPROVAL", document.relative,
-                    f"freeze exception {fx_identifier} approval must cite "
-                    "GOV-GENESIS-001")
+                    f"freeze exception {fx_identifier} approval must match the exact "
+                    "GOV-GENESIS-001 ratification grammar")
                 diagnostics.append(OrderedDiagnostic(
                     document.relative, index + 1, 1, fx_identifier, error))
+            elif not genesis_effective:
+                error = DocsCheckError(
+                    "PF-DOC-FX-APPROVAL", document.relative,
+                    f"freeze exception {fx_identifier} cites ineffective "
+                    f"{genesis_failure}; the full genesis governance stack must "
+                    "be accepted by architecture-owner, davirain, quality-owner")
+                diagnostics.append(OrderedDiagnostic(
+                    document.relative, index + 1, 1, genesis_failure, error))
         flush()
+        if (document.meta.get("id") == "GOV-TASK-FREEZE-001"
+                and not required_void_record_seen):
+            error = DocsCheckError(
+                "PF-DOC-FX-APPROVAL", document.relative,
+                "required void record FX-2026-07-17-D0-06 is missing or active")
+            diagnostics.append(OrderedDiagnostic(
+                document.relative, 1, 1, "FX-2026-07-17-D0-06", error))
 
     authoritative_paths = sorted({*by_relative, source_path, claim_path})
     for relative_path in authoritative_paths:
@@ -1534,10 +1842,7 @@ def validate_task_freeze_packages(root: Path, tasks: list[TaskRecord]) -> None:
 
 def _task_output_matches(root: Path, task: TaskRecord, expected_output: str) -> bool:
     path = root / task.relative
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
-        raise_error("PF-DOC-ENCODING", task.relative, str(error))
+    text = read_repository_text(root, path, task.relative)
     lines = text.splitlines()
     if task.line < 1 or task.line > len(lines):
         return False
@@ -1889,9 +2194,107 @@ def d0_05_sbom_inventory_attested(root: Path) -> bool:
         if not isinstance(value, str) or needle not in value:
             return False
     return True
+
+
+def d0_06_common_primitives_attested(
+        root: Path, evidence_records: dict[str, EvidenceRecord]) -> bool:
+    """Validate the exact GOV-GENESIS-001 common-primitives closure."""
+    payload = _load_bootstrap_closure_attest(
+        root, D0_06_COMMON_PRIMITIVES_ATTEST_RELATIVE)
+    if payload is None:
+        return False
+    expected_fields = {
+        "schemaVersion",
+        "taskId",
+        "kind",
+        "genesisAuthority",
+        "freezePackage",
+        "freezePackageSha256",
+        "frozenTechnicalEvidence",
+        "technicalEvidenceGrade",
+        "redCommit",
+        "implementationGreenCommit",
+        "focusedTestCommand",
+        "focusedTestResult",
+        "focusedAssertionCount",
+        "cleanCiCommand",
+        "cleanCiContext",
+        "cleanCiResult",
+        "independentReviewP0",
+        "independentReviewP1",
+        "docsCheckCommand",
+        "bootstrapAuthority",
+        "notes",
+    }
+    if set(payload) != expected_fields:
+        return False
+    exact_values: dict[str, Any] = {
+        "taskId": "TASK-D0-06",
+        "kind": "common-primitives-genesis-closure",
+        "genesisAuthority": "GOV-GENESIS-001",
+        "freezePackage": (
+            "docs/governance/task-freeze-packages/TASK-D0-06.json"),
+        "frozenTechnicalEvidence": "EV-20260717-0034",
+        "technicalEvidenceGrade": "development",
+        "redCommit": "807d73ba9e5f4bcb3f6b9591de02dd67336c8cf2",
+        "implementationGreenCommit": (
+            "343a08f27835ca9d55b4a3698bf3313cb8e4e06d"),
+        "focusedTestCommand": (
+            "lake build ProofForgeV2.Core.Common proof_forge_next_tests && "
+            "lake exe proof_forge_next_tests"),
+        "focusedTestResult": "ok",
+        "cleanCiCommand": "just ci",
+        "cleanCiContext": "clean-detached-worktree",
+        "cleanCiResult": "ok",
+        "docsCheckCommand": (
+            "/usr/bin/python3 -I -S scripts/docs_check.py --root ."),
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+    }
+    for field, expected in exact_values.items():
+        if payload.get(field) != expected:
+            return False
+    technical_evidence = evidence_records.get("EV-20260717-0034")
+    if (technical_evidence is None
+            or technical_evidence.task != "TASK-D0-06"
+            or technical_evidence.tests != ("TST-COMMON-001",)
+            or technical_evidence.grade != "development"
+            or technical_evidence.result
+            != "passed (complete frozen common-primitives technical slice)"):
+        return False
+    for field, expected in (
+        ("schemaVersion", 1),
+        ("focusedAssertionCount", 232),
+        ("independentReviewP0", 0),
+        ("independentReviewP1", 0),
+    ):
+        value = payload.get(field)
+        if type(value) is not int or value != expected:
+            return False
+    freeze_digest = payload.get("freezePackageSha256")
+    if (not isinstance(freeze_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", freeze_digest)):
+        return False
+    freeze_path = root / exact_values["freezePackage"]
+    try:
+        ensure_repository_path(root, freeze_path, str(exact_values["freezePackage"]))
+        freeze_bytes = read_repository_regular_bytes(
+            root, freeze_path, str(exact_values["freezePackage"]))
+        actual_freeze_digest = hashlib.sha256(freeze_bytes).hexdigest()
+    except (DocsCheckError, OSError):
+        return False
+    if freeze_digest != actual_freeze_digest:
+        return False
+    notes = payload.get("notes")
+    if (not isinstance(notes, str)
+            or "not formal or hermetic evidence" not in notes):
+        return False
+    return True
+
+
 def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[TaskRecord],
                    evidence_records: dict[str, EvidenceRecord],
-                   document_status: dict[str, str]) -> None:
+                   document_status: dict[str, str],
+                   genesis_effective: bool) -> None:
     tasks_by_id = {task.identifier: task for task in tasks}
     diagnostics: list[OrderedDiagnostic] = []
 
@@ -1928,6 +2331,9 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                 or (record.task == "TASK-D0-02" and d0_02_package_boundary_attested(root))
                 or (record.task == "TASK-D0-03" and d0_03_development_triad_attested(root))
                 or (record.task == "TASK-D0-05" and d0_05_sbom_inventory_attested(root))
+                or (record.task == "TASK-D0-06"
+                    and genesis_effective
+                    and d0_06_common_primitives_attested(root, evidence_records))
             )
             if not allowed:
                 error = DocsCheckError(
@@ -2114,10 +2520,8 @@ def validate_agents_checkpoint(root: Path, tasks: list[TaskRecord]) -> None:
     ensure_repository_path(root, agents_path, "AGENTS.md")
     if not agents_path.is_file():
         raise_error("PF-DOC-CHECKPOINT", "AGENTS.md", "required checkpoint file is missing")
-    try:
-        text = agents_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
-        raise_error("PF-DOC-CHECKPOINT", "AGENTS.md", str(error))
+    text = read_repository_text(
+        root, agents_path, "AGENTS.md", encoding_code="PF-DOC-CHECKPOINT")
 
     lines = text.splitlines()
     visible_lines = mask_nonrendered(text).splitlines()
@@ -2257,16 +2661,19 @@ def check(root: Path) -> None:
         *docs_root.rglob("*.md"),
     ], key=lambda path: relative(root, path))
     for path in corpus_paths:
-        ensure_repository_path(root, path, relative(root, path))
+        relative_path = relative(root, path)
+        ensure_repository_path(root, path, relative_path)
         if path.suffix == ".json":
-            json_values[relative(root, path)] = load_json(root, path)
+            # GenesisRootPolicyV1 has a dedicated bounded O_NOFOLLOW reader.
+            # Never touch it first through the generic unbounded text loader:
+            # a FIFO or mutable hardlink must reach only the exact validator.
+            if relative_path == GENESIS_ROOT_POLICY_RELATIVE:
+                continue
+            json_values[relative_path] = load_json(root, path)
             continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as error:
-            raise_error("PF-DOC-ENCODING", relative(root, path), str(error))
+        text = read_repository_text(root, path, relative_path)
         meta = parse_frontmatter(root, path, text)
-        document = Document(path.resolve(), relative(root, path), text, meta)
+        document = Document(path.resolve(), relative_path, text, meta)
         by_id.setdefault(meta["id"], document)
         documents.append(document)
 
@@ -2278,7 +2685,12 @@ def check(root: Path) -> None:
     validate_task_freeze_packages(root, tasks)
     validate_trace(documents, definitions, tasks)
     document_status = {document.meta["id"]: document.meta["status"] for document in documents}
-    validate_tasks(root, definitions, tasks, evidence_results, document_status)
+    genesis_effective, _ = genesis_authority_state(root, {
+        document.relative: document for document in documents
+    })
+    validate_tasks(
+        root, definitions, tasks, evidence_results, document_status,
+        genesis_effective)
     validate_agents_checkpoint(root, tasks)
 
 

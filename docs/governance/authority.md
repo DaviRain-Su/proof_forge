@@ -33,7 +33,8 @@ normative: true
 - Release：Release + Quality + Security；P0/P1 findings 为零。
 - Emergency disable：Security + Release，可先禁用后在 24h 内补 ADR/记录。
 
-批准必须记录 commit、日期、review link、开放 finding；聊天口头同意不算 accepted。
+批准必须使用 [`../document-status.md`](../document-status.md) 定义的五字段：`approvers`、
+`approvedAt`、`reviewCommit`、`reviewLink`、`openFindings`；聊天口头同意不算 accepted。
 
 ## 任务冻结相关批准
 

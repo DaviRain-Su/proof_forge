@@ -958,3 +958,40 @@ normative: false
   `TASK-D0-01` 必须保持 `in_progress`，也不得启动 `TASK-D0-02` 实施。
 - Next：继续 D0-01；先取得 Phase 1–3 accepted review metadata，并实现 external
   TaskApproval/BootstrapTaskVerifierReceipt consumer 的 fail-closed positive/negative acceptance。
+
+## 2026-07-17 — GOV-GENESIS-001 proposal review and fail-closed repair
+
+- Commit/input：治理提案与 F1–F9 fix pack `74f8f4b80c17605b1d5aa3fa7a316c5b6b025606`；
+  D0-06 技术证据仍为 `EV-20260717-0034`，任务保持 `in_progress`。
+- Review：独立治理复核 P0=0、P1=3、P2=4。P1 为 §3.4/§7.3 首次追认变更的适用范围冲突、
+  PHASE-1/2/3 的 `reviewCommit` 指向纯日志 commit、以及 `74f8f4b8` 缺实现日志记录；本条记录
+  第三项并登记前两项的修复。独立 SBOM 安全复核先发现 duplicate-key 与 symlink P1，第二轮
+  又发现 FIFO 阻塞、NUL traceback 与 hardlink escape；最终复核 P0=0/P1=0。
+- Changed：SBOM RED `373b74ab` / `966398fc` 与 GREEN `2247b7c7` 递归拒绝 duplicate JSON key，
+  以逐级 `openat`/`O_NOFOLLOW`/`O_NONBLOCK` 读取 single-link regular license file，并稳定拒绝
+  direct/intermediate symlink、FIFO、NUL 和 hardlink；治理 RED `a2dba748` 冻结 accepted genesis +
+  accepted maintainer + exact D0-06 attest 正例，以及 absent/proposed authority、missing/extra/malformed
+  attest 和 freeze digest mismatch 负例；后续 RED `d585b325`、`f8549240`、`d6fe2464`、`d5e00afc`
+  与 `d0e394e1` 继续冻结 named-maintainer authority、五文档共同批准、genesis set lock、独立
+  `GenesisRootPolicyV1`、EV-0034 exact join 与 void-record 唯一性；`d67945dd` 再补 domain digest
+  KAT、write/fsync/link race 故障注入、special-file 输入以及 same-approval metadata 验收；
+  `ba3be664` 最后冻结 generic loader alias 与否定式 approval suffix 两条 fail-closed 验收。
+- Commands：`python3 -I -S scripts/sbom_self_test.py`；`just sbom`；clean detached worktree
+  `just ci`；`python3 -I -S scripts/docs_check_self_test.py`；
+  `python3 -I -S scripts/genesis_root_policy_self_test.py`；`git diff --check`；两轮 bounded
+  independent read-only review。
+- Results：SBOM self-test/generate/verify 与 clean `just ci` exit 0；第二轮 SBOM review 在 system
+  Python 3.9.6 与当前 Python 验证 P0/P1=0，2,000 轮 fd probe 为 `4 → 4`。治理 RED 先以
+  `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED` 失败；实现中的 exact consumer 后 docs self-test 为
+  `ok (186 mutations)`，Genesis root policy self-test 为 `ok`。最终两路独立只读复核均为
+  P0=0/P1=0：generic docs loader 的 FIFO hardlink alias 在 3 秒内 fail closed，同进程 2,000 次
+  拒绝的 fd probe 为 `5 → 5`；root policy 的 write/fsync/link race fault injection、稳定诊断、
+  `0400` 权限与 digest KAT 均真实命中。
+- Limitations：`GOV-GENESIS-001`、`GOV-MAINTAINERS-001`、`GOV-AUTH-001`、`GOV-CHANGE-001` 与
+  `GOV-TASK-FREEZE-001` 仍为 `proposed`；新 gate 因而在当前仓库正确返回
+  `PF-DOC-FX-APPROVAL`。本条不记录人类批准，不生成实际 genesis root key/policy，
+  不创建 D0-06 closeout attest，也不把 development SBOM 写成 point-in-time release binding；后者仍属
+  `TASK-D0-08`。
+- Next：取得 `davirain` 对五份治理文档的明确书面批准，并由其离线仪式提供 public key/keyId
+  生成 policy 后，先以独立接受变更落地治理状态与 fail-closed gate 并跑全量门禁；再以另一
+  变更关闭 D0-06。不得把两步合并。

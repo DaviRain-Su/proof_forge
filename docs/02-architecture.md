@@ -7,8 +7,8 @@ updated: 2026-07-17
 normative: true
 approvers: architecture-owner, quality-owner
 approvedAt: 2026-07-17
-reviewCommit: 5dbc9cd09b3e06deab613e713c10838998aa8520
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/5dbc9cd09b3e06deab613e713c10838998aa8520
+reviewCommit: 1e97798b5e59c3a7c15db47f2865575dfd3e3dd3
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/1e97798b5e59c3a7c15db47f2865575dfd3e3dd3
 openFindings: none
 ---
 

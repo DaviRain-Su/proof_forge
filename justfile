@@ -19,6 +19,7 @@ test-host-isolation: build
 docs-check:
     /usr/bin/python3 -I -S scripts/docs_check.py
     /usr/bin/python3 -I -S scripts/docs_check_self_test.py
+    /usr/bin/python3 -I -S scripts/genesis_root_policy_self_test.py
     /usr/bin/python3 -I -S scripts/bootstrap_task_objects_self_test.py
 
 # TASK-D0-05 / TST-SBOM-001: deterministic license inventory + CycloneDX 1.6.

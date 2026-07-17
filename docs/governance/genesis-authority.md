@@ -13,6 +13,10 @@ normative: true
 批准记录补齐后方可转为 `accepted` 并生效。与 [`task-freeze.md`](task-freeze.md)、
 [`authority.md`](authority.md)、[`change-control.md`](change-control.md) 并用；
 冲突时本文件只管辖"自举期任务如何合法关闭"，技术语义仍以 accepted ADR/spec 为准。
+本文件不得单独生效：`GOV-MAINTAINERS-001`、`GOV-AUTH-001`、`GOV-CHANGE-001` 与
+`GOV-TASK-FREEZE-001` 必须在同一批准行为中转为 `accepted`，五份文档均须记录
+`architecture-owner, davirain, quality-owner` 的批准，且五份 frontmatter 的 `approvers`、
+`approvedAt`、`reviewCommit`、`reviewLink`、`openFindings` 必须逐字节相同。
 
 ## 1. 问题
 
@@ -41,7 +45,8 @@ normative: true
 
 ## 3. 对既有关闭的追认（Ratification）
 
-本文件经 Architecture + Quality 批准（approval 五字段齐全）后生效，生效时：
+本文件及上述四份治理依赖经 Architecture + Quality 批准（approval 五字段齐全）后生效，
+生效时：
 
 1. **追认** `FX-2026-07-17-D0-01`、`FX-2026-07-17-D0-02`、`FX-2026-07-17-D0-03`、
    `FX-2026-07-17-D0-05` 的关闭为 genesis 关闭；task-freeze.md §11 各 exception 记录的
@@ -80,12 +85,39 @@ normative: true
 ## 4. Genesis root key（离线根）
 
 1. 由实名 maintainer（[`maintainers.md`](maintainers.md)）执行离线仪式生成 Ed25519
-   root key；私钥不入库、不进 CI；公钥与 policy 以
-   `docs/governance/genesis-root-policy.json` 提交（落地时建立）。
-2. genesis root 用于在 cutover 前签发确实需要规范对象形态的治理对象；其签名对象在
-   cutover 后仅作历史证据。
-3. `TASK-D0-04` 服务化 authority 落地后，genesis root 经 revocation/rotation 退役，
-   退役记录进入 implementation log 与 evidence ledger。
+   root key；私钥不入库、不进 CI；只把公钥写入
+   `docs/governance/genesis-root-policy.json`。没有该文件或文件未通过下述 exact validator，
+   本文件即使 frontmatter 标为 `accepted` 也不得生效。
+2. pre-cutover 根使用独立 `GenesisRootPolicyV1`，**不得**伪装成
+   `BootstrapAuthorityPolicyV1`。后者要求多 principal quorum、private-scan policy、authority
+   store 与 verifier digest，均属 D0-04 稳态交付；在 genesis 文件中填 placeholder 会重新引入
+   自举循环并必须 fail closed。
+3. `GenesisRootPolicyV1` 是无 trailing newline 的 canonical PF-JCS closed object，字段精确为：
+
+   | 字段 | 精确约束 |
+   |---|---|
+   | `schema` | `proof-forge.genesis-root-policy.v1` |
+   | `id` / `version` | `proof-forge-genesis-root` / `1.0.0` |
+   | `authorityDocument` / `maintainersDocument` | `GOV-GENESIS-001` / `GOV-MAINTAINERS-001` |
+   | `principalId` | `davirain` |
+   | `keyId` | safe-id，由离线仪式显式输入，不得自动随机生成 |
+   | `algorithm` / `publicKey` | `ed25519` / 32-byte lowercase hex canonical prime-subgroup public key |
+   | `allowedSchemas` | 精确单元素数组 `proof-forge.bootstrap-authority-policy.v1` |
+   | `cutoverTask` | `TASK-D0-04` |
+   | `postCutoverDisposition` | `revoke-and-historical-only` |
+
+   object key 必须按 UTF-16 code unit canonical order；duplicate/unknown/missing field、非 canonical
+   bytes、无效/小阶/非 prime-subgroup key 全部拒绝。policy ContentRef digest 为
+   `SHA-256(UTF8("pf.genesis-root-policy.v1") || 0x00 || canonicalBytes)`。
+4. generator 只接受调用者提供的**公钥**并做 validate/generate；不得提供生成、读取或持久化私钥
+   的代码路径。离线 maintainer 负责生成和保管 private seed，再把 public key 作为普通输入带回。
+   仓库侧仅执行 [`scripts/genesis_root_policy.py`](../../scripts/genesis_root_policy.py)：
+   `generate --key-id <safe-id> --public-key <64-lowercase-hex> --output
+   docs/governance/genesis-root-policy.json`，随后以 `validate --input
+   docs/governance/genesis-root-policy.json` 复核；两条命令均须由 `/usr/bin/python3 -I -S` 启动。
+5. genesis root 只允许签发首个 `BootstrapAuthorityPolicyV1`。D0-04 authority activation 后，
+   genesis root 经 revocation/rotation 退役；其后所有对象由稳态多-principal policy 管辖，root
+   历史记录进入 implementation log 与 evidence ledger。
 
 ## 5. 信任升级义务（防永久低级别）
 
@@ -108,11 +140,16 @@ executable-dylib 粒度 + `TST-SBOM-001` 全量语义收尾），同变更更新
 
 1. 自本文件生效起，**禁止任何新的自我批准 exception**：task-freeze.md §8 的批准字段
    必须解析到本文件或后续同级 `accepted` 人类批准文档；指向本仓库自身
-   closeout/log commit 的批准记录一律无效。
+   closeout/log commit 的批准记录一律无效。§11 的 founding-ratification `批准` 整格只允许
+   精确值 `Quality + Architecture（经 GOV-GENESIS-001 追认）`（文档中的 ID 使用 code span）；
+   历史说明必须放在独立 `历史` 行，不得作为任意后缀混入批准值。
 2. docs_check 落地机器规则：exception 批准字段自指 → 拒绝（`PF-DOC-FX-APPROVAL`）；
    EV 命令栏空/attest 路径不存在 → 拒绝；attest 放行分支纳入 mutation 覆盖。
-3. 协议文本（task-freeze.md）、门禁（docs_check.py）与关单不得再出现在同一变更集；
-   门禁变更必须先落地并全绿，关单变更单独成集。
+3. 本条自本文件生效后的后续变更起适用：协议文本（task-freeze.md）、门禁
+   （docs_check.py）与关单不得出现在同一变更集；门禁变更必须先落地并全绿，关单变更
+   单独成集。本文件的首次批准变更是唯一 founding-ratification carve-out：可按 §3.4 在同一
+   变更集修复 F1–F9 及其门禁，但**不得**在该变更集中关闭 `TASK-D0-06`；D0-06 仍须在批准
+   生效和门禁全绿后以独立变更集关闭。
 4. pre-acceptance 工作必须显式标注目标任务，且该任务依赖未闭合时不得关闭；
    唯一 `in_progress` 纪律不变。
 
