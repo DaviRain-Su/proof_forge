@@ -304,6 +304,13 @@ dsl-negative: build
             priority-const-before-initializer-param) echo "PF-SRC-INVALID: program 'PriorityConstBeforeInitializerParam' contains duplicate const declarations" ;;
             priority-const-name-before-type-value) echo "PF-SRC-INVALID: reserved portable identifier 'const'" ;;
             priority-const-type-before-value) echo "PF-SRC-INVALID: unsupported portable type" ;;
+            duplicate-fn) echo "PF-SRC-INVALID: program 'DuplicateFn' contains duplicate fn declarations" ;;
+            duplicate-fn-param) echo "PF-SRC-INVALID: fn 'first' contains duplicate parameters" ;;
+            empty-fn-body) echo "PF-SRC-INVALID: fn 'helper' must declare at least one statement" ;;
+            escaped-fn-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
+            ordinary-reserved-fn-identifier|escaped-reserved-fn-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'fn'" ;;
+            unknown-fn-result) echo "PF-SRC-INVALID: unsupported portable type" ;;
+            fn-literal-overflow) echo "PF-SRC-INVALID: UInt64 literal is out of range: 18446744073709551616" ;;
             escaped-event-keyword|escaped-error-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             reserved-event-identifier|escaped-reserved-event-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'event'" ;;
             reserved-error-identifier|escaped-reserved-error-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'error'" ;;
@@ -334,6 +341,8 @@ dsl-negative: build
         const-literal-overflow
         priority-enum-before-const priority-const-before-initializer-param
         priority-const-name-before-type-value priority-const-type-before-value
+        duplicate-fn duplicate-fn-param empty-fn-body escaped-fn-keyword ordinary-reserved-fn-identifier
+        escaped-reserved-fn-identifier unknown-fn-result fn-literal-overflow
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
         priority-identity-before-decode

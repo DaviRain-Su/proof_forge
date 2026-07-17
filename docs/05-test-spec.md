@@ -720,6 +720,11 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   literal overflow、escaped contextual keyword 与普通/escaped 保留名必须双入口 exact fail closed；
   `const` 不得污染宿主 Lean keyword 集。D2 const type/name resolution 尚未实现时必须在
   `Typed.check` fail closed，不能静默丢弃或把未解析 expression 送入 target Plan。
+- pure fn declaration 覆盖 exact name、parameter name/type/visibility/order、result 与当前 alpha
+  statement/expression body；signature/body/count/order 必须进入 canonical source binding。duplicate fn、
+  duplicate parameter、empty body、unknown result、literal overflow、escaped contextual keyword 与普通/escaped
+  保留名必须双入口 exact fail closed；`fn` 不得污染宿主 Lean keyword 集。D2 local-call/type/effect/
+  return/acyclicity 尚未实现时必须在 `Typed.check` fail closed，不能静默丢弃或进入 target Plan。
 - 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
   pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
   diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。
