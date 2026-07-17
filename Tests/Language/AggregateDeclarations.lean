@@ -108,6 +108,9 @@ unsafe def run : IO Unit := do
   let structOne ← select session
     (programSource "CanonicalAggregate" "  struct A where\n    value : UInt64\n")
     "<aggregate-struct-one>"
+  let structName ← select session
+    (programSource "CanonicalAggregate" "  struct B where\n    value : UInt64\n")
+    "<aggregate-struct-name>"
   let structFieldName ← select session
     (programSource "CanonicalAggregate" "  struct A where\n    other : UInt64\n")
     "<aggregate-struct-field-name>"
@@ -137,6 +140,9 @@ unsafe def run : IO Unit := do
   let enumOne ← select session
     (programSource "CanonicalAggregate" "  enum A where\n    | Value(UInt64)\n")
     "<aggregate-enum-one>"
+  let enumName ← select session
+    (programSource "CanonicalAggregate" "  enum B where\n    | Value(UInt64)\n")
+    "<aggregate-enum-name>"
   let enumVariantName ← select session
     (programSource "CanonicalAggregate" "  enum A where\n    | Other(UInt64)\n")
     "<aggregate-enum-variant-name>"
@@ -179,20 +185,22 @@ unsafe def run : IO Unit := do
 
   expect (base.sourceHash != structOne.sourceHash && structOne.sourceHash != enumSameShape.sourceHash)
     "struct/enum presence and kind must bind the source hash"
-  expect (structOne.sourceHash != structFieldName.sourceHash &&
+  expect (structOne.sourceHash != structName.sourceHash &&
+      structOne.sourceHash != structFieldName.sourceHash &&
       structOne.sourceHash != structFieldType.sourceHash &&
       structOne.sourceHash != structFieldCount.sourceHash &&
       structFieldsAB.sourceHash != structFieldsBA.sourceHash &&
       structsAB.sourceHash != structsBA.sourceHash)
-    "struct field name, type, count, field order, and declaration order must bind the source hash"
-  expect (enumOne.sourceHash != enumVariantName.sourceHash &&
+    "struct declaration/field name, type, count, field order, and declaration order must bind the source hash"
+  expect (enumOne.sourceHash != enumName.sourceHash &&
+      enumOne.sourceHash != enumVariantName.sourceHash &&
       enumOne.sourceHash != enumPayloadType.sourceHash &&
       enumOne.sourceHash != enumVariantCount.sourceHash &&
       enumOne.sourceHash != enumPayloadCount.sourceHash &&
       enumPayloadAB.sourceHash != enumPayloadBA.sourceHash &&
       enumVariantsAB.sourceHash != enumVariantsBA.sourceHash &&
       enumsAB.sourceHash != enumsBA.sourceHash)
-    "enum variant name/count/order, payload count/type/order, and declaration order must bind the source hash"
+    "enum declaration/variant name/count/order, payload count/type/order, and declaration order must bind the source hash"
   expect (enumNoParens.enums[0]!.variants[0]!.payloadTypes.isEmpty)
     "a bare enum variant must retain a nullary payload"
 
