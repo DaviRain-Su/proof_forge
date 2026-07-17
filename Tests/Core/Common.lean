@@ -29,13 +29,31 @@ private def expectSemVerLt (left right : String) : IO Unit := do
     throw <| IO.userError s!"semver precedence fixture failed to parse: {e}"
 
 def run : IO Unit := do
-  expectOk "digest happy"
-    (parseDigest "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-    { algorithm := .sha256
-      hex := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
+  let digestWire := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  match parseDigest digestWire with
+  | .ok digest =>
+    unless digest.algorithm == .sha256 && digest.bytes.size == 32 do
+      throw <| IO.userError "digest happy: expected sha256 with 32 raw bytes"
+    unless digest.bytes[0]! == 0x01 && digest.bytes[31]! == 0xef do
+      throw <| IO.userError "digest happy: hex was not decoded to raw bytes"
+    match renderDigest digest with
+    | .ok rendered =>
+      unless rendered == digestWire do
+        throw <| IO.userError s!"digest canonical rendering mismatch: {rendered}"
+    | .error e => throw <| IO.userError s!"digest renderer rejected parsed value: {e}"
+  | .error e => throw <| IO.userError s!"digest happy: unexpected error {e}"
   expectErr "digest uppercase" (parseDigest "sha256:0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef")
   expectErr "digest bare hex" (parseDigest "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
   expectErr "digest short" (parseDigest "sha256:abcd")
+  expectErr "digest empty" (parseDigest "")
+  expectErr "digest unknown algorithm"
+    (parseDigest "sha512:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+  expectErr "digest invalid hex"
+    (parseDigest "sha256:g123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+  expectErr "digest long"
+    (parseDigest "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef00")
+  expectErr "digest render rejects invalid raw length"
+    (renderDigest { algorithm := .sha256, bytes := ByteArray.empty })
   expectOk "semver core" (parseSemVerCore "1.2.3") { major := 1, minor := 2, patch := 3 }
   expectErr "semver v prefix" (parseSemVerCore "v1.2.3")
   expectErr "semver leading zero" (parseSemVerCore "01.2.3")
