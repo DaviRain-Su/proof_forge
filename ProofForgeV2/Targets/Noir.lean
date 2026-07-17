@@ -586,6 +586,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
 def makePlan (resolved : ResolvedProgram .noir) : CompileResult Plan := do
   unless resolved.descriptor == descriptor do
     throw <| .planInvariant .noir "resolved target descriptor does not match the Noir profile"
+  validateResolved descriptor resolved
   let source := resolved.source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .noir

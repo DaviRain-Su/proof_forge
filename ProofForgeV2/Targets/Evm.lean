@@ -435,6 +435,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       throw <| .planInvariant .evm s!"entry '{entry.name}' does not return"
 
 def makePlan (resolved : ResolvedProgram .evm) : CompileResult Plan := do
+  validateResolved descriptor resolved
   let source := resolved.source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .evm

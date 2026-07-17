@@ -597,6 +597,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
 def makePlan (resolved : ResolvedProgram .solana) : CompileResult Plan := do
   unless resolved.descriptor == descriptor do
     throw <| .planInvariant .solana "resolved target descriptor does not match the Solana profile"
+  validateResolved descriptor resolved
   let source := resolved.source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .solana

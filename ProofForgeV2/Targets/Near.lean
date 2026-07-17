@@ -637,6 +637,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
 def makePlan (resolved : ResolvedProgram .near) : CompileResult Plan := do
   unless resolved.descriptor == descriptor do
     throw <| .planInvariant .near "resolved target descriptor does not match the NEAR profile"
+  validateResolved descriptor resolved
   let source := resolved.source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .near

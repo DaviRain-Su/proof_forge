@@ -16,6 +16,19 @@ def validateRequirementEnvelope (program : SemanticProgram) : CompileResult Unit
       throw <| .invalidProgram s!"duplicate semantic requirement '{requirement}'"
     seen := seen.push requirement
 
+/-- Revalidate the public `ResolvedProgram` seam before target planning. The
+structure is intentionally inspectable, so a direct constructor call must not
+bypass descriptor equality or requirement support established by `resolve`. -/
+def validateResolved (expected : TargetDescriptor) (resolved : ResolvedProgram target) :
+    CompileResult Unit := do
+  unless resolved.descriptor == expected do
+    throw <| .planInvariant expected.targetId
+      "resolved target descriptor does not match the target profile"
+  validateRequirementEnvelope resolved.source
+  for requirement in resolved.source.requirements do
+    unless expected.supportedRequirements.contains requirement do
+      throw <| .unsupportedRequirement requirement expected.targetId
+
 def resolve (descriptor : TargetDescriptor) (program : SemanticProgram) : CompileResult (ResolvedProgram descriptor.targetId) := do
   validateRequirementEnvelope program
   for requirement in program.requirements do
