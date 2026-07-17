@@ -739,6 +739,14 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   普通 `state` declaration 不得被 generic contextual parser 误分类。D2 predicate Bool type checking、
   name/pure-fn resolution 与 proof binding 尚未实现时必须在 `Typed.check` fail closed，不能静默丢弃或
   进入 target Plan。
+- extension requirement 覆盖 lowercase dotted ID、完整 SemVer prerelease/build identity 与 exact
+  lowercase SHA-256 digest；id/version/digest/count/order 及同前缀 declaration count 必须分别进入
+  canonical source binding。duplicate 按 ID 拒绝，固定在 duplicate invariant 与 initializer parameter
+  之间；malformed/uppercase/single-segment ID、range/latest/wildcard/v-prefix/leading-zero/overflow
+  SemVer、bare/uppercase/wrong-length digest 与 escaped contextual introducer 必须双入口 fail closed，
+  decode 首错固定为 id→version→digest。`requires`/`extension`/`version`/`digest` 不得污染宿主 Lean
+  keyword 集。D2 typed registry、extension semantics、requirement inference 与 support resolution 尚未
+  实现时必须在 `Typed.check` fail closed，不能从 Source 声明直接生成可信 requirements。
 - 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
   pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
   diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。

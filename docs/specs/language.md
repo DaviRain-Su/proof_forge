@@ -251,7 +251,7 @@ contain。文件上限返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受
 `decodeProgramCommandChecked` 返回的 validated `Source.Program` 是 CLI Loader 与 Lean
 command elaborator 的唯一业务 AST。共享 validation 在 decode 后按固定顺序检查：至少一个
 entry/view、state 名唯一、entry 名唯一、event 名唯一、error 名唯一、struct 名唯一、enum 名唯一、
-const 名唯一、fn 名唯一、invariant 名唯一、initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant
+const 名唯一、fn 名唯一、invariant 名唯一、extension ID 唯一、initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant
 按 enum 声明顺序非空且名称唯一、每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按
 error 声明顺序唯一、每个 entry 参数名唯一、每个 fn 参数名唯一且 body nonempty；
 duplicate initializer 仍在构造 `Source.Program` 前拒绝。Loader 只拥有 module header/
@@ -293,7 +293,17 @@ fn body 作为 `Block` 必须 nonempty。该切片不执行 D2 local-call lookup
 任一非空 invariant table 必须在 `Typed.check` fail closed，不能以未检查 predicate 进入 Semantic、
 resolver 或 target Plan。
 
-为避免 ProofForge import 把 Lean 宿主中的 `struct`/`enum`/`const`/`event`/`error`/`fn`/`invariant` 变成全局 parser keyword，
+当前 D1 pre-acceptance alpha 把 extension requirement 的 exact lowercase dotted ID、完整 canonical
+SemVer 字符串（包括 prerelease/build identity）与 `sha256:<64 lowercase hex>` digest 保存在独立
+Source projection，并把 id/version/digest/count/order 纳入 development source binding。同一 ID 即使
+version/digest 不同也按 duplicate 拒绝；decode 顺序固定为 id→version→digest。完整 `Program.items`
+落地前只保证 extension requirement 同类源码顺序。D2 typed extension registry、operation/effect/
+requirement inference、semantic registry digest 与 target support resolution 尚未实现，因此任一非空
+extension table 必须在 `Typed.check` fail closed，不能把 Source 声明直接伪装成可信
+`ProgramRequirements` 或进入 target Plan。
+
+为避免 ProofForge import 把 Lean 宿主中的 `struct`/`enum`/`const`/`event`/`error`/`fn`/`invariant`/
+`requires`/`extension`/`version`/`digest` 变成全局 parser keyword，
 这些词只在 `pfItem` 首位按 raw token exact 识别；escaped keyword 或其他 leading identifier 失败。
 其 semantic identifier 同时属于 DSL 保留词：program、declaration、parameter、expression 与
 assignment 的 identifier decoder 对普通或 escaped 后值为上述名称统一返回 `PF-SRC-INVALID`，

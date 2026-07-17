@@ -1304,3 +1304,42 @@ normative: false
 - Next：唯一 active development pointer 推进到 D1-PA-11（extension requirement carrier、exact
   version/digest binding 与 duplicate/fail-closed boundary）；D1-PA-12 排队为 proof reference carrier、
   exact invariant/qualified theorem binding 与 duplicate/fail-closed boundary。
+
+## 2026-07-17 — D1 extension requirement pre-acceptance slice
+
+- Commits：完整 carrier/negative matrix RED `5d73bf65`；parser、Source canonical、quote 与 Typed
+  fail-closed GREEN `5dca8069`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-SOURCE-WIRE-001`、`SPEC-CAP-001`、`TST-SRC-004`。本切片
+  只追加 D1-PA-11 development evidence，不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或
+  Done 语义。
+- Changed：新增 `Source.ExtensionReq{id,version,digest}`、`Source.Item.extensionReq` 与
+  `Source.Program.extensionRequirements`；Lean command/ParserSession 共享 contextual raw
+  `requires extension ... version ... digest ...` parser/decoder、validator 与 quote，并保持同类源码顺序。
+- Exact scalar boundary：ID 复用 locked common lowercase dotted ASCII grammar；version 复用完整
+  SemVer parse+render 且保留 prerelease/build identity；digest 复用 exact lowercase SHA-256
+  parse+render。Source wire 仍保存规范要求的 canonical strings，不把 D1 carrier 偷换为 typed
+  requirement key，也不接受 range/latest/wildcard、v-prefix、uppercase/bare digest 或 alias。
+- Binding/Validation：独立 canonical 尾槽固定 count 与每项 id→version→digest，mutation 分别覆盖
+  presence、同前缀 count、ID、完整 SemVer（含独立 build identity）、digest 与 declaration order。duplicate
+  按 ID 而非完整 triple 拒绝，优先级固定为 invariant duplicate→extension duplicate→initializer
+  parameter；item decode 固定 id→version→digest。
+- Safety：四个 contextual words 不污染宿主 Lean identifier；escaped structural word、raw escaped ID、
+  ordinary wrong structural word 均 fail closed，extension 后接 state/invariant/fn 不被吞噬或混入错误
+  table。D2 typed registry、operation/effect rules、requirement inference 与 support resolution 尚未实现，
+  因此 `Typed.check`/`Compiler.compile` 对任一非空 extension table 精确 fail closed。
+- Review/Commands：adversarial review P0=0/P1=0；`lake build
+  Tests.Language.ExtensionRequirements`；`lake build proof_forge_next_tests`；`lake env
+  .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed `just ci` at
+  `5dca8069`；`git diff --check`。
+- Results：focused、canonical mutation matrix、20 个双入口 negatives、isolation committed archive、
+  118-job clean build、110-job aggregate、186 项 docs mutation、治理/SBOM/runtime closure 与完整
+  `just ci` exit 0；development evidence 为 `EV-20260717-0045`。
+- Limitations：当前 alpha 只保证 extension 同类 declaration order；没有 typed extension registry、
+  registered typed syntax/operation/effect rules、requirement inference、semantic registry digest、support
+  resolution、完整 ordered `Source.ProgramV1.items` 或 target materialization。digest continuation 的额外
+  indentation 不是当前 EBNF 的独立约束；malformed form 使用 Lean reserved token 时仍可能在 parser
+  层返回通用拒绝，stable Diagnostic v1 属于 D1-07。D0 formal milestone 仍为 5/8，D1 formal task
+  仍 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：唯一 active development pointer 推进到 D1-PA-12（proof reference carrier、exact
+  invariant/qualified theorem binding 与 duplicate/fail-closed boundary）；D1-PA-13 排队为
+  entry/view/fn cross-kind callable namespace uniqueness 与 deterministic validation priority。
