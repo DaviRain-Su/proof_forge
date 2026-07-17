@@ -323,6 +323,8 @@ dsl-negative: build
             duplicate-view-fn-callable) echo "PF-SRC-INVALID: program 'DuplicateViewFnCallable' contains duplicate callable declarations" ;;
             priority-fn-before-callable) echo "PF-SRC-INVALID: program 'PriorityFnBeforeCallable' contains duplicate fn declarations" ;;
             priority-callable-before-invariant) echo "PF-SRC-INVALID: program 'PriorityCallableBeforeInvariant' contains duplicate callable declarations" ;;
+            duplicate-entry-view-callable) echo "PF-SRC-INVALID: program 'DuplicateEntryViewCallable' contains duplicate entry declarations" ;;
+            priority-entry-before-callable) echo "PF-SRC-INVALID: program 'PriorityEntryBeforeCallable' contains duplicate entry declarations" ;;
             duplicate-invariant) echo "PF-SRC-INVALID: program 'DuplicateInvariant' contains duplicate invariant declarations" ;;
             escaped-invariant-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             ordinary-reserved-invariant-identifier|escaped-reserved-invariant-identifier|reserved-invariant-expression) echo "PF-SRC-INVALID: reserved portable identifier 'invariant'" ;;
@@ -393,6 +395,7 @@ dsl-negative: build
         priority-fn-param-before-result-body priority-fn-result-before-body
         duplicate-entry-fn-callable duplicate-view-fn-callable
         priority-fn-before-callable priority-callable-before-invariant
+        duplicate-entry-view-callable priority-entry-before-callable
         duplicate-invariant escaped-invariant-keyword ordinary-reserved-invariant-identifier
         escaped-reserved-invariant-identifier reserved-invariant-expression invariant-literal-overflow
         priority-fn-before-invariant priority-invariant-before-initializer-param

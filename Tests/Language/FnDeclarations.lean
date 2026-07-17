@@ -280,6 +280,18 @@ unsafe def run : IO Unit := do
       (programSource "PriorityCallableBeforeInvariant"
         "  entry helper(value : UInt64) : UInt64 do\n    return value\n  fn helper(other : UInt64) : UInt64 do\n    return other\n  invariant Holds : 1\n  invariant Holds : 2\n")
       "<priority-callable-before-invariant>")
+  expectInvalid "entry and view share the entries namespace"
+    "program 'DuplicateEntryViewCallable' contains duplicate entry declarations"
+    (← session.parsePrograms
+      (programSource "DuplicateEntryViewCallable"
+        "  entry helper(value : UInt64) : UInt64 do\n    return value\n  view helper(other : UInt64) : UInt64 do\n    return other\n")
+      "<duplicate-entry-view-callable>")
+  expectInvalid "same-kind entry duplicate precedes cross-kind callable duplicate"
+    "program 'PriorityEntryBeforeCallable' contains duplicate entry declarations"
+    (← session.parsePrograms
+      (programSource "PriorityEntryBeforeCallable"
+        "  entry helper(value : UInt64) : UInt64 do\n    return value\n  entry helper(other : UInt64) : UInt64 do\n    return other\n  fn helper(extra : UInt64) : UInt64 do\n    return extra\n")
+      "<priority-entry-before-callable>")
   expectInvalid "fn does not satisfy the entry/view requirement"
     "program 'FnOnly' must declare at least one entry or view"
     (← session.parsePrograms
