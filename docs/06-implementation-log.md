@@ -760,6 +760,22 @@ normative: false
   Phase 1–3 accepted 是为解锁 D0 的治理决定，不表示 Phase 0 商业验证或 Phase 7 review 完成。
 - Next：开工 `TASK-D0-02`（独立 Lake package/namespace/exe / `TST-ISO-001`），先写冻结完成包。
 
+
+## 2026-07-17 — TASK-D0-02 closed via FX-2026-07-17-D0-02; TASK-D0-03 in_progress
+
+- Why exception：D0-02 package isolation 已有 development GREEN（`EV-20260717-0029`），但全局
+  bootstrap TaskApproval/receipt 规则会永久 blocked；用户要求往下推进。
+- Changed：
+  - `docs/governance/bootstrap-closure/TASK-D0-02.attest.json`（package-boundary-closure）；
+  - docs_check 允许 D0-02+attest 的 bootstrap EV（不推广到 D0-03..06）；
+  - `EV-20260717-0030` bootstrap 关闭 D0-02；task → `done`；
+  - `TASK-D0-03` → `in_progress`（冻结包已存在）；AGENTS Active=D0-03。
+- Commands：`python3 -I -S scripts/docs_check.py --root .`；
+  `python3 -I -S scripts/docs_check_self_test.py`（closeout 时运行）。
+- Limitations：未声称 signed approval/receipt/hermetic formal；D0-04 host 仍不合格；
+  D0-03 交付仍是 development evidence finalizer 切片，不是 formal Stage-0。
+- Next：在 D0-03 冻结包内推进 TST-EVIDENCE-001/HOST-001/TOOL-001；禁止回填 D0-02 完成面。
+
 ## 记录模板
 
 ```markdown

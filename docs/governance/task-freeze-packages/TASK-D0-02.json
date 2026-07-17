@@ -3,7 +3,7 @@
   "taskId": "TASK-D0-02",
   "frozenAt": "2026-07-17",
   "freezeCommit": "3e6562e0d3937e2169ba5e3d276a1da71a9022e5",
-  "output": "建立独立 Lake package/namespace/exe",
+  "output": "建立独立 Lake package/namespace/exe（FX-2026-07-17-D0-02：package-boundary 以 isolation development gates 关闭；signed TaskApproval/authenticated receipt 移交 D0-04）",
   "dependencies": [
     "TASK-D0-01"
   ],
@@ -23,16 +23,19 @@
     "locked Lean and external tool closure",
     "network sandbox and process-session containment",
     "formal evidence finalization or release clean-room aggregate",
-    "compiler language, semantic, target Plan, or materializer behavior"
+    "compiler language, semantic, target Plan, or materializer behavior",
+    "signed TaskApproval and authenticated task receipt (deferred to D0-04 under FX-2026-07-17-D0-02)"
   ],
   "doneWhen": [
     "just v2-isolation passes from the frozen product archive",
     "just ci passes with the focused isolation gate wired in",
-    "TST-ISO-001 evidence satisfies the traceability grade rule",
-    "the task completion surface has no unapproved drift"
+    "docs/governance/bootstrap-closure/TASK-D0-02.attest.json is valid under FX-2026-07-17-D0-02",
+    "bootstrap EV EV-20260717-0030 binds TASK-D0-02/TST-ISO-001 and is accepted by docs-check",
+    "the task completion surface has no unapproved drift beyond the freeze exception"
   ],
   "overflowPolicy": "Evidence/tool closure goes to TASK-D0-03; Stage-0 or protected integration goes to TASK-D0-04 or TASK-D0-07; no new task without milestone-change approval.",
   "maxCalendarDays": 3,
   "maxCommits": 20,
-  "notes": "TST-ISO-001 is a focused development package-boundary gate, not formal hermetic evidence."
+  "freezeException": "FX-2026-07-17-D0-02",
+  "notes": "Exception closes package-boundary only. Not hermetic/formal evidence; not bootstrap authority completion."
 }

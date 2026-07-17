@@ -414,13 +414,18 @@ task/activation receipt 必须由 policy-pinned key 签名，并只能通过 ext
 requiredTestSet 的 exact tuple 唯一、non-revoked lookup。D0-01 的 pure object consumer 即使通过
 synthetic signed vectors，也只证明对象内容闭合；它不证明实际 Stage-0/fd/RPC provenance。当前
 producer/policy root/handoff/signer/verifier/protected service 与 production capability adapter 未实现，
-因此除 **`FX-2026-07-17-D0-01` 明示例外** 外，任何 `Grade=bootstrap` 行或 D0 `done` 转换仍必须以
+因此除下列 **freeze exception** 外，任何 `Grade=bootstrap` 行或 D0 `done` 转换仍必须以
 `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED` 拒绝；`passed` 文本本身不充分。
-该例外仅允许 `TASK-D0-01` 在存在精确
-`docs/governance/bootstrap-closure/TASK-D0-01.attest.json`（kind=`pure-consumer-closure`、
-`freezeException=FX-2026-07-17-D0-01`、`protectedIntegration=deferred-fail-closed-to-D0-04`、
-`selfTestResult=ok`）时，以 pure-consumer bootstrap EV 关闭；不得推广到 `TASK-D0-02..06`，
-也不得把 protected production positive 宣称为已闭合。`formal` 还必须由正式
+- **`FX-2026-07-17-D0-01`**：`TASK-D0-01` 在存在精确
+  `docs/governance/bootstrap-closure/TASK-D0-01.attest.json`（kind=`pure-consumer-closure`、
+  `freezeException=FX-2026-07-17-D0-01`、`protectedIntegration=deferred-fail-closed-to-D0-04`、
+  `selfTestResult=ok`）时，以 pure-consumer bootstrap EV 关闭。
+- **`FX-2026-07-17-D0-02`**：`TASK-D0-02` 在存在精确
+  `docs/governance/bootstrap-closure/TASK-D0-02.attest.json`（kind=`package-boundary-closure`、
+  `freezeException=FX-2026-07-17-D0-02`、`bootstrapAuthority=deferred-fail-closed-to-D0-04`、
+  `selfTestResult=ok`、`isolationResult=ok`）时，以 package-boundary bootstrap EV 关闭。
+上述例外均不得推广到 `TASK-D0-03..06`，也不得把 protected production positive 或 formal hermetic
+证据宣称为已闭合。`formal` 还必须由正式
 evidence-set binder 校验对应不可变 EV JSON；ledger 中的文字标签不能自行把 development
 观察升级为 formal evidence；在 `TASK-D0-07` 的 formal finalizer/binder 落地并接入 docs-check 前，任何
 `Grade=formal` 行都必须以 `PF-DOC-EVIDENCE-FORMAL-UNVERIFIED` 拒绝。requirements matrix

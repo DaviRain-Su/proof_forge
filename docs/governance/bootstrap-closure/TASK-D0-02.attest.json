@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-02",
+  "kind": "package-boundary-closure",
+  "freezeException": "FX-2026-07-17-D0-02",
+  "implementationGreenCommit": "2d9bb628525445fdc8537589ed341f1ee93f4715",
+  "selfTestCommand": "/usr/bin/python3 -I -S -B scripts/v2_isolation_self_test.py",
+  "selfTestResult": "ok",
+  "isolationCommand": "just v2-isolation",
+  "isolationResult": "ok",
+  "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+  "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+  "notes": "Closes D0-02 package boundary only. Signed TaskApproval/authenticated receipt remain deferred to D0-04; not hermetic/formal evidence."
+}

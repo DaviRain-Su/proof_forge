@@ -14,11 +14,11 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | 无（D0-02 实现与 development gates 已完成，现按 R5 转为 blocked） |
-| Next task | **TASK-D0-02**：取得合法 bootstrap TaskApproval 与 authenticated task receipt 后关闭；未关闭前不得越过依赖 |
+| Active task | **TASK-D0-03**：development evidence schema/bundle/catalog finalizer + host observation + tool-lock gates（`TST-EVIDENCE-001`/`TST-HOST-001`/`TST-TOOL-001`）；formal Stage-0/receipt 不在本任务 |
+| Next task | **TASK-D0-04**（仍 blocked：eligible host / Stage-0 / authority；D0-03 关闭后才能评估是否可开工） |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | `TASK-D0-02` 已有 development GREEN，但缺 exact signed TaskApproval 与 authenticated task receipt，不能生成 bootstrap closure；`TASK-D0-04` 尚缺 eligible host、digest-bound Stage-0 handoff、跨 `setsid()` 的 process-session containment、signed required-set/catalog authority、per-task receipt/authenticated append-only service 与 six-item activation producer/consumer；当前 host 因 `Sealed: Broken` 且 Xcode pathname 可由当前 admin 用户替换而不合格；activation 后的 formal finalizer/freshness/private scan/revocation/support binding 仍未开始，Phase 0 商业证据也未闭合 |
+| Known blocker | `TASK-D0-04` 仍缺 eligible host、Stage-0 handoff、process-session containment、signed authority/receipt/activation；host seal broken 且 Xcode pathname 可被当前用户改；D0-02/D0-01 已通过 freeze exception 关闭 package/consumer 切片，不表示 bootstrap authority 完成 |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

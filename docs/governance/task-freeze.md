@@ -227,7 +227,19 @@ Milestone 增行必须同变更更新 lock，并经 Architecture + Quality 批�
 | `doneWhen` | (a) docs-check + pure-consumer self-test 绿；(b) Phase 1–3 accepted；(c) `docs/governance/bootstrap-closure/TASK-D0-01.attest.json` 有效且 bootstrap EV `EV-20260717-0028` passed；(d) 完成面与 freeze package 一致 |
 | `outOfScope` | Stage-0 handoff / protected RPC production positive / D0-04 six-item activation / formal evidence-set binder |
 
-**状态：** exception 路径下 `TASK-D0-01` → `done`；Active 清空；Next = `TASK-D0-02`。
+**状态：** exception 路径下 `TASK-D0-01` → `done`。
+
+### 11.3 Freeze Exception `FX-2026-07-17-D0-02`
+
+| 字段 | 值 |
+|---|---|
+| 原因 | D0-02 的 Lake/package isolation 已 development 绿，但全局规则要求 bootstrap TaskApproval/authenticated receipt 才能 `done`；该基建属 D0-04，未实现则永久 blocked，阻断 D0-03+ |
+| 批准 | Quality + Architecture（本仓库 closeout 记录） |
+| 时限 | 一次性；不得自动推广到 D0-03..06 |
+| 变更 | done = `v2-isolation`/`ci` + package-boundary attest + bootstrap EV；signed approval/receipt **移交 D0-04** |
+| 回滚 | 撤销 attest 后 docs-check 拒绝 D0-02 bootstrap EV，需 reopen |
+
+**状态：** `TASK-D0-02` → `done`；Active = `TASK-D0-03`。
 
 ## 12. 违规处理
 

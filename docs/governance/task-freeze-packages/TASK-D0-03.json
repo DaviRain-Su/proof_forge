@@ -40,5 +40,5 @@
   "overflowPolicy": "Bootstrap authority and activation remain in TASK-D0-04; formal finalization remains in TASK-D0-07; SBOM moves to TASK-D0-05 and common primitives to TASK-D0-06 without expanding this package.",
   "maxCalendarDays": 3,
   "maxCommits": 20,
-  "notes": "Pending-prep freeze only. TASK-D0-02 remains blocked, so TASK-D0-03 stays pending and all results before dependency closure are explicitly pre-acceptance development evidence."
+  "notes": "Activated after FX-2026-07-17-D0-02 closed TASK-D0-02. Results remain development/pre-bootstrap until D0-04 authority exists; formal Stage-0/receipt still out of scope."
 }
