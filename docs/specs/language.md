@@ -224,6 +224,25 @@ unary 或其他 expression kind，type position 的 `(UInt64)` 也不得被误�
 pipeline 必须保持不变；grouped checkedAdd 继续正常通过，grouped Bool/checkedSub/checkedMul
 只表现其内部表达式既有的 exact Typed boundary。
 
+D1-PA-25 冻结的 pre-acceptance alpha unary checked negation 子集新增
+`Source.Expr.checkedNeg(operand)`，parser 形状固定为 `syntax:75 "-" pfExpr:75 : pfExpr`。前缀与
+operand 使用相同 precedence `75`，因此一元负号右结合，并且其 binding power 高于 `*`、`+` 和
+binary `-`：`-2 * 3` 必须解析为 `(-2) * 3`，`-(2 + 3)` 保留 grouped operand，`1 - -2`、
+`1 + -2` 与 `1 * -2` 接受一元表达式作为 binary operand，`- - 2` 保留两个 checked-negation
+node。`-2` 与 `- 2` 都是对 unsigned literal 的 checked negation，不得折叠成 signed literal。
+Source canonical encoder 以 append-only Expr tag `7` 后接 operand；既有 tags `0..6` 与 goldens
+不得改变。`quoteExpr` 必须保留该节点；`Typed.check` 对其逐字 fail closed 为
+`checked negation is not yet supported by typed checking`。
+
+本切片明确 supersede D1-PA-22 中 `- 3`、`-3`、`7 - - 3`、`1 + - 2` 的临时 parser-negative
+pin，以及 D1-PA-24 中 grouped `(- 3)` 的临时 unary-negative pin；这些用例从 PA25 起迁移为精确
+positive AST pin，旧 evidence 仍只描述当时实现。Lean lexer 中无空格的 `--` 是 line comment
+起点，不是两个一元负号：`--2` 不得被描述为 nested negation；`1--2` 的当前宿主词法行为是
+literal `1` 后接 comment，测试必须将其固定为 comment-boundary control。需要表达 binary subtraction
+of a negative operand 时，canonical source spelling 是 `1 - -2`。本切片不新增 `!`/`~`、signed
+literal、constant folding、Typed/Semantic negation、arithmetic requirement、overflow rule、target
+behavior 或 runtime representation；bare/malformed operator 与额外 payload 仍须停在 parser boundary。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

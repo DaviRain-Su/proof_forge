@@ -125,6 +125,7 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-22 | TASK-D1-04 | binary checked subtraction Source-only carrier；`+`/`-` 同层左结合、Expr tag `5` 与 Typed fail-closed boundary | `756afdc2`, `0d97da50`, `e8c3773f` | focused 128-job aggregate + left-associative AST/sourceHash pins + parser-boundary negatives；final reviews P0/P1=0；checkpoint `just ci` deferred | complete (development) |
 | D1-PA-23 | TASK-D1-04 | binary checked multiplication Source-only carrier；高于 `+`/`-` 的 precedence、Expr tag `6` 与 Typed fail-closed boundary | `21a4157b`, `6b30cce4`, `2749d1c6` | focused 130-job aggregate + precedence/associativity AST/sourceHash pins + parser-boundary negatives；final reviews P0/P1=0；checkpoint `just ci` deferred | complete (development) |
 | D1-PA-24 | TASK-D1-04 | parenthesized expression grouping parser sugar；无新 Expr ctor/tag，等价 grouping canonical/sourceHash 不变 | `77c6b23b`, `ddaadfb6`, `d321db74` | focused 132-job aggregate + same-identity AST/canonical/hash equality + parser-boundary negatives；final reviews P0/P1=0；checkpoint `just ci` deferred | complete (development) |
+| D1-PA-25 | TASK-D1-04 | unary checked negation Source-only carrier；prefix precedence `75`、Expr tag `7`、既有 unary-negative pin migration 与 Typed fail-closed boundary | — | unary/binary-minus/scope/canonical audits；spec freeze before RED | **active** |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|

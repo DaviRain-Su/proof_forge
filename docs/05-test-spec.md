@@ -844,6 +844,25 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   unary 或新增 expression。
   本切片不得新增 Source ctor/tag/field、quote arm、Typed/Semantic rule、requirement、target ABI/runtime；
   grouped checkedAdd positive 以及 grouped Bool/checkedSub/checkedMul 的既有 exact Typed controls 必须保持。
+- D1-PA-25 的 alpha unary checked-negation tests 固定 production rule
+  `syntax:75 "-" pfExpr:75 : pfExpr` 与 `Source.Expr.checkedNeg(operand)`。positive 必须覆盖 initializer、
+  entry、view、fn 的 return/let value 可达位置以及 Lean command/ParserSession parity，并精确固定
+  `-2`、`- 2`、`-x`、`-2 * 3`、`-(2 + 3)`、`1 - -2`、`1 + -2`、`1 * -2`、`- - 2`
+  和 grouped `(-3)` 的 AST；nested unary 必须保留两个 node，不能 constant-fold 或改写成 signed literal。
+  Source canonical encoder 必须使用 append-only Expr tag `7` 后接 operand；既有 tags `0..6`/goldens
+  不变。CheckedNegTwin identity 下 literal `2`、variable `x`、precedence/grouping/binary-operand/nested
+  cases 的真实 canonical bytes/hash 必须在 GREEN 前绑定，并包含与 literal `2`、negative literal `3`
+  及错误 grouping tree 的 non-alias controls。
+  同一个 RED changeset 必须从 `CheckedSub` negative matrix 迁移 `- 3`、`-3`、`7 - - 3`、
+  `1 + - 2`，并从 `Grouping` negative matrix 迁移 `(- 3)`；新 CheckedNeg suite 必须重新固定这些
+  positive，不能保留互相矛盾的旧 parser pin。bare `-`、`-()`、`-*2`、`-+2`、`-2 3`、
+  `1 - -` 与缺失 operand/payload 必须拒绝。无空格 `--` 按 Lean line-comment boundary 处理：不得把
+  `--2` 写成 nested-negation positive；`1--2` 必须作为只产生 literal `1` 的 comment control，
+  subtraction-of-negative 使用 `1 - -2`。
+  `Typed.check` 必须逐字拒绝 `checked negation is not yet supported by typed checking` 且不产生
+  Semantic/target output；不得加入 `!`/`~`、signed literal、folding、Typed/Semantic negation、
+  requirement、overflow、target ABI 或 runtime semantics，既有 checked-add/sub/mul exact controls
+  必须保持。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
