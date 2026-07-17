@@ -787,6 +787,18 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `let statements are not yet supported by typed checking` 且不产生 Semantic/target output；local
   binding、shadowing、resolution、type/effect rules、SemanticIR lowering 与 runtime semantics 属于后续
   D2/statement slices，不在本测试完成面。
+- D1-PA-21 的 alpha Bool literal tests 只把 exact bare `true`/`false` 解码为
+  `Source.Expr.boolLiteral(Bool)`，并覆盖 initializer、entry、view、fn 的 return/let value 可达位置以及
+  Lean command/ParserSession Source AST/sourceHash parity。canonical goldens 必须固定 append-only Expr
+  tag `4` 后单字节 `0/1` marker，并证明 integer literal `0/1`、`false`、`true` 彼此不 alias；既有
+  Expr tags `0..3` 与 goldens 不变。bare literals 必须优先于 generic identifier，`trueValue`/
+  `falseValue`、大小写不同 identifier、escaped `«true»`/`«false»` 与 qualified `Std.true`/`Std.false`
+  必须保持 variable control 而不得误分类，且本切片不得改变 identifier policy；literal 后的额外独立
+  token 形态必须停在 parser boundary。
+  `Typed.check` 必须返回 exact
+  `boolean literals are not yet supported by typed checking` 且不产生 Semantic/target output；不得以
+  UInt64 `0/1` 代替 Bool，不得加入 Typed/Semantic Bool expression、requirement、target ABI 或 runtime
+  semantics。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

@@ -168,6 +168,19 @@ state/parameter identifier policy 也不在本切片改变。unknown annotated t
 reserved binder 在 decoder fail closed；escaped/qualified introducer、缺失 name/type/value/`:=` 与跨行
 形态停在 parser boundary。不得为追求统一诊断而加入 generic fallback parser 或扩大已接受语法。
 
+D1-PA-21 冻结的 pre-acceptance alpha Bool literal 子集只把 exact bare token `true` 与 `false`
+解码为 `Source.Expr.boolLiteral(value : Bool)`。Source alpha canonical encoder 在既有 Expr tags `0..3`
+后 append tag `4`，再 append 单个 marker byte：`false = 0`、`true = 1`；不得复用 UInt64 literal
+`0/1` 或修改既有 expression tags/goldens。parser 必须使用 `pfExpr` category 内的 contextual named
+parser 并优先于 generic identifier arm，不新增宿主 Lean keyword或 generic fallback；decoder/quote 必须
+按 named parser structure 往返，禁止扫描任意 Syntax 子树。exact escaped `«true»`/`«false»`、
+qualified `Std.true`/`Std.false`、`trueValue`/`falseValue` 及大小写不同的 identifier 不是 Bool
+literal，继续按普通 identifier 进入既有 name-resolution boundary；本切片不得改变 portable identifier
+policy。literal 后存在额外独立 token 的形态停在 parser boundary。`Typed.check` 遇到 `boolLiteral`
+必须以 exact
+`boolean literals are not yet supported by typed checking` fail closed；本切片不得新增 Typed/Semantic
+Bool expression、requirement、target behavior 或 runtime representation。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

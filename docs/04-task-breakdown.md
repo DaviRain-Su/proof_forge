@@ -121,6 +121,7 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-18 | TASK-D1-03 | bounded `Option` declaration carrier；alpha payload canonical encoding 与 transitive requirement propagation | `f6b2b2bf`, `06c56f78`, `9858ede0` | focused aggregate + dual-entry/parser-boundary negatives + clean `just ci` at `9858ede0`；final review P0/P1=0 | complete (development) |
 | D1-PA-19 | TASK-D1-03 | bounded `Bytes N` declaration carrier；exact decimal `0..4096` 与 encoder-local alpha canonical payload | `4849ae5b`, `119307ea`, `7a93fb07` | focused aggregate + dual-entry/parser-boundary negatives + clean `just ci` at `7a93fb07`；final reviews P0/P1=0 | complete (development) |
 | D1-PA-20 | TASK-D1-04 | bounded `let name [ : Type ] := Expr` Source statement carrier；Typed fail-closed boundary | `d815d400`, `bb3f9e27`, `bc0447f2` | focused aggregate + dual-entry/parser-boundary negatives + clean committed `just ci` at `bc0447f2`；final reviews P0/P1=0 | complete (development) |
+| D1-PA-21 | TASK-D1-04 | exact `true`/`false` Source-only literal carrier；append-only Expr tag `4` 与 Typed fail-closed boundary | — | residual/parser/canonical audits；spec freeze before RED | **active** |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
