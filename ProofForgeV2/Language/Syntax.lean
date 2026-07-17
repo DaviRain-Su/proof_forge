@@ -207,6 +207,7 @@ private def decodeTypeIdentifiers (first : Syntax) (second : Option Syntax) :
   | some "Int128", none => .ok .i128
   | some "Int256", none => .ok .i256
   | some "Unit", none => .ok .unit
+  | some "Principal", none => .ok .principal
   | _, _ => .error "unsupported portable type"
 
 private partial def collectTypeIdentifierSyntax (stx : Syntax) : Array Syntax :=
@@ -627,6 +628,7 @@ private def quoteValueType : ProofForgeV2.Source.ValueType → MacroM (TSyntax `
   | .i128 => `(ProofForgeV2.Source.ValueType.i128)
   | .i256 => `(ProofForgeV2.Source.ValueType.i256)
   | .unit => `(ProofForgeV2.Source.ValueType.unit)
+  | .principal => `(ProofForgeV2.Source.ValueType.principal)
 
 private def quoteVisibility : ProofForgeV2.Source.Visibility → MacroM (TSyntax `term)
   | .verifierVisible => `(ProofForgeV2.Source.Visibility.verifierVisible)
