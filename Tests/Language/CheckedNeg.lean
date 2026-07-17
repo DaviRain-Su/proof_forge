@@ -192,6 +192,22 @@ unsafe def run : IO Unit := do
     (returnProgramSource "GroupNeg3" "(-3)") "<group-neg-3>"
   expectReturnExpr "(-3)" groupNeg3 (.checkedNeg (.literal 3))
 
+  -- Exact spellings migrated from the PA22 temporary parser-negative matrix.
+  let migratedNeg3Spaced ← select session
+    (returnProgramSource "MigratedNeg3Spaced" "- 3") "<migrated-neg-3-spaced>"
+  expectReturnExpr "- 3" migratedNeg3Spaced (.checkedNeg (.literal 3))
+  let migratedNeg3 ← select session
+    (returnProgramSource "MigratedNeg3" "-3") "<migrated-neg-3>"
+  expectReturnExpr "-3" migratedNeg3 (.checkedNeg (.literal 3))
+  let migratedSubNeg3 ← select session
+    (returnProgramSource "MigratedSubNeg3" "7 - - 3") "<migrated-sub-neg-3>"
+  expectReturnExpr "7 - - 3" migratedSubNeg3
+    (.checkedSub (.literal 7) (.checkedNeg (.literal 3)))
+  let migratedAddNeg2 ← select session
+    (returnProgramSource "MigratedAddNeg2" "1 + - 2") "<migrated-add-neg-2>"
+  expectReturnExpr "1 + - 2" migratedAddNeg2
+    (.checkedAdd (.literal 1) (.checkedNeg (.literal 2)))
+
   -- Frozen prospective goldens for CheckedNegTwin (tag 7 + operand).
   let twinNeg2 := twin (.checkedNeg (.literal 2))
   let twinNegX := twin (.checkedNeg (.variable "x"))
