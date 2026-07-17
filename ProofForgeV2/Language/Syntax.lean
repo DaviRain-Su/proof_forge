@@ -27,6 +27,9 @@ syntax ident : pfExpr
 syntax:65 pfExpr:65 " + " pfExpr:66 : pfExpr
 syntax:65 pfExpr:65 " - " pfExpr:66 : pfExpr
 syntax:70 pfExpr:70 " * " pfExpr:71 : pfExpr
+/-- Primary parenthesized grouping. High-precedence outer result; inner uses min
+precedence 0 so full `+`/`-`/`*` expressions remain legal inside. Desugars only. -/
+syntax:max "(" pfExpr:0 ")" : pfExpr
 /-- Exact bare `true` bool literal (contextual, not a host Lean keyword).
 Higher priority than generic identifier; no low fallback. -/
 @[pfExpr_parser default+1] def boolTrueExpr := leading_parser
@@ -354,6 +357,7 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
       return .checkedSub (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| $lhs:pfExpr * $rhs:pfExpr) => do
       return .checkedMul (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| ($inner:pfExpr)) => decodeExprUnchecked inner
   | _ => .error "unsupported portable expression"
 
 def decodeExpr (stx : Syntax) : Except String ProofForgeV2.Source.Expr := do
