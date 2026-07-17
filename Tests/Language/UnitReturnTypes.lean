@@ -323,6 +323,22 @@ unsafe def run : IO Unit := do
     expectUnsupportedType label
       (← session.parsePrograms (negativeSource name spelling) s!"<unit-{label}>")
 
+  let bareColonSource :=
+    "import ProofForgeV2\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BareColonReturn where\n" ++
+    "  entry run() : do\n" ++
+    "    return 0\n"
+  let (_, bareColonResult) ← IO.FS.withIsolatedStreams
+    (session.parsePrograms bareColonSource "<unit-bare-colon>")
+  match bareColonResult with
+  | .error (.invalidProgram message) =>
+      expect (message.startsWith "Lean parser rejected source: failed to parse file")
+        s!"bare return colon must fail at the parser boundary, got {message}"
+  | .error other =>
+      throw <| IO.userError s!"bare return colon reached the wrong failure: {other.render}"
+  | .ok _ => throw <| IO.userError "bare return colon unexpectedly succeeded"
+
   -- Stateless support boundary only: prove Unit adds zero requirement. No
   -- materialize assertion (Solana/Near reject earlier for missing init/state).
   let boundary := Tests.Language.UnitReturnTypesFixture.UnitBoundary
