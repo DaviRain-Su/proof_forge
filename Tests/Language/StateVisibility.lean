@@ -1,4 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 
@@ -57,20 +58,16 @@ private def sameIdentitySource (statePrefix : String) : String :=
   "  entry ping() : UInt64 do\n" ++
   "    return 0\n"
 
-private def invalidVisibilitySource (programName stateDecl : String) : String :=
-  "import ProofForgeV2\n\n" ++
-  "open ProofForgeV2.Language\n\n" ++
-  "program " ++ programName ++ " where\n" ++
-  "  " ++ stateDecl ++ "\n\n" ++
-  "  view get() : UInt64 do\n" ++
-  "    return 0\n"
-
-private def expectInvalidVisibility (label : String)
-    (result : CompileResult (Array Source.Program)) : IO Unit := do
+private def expectParserReject (label : String) (result : Except String Lean.Syntax) : IO Unit := do
   match result with
-  | .error (.invalidProgram _) => pure ()
-  | .error other => throw <| IO.userError (s!"{label}: expected invalid-program, got {other.render}")
-  | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError s!"{label}: parser unexpectedly accepted invalid visibility"
+
+private unsafe def parserEnvironment : IO Lean.Environment := do
+  Lean.enableInitializersExecution
+  Lean.initSearchPath (← Lean.findSysroot "lean")
+  Lean.importModules #[{ module := `ProofForgeV2.Language.Syntax }] {} 0
+    (loadExts := true)
 
 private unsafe def select (session : Language.Loader.ParserSession)
     (input path : String) : IO Source.Program := do
@@ -128,16 +125,13 @@ unsafe def run : IO Unit := do
       canonicalPrivate.sourceHash != canonicalCommitment.sourceHash)
     "state visibility must contribute to the canonical source binding"
 
-  expectInvalidVisibility "escaped visibility keyword"
-    (← session.parsePrograms
-      (invalidVisibilitySource "EscapedStateVisibility"
-        "state «public» value : UInt64")
-      "<state-visibility-escaped>")
-  expectInvalidVisibility "unknown visibility keyword"
-    (← session.parsePrograms
-      (invalidVisibilitySource "UnknownStateVisibility"
-        "state secret value : UInt64")
-      "<state-visibility-unknown>")
+  let parserEnv ← parserEnvironment
+  expectParserReject "escaped visibility keyword" <|
+    Lean.Parser.runParserCategory parserEnv `ProofForgeV2.Language.pfItem
+      "state «public» value : UInt64"
+  expectParserReject "unknown visibility keyword" <|
+    Lean.Parser.runParserCategory parserEnv `ProofForgeV2.Language.pfItem
+      "state secret value : UInt64"
 
   let typedPrivate ← match Typed.check privateState with
     | .ok value => pure value
@@ -176,5 +170,23 @@ unsafe def run : IO Unit := do
         expect (rejectedTarget == target)
           s!"{target}: commitment-state rejection must retain the selected target"
     | _ => throw <| IO.userError (s!"{target} must reject commitment state before target-owned planning")
+
+  let privateCounterSource : Source.Program := {
+    Examples.counter with
+    «state» := Examples.counter.state.map fun sourceState =>
+      { sourceState with visibility := .proverWitness }
+  }
+  let privateCounter ← match Compiler.compile privateCounterSource with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error.render
+  let forgedNoir : ResolvedProgram .noir := {
+    source := privateCounter
+    descriptor := Targets.Noir.descriptor
+    targetMatches := rfl
+  }
+  match Targets.Noir.makePlan forgedNoir with
+  | .error (.unsupportedRequirement .privateState .noir) => pure ()
+  | .error other => throw <| IO.userError (s!"forged Noir resolution returned the wrong error: {other.render}")
+  | .ok _ => throw <| IO.userError "forged Noir resolution must not erase private state into public relation inputs"
 
 end Tests.Language.StateVisibility
