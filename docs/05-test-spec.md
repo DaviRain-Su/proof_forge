@@ -863,6 +863,22 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Semantic/target output；不得加入 `!`/`~`、signed literal、folding、Typed/Semantic negation、
   requirement、overflow、target ABI 或 runtime semantics，既有 checked-add/sub/mul exact controls
   必须保持。
+- D1-PA-26 的 alpha assert-statement tests 只接受 bare `assert Expr`，production rule 固定为
+  `syntax "assert " pfExpr : pfStmt`，Source carrier 固定为 `Statement.assertStmt(condition)`，Statement
+  canonical encoder 使用 append-only tag `4` 后递归编码 condition；既有 tags `0..3` 与全部 goldens
+  不变。positive 必须覆盖 initializer、entry、view、fn body，literal/variable/Bool/binary/grouped condition，
+  以及 Lean command/ParserSession AST/sourceHash parity。相同 AssertTwin identity 下 `assert true` 与
+  `assert (true)` 必须产生相同 Source.Program/canonical bytes/sourceHash；assert-vs-return 相同 condition
+  必须 canonical size 相同但 hash 不同，true-vs-false condition 也不得 alias，真实 tag-4 golden 在
+  GREEN 前绑定。
+  keyword controls 必须固定 bare `assert := 1` parser reject、escaped `«assert» := 1` 仍产生
+  `.assign "assert" (.literal 1)`、`assertValue := 1` 不被前缀误收。bare `assert`、extra payload、
+  `assert true else Failure`、missing condition 与 block-like 形态必须停在 parser boundary；optional
+  `else Ident` 明确 deferred，不得作为 declared-error support。`Typed.checkStatement` 必须在 condition
+  checking 前逐字拒绝 `assert statements are not yet supported by typed checking`；`assert true` 必须得到
+  assert diagnostic 而不是 Bool-expression diagnostic，既有 assignment/return/call/let controls 保持。
+  本切片不得新增 Typed Statement、Bool type checking、assertion failure/revert、SemanticIR、requirement、
+  effect、target ABI 或 runtime semantics。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

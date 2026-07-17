@@ -243,6 +243,21 @@ of a negative operand 时，canonical source spelling 是 `1 - -2`。本切片�
 literal、constant folding、Typed/Semantic negation、arithmetic requirement、overflow rule、target
 behavior 或 runtime representation；bare/malformed operator 与额外 payload 仍须停在 parser boundary。
 
+D1-PA-26 冻结的 pre-acceptance alpha assert statement 子集只接受 existing initializer/callable body
+中的 bare `assert Expr`，parser 形状固定为 `syntax "assert " pfExpr : pfStmt`。Source carrier 固定为
+`Statement.assertStmt(condition : Expr)`；alpha source canonical encoder 在既有 Statement tags `0..3`
+后 append tag `4`，随后递归编码 condition。decoder 与 `quoteStatement` 必须结构化保留 condition，
+不得通过自由文本或 generic syntax scan 恢复。EBNF 中 optional `else Ident` 明确 deferred：
+`assert Expr else Ident` 在本切片仍停在 parser boundary，不能被写成已实现的 declared-error binding。
+
+`assert` 是 DSL statement reserved word，沿用 `return`/`call` 的 keyword syntax；bare
+`assert := Expr` 必须拒绝，escaped `«assert» := Expr` 仍是普通 assignment identifier，其他以
+`assert` 为前缀的 identifier 不得被误收。`Typed.checkStatement` 必须在检查 condition 之前逐字 fail
+closed 为 `assert statements are not yet supported by typed checking`，因此 `assert true` 不得先泄漏
+Bool expression 的既有 Typed diagnostic。本切片不得新增 Typed Statement ctor、condition Bool checking、
+assertion failure/revert code、SemanticIR、requirement、effect、target behavior 或 runtime representation；
+bare/missing condition、extra payload、optional else 与 block-like 形态必须保持 fail closed。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
