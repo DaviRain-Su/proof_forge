@@ -136,8 +136,7 @@ private def rawIdentifierText? : Syntax → Option String
   | .ident _ rawValue _ _ => some rawValue.toString
   | _ => none
 
-private def decodeIdentifier (stx : Syntax) : Except String String :=
-  let name := stx.getId.toString
+private def decodePortableIdentifierName (name : String) : Except String String :=
   if name == "struct" || name == "enum" || name == "const" || name == "event" ||
       name == "error" || name == "fn" || name == "invariant" || name == "requires" ||
       name == "extension" || name == "version" || name == "digest" || name == "proof" ||
@@ -145,6 +144,9 @@ private def decodeIdentifier (stx : Syntax) : Except String String :=
     .error s!"reserved portable identifier '{name}'"
   else
     .ok name
+
+private def decodeIdentifier (stx : Syntax) : Except String String :=
+  decodePortableIdentifierName stx.getId.toString
 
 private def decodeExtensionId (stx : Syntax) : Except String String := do
   let id ← match rawIdentifierText? stx with
@@ -178,7 +180,8 @@ private def decodeProofTheorem (stx : Syntax) : Except String (Array String) := 
   let mut components : Array String := #[]
   for component in stx.getId.components do
     match component with
-    | .str .anonymous value => components := components.push value
+    | .str .anonymous value =>
+        components := components.push (← decodePortableIdentifierName value)
     | _ => throw "qualified-name component must use Lean identifier characters"
   let qualified ← ProofForgeV2.Core.Common.parseQualifiedName components
   let canonical ← ProofForgeV2.Core.Common.renderQualifiedNameComponents qualified
