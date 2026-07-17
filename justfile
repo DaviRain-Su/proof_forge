@@ -372,6 +372,7 @@ dsl-negative: build
             escaped-bool-type|unknown-type|qualified-type) echo "PF-SRC-INVALID: unsupported portable type" ;;
             invalid-uint-width|escaped-uint8-type|qualified-uint8-type|uint8-second-token) echo "PF-SRC-INVALID: unsupported portable type" ;;
             unit64-type|escaped-unit-type|qualified-unit-type|unit-second-token) echo "PF-SRC-INVALID: unsupported portable type" ;;
+            principal64-type|escaped-principal-type|qualified-principal-type|principal-second-token) echo "PF-SRC-INVALID: unsupported portable type" ;;
             escaped-field-constructor|escaped-field-id|unknown-field-constructor|unknown-field-id|qualified-field-id|missing-field-id) echo "PF-SRC-INVALID: unsupported portable type" ;;
             *) echo "missing expected diagnostic for $1" >&2; return 1 ;;
         esac
@@ -424,6 +425,7 @@ dsl-negative: build
         priority-entry-param-declaration-order escaped-bool-type unknown-type qualified-type
         invalid-uint-width escaped-uint8-type qualified-uint8-type uint8-second-token
         unit64-type escaped-unit-type qualified-unit-type unit-second-token
+        principal64-type escaped-principal-type qualified-principal-type principal-second-token
         escaped-field-constructor escaped-field-id unknown-field-constructor unknown-field-id
         qualified-field-id missing-field-id
     )

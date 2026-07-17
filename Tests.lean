@@ -12,6 +12,7 @@ import Tests.Language.ExtensionRequirements
 import Tests.Language.FieldDeclarations
 import Tests.Language.FnDeclarations
 import Tests.Language.IntegerWidthDeclarations
+import Tests.Language.PrincipalDeclarations
 import Tests.Language.UnitReturnTypes
 import Tests.Language.InvariantDeclarations
 import Tests.Language.ProofReferences
@@ -42,6 +43,7 @@ unsafe def main : IO Unit := do
   Tests.Language.FieldDeclarations.run
   Tests.Language.FnDeclarations.run
   Tests.Language.IntegerWidthDeclarations.run
+  Tests.Language.PrincipalDeclarations.run
   Tests.Language.UnitReturnTypes.run
   Tests.Language.InvariantDeclarations.run
   Tests.Language.ProofReferences.run
