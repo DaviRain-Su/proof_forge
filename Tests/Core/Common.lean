@@ -16,6 +16,18 @@ private def expectErr {α} (label : String) (got : Except String α) : IO Unit :
   | .error _ => pure ()
   | .ok _ => throw <| IO.userError s!"{label}: expected error"
 
+private def expectSemVerLt (left right : String) : IO Unit := do
+  match parseSemVer left, parseSemVer right with
+  | .ok leftVersion, .ok rightVersion =>
+    match compareSemVerPrecedence leftVersion rightVersion with
+    | .ok .lt => pure ()
+    | .ok order =>
+      throw <| IO.userError s!"semver precedence: expected {left} < {right}, got {repr order}"
+    | .error e =>
+      throw <| IO.userError s!"semver precedence unexpectedly rejected a parsed value: {e}"
+  | .error e, _ | _, .error e =>
+    throw <| IO.userError s!"semver precedence fixture failed to parse: {e}"
+
 def run : IO Unit := do
   expectOk "digest happy"
     (parseDigest "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
@@ -42,21 +54,60 @@ def run : IO Unit := do
       prerelease := #[]
       build := #[] }
   expectErr "semver uint64 overflow" (parseSemVer "18446744073709551616.0.0")
+  expectErr "semver oversized numeric input"
+    (parseSemVer "999999999999999999999999999999999999999999999999999999999999.0.0")
+  expectErr "semver minor uint64 overflow" (parseSemVer "0.18446744073709551616.0")
+  expectErr "semver patch uint64 overflow" (parseSemVer "0.0.18446744073709551616")
+  expectErr "semver minor leading zero" (parseSemVer "1.02.3")
+  expectErr "semver patch leading zero" (parseSemVer "1.2.03")
   expectErr "semver numeric prerelease leading zero" (parseSemVer "1.2.3-01")
   expectErr "semver empty prerelease identifier" (parseSemVer "1.2.3-alpha..1")
   expectErr "semver empty build identifier" (parseSemVer "1.2.3+build..1")
+  expectErr "semver empty prerelease" (parseSemVer "1.2.3-")
+  expectErr "semver empty build" (parseSemVer "1.2.3+")
   expectErr "semver invalid identifier character" (parseSemVer "1.2.3-alpha_beta")
+  expectErr "semver non-ascii identifier" (parseSemVer "1.2.3-α")
+  expectErr "semver duplicate build separator" (parseSemVer "1.2.3+a+b")
+  expectErr "semver trailing prerelease dot" (parseSemVer "1.2.3-alpha.")
   expectErr "semver missing patch" (parseSemVer "1.2")
+  expectErr "semver core rejects prerelease" (parseSemVerCore "1.2.3-alpha")
+  expectErr "semver core rejects build" (parseSemVerCore "1.2.3+build")
   match parseSemVer "1.2.3-alpha.1+build.005", parseSemVer "1.2.3-alpha.1+other" with
   | .ok left, .ok right =>
-    unless renderSemVer left == "1.2.3-alpha.1+build.005" do
-      throw <| IO.userError "semver canonical rendering lost prerelease/build"
+    match renderSemVer left with
+    | .ok rendered =>
+      unless rendered == "1.2.3-alpha.1+build.005" do
+        throw <| IO.userError "semver canonical rendering lost prerelease/build"
+    | .error e =>
+      throw <| IO.userError s!"semver renderer rejected parsed value: {e}"
     unless left != right do
       throw <| IO.userError "semver exact identity must include build metadata"
-    unless compareSemVerPrecedence left right == .eq do
-      throw <| IO.userError "semver precedence must ignore build metadata"
+    match compareSemVerPrecedence left right with
+    | .ok .eq => pure ()
+    | .ok order =>
+      throw <| IO.userError s!"semver precedence must ignore build metadata, got {repr order}"
+    | .error e =>
+      throw <| IO.userError s!"semver precedence rejected parsed values: {e}"
   | .error e, _ | _, .error e =>
     throw <| IO.userError s!"semver precedence fixture failed to parse: {e}"
+  expectSemVerLt "1.0.0-alpha" "1.0.0-alpha.1"
+  expectSemVerLt "1.0.0-alpha.1" "1.0.0-alpha.beta"
+  expectSemVerLt "1.0.0-alpha.beta" "1.0.0-beta"
+  expectSemVerLt "1.0.0-beta" "1.0.0-beta.2"
+  expectSemVerLt "1.0.0-beta.2" "1.0.0-beta.11"
+  expectSemVerLt "1.0.0-beta.11" "1.0.0-rc.1"
+  expectSemVerLt "1.0.0-rc.1" "1.0.0"
+  expectSemVerLt "1.0.0" "2.0.0"
+  expectSemVerLt "2.0.0" "2.1.0"
+  expectSemVerLt "2.1.0" "2.1.1"
+  let invalidPrerelease : SemVer :=
+    { major := 1, minor := 2, patch := 3, prerelease := #[""], build := #[] }
+  let invalidBuild : SemVer :=
+    { major := 1, minor := 2, patch := 3, prerelease := #[], build := #["bad+value"] }
+  expectErr "semver render rejects direct invalid prerelease" (renderSemVer invalidPrerelease)
+  expectErr "semver render rejects direct invalid build" (renderSemVer invalidBuild)
+  expectErr "semver compare rejects direct invalid value"
+    (compareSemVerPrecedence invalidPrerelease invalidBuild)
   match validateNotAboveHardMax frontendProfile frontendProfile with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"frontend hard max self: {e}"
