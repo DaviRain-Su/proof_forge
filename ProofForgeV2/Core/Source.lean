@@ -27,6 +27,26 @@ structure StateDecl where
   visibility : Visibility := .verifierVisible
   deriving BEq, Inhabited, Repr
 
+structure FieldDecl where
+  name : String
+  type : ValueType
+  deriving BEq, Inhabited, Repr
+
+structure StructDecl where
+  name : String
+  fields : Array FieldDecl
+  deriving BEq, Inhabited, Repr
+
+structure EnumVariant where
+  name : String
+  payloadTypes : Array ValueType
+  deriving BEq, Inhabited, Repr
+
+structure EnumDecl where
+  name : String
+  variants : Array EnumVariant
+  deriving BEq, Inhabited, Repr
+
 structure EventDecl where
   name : String
   params : Array Param
@@ -70,6 +90,8 @@ structure Entry where
 
 inductive Item where
   | stateDecl (decl : StateDecl)
+  | structDecl (decl : StructDecl)
+  | enumDecl (decl : EnumDecl)
   | eventDecl (decl : EventDecl)
   | errorDecl (decl : ErrorDecl)
   | initializer (decl : Initializer)
@@ -80,6 +102,8 @@ structure Program where
   qualifiedName : String
   name : String
   state : Array StateDecl
+  structs : Array StructDecl := #[]
+  enums : Array EnumDecl := #[]
   events : Array EventDecl := #[]
   errors : Array ErrorDecl := #[]
   initializer : Option Initializer
@@ -88,11 +112,13 @@ structure Program where
 
 def Program.buildQualified (qualifiedName name : String) (items : Array Item) : Program :=
   let state := items.foldl (fun acc item => match item with | .stateDecl decl => acc.push decl | _ => acc) #[]
+  let structs := items.foldl (fun acc item => match item with | .structDecl decl => acc.push decl | _ => acc) #[]
+  let enums := items.foldl (fun acc item => match item with | .enumDecl decl => acc.push decl | _ => acc) #[]
   let events := items.foldl (fun acc item => match item with | .eventDecl decl => acc.push decl | _ => acc) #[]
   let errors := items.foldl (fun acc item => match item with | .errorDecl decl => acc.push decl | _ => acc) #[]
   let initializer := items.foldl (fun acc item => match item with | .initializer decl => some decl | _ => acc) none
   let entries := items.foldl (fun acc item => match item with | .entry decl => acc.push decl | _ => acc) #[]
-  { qualifiedName, name, state, events, errors, initializer, entries }
+  { qualifiedName, name, state, structs, enums, events, errors, initializer, entries }
 
 def Program.build (name : String) (items : Array Item) : Program :=
   Program.buildQualified name name items
@@ -140,6 +166,18 @@ private def appendParam (bytes : ByteArray) (param : Param) : ByteArray :=
 private def appendStateDecl (bytes : ByteArray) (decl : StateDecl) : ByteArray :=
   appendValueType (appendString (appendVisibility bytes decl.visibility) decl.name) decl.type
 
+private def appendFieldDecl (bytes : ByteArray) (decl : FieldDecl) : ByteArray :=
+  appendValueType (appendString bytes decl.name) decl.type
+
+private def appendStructDecl (bytes : ByteArray) (decl : StructDecl) : ByteArray :=
+  appendArray appendFieldDecl (appendString bytes decl.name) decl.fields
+
+private def appendEnumVariant (bytes : ByteArray) (variant : EnumVariant) : ByteArray :=
+  appendArray appendValueType (appendString bytes variant.name) variant.payloadTypes
+
+private def appendEnumDecl (bytes : ByteArray) (decl : EnumDecl) : ByteArray :=
+  appendArray appendEnumVariant (appendString bytes decl.name) decl.variants
+
 private def appendEventDecl (bytes : ByteArray) (decl : EventDecl) : ByteArray :=
   appendArray appendParam (appendString bytes decl.name) decl.params
 
@@ -175,6 +213,8 @@ def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendString bytes program.qualifiedName
   let bytes := appendString bytes program.name
   let bytes := appendArray appendStateDecl bytes program.state
+  let bytes := appendArray appendStructDecl bytes program.structs
+  let bytes := appendArray appendEnumDecl bytes program.enums
   let bytes := appendArray appendEventDecl bytes program.events
   let bytes := appendArray appendErrorDecl bytes program.errors
   let bytes := match program.initializer with

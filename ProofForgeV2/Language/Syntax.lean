@@ -27,6 +27,13 @@ syntax ident " := " pfExpr : pfStmt
 syntax "return " pfExpr : pfStmt
 syntax "call " str : pfStmt
 
+declare_syntax_cat pfAggregateMember
+@[pfAggregateMember_parser] def aggregateField := leading_parser
+  withPosition (ident >> " : " >> ident >>
+    (checkLinebreakBefore <|> checkLineEq >> ident >> checkLinebreakBefore))
+syntax "| " ident linebreak : pfAggregateMember
+syntax "| " ident "(" sepBy(pfType, ", ") ")" linebreak : pfAggregateMember
+
 declare_syntax_cat pfItem
 syntax "state " ident " : " pfType : pfItem
 syntax "state " "public " ident " : " pfType : pfItem
@@ -34,6 +41,7 @@ syntax "state " "private " ident " : " pfType : pfItem
 syntax "state " "commitment " ident " : " pfType : pfItem
 syntax ident ident : pfItem
 syntax ident ident "(" sepBy(pfParam, ", ") ")" : pfItem
+syntax ident ident " where" ppLine manyIndent(pfAggregateMember) : pfItem
 syntax "init" "(" sepBy(pfParam, ", ") ")" " do" ppLine ppIndent(pfStmt*) : pfItem
 syntax "entry " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
 syntax "view " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
@@ -94,21 +102,23 @@ private def rawIdentifierText? : Syntax → Option String
 
 private def decodeIdentifier (stx : Syntax) : Except String String :=
   let name := stx.getId.toString
-  if name == "event" || name == "error" then
+  if name == "struct" || name == "enum" || name == "event" || name == "error" then
     .error s!"reserved portable identifier '{name}'"
   else
     .ok name
 
+private def decodeTypeIdentifiers (first : Syntax) (second : Option Syntax) :
+    Except String ProofForgeV2.Source.ValueType :=
+  match rawIdentifierText? first, second.bind rawIdentifierText? with
+  | some "UInt64", none => .ok .u64
+  | some "Bool", none => .ok .bool
+  | some "Field", some "bn254_fr" => .ok .field
+  | _, _ => .error "unsupported portable type"
+
 private def decodeTypeUnchecked : Syntax → Except String ProofForgeV2.Source.ValueType
   | `(pfType| $constructor:ident $fieldId:ident) =>
-      match rawIdentifierText? constructor, rawIdentifierText? fieldId with
-      | some "Field", some "bn254_fr" => .ok .field
-      | _, _ => .error "unsupported portable type"
-  | `(pfType| $name:ident) =>
-      match rawIdentifierText? name with
-      | some "UInt64" => .ok .u64
-      | some "Bool" => .ok .bool
-      | _ => .error "unsupported portable type"
+      decodeTypeIdentifiers constructor (some fieldId)
+  | `(pfType| $name:ident) => decodeTypeIdentifiers name none
   | _ => .error "unsupported portable type"
 
 def decodeType (stx : Syntax) : Except String ProofForgeV2.Source.ValueType := do
@@ -179,6 +189,40 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
     Except String (Array ProofForgeV2.Source.Statement) :=
   statements.mapM decodeStatementUnchecked
 
+private partial def collectIdentifierSyntax (stx : Syntax) : Array Syntax :=
+  if stx.isIdent then #[stx]
+  else stx.getArgs.flatMap collectIdentifierSyntax
+
+private def decodeStructFieldUnchecked (stx : Syntax) :
+    Except String ProofForgeV2.Source.FieldDecl := do
+  unless stx.isOfKind ``aggregateField do
+    throw "unsupported portable struct field"
+  match collectIdentifierSyntax stx with
+  | #[name, typeName] =>
+      return {
+        name := ← decodeIdentifier name
+        type := ← decodeTypeIdentifiers typeName none
+      }
+  | #[name, constructor, fieldId] =>
+      return {
+        name := ← decodeIdentifier name
+        type := ← decodeTypeIdentifiers constructor (some fieldId)
+      }
+  | _ => throw "unsupported portable struct field"
+
+private def decodeEnumVariantUnchecked : Syntax → Except String ProofForgeV2.Source.EnumVariant
+  | `(pfAggregateMember| | $name:ident
+      ) => do
+      return { name := ← decodeIdentifier name, payloadTypes := #[] }
+  | `(pfAggregateMember| | $name:ident ($payloadTypes:pfType,*)
+      ) => do
+      let name ← decodeIdentifier name
+      let payloadTypes := payloadTypes.getElems
+      if payloadTypes.isEmpty then
+        throw s!"enum variant '{name}' payload must contain at least one type"
+      return { name, payloadTypes := ← payloadTypes.mapM decodeTypeUnchecked }
+  | _ => .error "unsupported portable enum variant"
+
 private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.Item
   | `(pfItem| state $name:ident : $type:pfType) => do
       return .stateDecl { name := ← decodeIdentifier name, type := ← decodeTypeUnchecked type }
@@ -200,6 +244,19 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
         type := ← decodeTypeUnchecked type
         visibility := .commitmentOnly
       }
+  | `(pfItem| $kind:ident $name:ident where $members:pfAggregateMember*) =>
+      match rawIdentifierText? kind with
+      | some "struct" => do
+          return .structDecl {
+            name := ← decodeIdentifier name
+            fields := ← members.mapM decodeStructFieldUnchecked
+          }
+      | some "enum" => do
+          return .enumDecl {
+            name := ← decodeIdentifier name
+            variants := ← members.mapM decodeEnumVariantUnchecked
+          }
+      | _ => .error "unsupported portable program item"
   | `(pfItem| $kind:ident $name:ident ($params:pfParam,*)) =>
       match rawIdentifierText? kind with
       | some "event" => do
@@ -272,11 +329,27 @@ def validateDecodedProgram (sourceProgram : ProofForgeV2.Source.Program) : Compi
   if hasDuplicate (sourceProgram.errors.map (·.name)) then
     throw <| .invalidProgram
       s!"program '{sourceProgram.qualifiedName}' contains duplicate error declarations"
+  if hasDuplicate (sourceProgram.structs.map (·.name)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate struct declarations"
+  if hasDuplicate (sourceProgram.enums.map (·.name)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate enum declarations"
   match sourceProgram.initializer with
   | some initializer =>
       if hasDuplicate (initializer.params.map (·.name)) then
         throw <| .invalidProgram "initializer contains duplicate parameters"
   | none => pure ()
+  for sourceStruct in sourceProgram.structs do
+    if sourceStruct.fields.isEmpty then
+      throw <| .invalidProgram s!"struct '{sourceStruct.name}' must declare at least one field"
+    if hasDuplicate (sourceStruct.fields.map (·.name)) then
+      throw <| .invalidProgram s!"struct '{sourceStruct.name}' contains duplicate fields"
+  for sourceEnum in sourceProgram.enums do
+    if sourceEnum.variants.isEmpty then
+      throw <| .invalidProgram s!"enum '{sourceEnum.name}' must declare at least one variant"
+    if hasDuplicate (sourceEnum.variants.map (·.name)) then
+      throw <| .invalidProgram s!"enum '{sourceEnum.name}' contains duplicate variants"
   for sourceEvent in sourceProgram.events do
     if hasDuplicate (sourceEvent.params.map (·.name)) then
       throw <| .invalidProgram s!"event '{sourceEvent.name}' contains duplicate parameters"
@@ -370,6 +443,34 @@ private def quoteState (states : Array ProofForgeV2.Source.StateDecl) : MacroM (
   let values ← states.mapM quoteStateDecl
   `(#[$[$values],*])
 
+private def quoteFieldDecl (field : ProofForgeV2.Source.FieldDecl) : MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit field.name
+  let typeExpr ← quoteValueType field.type
+  `(ProofForgeV2.Source.FieldDecl.mk $name $typeExpr)
+
+private def quoteStructDecl (sourceStruct : ProofForgeV2.Source.StructDecl) : MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit sourceStruct.name
+  let fields ← sourceStruct.fields.mapM quoteFieldDecl
+  `(ProofForgeV2.Source.StructDecl.mk $name #[$[$fields],*])
+
+private def quoteStructs (structs : Array ProofForgeV2.Source.StructDecl) : MacroM (TSyntax `term) := do
+  let values ← structs.mapM quoteStructDecl
+  `(#[$[$values],*])
+
+private def quoteEnumVariant (variant : ProofForgeV2.Source.EnumVariant) : MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit variant.name
+  let payloadTypes ← variant.payloadTypes.mapM quoteValueType
+  `(ProofForgeV2.Source.EnumVariant.mk $name #[$[$payloadTypes],*])
+
+private def quoteEnumDecl (sourceEnum : ProofForgeV2.Source.EnumDecl) : MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit sourceEnum.name
+  let variants ← sourceEnum.variants.mapM quoteEnumVariant
+  `(ProofForgeV2.Source.EnumDecl.mk $name #[$[$variants],*])
+
+private def quoteEnums (enums : Array ProofForgeV2.Source.EnumDecl) : MacroM (TSyntax `term) := do
+  let values ← enums.mapM quoteEnumDecl
+  `(#[$[$values],*])
+
 private def quoteEventDecl (sourceEvent : ProofForgeV2.Source.EventDecl) : MacroM (TSyntax `term) := do
   let name := Syntax.mkStrLit sourceEvent.name
   let params ← quoteParams sourceEvent.params
@@ -453,11 +554,14 @@ private def quoteProgram (sourceProgram : ProofForgeV2.Source.Program) : MacroM 
   let qualifiedName := Syntax.mkStrLit sourceProgram.qualifiedName
   let name := Syntax.mkStrLit sourceProgram.name
   let stateExpr ← quoteState sourceProgram.state
+  let structs ← quoteStructs sourceProgram.structs
+  let enums ← quoteEnums sourceProgram.enums
   let events ← quoteEvents sourceProgram.events
   let errors ← quoteErrors sourceProgram.errors
   let initializer ← quoteInitializer? sourceProgram.initializer
   let entries ← quoteEntries sourceProgram.entries
-  `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $events $errors $initializer $entries)
+  `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $structs $enums $events $errors
+      $initializer $entries)
 
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do

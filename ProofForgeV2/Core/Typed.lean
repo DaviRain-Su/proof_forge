@@ -267,6 +267,10 @@ def check (source : Source.Program) : CompileResult Program := do
     throw <| .invalidProgram "program qualified identity cannot be empty"
   if source.name.isEmpty then
     throw <| .invalidProgram "program name cannot be empty"
+  if !source.structs.isEmpty then
+    throw <| .invalidProgram "struct declarations are not yet supported by typed checking"
+  if !source.enums.isEmpty then
+    throw <| .invalidProgram "enum declarations are not yet supported by typed checking"
   if !source.events.isEmpty then
     throw <| .invalidProgram "event declarations are not yet supported by typed checking"
   if !source.errors.isEmpty then
