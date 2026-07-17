@@ -18,6 +18,17 @@ inductive ValueType where
   | u64
   | bool
   | field
+  | u8
+  | u16
+  | u32
+  | u128
+  | u256
+  | i8
+  | i16
+  | i32
+  | i64
+  | i128
+  | i256
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 inductive Visibility where
@@ -93,6 +104,17 @@ private def adaptType : Source.ValueType → ValueType
   | .u64 => .u64
   | .bool => .bool
   | .field => .field
+  | .u8 => .u8
+  | .u16 => .u16
+  | .u32 => .u32
+  | .u128 => .u128
+  | .u256 => .u256
+  | .i8 => .i8
+  | .i16 => .i16
+  | .i32 => .i32
+  | .i64 => .i64
+  | .i128 => .i128
+  | .i256 => .i256
 
 private def adaptVisibility : Source.Visibility → Visibility
   | .verifierVisible => .verifierVisible
@@ -155,6 +177,8 @@ private def ValueType.requirements : ValueType → Array ProgramRequirement
   | .u64 => #[]
   | .bool => #[.boolValues]
   | .field => #[.fieldBn254]
+  | .u8 | .u16 | .u32 | .u128 | .u256
+  | .i8 | .i16 | .i32 | .i64 | .i128 | .i256 => #[]
 
 private def Visibility.requirements : Visibility → Array ProgramRequirement
   | .verifierVisible => #[]
@@ -239,6 +263,17 @@ private def appendValueType (bytes : ByteArray) : ValueType → ByteArray
   | .u64 => appendTag bytes 0
   | .bool => appendTag bytes 1
   | .field => appendTag bytes 2
+  | .u8 => appendTag bytes 3
+  | .u16 => appendTag bytes 4
+  | .u32 => appendTag bytes 5
+  | .u128 => appendTag bytes 6
+  | .u256 => appendTag bytes 7
+  | .i8 => appendTag bytes 8
+  | .i16 => appendTag bytes 9
+  | .i32 => appendTag bytes 10
+  | .i64 => appendTag bytes 11
+  | .i128 => appendTag bytes 12
+  | .i256 => appendTag bytes 13
 
 private def appendVisibility (bytes : ByteArray) : Visibility → ByteArray
   | .verifierVisible => appendTag bytes 0

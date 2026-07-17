@@ -195,6 +195,17 @@ private def decodeTypeIdentifiers (first : Syntax) (second : Option Syntax) :
   | some "UInt64", none => .ok .u64
   | some "Bool", none => .ok .bool
   | some "Field", some "bn254_fr" => .ok .field
+  | some "UInt8", none => .ok .u8
+  | some "UInt16", none => .ok .u16
+  | some "UInt32", none => .ok .u32
+  | some "UInt128", none => .ok .u128
+  | some "UInt256", none => .ok .u256
+  | some "Int8", none => .ok .i8
+  | some "Int16", none => .ok .i16
+  | some "Int32", none => .ok .i32
+  | some "Int64", none => .ok .i64
+  | some "Int128", none => .ok .i128
+  | some "Int256", none => .ok .i256
   | _, _ => .error "unsupported portable type"
 
 private partial def collectTypeIdentifierSyntax (stx : Syntax) : Array Syntax :=
@@ -578,6 +589,17 @@ private def quoteValueType : ProofForgeV2.Source.ValueType → MacroM (TSyntax `
   | .u64 => `(ProofForgeV2.Source.ValueType.u64)
   | .bool => `(ProofForgeV2.Source.ValueType.bool)
   | .field => `(ProofForgeV2.Source.ValueType.field)
+  | .u8 => `(ProofForgeV2.Source.ValueType.u8)
+  | .u16 => `(ProofForgeV2.Source.ValueType.u16)
+  | .u32 => `(ProofForgeV2.Source.ValueType.u32)
+  | .u128 => `(ProofForgeV2.Source.ValueType.u128)
+  | .u256 => `(ProofForgeV2.Source.ValueType.u256)
+  | .i8 => `(ProofForgeV2.Source.ValueType.i8)
+  | .i16 => `(ProofForgeV2.Source.ValueType.i16)
+  | .i32 => `(ProofForgeV2.Source.ValueType.i32)
+  | .i64 => `(ProofForgeV2.Source.ValueType.i64)
+  | .i128 => `(ProofForgeV2.Source.ValueType.i128)
+  | .i256 => `(ProofForgeV2.Source.ValueType.i256)
 
 private def quoteVisibility : ProofForgeV2.Source.Visibility → MacroM (TSyntax `term)
   | .verifierVisible => `(ProofForgeV2.Source.Visibility.verifierVisible)
