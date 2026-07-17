@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Optional
 
 
 CHECKER = Path(__file__).with_name("docs_check.py")
+CHECKER_MODULE_NAME = "proof_forge_docs_check_self_test_subject"
 TARGETS = [
     "01-evm.md", "02-solana.md", "03-near.md", "04-cosmwasm.md", "05-soroban.md",
     "06-icp.md", "07-noir.md", "08-openvm.md", "09-aleo.md", "10-psy.md",
@@ -302,6 +306,18 @@ def run_checker(root: Path) -> subprocess.CompletedProcess[str]:
         encoding="utf-8",
         timeout=15,
     )
+
+
+def load_checker() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(CHECKER_MODULE_NAME, CHECKER)
+    if spec is None or spec.loader is None or spec.origin is None:
+        raise AssertionError("docs checker import spec unavailable")
+    if Path(spec.origin).resolve(strict=True) != CHECKER.resolve(strict=True):
+        raise AssertionError("docs checker import origin changed")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[CHECKER_MODULE_NAME] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def accepted(text: str) -> str:
@@ -785,6 +801,30 @@ def complete_with_invalid_genesis_root_policy(root: Path) -> None:
     ).encode("utf-8"))
 
 
+def complete_with_fifo_genesis_root_policy(root: Path) -> None:
+    complete_accepted_genesis_fx(root)
+    path = root / "docs/governance/genesis-root-policy.json"
+    path.unlink()
+    os.mkfifo(path)
+
+
+def complete_with_hardlinked_genesis_root_policy(root: Path) -> None:
+    complete_accepted_genesis_fx(root)
+    path = root / "docs/governance/genesis-root-policy.json"
+    source = root / "genesis-root-policy-source.json"
+    path.rename(source)
+    os.link(source, path)
+
+
+def complete_with_split_genesis_approval(root: Path) -> None:
+    complete_accepted_genesis_fx(root)
+    replace(
+        root / "docs/governance/authority.md",
+        "reviewCommit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reviewCommit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    )
+
+
 def complete_d0_06_without_technical_evidence(root: Path) -> None:
     complete_d0_06_genesis_closure(root)
     replace(
@@ -828,6 +868,49 @@ def duplicate_void_d0_06_record(root: Path) -> None:
         raise AssertionError("void D0-06 record mutation anchor missing")
     duplicate = text[index:].strip()
     path.write_text(text.rstrip() + "\n\n" + duplicate + "\n", encoding="utf-8")
+
+
+def add_approval_to_void_d0_06_record(root: Path) -> None:
+    complete_accepted_genesis_fx(root)
+    replace(
+        root / "docs/governance/task-freeze.md",
+        "| 状态 | `void` |",
+        "| 状态 | `void` |\n"
+        "| 批准 | Quality + Architecture（经 `GOV-GENESIS-001` 追认） |",
+    )
+
+
+def expect_exact_d0_06_evidence_join() -> None:
+    module = load_checker()
+    with tempfile.TemporaryDirectory(
+            prefix="proof-forge-docs-d0-06-evidence-join-") as temporary:
+        root = Path(temporary).resolve() / "repo"
+        write_corpus(root, base_files())
+        complete_d0_06_genesis_closure(root)
+        record = module.EvidenceRecord(
+            "EV-20260717-0034",
+            "TASK-D0-06",
+            ("TST-COMMON-001",),
+            "development",
+            "passed (complete frozen common-primitives technical slice)",
+            "docs/traceability/evidence-ledger.md",
+            1,
+        )
+        if not module.d0_06_common_primitives_attested(
+                root, {record.identifier: record}):
+            raise AssertionError("exact D0-06 technical evidence join rejected valid record")
+        mutations = (
+            {**record.__dict__, "task": "TASK-D0-05"},
+            {**record.__dict__, "tests": ("TST-DOC-902",)},
+            {**record.__dict__, "grade": "bootstrap"},
+            {**record.__dict__, "result": "passed"},
+        )
+        for mutation in mutations:
+            changed = module.EvidenceRecord(**mutation)
+            if module.d0_06_common_primitives_attested(
+                    root, {changed.identifier: changed}):
+                raise AssertionError(
+                    "D0-06 technical evidence join accepted a mismatched record")
 
 
 def remove_joint_task_test_trace_edge(root: Path) -> None:
@@ -1065,6 +1148,7 @@ def main() -> None:
         complete_attested_bootstrap_task(root, "TASK-D0-05", valid_d0_05_attest())))
     expect_success("fx-approval-genesis-cited", complete_accepted_genesis_fx)
     expect_success("bootstrap-attest-d0-06-genesis", complete_d0_06_genesis_closure)
+    expect_exact_d0_06_evidence_join()
     expect_root_ancestor_failure()
 
     cases: list[tuple[str, Mutation, str, str]] = [
@@ -1742,6 +1826,12 @@ def main() -> None:
          "PF-DOC-FX-APPROVAL", "docs/governance/genesis-root-policy.json"),
         ("genesis-root-policy-invalid", complete_with_invalid_genesis_root_policy,
          "PF-DOC-FX-APPROVAL", "docs/governance/genesis-root-policy.json"),
+        ("genesis-root-policy-fifo", complete_with_fifo_genesis_root_policy,
+         "PF-DOC-FX-APPROVAL", "docs/governance/genesis-root-policy.json"),
+        ("genesis-root-policy-hardlink", complete_with_hardlinked_genesis_root_policy,
+         "PF-DOC-FX-APPROVAL", "docs/governance/genesis-root-policy.json"),
+        ("genesis-approval-split-commit", complete_with_split_genesis_approval,
+         "PF-DOC-FX-APPROVAL", "GOV-AUTH-001"),
         ("bootstrap-d0-06-no-attest", lambda root: (
             complete_d0_06_genesis_closure(root),
             (root / "docs/governance/bootstrap-closure/TASK-D0-06.attest.json").unlink(),
@@ -1787,6 +1877,13 @@ def main() -> None:
                 approval=(
                     "Quality + Architecture（经 `NOT-GOV-GENESIS-001` 追认）")),
          "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-01"),
+        ("fx-approval-genesis-ambiguous-prefix", lambda root:
+            write_governance_authority_set(
+                root,
+                approval=(
+                    "self-approved then Quality + Architecture"
+                    "（经 `GOV-GENESIS-001` 追认）")),
+         "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-01"),
         ("fx-approval-self-referential", lambda root:
             write_governance_authority_set(root, approval="本仓库 closeout 记录"),
          "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-01"),
@@ -1807,6 +1904,8 @@ def main() -> None:
                 "NotVoided Freeze Exception `FX-2026-07-17-D0-06`"),
         ), "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-06"),
         ("fx-void-d0-06-record-duplicate", duplicate_void_d0_06_record,
+         "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-06"),
+        ("fx-void-d0-06-record-has-approval", add_approval_to_void_d0_06_record,
          "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-06"),
         ("unknown-evidence", lambda root: replace(
             root / "docs/04-task-breakdown.md", "EV-20260716-9001", "EV-20260716-9999"),

@@ -10,11 +10,14 @@ production CLI is expected at the exact sibling path
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 
@@ -31,6 +34,11 @@ ED25519_ZERO_ENCODING = "00" * 32
 ED25519_IDENTITY_ENCODING = "01" + "00" * 31
 ED25519_NONCANONICAL_Y = "ed" + "ff" * 30 + "7f"
 ED25519_MIXED_ORDER_POINT = "95" + "99" * 31
+EXPECTED_POLICY_DIGEST = (
+    "sha256:c970ec4b383eab64f1624ddbd670de65"
+    "f2b56bed5c4a67db969113947d10d440"
+)
+MODULE_NAME = "proof_forge_genesis_root_policy_self_test_subject"
 
 # Declaration order here is also the RFC 8785 UTF-16 code-unit order because
 # every v1 field name is ASCII.  EXPECTED_POLICY_BYTES remains the independent,
@@ -75,6 +83,23 @@ def reference_pf_jcs(value: Any) -> bytes:
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
+
+
+def load_tool() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(MODULE_NAME, TOOL)
+    expect(
+        spec is not None and spec.loader is not None and spec.origin is not None,
+        "production CLI import spec unavailable",
+    )
+    assert spec is not None and spec.loader is not None and spec.origin is not None
+    expect(
+        Path(spec.origin).resolve(strict=True) == TOOL.resolve(strict=True),
+        "production CLI import origin changed",
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[MODULE_NAME] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def invoke(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -198,7 +223,12 @@ def test_cli_surface(base: Path) -> None:
 def test_deterministic_generation_and_validation(base: Path) -> None:
     first = base / "first.json"
     second = base / "second.json"
-    expect_ok("first generation", invoke(generate_args(first), base))
+    first_result = invoke(generate_args(first), base)
+    expect_ok("first generation", first_result)
+    expect(
+        f"digest={EXPECTED_POLICY_DIGEST}" in first_result.stdout,
+        "generate CLI must print the fixed domain-separated digest",
+    )
     expect_ok(
         "second generation with reordered CLI options",
         invoke(
@@ -228,6 +258,14 @@ def test_deterministic_generation_and_validation(base: Path) -> None:
         {path.name for path in base.iterdir()}
         == {"first.json", "second.json", "rfc8032.json"},
         "successful generation must not leave staging files",
+    )
+
+
+def test_digest_known_answer(module: ModuleType) -> None:
+    digest = module.genesis_root_policy_digest(EXPECTED_POLICY_BYTES)
+    expect(
+        digest == EXPECTED_POLICY_DIGEST,
+        f"domain-separated digest drifted: {digest!r}",
     )
 
 
@@ -466,6 +504,180 @@ def test_filesystem_fail_closed_and_atomicity(base: Path) -> None:
     expect(input_link.is_symlink(), "validator replaced symlink input")
     expect(real_input.read_bytes() == EXPECTED_POLICY_BYTES, "validator changed target")
 
+    input_parent_case = base / "validate-parent-symlink"
+    input_parent_case.mkdir()
+    real_input_parent = input_parent_case / "real"
+    real_input_parent.mkdir()
+    parent_input = real_input_parent / "policy.json"
+    parent_input.write_bytes(EXPECTED_POLICY_BYTES)
+    input_alias = input_parent_case / "alias"
+    input_alias.symlink_to(real_input_parent.name, target_is_directory=True)
+    result = validate(input_alias / "policy.json", input_parent_case)
+    expect_fail("symlink validation input parent", result)
+    expect(
+        parent_input.read_bytes() == EXPECTED_POLICY_BYTES,
+        "validator changed input reached through parent symlink",
+    )
+
+    fifo_case = base / "validate-fifo"
+    fifo_case.mkdir()
+    fifo = fifo_case / "policy.json"
+    os.mkfifo(fifo)
+    result = validate(fifo, fifo_case)
+    expect_fail("FIFO validation input", result)
+    expect(stat_is_fifo(fifo), "validator replaced FIFO input")
+
+    hardlink_case = base / "validate-hardlink"
+    hardlink_case.mkdir()
+    hardlink_source = hardlink_case / "source.json"
+    hardlink_source.write_bytes(EXPECTED_POLICY_BYTES)
+    hardlink_input = hardlink_case / "policy.json"
+    os.link(hardlink_source, hardlink_input)
+    result = validate(hardlink_input, hardlink_case)
+    expect_fail("hardlink validation input", result)
+    expect(
+        hardlink_source.read_bytes() == EXPECTED_POLICY_BYTES
+        and hardlink_input.read_bytes() == EXPECTED_POLICY_BYTES,
+        "validator changed hardlinked input",
+    )
+
+
+def stat_is_fifo(path: Path) -> bool:
+    import stat
+
+    return stat.S_ISFIFO(path.lstat().st_mode)
+
+
+def expect_library_rejected(
+    label: str,
+    module: ModuleType,
+    operation: Any,
+) -> Any:
+    error_type = module.GenesisRootPolicyError
+    try:
+        operation()
+    except error_type as error:
+        return error
+    except Exception as error:
+        raise AssertionError(
+            f"{label}: leaked unexpected {type(error).__name__}: {error}"
+        ) from None
+    raise AssertionError(f"{label}: expected GenesisRootPolicyError")
+
+
+def expect_empty_failed_publish(case: Path, output: Path, label: str) -> None:
+    expect(not output.exists(), f"{label}: published a partial/failing output")
+    expect(list(case.iterdir()) == [], f"{label}: left staging residue")
+
+
+def test_atomic_failure_injection(base: Path, module: ModuleType) -> None:
+    write_case = base / "write-failure"
+    write_case.mkdir()
+    write_output = write_case / "policy.json"
+    original_write = module.os.write
+    writes = 0
+
+    def partial_then_fail(descriptor: int, data: bytes) -> int:
+        nonlocal writes
+        writes += 1
+        if writes == 1:
+            return original_write(descriptor, data[: max(1, len(data) // 2)])
+        raise OSError("injected write failure")
+
+    module.os.write = partial_then_fail
+    try:
+        expect_library_rejected(
+            "write failure",
+            module,
+            lambda: module.atomic_publish_no_clobber(
+                write_output, EXPECTED_POLICY_BYTES
+            ),
+        )
+    finally:
+        module.os.write = original_write
+    expect_empty_failed_publish(write_case, write_output, "write failure")
+
+    fsync_case = base / "post-link-fsync-failure"
+    fsync_case.mkdir()
+    fsync_output = fsync_case / "policy.json"
+    original_fsync = module.os.fsync
+    fsyncs = 0
+
+    def fail_first_parent_fsync(descriptor: int) -> None:
+        nonlocal fsyncs
+        fsyncs += 1
+        if fsyncs == 3:
+            raise OSError("injected post-link fsync failure")
+        original_fsync(descriptor)
+
+    module.os.fsync = fail_first_parent_fsync
+    try:
+        expect_library_rejected(
+            "post-link fsync failure",
+            module,
+            lambda: module.atomic_publish_no_clobber(
+                fsync_output, EXPECTED_POLICY_BYTES
+            ),
+        )
+    finally:
+        module.os.fsync = original_fsync
+    expect_empty_failed_publish(
+        fsync_case, fsync_output, "post-link fsync failure"
+    )
+
+    race_case = base / "publish-race"
+    race_case.mkdir()
+    race_output = race_case / "policy.json"
+    original_link = module.os.link
+    competitor = b"competitor-wins"
+    race_observation: dict[str, Any] = {}
+
+    def inject_competitor(
+        source: str,
+        destination: str,
+        *,
+        src_dir_fd: int,
+        dst_dir_fd: int,
+        follow_symlinks: bool,
+    ) -> None:
+        del source, src_dir_fd, follow_symlinks
+        descriptor = module.os.open(
+            destination,
+            module.os.O_WRONLY | module.os.O_CREAT | module.os.O_EXCL,
+            0o600,
+            dir_fd=dst_dir_fd,
+        )
+        race_observation["created"] = True
+        try:
+            written = original_write(descriptor, competitor)
+            expect(written == len(competitor), "race fixture short write")
+        finally:
+            module.os.close(descriptor)
+        raise FileExistsError("injected competing publisher")
+
+    module.os.link = inject_competitor
+    try:
+        race_error = expect_library_rejected(
+            "publish race",
+            module,
+            lambda: module.atomic_publish_no_clobber(
+                race_output, EXPECTED_POLICY_BYTES
+            ),
+        )
+    finally:
+        module.os.link = original_link
+    expect(
+        race_output.exists(),
+        "publish race removed competitor; "
+        f"error={race_error!s} observation={race_observation!r} entries="
+        f"{sorted(path.name for path in race_case.iterdir())!r}",
+    )
+    expect(race_output.read_bytes() == competitor, "publish race clobbered winner")
+    expect(
+        {path.name for path in race_case.iterdir()} == {"policy.json"},
+        "publish race left staging residue",
+    )
+
 
 def main() -> int:
     assert_reference_fixture()
@@ -473,8 +685,10 @@ def main() -> int:
         TOOL.is_file() and not TOOL.is_symlink(),
         f"RED: production CLI is missing at exact path {TOOL}",
     )
+    module = load_tool()
+    test_digest_known_answer(module)
     with tempfile.TemporaryDirectory(prefix="pf-genesis-root-policy-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve(strict=True)
         cli = root / "cli"
         cli.mkdir()
         test_cli_surface(cli)
@@ -494,6 +708,10 @@ def main() -> int:
         filesystem = root / "filesystem"
         filesystem.mkdir()
         test_filesystem_fail_closed_and_atomicity(filesystem)
+
+        fault_injection = root / "fault-injection"
+        fault_injection.mkdir()
+        test_atomic_failure_injection(fault_injection, module)
 
     print("genesis-root-policy-self-test: ok")
     return 0
