@@ -21,6 +21,19 @@
       "dependsOn": []
     },
     {
+      "id": "jv-6.0.2",
+      "name": "jv",
+      "version": "6.0.2",
+      "type": "application",
+      "sha256": "0ecdb9e9a598877b16e4017e09c209046cca29a58d1347c2d5458cab0dd5928f",
+      "supplier": "santhosh-tekuri/jsonschema",
+      "licenseSpdx": "Apache-2.0",
+      "licenseFile": "licenses/Apache-2.0.txt",
+      "licenseFileSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "redistributable": true,
+      "dependsOn": []
+    },
+    {
       "id": "lean-4.31.0",
       "name": "lean",
       "version": "4.31.0",

@@ -24,10 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "scripts" / "supply_chain_core.py"
 
 RAW_TOOL_LOCK_SHA256 = (
-    "sha256:28e376e281ce37258ea24c52d5da1ea79e5e82c237705811226fb461e8d873c6"
+    "sha256:1de05222d5ca732cf6b0f72849e5e8900319cdbad29e6199f9c46c4d8615704d"
 )
 TOOL_LOCK_V2_DIGEST = (
-    "sha256:bde9dcdda557b323189871159f755406f78819821b4c130d860dc2e371f8e860"
+    "sha256:8bc65fe7401fcdad7aa272e5c5d87a7a744bd594d7767fd9ee2234a78f76725b"
 )
 LEGACY_TOOL_LOCK_DIGEST = (
     "sha256:d35cac0437ddaf1054cd5b5eabe7f2721b9f257ca557c2dc57ddf6e879291d36"
@@ -44,22 +44,22 @@ SOLC_EXECUTABLE_COMPONENT_DIGEST = (
 
 EXPECTED_TOOL_LOCK_LEAF_KEYS = (
     ("asset", "foundry-v0.3.0-darwin-arm64", None),
+    ("asset", "jv-v6.0.2-darwin-arm64", None),
     ("asset", "lean-4.31.0-darwin-arm64", None),
     ("asset", "openssl-3.6.3-homebrew-arm64-tahoe", None),
-    ("asset", "jv-v6.0.2-darwin-arm64", None),
     ("asset", "solc-0.8.34-macos-universal", None),
     ("asset", "wabt-1.0.41-macos-arm64", None),
     ("bundle-file", "foundry-v0.3.0-darwin-arm64", "anvil"),
     ("bundle-file", "foundry-v0.3.0-darwin-arm64", "cast"),
     (
         "bundle-file",
-        "openssl-3.6.3-homebrew-arm64-tahoe",
-        "lib/libcrypto.3.dylib",
+        "jv-v6.0.2-darwin-arm64",
+        "jv",
     ),
     (
         "bundle-file",
-        "jv-v6.0.2-darwin-arm64",
-        "jv",
+        "openssl-3.6.3-homebrew-arm64-tahoe",
+        "lib/libcrypto.3.dylib",
     ),
     ("bundle-file", "solc-0.8.34-macos-universal", "solc"),
     ("bundle-file", "wabt-1.0.41-macos-arm64", "wat2wasm"),
@@ -520,6 +520,11 @@ def direct_tool_component_sources(module: ModuleType) -> tuple[object, ...]:
             refs(("asset", "foundry-v0.3.0-darwin-arm64", None)),
         ),
         source(
+            "asset-jv",
+            "download-asset",
+            refs(("asset", "jv-v6.0.2-darwin-arm64", None)),
+        ),
+        source(
             "asset-lean",
             "download-asset",
             refs(("asset", "lean-4.31.0-darwin-arm64", None)),
@@ -528,11 +533,6 @@ def direct_tool_component_sources(module: ModuleType) -> tuple[object, ...]:
             "asset-openssl",
             "download-asset",
             refs(("asset", "openssl-3.6.3-homebrew-arm64-tahoe", None)),
-        ),
-        source(
-            "asset-jv",
-            "download-asset",
-            refs(("asset", "jv-v6.0.2-darwin-arm64", None)),
         ),
         source(
             "asset-solc",

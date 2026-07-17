@@ -10,6 +10,13 @@
       "format": "tar.gz"
     },
     {
+      "id": "jv-v6.0.2-darwin-arm64",
+      "url": "https://github.com/santhosh-tekuri/jsonschema/releases/download/v6.0.2/jv-v6.0.2-darwin-arm64.tar.gz",
+      "size": 5516251,
+      "sha256": "0ecdb9e9a598877b16e4017e09c209046cca29a58d1347c2d5458cab0dd5928f",
+      "format": "tar.gz"
+    },
+    {
       "id": "lean-4.31.0-darwin-arm64",
       "url": "https://github.com/leanprover/lean4/releases/download/v4.31.0/lean-4.31.0-darwin_aarch64.zip",
       "size": 770470574,
@@ -95,6 +102,14 @@
       "mode": "0555"
     },
     {
+      "path": "jv",
+      "assetId": "jv-v6.0.2-darwin-arm64",
+      "member": "jv",
+      "size": 10033666,
+      "sha256": "aa44150325875a6ba94d8fc29a8bfcff271ca0802b6faa9ac731d70056460ece",
+      "mode": "0555"
+    },
+    {
       "path": "lib/libcrypto.3.dylib",
       "assetId": "openssl-3.6.3-homebrew-arm64-tahoe",
       "member": "openssl@3/3.6.3/lib/libcrypto.3.dylib",
@@ -129,6 +144,11 @@
       },
       {
         "path": "cast",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "jv",
         "installId": null,
         "externalLoads": []
       },
@@ -186,6 +206,22 @@
       "expectedVersion": "0.3.0 (5a8bd89",
       "licenseSpdx": "MIT OR Apache-2.0",
       "requiredByProfiles": ["evm-yul-solc-0.8.34-v1-runtime"]
+    },
+    {
+      "id": "jv",
+      "version": "6.0.2",
+      "sourceUrl": "https://github.com/santhosh-tekuri/jsonschema/releases/tag/v6.0.2",
+      "platform": "darwin-arm64",
+      "assetId": "jv-v6.0.2-darwin-arm64",
+      "executable": "jv",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/jv",
+      "executableSha256": "aa44150325875a6ba94d8fc29a8bfcff271ca0802b6faa9ac731d70056460ece",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": ["-v"],
+      "expectedVersion": "github.com/santhosh-tekuri/jsonschema/cmd/jv (devel)",
+      "licenseSpdx": "Apache-2.0",
+      "requiredByProfiles": ["supply-chain-cyclonedx-1.6-v1"]
     },
     {
       "id": "solc",
