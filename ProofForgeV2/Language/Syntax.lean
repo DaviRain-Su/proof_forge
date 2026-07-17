@@ -82,11 +82,15 @@ private def preflightForDecoder (stx : Syntax) : Except String Unit :=
 
 /-- Decode the registered Lean syntax tree into the target-neutral source AST.
 This function is also used by the non-elaborating CLI loader. -/
+private def rawIdentifierText? : Syntax → Option String
+  | .ident _ rawValue _ _ => some rawValue.toString
+  | _ => none
+
 private def decodeTypeUnchecked : Syntax → Except String ProofForgeV2.Source.ValueType
   | `(pfType| $name:ident) =>
-      match name.getId.toString with
-      | "UInt64" => .ok .u64
-      | "Bool" => .ok .bool
+      match rawIdentifierText? name with
+      | some "UInt64" => .ok .u64
+      | some "Bool" => .ok .bool
       | _ => .error "unsupported portable type"
   | _ => .error "unsupported portable type"
 

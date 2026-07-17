@@ -53,6 +53,8 @@ inductive ProgramRequirement where
   | privateWitness
   | eventEmission
   | callerContext
+  | boolValues
+  | commitmentDisclosure
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 namespace ProgramRequirement
@@ -66,6 +68,8 @@ def id : ProgramRequirement → String
   | .privateWitness => "disclosure.private-witness"
   | .eventEmission => "effect.event"
   | .callerContext => "context.caller"
+  | .boolValues => "value.bool"
+  | .commitmentDisclosure => "disclosure.commitment"
 
 instance : ToString ProgramRequirement := ⟨id⟩
 

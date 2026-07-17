@@ -149,22 +149,32 @@ private def Statement.requirements : Statement → Array ProgramRequirement
   | .store _ value | .returnValue value => value.requirements
   | .synchronousCall .. => #[.synchronousCall, .transactionalRollback]
 
-private def Param.requirements (param : Param) : Array ProgramRequirement :=
-  match param.visibility with
+private def ValueType.requirements : ValueType → Array ProgramRequirement
+  | .u64 | .field => #[]
+  | .bool => #[.boolValues]
+
+private def Visibility.requirements : Visibility → Array ProgramRequirement
   | .verifierVisible => #[]
-  | .proverWitness | .commitmentOnly => #[.privateWitness]
+  | .proverWitness => #[.privateWitness]
+  | .commitmentOnly => #[.commitmentDisclosure]
+
+private def Param.requirements (param : Param) : Array ProgramRequirement :=
+  param.type.requirements ++ param.visibility.requirements
 
 private def stableUnique [BEq α] (values : Array α) : Array α :=
   values.foldl (fun found value =>
     if found.contains value then found else found.push value) #[]
 
 def deriveRequirements (program : Program) : Array ProgramRequirement :=
-  let stateRequirements := if program.state.isEmpty then #[] else #[.persistentState]
+  let stateRequirements :=
+    (if program.state.isEmpty then #[] else #[.persistentState]) ++
+      program.state.flatMap (·.type.requirements)
   let initializerRequirements := program.initializer.map (fun initializer =>
     initializer.params.flatMap Param.requirements ++
       initializer.body.flatMap Statement.requirements) |>.getD #[]
   let entryRequirements := program.entries.flatMap fun entry =>
-    entry.params.flatMap Param.requirements ++ entry.body.flatMap Statement.requirements
+    entry.params.flatMap Param.requirements ++ entry.result.requirements ++
+      entry.body.flatMap Statement.requirements
   stableUnique (stateRequirements ++ initializerRequirements ++ entryRequirements)
 
 /-- Total normalization from a checked Typed program. Requirements are derived
@@ -268,6 +278,8 @@ private def appendRequirement (bytes : ByteArray) : ProgramRequirement → ByteA
   | .privateWitness => appendTag bytes 5
   | .eventEmission => appendTag bytes 6
   | .callerContext => appendTag bytes 7
+  | .boolValues => appendTag bytes 8
+  | .commitmentDisclosure => appendTag bytes 9
 
 def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendNat bytes program.schemaVersion
