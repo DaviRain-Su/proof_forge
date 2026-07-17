@@ -250,10 +250,19 @@ contain。文件上限返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受
 
 `decodeProgramCommandChecked` 返回的 validated `Source.Program` 是 CLI Loader 与 Lean
 command elaborator 的唯一业务 AST。共享 validation 在 decode 后按固定顺序检查：至少一个
-entry/view、state 名唯一、entry 名唯一、initializer 参数名唯一、每个 entry 参数名唯一；
+entry/view、state 名唯一、entry 名唯一、event 名唯一、error 名唯一、initializer 参数名唯一、
+每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按 error 声明顺序唯一、每个 entry
+参数名唯一；
 duplicate initializer 仍在构造 `Source.Program` 前拒绝。Loader 只拥有 module header/
 command whitelist、namespace stack、module 内 program identity 去重和 selection，不得另有
 per-program declaration validator。
+
+当前 D1 pre-acceptance alpha 将 event/error 的 exact name 与 parameter order 保存在
+`Source.Program` 并纳入 `pf.source.v1` development binding；`error E` 与 `error E()` 物化为同一
+空参数 carrier。Typed/Semantic 的 declaration tables 完成前，任一非空 event/error table 必须在
+`Typed.check` fail closed，不得被静默删除后进入 requirement resolution 或 target Plan。该 alpha
+projection 还不是 `SPEC-SOURCE-WIRE-001` 的完整 ordered `Program.items` 实现，不能作为正式
+`Source.ProgramV1` wire evidence。
 
 Lean command elaborator 必须从 decoded value quote 出 `@[proof_forge_program]` 常量；不得丢弃
 decoded value 后再沿原始 `Syntax` 运行第二套 `expandType/expandParam/expandExpr/expandStatement/

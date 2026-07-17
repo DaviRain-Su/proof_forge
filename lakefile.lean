@@ -17,6 +17,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Core.Semantics,
     `Tests.Compiler.Pipeline,
     `Tests.Compiler.TypedNameIndex,
+    `Tests.Language.EventErrorDeclarations,
     `Tests.Language.FieldDeclarations,
     `Tests.Language.ProgramSyntax,
     `Tests.Language.PrimitiveDeclarations,

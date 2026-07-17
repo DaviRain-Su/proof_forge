@@ -703,6 +703,11 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   visibility 必须逐 state 经 Source→Typed→Semantic 保留；private/commitment state 分别推导
   `disclosure.private-state`/`disclosure.commitment-state`，不得因 Noir 已支持 private parameter 而
   误接 private state。当前四个 Phase 1 target 都必须在 Plan 前拒绝两项 state-specific requirement。
+- event/error declaration 覆盖非空与空 parameter list，`error E` 与 `error E()` 必须生成相同
+  AST/sourceHash；name、parameter 与同类 declaration order 必须进入 canonical source binding。
+  duplicate event/error name 与 duplicate parameter 通过 Lean command/Loader 两路得到相同的
+  exact `PF-SRC-INVALID`，parameter 错误按各自 declaration order 选择首错。Typed/Semantic 尚无
+  对应 declaration table 时必须在 `Typed.check` fail closed，不能静默丢弃后进入 target Plan。
 - 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
   pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
   diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。

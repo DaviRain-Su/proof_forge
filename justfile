@@ -281,6 +281,10 @@ dsl-negative: build
             duplicate-entry) echo "PF-SRC-INVALID: program 'DuplicateEntry' contains duplicate entry declarations" ;;
             duplicate-initializer-param) echo "PF-SRC-INVALID: initializer contains duplicate parameters" ;;
             duplicate-entry-param) echo "PF-SRC-INVALID: entry 'run' contains duplicate parameters" ;;
+            duplicate-event) echo "PF-SRC-INVALID: program 'DuplicateEvent' contains duplicate event declarations" ;;
+            duplicate-error) echo "PF-SRC-INVALID: program 'DuplicateError' contains duplicate error declarations" ;;
+            duplicate-event-param) echo "PF-SRC-INVALID: event 'First' contains duplicate parameters" ;;
+            duplicate-error-param) echo "PF-SRC-INVALID: error 'First' contains duplicate parameters" ;;
             duplicate-initializer) echo "PF-SRC-INVALID: program may declare at most one initializer" ;;
             priority-identity-before-decode) echo "PF-BOUND-001: portable program identity exceeds nesting limit 256" ;;
             priority-decode-before-initializer) echo "PF-SRC-INVALID: UInt64 literal is out of range: 18446744073709551616" ;;
@@ -297,7 +301,8 @@ dsl-negative: build
     }
     fixtures=(
         zero-callable duplicate-state duplicate-entry duplicate-initializer-param
-        duplicate-entry-param duplicate-initializer priority-identity-before-decode
+        duplicate-entry-param duplicate-event duplicate-error duplicate-event-param
+        duplicate-error-param duplicate-initializer priority-identity-before-decode
         priority-decode-before-initializer
         priority-initializer-before-zero priority-zero-before-state priority-state-before-entry
         priority-entry-before-initializer-param priority-initializer-param-before-entry-param
