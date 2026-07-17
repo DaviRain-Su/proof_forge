@@ -125,14 +125,14 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-22 | TASK-D1-04 | binary checked subtraction Source-only carrier；`+`/`-` 同层左结合、Expr tag `5` 与 Typed fail-closed boundary | `756afdc2`, `0d97da50`, `e8c3773f` | focused 128-job aggregate + left-associative AST/sourceHash pins + parser-boundary negatives；final reviews P0/P1=0；checkpoint `just ci` deferred | complete (development) |
 | D1-PA-23 | TASK-D1-04 | binary checked multiplication Source-only carrier；高于 `+`/`-` 的 precedence、Expr tag `6` 与 Typed fail-closed boundary | `21a4157b`, `6b30cce4`, `2749d1c6` | focused 130-job aggregate + precedence/associativity AST/sourceHash pins + parser-boundary negatives；final reviews P0/P1=0；checkpoint `just ci` deferred | complete (development) |
 | D1-PA-24 | TASK-D1-04 | parenthesized expression grouping parser sugar；无新 Expr ctor/tag，等价 grouping canonical/sourceHash 不变 | `77c6b23b`, `ddaadfb6`, `d321db74` | focused 132-job aggregate + same-identity AST/canonical/hash equality + parser-boundary negatives；final reviews P0/P1=0；checkpoint `just ci` deferred | complete (development) |
-| D1-PA-25 | TASK-D1-04 | unary checked negation Source-only carrier；prefix precedence `75`、Expr tag `7`、既有 unary-negative pin migration 与 Typed fail-closed boundary | — | unary/binary-minus/scope/canonical audits；spec freeze before RED | **active** |
+| D1-PA-25 | TASK-D1-04 | unary checked negation Source-only carrier；prefix precedence `75`、Expr tag `7`、既有 unary-negative pin migration 与 Typed fail-closed boundary | `009159e0`, `946b8c67`, `01739d5c`, `08a1ac29` | focused 14-job build + 134-job aggregate + exact AST/canonical/hash/comment-boundary controls；checkpoint `just ci` deferred | complete (development) |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
 | TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07 | — | TST-SRC-001, TST-SRC-002 | EV-20260717-0036 | pending |
 | TASK-D1-02 | `program ... where` command parser | TASK-D1-01 | — | TST-SRC-003 | — | pending |
 | TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043, EV-20260717-0044, EV-20260717-0045, EV-20260717-0046, EV-20260717-0047, EV-20260718-0001, EV-20260718-0002, EV-20260718-0003, EV-20260718-0004, EV-20260718-0005 | pending |
-| TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | EV-20260718-0006, EV-20260718-0007, EV-20260718-0008, EV-20260718-0009, EV-20260718-0010 | pending |
+| TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | EV-20260718-0006, EV-20260718-0007, EV-20260718-0008, EV-20260718-0009, EV-20260718-0010, EV-20260718-0011 | pending |
 | TASK-D1-05 | `Source.Program` stable attribute export/schema | TASK-D1-03 | — | TST-SRC-006, TST-SRC-007 | — | pending |
 | TASK-D1-06 | multi-program loader/selection | TASK-D1-05 | — | TST-SRC-008 | — | pending |
 | TASK-D1-07 | stable source diagnostics | TASK-D1-02, TASK-D1-03, TASK-D1-04, TASK-D1-05, TASK-D1-06 | — | TST-DIAG-001 | — | pending |

@@ -1800,3 +1800,40 @@ normative: false
 - Next：residual audit 选择 unary checked negation Source-only carrier 作为 D1-PA-25 candidate；必须先冻结
   prefix precedence、与 binary `-` 的消歧、append-only Expr tag `7`、grouped operand 与 exact Typed
   fail-closed boundary，再提交 RED；不得捆绑 `!`/`~`、signed literal、Semantic arithmetic 或 target lowering。
+
+## 2026-07-18 — D1 unary checked negation pre-acceptance slice
+
+- Commits：freeze `009159e0`；tests-only RED `946b8c67`；Source-only GREEN `01739d5c`；
+  migrated-spelling exact pin `08a1ac29`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-25 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 新增 `checkedNeg operand`，canonical encoder 以 tag `7` 后接递归
+  operand；`pfExpr` 新增 `syntax:75 "-" pfExpr:75 : pfExpr`，decoder/quotation 均结构化保留 unary node。
+  `Typed.check` 逐字 fail closed 为 `checked negation is not yet supported by typed checking`。production
+  只修改 `Source.lean`、`Syntax.lean`、`Typed.lean` 共 10 行，SemanticIR、requirements 与 targets 未改。
+- Parser/AST：initializer、entry、view、fn 的 return/let value 与 Lean command/ParserSession parity 全绿；
+  `-2`/`- 2`/`-x`、`-2*3`、`-(2+3)`、`1- -2`、`1+ -2`、`1* -2`、`- - 2`
+  与 `(-3)` 精确固定 unary/binary precedence、right nesting 和 grouped operand。PA22 的四个临时 unary
+  negatives 与 PA24 的 grouped unary negative 在同一个 RED changeset 迁移为 positives。
+- Binding：CheckedNegTwin 固定 tag/operand/order/tree identity；代表性 golden 为 unary literal `2`
+  `2d85f63df2d77d902f186712031114c9d66f9d169acc2672c1bccbb32dfc04ce`/219 bytes、
+  variable `x` `a24b2b26d9568962214245701db537cdab9ee18a427a5ae2d6ce3e6858023c29`/220、
+  `-2*3` `ee810bab7d822bf4ea8dbdc5007096e40a7b34e1ab5cbacfccabb83153329978`/229、
+  nested `- - 2` `cddb76db9a7d522c1531d1058446c1ba75b6f0006eccfe6b2f274b515642127f`/220；
+  literal/operator/operand/nesting/wrong-grouping controls 均不 alias。
+- Boundaries：无空格 `--` 继续服从 Lean line-comment 词法；`1--2` 精确固定为 literal `1` comment
+  control，而 subtraction-of-negative 使用 `1 - -2`。bare/malformed operator、empty operand 与额外
+  payload 停在 parser boundary；checkedAdd positive 与 checkedSub/checkedMul exact Typed controls 保持。
+- Review/Commands：执行 `lake build Tests.Language.CheckedNeg`；
+  `lake build proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+  第一次 aggregate 暴露 `-2`/`- 2` fixture 使用不同 program identity；RED 在 GREEN 提交前修正并
+  amend 为 `946b8c67`，随后同一 aggregate 全绿。post-GREEN review 为 P0/P1=0；coordinator 进一步按
+  冻结文本把 PA22 的 `- 3`、`-3`、`7 - - 3`、`1 + - 2` 原 spelling 逐字补入 `08a1ac29`，
+  增量 aggregate 再次全绿。
+- Results：14-job focused build、134-job aggregate 与测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0011`。按批量验证策略，本切片的 checkpoint `just ci` 延后，未计入本条证据。
+- Limitations：仅有 Source unary carrier，没有 signed literal、constant folding、`!`/`~`、Typed/Semantic
+  negation、overflow/underflow rule、requirement、target ABI/runtime、eligible host 或 formal D1 evidence。
+  D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending。
+- Next：statement/expression residual audits 并行选择下一个单一 bounded slice；在审计与冻结完成前不自动
+  递增 D1-PA 编号，也不把本 development evidence 写成正式 D1 完成。
