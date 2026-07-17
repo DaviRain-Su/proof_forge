@@ -1856,6 +1856,7 @@ def extract_lean_zip(archive: zipfile.ZipFile,
             continue
         output = staging / relative
         written = 0
+        digest = hashlib.sha256()
         with archive.open(info, "r") as source, output.open("xb") as target:
             while True:
                 chunk = source.read(1024 * 1024)
@@ -1865,9 +1866,11 @@ def extract_lean_zip(archive: zipfile.ZipFile,
                 total += len(chunk)
                 if written > info.file_size or total > expected_total:
                     fail(f"Lean ZIP output exceeded locked size at {relative}")
+                digest.update(chunk)
                 target.write(chunk)
         if written != info.file_size:
             fail(f"Lean ZIP output size mismatch at {relative}")
+        manifest[relative]["sha256"] = digest.hexdigest()
         os.chmod(output, manifest[relative]["mode"])
     if total != expected_total:
         fail(f"Lean ZIP total output mismatch: expected {expected_total}, got {total}")
@@ -1875,6 +1878,198 @@ def extract_lean_zip(archive: zipfile.ZipFile,
         os.chmod(staging / relative, manifest[relative]["mode"])
     os.chmod(staging, 0o555)
     return manifest
+
+
+def verify_extracted_file_witness(root: Path, relative: str, record: dict,
+                                  where: str) -> str:
+    """Bind one extracted file snapshot to its verified ZIP member bytes."""
+
+    root_text = str(root)
+    if (not root.is_absolute() or root_text in {"/", "//"} or
+            root_text.startswith("//") or "\x00" in root_text or
+            posixpath.normpath(root_text) != root_text):
+        fail(f"{where} root must be a normalized absolute path")
+    relative = safe_relative(relative, f"{where} path")
+    if type(record) is not dict or set(record) != {"kind", "size", "mode", "sha256"}:
+        fail(f"{where} witness fields are not exact")
+    if record["kind"] != "file":
+        fail(f"{where} witness must describe a file")
+    expected_size = record["size"]
+    expected_mode = record["mode"]
+    expected_digest = record["sha256"]
+    if type(expected_size) is not int or expected_size < 0:
+        fail(f"{where} size witness is invalid")
+    if type(expected_mode) is not int or expected_mode not in {0o444, 0o555}:
+        fail(f"{where} mode witness is invalid")
+    if type(expected_digest) is not str or SHA256_RE.fullmatch(expected_digest) is None:
+        fail(f"{where} digest witness is invalid")
+
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    stable_fields = (
+        "st_dev", "st_ino", "st_mode", "st_nlink", "st_uid", "st_size",
+        "st_mtime_ns", "st_ctime_ns",
+    )
+    directory_descriptors: list[int] = []
+    directory_snapshots: list[tuple[int, os.stat_result]] = []
+    file_descriptor: int | None = None
+
+    def open_root_chain() -> tuple[int, os.stat_result]:
+        """Open every absolute root component without following a symlink."""
+
+        parts = PurePosixPath(root_text).parts
+        if not parts or parts[0] != "/" or len(parts) == 1:
+            fail(f"{where} root must be a normalized absolute path")
+        current_descriptor = os.open("/", directory_flags)
+        directory_descriptors.append(current_descriptor)
+        opened = os.fstat(current_descriptor)
+        for part in parts[1:]:
+            before = os.stat(
+                part,
+                dir_fd=current_descriptor,
+                follow_symlinks=False,
+            )
+            if not stat.S_ISDIR(before.st_mode) or stat.S_ISLNK(before.st_mode):
+                fail(f"{where} root must not traverse symlinked ancestors")
+            child_descriptor = os.open(
+                part,
+                directory_flags,
+                dir_fd=current_descriptor,
+            )
+            directory_descriptors.append(child_descriptor)
+            opened = os.fstat(child_descriptor)
+            if any(getattr(before, field) != getattr(opened, field)
+                   for field in stable_fields):
+                fail(f"{where} root changed before it could be opened")
+            current_descriptor = child_descriptor
+        return current_descriptor, opened
+
+    try:
+        current_descriptor, root_open = open_root_chain()
+        if (not stat.S_ISDIR(root_open.st_mode) or
+                stat.S_ISLNK(root_open.st_mode) or
+                root_open.st_uid != os.getuid()):
+            fail(f"{where} root must be an owned non-symlink directory")
+        directory_snapshots.append((current_descriptor, root_open))
+
+        parts = PurePosixPath(relative).parts
+        for part in parts[:-1]:
+            before = os.stat(
+                part,
+                dir_fd=current_descriptor,
+                follow_symlinks=False,
+            )
+            if (not stat.S_ISDIR(before.st_mode) or stat.S_ISLNK(before.st_mode) or
+                    before.st_uid != os.getuid()):
+                fail(f"{where} ancestor must be an owned non-symlink directory")
+            child_descriptor = os.open(
+                part,
+                directory_flags,
+                dir_fd=current_descriptor,
+            )
+            directory_descriptors.append(child_descriptor)
+            opened = os.fstat(child_descriptor)
+            if any(getattr(before, field) != getattr(opened, field)
+                   for field in stable_fields):
+                fail(f"{where} ancestor changed before it could be opened")
+            if (not stat.S_ISDIR(opened.st_mode) or
+                    stat.S_ISLNK(opened.st_mode) or
+                    opened.st_uid != os.getuid()):
+                fail(f"{where} ancestor must remain an owned directory after open")
+            directory_snapshots.append((child_descriptor, opened))
+            current_descriptor = child_descriptor
+
+        filename = parts[-1]
+        before = os.stat(
+            filename,
+            dir_fd=current_descriptor,
+            follow_symlinks=False,
+        )
+        if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode):
+            fail(f"{where} must be a regular non-symlink file")
+        if before.st_nlink != 1:
+            fail(f"{where} must have exactly one hard link")
+        if before.st_uid != os.getuid():
+            fail(f"{where} owner mismatch")
+        if before.st_size != expected_size:
+            fail(f"{where} size witness mismatch")
+        if stat.S_IMODE(before.st_mode) != expected_mode:
+            fail(f"{where} mode witness mismatch")
+
+        file_descriptor = os.open(
+            filename,
+            file_flags,
+            dir_fd=current_descriptor,
+        )
+        opened = os.fstat(file_descriptor)
+        if any(getattr(before, field) != getattr(opened, field)
+               for field in stable_fields):
+            fail(f"{where} changed before it could be opened")
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or
+                opened.st_uid != os.getuid() or opened.st_size != expected_size or
+                stat.S_IMODE(opened.st_mode) != expected_mode):
+            fail(f"{where} must remain a regular file after open")
+
+        digest = hashlib.sha256()
+        remaining = expected_size
+        while remaining:
+            chunk = os.read(file_descriptor, min(remaining, 1024 * 1024))
+            if not chunk:
+                fail(f"{where} ended before its size witness")
+            digest.update(chunk)
+            remaining -= len(chunk)
+        if os.read(file_descriptor, 1):
+            fail(f"{where} exceeded its size witness")
+        after = os.fstat(file_descriptor)
+        path_after = os.stat(
+            filename,
+            dir_fd=current_descriptor,
+            follow_symlinks=False,
+        )
+        if (any(getattr(opened, field) != getattr(after, field)
+                for field in stable_fields) or
+                any(getattr(after, field) != getattr(path_after, field)
+                    for field in stable_fields)):
+            fail(f"{where} changed while being read")
+        for descriptor, snapshot in directory_snapshots:
+            current = os.fstat(descriptor)
+            if any(getattr(snapshot, field) != getattr(current, field)
+                   for field in stable_fields):
+                fail(f"{where} ancestor changed while being read")
+        _, root_path_after = open_root_chain()
+        if any(getattr(root_open, field) != getattr(root_path_after, field)
+               for field in stable_fields):
+            fail(f"{where} root path changed while being read")
+        actual_digest = digest.hexdigest()
+        if actual_digest != expected_digest:
+            fail(f"{where} digest witness mismatch")
+        return actual_digest
+    except OSError as error:
+        fail(f"cannot safely read {where}: {error}")
+    finally:
+        active_error = sys.exc_info()[0] is not None
+        close_error: OSError | None = None
+        descriptors = list(reversed(directory_descriptors))
+        if file_descriptor is not None:
+            descriptors.insert(0, file_descriptor)
+        for descriptor in descriptors:
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                if close_error is None:
+                    close_error = error
+        if close_error is not None and not active_error:
+            fail(f"cannot safely close {where}: {close_error}")
 
 
 def verify_lean_tree(root: Path, manifest: dict[str, dict],
