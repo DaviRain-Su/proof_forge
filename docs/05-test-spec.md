@@ -728,7 +728,9 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   duplicate parameter、empty body、unknown result、literal overflow、escaped contextual keyword 与普通/escaped
   保留名必须双入口 exact fail closed；`fn` 不得污染宿主 Lean keyword 集。D2 local-call/type/effect/
   return/acyclicity 尚未实现时必须在 `Typed.check` fail closed，不能静默丢弃或进入 target Plan；
-  本 alpha 只覆盖 explicit result type，不声称 optional `Unit` return 已实现。
+  本 alpha 只覆盖 explicit result type，不声称 optional `Unit` return 已实现。`init`/`entry`/`view`
+  block 回到引入列后紧随 `fn` 的三种合法 source order 必须同时通过 Lean command 与 ParserSession，
+  后继 declaration 不得被前一 block parser 吞噬或拒绝。
 - 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
   pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
   diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。

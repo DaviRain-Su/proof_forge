@@ -1226,3 +1226,42 @@ normative: false
 - Next：唯一 active development pointer 推进到 D1-PA-09（pure fn declaration carrier、canonical
   signature/body binding 与 duplicate/fail-closed boundary）；D1-PA-10 排队为 invariant declaration
   carrier、canonical expression binding 与 duplicate/fail-closed boundary。
+
+## 2026-07-17 — D1 pure fn declaration pre-acceptance slice
+
+- Commits：initial RED `0e8b82ca`；carrier-binding RED `337eedff`；validation RED
+  `7df85988`；priority RED `ecb517da`；carrier GREEN `c62937d1`；review-gap hardening
+  `419c1564`；legacy-block order RED/FIX `1c94e414`/`6c88b376`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-SOURCE-WIRE-001`、`TST-SRC-004`。本切片只追加
+  D1-PA-09 development evidence，不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或
+  Done 语义。
+- Changed：新增 `Source.FnDecl{name,params,result,body}`、`Source.Item.fnDecl` 与
+  `Source.Program.functions`；Lean command/ParserSession 共享 contextual raw `fn` decoder、
+  validator 与 quote，并保持 fn 同类源码顺序。当前只复用 alpha parameter/type/statement/
+  expression carrier，未扩张 D1-04 expression grammar。
+- Binding：fn declaration kind/name/count/order、parameter name/type/visibility/count/order、result、
+  body statement count/order、expression kind/value/operand order 与 synchronous call callee 全部进入
+  canonical source bytes；同前缀 1→2 count 及 parameter 字段与 body 解耦 mutation 均有独立回归。
+- Validation/Layout：duplicate fn 位于 const duplicate 与 initializer parameter 之间；
+  fn 内部按 name→params→result→body 解码，parameter duplicate 优先于 empty body。
+  `fn` 只按 raw contextual spelling 识别，escaped introducer 与普通/escaped 保留名 fail closed，
+  宿主 Lean `def fn` 保持可用。评审发现旧 `ppIndent` 会拒绝合法后继 fn，因此
+  init/entry/view 与 fn 统一使用 `manyIndent(pfStmt)` block termination，三种
+  `legacy block → fn` source order 均由 command/Loader parity fixture 锁定。
+- Safety：D2 local-call lookup、type/effect/return/acyclicity 检查尚未实现，因此
+  `Typed.check` 与 `Compiler.compile` 对任一非空 fn table 使用稳定诊断 fail closed，
+  不能静默擦除后进入 Semantic、resolver 或 target Plan。
+- Review/Commands：最终 independent re-review P0=0/P1=0；`lake build
+  Tests.Language.FnDeclarations`；`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed
+  `just ci` at `6c88b376`；`git diff --check`。
+- Results：focused、106-job aggregate、canonical mutation matrix、dual-entry negative/layout positive、
+  isolation archive、114-job clean build、186 项 docs mutation、治理/SBOM/runtime closure 与完整
+  `just ci` exit 0；development evidence 为 `EV-20260717-0043`。
+- Limitations：当前 alpha 只接受 explicit result type，没有 optional `Unit` return、local-call
+  resolution、type/effect/return/acyclicity、跨 kind callable namespace、完整 ordered
+  `Source.ProgramV1.items`、Semantic fn table 或 target materialization。D0 formal milestone 仍为
+  5/8，D1 formal task 仍 pending，本结果不是 eligible/hermetic/formal evidence。
+- Next：唯一 active development pointer 推进到 D1-PA-10（invariant declaration carrier、
+  canonical expression binding 与 duplicate/fail-closed boundary）；D1-PA-11 排队为
+  extension requirement carrier、exact version/digest binding 与 duplicate/fail-closed boundary。
