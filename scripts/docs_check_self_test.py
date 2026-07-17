@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
 CHECKER = Path(__file__).with_name("docs_check.py")
@@ -448,6 +449,110 @@ def write_task_freeze_fx_doc(root: Path, approval: str) -> None:
         encoding="utf-8")
 
 
+def valid_d0_06_attest(freeze_package_sha256: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-06",
+        "kind": "common-primitives-genesis-closure",
+        "genesisAuthority": "GOV-GENESIS-001",
+        "freezePackage": (
+            "docs/governance/task-freeze-packages/TASK-D0-06.json"),
+        "freezePackageSha256": freeze_package_sha256,
+        "frozenTechnicalEvidence": "EV-20260717-0034",
+        "technicalEvidenceGrade": "development",
+        "redCommit": "807d73ba9e5f4bcb3f6b9591de02dd67336c8cf2",
+        "implementationGreenCommit": (
+            "343a08f27835ca9d55b4a3698bf3313cb8e4e06d"),
+        "focusedTestCommand": (
+            "lake build ProofForgeV2.Core.Common proof_forge_next_tests && "
+            "lake exe proof_forge_next_tests"),
+        "focusedTestResult": "ok",
+        "focusedAssertionCount": 232,
+        "cleanCiCommand": "just ci",
+        "cleanCiContext": "clean-detached-worktree",
+        "cleanCiResult": "ok",
+        "independentReviewP0": 0,
+        "independentReviewP1": 0,
+        "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+        "notes": (
+            "Genesis closure for the complete frozen common-primitives slice; "
+            "not formal or hermetic evidence."),
+    }
+
+
+def accepted_governance(text: str) -> str:
+    return text.replace(
+        "status: proposed\n",
+        "status: accepted\n"
+        "approvers: architecture-owner, quality-owner\n"
+        "approvedAt: 2026-07-17\n"
+        "reviewCommit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        "reviewLink: https://example.invalid/review/genesis\n"
+        "openFindings: none\n",
+        1,
+    )
+
+
+def write_genesis_authority(
+        root: Path, *, accepted_status: bool = True) -> None:
+    genesis = markdown("GOV-GENESIS-001", """
+## 1. 问题
+
+Synthetic genesis authority body for self-test closure.
+""", normative=False)
+    if accepted_status:
+        genesis = accepted_governance(genesis)
+    (root / "docs/governance/genesis-authority.md").write_text(
+        genesis, encoding="utf-8")
+
+
+def write_maintainers_authority(
+        root: Path, *, accepted_status: bool = True) -> None:
+    maintainers = markdown("GOV-MAINTAINERS-001", """
+## 映射
+
+Synthetic named-maintainer authority for self-test closure.
+""", normative=False)
+    if accepted_status:
+        maintainers = accepted_governance(maintainers)
+    (root / "docs/governance/maintainers.md").write_text(
+        maintainers, encoding="utf-8")
+
+
+def write_accepted_genesis_authority(root: Path) -> None:
+    write_genesis_authority(root, accepted_status=True)
+    write_maintainers_authority(root, accepted_status=True)
+
+
+def complete_accepted_genesis_fx(root: Path) -> None:
+    write_accepted_genesis_authority(root)
+    write_task_freeze_fx_doc(
+        root, "Quality + Architecture（经 `GOV-GENESIS-001` 追认）")
+
+
+def complete_d0_06_genesis_closure(
+        root: Path,
+        mutate_attest: Optional[
+            Callable[[dict[str, Any]], dict[str, Any]]
+        ] = None,
+) -> None:
+    write_accepted_genesis_authority(root)
+    write_task_freeze_package(
+        root,
+        "TASK-D0-06",
+        output="Completed bootstrap task",
+        dependencies=["TASK-A0-20"],
+    )
+    freeze_path = (
+        root / "docs/governance/task-freeze-packages/TASK-D0-06.json")
+    freeze_digest = hashlib.sha256(freeze_path.read_bytes()).hexdigest()
+    attest = valid_d0_06_attest(freeze_digest)
+    if mutate_attest is not None:
+        attest = mutate_attest(attest)
+    complete_attested_bootstrap_task(root, "TASK-D0-06", attest)
+
+
 def remove_joint_task_test_trace_edge(root: Path) -> None:
     replace(root / "docs/01-prd.md",
             "| FR-901 | Synthetic functional requirement |",
@@ -681,8 +786,8 @@ def main() -> None:
         complete_attested_bootstrap_task(root, "TASK-D0-03", valid_d0_03_attest())))
     expect_success("bootstrap-attest-d0-05", lambda root: (
         complete_attested_bootstrap_task(root, "TASK-D0-05", valid_d0_05_attest())))
-    expect_success("fx-approval-genesis-cited", lambda root: write_task_freeze_fx_doc(
-        root, "Quality + Architecture（经 `GOV-GENESIS-001` 追认）"))
+    expect_success("fx-approval-genesis-cited", complete_accepted_genesis_fx)
+    expect_success("bootstrap-attest-d0-06-genesis", complete_d0_06_genesis_closure)
     expect_root_ancestor_failure()
 
     cases: list[tuple[str, Mutation, str, str]] = [
@@ -1282,6 +1387,39 @@ def main() -> None:
             complete_attested_bootstrap_task(
                 root, "TASK-D0-05",
                 drop_attest_field(valid_d0_05_attest(), "verifyResult"))),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("fx-approval-genesis-doc-absent", lambda root: write_task_freeze_fx_doc(
+            root, "Quality + Architecture（经 `GOV-GENESIS-001` 追认）"),
+         "PF-DOC-FX-APPROVAL", "GOV-GENESIS-001"),
+        ("fx-approval-genesis-doc-not-accepted", lambda root: (
+            write_genesis_authority(root, accepted_status=False),
+            write_maintainers_authority(root, accepted_status=True),
+            write_task_freeze_fx_doc(
+                root, "Quality + Architecture（经 `GOV-GENESIS-001` 追认）"),
+        ), "PF-DOC-FX-APPROVAL", "GOV-GENESIS-001"),
+        ("fx-approval-maintainers-doc-not-accepted", lambda root: (
+            write_genesis_authority(root, accepted_status=True),
+            write_maintainers_authority(root, accepted_status=False),
+            write_task_freeze_fx_doc(
+                root, "Quality + Architecture（经 `GOV-GENESIS-001` 追认）"),
+        ), "PF-DOC-FX-APPROVAL", "GOV-MAINTAINERS-001"),
+        ("bootstrap-d0-06-no-attest", lambda root: (
+            complete_d0_06_genesis_closure(root),
+            (root / "docs/governance/bootstrap-closure/TASK-D0-06.attest.json").unlink(),
+        ), "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-d0-06-malformed-attest", lambda root:
+            complete_d0_06_genesis_closure(
+                root, lambda attest: drop_attest_field(
+                    attest, "focusedTestResult")),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-d0-06-extra-attest-field", lambda root:
+            complete_d0_06_genesis_closure(
+                root, lambda attest: {**attest, "unexpected": True}),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-d0-06-freeze-digest-mismatch", lambda root:
+            complete_d0_06_genesis_closure(
+                root, lambda attest: {
+                    **attest, "freezePackageSha256": "0" * 64}),
          "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
         ("fx-approval-self-referential", lambda root: write_task_freeze_fx_doc(
             root, "本仓库 closeout 记录"),
