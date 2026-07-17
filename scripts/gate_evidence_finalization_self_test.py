@@ -46,6 +46,20 @@ def write_secure(path: Path, body: bytes) -> None:
     path.chmod(0o400)
 
 
+def write_sparse_secure(path: Path, size: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+    try:
+        os.ftruncate(descriptor, size)
+    finally:
+        os.close(descriptor)
+    path.chmod(0o400)
+
+
 def replace_secure(path: Path, body: bytes) -> None:
     path.chmod(0o600)
     path.write_bytes(body)
@@ -2131,8 +2145,8 @@ def main() -> int:
             label="policies-orphan",
             expected_code="PF-EVIDENCE-BUNDLE",
             mutator=lambda case_root, _case_document: write_secure(
-                case_root / "policies" / ".unclaimed-orphan",
-                b"orphan\n",
+                case_root / "policies" / "sandbox-core-orphan.receipt.json",
+                b"{}",
             ),
         )
         assert_snapshot_rejection(
@@ -2147,23 +2161,15 @@ def main() -> int:
             label="contexts-orphan",
             expected_code="PF-EVIDENCE-BUNDLE",
             mutator=lambda case_root, _case_document: write_secure(
-                case_root / "contexts" / "unexpected.json",
+                case_root / "contexts" / "sandbox-core-orphan.json",
                 b"{}",
             ),
         )
 
-        def mutate_host_observation(
-            case_root: Path, case_document: dict[str, object]
+        def mismatch_host_observation_semantics(
+            _case_root: Path, case_document: dict[str, object]
         ) -> None:
-            observation_path = "host/observation.json"
-            raw = (case_root / observation_path).read_bytes()
-            if not raw.endswith(b"\n"):
-                raise AssertionError("host observation fixture lost its exact LF")
-            observation = module.decode_json(raw[:-1])
-            observation["platform"]["arch"] = "x86_64"
-            body = module.canonical_bytes(observation) + b"\n"
-            replace_claimed_input(case_root, case_document, observation_path, body)
-            case_document["hostAttestation"]["observationSha256"] = sha256(body)
+            case_document["environment"]["arch"] = "x86_64"
 
         assert_snapshot_rejection(
             module,
@@ -2176,7 +2182,7 @@ def main() -> int:
             run_binding_sha256,
             label="host-observation-semantic-substitution",
             expected_code="PF-EVIDENCE-HOST-BINDING",
-            mutator=mutate_host_observation,
+            mutator=mismatch_host_observation_semantics,
         )
 
         def mutate_runtime_context(
@@ -2264,12 +2270,14 @@ def main() -> int:
         )
 
         def exceed_semantic_file_limit(
-            _case_root: Path, case_document: dict[str, object]
+            case_root: Path, case_document: dict[str, object]
         ) -> None:
-            claim = input_claim(case_document, "host/observation.json")
-            claim["size"] = module.MAX_INPUT_BYTES + 1
-            claim["sha256"] = "0" * 64
-            case_document["hostAttestation"]["observationSha256"] = "0" * 64
+            path = "build/logs/gate.stdout"
+            body = b"x" * (module.MAX_INPUT_BYTES + 1)
+            replace_secure(case_root / path, body)
+            claim = next(item for item in case_document["logs"] if item["path"] == path)
+            claim["size"] = len(body)
+            claim["sha256"] = sha256(body)
 
         assert_snapshot_rejection(
             module,
@@ -2286,7 +2294,7 @@ def main() -> int:
         )
 
         def exceed_semantic_total_limit(
-            _case_root: Path, case_document: dict[str, object]
+            case_root: Path, case_document: dict[str, object]
         ) -> None:
             semantic_roles = {
                 "clean-room-run-context",
@@ -2301,9 +2309,12 @@ def main() -> int:
             ] + list(case_document["logs"])
             if len(selected) != 17:
                 raise AssertionError("semantic total fixture must select exactly 17 members")
-            for index, claim in enumerate(selected):
-                claim["size"] = module.MAX_INPUT_BYTES
-                claim["sha256"] = f"{index + 1:064x}"
+            body = b"x" * module.MAX_INPUT_BYTES
+            body_sha256 = sha256(body)
+            for claim in selected:
+                replace_secure(case_root / claim["path"], body)
+                claim["size"] = len(body)
+                claim["sha256"] = body_sha256
             rendered = {
                 policy["renderedPolicyInput"]["path"]: policy
                 for policy in case_document["sandboxPolicies"]
@@ -2328,12 +2339,14 @@ def main() -> int:
         )
 
         def exceed_bundle_total_limit(
-            _case_root: Path, case_document: dict[str, object]
+            case_root: Path, case_document: dict[str, object]
         ) -> None:
             for index in range(4):
+                path = f"overflow-total/{index:04d}.bin"
+                write_sparse_secure(case_root / path, module.MAX_BUNDLE_FILE_BYTES)
                 case_document["inputs"].append(
                     {
-                        "path": f"overflow-total/{index:04d}.bin",
+                        "path": path,
                         "role": f"overflow-total-{index:04d}",
                         "sha256": f"{index + 1:064x}",
                         "size": module.MAX_BUNDLE_FILE_BYTES,
@@ -2355,13 +2368,51 @@ def main() -> int:
             mutator=exceed_bundle_total_limit,
         )
 
-        def exceed_bundle_file_count(
-            _case_root: Path, case_document: dict[str, object]
+        def exceed_bundle_file_limit(
+            case_root: Path, case_document: dict[str, object]
         ) -> None:
-            for index in range(module.MAX_BUNDLE_FILES + 1):
+            path = "overflow-file/too-large.bin"
+            size = module.MAX_BUNDLE_FILE_BYTES + 1
+            write_sparse_secure(case_root / path, size)
+            case_document["inputs"].append(
+                {
+                    "path": path,
+                    "role": "overflow-file",
+                    "sha256": "1" * 64,
+                    "size": size,
+                }
+            )
+            case_document["inputs"].sort(key=lambda claim: (claim["role"], claim["path"]))
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="bundle-file-limit",
+            expected_code="PF-EVIDENCE-BUNDLE-LIMIT",
+            mutator=exceed_bundle_file_limit,
+        )
+
+        def exceed_bundle_file_count(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            existing = (
+                len(case_document["inputs"])
+                + sum(item["retained"] is True for item in case_document["artifacts"])
+                + len(case_document["logs"])
+            )
+            additional = module.MAX_BUNDLE_FILES - existing + 1
+            for index in range(additional):
+                path = f"overflow-count/{index:04d}.bin"
+                write_secure(case_root / path, b"")
                 case_document["inputs"].append(
                     {
-                        "path": f"overflow-count/{index:04d}.bin",
+                        "path": path,
                         "role": f"overflow-count-{index:04d}",
                         "sha256": sha256(b""),
                         "size": 0,
@@ -2381,6 +2432,100 @@ def main() -> int:
             label="bundle-file-count",
             expected_code="PF-EVIDENCE-BUNDLE-LIMIT",
             mutator=exceed_bundle_file_count,
+        )
+
+        def add_extra_input(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            path = "extra/unrequired-input.bin"
+            write_secure(case_root / path, b"")
+            case_document["inputs"].append(
+                {
+                    "path": path,
+                    "role": "unrequired-input",
+                    "sha256": sha256(b""),
+                    "size": 0,
+                }
+            )
+            case_document["inputs"].sort(key=lambda claim: (claim["role"], claim["path"]))
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="extra-input",
+            expected_code="PF-EVIDENCE-CATALOG-GATE",
+            mutator=add_extra_input,
+        )
+
+        def add_extra_log(case_root: Path, case_document: dict[str, object]) -> None:
+            path = "extra/unrequired.log"
+            write_secure(case_root / path, b"")
+            case_document["logs"].append(
+                {
+                    "path": path,
+                    "privateDataScan": "not-run",
+                    "sha256": sha256(b""),
+                    "size": 0,
+                    "truncated": False,
+                }
+            )
+            case_document["logs"].sort(key=lambda claim: claim["path"])
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="extra-log",
+            expected_code="PF-EVIDENCE-CATALOG-GATE",
+            mutator=add_extra_log,
+        )
+
+        def add_extra_artifact(
+            case_root: Path, case_document: dict[str, object]
+        ) -> None:
+            path = "extra/unrequired-artifact.bin"
+            write_secure(case_root / path, b"")
+            case_document["artifacts"].append(
+                {
+                    "mediaType": "application/octet-stream",
+                    "path": path,
+                    "retained": True,
+                    "role": "unrequired-artifact",
+                    "sha256": sha256(b""),
+                    "size": 0,
+                    "target": "evm",
+                }
+            )
+            case_document["artifacts"].sort(
+                key=lambda claim: (claim["target"], claim["role"], claim["path"])
+            )
+            case_document["artifactSetSha256"] = module.artifact_set_sha256(
+                case_document["artifacts"]
+            )
+
+        assert_snapshot_rejection(
+            module,
+            temporary_root,
+            development_root,
+            document,
+            catalog_path,
+            catalog_sha256,
+            catalog_digest,
+            run_binding_sha256,
+            label="extra-artifact",
+            expected_code="PF-EVIDENCE-CATALOG-GATE",
+            mutator=add_extra_artifact,
         )
 
         finalized_id = "EVF-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d") + "-0001"
