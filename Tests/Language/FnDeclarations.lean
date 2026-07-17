@@ -153,6 +153,18 @@ unsafe def run : IO Unit := do
     (programSource "CanonicalFn"
       "  fn A(second : Bool, first : UInt64) : UInt64 do\n    return first\n")
     "<fn-params-ba>"
+  let fnParamCount ← select session
+    (programSource "CanonicalFn"
+      "  fn A(value : UInt64, extra : Bool) : UInt64 do\n    return value\n")
+    "<fn-param-count>"
+  let fnBodyOrderAB ← select session
+    (programSource "CanonicalFn"
+      "  fn A(value : UInt64) : UInt64 do\n    call \"host\"\n    return value\n")
+    "<fn-body-order-ab>"
+  let fnBodyOrderBA ← select session
+    (programSource "CanonicalFn"
+      "  fn A(value : UInt64) : UInt64 do\n    return value\n    call \"host\"\n")
+    "<fn-body-order-ba>"
   let fnsAB ← select session
     (programSource "CanonicalFn"
       "  fn A(value : UInt64) : UInt64 do\n    return value\n  fn B(flag : Bool) : Bool do\n    return flag\n")
@@ -183,8 +195,10 @@ unsafe def run : IO Unit := do
       fnBodyAddAB.sourceHash != fnBodyAddBA.sourceHash)
     "fn body statement count, expression kind/value, and operand order must bind the source hash"
   expect (fnParamsAB.sourceHash != fnParamsBA.sourceHash &&
+      fnOne.sourceHash != fnParamCount.sourceHash &&
+      fnBodyOrderAB.sourceHash != fnBodyOrderBA.sourceHash &&
       fnsAB.sourceHash != fnsBA.sourceHash)
-    "fn parameter and declaration order must bind the source hash"
+    "fn parameter count/order, body order, and declaration order must bind the source hash"
 
   expectInvalid "duplicate fn declarations"
     "program 'DuplicateFn' contains duplicate fn declarations"
@@ -198,6 +212,36 @@ unsafe def run : IO Unit := do
       (programWithoutEntrySource "FnOnly"
         "  fn helper(value : UInt64) : UInt64 do\n    return value\n")
       "<fn-only>")
+  expectInvalid "const duplicate precedes fn duplicate"
+    "program 'PriorityConstBeforeFn' contains duplicate const declarations"
+    (← session.parsePrograms
+      (programSource "PriorityConstBeforeFn"
+        "  const Value : UInt64 := 1\n  const Value : UInt64 := 2\n  fn helper(value : UInt64) : UInt64 do\n    return value\n  fn helper(other : UInt64) : UInt64 do\n    return other\n")
+      "<priority-const-before-fn>")
+  expectInvalid "fn duplicate precedes initializer parameter duplicate"
+    "program 'PriorityFnBeforeInitializerParam' contains duplicate fn declarations"
+    (← session.parsePrograms
+      (programSource "PriorityFnBeforeInitializerParam"
+        "  fn helper(value : UInt64) : UInt64 do\n    return value\n  fn helper(other : UInt64) : UInt64 do\n    return other\n  init(value : UInt64, value : Bool) do\n    return 0\n")
+      "<priority-fn-before-initializer-param>")
+  expectInvalid "initializer parameter duplicate precedes fn parameter duplicate"
+    "initializer contains duplicate parameters"
+    (← session.parsePrograms
+      (programSource "PriorityInitializerParamBeforeFnParam"
+        "  init(value : UInt64, value : Bool) do\n    return 0\n  fn helper(arg : UInt64, arg : Bool) : UInt64 do\n    return 0\n")
+      "<priority-initializer-param-before-fn-param>")
+  expectInvalid "entry parameter duplicate precedes fn parameter duplicate"
+    "entry 'run' contains duplicate parameters"
+    (← session.parsePrograms
+      (programSource "PriorityEntryParamBeforeFnParam"
+        "  entry run(value : UInt64, value : Bool) : UInt64 do\n    return 0\n  fn helper(arg : UInt64, arg : Bool) : UInt64 do\n    return 0\n")
+      "<priority-entry-param-before-fn-param>")
+  expectInvalid "fn parameter duplicate precedes empty body"
+    "fn 'helper' contains duplicate parameters"
+    (← session.parsePrograms
+      (programSource "PriorityFnParamBeforeEmptyBody"
+        "  fn helper(value : UInt64, value : Bool) : UInt64 do\n")
+      "<priority-fn-param-before-empty-body>")
   expectInvalid "fn parameter declaration order" "fn 'first' contains duplicate parameters"
     (← session.parsePrograms
       (programSource "DuplicateFnParam"
@@ -233,6 +277,23 @@ unsafe def run : IO Unit := do
       (programSource "FnLiteralOverflow"
         "  fn helper(value : UInt64) : UInt64 do\n    return 18446744073709551616\n")
       "<fn-literal-overflow>")
+  expectInvalid "fn name precedes parameter/result/body decoding"
+    "reserved portable identifier 'const'"
+    (← session.parsePrograms
+      (programSource "PriorityFnNameBeforeParamResultBody"
+        "  fn const(fn : UInt64) : Unknown do\n    return 18446744073709551616\n")
+      "<priority-fn-name-before-param-result-body>")
+  expectInvalid "fn parameter precedes result/body decoding"
+    "reserved portable identifier 'fn'"
+    (← session.parsePrograms
+      (programSource "PriorityFnParamBeforeResultBody"
+        "  fn helper(fn : UInt64) : Unknown do\n    return 18446744073709551616\n")
+      "<priority-fn-param-before-result-body>")
+  expectInvalid "fn result precedes body decoding" "unsupported portable type"
+    (← session.parsePrograms
+      (programSource "PriorityFnResultBeforeBody"
+        "  fn helper(value : UInt64) : Unknown do\n    return 18446744073709551616\n")
+      "<priority-fn-result-before-body>")
 
   match Typed.check elaborated with
   | .error (.invalidProgram "fn declarations are not yet supported by typed checking") => pure ()

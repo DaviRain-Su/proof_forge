@@ -311,6 +311,14 @@ dsl-negative: build
             ordinary-reserved-fn-identifier|escaped-reserved-fn-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'fn'" ;;
             unknown-fn-result) echo "PF-SRC-INVALID: unsupported portable type" ;;
             fn-literal-overflow) echo "PF-SRC-INVALID: UInt64 literal is out of range: 18446744073709551616" ;;
+            priority-const-before-fn) echo "PF-SRC-INVALID: program 'PriorityConstBeforeFn' contains duplicate const declarations" ;;
+            priority-fn-before-initializer-param) echo "PF-SRC-INVALID: program 'PriorityFnBeforeInitializerParam' contains duplicate fn declarations" ;;
+            priority-initializer-param-before-fn-param) echo "PF-SRC-INVALID: initializer contains duplicate parameters" ;;
+            priority-entry-param-before-fn-param) echo "PF-SRC-INVALID: entry 'run' contains duplicate parameters" ;;
+            priority-fn-param-before-empty-body) echo "PF-SRC-INVALID: fn 'helper' contains duplicate parameters" ;;
+            priority-fn-name-before-param-result-body) echo "PF-SRC-INVALID: reserved portable identifier 'const'" ;;
+            priority-fn-param-before-result-body) echo "PF-SRC-INVALID: reserved portable identifier 'fn'" ;;
+            priority-fn-result-before-body) echo "PF-SRC-INVALID: unsupported portable type" ;;
             escaped-event-keyword|escaped-error-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             reserved-event-identifier|escaped-reserved-event-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'event'" ;;
             reserved-error-identifier|escaped-reserved-error-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'error'" ;;
@@ -343,6 +351,10 @@ dsl-negative: build
         priority-const-name-before-type-value priority-const-type-before-value
         duplicate-fn duplicate-fn-param empty-fn-body escaped-fn-keyword ordinary-reserved-fn-identifier
         escaped-reserved-fn-identifier unknown-fn-result fn-literal-overflow
+        priority-const-before-fn priority-fn-before-initializer-param
+        priority-initializer-param-before-fn-param priority-entry-param-before-fn-param
+        priority-fn-param-before-empty-body priority-fn-name-before-param-result-body
+        priority-fn-param-before-result-body priority-fn-result-before-body
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
         priority-identity-before-decode
