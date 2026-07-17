@@ -485,7 +485,7 @@ def accepted_governance(text: str) -> str:
     return text.replace(
         "status: proposed\n",
         "status: accepted\n"
-        "approvers: architecture-owner, quality-owner\n"
+        "approvers: architecture-owner, davirain, quality-owner\n"
         "approvedAt: 2026-07-17\n"
         "reviewCommit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
         "reviewLink: https://example.invalid/review/genesis\n"
@@ -494,17 +494,27 @@ def accepted_governance(text: str) -> str:
     )
 
 
+def ensure_index_link(root: Path, relative_path: str) -> None:
+    index = root / "docs/index.md"
+    target = relative_path.removeprefix("docs/")
+    link = f"- [{relative_path}]({target})"
+    text = index.read_text(encoding="utf-8")
+    if link not in text:
+        index.write_text(text.rstrip() + "\n" + link + "\n", encoding="utf-8")
+
+
 def write_genesis_authority(
         root: Path, *, accepted_status: bool = True) -> None:
     genesis = markdown("GOV-GENESIS-001", """
 ## 1. 问题
 
 Synthetic genesis authority body for self-test closure.
-""", normative=False)
+""")
     if accepted_status:
         genesis = accepted_governance(genesis)
     (root / "docs/governance/genesis-authority.md").write_text(
         genesis, encoding="utf-8")
+    ensure_index_link(root, "docs/governance/genesis-authority.md")
 
 
 def write_maintainers_authority(
@@ -513,11 +523,12 @@ def write_maintainers_authority(
 ## 映射
 
 Synthetic named-maintainer authority for self-test closure.
-""", normative=False)
+""")
     if accepted_status:
         maintainers = accepted_governance(maintainers)
     (root / "docs/governance/maintainers.md").write_text(
         maintainers, encoding="utf-8")
+    ensure_index_link(root, "docs/governance/maintainers.md")
 
 
 def write_accepted_genesis_authority(root: Path) -> None:
