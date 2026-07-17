@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Pre-freeze RED tests for scripts/compiler_runtime_graph.py (TASK-D0-08 seam).
+"""Pre-freeze tests for scripts/compiler_runtime_graph.py (TASK-D0-08 seam).
 
-Shared interface under test (does not exist yet — this suite is expected RED
-until the production module lands):
+Shared interface under test:
 
     RuntimeGraphError(code, detail)
     MachOInspection(rpaths: tuple[str, ...], loads: tuple[str, ...])   [frozen]
@@ -37,7 +36,7 @@ SYSTEM_ROOTS = ("/System/Library/", "/usr/lib/")
 def load_core() -> ModuleType:
     if not CORE.is_file():
         raise AssertionError(
-            "RED expected: scripts/compiler_runtime_graph.py does not exist yet"
+            "scripts/compiler_runtime_graph.py is missing"
         )
     spec = importlib.util.spec_from_file_location(
         "proof_forge_compiler_runtime_graph", CORE
@@ -293,6 +292,18 @@ def test_duplicate_load_fails(module: ModuleType) -> None:
                                           "@rpath/libcore.dylib"))),
                 ("lib/libcore.dylib", inspection(module)),
             ),
+        ),
+    )
+    expect_error(
+        module,
+        lambda: resolve(
+            module,
+            ("bin/lean",),
+            (("bin/lean", inspection(
+                module,
+                ("@loader_path", "@loader_path"),
+                (),
+            )),),
         ),
     )
 

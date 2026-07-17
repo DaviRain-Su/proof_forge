@@ -34,6 +34,7 @@ sbom:
 supply-chain-core:
     /usr/bin/python3 -I -S -B scripts/supply_chain_core_self_test.py
     /usr/bin/python3 -I -S -B scripts/compiler_runtime_closure_self_test.py
+    /usr/bin/python3 -I -S -B scripts/compiler_runtime_graph_self_test.py
 
 # Development-only Unicode regeneration/conformance check. The caller must
 # explicitly provide the digest-matched UCD directory until offline asset
