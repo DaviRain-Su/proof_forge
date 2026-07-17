@@ -193,6 +193,8 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       return .checkedAdd lhs rhs
   | .boolLiteral .. =>
       throw <| .invalidProgram "boolean literals are not yet supported by typed checking"
+  | .checkedSub .. =>
+      throw <| .invalidProgram "checked subtraction is not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement

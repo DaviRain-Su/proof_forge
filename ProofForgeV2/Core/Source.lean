@@ -78,6 +78,7 @@ inductive Expr where
   | state (name : String)
   | checkedAdd (lhs rhs : Expr)
   | boolLiteral (value : Bool)
+  | checkedSub (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure ConstDecl where
@@ -268,6 +269,7 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .checkedAdd lhs rhs => appendExpr (appendExpr (appendTag bytes 3) lhs) rhs
   | .boolLiteral value =>
       appendTag (appendTag bytes 4) (if value then 1 else 0)
+  | .checkedSub lhs rhs => appendExpr (appendExpr (appendTag bytes 5) lhs) rhs
 
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value
