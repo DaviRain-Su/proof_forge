@@ -3,13 +3,14 @@
 
 No filesystem or subprocess.  Validates a structural CompilerRuntimeGraph plus
 same-observation image witnesses, then hard-joins them to an extract_lean_zip
-tree_manifest.  Pre-freeze D0-08 seam — not SBOM publication or TST-SBOM-002.
+tree_manifest.  The current pre-freeze profile accepts ASCII runtime identities
+only, so it never consults host Unicode data.  This is not full pinned-Unicode
+support, SBOM publication, or TST-SBOM-002.
 """
 
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Set, Tuple
 
@@ -62,50 +63,58 @@ def _has_controls(value: str) -> bool:
     return False
 
 
-def _is_project_relative_path(path: object) -> bool:
-    """ProjectRelativePath: NFC, UTF-8<=1024, no drive/backslash/Cc/dot/absolute."""
+def _require_ascii_runtime_path(path: object, *, label: str) -> str:
+    """Require the current ASCII-only runtime ProjectRelativePath profile."""
 
     if type(path) is not str or not path:
-        return False
+        _fail("input", "{0} must be a nonempty str".format(label))
+    try:
+        encoded = path.encode("ascii")
+    except UnicodeEncodeError:
+        _fail(
+            "unicode-profile",
+            "{0} must use the pre-freeze ASCII runtime profile".format(label),
+        )
     if "\\" in path or path.startswith("/"):
-        return False
+        _fail("input", "{0} is not a normalized relative path".format(label))
     if (
         len(path) >= 3
         and ("A" <= path[0] <= "Z" or "a" <= path[0] <= "z")
         and path[1:3] == ":/"
     ):
         # Reject only an ASCII drive prefix; ':' is otherwise a valid POSIX byte.
-        return False
-    try:
-        encoded = path.encode("utf-8")
-    except UnicodeEncodeError:
-        return False
+        _fail("input", "{0} must not use an ASCII drive prefix".format(label))
     if len(encoded) > _MAX_PATH_UTF8:
-        return False
-    if unicodedata.normalize("NFC", path) != path:
-        return False
+        _fail("input", "{0} exceeds 1024 bytes".format(label))
     if _has_controls(path):
-        return False
+        _fail("input", "{0} contains forbidden control characters".format(label))
     if path.endswith("/"):
-        return False
+        _fail("input", "{0} must not end with '/'".format(label))
     parts = path.split("/")
     if any(part in ("", ".", "..") for part in parts):
-        return False
-    return True
+        _fail("input", "{0} contains an empty or dot segment".format(label))
+    return path
 
 
-def _require_nfc_no_controls(value: object, *, label: str) -> str:
+def _require_ascii_runtime_string(value: object, *, label: str) -> str:
     if type(value) is not str or not value:
         _fail("input", "{0} must be a nonempty str".format(label))
     try:
-        value.encode("utf-8")
+        value.encode("ascii")
     except UnicodeEncodeError:
-        _fail("input", "{0} must be valid Unicode scalar text".format(label))
-    if unicodedata.normalize("NFC", value) != value:
-        _fail("input", "{0} must be NFC: {1!r}".format(label, value))
+        _fail(
+            "unicode-profile",
+            "{0} must use the pre-freeze ASCII runtime profile".format(label),
+        )
     if _has_controls(value):
         _fail("input", "{0} contains forbidden control characters".format(label))
     return value
+
+
+def _ascii_casefold_key(value: str) -> bytes:
+    """ASCII case-insensitive key without host Unicode tables."""
+
+    return value.encode("ascii").lower()
 
 
 def _require_unique_sorted_strs(
@@ -215,13 +224,7 @@ def _require_exact_file_record(path: str, record: object) -> RuntimeImageWitness
 def _require_witness_fields(image: RuntimeImageWitness, *, label: str) -> None:
     if type(image) is not RuntimeImageWitness:
         _fail("observation", "{0} must be RuntimeImageWitness".format(label))
-    if not _is_project_relative_path(image.path):
-        _fail(
-            "observation",
-            "{0}.path is not a ProjectRelativePath: {1!r}".format(
-                label, image.path
-            ),
-        )
+    _require_ascii_runtime_path(image.path, label="{0}.path".format(label))
     if type(image.size) is not int or image.size < 0 or image.size > _MAX_SIZE:
         _fail(
             "observation",
@@ -251,22 +254,14 @@ def _parse_loads(
     for index, edge in enumerate(loads):
         install_name = getattr(edge, "install_name", None)
         resolved_path = getattr(edge, "resolved_path", None)
-        install_name = _require_nfc_no_controls(
+        install_name = _require_ascii_runtime_string(
             install_name,
             label="{0}[{1}].install_name".format(label, index),
         )
-        if type(resolved_path) is not str:
-            _fail(
-                "input",
-                "{0}[{1}].resolved_path must be str".format(label, index),
-            )
-        if not _is_project_relative_path(resolved_path):
-            _fail(
-                "input",
-                "{0}[{1}].resolved_path is not ProjectRelativePath".format(
-                    label, index
-                ),
-            )
+        resolved_path = _require_ascii_runtime_path(
+            resolved_path,
+            label="{0}[{1}].resolved_path".format(label, index),
+        )
         if resolved_path not in file_paths:
             _fail(
                 "topology",
@@ -323,38 +318,30 @@ def _validate_graph(graph: object) -> Tuple[str, ...]:
 
     entry_paths: List[str] = []
     for index, entry in enumerate(entrypoints):
-        path = getattr(entry, "path", None)
-        if not _is_project_relative_path(path):
-            _fail(
-                "input",
-                "graph.entrypoints[{0}].path is not ProjectRelativePath: {1!r}".format(
-                    index, path
-                ),
-            )
+        path = _require_ascii_runtime_path(
+            getattr(entry, "path", None),
+            label="graph.entrypoints[{0}].path".format(index),
+        )
         entry_paths.append(path)
 
     file_paths: List[str] = []
     for index, file_node in enumerate(files):
-        path = getattr(file_node, "path", None)
-        if not _is_project_relative_path(path):
-            _fail(
-                "input",
-                "graph.files[{0}].path is not ProjectRelativePath: {1!r}".format(
-                    index, path
-                ),
-            )
+        path = _require_ascii_runtime_path(
+            getattr(file_node, "path", None),
+            label="graph.files[{0}].path".format(index),
+        )
         file_paths.append(path)
 
     all_paths = entry_paths + file_paths
     if len(all_paths) != len(set(all_paths)):
         _fail("duplicate", "graph entrypoint/file paths are not unique")
 
-    # NFC-casefold uniqueness across the full path multiset.
-    casefold_keys: List[str] = []
+    # ASCII-casefold uniqueness for the current narrowed runtime profile.
+    casefold_keys: List[bytes] = []
     for path in all_paths:
-        casefold_keys.append(unicodedata.normalize("NFC", path).casefold())
+        casefold_keys.append(_ascii_casefold_key(path))
     if len(casefold_keys) != len(set(casefold_keys)):
-        _fail("duplicate", "graph paths are not NFC-casefold unique")
+        _fail("duplicate", "graph paths are not ASCII-casefold unique")
 
     file_path_set = set(file_paths)
     entry_path_set = set(entry_paths)
@@ -379,17 +366,14 @@ def _validate_graph(graph: object) -> Tuple[str, ...]:
             label="graph.entrypoints[{0}].reachable".format(index),
         )
         for target in reachable:
+            _require_ascii_runtime_path(
+                target,
+                label="graph.entrypoints[{0}].reachable target".format(index),
+            )
             if target not in file_path_set:
                 _fail(
                     "topology",
                     "reachable path not in graph.files: {0}".format(target),
-                )
-            if not _is_project_relative_path(target):
-                _fail(
-                    "input",
-                    "reachable path is not ProjectRelativePath: {0!r}".format(
-                        target
-                    ),
                 )
         entry_load_map[path] = loads
         entry_reachable[path] = reachable
