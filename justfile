@@ -326,6 +326,21 @@ dsl-negative: build
             priority-fn-before-invariant) echo "PF-SRC-INVALID: program 'PriorityFnBeforeInvariant' contains duplicate fn declarations" ;;
             priority-invariant-before-initializer-param) echo "PF-SRC-INVALID: program 'PriorityInvariantBeforeInitializerParam' contains duplicate invariant declarations" ;;
             priority-invariant-name-before-predicate) echo "PF-SRC-INVALID: reserved portable identifier 'invariant'" ;;
+            duplicate-extension-same) echo "PF-SRC-INVALID: program 'DuplicateExtensionSame' contains duplicate extension requirements" ;;
+            duplicate-extension-conflict) echo "PF-SRC-INVALID: program 'DuplicateExtensionConflict' contains duplicate extension requirements" ;;
+            escaped-requires-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
+            malformed-extension-id|uppercase-extension-id|priority-extension-id-before-version-digest) echo "PF-SRC-INVALID: extension id has an invalid segment" ;;
+            single-segment-extension-id) echo "PF-SRC-INVALID: extension id must contain at least one dot" ;;
+            malformed-extension-semver|latest-extension-semver) echo "PF-SRC-INVALID: semver core requires major.minor.patch" ;;
+            vprefix-extension-semver|priority-extension-version-before-digest) echo "PF-SRC-INVALID: v prefix forbidden" ;;
+            range-extension-semver|wildcard-extension-semver) echo "PF-SRC-INVALID: numeric component must contain ASCII digits only" ;;
+            leading-zero-extension-semver) echo "PF-SRC-INVALID: leading zero forbidden" ;;
+            overflow-extension-semver) echo "PF-SRC-INVALID: numeric component exceeds UInt64" ;;
+            bare-extension-digest) echo "PF-SRC-INVALID: digest must use sha256: tag" ;;
+            uppercase-extension-digest) echo "PF-SRC-INVALID: digest hex must be lowercase [0-9a-f]" ;;
+            wrong-length-extension-digest) echo "PF-SRC-INVALID: digest hex must be exactly 64 lowercase characters" ;;
+            priority-invariant-before-extension) echo "PF-SRC-INVALID: program 'PriorityInvariantBeforeExtension' contains duplicate invariant declarations" ;;
+            priority-extension-before-initializer-param) echo "PF-SRC-INVALID: program 'PriorityExtensionBeforeInitializerParam' contains duplicate extension requirements" ;;
             escaped-event-keyword|escaped-error-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             reserved-event-identifier|escaped-reserved-event-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'event'" ;;
             reserved-error-identifier|escaped-reserved-error-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'error'" ;;
@@ -366,6 +381,14 @@ dsl-negative: build
         escaped-reserved-invariant-identifier reserved-invariant-expression invariant-literal-overflow
         priority-fn-before-invariant priority-invariant-before-initializer-param
         priority-invariant-name-before-predicate
+        duplicate-extension-same duplicate-extension-conflict escaped-requires-keyword
+        malformed-extension-id uppercase-extension-id single-segment-extension-id
+        malformed-extension-semver vprefix-extension-semver range-extension-semver
+        latest-extension-semver wildcard-extension-semver leading-zero-extension-semver
+        overflow-extension-semver bare-extension-digest uppercase-extension-digest
+        wrong-length-extension-digest priority-extension-id-before-version-digest
+        priority-extension-version-before-digest priority-invariant-before-extension
+        priority-extension-before-initializer-param
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
         priority-identity-before-decode

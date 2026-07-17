@@ -8,6 +8,7 @@ import Tests.Compiler.TypedNameIndex
 import Tests.Language.AggregateDeclarations
 import Tests.Language.ConstDeclarations
 import Tests.Language.EventErrorDeclarations
+import Tests.Language.ExtensionRequirements
 import Tests.Language.FieldDeclarations
 import Tests.Language.FnDeclarations
 import Tests.Language.InvariantDeclarations
@@ -34,6 +35,7 @@ unsafe def main : IO Unit := do
   Tests.Language.AggregateDeclarations.run
   Tests.Language.ConstDeclarations.run
   Tests.Language.EventErrorDeclarations.run
+  Tests.Language.ExtensionRequirements.run
   Tests.Language.FieldDeclarations.run
   Tests.Language.FnDeclarations.run
   Tests.Language.InvariantDeclarations.run
