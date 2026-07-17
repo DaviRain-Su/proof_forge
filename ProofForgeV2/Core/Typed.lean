@@ -284,6 +284,9 @@ def check (source : Source.Program) : CompileResult Program := do
   if !source.extensionRequirements.isEmpty then
     throw <| .invalidProgram
       "extension requirements are not yet supported by typed checking"
+  if !source.proofReferences.isEmpty then
+    throw <| .invalidProgram
+      "proof references are not yet supported by typed checking"
   let owner := s!"program '{source.qualifiedName}'"
   let state ← NameIndex.resolveState owner source.state
   NameIndex.checkDistinctEntries owner source.entries

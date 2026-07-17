@@ -9,12 +9,12 @@ open ProofForgeV2.Language
 program BoolCommitment where
   state enabled : Bool
 
-  entry reveal(commitment proof : Bool) : Bool do
-    return proof
+  entry reveal(commitment witness : Bool) : Bool do
+    return witness
 
 program CommitmentOnly where
-  entry reveal(commitment proof : UInt64) : UInt64 do
-    return proof
+  entry reveal(commitment witness : UInt64) : UInt64 do
+    return witness
 
 end Tests.Language.PrimitiveDeclarationsFixture
 
@@ -31,8 +31,8 @@ private def source : String :=
   "namespace Tests.Language.PrimitiveDeclarationsFixture\n\n" ++
   "program BoolCommitment where\n" ++
   "  state enabled : Bool\n\n" ++
-  "  entry reveal(commitment proof : Bool) : Bool do\n" ++
-  "    return proof\n\n" ++
+  "  entry reveal(commitment witness : Bool) : Bool do\n" ++
+  "    return witness\n\n" ++
   "end Tests.Language.PrimitiveDeclarationsFixture\n"
 
 unsafe def run : IO Unit := do

@@ -112,6 +112,11 @@ structure ExtensionReq where
   digest : String
   deriving BEq, Inhabited, Repr
 
+structure ProofDecl where
+  invariant : String
+  «theorem» : Array String
+  deriving BEq, Inhabited, Repr
+
 inductive Item where
   | stateDecl (decl : StateDecl)
   | structDecl (decl : StructDecl)
@@ -124,6 +129,7 @@ inductive Item where
   | fnDecl (decl : FnDecl)
   | invariantDecl (decl : InvariantDecl)
   | extensionReq (decl : ExtensionReq)
+  | proofDecl (decl : ProofDecl)
   deriving BEq, Inhabited, Repr
 
 structure Program where
@@ -140,6 +146,7 @@ structure Program where
   functions : Array FnDecl := #[]
   invariants : Array InvariantDecl := #[]
   extensionRequirements : Array ExtensionReq := #[]
+  proofReferences : Array ProofDecl := #[]
   deriving BEq, Inhabited, Repr
 
 def Program.buildQualified (qualifiedName name : String) (items : Array Item) : Program :=
@@ -154,8 +161,9 @@ def Program.buildQualified (qualifiedName name : String) (items : Array Item) : 
   let functions := items.foldl (fun acc item => match item with | .fnDecl decl => acc.push decl | _ => acc) #[]
   let invariants := items.foldl (fun acc item => match item with | .invariantDecl decl => acc.push decl | _ => acc) #[]
   let extensionRequirements := items.foldl (fun acc item => match item with | .extensionReq decl => acc.push decl | _ => acc) #[]
+  let proofReferences := items.foldl (fun acc item => match item with | .proofDecl decl => acc.push decl | _ => acc) #[]
   { qualifiedName, name, state, structs, enums, consts, events, errors, initializer, entries,
-    functions, invariants, extensionRequirements }
+    functions, invariants, extensionRequirements, proofReferences }
 
 def Program.build (name : String) (items : Array Item) : Program :=
   Program.buildQualified name name items
@@ -263,6 +271,9 @@ private def appendExtensionReq (bytes : ByteArray) (decl : ExtensionReq) : ByteA
   let bytes := appendString bytes decl.version
   appendString bytes decl.digest
 
+private def appendProofDecl (bytes : ByteArray) (decl : ProofDecl) : ByteArray :=
+  appendArray appendString (appendString bytes decl.invariant) decl.«theorem»
+
 def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendString bytes program.qualifiedName
   let bytes := appendString bytes program.name
@@ -278,7 +289,8 @@ def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendArray appendEntry bytes program.entries
   let bytes := appendArray appendFnDecl bytes program.functions
   let bytes := appendArray appendInvariantDecl bytes program.invariants
-  appendArray appendExtensionReq bytes program.extensionRequirements
+  let bytes := appendArray appendExtensionReq bytes program.extensionRequirements
+  appendArray appendProofDecl bytes program.proofReferences
 
 end Canonical
 

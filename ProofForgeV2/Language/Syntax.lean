@@ -58,6 +58,9 @@ syntax ident ident " where" ppLine manyIndent(pfAggregateMember) : pfItem
     nonReservedSymbol "extension " (includeIdent := true) >> checkLineEq >> ident >> checkLineEq >>
     nonReservedSymbol "version " (includeIdent := true) >> checkLineEq >> strLit >> ppLine >>
     withPosition (nonReservedSymbol "digest " (includeIdent := true) >> checkLineEq >> strLit))
+@[pfItem_parser default+1] def proofDecl := leading_parser
+  withPosition (nonReservedSymbol "proof " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> nonReservedSymbol "using " (includeIdent := true) >> checkLineEq >> ident)
 /-- Preserve invalid escaped/unknown contextual shapes long enough for the
 shared decoder to emit the stable unsupported-item diagnostic. -/
 @[pfItem_parser low] def unsupportedConstLikeDecl := leading_parser
@@ -69,6 +72,9 @@ shared decoder to emit the stable unsupported-item diagnostic. -/
 @[pfItem_parser low] def unsupportedExtensionLikeReq := leading_parser
   withPosition (ident >> checkLineEq >> ident >> checkLineEq >> ident >> checkLineEq >> ident >>
     checkLineEq >> strLit >> ppLine >> withPosition (ident >> checkLineEq >> strLit))
+@[pfItem_parser low] def unsupportedProofIntroducer := leading_parser
+  withPosition (ident >> checkLineEq >> ident >> checkLineEq >>
+    nonReservedSymbol "using " (includeIdent := true) >> checkLineEq >> ident)
 @[pfItem_parser low] def unsupportedBareItemDecl := leading_parser
   withPosition (ident >> checkLineEq >> ident >> checkLinebreakBefore)
 syntax ident ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine manyIndent(pfStmt) : pfItem
@@ -134,7 +140,8 @@ private def decodeIdentifier (stx : Syntax) : Except String String :=
   let name := stx.getId.toString
   if name == "struct" || name == "enum" || name == "const" || name == "event" ||
       name == "error" || name == "fn" || name == "invariant" || name == "requires" ||
-      name == "extension" || name == "version" || name == "digest" then
+      name == "extension" || name == "version" || name == "digest" || name == "proof" ||
+      name == "using" then
     .error s!"reserved portable identifier '{name}'"
   else
     .ok name
@@ -165,6 +172,18 @@ private def decodeExtensionDigest (stx : Syntax) : Except String String := do
   let canonical ← ProofForgeV2.Core.Common.renderDigest parsed
   unless canonical == value do
     throw "extension digest must use canonical sha256 spelling"
+  pure canonical
+
+private def decodeProofTheorem (stx : Syntax) : Except String (Array String) := do
+  let mut components : Array String := #[]
+  for component in stx.getId.components do
+    match component with
+    | .str .anonymous value => components := components.push value
+    | _ => throw "qualified-name component must use Lean identifier characters"
+  let qualified ← ProofForgeV2.Core.Common.parseQualifiedName components
+  let canonical ← ProofForgeV2.Core.Common.renderQualifiedNameComponents qualified
+  unless canonical.size >= 2 do
+    throw "proof theorem name must contain at least two components"
   pure canonical
 
 private def decodeTypeIdentifiers (first : Syntax) (second : Option Syntax) :
@@ -335,6 +354,12 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
   | `(unsupportedExtensionLikeReq| $_requires:ident $_extension:ident $_id:ident $_versionKeyword:ident $_version:str
         $_digestKeyword:ident $_digest:str) =>
       .error "unsupported portable program item"
+  | `(proofDecl| proof $invariant:ident using $theoremName:ident) => do
+      let invariant ← decodeIdentifier invariant
+      let theoremComponents ← decodeProofTheorem theoremName
+      return .proofDecl { invariant, «theorem» := theoremComponents }
+  | `(unsupportedProofIntroducer| $_proof:ident $_invariant:ident using $_theoremName:ident) =>
+      .error "unsupported portable program item"
   | `(pfItem| $kind:ident $name:ident ($params:pfParam,*) : $result:pfType do
         $body:pfStmt*) =>
       match rawIdentifierText? kind with
@@ -449,6 +474,13 @@ def validateDecodedProgram (sourceProgram : ProofForgeV2.Source.Program) : Compi
   if hasDuplicate (sourceProgram.extensionRequirements.map (·.id)) then
     throw <| .invalidProgram
       s!"program '{sourceProgram.qualifiedName}' contains duplicate extension requirements"
+  if hasDuplicate (sourceProgram.proofReferences.map (·.invariant)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate proof references"
+  for proofReference in sourceProgram.proofReferences do
+    unless sourceProgram.invariants.any (fun invariant => invariant.name == proofReference.invariant) do
+      throw <| .invalidProgram
+        s!"proof reference names unknown invariant '{proofReference.invariant}'"
   match sourceProgram.initializer with
   | some initializer =>
       if hasDuplicate (initializer.params.map (·.name)) then
@@ -714,6 +746,17 @@ private def quoteExtensionRequirements (requirements : Array ProofForgeV2.Source
   let values ← requirements.mapM quoteExtensionReq
   `(#[$[$values],*])
 
+private def quoteProofDecl (proofReference : ProofForgeV2.Source.ProofDecl) :
+    MacroM (TSyntax `term) := do
+  let invariant := Syntax.mkStrLit proofReference.invariant
+  let theoremComponents := proofReference.«theorem».map Syntax.mkStrLit
+  `(ProofForgeV2.Source.ProofDecl.mk $invariant #[$[$theoremComponents],*])
+
+private def quoteProofReferences (proofReferences : Array ProofForgeV2.Source.ProofDecl) :
+    MacroM (TSyntax `term) := do
+  let values ← proofReferences.mapM quoteProofDecl
+  `(#[$[$values],*])
+
 /-- Quote an already decoded source value without reinterpreting raw grammar. -/
 private def quoteProgram (sourceProgram : ProofForgeV2.Source.Program) : MacroM (TSyntax `term) := do
   let qualifiedName := Syntax.mkStrLit sourceProgram.qualifiedName
@@ -729,8 +772,9 @@ private def quoteProgram (sourceProgram : ProofForgeV2.Source.Program) : MacroM 
   let functions ← quoteFunctions sourceProgram.functions
   let invariants ← quoteInvariants sourceProgram.invariants
   let extensionRequirements ← quoteExtensionRequirements sourceProgram.extensionRequirements
+  let proofReferences ← quoteProofReferences sourceProgram.proofReferences
   `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $structs $enums $consts $events
-      $errors $initializer $entries $functions $invariants $extensionRequirements)
+      $errors $initializer $entries $functions $invariants $extensionRequirements $proofReferences)
 
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do
