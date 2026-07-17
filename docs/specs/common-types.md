@@ -12,6 +12,11 @@ normative: true
 本文件是所有 normative schema 的 primitive authority。其他规格可以缩窄值域，不能重新定义
 同名类型、wire form、比较或 hash 规则。
 
+Unicode string validation 固定为 Unicode 17.0.0 / UAX #15 revision 57（`ADR-0014`，
+`SRC-UNICODE-001/002`）。字段规则写“先 NFC”时，decoder 必须要求输入已经是 NFC 并对非 canonical
+spelling fail closed，不得静默 normalize 后接受；pure-Lean tables/generator 的 exact file digests
+由 `unicode.lock.json` 固定。`General_Category=Cc` 使用同一 UCD 版本。
+
 ## 标量与身份
 
 ```lean
@@ -191,7 +196,8 @@ primitive 解析失败使用所属阶段的具体 code。四个 stage 的 contro
 source byte/UTF-8 错误仍为 exit 3；任何 stage 都不得用 stderr 文字改写上述归因。
 
 `TST-COMMON-001` 覆盖每个 scalar 的 empty/min/max/over、Unicode/NFC、canonical/noncanonical、
-duplicate/unknown field、SemVer prerelease/build、UTC leap/day、path escape 和 domain separation。
+duplicate/unknown field、SemVer prerelease/build、UTC leap/day、path escape 和 domain separation；NFC
+还必须覆盖 Unicode 17.0.0 official normalization conformance、combining-order 与 Hangul vectors。
 `TST-RESOURCE-001/002` 覆盖四 stage 的 equal/over、lower-only policy、FIFO/special/symlink、read
 deadline、hang、aggregate-memory、fork/`setsid()`、protocol/stdout/stderr/published cap、signal、
 cleanup/zero-partial-output、receipt digest 与 controller-event attribution。关联 NFR-002/006/008。

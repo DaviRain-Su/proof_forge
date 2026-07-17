@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-16",
+  "updatedAt": "2026-07-17",
   "hashPolicy": "contentHash is null until a versioned local snapshot is deliberately retained; URL hashes are not content hashes",
   "sources": [
     {
@@ -444,6 +444,32 @@
       "hashStatus": "commit_identifier_only",
       "license": "verify repository license before integration",
       "status": "provisional"
+    },
+    {
+      "id": "SRC-UNICODE-001",
+      "title": "Unicode Standard Annex #15: Unicode Normalization Forms",
+      "authority": "official-specification",
+      "url": "https://www.unicode.org/reports/tr15/tr15-57.html",
+      "version": "Unicode 17.0.0, revision 57, 2025-07-30",
+      "locator": "normalization forms, algorithm, stability and conformance",
+      "accessedAt": "2026-07-17",
+      "contentHash": null,
+      "hashStatus": "not_snapshotted",
+      "license": "Unicode Terms of Use",
+      "status": "verified"
+    },
+    {
+      "id": "SRC-UNICODE-002",
+      "title": "Unicode Character Database 17.0.0 normalization inputs",
+      "authority": "official-data",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/",
+      "version": "17.0.0",
+      "locator": "UnicodeData.txt, CompositionExclusions.txt and NormalizationTest.txt; exact digests in unicode.lock.json",
+      "accessedAt": "2026-07-17",
+      "contentHash": null,
+      "hashStatus": "individual_file_sha256_locked",
+      "license": "Unicode Data Files and Software License",
+      "status": "verified"
     },
     {
       "id": "SRC-LOCAL-001",

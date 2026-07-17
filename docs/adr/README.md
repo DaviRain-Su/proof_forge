@@ -32,3 +32,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0011](0011-static-target-registry.md) | 静态目标注册表 | proposed |
 | [ADR-0012](0012-parent-research-only.md) | 父项目仅作研究参考 | proposed |
 | [ADR-0013](0013-content-addressed-tools-and-host-profile.md) | 内容工具闭包与受信 host profile 分离 | proposed |
+| [ADR-0014](0014-pinned-unicode-normalization.md) | 固定 Unicode 17.0.0 与纯 Lean NFC | proposed |

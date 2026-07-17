@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-16",
+  "updatedAt": "2026-07-17",
   "claims": [
     {
       "id": "CLM-LANG-001",
@@ -193,6 +193,14 @@
       "status": "verified",
       "sources": ["SRC-LOCAL-001"],
       "impact": "Create an independent package and use parent observations only through a reference ledger."
+    },
+    {
+      "id": "CLM-UNICODE-001",
+      "claim": "Canonical Unicode validation must be pinned to one UCD version and implemented without ambient host normalization libraries.",
+      "kind": "constraint",
+      "status": "verified",
+      "sources": ["SRC-UNICODE-001", "SRC-UNICODE-002"],
+      "impact": "ProofForge V2 pins Unicode 17.0.0 and uses generated pure-Lean NFC data for canonical wire fields."
     },
     {
       "id": "CLM-HOST-001",
