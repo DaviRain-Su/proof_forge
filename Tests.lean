@@ -8,6 +8,7 @@ import Tests.Compiler.TypedNameIndex
 import Tests.Language.FieldDeclarations
 import Tests.Language.ProgramSyntax
 import Tests.Language.PrimitiveDeclarations
+import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
 import Tests.Language.SourceSpan
 import Tests.Language.FrontendParity
@@ -28,6 +29,7 @@ unsafe def main : IO Unit := do
   Tests.Language.FieldDeclarations.run
   Tests.Language.run
   Tests.Language.PrimitiveDeclarations.run
+  Tests.Language.StateVisibility.run
   Tests.Language.SourceIdentity.run
   Tests.Language.SourceSpan.run
   Tests.Language.FrontendParity.run

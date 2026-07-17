@@ -20,6 +20,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.FieldDeclarations,
     `Tests.Language.ProgramSyntax,
     `Tests.Language.PrimitiveDeclarations,
+    `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,
     `Tests.Language.SourceSpan,
     `Tests.Language.FrontendParity,
