@@ -86,6 +86,8 @@ unsafe def run : IO Unit := do
   let base ← select session (programSource "CanonicalConst" "") "<const-base>"
   let constOne ← select session
     (programSource "CanonicalConst" "  const A : UInt64 := 1\n") "<const-one>"
+  let sameNameTypeState ← select session
+    (programSource "CanonicalConst" "  state A : UInt64\n") "<const-same-name-type-state>"
   let constName ← select session
     (programSource "CanonicalConst" "  const B : UInt64 := 1\n") "<const-name>"
   let constType ← select session
@@ -112,6 +114,8 @@ unsafe def run : IO Unit := do
 
   expect (base.sourceHash != constOne.sourceHash)
     "const presence and array count must bind the source hash"
+  expect (constOne.sourceHash != sameNameTypeState.sourceHash)
+    "the dedicated const declaration slot must bind distinctly from other declaration kinds"
   expect (constOne.sourceHash != constName.sourceHash &&
       constOne.sourceHash != constType.sourceHash &&
       constOne.sourceHash != constLiteral.sourceHash)
@@ -170,6 +174,17 @@ unsafe def run : IO Unit := do
       (programSource "ConstLiteralOverflow"
         "  const Value : UInt64 := 18446744073709551616\n")
       "<const-literal-overflow>")
+  expectInvalid "const name precedes type and value decoding"
+    "reserved portable identifier 'const'"
+    (← session.parsePrograms
+      (programSource "PriorityConstNameBeforeTypeValue"
+        "  const const : Unknown := 18446744073709551616\n")
+      "<priority-const-name-before-type-value>")
+  expectInvalid "const type precedes value decoding" "unsupported portable type"
+    (← session.parsePrograms
+      (programSource "PriorityConstTypeBeforeValue"
+        "  const Value : Unknown := 18446744073709551616\n")
+      "<priority-const-type-before-value>")
 
   match Typed.check elaborated with
   | .error (.invalidProgram "const declarations are not yet supported by typed checking") => pure ()

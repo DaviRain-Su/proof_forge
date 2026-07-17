@@ -274,7 +274,8 @@ table 必须在 `Typed.check` fail closed。
 
 当前 D1 pre-acceptance alpha 把 const 的 exact declaration name、declared type 与当前 alpha
 expression constructors 保存在独立 Source projection，并把 declaration/type/value/count/order 纳入
-development source binding。该切片不执行 D2 const type/name resolution；任一非空 const table 必须在
+development source binding。完整 `Program.items` 落地前只保证 const 同类 declaration order，不声称
+跨 kind source order。该切片不执行 D2 const type/name resolution；任一非空 const table 必须在
 `Typed.check` fail closed，不能以未解析 expression 进入 requirement resolution 或 target Plan。
 
 为避免 ProofForge import 把 Lean 宿主中的 `struct`/`enum`/`const`/`event`/`error` 变成全局 parser keyword，
