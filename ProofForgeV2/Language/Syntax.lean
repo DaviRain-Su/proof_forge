@@ -8,8 +8,10 @@ open ProofForgeV2
 namespace ProofForgeV2.Language
 
 declare_syntax_cat pfType
-syntax ident : pfType
-syntax ident ident : pfType
+/-- Parse the one-identifier primitive form or a same-line two-identifier field
+form without allowing the next program item to become part of the type. -/
+@[pfType_parser] def portableType := leading_parser
+  withPosition (ident >> optional (checkLineEq >> ident))
 
 declare_syntax_cat pfParam
 syntax ident " : " pfType : pfParam
@@ -35,14 +37,31 @@ syntax "| " ident linebreak : pfAggregateMember
 syntax "| " ident "(" sepBy(pfType, ", ") ")" linebreak : pfAggregateMember
 
 declare_syntax_cat pfItem
+@[pfItem_parser default+1] def bareErrorDecl := leading_parser
+  withPosition (nonReservedSymbol "error " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLinebreakBefore)
 syntax "state " ident " : " pfType : pfItem
 syntax "state " "public " ident " : " pfType : pfItem
 syntax "state " "private " ident " : " pfType : pfItem
 syntax "state " "commitment " ident " : " pfType : pfItem
-syntax ident ident : pfItem
 syntax ident ident "(" sepBy(pfParam, ", ") ")" : pfItem
 syntax ident ident " where" ppLine manyIndent(pfAggregateMember) : pfItem
-syntax ident ident " : " pfType " := " pfExpr : pfItem
+@[pfItem_parser default+1] def constDecl := leading_parser
+  withPosition (nonReservedSymbol "const " (includeIdent := true) >> checkLineEq >> ident >>
+    " : " >> categoryParser `pfType 0 >> " := " >> categoryParser `pfExpr 0)
+@[pfItem_parser default+1] def invariantDecl := leading_parser
+  withPosition (nonReservedSymbol "invariant " (includeIdent := true) >> checkLineEq >> ident >>
+    " : " >> categoryParser `pfExpr 0)
+/-- Preserve invalid escaped/unknown contextual shapes long enough for the
+shared decoder to emit the stable unsupported-item diagnostic. -/
+@[pfItem_parser low] def unsupportedConstLikeDecl := leading_parser
+  withPosition (ident >> checkLineEq >> ident >> " : " >> categoryParser `pfType 0 >>
+    " := " >> categoryParser `pfExpr 0)
+@[pfItem_parser low] def unsupportedInvariantLikeDecl := leading_parser
+  withPosition (ident >> checkLineEq >> ident >> " : " >> categoryParser `pfExpr 0 >>
+    checkLinebreakBefore)
+@[pfItem_parser low] def unsupportedBareItemDecl := leading_parser
+  withPosition (ident >> checkLineEq >> ident >> checkLinebreakBefore)
 syntax ident ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine manyIndent(pfStmt) : pfItem
 syntax "init" "(" sepBy(pfParam, ", ") ")" " do" ppLine manyIndent(pfStmt) : pfItem
 syntax "entry " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine manyIndent(pfStmt) : pfItem
@@ -105,7 +124,7 @@ private def rawIdentifierText? : Syntax → Option String
 private def decodeIdentifier (stx : Syntax) : Except String String :=
   let name := stx.getId.toString
   if name == "struct" || name == "enum" || name == "const" || name == "event" ||
-      name == "error" || name == "fn" then
+      name == "error" || name == "fn" || name == "invariant" then
     .error s!"reserved portable identifier '{name}'"
   else
     .ok name
@@ -118,11 +137,18 @@ private def decodeTypeIdentifiers (first : Syntax) (second : Option Syntax) :
   | some "Field", some "bn254_fr" => .ok .field
   | _, _ => .error "unsupported portable type"
 
-private def decodeTypeUnchecked : Syntax → Except String ProofForgeV2.Source.ValueType
-  | `(pfType| $constructor:ident $fieldId:ident) =>
-      decodeTypeIdentifiers constructor (some fieldId)
-  | `(pfType| $name:ident) => decodeTypeIdentifiers name none
-  | _ => .error "unsupported portable type"
+private partial def collectTypeIdentifierSyntax (stx : Syntax) : Array Syntax :=
+  if stx.isIdent then #[stx]
+  else stx.getArgs.flatMap collectTypeIdentifierSyntax
+
+private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Source.ValueType :=
+  if !stx.isOfKind ``portableType then
+    .error "unsupported portable type"
+  else
+    match collectTypeIdentifierSyntax stx with
+    | #[name] => decodeTypeIdentifiers name none
+    | #[constructor, fieldId] => decodeTypeIdentifiers constructor (some fieldId)
+    | _ => .error "unsupported portable type"
 
 def decodeType (stx : Syntax) : Except String ProofForgeV2.Source.ValueType := do
   preflightForDecoder stx
@@ -247,14 +273,21 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
         type := ← decodeTypeUnchecked type
         visibility := .commitmentOnly
       }
-  | `(pfItem| $kind:ident $name:ident : $type:pfType := $value:pfExpr) =>
-      match rawIdentifierText? kind with
-      | some "const" => do
-          let name ← decodeIdentifier name
-          let type ← decodeTypeUnchecked type
-          let value ← decodeExprUnchecked value
-          return .constDecl { name, type, value }
-      | _ => .error "unsupported portable program item"
+  | `(constDecl| const $name:ident : $type:pfType := $value:pfExpr) => do
+      let name ← decodeIdentifier name
+      let type ← decodeTypeUnchecked type
+      let value ← decodeExprUnchecked value
+      return .constDecl { name, type, value }
+  | `(unsupportedConstLikeDecl| $_kind:ident $_name:ident : $_type:pfType :=
+        $_value:pfExpr) =>
+      .error "unsupported portable program item"
+  | `(invariantDecl| invariant $name:ident : $predicate:pfExpr) => do
+      let name ← decodeIdentifier name
+      let predicate ← decodeExprUnchecked predicate
+      return .invariantDecl { name, predicate }
+  | `(unsupportedInvariantLikeDecl| $_kind:ident $_name:ident : $_predicate:pfExpr
+      ) =>
+      .error "unsupported portable program item"
   | `(pfItem| $kind:ident $name:ident ($params:pfParam,*) : $result:pfType do
         $body:pfStmt*) =>
       match rawIdentifierText? kind with
@@ -291,11 +324,12 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
             params := ← decodeParams params
           }
       | _ => .error "unsupported portable program item"
-  | `(pfItem| $kind:ident $name:ident) =>
-      match rawIdentifierText? kind with
-      | some "error" =>
-          return .errorDecl { name := ← decodeIdentifier name, params := #[] }
-      | _ => .error "unsupported portable program item"
+  | `(bareErrorDecl| error $name:ident
+      ) =>
+      return .errorDecl { name := ← decodeIdentifier name, params := #[] }
+  | `(unsupportedBareItemDecl| $_kind:ident $_name:ident
+      ) =>
+      .error "unsupported portable program item"
   | `(pfItem| init ($params:pfParam,*) do $statements:pfStmt*) => do
       return .initializer {
         params := ← decodeParams params
@@ -362,6 +396,9 @@ def validateDecodedProgram (sourceProgram : ProofForgeV2.Source.Program) : Compi
   if hasDuplicate (sourceProgram.functions.map (·.name)) then
     throw <| .invalidProgram
       s!"program '{sourceProgram.qualifiedName}' contains duplicate fn declarations"
+  if hasDuplicate (sourceProgram.invariants.map (·.name)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate invariant declarations"
   match sourceProgram.initializer with
   | some initializer =>
       if hasDuplicate (initializer.params.map (·.name)) then
@@ -604,6 +641,17 @@ private def quoteFunctions (functions : Array ProofForgeV2.Source.FnDecl) :
   let values ← functions.mapM quoteFnDecl
   `(#[$[$values],*])
 
+private def quoteInvariantDecl (sourceInvariant : ProofForgeV2.Source.InvariantDecl) :
+    MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit sourceInvariant.name
+  let predicate ← quoteExpr sourceInvariant.predicate
+  `(ProofForgeV2.Source.InvariantDecl.mk $name $predicate)
+
+private def quoteInvariants (invariants : Array ProofForgeV2.Source.InvariantDecl) :
+    MacroM (TSyntax `term) := do
+  let values ← invariants.mapM quoteInvariantDecl
+  `(#[$[$values],*])
+
 /-- Quote an already decoded source value without reinterpreting raw grammar. -/
 private def quoteProgram (sourceProgram : ProofForgeV2.Source.Program) : MacroM (TSyntax `term) := do
   let qualifiedName := Syntax.mkStrLit sourceProgram.qualifiedName
@@ -617,8 +665,9 @@ private def quoteProgram (sourceProgram : ProofForgeV2.Source.Program) : MacroM 
   let initializer ← quoteInitializer? sourceProgram.initializer
   let entries ← quoteEntries sourceProgram.entries
   let functions ← quoteFunctions sourceProgram.functions
+  let invariants ← quoteInvariants sourceProgram.invariants
   `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $structs $enums $consts $events
-      $errors $initializer $entries $functions)
+      $errors $initializer $entries $functions $invariants)
 
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do

@@ -279,6 +279,8 @@ def check (source : Source.Program) : CompileResult Program := do
     throw <| .invalidProgram "error declarations are not yet supported by typed checking"
   if !source.functions.isEmpty then
     throw <| .invalidProgram "fn declarations are not yet supported by typed checking"
+  if !source.invariants.isEmpty then
+    throw <| .invalidProgram "invariant declarations are not yet supported by typed checking"
   let owner := s!"program '{source.qualifiedName}'"
   let state ← NameIndex.resolveState owner source.state
   NameIndex.checkDistinctEntries owner source.entries
