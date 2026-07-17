@@ -751,6 +751,21 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   non-UInt64 state/result/parameter 必须由各自 target-owned Plan fail closed 且不产生 artifact。
   `Unit64`、escaped、qualified、extra-token spelling 必须双入口 exact fail closed；bare colon 必须停在
   parser boundary。
+- `Principal` declaration carrier 覆盖与 `Unit` 相同的 declaration positions，只接受 exact unqualified
+  single-token `Principal`，并由 Lean command/ParserSession parity 与 append-only canonical mutation 固定。
+  declaration 本身推导零 requirement，尤其不得因为 type name 而隐式加入 `callerContext`；该 requirement
+  只属于未来明确的 runtime context expression。四个 Phase 1 target 的 support resolver 接受后，
+  non-UInt64 state/result/parameter 必须由各自 Plan fail closed 且不产生 artifact。`Principal64`、escaped、
+  qualified 与 extra-token spelling 必须双入口 exact fail closed；本切片不定义 principal literal、
+  `context.caller`、authority 或 D2 value semantics。
+- D1-PA-18 的 alpha Option tests 只接受同一行 `Option PrimitiveAtom`，element 闭集为已实现的 exact
+  single-token Bool/UInt/Int/Principal/Unit；Field、Named、nested Option、Array、Map、Bytes 与缺失/额外
+  payload 均保持 fail closed。Source/Semantic 必须保留 `option(element)`，canonical bytes 固定为新
+  tag `16` 后紧接 element type bytes，且既有 tags/goldens 不变。requirements 必须递归传播 element：
+  `Option UInt64`/`Option Principal` 为零，`Option Bool` 必须保留 `boolValues`，不能被 Option wrapper
+  擦除。测试覆盖 declaration positions、双前端 parity、element/tag mutation、same-line/后继 item guard、
+  support-vs-Plan boundary；none/some expression、unwrap、nested runtime representation 与 D2 legality
+  明确不在本切片。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

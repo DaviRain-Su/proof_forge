@@ -1493,3 +1493,39 @@ normative: false
   declaration 本身必须推导零 requirement，不得误加只属于未来 runtime context expression 的
   `callerContext`。其 RED 先固定 tag `15`、双前端 parity、fail-closed spellings 与 target Plan boundary；
   D1-PA-18 尚未冻结。
+
+## 2026-07-18 — D1 Principal declaration pre-acceptance slice
+
+- Commits：Principal declaration RED `a69cc49c`；Source/Semantic carrier GREEN `c7aa6746`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-17 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.ValueType` 与 `SemanticIR.ValueType` append-only 追加 `principal` canonical tag `15`，
+  保持既有 tags `0..14` 不变；decoder 只接受 exact unqualified single-token `Principal`，quote/adapt
+  逐类型保真。Principal declaration 推导零 requirement，未新增 `ProgramRequirement`，也不把 type
+  name 错误映射为 `callerContext`。
+- Binding/negatives：declaration surface 覆盖 state、struct field、enum payload、const、init、entry/view/fn
+  parameter/result；Lean command 与 ParserSession 产生相同 Source AST/sourceHash。相同 PrincipalTwin
+  identity 的 UInt64/tag0、Unit/tag14 与 Principal/tag15 goldens 分别为
+  `a194b458092b540ab8e4de2bb91d8ca32b197968f058c93bb7bbfe934340fbc6`、
+  `5770bbff593e607d1eb48567c8d17d973fff62c5f1a6dbb013a0d1aa44d5e793`、
+  `e7385343712f257d337e738f575d39c5086be34efe807279d1e52dd1a653ffef`。四个 dual-entry fixtures
+  覆盖 invalid/escaped/qualified/extra-token spelling，均 exact fail closed。
+- Boundary：stateless Principal parameter/result program 编译为 `requirements == #[]` 并显式断言不含
+  `callerContext`；三个 stateful rows 分别固定 Principal state、result 与 parameter，整体只含
+  `persistentState`。EVM、Solana、NEAR、Noir 的 support resolver 均接受，随后各自 target-owned Plan
+  以 `planInvariant` 拒绝，没有生成 artifact。
+- Review/Commands：Kimi RED review P0/P1=0；Pi GREEN review P0/P1/P2=0；Claude canonical recheck
+  P0/P1=0。`lake build Tests.Language.PrincipalDeclarations proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean committed `just ci` at
+  `c7aa6746`；`git diff --check`。
+- Results：126-job clean build、118-job aggregate、186 项 docs mutation、治理/SBOM/runtime closure、
+  双入口 DSL negatives 与 toolchain negatives 全部 exit 0；development evidence 为
+  `EV-20260718-0003`。
+- Limitations：仅实现 declaration type carrier；没有 principal literal、`context.caller`、authority、
+  D2 value/type/effect semantics、跨 kind ordered `Program.items`、target materialization、eligible host 或
+  formal D1 evidence。D0 formal milestone 仍为 5/8，`TASK-D1-03` 仍 pending，本结果不是
+  eligible/hermetic/formal evidence。
+- Next：residual audits 将 Option 识别为剩余 type family 中最小的可切片候选，但它是首个 payload-
+  carrying recursive type。D1-PA-18 先在 alpha authority 中冻结 exact bounded grammar、canonical
+  `tag16 || elementType` payload、transitive element requirements 与 fail-closed exclusions，再提交 RED；
+  不把 full Named/Bytes/Array/Map 或 D2 runtime Option semantics 吸收进来。

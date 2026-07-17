@@ -129,6 +129,20 @@ two-token same-line guard，也不得重编号既有 canonical type tags。
 必须产生相同的 result carrier 与 canonical binding。该切片不实现无值 `return`、`Unit` fallthrough
 或 D2 return-path/type checking，`init` 仍没有返回类型。
 
+当前 alpha 还接受 exact unqualified single-token `Principal` declaration carrier。该 type carrier 本身
+不读取 caller，不推导 `callerContext`，也不定义 principal literal、`context.caller`、authority 或
+D2 value semantics；这些运行时语义必须由后续显式 expression/op 与 capability 规则引入，不能根据
+declaration type 猜测。
+
+D1-PA-18 冻结的 pre-acceptance alpha Option 子集只接受同一行的 `Option PrimitiveAtom`，其中
+`PrimitiveAtom` 是当前已实现的 exact single-token `Bool`、closed UInt/Int width、`Principal` 或
+`Unit`；该子集暂不接受 `Field bn254_fr`、Named、nested Option、Array、Map 或 Bytes element。
+Source/Semantic carrier 为 `option(element)`；alpha canonical encoding 必须 append tag `16` 后递归追加
+`element` 的既有 canonical type bytes，既有 tags `0..15` 不变。Semantic requirement 必须精确传播
+`element.requirements`，不能把 `Option Bool` 降为零 requirement，也不能凭 Option 本身发明 capability。
+该切片只保存 declaration type structure，不实现 none/some expression、unwrap、runtime representation、
+recursive legality或 D2 type/effect semantics；超出该闭集的 payload 必须 fail closed。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
