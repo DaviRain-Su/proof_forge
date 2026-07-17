@@ -1649,3 +1649,13 @@ normative: false
   D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending，本结果不是 eligible/hermetic/formal evidence。
 - Next：residual audit 只把 exact `true`/`false` Source-only literal 作为 D1-PA-21 candidate；在 spec/test
   freeze 与 review 完成前不提交 RED，也不把 Bool Typed/Semantic/target semantics 吸入该候选切片。
+
+## 2026-07-18 — D1-PA-20 frozen extra-payload negative hardening
+
+- Review：closeout audit 发现 frozen `TST-SRC-005` 已要求 extra-payload parser-boundary rejection，
+  但 `LetStatements` 的 malformed-shape matrix 只覆盖缺失与跨行形态，尚未执行该既有完成条件。
+- Changed：在同一 ParserSession negative matrix 追加 `let value := 1 2`，固定 value 后额外独立 token
+  必须停在 Lean parser boundary；没有修改生产实现、规范完成面、task 状态或既有 evidence record。
+- Commands：`lake build Tests.Language.LetStatements`（14 jobs，exit 0）；`git diff --check`。
+- Boundary：这是对冻结测试的实现补齐，不生成新 `TST-*`/`EV-*`，不改变
+  `EV-20260718-0006` 的历史观察，也不把 `TASK-D1-04` 从 pending 提升为 done。

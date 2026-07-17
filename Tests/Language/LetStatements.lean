@@ -224,6 +224,7 @@ unsafe def run : IO Unit := do
       ("missing type after colon", "let value : := 1"),
       ("missing value", "let value : UInt64 :="),
       ("missing assign", "let value : UInt64 1"),
+      ("extra token after value", "let value := 1 2"),
       ("split-line let", "let value : UInt64 :=\n      1")
     ] do
     let source := bodyProgramSource "RejectedLetShape" spelling
