@@ -18,6 +18,12 @@ program FnSurface where
   fn choose(flag : Bool, scalar : Field bn254_fr) : Bool do
     return flag
 
+  view peek() : UInt64 do
+    return 0
+
+  fn identity(value : UInt64) : UInt64 do
+    return value
+
 end Tests.Language.FnDeclarationsFixture
 
 namespace Tests.Language.FnDeclarations
@@ -42,6 +48,10 @@ private def source : String :=
   "    return 0\n\n" ++
   "  fn choose(flag : Bool, scalar : Field bn254_fr) : Bool do\n" ++
   "    return flag\n\n" ++
+  "  view peek() : UInt64 do\n" ++
+  "    return 0\n\n" ++
+  "  fn identity(value : UInt64) : UInt64 do\n" ++
+  "    return value\n\n" ++
   "end Tests.Language.FnDeclarationsFixture\n"
 
 private def programSource (name declarations : String) : String :=
@@ -81,7 +91,7 @@ unsafe def run : IO Unit := do
       body := #[.returnValue (.literal 0)] })
     "an initializer followed by fn must retain its exact body"
   match elaborated.functions with
-  | #[addOne, choose] =>
+  | #[addOne, choose, identity] =>
       expect (addOne.name == "addOne" &&
           addOne.params.map (fun param => (param.name, param.type)) == #[("value", .u64)] &&
           addOne.result == .u64 &&
@@ -92,7 +102,11 @@ unsafe def run : IO Unit := do
             #[("flag", .bool), ("scalar", .field)] &&
           choose.result == .bool && choose.body == #[.returnValue (.variable "flag")])
         "multiple fn signatures and source bodies must retain declaration order"
-  | _ => throw <| IO.userError "FnSurface must retain two fn declarations"
+      expect (identity.name == "identity" &&
+          identity.params.map (fun param => (param.name, param.type)) == #[("value", .u64)] &&
+          identity.result == .u64 && identity.body == #[.returnValue (.variable "value")])
+        "a view followed by fn must retain the fn declaration"
+  | _ => throw <| IO.userError "FnSurface must retain three fn declarations"
 
   let session ← Language.Loader.ParserSession.create
   let decoded ← select session source "<fn-declarations>"

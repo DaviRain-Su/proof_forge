@@ -44,9 +44,9 @@ syntax ident ident "(" sepBy(pfParam, ", ") ")" : pfItem
 syntax ident ident " where" ppLine manyIndent(pfAggregateMember) : pfItem
 syntax ident ident " : " pfType " := " pfExpr : pfItem
 syntax ident ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine manyIndent(pfStmt) : pfItem
-syntax "init" "(" sepBy(pfParam, ", ") ")" " do" ppLine ppIndent(pfStmt*) : pfItem
-syntax "entry " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
-syntax "view " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
+syntax "init" "(" sepBy(pfParam, ", ") ")" " do" ppLine manyIndent(pfStmt) : pfItem
+syntax "entry " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine manyIndent(pfStmt) : pfItem
+syntax "view " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine manyIndent(pfStmt) : pfItem
 
 syntax (name := programDecl) "program " ident " where" ppLine ppIndent(pfItem*) : command
 
