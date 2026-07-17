@@ -370,6 +370,7 @@ dsl-negative: build
             priority-initializer-param-before-entry-param) echo "PF-SRC-INVALID: initializer contains duplicate parameters" ;;
             priority-entry-param-declaration-order) echo "PF-SRC-INVALID: entry 'first' contains duplicate parameters" ;;
             escaped-bool-type|unknown-type|qualified-type) echo "PF-SRC-INVALID: unsupported portable type" ;;
+            invalid-uint-width|escaped-uint8-type|qualified-uint8-type|uint8-second-token) echo "PF-SRC-INVALID: unsupported portable type" ;;
             escaped-field-constructor|escaped-field-id|unknown-field-constructor|unknown-field-id|qualified-field-id|missing-field-id) echo "PF-SRC-INVALID: unsupported portable type" ;;
             *) echo "missing expected diagnostic for $1" >&2; return 1 ;;
         esac
@@ -420,6 +421,7 @@ dsl-negative: build
         priority-initializer-before-zero priority-zero-before-state priority-state-before-entry
         priority-entry-before-initializer-param priority-initializer-param-before-entry-param
         priority-entry-param-declaration-order escaped-bool-type unknown-type qualified-type
+        invalid-uint-width escaped-uint8-type qualified-uint8-type uint8-second-token
         escaped-field-constructor escaped-field-id unknown-field-constructor unknown-field-id
         qualified-field-id missing-field-id
     )
