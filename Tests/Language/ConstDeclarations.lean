@@ -132,6 +132,18 @@ unsafe def run : IO Unit := do
       (programSource "DuplicateConst"
         "  const Value : UInt64 := 1\n  const Value : UInt64 := 2\n")
       "<duplicate-const>")
+  expectInvalid "enum duplicate precedes const duplicate"
+    "program 'PriorityEnumBeforeConst' contains duplicate enum declarations"
+    (← session.parsePrograms
+      (programSource "PriorityEnumBeforeConst"
+        "  enum Choice where\n    | A\n  enum Choice where\n    | B\n  const Value : UInt64 := 1\n  const Value : UInt64 := 2\n")
+      "<priority-enum-before-const>")
+  expectInvalid "const duplicate precedes initializer parameter duplicate"
+    "program 'PriorityConstBeforeInitializerParam' contains duplicate const declarations"
+    (← session.parsePrograms
+      (programSource "PriorityConstBeforeInitializerParam"
+        "  const Value : UInt64 := 1\n  const Value : UInt64 := 2\n  init(value : UInt64, value : UInt64) do\n    return 0\n")
+      "<priority-const-before-initializer-param>")
   expectInvalid "escaped const keyword" "unsupported portable program item"
     (← session.parsePrograms
       (programSource "EscapedConstKeyword" "  «const» Value : UInt64 := 1\n")

@@ -300,6 +300,8 @@ dsl-negative: build
             ordinary-reserved-const-identifier|escaped-reserved-const-identifier|reserved-const-expression) echo "PF-SRC-INVALID: reserved portable identifier 'const'" ;;
             unknown-const-type) echo "PF-SRC-INVALID: unsupported portable type" ;;
             const-literal-overflow) echo "PF-SRC-INVALID: UInt64 literal is out of range: 18446744073709551616" ;;
+            priority-enum-before-const) echo "PF-SRC-INVALID: program 'PriorityEnumBeforeConst' contains duplicate enum declarations" ;;
+            priority-const-before-initializer-param) echo "PF-SRC-INVALID: program 'PriorityConstBeforeInitializerParam' contains duplicate const declarations" ;;
             escaped-event-keyword|escaped-error-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             reserved-event-identifier|escaped-reserved-event-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'event'" ;;
             reserved-error-identifier|escaped-reserved-error-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'error'" ;;
@@ -328,6 +330,7 @@ dsl-negative: build
         duplicate-const escaped-const-keyword ordinary-reserved-const-identifier
         escaped-reserved-const-identifier reserved-const-expression unknown-const-type
         const-literal-overflow
+        priority-enum-before-const priority-const-before-initializer-param
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
         priority-identity-before-decode

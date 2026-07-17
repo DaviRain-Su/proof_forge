@@ -251,9 +251,9 @@ contain。文件上限返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受
 `decodeProgramCommandChecked` 返回的 validated `Source.Program` 是 CLI Loader 与 Lean
 command elaborator 的唯一业务 AST。共享 validation 在 decode 后按固定顺序检查：至少一个
 entry/view、state 名唯一、entry 名唯一、event 名唯一、error 名唯一、struct 名唯一、enum 名唯一、
-initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant
+const 名唯一、initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant
 按 enum 声明顺序非空且名称唯一、每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按
-error 声明顺序唯一、const 名唯一、每个 entry 参数名唯一；
+error 声明顺序唯一、每个 entry 参数名唯一；
 duplicate initializer 仍在构造 `Source.Program` 前拒绝。Loader 只拥有 module header/
 command whitelist、namespace stack、module 内 program identity 去重和 selection，不得另有
 per-program declaration validator。
