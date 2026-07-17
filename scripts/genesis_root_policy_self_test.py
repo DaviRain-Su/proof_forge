@@ -13,6 +13,7 @@ import copy
 import importlib.util
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -248,6 +249,11 @@ def test_deterministic_generation_and_validation(base: Path) -> None:
     expect(first.read_bytes() == EXPECTED_POLICY_BYTES, "first canonical bytes")
     expect(second.read_bytes() == EXPECTED_POLICY_BYTES, "second canonical bytes")
     expect(first.read_bytes() == second.read_bytes(), "deterministic generation")
+    expect(
+        stat.S_IMODE(first.stat().st_mode) == 0o400
+        and stat.S_IMODE(second.stat().st_mode) == 0o400,
+        "generated public policies must be read-only 0400 files",
+    )
     expect_ok("validate generated policy", validate(first, base))
 
     explicit = base / "rfc8032.json"
@@ -515,6 +521,10 @@ def test_filesystem_fail_closed_and_atomicity(base: Path) -> None:
     result = validate(input_alias / "policy.json", input_parent_case)
     expect_fail("symlink validation input parent", result)
     expect(
+        "policy path contains an unavailable or linked directory" in result.stderr,
+        "input-parent symlink did not reach the stable linked-directory rejection",
+    )
+    expect(
         parent_input.read_bytes() == EXPECTED_POLICY_BYTES,
         "validator changed input reached through parent symlink",
     )
@@ -525,6 +535,10 @@ def test_filesystem_fail_closed_and_atomicity(base: Path) -> None:
     os.mkfifo(fifo)
     result = validate(fifo, fifo_case)
     expect_fail("FIFO validation input", result)
+    expect(
+        "input must be one bounded regular file" in result.stderr,
+        "FIFO did not reach the bounded-regular-file rejection",
+    )
     expect(stat_is_fifo(fifo), "validator replaced FIFO input")
 
     hardlink_case = base / "validate-hardlink"
@@ -536,6 +550,10 @@ def test_filesystem_fail_closed_and_atomicity(base: Path) -> None:
     result = validate(hardlink_input, hardlink_case)
     expect_fail("hardlink validation input", result)
     expect(
+        "input must be one bounded regular file" in result.stderr,
+        "hardlink did not reach the single-link regular-file rejection",
+    )
+    expect(
         hardlink_source.read_bytes() == EXPECTED_POLICY_BYTES
         and hardlink_input.read_bytes() == EXPECTED_POLICY_BYTES,
         "validator changed hardlinked input",
@@ -543,8 +561,6 @@ def test_filesystem_fail_closed_and_atomicity(base: Path) -> None:
 
 
 def stat_is_fifo(path: Path) -> bool:
-    import stat
-
     return stat.S_ISFIFO(path.lstat().st_mode)
 
 
@@ -586,7 +602,7 @@ def test_atomic_failure_injection(base: Path, module: ModuleType) -> None:
 
     module.os.write = partial_then_fail
     try:
-        expect_library_rejected(
+        write_error = expect_library_rejected(
             "write failure",
             module,
             lambda: module.atomic_publish_no_clobber(
@@ -595,6 +611,11 @@ def test_atomic_failure_injection(base: Path, module: ModuleType) -> None:
         )
     finally:
         module.os.write = original_write
+    expect(writes == 2, f"write failure injection was not reached: writes={writes}")
+    expect(
+        str(write_error) == "atomic GenesisRootPolicyV1 publication failed",
+        f"write failure reached the wrong rejection: {write_error}",
+    )
     expect_empty_failed_publish(write_case, write_output, "write failure")
 
     fsync_case = base / "post-link-fsync-failure"
@@ -612,7 +633,7 @@ def test_atomic_failure_injection(base: Path, module: ModuleType) -> None:
 
     module.os.fsync = fail_first_parent_fsync
     try:
-        expect_library_rejected(
+        fsync_error = expect_library_rejected(
             "post-link fsync failure",
             module,
             lambda: module.atomic_publish_no_clobber(
@@ -621,6 +642,11 @@ def test_atomic_failure_injection(base: Path, module: ModuleType) -> None:
         )
     finally:
         module.os.fsync = original_fsync
+    expect(fsyncs == 3, f"post-link fsync injection was not reached: fsyncs={fsyncs}")
+    expect(
+        str(fsync_error) == "atomic GenesisRootPolicyV1 publication failed",
+        f"post-link fsync reached the wrong rejection: {fsync_error}",
+    )
     expect_empty_failed_publish(
         fsync_case, fsync_output, "post-link fsync failure"
     )

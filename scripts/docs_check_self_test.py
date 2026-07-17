@@ -816,6 +816,14 @@ def complete_with_hardlinked_genesis_root_policy(root: Path) -> None:
     os.link(source, path)
 
 
+def complete_with_fifo_genesis_root_policy_alias(root: Path) -> None:
+    complete_accepted_genesis_fx(root)
+    path = root / "docs/governance/genesis-root-policy.json"
+    path.unlink()
+    os.mkfifo(path)
+    os.link(path, root / "docs/governance/genesis-root-policy-alias.json")
+
+
 def complete_with_split_genesis_approval(root: Path) -> None:
     complete_accepted_genesis_fx(root)
     replace(
@@ -1830,6 +1838,9 @@ def main() -> None:
          "PF-DOC-FX-APPROVAL", "docs/governance/genesis-root-policy.json"),
         ("genesis-root-policy-hardlink", complete_with_hardlinked_genesis_root_policy,
          "PF-DOC-FX-APPROVAL", "docs/governance/genesis-root-policy.json"),
+        ("genesis-root-policy-fifo-alias",
+         complete_with_fifo_genesis_root_policy_alias,
+         "PF-DOC-PATH", "docs/governance/genesis-root-policy-alias.json"),
         ("genesis-approval-split-commit", complete_with_split_genesis_approval,
          "PF-DOC-FX-APPROVAL", "GOV-AUTH-001"),
         ("bootstrap-d0-06-no-attest", lambda root: (
@@ -1883,6 +1894,13 @@ def main() -> None:
                 approval=(
                     "self-approved then Quality + Architecture"
                     "（经 `GOV-GENESIS-001` 追认）")),
+         "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-01"),
+        ("fx-approval-genesis-negating-suffix", lambda root:
+            write_governance_authority_set(
+                root,
+                approval=(
+                    "Quality + Architecture（经 `GOV-GENESIS-001` "
+                    "追认；实际未批准）")),
          "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-01"),
         ("fx-approval-self-referential", lambda root:
             write_governance_authority_set(root, approval="本仓库 closeout 记录"),
