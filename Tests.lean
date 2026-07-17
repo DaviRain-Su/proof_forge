@@ -8,6 +8,7 @@ import Tests.Compiler.TypedNameIndex
 import Tests.Language.AggregateDeclarations
 import Tests.Language.BoolLiterals
 import Tests.Language.BytesTypes
+import Tests.Language.CheckedSub
 import Tests.Language.ConstDeclarations
 import Tests.Language.EventErrorDeclarations
 import Tests.Language.ExtensionRequirements
@@ -43,6 +44,7 @@ unsafe def main : IO Unit := do
   Tests.Language.AggregateDeclarations.run
   Tests.Language.BoolLiterals.run
   Tests.Language.BytesTypes.run
+  Tests.Language.CheckedSub.run
   Tests.Language.ConstDeclarations.run
   Tests.Language.EventErrorDeclarations.run
   Tests.Language.ExtensionRequirements.run

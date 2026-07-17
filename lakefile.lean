@@ -20,6 +20,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.AggregateDeclarations,
     `Tests.Language.BoolLiterals,
     `Tests.Language.BytesTypes,
+    `Tests.Language.CheckedSub,
     `Tests.Language.ConstDeclarations,
     `Tests.Language.EventErrorDeclarations,
     `Tests.Language.ExtensionRequirements,
