@@ -200,7 +200,7 @@
       "kind": "constraint",
       "status": "verified",
       "sources": ["SRC-UNICODE-001", "SRC-UNICODE-002"],
-      "impact": "ProofForge V2 pins Unicode 17.0.0 and uses generated pure-Lean NFC data for canonical wire fields."
+      "impact": "ProofForge V2 pins Unicode 17.0.0 and requires generated pure-Lean NFC data for canonical wire fields; product integration remains implementation work."
     },
     {
       "id": "CLM-HOST-001",

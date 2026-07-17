@@ -3,7 +3,7 @@ id: SPEC-COMMON-001
 title: 公共类型、规范编码与资源 Profile
 status: proposed
 owner: architecture
-updated: 2026-07-16
+updated: 2026-07-17
 normative: true
 ---
 
@@ -196,8 +196,7 @@ primitive 解析失败使用所属阶段的具体 code。四个 stage 的 contro
 source byte/UTF-8 错误仍为 exit 3；任何 stage 都不得用 stderr 文字改写上述归因。
 
 `TST-COMMON-001` 覆盖每个 scalar 的 empty/min/max/over、Unicode/NFC、canonical/noncanonical、
-duplicate/unknown field、SemVer prerelease/build、UTC leap/day、path escape 和 domain separation；NFC
-还必须覆盖 Unicode 17.0.0 official normalization conformance、combining-order 与 Hangul vectors。
+duplicate/unknown field、SemVer prerelease/build、UTC leap/day、path escape 和 domain separation。
 `TST-RESOURCE-001/002` 覆盖四 stage 的 equal/over、lower-only policy、FIFO/special/symlink、read
 deadline、hang、aggregate-memory、fork/`setsid()`、protocol/stdout/stderr/published cap、signal、
 cleanup/zero-partial-output、receipt digest 与 controller-event attribution。关联 NFR-002/006/008。
