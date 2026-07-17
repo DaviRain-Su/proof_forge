@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Pre-freeze RED tests for scripts/compiler_runtime_manifest.py (D0-08 seam).
+"""Pre-freeze tests for scripts/compiler_runtime_manifest.py (D0-08 seam).
 
-Frozen pure-join API under test (production module not required to exist yet —
-this suite is expected RED until it lands):
+Frozen pure-join API under test:
 
     RuntimeManifestError(code, detail)                    [frozen]
     RuntimeImageWitness(path, size, mode, sha256)          [frozen]
@@ -62,8 +61,7 @@ def load_graph() -> ModuleType:
 def load_manifest() -> ModuleType:
     if not MANIFEST_PATH.is_file():
         raise AssertionError(
-            "RED expected: scripts/compiler_runtime_manifest.py is not "
-            "implemented yet"
+            "required module missing: scripts/compiler_runtime_manifest.py"
         )
     return load_module(
         MANIFEST_PATH,
@@ -75,7 +73,7 @@ def require_bind(module: ModuleType) -> Callable[..., Any]:
     bind = getattr(module, "bind_compiler_runtime_observation", None)
     if bind is None:
         raise AssertionError(
-            "RED expected: bind_compiler_runtime_observation is not implemented"
+            "required bind_compiler_runtime_observation is missing"
         )
     return bind
 
@@ -190,12 +188,6 @@ def make_observation(
         graph=graph,
         images=tuple(images),
     )
-
-
-def test_production_module_missing_is_red() -> None:
-    """Primary RED gate: production module must exist."""
-
-    load_manifest()
 
 
 def test_api_surface(module: ModuleType) -> None:
@@ -811,7 +803,6 @@ def test_entrypoint_file_path_collision_fails(
 
 
 def main() -> int:
-    # Primary RED: production module absence.
     try:
         module = load_manifest()
     except AssertionError as error:
