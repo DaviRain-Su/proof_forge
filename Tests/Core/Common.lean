@@ -27,6 +27,36 @@ def run : IO Unit := do
   expectOk "semver core" (parseSemVerCore "1.2.3") { major := 1, minor := 2, patch := 3 }
   expectErr "semver v prefix" (parseSemVerCore "v1.2.3")
   expectErr "semver leading zero" (parseSemVerCore "01.2.3")
+  expectOk "semver prerelease and build"
+    (parseSemVer "1.2.3-alpha.1+build.005")
+    { major := (1 : UInt64)
+      minor := 2
+      patch := 3
+      prerelease := #["alpha", "1"]
+      build := #["build", "005"] }
+  expectOk "semver uint64 maximum"
+    (parseSemVer "18446744073709551615.0.0")
+    { major := (18446744073709551615 : UInt64)
+      minor := 0
+      patch := 0
+      prerelease := #[]
+      build := #[] }
+  expectErr "semver uint64 overflow" (parseSemVer "18446744073709551616.0.0")
+  expectErr "semver numeric prerelease leading zero" (parseSemVer "1.2.3-01")
+  expectErr "semver empty prerelease identifier" (parseSemVer "1.2.3-alpha..1")
+  expectErr "semver empty build identifier" (parseSemVer "1.2.3+build..1")
+  expectErr "semver invalid identifier character" (parseSemVer "1.2.3-alpha_beta")
+  expectErr "semver missing patch" (parseSemVer "1.2")
+  match parseSemVer "1.2.3-alpha.1+build.005", parseSemVer "1.2.3-alpha.1+other" with
+  | .ok left, .ok right =>
+    unless renderSemVer left == "1.2.3-alpha.1+build.005" do
+      throw <| IO.userError "semver canonical rendering lost prerelease/build"
+    unless left != right do
+      throw <| IO.userError "semver exact identity must include build metadata"
+    unless compareSemVerPrecedence left right == .eq do
+      throw <| IO.userError "semver precedence must ignore build metadata"
+  | .error e, _ | _, .error e =>
+    throw <| IO.userError s!"semver precedence fixture failed to parse: {e}"
   match validateNotAboveHardMax frontendProfile frontendProfile with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"frontend hard max self: {e}"
