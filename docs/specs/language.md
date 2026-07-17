@@ -251,7 +251,8 @@ contain。文件上限返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受
 `decodeProgramCommandChecked` 返回的 validated `Source.Program` 是 CLI Loader 与 Lean
 command elaborator 的唯一业务 AST。共享 validation 在 decode 后按固定顺序检查：至少一个
 entry/view、state 名唯一、entry 名唯一、event 名唯一、error 名唯一、struct 名唯一、enum 名唯一、
-const 名唯一、fn 名唯一、invariant 名唯一、extension ID 唯一、initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant
+const 名唯一、fn 名唯一、invariant 名唯一、extension ID 唯一、每个 invariant 最多一个 proof
+reference、每个 proof reference 精确绑定已声明 invariant、initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant
 按 enum 声明顺序非空且名称唯一、每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按
 error 声明顺序唯一、每个 entry 参数名唯一、每个 fn 参数名唯一且 body nonempty；
 duplicate initializer 仍在构造 `Source.Program` 前拒绝。Loader 只拥有 module header/
@@ -302,8 +303,19 @@ requirement inference、semantic registry digest 与 target support resolution �
 extension table 必须在 `Typed.check` fail closed，不能把 Source 声明直接伪装成可信
 `ProgramRequirements` 或进入 target Plan。
 
+当前 D1 pre-acceptance alpha 把 proof reference 的 exact invariant name 与 theorem QualifiedName
+component array 保存在独立 Source projection，并把 invariant/theorem component count/value/order、
+reference count/order 纳入 development source binding。每个 invariant 最多一个 reference；duplicate
+先于 unknown invariant 拒绝，unknown 检查按 proof 源码顺序 exact、case-sensitive lookup，允许
+forward-declared invariant，不做 short-name、namespace 或 ambient environment fallback。theorem 的
+每个 QualifiedName component 必须先通过同一 DSL reserved-identifier policy，再进入 Common 的
+QualifiedName NFC/字符/长度校验；Common carrier 不拥有或复制 DSL 保留词策略。该切片不读取
+`.olean`/proof bundle，不查 theorem、不构造 expected theorem type，也不改变业务执行、requirements、
+semanticHash 或 target 选择。完整 origin、invariant ordinal、closed SemanticProgram binding 与 proof
+validation record 尚未实现；任一非空 proof table 必须在 `Typed.check` fail closed。
+
 为避免 ProofForge import 把 Lean 宿主中的 `struct`/`enum`/`const`/`event`/`error`/`fn`/`invariant`/
-`requires`/`extension`/`version`/`digest` 变成全局 parser keyword，
+`requires`/`extension`/`version`/`digest`/`proof`/`using` 变成全局 parser keyword，
 这些词只在 `pfItem` 首位按 raw token exact 识别；escaped keyword 或其他 leading identifier 失败。
 其 semantic identifier 同时属于 DSL 保留词：program、declaration、parameter、expression 与
 assignment 的 identifier decoder 对普通或 escaped 后值为上述名称统一返回 `PF-SRC-INVALID`，

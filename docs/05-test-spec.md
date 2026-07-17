@@ -747,6 +747,15 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   decode 首错固定为 id→version→digest。`requires`/`extension`/`version`/`digest` 不得污染宿主 Lean
   keyword 集。D2 typed registry、extension semantics、requirement inference 与 support resolution 尚未
   实现时必须在 `Typed.check` fail closed，不能从 Source 声明直接生成可信 requirements。
+- proof reference 覆盖 exact invariant name 与 theorem QualifiedName component array；reference
+  presence/count/order、invariant 名、theorem component count/value/order 必须分别进入 canonical source
+  binding。duplicate 按 invariant 拒绝且先于 unknown invariant；unknown 按 proof 源码顺序做 exact、
+  case-sensitive lookup，forward declaration 成功，unqualified/whole-escaped dotted theorem、escaped
+  introducer、reserved invariant 与 theorem 内 escaped reserved component 双入口 fail closed；theorem
+  每个 component 复用 DSL reserved-identifier policy，decode 首错固定为 invariant→theorem。extension
+  duplicate→proof duplicate→unknown invariant→initializer parameter 的 validation priority 必须稳定。
+  `proof` 不得污染宿主 Lean identifier；D1 不读取 ambient environment/`.olean`/proof bundle，不查 theorem
+  或签名。完整 proof validation 未实现时手工构造的 nonempty proof table 必须在 `Typed.check` fail closed。
 - 本切片只证明当前 alpha constructors 的双入口 AST/validation parity，作为 D1-03/05 的
   pre-acceptance evidence；不关闭 token/span/NodeId、persistent export extension/schema、import
   diamond、完整 grammar、Diagnostic v1、parser containment 或正式 D1 任务。

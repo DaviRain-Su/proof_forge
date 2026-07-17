@@ -1343,3 +1343,43 @@ normative: false
 - Next：唯一 active development pointer 推进到 D1-PA-12（proof reference carrier、exact
   invariant/qualified theorem binding 与 duplicate/fail-closed boundary）；D1-PA-13 排队为
   entry/view/fn cross-kind callable namespace uniqueness 与 deterministic validation priority。
+
+## 2026-07-17 — D1 proof reference pre-acceptance slice
+
+- Commits：carrier/validation/canonical RED `105a76e2`；Source/Syntax/Typed GREEN `fc89664e`；
+  isolation review fix `751844f8`；reserved theorem component RED `2a5d1b1f` 与 FIX `b0c679ef`。
+- Spec/Test：`SPEC-LANG-001`、`SPEC-SOURCE-WIRE-001`、`SPEC-SEM-001`、`TST-SRC-004`。本切片
+  只追加 D1-PA-12 development evidence，不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或
+  Done 语义。
+- Changed：新增 `Source.ProofDecl{invariant,theorem:Array String}`、`Source.Item.proofDecl` 与
+  `Source.Program.proofReferences`；Lean command/ParserSession 共享 contextual raw
+  `proof ... using ...` parser/decoder、validator 与 quote，并保持同类源码顺序。
+- Qualified identity：theorem 从 Lean `Name` 逐 component 提取，经 locked Common QualifiedName
+  NFC/identifier/1..256 validation 后额外要求至少两个 components；禁止 dotted-string split、current
+  namespace qualification、short-name fallback 或 Environment lookup。decoded component array进入 Source，
+  escaped token spelling 不进入 canonical value，whole escaped dotted component按无效 component拒绝；每个
+  theorem component 复用普通 DSL identifier 的 reserved predicate，通用 Common QualifiedName 不承载
+  语言关键字策略。
+- Binding/Validation：独立 canonical 尾槽固定 reference count与每项 invariant→theorem component
+  array；mutation覆盖 presence、同前缀 count、invariant、component count/value/order与reference order。
+  duplicate按 invariant而非 theorem拒绝；validation固定 extension duplicate→proof duplicate→按 proof
+  source order unknown invariant→initializer parameter，允许 exact forward declaration。
+- Safety：D1 parser不读取 ambient Lean theorem、同文件 declaration、`.olean`或proof bundle，不构造
+  expected theorem type，也不改变业务执行/requirements/semanticHash/target selection。`proof`加入 DSL
+  reserved set后，旧 Bool/commitment fixture参数改为语义等价 `witness`；首轮完整 isolation gate还发现
+  theorem示例含 legacy `ProofForge.*`文本，`751844f8`改为中性 `Bundle.*`。随后独立审查发现
+  `Pkg.«proof»` 可绕过语言保留词；先以 `2a5d1b1f` 证明 RED，再由 `b0c679ef` 因子化共享校验修复。
+- Review/Commands：最终 review P0=0/P1=0/P2=0；`lake build Tests.Language.ProofReferences`；`lake build
+  proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；`just dsl-negative`；clean
+  committed `just ci` at `b0c679ef`；`git diff --check`。
+- Results：focused、canonical mutation matrix、12个双入口 negatives、isolation committed archive、
+  120-job clean build、112-job aggregate、186项 docs mutation、治理/SBOM/runtime closure与完整
+  `just ci` exit 0；development evidence为 `EV-20260717-0046`。
+- Limitations：当前 alpha只保证 proof同类 declaration order且不携带 `SourceOrigin`；没有 invariant
+  Bool typing、pure-fn closure、Semantic invariant ordinal、closed expected theorem type、proof bundle
+  trust/locked `.olean` closure、signature/axiom/unsafe validation、proof validation record、完整 ordered
+  `Source.ProgramV1.items`或target integration。D0 formal milestone仍为5/8，D1 formal task仍pending，
+  本结果不是 eligible/hermetic/formal evidence。
+- Next：唯一 active development pointer推进到 D1-PA-13（entry/view/fn cross-kind callable namespace
+  uniqueness与deterministic validation priority）；D1-PA-14排队为对照 frozen TST-SRC-004的Phase 1
+  declaration residual gap audit与下一个 bounded RED slice冻结。
