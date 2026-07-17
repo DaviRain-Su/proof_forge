@@ -12,59 +12,98 @@ structure SourceByteSpanV1 where
 private def invalidSpan (detail : String) : CompileResult α :=
   .error (.invalidProgram detail)
 
-private def validateOriginalParserTree (root : Lean.Syntax) : CompileResult Unit := do
-  if root.isMissing then
-    return ← invalidSpan "source span cannot be extracted from missing syntax"
+private def originalTokenRange
+    (source : String) (sourceByteLength : Nat) :
+    Lean.SourceInfo → CompileResult (Nat × Nat)
+  | .original leading position trailing endPosition => do
+      unless leading.str == source && trailing.str == source do
+        return ← invalidSpan
+          "source syntax does not belong to the immutable source snapshot"
+      let startByte := position.byteIdx
+      let endByte := endPosition.byteIdx
+      let leadingStart := leading.startPos.byteIdx
+      let leadingEnd := leading.stopPos.byteIdx
+      let trailingStart := trailing.startPos.byteIdx
+      let trailingEnd := trailing.stopPos.byteIdx
+      unless startByte < UInt64.size && endByte < UInt64.size do
+        return ← invalidSpan "source syntax position exceeds the UInt64 span domain"
+      unless String.Pos.Raw.isValid source leading.startPos &&
+          String.Pos.Raw.isValid source leading.stopPos &&
+          String.Pos.Raw.isValid source position &&
+          String.Pos.Raw.isValid source endPosition &&
+          String.Pos.Raw.isValid source trailing.startPos &&
+          String.Pos.Raw.isValid source trailing.stopPos do
+        return ← invalidSpan "source syntax position is not a UTF-8 boundary"
+      unless leadingStart ≤ leadingEnd && leadingEnd == startByte &&
+          endByte == trailingStart && trailingStart ≤ trailingEnd do
+        return ← invalidSpan "source syntax whitespace bounds are inconsistent"
+      unless startByte ≤ endByte do
+        return ← invalidSpan "source syntax start position exceeds its end position"
+      unless trailingEnd ≤ sourceByteLength do
+        return ← invalidSpan "source syntax span exceeds the immutable source snapshot"
+      pure (startByte, endByte)
+  | _ => invalidSpan
+      "source span requires unexpanded syntax from the original parser"
+
+private def extractOriginalParserSpan
+    (source : String) (root : Lean.Syntax) : CompileResult SourceByteSpanV1 := do
+  let sourceByteLength := source.toUTF8.size
+  unless sourceByteLength < UInt64.size do
+    return ← invalidSpan "source byte length exceeds the UInt64 span domain"
   let mut pending := #[root]
+  let mut firstStart? : Option Nat := none
+  let mut previousEnd? : Option Nat := none
+  let mut finalEnd? : Option Nat := none
   while !pending.isEmpty do
     let current := pending.back!
     pending := pending.pop
     match current with
-    | .atom (.original ..) _ => pure ()
-    | .ident (.original ..) .. => pure ()
+    | .missing =>
+        return ← invalidSpan "source span cannot contain missing syntax"
+    | .atom info _ =>
+        let (startByte, endByte) ← originalTokenRange source sourceByteLength info
+        match previousEnd? with
+        | some previousEnd =>
+            unless previousEnd ≤ startByte do
+              return ← invalidSpan "source syntax token positions are not ordered"
+        | none => firstStart? := some startByte
+        previousEnd? := some endByte
+        finalEnd? := some endByte
+    | .ident info rawValue _ _ =>
+        let (startByte, endByte) ← originalTokenRange source sourceByteLength info
+        unless rawValue.str == source && rawValue.startPos.byteIdx == startByte &&
+            rawValue.stopPos.byteIdx == endByte do
+          return ← invalidSpan
+            "source identifier does not belong to the immutable source snapshot"
+        match previousEnd? with
+        | some previousEnd =>
+            unless previousEnd ≤ startByte do
+              return ← invalidSpan "source syntax token positions are not ordered"
+        | none => firstStart? := some startByte
+        previousEnd? := some endByte
+        finalEnd? := some endByte
     | .node .none _ children =>
-        -- Optional grammar fields may contain `Syntax.missing`; they carry no
-        -- boundary and are ignored unless they are the requested root.
-        for child in children do
-          if !child.isMissing then
-            pending := pending.push child
+        -- Push in reverse so the explicit worklist visits source order.
+        for child in children.toList.reverse do
+          pending := pending.push child
     | _ =>
         return ← invalidSpan
           "source span requires unexpanded syntax from the original parser"
-
-private def originalStartByte? : Lean.SourceInfo → Option Nat
-  | .original _ position _ _ => some position.byteIdx
-  | _ => none
-
-private def originalEndByte? : Lean.SourceInfo → Option Nat
-  | .original _ _ _ endPosition => some endPosition.byteIdx
-  | _ => none
+  match firstStart?, finalEnd? with
+  | some startByte, some endByte =>
+      pure {
+        startByte := UInt64.ofNat startByte
+        endByte := UInt64.ofNat endByte
+      }
+  | _, _ => invalidSpan "source syntax contains no original token"
 
 /--
 Extract the half-open byte span of original parser syntax. The caller supplies
-the exact immutable source snapshot length so forged or stale positions fail
+the exact immutable source snapshot so forged or stale positions fail
 closed before they can become a `SourceOrigin`.
 -/
 def originalSyntaxByteSpanV1
-    (sourceByteLength : Nat) (sourceSyntax : Lean.Syntax) : CompileResult SourceByteSpanV1 := do
-  validateOriginalParserTree sourceSyntax
-  unless sourceByteLength < UInt64.size do
-    return ← invalidSpan "source byte length exceeds the UInt64 span domain"
-  let startByte ← match originalStartByte? sourceSyntax.getHeadInfo with
-    | some value => pure value
-    | none => invalidSpan "source syntax has no original start position"
-  let endByte ← match originalEndByte? sourceSyntax.getTailInfo with
-    | some value => pure value
-    | none => invalidSpan "source syntax has no original end position"
-  unless startByte < UInt64.size && endByte < UInt64.size do
-    return ← invalidSpan "source syntax position exceeds the UInt64 span domain"
-  unless startByte ≤ endByte do
-    return ← invalidSpan "source syntax start position exceeds its end position"
-  unless endByte ≤ sourceByteLength do
-    return ← invalidSpan "source syntax span exceeds the immutable source snapshot"
-  pure {
-    startByte := UInt64.ofNat startByte
-    endByte := UInt64.ofNat endByte
-  }
+    (source : String) (sourceSyntax : Lean.Syntax) : CompileResult SourceByteSpanV1 :=
+  extractOriginalParserSpan source sourceSyntax
 
 end ProofForgeV2.Source.SpanV1
