@@ -34,6 +34,8 @@ DOMAIN_RE = re.compile(
     r"[a-z][a-z0-9]*(?:[-.][a-z0-9]+)*"
 )
 COMPONENT_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,126}")
+# Inventory component IDs are 1..127 bytes and may end in punctuation; Tool
+# Lock IDs inherit toolchain_assets.SAFE_ASSET_ID_RE (1..128, alnum-ended).
 TOOL_LOCK_REF_ID_RE = re.compile(
     r"[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?"
 )
@@ -102,7 +104,7 @@ class ComponentIdentity:
     bom_ref: str
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True)
 class ToolLockLeafRef:
     """Exact identity of one authoritative direct Tool Lock leaf."""
 
