@@ -40,6 +40,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.SourceIdentity,
     `Tests.Language.SourceSpan,
     `Tests.Language.FrontendParity,
+    `Tests.Language.Grouping,
     `Tests.Language.Loader,
     `Tests.Materialization.Targets,
     `Tests.Materialization.NearHostModel,

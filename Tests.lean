@@ -28,6 +28,7 @@ import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
 import Tests.Language.SourceSpan
 import Tests.Language.FrontendParity
+import Tests.Language.Grouping
 import Tests.Language.Loader
 import Tests.Materialization.Targets
 import Tests.Materialization.NearHostModel
@@ -65,6 +66,7 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceIdentity.run
   Tests.Language.SourceSpan.run
   Tests.Language.FrontendParity.run
+  Tests.Language.Grouping.run
   Tests.Language.Loader.run
   Tests.Materialization.run
   Tests.Materialization.NearHostModel.run
