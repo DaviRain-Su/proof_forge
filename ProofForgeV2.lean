@@ -2,6 +2,7 @@ import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.Source
+import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.WireV1
 import ProofForgeV2.Core.Typed
 import ProofForgeV2.Core.SemanticIR
