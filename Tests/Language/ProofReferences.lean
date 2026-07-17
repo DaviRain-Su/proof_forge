@@ -6,9 +6,9 @@ namespace Tests.Language.ProofReferencesFixture
 open ProofForgeV2.Language
 
 program ProofSurface where
-  proof BalanceHolds using ProofForge.Specs.BalanceHolds
+  proof BalanceHolds using Bundle.Specs.BalanceHolds
   invariant BalanceHolds : 1
-  proof CounterHolds using ProofForge.Specs.Counter.Holds
+  proof CounterHolds using Bundle.Specs.Counter.Holds
   invariant CounterHolds : 2
 
   entry ping() : UInt64 do
@@ -47,9 +47,9 @@ private def source : String :=
   "open ProofForgeV2.Language\n\n" ++
   "namespace Tests.Language.ProofReferencesFixture\n\n" ++
   "program ProofSurface where\n" ++
-  proofRef "BalanceHolds" "ProofForge.Specs.BalanceHolds" ++
+  proofRef "BalanceHolds" "Bundle.Specs.BalanceHolds" ++
   invariantDecl "BalanceHolds" "1" ++
-  proofRef "CounterHolds" "ProofForge.Specs.Counter.Holds" ++
+  proofRef "CounterHolds" "Bundle.Specs.Counter.Holds" ++
   invariantDecl "CounterHolds" "2" ++
   "\n  entry ping() : UInt64 do\n" ++
   "    return 0\n\n" ++
@@ -86,10 +86,10 @@ unsafe def run : IO Unit := do
   match elaborated.proofReferences with
   | #[balance, counter] =>
       expect (balance.invariant == "BalanceHolds" &&
-          balance.«theorem» == #["ProofForge", "Specs", "BalanceHolds"])
+          balance.«theorem» == #["Bundle", "Specs", "BalanceHolds"])
         "proof invariant and exact theorem components must survive Lean elaboration"
       expect (counter.invariant == "CounterHolds" &&
-          counter.«theorem» == #["ProofForge", "Specs", "Counter", "Holds"])
+          counter.«theorem» == #["Bundle", "Specs", "Counter", "Holds"])
         "proof theorem component count/value/order and declaration order must survive"
   | _ => throw <| IO.userError "ProofSurface must retain two proof references"
 
