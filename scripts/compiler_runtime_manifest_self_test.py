@@ -19,12 +19,17 @@ kind=file with exact fields {kind, size, mode, sha256}.  Production module must
 not touch FS or subprocess.  The caller remains responsible for constructing
 the observation from one stable filesystem snapshot.
 
+The current pre-freeze runtime-image profile is deliberately ASCII-only.  It
+must reject non-ASCII paths/install names without consulting the host Unicode
+database; this is a fail-closed narrowing, not full pinned-Unicode support.
+
 This suite does not claim TST-SBOM-002, SBOM publication, domain digest
 wiring, or TASK-D0-08 activation.
 """
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import sys
 from pathlib import Path
@@ -84,6 +89,26 @@ def expect_fail(module: ModuleType, operation: Callable[[], object]) -> None:
     try:
         operation()
     except module.RuntimeManifestError:
+        return
+    except Exception as error:  # noqa: BLE001 — assert the public typed channel
+        raise AssertionError(
+            f"expected RuntimeManifestError, got {error!r}"
+        ) from error
+    raise AssertionError("expected RuntimeManifestError")
+
+
+def expect_fail_code(
+    module: ModuleType,
+    operation: Callable[[], object],
+    expected_code: str,
+) -> None:
+    try:
+        operation()
+    except module.RuntimeManifestError as error:
+        if error.code != expected_code:
+            raise AssertionError(
+                f"expected {expected_code!r}, got {error.code!r}"
+            ) from error
         return
     except Exception as error:  # noqa: BLE001 — assert the public typed channel
         raise AssertionError(
@@ -385,6 +410,11 @@ def test_bad_mode_fails(
         module,
         lambda: bind(observation=observation, tree_manifest=tree),
     )
+    tree["lib/core.dylib"] = file_record(size=20, mode=True, sha256=SHA_C)
+    expect_fail(
+        module,
+        lambda: bind(observation=observation, tree_manifest=tree),
+    )
 
 
 def test_observation_tree_substitution_fails(
@@ -516,6 +546,83 @@ def test_error_channel_does_not_leak_builtin_exceptions(
         module,
         lambda: bind(observation=hostile, tree_manifest={}),
     )
+
+
+def test_ascii_runtime_profile_rejects_host_unicode(
+    module: ModuleType,
+    graph_mod: ModuleType,
+) -> None:
+    source = MANIFEST_PATH.read_text(encoding="utf-8")
+    syntax = ast.parse(source, filename=str(MANIFEST_PATH))
+    for node in ast.walk(syntax):
+        if isinstance(node, ast.Import):
+            if any(alias.name == "unicodedata" for alias in node.names):
+                raise AssertionError("production must not import host unicodedata")
+        if isinstance(node, ast.ImportFrom) and node.module == "unicodedata":
+            raise AssertionError("production must not import from host unicodedata")
+
+    bind = require_bind(module)
+    for path in ("bin/\u00e9lean", "bin/e\u0301lean", "bin/\ud800lean"):
+        graph = graph_mod.CompilerRuntimeGraph(
+            entrypoints=(graph_mod.RuntimeEntrypointGraph(path, (), ()),),
+            files=(),
+        )
+        tree = {path: file_record(size=1, mode=0o555, sha256=SHA_A)}
+        observation = module.CompilerRuntimeObservation(
+            graph=graph,
+            images=(
+                module.RuntimeImageWitness(
+                    path=path,
+                    size=1,
+                    mode=0o555,
+                    sha256=SHA_A,
+                ),
+            ),
+        )
+        expect_fail_code(
+            module,
+            lambda observation=observation, tree=tree: bind(
+                observation=observation,
+                tree_manifest=tree,
+            ),
+            "unicode-profile",
+        )
+
+    load = graph_mod.ResolvedMachoLoad
+    for install_name in (
+        "@rpath/\u00e9.dylib",
+        "@rpath/e\u0301.dylib",
+        "@rpath/\ud800.dylib",
+    ):
+        graph = graph_mod.CompilerRuntimeGraph(
+            entrypoints=(
+                graph_mod.RuntimeEntrypointGraph(
+                    "bin/lean",
+                    (load(install_name, "lib/core.dylib"),),
+                    ("lib/core.dylib",),
+                ),
+            ),
+            files=(
+                graph_mod.RuntimeFileGraph(
+                    "lib/core.dylib",
+                    ("bin/lean",),
+                    (),
+                ),
+            ),
+        )
+        tree = {
+            "bin/lean": file_record(size=1, mode=0o555, sha256=SHA_A),
+            "lib/core.dylib": file_record(size=2, mode=0o444, sha256=SHA_B),
+        }
+        observation = make_observation(module, graph, tree)
+        expect_fail_code(
+            module,
+            lambda observation=observation, tree=tree: bind(
+                observation=observation,
+                tree_manifest=tree,
+            ),
+            "unicode-profile",
+        )
 
 
 def test_noncanonical_graph_paths_fail(
@@ -863,6 +970,13 @@ def main() -> int:
         (
             "test_error_channel_does_not_leak_builtin_exceptions",
             lambda: test_error_channel_does_not_leak_builtin_exceptions(
+                module,
+                graph_mod,
+            ),
+        ),
+        (
+            "test_ascii_runtime_profile_rejects_host_unicode",
+            lambda: test_ascii_runtime_profile_rejects_host_unicode(
                 module,
                 graph_mod,
             ),
