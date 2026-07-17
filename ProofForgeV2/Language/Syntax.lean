@@ -42,6 +42,7 @@ syntax "state " "commitment " ident " : " pfType : pfItem
 syntax ident ident : pfItem
 syntax ident ident "(" sepBy(pfParam, ", ") ")" : pfItem
 syntax ident ident " where" ppLine manyIndent(pfAggregateMember) : pfItem
+syntax ident ident " : " pfType " := " pfExpr : pfItem
 syntax "init" "(" sepBy(pfParam, ", ") ")" " do" ppLine ppIndent(pfStmt*) : pfItem
 syntax "entry " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
 syntax "view " ident "(" sepBy(pfParam, ", ") ")" " : " pfType " do" ppLine ppIndent(pfStmt*) : pfItem
@@ -102,7 +103,8 @@ private def rawIdentifierText? : Syntax → Option String
 
 private def decodeIdentifier (stx : Syntax) : Except String String :=
   let name := stx.getId.toString
-  if name == "struct" || name == "enum" || name == "event" || name == "error" then
+  if name == "struct" || name == "enum" || name == "const" || name == "event" ||
+      name == "error" then
     .error s!"reserved portable identifier '{name}'"
   else
     .ok name
@@ -244,6 +246,14 @@ private def decodeItemUnchecked : Syntax → Except String ProofForgeV2.Source.I
         type := ← decodeTypeUnchecked type
         visibility := .commitmentOnly
       }
+  | `(pfItem| $kind:ident $name:ident : $type:pfType := $value:pfExpr) =>
+      match rawIdentifierText? kind with
+      | some "const" => do
+          let name ← decodeIdentifier name
+          let type ← decodeTypeUnchecked type
+          let value ← decodeExprUnchecked value
+          return .constDecl { name, type, value }
+      | _ => .error "unsupported portable program item"
   | `(pfItem| $kind:ident $name:ident where $members:pfAggregateMember*) =>
       match rawIdentifierText? kind with
       | some "struct" => do
@@ -335,6 +345,9 @@ def validateDecodedProgram (sourceProgram : ProofForgeV2.Source.Program) : Compi
   if hasDuplicate (sourceProgram.enums.map (·.name)) then
     throw <| .invalidProgram
       s!"program '{sourceProgram.qualifiedName}' contains duplicate enum declarations"
+  if hasDuplicate (sourceProgram.consts.map (·.name)) then
+    throw <| .invalidProgram
+      s!"program '{sourceProgram.qualifiedName}' contains duplicate const declarations"
   match sourceProgram.initializer with
   | some initializer =>
       if hasDuplicate (initializer.params.map (·.name)) then
@@ -504,6 +517,17 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let rhs ← quoteExpr rhs
       `(ProofForgeV2.Source.Expr.checkedAdd $lhs $rhs)
 
+private def quoteConstDecl (sourceConst : ProofForgeV2.Source.ConstDecl) :
+    MacroM (TSyntax `term) := do
+  let name := Syntax.mkStrLit sourceConst.name
+  let typeExpr ← quoteValueType sourceConst.type
+  let value ← quoteExpr sourceConst.value
+  `(ProofForgeV2.Source.ConstDecl.mk $name $typeExpr $value)
+
+private def quoteConsts (consts : Array ProofForgeV2.Source.ConstDecl) : MacroM (TSyntax `term) := do
+  let values ← consts.mapM quoteConstDecl
+  `(#[$[$values],*])
+
 private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `term)
   | .assign stateName value => do
       let stateName := Syntax.mkStrLit stateName
@@ -556,12 +580,13 @@ private def quoteProgram (sourceProgram : ProofForgeV2.Source.Program) : MacroM 
   let stateExpr ← quoteState sourceProgram.state
   let structs ← quoteStructs sourceProgram.structs
   let enums ← quoteEnums sourceProgram.enums
+  let consts ← quoteConsts sourceProgram.consts
   let events ← quoteEvents sourceProgram.events
   let errors ← quoteErrors sourceProgram.errors
   let initializer ← quoteInitializer? sourceProgram.initializer
   let entries ← quoteEntries sourceProgram.entries
-  `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $structs $enums $events $errors
-      $initializer $entries)
+  `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $structs $enums $consts $events
+      $errors $initializer $entries)
 
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do

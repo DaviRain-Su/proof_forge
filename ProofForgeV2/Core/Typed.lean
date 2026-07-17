@@ -271,6 +271,8 @@ def check (source : Source.Program) : CompileResult Program := do
     throw <| .invalidProgram "struct declarations are not yet supported by typed checking"
   if !source.enums.isEmpty then
     throw <| .invalidProgram "enum declarations are not yet supported by typed checking"
+  if !source.consts.isEmpty then
+    throw <| .invalidProgram "const declarations are not yet supported by typed checking"
   if !source.events.isEmpty then
     throw <| .invalidProgram "event declarations are not yet supported by typed checking"
   if !source.errors.isEmpty then

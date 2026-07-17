@@ -64,6 +64,12 @@ inductive Expr where
   | checkedAdd (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
+structure ConstDecl where
+  name : String
+  type : ValueType
+  value : Expr
+  deriving BEq, Inhabited, Repr
+
 inductive Statement where
   | assign (stateName : String) (value : Expr)
   | returnValue (value : Expr)
@@ -92,6 +98,7 @@ inductive Item where
   | stateDecl (decl : StateDecl)
   | structDecl (decl : StructDecl)
   | enumDecl (decl : EnumDecl)
+  | constDecl (decl : ConstDecl)
   | eventDecl (decl : EventDecl)
   | errorDecl (decl : ErrorDecl)
   | initializer (decl : Initializer)
@@ -104,6 +111,7 @@ structure Program where
   state : Array StateDecl
   structs : Array StructDecl := #[]
   enums : Array EnumDecl := #[]
+  consts : Array ConstDecl := #[]
   events : Array EventDecl := #[]
   errors : Array ErrorDecl := #[]
   initializer : Option Initializer
@@ -114,11 +122,12 @@ def Program.buildQualified (qualifiedName name : String) (items : Array Item) : 
   let state := items.foldl (fun acc item => match item with | .stateDecl decl => acc.push decl | _ => acc) #[]
   let structs := items.foldl (fun acc item => match item with | .structDecl decl => acc.push decl | _ => acc) #[]
   let enums := items.foldl (fun acc item => match item with | .enumDecl decl => acc.push decl | _ => acc) #[]
+  let consts := items.foldl (fun acc item => match item with | .constDecl decl => acc.push decl | _ => acc) #[]
   let events := items.foldl (fun acc item => match item with | .eventDecl decl => acc.push decl | _ => acc) #[]
   let errors := items.foldl (fun acc item => match item with | .errorDecl decl => acc.push decl | _ => acc) #[]
   let initializer := items.foldl (fun acc item => match item with | .initializer decl => some decl | _ => acc) none
   let entries := items.foldl (fun acc item => match item with | .entry decl => acc.push decl | _ => acc) #[]
-  { qualifiedName, name, state, structs, enums, events, errors, initializer, entries }
+  { qualifiedName, name, state, structs, enums, consts, events, errors, initializer, entries }
 
 def Program.build (name : String) (items : Array Item) : Program :=
   Program.buildQualified name name items
@@ -190,6 +199,9 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .state name => appendString (appendTag bytes 2) name
   | .checkedAdd lhs rhs => appendExpr (appendExpr (appendTag bytes 3) lhs) rhs
 
+private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
+  appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value
+
 private def appendStatement (bytes : ByteArray) : Statement → ByteArray
   | .assign name value => appendExpr (appendString (appendTag bytes 0) name) value
   | .returnValue value => appendExpr (appendTag bytes 1) value
@@ -215,6 +227,7 @@ def appendProgram (bytes : ByteArray) (program : Program) : ByteArray :=
   let bytes := appendArray appendStateDecl bytes program.state
   let bytes := appendArray appendStructDecl bytes program.structs
   let bytes := appendArray appendEnumDecl bytes program.enums
+  let bytes := appendArray appendConstDecl bytes program.consts
   let bytes := appendArray appendEventDecl bytes program.events
   let bytes := appendArray appendErrorDecl bytes program.errors
   let bytes := match program.initializer with
