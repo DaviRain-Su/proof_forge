@@ -6,14 +6,17 @@ namespace Tests.Language.FnDeclarationsFixture
 open ProofForgeV2.Language
 
 program FnSurface where
+  init() do
+    return 0
+
   fn addOne(value : UInt64) : UInt64 do
     return value + 1
 
-  fn choose(flag : Bool, scalar : Field bn254_fr) : Bool do
-    return flag
-
   entry ping() : UInt64 do
     return 0
+
+  fn choose(flag : Bool, scalar : Field bn254_fr) : Bool do
+    return flag
 
 end Tests.Language.FnDeclarationsFixture
 
@@ -31,12 +34,14 @@ private def source : String :=
   "open ProofForgeV2.Language\n\n" ++
   "namespace Tests.Language.FnDeclarationsFixture\n\n" ++
   "program FnSurface where\n" ++
+  "  init() do\n" ++
+  "    return 0\n\n" ++
   "  fn addOne(value : UInt64) : UInt64 do\n" ++
   "    return value + 1\n\n" ++
-  "  fn choose(flag : Bool, scalar : Field bn254_fr) : Bool do\n" ++
-  "    return flag\n\n" ++
   "  entry ping() : UInt64 do\n" ++
   "    return 0\n\n" ++
+  "  fn choose(flag : Bool, scalar : Field bn254_fr) : Bool do\n" ++
+  "    return flag\n\n" ++
   "end Tests.Language.FnDeclarationsFixture\n"
 
 private def programSource (name declarations : String) : String :=
@@ -71,6 +76,10 @@ unsafe def run : IO Unit := do
   expect (fn == 1) "fn must remain a legal host Lean identifier outside the ProofForge DSL"
 
   let elaborated := Tests.Language.FnDeclarationsFixture.FnSurface
+  expect (elaborated.initializer == some {
+      params := #[]
+      body := #[.returnValue (.literal 0)] })
+    "an initializer followed by fn must retain its exact body"
   match elaborated.functions with
   | #[addOne, choose] =>
       expect (addOne.name == "addOne" &&
