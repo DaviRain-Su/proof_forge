@@ -103,8 +103,9 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 |---|---|---|---|---|---|
 | D1-PA-01 | TASK-D1-01 | canonical NodeId v1 preimage、63 条 parent/field 路径与拓扑/深度拒绝 | `51cce575`, `75b7a62c`, `cdeff9d3` | focused tests + `just ci` at `6dc5acaa` | complete (development) |
 | D1-PA-02 | TASK-D1-01 | Lean original-parser byte span、整树 snapshot/token/boundary 防伪 | `6e559103`, `0e2013f6`, `6dc5acaa` | focused tests + independent P0/P1=0 + `just ci` | complete (development) |
-| D1-PA-03 | TASK-D1-03 | `Bool` 与 `commitment` parameter 的双前端 parity、独立 support requirements 与 pre-Plan rejection | `bc8324fe`, `d174e130`, `89a611b5`, `4d4f7c79` | focused aggregate + dual-entry negatives + clean `just ci` green；re-review P0/P1=0 | **active (documentation closeout)** |
-| D1-PA-04 | TASK-D1-03 | exact `Field bn254_fr` declaration grammar；其他 field identifier fail closed | — | RED before GREEN；focused + full gate | **next** |
+| D1-PA-03 | TASK-D1-03 | `Bool` 与 `commitment` parameter 的双前端 parity、独立 support requirements 与 pre-Plan rejection | `bc8324fe`, `d174e130`, `89a611b5`, `4d4f7c79`, `b1e37b8a` | focused aggregate + dual-entry negatives + clean `just ci` green；re-review P0/P1=0 | complete (development) |
+| D1-PA-04 | TASK-D1-03 | exact `Field bn254_fr` declaration grammar、独立 support requirement；其他 field identifier fail closed | — | RED before GREEN；focused + full gate | **active** |
+| D1-PA-05 | TASK-D1-03 | state visibility carrier、canonical source binding 与 disclosure support envelope | — | scope review → RED before GREEN | **next** |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
