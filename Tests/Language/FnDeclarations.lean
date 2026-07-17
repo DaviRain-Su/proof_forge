@@ -256,6 +256,30 @@ unsafe def run : IO Unit := do
       (programSource "DuplicateFn"
         "  fn helper(value : UInt64) : UInt64 do\n    return value\n  fn helper(other : UInt64) : UInt64 do\n    return other\n")
       "<duplicate-fn>")
+  expectInvalid "entry and fn share one callable namespace"
+    "program 'DuplicateEntryFnCallable' contains duplicate callable declarations"
+    (← session.parsePrograms
+      (programSource "DuplicateEntryFnCallable"
+        "  entry helper(value : UInt64) : UInt64 do\n    return value\n  fn helper(other : UInt64) : UInt64 do\n    return other\n")
+      "<duplicate-entry-fn-callable>")
+  expectInvalid "view and fn share one callable namespace"
+    "program 'DuplicateViewFnCallable' contains duplicate callable declarations"
+    (← session.parsePrograms
+      (programSource "DuplicateViewFnCallable"
+        "  view helper(value : UInt64) : UInt64 do\n    return value\n  fn helper(other : UInt64) : UInt64 do\n    return other\n")
+      "<duplicate-view-fn-callable>")
+  expectInvalid "same-kind fn duplicate precedes cross-kind callable duplicate"
+    "program 'PriorityFnBeforeCallable' contains duplicate fn declarations"
+    (← session.parsePrograms
+      (programSource "PriorityFnBeforeCallable"
+        "  entry helper(value : UInt64) : UInt64 do\n    return value\n  fn helper(first : UInt64) : UInt64 do\n    return first\n  fn helper(second : UInt64) : UInt64 do\n    return second\n")
+      "<priority-fn-before-callable>")
+  expectInvalid "cross-kind callable duplicate precedes invariant duplicate"
+    "program 'PriorityCallableBeforeInvariant' contains duplicate callable declarations"
+    (← session.parsePrograms
+      (programSource "PriorityCallableBeforeInvariant"
+        "  entry helper(value : UInt64) : UInt64 do\n    return value\n  fn helper(other : UInt64) : UInt64 do\n    return other\n  invariant Holds : 1\n  invariant Holds : 2\n")
+      "<priority-callable-before-invariant>")
   expectInvalid "fn does not satisfy the entry/view requirement"
     "program 'FnOnly' must declare at least one entry or view"
     (← session.parsePrograms
