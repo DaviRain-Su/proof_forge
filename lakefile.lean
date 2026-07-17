@@ -25,6 +25,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.FieldDeclarations,
     `Tests.Language.FnDeclarations,
     `Tests.Language.IntegerWidthDeclarations,
+    `Tests.Language.LetStatements,
     `Tests.Language.OptionDeclarations,
     `Tests.Language.PrincipalDeclarations,
     `Tests.Language.UnitReturnTypes,

@@ -375,6 +375,8 @@ dsl-negative: build
             principal64-type|escaped-principal-type|qualified-principal-type|principal-second-token) echo "PF-SRC-INVALID: unsupported portable type" ;;
             plural-option-type|escaped-option-type|unknown-option-element|missing-option-element) echo "PF-SRC-INVALID: unsupported portable type" ;;
             bytes-bare-type|bytes64-type|escaped-bytes-type|qualified-bytes-type|bytes-identifier-length|bytes-hex-length|bytes-leading-zero-length|bytes-over-limit) echo "PF-SRC-INVALID: unsupported portable type" ;;
+            unknown-let-type) echo "PF-SRC-INVALID: unsupported portable type" ;;
+            reserved-let-binder) echo "PF-SRC-INVALID: reserved portable identifier 'const'" ;;
             escaped-field-constructor|escaped-field-id|unknown-field-constructor|unknown-field-id|qualified-field-id|missing-field-id) echo "PF-SRC-INVALID: unsupported portable type" ;;
             *) echo "missing expected diagnostic for $1" >&2; return 1 ;;
         esac
@@ -431,6 +433,7 @@ dsl-negative: build
         plural-option-type escaped-option-type unknown-option-element missing-option-element
         bytes-bare-type bytes64-type escaped-bytes-type qualified-bytes-type
         bytes-identifier-length bytes-hex-length bytes-leading-zero-length bytes-over-limit
+        unknown-let-type reserved-let-binder
         escaped-field-constructor escaped-field-id unknown-field-constructor unknown-field-id
         qualified-field-id missing-field-id
     )
