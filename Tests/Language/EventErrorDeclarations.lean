@@ -20,6 +20,9 @@ namespace Tests.Language.EventErrorDeclarations
 
 open ProofForgeV2
 
+private def event : Nat := 1
+private def error : Nat := 2
+
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
@@ -61,6 +64,8 @@ private def expectInvalid (label expected : String)
   | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
 
 unsafe def run : IO Unit := do
+  expect (event + error == 3)
+    "event/error must remain legal host Lean identifiers outside the ProofForge DSL"
   let elaborated := Tests.Language.EventErrorDeclarationsFixture.EventErrorSurface
   match elaborated.events with
   | #[transfer, tick] =>
@@ -221,6 +226,28 @@ unsafe def run : IO Unit := do
     (← session.parsePrograms
       (programSource "EscapedErrorKeyword" "  «error» Failed\n")
       "<escaped-error-keyword>")
+  expectInvalid "reserved program name" "reserved portable identifier 'event'"
+    (← session.parsePrograms
+      (programSource "event" "") "<reserved-program-name>")
+  expectInvalid "escaped reserved program name" "reserved portable identifier 'error'"
+    (← session.parsePrograms
+      (programSource "«error»" "") "<escaped-reserved-program-name>")
+  expectInvalid "reserved event name" "reserved portable identifier 'event'"
+    (← session.parsePrograms
+      (programSource "ReservedEventName" "  event event()\n")
+      "<reserved-event-name>")
+  expectInvalid "escaped reserved error name" "reserved portable identifier 'error'"
+    (← session.parsePrograms
+      (programSource "ReservedErrorName" "  error «error»\n")
+      "<escaped-reserved-error-name>")
+  expectInvalid "reserved event parameter" "reserved portable identifier 'error'"
+    (← session.parsePrograms
+      (programSource "ReservedEventParam" "  event Changed(error : UInt64)\n")
+      "<reserved-event-param>")
+  expectInvalid "escaped reserved error parameter" "reserved portable identifier 'event'"
+    (← session.parsePrograms
+      (programSource "ReservedErrorParam" "  error Failed(«event» : UInt64)\n")
+      "<escaped-reserved-error-param>")
 
   match Typed.check elaborated with
   | .error (.invalidProgram "event declarations are not yet supported by typed checking") => pure ()
