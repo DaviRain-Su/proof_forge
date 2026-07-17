@@ -10,6 +10,7 @@ import Tests.Language.ConstDeclarations
 import Tests.Language.EventErrorDeclarations
 import Tests.Language.FieldDeclarations
 import Tests.Language.FnDeclarations
+import Tests.Language.InvariantDeclarations
 import Tests.Language.ProgramSyntax
 import Tests.Language.PrimitiveDeclarations
 import Tests.Language.StateVisibility
@@ -35,6 +36,7 @@ unsafe def main : IO Unit := do
   Tests.Language.EventErrorDeclarations.run
   Tests.Language.FieldDeclarations.run
   Tests.Language.FnDeclarations.run
+  Tests.Language.InvariantDeclarations.run
   Tests.Language.run
   Tests.Language.PrimitiveDeclarations.run
   Tests.Language.StateVisibility.run

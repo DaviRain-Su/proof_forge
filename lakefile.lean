@@ -22,6 +22,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.EventErrorDeclarations,
     `Tests.Language.FieldDeclarations,
     `Tests.Language.FnDeclarations,
+    `Tests.Language.InvariantDeclarations,
     `Tests.Language.ProgramSyntax,
     `Tests.Language.PrimitiveDeclarations,
     `Tests.Language.StateVisibility,
