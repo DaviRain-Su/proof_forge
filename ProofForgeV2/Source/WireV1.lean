@@ -89,6 +89,101 @@ private def childCardinality? : String → String → Option ChildCardinality
   | "Pattern.Constructor", "args" => some .array
   | _, _ => none
 
+private def isProgramItemTag (tag : String) : Bool :=
+  #["StateDecl", "StructDecl", "EnumDecl", "ConstDecl", "EventDecl",
+    "ErrorDecl", "InitDecl", "EntryDecl", "ViewDecl", "FnDecl",
+    "InvariantDecl", "ExtensionReq", "ProofDecl"].contains tag
+
+private def isTypeTag (tag : String) : Bool :=
+  #["Type.Bool", "Type.UInt", "Type.Int", "Type.Principal", "Type.Unit",
+    "Type.Named", "Type.Array", "Type.Map", "Type.Option", "Type.Bytes",
+    "Type.Field"].contains tag
+
+private def isStatementTag (tag : String) : Bool :=
+  #["Stmt.Let", "Stmt.Assign", "Stmt.If", "Stmt.Match", "Stmt.For",
+    "Stmt.Assert", "Stmt.Revert", "Stmt.Emit", "Stmt.Return", "Stmt.Call",
+    "Stmt.Schedule"].contains tag
+
+private def isExpressionTag (tag : String) : Bool :=
+  #["Expr.Literal", "Expr.Place", "Expr.Constructor", "Expr.Unary",
+    "Expr.Binary", "Expr.LocalCall", "Expr.Match"].contains tag
+
+private def isPlaceTag (tag : String) : Bool :=
+  #["Place.Name", "Place.Field", "Place.Index"].contains tag
+
+private def isPatternTag (tag : String) : Bool :=
+  #["Pattern.Wildcard", "Pattern.Bind", "Pattern.Literal",
+    "Pattern.Constructor"].contains tag
+
+/-- Whether a child edge may lead to a node whose constructor owns the next edge. -/
+private def permitsChildTag
+    (parentTag fieldTag childTag : String) : Bool :=
+  match parentTag, fieldTag with
+  | "Program", "items" => isProgramItemTag childTag
+  | "StateDecl", "type"
+  | "ConstDecl", "type"
+  | "EntryDecl", "result"
+  | "ViewDecl", "result"
+  | "FnDecl", "result"
+  | "Param", "type"
+  | "FieldDecl", "type"
+  | "EnumVariant", "payloadTypes"
+  | "Type.Array", "element"
+  | "Type.Map", "key"
+  | "Type.Map", "value"
+  | "Type.Option", "element"
+  | "Stmt.Let", "typeAnn" => isTypeTag childTag
+  | "StructDecl", "fields" => childTag == "FieldDecl"
+  | "EnumDecl", "variants" => childTag == "EnumVariant"
+  | "EventDecl", "params"
+  | "ErrorDecl", "params"
+  | "InitDecl", "params"
+  | "EntryDecl", "params"
+  | "ViewDecl", "params"
+  | "FnDecl", "params" => childTag == "Param"
+  | "InitDecl", "body"
+  | "EntryDecl", "body"
+  | "ViewDecl", "body"
+  | "FnDecl", "body"
+  | "StmtMatchArm", "body"
+  | "Stmt.If", "thenBlock"
+  | "Stmt.If", "elseBlock"
+  | "Stmt.For", "body" => childTag == "Block"
+  | "InvariantDecl", "predicate"
+  | "ConstDecl", "value"
+  | "ExprMatchArm", "value"
+  | "ExternalCallExpr", "args"
+  | "Stmt.Let", "value"
+  | "Stmt.Assign", "value"
+  | "Stmt.If", "condition"
+  | "Stmt.Match", "scrutinee"
+  | "Stmt.For", "start"
+  | "Stmt.For", "endExclusive"
+  | "Stmt.Assert", "condition"
+  | "Stmt.Revert", "args"
+  | "Stmt.Emit", "args"
+  | "Stmt.Return", "value"
+  | "Expr.Constructor", "args"
+  | "Expr.Unary", "operand"
+  | "Expr.Binary", "lhs"
+  | "Expr.Binary", "rhs"
+  | "Expr.LocalCall", "args"
+  | "Expr.Match", "scrutinee"
+  | "Place.Index", "index" => isExpressionTag childTag
+  | "Block", "statements" => isStatementTag childTag
+  | "StmtMatchArm", "pattern"
+  | "ExprMatchArm", "pattern"
+  | "Pattern.Constructor", "args" => isPatternTag childTag
+  | "Stmt.Match", "arms" => childTag == "StmtMatchArm"
+  | "Expr.Match", "arms" => childTag == "ExprMatchArm"
+  | "Stmt.Call", "call"
+  | "Stmt.Schedule", "call" => childTag == "ExternalCallExpr"
+  | "Stmt.Assign", "target"
+  | "Expr.Place", "place"
+  | "Place.Field", "base"
+  | "Place.Index", "base" => isPlaceTag childTag
+  | _, _ => false
+
 private def invalidSourceIdentity (detail : String) : CompileResult α :=
   .error (.invalidProgram detail)
 
@@ -121,7 +216,17 @@ private def pathJson
   if path.size > 255 then
     return ← invalidSourceIdentity "source node path exceeds the nesting bound"
   let mut values := #[]
+  let mut previous? : Option NodePathSegmentV1 := none
   for segment in path do
+    match previous? with
+    | none =>
+      unless segment.parentTag == "Program" do
+        return ← invalidSourceIdentity
+          "non-root source node paths must begin at Program"
+    | some previous =>
+      unless permitsChildTag previous.parentTag previous.fieldTag segment.parentTag do
+        return ← invalidSourceIdentity
+          "source node path contains an impossible constructor transition"
     match childCardinality? segment.parentTag segment.fieldTag with
     | none =>
         return ← invalidSourceIdentity
@@ -136,6 +241,7 @@ private def pathJson
       ("fieldTag", .string segment.fieldTag),
       ("index", .int (Int.ofNat segment.index.toNat))
     ])
+    previous? := some segment
   pure (.array values)
 
 /--

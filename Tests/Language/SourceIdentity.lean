@@ -48,6 +48,116 @@ private def segment
   index
 }
 
+private def directPairs : Array (String × String) := #[
+  ("StateDecl", "type"),
+  ("ConstDecl", "type"), ("ConstDecl", "value"),
+  ("InitDecl", "body"),
+  ("EntryDecl", "result"), ("EntryDecl", "body"),
+  ("ViewDecl", "result"), ("ViewDecl", "body"),
+  ("FnDecl", "result"), ("FnDecl", "body"),
+  ("InvariantDecl", "predicate"),
+  ("Param", "type"), ("FieldDecl", "type"),
+  ("StmtMatchArm", "pattern"), ("StmtMatchArm", "body"),
+  ("ExprMatchArm", "pattern"), ("ExprMatchArm", "value"),
+  ("Type.Array", "element"),
+  ("Type.Map", "key"), ("Type.Map", "value"),
+  ("Type.Option", "element"),
+  ("Stmt.Let", "typeAnn"), ("Stmt.Let", "value"),
+  ("Stmt.Assign", "target"), ("Stmt.Assign", "value"),
+  ("Stmt.If", "condition"), ("Stmt.If", "thenBlock"),
+  ("Stmt.If", "elseBlock"),
+  ("Stmt.Match", "scrutinee"),
+  ("Stmt.For", "start"), ("Stmt.For", "endExclusive"),
+  ("Stmt.For", "body"),
+  ("Stmt.Assert", "condition"),
+  ("Stmt.Return", "value"),
+  ("Stmt.Call", "call"), ("Stmt.Schedule", "call"),
+  ("Expr.Place", "place"),
+  ("Expr.Unary", "operand"),
+  ("Expr.Binary", "lhs"), ("Expr.Binary", "rhs"),
+  ("Expr.Match", "scrutinee"),
+  ("Place.Field", "base"),
+  ("Place.Index", "base"), ("Place.Index", "index")
+]
+
+private def arrayPairs : Array (String × String) := #[
+  ("Program", "items"),
+  ("StructDecl", "fields"), ("EnumDecl", "variants"),
+  ("EventDecl", "params"), ("ErrorDecl", "params"),
+  ("InitDecl", "params"), ("EntryDecl", "params"),
+  ("ViewDecl", "params"), ("FnDecl", "params"),
+  ("EnumVariant", "payloadTypes"),
+  ("Block", "statements"),
+  ("ExternalCallExpr", "args"),
+  ("Stmt.Match", "arms"),
+  ("Stmt.Revert", "args"), ("Stmt.Emit", "args"),
+  ("Expr.Constructor", "args"), ("Expr.LocalCall", "args"),
+  ("Expr.Match", "arms"),
+  ("Pattern.Constructor", "args")
+]
+
+private def itemParentTags : Array String := #[
+  "StateDecl", "StructDecl", "EnumDecl", "ConstDecl", "EventDecl",
+  "ErrorDecl", "InitDecl", "EntryDecl", "ViewDecl", "FnDecl",
+  "InvariantDecl"
+]
+
+private def statementParentTags : Array String := #[
+  "Stmt.Let", "Stmt.Assign", "Stmt.If", "Stmt.Match", "Stmt.For",
+  "Stmt.Assert", "Stmt.Revert", "Stmt.Emit", "Stmt.Return", "Stmt.Call",
+  "Stmt.Schedule"
+]
+
+private def expressionParentTags : Array String := #[
+  "Expr.Place", "Expr.Constructor", "Expr.Unary", "Expr.Binary",
+  "Expr.LocalCall", "Expr.Match"
+]
+
+private def prefixForParent (parentTag : String) : Option NormalizedSyntacticPathV1 :=
+  if parentTag == "Program" then
+    some #[]
+  else if itemParentTags.contains parentTag then
+    some #[segment "Program" "items"]
+  else if parentTag == "Param" then
+    some #[segment "Program" "items", segment "EventDecl" "params"]
+  else if parentTag == "FieldDecl" then
+    some #[segment "Program" "items", segment "StructDecl" "fields"]
+  else if parentTag == "EnumVariant" then
+    some #[segment "Program" "items", segment "EnumDecl" "variants"]
+  else if parentTag == "Block" then
+    some #[segment "Program" "items", segment "InitDecl" "body"]
+  else if parentTag == "StmtMatchArm" then
+    some #[segment "Program" "items", segment "InitDecl" "body",
+      segment "Block" "statements", segment "Stmt.Match" "arms"]
+  else if parentTag == "ExprMatchArm" then
+    some #[segment "Program" "items", segment "InvariantDecl" "predicate",
+      segment "Expr.Match" "arms"]
+  else if parentTag == "ExternalCallExpr" then
+    some #[segment "Program" "items", segment "InitDecl" "body",
+      segment "Block" "statements", segment "Stmt.Call" "call"]
+  else if parentTag.startsWith "Type." then
+    some #[segment "Program" "items", segment "StateDecl" "type"]
+  else if statementParentTags.contains parentTag then
+    some #[segment "Program" "items", segment "InitDecl" "body",
+      segment "Block" "statements"]
+  else if expressionParentTags.contains parentTag then
+    some #[segment "Program" "items", segment "InvariantDecl" "predicate"]
+  else if #["Place.Field", "Place.Index"].contains parentTag then
+    some #[segment "Program" "items", segment "InvariantDecl" "predicate",
+      segment "Expr.Place" "place"]
+  else if parentTag == "Pattern.Constructor" then
+    some #[segment "Program" "items", segment "InitDecl" "body",
+      segment "Block" "statements", segment "Stmt.Match" "arms",
+      segment "StmtMatchArm" "pattern"]
+  else
+    none
+
+private def pathForPair
+    (parentTag fieldTag : String) (index : UInt32 := 0) :
+    Option NormalizedSyntacticPathV1 :=
+  (prefixForParent parentTag).map fun pathPrefix =>
+    pathPrefix.push (segment parentTag fieldTag index)
+
 def run : IO Unit := do
   let moduleName ← liftStringResult "module name" (parseQualifiedName #["Demo"])
   let programIdentity ← liftStringResult "program identity"
@@ -91,13 +201,52 @@ def run : IO Unit := do
     (nodeIdPreimageV1 moduleName programIdentity #[segment "Program" "name"])
   expectInvalid "constructor/field pairing is closed"
     (nodeIdPreimageV1 moduleName programIdentity #[segment "Program" "fields"])
+  expectInvalid "non-root path is impossible"
+    (nodeIdPreimageV1 moduleName programIdentity #[segment "Type.Option" "element"])
+  expectInvalid "constructor transition is typed"
+    (nodeIdPreimageV1 moduleName programIdentity
+      #[segment "Program" "items", segment "Type.Option" "element"])
   expectInvalid "direct child requires index zero"
-    (nodeIdPreimageV1 moduleName programIdentity #[segment "StateDecl" "type" 1])
+    (nodeIdPreimageV1 moduleName programIdentity
+      #[segment "Program" "items", segment "StateDecl" "type" 1])
 
-  let atDepthLimit := Array.replicate 255 (segment "Type.Option" "element")
+  expect (directPairs.size == 44 && arrayPairs.size == 19)
+    "the closed node-bearing field inventory must contain exactly 63 pairs"
+  for pair in directPairs do
+    let some indexZeroPath := pathForPair pair.1 pair.2
+      | throw <| IO.userError s!"missing test prefix for {pair.1}.{pair.2}"
+    let _ ← liftCompileResult s!"direct pair {pair.1}.{pair.2}"
+      (nodeIdPreimageV1 moduleName programIdentity indexZeroPath)
+    let some indexOnePath := pathForPair pair.1 pair.2 1
+      | throw <| IO.userError s!"missing test prefix for {pair.1}.{pair.2}"
+    expectInvalid s!"direct pair index {pair.1}.{pair.2}"
+      (nodeIdPreimageV1 moduleName programIdentity indexOnePath)
+  for pair in arrayPairs do
+    let some indexZeroPath := pathForPair pair.1 pair.2
+      | throw <| IO.userError s!"missing test prefix for {pair.1}.{pair.2}"
+    let _ ← liftCompileResult s!"array pair zero {pair.1}.{pair.2}"
+      (nodeIdPreimageV1 moduleName programIdentity indexZeroPath)
+    let some indexOnePath := pathForPair pair.1 pair.2 1
+      | throw <| IO.userError s!"missing test prefix for {pair.1}.{pair.2}"
+    let _ ← liftCompileResult s!"array pair one {pair.1}.{pair.2}"
+      (nodeIdPreimageV1 moduleName programIdentity indexOnePath)
+  let allPairs := directPairs ++ arrayPairs
+  for parentSource in allPairs do
+    for fieldSource in allPairs do
+      let candidate := (parentSource.1, fieldSource.2)
+      unless allPairs.contains candidate do
+        let some candidatePath := pathForPair candidate.1 candidate.2
+          | throw <| IO.userError s!"missing test prefix for {candidate.1}.{candidate.2}"
+        expectInvalid s!"non-member pair {candidate.1}.{candidate.2}"
+          (nodeIdPreimageV1 moduleName programIdentity candidatePath)
+
+  let typePrefix := #[segment "Program" "items", segment "ConstDecl" "type"]
+  let atDepthLimit := typePrefix ++
+    Array.replicate 253 (segment "Type.Option" "element")
   let _ ← liftCompileResult "path at depth limit"
     (nodeIdPreimageV1 moduleName programIdentity atDepthLimit)
-  let overDepthLimit := Array.replicate 256 (segment "Type.Option" "element")
+  let overDepthLimit := typePrefix ++
+    Array.replicate 254 (segment "Type.Option" "element")
   expectInvalid "path over depth limit"
     (nodeIdPreimageV1 moduleName programIdentity overDepthLimit)
 
