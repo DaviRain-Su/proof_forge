@@ -1014,3 +1014,20 @@ normative: false
   本变更不把 D0-08 标为开工。
 - Validation boundary：本 triage 是任务控制面事实，不把 development common-primitives 证据提升为
   bootstrap/formal，也不使仍为 `proposed` 的 genesis 治理生效。
+
+## 2026-07-17 — TASK-D0-06 genesis closeout completed
+
+- Authority：genesis root policy 已由独立提交 `306b7b6a` 建立；五份治理文档随后由人类批准并在
+  `be7b3642` 统一转为 `accepted`，`GOV-GENESIS-001` 因而生效。本关单与批准变更保持分离。
+- Closure：新增 `docs/governance/bootstrap-closure/TASK-D0-06.attest.json`，精确绑定冻结包
+  `sha256:2693340d0ce99a54cd63e2ee0e7c2e4c76570cddcb137c7c6d60e962470d7f35`、技术证据
+  `EV-20260717-0034`、RED `807d73ba`、GREEN `343a08f2`、232 个 focused assertions、clean
+  detached `just ci` 与独立复核 P0=0/P1=0。
+- Evidence/state：新增 bootstrap `EV-20260717-0035`；任务表将 D0-06 从 `blocked` 更新为
+  `done`，checkpoint 的 blocker 集合收窄为 D0-04。历史 partial `EV-0032` 与 technical
+  `EV-0034` 保留在 ledger，但不再作为 task row 的完成证据。
+- Validation：重新执行 focused Common build/aggregate test、严格 docs check 与 diff hygiene；结果见
+  本关单提交。该结果只关闭 common-primitives genesis/bootstrap 边界，不声称 formal 或 hermetic。
+- Next：进入 D0-04 的冻结 bootstrap foundation 实现；当前机器的 broken system-volume seal 与
+  current-user-mutable Xcode 继续使 eligible Stage-0 fail closed，因此先推进不伪造正式收据的
+  pre-acceptance RED/GREEN 切片。

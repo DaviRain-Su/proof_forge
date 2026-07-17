@@ -14,11 +14,11 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Active task | 无；common primitives 技术切片已完成，外部治理关单已按 R5 转为 blocked |
+| Active task | 无；common primitives 已按生效的 genesis authority 完成 bootstrap 关单 |
 | Next task | **TASK-D0-04**（blocked；等待其依赖与 eligible Stage-0/authority 条件） |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-04** host seal broken + Stage-0/authority/receipt 未闭合；**TASK-D0-06** 技术证据已完成，但仍缺五文档人类批准与离线 genesis public key/keyId；其余已关闭 D0 任务仅为 freeze-exception 关闭的 development 切片，不表示 formal hermetic 完成 |
+| Known blocker | **TASK-D0-04** host seal broken + eligible Stage-0/authority/receipt 未闭合；其余已关闭 D0 任务只达到各自 bootstrap/development 边界，不表示 formal hermetic 完成 |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
