@@ -295,6 +295,11 @@ dsl-negative: build
             escaped-struct-keyword|escaped-enum-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             ordinary-reserved-struct-identifier|reserved-struct-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'struct'" ;;
             ordinary-reserved-enum-identifier|reserved-enum-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'enum'" ;;
+            duplicate-const) echo "PF-SRC-INVALID: program 'DuplicateConst' contains duplicate const declarations" ;;
+            escaped-const-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
+            ordinary-reserved-const-identifier|escaped-reserved-const-identifier|reserved-const-expression) echo "PF-SRC-INVALID: reserved portable identifier 'const'" ;;
+            unknown-const-type) echo "PF-SRC-INVALID: unsupported portable type" ;;
+            const-literal-overflow) echo "PF-SRC-INVALID: UInt64 literal is out of range: 18446744073709551616" ;;
             escaped-event-keyword|escaped-error-keyword) echo "PF-SRC-INVALID: unsupported portable program item" ;;
             reserved-event-identifier|escaped-reserved-event-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'event'" ;;
             reserved-error-identifier|escaped-reserved-error-identifier) echo "PF-SRC-INVALID: reserved portable identifier 'error'" ;;
@@ -320,6 +325,9 @@ dsl-negative: build
         empty-struct empty-enum empty-enum-payload escaped-struct-keyword escaped-enum-keyword
         ordinary-reserved-struct-identifier reserved-struct-identifier
         ordinary-reserved-enum-identifier reserved-enum-identifier
+        duplicate-const escaped-const-keyword ordinary-reserved-const-identifier
+        escaped-reserved-const-identifier reserved-const-expression unknown-const-type
+        const-literal-overflow
         reserved-event-identifier reserved-error-identifier escaped-reserved-event-identifier
         escaped-reserved-error-identifier
         priority-identity-before-decode

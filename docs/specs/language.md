@@ -253,7 +253,7 @@ command elaborator 的唯一业务 AST。共享 validation 在 decode 后按固�
 entry/view、state 名唯一、entry 名唯一、event 名唯一、error 名唯一、struct 名唯一、enum 名唯一、
 initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant
 按 enum 声明顺序非空且名称唯一、每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按
-error 声明顺序唯一、每个 entry 参数名唯一；
+error 声明顺序唯一、const 名唯一、每个 entry 参数名唯一；
 duplicate initializer 仍在构造 `Source.Program` 前拒绝。Loader 只拥有 module header/
 command whitelist、namespace stack、module 内 program identity 去重和 selection，不得另有
 per-program declaration validator。
@@ -272,7 +272,12 @@ name/payload type order 保存在独立 Source projection 并纳入 development 
 必须 nonempty，因此 `| V()` 失败。Typed/Semantic named-type tables 完成前，任一非空 struct/enum
 table 必须在 `Typed.check` fail closed。
 
-为避免 ProofForge import 把 Lean 宿主中的 `struct`/`enum`/`event`/`error` 变成全局 parser keyword，
+当前 D1 pre-acceptance alpha 把 const 的 exact declaration name、declared type 与当前 alpha
+expression constructors 保存在独立 Source projection，并把 declaration/type/value/count/order 纳入
+development source binding。该切片不执行 D2 const type/name resolution；任一非空 const table 必须在
+`Typed.check` fail closed，不能以未解析 expression 进入 requirement resolution 或 target Plan。
+
+为避免 ProofForge import 把 Lean 宿主中的 `struct`/`enum`/`const`/`event`/`error` 变成全局 parser keyword，
 这些词只在 `pfItem` 首位按 raw token exact 识别；escaped keyword 或其他 leading identifier 失败。
 其 semantic identifier 同时属于 DSL 保留词：program、declaration、parameter、expression 与
 assignment 的 identifier decoder 对普通或 escaped 后值为上述名称统一返回 `PF-SRC-INVALID`，
