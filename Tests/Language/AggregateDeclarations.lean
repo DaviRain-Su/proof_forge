@@ -120,6 +120,18 @@ unsafe def run : IO Unit := do
     (programSource "CanonicalAggregate"
       "  struct A where\n    second : Bool\n    first : UInt64\n")
     "<aggregate-struct-fields-ba>"
+  let structFieldCount ← select session
+    (programSource "CanonicalAggregate"
+      "  struct A where\n    value : UInt64\n    extra : Bool\n")
+    "<aggregate-struct-field-count>"
+  let structsAB ← select session
+    (programSource "CanonicalAggregate"
+      "  struct A where\n    value : UInt64\n  struct B where\n    flag : Bool\n")
+    "<aggregate-structs-ab>"
+  let structsBA ← select session
+    (programSource "CanonicalAggregate"
+      "  struct B where\n    flag : Bool\n  struct A where\n    value : UInt64\n")
+    "<aggregate-structs-ba>"
   let enumOne ← select session
     (programSource "CanonicalAggregate" "  enum A where\n    | Value(UInt64)\n")
     "<aggregate-enum-one>"
@@ -141,21 +153,44 @@ unsafe def run : IO Unit := do
   let enumVariantsBA ← select session
     (programSource "CanonicalAggregate" "  enum A where\n    | Second(UInt64)\n    | First\n")
     "<aggregate-enum-variants-ba>"
+  let enumVariantCount ← select session
+    (programSource "CanonicalAggregate"
+      "  enum A where\n    | Value(UInt64)\n    | Extra\n")
+    "<aggregate-enum-variant-count>"
+  let enumPayloadCount ← select session
+    (programSource "CanonicalAggregate" "  enum A where\n    | Value(UInt64, Bool)\n")
+    "<aggregate-enum-payload-count>"
+  let enumsAB ← select session
+    (programSource "CanonicalAggregate"
+      "  enum A where\n    | Value(UInt64)\n  enum B where\n    | Flag(Bool)\n")
+    "<aggregate-enums-ab>"
+  let enumsBA ← select session
+    (programSource "CanonicalAggregate"
+      "  enum B where\n    | Flag(Bool)\n  enum A where\n    | Value(UInt64)\n")
+    "<aggregate-enums-ba>"
+  let enumSameShape ← select session
+    (programSource "CanonicalAggregate" "  enum A where\n    | value(UInt64)\n")
+    "<aggregate-enum-same-shape>"
   let enumNoParens ← select session
     (programSource "CanonicalAggregate" "  enum A where\n    | Empty\n")
     "<aggregate-enum-no-parens>"
 
-  expect (base.sourceHash != structOne.sourceHash && structOne.sourceHash != enumOne.sourceHash)
+  expect (base.sourceHash != structOne.sourceHash && structOne.sourceHash != enumSameShape.sourceHash)
     "struct/enum presence and kind must bind the source hash"
   expect (structOne.sourceHash != structFieldName.sourceHash &&
       structOne.sourceHash != structFieldType.sourceHash &&
-      structFieldsAB.sourceHash != structFieldsBA.sourceHash)
-    "struct field name, type, count, and order must bind the source hash"
+      structOne.sourceHash != structFieldCount.sourceHash &&
+      structFieldsAB.sourceHash != structFieldsBA.sourceHash &&
+      structsAB.sourceHash != structsBA.sourceHash)
+    "struct field name, type, count, field order, and declaration order must bind the source hash"
   expect (enumOne.sourceHash != enumVariantName.sourceHash &&
       enumOne.sourceHash != enumPayloadType.sourceHash &&
+      enumOne.sourceHash != enumVariantCount.sourceHash &&
+      enumOne.sourceHash != enumPayloadCount.sourceHash &&
       enumPayloadAB.sourceHash != enumPayloadBA.sourceHash &&
-      enumVariantsAB.sourceHash != enumVariantsBA.sourceHash)
-    "enum variant name/order and payload type/order must bind the source hash"
+      enumVariantsAB.sourceHash != enumVariantsBA.sourceHash &&
+      enumsAB.sourceHash != enumsBA.sourceHash)
+    "enum variant name/count/order, payload count/type/order, and declaration order must bind the source hash"
   expect (enumNoParens.enums[0]!.variants[0]!.payloadTypes.isEmpty)
     "a bare enum variant must retain a nullary payload"
 
