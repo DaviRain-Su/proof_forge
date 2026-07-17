@@ -55,7 +55,9 @@ EVIDENCE_ROW_9004_BOOTSTRAP = (
 D0_06_TECHNICAL_EVIDENCE_ROW = (
     "| EV-20260717-0034 | TASK-D0-06 | TST-COMMON-001 | development | "
     "lake build ProofForgeV2.Core.Common proof_forge_next_tests and "
-    "lake exe proof_forge_next_tests | passed | frozen common-primitives evidence |"
+    "lake exe proof_forge_next_tests | "
+    "passed (complete frozen common-primitives technical slice) | "
+    "frozen common-primitives evidence |"
 )
 GENESIS_TASKS = [
     "TASK-D0-01",
@@ -64,6 +66,10 @@ GENESIS_TASKS = [
     "TASK-D0-05",
     "TASK-D0-06",
 ]
+RFC_8032_GENESIS_PUBLIC_KEY = (
+    "d75a980182b10ab7d54bfed3c964073a"
+    "0ee172f3daa62325af021a68f707511a"
+)
 SYNTHETIC_A0_TASKS = [f"TASK-A0-{index:02d}" for index in range(1, 21)]
 
 
@@ -111,6 +117,31 @@ def write_genesis_set_lock(
     path = root / "docs/governance/genesis-set.lock.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def write_genesis_root_policy(root: Path) -> None:
+    payload = {
+        "algorithm": "ed25519",
+        "allowedSchemas": ["proof-forge.bootstrap-authority-policy.v1"],
+        "authorityDocument": "GOV-GENESIS-001",
+        "cutoverTask": "TASK-D0-04",
+        "id": "proof-forge-genesis-root",
+        "keyId": "synthetic-genesis-root-key-1",
+        "maintainersDocument": "GOV-MAINTAINERS-001",
+        "postCutoverDisposition": "revoke-and-historical-only",
+        "principalId": "davirain",
+        "publicKey": RFC_8032_GENESIS_PUBLIC_KEY,
+        "schema": "proof-forge.genesis-root-policy.v1",
+        "version": "1.0.0",
+    }
+    path = root / "docs/governance/genesis-root-policy.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8"))
 
 
 def write_task_freeze_package(
@@ -492,10 +523,11 @@ def write_task_freeze_fx_doc(
     if include_void_d0_06:
         body += """
 
-### 11.6 Freeze Exception `FX-2026-07-17-D0-06`（作废记录）
+### 11.6 Voided Freeze Exception `FX-2026-07-17-D0-06`
 
 | 字段 | 值 |
 |---|---|
+| 状态 | `void` |
 | 原因 | synthetic invalid same-commit closeout |
 | 处置 | 关闭无效；本节只保留历史，不得作为批准来源 |
 """
@@ -650,6 +682,7 @@ def write_governance_authority_set(
         doc_id=task_freeze_id,
     )
     write_genesis_set_lock(root)
+    write_genesis_root_policy(root)
 
 
 def write_accepted_genesis_authority(root: Path) -> None:
@@ -701,29 +734,18 @@ def complete_d0_06_genesis_closure(
     path.write_text(json.dumps(attest, indent=2) + "\n", encoding="utf-8")
 
 
-def write_fx_approval_probe(root: Path, approval: str) -> None:
-    path = root / "docs/governance/freeze-exception-record.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(markdown("GOV-FX-RECORD-901", f"""
-## Active freeze record
-
-### Freeze Exception `FX-2026-07-17-D0-01`
-
-| 字段 | 值 |
-|---|---|
-| 批准 | {approval} |
-""", normative=False), encoding="utf-8")
-    ensure_index_link(root, "docs/governance/freeze-exception-record.md")
-
-
 def write_missing_task_freeze_authority_set(root: Path) -> None:
     write_genesis_authority(root, accepted_status=True)
     write_maintainers_authority(root, accepted_status=True)
     write_role_authority(root, accepted_status=True)
     write_change_control_authority(root, accepted_status=True)
     write_genesis_set_lock(root)
-    write_fx_approval_probe(
-        root, "Quality + Architecture（经 `GOV-GENESIS-001` 追认）")
+    write_genesis_root_policy(root)
+    write_task_freeze_fx_doc(
+        root,
+        "Quality + Architecture（经 `GOV-GENESIS-001` 追认）",
+        doc_id="GOV-TASK-FREEZE-901",
+    )
 
 
 def remove_governance_authority_doc(root: Path, relative_path: str) -> None:
@@ -743,6 +765,24 @@ def complete_with_mutated_genesis_set(
 def complete_without_genesis_set(root: Path) -> None:
     complete_accepted_genesis_fx(root)
     (root / "docs/governance/genesis-set.lock.json").unlink()
+
+
+def complete_without_genesis_root_policy(root: Path) -> None:
+    complete_accepted_genesis_fx(root)
+    (root / "docs/governance/genesis-root-policy.json").unlink()
+
+
+def complete_with_invalid_genesis_root_policy(root: Path) -> None:
+    complete_accepted_genesis_fx(root)
+    path = root / "docs/governance/genesis-root-policy.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["allowedSchemas"] = ["proof-forge.task-approval.v1"]
+    path.write_bytes(json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8"))
 
 
 def complete_d0_06_without_technical_evidence(root: Path) -> None:
@@ -771,7 +811,7 @@ def remove_void_d0_06_record(root: Path) -> None:
     complete_accepted_genesis_fx(root)
     path = root / "docs/governance/task-freeze.md"
     text = path.read_text(encoding="utf-8")
-    marker = "### 11.6 Freeze Exception `FX-2026-07-17-D0-06`（作废记录）"
+    marker = "### 11.6 Voided Freeze Exception `FX-2026-07-17-D0-06`"
     index = text.find(marker)
     if index < 0:
         raise AssertionError("void D0-06 record mutation anchor missing")
@@ -1686,6 +1726,10 @@ def main() -> None:
                 "genesisTasks": [*GENESIS_TASKS, "TASK-D0-04"],
             }),
          "PF-DOC-FX-APPROVAL", "docs/governance/genesis-set.lock.json"),
+        ("genesis-root-policy-missing", complete_without_genesis_root_policy,
+         "PF-DOC-FX-APPROVAL", "docs/governance/genesis-root-policy.json"),
+        ("genesis-root-policy-invalid", complete_with_invalid_genesis_root_policy,
+         "PF-DOC-FX-APPROVAL", "docs/governance/genesis-root-policy.json"),
         ("bootstrap-d0-06-no-attest", lambda root: (
             complete_d0_06_genesis_closure(root),
             (root / "docs/governance/bootstrap-closure/TASK-D0-06.attest.json").unlink(),
@@ -1721,7 +1765,9 @@ def main() -> None:
          "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
         ("bootstrap-d0-06-technical-evidence-result", lambda root:
             complete_d0_06_with_technical_evidence_mutation(
-                root, "| passed |", "| failed |"),
+                root,
+                "| passed (complete frozen common-primitives technical slice) |",
+                "| failed |"),
          "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
         ("fx-approval-genesis-substring", lambda root:
             write_governance_authority_set(
@@ -1738,8 +1784,8 @@ def main() -> None:
             complete_accepted_genesis_fx(root),
             replace(
                 root / "docs/governance/task-freeze.md",
-                "`FX-2026-07-17-D0-06`（作废记录）",
-                "`FX-2026-07-17-D0-06`（活动记录）"),
+                "Voided Freeze Exception `FX-2026-07-17-D0-06`",
+                "Freeze Exception `FX-2026-07-17-D0-06`"),
         ), "PF-DOC-FX-APPROVAL", "FX-2026-07-17-D0-06"),
         ("unknown-evidence", lambda root: replace(
             root / "docs/04-task-breakdown.md", "EV-20260716-9001", "EV-20260716-9999"),
