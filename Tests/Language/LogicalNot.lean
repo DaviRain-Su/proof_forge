@@ -346,7 +346,6 @@ unsafe def run : IO Unit := do
       ("plus after bang", "!+2"),
       ("extra token after not", "!2 3"),
       ("trailing bang after binary", "1 - !"),
-      ("comparison not-equal deferred", "1 != 2"),
       ("bang equals junk", "! = 2")
     ] do
     let source := returnProgramSource "RejectedNotShape" expr
