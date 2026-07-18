@@ -228,6 +228,72 @@ program ArrayBytesParamBoundary where
   entry echo(value : Array Bytes 32 4) : UInt64 do
     return 0
 
+program ArrayArraySurface where
+  state matrix : Array Array UInt64 4 4
+
+  event NestedMatrixEvent(payload : Array Array UInt64 4 4)
+  error NestedMatrixError(payload : Array Array UInt64 4 4)
+
+  struct NestedLimits where
+    empty : Array Array UInt64 0 0
+    ordinary : Array Array UInt64 4 4
+    maximum : Array Array UInt64 4096 1
+    flags : Array Array Bool 0 0
+
+  enum NestedBatch where
+    | Matrices(Array Array UInt64 4 4)
+    | Flags(Array Array Bool 0 0)
+    | Owners(Array Array Principal 4096 1)
+
+  const EmptyMatrix : Array Array UInt64 0 0 := 0
+
+  init(initial : Array Array UInt64 4 4) do
+    matrix := initial
+
+  entry echo(value : Array Array UInt64 4 4) : Array Array UInt64 4 4 do
+    return value
+
+  view get() : Array Array UInt64 4 4 do
+    return matrix
+
+  fn keepMaximum(value : Array Array Principal 4096 1) : Array Array Principal 4096 1 do
+    return value
+
+program ArrayArrayBoundary where
+  entry echo(value : Array Array UInt64 4 4) : Array Array UInt64 4 4 do
+    return value
+
+program ArrayArrayBoolBoundary where
+  entry echo(value : Array Array Bool 0 0) : Array Array Bool 0 0 do
+    return value
+
+program ArrayArrayStateBoundary where
+  state value : Array Array UInt64 4 4
+
+  init(initial : Array Array UInt64 4 4) do
+    value := initial
+
+  view get() : Array Array UInt64 4 4 do
+    return value
+
+program ArrayArrayResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array Array UInt64 4 4) : Array Array UInt64 4 4 do
+    return value
+
+program ArrayArrayParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array Array UInt64 4 4) : UInt64 do
+    return 0
+
 end Tests.Language.ArrayTypesFixture
 
 namespace Tests.Language.ArrayTypes
@@ -352,6 +418,34 @@ private def arrayBytesSurfaceSource : String :=
   "  view get() : Array Bytes 32 4 do\n" ++
   "    return blobs\n\n" ++
   "  fn keepMaximum(value : Array Bytes 4096 1) : Array Bytes 4096 1 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.ArrayTypesFixture\n"
+
+private def arrayArraySurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.ArrayTypesFixture\n\n" ++
+  "program ArrayArraySurface where\n" ++
+  "  state matrix : Array Array UInt64 4 4\n\n" ++
+  "  event NestedMatrixEvent(payload : Array Array UInt64 4 4)\n" ++
+  "  error NestedMatrixError(payload : Array Array UInt64 4 4)\n\n" ++
+  "  struct NestedLimits where\n" ++
+  "    empty : Array Array UInt64 0 0\n" ++
+  "    ordinary : Array Array UInt64 4 4\n" ++
+  "    maximum : Array Array UInt64 4096 1\n" ++
+  "    flags : Array Array Bool 0 0\n\n" ++
+  "  enum NestedBatch where\n" ++
+  "    | Matrices(Array Array UInt64 4 4)\n" ++
+  "    | Flags(Array Array Bool 0 0)\n" ++
+  "    | Owners(Array Array Principal 4096 1)\n\n" ++
+  "  const EmptyMatrix : Array Array UInt64 0 0 := 0\n\n" ++
+  "  init(initial : Array Array UInt64 4 4) do\n" ++
+  "    matrix := initial\n\n" ++
+  "  entry echo(value : Array Array UInt64 4 4) : Array Array UInt64 4 4 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Array Array UInt64 4 4 do\n" ++
+  "    return matrix\n\n" ++
+  "  fn keepMaximum(value : Array Array Principal 4096 1) : Array Array Principal 4096 1 do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.ArrayTypesFixture\n"
 
@@ -602,6 +696,67 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same Array Bytes sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let arrayArraySurface := Tests.Language.ArrayTypesFixture.ArrayArraySurface
+  expect (arrayArraySurface.state.map (·.type) == #[.array (.array .u64 4) 4])
+    "Array Array UInt64 4 4 state must survive Lean command elaboration"
+  match arrayArraySurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "NestedMatrixEvent" &&
+          eventDecl.params.map (·.type) == #[.array (.array .u64 4) 4])
+        "Array Array event parameter must preserve nested Array element and dual lengths"
+  | _ => throw <| IO.userError "ArrayArraySurface must retain NestedMatrixEvent"
+  match arrayArraySurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "NestedMatrixError" &&
+          errorDecl.params.map (·.type) == #[.array (.array .u64 4) 4])
+        "Array Array error parameter must preserve nested Array element and dual lengths"
+  | _ => throw <| IO.userError "ArrayArraySurface must retain NestedMatrixError"
+  match arrayArraySurface.structs with
+  | #[limits] =>
+      expect (limits.name == "NestedLimits" &&
+          limits.fields.map (·.type) ==
+            #[.array (.array .u64 0) 0, .array (.array .u64 4) 4,
+              .array (.array .u64 4096) 1, .array (.array .bool 0) 0])
+        "Array Array struct fields must preserve dual lengths and Bool element"
+  | _ => throw <| IO.userError "ArrayArraySurface must retain one struct"
+  match arrayArraySurface.enums with
+  | #[batch] =>
+      expect (batch.name == "NestedBatch" && batch.variants.map (·.payloadTypes) ==
+          #[#[.array (.array .u64 4) 4], #[.array (.array .bool 0) 0],
+            #[.array (.array .principal 4096) 1]])
+        "Array Array enum payloads must preserve element and dual length matrix"
+  | _ => throw <| IO.userError "ArrayArraySurface must retain one enum"
+  match arrayArraySurface.consts with
+  | #[emptyMatrix] =>
+      expect (emptyMatrix.name == "EmptyMatrix" && emptyMatrix.type == .array (.array .u64 0) 0)
+        "Array Array UInt64 0 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "ArrayArraySurface must retain EmptyMatrix"
+  match arrayArraySurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.array (.array .u64 4) 4])
+        "Array Array initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "ArrayArraySurface must retain initializer"
+  match arrayArraySurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.array (.array .u64 4) 4] &&
+          echoEntry.result == .array (.array .u64 4) 4 &&
+          getView.result == .array (.array .u64 4) 4 && getView.mode == .view)
+        "Array Array entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "ArrayArraySurface must retain echo and get"
+  match arrayArraySurface.functions with
+  | #[keepMaximum] =>
+      expect (keepMaximum.params.map (·.type) == #[.array (.array .principal 4096) 1] &&
+          keepMaximum.result == .array (.array .principal 4096) 1)
+        "Array Array Principal 4096 1 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "ArrayArraySurface must retain keepMaximum"
+  match ← session.selectProgram arrayArraySurfaceSource "<array-array-types>" none with
+  | .ok decoded =>
+      expect (decoded == arrayArraySurface)
+        "Loader and Lean command must produce the same Array Array Source.Program"
+      expect (decoded.sourceHash == arrayArraySurface.sourceHash)
+        "Loader and Lean command must produce the same Array Array sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let sourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Array UInt64 0", .array .u64 0, 247,
       "3ceb8bd535df35be7ffc11b0936fbb350edab1bbb5506400e0946e4404f7551f"),
@@ -780,6 +935,47 @@ unsafe def run : IO Unit := do
         s!"{label} semantic: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
   expect goldensBound "Array Bytes tag18+tag17 canonical goldens must be bound"
 
+  let arrayArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Array UInt64 0 0", .array (.array .u64 0) 0, 0, "UNBOUND"),
+    ("Array Array UInt64 4 4", .array (.array .u64 4) 4, 0, "UNBOUND"),
+    ("Array Array UInt64 4096 1", .array (.array .u64 4096) 1, 0, "UNBOUND"),
+    ("Array Array Bool 0 0", .array (.array .bool 0) 0, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayArraySourceVectors do
+    let sourceProgram := twin type
+    unless sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash do
+      goldensBound := false
+      IO.eprintln
+        s!"{label} source tag18+tag18 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  expect ((twin (.array (.array .u64 0) 0)).sourceHash != (twin (.array .u64 0)).sourceHash &&
+      (twin (.array (.array .u64 0) 0)).sourceHash !=
+        (twin (.array (.bytes 0) 0)).sourceHash &&
+      (twin (.array (.array .u64 0) 0)).sourceHash !=
+        (twin (.array (.array .u64 4) 4)).sourceHash &&
+      (twin (.array (.array .u64 0) 0)).sourceHash !=
+        (twin (.array (.array .bool 0) 0)).sourceHash &&
+      (twin (.array (.array .u64 4) 4)).sourceHash !=
+        (twin (.array (.array .u64 4) 1)).sourceHash)
+    "Array Array must bind nested Array tags, element and both length payloads"
+
+  let arrayArraySemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Array UInt64 0 0", .array (.array .u64 0) 0, 0, "UNBOUND"),
+    ("Array Array UInt64 4 4", .array (.array .u64 4) 4, 0, "UNBOUND"),
+    ("Array Array UInt64 4096 1", .array (.array .u64 4096) 1, 0, "UNBOUND"),
+    ("Array Array Bool 0 0", .array (.array .bool 0) 0, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayArraySemanticVectors do
+    let compiled ← match Compiler.compile (twin type) with
+      | .ok value => pure value
+      | .error error =>
+          throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    unless compiled.canonicalBytes.size == expectedSize && compiled.semanticHash == expectedHash do
+      goldensBound := false
+      IO.eprintln
+        s!"{label} semantic tag18+tag18 golden is unbound: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
+  expect goldensBound "Array Array tag18+tag18 canonical goldens must be unbound until GREEN bind"
+
   for (label, spelling) in [
       ("bare Array", "Array"),
       ("missing Array element", "Array 4"),
@@ -813,6 +1009,17 @@ unsafe def run : IO Unit := do
       ("hex Array Option length", "Array Option UInt64 0x10"),
       ("underscore Array Option length", "Array Option UInt64 4_096"),
       ("Array element", "Array Array 4"),
+      ("missing Array Array outer length", "Array Array UInt64 4"),
+      ("unknown Array Array element", "Array Array Mystery 4 4"),
+      ("Field Array Array element", "Array Array Field 4 4"),
+      ("over-bound Array Array inner length", "Array Array UInt64 4097 4"),
+      ("leading-zero Array Array inner length", "Array Array UInt64 01 4"),
+      ("hex Array Array inner length", "Array Array UInt64 0x10 4"),
+      ("underscore Array Array inner length", "Array Array UInt64 4_096 4"),
+      ("over-bound Array Array outer length", "Array Array UInt64 4 4097"),
+      ("leading-zero Array Array outer length", "Array Array UInt64 4 01"),
+      ("hex Array Array outer length", "Array Array UInt64 4 0x10"),
+      ("underscore Array Array outer length", "Array Array UInt64 4 4_096"),
       ("qualified Array element", "Array Std.UInt64 4"),
       ("reserved Array element", "Array «const» 4"),
       ("over-bound Array length", "Array UInt64 4097"),
@@ -822,6 +1029,17 @@ unsafe def run : IO Unit := do
     ] do
     expectUnsupportedType label
       (← session.parsePrograms (negativeSource "RejectedArrayType" spelling) s!"<array-{label}>")
+
+  let migratedArrayArraySource :=
+    negativeSource "MigratedArrayArray" "Array Array UInt64 4 4"
+  match ← session.parsePrograms migratedArrayArraySource "<migrated-array-array>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) == #[.array (.array .u64 4) 4])
+        "migrated Array Array UInt64 4 4 pin must now parse as existing array(array(u64,4),4)"
+  | .ok programs =>
+      throw <| IO.userError s!"migrated Array Array UInt64 4 4 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError s!"migrated Array Array UInt64 4 4 must parse: {error.render}"
 
   for (label, spelling) in [
       ("negative Array length", "Array UInt64 -1"),
@@ -857,7 +1075,21 @@ unsafe def run : IO Unit := do
       ("qualified Array Option constructor", "Std.Array Option UInt64 4"),
       ("escaped Option constructor in Array", "Array «Option» UInt64 4"),
       ("qualified Option constructor in Array", "Array Std.Option UInt64 4"),
-      ("nested Array element", "Array Array UInt64 4 4"),
+      ("negative Array Array inner length", "Array Array UInt64 -1 4"),
+      ("negative Array Array outer length", "Array Array UInt64 4 -1"),
+      ("extra Array Array payload", "Array Array UInt64 4 4 Principal"),
+      ("full Field Array Array element", "Array Array Field bn254_fr 4 4"),
+      ("nested Option Array Array element", "Array Array Option Bool 4 4"),
+      ("nested Bytes Array Array element", "Array Array Bytes 8 4 4"),
+      ("nested Array Array Array element", "Array Array Array UInt64 4 4 4"),
+      ("Map Array Array element", "Array Array Map UInt64 Bool 4 4"),
+      ("split Array Array element", "Array Array\n  UInt64 4 4"),
+      ("split Array Array inner length", "Array Array UInt64\n  4 4"),
+      ("split Array Array outer length", "Array Array UInt64 4\n  4"),
+      ("escaped Array Array constructor", "«Array» Array UInt64 4 4"),
+      ("qualified Array Array constructor", "Std.Array Array UInt64 4 4"),
+      ("escaped inner Array constructor", "Array «Array» UInt64 4 4"),
+      ("qualified inner Array constructor", "Array Std.Array UInt64 4 4"),
       ("parenthesized Array element", "Array (Array UInt64 4) 2"),
       ("Map Array element", "Array Map UInt64 Bool 4"),
       ("split Array element", "Array\n  UInt64 4"),
@@ -978,6 +1210,41 @@ unsafe def run : IO Unit := do
         throw <| IO.userError
           s!"{target} must support zero-requirement Array Bytes carrier: {error.render}"
 
+  let arrayArrayBoundary ← match Compiler.compile
+      Tests.Language.ArrayTypesFixture.ArrayArrayBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"ArrayArrayBoundary must compile: {error.render}"
+  expect (arrayArrayBoundary.requirements == #[])
+    "Array Array UInt64 must recursively propagate zero requirements"
+  match arrayArrayBoundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.array (.array .u64 4) 4] &&
+          echoEntry.result == .array (.array .u64 4) 4)
+        "Source-to-Semantic adaptation must preserve nested Array element and dual lengths"
+  | _ => throw <| IO.userError "ArrayArrayBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target arrayArrayBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError
+          s!"{target} must support zero-requirement Array Array UInt64 carrier: {error.render}"
+
+  let arrayArrayBoolBoundary ← match Compiler.compile
+      Tests.Language.ArrayTypesFixture.ArrayArrayBoolBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"ArrayArrayBoolBoundary must compile: {error.render}"
+  expect (arrayArrayBoolBoundary.requirements == #[.boolValues])
+    "Array Array Bool must recursively propagate boolValues exactly once"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target arrayArrayBoolBoundary with
+    | .error (.unsupportedRequirement .boolValues actual) =>
+        expect (actual == target)
+          s!"Array Array Bool support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError s!"Array Array Bool/{target} reached wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError s!"Array Array Bool/{target} unexpectedly passed support"
+
   for (label, sourceProgram, needle) in [
       ("ArrayStateBoundary", Tests.Language.ArrayTypesFixture.ArrayStateBoundary,
         "is not UInt64"),
@@ -1002,6 +1269,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("ArrayBytesParamBoundary",
         Tests.Language.ArrayTypesFixture.ArrayBytesParamBoundary,
+        "is not UInt64"),
+      ("ArrayArrayStateBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayArrayStateBoundary,
+        "is not UInt64"),
+      ("ArrayArrayResultBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayArrayResultBoundary,
+        "does not return UInt64"),
+      ("ArrayArrayParamBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayArrayParamBoundary,
         "is not UInt64")
     ] do
     let compiled ← match Compiler.compile sourceProgram with
