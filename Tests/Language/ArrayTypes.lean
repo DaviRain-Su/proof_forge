@@ -739,9 +739,12 @@ unsafe def run : IO Unit := do
   expect goldensBound "Array Field tag18+tag2 canonical goldens must be bound"
 
   let arrayBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Bytes 0 0", .array (.bytes 0) 0, 0, "UNBOUND"),
-    ("Array Bytes 32 4", .array (.bytes 32) 4, 0, "UNBOUND"),
-    ("Array Bytes 4096 1", .array (.bytes 4096) 1, 0, "UNBOUND")
+    ("Array Bytes 0 0", .array (.bytes 0) 0, 263,
+      "38b0e6a7588ed1b2b21b63c39e405a4a369a610b0d38e97a5e88960e10e6a227"),
+    ("Array Bytes 32 4", .array (.bytes 32) 4, 263,
+      "4553cff0a87ab20cf747cab24d5b517cf05f8862d1120ed27b0f32238ca2209c"),
+    ("Array Bytes 4096 1", .array (.bytes 4096) 1, 263,
+      "f630aa9d6a1b1f9a9587359de57fc42d307831accb150d9f81a48bb927c95272")
   ]
   for (label, type, expectedSize, expectedHash) in arrayBytesSourceVectors do
     let sourceProgram := twin type
@@ -759,9 +762,12 @@ unsafe def run : IO Unit := do
     "Array Bytes must bind Array/Bytes tags and both inner and outer length payloads"
 
   let arrayBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Bytes 0 0", .array (.bytes 0) 0, 0, "UNBOUND"),
-    ("Array Bytes 32 4", .array (.bytes 32) 4, 0, "UNBOUND"),
-    ("Array Bytes 4096 1", .array (.bytes 4096) 1, 0, "UNBOUND")
+    ("Array Bytes 0 0", .array (.bytes 0) 0, 212,
+      "0ef6122b555e5316c9bd1ff9168b957968a5166934c69565ac120182f9e4f63f"),
+    ("Array Bytes 32 4", .array (.bytes 32) 4, 212,
+      "83adee65905a51bbb1447cd0ce3e1deda2e46db91ace73303917f4e6f1a4f06b"),
+    ("Array Bytes 4096 1", .array (.bytes 4096) 1, 212,
+      "74e2d48c9d062b665c31ddadd671b66994cda58200702515df13e82c8e2183cd")
   ]
   for (label, type, expectedSize, expectedHash) in arrayBytesSemanticVectors do
     let compiled ← match Compiler.compile (twin type) with
