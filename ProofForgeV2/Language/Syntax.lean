@@ -65,6 +65,8 @@ syntax ident " := " pfExpr : pfStmt
 syntax "return " pfExpr : pfStmt
 syntax "call " str : pfStmt
 syntax "assert " pfExpr : pfStmt
+syntax "revert " ident "(" pfExpr,* ")" : pfStmt
+syntax "revert " ident : pfStmt
 /-- Same-line annotated let (contextual, not a host Lean keyword). No low fallback. -/
 @[pfStmt_parser default+1] def letStmtAnnotated := leading_parser
   withPosition (
@@ -444,6 +446,11 @@ def decodeExpr (stx : Syntax) : Except String ProofForgeV2.Source.Expr := do
   preflightForDecoder stx
   decodeExprUnchecked stx
 
+private def decodeRevertName (stx : Syntax) : Except String String := do
+  unless stx.getId.components.length == 1 do
+    throw "revert error name must be unqualified"
+  decodeIdentifier stx
+
 private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Source.Statement
   | `(letStmtAnnotated| let $name:ident : $type:pfType := $value:pfExpr) => do
       return .letDecl (← decodeIdentifier name) (some (← decodeTypeUnchecked type))
@@ -457,6 +464,11 @@ private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Sou
   | `(pfStmt| call $callee:str) => .ok <| .synchronousCall callee.getString
   | `(pfStmt| assert $condition:pfExpr) => do
       return .assertStmt (← decodeExprUnchecked condition)
+  | `(pfStmt| revert $errorName:ident ($args:pfExpr,*)) => do
+      return .revertStmt (← decodeRevertName errorName)
+        (← args.getElems.mapM decodeExprUnchecked)
+  | `(pfStmt| revert $errorName:ident) => do
+      return .revertStmt (← decodeRevertName errorName) #[]
   | _ => .error "unsupported portable statement"
 
 def decodeStatement (stx : Syntax) : Except String ProofForgeV2.Source.Statement := do
@@ -1024,6 +1036,10 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
   | .assertStmt condition => do
       let condition ← quoteExpr condition
       `(ProofForgeV2.Source.Statement.assertStmt $condition)
+  | .revertStmt errorName args => do
+      let errorName := Syntax.mkStrLit errorName
+      let args ← args.mapM quoteExpr
+      `(ProofForgeV2.Source.Statement.revertStmt $errorName #[$[$args],*])
 
 private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
     MacroM (TSyntax `term) := do
