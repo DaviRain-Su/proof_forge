@@ -573,9 +573,12 @@ unsafe def run : IO Unit := do
   expect goldensBound "Array Option tag18+tag16 canonical goldens must be bound"
 
   let arrayFieldSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Field bn254_fr 0", .array .field 0, 0, "UNBOUND"),
-    ("Array Field bn254_fr 4", .array .field 4, 0, "UNBOUND"),
-    ("Array Field bn254_fr 4096", .array .field 4096, 0, "UNBOUND")
+    ("Array Field bn254_fr 0", .array .field 0, 247,
+      "ca81f1a556dd65993592ae93ba8df3363d63ca4dc2c465cbb3263027cc856b9a"),
+    ("Array Field bn254_fr 4", .array .field 4, 247,
+      "ed93d99bf36d608229c816a4ebd4e7129cb20cd5fe243bfc5897f360f6b5b690"),
+    ("Array Field bn254_fr 4096", .array .field 4096, 247,
+      "6fc6c91736ac2a204e9bdedc0ca86e9dba8ade93ee30ec298dce8edcd09694c6")
   ]
   for (label, type, expectedSize, expectedHash) in arrayFieldSourceVectors do
     let sourceProgram := twin type
@@ -592,9 +595,12 @@ unsafe def run : IO Unit := do
     "Array Field must bind Array/Field tags and complete length payload"
 
   let arrayFieldSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Field bn254_fr 0", .array .field 0, 0, "UNBOUND"),
-    ("Array Field bn254_fr 4", .array .field 4, 0, "UNBOUND"),
-    ("Array Field bn254_fr 4096", .array .field 4096, 0, "UNBOUND")
+    ("Array Field bn254_fr 0", .array .field 0, 197,
+      "17c91204da22dd6116d91f60298307bee5216a96b9a70e7fdca05b9cb78ab14e"),
+    ("Array Field bn254_fr 4", .array .field 4, 197,
+      "219f5d374027ef6bdfd664b0a58828b8a63cdedd76b23e2020400480de3b94fd"),
+    ("Array Field bn254_fr 4096", .array .field 4096, 197,
+      "1a9106c9e43bf319c4adf316d7ee31b445f8f764e6f5d7c6ca9c226c9b3bec7e")
   ]
   for (label, type, expectedSize, expectedHash) in arrayFieldSemanticVectors do
     let compiled ← match Compiler.compile (twin type) with
