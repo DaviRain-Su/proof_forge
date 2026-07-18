@@ -1144,6 +1144,26 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   checkedAdd positive 与全部既有 expression exact controls 保持。本切片 zero migration，不得修改既有
   suites 的接受/拒绝用例。不得加入 `^`、`|`、`&&`、`||`、Bool legality、folding、Typed/Semantic
   bitwise、requirement 或 target ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行。
+- D1-PA-40 的 alpha binary bitwise-xor tests 固定 production rule
+  `syntax:40 pfExpr:40 " ^ " pfExpr:41 : pfExpr` 与 `Source.Expr.bitwiseXor(lhs, rhs)`。precedence `40`
+  必须严格低于 BitAndExpr `45`，并按 EBNF `("^" BitAndExpr)*` 左结合；`1 ^ 2 ^ 3` 必须接受并形成
+  `(.bitwiseXor (.bitwiseXor 1 2) 3)`，explicit `1 ^ (2 ^ 3)` 必须保留右嵌套。mixed expressions
+  必须合法且树形固定：`1 & 2 ^ 3` 为 `(1 & 2) ^ 3`，`1 ^ 2 & 3` 为 `1 ^ (2 & 3)`，
+  `1 ^ 2 == 3` 为 `1 ^ (2 == 3)`，`1 == 2 ^ 3` 为 `(1 == 2) ^ 3`。positive 必须覆盖
+  initializer、entry、view、fn 的 return/let value 及双入口 parity，并精确固定 `1 ^ 2`、`2 ^ 1`、
+  `a ^ b`、`0 ^ 0`、`true ^ false`、add/mul/shift/comparison/bitwise-and 双向 precedence、grouping、unary、
+  left-chain 与 explicit right-nesting 的 AST；operand legality 和 result typing 留给 D2。
+  Source canonical encoder 使用 append-only Expr tag `21` 后依次编码 lhs/rhs；既有 tags `0..20`/goldens
+  不变。BitwiseXorTwin identity 下 order/type/precedence/grouping/unary/shift/comparison/and/nesting cases 的
+  真实 bytes/hash 必须在 GREEN 前绑定，并以 bitwise-and、comparison、checked-add、shift、operand order、
+  left/right nesting、wrong precedence tree 与 Bool order 作为 non-alias。相同 identity 下 `(1 ^ 2)` 与
+  `1 ^ 2` 必须产生相同 Source.Program/canonical bytes/sourceHash。
+  bare/missing operand、`1 ^ ^ 2`、`1 ^^ 2` 与 extra payload 必须停在 parser boundary；`1 | 2` 必须
+  继续作为 future BitOrExpr retention negative。`Typed.check` 必须在 operand checking 前逐字拒绝
+  `bitwise xor is not yet supported by typed checking`，使 `true ^ false` 不泄漏 Bool diagnostic；checkedAdd
+  positive 与全部既有 expression exact controls 保持。本切片 zero migration，不得修改既有 suites 的
+  接受/拒绝用例。不得加入 `|`、`&&`、`||`、Bool legality、folding、Typed/Semantic bitwise、requirement
+  或 target ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

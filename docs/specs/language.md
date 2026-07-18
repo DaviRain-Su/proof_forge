@@ -501,6 +501,24 @@ constant folding、Typed/Semantic bitwise、requirement、target behavior 或 ru
 必须限于 Source/Syntax/Typed 3 文件/11 行。本切片完成后只能称 `&` Source surface 已覆盖，
 不得宣称 bitwise tier、expression grammar 或 `TASK-D1-04` 正式完成。
 
+D1-PA-40 冻结的 pre-acceptance alpha binary bitwise-xor 子集新增 `Source.Expr.bitwiseXor(lhs, rhs)`，
+parser 形状固定为 `syntax:40 pfExpr:40 " ^ " pfExpr:41 : pfExpr`。它严格低于 BitAndExpr `45`，
+并按 BitXorExpr 的 Kleene-star 形状左结合：`1 ^ 2 ^ 3` 必须为 `(1 ^ 2) ^ 3`；explicit
+`1 ^ (2 ^ 3)` 保留 right-nested tree。`1 & 2 ^ 3` 必须为 `(1 & 2) ^ 3`，
+`1 ^ 2 & 3` 必须为 `1 ^ (2 & 3)`；`1 ^ 2 == 3` 必须为 `1 ^ (2 == 3)`，
+`1 == 2 ^ 3` 必须为 `(1 == 2) ^ 3`。future BitOr/LogicAnd/LogicOr 必须使用低于 `40`
+的 precedence，不得反转 EBNF 层级。
+
+Source canonical encoder 以 append-only Expr tag `21` 后依次递归编码 lhs、rhs；既有 tags `0..20`
+与 goldens 不得改变。integer 与 Bool operands 都必须形成 Source node，legality/result typing 属于 D2。
+decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在检查任一 operand 前逐字 fail closed 为
+`bitwise xor is not yet supported by typed checking`。当前没有 DSL `^` retention negative，本切片 zero
+migration；bare/missing、`1 ^ ^ 2`、`1 ^^ 2` 与 extra payload 必须 parser reject，future `1 | 2`
+必须继续拒绝。本切片不得新增 `|`、`&&`、`||`、Bool legality、constant folding、Typed/Semantic
+bitwise、requirement、target behavior 或 runtime representation；production 必须限于 Source/Syntax/Typed
+3 文件/11 行。本切片完成后只能称 `^` Source surface 已覆盖，不得宣称 bitwise tier、expression
+grammar 或 `TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
