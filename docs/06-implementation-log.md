@@ -2418,3 +2418,41 @@ normative: false
   enum variant coexistence 与 future match-arm ownership、和 `^`/`&`/Compare 的合法 mixed shapes；
   不得捆绑 `&&`、`||`、match expression、Semantic 或 target lowering。该切片若收口，将形成 bitwise
   Source tier 批量 `just ci` checkpoint。
+
+## 2026-07-18 — D1 bitwise-or pre-acceptance slice and bitwise-tier checkpoint
+
+- Commits：freeze `2cd00ef6`；tests-only RED `80f319a9`；Source-only GREEN `5ecd8378`；
+  canonical golden correction `08ce0b6b`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-41 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.bitwiseOr lhs rhs`、append-only Expr tag `22`、
+  `syntax:35 pfExpr:35 " | " pfExpr:36 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `bitwise or is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..21` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；同一 program 中 enum `Flag` 的 `Off` 与
+  `On(UInt64)` variants 和 bitwise-or expressions 共存；integer/Bool/order/variable、add/mul/shift、
+  comparison/bitwise-and/xor 双向、grouping、unary AST；`1 | 2 | 3` 左结合与 `1 | (2 | 3)` 右嵌套；
+  xor/and/comparison 六种跨层 mixed shapes。只迁移 `BitwiseXor.lean` 的一个 deferred bitwise-or negative；
+  bare/missing、`1 | | 2`、double-token 与 extra payload 均在 parser boundary 拒绝。final review P0/P1=0。
+- Commands/Results：worktree 上真实捕获 `lake build Tests.Language.BitwiseOr`（14 jobs）、
+  `lake build proof_forge_next_tests`（166 jobs）与 `lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0。初次 committed-tree `just ci` 在 PA40 `twinAndXor` sourceHash golden 失败；同一 canonical
+  bytes 经 Lean 与外部 `shasum -a 256` 都得到
+  `8f1601e1e52a447c295784f61dbac1d75ad62e6926adf310b202109ca25a5056`，确认原值为转写错误并由
+  `08ce0b6b` 更正。随后 clean committed `just ci` at
+  `08ce0b6b30b91aa3a599e272e89f85151fe0e182` 完整捕获 exit 0：40-mutation isolation precheck、
+  committed archive 174-job build/test/help、186 docs mutations、genesis/bootstrap/SBOM/supply-chain/runtime
+  closure self-tests、本地 60-job product build、166-job aggregate/test、DSL negatives 与 target/toolchain
+  negatives 全绿；development evidence 为 `EV-20260718-0027`。
+- Evidence erratum：写入 `EV-20260718-0025`/`EV-20260718-0026` 时，长跑测试进程的完成输出未被
+  coordinator 捕获；PA40 的错误 golden 进一步证明最终 RED tree 上的测试二进制当时不可能全绿。
+  evidence ledger 保持 append-only，不改写原行；本次 `EV-20260718-0027` 在最终 committed tree 上
+  累计重跑 BitwiseAnd/BitwiseXor/BitwiseOr，并取代原两条的 run-level exit-0 声明。PA39 未发现功能缺陷，
+  PA40 golden 已由 `08ce0b6b` 修复。后续 evidence 只能引用写入前已捕获完成输出的运行。
+- Limitations：只完成 bitwise-and/xor/or 的 Source carrier；没有 operand/result legality、Typed/Semantic
+  bitwise、`&&`/`||`、short-circuit、folding、requirement、target ABI/runtime、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：两份独立 residual audit 选择 binary logical-and `&&` 为唯一下一 candidate，但尚未冻结。
+  必须固定低于 bitwise-or 的 precedence `30` 左结合、append-only Expr tag `23`、BitwiseAnd suite 中唯一
+  deferred logical-and migration、digraph/token integrity 与 operands 前 exact Typed failure；不得捆绑
+  logical-or、short-circuit semantics、Semantic 或 target lowering。
