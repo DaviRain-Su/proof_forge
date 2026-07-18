@@ -101,16 +101,6 @@ private def expectParserRejected (label source : String)
       throw <| IO.userError s!"{label}: reached wrong failure for {source}: {other.render}"
   | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
 
-private def expectExactInvalid (label source expected : String)
-    (result : CompileResult (Array Source.Program)) : IO Unit := do
-  match result with
-  | .error (.invalidProgram message) =>
-      expect (message == expected)
-        s!"{label}: expected exact '{expected}', got {message}"
-  | .error other =>
-      throw <| IO.userError s!"{label}: reached wrong failure for {source}: {other.render}"
-  | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
-
 private unsafe def select (session : Language.Loader.ParserSession)
     (input path : String) : IO Source.Program := do
   match ← session.selectProgram input path none with
@@ -307,16 +297,7 @@ unsafe def run : IO Unit := do
       (session.parsePrograms source s!"<call-{label}>")
     expectParserRejected label source result
 
-  -- Qualified constructor retention: exact unqualified-callee diagnostic (before args).
-  for (label, expr) in [
-      ("qualified zero", "A.B()"),
-      ("qualified one", "A.B(1)")
-    ] do
-    let source := returnProgramSource "RejectedQualified" expr
-    let (_, result) ← IO.FS.withIsolatedStreams
-      (session.parsePrograms source s!"<call-{label}>")
-    expectExactInvalid label source
-      "local function call callee must be unqualified" result
+  -- Qualified A.B()/A.B(1) migrated to ConstructorExprs positives (D1-PA-46).
 
   -- Typed fail-before argument checking / fn lookup.
   match Compiler.compile (twin (.localFnCall "f" #[.literal 1])) with
