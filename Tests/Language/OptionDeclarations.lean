@@ -11,6 +11,7 @@ program OptionSurface where
   state maybeScalar : Option Field bn254_fr
   state nestedCount : Option Option UInt64
   state maybeBatch : Option Array UInt64 4
+  state maybeBlob : Option Bytes 8
 
   struct Pair where
     enabled : Option Bool
@@ -18,6 +19,7 @@ program OptionSurface where
     scalar : Option Field bn254_fr
     nestedEnabled : Option Option Bool
     arrayFlags : Option Array Bool 0
+    blob : Option Bytes 8
 
   enum Tag where
     | MaybeUnit(Option Unit)
@@ -25,18 +27,22 @@ program OptionSurface where
     | MaybeScalar(Option Field bn254_fr)
     | MaybeNestedCount(Option Option UInt64)
     | MaybeArray(Option Array Principal 4096)
+    | MaybeBlob(Option Bytes 4096)
 
   const Seed : Option UInt64 := 0
   const FieldSeed : Option Field bn254_fr := 0
   const NestedFlag : Option Option Bool := 0
   const ArraySeed : Option Array UInt64 0 := 0
+  const BlobSeed : Option Bytes 0 := 0
 
   init(initial : Option UInt64, scalar : Option Field bn254_fr,
-      nestedInitial : Option Option UInt64, arrayInitial : Option Array UInt64 4) do
+      nestedInitial : Option Option UInt64, arrayInitial : Option Array UInt64 4,
+      blobInitial : Option Bytes 8) do
     maybeCount := initial
     maybeScalar := scalar
     nestedCount := nestedInitial
     maybeBatch := arrayInitial
+    maybeBlob := blobInitial
 
   entry echo(value : Option UInt64) : Option UInt64 do
     return value
@@ -48,6 +54,9 @@ program OptionSurface where
     return value
 
   entry echoArray(value : Option Array UInt64 4) : Option Array UInt64 4 do
+    return value
+
+  entry echoBytes(value : Option Bytes 8) : Option Bytes 8 do
     return value
 
   view get() : Option UInt64 do
@@ -62,6 +71,9 @@ program OptionSurface where
   view getArray() : Option Array UInt64 4 do
     return maybeBatch
 
+  view getBytes() : Option Bytes 8 do
+    return maybeBlob
+
   fn ident(value : Option Principal) : Option Principal do
     return value
 
@@ -72,6 +84,9 @@ program OptionSurface where
     return value
 
   fn identArray(value : Option Array Bool 0) : Option Array Bool 0 do
+    return value
+
+  fn identBytes(value : Option Bytes 4096) : Option Bytes 4096 do
     return value
 
 end Tests.Language.OptionDeclarationsFixture
@@ -106,6 +121,10 @@ program OptionArrayBoundary where
 
 program OptionArrayBoolBoundary where
   entry echo(value : Option Array Bool 0) : Option Array Bool 0 do
+    return value
+
+program OptionBytesBoundary where
+  entry echo(value : Option Bytes 32) : Option Bytes 32 do
     return value
 
 end Tests.Language.OptionDeclarationsFixture
@@ -195,6 +214,33 @@ program OptionArrayParamBoundary where
   entry echo(value : Option Array UInt64 4) : UInt64 do
     return 0
 
+program OptionBytesStateBoundary where
+  state value : Option Bytes 32
+
+  init(initial : Option Bytes 32) do
+    value := initial
+
+  view get() : Option Bytes 32 do
+    return value
+
+program OptionBytesResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Bytes 32) : Option Bytes 32 do
+    return value
+
+program OptionBytesParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Bytes 32) : UInt64 do
+    return 0
+
 end Tests.Language.OptionDeclarationsFixture
 
 namespace Tests.Language.OptionDeclarations
@@ -225,28 +271,34 @@ private def surfaceSource : String :=
   "  state maybeScalar : Option Field bn254_fr\n\n" ++
   "  state nestedCount : Option Option UInt64\n\n" ++
   "  state maybeBatch : Option Array UInt64 4\n\n" ++
+  "  state maybeBlob : Option Bytes 8\n\n" ++
   "  struct Pair where\n" ++
   "    enabled : Option Bool\n" ++
   "    owner : Option Principal\n" ++
   "    scalar : Option Field bn254_fr\n" ++
   "    nestedEnabled : Option Option Bool\n" ++
-  "    arrayFlags : Option Array Bool 0\n\n" ++
+  "    arrayFlags : Option Array Bool 0\n" ++
+  "    blob : Option Bytes 8\n\n" ++
   "  enum Tag where\n" ++
   "    | MaybeUnit(Option Unit)\n" ++
   "    | MaybeCount(Option UInt64)\n" ++
   "    | MaybeScalar(Option Field bn254_fr)\n" ++
   "    | MaybeNestedCount(Option Option UInt64)\n" ++
-  "    | MaybeArray(Option Array Principal 4096)\n\n" ++
+  "    | MaybeArray(Option Array Principal 4096)\n" ++
+  "    | MaybeBlob(Option Bytes 4096)\n\n" ++
   "  const Seed : Option UInt64 := 0\n\n" ++
   "  const FieldSeed : Option Field bn254_fr := 0\n\n" ++
   "  const NestedFlag : Option Option Bool := 0\n\n" ++
   "  const ArraySeed : Option Array UInt64 0 := 0\n\n" ++
+  "  const BlobSeed : Option Bytes 0 := 0\n\n" ++
   "  init(initial : Option UInt64, scalar : Option Field bn254_fr,\n" ++
-  "      nestedInitial : Option Option UInt64, arrayInitial : Option Array UInt64 4) do\n" ++
+  "      nestedInitial : Option Option UInt64, arrayInitial : Option Array UInt64 4,\n" ++
+  "      blobInitial : Option Bytes 8) do\n" ++
   "    maybeCount := initial\n\n" ++
   "    maybeScalar := scalar\n\n" ++
   "    nestedCount := nestedInitial\n\n" ++
   "    maybeBatch := arrayInitial\n\n" ++
+  "    maybeBlob := blobInitial\n\n" ++
   "  entry echo(value : Option UInt64) : Option UInt64 do\n" ++
   "    return value\n\n" ++
   "  entry echoField(value : Option Field bn254_fr) : Option Field bn254_fr do\n" ++
@@ -254,6 +306,8 @@ private def surfaceSource : String :=
   "  entry echoNested(value : Option Option UInt64) : Option Option UInt64 do\n" ++
   "    return value\n\n" ++
   "  entry echoArray(value : Option Array UInt64 4) : Option Array UInt64 4 do\n" ++
+  "    return value\n\n" ++
+  "  entry echoBytes(value : Option Bytes 8) : Option Bytes 8 do\n" ++
   "    return value\n\n" ++
   "  view get() : Option UInt64 do\n" ++
   "    return maybeCount\n\n" ++
@@ -263,6 +317,8 @@ private def surfaceSource : String :=
   "    return nestedCount\n\n" ++
   "  view getArray() : Option Array UInt64 4 do\n" ++
   "    return maybeBatch\n\n" ++
+  "  view getBytes() : Option Bytes 8 do\n" ++
+  "    return maybeBlob\n\n" ++
   "  fn ident(value : Option Principal) : Option Principal do\n" ++
   "    return value\n\n" ++
   "  fn identField(value : Option Field bn254_fr) : Option Field bn254_fr do\n" ++
@@ -270,6 +326,8 @@ private def surfaceSource : String :=
   "  fn identNested(value : Option Option Bool) : Option Option Bool do\n" ++
   "    return value\n\n" ++
   "  fn identArray(value : Option Array Bool 0) : Option Array Bool 0 do\n" ++
+  "    return value\n\n" ++
+  "  fn identBytes(value : Option Bytes 4096) : Option Bytes 4096 do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
 
@@ -302,32 +360,35 @@ private def expectParserRejected (label source : String)
 unsafe def run : IO Unit := do
   let elaborated := Tests.Language.OptionDeclarationsFixture.OptionSurface
   expect (elaborated.state.map (·.type) ==
-      #[.option .u64, .option .field, .option (.option .u64), .option (.array .u64 4)])
-    "Option UInt64/Field/nested/Array state must survive Lean command elaboration"
+      #[.option .u64, .option .field, .option (.option .u64), .option (.array .u64 4),
+        .option (.bytes 8)])
+    "Option UInt64/Field/nested/Array/Bytes state must survive Lean command elaboration"
   match elaborated.structs with
   | #[pair] =>
       expect (pair.name == "Pair" &&
           pair.fields.map (·.type) ==
             #[.option .bool, .option .principal, .option .field, .option (.option .bool),
-              .option (.array .bool 0)])
-        "Option Bool/Principal/Field/nested/Array struct fields must preserve element types"
+              .option (.array .bool 0), .option (.bytes 8)])
+        "Option Bool/Principal/Field/nested/Array/Bytes struct fields must preserve element types"
   | _ => throw <| IO.userError "OptionSurface must retain one struct"
   match elaborated.enums with
   | #[tag] =>
       expect (tag.name == "Tag" && tag.variants.map (·.payloadTypes) ==
           #[#[.option .unit], #[.option .u64], #[.option .field],
-            #[.option (.option .u64)], #[.option (.array .principal 4096)]])
-        "Option Unit/UInt64/Field/nested/Array enum payloads must preserve element types"
+            #[.option (.option .u64)], #[.option (.array .principal 4096)],
+            #[.option (.bytes 4096)]])
+        "Option Unit/UInt64/Field/nested/Array/Bytes enum payloads must preserve element types"
   | _ => throw <| IO.userError "OptionSurface must retain one enum"
   match elaborated.initializer with
   | some initializer =>
       expect (initializer.params.map (·.type) ==
           #[.option .u64, .option .field, .option (.option .u64),
-            .option (.array .u64 4)])
-        "Option UInt64/Field/nested/Array initializer parameters must survive elaboration"
+            .option (.array .u64 4), .option (.bytes 8)])
+        "Option UInt64/Field/nested/Array/Bytes initializer parameters must survive elaboration"
   | none => throw <| IO.userError "OptionSurface must retain initializer"
   match elaborated.entries with
-  | #[echoEntry, echoField, echoNested, echoArray, getView, getField, getNested, getArray] =>
+  | #[echoEntry, echoField, echoNested, echoArray, echoBytes, getView, getField, getNested,
+      getArray, getBytes] =>
       expect (echoEntry.params.map (·.type) == #[.option .u64] &&
           echoEntry.result == .option .u64 && getView.result == .option .u64 &&
           getView.mode == .view &&
@@ -339,11 +400,14 @@ unsafe def run : IO Unit := do
           getNested.result == .option (.option .u64) && getNested.mode == .view &&
           echoArray.params.map (·.type) == #[.option (.array .u64 4)] &&
           echoArray.result == .option (.array .u64 4) &&
-          getArray.result == .option (.array .u64 4) && getArray.mode == .view)
-        "Option UInt64/Field/nested/Array entry/view types must survive elaboration"
-  | _ => throw <| IO.userError "OptionSurface must retain eight entries/views"
+          getArray.result == .option (.array .u64 4) && getArray.mode == .view &&
+          echoBytes.params.map (·.type) == #[.option (.bytes 8)] &&
+          echoBytes.result == .option (.bytes 8) &&
+          getBytes.result == .option (.bytes 8) && getBytes.mode == .view)
+        "Option UInt64/Field/nested/Array/Bytes entry/view types must survive elaboration"
+  | _ => throw <| IO.userError "OptionSurface must retain ten entries/views"
   match elaborated.functions with
-  | #[identFn, identField, identNested, identArray] =>
+  | #[identFn, identField, identNested, identArray, identBytes] =>
       expect (identFn.params.map (·.type) == #[.option .principal] &&
           identFn.result == .option .principal &&
           identField.params.map (·.type) == #[.option .field] &&
@@ -351,19 +415,24 @@ unsafe def run : IO Unit := do
           identNested.params.map (·.type) == #[.option (.option .bool)] &&
           identNested.result == .option (.option .bool) &&
           identArray.params.map (·.type) == #[.option (.array .bool 0)] &&
-          identArray.result == .option (.array .bool 0))
-        "Option Principal/Field/nested/Array fn parameter/results must survive elaboration"
+          identArray.result == .option (.array .bool 0) &&
+          identBytes.params.map (·.type) == #[.option (.bytes 4096)] &&
+          identBytes.result == .option (.bytes 4096))
+        "Option Principal/Field/nested/Array/Bytes fn parameter/results must survive elaboration"
   | _ =>
-      throw <| IO.userError "OptionSurface must retain ident, identField, identNested and identArray"
+      throw <| IO.userError
+        "OptionSurface must retain ident, identField, identNested, identArray and identBytes"
   match elaborated.consts with
-  | #[seed, fieldSeed, nestedFlag, arraySeed] =>
+  | #[seed, fieldSeed, nestedFlag, arraySeed, blobSeed] =>
       expect (seed.name == "Seed" && seed.type == .option .u64 &&
           fieldSeed.name == "FieldSeed" && fieldSeed.type == .option .field &&
           nestedFlag.name == "NestedFlag" && nestedFlag.type == .option (.option .bool) &&
-          arraySeed.name == "ArraySeed" && arraySeed.type == .option (.array .u64 0))
-        "Option UInt64/Field/nested/Array const types must survive elaboration"
+          arraySeed.name == "ArraySeed" && arraySeed.type == .option (.array .u64 0) &&
+          blobSeed.name == "BlobSeed" && blobSeed.type == .option (.bytes 0))
+        "Option UInt64/Field/nested/Array/Bytes const types must survive elaboration"
   | _ =>
-      throw <| IO.userError "OptionSurface must retain Seed, FieldSeed, NestedFlag and ArraySeed"
+      throw <| IO.userError
+        "OptionSurface must retain Seed, FieldSeed, NestedFlag, ArraySeed and BlobSeed"
 
   let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<option-declarations>" none with
@@ -497,6 +566,38 @@ unsafe def run : IO Unit := do
     expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
       s!"{label} semantic tag16+tag18 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
+  let optionBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Bytes 0", .option (.bytes 0), 0, "UNBOUND"),
+    ("Option Bytes 8", .option (.bytes 8), 0, "UNBOUND"),
+    ("Option Bytes 32", .option (.bytes 32), 0, "UNBOUND"),
+    ("Option Bytes 4096", .option (.bytes 4096), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in optionBytesSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag16+tag17 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  expect ((twin (.option (.bytes 0))).sourceHash != (twin (.bytes 0)).sourceHash &&
+      (twin (.option (.bytes 0))).sourceHash != (twin (.option .u64)).sourceHash &&
+      (twin (.option (.bytes 0))).sourceHash !=
+        (twin (.option (.array .u64 0))).sourceHash &&
+      (twin (.option (.bytes 0))).sourceHash != (twin (.option (.bytes 8))).sourceHash)
+    "Option Bytes must bind Option/Bytes tags and complete length payload"
+
+  let optionBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Bytes 0", .option (.bytes 0), 0, "UNBOUND"),
+    ("Option Bytes 8", .option (.bytes 8), 0, "UNBOUND"),
+    ("Option Bytes 32", .option (.bytes 32), 0, "UNBOUND"),
+    ("Option Bytes 4096", .option (.bytes 4096), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in optionBytesSemanticVectors do
+    let sourceProgram := twin type
+    let semantic ← match Compiler.compile sourceProgram with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
+      s!"{label} semantic tag16+tag17 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
+
   for (label, name, spelling) in [
       ("plural option", "PluralOptionType", "Options UInt64"),
       ("escaped option", "EscapedOptionType", "«Option» UInt64"),
@@ -522,6 +623,12 @@ unsafe def run : IO Unit := do
       ("leading-zero Option Array length", "LeadingZeroOptionArray", "Option Array UInt64 01"),
       ("hex Option Array length", "HexOptionArray", "Option Array UInt64 0x10"),
       ("underscore Option Array length", "UnderscoreOptionArray", "Option Array UInt64 4_096"),
+      ("missing Option Bytes length", "MissingOptionBytesLength", "Option Bytes"),
+      ("identifier Option Bytes length", "IdentifierOptionBytesLength", "Option Bytes Foo"),
+      ("over-bound Option Bytes length", "OverBoundOptionBytes", "Option Bytes 4097"),
+      ("leading-zero Option Bytes length", "LeadingZeroOptionBytes", "Option Bytes 01"),
+      ("hex Option Bytes length", "HexOptionBytes", "Option Bytes 0x10"),
+      ("underscore Option Bytes length", "UnderscoreOptionBytes", "Option Bytes 4_096"),
       ("Map option element", "MapOptionElement", "Option Map UInt64 Bool")
     ] do
     expectUnsupportedType label
@@ -551,14 +658,20 @@ unsafe def run : IO Unit := do
       ("qualified Array constructor in Option", "Option Std.Array UInt64 4"),
       ("escaped Option Array constructor", "«Option» Array UInt64 4"),
       ("qualified Option Array constructor", "Std.Option Array UInt64 4"),
+      ("negative Option Bytes length", "Option Bytes -1"),
+      ("extra Option Bytes payload", "Option Bytes 8 UInt64"),
+      ("split Option Bytes length", "Option Bytes\n  8"),
+      ("escaped Bytes constructor in Option", "Option «Bytes» 8"),
+      ("qualified Bytes constructor in Option", "Option Std.Bytes 8"),
+      ("escaped Option Bytes constructor", "«Option» Bytes 8"),
+      ("qualified Option Bytes constructor", "Std.Option Bytes 8"),
       ("retained Array Option element", "Array Option Bool 4"),
       ("retained Array Field element", "Array Field bn254_fr 4"),
       ("extra option payload", "Option UInt64 Principal"),
       ("extra Field option payload", "Option Field bn254_fr UInt64"),
       ("split Field option", "Option Field\n  bn254_fr"),
       ("escaped Field constructor", "Option «Field» bn254_fr"),
-      ("qualified Option constructor", "Std.Option Field bn254_fr"),
-      ("Bytes option", "Option Bytes 8")
+      ("qualified Option constructor", "Std.Option Field bn254_fr")
     ] do
     let source := negativeSource "RejectedOptionShape" spelling
     let (_, result) ← IO.FS.withIsolatedStreams
@@ -665,6 +778,18 @@ unsafe def run : IO Unit := do
         throw <| IO.userError s!"Option Field/{target} reached wrong failure: {other.render}"
     | .ok () => throw <| IO.userError s!"Option Field/{target} unexpectedly passed support"
 
+  let optionBytesBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.OptionBytesBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"OptionBytesBoundary must compile: {error.render}"
+  expect (optionBytesBoundary.requirements == #[])
+    "Option Bytes must recursively propagate zero requirements"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target optionBytesBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError s!"{target} must support zero-requirement Option Bytes carrier: {error.render}"
+
   for (label, sourceProgram, needle) in [
       ("OptionStateBoundary",
         Tests.Language.OptionDeclarationsFixture.OptionStateBoundary,
@@ -692,6 +817,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("OptionArrayParamBoundary",
         Tests.Language.OptionDeclarationsFixture.OptionArrayParamBoundary,
+        "is not UInt64"),
+      ("OptionBytesStateBoundary",
+        Tests.Language.OptionDeclarationsFixture.OptionBytesStateBoundary,
+        "is not UInt64"),
+      ("OptionBytesResultBoundary",
+        Tests.Language.OptionDeclarationsFixture.OptionBytesResultBoundary,
+        "does not return UInt64"),
+      ("OptionBytesParamBoundary",
+        Tests.Language.OptionDeclarationsFixture.OptionBytesParamBoundary,
         "is not UInt64")
     ] do
     let compiled ← match Compiler.compile sourceProgram with

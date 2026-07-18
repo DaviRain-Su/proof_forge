@@ -68,6 +68,10 @@ program BytesParamBoundary where
   entry echo(value : Bytes 32) : UInt64 do
     return 0
 
+program OptionBytesBoundary where
+  entry echo(value : Option Bytes 32) : Option Bytes 32 do
+    return value
+
 end Tests.Language.BytesTypesFixture
 
 namespace Tests.Language.BytesTypes
@@ -244,7 +248,6 @@ unsafe def run : IO Unit := do
   for (label, spelling) in [
       ("negative Bytes length", "Bytes -1"),
       ("extra Bytes payload", "Bytes 32 UInt64"),
-      ("Bytes as Option element", "Option Bytes 32"),
       ("split Bytes payload", "Bytes\n  32")
     ] do
     let source := negativeSource "RejectedBytesShape" spelling
@@ -267,6 +270,23 @@ unsafe def run : IO Unit := do
     | .ok () => pure ()
     | .error error =>
         throw <| IO.userError s!"{target} must support zero-requirement Bytes carrier: {error.render}"
+
+  let optionBytesBoundary ← match Compiler.compile Tests.Language.BytesTypesFixture.OptionBytesBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"OptionBytesBoundary must compile: {error.render}"
+  expect (optionBytesBoundary.requirements == #[])
+    "Option Bytes must add zero requirements through the Bytes carrier"
+  match optionBytesBoundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.bytes 32)] &&
+          echoEntry.result == .option (.bytes 32))
+        "Source-to-Semantic adaptation must preserve Option Bytes length"
+  | _ => throw <| IO.userError "OptionBytesBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target optionBytesBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError s!"{target} must support zero-requirement Option Bytes carrier: {error.render}"
 
   for (label, sourceProgram, needle) in [
       ("BytesStateBoundary", Tests.Language.BytesTypesFixture.BytesStateBoundary, "is not UInt64"),
