@@ -213,6 +213,8 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       throw <| .invalidProgram "shift right is not yet supported by typed checking"
   | .equal .. =>
       throw <| .invalidProgram "equality is not yet supported by typed checking"
+  | .notEqual .. =>
+      throw <| .invalidProgram "not-equal comparison is not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement

@@ -30,6 +30,7 @@ syntax:75 "!" pfExpr:75 : pfExpr
 syntax:60 pfExpr:60 " << " pfExpr:61 : pfExpr
 syntax:60 pfExpr:60 " >> " pfExpr:61 : pfExpr
 syntax:50 pfExpr:51 " == " pfExpr:51 : pfExpr
+syntax:50 pfExpr:51 " != " pfExpr:51 : pfExpr
 syntax:65 pfExpr:65 " + " pfExpr:66 : pfExpr
 syntax:65 pfExpr:65 " - " pfExpr:66 : pfExpr
 syntax:70 pfExpr:70 " * " pfExpr:71 : pfExpr
@@ -376,6 +377,8 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
       return .shiftRight (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| $lhs:pfExpr == $rhs:pfExpr) => do
       return .equal (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| $lhs:pfExpr != $rhs:pfExpr) => do
+      return .notEqual (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| - $operand:pfExpr) => do
       return .checkedNeg (← decodeExprUnchecked operand)
   | `(pfExpr| ~ $operand:pfExpr) => do
@@ -870,6 +873,10 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let lhs ← quoteExpr lhs
       let rhs ← quoteExpr rhs
       `(ProofForgeV2.Source.Expr.equal $lhs $rhs)
+  | .notEqual lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.notEqual $lhs $rhs)
   | .checkedNeg operand => do
       let operand ← quoteExpr operand
       `(ProofForgeV2.Source.Expr.checkedNeg $operand)
