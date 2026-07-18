@@ -268,31 +268,31 @@ unsafe def run : IO Unit := do
   let twinAdd := twin (.checkedAdd (.literal 1) (.literal 2))
 
   expect (twinZero.sourceHash ==
-      "UNBOUND_CONSTRUCTOR_EXPR_ZERO_GOLDEN")
+      "7308954255287dca62e73a7c7cbcb38e0a42cf39f6bc860886cc1ea9120368a1")
     s!"constructorExpr A.B() ConstructorExprTwin sourceHash golden must remain stable; got {twinZero.sourceHash}"
   expect (twinPathValue.sourceHash ==
-      "UNBOUND_CONSTRUCTOR_EXPR_PATH_VALUE_GOLDEN")
+      "311a4c5d4935014bdd5eb21cecf04b057f487988f104a352e37b9c06d8a3f6c9")
     s!"constructorExpr A.C() ConstructorExprTwin sourceHash golden must remain stable; got {twinPathValue.sourceHash}"
   expect (twinOne.sourceHash ==
-      "UNBOUND_CONSTRUCTOR_EXPR_ONE_GOLDEN")
+      "8edaf53dbcbf3d033ea197c991d3c2fae815f786bb783d8900b938db65d0d717")
     s!"constructorExpr A.B(1) ConstructorExprTwin sourceHash golden must remain stable; got {twinOne.sourceHash}"
   expect (twinArgValue.sourceHash ==
-      "UNBOUND_CONSTRUCTOR_EXPR_ARG_VALUE_GOLDEN")
+      "5fc5b87a8ac3b400afcfe35a317df350bdba529d68f7a4c323a5bd57db51eea2")
     s!"constructorExpr A.B(2) ConstructorExprTwin sourceHash golden must remain stable; got {twinArgValue.sourceHash}"
   expect (twinTwo.sourceHash ==
-      "UNBOUND_CONSTRUCTOR_EXPR_TWO_GOLDEN")
+      "0d04c4950a2197f8761ed9fdf55cb55384214b1534c961e591195a3a4aa0226b")
     s!"constructorExpr A.B(1,2) ConstructorExprTwin sourceHash golden must remain stable; got {twinTwo.sourceHash}"
   expect (twinOrder.sourceHash ==
-      "UNBOUND_CONSTRUCTOR_EXPR_ARG_ORDER_GOLDEN")
+      "10c60da85be80275e7fa1cc3815c142359e9fa667e467bff1df40f05f1fc9013")
     s!"constructorExpr A.B(2,1) ConstructorExprTwin sourceHash golden must remain stable; got {twinOrder.sourceHash}"
   expect (twinPathOrder.sourceHash ==
-      "UNBOUND_CONSTRUCTOR_EXPR_PATH_ORDER_GOLDEN")
+      "896dfade7909d50800f4d85918984fa2b02e4079d8601653b38c28ca64ce745c")
     s!"constructorExpr B.A() ConstructorExprTwin sourceHash golden must remain stable; got {twinPathOrder.sourceHash}"
   expect (twinPathCount.sourceHash ==
-      "UNBOUND_CONSTRUCTOR_EXPR_PATH_COUNT_GOLDEN")
+      "137d315d470589764b9be2290db6eab93c66a03494e535ac24dcd61baf3a8b95")
     s!"constructorExpr A.B.C() ConstructorExprTwin sourceHash golden must remain stable; got {twinPathCount.sourceHash}"
   expect (twinNested.sourceHash ==
-      "UNBOUND_CONSTRUCTOR_EXPR_NESTED_GOLDEN")
+      "77e6f8de9244c19752c387b13e50a89cc82d408a3f5971eee0c0d6ef8724c5a9")
     s!"constructorExpr nested ConstructorExprTwin sourceHash golden must remain stable; got {twinNested.sourceHash}"
 
   -- Non-alias: path value/count/order, arg value/count/order/nesting, tag27 vs local26 vs variable1.
