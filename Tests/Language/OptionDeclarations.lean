@@ -585,6 +585,7 @@ private def expectParserRejected (label source : String)
       throw <| IO.userError s!"{label}: reached wrong failure for {source}: {other.render}"
   | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
 
+set_option maxRecDepth 2048 in
 unsafe def run : IO Unit := do
   let elaborated := Tests.Language.OptionDeclarationsFixture.OptionSurface
   expect (elaborated.state.map (·.type) ==
@@ -1002,10 +1003,14 @@ unsafe def run : IO Unit := do
       s!"{label} semantic tag16+tag16+tag17 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
   let nestedArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Array UInt64 0", .option (.option (.array .u64 0)), 0, "UNBOUND"),
-    ("Option Option Array UInt64 4", .option (.option (.array .u64 4)), 0, "UNBOUND"),
-    ("Option Option Array UInt64 4096", .option (.option (.array .u64 4096)), 0, "UNBOUND"),
-    ("Option Option Array Bool 0", .option (.option (.array .bool 0)), 0, "UNBOUND")
+    ("Option Option Array UInt64 0", .option (.option (.array .u64 0)), 261,
+      "91e1335dc7c231c7ca6106d45a55e34fe6264cd81bf23bd96012eb4e9a0da9be"),
+    ("Option Option Array UInt64 4", .option (.option (.array .u64 4)), 261,
+      "646ead3a3d0849ef7d59056841b55ed904cc1e1f52903821ce49c6bddfe17437"),
+    ("Option Option Array UInt64 4096", .option (.option (.array .u64 4096)), 261,
+      "dbafb03f61f3dc818b18d9db0a32acc304c262c695ef029e8533ee341c786fc1"),
+    ("Option Option Array Bool 0", .option (.option (.array .bool 0)), 261,
+      "423f49bfb2dbe64cbf4eb5545d23b9bda194d715ca08653a175d662c64328467")
   ]
   for (label, type, expectedSize, expectedHash) in nestedArraySourceVectors do
     let sourceProgram := twin type
@@ -1025,10 +1030,14 @@ unsafe def run : IO Unit := do
     "Option Option Array must bind both Option tags, Array tag, element and complete length payload"
 
   let nestedArraySemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Array UInt64 0", .option (.option (.array .u64 0)), 0, "UNBOUND"),
-    ("Option Option Array UInt64 4", .option (.option (.array .u64 4)), 0, "UNBOUND"),
-    ("Option Option Array UInt64 4096", .option (.option (.array .u64 4096)), 0, "UNBOUND"),
-    ("Option Option Array Bool 0", .option (.option (.array .bool 0)), 0, "UNBOUND")
+    ("Option Option Array UInt64 0", .option (.option (.array .u64 0)), 210,
+      "e618343536fd197f75752375e62e47d724f2696dd52f62cf51dd8dba50899e5c"),
+    ("Option Option Array UInt64 4", .option (.option (.array .u64 4)), 210,
+      "fcafc27cecf27d57a0e4614bd81bf683585294869c0b351fd44aed704e29564a"),
+    ("Option Option Array UInt64 4096", .option (.option (.array .u64 4096)), 210,
+      "f280603177b1e0c252778d07b9b8a7fb3e076d9461613257efea99f16ae61e34"),
+    ("Option Option Array Bool 0", .option (.option (.array .bool 0)), 211,
+      "1149d58e31a402b298be0a8baf5a1b6479bb14522294e7e9144c90e532273248")
   ]
   for (label, type, expectedSize, expectedHash) in nestedArraySemanticVectors do
     let sourceProgram := twin type
@@ -1163,7 +1172,6 @@ unsafe def run : IO Unit := do
       ("hex nested Bytes length", "HexNestedOptionBytes", "Option Option Bytes 0x10"),
       ("underscore nested Bytes length", "UnderscoreNestedOptionBytes", "Option Option Bytes 4_096"),
       ("missing nested Array element", "MissingNestedOptionArrayElement", "Option Option Array"),
-      ("missing nested Array length", "MissingNestedOptionArrayLength", "Option Option Array UInt64"),
       ("unknown nested Array element", "UnknownNestedOptionArrayElement", "Option Option Array Mystery 4"),
       ("Field nested Array element", "FieldNestedOptionArrayElement", "Option Option Array Field 4"),
       ("over-bound nested Array length", "OverBoundNestedOptionArray", "Option Option Array UInt64 4097"),
@@ -1236,6 +1244,7 @@ unsafe def run : IO Unit := do
       ("qualified outer Option nested Bytes", "Std.Option Option Bytes 8"),
       ("escaped middle Option nested Bytes", "Option «Option» Bytes 8"),
       ("negative nested Array length", "Option Option Array UInt64 -1"),
+      ("missing nested Array length", "Option Option Array UInt64"),
       ("extra nested Array payload", "Option Option Array UInt64 4 Principal"),
       ("full Field nested Array element", "Option Option Array Field bn254_fr 4"),
       ("nested Option nested Array element", "Option Option Array Option Bool 4"),
