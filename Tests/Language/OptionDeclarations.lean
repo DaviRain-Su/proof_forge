@@ -464,6 +464,17 @@ unsafe def run : IO Unit := do
     | .error error =>
         throw <| IO.userError s!"Option Array {spelling} 4 must parse: {error.render}"
 
+  let retainedArrayOptionSource :=
+    negativeSource "RetainedArrayOptionElement" "Array Option Bool 4"
+  match ← session.parsePrograms retainedArrayOptionSource "<retained-array-option>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) == #[.array (.option .bool) 4])
+        "retained Array Option Bool 4 pin must now parse as existing array(option(bool),4)"
+  | .ok programs =>
+      throw <| IO.userError s!"retained Array Option Bool 4 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError s!"retained Array Option Bool 4 must parse: {error.render}"
+
   expect ((twin .u64).sourceHash ==
       "8bbe116fabb9ea37ec1c6a12c8283c56e62e6b2476d15b80b1d6bc09d8ff1c1a")
     "OptionTwin UInt64/tag0 sourceHash golden must remain stable"
@@ -673,7 +684,6 @@ unsafe def run : IO Unit := do
       ("qualified Bytes constructor in Option", "Option Std.Bytes 8"),
       ("escaped Option Bytes constructor", "«Option» Bytes 8"),
       ("qualified Option Bytes constructor", "Std.Option Bytes 8"),
-      ("retained Array Option element", "Array Option Bool 4"),
       ("retained Array Field element", "Array Field bn254_fr 4"),
       ("extra option payload", "Option UInt64 Principal"),
       ("extra Field option payload", "Option Field bn254_fr UInt64"),
