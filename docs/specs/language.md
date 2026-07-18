@@ -397,6 +397,38 @@ support。production 仅限 `Language/Syntax.lean` 一文件，最多 32 行新�
 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 Array/Bytes runtime semantics、完整
 type grammar 或正式 D1 完成。
 
+D1-PA-62 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic recursive carriers 构造的
+`option(option(field))` 开放 exact same-line spelling `Option Option Field bn254_fr`。Field identifier
+必须是 raw exact `bn254_fr`；alternate、escaped、qualified、missing 或 extra id 均 fail closed。
+PrimitiveAtom nested Option、nested Bytes、nested Array、third-layer Option、Map 与 Named 继续按各自
+边界处理，不能因本切片放宽。这不是新 ValueType carrier：Source/Semantic encoders 已产生两层 Option
+tag `16→16` 与 Field tag `2`，requirements 也已递归穿过两层 Option wrapper；不得新增 ctor/tag、
+修改 encoder、Typed 或 target。
+
+frontend 只能新增 exact contextual named `optionOptionFieldType` 与 struct-field 对应 parser；不得把既有
+`optionOptionType` 从 PrimitiveAtom 放宽到 Field/Bytes/Array，也不得放宽 `portableType` 或引入 recursive
+parser。decoder 只从专用 parser 接收 field id atom，必须 exact 检查 raw `bn254_fr` 后构造
+`.option (.option .field)`；不得复制或放宽 Field/nested Option policy。Lean command 与 ParserSession
+必须得到同一 Source tree/hash。canonical tests 固定既有 tag `16→16→2` 的 Source/Semantic bytes/hash，
+并与 bare Field、Option Field、Option Option PrimitiveAtom 及不同 element non-alias；不重编号 tags
+`0..18`。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+`Option Option Field bn254_fr` parser-negative 迁移为 positive，migration count 精确为一；
+`Option Option Field` 继续保留为 unsupported incomplete nested-field negative，其他测试不得迁移。
+positive 覆盖 state、struct field、enum payload、const、initializer/entry/view/fn parameter/result 与
+双入口 parity。`Option Option Field bn254_fr` 必须递归传播恰一个 `fieldBn254`；四个 Phase 1 target
+必须在 support resolver 以 named requirement 拒绝，不得进入 Plan 或产出 artifact。missing/alternate/
+escaped/qualified Field id、escaped/qualified Option 或 Field constructor、extra/split payload 必须 fail
+closed；Option Option Bytes、Option Option Array、third-layer Option、Option Array compounds、Array
+Option compounds、Array Array、Map/Named 与既有 extra-payload failure class 保持原边界。
+
+本切片不实现 none/some/unwrap、field arithmetic、任意 recursive type grammar、recursive legality、
+runtime representation、ABI 或 target nested-Option-Field support。production 仅限 `Language/Syntax.lean`
+一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。focused/aggregate/test
+binary 与 independent review 全绿后只可记录 existing-carrier spelling；按冻结不重复完整 `just ci`，
+不得声明 nested Option/Field runtime semantics、完整 type grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
