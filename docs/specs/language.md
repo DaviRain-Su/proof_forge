@@ -805,6 +805,40 @@ Source/Syntax/Typed 3 文件、最多 14 行新增且不移除既有 production�
 两份独立审查全绿后只可记录完整 assert optional-error Source carrier；PA49 已运行 statement checkpoint，
 本切片不重复 `just ci`，不得宣称完整 assert semantics、statement grammar 或正式 D1 完成。
 
+D1-PA-52 冻结的 pre-acceptance alpha conditional 子集一次实现 EBNF
+`"if" Expr "then" Block ("else" Block)?` 的 Source surface。carrier 固定为
+`Source.Statement.ifStmt(condition : Expr, thenBody : Array Statement,
+elseBody : Option (Array Statement))`；作者不写 target/kind，frontend 不根据 target 重写条件或分支。
+parser 只新增一条 optional-else production：
+`syntax "if " pfExpr " then" ppLine many1Indent(pfStmt)
+("else" ppLine many1Indent(pfStmt))? : pfStmt`。`thenBody` 与存在的 `elseBody` 均至少
+一条 statement，branch item 必须比 `if`/`else` 引入列更深，`else` 必须回到所属
+`if` 的列；结构化 layout 决定 dangling-else 归属，不得另增 textual fallback。
+
+decoder 顺序固定为 condition→then statements→optional else statements，并且递归 decoder 只能为
+承载 nested Source block 改为 `partial`；quotation 必须递归构造 statement arrays 与 exact
+`Option.none`/`Option.some`，不得退化为文本。Source canonical encoder 使用 append-only Statement
+tag `9`，随后依次编码 condition expression、length-prefixed then-body statement array、else marker
+byte `0`/`1`；marker `1` 后再编码 length-prefixed else-body statement array。递归 encoder 只能为
+nested block 改为 `partial`；tag `0..8` 与全部旧 golden 不变。
+
+tests-only RED 为 zero migration，只新增/注册 `Tests.Language.IfStatements`。positive 固定
+initializer、entry、view、fn 中 if-then/if-then-else 的 Lean command/ParserSession Source parity，
+literal/Bool/variable/operator/group condition，then/else statement count/order 与 nested if 结构。canonical
+golden/non-alias 必须绑定 condition value/tree、then-body count/order、else marker、else-body content、
+nested statement kind 与 tag `9`；旧 statement tags/goldens 不得重算。missing condition/`then`、
+same-line 或 empty then-body、dangling/wrong-column/duplicate `else`、empty else-body、extra payload 必须
+fail closed；unescaped `then := 1`/`else := 1` 必须拒绝，escaped `«then» := 1`/
+`«else» := 1` 保持 assignment。
+
+`Typed.checkStatement` 必须在 condition checking、branch checking、return/effect/path analysis 前逐字
+fail closed 为 `if statements are not yet supported by typed checking`；旧 statement controls 保持 exact outcome。
+本切片不实现 Bool typing、branch join、return-path/effect、Semantic/requirement、target Plan/IR、runtime 或
+materialization；production 仅限 Source/Syntax/Typed 3 文件，最多 30 行新增与 2 行移除
+（移除仅用于把既有 recursive encoder/decoder declaration 替换为 `partial`）。focused/aggregate/test
+binary 与 independent review 全绿后只可记录 conditional Source carrier；本切片不运行
+`just ci`，不得宣称 Typed conditional semantics、完整 statement grammar 或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
