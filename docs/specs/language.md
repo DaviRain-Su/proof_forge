@@ -714,6 +714,33 @@ binary 与两份独立审查全绿后只可记录完整 revert statement Source 
 `just ci`，下一批 statement checkpoint 再运行，且不得宣称完整 error semantics、statement grammar
 或正式 D1 完成。
 
+D1-PA-49 冻结的 pre-acceptance alpha value-less return 子集只补齐 EBNF
+`"return" Expr?` 中缺失的无 Expr 分支，Source carrier 固定为 nullary
+`Source.Statement.returnUnit`。它只解除 `EV-20260718-0002` 中“无无值 return”的 Source-carrier
+延期；Unit fallthrough、return-path/termination、result-type legality、initializer/entry/fn return rules、
+Typed/Semantic return 与 target materialization 仍明确留给 D2/后续，不得据此改写旧 evidence 的其他限制。
+既有 `Source.Statement.returnValue(value)`、Statement tag `1`、syntax、goldens 与 Typed success path
+全部保持不变；禁止改为 `Option Expr` 或重编号既有 tag。
+
+parser 必须保留现有 `syntax "return " pfExpr : pfStmt` 为首先尝试的 value-bearing production，随后
+才新增 strict-prefix bare fallback `syntax "return" : pfStmt`。`return 1`、`return true` 与既有
+跨行 `return` newline `1` 必须继续物化为 `returnValue`，只有不存在可解析 Expr 时 bare 规则才物化
+`returnUnit`；不得让 fallback 先吞掉 token 或改变已接受布局。Source canonical encoder 使用 append-only
+Statement tag `6` 且无 payload；tag `0..5`/既有 goldens 不变。tests-only RED 为 zero migration，
+只新增/注册 `Tests.Language.ValueLessReturns`，固定 Lean command/ParserSession 在 initializer、entry、view、
+fn 以及 explicit/omitted Unit 与 non-Unit declaration 上的 Source parity，并固定 returnUnit 对 returnValue
+及其他 statement kind 的 tag non-alias。
+
+`return()`、bare 后括号/逗号/额外 payload、unescaped keyword assignment 等 malformed shapes 必须 fail
+closed；escaped `«return» := 1` 保持 assignment。`Typed.check` 必须在 result type、Unit materialization、
+initializer legality、return-path/statement-after-return 分析前逐字 fail closed 为
+`value-less return is not yet supported by typed checking`；尤其 omitted-result fn 中的 bare return 仍必须
+得到同一 diagnostic，不得借 Unit 自动接受。本切片不得实现 fallthrough、implicit Unit value、return-path、
+type/effect、Semantic/requirement、ABI/runtime 或 target behavior；production 仅限 Source/Syntax/Typed
+3 文件、最多 9 行新增。GREEN、focused/aggregate/test binary 与两份独立审查全绿后，在 clean committed
+tree 运行一次 statement checkpoint `just ci`；只可记录 value-less return Source carrier，不得宣称
+return semantics、完整 statement grammar 或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
