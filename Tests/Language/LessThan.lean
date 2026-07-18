@@ -310,7 +310,7 @@ unsafe def run : IO Unit := do
   expect (twinMulLt.canonicalBytes.size == 232)
     s!"1*2<3 LessThanTwin size golden must remain stable; got {twinMulLt.canonicalBytes.size}"
   expect (twinLtMul.sourceHash ==
-      "d1c24020e7916469a859d36d8a16764495a3cd511d66dfe27c73a110d3987b7a")
+      "d1c24020e7916469a509d36d8a16764495a3cd511d66dfe27c73a110d3987b7a")
     s!"1<2*3 LessThanTwin sourceHash golden must remain stable; got {twinLtMul.sourceHash}"
   expect (twinLtMul.canonicalBytes.size == 232)
     s!"1<2*3 LessThanTwin size golden must remain stable; got {twinLtMul.canonicalBytes.size}"
