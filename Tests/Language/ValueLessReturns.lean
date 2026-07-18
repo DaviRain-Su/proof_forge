@@ -252,7 +252,7 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must agree on non-Unit bare return Source"
   | .error error => throw <| IO.userError error.render
 
-  -- Value-bearing priority: return 1 / return true stay returnValue.
+  -- Value-bearing priority: return 1 / return true / return add stay returnValue.
   let retOne ← select session
     (bodyProgramSource "RetOne" "return 1") "<vlr-return-1>"
   match retOne.entries with
@@ -271,7 +271,16 @@ unsafe def run : IO Unit := do
       | _ => throw <| IO.userError "return true must remain returnValue (longest match)"
   | _ => throw <| IO.userError "return true program must have one entry"
 
-  -- Cross-line layout retention: return newline 1 stays returnValue.
+  let retAdd ← select session
+    (bodyProgramSource "RetAdd" "return 1 + 2") "<vlr-return-add>"
+  match retAdd.entries with
+  | #[runEntry] =>
+      match runEntry.body with
+      | #[.returnValue (.checkedAdd (.literal 1) (.literal 2))] => pure ()
+      | _ => throw <| IO.userError "return 1 + 2 must remain returnValue (longest match)"
+  | _ => throw <| IO.userError "return add program must have one entry"
+
+  -- Cross-line layout retention: return newline 1 stays returnValue (not bare+junk).
   let crossLineSource :=
     "import ProofForgeV2\n\n" ++
     "open ProofForgeV2.Language\n\n" ++
@@ -288,6 +297,25 @@ unsafe def run : IO Unit := do
           throw <| IO.userError
             "cross-line return newline 1 must remain returnValue (layout retained)"
   | _ => throw <| IO.userError "cross-line return program must have one entry"
+
+  -- Bare return then next-line assignment: returnUnit then assign (not value-bearing).
+  let bareThenAssignSource :=
+    "import ProofForgeV2\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BareThenAssign where\n" ++
+    "  state x : UInt64\n\n" ++
+    "  entry run() : Unit do\n" ++
+    "    return\n" ++
+    "    x := 1\n"
+  let bareThenAssign ← select session bareThenAssignSource "<vlr-bare-then-assign>"
+  match bareThenAssign.entries with
+  | #[runEntry] =>
+      match runEntry.body with
+      | #[.returnUnit, .assign "x" (.literal 1)] => pure ()
+      | _ =>
+          throw <| IO.userError
+            "bare return then next-line x := 1 must be returnUnit then assign"
+  | _ => throw <| IO.userError "bare-then-assign program must have one entry"
 
   -- Bare return via Loader under fixed program name.
   let bare ← select session
@@ -360,26 +388,16 @@ unsafe def run : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "Typed must not accept programs containing returnUnit"
 
-  -- Omitted-result fn still fail-closed with same message (not Unit auto-accept).
-  let omittedFnTwin :=
-    Source.Program.buildQualified
-      "Tests.Language.ValueLessReturnsFixture.ValueLessOmittedFnTwin"
-      "ValueLessOmittedFnTwin" #[
-      .fnDecl {
-        name := "helper"
-        params := #[]
-        result := .unit
-        body := #[.returnUnit]
-      },
-      .entry {
-        name := "run"
-        params := #[]
-        result := .unit
-        mode := .mutate
-        body := #[.returnUnit]
-      }
-    ]
-  match Compiler.compile omittedFnTwin with
+  -- Source carries returnUnit for omitted-result fn, non-Unit entry, and initializer;
+  -- Typed exact-fails identically on all three (not Unit auto-accept / type-mismatch first).
+  let omittedFnElab := Tests.Language.ValueLessReturnsFixture.OmittedUnitBareReturn
+  match omittedFnElab.functions.back? with
+  | some helper =>
+      match helper.body with
+      | #[.returnUnit] => pure ()
+      | _ => throw <| IO.userError "omitted-result fn Source must carry returnUnit"
+  | none => throw <| IO.userError "omitted-result fn missing"
+  match Compiler.compile omittedFnElab with
   | .error (.invalidProgram
       "value-less return is not yet supported by typed checking") =>
       pure ()
@@ -389,20 +407,7 @@ unsafe def run : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "Typed must not accept omitted-result fn bare return"
 
-  -- Non-Unit entry bare return: same diagnostic before type mismatch.
-  let nonUnitTwin :=
-    Source.Program.buildQualified
-      "Tests.Language.ValueLessReturnsFixture.ValueLessNonUnitTwin"
-      "ValueLessNonUnitTwin" #[
-      .entry {
-        name := "run"
-        params := #[]
-        result := .u64
-        mode := .mutate
-        body := #[.returnUnit]
-      }
-    ]
-  match Compiler.compile nonUnitTwin with
+  match Compiler.compile nonUnitElab with
   | .error (.invalidProgram
       "value-less return is not yet supported by typed checking") =>
       pure ()
@@ -412,24 +417,14 @@ unsafe def run : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "Typed must not accept non-Unit bare return"
 
-  -- Initializer bare return: same diagnostic before initializer-specific return ban.
-  let initTwin :=
-    Source.Program.buildQualified
-      "Tests.Language.ValueLessReturnsFixture.ValueLessInitTwin"
-      "ValueLessInitTwin" #[
-      .initializer {
-        params := #[]
-        body := #[.returnUnit]
-      },
-      .entry {
-        name := "run"
-        params := #[]
-        result := .u64
-        mode := .mutate
-        body := #[.returnValue (.literal 0)]
-      }
-    ]
-  match Compiler.compile initTwin with
+  -- Initializer: surface dual-entry already carries returnUnit; Typed same diagnostic.
+  match elaborated.initializer with
+  | some initializer =>
+      match initializer.body with
+      | #[.returnUnit] => pure ()
+      | _ => throw <| IO.userError "initializer Source must carry returnUnit"
+  | none => throw <| IO.userError "initializer missing"
+  match Compiler.compile elaborated with
   | .error (.invalidProgram
       "value-less return is not yet supported by typed checking") =>
       pure ()
@@ -437,7 +432,7 @@ unsafe def run : IO Unit := do
       throw <| IO.userError
         s!"Typed must reject initializer bare return with exact message, got {other.render}"
   | .ok _ =>
-      throw <| IO.userError "Typed must not accept initializer bare return"
+      throw <| IO.userError "Typed must not accept surface with initializer bare return"
 
   -- Existing returnValue control still compiles.
   match Compiler.compile (twin (.returnValue (.literal 0))) with
