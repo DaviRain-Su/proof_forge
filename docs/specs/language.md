@@ -844,6 +844,41 @@ materialization；production 仅限 Source/Syntax/Typed 3 文件，最多 38 行
 binary 与 independent review 全绿后只可记录 conditional Source carrier；本切片不运行
 `just ci`，不得宣称 Typed conditional semantics、完整 statement grammar 或正式 D1 完成。
 
+D1-PA-53 冻结的 pre-acceptance alpha bounded-for 子集一次实现既有 EBNF
+`"for" Ident "in" Expr "..<" Expr "bounded" Nat "do" Block` 的 Source surface。carrier 固定为
+`Source.Statement.forStmt(iterator : String, start : Expr, stopExclusive : Expr,
+maxIterations : Nat, body : Array Statement)`；它只记录作者源码，不执行迭代、求值或 target
+特化。parser 只新增一条 position-sensitive `forStmt` production：header 的 `for`、iterator、`in`、
+start、exact `..<` token、stopExclusive、`bounded`、bound 与 `do` 必须全部同一行；`do` 后必须真实
+换行，body item 必须更深缩进，并由 `many1Indent(pfStmt)` 保证 non-empty。`0 ..< 10` 与
+`0..<10` 使用同一个 exact range token 并形成同一 Source tree；不得接受内部拆开的 `.. <`、闭区间或
+textual/same-line fallback。
+
+`maxIterations` 只接受 exact ASCII decimal spelling `0..4096`；除单独 `0` 外禁止 leading zero，
+并拒绝 signed、hex、underscore、空或超界 spelling。decoder 必须复用 `Bytes N` 已有的 bounded
+decimal lexical discipline，不得调用 unchecked host literal/`getNat` 转换，而要先验证长度/leading-zero，
+再逐字符验证 digit、手工累积并即时检查上界；不得另建宽松 numeral 路径。custom parser node 必须按 iterator→start→stopExclusive→maxIterations→body 顺序 exact
+kind/token/null-group/non-empty shape 验证，quotation 必须递归保留 body array，不得退化为文本。
+
+Source canonical encoder 使用 append-only Statement tag `10`，随后依次编码 iterator string、start
+expression、stopExclusive expression、`appendNat maxIterations` 与 length-prefixed body statement array；
+tag `0..9` 与全部旧 golden 不变。tests-only RED 为 zero migration，只新增/注册
+`Tests.Language.ForStatements`。positive 固定 initializer、entry、view、fn 的 Lean
+command/ParserSession parity，bound `0`/`4096`、spaced/compact exact range token、literal/variable/operator/
+group endpoints、multi-statement body 与 nested if/for。canonical golden/non-alias 必须绑定 iterator、两个 endpoint value/tree、bound、
+body count/order/nesting、tag `10`，RED 中 golden 保持显式未绑定，后续独立 probe 单独提交绑定。
+
+missing iterator/`in`/`..<`/stop/`bounded`/bound/`do`、header split、same-line/same-column/empty body、
+内部拆开的 `.. <`、bound `4097`/`01`/`0x10`/signed/underscore、extra payload 必须 fail closed；
+unescaped `for := 1`/`in := 1`/`bounded := 1` 必须拒绝，escaped `«for»`/`«in»`/`«bounded»`
+保持 assignment。`Typed.checkStatement` 必须在 iterator lookup、endpoint checking、bound/body/return/effect
+analysis 前逐字 fail closed 为 `for statements are not yet supported by typed checking`；旧 statement controls
+保持 exact outcome。本切片不实现 iterator scope/type、range evaluation、bounded-loop proof、induction、
+return/effect/path、Semantic/requirement、target Plan/IR、runtime 或 materialization；production 仅限
+Source/Syntax/Typed 3 文件、最多 34 行新增且不移除既有 production，并在同一 GREEN 刷新 Lean package
+file-set。focused/aggregate/test binary、independent review 与 PA50–PA53 committed-tree batch `just ci` 全绿后
+只可记录 bounded-for Source carrier；不得宣称 loop semantics、完整 statement grammar 或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

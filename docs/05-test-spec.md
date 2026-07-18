@@ -1455,6 +1455,33 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   exact custom-node shape 验证与 fail-closed catch-all。focused/aggregate/test binary 和 final review 全绿后
   收口；按冻结不运行 `just ci`，不得声明 Typed conditional semantics、完整 statement grammar
   或正式 D1 完成。
+- D1-PA-53 的 alpha bounded-for tests 新增
+  `Source.Statement.forStmt(iterator : String, start : Expr, stopExclusive : Expr,
+  maxIterations : Nat, body : Array Statement)`，完整覆盖
+  `for Ident in Expr ..< Expr bounded Nat do Block` Source surface。唯一 position-sensitive parser
+  必须固定整条 header 同行、exact `..<` token、`do` 后真实换行和更深缩进的 non-empty
+  `many1Indent(pfStmt)` body。spaced `0 ..< 10` 与 compact `0..<10` 必须形成同一 Source tree，
+  内部拆开的 `.. <` 必须拒绝。bound 必须复用 `Bytes N` 的 exact ASCII decimal `0..4096`
+  lexical discipline，禁止 unchecked host literal/`getNat` 转换，改为逐字符验证、手工累积与即时上界检查；
+  `0`/`4096` 接受，`4097`/`01`/`0x10`/signed/underscore 拒绝。
+  decoder exact 验证 custom kind、tokens、null body group 与 non-empty shape，顺序为
+  iterator→start→stopExclusive→maxIterations→body；quotation 结构化递归保留 body array。
+  Source canonical encoder 使用 append-only Statement tag `10`，再编码 iterator string、两个 endpoint
+  expression、`appendNat maxIterations` 与 body array；固定 iterator、endpoint value/tree、bound、body
+  count/order/nesting、tag non-alias，tags `0..9`/旧 goldens 不变。RED 中 canonical hash/size 必须显式
+  未绑定，独立 probe 后单独提交 golden binding。
+  tests-only RED 为 zero migration，只新增/注册 `Tests.Language.ForStatements`。positive 覆盖
+  initializer、entry、view、fn 的 Lean command/ParserSession parity、bound `0`/`4096`、literal/variable/
+  operator/group endpoints、multi-statement body 与 nested if/for。missing iterator/`in`/`..<`/stop/
+  `bounded`/bound/`do`、header split、same-line/same-column/empty body、内部拆开的 `.. <`、extra payload 与上述
+  malformed bounds 必须 parser reject；`for := 1`/`in := 1`/`bounded := 1` 拒绝，escaped 三词保持
+  assignment。`Typed.checkStatement` 在 iterator/endpoint/bound/body/return/effect analysis 前 exact 返回
+  `for statements are not yet supported by typed checking`，旧 statement controls 不变。本切片不实现
+  iterator scope/type、range evaluation、bounded-loop proof/induction、return/effect/path、Semantic/
+  requirement、target/runtime；production 限 Source/Syntax/Typed 3 文件、最多 34 行新增且不移除既有
+  production，并同 GREEN 刷新 Lean package file-set。focused/aggregate/test binary、independent review 与
+  PA50–PA53 committed-tree batch `just ci` 全绿后收口；不得声明 loop semantics、完整 statement grammar
+  或正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
