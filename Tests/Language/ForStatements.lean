@@ -58,6 +58,9 @@ open ProofForgeV2
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
+private theorem iterationBoundAtMost4096 (bound : Source.IterationBound) :
+    bound.val ≤ 4096 := Nat.le_of_lt_succ bound.isLt
+
 private def twin (statement : Source.Statement) : Source.Program :=
   Source.Program.buildQualified
     "Tests.Language.ForStatementsFixture.ForTwin" "ForTwin" #[
@@ -186,6 +189,8 @@ private def expectGolden (label : String) (source : Source.Program)
 
 set_option maxRecDepth 2048 in
 unsafe def run : IO Unit := do
+  expect ((4096 : Source.IterationBound).val == 4096)
+    "IterationBound must retain its exact maximum while excluding larger values by type"
   let elaborated := Tests.Language.ForStatementsFixture.ForSurface
   match elaborated.initializer with
   | some initializer =>
