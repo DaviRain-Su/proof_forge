@@ -3442,3 +3442,44 @@ normative: false
   `git diff --check` clean。
 - Limitations：全部为 development 级证据；darwin 回归、eligible host、治理裁决
   仍待用户侧动作。
+
+## 2026-07-18 — D1 exact Option Bytes spelling pre-acceptance slice
+
+- Commits：freeze `0f8f31d0`；dual-migration tests-only RED `6afd44a8`；canonical golden binding
+  `8d9c6c2e`；Syntax-only GREEN `ff36cac7`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-58 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 recursive `Source/Semantic.ValueType.option(.bytes length)` 开放 exact same-line
+  `Option Bytes N`。新增 named `optionBytesType` 与 struct-field/enum-member 专用
+  `optionBytesAggregateField`；decoder 复用既有 `decodeBytesLengthAtom` 的 canonical ASCII decimal
+  `0..4096` 长度校验，再构造 `.option (.bytes length)`。通用 `portableType`、Source/Semantic ctor 与
+  encoder、quotation、Typed 和 target 均未改。
+- Migration/Coverage：把 `Tests.Language.OptionDeclarations` 的 `Option Bytes 8` 与
+  `Tests.Language.BytesTypes` 的 `Option Bytes 32` 两条既有 parser-negative 迁移为 positive，migration
+  count 恰为二。Lean command/ParserSession 双入口覆盖长度 0/8/32/4096、state/struct/enum/const/
+  initializer/entry/view/fn parameter/result。missing/invalid length、escaped/qualified constructor、extra/
+  split payload 均 fail closed；Array Option、Array Field、third-layer nested Option、Option Map 与既有
+  extra-payload boundary 保持。
+- Canonical/requirements：既有 tag `16→17→length` 被 Source 0/8/32/4096 四组 257-byte goldens
+  `17902c1fe40da65b620a8005a595f957e23101cc186597c338f1d1de66cf8d57`、
+  `fdeaa16c4e891ffac8179e9b3f83086f51b03765ad9029100c02114247166754`、
+  `4634c603c403cba66d1243193c835f5d6ee8827f66a59696526dd6cdb1df8334`、
+  `5aeb3692b33316440837c2ca69f68a6b1ff53b529044f170bf1f0bbe3272bc35` 与 Semantic 206-byte goldens
+  `8bf703f9490bb378ff816a62de7ba406dae03b5f18d48697f85e9ddd48b556e5`、
+  `8225233436aad7fedd34dacdb0d0e0e758973c7281340a390ab1bc9400459885`、
+  `60aabc823097c35ca6fbc67bc507f30346f363ddc137e086f78eb11296196543`、
+  `9a809c983cfe801d2954cad3aa581d2ccd02c70b2cf3829894d071455e652e95` 固定，并与 bare Bytes、
+  single Option、Option Array、different length non-alias。Option Bytes requirement 为空；四个 Phase 1
+  target support 后由 non-UInt64 Plan invariant 拒绝，未产出 artifact。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，26 行新增/0 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations Tests.Language.BytesTypes`
+  24 jobs；aggregate/test graph 192 jobs；`lake exe proof_forge_next_tests` exit 0；
+  `just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 全绿。Grok/Kimi residual audits
+  P0=0；development evidence 为 `EV-20260718-0050`。本切片按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、zero requirement 与
+  support-vs-Plan boundary。不包括 bytes literal/index/slice/length、none/some、unwrap、任意 recursive
+  grammar、recursive legality、runtime representation、ABI 或 target Option-Bytes support。
+- Limitations：不得声明 Option/Bytes runtime semantics、完整 type grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA58 declaration residual
+  audit，再选择单一依赖闭合最小切片，禁止自动递增。
