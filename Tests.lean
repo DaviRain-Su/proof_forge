@@ -30,6 +30,7 @@ import Tests.Language.ProofReferences
 import Tests.Language.ProgramSyntax
 import Tests.Language.ShiftLeft
 import Tests.Language.ShiftRight
+import Tests.Language.Equal
 import Tests.Language.PrimitiveDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
@@ -75,6 +76,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProofReferences.run
   Tests.Language.ShiftLeft.run
   Tests.Language.ShiftRight.run
+  Tests.Language.Equal.run
   Tests.Language.run
   Tests.Language.PrimitiveDeclarations.run
   Tests.Language.StateVisibility.run
