@@ -241,7 +241,7 @@ unsafe def run : IO Unit := do
       ("repeated star spaced", "2 * * 3"),
       ("repeated star glued", "2 ** 3"),
       ("extra token", "2 * 3 4"),
-      ("slash division", "2 / 3"),
+      -- Slash `2 / 3` migrated to CheckedDiv positives (D1-PA-29).
       ("percent modulo", "2 % 3")
     ] do
     let source := returnProgramSource "RejectedMulShape" expr

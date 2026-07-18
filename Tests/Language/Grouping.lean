@@ -304,8 +304,9 @@ unsafe def run : IO Unit := do
       ("extra inner payload", returnProgramSource "Bad" "(1 2)"),
       ("trailing after group", returnProgramSource "Bad" "(1) 2"),
       ("call-like", returnProgramSource "Bad" "f(1)"),
-      ("inner slash", returnProgramSource "Bad" "(2 / 3)"),
+      -- Inner slash `(2 / 3)` migrated to CheckedDiv positives (D1-PA-29).
       ("inner percent", returnProgramSource "Bad" "(2 % 3)"),
+
       -- Grouped unary `(- 3)` migrated to CheckedNeg positives (D1-PA-25).
       ("type-position group",
         "import ProofForgeV2\n\n" ++

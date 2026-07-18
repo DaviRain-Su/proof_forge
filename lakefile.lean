@@ -22,6 +22,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.BitwiseNot,
     `Tests.Language.BoolLiterals,
     `Tests.Language.BytesTypes,
+    `Tests.Language.CheckedDiv,
     `Tests.Language.CheckedMul,
     `Tests.Language.CheckedNeg,
     `Tests.Language.CheckedSub,

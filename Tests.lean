@@ -10,6 +10,7 @@ import Tests.Language.AssertStatements
 import Tests.Language.BitwiseNot
 import Tests.Language.BoolLiterals
 import Tests.Language.BytesTypes
+import Tests.Language.CheckedDiv
 import Tests.Language.CheckedMul
 import Tests.Language.CheckedNeg
 import Tests.Language.CheckedSub
@@ -52,6 +53,7 @@ unsafe def main : IO Unit := do
   Tests.Language.BitwiseNot.run
   Tests.Language.BoolLiterals.run
   Tests.Language.BytesTypes.run
+  Tests.Language.CheckedDiv.run
   Tests.Language.CheckedMul.run
   Tests.Language.CheckedNeg.run
   Tests.Language.CheckedSub.run
