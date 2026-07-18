@@ -239,6 +239,17 @@ private def decodeProofTheorem (stx : Syntax) : Except String (Array String) := 
     throw "proof theorem name must contain at least two components"
   pure canonical
 
+private def decodeConstructorPath (stx : Syntax) : Except String (Array String) := do
+  let mut components : Array String := #[]
+  for component in stx.getId.components do
+    match component with
+    | .str .anonymous value => components := components.push (← decodePortableIdentifierName value)
+    | _ => throw "qualified-name component must use Lean identifier characters"
+  let qualified ← ProofForgeV2.Core.Common.parseQualifiedName components
+  let canonical ← ProofForgeV2.Core.Common.renderQualifiedNameComponents qualified
+  unless canonical.size >= 2 do throw "constructor path must contain at least two components"
+  pure canonical
+
 private def decodeTypeIdentifiers (first : Syntax) (second : Option Syntax) :
     Except String ProofForgeV2.Source.ValueType :=
   match rawIdentifierText? first, second.bind rawIdentifierText? with
@@ -372,9 +383,11 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
         .ok <| .literal (UInt64.ofNat number)
   | `(pfExpr| $value:str) => .ok <| .stringLiteral value.getString
   | `(pfExpr| $callee:ident ($args:pfExpr,*)) => do
-      unless callee.getId.components.length == 1 do
-        throw "local function call callee must be unqualified"
-      return .localFnCall (← decodeIdentifier callee) (← args.getElems.mapM decodeExprUnchecked)
+      if callee.getId.components.length == 1 then
+        let callee ← decodeIdentifier callee
+        return .localFnCall callee (← args.getElems.mapM decodeExprUnchecked)
+      let path ← decodeConstructorPath callee
+      return .constructorExpr path (← args.getElems.mapM decodeExprUnchecked)
   | `(pfExpr| $name:ident) => do
       return .variable (← decodeIdentifier name)
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
@@ -874,6 +887,10 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let callee := Syntax.mkStrLit callee
       let args ← args.mapM quoteExpr
       `(ProofForgeV2.Source.Expr.localFnCall $callee #[$[$args],*])
+  | .constructorExpr path args => do
+      let path := path.map Syntax.mkStrLit
+      let args ← args.mapM quoteExpr
+      `(ProofForgeV2.Source.Expr.constructorExpr #[$[$path],*] #[$[$args],*])
   | .variable value =>
       let value := Syntax.mkStrLit value
       `(ProofForgeV2.Source.Expr.variable $value)
