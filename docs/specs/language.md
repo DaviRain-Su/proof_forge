@@ -686,6 +686,33 @@ Typed/Semantic index、requirement 或 target behavior；production 仅限 Sourc
 indexAccess Source carrier；本切片不重复全量 `just ci`，下一批 primary-expression checkpoint 再运行，
 且不得宣称完整 Place、PrimaryExpr、expression/statement grammar 或正式 D1 完成。
 
+D1-PA-48 冻结的 pre-acceptance alpha revert statement 子集一次实现完整
+`RevertStmt ::= "revert" Ident ("(" ExprList? ")")?`，Source carrier 固定为
+`Source.Statement.revertStmt(errorName : String, args : Array Expr)`，不得拆成 bare-only 与 payload 两套
+constructor。parser rules 固定为 `syntax "revert " ident : pfStmt` 与
+`syntax "revert " ident "(" pfExpr,* ")" : pfStmt`，必须接受 bare `revert Err`、empty-paren
+`revert Err()` 与完整 `revert Err(exprs)`；
+bare/empty-paren 两种 surface 均物化为空 args array 并产生相同 Source AST/canonical bytes/sourceHash。
+每个 argument 复用 PA45 已完成的完整 `pfExpr`/ExprList grammar 并保持声明次序。
+
+errorName 必须是恰好一个 Lean `Name` component 的 `Ident`；decoder 先做 component-count guard，再经
+既有 `decodeIdentifier` policy 解码 name，最后才递归解码 arguments。qualified `A.B(...)` 必须在
+arguments 前逐字拒绝 `revert error name must be unqualified`。Source canonical encoder 使用 append-only
+Statement tag `5`，随后依次编码 errorName string 与 length-prefixed argument expression array；既有
+statement tags `0..4`/goldens 不得改变。tests-only RED 为 zero migration，只新增/注册
+`Tests.Language.RevertStatements`；canonical controls 固定 name、argument value/count/order/nesting、
+bare/empty equivalence 与 revert-vs-call/其他 statement kind non-alias。
+
+missing name/paren、leading/trailing/double comma、missing/adjacent argument、extra payload 与 unescaped
+keyword lookalikes 必须 fail closed；escaped assignment identifier 必须保持既有分类。`Typed.check` 必须在
+error declaration lookup、arity/type 或 argument checking 前逐字 fail closed 为
+`revert statements are not yet supported by typed checking`。本切片不得实现 error-table resolution、
+payload arity/type、failure code/rollback semantics、Typed/Semantic revert、ABI/runtime、requirement 或 target
+behavior；production 仅限 Source/Syntax/Typed 3 文件、最多 20 行新增。GREEN、focused/aggregate/test
+binary 与两份独立审查全绿后只可记录完整 revert statement Source carrier；本切片不重复全量
+`just ci`，下一批 statement checkpoint 再运行，且不得宣称完整 error semantics、statement grammar
+或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

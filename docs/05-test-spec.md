@@ -1312,6 +1312,28 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Source/Syntax/Typed 3 文件、最多 14 行新增。本切片只运行 focused/aggregate/test binary，下一批
   primary-expression checkpoint 再运行完整 `just ci`；收口不得声明完整 Place、PrimaryExpr、完整 grammar
   或正式 D1 完成。
+- D1-PA-48 的 alpha revert statement tests 固定完整
+  `"revert" Ident ("(" ExprList? ")")?` 与
+  `Source.Statement.revertStmt(errorName : String, args : Array Expr)`，不得拆成 bare-only 与 payload 两套
+  AST。positive 覆盖 initializer、entry、view、fn 的 Lean command/ParserSession parity；bare
+  `revert Err`、empty `revert Err()`、one/multiple arguments、operator/group/string/local-call/constructor/
+  index arguments 与 nested argument tree。bare/empty-paren 必须在同一 fixed identity 下产生相同
+  Source.Program/canonical bytes/sourceHash。
+  Source canonical encoder 使用 append-only Statement tag `5` 后接 errorName string 与 argument array；
+  固定 name、argument value/count/order/nesting 与 statement kind non-alias，尤其同 payload name 下的
+  revert tag `5` 对 synchronousCall tag `2` 不得 alias。tests-only RED 为 zero migration，只新增/注册
+  `Tests.Language.RevertStatements`。decoder 必须先验证 errorName 恰好一个 `Name` component 并应用既有
+  identifier policy，再解码 arguments；`A.B(true)` 必须在 Bool argument 前逐字拒绝
+  `revert error name must be unqualified`。
+  missing name/paren、leading/trailing/double comma、missing/adjacent arg、extra payload 与 unescaped keyword
+  lookalikes 必须停在 parser boundary；escaped assignment identifier 保持。`Typed.check` 必须在
+  error lookup/arity/type 与 argument checking 前逐字拒绝
+  `revert statements are not yet supported by typed checking`，以 unknown name 与 Bool/string arguments
+  固定优先级；既有 return/assign/call/let/assert controls 保持。本切片不得实现 error resolution、
+  payload legality、failure/rollback、Typed/Semantic revert、ABI/runtime、requirement/target；production 限于
+  Source/Syntax/Typed 3 文件、最多 20 行新增。本切片只运行 focused/aggregate/test binary，下一批
+  statement checkpoint 再运行 `just ci`；收口不得声明完整 error semantics、statement grammar或正式
+  D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
