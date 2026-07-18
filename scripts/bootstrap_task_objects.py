@@ -4,6 +4,12 @@
 This module deliberately performs no filesystem, socket, environment, or CLI
 I/O.  It can establish content-level facts only; it cannot authenticate a
 Stage-0 handoff or close a bootstrap task by itself.
+
+The aggregate approval-verifier receipt entry points remain pure
+consumer/validator primitives: they re-verify signed content and exact joins
+against caller-supplied authority inputs, but they do not authenticate the
+authority-store transport, safe-read provenance, revocation state, or the live
+Stage-0 process, and a returned receipt is not itself an activation fact.
 """
 
 from __future__ import annotations
@@ -49,6 +55,7 @@ TASK_ID_RE = re.compile(r"TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*")
 TEST_ID_RE = re.compile(r"TST-[A-Z0-9]+(?:-[A-Z0-9]+)*")
 EVIDENCE_ID_RE = re.compile(r"EV-[0-9]{8}-[0-9]{4}")
 BTV_ID_RE = re.compile(r"BTV-[0-9]{8}-[0-9]{4}")
+BAV_ID_RE = re.compile(r"BAV-[0-9]{8}-[0-9]{4}")
 SEMVER_RE = re.compile(
     r"(?:0|[1-9][0-9]*)\."
     r"(?:0|[1-9][0-9]*)\."
@@ -338,6 +345,28 @@ class BootstrapApprovalSetV1:
 
 
 @dataclass(frozen=True)
+class BootstrapApprovalVerifierReceiptV1:
+    schema: str
+    id: str
+    candidate: CandidateIdentity
+    authorityPolicy: ContentRef
+    requiredTestSet: ContentRef
+    approvalSet: ContentRef
+    stage0Handoff: ContentRef
+    verifierDigest: Digest
+    taskApprovals: Tuple[TaskApprovalRefV1, ...]
+    taskReceipts: Tuple[BootstrapTaskVerifierReceiptRefV1, ...]
+    result: str
+    signature: ApprovalSignatureV1
+
+
+@dataclass(frozen=True)
+class BootstrapApprovalVerifierReceiptRefV1:
+    id: str
+    digest: Digest
+
+
+@dataclass(frozen=True)
 class BootstrapLedgerSubjectV1:
     id: str
     taskId: str
@@ -414,6 +443,22 @@ class _BootstrapTaskVerifierReceiptPreflightV1:
 class _BootstrapApprovalSetPreflightV1:
     approvalSet: BootstrapApprovalSetV1
     approvals: Tuple[_TaskApprovalPreflightV1, ...]
+    signatureMessage: bytes
+    signedBytes: bytes
+
+
+@dataclass(frozen=True)
+class _VerifiedBootstrapApprovalSetV1:
+    approvalSet: BootstrapApprovalSetV1
+    approvalSetRef: ContentRef
+    taskApprovals: Tuple[TaskApprovalRefV1, ...]
+    taskReceipts: Tuple[BootstrapTaskVerifierReceiptRefV1, ...]
+    verifier: BootstrapAuthorityVerifierV1
+
+
+@dataclass(frozen=True)
+class _BootstrapApprovalVerifierReceiptPreflightV1:
+    receipt: BootstrapApprovalVerifierReceiptV1
     signatureMessage: bytes
     signedBytes: bytes
 
@@ -1028,6 +1073,21 @@ _BOOTSTRAP_APPROVAL_SET_FIELDS = (
     "taskReceipts",
     "signatures",
 )
+_BOOTSTRAP_APPROVAL_VERIFIER_RECEIPT_FIELDS = (
+    "schema",
+    "id",
+    "candidate",
+    "authorityPolicy",
+    "requiredTestSet",
+    "approvalSet",
+    "stage0Handoff",
+    "verifierDigest",
+    "taskApprovals",
+    "taskReceipts",
+    "result",
+    "signature",
+)
+_BOOTSTRAP_APPROVAL_VERIFIER_RECEIPT_REF_FIELDS = ("id", "digest")
 _STAGE0_CHANNEL_SPECS = (
     ("authority-policy", "regular-file", "read-only"),
     ("authority-store", "authenticated-stream", "request-response"),
@@ -3066,19 +3126,14 @@ def _require_bootstrap_approval_set_input_joins(
     )
 
 
-def parse_bootstrap_approval_set(
+def _verify_bootstrap_approval_set_closure(
     approval_set_bytes: bytes,
     task_receipt_bytes: Tuple[bytes, ...],
     required_test_set_bytes: bytes,
     authority_policy_bytes: bytes,
     phase5_snapshot: BootstrapDocumentSnapshotV1,
     stage0_handoff_bytes: bytes,
-) -> Tuple[BootstrapApprovalSetV1, ContentRef]:
-    """Validate the exact six-task bootstrap approval-set content closure.
-
-    This pure consumer verifies signed content and exact raw-byte joins only;
-    it does not authenticate the authority-store transport or activate the set.
-    """
+) -> _VerifiedBootstrapApprovalSetV1:
     set_preflight = _preflight_bootstrap_approval_set(approval_set_bytes)
     receipt_preflights = _preflight_bootstrap_approval_set_receipts(
         task_receipt_bytes
@@ -3113,6 +3168,8 @@ def parse_bootstrap_approval_set(
         receipt.taskId: receipt
         for receipt in set_preflight.approvalSet.taskReceipts
     }
+    approval_refs = {}
+    receipt_refs = {}
     for task_id in _BOOTSTRAP_SET_TOPOLOGICAL_TASK_IDS:
         approval_preflight = approvals_by_task[task_id]
         receipt_preflight = receipts_by_task[task_id]
@@ -3130,6 +3187,8 @@ def parse_bootstrap_approval_set(
                 "BootstrapApprovalSetV1 task receipt ref does not match "
                 "exact raw bytes"
             )
+        approval_refs[task_id] = verified.approvalRef
+        receipt_refs[task_id] = verified.receiptRef
 
     _verify_approval_signatures(
         set_preflight.approvalSet.signatures,
@@ -3144,11 +3203,299 @@ def parse_bootstrap_approval_set(
         ).digest(),
     )
     approval_set = set_preflight.approvalSet
-    return approval_set, ContentRef(
-        approval_set.schema,
-        approval_set.id,
-        approval_set.version,
-        digest,
+    return _VerifiedBootstrapApprovalSetV1(
+        approval_set,
+        ContentRef(
+            approval_set.schema,
+            approval_set.id,
+            approval_set.version,
+            digest,
+        ),
+        tuple(approval_refs[task_id] for task_id in _D0_TASK_IDS),
+        tuple(receipt_refs[task_id] for task_id in _D0_TASK_IDS),
+        required_preflight.policy.verifier,
+    )
+
+
+def parse_bootstrap_approval_set(
+    approval_set_bytes: bytes,
+    task_receipt_bytes: Tuple[bytes, ...],
+    required_test_set_bytes: bytes,
+    authority_policy_bytes: bytes,
+    phase5_snapshot: BootstrapDocumentSnapshotV1,
+    stage0_handoff_bytes: bytes,
+) -> Tuple[BootstrapApprovalSetV1, ContentRef]:
+    """Validate the exact six-task bootstrap approval-set content closure.
+
+    This pure consumer verifies signed content and exact raw-byte joins only;
+    it does not authenticate the authority-store transport or activate the set.
+    """
+    verified = _verify_bootstrap_approval_set_closure(
+        approval_set_bytes,
+        task_receipt_bytes,
+        required_test_set_bytes,
+        authority_policy_bytes,
+        phase5_snapshot,
+        stage0_handoff_bytes,
+    )
+    return verified.approvalSet, verified.approvalSetRef
+
+
+def _preflight_bootstrap_approval_verifier_receipt(
+    verifier_receipt_bytes: bytes,
+) -> _BootstrapApprovalVerifierReceiptPreflightV1:
+    decoded = decode_canonical_pf_jcs(verifier_receipt_bytes)
+    obj = _require_exact_keys(
+        decoded,
+        _BOOTSTRAP_APPROVAL_VERIFIER_RECEIPT_FIELDS,
+        "BootstrapApprovalVerifierReceiptV1",
+    )
+    if obj["schema"] != "proof-forge.bootstrap-approval-verifier-receipt.v1":
+        _reject("BootstrapApprovalVerifierReceiptV1.schema is not v1")
+    identifier = _parse_compact_gregorian_id(
+        obj["id"], BAV_ID_RE, 4, "BootstrapApprovalVerifierReceiptV1.id"
+    )
+    candidate = parse_candidate_identity(obj["candidate"])
+    authority_policy = parse_content_ref(obj["authorityPolicy"])
+    if authority_policy.schema != "proof-forge.bootstrap-authority-policy.v1":
+        _reject(
+            "BootstrapApprovalVerifierReceiptV1.authorityPolicy schema "
+            "is not v1"
+        )
+    required_test_set = parse_content_ref(obj["requiredTestSet"])
+    if required_test_set.schema != "proof-forge.required-test-set.v1":
+        _reject(
+            "BootstrapApprovalVerifierReceiptV1.requiredTestSet schema "
+            "is not v1"
+        )
+    approval_set = parse_content_ref(obj["approvalSet"])
+    if approval_set.schema != "proof-forge.bootstrap-approval-set.v1":
+        _reject(
+            "BootstrapApprovalVerifierReceiptV1.approvalSet schema is not v1"
+        )
+    stage0_handoff = parse_content_ref(obj["stage0Handoff"])
+    if stage0_handoff.schema != "proof-forge.eligible-stage0-handoff.v1":
+        _reject(
+            "BootstrapApprovalVerifierReceiptV1.stage0Handoff schema is not v1"
+        )
+    verifier_digest = parse_digest(obj["verifierDigest"])
+
+    approval_values = obj["taskApprovals"]
+    if type(approval_values) is not list or len(approval_values) != 6:
+        _reject(
+            "BootstrapApprovalVerifierReceiptV1.taskApprovals must contain "
+            "six items"
+        )
+    assert isinstance(approval_values, list)
+    approval_refs = tuple(
+        _parse_task_approval_ref(
+            value,
+            f"BootstrapApprovalVerifierReceiptV1.taskApprovals[{index}]",
+        )
+        for index, value in enumerate(approval_values)
+    )
+    if tuple(ref.taskId for ref in approval_refs) != _D0_TASK_IDS:
+        _reject(
+            "BootstrapApprovalVerifierReceiptV1.taskApprovals must be exact "
+            "ascending TASK-D0-01..06 order"
+        )
+
+    receipt_values = obj["taskReceipts"]
+    if type(receipt_values) is not list or len(receipt_values) != 6:
+        _reject(
+            "BootstrapApprovalVerifierReceiptV1.taskReceipts must contain "
+            "six items"
+        )
+    assert isinstance(receipt_values, list)
+    receipt_refs = tuple(
+        _parse_task_receipt_ref(
+            value,
+            f"BootstrapApprovalVerifierReceiptV1.taskReceipts[{index}]",
+        )
+        for index, value in enumerate(receipt_values)
+    )
+    if tuple(ref.taskId for ref in receipt_refs) != _D0_TASK_IDS:
+        _reject(
+            "BootstrapApprovalVerifierReceiptV1.taskReceipts must be exact "
+            "TASK-D0-01..06 order"
+        )
+    if obj["result"] != "bootstrap-approved":
+        _reject(
+            "BootstrapApprovalVerifierReceiptV1.result must be "
+            "bootstrap-approved"
+        )
+    signature = _parse_approval_signature_syntax(
+        obj["signature"],
+        "BootstrapApprovalVerifierReceiptV1.signature",
+    )
+
+    statement = {
+        field: obj[field]
+        for field in _BOOTSTRAP_APPROVAL_VERIFIER_RECEIPT_FIELDS[:-1]
+    }
+    statement_digest = hashlib.sha256(
+        b"pf.bootstrap-approval-verifier-receipt-statement.v1\x00"
+        + canonical_pf_jcs(statement)
+    ).digest()
+    signature_message = (
+        b"pf.bootstrap-approval-verifier-receipt-signature.v1\x00"
+        + statement_digest
+    )
+    receipt = BootstrapApprovalVerifierReceiptV1(
+        "proof-forge.bootstrap-approval-verifier-receipt.v1",
+        identifier,
+        candidate,
+        authority_policy,
+        required_test_set,
+        approval_set,
+        stage0_handoff,
+        verifier_digest,
+        approval_refs,
+        receipt_refs,
+        "bootstrap-approved",
+        signature,
+    )
+    return _BootstrapApprovalVerifierReceiptPreflightV1(
+        receipt,
+        signature_message,
+        verifier_receipt_bytes,
+    )
+
+
+def _require_bootstrap_approval_verifier_receipt_input_joins(
+    receipt_preflight: _BootstrapApprovalVerifierReceiptPreflightV1,
+    verified_set: _VerifiedBootstrapApprovalSetV1,
+) -> None:
+    receipt = receipt_preflight.receipt
+    approval_set = verified_set.approvalSet
+    if receipt.candidate != approval_set.candidate:
+        _reject(
+            "verifier receipt candidate does not match BootstrapApprovalSetV1"
+        )
+    if receipt.authorityPolicy != approval_set.authorityPolicy:
+        _reject(
+            "verifier receipt authority policy does not match "
+            "BootstrapApprovalSetV1"
+        )
+    if receipt.requiredTestSet != approval_set.requiredTestSet:
+        _reject(
+            "verifier receipt required-test-set ref does not match "
+            "BootstrapApprovalSetV1"
+        )
+    if receipt.approvalSet != verified_set.approvalSetRef:
+        _reject("verifier receipt approval-set ref does not match exact bytes")
+    if receipt.stage0Handoff != approval_set.stage0Handoff:
+        _reject(
+            "verifier receipt Stage-0 handoff ref does not match "
+            "BootstrapApprovalSetV1"
+        )
+    if receipt.taskApprovals != verified_set.taskApprovals:
+        _reject(
+            "verifier receipt task approval refs do not match exact "
+            "signed bytes"
+        )
+    if receipt.taskReceipts != verified_set.taskReceipts:
+        _reject(
+            "verifier receipt task receipt refs do not match the verified "
+            "six-item set"
+        )
+    if receipt.verifierDigest != verified_set.verifier.executableDigest:
+        _reject("verifier receipt verifier digest does not match policy")
+    if receipt.signature.keyId != verified_set.verifier.receiptKeyId:
+        _reject("verifier receipt signature key is not the policy receipt key")
+
+
+def _finalize_bootstrap_approval_verifier_receipt(
+    preflight: _BootstrapApprovalVerifierReceiptPreflightV1,
+    verifier: BootstrapAuthorityVerifierV1,
+) -> Tuple[
+    BootstrapApprovalVerifierReceiptV1,
+    BootstrapApprovalVerifierReceiptRefV1,
+]:
+    receipt = preflight.receipt
+    if not verify_ed25519(
+        verifier.receiptPublicKey,
+        preflight.signatureMessage,
+        receipt.signature.signature,
+    ):
+        _reject("BootstrapApprovalVerifierReceiptV1 signature is invalid")
+    receipt_digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.bootstrap-approval-verifier-receipt.v1\x00"
+            + preflight.signedBytes
+        ).digest(),
+    )
+    return receipt, BootstrapApprovalVerifierReceiptRefV1(
+        receipt.id,
+        receipt_digest,
+    )
+
+
+def parse_bootstrap_approval_verifier_receipt(
+    verifier_receipt_bytes: bytes,
+    approval_set_bytes: bytes,
+    task_receipt_bytes: Tuple[bytes, ...],
+    required_test_set_bytes: bytes,
+    authority_policy_bytes: bytes,
+    phase5_snapshot: BootstrapDocumentSnapshotV1,
+    stage0_handoff_bytes: bytes,
+) -> Tuple[
+    BootstrapApprovalVerifierReceiptV1,
+    BootstrapApprovalVerifierReceiptRefV1,
+]:
+    """Validate the signed aggregate activation receipt against its inputs.
+
+    The complete approval-set content closure is re-verified from the exact
+    authority bytes before any receipt join or signature check.  This pure
+    consumer establishes signed-content facts only: it does not authenticate
+    the approval-store transport, safe-read provenance, revocation state, or
+    the live Stage-0 process, and the returned receipt is not itself an
+    activation fact.
+    """
+    receipt_preflight = _preflight_bootstrap_approval_verifier_receipt(
+        verifier_receipt_bytes
+    )
+    verified_set = _verify_bootstrap_approval_set_closure(
+        approval_set_bytes,
+        task_receipt_bytes,
+        required_test_set_bytes,
+        authority_policy_bytes,
+        phase5_snapshot,
+        stage0_handoff_bytes,
+    )
+    _require_bootstrap_approval_verifier_receipt_input_joins(
+        receipt_preflight,
+        verified_set,
+    )
+    return _finalize_bootstrap_approval_verifier_receipt(
+        receipt_preflight,
+        verified_set.verifier,
+    )
+
+
+def parse_bootstrap_approval_verifier_receipt_ref(
+    verifier_receipt_ref_bytes: bytes,
+) -> BootstrapApprovalVerifierReceiptRefV1:
+    """Validate the exact ``{id,digest}`` verifier-receipt ref wire object.
+
+    The ref is self-reported: a consumer must still verify the referenced
+    receipt bytes and every exact join before trusting any activation claim.
+    """
+    decoded = decode_canonical_pf_jcs(verifier_receipt_ref_bytes)
+    obj = _require_exact_keys(
+        decoded,
+        _BOOTSTRAP_APPROVAL_VERIFIER_RECEIPT_REF_FIELDS,
+        "BootstrapApprovalVerifierReceiptRefV1",
+    )
+    return BootstrapApprovalVerifierReceiptRefV1(
+        _parse_compact_gregorian_id(
+            obj["id"],
+            BAV_ID_RE,
+            4,
+            "BootstrapApprovalVerifierReceiptRefV1.id",
+        ),
+        parse_digest(obj["digest"]),
     )
 
 

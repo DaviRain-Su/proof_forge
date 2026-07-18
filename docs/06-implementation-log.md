@@ -3516,3 +3516,35 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA58 declaration residual
   audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — TASK-D0-04 pre-acceptance：BootstrapApprovalVerifierReceiptV1 对象族
+
+- Context：用户指示"继续往下"。D0-04 缺口盘点中仓库内可实现的首件——aggregate
+  activation receipt 对象族（spec：`docs/specs/gate-catalog-finalization.md:1233-1289`）。
+  委托子代理实现，主会话逐段评审后提交。明确标注 pre-acceptance，不改变
+  `TASK-D0-04` 的 blocked 状态、冻结完成面或 Tests 集合。
+- Changed：`scripts/bootstrap_task_objects.py`（+371 行）——
+  `BootstrapApprovalVerifierReceiptV1`（12 字段 wire 与 spec 一致）与
+  `BootstrapApprovalVerifierReceiptRefV1`（恰 `{id,digest}`）两个 frozen dataclass；
+  `parse_bootstrap_approval_verifier_receipt`（7 个权威输入全部以 canonical raw
+  bytes/typed snapshot 传入：纯结构 preflight（schema/`BAV-YYYYMMDD-NNNN` 真实日期/
+  四个 ContentRef schema 钉值/精确 6 项/result 钉值）在任何 curve work 前 fail
+  closed → 重跑完整 approval-set closure 验证 → 9 条 exact join（含 verifierDigest
+  == `policy.verifier.executableDigest`、taskApprovals 重算、taskReceipts 逐项认证）→
+  三条 spec 推导式重算 statement/message/receipt digest + Ed25519 验签，返回
+  `(receipt, ref)`）；`parse_bootstrap_approval_verifier_receipt_ref`（wire 精确校验并
+  声明 ref 自报不构成验证）；`parse_bootstrap_approval_set` 验证主体原样抽为
+  `_verify_bootstrap_approval_set_closure`（公开签名/语义不变）。
+  `scripts/bootstrap_task_objects_self_test.py`（+613 行）：`assert_public_api` 钉住新
+  入口/类型；全正例 + 约 40 例负例（malformed/非 canonical/乱序/缺项/digest 漂移/
+  冒充 key/foreign seed/result 错值/statement 替换/错误算法/ref 漂移等），wrong-schema
+  在任何 curve 调用前拒绝（计数器为 0）。
+- Verification：`/usr/bin/python3 -I -S scripts/bootstrap_task_objects_self_test.py` ok；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check` clean。
+  development evidence 为 `EV-20260718-0054`。
+- Limitations：纯 consumer/validator——无 store/service/producer、无 safe-read/撤销/
+  activation 事实、不认证 store 传输或活 Stage-0 进程；不得据本条关闭
+  `TASK-D0-04`（仍 blocked）；D0 formal milestone 仍为 7/9。
+- Next：D0-04 下一仓库内缺口为 `FormalGateCatalogApprovalV1` 对象族（同型
+  pre-acceptance 切片）；authority-store/producer/handoff producer/containment runner
+  仍需 eligible host 前置。
