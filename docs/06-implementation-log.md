@@ -2168,3 +2168,50 @@ normative: false
   与 unary `!` 的 token integrity、Compare precedence `50` non-associativity、Expr tag `15`、
   `LogicalNot.lean` 中唯一 `1 != 2` retention negative 的迁移、equal/non-equal non-alias 与 exact Typed
   failure；不得捆绑 ordering、Bool legality、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 not-equal pre-acceptance slice
+
+- Commits：freeze `b683bea9`；tests-only RED `25222bdb`；Source-only GREEN `cff64eea`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-34 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 新增 `notEqual lhs rhs`，alpha canonical encoder 以 Expr tag `15`
+  后依次递归编码 lhs/rhs；`pfExpr` 新增 `syntax:50 pfExpr:51 " != " pfExpr:51 : pfExpr`，与 `==`
+  同层且两个 operand slot 都高于 operator precedence。decoder/quotation 结构化保留 node；
+  `Typed.checkExpr` 在检查任一 operand 前逐字 fail closed 为
+  `not-equal comparison is not yet supported by typed checking`。production 恰好只改 `Source.lean`、
+  `Syntax.lean`、`Typed.lean` 3 文件/11 行，其他层未改。
+- Parser/AST：initializer、entry、view、fn 的 return/let value 与 Lean command/ParserSession parity 全绿；
+  integer/Bool/order/variable、add/mul/shift 双向 precedence、grouping、`-1!=2`、`1!=-2`、
+  `!true!=false` 与 `1!=!false` AST 精确。`1!=2!=3`、`1==2!=3` 与 `1!=2==3` 全部 parser
+  reject，落实整个 Compare 层至多一个 comparison；operand/result legality 留给 D2。
+- Binding：NotEqualTwin 的代表 goldens 为 `1!=2`
+  `67d67880083a4d0dfb388b5ed143cb20bc38e06de011394e95f01dc689964aa3`/222 bytes、`2!=1`
+  `cd2166f9ea79863591a5c0803dbe95881bd5e7032d1aa38cbdf31d1ad2622977`/222、`a!=b`
+  `6a872c60e3b8abf027797c97a5e02442fedb1b87809df10565263fef5e95835a`/224、`true!=false`
+  `be87f2a2407cfb141d39227db9e2f1ceebc1b174b16604c441e10c16056f3a7f`/208、`false!=true`
+  `07225e9e291954153d652ced3ea5d6e28f2bc3bf58479e69e0dbe4cb2239b3bd`/208、`1+2!=3`
+  `9baacaad68a3d6d47a5a6aad43432aed9a7ba6584a5f66b1d08e570a40048a4e`/232、`1<<2!=3`
+  `82f701c0cccbee82a2b66eeb6b51b5e0950c95b24c4b5d074a15db4b03dd3e64`/232、`1>>2!=3`
+  `bf432615fe32a6a34f0c0833627e491f4a27d35142af73b73035aa3ccd5c0304`/232、`!true!=false`
+  `b53f41eda90f7cd68848008bb90b5edf9804ee53fdc63a44b383806859d85bb3`/209、`1!=!false`
+  `a0a3f813a4e592bfee1f4e2effd4c96709c5bba1941c69cfd6ddfdf507f42108`/216；equal tag、
+  operator/order/type、wrong precedence、shift direction 与 unary placement 均不 alias。
+- Migration/Boundaries：同一 RED 只迁移 `LogicalNot.lean` 的 deferred `1 != 2` 一条 negative；
+  相邻 `! = 2` 保持拒绝。bare/missing operand、`1 ! = 2`、`1 !== 2`、`1 ! == 2`、
+  same/mixed chain 与 extra payload 停在 parser boundary；`Equal.lean` 的四个 ordering siblings 保持。
+  Typed 对 `true!=false` 仍先给 not-equal diagnostic；checkedAdd positive 与 Bool/sub/mul/div/mod/neg/
+  bitwise/logical/shift-left/shift-right/equal exact controls 保持。
+- Review/Commands：Grok 完成 freeze/RED 设计、tests-only RED 与 post-slice residual audit；Kimi 完成
+  freeze seam 和 GREEN 最终只读审计，最终 P0/P1=0；coordinator 完成严格 11 行 GREEN。执行
+  `lake build Tests.Language.NotEqual`；`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：14-job focused build、152-job aggregate 与测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0020`。本小切片按批量策略不重复全量 CI。
+- Limitations：仅有 Source carrier，没有 operand/result type legality、Typed/Semantic comparison、
+  ordering/bitwise/logical binary operators、constant folding、requirement、target ABI/runtime、eligible host
+  或 formal D1 evidence。只完成 `==`/`!=` equality pair，不得声称 CompareExpr、expression grammar 或
+  `TASK-D1-04` 正式完成；D0 formal milestone 仍为 5/8。
+- Next：residual audit 选择 less-than `<` 为唯一下一 candidate，但尚未冻结。冻结前必须核准与 `<<`
+  的 longest-token/token-integrity boundary、Compare precedence `50` non-associativity、Expr tag `16`、
+  `Equal.lean` 中唯一 `1 < 2` retention negative 的迁移、same/mixed chain rejection 与 exact Typed failure；
+  不得捆绑 `<=`、`>`、`>=`、Bool legality、Semantic 或 target lowering。
