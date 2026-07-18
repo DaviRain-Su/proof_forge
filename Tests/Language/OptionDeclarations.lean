@@ -1167,9 +1167,12 @@ unsafe def run : IO Unit := do
       s!"{label} semantic tag16+tag16+tag18 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
   let optionArrayFieldSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Field bn254_fr 0", .option (.array .field 0), 0, "UNBOUND"),
-    ("Option Array Field bn254_fr 4", .option (.array .field 4), 0, "UNBOUND"),
-    ("Option Array Field bn254_fr 4096", .option (.array .field 4096), 0, "UNBOUND")
+    ("Option Array Field bn254_fr 0", .option (.array .field 0), 259,
+      "7af10a115ef40c8d50825cee9dedf87c64252e60534712bed73de354c13330f3"),
+    ("Option Array Field bn254_fr 4", .option (.array .field 4), 259,
+      "42c2f85620ed390c8ace928918e798216b187b218403cce1c42bfe99363fc994"),
+    ("Option Array Field bn254_fr 4096", .option (.array .field 4096), 259,
+      "1924e8f96feef77088e09b7e94988d8675ff071e51877272fdf0d3d99c951eca")
   ]
   for (label, type, expectedSize, expectedHash) in optionArrayFieldSourceVectors do
     let sourceProgram := twin type
@@ -1185,9 +1188,12 @@ unsafe def run : IO Unit := do
     "Option Array Field must bind Option/Array/Field tags and complete length payload"
 
   let optionArrayFieldSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Field bn254_fr 0", .option (.array .field 0), 0, "UNBOUND"),
-    ("Option Array Field bn254_fr 4", .option (.array .field 4), 0, "UNBOUND"),
-    ("Option Array Field bn254_fr 4096", .option (.array .field 4096), 0, "UNBOUND")
+    ("Option Array Field bn254_fr 0", .option (.array .field 0), 209,
+      "6da88f12a83e36234a66ec519a795821fe039492a1c04163e96ba94aa596b901"),
+    ("Option Array Field bn254_fr 4", .option (.array .field 4), 209,
+      "9b632ec1308d232ea2084c0051df30e65fefa7427f6a30f3576005c5f56c1bf8"),
+    ("Option Array Field bn254_fr 4096", .option (.array .field 4096), 209,
+      "b96c7c9f44c11b05b9ee880cc183628cec68981a9a6df5fd7adc91aa1d168ca7")
   ]
   for (label, type, expectedSize, expectedHash) in optionArrayFieldSemanticVectors do
     let sourceProgram := twin type
