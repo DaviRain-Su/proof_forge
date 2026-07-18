@@ -3913,3 +3913,42 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；下一 slice 未冻结，待 final review 后重新做 post-PA65 declaration
   residual audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-19 — TASK-D0-04 pre-acceptance：Stage-0 handoff producer 与 bwrap containment
+
+- Context：D0-04 仓库内缺口第五件（spec：`docs/specs/gate-catalog-finalization.md:340-382`）。
+  委托实现，主会话抽查评审后提交。
+- Changed：`scripts/stage0_handoff.py`（634 行）——`produce_stage0_handoff`：三个
+  regular-file channel 以 `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` safe-open，fstat 钉
+  S_ISREG 后按角色域重算 binding digest（policy=`pf.bootstrap-authority-policy.v1`
+  且完整 parse 验证；candidate-archive=plain SHA-256 且恰等于
+  `candidate.archiveDigest`；evidence-root=`pf.bootstrap-evidence-root-manifest.v1`）；
+  authority-store channel 为 `socketpair(AF_UNIX,SOCK_STREAM)`；fd 显式清 CLOEXEC
+  供继承；eligible 门控（observation 证明 eligibleForHermetic=true 才产出
+  eligible=true，本机必然 fail closed 且零 fd 泄漏——`/proc/self/fd` 快照断言）；
+  nonce=`secrets.token_bytes(32)`；产出跑 consumer preflight round-trip 自检。
+  `verify_inherited_channels`：`/proc/self/fd` 集合恰为 {0,1,2}∪channels、fd0 EOF、
+  regular 验 S_ISREG/O_RDONLY/digest、socket 验 S_ISSOCK/连通/SO_PEERCRED 同 uid。
+  `scripts/stage0_containment.py`（313 行）——bwrap runner：`--unshare-pid
+  --die-with-parent --unshare-net --clearenv`+白名单 setenv+可传 bind+`--chdir`；
+  stdin DEVNULL 即时 EOF；stdout/stderr 泵线程按字节上限截断超限即 kill
+  （`PF-STAGE0-LIMIT`）；wall-clock 超时 kill 全树（`PF-STAGE0-TIMEOUT`）；
+  preexec setrlimit（AS/CPU/NOFILE/NPROC）。setsid-proof 经 PID ns init 语义实测：
+  setsid 孙进程 marker 在 runner 退出后不存在；timeout 杀全树同样无 marker。
+  fd 继承链：`F_SETFD` 清 CLOEXEC → `subprocess.Popen(close_fds=True, pass_fds=…)`
+  POSIX 原编号继承 → bwrap 不关 fd → payload 同编号可见（穿透实测钉住）。
+  `scripts/stage0_handoff_self_test.py`（878 行）：producer 正例/负例（ineligible/
+  malformed/symlink/替换/零泄漏）、真实 fork/exec 子进程 fd 交付正负例、
+  containment 的 setsid/网络/env/stdout/timeout/rlimit 全矩阵。
+- Verification：`/usr/bin/python3 -I -S scripts/stage0_handoff_self_test.py` ok；
+  既有三个 bootstrap/store 自测 ok；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean；justfile `docs-check` recipe 已接入。development
+  evidence 见台账追记。
+- Limitations：tcb digest 为 typed 输入（真实重算在 Stage-0 集成时接入）；
+  observation/profile ref 用 plain SHA-256 绑定（spec 未钉域，docstring 声明）；
+  SO_PEERCRED 是同用户连通端点检查，非 peer executable attestation；本机
+  ineligible，eligible=true 路径只能由 fixture 驱动；不得据本条关闭
+  `TASK-D0-04`（仍 blocked）；D0 formal milestone 仍为 7/9。
+- Next：TST-BOOTSTRAP-001 可执行验收（fixture namespace 端到端 rehearsal：
+  dev authority → 六 approval+receipt → set → store publish/readback → handoff →
+  containment 内 consumer 全链验证 → activation receipt）与 D0-04 关闭治理件。
