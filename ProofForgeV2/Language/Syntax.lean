@@ -20,6 +20,9 @@ prevents the following program item from becoming part of the type. -/
 @[pfType_parser default+1] def optionFieldType := leading_parser
   withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident)
+@[pfType_parser default+1] def optionOptionType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident)
 
 declare_syntax_cat pfParam
 syntax ident " : " pfType : pfParam
@@ -113,6 +116,10 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
 @[pfAggregateMember_parser default+1] def optionFieldAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionOptionAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> ident >> checkLinebreakBefore)
 syntax "| " ident linebreak : pfAggregateMember
 syntax "| " ident "(" sepBy(pfType, ", ") ")" linebreak : pfAggregateMember
@@ -368,6 +375,16 @@ private def decodeOptionFieldValueTypeFromAtoms (atoms : Array Syntax) :
       | _ => .error "unsupported portable type"
   | _ => .error "unsupported portable type"
 
+private def decodeNestedOptionValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  let elementSyntax ← match atoms with
+    | #[element] => pure element
+    | _ => throw "unsupported portable type"
+  let element ← match rawIdentifierText? elementSyntax with
+    | some _ => decodeTypeIdentifiers elementSyntax none
+    | none => throw "unsupported portable type"
+  pure (.option (.option element))
+
 /-- Decode one or two type atoms into a ValueType (shared by pfType and fields). -/
 private def decodeValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType :=
@@ -389,7 +406,9 @@ private def decodeValueTypeFromAtoms (atoms : Array Syntax) :
   | _ => .error "unsupported portable type"
 
 private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Source.ValueType :=
-  if stx.isOfKind ``optionFieldType then
+  if stx.isOfKind ``optionOptionType then
+    decodeNestedOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``optionFieldType then
     decodeOptionFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``arrayType then
     decodeArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
@@ -574,6 +593,15 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
 
 private def decodeStructFieldUnchecked (stx : Syntax) :
     Except String ProofForgeV2.Source.FieldDecl := do
+  if stx.isOfKind ``optionOptionAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeNestedOptionValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
   if stx.isOfKind ``optionFieldAggregateField then
     let atoms := collectTypeAtomSyntax stx
     let nameStx ← match atoms[0]? with
