@@ -640,8 +640,8 @@ unsafe def run : IO Unit := do
       s!"{label} semantic tag16+tag16 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
   let nestedFieldSource := twin (.option (.option .field))
-  expect (nestedFieldSource.canonicalBytes.size == 0 &&
-      nestedFieldSource.sourceHash == "UNBOUND")
+  expect (nestedFieldSource.canonicalBytes.size == 243 &&
+      nestedFieldSource.sourceHash == "09409ade24acaf6a14c98ee63d23087c04ab8da990f56a47e438ae9be66d2b73")
     s!"Option Option Field source tag16+tag16+tag2 golden is unbound: size={nestedFieldSource.canonicalBytes.size}, hash={nestedFieldSource.sourceHash}"
   expect (nestedFieldSource.sourceHash != (twin .field).sourceHash &&
       nestedFieldSource.sourceHash != (twin (.option .field)).sourceHash &&
@@ -652,8 +652,9 @@ unsafe def run : IO Unit := do
     | .ok value => pure value
     | .error error =>
         throw <| IO.userError s!"Option Option Field semantic twin must compile: {error.render}"
-  expect (nestedFieldSemantic.canonicalBytes.size == 0 &&
-      nestedFieldSemantic.semanticHash == "UNBOUND")
+  expect (nestedFieldSemantic.canonicalBytes.size == 193 &&
+      nestedFieldSemantic.semanticHash ==
+        "6f639e0d5025222f9c65f88ed9d56808b0ff8c8f019f0c7f885cdf2ad7332db3")
     s!"Option Option Field semantic tag16+tag16+tag2 golden is unbound: size={nestedFieldSemantic.canonicalBytes.size}, hash={nestedFieldSemantic.semanticHash}"
 
   let optionArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
