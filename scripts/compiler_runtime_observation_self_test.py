@@ -221,6 +221,7 @@ def id_output(install_id: str) -> str:
 
 def make_lock() -> dict:
     return {
+        "schema": "proof-forge.toolchains.v2",
         "machoPolicy": {"allowedSystemLoadRoots": list(SYSTEM_ROOTS)},
         "compilerToolchain": {
             "executables": [
