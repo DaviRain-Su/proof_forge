@@ -3260,3 +3260,37 @@ normative: false
   不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA53 residual audit，
   再选择单一依赖闭合的最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 bounded Array declaration pre-acceptance slice
+
+- Commits：freeze `1bda5b17`；tests-only RED `0f51d950`；canonical golden binding
+  `88051192`；Source/Semantic/frontend GREEN `a9fdd05f`；closure-negative hardening `efb6206e`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-54 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 Source/Semantic `ArrayLength := Fin 4097` 与
+  `ValueType.array(element,length)`。append-only Type tag `18` 后递归编码 element，再以各 encoder
+  既有 `appendNat(length.val)` 编码长度；Fin bound 使公开 carrier 中 `4097+` 不可表示，避免
+  `UInt64.ofNat` wrap alias。Array 自身不发明 requirement，只递归传播 element requirement。
+- Parser：新增 exact contextual named `arrayType` 和 struct-field 专用 `arrayAggregateField`，通用
+  `portableType` 仍只接受一或二 atom，因此未把 `Option Bytes N`/`Option UInt64 Principal` 从 parser
+  boundary 迁移到 decoder。decoder 复用 Bytes canonical decimal validator，再构造 `<4097` proof；
+  quotation 保留 element 与 Fin value。
+- Coverage：Lean command/ParserSession 双入口覆盖全部 14 个 PrimitiveAtom、state/struct/enum/const/
+  initializer/entry/view/fn、长度 0/普通值/4096。Field/Named/Option/Bytes/Array/Map element、缺失/
+  额外/跨行/qualified/escaped forms 与 4097/leading-zero/hex/underscore/signed 长度均 fail closed。
+  Source/Semantic 各四组 hash/size goldens、tag/element/length non-alias、`Array UInt64` 零 requirement、
+  `Array Bool` 的 `boolValues`、四 target support-vs-Plan non-UInt64 无制品拒绝全部固定。
+- Scope：production 恰好 Core/Source、Core/SemanticIR、Language/Syntax 3 文件，48 行新增/1 行移除；
+  `supply-chain/lean-package-files.v1.json` 同 GREEN re-pin。tests-only zero migration。
+- Commands/Results：`lake build Tests.Language.ArrayTypes` 23 jobs；aggregate/test executable build graph
+  192 jobs；`lake exe proof_forge_next_tests` exit 0，最新 committed suite 8.93 s；
+  `just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 全绿。一次脱离 `lake env` 的
+  裸测试二进制运行因缺少 Lean module search path fail closed，改用产品规定的 `lake exe` 后全绿，
+  不计为产品失败。Kimi final review P0/P1=0；development evidence 为 `EV-20260718-0046`。
+- Scope claim：只完成 bounded Array declaration carrier、canonical identity、requirement propagation 与
+  support-vs-Plan boundary。不包括 array value/constructor/index/length/slice/mutation、runtime layout、
+  ABI、recursive legality、D2 type/value semantics或 target implementation。
+- Limitations：不得声明数组运行语义、完整 type grammar、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。PA53 batch `just ci` 已绿，本切片按冻结未重复。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA54 residual audit，
+  再选择单一依赖闭合最小切片，禁止自动递增。
