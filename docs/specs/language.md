@@ -155,6 +155,123 @@ Type wire，后者仍由其独立 stable encoder/decoder 负责。Bytes declarat
 type/value legality。直接伪造的 in-memory over-bound carrier 不属于 frontend accepted source；本切片
 不把 alpha total hash helper 冒充 stable wire validator。
 
+D1-PA-54 冻结的 pre-acceptance alpha Array 子集只接受同一行的
+`Array PrimitiveAtom N`。`PrimitiveAtom` 与 D1-PA-18 相同，只包含 exact single-token `Bool`、closed
+UInt/Int width、`Principal` 或 `Unit`；`Field bn254_fr`、Named、Option、Bytes、Array 与 Map element
+全部继续 fail closed。`N` 复用 `Bytes N` 的 canonical ASCII decimal lexical discipline，边界精确为
+`0..4096`，并在 Source/Semantic carrier 中保存为各自的 `ArrayLength := Fin 4097`，使超界长度无法由
+公开 AST 类型构造，不能依赖 parser 约定避免 canonical alias。
+
+Source/Semantic carrier 固定为 `array(element, length)`。alpha canonical encoding 使用 append-only
+type tag `18`，随后递归编码 element，再调用各 encoder 已有的 `appendNat(length.val)`；Source 保持
+8-byte big-endian，Semantic 保持 8-byte little-endian，tags `0..17` 与全部旧 golden 不变。Array
+本身不发明 capability，requirements 必须精确递归传播 element：`Array UInt64 4` 为零，
+`Array Bool 0` 为 `boolValues`。frontend 使用 exact contextual `Array` 专用 parser，不得把通用
+`pfType` 放宽为任意三 token，也不得改变 `Option UInt64 Principal` 等既有 malformed type 的 parser
+boundary。Lean command 与 ParserSession 必须得到同一结构与 sourceHash。
+
+tests-only RED 为 zero migration，只新增/注册 `Tests.Language.ArrayTypes`。positive 覆盖 state、struct
+field、enum payload、const、initializer/entry/view/fn parameter 与 result，长度 `0`、普通值与 `4096`，
+并固定 Source/Semantic tag、element、length、size/hash non-alias。unknown/Field element、缺失 element 或
+length、`4097`、leading zero、hex、signed、underscore、额外/跨行 payload、nested Option/Bytes/Array/Map
+必须按专用 grammar fail closed；named-ident type 不在本切片。四个 Phase 1 target 只验证 requirement
+resolver 与既有 non-UInt64 Plan rejection，不新增数组 target support 或制品。
+
+本切片不实现 array literal、constructor、index/length/slice、mutation、assignment、runtime layout、
+ABI、recursive legality、D2 type/value semantics 或 target Plan/IR。production 仅限
+`Core/Source.lean`、`Core/SemanticIR.lean`、`Language/Syntax.lean` 三文件，最多 64 行新增、6 行移除，
+并在同一 GREEN 刷新 Lean package file-set。focused/aggregate/test binary 与 independent review 全绿后
+只可记录 bounded Array declaration carrier；PA53 已完成 committed-tree batch `just ci`，本切片不重复
+完整 gate，不得声明数组运行语义、完整 type grammar 或正式 D1 完成。
+
+D1-PA-55 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic 类型构造的
+`option(.field)` 开放 exact same-line spelling `Option Field bn254_fr`。这不是新 ValueType carrier：
+Source/Semantic 的 recursive Option canonical encoder 已产生 tag `16` 后接 Field tag `2`，
+`ValueType.requirements` 也已把 `.fieldBn254` 递归穿过 Option；不得新增 ctor/tag、修改 encoder、
+Typed 或 target。frontend 只能新增 exact contextual named `optionFieldType` 与 struct-field 对应 parser，
+不得把通用 `portableType` 放宽为任意三 atom，也不得接受其他 Field identifier、Named、nested Option、
+Array、Map 或 Bytes element。
+
+decoder 必须 exact 验证第三 atom 的 raw spelling 为 `bn254_fr` 后才构造 `.option .field`；alternate、
+escaped 或 qualified identifier fail closed。Lean command 与 ParserSession 必须得到同一 Source tree/hash。
+canonical tests 固定既有 tag `16→2` 的 Source/Semantic bytes/hash，并与 bare Field、Option Bool、
+Option UInt64 non-alias；不重编号 tags `0..18`。semantic requirements 必须恰为 `fieldBn254`，不能被
+Option 擦除或重复；四个 Phase 1 target 必须在 support resolution 以 named requirement 拒绝，不能进入
+Plan 或产生 artifact。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+`("field option", "Option Field bn254_fr")` parser-negative 迁移为 positive；migration count 精确为一，
+其他测试不得迁移。positive 覆盖 state、struct field、enum payload、const、initializer/entry/view/fn
+parameter/result 与双入口 parity。`Option Field`、alternate/escaped/qualified id、escaped/qualified
+constructor、extra/split payload 必须 fail closed；Option Bytes、nested Option、Option Array/Map 和既有
+extra payload failure class 保持原边界。
+
+本切片不实现 none/some expression、unwrap、field literal/arithmetic、recursive type legality、runtime
+representation、ABI 或 target Field support。production 仅限 `Language/Syntax.lean` 一文件，最多 32 行
+新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。focused/aggregate/test binary 与 independent
+review 全绿后只可记录 existing-carrier spelling；PA53 batch `just ci` 已绿，本切片不重复完整 gate，
+不得声明 Option/Field runtime semantics、完整 type grammar 或正式 D1 完成。
+
+D1-PA-56 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic recursive Option 构造的
+`option(.option element)` 开放 exact same-line、exact one-level spelling
+`Option Option PrimitiveAtom`。inner `PrimitiveAtom` 闭集精确复用 D1-PA-18：exact single-token Bool、
+closed UInt/Int widths、Unit、Principal，共 15 个；Field、Bytes、Array、Map、Named 或另一个 Option
+都不属于该闭集。这不是新 ValueType carrier：Source/Semantic recursive encoder 已产生 tag `16`、
+第二个 tag `16` 再接 element bytes，`ValueType.requirements` 也已递归两层传播 element requirements；
+不得新增 ctor/tag、修改 encoder、Typed 或 target。
+
+frontend 只能新增 exact contextual named `optionOptionType` 与 struct-field 对应 parser；不得把通用
+`portableType` 放宽为任意三 atom，也不得引入 recursive parser。decoder 只从专用 parser 接收一个
+inner element atom，以既有 exact single-token type policy 解码后构造 `.option (.option element)`；因此
+第三层 `Option Option Option Bool`、two-token Field/Bytes/Array、unknown/escaped/qualified element 都必须
+fail closed。Lean command 与 ParserSession 必须得到同一 Source tree/hash。canonical tests 固定既有
+tag `16→16→element` 的 Source/Semantic bytes/hash，并与 bare element、single Option 及不同 nested
+element non-alias；不重编号 tags `0..18`。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+`("nested option", "Option Option UInt64")` parser-negative 迁移为 positive；migration count 精确为一，
+其他测试不得迁移。positive 覆盖 nested Bool/UInt64 的 state、struct field、enum payload、const、
+initializer/entry/view/fn parameter/result 与双入口 parity。nested UInt64 requirement 必须为空；nested Bool
+必须递归传播恰一个 `boolValues`。四个 Phase 1 target 对 nested Bool 在 support resolution 以 named
+requirement 拒绝；nested UInt64 通过 support 后，non-UInt64 state/result/parameter 仍由既有 target Plan
+fail closed，任何路径均不得产出 artifact。Option Bytes、Option Array/Map、Option Field 及第三层 nested
+Option 保持原边界。
+
+本切片不实现 none/some expression、unwrap、任意递归 type grammar、recursive legality、runtime
+representation、ABI 或 target nested-Option support。production 仅限 `Language/Syntax.lean` 一文件，最多
+32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。focused/aggregate/test binary 与
+independent review 全绿后只可记录 one-level existing-carrier spelling；按冻结不重复完整 `just ci`，
+不得声明 nested Option runtime semantics、完整 type grammar 或正式 D1 完成。
+
+D1-PA-57 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic recursive carriers 构造的
+`option(.array element length)` 开放 exact same-line spelling `Option Array PrimitiveAtom N`。element
+闭集精确复用 D1-PA-18/PA54 的 15 个 exact single-token PrimitiveAtom；`N` 精确复用 Array 的 canonical
+ASCII decimal `0..4096` discipline 与 `ArrayLength := Fin 4097`。Field、Option、Bytes、Array、Map、Named
+element 继续排除。这不是新 ValueType carrier：Source/Semantic recursive encoders 已产生 Option tag `16`
+后接 Array tag `18`、element bytes 与 encoder-local length payload，requirements 也已递归穿过两层 wrapper；
+不得新增 ctor/tag、修改 encoder、Typed 或 target。
+
+frontend 只能新增 exact contextual named `optionArrayType` 与 struct-field 对应 parser；不得把通用
+`portableType` 放宽为任意四 atom，也不得引入 recursive parser。decoder 只从专用 parser 接收 element 与
+length atoms，必须复用既有 `decodeArrayValueTypeFromAtoms` 完成 element/lexical/bound 验证后再包一层
+Option；不得复制或放宽 Array policy。Lean command 与 ParserSession 必须得到同一 Source tree/hash。
+canonical tests 固定既有 tag `16→18→element→length` 的 Source/Semantic bytes/hash，并与 bare Array、
+single/nested Option 及不同 element/length non-alias；不重编号 tags `0..18`。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+`("Array option", "Option Array UInt64 4")` parser-negative 迁移为 positive；migration count 精确为一，
+其他测试不得迁移。positive 覆盖 Bool/UInt64、长度 0/普通值/4096、所有 declaration positions 与双入口
+parity。UInt64 element requirement 必须为空；Bool element 必须递归传播恰一个 `boolValues`。四个 Phase 1
+target 对 Bool 在 support resolution 以 named requirement 拒绝；UInt64 通过 support 后，non-UInt64
+state/result/parameter 仍由既有 target Plan fail closed，任何路径均不得产出 artifact。Option Bytes、
+Array Option、Array Field、third-layer nested Option 和 extra/split payload 保持原边界。
+
+本切片不实现 array value/constructor/index/length/slice/mutation、none/some/unwrap、任意递归 type grammar、
+recursive legality、runtime representation、ABI 或 target Option-Array support。production 仅限
+`Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。
+focused/aggregate/test binary 与 independent review 全绿后只可记录 existing-carrier spelling；按冻结不重复
+完整 `just ci`，不得声明 Option/Array runtime semantics、完整 type grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
@@ -809,14 +926,18 @@ D1-PA-52 冻结的 pre-acceptance alpha conditional 子集一次实现 EBNF
 `"if" Expr "then" Block ("else" Block)?` 的 Source surface。carrier 固定为
 `Source.Statement.ifStmt(condition : Expr, thenBody : Array Statement,
 elseBody : Option (Array Statement))`；作者不写 target/kind，frontend 不根据 target 重写条件或分支。
-parser 只新增一条 optional-else production：
-`syntax "if " pfExpr " then" ppLine many1Indent(pfStmt)
-("else" ppLine many1Indent(pfStmt))? : pfStmt`。`thenBody` 与存在的 `elseBody` 均至少
-一条 statement，branch item 必须比 `if`/`else` 引入列更深，`else` 必须回到所属
-`if` 的列；结构化 layout 决定 dangling-else 归属，不得另增 textual fallback。
+parser 只新增一条 optional-else surface。tests-only RED 的首次 GREEN 证明 `ppLine`
+只是 formatter hint，不会拒绝 same-line branch；因此实现必须使用唯一的
+`@[pfStmt_parser default+1] ifStmt` parser，以 `withPosition` + `checkLinebreakBefore` +
+`checkColGt` 固定 branch 换行/深缩进，以 `checkColEq` 固定 `else` 回到 owning `if`
+列，then/else 内部均由 `many1Indent(pfStmt)` 承载。`thenBody` 与存在的
+`elseBody` 均至少一条 statement；结构化 layout 决定 dangling-else 归属，不得另增
+same-line/textual fallback。
 
 decoder 顺序固定为 condition→then statements→optional else statements，并且递归 decoder 只能为
-承载 nested Source block 改为 `partial`；quotation 必须递归构造 statement arrays 与 exact
+承载 nested Source block 改为 `partial`。上述位置感知 custom parser 产生固定五段 syntax
+node；decoder 必须 fail-closed 检查 exact `ifStmt` kind/五段 shape 与 optional-else group，不得
+将 malformed node 落入普通 statement。quotation 必须递归构造 statement arrays 与 exact
 `Option.none`/`Option.some`，不得退化为文本。Source canonical encoder 使用 append-only Statement
 tag `9`，随后依次编码 condition expression、length-prefixed then-body statement array、else marker
 byte `0`/`1`；marker `1` 后再编码 length-prefixed else-body statement array。递归 encoder 只能为
@@ -834,10 +955,52 @@ fail closed；unescaped `then := 1`/`else := 1` 必须拒绝，escaped `«then»
 `Typed.checkStatement` 必须在 condition checking、branch checking、return/effect/path analysis 前逐字
 fail closed 为 `if statements are not yet supported by typed checking`；旧 statement controls 保持 exact outcome。
 本切片不实现 Bool typing、branch join、return-path/effect、Semantic/requirement、target Plan/IR、runtime 或
-materialization；production 仅限 Source/Syntax/Typed 3 文件，最多 30 行新增与 2 行移除
-（移除仅用于把既有 recursive encoder/decoder declaration 替换为 `partial`）。focused/aggregate/test
+materialization；production 仅限 Source/Syntax/Typed 3 文件，最多 38 行新增与 3 行移除。
+两行移除用于把既有 recursive encoder/decoder declaration 替换为 `partial`，第三行仅用于把
+原 generic decoder catch-all 替换为 exact `ifStmt` kind/shape 验证后的 fail-closed catch-all。focused/aggregate/test
 binary 与 independent review 全绿后只可记录 conditional Source carrier；本切片不运行
 `just ci`，不得宣称 Typed conditional semantics、完整 statement grammar 或正式 D1 完成。
+
+D1-PA-53 冻结的 pre-acceptance alpha bounded-for 子集一次实现既有 EBNF
+`"for" Ident "in" Expr "..<" Expr "bounded" Nat "do" Block` 的 Source surface。carrier 固定为
+`Source.IterationBound := Fin 4097` 与
+`Source.Statement.forStmt(iterator : String, start : Expr, stopExclusive : Expr,
+maxIterations : IterationBound, body : Array Statement)`；它只记录作者源码，不执行迭代、求值或 target
+特化。parser 只新增一条 position-sensitive `forStmt` production：header 的 `for`、iterator、`in`、
+start、exact `..<` token、stopExclusive、`bounded`、bound 与 `do` 必须全部同一行；`do` 后必须真实
+换行，body item 必须更深缩进，并由 `many1Indent(pfStmt)` 保证 non-empty。`0 ..< 10` 与
+`0..<10` 使用同一个 exact range token 并形成同一 Source tree；不得接受内部拆开的 `.. <`、闭区间或
+textual/same-line fallback。
+
+`maxIterations` 只接受 exact ASCII decimal spelling `0..4096`；除单独 `0` 外禁止 leading zero，
+并拒绝 signed、hex、underscore、空或超界 spelling。decoder 必须复用 `Bytes N` 已有的 bounded
+decimal lexical discipline，不得调用 unchecked host literal/`getNat` 转换，而要先验证长度/leading-zero，
+再逐字符验证 digit、手工累积并即时检查上界；不得另建宽松 numeral 路径。custom parser node 必须按 iterator→start→stopExclusive→maxIterations→body 顺序 exact
+kind/token/null-group/non-empty shape 验证，quotation 必须递归保留 body array，不得退化为文本。
+
+Source canonical encoder 使用 append-only Statement tag `10`，随后依次编码 iterator string、start
+expression、stopExclusive expression、`appendNat maxIterations.val` 与 length-prefixed body statement array；
+tag `0..9` 与全部旧 golden 不变。tests-only RED 为 zero migration，只新增/注册
+`Tests.Language.ForStatements`。positive 固定 initializer、entry、view、fn 的 Lean
+command/ParserSession parity，bound `0`/`4096`、spaced/compact exact range token、literal/variable/operator/
+group endpoints、multi-statement body 与 nested if/for。canonical golden/non-alias 必须绑定 iterator、两个 endpoint value/tree、bound、
+body count/order/nesting、tag `10`，RED 中 golden 保持显式未绑定，后续独立 probe 单独提交绑定。
+
+missing iterator/`in`/`..<`/stop/`bounded`/bound/`do`、header split、same-line/same-column/empty body、
+内部拆开的 `.. <`、bound `4097`/`01`/`0x10`/signed/underscore、extra payload 必须 fail closed；
+unescaped `for := 1`/`in := 1`/`bounded := 1` 必须拒绝，escaped `«for»`/`«in»`/`«bounded»`
+保持 assignment。`Typed.checkStatement` 必须在 iterator lookup、endpoint checking、bound/body/return/effect
+analysis 前逐字 fail closed 为 `for statements are not yet supported by typed checking`；旧 statement controls
+保持 exact outcome。本切片不实现 iterator scope/type、range evaluation、bounded-loop proof、induction、
+return/effect/path、Semantic/requirement、target Plan/IR、runtime 或 materialization；production 仅限
+Source/Syntax/Typed 3 文件、最多 34 行新增且不移除既有 production，并在同一 GREEN 刷新 Lean package
+file-set。focused/aggregate/test binary、independent review 与 PA50–PA53 committed-tree batch `just ci` 全绿后
+只可记录 bounded-for Source carrier；不得宣称 loop semantics、完整 statement grammar 或正式 D1 完成。
+
+RED 后的 canonical security probe 证明裸 `Nat` 不是合法 carrier：`appendNat` 经 `UInt64.ofNat` 会让
+`0` 与 `2^64` 产生相同 bytes/sourceHash。上述 `IterationBound` 收紧是冻结范围内的安全修正：surface
+仍只接受原定 `0..4096` decimal，合法值的 bytes/goldens 不变，但 public Source AST 中越界 bound 变为
+不可表示；不得以“parser 不会产生”为理由保留 canonical alias。
 
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一

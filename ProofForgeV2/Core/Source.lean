@@ -3,6 +3,8 @@ import ProofForgeV2.Core.Crypto
 
 namespace ProofForgeV2.Source
 
+abbrev ArrayLength := Fin 4097
+
 inductive ValueType where
   | u64
   | bool
@@ -22,6 +24,7 @@ inductive ValueType where
   | principal
   | option (element : ValueType)
   | bytes (length : UInt32)
+  | array (element : ValueType) (length : ArrayLength)
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 inductive Visibility where
@@ -110,6 +113,8 @@ structure ConstDecl where
   value : Expr
   deriving BEq, Inhabited, Repr
 
+abbrev IterationBound := Fin 4097
+
 inductive Statement where
   | assign (stateName : String) (value : Expr)
   | returnValue (value : Expr)
@@ -120,6 +125,8 @@ inductive Statement where
   | assertErrorStmt (condition : Expr) (errorName : String)
   | revertStmt (errorName : String) (args : Array Expr)
   | emitStmt (eventName : String) (args : Array Expr)
+  | ifStmt (condition : Expr) (thenBody : Array Statement) (elseBody : Option (Array Statement))
+  | forStmt (iterator : String) (start stopExclusive : Expr) (maxIterations : IterationBound) (body : Array Statement)
   deriving BEq, Inhabited, Repr
 
 inductive EntryMode where
@@ -260,6 +267,8 @@ private def appendValueType (bytes : ByteArray) : ValueType → ByteArray
   | .principal => appendTag bytes 15
   | .option element => appendValueType (appendTag bytes 16) element
   | .bytes length => appendNat (appendTag bytes 17) length.toNat
+  | .array element length =>
+      appendNat (appendValueType (appendTag bytes 18) element) length.val
 
 private def appendVisibility (bytes : ByteArray) : Visibility → ByteArray
   | .verifierVisible => appendTag bytes 0
@@ -325,7 +334,7 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value
 
-private def appendStatement (bytes : ByteArray) : Statement → ByteArray
+private partial def appendStatement (bytes : ByteArray) : Statement → ByteArray
   | .assign name value => appendExpr (appendString (appendTag bytes 0) name) value
   | .returnValue value => appendExpr (appendTag bytes 1) value
   | .returnUnit => appendTag bytes 6
@@ -340,6 +349,14 @@ private def appendStatement (bytes : ByteArray) : Statement → ByteArray
   | .assertErrorStmt condition errorName => appendString (appendExpr (appendTag bytes 8) condition) errorName
   | .revertStmt errorName args => appendArray appendExpr (appendString (appendTag bytes 5) errorName) args
   | .emitStmt eventName args => appendArray appendExpr (appendString (appendTag bytes 7) eventName) args
+  | .ifStmt condition thenBody elseBody =>
+      let bytes := appendArray appendStatement (appendExpr (appendTag bytes 9) condition) thenBody
+      match elseBody with
+      | none => appendTag bytes 0
+      | some body => appendArray appendStatement (appendTag bytes 1) body
+  | .forStmt iterator start stopExclusive maxIterations body =>
+      let bytes := appendExpr (appendExpr (appendString (appendTag bytes 10) iterator) start) stopExclusive
+      appendArray appendStatement (appendNat bytes maxIterations.val) body
 
 private def appendEntryMode (bytes : ByteArray) : EntryMode → ByteArray
   | .mutate => appendTag bytes 0

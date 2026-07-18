@@ -3167,3 +3167,203 @@ normative: false
   不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 statement/expression residual
   audit，再选择单一依赖闭合的最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 conditional pre-acceptance slice
+
+- Commits：freeze `8f6d506f`；tests-only RED `ad2c183b`；canonical golden binding
+  `8db0def3`；layout parser hardening `2efb9ad9`；Source-only GREEN `3d8f48f8`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-52 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 recursive
+  `Source.Statement.ifStmt(condition, thenBody, Option elseBody)` 与 append-only Statement tag `9`；
+  canonical 顺序为 condition→then array→0/1 marker→optional else array。encoder/decoder 只为 nested
+  blocks 改为 `partial`，quotation 结构化保留 arrays/Option，Typed 在 condition、branch、
+  return/effect/path analysis 前 exact 拒绝 `if statements are not yet supported by typed checking`。
+  production 恰好 Source/Syntax/Typed 3 文件、38 行新增/3 行移除；Semantic、requirement 与
+  target 未改。按新合并规则同 GREEN 刷新 `supply-chain/lean-package-files.v1.json`。
+- RED-driven correction：首次 GREEN focused 运行发现 `ppLine` 仅是 formatter hint，
+  `if true then return 1` 会被接受。没有删除 negative；改为唯一 `withPosition` custom parser，
+  以 `checkLinebreakBefore`/`checkColGt` 固定真换行和深缩进、`checkColEq` 固定 owning-if
+  `else` 列、`many1Indent` 固定 non-empty blocks。decoder 同时 exact 检查 `ifStmt` kind、
+  `if`/`then`/`else` atoms、null groups 与 non-empty body，malformed 节点统一 fail closed，无 index panic。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn，
+  if-then/if-then-else、literal/Bool/variable/operator/group condition、multi-statement branch、inner/outer
+  nested else 归属。固定 missing condition/then、same-line/same-column/empty branch、dangling/
+  deeper/shallower/duplicate else、extra payload、bare/escaped `then`/`else` assignments、exact Typed priority
+  和旧 return/assert/revert/emit controls。六组 sourceHash/size 为
+  `e556ab49fe6af5b7809110640cc69d99385c550a8fa133111b2fa27d85777c76`/209、
+  `75222dc6083234208c3f3bedf82f221546406d18e1c37ac58e1a233493551ac3`/209、
+  `197a0f31adde13b7c277f580cb96df82d207d322988e18cf22bf11ca33725e57`/219、
+  `ea2103c11a2c2af9ec3ac6208df1c68d11680a95ef5992b1939e42816ad95915`/227、
+  `4b5fbfec90d765f7e6b9c2a120834f865c4838c922c1419df05667c7ca07042a`/227、
+  `5ebe007b4c8b5f4c66c0675718869c1e009ea9db7e592f456c6dc2dc8efc8509`/246。
+- Commands/Results：独立 Lean probe 测量上述 hash/size；`lake build Tests.Language.IfStatements`
+  （15 jobs）；`lake env lean --run /dev/stdin` focused suite exit 0；
+  `lake build proof_forge_next_tests`（188 jobs）；`lake env /usr/bin/time -p
+  .lake/build/bin/proof-forge-next-tests` exit 0/4.86 s；`just sbom-package-files-refresh`、
+  `just docs-check`、`git diff --check` exit 0。一次不经 `lake env` 的裸二进制运行因没有
+  Lean module search path 正确 fail closed；按规定环境重跑全绿，不计为产品失败。
+  coordinator/Kimi final reviews 均为 P0/P1=0。按冻结未运行 `just ci`，development
+  evidence 为 `EV-20260718-0044`。
+- Scope claim：完整 conditional Source carrier、recursive layout/canonical identity 与 Typed fail-closed 已覆盖。
+  不包括 condition Bool typing、branch join、return/effect/path analysis、Semantic conditional、requirement、
+  target Plan/IR、runtime 或 materialization。
+- Limitations：不得声明 Typed conditional semantics、完整 statement grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；post-PA52 residual audit 正在进行，完成后仍需单独
+  冻结一个依赖闭合最小 slice，禁止自动递增。
+
+## 2026-07-18 — D1 bounded-for pre-acceptance slice
+
+- Commits：freeze `25f7572d`；tests-only RED `8f6acd5d`；canonical golden binding
+  `bf80a1cf`；body count/order identity `4985163d`；canonical-safety freeze correction
+  `affd21c4`；type-level bound proof `e41fd10e`；Source-only GREEN `2a18c827`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-53 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.IterationBound := Fin 4097` 与 recursive
+  `Source.Statement.forStmt(iterator,start,stopExclusive,maxIterations,body)`。append-only Statement
+  tag `10` 后依次编码 iterator string、start/stopExclusive expressions、`maxIterations.val` 与 body
+  statement array。quotation 递归保留 body；Typed 在 iterator/endpoint/bound/body/return/effect analysis
+  前 exact 拒绝 `for statements are not yet supported by typed checking`。production 恰好
+  Source/Syntax/Typed 3 文件、32 行新增/0 行移除；Semantic、requirement 与 target 未改，Lean package
+  file-set 同 GREEN 重钉。
+- Parser correction：独立 Lean 4.31.0 probe 证明 plain `ppLine`/`many1Indent` 会接受 same-line body、
+  same-column body 与拆行 header。最终唯一 `withPosition` custom parser 以每段 `checkLineEq` 固定一行
+  header，以 `checkLinebreakBefore`/`checkColGt` 固定真实换行和更深 body，`many1Indent` 固定 non-empty；
+  compact `1..<10` 与 spaced `1 ..< 10` 形成同一 Source tree，内部拆开的 `.. <` 拒绝。
+- Canonical security correction：初版裸 `Nat` carrier probe 实证 bound `0` 与 `2^64` 经
+  `appendNat`/`UInt64.ofNat` 得到相同 sourceHash。未用“parser 不产生”豁免；改为 `Fin 4097` 让 public
+  Source 中越界 bound 不可表示。decoder 复用 Bytes exact decimal validator，再构造 `<4097` proof；
+  合法 0..4096 的 canonical bytes/goldens 不变。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn，bound 0/4096、
+  literal/variable/operator/group endpoints、spaced/compact range、multi-statement 与 nested for/if body。
+  固定 missing header tokens、四种 header split、same-line/same-column/empty body、range split、negative/
+  over-bound/leading-zero/hex/underscore bounds、bare/escaped `for`/`in`/`bounded` assignments、exact Typed
+  priority 与旧 return/if/assert/revert/emit controls。iterator、start、stop、bound、body content/count/order/
+  nesting 与 tag non-alias 均进入 source identity。六组 hash/size 为
+  `99b116672a93b719e2fe3bf8416b7fcadd990fd9270932fcc8e5f838689d44ef`/244、
+  `b1a145ce2fea8c986ef423c3bfde8f45800804f5f5925728a0e4e20e13bfa2dc`/244、
+  `4cd2f6a0b5860205f28db60c5dfe36fc978af9a94b1cdca3fa42df0d7b3e15f9`/244、
+  `3e419a96934adae8d4834741f28bbbd724911f36b2c5cc1358d8e8a9090cb71a`/244、
+  `1c8d8d6c8610739095bf59d30b1758a50b907954f4557b10fd99b0f20d2dadb9`/244、
+  `01c8e020e61ef5fc43f020e5e90d17cda14ffd77634d9e293ba5ee6e43f9dc3d`/295。
+- Commands/Results：focused 15-job build/direct suite；aggregate 190-job；测试二进制 exit0/5.11s；
+  `just sbom-package-files-refresh`、`git diff --check` 全绿。clean committed `just ci` at `2a18c827`
+  exit0：40-mutation isolation、198-job committed archive build/test/help、186 docs mutations、governance/
+  SBOM/supply-chain/runtime closure、60-job product build、190-job aggregate/test 与 DSL/target/toolchain
+  negatives 全绿。Kimi RED/final增量 reviews 均为 P0/P1=0；development evidence 为
+  `EV-20260718-0045`。
+- Scope claim：完整 canonical-safe bounded-for Source carrier、严格 layout/canonical identity 与 Typed
+  fail-closed 已覆盖。不包括 iterator scope/type、range evaluation、bounded-loop proof/induction、
+  return/effect/path、Semantic/requirement、target Plan/IR、runtime 或 materialization。
+- Limitations：不得声明 loop semantics、完整 statement grammar、eligible host 或 formal D1 evidence；
+  不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA53 residual audit，
+  再选择单一依赖闭合的最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 bounded Array declaration pre-acceptance slice
+
+- Commits：freeze `1bda5b17`；tests-only RED `0f51d950`；canonical golden binding
+  `88051192`；Source/Semantic/frontend GREEN `a9fdd05f`；closure-negative hardening `efb6206e`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-54 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 Source/Semantic `ArrayLength := Fin 4097` 与
+  `ValueType.array(element,length)`。append-only Type tag `18` 后递归编码 element，再以各 encoder
+  既有 `appendNat(length.val)` 编码长度；Fin bound 使公开 carrier 中 `4097+` 不可表示，避免
+  `UInt64.ofNat` wrap alias。Array 自身不发明 requirement，只递归传播 element requirement。
+- Parser：新增 exact contextual named `arrayType` 和 struct-field 专用 `arrayAggregateField`，通用
+  `portableType` 仍只接受一或二 atom，因此未把 `Option Bytes N`/`Option UInt64 Principal` 从 parser
+  boundary 迁移到 decoder。decoder 复用 Bytes canonical decimal validator，再构造 `<4097` proof；
+  quotation 保留 element 与 Fin value。
+- Coverage：Lean command/ParserSession 双入口覆盖全部 14 个 PrimitiveAtom、state/struct/enum/const/
+  initializer/entry/view/fn、长度 0/普通值/4096。Field/Named/Option/Bytes/Array/Map element、缺失/
+  额外/跨行/qualified/escaped forms 与 4097/leading-zero/hex/underscore/signed 长度均 fail closed。
+  Source/Semantic 各四组 hash/size goldens、tag/element/length non-alias、`Array UInt64` 零 requirement、
+  `Array Bool` 的 `boolValues`、四 target support-vs-Plan non-UInt64 无制品拒绝全部固定。
+- Scope：production 恰好 Core/Source、Core/SemanticIR、Language/Syntax 3 文件，48 行新增/1 行移除；
+  `supply-chain/lean-package-files.v1.json` 同 GREEN re-pin。tests-only zero migration。
+- Commands/Results：`lake build Tests.Language.ArrayTypes` 23 jobs；aggregate/test executable build graph
+  192 jobs；`lake exe proof_forge_next_tests` exit 0，最新 committed suite 8.93 s；
+  `just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 全绿。一次脱离 `lake env` 的
+  裸测试二进制运行因缺少 Lean module search path fail closed，改用产品规定的 `lake exe` 后全绿，
+  不计为产品失败。Kimi final review P0/P1=0；development evidence 为 `EV-20260718-0046`。
+- Scope claim：只完成 bounded Array declaration carrier、canonical identity、requirement propagation 与
+  support-vs-Plan boundary。不包括 array value/constructor/index/length/slice/mutation、runtime layout、
+  ABI、recursive legality、D2 type/value semantics或 target implementation。
+- Limitations：不得声明数组运行语义、完整 type grammar、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。PA53 batch `just ci` 已绿，本切片按冻结未重复。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA54 residual audit，
+  再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 exact Option Field spelling pre-acceptance slice
+
+- Commits：freeze `1371f5be`；single-migration tests-only RED `efa68394`；canonical golden binding
+  `1e922851`；Syntax-only GREEN `1b15dc4f`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-55 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 `Source/Semantic.ValueType.option(.field)` 开放 exact same-line
+  `Option Field bn254_fr`。新增 named `optionFieldType` 与 struct-field 专用
+  `optionFieldAggregateField`，decoder 只在 raw third atom 等于 `bn254_fr` 时构造 carrier。通用
+  `portableType` 仍为一/二 atom；Source/Semantic ctor、canonical encoder、quotation、Typed 与 target 未改。
+- Migration/Coverage：把 `Tests.Language.OptionDeclarations` 既有唯一 field-option parser-negative
+  迁移为 positive，migration count 恰为一。双入口覆盖 state/struct/enum/const/initializer/entry/view/fn；
+  alternate/escaped/qualified/missing/extra/split forms fail closed，Option Bytes/Array/nested/Map 与旧 extra
+  payload 边界保持。独立运行实证 `Option Map UInt64 Bool` 的旧边界为 decoder exact rejection。
+- Canonical/requirements：既有 tag `16→2` 被 Source 241-byte/
+  `8d83aba16ec5c8f4694fbce7a3847903ca492d2af7ffc5030029f4485a71c79a` 与 Semantic 191-byte/
+  `c50aab8c944ed3db26737aa7f9edcfbd7122cd828b7c4c859237bbc3537b6229` 固定，并与 bare Field、
+  Option Bool、Option UInt64 non-alias。`fieldBn254` 精确递归一次；四个 Phase 1 target 均在 support
+  resolver named rejection，未进入 Plan、未产生 artifact。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，28 行新增/1 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；aggregate/test graph
+  192 jobs；`lake exe proof_forge_next_tests` exit 0/5.08 s；`just sbom-package-files-refresh`、
+  `just docs-check`、`git diff --check` 全绿。Kimi final review P0/P1=0；development evidence 为
+  `EV-20260718-0047`。PA53 batch `just ci` 已绿，本切片按冻结未重复完整 gate。
+- Scope claim：只完成 exact existing-carrier spelling、canonical/requirement/support boundary。不包括
+  none/some、unwrap、Field literal/arithmetic、recursive legality、runtime representation、ABI 或 target
+  Field support。
+- Limitations：不得声明 Option/Field runtime semantics、完整 type grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA55 residual audit，
+  再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 exact one-level nested Option spelling pre-acceptance slice
+
+- Commits：freeze `b598114d`；single-migration tests-only RED `1a6d9ee8`；canonical golden binding
+  `008b2da0`；Syntax-only GREEN `8b4d4c2c`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-56 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 recursive `Source/Semantic.ValueType.option(.option element)` 开放 exact same-line、
+  exact one-level `Option Option PrimitiveAtom`。新增 named `optionOptionType` 与 struct-field 专用
+  `optionOptionAggregateField`；decoder 复用既有 single-token type policy 后包两层 Option。通用
+  `portableType` 仍为一/二 atom；Source/Semantic ctor、canonical encoder、quotation、Typed 与 target 未改。
+- Migration/Coverage：把 `Tests.Language.OptionDeclarations` 既有唯一 nested-option parser-negative
+  迁移为 positive，migration count 恰为一。双入口覆盖 nested Bool/UInt64 的 state/struct/enum/const/
+  initializer/entry/view/fn；第三层 Option、Field/Bytes/Array/Map inner、unknown/missing/escaped/qualified/
+  extra/split forms 均 fail closed，Option Field/Bytes/Array/Map 与旧 extra-payload 边界保持。独立运行实证
+  full Map nested 与 qualified nested element 由 decoder exact rejection，而非 parser rejection，binding
+  提交据实固定其错误通道。
+- Canonical/requirements：既有 tag `16→16→element` 被 Source UInt64/Bool 243-byte/
+  `d480f1267bd8753f9bae0f6f21439836a0d11f2d39eeef908ccec94875c5daf4`/
+  `3110c1ed382a8b002e2248b84744a8aa1716122215c43f4c09d474efaaff7960` 与 Semantic UInt64 192-byte/
+  `5b5eacce6a48158bbbaab3490044613d35323e278c42d7d1d4594ffb5ce9ed18`、Bool 193-byte/
+  `0caaecffaab09d481ef117347b885196ba00e8df0b43b090c4643ece3831b959` 固定，并与 bare/single Option/
+  different element non-alias。nested UInt64 requirement 为空；nested Bool 精确递归单个 `boolValues`。
+  四个 Phase 1 target 对前者 support 后在 non-UInt64 Plan invariant 拒绝，对后者在 support resolver named
+  rejection，均未产生 artifact。
+- Count correction：PrimitiveAtom 实际闭集为 15 个：Bool + 6 个 UInt width + 6 个 Int width + Unit +
+  Principal。PA54 task/evidence 与本切片早期 freeze 中的“14”是非语义计数笔误；enumerated set、代码和
+  accepted behavior 一直一致。本次把当前 task/spec/test 指针纠正为 15；历史 implementation log 不改写，
+  由本追加记录给出勘误。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，29 行新增/1 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；aggregate/test graph
+  192 jobs；`lake exe proof_forge_next_tests` exit 0；`just sbom-package-files-refresh`、`just docs-check`、
+  `git diff --check` 全绿。Kimi freeze/RED/final reviews P0/P1=0；development evidence 为
+  `EV-20260718-0048`。PA53 batch `just ci` 已绿，本切片按冻结未重复完整 gate。
+- Scope claim：只完成 exact one-level existing-carrier spelling、canonical/requirement/support boundary。
+  不包括 none/some、unwrap、任意递归 type grammar、recursive legality、runtime representation、ABI 或
+  target nested-Option support。
+- Limitations：不得声明 nested Option runtime semantics、完整 type grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA56 declaration residual
+  audit，再选择单一依赖闭合最小切片，禁止自动递增。

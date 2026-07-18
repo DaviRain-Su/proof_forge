@@ -14,6 +14,19 @@ either an identifier (Field/Option) or a numeral (Bytes length). Line equality
 prevents the following program item from becoming part of the type. -/
 @[pfType_parser] def portableType := leading_parser
   withPosition (ident >> optional (checkLineEq >> (ident <|> numLit)))
+@[pfType_parser default+1] def arrayType := leading_parser
+  withPosition (nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit)
+@[pfType_parser default+1] def optionFieldType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident)
+@[pfType_parser default+1] def optionOptionType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident)
+@[pfType_parser default+1] def optionArrayType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> numLit)
 
 declare_syntax_cat pfParam
 syntax ident " : " pfType : pfParam
@@ -71,6 +84,16 @@ syntax "assert " pfExpr : pfStmt
 syntax "revert " ident "(" pfExpr,* ")" : pfStmt
 syntax "revert " ident : pfStmt
 syntax "emit " ident "(" pfExpr,* ")" : pfStmt
+@[pfStmt_parser default+1] def ifStmt := leading_parser withPosition (
+    "if " >> categoryParser `pfExpr 0 >> " then" >> checkLinebreakBefore >> checkColGt >>
+    many1Indent (categoryParser `pfStmt 0) >>
+    optional (checkColEq >> "else" >> checkLinebreakBefore >> checkColGt >>
+      many1Indent (categoryParser `pfStmt 0)))
+@[pfStmt_parser default+1] def forStmt := leading_parser withPosition (
+    "for " >> ident >> checkLineEq >> " in " >> checkLineEq >> categoryParser `pfExpr 0 >>
+    checkLineEq >> " ..< " >> checkLineEq >> categoryParser `pfExpr 0 >> checkLineEq >>
+    " bounded " >> checkLineEq >> numLit >> checkLineEq >> " do" >> checkLinebreakBefore >>
+    checkColGt >> many1Indent (categoryParser `pfStmt 0))
 /-- Same-line annotated let (contextual, not a host Lean keyword). No low fallback. -/
 @[pfStmt_parser default+1] def letStmtAnnotated := leading_parser
   withPosition (
@@ -91,6 +114,21 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
 @[pfAggregateMember_parser] def aggregateField := leading_parser
   withPosition (ident >> " : " >> ident >>
     (checkLinebreakBefore <|> checkLineEq >> (ident <|> numLit) >> checkLinebreakBefore))
+@[pfAggregateMember_parser default+1] def arrayAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionFieldAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionOptionAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionArrayAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
 syntax "| " ident linebreak : pfAggregateMember
 syntax "| " ident "(" sepBy(pfType, ", ") ")" linebreak : pfAggregateMember
 
@@ -322,6 +360,44 @@ private def decodeBytesLengthAtom (stx : Syntax) : Except String UInt32 := do
       throw "unsupported portable type"
   pure (UInt32.ofNat value)
 
+private def decodeArrayValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  let (elementSyntax, lengthSyntax) ← match atoms with
+    | #[element, length] => pure (element, length)
+    | _ => throw "unsupported portable type"
+  let element ← match rawIdentifierText? elementSyntax with
+    | some _ => decodeTypeIdentifiers elementSyntax none
+    | none => throw "unsupported portable type"
+  let length := (← decodeBytesLengthAtom lengthSyntax).toNat
+  let length : ProofForgeV2.Source.ArrayLength ←
+    if h : length < 4097 then pure ⟨length, h⟩
+    else throw "unsupported portable type"
+  pure (.array element length)
+
+private def decodeOptionFieldValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType :=
+  match atoms with
+  | #[fieldId] =>
+      match rawIdentifierText? fieldId with
+      | some "bn254_fr" => .ok (.option .field)
+      | _ => .error "unsupported portable type"
+  | _ => .error "unsupported portable type"
+
+private def decodeNestedOptionValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  let elementSyntax ← match atoms with
+    | #[element] => pure element
+    | _ => throw "unsupported portable type"
+  let element ← match rawIdentifierText? elementSyntax with
+    | some _ => decodeTypeIdentifiers elementSyntax none
+    | none => throw "unsupported portable type"
+  pure (.option (.option element))
+
+private def decodeOptionArrayValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  let arrayType ← decodeArrayValueTypeFromAtoms atoms
+  pure (.option arrayType)
+
 /-- Decode one or two type atoms into a ValueType (shared by pfType and fields). -/
 private def decodeValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType :=
@@ -343,7 +419,15 @@ private def decodeValueTypeFromAtoms (atoms : Array Syntax) :
   | _ => .error "unsupported portable type"
 
 private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Source.ValueType :=
-  if !stx.isOfKind ``portableType then
+  if stx.isOfKind ``optionArrayType then
+    decodeOptionArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``optionOptionType then
+    decodeNestedOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``optionFieldType then
+    decodeOptionFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``arrayType then
+    decodeArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if !stx.isOfKind ``portableType then
     .error "unsupported portable type"
   else
     decodeValueTypeFromAtoms (collectTypeAtomSyntax stx)
@@ -455,7 +539,7 @@ private def decodeRevertName (stx : Syntax) : Except String String := do
     throw "revert error name must be unqualified"
   decodeIdentifier stx
 
-private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Source.Statement
+private partial def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Source.Statement
   | `(letStmtAnnotated| let $name:ident : $type:pfType := $value:pfExpr) => do
       return .letDecl (← decodeIdentifier name) (some (← decodeTypeUnchecked type))
         (← decodeExprUnchecked value)
@@ -483,7 +567,32 @@ private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Sou
       unless eventName.getId.components.length == 1 do
         throw "emit event name must be unqualified"
       return .emitStmt (← decodeIdentifier eventName) (← args.getElems.mapM decodeExprUnchecked)
-  | _ => .error "unsupported portable statement"
+  | stx => do
+      match stx.getKind, stx.getArgs with
+      | `ProofForgeV2.Language.ifStmt, #[.atom _ "if", condition, .atom _ "then",
+          .node _ `null thenSyntax, .node _ `null elseSyntax] => do
+          unless !thenSyntax.isEmpty do throw "unsupported portable statement"
+          let condition ← decodeExprUnchecked condition
+          let thenBody ← thenSyntax.mapM decodeStatementUnchecked
+          let elseBody ← match elseSyntax with
+            | #[] => pure none
+            | #[.atom _ "else", .node _ `null body] =>
+                if body.isEmpty then throw "unsupported portable statement" else some <$> body.mapM decodeStatementUnchecked
+            | _ => throw "unsupported portable statement"
+          return .ifStmt condition thenBody elseBody
+      | `ProofForgeV2.Language.forStmt, #[.atom _ "for", iterator, .atom _ "in", start,
+          .atom _ "..<", stopExclusive, .atom _ "bounded", maxIterations, .atom _ "do",
+          .node _ `null body] => do
+          unless !body.isEmpty do throw "unsupported portable statement"
+          let maxIterations ← match decodeBytesLengthAtom maxIterations with
+            | .ok value => pure value.toNat
+            | .error _ => throw "unsupported portable statement"
+          let maxIterations : ProofForgeV2.Source.IterationBound ←
+            if h : maxIterations < 4097 then pure ⟨maxIterations, h⟩
+            else throw "unsupported portable statement"
+          return .forStmt (← decodeIdentifier iterator) (← decodeExprUnchecked start)
+            (← decodeExprUnchecked stopExclusive) maxIterations (← body.mapM decodeStatementUnchecked)
+      | _, _ => throw "unsupported portable statement"
 
 def decodeStatement (stx : Syntax) : Except String ProofForgeV2.Source.Statement := do
   preflightForDecoder stx
@@ -499,6 +608,42 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
 
 private def decodeStructFieldUnchecked (stx : Syntax) :
     Except String ProofForgeV2.Source.FieldDecl := do
+  if stx.isOfKind ``optionArrayAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeOptionArrayValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
+  if stx.isOfKind ``optionOptionAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeNestedOptionValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
+  if stx.isOfKind ``optionFieldAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeOptionFieldValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
+  if stx.isOfKind ``arrayAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeArrayValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
   unless stx.isOfKind ``aggregateField do
     throw "unsupported portable struct field"
   -- Field name is the first atom; remaining atoms are the type (shared decoder).
@@ -835,6 +980,9 @@ private def quoteValueType : ProofForgeV2.Source.ValueType → MacroM (TSyntax `
   | .bytes length =>
       let n := length.toNat
       `(ProofForgeV2.Source.ValueType.bytes (UInt32.ofNat $(quote n)))
+  | .array element length => do
+      let elementExpr ← quoteValueType element
+      `(ProofForgeV2.Source.ValueType.array $elementExpr $(quote length.val))
 
 private def quoteVisibility : ProofForgeV2.Source.Visibility → MacroM (TSyntax `term)
   | .verifierVisible => `(ProofForgeV2.Source.Visibility.verifierVisible)
@@ -1063,6 +1211,22 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
       let eventName := Syntax.mkStrLit eventName
       let args ← args.mapM quoteExpr
       `(ProofForgeV2.Source.Statement.emitStmt $eventName #[$[$args],*])
+  | .ifStmt condition thenBody elseBody => do
+      let condition ← quoteExpr condition
+      let thenBody ← thenBody.mapM quoteStatement
+      let elseBody ← match elseBody with
+        | none => `(Option.none)
+        | some body => do
+            let body ← body.mapM quoteStatement
+            `(Option.some #[$[$body],*])
+      `(ProofForgeV2.Source.Statement.ifStmt $condition #[$[$thenBody],*] $elseBody)
+  | .forStmt iterator start stopExclusive maxIterations body => do
+      let iterator := Syntax.mkStrLit iterator
+      let start ← quoteExpr start
+      let stopExclusive ← quoteExpr stopExclusive
+      let body ← body.mapM quoteStatement
+      `(ProofForgeV2.Source.Statement.forStmt $iterator $start $stopExclusive
+        $(quote maxIterations.val) #[$[$body],*])
 
 private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
     MacroM (TSyntax `term) := do

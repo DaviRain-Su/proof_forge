@@ -6,6 +6,8 @@ open ProofForgeV2
 
 def schemaVersion : Nat := 1
 
+abbrev ArrayLength := Fin 4097
+
 structure ParamId where
   value : Nat
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
@@ -33,6 +35,7 @@ inductive ValueType where
   | principal
   | option (element : ValueType)
   | bytes (length : UInt32)
+  | array (element : ValueType) (length : ArrayLength)
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 inductive Visibility where
@@ -123,6 +126,7 @@ private def adaptType : Source.ValueType → ValueType
   | .principal => .principal
   | .option element => .option (adaptType element)
   | .bytes length => .bytes length
+  | .array element length => .array (adaptType element) length
 
 private def adaptVisibility : Source.Visibility → Visibility
   | .verifierVisible => .verifierVisible
@@ -195,6 +199,8 @@ private def ValueType.requirements : ValueType → Array ProgramRequirement
   | .option element => element.requirements
   -- Bytes declaration carrier only: zero requirements, no runtime bytes capability.
   | .bytes _ => #[]
+  -- Array adds no capability of its own; requirements are exactly the element's.
+  | .array element _ => element.requirements
 
 private def Visibility.requirements : Visibility → Array ProgramRequirement
   | .verifierVisible => #[]
@@ -294,6 +300,8 @@ private def appendValueType (bytes : ByteArray) : ValueType → ByteArray
   | .principal => appendTag bytes 15
   | .option element => appendValueType (appendTag bytes 16) element
   | .bytes length => appendNat (appendTag bytes 17) length.toNat
+  | .array element length =>
+      appendNat (appendValueType (appendTag bytes 18) element) length.val
 
 private def appendVisibility (bytes : ByteArray) : Visibility → ByteArray
   | .verifierVisible => appendTag bytes 0

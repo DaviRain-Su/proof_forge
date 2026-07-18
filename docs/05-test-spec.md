@@ -801,6 +801,77 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   exact fail closed；负号、额外 token、跨行 payload 与 `Option Bytes N` 停在 parser boundary。测试不得
   引入 bytes literal、index/slice/length op、runtime representation、nested aggregate 或 D2 legality，
   也不得把 alpha hash helper 声称为 stable Type wire validator。
+- D1-PA-54 的 alpha Array tests 只接受同一行 exact contextual
+  `Array PrimitiveAtom N`，element 闭集为 exact single-token Bool/UInt/Int/Principal/Unit，长度使用
+  `ArrayLength := Fin 4097` 且 lexical 边界精确为 canonical ASCII decimal `0..4096`。positive 覆盖
+  `0`、普通值、`4096` 以及 state、struct field、enum payload、const、initializer/entry/view/fn
+  parameter/result；Lean command/ParserSession 必须保留相同 Source AST/sourceHash。Source/Semantic
+  canonical goldens 使用 append-only tag `18`、递归 element bytes 与 encoder-local `appendNat(length.val)`，
+  并固定 element/length/tag mutation、byte size、hash non-alias 以及 tags `0..17` 旧 controls；RED 中新
+  hash/size 显式未绑定，独立 probe 后单独提交 golden binding。
+  `Array UInt64 4` 必须推导零 requirement，`Array Bool 0` 必须精确传播 `boolValues`；Phase 1 support
+  resolver 之后，Array state/result/parameter 仍由既有 target Plan 以 non-UInt64 invariant 拒绝且不得产生
+  artifact。unknown/Field element、缺失 element/length、`4097`、leading zero、hex 必须 exact fail closed；
+  signed、underscore、额外/跨行 payload、nested Option/Bytes/Array/Map 必须停在 parser boundary，且既有
+  `Option UInt64 Principal` failure class 不变。tests-only RED zero migration，只新增/注册
+  `Tests.Language.ArrayTypes`；同时证明 `4096` 可由 carrier 表示、超界值由 `Fin 4097` 类型排除。
+  本切片不得引入 named-ident type、array value/index/slice/length/mutation、runtime layout、ABI、recursive
+  legality、D2 rules 或 target implementation。production 限 Source/SemanticIR/Syntax 三文件、最多 64 行
+  新增与 6 行移除，并刷新 Lean package file-set。focused/aggregate/test binary 和 independent review 全绿
+  后收口；PA53 batch `just ci` 已绿，本切片不重复完整 gate，不得声明数组运行语义或正式 D1 完成。
+- D1-PA-55 的 alpha tests 只开放 exact same-line `Option Field bn254_fr`，并物化为既有
+  `Source/Semantic.ValueType.option(.field)`；不得新增 ctor/tag 或放宽任意三 atom type parser。tests-only
+  RED 只修改 `Tests.Language.OptionDeclarations`，把既有唯一 field-option parser-negative 迁移为 positive，
+  migration count 精确为一。positive 覆盖 state、struct field、enum payload、const、initializer/entry/
+  view/fn parameter/result 与 Lean command/ParserSession parity。Source/Semantic canonical goldens 必须固定
+  tag `16` 后接 tag `2`，并与 bare Field、Option Bool、Option UInt64 做 byte-size/hash non-alias；新 golden
+  在 RED 中显式未绑定，独立 probe 后单独提交。
+  requirements 必须精确为单个 `fieldBn254`；四个 Phase 1 target 都必须在 support resolver 以该 named
+  requirement 拒绝，且不得进入 Plan/产出 artifact。`Option Field`、alternate/escaped/qualified identifier、
+  escaped/qualified constructor 必须 exact fail closed；extra/split payload 停在 parser boundary。Option
+  Bytes、nested Option、Option Array/Map 与既有 `Option UInt64 Principal` failure class 保持不变。
+  production 仅限 Syntax 一文件、最多 32 行新增/2 行移除，并刷新 Lean package file-set；不得引入
+  none/some、unwrap、field literal/arithmetic、recursive legality、runtime/ABI 或 target Field support。
+  focused/aggregate/test binary 和 independent review 全绿后收口；按冻结不重复 `just ci`，不得声明
+  Option/Field runtime semantics、完整 type grammar 或正式 D1 完成。
+- D1-PA-56 的 alpha tests 只开放 exact same-line、exact one-level
+  `Option Option PrimitiveAtom`，其中 inner element 闭集精确复用 D1-PA-18 的 15 个 single-token
+  PrimitiveAtom（Bool、closed UInt/Int widths、Unit、Principal），并物化为既有
+  `Source/Semantic.ValueType.option(.option element)`。不得新增 ctor/tag、递归 grammar 或放宽任意三 atom
+  type parser。tests-only RED 只修改 `Tests.Language.OptionDeclarations`，把既有唯一
+  `("nested option", "Option Option UInt64")` parser-negative 迁移为 positive，migration count 精确为一。
+  positive 覆盖 nested Bool/UInt64 的 state、struct field、enum payload、const、initializer/entry/view/fn
+  parameter/result 与 Lean command/ParserSession parity。Source/Semantic canonical goldens 必须固定
+  tag `16→16→element`，并与 bare element、single Option 及不同 nested element 做 byte-size/hash non-alias；
+  新 golden 在 RED 中显式未绑定，独立 probe 后单独提交。
+  nested UInt64 必须推导零 requirement，nested Bool 必须精确传播单个 `boolValues`；四个 Phase 1 target
+  对前者通过 support resolver 后仍由既有 non-UInt64 Plan invariant 拒绝，对后者必须在 support resolver
+  以 named requirement 拒绝，且两者都不得产出 artifact。missing/unknown/Field/Bytes/Array/Map inner、
+  escaped/qualified constructor 或 element 必须 exact fail closed；第三层 `Option Option Option Bool`、额外或
+  split payload 必须保持 parser boundary。Option Bytes、Option Array/Map、Option Field 的既有边界不变。
+  production 仅限 Syntax 一文件、最多 32 行新增/2 行移除，并刷新 Lean package file-set；不得引入
+  none/some、unwrap、arbitrary recursive types、recursive legality、runtime/ABI 或 target nested-Option support。
+  focused/aggregate/test binary 和 independent review 全绿后收口；按冻结不重复 `just ci`，不得声明
+  nested Option runtime semantics、完整 type grammar 或正式 D1 完成。
+- D1-PA-57 的 alpha tests 只开放 exact same-line `Option Array PrimitiveAtom N`，其中 element 闭集精确
+  复用 15 个 single-token PrimitiveAtom，长度 lexical/bound 精确复用 Array 的 canonical ASCII decimal
+  `0..4096`，并物化为既有 `Source/Semantic.ValueType.option(.array element length)`。不得新增 ctor/tag、
+  recursive grammar 或放宽通用 type parser。tests-only RED 只修改 `Tests.Language.OptionDeclarations`，
+  把既有唯一 `("Array option", "Option Array UInt64 4")` parser-negative 迁移为 positive，migration count
+  精确为一。positive 覆盖 `0`、普通值、`4096`、Bool/UInt64 以及 state、struct field、enum payload、const、
+  initializer/entry/view/fn parameter/result 与 Lean command/ParserSession parity。Source/Semantic canonical
+  goldens 必须固定 tag `16→18→element→length`，并与 bare Array、single Option、nested Option 及不同
+  element/length 做 byte-size/hash non-alias；新 golden 在 RED 中显式未绑定，独立 probe 后单独提交。
+  `Option Array UInt64 N` 必须推导零 requirement，`Option Array Bool N` 必须精确传播单个 `boolValues`；
+  四个 Phase 1 target 对前者通过 support resolver 后仍由既有 non-UInt64 Plan invariant 拒绝，对后者必须
+  在 support resolver 以 named requirement 拒绝，且两者都不得产出 artifact。missing/unknown/Field/
+  Option/Bytes/Array/Map element、invalid length、escaped/qualified constructor 或 element 必须 exact fail
+  closed；extra/split payload 保持 parser boundary。Option Bytes、Array Option、Array Field、third-layer nested
+  Option 与既有 extra-payload failure class 不变。
+  production 仅限 Syntax 一文件、最多 32 行新增/2 行移除，并刷新 Lean package file-set；不得引入 array
+  value/index/slice/mutation、none/some/unwrap、arbitrary recursive types、recursive legality、runtime/ABI 或
+  target Option-Array support。focused/aggregate/test binary 和 independent review 全绿后收口；按冻结不重复
+  `just ci`，不得声明 Option/Array runtime semantics、完整 type grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
@@ -1432,11 +1503,15 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
 - D1-PA-52 的 alpha conditional tests 新增
   `Source.Statement.ifStmt(condition : Expr, thenBody : Array Statement,
   elseBody : Option (Array Statement))`，完整覆盖 `if Expr then Block (else Block)?` Source surface。
-  parser 只允许一条 `ppLine` + `many1Indent(pfStmt)` optional-else production；then/else block 均
-  non-empty，`else` 必须回到所属 `if` 列，nested if 必须按 layout 绑定最近的内层/outer
-  branch。positive 覆盖 initializer、entry、view、fn 的 Lean command/ParserSession parity，
+  parser 只允许一条 optional-else surface。tests-only RED 证明 `ppLine` 不是 parser 换行约束；
+  因此实现必须使用一条 `withPosition` custom `ifStmt` parser，以
+  `checkLinebreakBefore`/`checkColGt` 固定换行与深缩进、`checkColEq` 固定 owning-if
+  `else` 列，then/else 内部均为 `many1Indent(pfStmt)` non-empty block。nested if 必须按
+  layout 绑定最近的内层/outer branch。positive 覆盖 initializer、entry、view、fn 的
+  Lean command/ParserSession parity，
   if-then/if-then-else、literal/Bool/variable/operator/group condition、multi-statement branch 与 nested if。
-  decoder 顺序必须为 condition→then→else，quotation 必须结构化保留 recursive arrays 与 Option marker。
+  decoder 顺序必须为 condition→then→else，并对 custom parser 的 exact `ifStmt` kind、五段
+  node shape 与 optional group fail closed；quotation 必须结构化保留 recursive arrays 与 Option marker。
   Source canonical encoder 使用 append-only Statement tag `9`，再编码 condition、then-body array、
   marker `0`/`1` 及可选 else-body array；固定 condition value/tree、then count/order、else
   presence/content、nested kind 和 tag non-alias，tags `0..8`/旧 goldens 不变。
@@ -1446,10 +1521,42 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `«else» := 1` 保持 assignment。`Typed.checkStatement` 在 condition/branch/return/effect analysis 前
   exact 返回 `if statements are not yet supported by typed checking`，旧 statement controls 不变。
   本切片不实现 Bool typing、branch join、return/effect/path、Semantic/requirement、target/runtime；
-  production 限 Source/Syntax/Typed 3 文件、最多 30 行新增/2 行移除，其中移除仅用于
-  recursive encoder/decoder 的 `partial` 替换。focused/aggregate/test binary 和 final review 全绿后
+  production 限 Source/Syntax/Typed 3 文件、最多 38 行新增/3 行移除；其中两行移除用于
+  recursive encoder/decoder 的 `partial` 替换，第三行用于将 generic decoder catch-all 替换为
+  exact custom-node shape 验证与 fail-closed catch-all。focused/aggregate/test binary 和 final review 全绿后
   收口；按冻结不运行 `just ci`，不得声明 Typed conditional semantics、完整 statement grammar
   或正式 D1 完成。
+- D1-PA-53 的 alpha bounded-for tests 新增
+  `Source.IterationBound := Fin 4097` 与
+  `Source.Statement.forStmt(iterator : String, start : Expr, stopExclusive : Expr,
+  maxIterations : IterationBound, body : Array Statement)`，完整覆盖
+  `for Ident in Expr ..< Expr bounded Nat do Block` Source surface。唯一 position-sensitive parser
+  必须固定整条 header 同行、exact `..<` token、`do` 后真实换行和更深缩进的 non-empty
+  `many1Indent(pfStmt)` body。spaced `0 ..< 10` 与 compact `0..<10` 必须形成同一 Source tree，
+  内部拆开的 `.. <` 必须拒绝。bound 必须复用 `Bytes N` 的 exact ASCII decimal `0..4096`
+  lexical discipline，禁止 unchecked host literal/`getNat` 转换，改为逐字符验证、手工累积与即时上界检查；
+  `0`/`4096` 接受，`4097`/`01`/`0x10`/signed/underscore 拒绝。
+  decoder exact 验证 custom kind、tokens、null body group 与 non-empty shape，顺序为
+  iterator→start→stopExclusive→maxIterations→body；quotation 结构化递归保留 body array。
+  Source canonical encoder 使用 append-only Statement tag `10`，再编码 iterator string、两个 endpoint
+  expression、`appendNat maxIterations.val` 与 body array；固定 iterator、endpoint value/tree、bound、body
+  count/order/nesting、tag non-alias，tags `0..9`/旧 goldens 不变。RED 中 canonical hash/size 必须显式
+  未绑定，独立 probe 后单独提交 golden binding。
+  tests-only RED 为 zero migration，只新增/注册 `Tests.Language.ForStatements`。positive 覆盖
+  initializer、entry、view、fn 的 Lean command/ParserSession parity、bound `0`/`4096`、literal/variable/
+  operator/group endpoints、multi-statement body 与 nested if/for。missing iterator/`in`/`..<`/stop/
+  `bounded`/bound/`do`、header split、same-line/same-column/empty body、内部拆开的 `.. <`、extra payload 与上述
+  malformed bounds 必须 parser reject；`for := 1`/`in := 1`/`bounded := 1` 拒绝，escaped 三词保持
+  assignment。`Typed.checkStatement` 在 iterator/endpoint/bound/body/return/effect analysis 前 exact 返回
+  `for statements are not yet supported by typed checking`，旧 statement controls 不变。本切片不实现
+  iterator scope/type、range evaluation、bounded-loop proof/induction、return/effect/path、Semantic/
+  requirement、target/runtime；production 限 Source/Syntax/Typed 3 文件、最多 34 行新增且不移除既有
+  production，并同 GREEN 刷新 Lean package file-set。focused/aggregate/test binary、independent review 与
+  PA50–PA53 committed-tree batch `just ci` 全绿后收口；不得声明 loop semantics、完整 statement grammar
+  或正式 D1 完成。
+  RED 后另固定 canonical security regression：裸 `Nat` 的 `0`/`2^64` 会经 `UInt64.ofNat` alias，故
+  production 必须以 `Fin 4097` 使越界 public Source bound 不可表示，并证明任意 carrier 的 `.val ≤ 4096`；
+  这不改变合法 surface/golden，也不得增加 fallback 或 runtime clamp。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

@@ -6,6 +6,7 @@ import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Language.AggregateDeclarations
+import Tests.Language.ArrayTypes
 import Tests.Language.AssertStatements
 import Tests.Language.BitwiseNot
 import Tests.Language.BoolLiterals
@@ -21,6 +22,7 @@ import Tests.Language.EventErrorDeclarations
 import Tests.Language.ExtensionRequirements
 import Tests.Language.FieldDeclarations
 import Tests.Language.FnDeclarations
+import Tests.Language.ForStatements
 import Tests.Language.IfStatements
 import Tests.Language.IntegerWidthDeclarations
 import Tests.Language.LetStatements
@@ -71,6 +73,7 @@ unsafe def main : IO Unit := do
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
   Tests.Language.AggregateDeclarations.run
+  Tests.Language.ArrayTypes.run
   Tests.Language.AssertStatements.run
   Tests.Language.BitwiseNot.run
   Tests.Language.BoolLiterals.run
@@ -86,6 +89,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ExtensionRequirements.run
   Tests.Language.FieldDeclarations.run
   Tests.Language.FnDeclarations.run
+  Tests.Language.ForStatements.run
   Tests.Language.IfStatements.run
   Tests.Language.IntegerWidthDeclarations.run
   Tests.Language.LetStatements.run
