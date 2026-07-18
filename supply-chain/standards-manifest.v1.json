@@ -1,0 +1,33 @@
+{
+  "files": [
+    {
+      "bytes": 252625,
+      "path": "supply-chain/standards/cyclonedx-bom-1.6.schema.json",
+      "sha256": "3e92dddbc30cf7f6a02b80f0942b1a4cfd4fb1c26f1dfc4310afa9d613cafb93"
+    },
+    {
+      "bytes": 37918,
+      "path": "supply-chain/standards/spdx-exceptions-v3.27.0.json",
+      "sha256": "650f497016c3a979ec4062067625aedfc10211220abb3b587ca1fb05a22c34eb"
+    },
+    {
+      "bytes": 11972,
+      "path": "supply-chain/standards/spdx-license-expressions-v2.3.md",
+      "sha256": "2da19cea85d4f7af6c5196cfe92d7d14bdb070b39f47bb4e11a060f075b9c378"
+    },
+    {
+      "bytes": 318777,
+      "path": "supply-chain/standards/spdx-license-list-v3.27.0.json",
+      "sha256": "157789ba91984aecba5c67b84168dbbd41a235b910a7569aa64bf42a88b24290"
+    }
+  ],
+  "schema": "proof-forge.sbom-standards-manifest.v1",
+  "validator": {
+    "lockRefs": [
+      "toolchains.lock.json",
+      "toolchains-linux-x86_64.lock.json"
+    ],
+    "tool": "jv",
+    "version": "6.0.2"
+  }
+}

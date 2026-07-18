@@ -1,0 +1,227 @@
+{
+  "compilerAssetId": "lean-4.31.0-linux-x86_64",
+  "executables": [
+    {
+      "path": "bin/lake",
+      "sha256": "60330ab6f07dce20f3fa9ebb08e8b984ea9549eac172afeb15d9d2227060e2b3",
+      "size": 13840
+    },
+    {
+      "path": "bin/lean",
+      "sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+      "size": 9024
+    }
+  ],
+  "files": [
+    {
+      "path": "lib/lean/libInit_shared.so",
+      "sha256": "2f96493ac9046f64ec7bcb78102a4c1e7cd9a7042487f246af45eda8a96667f5",
+      "size": 6232
+    },
+    {
+      "path": "lib/lean/libLake_shared.so",
+      "sha256": "02da596e8f70c60a2aec411ed968a633d41ffada2c24617dabe04ae20df1d8c8",
+      "size": 11875896
+    },
+    {
+      "path": "lib/lean/libleanshared.so",
+      "sha256": "844963455a7800b417b067a3c7ad6cb86c34286b54be596b1e2b1e3808d6b718",
+      "size": 158116072
+    },
+    {
+      "path": "lib/lean/libleanshared_1.so",
+      "sha256": "2f96493ac9046f64ec7bcb78102a4c1e7cd9a7042487f246af45eda8a96667f5",
+      "size": 6232
+    },
+    {
+      "path": "lib/lean/libleanshared_2.so",
+      "sha256": "2f96493ac9046f64ec7bcb78102a4c1e7cd9a7042487f246af45eda8a96667f5",
+      "size": 6232
+    }
+  ],
+  "loadEdges": [
+    {
+      "needed": "libLake_shared.so",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libLake_shared.so"
+    },
+    {
+      "needed": "libInit_shared.so",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libInit_shared.so"
+    },
+    {
+      "needed": "libleanshared_2.so",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libleanshared_2.so"
+    },
+    {
+      "needed": "libleanshared_1.so",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libleanshared_1.so"
+    },
+    {
+      "needed": "libleanshared.so",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libleanshared.so"
+    },
+    {
+      "needed": "libc.so.6",
+      "owner": "bin/lake",
+      "resolved": "/lib/x86_64-linux-gnu/libc.so.6"
+    },
+    {
+      "needed": "libpthread.so.0",
+      "owner": "bin/lake",
+      "resolved": "/lib/x86_64-linux-gnu/libpthread.so.0"
+    },
+    {
+      "needed": "libdl.so.2",
+      "owner": "bin/lake",
+      "resolved": "/lib/x86_64-linux-gnu/libdl.so.2"
+    },
+    {
+      "needed": "libm.so.6",
+      "owner": "bin/lake",
+      "resolved": "/lib/x86_64-linux-gnu/libm.so.6"
+    },
+    {
+      "needed": "libInit_shared.so",
+      "owner": "bin/lean",
+      "resolved": "lib/lean/libInit_shared.so"
+    },
+    {
+      "needed": "libleanshared_2.so",
+      "owner": "bin/lean",
+      "resolved": "lib/lean/libleanshared_2.so"
+    },
+    {
+      "needed": "libleanshared_1.so",
+      "owner": "bin/lean",
+      "resolved": "lib/lean/libleanshared_1.so"
+    },
+    {
+      "needed": "libleanshared.so",
+      "owner": "bin/lean",
+      "resolved": "lib/lean/libleanshared.so"
+    },
+    {
+      "needed": "libc.so.6",
+      "owner": "bin/lean",
+      "resolved": "/lib/x86_64-linux-gnu/libc.so.6"
+    },
+    {
+      "needed": "libpthread.so.0",
+      "owner": "bin/lean",
+      "resolved": "/lib/x86_64-linux-gnu/libpthread.so.0"
+    },
+    {
+      "needed": "libdl.so.2",
+      "owner": "bin/lean",
+      "resolved": "/lib/x86_64-linux-gnu/libdl.so.2"
+    },
+    {
+      "needed": "libm.so.6",
+      "owner": "bin/lean",
+      "resolved": "/lib/x86_64-linux-gnu/libm.so.6"
+    },
+    {
+      "needed": "libc.so.6",
+      "owner": "lib/lean/libInit_shared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libc.so.6"
+    },
+    {
+      "needed": "libpthread.so.0",
+      "owner": "lib/lean/libInit_shared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libpthread.so.0"
+    },
+    {
+      "needed": "libdl.so.2",
+      "owner": "lib/lean/libInit_shared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libdl.so.2"
+    },
+    {
+      "needed": "libm.so.6",
+      "owner": "lib/lean/libInit_shared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libm.so.6"
+    },
+    {
+      "needed": "libleanshared.so",
+      "owner": "lib/lean/libLake_shared.so",
+      "resolved": "lib/lean/libleanshared.so"
+    },
+    {
+      "needed": "libleanshared_2.so",
+      "owner": "lib/lean/libLake_shared.so",
+      "resolved": "lib/lean/libleanshared_2.so"
+    },
+    {
+      "needed": "libleanshared_1.so",
+      "owner": "lib/lean/libLake_shared.so",
+      "resolved": "lib/lean/libleanshared_1.so"
+    },
+    {
+      "needed": "libInit_shared.so",
+      "owner": "lib/lean/libLake_shared.so",
+      "resolved": "lib/lean/libInit_shared.so"
+    },
+    {
+      "needed": "libc.so.6",
+      "owner": "lib/lean/libLake_shared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libc.so.6"
+    },
+    {
+      "needed": "libpthread.so.0",
+      "owner": "lib/lean/libLake_shared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libpthread.so.0"
+    },
+    {
+      "needed": "libdl.so.2",
+      "owner": "lib/lean/libLake_shared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libdl.so.2"
+    },
+    {
+      "needed": "libm.so.6",
+      "owner": "lib/lean/libLake_shared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libm.so.6"
+    },
+    {
+      "needed": "libc.so.6",
+      "owner": "lib/lean/libleanshared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libc.so.6"
+    },
+    {
+      "needed": "ld-linux-x86-64.so.2",
+      "owner": "lib/lean/libleanshared.so",
+      "resolved": "/lib64/ld-linux-x86-64.so.2"
+    },
+    {
+      "needed": "libpthread.so.0",
+      "owner": "lib/lean/libleanshared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libpthread.so.0"
+    },
+    {
+      "needed": "libdl.so.2",
+      "owner": "lib/lean/libleanshared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libdl.so.2"
+    },
+    {
+      "needed": "librt.so.1",
+      "owner": "lib/lean/libleanshared.so",
+      "resolved": "/lib/x86_64-linux-gnu/librt.so.1"
+    },
+    {
+      "needed": "libm.so.6",
+      "owner": "lib/lean/libleanshared.so",
+      "resolved": "/lib/x86_64-linux-gnu/libm.so.6"
+    }
+  ],
+  "platform": "linux-x86_64",
+  "provenance": "2026-07-18 inventory: lock-pinned lean archive recompute (readelf on linux root; pure-python Mach-O load-command parse of lean-4.31.0-darwin_aarch64.zip)",
+  "schema": "proof-forge.compiler-runtime-manifest.v1",
+  "systemLoadRoots": [
+    "/usr/lib/",
+    "/lib/",
+    "/lib64/"
+  ]
+}

@@ -164,6 +164,8 @@ def _copy_inputs(destination: Path) -> None:
         "lake-manifest.json",
         "LICENSE",
         "ProofForgeV2.lean",
+        "docs/supply-chain/license-inventory.v1.json",
+        "docs/supply-chain/license-policy.v1.json",
     ]
     for relative in inputs:
         target = destination / relative
@@ -185,15 +187,19 @@ def build_input_root(base: Path, name: str = "input-root") -> Path:
     return root
 
 
-def candidate_fixture() -> dict[str, object]:
-    """Checkout-external fixed candidate tuple (synthetic but well-formed)."""
+def candidate_fixture(base: Path) -> dict[str, object]:
+    """Checkout-external fixed candidate tuple backed by a real archive file."""
 
-    archive = b"proof-forge-candidate-archive-fixture\n"
+    archive = base / "candidate-archive.tar"
+    if not archive.exists():
+        archive.write_bytes(b"proof-forge-candidate-archive-fixture\n")
+    data = archive.read_bytes()
     return {
+        "archivePath": str(archive),
         "commit": "0" * 40,
         "treeObjectId": "1" * 40,
-        "archiveDigest": hashlib.sha256(archive).hexdigest(),
-        "archiveSize": len(archive),
+        "archiveDigest": hashlib.sha256(data).hexdigest(),
+        "archiveSize": len(data),
         "digest": "2" * 40,
     }
 
@@ -239,7 +245,7 @@ def case_sb2_001_happy_path(base: Path) -> None:
     """Frozen denominators, 3 sidecars, dual-root byte-identical, 0444 modes."""
 
     production = require_production()
-    candidate = candidate_fixture()
+    candidate = candidate_fixture(base)
     sidecars = []
     for name in ("root-a", "root-b"):
         root = build_input_root(base, name)
@@ -251,8 +257,8 @@ def case_sb2_001_happy_path(base: Path) -> None:
     for destination in sidecars:
         entries = sorted(item.name for item in destination.iterdir())
         check(
-            tuple(entries) == FROZEN_SIDECAR_FILES,
-            f"sidecar closure must be exactly {FROZEN_SIDECAR_FILES}, got {entries}",
+            tuple(entries) == tuple(sorted(FROZEN_SIDECAR_FILES)),
+            f"sidecar closure must be exactly {sorted(FROZEN_SIDECAR_FILES)}, got {entries}",
         )
         for item in destination.iterdir():
             mode = stat.S_IMODE(item.stat().st_mode)
@@ -304,7 +310,7 @@ def case_sb2_007_same_bytes_distinct_components(base: Path) -> None:
     root = build_input_root(base)
     destination = base / "out-sb2-007"
     production.generate_sidecars(
-        root=root, candidate=candidate_fixture(), destination=destination
+        root=root, candidate=candidate_fixture(base), destination=destination
     )
     bom = json.loads((destination / "bom.cdx.json").read_text())
     refs = {
@@ -322,7 +328,7 @@ def case_sb2_008_libcrypto_join(base: Path) -> None:
     root = build_input_root(base)
     destination = base / "out-sb2-008"
     production.generate_sidecars(
-        root=root, candidate=candidate_fixture(), destination=destination
+        root=root, candidate=candidate_fixture(base), destination=destination
     )
     closure = json.loads((destination / "supply-chain-closure.v1.json").read_text())
     runtime = [
@@ -381,7 +387,7 @@ def case_sb2_018_candidate_mismatch(base: Path) -> None:
 
     production = require_production()
     root = build_input_root(base)
-    candidate = candidate_fixture()
+    candidate = candidate_fixture(base)
     candidate["archiveSize"] = int(candidate["archiveSize"]) + 1
     expect_error(
         production,
@@ -398,7 +404,7 @@ def case_sb2_019_synthetic_root(base: Path) -> None:
 
     production = require_production()
     root = build_input_root(base)
-    candidate = candidate_fixture()
+    candidate = candidate_fixture(base)
     destination = base / "out-sb2-019"
     production.generate_sidecars(root=root, candidate=candidate, destination=destination)
     bom = json.loads((destination / "bom.cdx.json").read_text())
@@ -438,7 +444,7 @@ def case_sb2_023_binding_substitution(base: Path) -> None:
 
     production = require_production()
     root = build_input_root(base)
-    candidate = candidate_fixture()
+    candidate = candidate_fixture(base)
     destination = base / "out-sb2-023"
     production.generate_sidecars(root=root, candidate=candidate, destination=destination)
     binding_path = destination / "sbom-release-binding.v1.json"
@@ -481,7 +487,7 @@ def case_sb2_028_no_clobber(base: Path) -> None:
 
     production = require_production()
     root = build_input_root(base)
-    candidate = candidate_fixture()
+    candidate = candidate_fixture(base)
     destination = base / "out-sb2-028"
     destination.mkdir()
     marker = destination / "supply-chain-closure.v1.json"
@@ -513,7 +519,7 @@ def expect_error(
     try:
         production.generate_sidecars(
             root=root,
-            candidate=candidate or candidate_fixture(),
+            candidate=candidate or candidate_fixture(destination.parent),
             destination=destination,
             timeout=timeout,
         )

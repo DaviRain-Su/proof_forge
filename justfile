@@ -30,6 +30,7 @@ sbom:
     /usr/bin/python3 -I -S scripts/sbom_self_test.py
     /usr/bin/python3 -I -S scripts/sbom_generate.py --root . generate --output-dir build/sbom
     /usr/bin/python3 -I -S scripts/sbom_generate.py --root . verify --output-dir build/sbom
+    /usr/bin/python3 -I -S scripts/sbom_closure_self_test.py
 
 # TASK-D0-08 pre-freeze primitives only. This protects PF-JCS,
 # ToolLockV2Digest, direct leaf ownership, logical component identities, and

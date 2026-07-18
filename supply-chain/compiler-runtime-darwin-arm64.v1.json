@@ -1,0 +1,176 @@
+{
+  "compilerAssetId": "lean-4.31.0-darwin-arm64",
+  "executables": [
+    {
+      "path": "bin/lake",
+      "sha256": "58261a1a2fa1a362376c71e02ca854a093e71cc5e6ea64b287a931cb2565273d",
+      "size": 51840
+    },
+    {
+      "path": "bin/lean",
+      "sha256": "1b370cfcbf44e80d1b004ab1b1ab9a4c73951f9f7c242140bcff9bc577576554",
+      "size": 49968
+    }
+  ],
+  "files": [
+    {
+      "path": "lib/lean/libInit_shared.dylib",
+      "sha256": "cb203e0bc0e6ab3250b2804d3e5398ad3a91544b5e049674532f73b7a062ef7f",
+      "size": 16736
+    },
+    {
+      "path": "lib/lean/libLake_shared.dylib",
+      "sha256": "c23af90df3a7f5486c9f7e1a65a3f98593a27a1d35523a19112316ebaa2499c1",
+      "size": 9435952
+    },
+    {
+      "path": "lib/lean/libleanshared.dylib",
+      "sha256": "a695a9aa68481c42b99619e0103537e6b433c6fa7021927b184e19a686d03989",
+      "size": 170794848
+    },
+    {
+      "path": "lib/lean/libleanshared_1.dylib",
+      "sha256": "e44858e227323a23ce7416c5678415d2d022582b1627ad3690117ce73cd6345a",
+      "size": 16736
+    },
+    {
+      "path": "lib/lean/libleanshared_2.dylib",
+      "sha256": "be68927a4f282b99383e82af4d481b4ffe59f2a243aea20dae0e60b39c2ae182",
+      "size": 16736
+    }
+  ],
+  "loadEdges": [
+    {
+      "needed": "@rpath/libLake_shared.dylib",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libLake_shared.dylib"
+    },
+    {
+      "needed": "@rpath/libInit_shared.dylib",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libInit_shared.dylib"
+    },
+    {
+      "needed": "@rpath/libleanshared_2.dylib",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libleanshared_2.dylib"
+    },
+    {
+      "needed": "@rpath/libleanshared_1.dylib",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libleanshared_1.dylib"
+    },
+    {
+      "needed": "@rpath/libleanshared.dylib",
+      "owner": "bin/lake",
+      "resolved": "lib/lean/libleanshared.dylib"
+    },
+    {
+      "needed": "/usr/lib/libSystem.B.dylib",
+      "owner": "bin/lake",
+      "resolved": "/usr/lib/libSystem.B.dylib"
+    },
+    {
+      "needed": "@rpath/libInit_shared.dylib",
+      "owner": "bin/lean",
+      "resolved": "lib/lean/libInit_shared.dylib"
+    },
+    {
+      "needed": "@rpath/libleanshared_2.dylib",
+      "owner": "bin/lean",
+      "resolved": "lib/lean/libleanshared_2.dylib"
+    },
+    {
+      "needed": "@rpath/libleanshared_1.dylib",
+      "owner": "bin/lean",
+      "resolved": "lib/lean/libleanshared_1.dylib"
+    },
+    {
+      "needed": "@rpath/libleanshared.dylib",
+      "owner": "bin/lean",
+      "resolved": "lib/lean/libleanshared.dylib"
+    },
+    {
+      "needed": "/usr/lib/libSystem.B.dylib",
+      "owner": "bin/lean",
+      "resolved": "/usr/lib/libSystem.B.dylib"
+    },
+    {
+      "needed": "/usr/lib/libc++.dylib",
+      "owner": "lib/lean/libInit_shared.dylib",
+      "resolved": "/usr/lib/libc++.dylib"
+    },
+    {
+      "needed": "/usr/lib/libSystem.B.dylib",
+      "owner": "lib/lean/libInit_shared.dylib",
+      "resolved": "/usr/lib/libSystem.B.dylib"
+    },
+    {
+      "needed": "@rpath/libleanshared.dylib",
+      "owner": "lib/lean/libLake_shared.dylib",
+      "resolved": "lib/lean/libleanshared.dylib"
+    },
+    {
+      "needed": "@rpath/libleanshared_2.dylib",
+      "owner": "lib/lean/libLake_shared.dylib",
+      "resolved": "lib/lean/libleanshared_2.dylib"
+    },
+    {
+      "needed": "@rpath/libleanshared_1.dylib",
+      "owner": "lib/lean/libLake_shared.dylib",
+      "resolved": "lib/lean/libleanshared_1.dylib"
+    },
+    {
+      "needed": "@rpath/libInit_shared.dylib",
+      "owner": "lib/lean/libLake_shared.dylib",
+      "resolved": "lib/lean/libInit_shared.dylib"
+    },
+    {
+      "needed": "/usr/lib/libc++.dylib",
+      "owner": "lib/lean/libLake_shared.dylib",
+      "resolved": "/usr/lib/libc++.dylib"
+    },
+    {
+      "needed": "/usr/lib/libSystem.B.dylib",
+      "owner": "lib/lean/libLake_shared.dylib",
+      "resolved": "/usr/lib/libSystem.B.dylib"
+    },
+    {
+      "needed": "/usr/lib/libc++.dylib",
+      "owner": "lib/lean/libleanshared.dylib",
+      "resolved": "/usr/lib/libc++.dylib"
+    },
+    {
+      "needed": "/usr/lib/libSystem.B.dylib",
+      "owner": "lib/lean/libleanshared.dylib",
+      "resolved": "/usr/lib/libSystem.B.dylib"
+    },
+    {
+      "needed": "/usr/lib/libc++.dylib",
+      "owner": "lib/lean/libleanshared_1.dylib",
+      "resolved": "/usr/lib/libc++.dylib"
+    },
+    {
+      "needed": "/usr/lib/libSystem.B.dylib",
+      "owner": "lib/lean/libleanshared_1.dylib",
+      "resolved": "/usr/lib/libSystem.B.dylib"
+    },
+    {
+      "needed": "/usr/lib/libc++.dylib",
+      "owner": "lib/lean/libleanshared_2.dylib",
+      "resolved": "/usr/lib/libc++.dylib"
+    },
+    {
+      "needed": "/usr/lib/libSystem.B.dylib",
+      "owner": "lib/lean/libleanshared_2.dylib",
+      "resolved": "/usr/lib/libSystem.B.dylib"
+    }
+  ],
+  "platform": "darwin-arm64",
+  "provenance": "2026-07-18 inventory: lock-pinned lean archive recompute (readelf on linux root; pure-python Mach-O load-command parse of lean-4.31.0-darwin_aarch64.zip)",
+  "schema": "proof-forge.compiler-runtime-manifest.v1",
+  "systemLoadRoots": [
+    "/usr/lib/",
+    "/System/Library/"
+  ]
+}
