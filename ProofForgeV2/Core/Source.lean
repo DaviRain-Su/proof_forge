@@ -101,6 +101,7 @@ inductive Expr where
   | stringLiteral (value : String)
   | localFnCall (callee : String) (args : Array Expr)
   | constructorExpr (path : Array String) (args : Array Expr)
+  | indexAccess (base : String) (index : Expr)
   deriving BEq, Inhabited, Repr
 
 structure ConstDecl where
@@ -315,6 +316,7 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .stringLiteral value => appendString (appendTag bytes 25) value
   | .localFnCall callee args => appendArray appendExpr (appendString (appendTag bytes 26) callee) args
   | .constructorExpr path args => appendArray appendExpr (appendArray appendString (appendTag bytes 27) path) args
+  | .indexAccess base index => appendExpr (appendString (appendTag bytes 28) base) index
 
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value

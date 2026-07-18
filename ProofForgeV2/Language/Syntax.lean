@@ -26,6 +26,7 @@ syntax num : pfExpr
 syntax str : pfExpr
 syntax ident : pfExpr
 syntax:max ident "(" pfExpr,* ")" : pfExpr
+syntax:max ident "[" pfExpr "]" : pfExpr
 syntax:75 "-" pfExpr:75 : pfExpr
 syntax:75 "~" pfExpr:75 : pfExpr
 syntax:75 "!" pfExpr:75 : pfExpr
@@ -388,6 +389,10 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
         return .localFnCall callee (← args.getElems.mapM decodeExprUnchecked)
       let path ← decodeConstructorPath callee
       return .constructorExpr path (← args.getElems.mapM decodeExprUnchecked)
+  | `(pfExpr| $base:ident [$index:pfExpr]) => do
+      unless base.getId.components.length == 1 do
+        throw "index access base must be unqualified"
+      return .indexAccess (← decodeIdentifier base) (← decodeExprUnchecked index)
   | `(pfExpr| $name:ident) => do
       return .variable (← decodeIdentifier name)
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
@@ -891,6 +896,10 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let path := path.map Syntax.mkStrLit
       let args ← args.mapM quoteExpr
       `(ProofForgeV2.Source.Expr.constructorExpr #[$[$path],*] #[$[$args],*])
+  | .indexAccess base index => do
+      let base := Syntax.mkStrLit base
+      let index ← quoteExpr index
+      `(ProofForgeV2.Source.Expr.indexAccess $base $index)
   | .variable value =>
       let value := Syntax.mkStrLit value
       `(ProofForgeV2.Source.Expr.variable $value)

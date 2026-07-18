@@ -239,6 +239,8 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       throw <| .invalidProgram "local function calls are not yet supported by typed checking"
   | .constructorExpr .. =>
       throw <| .invalidProgram "constructor expressions are not yet supported by typed checking"
+  | .indexAccess .. =>
+      throw <| .invalidProgram "index access is not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement
