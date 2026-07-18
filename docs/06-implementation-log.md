@@ -4158,3 +4158,45 @@ normative: false
   observe-host 重登记 linux profile；(b) genesis root 离线签发首个
   BootstrapAuthorityPolicyV1。随后本入口可直接产出真实 closure bundle，
   再做 D0-04 关闭治理件（attest + docs_check d0_04 分支 + bootstrap EV）。
+
+## 2026-07-19 — D1 exact Option Array Array PrimitiveAtom spelling pre-acceptance slice
+
+- Commits：freeze `7f62835a`；tests-only RED `8ff18a9d`；Syntax/GREEN、canonical binding、
+  parser-channel correction、compound fail-closed controls 与 Lean package-file re-pin `31750d95`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-69 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：为既有 `Source/Semantic.ValueType.option (.array (.array element innerLength)
+  outerLength)` 开放 exact same-line `Option Array Array PrimitiveAtom N M`；新增 named
+  `optionArrayArrayType` 与 aggregate-field parser，decoder 精确复用 closed
+  `decodeArrayArrayValueTypeFromAtoms` 后只包一层 Option，专用 type dispatch 位于 generic
+  `optionArrayType` 前。Source/Semantic ctor、encoder、Typed 与 target 未改。
+- Migration/Coverage：只迁移既有 `Option Array Array UInt64 4 4` negative 一条；覆盖 inner/outer
+  length `0/0`、`4/4`、`4096/1`、UInt64/Bool/Principal、state/struct/enum/const/init/entry/view/fn/
+  event/error、双入口 parity、invalid lexical lengths、escaped/qualified/extra/split，以及
+  Field/Bytes/Option/Array/Map/Named compound fail-closed controls。RED 中缺 outer length 的错误通道
+  已在 GREEN 更正为 parser rejection。
+- Canonical/requirements：tag `16→18→18→element→innerLength→outerLength`。五组 Source goldens
+  均 277 bytes，hash 为 `c41d358a00638c4027c477ad509c1755de8e4910bf2c19de28fafc2f9ef532d5`、
+  `307c217dae5a427c9b0b9db061ca84458c4803609b38cd513cdd0359b1d7e6ba`、
+  `19cfa92d3b3c1f89587c6fb8c3004e4757d1e4cce06ef436bfed37e161feb90d`、
+  `2afcabdfbfcf953b3d373aee00ef59b1b26be0838eedba3f3827859b6f4b5c17`、
+  `12939052290b1f381d62617de03f28d7d100038c3731c3a60799a1c6573e17d0`；五组 Semantic
+  goldens 为 226/226/226/227/227 bytes，hash 为
+  `be7ed61bb6de2afe9d4879e80d60d8b9a48d03c8a8df2fe43ee2f261617d9084`、
+  `ca7aa5a225dd187156543116b85b4d303a20800121a808599681cddcf8fd9cbb`、
+  `f9d4e0d7ac2f8e0f10229acac4a7746b015fb4a3d9dd0e9ee7a15216d0af1ac3`、
+  `af837a2665647f26d58592965c307023c900a003c11d7316e6b96ed0bf3b594c`、
+  `7a5a8d93fc72f087f0654d84c7f38f1c0f99a3e6c9d961d92fb5abdb8eb8cb27`；UInt64
+  requirements 为空，Bool 只传播一次 `boolValues`。四 target 的 support 与 target-owned Plan
+  boundary 均保持 fail closed，未产生 artifact。
+- Scope/Commands：production `Syntax.lean` 恰好 26 行新增/0 行移除；`lake build
+  Tests.Language.OptionDeclarations` 23 jobs；`lake build proof_forge_next_tests` 192 jobs；测试二进制
+  exit 0；`just sbom`（含 closure self-test）与 `git diff --check` 通过。Kimi final review
+  P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0065`；按冻结未重复完整 `just ci`。
+- Scope claim：只完成 existing-carrier spelling、canonical identity、requirements 与
+  support-vs-Plan boundary；不包括 nested Array operations、任意 recursive grammar、runtime/ABI 或
+  正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 状态以 checkpoint 当前值为准。
+- Next：当前无 active development slice；post-PA-69 residual audit 只推荐 exact
+  `Option Option Option PrimitiveAtom`，但尚未冻结，且必须先显式 supersede 历史 third-layer-deferred
+  边界；禁止由 checkpoint 自动递增。
