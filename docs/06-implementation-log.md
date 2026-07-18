@@ -2490,3 +2490,42 @@ normative: false
   survival control、与 logical-and/bitwise/comparison 的合法 mixed shapes及 operands 前 exact Typed failure；
   不得捆绑 match、short-circuit implementation、Semantic 或 target lowering。该切片收口时运行 logical-tier
   committed-tree 批量 `just ci`，但不得把运算符 precedence tower 扩张为完整 expression/statement grammar。
+
+## 2026-07-18 — D1 logical-or pre-acceptance slice and operator-tier checkpoint
+
+- Commits：freeze `9ef75d70`；tests-only RED `ed9ae637`；Source-only GREEN `3ff4b76b`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-43 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.logicalOr lhs rhs`、append-only Expr tag `24`、
+  `syntax:25 pfExpr:25 " || " pfExpr:26 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `logical or is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..23` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；integer/Bool/order/variable、add/mul/shift、comparison、
+  bitwise-and/xor/or、logical-and 双向 precedence、grouping、unary AST；`1 || 2 || 3` 左结合与
+  `1 || (2 || 3)` 右嵌套。代表 goldens：`1||2`
+  `0d003490a306ffbf450ac6b6f14e52269b45ad323c5cbfb0c20bb185b28d19c8`/225 bytes、`2||1`
+  `b914f5d794a6d870f6340efe0cd0d5abef4456232c5a5845095a51b10d244a3b`/225、`true||false`
+  `cd96205fda841af0c6721e03bb8a5be12fc3ea2228a85dfdce03b88a490f30b5`/211、left nest
+  `137ad8122e776ceee9cd55c0ecda106f6c2264a83fdc2914740e569d32b67fb7`/235、right nest
+  `151b82c032acf39a9d3f02988b4cc25b4a28c47166fb288b19db8d334c3ee6fb`/235。
+- Boundaries：tests-only RED 只删除 `BitwiseOr.lean` 的一个 double-pipe negative；spaced `1 | | 2`
+  survival pin 保持。bare/missing、`1 || || 2`、`1 ||| 2`、`1 | || 2` 与 extra payload 在 parser
+  boundary 拒绝。Typed integer/Bool 两路均在 operands 前 exact fail closed，既有 expression controls
+  保持。freeze 与 final review P0/P1=0。
+- Commands/Results：`lake build Tests.Language.LogicalOr`（14 jobs）；
+  `lake build proof_forge_next_tests`（170 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`
+  真实捕获 exit 0；clean committed `just ci` at
+  `3ff4b76b4ff6dc42746fb917f5c4b89f5dc29dab` 完整捕获 exit 0：40-mutation isolation precheck、
+  committed archive 178-job build/test/help、186 docs mutations、genesis/bootstrap/SBOM/supply-chain/runtime
+  closure self-tests、本地 60-job product build、170-job aggregate/test、DSL negatives 与 target/toolchain
+  negatives 全绿；development evidence 为 `EV-20260718-0029`。
+- Scope claim：从 unary、multiplicative、additive、shift、comparison、bitwise 到 logical-or 的 Source
+  operator precedence tower 已覆盖；这不包括 MatchExpr、StringLiteral、call/constructor/place、完整
+  expression/statement grammar，也不形成 Typed/Semantic 或 target behavior。
+- Limitations：仅有 Source logical-or carrier；没有 operand/result legality、short-circuit Typed/Semantic、
+  Bool legality、folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：两份 residual audit 选择 StringLiteral 为唯一最小下一 candidate，但尚未冻结。必须固定
+  append-only Expr tag `25`、Lean string escape 的双入口 round-trip、empty string、与相同 payload variable
+  的 tag-only non-alias、相邻/interpolated/unterminated parser boundaries 及 operands 前 exact Typed failure；
+  不得捆绑 MatchExpr、call/constructor/place、Semantic 或 target lowering。
