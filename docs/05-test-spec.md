@@ -965,6 +965,26 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   bitwiseNot/logicalNot exact controls 保持。本切片不得迁移任何既有 test，不得加入 `>>`、signed/
   arithmetic shift、rotate、width/overflow、folding、Typed/Semantic shift、requirement、target ABI/runtime。
   production 必须限于 Source/Syntax/Typed 3 文件/11 行，其他层不得修改。
+- D1-PA-32 的 alpha shift-right tests 固定 production rule
+  `syntax:60 pfExpr:60 " >> " pfExpr:61 : pfExpr` 与 `Source.Expr.shiftRight(lhs, rhs)`。positive 必须覆盖
+  initializer、entry、view、fn 的 return/let value 及 Lean command/ParserSession parity，并精确固定
+  `1 >> 2`、`2 >> 1`、`a >> b`、`1 + 2 >> 3`、`1 >> 2 + 3`、`8 >> 2 * 3`、
+  `8 * 2 >> 3`、`1 >> 2 >> 3`、`1 >> (2 >> 3)`、`(1 + 2) >> 3`、`-1 >> 2`、
+  `1 >> -2`、`0 >> 1`、`1 >> 0`、`1 >> 64`、`1 << 2 >> 3` 与 `1 >> 2 << 3` 的 AST；
+  shift operators 必须同层跨 operator 左结合、低于 additive/multiplicative，grouping/unary 保留，
+  zero/over-width count 在 Source 接受。
+  Source canonical encoder 使用 append-only Expr tag `13` 后依次编码 lhs/rhs；既有 tags `0..12`/goldens
+  不变。ShiftRightTwin identity 下 order/precedence/cross-shift/grouping/nested/unary/count cases 的真实
+  bytes/hash 必须在 GREEN 前绑定，并以 shift-left、checked-add、operand order/count、wrong precedence
+  tree、left/right nesting 与 reversed cross-shift shape 作为 non-alias。相同 identity 下 `(1 >> 2)` 与
+  `1 >> 2` 必须产生相同 Program/bytes/hash。
+  bare/missing/repeated `>>`、`1 > > 2`、`1 >>> 2` 与 extra payload 必须停在 parser boundary。
+  `Typed.check` 必须在 operand checking 前逐字拒绝
+  `shift right is not yet supported by typed checking`；既有 checkedAdd positive 与 Bool/sub/mul/div/mod/neg/
+  bitwiseNot/logicalNot/shiftLeft exact controls 保持。tests-only RED 必须且只能迁移 `ShiftLeft.lean` 的
+  deferred `1 >> 2` 一条 negative。不得加入 arithmetic-vs-logical/signed shift-right、rotate、width/
+  overflow、folding、Typed/Semantic shift、requirement、target ABI/runtime；production 必须限于
+  Source/Syntax/Typed 3 文件/11 行，其他层不得修改。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

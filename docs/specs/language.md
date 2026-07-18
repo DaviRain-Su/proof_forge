@@ -351,6 +351,25 @@ bare/missing operand、`1 < < 2`、`1 <<< 2` 与额外 payload 保持 parser rej
 Source/Syntax/Typed 3 文件/11 行 exact seam，其他层不得修改。本切片只实现 `<<`，不得宣称
 `ShiftExpr`、expression grammar 或 `TASK-D1-04` 正式完成。
 
+D1-PA-32 冻结的 pre-acceptance alpha shift-right 子集新增 `Source.Expr.shiftRight(lhs, rhs)`，parser
+形状固定为 `syntax:60 pfExpr:60 " >> " pfExpr:61 : pfExpr`。它与 shift-left 使用相同 ShiftExpr
+precedence `60` 并跨 operator 左结合，严格低于 AddExpr/MulExpr：`1 + 2 >> 3` 必须为
+`(1 + 2) >> 3`，`1 >> 2 + 3` 为 `1 >> (2 + 3)`，`8 >> 2 * 3` 为 `8 >> (2 * 3)`，
+`8 * 2 >> 3` 为 `(8 * 2) >> 3`，`1 >> 2 >> 3` 为 `(1 >> 2) >> 3`；
+`1 << 2 >> 3` 必须为 `(1 << 2) >> 3`，`1 >> 2 << 3` 为 `(1 >> 2) << 3`，
+`1 >> (2 >> 3)` 保留显式 right-nested tree，unary operands 继续以 precedence `75` 绑定。
+
+Source canonical encoder 以 append-only Expr tag `13` 后依次递归编码 lhs、rhs；既有 tags `0..12`
+与 goldens 不得改变。`1 >> 0` 与 `1 >> 64` 必须形成 Source node；count legality 属于 D2/target，
+不得提前拒绝。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在检查任一 operand 前逐字
+fail closed 为 `shift right is not yet supported by typed checking`。同一个 tests-only RED 必须且只能把
+`ShiftLeft.lean` 的 deferred `1 >> 2` 一条 negative 迁移为 exact positive，并保持其他 tests 不变。
+本切片不得决定 arithmetic-vs-logical/signed shift-right、rotate、width/overflow、constant folding、
+Typed/Semantic shift、requirement、target behavior 或 runtime representation；bare/missing operand、
+`1 > > 2`、`1 >>> 2` 与额外 payload 保持 parser reject。production 必须限于 Source/Syntax/Typed
+3 文件/11 行 exact seam，其他层不得修改。本切片完成后只能称 `<<`/`>>` Source surface 已覆盖，
+不得宣称 `ShiftExpr`、expression grammar 或 `TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
