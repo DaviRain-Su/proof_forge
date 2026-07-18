@@ -26,6 +26,9 @@ prevents the following program item from becoming part of the type. -/
   withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident >>
     checkLineEq >> numLit)
+@[pfType_parser default+1] def arrayArrayType := leading_parser
+  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit)
 @[pfType_parser default+1] def arrayType := leading_parser
   withPosition (nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit)
@@ -159,6 +162,9 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def arrayArrayAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def arrayAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
@@ -462,6 +468,22 @@ private def decodeArrayBytesValueTypeFromAtoms :
       else throw "unsupported portable type"
   | _ => throw "unsupported portable type"
 
+private def decodeArrayArrayValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  match atoms with
+  | #[elementSyntax, innerSyntax, outerSyntax] => do
+      let element ← match rawIdentifierText? elementSyntax with
+        | some _ => decodeTypeIdentifiers elementSyntax none
+        | none => throw "unsupported portable type"
+      let inner := (← decodeBytesLengthAtom innerSyntax).toNat
+      let outer := (← decodeBytesLengthAtom outerSyntax).toNat
+      if hInner : inner < 4097 then
+        if hOuter : outer < 4097 then
+          pure (.array (.array element ⟨inner, hInner⟩) ⟨outer, hOuter⟩)
+        else throw "unsupported portable type"
+      else throw "unsupported portable type"
+  | _ => throw "unsupported portable type"
+
 private def decodeArrayOptionValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   match ← decodeArrayValueTypeFromAtoms atoms with
@@ -552,6 +574,7 @@ private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Sour
     decodeArrayBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``arrayOptionType then
     decodeArrayOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``arrayArrayType then decodeArrayArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayType then
     decodeOptionArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayFieldType then
@@ -751,6 +774,15 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
 
 private def decodeStructFieldUnchecked (stx : Syntax) :
     Except String ProofForgeV2.Source.FieldDecl := do
+  if stx.isOfKind ``arrayArrayAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeArrayArrayValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
   if stx.isOfKind ``arrayFieldAggregateField then
     let atoms := collectTypeAtomSyntax stx
     let nameStx ← match atoms[0]? with

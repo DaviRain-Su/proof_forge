@@ -936,10 +936,10 @@ unsafe def run : IO Unit := do
   expect goldensBound "Array Bytes tag18+tag17 canonical goldens must be bound"
 
   let arrayArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Array UInt64 0 0", .array (.array .u64 0) 0, 0, "UNBOUND"),
-    ("Array Array UInt64 4 4", .array (.array .u64 4) 4, 0, "UNBOUND"),
-    ("Array Array UInt64 4096 1", .array (.array .u64 4096) 1, 0, "UNBOUND"),
-    ("Array Array Bool 0 0", .array (.array .bool 0) 0, 0, "UNBOUND")
+    ("Array Array UInt64 0 0", .array (.array .u64 0) 0, 265, "82bebef7609b3dd4588252e737f8f12e813f43b0d811c607f7ec9b5725d2d1ca"),
+    ("Array Array UInt64 4 4", .array (.array .u64 4) 4, 265, "ca15c383708945969f97236fae7778a1a67f7239e898136904b94782d1d17e6b"),
+    ("Array Array UInt64 4096 1", .array (.array .u64 4096) 1, 265, "e779fb2145435c85c7dd00e445e3948441a3e37f90d3fdfdf6aba2690a4fef86"),
+    ("Array Array Bool 0 0", .array (.array .bool 0) 0, 265, "d41c6c8a10295f2319f75a07fcd6dacfaaec620e261b896289e96afa1dee9c9b")
   ]
   for (label, type, expectedSize, expectedHash) in arrayArraySourceVectors do
     let sourceProgram := twin type
@@ -960,10 +960,10 @@ unsafe def run : IO Unit := do
     "Array Array must bind nested Array tags, element and both length payloads"
 
   let arrayArraySemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Array UInt64 0 0", .array (.array .u64 0) 0, 0, "UNBOUND"),
-    ("Array Array UInt64 4 4", .array (.array .u64 4) 4, 0, "UNBOUND"),
-    ("Array Array UInt64 4096 1", .array (.array .u64 4096) 1, 0, "UNBOUND"),
-    ("Array Array Bool 0 0", .array (.array .bool 0) 0, 0, "UNBOUND")
+    ("Array Array UInt64 0 0", .array (.array .u64 0) 0, 214, "4c2629b142ef236638be38fe5d2e7bd36dfe5e5fdc5b61ce98d19e375d013822"),
+    ("Array Array UInt64 4 4", .array (.array .u64 4) 4, 214, "b5133659b9e12e6cfc436ed96288dba53ec817b46e64444bcaa87b46b27d2f20"),
+    ("Array Array UInt64 4096 1", .array (.array .u64 4096) 1, 214, "2bcfee645da388f3e3fb0c936637a85cf21a1128105b2f88d6f239820dc412ca"),
+    ("Array Array Bool 0 0", .array (.array .bool 0) 0, 215, "453ce5b5d3e5ada18b2be5e3e5c05962b3cfe2aa3168aee43af5685ecbee333a")
   ]
   for (label, type, expectedSize, expectedHash) in arrayArraySemanticVectors do
     let compiled ← match Compiler.compile (twin type) with
@@ -974,7 +974,7 @@ unsafe def run : IO Unit := do
       goldensBound := false
       IO.eprintln
         s!"{label} semantic tag18+tag18 golden is unbound: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
-  expect goldensBound "Array Array tag18+tag18 canonical goldens must be unbound until GREEN bind"
+  expect goldensBound "Array Array tag18+tag18 canonical goldens must be bound"
 
   for (label, spelling) in [
       ("bare Array", "Array"),
@@ -1009,7 +1009,6 @@ unsafe def run : IO Unit := do
       ("hex Array Option length", "Array Option UInt64 0x10"),
       ("underscore Array Option length", "Array Option UInt64 4_096"),
       ("Array element", "Array Array 4"),
-      ("missing Array Array outer length", "Array Array UInt64 4"),
       ("unknown Array Array element", "Array Array Mystery 4 4"),
       ("Field Array Array element", "Array Array Field 4 4"),
       ("over-bound Array Array inner length", "Array Array UInt64 4097 4"),
@@ -1077,6 +1076,7 @@ unsafe def run : IO Unit := do
       ("qualified Option constructor in Array", "Array Std.Option UInt64 4"),
       ("negative Array Array inner length", "Array Array UInt64 -1 4"),
       ("negative Array Array outer length", "Array Array UInt64 4 -1"),
+      ("missing Array Array outer length", "Array Array UInt64 4"),
       ("extra Array Array payload", "Array Array UInt64 4 4 Principal"),
       ("full Field Array Array element", "Array Array Field bn254_fr 4 4"),
       ("nested Option Array Array element", "Array Array Option Bool 4 4"),
