@@ -56,14 +56,14 @@
       "sha256": "331ec223e864af9bef48c08d06f44ac4a15ccef379fffa93c24a5b7127869c18"
     },
     {
-      "bytes": 15974,
+      "bytes": 16144,
       "path": "ProofForgeV2/Core/Source.lean",
-      "sha256": "d0a6e2698c47479af35a3a4b7852d7df7eed9f843b94cac2e7b4998e08621be5"
+      "sha256": "7a164b7f89df8235c4d773793f5571eafe07152c9732dabf8be2fad6687f550a"
     },
     {
-      "bytes": 14834,
+      "bytes": 14952,
       "path": "ProofForgeV2/Core/Typed.lean",
-      "sha256": "d5656578e0d0c90ca85a010740e6aa77ad9d7062ab090f306c59f90b35126bef"
+      "sha256": "e264a845580e24ce860be6ab26b2cf32628962575b60fffe26a61c0f187e6b2a"
     },
     {
       "bytes": 7431,
@@ -96,9 +96,9 @@
       "sha256": "c790a96eadd7819a1bd6b7e936e127a6fd17093cc1a672e36d1b68a9f8b23682"
     },
     {
-      "bytes": 56183,
+      "bytes": 56752,
       "path": "ProofForgeV2/Language/Syntax.lean",
-      "sha256": "f35a168171b25aa5a56fbe083c76d2290ba66b255238571ca24e53689e2d263b"
+      "sha256": "29c0908c6fe19e465272753ab77a4466df01c2dbcb86e87d6ac0918458818593"
     },
     {
       "bytes": 2466,
