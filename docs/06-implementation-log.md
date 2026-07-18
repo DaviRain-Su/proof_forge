@@ -2295,3 +2295,29 @@ normative: false
   的 longest-token/token-integrity boundary、Compare precedence `50` non-associativity、Expr tag `18`、
   `Equal.lean` 中唯一 `1 > 2` retention negative 的迁移、same/mixed chain rejection 与 exact Typed failure；
   不得捆绑 `>=`、Bool legality、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 greater-than pre-acceptance slice
+
+- Commits：freeze `d8b8120a`；tests-only RED `880f2b95`；Source-only GREEN `996fa0fe`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-37 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.greaterThan lhs rhs`、append-only Expr tag `18`、
+  `syntax:50 pfExpr:51 " > " pfExpr:51 : pfExpr`、decoder/quotation 以及 operands 前 exact Typed
+  `greater-than comparison is not yet supported by typed checking`。production 只改 3 文件/11 行。
+- Coverage：双入口与 initializer/entry/view/fn；integer/Bool/order/variable、add/mul/shift 双向、grouping、
+  unary AST；same chain 与八种 mixed directions 全拒绝。代表 goldens：`1>2`
+  `1dd61183be0bfb0d0955232b2c1c751d049215f6fd262c9a81e35f59f8d0c137`/231 bytes、`2>1`
+  `dbce68b33070a56eecbcee77a46efb826c7cd4bc16b310868aa6cf9307dc6566`/231、`true>false`
+  `d1b81799ca56ba7ced47d015f8ee13a8e48fcf53edd7a6e5655c9dfacec06e13`/217、`1>>2>3`
+  `756aa4acb27e6a475d4732e56ed855f87f74ccd9ca45b372038331d53a0d9168`/241、`1>2>>3`
+  `6b1adb2c2d71e80c724ac050867bf87e8801a1f3c5ed9f053e64e9d533ccde4b`/241。
+- Boundaries：只迁移 `Equal.lean` 的 `1 > 2` negative，保留 `>=`；`1 > > 2`、`1 >>> 2`、
+  `1 >>= 2`、`1 > = 2` 拒绝，`>>` 语义和 ShiftRight survival pins 未变。
+- Review/Commands：Grok 完成 RED、下一 residual 与 evidence extraction；Kimi 完成 freeze seam、最后一个
+  comparison residual 和 GREEN final audit，P0/P1=0。执行 focused、158-job aggregate、测试二进制与
+  `git diff --check`，全部 exit 0；development evidence 为 `EV-20260718-0023`，未重复全量 CI。
+- Limitations：仅有 Source carrier；没有 type legality、Typed/Semantic comparison、`>=`、bitwise/logical、
+  folding、requirement、target 或 formal D1 evidence。不得关闭 pending `TASK-D1-04`；D0 仍为 5/8。
+- Next：greater-or-equal `>=` 是 CompareExpr 最后一个 Source residual，尚未冻结。必须固定 tag `19`、
+  唯一剩余 `1 >= 2` migration、十种 mixed directions 与 `>`/`>>`/`=` token boundaries；该切片完成后
+  运行一次 CompareExpr 批量 `just ci` checkpoint，但仍不得宣称整个 expression grammar 或正式 D1 完成。
