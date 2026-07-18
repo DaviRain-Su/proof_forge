@@ -507,6 +507,72 @@ program OptionArrayArrayParamBoundary where
   entry echo(value : Option Array Array UInt64 4 4) : UInt64 do
     return 0
 
+
+program TripleOptionSurface where
+  state tripleCount : Option Option Option UInt64
+
+  event TripleOptionEvent(payload : Option Option Option UInt64)
+  error TripleOptionError(payload : Option Option Option UInt64)
+
+  struct TripleOptionBox where
+    counts : Option Option Option UInt64
+    flags : Option Option Option Bool
+    owners : Option Option Option Principal
+
+  enum TripleOptionTag where
+    | MaybeTripleCount(Option Option Option UInt64)
+    | MaybeTripleFlag(Option Option Option Bool)
+    | MaybeTripleOwner(Option Option Option Principal)
+
+  const TripleOptionSeed : Option Option Option UInt64 := 0
+
+  init(initial : Option Option Option UInt64) do
+    tripleCount := initial
+
+  entry echo(value : Option Option Option UInt64) : Option Option Option UInt64 do
+    return value
+
+  view get() : Option Option Option UInt64 do
+    return tripleCount
+
+  fn ident(value : Option Option Option Principal) : Option Option Option Principal do
+    return value
+
+program TripleOptionBoundary where
+  entry echo(value : Option Option Option UInt64) : Option Option Option UInt64 do
+    return value
+
+program TripleOptionBoolBoundary where
+  entry echo(value : Option Option Option Bool) : Option Option Option Bool do
+    return value
+
+program TripleOptionStateBoundary where
+  state value : Option Option Option UInt64
+
+  init(initial : Option Option Option UInt64) do
+    value := initial
+
+  view get() : Option Option Option UInt64 do
+    return value
+
+program TripleOptionResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option Option UInt64) : Option Option Option UInt64 do
+    return value
+
+program TripleOptionParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option Option UInt64) : UInt64 do
+    return 0
+
 end Tests.Language.OptionDeclarationsFixture
 
 namespace Tests.Language.OptionDeclarationsFixture
@@ -895,6 +961,34 @@ private def optionArrayArraySurfaceSource : String :=
   "  fn ident(value : Option Array Array Principal 4096 1) : Option Array Array Principal 4096 1 do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
+
+private def tripleOptionSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.OptionDeclarationsFixture\n\n" ++
+  "program TripleOptionSurface where\n" ++
+  "  state tripleCount : Option Option Option UInt64\n\n" ++
+  "  event TripleOptionEvent(payload : Option Option Option UInt64)\n" ++
+  "  error TripleOptionError(payload : Option Option Option UInt64)\n\n" ++
+  "  struct TripleOptionBox where\n" ++
+  "    counts : Option Option Option UInt64\n" ++
+  "    flags : Option Option Option Bool\n" ++
+  "    owners : Option Option Option Principal\n\n" ++
+  "  enum TripleOptionTag where\n" ++
+  "    | MaybeTripleCount(Option Option Option UInt64)\n" ++
+  "    | MaybeTripleFlag(Option Option Option Bool)\n" ++
+  "    | MaybeTripleOwner(Option Option Option Principal)\n\n" ++
+  "  const TripleOptionSeed : Option Option Option UInt64 := 0\n\n" ++
+  "  init(initial : Option Option Option UInt64) do\n" ++
+  "    tripleCount := initial\n\n" ++
+  "  entry echo(value : Option Option Option UInt64) : Option Option Option UInt64 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Option Option Option UInt64 do\n" ++
+  "    return tripleCount\n\n" ++
+  "  fn ident(value : Option Option Option Principal) : Option Option Option Principal do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.OptionDeclarationsFixture\n"
+
 
 private def negativeSource (name typeSpelling : String) : String :=
   "import ProofForgeV2\n\n" ++
@@ -1435,6 +1529,71 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same Option Array Array sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let tripleOptionSurface := Tests.Language.OptionDeclarationsFixture.TripleOptionSurface
+  expect (tripleOptionSurface.state.map (·.type) ==
+      #[.option (.option (.option .u64))])
+    "Option Option Option UInt64 state must survive Lean command elaboration"
+  match tripleOptionSurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "TripleOptionEvent" &&
+          eventDecl.params.map (·.type) == #[.option (.option (.option .u64))])
+        "Option Option Option event parameter must preserve three Option tags and UInt64 element"
+  | _ => throw <| IO.userError "TripleOptionSurface must retain TripleOptionEvent"
+  match tripleOptionSurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "TripleOptionError" &&
+          errorDecl.params.map (·.type) == #[.option (.option (.option .u64))])
+        "Option Option Option error parameter must preserve three Option tags and UInt64 element"
+  | _ => throw <| IO.userError "TripleOptionSurface must retain TripleOptionError"
+  match tripleOptionSurface.structs with
+  | #[box] =>
+      expect (box.name == "TripleOptionBox" &&
+          box.fields.map (·.type) ==
+            #[.option (.option (.option .u64)), .option (.option (.option .bool)),
+              .option (.option (.option .principal))])
+        "Option Option Option struct fields must preserve UInt64/Bool/Principal elements"
+  | _ => throw <| IO.userError "TripleOptionSurface must retain one struct"
+  match tripleOptionSurface.enums with
+  | #[tag] =>
+      expect (tag.name == "TripleOptionTag" &&
+          tag.variants.map (·.payloadTypes) ==
+            #[#[.option (.option (.option .u64))],
+              #[.option (.option (.option .bool))],
+              #[.option (.option (.option .principal))]])
+        "Option Option Option enum payloads must preserve UInt64/Bool/Principal matrix"
+  | _ => throw <| IO.userError "TripleOptionSurface must retain one enum"
+  match tripleOptionSurface.consts with
+  | #[seed] =>
+      expect (seed.name == "TripleOptionSeed" &&
+          seed.type == .option (.option (.option .u64)))
+        "Option Option Option UInt64 const type must survive elaboration"
+  | _ => throw <| IO.userError "TripleOptionSurface must retain TripleOptionSeed"
+  match tripleOptionSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.option (.option (.option .u64))])
+        "Option Option Option initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "TripleOptionSurface must retain initializer"
+  match tripleOptionSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option (.option .u64))] &&
+          echoEntry.result == .option (.option (.option .u64)) &&
+          getView.result == .option (.option (.option .u64)) && getView.mode == .view)
+        "Option Option Option entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "TripleOptionSurface must retain echo and get"
+  match tripleOptionSurface.functions with
+  | #[identFn] =>
+      expect (identFn.params.map (·.type) == #[.option (.option (.option .principal))] &&
+          identFn.result == .option (.option (.option .principal)))
+        "Option Option Option Principal fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "TripleOptionSurface must retain ident"
+  match ← session.selectProgram tripleOptionSurfaceSource "<triple-option>" none with
+  | .ok decoded =>
+      expect (decoded == tripleOptionSurface)
+        "Loader and Lean command must produce the same Option Option Option Source.Program"
+      expect (decoded.sourceHash == tripleOptionSurface.sourceHash)
+        "Loader and Lean command must produce the same Option Option Option sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let optionArrayElements : Array (String × Source.ValueType) := #[
     ("Bool", .bool),
     ("UInt8", .u8), ("UInt16", .u16), ("UInt32", .u32), ("UInt64", .u64),
@@ -1826,6 +1985,70 @@ unsafe def run : IO Unit := do
     expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
       s!"{label} semantic tag16+tag18+tag18 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
+
+  let tripleOptionSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Option UInt64", .option (.option (.option .u64)), 0, "UNBOUND"),
+    ("Option Option Option Bool", .option (.option (.option .bool)), 0, "UNBOUND"),
+    ("Option Option Option Principal", .option (.option (.option .principal)), 0, "UNBOUND"),
+    ("Option Option Option UInt8", .option (.option (.option .u8)), 0, "UNBOUND"),
+    ("Option Option Option UInt16", .option (.option (.option .u16)), 0, "UNBOUND"),
+    ("Option Option Option UInt32", .option (.option (.option .u32)), 0, "UNBOUND"),
+    ("Option Option Option UInt128", .option (.option (.option .u128)), 0, "UNBOUND"),
+    ("Option Option Option UInt256", .option (.option (.option .u256)), 0, "UNBOUND"),
+    ("Option Option Option Int8", .option (.option (.option .i8)), 0, "UNBOUND"),
+    ("Option Option Option Int16", .option (.option (.option .i16)), 0, "UNBOUND"),
+    ("Option Option Option Int32", .option (.option (.option .i32)), 0, "UNBOUND"),
+    ("Option Option Option Int64", .option (.option (.option .i64)), 0, "UNBOUND"),
+    ("Option Option Option Int128", .option (.option (.option .i128)), 0, "UNBOUND"),
+    ("Option Option Option Int256", .option (.option (.option .i256)), 0, "UNBOUND"),
+    ("Option Option Option Unit", .option (.option (.option .unit)), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in tripleOptionSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag16+tag16+tag16 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  expect ((twin (.option (.option (.option .u64)))).sourceHash !=
+        (twin (.option (.option .u64))).sourceHash &&
+      (twin (.option (.option (.option .u64)))).sourceHash !=
+        (twin (.option .u64)).sourceHash &&
+      (twin (.option (.option (.option .u64)))).sourceHash !=
+        (twin (.option (.option (.option .bool)))).sourceHash &&
+      (twin (.option (.option (.option .u64)))).sourceHash !=
+        (twin (.option (.option (.option .principal)))).sourceHash &&
+      (twin (.option (.option (.option .bool)))).sourceHash !=
+        (twin (.option (.option (.option .unit)))).sourceHash)
+    "Option Option Option must bind three Option tags and complete PrimitiveAtom element payload"
+  expect (tripleOptionSourceVectors.size == 15)
+    "Option Option Option source goldens must cover the closed 15-atom PrimitiveAtom matrix"
+
+  let tripleOptionSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Option UInt64", .option (.option (.option .u64)), 0, "UNBOUND"),
+    ("Option Option Option Bool", .option (.option (.option .bool)), 0, "UNBOUND"),
+    ("Option Option Option Principal", .option (.option (.option .principal)), 0, "UNBOUND"),
+    ("Option Option Option UInt8", .option (.option (.option .u8)), 0, "UNBOUND"),
+    ("Option Option Option UInt16", .option (.option (.option .u16)), 0, "UNBOUND"),
+    ("Option Option Option UInt32", .option (.option (.option .u32)), 0, "UNBOUND"),
+    ("Option Option Option UInt128", .option (.option (.option .u128)), 0, "UNBOUND"),
+    ("Option Option Option UInt256", .option (.option (.option .u256)), 0, "UNBOUND"),
+    ("Option Option Option Int8", .option (.option (.option .i8)), 0, "UNBOUND"),
+    ("Option Option Option Int16", .option (.option (.option .i16)), 0, "UNBOUND"),
+    ("Option Option Option Int32", .option (.option (.option .i32)), 0, "UNBOUND"),
+    ("Option Option Option Int64", .option (.option (.option .i64)), 0, "UNBOUND"),
+    ("Option Option Option Int128", .option (.option (.option .i128)), 0, "UNBOUND"),
+    ("Option Option Option Int256", .option (.option (.option .i256)), 0, "UNBOUND"),
+    ("Option Option Option Unit", .option (.option (.option .unit)), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in tripleOptionSemanticVectors do
+    let sourceProgram := twin type
+    let semantic ← match Compiler.compile sourceProgram with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
+      s!"{label} semantic tag16+tag16+tag16 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
+  expect (tripleOptionSemanticVectors.size == 15)
+    "Option Option Option semantic goldens must cover the closed 15-atom PrimitiveAtom matrix"
+
   let optionArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Option Array UInt64 0", .option (.array .u64 0), 259,
       "f22ada30b9fcf58e2b1f55ac7417fb13864354032f7096fe33a0aa6c4bd0fa90"),
@@ -2018,6 +2241,24 @@ unsafe def run : IO Unit := do
         "Option Array Array UInt64 4 0x10"),
       ("underscore Option Array Array outer length", "UnderscoreOptionArrayArrayOuter",
         "Option Array Array UInt64 4 4_096"),
+      ("unknown Triple Option element", "UnknownTripleOptionElement",
+        "Option Option Option Mystery"),
+      ("Field Triple Option element", "FieldTripleOptionElement",
+        "Option Option Option Field"),
+      ("missing Triple Option element", "MissingTripleOptionElement",
+        "Option Option Option"),
+      ("bare fourth nested option", "BareFourthNestedOption",
+        "Option Option Option Option"),
+      ("qualified Triple Option element", "QualifiedTripleOptionElement",
+        "Option Option Option Std.Bool"),
+      ("escaped Triple Option element", "EscapedTripleOptionElement",
+        "Option Option Option «Bool»"),
+      ("bare Bytes Triple Option element", "BareBytesTripleOptionElement",
+        "Option Option Option Bytes"),
+      ("bare Array Triple Option element", "BareArrayTripleOptionElement",
+        "Option Option Option Array"),
+      ("bare Map Triple Option element", "BareMapTripleOptionElement",
+        "Option Option Option Map"),
       ("Map option element", "MapOptionElement", "Option Map UInt64 Bool")
     ] do
     expectUnsupportedType label
@@ -2089,8 +2330,33 @@ unsafe def run : IO Unit := do
   | .error error =>
       throw <| IO.userError s!"migrated Option Array Array UInt64 4 4 must parse: {error.render}"
 
+  let migratedTripleOptionSource :=
+    negativeSource "MigratedTripleOption" "Option Option Option Bool"
+  match ← session.parsePrograms migratedTripleOptionSource "<migrated-triple-option>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) == #[.option (.option (.option .bool))])
+        "migrated Option Option Option Bool pin must now parse as existing option(option(option(bool)))"
+  | .ok programs =>
+      throw <| IO.userError s!"migrated Option Option Option Bool produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError s!"migrated Option Option Option Bool must parse: {error.render}"
+
   for (label, spelling) in [
-      ("third nested option", "Option Option Option Bool"),
+      ("fourth nested option", "Option Option Option Option Bool"),
+      ("full Field Triple Option element", "Option Option Option Field bn254_fr"),
+      ("Bytes Triple Option element", "Option Option Option Bytes 8"),
+      ("Array Triple Option element", "Option Option Option Array UInt64 4"),
+      ("Map Triple Option element", "Option Option Option Map UInt64 Bool"),
+      ("extra Triple Option payload", "Option Option Option Bool Principal"),
+      ("split Triple Option outer", "Option Option\n  Option Bool"),
+      ("split Triple Option middle", "Option\n  Option Option Bool"),
+      ("split Triple Option third constructor", "Option Option Option\n  Bool"),
+      ("escaped outer Triple Option", "«Option» Option Option Bool"),
+      ("qualified outer Triple Option", "Std.Option Option Option Bool"),
+      ("escaped middle Triple Option", "Option «Option» Option Bool"),
+      ("escaped inner Triple Option", "Option Option «Option» Bool"),
+      ("qualified middle Triple Option constructor", "Option Std.Option Option Bool"),
+      ("qualified inner Triple Option constructor", "Option Option Std.Option Bool"),
       ("extra nested option payload", "Option Option UInt64 Principal"),
       ("split nested option", "Option Option\n  UInt64"),
       ("escaped inner Option constructor", "Option «Option» Bool"),
@@ -2481,6 +2747,40 @@ unsafe def run : IO Unit := do
         throw <| IO.userError
           s!"Option Array Array Bool/{target} unexpectedly passed support"
 
+
+  let tripleOptionBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.TripleOptionBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"TripleOptionBoundary must compile: {error.render}"
+  expect (tripleOptionBoundary.requirements == #[])
+    "Option Option Option UInt64 must recursively propagate zero requirements"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target tripleOptionBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError
+          s!"{target} must support zero-requirement Option Option Option UInt64 carrier: {error.render}"
+
+  let tripleOptionBoolBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.TripleOptionBoolBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"TripleOptionBoolBoundary must compile: {error.render}"
+  expect (tripleOptionBoolBoundary.requirements == #[.boolValues])
+    "Option Option Option Bool must recursively propagate boolValues exactly once"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target tripleOptionBoolBoundary with
+    | .error (.unsupportedRequirement .boolValues actual) =>
+        expect (actual == target)
+          s!"Option Option Option Bool support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError
+          s!"Option Option Option Bool/{target} reached wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError
+          s!"Option Option Option Bool/{target} unexpectedly passed support"
+
   for (label, sourceProgram, needle) in [
       ("OptionStateBoundary",
         Tests.Language.OptionDeclarationsFixture.OptionStateBoundary,
@@ -2562,6 +2862,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("OptionArrayArrayParamBoundary",
         Tests.Language.OptionDeclarationsFixture.OptionArrayArrayParamBoundary,
+        "is not UInt64"),
+      ("TripleOptionStateBoundary",
+        Tests.Language.OptionDeclarationsFixture.TripleOptionStateBoundary,
+        "is not UInt64"),
+      ("TripleOptionResultBoundary",
+        Tests.Language.OptionDeclarationsFixture.TripleOptionResultBoundary,
+        "does not return UInt64"),
+      ("TripleOptionParamBoundary",
+        Tests.Language.OptionDeclarationsFixture.TripleOptionParamBoundary,
         "is not UInt64"),
     ] do
     let compiled ← match Compiler.compile sourceProgram with
