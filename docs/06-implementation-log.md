@@ -2565,3 +2565,49 @@ normative: false
   或 formal D1 evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
 - Next：primary-expression residual audit 尚未冻结下一切片；必须在 call/constructor/place/match 中只选择
   一个最小、依赖闭合的 Source carrier，禁止从 checkpoint 自动递增或捆绑 D2/target behavior。
+
+## 2026-07-18 — D1 LocalFnCall/ExprList pre-acceptance slice
+
+- Commits：freeze `b94d694e`；tests-only RED `02ab14b3`；spec API correction `fe41856b`；
+  canonical golden binding `75cc3dae`；shared parser-session harness correction `024ae637`；
+  Source-only GREEN `af0a7889`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-45 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Expr.localFnCall(callee, args)`、append-only Expr tag `26` 后依次编码
+  callee string 与 length-prefixed argument array、high-precedence
+  `syntax:max ident "(" pfExpr,* ")" : pfExpr`、双入口 quotation，以及 exact Typed
+  `local function calls are not yet supported by typed checking`。production 恰好 Source/Syntax/Typed
+  3 文件/13 行；既有 Expr tags `0..25` 与 Semantic/target 层未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn 的 return/let
+  value；固定 zero/one/multiple args、operator/group/string args、nested calls、call-as-operand 与
+  escaped callee。`f()`/`f ()` 与 grouped/direct argument canonical equal；callee、count、order、
+  nesting 与 expression kind 均进入 source identity。代表 goldens：`f()`
+  `8f280c03a43877e0f007b960ed272dc4e56dec0bb054b261d78731ca5126ab35`/231 bytes；`f(1)`
+  `c68ef300b0f90505037b1930c23ac84472cdf0c6e775b66fcff7737ff4559c32b`/240；`f(1,2)`
+  `a985676f8730d133186ee59c23d3655b93ca07c451c8aff7d734b1c2893bbf1e`/249；`f(2,1)`
+  `d437cba945dfb2bc14c1cb5fadf5b30579997d5a48a9d4327df6948899605f81`/249；`g(1)`
+  `3669cb06cd56bfabe06950e53a3c89f225e19a797fa8e7e81f47db34cbf3872b`/240；nested
+  `2da08134c1d25b7fa2f59da449785a232623122e29314ec169df975574811e08`/267；variable `f`
+  control `30fc5e98dc97fc29171664b45fe73468e7f0bd80a7cff0a512b51700086c3469`/223。
+- Boundaries：tests-only RED 只迁移 `Grouping.lean` 的唯一 call-like `f(1)` negative；missing
+  callee/paren、leading/trailing/double comma、missing/adjacent argument 与 unescaped reserved token 拒绝。
+  `A.B()`/`A.B(1)` 在 argument decode 前精确拒绝
+  `local function call callee must be unqualified`，为 ConstructorExpr 保留空间。Typed 在 argument
+  checking/fn lookup 前 fail closed，final review P0/P1=0。
+- Test harness correction：初始累计二进制运行在 43 个 suite 重复 `ParserSession.create`/
+  `importModules` 后被终止；process sample 显示在 `LogicalNot.run` 的 environment import 路径上
+  physical footprint 约 82.9 GB。`024ae637` 在测试侧复用单一 immutable ParserSession，不修改
+  production Loader 语义、不并行执行 suite、不删减测试。
+- Commands/Results：`lake build Tests.Language.LocalFnCalls`（15 jobs）；
+  `lake build proof_forge_next_tests`（176 jobs）；`lake env /usr/bin/time -l
+  .lake/build/bin/proof-forge-next-tests` 真实捕获 exit 0/5.91 s；`git diff --check` exit 0。
+  development evidence 为 `EV-20260718-0031`；按冻结未运行全量 `just ci`，call-like primary
+  batch checkpoint 延后到后续单一 slice。
+- Scope claim：完整 `LocalFnCall ::= Ident "(" ExprList? ")"` 的 Source carrier 已覆盖。
+  不包括 callable resolution、arity/type/return/recursion、ConstructorExpr、ExternalCallExpr、Place、
+  MatchExpr、Typed/Semantic call、requirement 或 target behavior。
+- Limitations：不得声明 PrimaryExpr、完整 grammar、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：residual audit 选定 ConstructorExpr 为唯一下一 candidate；必须先冻结 qualified
+  component-array identity、tag `27`、精确两条 qualified-call migration 和 Typed fail-before，禁止捆绑
+  Place/Match/D2 resolution。
