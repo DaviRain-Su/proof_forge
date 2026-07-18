@@ -3326,3 +3326,44 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA55 residual audit，
   再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 exact one-level nested Option spelling pre-acceptance slice
+
+- Commits：freeze `b598114d`；single-migration tests-only RED `1a6d9ee8`；canonical golden binding
+  `008b2da0`；Syntax-only GREEN `8b4d4c2c`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-56 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 recursive `Source/Semantic.ValueType.option(.option element)` 开放 exact same-line、
+  exact one-level `Option Option PrimitiveAtom`。新增 named `optionOptionType` 与 struct-field 专用
+  `optionOptionAggregateField`；decoder 复用既有 single-token type policy 后包两层 Option。通用
+  `portableType` 仍为一/二 atom；Source/Semantic ctor、canonical encoder、quotation、Typed 与 target 未改。
+- Migration/Coverage：把 `Tests.Language.OptionDeclarations` 既有唯一 nested-option parser-negative
+  迁移为 positive，migration count 恰为一。双入口覆盖 nested Bool/UInt64 的 state/struct/enum/const/
+  initializer/entry/view/fn；第三层 Option、Field/Bytes/Array/Map inner、unknown/missing/escaped/qualified/
+  extra/split forms 均 fail closed，Option Field/Bytes/Array/Map 与旧 extra-payload 边界保持。独立运行实证
+  full Map nested 与 qualified nested element 由 decoder exact rejection，而非 parser rejection，binding
+  提交据实固定其错误通道。
+- Canonical/requirements：既有 tag `16→16→element` 被 Source UInt64/Bool 243-byte/
+  `d480f1267bd8753f9bae0f6f21439836a0d11f2d39eeef908ccec94875c5daf4`/
+  `3110c1ed382a8b002e2248b84744a8aa1716122215c43f4c09d474efaaff7960` 与 Semantic UInt64 192-byte/
+  `5b5eacce6a48158bbbaab3490044613d35323e278c42d7d1d4594ffb5ce9ed18`、Bool 193-byte/
+  `0caaecffaab09d481ef117347b885196ba00e8df0b43b090c4643ece3831b959` 固定，并与 bare/single Option/
+  different element non-alias。nested UInt64 requirement 为空；nested Bool 精确递归单个 `boolValues`。
+  四个 Phase 1 target 对前者 support 后在 non-UInt64 Plan invariant 拒绝，对后者在 support resolver named
+  rejection，均未产生 artifact。
+- Count correction：PrimitiveAtom 实际闭集为 15 个：Bool + 6 个 UInt width + 6 个 Int width + Unit +
+  Principal。PA54 task/evidence 与本切片早期 freeze 中的“14”是非语义计数笔误；enumerated set、代码和
+  accepted behavior 一直一致。本次把当前 task/spec/test 指针纠正为 15；历史 implementation log 不改写，
+  由本追加记录给出勘误。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，29 行新增/1 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；aggregate/test graph
+  192 jobs；`lake exe proof_forge_next_tests` exit 0；`just sbom-package-files-refresh`、`just docs-check`、
+  `git diff --check` 全绿。Kimi freeze/RED/final reviews P0/P1=0；development evidence 为
+  `EV-20260718-0048`。PA53 batch `just ci` 已绿，本切片按冻结未重复完整 gate。
+- Scope claim：只完成 exact one-level existing-carrier spelling、canonical/requirement/support boundary。
+  不包括 none/some、unwrap、任意递归 type grammar、recursive legality、runtime representation、ABI 或
+  target nested-Option support。
+- Limitations：不得声明 nested Option runtime semantics、完整 type grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA56 declaration residual
+  audit，再选择单一依赖闭合最小切片，禁止自动递增。

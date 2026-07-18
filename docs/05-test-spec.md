@@ -835,7 +835,7 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   focused/aggregate/test binary 和 independent review 全绿后收口；按冻结不重复 `just ci`，不得声明
   Option/Field runtime semantics、完整 type grammar 或正式 D1 完成。
 - D1-PA-56 的 alpha tests 只开放 exact same-line、exact one-level
-  `Option Option PrimitiveAtom`，其中 inner element 闭集精确复用 D1-PA-18 的 14 个 single-token
+  `Option Option PrimitiveAtom`，其中 inner element 闭集精确复用 D1-PA-18 的 15 个 single-token
   PrimitiveAtom（Bool、closed UInt/Int widths、Unit、Principal），并物化为既有
   `Source/Semantic.ValueType.option(.option element)`。不得新增 ctor/tag、递归 grammar 或放宽任意三 atom
   type parser。tests-only RED 只修改 `Tests.Language.OptionDeclarations`，把既有唯一

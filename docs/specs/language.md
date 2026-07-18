@@ -215,7 +215,7 @@ review 全绿后只可记录 existing-carrier spelling；PA53 batch `just ci` �
 D1-PA-56 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic recursive Option 构造的
 `option(.option element)` 开放 exact same-line、exact one-level spelling
 `Option Option PrimitiveAtom`。inner `PrimitiveAtom` 闭集精确复用 D1-PA-18：exact single-token Bool、
-closed UInt/Int widths、Unit、Principal，共 14 个；Field、Bytes、Array、Map、Named 或另一个 Option
+closed UInt/Int widths、Unit、Principal，共 15 个；Field、Bytes、Array、Map、Named 或另一个 Option
 都不属于该闭集。这不是新 ValueType carrier：Source/Semantic recursive encoder 已产生 tag `16`、
 第二个 tag `16` 再接 element bytes，`ValueType.requirements` 也已递归两层传播 element requirements；
 不得新增 ctor/tag、修改 encoder、Typed 或 target。
