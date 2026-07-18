@@ -3067,3 +3067,39 @@ normative: false
   jv 在 darwin tool root 的等效验证未在本机执行。
 - Next：全量 `just ci` → push；`TASK-D0-08` 待治理裁决关闭；`TASK-D0-09` 待 darwin
   回归与同一裁决。
+## 2026-07-18 — D1 emit statement pre-acceptance slice
+
+- Commits：freeze `c91260df`；tests-only RED `d7d79f5e`；canonical golden binding
+  `7eaf464e`；Source-only GREEN `de40194f`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-50 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Statement.emitStmt(eventName,args)` 与 append-only Statement tag `7`，
+  canonical encoder 依次编码 event name string 和 length-prefixed expression array；tag 0–6 不变。
+  surface 只接受 mandatory-parentheses `emit Ident(ExprList?)`，single-component guard 与 portable
+  identifier validation 均先于 argument decode，quotation 保留完整结构。Typed 对 emit 逐字 fail closed
+  为 `emit statements are not yet supported by typed checking`；event declaration 的既有 generic gate
+  不变。production 恰好 Source/Syntax/Typed 3 文件、13 行新增/0 行移除；Semantic、requirement 与
+  target 未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn，以及 empty/one/two/
+  reordered/operator/group/string/local-call/constructor/index/nested arguments。固定 mandatory parens、
+  malformed ExprList、qualified/reserved name priority、escaped `«emit»` assignment、Statement tag non-alias、
+  exact Typed fail-before-argument 与 event-table/return/assert/revert controls。六组 sourceHash/size 为
+  `556db61901a502771f0f8c989cd74e21f5f45a7a05f4487d24aadaf69f575832`/231、
+  `4f46b40d447d35c70570c41799e8636cd03e7e12bae780f446e1e09e65f3556a`/240、
+  `833faaa7dd8e46c544560cacc3987da7e55caaca0b1c5d8d1348a51f0a944d59`/249、
+  `122c62456f4b04c461df770b63ccccf4670b8a07c0af384283d67bd0d03ee528`/249、
+  `ebdd674aa74e7648e9a05819e94a30f578ab580f379c6276328aecc85f9e97b9`/231、
+  `05f715cf30ab2292e5b0928b116bf3a9e024a5007fe5b3d6a7165502d190a78b`/303。
+- Commands/Results：独立 Lean probe 测量上述 hash/size；`lake build Tests.Language.EmitStatements`
+  （15 jobs）；`lake build proof_forge_next_tests`（186 jobs）；`lake env /usr/bin/time -p
+  .lake/build/bin/proof-forge-next-tests` exit 0/3.65 s；`git diff --check` exit 0。首次不经 `lake env`
+  裸启动二进制因缺少模块 search path 拒绝，不作为产品失败或 evidence；按规定环境重跑全绿。
+  coordinator/Kimi final reviews 均为 P0/P1=0。按冻结未运行 `just ci`，development evidence 为
+  `EV-20260718-0036`。
+- Scope claim：complete emit statement 的 Source carrier、mandatory-parentheses surface、canonical identity
+  与 Typed fail-closed 已覆盖。不包括 event resolution、payload arity/type、log semantics、Semantic emit、
+  ABI/runtime、requirement 或 target behavior。
+- Limitations：不得声明完整 event semantics、statement grammar、eligible host 或 formal D1 evidence；
+  不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 statement/expression residual
+  audit，再选择单一依赖闭合的最小切片，禁止自动递增。

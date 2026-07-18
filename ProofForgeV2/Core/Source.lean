@@ -118,6 +118,7 @@ inductive Statement where
   | letDecl (name : String) (typeAnn : Option ValueType) (value : Expr)
   | assertStmt (condition : Expr)
   | revertStmt (errorName : String) (args : Array Expr)
+  | emitStmt (eventName : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
 inductive EntryMode where
@@ -336,6 +337,7 @@ private def appendStatement (bytes : ByteArray) : Statement → ByteArray
       appendExpr bytes value
   | .assertStmt condition => appendExpr (appendTag bytes 4) condition
   | .revertStmt errorName args => appendArray appendExpr (appendString (appendTag bytes 5) errorName) args
+  | .emitStmt eventName args => appendArray appendExpr (appendString (appendTag bytes 7) eventName) args
 
 private def appendEntryMode (bytes : ByteArray) : EntryMode → ByteArray
   | .mutate => appendTag bytes 0

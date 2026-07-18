@@ -29,6 +29,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.CheckedNeg,
     `Tests.Language.CheckedSub,
     `Tests.Language.ConstDeclarations,
+    `Tests.Language.EmitStatements,
     `Tests.Language.EventErrorDeclarations,
     `Tests.Language.ExtensionRequirements,
     `Tests.Language.FieldDeclarations,

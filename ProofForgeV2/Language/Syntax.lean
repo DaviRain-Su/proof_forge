@@ -69,6 +69,7 @@ syntax "call " str : pfStmt
 syntax "assert " pfExpr : pfStmt
 syntax "revert " ident "(" pfExpr,* ")" : pfStmt
 syntax "revert " ident : pfStmt
+syntax "emit " ident "(" pfExpr,* ")" : pfStmt
 /-- Same-line annotated let (contextual, not a host Lean keyword). No low fallback. -/
 @[pfStmt_parser default+1] def letStmtAnnotated := leading_parser
   withPosition (
@@ -472,6 +473,10 @@ private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Sou
         (← args.getElems.mapM decodeExprUnchecked)
   | `(pfStmt| revert $errorName:ident) => do
       return .revertStmt (← decodeRevertName errorName) #[]
+  | `(pfStmt| emit $eventName:ident ($args:pfExpr,*)) => do
+      unless eventName.getId.components.length == 1 do
+        throw "emit event name must be unqualified"
+      return .emitStmt (← decodeIdentifier eventName) (← args.getElems.mapM decodeExprUnchecked)
   | _ => .error "unsupported portable statement"
 
 def decodeStatement (stx : Syntax) : Except String ProofForgeV2.Source.Statement := do
@@ -1044,6 +1049,10 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
       let errorName := Syntax.mkStrLit errorName
       let args ← args.mapM quoteExpr
       `(ProofForgeV2.Source.Statement.revertStmt $errorName #[$[$args],*])
+  | .emitStmt eventName args => do
+      let eventName := Syntax.mkStrLit eventName
+      let args ← args.mapM quoteExpr
+      `(ProofForgeV2.Source.Statement.emitStmt $eventName #[$[$args],*])
 
 private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
     MacroM (TSyntax `term) := do

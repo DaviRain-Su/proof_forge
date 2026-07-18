@@ -270,6 +270,8 @@ private def checkStatement (scope : Scope) (mode : EntryMode) :
       throw <| .invalidProgram "assert statements are not yet supported by typed checking"
   | .revertStmt .. =>
       throw <| .invalidProgram "revert statements are not yet supported by typed checking"
+  | .emitStmt .. =>
+      throw <| .invalidProgram "emit statements are not yet supported by typed checking"
 
 private def checkInitializer (state : NameIndex.StateEnv)
     (initializer : Source.Initializer) : CompileResult Initializer := do

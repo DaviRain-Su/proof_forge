@@ -16,6 +16,7 @@ import Tests.Language.CheckedMul
 import Tests.Language.CheckedNeg
 import Tests.Language.CheckedSub
 import Tests.Language.ConstDeclarations
+import Tests.Language.EmitStatements
 import Tests.Language.EventErrorDeclarations
 import Tests.Language.ExtensionRequirements
 import Tests.Language.FieldDeclarations
@@ -79,6 +80,7 @@ unsafe def main : IO Unit := do
   Tests.Language.CheckedNeg.run
   Tests.Language.CheckedSub.run
   Tests.Language.ConstDeclarations.run
+  Tests.Language.EmitStatements.run
   Tests.Language.EventErrorDeclarations.run
   Tests.Language.ExtensionRequirements.run
   Tests.Language.FieldDeclarations.run
