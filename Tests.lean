@@ -21,6 +21,7 @@ import Tests.Language.EventErrorDeclarations
 import Tests.Language.ExtensionRequirements
 import Tests.Language.FieldDeclarations
 import Tests.Language.FnDeclarations
+import Tests.Language.IfStatements
 import Tests.Language.IntegerWidthDeclarations
 import Tests.Language.LetStatements
 import Tests.Language.OptionDeclarations
@@ -85,6 +86,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ExtensionRequirements.run
   Tests.Language.FieldDeclarations.run
   Tests.Language.FnDeclarations.run
+  Tests.Language.IfStatements.run
   Tests.Language.IntegerWidthDeclarations.run
   Tests.Language.LetStatements.run
   Tests.Language.OptionDeclarations.run
