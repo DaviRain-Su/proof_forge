@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 namespace Tests.Language.FnDeclarationsFixture
 
@@ -108,7 +108,7 @@ unsafe def run : IO Unit := do
         "a view followed by fn must retain the fn declaration"
   | _ => throw <| IO.userError "FnSurface must retain three fn declarations"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   let decoded ← select session source "<fn-declarations>"
   expect (decoded == elaborated)
     "Loader and Lean command must produce the same fn Source.Program"

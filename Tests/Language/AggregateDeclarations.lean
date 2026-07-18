@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 namespace Tests.Language.AggregateDeclarationsFixture
 
@@ -97,7 +97,7 @@ unsafe def run : IO Unit := do
       | _ => throw <| IO.userError "Status must retain three variants"
   | _ => throw <| IO.userError "AggregateSurface must retain one enum declaration"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   let decoded ← select session source "<aggregate-declarations>"
   expect (decoded == elaborated)
     "Loader and Lean command must produce the same struct/enum Source.Program"

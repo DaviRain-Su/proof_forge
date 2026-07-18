@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- LocalFnCallSurface pins complete LocalFnCall (zero/one/multi args) in init/entry/view/fn
 -- return and let positions. Migration: exactly Grouping.lean call-like `f(1)`.
@@ -171,7 +171,7 @@ unsafe def run : IO Unit := do
             "fn helper body must retain return g(h(1, 2))"
   | none => throw <| IO.userError "LocalFnCallSurface must retain functions"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<local-fn-calls>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

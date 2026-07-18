@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- GroupingSurface pins parenthesized expressions in every declaration body position:
 -- init, entry, view, and fn. Covers return-value and let-value reachability for
@@ -169,7 +169,7 @@ unsafe def run : IO Unit := do
             "fn body must desugar return (2 + 3) to checkedAdd"
   | _ => throw <| IO.userError "GroupingSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<grouping>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

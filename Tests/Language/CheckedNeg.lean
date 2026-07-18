@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- CheckedNegSurface pins prefix unary `-` in every declaration body position: init,
 -- entry, view, and fn. Covers return-value and let-value reachability plus variable
@@ -140,7 +140,7 @@ unsafe def run : IO Unit := do
             "fn body must retain return -(2 + 3) as checkedNeg of checkedAdd"
   | _ => throw <| IO.userError "CheckedNegSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<checked-neg>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

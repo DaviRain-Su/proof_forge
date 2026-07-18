@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- StringSurface pins StringLiteral in every declaration body position: init, entry,
 -- view, and fn (return and let values). Zero migration: no existing suite edits.
@@ -129,7 +129,7 @@ unsafe def run : IO Unit := do
             "fn body must retain return \"fn\\t\" as stringLiteral with tab value"
   | _ => throw <| IO.userError "StringSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<string-literals>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

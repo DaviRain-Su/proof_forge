@@ -1,6 +1,6 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 import ProofForgeV2.Targets.Registry
 
 namespace Tests.Language.StateVisibilityFixture
@@ -103,7 +103,7 @@ unsafe def run : IO Unit := do
   checkElaborated "private" .proverWitness privateState
   checkElaborated "commitment" .commitmentOnly commitmentState
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   checkParity session "DefaultStateVisibility" "" defaultState
   checkParity session "PublicStateVisibility" "public " publicState
   checkParity session "PrivateStateVisibility" "private " privateState

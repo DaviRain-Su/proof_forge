@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- BoolSurface pins bare true/false in every declaration body position: init, entry,
 -- view, and fn. Covers both return-value and let-value reachability for boolLiteral.
@@ -125,7 +125,7 @@ unsafe def run : IO Unit := do
       | _ => throw <| IO.userError "fn body must retain return true as boolLiteral"
   | _ => throw <| IO.userError "BoolSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<bool-literals>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

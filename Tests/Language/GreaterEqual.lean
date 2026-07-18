@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- GreaterEqualSurface pins binary `>=` in every declaration body position: init, entry,
 -- view, and fn. Migration: final Equal.lean deferred `1 >= 2` only.
@@ -141,7 +141,7 @@ unsafe def run : IO Unit := do
             "fn body must retain return true >= false"
   | _ => throw <| IO.userError "GreaterEqualSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<greater-equal>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

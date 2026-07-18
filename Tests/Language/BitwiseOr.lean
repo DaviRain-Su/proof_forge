@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- BitwiseOrSurface pins binary `|` in every declaration body position plus same-program
 -- enum Flag variants (Off / On(UInt64)). Migration: exactly BitwiseXor deferred `1 | 2`.
@@ -159,7 +159,7 @@ unsafe def run : IO Unit := do
             "fn body must retain left-associative return 1 | 2 | 3"
   | _ => throw <| IO.userError "BitwiseOrSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<bitwise-or>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

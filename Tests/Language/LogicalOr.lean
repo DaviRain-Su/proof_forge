@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- LogicalOrSurface pins binary `||` in every declaration body position: init, entry,
 -- view, and fn. Migration: exactly BitwiseOr.lean deferred `1 || 2`.
@@ -141,7 +141,7 @@ unsafe def run : IO Unit := do
             "fn body must retain left-associative return 1 || 2 || 3"
   | _ => throw <| IO.userError "LogicalOrSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<logical-or>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

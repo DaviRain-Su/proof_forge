@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 import ProofForgeV2.Targets.Registry
 
 namespace Tests.Language.PrincipalDeclarationsFixture
@@ -172,7 +172,7 @@ unsafe def run : IO Unit := do
         "Principal const type must survive Lean command elaboration"
   | _ => throw <| IO.userError "PrincipalSurface must retain DefaultOwner"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<principal-declarations>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

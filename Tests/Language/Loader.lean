@@ -1,4 +1,4 @@
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Compiler.Pipeline
 
@@ -66,7 +66,7 @@ private def qualifiedNamespaceOverflowSource (parts : Nat) : String :=
   "end\nend Outer\n"
 
 unsafe def run : IO Unit := do
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   let decoded ← session.selectProgram counterSource "<counter>" (some "ProofForgeV2.Examples.Counter")
   match decoded with
   | .ok contractProgram =>

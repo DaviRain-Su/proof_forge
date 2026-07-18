@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 namespace Tests.Language.ExtensionRequirementsFixture
 
@@ -92,7 +92,7 @@ unsafe def run : IO Unit := do
         "multiple extension requirements must retain their source order"
   | _ => throw <| IO.userError "ExtensionSurface must retain two extension requirements"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   let decoded ← select session source "<extension-requirements>"
   expect (decoded == elaborated)
     "Loader and Lean command must produce the same extension Source.Program"

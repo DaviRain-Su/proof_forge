@@ -17,6 +17,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Core.Semantics,
     `Tests.Compiler.Pipeline,
     `Tests.Compiler.TypedNameIndex,
+    `Tests.Language.ParserSession,
     `Tests.Language.AggregateDeclarations,
     `Tests.Language.AssertStatements,
     `Tests.Language.BitwiseNot,

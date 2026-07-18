@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 import ProofForgeV2.Targets.Registry
 
 -- UnitSurface covers exact Unit spelling across every declaration carrier position:
@@ -259,7 +259,7 @@ unsafe def run : IO Unit := do
         "Unit const type must survive Lean command elaboration"
   | _ => throw <| IO.userError "UnitSurface must retain the Seed const declaration"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<unit-return-types>" none with
   | .ok decoded =>
       expect (decoded == elaborated)
