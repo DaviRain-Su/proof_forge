@@ -259,22 +259,22 @@ unsafe def run : IO Unit := do
   let twinAdd := twin (.checkedAdd (.literal 1) (.literal 2))
 
   expect (twinZero.sourceHash ==
-      "UNBOUND_LOCAL_FN_CALL_ZERO_GOLDEN")
+      "8f280c03a43877e0f007b960ed272dc4e56dec0bb054b261d78731ca5126ab35")
     s!"localFnCall f() LocalFnCallTwin sourceHash golden must remain stable; got {twinZero.sourceHash}"
   expect (twinOne.sourceHash ==
-      "UNBOUND_LOCAL_FN_CALL_ONE_GOLDEN")
+      "c68ef300b0f90505037b1930c23ac84472cdf0c6e775b66fcff7737ff4559c32")
     s!"localFnCall f(1) LocalFnCallTwin sourceHash golden must remain stable; got {twinOne.sourceHash}"
   expect (twinTwo.sourceHash ==
-      "UNBOUND_LOCAL_FN_CALL_TWO_GOLDEN")
+      "a985676f8730d133186ee59c23d3655b93ca07c451c8aff7d734b1c2893bbf1e")
     s!"localFnCall f(1,2) LocalFnCallTwin sourceHash golden must remain stable; got {twinTwo.sourceHash}"
   expect (twinOrder.sourceHash ==
-      "UNBOUND_LOCAL_FN_CALL_ORDER_GOLDEN")
+      "d437cba945dfb2bc14c1cb5fadf5b30579997d5a48a9d4327df6948899605f81")
     s!"localFnCall f(2,1) LocalFnCallTwin sourceHash golden must remain stable; got {twinOrder.sourceHash}"
   expect (twinCallee.sourceHash ==
-      "UNBOUND_LOCAL_FN_CALL_CALLEE_GOLDEN")
+      "3669cb06cd56bfabe06950e53a3c89f225e19a797fa8e7e81f47db34cbf3872b")
     s!"localFnCall g(1) LocalFnCallTwin sourceHash golden must remain stable; got {twinCallee.sourceHash}"
   expect (twinNested.sourceHash ==
-      "UNBOUND_LOCAL_FN_CALL_NESTED_GOLDEN")
+      "2da08134c1d25b7fa2f59da449785a232623122e29314ec169df975574811e08")
     s!"localFnCall nested LocalFnCallTwin sourceHash golden must remain stable; got {twinNested.sourceHash}"
 
   -- Non-alias: callee, count, order, nesting, tag26 vs variable tag1.
