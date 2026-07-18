@@ -92,6 +92,7 @@ inductive Expr where
   | lessThan (lhs rhs : Expr)
   | lessEqual (lhs rhs : Expr)
   | greaterThan (lhs rhs : Expr)
+  | greaterEqual (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure ConstDecl where
@@ -297,6 +298,7 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .lessThan lhs rhs => appendExpr (appendExpr (appendTag bytes 16) lhs) rhs
   | .lessEqual lhs rhs => appendExpr (appendExpr (appendTag bytes 17) lhs) rhs
   | .greaterThan lhs rhs => appendExpr (appendExpr (appendTag bytes 18) lhs) rhs
+  | .greaterEqual lhs rhs => appendExpr (appendExpr (appendTag bytes 19) lhs) rhs
 
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value
