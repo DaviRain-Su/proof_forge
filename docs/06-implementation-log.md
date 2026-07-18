@@ -3590,3 +3590,42 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA59 declaration residual
   audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 exact Array Field spelling pre-acceptance slice
+
+- Commits：freeze `5e504456`；dual-migration tests-only RED `7ef54270`；canonical golden binding
+  `be990868`；Syntax-only GREEN `8345ef53`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-60 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 recursive `Source/Semantic.ValueType.array(.field, length)` 开放 exact same-line
+  `Array Field bn254_fr N`。新增 named `arrayFieldType` 与 struct-field/enum-member 专用
+  `arrayFieldAggregateField`；decoder exact 检查 raw `bn254_fr`，并复用 `decodeBytesLengthAtom` 的
+  canonical ASCII decimal `0..4096` 校验后构造 `.array .field length`。通用 `arrayType`、`portableType`、
+  Source/Semantic ctor 与 encoder、quotation、Typed 和 target 均未改。
+- Migration/Coverage：把 `Tests.Language.ArrayTypes` 与 `Tests.Language.OptionDeclarations` 的两条
+  `Array Field bn254_fr 4` parser-negative 迁移为 positive，migration count 恰为二。Lean command/
+  ParserSession 双入口覆盖长度 0/4/4096、state/struct/enum/const/initializer/entry/view/fn parameter/result。
+  missing/alternate/escaped/qualified Field id、invalid length、extra/split payload 均 fail closed；Array Bytes、
+  Array Option compound、Option Array compound、nested Option、Map/Named 与既有 extra-payload boundary 保持。
+- Canonical/requirements：既有 tag `18→2→length` 被 Source 0/4/4096 三组 247-byte goldens
+  `ca81f1a556dd65993592ae93ba8df3363d63ca4dc2c465cbb3263027cc856b9a`、
+  `ed93d99bf36d608229c816a4ebd4e7129cb20cd5fe243bfc5897f360f6b5b690`、
+  `6fc6c91736ac2a204e9bdedc0ca86e9dba8ade93ee30ec298dce8edcd09694c6` 与 Semantic 197-byte goldens
+  `17c91204da22dd6116d91f60298307bee5216a96b9a70e7fdca05b9cb78ab14e`、
+  `219f5d374027ef6bdfd664b0a58828b8a63cdedd76b23e2020400480de3b94fd`、
+  `1a9106c9e43bf319c4adf316d7ee31b445f8f764e6f5d7c6ca9c226c9b3bec7e` 固定，并与 bare Field、bare Array
+  PrimitiveAtom、Option Field、Array Option、different length non-alias。requirements 精确为单个
+  `fieldBn254`；四个 Phase 1 target 均在 support resolver named rejection，未进入 Plan，未产出 artifact。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，30 行新增/1 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.ArrayTypes Tests.Language.OptionDeclarations`
+  24 jobs；aggregate/test graph 192 jobs；`lake exe proof_forge_next_tests` exit 0；
+  `just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 全绿。Grok post-PA59 residual 与
+  Kimi freeze/final reviews P0=0/P1=0；development evidence 为 `EV-20260718-0055`。本切片按冻结未重复完整
+  `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirement propagation 与
+  support boundary。不包括 array value/index/slice/mutation、field arithmetic、任意 recursive grammar、
+  recursive legality、runtime representation、ABI 或 target Array-Field support。
+- Limitations：不得声明 Array/Field runtime semantics、完整 type grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA60 declaration residual
+  audit，再选择单一依赖闭合最小切片，禁止自动递增。
