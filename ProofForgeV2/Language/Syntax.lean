@@ -66,6 +66,7 @@ syntax ident " := " pfExpr : pfStmt
   withPosition ("return " >> (checkLineEq <|> checkColGt) >> categoryParser `pfExpr 0)
 syntax "return" : pfStmt
 syntax "call " str : pfStmt
+syntax "assert " pfExpr " else " ident : pfStmt
 syntax "assert " pfExpr : pfStmt
 syntax "revert " ident "(" pfExpr,* ")" : pfStmt
 syntax "revert " ident : pfStmt
@@ -466,6 +467,11 @@ private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Sou
       return .returnValue (← decodeExprUnchecked value)
   | `(pfStmt| return) => .ok .returnUnit
   | `(pfStmt| call $callee:str) => .ok <| .synchronousCall callee.getString
+  | `(pfStmt| assert $condition:pfExpr else $errorName:ident) => do
+      unless errorName.getId.components.length == 1 do
+        throw "assert error name must be unqualified"
+      let errorName ← decodeIdentifier errorName
+      return .assertErrorStmt (← decodeExprUnchecked condition) errorName
   | `(pfStmt| assert $condition:pfExpr) => do
       return .assertStmt (← decodeExprUnchecked condition)
   | `(pfStmt| revert $errorName:ident ($args:pfExpr,*)) => do
@@ -1045,6 +1051,10 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
   | .assertStmt condition => do
       let condition ← quoteExpr condition
       `(ProofForgeV2.Source.Statement.assertStmt $condition)
+  | .assertErrorStmt condition errorName => do
+      let condition ← quoteExpr condition
+      let errorName := Syntax.mkStrLit errorName
+      `(ProofForgeV2.Source.Statement.assertErrorStmt $condition $errorName)
   | .revertStmt errorName args => do
       let errorName := Syntax.mkStrLit errorName
       let args ← args.mapM quoteExpr

@@ -268,6 +268,8 @@ private def checkStatement (scope : Scope) (mode : EntryMode) :
       throw <| .invalidProgram "let statements are not yet supported by typed checking"
   | .assertStmt .. =>
       throw <| .invalidProgram "assert statements are not yet supported by typed checking"
+  | .assertErrorStmt .. =>
+      throw <| .invalidProgram "assert statements are not yet supported by typed checking"
   | .revertStmt .. =>
       throw <| .invalidProgram "revert statements are not yet supported by typed checking"
   | .emitStmt .. =>
