@@ -1991,3 +1991,43 @@ normative: false
   与 `*`/`/` 同层的 precedence、Expr tag `11`、zero-denominator Source boundary 与 exact Typed failure；
   migration audit 已确认同一 RED 必须迁移 3 个 suite 中 4 条 percent negative（`CheckedMul` 1、
   `Grouping` 1、`CheckedDiv` 2），不得漏项或捆绑 Semantic/target lowering。
+
+## 2026-07-18 — D1 binary checked-modulo pre-acceptance slice
+
+- Commits：freeze `84408784`；tests-only RED `197e412e`；Source-only GREEN `49012f57`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-30 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 新增 `checkedMod lhs rhs`，alpha canonical encoder 以 Expr tag `11`
+  后依次递归编码 lhs/rhs；`pfExpr` 新增 `syntax:70 pfExpr:70 " % " pfExpr:71 : pfExpr`，与
+  `*`/`/` 同层并跨 operator 左结合。decoder/quotation 结构化保留 binary node；`Typed.checkExpr`
+  在检查任一 operand 前逐字 fail closed 为 `checked modulo is not yet supported by typed checking`。
+  production 恰好只改 `Source.lean`、`Syntax.lean`、`Typed.lean` 3 文件/11 行，其他层未改。
+- Parser/AST：initializer、entry、view、fn 的 return/let value 与 Lean command/ParserSession parity 全绿；
+  `7%3`、`3%7`、`a%b`、add/sub precedence、left/right modulo nesting、`2*7%3`/`2*(7%3)`、
+  `7%3*2`、`8/4%2`/`8%4/2`、`(1+2)%3`、`-8%3` 与 `8%-3` 精确固定 cross-operator
+  left associativity、grouping 与 unary precedence。`8%0` 在 Source 接受，modulo-by-zero 留给 D2/target。
+- Binding：CheckedModTwin 的代表 goldens 为 `7%3`
+  `27734454ca6f13690f578919cd0a6a801b52d0c022075138380b12667de799ce`/228 bytes、`3%7`
+  `ed0965b100295c4cabbd06abe3ed9aa2511015c53ea6a7bdb4ac1580d1f65cd5`/228、left nested
+  `c65ffab1f8bba66aaf900eeb8895e4d2f6e3fc901e2176c72595949df7dc41d1`/238、right nested
+  `d35012b51a215db44c7fb358add004febf5838cccdb9b84f2179f143e174c019`/238、`8%0`
+  `4fff7a5bdc1482ae4ffa706dda1c9aad5dacc62788ae389427ca37a6e6bd2a9f`/228、migrated `2%3`
+  `6e84d4d6cd67e9324a771bfb97219edd05fb8acef1189f4ba456389792490e42`/228；mul/div/sub tag、
+  operand order/zero、left/right nesting、wrong tree、cross-operator shape 与 unary placement 均不 alias。
+- Migration/Boundaries：同一 RED 精确迁移 3 个 suite 的 4 条 percent negative：`CheckedMul` 1、
+  `Grouping` 1、`CheckedDiv` 2；新 suite 将 bare/missing/repeated `%`、`2 %% 3`、mixed invalid operator
+  与 extra payload 固定在 parser boundary。四处迁移语法经 aggregate 编译确认有效，未迁移其他 negative。
+  Typed malformed operand 仍先给 modulo diagnostic；add positive 与 Bool/sub/mul/div/neg/bitwise/logical controls 保持。
+- Review/Commands：Grok 完成 residual audit、RED 设计与 tests-only RED；Kimi 完成迁移、GREEN seam 与最终
+  三轮只读审计，最终 P0/P1=0；coordinator 完成严格 11 行 GREEN。执行
+  `lake build Tests.Language.CheckedMod`；`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：14-job focused build、144-job aggregate 与测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0016`。按批量验证策略，完整 `just ci` 继续延后，未计入本条证据。
+- Limitations：仅有 Source binary carrier，没有 modulo-by-zero、signed/rounding/sign、Typed/Semantic
+  modulo、constant folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence。
+  `*`/`/`/`%` Source surface 已覆盖，但 `MulExpr`、expression grammar 与 `TASK-D1-04` 仍未正式完成；
+  D0 formal milestone 仍为 5/8。
+- Next：residual audit 已选择 shift-left `<<` 作为唯一下一 candidate；冻结前必须核准低于 AddExpr 的
+  precedence、Expr tag `12`、shift-count zero Source boundary、left/right nesting、既有 negative migration
+  集合与 exact Typed failure，不得捆绑 `>>`、Semantic 或 target lowering。
