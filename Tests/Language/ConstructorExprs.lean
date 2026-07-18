@@ -233,9 +233,16 @@ unsafe def run : IO Unit := do
   let localCall ← select session (returnProgramSource "Local" "f(1)") "<ctor-local>"
   expectReturnExpr "f(1)" localCall (.localFnCall "f" #[.literal 1])
 
+  -- Whole-escaped dotted single-component stays localFnCall (empirical loader spelling).
+  let wholeEscaped ← select session
+    (returnProgramSource "WholeEsc" "«A.B»()") "<ctor-whole-escaped>"
+  expectReturnExpr "«A.B»()" wholeEscaped (.localFnCall "«A.B»" #[])
+
   -- Prospective goldens (UNBOUND until GREEN).
   let twinZero := twin (.constructorExpr #["A", "B"] #[])
+  let twinPathValue := twin (.constructorExpr #["A", "C"] #[])
   let twinOne := twin (.constructorExpr #["A", "B"] #[.literal 1])
+  let twinArgValue := twin (.constructorExpr #["A", "B"] #[.literal 2])
   let twinTwo := twin (.constructorExpr #["A", "B"] #[.literal 1, .literal 2])
   let twinOrder := twin (.constructorExpr #["A", "B"] #[.literal 2, .literal 1])
   let twinPathOrder := twin (.constructorExpr #["B", "A"] #[])
@@ -250,9 +257,15 @@ unsafe def run : IO Unit := do
   expect (twinZero.sourceHash ==
       "UNBOUND_CONSTRUCTOR_EXPR_ZERO_GOLDEN")
     s!"constructorExpr A.B() ConstructorExprTwin sourceHash golden must remain stable; got {twinZero.sourceHash}"
+  expect (twinPathValue.sourceHash ==
+      "UNBOUND_CONSTRUCTOR_EXPR_PATH_VALUE_GOLDEN")
+    s!"constructorExpr A.C() ConstructorExprTwin sourceHash golden must remain stable; got {twinPathValue.sourceHash}"
   expect (twinOne.sourceHash ==
       "UNBOUND_CONSTRUCTOR_EXPR_ONE_GOLDEN")
     s!"constructorExpr A.B(1) ConstructorExprTwin sourceHash golden must remain stable; got {twinOne.sourceHash}"
+  expect (twinArgValue.sourceHash ==
+      "UNBOUND_CONSTRUCTOR_EXPR_ARG_VALUE_GOLDEN")
+    s!"constructorExpr A.B(2) ConstructorExprTwin sourceHash golden must remain stable; got {twinArgValue.sourceHash}"
   expect (twinTwo.sourceHash ==
       "UNBOUND_CONSTRUCTOR_EXPR_TWO_GOLDEN")
     s!"constructorExpr A.B(1,2) ConstructorExprTwin sourceHash golden must remain stable; got {twinTwo.sourceHash}"
@@ -269,7 +282,11 @@ unsafe def run : IO Unit := do
       "UNBOUND_CONSTRUCTOR_EXPR_NESTED_GOLDEN")
     s!"constructorExpr nested ConstructorExprTwin sourceHash golden must remain stable; got {twinNested.sourceHash}"
 
-  -- Non-alias: path value/count/order, arg count/order/nesting, tag27 vs local26 vs variable1.
+  -- Non-alias: path value/count/order, arg value/count/order/nesting, tag27 vs local26 vs variable1.
+  expect (twinZero.sourceHash != twinPathValue.sourceHash)
+    "A.B() must not alias A.C() (same-count path value)"
+  expect (twinOne.sourceHash != twinArgValue.sourceHash)
+    "A.B(1) must not alias A.B(2) (single-arg value)"
   expect (twinZero.sourceHash != twinOne.sourceHash)
     "A.B() must not alias A.B(1) (argument count)"
   expect (twinOne.sourceHash != twinTwo.sourceHash)
@@ -287,7 +304,7 @@ unsafe def run : IO Unit := do
   expect (twinZero.sourceHash != twinVarF.sourceHash)
     "constructorExpr A.B() must not alias variable f (tag 27 vs tag 1)"
 
-  -- Parser-boundary rejects (malformed call-like list / missing path shape).
+  -- Parser-boundary rejects (malformed call-like list / numeric / empty component).
   for (label, expr) in [
       ("missing close paren", "A.B(1"),
       ("missing open paren", "A.B 1)"),
@@ -295,7 +312,9 @@ unsafe def run : IO Unit := do
       ("trailing comma", "A.B(1,)"),
       ("double comma", "A.B(1,,2)"),
       ("adjacent arg", "A.B(1 2)"),
-      ("extra payload", "A.B(1) 2")
+      ("extra payload", "A.B(1) 2"),
+      ("numeric component", "A.1()"),
+      ("empty component", "A..B()")
     ] do
     let source := returnProgramSource "RejectedCtor" expr
     let (_, result) ← IO.FS.withIsolatedStreams
@@ -307,7 +326,10 @@ unsafe def run : IO Unit := do
       ("reserved second component", "A.«struct»()",
         "reserved portable identifier 'struct'"),
       ("reserved first component", "«fn».B(1)",
-        "reserved portable identifier 'fn'")
+        "reserved portable identifier 'fn'"),
+      -- Invalid escaped component; string arg must not preempt path diagnostic.
+      ("invalid dotted escaped component", "A.«x.y»(\"x\")",
+        "qualified-name component must use Lean identifier characters")
     ] do
     let source := returnProgramSource "RejectedPath" expr
     let (_, result) ← IO.FS.withIsolatedStreams
