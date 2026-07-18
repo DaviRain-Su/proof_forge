@@ -1949,3 +1949,45 @@ normative: false
 - Next：residual audit 已选择 binary checked division `/` 作为唯一下一 candidate；冻结时只允许
   Source Expr tag `10`、与 `*` 同 precedence 的左结合 parser、decode/quote、exact Typed fail-closed，
   并迁移 `CheckedMul`/`Grouping` 中两条既有 `/` negative；不得捆绑 `%`、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 binary checked-division pre-acceptance slice
+
+- Commits：freeze `a1415163`；tests-only RED `84f0f72c`；seam-count correction `8a00bd21`；
+  Source-only GREEN `300b8a9c`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-29 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。freeze 中 binary quote arm
+  的物理行数由 3 少计为 4；`8a00bd21` 在 GREEN 前只把 seam 总数从 10 更正为 11，不改变任何语义范围。
+- Changed：`Source.Expr` append-only 新增 `checkedDiv lhs rhs`，alpha canonical encoder 以 Expr tag `10`
+  后依次递归编码 lhs/rhs；`pfExpr` 新增 `syntax:70 pfExpr:70 " / " pfExpr:71 : pfExpr`，与 `*`
+  同层且左结合。decoder/quotation 结构化保留 binary node；`Typed.checkExpr` 在检查任一 operand 前逐字
+  fail closed 为 `checked division is not yet supported by typed checking`。production 恰好只改
+  `Source.lean`、`Syntax.lean`、`Typed.lean` 3 文件/11 行，Typed Expr、SemanticIR、requirements 与 targets 未改。
+- Parser/AST：initializer、entry、view、fn 的 return/let value 与 Lean command/ParserSession parity 全绿；
+  `6/3`、`3/6`、`a/b`、`1+6/3`、`6/3+1`、`6/3/2`、`6/(3/2)`、`2*6/3`、
+  `2*(6/3)`、`8/4*2`、`(1+2)/3`、`8/4-2`、`-8/4` 与 `8/-4` 精确固定同层左结合、
+  additive/unary precedence 与 grouping。`8/0` 在 Source 接受，除零 legality 明确留给 D2/target。
+- Binding：CheckedDivTwin 的代表 goldens 为 `6/3`
+  `c7b5abc6f7a665e821646195c1c191bd5c79970f56f774824e21d52dbcf0e07c`/228 bytes、`3/6`
+  `f779a87b512fe81c41e242a971ffae9913f78bf8f6f5add0fca9fb74284a554c`/228、left nested
+  `d5a1c2cbeb3f767be6042af2d401602faabe086f2b41178e5642ea6eeaa1366b`/238、right nested
+  `c3e7034c2330d88024977a8f96f2c961af55c5962add61d39bb0586d8b2cbd9f`/238、`8/0`
+  `cde97577aecae8a24075bab611c3bbe6053149149fc4a9147c2eb68352a0a12b`/228、migrated `2/3`
+  `0d38cb17ac24ed48bfa9139af1a7af1629439a8d53c9ed824e77f185b8806c68`/228；mul/sub tag、
+  operand order/zero、left/right nesting、wrong tree、mixed precedence 与 unary placement 均不 alias。
+- Migration/Boundaries：同一个 RED 只把 `CheckedMul` 的 `2 / 3` 与 `Grouping` 的 `(2 / 3)` 两条
+  slash negative 迁移为精确 positives，两个 percent controls 保留。bare/missing/repeated `/`、`2 // 3`、
+  mixed invalid operator、extra payload、`2 % 3` 与 `(2 % 3)` 均停在 parser boundary。Typed division
+  对 malformed operand 仍先给 division diagnostic；add positive 与 Bool/sub/mul/neg/bitwise/logical exact controls 保持。
+- Review/Commands：Grok 完成 residual audit、RED 设计与 tests-only RED；Kimi 完成冻结、GREEN seam 与最终三轮
+  只读审计，最终 P0/P1=0；coordinator 完成冻结勘误和 11 行 GREEN。执行
+  `lake build Tests.Language.CheckedDiv`；`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：14-job focused build、142-job aggregate 与测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0015`。按批量验证策略，完整 `just ci` 继续延后，未计入本条证据。
+- Limitations：仅有 Source binary carrier，没有除零、signed/rounding、Typed/Semantic division、modulo、
+  constant folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence。D0 formal milestone
+  仍为 5/8，`TASK-D1-04` 仍 pending。
+- Next：residual audit 已选择 binary checked modulo `%` 作为唯一下一 candidate；冻结前必须核准
+  与 `*`/`/` 同层的 precedence、Expr tag `11`、zero-denominator Source boundary 与 exact Typed failure；
+  migration audit 已确认同一 RED 必须迁移 3 个 suite 中 4 条 percent negative（`CheckedMul` 1、
+  `Grouping` 1、`CheckedDiv` 2），不得漏项或捆绑 Semantic/target lowering。
