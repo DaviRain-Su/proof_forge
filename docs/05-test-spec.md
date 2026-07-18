@@ -1355,9 +1355,11 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `«return» := 1` 保持 assignment。`Typed.check` 必须在 result type、Unit materialization、initializer
   legality 与 return-path 分析前逐字拒绝
   `value-less return is not yet supported by typed checking`；omitted-result fn、non-Unit entry 与 initializer
-  都必须固定该优先级。本切片不得把 `returnValue` 改为 Option，不得实现 implicit Unit/fallthrough、
+  都必须固定该优先级。首次 aggregate test-binary 验证确认既有 generic fn gate 会先于 statement checker
+  返回，因此允许在该 gate 内增加 returnUnit exact-priority 检查；普通 fn 仍须保持原 fail-closed。本切片不得把
+  `returnValue` 改为 Option，不得实现 implicit Unit/fallthrough、
   statement-after-return、type/effect、Semantic/requirement/target；production 限于 Source/Syntax/Typed
-  3 文件、最多 10 行新增/2 行移除。focused/aggregate/test binary 与 final reviews 全绿后，在 clean committed tree
+  3 文件、最多 12 行新增/2 行移除。focused/aggregate/test binary 与 final reviews 全绿后，在 clean committed tree
   运行一次 statement checkpoint `just ci`；收口不得声明 return semantics、完整 statement grammar 或
   正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；

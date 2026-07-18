@@ -741,9 +741,11 @@ Source parity，并固定 returnUnit 对 returnValue 及其他 statement kind �
 closed；escaped `«return» := 1` 保持 assignment。`Typed.check` 必须在 result type、Unit materialization、
 initializer legality、return-path/statement-after-return 分析前逐字 fail closed 为
 `value-less return is not yet supported by typed checking`；尤其 omitted-result fn 中的 bare return 仍必须
-得到同一 diagnostic，不得借 Unit 自动接受。本切片不得实现 fallthrough、implicit Unit value、return-path、
+得到同一 diagnostic，不得借 Unit 自动接受。首次 aggregate test-binary 验证确认既有 generic fn gate
+先于 statement checker，因此该 gate 只可增加 returnUnit exact-priority 检查，普通 fn 仍保持原 fail-closed。
+本切片不得实现 fallthrough、implicit Unit value、return-path、
 type/effect、Semantic/requirement、ABI/runtime 或 target behavior；production 仅限 Source/Syntax/Typed
-3 文件、最多 10 行新增/2 行移除。GREEN、focused/aggregate/test binary 与两份独立审查全绿后，在 clean committed
+3 文件、最多 12 行新增/2 行移除。GREEN、focused/aggregate/test binary 与两份独立审查全绿后，在 clean committed
 tree 运行一次 statement checkpoint `just ci`；只可记录 value-less return Source carrier，不得宣称
 return semantics、完整 statement grammar 或正式 D1 完成。
 
