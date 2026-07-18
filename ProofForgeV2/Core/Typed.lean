@@ -229,6 +229,8 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       throw <| .invalidProgram "bitwise xor is not yet supported by typed checking"
   | .bitwiseOr .. =>
       throw <| .invalidProgram "bitwise or is not yet supported by typed checking"
+  | .logicalAnd .. =>
+      throw <| .invalidProgram "logical and is not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement

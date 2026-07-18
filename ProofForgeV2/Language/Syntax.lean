@@ -38,6 +38,7 @@ syntax:50 pfExpr:51 " >= " pfExpr:51 : pfExpr
 syntax:45 pfExpr:45 " & " pfExpr:46 : pfExpr
 syntax:40 pfExpr:40 " ^ " pfExpr:41 : pfExpr
 syntax:35 pfExpr:35 " | " pfExpr:36 : pfExpr
+syntax:30 pfExpr:30 " && " pfExpr:31 : pfExpr
 syntax:65 pfExpr:65 " + " pfExpr:66 : pfExpr
 syntax:65 pfExpr:65 " - " pfExpr:66 : pfExpr
 syntax:70 pfExpr:70 " * " pfExpr:71 : pfExpr
@@ -400,6 +401,8 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
       return .bitwiseXor (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| $lhs:pfExpr | $rhs:pfExpr) => do
       return .bitwiseOr (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| $lhs:pfExpr && $rhs:pfExpr) => do
+      return .logicalAnd (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| - $operand:pfExpr) => do
       return .checkedNeg (← decodeExprUnchecked operand)
   | `(pfExpr| ~ $operand:pfExpr) => do
@@ -926,6 +929,10 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let lhs ← quoteExpr lhs
       let rhs ← quoteExpr rhs
       `(ProofForgeV2.Source.Expr.bitwiseOr $lhs $rhs)
+  | .logicalAnd lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.logicalAnd $lhs $rhs)
   | .checkedNeg operand => do
       let operand ← quoteExpr operand
       `(ProofForgeV2.Source.Expr.checkedNeg $operand)
