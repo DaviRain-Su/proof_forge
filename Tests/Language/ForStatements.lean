@@ -263,13 +263,19 @@ unsafe def run : IO Unit := do
   let twinNested := twin <| .forStmt "i" (.literal 0) (.literal 10) 4 #[
     .forStmt "j" (.literal 1) (.literal 2) 1 #[.returnValue (.literal 1)]]
 
-  -- Prospective goldens: deliberately UNBOUND in this tests-only RED.
-  expectGolden "for base" twinBase "UNBOUND-FOR-BASE" "UNBOUND"
-  expectGolden "for iterator" twinIterator "UNBOUND-FOR-ITERATOR" "UNBOUND"
-  expectGolden "for start" twinStart "UNBOUND-FOR-START" "UNBOUND"
-  expectGolden "for stop" twinStop "UNBOUND-FOR-STOP" "UNBOUND"
-  expectGolden "for bound" twinBound "UNBOUND-FOR-BOUND" "UNBOUND"
-  expectGolden "for nested" twinNested "UNBOUND-FOR-NESTED" "UNBOUND"
+  -- Bound independently after the tests-only RED commit.
+  expectGolden "for base" twinBase
+    "99b116672a93b719e2fe3bf8416b7fcadd990fd9270932fcc8e5f838689d44ef" "244"
+  expectGolden "for iterator" twinIterator
+    "b1a145ce2fea8c986ef423c3bfde8f45800804f5f5925728a0e4e20e13bfa2dc" "244"
+  expectGolden "for start" twinStart
+    "4cd2f6a0b5860205f28db60c5dfe36fc978af9a94b1cdca3fa42df0d7b3e15f9" "244"
+  expectGolden "for stop" twinStop
+    "3e419a96934adae8d4834741f28bbbd724911f36b2c5cc1358d8e8a9090cb71a" "244"
+  expectGolden "for bound" twinBound
+    "1c8d8d6c8610739095bf59d30b1758a50b907954f4557b10fd99b0f20d2dadb9" "244"
+  expectGolden "for nested" twinNested
+    "01c8e020e61ef5fc43f020e5e90d17cda14ffd77634d9e293ba5ee6e43f9dc3d" "295"
 
   expect (twinBase.sourceHash != twinIterator.sourceHash)
     "for iterator must bind source identity"
