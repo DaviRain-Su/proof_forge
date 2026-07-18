@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-08",
+  "frozenAt": "2026-07-18",
+  "freezeCommit": "6dc1d8365c02cd51a8b3365c5199597deda99b61",
+  "output": "SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾",
+  "dependencies": [
+    "TASK-D0-05"
+  ],
+  "prerequisites": [],
+  "tests": [
+    "TST-SBOM-002"
+  ],
+  "inScope": [
+    "七种互斥 logical component kind 的 resolved closure（Lean package、source dependency、download asset、compiler executable、tool executable、runtime dylib/file、bundled license text）与共享 ContentIdentity 分离",
+    "SBOM↔全部已提交 per-platform Tool Lock 文件 closure 重算：每种 leaf ref exact resolve 到 logical component，missing/extra/duplicate/substitution 全部 PF-SBOM-CLOSURE",
+    "candidate-bound 三文件 sidecar（supply-chain-closure.v1.json、bom.cdx.json、sbom-release-binding.v1.json）：位于 candidate archive 外、0444、atomic no-clobber，--verify-existing 独立全量重算",
+    "CycloneDxSchemaIdentityV1 与 SpdxStandardsIdentityV1 离线 closure：pinned schema/grammar/list 文件与离线 validator ToolchainIdentity，禁止 floating URL/ambient parser",
+    "per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾；同 bytes 不同逻辑 kind 保持独立 componentDigest/bom-ref 并共享 content identity",
+    "D0-05 legacy 输出（license-inventory.v1、null-root BOM、asset-only closure、sbom-digests.v1.json）降级为 legacy negative，release 路径拒绝旧 schema",
+    "TST-SBOM-002 独立 fixture/validator 先 RED；production generator 输出不得反向生成 expected golden"
+  ],
+  "outOfScope": [
+    "formal evidence 发布、freshness/revocation/private scan 与 formal finalizer（TASK-D0-07）",
+    "OutputSet 接入（TASK-D3-05）与发布签名（TASK-D8-05，ADR-0015 已固定顺序）",
+    "authority/approval/receipt 对象与 activation（TASK-D0-04）",
+    "Source/SemanticProgram/SemanticProvenance 业务语义或 hash 变更",
+    "新 task ID、新 TST ID 或任务表冻结行完成面变更"
+  ],
+  "doneWhen": [
+    "TST-SBOM-002 先 RED 提交后转绿，测试 oracle 将冻结 exact counts 固化为常量且不从 production output 动态推导",
+    "三文件 sidecar 在两个 absolute root、空 HOME、不同 locale/umask 下 byte-identical，synthetic metadata root hash 等于 candidate archive raw SHA-256",
+    "legacy negative、substitution/extra/missing/race 全部零输出拒绝；--verify-existing 独立重算通过",
+    "关闭路径按 cutover 前程序确认（D0-08 不在 genesis set；无合法路径时保持实现+TST 全绿待关闭并升级治理裁决）",
+    "docs-check 与冻结包对齐无完成面漂移"
+  ],
+  "overflowPolicy": "formal 侧缺口进 TASK-D0-07；OutputSet/发布签名分别进 TASK-D3-05/TASK-D8-05；其余扩面只能走 milestone 变更。",
+  "maxCalendarDays": 3,
+  "maxCommits": 20,
+  "notes": "Pre-freeze preparation only. 进入 RED 前必须盘点当时已提交的全部 per-platform Tool Lock 文件的 Lean compiler 可达 non-system runtime manifests，固定 CycloneDX schema/SPDX grammar+list 文件与离线 validator ToolchainIdentity，并把最终 exact counts（每种 Tool Lock ref、compiler-runtime file、component kind、content identity、typed relationship、standards file、sidecar file）写入本包（docs/05-test-spec.md D0-08 节）。counts 未固化前不得进入 in_progress。"
+}

@@ -11,14 +11,19 @@ normative: true
 
 ## 信任模型
 
-按 [ADR-0013](../adr/0013-content-addressed-tools-and-host-profile.md) 分离两类闭包：
+按 [ADR-0013](../adr/0013-content-addressed-tools-and-host-profile.md) 分离两类闭包，
+跨平台形态按 [ADR-0016](../adr/0016-cross-platform-host-profile-and-linux-eligibility.md)：
 
-- `toolchains.lock.json`：可下载、内容寻址并离线物化的 compiler/tool/runtime 资产。
-- `host-profiles.lock.json`：不能打包进 cache 的 macOS/Xcode/system runtime TCB。
+- Tool Lock 家族：可下载、内容寻址并离线物化的 compiler/tool/runtime 资产，按平台拆为
+  per-platform 文件：`toolchains.lock.json`（darwin-arm64，Tool Lock v2）与
+  `toolchains-linux-x86_64.lock.json`（linux-x86_64，Tool Lock v3）。
+- `host-profiles.lock.json`：不能打包进 cache 的 host/system runtime TCB（macOS/Xcode
+  或 linux distro；schema v2 见下）。
 
 正式 hermetic 只相对于一个验证通过且 `eligibleForHermetic=true` 的 host profile。当前
 Darwin profile 因系统卷 seal broken 且 Xcode pathname 可由当前 admin 用户替换而明确为
-development-only；它不能关闭 `TASK-D0-03/04`。
+development-only；它不能关闭 `TASK-D0-03/04`。linux profile 的 eligibility 谓词与信任根
+弱化声明见 Host Profile v2 节；任一谓词观察不到即 ineligible，formal 入口 fail closed。
 
 ## Tool Lock v2
 
@@ -77,9 +82,35 @@ ToolLockV2Digest = SHA-256(
 member/path 必须相对且不能含 `.`、`..`、NUL、symlink 或特殊文件。asset cache 布局固定为
 `sha256/<asset-sha256>/<asset-id>`。普通 build 不自动下载。
 
-## Host Profile v1
+## Tool Lock v3（per-platform linux 文件）
 
-`host-profiles.lock.json` 记录：
+linux 平台使用独立 lock 文件 `toolchains-linux-x86_64.lock.json`
+（[ADR-0016](../adr/0016-cross-platform-host-profile-and-linux-eligibility.md)），darwin 的
+`toolchains.lock.json`（v2）字节不变。v3 root object 恰为
+`schema,platform,assets,compilerToolchain,bundleFiles,elfPolicy,tools,unresolved`：`schema`
+为 `proof-forge.toolchains.v3`，`platform` 为 `linux-x86_64`，`elfPolicy` 取代
+`machoPolicy`：
+
+```text
+elfPolicy: {
+  allowedSystemLoadRoots[],
+  files[] {path, neededLibs[], runpath?}
+}
+```
+
+v3 digest domain 为 `proof-forge.toolchains.v3`，算法与 v2 相同
+（`SHA-256(domain || 0x00 || PF-JCS(validated lock))`）；`proof-forge.toolchain-lock.v1`
+仍为拒绝的 legacy domain。consumer 按 host 平台选择对应 lock 文件；平台不匹配、跨文件
+ref、缺文件全部 fail closed。除上述替换外，v2 的字段封闭性、排序、cross-reference 与
+leaf-closure 规则全部适用于 v3。
+
+## Host Profile v2
+
+`host-profiles.lock.json`（schema `proof-forge.host-profiles.v2`）按平台记录 closed 字段
+集；consumer 对 v1 文件 fail closed 并给出迁移错误。每个已登记平台恰好一个 active
+profile，consumer 按 host 平台选择。JSON 拒绝 duplicate key。
+
+darwin profile（字段集与 eligibility 谓词逐字保留 v1 语义）：
 
 ```text
 schema, profile.id
@@ -97,17 +128,45 @@ systemTools[] {id, path, nodeKind, linkTarget, resolvedPath,
                resolvedNlink, mode, sha256}
 ```
 
-JSON 拒绝 duplicate key，且 v1 当前恰好包含一个 profile。`eligible=true` 必须蕴含 native
-arm64、非 Rosetta、SIP enabled、authenticated root enabled、system volume sealed 且 Xcode
-pathname 不可由当前用户替换。
+darwin `eligible=true` 必须蕴含 native arm64、非 Rosetta、SIP enabled、authenticated root
+enabled、system volume sealed 且 Xcode pathname 不可由当前用户替换（与 v1 相同）。
+
+linux profile：
+
+```text
+schema, profile.id
+platform {osReleaseId, osReleaseVersionId, kernelRelease, arch, secureBoot}
+eligibleForHermetic, ineligibilityReason (string or null)
+distroTools {git/python3/readelf path+sha256+version,
+             root-owned, mutableByCurrentUser}
+digestBootstrap {path, sha256, known-answer input/hash}
+systemRuntime.allowedLoadRoots[]
+systemTools[] {id, path, nodeKind, linkTarget, resolvedPath,
+               resolvedNlink, mode, sha256}
+```
+
+linux `eligible=true` 必须同时蕴含：native arch（`x86_64` 或 `aarch64`，非翻译）、
+`secureBoot == enabled`、全部 systemTools sha256/mode/nlink/root-owned 与 lock 精确匹配、
+全部 profile 路径非 current-user-mutable、distroTools pin 精确匹配、allowedLoadRoots
+exact。任一谓词观察不到或不可用（如无 Secure Boot 固件）必须记录 ineligible 与 reason，
+不得猜测或 best effort；不满足谓词的机器只允许登记 development profile。
+
+**信任根弱化**：Linux 没有 Apple SSV/AMFI 等价物；linux eligibility 的信任根为
+Secure Boot + distro 包完整性 + pinned digest，弱于 Darwin 的 SSV 锚定，Stage-0 在
+Linux 没有 codesign 等价验证步骤。该弱化必须写入每条 linux-eligible 证据的 limitation。
 
 Stage 0 必须在任何 Git/Python 前由调用者直接以 `env -i`、`/bin/bash --noprofile --norc`
-启动。它用 Bash builtin 按固定顺序解析 `host-bootstrap.lock`，不得 `source`/`eval`；先绑定
-launcher、Python verifier、两份 lock、direct Xcode Python/Git 和最小 Apple platform TCB，
-验证 Xcode deep/strict signature 后才允许 Python 解析完整 JSON。OpenSSL SHA-256 KAT 只是
-行为/完整性探针，不是独立信任根；Apple SSV/AMFI 和外部审阅的 candidate/release digest
-仍是起始信任。开发模式可输出 ineligible 的本地时点 observation；正式模式必须 fail closed。
-系统工具既不是 content asset，也不能只凭 PATH 名称接受。
+启动，并按 `uname -s` 分派平台路径。它用 Bash builtin 按固定顺序解析平台对应 bootstrap
+record（darwin 为 `host-bootstrap.lock`，linux 为 `host-bootstrap-linux.lock`），不得
+`source`/`eval`。darwin 路径先绑定 launcher、Python verifier、两份 lock、direct Xcode
+Python/Git 和最小 Apple platform TCB，验证 Xcode deep/strict signature 后才允许 Python
+解析完整 JSON；linux 路径没有 codesign 等价步骤，绑定 launcher、Python verifier、平台
+lock 文件与 distro Git/Python 后，额外断言
+`LD_PRELOAD`/`LD_LIBRARY_PATH`/`LD_AUDIT`/`LD_DEBUG` 为空，再以锁定的 distro
+`python3 -I -S` 启动 verifier。OpenSSL SHA-256 KAT 只是行为/完整性探针，不是独立信任根；
+Apple SSV/AMFI（darwin）或 Secure Boot + pinned digest（linux）和外部审阅的
+candidate/release digest 仍是起始信任。开发模式可输出 ineligible 的本地时点 observation；
+正式模式必须 fail closed。系统工具既不是 content asset，也不能只凭 PATH 名称接受。
 
 ## 当前精确资产
 
@@ -259,7 +318,9 @@ non-root Lean package 与其对应 source-dependency 共享完全相同的 membe
 每个 `assets[]`、`compilerToolchain.executables[]`、`bundleFiles[]`、`tools[].executable` 和
 `tools[].runtimeFiles[]` authoritative leaf 必须恰由一个 compatible logical component 消费；同一
 runtime dylib 可以有多个 owner refs，但仍只有一个 runtime component。missing/extra/duplicate/
-wrong-kind/multi-owner/path/size/digest substitution 全部 `PF-SBOM-CLOSURE`。
+wrong-kind/multi-owner/path/size/digest substitution 全部 `PF-SBOM-CLOSURE`。闭合并行于全部
+已提交 per-platform lock 文件（ADR-0016）：每份文件的每种 leaf ref 都参与 exact resolve，
+跨文件重复 logical kind 不合并、各自成 component。
 
 `dependencies` 是 unique sorted `DependencyRefV1` array；kind 只允许
 `package-depends-on|build-uses|derived-from|runtime-depends-on`，按 `(kind rank,to UTF-8)` 排序。
@@ -380,6 +441,8 @@ CompilerRuntimeClosureV1Digest = SHA-256(
 恰好对应一个 `kind=runtime-dylib,source.kind=compiler-runtime-file` component，反向也必须成立。
 unreachable archive dylib 不加入 closure；可达 file missing/extra/wrong owner/load/hash 均
 `PF-SBOM-CLOSURE`。Apple system dylib 只验证 allowed Host Profile root，不进入 content inventory。
+linux 平台的对应物为 ELF：`neededLibs` 取代 installName load，resolvedPath 必须命中
+`elfPolicy.allowedSystemLoadRoots` 内的 system library，其余规则相同（ADR-0016）。
 
 resolved component 保留 inventory 的全部字段并把 source exact resolve 到 `content`；
 `componentDigest` 与 `bomRef` 都不进入自身 preimage：

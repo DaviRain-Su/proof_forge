@@ -14,14 +14,14 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：5/8 done**；`TASK-D0-04` blocked，`TASK-D0-07`/`TASK-D0-08` pending；尚未正式进入 D1 |
+| Formal milestone | **D0：5/9 done**；`TASK-D0-04` blocked，`TASK-D0-07`/`TASK-D0-08`/`TASK-D0-09` pending（D0-09 待 ADR-0016 批准）；尚未正式进入 D1 |
 | Active task | 无；当前没有可合法置为 `in_progress` 的正式 TASK |
 | Next task | **TASK-D0-04**（blocked；仍是依赖序中的下一个正式任务） |
 | Active development slice | **D1-PA-39 / TASK-D1-04 pre-acceptance**：binary bitwise-and `&` Source-only carrier；完成面已冻结，下一步提交 RED |
 | Next development slice | 未冻结；D1-PA-39 收口后再按 expression residual audit 选择单一 slice，禁止自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-04** host seal broken + eligible Stage-0/authority/receipt 未闭合；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
+| Known blocker | **TASK-D0-04** host seal broken + eligible Stage-0/authority/receipt 未闭合（ADR-0016 proposed 已立 linux host 路径，合格 Linux 机器可成第二条 eligible 路径）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

@@ -102,6 +102,7 @@ Counter 相同的 parser/type/semantic/resolver/materializer 通用路径，禁�
 | TST-BOOTSTRAP-001 | pre-activation bootstrap foundation | eligible handoff、session containment、signed required-set/catalog authority、per-task receipts、six-item set 与 activation verifier 在无既有 activation 前置下 exact 闭合 | evidence/security/isolation |
 | TST-EVIDENCE-002 | formal evidence/support binding | typed host/session/freshness/private-scan/revocation/finalizer refs、formal finalization 与 candidate/BuildIdentity/RequirementKey binding 全部 exact | evidence/security |
 | TST-HOST-001 | Stage-0 host attestation | development observation；formal fail closed | security/isolation |
+| TST-HOST-002 | Linux host profile 与 Stage-0 linux 分支 | 生成器/验证器正负例闭环、跨平台互相拒绝；darwin 回归不变 | security/isolation |
 | TST-ISO-002 | 正式 hermetic archive harness | 外部 candidate anchor、eligible host、deny-default stages、process containment、gate-catalog EV 全部通过 | isolation |
 | TST-ISO-003 | release-candidate clean-room aggregate | 所有 required Phase 1 gates 完整通过 | release/isolation |
 
@@ -133,6 +134,7 @@ Counter 相同的 parser/type/semantic/resolver/materializer 通用路径，禁�
 | TST-A0-019 | alpha reusable Loader/session hosted-resource slice |
 | TST-A0-020 | alpha single validated decoded frontend slice |
 | TST-HOST-001 | 权威 `env -i` 入口、严格 bootstrap/JSON、live OS/Xcode/tool 匹配、development observation、formal ineligible 与环境/lock mutation negatives |
+| TST-HOST-002 | linux profile 生成器/验证器正负例（digest/mode/nlink/root-owned/mutable/secureBoot 逐项）、linux↔darwin lock 与 profile 文件互相拒绝、v1→v2 迁移错误、观察缺失 fail closed；darwin TST-HOST-001 语义不变 |
 | TST-ISO-001 | 独立 Lake/package/namespace 与父依赖边界 |
 | TST-BOOTSTRAP-001 | activation 前的 eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal catalog authority、per-task verifier receipt/authenticated append-only service、six-item approval set 与 aggregate activation producer/consumer；测试不得读取或要求本次运行之前已存在的 activation |
 | TST-ISO-002 | Stage-0 eligible host、外部 commit/tree/archive anchor、稳定 committed archive、前后 unchanged、空环境/cache；materialize/core deny-all-network；runtime exact-local-port + Anvil 127 bind/LAN refusal；stage read/write/exec negatives、closed FD/stdin EOF/output cap/timeout、formal session containment、0400 single-link receipts 与 gate-catalog-bound evidence |
@@ -357,6 +359,9 @@ formal clean-room evidence, or release readiness.
 提交 RED；现有 D0-05 `license-inventory.v1`、null-root BOM、asset-only closure 和
 `sbom-digests.v1.json` 只能作为 legacy negative。测试 authority 是 SPEC-TOOL-001 与 ADR-0015；
 production generator 的输出不能反向生成 expected golden。
+
+Tool Lock 以 per-platform 文件计（ADR-0016）；下列 baseline 为 darwin `toolchains.lock.json`
+单文件当前值，linux 文件落地后 RED 前 counts 盘点必须覆盖全部已提交 lock 文件。
 
 当前 Tool Lock v2 的 direct-leaf baseline 固定为 5 个 `assets[]`、2 个
 `compilerToolchain.executables[]`、5 个 `bundleFiles[]`、4 个 `tools[].executable` 与 1 个

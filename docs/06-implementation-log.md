@@ -2351,3 +2351,37 @@ normative: false
 - Next：residual audit 选择 binary bitwise-and `&` 为唯一下一 candidate，但尚未冻结。必须核准低于
   CompareExpr 的左结合 precedence、Expr tag `20`、zero migration、`&&` token integrity、comparison
   mixed placement 与 exact Typed failure；不得捆绑 `^`、`|`、`&&`、`||`、Semantic 或 target lowering。
+
+## 2026-07-18 — D0 关闭路径治理：ADR-0016、TASK-D0-09 立项与 D0-08/D0-09 pre-freeze 包
+
+- Context：用户指示盘点 D0 剩余面、完善 D0 并兼容 macOS/Linux 双开发机。本 session 执行机
+  为 Linux Mint 22.3 x86_64（kernel 6.17，EFI present，SecureBoot disabled），不是此前
+  darwin-arm64 attestation 机器；Linux 侧观察自本条起以该机实测为准。
+- Changed（working tree，待提交；提交后以 `git log` 为准）：
+  `docs/adr/0016-cross-platform-host-profile-and-linux-eligibility.md`（新，proposed）、
+  `docs/adr/README.md`（索引行）、`docs/04-task-breakdown.md`（TASK-D0-09 行 + 立项说明段）、
+  `docs/governance/task-set.lock.json`（D0 集合 +`TASK-D0-09`）、
+  `docs/governance/task-freeze-packages/TASK-D0-08.json` 与 `TASK-D0-09.json`（均为
+  pre-freeze preparation）、`docs/05-test-spec.md`（TST-HOST-002 两处 + D0-08 节
+  per-platform 注记）、`docs/specs/toolchains.md`（信任模型跨平台、Tool Lock v3 节、
+  Host Profile v2、closure per-platform 范围、ELF 对应物）、
+  `docs/traceability/requirements-matrix.md`（NFR-004 行挂 TASK-D0-09/TST-HOST-002/
+  ADR-0016/SPEC-TOOL-001）。
+- Design：Host Profile v2 platform-discriminated（darwin 字段集与 eligibility 谓词逐字
+  保留）；linux eligibility = native arch + `secureBoot == enabled` + systemTools/distroTools
+  pin exact + 非 current-user-mutable，任一谓词观察不到即 ineligible；Tool Lock 拆为
+  per-platform 文件（darwin v2 字节不变 + 新 `toolchains-linux-x86_64.lock.json` v3 含
+  elfPolicy，digest domain `proof-forge.toolchains.v3`）；Stage-0 按 `uname -s` 分派，
+  linux 无 codesign 等价步骤并断言 `LD_PRELOAD`/`LD_LIBRARY_PATH`/`LD_AUDIT`/`LD_DEBUG`
+  为空；linux clean-room 沙箱引擎明确不在本期。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `docs_check_self_test.py` ok（186 mutations）；`genesis_root_policy_self_test.py` ok；
+  `bootstrap_task_objects_self_test.py` ok；`git diff --check` clean。
+- Limitations：ADR-0016 为 proposed，未经 Architecture + Quality 批准；TASK-D0-09 保持
+  pending、不得 in_progress（GOV-TASK-FREEZE-001 §7）；TASK-D0-08 冻结包缺 exact counts
+  盘点，counts 未固化前不得 RED/in_progress；本机 SecureBoot disabled，按谓词只能登记
+  linux development profile；darwin 回归（toolchains-validate/host-stage0-development）
+  未在本 session 执行（非 darwin 机）。
+- Next：ADR-0016 批准 → TASK-D0-09 in_progress（TST-HOST-002 RED 先行）；期间以 D0-09
+  pre-acceptance 方式推进 linux toolchain/host 机制实现（development 证据，不改任务状态）。
+  TASK-D0-04 仍 blocked；TASK-D1-04 的 modulo `%` candidate 不变。
