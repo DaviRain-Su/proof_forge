@@ -3367,3 +3367,22 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA56 declaration residual
   audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — linux-tool-root lane 首次真实运行与 runner-context 修复
+
+- Context：`TASK-D0-09` 的 lane 此前只存在于本地提交，首次随合并推送触达 GitHub。
+  推送后全部 CI run 在 0 秒处失败（含 darwin 线的后续提交），run 无任何 job。
+- Diagnosis：GitHub 判定 `Invalid workflow file: .github/workflows/ci.yml#L1
+  (Line: 92, Col: 30): Unrecognized named-value: 'runner'`——lane 把
+  `PROOF_FORGE_TOOL_ROOT` 写在 job 级 `env`，而 `runner` context 在 job-env 求值点
+  不可用。本地 YAML 解析、PyYAML 与 `git diff --check` 均无法暴露该类校验，
+  只有真实 Actions 运行能触发；lane 定义从本地 session 落地起即潜伏。
+- Fix（`63df5494`）：移除 job 级 `env`，改在首个 step 经 `$RUNNER_TEMP` 环境变量
+  写入 `$GITHUB_ENV`（`Select linux tool root`），后续 step 依序继承。
+- Verification：修复后 run `29642386926`——`linux-tool-root` lane success
+  （validate/self-test/host-profiles self-test/provision/materialize/verify/
+  observe→validate development profile 闭环全过），`docs` lane success；
+  `source-core` 见当轮结果。darwin 机后续推送的 0 秒失败同因消除。
+- Limitations：lane 绿是 development 级 tool-root 证据（GOV-CI-001 口径），
+  不构成 hermetic/formal 证据；`TASK-D0-09` 其余 doneWhen 项（darwin 回归、
+  关闭裁决）状态不变。
