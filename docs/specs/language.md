@@ -630,6 +630,33 @@ requirement 或 target behavior；production 必须限于 Source/Syntax/Typed 3 
 aggregate/test binary/独立审查全绿后只可记录完整 LocalFnCall Source carrier；本切片不运行全量 `just ci`，
 call-like primary batch checkpoint 延后到后续单一 slice，且不得宣称 PrimaryExpr、完整 grammar 或正式 D1 完成。
 
+D1-PA-46 冻结的 pre-acceptance alpha ConstructorExpr 子集复用 PA45 已有的
+`syntax:max ident "(" pfExpr,* ")" : pfExpr`，不新增另一条 call-like syntax rule。decoder 必须以
+`callee.getId.components.length` 做 target-neutral 分类：单组件仍形成 LocalFnCall，两个或更多
+组件形成 `Source.Expr.constructorExpr(path : Array String, args : Array Expr)`；禁止把 qualified
+identity 压平为 dotted string。path 必须逐组件经既有 portable-identifier reserved policy，再经
+`Core.Common.parseQualifiedName`/canonical component rendering，并在解码任何 argument 前完成；不合法
+组件、numeric Name 组件，以及 constructor-path helper 收到少于两个组件时必须 fail closed，
+不影响单组件 callee 继续分类为 LocalFnCall。
+
+Source canonical encoder 使用 append-only Expr tag `27`，随后依次编码 length-prefixed path component
+array 和 length-prefixed argument expression array；既有 tags `0..26`/goldens 不得改变。tests-only RED
+必须且只能迁移 `LocalFnCalls.lean` 中 `A.B()`/`A.B(1)` 两条 qualified-call negatives，
+并新增/注册 `Tests.Language.ConstructorExprs`。positive 覆盖 initializer、entry、view、fn
+return/let 及双入口 parity，zero/one/multiple/operator/group/string/nested constructor arguments，
+two/multi-component paths 和 escaped portable components；canonical controls 固定 component count/order/value、
+argument count/order/nesting 及 constructor-vs-local-call-vs-variable tag non-alias。bare/local `f(...)` 必须
+继续形成 LocalFnCall，missing/malformed list、reserved/invalid qualified components 与 dotted-token boundaries
+必须拒绝。`Typed.check` 必须在 argument checking 或 constructor/type lookup 前逐字 fail closed 为
+`constructor expressions are not yet supported by typed checking`。
+
+本切片不得实现 struct/enum/Option constructor resolution、arity/type/result 检查、Place、MatchExpr、
+ExternalCallExpr、Typed/Semantic constructor、requirement 或 target behavior；production 仅限
+Source/Syntax/Typed 3 文件、最多 24 行新增，且不得新增 syntax production。GREEN、focused/
+aggregate/test binary 与独立审查全绿后，必须在 clean committed tree 运行一次 call-like
+primary batch `just ci`；只可记录 ConstructorExpr Source carrier 和 LocalFnCall/ConstructorExpr 分类
+已固定，不得宣称 PrimaryExpr、完整 grammar 或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

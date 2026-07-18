@@ -1271,6 +1271,24 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   external call/place/match、Semantic/requirement/target；production 限于 Source/Syntax/Typed 3 文件/13 行。
   本切片只运行 focused/aggregate/test binary；call-like primary 批量 `just ci` 延后到后续单一 slice，
   收口不得声明 PrimaryExpr、完整 grammar 或正式 D1 完成。
+- D1-PA-46 的 alpha ConstructorExpr tests 复用既有 call-like syntax，并固定
+  `Source.Expr.constructorExpr(path : Array String, args : Array Expr)`；path 为至少两个组件的
+  canonical array，不是 dotted string。positive 覆盖 initializer、entry、view、fn return/let 的
+  Lean command/ParserSession parity；zero/one/multiple、operator/group/string arguments、constructor 嵌套、
+  constructor 作 operator operand、two/multi-component path 和 escaped portable component。decoder 必须在
+  arguments 前逐组件应用 portable reserved policy 与 common QualifiedName canonical validation。
+  Source canonical encoder 使用 append-only Expr tag `27`，然后编码 path array 和 args array；固定
+  component value/count/order、argument value/count/order/nesting 与 expression kind non-alias，并要求
+  constructor `A.B()`、local call `f()`、variable `f` 三者不 alias。tests-only RED 必须且只能
+  删除 `LocalFnCalls.lean` 中 `A.B()`/`A.B(1)` 两条既有 exact-unqualified negatives；其他
+  malformed-list/local-call boundaries 保持。reserved/numeric/invalid qualified components、missing path/paren、
+  leading/trailing/double comma、missing/adjacent arg 必须 fail closed。`Typed.check` 必须在 argument
+  checking/constructor lookup 前逐字拒绝
+  `constructor expressions are not yet supported by typed checking`，以 Bool/string arguments 固定优先级。
+  本切片不得实现 constructor resolution/arity/type/result、Place/Match/ExternalCall、Semantic/
+  requirement/target；production 限 Source/Syntax/Typed 3 文件、最多 24 行新增且不新增 syntax rule。
+  focused/aggregate/test binary 与 final review 全绿后，必须在 clean committed tree 运行 call-like
+  primary batch `just ci`；收口不得声明 PrimaryExpr、完整 grammar 或正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
