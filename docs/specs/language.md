@@ -212,6 +212,37 @@ representation、ABI 或 target Field support。production 仅限 `Language/Synt
 review 全绿后只可记录 existing-carrier spelling；PA53 batch `just ci` 已绿，本切片不重复完整 gate，
 不得声明 Option/Field runtime semantics、完整 type grammar 或正式 D1 完成。
 
+D1-PA-56 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic recursive Option 构造的
+`option(.option element)` 开放 exact same-line、exact one-level spelling
+`Option Option PrimitiveAtom`。inner `PrimitiveAtom` 闭集精确复用 D1-PA-18：exact single-token Bool、
+closed UInt/Int widths、Unit、Principal，共 14 个；Field、Bytes、Array、Map、Named 或另一个 Option
+都不属于该闭集。这不是新 ValueType carrier：Source/Semantic recursive encoder 已产生 tag `16`、
+第二个 tag `16` 再接 element bytes，`ValueType.requirements` 也已递归两层传播 element requirements；
+不得新增 ctor/tag、修改 encoder、Typed 或 target。
+
+frontend 只能新增 exact contextual named `optionOptionType` 与 struct-field 对应 parser；不得把通用
+`portableType` 放宽为任意三 atom，也不得引入 recursive parser。decoder 只从专用 parser 接收一个
+inner element atom，以既有 exact single-token type policy 解码后构造 `.option (.option element)`；因此
+第三层 `Option Option Option Bool`、two-token Field/Bytes/Array、unknown/escaped/qualified element 都必须
+fail closed。Lean command 与 ParserSession 必须得到同一 Source tree/hash。canonical tests 固定既有
+tag `16→16→element` 的 Source/Semantic bytes/hash，并与 bare element、single Option 及不同 nested
+element non-alias；不重编号 tags `0..18`。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+`("nested option", "Option Option UInt64")` parser-negative 迁移为 positive；migration count 精确为一，
+其他测试不得迁移。positive 覆盖 nested Bool/UInt64 的 state、struct field、enum payload、const、
+initializer/entry/view/fn parameter/result 与双入口 parity。nested UInt64 requirement 必须为空；nested Bool
+必须递归传播恰一个 `boolValues`。四个 Phase 1 target 对 nested Bool 在 support resolution 以 named
+requirement 拒绝；nested UInt64 通过 support 后，non-UInt64 state/result/parameter 仍由既有 target Plan
+fail closed，任何路径均不得产出 artifact。Option Bytes、Option Array/Map、Option Field 及第三层 nested
+Option 保持原边界。
+
+本切片不实现 none/some expression、unwrap、任意递归 type grammar、recursive legality、runtime
+representation、ABI 或 target nested-Option support。production 仅限 `Language/Syntax.lean` 一文件，最多
+32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。focused/aggregate/test binary 与
+independent review 全绿后只可记录 one-level existing-carrier spelling；按冻结不重复完整 `just ci`，
+不得声明 nested Option runtime semantics、完整 type grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
