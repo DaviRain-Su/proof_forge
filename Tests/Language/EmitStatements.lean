@@ -246,17 +246,17 @@ unsafe def run : IO Unit := do
   let twinNested := twin (.emitStmt "Tick" #[.constructorExpr #["A", "B"]
     #[.localFnCall "f" #[.indexAccess "x" (.literal 0)]]])
   expectGolden "emit empty" twinEmpty
-    "UNBOUND_EMIT_EMPTY_HASH" "UNBOUND_EMIT_EMPTY_SIZE"
+    "556db61901a502771f0f8c989cd74e21f5f45a7a05f4487d24aadaf69f575832" "231"
   expectGolden "emit one" twinOne
-    "UNBOUND_EMIT_ONE_HASH" "UNBOUND_EMIT_ONE_SIZE"
+    "4f46b40d447d35c70570c41799e8636cd03e7e12bae780f446e1e09e65f3556a" "240"
   expectGolden "emit two" twinTwo
-    "UNBOUND_EMIT_TWO_HASH" "UNBOUND_EMIT_TWO_SIZE"
+    "833faaa7dd8e46c544560cacc3987da7e55caaca0b1c5d8d1348a51f0a944d59" "249"
   expectGolden "emit order" twinOrder
-    "UNBOUND_EMIT_ORDER_HASH" "UNBOUND_EMIT_ORDER_SIZE"
+    "122c62456f4b04c461df770b63ccccf4670b8a07c0af384283d67bd0d03ee528" "249"
   expectGolden "emit name" twinName
-    "UNBOUND_EMIT_NAME_HASH" "UNBOUND_EMIT_NAME_SIZE"
+    "ebdd674aa74e7648e9a05819e94a30f578ab580f379c6276328aecc85f9e97b9" "231"
   expectGolden "emit nested" twinNested
-    "UNBOUND_EMIT_NESTED_HASH" "UNBOUND_EMIT_NESTED_SIZE"
+    "05f715cf30ab2292e5b0928b116bf3a9e024a5007fe5b3d6a7165502d190a78b" "303"
 
   expect (twinEmpty.sourceHash != twinOne.sourceHash &&
       twinOne.sourceHash != twinTwo.sourceHash &&
