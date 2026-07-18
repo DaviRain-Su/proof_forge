@@ -207,6 +207,8 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       throw <| .invalidProgram "checked division is not yet supported by typed checking"
   | .checkedMod .. =>
       throw <| .invalidProgram "checked modulo is not yet supported by typed checking"
+  | .shiftLeft .. =>
+      throw <| .invalidProgram "shift left is not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement
