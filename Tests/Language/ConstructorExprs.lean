@@ -229,9 +229,22 @@ unsafe def run : IO Unit := do
   expectReturnExpr "A.«x»(1)" escapedComp
     (.constructorExpr #["A", "x"] #[.literal 1])
 
+  let plainPath ← select session
+    (returnProgramSource "EscapedPath" "A.B(1)") "<ctor-plain-path>"
+  let escapedFirst ← select session
+    (returnProgramSource "EscapedPath" "«A».B(1)") "<ctor-escaped-first>"
+  let escapedSecond ← select session
+    (returnProgramSource "EscapedPath" "A.«B»(1)") "<ctor-escaped-second>"
+  expect (plainPath == escapedFirst && plainPath == escapedSecond)
+    "escaped portable path components must preserve the canonical constructor path"
+
   -- Unqualified local call must remain localFnCall (classification).
   let localCall ← select session (returnProgramSource "Local" "f(1)") "<ctor-local>"
   expectReturnExpr "f(1)" localCall (.localFnCall "f" #[.literal 1])
+
+  let dottedVariable ← select session
+    (returnProgramSource "DottedVariable" "A.B") "<ctor-dotted-variable>"
+  expectReturnExpr "bare A.B" dottedVariable (.variable "A.B")
 
   -- Whole-escaped dotted single-component stays localFnCall (empirical loader spelling).
   let wholeEscaped ← select session
