@@ -722,14 +722,20 @@ Typed/Semantic return 与 target materialization 仍明确留给 D2/后续，不
 既有 `Source.Statement.returnValue(value)`、Statement tag `1`、syntax、goldens 与 Typed success path
 全部保持不变；禁止改为 `Option Expr` 或重编号既有 tag。
 
-parser 必须保留现有 `syntax "return " pfExpr : pfStmt` 为首先尝试的 value-bearing production，随后
-才新增 strict-prefix bare fallback `syntax "return" : pfStmt`。`return 1`、`return true` 与既有
-跨行 `return` newline `1` 必须继续物化为 `returnValue`，只有不存在可解析 Expr 时 bare 规则才物化
-`returnUnit`；不得让 fallback 先吞掉 token 或改变已接受布局。Source canonical encoder 使用 append-only
-Statement tag `6` 且无 payload；tag `0..5`/既有 goldens 不变。tests-only RED 为 zero migration，
-只新增/注册 `Tests.Language.ValueLessReturns`，固定 Lean command/ParserSession 在 initializer、entry、view、
-fn 以及 explicit/omitted Unit 与 non-Unit declaration 上的 Source parity，并固定 returnUnit 对 returnValue
-及其他 statement kind 的 tag non-alias。
+parser 使用 named `returnValueStmt` 的 `leading_parser` + `withPosition`，value-bearing 分支在 `return`
+后必须满足 `checkLineEq` 或 `checkColGt` 才进入 `pfExpr`；随后 bare `syntax "return" : pfStmt` 作为
+fallback。即 `return 1`/`return true` 与严格增加缩进的多行 `return` newline `  1` 物化为
+`returnValue`，同 statement column 的 newline 开始下一条 statement，bare 物化为 `returnUnit`。
+这项 parser correction 由 tests-only RED 后的首次 GREEN 聚焦构建触发：原冻结的 unrestricted
+跨行规则会把下一 item 的 contextual `fn` 或下一条 `x := 1` 的 identifier 贪婪识别为 Expr，无法同时
+满足 bare-at-block-end 与 bare-followed-statement；禁止用 fixture 重排或枚举未来 statement introducer
+规避该歧义。原冻结的同缩进 `return` newline `1` retention 因而改为 parser rejection，严格缩进版本
+保留明确的 multiline continuation；现有 suites 无 migration，只纠正本切片新 RED 的一条预期。
+
+Source canonical encoder 使用 append-only Statement tag `6` 且无 payload；tag `0..5`/既有 goldens
+不变。tests-only RED 为 zero migration，只新增/注册 `Tests.Language.ValueLessReturns`，固定 Lean command/
+ParserSession 在 initializer、entry、view、fn 以及 explicit/omitted Unit 与 non-Unit declaration 上的
+Source parity，并固定 returnUnit 对 returnValue 及其他 statement kind 的 tag non-alias。
 
 `return()`、bare 后括号/逗号/额外 payload、unescaped keyword assignment 等 malformed shapes 必须 fail
 closed；escaped `«return» := 1` 保持 assignment。`Typed.check` 必须在 result type、Unit materialization、
@@ -737,7 +743,7 @@ initializer legality、return-path/statement-after-return 分析前逐字 fail c
 `value-less return is not yet supported by typed checking`；尤其 omitted-result fn 中的 bare return 仍必须
 得到同一 diagnostic，不得借 Unit 自动接受。本切片不得实现 fallthrough、implicit Unit value、return-path、
 type/effect、Semantic/requirement、ABI/runtime 或 target behavior；production 仅限 Source/Syntax/Typed
-3 文件、最多 9 行新增。GREEN、focused/aggregate/test binary 与两份独立审查全绿后，在 clean committed
+3 文件、最多 10 行新增/2 行移除。GREEN、focused/aggregate/test binary 与两份独立审查全绿后，在 clean committed
 tree 运行一次 statement checkpoint `just ci`；只可记录 value-less return Source carrier，不得宣称
 return semantics、完整 statement grammar 或正式 D1 完成。
 

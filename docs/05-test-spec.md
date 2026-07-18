@@ -1340,9 +1340,14 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `EV-20260718-0002` 的“无无值 return”carrier 延期；旧 evidence 对 Unit fallthrough、D2 return-path/type、
   target 的限制继续有效。positive 覆盖 initializer、entry、view、fn，explicit/omitted Unit 与 non-Unit
   declaration，以及 Lean command/ParserSession Source parity；这些只证明 Source 可表达，不得出现 Typed
-  success。现有 `syntax "return " pfExpr : pfStmt` 必须保持在先，bare
-  `syntax "return" : pfStmt` 只能作为 strict-prefix fallback；测试必须固定 `return 1` 与 `return true`
-  仍为既有 `returnValue`，现有跨行 `return` newline `1` 行为不变，bare `return` 才为 `returnUnit`。
+  success。value-bearing return 必须改为 named `returnValueStmt`，用 `leading_parser`、`withPosition` 与
+  `checkLineEq <|> checkColGt` 固定同一行或严格增加缩进的 Expr；bare `syntax "return" : pfStmt` 为
+  fallback。测试必须固定 `return 1` 与 `return true` 仍为既有 `returnValue`，严格增加缩进的
+  `return` newline `  1` 保留 multiline `returnValue`，同 statement column 的 `return` newline `1`
+  必须 parser reject，而 bare 后同缩进 `x := 1` 必须解析为 returnUnit 后 assignment。
+  该 correction 来自首次 GREEN 的真实失败：unrestricted 跨行 Expr 会吞下一 item 的 contextual `fn`
+  或下一 statement identifier；不得通过 fixture 重排或枚举 statement introducer 掩盖。现有 suite
+  migration 仍为零，只修改本切片新 RED 中错误的同缩进跨行预期。
   Source canonical encoder 使用 append-only Statement tag `6` 且无 payload；固定 returnUnit golden/size、
   对 returnValue tag `1` 及其他 statement kind non-alias，并保证既有 tags/goldens 不变。tests-only RED
   为 zero migration，只新增/注册 `Tests.Language.ValueLessReturns`。
@@ -1352,7 +1357,7 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `value-less return is not yet supported by typed checking`；omitted-result fn、non-Unit entry 与 initializer
   都必须固定该优先级。本切片不得把 `returnValue` 改为 Option，不得实现 implicit Unit/fallthrough、
   statement-after-return、type/effect、Semantic/requirement/target；production 限于 Source/Syntax/Typed
-  3 文件、最多 9 行新增。focused/aggregate/test binary 与 final reviews 全绿后，在 clean committed tree
+  3 文件、最多 10 行新增/2 行移除。focused/aggregate/test binary 与 final reviews 全绿后，在 clean committed tree
   运行一次 statement checkpoint `just ci`；收口不得声明 return semantics、完整 statement grammar 或
   正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
