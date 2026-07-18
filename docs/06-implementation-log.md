@@ -3766,8 +3766,9 @@ normative: false
 - Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，27 行新增/0 行移除；Lean package
   file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；`lake build
   proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just
-  sbom-package-files-refresh`、`git diff --check` 全绿。Grok RED/residual review P0=0；Kimi final review
-  P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0060`。本切片按冻结未重复完整 `just ci`。
+  sbom-package-files-refresh`、`git diff --check` 全绿。Grok RED/residual review P0=0；Kimi freeze/RED
+  review P0=0/P1=1/P2=0（PA64 phantom hash，已在 closeout 修正），最终 review P0=0/P1=0/P2=0；development
+  evidence 为 `EV-20260719-0060`。本切片按冻结未重复完整 `just ci`。
 - Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirements 与 support-vs-Plan
   boundary。不包括 array value/index/slice/length operations、none/some/unwrap、任意 recursive grammar、
   recursive legality、runtime representation、ABI 或 target nested-Option-Array support。
@@ -3877,3 +3878,38 @@ normative: false
   D0 formal milestone 仍为 7/9。
 - Next：Stage-0 handoff producer（EligibleStage0HandoffV1 产出，channels 为预开
   fd）+ bwrap containment runner（setsid-proof protected execution）。
+## 2026-07-19 — D1 exact Option Array Field spelling pre-acceptance slice
+
+- Commits：freeze `6169dbaf`；tests-only RED `ca1cb2e0`；canonical golden binding `0f6bf15d`；
+  Syntax-only GREEN `a7fc520e`；closeout `76025624`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-65 development evidence，不改变
+  `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 `Source/Semantic.ValueType.option (.array .field length)` 开放 exact same-line
+  `Option Array Field bn254_fr N`。新增 named `optionArrayFieldType` 与 struct-field parser；decoder
+  复用 `decodeArrayFieldValueTypeFromAtoms` 的 raw `bn254_fr` 与 canonical ASCII decimal `0..4096`
+  policy，再包一层 Option。既有 `optionArrayType`、`arrayType`、`portableType`、ctor/tag、encoder、
+  quotation、Typed 与 target 均未改。
+- Migration/Coverage：仅迁移既有 full Field Option Array negative 一条；length `0`/`4`/`4096`、
+  state/struct/enum/const/init/entry/view/fn/event/error positions 与 Lean command/ParserSession parity
+  均固定。invalid/missing/alternate/escaped/qualified Field id、invalid length、escaped/qualified
+  constructors、extra/split payload 与 Option Array compounds 保持 fail closed。
+- Canonical/requirements：tag `16→18→2→length` 的 Source goldens 均 259 bytes，hash 为
+  `7af10a115ef40c8d50825cee9dedf87c64252e60534712bed73de354c13330f3`、
+  `42c2f85620ed390c8ace928918e798216b187b218403cce1c42bfe99363fc994`、
+  `1924e8f96feef77088e09b7e94988d8675ff071e51877272fdf0d3d99c951eca`；Semantic goldens 均 209 bytes，
+  hash 为 `6da88f12a83e36234a66ec519a795821fe039492a1c04163e96ba94aa596b901`、
+  `9b632ec1308d232ea2084c0051df30e65fefa7427f6a30f3576005c5f56c1bf8`、
+  `b96c7c9f44c11b05b9ee880cc183628cec68981a9a6df5fd7adc91aa1d168ca7`。requirements 精确为单个
+  `fieldBn254`；四 target support 后 named rejection，state/result/parameter Plan invariant 拒绝且无 artifact。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，27 行新增/0 行移除；package file-set
+  同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；`lake build
+  proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just
+  sbom-package-files-refresh`、`git diff --check` 全绿。Grok RED/residual P0=0；Kimi final review P0=0/P1=0/P2=0；
+  development evidence 为 `EV-20260719-0061`。本切片按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、field requirement 与
+  support-vs-Plan boundary。不包括 array/field operations、none/some/unwrap、任意 recursive grammar、
+  recursive legality、runtime representation、ABI 或 target Option-Array-Field support。
+- Limitations：不得声明 Option/Array/Field runtime semantics、完整 type grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；下一 slice 未冻结，待 final review 后重新做 post-PA65 declaration
+  residual audit，再选择单一依赖闭合最小切片，禁止自动递增。
