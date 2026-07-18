@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- GroupingSurface pins parenthesized expressions in every declaration body position:
 -- init, entry, view, and fn. Covers return-value and let-value reachability for
@@ -169,7 +169,7 @@ unsafe def run : IO Unit := do
             "fn body must desugar return (2 + 3) to checkedAdd"
   | _ => throw <| IO.userError "GroupingSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<grouping>" none with
   | .ok decoded =>
       expect (decoded == elaborated)
@@ -303,7 +303,7 @@ unsafe def run : IO Unit := do
       ("tuple comma", returnProgramSource "Bad" "(1, 2)"),
       ("extra inner payload", returnProgramSource "Bad" "(1 2)"),
       ("trailing after group", returnProgramSource "Bad" "(1) 2"),
-      ("call-like", returnProgramSource "Bad" "f(1)"),
+      -- call-like `f(1)` migrated to LocalFnCalls positives (D1-PA-45).
       -- Inner slash `(2 / 3)` migrated to CheckedDiv positives (D1-PA-29).
       -- Inner percent `(2 % 3)` migrated to CheckedMod positives (D1-PA-30).
 

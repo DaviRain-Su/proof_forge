@@ -93,6 +93,13 @@ inductive Expr where
   | lessEqual (lhs rhs : Expr)
   | greaterThan (lhs rhs : Expr)
   | greaterEqual (lhs rhs : Expr)
+  | bitwiseAnd (lhs rhs : Expr)
+  | bitwiseXor (lhs rhs : Expr)
+  | bitwiseOr (lhs rhs : Expr)
+  | logicalAnd (lhs rhs : Expr)
+  | logicalOr (lhs rhs : Expr)
+  | stringLiteral (value : String)
+  | localFnCall (callee : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
 structure ConstDecl where
@@ -299,6 +306,13 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .lessEqual lhs rhs => appendExpr (appendExpr (appendTag bytes 17) lhs) rhs
   | .greaterThan lhs rhs => appendExpr (appendExpr (appendTag bytes 18) lhs) rhs
   | .greaterEqual lhs rhs => appendExpr (appendExpr (appendTag bytes 19) lhs) rhs
+  | .bitwiseAnd lhs rhs => appendExpr (appendExpr (appendTag bytes 20) lhs) rhs
+  | .bitwiseXor lhs rhs => appendExpr (appendExpr (appendTag bytes 21) lhs) rhs
+  | .bitwiseOr lhs rhs => appendExpr (appendExpr (appendTag bytes 22) lhs) rhs
+  | .logicalAnd lhs rhs => appendExpr (appendExpr (appendTag bytes 23) lhs) rhs
+  | .logicalOr lhs rhs => appendExpr (appendExpr (appendTag bytes 24) lhs) rhs
+  | .stringLiteral value => appendString (appendTag bytes 25) value
+  | .localFnCall callee args => appendArray appendExpr (appendString (appendTag bytes 26) callee) args
 
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value

@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- CheckedMulSurface pins binary `*` in every declaration body position: init, entry,
 -- view, and fn. Covers return-value and let-value reachability plus variable operands.
@@ -136,7 +136,7 @@ unsafe def run : IO Unit := do
             "fn body must retain precedence-correct return 2 + 3 * 4"
   | _ => throw <| IO.userError "CheckedMulSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<checked-mul>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

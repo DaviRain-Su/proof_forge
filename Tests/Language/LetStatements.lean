@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- LetSurface pins same-line let in every declaration body position: init, entry,
 -- view, and fn. Both annotated and omitted type forms are required.
@@ -159,7 +159,7 @@ unsafe def run : IO Unit := do
       | _ => throw <| IO.userError "fn body must retain annotated let value : UInt64 := 2"
   | _ => throw <| IO.userError "LetSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<let-statements>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

@@ -223,6 +223,20 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       throw <| .invalidProgram "greater-than comparison is not yet supported by typed checking"
   | .greaterEqual .. =>
       throw <| .invalidProgram "greater-equal comparison is not yet supported by typed checking"
+  | .bitwiseAnd .. =>
+      throw <| .invalidProgram "bitwise and is not yet supported by typed checking"
+  | .bitwiseXor .. =>
+      throw <| .invalidProgram "bitwise xor is not yet supported by typed checking"
+  | .bitwiseOr .. =>
+      throw <| .invalidProgram "bitwise or is not yet supported by typed checking"
+  | .logicalAnd .. =>
+      throw <| .invalidProgram "logical and is not yet supported by typed checking"
+  | .logicalOr .. =>
+      throw <| .invalidProgram "logical or is not yet supported by typed checking"
+  | .stringLiteral .. =>
+      throw <| .invalidProgram "string literals are not yet supported by typed checking"
+  | .localFnCall .. =>
+      throw <| .invalidProgram "local function calls are not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement

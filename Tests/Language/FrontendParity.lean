@@ -1,4 +1,4 @@
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 namespace Tests.Language.FrontendParityFixture
 
@@ -53,7 +53,7 @@ private def source : String :=
   "end Tests.Language.FrontendParityFixture\n"
 
 unsafe def run : IO Unit := do
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.parsePrograms source "<frontend-parity>" with
   | .ok #[decodedComplete, decodedEdge] =>
       let elaboratedComplete := Tests.Language.FrontendParityFixture.CompleteAlpha

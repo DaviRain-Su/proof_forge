@@ -1149,6 +1149,151 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   checkedAdd positive 与全部既有 expression exact controls 保持。本切片 zero migration，不得修改既有
   suites 的接受/拒绝用例。不得加入 `^`、`|`、`&&`、`||`、Bool legality、folding、Typed/Semantic
   bitwise、requirement 或 target ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行。
+- D1-PA-40 的 alpha binary bitwise-xor tests 固定 production rule
+  `syntax:40 pfExpr:40 " ^ " pfExpr:41 : pfExpr` 与 `Source.Expr.bitwiseXor(lhs, rhs)`。precedence `40`
+  必须严格低于 BitAndExpr `45`，并按 EBNF `("^" BitAndExpr)*` 左结合；`1 ^ 2 ^ 3` 必须接受并形成
+  `(.bitwiseXor (.bitwiseXor 1 2) 3)`，explicit `1 ^ (2 ^ 3)` 必须保留右嵌套。mixed expressions
+  必须合法且树形固定：`1 & 2 ^ 3` 为 `(1 & 2) ^ 3`，`1 ^ 2 & 3` 为 `1 ^ (2 & 3)`，
+  `1 ^ 2 == 3` 为 `1 ^ (2 == 3)`，`1 == 2 ^ 3` 为 `(1 == 2) ^ 3`。positive 必须覆盖
+  initializer、entry、view、fn 的 return/let value 及双入口 parity，并精确固定 `1 ^ 2`、`2 ^ 1`、
+  `a ^ b`、`0 ^ 0`、`true ^ false`、add/mul/shift/comparison/bitwise-and 双向 precedence、grouping、unary、
+  left-chain 与 explicit right-nesting 的 AST；operand legality 和 result typing 留给 D2。
+  Source canonical encoder 使用 append-only Expr tag `21` 后依次编码 lhs/rhs；既有 tags `0..20`/goldens
+  不变。BitwiseXorTwin identity 下 order/type/precedence/grouping/unary/shift/comparison/and/nesting cases 的
+  真实 bytes/hash 必须在 GREEN 前绑定，并以 bitwise-and、comparison、checked-add、shift、operand order、
+  left/right nesting、wrong precedence tree 与 Bool order 作为 non-alias。相同 identity 下 `(1 ^ 2)` 与
+  `1 ^ 2` 必须产生相同 Source.Program/canonical bytes/sourceHash。
+  bare/missing operand、`1 ^ ^ 2`、`1 ^^ 2` 与 extra payload 必须停在 parser boundary；`1 | 2` 必须
+  继续作为 future BitOrExpr retention negative。`Typed.check` 必须在 operand checking 前逐字拒绝
+  `bitwise xor is not yet supported by typed checking`，使 `true ^ false` 不泄漏 Bool diagnostic；checkedAdd
+  positive 与全部既有 expression exact controls 保持。本切片 zero migration，不得修改既有 suites 的
+  接受/拒绝用例。不得加入 `|`、`&&`、`||`、Bool legality、folding、Typed/Semantic bitwise、requirement
+  或 target ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行。
+- D1-PA-41 的 alpha binary bitwise-or tests 固定 production rule
+  `syntax:35 pfExpr:35 " | " pfExpr:36 : pfExpr` 与 `Source.Expr.bitwiseOr(lhs, rhs)`。precedence `35`
+  必须严格低于 BitXorExpr `40`，并按 EBNF `("|" BitXorExpr)*` 左结合；`1 | 2 | 3` 必须接受并形成
+  `(.bitwiseOr (.bitwiseOr 1 2) 3)`，explicit `1 | (2 | 3)` 必须保留右嵌套。mixed expressions
+  必须合法且树形固定：`1 ^ 2 | 3` 为 `(1 ^ 2) | 3`，`1 | 2 ^ 3` 为 `1 | (2 ^ 3)`，
+  `1 & 2 | 3` 为 `(1 & 2) | 3`，`1 | 2 & 3` 为 `1 | (2 & 3)`，
+  `1 | 2 == 3` 为 `1 | (2 == 3)`，`1 == 2 | 3` 为 `(1 == 2) | 3`。positive 必须覆盖
+  initializer、entry、view、fn 的 return/let value 及双入口 parity，并精确固定 `1 | 2`、`2 | 1`、
+  `a | b`、`0 | 0`、`true | false`、add/mul/shift/comparison/bitwise-and/xor 双向 precedence、grouping、
+  unary、left-chain 与 explicit right-nesting 的 AST；operand legality 和 result typing留给 D2。
+  Source canonical encoder 使用 append-only Expr tag `22` 后依次编码 lhs/rhs；既有 tags `0..21`/goldens
+  不变。BitwiseOrTwin identity 下 order/type/precedence/grouping/unary/shift/comparison/and/xor/nesting cases
+  的真实 bytes/hash 必须在 GREEN 前绑定，并以 bitwise-xor/and、comparison、checked-add、shift、operand
+  order、left/right nesting、wrong precedence tree 与 Bool order 作为 non-alias。相同 identity 下
+  `(1 | 2)` 与 `1 | 2` 必须产生相同 Source.Program/canonical bytes/sourceHash。
+  tests-only RED 必须且只能删除 `BitwiseXor.lean` 的 `("deferred bit-or", "1 | 2")` negative，并证明
+  同一 program 内至少两个 enum variants 与 bitwise-or initializer/return expression 可在 Lean command 和
+  ParserSession 双入口形成相同 Source.Program/sourceHash。bare/missing operand、`1 | | 2`、extra payload
+  与 future `1 || 2` 必须停在 parser boundary；不得实现 match arm，但 future match parser 必须拥有 arm-token
+  disambiguation。`Typed.check` 必须在 operand checking 前逐字拒绝
+  `bitwise or is not yet supported by typed checking`，使 `true | false` 不泄漏 Bool diagnostic；checkedAdd
+  positive 与全部既有 expression exact controls 保持。不得加入 `&&`、`||`、match、Bool legality、
+  folding、Typed/Semantic bitwise、requirement 或 target ABI/runtime；production 必须限于 Source/Syntax/
+  Typed 3 文件/11 行。GREEN、focused/aggregate/test binary 与独立审查全绿后必须在 committed tree 上
+  运行一次 bitwise-tier 批量 `just ci` checkpoint，才可记录完整 bitwise Source surface。
+- D1-PA-42 的 alpha binary logical-and tests 固定 production rule
+  `syntax:30 pfExpr:30 " && " pfExpr:31 : pfExpr` 与 `Source.Expr.logicalAnd(lhs, rhs)`。precedence `30`
+  必须严格低于 BitOrExpr `35`，并按 EBNF `("&&" BitOrExpr)*` 左结合；`1 && 2 && 3` 必须接受并形成
+  `(.logicalAnd (.logicalAnd 1 2) 3)`，explicit `1 && (2 && 3)` 必须保留右嵌套。mixed expressions
+  必须合法且树形固定：`1 | 2 && 3` 为 `(1 | 2) && 3`，`1 && 2 | 3` 为 `1 && (2 | 3)`，
+  `1 == 2 && 3` 为 `(1 == 2) && 3`，`1 && 2 == 3` 为 `1 && (2 == 3)`；与 bitwise-xor/and
+  的双向树形也必须按既有层级固定。positive 必须覆盖 initializer、entry、view、fn 的 return/let value
+  及双入口 parity，并精确固定 `1 && 2`、`2 && 1`、`a && b`、`0 && 0`、`true && false`、
+  add/mul/shift/comparison/bitwise-and/xor/or 双向 precedence、grouping、unary、left-chain 与 explicit
+  right-nesting 的 AST；operand/result legality 和 short-circuit Typed/Semantic 实现留给 D2。
+  Source canonical encoder 使用 append-only Expr tag `23` 后依次编码 lhs/rhs；既有 tags `0..22`/goldens
+  不变。LogicalAndTwin identity 下 order/type/precedence/grouping/unary/shift/comparison/bitwise/nesting cases
+  的真实 bytes/hash 必须在 GREEN 前绑定，并以 bitwise-and/or、comparison、checked-add、operand order、
+  left/right nesting、wrong precedence tree 与 Bool order 作为 non-alias。相同 identity 下
+  `(1 && 2)` 与 `1 && 2` 必须产生相同 Source.Program/canonical bytes/sourceHash。
+  tests-only RED 必须且只能删除 `BitwiseAnd.lean` 的 `("deferred logic-and", "1 && 2")` negative；
+  同 suite 的 spaced `1 & & 2` survival pin 与其他既有 suite 不得修改。bare/missing operand、
+  `1 && && 2`、`1 &&& 2`、`1 & && 2` 与 extra payload 必须停在 parser boundary；
+  `BitwiseOr.lean` 的 future `1 || 2` retention negative 必须保持不动。`Typed.check` 必须在 operand
+  checking 前逐字拒绝 `logical and is not yet supported by typed checking`，使 `true && false` 不泄漏
+  Bool diagnostic；checkedAdd positive 与全部既有 expression exact controls 保持。不得加入 `||`、
+  short-circuit lowering、Bool legality、folding、Typed/Semantic logical operation、requirement 或 target
+  ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行。本切片只运行 focused/aggregate/
+  test binary，logical-tier committed-tree 批量 `just ci` 延后到 logical-or 收口。
+- D1-PA-43 的 alpha binary logical-or tests 固定 production rule
+  `syntax:25 pfExpr:25 " || " pfExpr:26 : pfExpr` 与 `Source.Expr.logicalOr(lhs, rhs)`。precedence `25`
+  必须严格低于 LogicAndExpr `30`，并按 EBNF `("||" LogicAndExpr)*` 左结合；`1 || 2 || 3` 必须接受
+  并形成 `(.logicalOr (.logicalOr 1 2) 3)`，explicit `1 || (2 || 3)` 必须保留右嵌套。mixed expressions
+  必须合法且树形固定：`1 && 2 || 3` 为 `(1 && 2) || 3`，`1 || 2 && 3` 为
+  `1 || (2 && 3)`，`1 | 2 || 3` 为 `(1 | 2) || 3`，`1 || 2 | 3` 为
+  `1 || (2 | 3)`，`1 == 2 || 3` 为 `(1 == 2) || 3`，`1 || 2 == 3` 为
+  `1 || (2 == 3)`。positive 必须覆盖 initializer、entry、view、fn 的 return/let value 及双入口 parity，
+  并精确固定 `1 || 2`、`2 || 1`、`a || b`、`0 || 0`、`true || false`、add/mul/shift/comparison/
+  bitwise/logical-and 双向 precedence、grouping、unary、left-chain 与 explicit right-nesting 的 AST；
+  operand/result legality 和 short-circuit Typed/Semantic 实现留给 D2。
+  Source canonical encoder 使用 append-only Expr tag `24` 后依次编码 lhs/rhs；既有 tags `0..23`/goldens
+  不变。LogicalOrTwin identity 下 order/type/precedence/grouping/unary/shift/comparison/bitwise/logical-and/
+  nesting cases 的真实 bytes/hash 必须在 GREEN 前绑定，并以 logical-and/bitwise-or、comparison、
+  checked-add、operand order、left/right nesting、wrong precedence tree 与 Bool order作为 non-alias。
+  相同 identity 下 `(1 || 2)` 与 `1 || 2` 必须产生相同 Source.Program/canonical bytes/sourceHash。
+  tests-only RED 必须且只能删除 `BitwiseOr.lean` 的 `("double pipe", "1 || 2")` negative；同 suite 的
+  spaced `1 | | 2` survival pin 与其他既有 suite 不得修改。bare/missing operand、`1 || || 2`、
+  `1 ||| 2`、`1 | || 2` 与 extra payload 必须停在 parser boundary。`Typed.check` 必须在 operand
+  checking 前逐字拒绝 `logical or is not yet supported by typed checking`，使 `true || false` 不泄漏
+  Bool diagnostic；checkedAdd positive 与全部既有 expression exact controls 保持。不得加入 match、
+  short-circuit lowering、Bool legality、folding、Typed/Semantic logical operation、requirement 或 target
+  ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行。GREEN 与 focused/aggregate/test
+  binary 全绿后必须在 committed tree 上运行 logical-tier 批量 `just ci`；只可声明 Source operator
+  precedence tower 覆盖，不得声明 MatchExpr、完整 expression/statement grammar 或正式 D1 完成。
+- D1-PA-44 的 alpha StringLiteral tests 固定 `syntax str : pfExpr` 与
+  `Source.Expr.stringLiteral(value : String)`。decoder 必须读取 Lean 已解码的 `str.getString`，quote 必须
+  通过 `Syntax.mkStrLit` 往返；positive 覆盖 initializer、entry、view、fn 的 return/let value 和 Lean
+  command/ParserSession 双入口 parity，并精确固定 empty、ASCII、escaped quote、backslash、tab、Unicode
+  scalar。不同 escape spelling 解码为相同 String 时必须得到相同 Source.Program/canonical bytes/sourceHash；
+  同一 fixed identity 下 string `"a"` 与 variable `a` 必须因 tag `25` 对既有 variable tag `1` 而不 alias。
+  Source canonical encoder 必须以 append-only Expr tag `25` 后接现有 length-prefixed UTF-8 string；既有
+  tags `0..24`/goldens 不变。tests-only RED 为 zero migration，只新增 `Tests.Language.StringLiterals` 并在
+  `Tests.lean`/`lakefile.lean` 注册；相邻 `"a" "b"`、interpolated `s!"a"` 与 unterminated string 必须停在
+  parser boundary。`Typed.check` 必须逐字拒绝
+  `string literals are not yet supported by typed checking`，且既有 checked-add positive 与 expression exact
+  controls 保持。不得新增 String ValueType、concatenation、interpolation、folding、Typed/Semantic string、
+  ABI/runtime、call/constructor/place 或 match；production 必须限于 Source/Syntax/Typed 3 文件/9 行。
+  本切片只运行 focused/aggregate/test binary，完整 `just ci` 延后到下一批 primary-expression checkpoint；
+  收口只可声明 EBNF Literal 的 Source carrier 覆盖，不得声明 PrimaryExpr、完整 grammar 或正式 D1 完成。
+- D1-PA-45 的 alpha LocalFnCall tests 固定完整 `syntax:max ident "(" pfExpr,* ")" : pfExpr` 与
+  `Source.Expr.localFnCall(callee, args)`，不得拆成零参数专用 AST。positive 覆盖 initializer、entry、view、
+  fn 的 return/let value 和 Lean command/ParserSession parity；精确固定 `f()`/`f ()`、`f(1)`、
+  `f(1, 2)`、operator/group/string arguments、`f(g(1), 2)` nested tree、call result 作为 unary/binary operand，
+  以及 escaped 单组件 callee。每个 argument 必须按完整 `pfExpr` 解析并保持声明次序。
+  Source canonical encoder 使用 append-only Expr tag `26`，随后编码 callee 与 argument array；既有
+  tags `0..25`/goldens 不变。固定 identity 下 callee、count、argument order/nesting 与 expression kind 必须
+  non-alias，grouped/direct 同一 argument 必须 canonical equal，localFnCall `f()` 与 variable `f` 必须因
+  tag `26`/`1` 不 alias。tests-only RED 必须且只能删除 `Grouping.lean` 的 call-like `f(1)` negative；
+  empty group、tuple 与其他 negatives 保持。missing callee/paren、leading/trailing/double comma、missing/
+  adjacent argument、unescaped reserved token 必须 parser reject；qualified `A.B()`/`A.B(1)` 必须在 arguments
+  前逐字拒绝 `local function call callee must be unqualified`，保留给 future ConstructorExpr。
+  `Typed.check` 必须在 argument checking/fn lookup 前逐字拒绝
+  `local function calls are not yet supported by typed checking`，以 Bool/string argument 固定 failure priority，
+  既有 checked-add positive 保持。本切片不得实现 fn resolution、arity/type/return/recursion、constructor/
+  external call/place/match、Semantic/requirement/target；production 限于 Source/Syntax/Typed 3 文件/13 行。
+  本切片只运行 focused/aggregate/test binary；call-like primary 批量 `just ci` 延后到后续单一 slice，
+  收口不得声明 PrimaryExpr、完整 grammar 或正式 D1 完成。
+- D1-PA-46 的 alpha ConstructorExpr tests 复用既有 call-like syntax，并固定
+  `Source.Expr.constructorExpr(path : Array String, args : Array Expr)`；path 为至少两个组件的
+  canonical array，不是 dotted string。positive 覆盖 initializer、entry、view、fn return/let 的
+  Lean command/ParserSession parity；zero/one/multiple、operator/group/string arguments、constructor 嵌套、
+  constructor 作 operator operand、two/multi-component path 和 escaped portable component。decoder 必须在
+  arguments 前逐组件应用 portable reserved policy 与 common QualifiedName canonical validation。
+  Source canonical encoder 使用 append-only Expr tag `27`，然后编码 path array 和 args array；固定
+  component value/count/order、argument value/count/order/nesting 与 expression kind non-alias，并要求
+  constructor `A.B()`、local call `f()`、variable `f` 三者不 alias。tests-only RED 必须且只能
+  删除 `LocalFnCalls.lean` 中 `A.B()`/`A.B(1)` 两条既有 exact-unqualified negatives；其他
+  malformed-list/local-call boundaries 保持。reserved/numeric/invalid qualified components、missing path/paren、
+  leading/trailing/double comma、missing/adjacent arg 必须 fail closed。`Typed.check` 必须在 argument
+  checking/constructor lookup 前逐字拒绝
+  `constructor expressions are not yet supported by typed checking`，以 Bool/string arguments 固定优先级。
+  本切片不得实现 constructor resolution/arity/type/result、Place/Match/ExternalCall、Semantic/
+  requirement/target；production 限 Source/Syntax/Typed 3 文件、最多 24 行新增且不新增 syntax rule。
+  focused/aggregate/test binary 与 final review 全绿后，必须在 clean committed tree 运行 call-like
+  primary batch `just ci`；收口不得声明 PrimaryExpr、完整 grammar 或正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

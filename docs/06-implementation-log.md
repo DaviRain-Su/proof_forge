@@ -2430,3 +2430,262 @@ normative: false
   `d7eec17d` 的 linux toolchain/host 机制为 pre-acceptance development 证据，需经
   TST-HOST-002 正负例验收后才计入本任务完成面。
 - Next：审计 `d7eec17d` 落地面 vs 冻结包 8 条 inScope → 提交 TST-HOST-002 RED。
+## 2026-07-18 — D1 bitwise-and pre-acceptance slice
+
+- Commits：freeze `10186ad5`；tests-only RED `c7ea38f2`；Source-only GREEN `dc075680`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-39 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.bitwiseAnd lhs rhs`、append-only Expr tag `20`、
+  `syntax:45 pfExpr:45 " & " pfExpr:46 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `bitwise and is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..19` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；integer/Bool/order/variable、add/mul/shift/comparison 双向、
+  grouping、unary AST；`1 & 2 & 3` 左结合 positive 与 `1 & (2 & 3)` 右嵌套；
+  `1 & 2 == 3` 固定为 `1 & (2 == 3)`，`1 == 2 & 3` 固定为 `(1 == 2) & 3`。
+  代表 goldens：`1&2` `6fede90fbd307070fd4b86e60d48e595da4620e7d37bf8e368418754e2c55890`/228 bytes、
+  `2&1` `80220a38c8f73ac776ea1cc5cf0c2003265d5ef3c8054ba5a1cf34c51915af85`/228、
+  `true&false` `58856d731cd9609d5e416ae0de68c22a7ea104938fae15224c52f514ed419ccc`/214、
+  left nest `6de67f082d6270d14a91fc5cf8d72f2dcc3b06e22b6fee985ea05658252ec98c`/238、
+  right nest `262dbca58bcfd6d3028204c0b59e2c8e7d7589f1d4349d369ee6cb709b5748c2`/238。
+- Boundaries：zero migration；`1 & & 2` 与 deferred `1 && 2` 均在 parser boundary 拒绝。Typed exact
+  failure 对 integer/Bool operands 都 fail before operands，既有 expression controls 与 checkedAdd positive
+  保持。Grok 完成 RED、evidence extraction 与下一 residual 设计；Kimi 完成 freeze、residual 和 GREEN final
+  audit，最终 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.BitwiseAnd`（14 jobs）；
+  `lake build proof_forge_next_tests`（162 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`；
+  `git diff --check`，全部 exit 0；development evidence 为 `EV-20260718-0025`。本小切片按批量策略不重复
+  全量 `just ci`，最近一次全量 checkpoint 仍为 CompareExpr GREEN `8957c636`。
+- Limitations：仅有 Source bitwise-and carrier；没有 operand/result legality、Typed/Semantic bitwise operation、
+  `^`/`|`/`&&`/`||`、folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：两份独立 residual audit 都选择 binary bitwise-xor `^` 为唯一下一 candidate，但尚未冻结。冻结前
+  必须固定低于 `&` 的 precedence `40` 左结合、append-only Expr tag `21`、zero migration、与 `&`/Compare
+  的合法 mixed shapes、caret token boundaries 与 exact Typed failure；不得捆绑 `|`、`&&`、`||`、Semantic
+  或 target lowering。
+
+## 2026-07-18 — D1 bitwise-xor pre-acceptance slice
+
+- Commits：freeze `f98ec300`；tests-only RED `d6f61464`；Source-only GREEN `a3a48028`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-40 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.bitwiseXor lhs rhs`、append-only Expr tag `21`、
+  `syntax:40 pfExpr:40 " ^ " pfExpr:41 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `bitwise xor is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..20` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；integer/Bool/order/variable、add/mul/shift、comparison/
+  bitwise-and 双向、grouping、unary AST；`1 ^ 2 ^ 3` 左结合 positive 与 `1 ^ (2 ^ 3)` 右嵌套；
+  `1 & 2 ^ 3`/`1 ^ 2 & 3` 和 `1 ^ 2 == 3`/`1 == 2 ^ 3` 的跨层树形全部固定。
+  代表 goldens：`1^2` `d29a60c5f4ec26c1762023a2ca0edcbe168ac331533304d6d8780ccd8da67fe3`/228 bytes、
+  `2^1` `5e05fbbf55247f3585360d9759539cb75fdb0317e3d32407b7db4e7e2c9476cc`/228、
+  `true^false` `1f0e7f0c3572b21a6aa0e5a71cbeb907dda87582141c5887ad5c38143bee67ad`/214、
+  left nest `3e2d516147ccf7503de9baa04960edc657aaacbf6ea27398bcde258ec4f9779a`/238、
+  right nest `16a7168f37deb94c2b6e25866cf45bd27d2049c42035b0e8087d39571976b64f`/238。
+- Boundaries：zero migration；bare/missing、`1 ^ ^ 2`、`1 ^^ 2`、extra 与 deferred `1 | 2` 均在
+  parser boundary 拒绝。Typed exact failure 对 integer/Bool operands 都 fail before operands，既有
+  expression controls 保持。Grok 完成 RED 与 evidence extraction；Kimi 完成 freeze、下一 residual 和
+  GREEN final audit，最终 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.BitwiseXor`（14 jobs）；
+  `lake build proof_forge_next_tests`（164 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`；
+  `git diff --check`，全部 exit 0；development evidence 为 `EV-20260718-0026`。本小切片未重复全量
+  `just ci`，最近一次全量 checkpoint 仍为 CompareExpr GREEN `8957c636`。
+- Limitations：仅有 Source bitwise-xor carrier；没有 operand/result legality、Typed/Semantic bitwise operation、
+  `|`/`&&`/`||`、folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：residual audit 选择 binary bitwise-or `|` 为唯一下一 candidate，但尚未冻结。冻结前必须固定
+  precedence `35` 左结合、append-only Expr tag `22`、`BitwiseXor.lean` 中唯一 `1 | 2` migration、
+  enum variant coexistence 与 future match-arm ownership、和 `^`/`&`/Compare 的合法 mixed shapes；
+  不得捆绑 `&&`、`||`、match expression、Semantic 或 target lowering。该切片若收口，将形成 bitwise
+  Source tier 批量 `just ci` checkpoint。
+
+## 2026-07-18 — D1 bitwise-or pre-acceptance slice and bitwise-tier checkpoint
+
+- Commits：freeze `2cd00ef6`；tests-only RED `80f319a9`；Source-only GREEN `5ecd8378`；
+  canonical golden correction `08ce0b6b`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-41 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.bitwiseOr lhs rhs`、append-only Expr tag `22`、
+  `syntax:35 pfExpr:35 " | " pfExpr:36 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `bitwise or is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..21` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；同一 program 中 enum `Flag` 的 `Off` 与
+  `On(UInt64)` variants 和 bitwise-or expressions 共存；integer/Bool/order/variable、add/mul/shift、
+  comparison/bitwise-and/xor 双向、grouping、unary AST；`1 | 2 | 3` 左结合与 `1 | (2 | 3)` 右嵌套；
+  xor/and/comparison 六种跨层 mixed shapes。只迁移 `BitwiseXor.lean` 的一个 deferred bitwise-or negative；
+  bare/missing、`1 | | 2`、double-token 与 extra payload 均在 parser boundary 拒绝。final review P0/P1=0。
+- Commands/Results：worktree 上真实捕获 `lake build Tests.Language.BitwiseOr`（14 jobs）、
+  `lake build proof_forge_next_tests`（166 jobs）与 `lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0。初次 committed-tree `just ci` 在 PA40 `twinAndXor` sourceHash golden 失败；同一 canonical
+  bytes 经 Lean 与外部 `shasum -a 256` 都得到
+  `8f1601e1e52a447c295784f61dbac1d75ad62e6926adf310b202109ca25a5056`，确认原值为转写错误并由
+  `08ce0b6b` 更正。随后 clean committed `just ci` at
+  `08ce0b6b30b91aa3a599e272e89f85151fe0e182` 完整捕获 exit 0：40-mutation isolation precheck、
+  committed archive 174-job build/test/help、186 docs mutations、genesis/bootstrap/SBOM/supply-chain/runtime
+  closure self-tests、本地 60-job product build、166-job aggregate/test、DSL negatives 与 target/toolchain
+  negatives 全绿；development evidence 为 `EV-20260718-0027`。
+- Evidence erratum：写入 `EV-20260718-0025`/`EV-20260718-0026` 时，长跑测试进程的完成输出未被
+  coordinator 捕获；PA40 的错误 golden 进一步证明最终 RED tree 上的测试二进制当时不可能全绿。
+  evidence ledger 保持 append-only，不改写原行；本次 `EV-20260718-0027` 在最终 committed tree 上
+  累计重跑 BitwiseAnd/BitwiseXor/BitwiseOr，并取代原两条的 run-level exit-0 声明。PA39 未发现功能缺陷，
+  PA40 golden 已由 `08ce0b6b` 修复。后续 evidence 只能引用写入前已捕获完成输出的运行。
+- Limitations：只完成 bitwise-and/xor/or 的 Source carrier；没有 operand/result legality、Typed/Semantic
+  bitwise、`&&`/`||`、short-circuit、folding、requirement、target ABI/runtime、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：两份独立 residual audit 选择 binary logical-and `&&` 为唯一下一 candidate，但尚未冻结。
+  必须固定低于 bitwise-or 的 precedence `30` 左结合、append-only Expr tag `23`、BitwiseAnd suite 中唯一
+  deferred logical-and migration、digraph/token integrity 与 operands 前 exact Typed failure；不得捆绑
+  logical-or、short-circuit semantics、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 logical-and pre-acceptance slice
+
+- Commits：freeze `72c8bcd2`；tests-only RED `f7adbf8f`；Source-only GREEN `3c16300f`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-42 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.logicalAnd lhs rhs`、append-only Expr tag `23`、
+  `syntax:30 pfExpr:30 " && " pfExpr:31 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `logical and is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..22` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；integer/Bool/order/variable、add/mul/shift、comparison、
+  bitwise-and/xor/or 双向 precedence、grouping、unary AST；`1 && 2 && 3` 左结合与
+  `1 && (2 && 3)` 右嵌套。代表 goldens：`1&&2`
+  `b89596d932de15ebbcea6c3f2694e2fbacaa89a83be4e05a60758b6c05158fe6`/228 bytes、`2&&1`
+  `6679e8f4476a00519fd007b9d8efca64eebc0e45c29d9719100e881a1eafc635`/228、`true&&false`
+  `ec66a3b5f8e1b590d105897f577a1d4f90510225238a2d3e14c3f5d44ffc3248`/214、left nest
+  `ae21d1bc4527e6e901988a410860d892f7ad49ab9fb581a079f8090bd1f48d72`/238、right nest
+  `c7551bc55592b2c5a2b3532cc8886c9c78b278ed23bb9630c2d538c4e9ed9dd9`/238。
+- Boundaries：tests-only RED 只删除 `BitwiseAnd.lean` 的一个 deferred logical-and negative；spaced
+  `1 & & 2` survival pin 与 `BitwiseOr.lean` 的 `1 || 2` retention 均保持。bare/missing、
+  `1 && && 2`、`1 &&& 2`、`1 & && 2` 与 extra payload 在 parser boundary 拒绝。Typed integer/Bool
+  两路均在 operands 前 exact fail closed，既有 expression controls 保持。freeze 与 final review P0/P1=0。
+- Commands/Results：`lake build Tests.Language.LogicalAnd`（14 jobs）；
+  `lake build proof_forge_next_tests`（168 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`
+  真实捕获 exit 0；`git diff --check` exit 0；development evidence 为 `EV-20260718-0028`。按冻结包不重复
+  全量 `just ci`，logical-tier committed-tree batch checkpoint 延后至 logical-or 收口。
+- Limitations：仅有 Source logical-and carrier；没有 operand/result legality、short-circuit Typed/Semantic、
+  logical-or、Bool legality、folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence；
+  不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：residual audit 选择 binary logical-or 为唯一下一 candidate，但尚未冻结。必须固定 precedence
+  `25` 左结合、append-only Expr tag `24`、BitwiseOr suite 中唯一 double-pipe migration、spaced-pipe
+  survival control、与 logical-and/bitwise/comparison 的合法 mixed shapes及 operands 前 exact Typed failure；
+  不得捆绑 match、short-circuit implementation、Semantic 或 target lowering。该切片收口时运行 logical-tier
+  committed-tree 批量 `just ci`，但不得把运算符 precedence tower 扩张为完整 expression/statement grammar。
+
+## 2026-07-18 — D1 logical-or pre-acceptance slice and operator-tier checkpoint
+
+- Commits：freeze `9ef75d70`；tests-only RED `ed9ae637`；Source-only GREEN `3ff4b76b`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-43 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.logicalOr lhs rhs`、append-only Expr tag `24`、
+  `syntax:25 pfExpr:25 " || " pfExpr:26 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `logical or is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..23` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；integer/Bool/order/variable、add/mul/shift、comparison、
+  bitwise-and/xor/or、logical-and 双向 precedence、grouping、unary AST；`1 || 2 || 3` 左结合与
+  `1 || (2 || 3)` 右嵌套。代表 goldens：`1||2`
+  `0d003490a306ffbf450ac6b6f14e52269b45ad323c5cbfb0c20bb185b28d19c8`/225 bytes、`2||1`
+  `b914f5d794a6d870f6340efe0cd0d5abef4456232c5a5845095a51b10d244a3b`/225、`true||false`
+  `cd96205fda841af0c6721e03bb8a5be12fc3ea2228a85dfdce03b88a490f30b5`/211、left nest
+  `137ad8122e776ceee9cd55c0ecda106f6c2264a83fdc2914740e569d32b67fb7`/235、right nest
+  `151b82c032acf39a9d3f02988b4cc25b4a28c47166fb288b19db8d334c3ee6fb`/235。
+- Boundaries：tests-only RED 只删除 `BitwiseOr.lean` 的一个 double-pipe negative；spaced `1 | | 2`
+  survival pin 保持。bare/missing、`1 || || 2`、`1 ||| 2`、`1 | || 2` 与 extra payload 在 parser
+  boundary 拒绝。Typed integer/Bool 两路均在 operands 前 exact fail closed，既有 expression controls
+  保持。freeze 与 final review P0/P1=0。
+- Commands/Results：`lake build Tests.Language.LogicalOr`（14 jobs）；
+  `lake build proof_forge_next_tests`（170 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`
+  真实捕获 exit 0；clean committed `just ci` at
+  `3ff4b76b4ff6dc42746fb917f5c4b89f5dc29dab` 完整捕获 exit 0：40-mutation isolation precheck、
+  committed archive 178-job build/test/help、186 docs mutations、genesis/bootstrap/SBOM/supply-chain/runtime
+  closure self-tests、本地 60-job product build、170-job aggregate/test、DSL negatives 与 target/toolchain
+  negatives 全绿；development evidence 为 `EV-20260718-0029`。
+- Scope claim：从 unary、multiplicative、additive、shift、comparison、bitwise 到 logical-or 的 Source
+  operator precedence tower 已覆盖；这不包括 MatchExpr、StringLiteral、call/constructor/place、完整
+  expression/statement grammar，也不形成 Typed/Semantic 或 target behavior。
+- Limitations：仅有 Source logical-or carrier；没有 operand/result legality、short-circuit Typed/Semantic、
+  Bool legality、folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：两份 residual audit 选择 StringLiteral 为唯一最小下一 candidate，但尚未冻结。必须固定
+  append-only Expr tag `25`、Lean string escape 的双入口 round-trip、empty string、与相同 payload variable
+  的 tag-only non-alias、相邻/interpolated/unterminated parser boundaries 及 operands 前 exact Typed failure；
+  不得捆绑 MatchExpr、call/constructor/place、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 StringLiteral pre-acceptance slice
+
+- Commits：freeze `989503eb`；tests-only RED `7b0b1c5a`；canonical golden binding `a0a460b2`；
+  Source-only GREEN `fa4d00c9`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-44 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Expr.stringLiteral value`、append-only Expr tag `25` 后接现有 `appendString`、
+  `syntax str : pfExpr`、`str.getString` decoded-value decoder、`Syntax.mkStrLit` quotation，以及 exact Typed
+  `string literals are not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/9 行；
+  既有 Expr tags `0..24` 与其他层均未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn 的 return/let value；固定
+  empty、ASCII、escaped quote/backslash/tab、Unicode scalar；不同 Lean escape spelling 解码为同一 String
+  时形成相同 Source.Program/canonical bytes/sourceHash。相同 identity 下 string `"a"` 与 variable `a`
+  通过 tag `25`/`1` 不 alias。代表 goldens：empty
+  `4cde697b099c9c7c778517b19f2a6f6468aa07c575682fe83cc35b0b7d1e443c`/214 bytes、`hi`
+  `a1d09765c39adc277751185ce9f0cf28c6d50809b0e79273747d242d41a2f80c`/216、quote
+  `27488c4f1854da8f415becbda9bf7be6546707b691997b7a31f6a97d3cfcfcd5`/215、backslash
+  `535ea5e1f0725f98309fc792eb59eba2ffcf365c976662b3310700c9bb348453`/215、tab
+  `39e8c5ec3fcc7759b6d26b12efb6f08429217cbbbb4de277e57b605c3691f951`/215、alpha
+  `cebe2440eb6d1605ec287c20a76d31830299cb58efcc01073dec8a66cb92a527`/216、`a`
+  `eae154b721a1c4ce5cbf1dee4de56f2827c7dfe37edc50cc46f16fa2cc4964d3`/215。
+- Boundaries：zero migration；相邻 literals、interpolated `s!"a"` 与 unterminated string 均在 parser
+  boundary 拒绝。Typed 对 empty/non-empty string exact fail closed，既有 checked-add control 保持。
+  freeze 与最终独立审查 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.StringLiterals`（14 jobs）；
+  `lake build proof_forge_next_tests`（172 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`
+  真实捕获 exit 0；`git diff --check` exit 0；development evidence 为 `EV-20260718-0030`。按冻结包未运行
+  全量 `just ci`，批量 checkpoint 延后至下一批 primary-expression 收口。
+- Scope claim：EBNF `Literal` 的 integer、Bool、String 三类 Source carrier 已覆盖；不包括 String
+  ValueType、concatenation/interpolation、ConstructorExpr、LocalFnCall、Place、MatchExpr 或完整 expression/
+  statement grammar。
+- Limitations：没有 Typed/Semantic string legality、folding、requirement、target ABI/runtime、eligible host
+  或 formal D1 evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：primary-expression residual audit 尚未冻结下一切片；必须在 call/constructor/place/match 中只选择
+  一个最小、依赖闭合的 Source carrier，禁止从 checkpoint 自动递增或捆绑 D2/target behavior。
+
+## 2026-07-18 — D1 LocalFnCall/ExprList pre-acceptance slice
+
+- Commits：freeze `b94d694e`；tests-only RED `02ab14b3`；spec API correction `fe41856b`；
+  canonical golden binding `75cc3dae`；shared parser-session harness correction `024ae637`；
+  Source-only GREEN `af0a7889`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-45 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Expr.localFnCall(callee, args)`、append-only Expr tag `26` 后依次编码
+  callee string 与 length-prefixed argument array、high-precedence
+  `syntax:max ident "(" pfExpr,* ")" : pfExpr`、双入口 quotation，以及 exact Typed
+  `local function calls are not yet supported by typed checking`。production 恰好 Source/Syntax/Typed
+  3 文件/13 行；既有 Expr tags `0..25` 与 Semantic/target 层未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn 的 return/let
+  value；固定 zero/one/multiple args、operator/group/string args、nested calls、call-as-operand 与
+  escaped callee。`f()`/`f ()` 与 grouped/direct argument canonical equal；callee、count、order、
+  nesting 与 expression kind 均进入 source identity。代表 goldens：`f()`
+  `8f280c03a43877e0f007b960ed272dc4e56dec0bb054b261d78731ca5126ab35`/231 bytes；`f(1)`
+  `c68ef300b0f90505037b1930c23ac84472cdf0c6e775b66fcff7737ff4559c32b`/240；`f(1,2)`
+  `a985676f8730d133186ee59c23d3655b93ca07c451c8aff7d734b1c2893bbf1e`/249；`f(2,1)`
+  `d437cba945dfb2bc14c1cb5fadf5b30579997d5a48a9d4327df6948899605f81`/249；`g(1)`
+  `3669cb06cd56bfabe06950e53a3c89f225e19a797fa8e7e81f47db34cbf3872b`/240；nested
+  `2da08134c1d25b7fa2f59da449785a232623122e29314ec169df975574811e08`/267；variable `f`
+  control `30fc5e98dc97fc29171664b45fe73468e7f0bd80a7cff0a512b51700086c3469`/223。
+- Boundaries：tests-only RED 只迁移 `Grouping.lean` 的唯一 call-like `f(1)` negative；missing
+  callee/paren、leading/trailing/double comma、missing/adjacent argument 与 unescaped reserved token 拒绝。
+  `A.B()`/`A.B(1)` 在 argument decode 前精确拒绝
+  `local function call callee must be unqualified`，为 ConstructorExpr 保留空间。Typed 在 argument
+  checking/fn lookup 前 fail closed，final review P0/P1=0。
+- Test harness correction：初始累计二进制运行在 43 个 suite 重复 `ParserSession.create`/
+  `importModules` 后被终止；process sample 显示在 `LogicalNot.run` 的 environment import 路径上
+  physical footprint 约 82.9 GB。`024ae637` 在测试侧复用单一 immutable ParserSession，不修改
+  production Loader 语义、不并行执行 suite、不删减测试。
+- Commands/Results：`lake build Tests.Language.LocalFnCalls`（15 jobs）；
+  `lake build proof_forge_next_tests`（176 jobs）；`lake env /usr/bin/time -l
+  .lake/build/bin/proof-forge-next-tests` 真实捕获 exit 0/5.91 s；`git diff --check` exit 0。
+  development evidence 为 `EV-20260718-0031`；按冻结未运行全量 `just ci`，call-like primary
+  batch checkpoint 延后到后续单一 slice。
+- Scope claim：完整 `LocalFnCall ::= Ident "(" ExprList? ")"` 的 Source carrier 已覆盖。
+  不包括 callable resolution、arity/type/return/recursion、ConstructorExpr、ExternalCallExpr、Place、
+  MatchExpr、Typed/Semantic call、requirement 或 target behavior。
+- Limitations：不得声明 PrimaryExpr、完整 grammar、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：residual audit 选定 ConstructorExpr 为唯一下一 candidate；必须先冻结 qualified
+  component-array identity、tag `27`、精确两条 qualified-call migration 和 Typed fail-before，禁止捆绑
+  Place/Match/D2 resolution。

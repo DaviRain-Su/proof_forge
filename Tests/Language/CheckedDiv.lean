@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- CheckedDivSurface pins binary `/` in every declaration body position: init, entry,
 -- view, and fn. Covers return-value and let-value reachability plus variable operands.
@@ -141,7 +141,7 @@ unsafe def run : IO Unit := do
             "fn body must retain left-associative return 2 * 6 / 3"
   | _ => throw <| IO.userError "CheckedDivSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<checked-div>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

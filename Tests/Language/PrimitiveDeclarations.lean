@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 import ProofForgeV2.Targets.Registry
 
 namespace Tests.Language.PrimitiveDeclarationsFixture
@@ -50,7 +50,7 @@ unsafe def run : IO Unit := do
       | _ => throw <| IO.userError "BoolCommitment must have one parameter"
   | _ => throw <| IO.userError "BoolCommitment must have one entry"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram source "<primitive-declarations>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

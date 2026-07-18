@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 namespace Tests.Language.InvariantDeclarationsFixture
 
@@ -83,7 +83,7 @@ unsafe def run : IO Unit := do
         "multiple invariant declarations must retain their source order"
   | _ => throw <| IO.userError "InvariantSurface must retain three invariant declarations"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   let decoded ← select session source "<invariant-declarations>"
   expect (decoded == elaborated)
     "Loader and Lean command must produce the same invariant Source.Program"

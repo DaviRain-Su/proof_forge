@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 namespace Tests.Language.ConstDeclarationsFixture
 
@@ -76,7 +76,7 @@ unsafe def run : IO Unit := do
         "const exact Field type must survive Lean command elaboration"
   | _ => throw <| IO.userError "ConstSurface must retain three const declarations"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   let decoded ← select session source "<const-declarations>"
   expect (decoded == elaborated)
     "Loader and Lean command must produce the same const Source.Program"

@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 import ProofForgeV2.Targets.Registry
 
 -- WidthSurface covers all 11 integer-width spellings across every declaration
@@ -191,7 +191,7 @@ unsafe def run : IO Unit := do
         "UInt8 const type must survive Lean command elaboration"
   | _ => throw <| IO.userError "WidthSurface must retain the Seed const declaration"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram source "<integer-width-declarations>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

@@ -23,7 +23,9 @@ syntax "commitment " ident " : " pfType : pfParam
 
 declare_syntax_cat pfExpr
 syntax num : pfExpr
+syntax str : pfExpr
 syntax ident : pfExpr
+syntax:max ident "(" pfExpr,* ")" : pfExpr
 syntax:75 "-" pfExpr:75 : pfExpr
 syntax:75 "~" pfExpr:75 : pfExpr
 syntax:75 "!" pfExpr:75 : pfExpr
@@ -35,6 +37,11 @@ syntax:50 pfExpr:51 " < " pfExpr:51 : pfExpr
 syntax:50 pfExpr:51 " <= " pfExpr:51 : pfExpr
 syntax:50 pfExpr:51 " > " pfExpr:51 : pfExpr
 syntax:50 pfExpr:51 " >= " pfExpr:51 : pfExpr
+syntax:45 pfExpr:45 " & " pfExpr:46 : pfExpr
+syntax:40 pfExpr:40 " ^ " pfExpr:41 : pfExpr
+syntax:35 pfExpr:35 " | " pfExpr:36 : pfExpr
+syntax:30 pfExpr:30 " && " pfExpr:31 : pfExpr
+syntax:25 pfExpr:25 " || " pfExpr:26 : pfExpr
 syntax:65 pfExpr:65 " + " pfExpr:66 : pfExpr
 syntax:65 pfExpr:65 " - " pfExpr:66 : pfExpr
 syntax:70 pfExpr:70 " * " pfExpr:71 : pfExpr
@@ -363,6 +370,11 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
         .error s!"UInt64 literal is out of range: {number}"
       else
         .ok <| .literal (UInt64.ofNat number)
+  | `(pfExpr| $value:str) => .ok <| .stringLiteral value.getString
+  | `(pfExpr| $callee:ident ($args:pfExpr,*)) => do
+      unless callee.getId.components.length == 1 do
+        throw "local function call callee must be unqualified"
+      return .localFnCall (← decodeIdentifier callee) (← args.getElems.mapM decodeExprUnchecked)
   | `(pfExpr| $name:ident) => do
       return .variable (← decodeIdentifier name)
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
@@ -391,6 +403,16 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
       return .greaterThan (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| $lhs:pfExpr >= $rhs:pfExpr) => do
       return .greaterEqual (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| $lhs:pfExpr & $rhs:pfExpr) => do
+      return .bitwiseAnd (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| $lhs:pfExpr ^ $rhs:pfExpr) => do
+      return .bitwiseXor (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| $lhs:pfExpr | $rhs:pfExpr) => do
+      return .bitwiseOr (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| $lhs:pfExpr && $rhs:pfExpr) => do
+      return .logicalAnd (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| $lhs:pfExpr || $rhs:pfExpr) => do
+      return .logicalOr (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| - $operand:pfExpr) => do
       return .checkedNeg (← decodeExprUnchecked operand)
   | `(pfExpr| ~ $operand:pfExpr) => do
@@ -845,6 +867,13 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
   | .literal value =>
       let value := Syntax.mkNumLit (toString value.toNat)
       `(ProofForgeV2.Source.Expr.literal (UInt64.ofNat $value))
+  | .stringLiteral value =>
+      let value := Syntax.mkStrLit value
+      `(ProofForgeV2.Source.Expr.stringLiteral $value)
+  | .localFnCall callee args => do
+      let callee := Syntax.mkStrLit callee
+      let args ← args.mapM quoteExpr
+      `(ProofForgeV2.Source.Expr.localFnCall $callee #[$[$args],*])
   | .variable value =>
       let value := Syntax.mkStrLit value
       `(ProofForgeV2.Source.Expr.variable $value)
@@ -905,6 +934,26 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let lhs ← quoteExpr lhs
       let rhs ← quoteExpr rhs
       `(ProofForgeV2.Source.Expr.greaterEqual $lhs $rhs)
+  | .bitwiseAnd lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.bitwiseAnd $lhs $rhs)
+  | .bitwiseXor lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.bitwiseXor $lhs $rhs)
+  | .bitwiseOr lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.bitwiseOr $lhs $rhs)
+  | .logicalAnd lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.logicalAnd $lhs $rhs)
+  | .logicalOr lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.logicalOr $lhs $rhs)
   | .checkedNeg operand => do
       let operand ← quoteExpr operand
       `(ProofForgeV2.Source.Expr.checkedNeg $operand)

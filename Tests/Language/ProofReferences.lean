@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 namespace Tests.Language.ProofReferencesFixture
 
@@ -93,7 +93,7 @@ unsafe def run : IO Unit := do
         "proof theorem component count/value/order and declaration order must survive"
   | _ => throw <| IO.userError "ProofSurface must retain two proof references"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   let decoded ← select session source "<proof-references>"
   expect (decoded == elaborated)
     "Loader and Lean command must produce the same proof-reference Source.Program"

@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 import ProofForgeV2.Targets.Registry
 
 namespace Tests.Language.BytesTypesFixture
@@ -178,7 +178,7 @@ unsafe def run : IO Unit := do
         "Bytes 4096 fn parameter/result must survive elaboration"
   | _ => throw <| IO.userError "BytesSurface must retain keepMaximum"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<bytes-types>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

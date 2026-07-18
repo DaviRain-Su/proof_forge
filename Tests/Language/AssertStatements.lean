@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 -- AssertSurface pins bare `assert Expr` in every declaration body position: init,
 -- entry, view, and fn. Covers literal, variable, Bool, binary, and grouped conditions.
@@ -164,7 +164,7 @@ unsafe def run : IO Unit := do
             "fn body must retain assert 1 + 2 as checkedAdd condition"
   | _ => throw <| IO.userError "AssertSurface must retain helper fn"
 
-  let session ← Language.Loader.ParserSession.create
+  let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<assert-statements>" none with
   | .ok decoded =>
       expect (decoded == elaborated)

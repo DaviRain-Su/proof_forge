@@ -36,6 +36,13 @@ import Tests.Language.LessThan
 import Tests.Language.LessEqual
 import Tests.Language.GreaterThan
 import Tests.Language.GreaterEqual
+import Tests.Language.BitwiseAnd
+import Tests.Language.BitwiseXor
+import Tests.Language.BitwiseOr
+import Tests.Language.LogicalAnd
+import Tests.Language.LogicalOr
+import Tests.Language.StringLiterals
+import Tests.Language.LocalFnCalls
 import Tests.Language.PrimitiveDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
@@ -87,6 +94,13 @@ unsafe def main : IO Unit := do
   Tests.Language.LessEqual.run
   Tests.Language.GreaterThan.run
   Tests.Language.GreaterEqual.run
+  Tests.Language.BitwiseAnd.run
+  Tests.Language.BitwiseXor.run
+  Tests.Language.BitwiseOr.run
+  Tests.Language.LogicalAnd.run
+  Tests.Language.LogicalOr.run
+  Tests.Language.StringLiterals.run
+  Tests.Language.LocalFnCalls.run
   Tests.Language.run
   Tests.Language.PrimitiveDeclarations.run
   Tests.Language.StateVisibility.run
