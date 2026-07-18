@@ -583,6 +583,26 @@ GREEN、focused/aggregate/test binary 与独立审查全绿后必须在 committe
 `just ci` checkpoint；只有该 gate 全绿才能记录 bitwise 与 logical 的 Source operator precedence tower，
 但不得把它扩张为 MatchExpr、完整 expression/statement grammar 或 `TASK-D1-04` 正式完成。
 
+D1-PA-44 冻结的 pre-acceptance alpha StringLiteral 子集新增
+`Source.Expr.stringLiteral(value : String)` 与 primary rule `syntax str : pfExpr`。Source value 必须取
+Lean lexer 已解码的 `str.getString`；`quoteExpr` 必须用 `Syntax.mkStrLit` 重新构造合法 token。因此空串、
+引号、反斜杠、tab 与 Unicode scalar 必须按值往返，不得把原始 token 拼写或 escape spelling 写入
+Source identity。两种 Lean escape 拼写若解码为同一 String，必须形成相同 Source.Program、canonical
+bytes 与 sourceHash；string literal 和相同 payload 的 identifier 必须为不同 Source node。
+
+Source canonical encoder 使用 append-only Expr tag `25` 后接现有 length-prefixed UTF-8 `appendString`；
+既有 tags `0..24` 与 goldens 不得改变。tests-only RED 为 zero migration，只新增并注册
+`Tests.Language.StringLiterals`；positive 必须覆盖 initializer、entry、view、fn 的 return/let value 与
+Lean command/ParserSession 双入口 parity，并固定空串、ASCII、escaped quote/backslash/tab、Unicode、
+decoded-value canonical equality 和 string-vs-variable tag non-alias。相邻 literals、interpolated string
+syntax 与 unterminated string 必须停在 parser boundary。`Typed.check` 必须逐字 fail closed 为
+`string literals are not yet supported by typed checking`。本切片不得新增 String ValueType、concatenation、
+interpolation、constant folding、Typed/Semantic string legality、ABI/runtime representation、call/constructor/
+place 或 match；production 必须限于 Source/Syntax/Typed 3 文件/9 行。GREEN、focused/aggregate/test binary
+与独立审查全绿后只可记录 EBNF Literal 的 Source carrier 已覆盖；本切片不重复全量 `just ci`，下一批
+primary-expression checkpoint 再运行，且不得宣称 PrimaryExpr、完整 expression/statement grammar 或
+`TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

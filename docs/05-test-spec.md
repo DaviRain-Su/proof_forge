@@ -1238,6 +1238,21 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行。GREEN 与 focused/aggregate/test
   binary 全绿后必须在 committed tree 上运行 logical-tier 批量 `just ci`；只可声明 Source operator
   precedence tower 覆盖，不得声明 MatchExpr、完整 expression/statement grammar 或正式 D1 完成。
+- D1-PA-44 的 alpha StringLiteral tests 固定 `syntax str : pfExpr` 与
+  `Source.Expr.stringLiteral(value : String)`。decoder 必须读取 Lean 已解码的 `str.getString`，quote 必须
+  通过 `Syntax.mkStrLit` 往返；positive 覆盖 initializer、entry、view、fn 的 return/let value 和 Lean
+  command/ParserSession 双入口 parity，并精确固定 empty、ASCII、escaped quote、backslash、tab、Unicode
+  scalar。不同 escape spelling 解码为相同 String 时必须得到相同 Source.Program/canonical bytes/sourceHash；
+  同一 fixed identity 下 string `"a"` 与 variable `a` 必须因 tag `25` 对既有 variable tag `1` 而不 alias。
+  Source canonical encoder 必须以 append-only Expr tag `25` 后接现有 length-prefixed UTF-8 string；既有
+  tags `0..24`/goldens 不变。tests-only RED 为 zero migration，只新增 `Tests.Language.StringLiterals` 并在
+  `Tests.lean`/`lakefile.lean` 注册；相邻 `"a" "b"`、interpolated `s!"a"` 与 unterminated string 必须停在
+  parser boundary。`Typed.check` 必须逐字拒绝
+  `string literals are not yet supported by typed checking`，且既有 checked-add positive 与 expression exact
+  controls 保持。不得新增 String ValueType、concatenation、interpolation、folding、Typed/Semantic string、
+  ABI/runtime、call/constructor/place 或 match；production 必须限于 Source/Syntax/Typed 3 文件/9 行。
+  本切片只运行 focused/aggregate/test binary，完整 `just ci` 延后到下一批 primary-expression checkpoint；
+  收口只可声明 EBNF Literal 的 Source carrier 覆盖，不得声明 PrimaryExpr、完整 grammar 或正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
