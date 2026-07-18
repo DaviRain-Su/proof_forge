@@ -178,7 +178,7 @@ unsafe def run : IO Unit := do
 
   -- Escaped ordinary single-component base.
   let escapedBase ← select session
-    (returnProgramSource "Escaped" "«x»[0]") "<idx-escaped-base>"
+    (returnProgramSource "Zero" "«x»[0]") "<idx-escaped-base>"
   expectReturnExpr "«x»[0]" escapedBase (.indexAccess "x" (.literal 0))
   expect (escapedBase == zero)
     "escaped portable base must share Source under identical identity"
