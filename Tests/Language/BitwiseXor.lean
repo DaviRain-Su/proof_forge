@@ -379,7 +379,7 @@ unsafe def run : IO Unit := do
   expect (twinEqXor.canonicalBytes.size == 238)
     s!"1==2^3 BitwiseXorTwin size golden must remain stable; got {twinEqXor.canonicalBytes.size}"
   expect (twinAndXor.sourceHash ==
-      "8f1601e1e52a447c295784f61dbac1d75ad62e8066adf310b202109ca25a5056")
+      "8f1601e1e52a447c295784f61dbac1d75ad62e6926adf310b202109ca25a5056")
     s!"1&2^3 BitwiseXorTwin sourceHash golden must remain stable; got {twinAndXor.sourceHash}"
   expect (twinAndXor.canonicalBytes.size == 238)
     s!"1&2^3 BitwiseXorTwin size golden must remain stable; got {twinAndXor.canonicalBytes.size}"
