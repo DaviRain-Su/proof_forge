@@ -907,6 +907,27 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `logical not is not yet supported by typed checking`，不产生 Semantic/target output；既有 checkedAdd
   positive 与 Bool/sub/mul/neg/bitwiseNot exact fail-closed controls 保持。本切片不得修改既有 tests 作为
   迁移，不得加入 comparison、`&&`/`||`、Bool typing、folding、requirement、target ABI/runtime semantics。
+- D1-PA-29 的 alpha binary checked-division tests 固定 production rule
+  `syntax:70 pfExpr:70 " / " pfExpr:71 : pfExpr` 与 `Source.Expr.checkedDiv(lhs, rhs)`。positive 必须覆盖
+  initializer、entry、view、fn 的 return/let value 可达位置以及 Lean command/ParserSession parity，并精确固定
+  `6 / 3`、`3 / 6`、`a / b`、`1 + 6 / 3`、`6 / 3 + 1`、`6 / 3 / 2`、
+  `6 / (3 / 2)`、`2 * 6 / 3`、`2 * (6 / 3)`、`8 / 4 * 2` 与 `(1 + 2) / 3` 的 AST；
+  还必须固定 `8 / 4 - 2`、`-8 / 4`、`8 / -4` 与 `8 / 0`；same-precedence chains 必须左结合，
+  grouped operand 必须保留，literal-zero denominator 必须被 Source 接受而不提前执行除零 legality。
+  Source canonical encoder 使用 append-only Expr tag `10` 后依次编码 lhs/rhs；既有 tags `0..9`/goldens
+  不变。CheckedDivTwin identity 下 literal/precedence/grouping/nested cases 的真实 bytes/hash 必须在 GREEN
+  前绑定，并以 checked-multiplication、checked-subtraction、operand order/mutation、wrong tree 与 left/right
+  nesting 作为 non-alias。相同 identity 下 `(6 / 3)` 与 `6 / 3` 必须产生相同 Source.Program/canonical
+  bytes/sourceHash。
+  missing lhs/rhs、bare/repeated `/`、`2 // 3`、mixed invalid operator、extra payload 与 `%` 必须停在
+  parser boundary。
+  `Typed.check` 必须在 operand checking 前逐字拒绝
+  `checked division is not yet supported by typed checking`，不产生 Semantic/target output；既有 checkedAdd
+  positive 与 Bool/sub/mul/neg/bitwiseNot/logicalNot exact fail-closed controls 保持。本切片的 tests-only RED
+  必须且只能迁移 `CheckedMul` 的 `2 / 3` 与 `Grouping` 的 `(2 / 3)` 两条既有 slash negative，percent
+  negatives 保持；不得加入 modulo、zero/signed/rounding semantics、folding、requirement、target
+  ABI/runtime semantics。production 必须限于 Source/Syntax/Typed 的 3 文件/10 行 exact seam，不得修改
+  Typed Expr、SemanticIR/Semantics、requirements、targets、preflight 或 generic negative table。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

@@ -290,6 +290,28 @@ behavior 或 runtime representation；`1 != 2`、bare/malformed `!` 与额外 pa
 `! = 2` 也必须拒绝，不能把 deferred comparison token 拆成 logical-not 加残余 payload。
 当前测试中没有 DSL `!` parser-negative pin，因此本切片不得修改既有测试来制造迁移。
 
+D1-PA-29 冻结的 pre-acceptance alpha binary checked-division 子集新增
+`Source.Expr.checkedDiv(lhs, rhs)`，parser 形状固定为
+`syntax:70 pfExpr:70 " / " pfExpr:71 : pfExpr`。它与 multiplication 使用相同 precedence `70`
+并左结合，高于 precedence `65` 的 `+`/binary `-`，低于 prefix precedence `75`：`6 / 3 / 2`
+必须解析为 `(6 / 3) / 2`，`2 * 6 / 3` 为 `(2 * 6) / 3`，`8 / 4 * 2` 为
+`(8 / 4) * 2`，`1 + 6 / 3` 与 `6 / 3 + 1` 保留 MulExpr/AddExpr 分组，`(1 + 2) / 3`
+保留 grouped lhs；`6 / (3 / 2)` 与 `2 * (6 / 3)` 必须保留显式 right/grouped tree。
+`8 / 4 - 2` 必须是 `(8 / 4) - 2`，`-8 / 4` 与 `8 / -4` 的 unary operand 均高于 division。
+`8 / 0` 必须形成 Source node；除零 legality 属于 D2/target，不得在 Source/parser 提前拒绝。
+不得交换 operand、把 division 改写成 multiplication，或提前执行除零/常量计算。
+
+Source canonical encoder 以 append-only Expr tag `10` 后依次递归编码 lhs、rhs；既有 tags `0..9`
+与 goldens 不得改变。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在检查任一 operand
+之前逐字 fail closed 为 `checked division is not yet supported by typed checking`。本切片只允许把
+`CheckedMul` 中 `2 / 3` 与 `Grouping` 中 `(2 / 3)` 两条既有 parser negative 在同一个 tests-only RED
+迁移为 division positives；`%` negatives 必须保留。不得新增 modulo、signed/zero-division semantics、
+constant folding、Typed/Semantic division、requirement、target behavior 或 runtime representation；
+bare/missing operand、`2 // 3`、repeated/mixed operator 与额外 payload 保持 parser reject。production
+只允许修改 `Source.lean` 的 ctor/encoder、`Syntax.lean` 的 production/decode/quote 与 `Typed.lean` 的
+direct fail-closed arm（共 3 文件/10 行）；Typed Expr、SemanticIR/Semantics、requirements、targets、
+preflight 与 generic negative table 均不得修改。本切片只实现 `/`，不得把 `MulExpr` 写成已完整实现。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

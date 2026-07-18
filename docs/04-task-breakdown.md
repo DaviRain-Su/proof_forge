@@ -129,6 +129,7 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-26 | TASK-D1-04 | bare `assert Expr` Source-only statement carrier；Statement tag `4` 与 Typed fail-closed boundary，optional `else Ident` 显式 deferred | `0477e089`, `a6f052d3`, `ff7a6fee`, `de45d253` | focused 14-job build + 136-job aggregate + exact AST/canonical/keyword/parser-boundary controls；checkpoint `just ci` deferred | complete (development) |
 | D1-PA-27 | TASK-D1-04 | unary bitwise-not `~` Source-only carrier；prefix precedence `75`、Expr tag `8`、mixed-unary shapes 与 Typed fail-closed boundary | `6f0322d5`, `6724f120`, `0f4455ad` | focused 14-job build + 138-job aggregate + exact AST/canonical/mixed-unary/parser-boundary controls；checkpoint `just ci` deferred | complete (development) |
 | D1-PA-28 | TASK-D1-04 | unary logical-not `!` Source-only carrier；prefix precedence `75`、Expr tag `9`、mixed-unary/`!=` boundary 与 Typed fail-closed | `d5395e1e`, `facae339`, `92f57f30` | focused 14-job build + 140-job aggregate + exact AST/canonical/mixed-unary/parser-boundary controls；final reviews P0/P1=0；checkpoint `just ci` deferred | complete (development) |
+| D1-PA-29 | TASK-D1-04 | binary checked division `/` Source-only carrier；与 `*` 同层 precedence `70` 左结合、Expr tag `10`、两条既有 negative 迁移与 Typed fail-closed | — | division precedence/migration/canonical audits；spec freeze before RED | **active** |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
