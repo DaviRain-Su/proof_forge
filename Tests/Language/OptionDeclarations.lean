@@ -1566,9 +1566,12 @@ unsafe def run : IO Unit := do
 
 
   let optionArrayBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Bytes 0 0", .option (.array (.bytes 0) 0), 0, "UNBOUND"),
-    ("Option Array Bytes 8 4", .option (.array (.bytes 8) 4), 0, "UNBOUND"),
-    ("Option Array Bytes 4096 1", .option (.array (.bytes 4096) 1), 0, "UNBOUND")
+    ("Option Array Bytes 0 0", .option (.array (.bytes 0) 0), 275,
+      "9a501b89cd94fbb38a0fc895447ba4398f275cb3805eb1cf67b50b6210139003"),
+    ("Option Array Bytes 8 4", .option (.array (.bytes 8) 4), 275,
+      "c9df46d40c57e0322a66509a8325df949d993e2aa3c23d41ef30aec968548e84"),
+    ("Option Array Bytes 4096 1", .option (.array (.bytes 4096) 1), 275,
+      "98cda144856a7bdbf6369e94d0e08e0c3244539295356ce271fc0afa4b6e6543")
   ]
   for (label, type, expectedSize, expectedHash) in optionArrayBytesSourceVectors do
     let sourceProgram := twin type
@@ -1592,9 +1595,12 @@ unsafe def run : IO Unit := do
     "Option Array Bytes must bind Option/Array/Bytes tags and both length payloads"
 
   let optionArrayBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Bytes 0 0", .option (.array (.bytes 0) 0), 0, "UNBOUND"),
-    ("Option Array Bytes 8 4", .option (.array (.bytes 8) 4), 0, "UNBOUND"),
-    ("Option Array Bytes 4096 1", .option (.array (.bytes 4096) 1), 0, "UNBOUND")
+    ("Option Array Bytes 0 0", .option (.array (.bytes 0) 0), 224,
+      "0ef2abf0962545937b0fdb21520f870aaaae56cfe0421f3db523db1ecaaa82a6"),
+    ("Option Array Bytes 8 4", .option (.array (.bytes 8) 4), 224,
+      "47c667ffb5935fa571e3df303bb58a27dd8cd339f23ca78d2a2195734f0e6cd4"),
+    ("Option Array Bytes 4096 1", .option (.array (.bytes 4096) 1), 224,
+      "3f9694b1f83c3e9714d12d80d612965a2a941ef5fc3e05e18b2e772411ec543f")
   ]
   for (label, type, expectedSize, expectedHash) in optionArrayBytesSemanticVectors do
     let sourceProgram := twin type
