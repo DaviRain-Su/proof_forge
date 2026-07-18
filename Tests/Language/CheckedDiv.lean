@@ -368,16 +368,15 @@ unsafe def run : IO Unit := do
   expect (twin63.sourceHash != twinDivZero.sourceHash)
     "6/3 must not alias 8/0 (literal-zero denominator accepted as distinct AST)"
 
-  -- Parser-boundary malformed shapes; percent remains rejected.
+  -- Parser-boundary malformed shapes.
+  -- Percent `2 % 3` / `(2 % 3)` migrated to CheckedMod positives (D1-PA-30).
   for (label, expr) in [
       ("bare slash", "/"),
       ("missing lhs", "/ 3"),
       ("missing rhs", "6 /"),
       ("repeated slash spaced", "6 / / 3"),
       ("double slash token", "2 // 3"),
-      ("extra token", "6 / 3 2"),
-      ("percent modulo", "2 % 3"),
-      ("grouped percent", "(2 % 3)")
+      ("extra token", "6 / 3 2")
     ] do
     let source := returnProgramSource "RejectedDivShape" expr
     let (_, result) ← IO.FS.withIsolatedStreams

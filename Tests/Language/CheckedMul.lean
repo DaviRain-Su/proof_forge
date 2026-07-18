@@ -242,7 +242,7 @@ unsafe def run : IO Unit := do
       ("repeated star glued", "2 ** 3"),
       ("extra token", "2 * 3 4"),
       -- Slash `2 / 3` migrated to CheckedDiv positives (D1-PA-29).
-      ("percent modulo", "2 % 3")
+      -- Percent `2 % 3` migrated to CheckedMod positives (D1-PA-30).
     ] do
     let source := returnProgramSource "RejectedMulShape" expr
     let (_, result) ← IO.FS.withIsolatedStreams

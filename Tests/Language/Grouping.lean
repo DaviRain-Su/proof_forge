@@ -305,7 +305,7 @@ unsafe def run : IO Unit := do
       ("trailing after group", returnProgramSource "Bad" "(1) 2"),
       ("call-like", returnProgramSource "Bad" "f(1)"),
       -- Inner slash `(2 / 3)` migrated to CheckedDiv positives (D1-PA-29).
-      ("inner percent", returnProgramSource "Bad" "(2 % 3)"),
+      -- Inner percent `(2 % 3)` migrated to CheckedMod positives (D1-PA-30).
 
       -- Grouped unary `(- 3)` migrated to CheckedNeg positives (D1-PA-25).
       ("type-position group",
