@@ -21,6 +21,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -48,6 +49,14 @@ RUNTIME_MANIFESTS = {
     "linux-x86_64": "supply-chain/compiler-runtime-linux-x86_64.v1.json",
 }
 LICENSE_INVENTORY_PATH = "docs/supply-chain/license-inventory.v1.json"
+LICENSE_INVENTORY_SCHEMA = "proof-forge.license-inventory.v1"
+LICENSE_POLICY_PATH = "docs/supply-chain/license-policy.v1.json"
+LICENSE_POLICY_SCHEMA = "proof-forge.license-policy.v1"
+SPDX_LICENSE_LIST_PATH = "supply-chain/standards/spdx-license-list-v3.27.0.json"
+SPDX_EXCEPTIONS_PATH = "supply-chain/standards/spdx-exceptions-v3.27.0.json"
+PACKAGE_FILES_MANIFEST_PATH = "supply-chain/lean-package-files.v1.json"
+PACKAGE_FILES_SCHEMA = "proof-forge.lean-package-files.v1"
+LEGACY_DIGEST_MAP_KEYS = {"bomSha256", "inventorySha256", "policySha256"}
 SIDECAR_NAMES = (
     "supply-chain-closure.v1.json",
     "bom.cdx.json",
@@ -55,6 +64,9 @@ SIDECAR_NAMES = (
 )
 MAX_INPUT_BYTES = 64 * 1024 * 1024
 MAX_COMPONENTS = 4096
+MAX_RELATIONSHIPS = 16384
+MAX_FILE_SET = 4096
+MAX_SIDECAR_BYTES = 64 * 1024 * 1024
 
 
 class SbomClosureError(Exception):
@@ -92,7 +104,13 @@ def _wrap_core(operation, detail: str):
         fail(getattr(error, "code", "PF-SBOM-CLOSURE"), f"{detail}: {error}")
 
 
-def read_regular_bytes(root: Path, relative: str, *, code: str = "PF-SBOM-IO") -> bytes:
+def read_regular_bytes(
+    root: Path,
+    relative: str,
+    *,
+    code: str = "PF-SBOM-IO",
+    require_single_link: bool = False,
+) -> bytes:
     """Read an input file without following symlinks; reject non-regular files."""
 
     if "\x00" in relative:
@@ -119,6 +137,8 @@ def read_regular_bytes(root: Path, relative: str, *, code: str = "PF-SBOM-IO") -
         metadata = os.fstat(file_fd)
         if not stat.S_ISREG(metadata.st_mode):
             fail(code, f"input is not a regular file: {relative}")
+        if require_single_link and metadata.st_nlink != 1:
+            fail("PF-SBOM-IO", f"input must be a single-link file: {relative}")
         if metadata.st_size > MAX_INPUT_BYTES:
             fail("PF-SBOM-LIMIT", f"input exceeds byte budget: {relative}")
         chunks = []
@@ -352,17 +372,398 @@ def load_runtime_manifest(root: Path, platform: str, lock: dict[str, object]) ->
 # --- Inventory / licenses ------------------------------------------------------------
 
 
-def load_license_inventory(root: Path) -> dict[str, str]:
+_SPDX_TOKEN_RE = re.compile(r"\(|\)|[^\s()]+")
+
+
+def _parse_spdx_primary(tokens: list[str], pos: int, code: str):
+    if pos >= len(tokens):
+        fail(code, "SPDX expression is truncated")
+    token = tokens[pos]
+    if token == "(":
+        node, pos = _parse_spdx_or(tokens, pos + 1, code)
+        if pos >= len(tokens) or tokens[pos] != ")":
+            fail(code, "SPDX expression has unbalanced parentheses")
+        return node, pos + 1
+    if token in (")", "AND", "OR", "WITH"):
+        fail(code, f"SPDX expression has an unexpected token {token!r}")
+    return ("id", token), pos + 1
+
+
+def _parse_spdx_with(tokens: list[str], pos: int, code: str):
+    node, pos = _parse_spdx_primary(tokens, pos, code)
+    if pos < len(tokens) and tokens[pos] == "WITH":
+        if node[0] != "id":
+            fail(code, "SPDX WITH must apply to a single license id")
+        if pos + 1 >= len(tokens):
+            fail(code, "SPDX WITH is missing its exception id")
+        exception = tokens[pos + 1]
+        if exception in ("(", ")", "AND", "OR", "WITH"):
+            fail(code, "SPDX WITH has an invalid exception id")
+        return ("with", node, exception), pos + 2
+    return node, pos
+
+
+def _parse_spdx_and(tokens: list[str], pos: int, code: str):
+    node, pos = _parse_spdx_with(tokens, pos, code)
+    children = [node]
+    while pos < len(tokens) and tokens[pos] == "AND":
+        node, pos = _parse_spdx_with(tokens, pos + 1, code)
+        children.append(node)
+    if len(children) == 1:
+        return children[0], pos
+    return ("and", tuple(children)), pos
+
+
+def _parse_spdx_or(tokens: list[str], pos: int, code: str):
+    node, pos = _parse_spdx_and(tokens, pos, code)
+    children = [node]
+    while pos < len(tokens) and tokens[pos] == "OR":
+        node, pos = _parse_spdx_and(tokens, pos + 1, code)
+        children.append(node)
+    if len(children) == 1:
+        return children[0], pos
+    return ("or", tuple(children)), pos
+
+
+def _render_spdx(node) -> str:
+    tag = node[0]
+    if tag == "id":
+        return node[1]
+    if tag == "with":
+        return f"{_render_spdx(node[1])} WITH {node[2]}"
+    if tag == "and":
+        parts = []
+        for child in node[1]:
+            text = _render_spdx(child)
+            if child[0] == "or":
+                text = f"({text})"
+            parts.append(text)
+        return " AND ".join(sorted(parts))
+    if tag == "or":
+        return " OR ".join(sorted(_render_spdx(child) for child in node[1]))
+    fail("PF-SBOM-LICENSE", "internal SPDX node is malformed")
+
+
+def _spdx_license_ids(node) -> set[str]:
+    tag = node[0]
+    if tag == "id":
+        return {node[1]}
+    if tag == "with":
+        return _spdx_license_ids(node[1])
+    ids: set[str] = set()
+    for child in node[1]:
+        ids |= _spdx_license_ids(child)
+    return ids
+
+
+def _spdx_exception_ids(node) -> set[str]:
+    tag = node[0]
+    if tag == "id":
+        return set()
+    if tag == "with":
+        return {node[2]} | _spdx_exception_ids(node[1])
+    ids: set[str] = set()
+    for child in node[1]:
+        ids |= _spdx_exception_ids(child)
+    return ids
+
+
+def parse_spdx_expression(
+    expression: object,
+    license_ids: set[str],
+    exception_ids: set[str],
+    code: str,
+):
+    """Parse and canonical-check one SPDX expression against the pinned lists.
+
+    Canonical form: single ASCII spaces, exact-case ids/operators, AND/OR
+    operand sets sorted ascending, OR-of-ANDs precedence with parentheses only
+    where binding requires them.
+    """
+
+    if type(expression) is not str or not expression:
+        fail(code, "SPDX expression must be a non-empty string")
+    tokens = _SPDX_TOKEN_RE.findall(expression)
+    if not tokens or _SPDX_TOKEN_RE.sub("", expression).strip():
+        fail(code, f"SPDX expression is not tokenizable: {expression!r}")
+    node, pos = _parse_spdx_or(tokens, 0, code)
+    if pos != len(tokens):
+        fail(code, f"SPDX expression has trailing tokens: {expression!r}")
+    for license_id in _spdx_license_ids(node):
+        if license_id not in license_ids:
+            fail(code, f"unknown SPDX license id {license_id!r}")
+    for exception_id in _spdx_exception_ids(node):
+        if exception_id not in exception_ids:
+            fail(code, f"unknown SPDX exception id {exception_id!r}")
+    if _render_spdx(node) != expression:
+        fail(code, f"SPDX expression is not canonical: {expression!r}")
+    return node
+
+
+def load_spdx_standards(root: Path) -> tuple[set[str], set[str]]:
+    """Load license/exception id sets from the hash-pinned standards files."""
+
+    raw = read_regular_bytes(root, SPDX_LICENSE_LIST_PATH, code="PF-SBOM-LICENSE")
+    listing = decode_json(raw, SPDX_LICENSE_LIST_PATH)
+    entries = listing.get("licenses") if type(listing) is dict else None
+    if type(entries) is not list or not entries:
+        fail("PF-SBOM-LICENSE", "SPDX license list shape mismatch")
+    license_ids: set[str] = set()
+    for entry in entries:
+        if type(entry) is not dict or type(entry.get("licenseId")) is not str:
+            fail("PF-SBOM-LICENSE", "SPDX license list entry shape mismatch")
+        license_ids.add(entry["licenseId"])
+    raw = read_regular_bytes(root, SPDX_EXCEPTIONS_PATH, code="PF-SBOM-LICENSE")
+    listing = decode_json(raw, SPDX_EXCEPTIONS_PATH)
+    entries = listing.get("exceptions") if type(listing) is dict else None
+    if type(entries) is not list or not entries:
+        fail("PF-SBOM-LICENSE", "SPDX exception list shape mismatch")
+    exception_ids: set[str] = set()
+    for entry in entries:
+        if type(entry) is not dict or type(entry.get("licenseExceptionId")) is not str:
+            fail("PF-SBOM-LICENSE", "SPDX exception list entry shape mismatch")
+        exception_ids.add(entry["licenseExceptionId"])
+    return license_ids, exception_ids
+
+
+def load_license_policy(
+    root: Path, license_ids: set[str], exception_ids: set[str]
+) -> dict[str, set[str]]:
+    raw = read_regular_bytes(root, LICENSE_POLICY_PATH, code="PF-SBOM-POLICY")
+    policy = decode_json(raw, LICENSE_POLICY_PATH)
+    if type(policy) is not dict or policy.get("schema") != LICENSE_POLICY_SCHEMA:
+        fail("PF-SBOM-POLICY", "license policy schema mismatch")
+    lists: dict[str, list[str]] = {}
+    for key in ("allow", "review", "deny"):
+        items = policy.get(key)
+        if type(items) is not list or not all(type(item) is str for item in items):
+            fail("PF-SBOM-POLICY", f"policy.{key} must be a string array")
+        if items != sorted(items) or len(set(items)) != len(items):
+            fail("PF-SBOM-POLICY", f"policy.{key} must be sorted and unique")
+        lists[key] = items
+    expressions = {key: set(value) for key, value in lists.items()}
+    if (
+        expressions["allow"] & expressions["review"]
+        or expressions["allow"] & expressions["deny"]
+        or expressions["review"] & expressions["deny"]
+    ):
+        fail("PF-SBOM-POLICY", "policy allow/review/deny lists overlap")
+    id_sets: dict[str, set[str]] = {}
+    for key, items in lists.items():
+        ids: set[str] = set()
+        for expression in items:
+            node = parse_spdx_expression(expression, license_ids, exception_ids, "PF-SBOM-POLICY")
+            ids |= _spdx_license_ids(node)
+        id_sets[key] = ids
+    external = policy.get("externalCli", {})
+    if type(external) is not dict:
+        fail("PF-SBOM-POLICY", "policy.externalCli must be an object")
+    allowed_deny = external.get("allowedDenyLicensesWhenNotRedistributable", [])
+    if type(allowed_deny) is not list or not all(type(item) is str for item in allowed_deny):
+        fail("PF-SBOM-POLICY", "policy.externalCli exceptions must be a string array")
+    external_ids: set[str] = set()
+    for expression in allowed_deny:
+        node = parse_spdx_expression(expression, license_ids, exception_ids, "PF-SBOM-POLICY")
+        external_ids |= _spdx_license_ids(node)
+    if not external_ids <= id_sets["deny"]:
+        fail("PF-SBOM-POLICY", "externalCli exception is not a deny-list subset")
+    return {
+        "allow": id_sets["allow"],
+        "review": id_sets["review"],
+        "deny": id_sets["deny"],
+        "externalOk": external_ids,
+    }
+
+
+def _check_dependency_graph(adjacency: dict[str, list[str]], code: str, where: str) -> None:
+    """Iterative DFS cycle check over a small string-keyed graph."""
+
+    color: dict[str, int] = {}
+    for start in adjacency:
+        if color.get(start, 0):
+            continue
+        color[start] = 1
+        stack: list[tuple[str, object]] = [(start, iter(adjacency[start]))]
+        while stack:
+            node, pending = stack[-1]
+            advanced = False
+            for target in pending:
+                state = color.get(target, 0)
+                if state == 1:
+                    fail(code, f"{where} contains a dependency cycle at {target}")
+                if state == 0:
+                    color[target] = 1
+                    stack.append((target, iter(adjacency.get(target, ()))))
+                    advanced = True
+                    break
+            if not advanced:
+                color[node] = 2
+                stack.pop()
+
+
+def load_license_inventory(
+    root: Path,
+    license_ids: set[str],
+    exception_ids: set[str],
+    policy: dict[str, set[str]],
+) -> list[dict[str, object]]:
     raw = read_regular_bytes(root, LICENSE_INVENTORY_PATH)
     inventory = decode_json(raw, LICENSE_INVENTORY_PATH)
-    if type(inventory) is not dict or inventory.get("schema") != "proof-forge.license-inventory.v1":
+    if type(inventory) is not dict or inventory.get("schema") != LICENSE_INVENTORY_SCHEMA:
         fail("PF-SBOM-INVENTORY", "license inventory schema mismatch")
-    mapping: dict[str, str] = {}
-    for component in inventory.get("components", []):
-        if type(component) is not dict:
+    components = inventory.get("components")
+    if type(components) is not list or not components:
+        fail("PF-SBOM-INVENTORY", "license inventory components must be a non-empty array")
+    required = {
+        "id", "name", "version", "type", "supplier", "licenseSpdx",
+        "licenseFile", "licenseFileSha256", "redistributable", "dependsOn",
+    }
+    records: list[dict[str, object]] = []
+    component_ids: list[str] = []
+    for component in components:
+        if type(component) is not dict or not required <= set(component):
             fail("PF-SBOM-INVENTORY", "license inventory component shape mismatch")
-        mapping[component["id"]] = component["licenseFile"]
-    return mapping
+        component_id = component["id"]
+        if type(component_id) is not str or not component_id:
+            fail("PF-SBOM-INVENTORY", "license inventory component id must be a string")
+        expression = component["licenseSpdx"]
+        node = parse_spdx_expression(expression, license_ids, exception_ids, "PF-SBOM-LICENSE")
+        license_file = component["licenseFile"]
+        if type(license_file) is not str or not license_file:
+            fail("PF-SBOM-INVENTORY", f"{component_id}: licenseFile must be a string")
+        file_sha256 = component["licenseFileSha256"]
+        if type(file_sha256) is not str or re.fullmatch(r"[0-9a-f]{64}", file_sha256) is None:
+            fail("PF-SBOM-INVENTORY", f"{component_id}: licenseFileSha256 is malformed")
+        redistributable = component["redistributable"]
+        if type(redistributable) is not bool:
+            fail("PF-SBOM-INVENTORY", f"{component_id}: redistributable must be a boolean")
+        depends = component["dependsOn"]
+        if type(depends) is not list or not all(type(item) is str for item in depends):
+            fail("PF-SBOM-INVENTORY", f"{component_id}: dependsOn must be a string array")
+        if depends != sorted(depends) or len(set(depends)) != len(depends):
+            fail("PF-SBOM-INVENTORY", f"{component_id}: dependsOn must be sorted and unique")
+        expression_ids = _spdx_license_ids(node)
+        if expression_ids <= policy["allow"]:
+            pass
+        elif redistributable is False and expression_ids <= policy["externalOk"]:
+            pass
+        else:
+            fail(
+                "PF-SBOM-POLICY",
+                f"{component_id}: license {expression!r} is not policy-allowed",
+            )
+        component_ids.append(component_id)
+        records.append(
+            {
+                "id": component_id,
+                "licenseFile": license_file,
+                "licenseFileSha256": file_sha256,
+                "licenseIds": expression_ids,
+                "dependsOn": depends,
+            }
+        )
+    if component_ids != sorted(component_ids) or len(set(component_ids)) != len(component_ids):
+        fail("PF-SBOM-INVENTORY", "license inventory component ids must be unique and sorted")
+    id_set = set(component_ids)
+    for record in records:
+        for dependency in record["dependsOn"]:
+            if dependency == record["id"]:
+                fail("PF-SBOM-INVENTORY", f"{record['id']} depends on itself")
+            if dependency not in id_set:
+                fail(
+                    "PF-SBOM-INVENTORY",
+                    f"{record['id']} depends on unknown component {dependency}",
+                )
+    _check_dependency_graph(
+        {record["id"]: record["dependsOn"] for record in records},
+        "PF-SBOM-INVENTORY",
+        LICENSE_INVENTORY_PATH,
+    )
+    return records
+
+
+LICENSE_BODY_MARKERS = {
+    "Apache-2.0": (b"Apache License", b"Version 2.0"),
+    "GPL-3.0-only": (b"GNU GENERAL PUBLIC LICENSE",),
+    "GPL-3.0-or-later": (b"GNU GENERAL PUBLIC LICENSE",),
+    "MIT": (b"Permission is hereby granted",),
+}
+
+
+def load_license_files(
+    root: Path, records: list[dict[str, object]]
+) -> dict[str, bytes]:
+    """Re-hash every referenced license text and reject placeholder bodies."""
+
+    markers_by_path: dict[str, set[bytes]] = {}
+    for record in records:
+        markers = markers_by_path.setdefault(record["licenseFile"], set())
+        for license_id in record["licenseIds"]:
+            markers |= set(LICENSE_BODY_MARKERS.get(license_id, ()))
+    contents: dict[str, bytes] = {}
+    for path in sorted(markers_by_path):
+        data = read_regular_bytes(
+            root, path, code="PF-SBOM-LICENSE", require_single_link=True
+        )
+        actual = hashlib.sha256(data).hexdigest()
+        for record in records:
+            if record["licenseFile"] != path:
+                continue
+            if actual != record["licenseFileSha256"]:
+                fail("PF-SBOM-LICENSE", f"license file hash mismatch: {path}")
+        for marker in sorted(markers_by_path[path]):
+            if marker not in data:
+                fail(
+                    "PF-SBOM-LICENSE",
+                    f"license file {path} is missing its license body marker",
+                )
+        contents[path] = data
+    return contents
+
+
+def load_license_closure(root: Path) -> dict[str, object]:
+    license_ids, exception_ids = load_spdx_standards(root)
+    policy = load_license_policy(root, license_ids, exception_ids)
+    records = load_license_inventory(root, license_ids, exception_ids, policy)
+    contents = load_license_files(root, records)
+    return {
+        "records": records,
+        "mapping": {record["id"]: record["licenseFile"] for record in records},
+        "contents": contents,
+    }
+
+
+# --- Lean package file set --------------------------------------------------------------
+
+
+def load_package_files_manifest(root: Path) -> list[dict[str, object]]:
+    raw = read_regular_bytes(root, PACKAGE_FILES_MANIFEST_PATH)
+    manifest = decode_json(raw, PACKAGE_FILES_MANIFEST_PATH)
+    if type(manifest) is not dict or manifest.get("schema") != PACKAGE_FILES_SCHEMA:
+        fail("PF-SBOM-SCHEMA", "lean package files manifest schema mismatch")
+    files = manifest.get("files")
+    if type(files) is not list:
+        fail("PF-SBOM-SCHEMA", "lean package files manifest must carry a files array")
+    if len(files) > MAX_FILE_SET:
+        fail("PF-SBOM-LIMIT", "lean package file set exceeds the pinned budget")
+    records: list[dict[str, object]] = []
+    for entry in files:
+        if type(entry) is not dict or set(entry) != {"path", "bytes", "sha256"}:
+            fail("PF-SBOM-SCHEMA", "lean package files entry shape mismatch")
+        path = entry["path"]
+        size = entry["bytes"]
+        digest = entry["sha256"]
+        if type(path) is not str or not path:
+            fail("PF-SBOM-SCHEMA", "lean package files path must be a string")
+        if type(size) is not int or size < 0:
+            fail("PF-SBOM-SCHEMA", "lean package files bytes must be a non-negative integer")
+        if type(digest) is not str or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            fail("PF-SBOM-SCHEMA", "lean package files sha256 is malformed")
+        records.append({"path": path, "bytes": size, "sha256": digest})
+    paths = [record["path"] for record in records]
+    if paths != sorted(paths) or len(set(paths)) != len(paths):
+        fail("PF-SBOM-SCHEMA", "lean package files must be unique and sorted by path")
+    return records
 
 
 # --- Closure resolution ---------------------------------------------------------------
@@ -372,6 +773,41 @@ def _component_id(kind: str, platform: str | None, name: str) -> str:
     if platform is None:
         return f"{kind}:{name}"
     return f"{kind}:{platform}:{name}"
+
+
+def _validate_relationship_graph(
+    relationships: list[dict[str, str]],
+    component_ids: set[str],
+    content_ids: set[str],
+    root_ref: str,
+) -> None:
+    """Structural invariants over the typed relationship set (SB2-020).
+
+    No self edges, no dangling endpoints, no duplicate typed edges, and the
+    `loads` subgraph must stay acyclic.
+    """
+
+    known_ids = component_ids | content_ids | {root_ref}
+    seen: set[tuple[str, str, str]] = set()
+    loads_adjacency: dict[str, list[str]] = {}
+    for relationship in relationships:
+        kind = relationship["kind"]
+        source = relationship["from"]
+        target = relationship["to"]
+        if source == target:
+            fail("PF-SBOM-CLOSURE", f"self relationship on {source}")
+        if source not in known_ids or target not in known_ids:
+            fail(
+                "PF-SBOM-CLOSURE",
+                f"relationship {kind} {source} -> {target} has a dangling endpoint",
+            )
+        key = (kind, source, target)
+        if key in seen:
+            fail("PF-SBOM-CLOSURE", f"duplicate relationship {kind} {source} -> {target}")
+        seen.add(key)
+        if kind == "loads":
+            loads_adjacency.setdefault(source, []).append(target)
+    _check_dependency_graph(loads_adjacency, "PF-SBOM-CLOSURE", "loads relationship graph")
 
 
 def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, object]:
@@ -386,6 +822,11 @@ def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, obj
             contents[digest] = identity
         return identity["id"]
 
+    def add_relationship(kind: str, source: str, target: str) -> None:
+        if len(relationships) >= MAX_RELATIONSHIPS:
+            fail("PF-SBOM-LIMIT", "typed relationship count exceeds budget")
+        relationships.append({"kind": kind, "from": source, "to": target})
+
     def add_component(component: dict[str, object], content_digest: str) -> None:
         if len(components) >= MAX_COMPONENTS:
             fail("PF-SBOM-LIMIT", "component count exceeds budget")
@@ -395,15 +836,14 @@ def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, obj
         components[cid] = component
         content_id = add_content(content_digest)
         component["contentRef"] = content_id
-        relationships.append({"kind": "has-content", "from": cid, "to": content_id})
+        add_relationship("has-content", cid, content_id)
 
-    def add_relationship(kind: str, source: str, target: str) -> None:
-        relationships.append({"kind": kind, "from": source, "to": target})
-
-    license_mapping = load_license_inventory(root)
+    license_bundle = load_license_closure(root)
+    license_mapping: dict[str, str] = license_bundle["mapping"]
+    license_contents: dict[str, bytes] = license_bundle["contents"]
     license_components: dict[str, str] = {}
     for license_path in sorted(set(license_mapping.values())):
-        data = read_regular_bytes(root, license_path, code="PF-SBOM-LICENSE")
+        data = license_contents[license_path]
         component_id = _component_id("bundled-license-text", None, license_path)
         license_components[license_path] = component_id
         add_component(
@@ -425,6 +865,9 @@ def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, obj
         tool_by_bundle: dict[str, str] = {}
         for tool in value["tools"]:
             tool_by_bundle[tool["executable"]] = tool["id"]
+        bundle_leaf_by_path = {
+            leaf.ref.path: leaf for leaf in leaves if leaf.ref.kind == "bundle-file"
+        }
 
         for leaf in leaves:
             if leaf.ref.kind == "asset":
@@ -462,6 +905,16 @@ def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, obj
                 component_id = _component_id("tool-executable", platform, leaf.ref.id)
                 if leaf.asset_id not in asset_components:
                     fail("PF-SBOM-CLOSURE", f"tool executable {leaf.ref.id} has no asset")
+                bundle_leaf = bundle_leaf_by_path.get(leaf.ref.path)
+                if (
+                    bundle_leaf is None
+                    or bundle_leaf.digest != leaf.digest
+                    or bundle_leaf.size != leaf.size
+                ):
+                    fail(
+                        "PF-SBOM-CLOSURE",
+                        f"tool executable {leaf.ref.id} does not join its bundle-file leaf",
+                    )
                 add_component(
                     {
                         "id": component_id,
@@ -505,6 +958,16 @@ def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, obj
                     fail(
                         "PF-SBOM-CLOSURE",
                         f"tool runtime file {leaf.ref.path} has no bundle owner",
+                    )
+                bundle_leaf = bundle_leaf_by_path.get(leaf.ref.path)
+                if (
+                    bundle_leaf is None
+                    or bundle_leaf.digest != leaf.digest
+                    or bundle_leaf.size != leaf.size
+                ):
+                    fail(
+                        "PF-SBOM-CLOSURE",
+                        f"tool runtime file {leaf.ref.path} does not join its bundle-file leaf",
                     )
                 refs = components[component_id]["toolLockRefs"]
                 refs.append("tool-runtime-file")
@@ -564,6 +1027,7 @@ def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, obj
             license_path = license_mapping[inventory_id]
             add_relationship("licensed-under", component_id, license_components[license_path])
 
+    pinned_files = load_package_files_manifest(root)
     package_files = ["ProofForgeV2.lean"]
     package_root = root / "ProofForgeV2"
     if package_root.is_dir():
@@ -571,12 +1035,22 @@ def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, obj
             str(path.relative_to(root))
             for path in sorted(package_root.rglob("*.lean"))
         )
-    file_records = []
+    if len(package_files) > MAX_FILE_SET:
+        fail("PF-SBOM-LIMIT", "lean package file set exceeds the pinned budget")
+    actual_records: dict[str, dict[str, object]] = {}
     for relative in package_files:
         data = read_regular_bytes(root, relative)
-        file_records.append(
-            {"path": relative, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        actual_records[relative] = {
+            "path": relative,
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+    if actual_records != {record["path"]: record for record in pinned_files}:
+        fail(
+            "PF-SBOM-CLOSURE",
+            "lean package file set drifts from the pinned manifest",
         )
+    file_records = [actual_records[path] for path in sorted(actual_records)]
     tree_identity = CORE.domain_digest(
         PACKAGE_TREE_DOMAIN, CORE.canonical_pf_jcs({"files": file_records})
     )
@@ -599,6 +1073,13 @@ def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, obj
     root_ref = "proof-forge:synthetic-bom-root"
     for component_id in sorted(components):
         add_relationship("bom-member", root_ref, component_id)
+
+    _validate_relationship_graph(
+        relationships,
+        set(components),
+        {identity["id"] for identity in contents.values()},
+        root_ref,
+    )
 
     component_list = [components[key] for key in sorted(components)]
     kind_counts: dict[str, int] = {}
@@ -755,11 +1236,22 @@ def render_binding(
 
 
 def write_sidecars_atomic(destination: Path, files: dict[str, bytes]) -> None:
-    if destination.exists():
+    if os.path.lexists(destination):
         fail("PF-OUTPUT-ATOMICITY", f"destination already exists: {destination}")
     parent = destination.parent
-    if not parent.is_dir():
+    try:
+        parent_stat = os.lstat(parent)
+    except OSError:
         fail("PF-OUTPUT-ATOMICITY", f"destination parent missing: {parent}")
+    if stat.S_ISLNK(parent_stat.st_mode):
+        fail("PF-SBOM-IO", f"destination parent is a symlink: {parent}")
+    if not stat.S_ISDIR(parent_stat.st_mode):
+        fail("PF-OUTPUT-ATOMICITY", f"destination parent missing: {parent}")
+    if parent_stat.st_mode & 0o022:
+        fail("PF-SBOM-IO", f"destination parent is group/world-writable: {parent}")
+    for name, data in files.items():
+        if len(data) > MAX_SIDECAR_BYTES:
+            fail("PF-SBOM-LIMIT", f"sidecar {name} exceeds the byte budget")
     staging = Path(
         tempfile.mkdtemp(prefix=destination.name + ".staging-", dir=parent)
     )
@@ -851,19 +1343,60 @@ def generate_sidecars(
     write_sidecars_atomic(Path(destination), files)
 
 
+def _legacy_sidecar_code(actual: bytes) -> str:
+    """Classify a mismatching sidecar: known legacy schema -> PF-SBOM-SCHEMA.
+
+    The D0-05 legacy outputs (`license-inventory.v1`, null-root CycloneDX BOM,
+    digest-map) are rejected on the release path without fallback; anything
+    else is a plain binding mismatch.
+    """
+
+    try:
+        value = CORE.decode_json_document(actual)
+    except Exception:  # noqa: BLE001 - undecodable bytes are never legacy
+        return "PF-SBOM-BIND"
+    if type(value) is dict:
+        if value.get("schema") == LICENSE_INVENTORY_SCHEMA:
+            return "PF-SBOM-SCHEMA"
+        if LEGACY_DIGEST_MAP_KEYS <= set(value):
+            return "PF-SBOM-SCHEMA"
+        if value.get("bomFormat") == "CycloneDX":
+            metadata = value.get("metadata")
+            component = metadata.get("component") if type(metadata) is dict else None
+            if type(component) is dict and "hashes" not in component:
+                return "PF-SBOM-SCHEMA"
+    return "PF-SBOM-BIND"
+
+
 def verify_existing(*, root: Path, candidate: dict[str, object], destination: Path) -> None:
     computed = compute_closure(Path(root), candidate)
     expected = render_sidecars(computed)
     destination = Path(destination)
-    if not destination.is_dir():
+    try:
+        destination_stat = os.lstat(destination)
+    except OSError:
+        fail("PF-SBOM-BIND", f"sidecar directory missing: {destination}")
+    if stat.S_ISLNK(destination_stat.st_mode):
+        fail("PF-SBOM-IO", f"sidecar directory is a symlink: {destination}")
+    if not stat.S_ISDIR(destination_stat.st_mode):
         fail("PF-SBOM-BIND", f"sidecar directory missing: {destination}")
     actual_names = sorted(item.name for item in destination.iterdir())
-    if tuple(actual_names) != SIDECAR_NAMES:
+    if tuple(actual_names) != tuple(sorted(SIDECAR_NAMES)):
         fail("PF-SBOM-BIND", f"sidecar directory members differ: {actual_names}")
     for name, expected_bytes in expected.items():
         target = destination / name
-        fd = os.open(target, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
+            fd = os.open(target, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except OSError as error:
+            fail("PF-SBOM-IO", f"sidecar {name} cannot be opened: {error.strerror or error}")
+        try:
+            metadata = os.fstat(fd)
+            if not stat.S_ISREG(metadata.st_mode):
+                fail("PF-SBOM-IO", f"sidecar {name} is not a regular file")
+            if metadata.st_nlink != 1:
+                fail("PF-SBOM-IO", f"sidecar {name} is not a single-link file")
+            if metadata.st_size > MAX_SIDECAR_BYTES:
+                fail("PF-SBOM-LIMIT", f"sidecar {name} exceeds the byte budget")
             with os.fdopen(fd, "rb", closefd=True) as handle:
                 fd = -1
                 actual = handle.read()
@@ -871,7 +1404,10 @@ def verify_existing(*, root: Path, candidate: dict[str, object], destination: Pa
             if fd >= 0:
                 os.close(fd)
         if actual != expected_bytes:
-            fail("PF-SBOM-BIND", f"sidecar {name} differs from the recomputed bytes")
+            fail(
+                _legacy_sidecar_code(actual),
+                f"sidecar {name} differs from the recomputed bytes",
+            )
 
 
 def read_external_regular_bytes(path: Path, *, code: str = "PF-SBOM-IO") -> bytes:
