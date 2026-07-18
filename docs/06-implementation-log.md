@@ -2689,3 +2689,39 @@ normative: false
 - Next：residual audit 选定 ConstructorExpr 为唯一下一 candidate；必须先冻结 qualified
   component-array identity、tag `27`、精确两条 qualified-call migration 和 Typed fail-before，禁止捆绑
   Place/Match/D2 resolution。
+
+## 2026-07-18 — TASK-D0-09 TST-HOST-002 RED/GREEN 追记与双线合并后全量验证
+
+- Context：上一 session 在 Linux 机完成 `TASK-D0-09` 的 RED（`06274f19`）与 GREEN
+  （`1ab751ce`）但未在实现日志/证据台账登记；期间另一台 darwin 机在 origin/main 推进了
+  D1-PA-39…46 共 33 个 pre-acceptance 提交，两条线在 `10186ad5` 分叉。本 session 先合并
+  再补验并补记。
+- Changed（事实追记）：`06274f19` 新增 `scripts/host_profiles_self_test.py`（409 行独立
+  验收：linux 生成/验证正负例、linux↔darwin lock 与 profile 互相拒绝、v1→v2 迁移错误、
+  观察缺失 fail closed），提交时生产端对应入口尚不存在，先红。`1ab751ce` 补齐 GREEN：
+  `.github/workflows/ci.yml` 新增 `linux-tool-root` lane（validate/self-test/host-profiles
+  self-test/provision/materialize/verify/observe→validate 闭环）、`justfile` 平台分派
+  （`platform_tag`/`locked_git`/`locked_python` 与 toolchains/host-stage0 各 recipe 的
+  linux 分支）、`scripts/toolchain_assets.py`（per-platform lock 选择、跨文件平台守卫、
+  standalone `validate-host-profile`、ELF closure 后端）、`host-bootstrap-linux.lock` 与
+  `host-profiles.lock.json`（linux profile/schema v2 登记）。
+- Verification（本 session 对合并树重跑）：`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean；`host_profiles_self_test.py` ok；`toolchain_assets.py validate`
+  与 `self-test` ok；linux tool-root lane 本地复跑（provision digest 精确命中 →
+  materialize ELF/runtime closure verified → verify-external ok → observe-host 产出
+  `eligibleForHermetic:false`、reason `secure boot is disabled` 的 development profile 并被
+  validate-host-profile 接受）；合并树 `just ci` 全绿（v2-isolation/docs-check/sbom/
+  supply-chain-core/176-job build/test/dsl-negative/target-negative）。development evidence
+  为 `EV-20260718-0032`、`EV-20260718-0033`。
+- Merge fix（R1）：合并后 `supply-chain-core` 的 `compiler_runtime_observation_self_test.py`
+  以缺 `schema` 字段的 fixture lock 触发 per-platform 分派 `KeyError: 'schema'`
+  （`PF-SBOM-CLOSURE`）；以 1 行 fixture 声明 `schema: proof-forge.toolchains.v2` 修复
+  （darwin v2 语义，Tests 集合与生产语义不变），observation/manifest 自测转绿后全量
+  `just ci` 通过。
+- Limitations：darwin 回归（`toolchains-validate`、`host-stage0-development`、`just ci`
+  在 darwin 机全绿且 TST-HOST-001 语义不变）未执行——本机非 darwin；本机 SecureBoot
+  disabled，linux 侧全部输出仍为 development 级；`TASK-D0-09` 保持 in_progress，不得写成
+  formal/hermetic 证据或关闭。
+- Next：darwin 机回归是 `TASK-D0-09` doneWhen 的唯一剩余实机项；其 pre-cutover 关闭路径
+  另需治理裁决（formal EV 在 D0-07 前被 docs-check fail closed）。随后 `TASK-D0-08`
+  counts 盘点（ADR-0016 §7：含 linux leaf）→ RED。
