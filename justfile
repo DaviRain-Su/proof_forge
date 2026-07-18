@@ -32,6 +32,11 @@ sbom:
     /usr/bin/python3 -I -S scripts/sbom_generate.py --root . verify --output-dir build/sbom
     /usr/bin/python3 -I -S scripts/sbom_closure_self_test.py
 
+# TASK-D0-08: re-pin the lean package file-set after any ProofForgeV2 source
+# change (the manifest is a committed TST-SBOM-002 input).
+sbom-package-files-refresh:
+    /usr/bin/python3 -I -S scripts/sbom_package_files_refresh.py
+
 # TASK-D0-08 pre-freeze primitives only. This protects PF-JCS,
 # ToolLockV2Digest, direct leaf ownership, logical component identities, and
 # single-pass compiler runtime discovery, and observation-to-tree binding;

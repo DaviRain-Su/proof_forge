@@ -216,6 +216,9 @@ ADR-0016 后工具链与 host 观察按平台拆分，两台机器都可以直�
   （沙箱引擎仅 macOS，linux 化需独立任务）。
 - 两台机器都直接推 `main`：开工前 `git fetch && git status --short`，分叉时合并
   而非重写对方提交（证据/台账按 commit 哈希引用，rebase 会打断引用）。
+- 任何 `ProofForgeV2/**` 源码变更必须在同一变更集运行
+  `just sbom-package-files-refresh` 重新钉住 `supply-chain/lean-package-files.v1.json`，
+  否则 `just ci` 的 SBOM 闭包检查以 `PF-SBOM-CLOSURE` 失败（双机通用）。
 - 当前两台开发机均 **不是 eligible host**（darwin 机 SSV seal broken、Linux 机
   SecureBoot disabled）：一切输出均为 development 级；eligible Stage-0 handoff 与
   formal 入口在两台机器上都 fail closed。linux 机器成为 eligible 的条件：

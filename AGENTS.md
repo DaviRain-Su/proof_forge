@@ -80,9 +80,12 @@ Accumulator 和 PrivateSum4 只有 target-owned Plan/typed relation IR 与 sourc
    gate-catalog-bound formal evidence 尚未闭合，所以仍不是正式
    hermetic clean-room gate，不得混称。
 6. 检查不支持的声明、`active/`/v1 泄漏、非确定制品、无关变更和生成垃圾。
-7. 同一变更中更新 task、traceability、evidence、implementation log 和 checkpoint；**不得**在
+7. 任何 `ProofForgeV2/**` 源码增删改必须同变更运行 `just sbom-package-files-refresh`
+   重新钉住 `supply-chain/lean-package-files.v1.json`（TST-SBOM-002 的已提交 pin；
+   漂移即 `PF-SBOM-CLOSURE`，两台开发机都适用）。
+8. 同一变更中更新 task、traceability、evidence、implementation log 和 checkpoint；**不得**在
    更新 checkpoint 时追加任务完成条件。
-8. 交接时给出精确文件、命令、结果、限制和下一任务；若触碰冻结包超时阈值，先做
+9. 交接时给出精确文件、命令、结果、限制和下一任务；若触碰冻结包超时阈值，先做
    Close/Split/Block/Exception triage。
 
 正式 Stage-0 证据只能由调用者直接执行
