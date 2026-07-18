@@ -3985,6 +3985,42 @@ normative: false
 - Next：当前无 active development slice；下一 slice 未冻结，待 post-PA66 residual audit 后选择单一依赖闭合
   最小切片，禁止自动递增。
 
+## 2026-07-19 — D1 exact Option Array Option PrimitiveAtom spelling pre-acceptance slice
+
+- Commits：freeze `72a7a0d1`；tests-only RED（rebase 后）`418e33d7`；Syntax/GREEN、canonical
+  binding 与 Lean package-file re-pin `0e81a80a`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-67 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：为既有 `Source/Semantic.ValueType.option (.array (.option element) length)` 开放 exact
+  same-line `Option Array Option PrimitiveAtom N`；新增 named `optionArrayOptionType` 与 aggregate-field
+  parser，decoder 精确复用 `decodeArrayOptionValueTypeFromAtoms` 后再包一层 Option，专用 dispatch 位于
+  generic `optionArrayType` 前。Source/Semantic ctor、encoder、Typed 与 target 未改。
+- Migration/Coverage：只迁移既有 `Option Array Option Bool 4` negative 一条；覆盖 length
+  `0`/`4`/`4096`、UInt64/Bool/Principal、state/struct/enum/const/init/entry/view/fn/event/error、双入口 parity、
+  invalid lexical lengths、escaped/qualified/extra/split/compound negatives，以及四 target
+  support-vs-Plan/no-artifact。
+- Canonical/requirements：tag `16→18→16→element→length`。Source goldens 均 261 bytes，hash：
+  `a11aecf5dcea854f169a6f61ca75bc01f5c4ff640c87f561015bdf58be5070b5`、
+  `3bf0308d1e0d05fe7f910974dacdfb62b83648ebedcfa4317606b4a92d10b8fa`、
+  `5832f3ef92e52d6067b31ab4e8c2fbe300d75d3ff6c2f1232de91f9ff3190d32`、
+  `ee00066b4d78be5e2e247fdab3f802967e867a7cf7aaf9bf5c9a9b7b1c1380ba`、
+  `431354f3a6adcddfe6b4d5ee22afcb913076017c4a69722a3520ff4dba229768`；Semantic goldens 为
+  210/210/210/211/211 bytes，hash：`60e047f0cfb97a38c2b811ddf2d3bd594710f733b0f01e5a11243e32a0042419`、
+  `ddcc48af0bd00c646fa2b8b6cd00b3ed120cc802d7e608b0da38340a148014b3`、
+  `5e2c4332a93d2e1fba8bca0e93347eb7dbd13556bd76a3f01247b26d9d400c1d`、
+  `7a683a32e88d36413853145fa551652e382ae00d84618827c9419e26b8a77921`、
+  `3db7f00df27c4e90dfbb1d62f43f7733f5e703284e56f95d883b22b3b3b88991`。UInt64 requirements
+  为空，Bool 仅传播一次 `boolValues`；non-UInt64 state/result/parameter 在 Plan invariant 拒绝且无 artifact。
+- Scope/Commands：production `Syntax.lean` 恰好 25 行新增/0 行移除；`lake build
+  Tests.Language.OptionDeclarations` 23 jobs；`lake build proof_forge_next_tests` 192 jobs；测试二进制 exit 0；
+  `just sbom`（含 closure self-test）与 `git diff --check` 通过。Grok residual 与 Kimi final review
+  P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0063`；按冻结未重复完整 `just ci`。
+- Scope claim：只完成 existing-carrier spelling、canonical identity、requirements 与 support-vs-Plan boundary；
+  不包括 array/option operations、任意 recursive grammar、runtime/ABI 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 状态以 checkpoint 当前值为准。
+- Next：当前无 active development slice；下一 slice 未冻结，待 post-PA67 residual audit 后选择单一依赖闭合
+  最小切片，禁止自动递增。
+
 ## 2026-07-19 — TASK-D0-04 pre-acceptance：TST-BOOTSTRAP-001 端到端验收 harness
 
 - Context：D0-04 仓库内 foundation 的 capstone——把 producer/store/handoff/
