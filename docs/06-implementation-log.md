@@ -2385,3 +2385,18 @@ normative: false
 - Next：ADR-0016 批准 → TASK-D0-09 in_progress（TST-HOST-002 RED 先行）；期间以 D0-09
   pre-acceptance 方式推进 linux toolchain/host 机制实现（development 证据，不改任务状态）。
   TASK-D0-04 仍 blocked；TASK-D1-04 的 modulo `%` candidate 不变。
+
+## 2026-07-18 — ADR-0017 登记为 proposed（后果落地 deferred）
+
+- Context：工作树中已存在未跟踪的
+  `docs/adr/0017-research-phase-targets-ton-move-cairo-zkvm.md`（研究期新增目标
+  TON/Move/Cairo/RISC Zero/SP1 的登记与 family 归类决定），但未登记进
+  `docs/adr/README.md`，docs_check 以 `PF-DOC-NORMATIVE-ORPHAN` fail closed。
+- Changed：`docs/adr/README.md` 增列 ADR-0017 行（proposed）；ADR 本体逐字保留。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check` clean。
+- Limitations：ADR-0017 保持 `proposed`，未经 Architecture + Quality 批准；其"后果"段
+  所列 6 个 dossier、2 个 family 文档、`docs/targets/README.md` 与 PRD 扩展**尚未落地**，
+  属后续独立变更；在该落地前不得把 `ton`/`aptos`/`sui`/`cairo`/`risc0`/`sp1` 写入
+  registry、任务表或 traceability matrix。ADR §6 已声明本期不登记 `SRC-*`/`CLM-*`。
+- Next：ADR-0017 批准与后果落地均为后续独立变更；D0 主线（ADR-0016 批准、D0-08 counts
+  盘点、D0-04 外部前置）不变。
