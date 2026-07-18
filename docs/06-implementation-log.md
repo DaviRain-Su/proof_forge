@@ -3952,3 +3952,35 @@ normative: false
 - Next：TST-BOOTSTRAP-001 可执行验收（fixture namespace 端到端 rehearsal：
   dev authority → 六 approval+receipt → set → store publish/readback → handoff →
   containment 内 consumer 全链验证 → activation receipt）与 D0-04 关闭治理件。
+## 2026-07-19 — D1 exact Array Array PrimitiveAtom spelling pre-acceptance slice
+
+- Commits：freeze `8ba6e131`；tests-only RED `57e6f68b`；Syntax/GREEN + canonical binding `b868a4c0`；
+  Lean package-file SBOM re-pin `a4c291b2`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-66 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：为既有 `Source/Semantic.ValueType.array (.array element innerLength) outerLength` 开放
+  exact same-line `Array Array PrimitiveAtom N M`；新增 named `arrayArrayType` 与
+  `arrayArrayAggregateField`，decoder 复用既有 PrimitiveAtom 与双 `decodeBytesLengthAtom` policy。
+  专用 dispatch 位于 generic `arrayType` 前；Source/Semantic ctor、encoder、Typed 与 target 未改。
+- Migration/Coverage：只迁移既有 `Array Array UInt64 4 4` negative 一条；覆盖双长度 `0`/普通值/`4096`、
+  state/struct/enum/const/init/entry/view/fn/event/error、Lean command/ParserSession parity、invalid
+  lexical lengths、escaped/qualified/extra/split/compound negatives，以及四 target support-vs-Plan/no-artifact。
+- Canonical/requirements：tag `18→18→element→N→M`。Source goldens 为 265 bytes，hash：
+  `82bebef7609b3dd4588252e737f8f12e813f43b0d811c607f7ec9b5725d2d1ca`、
+  `ca15c383708945969f97236fae7778a1a67f7239e898136904b94782d1d17e6b`、
+  `e779fb2145435c85c7dd00e445e3948441a3e37f90d3fdfdf6aba2690a4fef86`、
+  `d41c6c8a10295f2319f75a07fcd6dacfaaec620e261b896289e96afa1dee9c9b`；Semantic goldens 为 214/214/214/215 bytes，
+  hash：`4c2629b142ef236638be38fe5d2e7bd36dfe5e5fdc5b61ce98d19e375d013822`、
+  `b5133659b9e12e6cfc436ed96288dba53ec817b46e64444bcaa87b46b27d2f20`、
+  `2bcfee645da388f3e3fb0c936637a85cf21a1128105b2f88d6f239820dc412ca`、
+  `453ce5b5d3e5ada18b2be5e3e5c05962b3cfe2aa3168aee43af5685ecbee333a`。UInt64 requirements 为空，Bool
+  仅传播一次 `boolValues`；non-UInt64 state/result/parameter 在 Plan invariant 拒绝且无 artifact。
+- Scope/Commands：production `Syntax.lean` 恰好 32 行新增/0 行移除；`lake build Tests.Language.ArrayTypes`
+  23 jobs；`lake build proof_forge_next_tests` 192 jobs；测试二进制 exit 0；`just sbom`（含 closure self-test）
+  通过；`git diff --check` 通过。Grok residual 与 Kimi final review P0=0/P1=0/P2=0；development evidence
+  为 `EV-20260719-0062`；按冻结未重复完整 `just ci`。
+- Scope claim：只完成 nested Array existing-carrier spelling、canonical identity、requirements 与
+  support-vs-Plan boundary；不包括 array operations、任意 recursive grammar、runtime/ABI 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；下一 slice 未冻结，待 post-PA66 residual audit 后选择单一依赖闭合
+  最小切片，禁止自动递增。
