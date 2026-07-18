@@ -312,6 +312,27 @@ bare/missing operand、`2 // 3`、repeated/mixed operator 与额外 payload 保�
 direct fail-closed arm（共 3 文件/11 行）；Typed Expr、SemanticIR/Semantics、requirements、targets、
 preflight 与 generic negative table 均不得修改。本切片只实现 `/`，不得把 `MulExpr` 写成已完整实现。
 
+D1-PA-30 冻结的 pre-acceptance alpha binary checked-modulo 子集新增
+`Source.Expr.checkedMod(lhs, rhs)`，parser 形状固定为
+`syntax:70 pfExpr:70 " % " pfExpr:71 : pfExpr`。它与 multiplication/division 使用相同 precedence
+`70` 并跨 operator 左结合，高于 additive precedence `65`，低于 prefix precedence `75`：
+`7 % 3 % 2` 必须为 `(7 % 3) % 2`，`2 * 7 % 3` 为 `(2 * 7) % 3`，`7 % 3 * 2`
+为 `(7 % 3) * 2`，`8 / 4 % 2` 为 `(8 / 4) % 2`，`8 % 4 / 2` 为 `(8 % 4) / 2`；
+`1 + 7 % 3`、`7 % 3 - 1`、`(1 + 2) % 3`、`7 % (3 % 2)` 与 unary operands 必须保留
+各自 grouping。`8 % 0` 必须形成 Source node；modulo-by-zero legality 属于 D2/target，不得提前拒绝。
+
+Source canonical encoder 以 append-only Expr tag `11` 后依次递归编码 lhs、rhs；既有 tags `0..10`
+与 goldens 不得改变。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在检查任一 operand
+之前逐字 fail closed 为 `checked modulo is not yet supported by typed checking`。同一个 tests-only RED
+必须且只能迁移 3 个 suite 中 4 条 percent negative：`CheckedMul` 的 `2 % 3`、`Grouping` 的
+`(2 % 3)`，以及 `CheckedDiv` 新增的 `2 % 3`/`(2 % 3)` retention controls。不得新增
+modulo-by-zero、Int/signed/rounding/sign semantics、constant folding、Typed/Semantic modulo、requirement、
+target behavior 或 runtime representation；bare/missing operand、`2 %% 3`、repeated/mixed operator 与
+额外 payload 保持 parser reject。production 只允许 Source/Syntax/Typed 3 文件/11 行 exact seam，
+不得修改 Typed Expr、SemanticIR/Semantics、requirements、targets、preflight 或 generic negative table。
+本切片完成后只能称 `*`/`/`/`%` 的 Source surface 已覆盖，不得宣称 `MulExpr`、expression grammar 或
+`TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
