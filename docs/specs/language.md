@@ -507,6 +507,18 @@ constructors 与 split/extra payload 继续 fail closed。production 仅限 Synt
 GREEN 同步 package file-set；不得声明 nested Array runtime semantics、完整 recursive type grammar 或正式
 D1 完成。
 
+D1-PA-67 冻结的 pre-acceptance alpha 子集只为已有
+`option(array(option(element),length))` carrier 开放 exact same-line spelling
+`Option Array Option PrimitiveAtom N`。`PrimitiveAtom` 复用 15 个 exact atom，`N` 复用 canonical ASCII
+decimal `0..4096`；tag 固定 `16→18→16→element→length`，requirements 精确透传 inner Option element。
+frontend 只能新增 named `optionArrayOptionType` 与 struct-field parser，decoder 必须复用既有 Option/Array/
+PrimitiveAtom/length policy，并在 generic `optionArrayType` 前 dispatch。不得放宽 `optionArrayType`、
+`arrayType`、`optionOptionType` 或 `portableType`，不得修改 ctor/tag、encoder、Typed 或 target。tests-only
+RED 只迁移既有一条 `Option Array Option Bool 4` negative；third-layer Option、Option Array Bytes/Array、
+Map/Named 与 invalid/extra/split/escaped/qualified boundaries 继续 fail closed。production 仅限 Syntax 一文件
+≤32 additions/2 removals，GREEN 同步 package file-set；不得声明 nested Option/Array runtime semantics、完整
+recursive grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
