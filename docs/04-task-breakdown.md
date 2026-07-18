@@ -84,8 +84,8 @@ normative: true
 | TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding（FX-2026-07-17-D0-05：inventory+CycloneDX development gate） | TASK-D0-03 | — | TST-SBOM-001 | EV-20260717-0033 | done |
 | TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0035 | done |
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | pending |
-| TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0051 | done |
-| TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0050 | done |
+| TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0053 | done |
+| TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0052 | done |
 
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
 authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
@@ -111,7 +111,7 @@ ADR-0016 字节保持设计 + 静态保持性验证（darwin lock 逐字节、pr
 Stage-0 darwin 语义行全保留、数据级 v2 校验通过）认定满足，darwin live 重观察递延为
 P2 债务（owner=quality，截止 `TASK-D0-07` 关闭前）；pre-cutover 关闭路径由该裁决提供，
 attest `docs/governance/bootstrap-closure/TASK-D0-09.attest.json`，bootstrap EV
-`EV-20260718-0050`。development 级关闭，不产生 formal/hermetic 证据。
+`EV-20260718-0052`。development 级关闭，不产生 formal/hermetic 证据。
 
 `TASK-D0-08` 于 2026-07-18 进入 `in_progress`（counts 盘点固化后的完整冻结包
 [`task-freeze-packages/TASK-D0-08.json`](governance/task-freeze-packages/TASK-D0-08.json)），
@@ -120,7 +120,7 @@ SB2-001..031 + LEGACY-NOT-GREEN 共 32 例与 SB2-028 逐点 fault injection 全
 locked-jv 对 pinned CycloneDX schema 实测 schema/instance ok。doneWhen 第 1–3 条与第 5
 条满足后，同日经 `GOV-PRECUTOVER-001` 确认关闭路径（第 4 条）关闭为 `done`：
 attest `docs/governance/bootstrap-closure/TASK-D0-08.attest.json`，bootstrap EV
-`EV-20260718-0051`。development 级关闭；formal release binding、freshness/revocation
+`EV-20260718-0053`。development 级关闭；formal release binding、freshness/revocation
 与发布签名仍分别属 `TASK-D0-07`、`TASK-D3-05`、`TASK-D8-05`。
 
 ## Milestone D1：语言前端
@@ -190,6 +190,7 @@ attest `docs/governance/bootstrap-closure/TASK-D0-08.attest.json`，bootstrap EV
 | D1-PA-55 | TASK-D1-03 | exact `Option Field bn254_fr` spelling for existing `option(.field)` carrier；tag `16→2`、transitive `fieldBn254` requirement 与 single deferred-negative migration | `1371f5be`, `efa68394`, `1e922851`, `1b15dc4f` | focused 23-job + 192-job aggregate/test binary；exact parser/raw-id/canonical/requirement/all-target support controls；Kimi final review P0/P1=0；package file-set re-pin；按冻结未重复 `just ci` | complete (development) |
 | D1-PA-56 | TASK-D1-03 | exact one-level `Option Option PrimitiveAtom` spelling for existing recursive `option(option(element))` carrier；tag `16→16→element`、transitive requirements 与 single deferred-negative migration | `b598114d`, `1a6d9ee8`, `008b2da0`, `8b4d4c2c` | focused 23-job + 192-job aggregate/test binary；exact named parser、15-atom decoder closure、canonical/requirement/all-target support-vs-Plan controls；Kimi final review P0/P1=0；package file-set re-pin；按冻结未重复 `just ci` | complete (development) |
 | D1-PA-57 | TASK-D1-03 | exact `Option Array PrimitiveAtom N` spelling for existing recursive `option(array(element,length))` carrier；tag `16→18→element→length`、transitive requirements 与 single deferred-negative migration | `5fece0df`, `a068a76e`, `dbbe9f07`, `25a5c3cd` | focused 23-job + 192-job aggregate/test binary；exact named parsers、15-atom/`0..4096` Array decoder reuse、canonical/requirement/all-target support-vs-Plan controls；independent RED/final reviews P0/P1=0；package file-set re-pin；按冻结未重复 `just ci` | complete (development) |
+| D1-PA-58 | TASK-D1-03 | exact `Option Bytes N` spelling for existing recursive `option(bytes(length))` carrier；tag `16→17→length`、transitive zero requirements 与 two existing negative migrations | `0f8f31d0`, `6afd44a8`, `8d9c6c2e`, `ff36cac7` | focused 24-job + 192-job aggregate/test binary；exact named parser、Bytes length decoder reuse、canonical/requirement/support-vs-Plan controls；Grok/Kimi residual audits P0=0；package file-set re-pin；按冻结未重复 `just ci` | complete (development) |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
