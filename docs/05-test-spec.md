@@ -819,6 +819,21 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   legality、D2 rules 或 target implementation。production 限 Source/SemanticIR/Syntax 三文件、最多 64 行
   新增与 6 行移除，并刷新 Lean package file-set。focused/aggregate/test binary 和 independent review 全绿
   后收口；PA53 batch `just ci` 已绿，本切片不重复完整 gate，不得声明数组运行语义或正式 D1 完成。
+- D1-PA-55 的 alpha tests 只开放 exact same-line `Option Field bn254_fr`，并物化为既有
+  `Source/Semantic.ValueType.option(.field)`；不得新增 ctor/tag 或放宽任意三 atom type parser。tests-only
+  RED 只修改 `Tests.Language.OptionDeclarations`，把既有唯一 field-option parser-negative 迁移为 positive，
+  migration count 精确为一。positive 覆盖 state、struct field、enum payload、const、initializer/entry/
+  view/fn parameter/result 与 Lean command/ParserSession parity。Source/Semantic canonical goldens 必须固定
+  tag `16` 后接 tag `2`，并与 bare Field、Option Bool、Option UInt64 做 byte-size/hash non-alias；新 golden
+  在 RED 中显式未绑定，独立 probe 后单独提交。
+  requirements 必须精确为单个 `fieldBn254`；四个 Phase 1 target 都必须在 support resolver 以该 named
+  requirement 拒绝，且不得进入 Plan/产出 artifact。`Option Field`、alternate/escaped/qualified identifier、
+  escaped/qualified constructor 必须 exact fail closed；extra/split payload 停在 parser boundary。Option
+  Bytes、nested Option、Option Array/Map 与既有 `Option UInt64 Principal` failure class 保持不变。
+  production 仅限 Syntax 一文件、最多 32 行新增/2 行移除，并刷新 Lean package file-set；不得引入
+  none/some、unwrap、field literal/arithmetic、recursive legality、runtime/ABI 或 target Field support。
+  focused/aggregate/test binary 和 independent review 全绿后收口；按冻结不重复 `just ci`，不得声明
+  Option/Field runtime semantics、完整 type grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

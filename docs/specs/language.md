@@ -184,6 +184,34 @@ ABI、recursive legality、D2 type/value semantics 或 target Plan/IR。producti
 只可记录 bounded Array declaration carrier；PA53 已完成 committed-tree batch `just ci`，本切片不重复
 完整 gate，不得声明数组运行语义、完整 type grammar 或正式 D1 完成。
 
+D1-PA-55 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic 类型构造的
+`option(.field)` 开放 exact same-line spelling `Option Field bn254_fr`。这不是新 ValueType carrier：
+Source/Semantic 的 recursive Option canonical encoder 已产生 tag `16` 后接 Field tag `2`，
+`ValueType.requirements` 也已把 `.fieldBn254` 递归穿过 Option；不得新增 ctor/tag、修改 encoder、
+Typed 或 target。frontend 只能新增 exact contextual named `optionFieldType` 与 struct-field 对应 parser，
+不得把通用 `portableType` 放宽为任意三 atom，也不得接受其他 Field identifier、Named、nested Option、
+Array、Map 或 Bytes element。
+
+decoder 必须 exact 验证第三 atom 的 raw spelling 为 `bn254_fr` 后才构造 `.option .field`；alternate、
+escaped 或 qualified identifier fail closed。Lean command 与 ParserSession 必须得到同一 Source tree/hash。
+canonical tests 固定既有 tag `16→2` 的 Source/Semantic bytes/hash，并与 bare Field、Option Bool、
+Option UInt64 non-alias；不重编号 tags `0..18`。semantic requirements 必须恰为 `fieldBn254`，不能被
+Option 擦除或重复；四个 Phase 1 target 必须在 support resolution 以 named requirement 拒绝，不能进入
+Plan 或产生 artifact。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+`("field option", "Option Field bn254_fr")` parser-negative 迁移为 positive；migration count 精确为一，
+其他测试不得迁移。positive 覆盖 state、struct field、enum payload、const、initializer/entry/view/fn
+parameter/result 与双入口 parity。`Option Field`、alternate/escaped/qualified id、escaped/qualified
+constructor、extra/split payload 必须 fail closed；Option Bytes、nested Option、Option Array/Map 和既有
+extra payload failure class 保持原边界。
+
+本切片不实现 none/some expression、unwrap、field literal/arithmetic、recursive type legality、runtime
+representation、ABI 或 target Field support。production 仅限 `Language/Syntax.lean` 一文件，最多 32 行
+新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。focused/aggregate/test binary 与 independent
+review 全绿后只可记录 existing-carrier spelling；PA53 batch `just ci` 已绿，本切片不重复完整 gate，
+不得声明 Option/Field runtime semantics、完整 type grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
