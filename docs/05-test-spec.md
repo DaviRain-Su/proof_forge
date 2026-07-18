@@ -801,6 +801,24 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   exact fail closed；负号、额外 token、跨行 payload 与 `Option Bytes N` 停在 parser boundary。测试不得
   引入 bytes literal、index/slice/length op、runtime representation、nested aggregate 或 D2 legality，
   也不得把 alpha hash helper 声称为 stable Type wire validator。
+- D1-PA-54 的 alpha Array tests 只接受同一行 exact contextual
+  `Array PrimitiveAtom N`，element 闭集为 exact single-token Bool/UInt/Int/Principal/Unit，长度使用
+  `ArrayLength := Fin 4097` 且 lexical 边界精确为 canonical ASCII decimal `0..4096`。positive 覆盖
+  `0`、普通值、`4096` 以及 state、struct field、enum payload、const、initializer/entry/view/fn
+  parameter/result；Lean command/ParserSession 必须保留相同 Source AST/sourceHash。Source/Semantic
+  canonical goldens 使用 append-only tag `18`、递归 element bytes 与 encoder-local `appendNat(length.val)`，
+  并固定 element/length/tag mutation、byte size、hash non-alias 以及 tags `0..17` 旧 controls；RED 中新
+  hash/size 显式未绑定，独立 probe 后单独提交 golden binding。
+  `Array UInt64 4` 必须推导零 requirement，`Array Bool 0` 必须精确传播 `boolValues`；Phase 1 support
+  resolver 之后，Array state/result/parameter 仍由既有 target Plan 以 non-UInt64 invariant 拒绝且不得产生
+  artifact。unknown/Field element、缺失 element/length、`4097`、leading zero、hex 必须 exact fail closed；
+  signed、underscore、额外/跨行 payload、nested Option/Bytes/Array/Map 必须停在 parser boundary，且既有
+  `Option UInt64 Principal` failure class 不变。tests-only RED zero migration，只新增/注册
+  `Tests.Language.ArrayTypes`；同时证明 `4096` 可由 carrier 表示、超界值由 `Fin 4097` 类型排除。
+  本切片不得引入 named-ident type、array value/index/slice/length/mutation、runtime layout、ABI、recursive
+  legality、D2 rules 或 target implementation。production 限 Source/SemanticIR/Syntax 三文件、最多 64 行
+  新增与 6 行移除，并刷新 Lean package file-set。focused/aggregate/test binary 和 independent review 全绿
+  后收口；PA53 batch `just ci` 已绿，本切片不重复完整 gate，不得声明数组运行语义或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

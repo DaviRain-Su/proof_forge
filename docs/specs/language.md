@@ -155,6 +155,35 @@ Type wire，后者仍由其独立 stable encoder/decoder 负责。Bytes declarat
 type/value legality。直接伪造的 in-memory over-bound carrier 不属于 frontend accepted source；本切片
 不把 alpha total hash helper 冒充 stable wire validator。
 
+D1-PA-54 冻结的 pre-acceptance alpha Array 子集只接受同一行的
+`Array PrimitiveAtom N`。`PrimitiveAtom` 与 D1-PA-18 相同，只包含 exact single-token `Bool`、closed
+UInt/Int width、`Principal` 或 `Unit`；`Field bn254_fr`、Named、Option、Bytes、Array 与 Map element
+全部继续 fail closed。`N` 复用 `Bytes N` 的 canonical ASCII decimal lexical discipline，边界精确为
+`0..4096`，并在 Source/Semantic carrier 中保存为各自的 `ArrayLength := Fin 4097`，使超界长度无法由
+公开 AST 类型构造，不能依赖 parser 约定避免 canonical alias。
+
+Source/Semantic carrier 固定为 `array(element, length)`。alpha canonical encoding 使用 append-only
+type tag `18`，随后递归编码 element，再调用各 encoder 已有的 `appendNat(length.val)`；Source 保持
+8-byte big-endian，Semantic 保持 8-byte little-endian，tags `0..17` 与全部旧 golden 不变。Array
+本身不发明 capability，requirements 必须精确递归传播 element：`Array UInt64 4` 为零，
+`Array Bool 0` 为 `boolValues`。frontend 使用 exact contextual `Array` 专用 parser，不得把通用
+`pfType` 放宽为任意三 token，也不得改变 `Option UInt64 Principal` 等既有 malformed type 的 parser
+boundary。Lean command 与 ParserSession 必须得到同一结构与 sourceHash。
+
+tests-only RED 为 zero migration，只新增/注册 `Tests.Language.ArrayTypes`。positive 覆盖 state、struct
+field、enum payload、const、initializer/entry/view/fn parameter 与 result，长度 `0`、普通值与 `4096`，
+并固定 Source/Semantic tag、element、length、size/hash non-alias。unknown/Field element、缺失 element 或
+length、`4097`、leading zero、hex、signed、underscore、额外/跨行 payload、nested Option/Bytes/Array/Map
+必须按专用 grammar fail closed；named-ident type 不在本切片。四个 Phase 1 target 只验证 requirement
+resolver 与既有 non-UInt64 Plan rejection，不新增数组 target support 或制品。
+
+本切片不实现 array literal、constructor、index/length/slice、mutation、assignment、runtime layout、
+ABI、recursive legality、D2 type/value semantics 或 target Plan/IR。production 仅限
+`Core/Source.lean`、`Core/SemanticIR.lean`、`Language/Syntax.lean` 三文件，最多 64 行新增、6 行移除，
+并在同一 GREEN 刷新 Lean package file-set。focused/aggregate/test binary 与 independent review 全绿后
+只可记录 bounded Array declaration carrier；PA53 已完成 committed-tree batch `just ci`，本切片不重复
+完整 gate，不得声明数组运行语义、完整 type grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
