@@ -390,6 +390,24 @@ parser reject。production 必须限于 Source/Syntax/Typed 3 文件/11 行 exac
 本切片完成后只能称 `==` Source surface 已覆盖，不得宣称 `CompareExpr`、expression grammar 或
 `TASK-D1-04` 正式完成。
 
+D1-PA-34 冻结的 pre-acceptance alpha not-equal 子集新增 `Source.Expr.notEqual(lhs, rhs)`，parser 形状
+固定为 `syntax:50 pfExpr:51 " != " pfExpr:51 : pfExpr`。它与 `equal` 共用 Compare precedence `50`，
+两个 operand slot 都使用 `51`；同类 `1 != 2 != 3` 以及 mixed `1 == 2 != 3`、
+`1 != 2 == 3` 都必须 parser reject，落实 EBNF 中至多一个 comparison 的约束。Shift/Add/Mul/Unary
+在两侧继续以更高 precedence 绑定；parenthesized comparison 仍可作为 PrimaryExpr。
+
+Source canonical encoder 以 append-only Expr tag `15` 后依次递归编码 lhs、rhs；既有 tags `0..14`
+与 goldens 不得改变。integer 与 Bool operands 都必须形成 Source node，operand legality 与 Bool result
+typing 属于 D2。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在检查任一 operand 前逐字
+fail closed 为 `not-equal comparison is not yet supported by typed checking`。同一个 tests-only RED 必须且
+只能把 `LogicalNot.lean` 的 deferred `1 != 2` 一条 negative 迁移为 exact positive；相邻的 spaced
+`! = 2` 必须保持 parser reject，证明 `!=` 是完整 binary token 而非 unary `!` 加残余 `=`。
+`1 ! = 2`、`1 !== 2`、`1 ! == 2`、same/mixed chained comparison 与额外 payload 同样必须拒绝。
+本切片不得新增 `<`、`<=`、`>`、`>=`、bitwise/logical binary operator、Bool legality、constant folding、
+Typed/Semantic comparison、requirement、target behavior 或 runtime representation；production 必须限于
+Source/Syntax/Typed 3 文件/11 行 exact seam，其他层不得修改。本切片完成后只能称 `==`/`!=` equality
+pair 的 Source surface 已覆盖，不得宣称 `CompareExpr`、expression grammar 或 `TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
