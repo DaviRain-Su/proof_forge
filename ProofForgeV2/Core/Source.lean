@@ -117,6 +117,7 @@ inductive Statement where
   | synchronousCall (callee : String)
   | letDecl (name : String) (typeAnn : Option ValueType) (value : Expr)
   | assertStmt (condition : Expr)
+  | assertErrorStmt (condition : Expr) (errorName : String)
   | revertStmt (errorName : String) (args : Array Expr)
   | emitStmt (eventName : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
@@ -336,6 +337,7 @@ private def appendStatement (bytes : ByteArray) : Statement → ByteArray
         | some type => appendValueType (appendTag bytes 1) type
       appendExpr bytes value
   | .assertStmt condition => appendExpr (appendTag bytes 4) condition
+  | .assertErrorStmt condition errorName => appendString (appendExpr (appendTag bytes 8) condition) errorName
   | .revertStmt errorName args => appendArray appendExpr (appendString (appendTag bytes 5) errorName) args
   | .emitStmt eventName args => appendArray appendExpr (appendString (appendTag bytes 7) eventName) args
 
