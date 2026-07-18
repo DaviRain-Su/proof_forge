@@ -3212,3 +3212,51 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/9。
 - Next：当前无 active development slice；post-PA52 residual audit 正在进行，完成后仍需单独
   冻结一个依赖闭合最小 slice，禁止自动递增。
+
+## 2026-07-18 — D1 bounded-for pre-acceptance slice
+
+- Commits：freeze `25f7572d`；tests-only RED `8f6acd5d`；canonical golden binding
+  `bf80a1cf`；body count/order identity `4985163d`；canonical-safety freeze correction
+  `affd21c4`；type-level bound proof `e41fd10e`；Source-only GREEN `2a18c827`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-53 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.IterationBound := Fin 4097` 与 recursive
+  `Source.Statement.forStmt(iterator,start,stopExclusive,maxIterations,body)`。append-only Statement
+  tag `10` 后依次编码 iterator string、start/stopExclusive expressions、`maxIterations.val` 与 body
+  statement array。quotation 递归保留 body；Typed 在 iterator/endpoint/bound/body/return/effect analysis
+  前 exact 拒绝 `for statements are not yet supported by typed checking`。production 恰好
+  Source/Syntax/Typed 3 文件、32 行新增/0 行移除；Semantic、requirement 与 target 未改，Lean package
+  file-set 同 GREEN 重钉。
+- Parser correction：独立 Lean 4.31.0 probe 证明 plain `ppLine`/`many1Indent` 会接受 same-line body、
+  same-column body 与拆行 header。最终唯一 `withPosition` custom parser 以每段 `checkLineEq` 固定一行
+  header，以 `checkLinebreakBefore`/`checkColGt` 固定真实换行和更深 body，`many1Indent` 固定 non-empty；
+  compact `1..<10` 与 spaced `1 ..< 10` 形成同一 Source tree，内部拆开的 `.. <` 拒绝。
+- Canonical security correction：初版裸 `Nat` carrier probe 实证 bound `0` 与 `2^64` 经
+  `appendNat`/`UInt64.ofNat` 得到相同 sourceHash。未用“parser 不产生”豁免；改为 `Fin 4097` 让 public
+  Source 中越界 bound 不可表示。decoder 复用 Bytes exact decimal validator，再构造 `<4097` proof；
+  合法 0..4096 的 canonical bytes/goldens 不变。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn，bound 0/4096、
+  literal/variable/operator/group endpoints、spaced/compact range、multi-statement 与 nested for/if body。
+  固定 missing header tokens、四种 header split、same-line/same-column/empty body、range split、negative/
+  over-bound/leading-zero/hex/underscore bounds、bare/escaped `for`/`in`/`bounded` assignments、exact Typed
+  priority 与旧 return/if/assert/revert/emit controls。iterator、start、stop、bound、body content/count/order/
+  nesting 与 tag non-alias 均进入 source identity。六组 hash/size 为
+  `99b116672a93b719e2fe3bf8416b7fcadd990fd9270932fcc8e5f838689d44ef`/244、
+  `b1a145ce2fea8c986ef423c3bfde8f45800804f5f5925728a0e4e20e13bfa2dc`/244、
+  `4cd2f6a0b5860205f28db60c5dfe36fc978af9a94b1cdca3fa42df0d7b3e15f9`/244、
+  `3e419a96934adae8d4834741f28bbbd724911f36b2c5cc1358d8e8a9090cb71a`/244、
+  `1c8d8d6c8610739095bf59d30b1758a50b907954f4557b10fd99b0f20d2dadb9`/244、
+  `01c8e020e61ef5fc43f020e5e90d17cda14ffd77634d9e293ba5ee6e43f9dc3d`/295。
+- Commands/Results：focused 15-job build/direct suite；aggregate 190-job；测试二进制 exit0/5.11s；
+  `just sbom-package-files-refresh`、`git diff --check` 全绿。clean committed `just ci` at `2a18c827`
+  exit0：40-mutation isolation、198-job committed archive build/test/help、186 docs mutations、governance/
+  SBOM/supply-chain/runtime closure、60-job product build、190-job aggregate/test 与 DSL/target/toolchain
+  negatives 全绿。Kimi RED/final增量 reviews 均为 P0/P1=0；development evidence 为
+  `EV-20260718-0045`。
+- Scope claim：完整 canonical-safe bounded-for Source carrier、严格 layout/canonical identity 与 Typed
+  fail-closed 已覆盖。不包括 iterator scope/type、range evaluation、bounded-loop proof/induction、
+  return/effect/path、Semantic/requirement、target Plan/IR、runtime 或 materialization。
+- Limitations：不得声明 loop semantics、完整 statement grammar、eligible host 或 formal D1 evidence；
+  不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA53 residual audit，
+  再选择单一依赖闭合的最小切片，禁止自动递增。
