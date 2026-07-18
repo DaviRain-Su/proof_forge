@@ -172,6 +172,62 @@ program ArrayFieldBoundary where
   entry echo(value : Array Field bn254_fr 4) : Array Field bn254_fr 4 do
     return value
 
+program ArrayBytesSurface where
+  state blobs : Array Bytes 32 4
+
+  struct BlobLimits where
+    empty : Array Bytes 0 0
+    maximum : Array Bytes 4096 1
+
+  enum BlobBatch where
+    | Blobs(Array Bytes 32 4)
+    | Maximum(Array Bytes 4096 1)
+
+  const EmptyBlobs : Array Bytes 0 0 := 0
+
+  init(initial : Array Bytes 32 4) do
+    blobs := initial
+
+  entry echo(value : Array Bytes 32 4) : Array Bytes 32 4 do
+    return value
+
+  view get() : Array Bytes 32 4 do
+    return blobs
+
+  fn keepMaximum(value : Array Bytes 4096 1) : Array Bytes 4096 1 do
+    return value
+
+program ArrayBytesBoundary where
+  entry echo(value : Array Bytes 32 4) : Array Bytes 32 4 do
+    return value
+
+program ArrayBytesStateBoundary where
+  state value : Array Bytes 32 4
+
+  init(initial : Array Bytes 32 4) do
+    value := initial
+
+  view get() : Array Bytes 32 4 do
+    return value
+
+program ArrayBytesResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array Bytes 32 4) : Array Bytes 32 4 do
+    return value
+
+program ArrayBytesParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array Bytes 32 4) : UInt64 do
+    return 0
+
 end Tests.Language.ArrayTypesFixture
 
 namespace Tests.Language.ArrayTypes
@@ -273,6 +329,29 @@ private def arrayFieldSurfaceSource : String :=
   "  view get() : Array Field bn254_fr 4 do\n" ++
   "    return scalars\n\n" ++
   "  fn keepMaximum(value : Array Field bn254_fr 4096) : Array Field bn254_fr 4096 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.ArrayTypesFixture\n"
+
+private def arrayBytesSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.ArrayTypesFixture\n\n" ++
+  "program ArrayBytesSurface where\n" ++
+  "  state blobs : Array Bytes 32 4\n\n" ++
+  "  struct BlobLimits where\n" ++
+  "    empty : Array Bytes 0 0\n" ++
+  "    maximum : Array Bytes 4096 1\n\n" ++
+  "  enum BlobBatch where\n" ++
+  "    | Blobs(Array Bytes 32 4)\n" ++
+  "    | Maximum(Array Bytes 4096 1)\n\n" ++
+  "  const EmptyBlobs : Array Bytes 0 0 := 0\n\n" ++
+  "  init(initial : Array Bytes 32 4) do\n" ++
+  "    blobs := initial\n\n" ++
+  "  entry echo(value : Array Bytes 32 4) : Array Bytes 32 4 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Array Bytes 32 4 do\n" ++
+  "    return blobs\n\n" ++
+  "  fn keepMaximum(value : Array Bytes 4096 1) : Array Bytes 4096 1 do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.ArrayTypesFixture\n"
 
@@ -477,6 +556,52 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same Array Field sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let arrayBytesSurface := Tests.Language.ArrayTypesFixture.ArrayBytesSurface
+  expect (arrayBytesSurface.state.map (·.type) == #[.array (.bytes 32) 4])
+    "Array Bytes 32 4 state must survive Lean command elaboration"
+  match arrayBytesSurface.structs with
+  | #[limits] =>
+      expect (limits.name == "BlobLimits" &&
+          limits.fields.map (·.type) == #[.array (.bytes 0) 0, .array (.bytes 4096) 1])
+        "Array Bytes struct fields must preserve exact inner and outer lengths"
+  | _ => throw <| IO.userError "ArrayBytesSurface must retain one struct"
+  match arrayBytesSurface.enums with
+  | #[batch] =>
+      expect (batch.name == "BlobBatch" && batch.variants.map (·.payloadTypes) ==
+          #[#[.array (.bytes 32) 4], #[.array (.bytes 4096) 1]])
+        "Array Bytes enum payloads must preserve exact inner and outer lengths"
+  | _ => throw <| IO.userError "ArrayBytesSurface must retain one enum"
+  match arrayBytesSurface.consts with
+  | #[emptyBlobs] =>
+      expect (emptyBlobs.name == "EmptyBlobs" && emptyBlobs.type == .array (.bytes 0) 0)
+        "Array Bytes 0 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "ArrayBytesSurface must retain EmptyBlobs"
+  match arrayBytesSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.array (.bytes 32) 4])
+        "Array Bytes initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "ArrayBytesSurface must retain initializer"
+  match arrayBytesSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.array (.bytes 32) 4] &&
+          echoEntry.result == .array (.bytes 32) 4 &&
+          getView.result == .array (.bytes 32) 4 && getView.mode == .view)
+        "Array Bytes entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "ArrayBytesSurface must retain echo and get"
+  match arrayBytesSurface.functions with
+  | #[keepMaximum] =>
+      expect (keepMaximum.params.map (·.type) == #[.array (.bytes 4096) 1] &&
+          keepMaximum.result == .array (.bytes 4096) 1)
+        "Array Bytes 4096 1 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "ArrayBytesSurface must retain keepMaximum"
+  match ← session.selectProgram arrayBytesSurfaceSource "<array-bytes-types>" none with
+  | .ok decoded =>
+      expect (decoded == arrayBytesSurface)
+        "Loader and Lean command must produce the same Array Bytes Source.Program"
+      expect (decoded.sourceHash == arrayBytesSurface.sourceHash)
+        "Loader and Lean command must produce the same Array Bytes sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let sourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Array UInt64 0", .array .u64 0, 247,
       "3ceb8bd535df35be7ffc11b0936fbb350edab1bbb5506400e0946e4404f7551f"),
@@ -613,6 +738,42 @@ unsafe def run : IO Unit := do
         s!"{label} semantic: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
   expect goldensBound "Array Field tag18+tag2 canonical goldens must be bound"
 
+  let arrayBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Bytes 0 0", .array (.bytes 0) 0, 0, "UNBOUND"),
+    ("Array Bytes 32 4", .array (.bytes 32) 4, 0, "UNBOUND"),
+    ("Array Bytes 4096 1", .array (.bytes 4096) 1, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayBytesSourceVectors do
+    let sourceProgram := twin type
+    unless sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash do
+      goldensBound := false
+      IO.eprintln
+        s!"{label} source: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  expect ((twin (.array (.bytes 0) 0)).sourceHash != (twin (.bytes 0)).sourceHash &&
+      (twin (.array (.bytes 0) 0)).sourceHash != (twin (.array .u64 0)).sourceHash &&
+      (twin (.array (.bytes 0) 0)).sourceHash != (twin (.option (.bytes 0))).sourceHash &&
+      (twin (.array (.bytes 0) 0)).sourceHash != (twin (.array .field 0)).sourceHash &&
+      (twin (.array (.bytes 0) 0)).sourceHash != (twin (.array (.bytes 32) 0)).sourceHash &&
+      (twin (.array (.bytes 0) 0)).sourceHash != (twin (.array (.bytes 0) 4)).sourceHash)
+    "Array Bytes must bind Array/Bytes tags and both inner and outer length payloads"
+
+  let arrayBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Bytes 0 0", .array (.bytes 0) 0, 0, "UNBOUND"),
+    ("Array Bytes 32 4", .array (.bytes 32) 4, 0, "UNBOUND"),
+    ("Array Bytes 4096 1", .array (.bytes 4096) 1, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayBytesSemanticVectors do
+    let compiled ← match Compiler.compile (twin type) with
+      | .ok value => pure value
+      | .error error =>
+          throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    unless compiled.canonicalBytes.size == expectedSize && compiled.semanticHash == expectedHash do
+      goldensBound := false
+      IO.eprintln
+        s!"{label} semantic: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
+  expect goldensBound "Array Bytes tag18+tag17 canonical goldens must be bound"
+
   for (label, spelling) in [
       ("bare Array", "Array"),
       ("missing Array element", "Array 4"),
@@ -627,6 +788,15 @@ unsafe def run : IO Unit := do
       ("hex Array Field length", "Array Field bn254_fr 0x10"),
       ("underscore Array Field length", "Array Field bn254_fr 4_096"),
       ("Bytes Array element", "Array Bytes 4"),
+      ("missing Array Bytes outer length", "Array Bytes 32"),
+      ("over-bound Array Bytes inner length", "Array Bytes 4097 4"),
+      ("leading-zero Array Bytes inner length", "Array Bytes 01 4"),
+      ("hex Array Bytes inner length", "Array Bytes 0x10 4"),
+      ("underscore Array Bytes inner length", "Array Bytes 4_096 4"),
+      ("over-bound Array Bytes outer length", "Array Bytes 32 4097"),
+      ("leading-zero Array Bytes outer length", "Array Bytes 32 01"),
+      ("hex Array Bytes outer length", "Array Bytes 32 0x10"),
+      ("underscore Array Bytes outer length", "Array Bytes 32 4_096"),
       ("Option Array element", "Array Option 4"),
       ("unknown Array Option element", "Array Option Mystery 4"),
       ("Field Array Option element", "Array Option Field 4"),
@@ -659,7 +829,15 @@ unsafe def run : IO Unit := do
       ("qualified Array Field constructor", "Std.Array Field bn254_fr 4"),
       ("escaped Field constructor in Array", "Array «Field» bn254_fr 4"),
       ("qualified Field constructor in Array", "Array Std.Field bn254_fr 4"),
-      ("nested Bytes Array element", "Array Bytes 32 4"),
+      ("negative Array Bytes inner length", "Array Bytes -1 4"),
+      ("negative Array Bytes outer length", "Array Bytes 32 -1"),
+      ("extra Array Bytes payload", "Array Bytes 32 4 UInt64"),
+      ("split Array Bytes inner length", "Array Bytes\n  32 4"),
+      ("split Array Bytes outer length", "Array Bytes 32\n  4"),
+      ("escaped Array Bytes constructor", "«Array» Bytes 32 4"),
+      ("qualified Array Bytes constructor", "Std.Array Bytes 32 4"),
+      ("escaped Bytes constructor in Array", "Array «Bytes» 32 4"),
+      ("qualified Bytes constructor in Array", "Array Std.Bytes 32 4"),
       ("nested Array Option element", "Array Option Option Bool 4"),
       ("nested Bytes Array Option element", "Array Option Bytes 8 4"),
       ("nested Array Array Option element", "Array Option Array UInt64 4 4"),
@@ -775,6 +953,25 @@ unsafe def run : IO Unit := do
     | .ok () =>
         throw <| IO.userError s!"Array Field/{target} unexpectedly passed support"
 
+  let arrayBytesBoundary ← match Compiler.compile
+      Tests.Language.ArrayTypesFixture.ArrayBytesBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"ArrayBytesBoundary must compile: {error.render}"
+  expect (arrayBytesBoundary.requirements == #[])
+    "Array Bytes must recursively propagate zero requirements"
+  match arrayBytesBoundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.array (.bytes 32) 4] &&
+          echoEntry.result == .array (.bytes 32) 4)
+        "Source-to-Semantic adaptation must preserve Array Bytes inner and outer lengths"
+  | _ => throw <| IO.userError "ArrayBytesBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target arrayBytesBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError
+          s!"{target} must support zero-requirement Array Bytes carrier: {error.render}"
+
   for (label, sourceProgram, needle) in [
       ("ArrayStateBoundary", Tests.Language.ArrayTypesFixture.ArrayStateBoundary,
         "is not UInt64"),
@@ -790,6 +987,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("ArrayOptionParamBoundary",
         Tests.Language.ArrayTypesFixture.ArrayOptionParamBoundary,
+        "is not UInt64"),
+      ("ArrayBytesStateBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayBytesStateBoundary,
+        "is not UInt64"),
+      ("ArrayBytesResultBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayBytesResultBoundary,
+        "does not return UInt64"),
+      ("ArrayBytesParamBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayBytesParamBoundary,
         "is not UInt64")
     ] do
     let compiled ← match Compiler.compile sourceProgram with
