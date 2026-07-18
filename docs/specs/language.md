@@ -483,6 +483,17 @@ recursive legality、runtime representation、ABI 或 target nested-Option-Array
 `Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set；按
 冻结不重复完整 `just ci`，不得声明 nested Option/Array runtime semantics、完整 type grammar 或正式 D1 完成。
 
+D1-PA-65 冻结的 pre-acceptance alpha 子集只为已有 `option(array(field,length))` carrier 开放 exact
+same-line spelling `Option Array Field bn254_fr N`。`N` 复用 Array 的 canonical ASCII decimal `0..4096`
+policy，Field id 只接受 raw `bn254_fr`；tag 固定 `16→18→2→length`，requirements 精确传播单个
+`fieldBn254`。frontend 只能新增 named `optionArrayFieldType` 与 struct-field parser，decoder 复用既有
+Array length/raw Field policy；不得放宽 `optionArrayType`、`arrayType` 或 `portableType`，不得修改 ctor/tag、
+encoder、Typed 或 target。tests-only RED 只迁移既有一条 full Field Option Array negative，positive 覆盖
+all declaration positions including event/error 与双入口，四 target support 后 named requirement 拒绝且无
+artifact；invalid length/id、escaped/qualified constructors、extra/split payload 与 compounds 保持 fail closed。
+production 仅限 `Language/Syntax.lean` ≤32 additions/2 removals，GREEN 同步 package file-set；按冻结不重复
+完整 `just ci`，不得声明 Option/Array/Field runtime semantics、完整 type grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有

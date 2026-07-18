@@ -17,8 +17,8 @@
 | Formal milestone | **D0：7/9 done**；`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级），`TASK-D0-04` blocked，`TASK-D0-07` pending；尚未正式进入 D1 |
 | Active task | 无；当前没有可合法置为 `in_progress` 的正式 TASK |
 | Next task | **TASK-D0-04**（blocked；仍是表序中的下一个非 done 正式任务） |
-| Active development slice | 无；D1-PA-64 exact `Option Option Array PrimitiveAtom N` existing-carrier spelling 已完成实现与验证，待最终审查记录后 development 收口 |
-| Next development slice | 未冻结；PA-64 收口后按 declaration residual audit 选择单一 slice，禁止由 checkpoint 自动递增 |
+| Active development slice | **D1-PA-65 / TASK-D1-03 pre-acceptance**：exact `Option Array Field bn254_fr N` existing-carrier spelling；完成面已冻结，下一步提交 RED |
+| Next development slice | 未冻结；D1-PA-65 收口后再按 declaration residual audit 选择单一 slice，禁止由 checkpoint 自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | **TASK-D0-04** host seal broken + eligible Stage-0/authority/receipt 未闭合（ADR-0016 accepted 已立 linux host 路径，合格 Linux 机器可成第二条 eligible 路径；本机 SecureBoot disabled 仅 development 级）；D0-08/D0-09 已经 `GOV-PRECUTOVER-001` 关闭，darwin live 重观察为 P2 债务（截止 D0-07 关闭前）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |

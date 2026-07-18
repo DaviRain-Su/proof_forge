@@ -995,6 +995,17 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   qualified constructors/elements、extra/split payload 必须 exact fail closed。production 仅限 Syntax 一文件、
   最多 32 行新增/2 行移除并刷新 Lean package file-set；按冻结不重复 `just ci`，不得声明 nested Option/
   Array runtime semantics、完整 type grammar 或正式 D1 完成。
+- D1-PA-65 的 alpha tests 只开放 exact same-line `Option Array Field bn254_fr N`，物化为既有
+  `Source/Semantic.ValueType.option (.array .field length)`，tag 固定 `16→18→2→length`，长度复用
+  canonical ASCII decimal `0..4096`，raw Field id 固定 `bn254_fr`。tests-only RED 只修改
+  `Tests.Language.OptionDeclarations`，将既有一条 full Field Option Array parser-negative 迁移为 positive，
+  migration count 精确为一；positive 覆盖 length `0`/普通值/`4096`、state/struct/enum/const/init/entry/
+  view/fn/event/error positions 与 Lean command/ParserSession parity。requirements 必须恰为单个
+  `fieldBn254`；四 Phase 1 target support 后 named rejection、state/result/param Plan boundary 与 no artifact
+  均固定。missing/alternate/escaped/qualified Field id、invalid length、escaped/qualified Option/Array/Field
+  constructors、extra/split payload 与 Option Array compounds 必须 exact fail closed。production 仅限 Syntax 一
+  文件 ≤32 additions/2 removals，刷新 package file-set；按冻结不重复 `just ci`，不得声明 runtime semantics、
+  完整 type grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
