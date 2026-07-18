@@ -2031,3 +2031,43 @@ normative: false
 - Next：residual audit 已选择 shift-left `<<` 作为唯一下一 candidate；冻结前必须核准低于 AddExpr 的
   precedence、Expr tag `12`、shift-count zero Source boundary、left/right nesting、既有 negative migration
   集合与 exact Typed failure，不得捆绑 `>>`、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 shift-left pre-acceptance slice
+
+- Commits：freeze `97be1f2d`；tests-only RED `5f8766b6`；Source-only GREEN `b38e033e`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-31 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 新增 `shiftLeft lhs rhs`，alpha canonical encoder 以 Expr tag `12`
+  后依次递归编码 lhs/rhs；`pfExpr` 新增 `syntax:60 pfExpr:60 " << " pfExpr:61 : pfExpr`，严格
+  低于 AddExpr precedence `65` 并左结合。decoder/quotation 结构化保留 node；`Typed.checkExpr` 在
+  检查任一 operand 前逐字 fail closed 为 `shift left is not yet supported by typed checking`。
+  production 恰好只改 `Source.lean`、`Syntax.lean`、`Typed.lean` 3 文件/11 行，其他层未改。
+- Parser/AST：initializer、entry、view、fn 的 return/let value 与 Lean command/ParserSession parity 全绿；
+  `1<<2`、`2<<1`、`a<<b`、`1+2<<3`、`1<<2+3`、`8<<2*3`、`8*2<<3`、
+  `1<<2<<3`、`1<<(2<<3)`、`(1+2)<<3`、`-1<<2`、`1<<-2`、`0<<1` 精确固定
+  60/61 precedence、left/right nesting、grouping 与 unary placement。`1<<0`/`1<<64` 在 Source 接受，
+  count legality 留给 D2/target。
+- Binding：ShiftLeftTwin 的代表 goldens 为 `1<<2`
+  `9cef54adbb9d41fc6098537cba57f99c3c1aee3f784eef1ebcc0bee79659b52a`/225 bytes、`2<<1`
+  `2ea816eb5c33fb9a4db7ded3ce5559c895aa9750ba2a8ad75cd2eb67ad6ffaba`/225、`1+2<<3`
+  `afe2de8b02b34f3f2eac7fec021f711e712b1cccb84641e695ac257de3ff1b7c`/235、left nested
+  `77888b16028ea0a4c6eca69f983ce466f24cdad4640721cc96ffce7c57ae5047`/235、right nested
+  `289c76fa2d69cd10cda5f8a95d1655421575393a0e15be67895259a8d12da00f`/235、`1<<64`
+  `6ccb1d81aeb484b85841f78378f1e588b2ee457a685fb001a3c42f244709777b`/225；operator/order/count、
+  wrong precedence、left/right nesting、multiplicative shape 与 unary placement 均不 alias。
+- Boundaries：既有 tests 零迁移。bare/missing/repeated `<<`、`1 < < 2`、`1 <<< 2`、extra payload
+  停在 parser boundary，`1 >> 2` 保留为明确 deferred shift-right negative。Typed 对 malformed operand
+  仍先给 shift-left diagnostic；add positive 与 Bool/sub/mul/div/mod/neg/bitwise/logical exact controls 保持。
+- Review/Commands：Grok 完成 residual audit、RED 设计与 tests-only RED；Kimi 完成冻结、GREEN seam 与最终
+  三轮只读审计，最终 P0/P1=0；coordinator 完成严格 11 行 GREEN。执行
+  `lake build Tests.Language.ShiftLeft`；`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：14-job focused build、146-job aggregate 与测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0017`。按批量验证策略，完整 `just ci` 继续延后，未计入本条证据。
+- Limitations：仅有 Source carrier，没有 shift count/width/overflow、signed/arithmetic-vs-logical shift、
+  rotate、Typed/Semantic shift、constant folding、requirement、target ABI/runtime、eligible host 或 formal D1
+  evidence。只实现 `<<`，`ShiftExpr`、expression grammar 与 `TASK-D1-04` 仍未正式完成；D0 仍为 5/8。
+- Next：residual audit 已选择 shift-right `>>` 作为唯一下一 candidate；冻结前必须核准与 `<<` 同层的
+  precedence、Expr tag `13`、cross-shift nesting、zero/over-width Source boundary、ShiftLeft 中唯一 retention
+  negative 的迁移与 exact Typed failure；audit 已确认只迁移 `ShiftLeft.lean` 的 `1 >> 2` 一条，
+  arithmetic-vs-logical shift-right semantics 必须明确 deferred，不得捆绑 Semantic 或 target lowering。
