@@ -65,6 +65,18 @@ private def twin (stmt : Source.Statement) : Source.Program :=
     }
   ]
 
+private def returnTwin : Source.Program :=
+  Source.Program.buildQualified
+    "Tests.Language.RevertStatementsFixture.RevertTwin" "RevertTwin" #[
+    .entry {
+      name := "run"
+      params := #[]
+      result := .u64
+      mode := .mutate
+      body := #[.returnValue (.literal 0)]
+    }
+  ]
+
 private def surfaceSource : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
@@ -400,7 +412,7 @@ unsafe def run : IO Unit := do
       throw <| IO.userError "Typed must not accept revert with string arg"
 
   -- Existing statement controls still compile under RevertTwin identity.
-  match Compiler.compile (twin (.returnValue (.literal 0))) with
+  match Compiler.compile returnTwin with
   | .ok _ => pure ()
   | .error error =>
       throw <| IO.userError
