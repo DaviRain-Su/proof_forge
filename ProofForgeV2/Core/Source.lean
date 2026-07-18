@@ -110,6 +110,8 @@ structure ConstDecl where
   value : Expr
   deriving BEq, Inhabited, Repr
 
+abbrev IterationBound := Fin 4097
+
 inductive Statement where
   | assign (stateName : String) (value : Expr)
   | returnValue (value : Expr)
@@ -121,6 +123,7 @@ inductive Statement where
   | revertStmt (errorName : String) (args : Array Expr)
   | emitStmt (eventName : String) (args : Array Expr)
   | ifStmt (condition : Expr) (thenBody : Array Statement) (elseBody : Option (Array Statement))
+  | forStmt (iterator : String) (start stopExclusive : Expr) (maxIterations : IterationBound) (body : Array Statement)
   deriving BEq, Inhabited, Repr
 
 inductive EntryMode where
@@ -346,6 +349,9 @@ private partial def appendStatement (bytes : ByteArray) : Statement → ByteArra
       match elseBody with
       | none => appendTag bytes 0
       | some body => appendArray appendStatement (appendTag bytes 1) body
+  | .forStmt iterator start stopExclusive maxIterations body =>
+      let bytes := appendExpr (appendExpr (appendString (appendTag bytes 10) iterator) start) stopExclusive
+      appendArray appendStatement (appendNat bytes maxIterations.val) body
 
 private def appendEntryMode (bytes : ByteArray) : EntryMode → ByteArray
   | .mutate => appendTag bytes 0

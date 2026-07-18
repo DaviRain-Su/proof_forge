@@ -76,6 +76,11 @@ syntax "emit " ident "(" pfExpr,* ")" : pfStmt
     many1Indent (categoryParser `pfStmt 0) >>
     optional (checkColEq >> "else" >> checkLinebreakBefore >> checkColGt >>
       many1Indent (categoryParser `pfStmt 0)))
+@[pfStmt_parser default+1] def forStmt := leading_parser withPosition (
+    "for " >> ident >> checkLineEq >> " in " >> checkLineEq >> categoryParser `pfExpr 0 >>
+    checkLineEq >> " ..< " >> checkLineEq >> categoryParser `pfExpr 0 >> checkLineEq >>
+    " bounded " >> checkLineEq >> numLit >> checkLineEq >> " do" >> checkLinebreakBefore >>
+    checkColGt >> many1Indent (categoryParser `pfStmt 0))
 /-- Same-line annotated let (contextual, not a host Lean keyword). No low fallback. -/
 @[pfStmt_parser default+1] def letStmtAnnotated := leading_parser
   withPosition (
@@ -501,6 +506,18 @@ private partial def decodeStatementUnchecked : Syntax → Except String ProofFor
                 if body.isEmpty then throw "unsupported portable statement" else some <$> body.mapM decodeStatementUnchecked
             | _ => throw "unsupported portable statement"
           return .ifStmt condition thenBody elseBody
+      | `ProofForgeV2.Language.forStmt, #[.atom _ "for", iterator, .atom _ "in", start,
+          .atom _ "..<", stopExclusive, .atom _ "bounded", maxIterations, .atom _ "do",
+          .node _ `null body] => do
+          unless !body.isEmpty do throw "unsupported portable statement"
+          let maxIterations ← match decodeBytesLengthAtom maxIterations with
+            | .ok value => pure value.toNat
+            | .error _ => throw "unsupported portable statement"
+          let maxIterations : ProofForgeV2.Source.IterationBound ←
+            if h : maxIterations < 4097 then pure ⟨maxIterations, h⟩
+            else throw "unsupported portable statement"
+          return .forStmt (← decodeIdentifier iterator) (← decodeExprUnchecked start)
+            (← decodeExprUnchecked stopExclusive) maxIterations (← body.mapM decodeStatementUnchecked)
       | _, _ => throw "unsupported portable statement"
 
 def decodeStatement (stx : Syntax) : Except String ProofForgeV2.Source.Statement := do
@@ -1090,6 +1107,13 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
             let body ← body.mapM quoteStatement
             `(Option.some #[$[$body],*])
       `(ProofForgeV2.Source.Statement.ifStmt $condition #[$[$thenBody],*] $elseBody)
+  | .forStmt iterator start stopExclusive maxIterations body => do
+      let iterator := Syntax.mkStrLit iterator
+      let start ← quoteExpr start
+      let stopExclusive ← quoteExpr stopExclusive
+      let body ← body.mapM quoteStatement
+      `(ProofForgeV2.Source.Statement.forStmt $iterator $start $stopExclusive
+        $(quote maxIterations.val) #[$[$body],*])
 
 private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
     MacroM (TSyntax `term) := do
