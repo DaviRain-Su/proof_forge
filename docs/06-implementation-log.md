@@ -4021,6 +4021,37 @@ normative: false
 - Next：当前无 active development slice；下一 slice 未冻结，待 post-PA67 residual audit 后选择单一依赖闭合
   最小切片，禁止自动递增。
 
+## 2026-07-19 — D1 exact Option Array Bytes spelling pre-acceptance slice
+
+- Commits：freeze `1c30b470`；tests-only RED `5f6bd5dd`；Syntax/GREEN、canonical binding 与 Lean
+  package-file re-pin `367bb9f0`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-68 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：为既有 `Source/Semantic.ValueType.option (.array (.bytes innerLength) outerLength)` 开放
+  exact same-line `Option Array Bytes N M`；新增 named `optionArrayBytesType` 与 aggregate-field parser，
+  decoder 复用 `decodeArrayBytesValueTypeFromAtoms` 后只包一层 Option，专用 dispatch 位于 generic
+  `optionArrayType` 前。Source/Semantic ctor、encoder、Typed 与 target 未改。
+- Migration/Coverage：只迁移既有 `Option Array Bytes 8 4` negative 一条；覆盖 dual lengths
+  `0/0`、`8/4`、`4096/1`、state/struct/enum/const/init/entry/view/fn/event/error、双入口 parity、invalid
+  dual-length lexical classes、escaped/qualified/extra/split/compound negatives，以及四 target
+  support-vs-Plan/no-artifact。
+- Canonical/requirements：tag `16→18→17→innerLength→outerLength`。Source goldens 均 275 bytes，hash：
+  `9a501b89cd94fbb38a0fc895447ba4398f275cb3805eb1cf67b50b6210139003`、
+  `c9df46d40c57e0322a66509a8325df949d993e2aa3c23d41ef30aec968548e84`、
+  `98cda144856a7bdbf6369e94d0e08e0c3244539295356ce271fc0afa4b6e6543`；Semantic goldens 均 224 bytes，hash：
+  `0ef2abf0962545937b0fdb21520f870aaaae56cfe0421f3db523db1ecaaa82a6`、
+  `47c667ffb5935fa571e3df303bb58a27dd8cd339f23ca78d2a2195734f0e6cd4`、
+  `3f9694b1f83c3e9714d12d80d612965a2a941ef5fc3e05e18b2e772411ec543f`。requirements 精确为空；
+  non-UInt64 state/result/parameter 在 Plan invariant 拒绝且无 artifact。
+- Scope/Commands：production `Syntax.lean` 恰好 25 行新增/0 行移除；focused 23 jobs、aggregate
+  192 jobs、测试二进制 exit 0、`just sbom`（含 closure self-test）与 `git diff --check` 通过。Kimi final
+  review P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0064`；按冻结未重复完整 `just ci`。
+- Scope claim：只完成 existing-carrier spelling、canonical identity、zero requirements 与
+  support-vs-Plan boundary；不包括 array/bytes operations、任意 recursive grammar、runtime/ABI 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 状态以 checkpoint 当前值为准。
+- Next：当前无 active development slice；下一 slice 未冻结，待 post-PA68 residual audit 后选择单一依赖闭合
+  最小切片，禁止自动递增。
+
 ## 2026-07-19 — TASK-D0-04 pre-acceptance：TST-BOOTSTRAP-001 端到端验收 harness
 
 - Context：D0-04 仓库内 foundation 的 capstone——把 producer/store/handoff/
