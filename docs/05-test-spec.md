@@ -982,6 +982,19 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   引入 bytes runtime、none/some/unwrap、arbitrary recursive types、recursive legality、ABI 或 target
   nested-Option-Bytes support。focused/aggregate/test binary 和 independent review 全绿后收口；按冻结不重复
   `just ci`，不得声明 nested Option/Bytes runtime semantics、完整 type grammar 或正式 D1 完成。
+- D1-PA-64 的 alpha tests 只开放 exact same-line `Option Option Array PrimitiveAtom N`，并物化为既有
+  `Source/Semantic.ValueType.option (.option (.array element length))`。`PrimitiveAtom` 复用既有 15-atom
+  Array policy，长度复用 canonical ASCII decimal `0..4096`；tag 固定 `16→16→18→element→length`，不得
+  新增 ctor/tag、递归 grammar 或放宽 `optionOptionType`/`optionArrayType`/`arrayType`/`portableType`。
+  tests-only RED 只修改 `Tests.Language.OptionDeclarations`，把既有一条 `Option Option Array UInt64 4`
+  parser-negative 迁移为 positive，migration count 精确为一；incomplete `Option Option Array`、Field/
+  Bytes/Option/Array/Map/Named elements、third-layer Option 与既有 compound failure class 保持拒绝。
+  positive 覆盖 length `0`、普通值、`4096`、state/struct/enum/const/initializer/entry/view/fn/event/error
+  positions 与 Lean command/ParserSession parity。canonical Source/Semantic goldens、requirements transitive
+  propagation、四 Phase 1 target support 后的 non-UInt64 Plan rejection/no artifact、invalid length、escaped/
+  qualified constructors/elements、extra/split payload 必须 exact fail closed。production 仅限 Syntax 一文件、
+  最多 32 行新增/2 行移除并刷新 Lean package file-set；按冻结不重复 `just ci`，不得声明 nested Option/
+  Array runtime semantics、完整 type grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
