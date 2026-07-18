@@ -465,6 +465,25 @@ comparison、requirement、target behavior 或 runtime representation；producti
 Typed 3 文件/11 行 exact seam，其他层不得修改。本切片完成后只能称 `>` Source surface 已覆盖，
 不得宣称 `CompareExpr`、expression grammar 或 `TASK-D1-04` 正式完成。
 
+D1-PA-38 冻结的 pre-acceptance alpha greater-or-equal 子集新增 `Source.Expr.greaterEqual(lhs, rhs)`，
+parser 形状固定为 `syntax:50 pfExpr:51 " >= " pfExpr:51 : pfExpr`。它与五个既有 comparison
+共用 precedence `50`，两个 operand slot 都使用 `51`；same chain 与针对所有 siblings 的十种双向
+mixed chains 都必须 parser reject。Shift/Add/Mul/Unary 在两侧以更高 precedence 绑定；
+`1 >> 2 >= 3` 必须为 `(1 >> 2) >= 3`，`1 >= 2 >> 3` 必须为 `1 >= (2 >> 3)`。
+
+Source canonical encoder 以 append-only Expr tag `19` 后依次递归编码 lhs、rhs；既有 tags `0..18`
+与 goldens 不得改变。integer 与 Bool operands 都必须形成 Source node，operand legality 与 Bool result
+typing 属于 D2。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在检查任一 operand 前逐字
+fail closed 为 `greater-equal comparison is not yet supported by typed checking`。同一个 tests-only RED
+必须且只能把 `Equal.lean` 最后一条 deferred `1 >= 2` negative 迁移为 exact positive，并证明移除后
+reject list 仍有效。`1 > = 2`、`1 >>= 2` 与 `1 >= = 2` 必须拒绝，既有 `1 > 2`、`1 >> 2`
+以及 ShiftRight spaced/triple boundary 不得改变。
+本切片不得新增 bitwise/logical binary operator、Bool legality、constant folding、Typed/Semantic
+comparison、requirement、target behavior 或 runtime representation；production 必须限于 Source/Syntax/
+Typed 3 文件/11 行 exact seam。GREEN 后必须在 committed tree 上通过 CompareExpr 批量 `just ci`。
+完成后可称六个 comparison 的 CompareExpr Source surface 已覆盖，但仍不得宣称 expression grammar、
+Typed/Semantic comparison 或 `TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
