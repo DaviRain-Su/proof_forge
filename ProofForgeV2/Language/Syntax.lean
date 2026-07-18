@@ -25,6 +25,7 @@ declare_syntax_cat pfExpr
 syntax num : pfExpr
 syntax str : pfExpr
 syntax ident : pfExpr
+syntax:max ident "(" pfExpr,* ")" : pfExpr
 syntax:75 "-" pfExpr:75 : pfExpr
 syntax:75 "~" pfExpr:75 : pfExpr
 syntax:75 "!" pfExpr:75 : pfExpr
@@ -370,6 +371,10 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
       else
         .ok <| .literal (UInt64.ofNat number)
   | `(pfExpr| $value:str) => .ok <| .stringLiteral value.getString
+  | `(pfExpr| $callee:ident ($args:pfExpr,*)) => do
+      unless callee.getId.components.length == 1 do
+        throw "local function call callee must be unqualified"
+      return .localFnCall (← decodeIdentifier callee) (← args.getElems.mapM decodeExprUnchecked)
   | `(pfExpr| $name:ident) => do
       return .variable (← decodeIdentifier name)
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
@@ -865,6 +870,10 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
   | .stringLiteral value =>
       let value := Syntax.mkStrLit value
       `(ProofForgeV2.Source.Expr.stringLiteral $value)
+  | .localFnCall callee args => do
+      let callee := Syntax.mkStrLit callee
+      let args ← args.mapM quoteExpr
+      `(ProofForgeV2.Source.Expr.localFnCall $callee #[$[$args],*])
   | .variable value =>
       let value := Syntax.mkStrLit value
       `(ProofForgeV2.Source.Expr.variable $value)

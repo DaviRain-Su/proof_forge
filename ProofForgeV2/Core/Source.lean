@@ -99,6 +99,7 @@ inductive Expr where
   | logicalAnd (lhs rhs : Expr)
   | logicalOr (lhs rhs : Expr)
   | stringLiteral (value : String)
+  | localFnCall (callee : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
 structure ConstDecl where
@@ -311,6 +312,7 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .logicalAnd lhs rhs => appendExpr (appendExpr (appendTag bytes 23) lhs) rhs
   | .logicalOr lhs rhs => appendExpr (appendExpr (appendTag bytes 24) lhs) rhs
   | .stringLiteral value => appendString (appendTag bytes 25) value
+  | .localFnCall callee args => appendArray appendExpr (appendString (appendTag bytes 26) callee) args
 
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value
