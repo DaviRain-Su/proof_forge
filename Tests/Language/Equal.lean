@@ -404,7 +404,7 @@ unsafe def run : IO Unit := do
   expect (twin00.sourceHash != twin12.sourceHash)
     "0==0 must not alias 1==2"
 
-  -- Parser-boundary malformed / non-assoc / ordering-sibling retention.
+  -- Parser-boundary malformed / non-assoc equals shapes (ordering siblings migrated out).
   for (label, expr) in [
       ("bare equals", "=="),
       ("missing lhs", "== 2"),
@@ -413,8 +413,7 @@ unsafe def run : IO Unit := do
       ("spaced split", "1 = = 2"),
       ("triple equals", "1 === 2"),
       ("chained equality", "1 == 2 == 3"),
-      ("extra token", "1 == 2 3"),
-      ("ordering ge deferred", "1 >= 2")
+      ("extra token", "1 == 2 3")
     ] do
     let source := returnProgramSource "RejectedEqShape" expr
     let (_, result) ← IO.FS.withIsolatedStreams
