@@ -963,6 +963,25 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   recursive legality、runtime/ABI 或 target nested-Option-Field support。focused/aggregate/test binary 和
   independent review 全绿后收口；按冻结不重复 `just ci`，不得声明 nested Option/Field runtime semantics、
   完整 type grammar 或正式 D1 完成。
+- D1-PA-63 的 alpha tests 只开放 exact same-line `Option Option Bytes N`，并物化为既有
+  `Source/Semantic.ValueType.option (.option (.bytes length))`。长度 lexical/bound 精确复用 Bytes 的
+  canonical ASCII decimal `0..4096` policy；本切片显式 supersede PA56/PA62 的临时 nested-Bytes
+  rejection，但保持两层 Option wrapper 深度，third-layer Option 继续 deferred。不得新增 ctor/tag、递归
+  grammar，或放宽 `optionOptionType`/`optionBytesType`/`portableType` parser。tests-only RED 只修改
+  `Tests.Language.OptionDeclarations`，把既有一条 `Option Option Bytes 8` parser-negative 迁移为 positive，
+  migration count 精确为一；incomplete `Option Option Bytes` 继续拒绝，其他测试不得迁移。
+  positive 覆盖 length `0`、普通值、`4096`、state、struct field、enum payload、const、event/error parameter、
+  initializer/entry/view/fn parameter/result 与 Lean command/ParserSession parity。Source/Semantic canonical
+  goldens 必须固定 tag `16→16→17→length`，并与 bare Bytes、Option Bytes、Option Option PrimitiveAtom、
+  Option Option Field 及不同 length 做 byte-size/hash non-alias；新 golden 在 RED 中显式未绑定，独立 probe
+  后单独提交。requirements 必须为空；四个 Phase 1 target 通过 support resolver 后，non-UInt64 state/
+  result/parameter 必须由既有 Plan invariant 拒绝，且不得产出 artifact。missing/`4097`/leading-zero/hex/
+  underscore/signed/identifier length、escaped/qualified Option 或 Bytes constructor、extra/split payload 必须
+  exact fail closed；Option Option Array、third-layer Option、Map/Named 与既有 compound failure class 保持
+  原边界。production 仅限 Syntax 一文件、最多 32 行新增/2 行移除，并刷新 Lean package file-set；不得
+  引入 bytes runtime、none/some/unwrap、arbitrary recursive types、recursive legality、ABI 或 target
+  nested-Option-Bytes support。focused/aggregate/test binary 和 independent review 全绿后收口；按冻结不重复
+  `just ci`，不得声明 nested Option/Bytes runtime semantics、完整 type grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
