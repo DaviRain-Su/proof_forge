@@ -143,6 +143,35 @@ program ArrayOptionParamBoundary where
   entry echo(value : Array Option UInt64 4) : UInt64 do
     return 0
 
+program ArrayFieldSurface where
+  state scalars : Array Field bn254_fr 4
+
+  struct ScalarLimits where
+    empty : Array Field bn254_fr 0
+    maximum : Array Field bn254_fr 4096
+
+  enum ScalarBatch where
+    | Scalars(Array Field bn254_fr 4)
+    | Maximum(Array Field bn254_fr 4096)
+
+  const EmptyScalars : Array Field bn254_fr 0 := 0
+
+  init(initial : Array Field bn254_fr 4) do
+    scalars := initial
+
+  entry echo(value : Array Field bn254_fr 4) : Array Field bn254_fr 4 do
+    return value
+
+  view get() : Array Field bn254_fr 4 do
+    return scalars
+
+  fn keepMaximum(value : Array Field bn254_fr 4096) : Array Field bn254_fr 4096 do
+    return value
+
+program ArrayFieldBoundary where
+  entry echo(value : Array Field bn254_fr 4) : Array Field bn254_fr 4 do
+    return value
+
 end Tests.Language.ArrayTypesFixture
 
 namespace Tests.Language.ArrayTypes
@@ -221,6 +250,29 @@ private def arrayOptionSurfaceSource : String :=
   "  view get() : Array Option UInt64 4 do\n" ++
   "    return maybeValues\n\n" ++
   "  fn keepOptional(value : Array Option Principal 4096) : Array Option Principal 4096 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.ArrayTypesFixture\n"
+
+private def arrayFieldSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.ArrayTypesFixture\n\n" ++
+  "program ArrayFieldSurface where\n" ++
+  "  state scalars : Array Field bn254_fr 4\n\n" ++
+  "  struct ScalarLimits where\n" ++
+  "    empty : Array Field bn254_fr 0\n" ++
+  "    maximum : Array Field bn254_fr 4096\n\n" ++
+  "  enum ScalarBatch where\n" ++
+  "    | Scalars(Array Field bn254_fr 4)\n" ++
+  "    | Maximum(Array Field bn254_fr 4096)\n\n" ++
+  "  const EmptyScalars : Array Field bn254_fr 0 := 0\n\n" ++
+  "  init(initial : Array Field bn254_fr 4) do\n" ++
+  "    scalars := initial\n\n" ++
+  "  entry echo(value : Array Field bn254_fr 4) : Array Field bn254_fr 4 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Array Field bn254_fr 4 do\n" ++
+  "    return scalars\n\n" ++
+  "  fn keepMaximum(value : Array Field bn254_fr 4096) : Array Field bn254_fr 4096 do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.ArrayTypesFixture\n"
 
@@ -379,6 +431,52 @@ unsafe def run : IO Unit := do
     | .error error =>
         throw <| IO.userError s!"Array Option {spelling} 4 must parse: {error.render}"
 
+  let arrayFieldSurface := Tests.Language.ArrayTypesFixture.ArrayFieldSurface
+  expect (arrayFieldSurface.state.map (·.type) == #[.array .field 4])
+    "Array Field bn254_fr 4 state must survive Lean command elaboration"
+  match arrayFieldSurface.structs with
+  | #[limits] =>
+      expect (limits.name == "ScalarLimits" &&
+          limits.fields.map (·.type) == #[.array .field 0, .array .field 4096])
+        "Array Field struct fields must preserve exact field id and length"
+  | _ => throw <| IO.userError "ArrayFieldSurface must retain one struct"
+  match arrayFieldSurface.enums with
+  | #[batch] =>
+      expect (batch.name == "ScalarBatch" && batch.variants.map (·.payloadTypes) ==
+          #[#[.array .field 4], #[.array .field 4096]])
+        "Array Field enum payloads must preserve exact field id and length"
+  | _ => throw <| IO.userError "ArrayFieldSurface must retain one enum"
+  match arrayFieldSurface.consts with
+  | #[emptyScalars] =>
+      expect (emptyScalars.name == "EmptyScalars" && emptyScalars.type == .array .field 0)
+        "Array Field bn254_fr 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "ArrayFieldSurface must retain EmptyScalars"
+  match arrayFieldSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.array .field 4])
+        "Array Field initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "ArrayFieldSurface must retain initializer"
+  match arrayFieldSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.array .field 4] &&
+          echoEntry.result == .array .field 4 &&
+          getView.result == .array .field 4 && getView.mode == .view)
+        "Array Field entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "ArrayFieldSurface must retain echo and get"
+  match arrayFieldSurface.functions with
+  | #[keepMaximum] =>
+      expect (keepMaximum.params.map (·.type) == #[.array .field 4096] &&
+          keepMaximum.result == .array .field 4096)
+        "Array Field 4096 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "ArrayFieldSurface must retain keepMaximum"
+  match ← session.selectProgram arrayFieldSurfaceSource "<array-field-types>" none with
+  | .ok decoded =>
+      expect (decoded == arrayFieldSurface)
+        "Loader and Lean command must produce the same Array Field Source.Program"
+      expect (decoded.sourceHash == arrayFieldSurface.sourceHash)
+        "Loader and Lean command must produce the same Array Field sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let sourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Array UInt64 0", .array .u64 0, 247,
       "3ceb8bd535df35be7ffc11b0936fbb350edab1bbb5506400e0946e4404f7551f"),
@@ -474,12 +572,54 @@ unsafe def run : IO Unit := do
         s!"{label} semantic: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
   expect goldensBound "Array Option tag18+tag16 canonical goldens must be bound"
 
+  let arrayFieldSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Field bn254_fr 0", .array .field 0, 0, "UNBOUND"),
+    ("Array Field bn254_fr 4", .array .field 4, 0, "UNBOUND"),
+    ("Array Field bn254_fr 4096", .array .field 4096, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayFieldSourceVectors do
+    let sourceProgram := twin type
+    unless sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash do
+      goldensBound := false
+      IO.eprintln
+        s!"{label} source: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  expect ((twin (.array .field 0)).sourceHash != (twin .field).sourceHash &&
+      (twin (.array .field 0)).sourceHash != (twin (.array .u64 0)).sourceHash &&
+      (twin (.array .field 0)).sourceHash != (twin (.option .field)).sourceHash &&
+      (twin (.array .field 0)).sourceHash != (twin (.array (.option .u64) 0)).sourceHash &&
+      (twin (.array .field 0)).sourceHash != (twin (.array .field 4)).sourceHash)
+    "Array Field must bind Array/Field tags and complete length payload"
+
+  let arrayFieldSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Field bn254_fr 0", .array .field 0, 0, "UNBOUND"),
+    ("Array Field bn254_fr 4", .array .field 4, 0, "UNBOUND"),
+    ("Array Field bn254_fr 4096", .array .field 4096, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayFieldSemanticVectors do
+    let compiled ← match Compiler.compile (twin type) with
+      | .ok value => pure value
+      | .error error =>
+          throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    unless compiled.canonicalBytes.size == expectedSize && compiled.semanticHash == expectedHash do
+      goldensBound := false
+      IO.eprintln
+        s!"{label} semantic: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
+  expect goldensBound "Array Field tag18+tag2 canonical goldens must be bound"
+
   for (label, spelling) in [
       ("bare Array", "Array"),
       ("missing Array element", "Array 4"),
       ("missing Array length", "Array UInt64"),
       ("unknown Array element", "Array Mystery 4"),
       ("Field Array element", "Array Field 4"),
+      ("alternate Array Field id", "Array Field bls12_381_fr 4"),
+      ("escaped Array Field id", "Array Field «bn254_fr» 4"),
+      ("qualified Array Field id", "Array Field Curves.bn254_fr 4"),
+      ("over-bound Array Field length", "Array Field bn254_fr 4097"),
+      ("leading-zero Array Field length", "Array Field bn254_fr 01"),
+      ("hex Array Field length", "Array Field bn254_fr 0x10"),
+      ("underscore Array Field length", "Array Field bn254_fr 4_096"),
       ("Bytes Array element", "Array Bytes 4"),
       ("Option Array element", "Array Option 4"),
       ("unknown Array Option element", "Array Option Mystery 4"),
@@ -504,7 +644,15 @@ unsafe def run : IO Unit := do
   for (label, spelling) in [
       ("negative Array length", "Array UInt64 -1"),
       ("extra Array payload", "Array UInt64 4 Principal"),
-      ("full Field Array element", "Array Field bn254_fr 4"),
+      ("missing Array Field length", "Array Field bn254_fr"),
+      ("negative Array Field length", "Array Field bn254_fr -1"),
+      ("extra Array Field payload", "Array Field bn254_fr 4 UInt64"),
+      ("split Array Field id", "Array Field\n  bn254_fr 4"),
+      ("split Array Field length", "Array Field bn254_fr\n  4"),
+      ("escaped Array Field constructor", "«Array» Field bn254_fr 4"),
+      ("qualified Array Field constructor", "Std.Array Field bn254_fr 4"),
+      ("escaped Field constructor in Array", "Array «Field» bn254_fr 4"),
+      ("qualified Field constructor in Array", "Array Std.Field bn254_fr 4"),
       ("nested Bytes Array element", "Array Bytes 32 4"),
       ("nested Array Option element", "Array Option Option Bool 4"),
       ("nested Bytes Array Option element", "Array Option Bytes 8 4"),
@@ -598,6 +746,28 @@ unsafe def run : IO Unit := do
         throw <| IO.userError s!"Array Option Bool/{target} reached wrong failure: {other.render}"
     | .ok () =>
         throw <| IO.userError s!"Array Option Bool/{target} unexpectedly passed support"
+
+  let arrayFieldBoundary ← match Compiler.compile
+      Tests.Language.ArrayTypesFixture.ArrayFieldBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"ArrayFieldBoundary must compile: {error.render}"
+  expect (arrayFieldBoundary.requirements == #[.fieldBn254])
+    "Array Field must propagate fieldBn254 exactly once"
+  match arrayFieldBoundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.array .field 4] &&
+          echoEntry.result == .array .field 4)
+        "Source-to-Semantic adaptation must preserve Array Field id and length"
+  | _ => throw <| IO.userError "ArrayFieldBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target arrayFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Array Field support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError s!"Array Field/{target} reached wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError s!"Array Field/{target} unexpectedly passed support"
 
   for (label, sourceProgram, needle) in [
       ("ArrayStateBoundary", Tests.Language.ArrayTypesFixture.ArrayStateBoundary,
