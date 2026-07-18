@@ -31,6 +31,7 @@ syntax:65 pfExpr:65 " + " pfExpr:66 : pfExpr
 syntax:65 pfExpr:65 " - " pfExpr:66 : pfExpr
 syntax:70 pfExpr:70 " * " pfExpr:71 : pfExpr
 syntax:70 pfExpr:70 " / " pfExpr:71 : pfExpr
+syntax:70 pfExpr:70 " % " pfExpr:71 : pfExpr
 /-- Primary parenthesized grouping. High-precedence outer result; inner uses min
 precedence 0 so full `+`/`-`/`*` expressions remain legal inside. Desugars only. -/
 syntax:max "(" pfExpr:0 ")" : pfExpr
@@ -364,6 +365,8 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
       return .checkedMul (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| $lhs:pfExpr / $rhs:pfExpr) => do
       return .checkedDiv (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
+  | `(pfExpr| $lhs:pfExpr % $rhs:pfExpr) => do
+      return .checkedMod (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| - $operand:pfExpr) => do
       return .checkedNeg (← decodeExprUnchecked operand)
   | `(pfExpr| ~ $operand:pfExpr) => do
@@ -842,6 +845,10 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let lhs ← quoteExpr lhs
       let rhs ← quoteExpr rhs
       `(ProofForgeV2.Source.Expr.checkedDiv $lhs $rhs)
+  | .checkedMod lhs rhs => do
+      let lhs ← quoteExpr lhs
+      let rhs ← quoteExpr rhs
+      `(ProofForgeV2.Source.Expr.checkedMod $lhs $rhs)
   | .checkedNeg operand => do
       let operand ← quoteExpr operand
       `(ProofForgeV2.Source.Expr.checkedNeg $operand)
