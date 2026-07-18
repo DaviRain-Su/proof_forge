@@ -2416,3 +2416,17 @@ normative: false
 - Limitations：本批准不改变任何任务状态；`TASK-D0-09` 仍 pending，待独立变更集进入
   in_progress（唯一 in_progress 纪律 + TST-HOST-002 RED 先行）。darwin 回归仍需 darwin 机。
 - Next：`TASK-D0-09` in_progress（冻结包 `TASK-D0-09.json` 已预置，RED 先行）。
+
+## 2026-07-18 — TASK-D0-09 进入 in_progress（冻结生效）
+
+- Context：ADR-0016 已 accepted（见上一条）；`TASK-D0-09` 依赖 `TASK-D0-03` 早已 done，
+  冻结完成包 `docs/governance/task-freeze-packages/TASK-D0-09.json` 于
+  `6dc1d8365c02cd51a8b3365c5199597deda99b61` 预置，满足 GOV-TASK-FREEZE-001 §3 进入条件。
+- Changed：`docs/04-task-breakdown.md` D0-09 行 `pending → in_progress` 并改写立项注记；
+  `AGENTS.md` checkpoint（Active task=TASK-D0-09、Next task=TASK-D0-08、Known blocker
+  更新为 ADR-0016 accepted 口径）。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py`；`git diff --check`。
+- Limitations：状态变化不产生完成证据；TST-HOST-002 尚未存在，按纪律下一变更集先 RED。
+  `d7eec17d` 的 linux toolchain/host 机制为 pre-acceptance development 证据，需经
+  TST-HOST-002 正负例验收后才计入本任务完成面。
+- Next：审计 `d7eec17d` 落地面 vs 冻结包 8 条 inScope → 提交 TST-HOST-002 RED。

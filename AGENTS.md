@@ -14,14 +14,14 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：5/9 done**；`TASK-D0-04` blocked，`TASK-D0-07`/`TASK-D0-08`/`TASK-D0-09` pending（D0-09 待 ADR-0016 批准）；尚未正式进入 D1 |
-| Active task | 无；当前没有可合法置为 `in_progress` 的正式 TASK |
-| Next task | **TASK-D0-04**（blocked；仍是依赖序中的下一个正式任务） |
+| Formal milestone | **D0：5/9 done**；`TASK-D0-04` blocked，`TASK-D0-09` in_progress（ADR-0016 已 accepted），`TASK-D0-07`/`TASK-D0-08` pending；尚未正式进入 D1 |
+| Active task | **TASK-D0-09**：Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变（冻结包 `TASK-D0-09.json`） |
+| Next task | **TASK-D1-01**（按任务表位置序镜像的下一非 done 行；D0 收口调度——D0-08/D0-07 优先——以任务表为准） |
 | Active development slice | **D1-PA-39 / TASK-D1-04 pre-acceptance**：binary bitwise-and `&` Source-only carrier；完成面已冻结，下一步提交 RED |
 | Next development slice | 未冻结；D1-PA-39 收口后再按 expression residual audit 选择单一 slice，禁止自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-04** host seal broken + eligible Stage-0/authority/receipt 未闭合（ADR-0016 proposed 已立 linux host 路径，合格 Linux 机器可成第二条 eligible 路径）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
+| Known blocker | **TASK-D0-04** host seal broken + eligible Stage-0/authority/receipt 未闭合（ADR-0016 accepted 已立 linux host 路径，合格 Linux 机器可成第二条 eligible 路径；本机 SecureBoot disabled 仅 development 级）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
