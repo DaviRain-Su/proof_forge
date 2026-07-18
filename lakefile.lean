@@ -45,6 +45,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.Equal,
     `Tests.Language.NotEqual,
     `Tests.Language.LessThan,
+    `Tests.Language.LessEqual,
     `Tests.Language.PrimitiveDeclarations,
     `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,
