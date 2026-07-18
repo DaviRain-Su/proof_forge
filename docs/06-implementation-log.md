@@ -3735,6 +3735,47 @@ normative: false
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA62 declaration residual
   audit，再选择单一依赖闭合最小切片，禁止自动递增。
 
+## 2026-07-19 — D1 exact nested Option Array PrimitiveAtom spelling pre-acceptance slice
+
+- Commits：freeze `de508b9e`；tests-only RED `75e68778`；canonical golden binding/test correction
+  `bee37a16`；Syntax-only GREEN `f232cce1`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-64 development evidence，不改变
+  `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 recursive `Source/Semantic.ValueType.option (.option (.array element length))`
+  开放 exact same-line `Option Option Array PrimitiveAtom N`。新增 named
+  `optionOptionArrayType` 与 struct-field 对应 parser；decoder 复用 `decodeArrayValueTypeFromAtoms`
+  的 PrimitiveAtom 与 canonical ASCII decimal `0..4096` policy，再包两层 Option。既有
+  `optionOptionType`、`optionArrayType`、`arrayType`、`portableType`、Source/Semantic ctor、encoder、
+  quotation、Typed 与 target 均未改。
+- Migration/Coverage：仅把既有 `Option Option Array UInt64 4` parser-negative 迁移为 positive，migration
+  count 恰为一；不完整 nested Array 继续拒绝。Lean command/ParserSession 双入口覆盖 length `0`/`4`/`4096`、
+  UInt64/Bool/Principal、state/struct/enum/const/initializer/entry/view/fn/event/error positions。invalid
+  length/element、escaped/qualified constructors、extra/split payload、third-layer Option、Array/Bytes/
+  Field/Map/Named compounds 均 fail closed。
+- Canonical/requirements：tag `16→16→18→element→length` 的 Source goldens 均 261 bytes，hash 为
+  `91e1335dc7c231c7ca6106d45a55e34fe6264cd81bf23bd96012eb4e9a0da9be`、
+  `646ead3a3d0849ef7d59056841b55ed904cc1e1f52903821ce49c6bddfe17437`、
+  `dbafb03f61f3dc818b18d9db0a32acc304c262c695ef029e8533ee341c786fc1`、
+  `423f49bfb2dbe64cbf4eb5545d23b9bda194d715ca08653a175d662c64328467`；Semantic goldens 为 210/210/210/211
+  bytes，hash 为 `e618343536fd197f75752375e62e47d724f2696dd52f62cf51dd8dba50899e5c`、
+  `fcafc27cecf27d57a0e4614bd81bf683585294869c0b351fd44aed704e29564a`、
+  `f280603177b1e0c252778d07b9b8a7fb3e076d9461613257efea99f16ae61e34`、
+  `1149d58e31a402b298be0a8baf5a1b6479bb14522294e7e9144c90e532273248`。requirements 递归传播：UInt64
+  为空、Bool 为单个 `boolValues`；四 target support 后 non-UInt64 state/result/parameter 由既有 Plan
+  invariant 拒绝且无 artifact。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，27 行新增/0 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；`lake build
+  proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just
+  sbom-package-files-refresh`、`git diff --check` 全绿。Grok RED/residual review P0=0；Kimi final review
+  pending；development evidence 为 `EV-20260719-0060`。本切片按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirements 与 support-vs-Plan
+  boundary。不包括 array value/index/slice/length operations、none/some/unwrap、任意 recursive grammar、
+  recursive legality、runtime representation、ABI 或 target nested-Option-Array support。
+- Limitations：不得声明 nested Option/Array runtime semantics、完整 type grammar、eligible host 或 formal
+  D1 evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；下一 slice 未冻结，待 final review 后重新做 post-PA64 declaration
+  residual audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
 ## 2026-07-19 — D1 exact nested Option Bytes spelling pre-acceptance slice
 
 - Commits：freeze `fd8af0a9`；single-migration tests-only RED `c9e72cf4`；canonical golden binding
