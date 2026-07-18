@@ -1383,6 +1383,26 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Source/Syntax/Typed 3 文件、最多 16 行新增且不移除既有 production。focused/aggregate/test binary 与
   final reviews 全绿后收口；PA49 已运行 statement checkpoint，本切片不重复 `just ci`，不得声明完整
   event semantics、statement grammar 或正式 D1 完成。
+- D1-PA-51 的 alpha assert-error tests 新增 append-only
+  `Source.Statement.assertErrorStmt(condition : Expr, errorName : String)`，补齐
+  `assert Expr else Ident` optional-error Source 分支；既有 bare `assertStmt`/tag `4`/surface/goldens 不变。
+  parser 的 longer error rule 必须位于 bare assert rule 前并完整消费 `else Ident`。positive 覆盖
+  initializer、entry、view、fn 的 Lean command/ParserSession parity，literal/Bool/variable/operator/group
+  condition 与普通/等价 escaped error name。decoder 必须先做 single-component error-name guard 和 portable
+  validation，再解码 condition；qualified/reserved name 必须在 overflow/Bool/string condition 前得到 exact
+  name diagnostic。Source canonical encoder 使用 append-only Statement tag `8`，再编码 condition 与
+  errorName；固定 condition value/tree、error name、tag `8` 对 bare assert/revert/emit/return 的 non-alias，
+  tags `0..7` 与既有 goldens 不变。
+  tests-only RED 必须且只能删除 `AssertStatements.lean` 中 `assert true else Failure` 一条 deferred
+  negative，并在同一 suite 加入 positive/negative/canonical/Typed controls；不得新注册 module 或迁移
+  其他 suite。missing error name、qualified/reserved error name、`Failure()`/`Failure(1)`、duplicate `else`、
+  extra payload 与 block-like shape 必须拒绝；bare assert、bare/escaped keyword assignment、assertValue 与
+  原 tag-4 goldens 保持。`Typed.checkStatement` 必须在 condition checking、error lookup 与 Bool/effect
+  analysis前返回既有 exact `assert statements are not yet supported by typed checking`；error-table-only
+  program 继续得到既有 generic diagnostic。本切片不得实现 error resolution/Bool typing/failure semantics、
+  Semantic/requirement/effect/ABI/runtime/target；production 限 Source/Syntax/Typed 3 文件、最多 14 行新增且
+  不移除既有 production。focused/aggregate/test binary 与 final reviews 全绿后收口；按冻结不运行
+  `just ci`，不得声明完整 assert semantics、statement grammar 或正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
