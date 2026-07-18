@@ -84,7 +84,7 @@ normative: true
 | TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding（FX-2026-07-17-D0-05：inventory+CycloneDX development gate） | TASK-D0-03 | — | TST-SBOM-001 | EV-20260717-0033 | done |
 | TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0035 | done |
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | pending |
-| TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | — | in_progress |
+| TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0039 | blocked |
 | TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0037, EV-20260718-0038 | blocked |
 
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
@@ -106,6 +106,16 @@ RED→GREEN，linux tool-root lane 本地复跑与合并树 `just ci` 全绿（`
 `just host-stage0-development`、`just ci` 且 TST-HOST-001 语义不变；(b) pre-cutover 关闭
 路径须治理裁决——docs-check 在 `TASK-D0-07` 前拒绝 formal EV 且本任务不在 genesis 集合，
 冻结完成面不得改胖，解除 blocker 后回到原冻结包关闭。
+
+`TASK-D0-08` 于 2026-07-18 进入 `in_progress`（counts 盘点固化后的完整冻结包
+[`task-freeze-packages/TASK-D0-08.json`](governance/task-freeze-packages/TASK-D0-08.json)），
+同日完成 TST-SBOM-002 RED（`904f8eb6`）与全 31 例 GREEN（`EV-20260718-0039`）：
+SB2-001..031 + LEGACY-NOT-GREEN 共 32 例与 SB2-028 逐点 fault injection 全绿，
+locked-jv 对 pinned CycloneDX schema 实测 schema/instance ok。doneWhen 第 1–3 条与第 5
+条已满足；第 4 条关闭路径为外部前置（GOV-TASK-FREEZE-001 §4 R5）——本任务不在
+genesis 集合，docs-check 在 `TASK-D0-07` 前拒绝 formal EV，按冻结包约定"保持实现+TST
+全绿待关闭并升级治理裁决"，故转 `blocked`；解除 blocker 后回到原冻结包关闭，完成面
+不得改胖。
 
 ## Milestone D1：语言前端
 
