@@ -207,8 +207,13 @@ unsafe def run : IO Unit := do
     "revert Err () must share Source with bare under identical identity"
 
   -- One / multi args.
+  -- Longest-match control: parenthesized rule must win over bare strict-prefix
+  -- fallback. If bare swallowed `revert Err` first, `(1)` would be leftover
+  -- payload and fail at the statement parser instead of forming one arg.
   let one ← select session (bodyProgramSource "One" "revert Err(1)") "<rev-one>"
   expectBody "revert Err(1)" one (.revertStmt "Err" #[.literal 1])
+  expect (one != bare)
+    "revert Err(1) must not collapse to bare revert Err (parenthesized longest match)"
 
   let multi ← select session
     (bodyProgramSource "Multi" "revert Multi(1, 2)") "<rev-multi>"
