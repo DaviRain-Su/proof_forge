@@ -255,6 +255,8 @@ private def checkStatement (scope : Scope) (mode : EntryMode) :
         throw <| .invalidProgram s!"assignment to state '{stateName}' in {scope.owner} has a type mismatch"
       return .assign state.id value
   | .returnValue value => .returnValue <$> checkExpr scope value
+  | .returnUnit =>
+      throw <| .invalidProgram "value-less return is not yet supported by typed checking"
   | .synchronousCall callee =>
       if mode == .view then
         invalid s!"view '{scope.owner}' cannot perform synchronous call '{callee}'"
@@ -334,6 +336,8 @@ def check (source : Source.Program) : CompileResult Program := do
   if !source.errors.isEmpty then
     throw <| .invalidProgram "error declarations are not yet supported by typed checking"
   if !source.functions.isEmpty then
+    if source.functions.any (fun f => f.body.any (· == .returnUnit)) then
+      throw <| .invalidProgram "value-less return is not yet supported by typed checking"
     throw <| .invalidProgram "fn declarations are not yet supported by typed checking"
   if !source.invariants.isEmpty then
     throw <| .invalidProgram "invariant declarations are not yet supported by typed checking"
