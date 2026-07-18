@@ -3039,3 +3039,31 @@ normative: false
   不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
 - Next：当前无 active development slice；下一 slice 未冻结，必须先完成 expression residual audit，
   再选择单一依赖闭合的最小切片，禁止自动递增。
+
+## 2026-07-18 — TST-SBOM-002 收尾：SB2-028 逐点 fault injection 与 SB2-030 locked-jv 实测
+
+- Context：phase-2 留下两处低于 spec 的口径（SB2-028 仅基础 no-clobber、SB2-030 因
+  环境无 jv 只做 consumer 拒绝）；本变更把它们补齐到 spec 全量语义。同时合并第三轮
+  D1 并行线（value-less return 等 10 提交），按新契约重钉 lean package file-set。
+- Changed：`scripts/sbom_closure.py` 的 `write_sidecars_atomic` 增加 test-only
+  fault-injection seam（`_IO_FAULTS` + write/fsync-file/chmod/fsync-staging/rename/
+  fsync-parent 六个注入点；rename 前失败 staging 清零零输出，fsync-parent 失败报
+  PF-OUTPUT-ATOMICITY 且 destination 保持完整可验证，绝不报成功）；生产路径 seam 为空，
+  非 SbomClosureError 异常统一包装为 PF-OUTPUT-ATOMICITY。
+  `scripts/sbom_closure_self_test.py` 新增 `SB2-028-FAULTS`（5 个 pre-rename 点逐一
+  注入 + KeyboardInterrupt signal stand-in + fsync-parent 完整保留 + verify-existing
+  确认）；SB2-030 增加 locked-jv 腿：仅在 jv 二进制 sha256 与平台 lock 的
+  `tools[jv].executableSha256` 精确相等时才调用（`PROOF_FORGE_TOOL_ROOT`、
+  `build/tool-root/<platform>`、默认 cache 三处候选，ambient jv 永不替代）。
+- Verification：`/usr/bin/python3 -I -S scripts/sbom_closure_self_test.py` ok
+  （33/33）；locked jv（`build/tool-root/linux-x86_64/jv`，digest 与 lock pin 一致）
+  对 `supply-chain/standards/cyclonedx-bom-1.6.schema.json` + 生成的 `bom.cdx.json`
+  实测 `schema ok / instance ok`；`just sbom-package-files-refresh` 重钉 30 文件
+  （value-less return 合并后漂移修复）；`/usr/bin/python3 -I -S scripts/docs_check.py`
+  ok；`git diff --check` clean。前条 phase-2 日志中"SB2-028 保留基础版、jv 未接入"
+  的限制自本条起作废。
+- Limitations：signal 腿以 KeyboardInterrupt stand-in 代替 OS signal 注入；
+  `TASK-D0-08` 仍 in_progress（关闭需 pre-cutover 治理裁决）；darwin 机回归与
+  jv 在 darwin tool root 的等效验证未在本机执行。
+- Next：全量 `just ci` → push；`TASK-D0-08` 待治理裁决关闭；`TASK-D0-09` 待 darwin
+  回归与同一裁决。
