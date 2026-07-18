@@ -9,28 +9,37 @@ open ProofForgeV2.Language
 program OptionSurface where
   state maybeCount : Option UInt64
   state maybeScalar : Option Field bn254_fr
+  state nestedCount : Option Option UInt64
 
   struct Pair where
     enabled : Option Bool
     owner : Option Principal
     scalar : Option Field bn254_fr
+    nestedEnabled : Option Option Bool
 
   enum Tag where
     | MaybeUnit(Option Unit)
     | MaybeCount(Option UInt64)
     | MaybeScalar(Option Field bn254_fr)
+    | MaybeNestedCount(Option Option UInt64)
 
   const Seed : Option UInt64 := 0
   const FieldSeed : Option Field bn254_fr := 0
+  const NestedFlag : Option Option Bool := 0
 
-  init(initial : Option UInt64, scalar : Option Field bn254_fr) do
+  init(initial : Option UInt64, scalar : Option Field bn254_fr,
+      nestedInitial : Option Option UInt64) do
     maybeCount := initial
     maybeScalar := scalar
+    nestedCount := nestedInitial
 
   entry echo(value : Option UInt64) : Option UInt64 do
     return value
 
   entry echoField(value : Option Field bn254_fr) : Option Field bn254_fr do
+    return value
+
+  entry echoNested(value : Option Option UInt64) : Option Option UInt64 do
     return value
 
   view get() : Option UInt64 do
@@ -39,10 +48,16 @@ program OptionSurface where
   view getField() : Option Field bn254_fr do
     return maybeScalar
 
+  view getNested() : Option Option UInt64 do
+    return nestedCount
+
   fn ident(value : Option Principal) : Option Principal do
     return value
 
   fn identField(value : Option Field bn254_fr) : Option Field bn254_fr do
+    return value
+
+  fn identNested(value : Option Option Bool) : Option Option Bool do
     return value
 
 end Tests.Language.OptionDeclarationsFixture
@@ -61,6 +76,14 @@ program OptionBoolBoundary where
 
 program OptionFieldBoundary where
   entry echo(value : Option Field bn254_fr) : Option Field bn254_fr do
+    return value
+
+program NestedOptionBoundary where
+  entry echo(value : Option Option UInt64) : Option Option UInt64 do
+    return value
+
+program NestedOptionBoolBoundary where
+  entry echo(value : Option Option Bool) : Option Option Bool do
     return value
 
 end Tests.Language.OptionDeclarationsFixture
@@ -96,6 +119,33 @@ program OptionParamBoundary where
   entry echo(value : Option UInt64) : UInt64 do
     return 0
 
+program NestedOptionStateBoundary where
+  state value : Option Option UInt64
+
+  init(initial : Option Option UInt64) do
+    value := initial
+
+  view get() : Option Option UInt64 do
+    return value
+
+program NestedOptionResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option UInt64) : Option Option UInt64 do
+    return value
+
+program NestedOptionParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option UInt64) : UInt64 do
+    return 0
+
 end Tests.Language.OptionDeclarationsFixture
 
 namespace Tests.Language.OptionDeclarations
@@ -124,30 +174,42 @@ private def surfaceSource : String :=
   "program OptionSurface where\n" ++
   "  state maybeCount : Option UInt64\n\n" ++
   "  state maybeScalar : Option Field bn254_fr\n\n" ++
+  "  state nestedCount : Option Option UInt64\n\n" ++
   "  struct Pair where\n" ++
   "    enabled : Option Bool\n" ++
   "    owner : Option Principal\n" ++
-  "    scalar : Option Field bn254_fr\n\n" ++
+  "    scalar : Option Field bn254_fr\n" ++
+  "    nestedEnabled : Option Option Bool\n\n" ++
   "  enum Tag where\n" ++
   "    | MaybeUnit(Option Unit)\n" ++
   "    | MaybeCount(Option UInt64)\n" ++
-  "    | MaybeScalar(Option Field bn254_fr)\n\n" ++
+  "    | MaybeScalar(Option Field bn254_fr)\n" ++
+  "    | MaybeNestedCount(Option Option UInt64)\n\n" ++
   "  const Seed : Option UInt64 := 0\n\n" ++
   "  const FieldSeed : Option Field bn254_fr := 0\n\n" ++
-  "  init(initial : Option UInt64, scalar : Option Field bn254_fr) do\n" ++
+  "  const NestedFlag : Option Option Bool := 0\n\n" ++
+  "  init(initial : Option UInt64, scalar : Option Field bn254_fr,\n" ++
+  "      nestedInitial : Option Option UInt64) do\n" ++
   "    maybeCount := initial\n\n" ++
   "    maybeScalar := scalar\n\n" ++
+  "    nestedCount := nestedInitial\n\n" ++
   "  entry echo(value : Option UInt64) : Option UInt64 do\n" ++
   "    return value\n\n" ++
   "  entry echoField(value : Option Field bn254_fr) : Option Field bn254_fr do\n" ++
+  "    return value\n\n" ++
+  "  entry echoNested(value : Option Option UInt64) : Option Option UInt64 do\n" ++
   "    return value\n\n" ++
   "  view get() : Option UInt64 do\n" ++
   "    return maybeCount\n\n" ++
   "  view getField() : Option Field bn254_fr do\n" ++
   "    return maybeScalar\n\n" ++
+  "  view getNested() : Option Option UInt64 do\n" ++
+  "    return nestedCount\n\n" ++
   "  fn ident(value : Option Principal) : Option Principal do\n" ++
   "    return value\n\n" ++
   "  fn identField(value : Option Field bn254_fr) : Option Field bn254_fr do\n" ++
+  "    return value\n\n" ++
+  "  fn identNested(value : Option Option Bool) : Option Option Bool do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
 
@@ -179,49 +241,59 @@ private def expectParserRejected (label source : String)
 
 unsafe def run : IO Unit := do
   let elaborated := Tests.Language.OptionDeclarationsFixture.OptionSurface
-  expect (elaborated.state.map (·.type) == #[.option .u64, .option .field])
-    "Option UInt64/Field state must survive Lean command elaboration"
+  expect (elaborated.state.map (·.type) ==
+      #[.option .u64, .option .field, .option (.option .u64)])
+    "Option UInt64/Field/nested state must survive Lean command elaboration"
   match elaborated.structs with
   | #[pair] =>
       expect (pair.name == "Pair" &&
-          pair.fields.map (·.type) == #[.option .bool, .option .principal, .option .field])
-        "Option Bool/Principal/Field struct fields must preserve element types"
+          pair.fields.map (·.type) ==
+            #[.option .bool, .option .principal, .option .field, .option (.option .bool)])
+        "Option Bool/Principal/Field/nested struct fields must preserve element types"
   | _ => throw <| IO.userError "OptionSurface must retain one struct"
   match elaborated.enums with
   | #[tag] =>
       expect (tag.name == "Tag" && tag.variants.map (·.payloadTypes) ==
-          #[#[.option .unit], #[.option .u64], #[.option .field]])
-        "Option Unit/UInt64/Field enum payloads must preserve element types"
+          #[#[.option .unit], #[.option .u64], #[.option .field],
+            #[.option (.option .u64)]])
+        "Option Unit/UInt64/Field/nested enum payloads must preserve element types"
   | _ => throw <| IO.userError "OptionSurface must retain one enum"
   match elaborated.initializer with
   | some initializer =>
-      expect (initializer.params.map (·.type) == #[.option .u64, .option .field])
-        "Option UInt64/Field initializer parameters must survive elaboration"
+      expect (initializer.params.map (·.type) ==
+          #[.option .u64, .option .field, .option (.option .u64)])
+        "Option UInt64/Field/nested initializer parameters must survive elaboration"
   | none => throw <| IO.userError "OptionSurface must retain initializer"
   match elaborated.entries with
-  | #[echoEntry, echoField, getView, getField] =>
+  | #[echoEntry, echoField, echoNested, getView, getField, getNested] =>
       expect (echoEntry.params.map (·.type) == #[.option .u64] &&
           echoEntry.result == .option .u64 && getView.result == .option .u64 &&
           getView.mode == .view &&
           echoField.params.map (·.type) == #[.option .field] &&
           echoField.result == .option .field && getField.result == .option .field &&
-          getField.mode == .view)
-        "Option UInt64/Field entry/view types must survive elaboration"
-  | _ => throw <| IO.userError "OptionSurface must retain four entries/views"
+          getField.mode == .view &&
+          echoNested.params.map (·.type) == #[.option (.option .u64)] &&
+          echoNested.result == .option (.option .u64) &&
+          getNested.result == .option (.option .u64) && getNested.mode == .view)
+        "Option UInt64/Field/nested entry/view types must survive elaboration"
+  | _ => throw <| IO.userError "OptionSurface must retain six entries/views"
   match elaborated.functions with
-  | #[identFn, identField] =>
+  | #[identFn, identField, identNested] =>
       expect (identFn.params.map (·.type) == #[.option .principal] &&
           identFn.result == .option .principal &&
           identField.params.map (·.type) == #[.option .field] &&
-          identField.result == .option .field)
-        "Option Principal/Field fn parameter/results must survive elaboration"
-  | _ => throw <| IO.userError "OptionSurface must retain ident and identField"
+          identField.result == .option .field &&
+          identNested.params.map (·.type) == #[.option (.option .bool)] &&
+          identNested.result == .option (.option .bool))
+        "Option Principal/Field/nested fn parameter/results must survive elaboration"
+  | _ => throw <| IO.userError "OptionSurface must retain ident, identField and identNested"
   match elaborated.consts with
-  | #[seed, fieldSeed] =>
+  | #[seed, fieldSeed, nestedFlag] =>
       expect (seed.name == "Seed" && seed.type == .option .u64 &&
-          fieldSeed.name == "FieldSeed" && fieldSeed.type == .option .field)
-        "Option UInt64/Field const types must survive elaboration"
-  | _ => throw <| IO.userError "OptionSurface must retain Seed and FieldSeed"
+          fieldSeed.name == "FieldSeed" && fieldSeed.type == .option .field &&
+          nestedFlag.name == "NestedFlag" && nestedFlag.type == .option (.option .bool))
+        "Option UInt64/Field/nested const types must survive elaboration"
+  | _ => throw <| IO.userError "OptionSurface must retain Seed, FieldSeed and NestedFlag"
 
   let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<option-declarations>" none with
@@ -260,6 +332,33 @@ unsafe def run : IO Unit := do
         "c50aab8c944ed3db26737aa7f9edcfbd7122cd828b7c4c859237bbc3537b6229")
     s!"Option Field semantic golden is unbound: size={optionFieldSemantic.canonicalBytes.size}, hash={optionFieldSemantic.semanticHash}"
 
+  let nestedSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option UInt64", .option (.option .u64), 0, "UNBOUND"),
+    ("Option Option Bool", .option (.option .bool), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in nestedSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag16+tag16 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  expect ((twin (.option (.option .u64))).sourceHash != (twin .u64).sourceHash &&
+      (twin (.option (.option .u64))).sourceHash != (twin (.option .u64)).sourceHash &&
+      (twin (.option (.option .u64))).sourceHash !=
+        (twin (.option (.option .bool))).sourceHash)
+    "nested Option must bind both tag16 layers and the element payload"
+
+  let nestedSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option UInt64", .option (.option .u64), 0, "UNBOUND"),
+    ("Option Option Bool", .option (.option .bool), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in nestedSemanticVectors do
+    let sourceProgram := twin type
+    let semantic ← match Compiler.compile sourceProgram with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
+      s!"{label} semantic tag16+tag16 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
+
   for (label, name, spelling) in [
       ("plural option", "PluralOptionType", "Options UInt64"),
       ("escaped option", "EscapedOptionType", "«Option» UInt64"),
@@ -270,13 +369,27 @@ unsafe def run : IO Unit := do
       ("alternate Field identifier", "AlternateOptionFieldId", "Option Field bls12_381_fr"),
       ("escaped Field identifier", "EscapedOptionFieldId", "Option Field «bn254_fr»"),
       ("qualified Field identifier", "QualifiedOptionFieldId", "Option Field Curves.bn254_fr"),
+      ("missing nested element", "MissingNestedOptionElement", "Option Option"),
+      ("unknown nested element", "UnknownNestedOptionElement", "Option Option Mystery"),
+      ("Field nested element", "FieldNestedOptionElement", "Option Option Field"),
+      ("escaped nested element", "EscapedNestedOptionElement", "Option Option «Bool»"),
       ("Map option element", "MapOptionElement", "Option Map UInt64 Bool")
     ] do
     expectUnsupportedType label
       (← session.parsePrograms (negativeSource name spelling) s!"<option-{label}>")
 
   for (label, spelling) in [
-      ("nested option", "Option Option UInt64"),
+      ("third nested option", "Option Option Option Bool"),
+      ("full Field nested option", "Option Option Field bn254_fr"),
+      ("full Bytes nested option", "Option Option Bytes 8"),
+      ("full Array nested option", "Option Option Array UInt64 4"),
+      ("full Map nested option", "Option Option Map UInt64 Bool"),
+      ("extra nested option payload", "Option Option UInt64 Principal"),
+      ("split nested option", "Option Option\n  UInt64"),
+      ("escaped inner Option constructor", "Option «Option» Bool"),
+      ("escaped outer Option constructor", "«Option» Option Bool"),
+      ("qualified outer Option constructor", "Std.Option Option Bool"),
+      ("qualified nested element", "Option Option Std.Bool"),
       ("extra option payload", "Option UInt64 Principal"),
       ("extra Field option payload", "Option Field bn254_fr UInt64"),
       ("split Field option", "Option Field\n  bn254_fr"),
@@ -317,6 +430,35 @@ unsafe def run : IO Unit := do
         throw <| IO.userError s!"Option Bool/{target} reached wrong failure: {other.render}"
     | .ok () => throw <| IO.userError s!"Option Bool/{target} unexpectedly passed support"
 
+  let nestedBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.NestedOptionBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"NestedOptionBoundary must compile: {error.render}"
+  expect (nestedBoundary.requirements == #[])
+    "Option Option UInt64 must recursively propagate zero requirements"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target nestedBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError s!"{target} must support zero-requirement nested Option carrier: {error.render}"
+
+  let nestedBoolBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.NestedOptionBoolBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"NestedOptionBoolBoundary must compile: {error.render}"
+  expect (nestedBoolBoundary.requirements == #[.boolValues])
+    "Option Option Bool must recursively propagate boolValues exactly once"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target nestedBoolBoundary with
+    | .error (.unsupportedRequirement .boolValues actual) =>
+        expect (actual == target)
+          s!"nested Option Bool support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError s!"nested Option Bool/{target} reached wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError s!"nested Option Bool/{target} unexpectedly passed support"
+
   let fieldBoundary ← match Compiler.compile
       Tests.Language.OptionDeclarationsFixture.OptionFieldBoundary with
     | .ok value => pure value
@@ -341,6 +483,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("OptionParamBoundary",
         Tests.Language.OptionDeclarationsFixture.OptionParamBoundary,
+        "is not UInt64"),
+      ("NestedOptionStateBoundary",
+        Tests.Language.OptionDeclarationsFixture.NestedOptionStateBoundary,
+        "is not UInt64"),
+      ("NestedOptionResultBoundary",
+        Tests.Language.OptionDeclarationsFixture.NestedOptionResultBoundary,
+        "does not return UInt64"),
+      ("NestedOptionParamBoundary",
+        Tests.Language.OptionDeclarationsFixture.NestedOptionParamBoundary,
         "is not UInt64")
     ] do
     let compiled ← match Compiler.compile sourceProgram with
