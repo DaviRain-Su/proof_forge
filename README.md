@@ -200,8 +200,27 @@ just v2-clean-room-alpha   # clean-room 开发门禁（非正式 hermetic releas
 | 表面 | 命令 / 配置 | 宣称 |
 |---|---|---|
 | Hosted CI | `.github/workflows/ci.yml`、`.woodpecker.yml` → `just ci` | Linux portable：docs + build/test + 负例 |
+| Linux tool-root CI | `.github/workflows/ci.yml` 的 `linux-tool-root` lane | linux 资产 provision/materialize/verify 与 host profile 生成/验证闭环；development 级，非 hermetic |
 | 密钥扫描 | `secret-scan` workflow | only-verified TruffleHog |
 | 本地 hermetic | `just check` / `v2-clean-room-alpha` | 需 macOS host profile + darwin-arm64 锁定工具；**不是** release EV |
+
+### macOS / Linux 双开发机
+
+ADR-0016 后工具链与 host 观察按平台拆分，两台机器都可以直接开发：
+
+- 工具锁定按平台分文件：`toolchains.lock.json`（darwin-arm64，字节冻结）与
+  `toolchains-linux-x86_64.lock.json`（linux）；`justfile` 按 `uname` 选择
+  tool root、锁定 git/python 与 Stage-0 分支，consumer 对跨平台文件互相拒绝。
+- `just ci`、`just toolchains-*`、`just host-stage0-development` 在两个平台都可运行；
+  linux 上 clean-room 沙箱（`isolated-check`/`v2-clean-room-alpha`）显式 fail closed
+  （沙箱引擎仅 macOS，linux 化需独立任务）。
+- 两台机器都直接推 `main`：开工前 `git fetch && git status --short`，分叉时合并
+  而非重写对方提交（证据/台账按 commit 哈希引用，rebase 会打断引用）。
+- 当前两台开发机均 **不是 eligible host**（darwin 机 SSV seal broken、Linux 机
+  SecureBoot disabled）：一切输出均为 development 级；eligible Stage-0 handoff 与
+  formal 入口在两台机器上都 fail closed。linux 机器成为 eligible 的条件：
+  固件启用 Secure Boot、system/distro 工具按 lock 精确固定后重新生成并登记
+  host profile（见 `docs/adr/0016-cross-platform-host-profile-and-linux-eligibility.md`）。
 
 首次物化锁定工具（本地 hermetic，非普通 `just ci`）：
 
