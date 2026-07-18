@@ -2321,3 +2321,33 @@ normative: false
 - Next：greater-or-equal `>=` 是 CompareExpr 最后一个 Source residual，尚未冻结。必须固定 tag `19`、
   唯一剩余 `1 >= 2` migration、十种 mixed directions 与 `>`/`>>`/`=` token boundaries；该切片完成后
   运行一次 CompareExpr 批量 `just ci` checkpoint，但仍不得宣称整个 expression grammar 或正式 D1 完成。
+
+## 2026-07-18 — D1 greater-or-equal / CompareExpr checkpoint
+
+- Commits：freeze `99b5ac11`；tests-only RED `568c1e2e`；suite recursion budget `af40d164`；
+  Source-only GREEN `8957c636`。
+- Scope：`Source.Expr.greaterEqual lhs rhs`、append-only tag `19`、
+  `syntax:50 pfExpr:51 " >= " pfExpr:51 : pfExpr`、decoder/quotation 与 operands 前 exact Typed
+  failure。production 恰好 Source/Syntax/Typed 3 文件/11 行；`TASK-D1-04` 仍 pending。
+- Tests：双入口和四种 body position；integer/Bool/order/variable、add/mul/shift 双向、grouping、unary；
+  same chain 与十种 mixed directions；`>`/`>>` controls 及 `1 > = 2`/`1 >>= 2`/`1 >= = 2`
+  boundaries。最终迁移 `Equal.lean` 的 `1 >= 2`，ordering deferreds 归零且 reject list 有效。
+  `af40d164` 只给此 629-line suite 的 `run` 设置 local `maxRecDepth 2048`，不改变全局或 production。
+- Binding：代表 goldens 为 `1>=2`
+  `366618ab25d2688aacaec173c4ab38ae6b31c1d45deab21e01d058f79205c85a`/234 bytes、`2>=1`
+  `cc252d273832175a831ea4f131b9d19b241fe4eb98a1cf8dd36d4ba03e6497fb`/234、`true>=false`
+  `0eb6e86ada321ed7c40afc4f572f420c8a98f7ec80104c6fbfb6d45ebc6368cf`/220、`1+2>=3`
+  `5623ac1fcacc714e2d3de0d40075cca3945d58692c09fc28c4f4d8eb7b940603`/244、`1>>2>=3`
+  `5bdde75341b7b45cce2e17ad8f3b7e5932a302b916f7b74bc3faee406335f6ae`/244、`1>=2>>3`
+  `879156eed4660d8a16c7f5bea1f61454ab55a836b0e7fecdf3901c7c1475d62c`/244。
+- Focused：14-job suite、160-job aggregate、测试二进制与独立 final audit 全绿，P0/P1=0。
+- Batch gate：在 clean committed tree `8957c636c22a06f4038b46234af0bf8ee45dd8f8` 单 runner 执行
+  `just ci`，40-mutation isolation precheck、committed archive 168-job build/test/help、186 docs mutations、
+  genesis/bootstrap/SBOM、全部 supply-chain/runtime closure self-tests、本地 60-job product build、160-job
+  aggregate/test、DSL negatives 与 target/toolchain negatives 全部 exit 0；evidence 为 `EV-20260718-0024`。
+- Completion boundary：现在可称 `==`/`!=`/`<`/`<=`/`>`/`>=` 的完整 CompareExpr Source surface 已覆盖；
+  仍无 operand/result legality、Typed/Semantic comparison、bitwise/logical operators、folding、requirement、
+  target ABI/runtime、eligible-host 或 formal D1 evidence，不得关闭 `TASK-D1-04`；D0 仍为 5/8。
+- Next：residual audit 选择 binary bitwise-and `&` 为唯一下一 candidate，但尚未冻结。必须核准低于
+  CompareExpr 的左结合 precedence、Expr tag `20`、zero migration、`&&` token integrity、comparison
+  mixed placement 与 exact Typed failure；不得捆绑 `^`、`|`、`&&`、`||`、Semantic 或 target lowering。
