@@ -3764,7 +3764,7 @@ normative: false
   file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；`lake build
   proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just
   sbom-package-files-refresh`、`just docs-check`、`git diff --check` 在 closeout 后执行。Grok freeze audit
-  P0=0/P1=0/P2=0；Kimi final review pending at this staging point；development evidence 为
+  P0=0/P1=0/P2=0；Kimi final review P0=0/P1=0/P2=0；development evidence 为
   `EV-20260719-0059`。本切片按冻结未重复完整 `just ci`。
 - Scope claim：只完成 exact existing-carrier spelling、canonical identity、zero requirements 与
   support-vs-Plan boundary。不包括 bytes value/index/slice/length operations、none/some/unwrap、任意
