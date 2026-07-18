@@ -333,8 +333,10 @@ unsafe def run : IO Unit := do
     s!"Option Field semantic golden is unbound: size={optionFieldSemantic.canonicalBytes.size}, hash={optionFieldSemantic.semanticHash}"
 
   let nestedSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option UInt64", .option (.option .u64), 0, "UNBOUND"),
-    ("Option Option Bool", .option (.option .bool), 0, "UNBOUND")
+    ("Option Option UInt64", .option (.option .u64), 243,
+      "d480f1267bd8753f9bae0f6f21439836a0d11f2d39eeef908ccec94875c5daf4"),
+    ("Option Option Bool", .option (.option .bool), 243,
+      "3110c1ed382a8b002e2248b84744a8aa1716122215c43f4c09d474efaaff7960")
   ]
   for (label, type, expectedSize, expectedHash) in nestedSourceVectors do
     let sourceProgram := twin type
@@ -348,8 +350,10 @@ unsafe def run : IO Unit := do
     "nested Option must bind both tag16 layers and the element payload"
 
   let nestedSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option UInt64", .option (.option .u64), 0, "UNBOUND"),
-    ("Option Option Bool", .option (.option .bool), 0, "UNBOUND")
+    ("Option Option UInt64", .option (.option .u64), 192,
+      "5b5eacce6a48158bbbaab3490044613d35323e278c42d7d1d4594ffb5ce9ed18"),
+    ("Option Option Bool", .option (.option .bool), 193,
+      "0caaecffaab09d481ef117347b885196ba00e8df0b43b090c4643ece3831b959")
   ]
   for (label, type, expectedSize, expectedHash) in nestedSemanticVectors do
     let sourceProgram := twin type
@@ -373,6 +377,8 @@ unsafe def run : IO Unit := do
       ("unknown nested element", "UnknownNestedOptionElement", "Option Option Mystery"),
       ("Field nested element", "FieldNestedOptionElement", "Option Option Field"),
       ("escaped nested element", "EscapedNestedOptionElement", "Option Option «Bool»"),
+      ("qualified nested element", "QualifiedNestedOptionElement", "Option Option Std.Bool"),
+      ("full Map nested option", "FullMapNestedOption", "Option Option Map UInt64 Bool"),
       ("Map option element", "MapOptionElement", "Option Map UInt64 Bool")
     ] do
     expectUnsupportedType label
@@ -383,13 +389,11 @@ unsafe def run : IO Unit := do
       ("full Field nested option", "Option Option Field bn254_fr"),
       ("full Bytes nested option", "Option Option Bytes 8"),
       ("full Array nested option", "Option Option Array UInt64 4"),
-      ("full Map nested option", "Option Option Map UInt64 Bool"),
       ("extra nested option payload", "Option Option UInt64 Principal"),
       ("split nested option", "Option Option\n  UInt64"),
       ("escaped inner Option constructor", "Option «Option» Bool"),
       ("escaped outer Option constructor", "«Option» Option Bool"),
       ("qualified outer Option constructor", "Std.Option Option Bool"),
-      ("qualified nested element", "Option Option Std.Bool"),
       ("extra option payload", "Option UInt64 Principal"),
       ("extra Field option payload", "Option Field bn254_fr UInt64"),
       ("split Field option", "Option Field\n  bn254_fr"),
