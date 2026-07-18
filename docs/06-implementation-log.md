@@ -2400,3 +2400,19 @@ normative: false
   registry、任务表或 traceability matrix。ADR §6 已声明本期不登记 `SRC-*`/`CLM-*`。
 - Next：ADR-0017 批准与后果落地均为后续独立变更；D0 主线（ADR-0016 批准、D0-08 counts
   盘点、D0-04 外部前置）不变。
+
+## 2026-07-18 — ADR-0016 批准转 accepted（Architecture + Quality）
+
+- Context：用户（GOV-MAINTAINERS-001 全部角色持有人）在收口 Milestone D0 的指示中明确
+  双开发机（macOS/Linux）兼容诉求，对应批准 ADR-0016；批准解锁 `TASK-D0-09` 的
+  `pending → in_progress` 闸门（ADR §6 前置）。
+- Changed：`docs/adr/0016-cross-platform-host-profile-and-linux-eligibility.md`
+  frontmatter `status: proposed → accepted`，补 `approvers: architecture-owner, quality-owner`、
+  `approvedAt: 2026-07-18`、`reviewCommit/reviewLink`（指向 ADR 提案 commit
+  `fcdeb37645f8405830f9e68340c55ccfa78d6193`，即被批准的内容基线）、`openFindings: none`；
+  正文状态行同步。`docs/governance/task-set.lock.json` 与 `docs/04-task-breakdown.md`
+  的 D0-09 行已随提案 commit 落地，本变更不再改动（ADR §6）。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py`；`git diff --check`。
+- Limitations：本批准不改变任何任务状态；`TASK-D0-09` 仍 pending，待独立变更集进入
+  in_progress（唯一 in_progress 纪律 + TST-HOST-002 RED 先行）。darwin 回归仍需 darwin 机。
+- Next：`TASK-D0-09` in_progress（冻结包 `TASK-D0-09.json` 已预置，RED 先行）。

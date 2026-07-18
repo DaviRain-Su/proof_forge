@@ -1,15 +1,20 @@
 ---
 id: ADR-0016
 title: 跨平台 Host Profile、per-platform Tool Lock 与 Linux eligibility
-status: proposed
+status: accepted
 owner: build
 updated: 2026-07-18
 normative: true
+approvers: architecture-owner, quality-owner
+approvedAt: 2026-07-18
+reviewCommit: fcdeb37645f8405830f9e68340c55ccfa78d6193
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/fcdeb37645f8405830f9e68340c55ccfa78d6193
+openFindings: none
 ---
 
 # ADR-0016：跨平台 Host Profile、per-platform Tool Lock 与 Linux eligibility
 
-- 状态：`proposed`
+- 状态：`accepted`
 - 日期：2026-07-18
 
 ## 背景
