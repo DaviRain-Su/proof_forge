@@ -465,8 +465,7 @@ unsafe def run : IO Unit := do
       ("missing rhs", "1 ^"),
       ("spaced split", "1 ^ ^ 2"),
       ("double caret", "1 ^^ 2"),
-      ("extra token", "1 ^ 2 3"),
-      ("deferred bit-or", "1 | 2")
+      ("extra token", "1 ^ 2 3")
     ] do
     let source := returnProgramSource "RejectedXorShape" expr
     let (_, result) ← IO.FS.withIsolatedStreams

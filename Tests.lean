@@ -38,6 +38,7 @@ import Tests.Language.GreaterThan
 import Tests.Language.GreaterEqual
 import Tests.Language.BitwiseAnd
 import Tests.Language.BitwiseXor
+import Tests.Language.BitwiseOr
 import Tests.Language.PrimitiveDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
@@ -91,6 +92,7 @@ unsafe def main : IO Unit := do
   Tests.Language.GreaterEqual.run
   Tests.Language.BitwiseAnd.run
   Tests.Language.BitwiseXor.run
+  Tests.Language.BitwiseOr.run
   Tests.Language.run
   Tests.Language.PrimitiveDeclarations.run
   Tests.Language.StateVisibility.run
