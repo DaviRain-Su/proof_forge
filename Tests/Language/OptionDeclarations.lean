@@ -214,6 +214,72 @@ program NestedOptionBytesParamBoundary where
   entry echo(value : Option Option Bytes 8) : UInt64 do
     return 0
 
+program NestedOptionArraySurface where
+  state nestedBatch : Option Option Array UInt64 4
+
+  event NestedArrayEvent(payload : Option Option Array UInt64 4)
+  error NestedArrayError(payload : Option Option Array UInt64 4)
+
+  struct NestedArrayBox where
+    empty : Option Option Array UInt64 0
+    ordinary : Option Option Array UInt64 4
+    maximum : Option Option Array UInt64 4096
+    flags : Option Option Array Bool 0
+
+  enum NestedArrayTag where
+    | MaybeNestedBatch(Option Option Array UInt64 4)
+    | MaybeNestedFlags(Option Option Array Bool 0)
+    | MaybeNestedMax(Option Option Array Principal 4096)
+
+  const NestedArraySeed : Option Option Array UInt64 0 := 0
+
+  init(initial : Option Option Array UInt64 4) do
+    nestedBatch := initial
+
+  entry echo(value : Option Option Array UInt64 4) : Option Option Array UInt64 4 do
+    return value
+
+  view get() : Option Option Array UInt64 4 do
+    return nestedBatch
+
+  fn ident(value : Option Option Array Principal 4096) : Option Option Array Principal 4096 do
+    return value
+
+program NestedOptionArrayBoundary where
+  entry echo(value : Option Option Array UInt64 4) : Option Option Array UInt64 4 do
+    return value
+
+program NestedOptionArrayBoolBoundary where
+  entry echo(value : Option Option Array Bool 0) : Option Option Array Bool 0 do
+    return value
+
+program NestedOptionArrayStateBoundary where
+  state value : Option Option Array UInt64 4
+
+  init(initial : Option Option Array UInt64 4) do
+    value := initial
+
+  view get() : Option Option Array UInt64 4 do
+    return value
+
+program NestedOptionArrayResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option Array UInt64 4) : Option Option Array UInt64 4 do
+    return value
+
+program NestedOptionArrayParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option Array UInt64 4) : UInt64 do
+    return 0
+
 end Tests.Language.OptionDeclarationsFixture
 
 namespace Tests.Language.OptionDeclarationsFixture
@@ -465,6 +531,34 @@ private def nestedOptionBytesSurfaceSource : String :=
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
 
+private def nestedOptionArraySurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.OptionDeclarationsFixture\n\n" ++
+  "program NestedOptionArraySurface where\n" ++
+  "  state nestedBatch : Option Option Array UInt64 4\n\n" ++
+  "  event NestedArrayEvent(payload : Option Option Array UInt64 4)\n" ++
+  "  error NestedArrayError(payload : Option Option Array UInt64 4)\n\n" ++
+  "  struct NestedArrayBox where\n" ++
+  "    empty : Option Option Array UInt64 0\n" ++
+  "    ordinary : Option Option Array UInt64 4\n" ++
+  "    maximum : Option Option Array UInt64 4096\n" ++
+  "    flags : Option Option Array Bool 0\n\n" ++
+  "  enum NestedArrayTag where\n" ++
+  "    | MaybeNestedBatch(Option Option Array UInt64 4)\n" ++
+  "    | MaybeNestedFlags(Option Option Array Bool 0)\n" ++
+  "    | MaybeNestedMax(Option Option Array Principal 4096)\n\n" ++
+  "  const NestedArraySeed : Option Option Array UInt64 0 := 0\n\n" ++
+  "  init(initial : Option Option Array UInt64 4) do\n" ++
+  "    nestedBatch := initial\n\n" ++
+  "  entry echo(value : Option Option Array UInt64 4) : Option Option Array UInt64 4 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Option Option Array UInt64 4 do\n" ++
+  "    return nestedBatch\n\n" ++
+  "  fn ident(value : Option Option Array Principal 4096) : Option Option Array Principal 4096 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.OptionDeclarationsFixture\n"
+
 private def negativeSource (name typeSpelling : String) : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
@@ -684,6 +778,69 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same nested Option Bytes sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let nestedArraySurface := Tests.Language.OptionDeclarationsFixture.NestedOptionArraySurface
+  expect (nestedArraySurface.state.map (·.type) == #[.option (.option (.array .u64 4))])
+    "Option Option Array UInt64 4 state must survive Lean command elaboration"
+  match nestedArraySurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "NestedArrayEvent" &&
+          eventDecl.params.map (·.type) == #[.option (.option (.array .u64 4))])
+        "Option Option Array event parameter must preserve both Option tags, Array element and length"
+  | _ => throw <| IO.userError "NestedOptionArraySurface must retain NestedArrayEvent"
+  match nestedArraySurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "NestedArrayError" &&
+          errorDecl.params.map (·.type) == #[.option (.option (.array .u64 4))])
+        "Option Option Array error parameter must preserve both Option tags, Array element and length"
+  | _ => throw <| IO.userError "NestedOptionArraySurface must retain NestedArrayError"
+  match nestedArraySurface.structs with
+  | #[box] =>
+      expect (box.name == "NestedArrayBox" &&
+          box.fields.map (·.type) ==
+            #[.option (.option (.array .u64 0)), .option (.option (.array .u64 4)),
+              .option (.option (.array .u64 4096)), .option (.option (.array .bool 0))])
+        "Option Option Array struct fields must preserve UInt64 lengths 0/4/4096 and Bool 0"
+  | _ => throw <| IO.userError "NestedOptionArraySurface must retain one struct"
+  match nestedArraySurface.enums with
+  | #[tag] =>
+      expect (tag.name == "NestedArrayTag" &&
+          tag.variants.map (·.payloadTypes) ==
+            #[#[.option (.option (.array .u64 4))],
+              #[.option (.option (.array .bool 0))],
+              #[.option (.option (.array .principal 4096))]])
+        "Option Option Array enum payloads must preserve element and length matrix"
+  | _ => throw <| IO.userError "NestedOptionArraySurface must retain one enum"
+  match nestedArraySurface.consts with
+  | #[seed] =>
+      expect (seed.name == "NestedArraySeed" && seed.type == .option (.option (.array .u64 0)))
+        "Option Option Array UInt64 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionArraySurface must retain NestedArraySeed"
+  match nestedArraySurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.option (.option (.array .u64 4))])
+        "Option Option Array initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "NestedOptionArraySurface must retain initializer"
+  match nestedArraySurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option (.array .u64 4))] &&
+          echoEntry.result == .option (.option (.array .u64 4)) &&
+          getView.result == .option (.option (.array .u64 4)) && getView.mode == .view)
+        "Option Option Array entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionArraySurface must retain echo and get"
+  match nestedArraySurface.functions with
+  | #[identFn] =>
+      expect (identFn.params.map (·.type) == #[.option (.option (.array .principal 4096))] &&
+          identFn.result == .option (.option (.array .principal 4096)))
+        "Option Option Array Principal 4096 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionArraySurface must retain ident"
+  match ← session.selectProgram nestedOptionArraySurfaceSource "<nested-option-array>" none with
+  | .ok decoded =>
+      expect (decoded == nestedArraySurface)
+        "Loader and Lean command must produce the same nested Option Array Source.Program"
+      expect (decoded.sourceHash == nestedArraySurface.sourceHash)
+        "Loader and Lean command must produce the same nested Option Array sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let optionArrayElements : Array (String × Source.ValueType) := #[
     ("Bool", .bool),
     ("UInt8", .u8), ("UInt16", .u16), ("UInt32", .u32), ("UInt64", .u64),
@@ -844,6 +1001,43 @@ unsafe def run : IO Unit := do
     expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
       s!"{label} semantic tag16+tag16+tag17 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
+  let nestedArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Array UInt64 0", .option (.option (.array .u64 0)), 0, "UNBOUND"),
+    ("Option Option Array UInt64 4", .option (.option (.array .u64 4)), 0, "UNBOUND"),
+    ("Option Option Array UInt64 4096", .option (.option (.array .u64 4096)), 0, "UNBOUND"),
+    ("Option Option Array Bool 0", .option (.option (.array .bool 0)), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in nestedArraySourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag16+tag16+tag18 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  expect ((twin (.option (.option (.array .u64 0)))).sourceHash !=
+        (twin (.option (.array .u64 0))).sourceHash &&
+      (twin (.option (.option (.array .u64 0)))).sourceHash !=
+        (twin (.option (.option .u64))).sourceHash &&
+      (twin (.option (.option (.array .u64 0)))).sourceHash !=
+        (twin (.option (.option (.bytes 0)))).sourceHash &&
+      (twin (.option (.option (.array .u64 0)))).sourceHash !=
+        (twin (.option (.option (.array .u64 4)))).sourceHash &&
+      (twin (.option (.option (.array .u64 0)))).sourceHash !=
+        (twin (.option (.option (.array .bool 0)))).sourceHash)
+    "Option Option Array must bind both Option tags, Array tag, element and complete length payload"
+
+  let nestedArraySemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Array UInt64 0", .option (.option (.array .u64 0)), 0, "UNBOUND"),
+    ("Option Option Array UInt64 4", .option (.option (.array .u64 4)), 0, "UNBOUND"),
+    ("Option Option Array UInt64 4096", .option (.option (.array .u64 4096)), 0, "UNBOUND"),
+    ("Option Option Array Bool 0", .option (.option (.array .bool 0)), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in nestedArraySemanticVectors do
+    let sourceProgram := twin type
+    let semantic ← match Compiler.compile sourceProgram with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
+      s!"{label} semantic tag16+tag16+tag18 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
+
   let optionArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Option Array UInt64 0", .option (.array .u64 0), 259,
       "f22ada30b9fcf58e2b1f55ac7417fb13864354032f7096fe33a0aa6c4bd0fa90"),
@@ -968,6 +1162,14 @@ unsafe def run : IO Unit := do
       ("leading-zero nested Bytes length", "LeadingZeroNestedOptionBytes", "Option Option Bytes 01"),
       ("hex nested Bytes length", "HexNestedOptionBytes", "Option Option Bytes 0x10"),
       ("underscore nested Bytes length", "UnderscoreNestedOptionBytes", "Option Option Bytes 4_096"),
+      ("missing nested Array element", "MissingNestedOptionArrayElement", "Option Option Array"),
+      ("missing nested Array length", "MissingNestedOptionArrayLength", "Option Option Array UInt64"),
+      ("unknown nested Array element", "UnknownNestedOptionArrayElement", "Option Option Array Mystery 4"),
+      ("Field nested Array element", "FieldNestedOptionArrayElement", "Option Option Array Field 4"),
+      ("over-bound nested Array length", "OverBoundNestedOptionArray", "Option Option Array UInt64 4097"),
+      ("leading-zero nested Array length", "LeadingZeroNestedOptionArray", "Option Option Array UInt64 01"),
+      ("hex nested Array length", "HexNestedOptionArray", "Option Option Array UInt64 0x10"),
+      ("underscore nested Array length", "UnderscoreNestedOptionArray", "Option Option Array UInt64 4_096"),
       ("Map option element", "MapOptionElement", "Option Map UInt64 Bool")
     ] do
     expectUnsupportedType label
@@ -984,9 +1186,19 @@ unsafe def run : IO Unit := do
   | .error error =>
       throw <| IO.userError s!"migrated Option Option Bytes 8 must parse: {error.render}"
 
+  let migratedNestedArraySource :=
+    negativeSource "MigratedNestedOptionArray" "Option Option Array UInt64 4"
+  match ← session.parsePrograms migratedNestedArraySource "<migrated-nested-option-array>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) == #[.option (.option (.array .u64 4))])
+        "migrated Option Option Array UInt64 4 pin must now parse as existing option(option(array(u64,4)))"
+  | .ok programs =>
+      throw <| IO.userError s!"migrated Option Option Array UInt64 4 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError s!"migrated Option Option Array UInt64 4 must parse: {error.render}"
+
   for (label, spelling) in [
       ("third nested option", "Option Option Option Bool"),
-      ("full Array nested option", "Option Option Array UInt64 4"),
       ("extra nested option payload", "Option Option UInt64 Principal"),
       ("split nested option", "Option Option\n  UInt64"),
       ("escaped inner Option constructor", "Option «Option» Bool"),
@@ -1023,6 +1235,20 @@ unsafe def run : IO Unit := do
       ("escaped outer Option nested Bytes", "«Option» Option Bytes 8"),
       ("qualified outer Option nested Bytes", "Std.Option Option Bytes 8"),
       ("escaped middle Option nested Bytes", "Option «Option» Bytes 8"),
+      ("negative nested Array length", "Option Option Array UInt64 -1"),
+      ("extra nested Array payload", "Option Option Array UInt64 4 Principal"),
+      ("full Field nested Array element", "Option Option Array Field bn254_fr 4"),
+      ("nested Option nested Array element", "Option Option Array Option Bool 4"),
+      ("nested Bytes nested Array element", "Option Option Array Bytes 8 4"),
+      ("nested Array nested Array element", "Option Option Array Array UInt64 4 4"),
+      ("Map nested Array element", "Option Option Array Map UInt64 Bool 4"),
+      ("split nested Array element", "Option Option Array\n  UInt64 4"),
+      ("split nested Array length", "Option Option Array UInt64\n  4"),
+      ("escaped Array constructor in nested Option", "Option Option «Array» UInt64 4"),
+      ("qualified Array constructor in nested Option", "Option Option Std.Array UInt64 4"),
+      ("escaped outer Option nested Array", "«Option» Option Array UInt64 4"),
+      ("qualified outer Option nested Array", "Std.Option Option Array UInt64 4"),
+      ("escaped middle Option nested Array", "Option «Option» Array UInt64 4"),
       ("extra option payload", "Option UInt64 Principal"),
       ("extra Field option payload", "Option Field bn254_fr UInt64"),
       ("split Field option", "Option Field\n  bn254_fr"),
@@ -1177,6 +1403,39 @@ unsafe def run : IO Unit := do
         throw <| IO.userError
           s!"{target} must support zero-requirement Option Option Bytes carrier: {error.render}"
 
+  let nestedArrayBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.NestedOptionArrayBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"NestedOptionArrayBoundary must compile: {error.render}"
+  expect (nestedArrayBoundary.requirements == #[])
+    "Option Option Array UInt64 must recursively propagate zero requirements"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target nestedArrayBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError
+          s!"{target} must support zero-requirement Option Option Array UInt64 carrier: {error.render}"
+
+  let nestedArrayBoolBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.NestedOptionArrayBoolBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"NestedOptionArrayBoolBoundary must compile: {error.render}"
+  expect (nestedArrayBoolBoundary.requirements == #[.boolValues])
+    "Option Option Array Bool must recursively propagate boolValues exactly once"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target nestedArrayBoolBoundary with
+    | .error (.unsupportedRequirement .boolValues actual) =>
+        expect (actual == target)
+          s!"Option Option Array Bool support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError
+          s!"Option Option Array Bool/{target} reached wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError
+          s!"Option Option Array Bool/{target} unexpectedly passed support"
+
   for (label, sourceProgram, needle) in [
       ("OptionStateBoundary",
         Tests.Language.OptionDeclarationsFixture.OptionStateBoundary,
@@ -1222,6 +1481,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("NestedOptionBytesParamBoundary",
         Tests.Language.OptionDeclarationsFixture.NestedOptionBytesParamBoundary,
+        "is not UInt64"),
+      ("NestedOptionArrayStateBoundary",
+        Tests.Language.OptionDeclarationsFixture.NestedOptionArrayStateBoundary,
+        "is not UInt64"),
+      ("NestedOptionArrayResultBoundary",
+        Tests.Language.OptionDeclarationsFixture.NestedOptionArrayResultBoundary,
+        "does not return UInt64"),
+      ("NestedOptionArrayParamBoundary",
+        Tests.Language.OptionDeclarationsFixture.NestedOptionArrayParamBoundary,
         "is not UInt64")
     ] do
     let compiled ← match Compiler.compile sourceProgram with
