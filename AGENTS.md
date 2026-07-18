@@ -16,7 +16,7 @@
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
 | Formal milestone | **D0：5/9 done**；`TASK-D0-04` blocked，`TASK-D0-09` in_progress（ADR-0016 已 accepted），`TASK-D0-07`/`TASK-D0-08` pending；尚未正式进入 D1 |
 | Active task | **TASK-D0-09**：Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变（冻结包 `TASK-D0-09.json`） |
-| Next task | **TASK-D0-08**（D0 收口调度——D0-08/D0-07 优先——以任务表为准） |
+| Next task | **TASK-D1-01**（按任务表位置序镜像的下一非 done 行；D0 收口调度——D0-08/D0-07 优先——以任务表为准） |
 | Active development slice | **D1-PA-46 / TASK-D1-04 pre-acceptance**：ConstructorExpr Source-only carrier；完成面已冻结，下一步提交 RED |
 | Next development slice | 未冻结；D1-PA-46 收口后再按 PrimaryExpr residual audit 选择单一 slice，禁止由 checkpoint 自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
