@@ -245,7 +245,8 @@ unsafe def run : IO Unit := do
       (twin (.option .u64)).sourceHash != (twin (.option .unit)).sourceHash)
     "Option tag and element payload must both bind sourceHash"
   let optionFieldSource := twin (.option .field)
-  expect (optionFieldSource.canonicalBytes.size == 0 && optionFieldSource.sourceHash == "UNBOUND")
+  expect (optionFieldSource.canonicalBytes.size == 241 && optionFieldSource.sourceHash ==
+      "8d83aba16ec5c8f4694fbce7a3847903ca492d2af7ffc5030029f4485a71c79a")
     s!"Option Field source golden is unbound: size={optionFieldSource.canonicalBytes.size}, hash={optionFieldSource.sourceHash}"
   expect (optionFieldSource.sourceHash != (twin .field).sourceHash &&
       optionFieldSource.sourceHash != (twin (.option .bool)).sourceHash &&
@@ -254,8 +255,9 @@ unsafe def run : IO Unit := do
   let optionFieldSemantic ← match Compiler.compile optionFieldSource with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"Option Field semantic twin must compile: {error.render}"
-  expect (optionFieldSemantic.canonicalBytes.size == 0 &&
-      optionFieldSemantic.semanticHash == "UNBOUND")
+  expect (optionFieldSemantic.canonicalBytes.size == 191 &&
+      optionFieldSemantic.semanticHash ==
+        "c50aab8c944ed3db26737aa7f9edcfbd7122cd828b7c4c859237bbc3537b6229")
     s!"Option Field semantic golden is unbound: size={optionFieldSemantic.canonicalBytes.size}, hash={optionFieldSemantic.semanticHash}"
 
   for (label, name, spelling) in [
@@ -267,7 +269,8 @@ unsafe def run : IO Unit := do
       ("missing Field identifier", "MissingOptionFieldId", "Option Field"),
       ("alternate Field identifier", "AlternateOptionFieldId", "Option Field bls12_381_fr"),
       ("escaped Field identifier", "EscapedOptionFieldId", "Option Field «bn254_fr»"),
-      ("qualified Field identifier", "QualifiedOptionFieldId", "Option Field Curves.bn254_fr")
+      ("qualified Field identifier", "QualifiedOptionFieldId", "Option Field Curves.bn254_fr"),
+      ("Map option element", "MapOptionElement", "Option Map UInt64 Bool")
     ] do
     expectUnsupportedType label
       (← session.parsePrograms (negativeSource name spelling) s!"<option-{label}>")
@@ -280,8 +283,7 @@ unsafe def run : IO Unit := do
       ("escaped Field constructor", "Option «Field» bn254_fr"),
       ("qualified Option constructor", "Std.Option Field bn254_fr"),
       ("Bytes option", "Option Bytes 8"),
-      ("Array option", "Option Array UInt64 4"),
-      ("Map option", "Option Map UInt64 Bool")
+      ("Array option", "Option Array UInt64 4")
     ] do
     let source := negativeSource "RejectedOptionShape" spelling
     let (_, result) ← IO.FS.withIsolatedStreams
