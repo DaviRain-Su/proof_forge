@@ -53,6 +53,7 @@ unicode-data-self-test:
 toolchains-validate:
     /usr/bin/python3 -I -S scripts/toolchain_assets.py validate
     /usr/bin/python3 -I -S scripts/toolchain_assets.py self-test
+    /usr/bin/python3 -I -S scripts/host_profiles_self_test.py
 
 # Convenience wrappers only. Formal evidence must invoke the displayed env -i
 # command directly because `just` itself starts an inherited recipe shell.
@@ -65,34 +66,72 @@ host-stage0-formal:
 host-stage0-negative:
     #!/bin/bash
     set -euo pipefail
-    tmp="$PWD/build/host-stage0-negative"
-    rm -rf "$tmp"
-    mkdir -p "$tmp/copied/scripts"
-    cp host-bootstrap.lock host-profiles.lock.json toolchains.lock.json "$tmp/copied/"
-    cp scripts/verify_host_stage0.sh scripts/toolchain_assets.py "$tmp/copied/scripts/"
-    printf '\n' >> "$tmp/copied/host-profiles.lock.json"
-    if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/copied/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/lock.log" 2>&1; then
-      echo "mutated host lock unexpectedly passed Stage-0" >&2
-      exit 1
-    fi
-    rg -q 'HOST_LOCK digest mismatch' "$tmp/lock.log"
-    cp host-bootstrap.lock "$tmp/copied/host-bootstrap.lock"
-    printf 'TRAILING=forbidden\n' >> "$tmp/copied/host-bootstrap.lock"
-    if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/copied/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/record.log" 2>&1; then
-      echo "bootstrap record with trailing data unexpectedly passed Stage-0" >&2
-      exit 1
-    fi
-    rg -q 'bootstrap record contains trailing data' "$tmp/record.log"
-    marker="$tmp/bash-env-executed"
-    printf 'printf marker > %q\nexit 97\n' "$marker" > "$tmp/malicious-bash-env"
-    BASH_ENV="$tmp/malicious-bash-env" /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --allow-ineligible-development > "$tmp/development.log" 2>&1
-    test ! -e "$marker"
-    rg -q '"eligibleForHermetic":false' "$tmp/development.log"
-    if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible > "$tmp/formal.log" 2>&1; then
-      echo "current ineligible host unexpectedly passed formal Stage-0" >&2
-      exit 1
-    fi
-    rg -q 'PF-HOST-INELIGIBLE' "$tmp/formal.log"
+    case "$(uname -s)" in
+      Darwin)
+        tmp="$PWD/build/host-stage0-negative"
+        rm -rf "$tmp"
+        mkdir -p "$tmp/copied/scripts"
+        cp host-bootstrap.lock host-profiles.lock.json toolchains.lock.json "$tmp/copied/"
+        cp scripts/verify_host_stage0.sh scripts/toolchain_assets.py "$tmp/copied/scripts/"
+        printf '\n' >> "$tmp/copied/host-profiles.lock.json"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/copied/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/lock.log" 2>&1; then
+          echo "mutated host lock unexpectedly passed Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'HOST_LOCK digest mismatch' "$tmp/lock.log"
+        cp host-bootstrap.lock "$tmp/copied/host-bootstrap.lock"
+        printf 'TRAILING=forbidden\n' >> "$tmp/copied/host-bootstrap.lock"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/copied/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/record.log" 2>&1; then
+          echo "bootstrap record with trailing data unexpectedly passed Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'bootstrap record contains trailing data' "$tmp/record.log"
+        marker="$tmp/bash-env-executed"
+        printf 'printf marker > %q\nexit 97\n' "$marker" > "$tmp/malicious-bash-env"
+        BASH_ENV="$tmp/malicious-bash-env" /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --allow-ineligible-development > "$tmp/development.log" 2>&1
+        test ! -e "$marker"
+        rg -q '"eligibleForHermetic":false' "$tmp/development.log"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible > "$tmp/formal.log" 2>&1; then
+          echo "current ineligible host unexpectedly passed formal Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'PF-HOST-INELIGIBLE' "$tmp/formal.log"
+        ;;
+      Linux)
+        tmp="$PWD/build/host-stage0-negative"
+        rm -rf "$tmp"
+        mkdir -p "$tmp/copied/scripts"
+        cp host-bootstrap-linux.lock host-profiles.lock.json "toolchains-linux-$(uname -m).lock.json" "$tmp/copied/"
+        cp scripts/verify_host_stage0.sh scripts/toolchain_assets.py "$tmp/copied/scripts/"
+        printf '\n' >> "$tmp/copied/host-profiles.lock.json"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/copied/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/lock.log" 2>&1; then
+          echo "mutated host lock unexpectedly passed Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'HOST_LOCK digest mismatch' "$tmp/lock.log"
+        cp host-bootstrap-linux.lock "$tmp/copied/host-bootstrap-linux.lock"
+        printf 'TRAILING=forbidden\n' >> "$tmp/copied/host-bootstrap-linux.lock"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/copied/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/record.log" 2>&1; then
+          echo "bootstrap record with trailing data unexpectedly passed Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'bootstrap record contains trailing data' "$tmp/record.log"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC LD_PRELOAD=/tmp/proof-forge-stage0-injected.so /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --allow-ineligible-development > "$tmp/ld-preload.log" 2>&1; then
+          echo "LD_PRELOAD-injected environment unexpectedly passed Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'ELF loader environment is not empty' "$tmp/ld-preload.log"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible > "$tmp/formal.log" 2>&1; then
+          echo "current ineligible host unexpectedly passed formal Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'PF-HOST-INELIGIBLE' "$tmp/formal.log"
+        ;;
+      *)
+        echo "unsupported host platform" >&2
+        exit 1
+        ;;
+    esac
 
 candidate-binding:
     #!/bin/bash

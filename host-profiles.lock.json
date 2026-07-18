@@ -349,7 +349,7 @@
       "platform": {
         "osReleaseId": "linuxmint",
         "osReleaseVersionId": "22.3",
-        "kernelRelease": "6.17.0-23-generic",
+        "kernelRelease": "7.0.0-28-generic",
         "arch": "x86_64",
         "secureBoot": "disabled"
       },
@@ -360,7 +360,7 @@
         "gitSha256": "2a8c18fbf43da9f692d75474c72bea9dfd796c260b0f3dfe456376abc3bbd668",
         "gitVersion": "git version 2.43.0",
         "pythonPath": "/usr/bin/python3.12",
-        "pythonSha256": "e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7",
+        "pythonSha256": "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118",
         "pythonVersion": "Python 3.12.3",
         "readelfPath": "/usr/bin/x86_64-linux-gnu-readelf",
         "readelfSha256": "64c58e15274bbbb5153f31078e455e9e77ee5f51489e709bba5bb788ce9df2b0",
@@ -369,7 +369,7 @@
       },
       "digestBootstrap": {
         "path": "/usr/bin/openssl",
-        "sha256": "018dad9ce0561ba839b66c735b8c5e72a02d444a8057330112d6c333ee1c5acc",
+        "sha256": "2ffb137d909db5deccfde594ab8706ab391d54e30ff3fd4efb910f3839157e05",
         "knownAnswerInput": "abc",
         "knownAnswerSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
       },
@@ -419,7 +419,7 @@
           "resolvedPath": "/usr/bin/openssl",
           "resolvedNlink": 1,
           "mode": "0755",
-          "sha256": "018dad9ce0561ba839b66c735b8c5e72a02d444a8057330112d6c333ee1c5acc"
+          "sha256": "2ffb137d909db5deccfde594ab8706ab391d54e30ff3fd4efb910f3839157e05"
         },
         {
           "id": "python3",
@@ -429,7 +429,7 @@
           "resolvedPath": "/usr/bin/python3.12",
           "resolvedNlink": 1,
           "mode": "0755",
-          "sha256": "e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7"
+          "sha256": "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118"
         },
         {
           "id": "readelf",

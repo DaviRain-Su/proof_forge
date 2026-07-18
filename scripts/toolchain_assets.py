@@ -905,6 +905,30 @@ def validate_lock_pair(tool_lock: dict, host_lock: dict) -> None:
         fail(f"profile {matching[0]['id']} system runtime roots disagree with the load policy")
 
 
+def validate_host_profile_file(path: Path) -> None:
+    profile = load_json(path)
+    synthetic_lock = {"schema": "proof-forge.host-profiles.v2", "profiles": [profile]}
+    validate_host_lock(synthetic_lock)
+    kind = host_profile_kind(profile)
+    for name in dict.fromkeys(PLATFORM_LOCK_FILES.values()):
+        lock_path = ROOT / name
+        if not lock_path.is_file():
+            continue
+        tool_lock = validate_tool_lock(load_json(lock_path))
+        lock_kind = ("darwin" if tool_lock["schema"] == "proof-forge.toolchains.v2"
+                     else "linux")
+        if lock_kind != kind:
+            continue
+        validate_lock_pair(tool_lock, synthetic_lock)
+    summary = {
+        "eligibleForHermetic": profile["eligibleForHermetic"],
+        "hostProfileId": profile["id"],
+        "ineligibilityReason": profile["ineligibilityReason"],
+        "profileKind": kind,
+    }
+    print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
+
+
 def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -1842,6 +1866,15 @@ def verify_host_linux(profile: dict, *, require_eligible: bool) -> None:
     )
     if mutable != distro["toolsMutableByCurrentUser"]:
         fail("distro tools current-user mutability observation mismatch")
+    if profile["eligibleForHermetic"]:
+        eligible_paths = [
+            (Path(record["resolvedPath"]), f"system tool {record['id']}")
+            for record in profile["systemTools"]
+        ]
+        eligible_paths.append((Path(bootstrap["path"]), "digest bootstrap"))
+        for path, label in eligible_paths:
+            if path_mutable_by_current_user(path, label):
+                fail(f"{label} pathname is replaceable by the current user: {path}")
 
     summary = {
         "attestationScope": "local-observation-only",
@@ -3952,7 +3985,8 @@ def observe_host_linux(profile_id: str) -> dict:
         (Path(python_record["resolvedPath"]), "distro Python"),
         (Path(readelf_record["resolvedPath"]), "distro readelf"),
     ]
-    mutable = any(path_mutable_by_current_user(path, label) for path, label in distro_paths)
+    distro_mutable = any(
+        path_mutable_by_current_user(path, label) for path, label in distro_paths)
     distro = {
         "gitPath": git_record["resolvedPath"],
         "gitSha256": git_record["sha256"],
@@ -3966,7 +4000,7 @@ def observe_host_linux(profile_id: str) -> dict:
         "readelfSha256": readelf_record["sha256"],
         "readelfVersion": bounded_host_command(
             [readelf_record["resolvedPath"], "--version"]).stdout.splitlines()[0],
-        "toolsMutableByCurrentUser": mutable,
+        "toolsMutableByCurrentUser": distro_mutable,
     }
     bootstrap_source = by_id["openssl"]
     kat = extract_kat_digest(
@@ -3986,18 +4020,30 @@ def observe_host_linux(profile_id: str) -> dict:
         root for root in ("/lib/", "/lib64/", "/usr/lib/") if Path(root).is_dir())
     if not load_roots:
         fail("no system load roots observed")
+    profile_paths = [
+        (Path(record["resolvedPath"]), f"system tool {record['id']}")
+        for record in tools
+    ]
+    profile_paths.append((Path(bootstrap["path"]), "digest bootstrap"))
+    profile_paths.extend(distro_paths)
+    mutable_paths = [
+        f"{label} ({path})" for path, label in profile_paths
+        if path_mutable_by_current_user(path, label)
+    ]
     eligible = (
         platform["arch"] in {"x86_64", "aarch64"} and
         platform["secureBoot"] == "enabled" and
-        not mutable
+        not mutable_paths
     )
     reasons = []
     if platform["arch"] not in {"x86_64", "aarch64"}:
         reasons.append(f"unsupported arch {platform['arch']}")
     if platform["secureBoot"] != "enabled":
         reasons.append(f"secure boot is {platform['secureBoot']}")
-    if mutable:
-        reasons.append("distro tool pathnames are replaceable by the current user")
+    if mutable_paths:
+        reasons.append(
+            "profile pathnames are replaceable by the current user: " +
+            ", ".join(mutable_paths))
     return {
         "id": profile_id,
         "platform": platform,
@@ -4487,6 +4533,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("cache-root")
     observe = commands.add_parser("observe-host")
     observe.add_argument("--profile-id", required=True)
+    validate_profile = commands.add_parser("validate-host-profile")
+    validate_profile.add_argument("--input", type=Path, required=True)
     provision = commands.add_parser("provision")
     provision.add_argument("--group", choices=("all", "external", "lean"), default="all")
     provision.add_argument("--asset", action="append", default=[])
@@ -4510,8 +4558,15 @@ def main() -> None:
         profile = observe_host_linux(args.profile_id)
         print(json.dumps(profile, indent=2))
         return
+    if args.command == "validate-host-profile":
+        validate_host_profile_file(args.input.resolve())
+        return
     lock_path = args.lock if args.lock is not None else default_lock_path()
     lock, host_lock = load_locks(lock_path.resolve(), args.host_lock.resolve())
+    host_platform = host_platform_id()
+    if lock["platform"] != host_platform:
+        fail(f"tool lock platform {lock['platform']} does not match host platform "
+             f"{host_platform}")
     if args.command == "validate":
         print("toolchain-assets: lock validation ok")
     elif args.command == "self-test":

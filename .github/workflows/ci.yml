@@ -6,11 +6,16 @@ name: CI
 #   docs         - documentation control-plane check
 #   source-core  - Lean build, unit tests, DSL/target negative gates
 #
+# Also run here (linux, development-grade only):
+#   linux-tool-root - linux toolchain lock validation, external asset
+#   provision/materialize/verify against the locked linux tool root, and the
+#   observe-host -> validate-host-profile closed loop. It is development-level
+#   tool-root evidence only, never hermetic or formal evidence.
+#
 # Not run here (macOS / hermetic toolchain host only):
-#   just check full suite, host-stage0, sandbox-policy, locked toolchains,
-#   target-smoke with darwin-arm64 solc/wabt/foundry, v2-clean-room-alpha.
-# Those remain local/dev gates until a linux host profile and toolchain lock
-# land. See docs/governance/ci-evidence.md.
+#   just check full suite, host-stage0, sandbox-policy, clean-room isolation,
+#   and target-smoke with darwin-arm64 solc/wabt/foundry. Those remain
+#   local/dev gates. See docs/governance/ci-evidence.md.
 
 on:
   push:
@@ -79,3 +84,44 @@ jobs:
 
       - name: Portable source-core gate
         run: just ci
+
+  linux-tool-root:
+    name: linux-tool-root
+    runs-on: ubuntu-latest
+    env:
+      PROOF_FORGE_TOOL_ROOT: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
+        with:
+          tool: just@1.48.0
+
+      - name: Validate per-platform locks
+        run: /usr/bin/python3 -I -S scripts/toolchain_assets.py validate
+
+      - name: Toolchain self-test
+        run: /usr/bin/python3 -I -S scripts/toolchain_assets.py self-test
+
+      - name: Host profiles self-test
+        run: /usr/bin/python3 -I -S scripts/host_profiles_self_test.py
+
+      - name: Provision linux external assets
+        run: just toolchains-provision-external
+
+      - name: Materialize linux tool root
+        run: just toolchains-materialize-external "$PROOF_FORGE_TOOL_ROOT"
+
+      - name: Verify linux tool root
+        run: just toolchains-verify-external
+
+      - name: Observe host and validate development profile
+        run: |
+          mkdir -p build/host-profile
+          /usr/bin/python3 -I -S scripts/toolchain_assets.py observe-host \
+            --profile-id "ci-linux-$(uname -m)-development" \
+            > build/host-profile/observed-profile.json
+          /usr/bin/python3 -I -S scripts/toolchain_assets.py validate-host-profile \
+            --input build/host-profile/observed-profile.json
