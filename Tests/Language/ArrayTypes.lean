@@ -276,6 +276,7 @@ unsafe def run : IO Unit := do
 
   for (label, spelling) in [
       ("bare Array", "Array"),
+      ("missing Array element", "Array 4"),
       ("missing Array length", "Array UInt64"),
       ("unknown Array element", "Array Mystery 4"),
       ("Field Array element", "Array Field 4"),
@@ -296,9 +297,10 @@ unsafe def run : IO Unit := do
       ("negative Array length", "Array UInt64 -1"),
       ("extra Array payload", "Array UInt64 4 Principal"),
       ("full Field Array element", "Array Field bn254_fr 4"),
-      ("nested Option Array element", "Array Option UInt64 4"),
+      ("nested Option Array element", "Array Option Bool 4"),
       ("nested Bytes Array element", "Array Bytes 32 4"),
       ("nested Array element", "Array Array UInt64 4 4"),
+      ("parenthesized Array element", "Array (Array UInt64 4) 2"),
       ("Map Array element", "Array Map UInt64 Bool 4"),
       ("split Array element", "Array\n  UInt64 4"),
       ("split Array length", "Array UInt64\n  4"),
