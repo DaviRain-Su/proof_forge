@@ -26,6 +26,33 @@ program AssertSurface where
 
 end Tests.Language.AssertStatementsFixture
 
+-- AssertErrorSurface completes the optional `else Ident` Source branch without
+-- changing the accepted bare assert carrier.
+namespace Tests.Language.AssertStatementsFixture
+
+open ProofForgeV2.Language
+
+program AssertErrorSurface where
+  error Failure
+
+  init() do
+    assert true else Failure
+    return 0
+
+  entry run(flag : UInt64) : UInt64 do
+    assert flag else Failure
+    return 0
+
+  view peek() : UInt64 do
+    assert (true) else Failure
+    return 0
+
+  fn helper() : UInt64 do
+    assert 1 + 2 else Failure
+    return 0
+
+end Tests.Language.AssertStatementsFixture
+
 -- Positive control: escaped identifier `«assert»` remains a legal assignment target.
 namespace Tests.Language.AssertStatementsFixture
 
@@ -62,6 +89,30 @@ private def twin (condition : Source.Expr) : Source.Program :=
     }
   ]
 
+private def errorTwin (condition : Source.Expr) (errorName : String) : Source.Program :=
+  Source.Program.buildQualified
+    "Tests.Language.AssertStatementsFixture.AssertTwin" "AssertTwin" #[
+    .entry {
+      name := "run"
+      params := #[]
+      result := .u64
+      mode := .mutate
+      body := #[.assertErrorStmt condition errorName]
+    }
+  ]
+
+private def kindTwin (statement : Source.Statement) : Source.Program :=
+  Source.Program.buildQualified
+    "Tests.Language.AssertStatementsFixture.AssertTwin" "AssertTwin" #[
+    .entry {
+      name := "run"
+      params := #[]
+      result := .u64
+      mode := .mutate
+      body := #[statement]
+    }
+  ]
+
 private def returnTwin (condition : Source.Expr) : Source.Program :=
   Source.Program.buildQualified
     "Tests.Language.AssertStatementsFixture.AssertTwin" "AssertTwin" #[
@@ -71,6 +122,19 @@ private def returnTwin (condition : Source.Expr) : Source.Program :=
       result := .u64
       mode := .mutate
       body := #[.returnValue condition]
+    }
+  ]
+
+private def errorTableControl : Source.Program :=
+  Source.Program.buildQualified
+    "Tests.Language.AssertStatementsFixture.ErrorTableControl" "ErrorTableControl" #[
+    .errorDecl { name := "Failure", params := #[] },
+    .entry {
+      name := "run"
+      params := #[]
+      result := .u64
+      mode := .mutate
+      body := #[.returnValue (.literal 0)]
     }
   ]
 
@@ -90,6 +154,26 @@ private def surfaceSource : String :=
   "    return 0\n\n" ++
   "  fn helper() : UInt64 do\n" ++
   "    assert 1 + 2\n" ++
+  "    return 0\n\n" ++
+  "end Tests.Language.AssertStatementsFixture\n"
+
+private def errorSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.AssertStatementsFixture\n\n" ++
+  "program AssertErrorSurface where\n" ++
+  "  error Failure\n\n" ++
+  "  init() do\n" ++
+  "    assert true else Failure\n" ++
+  "    return 0\n\n" ++
+  "  entry run(flag : UInt64) : UInt64 do\n" ++
+  "    assert flag else Failure\n" ++
+  "    return 0\n\n" ++
+  "  view peek() : UInt64 do\n" ++
+  "    assert (true) else Failure\n" ++
+  "    return 0\n\n" ++
+  "  fn helper() : UInt64 do\n" ++
+  "    assert 1 + 2 else Failure\n" ++
   "    return 0\n\n" ++
   "end Tests.Language.AssertStatementsFixture\n"
 
@@ -122,6 +206,23 @@ private def expectParserRejected (label source : String)
   | .error other =>
       throw <| IO.userError s!"{label}: reached wrong failure for {source}: {other.render}"
   | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
+
+private def expectExactInvalid (label source expected : String)
+    (result : CompileResult (Array Source.Program)) : IO Unit := do
+  match result with
+  | .error (.invalidProgram actual) =>
+      expect (actual == expected)
+        s!"{label}: expected invalid-program '{expected}', got '{actual}' for {source}"
+  | .error other =>
+      throw <| IO.userError s!"{label}: expected invalid-program, got {other.render}"
+  | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
+
+private def expectGolden (label : String) (source : Source.Program)
+    (expectedHash expectedSize : String) : IO Unit := do
+  expect (source.sourceHash == expectedHash)
+    s!"{label} sourceHash golden must remain stable; got {source.sourceHash}"
+  expect (toString source.canonicalBytes.size == expectedSize)
+    s!"{label} canonical size must remain stable; got {source.canonicalBytes.size}"
 
 private unsafe def select (session : Language.Loader.ParserSession)
     (input path : String) : IO Source.Program := do
@@ -173,6 +274,40 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same assert sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let errorElaborated := Tests.Language.AssertStatementsFixture.AssertErrorSurface
+  expect (errorElaborated.errors.map (·.name) == #["Failure"])
+    "AssertErrorSurface must retain its error declaration"
+  match errorElaborated.initializer with
+  | some initializer =>
+      expect (initializer.body == #[.assertErrorStmt (.boolLiteral true) "Failure",
+          .returnValue (.literal 0)])
+        "initializer must retain assert true else Failure"
+  | none => throw <| IO.userError "AssertErrorSurface initializer missing"
+  match errorElaborated.entries with
+  | #[runEntry, peekView] =>
+      expect (runEntry.body == #[.assertErrorStmt (.variable "flag") "Failure",
+          .returnValue (.literal 0)])
+        "entry must retain variable assert-error condition"
+      expect (peekView.mode == .view &&
+          peekView.body == #[.assertErrorStmt (.boolLiteral true) "Failure",
+            .returnValue (.literal 0)])
+        "view must retain grouped assert-error condition"
+  | _ => throw <| IO.userError "AssertErrorSurface entries missing"
+  match errorElaborated.functions with
+  | #[helper] =>
+      expect (helper.body == #[.assertErrorStmt
+          (.checkedAdd (.literal 1) (.literal 2)) "Failure",
+          .returnValue (.literal 0)])
+        "fn must retain operator assert-error condition"
+  | _ => throw <| IO.userError "AssertErrorSurface helper missing"
+  match ← session.selectProgram errorSurfaceSource "<assert-error-statements>" none with
+  | .ok decoded =>
+      expect (decoded == errorElaborated)
+        "Loader and Lean command must agree on assert-error Source"
+      expect (decoded.sourceHash == errorElaborated.sourceHash)
+        "Loader and Lean command must agree on assert-error source identity"
+  | .error error => throw <| IO.userError error.render
+
   -- Same AssertTwin identity: assert true and assert (true) are identical programs.
   let assertTrue := twin (.boolLiteral true)
   let assertGroupedTrue := twin (.boolLiteral true)
@@ -207,6 +342,52 @@ unsafe def run : IO Unit := do
       | #[.assertStmt (.literal 1), .returnValue (.literal 0)] => pure ()
       | _ => throw <| IO.userError "assert 1 body must retain a literal condition"
   | _ => throw <| IO.userError "assert literal program must have one entry"
+
+  let errorBare ← select session
+    (bodyProgramSource "AssertErrorParity" "assert true else Failure")
+    "<assert-error-bare>"
+  let errorGrouped ← select session
+    (bodyProgramSource "AssertErrorParity" "assert (true) else Failure")
+    "<assert-error-grouped>"
+  let errorEscaped ← select session
+    (bodyProgramSource "AssertErrorParity" "assert true else «Failure»")
+    "<assert-error-escaped>"
+  expect (errorBare == errorGrouped && errorBare == errorEscaped)
+    "grouping and equivalent escaped error names must preserve assert-error identity"
+  match errorBare.entries with
+  | #[runEntry] =>
+      expect (runEntry.body == #[.assertErrorStmt (.boolLiteral true) "Failure",
+          .returnValue (.literal 0)])
+        "assert true else Failure must retain both fields"
+  | _ => throw <| IO.userError "assert-error parity program must have one entry"
+
+  let errorTrue := errorTwin (.boolLiteral true) "Failure"
+  let errorFalse := errorTwin (.boolLiteral false) "Failure"
+  let errorName := errorTwin (.boolLiteral true) "Other"
+  let errorAdd := errorTwin (.checkedAdd (.literal 1) (.literal 2)) "Failure"
+  expectGolden "assert-error true" errorTrue
+    "UNBOUND_ASSERT_ERROR_TRUE_HASH" "UNBOUND_ASSERT_ERROR_TRUE_SIZE"
+  expectGolden "assert-error false" errorFalse
+    "UNBOUND_ASSERT_ERROR_FALSE_HASH" "UNBOUND_ASSERT_ERROR_FALSE_SIZE"
+  expectGolden "assert-error name" errorName
+    "UNBOUND_ASSERT_ERROR_NAME_HASH" "UNBOUND_ASSERT_ERROR_NAME_SIZE"
+  expectGolden "assert-error add" errorAdd
+    "UNBOUND_ASSERT_ERROR_ADD_HASH" "UNBOUND_ASSERT_ERROR_ADD_SIZE"
+  expect (errorTrue.sourceHash != errorFalse.sourceHash &&
+      errorTrue.sourceHash != errorName.sourceHash &&
+      errorTrue.sourceHash != errorAdd.sourceHash)
+    "assert-error condition value/tree and error name must bind source identity"
+  expect (errorTrue.sourceHash != (twin (.boolLiteral true)).sourceHash)
+    "assert-error tag 8 must not alias bare assert tag 4"
+  expect (errorTrue.sourceHash !=
+      (kindTwin (.revertStmt "Failure" #[])).sourceHash)
+    "assert-error tag 8 must not alias revert tag 5"
+  expect (errorTrue.sourceHash !=
+      (kindTwin (.emitStmt "Failure" #[])).sourceHash)
+    "assert-error tag 8 must not alias emit tag 7"
+  expect (errorTrue.sourceHash !=
+      (kindTwin (.returnValue (.boolLiteral true))).sourceHash)
+    "assert-error must not alias returnValue"
 
   -- Frozen prospective goldens for AssertTwin (Statement tag 4 + condition).
   let assertFalse := twin (.boolLiteral false)
@@ -266,11 +447,10 @@ unsafe def run : IO Unit := do
             "assertValue := 1 must remain assignment, not assertStmt"
   | _ => throw <| IO.userError "assertValue program must have one entry"
 
-  -- Parser-boundary negatives; optional else Ident is explicitly deferred.
+  -- Parser-boundary negatives for bare assert remain fixed.
   for (label, spelling) in [
       ("bare assert", "assert"),
       ("extra payload", "assert true false"),
-      ("optional else deferred", "assert true else Failure"),
       ("missing condition", "assert"),
       ("block-like then", "assert true then"),
       ("block-like do", "assert true do")
@@ -279,6 +459,34 @@ unsafe def run : IO Unit := do
     let (_, result) ← IO.FS.withIsolatedStreams
       (session.parsePrograms source s!"<assert-{label}>")
     expectParserRejected label source result
+
+  for (label, spelling) in [
+      ("missing error name", "assert true else"),
+      ("missing condition before else", "assert else Failure"),
+      ("call-like empty error payload", "assert true else Failure()"),
+      ("call-like error payload", "assert true else Failure(1)"),
+      ("duplicate else", "assert true else Failure else Other"),
+      ("assert-error extra payload", "assert true else Failure extra"),
+      ("assert-error block-like do", "assert true else Failure do")
+    ] do
+    let source := bodyProgramSource "RejectedAssertErrorShape" spelling
+    let (_, result) ← IO.FS.withIsolatedStreams
+      (session.parsePrograms source s!"<assert-error-{label}>")
+    expectParserRejected label source result
+
+  let qualifiedSource := bodyProgramSource "QualifiedAssertError"
+    "assert 18446744073709551616 else A.B"
+  let (_, qualifiedResult) ← IO.FS.withIsolatedStreams
+    (session.parsePrograms qualifiedSource "<assert-error-qualified>")
+  expectExactInvalid "qualified error before overflowing condition" qualifiedSource
+    "assert error name must be unqualified" qualifiedResult
+
+  let reservedSource := bodyProgramSource "ReservedAssertError"
+    "assert 18446744073709551616 else «struct»"
+  let (_, reservedResult) ← IO.FS.withIsolatedStreams
+    (session.parsePrograms reservedSource "<assert-error-reserved>")
+  expectExactInvalid "reserved error before overflowing condition" reservedSource
+    "reserved portable identifier 'struct'" reservedResult
 
   -- Typed fail-closed before condition checking: assert true hits assert diagnostic,
   -- not the Bool-expression diagnostic.
@@ -291,6 +499,25 @@ unsafe def run : IO Unit := do
         s!"Typed must reject assert with exact message, got {other.render}"
   | .ok _ =>
       throw <| IO.userError "Typed must not accept programs containing assertStmt"
+
+  for (label, condition) in [
+      ("literal", Source.Expr.literal 1),
+      ("bool", Source.Expr.boolLiteral true),
+      ("string", Source.Expr.stringLiteral "x")
+    ] do
+    match Compiler.compile (errorTwin condition "Failure") with
+    | .error (.invalidProgram
+        "assert statements are not yet supported by typed checking") => pure ()
+    | .error other =>
+        throw <| IO.userError s!"{label}: Typed assert-error priority changed: {other.render}"
+    | .ok _ => throw <| IO.userError s!"{label}: Typed unexpectedly accepted assert-error"
+
+  match Compiler.compile errorTableControl with
+  | .error (.invalidProgram
+      "error declarations are not yet supported by typed checking") => pure ()
+  | .error other =>
+      throw <| IO.userError s!"generic error-table gate changed: {other.render}"
+  | .ok _ => throw <| IO.userError "error-table control unexpectedly compiled"
 
   -- Existing statement controls remain available under AssertTwin identity.
   match Compiler.compile (returnTwin (.literal 0)) with
