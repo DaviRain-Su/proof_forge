@@ -3767,7 +3767,7 @@ normative: false
   file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；`lake build
   proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just
   sbom-package-files-refresh`、`git diff --check` 全绿。Grok RED/residual review P0=0；Kimi final review
-  pending；development evidence 为 `EV-20260719-0060`。本切片按冻结未重复完整 `just ci`。
+  P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0060`。本切片按冻结未重复完整 `just ci`。
 - Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirements 与 support-vs-Plan
   boundary。不包括 array value/index/slice/length operations、none/some/unwrap、任意 recursive grammar、
   recursive legality、runtime representation、ABI 或 target nested-Option-Array support。
