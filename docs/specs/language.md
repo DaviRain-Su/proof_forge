@@ -662,6 +662,30 @@ aggregate/test binary 与独立审查全绿后，必须在 clean committed tree 
 primary batch `just ci`；只可记录 ConstructorExpr Source carrier 和 LocalFnCall/ConstructorExpr 分类
 已固定，不得宣称 PrimaryExpr、完整 grammar 或正式 D1 完成。
 
+D1-PA-47 冻结的 pre-acceptance alpha index-access 子集只物化 EBNF `PlaceSuffix` 的一个只读
+bracket suffix，parser 形状固定为 `syntax:max ident "[" pfExpr "]" : pfExpr`，Source 节点固定为
+`Source.Expr.indexAccess(base : String, index : Expr)`。base 必须是恰好一个 Lean `Name` component 的
+bare `Ident`；decoder 必须先检查 component count，再经既有 `decodeIdentifier` policy 解码 base，最后
+才递归解码完整 `index` expression。qualified `A.B[expr]` 必须在 index 前逐字拒绝
+`index access base must be unqualified`。`x[expr]` 与 `x [expr]`、普通/等价 escaped portable base 必须
+产生同一 Source value；index expression 可包含既有 operator、group、local call 或 constructor carrier。
+
+本切片不引入独立 `Place`/suffix-array 类型，也不把任意 expression 扩成 postfix base：`(x)[0]`、
+`f()[0]`、`A.B[0]`、chained `x[0][1]` 与 indexed assignment `x[0] := 1` 必须 fail closed；既有 bare
+dotted variable 与 statement 的 bare-ident assignment LHS 语义不得改变。Source canonical encoder 使用
+append-only Expr tag `28`，随后依次编码 base string 和 index expression；既有 tags `0..27`/goldens
+不得改变。tests-only RED 为 zero migration，只新增/注册 `Tests.Language.IndexAccesses`；canonical controls
+固定 base value、index value/tree 与 indexAccess-vs-variable tag non-alias。`Typed.check` 必须在 base
+resolution 或 index checking 前逐字 fail closed 为
+`index access is not yet supported by typed checking`。
+
+本切片不得实现 field suffix、suffix chaining、indexed assignment、general postfix expression、Place
+resolution/lvalue legality、container/index type、bounds、read semantics、MatchExpr、ExternalCallExpr、
+Typed/Semantic index、requirement 或 target behavior；production 仅限 Source/Syntax/Typed 3 文件、最多
+14 行新增。GREEN、focused/aggregate/test binary 与两份独立审查全绿后只可记录 bare-base rvalue
+indexAccess Source carrier；本切片不重复全量 `just ci`，下一批 primary-expression checkpoint 再运行，
+且不得宣称完整 Place、PrimaryExpr、expression/statement grammar 或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

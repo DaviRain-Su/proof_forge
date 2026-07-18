@@ -1293,6 +1293,25 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   whole-escaped `«A.B»()` 仍是单组件 LocalFnCall，bare `A.B` 仍是 variable；
   `«A».B(1)`/`A.«B»(1)` 的合法 escaped component 必须与普通 `A.B(1)` 产生同一
   canonical path。这些是对既有冻结分类和 escaped-component coverage 的明确化，不增加新任务输出。
+- D1-PA-47 的 alpha index-access tests 固定
+  `syntax:max ident "[" pfExpr "]" : pfExpr` 与
+  `Source.Expr.indexAccess(base : String, index : Expr)`，只覆盖 bare `Ident` base 的单个 rvalue bracket
+  suffix。positive 覆盖 initializer、entry、view、fn return/let 的 Lean command/ParserSession parity；
+  `x[0]`/`x [0]`、escaped portable base、完整 operator/group/local-call/constructor index expression，及
+  indexAccess 作为 unary/binary operand。decoder 必须先验证 base 恰好一个 `Name` component 并解码 base，
+  再解码 index；`A.B[true]` 必须在 Bool index 前逐字拒绝
+  `index access base must be unqualified`。Source canonical encoder 使用 append-only Expr tag `28` 后接
+  base string 与 index expression；固定 base value、index value/tree、spacing/escape canonical equality，
+  以及 `x[0]` 对 variable `x` 的 tag `28`/`1` non-alias。
+  tests-only RED 为 zero migration，只新增/注册 `Tests.Language.IndexAccesses`。empty/missing/malformed bracket、
+  missing base/index、`(x)[0]`、`f()[0]`、`A.B[0]`、`x[0][1]`、`x[0] := 1` 与 extra payload 必须 fail closed；
+  既有 dotted-variable 和 bare-ident assignment controls 保持。`Typed.check` 必须在 base resolution/index
+  checking 前逐字拒绝 `index access is not yet supported by typed checking`，以 unknown base 与 Bool/string
+  index 固定优先级。本切片不得实现 field/chaining/indexed assignment/general postfix、Place resolution、
+  lvalue/container/index/bounds/read semantics、Match/ExternalCall、Semantic/requirement/target；production 限于
+  Source/Syntax/Typed 3 文件、最多 14 行新增。本切片只运行 focused/aggregate/test binary，下一批
+  primary-expression checkpoint 再运行完整 `just ci`；收口不得声明完整 Place、PrimaryExpr、完整 grammar
+  或正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
