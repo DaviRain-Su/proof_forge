@@ -270,28 +270,28 @@ unsafe def run : IO Unit := do
   let twinReturn := twin (.returnValue (.literal 0))
 
   expect (twinBare.sourceHash ==
-      "UNBOUND_REVERT_STMT_BARE_GOLDEN")
+      "c52fc7afa243bb9ea5e9ebe28a6094525c137462d78e83312041216c51d90716")
     s!"revertStmt Err RevertTwin sourceHash golden must remain stable; got {twinBare.sourceHash}"
   expect (toString twinBare.canonicalBytes.size ==
-      "UNBOUND_REVERT_STMT_BARE_SIZE")
+      "236")
     s!"revertStmt Err RevertTwin size golden must remain stable; got {twinBare.canonicalBytes.size}"
   expect (twinOne.sourceHash ==
-      "UNBOUND_REVERT_STMT_ONE_GOLDEN")
+      "b2b26b8586fc68dc45ad8c99c6a0a36208d060699bee3618bf033b7e12074f67")
     s!"revertStmt Err(1) RevertTwin sourceHash golden must remain stable; got {twinOne.sourceHash}"
   expect (toString twinOne.canonicalBytes.size ==
-      "UNBOUND_REVERT_STMT_ONE_SIZE")
+      "245")
     s!"revertStmt Err(1) RevertTwin size golden must remain stable; got {twinOne.canonicalBytes.size}"
   expect (twinTwo.sourceHash ==
-      "UNBOUND_REVERT_STMT_TWO_GOLDEN")
+      "9732b4f7ae5ad6670d51d95af81001d19622bed60116eb9561c15152bb3019a1")
     s!"revertStmt Err(1,2) RevertTwin sourceHash golden must remain stable; got {twinTwo.sourceHash}"
   expect (twinOrder.sourceHash ==
-      "UNBOUND_REVERT_STMT_ORDER_GOLDEN")
+      "f118fe75245f1cc69ebd46d9965177d9a4a8a5cb51dc32aa377e2f5cd912744e")
     s!"revertStmt Err(2,1) RevertTwin sourceHash golden must remain stable; got {twinOrder.sourceHash}"
   expect (twinName.sourceHash ==
-      "UNBOUND_REVERT_STMT_NAME_GOLDEN")
+      "ec29ebf0a385d704e795e81f1e9f656410dfae920a0cb8bdec9a74e8680c5acb")
     s!"revertStmt Other RevertTwin sourceHash golden must remain stable; got {twinName.sourceHash}"
   expect (twinNested.sourceHash ==
-      "UNBOUND_REVERT_STMT_NESTED_GOLDEN")
+      "045cd8c6c2f5a1906da0b3704a5b245e717792537fa55cfabbd18dc9fc3ec9c5")
     s!"revertStmt nested RevertTwin sourceHash golden must remain stable; got {twinNested.sourceHash}"
 
   -- Non-alias: name, arg count/order/nesting, tag5 vs call tag2 / assert / return.
