@@ -95,6 +95,7 @@ inductive Expr where
   | greaterEqual (lhs rhs : Expr)
   | bitwiseAnd (lhs rhs : Expr)
   | bitwiseXor (lhs rhs : Expr)
+  | bitwiseOr (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure ConstDecl where
@@ -303,6 +304,7 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .greaterEqual lhs rhs => appendExpr (appendExpr (appendTag bytes 19) lhs) rhs
   | .bitwiseAnd lhs rhs => appendExpr (appendExpr (appendTag bytes 20) lhs) rhs
   | .bitwiseXor lhs rhs => appendExpr (appendExpr (appendTag bytes 21) lhs) rhs
+  | .bitwiseOr lhs rhs => appendExpr (appendExpr (appendTag bytes 22) lhs) rhs
 
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value
