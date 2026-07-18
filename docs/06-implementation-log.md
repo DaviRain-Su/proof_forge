@@ -3844,3 +3844,36 @@ normative: false
 - Next：authority-store protected service（`pf.authority-store.rpc.v1` server+client，
   signed hello/request/response、no-clobber append、lease readback window、head
   digest），随后 Stage-0 handoff producer + bwrap containment runner。
+
+## 2026-07-19 — TASK-D0-04 pre-acceptance：authority-store protected service
+
+- Context：D0-04 仓库内缺口第四件（spec：`docs/specs/gate-catalog-finalization.md:383-433`
+  的 `pf.authority-store.rpc.v1` 协议）。委托实现，主会话抽查评审后提交。
+- Changed：`scripts/authority_store.py`（1400 行）——Unix-socket 服务端 + 客户端 +
+  wire codec：frame `u32be(size) || canonical_pf_jcs(payload)`（descriptor maximum
+  4 MiB 钉死）；signed hello（descriptor ContentRef 按 `pf.authority-store-service.v1`
+  域重算并与 pinned ref 比较后验签，runId/nonce 漂移即关连接）；requestId 从 0 严格
+  递增（乱序/跳跃/重放关闭连接）；publish 六种 allowlist schema 逐项 strict
+  decode/re-encode + authority 验证（required set 全量 finalize、catalog→
+  formalCatalogRule、task approval→taskRules[taskId]、两种 receipt→policy verifier
+  receipt key、set→bootstrapSetRule，authorityPolicy 钉到 namespace policy ref）+
+  原子 no-clobber append（既有 key → conflict + leaseId=null）；stored 后发
+  64-hex leaseId 并开启连接独占 readback window（全局单槽，异连接侵入/异 key/异
+  lease/close/timeout 均使 closure 失败），readback 返回与 ack 完全相同的
+  headSequence/headDigest；append-only log 的 head 推导域
+  `pf.authority-store-log-head.v1`/`pf.authority-store-log-entry.v1` 逐环重算钉住；
+  revoked/multiple 查询语义由 `inject_store_entry` 构造；客户端只有 socket path +
+  pinned descriptor/runId/nonce，无任何路径语义。`AuthorityStoreError` 八族
+  `PF-AUTH-STORE-{WIRE,SEQUENCE,AUTHORITY,CONFLICT,LEASE,HEAD,TIMEOUT,IO}`。
+  `scripts/authority_store_self_test.py`（1780 行）：约 60 例全真实签名对象——
+  六 schema 正例 publish→stored→readback 全链路、frame/hello/信封/publish 授权/
+  no-clobber/window/revoked/multiple/response 篡改全负例矩阵。
+- Verification：`/usr/bin/python3 -I -S scripts/authority_store_self_test.py` ok；
+  既有两个 bootstrap 自测 ok；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean；justfile `docs-check` recipe 已接入。development
+  evidence 见台账追记。
+- Limitations：Unix-socket 本地子进程模型；无 Stage-0 集成、无持久化 store root、
+  无 peer executable attestation；不得据本条关闭 `TASK-D0-04`（仍 blocked）；
+  D0 formal milestone 仍为 7/9。
+- Next：Stage-0 handoff producer（EligibleStage0HandoffV1 产出，channels 为预开
+  fd）+ bwrap containment runner（setsid-proof protected execution）。
