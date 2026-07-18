@@ -3294,3 +3294,35 @@ normative: false
   pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。PA53 batch `just ci` 已绿，本切片按冻结未重复。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA54 residual audit，
   再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 exact Option Field spelling pre-acceptance slice
+
+- Commits：freeze `1371f5be`；single-migration tests-only RED `efa68394`；canonical golden binding
+  `1e922851`；Syntax-only GREEN `1b15dc4f`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-55 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 `Source/Semantic.ValueType.option(.field)` 开放 exact same-line
+  `Option Field bn254_fr`。新增 named `optionFieldType` 与 struct-field 专用
+  `optionFieldAggregateField`，decoder 只在 raw third atom 等于 `bn254_fr` 时构造 carrier。通用
+  `portableType` 仍为一/二 atom；Source/Semantic ctor、canonical encoder、quotation、Typed 与 target 未改。
+- Migration/Coverage：把 `Tests.Language.OptionDeclarations` 既有唯一 field-option parser-negative
+  迁移为 positive，migration count 恰为一。双入口覆盖 state/struct/enum/const/initializer/entry/view/fn；
+  alternate/escaped/qualified/missing/extra/split forms fail closed，Option Bytes/Array/nested/Map 与旧 extra
+  payload 边界保持。独立运行实证 `Option Map UInt64 Bool` 的旧边界为 decoder exact rejection。
+- Canonical/requirements：既有 tag `16→2` 被 Source 241-byte/
+  `8d83aba16ec5c8f4694fbce7a3847903ca492d2af7ffc5030029f4485a71c79a` 与 Semantic 191-byte/
+  `c50aab8c944ed3db26737aa7f9edcfbd7122cd828b7c4c859237bbc3537b6229` 固定，并与 bare Field、
+  Option Bool、Option UInt64 non-alias。`fieldBn254` 精确递归一次；四个 Phase 1 target 均在 support
+  resolver named rejection，未进入 Plan、未产生 artifact。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，28 行新增/1 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；aggregate/test graph
+  192 jobs；`lake exe proof_forge_next_tests` exit 0/5.08 s；`just sbom-package-files-refresh`、
+  `just docs-check`、`git diff --check` 全绿。Kimi final review P0/P1=0；development evidence 为
+  `EV-20260718-0047`。PA53 batch `just ci` 已绿，本切片按冻结未重复完整 gate。
+- Scope claim：只完成 exact existing-carrier spelling、canonical/requirement/support boundary。不包括
+  none/some、unwrap、Field literal/arithmetic、recursive legality、runtime representation、ABI 或 target
+  Field support。
+- Limitations：不得声明 Option/Field runtime semantics、完整 type grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA55 residual audit，
+  再选择单一依赖闭合最小切片，禁止自动递增。
