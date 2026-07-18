@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-09",
+  "kind": "linux-host-profile-closure",
+  "ruling": "GOV-PRECUTOVER-001",
+  "selfTestCommand": "/usr/bin/python3 -I -S scripts/host_profiles_self_test.py",
+  "selfTestResult": "ok",
+  "validateCommand": "/usr/bin/python3 -I -S scripts/toolchain_assets.py validate",
+  "validateResult": "ok",
+  "laneCommand": "github-actions: linux-tool-root (run 29642879415)",
+  "laneResult": "ok",
+  "darwinPreservation": "static-verified-byte-identical",
+  "darwinLiveRegression": "deferred-p2-before-D0-07",
+  "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+  "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+  "notes": "Closes D0-09 linux host profile/tool lock v3/stage0 linux branch; not formal or hermetic evidence."
+}

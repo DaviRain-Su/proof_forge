@@ -120,6 +120,12 @@ D0_05_SBOM_INVENTORY_ATTEST_RELATIVE = (
 D0_06_COMMON_PRIMITIVES_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-06.attest.json"
 )
+D0_08_SBOM_CLOSURE_ATTEST_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-08.attest.json"
+)
+D0_09_LINUX_HOST_ATTEST_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-09.attest.json"
+)
 MILESTONE_TASK_RE = re.compile(r"^TASK-(A0|D[0-9]+)-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 TASK_FREEZE_PACKAGE_NAME_RE = re.compile(
     r"^TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*\.json$"
@@ -2291,6 +2297,89 @@ def d0_06_common_primitives_attested(
     return True
 
 
+def d0_08_sbom_closure_attested(root: Path) -> bool:
+    """Return True only for GOV-PRECUTOVER-001 SBOM closure attestation."""
+    payload = _load_bootstrap_closure_attest(root, D0_08_SBOM_CLOSURE_ATTEST_RELATIVE)
+    if payload is None:
+        return False
+    exact_values = {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-08",
+        "kind": "sbom-closure-closure",
+        "ruling": "GOV-PRECUTOVER-001",
+        "selfTestResult": "ok",
+        "freezePackage": (
+            "docs/governance/task-freeze-packages/TASK-D0-08.json"),
+        "docsCheckCommand": (
+            "/usr/bin/python3 -I -S scripts/docs_check.py --root ."),
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+    }
+    for field, expected in exact_values.items():
+        if payload.get(field) != expected:
+            return False
+    for field, needle in (
+        ("selfTestCommand", "sbom_closure_self_test"),
+    ):
+        value = payload.get(field)
+        if not isinstance(value, str) or needle not in value:
+            return False
+    freeze_digest = payload.get("freezePackageSha256")
+    if (not isinstance(freeze_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", freeze_digest)):
+        return False
+    freeze_path = root / exact_values["freezePackage"]
+    try:
+        ensure_repository_path(root, freeze_path, str(exact_values["freezePackage"]))
+        freeze_bytes = read_repository_regular_bytes(
+            root, freeze_path, str(exact_values["freezePackage"]))
+        actual_freeze_digest = hashlib.sha256(freeze_bytes).hexdigest()
+    except (DocsCheckError, OSError):
+        return False
+    if freeze_digest != actual_freeze_digest:
+        return False
+    notes = payload.get("notes")
+    if (not isinstance(notes, str)
+            or "not formal or hermetic evidence" not in notes):
+        return False
+    return True
+
+
+def d0_09_linux_host_attested(root: Path) -> bool:
+    """Return True only for GOV-PRECUTOVER-001 linux host profile attestation."""
+    payload = _load_bootstrap_closure_attest(root, D0_09_LINUX_HOST_ATTEST_RELATIVE)
+    if payload is None:
+        return False
+    exact_values = {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-09",
+        "kind": "linux-host-profile-closure",
+        "ruling": "GOV-PRECUTOVER-001",
+        "selfTestResult": "ok",
+        "validateResult": "ok",
+        "laneResult": "ok",
+        "darwinPreservation": "static-verified-byte-identical",
+        "darwinLiveRegression": "deferred-p2-before-D0-07",
+        "docsCheckCommand": (
+            "/usr/bin/python3 -I -S scripts/docs_check.py --root ."),
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+    }
+    for field, expected in exact_values.items():
+        if payload.get(field) != expected:
+            return False
+    for field, needle in (
+        ("selfTestCommand", "host_profiles_self_test"),
+        ("validateCommand", "toolchain_assets"),
+    ):
+        value = payload.get(field)
+        if not isinstance(value, str) or needle not in value:
+            return False
+    notes = payload.get("notes")
+    if (not isinstance(notes, str)
+            or "not formal or hermetic evidence" not in notes):
+        return False
+    return True
+
+
 def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[TaskRecord],
                    evidence_records: dict[str, EvidenceRecord],
                    document_status: dict[str, str],
@@ -2316,6 +2405,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
         bootstrap_tasks = {
             "TASK-D0-01", "TASK-D0-02", "TASK-D0-03",
             "TASK-D0-04", "TASK-D0-05", "TASK-D0-06",
+            "TASK-D0-08", "TASK-D0-09",
         }
         if record.grade == "bootstrap" and record.task not in bootstrap_tasks:
             error = DocsCheckError(
@@ -2325,7 +2415,8 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                 record.relative, record.line, 1, record.identifier, error))
         elif record.grade == "bootstrap":
             # Freeze exceptions: D0-01 pure-consumer and D0-02 package-boundary may close
-            # without protected receipt lookup. Other D0 trust-root tasks remain zero-closure.
+            # without protected receipt lookup. GOV-PRECUTOVER-001 adds attested D0-08/D0-09.
+            # Other D0 trust-root tasks remain zero-closure.
             allowed = (
                 (record.task == "TASK-D0-01" and d0_01_pure_consumer_attested(root))
                 or (record.task == "TASK-D0-02" and d0_02_package_boundary_attested(root))
@@ -2334,6 +2425,8 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                 or (record.task == "TASK-D0-06"
                     and genesis_effective
                     and d0_06_common_primitives_attested(root, evidence_records))
+                or (record.task == "TASK-D0-08" and d0_08_sbom_closure_attested(root))
+                or (record.task == "TASK-D0-09" and d0_09_linux_host_attested(root))
             )
             if not allowed:
                 error = DocsCheckError(
@@ -2433,6 +2526,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                 elif task.identifier in {
                     "TASK-D0-01", "TASK-D0-02", "TASK-D0-03",
                     "TASK-D0-04", "TASK-D0-05", "TASK-D0-06",
+                    "TASK-D0-08", "TASK-D0-09",
                 }:
                     required_grade = "bootstrap"
                 else:

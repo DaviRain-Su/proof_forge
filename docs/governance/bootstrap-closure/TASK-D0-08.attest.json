@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-08",
+  "kind": "sbom-closure-closure",
+  "ruling": "GOV-PRECUTOVER-001",
+  "selfTestCommand": "/usr/bin/python3 -I -S scripts/sbom_closure_self_test.py",
+  "selfTestResult": "ok",
+  "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-08.json",
+  "freezePackageSha256": "3d58189477573c760b20ec001f843dc5893673ffe089252bdf1233690b9cee2c",
+  "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+  "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+  "notes": "Closes D0-08 SBOM closure/release binding/per-executable-dylib granularity; not formal or hermetic evidence."
+}

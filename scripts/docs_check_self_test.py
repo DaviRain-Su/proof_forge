@@ -500,6 +500,42 @@ def drop_attest_field(attest: dict[str, Any], field: str) -> dict[str, Any]:
     return {key: value for key, value in attest.items() if key != field}
 
 
+def valid_d0_08_attest(freeze_digest: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-08",
+        "kind": "sbom-closure-closure",
+        "ruling": "GOV-PRECUTOVER-001",
+        "selfTestCommand": "/usr/bin/python3 -I -S scripts/sbom_closure_self_test.py",
+        "selfTestResult": "ok",
+        "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-08.json",
+        "freezePackageSha256": freeze_digest,
+        "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+        "notes": "Closes D0-08 SBOM closure/release binding; not formal or hermetic evidence.",
+    }
+
+
+def valid_d0_09_attest() -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-09",
+        "kind": "linux-host-profile-closure",
+        "ruling": "GOV-PRECUTOVER-001",
+        "selfTestCommand": "/usr/bin/python3 -I -S scripts/host_profiles_self_test.py",
+        "selfTestResult": "ok",
+        "validateCommand": "/usr/bin/python3 -I -S scripts/toolchain_assets.py validate",
+        "validateResult": "ok",
+        "laneCommand": "github-actions: linux-tool-root (run 29642879415)",
+        "laneResult": "ok",
+        "darwinPreservation": "static-verified-byte-identical",
+        "darwinLiveRegression": "deferred-p2-before-D0-07",
+        "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+        "bootstrapAuthority": "deferred-fail-closed-to-D0-04",
+        "notes": "Closes D0-09 linux host profile/tool lock v3/stage0 linux branch; not formal or hermetic evidence.",
+    }
+
+
 def complete_attested_bootstrap_task(
         root: Path, task_id: str, attest: dict[str, Any]) -> None:
     replace(root / "docs/04-task-breakdown.md",
@@ -748,6 +784,40 @@ def complete_d0_06_genesis_closure(
     path = root / "docs/governance/bootstrap-closure/TASK-D0-06.attest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(attest, indent=2) + "\n", encoding="utf-8")
+
+
+def complete_d0_08_ruling_closure(
+        root: Path,
+        mutate_attest: Optional[
+            Callable[[dict[str, Any]], dict[str, Any]]
+        ] = None,
+) -> None:
+    write_task_freeze_package(
+        root,
+        "TASK-D0-08",
+        output="Completed bootstrap task",
+        dependencies=["TASK-A0-20"],
+    )
+    freeze_path = (
+        root / "docs/governance/task-freeze-packages/TASK-D0-08.json")
+    freeze_digest = hashlib.sha256(freeze_path.read_bytes()).hexdigest()
+    attest = valid_d0_08_attest(freeze_digest)
+    if mutate_attest is not None:
+        attest = mutate_attest(attest)
+    complete_attested_bootstrap_task(root, "TASK-D0-08", attest)
+
+
+def d0_08_ev_without_attest(root: Path) -> None:
+    replace(root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-08 | Completed bootstrap task | TASK-A0-20 | — | "
+            "TST-DOC-902 | EV-20260716-9004 | done |")
+    replace(root / "docs/traceability/requirements-matrix.md", "TASK-D0-92", "TASK-D0-08")
+    replace(root / "docs/traceability/evidence-ledger.md", EVIDENCE_ROW,
+            EVIDENCE_ROW + "\n" + bootstrap_evidence_row("TASK-D0-08"))
+    replace(root / "AGENTS.md", "| Next task | TASK-D0-92 |", "| Next task | 无 |")
+    write_task_set_lock(root, "TASK-D0-08")
 
 
 def write_missing_task_freeze_authority_set(root: Path) -> None:
@@ -1154,6 +1224,9 @@ def main() -> None:
         complete_attested_bootstrap_task(root, "TASK-D0-03", valid_d0_03_attest())))
     expect_success("bootstrap-attest-d0-05", lambda root: (
         complete_attested_bootstrap_task(root, "TASK-D0-05", valid_d0_05_attest())))
+    expect_success("bootstrap-attest-d0-08", complete_d0_08_ruling_closure)
+    expect_success("bootstrap-attest-d0-09", lambda root: (
+        complete_attested_bootstrap_task(root, "TASK-D0-09", valid_d0_09_attest())))
     expect_success("fx-approval-genesis-cited", complete_accepted_genesis_fx)
     expect_success("bootstrap-attest-d0-06-genesis", complete_d0_06_genesis_closure)
     expect_exact_d0_06_evidence_join()
@@ -1756,6 +1829,28 @@ def main() -> None:
             complete_attested_bootstrap_task(
                 root, "TASK-D0-05",
                 drop_attest_field(valid_d0_05_attest(), "verifyResult"))),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-ev-d0-08-no-attest", d0_08_ev_without_attest,
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-08-missing-digest", lambda root: (
+            complete_d0_08_ruling_closure(
+                root,
+                lambda attest: drop_attest_field(attest, "freezePackageSha256"))),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-08-wrong-digest", lambda root: (
+            complete_d0_08_ruling_closure(
+                root,
+                lambda attest: {**attest, "freezePackageSha256": "0" * 64})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-09-wrong-value", lambda root: (
+            complete_attested_bootstrap_task(
+                root, "TASK-D0-09",
+                {**valid_d0_09_attest(), "darwinPreservation": "live-verified"})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-09-missing-field", lambda root: (
+            complete_attested_bootstrap_task(
+                root, "TASK-D0-09",
+                drop_attest_field(valid_d0_09_attest(), "laneResult"))),
          "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
         ("fx-approval-genesis-doc-absent", lambda root: (
             write_governance_authority_set(root),
