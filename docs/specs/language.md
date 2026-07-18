@@ -611,7 +611,7 @@ D1-PA-45 冻结的 pre-acceptance alpha LocalFnCall 子集一次实现完整
 bare `f` 继续是 variable，`f()`/`f ()` 必须形成同一 localFnCall；grouping 与 call 不得混淆。
 
 Lean `ident` 会把 `A.B` 词法化为一个 qualified identifier，因此 decoder 必须先要求
-`callee.getId.components.size == 1`，不满足时逐字拒绝 `local function call callee must be unqualified`，
+`callee.getId.components.length == 1`，不满足时逐字拒绝 `local function call callee must be unqualified`，
 不得把 future ConstructorExpr 的 `QualifiedId(...)` 错收成 LocalFnCall。escaped 单组件 identifier 仍按
 既有 `decodeIdentifier` policy 处理；callee 必须先于 arguments 解码，以固定错误优先级。Source canonical
 encoder 使用 append-only Expr tag `26`，随后依次编码 callee string 与 length-prefixed argument array；
