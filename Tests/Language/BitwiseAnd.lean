@@ -480,8 +480,7 @@ unsafe def run : IO Unit := do
       ("missing lhs", "& 2"),
       ("missing rhs", "1 &"),
       ("spaced split", "1 & & 2"),
-      ("extra token", "1 & 2 3"),
-      ("deferred logic-and", "1 && 2")
+      ("extra token", "1 & 2 3")
     ] do
     let source := returnProgramSource "RejectedAndShape" expr
     let (_, result) ← IO.FS.withIsolatedStreams
