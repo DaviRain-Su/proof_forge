@@ -3984,3 +3984,40 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；下一 slice 未冻结，待 post-PA66 residual audit 后选择单一依赖闭合
   最小切片，禁止自动递增。
+
+## 2026-07-19 — TASK-D0-04 pre-acceptance：TST-BOOTSTRAP-001 端到端验收 harness
+
+- Context：D0-04 仓库内 foundation 的 capstone——把 producer/store/handoff/
+  containment/consumer 五件串成端到端 rehearsal（spec：`docs/05-test-spec.md:102,
+  139, 607-619`；`docs/specs/gate-catalog-finalization.md:340-433, 1233-1289`）。
+  委托实现，主会话抽查评审后提交。
+- Changed：`scripts/bootstrap_acceptance.py`（1294 行）+ 自测（710 行）：
+  `run_bootstrap_rehearsal` 全链——fixture namespace（与 production lookup tuple
+  不相交：policy id `bootstrap-acceptance-authority`、fixture runId/nonce/candidate/
+  handoff）下启动 authority-store（descriptor ref 恰为 hello 钉值）→ handoff
+  producer 产出四 channel fd → publish+readback 闭合 required set 与 formal
+  catalog approval（并验 catalog authority）→ 拓扑序逐 task publish approval+
+  receipt 并 `close_task`（依赖 receipt authenticated + dep ref 相等；D0-01 未发布
+  时 `close_task(D0-02)` 先验拒绝一次）→ publish+readback six-item set →
+  `collect_activation_inputs` 全项验证 → bwrap contained 子进程：继承 fd 恰为
+  0/1/2+4 channels、`verify_inherited_channels`、adopt 预开 store channel（hello
+  验证后接管 client 状态机）、**pre-activation 探针**（activation tuple lookup 必须
+  not-found——"不得读取或要求既有 activation"的可执行证明）→ 经该 channel
+  publish+readback activation receipt → `parse_bootstrap_approval_verifier_receipt`
+  全链 → 打印 activation ref 退出 0；parent 断言 store head 精确（16）。
+  负例矩阵：缺 required set/缺一张 receipt/无 set（`PF-BOOTSTRAP-ACCEPT-STATE`）；
+  仅 D0-04 自身 approval+receipt → activation 拒绝；set 内乱序/receipt-approval
+  不配/policy 替换/handoff 替换/tcb verifier digest 漂移（精确命中 tcb-vs-policy
+  join）/store revoked-multiple 全拒；状态无依赖证明（server A 已存 run A 完整
+  activation，run B 全新 namespace 独立通过且互不感知）。
+- Verification：`/usr/bin/python3 -I -S scripts/bootstrap_acceptance_self_test.py`
+  ok（单次 rehearsal ≈2.0s、全文件 ≈6.5s）；既有四个自测全 ok；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check` clean；
+  justfile `docs-check` recipe 已接入。development evidence 见台账追记。
+- Limitations：本地子进程服务模型、fixture observation 驱动 eligible 路径、无真实
+  Stage-0/远程 attestation/peer executable 断言；fixture activation 永不满足真实
+  D0 closure；不得据本条关闭 `TASK-D0-04`（仍 blocked，等 eligible host 与
+  genesis 签发仪式的真实 activation）；D0 formal milestone 仍为 7/9。
+- Next（用户侧前置）：(a) BIOS 启用 SecureBoot 后重新生成/登记 linux host
+  profile；(b) genesis root 离线签发首个 BootstrapAuthorityPolicyV1。随后真实
+  activation + D0-04 关闭治理件，再进 D0-07。
