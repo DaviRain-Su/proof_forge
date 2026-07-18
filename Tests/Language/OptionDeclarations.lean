@@ -127,6 +127,33 @@ program OptionBytesBoundary where
   entry echo(value : Option Bytes 32) : Option Bytes 32 do
     return value
 
+program NestedOptionFieldSurface where
+  state nestedScalar : Option Option Field bn254_fr
+
+  struct NestedScalarBox where
+    value : Option Option Field bn254_fr
+
+  enum NestedScalarTag where
+    | MaybeNestedScalar(Option Option Field bn254_fr)
+
+  const NestedFieldSeed : Option Option Field bn254_fr := 0
+
+  init(initial : Option Option Field bn254_fr) do
+    nestedScalar := initial
+
+  entry echo(value : Option Option Field bn254_fr) : Option Option Field bn254_fr do
+    return value
+
+  view get() : Option Option Field bn254_fr do
+    return nestedScalar
+
+  fn ident(value : Option Option Field bn254_fr) : Option Option Field bn254_fr do
+    return value
+
+program NestedOptionFieldBoundary where
+  entry echo(value : Option Option Field bn254_fr) : Option Option Field bn254_fr do
+    return value
+
 end Tests.Language.OptionDeclarationsFixture
 
 namespace Tests.Language.OptionDeclarationsFixture
@@ -331,6 +358,27 @@ private def surfaceSource : String :=
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
 
+private def nestedOptionFieldSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.OptionDeclarationsFixture\n\n" ++
+  "program NestedOptionFieldSurface where\n" ++
+  "  state nestedScalar : Option Option Field bn254_fr\n\n" ++
+  "  struct NestedScalarBox where\n" ++
+  "    value : Option Option Field bn254_fr\n\n" ++
+  "  enum NestedScalarTag where\n" ++
+  "    | MaybeNestedScalar(Option Option Field bn254_fr)\n\n" ++
+  "  const NestedFieldSeed : Option Option Field bn254_fr := 0\n\n" ++
+  "  init(initial : Option Option Field bn254_fr) do\n" ++
+  "    nestedScalar := initial\n\n" ++
+  "  entry echo(value : Option Option Field bn254_fr) : Option Option Field bn254_fr do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Option Option Field bn254_fr do\n" ++
+  "    return nestedScalar\n\n" ++
+  "  fn ident(value : Option Option Field bn254_fr) : Option Option Field bn254_fr do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.OptionDeclarationsFixture\n"
+
 private def negativeSource (name typeSpelling : String) : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
@@ -443,6 +491,52 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same Option sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let nestedFieldSurface := Tests.Language.OptionDeclarationsFixture.NestedOptionFieldSurface
+  expect (nestedFieldSurface.state.map (·.type) == #[.option (.option .field)])
+    "Option Option Field bn254_fr state must survive Lean command elaboration"
+  match nestedFieldSurface.structs with
+  | #[box] =>
+      expect (box.name == "NestedScalarBox" &&
+          box.fields.map (·.type) == #[.option (.option .field)])
+        "Option Option Field struct field must preserve both Option tags and Field"
+  | _ => throw <| IO.userError "NestedOptionFieldSurface must retain one struct"
+  match nestedFieldSurface.enums with
+  | #[tag] =>
+      expect (tag.name == "NestedScalarTag" &&
+          tag.variants.map (·.payloadTypes) == #[#[.option (.option .field)]])
+        "Option Option Field enum payload must preserve both Option tags and Field"
+  | _ => throw <| IO.userError "NestedOptionFieldSurface must retain one enum"
+  match nestedFieldSurface.consts with
+  | #[seed] =>
+      expect (seed.name == "NestedFieldSeed" && seed.type == .option (.option .field))
+        "Option Option Field const type must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionFieldSurface must retain NestedFieldSeed"
+  match nestedFieldSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.option (.option .field)])
+        "Option Option Field initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "NestedOptionFieldSurface must retain initializer"
+  match nestedFieldSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option .field)] &&
+          echoEntry.result == .option (.option .field) &&
+          getView.result == .option (.option .field) && getView.mode == .view)
+        "Option Option Field entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionFieldSurface must retain echo and get"
+  match nestedFieldSurface.functions with
+  | #[identFn] =>
+      expect (identFn.params.map (·.type) == #[.option (.option .field)] &&
+          identFn.result == .option (.option .field))
+        "Option Option Field fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionFieldSurface must retain ident"
+  match ← session.selectProgram nestedOptionFieldSurfaceSource "<nested-option-field>" none with
+  | .ok decoded =>
+      expect (decoded == nestedFieldSurface)
+        "Loader and Lean command must produce the same nested Option Field Source.Program"
+      expect (decoded.sourceHash == nestedFieldSurface.sourceHash)
+        "Loader and Lean command must produce the same nested Option Field sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let optionArrayElements : Array (String × Source.ValueType) := #[
     ("Bool", .bool),
     ("UInt8", .u8), ("UInt16", .u16), ("UInt32", .u32), ("UInt64", .u64),
@@ -545,6 +639,23 @@ unsafe def run : IO Unit := do
     expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
       s!"{label} semantic tag16+tag16 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
+  let nestedFieldSource := twin (.option (.option .field))
+  expect (nestedFieldSource.canonicalBytes.size == 0 &&
+      nestedFieldSource.sourceHash == "UNBOUND")
+    s!"Option Option Field source tag16+tag16+tag2 golden is unbound: size={nestedFieldSource.canonicalBytes.size}, hash={nestedFieldSource.sourceHash}"
+  expect (nestedFieldSource.sourceHash != (twin .field).sourceHash &&
+      nestedFieldSource.sourceHash != (twin (.option .field)).sourceHash &&
+      nestedFieldSource.sourceHash != (twin (.option (.option .u64))).sourceHash &&
+      nestedFieldSource.sourceHash != (twin (.option (.option .bool))).sourceHash)
+    "Option Option Field must bind both Option tags and the Field tag"
+  let nestedFieldSemantic ← match Compiler.compile nestedFieldSource with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"Option Option Field semantic twin must compile: {error.render}"
+  expect (nestedFieldSemantic.canonicalBytes.size == 0 &&
+      nestedFieldSemantic.semanticHash == "UNBOUND")
+    s!"Option Option Field semantic tag16+tag16+tag2 golden is unbound: size={nestedFieldSemantic.canonicalBytes.size}, hash={nestedFieldSemantic.semanticHash}"
+
   let optionArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Option Array UInt64 0", .option (.array .u64 0), 259,
       "f22ada30b9fcf58e2b1f55ac7417fb13864354032f7096fe33a0aa6c4bd0fa90"),
@@ -641,6 +752,12 @@ unsafe def run : IO Unit := do
       ("missing nested element", "MissingNestedOptionElement", "Option Option"),
       ("unknown nested element", "UnknownNestedOptionElement", "Option Option Mystery"),
       ("Field nested element", "FieldNestedOptionElement", "Option Option Field"),
+      ("alternate nested Field identifier", "AlternateNestedOptionFieldId",
+        "Option Option Field bls12_381_fr"),
+      ("escaped nested Field identifier", "EscapedNestedOptionFieldId",
+        "Option Option Field «bn254_fr»"),
+      ("qualified nested Field identifier", "QualifiedNestedOptionFieldId",
+        "Option Option Field Curves.bn254_fr"),
       ("escaped nested element", "EscapedNestedOptionElement", "Option Option «Bool»"),
       ("qualified nested element", "QualifiedNestedOptionElement", "Option Option Std.Bool"),
       ("full Map nested option", "FullMapNestedOption", "Option Option Map UInt64 Bool"),
@@ -665,7 +782,6 @@ unsafe def run : IO Unit := do
 
   for (label, spelling) in [
       ("third nested option", "Option Option Option Bool"),
-      ("full Field nested option", "Option Option Field bn254_fr"),
       ("full Bytes nested option", "Option Option Bytes 8"),
       ("full Array nested option", "Option Option Array UInt64 4"),
       ("extra nested option payload", "Option Option UInt64 Principal"),
@@ -805,6 +921,23 @@ unsafe def run : IO Unit := do
     | .error other =>
         throw <| IO.userError s!"Option Field/{target} reached wrong failure: {other.render}"
     | .ok () => throw <| IO.userError s!"Option Field/{target} unexpectedly passed support"
+
+  let nestedFieldBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.NestedOptionFieldBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"NestedOptionFieldBoundary must compile: {error.render}"
+  expect (nestedFieldBoundary.requirements == #[.fieldBn254])
+    "Option Option Field must recursively propagate fieldBn254 exactly once"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target nestedFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Option Option Field support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError s!"Option Option Field/{target} reached wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError s!"Option Option Field/{target} unexpectedly passed support"
 
   let optionBytesBoundary ← match Compiler.compile
       Tests.Language.OptionDeclarationsFixture.OptionBytesBoundary with
