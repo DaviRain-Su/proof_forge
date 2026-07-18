@@ -280,7 +280,7 @@ unsafe def run : IO Unit := do
       | _ => throw <| IO.userError "return 1 + 2 must remain returnValue (longest match)"
   | _ => throw <| IO.userError "return add program must have one entry"
 
-  -- Cross-line layout retention: return newline 1 stays returnValue (not bare+junk).
+  -- Strictly deeper continuation stays value-bearing under deterministic offside.
   let crossLineSource :=
     "import ProofForgeV2\n\n" ++
     "open ProofForgeV2.Language\n\n" ++
@@ -295,8 +295,20 @@ unsafe def run : IO Unit := do
       | #[.returnValue (.literal 1)] => pure ()
       | _ =>
           throw <| IO.userError
-            "cross-line return newline 1 must remain returnValue (layout retained)"
+            "strictly deeper return continuation must remain returnValue"
   | _ => throw <| IO.userError "cross-line return program must have one entry"
+
+  -- Same-column newline is a statement boundary, never an implicit return value.
+  let sameColumnSource :=
+    "import ProofForgeV2\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program SameColumnReturn where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return\n" ++
+    "    1\n"
+  let (_, sameColumnResult) ← IO.FS.withIsolatedStreams
+    (session.parsePrograms sameColumnSource "<vlr-same-column>")
+  expectParserRejected "same-column return newline value" sameColumnSource sameColumnResult
 
   -- Bare return then next-line assignment: returnUnit then assign (not value-bearing).
   let bareThenAssignSource :=
