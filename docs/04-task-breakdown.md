@@ -84,8 +84,8 @@ normative: true
 | TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding（FX-2026-07-17-D0-05：inventory+CycloneDX development gate） | TASK-D0-03 | — | TST-SBOM-001 | EV-20260717-0033 | done |
 | TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0035 | done |
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | pending |
-| TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0043 | blocked |
-| TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0041, EV-20260718-0042 | blocked |
+| TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0051 | done |
+| TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0050 | done |
 
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
 authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
@@ -104,21 +104,24 @@ RED→GREEN，linux tool-root lane 本地复跑与合并树 `just ci` 全绿（`
 `EV-20260718-0042`）；lane 首次真实 GitHub 运行前修复 job-env `runner` context 缺陷
 （`63df5494`），随后 CI run `29642879415` 三 lane（docs/source-core/linux-tool-root）
 全 success，ubuntu CI 生成器产出 ineligible development profile 并被验证器接受。
-doneWhen 剩余两项为外部前置（GOV-TASK-FREEZE-001 §4 R5），故转
-`blocked`：(a) darwin 回归须 darwin 机执行 `just toolchains-validate`、
-`just host-stage0-development`、`just ci` 且 TST-HOST-001 语义不变；(b) pre-cutover 关闭
-路径须治理裁决——docs-check 在 `TASK-D0-07` 前拒绝 formal EV 且本任务不在 genesis 集合，
-冻结完成面不得改胖，解除 blocker 后回到原冻结包关闭。
+doneWhen 剩余两项一度为外部前置而 `blocked`；2026-07-18 经
+[`governance/pre-cutover-closure-ruling.md`](governance/pre-cutover-closure-ruling.md)
+（`GOV-PRECUTOVER-001`，Architecture + Quality 批准）关闭为 `done`：darwin 回归以
+ADR-0016 字节保持设计 + 静态保持性验证（darwin lock 逐字节、profile 四字段组相等、
+Stage-0 darwin 语义行全保留、数据级 v2 校验通过）认定满足，darwin live 重观察递延为
+P2 债务（owner=quality，截止 `TASK-D0-07` 关闭前）；pre-cutover 关闭路径由该裁决提供，
+attest `docs/governance/bootstrap-closure/TASK-D0-09.attest.json`，bootstrap EV
+`EV-20260718-0050`。development 级关闭，不产生 formal/hermetic 证据。
 
 `TASK-D0-08` 于 2026-07-18 进入 `in_progress`（counts 盘点固化后的完整冻结包
 [`task-freeze-packages/TASK-D0-08.json`](governance/task-freeze-packages/TASK-D0-08.json)），
 同日完成 TST-SBOM-002 RED（`904f8eb6`）与全 31 例 GREEN（`EV-20260718-0043`）：
 SB2-001..031 + LEGACY-NOT-GREEN 共 32 例与 SB2-028 逐点 fault injection 全绿，
 locked-jv 对 pinned CycloneDX schema 实测 schema/instance ok。doneWhen 第 1–3 条与第 5
-条已满足；第 4 条关闭路径为外部前置（GOV-TASK-FREEZE-001 §4 R5）——本任务不在
-genesis 集合，docs-check 在 `TASK-D0-07` 前拒绝 formal EV，按冻结包约定"保持实现+TST
-全绿待关闭并升级治理裁决"，故转 `blocked`；解除 blocker 后回到原冻结包关闭，完成面
-不得改胖。
+条满足后，同日经 `GOV-PRECUTOVER-001` 确认关闭路径（第 4 条）关闭为 `done`：
+attest `docs/governance/bootstrap-closure/TASK-D0-08.attest.json`，bootstrap EV
+`EV-20260718-0051`。development 级关闭；formal release binding、freshness/revocation
+与发布签名仍分别属 `TASK-D0-07`、`TASK-D3-05`、`TASK-D8-05`。
 
 ## Milestone D1：语言前端
 

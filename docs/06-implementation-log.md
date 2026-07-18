@@ -3442,3 +3442,37 @@ normative: false
   `git diff --check` clean。
 - Limitations：全部为 development 级证据；darwin 回归、eligible host、治理裁决
   仍待用户侧动作。
+
+## 2026-07-18 — GOV-PRECUTOVER-001 关闭 TASK-D0-08 与 TASK-D0-09（D0 = 7/9）
+
+- Context：用户（GOV-MAINTAINERS-001 全部角色持有人）审阅 D0 收口报告后明确指示
+  "都完成了那就确认，继续往下"，并指出 darwin 回归应可在 linux 上确认。据此完成
+  (a) 静态 darwin 保持性验证，(b) C2 治理裁决与机器强制分支，(c) 两任务关闭。
+- Static darwin preservation（linux 上执行，事实）：`toolchains.lock.json`（darwin v2）
+  与 D0-09 立项基线 `6dc1d836` 逐字节相等；`host-profiles.lock.json` 中 darwin profile
+  的 platform/developerTools/systemTools/systemRuntime 逐字段相等（仅 schema id v1→v2
+  与受影响 digest pin 按 ADR-0016 更新）；`verify_host_stage0.sh` 全部 18 条 darwin
+  语义行保留（仅新增平台分派与 3 行空初始化）；已提交 darwin profile 作为数据经
+  `validate-host-profile` 校验 rc=0 且正确报告 ineligible（APFS/SSV reason）；
+  `toolchain_assets.py validate` 与 `host_profiles_self_test.py` 全 ok。
+- Governance：`docs/governance/pre-cutover-closure-ruling.md`（`GOV-PRECUTOVER-001`，
+  accepted，approvers=architecture-owner, davirain, quality-owner，reviewCommit
+  `2bbd19bd`）；docs_check 增加 `d0_08_sbom_closure_attested` 与
+  `d0_09_linux_host_attested` 两个 exact 校验分支（D0-08 含 freezePackageSha256 重算），
+  bootstrap grade exact 集合扩为 D0-01..06 ∪ {D0-08, D0-09}；docs_check_self_test
+  新增 5 个 mutation（no-attest/缺字段/错 digest/错值全拒，191 mutations 全绿）；
+  attests 落地 `docs/governance/bootstrap-closure/TASK-D0-08.attest.json` 与
+  `TASK-D0-09.attest.json`；变更按门禁先行、关单单独成集分为两个 changeset。
+- Closure：`TASK-D0-09` → done（`EV-20260718-0050`，darwin live 重观察递延 P2，
+  owner=quality，截止 D0-07 关闭前）；`TASK-D0-08` → done（`EV-20260718-0051`）。
+  二者均为 development 级关闭；`TASK-D0-07` 冻结包落地时其 doneWhen 必须包含在
+  eligible host 重放 TST-HOST-002 与 TST-SBOM-002（裁决 §4.1）。checkpoint：
+  D0=7/9，Active task 无，Known blocker 仅 `TASK-D0-04`。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok（两个 done 行 +
+  bootstrap EV + attests 全链路）；`docs_check_self_test.py` ok（191 mutations）；
+  `git diff --check` clean。
+- Limitations：不产生 formal/hermetic/release 证据；`TASK-D0-04`（eligible host +
+  producer/service 基建）与 `TASK-D0-07`（依赖 D0-04）状态不变。
+- Next：`TASK-D0-04` 的仓库内缺口以明确标注的 pre-acceptance 方式推进
+  （activation receipt/catalog approval 对象族 → authority-store/producer 侧），
+  eligible host 出现前不得关闭；linux 机器启用 SecureBoot 后可登记 eligible profile。
