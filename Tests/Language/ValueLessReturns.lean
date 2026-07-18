@@ -347,10 +347,10 @@ unsafe def run : IO Unit := do
   let twinRevert := twin (.revertStmt "Err" #[])
 
   expect (twinUnit.sourceHash ==
-      "UNBOUND_RETURN_UNIT_GOLDEN")
+      "acd66177791a2f84ea2f463d999df132dc772e50b586371e8cbb86ab34c2ded5")
     s!"returnUnit ValueLessUnitTwin sourceHash golden must remain stable; got {twinUnit.sourceHash}"
   expect (toString twinUnit.canonicalBytes.size ==
-      "UNBOUND_RETURN_UNIT_SIZE")
+      "221")
     s!"returnUnit ValueLessUnitTwin size golden must remain stable; got {twinUnit.canonicalBytes.size}"
 
   -- Non-alias: tag6 vs returnValue tag1 and other statements.
