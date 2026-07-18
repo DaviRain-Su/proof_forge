@@ -1363,11 +1363,16 @@ unsafe def run : IO Unit := do
       s!"{label} semantic tag16+tag18+tag2 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
   let optionArrayOptionSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Option UInt64 0", .option (.array (.option .u64) 0), 0, "UNBOUND"),
-    ("Option Array Option UInt64 4", .option (.array (.option .u64) 4), 0, "UNBOUND"),
-    ("Option Array Option UInt64 4096", .option (.array (.option .u64) 4096), 0, "UNBOUND"),
-    ("Option Array Option Bool 0", .option (.array (.option .bool) 0), 0, "UNBOUND"),
-    ("Option Array Option Bool 4", .option (.array (.option .bool) 4), 0, "UNBOUND")
+    ("Option Array Option UInt64 0", .option (.array (.option .u64) 0), 261,
+      "a11aecf5dcea854f169a6f61ca75bc01f5c4ff640c87f561015bdf58be5070b5"),
+    ("Option Array Option UInt64 4", .option (.array (.option .u64) 4), 261,
+      "3bf0308d1e0d05fe7f910974dacdfb62b83648ebedcfa4317606b4a92d10b8fa"),
+    ("Option Array Option UInt64 4096", .option (.array (.option .u64) 4096), 261,
+      "5832f3ef92e52d6067b31ab4e8c2fbe300d75d3ff6c2f1232de91f9ff3190d32"),
+    ("Option Array Option Bool 0", .option (.array (.option .bool) 0), 261,
+      "ee00066b4d78be5e2e247fdab3f802967e867a7cf7aaf9bf5c9a9b7b1c1380ba"),
+    ("Option Array Option Bool 4", .option (.array (.option .bool) 4), 261,
+      "431354f3a6adcddfe6b4d5ee22afcb913076017c4a69722a3520ff4dba229768")
   ]
   for (label, type, expectedSize, expectedHash) in optionArrayOptionSourceVectors do
     let sourceProgram := twin type
@@ -1387,11 +1392,16 @@ unsafe def run : IO Unit := do
     "Option Array Option must bind Option/Array/Option tags, element and complete length payload"
 
   let optionArrayOptionSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Option UInt64 0", .option (.array (.option .u64) 0), 0, "UNBOUND"),
-    ("Option Array Option UInt64 4", .option (.array (.option .u64) 4), 0, "UNBOUND"),
-    ("Option Array Option UInt64 4096", .option (.array (.option .u64) 4096), 0, "UNBOUND"),
-    ("Option Array Option Bool 0", .option (.array (.option .bool) 0), 0, "UNBOUND"),
-    ("Option Array Option Bool 4", .option (.array (.option .bool) 4), 0, "UNBOUND")
+    ("Option Array Option UInt64 0", .option (.array (.option .u64) 0), 210,
+      "60e047f0cfb97a38c2b811ddf2d3bd594710f733b0f01e5a11243e32a0042419"),
+    ("Option Array Option UInt64 4", .option (.array (.option .u64) 4), 210,
+      "ddcc48af0bd00c646fa2b8b6cd00b3ed120cc802d7e608b0da38340a148014b3"),
+    ("Option Array Option UInt64 4096", .option (.array (.option .u64) 4096), 210,
+      "5e2c4332a93d2e1fba8bca0e93347eb7dbd13556bd76a3f01247b26d9d400c1d"),
+    ("Option Array Option Bool 0", .option (.array (.option .bool) 0), 211,
+      "7a683a32e88d36413853145fa551652e382ae00d84618827c9419e26b8a77921"),
+    ("Option Array Option Bool 4", .option (.array (.option .bool) 4), 211,
+      "3db7f00df27c4e90dfbb1d62f43f7733f5e703284e56f95d883b22b3b3b88991")
   ]
   for (label, type, expectedSize, expectedHash) in optionArrayOptionSemanticVectors do
     let sourceProgram := twin type
@@ -1528,6 +1538,18 @@ unsafe def run : IO Unit := do
       ("leading-zero Option Array length", "LeadingZeroOptionArray", "Option Array UInt64 01"),
       ("hex Option Array length", "HexOptionArray", "Option Array UInt64 0x10"),
       ("underscore Option Array length", "UnderscoreOptionArray", "Option Array UInt64 4_096"),
+      ("unknown Option Array Option element", "UnknownOptionArrayOptionElement",
+        "Option Array Option Mystery 4"),
+      ("Field Option Array Option element", "FieldOptionArrayOptionElement",
+        "Option Array Option Field 4"),
+      ("over-bound Option Array Option length", "OverBoundOptionArrayOption",
+        "Option Array Option Bool 4097"),
+      ("leading-zero Option Array Option length", "LeadingZeroOptionArrayOption",
+        "Option Array Option Bool 01"),
+      ("hex Option Array Option length", "HexOptionArrayOption",
+        "Option Array Option Bool 0x10"),
+      ("underscore Option Array Option length", "UnderscoreOptionArrayOption",
+        "Option Array Option Bool 4_096"),
       ("missing Option Bytes length", "MissingOptionBytesLength", "Option Bytes"),
       ("over-bound Option Bytes length", "OverBoundOptionBytes", "Option Bytes 4097"),
       ("leading-zero Option Bytes length", "LeadingZeroOptionBytes", "Option Bytes 01"),
@@ -1613,14 +1635,8 @@ unsafe def run : IO Unit := do
       ("qualified Array constructor in Option", "Option Std.Array UInt64 4"),
       ("escaped Option Array constructor", "«Option» Array UInt64 4"),
       ("qualified Option Array constructor", "Std.Option Array UInt64 4"),
-      ("missing Option Array Option length", "Option Array Option Bool"),
       ("missing Option Array Option element", "Option Array Option"),
-      ("unknown Option Array Option element", "Option Array Option Mystery 4"),
-      ("Field Option Array Option element", "Option Array Option Field 4"),
-      ("over-bound Option Array Option length", "Option Array Option Bool 4097"),
-      ("leading-zero Option Array Option length", "Option Array Option Bool 01"),
-      ("hex Option Array Option length", "Option Array Option Bool 0x10"),
-      ("underscore Option Array Option length", "Option Array Option Bool 4_096"),
+      ("missing Option Array Option length", "Option Array Option Bool"),
       ("negative Option Array Option length", "Option Array Option Bool -1"),
       ("extra Option Array Option payload", "Option Array Option Bool 4 Principal"),
       ("split Option Array Option element", "Option Array Option\n  Bool 4"),
