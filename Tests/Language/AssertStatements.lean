@@ -366,13 +366,13 @@ unsafe def run : IO Unit := do
   let errorName := errorTwin (.boolLiteral true) "Other"
   let errorAdd := errorTwin (.checkedAdd (.literal 1) (.literal 2)) "Failure"
   expectGolden "assert-error true" errorTrue
-    "UNBOUND_ASSERT_ERROR_TRUE_HASH" "UNBOUND_ASSERT_ERROR_TRUE_SIZE"
+    "056c9ed3648c36d0c0e79bb8f8ba272191bff9444abf27b5cc041442e9373ed6" "224"
   expectGolden "assert-error false" errorFalse
-    "UNBOUND_ASSERT_ERROR_FALSE_HASH" "UNBOUND_ASSERT_ERROR_FALSE_SIZE"
+    "8983edac8b1e96a0a84250c22aff6ca70ac2eb626d3da302309d8ca41a1e4901" "224"
   expectGolden "assert-error name" errorName
-    "UNBOUND_ASSERT_ERROR_NAME_HASH" "UNBOUND_ASSERT_ERROR_NAME_SIZE"
+    "16183f55e6b2a2c1addda8d462638894016f0c18e4d2c20fffa8882f466aae01" "222"
   expectGolden "assert-error add" errorAdd
-    "UNBOUND_ASSERT_ERROR_ADD_HASH" "UNBOUND_ASSERT_ERROR_ADD_SIZE"
+    "13b7a8b49ba99e79b44dd36751fc31625621f9e5706fdae4e76863ed7f7e90a8" "241"
   expect (errorTrue.sourceHash != errorFalse.sourceHash &&
       errorTrue.sourceHash != errorName.sourceHash &&
       errorTrue.sourceHash != errorAdd.sourceHash)
