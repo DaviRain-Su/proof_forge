@@ -874,6 +874,28 @@ def verify_existing(*, root: Path, candidate: dict[str, object], destination: Pa
             fail("PF-SBOM-BIND", f"sidecar {name} differs from the recomputed bytes")
 
 
+def read_external_regular_bytes(path: Path, *, code: str = "PF-SBOM-IO") -> bytes:
+    """Read a checkout-external regular file (candidate JSON/archive family)."""
+
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as error:
+        fail(code, f"cannot read {path}: {error.strerror or error}")
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            fail(code, f"not a regular file: {path}")
+        if metadata.st_size > MAX_INPUT_BYTES:
+            fail("PF-SBOM-LIMIT", f"input exceeds byte budget: {path}")
+        with os.fdopen(fd, "rb", closefd=True) as handle:
+            fd = -1
+            return handle.read()
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    return b""
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sbom_closure.py")
     parser.add_argument("--root", required=True, type=Path)
@@ -883,9 +905,7 @@ def main(argv: list[str] | None = None) -> int:
         child.add_argument("--candidate", required=True, type=Path)
         child.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args(argv)
-    candidate_raw = read_regular_bytes(args.root, os.path.relpath(args.candidate, args.root)
-                                       if args.candidate.is_absolute() else str(args.candidate))
-    candidate = decode_json(candidate_raw, "candidate")
+    candidate = decode_json(read_external_regular_bytes(args.candidate), "candidate")
     try:
         if args.command == "generate":
             generate_sidecars(root=args.root, candidate=candidate, destination=args.output_dir)
