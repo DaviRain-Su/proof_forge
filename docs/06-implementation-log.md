@@ -2749,3 +2749,45 @@ normative: false
   不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
 - Next：下一 development slice 未冻结；正在对 indexed assignment、value-less return、Match 与
   ExternalCall residual 做依赖闭合审计，只能选择一个 durable 最小切片。
+
+## 2026-07-18 — D1 value-less return pre-acceptance slice
+
+- Commits：freeze `63371613`；tests-only RED `df5ea962`；RED priority hardening `57239979`；
+  deterministic-offside 规格修正 `5c04c4f0`；offside RED 修正 `591129f9`；canonical golden binding
+  `5d16caab`；Typed diagnostic-priority 规格修正 `1ea48621`；returnValue control fixture 修正
+  `7d944c0e`；Source-only GREEN `4a95e5ef`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-49 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 nullary `Source.Statement.returnUnit` 与 append-only Statement tag `6`，canonical
+  encoder 不带 payload；既有 `returnValue` 与 tag `1` 不变。named `returnValueStmt` 以 deterministic
+  offside 规则只接受同一行或严格更深缩进的 value expression，同 statement column 的 newline
+  结束 bare `return`，decoder/quotation 保留两种结构。Typed 对 entry/initializer 的 `returnUnit`
+  逐字 fail closed 为 `value-less return is not yet supported by typed checking`；既有 generic fn gate
+  只增加相同 exact-priority 检查，无 returnUnit 的普通 fn 仍返回原 fail-closed。production 恰好
+  Source/Syntax/Typed 3 文件、12 行新增/2 行移除；Semantic、requirement 与 target 未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn，explicit/omitted Unit
+  与 non-Unit declaration；`return 1`、`return true`、`return 1 + 2` 保持 `returnValue`，严格更深缩进的
+  continuation 保持 value-bearing，同列 `return` newline `1` 拒绝，bare 后同列 assignment 解析为
+  `returnUnit` 后 assignment。固定 tag non-alias、malformed/extra payload、escaped keyword assignment、
+  Source parity 与 exact Typed priority。`ValueLessUnitTwin` 的 sourceHash/canonical size 为
+  `acd66177791a2f84ea2f463d999df132dc772e50b586371e8cbb86ab34c2ded5`/221 bytes。
+- Corrections：首次 GREEN 聚焦构建证明 unrestricted 跨行 Expr 会吞下一 item 的 contextual `fn`
+  或下一 statement identifier；`5c04c4f0`/`591129f9` 在实现前把冻结边界纠正为 deterministic offside，
+  未迁移既有 suite。首次 aggregate test-binary 执行又证明 generic fn gate 先于 statement checker；
+  `1ea48621` 如实把 production budget 修正为 12/2，并限定只补 returnUnit exact priority。最终 positive
+  control 原先构造了两个连续 return，`7d944c0e` 改为已解码的单一 `return 1` program；两项测试修正
+  都未放宽 production。Grok/Kimi final reviews 均为 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.ValueLessReturns`（15 jobs）；独立 Lean probe 测量上述
+  hash/size；`lake build proof_forge_next_tests`（184 jobs）；`lake env /usr/bin/time -p
+  .lake/build/bin/proof-forge-next-tests` exit 0/5.54 s；`git diff --check` exit 0。随后在 clean committed
+  `4a95e5efc3f00c6b27ec56c17c0b374236d37224` 上只运行一次 `just ci` 并捕获 exit 0：40-mutation
+  isolation precheck、192-job committed archive build/test/help、186 docs mutations、genesis/bootstrap/
+  SBOM/supply-chain/runtime closure self-tests、60-job product build、184-job aggregate/test、DSL 与
+  target/toolchain negatives 全绿。development evidence 为 `EV-20260718-0035`。
+- Scope claim：value-less return 的 Source carrier、deterministic offside surface、canonical identity 与
+  Typed fail-closed 已覆盖。不包括 implicit Unit/fallthrough、return type/effect/path、statement-after-return
+  新语义、Semantic return、ABI/runtime、requirement 或 target behavior。
+- Limitations：不得声明完整 return semantics、statement grammar、eligible host 或 formal D1 evidence；
+  不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：当前无 active development slice；下一 slice 未冻结，必须先完成 expression residual audit，
+  再选择单一依赖闭合的最小切片，禁止自动递增。
