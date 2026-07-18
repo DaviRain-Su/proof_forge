@@ -1037,11 +1037,16 @@ unsafe def run : IO Unit := do
 
 
   let arrayOptionOptionSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option Option UInt64 0", .array (.option (.option .u64)) 0, 0, "UNBOUND"),
-    ("Array Option Option UInt64 4", .array (.option (.option .u64)) 4, 0, "UNBOUND"),
-    ("Array Option Option UInt64 4096", .array (.option (.option .u64)) 4096, 0, "UNBOUND"),
-    ("Array Option Option Bool 0", .array (.option (.option .bool)) 0, 0, "UNBOUND"),
-    ("Array Option Option Principal 4096", .array (.option (.option .principal)) 4096, 0, "UNBOUND")
+    ("Array Option Option UInt64 0", .array (.option (.option .u64)) 0, 251,
+      "8892ca6e9b9dfc07d6e5b9cd3e1eb6141a0d5a9285545e88fdf4510436dddad6"),
+    ("Array Option Option UInt64 4", .array (.option (.option .u64)) 4, 251,
+      "b61a146b5be1bf559c8c93b95d03fe9196dd8ff055c42801ff12cfdb79833fe6"),
+    ("Array Option Option UInt64 4096", .array (.option (.option .u64)) 4096, 251,
+      "e9e9c741663b977d78a470228883d3d45a8b2cef13c6e5b2760eb25aa81389e1"),
+    ("Array Option Option Bool 0", .array (.option (.option .bool)) 0, 251,
+      "c5264de4fa8673cacfe0a41ec1531155c5163771459cf8ce8dbc5399c6a0caa7"),
+    ("Array Option Option Principal 4096", .array (.option (.option .principal)) 4096, 251,
+      "be000b509343817a7f2ff46310d060e6c8e88e665aecd3341ab3b3987d71548e")
   ]
   for (label, type, expectedSize, expectedHash) in arrayOptionOptionSourceVectors do
     let sourceProgram := twin type
@@ -1067,11 +1072,16 @@ unsafe def run : IO Unit := do
     "Array Option Option must bind Array/Option/Option tags, element and complete length payload"
 
   let arrayOptionOptionSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option Option UInt64 0", .array (.option (.option .u64)) 0, 0, "UNBOUND"),
-    ("Array Option Option UInt64 4", .array (.option (.option .u64)) 4, 0, "UNBOUND"),
-    ("Array Option Option UInt64 4096", .array (.option (.option .u64)) 4096, 0, "UNBOUND"),
-    ("Array Option Option Bool 0", .array (.option (.option .bool)) 0, 0, "UNBOUND"),
-    ("Array Option Option Principal 4096", .array (.option (.option .principal)) 4096, 0, "UNBOUND")
+    ("Array Option Option UInt64 0", .array (.option (.option .u64)) 0, 200,
+      "6de2e7eae903013b49d9bc4971c5dcdcca00dc0165aecb84eb2a33db2476d2e2"),
+    ("Array Option Option UInt64 4", .array (.option (.option .u64)) 4, 200,
+      "2cd8ce38fdc66f441f7b585a0a9b2809ae3593b72e6a0ef8aaf7a0652f52461b"),
+    ("Array Option Option UInt64 4096", .array (.option (.option .u64)) 4096, 200,
+      "a2a03629e67d01b46ba099cc5cfd3426ee4e3c8ed8a86da4bb0d63ba8fde6f8e"),
+    ("Array Option Option Bool 0", .array (.option (.option .bool)) 0, 201,
+      "7a721080c0424521e1ce4766f5c0f0319d2678eea82943059ae858c7e6cee692"),
+    ("Array Option Option Principal 4096", .array (.option (.option .principal)) 4096, 200,
+      "72e319da48d68103d76d9b349a2255fd8a59f6efe4496c4dcce03b059027c036")
   ]
   for (label, type, expectedSize, expectedHash) in arrayOptionOptionSemanticVectors do
     let compiled ← match Compiler.compile (twin type) with
