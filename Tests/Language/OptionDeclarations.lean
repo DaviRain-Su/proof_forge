@@ -968,7 +968,6 @@ unsafe def run : IO Unit := do
       ("leading-zero nested Bytes length", "LeadingZeroNestedOptionBytes", "Option Option Bytes 01"),
       ("hex nested Bytes length", "HexNestedOptionBytes", "Option Option Bytes 0x10"),
       ("underscore nested Bytes length", "UnderscoreNestedOptionBytes", "Option Option Bytes 4_096"),
-      ("identifier nested Bytes length", "IdentifierNestedOptionBytes", "Option Option Bytes Foo"),
       ("Map option element", "MapOptionElement", "Option Map UInt64 Bool")
     ] do
     expectUnsupportedType label
@@ -1016,6 +1015,7 @@ unsafe def run : IO Unit := do
       ("escaped Option Bytes constructor", "«Option» Bytes 8"),
       ("qualified Option Bytes constructor", "Std.Option Bytes 8"),
       ("negative nested Bytes length", "Option Option Bytes -1"),
+      ("identifier nested Bytes length", "Option Option Bytes Foo"),
       ("extra nested Bytes payload", "Option Option Bytes 8 UInt64"),
       ("split nested Bytes length", "Option Option Bytes\n  8"),
       ("escaped Bytes constructor in nested Option", "Option Option «Bytes» 8"),
