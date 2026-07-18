@@ -2961,3 +2961,40 @@ normative: false
   不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
 - Next：下一 development slice 未冻结；正在对 indexed assignment、value-less return、Match 与
   ExternalCall residual 做依赖闭合审计，只能选择一个 durable 最小切片。
+
+## 2026-07-18 — TST-SBOM-002 全 31 例 GREEN（phase-2）
+
+- Context：RED-12 转绿后按 spec 把验收矩阵扩展到完整 SB2-001..031 + LEGACY-NOT-GREEN
+  共 32 例；委托子代理实现，主会话逐段评审后提交。
+- Changed：`scripts/sbom_closure.py`（+582 行）——tool/bundle digest join 纵深防御
+  （SB2-010）、新提交输入 `supply-chain/lean-package-files.v1.json`（30 文件 pin，
+  schema `proof-forge.lean-package-files.v1`）与 file-set 漂移检测（SB2-012/013）、
+  inventory 必填字段/唯一/排序/dependsOn 无环校验（SB2-014）、license 文本
+  licenseFileSha256 重算 + nlink=1 + 正文 marker（SB2-015）、完整 SPDX 表达式解析器
+  对照 pinned lists 的 canonical 校验（SB2-016）、policy 三表两两不交/externalCli⊆deny/
+  表达式全有效（SB2-017）、typed relationship 结构不变量（no-self/no-dangle/no-dup/
+  loads 无环，SB2-020）、verify_existing legacy schema 识别（SB2-005/021/024）、
+  atomic writer 父目录 symlink/group-world-writable 拒绝（SB2-026）、四级 limits
+  （components 4096/relationships 16384/file-set 4096/sidecar 64MiB，SB2-031）。
+  另修复 verify_existing 成员比较未排序常量的既有 bug（此前被负向预期掩盖）。
+- Tests：`scripts/sbom_closure_self_test.py`（+875 行）19 个新案例：SB2-002 双 root
+  对照（typed 不变/raw 变/BOM 不变/binding 变）、SB2-004 raw/typed 互换 BIND、
+  SB2-005 三种 legacy payload SCHEMA 且还原后 verify 通过、SB2-006 七种 JSON 攻击、
+  SB2-010 三种 lock 漂移、SB2-012/013 文件集 missing/extra/rename/append、SB2-014
+  duplicate/dangling/cycle/self、SB2-015 tamper/symlink/hardlink/placeholder、SB2-016
+  五种表达式攻击、SB2-017 五种 policy 攻击、SB2-020 loadEdges 注入 self/cycle/missing/
+  duplicate、SB2-021/024 篡改后 verify 报错且还原通过、SB2-026 symlink 父目录与
+  0775/0777、SB2-027 二次生成 ATOMICITY 且首次产物不变、SB2-029 两个不同
+  TZ/locale/umask/HOME/cwd 的 CLI 子进程 byte-identical、SB2-031 四 limit equal/over。
+  SB2-030：本机与 tool-root 均无 jv，live schema 校验按冻结外处理，改为证明
+  identity-未重算的 CycloneDX 外形 BOM 被 consumer 以 PF-SBOM-BIND 拒绝。
+- Verification：`/usr/bin/python3 -I -S scripts/sbom_closure_self_test.py` ok（32/32，
+  三次复跑）；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check`
+  clean；`supply-chain/lean-package-files.v1.json` 与当前树逐文件核验一致。
+  新契约：`ProofForgeV2/**` 源码变更必须同变更运行 `just sbom-package-files-refresh`
+  （已写入 AGENTS.md 执行协议与 README 双机节）。
+- Limitations：jv 离线 CycloneDX schema 验证未接入（tool root 物化后可补）；
+  `TASK-D0-08` 仍 in_progress；关闭需 pre-cutover 治理裁决；SB2-028 的逐点
+  fault-injection 完整矩阵保留在基础版（no-clobber/预存在 destination）。
+- Next：doneWhen 剩余——`--verify-existing` 独立重算已绿；关闭路径按治理裁决；
+  全量 `just ci` 与 merge/push 由主会话执行。
