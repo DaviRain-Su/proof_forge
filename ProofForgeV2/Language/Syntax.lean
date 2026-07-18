@@ -71,6 +71,11 @@ syntax "assert " pfExpr : pfStmt
 syntax "revert " ident "(" pfExpr,* ")" : pfStmt
 syntax "revert " ident : pfStmt
 syntax "emit " ident "(" pfExpr,* ")" : pfStmt
+@[pfStmt_parser default+1] def ifStmt := leading_parser withPosition (
+    "if " >> categoryParser `pfExpr 0 >> " then" >> checkLinebreakBefore >> checkColGt >>
+    many1Indent (categoryParser `pfStmt 0) >>
+    optional (checkColEq >> "else" >> checkLinebreakBefore >> checkColGt >>
+      many1Indent (categoryParser `pfStmt 0)))
 /-- Same-line annotated let (contextual, not a host Lean keyword). No low fallback. -/
 @[pfStmt_parser default+1] def letStmtAnnotated := leading_parser
   withPosition (
@@ -455,7 +460,7 @@ private def decodeRevertName (stx : Syntax) : Except String String := do
     throw "revert error name must be unqualified"
   decodeIdentifier stx
 
-private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Source.Statement
+private partial def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Source.Statement
   | `(letStmtAnnotated| let $name:ident : $type:pfType := $value:pfExpr) => do
       return .letDecl (← decodeIdentifier name) (some (← decodeTypeUnchecked type))
         (← decodeExprUnchecked value)
@@ -483,7 +488,20 @@ private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Sou
       unless eventName.getId.components.length == 1 do
         throw "emit event name must be unqualified"
       return .emitStmt (← decodeIdentifier eventName) (← args.getElems.mapM decodeExprUnchecked)
-  | _ => .error "unsupported portable statement"
+  | stx => do
+      match stx.getKind, stx.getArgs with
+      | `ProofForgeV2.Language.ifStmt, #[.atom _ "if", condition, .atom _ "then",
+          .node _ `null thenSyntax, .node _ `null elseSyntax] => do
+          unless !thenSyntax.isEmpty do throw "unsupported portable statement"
+          let condition ← decodeExprUnchecked condition
+          let thenBody ← thenSyntax.mapM decodeStatementUnchecked
+          let elseBody ← match elseSyntax with
+            | #[] => pure none
+            | #[.atom _ "else", .node _ `null body] =>
+                if body.isEmpty then throw "unsupported portable statement" else some <$> body.mapM decodeStatementUnchecked
+            | _ => throw "unsupported portable statement"
+          return .ifStmt condition thenBody elseBody
+      | _, _ => throw "unsupported portable statement"
 
 def decodeStatement (stx : Syntax) : Except String ProofForgeV2.Source.Statement := do
   preflightForDecoder stx
@@ -1063,6 +1081,15 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
       let eventName := Syntax.mkStrLit eventName
       let args ← args.mapM quoteExpr
       `(ProofForgeV2.Source.Statement.emitStmt $eventName #[$[$args],*])
+  | .ifStmt condition thenBody elseBody => do
+      let condition ← quoteExpr condition
+      let thenBody ← thenBody.mapM quoteStatement
+      let elseBody ← match elseBody with
+        | none => `(Option.none)
+        | some body => do
+            let body ← body.mapM quoteStatement
+            `(Option.some #[$[$body],*])
+      `(ProofForgeV2.Source.Statement.ifStmt $condition #[$[$thenBody],*] $elseBody)
 
 private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
     MacroM (TSyntax `term) := do

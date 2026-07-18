@@ -120,6 +120,7 @@ inductive Statement where
   | assertErrorStmt (condition : Expr) (errorName : String)
   | revertStmt (errorName : String) (args : Array Expr)
   | emitStmt (eventName : String) (args : Array Expr)
+  | ifStmt (condition : Expr) (thenBody : Array Statement) (elseBody : Option (Array Statement))
   deriving BEq, Inhabited, Repr
 
 inductive EntryMode where
@@ -325,7 +326,7 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value
 
-private def appendStatement (bytes : ByteArray) : Statement → ByteArray
+private partial def appendStatement (bytes : ByteArray) : Statement → ByteArray
   | .assign name value => appendExpr (appendString (appendTag bytes 0) name) value
   | .returnValue value => appendExpr (appendTag bytes 1) value
   | .returnUnit => appendTag bytes 6
@@ -340,6 +341,11 @@ private def appendStatement (bytes : ByteArray) : Statement → ByteArray
   | .assertErrorStmt condition errorName => appendString (appendExpr (appendTag bytes 8) condition) errorName
   | .revertStmt errorName args => appendArray appendExpr (appendString (appendTag bytes 5) errorName) args
   | .emitStmt eventName args => appendArray appendExpr (appendString (appendTag bytes 7) eventName) args
+  | .ifStmt condition thenBody elseBody =>
+      let bytes := appendArray appendStatement (appendExpr (appendTag bytes 9) condition) thenBody
+      match elseBody with
+      | none => appendTag bytes 0
+      | some body => appendArray appendStatement (appendTag bytes 1) body
 
 private def appendEntryMode (bytes : ByteArray) : EntryMode → ByteArray
   | .mutate => appendTag bytes 0
