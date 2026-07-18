@@ -135,6 +135,7 @@ authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` �
 | D1-PA-32 | TASK-D1-04 | shift-right `>>` Source-only carrier；与 `<<` 同层 precedence `60` 左结合、Expr tag `13`、single retention migration 与 Typed fail-closed | `dc8b57ad`, `56f0e70c`, `29513a00` | focused 14-job build + 148-job aggregate + exact cross-shift/count/parser-boundary controls；clean committed `just ci` at `29513a00`；final review P0/P1=0 | complete (development) |
 | D1-PA-33 | TASK-D1-04 | equality `==` Source-only carrier；低于 ShiftExpr 的 precedence `50` non-associative、Expr tag `14`、zero migration 与 Typed fail-closed | `5363ba0c`, `6d246cd5`, `055658b9` | focused 14-job build + 150-job aggregate + exact non-associativity/precedence/sibling-boundary controls；final review P0/P1=0；checkpoint `just ci` deferred | complete (development) |
 | D1-PA-34 | TASK-D1-04 | not-equal `!=` Source-only carrier；与 `==` 同层 precedence `50` non-associative、Expr tag `15`、single retention migration 与 Typed fail-closed | `b683bea9`, `25222bdb`, `cff64eea` | focused 14-job build + 152-job aggregate + exact token-integrity/same+mixed-chain/canonical controls；final review P0/P1=0；checkpoint `just ci` deferred | complete (development) |
+| D1-PA-35 | TASK-D1-04 | less-than `<` Source-only carrier；与 equality pair 同层 precedence `50` non-associative、Expr tag `16`、single ordering migration 与 Typed fail-closed | — | frozen tests/production seam；tests-only RED pending | active (development) |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
