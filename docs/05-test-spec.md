@@ -1456,8 +1456,9 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   收口；按冻结不运行 `just ci`，不得声明 Typed conditional semantics、完整 statement grammar
   或正式 D1 完成。
 - D1-PA-53 的 alpha bounded-for tests 新增
+  `Source.IterationBound := Fin 4097` 与
   `Source.Statement.forStmt(iterator : String, start : Expr, stopExclusive : Expr,
-  maxIterations : Nat, body : Array Statement)`，完整覆盖
+  maxIterations : IterationBound, body : Array Statement)`，完整覆盖
   `for Ident in Expr ..< Expr bounded Nat do Block` Source surface。唯一 position-sensitive parser
   必须固定整条 header 同行、exact `..<` token、`do` 后真实换行和更深缩进的 non-empty
   `many1Indent(pfStmt)` body。spaced `0 ..< 10` 与 compact `0..<10` 必须形成同一 Source tree，
@@ -1467,7 +1468,7 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   decoder exact 验证 custom kind、tokens、null body group 与 non-empty shape，顺序为
   iterator→start→stopExclusive→maxIterations→body；quotation 结构化递归保留 body array。
   Source canonical encoder 使用 append-only Statement tag `10`，再编码 iterator string、两个 endpoint
-  expression、`appendNat maxIterations` 与 body array；固定 iterator、endpoint value/tree、bound、body
+  expression、`appendNat maxIterations.val` 与 body array；固定 iterator、endpoint value/tree、bound、body
   count/order/nesting、tag non-alias，tags `0..9`/旧 goldens 不变。RED 中 canonical hash/size 必须显式
   未绑定，独立 probe 后单独提交 golden binding。
   tests-only RED 为 zero migration，只新增/注册 `Tests.Language.ForStatements`。positive 覆盖
@@ -1482,6 +1483,9 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   production，并同 GREEN 刷新 Lean package file-set。focused/aggregate/test binary、independent review 与
   PA50–PA53 committed-tree batch `just ci` 全绿后收口；不得声明 loop semantics、完整 statement grammar
   或正式 D1 完成。
+  RED 后另固定 canonical security regression：裸 `Nat` 的 `0`/`2^64` 会经 `UInt64.ofNat` alias，故
+  production 必须以 `Fin 4097` 使越界 public Source bound 不可表示，并证明任意 carrier 的 `.val ≤ 4096`；
+  这不改变合法 surface/golden，也不得增加 fallback 或 runtime clamp。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

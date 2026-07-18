@@ -846,8 +846,9 @@ binary 与 independent review 全绿后只可记录 conditional Source carrier�
 
 D1-PA-53 冻结的 pre-acceptance alpha bounded-for 子集一次实现既有 EBNF
 `"for" Ident "in" Expr "..<" Expr "bounded" Nat "do" Block` 的 Source surface。carrier 固定为
+`Source.IterationBound := Fin 4097` 与
 `Source.Statement.forStmt(iterator : String, start : Expr, stopExclusive : Expr,
-maxIterations : Nat, body : Array Statement)`；它只记录作者源码，不执行迭代、求值或 target
+maxIterations : IterationBound, body : Array Statement)`；它只记录作者源码，不执行迭代、求值或 target
 特化。parser 只新增一条 position-sensitive `forStmt` production：header 的 `for`、iterator、`in`、
 start、exact `..<` token、stopExclusive、`bounded`、bound 与 `do` 必须全部同一行；`do` 后必须真实
 换行，body item 必须更深缩进，并由 `many1Indent(pfStmt)` 保证 non-empty。`0 ..< 10` 与
@@ -861,7 +862,7 @@ decimal lexical discipline，不得调用 unchecked host literal/`getNat` 转换
 kind/token/null-group/non-empty shape 验证，quotation 必须递归保留 body array，不得退化为文本。
 
 Source canonical encoder 使用 append-only Statement tag `10`，随后依次编码 iterator string、start
-expression、stopExclusive expression、`appendNat maxIterations` 与 length-prefixed body statement array；
+expression、stopExclusive expression、`appendNat maxIterations.val` 与 length-prefixed body statement array；
 tag `0..9` 与全部旧 golden 不变。tests-only RED 为 zero migration，只新增/注册
 `Tests.Language.ForStatements`。positive 固定 initializer、entry、view、fn 的 Lean
 command/ParserSession parity，bound `0`/`4096`、spaced/compact exact range token、literal/variable/operator/
@@ -878,6 +879,11 @@ return/effect/path、Semantic/requirement、target Plan/IR、runtime 或 materia
 Source/Syntax/Typed 3 文件、最多 34 行新增且不移除既有 production，并在同一 GREEN 刷新 Lean package
 file-set。focused/aggregate/test binary、independent review 与 PA50–PA53 committed-tree batch `just ci` 全绿后
 只可记录 bounded-for Source carrier；不得宣称 loop semantics、完整 statement grammar 或正式 D1 完成。
+
+RED 后的 canonical security probe 证明裸 `Nat` 不是合法 carrier：`appendNat` 经 `UInt64.ofNat` 会让
+`0` 与 `2^64` 产生相同 bytes/sourceHash。上述 `IterationBound` 收紧是冻结范围内的安全修正：surface
+仍只接受原定 `0..4096` decimal，合法值的 bytes/goldens 不变，但 public Source AST 中越界 bound 变为
+不可表示；不得以“parser 不会产生”为理由保留 canonical alias。
 
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
