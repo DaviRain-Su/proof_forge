@@ -3103,3 +3103,30 @@ normative: false
   不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 statement/expression residual
   audit，再选择单一依赖闭合的最小切片，禁止自动递增。
+
+## 2026-07-18 — 会话收口：D0-08 转 blocked（待治理裁决）与双机合并同步
+
+- Context：D0 收口会话的同步与收口记录。期间 darwin 机并行推进 D1-PA-46…51
+  （ConstructorExpr/IndexAccess/RevertStmt/ValueLessReturn/EmitStmt/AssertError），
+  本机完成 D0-09 证据、D0-08 全矩阵与三轮合并。
+- Merge incidents（事实）：(1) 首轮合并后 `compiler_runtime_observation_self_test.py`
+  fixture lock 缺 `schema` 触发 per-platform 分派 KeyError，1 行 fixture 声明修复
+  （`90668547`）；(2) EV 台账与并行线两次撞号（0032/0033、0035），本机 D0-09 行两次
+  顺延至 `EV-20260718-0037/0038`；(3) 第三轮合并拉入 darwin 线 tests-only RED
+  （`3c844b80`，`assertErrorStmt` 引用未存在的 ctor/fixture，`lake build Tests` 红），
+  等其 GREEN（`c2a1e4fa`）到达后合并恢复绿——RED 窗口期共享 main 不可构建是该
+  工作流的已知形态，后续切片可考虑 RED 先落短命分支。
+- Final state：`TASK-D0-08` 全 31 例 GREEN + SB2-028 逐点 fault injection + locked-jv
+  schema 实测 ok，doneWhen 第 4 条（关闭路径治理裁决）为唯一剩余且属外部前置，
+  转 `blocked`；`TASK-D0-09` blocked（darwin 回归 + 同一裁决）；`TASK-D0-04` blocked
+  （eligible host + producer/service 基建）；`TASK-D0-07` pending（依赖 D0-04）。
+  checkpoint Active task 为无，Known blocker 列 D0-04/D0-08/D0-09。
+- Verification（最终树 `just ci` exit 0）：v2-isolation（40 mutations + committed archive
+  build/test/help）、docs-check、sbom（D0-05 + TST-SBOM-002 33 例）、supply-chain-core、
+  186 docs mutations、194-job build、proof-forge-next-tests、DSL/target/toolchain negatives
+  全绿；`git diff --check` clean。
+- Limitations：全部证据仍为 development 级；无 formal/hermetic/release 证据；darwin 回归、
+  eligible host、治理裁决三项均不在本机能力内。
+- Next（用户侧）：(a) darwin 机回归 D0-09 三条命令；(b) 决定 eligible host 路线
+  （本机启用 SecureBoot 后重新生成/登记 linux profile，或修复 darwin SSV/Xcode）；
+  (c) D0-08/D0-09 pre-cutover 关闭的治理裁决（Architecture + Quality）。
