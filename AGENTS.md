@@ -21,7 +21,7 @@
 | Next development slice | PA-67 收口后重新做 residual audit；禁止由 checkpoint 自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-04** host seal broken + eligible Stage-0/authority/receipt 未闭合（ADR-0016 accepted 已立 linux host 路径，合格 Linux 机器可成第二条 eligible 路径；本机 SecureBoot disabled 仅 development 级）；D0-08/D0-09 已经 `GOV-PRECUTOVER-001` 关闭，darwin live 重观察为 P2 债务（截止 D0-07 关闭前）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
+| Known blocker | **TASK-D0-04** 仓库内 foundation 已齐（对象族/producer/authority-store/handoff producer/bwrap containment/TST-BOOTSTRAP-001 rehearsal 全绿，`EV-20260718-0054`…`EV-20260718-0062`），剩余为外部前置：eligible host（本机 SecureBoot disabled，须 BIOS 启用后重登记 linux profile）+ genesis root 离线签发首个 BootstrapAuthorityPolicyV1 + 真实 six-item activation；D0-08/D0-09 已经 `GOV-PRECUTOVER-001` 关闭，darwin live 重观察为 P2 债务（截止 D0-07 关闭前）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
