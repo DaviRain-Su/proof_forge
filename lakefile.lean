@@ -49,6 +49,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.GreaterThan,
     `Tests.Language.GreaterEqual,
     `Tests.Language.BitwiseAnd,
+    `Tests.Language.BitwiseXor,
     `Tests.Language.PrimitiveDeclarations,
     `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,
