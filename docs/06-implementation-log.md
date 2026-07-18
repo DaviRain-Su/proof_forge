@@ -4021,3 +4021,36 @@ normative: false
 - Next（用户侧前置）：(a) BIOS 启用 SecureBoot 后重新生成/登记 linux host
   profile；(b) genesis root 离线签发首个 BootstrapAuthorityPolicyV1。随后真实
   activation + D0-04 关闭治理件，再进 D0-07。
+
+## 2026-07-19 — TASK-D0-04 pre-acceptance：签发仪式 CLI 与 activation 两阶段驱动
+
+- Context：D0-04 关闭路径的最后一批仓库内工具——人工离线签发仪式与真实
+  activation 的可执行形态。委托实现，主会话抽查评审后提交。
+- Changed：`scripts/bootstrap_sign_tool.py`（975 行）——七个子命令
+  （authority-policy/required-test-set/task-approval/task-receipt/approval-set/
+  activation-receipt/catalog-approval）：`--spec`（fields/inputs/signer 三节 closed
+  keys，ContentRef/Digest wire 钉死，candidate digest 由工具重算）+ `--seed-file`
+  （safe-open：O_NOFOLLOW/regular/单 link/mode≤0400 按位拒绝/≤66 bytes/64-hex 或
+  32 raw；读入即用于签名并 best-effort 清零，seed 绝不出现于任何输出——自测全
+  路径 grep 断言）+ `--output`（atomic no-clobber 0444 + 产出即全量复验，失败零
+  输出）；`scripts/bootstrap_activation.py`（829 行）——两阶段驱动：phase 1 从
+  workdir 输入签发 handoff（observation 不证明 eligible 即
+  `PF-BOOTSTRAP-ACTIVATION-HOST` 精确 fail closed，绝不降级伪造）；`--dry-run`
+  全链验证 + embedded store backfill 并逐行报告 gap；phase 2 带 `--handoff` 完成
+  D0-01..06 exact 序 backfill + set/activation 发布与终验，打印精确 activation ref。
+  两阶段 ceremony 组合证明：phase1 handoff → 16 对象经 sign CLI 签发 → dry-run
+  gap 报告 → phase2 激活成功；篡改 activation 签名即 OBJECT 失败；ineligible
+  observation 精确拒绝且无文件。
+- Verification：`/usr/bin/python3 -I -S scripts/bootstrap_sign_tool_self_test.py` ok；
+  既有全部自测 ok；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean；justfile `docs-check` recipe 已接入。development
+  evidence 见台账追记。
+- Limitations：CLI/驱动均在 fixture namespace 运行，phase-2 激活不关闭真实 D0；
+  handoff 的 fd 号仅对产出进程有意义（contained-execution activation 归 rehearsal
+  证明）；无 Stage-0 集成/远程 attestation；seed 清零为 Python 字节语义下的
+  best-effort；不得据本条关闭 `TASK-D0-04`（仍 blocked）；D0 formal milestone
+  仍为 7/9。
+- Next（用户侧两个动作，runbook 随后给出）：(a) BIOS 启用 SecureBoot → 重新
+  生成/登记 linux host profile；(b) genesis root 离线签发首个
+  BootstrapAuthorityPolicyV1（`bootstrap_sign_tool.py sign-authority-policy`）。
+  随后真实 activation → D0-04 关闭治理件 → D0-07。
