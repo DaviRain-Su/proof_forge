@@ -143,6 +143,73 @@ program ArrayOptionParamBoundary where
   entry echo(value : Array Option UInt64 4) : UInt64 do
     return 0
 
+
+program ArrayOptionOptionSurface where
+  state nestedOptionals : Array Option Option UInt64 4
+
+  event ArrayOptionOptionEvent(payload : Array Option Option UInt64 4)
+  error ArrayOptionOptionError(payload : Array Option Option UInt64 4)
+
+  struct NestedOptionalLimits where
+    emptyFlags : Array Option Option Bool 0
+    ordinary : Array Option Option UInt64 4
+    maximum : Array Option Option UInt64 4096
+    owners : Array Option Option Principal 4096
+
+  enum NestedOptionalBatch where
+    | MaybeNestedCounters(Array Option Option UInt64 4)
+    | MaybeNestedFlags(Array Option Option Bool 0)
+    | MaybeNestedOwners(Array Option Option Principal 4096)
+
+  const NestedOptionalEmpty : Array Option Option UInt64 0 := 0
+
+  init(initial : Array Option Option UInt64 4) do
+    nestedOptionals := initial
+
+  entry echo(value : Array Option Option UInt64 4) : Array Option Option UInt64 4 do
+    return value
+
+  view get() : Array Option Option UInt64 4 do
+    return nestedOptionals
+
+  fn keepNested(value : Array Option Option Principal 4096) : Array Option Option Principal 4096 do
+    return value
+
+program ArrayOptionOptionBoundary where
+  entry echo(value : Array Option Option UInt64 4) : Array Option Option UInt64 4 do
+    return value
+
+program ArrayOptionOptionBoolBoundary where
+  entry echo(value : Array Option Option Bool 0) : Array Option Option Bool 0 do
+    return value
+
+program ArrayOptionOptionStateBoundary where
+  state value : Array Option Option UInt64 4
+
+  init(initial : Array Option Option UInt64 4) do
+    value := initial
+
+  view get() : Array Option Option UInt64 4 do
+    return value
+
+program ArrayOptionOptionResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array Option Option UInt64 4) : Array Option Option UInt64 4 do
+    return value
+
+program ArrayOptionOptionParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array Option Option UInt64 4) : UInt64 do
+    return 0
+
 program ArrayFieldSurface where
   state scalars : Array Field bn254_fr 4
 
@@ -375,6 +442,35 @@ private def arrayOptionSurfaceSource : String :=
   "    return value\n\n" ++
   "end Tests.Language.ArrayTypesFixture\n"
 
+
+private def arrayOptionOptionSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.ArrayTypesFixture\n\n" ++
+  "program ArrayOptionOptionSurface where\n" ++
+  "  state nestedOptionals : Array Option Option UInt64 4\n\n" ++
+  "  event ArrayOptionOptionEvent(payload : Array Option Option UInt64 4)\n" ++
+  "  error ArrayOptionOptionError(payload : Array Option Option UInt64 4)\n\n" ++
+  "  struct NestedOptionalLimits where\n" ++
+  "    emptyFlags : Array Option Option Bool 0\n" ++
+  "    ordinary : Array Option Option UInt64 4\n" ++
+  "    maximum : Array Option Option UInt64 4096\n" ++
+  "    owners : Array Option Option Principal 4096\n\n" ++
+  "  enum NestedOptionalBatch where\n" ++
+  "    | MaybeNestedCounters(Array Option Option UInt64 4)\n" ++
+  "    | MaybeNestedFlags(Array Option Option Bool 0)\n" ++
+  "    | MaybeNestedOwners(Array Option Option Principal 4096)\n\n" ++
+  "  const NestedOptionalEmpty : Array Option Option UInt64 0 := 0\n\n" ++
+  "  init(initial : Array Option Option UInt64 4) do\n" ++
+  "    nestedOptionals := initial\n\n" ++
+  "  entry echo(value : Array Option Option UInt64 4) : Array Option Option UInt64 4 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Array Option Option UInt64 4 do\n" ++
+  "    return nestedOptionals\n\n" ++
+  "  fn keepNested(value : Array Option Option Principal 4096) : Array Option Option Principal 4096 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.ArrayTypesFixture\n"
+
 private def arrayFieldSurfaceSource : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
@@ -475,6 +571,7 @@ private def expectParserRejected (label source : String)
       throw <| IO.userError s!"{label}: reached wrong failure for {source}: {other.render}"
   | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
 
+set_option maxRecDepth 2048 in
 unsafe def run : IO Unit := do
   let maximum : Source.ArrayLength := 4096
   let _ := arrayLengthAtMost4096 maximum
@@ -583,6 +680,70 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same Array Option sourceHash"
   | .error error => throw <| IO.userError error.render
 
+
+  let arrayOptionOptionSurface := Tests.Language.ArrayTypesFixture.ArrayOptionOptionSurface
+  expect (arrayOptionOptionSurface.state.map (·.type) ==
+      #[.array (.option (.option .u64)) 4])
+    "Array Option Option UInt64 4 state must survive Lean command elaboration"
+  match arrayOptionOptionSurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "ArrayOptionOptionEvent" &&
+          eventDecl.params.map (·.type) == #[.array (.option (.option .u64)) 4])
+        "Array Option Option event parameter must preserve nested Option tags and length"
+  | _ => throw <| IO.userError "ArrayOptionOptionSurface must retain ArrayOptionOptionEvent"
+  match arrayOptionOptionSurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "ArrayOptionOptionError" &&
+          errorDecl.params.map (·.type) == #[.array (.option (.option .u64)) 4])
+        "Array Option Option error parameter must preserve nested Option tags and length"
+  | _ => throw <| IO.userError "ArrayOptionOptionSurface must retain ArrayOptionOptionError"
+  match arrayOptionOptionSurface.structs with
+  | #[limits] =>
+      expect (limits.name == "NestedOptionalLimits" &&
+          limits.fields.map (·.type) ==
+            #[.array (.option (.option .bool)) 0, .array (.option (.option .u64)) 4,
+              .array (.option (.option .u64)) 4096, .array (.option (.option .principal)) 4096])
+        "Array Option Option struct fields must preserve element and length matrix"
+  | _ => throw <| IO.userError "ArrayOptionOptionSurface must retain one struct"
+  match arrayOptionOptionSurface.enums with
+  | #[batch] =>
+      expect (batch.name == "NestedOptionalBatch" && batch.variants.map (·.payloadTypes) ==
+          #[#[.array (.option (.option .u64)) 4], #[.array (.option (.option .bool)) 0],
+            #[.array (.option (.option .principal)) 4096]])
+        "Array Option Option enum payloads must preserve element and length matrix"
+  | _ => throw <| IO.userError "ArrayOptionOptionSurface must retain one enum"
+  match arrayOptionOptionSurface.consts with
+  | #[emptyConst] =>
+      expect (emptyConst.name == "NestedOptionalEmpty" &&
+          emptyConst.type == .array (.option (.option .u64)) 0)
+        "Array Option Option UInt64 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "ArrayOptionOptionSurface must retain NestedOptionalEmpty"
+  match arrayOptionOptionSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.array (.option (.option .u64)) 4])
+        "Array Option Option initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "ArrayOptionOptionSurface must retain initializer"
+  match arrayOptionOptionSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.array (.option (.option .u64)) 4] &&
+          echoEntry.result == .array (.option (.option .u64)) 4 &&
+          getView.result == .array (.option (.option .u64)) 4 && getView.mode == .view)
+        "Array Option Option entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "ArrayOptionOptionSurface must retain echo and get"
+  match arrayOptionOptionSurface.functions with
+  | #[keepNested] =>
+      expect (keepNested.params.map (·.type) == #[.array (.option (.option .principal)) 4096] &&
+          keepNested.result == .array (.option (.option .principal)) 4096)
+        "Array Option Option Principal 4096 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "ArrayOptionOptionSurface must retain keepNested"
+  match ← session.selectProgram arrayOptionOptionSurfaceSource "<array-option-option-types>" none with
+  | .ok decoded =>
+      expect (decoded == arrayOptionOptionSurface)
+        "Loader and Lean command must produce the same Array Option Option Source.Program"
+      expect (decoded.sourceHash == arrayOptionOptionSurface.sourceHash)
+        "Loader and Lean command must produce the same Array Option Option sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let arrayOptionElements : Array (String × Source.ValueType) := #[
     ("Bool", .bool),
     ("UInt8", .u8), ("UInt16", .u16), ("UInt32", .u32), ("UInt64", .u64),
@@ -603,6 +764,28 @@ unsafe def run : IO Unit := do
         throw <| IO.userError s!"Array Option {spelling} 4 produced {programs.size} programs"
     | .error error =>
         throw <| IO.userError s!"Array Option {spelling} 4 must parse: {error.render}"
+
+
+  let arrayOptionOptionElements : Array (String × Source.ValueType) := #[
+    ("Bool", .bool),
+    ("UInt8", .u8), ("UInt16", .u16), ("UInt32", .u32), ("UInt64", .u64),
+    ("UInt128", .u128), ("UInt256", .u256),
+    ("Int8", .i8), ("Int16", .i16), ("Int32", .i32), ("Int64", .i64),
+    ("Int128", .i128), ("Int256", .i256),
+    ("Unit", .unit), ("Principal", .principal)
+  ]
+  expect (arrayOptionOptionElements.size == 15)
+    "Array Option Option PrimitiveAtom matrix must contain exactly 15 elements"
+  for (spelling, element) in arrayOptionOptionElements do
+    let source := negativeSource s!"ArrayOptionOption{spelling}" s!"Array Option Option {spelling} 4"
+    match ← session.parsePrograms source s!"<array-option-option-{spelling}>" with
+    | .ok #[decodedProgram] =>
+        expect (decodedProgram.state.map (·.type) == #[.array (.option (.option element)) 4])
+          s!"Array Option Option {spelling} 4 must preserve its exact element and length"
+    | .ok programs =>
+        throw <| IO.userError s!"Array Option Option {spelling} 4 produced {programs.size} programs"
+    | .error error =>
+        throw <| IO.userError s!"Array Option Option {spelling} 4 must parse: {error.render}"
 
   let arrayFieldSurface := Tests.Language.ArrayTypesFixture.ArrayFieldSurface
   expect (arrayFieldSurface.state.map (·.type) == #[.array .field 4])
@@ -852,6 +1035,71 @@ unsafe def run : IO Unit := do
         s!"{label} semantic: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
   expect goldensBound "Array Option tag18+tag16 canonical goldens must be bound"
 
+
+  let arrayOptionOptionSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Option Option UInt64 0", .array (.option (.option .u64)) 0, 0, "UNBOUND"),
+    ("Array Option Option UInt64 4", .array (.option (.option .u64)) 4, 0, "UNBOUND"),
+    ("Array Option Option UInt64 4096", .array (.option (.option .u64)) 4096, 0, "UNBOUND"),
+    ("Array Option Option Bool 0", .array (.option (.option .bool)) 0, 0, "UNBOUND"),
+    ("Array Option Option Principal 4096", .array (.option (.option .principal)) 4096, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayOptionOptionSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag18+tag16+tag16 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  expect ((twin (.array (.option (.option .u64)) 4)).sourceHash !=
+        (twin (.array (.option .u64) 4)).sourceHash &&
+      (twin (.array (.option (.option .u64)) 4)).sourceHash !=
+        (twin (.option (.array (.option .u64) 4))).sourceHash &&
+      (twin (.array (.option (.option .u64)) 4)).sourceHash !=
+        (twin (.option (.option .u64))).sourceHash &&
+      (twin (.array (.option (.option .u64)) 0)).sourceHash !=
+        (twin (.array (.option (.option .u64)) 4)).sourceHash &&
+      (twin (.array (.option (.option .u64)) 0)).sourceHash !=
+        (twin (.array (.option (.option .u64)) 4096)).sourceHash &&
+      (twin (.array (.option (.option .u64)) 4)).sourceHash !=
+        (twin (.array (.option (.option .u64)) 4096)).sourceHash &&
+      (twin (.array (.option (.option .u64)) 0)).sourceHash !=
+        (twin (.array (.option (.option .bool)) 0)).sourceHash &&
+      (twin (.array (.option (.option .u64)) 4096)).sourceHash !=
+        (twin (.array (.option (.option .principal)) 4096)).sourceHash)
+    "Array Option Option must bind Array/Option/Option tags, element and complete length payload"
+
+  let arrayOptionOptionSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Option Option UInt64 0", .array (.option (.option .u64)) 0, 0, "UNBOUND"),
+    ("Array Option Option UInt64 4", .array (.option (.option .u64)) 4, 0, "UNBOUND"),
+    ("Array Option Option UInt64 4096", .array (.option (.option .u64)) 4096, 0, "UNBOUND"),
+    ("Array Option Option Bool 0", .array (.option (.option .bool)) 0, 0, "UNBOUND"),
+    ("Array Option Option Principal 4096", .array (.option (.option .principal)) 4096, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayOptionOptionSemanticVectors do
+    let compiled ← match Compiler.compile (twin type) with
+      | .ok value => pure value
+      | .error error =>
+          throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (compiled.canonicalBytes.size == expectedSize && compiled.semanticHash == expectedHash)
+      s!"{label} semantic tag18+tag16+tag16 golden is unbound: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
+  let semanticHashOf (type : Source.ValueType) : IO String := do
+    match Compiler.compile (twin type) with
+    | .ok value => pure value.semanticHash
+    | .error error =>
+        throw <| IO.userError s!"semantic non-alias twin must compile: {error.render}"
+  let nestedU64Zero ← semanticHashOf (.array (.option (.option .u64)) 0)
+  let nestedU64Four ← semanticHashOf (.array (.option (.option .u64)) 4)
+  let nestedU64Maximum ← semanticHashOf (.array (.option (.option .u64)) 4096)
+  let nestedBoolZero ← semanticHashOf (.array (.option (.option .bool)) 0)
+  let nestedPrincipalMaximum ← semanticHashOf (.array (.option (.option .principal)) 4096)
+  expect (nestedU64Four != (← semanticHashOf (.array (.option .u64) 4)) &&
+      nestedU64Four != (← semanticHashOf (.option (.array (.option .u64) 4))) &&
+      nestedU64Four != (← semanticHashOf (.option (.option .u64))) &&
+      nestedU64Zero != nestedU64Four &&
+      nestedU64Zero != nestedU64Maximum &&
+      nestedU64Four != nestedU64Maximum &&
+      nestedU64Zero != nestedBoolZero &&
+      nestedU64Maximum != nestedPrincipalMaximum)
+    "Semantic Array Option Option must bind wrapper depth/order, element and complete length payload"
+
   let arrayFieldSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Array Field bn254_fr 0", .array .field 0, 247,
       "ca81f1a556dd65993592ae93ba8df3363d63ca4dc2c465cbb3263027cc856b9a"),
@@ -1008,6 +1256,18 @@ unsafe def run : IO Unit := do
       ("leading-zero Array Option length", "Array Option UInt64 01"),
       ("hex Array Option length", "Array Option UInt64 0x10"),
       ("underscore Array Option length", "Array Option UInt64 4_096"),
+      ("unknown Array Option Option element", "Array Option Option Mystery 4"),
+      ("Field Array Option Option element", "Array Option Option Field 4"),
+      ("bare Bytes Array Option Option element", "Array Option Option Bytes 4"),
+      ("bare Array Array Option Option element", "Array Option Option Array 4"),
+      ("bare Option Array Option Option element", "Array Option Option Option 4"),
+      ("bare Map Array Option Option element", "Array Option Option Map 4"),
+      ("escaped Array Option Option element", "Array Option Option «Bool» 4"),
+      ("qualified Array Option Option element", "Array Option Option Std.Bool 4"),
+      ("over-bound Array Option Option length", "Array Option Option Bool 4097"),
+      ("leading-zero Array Option Option length", "Array Option Option Bool 01"),
+      ("hex Array Option Option length", "Array Option Option Bool 0x10"),
+      ("underscore Array Option Option length", "Array Option Option Bool 4_096"),
       ("Array element", "Array Array 4"),
       ("unknown Array Array element", "Array Array Mystery 4 4"),
       ("Field Array Array element", "Array Array Field 4 4"),
@@ -1040,6 +1300,17 @@ unsafe def run : IO Unit := do
   | .error error =>
       throw <| IO.userError s!"migrated Array Array UInt64 4 4 must parse: {error.render}"
 
+  let migratedArrayOptionOptionSource :=
+    negativeSource "MigratedArrayOptionOption" "Array Option Option Bool 4"
+  match ← session.parsePrograms migratedArrayOptionOptionSource "<migrated-array-option-option>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) == #[.array (.option (.option .bool)) 4])
+        "migrated Array Option Option Bool 4 pin must now parse as existing array(option(option(bool)),4)"
+  | .ok programs =>
+      throw <| IO.userError s!"migrated Array Option Option Bool 4 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError s!"migrated Array Option Option Bool 4 must parse: {error.render}"
+
   for (label, spelling) in [
       ("negative Array length", "Array UInt64 -1"),
       ("extra Array payload", "Array UInt64 4 Principal"),
@@ -1061,10 +1332,27 @@ unsafe def run : IO Unit := do
       ("qualified Array Bytes constructor", "Std.Array Bytes 32 4"),
       ("escaped Bytes constructor in Array", "Array «Bytes» 32 4"),
       ("qualified Bytes constructor in Array", "Array Std.Bytes 32 4"),
-      ("nested Array Option element", "Array Option Option Bool 4"),
       ("nested Bytes Array Option element", "Array Option Bytes 8 4"),
       ("nested Array Array Option element", "Array Option Array UInt64 4 4"),
       ("Map Array Option element", "Array Option Map UInt64 Bool 4"),
+      ("missing Array Option Option length", "Array Option Option Bool"),
+      ("negative Array Option Option length", "Array Option Option Bool -1"),
+      ("extra Array Option Option payload", "Array Option Option Bool 4 Principal"),
+      ("full Field Array Option Option element", "Array Option Option Field bn254_fr 4"),
+      ("full Bytes Array Option Option element", "Array Option Option Bytes 8 4"),
+      ("full Array Array Option Option element", "Array Option Option Array UInt64 4 4"),
+      ("full Map Array Option Option element", "Array Option Option Map UInt64 Bool 4"),
+      ("third Option Array Option Option element", "Array Option Option Option Bool 4"),
+      ("split Array Option Option element", "Array Option Option\n  Bool 4"),
+      ("split Array Option Option length", "Array Option Option Bool\n  4"),
+      ("split Array Option Option middle", "Array Option\n  Option Bool 4"),
+      ("split after Array Option Option", "Array\n  Option Option Bool 4"),
+      ("escaped Array Option Option constructor", "«Array» Option Option Bool 4"),
+      ("qualified Array Option Option constructor", "Std.Array Option Option Bool 4"),
+      ("escaped outer Option in Array Option Option", "Array «Option» Option Bool 4"),
+      ("escaped inner Option in Array Option Option", "Array Option «Option» Bool 4"),
+      ("qualified outer Option in Array Option Option", "Array Std.Option Option Bool 4"),
+      ("qualified inner Option in Array Option Option", "Array Option Std.Option Bool 4"),
       ("negative Array Option length", "Array Option UInt64 -1"),
       ("missing Array Option length", "Array Option UInt64"),
       ("extra Array Option payload", "Array Option UInt64 4 Principal"),
@@ -1169,6 +1457,40 @@ unsafe def run : IO Unit := do
     | .ok () =>
         throw <| IO.userError s!"Array Option Bool/{target} unexpectedly passed support"
 
+
+  let arrayOptionOptionBoundary ← match Compiler.compile
+      Tests.Language.ArrayTypesFixture.ArrayOptionOptionBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"ArrayOptionOptionBoundary must compile: {error.render}"
+  expect (arrayOptionOptionBoundary.requirements == #[])
+    "Array Option Option UInt64 must recursively propagate zero requirements"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target arrayOptionOptionBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError
+          s!"{target} must support zero-requirement Array Option Option carrier: {error.render}"
+
+  let arrayOptionOptionBoolBoundary ← match Compiler.compile
+      Tests.Language.ArrayTypesFixture.ArrayOptionOptionBoolBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"ArrayOptionOptionBoolBoundary must compile: {error.render}"
+  expect (arrayOptionOptionBoolBoundary.requirements == #[.boolValues])
+    "Array Option Option Bool must recursively propagate boolValues exactly once"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target arrayOptionOptionBoolBoundary with
+    | .error (.unsupportedRequirement .boolValues actual) =>
+        expect (actual == target)
+          s!"Array Option Option Bool support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError
+          s!"Array Option Option Bool/{target} reached wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError
+          s!"Array Option Option Bool/{target} unexpectedly passed support"
+
   let arrayFieldBoundary ← match Compiler.compile
       Tests.Language.ArrayTypesFixture.ArrayFieldBoundary with
     | .ok value => pure value
@@ -1260,6 +1582,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("ArrayOptionParamBoundary",
         Tests.Language.ArrayTypesFixture.ArrayOptionParamBoundary,
+        "is not UInt64"),
+      ("ArrayOptionOptionStateBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayOptionOptionStateBoundary,
+        "is not UInt64"),
+      ("ArrayOptionOptionResultBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayOptionOptionResultBoundary,
+        "does not return UInt64"),
+      ("ArrayOptionOptionParamBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayOptionOptionParamBoundary,
         "is not UInt64"),
       ("ArrayBytesStateBoundary",
         Tests.Language.ArrayTypesFixture.ArrayBytesStateBoundary,
