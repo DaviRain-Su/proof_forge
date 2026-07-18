@@ -33,6 +33,7 @@ import Tests.Language.SourceSpan
 import Tests.Language.FrontendParity
 import Tests.Language.Grouping
 import Tests.Language.Loader
+import Tests.Language.LogicalNot
 import Tests.Materialization.Targets
 import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
@@ -74,6 +75,7 @@ unsafe def main : IO Unit := do
   Tests.Language.FrontendParity.run
   Tests.Language.Grouping.run
   Tests.Language.Loader.run
+  Tests.Language.LogicalNot.run
   Tests.Materialization.run
   Tests.Materialization.NearHostModel.run
   Tests.Materialization.NoirRelationModel.run

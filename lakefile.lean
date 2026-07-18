@@ -45,6 +45,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.FrontendParity,
     `Tests.Language.Grouping,
     `Tests.Language.Loader,
+    `Tests.Language.LogicalNot,
     `Tests.Materialization.Targets,
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,
