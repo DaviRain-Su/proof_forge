@@ -260,6 +260,10 @@ unsafe def run : IO Unit := do
     #[.assertStmt (.boolLiteral true)]
   let twinBody := twin <| .forStmt "i" (.literal 0) (.literal 10) 4
     #[.returnValue (.literal 1)]
+  let twinBodyOrder := twin <| .forStmt "i" (.literal 0) (.literal 10) 4
+    #[.assertStmt (.boolLiteral true), .returnValue (.literal 1)]
+  let twinBodyReverse := twin <| .forStmt "i" (.literal 0) (.literal 10) 4
+    #[.returnValue (.literal 1), .assertStmt (.boolLiteral true)]
   let twinNested := twin <| .forStmt "i" (.literal 0) (.literal 10) 4 #[
     .forStmt "j" (.literal 1) (.literal 2) 1 #[.returnValue (.literal 1)]]
 
@@ -287,6 +291,10 @@ unsafe def run : IO Unit := do
     "for max-iteration bound must bind source identity"
   expect (twinBase.sourceHash != twinBody.sourceHash)
     "for body content must bind source identity"
+  expect (twinBase.sourceHash != twinBodyOrder.sourceHash)
+    "for body statement count must bind source identity"
+  expect (twinBodyOrder.sourceHash != twinBodyReverse.sourceHash)
+    "for body statement order must bind source identity"
   expect (twinBase.sourceHash != twinNested.sourceHash)
     "nested for kind must bind source identity"
   expect (twinBase.sourceHash != (twin (.ifStmt (.boolLiteral true)
