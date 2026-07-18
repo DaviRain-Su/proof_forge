@@ -98,6 +98,7 @@ inductive Expr where
   | bitwiseOr (lhs rhs : Expr)
   | logicalAnd (lhs rhs : Expr)
   | logicalOr (lhs rhs : Expr)
+  | stringLiteral (value : String)
   deriving BEq, Inhabited, Repr
 
 structure ConstDecl where
@@ -309,6 +310,7 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .bitwiseOr lhs rhs => appendExpr (appendExpr (appendTag bytes 22) lhs) rhs
   | .logicalAnd lhs rhs => appendExpr (appendExpr (appendTag bytes 23) lhs) rhs
   | .logicalOr lhs rhs => appendExpr (appendExpr (appendTag bytes 24) lhs) rhs
+  | .stringLiteral value => appendString (appendTag bytes 25) value
 
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value

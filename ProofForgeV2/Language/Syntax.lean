@@ -23,6 +23,7 @@ syntax "commitment " ident " : " pfType : pfParam
 
 declare_syntax_cat pfExpr
 syntax num : pfExpr
+syntax str : pfExpr
 syntax ident : pfExpr
 syntax:75 "-" pfExpr:75 : pfExpr
 syntax:75 "~" pfExpr:75 : pfExpr
@@ -368,6 +369,7 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
         .error s!"UInt64 literal is out of range: {number}"
       else
         .ok <| .literal (UInt64.ofNat number)
+  | `(pfExpr| $value:str) => .ok <| .stringLiteral value.getString
   | `(pfExpr| $name:ident) => do
       return .variable (← decodeIdentifier name)
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
@@ -860,6 +862,9 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
   | .literal value =>
       let value := Syntax.mkNumLit (toString value.toNat)
       `(ProofForgeV2.Source.Expr.literal (UInt64.ofNat $value))
+  | .stringLiteral value =>
+      let value := Syntax.mkStrLit value
+      `(ProofForgeV2.Source.Expr.stringLiteral $value)
   | .variable value =>
       let value := Syntax.mkStrLit value
       `(ProofForgeV2.Source.Expr.variable $value)
