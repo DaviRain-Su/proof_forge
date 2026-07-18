@@ -4200,3 +4200,41 @@ normative: false
 - Next：当前无 active development slice；post-PA-69 residual audit 只推荐 exact
   `Option Option Option PrimitiveAtom`，但尚未冻结，且必须先显式 supersede 历史 third-layer-deferred
   边界；禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact three-layer Option PrimitiveAtom spelling pre-acceptance slice
+
+- Commits：freeze `8a1e1474`；tests-only RED `4d3030b3`；Syntax/GREEN、30 个 canonical
+  golden binding、empirical error-channel correction与 Lean package-file re-pin `134ac9e6`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-70 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。冻结仅为 exact
+  `Option Option Option PrimitiveAtom` 显式 supersede 历史 third-layer-deferred 边界；不建立递归 grammar。
+- Changed：为既有 `Source/Semantic.ValueType.option (.option (.option element))` 开放 exact same-line
+  spelling；新增 named `optionOptionOptionType` 与 aggregate-field parser，decoder 精确复用 closed
+  `decodeNestedOptionValueTypeFromAtoms` 后只包一层 Option，两个专用 dispatch 均位于 generic
+  `optionOptionType`/aggregate parser 前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 24 行新增/0 行移除。
+- Migration/Coverage：只迁移既有 `Option Option Option Bool` negative 一条；覆盖全部 15 个
+  PrimitiveAtom、state/struct/enum/const/init/entry/view/fn/event/error、双入口 parity、第四层 Option，及
+  Field/Bytes/Array/Option/Map/Named、escaped/qualified/split/extra 边界。GREEN 依据真实 frontend 行为固定
+  error channel：完整 Map、split/escaped/qualified outer 与 escaped/qualified middle 走 decoder unsupported；
+  split middle/inner、escaped/qualified inner 与完整非 Primitive compound 走 parser rejection；两类均 fail closed。
+- Canonical/requirements：tag 固定 `16→16→16→element`；15 组 Source goldens 均 245 bytes，15 组
+  Semantic goldens除 Bool 为 195 bytes 外均 194 bytes，且两组内部 pairwise non-alias。独立锚点为
+  UInt64 Source/Semantic `aed4e6041b4f39d706f65499ce32262c7eb8bf14d0e8f04a67a80bfbe1a6b04a`/
+  `cce922baf7bbee4fbc7b450a228a8f4da0b8259efa69dcb3ecccd8ead1d438eb`，Bool 为
+  `c95fac336a5dc2f31f7b41a727e80a309aa33a107e37de85cc5bc706a5074b5c`/
+  `2e1428169172d44f0e01ce797585eb6146753778ac32be9371415cd0b2065a3d`，Principal 为
+  `8e5f195ff45d2281fa707f3f5770e8d556e11d65f3d70d8bbac11df1518b545d`/
+  `f3a95ff06890bc82e7a8517968b20bc38a7fdb378251dd87886d2f9d3f82e18a`。UInt64 requirements 为空，
+  Bool 只传播一次 `boolValues`；四 target 保持 support-vs-target-owned Plan/no-artifact 边界。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；`lake build
+  proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom`
+  （含 closure self-test）与 `git diff --check` 通过。Kimi 与 coordinator 最终复核均为
+  P0=0/P1=0/P2=0，package file-set 中
+  Syntax bytes/hash 与实际文件一致；development evidence 为 `EV-20260719-0066`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirements 与
+  support-vs-Plan boundary；不包括 none/some/unwrap、任意 recursive grammar、runtime/ABI、target
+  three-layer Option implementation或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；双重 post-PA-70 residual audit 只推荐 exact
+  `Array Option Option PrimitiveAtom N`，但尚未冻结；禁止由 checkpoint 自动递增。
