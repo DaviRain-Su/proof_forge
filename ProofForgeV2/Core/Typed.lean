@@ -199,6 +199,8 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       throw <| .invalidProgram "checked multiplication is not yet supported by typed checking"
   | .checkedNeg .. =>
       throw <| .invalidProgram "checked negation is not yet supported by typed checking"
+  | .bitwiseNot .. =>
+      throw <| .invalidProgram "bitwise not is not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement

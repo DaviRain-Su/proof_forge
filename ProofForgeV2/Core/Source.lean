@@ -81,6 +81,7 @@ inductive Expr where
   | checkedSub (lhs rhs : Expr)
   | checkedMul (lhs rhs : Expr)
   | checkedNeg (operand : Expr)
+  | bitwiseNot (operand : Expr)
   deriving BEq, Inhabited, Repr
 
 structure ConstDecl where
@@ -275,6 +276,7 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .checkedSub lhs rhs => appendExpr (appendExpr (appendTag bytes 5) lhs) rhs
   | .checkedMul lhs rhs => appendExpr (appendExpr (appendTag bytes 6) lhs) rhs
   | .checkedNeg operand => appendExpr (appendTag bytes 7) operand
+  | .bitwiseNot operand => appendExpr (appendTag bytes 8) operand
 
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value
