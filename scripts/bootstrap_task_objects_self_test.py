@@ -190,6 +190,7 @@ def assert_public_api(module: ModuleType) -> None:
         "parse_bootstrap_approval_set",
         "parse_bootstrap_approval_verifier_receipt",
         "parse_bootstrap_approval_verifier_receipt_ref",
+        "parse_formal_gate_catalog_approval",
         "verify_ed25519",
         "verifyBootstrapTaskObjects",
     )
@@ -223,6 +224,8 @@ def assert_public_api(module: ModuleType) -> None:
         "BootstrapApprovalSetV1",
         "BootstrapApprovalVerifierReceiptV1",
         "BootstrapApprovalVerifierReceiptRefV1",
+        "GateCatalogRefV1",
+        "FormalGateCatalogApprovalV1",
         "BootstrapLedgerSubjectV1",
         "BootstrapDocumentSnapshotV1",
         "BootstrapTaskRowSubjectV1",
@@ -404,6 +407,34 @@ def assert_public_api(module: ModuleType) -> None:
             "verifier-receipt ref parser argument must be required"
         )
 
+    catalog_approval_parameters = tuple(
+        inspect.signature(
+            module.parse_formal_gate_catalog_approval
+        ).parameters.values()
+    )
+    expected_catalog_approval_parameters = (
+        "approval_bytes",
+        "catalog_bytes",
+        "required_test_set_bytes",
+        "authority_policy_bytes",
+    )
+    if tuple(
+        parameter.name for parameter in catalog_approval_parameters
+    ) != expected_catalog_approval_parameters:
+        raise AssertionError(
+            "formal catalog approval parser must expose exactly four "
+            "authoritative inputs"
+        )
+    if not all(
+        parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        and parameter.default is inspect.Parameter.empty
+        for parameter in catalog_approval_parameters
+    ):
+        raise AssertionError(
+            "formal catalog approval parser arguments must be exactly four "
+            "required inputs"
+        )
+
     expected_fields = {
         "Digest": ("algorithm", "bytes"),
         "ContentRef": ("schema", "id", "version", "digest"),
@@ -562,6 +593,18 @@ def assert_public_api(module: ModuleType) -> None:
             "signature",
         ),
         "BootstrapApprovalVerifierReceiptRefV1": ("id", "digest"),
+        "GateCatalogRefV1": (
+            "schema", "id", "version", "contentSha256", "catalogDigest",
+        ),
+        "FormalGateCatalogApprovalV1": (
+            "schema",
+            "id",
+            "version",
+            "authorityPolicy",
+            "requiredTestSet",
+            "catalog",
+            "signatures",
+        ),
         "BootstrapLedgerSubjectV1": (
             "id", "taskId", "testIds", "grade", "result",
         ),
@@ -1904,6 +1947,49 @@ def resign_bootstrap_approval_verifier_receipt_wire(
     return resigned
 
 
+def sign_formal_gate_catalog_approval_statement(
+    module: ModuleType,
+    statement: dict,
+    signer_key_ids: tuple[str, ...] = ("key-quality", "key-security"),
+    signer_seeds: dict[str, bytes] | None = None,
+) -> tuple[dict, bytes, bytes]:
+    statement = copy.deepcopy(statement)
+    assert "signatures" not in statement, "signer accepts the unsigned statement"
+    statement_digest = hashlib.sha256(
+        b"pf.formal-gate-catalog-approval-statement.v1\x00"
+        + module.canonical_pf_jcs(statement)
+    ).digest()
+    signature_message = (
+        b"pf.formal-gate-catalog-approval-signature.v1\x00"
+        + statement_digest
+    )
+    seeds = RFC_8032_SEEDS_BY_KEY_ID if signer_seeds is None else signer_seeds
+    signatures = []
+    for key_id in signer_key_ids:
+        _, signature = ed25519_sign_from_rfc_seed(seeds[key_id], signature_message)
+        signatures.append({
+            "keyId": key_id,
+            "algorithm": "ed25519",
+            "signature": signature.hex(),
+        })
+    wire = dict(statement)
+    wire["signatures"] = signatures
+    return wire, statement_digest, signature_message
+
+
+def resign_formal_gate_catalog_approval_wire(
+    module: ModuleType,
+    wire: dict,
+    signer_key_ids: tuple[str, ...] = ("key-quality", "key-security"),
+) -> dict:
+    statement = copy.deepcopy(wire)
+    statement.pop("signatures", None)
+    resigned, _, _ = sign_formal_gate_catalog_approval_statement(
+        module, statement, signer_key_ids
+    )
+    return resigned
+
+
 def dependency_receipt_refs(count: int) -> list[dict]:
     return [
         {
@@ -2815,6 +2901,107 @@ def signed_bootstrap_approval_verifier_receipt_fixture(
                 + receipt_bytes
             ).digest()),
         },
+    }
+
+
+FORMAL_CATALOG_LOCK_FIELDS = (
+    "hostBootstrapSha256",
+    "hostProfileLockSha256",
+    "toolchainLockSha256",
+    "stage0LauncherSha256",
+    "stage0VerifierSha256",
+    "sandboxEngineSha256",
+    "sandboxRendererSha256",
+    "sandboxLauncherSha256",
+    "sandboxProbeWrapperSha256",
+    "evidenceValidatorSha256",
+    "evidenceSchemaCoreSha256",
+    "finalizerSha256",
+)
+
+
+def formal_gate_catalog_wire(required_set_ref_wire: dict) -> dict:
+    # Root wire form mirrors the existing gate catalog family; gate internals
+    # stay a minimal placeholder because this consumer family deliberately
+    # does not validate gate-level content semantics.
+    return {
+        "schema": "proof-forge.gate-catalog.v1",
+        "id": "formal-alpha-catalog",
+        "version": "1.0.0",
+        "qualification": "formal",
+        "requiredTestSet": copy.deepcopy(required_set_ref_wire),
+        "locks": {
+            field: f"{0x10 + index:02x}" * 32
+            for index, field in enumerate(FORMAL_CATALOG_LOCK_FIELDS)
+        },
+        "gates": [
+            {
+                "id": "formal-gate-alpha",
+                "taskId": "TASK-D0-03",
+                "testIds": ["TST-EVIDENCE-001", "TST-HOST-001", "TST-TOOL-001"],
+            }
+        ],
+    }
+
+
+def formal_gate_catalog_ref_wire(catalog_wire: dict, catalog_bytes: bytes) -> dict:
+    return {
+        "schema": catalog_wire["schema"],
+        "id": catalog_wire["id"],
+        "version": catalog_wire["version"],
+        "contentSha256": hashlib.sha256(catalog_bytes).hexdigest(),
+        "catalogDigest": hashlib.sha256(
+            b"pf.gate-catalog.v1\x00" + catalog_bytes
+        ).hexdigest(),
+    }
+
+
+def signed_formal_gate_catalog_approval_fixture(
+    module: ModuleType,
+) -> dict[str, object]:
+    policy_wire = valid_bootstrap_authority_policy()
+    policy_bytes = module.canonical_pf_jcs(policy_wire)
+    _, policy_ref = module.parse_bootstrap_authority_policy(policy_bytes)
+    phase5_snapshot = make_phase5_snapshot(module)
+    required_wire = signed_document_bound_required_set(
+        module, policy_ref, phase5_snapshot
+    )
+    required_bytes = module.canonical_pf_jcs(required_wire)
+    required_ref_wire = task_approval_required_set_ref(module, required_bytes)
+    catalog_wire = formal_gate_catalog_wire(required_ref_wire)
+    catalog_bytes = module.canonical_pf_jcs(catalog_wire)
+    catalog_ref_wire = formal_gate_catalog_ref_wire(catalog_wire, catalog_bytes)
+    statement = {
+        "schema": "proof-forge.formal-gate-catalog-approval.v1",
+        "id": "formal-catalog-approval",
+        "version": "1.0.0",
+        "authorityPolicy": content_ref_wire(policy_ref),
+        "requiredTestSet": copy.deepcopy(required_ref_wire),
+        "catalog": copy.deepcopy(catalog_ref_wire),
+    }
+    approval_wire, statement_digest, signature_message = (
+        sign_formal_gate_catalog_approval_statement(module, statement)
+    )
+    approval_bytes = module.canonical_pf_jcs(approval_wire)
+    return {
+        "policyWire": policy_wire,
+        "policyBytes": policy_bytes,
+        "policyRef": policy_ref,
+        "phase5Snapshot": phase5_snapshot,
+        "requiredWire": required_wire,
+        "requiredBytes": required_bytes,
+        "requiredRefWire": required_ref_wire,
+        "catalogWire": catalog_wire,
+        "catalogBytes": catalog_bytes,
+        "catalogRefWire": catalog_ref_wire,
+        "approvalStatement": statement,
+        "approvalWire": approval_wire,
+        "approvalBytes": approval_bytes,
+        "approvalStatementDigest": statement_digest,
+        "approvalSignatureMessage": signature_message,
+        "approvalDigest": hashlib.sha256(
+            b"pf.formal-gate-catalog-approval.v1\x00" + approval_bytes
+        ).digest(),
     }
 
 
@@ -3794,6 +3981,465 @@ def test_bootstrap_approval_verifier_receipt(module: ModuleType) -> None:
         ),
     ):
         expect_receipt_rejected(operation, label)
+
+
+def test_formal_gate_catalog_approval(module: ModuleType) -> None:
+    fixture = signed_formal_gate_catalog_approval_fixture(module)
+    approval_wire = fixture["approvalWire"]
+    assert isinstance(approval_wire, dict)
+    approval_bytes = fixture["approvalBytes"]
+    assert isinstance(approval_bytes, bytes)
+    catalog_wire = fixture["catalogWire"]
+    assert isinstance(catalog_wire, dict)
+    catalog_bytes = fixture["catalogBytes"]
+    assert isinstance(catalog_bytes, bytes)
+    required_bytes = fixture["requiredBytes"]
+    assert isinstance(required_bytes, bytes)
+    policy_bytes = fixture["policyBytes"]
+    assert isinstance(policy_bytes, bytes)
+    catalog_ref_wire = fixture["catalogRefWire"]
+    assert isinstance(catalog_ref_wire, dict)
+
+    def parse_approval(
+        approval_input: bytes = approval_bytes,
+        catalog_input: bytes = catalog_bytes,
+        required_input: bytes = required_bytes,
+        policy_input: bytes = policy_bytes,
+    ) -> object:
+        return module.parse_formal_gate_catalog_approval(
+            approval_input,
+            catalog_input,
+            required_input,
+            policy_input,
+        )
+
+    parsed, parsed_digest = parse_approval()
+    expected = module.FormalGateCatalogApprovalV1(
+        approval_wire["schema"],
+        approval_wire["id"],
+        approval_wire["version"],
+        module.parse_content_ref(approval_wire["authorityPolicy"]),
+        module.parse_content_ref(approval_wire["requiredTestSet"]),
+        module.GateCatalogRefV1(
+            catalog_ref_wire["schema"],
+            catalog_ref_wire["id"],
+            catalog_ref_wire["version"],
+            catalog_ref_wire["contentSha256"],
+            catalog_ref_wire["catalogDigest"],
+        ),
+        tuple(
+            module.ApprovalSignatureV1(
+                signature["keyId"],
+                signature["algorithm"],
+                bytes.fromhex(signature["signature"]),
+            )
+            for signature in approval_wire["signatures"]
+        ),
+    )
+    if parsed != expected:
+        raise AssertionError(
+            "formal catalog approval positive must preserve every typed field"
+        )
+    if parsed_digest != module.Digest("sha256", fixture["approvalDigest"]):
+        raise AssertionError(
+            "formal catalog approval digest must use the full signed-object "
+            "domain digest"
+        )
+
+    approval_statement = fixture["approvalStatement"]
+    assert isinstance(approval_statement, dict)
+    expected_statement_digest = hashlib.sha256(
+        b"pf.formal-gate-catalog-approval-statement.v1\x00"
+        + module.canonical_pf_jcs(approval_statement)
+    ).digest()
+    if fixture["approvalStatementDigest"] != expected_statement_digest:
+        raise AssertionError("formal catalog approval statement digest drift")
+    if fixture["approvalSignatureMessage"] != (
+        b"pf.formal-gate-catalog-approval-signature.v1\x00"
+        + expected_statement_digest
+    ):
+        raise AssertionError("formal catalog approval signature message drift")
+    if fixture["approvalDigest"] != hashlib.sha256(
+        b"pf.formal-gate-catalog-approval.v1\x00" + approval_bytes
+    ).digest():
+        raise AssertionError("formal catalog approval digest domain drift")
+    if catalog_ref_wire["contentSha256"] != hashlib.sha256(
+        catalog_bytes
+    ).hexdigest():
+        raise AssertionError("catalog contentSha256 must hash the exact bytes")
+    if catalog_ref_wire["catalogDigest"] != hashlib.sha256(
+        b"pf.gate-catalog.v1\x00" + catalog_bytes
+    ).hexdigest():
+        raise AssertionError("catalog catalogDigest must use the frozen domain")
+
+    def expect_approval_rejected(
+        operation: Callable[[], object],
+        label: str,
+    ) -> None:
+        try:
+            result = operation()
+        except module.Rejected as rejected:
+            result = rejected
+        if not isinstance(result, module.Rejected):
+            raise AssertionError(f"{label} must produce Rejected")
+        if result.code != BOOTSTRAP_REJECTION:
+            raise AssertionError(f"{label} must use the bootstrap rejection code")
+
+    def signed_approval_mutation(mutator: Callable[[dict], None]) -> bytes:
+        mutated = copy.deepcopy(approval_wire)
+        mutator(mutated)
+        return module.canonical_pf_jcs(
+            resign_formal_gate_catalog_approval_wire(module, mutated)
+        )
+
+    unknown_field = copy.deepcopy(approval_wire)
+    unknown_field["futureField"] = True
+    missing_field = copy.deepcopy(approval_wire)
+    missing_field.pop("catalog")
+    unknown_signer = copy.deepcopy(approval_wire)
+    unknown_signer["signatures"][0]["keyId"] = "key-unlisted"
+    tampered_signature = copy.deepcopy(approval_wire)
+    tampered_signature["signatures"][0]["signature"] = "00" * 64
+    malformed_signature_hex = copy.deepcopy(approval_wire)
+    malformed_signature_hex["signatures"][0]["signature"] = "00" * 63
+    unknown_signature_field = copy.deepcopy(approval_wire)
+    unknown_signature_field["signatures"][0]["futureField"] = True
+    wrong_signature_algorithm = copy.deepcopy(approval_wire)
+    wrong_signature_algorithm["signatures"][0]["algorithm"] = "ed25519ph"
+    substituted_statement_version = copy.deepcopy(approval_wire)
+    substituted_statement_version["version"] = "1.0.1"
+    renamed_ref_digest_field = copy.deepcopy(approval_wire)
+    renamed_ref_digest_field["catalog"]["contentDigest"] = (
+        renamed_ref_digest_field["catalog"].pop("contentSha256")
+    )
+    unknown_ref_field = copy.deepcopy(approval_wire)
+    unknown_ref_field["catalog"]["futureField"] = True
+    missing_ref_field = copy.deepcopy(approval_wire)
+    missing_ref_field["catalog"].pop("catalogDigest")
+    spec_common_ref_digest = copy.deepcopy(approval_wire)
+    spec_common_ref_digest["catalog"]["contentSha256"] = (
+        "sha256:" + "0" * 64
+    )
+    uppercase_ref_digest = copy.deepcopy(approval_wire)
+    uppercase_ref_digest["catalog"]["catalogDigest"] = "A" * 64
+    short_ref_digest = copy.deepcopy(approval_wire)
+    short_ref_digest["catalog"]["contentSha256"] = "0" * 63
+    unsigned_order_wire, _, _ = sign_formal_gate_catalog_approval_statement(
+        module,
+        approval_statement,
+        ("key-security", "key-quality"),
+    )
+    under_quorum_wire, _, _ = sign_formal_gate_catalog_approval_statement(
+        module,
+        approval_statement,
+        ("key-quality",),
+    )
+    missing_role_wire, _, _ = sign_formal_gate_catalog_approval_statement(
+        module,
+        approval_statement,
+        ("key-architecture", "key-quality"),
+    )
+
+    def mutated_catalog_bytes(mutator: Callable[[dict], None]) -> bytes:
+        mutated = copy.deepcopy(catalog_wire)
+        mutator(mutated)
+        return module.canonical_pf_jcs(mutated)
+
+    drifted_required_catalog = copy.deepcopy(catalog_wire)
+    drifted_required_catalog["requiredTestSet"]["digest"] = digest_text(
+        bytes.fromhex("ca" * 32)
+    )
+    drifted_required_catalog_bytes = module.canonical_pf_jcs(
+        drifted_required_catalog
+    )
+    drifted_required_approval = copy.deepcopy(approval_wire)
+    drifted_required_approval["catalog"] = formal_gate_catalog_ref_wire(
+        drifted_required_catalog, drifted_required_catalog_bytes
+    )
+    drifted_required_approval_bytes = module.canonical_pf_jcs(
+        resign_formal_gate_catalog_approval_wire(
+            module, drifted_required_approval
+        )
+    )
+
+    for label, operation in (
+        ("malformed approval bytes", lambda: parse_approval(b"{")),
+        (
+            "noncanonical approval bytes",
+            lambda: parse_approval(b" " + approval_bytes),
+        ),
+        (
+            "unknown approval field",
+            lambda: parse_approval(module.canonical_pf_jcs(unknown_field)),
+        ),
+        (
+            "missing approval field",
+            lambda: parse_approval(module.canonical_pf_jcs(missing_field)),
+        ),
+        (
+            "approval signer absent from policy",
+            lambda: parse_approval(module.canonical_pf_jcs(unknown_signer)),
+        ),
+        (
+            "tampered approval signature",
+            lambda: parse_approval(
+                module.canonical_pf_jcs(tampered_signature)
+            ),
+        ),
+        (
+            "malformed approval signature hex",
+            lambda: parse_approval(
+                module.canonical_pf_jcs(malformed_signature_hex)
+            ),
+        ),
+        (
+            "unknown approval signature field",
+            lambda: parse_approval(
+                module.canonical_pf_jcs(unknown_signature_field)
+            ),
+        ),
+        (
+            "wrong approval signature algorithm",
+            lambda: parse_approval(
+                module.canonical_pf_jcs(wrong_signature_algorithm)
+            ),
+        ),
+        (
+            "approval statement version substitution breaks signature",
+            lambda: parse_approval(
+                module.canonical_pf_jcs(substituted_statement_version)
+            ),
+        ),
+        (
+            "catalog ref renames contentSha256 to contentDigest",
+            lambda: parse_approval(
+                module.canonical_pf_jcs(renamed_ref_digest_field)
+            ),
+        ),
+        (
+            "unknown catalog ref field",
+            lambda: parse_approval(module.canonical_pf_jcs(unknown_ref_field)),
+        ),
+        (
+            "missing catalog ref field",
+            lambda: parse_approval(module.canonical_pf_jcs(missing_ref_field)),
+        ),
+        (
+            "catalog ref contentSha256 uses SPEC-COMMON Digest form",
+            lambda: parse_approval(
+                module.canonical_pf_jcs(spec_common_ref_digest)
+            ),
+        ),
+        (
+            "catalog ref catalogDigest is not lowercase hex",
+            lambda: parse_approval(
+                module.canonical_pf_jcs(uppercase_ref_digest)
+            ),
+        ),
+        (
+            "catalog ref contentSha256 has wrong length",
+            lambda: parse_approval(module.canonical_pf_jcs(short_ref_digest)),
+        ),
+        (
+            "approval signatures not in ascending keyId order",
+            lambda: parse_approval(module.canonical_pf_jcs(unsigned_order_wire)),
+        ),
+        (
+            "approval signer quorum below formalCatalogRule",
+            lambda: parse_approval(module.canonical_pf_jcs(under_quorum_wire)),
+        ),
+        (
+            "approval signatures omit required security role",
+            lambda: parse_approval(module.canonical_pf_jcs(missing_role_wire)),
+        ),
+        (
+            "wrong approval schema",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire.__setitem__(
+                    "schema", "proof-forge.formal-gate-catalog-approval.v2"
+                )
+            )),
+        ),
+        (
+            "approval id violates ContentRef id grammar",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire.__setitem__("id", "Formal-Catalog-Approval")
+            )),
+        ),
+        (
+            "approval version has leading zero",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire.__setitem__("version", "01.0.0")
+            )),
+        ),
+        (
+            "approval version is not exact SemVer",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire.__setitem__("version", "1.0")
+            )),
+        ),
+        (
+            "approval authority policy digest join",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire["authorityPolicy"].__setitem__(
+                    "digest", digest_text(bytes.fromhex("c6" * 32))
+                )
+            )),
+        ),
+        (
+            "approval authority policy schema join",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire["authorityPolicy"].__setitem__(
+                    "schema", "proof-forge.unrelated.v1"
+                )
+            )),
+        ),
+        (
+            "approval required-test-set digest join",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire["requiredTestSet"].__setitem__(
+                    "digest", digest_text(bytes.fromhex("c7" * 32))
+                )
+            )),
+        ),
+        (
+            "approval catalog ref id join",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire["catalog"].__setitem__(
+                    "id", "different-catalog"
+                )
+            )),
+        ),
+        (
+            "approval catalog ref version join",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire["catalog"].__setitem__("version", "2.0.0")
+            )),
+        ),
+        (
+            "approval catalog contentSha256 join",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire["catalog"].__setitem__(
+                    "contentSha256", "c8" * 32
+                )
+            )),
+        ),
+        (
+            "approval catalog catalogDigest join",
+            lambda: parse_approval(signed_approval_mutation(
+                lambda wire: wire["catalog"].__setitem__(
+                    "catalogDigest", "c9" * 32
+                )
+            )),
+        ),
+        (
+            "malformed catalog bytes",
+            lambda: parse_approval(approval_bytes, b"{"),
+        ),
+        (
+            "noncanonical catalog bytes",
+            lambda: parse_approval(approval_bytes, b" " + catalog_bytes),
+        ),
+        (
+            "catalog root has unknown field",
+            lambda: parse_approval(approval_bytes, mutated_catalog_bytes(
+                lambda catalog: catalog.__setitem__("futureField", True)
+            )),
+        ),
+        (
+            "catalog qualification is development",
+            lambda: parse_approval(approval_bytes, mutated_catalog_bytes(
+                lambda catalog: catalog.__setitem__(
+                    "qualification", "development"
+                )
+            )),
+        ),
+        (
+            "catalog requiredTestSet is explicit null",
+            lambda: parse_approval(approval_bytes, mutated_catalog_bytes(
+                lambda catalog: catalog.__setitem__("requiredTestSet", None)
+            )),
+        ),
+        (
+            "catalog requiredTestSet digest join",
+            lambda: parse_approval(
+                drifted_required_approval_bytes,
+                drifted_required_catalog_bytes,
+            ),
+        ),
+        (
+            "catalog id drift breaks approval catalog ref join",
+            lambda: parse_approval(approval_bytes, mutated_catalog_bytes(
+                lambda catalog: catalog.__setitem__("id", "renamed-catalog")
+            )),
+        ),
+        (
+            "catalog locks missing field",
+            lambda: parse_approval(approval_bytes, mutated_catalog_bytes(
+                lambda catalog: catalog["locks"].pop("finalizerSha256")
+            )),
+        ),
+        (
+            "catalog locks value is not lowercase SHA-256",
+            lambda: parse_approval(approval_bytes, mutated_catalog_bytes(
+                lambda catalog: catalog["locks"].__setitem__(
+                    "finalizerSha256", "0" * 63
+                )
+            )),
+        ),
+        (
+            "catalog gates are empty",
+            lambda: parse_approval(approval_bytes, mutated_catalog_bytes(
+                lambda catalog: catalog.__setitem__("gates", [])
+            )),
+        ),
+        (
+            "malformed required-test-set bytes",
+            lambda: parse_approval(approval_bytes, catalog_bytes, b"{"),
+        ),
+        (
+            "malformed authority policy bytes",
+            lambda: parse_approval(
+                approval_bytes, catalog_bytes, required_bytes, b"{"
+            ),
+        ),
+    ):
+        expect_approval_rejected(operation, label)
+
+    original_decode_point = module._decode_point
+    original_verify_ed25519 = module.verify_ed25519
+    subgroup_curve_calls = 0
+    signature_curve_calls = 0
+
+    def counted_decode_point(encoded: bytes) -> object:
+        nonlocal subgroup_curve_calls
+        subgroup_curve_calls += 1
+        return original_decode_point(encoded)
+
+    def counted_verify_ed25519(
+        public_key: bytes,
+        message: bytes,
+        signature: bytes,
+    ) -> bool:
+        nonlocal signature_curve_calls
+        signature_curve_calls += 1
+        return original_verify_ed25519(public_key, message, signature)
+
+    module._decode_point = counted_decode_point
+    module.verify_ed25519 = counted_verify_ed25519
+    try:
+        expect_approval_rejected(
+            lambda: parse_approval(b"{"),
+            "malformed approval bytes reject before any curve work",
+        )
+    finally:
+        module._decode_point = original_decode_point
+        module.verify_ed25519 = original_verify_ed25519
+    if subgroup_curve_calls != 0 or signature_curve_calls != 0:
+        raise AssertionError(
+            "malformed approval bytes must reject before every public-key "
+            "subgroup or signature curve operation"
+        )
 
 
 def test_task_approval_exact_upper_and_sha256_identity(
@@ -10442,6 +11088,7 @@ def main() -> int:
         test_bootstrap_task_verifier_receipt(module)
         test_bootstrap_approval_set(module)
         test_bootstrap_approval_verifier_receipt(module)
+        test_formal_gate_catalog_approval(module)
         candidate = test_common_identities(module)
         test_ed25519(module)
         test_subject_graph_preflight(module, candidate)

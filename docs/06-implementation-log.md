@@ -3590,3 +3590,34 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA59 declaration residual
   audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — TASK-D0-04 pre-acceptance：FormalGateCatalogApprovalV1 对象族
+
+- Context：D0-04 仓库内缺口第二件（spec：`docs/specs/gate-catalog-finalization.md:905-941`
+  approval authority、`1295-1321` canonical GateCatalog 本体与 identity 推导、
+  `1331-1350` formal qualification/requiredTestSet/locks 约束）。沿用上一切片模式，
+  委托后逐段评审提交；仍不改变 `TASK-D0-04` 的 blocked 状态与冻结完成面。
+- Changed：`scripts/bootstrap_task_objects.py`（+282 行）——`GateCatalogRefV1`
+  （contentSha256/catalogDigest 保持 bare 64-lowercase-hex，拒绝 `sha256:` 前缀的
+  SPEC-COMMON 形式与改名 contentDigest）与 `FormalGateCatalogApprovalV1` 七字段
+  frozen dataclass；`parse_formal_gate_catalog_approval(approval, catalog,
+  required_test_set, authority_policy)`：三输入分别纯结构 preflight（schema/id
+  grammar 区分 ContentRef grammar 与 safe-id、exact SemVer、nested ref shape、
+  locks 恰 12 字段 hex、qualification=="formal"）且任何 curve work 前 fail closed →
+  catalog 按 spec 1316-1321 从 exact bytes 独立重算 contentSha256 与 catalogDigest →
+  RequiredTestSet 全部 authority 验证 → 四条 exact join（authorityPolicy/requiredRef/
+  catalogRef/catalog.requiredTestSet）→ `formalCatalogRule` 签名满足 + Ed25519 验签 →
+  返回 approval 与 `pf.formal-gate-catalog-approval.v1` 域 Digest。
+  `scripts/bootstrap_task_objects_self_test.py`（+647 行）：`assert_public_api` 钉住；
+  正例全 typed 字段 + 约 45 例负例（grammar/SemVer/join 漂移/双 hash 独立漂移/ref 改名/
+  development qualification/quorum 不足/缺 security 角色/冒充 keyId/非升序签名/
+  statement 替换未重签/字节损坏传播等），malformed bytes 在任何 curve 调用前拒绝。
+- Verification：`/usr/bin/python3 -I -S scripts/bootstrap_task_objects_self_test.py` ok；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check` clean。
+  development evidence 为 `EV-20260718-0055`。
+- Limitations：纯 consumer——不证明 catalog gate 级内容语义（归 finalizer 族）、
+  不认证 authority-store lookup/revocation、不构成 formal evidence；不得据本条关闭
+  `TASK-D0-04`（仍 blocked）；D0 formal milestone 仍为 7/9。
+- Next：D0-04 剩余仓库内缺口——authority-store protected service（`pf.authority-store.rpc.v1`
+  服务端/客户端）与 producer/signer 侧（RequiredTestSet/TaskApproval/set producer 与
+  receipt 签发 verifier）；Stage-0 handoff producer 与 containment runner 需 eligible host。

@@ -10,6 +10,11 @@ consumer/validator primitives: they re-verify signed content and exact joins
 against caller-supplied authority inputs, but they do not authenticate the
 authority-store transport, safe-read provenance, revocation state, or the live
 Stage-0 process, and a returned receipt is not itself an activation fact.
+The formal gate-catalog approval entry point is likewise a pure consumer: it
+proves only the signed approval's exact binding to canonical formal catalog
+bytes/identity and a fully verified RequiredTestSet authority; it does not
+prove the catalog's gate-level content semantics and is not itself formal
+evidence.
 """
 
 from __future__ import annotations
@@ -367,6 +372,26 @@ class BootstrapApprovalVerifierReceiptRefV1:
 
 
 @dataclass(frozen=True)
+class GateCatalogRefV1:
+    schema: str
+    id: str
+    version: str
+    contentSha256: str
+    catalogDigest: str
+
+
+@dataclass(frozen=True)
+class FormalGateCatalogApprovalV1:
+    schema: str
+    id: str
+    version: str
+    authorityPolicy: ContentRef
+    requiredTestSet: ContentRef
+    catalog: GateCatalogRefV1
+    signatures: Tuple[ApprovalSignatureV1, ...]
+
+
+@dataclass(frozen=True)
 class BootstrapLedgerSubjectV1:
     id: str
     taskId: str
@@ -459,6 +484,19 @@ class _VerifiedBootstrapApprovalSetV1:
 @dataclass(frozen=True)
 class _BootstrapApprovalVerifierReceiptPreflightV1:
     receipt: BootstrapApprovalVerifierReceiptV1
+    signatureMessage: bytes
+    signedBytes: bytes
+
+
+@dataclass(frozen=True)
+class _FormalGateCatalogPreflightV1:
+    catalogRef: GateCatalogRefV1
+    requiredTestSet: ContentRef
+
+
+@dataclass(frozen=True)
+class _FormalGateCatalogApprovalPreflightV1:
+    approval: FormalGateCatalogApprovalV1
     signatureMessage: bytes
     signedBytes: bytes
 
@@ -1088,6 +1126,45 @@ _BOOTSTRAP_APPROVAL_VERIFIER_RECEIPT_FIELDS = (
     "signature",
 )
 _BOOTSTRAP_APPROVAL_VERIFIER_RECEIPT_REF_FIELDS = ("id", "digest")
+_FORMAL_GATE_CATALOG_FIELDS = (
+    "schema",
+    "id",
+    "version",
+    "qualification",
+    "requiredTestSet",
+    "locks",
+    "gates",
+)
+_FORMAL_CATALOG_LOCK_FIELDS = (
+    "hostBootstrapSha256",
+    "hostProfileLockSha256",
+    "toolchainLockSha256",
+    "stage0LauncherSha256",
+    "stage0VerifierSha256",
+    "sandboxEngineSha256",
+    "sandboxRendererSha256",
+    "sandboxLauncherSha256",
+    "sandboxProbeWrapperSha256",
+    "evidenceValidatorSha256",
+    "evidenceSchemaCoreSha256",
+    "finalizerSha256",
+)
+_GATE_CATALOG_REF_FIELDS = (
+    "schema",
+    "id",
+    "version",
+    "contentSha256",
+    "catalogDigest",
+)
+_FORMAL_GATE_CATALOG_APPROVAL_FIELDS = (
+    "schema",
+    "id",
+    "version",
+    "authorityPolicy",
+    "requiredTestSet",
+    "catalog",
+    "signatures",
+)
 _STAGE0_CHANNEL_SPECS = (
     ("authority-policy", "regular-file", "read-only"),
     ("authority-store", "authenticated-stream", "request-response"),
@@ -3497,6 +3574,211 @@ def parse_bootstrap_approval_verifier_receipt_ref(
         ),
         parse_digest(obj["digest"]),
     )
+
+
+def _parse_gate_catalog_ref(value: object, where: str) -> GateCatalogRefV1:
+    obj = _require_exact_keys(value, _GATE_CATALOG_REF_FIELDS, where)
+    if obj["schema"] != "proof-forge.gate-catalog.v1":
+        _reject(f"{where}.schema is not the gate catalog v1 schema")
+    identifier = _require_safe_id(obj["id"], f"{where}.id")
+    version = _require_semver(obj["version"], f"{where}.version")
+    content_sha256 = obj["contentSha256"]
+    if (type(content_sha256) is not str
+            or _LOWERCASE_32_BYTE_HEX_RE.fullmatch(content_sha256) is None):
+        _reject(f"{where}.contentSha256 must be 64 lowercase hex digits")
+    assert isinstance(content_sha256, str)
+    catalog_digest = obj["catalogDigest"]
+    if (type(catalog_digest) is not str
+            or _LOWERCASE_32_BYTE_HEX_RE.fullmatch(catalog_digest) is None):
+        _reject(f"{where}.catalogDigest must be 64 lowercase hex digits")
+    assert isinstance(catalog_digest, str)
+    return GateCatalogRefV1(
+        "proof-forge.gate-catalog.v1",
+        identifier,
+        version,
+        content_sha256,
+        catalog_digest,
+    )
+
+
+def _preflight_formal_gate_catalog(
+    catalog_bytes: bytes,
+) -> _FormalGateCatalogPreflightV1:
+    """Recompute the formal catalog identity from exact canonical bytes.
+
+    Only the closed root shape, identity fields, formal qualification,
+    required-test-set binding, lock hex shape, and non-empty gates count are
+    pinned here; gate-level content semantics stay with the finalizer family.
+    """
+    decoded = decode_canonical_pf_jcs(catalog_bytes)
+    obj = _require_exact_keys(decoded, _FORMAL_GATE_CATALOG_FIELDS, "GateCatalogV1")
+    if obj["schema"] != "proof-forge.gate-catalog.v1":
+        _reject("GateCatalogV1.schema is not v1")
+    identifier = _require_safe_id(obj["id"], "GateCatalogV1.id")
+    version = _require_semver(obj["version"], "GateCatalogV1.version")
+    if obj["qualification"] != "formal":
+        _reject("GateCatalogV1.qualification must be formal")
+    required_test_set = parse_content_ref(obj["requiredTestSet"])
+    if required_test_set.schema != "proof-forge.required-test-set.v1":
+        _reject("GateCatalogV1.requiredTestSet schema is not v1")
+    locks = _require_exact_keys(
+        obj["locks"], _FORMAL_CATALOG_LOCK_FIELDS, "GateCatalogV1.locks"
+    )
+    for field in _FORMAL_CATALOG_LOCK_FIELDS:
+        lock_value = locks[field]
+        if (type(lock_value) is not str
+                or _LOWERCASE_32_BYTE_HEX_RE.fullmatch(lock_value) is None):
+            _reject(f"GateCatalogV1.locks.{field} must be 64 lowercase hex")
+    gates = obj["gates"]
+    if type(gates) is not list or not gates:
+        _reject("GateCatalogV1.gates must be a non-empty array")
+    catalog_ref = GateCatalogRefV1(
+        "proof-forge.gate-catalog.v1",
+        identifier,
+        version,
+        hashlib.sha256(catalog_bytes).hexdigest(),
+        hashlib.sha256(b"pf.gate-catalog.v1\x00" + catalog_bytes).hexdigest(),
+    )
+    return _FormalGateCatalogPreflightV1(catalog_ref, required_test_set)
+
+
+def _preflight_formal_gate_catalog_approval(
+    approval_bytes: bytes,
+) -> _FormalGateCatalogApprovalPreflightV1:
+    decoded = decode_canonical_pf_jcs(approval_bytes)
+    obj = _require_exact_keys(
+        decoded,
+        _FORMAL_GATE_CATALOG_APPROVAL_FIELDS,
+        "FormalGateCatalogApprovalV1",
+    )
+    if obj["schema"] != "proof-forge.formal-gate-catalog-approval.v1":
+        _reject("FormalGateCatalogApprovalV1.schema is not v1")
+    identifier = _require_ascii_text(
+        obj["id"], PROFILE_ID_RE, "FormalGateCatalogApprovalV1.id", 127
+    )
+    version = _require_semver(obj["version"], "FormalGateCatalogApprovalV1.version")
+    authority_policy = parse_content_ref(obj["authorityPolicy"])
+    if authority_policy.schema != "proof-forge.bootstrap-authority-policy.v1":
+        _reject("FormalGateCatalogApprovalV1.authorityPolicy schema is not v1")
+    required_test_set = parse_content_ref(obj["requiredTestSet"])
+    if required_test_set.schema != "proof-forge.required-test-set.v1":
+        _reject("FormalGateCatalogApprovalV1.requiredTestSet schema is not v1")
+    catalog = _parse_gate_catalog_ref(
+        obj["catalog"], "FormalGateCatalogApprovalV1.catalog"
+    )
+    signatures = _parse_approval_signatures_syntax(
+        obj["signatures"], "FormalGateCatalogApprovalV1.signatures"
+    )
+
+    statement = {
+        field: obj[field] for field in _FORMAL_GATE_CATALOG_APPROVAL_FIELDS[:-1]
+    }
+    statement_digest = hashlib.sha256(
+        b"pf.formal-gate-catalog-approval-statement.v1\x00"
+        + canonical_pf_jcs(statement)
+    ).digest()
+    signature_message = (
+        b"pf.formal-gate-catalog-approval-signature.v1\x00" + statement_digest
+    )
+    approval = FormalGateCatalogApprovalV1(
+        "proof-forge.formal-gate-catalog-approval.v1",
+        identifier,
+        version,
+        authority_policy,
+        required_test_set,
+        catalog,
+        signatures,
+    )
+    return _FormalGateCatalogApprovalPreflightV1(
+        approval,
+        signature_message,
+        approval_bytes,
+    )
+
+
+def _require_formal_gate_catalog_approval_input_joins(
+    approval_preflight: _FormalGateCatalogApprovalPreflightV1,
+    catalog_preflight: _FormalGateCatalogPreflightV1,
+    required_preflight: _RequiredTestSetPreflightV1,
+) -> None:
+    approval = approval_preflight.approval
+    required_set = required_preflight.requiredTestSet
+    policy = required_preflight.policy
+    if approval.authorityPolicy != required_set.authorityPolicy:
+        _reject(
+            "formal catalog approval authority policy does not match "
+            "RequiredTestSetV1"
+        )
+    if approval.requiredTestSet != required_preflight.requiredTestSetRef:
+        _reject(
+            "formal catalog approval required-test-set ref does not match "
+            "exact bytes"
+        )
+    if approval.catalog != catalog_preflight.catalogRef:
+        _reject(
+            "formal catalog approval catalog ref does not match exact "
+            "catalog bytes"
+        )
+    if catalog_preflight.requiredTestSet != required_preflight.requiredTestSetRef:
+        _reject(
+            "formal catalog required-test-set ref does not match exact bytes"
+        )
+    _require_signature_policy_membership(
+        approval.signatures,
+        policy.principals,
+        "FormalGateCatalogApprovalV1.signatures",
+    )
+    _require_signature_rule(
+        approval.signatures,
+        policy.principals,
+        policy.formalCatalogRule,
+        "FormalGateCatalogApprovalV1.signatures",
+    )
+
+
+def parse_formal_gate_catalog_approval(
+    approval_bytes: bytes,
+    catalog_bytes: bytes,
+    required_test_set_bytes: bytes,
+    authority_policy_bytes: bytes,
+) -> Tuple[FormalGateCatalogApprovalV1, Digest]:
+    """Validate a signed formal gate-catalog approval against exact inputs.
+
+    The RequiredTestSet is re-verified against the authority policy with its
+    full signature/rule finalization, and the catalog identity is recomputed
+    from the exact canonical bytes before any approval signature check.  This
+    pure consumer proves only the signed approval's exact binding to the
+    canonical formal catalog bytes/identity and that required-set authority;
+    it does not prove the catalog's gate-level content semantics, does not
+    authenticate any authority-store lookup, and is not itself formal
+    evidence.
+    """
+    approval_preflight = _preflight_formal_gate_catalog_approval(approval_bytes)
+    catalog_preflight = _preflight_formal_gate_catalog(catalog_bytes)
+    required_preflight = _preflight_required_test_set(
+        required_test_set_bytes,
+        authority_policy_bytes,
+    )
+    _require_formal_gate_catalog_approval_input_joins(
+        approval_preflight,
+        catalog_preflight,
+        required_preflight,
+    )
+
+    _finalize_required_test_set(required_preflight)
+    _verify_approval_signatures(
+        approval_preflight.approval.signatures,
+        required_preflight.policy.principals,
+        approval_preflight.signatureMessage,
+        "FormalGateCatalogApprovalV1.signatures",
+    )
+    approval_digest = Digest(
+        "sha256",
+        hashlib.sha256(
+            b"pf.formal-gate-catalog-approval.v1\x00" + approval_bytes
+        ).digest(),
+    )
+    return approval_preflight.approval, approval_digest
 
 
 def _require_sorted_unique(values: tuple, where: str, *, nonempty: bool) -> None:
