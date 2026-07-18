@@ -228,16 +228,23 @@ unsafe def run : IO Unit := do
   | .error error => throw <| IO.userError error.render
 
   let sourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array UInt64 0", .array .u64 0, 0, "UNBOUND"),
-    ("Array UInt64 4", .array .u64 4, 0, "UNBOUND"),
-    ("Array UInt64 4096", .array .u64 4096, 0, "UNBOUND"),
-    ("Array Bool 0", .array .bool 0, 0, "UNBOUND")
+    ("Array UInt64 0", .array .u64 0, 247,
+      "3ceb8bd535df35be7ffc11b0936fbb350edab1bbb5506400e0946e4404f7551f"),
+    ("Array UInt64 4", .array .u64 4, 247,
+      "337a745e0ef4f48bd8c768ba0b57d529839e083681378f49772b435530b490ed"),
+    ("Array UInt64 4096", .array .u64 4096, 247,
+      "8c4013931a98a37bab4ad7172ffd35f214c285ccce75a4cc82e24f476783357c"),
+    ("Array Bool 0", .array .bool 0, 247,
+      "5a753558596d74f964ebfa91412d91fdf0f4a6ffe2360b04eac13b8137fe3f9b")
   ]
+  let mut goldensBound := true
   for (label, type, expectedSize, expectedHash) in sourceVectors do
     let sourceProgram := twin type
-    expect (sourceProgram.canonicalBytes.size == expectedSize &&
-        sourceProgram.sourceHash == expectedHash)
-      s!"{label} source tag18 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+    unless sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash do
+      goldensBound := false
+      IO.eprintln
+        s!"{label} source: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
 
   expect ((twin (.array .u64 0)).sourceHash != (twin .u64).sourceHash &&
       (twin (.array .u64 0)).sourceHash != (twin (.option .u64)).sourceHash &&
@@ -247,18 +254,25 @@ unsafe def run : IO Unit := do
     "Array tag, element and complete length payload must bind sourceHash without aliases"
 
   let semanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array UInt64 0", .array .u64 0, 0, "UNBOUND"),
-    ("Array UInt64 4", .array .u64 4, 0, "UNBOUND"),
-    ("Array UInt64 4096", .array .u64 4096, 0, "UNBOUND"),
-    ("Array Bool 0", .array .bool 0, 0, "UNBOUND")
+    ("Array UInt64 0", .array .u64 0, 196,
+      "a46564015716999f07e757ebed47cfe72b23f339dad4da1158eea4a2af08f663"),
+    ("Array UInt64 4", .array .u64 4, 196,
+      "74cb1feb33e426bd600e499c789853c86a37e643989ef53f6c8af6efce9f675b"),
+    ("Array UInt64 4096", .array .u64 4096, 196,
+      "c9f689ce43d78c100366d90296ef5b6f37a9f8c0612d43d4bec3a5eb0d74d3aa"),
+    ("Array Bool 0", .array .bool 0, 197,
+      "d5557eb2a9ccabb38305d976ec9b6bc0e48f97650bb9d4d2cecd98594b3ff24e")
   ]
   for (label, type, expectedSize, expectedHash) in semanticVectors do
     let compiled ← match Compiler.compile (twin type) with
       | .ok value => pure value
       | .error error =>
           throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
-    expect (compiled.canonicalBytes.size == expectedSize && compiled.semanticHash == expectedHash)
-      s!"{label} semantic tag18 golden is unbound: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
+    unless compiled.canonicalBytes.size == expectedSize && compiled.semanticHash == expectedHash do
+      goldensBound := false
+      IO.eprintln
+        s!"{label} semantic: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
+  expect goldensBound "Array tag18 canonical goldens must be bound"
 
   for (label, spelling) in [
       ("bare Array", "Array"),
