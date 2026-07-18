@@ -2071,3 +2071,53 @@ normative: false
   precedence、Expr tag `13`、cross-shift nesting、zero/over-width Source boundary、ShiftLeft 中唯一 retention
   negative 的迁移与 exact Typed failure；audit 已确认只迁移 `ShiftLeft.lean` 的 `1 >> 2` 一条，
   arithmetic-vs-logical shift-right semantics 必须明确 deferred，不得捆绑 Semantic 或 target lowering。
+
+## 2026-07-18 — D1 shift-right pre-acceptance slice
+
+- Commits：freeze `dc8b57ad`；tests-only RED `56f0e70c`；Source-only GREEN `29513a00`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-32 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 新增 `shiftRight lhs rhs`，alpha canonical encoder 以 Expr tag `13`
+  后依次递归编码 lhs/rhs；`pfExpr` 新增 `syntax:60 pfExpr:60 " >> " pfExpr:61 : pfExpr`，与
+  `<<` 同层跨 operator 左结合并严格低于 AddExpr precedence `65`。decoder/quotation 结构化保留 node；
+  `Typed.checkExpr` 在检查任一 operand 前逐字 fail closed 为
+  `shift right is not yet supported by typed checking`。production 恰好只改 `Source.lean`、`Syntax.lean`、
+  `Typed.lean` 3 文件/11 行，其他层未改。
+- Parser/AST：initializer、entry、view、fn 的 return/let value 与 Lean command/ParserSession parity 全绿；
+  `1>>2`、`2>>1`、`a>>b`、`1+2>>3`、`1>>2+3`、`8>>2*3`、`8*2>>3`、
+  `1>>2>>3`、`1>>(2>>3)`、`(1+2)>>3`、`-1>>2`、`1>>-2`、`0>>1`、
+  `1>>0`、`1>>64`、`1<<2>>3` 与 `1>>2<<3` 精确固定 60/61 precedence、同层 cross-shift
+  左结合、grouping 与 unary placement。zero/over-width count 在 Source 接受，count legality 与
+  arithmetic-vs-logical right-shift semantics 留给 D2/target。
+- Binding：ShiftRightTwin 的代表 goldens 为 `1>>2`
+  `a3566f68f52b46f51c9307718b70133fe5520f23952f9d41d429dac57a28637e`/228 bytes、`2>>1`
+  `3ee8a82eaa290fd4ba206c7f92995b0e3924cba79cd0864c51d1c90addfd943d`/228、`1+2>>3`
+  `30b1759079dfddfe1a5e3668177d30aeefe956120e23aaab703b64327b6b93ff`/238、left nested
+  `e90c2caa954ca8f92c5f0f22b8ab3cefa2b448ff4d0cbc6f4a752241a4a531a9`/238、right nested
+  `eab0cc18fd52efeabc7b7540be798194f87b9fda776fe742daa2c6ad57639803`/238、`1>>64`
+  `f29d87c9b953de738e3559eb792c6ec98fb816c8c3386d63936c5c6da0fa2925`/228、`1<<2>>3`
+  `a9c338f2cb43f52d59f03a0441f255a1f7309ea5dd4eadf1dcfba5c73ada60e8`/238、`1>>2<<3`
+  `bd6d1a6f808cedf83d1b2a6530e4d52ab285b9bfaa61ef5a28fafad964c441b3`/238；operator/order/count、
+  shift-left tag、wrong precedence、left/right nesting、cross-shift order 与 unary placement 均不 alias。
+- Migration/Boundaries：同一 RED 只迁移 `ShiftLeft.lean` 中唯一的 `1 >> 2` retention negative；
+  bare/missing/repeated `>>`、`1 > > 2`、`1 >>> 2` 与 extra payload 停在 parser boundary。
+  Typed 对 `1>>64` 仍先给 shift-right diagnostic；checkedAdd positive 与 Bool/sub/mul/div/mod/neg/
+  bitwise/logical/shift-left exact controls 保持。
+- Review/Commands：Grok 完成 residual audit、RED 设计与 tests-only RED；Kimi 完成 GREEN seam 与最终
+  只读审计，最终 P0/P1=0；coordinator 完成严格 11 行 GREEN。执行
+  `lake build Tests.Language.ShiftRight`；`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；随后在 clean committed `main@29513a00` 执行
+  `just ci` 作为 PA28–PA32/ShiftExpr 批次 checkpoint。
+- Results：14-job focused build、148-job aggregate 与测试二进制全部 exit 0；batch `just ci` exit 0，
+  包含 committed-archive isolation 的 156-job clean build/test/help、`docs-check`、186 项 docs mutation、
+  genesis/bootstrap/SBOM/supply-chain/runtime closure 自测、148-job aggregate、完整测试二进制及
+  target/toolchain negative checks。development evidence 为 `EV-20260718-0018`；这些仍是 development
+  gate，不是 eligible host 或 formal hermetic Stage-0 evidence。
+- Limitations：仅有 Source carrier，没有 shift count/width/overflow、signed/arithmetic-vs-logical shift、
+  rotate、Typed/Semantic shift、constant folding、requirement、target ABI/runtime、eligible host 或 formal D1
+  evidence。`<<`/`>>` 的 ShiftExpr Source surface 与批次门禁已闭合，但 expression grammar 与
+  `TASK-D1-04` 仍未正式完成；D0 formal milestone 仍为 5/8。
+- Next：equality `==` 是 residual audit 的唯一下一 candidate，但尚未冻结。冻结前必须独立核准
+  non-associative Compare precedence、Expr append-only tag `14`、零既有 migration、malformed `= =`/`===`
+  parser boundary、Bool/integer Source acceptance 与 exact Typed failure；不得捆绑 `!=`、ordering、
+  Bool legality、Semantic 或 target lowering。
