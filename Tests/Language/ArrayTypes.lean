@@ -427,10 +427,14 @@ unsafe def run : IO Unit := do
   expect goldensBound "Array tag18 canonical goldens must be bound"
 
   let arrayOptionSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option UInt64 0", .array (.option .u64) 0, 0, "UNBOUND"),
-    ("Array Option UInt64 4", .array (.option .u64) 4, 0, "UNBOUND"),
-    ("Array Option UInt64 4096", .array (.option .u64) 4096, 0, "UNBOUND"),
-    ("Array Option Bool 0", .array (.option .bool) 0, 0, "UNBOUND")
+    ("Array Option UInt64 0", .array (.option .u64) 0, 249,
+      "0b3153ecbbd19f8d92ee224de6dded402da99f88c4d4fb1b8a9e5f8628ead58e"),
+    ("Array Option UInt64 4", .array (.option .u64) 4, 249,
+      "d31d81e088af346649d938334cf796f3f33beb50d866ef3adefb5ee156c5bd6d"),
+    ("Array Option UInt64 4096", .array (.option .u64) 4096, 249,
+      "0b95929e3a5cc05e18ac6acf22d56103409e56b324b5fa1753c9093fc87b6040"),
+    ("Array Option Bool 0", .array (.option .bool) 0, 249,
+      "9a0a7cc57a9b67243fcbfeb39b5438949bea65d58fc92989afbd8a4820cbb61a")
   ]
   for (label, type, expectedSize, expectedHash) in arrayOptionSourceVectors do
     let sourceProgram := twin type
@@ -450,10 +454,14 @@ unsafe def run : IO Unit := do
     "Array Option must bind Array/Option tags, element and complete length payload"
 
   let arrayOptionSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option UInt64 0", .array (.option .u64) 0, 0, "UNBOUND"),
-    ("Array Option UInt64 4", .array (.option .u64) 4, 0, "UNBOUND"),
-    ("Array Option UInt64 4096", .array (.option .u64) 4096, 0, "UNBOUND"),
-    ("Array Option Bool 0", .array (.option .bool) 0, 0, "UNBOUND")
+    ("Array Option UInt64 0", .array (.option .u64) 0, 198,
+      "c0a334ef09579cb80c7314a501f442ce0f490504e0d3f0c9a25bbba421f34213"),
+    ("Array Option UInt64 4", .array (.option .u64) 4, 198,
+      "930eb439b69fbe899d0c81c847ce72e1175c480fd33d5648be1b3c169d169c7b"),
+    ("Array Option UInt64 4096", .array (.option .u64) 4096, 198,
+      "64b9ae5a68b1329c4ed50bb4c44b1fe7499cea5c009f9ca8644dc3f3d8368470"),
+    ("Array Option Bool 0", .array (.option .bool) 0, 199,
+      "2f1dec9116e2cc84d903436da7c5a08a735902affe1895e9e392bb43cc2db809")
   ]
   for (label, type, expectedSize, expectedHash) in arrayOptionSemanticVectors do
     let compiled ← match Compiler.compile (twin type) with
