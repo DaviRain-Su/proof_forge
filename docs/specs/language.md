@@ -809,14 +809,18 @@ D1-PA-52 冻结的 pre-acceptance alpha conditional 子集一次实现 EBNF
 `"if" Expr "then" Block ("else" Block)?` 的 Source surface。carrier 固定为
 `Source.Statement.ifStmt(condition : Expr, thenBody : Array Statement,
 elseBody : Option (Array Statement))`；作者不写 target/kind，frontend 不根据 target 重写条件或分支。
-parser 只新增一条 optional-else production：
-`syntax "if " pfExpr " then" ppLine many1Indent(pfStmt)
-("else" ppLine many1Indent(pfStmt))? : pfStmt`。`thenBody` 与存在的 `elseBody` 均至少
-一条 statement，branch item 必须比 `if`/`else` 引入列更深，`else` 必须回到所属
-`if` 的列；结构化 layout 决定 dangling-else 归属，不得另增 textual fallback。
+parser 只新增一条 optional-else surface。tests-only RED 的首次 GREEN 证明 `ppLine`
+只是 formatter hint，不会拒绝 same-line branch；因此实现必须使用唯一的
+`@[pfStmt_parser default+1] ifStmt` parser，以 `withPosition` + `checkLinebreakBefore` +
+`checkColGt` 固定 branch 换行/深缩进，以 `checkColEq` 固定 `else` 回到 owning `if`
+列，then/else 内部均由 `many1Indent(pfStmt)` 承载。`thenBody` 与存在的
+`elseBody` 均至少一条 statement；结构化 layout 决定 dangling-else 归属，不得另增
+same-line/textual fallback。
 
 decoder 顺序固定为 condition→then statements→optional else statements，并且递归 decoder 只能为
-承载 nested Source block 改为 `partial`；quotation 必须递归构造 statement arrays 与 exact
+承载 nested Source block 改为 `partial`。上述位置感知 custom parser 产生固定五段 syntax
+node；decoder 必须 fail-closed 检查 exact `ifStmt` kind/五段 shape 与 optional-else group，不得
+将 malformed node 落入普通 statement。quotation 必须递归构造 statement arrays 与 exact
 `Option.none`/`Option.some`，不得退化为文本。Source canonical encoder 使用 append-only Statement
 tag `9`，随后依次编码 condition expression、length-prefixed then-body statement array、else marker
 byte `0`/`1`；marker `1` 后再编码 length-prefixed else-body statement array。递归 encoder 只能为
@@ -834,8 +838,9 @@ fail closed；unescaped `then := 1`/`else := 1` 必须拒绝，escaped `«then»
 `Typed.checkStatement` 必须在 condition checking、branch checking、return/effect/path analysis 前逐字
 fail closed 为 `if statements are not yet supported by typed checking`；旧 statement controls 保持 exact outcome。
 本切片不实现 Bool typing、branch join、return-path/effect、Semantic/requirement、target Plan/IR、runtime 或
-materialization；production 仅限 Source/Syntax/Typed 3 文件，最多 30 行新增与 2 行移除
-（移除仅用于把既有 recursive encoder/decoder declaration 替换为 `partial`）。focused/aggregate/test
+materialization；production 仅限 Source/Syntax/Typed 3 文件，最多 38 行新增与 3 行移除。
+两行移除用于把既有 recursive encoder/decoder declaration 替换为 `partial`，第三行仅用于把
+原 generic decoder catch-all 替换为 exact `ifStmt` kind/shape 验证后的 fail-closed catch-all。focused/aggregate/test
 binary 与 independent review 全绿后只可记录 conditional Source carrier；本切片不运行
 `just ci`，不得宣称 Typed conditional semantics、完整 statement grammar 或正式 D1 完成。
 

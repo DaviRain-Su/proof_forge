@@ -1432,11 +1432,15 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
 - D1-PA-52 的 alpha conditional tests 新增
   `Source.Statement.ifStmt(condition : Expr, thenBody : Array Statement,
   elseBody : Option (Array Statement))`，完整覆盖 `if Expr then Block (else Block)?` Source surface。
-  parser 只允许一条 `ppLine` + `many1Indent(pfStmt)` optional-else production；then/else block 均
-  non-empty，`else` 必须回到所属 `if` 列，nested if 必须按 layout 绑定最近的内层/outer
-  branch。positive 覆盖 initializer、entry、view、fn 的 Lean command/ParserSession parity，
+  parser 只允许一条 optional-else surface。tests-only RED 证明 `ppLine` 不是 parser 换行约束；
+  因此实现必须使用一条 `withPosition` custom `ifStmt` parser，以
+  `checkLinebreakBefore`/`checkColGt` 固定换行与深缩进、`checkColEq` 固定 owning-if
+  `else` 列，then/else 内部均为 `many1Indent(pfStmt)` non-empty block。nested if 必须按
+  layout 绑定最近的内层/outer branch。positive 覆盖 initializer、entry、view、fn 的
+  Lean command/ParserSession parity，
   if-then/if-then-else、literal/Bool/variable/operator/group condition、multi-statement branch 与 nested if。
-  decoder 顺序必须为 condition→then→else，quotation 必须结构化保留 recursive arrays 与 Option marker。
+  decoder 顺序必须为 condition→then→else，并对 custom parser 的 exact `ifStmt` kind、五段
+  node shape 与 optional group fail closed；quotation 必须结构化保留 recursive arrays 与 Option marker。
   Source canonical encoder 使用 append-only Statement tag `9`，再编码 condition、then-body array、
   marker `0`/`1` 及可选 else-body array；固定 condition value/tree、then count/order、else
   presence/content、nested kind 和 tag non-alias，tags `0..8`/旧 goldens 不变。
@@ -1446,8 +1450,9 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `«else» := 1` 保持 assignment。`Typed.checkStatement` 在 condition/branch/return/effect analysis 前
   exact 返回 `if statements are not yet supported by typed checking`，旧 statement controls 不变。
   本切片不实现 Bool typing、branch join、return/effect/path、Semantic/requirement、target/runtime；
-  production 限 Source/Syntax/Typed 3 文件、最多 30 行新增/2 行移除，其中移除仅用于
-  recursive encoder/decoder 的 `partial` 替换。focused/aggregate/test binary 和 final review 全绿后
+  production 限 Source/Syntax/Typed 3 文件、最多 38 行新增/3 行移除；其中两行移除用于
+  recursive encoder/decoder 的 `partial` 替换，第三行用于将 generic decoder catch-all 替换为
+  exact custom-node shape 验证与 fail-closed catch-all。focused/aggregate/test binary 和 final review 全绿后
   收口；按冻结不运行 `just ci`，不得声明 Typed conditional semantics、完整 statement grammar
   或正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
