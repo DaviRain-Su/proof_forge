@@ -29,6 +29,7 @@ docs-check:
     /usr/bin/python3 -I -S scripts/stage0_handoff_self_test.py
     /usr/bin/python3 -I -S scripts/bootstrap_acceptance_self_test.py
     /usr/bin/python3 -I -S scripts/bootstrap_sign_tool_self_test.py
+    /usr/bin/python3 -I -S scripts/stage0_activate_self_test.py
 
 # TASK-D0-05 / TST-SBOM-001: deterministic license inventory + CycloneDX 1.6.
 sbom:

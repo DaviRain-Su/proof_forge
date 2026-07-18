@@ -4054,3 +4054,40 @@ normative: false
   生成/登记 linux host profile；(b) genesis root 离线签发首个
   BootstrapAuthorityPolicyV1（`bootstrap_sign_tool.py sign-authority-policy`）。
   随后真实 activation → D0-04 关闭治理件 → D0-07。
+
+## 2026-07-19 — TASK-D0-04 pre-acceptance：Stage-0 activation 驱动集成
+
+- Context：D0-04 关闭前的最后一个仓库内集成件——把 attestation→TCB→service→
+  handoff→activation→closure bundle 组合为可在合格主机直接执行的入口。
+  委托实现，主会话抽查评审后提交。`verify_host_stage0.sh` 与 darwin 路径未触碰
+  （ADR-0016 红线）。
+- Changed：`scripts/stage0_activate.py`（840 行）+ `scripts/stage0_store_service.py`
+  （169 行 service 子进程入口）：步骤——observation 证明 eligible（否则
+  `PF-STAGE0-ACTIVATE-INELIGIBLE`，本机真实路径）→ TCB 四值从真实文件字节
+  重算（stage0 verifier=`scripts/verify_host_stage0.sh`、continuation=
+  `scripts/stage0_containment.py`、formal finalizer=`scripts/gate_evidence.py`——
+  docstring 声明为 development harness 语义，D0-07 落地后更新；bootstrap
+  verifier=policy `verifier.executableDigest` 并对 deployment-pin 的 verifier exe
+  交叉断言）→ descriptor ref==policy.authorityStoreService 且 service executable
+  bytes==descriptor `serviceExecutableDigest`（spawn 前重算，漂移即拒）→ handoff
+  消费（preflight+四 join）或产出（0444 no-clobber）→ handoff 无关对象先发布 →
+  D0-01..06 backfill+close_task → set → activation 发布+终验 → closure bundle
+  （atomic no-clobber 0444：policy/required-set/6 approvals/6 receipts/set/
+  activation-receipt/`closure-manifest.json`——manifest 含四个 ContentRef 与全部
+  approval/receipt ref，按冻结域从 bundle 字节重算）。错误族
+  `PF-STAGE0-ACTIVATE-{INELIGIBLE,TCB,SERVICE,HANDOFF,BACKFILL,BUNDLE,IO}`。
+  service seed 只由子进程以 sign-tool 纪律读入，driver 从不读取。
+- Verification：`/usr/bin/python3 -I -S scripts/stage0_activate_self_test.py` ok
+  （ineligible 精确 fail closed 无 bundle=本机真实路径；fixture 全链含 live
+  socketpair service-child 通道端到端与 16 文件 bundle digest 全重算相等；七类
+  负例全拒）；既有全部自测 ok；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean；justfile `docs-check` recipe 已接入。development
+  evidence 见台账追记。
+- Limitations：fixture namespace、plain-SHA256 TCB 约定（D0-07 后更新）、本地
+  子进程 service 模型；无远程 attestation/真实 Stage-0 集成；ineligible 路径即
+  本机行为；不得据本条关闭 `TASK-D0-04`（仍 blocked）；D0 formal milestone
+  仍为 7/9。
+- Next（用户侧两个动作，runbook 见会话报告）：(a) BIOS 启用 SecureBoot →
+  observe-host 重登记 linux profile；(b) genesis root 离线签发首个
+  BootstrapAuthorityPolicyV1。随后本入口可直接产出真实 closure bundle，
+  再做 D0-04 关闭治理件（attest + docs_check d0_04 分支 + bootstrap EV）。
