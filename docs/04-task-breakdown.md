@@ -84,8 +84,8 @@ normative: true
 | TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding（FX-2026-07-17-D0-05：inventory+CycloneDX development gate） | TASK-D0-03 | — | TST-SBOM-001 | EV-20260717-0033 | done |
 | TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0035 | done |
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | pending |
-| TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0039 | blocked |
-| TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0037, EV-20260718-0038 | blocked |
+| TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0043 | blocked |
+| TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0041, EV-20260718-0042 | blocked |
 
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
 authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
@@ -100,8 +100,8 @@ tool root 是 GOV-CI-001 明示的 hermetic 前置，但 `TASK-D0-03` 已 `done`
 本任务同日进入 `in_progress`（冻结包
 [`task-freeze-packages/TASK-D0-09.json`](governance/task-freeze-packages/TASK-D0-09.json)，
 freezeCommit `6dc1d8365c02cd51a8b3365c5199597deda99b61`）。2026-07-18：TST-HOST-002 已
-RED→GREEN，linux tool-root lane 本地复跑与合并树 `just ci` 全绿（`EV-20260718-0037`、
-`EV-20260718-0038`）；doneWhen 剩余两项为外部前置（GOV-TASK-FREEZE-001 §4 R5），故转
+RED→GREEN，linux tool-root lane 本地复跑与合并树 `just ci` 全绿（`EV-20260718-0041`、
+`EV-20260718-0042`）；doneWhen 剩余两项为外部前置（GOV-TASK-FREEZE-001 §4 R5），故转
 `blocked`：(a) darwin 回归须 darwin 机执行 `just toolchains-validate`、
 `just host-stage0-development`、`just ci` 且 TST-HOST-001 语义不变；(b) pre-cutover 关闭
 路径须治理裁决——docs-check 在 `TASK-D0-07` 前拒绝 formal EV 且本任务不在 genesis 集合，
@@ -109,7 +109,7 @@ RED→GREEN，linux tool-root lane 本地复跑与合并树 `just ci` 全绿（`
 
 `TASK-D0-08` 于 2026-07-18 进入 `in_progress`（counts 盘点固化后的完整冻结包
 [`task-freeze-packages/TASK-D0-08.json`](governance/task-freeze-packages/TASK-D0-08.json)），
-同日完成 TST-SBOM-002 RED（`904f8eb6`）与全 31 例 GREEN（`EV-20260718-0039`）：
+同日完成 TST-SBOM-002 RED（`904f8eb6`）与全 31 例 GREEN（`EV-20260718-0043`）：
 SB2-001..031 + LEGACY-NOT-GREEN 共 32 例与 SB2-028 逐点 fault injection 全绿，
 locked-jv 对 pinned CycloneDX schema 实测 schema/instance ok。doneWhen 第 1–3 条与第 5
 条已满足；第 4 条关闭路径为外部前置（GOV-TASK-FREEZE-001 §4 R5）——本任务不在
@@ -177,14 +177,15 @@ genesis 集合，docs-check 在 `TASK-D0-07` 前拒绝 formal EV，按冻结包�
 | D1-PA-48 | TASK-D1-04 | complete `revertStmt(errorName,args)` Source-only carrier；bare/empty/full ExprList、Statement tag `5`、zero migration 与 Typed fail-closed | `6e37c8a5`, `f8fa9e5f`, `0791cb10`, `856b68e6`, `27b3a17e`, `d4761ff6`, `64a081cf` | focused 15-job + 182-job aggregate/test binary；longest-match/name/ExprList/canonical/tag/parser-boundary controls；final reviews P0/P1=0；按冻结未运行 `just ci` | complete (development) |
 | D1-PA-49 | TASK-D1-04 | value-less `returnUnit` Source-only carrier；既有 `returnValue` 不变、Statement tag `6`、zero migration 与 Typed fail-closed | `63371613`, `df5ea962`, `57239979`, `5c04c4f0`, `591129f9`, `5d16caab`, `1ea48621`, `7d944c0e`, `4a95e5ef` | deterministic offside return layout/canonical/tag/parser-boundary controls；focused 15-job + 184-job aggregate/test binary；clean committed `just ci` 192-job archive 全绿；final reviews P0/P1=0 | complete (development) |
 | D1-PA-50 | TASK-D1-04 | complete `emitStmt(eventName,args)` Source-only carrier；mandatory parentheses/full ExprList、Statement tag `7`、zero migration 与 Typed fail-closed | `c91260df`, `d7d79f5e`, `7eaf464e`, `de40194f` | focused 15-job + 186-job aggregate/test binary；name/ExprList/canonical/tag/parser-boundary controls；coordinator/Kimi final reviews P0/P1=0；按冻结未运行 `just ci` | complete (development) |
-| D1-PA-51 | TASK-D1-04 | complete `assert Expr else Ident` Source-only carrier；append-only `assertErrorStmt`、Statement tag `8`、single deferred-negative migration 与 Typed fail-closed | — | name-before-condition decode/canonical/tag/longest-match/parser-boundary audits；spec freeze before tests-only RED；GREEN 后运行 focused/aggregate/test binary，`just ci` deferred | active (development) |
+| D1-PA-51 | TASK-D1-04 | complete `assert Expr else Ident` Source-only carrier；append-only `assertErrorStmt`、Statement tag `8`、single deferred-negative migration 与 Typed fail-closed | `2c7f84cc`, `3c844b80`, `e97a889d`, `c2a1e4fa` | focused 15-job + 186-job aggregate/test binary；name-before-condition/canonical/tag/longest-match/parser-boundary controls；coordinator/Kimi final reviews P0/P1=0；按冻结未运行 `just ci` | complete (development) |
+| D1-PA-52 | TASK-D1-04 | complete `if Expr then Block (else Block)?` Source-only carrier；recursive statement blocks、Statement tag `9`、zero migration 与 Typed fail-closed | — | condition-first decode/canonical/tag/block-layout/nesting/parser-boundary audits；spec freeze before tests-only RED；GREEN 后运行 focused/aggregate/test binary，`just ci` deferred | active (development) |
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
 | TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07 | — | TST-SRC-001, TST-SRC-002 | EV-20260717-0036 | pending |
 | TASK-D1-02 | `program ... where` command parser | TASK-D1-01 | — | TST-SRC-003 | — | pending |
 | TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043, EV-20260717-0044, EV-20260717-0045, EV-20260717-0046, EV-20260717-0047, EV-20260718-0001, EV-20260718-0002, EV-20260718-0003, EV-20260718-0004, EV-20260718-0005 | pending |
-| TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | EV-20260718-0006, EV-20260718-0007, EV-20260718-0008, EV-20260718-0009, EV-20260718-0010, EV-20260718-0011, EV-20260718-0012, EV-20260718-0013, EV-20260718-0014, EV-20260718-0015, EV-20260718-0016, EV-20260718-0017, EV-20260718-0018, EV-20260718-0019, EV-20260718-0020, EV-20260718-0021, EV-20260718-0022, EV-20260718-0023, EV-20260718-0024, EV-20260718-0025, EV-20260718-0026, EV-20260718-0027, EV-20260718-0028, EV-20260718-0029, EV-20260718-0030, EV-20260718-0031, EV-20260718-0032, EV-20260718-0033, EV-20260718-0034, EV-20260718-0035, EV-20260718-0036 | pending |
+| TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | EV-20260718-0006, EV-20260718-0007, EV-20260718-0008, EV-20260718-0009, EV-20260718-0010, EV-20260718-0011, EV-20260718-0012, EV-20260718-0013, EV-20260718-0014, EV-20260718-0015, EV-20260718-0016, EV-20260718-0017, EV-20260718-0018, EV-20260718-0019, EV-20260718-0020, EV-20260718-0021, EV-20260718-0022, EV-20260718-0023, EV-20260718-0024, EV-20260718-0025, EV-20260718-0026, EV-20260718-0027, EV-20260718-0028, EV-20260718-0029, EV-20260718-0030, EV-20260718-0031, EV-20260718-0032, EV-20260718-0033, EV-20260718-0034, EV-20260718-0035, EV-20260718-0036, EV-20260718-0037 | pending |
 | TASK-D1-05 | `Source.Program` stable attribute export/schema | TASK-D1-03 | — | TST-SRC-006, TST-SRC-007 | — | pending |
 | TASK-D1-06 | multi-program loader/selection | TASK-D1-05 | — | TST-SRC-008 | — | pending |
 | TASK-D1-07 | stable source diagnostics | TASK-D1-02, TASK-D1-03, TASK-D1-04, TASK-D1-05, TASK-D1-06 | — | TST-DIAG-001 | — | pending |
