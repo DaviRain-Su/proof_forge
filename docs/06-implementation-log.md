@@ -2611,3 +2611,55 @@ normative: false
 - Next：residual audit 选定 ConstructorExpr 为唯一下一 candidate；必须先冻结 qualified
   component-array identity、tag `27`、精确两条 qualified-call migration 和 Typed fail-before，禁止捆绑
   Place/Match/D2 resolution。
+
+## 2026-07-18 — D1 ConstructorExpr pre-acceptance slice
+
+- Commits：freeze `4d61820e`；primary tests-only RED `717da5a0`；canonical/boundary RED hardening
+  `fbed21c6`；component-count/escaped-classification spec clarification `66f56bf9`；classification RED
+  `2bc6eb9d`；underscore/Common-diagnostic RED `ab610e57`；UNBOUND restore `a624b484`；final
+  canonical golden binding `48c00733`；Source-only GREEN `f8ca5fe4`。`ab610e57` 在 shared-tree 并行中
+  短暂夹带了 provisional hashes，`a624b484` 立即恢复 UNBOUND，最终只以独立测量后的
+  `48c00733` 作为有效 binding。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-46 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Expr.constructorExpr(path, args)` 与 append-only Expr tag `27`，先编码
+  length-prefixed path component array，再编码 length-prefixed argument expression array。复用 PA45
+  call-like syntax rule，decoder 以 Lean `Name.components.length` 将单组件分类为 LocalFnCall、
+  多组件分类为 ConstructorExpr；`decodeConstructorPath` 逐组件经 portable reserved policy
+  和 Common QualifiedName canonical validation，并先于 arguments 执行。quotation 保留两个 arrays；
+  Typed 逐字 fail closed 为 `constructor expressions are not yet supported by typed checking`。
+  production 恰好 Source/Syntax/Typed 3 文件、24 行新增/3 行移除；没有新 syntax rule、
+  Semantic 或 target 变更。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn 的 return/let；
+  zero/one/multiple、operator/group/string arguments、nested constructors 和 constructor-as-operand；
+  two/multi-component paths 与合法 escaped-component parity。固定 component value/count/order、argument
+  value/count/order/nesting，以及 constructor/local-call/variable 三方 tag non-alias。代表 goldens：
+  `A.B()` `7308954255287dca62e73a7c7cbcb38e0a42cf39f6bc860886cc1ea9120368a1`/260 bytes；
+  path-value `A.C()` `311a4c5d4935014bdd5eb21cecf04b057f487988f104a352e37b9c06d8a3f6c9`/260；
+  `A.B(1)` `8edaf53dbcbf3d033ea197c991d3c2fae815f786bb783d8900b938db65d0d717`/269；
+  arg-value `A.B(2)` `5fc5b87a8ac3b400afcfe35a317df350bdba529d68f7a4c323a5bd57db51eea2`/269；
+  `A.B(1,2)` `0d04c4950a2197f8761ed9fdf55cb55384214b1534c961e591195a3a4aa0226b`/278；
+  arg-order `10c60da85be80275e7fa1cc3815c142359e9fa667e467bff1df40f05f1fc9013`/278；
+  path-order `896dfade7909d50800f4d85918984fa2b02e4079d8601653b38c28ca64ce745c`/260；
+  path-count `137d315d470589764b9be2290db6eab93c66a03494e535ac24dcd61baf3a8b95`/269；
+  nested `77e6f8de9244c19752c387b13e50a89cc82d408a3f5971eee0c0d6ef8724c5a9`/313。
+- Boundaries：RED 只迁移 `LocalFnCalls.lean` 的 `A.B()`/`A.B(1)` 两条 qualified negatives。
+  bare `A.B` 仍是 variable；whole-escaped `«A.B»()` 按单组件仍是 LocalFnCall；
+  `«A».B(1)`/`A.«B»(1)` 与普通 path canonical equal。numeric/empty components 停在 parser
+  boundary；reserved、invalid escaped 与 underscore components 以精确 portable/Common diagnostic 拒绝，
+  并先于 Bool/string argument diagnostics。两份 final review 均为 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.ConstructorExprs`（15 jobs）；
+  `lake build proof_forge_next_tests`（178 jobs）；`lake env /usr/bin/time -l
+  .lake/build/bin/proof-forge-next-tests` 真实捕获 exit 0/4.46 s；`git diff --check` exit 0。
+  clean committed `just ci` 绑定 `f8ca5fe48e3c6fc2e93b1a7b1567e76b342f6374`：40-mutation
+  isolation precheck、186-job archive build/test/help、186 docs mutations、genesis/bootstrap/SBOM/
+  supply-chain/runtime-closure self-tests、60-job product build、178-job aggregate/test、DSL negatives 与
+  target/toolchain negatives 全部 exit 0。development evidence 为 `EV-20260718-0032`。
+- Scope claim：ConstructorExpr Source carrier 与 LocalFnCall/ConstructorExpr 的 component-count 分类已覆盖。
+  不包括 struct/enum/Option constructor resolution、arity/type/result、Place、MatchExpr、ExternalCallExpr、
+  Typed/Semantic constructor、requirement 或 target behavior。
+- Limitations：不得声明 PrimaryExpr、完整 grammar、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。clean `just ci` 仍是 development gate，
+  不是 eligible Stage-0/formal hermetic evidence。
+- Next：PrimaryExpr residual audit 尚未冻结；Grok 建议只切 Place.Index，Place.Field 因既有
+  bare dotted variable tokenization 冲突需先做规格决策，当前正等待独立 challenge review。
