@@ -19,6 +19,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.TypedNameIndex,
     `Tests.Language.ParserSession,
     `Tests.Language.AggregateDeclarations,
+    `Tests.Language.ArrayTypes,
     `Tests.Language.AssertStatements,
     `Tests.Language.BitwiseNot,
     `Tests.Language.BoolLiterals,

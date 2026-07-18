@@ -1,0 +1,358 @@
+import ProofForgeV2.Compiler.Pipeline
+import Tests.Language.ParserSession
+import ProofForgeV2.Targets.Registry
+
+namespace Tests.Language.ArrayTypesFixture
+
+open ProofForgeV2.Language
+
+program ArraySurface where
+  state values : Array UInt64 4
+
+  struct Limits where
+    empty : Array Bool 0
+    maximum : Array Unit 4096
+    u8s : Array UInt8 1
+    u16s : Array UInt16 2
+    u32s : Array UInt32 3
+    u128s : Array UInt128 5
+    u256s : Array UInt256 6
+    i8s : Array Int8 7
+    i16s : Array Int16 8
+    i32s : Array Int32 9
+    i64s : Array Int64 10
+    i128s : Array Int128 11
+    i256s : Array Int256 12
+
+  enum Batch where
+    | Counters(Array UInt64 4)
+    | Owners(Array Principal 4096)
+
+  const Empty : Array UInt64 0 := 0
+
+  init(initial : Array UInt64 4) do
+    values := initial
+
+  entry echo(value : Array UInt64 4) : Array UInt64 4 do
+    return value
+
+  view get() : Array UInt64 4 do
+    return values
+
+  fn keepMaximum(value : Array Principal 4096) : Array Principal 4096 do
+    return value
+
+end Tests.Language.ArrayTypesFixture
+
+namespace Tests.Language.ArrayTypesFixture
+
+open ProofForgeV2.Language
+
+program ArrayBoundary where
+  entry echo(value : Array UInt64 4) : Array UInt64 4 do
+    return value
+
+program ArrayBoolBoundary where
+  entry echo(value : Array Bool 0) : Array Bool 0 do
+    return value
+
+program ArrayStateBoundary where
+  state value : Array UInt64 4
+
+  init(initial : Array UInt64 4) do
+    value := initial
+
+  view get() : Array UInt64 4 do
+    return value
+
+program ArrayResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array UInt64 4) : Array UInt64 4 do
+    return value
+
+program ArrayParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array UInt64 4) : UInt64 do
+    return 0
+
+end Tests.Language.ArrayTypesFixture
+
+namespace Tests.Language.ArrayTypes
+
+open ProofForgeV2
+
+private def expect (condition : Bool) (message : String) : IO Unit :=
+  unless condition do throw <| IO.userError message
+
+private theorem arrayLengthAtMost4096 (length : Source.ArrayLength) :
+    length.val ≤ 4096 := Nat.le_of_lt_succ length.isLt
+
+private def twin (type : Source.ValueType) : Source.Program :=
+  Source.Program.buildQualified
+    "Tests.Language.ArrayTypesFixture.ArrayTwin" "ArrayTwin" #[
+    .entry {
+      name := "echo"
+      params := #[{ name := "value", type }]
+      result := type
+      mode := .mutate
+      body := #[.returnValue (.variable "value")]
+    }
+  ]
+
+private def surfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.ArrayTypesFixture\n\n" ++
+  "program ArraySurface where\n" ++
+  "  state values : Array UInt64 4\n\n" ++
+  "  struct Limits where\n" ++
+  "    empty : Array Bool 0\n" ++
+  "    maximum : Array Unit 4096\n" ++
+  "    u8s : Array UInt8 1\n" ++
+  "    u16s : Array UInt16 2\n" ++
+  "    u32s : Array UInt32 3\n" ++
+  "    u128s : Array UInt128 5\n" ++
+  "    u256s : Array UInt256 6\n" ++
+  "    i8s : Array Int8 7\n" ++
+  "    i16s : Array Int16 8\n" ++
+  "    i32s : Array Int32 9\n" ++
+  "    i64s : Array Int64 10\n" ++
+  "    i128s : Array Int128 11\n" ++
+  "    i256s : Array Int256 12\n\n" ++
+  "  enum Batch where\n" ++
+  "    | Counters(Array UInt64 4)\n" ++
+  "    | Owners(Array Principal 4096)\n\n" ++
+  "  const Empty : Array UInt64 0 := 0\n\n" ++
+  "  init(initial : Array UInt64 4) do\n" ++
+  "    values := initial\n\n" ++
+  "  entry echo(value : Array UInt64 4) : Array UInt64 4 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Array UInt64 4 do\n" ++
+  "    return values\n\n" ++
+  "  fn keepMaximum(value : Array Principal 4096) : Array Principal 4096 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.ArrayTypesFixture\n"
+
+private def negativeSource (name typeSpelling : String) : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program " ++ name ++ " where\n" ++
+  "  state value : " ++ typeSpelling ++ "\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return 0\n"
+
+private def expectUnsupportedType (label : String)
+    (result : CompileResult (Array Source.Program)) : IO Unit := do
+  match result with
+  | .error (.invalidProgram "unsupported portable type") => pure ()
+  | .error other =>
+      throw <| IO.userError s!"{label}: expected exact unsupported-type error, got {other.render}"
+  | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
+
+private def expectParserRejected (label source : String)
+    (result : CompileResult (Array Source.Program)) : IO Unit := do
+  match result with
+  | .error (.invalidProgram message) =>
+      expect (message.startsWith "Lean parser rejected source: failed to parse file")
+        s!"{label}: expected parser-boundary rejection, got {message}"
+  | .error other =>
+      throw <| IO.userError s!"{label}: reached wrong failure for {source}: {other.render}"
+  | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
+
+unsafe def run : IO Unit := do
+  let maximum : Source.ArrayLength := 4096
+  let _ := arrayLengthAtMost4096 maximum
+  expect (maximum.val == 4096)
+    "ArrayLength must retain 4096 while excluding larger values by type"
+
+  let elaborated := Tests.Language.ArrayTypesFixture.ArraySurface
+  expect (elaborated.state.map (·.type) == #[.array .u64 4])
+    "Array UInt64 4 state must survive Lean command elaboration"
+  match elaborated.structs with
+  | #[limits] =>
+      expect (limits.name == "Limits" &&
+          limits.fields.map (·.type) == #[
+            .array .bool 0, .array .unit 4096,
+            .array .u8 1, .array .u16 2, .array .u32 3,
+            .array .u128 5, .array .u256 6,
+            .array .i8 7, .array .i16 8, .array .i32 9,
+            .array .i64 10, .array .i128 11, .array .i256 12
+          ])
+        "all bounded Array PrimitiveAtom fields must preserve element and length"
+  | _ => throw <| IO.userError "ArraySurface must retain one struct"
+  match elaborated.enums with
+  | #[batch] =>
+      expect (batch.name == "Batch" && batch.variants.map (·.payloadTypes) ==
+          #[#[.array .u64 4], #[.array .principal 4096]])
+        "Array enum payloads must preserve element and length"
+  | _ => throw <| IO.userError "ArraySurface must retain one enum"
+  match elaborated.consts with
+  | #[empty] =>
+      expect (empty.name == "Empty" && empty.type == .array .u64 0)
+        "Array UInt64 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "ArraySurface must retain Empty"
+  match elaborated.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.array .u64 4])
+        "Array initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "ArraySurface must retain initializer"
+  match elaborated.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.array .u64 4] &&
+          echoEntry.result == .array .u64 4 && getView.result == .array .u64 4 &&
+          getView.mode == .view)
+        "Array entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "ArraySurface must retain echo and get"
+  match elaborated.functions with
+  | #[keepMaximum] =>
+      expect (keepMaximum.params.map (·.type) == #[.array .principal 4096] &&
+          keepMaximum.result == .array .principal 4096)
+        "Array Principal 4096 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "ArraySurface must retain keepMaximum"
+
+  let session ← Tests.Language.ParserSession.shared
+  match ← session.selectProgram surfaceSource "<array-types>" none with
+  | .ok decoded =>
+      expect (decoded == elaborated)
+        "Loader and Lean command must produce the same Array Source.Program"
+      expect (decoded.sourceHash == elaborated.sourceHash)
+        "Loader and Lean command must produce the same Array sourceHash"
+  | .error error => throw <| IO.userError error.render
+
+  let sourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array UInt64 0", .array .u64 0, 0, "UNBOUND"),
+    ("Array UInt64 4", .array .u64 4, 0, "UNBOUND"),
+    ("Array UInt64 4096", .array .u64 4096, 0, "UNBOUND"),
+    ("Array Bool 0", .array .bool 0, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in sourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag18 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+
+  expect ((twin (.array .u64 0)).sourceHash != (twin .u64).sourceHash &&
+      (twin (.array .u64 0)).sourceHash != (twin (.option .u64)).sourceHash &&
+      (twin (.array .u64 0)).sourceHash != (twin (.bytes 0)).sourceHash &&
+      (twin (.array .u64 0)).sourceHash != (twin (.array .u64 4)).sourceHash &&
+      (twin (.array .u64 0)).sourceHash != (twin (.array .bool 0)).sourceHash)
+    "Array tag, element and complete length payload must bind sourceHash without aliases"
+
+  let semanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array UInt64 0", .array .u64 0, 0, "UNBOUND"),
+    ("Array UInt64 4", .array .u64 4, 0, "UNBOUND"),
+    ("Array UInt64 4096", .array .u64 4096, 0, "UNBOUND"),
+    ("Array Bool 0", .array .bool 0, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in semanticVectors do
+    let compiled ← match Compiler.compile (twin type) with
+      | .ok value => pure value
+      | .error error =>
+          throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (compiled.canonicalBytes.size == expectedSize && compiled.semanticHash == expectedHash)
+      s!"{label} semantic tag18 golden is unbound: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
+
+  for (label, spelling) in [
+      ("bare Array", "Array"),
+      ("missing Array length", "Array UInt64"),
+      ("unknown Array element", "Array Mystery 4"),
+      ("Field Array element", "Array Field 4"),
+      ("Bytes Array element", "Array Bytes 4"),
+      ("Option Array element", "Array Option 4"),
+      ("Array element", "Array Array 4"),
+      ("qualified Array element", "Array Std.UInt64 4"),
+      ("reserved Array element", "Array «const» 4"),
+      ("over-bound Array length", "Array UInt64 4097"),
+      ("leading-zero Array length", "Array UInt64 01"),
+      ("hex Array length", "Array UInt64 0x10"),
+      ("underscore Array length", "Array UInt64 4_096")
+    ] do
+    expectUnsupportedType label
+      (← session.parsePrograms (negativeSource "RejectedArrayType" spelling) s!"<array-{label}>")
+
+  for (label, spelling) in [
+      ("negative Array length", "Array UInt64 -1"),
+      ("extra Array payload", "Array UInt64 4 Principal"),
+      ("full Field Array element", "Array Field bn254_fr 4"),
+      ("nested Option Array element", "Array Option UInt64 4"),
+      ("nested Bytes Array element", "Array Bytes 32 4"),
+      ("nested Array element", "Array Array UInt64 4 4"),
+      ("Map Array element", "Array Map UInt64 Bool 4"),
+      ("split Array element", "Array\n  UInt64 4"),
+      ("split Array length", "Array UInt64\n  4"),
+      ("escaped Array", "«Array» UInt64 4"),
+      ("qualified Array", "Std.Array UInt64 4"),
+      ("existing Option extra payload", "Option UInt64 Principal")
+    ] do
+    let source := negativeSource "RejectedArrayShape" spelling
+    let (_, result) ← IO.FS.withIsolatedStreams
+      (session.parsePrograms source s!"<array-{label}>")
+    expectParserRejected label source result
+
+  let boundary ← match Compiler.compile Tests.Language.ArrayTypesFixture.ArrayBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"ArrayBoundary must compile: {error.render}"
+  expect (boundary.requirements == #[])
+    "Array UInt64 must propagate the element's zero requirements"
+  match boundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.array .u64 4] &&
+          echoEntry.result == .array .u64 4)
+        "Source-to-Semantic adaptation must preserve Array element and length"
+  | _ => throw <| IO.userError "ArrayBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target boundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError s!"{target} must support zero-requirement Array carrier: {error.render}"
+
+  let boolBoundary ← match Compiler.compile Tests.Language.ArrayTypesFixture.ArrayBoolBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"ArrayBoolBoundary must compile: {error.render}"
+  expect (boolBoundary.requirements == #[.boolValues])
+    "Array Bool must propagate boolValues exactly once"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target boolBoundary with
+    | .error (.unsupportedRequirement .boolValues actual) =>
+        expect (actual == target)
+          s!"Array Bool support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError s!"Array Bool/{target} reached wrong failure: {other.render}"
+    | .ok () => throw <| IO.userError s!"Array Bool/{target} unexpectedly passed support"
+
+  for (label, sourceProgram, needle) in [
+      ("ArrayStateBoundary", Tests.Language.ArrayTypesFixture.ArrayStateBoundary,
+        "is not UInt64"),
+      ("ArrayResultBoundary", Tests.Language.ArrayTypesFixture.ArrayResultBoundary,
+        "does not return UInt64"),
+      ("ArrayParamBoundary", Tests.Language.ArrayTypesFixture.ArrayParamBoundary,
+        "is not UInt64")
+    ] do
+    let compiled ← match Compiler.compile sourceProgram with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} must compile: {error.render}"
+    expect (compiled.requirements == #[.persistentState])
+      s!"{label} must propagate only persistentState"
+    for target in Targets.phase1 do
+      match Targets.checkSupport target compiled with
+      | .ok () => pure ()
+      | .error error =>
+          throw <| IO.userError s!"{label}/{target} checkSupport must accept: {error.render}"
+      match Targets.materializeResult target compiled with
+      | .error (.planInvariant _ detail) =>
+          expect (detail.contains needle)
+            s!"{label}/{target} must fail planInvariant containing '{needle}', got {detail}"
+      | .error other =>
+          throw <| IO.userError s!"{label}/{target} must fail planInvariant, got {other.render}"
+      | .ok _ =>
+          throw <| IO.userError s!"{label}/{target} must not materialize before planInvariant"
+
+end Tests.Language.ArrayTypes

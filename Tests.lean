@@ -6,6 +6,7 @@ import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Language.AggregateDeclarations
+import Tests.Language.ArrayTypes
 import Tests.Language.AssertStatements
 import Tests.Language.BitwiseNot
 import Tests.Language.BoolLiterals
@@ -72,6 +73,7 @@ unsafe def main : IO Unit := do
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
   Tests.Language.AggregateDeclarations.run
+  Tests.Language.ArrayTypes.run
   Tests.Language.AssertStatements.run
   Tests.Language.BitwiseNot.run
   Tests.Language.BoolLiterals.run
