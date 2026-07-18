@@ -2794,3 +2794,33 @@ normative: false
 - Next：`TASK-D0-08` → in_progress（冻结完成包已齐），随后 TST-SBOM-002 RED
   （独立 fixture/validator + 常量 oracle，至少 SB2-001/003/007/008/009/011/018/019/
   022/023/025/028 先红并证 legacy generator 不误绿）。
+
+## 2026-07-18 — TASK-D0-08 in_progress 与 TST-SBOM-002 RED→GREEN（前 12 例）
+
+- Context：counts 盘点固化后 `TASK-D0-08` 进入 in_progress（唯一 in_progress 槽位由
+  `TASK-D0-09` 转 blocked 释放）。按纪律先提交 tests-only RED（`904f8eb6`），再实现
+  production 转绿。
+- RED：`scripts/sbom_closure_self_test.py`（独立 fixture/validator）：冻结 counts 全部
+  固化为常量（37 leaf refs/41 components/37 content identities/146 relationships/
+  10 compiler-runtime/30 file-set/4 standards/3 sidecars）；SB2-001/003/007/008/009/
+  011/018/019/022/023/025/028 十二例按 spec 要求先红（production 不存在），
+  LEGACY-NOT-GREEN 例证明 D0-05 legacy generator 不能误绿。
+- GREEN（`scripts/sbom_closure.py` 新生产模块 + 提交输入）：候选 archive 绑定
+  （size/digest 先验后解析）；双平台 Tool Lock 权威校验与 v2/v3 typed digest；
+  七类 logical component 闭包解析（darwin solc asset/tool 共享 content identity 但保留
+  独立 component、bundle/runtime 双 leaf join 同一 libcrypto component、linux 三个
+  6232-byte stub 共享 1 identity）；已提交 `supply-chain/compiler-runtime-*.v1.json`
+  （双平台各 5 文件 + load edges，结构校验 dangling/orphan/executor 漂移）与
+  `supply-chain/standards-manifest.v1.json`（4 文件 bytes/sha256 pin 逐字节核验）；
+  三文件 sidecar（closure/BOM/binding）PF-JCS canonical + atomic no-clobber 0444 写入
+  （staging+rename+fsync）；`verify_existing` 全量重算比对；FIFO/非常规输入
+  PF-SBOM-IO、candidate 漂移 PF-SBOM-BIND、no-clobber 违例 PF-OUTPUT-ATOMICITY。
+- Verification：`/usr/bin/python3 -I -S scripts/sbom_closure_self_test.py` ok（13/13）；
+  手工 generate 复核 counts 与冻结值逐项一致；`just ci` 全量绿（sbom recipe 已接入
+  新自测）；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check` clean。
+- Limitations：仅前 12 例 + legacy guard 转绿；SB2-002/004/005/006/010/012/013/014/
+  015/016/017/020/021/024/026/027/029/030/031 与 jv 离线 schema 验证、fault-injection
+  完整矩阵尚未实现；`TASK-D0-08` 保持 in_progress，不得记录为 done；关闭另需
+  pre-cutover 治理裁决（formal EV 在 D0-07 前 fail closed，本任务不在 genesis 集合）。
+- Next：SB2 剩余 19 例全矩阵 + jv 离线验证接入；doneWhen 第 2–3 条（双 root/空 HOME/
+  locale/umask byte-identical、legacy negative 与 race 全拒）随全矩阵收口。
