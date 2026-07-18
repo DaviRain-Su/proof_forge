@@ -370,6 +370,26 @@ Typed/Semantic shift、requirement、target behavior 或 runtime representation�
 3 文件/11 行 exact seam，其他层不得修改。本切片完成后只能称 `<<`/`>>` Source surface 已覆盖，
 不得宣称 `ShiftExpr`、expression grammar 或 `TASK-D1-04` 正式完成。
 
+D1-PA-33 冻结的 pre-acceptance alpha equality 子集新增 `Source.Expr.equal(lhs, rhs)`，parser 形状固定为
+`syntax:50 pfExpr:51 " == " pfExpr:51 : pfExpr`。precedence `50` 严格低于 ShiftExpr `60`；两个 operand
+slot 都使用 `51`，从语法结构落实 EBNF 中 CompareExpr 的 optional comparison 和 non-associativity：
+`1 == 2 == 3` 必须 parser reject。`1 << 2 == 3` 必须为 `(1 << 2) == 3`，
+`1 == 2 >> 3` 为 `1 == (2 >> 3)`，additive/multiplicative/unary 在两侧同理；parenthesized equality
+仍作为 PrimaryExpr 允许嵌入更高层表达式。未来 BitAndExpr 必须使用低于 `50` 的 precedence，不得反转
+EBNF 层级。
+
+Source canonical encoder 以 append-only Expr tag `14` 后依次递归编码 lhs、rhs；既有 tags `0..13`
+与 goldens 不得改变。integer 与 Bool operands 都必须形成 Source node，operand legality 与 Bool result
+typing 属于 D2，不得提前拒绝。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在检查任一
+operand 前逐字 fail closed 为 `equality is not yet supported by typed checking`。当前仓库没有 DSL `==`
+negative，本切片不得迁移既有 tests；`LogicalNot.lean` 的 `1 != 2` retention negative 必须保持。
+本切片不得新增 `!=`、`<`、`<=`、`>`、`>=`、bitwise/logical binary operator、Bool legality、constant
+folding、Typed/Semantic comparison、requirement、target behavior 或 runtime representation；bare/missing
+operand、single/spaced/triple equals、chained equality、未实现的 ordering siblings 与额外 payload 保持
+parser reject。production 必须限于 Source/Syntax/Typed 3 文件/11 行 exact seam，其他层不得修改。
+本切片完成后只能称 `==` Source surface 已覆盖，不得宣称 `CompareExpr`、expression grammar 或
+`TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

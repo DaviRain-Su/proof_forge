@@ -985,6 +985,29 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   deferred `1 >> 2` 一条 negative。不得加入 arithmetic-vs-logical/signed shift-right、rotate、width/
   overflow、folding、Typed/Semantic shift、requirement、target ABI/runtime；production 必须限于
   Source/Syntax/Typed 3 文件/11 行，其他层不得修改。
+- D1-PA-33 的 alpha equality tests 固定 production rule
+  `syntax:50 pfExpr:51 " == " pfExpr:51 : pfExpr` 与 `Source.Expr.equal(lhs, rhs)`。两个 operand slot
+  都必须严格高于 operator precedence，使 CompareExpr 的 optional comparison 保持 non-associative；
+  `1 == 2 == 3` 必须停在 parser boundary，禁止退化为左结合或右结合。positive 必须覆盖 initializer、
+  entry、view、fn 的 return/let value 及 Lean command/ParserSession parity，并精确固定 `1 == 2`、
+  `2 == 1`、`a == b`、`true == false`、`false == true`、`0 == 0`、`1 + 2 == 3`、
+  `1 == 2 + 3`、`1 * 2 == 3`、`1 == 2 * 3`、`1 << 2 == 3`、`1 == 2 << 3`、
+  `1 >> 2 == 3`、`1 == 2 >> 3`、`(1 + 2) == 3`、`-1 == 2`、`1 == -2` 与
+  `!true == false` 的 AST。equality 必须低于 Shift/Add/Mul/Unary；integer/Bool operand legality 和
+  Bool result typing 留给 D2，不得在 Source 提前判断。
+  Source canonical encoder 使用 append-only Expr tag `14` 后依次编码 lhs/rhs；既有 tags `0..13`/goldens
+  不变。EqualTwin identity 下 operand order/type、precedence/grouping/unary/shift cases 的真实 bytes/hash
+  必须在 GREEN 前绑定，并以 checked-add、shift-left、shift-right、operand order、wrong precedence tree
+  与 Bool order 作为 non-alias。相同 identity 下 `(1 == 2)` 与 `1 == 2` 必须产生相同
+  Source.Program/canonical bytes/sourceHash。
+  bare/missing operand、single `=`、`1 = = 2`、`1 === 2`、`1 == 2 == 3`、extra payload 以及仍未实现的
+  `<`/`<=`/`>`/`>=` 必须停在 parser boundary；`LogicalNot.lean` 既有 `1 != 2` retention negative 保持不动。
+  `Typed.check` 必须在 operand checking 前逐字拒绝
+  `equality is not yet supported by typed checking`，使 `true == false` 不泄漏 Bool operand diagnostic；
+  既有 checkedAdd positive 与 Bool/sub/mul/div/mod/neg/bitwiseNot/logicalNot/shiftLeft/shiftRight exact controls
+  保持。本切片不得迁移任何既有 test，不得加入 `!=`、ordering、bitwise/logical binary operators、
+  Bool legality、folding、Typed/Semantic comparison、requirement 或 target ABI/runtime；production 必须限于
+  Source/Syntax/Typed 3 文件/11 行，其他层不得修改。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
