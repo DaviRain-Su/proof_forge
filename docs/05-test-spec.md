@@ -1077,6 +1077,30 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `1 <= 2` 一条 negative，不得迁移 `>`/`>=` 或 shift token-integrity negatives。不得加入 `>`、`>=`、
   bitwise/logical binary operators、Bool legality、folding、Typed/Semantic comparison、requirement 或 target
   ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行，其他层不得修改。
+- D1-PA-37 的 alpha greater-than tests 固定 production rule
+  `syntax:50 pfExpr:51 " > " pfExpr:51 : pfExpr` 与 `Source.Expr.greaterThan(lhs, rhs)`。它必须与
+  `==`/`!=`/`<`/`<=` 共用 Compare precedence `50`，两个 operand slot 都严格高于 operator
+  precedence；`1 > 2 > 3` 以及 `>` 与四个既有 comparisons 组成的双向 mixed chains 都必须停在
+  parser boundary。positive 必须覆盖 initializer、entry、view、fn 的 return/let value 及 Lean
+  command/ParserSession parity，并精确固定 `1 > 2`、`2 > 1`、`a > b`、`0 > 0`、`true > false`、
+  add/mul/shift 双向 precedence、grouping 与 unary 的 AST；`1 >> 2` 必须继续形成 shiftRight，
+  `1 >> 2 > 3` 必须为 `(1 >> 2) > 3`，`1 > 2 >> 3` 必须为 `1 > (2 >> 3)`。
+  integer/Bool operand legality 和 Bool result typing 留给 D2。
+  Source canonical encoder 使用 append-only Expr tag `18` 后依次编码 lhs/rhs；既有 tags `0..17`/goldens
+  不变。GreaterThanTwin identity 下 operand order/type、precedence/grouping/unary/shift cases 的真实
+  bytes/hash 必须在 GREEN 前绑定，并以 `lessThan`、`lessEqual`、`equal`、`notEqual`、checked-add、
+  shift-right、operand order、wrong precedence tree 与 Bool order 作为 non-alias。相同 identity 下
+  `(1 > 2)` 与 `1 > 2` 必须产生相同 Source.Program/canonical bytes/sourceHash。
+  bare/missing operand、same/mixed chained comparison 与 extra payload 必须停在 parser boundary；
+  `1 > > 2`、`1 >>> 2`、`1 >>= 2` 与 `1 > = 2` 必须拒绝，`1 >> 2` 必须继续解码为 shiftRight，
+  `ShiftRight.lean` 的既有 spaced/triple negatives 必须保持，`Equal.lean` 的 `>=` sibling 必须保持。
+  `Typed.check` 必须在 operand checking 前逐字拒绝
+  `greater-than comparison is not yet supported by typed checking`，使 `true > false` 不泄漏 Bool operand
+  diagnostic；既有 checkedAdd positive 与 Bool/sub/mul/div/mod/neg/bitwiseNot/logicalNot/shiftLeft/shiftRight/
+  equal/notEqual/lessThan/lessEqual exact controls 保持。tests-only RED 必须且只能迁移 `Equal.lean` 的
+  deferred `1 > 2` 一条 negative，不得迁移 `>=` 或 shift token-integrity negatives。不得加入 `>=`、
+  bitwise/logical binary operators、Bool legality、folding、Typed/Semantic comparison、requirement 或 target
+  ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行，其他层不得修改。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
