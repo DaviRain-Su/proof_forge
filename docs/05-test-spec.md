@@ -1036,6 +1036,16 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   split payload 必须 exact fail closed。production 仅限 Syntax 一文件 ≤32 additions/2 removals，刷新 package
   file-set；按冻结不重复完整 `just ci`，不得声明 Option/Array/Bytes runtime semantics、完整 recursive grammar
   或正式 D1 完成。
+- D1-PA-69 的 alpha tests 只开放 exact same-line `Option Array Array PrimitiveAtom N M`，物化为既有
+  `Source/Semantic.ValueType.option (.array (.array element innerLength) outerLength)`，tag 固定
+  `16→18→18→element→N→M`，两个长度均复用 canonical ASCII decimal `0..4096`。tests-only RED 只修改
+  `Tests.Language.OptionDeclarations`，将既有一条 `Option Array Array UInt64 4 4` negative 迁移为 positive，
+  migration count 精确为一；positive 覆盖 inner/outer length `0`/普通值/`4096`、all declaration positions、
+  双入口 parity、UInt64/Bool requirements、canonical non-alias、四 target support-vs-Plan/no-artifact。invalid
+  dual lengths、non-Primitive compounds、Array Option compounds、third-layer Option、Map/Named、escaped/qualified/
+  extra/split payload 必须 exact fail closed。production 仅限 Syntax 一文件 ≤32 additions/2 removals，刷新
+  package file-set；按冻结不重复完整 `just ci`，不得声明 nested Array runtime semantics、完整 recursive grammar
+  或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
