@@ -414,7 +414,6 @@ unsafe def run : IO Unit := do
       ("triple equals", "1 === 2"),
       ("chained equality", "1 == 2 == 3"),
       ("extra token", "1 == 2 3"),
-      ("ordering gt deferred", "1 > 2"),
       ("ordering ge deferred", "1 >= 2")
     ] do
     let source := returnProgramSource "RejectedEqShape" expr

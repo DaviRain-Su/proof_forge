@@ -34,6 +34,7 @@ import Tests.Language.Equal
 import Tests.Language.NotEqual
 import Tests.Language.LessThan
 import Tests.Language.LessEqual
+import Tests.Language.GreaterThan
 import Tests.Language.PrimitiveDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
@@ -83,6 +84,7 @@ unsafe def main : IO Unit := do
   Tests.Language.NotEqual.run
   Tests.Language.LessThan.run
   Tests.Language.LessEqual.run
+  Tests.Language.GreaterThan.run
   Tests.Language.run
   Tests.Language.PrimitiveDeclarations.run
   Tests.Language.StateVisibility.run
