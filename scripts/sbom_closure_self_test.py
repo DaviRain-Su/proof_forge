@@ -16,6 +16,7 @@ be able to make this acceptance green.  Run with:
 from __future__ import annotations
 
 import hashlib
+import errno
 import importlib.util
 import json
 import os
@@ -507,11 +508,115 @@ def case_sb2_028_no_clobber(base: Path) -> None:
     raise CaseFailure("pre-existing destination unexpectedly overwritten")
 
 
+def case_sb2_028_fault_injection(base: Path) -> None:
+    """Per-point write/fsync/rename faults and signal stand-ins.
+
+    Every pre-rename failure must report PF-OUTPUT-ATOMICITY with zero output
+    and no staging residue; an fsync-parent failure must report failure (never
+    success) while leaving a complete destination that verify-existing can
+    still confirm.
+    """
+
+    production = require_production()
+    root = build_input_root(base)
+    candidate = candidate_fixture(base)
+    pre_rename_points = ("write", "fsync-file", "chmod", "fsync-staging", "rename")
+    for point in pre_rename_points:
+        destination = base / f"out-sb2-028-fault-{point}"
+        production._IO_FAULTS[point] = OSError(errno.EIO, f"injected {point} fault")
+        try:
+            try:
+                production.generate_sidecars(
+                    root=root, candidate=candidate, destination=destination
+                )
+            except production.SbomClosureError as error:
+                check(
+                    error.code == "PF-OUTPUT-ATOMICITY",
+                    f"{point}: got {error.code}, expected PF-OUTPUT-ATOMICITY",
+                )
+            else:
+                raise CaseFailure(f"{point}: generation unexpectedly succeeded")
+            check(not destination.exists(), f"{point}: failure left a destination")
+            residue = [
+                item
+                for item in destination.parent.iterdir()
+                if item.name.startswith(destination.name + ".staging-")
+            ]
+            check(not residue, f"{point}: staging residue {residue}")
+        finally:
+            production._IO_FAULTS.pop(point, None)
+    # signal stand-in: KeyboardInterrupt at the write point
+    destination = base / "out-sb2-028-signal"
+    production._IO_FAULTS["write"] = KeyboardInterrupt()
+    try:
+        try:
+            production.generate_sidecars(root=root, candidate=candidate, destination=destination)
+        except production.SbomClosureError as error:
+            check(
+                error.code == "PF-OUTPUT-ATOMICITY",
+                f"signal: got {error.code}, expected PF-OUTPUT-ATOMICITY",
+            )
+        else:
+            raise CaseFailure("signal: generation unexpectedly succeeded")
+        check(not destination.exists(), "signal: failure left a destination")
+    finally:
+        production._IO_FAULTS.pop("write", None)
+    # fsync-parent failure: failure reported, destination complete and verifiable
+    destination = base / "out-sb2-028-parent-fsync"
+    production._IO_FAULTS["fsync-parent"] = OSError(errno.EIO, "injected fsync-parent fault")
+    try:
+        try:
+            production.generate_sidecars(root=root, candidate=candidate, destination=destination)
+        except production.SbomClosureError as error:
+            check(
+                error.code == "PF-OUTPUT-ATOMICITY",
+                f"fsync-parent: got {error.code}, expected PF-OUTPUT-ATOMICITY",
+            )
+        else:
+            raise CaseFailure("fsync-parent: generation unexpectedly reported success")
+    finally:
+        production._IO_FAULTS.pop("fsync-parent", None)
+    check(destination.exists(), "fsync-parent: destination should remain complete")
+    production.verify_existing(root=root, candidate=candidate, destination=destination)
+
+
 # --- GREEN phase-2 shared helpers -------------------------------------------------------
 
 
 def _load_json_doc(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _locate_locked_jv(root: Path) -> Path | None:
+    """Return a jv binary only when its bytes match the platform lock pin."""
+
+    import platform
+
+    machine = platform.machine() or "x86_64"
+    tag = f"linux-{machine}" if sys.platform.startswith("linux") else "darwin-arm64"
+    lock_path = root / ("toolchains.lock.json" if tag == "darwin-arm64" else f"toolchains-{tag}.lock.json")
+    if not lock_path.is_file():
+        return None
+    lock = _load_json_doc(lock_path)
+    tool = next((item for item in lock.get("tools", []) if item.get("id") == "jv"), None)
+    if tool is None:
+        return None
+    expected = tool.get("executableSha256")
+    candidates = []
+    env_root = os.environ.get("PROOF_FORGE_TOOL_ROOT")
+    if env_root:
+        candidates.append(Path(env_root) / "jv")
+    candidates.append(REPO_ROOT / "build" / "tool-root" / tag / "jv")
+    candidates.append(
+        Path.home() / ".cache" / "proof-forge-v2" / "tool-root" / tag / "jv"
+    )
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        if digest == expected:
+            return candidate
+    return None
 
 
 def _dump_json_doc(path: Path, value: object) -> None:
@@ -1287,10 +1392,9 @@ def case_sb2_029_environment_invariance(base: Path) -> None:
 def case_sb2_030_schema_only_bom_rejected(base: Path) -> None:
     """A CycloneDX-shaped but unrecomputed BOM must be rejected (PF-SBOM-BIND).
 
-    A live jv schema validation is impossible in this environment (no jv
-    binary on PATH or in the locked tool root), so the case substitutes
-    component identity inside an otherwise CycloneDX 1.6-shaped BOM and proves
-    the consumer still rejects it for want of closure/standards rebinding.
+    When the lock-pinned jv binary is materialized, the generated BOM is also
+    validated live against the pinned CycloneDX schema; the consumer rejection
+    of identity-tampered BOMs holds either way.
     """
 
     production = require_production()
@@ -1304,6 +1408,18 @@ def case_sb2_030_schema_only_bom_rejected(base: Path) -> None:
         bom.get("bomFormat") == "CycloneDX" and bom.get("specVersion") == "1.6",
         "BOM shape assumption failed",
     )
+    jv = _locate_locked_jv(root)
+    if jv is not None:
+        result = subprocess.run(
+            [str(jv), str(root / "supply-chain/standards/cyclonedx-bom-1.6.schema.json"), str(bom_path)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        check(
+            result.returncode == 0,
+            f"locked jv rejected the generated BOM: {result.stdout}{result.stderr}",
+        )
     bom["components"][0]["hashes"] = [{"alg": "SHA-256", "content": "0" * 64}]
     _rewrite_sidecar_json(bom_path, bom)
     expect_verify_error(
@@ -1456,6 +1572,7 @@ CASES = (
     ("SB2-026", case_sb2_026_destination_parent_attacks),
     ("SB2-027", case_sb2_027_regenerate_no_clobber),
     ("SB2-028", case_sb2_028_no_clobber),
+    ("SB2-028-FAULTS", case_sb2_028_fault_injection),
     ("SB2-029", case_sb2_029_environment_invariance),
     ("SB2-030", case_sb2_030_schema_only_bom_rejected),
     ("SB2-031", case_sb2_031_limits),

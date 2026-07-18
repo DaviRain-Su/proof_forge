@@ -1235,6 +1235,26 @@ def render_binding(
 # --- Atomic output ---------------------------------------------------------------------
 
 
+FAULT_INJECTION_POINTS = (
+    "write",
+    "fsync-file",
+    "chmod",
+    "fsync-staging",
+    "rename",
+    "fsync-parent",
+)
+
+# Test-only fault-injection seam: point name -> exception instance to raise.
+# Production runs leave this empty; tests install and restore it per case.
+_IO_FAULTS: dict[str, BaseException] = {}
+
+
+def _fault_point(name: str) -> None:
+    error = _IO_FAULTS.get(name)
+    if error is not None:
+        raise error
+
+
 def write_sidecars_atomic(destination: Path, files: dict[str, bytes]) -> None:
     if os.path.lexists(destination):
         fail("PF-OUTPUT-ATOMICITY", f"destination already exists: {destination}")
@@ -1255,38 +1275,49 @@ def write_sidecars_atomic(destination: Path, files: dict[str, bytes]) -> None:
     staging = Path(
         tempfile.mkdtemp(prefix=destination.name + ".staging-", dir=parent)
     )
+    renamed = False
     try:
         for name, data in files.items():
             if name not in SIDECAR_NAMES:
                 fail("PF-SBOM-SCHEMA", f"unexpected sidecar {name}")
             path = staging / name
+            _fault_point("write")
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o444)
             try:
                 with os.fdopen(fd, "wb", closefd=True) as handle:
                     fd = -1
                     handle.write(data)
                     handle.flush()
+                    _fault_point("fsync-file")
                     os.fsync(handle.fileno())
             finally:
                 if fd >= 0:
                     os.close(fd)
+            _fault_point("chmod")
             os.chmod(path, 0o444)
         dir_fd = os.open(staging, os.O_RDONLY | os.O_DIRECTORY)
         try:
+            _fault_point("fsync-staging")
             os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
         if destination.exists():
             fail("PF-OUTPUT-ATOMICITY", f"destination appeared during staging: {destination}")
+        _fault_point("rename")
         os.rename(staging, destination)
-        staging = None  # type: ignore[assignment]
+        renamed = True
         parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
+            _fault_point("fsync-parent")
             os.fsync(parent_fd)
         finally:
             os.close(parent_fd)
+    except SbomClosureError:
+        raise
+    except BaseException as error:
+        fail("PF-OUTPUT-ATOMICITY", f"sidecar publication failed at {destination}: {error}")
     finally:
-        if staging is not None and Path(staging).exists():
+        if not renamed and Path(staging).exists():
             for item in Path(staging).iterdir():
                 item.chmod(0o644)
                 item.unlink()
