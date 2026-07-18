@@ -270,12 +270,18 @@ unsafe def run : IO Unit := do
       (some #[.returnValue (.literal 2)])] none
 
   -- Prospective goldens: deliberately UNBOUND in the tests-only RED.
-  expectGolden "if no else" twinNoElse "UNBOUND" "UNBOUND"
-  expectGolden "if condition" twinCondition "UNBOUND" "UNBOUND"
-  expectGolden "if then order" twinThenOrder "UNBOUND" "UNBOUND"
-  expectGolden "if else" twinElse "UNBOUND" "UNBOUND"
-  expectGolden "if else content" twinElseContent "UNBOUND" "UNBOUND"
-  expectGolden "if nested" twinNested "UNBOUND" "UNBOUND"
+  expectGolden "if no else" twinNoElse
+    "e556ab49fe6af5b7809110640cc69d99385c550a8fa133111b2fa27d85777c76" "209"
+  expectGolden "if condition" twinCondition
+    "75222dc6083234208c3f3bedf82f221546406d18e1c37ac58e1a233493551ac3" "209"
+  expectGolden "if then order" twinThenOrder
+    "197a0f31adde13b7c277f580cb96df82d207d322988e18cf22bf11ca33725e57" "219"
+  expectGolden "if else" twinElse
+    "ea2103c11a2c2af9ec3ac6208df1c68d11680a95ef5992b1939e42816ad95915" "227"
+  expectGolden "if else content" twinElseContent
+    "4b5fbfec90d765f7e6b9c2a120834f865c4838c922c1419df05667c7ca07042a" "227"
+  expectGolden "if nested" twinNested
+    "5ebe007b4c8b5f4c66c0675718869c1e009ea9db7e592f456c6dc2dc8efc8509" "246"
 
   expect (twinNoElse.sourceHash != twinCondition.sourceHash)
     "if condition value must bind source identity"
