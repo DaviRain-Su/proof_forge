@@ -2706,3 +2706,46 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
 - Next：下一 development slice 未冻结；必须先重新审计 field tokenization、chaining 表示与
   Match/External residual，只能选择一个依赖闭合的最小切片。
+
+## 2026-07-18 — D1 complete revert statement pre-acceptance slice
+
+- Commits：freeze `6e37c8a5`；tests-only RED `f8fa9e5f`；longest-match 规格澄清
+  `0791cb10`；RED priority hardening `856b68e6`；canonical golden binding `27b3a17e`；
+  return control fixture correction `d4761ff6`；Source-only GREEN `64a081cf`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-48 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Statement.revertStmt(errorName, args)` 与 append-only Statement tag `5`，
+  依次编码 errorName string 和 length-prefixed argument expression array；parenthesized rule 先于
+  strict-prefix bare fallback，并由 decoder 把 bare/empty-paren 都物化为 empty args。name 先做单一
+  component guard，再走既有 portable identifier policy，最后才解码完整 ExprList；quotation 保留结构。
+  Typed 在 error lookup/argument checking 前逐字 fail closed 为
+  `revert statements are not yet supported by typed checking`。production 恰好 Source/Syntax/Typed
+  3 文件、20 行新增；Semantic、requirement、error resolution 与 target 未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn；bare、empty-paren、
+  one/multi args、operator/group/string/local-call/constructor/index/nested argument tree。相同 identity 下
+  bare/empty AST、canonical bytes、sourceHash 相等；name、argument count/order/nesting 与 tag `5` 对
+  synchronous call/assert/return 均不 alias。六组 RevertTwin hash/size 为：bare Err
+  `c52fc7afa243bb9ea5e9ebe28a6094525c137462d78e83312041216c51d90716`/236 bytes；Err(1)
+  `b2b26b8586fc68dc45ad8c99c6a0a36208d060699bee3618bf033b7e12074f67`/245；Err(1,2)
+  `9732b4f7ae5ad6670d51d95af81001d19622bed60116eb9561c15152bb3019a1`/254；Err(2,1)
+  `f118fe75245f1cc69ebd46d9965177d9a4a8a5cb51dc32aa377e2f5cd912744e`/254；bare Other
+  `ec29ebf0a385d704e795e81f1e9f656410dfae920a0cb8bdec9a74e8680c5acb`/238；nested
+  `045cd8c6c2f5a1906da0b3704a5b245e717792537fa55cfabbd18dc9fc3ec9c5`/290。
+- Boundaries：zero migration；missing name/paren、leading/trailing/double comma、adjacent argument、extra
+  payload 与 unescaped keyword assignment 均拒绝；escaped `«revert» := 1` 保持 assignment。
+  `A.B(true)` 在 Bool argument 前精确拒绝 `revert error name must be unqualified`，reserved name 走既有
+  portable policy。GREEN 首次完整执行暴露 return control 复用了自动追加 return 的 twin，
+  `d4761ff6` 将其改为独立单-return program，不改变 production 或冻结测试意图。两份 final review
+  均为 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.RevertStatements`（15 jobs）；`lake env lean --run
+  /dev/stdin` 直接执行 `Tests.Language.RevertStatements.run` exit 0，并独立测量上述 hash/size；
+  `lake build proof_forge_next_tests`（182 jobs）；`lake env /usr/bin/time -l
+  .lake/build/bin/proof-forge-next-tests` exit 0/6.55 s；`git diff --check` exit 0。development evidence
+  为 `EV-20260718-0034`。按冻结未运行全量 `just ci`，下一批 statement checkpoint 再运行。
+- Scope claim：完整 bare/empty/full ExprList revert statement Source carrier 已覆盖。不包括 error declaration
+  resolution、payload arity/type、failure/rollback semantics、Typed/Semantic revert、ABI/runtime、requirement
+  或 target behavior。
+- Limitations：不得声明完整 error semantics、statement grammar、eligible host 或 formal D1 evidence；
+  不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：下一 development slice 未冻结；正在对 indexed assignment、value-less return、Match 与
+  ExternalCall residual 做依赖闭合审计，只能选择一个 durable 最小切片。
