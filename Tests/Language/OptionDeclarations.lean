@@ -455,10 +455,14 @@ unsafe def run : IO Unit := do
       s!"{label} semantic tag16+tag16 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
   let optionArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array UInt64 0", .option (.array .u64 0), 0, "UNBOUND"),
-    ("Option Array UInt64 4", .option (.array .u64 4), 0, "UNBOUND"),
-    ("Option Array UInt64 4096", .option (.array .u64 4096), 0, "UNBOUND"),
-    ("Option Array Bool 0", .option (.array .bool 0), 0, "UNBOUND")
+    ("Option Array UInt64 0", .option (.array .u64 0), 259,
+      "f22ada30b9fcf58e2b1f55ac7417fb13864354032f7096fe33a0aa6c4bd0fa90"),
+    ("Option Array UInt64 4", .option (.array .u64 4), 259,
+      "1c3ae508743fbdb68c87e06487f98689fe257546db0f547c14a2020d9dbbc3e9"),
+    ("Option Array UInt64 4096", .option (.array .u64 4096), 259,
+      "885e14c9ae561f9aa499d6efad47c2c196685828060f27bc334cc6adccac8ef5"),
+    ("Option Array Bool 0", .option (.array .bool 0), 259,
+      "28937fa712d8f151aab179b012841958899a5468970f21a71457c07c27717292")
   ]
   for (label, type, expectedSize, expectedHash) in optionArraySourceVectors do
     let sourceProgram := twin type
@@ -476,10 +480,14 @@ unsafe def run : IO Unit := do
     "Option Array must bind Option/Array tags, element and complete length payload"
 
   let optionArraySemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array UInt64 0", .option (.array .u64 0), 0, "UNBOUND"),
-    ("Option Array UInt64 4", .option (.array .u64 4), 0, "UNBOUND"),
-    ("Option Array UInt64 4096", .option (.array .u64 4096), 0, "UNBOUND"),
-    ("Option Array Bool 0", .option (.array .bool 0), 0, "UNBOUND")
+    ("Option Array UInt64 0", .option (.array .u64 0), 208,
+      "9b7a7f860fb116e40d5a2b25e5e80378c88de55ed2875eea239ff11b97eb22b2"),
+    ("Option Array UInt64 4", .option (.array .u64 4), 208,
+      "5cd5f520f435c29fce98069a3a78203c2bf73e2ddf092b10391c035db76aff9d"),
+    ("Option Array UInt64 4096", .option (.array .u64 4096), 208,
+      "e8b1fc098d8b41d85e55a8f5bd53a570fd0f34388831e34c116e6b98e734422b"),
+    ("Option Array Bool 0", .option (.array .bool 0), 209,
+      "0594d1fc0e604b30c0bc2da344c6cdfda004437c0bd1bf539ce92c890de3bc7b")
   ]
   for (label, type, expectedSize, expectedHash) in optionArraySemanticVectors do
     let sourceProgram := twin type
