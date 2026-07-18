@@ -85,7 +85,7 @@ normative: true
 | TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0035 | done |
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | pending |
 | TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | — | pending |
-| TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | — | in_progress |
+| TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0032, EV-20260718-0033 | blocked |
 
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
 authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
@@ -99,7 +99,13 @@ tool root 是 GOV-CI-001 明示的 hermetic 前置，但 `TASK-D0-03` 已 `done`
 现有任务均不能承载。ADR-0016 已于 2026-07-18 经 Architecture + Quality 批准转 `accepted`，
 本任务同日进入 `in_progress`（冻结包
 [`task-freeze-packages/TASK-D0-09.json`](governance/task-freeze-packages/TASK-D0-09.json)，
-freezeCommit `6dc1d8365c02cd51a8b3365c5199597deda99b61`）。
+freezeCommit `6dc1d8365c02cd51a8b3365c5199597deda99b61`）。2026-07-18：TST-HOST-002 已
+RED→GREEN，linux tool-root lane 本地复跑与合并树 `just ci` 全绿（`EV-20260718-0032`、
+`EV-20260718-0033`）；doneWhen 剩余两项为外部前置（GOV-TASK-FREEZE-001 §4 R5），故转
+`blocked`：(a) darwin 回归须 darwin 机执行 `just toolchains-validate`、
+`just host-stage0-development`、`just ci` 且 TST-HOST-001 语义不变；(b) pre-cutover 关闭
+路径须治理裁决——docs-check 在 `TASK-D0-07` 前拒绝 formal EV 且本任务不在 genesis 集合，
+冻结完成面不得改胖，解除 blocker 后回到原冻结包关闭。
 
 ## Milestone D1：语言前端
 
