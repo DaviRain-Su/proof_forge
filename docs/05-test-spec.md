@@ -908,6 +908,24 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   value/index/slice/mutation、none/some/unwrap、arbitrary recursive types、recursive legality、runtime/ABI 或
   target Array-Option support。focused/aggregate/test binary 和 independent review 全绿后收口；按冻结不重复
   `just ci`，不得声明 Array/Option runtime semantics、完整 type grammar 或正式 D1 完成。
+- D1-PA-60 的 alpha tests 只开放 exact same-line `Array Field bn254_fr N`，其中 Field id 必须是 raw
+  exact `bn254_fr`，长度 lexical/bound 精确复用 Array 的 canonical ASCII decimal `0..4096`，并物化为
+  既有 `Source/Semantic.ValueType.array .field length`。不得新增 ctor/tag、递归 grammar 或放宽通用
+  `arrayType`/`portableType` parser。tests-only RED 只修改 `Tests.Language.ArrayTypes` 与
+  `Tests.Language.OptionDeclarations`，把既有两条 `Array Field bn254_fr 4` parser-negative 迁移为
+  positive，migration count 精确为二。positive 覆盖 `0`、普通值、`4096`、state、struct field、enum
+  payload、const、initializer/entry/view/fn parameter/result 与 Lean command/ParserSession parity。
+  Source/Semantic canonical goldens 必须固定 tag `18→2→length`，并与 bare Field、bare Array PrimitiveAtom、
+  Option Field、Array Option 及不同 length 做 byte-size/hash non-alias；新 golden 在 RED 中显式未绑定，
+  独立 probe 后单独提交。`Array Field bn254_fr N` 必须精确传播单个 `fieldBn254`；四个 Phase 1 target
+  必须在 support resolver 以 named requirement 拒绝，且不得进入 Plan 或产出 artifact。missing/alternate/
+  escaped/qualified Field id、invalid length、extra/split payload 必须 exact fail closed；Array Bytes、
+  Array Option compound、Option Array compound、nested Option、Map/Named 与既有 extra-payload failure
+  class 保持原边界。production 仅限 Syntax 一文件、最多 32 行新增/2 行移除，并刷新 Lean package
+  file-set；不得引入 array value/index/slice/mutation、field arithmetic、none/some/unwrap、arbitrary recursive
+  types、recursive legality、runtime/ABI 或 target Array-Field support。focused/aggregate/test binary 和
+  independent review 全绿后收口；按冻结不重复 `just ci`，不得声明 Array/Field runtime semantics、完整
+  type grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

@@ -332,6 +332,38 @@ recursive legality、runtime representation、ABI 或 target Array-Option suppor
 focused/aggregate/test binary 与 independent review 全绿后只可记录 existing-carrier spelling；按冻结不重复
 完整 `just ci`，不得声明 Array/Option runtime semantics、完整 type grammar 或正式 D1 完成。
 
+D1-PA-60 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic recursive carriers 构造的
+`array(.field, length)` 开放 exact same-line spelling `Array Field bn254_fr N`。Field identifier 必须是
+raw exact `bn254_fr`；alternate、escaped、qualified、missing 或 extra id 均 fail closed。`N` 精确复用
+Array 的 canonical ASCII decimal `0..4096` discipline 与 `ArrayLength := Fin 4097`。Bytes、Option、
+Array、Map、Named element 继续排除。这不是新 ValueType carrier：Source/Semantic encoders 已产生
+Array tag `18`、Field tag `2` 与 encoder-local length payload，requirements 也已递归穿过 Array wrapper；
+不得新增 ctor/tag、修改 encoder、Typed 或 target。
+
+frontend 只能新增 exact contextual named `arrayFieldType` 与 struct-field 对应 parser；不得把通用
+`arrayType` 或 `portableType` 放宽为任意多 atom，也不得引入 recursive parser。decoder 只从专用 parser
+接收 field id 与 length atoms，必须 exact 检查 `bn254_fr` 并复用 `decodeBytesLengthAtom` 的 lexical/bound
+验证后构造 `.array .field length`；不得复制或放宽 Field/Array policy。Lean command 与 ParserSession
+必须得到同一 Source tree/hash。canonical tests 固定既有 tag `18→2→length` 的 Source/Semantic bytes/hash，
+并与 bare Field、bare Array PrimitiveAtom、Option Field、Array Option 及不同 length non-alias；不重编号
+tags `0..18`。
+
+tests-only RED 只修改 `Tests.Language.ArrayTypes` 与 `Tests.Language.OptionDeclarations`，将既有两条
+`Array Field bn254_fr 4` parser-negative 迁移为 positive，migration count 精确为二，其他测试不得迁移。
+positive 覆盖长度 `0`、普通值、`4096`、state、struct field、enum payload、const、initializer/entry/view/fn
+parameter/result 与双入口 parity。`Array Field bn254_fr N` 必须递归传播恰一个 `fieldBn254`；四个 Phase 1
+target 必须在 support resolution 以 named requirement 拒绝，不得进入 Plan 或产出 artifact。missing/
+alternate/escaped/qualified Field id、invalid length、extra/split payload 必须 fail closed；Array Bytes、
+Array Option compound、Option Array compound、nested Option、Map/Named 与既有 extra-payload failure class
+保持原边界。
+
+本切片不实现 array value/constructor/index/length/slice/mutation、field arithmetic、none/some/unwrap、
+任意递归 type grammar、recursive legality、runtime representation、ABI 或 target Array-Field support。
+production 仅限 `Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean
+package file-set。focused/aggregate/test binary 与 independent review 全绿后只可记录 existing-carrier
+spelling；按冻结不重复完整 `just ci`，不得声明 Array/Field runtime semantics、完整 type grammar 或正式
+D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
