@@ -113,6 +113,7 @@ structure ConstDecl where
 inductive Statement where
   | assign (stateName : String) (value : Expr)
   | returnValue (value : Expr)
+  | returnUnit
   | synchronousCall (callee : String)
   | letDecl (name : String) (typeAnn : Option ValueType) (value : Expr)
   | assertStmt (condition : Expr)
@@ -325,6 +326,7 @@ private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :
 private def appendStatement (bytes : ByteArray) : Statement → ByteArray
   | .assign name value => appendExpr (appendString (appendTag bytes 0) name) value
   | .returnValue value => appendExpr (appendTag bytes 1) value
+  | .returnUnit => appendTag bytes 6
   | .synchronousCall callee => appendString (appendTag bytes 2) callee
   | .letDecl name typeAnn value =>
       let bytes := appendString (appendTag bytes 3) name

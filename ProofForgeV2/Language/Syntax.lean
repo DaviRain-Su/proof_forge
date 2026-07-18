@@ -62,7 +62,9 @@ Higher priority than generic identifier; no low fallback. -/
 
 declare_syntax_cat pfStmt
 syntax ident " := " pfExpr : pfStmt
-syntax "return " pfExpr : pfStmt
+@[pfStmt_parser default+1] def returnValueStmt := leading_parser
+  withPosition ("return " >> (checkLineEq <|> checkColGt) >> categoryParser `pfExpr 0)
+syntax "return" : pfStmt
 syntax "call " str : pfStmt
 syntax "assert " pfExpr : pfStmt
 syntax "revert " ident "(" pfExpr,* ")" : pfStmt
@@ -459,8 +461,9 @@ private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Sou
       return .letDecl (← decodeIdentifier name) none (← decodeExprUnchecked value)
   | `(pfStmt| $name:ident := $value:pfExpr) => do
       return .assign (← decodeIdentifier name) (← decodeExprUnchecked value)
-  | `(pfStmt| return $value:pfExpr) => do
+  | `(returnValueStmt| return $value:pfExpr) => do
       return .returnValue (← decodeExprUnchecked value)
+  | `(pfStmt| return) => .ok .returnUnit
   | `(pfStmt| call $callee:str) => .ok <| .synchronousCall callee.getString
   | `(pfStmt| assert $condition:pfExpr) => do
       return .assertStmt (← decodeExprUnchecked condition)
@@ -1021,6 +1024,7 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
   | .returnValue value => do
       let value ← quoteExpr value
       `(ProofForgeV2.Source.Statement.returnValue $value)
+  | .returnUnit => `(ProofForgeV2.Source.Statement.returnUnit)
   | .synchronousCall callee =>
       let callee := Syntax.mkStrLit callee
       `(ProofForgeV2.Source.Statement.synchronousCall $callee)

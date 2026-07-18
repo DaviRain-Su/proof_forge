@@ -714,6 +714,67 @@ binary 与两份独立审查全绿后只可记录完整 revert statement Source 
 `just ci`，下一批 statement checkpoint 再运行，且不得宣称完整 error semantics、statement grammar
 或正式 D1 完成。
 
+D1-PA-49 冻结的 pre-acceptance alpha value-less return 子集只补齐 EBNF
+`"return" Expr?` 中缺失的无 Expr 分支，Source carrier 固定为 nullary
+`Source.Statement.returnUnit`。它只解除 `EV-20260718-0002` 中“无无值 return”的 Source-carrier
+延期；Unit fallthrough、return-path/termination、result-type legality、initializer/entry/fn return rules、
+Typed/Semantic return 与 target materialization 仍明确留给 D2/后续，不得据此改写旧 evidence 的其他限制。
+既有 `Source.Statement.returnValue(value)`、Statement tag `1`、syntax、goldens 与 Typed success path
+全部保持不变；禁止改为 `Option Expr` 或重编号既有 tag。
+
+parser 使用 named `returnValueStmt` 的 `leading_parser` + `withPosition`，value-bearing 分支在 `return`
+后必须满足 `checkLineEq` 或 `checkColGt` 才进入 `pfExpr`；随后 bare `syntax "return" : pfStmt` 作为
+fallback。即 `return 1`/`return true` 与严格增加缩进的多行 `return` newline `  1` 物化为
+`returnValue`，同 statement column 的 newline 开始下一条 statement，bare 物化为 `returnUnit`。
+这项 parser correction 由 tests-only RED 后的首次 GREEN 聚焦构建触发：原冻结的 unrestricted
+跨行规则会把下一 item 的 contextual `fn` 或下一条 `x := 1` 的 identifier 贪婪识别为 Expr，无法同时
+满足 bare-at-block-end 与 bare-followed-statement；禁止用 fixture 重排或枚举未来 statement introducer
+规避该歧义。原冻结的同缩进 `return` newline `1` retention 因而改为 parser rejection，严格缩进版本
+保留明确的 multiline continuation；现有 suites 无 migration，只纠正本切片新 RED 的一条预期。
+
+Source canonical encoder 使用 append-only Statement tag `6` 且无 payload；tag `0..5`/既有 goldens
+不变。tests-only RED 为 zero migration，只新增/注册 `Tests.Language.ValueLessReturns`，固定 Lean command/
+ParserSession 在 initializer、entry、view、fn 以及 explicit/omitted Unit 与 non-Unit declaration 上的
+Source parity，并固定 returnUnit 对 returnValue 及其他 statement kind 的 tag non-alias。
+
+`return()`、bare 后括号/逗号/额外 payload、unescaped keyword assignment 等 malformed shapes 必须 fail
+closed；escaped `«return» := 1` 保持 assignment。`Typed.check` 必须在 result type、Unit materialization、
+initializer legality、return-path/statement-after-return 分析前逐字 fail closed 为
+`value-less return is not yet supported by typed checking`；尤其 omitted-result fn 中的 bare return 仍必须
+得到同一 diagnostic，不得借 Unit 自动接受。首次 aggregate test-binary 验证确认既有 generic fn gate
+先于 statement checker，因此该 gate 只可增加 returnUnit exact-priority 检查，普通 fn 仍保持原 fail-closed。
+本切片不得实现 fallthrough、implicit Unit value、return-path、
+type/effect、Semantic/requirement、ABI/runtime 或 target behavior；production 仅限 Source/Syntax/Typed
+3 文件、最多 12 行新增/2 行移除。GREEN、focused/aggregate/test binary 与两份独立审查全绿后，在 clean committed
+tree 运行一次 statement checkpoint `just ci`；只可记录 value-less return Source carrier，不得宣称
+return semantics、完整 statement grammar 或正式 D1 完成。
+
+D1-PA-50 冻结的 pre-acceptance alpha emit statement 子集一次实现完整 EBNF
+`"emit" Ident "(" ExprList? ")"` Source surface，carrier 固定为
+`Source.Statement.emitStmt(eventName : String, args : Array Expr)`。parentheses 必须存在；`emit Tick()`
+物化 empty args，`emit Tick` 不得成为 optional-paren fallback。event declarations 已有 Source carrier，
+但 event lookup、payload arity/type、view legality、effect 与 target materialization 仍属于 D2/后续。
+
+parser 只新增 `syntax "emit " ident "(" pfExpr,* ")" : pfStmt`；decoder 必须先验证 event name
+恰好一个 `Name` component，再应用既有 portable identifier policy，最后才按源顺序解码完整 ExprList。
+Source canonical encoder 使用 append-only Statement tag `7`，随后编码 eventName string 与
+length-prefixed argument expression array；tag `0..6` 与既有 goldens 不变。tests-only RED 为 zero
+migration，只新增/注册 `Tests.Language.EmitStatements`，固定 Lean command/ParserSession 在 initializer、
+entry、view、fn 上的 Source parity，以及 event name、argument value/count/order/nesting 与 statement kind
+的 canonical non-alias。
+
+missing name/parenthesis、bare name、leading/trailing/double comma、adjacent argument、extra payload 与
+unescaped keyword assignment 必须停在 parser boundary；escaped `«emit» := 1` 保持 assignment。
+qualified event name 必须在 argument decode 前逐字拒绝 `emit event name must be unqualified`，reserved
+name 继续走既有 portable policy。`Typed.checkStatement` 必须在 event-table lookup、argument checking、
+view/effect analysis 前逐字 fail closed 为 `emit statements are not yet supported by typed checking`；
+含 event declarations 的完整 surface 仍可被既有 generic event gate 拒绝，不得伪称 Typed emit support。
+本切片不得实现 event resolution、payload legality、emission/effect、Semantic/requirement、ABI/runtime 或
+target behavior；production 仅限 Source/Syntax/Typed 3 文件、最多 16 行新增且不移除既有 production。
+GREEN、focused/aggregate/test binary 与两份独立审查全绿后只可记录完整 emit statement Source carrier；
+PA49 已运行 statement checkpoint，本切片不重复全量 `just ci`，且不得宣称完整 event semantics、
+statement grammar 或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

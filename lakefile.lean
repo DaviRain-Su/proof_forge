@@ -59,6 +59,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ConstructorExprs,
     `Tests.Language.IndexAccesses,
     `Tests.Language.RevertStatements,
+    `Tests.Language.ValueLessReturns,
     `Tests.Language.PrimitiveDeclarations,
     `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,
