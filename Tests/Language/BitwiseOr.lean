@@ -514,7 +514,6 @@ unsafe def run : IO Unit := do
       ("missing lhs", "| 2"),
       ("missing rhs", "1 |"),
       ("spaced split", "1 | | 2"),
-      ("double pipe", "1 || 2"),
       ("extra token", "1 | 2 3")
     ] do
     let source := returnProgramSource "RejectedOrShape" expr

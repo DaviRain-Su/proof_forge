@@ -52,6 +52,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.BitwiseXor,
     `Tests.Language.BitwiseOr,
     `Tests.Language.LogicalAnd,
+    `Tests.Language.LogicalOr,
     `Tests.Language.PrimitiveDeclarations,
     `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,

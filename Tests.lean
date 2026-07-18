@@ -40,6 +40,7 @@ import Tests.Language.BitwiseAnd
 import Tests.Language.BitwiseXor
 import Tests.Language.BitwiseOr
 import Tests.Language.LogicalAnd
+import Tests.Language.LogicalOr
 import Tests.Language.PrimitiveDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
@@ -95,6 +96,7 @@ unsafe def main : IO Unit := do
   Tests.Language.BitwiseXor.run
   Tests.Language.BitwiseOr.run
   Tests.Language.LogicalAnd.run
+  Tests.Language.LogicalOr.run
   Tests.Language.run
   Tests.Language.PrimitiveDeclarations.run
   Tests.Language.StateVisibility.run
