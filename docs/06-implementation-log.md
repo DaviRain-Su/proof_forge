@@ -3650,7 +3650,7 @@ normative: false
   file-set 同 GREEN re-pin。`lake build Tests.Language.ArrayTypes Tests.Language.OptionDeclarations`
   24 jobs；aggregate/test graph 192 jobs；`lake exe proof_forge_next_tests` exit 0；
   `just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 全绿。Grok post-PA59 residual 与
-  Kimi freeze/final reviews P0=0/P1=0；development evidence 为 `EV-20260718-0056`。本切片按冻结未重复完整
+  Kimi freeze/final reviews P0=0/P1=0；development evidence 为 `EV-20260718-0055`。本切片按冻结未重复完整
   `just ci`。
 - Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirement propagation 与
   support boundary。不包括 array value/index/slice/mutation、field arithmetic、任意 recursive grammar、
@@ -3658,4 +3658,44 @@ normative: false
 - Limitations：不得声明 Array/Field runtime semantics、完整 type grammar、eligible host 或 formal D1
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA60 declaration residual
+  audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 exact Array Bytes spelling pre-acceptance slice
+
+- Commits：freeze `fce7406f`；single-migration tests-only RED `f2809e00`；canonical golden binding
+  `07e6e7d4`；Syntax-only GREEN `3555c142`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-61 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 recursive `Source/Semantic.ValueType.array(.bytes innerLength, outerLength)` 开放
+  exact same-line `Array Bytes N M`。新增 named `arrayBytesType` 与 struct-field/enum-member 专用
+  `arrayBytesAggregateField`；decoder 对 inner Bytes length 与 outer Array length 都复用
+  `decodeBytesLengthAtom` 的 canonical ASCII decimal `0..4096` 校验，outer 再构造 `ArrayLength := Fin 4097`
+  后生成 `.array (.bytes innerLength) outerLength`。通用 `arrayType`、`portableType`、Source/Semantic ctor
+  与 encoder、quotation、Typed 和 target 均未改。
+- Migration/Coverage：把 `Tests.Language.ArrayTypes` 的一条 `Array Bytes 32 4` parser-negative 迁移为
+  positive，migration count 恰为一；`Array Bytes 4` 保持 decoder-rejected。Lean command/ParserSession
+  双入口覆盖 inner/outer 长度 0/0、32/4、4096/1、state/struct/enum/const/initializer/entry/view/fn
+  parameter/result。missing/invalid inner 或 outer length、escaped/qualified constructor 或 Bytes element、
+  extra/split payload 均 fail closed；Array Field、Array Option compound、Option Array compound、nested
+  Option、Map/Named 与既有 extra-payload boundary 保持。
+- Canonical/requirements：既有 tag `18→17→innerLength→outerLength` 被 Source 0/0、32/4、4096/1 三组
+  263-byte goldens `38b0e6a7588ed1b2b21b63c39e405a4a369a610b0d38e97a5e88960e10e6a227`、
+  `4553cff0a87ab20cf747cab24d5b517cf05f8862d1120ed27b0f32238ca2209c`、
+  `f630aa9d6a1b1f9a9587359de57fc42d307831accb150d9f81a48bb927c95272` 与 Semantic 212-byte goldens
+  `0ef6122b555e5316c9bd1ff9168b957968a5166934c69565ac120182f9e4f63f`、
+  `83adee65905a51bbb1447cd0ce3e1deda2e46db91ace73303917f4e6f1a4f06b`、
+  `74e2d48c9d062b665c31ddadd671b66994cda58200702515df13e82c8e2183cd` 固定，并与 bare Bytes、bare
+  Array PrimitiveAtom、Option Bytes、Array Field、different inner/outer length non-alias。requirements
+  为空；四个 Phase 1 target support 后由 non-UInt64 Plan invariant 拒绝，未产出 artifact。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，28 行新增/0 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.ArrayTypes` 23 jobs；aggregate/test graph 192 jobs；
+  `lake exe proof_forge_next_tests` exit 0；`just sbom-package-files-refresh`、`just docs-check`、
+  `git diff --check` 全绿。Kimi freeze/final reviews P0=0/P1=0/P2=0；development evidence 为
+  `EV-20260718-0057`。本切片按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirement propagation 与
+  support-vs-Plan boundary。不包括 bytes/array value/index/slice/length/mutation、任意 recursive grammar、
+  recursive legality、runtime representation、ABI 或 target Array-Bytes support。
+- Limitations：不得声明 Array/Bytes runtime semantics、完整 type grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA61 declaration residual
   audit，再选择单一依赖闭合最小切片，禁止自动递增。
