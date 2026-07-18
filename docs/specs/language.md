@@ -603,6 +603,33 @@ place 或 match；production 必须限于 Source/Syntax/Typed 3 文件/9 行。G
 primary-expression checkpoint 再运行，且不得宣称 PrimaryExpr、完整 expression/statement grammar 或
 `TASK-D1-04` 正式完成。
 
+D1-PA-45 冻结的 pre-acceptance alpha LocalFnCall 子集一次实现完整
+`LocalFnCall ::= Ident "(" ExprList? ")"` 与 `ExprList ::= Expr ("," Expr)*`，新增
+`Source.Expr.localFnCall(callee : String, args : Array Expr)`。parser rule 固定为
+`syntax:max ident "(" pfExpr,* ")" : pfExpr`：call result 是 high-precedence PrimaryExpr，每个 argument
+使用完整低 precedence `pfExpr`，零、单、多参数和递归 nested call 都必须接受，trailing comma 禁止。
+bare `f` 继续是 variable，`f()`/`f ()` 必须形成同一 localFnCall；grouping 与 call 不得混淆。
+
+Lean `ident` 会把 `A.B` 词法化为一个 qualified identifier，因此 decoder 必须先要求
+`callee.getId.components.size == 1`，不满足时逐字拒绝 `local function call callee must be unqualified`，
+不得把 future ConstructorExpr 的 `QualifiedId(...)` 错收成 LocalFnCall。escaped 单组件 identifier 仍按
+既有 `decodeIdentifier` policy 处理；callee 必须先于 arguments 解码，以固定错误优先级。Source canonical
+encoder 使用 append-only Expr tag `26`，随后依次编码 callee string 与 length-prefixed argument array；
+既有 tags `0..25`/goldens 不得改变。argument order、count 与 nested tree 必须进入 source identity。
+
+tests-only RED 必须且只能迁移 `Grouping.lean` 的 `("call-like", f(1))` negative，并新增/注册
+`Tests.Language.LocalFnCalls`。positive 覆盖 initializer、entry、view、fn 的 return/let value、双入口 parity、
+zero/one/multiple args、operator/group/string args、nested calls、call-as-operator-operand 与 escaped callee；
+canonical controls 固定 callee/argument order、count/nesting、grouping desugar，以及 localFnCall `f()` 对
+variable `f` 的 tag non-alias。missing callee/paren、leading/trailing/double comma、adjacent payload、unescaped
+reserved token 与 qualified call-like forms 必须 fail closed；`A.B(...)` 命中上述 exact unqualified diagnostic，
+不得实现 constructor。`Typed.check` 必须在检查任一 argument 或做 fn lookup 前逐字 fail closed 为
+`local function calls are not yet supported by typed checking`。本切片不得新增 callable resolution、arity/type/
+return checking、recursion analysis、ConstructorExpr、ExternalCallExpr、Place、MatchExpr、Typed/Semantic call、
+requirement 或 target behavior；production 必须限于 Source/Syntax/Typed 3 文件/13 行。GREEN 与 focused/
+aggregate/test binary/独立审查全绿后只可记录完整 LocalFnCall Source carrier；本切片不运行全量 `just ci`，
+call-like primary batch checkpoint 延后到后续单一 slice，且不得宣称 PrimaryExpr、完整 grammar 或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
