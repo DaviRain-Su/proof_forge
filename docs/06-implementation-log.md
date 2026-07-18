@@ -2529,3 +2529,39 @@ normative: false
   append-only Expr tag `25`、Lean string escape 的双入口 round-trip、empty string、与相同 payload variable
   的 tag-only non-alias、相邻/interpolated/unterminated parser boundaries 及 operands 前 exact Typed failure；
   不得捆绑 MatchExpr、call/constructor/place、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 StringLiteral pre-acceptance slice
+
+- Commits：freeze `989503eb`；tests-only RED `7b0b1c5a`；canonical golden binding `a0a460b2`；
+  Source-only GREEN `fa4d00c9`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-44 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Expr.stringLiteral value`、append-only Expr tag `25` 后接现有 `appendString`、
+  `syntax str : pfExpr`、`str.getString` decoded-value decoder、`Syntax.mkStrLit` quotation，以及 exact Typed
+  `string literals are not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/9 行；
+  既有 Expr tags `0..24` 与其他层均未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn 的 return/let value；固定
+  empty、ASCII、escaped quote/backslash/tab、Unicode scalar；不同 Lean escape spelling 解码为同一 String
+  时形成相同 Source.Program/canonical bytes/sourceHash。相同 identity 下 string `"a"` 与 variable `a`
+  通过 tag `25`/`1` 不 alias。代表 goldens：empty
+  `4cde697b099c9c7c778517b19f2a6f6468aa07c575682fe83cc35b0b7d1e443c`/214 bytes、`hi`
+  `a1d09765c39adc277751185ce9f0cf28c6d50809b0e79273747d242d41a2f80c`/216、quote
+  `27488c4f1854da8f415becbda9bf7be6546707b691997b7a31f6a97d3cfcfcd5`/215、backslash
+  `535ea5e1f0725f98309fc792eb59eba2ffcf365c976662b3310700c9bb348453`/215、tab
+  `39e8c5ec3fcc7759b6d26b12efb6f08429217cbbbb4de277e57b605c3691f951`/215、alpha
+  `cebe2440eb6d1605ec287c20a76d31830299cb58efcc01073dec8a66cb92a527`/216、`a`
+  `eae154b721a1c4ce5cbf1dee4de56f2827c7dfe37edc50cc46f16fa2cc4964d3`/215。
+- Boundaries：zero migration；相邻 literals、interpolated `s!"a"` 与 unterminated string 均在 parser
+  boundary 拒绝。Typed 对 empty/non-empty string exact fail closed，既有 checked-add control 保持。
+  freeze 与最终独立审查 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.StringLiterals`（14 jobs）；
+  `lake build proof_forge_next_tests`（172 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`
+  真实捕获 exit 0；`git diff --check` exit 0；development evidence 为 `EV-20260718-0030`。按冻结包未运行
+  全量 `just ci`，批量 checkpoint 延后至下一批 primary-expression 收口。
+- Scope claim：EBNF `Literal` 的 integer、Bool、String 三类 Source carrier 已覆盖；不包括 String
+  ValueType、concatenation/interpolation、ConstructorExpr、LocalFnCall、Place、MatchExpr 或完整 expression/
+  statement grammar。
+- Limitations：没有 Typed/Semantic string legality、folding、requirement、target ABI/runtime、eligible host
+  或 formal D1 evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：primary-expression residual audit 尚未冻结下一切片；必须在 call/constructor/place/match 中只选择
+  一个最小、依赖闭合的 Source carrier，禁止从 checkpoint 自动递增或捆绑 D2/target behavior。
