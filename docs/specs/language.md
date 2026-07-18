@@ -300,6 +300,38 @@ legality、runtime representation、ABI 或 target Option-Bytes support。produc
 focused/aggregate/test binary 与 independent review 全绿后只可记录 existing-carrier spelling；按冻结不重复
 完整 `just ci`，不得声明 Option/Bytes runtime semantics、完整 type grammar 或正式 D1 完成。
 
+D1-PA-59 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic recursive carriers 构造的
+`array(.option element, length)` 开放 exact same-line spelling `Array Option PrimitiveAtom N`。element
+闭集精确复用 D1-PA-18/PA54/PA57 的 15 个 exact single-token PrimitiveAtom；`N` 精确复用 Array 的
+canonical ASCII decimal `0..4096` discipline 与 `ArrayLength := Fin 4097`。Field、Bytes、Array、Option、
+Map、Named element 继续排除。这不是新 ValueType carrier：Source/Semantic recursive encoders 已产生
+Array tag `18`、Option tag `16`、element bytes 与 encoder-local length payload，requirements 也已递归穿过
+两层 wrapper；不得新增 ctor/tag、修改 encoder、Typed 或 target。
+
+frontend 只能新增 exact contextual named `arrayOptionType` 与 struct-field 对应 parser；不得把通用
+`arrayType` 或 `portableType` 放宽为任意多 atom，也不得引入 recursive parser。decoder 只从专用 parser
+接收 element 与 length atoms，必须复用既有 PrimitiveAtom decode 与 `decodeBytesLengthAtom` 的 lexical/
+bound 验证后构造 `.array (.option element) length`；不得复制或放宽 Array/Option policy。Lean command 与
+ParserSession 必须得到同一 Source tree/hash。canonical tests 固定既有 tag `18→16→element→length` 的
+Source/Semantic bytes/hash，并与 bare Array、Option Array、bare Option、不同 element/length non-alias；
+不重编号 tags `0..18`。
+
+tests-only RED 只修改 `Tests.Language.ArrayTypes` 与 `Tests.Language.OptionDeclarations`，将既有两条
+`Array Option Bool 4` parser-negative 迁移为 positive，migration count 精确为二，其他测试不得迁移。
+positive 覆盖 Bool/UInt64、长度 `0`、普通值、`4096`、所有 declaration positions 与双入口 parity。
+`Array Option UInt64 N` requirement 必须为空；`Array Option Bool N` 必须递归传播恰一个 `boolValues`。
+四个 Phase 1 target 对 Bool 在 support resolution 以 named requirement 拒绝；UInt64 通过 support 后，
+non-UInt64 state/result/parameter 仍由既有 target Plan fail closed，任何路径均不得产出 artifact。missing/
+unknown/Field/Bytes/Array/Option/Map element、invalid length、escaped/qualified constructor 或 element、
+extra/split payload 必须 fail closed；Array Field、Array Bytes、Option Array compound、third-layer nested
+Option、Map/Named 与既有 extra-payload failure class 保持原边界。
+
+本切片不实现 array value/constructor/index/length/slice/mutation、none/some/unwrap、任意递归 type grammar、
+recursive legality、runtime representation、ABI 或 target Array-Option support。production 仅限
+`Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。
+focused/aggregate/test binary 与 independent review 全绿后只可记录 existing-carrier spelling；按冻结不重复
+完整 `just ci`，不得声明 Array/Option runtime semantics、完整 type grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
