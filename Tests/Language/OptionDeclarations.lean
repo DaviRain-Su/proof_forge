@@ -567,10 +567,14 @@ unsafe def run : IO Unit := do
       s!"{label} semantic tag16+tag18 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
   let optionBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Bytes 0", .option (.bytes 0), 0, "UNBOUND"),
-    ("Option Bytes 8", .option (.bytes 8), 0, "UNBOUND"),
-    ("Option Bytes 32", .option (.bytes 32), 0, "UNBOUND"),
-    ("Option Bytes 4096", .option (.bytes 4096), 0, "UNBOUND")
+    ("Option Bytes 0", .option (.bytes 0), 257,
+      "17902c1fe40da65b620a8005a595f957e23101cc186597c338f1d1de66cf8d57"),
+    ("Option Bytes 8", .option (.bytes 8), 257,
+      "fdeaa16c4e891ffac8179e9b3f83086f51b03765ad9029100c02114247166754"),
+    ("Option Bytes 32", .option (.bytes 32), 257,
+      "4634c603c403cba66d1243193c835f5d6ee8827f66a59696526dd6cdb1df8334"),
+    ("Option Bytes 4096", .option (.bytes 4096), 257,
+      "5aeb3692b33316440837c2ca69f68a6b1ff53b529044f170bf1f0bbe3272bc35")
   ]
   for (label, type, expectedSize, expectedHash) in optionBytesSourceVectors do
     let sourceProgram := twin type
@@ -585,10 +589,14 @@ unsafe def run : IO Unit := do
     "Option Bytes must bind Option/Bytes tags and complete length payload"
 
   let optionBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Bytes 0", .option (.bytes 0), 0, "UNBOUND"),
-    ("Option Bytes 8", .option (.bytes 8), 0, "UNBOUND"),
-    ("Option Bytes 32", .option (.bytes 32), 0, "UNBOUND"),
-    ("Option Bytes 4096", .option (.bytes 4096), 0, "UNBOUND")
+    ("Option Bytes 0", .option (.bytes 0), 206,
+      "8bf703f9490bb378ff816a62de7ba406dae03b5f18d48697f85e9ddd48b556e5"),
+    ("Option Bytes 8", .option (.bytes 8), 206,
+      "8225233436aad7fedd34dacdb0d0e0e758973c7281340a390ab1bc9400459885"),
+    ("Option Bytes 32", .option (.bytes 32), 206,
+      "60aabc823097c35ca6fbc67bc507f30346f363ddc137e086f78eb11296196543"),
+    ("Option Bytes 4096", .option (.bytes 4096), 206,
+      "9a809c983cfe801d2954cad3aa581d2ccd02c70b2cf3829894d071455e652e95")
   ]
   for (label, type, expectedSize, expectedHash) in optionBytesSemanticVectors do
     let sourceProgram := twin type
@@ -624,7 +632,6 @@ unsafe def run : IO Unit := do
       ("hex Option Array length", "HexOptionArray", "Option Array UInt64 0x10"),
       ("underscore Option Array length", "UnderscoreOptionArray", "Option Array UInt64 4_096"),
       ("missing Option Bytes length", "MissingOptionBytesLength", "Option Bytes"),
-      ("identifier Option Bytes length", "IdentifierOptionBytesLength", "Option Bytes Foo"),
       ("over-bound Option Bytes length", "OverBoundOptionBytes", "Option Bytes 4097"),
       ("leading-zero Option Bytes length", "LeadingZeroOptionBytes", "Option Bytes 01"),
       ("hex Option Bytes length", "HexOptionBytes", "Option Bytes 0x10"),
@@ -659,6 +666,7 @@ unsafe def run : IO Unit := do
       ("escaped Option Array constructor", "«Option» Array UInt64 4"),
       ("qualified Option Array constructor", "Std.Option Array UInt64 4"),
       ("negative Option Bytes length", "Option Bytes -1"),
+      ("identifier Option Bytes length", "Option Bytes Foo"),
       ("extra Option Bytes payload", "Option Bytes 8 UInt64"),
       ("split Option Bytes length", "Option Bytes\n  8"),
       ("escaped Bytes constructor in Option", "Option «Bytes» 8"),
