@@ -638,6 +638,11 @@ identity 压平为 dotted string。path 必须逐组件经既有 portable-identi
 `Core.Common.parseQualifiedName`/canonical component rendering，并在解码任何 argument 前完成；不合法
 组件、numeric Name 组件，以及 constructor-path helper 收到少于两个组件时必须 fail closed，
 不影响单组件 callee 继续分类为 LocalFnCall。
+分类依据是 Lean `Name.components`，不是 rendered string 中是否出现点：`A.B()` 是两组件
+ConstructorExpr，whole-escaped `«A.B»()` 是单组件并按既有 policy 继续形成 LocalFnCall；
+没有 call suffix 的 bare `A.B` 仍是既有 variable carrier。普通/等价 escaped 的合法独立 path
+component 不得改变 canonical component value。这只是对已冻结 component-count 规则的消歧，
+不新增可写类别标记或扩大完成面。
 
 Source canonical encoder 使用 append-only Expr tag `27`，随后依次编码 length-prefixed path component
 array 和 length-prefixed argument expression array；既有 tags `0..26`/goldens 不得改变。tests-only RED

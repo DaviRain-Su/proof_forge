@@ -1289,6 +1289,10 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   requirement/target；production 限 Source/Syntax/Typed 3 文件、最多 24 行新增且不新增 syntax rule。
   focused/aggregate/test binary 与 final review 全绿后，必须在 clean committed tree 运行 call-like
   primary batch `just ci`；收口不得声明 PrimaryExpr、完整 grammar 或正式 D1 完成。
+  Component-count 分类的消歧 controls 必须固定：`A.B()` 是 ConstructorExpr，
+  whole-escaped `«A.B»()` 仍是单组件 LocalFnCall，bare `A.B` 仍是 variable；
+  `«A».B(1)`/`A.«B»(1)` 的合法 escaped component 必须与普通 `A.B(1)` 产生同一
+  canonical path。这些是对既有冻结分类和 escaped-component coverage 的明确化，不增加新任务输出。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；
