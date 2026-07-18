@@ -44,6 +44,7 @@ import Tests.Language.LogicalOr
 import Tests.Language.StringLiterals
 import Tests.Language.LocalFnCalls
 import Tests.Language.ConstructorExprs
+import Tests.Language.IndexAccesses
 import Tests.Language.PrimitiveDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
@@ -103,6 +104,7 @@ unsafe def main : IO Unit := do
   Tests.Language.StringLiterals.run
   Tests.Language.LocalFnCalls.run
   Tests.Language.ConstructorExprs.run
+  Tests.Language.IndexAccesses.run
   Tests.Language.run
   Tests.Language.PrimitiveDeclarations.run
   Tests.Language.StateVisibility.run
