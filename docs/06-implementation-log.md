@@ -3427,3 +3427,18 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA57 declaration residual
   audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — GitHub CI 三 lane 全绿（合并树最终确认）
+
+- Context：linux-tool-root runner-context 修复推送后，Mac 继续推进 conditional/option-array
+  slices；最终合并树 `662c1387` 推送后 CI run `29642879415` 三 lane 全部 success：
+  `docs`、`source-core`（Lean build + tests + negatives）、`linux-tool-root`
+  （validate/self-test/host-profiles self-test/provision/materialize/verify/
+  observe→validate closed loop）。`TASK-D0-09` doneWhen 第 2、4 条（linux lane 绿 +
+  ubuntu CI ineligible development profile 闭环）由此满足，剩余 darwin 回归与
+  pre-cutover 关闭治理裁决两项外部前置。
+- Verification：本地最终 `just ci` exit 0（见上一条）；GitHub CI run
+  `29642879415` 三 lane success；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean。
+- Limitations：全部为 development 级证据；darwin 回归、eligible host、治理裁决
+  仍待用户侧动作。

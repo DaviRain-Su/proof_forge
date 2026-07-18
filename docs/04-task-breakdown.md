@@ -101,7 +101,10 @@ tool root 是 GOV-CI-001 明示的 hermetic 前置，但 `TASK-D0-03` 已 `done`
 [`task-freeze-packages/TASK-D0-09.json`](governance/task-freeze-packages/TASK-D0-09.json)，
 freezeCommit `6dc1d8365c02cd51a8b3365c5199597deda99b61`）。2026-07-18：TST-HOST-002 已
 RED→GREEN，linux tool-root lane 本地复跑与合并树 `just ci` 全绿（`EV-20260718-0041`、
-`EV-20260718-0042`）；doneWhen 剩余两项为外部前置（GOV-TASK-FREEZE-001 §4 R5），故转
+`EV-20260718-0042`）；lane 首次真实 GitHub 运行前修复 job-env `runner` context 缺陷
+（`63df5494`），随后 CI run `29642879415` 三 lane（docs/source-core/linux-tool-root）
+全 success，ubuntu CI 生成器产出 ineligible development profile 并被验证器接受。
+doneWhen 剩余两项为外部前置（GOV-TASK-FREEZE-001 §4 R5），故转
 `blocked`：(a) darwin 回归须 darwin 机执行 `just toolchains-validate`、
 `just host-stage0-development`、`just ci` 且 TST-HOST-001 语义不变；(b) pre-cutover 关闭
 路径须治理裁决——docs-check 在 `TASK-D0-07` 前拒绝 formal EV 且本任务不在 genesis 集合，
