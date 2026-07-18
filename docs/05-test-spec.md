@@ -1006,6 +1006,17 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   constructors、extra/split payload 与 Option Array compounds 必须 exact fail closed。production 仅限 Syntax 一
   文件 ≤32 additions/2 removals，刷新 package file-set；按冻结不重复 `just ci`，不得声明 runtime semantics、
   完整 type grammar 或正式 D1 完成。
+- D1-PA-66 的 alpha tests 只开放 exact same-line `Array Array PrimitiveAtom N M`，物化为既有
+  `Source/Semantic.ValueType.array (.array element innerLength) outerLength`，tag 固定
+  `18→18→element→N→M`，两个长度复用 canonical ASCII decimal `0..4096`。tests-only RED 只修改
+  `Tests.Language.ArrayTypes`，将既有一条 `Array Array UInt64 4 4` parser-negative 迁移为 positive，
+  migration count 精确为一；positive 覆盖 inner/outer length `0`/普通值/`4096`、state/struct/enum/
+  const/init/entry/view/fn/event/error positions 与 Lean command/ParserSession parity。requirements 必须
+  精确透传 element requirements；四 Phase 1 target support 后 non-UInt64 Plan rejection、no artifact、
+  canonical non-alias 与 invalid length (`01`/`0x10`/`4_096`/`4097`) controls 均固定。incomplete Array Array、
+  Field/Bytes/Option/Array/Map/Named compounds、escaped/qualified constructors、extra/split payload 必须
+  exact fail closed。production 仅限 Syntax 一文件 ≤32 additions/2 removals，刷新 package file-set；按冻结
+  不重复完整 `just ci`，不得声明 nested Array runtime semantics、完整 recursive type grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
