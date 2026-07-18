@@ -38,8 +38,24 @@ from typing import BinaryIO, Iterator
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_LOCK = ROOT / "toolchains.lock.json"
 DEFAULT_HOST_LOCK = ROOT / "host-profiles.lock.json"
+PLATFORM_LOCK_FILES = {
+    "darwin-arm64": "toolchains.lock.json",
+    "linux-x86_64": "toolchains-linux-x86_64.lock.json",
+    "linux-aarch64": "toolchains-linux-aarch64.lock.json",
+}
+
+
+def host_platform_id() -> str:
+    uname = os.uname()
+    platform_id = f"{uname.sysname.lower()}-{uname.machine.lower()}"
+    if platform_id not in PLATFORM_LOCK_FILES:
+        fail(f"unsupported host platform: {platform_id}")
+    return platform_id
+
+
+def default_lock_path() -> Path:
+    return ROOT / PLATFORM_LOCK_FILES[host_platform_id()]
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 SOURCE_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 SEMVER_RE = re.compile(
@@ -75,6 +91,7 @@ MACHO_MAGICS = {
     b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",  # Mach-O 32-bit
     b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",  # Mach-O 64-bit
 }
+RUNTIME_IMAGE_MAGICS = MACHO_MAGICS | {b"\x7fELF"}
 
 
 class AssetError(RuntimeError):
@@ -246,15 +263,145 @@ def unique_sorted(records: list, key: str, where: str) -> None:
         fail(f"{where} must be sorted by {key}")
 
 
+def validate_macho_policy(lock: dict, bundle_by_path: dict[str, dict]) -> None:
+    macho_policy = require_dict(lock.get("machoPolicy"), "machoPolicy")
+    require_keys(macho_policy, {"allowedSystemLoadRoots", "files"}, "machoPolicy")
+    system_roots = require_list(macho_policy.get("allowedSystemLoadRoots"),
+                                "machoPolicy.allowedSystemLoadRoots")
+    if (system_roots != sorted(system_roots) or
+            len(system_roots) != len(set(system_roots)) or not system_roots):
+        fail("machoPolicy.allowedSystemLoadRoots must be a non-empty sorted array")
+    for index, root in enumerate(system_roots):
+        require_absolute_directory_prefix(root, f"machoPolicy.allowedSystemLoadRoots[{index}]")
+    macho_files = require_list(macho_policy.get("files"), "machoPolicy.files")
+    unique_sorted(macho_files, "path", "machoPolicy.files")
+    macho_paths: set[str] = set()
+    macho_by_path: dict[str, dict] = {}
+    for index, raw in enumerate(macho_files):
+        record = require_dict(raw, f"machoPolicy.files[{index}]")
+        require_keys(record, {"path", "installId", "externalLoads"},
+                     f"machoPolicy.files[{index}]")
+        path = safe_relative(record.get("path"), f"machoPolicy.files[{index}].path")
+        if path not in bundle_by_path:
+            fail_tool_lock_closure(
+                f"Mach-O policy references unknown bundle path {path}"
+            )
+        install_id = record.get("installId")
+        if install_id is not None:
+            require_string(install_id, f"Mach-O install ID for {path}")
+        external = require_list(record.get("externalLoads"),
+                                f"machoPolicy.files[{index}].externalLoads")
+        unique_sorted(external, "installName", f"machoPolicy.files[{index}].externalLoads")
+        bundle_targets: set[str] = set()
+        for edge in external:
+            edge = require_dict(edge, f"Mach-O external load for {path}")
+            require_keys(edge, {"installName", "bundlePath"},
+                         f"Mach-O external load for {path}")
+            install_name = require_string(edge.get("installName"),
+                                          f"Mach-O external load for {path}.installName")
+            if not install_name.startswith("/"):
+                fail(f"Mach-O external install name for {path} must be absolute")
+            bundle_path = safe_relative(edge.get("bundlePath"),
+                                        f"Mach-O external load for {path}.bundlePath")
+            if bundle_path not in bundle_by_path:
+                fail_tool_lock_closure(
+                    f"Mach-O external load for {path} targets an unknown bundle path"
+                )
+            if bundle_path in bundle_targets:
+                fail_tool_lock_closure(
+                    f"Mach-O external loads for {path} repeat bundle path {bundle_path}"
+                )
+            bundle_targets.add(bundle_path)
+        macho_paths.add(path)
+        macho_by_path[path] = record
+    if macho_paths != set(bundle_by_path):
+        fail_tool_lock_closure(
+            "every bundle file must have an explicit Mach-O closure policy"
+        )
+    return {
+        path: [edge["bundlePath"] for edge in record["externalLoads"]]
+        for path, record in macho_by_path.items()
+    }
+
+
+def validate_elf_policy(lock: dict, bundle_by_path: dict[str, dict]) -> dict[str, list[str]]:
+    elf_policy = require_dict(lock.get("elfPolicy"), "elfPolicy")
+    require_keys(elf_policy, {"allowedSystemLoadRoots", "files"}, "elfPolicy")
+    system_roots = require_list(elf_policy.get("allowedSystemLoadRoots"),
+                                "elfPolicy.allowedSystemLoadRoots")
+    if (system_roots != sorted(system_roots) or
+            len(system_roots) != len(set(system_roots)) or not system_roots):
+        fail("elfPolicy.allowedSystemLoadRoots must be a non-empty sorted array")
+    for index, root in enumerate(system_roots):
+        require_absolute_directory_prefix(root, f"elfPolicy.allowedSystemLoadRoots[{index}]")
+    elf_files = require_list(elf_policy.get("files"), "elfPolicy.files")
+    unique_sorted(elf_files, "path", "elfPolicy.files")
+    elf_paths: set[str] = set()
+    adjacency: dict[str, list[str]] = {}
+    for index, raw in enumerate(elf_files):
+        record = require_dict(raw, f"elfPolicy.files[{index}]")
+        require_keys(record, {"path", "needed", "runpath"},
+                     f"elfPolicy.files[{index}]")
+        path = safe_relative(record.get("path"), f"elfPolicy.files[{index}].path")
+        if path not in bundle_by_path:
+            fail_tool_lock_closure(
+                f"ELF policy references unknown bundle path {path}"
+            )
+        needed = require_list(record.get("needed"),
+                              f"elfPolicy.files[{index}].needed")
+        unique_sorted(needed, "soname", f"elfPolicy.files[{index}].needed")
+        bundle_targets: set[str] = set()
+        internal: list[str] = []
+        for edge in needed:
+            edge = require_dict(edge, f"ELF needed entry for {path}")
+            require_keys(edge, {"soname", "bundlePath"}, f"ELF needed entry for {path}")
+            soname = require_string(edge.get("soname"), f"ELF needed soname for {path}")
+            if not soname or "/" in soname or "\x00" in soname:
+                fail(f"ELF needed soname for {path} must be a plain soname")
+            bundle_path = edge.get("bundlePath")
+            if bundle_path is not None:
+                bundle_path = safe_relative(
+                    bundle_path, f"ELF needed bundlePath for {path}")
+                if bundle_path not in bundle_by_path:
+                    fail_tool_lock_closure(
+                        f"ELF needed for {path} targets an unknown bundle path"
+                    )
+                if bundle_path in bundle_targets:
+                    fail_tool_lock_closure(
+                        f"ELF needed for {path} repeats bundle path {bundle_path}"
+                    )
+                bundle_targets.add(bundle_path)
+                internal.append(bundle_path)
+        runpath = record.get("runpath")
+        if runpath is not None:
+            runpath = require_string(runpath, f"elfPolicy.files[{index}].runpath")
+            if not runpath or "\x00" in runpath:
+                fail(f"elfPolicy runpath for {path} must be non-empty")
+        elf_paths.add(path)
+        adjacency[path] = internal
+    if elf_paths != set(bundle_by_path):
+        fail_tool_lock_closure(
+            "every bundle file must have an explicit ELF closure policy"
+        )
+    return adjacency
+
+
 def validate_tool_lock(lock: dict) -> dict:
+    schema = lock.get("schema")
+    if schema == "proof-forge.toolchains.v2":
+        policy_key = "machoPolicy"
+        expected_platform = "darwin-arm64"
+    elif schema == "proof-forge.toolchains.v3":
+        policy_key = "elfPolicy"
+        expected_platform = "linux-x86_64"
+    else:
+        fail("unsupported toolchain lock schema")
     require_keys(lock, {
         "schema", "platform", "assets", "compilerToolchain", "bundleFiles",
-        "machoPolicy", "tools", "unresolved",
+        policy_key, "tools", "unresolved",
     }, "toolchain lock")
-    if lock.get("schema") != "proof-forge.toolchains.v2":
-        fail("unsupported toolchain lock schema")
-    if lock.get("platform") != "darwin-arm64":
-        fail("this lock must declare platform darwin-arm64")
+    if lock.get("platform") != expected_platform:
+        fail(f"this lock must declare platform {expected_platform}")
 
     assets = require_list(lock.get("assets"), "assets")
     unique_sorted(assets, "id", "assets")
@@ -391,60 +538,10 @@ def validate_tool_lock(lock: dict) -> dict:
             fail(f"bundle file {path} mode must be 0444 or 0555")
         bundle_by_path[path] = record
 
-    macho_policy = require_dict(lock.get("machoPolicy"), "machoPolicy")
-    require_keys(macho_policy, {"allowedSystemLoadRoots", "files"}, "machoPolicy")
-    system_roots = require_list(macho_policy.get("allowedSystemLoadRoots"),
-                                "machoPolicy.allowedSystemLoadRoots")
-    if (system_roots != sorted(system_roots) or
-            len(system_roots) != len(set(system_roots)) or not system_roots):
-        fail("machoPolicy.allowedSystemLoadRoots must be a non-empty sorted array")
-    for index, root in enumerate(system_roots):
-        require_absolute_directory_prefix(root, f"machoPolicy.allowedSystemLoadRoots[{index}]")
-    macho_files = require_list(macho_policy.get("files"), "machoPolicy.files")
-    unique_sorted(macho_files, "path", "machoPolicy.files")
-    macho_paths: set[str] = set()
-    macho_by_path: dict[str, dict] = {}
-    for index, raw in enumerate(macho_files):
-        record = require_dict(raw, f"machoPolicy.files[{index}]")
-        require_keys(record, {"path", "installId", "externalLoads"},
-                     f"machoPolicy.files[{index}]")
-        path = safe_relative(record.get("path"), f"machoPolicy.files[{index}].path")
-        if path not in bundle_by_path:
-            fail_tool_lock_closure(
-                f"Mach-O policy references unknown bundle path {path}"
-            )
-        install_id = record.get("installId")
-        if install_id is not None:
-            require_string(install_id, f"Mach-O install ID for {path}")
-        external = require_list(record.get("externalLoads"),
-                                f"machoPolicy.files[{index}].externalLoads")
-        unique_sorted(external, "installName", f"machoPolicy.files[{index}].externalLoads")
-        bundle_targets: set[str] = set()
-        for edge in external:
-            edge = require_dict(edge, f"Mach-O external load for {path}")
-            require_keys(edge, {"installName", "bundlePath"},
-                         f"Mach-O external load for {path}")
-            install_name = require_string(edge.get("installName"),
-                                          f"Mach-O external load for {path}.installName")
-            if not install_name.startswith("/"):
-                fail(f"Mach-O external install name for {path} must be absolute")
-            bundle_path = safe_relative(edge.get("bundlePath"),
-                                        f"Mach-O external load for {path}.bundlePath")
-            if bundle_path not in bundle_by_path:
-                fail_tool_lock_closure(
-                    f"Mach-O external load for {path} targets an unknown bundle path"
-                )
-            if bundle_path in bundle_targets:
-                fail_tool_lock_closure(
-                    f"Mach-O external loads for {path} repeat bundle path {bundle_path}"
-                )
-            bundle_targets.add(bundle_path)
-        macho_paths.add(path)
-        macho_by_path[path] = record
-    if macho_paths != set(bundle_by_path):
-        fail_tool_lock_closure(
-            "every bundle file must have an explicit Mach-O closure policy"
-        )
+    if policy_key == "machoPolicy":
+        bundle_adjacency = validate_macho_policy(lock, bundle_by_path)
+    else:
+        bundle_adjacency = validate_elf_policy(lock, bundle_by_path)
 
     tools = require_list(lock.get("tools"), "tools")
     if not tools:
@@ -512,7 +609,7 @@ def validate_tool_lock(lock: dict) -> dict:
                 )
             declared_runtime.add(runtime_path)
 
-        pending = [edge["bundlePath"] for edge in macho_by_path[executable]["externalLoads"]]
+        pending = list(bundle_adjacency[executable])
         closure: set[str] = set()
         while pending:
             dependency = pending.pop()
@@ -520,14 +617,13 @@ def validate_tool_lock(lock: dict) -> dict:
                 continue
             if dependency == executable:
                 fail_tool_lock_closure(
-                    f"tool {tool_id} Mach-O bundle closure cycles to its executable"
+                    f"tool {tool_id} bundle closure cycles to its executable"
                 )
             closure.add(dependency)
-            pending.extend(edge["bundlePath"]
-                           for edge in macho_by_path[dependency]["externalLoads"])
+            pending.extend(bundle_adjacency[dependency])
         if declared_runtime != closure:
             fail_tool_lock_closure(
-                f"tool {tool_id} runtimeFiles do not equal its Mach-O bundle closure"
+                f"tool {tool_id} runtimeFiles do not equal its bundle closure"
             )
         if closure and runtime_subdir is None:
             fail_tool_lock_closure(
@@ -562,37 +658,51 @@ def validate_tool_lock(lock: dict) -> dict:
     return lock
 
 
+DARWIN_PLATFORM_KEYS = frozenset({
+    "productVersion", "buildVersion", "kernelRelease", "arch", "procTranslated",
+    "sip", "authenticatedRoot", "systemVolumeSeal",
+})
+LINUX_PLATFORM_KEYS = frozenset({
+    "osReleaseId", "osReleaseVersionId", "kernelRelease", "arch", "secureBoot",
+})
+
+
+def host_profile_kind(profile: dict) -> str:
+    platform = profile.get("platform")
+    keys = set(platform.keys()) if isinstance(platform, dict) else set()
+    if keys == DARWIN_PLATFORM_KEYS:
+        return "darwin"
+    if keys == LINUX_PLATFORM_KEYS:
+        return "linux"
+    fail("host profile platform has an unrecognized field set")
+
+
 def validate_host_lock(lock: dict) -> dict:
     require_keys(lock, {"schema", "profiles"}, "host profile lock")
-    if lock.get("schema") != "proof-forge.host-profiles.v1":
+    schema = lock.get("schema")
+    if schema == "proof-forge.host-profiles.v1":
+        fail("host profile lock v1 is retired; migrate to "
+             "proof-forge.host-profiles.v2 (ADR-0016)")
+    if schema != "proof-forge.host-profiles.v2":
         fail("unsupported host profile lock schema")
     profiles = require_list(lock.get("profiles"), "profiles")
-    if len(profiles) != 1:
-        fail("host profile lock must contain exactly one profile")
+    if not profiles:
+        fail("host profile lock must contain at least one profile")
     unique_sorted(profiles, "id", "profiles")
+    seen_kinds: set[str] = set()
     for index, raw in enumerate(profiles):
         profile = require_dict(raw, f"profiles[{index}]")
+        profile_id = require_safe_identifier(profile.get("id"), f"profiles[{index}].id")
+        kind = host_profile_kind(profile)
+        if kind in seen_kinds:
+            fail(f"host profile lock must contain at most one {kind} profile")
+        seen_kinds.add(kind)
         require_keys(profile, {
             "id", "platform", "eligibleForHermetic", "ineligibilityReason",
-            "developerTools", "digestBootstrap", "systemRuntime", "systemTools",
-        }, f"profiles[{index}]")
-        profile_id = require_safe_identifier(profile.get("id"), f"profiles[{index}].id")
+            "digestBootstrap", "systemRuntime", "systemTools",
+        } | ({"developerTools"} if kind == "darwin" else {"distroTools"}),
+                     f"profiles[{index}]")
         platform = require_dict(profile.get("platform"), f"profile {profile_id}.platform")
-        require_keys(platform, {
-            "productVersion", "buildVersion", "kernelRelease", "arch", "procTranslated",
-            "sip", "authenticatedRoot", "systemVolumeSeal",
-        }, f"profile {profile_id}.platform")
-        for field in ("productVersion", "buildVersion", "kernelRelease", "arch",
-                      "sip", "authenticatedRoot", "systemVolumeSeal"):
-            require_string(platform.get(field), f"profile {profile_id}.platform.{field}")
-        if not isinstance(platform.get("procTranslated"), bool):
-            fail(f"profile {profile_id}.platform.procTranslated must be boolean")
-        if platform["sip"] not in {"disabled", "enabled"}:
-            fail(f"profile {profile_id}.platform.sip has an unsupported value")
-        if platform["authenticatedRoot"] not in {"disabled", "enabled"}:
-            fail(f"profile {profile_id}.platform.authenticatedRoot has an unsupported value")
-        if platform["systemVolumeSeal"] not in {"broken", "sealed", "unsealed"}:
-            fail(f"profile {profile_id}.platform.systemVolumeSeal has an unsupported value")
         if not isinstance(profile.get("eligibleForHermetic"), bool):
             fail(f"profile {profile_id}.eligibleForHermetic must be boolean")
         if profile["eligibleForHermetic"]:
@@ -665,57 +775,10 @@ def validate_host_lock(lock: dict) -> dict:
                                   f"profile {profile_id} system tool mode")
             if FILE_MODE_RE.fullmatch(mode) is None:
                 fail(f"profile {profile_id} system tool mode must be a four-digit octal mode")
-        developer = require_dict(profile.get("developerTools"), f"profile {profile_id}.developerTools")
-        require_keys(developer, {
-            "developerDir", "xcodeAppPath", "xcodeVersion", "xcodeBuildVersion",
-            "xcodeIdentifier", "xcodeTeamIdentifier", "xcodeDesignatedRequirement",
-            "xcodeCdHash", "xcodeMutableByCurrentUser", "allowedRuntimeRoots",
-            "gitPath", "gitSha256", "gitVersion", "otoolPath", "otoolSha256",
-            "otoolVersion", "pythonDispatchPath", "pythonPath", "pythonSha256",
-            "pythonVersion",
-        }, f"profile {profile_id}.developerTools")
-        developer_dir = require_absolute_file_path(
-            developer.get("developerDir"), f"profile {profile_id}.developerTools.developerDir")
-        xcode_app = require_absolute_file_path(
-            developer.get("xcodeAppPath"), f"profile {profile_id}.developerTools.xcodeAppPath")
-        if not developer_dir.startswith(xcode_app + "/"):
-            fail(f"profile {profile_id} developerDir must be inside xcodeAppPath")
-        for field in (
-                "xcodeVersion", "xcodeBuildVersion", "xcodeIdentifier",
-                "xcodeTeamIdentifier", "xcodeDesignatedRequirement", "gitVersion",
-                "otoolVersion", "pythonVersion"):
-            require_string(developer.get(field), f"profile {profile_id}.developerTools.{field}")
-        if re.fullmatch(r"[0-9a-f]{40}", str(developer.get("xcodeCdHash"))) is None:
-            fail(f"profile {profile_id}.developerTools.xcodeCdHash must be lowercase 40-hex")
-        if not isinstance(developer.get("xcodeMutableByCurrentUser"), bool):
-            fail(f"profile {profile_id}.developerTools.xcodeMutableByCurrentUser must be boolean")
-        developer_roots = require_list(
-            developer.get("allowedRuntimeRoots"),
-            f"profile {profile_id}.developerTools.allowedRuntimeRoots")
-        if (not developer_roots or developer_roots != sorted(developer_roots) or
-                len(developer_roots) != len(set(developer_roots))):
-            fail(f"profile {profile_id} developer runtime roots must be non-empty, unique, and sorted")
-        for root_index, root in enumerate(developer_roots):
-            require_absolute_directory_prefix(
-                root, f"profile {profile_id}.developerTools.allowedRuntimeRoots[{root_index}]")
-        if xcode_app + "/" not in developer_roots:
-            fail(f"profile {profile_id} developer runtime roots must include xcodeAppPath")
-        for field in ("gitSha256", "pythonSha256", "otoolSha256"):
-            require_sha256(developer.get(field), f"profile {profile_id}.developerTools.{field}")
-        for field in ("gitPath", "pythonDispatchPath", "pythonPath", "otoolPath"):
-            path = require_absolute_file_path(developer.get(field),
-                                              f"profile {profile_id}.developerTools.{field}")
-            if not path.startswith(developer_dir + "/"):
-                fail(f"profile {profile_id}.developerTools.{field} must be inside developerDir")
-
-        eligible_state = (
-            platform["arch"] == "arm64" and
-            not platform["procTranslated"] and
-            platform["sip"] == "enabled" and
-            platform["authenticatedRoot"] == "enabled" and
-            platform["systemVolumeSeal"] == "sealed" and
-            not developer["xcodeMutableByCurrentUser"]
-        )
+        if kind == "darwin":
+            eligible_state = validate_darwin_developer(profile, platform)
+        else:
+            eligible_state = validate_linux_distro(profile, platform)
         if profile["eligibleForHermetic"] and not eligible_state:
             fail(f"profile {profile_id} is marked eligible but does not satisfy the host policy")
 
@@ -729,12 +792,117 @@ def validate_host_lock(lock: dict) -> dict:
     return lock
 
 
+def validate_darwin_developer(profile: dict, platform: dict) -> bool:
+    profile_id = profile["id"]
+    for field in ("productVersion", "buildVersion", "kernelRelease", "arch",
+                  "sip", "authenticatedRoot", "systemVolumeSeal"):
+        require_string(platform.get(field), f"profile {profile_id}.platform.{field}")
+    if not isinstance(platform.get("procTranslated"), bool):
+        fail(f"profile {profile_id}.platform.procTranslated must be boolean")
+    if platform["sip"] not in {"disabled", "enabled"}:
+        fail(f"profile {profile_id}.platform.sip has an unsupported value")
+    if platform["authenticatedRoot"] not in {"disabled", "enabled"}:
+        fail(f"profile {profile_id}.platform.authenticatedRoot has an unsupported value")
+    if platform["systemVolumeSeal"] not in {"broken", "sealed", "unsealed"}:
+        fail(f"profile {profile_id}.platform.systemVolumeSeal has an unsupported value")
+    developer = require_dict(profile.get("developerTools"), f"profile {profile_id}.developerTools")
+    require_keys(developer, {
+        "developerDir", "xcodeAppPath", "xcodeVersion", "xcodeBuildVersion",
+        "xcodeIdentifier", "xcodeTeamIdentifier", "xcodeDesignatedRequirement",
+        "xcodeCdHash", "xcodeMutableByCurrentUser", "allowedRuntimeRoots",
+        "gitPath", "gitSha256", "gitVersion", "otoolPath", "otoolSha256",
+        "otoolVersion", "pythonDispatchPath", "pythonPath", "pythonSha256",
+        "pythonVersion",
+    }, f"profile {profile_id}.developerTools")
+    developer_dir = require_absolute_file_path(
+        developer.get("developerDir"), f"profile {profile_id}.developerTools.developerDir")
+    xcode_app = require_absolute_file_path(
+        developer.get("xcodeAppPath"), f"profile {profile_id}.developerTools.xcodeAppPath")
+    if not developer_dir.startswith(xcode_app + "/"):
+        fail(f"profile {profile_id} developerDir must be inside xcodeAppPath")
+    for field in (
+            "xcodeVersion", "xcodeBuildVersion", "xcodeIdentifier",
+            "xcodeTeamIdentifier", "xcodeDesignatedRequirement", "gitVersion",
+            "otoolVersion", "pythonVersion"):
+        require_string(developer.get(field), f"profile {profile_id}.developerTools.{field}")
+    if re.fullmatch(r"[0-9a-f]{40}", str(developer.get("xcodeCdHash"))) is None:
+        fail(f"profile {profile_id}.developerTools.xcodeCdHash must be lowercase 40-hex")
+    if not isinstance(developer.get("xcodeMutableByCurrentUser"), bool):
+        fail(f"profile {profile_id}.developerTools.xcodeMutableByCurrentUser must be boolean")
+    developer_roots = require_list(
+        developer.get("allowedRuntimeRoots"),
+        f"profile {profile_id}.developerTools.allowedRuntimeRoots")
+    if (not developer_roots or developer_roots != sorted(developer_roots) or
+            len(developer_roots) != len(set(developer_roots))):
+        fail(f"profile {profile_id} developer runtime roots must be non-empty, unique, and sorted")
+    for root_index, root in enumerate(developer_roots):
+        require_absolute_directory_prefix(
+            root, f"profile {profile_id}.developerTools.allowedRuntimeRoots[{root_index}]")
+    if xcode_app + "/" not in developer_roots:
+        fail(f"profile {profile_id} developer runtime roots must include xcodeAppPath")
+    for field in ("gitSha256", "pythonSha256", "otoolSha256"):
+        require_sha256(developer.get(field), f"profile {profile_id}.developerTools.{field}")
+    for field in ("gitPath", "pythonDispatchPath", "pythonPath", "otoolPath"):
+        path = require_absolute_file_path(developer.get(field),
+                                          f"profile {profile_id}.developerTools.{field}")
+        if not path.startswith(developer_dir + "/"):
+            fail(f"profile {profile_id}.developerTools.{field} must be inside developerDir")
+    return (
+        platform["arch"] == "arm64" and
+        not platform["procTranslated"] and
+        platform["sip"] == "enabled" and
+        platform["authenticatedRoot"] == "enabled" and
+        platform["systemVolumeSeal"] == "sealed" and
+        not developer["xcodeMutableByCurrentUser"]
+    )
+
+
+def validate_linux_distro(profile: dict, platform: dict) -> bool:
+    profile_id = profile["id"]
+    for field in ("osReleaseId", "osReleaseVersionId", "kernelRelease", "arch"):
+        require_string(platform.get(field), f"profile {profile_id}.platform.{field}")
+    if platform["secureBoot"] not in {"enabled", "disabled", "unavailable"}:
+        fail(f"profile {profile_id}.platform.secureBoot has an unsupported value")
+    distro = require_dict(profile.get("distroTools"), f"profile {profile_id}.distroTools")
+    require_keys(distro, {
+        "gitPath", "gitSha256", "gitVersion",
+        "pythonPath", "pythonSha256", "pythonVersion",
+        "readelfPath", "readelfSha256", "readelfVersion",
+        "toolsMutableByCurrentUser",
+    }, f"profile {profile_id}.distroTools")
+    for field in ("gitPath", "pythonPath", "readelfPath"):
+        require_absolute_file_path(distro.get(field),
+                                   f"profile {profile_id}.distroTools.{field}")
+    for field in ("gitSha256", "pythonSha256", "readelfSha256"):
+        require_sha256(distro.get(field), f"profile {profile_id}.distroTools.{field}")
+    for field in ("gitVersion", "pythonVersion", "readelfVersion"):
+        require_string(distro.get(field), f"profile {profile_id}.distroTools.{field}")
+    if not isinstance(distro.get("toolsMutableByCurrentUser"), bool):
+        fail(f"profile {profile_id}.distroTools.toolsMutableByCurrentUser must be boolean")
+    return (
+        platform["arch"] in {"x86_64", "aarch64"} and
+        platform["secureBoot"] == "enabled" and
+        not distro["toolsMutableByCurrentUser"]
+    )
+
+
 def validate_lock_pair(tool_lock: dict, host_lock: dict) -> None:
-    expected = tool_lock["machoPolicy"]["allowedSystemLoadRoots"]
-    for profile in host_lock["profiles"]:
-        observed = profile["systemRuntime"]["allowedLoadRoots"]
-        if observed != expected:
-            fail(f"profile {profile['id']} system runtime roots disagree with Mach-O policy")
+    if tool_lock["schema"] == "proof-forge.toolchains.v2":
+        policy_key = "machoPolicy"
+        kind = "darwin"
+    else:
+        policy_key = "elfPolicy"
+        kind = "linux"
+    expected = tool_lock[policy_key]["allowedSystemLoadRoots"]
+    matching = [
+        profile for profile in host_lock["profiles"]
+        if host_profile_kind(profile) == kind
+    ]
+    if len(matching) != 1:
+        fail(f"host profile lock must contain exactly one {kind} profile for this tool lock")
+    observed = matching[0]["systemRuntime"]["allowedLoadRoots"]
+    if observed != expected:
+        fail(f"profile {matching[0]['id']} system runtime roots disagree with the load policy")
 
 
 def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
@@ -1236,6 +1404,16 @@ def bounded_host_command(argv: list[str], *, input_bytes: bytes | None = None,
     return result
 
 
+def extract_kat_digest(output: str, where: str) -> str:
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if len(lines) != 1:
+        fail(f"{where} known-answer probe must emit exactly one line")
+    token = lines[0].rsplit(" ", 1)[-1].rsplit("=", 1)[-1]
+    if SHA256_RE.fullmatch(token) is None:
+        fail(f"{where} known-answer probe did not emit a SHA-256 digest")
+    return token
+
+
 def require_host_tool(tools: dict[str, dict], tool_id: str) -> dict:
     record = tools.get(tool_id)
     if record is None:
@@ -1335,17 +1513,20 @@ def normalized_volume_seal(output: bytes) -> str:
     fail(f"diskutil returned an unsupported seal state: {observed!r}")
 
 
-def xcode_path_mutable_by_current_user(xcode_app: Path) -> bool:
-    candidate = xcode_app
+def path_mutable_by_current_user(path: Path, label: str) -> bool:
+    candidate = path
     while True:
         try:
             metadata = candidate.lstat()
         except FileNotFoundError:
-            fail(f"Xcode pathname ancestor is missing: {candidate}")
+            fail(f"{label} pathname ancestor is missing: {candidate}")
         if stat.S_ISLNK(metadata.st_mode):
-            fail(f"Xcode pathname ancestor must not be a symlink: {candidate}")
-        if not stat.S_ISDIR(metadata.st_mode):
-            fail(f"Xcode pathname ancestor must be a directory: {candidate}")
+            fail(f"{label} pathname ancestor must not be a symlink: {candidate}")
+        if candidate == path:
+            if not (stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)):
+                fail(f"{label} pathname must be a directory or regular file: {candidate}")
+        elif not stat.S_ISDIR(metadata.st_mode):
+            fail(f"{label} pathname ancestor must be a directory: {candidate}")
         if metadata.st_uid != 0:
             return True
         if os.access(candidate, os.W_OK | os.X_OK, effective_ids=True):
@@ -1354,6 +1535,10 @@ def xcode_path_mutable_by_current_user(xcode_app: Path) -> bool:
         if parent == candidate:
             return False
         candidate = parent
+
+
+def xcode_path_mutable_by_current_user(xcode_app: Path) -> bool:
+    return path_mutable_by_current_user(xcode_app, "Xcode")
 
 
 def verify_runtime_probe(path: Path, args: list[str], expected_line: str,
@@ -1382,7 +1567,25 @@ def verify_runtime_probe(path: Path, args: list[str], expected_line: str,
             fail(f"{where} runtime escaped allowed roots: {loaded_path}")
 
 
+def host_platform_kind() -> str:
+    kind = os.uname().sysname.lower()
+    if kind not in {"darwin", "linux"}:
+        fail(f"unsupported host platform kind: {kind}")
+    return kind
+
+
 def verify_host(profile: dict, *, require_eligible: bool) -> None:
+    kind = host_profile_kind(profile)
+    host_kind = host_platform_kind()
+    if kind != host_kind:
+        fail(f"host profile {profile['id']} is a {kind} profile; this host is {host_kind}")
+    if kind == "darwin":
+        verify_host_darwin(profile, require_eligible=require_eligible)
+    else:
+        verify_host_linux(profile, require_eligible=require_eligible)
+
+
+def verify_host_darwin(profile: dict, *, require_eligible: bool) -> None:
     tools = verify_system_tool_nodes(profile)
     required_ids = {
         "codesign", "csrutil", "diskutil", "openssl", "sw_vers", "sysctl",
@@ -1399,8 +1602,8 @@ def verify_host(profile: dict, *, require_eligible: bool) -> None:
         [bootstrap["path"], "dgst", "-sha256"],
         input_bytes=bootstrap["knownAnswerInput"].encode("utf-8"),
     )
-    digest_lines = [line.strip() for line in digest_probe.stdout.splitlines() if line.strip()]
-    if digest_lines != [bootstrap["knownAnswerSha256"]]:
+    if extract_kat_digest(digest_probe.stdout, "digest bootstrap") != \
+            bootstrap["knownAnswerSha256"]:
         fail("digest bootstrap known-answer test failed")
 
     platform = profile["platform"]
@@ -1549,6 +1752,111 @@ def verify_host(profile: dict, *, require_eligible: bool) -> None:
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
 
 
+SECURE_BOOT_EFIVAR = Path(
+    "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+
+
+def parse_os_release_text(text: str) -> dict[str, str]:
+    data: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        data[key] = value
+    return data
+
+
+def read_os_release() -> dict[str, str]:
+    for candidate in (Path("/etc/os-release"), Path("/usr/lib/os-release")):
+        try:
+            return parse_os_release_text(candidate.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue
+    fail("no os-release file found")
+
+
+def observe_secure_boot() -> str:
+    try:
+        data = SECURE_BOOT_EFIVAR.read_bytes()
+    except (FileNotFoundError, PermissionError):
+        return "unavailable"
+    if len(data) < 5:
+        fail("secure boot efivar is truncated")
+    return "enabled" if data[-1] == 0x01 else "disabled"
+
+
+def verify_host_linux(profile: dict, *, require_eligible: bool) -> None:
+    tools = verify_system_tool_nodes(profile)
+    required_ids = {"git", "openssl", "python3", "readelf", "uname"}
+    for tool_id in sorted(required_ids):
+        require_host_tool(tools, tool_id)
+
+    bootstrap = profile["digestBootstrap"]
+    digest_probe = bounded_host_command(
+        [bootstrap["path"], "dgst", "-sha256"],
+        input_bytes=bootstrap["knownAnswerInput"].encode("utf-8"),
+    )
+    if extract_kat_digest(digest_probe.stdout, "digest bootstrap") != \
+            bootstrap["knownAnswerSha256"]:
+        fail("digest bootstrap known-answer test failed")
+
+    platform = profile["platform"]
+    uname = require_host_tool(tools, "uname")["resolvedPath"]
+    os_release = read_os_release()
+    observed_platform = {
+        "osReleaseId": os_release.get("ID", ""),
+        "osReleaseVersionId": os_release.get("VERSION_ID", ""),
+        "kernelRelease": bounded_host_command([uname, "-r"]).stdout.strip(),
+        "arch": bounded_host_command([uname, "-m"]).stdout.strip(),
+        "secureBoot": observe_secure_boot(),
+    }
+    if observed_platform != platform:
+        fail(f"host platform observation mismatch: expected={platform}, observed={observed_platform}")
+
+    distro = profile["distroTools"]
+    distro_paths = [
+        (Path(distro["gitPath"]), distro["gitSha256"], "distro Git"),
+        (Path(distro["pythonPath"]), distro["pythonSha256"], "distro Python"),
+        (Path(distro["readelfPath"]), distro["readelfSha256"], "distro readelf"),
+    ]
+    for path, expected_hash, label in distro_paths:
+        verify_locked_regular(path, expected_hash, label)
+    version_probes = [
+        (Path(distro["gitPath"]), ["--version"], distro["gitVersion"], "distro Git"),
+        (Path(distro["pythonPath"]), ["--version"], distro["pythonVersion"], "distro Python"),
+        (Path(distro["readelfPath"]), ["--version"], distro["readelfVersion"],
+         "distro readelf"),
+    ]
+    for path, args, expected_line, label in version_probes:
+        output = bounded_host_command([str(path), *args]).stdout
+        lines = [line for line in output.splitlines() if line]
+        if expected_line not in lines:
+            fail(f"{label} version mismatch")
+    mutable = any(
+        path_mutable_by_current_user(path, label)
+        for path, _, label in distro_paths
+    )
+    if mutable != distro["toolsMutableByCurrentUser"]:
+        fail("distro tools current-user mutability observation mismatch")
+
+    summary = {
+        "attestationScope": "local-observation-only",
+        "eligibleForHermetic": profile["eligibleForHermetic"],
+        "hostProfileId": profile["id"],
+        "platform": observed_platform,
+        "remoteAttestation": False,
+        "trustRoot": "secure-boot+distro-package-integrity+pinned-digests "
+                     "(weaker than Apple SSV; no codesign equivalence on linux)",
+    }
+    if require_eligible and not profile["eligibleForHermetic"]:
+        fail(f"PF-HOST-INELIGIBLE: {profile['id']}: {profile['ineligibilityReason']}")
+    print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
+
+
 def verify_external_tree(root: Path, bundle: dict[str, dict]) -> Path:
     require_normalized_absolute_path(root, "external tool root")
     try:
@@ -1634,10 +1942,7 @@ def verify_external_tree(root: Path, bundle: dict[str, dict]) -> Path:
     return root
 
 
-def verify_external(lock: dict, host_lock: dict, root: Path) -> None:
-    bundle = {record["path"]: record for record in lock["bundleFiles"]}
-    root = verify_external_tree(root, bundle)
-
+def verify_external_macho_closure(lock: dict, host_lock: dict, root: Path) -> None:
     profile = host_lock["profiles"][0]
     developer = profile["developerTools"]
     otool = Path(developer["otoolPath"])
@@ -1666,17 +1971,50 @@ def verify_external(lock: dict, host_lock: dict, root: Path) -> None:
         if observed_external != expected_external:
             fail(f"Mach-O external loads mismatch for {record['path']}: {sorted(observed_external)}")
 
+
+def verify_external_elf_closure(lock: dict, host_lock: dict, root: Path) -> None:
+    readelf = locked_readelf(host_lock)
+    for record in lock["elfPolicy"]["files"]:
+        path = root / record["path"]
+        observed_needed, observed_runpath = readelf_dynamic(readelf, path)
+        expected_needed = {edge["soname"] for edge in record["needed"]}
+        if observed_needed != expected_needed:
+            fail(f"ELF needed mismatch for {record['path']}: {sorted(observed_needed)}")
+        if record["runpath"] != observed_runpath:
+            fail(f"ELF runpath mismatch for {record['path']}")
+
+
+def verify_external(lock: dict, host_lock: dict, root: Path) -> None:
+    bundle = {record["path"]: record for record in lock["bundleFiles"]}
+    root = verify_external_tree(root, bundle)
+    darwin_probe = lock["schema"] == "proof-forge.toolchains.v2"
+    if darwin_probe:
+        verify_external_macho_closure(lock, host_lock, root)
+        system_roots = tuple(lock["machoPolicy"]["allowedSystemLoadRoots"])
+    else:
+        verify_external_elf_closure(lock, host_lock, root)
+        system_roots = tuple(lock["elfPolicy"]["allowedSystemLoadRoots"])
+
     tool_by_id = {tool["id"]: tool for tool in lock["tools"]}
     for tool_id in sorted(tool_by_id):
         tool = tool_by_id[tool_id]
-        environment = {
-            "HOME": "/var/empty",
-            "LC_ALL": "C",
-            "PATH": "/usr/bin:/bin",
-            "TZ": "UTC",
-            "DYLD_LIBRARY_PATH": str(root / "lib"),
-            "DYLD_PRINT_LIBRARIES": "1",
-        }
+        if darwin_probe:
+            environment = {
+                "HOME": "/var/empty",
+                "LC_ALL": "C",
+                "PATH": "/usr/bin:/bin",
+                "TZ": "UTC",
+                "DYLD_LIBRARY_PATH": str(root / "lib"),
+                "DYLD_PRINT_LIBRARIES": "1",
+            }
+        else:
+            environment = {
+                "HOME": "/var/empty",
+                "LC_ALL": "C",
+                "PATH": "/usr/bin:/bin",
+                "TZ": "UTC",
+                "LD_LIBRARY_PATH": str(root / "lib"),
+            }
         probe = subprocess.run(
             [str(root / tool["executable"]), *tool["versionArgs"]],
             check=False,
@@ -1688,27 +2026,61 @@ def verify_external(lock: dict, host_lock: dict, root: Path) -> None:
         observed_version = probe.stdout + probe.stderr
         if probe.returncode != 0 or tool["expectedVersion"] not in observed_version:
             fail(f"external tool version probe failed for {tool_id}")
-        loaded: set[Path] = set()
-        for line in probe.stderr.splitlines():
-            match = re.fullmatch(r"dyld\[\d+\]: <[^>]+> (/.+)", line)
-            if match is not None:
-                loaded.add(Path(match.group(1)))
-        if not loaded:
-            fail(f"DYLD load observation was empty for {tool_id}")
-        for path in loaded:
-            text = str(path)
-            if text == str(root / tool["executable"]):
-                continue
-            if text.startswith(str(root) + "/") or text.startswith(system_roots):
-                continue
-            fail(f"external tool {tool_id} loaded outside its closure: {text}")
-        macho = next(item for item in lock["machoPolicy"]["files"]
-                     if item["path"] == tool["executable"])
-        for edge in macho["externalLoads"]:
-            required = (root / edge["bundlePath"]).resolve()
-            if required not in loaded:
-                fail(f"external tool {tool_id} did not load bundled {edge['bundlePath']}")
-    print(f"toolchain-assets: verified Mach-O and runtime closure {root}")
+        if darwin_probe:
+            loaded: set[str] = set()
+            for line in probe.stderr.splitlines():
+                match = re.fullmatch(r"dyld\[\d+\]: <[^>]+> (/.+)", line)
+                if match is not None:
+                    loaded.add(match.group(1))
+            if not loaded:
+                fail(f"DYLD load observation was empty for {tool_id}")
+            for text in loaded:
+                if text == str(root / tool["executable"]):
+                    continue
+                if text.startswith(str(root) + "/") or text.startswith(system_roots):
+                    continue
+                fail(f"external tool {tool_id} loaded outside its closure: {text}")
+            macho = next(item for item in lock["machoPolicy"]["files"]
+                         if item["path"] == tool["executable"])
+            for edge in macho["externalLoads"]:
+                required = str((root / edge["bundlePath"]).resolve())
+                if required not in {str(Path(text).resolve()) for text in loaded}:
+                    fail(f"external tool {tool_id} did not load bundled {edge['bundlePath']}")
+        else:
+            trace_environment = dict(environment)
+            trace_environment["LD_TRACE_LOADED_OBJECTS"] = "1"
+            trace = subprocess.run(
+                [str(root / tool["executable"])],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=trace_environment,
+                timeout=10,
+            )
+            loaded = parse_ld_trace(trace.stdout)
+            elf_record = next(item for item in lock["elfPolicy"]["files"]
+                              if item["path"] == tool["executable"])
+            expected_system = {
+                edge["soname"] for edge in elf_record["needed"]
+                if edge["bundlePath"] is None
+            }
+            if expected_system and not loaded:
+                fail(f"LD load observation was empty for {tool_id}")
+            for text in loaded:
+                if text.startswith(str(root) + "/") or text.startswith(system_roots):
+                    continue
+                fail(f"external tool {tool_id} loaded outside its closure: {text}")
+            resolved_loaded = {str(Path(text).resolve()) for text in loaded}
+            for edge in elf_record["needed"]:
+                if edge["bundlePath"] is None:
+                    continue
+                required = str((root / edge["bundlePath"]).resolve())
+                if required not in resolved_loaded:
+                    fail(f"external tool {tool_id} did not load bundled {edge['bundlePath']}")
+    if darwin_probe:
+        print(f"toolchain-assets: verified Mach-O and runtime closure {root}")
+    else:
+        print(f"toolchain-assets: verified ELF and runtime closure {root}")
 
 
 def materialize_external(lock: dict, host_lock: dict, destination: Path) -> None:
@@ -2137,7 +2509,7 @@ def verify_lean_tree(root: Path, manifest: dict[str, dict],
                         fail(f"materialized Lean file changed during inspection: {relative}")
                 finally:
                     os.close(descriptor)
-                if magic in MACHO_MAGICS:
+                if magic in RUNTIME_IMAGE_MAGICS:
                     macho_paths.append(Path(entry.path))
             actual_paths.add(relative)
 
@@ -2163,6 +2535,60 @@ def locked_otool(host_lock: dict) -> Path:
             developer["otoolSha256"]):
         fail("effective Xcode otool does not match the host profile")
     return otool
+
+
+def locked_readelf(host_lock: dict) -> Path:
+    matching = [
+        profile for profile in host_lock["profiles"]
+        if host_profile_kind(profile) == "linux"
+    ]
+    if len(matching) != 1:
+        fail("host profile lock must contain exactly one linux profile")
+    distro = matching[0]["distroTools"]
+    readelf = Path(distro["readelfPath"])
+    try:
+        metadata = readelf.lstat()
+    except FileNotFoundError:
+        fail("locked distro readelf is missing")
+    if (not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode) or
+            sha256_regular_snapshot(readelf, metadata, "locked distro readelf") !=
+            distro["readelfSha256"]):
+        fail("locked distro readelf does not match the host profile")
+    return readelf
+
+
+def readelf_dynamic(readelf: Path, path: Path) -> tuple[set[str], str | None]:
+    output = subprocess.run(
+        [str(readelf), "-d", str(path)], check=True, capture_output=True, text=True,
+        env={"LC_ALL": "C"}, timeout=10,
+    ).stdout
+    needed: set[str] = set()
+    runpath: str | None = None
+    for line in output.splitlines():
+        match = re.search(r"\(NEEDED\).*\[(?P<soname>[^\]]+)\]", line)
+        if match is not None:
+            needed.add(match.group("soname"))
+            continue
+        match = re.search(r"\((?:RUNPATH|RPATH)\).*\[(?P<value>[^\]]+)\]", line)
+        if match is not None:
+            if runpath is not None and runpath != match.group("value"):
+                fail(f"ELF has conflicting RPATH/RUNPATH entries: {path}")
+            runpath = match.group("value")
+    return needed, runpath
+
+
+def parse_ld_trace(output: str) -> set[str]:
+    loaded: set[str] = set()
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        match = re.fullmatch(r"\S+\s+=>\s+(/\S+)\s+\(0x[0-9a-f]+\)", line)
+        if match is not None:
+            loaded.add(match.group(1))
+            continue
+        match = re.fullmatch(r"(/\S+)\s+\(0x[0-9a-f]+\)", line)
+        if match is not None:
+            loaded.add(match.group(1))
+    return loaded
 
 
 def internal_load_path(root: Path, base: Path, suffix: str,
@@ -2778,10 +3204,10 @@ def _open_runtime_observation_window(
                     "PF-SBOM-CLOSURE",
                     f"runtime digest witness mismatch: {relative}",
                 )
-            if magic not in MACHO_MAGICS:
+            if magic not in RUNTIME_IMAGE_MAGICS:
                 fail_sbom_observation(
                     "PF-SBOM-CLOSURE",
-                    f"runtime image is not Mach-O: {relative}",
+                    f"runtime image is not a Mach-O/ELF image: {relative}",
                 )
             files[relative] = {
                 "descriptor": descriptor,
@@ -2842,7 +3268,7 @@ def _verify_runtime_observation_window(window: dict) -> None:
                 "PF-SBOM-IO",
                 f"runtime image changed during final read: {relative}",
             )
-        if digest != item["digest"] or magic not in MACHO_MAGICS:
+        if digest != item["digest"] or magic not in RUNTIME_IMAGE_MAGICS:
             fail_sbom_observation(
                 "PF-SBOM-IO",
                 f"runtime image bytes changed during observation: {relative}",
@@ -3069,6 +3495,146 @@ def discover_lean_macho_static(
         ) from None
 
 
+def discover_lean_elf_static(
+    lock: dict,
+    host_lock: dict,
+    root: Path,
+    elf_paths: list[Path],
+):
+    """Single-pass readelf discovery -> typed CompilerRuntimeGraph (linux).
+
+    DT_NEEDED sonames are pre-resolved during inspection: toolchain-internal
+    libraries are mapped to their in-tree paths via RUNPATH $ORIGIN expansion,
+    everything else is admitted as a synthetic `/usr/lib/<soname>` system load
+    covered by elfPolicy.allowedSystemLoadRoots.
+    """
+
+    graph_mod = _load_compiler_runtime_graph()
+    if not elf_paths:
+        fail("materialized Lean tree contains no ELF files")
+    resolved_root = root.resolve()
+    resolved_inputs = [path.resolve() for path in elf_paths]
+    if len(resolved_inputs) != len(set(resolved_inputs)):
+        fail("materialized Lean tree contains duplicate ELF paths")
+    for path in resolved_inputs:
+        _root_relative_posix(resolved_root, path)
+    readelf = locked_readelf(host_lock)
+    system_roots = tuple(lock["elfPolicy"]["allowedSystemLoadRoots"])
+    runtime_elf_paths: list[Path] = []
+    for path in resolved_inputs:
+        headers = subprocess.run(
+            [str(readelf), "-h", str(path)], check=True, capture_output=True,
+            text=True, env={"LC_ALL": "C"}, timeout=10,
+        )
+        type_match = re.search(r"Type:\s+(?P<elftype>\S+)", headers.stdout)
+        if type_match is None:
+            fail(f"cannot classify ELF file type: {path.relative_to(resolved_root)}")
+        elf_type = type_match.group("elftype")
+        if elf_type == "REL":
+            # Relocatable objects are link inputs, not runtime nodes.
+            continue
+        if elf_type not in {"EXEC", "DYN"}:
+            fail(f"ELF has an unsupported runtime file type {elf_type}: "
+                 f"{path.relative_to(resolved_root)}")
+        runtime_elf_paths.append(path.resolve())
+    if not runtime_elf_paths:
+        fail("materialized Lean tree contains no runtime ELF files")
+
+    elf_set = set(runtime_elf_paths)
+    inspections_by_path: dict[str, object] = {}
+    for path in runtime_elf_paths:
+        relative = _root_relative_posix(resolved_root, path)
+        needed, runpath = readelf_dynamic(readelf, path)
+        search_directories: list[Path] = []
+        if runpath is not None:
+            for entry in runpath.split(":"):
+                if not entry:
+                    continue
+                expanded = entry.replace("$ORIGIN", str(path.parent))
+                if "$" in expanded:
+                    fail(f"ELF runpath contains an unsupported variable: {relative}")
+                candidate = Path(expanded)
+                if not candidate.is_absolute():
+                    fail(f"ELF runpath entry is not absolute: {relative}: {entry}")
+                resolved_entry = candidate.resolve(strict=False)
+                inside_toolchain = False
+                try:
+                    resolved_entry.relative_to(resolved_root)
+                    inside_toolchain = True
+                except ValueError:
+                    pass
+                if inside_toolchain:
+                    search_directories.append(resolved_entry)
+                    continue
+                if str(resolved_entry).startswith(system_roots):
+                    # A system-root runpath is admitted; it cannot resolve to a
+                    # toolchain image, so it is not a search directory here.
+                    continue
+                if not resolved_entry.exists():
+                    # Upstream build residue (the official lean linux zip is
+                    # nix-built and leaves /nix/store runpaths on unreachable
+                    # images): the runtime loader skips non-existent
+                    # directories, and every actual load is still fail-closed
+                    # via the LD_TRACE runtime probe.
+                    continue
+                fail(f"ELF runpath escapes toolchain and system roots: "
+                     f"{relative}: {entry}")
+        graph_loads: list[str] = []
+        for soname in sorted(needed):
+            internal_target: Path | None = None
+            for directory in search_directories:
+                candidate = (directory / soname).resolve(strict=False)
+                if candidate in elf_set:
+                    internal_target = candidate
+                    break
+            if internal_target is not None:
+                graph_loads.append(
+                    _normalize_load_for_graph(resolved_root, str(internal_target)))
+            else:
+                graph_loads.append(f"/usr/lib/{soname}")
+        inspections_by_path[relative] = graph_mod.MachOInspection(
+            rpaths=(),
+            loads=tuple(graph_loads),
+        )
+
+    entrypoint_rels: list[str] = []
+    for record in lock["compilerToolchain"]["executables"]:
+        relative = safe_relative(record["path"], "compiler entrypoint")
+        absolute = (resolved_root / relative).resolve()
+        if absolute not in elf_set:
+            fail(f"compiler entrypoint is not a runtime ELF: {relative}")
+        entrypoint_rels.append(relative)
+    if len(entrypoint_rels) != len(set(entrypoint_rels)):
+        fail("compiler entrypoints are not unique")
+    entrypoints = tuple(sorted(entrypoint_rels))
+
+    inspections = tuple(
+        (path, inspections_by_path[path])
+        for path in sorted(inspections_by_path)
+    )
+    try:
+        return graph_mod.resolve_compiler_runtime_graph(
+            entrypoints=entrypoints,
+            inspections=inspections,
+            allowed_system_roots=tuple(sorted(system_roots)),
+        )
+    except graph_mod.RuntimeGraphError as error:
+        raise AssetError(
+            f"compiler ELF runtime graph failed ({error.code}): {error.detail}"
+        ) from None
+
+
+def discover_lean_runtime_static(
+    lock: dict,
+    host_lock: dict,
+    root: Path,
+    image_paths: list[Path],
+):
+    if lock["schema"] == "proof-forge.toolchains.v2":
+        return discover_lean_macho_static(lock, host_lock, root, image_paths)
+    return discover_lean_elf_static(lock, host_lock, root, image_paths)
+
+
 def observe_compiler_runtime(
     *,
     lock: dict,
@@ -3092,7 +3658,7 @@ def observe_compiler_runtime(
             tree_manifest,
         )
         try:
-            graph = discover_lean_macho_static(
+            graph = discover_lean_runtime_static(
                 lock,
                 host_lock,
                 root,
@@ -3192,11 +3758,31 @@ def verify_lean_macho_static(lock: dict, host_lock: dict, root: Path,
     return closures
 
 
+def verify_lean_runtime_static(lock: dict, host_lock: dict, root: Path,
+                               image_paths: list[Path]) -> dict[Path, set[Path]]:
+    if lock["schema"] == "proof-forge.toolchains.v2":
+        return verify_lean_macho_static(lock, host_lock, root, image_paths)
+    graph = discover_lean_elf_static(lock, host_lock, root, image_paths)
+    resolved_root = root.resolve()
+    closures: dict[Path, set[Path]] = {}
+    legacy = graph.as_legacy_closures()
+    for entry_rel, members in legacy.items():
+        entry_abs = (resolved_root / entry_rel).resolve()
+        member_set = {(resolved_root / member).resolve() for member in members}
+        member_set.add(entry_abs)
+        closures[entry_abs] = member_set
+    return closures
+
+
 def probe_lean_versions_and_runtime(lock: dict, root: Path,
                                     closures: dict[Path, set[Path]]) -> None:
     compiler = lock["compilerToolchain"]
-    system_roots = tuple(lock["machoPolicy"]["allowedSystemLoadRoots"])
-    macho_set = set().union(*closures.values())
+    darwin_probe = lock["schema"] == "proof-forge.toolchains.v2"
+    if darwin_probe:
+        system_roots = tuple(lock["machoPolicy"]["allowedSystemLoadRoots"])
+    else:
+        system_roots = tuple(lock["elfPolicy"]["allowedSystemLoadRoots"])
+    image_set = set().union(*closures.values())
     for probe_record in compiler["versionProbes"]:
         executable = root / probe_record["path"]
         environment = {
@@ -3204,8 +3790,9 @@ def probe_lean_versions_and_runtime(lock: dict, root: Path,
             "LC_ALL": "C",
             "PATH": f"{root / 'bin'}:/usr/bin:/bin",
             "TZ": "UTC",
-            "DYLD_PRINT_LIBRARIES": "1",
         }
+        if darwin_probe:
+            environment["DYLD_PRINT_LIBRARIES"] = "1"
         probe = subprocess.run(
             [str(executable), *probe_record["args"]], check=False,
             capture_output=True, text=True, env=environment, timeout=10,
@@ -3214,20 +3801,31 @@ def probe_lean_versions_and_runtime(lock: dict, root: Path,
         if probe.returncode != 0 or probe_record["expected"] not in observed:
             fail(f"compiler version probe failed for {probe_record['path']}: "
                  f"{observed.strip()}")
-        loaded: set[Path] = set()
-        for line in probe.stderr.splitlines():
-            match = re.fullmatch(r"dyld\[\d+\]: <[^>]+> (/.+)", line)
-            if match is not None:
-                loaded.add(Path(match.group(1)))
-        if not loaded:
-            fail(f"DYLD load observation was empty for {probe_record['path']}")
+        if darwin_probe:
+            loaded: set[str] = set()
+            for line in probe.stderr.splitlines():
+                match = re.fullmatch(r"dyld\[\d+\]: <[^>]+> (/.+)", line)
+                if match is not None:
+                    loaded.add(match.group(1))
+            if not loaded:
+                fail(f"DYLD load observation was empty for {probe_record['path']}")
+        else:
+            trace_environment = dict(environment)
+            trace_environment["LD_TRACE_LOADED_OBJECTS"] = "1"
+            trace = subprocess.run(
+                [str(executable)], check=False, capture_output=True, text=True,
+                env=trace_environment, timeout=10,
+            )
+            loaded = parse_ld_trace(trace.stdout)
+            if not loaded:
+                fail(f"LD load observation was empty for {probe_record['path']}")
         internal_loaded: set[Path] = set()
-        for path in loaded:
-            text = str(path)
+        for text in loaded:
             if text.startswith(system_roots):
                 continue
-            if text.startswith(str(root) + "/") and path.resolve() in macho_set:
-                internal_loaded.add(path.resolve())
+            candidate = Path(text)
+            if text.startswith(str(root) + "/") and candidate.resolve() in image_set:
+                internal_loaded.add(candidate.resolve())
                 continue
             fail(f"compiler runtime escaped toolchain closure: "
                  f"{probe_record['path']} -> {text}")
@@ -3277,7 +3875,7 @@ def materialize_lean(lock: dict, host_lock: dict, destination: Path) -> None:
                                              f"Lean executable {record['path']}")
             if actual != record["sha256"]:
                 fail(f"Lean executable hash mismatch for {record['path']}: {actual}")
-        closures = verify_lean_macho_static(lock, host_lock, root, macho_paths)
+        closures = verify_lean_runtime_static(lock, host_lock, root, macho_paths)
         probe_lean_versions_and_runtime(lock, root, closures)
         os.replace(staging, destination)
     finally:
@@ -3287,7 +3885,133 @@ def materialize_lean(lock: dict, host_lock: dict, destination: Path) -> None:
     print(f"toolchain-assets: materialized Lean toolchain {destination}")
 
 
-def self_test(lock: dict, host_lock: dict) -> None:
+LINUX_SYSTEM_TOOL_IDS = (
+    "bash", "env", "git", "openssl", "python3", "readelf", "rm", "sha256sum",
+    "sleep", "stat", "uname",
+)
+
+
+def observe_linux_system_tool(tool_id: str) -> dict:
+    path = Path(f"/usr/bin/{tool_id}")
+    try:
+        node = path.lstat()
+    except FileNotFoundError:
+        fail(f"required linux system tool is missing: {path}")
+    if stat.S_ISLNK(node.st_mode):
+        node_kind = "symlink"
+        link_target = os.readlink(path)
+    elif stat.S_ISREG(node.st_mode):
+        node_kind = "regular"
+        link_target = None
+    else:
+        fail(f"linux system tool {tool_id} has an unsupported node kind: {path}")
+    try:
+        resolved = path.resolve(strict=True)
+    except (FileNotFoundError, RuntimeError) as error:
+        fail(f"linux system tool {tool_id} cannot be resolved: {error}")
+    resolved_metadata = resolved.lstat()
+    if not stat.S_ISREG(resolved_metadata.st_mode):
+        fail(f"linux system tool {tool_id} must resolve to a regular file: {resolved}")
+    return {
+        "id": tool_id,
+        "path": str(path),
+        "nodeKind": node_kind,
+        "linkTarget": link_target,
+        "resolvedPath": str(resolved),
+        "resolvedNlink": resolved_metadata.st_nlink,
+        "mode": format(stat.S_IMODE(resolved_metadata.st_mode), "04o"),
+        "sha256": sha256_file(resolved),
+    }
+
+
+def observe_host_linux(profile_id: str) -> dict:
+    if host_platform_kind() != "linux":
+        fail("observe-host currently supports linux hosts only")
+    require_safe_identifier(profile_id, "observe-host --profile-id")
+    tools = [observe_linux_system_tool(tool_id) for tool_id in LINUX_SYSTEM_TOOL_IDS]
+    tools.sort(key=lambda record: record["id"])
+    by_id = {record["id"]: record for record in tools}
+
+    os_release = read_os_release()
+    uname_path = by_id["uname"]["resolvedPath"]
+    platform = {
+        "osReleaseId": os_release.get("ID", ""),
+        "osReleaseVersionId": os_release.get("VERSION_ID", ""),
+        "kernelRelease": bounded_host_command([uname_path, "-r"]).stdout.strip(),
+        "arch": bounded_host_command([uname_path, "-m"]).stdout.strip(),
+        "secureBoot": observe_secure_boot(),
+    }
+    if not platform["osReleaseId"]:
+        fail("os-release observation is missing ID")
+
+    git_record = by_id["git"]
+    python_record = by_id["python3"]
+    readelf_record = by_id["readelf"]
+    distro_paths = [
+        (Path(git_record["resolvedPath"]), "distro Git"),
+        (Path(python_record["resolvedPath"]), "distro Python"),
+        (Path(readelf_record["resolvedPath"]), "distro readelf"),
+    ]
+    mutable = any(path_mutable_by_current_user(path, label) for path, label in distro_paths)
+    distro = {
+        "gitPath": git_record["resolvedPath"],
+        "gitSha256": git_record["sha256"],
+        "gitVersion": bounded_host_command(
+            [git_record["resolvedPath"], "--version"]).stdout.strip(),
+        "pythonPath": python_record["resolvedPath"],
+        "pythonSha256": python_record["sha256"],
+        "pythonVersion": bounded_host_command(
+            [python_record["resolvedPath"], "--version"]).stdout.strip(),
+        "readelfPath": readelf_record["resolvedPath"],
+        "readelfSha256": readelf_record["sha256"],
+        "readelfVersion": bounded_host_command(
+            [readelf_record["resolvedPath"], "--version"]).stdout.splitlines()[0],
+        "toolsMutableByCurrentUser": mutable,
+    }
+    bootstrap_source = by_id["openssl"]
+    kat = extract_kat_digest(
+        bounded_host_command(
+            [bootstrap_source["resolvedPath"], "dgst", "-sha256"],
+            input_bytes=b"abc",
+        ).stdout,
+        "digest bootstrap",
+    )
+    bootstrap = {
+        "path": bootstrap_source["path"],
+        "sha256": bootstrap_source["sha256"],
+        "knownAnswerInput": "abc",
+        "knownAnswerSha256": kat,
+    }
+    load_roots = sorted(
+        root for root in ("/lib/", "/lib64/", "/usr/lib/") if Path(root).is_dir())
+    if not load_roots:
+        fail("no system load roots observed")
+    eligible = (
+        platform["arch"] in {"x86_64", "aarch64"} and
+        platform["secureBoot"] == "enabled" and
+        not mutable
+    )
+    reasons = []
+    if platform["arch"] not in {"x86_64", "aarch64"}:
+        reasons.append(f"unsupported arch {platform['arch']}")
+    if platform["secureBoot"] != "enabled":
+        reasons.append(f"secure boot is {platform['secureBoot']}")
+    if mutable:
+        reasons.append("distro tool pathnames are replaceable by the current user")
+    return {
+        "id": profile_id,
+        "platform": platform,
+        "eligibleForHermetic": eligible,
+        "ineligibilityReason": None if eligible else
+            "; ".join(reasons) + "; this profile is development evidence only",
+        "distroTools": distro,
+        "digestBootstrap": bootstrap,
+        "systemRuntime": {"allowedLoadRoots": load_roots},
+        "systemTools": tools,
+    }
+
+
+def self_test_tool_lock(lock: dict, host_lock: dict) -> None:
     try:
         parse_json_text('{"outer":{"id":"first","id":"second"}}',
                         "duplicate-key self-test")
@@ -3296,6 +4020,13 @@ def self_test(lock: dict, host_lock: dict) -> None:
     else:
         fail("self-test failed to reject duplicate JSON keys")
 
+    if lock["schema"] == "proof-forge.toolchains.v2":
+        self_test_darwin_tool_lock(lock, host_lock)
+    else:
+        self_test_linux_tool_lock(lock, host_lock)
+
+
+def self_test_darwin_tool_lock(lock: dict, host_lock: dict) -> None:
     mutations: list[tuple[str, dict]] = []
     duplicate = copy.deepcopy(lock)
     duplicate["assets"].append(copy.deepcopy(duplicate["assets"][0]))
@@ -3373,6 +4104,24 @@ def self_test(lock: dict, host_lock: dict) -> None:
     else:
         fail("self-test accepted a broken Tool Lock cross-reference")
 
+    darwin_profile_index = next(
+        index for index, profile in enumerate(host_lock["profiles"])
+        if host_profile_kind(profile) == "darwin"
+    )
+    validate_lock_pair(lock, host_lock)
+    roots_mismatch = copy.deepcopy(host_lock)
+    roots_mismatch["profiles"][darwin_profile_index][
+        "systemRuntime"]["allowedLoadRoots"] = ["/usr/lib/"]
+    validate_host_lock(roots_mismatch)
+    try:
+        validate_lock_pair(lock, roots_mismatch)
+    except AssetError:
+        pass
+    else:
+        fail("self-test failed to reject cross-lock runtime roots mismatch")
+
+
+def self_test_host_lock_section_darwin(host_lock: dict) -> None:
     host_mutations: list[tuple[str, dict]] = []
     ineligible = copy.deepcopy(host_lock)
     ineligible["profiles"][0].pop("ineligibilityReason", None)
@@ -3428,16 +4177,165 @@ def self_test(lock: dict, host_lock: dict) -> None:
             continue
         fail(f"self-test failed to reject {name}")
 
-    roots_mismatch = copy.deepcopy(host_lock)
-    roots_mismatch["profiles"][0]["systemRuntime"]["allowedLoadRoots"] = ["/usr/lib/"]
-    validate_host_lock(roots_mismatch)
+def self_test_linux_tool_lock(lock: dict, host_lock: dict) -> None:
+    # --- ADR-0016: Tool Lock v3 (per-platform linux) fixtures ---
+    linux_lock = lock
+
+    linux_lock_mutations: list[tuple[str, dict]] = []
+    v3_wrong_platform = copy.deepcopy(linux_lock)
+    v3_wrong_platform["platform"] = "darwin-arm64"
+    linux_lock_mutations.append(("v3 lock with darwin platform", v3_wrong_platform))
+    v2_with_elf = copy.deepcopy(linux_lock)
+    v2_with_elf["schema"] = "proof-forge.toolchains.v2"
+    linux_lock_mutations.append(("v2 schema carrying elfPolicy", v2_with_elf))
+    missing_elf_file = copy.deepcopy(linux_lock)
+    del missing_elf_file["elfPolicy"]["files"][0]
+    linux_lock_mutations.append(("elf policy missing a bundle file", missing_elf_file))
+    unknown_elf_path = copy.deepcopy(linux_lock)
+    unknown_elf_path["elfPolicy"]["files"][0]["path"] = "bin/unknown"
+    linux_lock_mutations.append(("elf policy unknown bundle path", unknown_elf_path))
+    unsorted_needed = copy.deepcopy(linux_lock)
+    unsorted_needed["elfPolicy"]["files"][-1]["needed"] = [
+        {"soname": "libz.so.1", "bundlePath": None},
+        {"soname": "libc.so.6", "bundlePath": None},
+    ]
+    linux_lock_mutations.append(("elf needed not sorted", unsorted_needed))
+    slash_soname = copy.deepcopy(linux_lock)
+    slash_soname["elfPolicy"]["files"][0]["needed"] = [
+        {"soname": "/etc/passwd", "bundlePath": None},
+    ]
+    linux_lock_mutations.append(("elf soname containing a slash", slash_soname))
+    unknown_needed_bundle = copy.deepcopy(linux_lock)
+    unknown_needed_bundle["elfPolicy"]["files"][0]["needed"] = [
+        {"soname": "libx.so.1", "bundlePath": "bin/unknown"},
+    ]
+    linux_lock_mutations.append(("elf needed unknown bundle target", unknown_needed_bundle))
+    relative_elf_root = copy.deepcopy(linux_lock)
+    relative_elf_root["elfPolicy"]["allowedSystemLoadRoots"] = ["usr/lib/"]
+    linux_lock_mutations.append(("elf policy relative load root", relative_elf_root))
+    for name, candidate in linux_lock_mutations:
+        try:
+            validate_tool_lock(candidate)
+        except AssetError:
+            continue
+        fail(f"self-test failed to reject {name}")
+
+    validate_lock_pair(linux_lock, host_lock)
+    linux_roots_mismatch = copy.deepcopy(host_lock)
+    linux_profile_index = next(
+        index for index, profile in enumerate(linux_roots_mismatch["profiles"])
+        if host_profile_kind(profile) == "linux"
+    )
+    linux_roots_mismatch["profiles"][linux_profile_index][
+        "systemRuntime"]["allowedLoadRoots"] = ["/usr/lib/"]
+    validate_host_lock(linux_roots_mismatch)
     try:
-        validate_lock_pair(lock, roots_mismatch)
+        validate_lock_pair(linux_lock, linux_roots_mismatch)
     except AssetError:
         pass
     else:
-        fail("self-test failed to reject cross-lock runtime roots mismatch")
+        fail("self-test failed to reject linux cross-lock runtime roots mismatch")
 
+
+def self_test_host_lock_section(host_lock: dict) -> None:
+    # --- ADR-0016: Host Profile v2 (linux) fixtures ---
+    linux_profile_fixture = {
+        "id": "linux-x86_64-fixture-development",
+        "platform": {
+            "osReleaseId": "linuxmint",
+            "osReleaseVersionId": "22.3",
+            "kernelRelease": "6.17.0-23-generic",
+            "arch": "x86_64",
+            "secureBoot": "disabled",
+        },
+        "eligibleForHermetic": False,
+        "ineligibilityReason": "fixture: secure boot is disabled",
+        "distroTools": {
+            "gitPath": "/usr/bin/git",
+            "gitSha256": "0" * 64,
+            "gitVersion": "git version 2.43.0",
+            "pythonPath": "/usr/bin/python3.12",
+            "pythonSha256": "0" * 64,
+            "pythonVersion": "Python 3.12.3",
+            "readelfPath": "/usr/bin/readelf",
+            "readelfSha256": "0" * 64,
+            "readelfVersion": "GNU readelf (GNU Binutils for Ubuntu) 2.42",
+            "toolsMutableByCurrentUser": False,
+        },
+        "digestBootstrap": {
+            "path": "/usr/bin/openssl",
+            "sha256": "0" * 64,
+            "knownAnswerInput": "abc",
+            "knownAnswerSha256":
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        },
+        "systemRuntime": {"allowedLoadRoots": ["/lib/", "/lib64/", "/usr/lib/"]},
+        "systemTools": [
+            {
+                "id": "openssl",
+                "path": "/usr/bin/openssl",
+                "nodeKind": "regular",
+                "linkTarget": None,
+                "resolvedPath": "/usr/bin/openssl",
+                "resolvedNlink": 1,
+                "mode": "0755",
+                "sha256": "0" * 64,
+            },
+        ],
+    }
+    dual_host_lock = {
+        "schema": "proof-forge.host-profiles.v2",
+        "profiles": [copy.deepcopy(host_lock["profiles"][0]), linux_profile_fixture],
+    }
+    validate_host_lock(dual_host_lock)
+
+    v2_host_mutations: list[tuple[str, dict]] = []
+    retired_v1 = copy.deepcopy(dual_host_lock)
+    retired_v1["schema"] = "proof-forge.host-profiles.v1"
+    v2_host_mutations.append(("retired v1 host lock schema", retired_v1))
+    duplicate_kind = copy.deepcopy(dual_host_lock)
+    second_linux = copy.deepcopy(linux_profile_fixture)
+    second_linux["id"] = "linux-x86_64-fixture-other"
+    duplicate_kind["profiles"].append(second_linux)
+    v2_host_mutations.append(("two linux profiles", duplicate_kind))
+    unknown_platform_keys = copy.deepcopy(dual_host_lock)
+    unknown_platform_keys["profiles"][1]["platform"] = {"osReleaseId": "x"}
+    v2_host_mutations.append(("unrecognized linux platform keys", unknown_platform_keys))
+    free_form_secure_boot = copy.deepcopy(dual_host_lock)
+    free_form_secure_boot["profiles"][1]["platform"]["secureBoot"] = "yes"
+    v2_host_mutations.append(("secure boot free-form value", free_form_secure_boot))
+    missing_distro_field = copy.deepcopy(dual_host_lock)
+    del missing_distro_field["profiles"][1]["distroTools"]["readelfSha256"]
+    v2_host_mutations.append(("missing distro tool field", missing_distro_field))
+    relative_distro_path = copy.deepcopy(dual_host_lock)
+    relative_distro_path["profiles"][1]["distroTools"]["gitPath"] = "usr/bin/git"
+    v2_host_mutations.append(("relative distro tool path", relative_distro_path))
+    linux_eligible_baseline = copy.deepcopy(dual_host_lock)
+    linux_eligible_profile = linux_eligible_baseline["profiles"][1]
+    linux_eligible_profile["eligibleForHermetic"] = True
+    linux_eligible_profile["ineligibilityReason"] = None
+    linux_eligible_profile["platform"]["secureBoot"] = "enabled"
+    validate_host_lock(linux_eligible_baseline)
+    for name, section, field, value in (
+        ("linux eligible with secure boot disabled",
+         "platform", "secureBoot", "disabled"),
+        ("linux eligible with secure boot unavailable",
+         "platform", "secureBoot", "unavailable"),
+        ("linux eligible with a foreign arch", "platform", "arch", "riscv64"),
+        ("linux eligible with mutable distro tools",
+         "distroTools", "toolsMutableByCurrentUser", True),
+    ):
+        candidate = copy.deepcopy(linux_eligible_baseline)
+        candidate["profiles"][1][section][field] = value
+        v2_host_mutations.append((name, candidate))
+    for name, candidate in v2_host_mutations:
+        try:
+            validate_host_lock(candidate)
+        except AssetError:
+            continue
+        fail(f"self-test failed to reject {name}")
+
+def self_test_archive_and_redirect() -> None:
     redirect_handler = StrictHTTPSRedirectHandler()
     authenticated = urllib.request.Request(
         "https://registry.example.invalid/v2/blob",
@@ -3577,17 +4475,18 @@ def self_test(lock: dict, host_lock: dict) -> None:
          ("compiler/fifo", stat.S_IFIFO | 0o644, b"x")],
         1,
     )
-    print("toolchain-assets: self-test ok")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lock", type=Path, default=DEFAULT_LOCK)
+    parser.add_argument("--lock", type=Path, default=None)
     parser.add_argument("--host-lock", type=Path, default=DEFAULT_HOST_LOCK)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("validate")
     commands.add_parser("self-test")
     commands.add_parser("cache-root")
+    observe = commands.add_parser("observe-host")
+    observe.add_argument("--profile-id", required=True)
     provision = commands.add_parser("provision")
     provision.add_argument("--group", choices=("all", "external", "lean"), default="all")
     provision.add_argument("--asset", action="append", default=[])
@@ -3607,11 +4506,25 @@ def main() -> None:
     if not sys.flags.isolated or not sys.flags.no_site:
         fail("run toolchain-assets with /usr/bin/python3 -I -S")
     args = build_parser().parse_args()
-    lock, host_lock = load_locks(args.lock.resolve(), args.host_lock.resolve())
+    if args.command == "observe-host":
+        profile = observe_host_linux(args.profile_id)
+        print(json.dumps(profile, indent=2))
+        return
+    lock_path = args.lock if args.lock is not None else default_lock_path()
+    lock, host_lock = load_locks(lock_path.resolve(), args.host_lock.resolve())
     if args.command == "validate":
         print("toolchain-assets: lock validation ok")
     elif args.command == "self-test":
-        self_test(lock, host_lock)
+        names = list(dict.fromkeys(PLATFORM_LOCK_FILES.values()))
+        paths = [path for path in (ROOT / name for name in names) if path.is_file()]
+        if not paths:
+            fail("no toolchain lock files found for self-test")
+        for path in paths:
+            self_test_tool_lock(validate_tool_lock(load_json(path.resolve())), host_lock)
+        self_test_host_lock_section_darwin(host_lock)
+        self_test_host_lock_section(host_lock)
+        self_test_archive_and_redirect()
+        print("toolchain-assets: self-test ok")
     elif args.command == "cache-root":
         print(cache_root())
     elif args.command == "provision":
@@ -3624,10 +4537,10 @@ def main() -> None:
     elif args.command == "materialize-lean":
         materialize_lean(lock, host_lock, args.destination.resolve())
     elif args.command == "verify-host":
-        profile = host_lock["profiles"][0]
-        if args.profile_id != profile["id"]:
+        matching = [p for p in host_lock["profiles"] if p["id"] == args.profile_id]
+        if len(matching) != 1:
             fail(f"unknown host profile: {args.profile_id}")
-        verify_host(profile, require_eligible=args.require_eligible)
+        verify_host(matching[0], require_eligible=args.require_eligible)
     else:  # pragma: no cover - argparse owns this boundary
         fail(f"unsupported command {args.command}")
 

@@ -1,6 +1,9 @@
 set shell := ["/bin/bash", "-eu", "-o", "pipefail", "-c"]
 
-tool_root := env_var_or_default("PROOF_FORGE_TOOL_ROOT", env_var("HOME") + "/.cache/proof-forge-v2/tool-root/darwin-arm64")
+platform_tag := if os() == "macos" { "darwin-arm64" } else if os() == "linux" { "linux-" + arch() } else { "unsupported-" + os() }
+tool_root := env_var_or_default("PROOF_FORGE_TOOL_ROOT", env_var("HOME") + "/.cache/proof-forge-v2/tool-root/" + platform_tag)
+locked_git := if os() == "macos" { "/Applications/Xcode.app/Contents/Developer/usr/bin/git" } else { "/usr/bin/git" }
+locked_python := if os() == "macos" { "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9" } else { "/usr/bin/python3" }
 
 default: check
 
@@ -97,7 +100,7 @@ candidate-binding:
     tmp="$PWD/build/candidate-binding"
     /bin/rm -rf "$tmp"
     /bin/mkdir -p "$tmp/extracted"
-    git_bin=/Applications/Xcode.app/Contents/Developer/usr/bin/git
+    git_bin={{locked_git}}
     export GIT_NO_REPLACE_OBJECTS=1 GIT_OPTIONAL_LOCKS=0
     repo_root="$("$git_bin" --no-replace-objects rev-parse --show-toplevel)"
     commit="$("$git_bin" --no-replace-objects rev-parse --verify 'HEAD^{commit}')"
@@ -139,7 +142,7 @@ evidence-core:
     #!/bin/bash
     set -euo pipefail
     tmp="$PWD/build/evidence-core"
-    xcode_python=/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9
+    xcode_python={{locked_python}}
     /bin/rm -rf "$tmp"
     /bin/mkdir -p "$tmp"
     test -x "$xcode_python"
@@ -154,7 +157,7 @@ evidence-core:
 evidence-finalization:
     #!/bin/bash
     set -euo pipefail
-    xcode_python=/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9
+    xcode_python={{locked_python}}
     test -x "$xcode_python"
     "$xcode_python" -I -S -m py_compile scripts/gate_evidence_finalization_self_test.py
     "$xcode_python" -I -S scripts/gate_evidence_finalization_self_test.py
@@ -163,7 +166,7 @@ sandbox-policy:
     #!/bin/bash
     set -euo pipefail
     tmp="$PWD/build/sandbox-policy"
-    xcode_python=/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9
+    xcode_python={{locked_python}}
     /bin/rm -rf "$tmp"
     /bin/mkdir -p "$tmp"
     test -x "$xcode_python"

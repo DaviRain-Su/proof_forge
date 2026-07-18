@@ -1,0 +1,254 @@
+{
+  "schema": "proof-forge.toolchains.v3",
+  "platform": "linux-x86_64",
+  "assets": [
+    {
+      "id": "foundry-v0.3.0-linux-amd64",
+      "url": "https://github.com/foundry-rs/foundry/releases/download/v0.3.0/foundry_v0.3.0_linux_amd64.tar.gz",
+      "size": 57892933,
+      "sha256": "c9461affb89fab19d032ee95fe1015b56bc2b7807cd7e17dad54e471d0c9972e",
+      "format": "tar.gz"
+    },
+    {
+      "id": "jv-v6.0.2-linux-amd64",
+      "url": "https://github.com/santhosh-tekuri/jsonschema/releases/download/v6.0.2/jv-v6.0.2-linux-amd64.tar.gz",
+      "size": 5918146,
+      "sha256": "a716ae481e4553e1f444b7ba64123579f2a01406ba15a332dde6028e0a137f4f",
+      "format": "tar.gz"
+    },
+    {
+      "id": "lean-4.31.0-linux-x86_64",
+      "url": "https://github.com/leanprover/lean4/releases/download/v4.31.0/lean-4.31.0-linux.zip",
+      "size": 871637688,
+      "sha256": "cdd336bcc1a8456f6628a368c1fa6d432f663f01a1fdcfe8c2c2ad760d3f9285",
+      "format": "zip"
+    },
+    {
+      "id": "solc-0.8.34-static-linux",
+      "url": "https://github.com/argotorg/solidity/releases/download/v0.8.34/solc-static-linux",
+      "size": 16865544,
+      "sha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+      "format": "file"
+    },
+    {
+      "id": "wabt-1.0.41-linux-x64",
+      "url": "https://github.com/WebAssembly/wabt/releases/download/1.0.41/wabt-1.0.41-linux-x64.tar.gz",
+      "size": 5076269,
+      "sha256": "83f8122e924745fcd70636e3594bc01c4c47f2d4c8f3c63b5d70d3f83a482677",
+      "format": "tar.gz"
+    }
+  ],
+  "compilerToolchain": {
+    "id": "lean",
+    "version": "4.31.0",
+    "sourceCommit": "68218e876d2a38b1985b8590fff244a83c321783",
+    "platform": "linux-x86_64",
+    "assetId": "lean-4.31.0-linux-x86_64",
+    "archiveRoot": "lean-4.31.0-linux",
+    "stripComponents": 1,
+    "entryCount": 15233,
+    "unpackedSize": 3119215930,
+    "executables": [
+      {
+        "path": "bin/lake",
+        "sha256": "60330ab6f07dce20f3fa9ebb08e8b984ea9549eac172afeb15d9d2227060e2b3"
+      },
+      {
+        "path": "bin/lean",
+        "sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550"
+      }
+    ],
+    "versionProbes": [
+      {
+        "path": "bin/lake",
+        "args": ["--version"],
+        "expected": "Lake version 5.0.0-src+68218e8 (Lean version 4.31.0)"
+      },
+      {
+        "path": "bin/lean",
+        "args": ["--version"],
+        "expected": "Lean (version 4.31.0, x86_64-unknown-linux-gnu, commit 68218e876d2a38b1985b8590fff244a83c321783, Release)"
+      }
+    ]
+  },
+  "bundleFiles": [
+    {
+      "path": "anvil",
+      "assetId": "foundry-v0.3.0-linux-amd64",
+      "member": "anvil",
+      "size": 22254872,
+      "sha256": "6104069b183fa0f3cdcb692681da9dbd203a3c1bceb435853bbf7abd991c649e",
+      "mode": "0555"
+    },
+    {
+      "path": "cast",
+      "assetId": "foundry-v0.3.0-linux-amd64",
+      "member": "cast",
+      "size": 41470624,
+      "sha256": "2e7ad5eecfd3766069fa0955cbe959d9aa7a8df1b426f084a88743e759ca2b5d",
+      "mode": "0555"
+    },
+    {
+      "path": "jv",
+      "assetId": "jv-v6.0.2-linux-amd64",
+      "member": "jv",
+      "size": 10608100,
+      "sha256": "905cbe1e59b36771ea5b4d9479141cb07c4722462cef8f81fda7cd4fbdbc2c9c",
+      "mode": "0555"
+    },
+    {
+      "path": "solc",
+      "assetId": "solc-0.8.34-static-linux",
+      "member": null,
+      "size": 16865544,
+      "sha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+      "mode": "0555"
+    },
+    {
+      "path": "wat2wasm",
+      "assetId": "wabt-1.0.41-linux-x64",
+      "member": "wabt-1.0.41/bin/wat2wasm",
+      "size": 1762176,
+      "sha256": "b98b5517a024025e76f7cd78cc5e9a9002d7429ba4c8f01b3a178725ed4676da",
+      "mode": "0555"
+    }
+  ],
+  "elfPolicy": {
+    "allowedSystemLoadRoots": ["/lib/", "/lib64/", "/usr/lib/"],
+    "files": [
+      {
+        "path": "anvil",
+        "needed": [
+          {"soname": "libc.so.6", "bundlePath": null},
+          {"soname": "libdl.so.2", "bundlePath": null},
+          {"soname": "libgcc_s.so.1", "bundlePath": null},
+          {"soname": "libm.so.6", "bundlePath": null},
+          {"soname": "libpthread.so.0", "bundlePath": null}
+        ],
+        "runpath": null
+      },
+      {
+        "path": "cast",
+        "needed": [
+          {"soname": "ld-linux-x86-64.so.2", "bundlePath": null},
+          {"soname": "libc.so.6", "bundlePath": null},
+          {"soname": "libdl.so.2", "bundlePath": null},
+          {"soname": "libgcc_s.so.1", "bundlePath": null},
+          {"soname": "libm.so.6", "bundlePath": null},
+          {"soname": "libpthread.so.0", "bundlePath": null}
+        ],
+        "runpath": null
+      },
+      {
+        "path": "jv",
+        "needed": [
+          {"soname": "libc.so.6", "bundlePath": null},
+          {"soname": "libpthread.so.0", "bundlePath": null},
+          {"soname": "libresolv.so.2", "bundlePath": null}
+        ],
+        "runpath": null
+      },
+      {
+        "path": "solc",
+        "needed": [],
+        "runpath": null
+      },
+      {
+        "path": "wat2wasm",
+        "needed": [
+          {"soname": "libc.so.6", "bundlePath": null},
+          {"soname": "libstdc++.so.6", "bundlePath": null}
+        ],
+        "runpath": null
+      }
+    ]
+  },
+  "tools": [
+    {
+      "id": "anvil",
+      "version": "0.3.0+5a8bd89",
+      "sourceUrl": "https://github.com/foundry-rs/foundry/releases/tag/v0.3.0",
+      "platform": "linux-x86_64",
+      "assetId": "foundry-v0.3.0-linux-amd64",
+      "executable": "anvil",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/anvil",
+      "executableSha256": "6104069b183fa0f3cdcb692681da9dbd203a3c1bceb435853bbf7abd991c649e",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": ["--version"],
+      "expectedVersion": "0.3.0 (5a8bd89",
+      "licenseSpdx": "MIT OR Apache-2.0",
+      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1-runtime"]
+    },
+    {
+      "id": "cast",
+      "version": "0.3.0+5a8bd89",
+      "sourceUrl": "https://github.com/foundry-rs/foundry/releases/tag/v0.3.0",
+      "platform": "linux-x86_64",
+      "assetId": "foundry-v0.3.0-linux-amd64",
+      "executable": "cast",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/cast",
+      "executableSha256": "2e7ad5eecfd3766069fa0955cbe959d9aa7a8df1b426f084a88743e759ca2b5d",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": ["--version"],
+      "expectedVersion": "0.3.0 (5a8bd89",
+      "licenseSpdx": "MIT OR Apache-2.0",
+      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1-runtime"]
+    },
+    {
+      "id": "jv",
+      "version": "6.0.2",
+      "sourceUrl": "https://github.com/santhosh-tekuri/jsonschema/releases/tag/v6.0.2",
+      "platform": "linux-x86_64",
+      "assetId": "jv-v6.0.2-linux-amd64",
+      "executable": "jv",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/jv",
+      "executableSha256": "905cbe1e59b36771ea5b4d9479141cb07c4722462cef8f81fda7cd4fbdbc2c9c",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": ["-v"],
+      "expectedVersion": "github.com/santhosh-tekuri/jsonschema/cmd/jv (devel)",
+      "licenseSpdx": "Apache-2.0",
+      "requiredByProfiles": ["supply-chain-cyclonedx-1.6-v1"]
+    },
+    {
+      "id": "solc",
+      "version": "0.8.34+commit.80d5c536",
+      "sourceUrl": "https://github.com/argotorg/solidity/releases/tag/v0.8.34",
+      "platform": "linux-x86_64",
+      "assetId": "solc-0.8.34-static-linux",
+      "executable": "solc",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/solc",
+      "executableSha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": ["--version"],
+      "expectedVersion": "0.8.34+commit.80d5c536",
+      "licenseSpdx": "GPL-3.0-or-later",
+      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1"]
+    },
+    {
+      "id": "wat2wasm",
+      "version": "1.0.41",
+      "sourceUrl": "https://github.com/WebAssembly/wabt/releases/tag/1.0.41",
+      "platform": "linux-x86_64",
+      "assetId": "wabt-1.0.41-linux-x64",
+      "executable": "wat2wasm",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/wat2wasm",
+      "executableSha256": "b98b5517a024025e76f7cd78cc5e9a9002d7429ba4c8f01b3a178725ed4676da",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": ["--version"],
+      "expectedVersion": "1.0.41",
+      "licenseSpdx": "Apache-2.0",
+      "requiredByProfiles": ["near-wasm-raw-u64-v1"]
+    }
+  ],
+  "unresolved": {
+    "nearSandbox": "2.13.0",
+    "solanaAssembler": null,
+    "nargo": null,
+    "barretenberg": null
+  }
+}

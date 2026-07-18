@@ -1,5 +1,5 @@
 {
-  "schema": "proof-forge.host-profiles.v1",
+  "schema": "proof-forge.host-profiles.v2",
   "profiles": [
     {
       "id": "darwin-arm64-25E253-xcode17C529-development",
@@ -25,7 +25,9 @@
         "xcodeDesignatedRequirement": "(anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"59GAB85EFG\") and identifier \"com.apple.dt.Xcode\"",
         "xcodeCdHash": "97d0bbc90eb11b42b3d2ae659800fb4dde9668e2",
         "xcodeMutableByCurrentUser": true,
-        "allowedRuntimeRoots": ["/Applications/Xcode.app/"],
+        "allowedRuntimeRoots": [
+          "/Applications/Xcode.app/"
+        ],
         "gitPath": "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
         "gitSha256": "757d680693a1889040fce7f5b62230b4edd1e8a082bb198a2a13386decae8011",
         "gitVersion": "git version 2.50.1 (Apple Git-155)",
@@ -44,38 +46,451 @@
         "knownAnswerSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
       },
       "systemRuntime": {
-        "allowedLoadRoots": ["/System/Library/", "/usr/lib/"]
+        "allowedLoadRoots": [
+          "/System/Library/",
+          "/usr/lib/"
+        ]
       },
       "systemTools": [
-        {"id": "awk", "path": "/usr/bin/awk", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/awk", "resolvedNlink": 1, "mode": "0755", "sha256": "116aa4d27323ba29b0b481119e2e0b0aec0f518e1d535f424531c002311ac505"},
-        {"id": "bash", "path": "/bin/bash", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/bin/bash", "resolvedNlink": 1, "mode": "0555", "sha256": "35536aea9733aa345b61134a98d00232380898e55b2ea2a07c497011f7dfc7a3"},
-        {"id": "chmod", "path": "/bin/chmod", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/bin/chmod", "resolvedNlink": 1, "mode": "0755", "sha256": "378aded8fd0852a4930c39bd8ff8584be2c8b590ec8f74a298e56300264164c7"},
-        {"id": "codesign", "path": "/usr/bin/codesign", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/codesign", "resolvedNlink": 1, "mode": "0755", "sha256": "06eacc36d43376972d3bca0a2137ea4efd6d0fe27de8a7af0e6b11d599e8f337"},
-        {"id": "cp", "path": "/bin/cp", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/bin/cp", "resolvedNlink": 1, "mode": "0755", "sha256": "abdacc2fc3183df9a2e68d22556cf5509fbd62799bb71ec2a38febfb4fbd9c5c"},
-        {"id": "csrutil", "path": "/usr/bin/csrutil", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/csrutil", "resolvedNlink": 1, "mode": "0755", "sha256": "1e6ccb28c206373fc80ef1e79ee64fbd7ddb4c9183e9e46835d3ef965d2bce6e"},
-        {"id": "curl", "path": "/usr/bin/curl", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/curl", "resolvedNlink": 1, "mode": "0755", "sha256": "5ef748580e05e8208c8faacc9be88d1aa48d9970101c0a29ba26896e017e6226"},
-        {"id": "diskutil", "path": "/usr/sbin/diskutil", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/sbin/diskutil", "resolvedNlink": 1, "mode": "0755", "sha256": "520a71983659450859c6bb9275ba1b07690eef8a0b156aeaabe4a21656f8c0f3"},
-        {"id": "env", "path": "/usr/bin/env", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/env", "resolvedNlink": 1, "mode": "0755", "sha256": "9eb7c5aed7f3c7fe07b77d9a84d0a7c6a8c68c17a15aa3dace0d8ff02d352776"},
-        {"id": "find", "path": "/usr/bin/find", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/find", "resolvedNlink": 1, "mode": "0755", "sha256": "cba00ca2fb86aaafa7f8448b2b3d94fd792d28f079562b9547425fda1fa683a4"},
-        {"id": "git", "path": "/usr/bin/git", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/git", "resolvedNlink": 78, "mode": "0755", "sha256": "12bed4523661307059b879b9b54e77a73176e9d27d27a0e40363271d8f0668ba"},
-        {"id": "grep", "path": "/usr/bin/grep", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/grep", "resolvedNlink": 5, "mode": "0755", "sha256": "468ff46a0b9f0e88de268ce12640bfa37610d585f968127cf32cf4e86d5c70ab"},
-        {"id": "mkdir", "path": "/bin/mkdir", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/bin/mkdir", "resolvedNlink": 1, "mode": "0755", "sha256": "7b98111d92aba1c3679a6633db281945f55f2e2581ca3cf982c999f1865e3b4c"},
-        {"id": "mktemp", "path": "/usr/bin/mktemp", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/mktemp", "resolvedNlink": 1, "mode": "0755", "sha256": "eab827ffdacc768a1fd3aae419480906ca3b44d7942504343f0c5fcf055048cb"},
-        {"id": "openssl", "path": "/usr/bin/openssl", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/openssl", "resolvedNlink": 1, "mode": "0755", "sha256": "5b46d2a62a0f6fd1bec2236936991e13f23896fa5e0c6d0a4a69ad6928411ae9"},
-        {"id": "python3", "path": "/usr/bin/python3", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/python3", "resolvedNlink": 78, "mode": "0755", "sha256": "12bed4523661307059b879b9b54e77a73176e9d27d27a0e40363271d8f0668ba"},
-        {"id": "rm", "path": "/bin/rm", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/bin/rm", "resolvedNlink": 2, "mode": "0755", "sha256": "eac5b0e334d4c89493b505c72191a106af3b42bfe4ae5224967d71f11cc7f9ba"},
-        {"id": "sandbox-exec", "path": "/usr/bin/sandbox-exec", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/sandbox-exec", "resolvedNlink": 1, "mode": "0755", "sha256": "d1ee30dbde955aaa75c7f801fdfea4df05b10129454d7982eb6453f771436d42"},
-        {"id": "sleep", "path": "/bin/sleep", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/bin/sleep", "resolvedNlink": 1, "mode": "0755", "sha256": "00c84d198e2b80da7dc47c0e30d311cd632f74c257793c4b45723f2cb7ca5d2c"},
-        {"id": "stat", "path": "/usr/bin/stat", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/stat", "resolvedNlink": 2, "mode": "0755", "sha256": "a1de52ec9a6c81a62e4a320d90d694e65a32976f51154e998199de7030afc263"},
-        {"id": "sw_vers", "path": "/usr/bin/sw_vers", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/sw_vers", "resolvedNlink": 1, "mode": "0755", "sha256": "19944ce73b498bbc997043b8530984aff4c6ca9741cb3a044c9320369bb019dd"},
-        {"id": "sysctl", "path": "/usr/sbin/sysctl", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/sbin/sysctl", "resolvedNlink": 1, "mode": "0755", "sha256": "d7e565d1bf203a4ed62d68ec68d7c56e6ad0b1cd6475d709288d434b92082efc"},
-        {"id": "tar", "path": "/usr/bin/tar", "nodeKind": "symlink", "linkTarget": "bsdtar", "resolvedPath": "/usr/bin/bsdtar", "resolvedNlink": 1, "mode": "0755", "sha256": "bdccb76a715fbebc4915a1a1b1de0e7050ad842ebb730c47935b3a22c13e3af9"},
-        {"id": "tr", "path": "/usr/bin/tr", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/tr", "resolvedNlink": 1, "mode": "0755", "sha256": "960e2fe0e8ede52e11ee228d90b6f37cfe81410f0e22fc327413dd3ed7b572e4"},
-        {"id": "uname", "path": "/usr/bin/uname", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/uname", "resolvedNlink": 1, "mode": "0755", "sha256": "9abecf7a88117e093ff6c34ce07bacf7dc1277af1193b1cb0a0bf8fa4b2d4696"},
-        {"id": "unzip", "path": "/usr/bin/unzip", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/unzip", "resolvedNlink": 2, "mode": "0755", "sha256": "ef493b7349bfa1603a24aaa87b44677f76f5fe37eae7da4c151f53df9518e847"},
-        {"id": "xcode-select", "path": "/usr/bin/xcode-select", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/xcode-select", "resolvedNlink": 1, "mode": "0755", "sha256": "46db1db75076c31d7e13960c3640abcf9f960e566304ffba44b1b81f47e58a3e"},
-        {"id": "xcodebuild", "path": "/usr/bin/xcodebuild", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/xcodebuild", "resolvedNlink": 16, "mode": "0755", "sha256": "aeb95b262dc494a37775bb372d433370577b3a69acb38bbaa177efae9eb8bad9"},
-        {"id": "xcrun", "path": "/usr/bin/xcrun", "nodeKind": "regular", "linkTarget": null, "resolvedPath": "/usr/bin/xcrun", "resolvedNlink": 1, "mode": "0755", "sha256": "234a81668b43d610a78d9293a5ccef397f561a88af84757194aedaa1ec728ad3"}
+        {
+          "id": "awk",
+          "path": "/usr/bin/awk",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/awk",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "116aa4d27323ba29b0b481119e2e0b0aec0f518e1d535f424531c002311ac505"
+        },
+        {
+          "id": "bash",
+          "path": "/bin/bash",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/bin/bash",
+          "resolvedNlink": 1,
+          "mode": "0555",
+          "sha256": "35536aea9733aa345b61134a98d00232380898e55b2ea2a07c497011f7dfc7a3"
+        },
+        {
+          "id": "chmod",
+          "path": "/bin/chmod",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/bin/chmod",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "378aded8fd0852a4930c39bd8ff8584be2c8b590ec8f74a298e56300264164c7"
+        },
+        {
+          "id": "codesign",
+          "path": "/usr/bin/codesign",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/codesign",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "06eacc36d43376972d3bca0a2137ea4efd6d0fe27de8a7af0e6b11d599e8f337"
+        },
+        {
+          "id": "cp",
+          "path": "/bin/cp",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/bin/cp",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "abdacc2fc3183df9a2e68d22556cf5509fbd62799bb71ec2a38febfb4fbd9c5c"
+        },
+        {
+          "id": "csrutil",
+          "path": "/usr/bin/csrutil",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/csrutil",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "1e6ccb28c206373fc80ef1e79ee64fbd7ddb4c9183e9e46835d3ef965d2bce6e"
+        },
+        {
+          "id": "curl",
+          "path": "/usr/bin/curl",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/curl",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "5ef748580e05e8208c8faacc9be88d1aa48d9970101c0a29ba26896e017e6226"
+        },
+        {
+          "id": "diskutil",
+          "path": "/usr/sbin/diskutil",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/sbin/diskutil",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "520a71983659450859c6bb9275ba1b07690eef8a0b156aeaabe4a21656f8c0f3"
+        },
+        {
+          "id": "env",
+          "path": "/usr/bin/env",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/env",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "9eb7c5aed7f3c7fe07b77d9a84d0a7c6a8c68c17a15aa3dace0d8ff02d352776"
+        },
+        {
+          "id": "find",
+          "path": "/usr/bin/find",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/find",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "cba00ca2fb86aaafa7f8448b2b3d94fd792d28f079562b9547425fda1fa683a4"
+        },
+        {
+          "id": "git",
+          "path": "/usr/bin/git",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/git",
+          "resolvedNlink": 78,
+          "mode": "0755",
+          "sha256": "12bed4523661307059b879b9b54e77a73176e9d27d27a0e40363271d8f0668ba"
+        },
+        {
+          "id": "grep",
+          "path": "/usr/bin/grep",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/grep",
+          "resolvedNlink": 5,
+          "mode": "0755",
+          "sha256": "468ff46a0b9f0e88de268ce12640bfa37610d585f968127cf32cf4e86d5c70ab"
+        },
+        {
+          "id": "mkdir",
+          "path": "/bin/mkdir",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/bin/mkdir",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "7b98111d92aba1c3679a6633db281945f55f2e2581ca3cf982c999f1865e3b4c"
+        },
+        {
+          "id": "mktemp",
+          "path": "/usr/bin/mktemp",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/mktemp",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "eab827ffdacc768a1fd3aae419480906ca3b44d7942504343f0c5fcf055048cb"
+        },
+        {
+          "id": "openssl",
+          "path": "/usr/bin/openssl",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/openssl",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "5b46d2a62a0f6fd1bec2236936991e13f23896fa5e0c6d0a4a69ad6928411ae9"
+        },
+        {
+          "id": "python3",
+          "path": "/usr/bin/python3",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/python3",
+          "resolvedNlink": 78,
+          "mode": "0755",
+          "sha256": "12bed4523661307059b879b9b54e77a73176e9d27d27a0e40363271d8f0668ba"
+        },
+        {
+          "id": "rm",
+          "path": "/bin/rm",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/bin/rm",
+          "resolvedNlink": 2,
+          "mode": "0755",
+          "sha256": "eac5b0e334d4c89493b505c72191a106af3b42bfe4ae5224967d71f11cc7f9ba"
+        },
+        {
+          "id": "sandbox-exec",
+          "path": "/usr/bin/sandbox-exec",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/sandbox-exec",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "d1ee30dbde955aaa75c7f801fdfea4df05b10129454d7982eb6453f771436d42"
+        },
+        {
+          "id": "sleep",
+          "path": "/bin/sleep",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/bin/sleep",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "00c84d198e2b80da7dc47c0e30d311cd632f74c257793c4b45723f2cb7ca5d2c"
+        },
+        {
+          "id": "stat",
+          "path": "/usr/bin/stat",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/stat",
+          "resolvedNlink": 2,
+          "mode": "0755",
+          "sha256": "a1de52ec9a6c81a62e4a320d90d694e65a32976f51154e998199de7030afc263"
+        },
+        {
+          "id": "sw_vers",
+          "path": "/usr/bin/sw_vers",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/sw_vers",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "19944ce73b498bbc997043b8530984aff4c6ca9741cb3a044c9320369bb019dd"
+        },
+        {
+          "id": "sysctl",
+          "path": "/usr/sbin/sysctl",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/sbin/sysctl",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "d7e565d1bf203a4ed62d68ec68d7c56e6ad0b1cd6475d709288d434b92082efc"
+        },
+        {
+          "id": "tar",
+          "path": "/usr/bin/tar",
+          "nodeKind": "symlink",
+          "linkTarget": "bsdtar",
+          "resolvedPath": "/usr/bin/bsdtar",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "bdccb76a715fbebc4915a1a1b1de0e7050ad842ebb730c47935b3a22c13e3af9"
+        },
+        {
+          "id": "tr",
+          "path": "/usr/bin/tr",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/tr",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "960e2fe0e8ede52e11ee228d90b6f37cfe81410f0e22fc327413dd3ed7b572e4"
+        },
+        {
+          "id": "uname",
+          "path": "/usr/bin/uname",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/uname",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "9abecf7a88117e093ff6c34ce07bacf7dc1277af1193b1cb0a0bf8fa4b2d4696"
+        },
+        {
+          "id": "unzip",
+          "path": "/usr/bin/unzip",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/unzip",
+          "resolvedNlink": 2,
+          "mode": "0755",
+          "sha256": "ef493b7349bfa1603a24aaa87b44677f76f5fe37eae7da4c151f53df9518e847"
+        },
+        {
+          "id": "xcode-select",
+          "path": "/usr/bin/xcode-select",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/xcode-select",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "46db1db75076c31d7e13960c3640abcf9f960e566304ffba44b1b81f47e58a3e"
+        },
+        {
+          "id": "xcodebuild",
+          "path": "/usr/bin/xcodebuild",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/xcodebuild",
+          "resolvedNlink": 16,
+          "mode": "0755",
+          "sha256": "aeb95b262dc494a37775bb372d433370577b3a69acb38bbaa177efae9eb8bad9"
+        },
+        {
+          "id": "xcrun",
+          "path": "/usr/bin/xcrun",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/xcrun",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "234a81668b43d610a78d9293a5ccef397f561a88af84757194aedaa1ec728ad3"
+        }
+      ]
+    },
+    {
+      "id": "linux-x86_64-mint223-development",
+      "platform": {
+        "osReleaseId": "linuxmint",
+        "osReleaseVersionId": "22.3",
+        "kernelRelease": "6.17.0-23-generic",
+        "arch": "x86_64",
+        "secureBoot": "disabled"
+      },
+      "eligibleForHermetic": false,
+      "ineligibilityReason": "secure boot is disabled; this profile is development evidence only",
+      "distroTools": {
+        "gitPath": "/usr/bin/git",
+        "gitSha256": "2a8c18fbf43da9f692d75474c72bea9dfd796c260b0f3dfe456376abc3bbd668",
+        "gitVersion": "git version 2.43.0",
+        "pythonPath": "/usr/bin/python3.12",
+        "pythonSha256": "e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7",
+        "pythonVersion": "Python 3.12.3",
+        "readelfPath": "/usr/bin/x86_64-linux-gnu-readelf",
+        "readelfSha256": "64c58e15274bbbb5153f31078e455e9e77ee5f51489e709bba5bb788ce9df2b0",
+        "readelfVersion": "GNU readelf (GNU Binutils for Ubuntu) 2.42",
+        "toolsMutableByCurrentUser": false
+      },
+      "digestBootstrap": {
+        "path": "/usr/bin/openssl",
+        "sha256": "018dad9ce0561ba839b66c735b8c5e72a02d444a8057330112d6c333ee1c5acc",
+        "knownAnswerInput": "abc",
+        "knownAnswerSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      },
+      "systemRuntime": {
+        "allowedLoadRoots": [
+          "/lib/",
+          "/lib64/",
+          "/usr/lib/"
+        ]
+      },
+      "systemTools": [
+        {
+          "id": "bash",
+          "path": "/usr/bin/bash",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/bash",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "bc5945feb8bd26203ebfafea5ce1878bb2e32cb8fb50ab7ae395cfb1e1aaaef1"
+        },
+        {
+          "id": "env",
+          "path": "/usr/bin/env",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/env",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "0aefff8f912fb75716c5d4de3b6acde93edbe8fa280fc8ee895c1226d3e373ef"
+        },
+        {
+          "id": "git",
+          "path": "/usr/bin/git",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/git",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "2a8c18fbf43da9f692d75474c72bea9dfd796c260b0f3dfe456376abc3bbd668"
+        },
+        {
+          "id": "openssl",
+          "path": "/usr/bin/openssl",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/openssl",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "018dad9ce0561ba839b66c735b8c5e72a02d444a8057330112d6c333ee1c5acc"
+        },
+        {
+          "id": "python3",
+          "path": "/usr/bin/python3",
+          "nodeKind": "symlink",
+          "linkTarget": "python3.12",
+          "resolvedPath": "/usr/bin/python3.12",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7"
+        },
+        {
+          "id": "readelf",
+          "path": "/usr/bin/readelf",
+          "nodeKind": "symlink",
+          "linkTarget": "x86_64-linux-gnu-readelf",
+          "resolvedPath": "/usr/bin/x86_64-linux-gnu-readelf",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "64c58e15274bbbb5153f31078e455e9e77ee5f51489e709bba5bb788ce9df2b0"
+        },
+        {
+          "id": "rm",
+          "path": "/usr/bin/rm",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/rm",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "aedf2ef491e1ca4ea2682b88a031f7c3960ebb133677a339743e859fa3d3d8b5"
+        },
+        {
+          "id": "sha256sum",
+          "path": "/usr/bin/sha256sum",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/sha256sum",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "9992e1f1feb6f0f396bc8d6691ebc1adbfc269fd628bce84eda1d4ba5c3995c7"
+        },
+        {
+          "id": "sleep",
+          "path": "/usr/bin/sleep",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/sleep",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "a65efec857cfac0d4f43fc53affa73794ff1d1fdcb547931d4b92a98bda8e646"
+        },
+        {
+          "id": "stat",
+          "path": "/usr/bin/stat",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/stat",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "3b87d297111f11d30b3c51fd2663f131a161e09d8e130e1842adaefb74307efe"
+        },
+        {
+          "id": "uname",
+          "path": "/usr/bin/uname",
+          "nodeKind": "regular",
+          "linkTarget": null,
+          "resolvedPath": "/usr/bin/uname",
+          "resolvedNlink": 1,
+          "mode": "0755",
+          "sha256": "8fd593fd9e1902eb67cfeba15642719b0ef6c44ba97febceac819e7e5c442abb"
+        }
       ]
     }
   ]

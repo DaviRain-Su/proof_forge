@@ -72,18 +72,25 @@ structure VerifiedTool where
   processEnvironment : Array (String × String)
   deriving Repr
 
-private def embeddedLock : String := include_str "../../toolchains.lock.json"
+private def embeddedLockDarwin : String := include_str "../../toolchains.lock.json"
+private def embeddedLockLinux : String := include_str "../../toolchains-linux-x86_64.lock.json"
 private def embeddedHostLock : String := include_str "../../host-profiles.lock.json"
 
+private def isDarwinHost : Bool := System.Platform.isOSX
+
+private def expectedLockSchema : String :=
+  if isDarwinHost then "proof-forge.toolchains.v2" else "proof-forge.toolchains.v3"
+
 private def loadLock : Except String LockFile := do
-  let lock : LockFile ← Json.parse embeddedLock >>= fromJson?
-  unless lock.schema == "proof-forge.toolchains.v2" do
+  let embedded := if isDarwinHost then embeddedLockDarwin else embeddedLockLinux
+  let lock : LockFile ← Json.parse embedded >>= fromJson?
+  unless lock.schema == expectedLockSchema do
     throw s!"unsupported toolchain lock schema '{lock.schema}'"
   return lock
 
 private def loadHostLock : Except String HostLockFile := do
   let lock : HostLockFile ← Json.parse embeddedHostLock >>= fromJson?
-  unless lock.schema == "proof-forge.host-profiles.v1" do
+  unless lock.schema == "proof-forge.host-profiles.v2" do
     throw s!"unsupported host lock schema '{lock.schema}'"
   return lock
 
@@ -164,7 +171,8 @@ def isolatedEnvironment : Array (String × String) := #[
 
 private def withRuntimeLibrary (environment : Array (String × String))
     (libraryPath : String) : Array (String × String) :=
-  environment.push ("DYLD_LIBRARY_PATH", libraryPath)
+  let envVar := if isDarwinHost then "DYLD_LIBRARY_PATH" else "LD_LIBRARY_PATH"
+  environment.push (envVar, libraryPath)
 
 private def lockedProcessEnvironment (tool : LockedTool) (executable : FilePath) : IO (Array (String × String)) := do
   let root ← IO.FS.realPath <| executable.parent.getD "."
@@ -197,16 +205,35 @@ private def lockedProcessEnvironment (tool : LockedTool) (executable : FilePath)
         throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: runtime library path escaped tool root for {tool.id}"
       pure <| withRuntimeLibrary isolatedEnvironment library.toString
 
+private def profileMatchesHost (profile : Json) : Bool :=
+  match profile.getObjVal? "platform" with
+  | .error _ => false
+  | .ok platform =>
+      let key := if isDarwinHost then "productVersion" else "osReleaseId"
+      match platform.getObjVal? key with
+      | .ok _ => true
+      | .error _ => false
+
 private def singleHostProfile : IO LockedHostProfile := do
-  let hostLock ← match loadHostLock with
-    | .ok lock => pure lock
+  let root ← match Json.parse embeddedHostLock with
+    | .ok value => pure value
     | .error message =>
         throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: invalid embedded host lock: {message}"
-  unless hostLock.profiles.size == 1 do
-    throw <| IO.userError "PF-TOOLCHAIN-MISMATCH: exactly one development host profile is required"
-  let profile ← match hostLock.profiles[0]? with
-    | some profile => pure profile
-    | none => throw <| IO.userError "PF-TOOLCHAIN-MISMATCH: missing development host profile"
+  let schema ← match root.getObjVal? "schema" with
+    | .ok (.str value) => pure value
+    | _ => throw <| IO.userError "PF-TOOLCHAIN-MISMATCH: invalid embedded host lock schema"
+  unless schema == "proof-forge.host-profiles.v2" do
+    throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: unsupported host lock schema '{schema}'"
+  let profiles ← match root.getObjVal? "profiles" with
+    | .ok (.arr values) => pure values
+    | _ => throw <| IO.userError "PF-TOOLCHAIN-MISMATCH: invalid embedded host lock profiles"
+  let matching := profiles.filter profileMatchesHost
+  unless matching.size == 1 do
+    throw <| IO.userError "PF-TOOLCHAIN-MISMATCH: exactly one host profile for this platform is required"
+  let profile ← match (fromJson? matching[0]! : Except String LockedHostProfile) with
+    | .ok parsed => pure parsed
+    | .error message =>
+        throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: invalid host profile: {message}"
   return profile
 
 private def verifyRegularFile (label : String) (path : FilePath) (expectedHash : String)
@@ -248,9 +275,13 @@ private def hasWriteBit (char : Char) : Bool :=
 
 private def permissionMode (statTool : VerifiedSystemTool)
     (label : String) (path : FilePath) : IO String := do
+  let args := if isDarwinHost then
+    #["-f", "%Lp", "--", path.toString]
+  else
+    #["-c", "%a", "--", path.toString]
   let output ← IO.Process.output {
     cmd := statTool.path.toString
-    args := #["-f", "%Lp", "--", path.toString]
+    args := args
     inheritEnv := false
   }
   unless output.exitCode == 0 do

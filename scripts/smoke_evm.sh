@@ -2,7 +2,21 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-foundry_bin="${FOUNDRY_BIN:-${PROOF_FORGE_TOOL_ROOT:-$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64}}"
+case "$(uname -s)" in
+  Darwin)
+    default_tool_root="$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64"
+    lock_file="$root/toolchains.lock.json"
+    ;;
+  Linux)
+    default_tool_root="$HOME/.cache/proof-forge-v2/tool-root/linux-$(uname -m)"
+    lock_file="$root/toolchains-linux-$(uname -m).lock.json"
+    ;;
+  *)
+    echo "evm-smoke: unsupported host platform" >&2
+    exit 2
+    ;;
+esac
+foundry_bin="${FOUNDRY_BIN:-${PROOF_FORGE_TOOL_ROOT:-$default_tool_root}}"
 anvil="$foundry_bin/anvil"
 cast="$foundry_bin/cast"
 port="${PF_EVM_PORT:-18545}"
@@ -45,11 +59,19 @@ done
 
 expected_hash() {
   /usr/bin/python3 -I -S -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); print(next(tool["executableSha256"] for tool in data["tools"] if tool["id"] == sys.argv[2]))' \
-    "$root/toolchains.lock.json" "$1"
+    "$lock_file" "$1"
 }
 
-actual_anvil_hash="$(shasum -a 256 "$anvil" | awk '{print $1}')"
-actual_cast_hash="$(shasum -a 256 "$cast" | awk '{print $1}')"
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+actual_anvil_hash="$(sha256_of "$anvil")"
+actual_cast_hash="$(sha256_of "$cast")"
 require_equal "$actual_anvil_hash" "$(expected_hash anvil)" "Anvil hash mismatch"
 require_equal "$actual_cast_hash" "$(expected_hash cast)" "cast hash mismatch"
 

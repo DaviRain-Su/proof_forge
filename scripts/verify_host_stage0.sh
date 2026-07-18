@@ -46,13 +46,30 @@ esac
   die 'Git environment is not empty'
 [[ -z "${DYLD_LIBRARY_PATH+x}" && -z "${DYLD_INSERT_LIBRARIES+x}" && -z "${DYLD_FRAMEWORK_PATH+x}" ]] ||
   die 'dyld environment is not empty'
+[[ -z "${LD_PRELOAD+x}" && -z "${LD_LIBRARY_PATH+x}" && -z "${LD_AUDIT+x}" && -z "${LD_DEBUG+x}" ]] ||
+  die 'ELF loader environment is not empty'
 
 # Bash 3.2 has no timer process primitive. The audited Apple /bin/sleep and
 # /bin/rm nodes therefore join env/bash/openssl/codesign in the minimal
 # platform bootstrap TCB. A background process group, CPU/file ulimits, and a
 # watchdog bound every command that runs before the Python verifier exists.
-stage0_sleep_path=/bin/sleep
-stage0_rm_path=/bin/rm
+# Linux uses the merged-/usr distro nodes of the same tools; there is no
+# codesign equivalence on linux (ADR-0016).
+case "$(uname -s)" in
+  Darwin)
+    stage0_platform=darwin
+    stage0_sleep_path=/bin/sleep
+    stage0_rm_path=/bin/rm
+    ;;
+  Linux)
+    stage0_platform=linux
+    stage0_sleep_path=/usr/bin/sleep
+    stage0_rm_path=/usr/bin/rm
+    ;;
+  *)
+    die 'unsupported host platform'
+    ;;
+esac
 stage0_temp_prefix="/tmp/proof-forge-host-stage0.$$.$RANDOM.$RANDOM"
 stage0_temp_files=()
 stage0_cleanup_enabled=0
@@ -127,9 +144,14 @@ bounded_capture() {
 script_dir="$(cd -P -- "${BASH_SOURCE[0]%/*}" && pwd -P)"
 root="$(cd -P -- "$script_dir/.." && pwd -P)"
 launcher="$script_dir/${BASH_SOURCE[0]##*/}"
-record="$root/host-bootstrap.lock"
+if [[ "$stage0_platform" == darwin ]]; then
+  record="$root/host-bootstrap.lock"
+  tool_lock="$root/toolchains.lock.json"
+else
+  record="$root/host-bootstrap-linux.lock"
+  tool_lock="$root/toolchains-linux-$(uname -m).lock.json"
+fi
 host_lock="$root/host-profiles.lock.json"
-tool_lock="$root/toolchains.lock.json"
 verifier="$root/scripts/toolchain_assets.py"
 [[ -f "$launcher" && ! -L "$launcher" ]] || die 'launcher must be a regular non-symlink file'
 [[ -f "$record" && ! -L "$record" ]] || die 'host-bootstrap.lock must be a regular non-symlink file'
@@ -152,7 +174,19 @@ require_sha256() {
 
 exec 3<"$record"
 read_field SCHEMA
-[[ "$REPLY" == proof-forge.host-bootstrap.v1 ]] || die 'unsupported host bootstrap schema'
+case "$REPLY" in
+  proof-forge.host-bootstrap.v1)
+    [[ "$stage0_platform" == darwin ]] || die 'darwin bootstrap record on a non-darwin host'
+    record_kind=darwin
+    ;;
+  proof-forge.host-bootstrap-linux.v1)
+    [[ "$stage0_platform" == linux ]] || die 'linux bootstrap record on a non-linux host'
+    record_kind=linux
+    ;;
+  *)
+    die 'unsupported host bootstrap schema'
+    ;;
+esac
 read_field PROFILE_ID
 profile_id="$REPLY"
 [[ "$profile_id" != *[!A-Za-z0-9._-]* ]] || die 'PROFILE_ID contains an invalid character'
@@ -188,7 +222,11 @@ env_sha256="$REPLY"
 require_sha256 "$env_sha256" ENV_SHA256
 read_field BASH_PATH
 bash_path="$REPLY"
-[[ "$bash_path" == /bin/bash ]] || die 'BASH_PATH is not the audited platform path'
+if [[ "$record_kind" == darwin ]]; then
+  [[ "$bash_path" == /bin/bash ]] || die 'BASH_PATH is not the audited platform path'
+else
+  [[ "$bash_path" == /usr/bin/bash ]] || die 'BASH_PATH is not the audited platform path'
+fi
 read_field BASH_SHA256
 bash_sha256="$REPLY"
 require_sha256 "$bash_sha256" BASH_SHA256
@@ -204,26 +242,41 @@ rm_path="$REPLY"
 read_field RM_SHA256
 rm_sha256="$REPLY"
 require_sha256 "$rm_sha256" RM_SHA256
-read_field CODESIGN_PATH
-codesign_path="$REPLY"
-[[ "$codesign_path" == /usr/bin/codesign ]] || die 'CODESIGN_PATH is not the audited platform path'
-read_field CODESIGN_SHA256
-codesign_sha256="$REPLY"
-require_sha256 "$codesign_sha256" CODESIGN_SHA256
-read_field XCODE_APP_PATH
-xcode_app_path="$REPLY"
-[[ "$xcode_app_path" == /Applications/Xcode.app ]] || die 'XCODE_APP_PATH is not the audited developer bundle'
+if [[ "$record_kind" == darwin ]]; then
+  read_field CODESIGN_PATH
+  codesign_path="$REPLY"
+  [[ "$codesign_path" == /usr/bin/codesign ]] || die 'CODESIGN_PATH is not the audited platform path'
+  read_field CODESIGN_SHA256
+  codesign_sha256="$REPLY"
+  require_sha256 "$codesign_sha256" CODESIGN_SHA256
+  read_field XCODE_APP_PATH
+  xcode_app_path="$REPLY"
+  [[ "$xcode_app_path" == /Applications/Xcode.app ]] || die 'XCODE_APP_PATH is not the audited developer bundle'
+else
+  codesign_path=''
+  codesign_sha256=''
+  xcode_app_path=''
+fi
 read_field PYTHON_PATH
 python_path="$REPLY"
-[[ "$python_path" == /Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9 ]] ||
-  die 'PYTHON_PATH is not the audited direct interpreter'
+if [[ "$record_kind" == darwin ]]; then
+  [[ "$python_path" == /Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9 ]] ||
+    die 'PYTHON_PATH is not the audited direct interpreter'
+else
+  [[ "$python_path" == /usr/bin/python3* && "$python_path" != *[!A-Za-z0-9._/-]* ]] ||
+    die 'PYTHON_PATH is not the audited direct interpreter'
+fi
 read_field PYTHON_SHA256
 python_sha256="$REPLY"
 require_sha256 "$python_sha256" PYTHON_SHA256
 read_field GIT_PATH
 git_path="$REPLY"
-[[ "$git_path" == /Applications/Xcode.app/Contents/Developer/usr/bin/git ]] ||
-  die 'GIT_PATH is not the audited direct implementation'
+if [[ "$record_kind" == darwin ]]; then
+  [[ "$git_path" == /Applications/Xcode.app/Contents/Developer/usr/bin/git ]] ||
+    die 'GIT_PATH is not the audited direct implementation'
+else
+  [[ "$git_path" == /usr/bin/git ]] || die 'GIT_PATH is not the audited direct implementation'
+fi
 read_field GIT_SHA256
 git_sha256="$REPLY"
 require_sha256 "$git_sha256" GIT_SHA256
@@ -271,7 +324,9 @@ verify_digest BASH "$bash_path" "$bash_sha256"
 verify_digest SLEEP "$sleep_path" "$sleep_sha256"
 verify_digest RM "$rm_path" "$rm_sha256"
 stage0_cleanup_enabled=1
-verify_digest CODESIGN "$codesign_path" "$codesign_sha256"
+if [[ "$record_kind" == darwin ]]; then
+  verify_digest CODESIGN "$codesign_path" "$codesign_sha256"
+fi
 verify_digest LAUNCHER "$launcher" "$launcher_sha256"
 verify_digest VERIFIER "$verifier" "$verifier_sha256"
 verify_digest HOST_LOCK "$host_lock" "$host_lock_sha256"
@@ -279,15 +334,17 @@ verify_digest TOOL_LOCK "$tool_lock" "$tool_lock_sha256"
 verify_digest PYTHON "$python_path" "$python_sha256"
 verify_digest GIT "$git_path" "$git_sha256"
 
-for platform_binary in "$openssl_path" "$env_path" "$bash_path" "$sleep_path" "$rm_path" "$codesign_path"; do
-  if ! bounded_capture CODESIGN_PLATFORM 15 \
-      "$codesign_path" --verify --strict "$platform_binary"; then
-    die "Apple platform signature verification failed for $platform_binary"
+if [[ "$record_kind" == darwin ]]; then
+  for platform_binary in "$openssl_path" "$env_path" "$bash_path" "$sleep_path" "$rm_path" "$codesign_path"; do
+    if ! bounded_capture CODESIGN_PLATFORM 15 \
+        "$codesign_path" --verify --strict "$platform_binary"; then
+      die "Apple platform signature verification failed for $platform_binary"
+    fi
+  done
+  if ! bounded_capture CODESIGN_XCODE 180 \
+      "$codesign_path" --verify --deep --strict "$xcode_app_path"; then
+    die 'Xcode deep strict signature verification failed'
   fi
-done
-if ! bounded_capture CODESIGN_XCODE 180 \
-    "$codesign_path" --verify --deep --strict "$xcode_app_path"; then
-  die 'Xcode deep strict signature verification failed'
 fi
 
 printf 'PF-HOST-STAGE0: bootstrap closure verified profile=%s launcher_sha256=%s host_lock_sha256=%s\n' \
