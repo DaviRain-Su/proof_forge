@@ -3367,3 +3367,45 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA56 declaration residual
   audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 exact Option Array spelling pre-acceptance slice
+
+- Commits：freeze `5fece0df`；single-migration tests-only RED `a068a76e`；canonical golden binding
+  `dbbe9f07`；Syntax-only GREEN `25a5c3cd`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-57 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 recursive `Source/Semantic.ValueType.option(.array element length)` 开放 exact
+  same-line `Option Array PrimitiveAtom N`。新增 named `optionArrayType` 与 struct-field/enum-member 专用
+  `optionArrayAggregateField`；decoder 直接复用既有 `decodeArrayValueTypeFromAtoms` 的 15-atom element
+  闭集与 canonical ASCII decimal `0..4096` 长度校验，再包一层 Option。通用 `portableType`、
+  Source/Semantic ctor 与 encoder、quotation、Typed 和 target 均未改。
+- Migration/Coverage：把 `Tests.Language.OptionDeclarations` 既有唯一
+  `("Array option", "Option Array UInt64 4")` parser-negative 迁移为 positive，migration count 恰为一。
+  Lean command/ParserSession 双入口覆盖全部 15 个 PrimitiveAtom、长度 0/4/4096、state/struct/enum/const/
+  initializer/entry/view/fn parameter/result。missing/unknown/Field/Option/Bytes/Array/Map element、invalid
+  length、escaped/qualified constructor/element、extra/split payload 均 fail closed；Option Bytes、Array
+  Option、Array Field、third-layer nested Option 与既有 extra-payload boundary 保持。
+- Canonical/requirements：既有 tag `16→18→element→length` 被 Source UInt64(0/4/4096)/Bool(0) 四组
+  259-byte goldens `f22ada30b9fcf58e2b1f55ac7417fb13864354032f7096fe33a0aa6c4bd0fa90`、
+  `1c3ae508743fbdb68c87e06487f98689fe257546db0f547c14a2020d9dbbc3e9`、
+  `885e14c9ae561f9aa499d6efad47c2c196685828060f27bc334cc6adccac8ef5`、
+  `28937fa712d8f151aab179b012841958899a5468970f21a71457c07c27717292` 与 Semantic 208/208/208/209-byte
+  goldens `9b7a7f860fb116e40d5a2b25e5e80378c88de55ed2875eea239ff11b97eb22b2`、
+  `5cd5f520f435c29fce98069a3a78203c2bf73e2ddf092b10391c035db76aff9d`、
+  `e8b1fc098d8b41d85e55a8f5bd53a570fd0f34388831e34c116e6b98e734422b`、
+  `0594d1fc0e604b30c0bc2da344c6cdfda004437c0bd1bf539ce92c890de3bc7b` 固定，并与 bare Array、single/
+  nested Option、different element/length non-alias。UInt64 variant requirement 为空，Bool variant 精确递归
+  单个 `boolValues`；四个 Phase 1 target 对前者 support 后由 non-UInt64 Plan invariant 拒绝，对后者在
+  support resolver named rejection，均未产出 artifact。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，25 行新增/1 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；aggregate/test graph
+  192 jobs；`lake exe proof_forge_next_tests` exit 0；`just sbom-package-files-refresh`、`just docs-check`、
+  `git diff --check` 全绿。independent RED/final reviews P0/P1=0；development evidence 为
+  `EV-20260718-0049`。PA53 batch `just ci` 已绿，本切片按冻结未重复完整 gate。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirement propagation 与
+  support-vs-Plan boundary。不包括 array value/index/slice/mutation、none/some/unwrap、任意 recursive
+  grammar、recursive legality、runtime representation、ABI 或 target Option-Array support。
+- Limitations：不得声明 Option/Array runtime semantics、完整 type grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA57 declaration residual
+  audit，再选择单一依赖闭合最小切片，禁止自动递增。
