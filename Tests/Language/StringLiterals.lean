@@ -197,25 +197,25 @@ unsafe def run : IO Unit := do
   let twinAdd := twin (.checkedAdd (.literal 1) (.literal 2))
 
   expect (twinEmpty.sourceHash ==
-      "UNBOUND_STRING_LITERAL_EMPTY_GOLDEN")
+      "4cde697b099c9c7c778517b19f2a6f6468aa07c575682fe83cc35b0b7d1e443c")
     s!"stringLiteral empty StringTwin sourceHash golden must remain stable; got {twinEmpty.sourceHash}"
   expect (twinHi.sourceHash ==
-      "UNBOUND_STRING_LITERAL_HI_GOLDEN")
+      "a1d09765c39adc277751185ce9f0cf28c6d50809b0e79273747d242d41a2f80c")
     s!"stringLiteral hi StringTwin sourceHash golden must remain stable; got {twinHi.sourceHash}"
   expect (twinQuote.sourceHash ==
-      "UNBOUND_STRING_LITERAL_QUOTE_GOLDEN")
+      "27488c4f1854da8f415becbda9bf7be6546707b691997b7a31f6a97d3cfcfcd5")
     s!"stringLiteral quote StringTwin sourceHash golden must remain stable; got {twinQuote.sourceHash}"
   expect (twinBackslash.sourceHash ==
-      "UNBOUND_STRING_LITERAL_BACKSLASH_GOLDEN")
+      "535ea5e1f0725f98309fc792eb59eba2ffcf365c976662b3310700c9bb348453")
     s!"stringLiteral backslash StringTwin sourceHash golden must remain stable; got {twinBackslash.sourceHash}"
   expect (twinTab.sourceHash ==
-      "UNBOUND_STRING_LITERAL_TAB_GOLDEN")
+      "39e8c5ec3fcc7759b6d26b12efb6f08429217cbbbb4de277e57b605c3691f951")
     s!"stringLiteral tab StringTwin sourceHash golden must remain stable; got {twinTab.sourceHash}"
   expect (twinAlpha.sourceHash ==
-      "UNBOUND_STRING_LITERAL_ALPHA_GOLDEN")
+      "cebe2440eb6d1605ec287c20a76d31830299cb58efcc01073dec8a66cb92a527")
     s!"stringLiteral α StringTwin sourceHash golden must remain stable; got {twinAlpha.sourceHash}"
   expect (twinA.sourceHash ==
-      "UNBOUND_STRING_LITERAL_A_GOLDEN")
+      "eae154b721a1c4ce5cbf1dee4de56f2827c7dfe37edc50cc46f16fa2cc4964d3")
     s!"stringLiteral a StringTwin sourceHash golden must remain stable; got {twinA.sourceHash}"
 
   -- Tag-only nonalias: string "a" vs variable a under fixed identity.
