@@ -2351,3 +2351,36 @@ normative: false
 - Next：residual audit 选择 binary bitwise-and `&` 为唯一下一 candidate，但尚未冻结。必须核准低于
   CompareExpr 的左结合 precedence、Expr tag `20`、zero migration、`&&` token integrity、comparison
   mixed placement 与 exact Typed failure；不得捆绑 `^`、`|`、`&&`、`||`、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 bitwise-and pre-acceptance slice
+
+- Commits：freeze `10186ad5`；tests-only RED `c7ea38f2`；Source-only GREEN `dc075680`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-39 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.bitwiseAnd lhs rhs`、append-only Expr tag `20`、
+  `syntax:45 pfExpr:45 " & " pfExpr:46 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `bitwise and is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..19` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；integer/Bool/order/variable、add/mul/shift/comparison 双向、
+  grouping、unary AST；`1 & 2 & 3` 左结合 positive 与 `1 & (2 & 3)` 右嵌套；
+  `1 & 2 == 3` 固定为 `1 & (2 == 3)`，`1 == 2 & 3` 固定为 `(1 == 2) & 3`。
+  代表 goldens：`1&2` `6fede90fbd307070fd4b86e60d48e595da4620e7d37bf8e368418754e2c55890`/228 bytes、
+  `2&1` `80220a38c8f73ac776ea1cc5cf0c2003265d5ef3c8054ba5a1cf34c51915af85`/228、
+  `true&false` `58856d731cd9609d5e416ae0de68c22a7ea104938fae15224c52f514ed419ccc`/214、
+  left nest `6de67f082d6270d14a91fc5cf8d72f2dcc3b06e22b6fee985ea05658252ec98c`/238、
+  right nest `262dbca58bcfd6d3028204c0b59e2c8e7d7589f1d4349d369ee6cb709b5748c2`/238。
+- Boundaries：zero migration；`1 & & 2` 与 deferred `1 && 2` 均在 parser boundary 拒绝。Typed exact
+  failure 对 integer/Bool operands 都 fail before operands，既有 expression controls 与 checkedAdd positive
+  保持。Grok 完成 RED、evidence extraction 与下一 residual 设计；Kimi 完成 freeze、residual 和 GREEN final
+  audit，最终 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.BitwiseAnd`（14 jobs）；
+  `lake build proof_forge_next_tests`（162 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`；
+  `git diff --check`，全部 exit 0；development evidence 为 `EV-20260718-0025`。本小切片按批量策略不重复
+  全量 `just ci`，最近一次全量 checkpoint 仍为 CompareExpr GREEN `8957c636`。
+- Limitations：仅有 Source bitwise-and carrier；没有 operand/result legality、Typed/Semantic bitwise operation、
+  `^`/`|`/`&&`/`||`、folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：两份独立 residual audit 都选择 binary bitwise-xor `^` 为唯一下一 candidate，但尚未冻结。冻结前
+  必须固定低于 `&` 的 precedence `40` 左结合、append-only Expr tag `21`、zero migration、与 `&`/Compare
+  的合法 mixed shapes、caret token boundaries 与 exact Typed failure；不得捆绑 `|`、`&&`、`||`、Semantic
+  或 target lowering。
