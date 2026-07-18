@@ -1875,3 +1875,40 @@ normative: false
 - Next：expression residual audit 选择 unary bitwise-not `~` Source-only carrier 作为 D1-PA-27 candidate；
   必须先冻结 prefix precedence、append-only Expr tag、mixed-unary shape、canonical goldens 与 exact Typed
   boundary，不得自动从 candidate 变为 active 或捆绑 `!`/shift/Semantic/target lowering。
+
+## 2026-07-18 — D1 unary bitwise-not pre-acceptance slice
+
+- Commits：freeze `6f0322d5`；tests-only RED `6724f120`；Source-only GREEN `0f4455ad`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-27 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 新增 `bitwiseNot operand`，alpha canonical encoder 以 Expr tag `8`
+  后接递归 operand；`pfExpr` 新增 `syntax:75 "~" pfExpr:75 : pfExpr`，decoder/quotation 均结构化
+  保留 unary node。`Typed.check` 逐字 fail closed 为
+  `bitwise not is not yet supported by typed checking`。production 只修改 `Source.lean`、`Syntax.lean`、
+  `Typed.lean` 共 10 行，SemanticIR、requirements 与 targets 未改。
+- Parser/AST：initializer、entry、view、fn 的 return/let value 与 Lean command/ParserSession parity 全绿；
+  `~2`、`~x`、`~2*3`、`~(2+3)`、`1-~2`、`1*~2`、`~ ~ 2`、`(~2)` 精确固定
+  unary precedence/right nesting/grouped operand；`- ~ 2` 与 `~ - 2` 精确保留 mixed-unary 次序。
+  相同 `NotEq` identity 下 bare/grouped Source.Program 与 sourceHash 相等，既有 tests 零迁移。
+- Binding：BitwiseNotTwin 的 `~2`、`~x`、`~2*3`、`~(2+3)`、nested 均绑定真实 tag-8
+  bytes/hash；代表 golden 为 `~2`
+  `fc78bd762867552e854a95b0daa19fe2e40ca7aa2655a0c58d2efdb6053c0ca9`/219 bytes、`~x`
+  `7f3667734db603423590dd2bae1c43d3c8e086a437d49a9046fd09ff2d460404`/220、`~2*3`
+  `284809b7678748bd97319471cf9a8ae3dbf23ff3b7e7b0e83c119e55d1e6a56a`/229、nested
+  `89e68d7a47c7021abe58555e2997c4b25043a19c16d1190b3c184aea26add7b0`/220；literal、
+  checked-negation、operand mutation、wrong tree 与 mixed reverse-order 均不 alias。
+- Boundaries：bare/missing operand、empty group、invalid following operator 与 extra payload 停在 parser
+  boundary。checkedAdd positive 与 Bool/sub/mul/neg exact Typed controls 保持；没有修改既有 test matrix。
+- Review/Commands：Grok 实施 RED；coordinator 在 GREEN 前删除不同 program identity 的错误重复等值断言，
+  amend RED 为 `6724f120`；独立 parser/scope audit 为 P0/P1=0。执行
+  `lake build Tests.Language.BitwiseNot`；`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。并发 Agent 启动的重复测试进程被停止，
+  evidence 只计 coordinator 保留的单一 authoritative aggregate。
+- Results：14-job focused build、138-job aggregate 与测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0013`。按批量验证策略，本切片的 checkpoint `just ci` 延后，未计入本条证据。
+- Limitations：仅有 Source unary carrier，没有 logical `!`、binary bitwise/shift、constant folding、
+  Typed/Semantic bitwise operation、requirement、target ABI/runtime、eligible host 或 formal D1 evidence。
+  D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending。
+- Next：expression residual audit 的 unary logical-not `!` 作为 D1-PA-28 candidate；必须先冻结 Bool
+  operand boundary、prefix precedence、append-only tag、mixed-unary shapes、canonical goldens 与 exact
+  Typed failure。PA28 收口后形成 unary-expression batch checkpoint，再决定完整 CI 时点。
