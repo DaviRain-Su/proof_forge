@@ -26,6 +26,7 @@ syntax num : pfExpr
 syntax ident : pfExpr
 syntax:75 "-" pfExpr:75 : pfExpr
 syntax:75 "~" pfExpr:75 : pfExpr
+syntax:75 "!" pfExpr:75 : pfExpr
 syntax:65 pfExpr:65 " + " pfExpr:66 : pfExpr
 syntax:65 pfExpr:65 " - " pfExpr:66 : pfExpr
 syntax:70 pfExpr:70 " * " pfExpr:71 : pfExpr
@@ -364,6 +365,8 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
       return .checkedNeg (← decodeExprUnchecked operand)
   | `(pfExpr| ~ $operand:pfExpr) => do
       return .bitwiseNot (← decodeExprUnchecked operand)
+  | `(pfExpr| ! $operand:pfExpr) => do
+      return .logicalNot (← decodeExprUnchecked operand)
   | `(pfExpr| ($inner:pfExpr)) => decodeExprUnchecked inner
   | _ => .error "unsupported portable expression"
 
@@ -838,6 +841,9 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
   | .bitwiseNot operand => do
       let operand ← quoteExpr operand
       `(ProofForgeV2.Source.Expr.bitwiseNot $operand)
+  | .logicalNot operand => do
+      let operand ← quoteExpr operand
+      `(ProofForgeV2.Source.Expr.logicalNot $operand)
 
 private def quoteConstDecl (sourceConst : ProofForgeV2.Source.ConstDecl) :
     MacroM (TSyntax `term) := do
