@@ -3699,3 +3699,38 @@ normative: false
   evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA61 declaration residual
   audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 exact nested Option Field spelling pre-acceptance slice
+
+- Commits：freeze `9df534f6`；single-migration tests-only RED `01f20129`；canonical golden binding
+  `d5b31886`；Syntax-only GREEN `4f2fcf06`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-62 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：只为既有 recursive `Source/Semantic.ValueType.option(.option .field)` 开放 exact same-line
+  `Option Option Field bn254_fr`。新增 named `optionOptionFieldType` 与 struct-field/enum-member 专用
+  `optionOptionFieldAggregateField`；decoder exact 检查 raw `bn254_fr` 后构造 `.option (.option .field)`。
+  既有 `optionOptionType` 继续只覆盖 PrimitiveAtom，通用 `portableType`、Source/Semantic ctor 与 encoder、
+  quotation、Typed 和 target 均未改。
+- Migration/Coverage：把 `Tests.Language.OptionDeclarations` 的一条 `Option Option Field bn254_fr`
+  parser-negative 迁移为 positive，migration count 恰为一；`Option Option Field` 保持 decoder-rejected。
+  Lean command/ParserSession 双入口覆盖 state/struct/enum/const/initializer/entry/view/fn parameter/result。
+  missing/alternate/escaped/qualified Field id、escaped/qualified Option 或 Field constructor、extra/split
+  payload 均 fail closed；Option Option Bytes、Option Option Array、third-layer Option、Option Array
+  compounds、Array Option compounds、Array Array、Map/Named 与既有 extra-payload boundary 保持。
+- Canonical/requirements：既有 tag `16→16→2` 被 Source 243-byte golden
+  `09409ade24acaf6a14c98ee63d23087c04ab8da990f56a47e438ae9be66d2b73` 与 Semantic 193-byte golden
+  `6f639e0d5025222f9c65f88ed9d56808b0ff8c8f019f0c7f885cdf2ad7332db3` 固定，并与 bare Field、
+  Option Field、Option Option UInt64、Option Option Bool non-alias。requirements 精确为单个
+  `fieldBn254`；四个 Phase 1 target 均在 support resolver named rejection，未进入 Plan，未产出 artifact。
+- Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，29 行新增/0 行移除；Lean package
+  file-set 同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；aggregate/test graph
+  192 jobs；`lake exe proof_forge_next_tests` exit 0；`just sbom-package-files-refresh`、`just docs-check`、
+  `git diff --check` 全绿。Kimi freeze/final reviews P0=0/P1=0/P2=0；development evidence 为
+  `EV-20260718-0058`。本切片按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirement propagation 与
+  support boundary。不包括 none/some/unwrap、field arithmetic、任意 recursive grammar、recursive legality、
+  runtime representation、ABI 或 target nested-Option-Field support。
+- Limitations：不得声明 nested Option/Field runtime semantics、完整 type grammar、eligible host 或 formal
+  D1 evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 post-PA62 declaration residual
+  audit，再选择单一依赖闭合最小切片，禁止自动递增。
