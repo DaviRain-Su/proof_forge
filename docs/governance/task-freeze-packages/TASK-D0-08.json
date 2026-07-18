@@ -34,8 +34,31 @@
     "关闭路径按 cutover 前程序确认（D0-08 不在 genesis set；无合法路径时保持实现+TST 全绿待关闭并升级治理裁决）",
     "docs-check 与冻结包对齐无完成面漂移"
   ],
+  "frozenCounts": {
+    "inventoriedAt": "2026-07-18",
+    "inventoryBasis": "全部已提交 per-platform Tool Lock 文件 + 其 pinned Lean 归档重算的 compiler runtime closure + licenses/ 与 lake-manifest",
+    "toolLockLeafRefs": {
+      "toolchains.lock.json": {"asset": 6, "bundle-file": 6, "compiler-executable": 2, "tool-executable": 5, "tool-runtime-file": 1, "total": 20},
+      "toolchains-linux-x86_64.lock.json": {"asset": 5, "bundle-file": 5, "compiler-executable": 2, "tool-executable": 5, "tool-runtime-file": 0, "total": 17},
+      "total": 37
+    },
+    "compilerRuntimeFiles": {"darwin-arm64": 5, "linux-x86_64": 5, "total": 10},
+    "logicalComponents": {"lean-package": 1, "source-dependency": 0, "download-asset": 11, "compiler-executable": 4, "tool-executable": 10, "runtime-dylib-file": 11, "bundled-license-text": 4, "total": 41, "syntheticBomRoot": 1},
+    "leanPackageFileSet": 30,
+    "contentIdentities": 37,
+    "typedRelationships": {"has-content": 41, "unpacks-to": 25, "loads": 27, "licensed-under": 12, "bom-member": 41, "total": 146},
+    "standardsFiles": 4,
+    "sidecarFiles": 3,
+    "standardsPins": {
+      "supply-chain/standards/cyclonedx-bom-1.6.schema.json": {"bytes": 252625, "sha256": "3e92dddbc30cf7f6a02b80f0942b1a4cfd4fb1c26f1dfc4310afa9d613cafb93", "source": "CycloneDX/specification@55343ba19dee1785acf1ce9191540d5fd7b590db schema/bom-1.6.schema.json"},
+      "supply-chain/standards/spdx-license-list-v3.27.0.json": {"bytes": 318777, "sha256": "157789ba91984aecba5c67b84168dbbd41a235b910a7569aa64bf42a88b24290", "source": "spdx/license-list-data@v3.27.0 json/licenses.json"},
+      "supply-chain/standards/spdx-exceptions-v3.27.0.json": {"bytes": 37918, "sha256": "650f497016c3a979ec4062067625aedfc10211220abb3b587ca1fb05a22c34eb", "source": "spdx/license-list-data@v3.27.0 json/exceptions.json"},
+      "supply-chain/standards/spdx-license-expressions-v2.3.md": {"bytes": 11972, "sha256": "2da19cea85d4f7af6c5196cfe92d7d14bdb070b39f47bb4e11a060f075b9c378", "source": "spdx/spdx-spec@v2.3 chapters/SPDX-license-expressions.md"}
+    },
+    "offlineValidator": "jv v6.0.2（每个 per-platform Tool Lock 的 jv ToolchainIdentity；darwin 与 linux 各一）"
+  },
   "overflowPolicy": "formal 侧缺口进 TASK-D0-07；OutputSet/发布签名分别进 TASK-D3-05/TASK-D8-05；其余扩面只能走 milestone 变更。",
   "maxCalendarDays": 3,
   "maxCommits": 20,
-  "notes": "Pre-freeze preparation only. 进入 RED 前必须盘点当时已提交的全部 per-platform Tool Lock 文件的 Lean compiler 可达 non-system runtime manifests，固定 CycloneDX schema/SPDX grammar+list 文件与离线 validator ToolchainIdentity，并把最终 exact counts（每种 Tool Lock ref、compiler-runtime file、component kind、content identity、typed relationship、standards file、sidecar file）写入本包（docs/05-test-spec.md D0-08 节）。counts 未固化前不得进入 in_progress。"
+  "notes": "2026-07-18 counts 盘点完成并固化于 frozenCounts（含 ADR-0016 §7 要求的 linux leaf）：两个 per-platform lock 共 37 leaf refs、compiler runtime 10、logical components 41、content identities 37、typed relationships 146、standards files 4（已提交 supply-chain/standards/ 并按 sha256 pin）、sidecar files 3；oracle 测试必须把这些值固化为常量，不得从 production output 动态推导。"
 }

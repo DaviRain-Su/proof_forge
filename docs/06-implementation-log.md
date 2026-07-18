@@ -2725,3 +2725,72 @@ normative: false
 - Next：darwin 机回归是 `TASK-D0-09` doneWhen 的唯一剩余实机项；其 pre-cutover 关闭路径
   另需治理裁决（formal EV 在 D0-07 前被 docs-check fail closed）。随后 `TASK-D0-08`
   counts 盘点（ADR-0016 §7：含 linux leaf）→ RED。
+
+## 2026-07-18 — TASK-D0-04 实现缺口精确盘点（只读分析）
+
+- Context：D0 收口调度需要知道 `TASK-D0-04`（blocked）的可执行面。对
+  `scripts/bootstrap_task_objects.py`（约 4.0k 行）与其自测（约 9.8k 行）、
+  `verify_host_stage0.sh`、`docs_check.py` 关闭分支与 `05-test-spec.md` 的
+  `TST-BOOTSTRAP-001` 语义做了逐件核对。
+- Findings（已存在）：全部对象族 consumer/validator 已就绪——PF-JCS、Ed25519
+  verify（无 sign）、`BootstrapAuthorityPolicyV1`/`RequiredTestSetV1`/`TaskApprovalV1`/
+  `BootstrapTaskVerifierReceiptV1`/`BootstrapApprovalSetV1` 的 parse+验签、
+  `EligibleStage0HandoffV1` 内部 preflight；自测为 `TST-DOC-001` 第一层 pure-consumer
+  验收，无任何测试声称 `TST-BOOTSTRAP-001`。
+- Findings（仓库内可实现但缺失）：activation receipt 对象族
+  `BootstrapApprovalVerifierReceiptV1`（零实现）；`FormalGateCatalogApprovalV1`
+  parser/consumer（零实现）；authority-store protected service（`pf.authority-store.rpc.v1`
+  服务端+客户端，零实现）；全部 producer/signer（RequiredTestSet/TaskApproval/set
+  producer 与 receipt 签发 verifier；genesis root 工具按设计无私钥路径）；Stage-0
+  handoff producer（现 Stage-0 只输出 local-observation JSON，不产出带 runId/nonce/TCB
+  digest/预开 fd channel 的 handoff 对象）；防 `setsid()` 逃逸的 process-session
+  containment runner；`TST-BOOTSTRAP-001` 可执行验收（pre-activation 输入空间 +
+  与 production lookup tuple 不相交的 fixture namespace）；关闭治理件
+  （attest + docs_check `d0_04_*_attested()` 分支 + bootstrap EV 行）。
+- Findings（本质外部前置）：真实 handoff 必须在 eligible host 上产出（eligible=true
+  观察、TCB digest、fd channel fstat/stable-read）；authority-store 须作为 Stage-0
+  child 运行且 executable digest 与 descriptor 精确相等；每次 task completion/activation
+  需要在线 distinct-principal quorum 签名（人工仪式）；最终 `D0-04 approval → task
+  receipt → six-item set → activation receipt` 序列须对 exact candidate 在 eligible host
+  真实走完。当前两台开发机均不合格（darwin seal broken/Xcode mutable；本机 SecureBoot
+  disabled），解除路径：启用 SecureBoot 并重锁 linux 资产，或修复 darwin SSV/Xcode
+  归属后重登记 eligible profile。
+- Limitations：本条仅为只读盘点，不改变 `TASK-D0-04` 的 blocked 状态、冻结完成面或
+  任何 Tests 集合；未运行任何新实现。
+- Next：`TASK-D0-08` counts 盘点与 RED；D0-04 的仓库内缺口（activation receipt/
+  catalog approval/authority-store/producer/handoff producer/containment runner）在
+  eligible host 出现前只能以明确标注的 pre-acceptance 方式推进，不得据此关闭。
+
+## 2026-07-18 — TASK-D0-08 counts 盘点固化（pre-freeze 完成）
+
+- Context：冻结包 notes 要求 RED 前盘点全部已提交 per-platform Tool Lock 文件的 leaf
+  refs、Lean compiler 可达 non-system runtime manifests，并固定 CycloneDX schema/SPDX
+  grammar+list 文件与离线 validator ToolchainIdentity（ADR-0016 §7：D0-09 先完成，
+  counts 含 linux leaf）。
+- Method：leaf 计数直接用 `scripts/supply_chain_core.py` 的
+  `enumerate_tool_lock_leaves` 对两个已提交 lock 实跑；compiler-runtime 由 pinned lean
+  归档重算——linux 以 `just toolchains-materialize-lean` 物化后 `readelf -d` 求
+  bin/lean+bin/lake 的 toolchain 内传递闭包，darwin 以 lock pin 的
+  `lean-4.31.0-darwin_aarch64.zip`（sha256 校验 `e8cd241b…`）解包后用一次性纯 python
+  Mach-O load-command 解析器求同名闭包；licenses 按 `licenses/` 与根 `LICENSE` 计；
+  lake-manifest `packages` 为空（0 source-dependency）。
+- Results（已写入冻结包 `frozenCounts` 与 `05-test-spec.md` D0-08 节，两处一致）：
+  leaf refs darwin 20（6/6/2/5/1）+ linux 17（5/5/2/5/0）= 37；compiler-runtime
+  darwin 5 + linux 5 = 10；logical components 41（1 package/0 source-dep/11 asset/
+  4 compiler-exe/10 tool-exe/11 runtime/4 license-text）+ 1 synthetic root；
+  content identities 37；typed relationships 146（has-content 41、unpacks-to 25、
+  loads 27、licensed-under 12、bom-member 41）；standards files 4（已提交
+  `supply-chain/standards/` 并 sha256 pin，离线 validator 为两平台 lock 内 jv v6.0.2）；
+  sidecar files 3；lean-package file-set = 30 product library 源文件。
+  关键共享：darwin solc asset/bundle/tool-executable 同 bytes 共享 1 content identity；
+  libcrypto bundle-file 与 wat2wasm runtimeFile join 同一 runtime component；linux
+  `libleanshared_1/_2/libInit_shared.so` 三文件同 digest `2f96493a…`。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check`
+  clean；darwin lean 资产按 lock pin sha256/size 逐字节核验；closure 解析器输出与
+  `readelf` 独立复核一致（linux 5 节点、darwin 5 节点）。
+- Limitations：盘点只固化计数与 pins，不产生 SBOM closure/binding 实现；darwin 闭包
+  由 linux 上纯 python Mach-O 解析器从 pinned 归档重算，未在 darwin 机复跑 otool
+  （D0-09 回归一并覆盖）；`TASK-D0-08` 仍 pending，未进入 in_progress。
+- Next：`TASK-D0-08` → in_progress（冻结完成包已齐），随后 TST-SBOM-002 RED
+  （独立 fixture/validator + 常量 oracle，至少 SB2-001/003/007/008/009/011/018/019/
+  022/023/025/028 先红并证 legacy generator 不误绿）。

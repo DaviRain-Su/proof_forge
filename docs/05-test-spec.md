@@ -360,24 +360,45 @@ formal clean-room evidence, or release readiness.
 `sbom-digests.v1.json` 只能作为 legacy negative。测试 authority 是 SPEC-TOOL-001 与 ADR-0015；
 production generator 的输出不能反向生成 expected golden。
 
-Tool Lock 以 per-platform 文件计（ADR-0016）；下列 baseline 为 darwin `toolchains.lock.json`
-单文件当前值，linux 文件落地后 RED 前 counts 盘点必须覆盖全部已提交 lock 文件。
+Tool Lock 以 per-platform 文件计（ADR-0016）。2026-07-18 counts 盘点完成并固化（冻结包
+`frozenCounts` 与本节一致；oracle 测试以这些值为常量，不得从 production output 推导）：
 
-当前 Tool Lock v2 的 direct-leaf baseline 固定为 5 个 `assets[]`、2 个
-`compilerToolchain.executables[]`、5 个 `bundleFiles[]`、4 个 `tools[].executable` 与 1 个
-`tools[].runtimeFiles[]` ref；每个 leaf 恰覆盖一次。这一 baseline 映射为 5 个 download-asset、
-2 个 compiler-executable、4 个 tool-executable 与 1 个 external runtime-dylib logical component；
-再加 1 个 root lean-package 和当前 4 个 distinct license-text，得到 17 个 pre-freeze baseline
-components。candidate archive root 另为 synthetic BOM root，绝不兼任 inventory/source component。
+- 每平台 Tool Lock leaf refs（`enumerate_tool_lock_leaves` 五类口径）：darwin
+  `toolchains.lock.json`（v2）= 20（6 asset、6 bundle-file、2 compiler-executable、
+  5 tool-executable、1 tool-runtime-file）；linux `toolchains-linux-x86_64.lock.json`（v3）
+  = 17（5 asset、5 bundle-file、2 compiler-executable、5 tool-executable、
+  0 tool-runtime-file）；合计 37，每种 leaf ref 恰覆盖一次。
+- compiler-runtime files（Lean compiler 可达 non-system runtime，由 pinned lean 归档重算）：
+  darwin 5（`lib/lean/{libInit_shared,libLake_shared,libleanshared,libleanshared_1,libleanshared_2}.dylib`）、
+  linux 5（同名 `.so`）；合计 10。
+- logical components 合计 41：1 lean-package（file-set = 30 个 product library 源文件：
+  `ProofForgeV2.lean` + `ProofForgeV2/**/*.lean`）、0 source-dependency（lake-manifest
+  packages 为空）、11 download-asset（6+5）、4 compiler-executable、10 tool-executable、
+  11 runtime dylib/file（darwin libcrypto 1 + compiler-runtime 10）、4 bundled
+  license-text（`LICENSE`、`licenses/Apache-2.0.txt`、`licenses/GPL-3.0.txt`、
+  `licenses/MIT.txt`）。candidate archive root 另为 1 个 synthetic BOM root，
+  绝不兼任 inventory/source component。
+- content identities 合计 37（32 lock/compiler-runtime distinct content digest + 4 license
+  text + 1 package tree identity）；同 bytes 的 solc asset/bundle/tool-executable 共享 1 个
+  content identity 但保留独立 component，libcrypto bundle/runtime 两 leaf join 同一 runtime
+  component，linux `libleanshared_1/_2/libInit_shared.so` 三者共享 1 个 content identity。
+- typed relationships 合计 146：`has-content` 41、`unpacks-to` 25（darwin 13、linux 12）、
+  `loads` 27（darwin 14 含 wat2wasm→libcrypto、linux 13）、`licensed-under` 12
+  （11 download-asset + 1 lean-package → license-text）、`bom-member` 41
+  （synthetic root → 每个 logical component）。
+- standards files 恰为 4，均已提交 `supply-chain/standards/` 并按 sha256 pin：
+  `cyclonedx-bom-1.6.schema.json`（252625 bytes，`3e92dddb…` 源
+  CycloneDX/specification@`55343ba1`）、`spdx-license-list-v3.27.0.json`（318777 bytes，
+  `157789ba…` 源 spdx/license-list-data@v3.27.0）、`spdx-exceptions-v3.27.0.json`
+  （37918 bytes，`650f4970…` 同源）、`spdx-license-expressions-v2.3.md`（11972 bytes，
+  `2da19cea…` 源 spdx/spdx-spec@v2.3）。离线 validator 为每平台 lock 内的 jv v6.0.2
+  ToolchainIdentity（darwin/linux 各一）。
+- sidecar files 恰为 3：`supply-chain-closure.v1.json`、`bom.cdx.json`、
+  `sbom-release-binding.v1.json`，0444、atomic no-clobber。
 
-17 不是 D0-08 最终验收分母。进入 RED 前，freeze package 必须先保留所有 Lean compiler 可达
-non-system runtime file manifests，固定 official CycloneDX schema/SPDX grammar+list files 与离线
-validator ToolchainIdentity，并记录最终 exact counts：每种 Tool Lock ref、compiler-runtime file、
-component kind、content identity、typed relationship、standards file 和 sidecar file。测试 oracle 将这些
-counts 固化为常量；运行时不得从 production output 动态推导或放宽。bytes 相同的 solc
-asset/executable 必须有不同 `componentDigest/bom-ref`，但共享 content identity；libcrypto 的
-bundle-file/tool-runtime-file refs 必须 join 到同一个 runtime logical component。任何输入集合变化都
-必须先形成新的 freeze review 与 goldens。
+bytes 相同的 solc asset/executable 必须有不同 `componentDigest/bom-ref`，但共享 content
+identity；libcrypto 的 bundle-file/tool-runtime-file refs 必须 join 到同一个 runtime logical
+component。任何输入集合变化都必须先形成新的 freeze review 与 goldens。
 
 happy path 必须由 checkout 外的 fixed candidate tuple
 `(commit,treeObjectId,archiveDigest,archiveSize,digest)` 驱动，连续在两个 absolute root、空 HOME、
