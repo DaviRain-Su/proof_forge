@@ -447,10 +447,10 @@ unsafe def run : IO Unit := do
       throw <| IO.userError "Typed must not accept surface with initializer bare return"
 
   -- Existing returnValue control still compiles.
-  match Compiler.compile (twin (.returnValue (.literal 0))) with
+  match Compiler.compile retOne with
   | .ok _ => pure ()
   | .error error =>
       throw <| IO.userError
-        s!"returnValue control under ValueLessTwin must still compile, got {error.render}"
+        s!"return 1 control must still compile, got {error.render}"
 
 end Tests.Language.ValueLessReturns
