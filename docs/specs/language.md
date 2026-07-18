@@ -775,6 +775,36 @@ GREEN、focused/aggregate/test binary 与两份独立审查全绿后只可记录
 PA49 已运行 statement checkpoint，本切片不重复全量 `just ci`，且不得宣称完整 event semantics、
 statement grammar 或正式 D1 完成。
 
+D1-PA-51 冻结的 pre-acceptance alpha assert-error 子集补齐 EBNF
+`"assert" Expr ("else" Ident)?` 的 optional-error Source 分支。既有 bare
+`Source.Statement.assertStmt(condition)` 与 Statement tag `4`、surface、canonical bytes/hash 全部不变；
+新增 append-only syntax-variant carrier
+`Source.Statement.assertErrorStmt(condition : Expr, errorName : String)`。Source 层保留 bare/error 两个
+surface variant，后续 target-neutral normalization 才统一映射到 Semantic Assert 的 optional ErrorId；
+不得为追求单一 Source constructor 修改已接受的 bare carrier 或重算旧 golden。
+
+parser 在既有 bare rule 前新增 longer rule
+`syntax "assert " pfExpr " else " ident : pfStmt`，必须完整消费 `else Ident`，禁止 bare rule 先吞
+condition 后遗留 payload。decoder 先要求 error name 恰好一个 `Name` component，再应用既有 portable
+identifier policy，最后解码 condition；qualified/reserved error name 的 exact diagnostic 优先于 condition
+decode。Source canonical encoder 使用 append-only Statement tag `8`，随后按 semantic field order 编码
+condition expression 和 errorName string；tag `0..7` 与全部既有 goldens 不变。quotation 必须结构化保留
+两字段，不得退化为文本。
+
+tests-only RED 只扩展 `Tests.Language.AssertStatements`，并且必须且只能移除其中
+`assert true else Failure` 的一条 deferred negative；不新增测试模块或迁移其他 suite。positive 固定
+initializer、entry、view、fn 的 Lean command/ParserSession parity，literal/Bool/variable/operator/group
+condition、普通/等价 escaped error name，以及 condition/name/kind 的 canonical binding。missing name、
+qualified/reserved name、call-like error payload、duplicate `else`、extra payload 与 block-like 形态必须
+fail closed；bare assert、`assert := 1` rejection、escaped assignment 与 `assertValue` assignment 保持。
+`Typed.checkStatement` 必须在 condition checking、error-table lookup、Bool/effect analysis前逐字 fail closed
+为既有 `assert statements are not yet supported by typed checking`；含 error declaration 的 control 仍由
+既有 generic error-table diagnostic 拒绝。本切片不得实现 error resolution、condition Bool typing、
+assertion failure/revert、Semantic/requirement/effect、ABI/runtime 或 target behavior；production 仅限
+Source/Syntax/Typed 3 文件、最多 14 行新增且不移除既有 production。focused/aggregate/test binary 与
+两份独立审查全绿后只可记录完整 assert optional-error Source carrier；PA49 已运行 statement checkpoint，
+本切片不重复 `just ci`，不得宣称完整 assert semantics、statement grammar 或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。

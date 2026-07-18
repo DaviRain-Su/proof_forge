@@ -17,8 +17,8 @@
 | Formal milestone | **D0：5/9 done**；`TASK-D0-04` blocked，`TASK-D0-09` blocked（linux 侧 doneWhen 全绿，darwin 回归与 pre-cutover 关闭裁决为外部前置），`TASK-D0-08` in_progress，`TASK-D0-07` pending；尚未正式进入 D1 |
 | Active task | **TASK-D0-08**：SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾（冻结包 `TASK-D0-08.json`，counts 已固化） |
 | Next task | **TASK-D0-09**（blocked；仍是表序中 active 项之后的首个非 done 行） |
-| Active development slice | 无；D1-PA-50 已作为 development evidence 收口，尚未冻结新的 pre-acceptance slice |
-| Next development slice | 未冻结；重新做 statement/expression residual audit 后选择单一依赖闭合的最小 slice，禁止自动递增 |
+| Active development slice | **D1-PA-51 / TASK-D1-04 pre-acceptance**：完整 `assert Expr else Ident` Source-only carrier；完成面已冻结，下一步提交 tests-only RED |
+| Next development slice | 未冻结；D1-PA-51 收口后重新做 statement/expression residual audit，禁止自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | **TASK-D0-04** host seal broken + eligible Stage-0/authority/receipt 未闭合（ADR-0016 accepted 已立 linux host 路径，合格 Linux 机器可成第二条 eligible 路径；本机 SecureBoot disabled 仅 development 级）；**TASK-D0-09** darwin 回归（须 darwin 机执行 `just toolchains-validate`/`just host-stage0-development`/`just ci`）与 pre-cutover 关闭治理裁决（formal EV 在 D0-07 前 fail closed）未闭合；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
