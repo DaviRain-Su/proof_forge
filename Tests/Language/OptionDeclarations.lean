@@ -8,27 +8,41 @@ open ProofForgeV2.Language
 
 program OptionSurface where
   state maybeCount : Option UInt64
+  state maybeScalar : Option Field bn254_fr
 
   struct Pair where
     enabled : Option Bool
     owner : Option Principal
+    scalar : Option Field bn254_fr
 
   enum Tag where
     | MaybeUnit(Option Unit)
     | MaybeCount(Option UInt64)
+    | MaybeScalar(Option Field bn254_fr)
 
   const Seed : Option UInt64 := 0
+  const FieldSeed : Option Field bn254_fr := 0
 
-  init(initial : Option UInt64) do
+  init(initial : Option UInt64, scalar : Option Field bn254_fr) do
     maybeCount := initial
+    maybeScalar := scalar
 
   entry echo(value : Option UInt64) : Option UInt64 do
+    return value
+
+  entry echoField(value : Option Field bn254_fr) : Option Field bn254_fr do
     return value
 
   view get() : Option UInt64 do
     return maybeCount
 
+  view getField() : Option Field bn254_fr do
+    return maybeScalar
+
   fn ident(value : Option Principal) : Option Principal do
+    return value
+
+  fn identField(value : Option Field bn254_fr) : Option Field bn254_fr do
     return value
 
 end Tests.Language.OptionDeclarationsFixture
@@ -43,6 +57,10 @@ program OptionBoundary where
 
 program OptionBoolBoundary where
   entry echo(value : Option Bool) : Option Bool do
+    return value
+
+program OptionFieldBoundary where
+  entry echo(value : Option Field bn254_fr) : Option Field bn254_fr do
     return value
 
 end Tests.Language.OptionDeclarationsFixture
@@ -105,20 +123,31 @@ private def surfaceSource : String :=
   "namespace Tests.Language.OptionDeclarationsFixture\n\n" ++
   "program OptionSurface where\n" ++
   "  state maybeCount : Option UInt64\n\n" ++
+  "  state maybeScalar : Option Field bn254_fr\n\n" ++
   "  struct Pair where\n" ++
   "    enabled : Option Bool\n" ++
-  "    owner : Option Principal\n\n" ++
+  "    owner : Option Principal\n" ++
+  "    scalar : Option Field bn254_fr\n\n" ++
   "  enum Tag where\n" ++
   "    | MaybeUnit(Option Unit)\n" ++
-  "    | MaybeCount(Option UInt64)\n\n" ++
+  "    | MaybeCount(Option UInt64)\n" ++
+  "    | MaybeScalar(Option Field bn254_fr)\n\n" ++
   "  const Seed : Option UInt64 := 0\n\n" ++
-  "  init(initial : Option UInt64) do\n" ++
+  "  const FieldSeed : Option Field bn254_fr := 0\n\n" ++
+  "  init(initial : Option UInt64, scalar : Option Field bn254_fr) do\n" ++
   "    maybeCount := initial\n\n" ++
+  "    maybeScalar := scalar\n\n" ++
   "  entry echo(value : Option UInt64) : Option UInt64 do\n" ++
+  "    return value\n\n" ++
+  "  entry echoField(value : Option Field bn254_fr) : Option Field bn254_fr do\n" ++
   "    return value\n\n" ++
   "  view get() : Option UInt64 do\n" ++
   "    return maybeCount\n\n" ++
+  "  view getField() : Option Field bn254_fr do\n" ++
+  "    return maybeScalar\n\n" ++
   "  fn ident(value : Option Principal) : Option Principal do\n" ++
+  "    return value\n\n" ++
+  "  fn identField(value : Option Field bn254_fr) : Option Field bn254_fr do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
 
@@ -150,43 +179,49 @@ private def expectParserRejected (label source : String)
 
 unsafe def run : IO Unit := do
   let elaborated := Tests.Language.OptionDeclarationsFixture.OptionSurface
-  expect (elaborated.state.map (·.type) == #[.option .u64])
-    "Option UInt64 state must survive Lean command elaboration"
+  expect (elaborated.state.map (·.type) == #[.option .u64, .option .field])
+    "Option UInt64/Field state must survive Lean command elaboration"
   match elaborated.structs with
   | #[pair] =>
       expect (pair.name == "Pair" &&
-          pair.fields.map (·.type) == #[.option .bool, .option .principal])
-        "Option Bool/Principal struct fields must preserve element types"
+          pair.fields.map (·.type) == #[.option .bool, .option .principal, .option .field])
+        "Option Bool/Principal/Field struct fields must preserve element types"
   | _ => throw <| IO.userError "OptionSurface must retain one struct"
   match elaborated.enums with
   | #[tag] =>
       expect (tag.name == "Tag" && tag.variants.map (·.payloadTypes) ==
-          #[#[.option .unit], #[.option .u64]])
-        "Option Unit/UInt64 enum payloads must preserve element types"
+          #[#[.option .unit], #[.option .u64], #[.option .field]])
+        "Option Unit/UInt64/Field enum payloads must preserve element types"
   | _ => throw <| IO.userError "OptionSurface must retain one enum"
   match elaborated.initializer with
   | some initializer =>
-      expect (initializer.params.map (·.type) == #[.option .u64])
-        "Option initializer parameter must survive elaboration"
+      expect (initializer.params.map (·.type) == #[.option .u64, .option .field])
+        "Option UInt64/Field initializer parameters must survive elaboration"
   | none => throw <| IO.userError "OptionSurface must retain initializer"
   match elaborated.entries with
-  | #[echoEntry, getView] =>
+  | #[echoEntry, echoField, getView, getField] =>
       expect (echoEntry.params.map (·.type) == #[.option .u64] &&
           echoEntry.result == .option .u64 && getView.result == .option .u64 &&
-          getView.mode == .view)
-        "Option entry/view parameter and result types must survive elaboration"
-  | _ => throw <| IO.userError "OptionSurface must retain echo and get"
+          getView.mode == .view &&
+          echoField.params.map (·.type) == #[.option .field] &&
+          echoField.result == .option .field && getField.result == .option .field &&
+          getField.mode == .view)
+        "Option UInt64/Field entry/view types must survive elaboration"
+  | _ => throw <| IO.userError "OptionSurface must retain four entries/views"
   match elaborated.functions with
-  | #[identFn] =>
+  | #[identFn, identField] =>
       expect (identFn.params.map (·.type) == #[.option .principal] &&
-          identFn.result == .option .principal)
-        "Option Principal fn parameter/result must survive elaboration"
-  | _ => throw <| IO.userError "OptionSurface must retain ident"
+          identFn.result == .option .principal &&
+          identField.params.map (·.type) == #[.option .field] &&
+          identField.result == .option .field)
+        "Option Principal/Field fn parameter/results must survive elaboration"
+  | _ => throw <| IO.userError "OptionSurface must retain ident and identField"
   match elaborated.consts with
-  | #[seed] =>
-      expect (seed.name == "Seed" && seed.type == .option .u64)
-        "Option const type must survive elaboration"
-  | _ => throw <| IO.userError "OptionSurface must retain Seed"
+  | #[seed, fieldSeed] =>
+      expect (seed.name == "Seed" && seed.type == .option .u64 &&
+          fieldSeed.name == "FieldSeed" && fieldSeed.type == .option .field)
+        "Option UInt64/Field const types must survive elaboration"
+  | _ => throw <| IO.userError "OptionSurface must retain Seed and FieldSeed"
 
   let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgram surfaceSource "<option-declarations>" none with
@@ -209,21 +244,44 @@ unsafe def run : IO Unit := do
   expect ((twin (.option .u64)).sourceHash != (twin .u64).sourceHash &&
       (twin (.option .u64)).sourceHash != (twin (.option .unit)).sourceHash)
     "Option tag and element payload must both bind sourceHash"
+  let optionFieldSource := twin (.option .field)
+  expect (optionFieldSource.canonicalBytes.size == 0 && optionFieldSource.sourceHash == "UNBOUND")
+    s!"Option Field source golden is unbound: size={optionFieldSource.canonicalBytes.size}, hash={optionFieldSource.sourceHash}"
+  expect (optionFieldSource.sourceHash != (twin .field).sourceHash &&
+      optionFieldSource.sourceHash != (twin (.option .bool)).sourceHash &&
+      optionFieldSource.sourceHash != (twin (.option .u64)).sourceHash)
+    "Option Field must bind both Option tag16 and Field tag2"
+  let optionFieldSemantic ← match Compiler.compile optionFieldSource with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"Option Field semantic twin must compile: {error.render}"
+  expect (optionFieldSemantic.canonicalBytes.size == 0 &&
+      optionFieldSemantic.semanticHash == "UNBOUND")
+    s!"Option Field semantic golden is unbound: size={optionFieldSemantic.canonicalBytes.size}, hash={optionFieldSemantic.semanticHash}"
 
   for (label, name, spelling) in [
       ("plural option", "PluralOptionType", "Options UInt64"),
       ("escaped option", "EscapedOptionType", "«Option» UInt64"),
       ("unknown option element", "UnknownOptionElement", "Option Mystery"),
       ("missing option element", "MissingOptionElement", "Option"),
-      ("qualified option", "QualifiedOptionType", "Std.Option UInt64")
+      ("qualified option", "QualifiedOptionType", "Std.Option UInt64"),
+      ("missing Field identifier", "MissingOptionFieldId", "Option Field"),
+      ("alternate Field identifier", "AlternateOptionFieldId", "Option Field bls12_381_fr"),
+      ("escaped Field identifier", "EscapedOptionFieldId", "Option Field «bn254_fr»"),
+      ("qualified Field identifier", "QualifiedOptionFieldId", "Option Field Curves.bn254_fr")
     ] do
     expectUnsupportedType label
       (← session.parsePrograms (negativeSource name spelling) s!"<option-{label}>")
 
   for (label, spelling) in [
       ("nested option", "Option Option UInt64"),
-      ("field option", "Option Field bn254_fr"),
-      ("extra option payload", "Option UInt64 Principal")
+      ("extra option payload", "Option UInt64 Principal"),
+      ("extra Field option payload", "Option Field bn254_fr UInt64"),
+      ("split Field option", "Option Field\n  bn254_fr"),
+      ("escaped Field constructor", "Option «Field» bn254_fr"),
+      ("qualified Option constructor", "Std.Option Field bn254_fr"),
+      ("Bytes option", "Option Bytes 8"),
+      ("Array option", "Option Array UInt64 4"),
+      ("Map option", "Option Map UInt64 Bool")
     ] do
     let source := negativeSource "RejectedOptionShape" spelling
     let (_, result) ← IO.FS.withIsolatedStreams
@@ -256,6 +314,21 @@ unsafe def run : IO Unit := do
     | .error other =>
         throw <| IO.userError s!"Option Bool/{target} reached wrong failure: {other.render}"
     | .ok () => throw <| IO.userError s!"Option Bool/{target} unexpectedly passed support"
+
+  let fieldBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.OptionFieldBoundary with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"OptionFieldBoundary must compile: {error.render}"
+  expect (fieldBoundary.requirements == #[.fieldBn254])
+    "Option Field must propagate fieldBn254 exactly once"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target fieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Option Field support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError s!"Option Field/{target} reached wrong failure: {other.render}"
+    | .ok () => throw <| IO.userError s!"Option Field/{target} unexpectedly passed support"
 
   for (label, sourceProgram, needle) in [
       ("OptionStateBoundary",
