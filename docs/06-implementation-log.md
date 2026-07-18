@@ -2456,3 +2456,37 @@ normative: false
   必须固定低于 bitwise-or 的 precedence `30` 左结合、append-only Expr tag `23`、BitwiseAnd suite 中唯一
   deferred logical-and migration、digraph/token integrity 与 operands 前 exact Typed failure；不得捆绑
   logical-or、short-circuit semantics、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 logical-and pre-acceptance slice
+
+- Commits：freeze `72c8bcd2`；tests-only RED `f7adbf8f`；Source-only GREEN `3c16300f`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-42 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.logicalAnd lhs rhs`、append-only Expr tag `23`、
+  `syntax:30 pfExpr:30 " && " pfExpr:31 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `logical and is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..22` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；integer/Bool/order/variable、add/mul/shift、comparison、
+  bitwise-and/xor/or 双向 precedence、grouping、unary AST；`1 && 2 && 3` 左结合与
+  `1 && (2 && 3)` 右嵌套。代表 goldens：`1&&2`
+  `b89596d932de15ebbcea6c3f2694e2fbacaa89a83be4e05a60758b6c05158fe6`/228 bytes、`2&&1`
+  `6679e8f4476a00519fd007b9d8efca64eebc0e45c29d9719100e881a1eafc635`/228、`true&&false`
+  `ec66a3b5f8e1b590d105897f577a1d4f90510225238a2d3e14c3f5d44ffc3248`/214、left nest
+  `ae21d1bc4527e6e901988a410860d892f7ad49ab9fb581a079f8090bd1f48d72`/238、right nest
+  `c7551bc55592b2c5a2b3532cc8886c9c78b278ed23bb9630c2d538c4e9ed9dd9`/238。
+- Boundaries：tests-only RED 只删除 `BitwiseAnd.lean` 的一个 deferred logical-and negative；spaced
+  `1 & & 2` survival pin 与 `BitwiseOr.lean` 的 `1 || 2` retention 均保持。bare/missing、
+  `1 && && 2`、`1 &&& 2`、`1 & && 2` 与 extra payload 在 parser boundary 拒绝。Typed integer/Bool
+  两路均在 operands 前 exact fail closed，既有 expression controls 保持。freeze 与 final review P0/P1=0。
+- Commands/Results：`lake build Tests.Language.LogicalAnd`（14 jobs）；
+  `lake build proof_forge_next_tests`（168 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`
+  真实捕获 exit 0；`git diff --check` exit 0；development evidence 为 `EV-20260718-0028`。按冻结包不重复
+  全量 `just ci`，logical-tier committed-tree batch checkpoint 延后至 logical-or 收口。
+- Limitations：仅有 Source logical-and carrier；没有 operand/result legality、short-circuit Typed/Semantic、
+  logical-or、Bool legality、folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence；
+  不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：residual audit 选择 binary logical-or 为唯一下一 candidate，但尚未冻结。必须固定 precedence
+  `25` 左结合、append-only Expr tag `24`、BitwiseOr suite 中唯一 double-pipe migration、spaced-pipe
+  survival control、与 logical-and/bitwise/comparison 的合法 mixed shapes及 operands 前 exact Typed failure；
+  不得捆绑 match、short-circuit implementation、Semantic 或 target lowering。该切片收口时运行 logical-tier
+  committed-tree 批量 `just ci`，但不得把运算符 precedence tower 扩张为完整 expression/statement grammar。
