@@ -3773,3 +3773,33 @@ normative: false
   D1 evidence；不得关闭 pending `TASK-D1-03`，D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；下一 slice 未冻结，待 final review 后重新做 post-PA63 declaration
   residual audit，再选择单一依赖闭合最小切片，禁止自动递增。
+
+## 2026-07-19 — TASK-D0-04 pre-acceptance：bootstrap 对象族 producer/签发侧
+
+- Context：D0-04 仓库内缺口第三件。consumer 模块保持 verify-only 边界，producer
+  独立成 `scripts/bootstrap_task_producers.py`（851 行）+
+  `scripts/bootstrap_task_producers_self_test.py`（1693 行）。委托实现，主会话
+  抽查评审后提交。
+- Changed：纯 Ed25519 sign 原语（RFC 8032 完整语义，产出即自验，只读复用
+  consumer 的 curve/point 实现，ABI 33 名钉住）；7 个对象 producer
+  （required-test-set / task-approval / task-verifier-receipt / approval-set /
+  approval-verifier-receipt / formal-gate-catalog-approval / bootstrap-authority-policy），
+  每个都构造 statement → 按该族三条推导域签名 → 附回 → canonical PF-JCS → 再用
+  consumer 自己的 preflight 重新验证并断言 signatureMessage 逐字节相等；
+  multi-signature 按 keyId 查重升序组装；required set 与 catalog approval 在产出侧
+  就跑完整 policy 验签（under-quorum/未知 key/冒充产出侧即拒）。
+  密钥保管硬约束：seed 只能是显式 32-byte bytes 参数；模块无 os/random/env/
+  socket/subprocess 导入与任何 path/file/env/fd 形态参数（自测 inspect/hasattr
+  断言）；seed 错误只给固定文案且不携带内容；真实 genesis/authority 私钥由人工
+  离线保管（GOV-GENESIS-001 §4 不变）。
+- Verification：两个自测全绿（含 RFC 8032 官方向量 TEST 1/2 字节级相等、整条
+  六任务链 produce→parse round-trip 与 digest/ref 重算相等、篡改/quorum/保管
+  负例全拒）；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean；justfile `docs-check` recipe 已接入新自测。
+  development evidence 见台账追记。
+- Limitations：producer 只做对象构造/签名，不模拟 protected execution、不做
+  store publish/lookup/撤销，签发不产生 activation 事实；不得据本条关闭
+  `TASK-D0-04`（仍 blocked）；D0 formal milestone 仍为 7/9。
+- Next：authority-store protected service（`pf.authority-store.rpc.v1` server+client，
+  signed hello/request/response、no-clobber append、lease readback window、head
+  digest），随后 Stage-0 handoff producer + bwrap containment runner。
