@@ -14,9 +14,9 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：5/9 done**；`TASK-D0-04` blocked，`TASK-D0-09` blocked（linux 侧 doneWhen 全绿，darwin 回归与 pre-cutover 关闭裁决为外部前置），`TASK-D0-07`/`TASK-D0-08` pending；尚未正式进入 D1 |
-| Active task | 无；当前没有可合法置为 `in_progress` 的正式 TASK |
-| Next task | **TASK-D0-04**（blocked；仍是表序中的下一个非 done 正式任务） |
+| Formal milestone | **D0：5/9 done**；`TASK-D0-04` blocked，`TASK-D0-09` blocked（linux 侧 doneWhen 全绿，darwin 回归与 pre-cutover 关闭裁决为外部前置），`TASK-D0-08` in_progress，`TASK-D0-07` pending；尚未正式进入 D1 |
+| Active task | **TASK-D0-08**：SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾（冻结包 `TASK-D0-08.json`，counts 已固化） |
+| Next task | **TASK-D0-09**（blocked；仍是表序中 active 项之后的首个非 done 行） |
 | Active development slice | **D1-PA-46 / TASK-D1-04 pre-acceptance**：ConstructorExpr Source-only carrier；完成面已冻结，下一步提交 RED |
 | Next development slice | 未冻结；D1-PA-46 收口后再按 PrimaryExpr residual audit 选择单一 slice，禁止由 checkpoint 自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
