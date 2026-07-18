@@ -34,6 +34,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ExtensionRequirements,
     `Tests.Language.FieldDeclarations,
     `Tests.Language.FnDeclarations,
+    `Tests.Language.ForStatements,
     `Tests.Language.IfStatements,
     `Tests.Language.IntegerWidthDeclarations,
     `Tests.Language.LetStatements,
