@@ -3,6 +3,8 @@ import ProofForgeV2.Core.Crypto
 
 namespace ProofForgeV2.Source
 
+abbrev ArrayLength := Fin 4097
+
 inductive ValueType where
   | u64
   | bool
@@ -22,6 +24,7 @@ inductive ValueType where
   | principal
   | option (element : ValueType)
   | bytes (length : UInt32)
+  | array (element : ValueType) (length : ArrayLength)
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 inductive Visibility where
@@ -264,6 +267,8 @@ private def appendValueType (bytes : ByteArray) : ValueType → ByteArray
   | .principal => appendTag bytes 15
   | .option element => appendValueType (appendTag bytes 16) element
   | .bytes length => appendNat (appendTag bytes 17) length.toNat
+  | .array element length =>
+      appendNat (appendValueType (appendTag bytes 18) element) length.val
 
 private def appendVisibility (bytes : ByteArray) : Visibility → ByteArray
   | .verifierVisible => appendTag bytes 0

@@ -14,6 +14,9 @@ either an identifier (Field/Option) or a numeral (Bytes length). Line equality
 prevents the following program item from becoming part of the type. -/
 @[pfType_parser] def portableType := leading_parser
   withPosition (ident >> optional (checkLineEq >> (ident <|> numLit)))
+@[pfType_parser default+1] def arrayType := leading_parser
+  withPosition (nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit)
 
 declare_syntax_cat pfParam
 syntax ident " : " pfType : pfParam
@@ -101,6 +104,9 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
 @[pfAggregateMember_parser] def aggregateField := leading_parser
   withPosition (ident >> " : " >> ident >>
     (checkLinebreakBefore <|> checkLineEq >> (ident <|> numLit) >> checkLinebreakBefore))
+@[pfAggregateMember_parser default+1] def arrayAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
 syntax "| " ident linebreak : pfAggregateMember
 syntax "| " ident "(" sepBy(pfType, ", ") ")" linebreak : pfAggregateMember
 
@@ -332,6 +338,20 @@ private def decodeBytesLengthAtom (stx : Syntax) : Except String UInt32 := do
       throw "unsupported portable type"
   pure (UInt32.ofNat value)
 
+private def decodeArrayValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  let (elementSyntax, lengthSyntax) ← match atoms with
+    | #[element, length] => pure (element, length)
+    | _ => throw "unsupported portable type"
+  let element ← match rawIdentifierText? elementSyntax with
+    | some _ => decodeTypeIdentifiers elementSyntax none
+    | none => throw "unsupported portable type"
+  let length := (← decodeBytesLengthAtom lengthSyntax).toNat
+  let length : ProofForgeV2.Source.ArrayLength ←
+    if h : length < 4097 then pure ⟨length, h⟩
+    else throw "unsupported portable type"
+  pure (.array element length)
+
 /-- Decode one or two type atoms into a ValueType (shared by pfType and fields). -/
 private def decodeValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType :=
@@ -353,7 +373,9 @@ private def decodeValueTypeFromAtoms (atoms : Array Syntax) :
   | _ => .error "unsupported portable type"
 
 private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Source.ValueType :=
-  if !stx.isOfKind ``portableType then
+  if stx.isOfKind ``arrayType then
+    decodeArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if !stx.isOfKind ``portableType then
     .error "unsupported portable type"
   else
     decodeValueTypeFromAtoms (collectTypeAtomSyntax stx)
@@ -534,6 +556,15 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
 
 private def decodeStructFieldUnchecked (stx : Syntax) :
     Except String ProofForgeV2.Source.FieldDecl := do
+  if stx.isOfKind ``arrayAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeArrayValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
   unless stx.isOfKind ``aggregateField do
     throw "unsupported portable struct field"
   -- Field name is the first atom; remaining atoms are the type (shared decoder).
@@ -870,6 +901,9 @@ private def quoteValueType : ProofForgeV2.Source.ValueType → MacroM (TSyntax `
   | .bytes length =>
       let n := length.toNat
       `(ProofForgeV2.Source.ValueType.bytes (UInt32.ofNat $(quote n)))
+  | .array element length => do
+      let elementExpr ← quoteValueType element
+      `(ProofForgeV2.Source.ValueType.array $elementExpr $(quote length.val))
 
 private def quoteVisibility : ProofForgeV2.Source.Visibility → MacroM (TSyntax `term)
   | .verifierVisible => `(ProofForgeV2.Source.Visibility.verifierVisible)
