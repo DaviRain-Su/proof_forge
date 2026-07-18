@@ -40,6 +40,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.InvariantDeclarations,
     `Tests.Language.ProofReferences,
     `Tests.Language.ProgramSyntax,
+    `Tests.Language.ShiftLeft,
     `Tests.Language.PrimitiveDeclarations,
     `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,
