@@ -217,6 +217,8 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       throw <| .invalidProgram "not-equal comparison is not yet supported by typed checking"
   | .lessThan .. =>
       throw <| .invalidProgram "less-than comparison is not yet supported by typed checking"
+  | .lessEqual .. =>
+      throw <| .invalidProgram "less-equal comparison is not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement
