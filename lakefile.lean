@@ -54,6 +54,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.LogicalAnd,
     `Tests.Language.LogicalOr,
     `Tests.Language.StringLiterals,
+    `Tests.Language.LocalFnCalls,
     `Tests.Language.PrimitiveDeclarations,
     `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,

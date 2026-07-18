@@ -303,7 +303,7 @@ unsafe def run : IO Unit := do
       ("tuple comma", returnProgramSource "Bad" "(1, 2)"),
       ("extra inner payload", returnProgramSource "Bad" "(1 2)"),
       ("trailing after group", returnProgramSource "Bad" "(1) 2"),
-      ("call-like", returnProgramSource "Bad" "f(1)"),
+      -- call-like `f(1)` migrated to LocalFnCalls positives (D1-PA-45).
       -- Inner slash `(2 / 3)` migrated to CheckedDiv positives (D1-PA-29).
       -- Inner percent `(2 % 3)` migrated to CheckedMod positives (D1-PA-30).
 
