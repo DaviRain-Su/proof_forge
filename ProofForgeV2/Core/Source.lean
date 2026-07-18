@@ -100,6 +100,8 @@ inductive Expr where
   | logicalOr (lhs rhs : Expr)
   | stringLiteral (value : String)
   | localFnCall (callee : String) (args : Array Expr)
+  | constructorExpr (path : Array String) (args : Array Expr)
+  | indexAccess (base : String) (index : Expr)
   deriving BEq, Inhabited, Repr
 
 structure ConstDecl where
@@ -114,6 +116,7 @@ inductive Statement where
   | synchronousCall (callee : String)
   | letDecl (name : String) (typeAnn : Option ValueType) (value : Expr)
   | assertStmt (condition : Expr)
+  | revertStmt (errorName : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
 inductive EntryMode where
@@ -313,6 +316,8 @@ private partial def appendExpr (bytes : ByteArray) : Expr → ByteArray
   | .logicalOr lhs rhs => appendExpr (appendExpr (appendTag bytes 24) lhs) rhs
   | .stringLiteral value => appendString (appendTag bytes 25) value
   | .localFnCall callee args => appendArray appendExpr (appendString (appendTag bytes 26) callee) args
+  | .constructorExpr path args => appendArray appendExpr (appendArray appendString (appendTag bytes 27) path) args
+  | .indexAccess base index => appendExpr (appendString (appendTag bytes 28) base) index
 
 private def appendConstDecl (bytes : ByteArray) (decl : ConstDecl) : ByteArray :=
   appendExpr (appendValueType (appendString bytes decl.name) decl.type) decl.value
@@ -328,6 +333,7 @@ private def appendStatement (bytes : ByteArray) : Statement → ByteArray
         | some type => appendValueType (appendTag bytes 1) type
       appendExpr bytes value
   | .assertStmt condition => appendExpr (appendTag bytes 4) condition
+  | .revertStmt errorName args => appendArray appendExpr (appendString (appendTag bytes 5) errorName) args
 
 private def appendEntryMode (bytes : ByteArray) : EntryMode → ByteArray
   | .mutate => appendTag bytes 0

@@ -2712,7 +2712,7 @@ normative: false
   `eligibleForHermetic:false`、reason `secure boot is disabled` 的 development profile 并被
   validate-host-profile 接受）；合并树 `just ci` 全绿（v2-isolation/docs-check/sbom/
   supply-chain-core/176-job build/test/dsl-negative/target-negative）。development evidence
-  为 `EV-20260718-0032`、`EV-20260718-0033`。
+  为 `EV-20260718-0035`、`EV-20260718-0036`（原登记 0032/0033 与并行 D1 切片撞号，合并时顺延重编号）。
 - Merge fix（R1）：合并后 `supply-chain-core` 的 `compiler_runtime_observation_self_test.py`
   以缺 `schema` 字段的 fixture lock 触发 per-platform 分派 `KeyError: 'schema'`
   （`PF-SBOM-CLOSURE`）；以 1 行 fixture 声明 `schema: proof-forge.toolchains.v2` 修复
@@ -2824,3 +2824,140 @@ normative: false
   pre-cutover 治理裁决（formal EV 在 D0-07 前 fail closed，本任务不在 genesis 集合）。
 - Next：SB2 剩余 19 例全矩阵 + jv 离线验证接入；doneWhen 第 2–3 条（双 root/空 HOME/
   locale/umask byte-identical、legacy negative 与 race 全拒）随全矩阵收口。
+## 2026-07-18 — D1 ConstructorExpr pre-acceptance slice
+
+- Commits：freeze `4d61820e`；primary tests-only RED `717da5a0`；canonical/boundary RED hardening
+  `fbed21c6`；component-count/escaped-classification spec clarification `66f56bf9`；classification RED
+  `2bc6eb9d`；underscore/Common-diagnostic RED `ab610e57`；UNBOUND restore `a624b484`；final
+  canonical golden binding `48c00733`；Source-only GREEN `f8ca5fe4`。`ab610e57` 在 shared-tree 并行中
+  短暂夹带了 provisional hashes，`a624b484` 立即恢复 UNBOUND，最终只以独立测量后的
+  `48c00733` 作为有效 binding。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-46 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Expr.constructorExpr(path, args)` 与 append-only Expr tag `27`，先编码
+  length-prefixed path component array，再编码 length-prefixed argument expression array。复用 PA45
+  call-like syntax rule，decoder 以 Lean `Name.components.length` 将单组件分类为 LocalFnCall、
+  多组件分类为 ConstructorExpr；`decodeConstructorPath` 逐组件经 portable reserved policy
+  和 Common QualifiedName canonical validation，并先于 arguments 执行。quotation 保留两个 arrays；
+  Typed 逐字 fail closed 为 `constructor expressions are not yet supported by typed checking`。
+  production 恰好 Source/Syntax/Typed 3 文件、24 行新增/3 行移除；没有新 syntax rule、
+  Semantic 或 target 变更。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn 的 return/let；
+  zero/one/multiple、operator/group/string arguments、nested constructors 和 constructor-as-operand；
+  two/multi-component paths 与合法 escaped-component parity。固定 component value/count/order、argument
+  value/count/order/nesting，以及 constructor/local-call/variable 三方 tag non-alias。代表 goldens：
+  `A.B()` `7308954255287dca62e73a7c7cbcb38e0a42cf39f6bc860886cc1ea9120368a1`/260 bytes；
+  path-value `A.C()` `311a4c5d4935014bdd5eb21cecf04b057f487988f104a352e37b9c06d8a3f6c9`/260；
+  `A.B(1)` `8edaf53dbcbf3d033ea197c991d3c2fae815f786bb783d8900b938db65d0d717`/269；
+  arg-value `A.B(2)` `5fc5b87a8ac3b400afcfe35a317df350bdba529d68f7a4c323a5bd57db51eea2`/269；
+  `A.B(1,2)` `0d04c4950a2197f8761ed9fdf55cb55384214b1534c961e591195a3a4aa0226b`/278；
+  arg-order `10c60da85be80275e7fa1cc3815c142359e9fa667e467bff1df40f05f1fc9013`/278；
+  path-order `896dfade7909d50800f4d85918984fa2b02e4079d8601653b38c28ca64ce745c`/260；
+  path-count `137d315d470589764b9be2290db6eab93c66a03494e535ac24dcd61baf3a8b95`/269；
+  nested `77e6f8de9244c19752c387b13e50a89cc82d408a3f5971eee0c0d6ef8724c5a9`/313。
+- Boundaries：RED 只迁移 `LocalFnCalls.lean` 的 `A.B()`/`A.B(1)` 两条 qualified negatives。
+  bare `A.B` 仍是 variable；whole-escaped `«A.B»()` 按单组件仍是 LocalFnCall；
+  `«A».B(1)`/`A.«B»(1)` 与普通 path canonical equal。numeric/empty components 停在 parser
+  boundary；reserved、invalid escaped 与 underscore components 以精确 portable/Common diagnostic 拒绝，
+  并先于 Bool/string argument diagnostics。两份 final review 均为 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.ConstructorExprs`（15 jobs）；
+  `lake build proof_forge_next_tests`（178 jobs）；`lake env /usr/bin/time -l
+  .lake/build/bin/proof-forge-next-tests` 真实捕获 exit 0/4.46 s；`git diff --check` exit 0。
+  clean committed `just ci` 绑定 `f8ca5fe48e3c6fc2e93b1a7b1567e76b342f6374`：40-mutation
+  isolation precheck、186-job archive build/test/help、186 docs mutations、genesis/bootstrap/SBOM/
+  supply-chain/runtime-closure self-tests、60-job product build、178-job aggregate/test、DSL negatives 与
+  target/toolchain negatives 全部 exit 0。development evidence 为 `EV-20260718-0032`。
+- Scope claim：ConstructorExpr Source carrier 与 LocalFnCall/ConstructorExpr 的 component-count 分类已覆盖。
+  不包括 struct/enum/Option constructor resolution、arity/type/result、Place、MatchExpr、ExternalCallExpr、
+  Typed/Semantic constructor、requirement 或 target behavior。
+- Limitations：不得声明 PrimaryExpr、完整 grammar、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。clean `just ci` 仍是 development gate，
+  不是 eligible Stage-0/formal hermetic evidence。
+- Next：PrimaryExpr residual audit 尚未冻结；Grok 建议只切 Place.Index，Place.Field 因既有
+  bare dotted variable tokenization 冲突需先做规格决策，当前正等待独立 challenge review。
+
+## 2026-07-18 — D1 bare-base rvalue indexAccess pre-acceptance slice
+
+- Commits：freeze `88aa2af7`；tests-only RED `049ef0c8`；canonical golden binding
+  `dcfb6e19`；same-identity escaped-base control correction `5515acb2`；Source-only GREEN
+  `cc1e1ef2`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-47 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Expr.indexAccess(base, index)` 与 append-only Expr tag `28`，依次编码
+  base string 和递归 index expression；新增 high-precedence leading-on-ident
+  `syntax:max ident "[" pfExpr "]" : pfExpr`、decoder 与 quotation。decoder 先要求 base 恰好一个
+  Lean `Name` component，再经既有 portable identifier policy 解码 base，最后才解码完整 index。
+  Typed 逐字 fail closed 为 `index access is not yet supported by typed checking`。production 恰好
+  Source/Syntax/Typed 3 文件、13 行新增；Semantic、requirement 与 target 未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn 的 return/let；
+  `x[0]`/`x [0]`、escaped ordinary base、operator/group/local-call/constructor index，以及
+  indexAccess 作为 unary/binary operand。固定 base value、index value/tree、spacing/escape canonical
+  equality 与 tag `28` 对 variable tag `1` non-alias。六个 IndexAccessTwin hash goldens 及独立 probe
+  测得的 canonical byte size 为：`x[0]`
+  `9244d727ece801a6e4fcae4e34b7e12fbc3110d5b0ef5a07d75b0c039b000ce4`/233 bytes；`x[1]`
+  `7d9253e00ff06d32a7440a3fdba4d427bfe1e221c698998837b264cac371db7a`/233；`y[0]`
+  `98d3150573dee013428d347a173975f42c1c25f9bff1cca7af6c892a5fd5812d`/233；`x[1+2]`
+  `8a6ad5b937c6ca326f41e2bd683ebcb7c76cb2516d951bc58442bc69c5763a7f`/243；`x[f(1)]`
+  `3f3db2b94cf9c87df71cb37a6b07fa5d00823289ed15ad83ac87c4fbab57461f`/251；`x[A.B(1)]`
+  `3ceb4bd53c70208cf2a65ff785ec50816f4d31c1e3b4332f4cffcaef994ffde1`/268。
+- Boundaries：zero migration；missing/malformed brackets/base/index、extra payload、group/call base、
+  `x[0][1]` chaining 与 `x[0] := 1` indexed assignment 均停在 parser boundary。`A.B[true]`
+  在 index 前精确拒绝 `index access base must be unqualified`；reserved base 走既有 portable policy。
+  Typed 在 unknown base 与 Bool/string index checking 前 fail closed。真实 focused 执行发现 RED 中
+  escaped/plain equality 最初使用不同 program name；`5515acb2` 将其修正为同 identity 后通过，
+  没有修改 production 语义。两份 final review 均为 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.IndexAccesses`（15 jobs）；`lake env lean --run
+  /dev/stdin` 直接执行 `Tests.Language.IndexAccesses.run` exit 0；`lake build proof_forge_next_tests`
+  （180 jobs）；`lake env /usr/bin/time -l .lake/build/bin/proof-forge-next-tests` exit 0/4.88 s；
+  `git diff --check` exit 0。development evidence 为 `EV-20260718-0033`。按冻结未运行全量
+  `just ci`；下一批 primary-expression checkpoint 再运行。
+- Scope claim：bare single-component identifier 的单个 rvalue bracket indexAccess Source carrier 已覆盖。
+  不包括 field suffix、suffix chaining、indexed assignment、general postfix、完整 Place、lvalue/container/
+  index/bounds/read semantics、MatchExpr、ExternalCallExpr、Typed/Semantic index、requirement 或 target behavior。
+- Limitations：不得声明完整 Place、PrimaryExpr、expression/statement grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：下一 development slice 未冻结；必须先重新审计 field tokenization、chaining 表示与
+  Match/External residual，只能选择一个依赖闭合的最小切片。
+
+## 2026-07-18 — D1 complete revert statement pre-acceptance slice
+
+- Commits：freeze `6e37c8a5`；tests-only RED `f8fa9e5f`；longest-match 规格澄清
+  `0791cb10`；RED priority hardening `856b68e6`；canonical golden binding `27b3a17e`；
+  return control fixture correction `d4761ff6`；Source-only GREEN `64a081cf`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-48 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Statement.revertStmt(errorName, args)` 与 append-only Statement tag `5`，
+  依次编码 errorName string 和 length-prefixed argument expression array；parenthesized rule 先于
+  strict-prefix bare fallback，并由 decoder 把 bare/empty-paren 都物化为 empty args。name 先做单一
+  component guard，再走既有 portable identifier policy，最后才解码完整 ExprList；quotation 保留结构。
+  Typed 在 error lookup/argument checking 前逐字 fail closed 为
+  `revert statements are not yet supported by typed checking`。production 恰好 Source/Syntax/Typed
+  3 文件、20 行新增；Semantic、requirement、error resolution 与 target 未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn；bare、empty-paren、
+  one/multi args、operator/group/string/local-call/constructor/index/nested argument tree。相同 identity 下
+  bare/empty AST、canonical bytes、sourceHash 相等；name、argument count/order/nesting 与 tag `5` 对
+  synchronous call/assert/return 均不 alias。六组 RevertTwin hash/size 为：bare Err
+  `c52fc7afa243bb9ea5e9ebe28a6094525c137462d78e83312041216c51d90716`/236 bytes；Err(1)
+  `b2b26b8586fc68dc45ad8c99c6a0a36208d060699bee3618bf033b7e12074f67`/245；Err(1,2)
+  `9732b4f7ae5ad6670d51d95af81001d19622bed60116eb9561c15152bb3019a1`/254；Err(2,1)
+  `f118fe75245f1cc69ebd46d9965177d9a4a8a5cb51dc32aa377e2f5cd912744e`/254；bare Other
+  `ec29ebf0a385d704e795e81f1e9f656410dfae920a0cb8bdec9a74e8680c5acb`/238；nested
+  `045cd8c6c2f5a1906da0b3704a5b245e717792537fa55cfabbd18dc9fc3ec9c5`/290。
+- Boundaries：zero migration；missing name/paren、leading/trailing/double comma、adjacent argument、extra
+  payload 与 unescaped keyword assignment 均拒绝；escaped `«revert» := 1` 保持 assignment。
+  `A.B(true)` 在 Bool argument 前精确拒绝 `revert error name must be unqualified`，reserved name 走既有
+  portable policy。GREEN 首次完整执行暴露 return control 复用了自动追加 return 的 twin，
+  `d4761ff6` 将其改为独立单-return program，不改变 production 或冻结测试意图。两份 final review
+  均为 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.RevertStatements`（15 jobs）；`lake env lean --run
+  /dev/stdin` 直接执行 `Tests.Language.RevertStatements.run` exit 0，并独立测量上述 hash/size；
+  `lake build proof_forge_next_tests`（182 jobs）；`lake env /usr/bin/time -l
+  .lake/build/bin/proof-forge-next-tests` exit 0/6.55 s；`git diff --check` exit 0。development evidence
+  为 `EV-20260718-0034`。按冻结未运行全量 `just ci`，下一批 statement checkpoint 再运行。
+- Scope claim：完整 bare/empty/full ExprList revert statement Source carrier 已覆盖。不包括 error declaration
+  resolution、payload arity/type、failure/rollback semantics、Typed/Semantic revert、ABI/runtime、requirement
+  或 target behavior。
+- Limitations：不得声明完整 error semantics、statement grammar、eligible host 或 formal D1 evidence；
+  不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：下一 development slice 未冻结；正在对 indexed assignment、value-less return、Match 与
+  ExternalCall residual 做依赖闭合审计，只能选择一个 durable 最小切片。

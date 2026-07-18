@@ -26,6 +26,7 @@ syntax num : pfExpr
 syntax str : pfExpr
 syntax ident : pfExpr
 syntax:max ident "(" pfExpr,* ")" : pfExpr
+syntax:max ident "[" pfExpr "]" : pfExpr
 syntax:75 "-" pfExpr:75 : pfExpr
 syntax:75 "~" pfExpr:75 : pfExpr
 syntax:75 "!" pfExpr:75 : pfExpr
@@ -64,6 +65,8 @@ syntax ident " := " pfExpr : pfStmt
 syntax "return " pfExpr : pfStmt
 syntax "call " str : pfStmt
 syntax "assert " pfExpr : pfStmt
+syntax "revert " ident "(" pfExpr,* ")" : pfStmt
+syntax "revert " ident : pfStmt
 /-- Same-line annotated let (contextual, not a host Lean keyword). No low fallback. -/
 @[pfStmt_parser default+1] def letStmtAnnotated := leading_parser
   withPosition (
@@ -239,6 +242,17 @@ private def decodeProofTheorem (stx : Syntax) : Except String (Array String) := 
     throw "proof theorem name must contain at least two components"
   pure canonical
 
+private def decodeConstructorPath (stx : Syntax) : Except String (Array String) := do
+  let mut components : Array String := #[]
+  for component in stx.getId.components do
+    match component with
+    | .str .anonymous value => components := components.push (← decodePortableIdentifierName value)
+    | _ => throw "qualified-name component must use Lean identifier characters"
+  let qualified ← ProofForgeV2.Core.Common.parseQualifiedName components
+  let canonical ← ProofForgeV2.Core.Common.renderQualifiedNameComponents qualified
+  unless canonical.size >= 2 do throw "constructor path must contain at least two components"
+  pure canonical
+
 private def decodeTypeIdentifiers (first : Syntax) (second : Option Syntax) :
     Except String ProofForgeV2.Source.ValueType :=
   match rawIdentifierText? first, second.bind rawIdentifierText? with
@@ -372,9 +386,15 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
         .ok <| .literal (UInt64.ofNat number)
   | `(pfExpr| $value:str) => .ok <| .stringLiteral value.getString
   | `(pfExpr| $callee:ident ($args:pfExpr,*)) => do
-      unless callee.getId.components.length == 1 do
-        throw "local function call callee must be unqualified"
-      return .localFnCall (← decodeIdentifier callee) (← args.getElems.mapM decodeExprUnchecked)
+      if callee.getId.components.length == 1 then
+        let callee ← decodeIdentifier callee
+        return .localFnCall callee (← args.getElems.mapM decodeExprUnchecked)
+      let path ← decodeConstructorPath callee
+      return .constructorExpr path (← args.getElems.mapM decodeExprUnchecked)
+  | `(pfExpr| $base:ident [$index:pfExpr]) => do
+      unless base.getId.components.length == 1 do
+        throw "index access base must be unqualified"
+      return .indexAccess (← decodeIdentifier base) (← decodeExprUnchecked index)
   | `(pfExpr| $name:ident) => do
       return .variable (← decodeIdentifier name)
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
@@ -426,6 +446,11 @@ def decodeExpr (stx : Syntax) : Except String ProofForgeV2.Source.Expr := do
   preflightForDecoder stx
   decodeExprUnchecked stx
 
+private def decodeRevertName (stx : Syntax) : Except String String := do
+  unless stx.getId.components.length == 1 do
+    throw "revert error name must be unqualified"
+  decodeIdentifier stx
+
 private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Source.Statement
   | `(letStmtAnnotated| let $name:ident : $type:pfType := $value:pfExpr) => do
       return .letDecl (← decodeIdentifier name) (some (← decodeTypeUnchecked type))
@@ -439,6 +464,11 @@ private def decodeStatementUnchecked : Syntax → Except String ProofForgeV2.Sou
   | `(pfStmt| call $callee:str) => .ok <| .synchronousCall callee.getString
   | `(pfStmt| assert $condition:pfExpr) => do
       return .assertStmt (← decodeExprUnchecked condition)
+  | `(pfStmt| revert $errorName:ident ($args:pfExpr,*)) => do
+      return .revertStmt (← decodeRevertName errorName)
+        (← args.getElems.mapM decodeExprUnchecked)
+  | `(pfStmt| revert $errorName:ident) => do
+      return .revertStmt (← decodeRevertName errorName) #[]
   | _ => .error "unsupported portable statement"
 
 def decodeStatement (stx : Syntax) : Except String ProofForgeV2.Source.Statement := do
@@ -874,6 +904,14 @@ private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `te
       let callee := Syntax.mkStrLit callee
       let args ← args.mapM quoteExpr
       `(ProofForgeV2.Source.Expr.localFnCall $callee #[$[$args],*])
+  | .constructorExpr path args => do
+      let path := path.map Syntax.mkStrLit
+      let args ← args.mapM quoteExpr
+      `(ProofForgeV2.Source.Expr.constructorExpr #[$[$path],*] #[$[$args],*])
+  | .indexAccess base index => do
+      let base := Syntax.mkStrLit base
+      let index ← quoteExpr index
+      `(ProofForgeV2.Source.Expr.indexAccess $base $index)
   | .variable value =>
       let value := Syntax.mkStrLit value
       `(ProofForgeV2.Source.Expr.variable $value)
@@ -998,6 +1036,10 @@ private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `
   | .assertStmt condition => do
       let condition ← quoteExpr condition
       `(ProofForgeV2.Source.Statement.assertStmt $condition)
+  | .revertStmt errorName args => do
+      let errorName := Syntax.mkStrLit errorName
+      let args ← args.mapM quoteExpr
+      `(ProofForgeV2.Source.Statement.revertStmt $errorName #[$[$args],*])
 
 private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
     MacroM (TSyntax `term) := do

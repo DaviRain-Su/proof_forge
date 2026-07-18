@@ -638,6 +638,11 @@ identity 压平为 dotted string。path 必须逐组件经既有 portable-identi
 `Core.Common.parseQualifiedName`/canonical component rendering，并在解码任何 argument 前完成；不合法
 组件、numeric Name 组件，以及 constructor-path helper 收到少于两个组件时必须 fail closed，
 不影响单组件 callee 继续分类为 LocalFnCall。
+分类依据是 Lean `Name.components`，不是 rendered string 中是否出现点：`A.B()` 是两组件
+ConstructorExpr，whole-escaped `«A.B»()` 是单组件并按既有 policy 继续形成 LocalFnCall；
+没有 call suffix 的 bare `A.B` 仍是既有 variable carrier。普通/等价 escaped 的合法独立 path
+component 不得改变 canonical component value。这只是对已冻结 component-count 规则的消歧，
+不新增可写类别标记或扩大完成面。
 
 Source canonical encoder 使用 append-only Expr tag `27`，随后依次编码 length-prefixed path component
 array 和 length-prefixed argument expression array；既有 tags `0..26`/goldens 不得改变。tests-only RED
@@ -656,6 +661,58 @@ Source/Syntax/Typed 3 文件、最多 24 行新增，且不得新增 syntax prod
 aggregate/test binary 与独立审查全绿后，必须在 clean committed tree 运行一次 call-like
 primary batch `just ci`；只可记录 ConstructorExpr Source carrier 和 LocalFnCall/ConstructorExpr 分类
 已固定，不得宣称 PrimaryExpr、完整 grammar 或正式 D1 完成。
+
+D1-PA-47 冻结的 pre-acceptance alpha index-access 子集只物化 EBNF `PlaceSuffix` 的一个只读
+bracket suffix，parser 形状固定为 `syntax:max ident "[" pfExpr "]" : pfExpr`，Source 节点固定为
+`Source.Expr.indexAccess(base : String, index : Expr)`。base 必须是恰好一个 Lean `Name` component 的
+bare `Ident`；decoder 必须先检查 component count，再经既有 `decodeIdentifier` policy 解码 base，最后
+才递归解码完整 `index` expression。qualified `A.B[expr]` 必须在 index 前逐字拒绝
+`index access base must be unqualified`。`x[expr]` 与 `x [expr]`、普通/等价 escaped portable base 必须
+产生同一 Source value；index expression 可包含既有 operator、group、local call 或 constructor carrier。
+
+本切片不引入独立 `Place`/suffix-array 类型，也不把任意 expression 扩成 postfix base：`(x)[0]`、
+`f()[0]`、`A.B[0]`、chained `x[0][1]` 与 indexed assignment `x[0] := 1` 必须 fail closed；既有 bare
+dotted variable 与 statement 的 bare-ident assignment LHS 语义不得改变。Source canonical encoder 使用
+append-only Expr tag `28`，随后依次编码 base string 和 index expression；既有 tags `0..27`/goldens
+不得改变。tests-only RED 为 zero migration，只新增/注册 `Tests.Language.IndexAccesses`；canonical controls
+固定 base value、index value/tree 与 indexAccess-vs-variable tag non-alias。`Typed.check` 必须在 base
+resolution 或 index checking 前逐字 fail closed 为
+`index access is not yet supported by typed checking`。
+
+本切片不得实现 field suffix、suffix chaining、indexed assignment、general postfix expression、Place
+resolution/lvalue legality、container/index type、bounds、read semantics、MatchExpr、ExternalCallExpr、
+Typed/Semantic index、requirement 或 target behavior；production 仅限 Source/Syntax/Typed 3 文件、最多
+14 行新增。GREEN、focused/aggregate/test binary 与两份独立审查全绿后只可记录 bare-base rvalue
+indexAccess Source carrier；本切片不重复全量 `just ci`，下一批 primary-expression checkpoint 再运行，
+且不得宣称完整 Place、PrimaryExpr、expression/statement grammar 或正式 D1 完成。
+
+D1-PA-48 冻结的 pre-acceptance alpha revert statement 子集一次实现完整
+`RevertStmt ::= "revert" Ident ("(" ExprList? ")")?`，Source carrier 固定为
+`Source.Statement.revertStmt(errorName : String, args : Array Expr)`，不得拆成 bare-only 与 payload 两套
+constructor。parser rules 固定为 `syntax "revert " ident : pfStmt` 与
+`syntax "revert " ident "(" pfExpr,* ")" : pfStmt`，必须接受 bare `revert Err`、empty-paren
+`revert Err()` 与完整 `revert Err(exprs)`。parenthesized rule 必须优先于 strict-prefix bare fallback
+完成 longest match；禁止 bare rule 先吞掉 `revert Err` 后把括号遗留在 statement parser；
+bare/empty-paren 两种 surface 均物化为空 args array 并产生相同 Source AST/canonical bytes/sourceHash。
+每个 argument 复用 PA45 已完成的完整 `pfExpr`/ExprList grammar 并保持声明次序。
+
+errorName 必须是恰好一个 Lean `Name` component 的 `Ident`；decoder 先做 component-count guard，再经
+既有 `decodeIdentifier` policy 解码 name，最后才递归解码 arguments。qualified `A.B(...)` 必须在
+arguments 前逐字拒绝 `revert error name must be unqualified`。Source canonical encoder 使用 append-only
+Statement tag `5`，随后依次编码 errorName string 与 length-prefixed argument expression array；既有
+statement tags `0..4`/goldens 不得改变。tests-only RED 为 zero migration，只新增/注册
+`Tests.Language.RevertStatements`；canonical controls 固定 name、argument value/count/order/nesting、
+bare/empty equivalence 与 revert-vs-call/其他 statement kind non-alias。
+
+missing name/paren、leading/trailing/double comma、missing/adjacent argument、extra payload 与 unescaped
+keyword lookalikes 必须 fail closed；escaped assignment identifier 必须保持既有分类。`Typed.check` 必须在
+error declaration lookup、arity/type 或 argument checking 前逐字 fail closed 为
+`revert statements are not yet supported by typed checking`。本切片不得实现 error-table resolution、
+payload arity/type、failure code/rollback semantics、Typed/Semantic revert、ABI/runtime、requirement 或 target
+behavior；production 仅限 Source/Syntax/Typed 3 文件、最多 20 行新增。GREEN、focused/aggregate/test
+binary 与两份独立审查全绿后只可记录完整 revert statement Source carrier；本切片不重复全量
+`just ci`，下一批 statement checkpoint 再运行，且不得宣称完整 error semantics、statement grammar
+或正式 D1 完成。
 
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一

@@ -237,6 +237,10 @@ private partial def checkExpr (scope : Scope) : Source.Expr → CompileResult Ex
       throw <| .invalidProgram "string literals are not yet supported by typed checking"
   | .localFnCall .. =>
       throw <| .invalidProgram "local function calls are not yet supported by typed checking"
+  | .constructorExpr .. =>
+      throw <| .invalidProgram "constructor expressions are not yet supported by typed checking"
+  | .indexAccess .. =>
+      throw <| .invalidProgram "index access is not yet supported by typed checking"
 
 private def checkStatement (scope : Scope) (mode : EntryMode) :
     Source.Statement → CompileResult Statement
@@ -262,6 +266,8 @@ private def checkStatement (scope : Scope) (mode : EntryMode) :
       throw <| .invalidProgram "let statements are not yet supported by typed checking"
   | .assertStmt .. =>
       throw <| .invalidProgram "assert statements are not yet supported by typed checking"
+  | .revertStmt .. =>
+      throw <| .invalidProgram "revert statements are not yet supported by typed checking"
 
 private def checkInitializer (state : NameIndex.StateEnv)
     (initializer : Source.Initializer) : CompileResult Initializer := do
