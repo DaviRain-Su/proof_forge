@@ -243,22 +243,22 @@ unsafe def run : IO Unit := do
   let twinAdd := twin (.checkedAdd (.literal 1) (.literal 2))
 
   expect (twinZero.sourceHash ==
-      "UNBOUND_INDEX_ACCESS_ZERO_GOLDEN")
+      "9244d727ece801a6e4fcae4e34b7e12fbc3110d5b0ef5a07d75b0c039b000ce4")
     s!"indexAccess x[0] IndexAccessTwin sourceHash golden must remain stable; got {twinZero.sourceHash}"
   expect (twinOne.sourceHash ==
-      "UNBOUND_INDEX_ACCESS_ONE_GOLDEN")
+      "7d9253e00ff06d32a7440a3fdba4d427bfe1e221c698998837b264cac371db7a")
     s!"indexAccess x[1] IndexAccessTwin sourceHash golden must remain stable; got {twinOne.sourceHash}"
   expect (twinBaseY.sourceHash ==
-      "UNBOUND_INDEX_ACCESS_BASE_Y_GOLDEN")
+      "98d3150573dee013428d347a173975f42c1c25f9bff1cca7af6c892a5fd5812d")
     s!"indexAccess y[0] IndexAccessTwin sourceHash golden must remain stable; got {twinBaseY.sourceHash}"
   expect (twinOp.sourceHash ==
-      "UNBOUND_INDEX_ACCESS_OP_GOLDEN")
+      "8a6ad5b937c6ca326f41e2bd683ebcb7c76cb2516d951bc58442bc69c5763a7f")
     s!"indexAccess x[1+2] IndexAccessTwin sourceHash golden must remain stable; got {twinOp.sourceHash}"
   expect (twinCall.sourceHash ==
-      "UNBOUND_INDEX_ACCESS_CALL_GOLDEN")
+      "3f3db2b94cf9c87df71cb37a6b07fa5d00823289ed15ad83ac87c4fbab57461f")
     s!"indexAccess x[f(1)] IndexAccessTwin sourceHash golden must remain stable; got {twinCall.sourceHash}"
   expect (twinCtor.sourceHash ==
-      "UNBOUND_INDEX_ACCESS_CTOR_GOLDEN")
+      "3ceb4bd53c70208cf2a65ff785ec50816f4d31c1e3b4332f4cffcaef994ffde1")
     s!"indexAccess x[A.B(1)] IndexAccessTwin sourceHash golden must remain stable; got {twinCtor.sourceHash}"
 
   -- Non-alias: base value, index value/tree, tag28 vs variable tag1.
