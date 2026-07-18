@@ -3167,3 +3167,48 @@ normative: false
   不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 statement/expression residual
   audit，再选择单一依赖闭合的最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 conditional pre-acceptance slice
+
+- Commits：freeze `8f6d506f`；tests-only RED `ad2c183b`；canonical golden binding
+  `8db0def3`；layout parser hardening `2efb9ad9`；Source-only GREEN `3d8f48f8`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-52 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 recursive
+  `Source.Statement.ifStmt(condition, thenBody, Option elseBody)` 与 append-only Statement tag `9`；
+  canonical 顺序为 condition→then array→0/1 marker→optional else array。encoder/decoder 只为 nested
+  blocks 改为 `partial`，quotation 结构化保留 arrays/Option，Typed 在 condition、branch、
+  return/effect/path analysis 前 exact 拒绝 `if statements are not yet supported by typed checking`。
+  production 恰好 Source/Syntax/Typed 3 文件、38 行新增/3 行移除；Semantic、requirement 与
+  target 未改。按新合并规则同 GREEN 刷新 `supply-chain/lean-package-files.v1.json`。
+- RED-driven correction：首次 GREEN focused 运行发现 `ppLine` 仅是 formatter hint，
+  `if true then return 1` 会被接受。没有删除 negative；改为唯一 `withPosition` custom parser，
+  以 `checkLinebreakBefore`/`checkColGt` 固定真换行和深缩进、`checkColEq` 固定 owning-if
+  `else` 列、`many1Indent` 固定 non-empty blocks。decoder 同时 exact 检查 `ifStmt` kind、
+  `if`/`then`/`else` atoms、null groups 与 non-empty body，malformed 节点统一 fail closed，无 index panic。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn，
+  if-then/if-then-else、literal/Bool/variable/operator/group condition、multi-statement branch、inner/outer
+  nested else 归属。固定 missing condition/then、same-line/same-column/empty branch、dangling/
+  deeper/shallower/duplicate else、extra payload、bare/escaped `then`/`else` assignments、exact Typed priority
+  和旧 return/assert/revert/emit controls。六组 sourceHash/size 为
+  `e556ab49fe6af5b7809110640cc69d99385c550a8fa133111b2fa27d85777c76`/209、
+  `75222dc6083234208c3f3bedf82f221546406d18e1c37ac58e1a233493551ac3`/209、
+  `197a0f31adde13b7c277f580cb96df82d207d322988e18cf22bf11ca33725e57`/219、
+  `ea2103c11a2c2af9ec3ac6208df1c68d11680a95ef5992b1939e42816ad95915`/227、
+  `4b5fbfec90d765f7e6b9c2a120834f865c4838c922c1419df05667c7ca07042a`/227、
+  `5ebe007b4c8b5f4c66c0675718869c1e009ea9db7e592f456c6dc2dc8efc8509`/246。
+- Commands/Results：独立 Lean probe 测量上述 hash/size；`lake build Tests.Language.IfStatements`
+  （15 jobs）；`lake env lean --run /dev/stdin` focused suite exit 0；
+  `lake build proof_forge_next_tests`（188 jobs）；`lake env /usr/bin/time -p
+  .lake/build/bin/proof-forge-next-tests` exit 0/4.86 s；`just sbom-package-files-refresh`、
+  `just docs-check`、`git diff --check` exit 0。一次不经 `lake env` 的裸二进制运行因没有
+  Lean module search path 正确 fail closed；按规定环境重跑全绿，不计为产品失败。
+  coordinator/Kimi final reviews 均为 P0/P1=0。按冻结未运行 `just ci`，development
+  evidence 为 `EV-20260718-0044`。
+- Scope claim：完整 conditional Source carrier、recursive layout/canonical identity 与 Typed fail-closed 已覆盖。
+  不包括 condition Bool typing、branch join、return/effect/path analysis、Semantic conditional、requirement、
+  target Plan/IR、runtime 或 materialization。
+- Limitations：不得声明 Typed conditional semantics、完整 statement grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/9。
+- Next：当前无 active development slice；post-PA52 residual audit 正在进行，完成后仍需单独
+  冻结一个依赖闭合最小 slice，禁止自动递增。
