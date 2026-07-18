@@ -2384,3 +2384,37 @@ normative: false
   必须固定低于 `&` 的 precedence `40` 左结合、append-only Expr tag `21`、zero migration、与 `&`/Compare
   的合法 mixed shapes、caret token boundaries 与 exact Typed failure；不得捆绑 `|`、`&&`、`||`、Semantic
   或 target lowering。
+
+## 2026-07-18 — D1 bitwise-xor pre-acceptance slice
+
+- Commits：freeze `f98ec300`；tests-only RED `d6f61464`；Source-only GREEN `a3a48028`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-40 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.bitwiseXor lhs rhs`、append-only Expr tag `21`、
+  `syntax:40 pfExpr:40 " ^ " pfExpr:41 : pfExpr`、decoder/quotation，以及 operands 前 exact Typed
+  `bitwise xor is not yet supported by typed checking`。production 恰好 Source/Syntax/Typed 3 文件/11 行；
+  既有 Expr tags `0..20` 与其他层均未改。
+- Coverage：双入口与 initializer/entry/view/fn；integer/Bool/order/variable、add/mul/shift、comparison/
+  bitwise-and 双向、grouping、unary AST；`1 ^ 2 ^ 3` 左结合 positive 与 `1 ^ (2 ^ 3)` 右嵌套；
+  `1 & 2 ^ 3`/`1 ^ 2 & 3` 和 `1 ^ 2 == 3`/`1 == 2 ^ 3` 的跨层树形全部固定。
+  代表 goldens：`1^2` `d29a60c5f4ec26c1762023a2ca0edcbe168ac331533304d6d8780ccd8da67fe3`/228 bytes、
+  `2^1` `5e05fbbf55247f3585360d9759539cb75fdb0317e3d32407b7db4e7e2c9476cc`/228、
+  `true^false` `1f0e7f0c3572b21a6aa0e5a71cbeb907dda87582141c5887ad5c38143bee67ad`/214、
+  left nest `3e2d516147ccf7503de9baa04960edc657aaacbf6ea27398bcde258ec4f9779a`/238、
+  right nest `16a7168f37deb94c2b6e25866cf45bd27d2049c42035b0e8087d39571976b64f`/238。
+- Boundaries：zero migration；bare/missing、`1 ^ ^ 2`、`1 ^^ 2`、extra 与 deferred `1 | 2` 均在
+  parser boundary 拒绝。Typed exact failure 对 integer/Bool operands 都 fail before operands，既有
+  expression controls 保持。Grok 完成 RED 与 evidence extraction；Kimi 完成 freeze、下一 residual 和
+  GREEN final audit，最终 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.BitwiseXor`（14 jobs）；
+  `lake build proof_forge_next_tests`（164 jobs）；`lake env .lake/build/bin/proof-forge-next-tests`；
+  `git diff --check`，全部 exit 0；development evidence 为 `EV-20260718-0026`。本小切片未重复全量
+  `just ci`，最近一次全量 checkpoint 仍为 CompareExpr GREEN `8957c636`。
+- Limitations：仅有 Source bitwise-xor carrier；没有 operand/result legality、Typed/Semantic bitwise operation、
+  `|`/`&&`/`||`、folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence；不得关闭
+  pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：residual audit 选择 binary bitwise-or `|` 为唯一下一 candidate，但尚未冻结。冻结前必须固定
+  precedence `35` 左结合、append-only Expr tag `22`、`BitwiseXor.lean` 中唯一 `1 | 2` migration、
+  enum variant coexistence 与 future match-arm ownership、和 `^`/`&`/Compare 的合法 mixed shapes；
+  不得捆绑 `&&`、`||`、match expression、Semantic 或 target lowering。该切片若收口，将形成 bitwise
+  Source tier 批量 `just ci` checkpoint。
