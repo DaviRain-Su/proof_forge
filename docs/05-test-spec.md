@@ -1317,7 +1317,8 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `Source.Statement.revertStmt(errorName : String, args : Array Expr)`，不得拆成 bare-only 与 payload 两套
   AST。positive 覆盖 initializer、entry、view、fn 的 Lean command/ParserSession parity；bare
   `revert Err`、empty `revert Err()`、one/multiple arguments、operator/group/string/local-call/constructor/
-  index arguments 与 nested argument tree。bare/empty-paren 必须在同一 fixed identity 下产生相同
+  index arguments 与 nested argument tree；`revert Err(1)` 必须证明 parenthesized rule 在 strict-prefix
+  bare fallback 之前完成 parse。bare/empty-paren 必须在同一 fixed identity 下产生相同
   Source.Program/canonical bytes/sourceHash。
   Source canonical encoder 使用 append-only Statement tag `5` 后接 errorName string 与 argument array；
   固定 name、argument value/count/order/nesting 与 statement kind non-alias，尤其同 payload name 下的

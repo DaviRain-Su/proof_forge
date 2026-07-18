@@ -691,7 +691,8 @@ D1-PA-48 冻结的 pre-acceptance alpha revert statement 子集一次实现完�
 `Source.Statement.revertStmt(errorName : String, args : Array Expr)`，不得拆成 bare-only 与 payload 两套
 constructor。parser rules 固定为 `syntax "revert " ident : pfStmt` 与
 `syntax "revert " ident "(" pfExpr,* ")" : pfStmt`，必须接受 bare `revert Err`、empty-paren
-`revert Err()` 与完整 `revert Err(exprs)`；
+`revert Err()` 与完整 `revert Err(exprs)`。parenthesized rule 必须优先于 strict-prefix bare fallback
+完成 longest match；禁止 bare rule 先吞掉 `revert Err` 后把括号遗留在 statement parser；
 bare/empty-paren 两种 surface 均物化为空 args array 并产生相同 Source AST/canonical bytes/sourceHash。
 每个 argument 复用 PA45 已完成的完整 `pfExpr`/ExprList grammar 并保持声明次序。
 
