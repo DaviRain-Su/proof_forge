@@ -154,6 +154,66 @@ program NestedOptionFieldBoundary where
   entry echo(value : Option Option Field bn254_fr) : Option Option Field bn254_fr do
     return value
 
+program NestedOptionBytesSurface where
+  state nestedBlob : Option Option Bytes 8
+
+  event NestedBlobEvent(payload : Option Option Bytes 8)
+  error NestedBlobError(payload : Option Option Bytes 8)
+
+  struct NestedBlobBox where
+    empty : Option Option Bytes 0
+    ordinary : Option Option Bytes 8
+    maximum : Option Option Bytes 4096
+
+  enum NestedBlobTag where
+    | MaybeNestedBlob(Option Option Bytes 8)
+    | MaybeNestedMax(Option Option Bytes 4096)
+
+  const NestedBlobSeed : Option Option Bytes 0 := 0
+
+  init(initial : Option Option Bytes 8) do
+    nestedBlob := initial
+
+  entry echo(value : Option Option Bytes 8) : Option Option Bytes 8 do
+    return value
+
+  view get() : Option Option Bytes 8 do
+    return nestedBlob
+
+  fn ident(value : Option Option Bytes 4096) : Option Option Bytes 4096 do
+    return value
+
+program NestedOptionBytesBoundary where
+  entry echo(value : Option Option Bytes 8) : Option Option Bytes 8 do
+    return value
+
+program NestedOptionBytesStateBoundary where
+  state value : Option Option Bytes 8
+
+  init(initial : Option Option Bytes 8) do
+    value := initial
+
+  view get() : Option Option Bytes 8 do
+    return value
+
+program NestedOptionBytesResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option Bytes 8) : Option Option Bytes 8 do
+    return value
+
+program NestedOptionBytesParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option Bytes 8) : UInt64 do
+    return 0
+
 end Tests.Language.OptionDeclarationsFixture
 
 namespace Tests.Language.OptionDeclarationsFixture
@@ -379,6 +439,32 @@ private def nestedOptionFieldSurfaceSource : String :=
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
 
+private def nestedOptionBytesSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.OptionDeclarationsFixture\n\n" ++
+  "program NestedOptionBytesSurface where\n" ++
+  "  state nestedBlob : Option Option Bytes 8\n\n" ++
+  "  event NestedBlobEvent(payload : Option Option Bytes 8)\n" ++
+  "  error NestedBlobError(payload : Option Option Bytes 8)\n\n" ++
+  "  struct NestedBlobBox where\n" ++
+  "    empty : Option Option Bytes 0\n" ++
+  "    ordinary : Option Option Bytes 8\n" ++
+  "    maximum : Option Option Bytes 4096\n\n" ++
+  "  enum NestedBlobTag where\n" ++
+  "    | MaybeNestedBlob(Option Option Bytes 8)\n" ++
+  "    | MaybeNestedMax(Option Option Bytes 4096)\n\n" ++
+  "  const NestedBlobSeed : Option Option Bytes 0 := 0\n\n" ++
+  "  init(initial : Option Option Bytes 8) do\n" ++
+  "    nestedBlob := initial\n\n" ++
+  "  entry echo(value : Option Option Bytes 8) : Option Option Bytes 8 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Option Option Bytes 8 do\n" ++
+  "    return nestedBlob\n\n" ++
+  "  fn ident(value : Option Option Bytes 4096) : Option Option Bytes 4096 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.OptionDeclarationsFixture\n"
+
 private def negativeSource (name typeSpelling : String) : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
@@ -537,6 +623,67 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same nested Option Field sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let nestedBytesSurface := Tests.Language.OptionDeclarationsFixture.NestedOptionBytesSurface
+  expect (nestedBytesSurface.state.map (·.type) == #[.option (.option (.bytes 8))])
+    "Option Option Bytes 8 state must survive Lean command elaboration"
+  match nestedBytesSurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "NestedBlobEvent" &&
+          eventDecl.params.map (·.type) == #[.option (.option (.bytes 8))])
+        "Option Option Bytes event parameter must preserve both Option tags and Bytes length"
+  | _ => throw <| IO.userError "NestedOptionBytesSurface must retain NestedBlobEvent"
+  match nestedBytesSurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "NestedBlobError" &&
+          errorDecl.params.map (·.type) == #[.option (.option (.bytes 8))])
+        "Option Option Bytes error parameter must preserve both Option tags and Bytes length"
+  | _ => throw <| IO.userError "NestedOptionBytesSurface must retain NestedBlobError"
+  match nestedBytesSurface.structs with
+  | #[box] =>
+      expect (box.name == "NestedBlobBox" &&
+          box.fields.map (·.type) ==
+            #[.option (.option (.bytes 0)), .option (.option (.bytes 8)),
+              .option (.option (.bytes 4096))])
+        "Option Option Bytes struct fields must preserve lengths 0/8/4096"
+  | _ => throw <| IO.userError "NestedOptionBytesSurface must retain one struct"
+  match nestedBytesSurface.enums with
+  | #[tag] =>
+      expect (tag.name == "NestedBlobTag" &&
+          tag.variants.map (·.payloadTypes) ==
+            #[#[.option (.option (.bytes 8))], #[.option (.option (.bytes 4096))]])
+        "Option Option Bytes enum payloads must preserve lengths 8/4096"
+  | _ => throw <| IO.userError "NestedOptionBytesSurface must retain one enum"
+  match nestedBytesSurface.consts with
+  | #[seed] =>
+      expect (seed.name == "NestedBlobSeed" && seed.type == .option (.option (.bytes 0)))
+        "Option Option Bytes 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionBytesSurface must retain NestedBlobSeed"
+  match nestedBytesSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.option (.option (.bytes 8))])
+        "Option Option Bytes initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "NestedOptionBytesSurface must retain initializer"
+  match nestedBytesSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option (.bytes 8))] &&
+          echoEntry.result == .option (.option (.bytes 8)) &&
+          getView.result == .option (.option (.bytes 8)) && getView.mode == .view)
+        "Option Option Bytes entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionBytesSurface must retain echo and get"
+  match nestedBytesSurface.functions with
+  | #[identFn] =>
+      expect (identFn.params.map (·.type) == #[.option (.option (.bytes 4096))] &&
+          identFn.result == .option (.option (.bytes 4096)))
+        "Option Option Bytes 4096 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionBytesSurface must retain ident"
+  match ← session.selectProgram nestedOptionBytesSurfaceSource "<nested-option-bytes>" none with
+  | .ok decoded =>
+      expect (decoded == nestedBytesSurface)
+        "Loader and Lean command must produce the same nested Option Bytes Source.Program"
+      expect (decoded.sourceHash == nestedBytesSurface.sourceHash)
+        "Loader and Lean command must produce the same nested Option Bytes sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let optionArrayElements : Array (String × Source.ValueType) := #[
     ("Bool", .bool),
     ("UInt8", .u8), ("UInt16", .u16), ("UInt32", .u32), ("UInt64", .u64),
@@ -657,6 +804,40 @@ unsafe def run : IO Unit := do
         "6f639e0d5025222f9c65f88ed9d56808b0ff8c8f019f0c7f885cdf2ad7332db3")
     s!"Option Option Field semantic tag16+tag16+tag2 golden is unbound: size={nestedFieldSemantic.canonicalBytes.size}, hash={nestedFieldSemantic.semanticHash}"
 
+  let nestedBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Bytes 0", .option (.option (.bytes 0)), 0, "UNBOUND"),
+    ("Option Option Bytes 8", .option (.option (.bytes 8)), 0, "UNBOUND"),
+    ("Option Option Bytes 4096", .option (.option (.bytes 4096)), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in nestedBytesSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag16+tag16+tag17 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  expect ((twin (.option (.option (.bytes 0)))).sourceHash != (twin (.bytes 0)).sourceHash &&
+      (twin (.option (.option (.bytes 0)))).sourceHash !=
+        (twin (.option (.bytes 0))).sourceHash &&
+      (twin (.option (.option (.bytes 0)))).sourceHash !=
+        (twin (.option (.option .u64))).sourceHash &&
+      (twin (.option (.option (.bytes 0)))).sourceHash !=
+        (twin (.option (.option .field))).sourceHash &&
+      (twin (.option (.option (.bytes 0)))).sourceHash !=
+        (twin (.option (.option (.bytes 8)))).sourceHash)
+    "Option Option Bytes must bind both Option tags, Bytes tag and complete length payload"
+
+  let nestedBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Bytes 0", .option (.option (.bytes 0)), 0, "UNBOUND"),
+    ("Option Option Bytes 8", .option (.option (.bytes 8)), 0, "UNBOUND"),
+    ("Option Option Bytes 4096", .option (.option (.bytes 4096)), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in nestedBytesSemanticVectors do
+    let sourceProgram := twin type
+    let semantic ← match Compiler.compile sourceProgram with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
+      s!"{label} semantic tag16+tag16+tag17 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
+
   let optionArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Option Array UInt64 0", .option (.array .u64 0), 259,
       "f22ada30b9fcf58e2b1f55ac7417fb13864354032f7096fe33a0aa6c4bd0fa90"),
@@ -776,14 +957,30 @@ unsafe def run : IO Unit := do
       ("leading-zero Option Bytes length", "LeadingZeroOptionBytes", "Option Bytes 01"),
       ("hex Option Bytes length", "HexOptionBytes", "Option Bytes 0x10"),
       ("underscore Option Bytes length", "UnderscoreOptionBytes", "Option Bytes 4_096"),
+      ("missing nested Bytes length", "MissingNestedOptionBytesLength", "Option Option Bytes"),
+      ("over-bound nested Bytes length", "OverBoundNestedOptionBytes", "Option Option Bytes 4097"),
+      ("leading-zero nested Bytes length", "LeadingZeroNestedOptionBytes", "Option Option Bytes 01"),
+      ("hex nested Bytes length", "HexNestedOptionBytes", "Option Option Bytes 0x10"),
+      ("underscore nested Bytes length", "UnderscoreNestedOptionBytes", "Option Option Bytes 4_096"),
+      ("identifier nested Bytes length", "IdentifierNestedOptionBytes", "Option Option Bytes Foo"),
       ("Map option element", "MapOptionElement", "Option Map UInt64 Bool")
     ] do
     expectUnsupportedType label
       (← session.parsePrograms (negativeSource name spelling) s!"<option-{label}>")
 
+  let migratedNestedBytesSource :=
+    negativeSource "MigratedNestedOptionBytes" "Option Option Bytes 8"
+  match ← session.parsePrograms migratedNestedBytesSource "<migrated-nested-option-bytes>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) == #[.option (.option (.bytes 8))])
+        "migrated Option Option Bytes 8 pin must now parse as existing option(option(bytes(8)))"
+  | .ok programs =>
+      throw <| IO.userError s!"migrated Option Option Bytes 8 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError s!"migrated Option Option Bytes 8 must parse: {error.render}"
+
   for (label, spelling) in [
       ("third nested option", "Option Option Option Bool"),
-      ("full Bytes nested option", "Option Option Bytes 8"),
       ("full Array nested option", "Option Option Array UInt64 4"),
       ("extra nested option payload", "Option Option UInt64 Principal"),
       ("split nested option", "Option Option\n  UInt64"),
@@ -812,6 +1009,14 @@ unsafe def run : IO Unit := do
       ("qualified Bytes constructor in Option", "Option Std.Bytes 8"),
       ("escaped Option Bytes constructor", "«Option» Bytes 8"),
       ("qualified Option Bytes constructor", "Std.Option Bytes 8"),
+      ("negative nested Bytes length", "Option Option Bytes -1"),
+      ("extra nested Bytes payload", "Option Option Bytes 8 UInt64"),
+      ("split nested Bytes length", "Option Option Bytes\n  8"),
+      ("escaped Bytes constructor in nested Option", "Option Option «Bytes» 8"),
+      ("qualified Bytes constructor in nested Option", "Option Option Std.Bytes 8"),
+      ("escaped outer Option nested Bytes", "«Option» Option Bytes 8"),
+      ("qualified outer Option nested Bytes", "Std.Option Option Bytes 8"),
+      ("escaped middle Option nested Bytes", "Option «Option» Bytes 8"),
       ("extra option payload", "Option UInt64 Principal"),
       ("extra Field option payload", "Option Field bn254_fr UInt64"),
       ("split Field option", "Option Field\n  bn254_fr"),
@@ -952,6 +1157,20 @@ unsafe def run : IO Unit := do
     | .error error =>
         throw <| IO.userError s!"{target} must support zero-requirement Option Bytes carrier: {error.render}"
 
+  let nestedBytesBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.NestedOptionBytesBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"NestedOptionBytesBoundary must compile: {error.render}"
+  expect (nestedBytesBoundary.requirements == #[])
+    "Option Option Bytes must recursively propagate zero requirements"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target nestedBytesBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError
+          s!"{target} must support zero-requirement Option Option Bytes carrier: {error.render}"
+
   for (label, sourceProgram, needle) in [
       ("OptionStateBoundary",
         Tests.Language.OptionDeclarationsFixture.OptionStateBoundary,
@@ -988,6 +1207,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("OptionBytesParamBoundary",
         Tests.Language.OptionDeclarationsFixture.OptionBytesParamBoundary,
+        "is not UInt64"),
+      ("NestedOptionBytesStateBoundary",
+        Tests.Language.OptionDeclarationsFixture.NestedOptionBytesStateBoundary,
+        "is not UInt64"),
+      ("NestedOptionBytesResultBoundary",
+        Tests.Language.OptionDeclarationsFixture.NestedOptionBytesResultBoundary,
+        "does not return UInt64"),
+      ("NestedOptionBytesParamBoundary",
+        Tests.Language.OptionDeclarationsFixture.NestedOptionBytesParamBoundary,
         "is not UInt64")
     ] do
     let compiled ← match Compiler.compile sourceProgram with
