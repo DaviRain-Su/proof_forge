@@ -2215,3 +2215,49 @@ normative: false
   的 longest-token/token-integrity boundary、Compare precedence `50` non-associativity、Expr tag `16`、
   `Equal.lean` 中唯一 `1 < 2` retention negative 的迁移、same/mixed chain rejection 与 exact Typed failure；
   不得捆绑 `<=`、`>`、`>=`、Bool legality、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 less-than pre-acceptance slice
+
+- Commits：freeze `c743f4b0`；tests-only RED `38afba9b`；canonical golden binding `8d9ebe01`；
+  Source-only GREEN `6d93896b`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-35 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 新增 `lessThan lhs rhs`，alpha canonical encoder 以 Expr tag `16`
+  后依次递归编码 lhs/rhs；`pfExpr` 新增 `syntax:50 pfExpr:51 " < " pfExpr:51 : pfExpr`，与
+  equality pair 同层且两个 operand slot 都高于 operator precedence。decoder/quotation 结构化保留
+  node；`Typed.checkExpr` 在检查任一 operand 前逐字 fail closed 为
+  `less-than comparison is not yet supported by typed checking`。production 恰好只改 `Source.lean`、
+  `Syntax.lean`、`Typed.lean` 3 文件/11 行，其他层未改。
+- Parser/AST：initializer、entry、view、fn 的 return/let value 与 Lean command/ParserSession parity 全绿；
+  integer/Bool/order/variable、add/mul/shift 双向 precedence、grouping、unary AST 精确；特别是
+  `1<<2<3` 为 `(1<<2)<3`，`1<2<<3` 为 `1<(2<<3)`。`1<2<3` 与四种 `==`/`!=` mixed chains
+  全部 parser reject；operand/result legality 留给 D2。
+- Binding：LessThanTwin 的代表 goldens 为 `1<2`
+  `2603fd7611520e5ebf3fcab1e0cb228947acce84bc746f1201c894be08bceaca`/222 bytes、`2<1`
+  `8878e8fc1ec9415689c57508b19880a5ce7af6e3283f8e5f7d2bccfbae04cb0a`/222、`true<false`
+  `dad6d5ebdb8578da84ab092abe733b83338859238ea1f5c81d9f643877733433`/208、`1+2<3`
+  `33328a0026056eaa295314e3d3707c53841b66401e4d3b62f248539be4f82874`/232、`1<2*3`
+  `d1c24020e7916469a509d36d8a16764495a3cd511d66dfe27c73a110d3987b7a`/232、`1<<2<3`
+  `320ae2afb179c909eab24776406c085721fc78433fa5bdc39825f822d94e5920`/232、`1<2<<3`
+  `abc48121320bf8da57cac9b7f4ca5c744f5461e57d4b7a66ebb731d70bc40bfc`/232；equal/notEqual tag、
+  operator/order/type、wrong precedence、shift direction 与 unary placement 均不 alias。首次真实测试执行
+  发现 prospective `1<2*3` hash 有一位转录差异，`8d9ebe01` 只绑定真实值，未扩大测试面。
+- Migration/Boundaries：同一 RED 只迁移 `Equal.lean` 的 deferred `1 < 2` 一条 negative，保留
+  `<=`/`>`/`>=` siblings；`ShiftLeft.lean` 的 `1 < < 2` 与 `1 <<< 2` 保持拒绝，`1<<2`
+  继续形成 shiftLeft。bare/missing operand、same/mixed chains 与 extra payload 停在 parser boundary。
+  Typed 对 `true<false` 仍先给 less-than diagnostic；checkedAdd positive 与 Bool/sub/mul/div/mod/neg/
+  bitwise/logical/shift-left/shift-right/equal/notEqual exact controls 保持。
+- Review/Commands：Grok 完成 freeze/RED 设计、tests-only RED、下一 residual 设计与 evidence extraction；
+  Kimi 完成 freeze seam、下一 residual 和 GREEN 最终只读审计，最终 P0/P1=0；coordinator 完成严格
+  11 行 GREEN。执行 `lake build Tests.Language.LessThan`；`lake build proof_forge_next_tests`；
+  `lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：14-job focused build、154-job aggregate 与最终测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0021`。本小切片按批量策略不重复全量 CI。
+- Limitations：仅有 Source carrier，没有 operand/result type legality、Typed/Semantic comparison、
+  `<=`/`>`/`>=`、bitwise/logical binary operators、constant folding、requirement、target ABI/runtime、
+  eligible host 或 formal D1 evidence。不得声称 CompareExpr、expression grammar 或 `TASK-D1-04`
+  正式完成；D0 formal milestone 仍为 5/8。
+- Next：两份独立 residual audit 都选择 less-or-equal `<=` 为唯一下一 candidate，但尚未冻结。冻结前
+  必须核准 `<=` 与 `<`/`<<`/`=` 的 token integrity、Compare precedence `50` non-associativity、
+  Expr tag `17`、`Equal.lean` 中唯一 `1 <= 2` retention negative 的迁移、same/mixed chain rejection
+  与 exact Typed failure；不得捆绑 `>`、`>=`、Bool legality、Semantic 或 target lowering。
