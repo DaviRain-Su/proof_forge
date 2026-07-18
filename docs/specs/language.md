@@ -519,6 +519,29 @@ bitwise、requirement、target behavior 或 runtime representation；production 
 3 文件/11 行。本切片完成后只能称 `^` Source surface 已覆盖，不得宣称 bitwise tier、expression
 grammar 或 `TASK-D1-04` 正式完成。
 
+D1-PA-41 冻结的 pre-acceptance alpha binary bitwise-or 子集新增 `Source.Expr.bitwiseOr(lhs, rhs)`，
+parser 形状固定为 `syntax:35 pfExpr:35 " | " pfExpr:36 : pfExpr`。它严格低于 BitXorExpr `40`，
+并按 BitOrExpr 的 Kleene-star 形状左结合：`1 | 2 | 3` 必须为 `(1 | 2) | 3`；explicit
+`1 | (2 | 3)` 保留 right-nested tree。`1 ^ 2 | 3` 必须为 `(1 ^ 2) | 3`，
+`1 | 2 ^ 3` 必须为 `1 | (2 ^ 3)`；`1 & 2 | 3`/`1 | 2 & 3` 与
+`1 | 2 == 3`/`1 == 2 | 3` 同理按 `&`/Compare 优先。future LogicAnd/LogicOr 必须使用低于 `35`
+的 precedence，不得反转 EBNF 层级。
+
+Source canonical encoder 以 append-only Expr tag `22` 后依次递归编码 lhs、rhs；既有 tags `0..21`
+与 goldens 不得改变。integer 与 Bool operands 都必须形成 Source node，legality/result typing 属于 D2。
+decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在检查任一 operand 前逐字 fail closed 为
+`bitwise or is not yet supported by typed checking`。tests-only RED 必须且只能迁移
+`BitwiseXor.lean` 的 `1 | 2` retention negative，并在新 suite 固定为 positive AST；不得修改其他既有
+suite。当前 enum variant introducer 属于独立 `pfAggregateMember` category，RED 必须用同一个 program
+中的 enum variants 与 bitwise-or expression 做双入口 coexistence proof，禁止因 token 复用误分类。
+`StmtMatchArm` 尚未实现；未来 match parser 必须拥有 arm introducer 的 block/line disambiguation，本切片
+不得提前实现 match。bare/missing operand、`1 | | 2`、extra payload 与 future `1 || 2` 必须 parser
+reject，逻辑或 token 不得拆成两个 bitwise-or。本切片不得新增 `&&`、`||`、match expression、Bool legality、constant
+folding、Typed/Semantic bitwise、requirement、target behavior 或 runtime representation；production 必须
+限于 Source/Syntax/Typed 3 文件/11 行。GREEN、focused/aggregate/test binary 与独立审查全绿后必须在
+committed tree 上运行一次 bitwise-tier 批量 `just ci` checkpoint；只有该 gate 全绿才能记录
+`&`/`^`/`|` 的完整 bitwise Source surface，仍不得宣称 expression grammar 或 `TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
