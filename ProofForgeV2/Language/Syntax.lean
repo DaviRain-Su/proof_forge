@@ -73,6 +73,11 @@ prevents the following program item from becoming part of the type. -/
     nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
     checkLineEq >> numLit)
+@[pfType_parser default+1] def optionArrayArrayType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> numLit >> checkLineEq >> numLit)
 
 declare_syntax_cat pfParam
 syntax ident " : " pfType : pfParam
@@ -224,6 +229,12 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
     checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
     checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionArrayArrayAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >>
+    checkLinebreakBefore)
 syntax "| " ident linebreak : pfAggregateMember
 syntax "| " ident "(" sepBy(pfType, ", ") ")" linebreak : pfAggregateMember
 
@@ -575,6 +586,10 @@ private def decodeOptionArrayBytesValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   pure (.option (← decodeArrayBytesValueTypeFromAtoms atoms))
 
+private def decodeOptionArrayArrayValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  pure (.option (← decodeArrayArrayValueTypeFromAtoms atoms))
+
 /-- Decode one or two type atoms into a ValueType (shared by pfType and fields). -/
 private def decodeValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType :=
@@ -607,6 +622,8 @@ private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Sour
     decodeOptionArrayOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayBytesType then
     decodeOptionArrayBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``optionArrayArrayType then
+    decodeOptionArrayArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayType then
     decodeOptionArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayFieldType then
@@ -877,6 +894,15 @@ private def decodeStructFieldUnchecked (stx : Syntax) :
     return {
       name := ← decodeIdentifier nameStx
       type := ← decodeOptionArrayBytesValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
+  if stx.isOfKind ``optionArrayArrayAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeOptionArrayArrayValueTypeFromAtoms (atoms.extract 1 atoms.size)
     }
   if stx.isOfKind ``optionOptionFieldAggregateField then
     let atoms := collectTypeAtomSyntax stx

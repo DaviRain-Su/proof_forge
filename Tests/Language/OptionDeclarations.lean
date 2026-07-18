@@ -1774,11 +1774,16 @@ unsafe def run : IO Unit := do
 
 
   let optionArrayArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Array UInt64 0 0", .option (.array (.array .u64 0) 0), 0, "UNBOUND"),
-    ("Option Array Array UInt64 4 4", .option (.array (.array .u64 4) 4), 0, "UNBOUND"),
-    ("Option Array Array UInt64 4096 1", .option (.array (.array .u64 4096) 1), 0, "UNBOUND"),
-    ("Option Array Array Bool 0 0", .option (.array (.array .bool 0) 0), 0, "UNBOUND"),
-    ("Option Array Array Bool 4 4", .option (.array (.array .bool 4) 4), 0, "UNBOUND")
+    ("Option Array Array UInt64 0 0", .option (.array (.array .u64 0) 0), 277,
+      "c41d358a00638c4027c477ad509c1755de8e4910bf2c19de28fafc2f9ef532d5"),
+    ("Option Array Array UInt64 4 4", .option (.array (.array .u64 4) 4), 277,
+      "307c217dae5a427c9b0b9db061ca84458c4803609b38cd513cdd0359b1d7e6ba"),
+    ("Option Array Array UInt64 4096 1", .option (.array (.array .u64 4096) 1), 277,
+      "19cfa92d3b3c1f89587c6fb8c3004e4757d1e4cce06ef436bfed37e161feb90d"),
+    ("Option Array Array Bool 0 0", .option (.array (.array .bool 0) 0), 277,
+      "2afcabdfbfcf953b3d373aee00ef59b1b26be0838eedba3f3827859b6f4b5c17"),
+    ("Option Array Array Bool 4 4", .option (.array (.array .bool 4) 4), 277,
+      "12939052290b1f381d62617de03f28d7d100038c3731c3a60799a1c6573e17d0")
   ]
   for (label, type, expectedSize, expectedHash) in optionArrayArraySourceVectors do
     let sourceProgram := twin type
@@ -1802,11 +1807,16 @@ unsafe def run : IO Unit := do
     "Option Array Array must bind Option/Array/Array tags, element and both length payloads"
 
   let optionArrayArraySemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Array UInt64 0 0", .option (.array (.array .u64 0) 0), 0, "UNBOUND"),
-    ("Option Array Array UInt64 4 4", .option (.array (.array .u64 4) 4), 0, "UNBOUND"),
-    ("Option Array Array UInt64 4096 1", .option (.array (.array .u64 4096) 1), 0, "UNBOUND"),
-    ("Option Array Array Bool 0 0", .option (.array (.array .bool 0) 0), 0, "UNBOUND"),
-    ("Option Array Array Bool 4 4", .option (.array (.array .bool 4) 4), 0, "UNBOUND")
+    ("Option Array Array UInt64 0 0", .option (.array (.array .u64 0) 0), 226,
+      "be7ed61bb6de2afe9d4879e80d60d8b9a48d03c8a8df2fe43ee2f261617d9084"),
+    ("Option Array Array UInt64 4 4", .option (.array (.array .u64 4) 4), 226,
+      "ca7aa5a225dd187156543116b85b4d303a20800121a808599681cddcf8fd9cbb"),
+    ("Option Array Array UInt64 4096 1", .option (.array (.array .u64 4096) 1), 226,
+      "f9d4e0d7ac2f8e0f10229acac4a7746b015fb4a3d9dd0e9ee7a15216d0af1ac3"),
+    ("Option Array Array Bool 0 0", .option (.array (.array .bool 0) 0), 227,
+      "af837a2665647f26d58592965c307023c900a003c11d7316e6b96ed0bf3b594c"),
+    ("Option Array Array Bool 4 4", .option (.array (.array .bool 4) 4), 227,
+      "7a5a8d93fc72f087f0654d84c7f38f1c0f99a3e6c9d961d92fb5abdb8eb8cb27")
   ]
   for (label, type, expectedSize, expectedHash) in optionArrayArraySemanticVectors do
     let sourceProgram := twin type
@@ -1992,10 +2002,6 @@ unsafe def run : IO Unit := do
         "Option Array Bytes 8 4_096"),
       ("unknown Option Array Array element", "UnknownOptionArrayArrayElement",
         "Option Array Array Mystery 4 4"),
-      ("Field Option Array Array element", "FieldOptionArrayArrayElement",
-        "Option Array Array Field 4 4"),
-      ("missing Option Array Array outer length", "MissingOptionArrayArrayOuter",
-        "Option Array Array UInt64 4"),
       ("over-bound Option Array Array inner length", "OverBoundOptionArrayArrayInner",
         "Option Array Array UInt64 4097 4"),
       ("leading-zero Option Array Array inner length", "LeadingZeroOptionArrayArrayInner",
@@ -2096,6 +2102,12 @@ unsafe def run : IO Unit := do
       ("Map Option Array element", "Option Array Map UInt64 Bool 4"),
       ("missing Option Array Array element", "Option Array Array"),
       ("missing Option Array Array lengths", "Option Array Array UInt64"),
+      ("missing Option Array Array outer length", "Option Array Array UInt64 4"),
+      ("full Field Option Array Array element", "Option Array Array Field bn254_fr 4 4"),
+      ("Bytes Option Array Array element", "Option Array Array Bytes 8 4 4"),
+      ("Option Option Array Array element", "Option Array Array Option Bool 4 4"),
+      ("Array Option Array Array element", "Option Array Array Array UInt64 4 4 4"),
+      ("Map Option Array Array element", "Option Array Array Map UInt64 Bool 4 4"),
       ("negative Option Array Array inner length", "Option Array Array UInt64 -1 4"),
       ("negative Option Array Array outer length", "Option Array Array UInt64 4 -1"),
       ("extra Option Array Array payload", "Option Array Array UInt64 4 4 Principal"),
