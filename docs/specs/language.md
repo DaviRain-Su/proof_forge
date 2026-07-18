@@ -333,6 +333,24 @@ target behavior 或 runtime representation；bare/missing operand、`2 %% 3`、r
 本切片完成后只能称 `*`/`/`/`%` 的 Source surface 已覆盖，不得宣称 `MulExpr`、expression grammar 或
 `TASK-D1-04` 正式完成。
 
+D1-PA-31 冻结的 pre-acceptance alpha shift-left 子集新增 `Source.Expr.shiftLeft(lhs, rhs)`，parser
+形状固定为 `syntax:60 pfExpr:60 " << " pfExpr:61 : pfExpr`。它严格低于 AddExpr precedence `65`
+并左结合，高于未来 Compare 层：`1 + 2 << 3` 必须为 `(1 + 2) << 3`，`1 << 2 + 3` 必须为
+`1 << (2 + 3)`，`8 << 2 * 3` 为 `8 << (2 * 3)`，`8 * 2 << 3` 为 `(8 * 2) << 3`，
+`1 << 2 << 3` 为 `(1 << 2) << 3`；`1 << (2 << 3)` 保留显式 right-nested tree，unary operand
+继续以 precedence `75` 绑定。不得把 shift 误放到 additive/multiplicative precedence 或重排 operands。
+
+Source canonical encoder 以 append-only Expr tag `12` 后依次递归编码 lhs、rhs；既有 tags `0..11`
+与 goldens 不得改变。`1 << 0` 与 `1 << 64` 必须形成 Source node；shift-count zero/over-width legality
+属于 D2/target，不得提前拒绝。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在检查任一
+operand 前逐字 fail closed 为 `shift left is not yet supported by typed checking`。当前仓库没有 DSL
+`<<`/`>>` negative，因此本切片不得迁移既有 tests；`1 >> 2` 必须作为 deferred shift-right retention
+control 停在 parser boundary。本切片不得新增 `>>`、signed/arithmetic shift、rotate、width/overflow
+semantics、constant folding、Typed/Semantic shift、requirement、target behavior 或 runtime representation；
+bare/missing operand、`1 < < 2`、`1 <<< 2` 与额外 payload 保持 parser reject。production 必须限于
+Source/Syntax/Typed 3 文件/11 行 exact seam，其他层不得修改。本切片只实现 `<<`，不得宣称
+`ShiftExpr`、expression grammar 或 `TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
