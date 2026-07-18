@@ -343,15 +343,14 @@ unsafe def run : IO Unit := do
   expect (twinZeroCount.sourceHash != twin12.sourceHash)
     "1<<0 must not alias 1<<2"
 
-  -- Parser-boundary malformed shapes; >> remains deferred retention reject.
+  -- Parser-boundary malformed shapes for << (1 >> 2 migrated to ShiftRight positives).
   for (label, expr) in [
       ("bare shift", "<<"),
       ("missing lhs", "<< 2"),
       ("missing rhs", "1 <<"),
       ("spaced split", "1 < < 2"),
       ("triple shift", "1 <<< 2"),
-      ("extra token", "1 << 2 3"),
-      ("deferred shift-right", "1 >> 2")
+      ("extra token", "1 << 2 3")
     ] do
     let source := returnProgramSource "RejectedShlShape" expr
     let (_, result) ← IO.FS.withIsolatedStreams
