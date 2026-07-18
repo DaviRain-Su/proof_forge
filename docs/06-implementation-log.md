@@ -1912,3 +1912,40 @@ normative: false
 - Next：expression residual audit 的 unary logical-not `!` 作为 D1-PA-28 candidate；必须先冻结 Bool
   operand boundary、prefix precedence、append-only tag、mixed-unary shapes、canonical goldens 与 exact
   Typed failure。PA28 收口后形成 unary-expression batch checkpoint，再决定完整 CI 时点。
+
+## 2026-07-18 — D1 unary logical-not pre-acceptance slice
+
+- Commits：freeze `d5395e1e`；tests-only RED `facae339`；Source-only GREEN `92f57f30`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-28 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr` append-only 新增 `logicalNot operand`，alpha canonical encoder 以 Expr tag `9`
+  后接递归 operand；`pfExpr` 新增 `syntax:75 "!" pfExpr:75 : pfExpr`，decoder/quotation 均结构化
+  保留 unary node。`Typed.checkExpr` 在检查 operand 前逐字 fail closed 为
+  `logical not is not yet supported by typed checking`。production 只修改 `Source.lean`、`Syntax.lean`、
+  `Typed.lean` 共 10 行，Typed Expr、SemanticIR、requirements 与 targets 未改。
+- Parser/AST：initializer、entry、view、fn 的 return/let value 与 Lean command/ParserSession parity 全绿；
+  `!2`、`!true`、`!false`、`!x`、`!2*3`、`!(2+3)`、`1-!2`、`1*!2`、`! ! 2`、`(!2)`
+  精确固定 unary precedence、right nesting 与 grouping；`- ! 2`/`! - 2` 和 `~ ! 2`/`! ~ 2`
+  精确保留 mixed-unary 次序。相同 identity 下 bare/grouped Source.Program 与 sourceHash 相等，既有 tests 零迁移。
+- Binding：LogicalNotTwin 的代表 goldens 为 `!2`
+  `5ac59fb7f95bb3aeac27441da9f5fc69990fc46ce903f6365ff9c6e3811d343d`/219 bytes、`!true`
+  `3ae83fbda053d685a95c6cd44c1d90f45cd9c197c90e85576c5d2ef34915450b`/212、`!x`
+  `174d346ee92f3163df0e8af17d6f1929d400d40cd97ab56165f1fc16ec0a02ab`/220、`!2*3`
+  `55941863fe708deb8307c2f3813f4064ecb917b583638d2ce50785ef8c775236`/229、nested
+  `614adf4f9adfc7a4c95ec0b164aeab30c118f7ea64f99b17b1041364930dba8f`/220；literal、checked-negation、
+  bitwise-not、operand/tree/nesting 与 mixed reverse-order 均不 alias。
+- Boundaries：bare/missing/empty/extra-payload operators 停在 parser boundary；`1 != 2` 与 `! = 2`
+  明确保持 reject，未将 deferred comparison token 误拆为 logical-not。`!true` 精确命中 logical-not
+  diagnostic 而不泄漏 Bool diagnostic；add positive 与 Bool/sub/mul/neg/bitwise-not exact controls 保持。
+- Review/Commands：Grok 实施 RED 并完成后续 residual audit；Kimi 对冻结 seam 与真实 GREEN 做两轮只读审计，
+  最终 P0/P1=0；coordinator 实施严格 3 文件/10 行 GREEN。执行 `lake build Tests.Language.LogicalNot`；
+  `lake build proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：14-job focused build、140-job aggregate 与测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0014`。按批量验证策略，本 unary-expression checkpoint 的完整 `just ci` 继续延后，
+  未计入本条证据。
+- Limitations：仅有 Source unary carrier，没有 Bool operand legality、Typed/Semantic logical operation、
+  `!=`/`&&`/`||`、constant folding、requirement、target ABI/runtime、eligible host 或 formal D1 evidence。
+  D0 formal milestone 仍为 5/8，`TASK-D1-04` 仍 pending。
+- Next：residual audit 已选择 binary checked division `/` 作为唯一下一 candidate；冻结时只允许
+  Source Expr tag `10`、与 `*` 同 precedence 的左结合 parser、decode/quote、exact Typed fail-closed，
+  并迁移 `CheckedMul`/`Grouping` 中两条既有 `/` negative；不得捆绑 `%`、Semantic 或 target lowering。
