@@ -88,8 +88,6 @@ jobs:
   linux-tool-root:
     name: linux-tool-root
     runs-on: ubuntu-latest
-    env:
-      PROOF_FORGE_TOOL_ROOT: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -98,6 +96,9 @@ jobs:
         uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
         with:
           tool: just@1.48.0
+
+      - name: Select linux tool root
+        run: echo "PROOF_FORGE_TOOL_ROOT=$RUNNER_TEMP/proof-forge-v2/tool-root/linux-x86_64" >> "$GITHUB_ENV"
 
       - name: Validate per-platform locks
         run: /usr/bin/python3 -I -S scripts/toolchain_assets.py validate
