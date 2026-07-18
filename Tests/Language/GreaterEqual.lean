@@ -99,6 +99,7 @@ private def expectReturnExpr (label : String) (sourceProgram : Source.Program)
         s!"{label}: entry body must be return of expected expression"
   | _ => throw <| IO.userError s!"{label}: expected a single entry"
 
+set_option maxRecDepth 2048 in
 unsafe def run : IO Unit := do
   let elaborated := Tests.Language.GreaterEqualFixture.GreaterEqualSurface
   match elaborated.initializer with
