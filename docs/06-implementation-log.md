@@ -2828,3 +2828,41 @@ normative: false
   不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
 - Next：当前无 active development slice；下一 slice 未冻结，必须重新做 statement/expression residual
   audit，再选择单一依赖闭合的最小切片，禁止自动递增。
+
+## 2026-07-18 — D1 assert optional-error pre-acceptance slice
+
+- Commits：freeze `2c7f84cc`；tests-only RED `3c844b80`；canonical golden binding
+  `e97a889d`；Source-only GREEN `c2a1e4fa`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-51 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 append-only `Source.Statement.assertErrorStmt(condition,errorName)` 与 Statement tag `8`；
+  encoder 按 semantic field order 编码 condition expression 后编码 errorName string。longer
+  `assert Expr else Ident` rule 位于既有 bare assert 前，decoder 先完成 error-name single-component 与
+  portable validation，再解码 condition；quotation 保留两字段。既有 `assertStmt`/tag `4`/surface/
+  goldens 全部不变，后续 normalization 才把两个 Source variant 统一为 optional ErrorId。Typed 两种
+  variant 共用既有 exact assert fail-closed。production 恰好 Source/Syntax/Typed 3 文件、14 行新增/
+  0 行移除；Semantic、requirement、effect 与 target 未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn，literal/Bool/variable/
+  operator/group condition、普通/等价 escaped error name、longest match、missing/qualified/reserved name、
+  call-like payload、duplicate else、extra/block-like shape、kind/name/condition canonical non-alias、exact Typed
+  priority 与 generic error-table/bare-assert controls。四组 sourceHash/size 为
+  `056c9ed3648c36d0c0e79bb8f8ba272191bff9444abf27b5cc041442e9373ed6`/224、
+  `8983edac8b1e96a0a84250c22aff6ca70ac2eb626d3da302309d8ca41a1e4901`/224、
+  `16183f55e6b2a2c1addda8d462638894016f0c18e4d2c20fffa8882f466aae01`/222、
+  `13b7a8b49ba99e79b44dd36751fc31625621f9e5706fdae4e76863ed7f7e90a8`/241。
+- Migration/Review：只把 PA26 明确 deferred 的 `assert true else Failure` 一条 negative 提升为本切片
+  positive；这是 documented-later lift，不是扩大 PA26 完成面，也未迁移其他 suite。首次 residual audit
+  漏掉该明确 deferral 并误选 if/else，定向复核后由 Kimi 纠正为 PA51 更小且 durable。coordinator/Kimi
+  final reviews 均为 P0/P1=0；review 文本曾把实际 14 行误写为 13 行，coordinator 以 `git diff --numstat`
+  校正，未涉及代码或冻结上限变化。
+- Commands/Results：独立 Lean probe 测量上述 hash/size；`lake build Tests.Language.AssertStatements`
+  （15 jobs）；`lake build proof_forge_next_tests`（186 jobs）；`lake env /usr/bin/time -p
+  .lake/build/bin/proof-forge-next-tests` exit 0/4.85 s；`git diff --check` exit 0。按冻结未运行
+  `just ci`，development evidence 为 `EV-20260718-0037`。
+- Scope claim：完整 assert optional-error Source carrier、name validation/canonical identity 与 Typed
+  fail-closed 已覆盖。不包括 error resolution、condition Bool typing、failure/revert semantics、Semantic
+  assert、requirement/effect、ABI/runtime 或 target behavior。
+- Limitations：不得声明完整 assert semantics、statement grammar、eligible host 或 formal D1 evidence；
+  不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：当前无 active development slice；下一 slice 未冻结，必须重新做 statement/expression residual
+  audit，再选择单一依赖闭合的最小切片，禁止自动递增。
