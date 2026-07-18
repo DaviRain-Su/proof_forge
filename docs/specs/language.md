@@ -273,6 +273,23 @@ signed literal、constant folding、Typed/Semantic bitwise operation、requireme
 runtime representation；bare/malformed `~` 与额外 payload 保持 parser reject。当前测试中没有 `~`
 parser-negative pin，因此本切片不得修改既有测试来制造迁移。
 
+D1-PA-28 冻结的 pre-acceptance alpha unary logical-not 子集新增
+`Source.Expr.logicalNot(operand)`，parser 形状固定为 `syntax:75 "!" pfExpr:75 : pfExpr`。它与
+checked negation/bitwise-not 使用同一 prefix precedence `75` 并右结合，高于 `*`、`+` 与 binary
+`-`：`!2 * 3` 必须解析为 `(!2) * 3`，`!(2 + 3)` 保留 grouped operand，`1 - !2`
+与 `1 * !2` 接受 unary operand，`! ! 2` 保留两个 logical-not node。mixed unary 次序必须保留：
+`- ! 2`/`! - 2` 与 `~ ! 2`/`! ~ 2` 分别形成不同树，不得交换、折叠或擦除节点。
+
+logical-not 在业务语义上是 Bool operation，但 D1 Source frontend 只保存 intent，不在本切片检查 operand
+类型；因此 literal/variable/Bool/其他当前 Expr 均可形成 Source node，Bool type legality 属于 D2。
+Source canonical encoder 以 append-only Expr tag `9` 后接递归 operand；既有 tags `0..8` 与 goldens
+不得改变。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 逐字 fail closed 为
+`logical not is not yet supported by typed checking`，且不得先泄漏 operand 的 Bool/arithmetic diagnostic。
+本切片不新增 `!=` comparison、`&&`/`||`、Bool typing、constant folding、Semantic/requirement、target
+behavior 或 runtime representation；`1 != 2`、bare/malformed `!` 与额外 payload 保持 parser reject。
+`! = 2` 也必须拒绝，不能把 deferred comparison token 拆成 logical-not 加残余 payload。
+当前测试中没有 DSL `!` parser-negative pin，因此本切片不得修改既有测试来制造迁移。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
