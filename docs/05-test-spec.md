@@ -1362,6 +1362,27 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   3 文件、最多 12 行新增/2 行移除。focused/aggregate/test binary 与 final reviews 全绿后，在 clean committed tree
   运行一次 statement checkpoint `just ci`；收口不得声明 return semantics、完整 statement grammar 或
   正式 D1 完成。
+- D1-PA-50 的 alpha emit statement tests 只新增完整
+  `Source.Statement.emitStmt(eventName : String, args : Array Expr)`，对应 mandatory-parentheses
+  `"emit" Ident "(" ExprList? ")"`；`emit Tick()` 接受 empty args，bare `emit Tick` 必须 parser reject，
+  不得拆成 optional-paren 或多套 carrier。positive 覆盖 initializer、entry、view、fn，zero/one/multi、
+  operator/group/string/local-call/constructor/index/nested arguments，以及 Lean command/ParserSession
+  Source parity；event declaration 只证明 Source coexistence，不得出现 Typed/event semantics success。
+  decoder 必须先做 single-component event-name guard 与 portable identifier validation，再解码 args。
+  Source canonical encoder 使用 append-only Statement tag `7` 后接 eventName string 与 argument array；
+  固定 name、argument value/count/order/nesting、tag `7` 对 revert/call/assert/return non-alias，并保证
+  tags `0..6`/既有 goldens 不变。tests-only RED 为 zero migration，只新增/注册
+  `Tests.Language.EmitStatements`。
+  missing name/parenthesis、bare name、malformed list、extra payload 与 unescaped `emit := 1` 必须 parser
+  reject，escaped `«emit» := 1` 保持 assignment；qualified name 必须在 Bool/string argument 前得到 exact
+  `emit event name must be unqualified`，reserved name 走既有 policy。`Typed.checkStatement` 必须在
+  event lookup、argument checking、view/effect analysis前逐字拒绝
+  `emit statements are not yet supported by typed checking`；含 event table 的 surface 仍由既有 generic
+  event gate fail closed，普通 event declaration diagnostic 不得改变。本切片不得实现 event resolution、
+  payload arity/type、emission/effect、Semantic/requirement、ABI/runtime/target；production 限于
+  Source/Syntax/Typed 3 文件、最多 16 行新增且不移除既有 production。focused/aggregate/test binary 与
+  final reviews 全绿后收口；PA49 已运行 statement checkpoint，本切片不重复 `just ci`，不得声明完整
+  event semantics、statement grammar 或正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

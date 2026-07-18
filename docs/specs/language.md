@@ -749,6 +749,32 @@ type/effect、Semantic/requirement、ABI/runtime 或 target behavior；productio
 tree 运行一次 statement checkpoint `just ci`；只可记录 value-less return Source carrier，不得宣称
 return semantics、完整 statement grammar 或正式 D1 完成。
 
+D1-PA-50 冻结的 pre-acceptance alpha emit statement 子集一次实现完整 EBNF
+`"emit" Ident "(" ExprList? ")"` Source surface，carrier 固定为
+`Source.Statement.emitStmt(eventName : String, args : Array Expr)`。parentheses 必须存在；`emit Tick()`
+物化 empty args，`emit Tick` 不得成为 optional-paren fallback。event declarations 已有 Source carrier，
+但 event lookup、payload arity/type、view legality、effect 与 target materialization 仍属于 D2/后续。
+
+parser 只新增 `syntax "emit " ident "(" pfExpr,* ")" : pfStmt`；decoder 必须先验证 event name
+恰好一个 `Name` component，再应用既有 portable identifier policy，最后才按源顺序解码完整 ExprList。
+Source canonical encoder 使用 append-only Statement tag `7`，随后编码 eventName string 与
+length-prefixed argument expression array；tag `0..6` 与既有 goldens 不变。tests-only RED 为 zero
+migration，只新增/注册 `Tests.Language.EmitStatements`，固定 Lean command/ParserSession 在 initializer、
+entry、view、fn 上的 Source parity，以及 event name、argument value/count/order/nesting 与 statement kind
+的 canonical non-alias。
+
+missing name/parenthesis、bare name、leading/trailing/double comma、adjacent argument、extra payload 与
+unescaped keyword assignment 必须停在 parser boundary；escaped `«emit» := 1` 保持 assignment。
+qualified event name 必须在 argument decode 前逐字拒绝 `emit event name must be unqualified`，reserved
+name 继续走既有 portable policy。`Typed.checkStatement` 必须在 event-table lookup、argument checking、
+view/effect analysis 前逐字 fail closed 为 `emit statements are not yet supported by typed checking`；
+含 event declarations 的完整 surface 仍可被既有 generic event gate 拒绝，不得伪称 Typed emit support。
+本切片不得实现 event resolution、payload legality、emission/effect、Semantic/requirement、ABI/runtime 或
+target behavior；production 仅限 Source/Syntax/Typed 3 文件、最多 16 行新增且不移除既有 production。
+GREEN、focused/aggregate/test binary 与两份独立审查全绿后只可记录完整 emit statement Source carrier；
+PA49 已运行 statement checkpoint，本切片不重复全量 `just ci`，且不得宣称完整 event semantics、
+statement grammar 或正式 D1 完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
