@@ -2663,3 +2663,46 @@ normative: false
   不是 eligible Stage-0/formal hermetic evidence。
 - Next：PrimaryExpr residual audit 尚未冻结；Grok 建议只切 Place.Index，Place.Field 因既有
   bare dotted variable tokenization 冲突需先做规格决策，当前正等待独立 challenge review。
+
+## 2026-07-18 — D1 bare-base rvalue indexAccess pre-acceptance slice
+
+- Commits：freeze `88aa2af7`；tests-only RED `049ef0c8`；canonical golden binding
+  `dcfb6e19`；same-identity escaped-base control correction `5515acb2`；Source-only GREEN
+  `cc1e1ef2`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-47 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：新增 `Source.Expr.indexAccess(base, index)` 与 append-only Expr tag `28`，依次编码
+  base string 和递归 index expression；新增 high-precedence leading-on-ident
+  `syntax:max ident "[" pfExpr "]" : pfExpr`、decoder 与 quotation。decoder 先要求 base 恰好一个
+  Lean `Name` component，再经既有 portable identifier policy 解码 base，最后才解码完整 index。
+  Typed 逐字 fail closed 为 `index access is not yet supported by typed checking`。production 恰好
+  Source/Syntax/Typed 3 文件、13 行新增；Semantic、requirement 与 target 未改。
+- Coverage：Lean command/ParserSession 双入口覆盖 initializer、entry、view、fn 的 return/let；
+  `x[0]`/`x [0]`、escaped ordinary base、operator/group/local-call/constructor index，以及
+  indexAccess 作为 unary/binary operand。固定 base value、index value/tree、spacing/escape canonical
+  equality 与 tag `28` 对 variable tag `1` non-alias。六个 IndexAccessTwin hash goldens 及独立 probe
+  测得的 canonical byte size 为：`x[0]`
+  `9244d727ece801a6e4fcae4e34b7e12fbc3110d5b0ef5a07d75b0c039b000ce4`/233 bytes；`x[1]`
+  `7d9253e00ff06d32a7440a3fdba4d427bfe1e221c698998837b264cac371db7a`/233；`y[0]`
+  `98d3150573dee013428d347a173975f42c1c25f9bff1cca7af6c892a5fd5812d`/233；`x[1+2]`
+  `8a6ad5b937c6ca326f41e2bd683ebcb7c76cb2516d951bc58442bc69c5763a7f`/243；`x[f(1)]`
+  `3f3db2b94cf9c87df71cb37a6b07fa5d00823289ed15ad83ac87c4fbab57461f`/251；`x[A.B(1)]`
+  `3ceb4bd53c70208cf2a65ff785ec50816f4d31c1e3b4332f4cffcaef994ffde1`/268。
+- Boundaries：zero migration；missing/malformed brackets/base/index、extra payload、group/call base、
+  `x[0][1]` chaining 与 `x[0] := 1` indexed assignment 均停在 parser boundary。`A.B[true]`
+  在 index 前精确拒绝 `index access base must be unqualified`；reserved base 走既有 portable policy。
+  Typed 在 unknown base 与 Bool/string index checking 前 fail closed。真实 focused 执行发现 RED 中
+  escaped/plain equality 最初使用不同 program name；`5515acb2` 将其修正为同 identity 后通过，
+  没有修改 production 语义。两份 final review 均为 P0/P1=0。
+- Commands/Results：`lake build Tests.Language.IndexAccesses`（15 jobs）；`lake env lean --run
+  /dev/stdin` 直接执行 `Tests.Language.IndexAccesses.run` exit 0；`lake build proof_forge_next_tests`
+  （180 jobs）；`lake env /usr/bin/time -l .lake/build/bin/proof-forge-next-tests` exit 0/4.88 s；
+  `git diff --check` exit 0。development evidence 为 `EV-20260718-0033`。按冻结未运行全量
+  `just ci`；下一批 primary-expression checkpoint 再运行。
+- Scope claim：bare single-component identifier 的单个 rvalue bracket indexAccess Source carrier 已覆盖。
+  不包括 field suffix、suffix chaining、indexed assignment、general postfix、完整 Place、lvalue/container/
+  index/bounds/read semantics、MatchExpr、ExternalCallExpr、Typed/Semantic index、requirement 或 target behavior。
+- Limitations：不得声明完整 Place、PrimaryExpr、expression/statement grammar、eligible host 或 formal D1
+  evidence；不得关闭 pending `TASK-D1-04`，D0 formal milestone 仍为 5/8。
+- Next：下一 development slice 未冻结；必须先重新审计 field tokenization、chaining 表示与
+  Match/External residual，只能选择一个依赖闭合的最小切片。
