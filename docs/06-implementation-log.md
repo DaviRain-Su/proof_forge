@@ -2261,3 +2261,37 @@ normative: false
   必须核准 `<=` 与 `<`/`<<`/`=` 的 token integrity、Compare precedence `50` non-associativity、
   Expr tag `17`、`Equal.lean` 中唯一 `1 <= 2` retention negative 的迁移、same/mixed chain rejection
   与 exact Typed failure；不得捆绑 `>`、`>=`、Bool legality、Semantic 或 target lowering。
+
+## 2026-07-18 — D1 less-or-equal pre-acceptance slice
+
+- Commits：freeze `9ab8b6b8`；tests-only RED `c6c5fb80`；Source-only GREEN `9d4fbd37`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-005`。本切片只追加 D1-PA-36 development evidence，
+  不改变 `TASK-D1-04` 的 pending 状态、依赖、Tests 集合或 Done 语义。
+- Changed：`Source.Expr.lessEqual lhs rhs` 与 append-only Expr tag `17`；
+  `syntax:50 pfExpr:51 " <= " pfExpr:51 : pfExpr`、结构化 decoder/quotation；`Typed.checkExpr`
+  在 operands 前逐字 fail closed 为 `less-equal comparison is not yet supported by typed checking`。
+  production 恰好只改 Source/Syntax/Typed 3 文件/11 行，其他层未改。
+- Coverage：initializer、entry、view、fn return/let 与双入口 parity；integer/Bool/order/variable、add/mul/
+  shift 双向 precedence、grouping、unary AST；same chain 与针对 `<`/`==`/`!=` 的六种 mixed directions
+  全部拒绝。代表 goldens：`1<=2`
+  `dae46b177e848a37c45a1b83756828d709aced2f30ba6797084b36fa9af9c7ac`/225 bytes、`2<=1`
+  `0b1ee5b31681f8c1eaa77386df60c1bb65c2285eeb63dad10a86b2538e60328f`/225、`true<=false`
+  `b99e171a3079f2497d1502c1d422dd761f86eadce84ce0280110ee22126dc7b6`/211、`1+2<=3`
+  `bc55b18f29500659734c183ec5c988430cbb5bdd01cc7f44d97d579ec0377368`/235、`1<<2<=3`
+  `2a04f479b5738c51563644e97be58b3e93a64cef804daae0b2ba985d74c74880`/235、`1<=2<<3`
+  `dc2233b671502479c6760adb0b984d3d880bd6d7d926120dadd182b2ec553544`/235。
+- Migration/Boundaries：只迁移 `Equal.lean` 的 `1 <= 2` negative，保留 `>`/`>=`；
+  `1 < = 2`、`1 <<= 2`、`1 <= = 2`、bare/missing/extra payload 全部 parser reject，既有
+  `<`/`<<` 语义及 ShiftLeft token-integrity pins 未变。Typed exact controls 与 checkedAdd positive 保持。
+- Review/Commands：Grok 完成 RED、下一 residual 与 evidence extraction；Kimi 完成 freeze seam 和 GREEN
+  最终审计，P0/P1=0；coordinator 完成 11 行 GREEN。执行 `lake build Tests.Language.LessEqual`；
+  `lake build proof_forge_next_tests`；`lake env .lake/build/bin/proof-forge-next-tests`；`git diff --check`。
+- Results：14-job focused、156-job aggregate 与测试二进制全部 exit 0；development evidence 为
+  `EV-20260718-0022`。本小切片未重复全量 CI。
+- Limitations：仅有 Source carrier；没有 operand/result type legality、Typed/Semantic comparison、
+  `>`/`>=`、bitwise/logical operators、folding、requirement、target ABI/runtime、eligible host 或 formal D1
+  evidence。不得声称 CompareExpr、expression grammar 或 `TASK-D1-04` 正式完成；D0 仍为 5/8。
+- Next：residual audit 选择 greater-than `>` 为唯一下一 candidate，但尚未冻结。冻结前必须核准与 `>>`
+  的 longest-token/token-integrity boundary、Compare precedence `50` non-associativity、Expr tag `18`、
+  `Equal.lean` 中唯一 `1 > 2` retention negative 的迁移、same/mixed chain rejection 与 exact Typed failure；
+  不得捆绑 `>=`、Bool legality、Semantic 或 target lowering。
