@@ -3847,8 +3847,8 @@ normative: false
   digest），随后 Stage-0 handoff producer + bwrap containment runner。
 ## 2026-07-19 — D1 exact Option Array Field spelling pre-acceptance slice
 
-- Commits：freeze `12fe8e7f`；tests-only RED `a09cbfb5`；canonical golden binding `c53457bb`；
-  Syntax-only GREEN `9ca87e30`。
+- Commits：freeze `6169dbaf`；tests-only RED `ca1cb2e0`；canonical golden binding `0f6bf15d`；
+  Syntax-only GREEN `a7fc520e`；closeout `76025624`。
 - Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-65 development evidence，不改变
   `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。
 - Changed：只为既有 `Source/Semantic.ValueType.option (.array .field length)` 开放 exact same-line
@@ -3871,7 +3871,7 @@ normative: false
 - Scope/Commands：production 恰好 `Language/Syntax.lean` 一文件，27 行新增/0 行移除；package file-set
   同 GREEN re-pin。`lake build Tests.Language.OptionDeclarations` 23 jobs；`lake build
   proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just
-  sbom-package-files-refresh`、`git diff --check` 全绿。Grok RED/residual P0=0；Kimi final review pending；
+  sbom-package-files-refresh`、`git diff --check` 全绿。Grok RED/residual P0=0；Kimi final review P0=0/P1=0/P2=0；
   development evidence 为 `EV-20260719-0061`。本切片按冻结未重复完整 `just ci`。
 - Scope claim：只完成 exact existing-carrier spelling、canonical identity、field requirement 与
   support-vs-Plan boundary。不包括 array/field operations、none/some/unwrap、任意 recursive grammar、
