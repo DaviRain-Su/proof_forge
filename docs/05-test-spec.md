@@ -926,7 +926,7 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   positive 与 Bool/sub/mul/neg/bitwiseNot/logicalNot exact fail-closed controls 保持。本切片的 tests-only RED
   必须且只能迁移 `CheckedMul` 的 `2 / 3` 与 `Grouping` 的 `(2 / 3)` 两条既有 slash negative，percent
   negatives 保持；不得加入 modulo、zero/signed/rounding semantics、folding、requirement、target
-  ABI/runtime semantics。production 必须限于 Source/Syntax/Typed 的 3 文件/10 行 exact seam，不得修改
+  ABI/runtime semantics。production 必须限于 Source/Syntax/Typed 的 3 文件/11 行 exact seam，不得修改
   Typed Expr、SemanticIR/Semantics、requirements、targets、preflight 或 generic negative table。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入

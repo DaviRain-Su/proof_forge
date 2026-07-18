@@ -309,7 +309,7 @@ Source canonical encoder 以 append-only Expr tag `10` 后依次递归编码 lhs
 constant folding、Typed/Semantic division、requirement、target behavior 或 runtime representation；
 bare/missing operand、`2 // 3`、repeated/mixed operator 与额外 payload 保持 parser reject。production
 只允许修改 `Source.lean` 的 ctor/encoder、`Syntax.lean` 的 production/decode/quote 与 `Typed.lean` 的
-direct fail-closed arm（共 3 文件/10 行）；Typed Expr、SemanticIR/Semantics、requirements、targets、
+direct fail-closed arm（共 3 文件/11 行）；Typed Expr、SemanticIR/Semantics、requirements、targets、
 preflight 与 generic negative table 均不得修改。本切片只实现 `/`，不得把 `MulExpr` 写成已完整实现。
 
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
