@@ -462,6 +462,27 @@ legality、runtime representation、ABI 或 target nested-Option-Bytes support�
 focused/aggregate/test binary 与 independent review 全绿后只可记录 existing-carrier spelling；按冻结不
 重复完整 `just ci`，不得声明 nested Option/Bytes runtime semantics、完整 type grammar 或正式 D1 完成。
 
+D1-PA-64 冻结的 pre-acceptance alpha 子集只为已经可由 Source/Semantic recursive carriers 构造的
+`option(option(array(element,length)))` 开放 exact same-line spelling `Option Option Array PrimitiveAtom N`。
+`PrimitiveAtom` 沿既有 15-atom Array policy 解码，`N` 精确复用 Array 的 canonical ASCII decimal `0..4096`
+discipline；不得开放 Field/Bytes/Option/Array/Map/Named element。既有 encoder 定义两层 Option tag
+`16→16`、Array tag `18`、element tag 与 length payload，requirements 递归传播；不得新增 ctor/tag、修改
+encoder、Typed 或 target。
+
+frontend 只能新增 exact contextual named `optionOptionArrayType` 与 struct-field 对应 parser；不得放宽既有
+`optionOptionType`、`optionArrayType`、`arrayType` 或 `portableType`，不得引入 recursive parser。新增 decoder
+必须复用既有 Option/Array/PrimitiveAtom 与 length policy，再只包一层 Option；专用 dispatch 必须先于 generic
+`optionOptionType`。tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+`Option Option Array UInt64 4` parser-negative 迁移为 positive，migration count 精确为一；不完整
+`Option Option Array` 与所有 compound/third-layer boundaries 继续 fail closed。positive 覆盖 length
+`0`/普通值/`4096`、all declaration positions including event/error parameters、双入口 parity、canonical
+tag `16→16→18→element→length`、requirements、四 target support-vs-Plan boundary 与 no-artifact controls。
+
+本切片不实现 array value/index/slice/length/mutation、none/some/unwrap、任意 recursive type grammar、
+recursive legality、runtime representation、ABI 或 target nested-Option-Array support。production 仅限
+`Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set；按
+冻结不重复完整 `just ci`，不得声明 nested Option/Array runtime semantics、完整 type grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
