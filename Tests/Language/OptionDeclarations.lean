@@ -805,9 +805,12 @@ unsafe def run : IO Unit := do
     s!"Option Option Field semantic tag16+tag16+tag2 golden is unbound: size={nestedFieldSemantic.canonicalBytes.size}, hash={nestedFieldSemantic.semanticHash}"
 
   let nestedBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Bytes 0", .option (.option (.bytes 0)), 0, "UNBOUND"),
-    ("Option Option Bytes 8", .option (.option (.bytes 8)), 0, "UNBOUND"),
-    ("Option Option Bytes 4096", .option (.option (.bytes 4096)), 0, "UNBOUND")
+    ("Option Option Bytes 0", .option (.option (.bytes 0)), 259,
+      "cbbe9286f8e957275d0ac6cd418209499606d8b8c6c01531425426f019ea21ae"),
+    ("Option Option Bytes 8", .option (.option (.bytes 8)), 259,
+      "040cf33318c71730959487be305f69a4c128270a3c27e7d93ab1bfad8d3eb14f"),
+    ("Option Option Bytes 4096", .option (.option (.bytes 4096)), 259,
+      "14ab68853f03fbb38ec832333716255f3f22302402f4e591d18d24fbbe17831a")
   ]
   for (label, type, expectedSize, expectedHash) in nestedBytesSourceVectors do
     let sourceProgram := twin type
@@ -826,9 +829,12 @@ unsafe def run : IO Unit := do
     "Option Option Bytes must bind both Option tags, Bytes tag and complete length payload"
 
   let nestedBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Bytes 0", .option (.option (.bytes 0)), 0, "UNBOUND"),
-    ("Option Option Bytes 8", .option (.option (.bytes 8)), 0, "UNBOUND"),
-    ("Option Option Bytes 4096", .option (.option (.bytes 4096)), 0, "UNBOUND")
+    ("Option Option Bytes 0", .option (.option (.bytes 0)), 208,
+      "7900d72d34b10dcd28c9c7bb66e7f756850e115c065783bcf7c7595879fba42c"),
+    ("Option Option Bytes 8", .option (.option (.bytes 8)), 208,
+      "758d60858e11526e7f920efb03c796bb50635b2c4e3f014d3928e2ae95cf0d13"),
+    ("Option Option Bytes 4096", .option (.option (.bytes 4096)), 208,
+      "568b065f3a8d149b189834b632d78237ecfaec50c82598ffeb2460904ce58e9f")
   ]
   for (label, type, expectedSize, expectedHash) in nestedBytesSemanticVectors do
     let sourceProgram := twin type
