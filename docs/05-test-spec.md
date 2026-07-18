@@ -1213,6 +1213,31 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   short-circuit lowering、Bool legality、folding、Typed/Semantic logical operation、requirement 或 target
   ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行。本切片只运行 focused/aggregate/
   test binary，logical-tier committed-tree 批量 `just ci` 延后到 logical-or 收口。
+- D1-PA-43 的 alpha binary logical-or tests 固定 production rule
+  `syntax:25 pfExpr:25 " || " pfExpr:26 : pfExpr` 与 `Source.Expr.logicalOr(lhs, rhs)`。precedence `25`
+  必须严格低于 LogicAndExpr `30`，并按 EBNF `("||" LogicAndExpr)*` 左结合；`1 || 2 || 3` 必须接受
+  并形成 `(.logicalOr (.logicalOr 1 2) 3)`，explicit `1 || (2 || 3)` 必须保留右嵌套。mixed expressions
+  必须合法且树形固定：`1 && 2 || 3` 为 `(1 && 2) || 3`，`1 || 2 && 3` 为
+  `1 || (2 && 3)`，`1 | 2 || 3` 为 `(1 | 2) || 3`，`1 || 2 | 3` 为
+  `1 || (2 | 3)`，`1 == 2 || 3` 为 `(1 == 2) || 3`，`1 || 2 == 3` 为
+  `1 || (2 == 3)`。positive 必须覆盖 initializer、entry、view、fn 的 return/let value 及双入口 parity，
+  并精确固定 `1 || 2`、`2 || 1`、`a || b`、`0 || 0`、`true || false`、add/mul/shift/comparison/
+  bitwise/logical-and 双向 precedence、grouping、unary、left-chain 与 explicit right-nesting 的 AST；
+  operand/result legality 和 short-circuit Typed/Semantic 实现留给 D2。
+  Source canonical encoder 使用 append-only Expr tag `24` 后依次编码 lhs/rhs；既有 tags `0..23`/goldens
+  不变。LogicalOrTwin identity 下 order/type/precedence/grouping/unary/shift/comparison/bitwise/logical-and/
+  nesting cases 的真实 bytes/hash 必须在 GREEN 前绑定，并以 logical-and/bitwise-or、comparison、
+  checked-add、operand order、left/right nesting、wrong precedence tree 与 Bool order作为 non-alias。
+  相同 identity 下 `(1 || 2)` 与 `1 || 2` 必须产生相同 Source.Program/canonical bytes/sourceHash。
+  tests-only RED 必须且只能删除 `BitwiseOr.lean` 的 `("double pipe", "1 || 2")` negative；同 suite 的
+  spaced `1 | | 2` survival pin 与其他既有 suite 不得修改。bare/missing operand、`1 || || 2`、
+  `1 ||| 2`、`1 | || 2` 与 extra payload 必须停在 parser boundary。`Typed.check` 必须在 operand
+  checking 前逐字拒绝 `logical or is not yet supported by typed checking`，使 `true || false` 不泄漏
+  Bool diagnostic；checkedAdd positive 与全部既有 expression exact controls 保持。不得加入 match、
+  short-circuit lowering、Bool legality、folding、Typed/Semantic logical operation、requirement 或 target
+  ABI/runtime；production 必须限于 Source/Syntax/Typed 3 文件/11 行。GREEN 与 focused/aggregate/test
+  binary 全绿后必须在 committed tree 上运行 logical-tier 批量 `just ci`；只可声明 Source operator
+  precedence tower 覆盖，不得声明 MatchExpr、完整 expression/statement grammar 或正式 D1 完成。
 - invariant declaration 覆盖 exact name 与当前 alpha literal/variable/checked-add predicate；
   name/predicate/count/order、同前缀 declaration count、expression kind/value/operand order 必须进入
   canonical source binding。duplicate invariant 固定在 duplicate callable 与 duplicate extension 之间；

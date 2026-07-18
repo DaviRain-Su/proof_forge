@@ -563,6 +563,26 @@ production 必须限于 Source/Syntax/Typed 3 文件/11 行。GREEN、focused/ag
 全绿后只能记录 logical-and Source surface；logical tier 的 committed-tree 批量 `just ci` 延后到
 logical-or 收口，不得宣称 expression grammar 或 `TASK-D1-04` 正式完成。
 
+D1-PA-43 冻结的 pre-acceptance alpha binary logical-or 子集新增 `Source.Expr.logicalOr(lhs, rhs)`，
+parser 形状固定为 `syntax:25 pfExpr:25 " || " pfExpr:26 : pfExpr`。它严格低于 LogicAndExpr `30`，
+并按 LogicOrExpr 的 Kleene-star 形状左结合：`1 || 2 || 3` 必须为 `(1 || 2) || 3`；explicit
+`1 || (2 || 3)` 保留 right-nested tree。`1 && 2 || 3` 必须为 `(1 && 2) || 3`，
+`1 || 2 && 3` 必须为 `1 || (2 && 3)`；`1 | 2 || 3`/`1 || 2 | 3` 与
+`1 == 2 || 3`/`1 || 2 == 3` 同理按 bitwise-or/Compare 优先。
+
+Source canonical encoder 以 append-only Expr tag `24` 后依次递归编码 lhs、rhs；既有 tags `0..23`
+与 goldens 不得改变。integer 与 Bool operands 都必须形成 Source node；operand/result legality 与
+short-circuit Typed/Semantic 实现属于 D2。decoder/`quoteExpr` 必须结构化保留节点；`Typed.check` 必须在
+检查任一 operand 前逐字 fail closed 为 `logical or is not yet supported by typed checking`。
+tests-only RED 必须且只能迁移 `BitwiseOr.lean` 的 `1 || 2` retention negative，并在新 suite 固定为
+positive AST；同 suite 的 spaced `1 | | 2` survival pin 与其他既有 suite 不得修改。bare/missing operand、
+`1 || || 2`、`1 ||| 2`、`1 | || 2` 与 extra payload 必须 parser reject。本切片不得新增 match、
+short-circuit lowering、Bool legality、constant folding、Typed/Semantic logical operation、requirement、
+target behavior 或 runtime representation；production 必须限于 Source/Syntax/Typed 3 文件/11 行。
+GREEN、focused/aggregate/test binary 与独立审查全绿后必须在 committed tree 上运行 logical-tier 批量
+`just ci` checkpoint；只有该 gate 全绿才能记录 bitwise 与 logical 的 Source operator precedence tower，
+但不得把它扩张为 MatchExpr、完整 expression/statement grammar 或 `TASK-D1-04` 正式完成。
+
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
