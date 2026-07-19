@@ -776,8 +776,8 @@ recursive grammar 继续 fail closed。
 post-PA-75 residual audit 的四路 challenge 以总验收面而非 production 行数仲裁：本候选只有 fixed Field
 与 single length，且在 support resolver 提前拒绝；`Option Option Array Bytes N M` 需要 dual-length
 canonical 轴并在 support-pass 后覆盖 state/result/parameter target-owned Plan rejection，
-`Option Option Option Array PrimitiveAtom N` 需要 15-atom 与混合 requirement/support matrix。因此选择
-本候选不是 checkpoint 自动递增，也不是按 type family 补齐。
+`Option Option Option Array PrimitiveAtom N` 增加 PrimitiveAtom element 轴与 zero/`boolValues`
+requirement/support 分支。因此选择本候选不是 checkpoint 自动递增，也不是按 type family 补齐。
 
 frontend 只能新增 exact contextual named `arrayOptionOptionFieldType` 与 struct-field 对应 parser；不得
 放宽既有 `arrayOptionOptionType`、`arrayFieldType`、`arrayOptionType` 或 `portableType`，不得引入 recursive

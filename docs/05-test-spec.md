@@ -1198,7 +1198,8 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   PA71 明示保留的 exact Field leaf residual supersede fail-closed boundary；PA60/71/75 既有 positive
   保持不变。post-PA-75 四路 audit 按总验收面选择 fixed Field + single length：
   `Option Option Array Bytes N M` 需要 dual length 与三类 Plan fixture，
-  `Option Option Option Array PrimitiveAtom N` 需要 15-atom matrix；不是 checkpoint 自动递增。
+  `Option Option Option Array PrimitiveAtom N` 增加 element 轴与 zero/`boolValues` requirement/support
+  分支；不是 checkpoint 自动递增。
   tests-only RED 只修改 `Tests.Language.ArrayTypes`，将既有一条
   `("full Field Array Option Option element", "Array Option Option Field bn254_fr 4")` negative
   迁移为 positive，migration count 精确为一；incomplete `Array Option Option Field 4` 必须继续 exact
