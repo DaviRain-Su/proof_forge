@@ -4653,3 +4653,52 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；先做 post-PA-76 residual audit 与 bounded arbitration，
   尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact dual Array Field spelling pre-acceptance slice
+
+- Commits：freeze `a032d4a2`；tests-only RED `fac3e2f7`；Syntax/GREEN、canonical binding 与
+  Lean package-file re-pin `0afddb53`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-77 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-76 residual
+  arbitration 按 fixed Field、dual length、support-resolver early rejection 与现有唯一 migration
+  anchor 选择 exact `Array Array Field bn254_fr N M`，不是 checkpoint 自动递增。
+- Changed：为既有 `Source/Semantic.ValueType.array (.array .field innerLength) outerLength`
+  开放 exact same-line spelling。新增 named type/aggregate-field parser；专用 decoder 对
+  `[fieldId, innerLength]` 复用 closed `decodeArrayFieldValueTypeFromAtoms`，对 outer length 复用
+  canonical decimal decoder并施加 `0..4096` bound，随后只包一层 outer Array；两个专用 dispatch
+  均位于 generic `arrayArray` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；
+  production `Syntax.lean` 为 34 additions/0 removals。
+- RED/Migration：只迁移既有 `Array Array Field bn254_fr 4 4` negative 一条；RED 单文件
+  `ArrayTypes.lean` 为 287 additions/1 removal，6 个 golden 保持 UNBOUND。incomplete
+  `Array Array Field 4 4` 与 Option/Bytes/Array/Map full compounds 保持 fail closed；focused RED
+  只因两处 missing grammar 及其 fixture cascade 失败。三路 independent RED review 均
+  P0=0/P1=0/P2=0。
+- Coverage：覆盖 `(inner, outer)=(0,0)/(4,4)/(4096,1)`、state/struct/enum/const/init/
+  entry/view/fn/event/error 与双入口 parity；Field id、两条 length 轴、same-line seams、constructor
+  与 compound error channels 全部按冻结通过。requirements 精确为单个 `fieldBn254`；四个
+  Phase 1 target 的 `checkSupport` 与 `materializeResult` 均在 Plan dispatch 前返回 exact named
+  rejection，因此无 Plan、OutputSet 或 artifact。
+- Canonical：tag 固定 `18→18→2→innerLength→outerLength`。Source 三组均为 265 bytes，hash
+  依次为 `891c549138882df1fdb4da2b494f72dbdbcb508d7e234dbc6290385246fa3cba`、
+  `7540d6061a85b4a08e95ee63d6d78f946fcdc7a3e498038c3057072db4e70ec8`、
+  `6b3ba12ac632e0faa5dbf3865bf7586389d12157f5b3bf18bce1816edb2882ea`；Semantic 三组
+  均为 215 bytes，hash 依次为
+  `992b1055cefeb34dcd044cec714ed6d9019db98dac7c43d7c814705544cce82f`、
+  `ff74d64876fa3f5949e998d72299740637b0bd82e1347ff3dca1ec6b3e1d02db`、
+  `a203fe6bf6462eeefea8b0c61297be5b74116230c21d89903f802a44d6e4c8aa`。两层均固定
+  candidate pairwise、三项 structural 与 `8/4↔0/4`、`8/4↔8/0`、`8/4↔4/8`
+  bytes/hash non-alias controls。
+- Verification：`lake build Tests.Language.ArrayTypes` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；`just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package
+  pin 为 96627 bytes、SHA-256
+  `ec0e4e3ee21555b85ae4a74af39fc7ed93effbb3c4d82a3f94e384ec4955b278`；三路
+  independent GREEN review 均 P0=0/P1=0/P2=0；development evidence 为
+  `EV-20260719-0075`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
+  requirement 与 support-rejection/no-artifact boundary；不包括 Field/Array operations、任意
+  recursive grammar、runtime/ABI、target dual-Array-Field support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA-77 两路 audit 对 `Option Array Array Field
+  bn254_fr N M` 与 `Option Option Array Bytes N M` 的总验收面排序不同，先做 bounded challenge，
+  尚未冻结下一 slice，禁止由 checkpoint 自动递增。
