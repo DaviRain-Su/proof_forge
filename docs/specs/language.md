@@ -814,6 +814,58 @@ focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent rev
 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type grammar 或
 正式 D1 完成。
 
+D1-PA-77 冻结的 pre-acceptance alpha 子集只为已有
+`array(array(field,innerLength),outerLength)` carrier 开放 exact same-line spelling
+`Array Array Field bn254_fr N M`。Field identifier 必须是 raw exact `bn254_fr`；`N`/`M` 分别表示 inner/
+outer Array length，并各自精确复用 canonical ASCII decimal `0..4096` discipline；tag 固定
+`18→18→2→N→M`，requirements 经两层 Array 精确透传为单个 `fieldBn254`。本冻结只对 D1-PA-66
+明示保留的 exact Field leaf residual supersede fail-closed boundary；PA60 的 `Array Field`、PA66 的
+`Array Array PrimitiveAtom` 与 PA76 的 Array/Option/Option wrapper 均保持不变。Bytes/Option/Array/Map/
+Named leaf、第三层 Array 与任意 recursive grammar 继续 fail closed。
+
+post-PA-76 三路独立 residual audit 均按总验收面选择本候选：它与
+`Option Option Array Bytes N M` 同为 fixed leaf + dual length，但 Field 在 support resolver 前置拒绝，
+不需要 zero-requirement 候选的 state/result/parameter target-owned Plan fixtures；PrimitiveAtom 候选还
+增加 element 轴与 zero/`boolValues` requirement 分支。该选择不是 checkpoint 自动递增或 type family
+补齐。
+
+frontend 只能新增 exact contextual named `arrayArrayFieldType` 与 struct-field 对应 parser；不得放宽
+既有 `arrayArrayType`、`arrayFieldType`、`arrayType` 或 `portableType`，不得引入 recursive parser。
+新增 decoder 必须对 inner `[fieldId,N]` 复用 closed `decodeArrayFieldValueTypeFromAtoms` 的 raw
+`bn254_fr`/length policy，对 outer `M` 复用 `decodeBytesLengthAtom` 与既有 Array `0..4096` bound，再只包
+一层 outer Array；专用 type 与 aggregate dispatch 必须先于 generic `arrayArrayType`/aggregate parser。
+不得新增 ctor/tag、修改 Source/Semantic encoder、Typed 或 target；Lean command 与 ParserSession 必须
+得到同一 Source tree/hash。
+
+tests-only RED 只修改 `Tests.Language.ArrayTypes`，将既有一条
+`("full Field Array Array element", "Array Array Field bn254_fr 4 4")` parser-negative 迁移为 positive，
+migration count 精确为一；incomplete `Array Array Field 4 4` 继续保留为 exact unsupported，其他测试
+不得迁移。positive 覆盖 `(inner,outer)=(0,0)/(4,4)/(4096,1)`、所有 declaration positions（含 event/
+error）与双入口 parity。Source/Semantic canonical tests 各固定三组 vectors；ordinary candidate 必须在
+两侧分别与 `Array Array UInt64 4 4`、`Array Field bn254_fr 4`、`Option Array Field bn254_fr 4` 做
+canonical bytes/hash non-alias，并用手工 carrier controls 在 Source/Semantic 两侧固定 `8/4` 对 `0/4`
+（inner-only）、`8/4` 对 `8/0`（outer-only）与 `8/4` 对 `4/8`（swapped-order）non-alias；
+非 surface-positive control 不得借测试开放额外 spelling。requirements 必须
+恰为单个 `fieldBn254`；四个 Phase 1 target 的 `Targets.checkSupport` 与
+`Targets.materializeResult` 必须都返回 exact `.unsupportedRequirement .fieldBn254 actualTarget` 且
+`actualTarget == target`，证明不能进入 Plan、`OutputSet` 或产出 artifact。
+
+冻结 error channel 如下：incomplete spelling、alternate/escaped/qualified Field id、inner/outer 任一
+length 的 `4097`/leading-zero/`0x10`/`4_096`、bare Bytes/Option/Array/Map 与 `Widget 4 4`
+unknown/Named-like leaf 必须 exact `unsupported portable type`；missing/negative/identifier inner/outer
+length、extra payload、五个 Array/Array/Field/id/length same-line seam 换行、三个 constructor（两层
+Array、Field）的 escaped/qualified form、full Bytes/Option/Array/Map compounds 必须 parser-rejected。
+若 GREEN empirical probe 与冻结 channel 不一致，必须在 GREEN 前以独立规格修正提交闭合，不得静默
+改断言或扩大 positive。
+
+本切片不实现 field arithmetic、array value operations、任意 recursive type grammar/legality、runtime
+representation、ABI 或 target nested-Array-Field support。tests-only RED 仅限
+`Tests/Language/ArrayTypes.lean`，最多 330 行新增、2 行移除；production 仅限
+`Language/Syntax.lean` 一文件，最多 36 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。
+focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可记录
+existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type grammar 或
+正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
