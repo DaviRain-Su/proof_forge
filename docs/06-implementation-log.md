@@ -4887,3 +4887,47 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice。post-PA-81 residual audit 只保留 payload constant
   evaluation 作为可能的下一 bounded slice；必须先独立冻结再提交 RED，禁止自动编号。
+
+## 2026-07-19 — D1 structural program payload pre-acceptance slice
+
+- Commits：freeze `0470c41a`；Lean 4.31 partial observability 修正 `834ecce9`；direct quoted
+  coverage 澄清 `4ce3dc9b`；tests-only RED `c6aa1b8e`；sentinel/error ownership 澄清
+  `39f91676`；RED fixture 可执行性修复 `779f7ffb`；structural decoder/GREEN 与 Lean
+  package-file re-pin `951efdd6`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-82 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。实现面固定为 PA81 normalized registry 到 exported `Source.Program` 的无执行结构重建，
+  不是 checkpoint 自动递增。
+- Changed：新增 429 行 `ProofForgeV2.Language.ProgramPayload`，只暴露冻结的三个 API。decoder
+  从 exact `Source.Program.mk` 14 fields 开始，closed-walk Source constructor、List/Option/Bool、
+  UInt32/UInt64/Nat/Fin wrapper；宿主构造前校验范围。raw Expr 以显式 stack 预检 100000
+  nodes，Source Expr/Statement/ValueType 共享 256-depth fuel，list spine 迭代解码。路径不使用
+  `evalConst`/`evalExpr`/reduction/Meta/IO/FS/network。
+- Declaration/diagnostics：`programPayload` 必须命中 PA81 exact registered `Name`；declaration
+  依次通过 safe `defnInfo`、exact `Source.Program` type、无 `implemented_by`/extern、raw-node
+  preflight 与 `Environment.hasUnsafe = false`。registry schema/identity normalization 继续保留 PA81
+  `PF-EXPORT-001`；normalized table 之后的 payload 失败固定 `PF-EXPORT-004`。`programPayloads`
+  仅在全部 row 重建成功后返回，不暴露 partial prefix。
+- RED/Fixtures：初始 RED 为 349 additions；为解决 DSL keyword/import hygiene、command atom、生成标识符与
+  exact universe-level 语法问题，不改 assertion set 地修复为最终 358/360。rich fixture 与
+  elaborator constant 做全值 BEq/name/qualifiedName/sourceHash 比较；direct quoted control 覆盖 DSL
+  尚不可达的 `Expr.state`；unregistered/alias/opaque/unsafe/observable partial/implemented-by 六类
+  隔离负例全部 `PF-EXPORT-004`。implemented-by 使用可成功解码的 direct sentinel，若误跟随
+  replacement 测试即失败，且模块初始化无 panic。mixed table、100000/100001 raw nodes 与
+  256/257 logical depth 边界均为非真空对照。
+- Verification：`lake build Tests.Language.ProgramPayloads` 21 jobs；`lake build
+  proof_forge_next_tests` 230 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0 且无
+  panic/backtrace；`just sbom` 的 self-test/generate/verify/closure 全绿；`just docs-check` 与
+  `git diff --check` 通过。ProgramPayload pin 为 19601 bytes、SHA-256
+  `6c344b6fd2a0f95f07ff3e1424943f8813c9335e84ec6dc148013d809a2701ab`；package manifest
+  覆盖当前 32 个 product Lean files。按冻结未重复完整 `just ci`。
+- Review/Evidence：Grok security review 无 P0，其四项 hardening/consistency 意见经冻结规格与
+  diagnostics ownership 逐项裁定，未放宽代码；Kimi final freeze audit P0=0/P1=0/P2=0。
+  development evidence 为 `EV-20260719-0080`。
+- Scope claim：只完成 closed structural payload reconstruction、registry membership、declaration safety gates、
+  exact constructor vocabulary、resource bounds 与 all-or-nothing table；不包括 identity-level duplicate、
+  NodeId/origin、`PF-EXPORT-002`、CLI/Loader selection、wire publication、target/materializer、contained
+  frontend worker 或正式 `TST-SRC-006/007` closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA82 residual audit 只把 identity-level duplicate 等剩余
+  D1-05 seam 作为候选；必须先独立冻结再提交 RED，禁止自动编号。
