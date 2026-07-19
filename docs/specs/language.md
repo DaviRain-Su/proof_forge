@@ -962,9 +962,10 @@ control 不得借测试开放额外 spelling。requirements 必须为空；四�
 `does not return UInt64` / `is not UInt64`，证明不能进入 Plan/`OutputSet` 或产出 artifact。
 
 冻结 error channel 经 GREEN 前 empirical probe 修正如下：incomplete bare spelling、inner/outer
-任一 length 的 `4097`/leading-zero/`0x10`/`4_096` 必须 exact
-`unsupported portable type`；bare Field/Option/Array/Map 与 `Widget 8 4` unknown/Named-like
-dual-length leaf、missing outer/both lengths、negative/identifier inner/outer length、extra payload、
+任一 length 的 `4097`/leading-zero/`0x10`/`4_096`，以及仅缺 outer length 的
+`Option Option Array Bytes 8` 必须 exact `unsupported portable type`；bare Field/Option/Array/Map 与
+`Widget 8 4` unknown/Named-like dual-length leaf、missing both lengths、negative/identifier
+inner/outer length、extra payload、
 五个 outer-Option/middle-Option/Array/Bytes/inner-length 后的 same-line seam 换行、四个 constructor
 （两层 Option、Array、Bytes）的 escaped/qualified form、full Field/Option/Array/Map compounds 必须
 parser-rejected。该修正只校准既有负例的实际拒绝层，不迁移或扩大 positive。

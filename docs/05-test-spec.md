@@ -1293,8 +1293,9 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   必须全部通过；state/result/parameter 三类 fixture 的 `materializeResult` 必须 exact planInvariant
   （`is not UInt64` / `does not return UInt64` / `is not UInt64`）且无 Plan/OutputSet/artifact。
   frozen channels 经 GREEN 前 empirical probe 修正：incomplete bare、两个 length 各自的
-  `4097`/leading-zero/hex/underscore 为 exact unsupported；bare Field/Option/Array/Map、
-  `Widget 8 4` dual-length leaf、missing outer/both lengths、negative/identifier inner/outer length、
+  `4097`/leading-zero/hex/underscore，以及仅缺 outer length 的 `Option Option Array Bytes 8` 为
+  exact unsupported；bare Field/Option/Array/Map、`Widget 8 4` dual-length leaf、missing both
+  lengths、negative/identifier inner/outer length、
   extra payload、五个 same-line seam、四个 constructor 的 escaped/qualified form、full
   Field/Option/Array/Map compounds 为 parser rejection。该修正只校准既有负例的实际拒绝层，禁止
   迁移或改胖 positive。RED 仅 `OptionDeclarations.lean` ≤330 additions/2
