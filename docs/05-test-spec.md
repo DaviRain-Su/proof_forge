@@ -1975,6 +1975,88 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   self-check、package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent
   review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending
   TASK-D1-01 或下游 task。
+- D1-PA-99 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 mutual spine **model/equality-only** slice。
+  `SPEC-SOURCE-WIRE-001` 的依赖图证明 Place、Expr、Stmt、Block、StmtMatchArm、ExprMatchArm、
+  ExternalCallExpr 七种类型构成不可再拆的最小 SCC：删掉任一类型都会缺失 Place.Index、两种 Match、
+  If/For body 或 Call/Schedule 的表内 constructor。PA99 一次定义完整 25-constructor model；codec 与
+  encoder-owned nonempty/bound/QID validation 留给 PA99 收口后另行冻结的后续 slice，不允许以 placeholder、
+  partial constructor table 或提前 ProgramItem sum 绕开 SCC。生产 public model API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSpineV1
+  mutual
+    inductive PlaceV1 where
+      | name (name : SourceNameComponentV1)
+      | field (base : PlaceV1) (field : SourceNameComponentV1)
+      | index (base : PlaceV1) (index : ExprV1)
+      deriving Repr
+    inductive ExprV1 where
+      | literal (value : LiteralV1)
+      | place (place : PlaceV1)
+      | constructor (ctor : SourceQualifiedNameV1) (args : Array ExprV1)
+      | unary (op : UnaryOpV1) (operand : ExprV1)
+      | binary (op : BinaryOpV1) (lhs rhs : ExprV1)
+      | localCall (callee : SourceNameComponentV1) (args : Array ExprV1)
+      | match_ (scrutinee : ExprV1) (arms : Array ExprMatchArmV1)
+      deriving Repr
+    structure ExprMatchArmV1 where
+      pattern : PatternV1
+      value : ExprV1
+      deriving Repr
+    structure ExternalCallExprV1 where
+      callee : SourceQualifiedNameV1
+      args : Array ExprV1
+      deriving Repr
+    inductive StmtV1 where
+      | let_ (name : SourceNameComponentV1) (typeAnn : Option TypeV1) (value : ExprV1)
+      | assign (target : PlaceV1) (value : ExprV1)
+      | if_ (condition : ExprV1) (thenBlock : BlockV1) (elseBlock : Option BlockV1)
+      | match_ (scrutinee : ExprV1) (arms : Array StmtMatchArmV1)
+      | for_ (binder : SourceNameComponentV1) (start endExclusive : ExprV1)
+          (bound : UInt32) (body : BlockV1)
+      | assert_ (condition : ExprV1) (error : Option SourceNameComponentV1)
+      | revert (error : SourceNameComponentV1) (args : Array ExprV1)
+      | emit (event : SourceNameComponentV1) (args : Array ExprV1)
+      | return_ (value : Option ExprV1)
+      | call (call : ExternalCallExprV1)
+      | schedule (call : ExternalCallExprV1)
+      deriving Repr
+    structure StmtMatchArmV1 where
+      pattern : PatternV1
+      body : BlockV1
+      deriving Repr
+    structure BlockV1 where
+      statements : Array StmtV1
+      deriving Repr
+  end
+  ```
+
+  `AstSpineEqV1.lean` 仍在 `ProofForgeV2.Source.AstSpineV1` namespace 内公开精确七个
+  `DecidableEq` instance：PlaceV1、ExprV1、ExprMatchArmV1、ExternalCallExprV1、StmtV1、
+  StmtMatchArmV1、BlockV1。实现必须以 private mutual structural decision procedures 递归到
+  SCC child、Array/List 与 Option；必须返回 `Decidable (a = b)` 并由 kernel 接受 totality。禁止只 deriving
+  `BEq`、以 Bool 冒充 equality、`Classical.decEq`/`noncomputable`、`partial`、`unsafe`、fuel 或 codec bytes
+  equality。pinned Lean 4.31 `/tmp` full probe 已实证 model 约 58 行、proof/instances 约 379 行并编译通过。
+
+  RED 只 import model/equality 与既有 PA93–97 carriers，不 import codec/WireCodec。必须实例化完整 inventory：
+  Place 3、Expr 7、Stmt 11、Block、StmtMatchArm、ExprMatchArm、ExternalCallExpr，共 25 constructors；并对
+  七种类型各执行至少一个 `decide (a = b)` true 与一个 `decide (a ≠ b)` true。矩阵必须覆盖 Expr/Stmt
+  array order与length不等、Let.typeAnn/If.elseBlock/Assert.error/Return.value 的 none/some、Constructor/
+  LocalCall/ExternalCall args、两种 match arms、Call/Schedule nonalias、For bound value inequality，以及至少
+  depth-3 Block→Stmt.If→Block deep equal/deep mismatch。raw `foo-bar` 与 two-component QID 必须通过既有
+  typed parser构造；不得用 string cast 或 rendered name。该 model layer 故意允许 empty arrays 与任意
+  UInt32 bound；对应 `Block`/Match nonempty、For 0..4096、QID-before-args wire错误属于后续 codec RED，
+  本 slice 不得提前测试或实现。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstSpineV1.lean`、
+  `ProofForgeV2/Source/AstSpineEqV1.lean`、`Tests/Language/SourceAstSpineV1.lean`；最小
+  ProofForgeV2/Tests/lake registration 与机械 manifest refresh。budgets：model≤80、Eq≤400、suite≤260、
+  registrations≤8、总 authored additions≤748（manifest 不计）。明确排除：任何 codec/wire/Python oracle、
+  nonempty/bound/QID validation、Const/Invariant/Init/Entry/View/Fn、ProgramItem sum/Program root、alpha、
+  decoder、global validator、sourceHash/NodeId/Common/ProgramPayload/target。验证只运行 focused+aggregate
+  build/test binary、package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与
+  independent review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭完整
+  TST-SRC-001、pending TASK-D1-01 或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
