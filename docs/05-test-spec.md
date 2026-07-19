@@ -1341,6 +1341,26 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   只可记录 development evidence；不执行 payload constant evaluation，不覆盖 identity-level duplicate、
   NodeId/origin、`PF-EXPORT-002`、CLI/Loader selection、wire publication、target 或正式
   `TST-SRC-006/007` closure，按冻结不重复完整 `just ci`。
+- D1-PA-82 的 alpha tests 只关闭 PA81 registry FQN 到 exported `Source.Program` 的无执行 structural
+  reconstruction。`decodeQuotedProgramV1` 必须从 exact 14-field `Source.Program.mk` 开始，完整覆盖当前
+  `quoteProgram` 可产生的 Source constructor surface、literal、`List.toArray` list spine、Option/Bool、
+  UInt32/UInt64/Fin length wrapper，并在 host conversion 前验证 raw Nat range。它必须在任何 shape decode
+  前以 test-owned explicit stack 固定 raw Expr nodes `100000` 通过/`100001`=`PF-EXPORT-004`，并固定
+  logical Source recursion depth `256` 通过/`257`=`PF-EXPORT-004`；list spine 不计作业务递归 depth。
+  `programPayload env name` 只接受 `programExports env` 中 exact registered Name；
+  `programPayloads env` 必须 all-or-nothing 返回 sorted rows 与 reconstructed payload pair。
+  declaration 仅可为 safe `defnInfo`、exact `Source.Program` type、无 `implemented_by`/extern、
+  `Environment.hasUnsafe value = false`；unregistered、missing/opaque、constant alias、unsafe/partial 与
+  implemented-by panic replacement 必须在不执行 replacement、无 FS/network/IO/ambient access 的情况下
+  以 `PF-EXPORT-004` 拒绝，禁止 raw exception 或 partial table。positive rich fixture 必须用 BEq、
+  qualifiedName 与 sourceHash 证明 reconstructed payload 等于 DSL elaborator constant，并覆盖当前全部
+  ValueType/Expr/Statement/declaration constructor family。
+  RED 只新增 ProgramPayload fixtures/snapshot/suite 与 Tests/lake 注册，总新增 ≤360 行；GREEN 只新增
+  `Language/ProgramPayload.lean` ≤520 行并刷新 package file-set。focused/aggregate/test binary、
+  `git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录 development evidence；
+  严禁 `evalConst`/`evalExpr`/whnf/simp/reduction/compiler/unsafe/IO 回退，不实现 payload identity duplicate、
+  `PF-EXPORT-002/003`、CLI/Loader、wire、target、contained worker 或正式 `TST-SRC-006/007` closure，按冻结
+  不重复完整 `just ci`。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

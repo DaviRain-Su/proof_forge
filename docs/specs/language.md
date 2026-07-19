@@ -1063,6 +1063,63 @@ review 全绿后才能收口；按冻结不重复完整 `just ci`。
 export、`PF-EXPORT-002`、CLI/Loader `--program` selection、wire/JSON publication、target/materializer 或
 contained frontend worker；不得据此宣称正式 D1、完整 `TST-SRC-006/007` 或可部署能力完成。
 
+D1-PA-82 冻结的 pre-acceptance alpha 子集只关闭 PA81 schema/FQN registry 到 exported
+`Source.Program` value 的安全重建缝隙。该选择来自两路 post-PA81 security audit，不是 checkpoint
+自动递增：Lean 4.31 的 `Environment.evalConst`、`evalConstCheck` 与 `Meta.evalExpr` 都会编译或执行
+constant-reachable IR，不能用于未 contained 的产品路径；本切片因此把上文笼统的“常量求值”收紧为
+读取 `ConstantInfo.value` 后的 closed structural reconstruction，禁止执行 attributed declaration。
+正式 `TASK-D1-05` 与 `TST-SRC-006/007` 仍为 pending。
+
+新增模块 `ProofForgeV2.Language.ProgramPayload`。公开 API 固定为：
+
+```lean
+decodeQuotedProgramV1 : Lean.Expr → Except String ProofForgeV2.Source.Program
+programPayload : Lean.Environment → Lean.Name → Except String ProofForgeV2.Source.Program
+programPayloads : Lean.Environment →
+  Except String (Array (ProgramExportV1 × ProofForgeV2.Source.Program))
+```
+
+`programPayload` 必须先取得 `programExports env` 的完整 normalized table，并要求 exact structural `Name`
+存在；禁止把未 attributed declaration 当作候选。`programPayloads` 只遍历该 table，并在全部 row 成功后
+一次返回；任一 row 失败不得返回 partial prefix。两者只接受 `ConstantInfo.defnInfo`、definition safety
+为 safe、type exact 为 `ProofForgeV2.Source.Program`、没有 top-level `implemented_by`/extern 替代且
+`Environment.hasUnsafe value = false` 的 declaration；opaque/axiom/theorem、unsafe/partial、missing value、
+type mismatch 与 constant alias 全部以 `PF-EXPORT-004` fail closed。
+
+`decodeQuotedProgramV1` 是纯 `Expr → Except` decoder，不查文件、网络、环境变量或 plugin，不调用
+`whnf`/simp/reduce、compiler、`evalConst`/`evalExpr`、`unsafe` API 或 `IO`。root 必须是 exact
+`ProofForgeV2.Source.Program.mk` 的 14-field application。递归 payload 只接受当前 `quoteProgram` 产生的
+exact constructor vocabulary：`ProofForgeV2.Source.*` constructors、string/Nat literals、
+`List.toArray` 的 `List.nil`/`List.cons` spine、`Option.none/some`、Bool，以及 literal/length wrapper 中的
+`UInt64.ofNat`、`UInt32.ofNat`、`OfNat.ofNat`/`Fin.instOfNat` 形状。type/proof implicit arguments只能在
+这些 exact wrapper position 被忽略；任何其他 data-position constant、lambda/let/projection/free/meta
+variable 或 wrapper/arity drift 均拒绝。UInt32/UInt64 与 `Fin 4097` 在构造 host value 前按 raw Nat literal
+检查范围，禁止 wrap/truncate 或相信 proof term。
+
+decoder 先用显式工作栈对 raw `Expr` 做最多 100000 nodes 的总量预检；Source Expr/Statement/ValueType
+的逻辑递归深度最多 256，list spine 不计作业务递归深度。node/depth 恰等于上限可进入结构判定，超过
+上限固定为 `PF-EXPORT-004: program payload structural bound exceeded`。其他失败固定以前缀
+`PF-EXPORT-004` 返回 `not registered`、`declaration unavailable or unsafe` 或
+`unsupported quoted Source.Program form`，不得抛出 raw Lean exception。
+
+tests-only RED 固定新增 single rich DSL payload fixture、alias/opaque/unsafe/implemented-by negative
+fixtures、snapshot helper 与单一 `Tests.Language.ProgramPayloads` suite，并只修改 `Tests.lean`/
+`lakefile.lean` 注册，总新增不超过 360 行。positive 必须比较 reconstructed Program 的全部 BEq value、
+qualified name 与 sourceHash；negative 必须证明 unregistered、constant alias、opaque、unsafe/partial、
+`implemented_by` replacement 均不执行且以 `PF-EXPORT-004` 拒绝，valid+invalid table 不返回 partial。
+test-owned synthetic raw Expr 另固定 100000/100001 node 与 256/257 logical-depth boundary channel。
+
+GREEN 只允许新增 `ProofForgeV2/Language/ProgramPayload.lean`（最多 520 行）并刷新
+`supply-chain/lean-package-files.v1.json`；不得修改 Syntax、ProgramExport registry、Core Source、Loader、
+CLI、Typed/Semantic 或 target。focused suite、aggregate test build/binary、`git diff --check`、单次
+`just sbom` 与 independent review 全绿后只能记录 development evidence；不得声明运行了用户代码、
+identity-level duplicate 已闭合、正式 constant-evaluation sandbox、CLI selection 或 D1 完成。
+
+本切片明确不实现 cross-row `qualifiedName`/sourceHash identity duplicate、NodeId/origin、
+`PF-EXPORT-002/003` selection、CLI/Loader、wire publication、target/materializer、frontend containment 或
+任意 Lean term evaluator。若 closed structural decoder 无法覆盖 `quoteProgram` 当前完整 constructor
+surface，必须 blocked/split，禁止回退到 `evalConst`/`evalExpr`。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有

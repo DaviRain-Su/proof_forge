@@ -81,6 +81,7 @@ requiredness 失败使用 `PF-INTERNAL`，因为 emitter 生成非法自身协�
 | `PF-EXPORT-001` | exported program identity 冲突 |
 | `PF-EXPORT-002` | 多 program 且选择缺失/歧义 |
 | `PF-EXPORT-003` | source 中没有可导出的 program |
+| `PF-EXPORT-004` | exported program constant payload 缺失、不安全、超界或不是受支持的 closed structural form |
 | `PF-TARGET-UNKNOWN` | TargetId 不存在 |
 | `PF-TARGET-NOT-IMPLEMENTED` | 只有设计档案 |
 | `PF-PROFILE-UNKNOWN` | Codegen/Network profile 不存在或属于其他 target |
