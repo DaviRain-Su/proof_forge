@@ -5058,3 +5058,36 @@ normative: false
   attribute export/schema 代码侧 pre-acceptance micro-seam 饱和，禁止继续发明 identity 微检查。
 - Next：当前无 active development slice。下一步只允许审计正式 `TST-SRC-006/007` evidence packaging
   需要的既有多模块 acceptance/golden 与 close/split/block 条件；D1-06 仍服从 formal task dependency。
+
+## 2026-07-19 — D1 export acceptance packaging pre-acceptance slice
+
+- Commits：pending freeze package `af6de6c9`；formal-grade doneWhen hardening `b43bf1e8`；D1-PA-86
+  tests-only freeze `00d77c8c`；acceptance harness `685243d1`。
+- Authority：`TASK-D1-05` 继续 `pending`。新完成包逐字绑定既有 Output、dependency `TASK-D1-03`、
+  empty prerequisites 与 `TST-SRC-006/007`，并把两者分别冻结为 schema/payload integrity 与
+  import/cross-row identity ordering。doneWhen 要求 named acceptance/aggregate commands、`TASK-D1-03`
+  done、candidate-bound `qualification=formal` evidence 和零 P0/P1；`EV-0079`…`0084` development
+  evidence 被明确排除为 formal close 依据。
+- Changed：只新增 `ProgramExportAcceptanceEmpty.lean`、`ProgramExportAcceptance.lean` 及 Tests/lake
+  注册，共 124/150 additions；production、package file-set、CLI/Loader、wire、target 与 worker 零修改。
+  empty snapshot 在只 import ProgramPayload/export 的独立 module 编译期同时观察 `programExports` 与
+  `programPayloads` 为 empty；aggregate suite 只消费快照和既有 isolated fixture constants，不在合并
+  hostile fixtures 的 environment 上重新 query table。
+- Acceptance：固定 exact v1 schema、unknown schema、structural duplicate 与 rendered-name conflict
+  三条完整 diagnostic。collision 使用 `Name.str .anonymous "foo.bar"` 与
+  `Name.str .anonymous "«foo.bar»"`，先证明 non-BEq/same-`toString`，再精确触发
+  `PF-EXPORT-001: conflicting program export name`；Kimi 复现实验纠正了此前错误的 injectivity 假设。
+  AB/BA snapshot 固定相同三行表、Shared 一次、manual alias 缺席；PA83 duplicate/conflict、PA82
+  `PF-EXPORT-004` before identity/binding/short-name、PA84 qname before PA85 short-name 均由 exact/prefix
+  fixture constants 重新绑定。
+- Verification：Grok focused `lake build Tests.Language.ProgramExportAcceptanceEmpty
+  Tests.Language.ProgramExportAcceptance` 29 jobs；coordinator `lake build proof_forge_next_tests` 268 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；`just docs-check` 与
+  `git diff --check` 通过。按冻结不运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：coordinator 主审、Kimi final review 与独立 subagent final review 均
+  P0/P1/P2=0、无需补丁；development evidence 为 `EV-20260719-0084`。
+- Limitations：本条只证明 development executable packaging，不是 candidate-bound formal record；
+  `TASK-D1-03` 仍 pending，D0 formal milestone 仍 7/9，因此不能把 `TASK-D1-05` 标为 in_progress/done，
+  不能开始 D1-06，也不能声明 wire identity、contained worker、target/runtime/proof 完成。
+- Next：D1-05 代码与 development acceptance surface 已饱和。按 task authority 选择下一个
+  dependency-safe executable slice；禁止继续增加 export identity micro-check。
