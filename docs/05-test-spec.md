@@ -2270,6 +2270,54 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   focused+aggregate build/test binary、Python self-check、package refresh 后最终单次 `just sbom`、
   `just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。结果只记录 development
   evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-103 是 `TASK-D1-01`/`TST-SRC-001` 的 `Program` tagged-value slice，而不是完整 canonical root
+  slice。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstProgramV1
+  structure ProgramV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    items : Array AstProgramItemV1.ProgramItemV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstProgramCodecV1
+  encodeProgramV1 : AstProgramV1.ProgramV1 → Except String ByteArray
+  ```
+
+  `encodeProgramV1` 必须为 single total `def`。它首先检查 `items.size ≥ 1`，失败 exact 返回
+  `program items must be nonempty`；该 local shape check 必须位于 name/item child encoding 之前。成功路径
+  精确为 `nameB ← encodeSourceNameComponentV1 p.name`、
+  `itemsB ← encodeArray encodeProgramItemV1 p.items`、
+  `encodeTagged "Program" #[nameB, itemsB]`。tag 为 ASCII `Program`、fieldCount 为 2、items保持 source
+  order且每个 item继续使用 PA102 no-wrapper bytes；不得重编码 alternative、remap child error或加入
+  declaration-set walk。
+
+  Lean RED 与不 import Lean/ProofForge、也不在运行时读取前序 reference scripts 的 standalone Python
+  oracle必须各自持有相同的三个 checked-in lowercase expected hex literal，expected不得由 production或
+  oracle自身在 self-check 时生成：`prog_state_only` = name `Demo` + `[item_state]`；
+  `prog_two_order` = `Demo` + `[item_state,item_const]`；`prog_two_reversed` = `Demo` +
+  `[item_const,item_state]`。`item_state` 精确复用 PA102 `state_enabled_public_bool` payload，`item_const`
+  精确复用 `const_max` payload。三例均断言 fixed hex；ordered/reversed必须 byte nonalias，Program derived
+  equality必须覆盖 self true与 order-swapped false。Lean另以现有 primitive/item encoders断言 Program/2
+  composition，防止偷偷前置 module/identity bytes或 outer wrapper。
+
+  负例精确冻结为：empty items → `program items must be nonempty`；single Struct empty fields →
+  `struct fields must be nonempty`；single Const UInt24 + hostile `2^256` value → width error优先；valid state
+  first + empty Struct second →第二 item 的 struct error，证明 array source order与 child propagation。
+  `prog_state_only` 虽没有 Entry/View仍必须在该 mechanical codec boundary成功，以证明 serializer没有混入
+  `SPEC-LANG-001` set validator；这不声明该 value 已通过完整 invariant validator或可进入编译管线。
+
+  明确排除 canonical root `encodeSourceNameArray(moduleName) ‖ encodeSourceNameArray(programIdentity) ‖
+  encodeProgramV1(program)`、module/program identity count/prefix join、`program.name` 与 identity 最后 raw
+  component equality、duplicate/zero-entry-view/multiple-init/proof-invariant set validation、alpha Source/Syntax/
+  Loader/projection、decoder、global depth/node/16-MiB validator、sourceHash/NodeId、Common/ProgramPayload/target。
+  变更文件集：新增 `ProofForgeV2/Source/AstProgramV1.lean`、
+  `ProofForgeV2/Source/AstProgramCodecV1.lean`、`Tests/Language/SourceAstProgramV1.lean`、
+  `scripts/reference_source_ast_program_v1.py`；最小 ProofForgeV2/Tests/lake registration与机械 manifest。
+  budgets：model≤30、codec≤35、suite≤160、Python≤110、registrations≤6、总 authored additions≤345
+  （manifest不计）。验证只运行 focused+aggregate build/test binary、Python self-check、package refresh 后最终
+  单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。
+  结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
