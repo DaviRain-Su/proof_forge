@@ -4970,3 +4970,46 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice。post-PA83 residual audit 只把 single-row declaration/payload
   identity binding 等剩余 D1-05 seam 作为候选；必须先独立冻结再提交 RED。
+
+## 2026-07-19 — D1 export declaration/payload binding pre-acceptance slice
+
+- Commits：freeze `de9ab20c`；tests-only RED `f60390bf`；binding/GREEN 与 Lean package-file
+  re-pin `ed669820`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-84 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。两路 post-PA83 audit 与 Lean 4.31 nested/escaped `Name.toString` probe 证明 DSL declaration
+  与 payload qualifiedName 源于同一个 `currentNamespace ++ name.getId`；`PF-EXPORT-003` 仍由
+  CLI/Loader zero-candidate selection 拥有，不改低层 empty-table query。
+- Changed：新增 private `checkProgramBinding`，以 exact
+  `ProgramExportV1.declaration.toString == Source.Program.qualifiedName` 检查单 row；mismatch 稳定返回
+  `PF-EXPORT-001: exported program identity does not match declaration`。`programPayload` 顺序为
+  registered → closed decode → binding；`programPayloads` 顺序为全部 closed decode → PA83 identity scan →
+  declaration/payload binding，成功后才返回完整 table。没有 casefold/NFC 重算、short-name 或 wire
+  component 归一化，也没有新增 public API。
+- Priority/compatibility：table 明确保留 PA83 scan-before-binding，因此既有 hand-crafted duplicate/
+  conflict fixtures 与 exact diagnostics 继续可达；任一 PA82-invalid row 仍在所有 identity/binding 检查前
+  以 `PF-EXPORT-004` 失败。单个 lying direct `Program.mk` 在 single/table API 都以新 binding diagnostic
+  fail closed；empty normalized registry 继续返回 empty table。
+- RED/Fixtures：208/220 additions，只新增 isolated ProgramBinding snapshot/fixtures/suite 与 Tests/lake
+  注册。positive 同时固定 nested escaped namespace DSL row 与 exact-aligned hand direct row，并由
+  single/table API 比较 declaration rendering/qualifiedName；MismatchSingle/MismatchTable 在 RED 时唯一
+  失败为 `expected binding failure`；Priority004 以排序更后的 constant alias 固定 decode-all 的
+  `PF-EXPORT-004` 优先级。PA83 fixtures 零修改。
+- Verification：pre-GREEN Positive/Priority004 14 jobs 通过，两个 mismatch targets 分别只以冻结的
+  expected-failure 红；GREEN 后 `lake build Tests.Language.ProgramBindings
+  Tests.Language.ProgramIdentities` 23 jobs；`lake build proof_forge_next_tests` 254 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom` 的 self-test/generate/verify/closure
+  全绿；`just docs-check` 与 `git diff --check` 通过。ProgramPayload 为 458/480 行、20739 bytes、
+  SHA-256 `264eb2bf4970a3391e841049a1151389b7d9fb910b1f0024e2c9a4d419b3f33a`；manifest exact 覆盖
+  32 个 product Lean files。按冻结未重复完整 `just ci`。
+- Review/Evidence：corrected scan-before-binding freeze 经 Grok/Kimi 复核 P0=0/P1=0；Kimi GREEN
+  design P0=0/P1=0；Grok final GREEN review P0=0/P1=0、commit-ready。development evidence 为
+  `EV-20260719-0082`。
+- Scope claim：只完成 Lean export declaration FQN 与 reconstructed payload qualifiedName 的 exact
+  single-row binding、两个 API 的 fail-closed enforcement，以及 PA82/PA83 诊断优先级兼容；不包括
+  payload short-name/last-component、source-program wire component identity、NodeId/origin、
+  `PF-EXPORT-002/003`、CLI/Loader、target/materializer、contained worker 或正式 `TST-SRC-006/007`
+  closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA84 residual/authority audit 必须先判断 D1-05 是否仍有
+  dependency-safe 必需 seam，再冻结单一下一切片；禁止自动递增。
