@@ -4511,7 +4511,7 @@ normative: false
   `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；
   `just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package pin 为
   89794 bytes、SHA-256 `09cc60143e0041893abb25acef37db62c098e55840ff11442702a8ed6513670d`；
-  两路独立 final review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0071`。按冻结
+  两路独立 final review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0070`。按冻结
   未重复完整 `just ci`。
 - Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
   requirement 与 support-rejection/no-artifact boundary；不包括 Option/Field value operations、任意
@@ -4519,3 +4519,48 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；先做 post-PA-73 residual audit 与 bounded arbitration，
   尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact triple Option Bytes spelling pre-acceptance slice
+
+- Commits：freeze `e5810700`；tests-only RED `cf018c96`；Syntax/GREEN、canonical binding 与
+  Lean package-file re-pin `836169a8`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-74 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-73 bounded
+  arbitration 因本候选只有单一 length 轴、无需 15-atom/dual-length matrix，选择 exact
+  `Option Option Option Bytes N`，不是 checkpoint 自动递增；其他 compound type 与任意
+  recursive grammar 继续 fail closed。
+- Changed：为既有 `Source/Semantic.ValueType.option (.option (.option (.bytes length)))` 开放
+  exact same-line spelling。新增 named type/aggregate-field parser；专用 decoder 精确复用既有
+  closed Bytes length decoder 后只包三层 Option，两个专用 dispatch 均位于 generic triple-Option
+  parser/decoder 前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 26 行新增/0 行移除。
+- Migration/Coverage：只迁移既有 `Option Option Option Bytes 8` negative 一条；覆盖 length
+  `0/8/4096`、state/struct/enum/const/init/entry/view/fn/event/error 与双入口 parity。incomplete、
+  `4097`/leading-zero/hex/underscore length、bare/full Map 与 unknown leaf 保持 exact
+  `unsupported portable type`；negative/identifier length、extra payload、四个换行 seam、三个
+  Option 或 Bytes constructor 的 escaped/qualified form、full Array leaf 与第四层 Option 保持
+  parser rejection。requirements 精确为空；四个 Phase 1 target 的 `checkSupport` 均通过，随后
+  state/result/parameter 三个 fixture 分别在 target-owned Plan invariant 返回既有 `is not UInt64`/
+  `does not return UInt64` rejection，所有路径均无 `OutputSet` 或 artifact。
+- Canonical：tag 固定 `16→16→16→17→length`。Source length `0/8/4096` 均为 261 bytes，hash
+  依次为 `1d72684412b3f2105d651777f624ca116739787c9cd8ce344fedaddfa0bfdc85`、
+  `efb75c6ef16e8c71b8cefd07085406c0060441ba1ea0dd8d52e5a7df0108bf99`、
+  `9d1e4ee905f7b5f70ea9ddbd57c8aee77e3b4c6d24533113a4c6023805ac095d`；Semantic 三组
+  均为 210 bytes，hash 依次为
+  `b11f3d1923eb30e0b331d6653eaad1060f619142ec3776026e033a194de92292`、
+  `e140c3f196bf6125cd680df6b518475d2156d6e56473f0dd47f0bf136217e553`、
+  `e0f99b2cf713c93928915ac2df2cf16df2873becd9b115f75a28851114594864`。Source/Semantic
+  两侧三组 length pairwise non-alias；`N=8` 也与 bare Bytes、一层/两层 Option Bytes、同深度
+  UInt64 与同深度 Field 的 bytes/hash non-alias。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；`just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package
+  pin 为 91361 bytes、SHA-256
+  `61edd905bfa77dc84deb01f3ca7479324d0e210d1b8bfbb9c5515dbaa6c1e94d`；两路独立 final review
+  均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0072`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、zero requirements 与
+  support-vs-Plan/no-artifact boundary；不包括 Bytes/Option value operations、none/some/unwrap、任意
+  recursive grammar、runtime/ABI、target triple-Option-Bytes implementation 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；正在做 post-PA-74 expression/type residual audit 与
+  bounded arbitration，尚未冻结下一 slice，禁止由 checkpoint 自动递增。
