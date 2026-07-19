@@ -67,7 +67,7 @@ elab "#expect_short_error_apis " n:ident "as" sId:ident "and" tId:ident : comman
   | some s, some t => defStr sId s; defStr tId t
   | _, _ => throwError "internal: short-error apis missing messages"
 
-elab "#expect_payloads_prefix" pref:str "as" id:ident : command => do
+elab "#expect_short_payloads_prefix" pref:str "as" id:ident : command => do
   match programPayloads (← getEnv) with
   | .ok _ => throwError "expected programPayloads failure"
   | .error m =>

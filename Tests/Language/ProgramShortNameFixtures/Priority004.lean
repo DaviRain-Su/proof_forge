@@ -19,5 +19,5 @@ def aliasBase : Program :=
         body := #[.returnValue (.literal (UInt64.ofNat 2))] }] #[] #[] #[] #[]
 
 @[proof_forge_program] def ZAlias : Program := aliasBase
-#expect_payloads_prefix "PF-EXPORT-004" as shortPriority004Error
+#expect_short_payloads_prefix "PF-EXPORT-004" as shortPriority004Error
 end Tests.Language.ProgramShortNameFixtures.Priority004
