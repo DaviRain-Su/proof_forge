@@ -94,7 +94,7 @@ def run : IO Unit := do
   expect (leanPair == pair) "lean Demo.Counter"
   lift "qid2" (validateSourceQualifiedIdV1 pair)
   let many256 ← lift "256" (parseSourceQualifiedNameV1 (Array.replicate 256 "C"))
-  lift "qid256" (validateSourceQualifiedIdV1 many256)
+  roundTripQID "qid256" many256
   let fixedDemo := fromHex "010000000400000044656d6f"
   match decodeSourceQualifiedNameV1 (start fixedDemo) with
   | .error e => throw <| IO.userError e
@@ -115,7 +115,7 @@ def run : IO Unit := do
   expectErr "anon" (sourceQualifiedNameV1FromLeanName Name.anonymous)
   expectErr "final num" (sourceQualifiedNameV1FromLeanName (Name.mkNum `Demo 1))
   expectErr "prefix num" (sourceQualifiedNameV1FromLeanName (Name.mkStr (Name.mkNum .anonymous 1) "x"))
-  expectErr "join equal" (validateSourceProgramIdentityV1 demo demo)
+  expectErr "join equal" (validateSourceProgramIdentityV1 pair pair)
   let other ← lift "other" (parseSourceQualifiedNameV1 #["Elsewhere", "Counter"])
   expectErr "join non-prefix" (validateSourceProgramIdentityV1 demo other)
   -- count-before-child: invalid count must not require valid child payload

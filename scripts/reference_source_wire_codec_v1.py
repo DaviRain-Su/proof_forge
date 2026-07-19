@@ -104,8 +104,8 @@ G = {
     "tag_Program": ("0700000050726f6772616d020007000000436f756e74657200000000",
                     lambda: enc_tag("Program", [enc_ident("Counter"), enc_arr(u8, [])])),
     "src_qn_Demo": ("010000000400000044656d6f", lambda: enc_src_qn(["Demo"])),
-    "src_qn_pair": ("020000000400000044656d6f07000000436f756e746572",
-                    lambda: enc_src_qn(["Demo", "Counter"])),
+    "src_qi_pair": ("020000000400000044656d6f07000000436f756e746572",
+                    lambda: enc_src_qi(["Demo", "Counter"])),
     "src_qn_hyphen": ("0100000007000000666f6f2d626172", lambda: enc_src_qn(["foo-bar"])),
     "src_qn_open": ("0100000002000000c2ab", lambda: enc_src_qn(["«"])),
 }
