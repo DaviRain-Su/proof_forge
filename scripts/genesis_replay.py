@@ -271,8 +271,18 @@ def run_replay(*, manifest_path: str, output_dir: str, repo_root: str) -> dict:
         os.chmod(directory, 0o700)
     host_profile_id, _ = _authoritative_stage0(repo_root)
     run_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # Launcher commands (just/lake) resolve through the invoking PATH, but
+    # recipes spawn nested bare `lake` calls (test_v2_isolation.sh).  The
+    # child env deliberately carries no user tool bins except the pinned elan
+    # toolchain: ELAN_HOME + its bin dir are forwarded when present so nested
+    # elan shims resolve to the same committed toolchain as the invoking host.
+    elan_home = os.environ.get("ELAN_HOME") or str(Path(os.path.expanduser("~")) / ".elan")
+    path_entries = []
+    if Path(elan_home, "bin").is_dir():
+        path_entries.append(str(Path(elan_home, "bin")))
+    path_entries.extend(["/usr/bin", "/bin"])
     env = {
-        "PATH": "/usr/bin:/bin",
+        "PATH": ":".join(path_entries),
         "LC_ALL": "C",
         "TZ": "UTC",
         "HOME": str(home),
@@ -283,6 +293,8 @@ def run_replay(*, manifest_path: str, output_dir: str, repo_root: str) -> dict:
         "GIT_CONFIG_SYSTEM": "/dev/null",
         "GIT_NO_REPLACE_OBJECTS": "1",
     }
+    if Path(elan_home, "bin").is_dir():
+        env["ELAN_HOME"] = elan_home
     legs = []
     for leg in manifest["legs"]:
         results = []
