@@ -1120,9 +1120,11 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Phase 1 target 的 `Targets.checkSupport` 与 `Targets.materializeResult` 必须都返回 exact
   `.unsupportedRequirement .fieldBn254 actualTarget` 且 `actualTarget == target`，证明不能进入 Plan、
   `OutputSet` 或产出 artifact。
-  error channel 固定如下：incomplete/alternate/escaped/qualified Field id 必须 exact
-  `unsupported portable type`；extra payload、任一 Option 后或 Field/id 之间换行、三个 Option constructor
-  任一位置与 Field constructor 的 escaped/qualified form 必须 parser-rejected。
+  error channel 经 GREEN 前 focused runtime probe 校正如下：incomplete/alternate/escaped/qualified Field id、
+  第三个 Option constructor 的 escaped/qualified form及第三个 Option 后换行必须 exact
+  `unsupported portable type`；extra payload、第一/第二个 Option 后或 Field/id 之间换行、第一/第二个
+  Option constructor 任一位置与 Field constructor 的 escaped/qualified form 必须 parser-rejected。这项
+  empirical channel correction 不改变 Output、Tests 集合、migration count 或 Done 语义。
   Bytes/Array/Option/Map/Named leaf 与第四层 Option 只保持既有 negatives，不新增 PA73
   migration 或无关完成条件。production 仅限 Syntax 一文件 ≤32 additions/2 removals，刷新 package
   file-set；focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后收口。

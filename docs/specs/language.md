@@ -656,9 +656,11 @@ UInt64/Bool 做 canonical bytes/hash non-alias，证明第三 wrapper 与 Field 
 `Targets.materializeResult` 必须都返回 exact `.unsupportedRequirement .fieldBn254 actualTarget` 且
 `actualTarget == target`，证明不能进入 Plan、`OutputSet` 或产出 artifact。
 
-error channel 固定如下：incomplete/alternate/escaped/qualified Field id 必须 exact
-`unsupported portable type`；extra payload、任一 Option 后或 Field/id 之间换行、三个 Option constructor
-任一位置与 Field constructor 的 escaped/qualified form 必须 parser-rejected。
+error channel 经 GREEN 前 focused runtime probe 校正如下：incomplete/alternate/escaped/qualified Field id、
+第三个 Option constructor 的 escaped/qualified form及第三个 Option 后换行必须 exact
+`unsupported portable type`；extra payload、第一/第二个 Option 后或 Field/id 之间换行、第一/第二个
+Option constructor 任一位置与 Field constructor 的 escaped/qualified form 必须 parser-rejected。这项
+empirical channel correction 不改变 Output、Tests 集合、migration count 或 Done 语义。
 Bytes/Array/Option/Map/Named leaf 与
 第四层 Option 只保持既有 negatives，不新增完成条件。本切片不实现 none/some/unwrap、field literal/
 arithmetic、任意 recursive type grammar、recursive legality、runtime representation、ABI 或 target
