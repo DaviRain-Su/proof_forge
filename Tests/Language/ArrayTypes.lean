@@ -1388,9 +1388,12 @@ unsafe def run : IO Unit := do
     "Semantic Array Option Option must bind wrapper depth/order, element and complete length payload"
 
   let aoofSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option Option Field bn254_fr 0", .array (.option (.option .field)) 0, 0, "UNBOUND"),
-    ("Array Option Option Field bn254_fr 4", .array (.option (.option .field)) 4, 0, "UNBOUND"),
-    ("Array Option Option Field bn254_fr 4096", .array (.option (.option .field)) 4096, 0, "UNBOUND")
+    ("Array Option Option Field bn254_fr 0", .array (.option (.option .field)) 0, 251,
+      "908528b873654efaf9dd45b6223fb646ea47fc773844541d0ef46956a24d8ca4"),
+    ("Array Option Option Field bn254_fr 4", .array (.option (.option .field)) 4, 251,
+      "de7bdfa60b9ba9599b1a52cede5552f3733d7333dfcc0b65f7caa9c2fde2e457"),
+    ("Array Option Option Field bn254_fr 4096", .array (.option (.option .field)) 4096, 251,
+      "f7e01b5656e2cc833e72fb4a2ab8095e80a968b1573b2cdac50d6a8fa19f17b2")
   ]
   for (label, type, expectedSize, expectedHash) in aoofSourceVectors do
     let sourceProgram := twin type
@@ -1422,9 +1425,12 @@ unsafe def run : IO Unit := do
     "Array Option Option Field 4 Source must non-alias Option Option Field bn254_fr (bytes+hash)"
 
   let aoofSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option Option Field bn254_fr 0", .array (.option (.option .field)) 0, 0, "UNBOUND"),
-    ("Array Option Option Field bn254_fr 4", .array (.option (.option .field)) 4, 0, "UNBOUND"),
-    ("Array Option Option Field bn254_fr 4096", .array (.option (.option .field)) 4096, 0, "UNBOUND")
+    ("Array Option Option Field bn254_fr 0", .array (.option (.option .field)) 0, 201,
+      "30be1cfa0c542a100b25b9bd43efc5d29be152b88b7a7b02f186f64567694b7b"),
+    ("Array Option Option Field bn254_fr 4", .array (.option (.option .field)) 4, 201,
+      "58e6e067f5a77d667aab1dbefb8188fa3448a97455f24a014bcab4b8f42895fb"),
+    ("Array Option Option Field bn254_fr 4096", .array (.option (.option .field)) 4096, 201,
+      "84685c8432ef274b8ab3a7243369a861c549c0278edd8b87d53c68f8924f8af3")
   ]
   for (label, type, expectedSize, expectedHash) in aoofSemanticVectors do
     let compiled ← match Compiler.compile (twin type) with
