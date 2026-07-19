@@ -1691,6 +1691,57 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行
   完整 `just ci`。结果只可记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01
   或任何下游 task。
+- D1-PA-94 是 `TASK-D1-01`/`TST-SRC-001` 的 source-only qualified-name array slice。它只消费
+  PA93 的 raw `SourceNameComponentV1`，不复用或削弱 Common `QualifiedName`；生产 public API 精确冻结为：
+
+  ```lean
+  structure SourceQualifiedNameV1 where
+    private mk ::
+    components : NonEmptyArray SourceNameComponentV1
+    deriving DecidableEq, Repr
+  sourceQualifiedNameV1OfComponents :
+    Array SourceNameComponentV1 → Except String SourceQualifiedNameV1
+  parseSourceQualifiedNameV1 : Array String → Except String SourceQualifiedNameV1
+  sourceQualifiedNameV1FromLeanName : Lean.Name → Except String SourceQualifiedNameV1
+  validateSourceQualifiedIdV1 : SourceQualifiedNameV1 → Except String Unit
+  validateSourceProgramIdentityV1 :
+    SourceQualifiedNameV1 → SourceQualifiedNameV1 → Except String Unit
+  WireCodecV1.encodeSourceQualifiedNameV1 :
+    SourceQualifiedNameV1 → Except String ByteArray
+  WireCodecV1.encodeSourceQualifiedIdV1 :
+    SourceQualifiedNameV1 → Except String ByteArray
+  WireDecodeV1.decodeSourceQualifiedNameV1 :
+    WireDecodeV1.DecoderV1 SourceQualifiedNameV1
+  WireDecodeV1.decodeSourceQualifiedIdV1 :
+    WireDecodeV1.DecoderV1 SourceQualifiedNameV1
+  ```
+
+  `SourceQualifiedNameV1` 构造时固定 `1..256` components；`validateSourceQualifiedIdV1` 与 QID
+  encode/decode 固定 `2..256`。禁止公开 caller-selected `minCount`，避免用错误上下文构造弱 carrier。
+  `sourceQualifiedNameV1FromLeanName` 只接受以 `.anonymous` 终止的纯 `.str` chain，保持 root-to-leaf raw
+  顺序；anonymous、final `.num` 或任意 prefix `.num` 均失败。`validateSourceProgramIdentityV1 module
+  programIdentity` 先要求 programIdentity 为 QualifiedId，再要求它比 module **严格更长**且 raw component
+  prefix 与 module exact 相同；本切片没有 Program name 参数，因而不声称完成 last-component/program.name
+  binding。实现允许复用 Common 的 generic `NonEmptyArray` container，但不得调用 Common
+  `parseQualifiedName`、`renderQualifiedNameComponents`、isId* 或 rendered spelling。
+  Wire exact 为 `u32le count ‖ encodeSourceNameComponentV1(component[0]) ...`；QN decoder 对 count 0/257、
+  QID decoder 对 count 0/1/257 必须在任何 child decode 前 fail closed。固定 count errors 分别为
+  `source qualified name must contain 1..256 components` 与
+  `source qualified id must contain 2..256 components`。
+  RED positives：single module `Demo`、two-component `Demo/Counter`、raw hyphen 与 opening-guillemet component、
+  QID 2/256、Lean `Demo.Counter` `.str` chain、fixed raw wire与 encode→decode exact consume；negatives：empty、
+  257、QID one、empty/NFD/Cc/closing-guillemet component、anonymous/final-num/prefix-num、equal join、non-prefix
+  join，并用 count-invalid + hostile child bytes固定 count-before-child priority。独立 Python oracle只实现 raw
+  component-array validation/bytes，不实现 Lean renderer。
+  变更文件集：新增 `ProofForgeV2/Source/QualifiedNameV1.lean`、
+  `Tests/Language/SourceQualifiedNameV1.lean`；修改 WireCodec/WireDecode、现有 Python reference 与最小
+  `ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean` 注册；机械 refresh package manifest。budgets：new production
+  ≤100、new suite≤150、既有/Python/registrations additions≤80、总 authored additions≤330（manifest 不计）。
+  明确排除：`ProofDecl.theorem`/visibility 或任何 ProgramV1 constructor、canonical root/hash、NodeId、alpha
+  projection/sourceHash、Common/Syntax/Loader/Core.Source/ProgramPayload/target 改写。验证只运行 focused+
+  aggregate build/test binary、Python self-check、package refresh 后最终单次 `just sbom`、`just docs-check`、
+  `git diff --check` 与 independent review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭
+  完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
