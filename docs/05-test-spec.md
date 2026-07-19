@@ -2505,6 +2505,71 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Python self-check、package refresh后最终单次`just sbom`、`just docs-check`、`git diff --check`与independent
   review；不运行完整`just ci`。结果只记录development evidence，不能关闭完整TST-SRC-001、pending
   TASK-D1-01或下游task。
+- D1-PA-107 是 `TASK-D1-01`/`TST-SRC-001` 的 complete recursive `TypeV1` decoder slice。它新增可由
+  后续完整AST decoder组合的node-budget carrier，但不创建完整Program session，也不声明全树资源限制已完成。
+  生产public API精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.DecodeBudgetV1
+  structure DecodeBudgetV1 where
+    remainingNodes : Nat
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstTypeDecodeV1
+  decodeTypeV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstV1.TypeV1 × DecodeBudgetV1)
+  ```
+
+  production不得提供hardcode/fresh `{remainingDepth := 256, remainingNodes := 100000}` 的Type-root
+  convenience或默认参数；standalone测试直接构造literal budget。未来完整Program decoder必须只在Program根
+  创建一次全局额度，再把同一`remainingNodes`跨全部node-bearing values按canonical preorder线程。
+  `DecodeBudgetV1`只是trusted internal caller-threaded residual，不是authority或user-configurable profile；
+  source/CLI/extension/target不得提供或放宽它，完整root接入前也不得据此声明100000-node限制已闭合。
+  `remainingDepth`是当前node可使用的root-inclusive path slots，属于caller参数而非返回state：进入任一Type
+  需要`remainingDepth ≥ 1`，recursive child取得`remainingDepth - 1`；siblings取得同一个child depth。
+  `remainingNodes`是session-wide residual，进入每个Type constructor恰好消耗1并在返回值中永久保留；scalar
+  width/length/Ident不消耗depth或node。成功返回的budget只改变`remainingNodes`，从结构上避免恢复depth时
+  污染Map sibling；失败经`Except`不返回partial value/cursor/budget。
+
+  decoder必须是以`remainingDepth : Nat`作structural fuel的kernel-total `def`，不得使用`partial`、`unsafe`、
+  无界递归或构造完整Type后事后walk。每个node的exact validation priority为：`decodeTagV1`的bounded read →
+  closed 11-tag dispatch（unknown为`unknown type tag '<tag>'`，先于fieldCount）→
+  `decodeFieldCountV1` exact → depth entry check → node charge → ordered fields/children → constructor。
+  exact budget errors为`depth budget exhausted`与`node budget exhausted`；depth与node同时为0时depth优先。
+  Array必须完整解码element后再读/校验length；Map按key再value，两个child共享相同depth但value接收key消费后的
+  node residual。width、Array/Bytes length与Field id继续原样使用PA95 exact errors；Ident复用
+  `decodeSourceNameComponentV1`，所有primitive/truncation errors不remap。PA107同时修复该既有Ident helper的
+  allocation order：先读u32 declared length，立即以`source name component must contain 1..240 UTF-8 bytes`
+  拒绝0/241+，再检查remaining并复制最多240 bytes，随后才做UTF-8、pinned NFC、Cc/closing-guillemet与
+  typed carrier构造；不得先调用unbounded `decodeString`复制后再由`parseSourceNameComponentV1`事后拒绝。
+
+  11 tags精确为Bool/UInt/Int/Principal/Unit/Named/Array/Map/Option/Bytes/Field；field counts分别是
+  3个nullary、6个one-field、2个two-field。Lean RED与不import Lean/ProofForge或前序reference脚本的standalone
+  Python oracle必须共同固定：
+
+  - 24个PA95 checked-in Type wire literals逐一decode为exact value、重新encode为同一bytes、`finish`，并核对
+    每例精确node消耗（leaf=1、Map(Bool,Unit)=3、Array(Bool)=2、Array(Option(Bytes))=3等）；
+  - 19个exhaustive field-count negatives：3个nullary各用1，6个one-field各用0/2，Array/Map各用1/3；
+  - 24个boundary：wrong-family tag无fieldCount且在zero budgets下仍先unknown；known wrong fieldCount先于
+    budgets；correct fieldCount后的depth-before-node与两者各自before-payload；UInt24、Int0、Array4097、
+    Bytes4097、wrong Field；missing fieldCount、truncated width、truncated Array child、trailing；Bool exact
+    `(depth=1,nodes=1)`、Option(Bool) exact/pass与depth-short fail、Map(Bool,Unit) nodes2 fail/nodes3 pass、
+    Array bad-element优先于hostile length、Map bad-key优先于hostile value；`Option^255(Bool)`恰为256个
+    Type nodes并在`depth=256,nodes=256`通过，`Option^256(Bool)`在`depth=256,nodes=257`返回depth error；
+    Type.Named declared Ident length 241且不附payload时必须在remaining/copy前返回exact 1..240 error。
+
+  Python成功输出`reference_source_ast_type_decode_v1: ok 24 19 24`。变更文件集：新增
+  `ProofForgeV2/Source/DecodeBudgetV1.lean`、`ProofForgeV2/Source/AstTypeDecodeV1.lean`、
+  `Tests/Language/SourceAstTypeDecodeV1.lean`、`scripts/reference_source_ast_type_decode_v1.py`；仅允许为上述
+  Ident pre-copy bound最小修改`WireDecodeV1.decodeSourceNameComponentV1`，再做`ProofForgeV2.lean`/
+  `Tests.lean`/`lakefile.lean` registration与机械manifest refresh；不修改PA95 encoder、PA106 scalar/tag
+  decoder或其他AST modules。budgets：production additions≤190、suite≤340、Python≤260、
+  registrations≤5、总authored additions≤800（manifest不计）。明确排除Pattern/spine/support/declaration/
+  Program/root decoder、fresh root budget API、16MiB/完整100000-node/256-depth session完成声明、alpha、set
+  validator重检、sourceHash、NodeId、stable Diagnostic、Common/ProgramPayload与target。验证只运行focused+
+  aggregate build/test binary、Python self-check、package refresh后最终单次`just sbom`、`just docs-check`、
+  `git diff --check`与independent review；不运行完整`just ci`。结果只记录development evidence，不能关闭
+  完整TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
