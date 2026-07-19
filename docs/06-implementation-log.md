@@ -5269,3 +5269,37 @@ normative: false
 - Next：当前无 active development slice。下一未冻结候选优先 raw escaped component carrier audit，
   再处理 `ProofDecl.theorem` QualifiedId 与 visibility model；NodeId slice 另需固定 exact JCS keys；
   禁止 alpha hash/model 回填与 formal task 假关闭。
+
+## 2026-07-19 — D1 raw source-name carrier pre-acceptance slice
+
+- Commits：D1-PA-93 freeze `139036b7`；spec alignment `cbecfacc`；RED `93c63390`；
+  RED fixture syntax repair `e982fdee`；GREEN `08e7e7de`。TASK-D1-01 pending-prep package 继续为
+  `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 的 raw Lean `Name.str` component carrier，
+  仍属于 `TST-SRC-001` development evidence。冻结边界禁止 ProgramV1、完整 SourceQualifiedName/root join、
+  model cutover、sourceHash、NodeId 与 Common/Syntax/Loader/Core.Source/ProgramPayload/target 改写。
+- Changed：新增 41-line private-constructor `SourceNameComponentV1`，公开只读 raw projection；校验顺序为
+  UTF-8 `1..240`、pinned NFC、Unicode Cc、closing guillemet `U+00BB`，显式允许 exact `_`、opening
+  `U+00AB`、digit-leading、hyphen、embedded dot、space、NFC Unicode 与 keyword body。从 `Lean.Name`
+  只接受 final `.str`；renderer exact 为 `(Name.str .anonymous raw).toString` 且不进入 wire/hash。
+  `WireCodecV1`/`WireDecodeV1` 增加 typed raw encode/decode，既有 `encodeIdent` 迁移到 raw carrier；
+  Common QualifiedName/QualifiedId validation 不变。
+- Cross implementation：新增 118-line Lean suite与 Python raw reference 增量；真实顶层
+  `program «_» where` 完成 elaboration。固定 raw/render non-alias、`1bad` exact wire
+  `0400000031626164`、direct checked-in decode、encode→decode、240/241 与 NFC/Cc/guillemet negatives；
+  Python 不实现 `Name.toString`，并保留独立 Common validator。new production 41、new suite 118、
+  existing/registration additions 49，总 authored additions 208/255；机械 manifest 为 35 files。
+- Verification：`lake build ProofForgeV2.Source.NameComponentV1 Tests.Language.SourceNameComponentV1
+  Tests.Language.SourceWireCodecV1 proof_forge_next_tests` 288 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `python3 scripts/reference_source_wire_codec_v1.py --self-check` 输出 `ok`；
+  `just sbom-package-files-refresh` → 35 files；最终单次 `just sbom` 的 self-test/generate/verify/closure
+  全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行完整 `just ci`。
+- Review/Evidence：Kimi RED 与 GREEN independent audit 最终 P0/P1/P2=0；manifest stale 的唯一 P1 已由
+  35-file refresh 消除。development evidence 为 `EV-20260719-0091`。
+- Limitations：没有 SourceQualifiedName 数组、ProgramV1 model/root、`ProofDecl.theorem` source QualifiedId
+  materialization、visibility defaulting、canonical source bytes/hash、NodeId JCS/collision/global budgets/stable
+  Diagnostic；spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending
+  `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在双路审计 model/theorem/visibility 与 NodeId keys
+  的真实依赖顺序；只冻结其中一个最小后继 slice，禁止自动递增或回接 alpha model/hash。
