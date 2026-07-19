@@ -62,6 +62,19 @@ def enc_tag(tag, fs):
     if len(fs) > U16: raise ValueError("field count")
     tb = tag.encode("ascii")
     return u32le(len(tb)) + tb + u16le(len(fs)) + b"".join(fs)
+# SourceQualifiedNameV1 array wire (raw components; no Name.toString)
+QN_ERR = "source qualified name must contain 1..256 components"
+QID_ERR = "source qualified id must contain 2..256 components"
+def enc_src_qn(ps):
+    if not 1 <= len(ps) <= 256: raise ValueError(QN_ERR)
+    return enc_arr(enc_ident, ps)
+def enc_src_qi(ps):
+    if not 2 <= len(ps) <= 256: raise ValueError(QID_ERR)
+    return enc_arr(enc_ident, ps)
+def join_ok(mod, prog):
+    if not 2 <= len(prog) <= 256: raise ValueError(QID_ERR)
+    if not (len(prog) > len(mod) and prog[:len(mod)] == mod):
+        raise ValueError("identity join")
 
 G = {
     "u8_0": ("00", lambda: u8(0)), "u8_max": ("ff", lambda: u8(255)),
@@ -90,6 +103,11 @@ G = {
                               lambda: enc_tag("Visibility.Public", [])),
     "tag_Program": ("0700000050726f6772616d020007000000436f756e74657200000000",
                     lambda: enc_tag("Program", [enc_ident("Counter"), enc_arr(u8, [])])),
+    "src_qn_Demo": ("010000000400000044656d6f", lambda: enc_src_qn(["Demo"])),
+    "src_qn_pair": ("020000000400000044656d6f07000000436f756e746572",
+                    lambda: enc_src_qn(["Demo", "Counter"])),
+    "src_qn_hyphen": ("0100000007000000666f6f2d626172", lambda: enc_src_qn(["foo-bar"])),
+    "src_qn_open": ("0100000002000000c2ab", lambda: enc_src_qn(["«"])),
 }
 def fail_child(_): raise ValueError("child-failed")
 F = [("u256_overflow", lambda: u256le(U256)),
@@ -101,6 +119,11 @@ F = [("u256_overflow", lambda: u256le(U256)),
      ("raw_closing", lambda: enc_ident("»")),
      ("qn_empty", lambda: enc_qn([])),
      ("qi_one", lambda: enc_qi(["Only"])), ("qi_257", lambda: enc_qi(["C"] * 257)),
+     ("src_qn_empty", lambda: enc_src_qn([])),
+     ("src_qn_257", lambda: enc_src_qn(["C"] * 257)),
+     ("src_qi_one", lambda: enc_src_qi(["Only"])),
+     ("src_join_eq", lambda: join_ok(["Demo"], ["Demo"])),
+     ("src_join_bad", lambda: join_ok(["Demo"], ["Elsewhere", "Counter"])),
      ("opt_child", lambda: enc_opt(fail_child, 1)),
      ("arr_child", lambda: enc_arr(fail_child, [1, 2])),
      ("tag_empty", lambda: enc_tag("", [])), ("tag_non_ascii", lambda: enc_tag("Pα", [])),
