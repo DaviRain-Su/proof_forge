@@ -3,7 +3,7 @@ id: SPEC-LANG-001
 title: Program DSL 语言规格
 status: proposed
 owner: frontend
-updated: 2026-07-18
+updated: 2026-07-19
 normative: true
 ---
 
@@ -1027,6 +1027,41 @@ runtime representation、ABI 或 target Array-Option-Option-Bytes support。test
 file-set。focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可
 记录 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type
 grammar 或正式 D1 完成。
+
+D1-PA-81 冻结的 pre-acceptance alpha 子集把当前 no-op `proof_forge_program` attribute 收紧为
+persistent environment export registry。该选择来自 post-PA80 declaration residual audit 与
+`TASK-D1-04` external-call carrier audit：前者已进入无界 wrapper 组合，后者需要 Source/Semantic wire
+演进；因此本切片转向 `TASK-D1-05` 已有的独立 export seam，不是 checkpoint 自动递增。正式
+`TASK-D1-05` 及 `TST-SRC-006/007` 仍为 pending。
+
+environment entry 固定为 `ProgramExportV1{schema,declaration}`，其中 `schema` exact 为
+`proof-forge.program-export.v1`，`declaration` 是 attributed constant 的 fully-qualified Lean `Name`；
+extension 只持久化这两个字段，不持久化或复制 `Source.Program` payload。公开 query
+`programExports : Environment → Except String (Array ProgramExportV1)` 必须合并 imported 与 local entries，
+按 `declaration.toString` 的 valid-Unicode lexicographic order（等价于 UTF-8 byte order）唯一排序，并在
+返回任何部分结果前以 `PF-EXPORT-001` 拒绝 unknown schema、重复 structural `Name` 或同名冲突。
+
+`proof_forge_program` 只接受无参数、global、当前 module declaration；application time 固定在 type
+checking 之后，并要求 declaration type exact 为 `ProofForgeV2.Source.Program`。现有 `program ... where`
+elaborator 仍生成 `@[proof_forge_program] def ... : Source.Program`，不得新增第二套 raw-Syntax AST、改变
+program identity/sourceHash，或让 import order 进入 export order。测试 helper 可调用与 query 相同的
+closed normalization 验证 schema-mismatch/duplicate negatives；不得仅靠 set 静默去重。
+
+tests-only RED 固定新增 Shared/A/B diamond fixture、A→B 与 B→A 两个 snapshot module 及单一
+`Tests.Language.ProgramExports` suite：两种 import order 必须得到完全相同的三项 schema/FQN table，
+diamond 中 Shared 只出现一次，未加 attribute 的 manual `Source.Program` alias 不得出现；wrong schema、
+duplicate declaration 与 reordered raw entries 必须分别证明 fail-closed 或 canonical normalization。
+RED 只允许这些 test fixture、`Tests.lean` 与 `lakefile.lean` 的单行注册，总新增不超过 240 行。
+
+GREEN 只允许新增 `ProofForgeV2/Language/ProgramExport.lean`（最多 150 行）、在
+`ProofForgeV2/Language/Syntax.lean` 增加 import 并删除旧 no-op attribute（最多 3 行新增、8 行移除），
+以及刷新 `supply-chain/lean-package-files.v1.json`。focused `lake build
+Tests.Language.ProgramExports`、aggregate test build/binary、`git diff --check`、单次 `just sbom` 与独立
+review 全绿后才能收口；按冻结不重复完整 `just ci`。
+
+本切片明确不实现 constant evaluation、跨 module payload identity duplicate 判定、NodeId/source-origin
+export、`PF-EXPORT-002`、CLI/Loader `--program` selection、wire/JSON publication、target/materializer 或
+contained frontend worker；不得据此宣称正式 D1、完整 `TST-SRC-006/007` 或可部署能力完成。
 
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为

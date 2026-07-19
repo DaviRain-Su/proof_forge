@@ -1328,6 +1328,19 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明
   Bytes/Array/Option operations、none/some/unwrap、runtime/ABI、target support、完整 recursive grammar
   或正式 D1 完成。
+- D1-PA-81 的 alpha tests 只关闭 `proof_forge_program` no-op 到 persistent environment export registry
+  的结构缝隙。schema exact 为 `proof-forge.program-export.v1`；entry 只含 fully-qualified declaration
+  `Name` 与 schema，不含 `Source.Program` payload。Shared/A/B diamond fixture 与 AB/BA 两个 import-order
+  snapshot 必须产生相同的三项 UTF-8 FQN-sorted table，Shared 精确出现一次，未 attributed 的 manual
+  `Source.Program` alias 精确缺席。raw entries 的 reversed order 必须 canonicalize 到同一 table；wrong
+  schema、重复 structural Name 与同名冲突必须在返回任何 table 前以 `PF-EXPORT-001` 拒绝，禁止 set
+  静默去重。attribute 本身必须无参数、global、local-only 且 attributed declaration type exact 为
+  `Source.Program`。RED 仅新增 ProgramExport fixture/suite 与 Tests/lake 注册，总新增 ≤240 行；GREEN
+  仅新增 `Language/ProgramExport.lean` ≤150 行、Syntax import/no-op removal ≤+3/-8 与 package file-set refresh。
+  focused suite、aggregate test build/binary、`git diff --check`、单次 `just sbom`、independent review 全绿后
+  只可记录 development evidence；不执行 payload constant evaluation，不覆盖 identity-level duplicate、
+  NodeId/origin、`PF-EXPORT-002`、CLI/Loader selection、wire publication、target 或正式
+  `TST-SRC-006/007` closure，按冻结不重复完整 `just ci`。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
