@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D1-03",
+  "frozenAt": "2026-07-19",
+  "freezeCommit": "7ecef5ce273330af391fb151b9db184ed873a456",
+  "output": "declaration grammar/elaboration",
+  "dependencies": [
+    "TASK-D1-02"
+  ],
+  "prerequisites": [],
+  "tests": [
+    "TST-SRC-004"
+  ],
+  "inScope": [
+    "every Phase 1 declaration kind—state, struct, enum, const, event, error, initializer, entry, view, pure fn, invariant, extension requirement, and proof reference—has parser positive/negative vectors and stable Source AST binding",
+    "accepted declaration type spellings—the closed primitive/integer-width/Bool/Field bn254_fr/Principal/Unit set and the bounded Option, Bytes N, and Array N recursive family—are decoded exactly, with unknown or alternate spellings rejected fail closed",
+    "declaration-order duplicate names and cross-kind callable namespace collisions are rejected with deterministic validation priority",
+    "direct Lean command elaboration and ParserSession Loader decoding of the same declaration source produce the same declaration-level Source AST and sourceHash"
+  ],
+  "outOfScope": [
+    "name/type checking, pure-fn call-graph checking, and invariant/proof-reference type-level binding owned by TASK-D2-01 and TST-TYPE-001 through TST-TYPE-003",
+    "statement/expression grammar or statement-level parity owned by TASK-D1-04 and TST-SRC-005, including statements that merely appear inside declaration fixtures",
+    "attribute export, multi-program selection, stable diagnostics, or contained frontend worker behavior owned by TASK-D1-05 through TASK-D1-08",
+    "Typed or Semantic lowering, requirement solving, Plan/TargetIR, target materialization, deployment, runtime, proof, or verification",
+    "any new declaration kind, declaration type spelling, or type-level semantic requirement not already accepted by the task authority and language specification"
+  ],
+  "doneWhen": [
+    "lake build Tests.Language.DeclarationAcceptance proof_forge_next_tests exits zero and lake env .lake/build/bin/proof-forge-next-tests exits zero with the frozen TST-SRC-004 assertions enabled",
+    "TASK-D1-02 is done and candidate-bound passed evidence for TST-SRC-004 has qualification=formal under the existing formal finalization rules; the development evidence listed on the TASK-D1-03 row and any other development evidence are insufficient",
+    "traceability and review are closed with no P0/P1 findings, just docs-check passes, and package-to-task-row consistency passes"
+  ],
+  "overflowPolicy": "Any new declaration kind, spelling, or type-level semantic requirement goes to a separately approved TASK; it must not be added to this package after activation.",
+  "maxCalendarDays": 3,
+  "maxCommits": 20,
+  "notes": "Pending preparation only, permitted by the task-freeze checker. D1-PA-03 through D1-PA-80 development evidence does not activate TASK-D1-03 or close formal TST-SRC-004. TST-SRC-004 asserts parser and Source AST behavior only and never closes D2 type tests."
+}
