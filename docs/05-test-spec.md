@@ -1504,6 +1504,26 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。结果只可记录 development evidence，不能满足
   冻结包要求的 candidate-bound `qualification=formal`；`TASK-D1-01` 未 done 时不得关闭 pending
   `TASK-D1-02`，也不得由本切片关闭 SRC-001/002/004/005/006/007/008、D1-07/08 或任何 D2/target task。
+- D1-PA-89 只把 `TASK-D1-01`/`TST-SRC-001` 已有的 NodeId/span development assertions 收敛为单一
+  tests-only `Tests.Language.SourceWireAcceptance.run` executable harness；它是
+  `SourceIdentity.run` 与 `SourceSpan.run` 的 characterization packaging，不补写缺失的完整
+  ProgramV1 cross-encoder/golden corpus，不修改 production、既有 suite assertion，也不制造缺文件或
+  删除实现的虚假 RED。wrapper 必须按当前 aggregate runner 的相对顺序先调用
+  `Tests.Language.SourceIdentity.run`，再调用 `Tests.Language.SourceSpan.run`，两者各精确一次。
+  `Tests.lean` 必须保留两个既有 module import，但把两个 individual `run` 调用替换为一个
+  `SourceWireAcceptance.run`；`lakefile.lean` 保留两个既有 root 并只增加
+  `SourceWireAcceptance` root。不得包装 `ProgramSyntax.run`、`Loader.run` 或任何其他 suite，也不得据
+  wrapper 名称声称 TST-SRC-001 的完整 wire inventory、independent encoder、collision staging，或
+  TST-SRC-002 的 Syntax/identity/CLI resource bounds 已关闭。
+  变更只允许新增 `Tests/Language/SourceWireAcceptance.lean` 并最小修改 `Tests.lean`、`lakefile.lean`；
+  总新增 ≤30 行，不得修改 `SourceIdentity.lean`、`SourceSpan.lean`、其他 tests、`ProofForgeV2/`
+  production 或 package file-set。验证只运行
+  `lake build Tests.Language.SourceWireAcceptance proof_forge_next_tests`、
+  `lake env .lake/build/bin/proof-forge-next-tests`、`just docs-check`、`git diff --check` 与 independent review；
+  纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。结果只可记录 development evidence，不能满足
+  TASK-D1-01 冻结包要求的两项完整 TST 与 candidate-bound `qualification=formal`；五个 D0 dependency
+  未全部 done 时不得关闭 pending `TASK-D1-01`。`TST-SRC-002` 必须由后续单独冻结的窄
+  `SourceBoundsAcceptance` slice 承载，禁止用混合 `ProgramSyntax`/`Loader` wrapper 代替边界验收。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
