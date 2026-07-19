@@ -2370,6 +2370,94 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   build/test binary、Python self-check、package refresh后最终单次 `just sbom`、`just docs-check`、
   `git diff --check`与 independent review；不运行完整 `just ci`。结果只记录 development evidence，不能
   关闭完整 TST-SRC-001、pending TASK-D1-01或下游 task。
+- D1-PA-105 是 `TASK-D1-01`/`TST-SRC-001` 的 complete residual `ProgramV1` declaration-set validator
+  slice。它实现 `SPEC-LANG-001` 已固定顺序的 count/uniqueness/proof-name binding 与 per-record duplicate
+  规则，但不重复 PA98/PA100/PA101 codec 已拥有的 struct fields、enum variants、Block/fn body nonempty等
+  local shape checks。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstProgramValidateV1
+  validateProgramDeclSetV1
+    (program : AstProgramV1.ProgramV1) : Except String Unit
+  ```
+
+  该 API 必须为 single public total `def`，禁止 `partial`/`unsafe`/bang index与 quadratic duplicate scan；
+  duplicate/membership使用 `Std.HashSet`或等价 O(n) expected-time closed implementation。raw Ident key精确为
+  `SourceNameComponentV1.raw`；extension identity key精确比较完整 ordered raw component array，不比较 rendered
+  spelling，也不把 version/digest并入 uniqueness key。所有 rules先在完整 `program.items` 上按下列**规则类别
+  固定顺序**执行；类别内第一个 source-order offender获胜，禁止按 alpha bucket实现顺序或跨类别最早 item
+  改写优先级：
+
+  1. 第二个 `init`；
+  2. zero `entry`/`view`；
+  3. state names；
+  4. entry/view names的 combined namespace；
+  5. event；6. error；7. struct；8. enum；9. const；10. fn names；
+  11. entry/view/fn callable combined namespace；
+  12. invariant names；13. extension identities；14. proof target cardinality；
+  15. proof target exact membership in the full invariant-name set；
+  16. initializer params；17. per-struct fields；18. per-enum variants；19. per-event params；
+  20. per-error params；21. entry/view params（combined source-order walk，variant-specific error）；
+  22. fn params。
+
+  proof membership必须先建立全 program invariant set，允许 `proof` 位于其 `invariant` 之前；duplicate proof
+  target必须先于 unknown binding。这里只做 raw invariant-name membership，不做 invariant Bool typing、theorem
+  lookup/signature、qualified theorem resolution或 proof environment load。exact pre-acceptance String inventory为
+  23 slots（第 21 类有 entry/view 两个 variant-specific slots）：
+
+  ```text
+  program must declare at most one init
+  program must declare at least one entry or view
+  program contains duplicate state declarations
+  program contains duplicate entry/view declarations
+  program contains duplicate event declarations
+  program contains duplicate error declarations
+  program contains duplicate struct declarations
+  program contains duplicate enum declarations
+  program contains duplicate const declarations
+  program contains duplicate fn declarations
+  program contains duplicate callable declarations
+  program contains duplicate invariant declarations
+  program contains duplicate extension requirements
+  program contains duplicate proof references
+  proof reference names unknown invariant '<raw>'
+  initializer contains duplicate parameters
+  struct '<raw>' contains duplicate fields
+  enum '<raw>' contains duplicate variants
+  event '<raw>' contains duplicate parameters
+  error '<raw>' contains duplicate parameters
+  entry '<raw>' contains duplicate parameters
+  view '<raw>' contains duplicate parameters
+  fn '<raw>' contains duplicate parameters
+  ```
+
+  `<raw>`逐字替换为对应 raw component，不用 `Name.toString`/guillemet renderer。最终 production boundary仍由
+  `TASK-D1-07`迁移为 stable `Diagnostic`；这些 String只冻结 development seam的 first-error行为，不声明最终
+  diagnostic schema。
+
+  Lean RED与不 import Lean/ProofForge、也不在运行时读取前序 reference scripts的 standalone Python oracle
+  必须使用同一 case inventory：至少三个 positives——all-category unique program、proof-before-invariant forward
+  binding、view-only callable；23 个 per-slot negatives逐项固定上述 exact String；七个 cross-rule priorities至少
+  覆盖 init duplicate→zero callable、zero callable→state duplicate、state→entry/view duplicate、event→struct、
+  fn duplicate→callable collision、state duplicate→unknown proof、duplicate proof→unknown proof。最后一例必须用
+  **同一 invariant target的两个 proofs**，不得用两个不同 unknown targets伪装 cardinality。entry↔view同名必须
+  在第 4 类失败，entry/view↔fn同名必须在第 11 类失败；same extension id即使 version/digest不同仍在第 13 类
+  失败。
+
+  encoder/validator必须保持正交：至少一个含 duplicate state且含合法 entry的 Program必须继续由
+  `encodeProgramV1`成功产生 bytes，同时 `validateProgramDeclSetV1`返回第 3 类错误；禁止把本 validator塞入
+  `encodeProgramV1`或 `canonicalSourceAstBytesV1`，也禁止 serializer修复、排序或丢弃 invalid set。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstProgramValidateV1.lean`、
+  `Tests/Language/SourceAstProgramValidateV1.lean`、`scripts/reference_source_ast_program_validate_v1.py`；最小
+  ProofForgeV2/Tests/lake registration与机械 manifest。budgets：validator≤180、suite≤280、Python≤185、
+  registrations≤5、总 authored additions≤650（manifest不计）。明确排除 alpha `Source.Program` adapter/
+  `validateDecodedProgram` reuse、codec/root改写、local nonempty重检、decoder/exact-consume、global
+  depth/node/16-MiB validator、sourceHash、NodeId、D2 type/effect/name/theorem resolution、stable Diagnostic
+  implementation、Common/ProgramPayload与 target edits。验证只运行 focused+aggregate build/test binary、
+  Python self-check、package refresh后最终单次 `just sbom`、`just docs-check`、`git diff --check`与 independent
+  review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending
+  TASK-D1-01或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
