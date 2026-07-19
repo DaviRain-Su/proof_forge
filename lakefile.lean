@@ -51,6 +51,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramExportFixtures.Shared,
     `Tests.Language.ProgramExportSnapshot,
     `Tests.Language.ProgramExports,
+    `Tests.Language.ProgramExportAcceptanceEmpty,
+    `Tests.Language.ProgramExportAcceptance,
     `Tests.Language.ProgramBindingFixtures.MismatchSingle,
     `Tests.Language.ProgramBindingFixtures.MismatchTable,
     `Tests.Language.ProgramBindingFixtures.Positive,
