@@ -4806,3 +4806,62 @@ normative: false
 - Next：S2——freshness authority 求值/签发（ADR-0018 §3 谓词
   `expiresAt == observedAt + maximumAgeSeconds`，finalization 时刻判定）或
   private scan receipt 切片，同型 RED-then-GREEN。
+
+## 2026-07-19 — TASK-D0-07 slice S2：private scan（policy/scanner/signed receipt）
+
+- Context：冻结包 in_scope 条目「`PrivateScanReceiptV1`：policy.privateScanPolicy
+  绑定、deny markers、maximumFindings==0、scanned-member 完备性」要求交付
+  private scan 对象族。此前仓库只有 consumer 侧的
+  `formal_evidence.parse_private_scan_receipt`（receipt 形状权威）与已提交的
+  真实 policy 文档 `docs/governance/bootstrap-closure/private-scan-policy.json`
+  （其 ContentRef 被签名 authority policy 钉住）；policy validator、marker
+  scanner 与 receipt producer 均不存在。marker 匹配语义无 spec 定文，本切片
+  固定 development 约定：content marker=member 原始字节子串搜索；path
+  marker=任一单 path segment 的子串匹配（`.pem`/`.key` 后缀式与
+  `id_rsa`/`.env` 名形式同时覆盖，且不跨 segment 误配）。
+- Changed：新模块 `scripts/private_scan.py`（stdlib-only、无网络/环境 IO、
+  `/usr/bin/python3 -I -S` 纪律、exact-path importlib 加载
+  `bootstrap_task_producers.py` 与 `formal_evidence.py`）交付：
+  `parse_private_scan_policy`（封闭六字段、schema/id/version 精确、markers
+  非空唯一、maximumFindings 非负整数）与 `private_scan_policy_ref`
+  （`SHA-256("pf.private-scan-policy.v1"||NUL||canonical_pf_jcs(doc))`，与
+  ceremony_prep 的 pin 公式逐项一致，对真实 committed 文档实测通过）；
+  `scan_bundle_members`（manifest 为 relpath→绝对路径映射，逐文件
+  `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` + regular-file + ≤16MiB 安全读取，重算
+  size 与 sha256，产出 findings：`{kind:"content"|"path",marker,path}`）；
+  `produce_private_scan_receipt`（`_PRIVATE_SCAN_FIELDS` 全字段；candidate
+  经 `parse_candidate_identity` 复验；member 的 evidence 必须 ∈
+  scannedEvidenceRefs、(evidence,path) 唯一、referenced path 集合==manifest
+  path 集合——missing 与 extra 双向拒绝；member size/digest 只取 scanner
+  重算值；refs 按 (id,digest)、members 按 (evidence.id,evidence.digest,path)
+  canonical 排序输出；findings 为空且不超过 maximumFindings 才可签发；
+  `pf.private-scan-receipt-{statement,signature}.v1` 域签名
+  privateScanRule=quality+security 两 distinct principal；产出即经
+  `formal_evidence.parse_private_scan_receipt` 全量复验；seed 仅显式 32-byte
+  参数，错误不携带密钥材料）。错误码
+  `PF-PRIVATE-SCAN-{SCHEMA,IO,SIGN,VERIFY}`。scannerDigest 约定：调用方在
+  调用时提供 scanner 可执行字节，`"sha256:"+SHA-256(bytes)`（自测钉
+  `scripts/private_scan.py` 自身字节；真实钉扎归 finalization 集成）。
+  自测 `scripts/private_scan_self_test.py`（RED→GREEN，19 例）并接入
+  `just docs-check`。
+- Verification：`/usr/bin/python3 -I -S scripts/private_scan_self_test.py` ok
+  （19 例：API/committed policy 解析与 ref 约定/policy 三负例/clean 2-EV
+  bundle 扫描事实与 receipt 全字段 round-trip/content marker（"BEGIN
+  PRIVATE KEY"）与 path marker（.env）命中阻断/missing member/extra
+  member/duplicate (evidence,path)/member evidence 越界/wrong rule signer/
+  below-quorum/tampered member digest/非空 findings/stale bytes/wrong
+  signature domain）；`just docs-check` 全绿（15 个自测）；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check`
+  clean。development evidence 见台账 `EV-20260719-0077`。
+- Limitations：fixture RFC 8032 公测种子与 fixture policy，非 formal/hermetic
+  evidence；marker 匹配语义为切片级 development 约定（spec 未定文，后续
+  finalization 落地时应入 spec）；validator 对 marker 仅要求唯一——已提交
+  真实 policy 文档的 marker 列表未排序（ceremony_prep 硬编码顺序），而
+  ContentRef pin 绑定精确字节，重排会变更 pinned digest，记为 P2 文档债务；
+  retained-member 完备性目前只到调用方声明的 manifest 层（真实 EV 内容解析
+  出 member 引用清单归 evidence-core 集成切片）；不能关闭 in_progress
+  `TASK-D0-07`；D0 formal milestone 仍为 8/9。
+- Next：S3——freshness authority 求值/签发（ADR-0018 §3 谓词
+  `expiresAt == observedAt + maximumAgeSeconds`，finalization 时刻判定，
+  `clockSourceDigest` 绑定本地时钟声明）或 session containment receipt 切片，
+  同型 RED-then-GREEN。
