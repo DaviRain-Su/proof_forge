@@ -14,6 +14,7 @@ normative: true
 - [**全局任务冻结协议**](task-freeze.md)（全部 `TASK-*` 完成面守恒；禁止执行中扩 scope）
 - [**自举信任根与 genesis 关闭协议**](genesis-authority.md)（`GOV-GENESIS-001`；C2，待 Architecture+Quality 批准）
 - [**D0-08/D0-09 pre-cutover 关闭裁决**](pre-cutover-closure-ruling.md)（`GOV-PRECUTOVER-001`；C2，genesis 同级批准来源）
+- [**TASK-D0-07 bootstrap 级关闭裁决**](d0-07-closure-ruling.md)（`GOV-D0CLOSE-001`；C2，genesis 同级批准来源，formal 边界不稀释）
 - [角色与人员映射](maintainers.md)（`GOV-MAINTAINERS-001`；authority.md 的角色绑定）
 - [genesis 任务集合 lock](genesis-set.lock.json)（`GOV-GENESIS-001` 的 exact genesis 集合）
 - [任务集合 lock](task-set.lock.json)（A0/D0–D8 exact `TASK-*` 集合；M1 机器强制）
