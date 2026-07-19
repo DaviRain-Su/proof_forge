@@ -1898,12 +1898,12 @@ unsafe def run : IO Unit := do
     "Array Option Bytes dual-length order 8/4 vs 4/8 Semantic must non-alias (size+hash)"
 
   let aoobSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option Option Bytes 0 0", .array (.option (.option (.bytes 0))) 0, 0,
-      "UNBOUND_SOURCE_ARRAY_OPTION_OPTION_BYTES_0_0"),
-    ("Array Option Option Bytes 8 4", .array (.option (.option (.bytes 8))) 4, 0,
-      "UNBOUND_SOURCE_ARRAY_OPTION_OPTION_BYTES_8_4"),
-    ("Array Option Option Bytes 4096 1", .array (.option (.option (.bytes 4096))) 1, 0,
-      "UNBOUND_SOURCE_ARRAY_OPTION_OPTION_BYTES_4096_1")
+    ("Array Option Option Bytes 0 0", .array (.option (.option (.bytes 0))) 0, 267,
+      "630625a53708a089ae2b27a0ed68b755a6d85c8c486dc514a12c4f5b07cef702"),
+    ("Array Option Option Bytes 8 4", .array (.option (.option (.bytes 8))) 4, 267,
+      "ff9404258d2b06b25e45f9dbd60114a930acc80bd48bfccc95637a4b77cdf603"),
+    ("Array Option Option Bytes 4096 1", .array (.option (.option (.bytes 4096))) 1, 267,
+      "88879a1bc391c1ce53bd674a05ea10b87f0f7bf57f7adf8767e9353f9b34acd7")
   ]
   for (label, type, expectedSize, expectedHash) in aoobSourceVectors do
     let sourceProgram := twin type
@@ -1940,12 +1940,12 @@ unsafe def run : IO Unit := do
     "Array Option Option Bytes dual-length order 8/4 vs 4/8 Source must non-alias (size+hash)"
 
   let aoobSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option Option Bytes 0 0", .array (.option (.option (.bytes 0))) 0, 0,
-      "UNBOUND_SEMANTIC_ARRAY_OPTION_OPTION_BYTES_0_0"),
-    ("Array Option Option Bytes 8 4", .array (.option (.option (.bytes 8))) 4, 0,
-      "UNBOUND_SEMANTIC_ARRAY_OPTION_OPTION_BYTES_8_4"),
-    ("Array Option Option Bytes 4096 1", .array (.option (.option (.bytes 4096))) 1, 0,
-      "UNBOUND_SEMANTIC_ARRAY_OPTION_OPTION_BYTES_4096_1")
+    ("Array Option Option Bytes 0 0", .array (.option (.option (.bytes 0))) 0, 216,
+      "a2f9037cbce3e824b9e0ccae9410a56378d55d98e2a76467e99103f43257234c"),
+    ("Array Option Option Bytes 8 4", .array (.option (.option (.bytes 8))) 4, 216,
+      "4f7690c3ac3aa52a1f69f91c6523ac22f5fd408eee2a84c2e11312459c327f6f"),
+    ("Array Option Option Bytes 4096 1", .array (.option (.option (.bytes 4096))) 1, 216,
+      "df59c86ac811fc098e364a0d56b4f5139b640e2f39ac8f9a6b7ff9d48d521b16")
   ]
   for (label, type, expectedSize, expectedHash) in aoobSemanticVectors do
     let compiled ← match Compiler.compile (twin type) with
