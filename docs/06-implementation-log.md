@@ -4394,7 +4394,7 @@ normative: false
 - Verification：`/usr/bin/python3 -I -S scripts/formal_evidence_producer_self_test.py`
   ok；全部既有自测 ok；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
   `git diff --check` clean；justfile `docs-check` recipe 已接入。development
-  evidence 为 `EV-20260719-0070`。
+  evidence 为 `EV-20260719-0071`。
 - Limitations：binding 路径 development 约定、requirement registry resolve 归 D3、
   freshness 窗口求值未实现（spec 只钉 nonzero 与正向窗口）；D0-07 保持
   pending、依赖未闭合，不得据本条关闭；D0 formal milestone 仍为 7/9。
