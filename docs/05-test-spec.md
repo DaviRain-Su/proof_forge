@@ -1137,6 +1137,32 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   triple-Option-Field support、完整 recursive grammar 或正式 D1 完成。post-PA-72 bounded arbitration
   因本 spelling 只有单一 Field leaf/golden、无双长度与 15-atom matrix，选择它而非更大的
   `Array Option Array PrimitiveAtom N M`；该选择不是 checkpoint 自动递增。
+- D1-PA-74 的 alpha tests 只开放 exact same-line `Option Option Option Bytes N`，物化为既有
+  `Source/Semantic.ValueType.option (.option (.option (.bytes length)))`，tag 固定
+  `16→16→16→17→N`，length 精确复用 canonical ASCII decimal `0..4096`。本条只对 exact spelling
+  supersede PA63 的 third-layer deferred、PA70 的 Bytes leaf rejection 与 PA73 明示保留的 Bytes leaf；
+  PA63 的两层 Option Bytes、PA73 的三层 Option Field 保持 positive，Array/Option/Map/Named leaf、第四层
+  Option 与任意 recursive grammar 仍不开放。post-PA73 bounded arbitration 选择本单长度候选而非
+  `Array Option Array PrimitiveAtom N M`，不是 checkpoint 自动递增。
+  tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+  `("Bytes Triple Option element", "Option Option Option Bytes 8")` negative 迁移为 positive，migration
+  count 精确为一；incomplete `Option Option Option Bytes` 必须继续 exact unsupported，其他测试不得迁移。
+  positive 覆盖 length `0/8/4096`、state、struct field、enum payload、const、event/error parameter、
+  initializer/entry/view/fn parameter/result 与 Lean command/ParserSession parity。Source/Semantic 各固定三组
+  golden vectors；`N=8` candidate 必须在两侧分别与 bare Bytes、`Option Bytes 8`、
+  `Option Option Bytes 8`、`Option Option Option UInt64`、`Option Option Option Field bn254_fr` 的 canonical
+  bytes/hash non-alias，三组 lengths 必须 pairwise non-alias；RED 中新 golden 显式未绑定，GREEN 前由
+  独立 probe 计算。requirements 必须精确为空；四个 Phase 1 target 必须通过 `checkSupport`，state/result/
+  parameter dedicated fixtures 随后必须在 `materializeResult` 分别触发既有 `is not UInt64`/
+  `does not return UInt64` Plan invariant，且所有路径均不得产出 `OutputSet` 或 artifact。
+  pre-freeze minimal parser probe 已固定 exact channels：incomplete、`4097`/leading-zero/hex/underscore length、
+  full/bare Map 与 unknown leaf 为 `unsupported portable type`；negative/identifier length、extra payload、任一
+  Option/Bytes-length seam 换行、三个 Option 或 Bytes constructor 的 escaped/qualified form、full Array leaf
+  与第四层 Option 为 parser rejection。Field triple 保持 PA73 positive，只用于 non-alias。本切片不实现
+  bytes operations、none/some/unwrap、runtime/ABI、target triple-Option-Bytes support、完整 recursive grammar
+  或正式 D1 完成。production 仅限 Syntax 一文件 ≤32 additions/2 removals，刷新 package file-set；focused
+  23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整
+  `just ci`。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

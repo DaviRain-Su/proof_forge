@@ -671,6 +671,48 @@ runtime semantics、完整 type grammar 或正式 D1 完成。post-PA-72 bounded
 单一 Field leaf/golden、无双长度与 15-atom matrix，选择它而非更大的
 `Array Option Array PrimitiveAtom N M`；该选择不是 checkpoint 自动递增。
 
+D1-PA-74 冻结的 pre-acceptance alpha 子集只为已有
+`option(option(option(bytes(length))))` carrier 开放 exact same-line spelling
+`Option Option Option Bytes N`。`N` 精确复用 Bytes 的 canonical ASCII decimal `0..4096` discipline，
+tag 固定 `16→16→16→17→N`，requirements 经三层 Option 精确透传为空。本冻结只对这一 exact
+spelling supersede D1-PA-63 的 third-layer deferred、D1-PA-70 的 Bytes-element fail-closed 项与 D1-PA-73
+明示保留的 Bytes leaf；PA63 已完成的两层 Option Bytes 与 PA73 已完成的三层 Option Field 保持不变，
+Array/Option/Map/Named leaf、第四层 Option 与任意 recursive Option grammar 继续 fail closed。post-PA-73
+bounded arbitration 因本候选只有单一 length 轴、无需 15-atom/dual-length matrix，选择它而非更大的
+`Array Option Array PrimitiveAtom N M`；该选择不是 checkpoint 自动递增。
+
+frontend 只能新增 exact contextual named `optionOptionOptionBytesType` 与 struct-field 对应 parser；不得
+放宽既有 `optionOptionOptionType`、`optionOptionBytesType`、`optionOptionType` 或 `portableType`，不得引入
+recursive parser。新增 decoder 必须复用 closed `decodeNestedOptionBytesValueTypeFromAtoms` 的完整 Bytes
+lexical/bound policy，再只包一层 Option；专用 type 与 aggregate dispatch 必须先于 generic
+`optionOptionOptionType`/aggregate parser。不得新增 ctor/tag、修改 Source/Semantic encoder、Typed 或 target；
+Lean command 与 ParserSession 必须得到同一 Source tree/hash。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+`("Bytes Triple Option element", "Option Option Option Bytes 8")` parser-negative 迁移为 positive，
+migration count 精确为一；incomplete `Option Option Option Bytes` 继续保留为 unsupported，其他测试不得
+迁移。positive 覆盖 length `0`、`8`、`4096`、所有 declaration positions（含 event/error）与双入口 parity。
+Source/Semantic canonical tests 各固定三组 length vectors；`N=8` candidate 必须在两侧分别与 bare Bytes、
+一层/两层 Option Bytes、同深度 UInt64 与同深度 Field 做 canonical bytes/hash non-alias，三组 lengths 也必须
+pairwise non-alias，证明第三 wrapper、Bytes leaf 与完整 length payload 都进入 preimage。requirements 必须
+精确为空；四个 Phase 1 target 必须通过 `Targets.checkSupport`，随后 state/result/parameter 三个 dedicated
+fixtures 必须分别由 `Targets.materializeResult` 的既有 non-UInt64 Plan invariant 拒绝，且不得产生
+`OutputSet` 或 artifact。
+
+pre-freeze minimal parser probe 已固定 error channel：incomplete spelling、`4097`/leading-zero/hex/underscore
+length、full/bare Map 与 unknown leaf 必须 exact `unsupported portable type`；negative/identifier length、extra
+payload、任一 Option/Bytes-length seam 换行、三个 Option constructor 或 Bytes constructor 的 escaped/
+qualified form、full Array leaf 与第四层 Option 必须 parser-rejected。Field triple spelling 保持 PA73 positive，
+只作为 canonical non-alias control，不得迁回 negative。其他 Array/Option/Map/Named compound cases只保持既有
+fail-closed 边界，不新增完成条件。
+
+本切片不实现 bytes value/index/slice/length、none/some/unwrap、任意 recursive type grammar、recursive
+legality、runtime representation、ABI 或 target triple-Option-Bytes support。production 仅限
+`Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。
+focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可记录
+existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type grammar 或
+正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
