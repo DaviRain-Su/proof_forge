@@ -1844,6 +1844,53 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   sourceHash/NodeId/Common/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python self-check、
   package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行
   完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-97 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 complete Pattern closed-layer slice。它实现
+  `SPEC-SOURCE-WIRE-001` Pattern table 的全部四个 tag；Pattern 只依赖 PA93 raw Ident、PA94 source QID、
+  PA95 Literal 与自身递归，不依赖 Place/Expr/Stmt mutual spine。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstPatternV1
+  inductive PatternV1 where
+    | wildcard
+    | bind (name : NameComponentV1.SourceNameComponentV1)
+    | literal (value : AstV1.LiteralV1)
+    | constructor (ctor : QualifiedNameV1.SourceQualifiedNameV1) (args : Array PatternV1)
+    deriving Repr
+  instance : DecidableEq PatternV1
+
+  namespace ProofForgeV2.Source.AstPatternCodecV1
+  encodePatternV1 : PatternV1 → Except String ByteArray
+  ```
+
+  wire mapping 必须逐字为：`Pattern.Wildcard`/0；`Pattern.Bind`/1 raw Ident；`Pattern.Literal`/1 full
+  tagged Literal；`Pattern.Constructor`/2 source QualifiedId 后 `Array<Pattern>`。Constructor 必须先调用
+  `encodeSourceQualifiedIdV1`，再编码 args；one-component QID 与同时存在的 hostile child 必须先返回
+  `source qualified id must contain 2..256 components`。args **允许 empty**，binding uniqueness、constructor
+  resolution/arity/exhaustiveness 和 256-depth/100000-node/16-MiB budgets 属于未来 D2/global validator，
+  不得在本 encoder 增加 local cap。
+
+  pinned Lean 4.31 对 `Array PatternV1` nested inductive 不支持自动 `deriving DecidableEq`，直接把
+  `encodePatternV1` 作为 higher-order 参数传给 `encodeArray` 也不能证明终止。本切片必须以 Pattern/Array/
+  List 三路 structural recursion 实现可执行 `DecidableEq` 与 encoder；encoder 可先 total 地得到 ordered child
+  byte chunks，再调用既有 `encodeArray pure`。所有生产定义必须是 kernel-total `def`；禁止 `partial`、
+  `unsafe`、fuel、深度截断、JSON/String/Unit placeholder 或复制另一份 array wire layout。
+
+  RED 与 independent Python 必须持有 table-verbatim checked-in hex，至少覆盖：Wildcard；Bind raw `x` 与
+  `foo-bar`；Pattern.Literal 的 Bool `true`/`false`、`2^64` Integer 和 NFC String；Constructor 两组件 QID + empty args、
+  single Wildcard、ordered Bind/Literal pair、反序 non-alias 与 depth≥2 nested Constructor。Lean 另验证 nested
+  Pattern equality的 equal/order/shape cases。负例逐字覆盖 one-component QID、Literal `2^256` overflow、
+  Literal NFD，并覆盖 invalid QID 优先于 invalid nested Literal；Python 不 import Lean/ProofForge，保持 raw
+  name Cc/closing-guillemet negatives，golden expected 不得由 production encoder 生成。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstPatternV1.lean`、
+  `ProofForgeV2/Source/AstPatternCodecV1.lean`、`Tests/Language/SourceAstPatternV1.lean`、
+  `scripts/reference_source_ast_pattern_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械 manifest refresh。
+  budgets：model≤85、codec≤75、suite≤150、Python≤110、registrations≤8、总 authored additions≤430
+  （manifest 不计）。明确排除：Place/Expr/Stmt/Block、StmtMatchArm/ExprMatchArm/ExternalCallExpr、任何
+  ProgramItem/Program root、alpha Source/Syntax/Loader/projection、decoder、global validator、sourceHash/NodeId、
+  Common/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python self-check、package
+  refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整
+  `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
