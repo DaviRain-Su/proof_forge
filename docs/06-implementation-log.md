@@ -4865,3 +4865,67 @@ normative: false
   `expiresAt == observedAt + maximumAgeSeconds`，finalization 时刻判定，
   `clockSourceDigest` 绑定本地时钟声明）或 session containment receipt 切片，
   同型 RED-then-GREEN。
+
+## 2026-07-19 — TASK-D0-07 slice S3：formal input producers（containment/freshness/finalizer identity）
+
+- Context：冻结包 in_scope 要求交付 `SessionContainmentReceiptV1`
+  （sessionContainmentRule 签名）、`FreshnessAuthoritySnapshotV1` 求值与签发
+  （freshnessAuthorityRule、正向窗口、ADR-0018 §3 谓词）与 finalizer 身份。
+  S1/S2 已交付 revocation/private scan 两族；本切片补齐剩余两个 signed
+  formal input 的 producer + signer，以及无签名的 finalizer identity 构造。
+  consumer（`formal_evidence.py` 的
+  `parse_session_containment_receipt`/`parse_freshness_authority_snapshot`/
+  `parse_formal_finalizer_identity`）为形状权威；真实 supervising observer
+  归 TST-ISO-002 后续切片，不在本切片。
+- Changed：新模块 `scripts/formal_input_producers.py`（stdlib-only、无 IO、
+  `/usr/bin/python3 -I -S` 纪律、exact-path importlib 加载
+  `bootstrap_task_producers.py` 与 `formal_evidence.py`）交付：
+  `produce_session_containment_receipt`（candidate 经
+  `parse_candidate_identity`、stage0Handoff 经 `parse_content_ref` 复验；
+  descendants 封闭六字段、四个 UInt64（≤2^53-1）、termination∈
+  {exited,killed}、按 consumer 的 (pid,parentPid,startToken,sessionId,
+  executableDigest,termination) 全 tuple canonical 排序、重复即拒；
+  escapeProbes 封闭 {id,result}、result=="contained"、按 id 排序；
+  startedAt/finishedAt UtcInstant、result=="contained"；
+  `pf.session-containment-receipt-{statement,signature}.v1` 域签名
+  sessionContainmentRule=quality+security 两 distinct principal）；
+  `produce_freshness_authority_snapshot`（observedAt UtcInstant、
+  maximumAgeSeconds UInt64 且非零、clockSourceDigest=
+  `"sha256:"+SHA-256(调用方时钟声明字节)`——producer 无 IO，声明字节由
+  调用方供给；authorityPolicy 由 policy bytes 推导；
+  `pf.freshness-authority-snapshot-{statement,signature}.v1` 域签名
+  freshnessAuthorityRule=quality+release 两 distinct principal）；
+  `freshness_expires_at` 与 `require_freshness_window`（ADR-0018 §3：
+  expiresAt==observedAt+maximumAgeSeconds，finalization 时刻判定
+  finalizedAt<expiresAt，mismatch 或窗口反转即
+  `PF-FORMAL-INPUT-VERIFY`）；`produce_formal_finalizer_identity` 与
+  `formal_finalizer_identity_digest`——consumer 证实该对象为无签名封闭六
+  字段（`_FINALIZER_FIELDS` 无 signatures、不验 rule），故为纯构造 +
+  `pf.formal-finalizer-identity.v1` 域 digest helper。全部产出即经对应
+  formal_evidence parser 全量复验（S1/S2 同型）；seed 仅显式 32-byte 参数，
+  错误码 `PF-FORMAL-INPUT-{SCHEMA,SIGN,VERIFY}` 不携带密钥材料。自测
+  `scripts/formal_input_producers_self_test.py`（RED→GREEN，26 例）并接入
+  `just docs-check`。
+- Verification：`/usr/bin/python3 -I -S scripts/formal_input_producers_self_test.py`
+  ok（26 例：containment 两 descendant+一 probe round-trip（canonical 排序
+  断言）、freshness round-trip（authorityPolicy/clockSourceDigest/expiresAt
+  关系断言）、window 正例、finalizer identity+digest；负例：containment
+  wrong rule signer（quality+release）/below-quorum/bad termination enum/
+  负 pid/浮点 pid/descendant 多余字段/非 contained probe/非 contained
+  result/wrong signature domain/stale bytes；freshness wrong rule signer
+  （quality+security）/below-quorum/maximumAge 零/负/缺 clock source/
+  expiresAt mismatch/stale finalization/wrong signature domain/stale
+  bytes；identity 坏 digest 语法/带 signatures 字段）；`just docs-check`
+  全绿（16 个自测）；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean。development evidence 见台账 `EV-20260719-0078`。
+- Limitations：fixture RFC 8032 公测种子与 fixture policy，非 formal/hermetic
+  evidence；containment receipt 的观察值由调用方供给（真实 supervising
+  observer、escape probe 执行与 rootSessionId 实证归 TST-ISO-002）；
+  clockSourceDigest 只绑定声明字节（时钟来源/最大可信漂移文档归
+  finalization 集成）；consumer 不判定 startedAt<finishedAt，producer 同样
+  不引入该 join（形状以 consumer 为准）；不能关闭 in_progress
+  `TASK-D0-07`；D0 formal milestone 仍为 8/9。
+- Next：S4——把 S1–S3 对象族接入 fixture finalization harness
+  （`parse_formal_evidence_finalization` 全链 round-trip：catalog/gates/
+  evidenceRefs/support-binding），或 TST-ISO-002 bwrap stage 引擎切片
+  （ADR-0018 §2），同型 RED-then-GREEN。
