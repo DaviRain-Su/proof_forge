@@ -1102,9 +1102,11 @@ variable 或 wrapper/arity drift 均拒绝。UInt32/UInt64 与 `Fin 4097` 在构
 
 decoder 先用显式工作栈对 raw `Expr` 做最多 100000 nodes 的总量预检；Source Expr/Statement/ValueType
 的逻辑递归深度最多 256，list spine 不计作业务递归深度。node/depth 恰等于上限可进入结构判定，超过
-上限固定为 `PF-EXPORT-004: program payload structural bound exceeded`。其他失败固定以前缀
-`PF-EXPORT-004` 返回 `not registered`、`declaration unavailable or unsafe` 或
-`unsupported quoted Source.Program form`，不得抛出 raw Lean exception。
+上限固定为 `PF-EXPORT-004: program payload structural bound exceeded`。`programExports env`
+成功返回 normalized table 后，其他 payload 失败固定以前缀 `PF-EXPORT-004` 返回 `not registered`、
+`declaration unavailable or unsafe` 或 `unsupported quoted Source.Program form`，不得抛出 raw Lean
+exception；若上游 registry normalization 因 schema/identity 冲突失败，则保留 PA81 已冻结的
+`PF-EXPORT-001`，不得误标为 payload failure。
 
 tests-only RED 固定新增 single rich DSL payload fixture、alias/opaque/unsafe/implemented-by negative
 fixtures、snapshot helper 与单一 `Tests.Language.ProgramPayloads` suite，并只修改 `Tests.lean`/

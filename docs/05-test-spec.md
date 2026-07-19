@@ -1351,7 +1351,7 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `programPayloads env` 必须 all-or-nothing 返回 sorted rows 与 reconstructed payload pair。
   declaration 仅可为 safe `defnInfo`、exact `Source.Program` type、无 `implemented_by`/extern、
   `Environment.hasUnsafe value = false`；unregistered、missing/opaque、constant alias、unsafe、可观察为
-  non-direct value 的 partial alias 与 implemented-by panic replacement 必须在不执行 replacement、无 FS/network/IO/ambient access 的情况下
+  non-direct value 的 partial alias 与 implemented-by direct sentinel replacement 必须在不跟随 replacement、无 FS/network/IO/ambient access 的情况下
   以 `PF-EXPORT-004` 拒绝，禁止 raw exception 或 partial table。positive rich fixture 必须用 BEq、
   qualifiedName 与 sourceHash 证明 reconstructed payload 等于 DSL elaborator constant；rich fixture 与
   test-owned exact direct quoted control 联合覆盖当前全部 ValueType/Expr/Statement/declaration constructor
