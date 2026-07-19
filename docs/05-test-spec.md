@@ -1891,6 +1891,90 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Common/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python self-check、package
   refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整
   `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-98 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 complete spine-independent declaration-record
+  slice。它一次实现 `SPEC-SOURCE-WIRE-001` 中字段依赖已由 PA91–96 闭合的全部七个 item tag；只定义
+  named records，不提前定义只含 7/13 alternatives 的残缺 `ProgramItemV1` sum。该 closed-class rule 精确是
+  **all ProgramItem records whose ordered field types depend only on already shipped carriers**；不是按当前 parser
+  能力或实现方便任意选七个。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstDeclV1
+  structure StateDeclV1 where
+    visibility : AstV1.VisibilityV1
+    name : NameComponentV1.SourceNameComponentV1
+    type_ : AstV1.TypeV1
+    deriving DecidableEq, Repr
+  structure StructDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    fields : Array AstSupportV1.FieldDeclV1
+    deriving DecidableEq, Repr
+  structure EnumDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    variants : Array AstSupportV1.EnumVariantV1
+    deriving DecidableEq, Repr
+  structure EventDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    deriving DecidableEq, Repr
+  structure ErrorDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    deriving DecidableEq, Repr
+  structure ExtensionReqV1 where
+    id : QualifiedNameV1.SourceQualifiedNameV1
+    version : String
+    digest : String
+    deriving DecidableEq, Repr
+  structure ProofDeclV1 where
+    invariant : NameComponentV1.SourceNameComponentV1
+    theorem_ : QualifiedNameV1.SourceQualifiedNameV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstDeclCodecV1
+  encodeStateDeclV1 : StateDeclV1 → Except String ByteArray
+  encodeStructDeclV1 : StructDeclV1 → Except String ByteArray
+  encodeEnumDeclV1 : EnumDeclV1 → Except String ByteArray
+  encodeEventDeclV1 : EventDeclV1 → Except String ByteArray
+  encodeErrorDeclV1 : ErrorDeclV1 → Except String ByteArray
+  encodeExtensionReqV1 : ExtensionReqV1 → Except String ByteArray
+  encodeProofDeclV1 : ProofDeclV1 → Except String ByteArray
+  ```
+
+  wire mapping 与字段顺序必须逐字为：`StateDecl`/3 = Visibility、raw Ident、Type；`StructDecl`/2 = raw
+  Ident、Array FieldDecl；`EnumDecl`/2 = raw Ident、Array EnumVariant；`EventDecl`/2 与 `ErrorDecl`/2 = raw
+  Ident、Array Param；`ExtensionReq`/3 = source QualifiedId、String version、String digest；`ProofDecl`/2 =
+  raw invariant Ident、source theorem QualifiedId。所有 encoder 为 total `def`，只组合既有 PA91–96 codecs。
+
+  `StructDecl.fields` 与 `EnumDecl.variants` 必须在 encoder 中先以 exact `struct fields must be nonempty` /
+  `enum variants must be nonempty` fail closed；Event/Error params **允许 empty**。ExtensionReq 必须按 exact
+  priority 先 `encodeSourceQualifiedIdV1 id`，再以 Common `parseSemVer`+`renderSemVer` exact equality 验证
+  version，最后以 `parseDigest`+`renderDigest` exact equality验证 digest；任一 version parse/render/equality
+  失败统一为 `extension version must use canonical exact SemVer`，任一 digest failure 统一为
+  `extension digest must use canonical sha256 spelling`，不得泄漏 Common parser 的细分错误。验证成功后两者
+  仍调用 `encodeString` 写 wire。canonical prerelease/build 只要 parse/render exact round-trip 即允许，禁止改用
+  `parseSemVerCore`。valid QID + invalid version + invalid digest 必须先返回 version error；invalid
+  QID + hostile version/digest 必须先返回 QID error。Proof theorem 使用同一 source QID 2..256 validation。
+  不增加 declaration-local array/string/global cap；Program.items nonempty、duplicates、multiple init、proof-
+  invariant binding 与 256-depth/100000-node/16-MiB 属于 future Program/global validator。
+
+  RED 与 independent Python 必须持有 table-verbatim checked-in hex，至少覆盖：State 三 visibility 与 nested
+  Type；Struct single/multi FieldDecl及顺序；Enum empty-payload variant、multi variants及顺序；Event empty params
+  与 ordered multi Param；Error empty与single Param；Extension canonical `1.0.0`、canonical prerelease/build、
+  two-component QID 与 lowercase sha256 digest；Proof raw invariant + two-component theorem QID。负例逐字覆盖
+  Struct/Enum empty、State/Struct child width 24、Extension one-component QID、QID-before-hostile strings、
+  noncanonical version、version-before-bad-digest、bad digest、Proof one-component theorem；Python 不 import
+  Lean/ProofForge，保持 raw name Cc/closing-guillemet negatives，golden expected 不得由 production encoder生成。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstDeclV1.lean`、
+  `ProofForgeV2/Source/AstDeclCodecV1.lean`、`Tests/Language/SourceAstDeclV1.lean`、
+  `scripts/reference_source_ast_decl_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械 manifest refresh。
+  budgets：model≤55、codec≤110、suite≤220、Python≤160、registrations≤8、总 authored additions≤560
+  （manifest 不计）。明确排除：Const/Invariant/Init/Entry/View/Fn、任何 `ProgramItem` sum/Program root、
+  Place/Expr/Stmt/Block/arms/ExternalCallExpr、alpha Source/Syntax/Loader/projection、decoder、global validator、
+  sourceHash/NodeId/Common edits/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python
+  self-check、package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent
+  review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending
+  TASK-D1-01 或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
