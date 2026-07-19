@@ -5748,3 +5748,39 @@ normative: false
   D0 formal milestone仍7/9。
 - Next：当前无 active development slice。下一步先只读裁决 theorem/visibility alpha mapping、decoder与full-tree
   resource validator中的单一最小闭合面；冻结前不得开始下一份RED，sourceHash/NodeId/target不得并入。
+
+## 2026-07-19 — D1 nonrecursive scalar decoder pre-acceptance slice
+
+- Commits：D1-PA-106 freeze `ee7e9c2b`；boundary tally clarification `435ddbcf`；RED `6dd410da`；
+  GREEN `f134d1c3`。TASK-D1-01 pending-prep package继续为`ee1cbc8d`，正式task状态未改变。
+- Authority：本切片只闭合 v1 bounded tag/field-count primitive与全部非递归 scalar families：
+  `VisibilityV1` 3、`LiteralV1` 3、`UnaryOpV1` 3、`BinaryOpV1` 18，共27个tag。递归
+  `TypeV1`及其depth/node budget必须由后续显式budget-threaded decoder实现，禁止在bare `CursorV1`
+  上先构造再事后验证。
+- Changed：`WireDecodeV1`新增29行，`decodeTagV1`在读取/复制前把UTF-8 byte length限制为1..21并检查
+  remaining，随后执行UTF-8与ASCII验证；`decodeFieldCountV1`读取u16并精确比较。新增74-line
+  `AstScalarDecodeV1`，四个public decoder均先完成closed-family tag dispatch，unknown tag在读取
+  fieldCount前拒绝，known tag在读取任何child前校验fieldCount；Literal child复用既有Bool/u256/String
+  decoder并保留原始错误。production 103、suite 193、Python 187、registrations 4，总authored
+  additions 487/625；机械manifest为56 files。
+- Cross implementation：Lean与standalone Python oracle闭合27个checked-in decode/value/encode/exact-consume
+  positives、30个全constructor field-count negatives与14个tag/child/trailing boundaries；其中4个
+  wrong-family probes故意省略fieldCount，证明unknown-before-count。NFD fixture精确为3 bytes
+  `65 cc 81`并命中pinned Unicode 17 NFC error；LogicalOr/BitOr同时做value与wire nonalias。
+- Verification：RED focused build只因`AstScalarDecodeV1` production module缺失失败；GREEN
+  `lake build Tests.Language.SourceAstScalarDecodeV1` 14 jobs、`lake build proof_forge_next_tests` 356 jobs；
+  test binary输出`proof-forge-next-tests: ok`；`/usr/bin/python3 -I -S
+  scripts/reference_source_ast_scalar_decode_v1.py --self-check`输出
+  `reference_source_ast_scalar_decode_v1: ok 27 30 14`；package refresh → 56 files；最终单次
+  `just sbom` self-test/generate/verify/closure全绿；`just docs-check`与`git diff --check`通过。按冻结
+  未运行完整`just ci`。
+- Review/Evidence：coordinator在RED前修正empty-tag与NFD declared-length两个fixture缺陷，并在一次陈旧
+  并行dispatch覆盖Python oracle后停止冲突任务、恢复已验证的187-line版本并重跑self-check。Grok最终
+  security audit、Kimi cross-oracle audit及independent matrix review均为P0/P1/P2=0。development evidence为
+  `EV-20260719-0104`。
+- Limitations：没有recursive `TypeV1` decoder、budget state、完整AST/Program/root decoder、alpha mapping、
+  sourceHash、NodeId、stable Diagnostic、Common/ProgramPayload或target。spec仍proposed，D0 dependencies/
+  candidate-bound formal evidence未齐，不能关闭pending `TASK-D1-01`或任何下游task。D0 formal milestone
+  仍7/9。
+- Next：当前无active development slice。Grok/Kimi正在只读裁决budget-threaded recursive `TypeV1`
+  decoder的最小闭合面；冻结前不得开始RED，Program/full-tree decoder、alpha/hash/NodeId/target不得并入。
