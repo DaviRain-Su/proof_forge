@@ -280,6 +280,39 @@ program NestedOptionArrayParamBoundary where
   entry echo(value : Option Option Array UInt64 4) : UInt64 do
     return 0
 
+program NestedOptionArrayFieldSurface where
+  state nestedScalars : Option Option Array Field bn254_fr 4
+
+  event NestedOptionArrayFieldEvent(payload : Option Option Array Field bn254_fr 4)
+  error NestedOptionArrayFieldError(payload : Option Option Array Field bn254_fr 4)
+
+  struct NestedOptionArrayFieldBox where
+    empty : Option Option Array Field bn254_fr 0
+    ordinary : Option Option Array Field bn254_fr 4
+    maximum : Option Option Array Field bn254_fr 4096
+
+  enum NestedOptionArrayFieldTag where
+    | MaybeNestedScalars(Option Option Array Field bn254_fr 4)
+    | MaybeNestedMaximum(Option Option Array Field bn254_fr 4096)
+
+  const NestedOptionArrayFieldSeed : Option Option Array Field bn254_fr 0 := 0
+
+  init(initial : Option Option Array Field bn254_fr 4) do
+    nestedScalars := initial
+
+  entry echo(value : Option Option Array Field bn254_fr 4) : Option Option Array Field bn254_fr 4 do
+    return value
+
+  view get() : Option Option Array Field bn254_fr 4 do
+    return nestedScalars
+
+  fn ident(value : Option Option Array Field bn254_fr 4096) : Option Option Array Field bn254_fr 4096 do
+    return value
+
+program NestedOptionArrayFieldBoundary where
+  entry echo(value : Option Option Array Field bn254_fr 4) : Option Option Array Field bn254_fr 4 do
+    return value
+
 program OptionArrayFieldSurface where
   state scalars : Option Array Field bn254_fr 4
 
@@ -991,6 +1024,32 @@ private def nestedOptionArraySurfaceSource : String :=
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
 
+private def nestedOptionArrayFieldSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.OptionDeclarationsFixture\n\n" ++
+  "program NestedOptionArrayFieldSurface where\n" ++
+  "  state nestedScalars : Option Option Array Field bn254_fr 4\n\n" ++
+  "  event NestedOptionArrayFieldEvent(payload : Option Option Array Field bn254_fr 4)\n" ++
+  "  error NestedOptionArrayFieldError(payload : Option Option Array Field bn254_fr 4)\n\n" ++
+  "  struct NestedOptionArrayFieldBox where\n" ++
+  "    empty : Option Option Array Field bn254_fr 0\n" ++
+  "    ordinary : Option Option Array Field bn254_fr 4\n" ++
+  "    maximum : Option Option Array Field bn254_fr 4096\n\n" ++
+  "  enum NestedOptionArrayFieldTag where\n" ++
+  "    | MaybeNestedScalars(Option Option Array Field bn254_fr 4)\n" ++
+  "    | MaybeNestedMaximum(Option Option Array Field bn254_fr 4096)\n\n" ++
+  "  const NestedOptionArrayFieldSeed : Option Option Array Field bn254_fr 0 := 0\n\n" ++
+  "  init(initial : Option Option Array Field bn254_fr 4) do\n" ++
+  "    nestedScalars := initial\n\n" ++
+  "  entry echo(value : Option Option Array Field bn254_fr 4) : Option Option Array Field bn254_fr 4 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Option Option Array Field bn254_fr 4 do\n" ++
+  "    return nestedScalars\n\n" ++
+  "  fn ident(value : Option Option Array Field bn254_fr 4096) : Option Option Array Field bn254_fr 4096 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.OptionDeclarationsFixture\n"
+
 private def optionArrayFieldSurfaceSource : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
@@ -1410,6 +1469,73 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same nested Option Array Source.Program"
       expect (decoded.sourceHash == nestedArraySurface.sourceHash)
         "Loader and Lean command must produce the same nested Option Array sourceHash"
+  | .error error => throw <| IO.userError error.render
+
+  let nestedOptionArrayFieldSurface :=
+    Tests.Language.OptionDeclarationsFixture.NestedOptionArrayFieldSurface
+  expect (nestedOptionArrayFieldSurface.state.map (·.type) ==
+      #[.option (.option (.array .field 4))])
+    "Option Option Array Field bn254_fr 4 state must survive Lean command elaboration"
+  match nestedOptionArrayFieldSurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "NestedOptionArrayFieldEvent" &&
+          eventDecl.params.map (·.type) == #[.option (.option (.array .field 4))])
+        "Option Option Array Field event must preserve Option/Option/Array/Field tags and length"
+  | _ => throw <| IO.userError "NestedOptionArrayFieldSurface must retain NestedOptionArrayFieldEvent"
+  match nestedOptionArrayFieldSurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "NestedOptionArrayFieldError" &&
+          errorDecl.params.map (·.type) == #[.option (.option (.array .field 4))])
+        "Option Option Array Field error must preserve Option/Option/Array/Field tags and length"
+  | _ => throw <| IO.userError "NestedOptionArrayFieldSurface must retain NestedOptionArrayFieldError"
+  match nestedOptionArrayFieldSurface.structs with
+  | #[box] =>
+      expect (box.name == "NestedOptionArrayFieldBox" &&
+          box.fields.map (·.type) ==
+            #[.option (.option (.array .field 0)),
+              .option (.option (.array .field 4)),
+              .option (.option (.array .field 4096))])
+        "Option Option Array Field struct fields must preserve lengths 0/4/4096"
+  | _ => throw <| IO.userError "NestedOptionArrayFieldSurface must retain one struct"
+  match nestedOptionArrayFieldSurface.enums with
+  | #[tag] =>
+      expect (tag.name == "NestedOptionArrayFieldTag" &&
+          tag.variants.map (·.payloadTypes) ==
+            #[#[.option (.option (.array .field 4))],
+              #[.option (.option (.array .field 4096))]])
+        "Option Option Array Field enum payloads must preserve lengths 4/4096"
+  | _ => throw <| IO.userError "NestedOptionArrayFieldSurface must retain one enum"
+  match nestedOptionArrayFieldSurface.consts with
+  | #[seed] =>
+      expect (seed.name == "NestedOptionArrayFieldSeed" &&
+          seed.type == .option (.option (.array .field 0)))
+        "Option Option Array Field const type must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionArrayFieldSurface must retain NestedOptionArrayFieldSeed"
+  match nestedOptionArrayFieldSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.option (.option (.array .field 4))])
+        "Option Option Array Field initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "NestedOptionArrayFieldSurface must retain initializer"
+  match nestedOptionArrayFieldSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option (.array .field 4))] &&
+          echoEntry.result == .option (.option (.array .field 4)) &&
+          getView.result == .option (.option (.array .field 4)) && getView.mode == .view)
+        "Option Option Array Field entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionArrayFieldSurface must retain echo and get"
+  match nestedOptionArrayFieldSurface.functions with
+  | #[identFn] =>
+      expect (identFn.params.map (·.type) == #[.option (.option (.array .field 4096))] &&
+          identFn.result == .option (.option (.array .field 4096)))
+        "Option Option Array Field fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "NestedOptionArrayFieldSurface must retain ident"
+  match ← session.selectProgram nestedOptionArrayFieldSurfaceSource
+      "<nested-option-array-field>" none with
+  | .ok decoded =>
+      expect (decoded == nestedOptionArrayFieldSurface)
+        "Loader and Lean command must produce the same nested Option Array Field Source.Program"
+      expect (decoded.sourceHash == nestedOptionArrayFieldSurface.sourceHash)
+        "Loader and Lean command must produce the same nested Option Array Field sourceHash"
   | .error error => throw <| IO.userError error.render
 
   let optionArrayFieldSurface := Tests.Language.OptionDeclarationsFixture.OptionArrayFieldSurface
@@ -2201,6 +2327,77 @@ unsafe def run : IO Unit := do
     expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
       s!"{label} semantic tag16+tag16+tag18 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
+  let noafSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Array Field bn254_fr 0", .option (.option (.array .field 0)), 0, "UNBOUND"),
+    ("Option Option Array Field bn254_fr 4", .option (.option (.array .field 4)), 0, "UNBOUND"),
+    ("Option Option Array Field bn254_fr 4096", .option (.option (.array .field 4096)), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in noafSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag16+tag16+tag18+tag2 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  let noafSourceCanon (type : Source.ValueType) : ByteArray × String :=
+    ((twin type).canonicalBytes, (twin type).sourceHash)
+  let noafSourceDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+    let leftPair := noafSourceCanon left
+    let rightPair := noafSourceCanon right
+    expect (leftPair.1 != rightPair.1 && leftPair.2 != rightPair.2) message
+  let noaf0 : Source.ValueType := .option (.option (.array .field 0))
+  let noaf4 : Source.ValueType := .option (.option (.array .field 4))
+  let noafMax : Source.ValueType := .option (.option (.array .field 4096))
+  noafSourceDistinct noaf0 noaf4
+    "Option Option Array Field 0 vs 4 Source must non-alias (bytes+hash)"
+  noafSourceDistinct noaf4 noafMax
+    "Option Option Array Field 4 vs 4096 Source must non-alias (bytes+hash)"
+  noafSourceDistinct noaf0 noafMax
+    "Option Option Array Field 0 vs 4096 Source must non-alias (bytes+hash)"
+  noafSourceDistinct noaf4 (.option (.array .field 4))
+    "Option Option Array Field 4 Source must non-alias Option Array Field 4 (bytes+hash)"
+  noafSourceDistinct noaf4 (.option (.option (.array .u64 4)))
+    "Option Option Array Field 4 Source must non-alias Option Option Array UInt64 4 (bytes+hash)"
+  noafSourceDistinct noaf4 (.option (.option .field))
+    "Option Option Array Field 4 Source must non-alias Option Option Field bn254_fr (bytes+hash)"
+  noafSourceDistinct noaf4 (.array (.option (.option .field)) 4)
+    "Option Option Array Field 4 Source must non-alias Array Option Option Field 4 (bytes+hash)"
+
+  let noafSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Array Field bn254_fr 0", .option (.option (.array .field 0)), 0, "UNBOUND"),
+    ("Option Option Array Field bn254_fr 4", .option (.option (.array .field 4)), 0, "UNBOUND"),
+    ("Option Option Array Field bn254_fr 4096", .option (.option (.array .field 4096)), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in noafSemanticVectors do
+    let sourceProgram := twin type
+    let semantic ← match Compiler.compile sourceProgram with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
+      s!"{label} semantic tag16+tag16+tag18+tag2 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
+  let noafSemanticCanon (type : Source.ValueType) : IO (ByteArray × String) := do
+    match Compiler.compile (twin type) with
+    | .ok value => pure (value.canonicalBytes, value.semanticHash)
+    | .error error =>
+        throw <| IO.userError
+          s!"nested Option Array Field semantic non-alias twin must compile: {error.render}"
+  let noafSemanticDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+    let leftPair ← noafSemanticCanon left
+    let rightPair ← noafSemanticCanon right
+    expect (leftPair.1 != rightPair.1 && leftPair.2 != rightPair.2) message
+  noafSemanticDistinct noaf0 noaf4
+    "Option Option Array Field 0 vs 4 Semantic must non-alias (bytes+hash)"
+  noafSemanticDistinct noaf4 noafMax
+    "Option Option Array Field 4 vs 4096 Semantic must non-alias (bytes+hash)"
+  noafSemanticDistinct noaf0 noafMax
+    "Option Option Array Field 0 vs 4096 Semantic must non-alias (bytes+hash)"
+  noafSemanticDistinct noaf4 (.option (.array .field 4))
+    "Option Option Array Field 4 Semantic must non-alias Option Array Field 4 (bytes+hash)"
+  noafSemanticDistinct noaf4 (.option (.option (.array .u64 4)))
+    "Option Option Array Field 4 Semantic must non-alias Option Option Array UInt64 4 (bytes+hash)"
+  noafSemanticDistinct noaf4 (.option (.option .field))
+    "Option Option Array Field 4 Semantic must non-alias Option Option Field bn254_fr (bytes+hash)"
+  noafSemanticDistinct noaf4 (.array (.option (.option .field)) 4)
+    "Option Option Array Field 4 Semantic must non-alias Array Option Option Field 4 (bytes+hash)"
+
   let optionArrayFieldSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Option Array Field bn254_fr 0", .option (.array .field 0), 259,
       "7af10a115ef40c8d50825cee9dedf87c64252e60534712bed73de354c13330f3"),
@@ -2633,6 +2830,30 @@ unsafe def run : IO Unit := do
       ("missing nested Array element", "MissingNestedOptionArrayElement", "Option Option Array"),
       ("unknown nested Array element", "UnknownNestedOptionArrayElement", "Option Option Array Mystery 4"),
       ("Field nested Array element", "FieldNestedOptionArrayElement", "Option Option Array Field 4"),
+      ("alternate nested Option Array Field id", "AlternateNestedOptionArrayFieldId",
+        "Option Option Array Field bls12_381_fr 4"),
+      ("escaped nested Option Array Field id", "EscapedNestedOptionArrayFieldId",
+        "Option Option Array Field «bn254_fr» 4"),
+      ("qualified nested Option Array Field id", "QualifiedNestedOptionArrayFieldId",
+        "Option Option Array Field Curves.bn254_fr 4"),
+      ("over-bound nested Option Array Field length", "OverBoundNestedOptionArrayField",
+        "Option Option Array Field bn254_fr 4097"),
+      ("leading-zero nested Option Array Field length", "LeadingZeroNestedOptionArrayField",
+        "Option Option Array Field bn254_fr 01"),
+      ("hex nested Option Array Field length", "HexNestedOptionArrayField",
+        "Option Option Array Field bn254_fr 0x10"),
+      ("underscore nested Option Array Field length", "UnderscoreNestedOptionArrayField",
+        "Option Option Array Field bn254_fr 4_096"),
+      ("bare Bytes nested Option Array Field prefix", "BareBytesNestedOptionArrayField",
+        "Option Option Array Bytes 4"),
+      ("bare Option nested Option Array Field prefix", "BareOptionNestedOptionArrayField",
+        "Option Option Array Option 4"),
+      ("bare Array nested Option Array Field prefix", "BareArrayNestedOptionArrayField",
+        "Option Option Array Array 4"),
+      ("bare Map nested Option Array Field prefix", "BareMapNestedOptionArrayField",
+        "Option Option Array Map 4"),
+      ("Widget nested Option Array Field leaf", "WidgetNestedOptionArrayField",
+        "Option Option Array Widget 4"),
       ("over-bound nested Array length", "OverBoundNestedOptionArray", "Option Option Array UInt64 4097"),
       ("leading-zero nested Array length", "LeadingZeroNestedOptionArray", "Option Option Array UInt64 01"),
       ("hex nested Array length", "HexNestedOptionArray", "Option Option Array UInt64 0x10"),
@@ -2760,6 +2981,21 @@ unsafe def run : IO Unit := do
       throw <| IO.userError s!"migrated Option Array Field bn254_fr 4 produced {programs.size} programs"
   | .error error =>
       throw <| IO.userError s!"migrated Option Array Field bn254_fr 4 must parse: {error.render}"
+
+  let migratedNestedOptionArrayFieldSource :=
+    negativeSource "MigratedNestedOptionArrayField" "Option Option Array Field bn254_fr 4"
+  match ← session.parsePrograms migratedNestedOptionArrayFieldSource
+      "<migrated-nested-option-array-field>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) ==
+          #[.option (.option (.array .field 4))])
+        "migrated Option Option Array Field bn254_fr 4 pin must now parse as existing option(option(array(field,4)))"
+  | .ok programs =>
+      throw <| IO.userError
+        s!"migrated Option Option Array Field bn254_fr 4 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError
+        s!"migrated Option Option Array Field bn254_fr 4 must parse: {error.render}"
 
   let migratedOptionArrayOptionSource :=
     negativeSource "MigratedOptionArrayOption" "Option Array Option Bool 4"
@@ -2958,7 +3194,37 @@ unsafe def run : IO Unit := do
       ("negative nested Array length", "Option Option Array UInt64 -1"),
       ("missing nested Array length", "Option Option Array UInt64"),
       ("extra nested Array payload", "Option Option Array UInt64 4 Principal"),
-      ("full Field nested Array element", "Option Option Array Field bn254_fr 4"),
+      ("missing nested Option Array Field length", "Option Option Array Field bn254_fr"),
+      ("negative nested Option Array Field length", "Option Option Array Field bn254_fr -1"),
+      ("identifier nested Option Array Field length", "Option Option Array Field bn254_fr N"),
+      ("extra nested Option Array Field payload",
+        "Option Option Array Field bn254_fr 4 Principal"),
+      ("split nested Option Array Field outer Option",
+        "Option\n  Option Array Field bn254_fr 4"),
+      ("split nested Option Array Field middle Option",
+        "Option Option\n  Array Field bn254_fr 4"),
+      ("split nested Option Array Field Array",
+        "Option Option Array\n  Field bn254_fr 4"),
+      ("split nested Option Array Field constructor",
+        "Option Option Array Field\n  bn254_fr 4"),
+      ("split nested Option Array Field length",
+        "Option Option Array Field bn254_fr\n  4"),
+      ("escaped outer Option nested Option Array Field",
+        "«Option» Option Array Field bn254_fr 4"),
+      ("qualified outer Option nested Option Array Field",
+        "Std.Option Option Array Field bn254_fr 4"),
+      ("escaped middle Option nested Option Array Field",
+        "Option «Option» Array Field bn254_fr 4"),
+      ("qualified middle Option nested Option Array Field",
+        "Option Std.Option Array Field bn254_fr 4"),
+      ("escaped Array nested Option Array Field",
+        "Option Option «Array» Field bn254_fr 4"),
+      ("qualified Array nested Option Array Field",
+        "Option Option Std.Array Field bn254_fr 4"),
+      ("escaped Field nested Option Array Field",
+        "Option Option Array «Field» bn254_fr 4"),
+      ("qualified Field nested Option Array Field",
+        "Option Option Array Std.Field bn254_fr 4"),
       ("nested Option nested Array element", "Option Option Array Option Bool 4"),
       ("nested Bytes nested Array element", "Option Option Array Bytes 8 4"),
       ("nested Array nested Array element", "Option Option Array Array UInt64 4 4"),
@@ -3132,6 +3398,41 @@ unsafe def run : IO Unit := do
     | .ok _ =>
         throw <| IO.userError
           s!"Option Option Option Field/{target} must not materialize or emit artifact"
+
+  let nestedOptionArrayFieldBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.NestedOptionArrayFieldBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"NestedOptionArrayFieldBoundary must compile: {error.render}"
+  expect (nestedOptionArrayFieldBoundary.requirements == #[.fieldBn254])
+    "Option Option Array Field must recursively propagate fieldBn254 exactly once"
+  match nestedOptionArrayFieldBoundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option (.array .field 4))] &&
+          echoEntry.result == .option (.option (.array .field 4)))
+        "Source-to-Semantic adaptation must preserve nested Option Array Field tags and length"
+  | _ => throw <| IO.userError "NestedOptionArrayFieldBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target nestedOptionArrayFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Option Option Array Field support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError
+          s!"Option Option Array Field/{target} checkSupport wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError
+          s!"Option Option Array Field/{target} unexpectedly passed checkSupport"
+    match Targets.materializeResult target nestedOptionArrayFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Option Option Array Field materialize rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError
+          s!"Option Option Array Field/{target} materializeResult wrong failure: {other.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"Option Option Array Field/{target} must not materialize or emit artifact"
 
   let optionBytesBoundary ← match Compiler.compile
       Tests.Language.OptionDeclarationsFixture.OptionBytesBoundary with
