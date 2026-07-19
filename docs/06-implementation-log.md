@@ -4707,3 +4707,21 @@ normative: false
 - Next：`TASK-D0-07`（pending）——先写冻结完成包（含 genesis §5 信任升级义务：
   eligible host 重放全部 genesis TST + `TST-HOST-002`/`TST-SBOM-002`，darwin live
   重观察 P2 债务截止其关闭前），再置 `in_progress`。
+
+## 2026-07-19 — TASK-D0-07 冻结完成包与 in_progress
+
+- Context：D0-04 真实 activation 关闭（`EV-20260719-0075`）后，`TASK-D0-07` 的全部
+  完成依赖闭合。按 GOV-TASK-FREEZE-001 §3.2 在同一变更集写入冻结完成包并置
+  `in_progress`（当前无其他 in_progress 任务）。
+- Changed：新增 [`governance/task-freeze-packages/TASK-D0-07.json`](governance/task-freeze-packages/TASK-D0-07.json)
+  （output 与任务表逐字一致、Tests 恰为 `TST-EVIDENCE-002, TST-ISO-002`、
+  Dependencies 恰为 `TASK-D0-04`、doneWhen 含 genesis §5 信任升级重放与
+  GOV-PRECUTOVER-001 §4.1 的 `TST-HOST-002`/`TST-SBOM-002` 重放、darwin live
+  重观察与 D0-03 两项递延 P2 清偿）；任务表 D0-07 行 `pending → in_progress`；
+  AGENTS.md checkpoint（Active=`TASK-D0-07`、Next=`TASK-D1-01`）。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok（M2 冻结包对齐、
+  checkpoint 镜像、唯一 in_progress）；`git diff --check` clean。
+- Limitations：本变更集只做冻结与调度，不交付任何 D0-07 技术内容；formal gate
+  catalog、finalizer、freshness/private scan/revocation、support-binding 与
+  TST-EVIDENCE-002/TST-ISO-002 均未开始；darwin live 重观察需 Mac 实机（外部前置）。
+- Next：按冻结包先做 TST-ISO-002/TST-EVIDENCE-002 的 RED（先失败验收后实现）。

@@ -14,9 +14,9 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：8/9 done**；`TASK-D0-04` 经真实 six-item activation 关闭（bootstrap 级 cutover，`EV-20260719-0075`），`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级），`TASK-D0-07` pending；尚未正式进入 D1 |
-| Active task | 无；当前没有可合法置为 `in_progress` 的正式 TASK |
-| Next task | **TASK-D0-07**（pending；依赖已随 D0-04 activation 闭合，开工前必须先写入冻结完成包并含 genesis §5 信任升级义务） |
+| Formal milestone | **D0：8/9 done**；`TASK-D0-04` 经真实 six-item activation 关闭（bootstrap 级 cutover，`EV-20260719-0075`），`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级），`TASK-D0-07` in_progress；尚未正式进入 D1 |
+| Active task | **TASK-D0-07**（formal hermetic clean-room gate + evidence-set finalizer；冻结包 [`docs/governance/task-freeze-packages/TASK-D0-07.json`](docs/governance/task-freeze-packages/TASK-D0-07.json)） |
+| Next task | **TASK-D1-01**（pending；但其 Dependencies 含 D0-07，正式开工仍须当前 in_progress 任务先 done） |
 | Active development slice | 无；D1-PA-73 exact `Option Option Option Field bn254_fr` existing-carrier spelling 已由 `EV-20260719-0070` 收口，formal TASK-D1-03 仍 pending |
 | Next development slice | 未冻结；下一步先做 post-PA-73 residual audit 与 bounded arbitration，禁止由 checkpoint 自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
