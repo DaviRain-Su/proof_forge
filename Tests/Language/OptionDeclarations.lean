@@ -1832,8 +1832,9 @@ unsafe def run : IO Unit := do
 
   let tripleFieldType : Source.ValueType := .option (.option (.option .field))
   let tripleFieldSource := twin tripleFieldType
-  expect (tripleFieldSource.canonicalBytes.size == 0 &&
-      tripleFieldSource.sourceHash == "UNBOUND")
+  expect (tripleFieldSource.canonicalBytes.size == 245 &&
+      tripleFieldSource.sourceHash ==
+        "85c34b3dd740b76b06ee4061b32105c0067e6c53da11bb44e1c89139331eeb87")
     s!"Option Option Option Field source tag16+tag16+tag16+tag2 golden is unbound: size={tripleFieldSource.canonicalBytes.size}, hash={tripleFieldSource.sourceHash}"
   let tripleFieldSourceCanon (type : Source.ValueType) : ByteArray × String :=
     ((twin type).canonicalBytes, (twin type).sourceHash)
@@ -1856,8 +1857,9 @@ unsafe def run : IO Unit := do
     | .error error =>
         throw <| IO.userError
           s!"Option Option Option Field semantic twin must compile: {error.render}"
-  expect (tripleFieldSemantic.canonicalBytes.size == 0 &&
-      tripleFieldSemantic.semanticHash == "UNBOUND")
+  expect (tripleFieldSemantic.canonicalBytes.size == 195 &&
+      tripleFieldSemantic.semanticHash ==
+        "f3e03abd85c77362313c72f789d3bb36c40ee9e4fed6aeff80eba8b31695f223")
     s!"Option Option Option Field semantic tag16+tag16+tag16+tag2 golden is unbound: size={tripleFieldSemantic.canonicalBytes.size}, hash={tripleFieldSemantic.semanticHash}"
   let tripleFieldSemanticCanon (type : Source.ValueType) : IO (ByteArray × String) := do
     match Compiler.compile (twin type) with
@@ -2447,6 +2449,12 @@ unsafe def run : IO Unit := do
         "Option Option Option Field «bn254_fr»"),
       ("qualified Field Triple Option identifier", "QualifiedFieldTripleOptionId",
         "Option Option Option Field Curves.bn254_fr"),
+      ("split Triple Option Field third Option", "SplitTripleOptionFieldThird",
+        "Option Option Option\n  Field bn254_fr"),
+      ("escaped third Triple Option Field constructor", "EscapedThirdTripleOptionField",
+        "Option Option «Option» Field bn254_fr"),
+      ("qualified third Triple Option Field constructor", "QualifiedThirdTripleOptionField",
+        "Option Option Std.Option Field bn254_fr"),
       ("missing Triple Option element", "MissingTripleOptionElement",
         "Option Option Option"),
       ("bare fourth nested option", "BareFourthNestedOption",
@@ -2578,15 +2586,11 @@ unsafe def run : IO Unit := do
       ("extra Triple Option Field payload", "Option Option Option Field bn254_fr Principal"),
       ("split Triple Option Field outer Option", "Option\n  Option Option Field bn254_fr"),
       ("split Triple Option Field middle Option", "Option Option\n  Option Field bn254_fr"),
-      ("split Triple Option Field third Option", "Option Option Option\n  Field bn254_fr"),
       ("split Triple Option Field identifier", "Option Option Option Field\n  bn254_fr"),
       ("escaped outer Triple Option Field", "«Option» Option Option Field bn254_fr"),
       ("qualified outer Triple Option Field", "Std.Option Option Option Field bn254_fr"),
       ("escaped middle Triple Option Field", "Option «Option» Option Field bn254_fr"),
       ("qualified middle Triple Option Field", "Option Std.Option Option Field bn254_fr"),
-      ("escaped inner Triple Option Field constructor", "Option Option «Option» Field bn254_fr"),
-      ("qualified inner Triple Option Field constructor",
-        "Option Option Std.Option Field bn254_fr"),
       ("escaped Field Triple Option constructor", "Option Option Option «Field» bn254_fr"),
       ("qualified Field Triple Option constructor", "Option Option Option Std.Field bn254_fr"),
       ("escaped inner Triple Option", "Option Option «Option» Bool"),
