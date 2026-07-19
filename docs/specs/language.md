@@ -631,6 +631,46 @@ runtime representation、ABI 或 target Array-Option-Bytes support。production 
 aggregate/test binary、`just sbom` 与 independent review 全绿后只可记录 existing-carrier spelling；按冻结
 不重复完整 `just ci`，不得声明 runtime semantics、完整 type grammar 或正式 D1 完成。
 
+D1-PA-73 冻结的 pre-acceptance alpha 子集只为已有
+`option(option(option(field)))` carrier 开放 exact same-line spelling
+`Option Option Option Field bn254_fr`。Field identifier 必须是 raw exact `bn254_fr`，tag 固定
+`16→16→16→2`，requirements 经三层 Option 精确透传为单个 `fieldBn254`。本冻结只对这一 exact
+spelling supersede D1-PA-62 的 third-layer Field deferred 与 D1-PA-70 的 Field-element fail-closed 项；
+PA55/PA62 已完成的一层/两层 Field spelling
+保持不变，Bytes/Array/Option/Map/Named leaf、第四层 Option 与任意 recursive Option grammar 继续 fail
+closed。不得新增 ctor/tag、修改 Source/Semantic encoder、Typed 或 target。
+
+frontend 只能新增 exact contextual named `optionOptionOptionFieldType` 与 struct-field 对应 parser；不得
+放宽既有 `optionOptionOptionType`、`optionOptionFieldType`、`optionOptionType` 或 `portableType`，不得引入
+recursive parser。新增 decoder 必须复用 closed `decodeNestedOptionFieldValueTypeFromAtoms` 的 raw
+`bn254_fr` exact policy，再只包一层 Option；专用 type 与 aggregate dispatch 必须先于 generic
+`optionOptionOptionType`/aggregate parser。Lean command 与 ParserSession 必须得到同一 Source tree/hash。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+`("full Field Triple Option element", "Option Option Option Field bn254_fr")` parser-negative 迁移为
+positive，migration count 精确为一；incomplete `Option Option Option Field` 继续保留为 negative，其他
+测试不得迁移。positive 覆盖所有 declaration positions（含 event/error）与双入口 parity。Source/Semantic
+canonical tests 各固定一个 exact vector，并在两侧分别与 bare Field、一层/两层 Option Field、同深度
+UInt64/Bool 做 canonical bytes/hash non-alias，证明第三 wrapper 与 Field leaf 都进入 preimage。requirements
+必须恰为单个 `fieldBn254`；四个 Phase 1 target 的 `Targets.checkSupport` 与
+`Targets.materializeResult` 必须都返回 exact `.unsupportedRequirement .fieldBn254 actualTarget` 且
+`actualTarget == target`，证明不能进入 Plan、`OutputSet` 或产出 artifact。
+
+error channel 经 GREEN 前 focused runtime probe 校正如下：incomplete/alternate/escaped/qualified Field id、
+第三个 Option constructor 的 escaped/qualified form及第三个 Option 后换行必须 exact
+`unsupported portable type`；extra payload、第一/第二个 Option 后或 Field/id 之间换行、第一/第二个
+Option constructor 任一位置与 Field constructor 的 escaped/qualified form 必须 parser-rejected。这项
+empirical channel correction 不改变 Output、Tests 集合、migration count 或 Done 语义。
+Bytes/Array/Option/Map/Named leaf 与
+第四层 Option 只保持既有 negatives，不新增完成条件。本切片不实现 none/some/unwrap、field literal/
+arithmetic、任意 recursive type grammar、recursive legality、runtime representation、ABI 或 target
+triple-Option-Field support。production 仅限 `Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，
+并在同一 GREEN 刷新 Lean package file-set。focused 23-job、192-job aggregate/test binary、`just sbom` 与
+independent review 全绿后只可记录 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明
+runtime semantics、完整 type grammar 或正式 D1 完成。post-PA-72 bounded arbitration 因本 spelling 只有
+单一 Field leaf/golden、无双长度与 15-atom matrix，选择它而非更大的
+`Array Option Array PrimitiveAtom N M`；该选择不是 checkpoint 自动递增。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有

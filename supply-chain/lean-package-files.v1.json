@@ -96,9 +96,9 @@
       "sha256": "c790a96eadd7819a1bd6b7e936e127a6fd17093cc1a672e36d1b68a9f8b23682"
     },
     {
-      "bytes": 88229,
+      "bytes": 89794,
       "path": "ProofForgeV2/Language/Syntax.lean",
-      "sha256": "9b399271fd6a1cfa380a1bd61ddd30e4063c6399a677b6eba3ceb3d5f0b08392"
+      "sha256": "09cc60143e0041893abb25acef37db62c098e55840ff11442702a8ed6513670d"
     },
     {
       "bytes": 2466,

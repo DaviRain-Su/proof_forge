@@ -1109,6 +1109,34 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明 bytes/array/
   option value operations、none/some/unwrap、runtime/ABI、target Array-Option-Bytes support、完整 recursive
   grammar 或正式 D1 完成。
+- D1-PA-73 的 alpha tests 只开放 exact same-line `Option Option Option Field bn254_fr`，物化为既有
+  `Source/Semantic.ValueType.option (.option (.option .field))`，tag 固定 `16→16→16→2`。本条只对
+  exact 三层 Option + exact raw `bn254_fr` Field leaf 测试面 supersede D1-PA-62 的 third-layer Field
+  deferred 与 D1-PA-70 的 Field-element fail-closed 项；PA55/PA62 的既有一层/两层 Field spelling 保持不变，Bytes/Array/Option/Map/Named leaf、
+  第四层 Option 与任意 recursive grammar 仍不开放。tests-only RED 只修改
+  `Tests.Language.OptionDeclarations`，将既有一条
+  `("full Field Triple Option element", "Option Option Option Field bn254_fr")` negative 迁移为 positive，
+  migration count 精确为一；incomplete `Option Option Option Field` 必须保留为 negative，其他测试不得迁移。
+  positive 覆盖 state、struct field、enum payload、const、event/error parameter、initializer/entry/view/fn
+  parameter/result 与 Lean command/ParserSession parity。Source/Semantic 各固定 exact 一个 golden vector；
+  candidate 必须在两侧分别与 bare Field、`Option Field bn254_fr`、`Option Option Field bn254_fr`、
+  `Option Option Option UInt64`、`Option Option Option Bool` 的 canonical bytes 与 hash non-alias；RED 中新
+  golden 显式未绑定，GREEN 前由独立 probe 计算。requirements 必须精确为单个 `fieldBn254`；四个
+  Phase 1 target 的 `Targets.checkSupport` 与 `Targets.materializeResult` 必须都返回 exact
+  `.unsupportedRequirement .fieldBn254 actualTarget` 且 `actualTarget == target`，证明不能进入 Plan、
+  `OutputSet` 或产出 artifact。
+  error channel 经 GREEN 前 focused runtime probe 校正如下：incomplete/alternate/escaped/qualified Field id、
+  第三个 Option constructor 的 escaped/qualified form及第三个 Option 后换行必须 exact
+  `unsupported portable type`；extra payload、第一/第二个 Option 后或 Field/id 之间换行、第一/第二个
+  Option constructor 任一位置与 Field constructor 的 escaped/qualified form 必须 parser-rejected。这项
+  empirical channel correction 不改变 Output、Tests 集合、migration count 或 Done 语义。
+  Bytes/Array/Option/Map/Named leaf 与第四层 Option 只保持既有 negatives，不新增 PA73
+  migration 或无关完成条件。production 仅限 Syntax 一文件 ≤32 additions/2 removals，刷新 package
+  file-set；focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后收口。
+  按冻结不重复完整 `just ci`；不得声明 none/some/unwrap、field value/arithmetic、runtime/ABI、target
+  triple-Option-Field support、完整 recursive grammar 或正式 D1 完成。post-PA-72 bounded arbitration
+  因本 spelling 只有单一 Field leaf/golden、无双长度与 15-atom matrix，选择它而非更大的
+  `Array Option Array PrimitiveAtom N M`；该选择不是 checkpoint 自动递增。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
