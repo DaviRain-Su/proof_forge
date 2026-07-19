@@ -4929,3 +4929,72 @@ normative: false
   （`parse_formal_evidence_finalization` 全链 round-trip：catalog/gates/
   evidenceRefs/support-binding），或 TST-ISO-002 bwrap stage 引擎切片
   （ADR-0018 §2），同型 RED-then-GREEN。
+
+## 2026-07-19 — TASK-D0-07 slice S4：formal evidence finalizer（single-snapshot orchestrator）
+
+- Context：冻结包 in_scope 要求 formal evidence-set finalizer
+  （single-snapshot、三条 digest 推导、FinalizationRefV1 与 receipt-last
+  发布）。S1–S3 交付了五个 signed input 的 producer；
+  `formal_evidence.py`/`formal_evidence_producer.py` 的 pure
+  consumer/producer 明确把 capture、EV 内容解析与发布编排列为后续切片。
+  本切片交付把它们串起来的 orchestrator。
+- Changed：新模块 `scripts/formal_evidence_finalizer.py`（stdlib-only、
+  exact-path importlib 加载 bootstrap_task_producers /
+  formal_evidence_producer / revocation_ledger / private_scan /
+  formal_input_producers / evidence_v1_core）实现
+  `finalize_formal_evidence`：固定文件集（policy/required-set/phase5/
+  catalog/catalog-approval/handoff/set/activation/6 approvals/6 receipts）
+  + `evidence/` + `revocation/` 一次性 `O_RDONLY|O_NOFOLLOW|O_NONBLOCK`
+  regular 捕获（单文件 ≤4MiB、合计 ≤64MiB，spec §Single safe-open
+  snapshot 上限），捕获后只按字节推导、不重读；EV 内容解析（ref digest
+  ==bundle 字节 plain sha256、`validate_evidence` 全 schema、
+  result=="passed"、非 D0 gate formal 资格 / D0 gate development、
+  repository commit/treeObjectId/archive.sha256 对 handoff candidate 三重
+  join、gate id/taskId/testIds 对 catalog 行精确、build 非空 gate 的
+  artifact target 匹配、revoked id 拒绝、可选 gateCatalog catalogDigest
+  join、bundle 中未被任何 gate 引用的 EV 拒绝）；member 完备性（从已解析
+  EV 的 inputs/retained artifacts/logs 推导 scannedMembers，`members/`
+  目录 exact-set 拒绝任何未声明文件，签名 receipt 的 member size/digest
+  再对 EV 声明值逐项复核——抓 member 漂移）；freshness 在 produce 时刻
+  判定（`freshness_expires_at` + `require_freshness_window`，ADR-0018
+  §3）；finalizer executableDigest==handoff tcb.formalFinalizerDigest
+  提前断言；record/binding 经
+  `formal_evidence_producer.produce_formal_evidence_finalization` /
+  `publish_finalization` / `produce_support_binding` /
+  `publish_support_binding`（不重新实现），落盘 record 再以
+  `parse_formal_evidence_finalization` 全链复验；任何失败
+  `PF-EVIDENCE-FORMAL-UNVERIFIED` 并清除已发布文件。S2 增加可选
+  `policy_ref` 参数：fixture authority policy 的 privateScanPolicy 是合成
+  pin（`41*32`），receipt 的 policy 字段必须显式给 ContentRef（marker
+  规则仍从 scan-policy 文档字节解析）；additive、S2 自测不受影响。
+- Verification：`/usr/bin/python3 -I -S scripts/formal_evidence_finalizer_self_test.py`
+  ok（26 例：全链 positive——produce+publish+`finalized-formal/<catalog>/
+  <required-set>/EVF-…` 两级目录 layout+receipt-last marker+0444+落盘
+  全链复验、五个 signed input 逐项 parse、expiresAt 关系、rerun
+  no-clobber 原件不动；负例全部 `PF-EVIDENCE-FORMAL-UNVERIFIED`+zero
+  output：EV digest 不符、development 资格、result 非 passed、ref 缺失、
+  多余 EV、member 漂移、未声明 member、scan finding、revoked EV、缺
+  member 文件、phase5 篡改、EV 畸形、坏 revocation 链、binding vector
+  缺 gate、坏 EVF id、handoff 替换、catalog approval 篡改、required-set
+  篡改、缺 receipt、错 candidate、finalizer exe 漂移、freshness 过期）；
+  `just docs-check` 全绿（17 个自测）；`/usr/bin/python3 -I -S
+  scripts/docs_check.py` ok；`git diff --check` clean。development
+  evidence 见台账 `EV-20260719-0079`。
+- Limitations / spec gaps（报告不裁决）：(1) D0 gate 的「EV 必须是对应
+  signed TaskApproval 与 verifier receipt 覆盖的 exact ref」与「每个 ref
+  必须 safe-read bundle EV bytes 并重算 digest」对 commitment 型
+  evidence digest 不可同时满足——fixture 与真实 activation 的 approval
+  evidence digest 都是合成/commitment 值而非 EV 字节 plain sha256，故
+  fixture catalog 只用非 D0 gate；该 join 规则需 spec 裁决（或 approval
+  evidence 模型澄清），本切片只实现 formal/development 资格规则。(2) EV
+  schema 无 BuildIdentity 字段，「适用的 BuildIdentity exact 相等」只能以
+  artifact.target==build.targetId 的 presence 近似（development 约定）。
+  (3) EV hostAttestation/environment 与 host profile/observation 的三方
+  join（spec §1566-1570 的 development bundle 语义）不在本 consumer 的
+  检查集内，归 finalization 集成后续切片。fixture RFC 8032 公测种子，非
+  formal/hermetic evidence；不能关闭 in_progress `TASK-D0-07`；D0
+  formal milestone 仍为 8/9。
+- Next：S5——TST-ISO-002 bwrap stage 引擎切片（ADR-0018 §2：
+  `scripts/sandbox_bwrap.py` profile renderer+launcher+receipt，per-stage
+  materialize/core/evm-runtime profile）或 support-binding store 集成，
+  同型 RED-then-GREEN。

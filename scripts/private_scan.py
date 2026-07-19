@@ -329,12 +329,16 @@ def produce_private_scan_receipt(
     member_specs: Tuple[dict, ...],
     manifest: Mapping[str, str],
     signers: Tuple[Tuple[str, bytes], ...],
+    policy_ref: Optional[dict] = None,
 ) -> bytes:
     """Construct, sign, and re-verify a PrivateScanReceiptV1.
 
     Member size/digest are recomputed from the safe-read member bytes; any
     scan finding, coverage mismatch, or signature-rule failure aborts before
-    a receipt is returned.
+    a receipt is returned.  The receipt's policy field is derived from
+    ``scan_policy_bytes`` unless ``policy_ref`` pins an explicit ContentRef
+    wire (required when the authority policy pins a pre-registered policy
+    digest, as the acceptance fixtures do).
     """
     identifier = _consumer_checked(
         lambda: _CONSUMER._require_ascii_text(
@@ -372,7 +376,39 @@ def produce_private_scan_receipt(
         "authority policy bytes are not a valid signed policy",
     )
     policy = parse_private_scan_policy(scan_policy_bytes)
-    policy_ref = private_scan_policy_ref(scan_policy_bytes)
+    if policy_ref is None:
+        policy_ref = private_scan_policy_ref(scan_policy_bytes)
+    else:
+        obj = _consumer_checked(
+            lambda: _CONSUMER._require_exact_keys(
+                policy_ref, ("schema", "id", "version", "digest"),
+                "PrivateScanReceiptV1.policy",
+            ),
+            "PF-PRIVATE-SCAN-SCHEMA",
+            "policy_ref must be a closed ContentRef wire",
+        )
+        if obj["schema"] != PRIVATE_SCAN_POLICY_SCHEMA:
+            _schema("policy_ref.schema is not private-scan-policy.v1")
+        _consumer_checked(
+            lambda: _CONSUMER._require_ascii_text(
+                obj["id"], _CONSUMER.PROFILE_ID_RE,
+                "PrivateScanReceiptV1.policy.id", 127,
+            ),
+            "PF-PRIVATE-SCAN-SCHEMA",
+            "policy_ref.id must use the ContentRef id grammar",
+        )
+        _consumer_checked(
+            lambda: _CONSUMER._require_semver(
+                obj["version"], "PrivateScanReceiptV1.policy.version",
+            ),
+            "PF-PRIVATE-SCAN-SCHEMA",
+            "policy_ref.version must be exact SemVer",
+        )
+        _consumer_checked(
+            lambda: _CONSUMER.parse_digest(obj["digest"]),
+            "PF-PRIVATE-SCAN-SCHEMA",
+            "policy_ref.digest must be the SPEC-COMMON Digest wire form",
+        )
     outcome = scan_bundle_members(manifest, policy)
     if outcome.findings or len(outcome.findings) > policy.maximumFindings:
         _verify("scan findings exceed the policy maximumFindings")
