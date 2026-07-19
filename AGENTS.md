@@ -17,7 +17,7 @@
 | Formal milestone | **D0：7/9 done**；`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级），`TASK-D0-04` blocked，`TASK-D0-07` pending；尚未正式进入 D1 |
 | Active task | 无；当前没有可合法置为 `in_progress` 的正式 TASK |
 | Next task | **TASK-D0-04**（blocked；仍是表序中的下一个非 done 正式任务） |
-| Active development slice | **D1-PA-82 / TASK-D1-05 pre-acceptance**：exported `Source.Program` constant-value structural reconstruction；完成面已冻结，下一步提交 tests-only RED；正式 `TASK-D1-05` 仍为 pending |
+| Active development slice | **D1-PA-82 / TASK-D1-05 pre-acceptance**：exported `Source.Program` constant-value structural reconstruction；完成面已按 Lean 4.31 可观察边界修正重冻，下一步提交 tests-only RED；正式 `TASK-D1-05` 仍为 pending |
 | Next development slice | 未冻结；D1-PA-82 收口后再审计 identity-level duplicate seam，禁止由 checkpoint 自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |

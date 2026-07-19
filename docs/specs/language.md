@@ -1083,8 +1083,12 @@ programPayloads : Lean.Environment →
 存在；禁止把未 attributed declaration 当作候选。`programPayloads` 只遍历该 table，并在全部 row 成功后
 一次返回；任一 row 失败不得返回 partial prefix。两者只接受 `ConstantInfo.defnInfo`、definition safety
 为 safe、type exact 为 `ProofForgeV2.Source.Program`、没有 top-level `implemented_by`/extern 替代且
-`Environment.hasUnsafe value = false` 的 declaration；opaque/axiom/theorem、unsafe/partial、missing value、
-type mismatch 与 constant alias 全部以 `PF-EXPORT-004` fail closed。
+`Environment.hasUnsafe value = false` 的 declaration；opaque/axiom/theorem、unsafe、missing value、
+type mismatch、constant alias 与最终呈现 non-direct value 的 partial alias 全部以 `PF-EXPORT-004` fail closed。
+Lean 4.31 对非递归 direct-value `partial def` 不保留可由 `Environment` 或其 closed value `Expr` 观察的
+source-modifier provenance；若其最终为 safe direct `Program.mk`，decoder 按结构与普通 safe def 等同处理。
+不得为了区分该不可观察修饰符而执行 declaration；若未来必须保留 provenance，应由 registry schema
+显式承载并另行冻结，不得回填本切片。
 
 `decodeQuotedProgramV1` 是纯 `Expr → Except` decoder，不查文件、网络、环境变量或 plugin，不调用
 `whnf`/simp/reduce、compiler、`evalConst`/`evalExpr`、`unsafe` API 或 `IO`。root 必须是 exact
@@ -1105,7 +1109,8 @@ decoder 先用显式工作栈对 raw `Expr` 做最多 100000 nodes 的总量预�
 tests-only RED 固定新增 single rich DSL payload fixture、alias/opaque/unsafe/implemented-by negative
 fixtures、snapshot helper 与单一 `Tests.Language.ProgramPayloads` suite，并只修改 `Tests.lean`/
 `lakefile.lean` 注册，总新增不超过 360 行。positive 必须比较 reconstructed Program 的全部 BEq value、
-qualified name 与 sourceHash；negative 必须证明 unregistered、constant alias、opaque、unsafe/partial、
+qualified name 与 sourceHash；negative 必须证明 unregistered、constant alias、opaque、unsafe、可观察的
+partial alias、
 `implemented_by` replacement 均不执行且以 `PF-EXPORT-004` 拒绝，valid+invalid table 不返回 partial。
 test-owned synthetic raw Expr 另固定 100000/100001 node 与 256/257 logical-depth boundary channel。
 

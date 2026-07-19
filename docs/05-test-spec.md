@@ -1350,11 +1350,14 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `programPayload env name` 只接受 `programExports env` 中 exact registered Name；
   `programPayloads env` 必须 all-or-nothing 返回 sorted rows 与 reconstructed payload pair。
   declaration 仅可为 safe `defnInfo`、exact `Source.Program` type、无 `implemented_by`/extern、
-  `Environment.hasUnsafe value = false`；unregistered、missing/opaque、constant alias、unsafe/partial 与
-  implemented-by panic replacement 必须在不执行 replacement、无 FS/network/IO/ambient access 的情况下
+  `Environment.hasUnsafe value = false`；unregistered、missing/opaque、constant alias、unsafe、可观察为
+  non-direct value 的 partial alias 与 implemented-by panic replacement 必须在不执行 replacement、无 FS/network/IO/ambient access 的情况下
   以 `PF-EXPORT-004` 拒绝，禁止 raw exception 或 partial table。positive rich fixture 必须用 BEq、
   qualifiedName 与 sourceHash 证明 reconstructed payload 等于 DSL elaborator constant，并覆盖当前全部
   ValueType/Expr/Statement/declaration constructor family。
+  Lean 4.31 对非递归、direct-value `partial def` 不保留可由 `Environment`/closed `Expr` 观察的 modifier
+  provenance；若其最终是 safe direct `Program.mk`，本切片按结构与普通 safe def 同等处理，不伪称拒绝
+  不可观察的源码修饰符。需要 source-modifier provenance 时必须另行修改 registry schema，属于本切片外。
   RED 只新增 ProgramPayload fixtures/snapshot/suite 与 Tests/lake 注册，总新增 ≤360 行；GREEN 只新增
   `Language/ProgramPayload.lean` ≤520 行并刷新 package file-set。focused/aggregate/test binary、
   `git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录 development evidence；
