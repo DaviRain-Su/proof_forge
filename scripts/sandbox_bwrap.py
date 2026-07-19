@@ -213,6 +213,7 @@ def render_stage_profile(
     tmpfs: Sequence[str],
     env: Sequence[dict],
     workdir: str,
+    workspace_src: Optional[str] = None,
 ) -> dict:
     """Render the closed bwrap stage profile for one stage."""
     if stage not in STAGES:
@@ -262,7 +263,15 @@ def render_stage_profile(
         env_wires.append({"name": name, "value": value})
     env_wires.sort(key=lambda item: item["name"])
     workdir = _require_absolute_normalized(workdir, "workdir")
-    return {
+    workspace = None
+    if workspace_src is not None:
+        workspace_src = _require_absolute_normalized(
+            workspace_src, "workspace.src"
+        )
+        if not os.path.isdir(workspace_src):
+            _io("workspace source is not a directory")
+        workspace = {"src": workspace_src, "dest": workdir, "readOnly": False}
+    wire = {
         "schema": PROFILE_SCHEMA,
         "stage": stage,
         "networkMode": network_mode,
@@ -272,6 +281,9 @@ def render_stage_profile(
         "env": env_wires,
         "workdir": workdir,
     }
+    if workspace is not None:
+        wire["workspace"] = workspace
+    return wire
 
 
 def profile_argv(profile: dict) -> list:
@@ -288,6 +300,10 @@ def profile_argv(profile: dict) -> list:
         argv.extend(("--ro-bind", bind["src"], bind["dest"]))
     for mount in profile["tmpfs"]:
         argv.extend(("--tmpfs", mount))
+    workspace = profile.get("workspace")
+    if workspace is not None:
+        argv.extend(("--bind", workspace["src"], workspace["dest"]))
+    argv.extend(("--dev", "/dev"))
     argv.extend(("--proc", "/proc"))
     argv.extend(("--chdir", profile["workdir"]))
     argv.append("--")
@@ -489,6 +505,7 @@ def launch_stage(
     invocation_binding_sha256: str,
     policies_dir,
     receipt: bool = True,
+    workspace_src: Optional[str] = None,
 ) -> LaunchOutcome:
     """Launch one payload under the rendered bwrap profile."""
     if type(invocation) is not str or INVOCATION_RE.fullmatch(invocation) is None:
@@ -511,7 +528,8 @@ def launch_stage(
     _require_sha256(run_binding_sha256, "runBindingSha256")
     _require_sha256(invocation_binding_sha256, "invocationBindingSha256")
     profile = render_stage_profile(
-        stage, binds=binds, tmpfs=tmpfs, env=env, workdir=workdir
+        stage, binds=binds, tmpfs=tmpfs, env=env, workdir=workdir,
+        workspace_src=workspace_src,
     )
     _, executable_sha256 = _read_observed(Path(executable), "payload executable")
     engine_path = Path(BWRAP_PATH)

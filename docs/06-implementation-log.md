@@ -5117,3 +5117,69 @@ normative: false
 - Next：S7——TST-ISO-002 集成：catalog `locks` 的 bwrap
   engine/renderer/launcher/probe-wrapper digest 钉扎、stage 执行与
   evidence 绑定的 hermetic archive gate harness，同型 RED-then-GREEN。
+
+## 2026-07-19 — TASK-D0-07 slice S7：TST-ISO-002 fixture clean-room harness
+
+- Context：冻结包 in_scope 的 TST-ISO-002（正式 hermetic archive clean-room
+  gate）按 ADR-0018 在 fixture namespace 验收：Stage-0 eligible host、外部
+  anchor、deny-default stages、process containment、gate-catalog evidence。
+  S1–S6 交付了对象族、orchestrator 与 bwrap 引擎；本切片把它们组装为端到
+  端 harness，并落地 `v2-clean-room` 命令名（test-spec ~1991 保留的正式
+  命令名的 fixture 实现；`v2-clean-room-alpha`/`isolated-check` 不变）。
+- Changed：新模块 `scripts/formal_clean_room.py`（stdlib-only、exact-path
+  importlib 加载 bootstrap_task_producers/bootstrap_acceptance/
+  formal_evidence/formal_input_producers/sandbox_bwrap/evidence_v1_core）
+  实现 `run_formal_clean_room`：权威 Stage-0 单次调用并解析
+  `eligibleForHermetic`（超时 360s——钉住的 Stage-0 脚本的 HOST_VERIFIER
+  300s watchdog 竞态偶发占满预算，实测本切片运行中命中一次 304s，其余
+  ~0.2s；不做并行调用以免倍增竞态）；product-tree anchor（`git archive
+  HEAD ProofForgeV2 ProofForgeV2.lean Examples Examples.lean lakefile.lean
+  lake-manifest.json lean-toolchain Tests testdata`，记录
+  commit/tree/archiveDigest/identity digest，extract 无 .git/active/
+  symlink，前后 `git status --porcelain` hash 相等，支持 expected
+  commit/digest 外部锚定）；fixture authority（policy（fixture 四
+  principal）/required-set（fixture 分母 TST-DOC-001/TST-ISO-001/
+  TST-ISO-002）/3-gate catalog（gate-materialize/core/evm-runtime）+
+  formalCatalogRule approval/handoff（fixture finalizer TCB 钉
+  `formal_clean_room.py` 字节）；三个 REAL bwrap stage 经
+  `sandbox_bwrap.launch_stage`（`workspace_src` host-backed RW 工作区新增
+  参数，S6 行为默认不变）驱动并产 engine-neutral receipt：materialize 从
+  `~/.cache/proof-forge-v2/assets` 离线 materialize 五外部工具（asset
+  tar.gz/file 两格式、digest 逐项复核、外网连接 ENETUNREACH）、core 对
+  extracted candidate 结构重审（top-level 精确集、无 symlink、全部
+  .lean 逐字节 hash、source-write 与 policy-read probes 拒绝）、
+  evm-runtime 真实 solc 编译 fixture Counter.sol + Anvil 127.0.0.1 bind +
+  deploy/increment/overflow-rollback/LAN 与邻端口拒绝；SessionContainment
+  ReceiptV1（start_new_session 观察、/proc session 扫描证明 contained、
+  sessionContainmentRule 签发）；fixture formal EV（聚合三
+  sandboxPolicies/六 log/全部 retained inputs/Counter.bin artifact/单
+  attempt（formal invariant 要求）、canonical (role,path)/path/id 排序）。
+  `sandbox_bwrap.py` 增加 `--dev /dev`（payload 子进程需要 devnull）与
+  `workspace_src` host-backed RW bind。justfile 新增 `v2-clean-room` 并接
+  入 `formal_clean_room_self_test.py` 到 `docs-check`。
+- Verification：`/usr/bin/python3 -I -S scripts/formal_clean_room_self_test.py`
+  ok（16 例：API/ineligible+malformed observation 拒绝/全链 positive
+  （evidence+containment 落盘、EV 全 schema 验证（formal/passed/三
+  policy）、containment receipt 全 parse、catalog 三 gate 绑定、三份
+  receipt 的 engine.id/policy/runtimePort/0400、report 行）/state
+  independence 双 run 互不影响且 A 制品不变/stale anchor 与 digest
+  expectation 直测拒绝/status drift mid-run 检出（gitignored 路径教训：
+  marker 须放非 ignore 区）/缺 anvil 时 gate 失败绝不跳绿/网络 denial
+  errno 映射/escape probe 不可签发）；`just v2-clean-room` 端到端通过；
+  `just docs-check` 全绿（20 个自测）；`git diff --check` clean；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok。development evidence
+  见台账 `EV-20260719-0082`。
+- Limitations：fixture RFC 8032 公测种子与 fixture authority，非
+  formal/hermetic evidence；权威 Stage-0 的 300s watchdog 竞态属钉住
+  TCB 脚本既有行为（不得修改）；core payload 为结构重审（docs_check 因
+  product-tree scope 无 docs/scripts 不可用、lean build 分钟级），正式
+  gate 的 lean build/test 归后续集成；containment 为单次 supervised
+  invocation（per-stage 全量 supervisor 归 TST-ISO-002 加固）；EV 为
+  untyped + catalog（3-gate fixture）绑定，typed gateCatalog 字段与
+  D0-gate approval-evidence join（S4 记录的 spec gap）未裁决；
+  catalog locks 对 bwrap 组件 digest 的钉扎与 hermetic archive bundle
+  全链归后续集成；不能关闭 in_progress `TASK-D0-07`；D0 formal
+  milestone 仍为 8/9。
+- Next：S8——把 S7 harness 的 stage evidence 接入 S5 rehearsal 的
+  authority chain（fixture finalization over clean-room outputs）或将
+  supervised containment 扩展到每 stage，同型 RED-then-GREEN。

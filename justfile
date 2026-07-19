@@ -38,6 +38,7 @@ docs-check:
     /usr/bin/python3 -I -S scripts/formal_evidence_finalizer_self_test.py
     /usr/bin/python3 -I -S scripts/formal_evidence_acceptance_self_test.py
     /usr/bin/python3 -I -S scripts/sandbox_bwrap_self_test.py
+    /usr/bin/python3 -I -S scripts/formal_clean_room_self_test.py
     /usr/bin/python3 -I -S scripts/bootstrap_ceremony_prep_self_test.py
 
 # TASK-D0-05 / TST-SBOM-001: deterministic license inventory + CycloneDX 1.6.
@@ -609,3 +610,9 @@ isolated-check:
 
 v2-clean-room-alpha:
     bash scripts/verify_isolation.sh --development
+
+# TST-ISO-002 fixture-namespace clean-room (ADR-0018): authoritative Stage-0,
+# product-tree anchor, bwrap stages, Anvil differential, containment receipt,
+# fixture formal EV.  Fixture keys only; not formal or hermetic evidence.
+v2-clean-room:
+    /usr/bin/python3 -I -S scripts/formal_clean_room.py
