@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D1-02",
+  "frozenAt": "2026-07-19",
+  "freezeCommit": "5bfa52c4e8ff92bcb7f620fd9e810e25e63843be",
+  "output": "`program ... where` command parser",
+  "dependencies": [
+    "TASK-D1-01"
+  ],
+  "prerequisites": [],
+  "tests": [
+    "TST-SRC-003"
+  ],
+  "inScope": [
+    "the unique portable top-level declaration form is the exact program Ident where command; authors cannot select a contract, circuit, zkVM, target, VM, or deployment kind in source",
+    "direct Lean command elaboration and ParserSession command parsing use the same checked program decoder and produce the same command-level Source.Program identity, AST, and sourceHash for the same accepted program command",
+    "program short name and namespace-qualified identity are preserved by command elaboration without target-dependent or ambient-environment rewriting",
+    "an explicit top-level kind/category suffix and non-whitelisted Lean top-level commands fail closed as PF-SRC-INVALID without returning a partial program set or executing user commands"
+  ],
+  "outOfScope": [
+    "source token, span, NodeId, file-byte, Syntax-node, nesting, or qualified-identity resource bounds owned by TASK-D1-01 and TST-SRC-001/TST-SRC-002",
+    "declaration grammar or validation owned by TASK-D1-03/TST-SRC-004 and statement/expression grammar owned by TASK-D1-04/TST-SRC-005",
+    "persistent attribute export/schema owned by TASK-D1-05, multi-program selection owned by TASK-D1-06/TST-SRC-008, or schema-v2 migration",
+    "Diagnostic v1 schema/redaction owned by TASK-D1-07 or contained source opening, parser supervision, and ResourceProfileV1 behavior owned by TASK-D1-08",
+    "name/type/effect/termination/disclosure checking, SemanticProgram construction, requirement solving, Plan/TargetIR, materialization, deployment, runtime, proof, or verification"
+  ],
+  "doneWhen": [
+    "lake build Tests.Language.ProgramCommandAcceptance proof_forge_next_tests exits zero and lake env .lake/build/bin/proof-forge-next-tests exits zero with the frozen TST-SRC-003 assertions enabled",
+    "TASK-D1-01 is done and candidate-bound passed evidence for TST-SRC-003 has qualification=formal under the existing formal finalization rules; any development evidence is insufficient",
+    "traceability and review are closed with no P0/P1 findings, just docs-check passes, and package-to-task-row consistency passes"
+  ],
+  "overflowPolicy": "Any new source form, declaration/body grammar, export/selection behavior, diagnostic schema, resource boundary, or semantic requirement goes to its separately approved TASK; it must not be added to this package after activation.",
+  "maxCalendarDays": 3,
+  "maxCommits": 20,
+  "notes": "Pending preparation only, permitted by the task-freeze checker. The TASK-D1-02 row currently records no evidence; existing mixed ProgramSyntax/Loader development suites do not activate TASK-D1-02 or close formal TST-SRC-003. Byte-exact parser-behavior checks are not TST-DIAG-001 Diagnostic v1 conformance."
+}
