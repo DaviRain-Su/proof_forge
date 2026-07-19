@@ -1583,6 +1583,62 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   不运行完整 `just ci`。`SPEC-SOURCE-WIRE-001` 保持 proposed；`ProofDecl.theorem` carrier、visibility 映射、
   forward-grammar constructor 与 NodeId JCS key 等未触及的完整-model问题不得混入本切片。结果只能记录 development evidence，不能关闭完整 TST-SRC-001、pending
   TASK-D1-01、任何下游 task，也不能把 `pf.source.v1` alpha payload 与未来 ProgramV1 payload 混为一谈。
+- D1-PA-92 是 `TASK-D1-01`/`TST-SRC-001` 的 cursor-based primitive decoder slice。新增
+  `ProofForgeV2.Source.WireDecodeV1`，生产 public surface 精确限于 private-constructor/private-field
+  `CursorV1`、
+  `DecoderV1`、`start`、`remaining`、`finish`、`decodeU8`、`decodeU16le`、`decodeU32le`、
+  `decodeU256le`、`decodeBool`、higher-order `decodeOption`、`decodeArray maxCount` 与 `decodeString`，签名冻结为：
+
+  ```lean
+  structure CursorV1 where
+    private mk ::
+    private input : ByteArray
+    private offset : Nat
+  abbrev DecoderV1 (α : Type) := CursorV1 → Except String (α × CursorV1)
+  start : ByteArray → CursorV1
+  remaining : CursorV1 → Nat
+  finish : CursorV1 → Except String Unit
+  decodeU8 : DecoderV1 UInt8
+  decodeU16le : DecoderV1 UInt16
+  decodeU32le : DecoderV1 UInt32
+  decodeU256le : DecoderV1 Nat
+  decodeBool : DecoderV1 Bool
+  decodeOption (decode : DecoderV1 α) : DecoderV1 (Option α)
+  decodeArray (maxCount : Nat) (decode : DecoderV1 α) : DecoderV1 (Array α)
+  decodeString : DecoderV1 String
+  ```
+
+  decoder 返回 value 与推进后的 cursor；所有 read 必须在 slice/allocation 前检查 remaining bytes，失败不返回
+  partial value/cursor。u16/u32/u256 必须 inverse PA91 little-endian，其中 u256 exact 消费 32 bytes 并保持
+  full Nat；Bool/Option 只接受 0/1 marker；Array 必须先解码 u32 count，再在调用任何 child decoder 或分配
+  result 前以 exact `array count exceeds caller limit` 拒绝 `count > maxCount`，随后保持 wire order并传播第一个
+  child error。`maxCount` 是调用方在未来 closed constructor/profile 中提供的 allocation policy，不代表本切片已
+  实现 global 100000-node/16-MiB budget；String 必须先验证 u32
+  declared byte length 不超过 remaining，再 strict UTF-8 decode 并使用 pinned Unicode `requireNfc` 拒绝 NFD。
+  `finish` 只接受 zero remaining，拒绝 trailing bytes；本切片不冻结各类 malformed input 的诊断文本，唯一例外是上述用于证明
+  array cap 优先级的 exact `array count exceeds caller limit`。
+  `Tests.Language.SourceWireDecodeV1` 必须以 checked-in bytes 固定 u8、非对称 u16/u32/u256、Bool、
+  Option none/some、Array empty/multi-order、ASCII/Unicode NFC String 与 exact-consume positive；negative 固定
+  truncated u8/u16/u32/u256、Bool/Option marker 2、array count over caller cap 且 child decoder 未被调用、
+  first child error、truncated child、string length over remaining、invalid UTF-8、NFD 与 trailing byte。
+  positive 还必须只对 PA91 `encodeU8`/`encodeU16le`/`encodeU32le`/`encodeU256le`/`encodeBool`/
+  `encodeOption`/`encodeArray`/`encodeString` 执行 encode→decode logical round-trip；禁止调用 PA91
+  `encodeIdent`/`encodeQualifiedName`/`encodeQualifiedId`/`encodeTagged`，也不允许只让 decoder 与自身生成的 bytes
+  比较。array-over-cap negative 必须比较上述 exact limit error，并给 child decoder 一个不同 exact error，证明
+  limit failure 先于 child call/allocation。`scripts/reference_source_wire_decode_v1.py --self-check` 必须不 import Lean/ProofForge，以独立 cursor
+  命中同一 fixed vectors/negative classes；只比较 Lean/Python 彼此相等而没有 checked-in bytes 不算通过。
+  变更只允许新增 `ProofForgeV2/Source/WireDecodeV1.lean`、
+  `Tests/Language/SourceWireDecodeV1.lean`、`scripts/reference_source_wire_decode_v1.py`，最小修改
+  `ProofForgeV2.lean`、`Tests.lean`、`lakefile.lean`，并机械刷新
+  `supply-chain/lean-package-files.v1.json`；authored additions 总计 ≤370 行（机械 manifest refresh 不计），
+  decoder ≤145、Lean suite ≤125、Python ≤90、其余 registration additions ≤10。禁止修改 PA91 encoder/
+  suites/reference、Common、Core Source、Language/Loader/Syntax、WireV1、justfile 或其他 production。
+  验证只运行 focused decoder/test/aggregate build、test binary、Python `--self-check`、package refresh 后最终
+  单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。
+  本切片明确不解码 Ident、QualifiedName/QualifiedId 或 tagged constructor：escaped raw component carrier 是
+  model 与 component decoder 的前置，`ProofDecl.theorem`/visibility 是 model 前置，NodeId exact JCS keys 是
+  NodeId slice 前置。结果只能记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01
+  或任何下游 task，也不能声明 16 MiB/global node/nesting budget、full Program exact consume 或 stable Diagnostic。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
