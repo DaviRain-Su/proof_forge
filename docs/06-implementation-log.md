@@ -5445,3 +5445,43 @@ normative: false
   仍 7/9。
 - Next：当前无 active development slice。Grok 正在裁决全部 spine-independent declaration records 与
   full Place/Expr/Stmt/Block SCC 的最小完整后继边界；必须先冻结 exact inventory、validation ownership 与 RED。
+
+## 2026-07-19 — D1 ProgramV1 spine-independent declaration-record pre-acceptance slice
+
+- Commits：D1-PA-98 freeze `3d79f9ba`；RED `d348c074`；GREEN `d4624e20`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片实现 proposed `SPEC-SOURCE-WIRE-001` 中字段依赖已由 PA91–96 闭合的全部七个
+  spine-independent ProgramItem records，但不提前发布残缺 `ProgramItemV1` sum。冻结明确排除
+  Const/Invariant/body-bearing items、Place/Expr/Stmt/Block/arms/ExternalCall mutual spine、Program root、
+  alpha、decoder、global validator、sourceHash、NodeId 与 target。
+- Changed：新增 50-line `AstDeclV1`，精确定义 State/Struct/Enum/Event/Error/ExtensionReq/Proof 七个
+  named records；新增 90-line `AstDeclCodecV1`，七个 encoder 均为 total `def`。Struct fields 与 Enum
+  variants 在访问 name/child 前执行 exact nonempty error；Event/Error 允许 empty params。Extension 严格先
+  source QID，再用 Common `parseSemVer`/`renderSemVer` exact round-trip，最后用 `parseDigest`/`renderDigest`
+  exact round-trip，所有 Common 细分错误映射到冻结的两个统一错误；Proof theorem 复用 source QID。
+- Cross implementation：154-line Lean suite与 157-line 不 import Lean/ProofForge 的 Python oracle持有 14 组
+  byte-exact fixed vectors，覆盖 State 三 visibility与 nested Type、Struct single/multi/reversed FieldDecl、Enum
+  empty-payload/multi-payload、Event/Error empty与 ordered Param、两个 canonical Extension（含
+  prerelease/build）及 Proof。负例逐字覆盖 Struct/Enum empty、State/Struct width 24 child、QID-before-hostile、
+  version-before-digest、bad digest 与 Proof one-component theorem；Python另执行 closing-guillemet/Cc raw
+  negatives。model 50、codec 90、suite 154、Python 157、registrations 5，总 authored additions 456/560；
+  机械 manifest 为 44 files。
+- Verification：`lake build ProofForgeV2.Source.AstDeclV1 ProofForgeV2.Source.AstDeclCodecV1
+  Tests.Language.SourceAstDeclV1 proof_forge_next_tests` 316 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_decl_v1.py --self-check` 输出
+  `reference_source_ast_decl_v1: ok 14`；`just sbom-package-files-refresh` → 44 files；最终单次 `just sbom`
+  self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行完整
+  `just ci`。
+- Review/Evidence：缺失 production import 的初始 RED 只暴露两个目标模块；production 落盘后 Grok 发现
+  suite 局部 binder `from` 为 Lean 保留字，GREEN 内仅重命名为 `from_`，逻辑值与 golden bytes 未变。
+  Kimi 最终 semantic review P0/P1/P2=0；Grok 在 `d4624e20` 上最终 integration review P0/P1=0、无残留；
+  development evidence 为 `EV-20260719-0096`。
+- Limitations：没有 remaining body-bearing declarations 或 recursive Place/Expr/Stmt/Block spine，没有
+  ProgramItem sum/root、declaration decoder、full-tree 256 nesting/100000 nodes/16 MiB validator、binding/
+  duplicate/global semantics、theorem/visibility alpha adapter、root/hash、NodeId 或 stable Diagnostic；spec 仍
+  proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何
+  下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。下一步只做 full Place/Expr/Stmt/Block/arms/ExternalCall SCC 的
+  dependency/constructor/validation/budget 裁决；完成面冻结前不得开始 RED，也不得顺手并入 body-bearing
+  ProgramItem 或完整 root。
