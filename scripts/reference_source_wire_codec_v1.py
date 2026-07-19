@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Independent SPEC-SOURCE-WIRE-001 primitive codec reference (no Lean/ProofForge)."""
-from __future__ import annotations
 import sys, unicodedata
 U16, U256 = 0xFFFF, 1 << 256
-
 def u8(v):
     if not 0 <= v <= 0xFF: raise ValueError("u8")
     return bytes((v,))
@@ -17,25 +15,37 @@ def u256le(n):
     if not 0 <= n < U256: raise ValueError("u256 overflow")
     return n.to_bytes(32, "little")
 def enc_bool(b): return b"\x01" if b else b"\x00"
-def enc_opt(x): return b"\x00" if x is None else b"\x01" + x
-def enc_arr(xs): return u32le(len(xs)) + b"".join(xs)
+def enc_opt(enc, x): return b"\x00" if x is None else b"\x01" + enc(x)
+def enc_arr(enc, xs): return u32le(len(xs)) + b"".join(enc(x) for x in xs)
 def _nfc(s):
     if unicodedata.normalize("NFC", s) != s: raise ValueError("non-NFC")
 def enc_str(s):
     _nfc(s); r = s.encode("utf-8"); return u32le(len(r)) + r
+def _between(n, lo, hi): return lo <= n <= hi
+def _letter_like(c):
+    n = ord(c)
+    return ((_between(n, 0x3B1, 0x3C9) and n != 0x3BB)
+            or (_between(n, 0x391, 0x3A9) and n not in (0x3A0, 0x3A3))
+            or any(_between(n, a, b) for a, b in ((0x3CA, 0x3FB), (0x1F00, 0x1FFE),
+                   (0x2100, 0x214F), (0x1D49C, 0x1D59F), (0x100, 0x17F)))
+            or (_between(n, 0xC0, 0xFF) and n not in (0xD7, 0xF7)))
+def _id_first(c): return c == "_" or c.isascii() and c.isalpha() or _letter_like(c)
+def _id_rest(c):
+    n = ord(c)
+    return (_id_first(c) or c.isascii() and c.isdigit() or c in "'!?"
+            or _between(n, 0x2080, 0x2089) or _between(n, 0x2090, 0x209C)
+            or _between(n, 0x1D62, 0x1D6A) or n == 0x2C7C)
 def enc_ident(s):
     _nfc(s)
-    if (not s or s == "_" or s[0].isdigit() or any(c in ".-" for c in s)
-            or not (s[0].isalpha() or s[0] == "_")
-            or not all(c.isalnum() or c == "_" for c in s)):
+    if not 1 <= len(s.encode()) <= 240 or s == "_" or not _id_first(s[0]) or not all(map(_id_rest, s[1:])):
         raise ValueError("invalid ident")
     return enc_str(s)
 def enc_qn(ps):
     if not 1 <= len(ps) <= 256: raise ValueError("qn")
-    return enc_arr([enc_ident(p) for p in ps])
+    return enc_arr(enc_ident, ps)
 def enc_qi(ps):
     if not 2 <= len(ps) <= 256: raise ValueError("qi")
-    return enc_arr([enc_ident(p) for p in ps])
+    return enc_arr(enc_ident, ps)
 def enc_tag(tag, fs):
     if not tag or any(ord(c) > 127 for c in tag): raise ValueError("tag")
     if len(fs) > U16: raise ValueError("field count")
@@ -49,9 +59,10 @@ G = {
     "u256_0": ("00" * 32, lambda: u256le(0)),
     "u256_max": ("ff" * 32, lambda: u256le(U256 - 1)),
     "bool_f": ("00", lambda: enc_bool(False)), "bool_t": ("01", lambda: enc_bool(True)),
-    "opt_none": ("00", lambda: enc_opt(None)), "opt_some_u8_7": ("0107", lambda: enc_opt(u8(7))),
-    "arr_empty": ("00000000", lambda: enc_arr([])),
-    "arr_u8_1_2": ("020000000102", lambda: enc_arr([u8(1), u8(2)])),
+    "opt_none": ("00", lambda: enc_opt(u8, None)),
+    "opt_some_u8_7": ("0107", lambda: enc_opt(u8, 7)),
+    "arr_empty": ("00000000", lambda: enc_arr(u8, [])),
+    "arr_u8_1_2": ("020000000102", lambda: enc_arr(u8, [1, 2])),
     "ident_Foo": ("03000000466f6f", lambda: enc_ident("Foo")),
     "ident_alpha": ("02000000ceb1", lambda: enc_ident("α")),
     "str_hi": ("020000006869", lambda: enc_str("hi")),
@@ -62,12 +73,15 @@ G = {
     "tag_Visibility.Public": ("110000005669736962696c6974792e5075626c69630000",
                               lambda: enc_tag("Visibility.Public", [])),
     "tag_Program": ("0700000050726f6772616d020007000000436f756e74657200000000",
-                    lambda: enc_tag("Program", [enc_ident("Counter"), enc_arr([])])),
+                    lambda: enc_tag("Program", [enc_ident("Counter"), enc_arr(u8, [])])),
 }
+def fail_child(_): raise ValueError("child-failed")
 F = [("u256_overflow", lambda: u256le(U256)),
      ("non_nfc", lambda: enc_str(unicodedata.normalize("NFD", "é"))),
      ("invalid_ident", lambda: enc_ident("1bad")), ("qn_empty", lambda: enc_qn([])),
      ("qi_one", lambda: enc_qi(["Only"])), ("qi_257", lambda: enc_qi(["C"] * 257)),
+     ("opt_child", lambda: enc_opt(fail_child, 1)),
+     ("arr_child", lambda: enc_arr(fail_child, [1, 2])),
      ("tag_empty", lambda: enc_tag("", [])), ("tag_non_ascii", lambda: enc_tag("Pα", [])),
      ("field_count", lambda: enc_tag("T", [b""] * 65536))]
 

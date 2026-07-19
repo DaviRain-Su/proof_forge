@@ -37,6 +37,9 @@ private def liftOk (label : String) (r : Except String α) : IO α :=
 private def encodeU8Ok (value : UInt8) : Except String ByteArray :=
   .ok (encodeU8 value)
 
+private def encodeU8Fail (_ : UInt8) : Except String ByteArray :=
+  .error "child-failed"
+
 /-- D1-PA-91 RED: production WireCodecV1 missing → focused build fails; goldens fixed. -/
 def run : IO Unit := do
   expectBytes "u8_0" "00" (encodeU8 0)
@@ -54,8 +57,10 @@ def run : IO Unit := do
   expectBytes "bool_t" "01" (encodeBool true)
   expectOk "opt_none" "00" (encodeOption encodeU8Ok none)
   expectOk "opt_some_u8_7" "0107" (encodeOption encodeU8Ok (some 7))
+  expectErr "opt_child_error" (encodeOption encodeU8Fail (some 7))
   expectOk "arr_empty" "00000000" (encodeArray encodeU8Ok #[])
   expectOk "arr_u8_1_2" "020000000102" (encodeArray encodeU8Ok #[1, 2])
+  expectErr "arr_child_error" (encodeArray encodeU8Fail #[1, 2])
   expectOk "ident_Foo" "03000000466f6f" (encodeIdent "Foo")
   expectOk "ident_alpha" "02000000ceb1" (encodeIdent "α")
   expectOk "str_hi" "020000006869" (encodeString "hi")
