@@ -65,18 +65,6 @@ TASK_RULE_MINIMUMS = {
 GLOBAL_RULE_MINIMUM = 2
 SET_RULE_MINIMUM = 3
 
-GENESIS_REQUIRED_TEST_IDS = (
-    "TST-BOOTSTRAP-001",
-    "TST-COMMON-001",
-    "TST-DOC-001",
-    "TST-EVIDENCE-001",
-    "TST-HOST-001",
-    "TST-ISO-001",
-    "TST-SBOM-001",
-    "TST-SBOM-002",
-    "TST-HOST-002",
-)
-
 STORE_SERVICE_SCRIPT = "scripts/stage0_store_service.py"
 ACTIVATION_DRIVER_SCRIPT = "scripts/stage0_activate.py"
 MAX_FRAME_BYTES = 4194304
@@ -314,11 +302,11 @@ def cmd_stage(args: argparse.Namespace) -> int:
     _, policy_ref = CONSUMER.parse_bootstrap_authority_policy(policy_bytes)
     policy_digest_hex = policy_ref.digest.bytes.hex()
 
-    required_ids = sorted(GENESIS_REQUIRED_TEST_IDS)
+    phase5_document, required_ids = _phase5_snapshot_fields()
     fields = {
         "id": args.required_set_id,
         "version": "1.0.0",
-        "phase5Document": _phase5_document_ref(),
+        "phase5Document": phase5_document,
         "authorityPolicy": content_ref(POLICY_SCHEMA, policy_ref.id, policy_ref.version, policy_digest_hex),
         "requiredTestIds": required_ids,
     }
@@ -342,11 +330,18 @@ def cmd_stage(args: argparse.Namespace) -> int:
     return 0
 
 
-def _phase5_document_ref() -> dict:
-    """NormativeDocumentRefV1 for docs/05-test-spec.md (must be accepted)."""
+def _phase5_snapshot_fields() -> tuple[dict, list[str]]:
+    """PHASE-5 document ref + required denominator, derived by the consumer itself.
+
+    The activation driver re-derives both values from the committed
+    docs/05-test-spec.md snapshot and requires exact equality, so this helper
+    must not maintain a parallel derivation: keep the PF-CEREMONY-PREREQ
+    pre-check for a precise error, then reuse the consumer parse.
+    """
 
     path = REPO_ROOT / "docs" / "05-test-spec.md"
-    text = path.read_text(encoding="utf-8")
+    raw = path.read_bytes()
+    text = raw.decode("utf-8", errors="strict")
     frontmatter = {}
     if text.startswith("---\n"):
         for line in text[4:].split("---", 1)[0].strip().splitlines():
@@ -358,17 +353,19 @@ def _phase5_document_ref() -> dict:
             "docs/05-test-spec.md must be accepted before the real activation "
             "(governance prerequisite: PHASE-5 acceptance)",
         )
-    return {
-        "id": frontmatter.get("id", "PHASE-5"),
-        "contentDigest": "sha256:" + sha256_hex(path.read_bytes()),
-        "status": "accepted",
-        "reviewCommit": frontmatter["reviewCommit"],
-        "reviewLink": frontmatter["reviewLink"],
-        "approvedAt": frontmatter["approvedAt"],
-        "approvers": sorted(
-            item.strip() for item in frontmatter["approvers"].split(",")
-        ),
+    snapshot = CONSUMER.BootstrapDocumentSnapshotV1("PHASE-5", "docs/05-test-spec.md", raw)
+    content = CONSUMER.parse_phase5_snapshot_content(snapshot)
+    document = content.document
+    fields = {
+        "id": document.id,
+        "contentDigest": "sha256:" + document.contentDigest.bytes.hex(),
+        "status": document.status,
+        "reviewCommit": document.reviewCommit,
+        "reviewLink": document.reviewLink,
+        "approvedAt": document.approvedAt,
+        "approvers": list(document.approvers),
     }
+    return fields, list(content.requiredTestIds)
 
 
 def main(argv: list[str] | None = None) -> int:

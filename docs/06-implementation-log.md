@@ -4558,3 +4558,30 @@ normative: false
 - Next：genesis root 离线签发首个 `BootstrapAuthorityPolicyV1`（`bootstrap_sign_tool.py`
   authority-policy 子命令，seed 仅由用户侧持有），随后 `stage0_activate.py` 真实
   activation → D0-04 关闭治理件（attest + docs_check 分支 + bootstrap EV）。
+
+## 2026-07-19 — TASK-D0-04 pre-acceptance：ceremony prep 两处真实驱动缺陷修复（R1）
+
+- Context：真实 activation 前置核对（独立只读分析）发现
+  `bootstrap_ceremony_prep.py stage` 产出的 required-test-set spec 会在 driver
+  phase 2 的 document-bound verification 被拒：(a) `phase5Document.contentDigest`
+  写的是 plain `sha256(docs/05-test-spec.md)`，而 consumer 推导的是
+  `pf.normative-document.v1` 域 digest；(b) `requiredTestIds` 硬编码 9 个 genesis
+  id，而 consumer 按 PHASE-5 catalog 推导完整非 A0 分母（当前 77 个，
+  `TST-BOOTSTRAP-001`…`TST-ZKSEC-001`）。prep 自测此前未覆盖这两个值。
+- Changed：`cmd_stage` 改为直接复用 consumer 的 `parse_phase5_snapshot_content`
+  推导 `phase5Document`（含域 contentDigest）与 `requiredTestIds`，单一事实源
+  消除平行推导；删除硬编码 `GENESIS_REQUIRED_TEST_IDS`；保留
+  `PF-CEREMONY-PREREQ` accepted 预检以获得精确错误码。self-test 增补两条回归
+  断言：staged spec 的 contentDigest 与 requiredTestIds 必须逐项等于 consumer
+  对 committed `docs/05-test-spec.md` 的推导。
+- Verification：`/usr/bin/python3 -I -S scripts/bootstrap_ceremony_prep_self_test.py`
+  ok（init→sign-policy→stage→sign-required-set 全链 + 两条新断言）；consumer
+  实算 contentDigest `sha256:14568de52f339dc9c15920a3bb48caa261ddfa36f35f655a696c73662754080f`、
+  分母 77；`just docs-check` 全绿；`git diff --check` clean。development
+  evidence 见台账 `EV-20260719-0073`。
+- Limitations：R1 实现修复，不改变任何完成面或 Tests 集合；六个 task approval、
+  六个 receipt、approval set 与 activation receipt 的签发 spec 仍需仪式时按
+  `bootstrap_sign_tool_self_test.py` 模板生成；`TASK-D0-04` 保持 blocked；
+  D0 formal milestone 仍为 7/9。
+- Next：用户生成六个 seed（mode 0400）→ init/sign-policy/stage/sign-required-set
+  → handoff + 14 对象签发 → `stage0_activate.py` 真实 activation。

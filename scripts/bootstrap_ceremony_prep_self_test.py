@@ -10,6 +10,7 @@ failure shapes.  Run with:
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import secrets
 import subprocess
@@ -20,6 +21,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PREP = REPO_ROOT / "scripts" / "bootstrap_ceremony_prep.py"
 SIGN = REPO_ROOT / "scripts" / "bootstrap_sign_tool.py"
+CONSUMER = REPO_ROOT / "scripts" / "bootstrap_task_objects.py"
 PY = "/usr/bin/python3"
 
 SEED_NAMES = ("architecture", "quality", "release", "security", "service", "verifier-receipt")
@@ -32,6 +34,14 @@ class CaseFailure(AssertionError):
 def check(condition: bool, detail: str) -> None:
     if not condition:
         raise CaseFailure(detail)
+
+
+def load_consumer():
+    spec = importlib.util.spec_from_file_location("pf_ceremony_prep_test_consumer", CONSUMER)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def run(arguments: list[str], expect_rc: int = 0) -> subprocess.CompletedProcess:
@@ -105,6 +115,22 @@ def case_happy_chain(base: Path) -> None:
     )
     spec_text = (result["work"] / "authority-policy.spec.json").read_text()
     check("seedFile" not in spec_text, "policy spec must not carry seed material")
+    consumer = load_consumer()
+    snapshot = consumer.BootstrapDocumentSnapshotV1(
+        "PHASE-5",
+        "docs/05-test-spec.md",
+        (REPO_ROOT / "docs" / "05-test-spec.md").read_bytes(),
+    )
+    derived = consumer.parse_phase5_snapshot_content(snapshot)
+    check(
+        fields["phase5Document"]["contentDigest"]
+        == "sha256:" + derived.document.contentDigest.bytes.hex(),
+        "phase5 contentDigest must be the consumer-derived domain digest",
+    )
+    check(
+        fields["requiredTestIds"] == list(derived.requiredTestIds),
+        "required ids must be the full PHASE-5 denominator",
+    )
 
 
 def case_seed_mode_rejected(base: Path) -> None:
