@@ -1437,6 +1437,26 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `TST-SRC-006/007` closure。收口后 Lean attribute export/schema 代码路径的 pre-acceptance micro-seam
   视为饱和；下一步只能冻结正式 evidence packaging 或书面选择其他依赖合法任务，禁止继续发明 identity
   micro-check。
+- D1-PA-86 只把已冻结的 `TASK-D1-05`/`TST-SRC-006/007` surface 收敛为单一 tests-only
+  `Tests.Language.ProgramExportAcceptance` 可执行入口；它是现有行为的 characterization/golden
+  packaging，不修改 production Lean，也不制造虚假的缺文件 RED。`TST-SRC-006` 必须固定 exact
+  `proof-forge.program-export.v1`、unknown-schema/structural-duplicate/rendered-name-conflict 三条完整
+  `PF-EXPORT-001` diagnostic、isolated empty environment 的 `programExports` 与 `programPayloads` 都为
+  empty，以及 PA84/PA85 qualified-name/short-name exact mismatch。rendered-name conflict 必须由结构不同但
+  `toString` 相同的 `Name.str .anonymous "foo.bar"` 与
+  `Name.str .anonymous "«foo.bar»"` 构造，并先断言 non-BEq/same-rendering，禁止伪造同一 Name。
+  `TST-SRC-007` 必须固定 Shared/A/B diamond 的 AB/BA exact 三行 schema/FQN table、Shared 精确一次且
+  unattributed alias 缺席，cross-row duplicate/conflicting Source identity 的完整 diagnostic，以及
+  `PF-EXPORT-004` decode-before-identity/binding、PA84 qualified-name-before-PA85 short-name 的优先级。
+  empty-registry 观察必须位于只 import `ProgramPayload` 的独立 module，并在被污染的 aggregate module
+  import 之前 snapshot；acceptance `run` 只消费该 snapshot 与既有 isolated fixture constants，不在合并了
+  hostile fixtures 的 environment 上重新 query table。
+  变更只允许新增 empty snapshot 与 acceptance suite，并在 `Tests.lean`/`lakefile.lean` 最小注册，总新增
+  ≤150 行；既有 PA81–PA85 fixtures、production、package file-set、CLI/Loader、wire、target 与 worker
+  均不得修改。验证只运行 focused suite、aggregate test build/binary、`just docs-check`、
+  `git diff --check` 与 independent review；纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。
+  结果只可记录 development evidence，不能满足冻结包要求的 candidate-bound
+  `qualification=formal`，不能关闭 pending `TASK-D1-05` 或开始 D1-06。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
