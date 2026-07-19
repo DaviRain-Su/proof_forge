@@ -5339,3 +5339,38 @@ normative: false
   下游 task。D0 formal milestone 仍 7/9。
 - Next：当前无 active development slice。Grok/Kimi 正在对 theorem QualifiedId、visibility 与完整递归
   ProgramV1 model 做双路裁决；只能冻结一个最小后继 slice，禁止自动扩成 root/hash/NodeId。
+
+## 2026-07-19 — D1 ProgramV1 leaf AST pre-acceptance slice
+
+- Commits：D1-PA-95 freeze `d79d6a17`；RED `8a818415`；GREEN `087ee953`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 五张 leaf table 的完整 closed layer，仍属于
+  `TST-SRC-001` development evidence。冻结边界禁止 current-grammar subset、alpha projection/mapping、
+  Program/items/Stmt/Expr/Place/Pattern recursive spine、decoder、root/hash、NodeId 与 target 改写。
+- Changed：新增 65-line `AstV1`，精确包含 Visibility 3、Type 11（含 Named/Map）、Literal 3、UnaryOp 3、
+  BinaryOp 18，共 38 个 unique constructors；新增 102-line `AstCodecV1`，所有 38 arms 显式映射到
+  table-verbatim ASCII tag/field order。UInt/Int width、Array/Bytes length 与 `bn254_fr` Field 在 encoder
+  exact fail closed；Named/Field 复用 raw `SourceNameComponentV1`；Integer/String 复用 u256le/pinned-NFC。
+  `encodeTypeV1` 最终为 kernel-reducible total structural `def`，没有留下 `partial`/unsafe canonical path。
+- Cross implementation：144-line Lean suite与 129-line 不 import Lean/ProofForge 的 Python oracle持有
+  independent checked-in hex。55 vectors覆盖 38 unique tags、六种 UInt/Int width、Named raw `foo-bar`、Map、
+  nested Array(Option(Bytes))、Array/Bytes 0/4096、Field、Bool、NFC String、Integer 0/`2^64`/u256 max；
+  negatives覆盖 width 0/24、length 4097、wrong Field、u256 overflow、NFD。Python raw Ident 同步拒绝 Cc 与
+  closing guillemet，并以实际负例执行；logicalOr/bitOr bytes 显式 non-alias。总 authored additions
+  445/615；机械 manifest 为 38 files。
+- Verification：`lake build ProofForgeV2.Source.AstV1 ProofForgeV2.Source.AstCodecV1
+  Tests.Language.SourceAstLeafV1 proof_forge_next_tests` 298 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_leaf_v1.py --self-check` 输出
+  `reference_source_ast_leaf_v1: ok 55`；`just sbom-package-files-refresh` → 38 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结
+  未运行完整 `just ci`。
+- Review/Evidence：Kimi freeze/Python audit P0/P1=0；Kimi GREEN 找到的唯一 P1 `partial def` 已改为 total
+  `def` 并重建；Grok 对最终 inventory/current diff review P0/P1=0。development evidence 为
+  `EV-20260719-0093`。
+- Limitations：没有 ProgramV1 supporting records/items 或 recursive Stmt/Expr/Place/Pattern spine，没有
+  leaf decoder、full-tree 256 nesting/100000 nodes/16 MiB validator、theorem/visibility alpha adapter、root/hash、
+  NodeId 或 stable Diagnostic；spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能
+  关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在绘制 recursive spine dependency graph，只能在
+  无 placeholder/类型擦除的完整边界上冻结 PA96；model/encoder 若需分批，必须保持同一闭集 inventory。
