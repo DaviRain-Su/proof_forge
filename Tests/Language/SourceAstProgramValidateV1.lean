@@ -79,11 +79,11 @@ private def prog (demo : SourceNameComponentV1) (items : Array ProgramItemV1) : 
 
 /-- D1-PA-105: declaration-set validator matrix (not alpha bucket order). -/
 def run : IO Unit := do
-  let demo ← name "Demo"; let a ← name "a"; let b ← name "b"
+  let demo ← name "Demo"; let a ← name "a"
   let runN ← name "run"; let get ← name "get"; let h ← name "h"
   let invN ← name "inv"; let x ← name "x"; let y ← name "y"
   let e1 ← name "E1"; let r1 ← name "R1"; let s1 ← name "S1"
-  let u1 ← name "U1"; let c1 ← name "C1"; let f1 ← name "F1"
+  let u1 ← name "U1"; let c1 ← name "C1"
   let th ← qn #["T", "thm"]
   let extId ← qn #["ext", "id"]
   let dig00 := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
