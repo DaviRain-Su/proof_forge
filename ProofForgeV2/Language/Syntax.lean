@@ -42,6 +42,11 @@ prevents the following program item from becoming part of the type. -/
   withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident >>
     checkLineEq >> numLit)
+@[pfType_parser default+1] def arrayArrayFieldType := leading_parser
+  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> numLit >> checkLineEq >> numLit)
 @[pfType_parser default+1] def arrayArrayType := leading_parser
   withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit)
@@ -229,6 +234,11 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def arrayArrayFieldAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def arrayArrayAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
@@ -580,6 +590,19 @@ private def decodeArrayBytesValueTypeFromAtoms :
       else throw "unsupported portable type"
   | _ => throw "unsupported portable type"
 
+private def decodeArrayArrayFieldValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  match atoms with
+  | #[fieldId, innerSyntax, outerSyntax] => do
+      match ← decodeArrayFieldValueTypeFromAtoms #[fieldId, innerSyntax] with
+      | .array .field innerLength =>
+          let outer := (← decodeBytesLengthAtom outerSyntax).toNat
+          if h : outer < 4097 then
+            pure (.array (.array .field innerLength) ⟨outer, h⟩)
+          else throw "unsupported portable type"
+      | _ => throw "unsupported portable type"
+  | _ => throw "unsupported portable type"
+
 private def decodeArrayArrayValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   match atoms with
@@ -732,6 +755,8 @@ private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Sour
     decodeArrayOptionBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``arrayOptionType then
     decodeArrayOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``arrayArrayFieldType then
+    decodeArrayArrayFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``arrayArrayType then decodeArrayArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayOptionType then
     decodeOptionArrayOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
@@ -946,6 +971,15 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
 
 private def decodeStructFieldUnchecked (stx : Syntax) :
     Except String ProofForgeV2.Source.FieldDecl := do
+  if stx.isOfKind ``arrayArrayFieldAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeArrayArrayFieldValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
   if stx.isOfKind ``arrayArrayAggregateField then
     let atoms := collectTypeAtomSyntax stx
     let nameStx ← match atoms[0]? with

@@ -1801,9 +1801,12 @@ unsafe def run : IO Unit := do
   expect goldensBound "Array Array tag18+tag18 canonical goldens must be bound"
 
   let aafSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Array Field bn254_fr 0 0", .array (.array .field 0) 0, 0, "UNBOUND"),
-    ("Array Array Field bn254_fr 4 4", .array (.array .field 4) 4, 0, "UNBOUND"),
-    ("Array Array Field bn254_fr 4096 1", .array (.array .field 4096) 1, 0, "UNBOUND")
+    ("Array Array Field bn254_fr 0 0", .array (.array .field 0) 0, 265,
+      "891c549138882df1fdb4da2b494f72dbdbcb508d7e234dbc6290385246fa3cba"),
+    ("Array Array Field bn254_fr 4 4", .array (.array .field 4) 4, 265,
+      "7540d6061a85b4a08e95ee63d6d78f946fcdc7a3e498038c3057072db4e70ec8"),
+    ("Array Array Field bn254_fr 4096 1", .array (.array .field 4096) 1, 265,
+      "6b3ba12ac632e0faa5dbf3865bf7586389d12157f5b3bf18bce1816edb2882ea")
   ]
   for (label, type, expectedSize, expectedHash) in aafSourceVectors do
     let sourceProgram := twin type
@@ -1843,9 +1846,12 @@ unsafe def run : IO Unit := do
     "Array Array Field dual-length order 8/4 vs 4/8 Source must non-alias (bytes+hash)"
 
   let aafSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Array Field bn254_fr 0 0", .array (.array .field 0) 0, 0, "UNBOUND"),
-    ("Array Array Field bn254_fr 4 4", .array (.array .field 4) 4, 0, "UNBOUND"),
-    ("Array Array Field bn254_fr 4096 1", .array (.array .field 4096) 1, 0, "UNBOUND")
+    ("Array Array Field bn254_fr 0 0", .array (.array .field 0) 0, 215,
+      "992b1055cefeb34dcd044cec714ed6d9019db98dac7c43d7c814705544cce82f"),
+    ("Array Array Field bn254_fr 4 4", .array (.array .field 4) 4, 215,
+      "ff74d64876fa3f5949e998d72299740637b0bd82e1347ff3dca1ec6b3e1d02db"),
+    ("Array Array Field bn254_fr 4096 1", .array (.array .field 4096) 1, 215,
+      "a203fe6bf6462eeefea8b0c61297be5b74116230c21d89903f802a44d6e4c8aa")
   ]
   for (label, type, expectedSize, expectedHash) in aafSemanticVectors do
     let compiled ← match Compiler.compile (twin type) with
