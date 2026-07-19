@@ -4998,3 +4998,57 @@ normative: false
   `scripts/sandbox_bwrap.py` profile renderer+launcher+receipt，per-stage
   materialize/core/evm-runtime profile）或 support-binding store 集成，
   同型 RED-then-GREEN。
+
+## 2026-07-19 — TASK-D0-07 slice S5：TST-EVIDENCE-002 fixture acceptance rehearsal
+
+- Context：S1–S4 交付了 revocation/private-scan/containment/freshness/
+  finalizer-identity 对象族与 single-snapshot orchestrator；冻结包要求
+  TST-EVIDENCE-002 在 fixture namespace 做端到端 rehearsal（ADR-0018
+  §1，同 TST-BOOTSTRAP-001 的 rehearsal 纪律）。本切片把它组装为与
+  `bootstrap_acceptance.py` 同型的 acceptance harness：fixture 身份与
+  production lookup tuple 完全不相交、全链一次跑通、typed report、
+  main() 0/1。
+- Changed：新模块 `scripts/formal_evidence_acceptance.py` 交付
+  `build_rehearsal_fixture`（build_rehearsal_base + 修改 tcbDigests[3] 钉
+  fixture finalizer exe + handoff + 6 approvals/6 receipts/set/activation
+  + 2-gate 非 D0 build catalog + formalCatalogRule approval + 两个
+  formal/passed EV 与 retained members + 一条撤销未使用 EV 的 revocation
+  record + 完整 S4 fixture tree）、`start_fixture_store`（in-process
+  authority-store，fixture descriptor）、`run_formal_evidence_rehearsal`
+  （namespace 守卫（production policy id/namespace 注入即
+  `PF-FORMAL-EVIDENCE-ACCEPTANCE`）→ catalog 链全验（先验后发）→
+  required-test-set 与 catalog-approval `publish_with_readback` → S4
+  `finalize_formal_evidence` 产出 record+binding → store head 精确 ==2 →
+  typed `FormalEvidenceRehearsalReport`）、`verify_published_record`
+  （任意字节级 record 全链复验）、`format_report_lines` 与 `main()`
+  （temp 工作区 + 公测 fixture seeds，rc 0/1）。错误族：consumer/
+  finalizer 失败映射 `PF-EVIDENCE-FORMAL-UNVERIFIED`，harness 机制失败
+  （namespace/head/readback）`PF-FORMAL-EVIDENCE-ACCEPTANCE`，store 错误
+  原样传播（`PF-AUTH-STORE-*`）。自测
+  `scripts/formal_evidence_acceptance_self_test.py`（RED→GREEN，22 例）
+  并接入 `just docs-check`。
+- Verification：`/usr/bin/python3 -I -S scripts/formal_evidence_acceptance_self_test.py`
+  ok（22 例：positive 全链（record/binding 落盘、digest 重算、report 行、
+  main rc=0、store head==2）+ state independence（run A/B 互不影响、A
+  制品不变）+ 15 负例全 fail closed：duplicate publish CONFLICT、缺
+  approval not-found、错 runId hello、错 rule signer、catalog/required-set
+  ref 不符、production namespace 注入、replay no-clobber 原件完整、篡改
+  record、revoked EV 进 gate、non-formal EV、member 漂移、缺
+  catalog-approval、required-set 篡改、freshness 过期、EV digest 不符，
+  树级负例均断言零新增输出）；`just docs-check` 全绿（18 个自测）；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check`
+  clean。development evidence 见台账 `EV-20260719-0080`。
+- Limitations：store allowlist 为封闭六 schema（无
+  `proof-forge.gate-catalog.v1`），catalog 文档本体不发布——catalog
+  authority 由 approval 的 catalogDigest 绑定 + 全 consumer 复验确立（与
+  production 同型，bootstrap rehearsal 也只发布 approval）；扩展
+  allowlist 属 authority_store 语义变更，不在本切片。观察到 store 在
+  publish 权限验证失败时直接断连而非回错误帧（现有行为，未改）。
+  fixture catalog 仍只用非 D0 gate（S4 记录的 D0-gate approval-evidence
+  join spec gap 未裁决）；EV host 三方 join 与 bwrap stage 引擎归
+  TST-ISO-002 后续切片；fixture RFC 8032 公测种子，非 formal/hermetic
+  evidence；不能关闭 in_progress `TASK-D0-07`；D0 formal milestone 仍为
+  8/9。
+- Next：S6——TST-ISO-002 bwrap stage 引擎（ADR-0018 §2：
+  `scripts/sandbox_bwrap.py` profile renderer+launcher+receipt publisher，
+  per-stage materialize/core/evm-runtime profile），同型 RED-then-GREEN。
