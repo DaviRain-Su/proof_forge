@@ -1466,8 +1466,12 @@ def case_sb2_031_limits(base: Path) -> None:
     expect_fail("MAX_COMPONENTS", FROZEN_COMPONENTS["total"] - 1, "components-over")
     expect_pass("MAX_RELATIONSHIPS", FROZEN_RELATIONSHIPS["total"], "relationships-equal")
     expect_fail("MAX_RELATIONSHIPS", FROZEN_RELATIONSHIPS["total"] - 1, "relationships-over")
-    expect_pass("MAX_FILE_SET", FROZEN_PACKAGE_FILE_SET, "file-set-equal")
-    expect_fail("MAX_FILE_SET", FROZEN_PACKAGE_FILE_SET - 1, "file-set-over")
+    # FROZEN_PACKAGE_FILE_SET remains the D0-08 acceptance-time denominator.
+    # SB2-031 is a generic limit-boundary probe, so derive the current fixture
+    # cardinality from the test-owned tree oracle, never production output/sidecars.
+    package_file_set = len(oracle_package_file_set())
+    expect_pass("MAX_FILE_SET", package_file_set, "file-set-equal")
+    expect_fail("MAX_FILE_SET", package_file_set - 1, "file-set-over")
 
     probe_root = build_input_root(base, "sb2-031-root-probe")
     probe = base / "sb2-031-out-probe"
