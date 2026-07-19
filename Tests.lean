@@ -80,6 +80,7 @@ import Tests.Language.SourceAstProgramItemV1
 import Tests.Language.SourceAstProgramV1
 import Tests.Language.SourceAstCanonicalRootV1
 import Tests.Language.SourceAstProgramValidateV1
+import Tests.Language.SourceAstScalarDecodeV1
 import Tests.Language.FrontendParity
 import Tests.Language.Grouping
 import Tests.Language.Loader
@@ -154,6 +155,7 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceAstProgramV1.run
   Tests.Language.SourceAstCanonicalRootV1.run
   Tests.Language.SourceAstProgramValidateV1.run
+  Tests.Language.SourceAstScalarDecodeV1.run
   Tests.Language.FrontendParity.run
   Tests.Language.Grouping.run
   Tests.Language.Loader.run
