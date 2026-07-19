@@ -4747,3 +4747,55 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；residual audit 的首选候选为 exact
   `Option Option Array Bytes N M`，须先冻结完成包，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact nested Option Array Bytes spelling pre-acceptance slice
+
+- Commits：freeze `36673098`；same-line seam denominator correction `2f115c74`；tests-only RED
+  `529d2699`；empirical error-channel corrections `a4752ae0`、`bbab5013`；Syntax/GREEN、canonical
+  binding 与 Lean package-file re-pin `37102754`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-79 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA78 residual audit
+  选择 fixed Bytes leaf、dual length、double Option wrapper、zero requirements 与现有唯一 migration
+  anchor；不是 checkpoint 自动递增。
+- Changed：为既有 `Source/Semantic.ValueType.option (.option (.array (.bytes innerLength)
+  outerLength))` 开放 exact same-line `Option Option Array Bytes N M`。新增 named
+  type/aggregate-field parser；专用 decoder 完整复用 closed
+  `decodeOptionArrayBytesValueTypeFromAtoms` 后只包一层 outer Option，两个专用 dispatch 均位于
+  generic `optionOptionArray` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 27 行新增/0 行移除。
+- RED/Migration：只迁移既有 `Option Option Array Bytes 8 4` negative 一条；既有 incomplete
+  `Option Option Array Bytes 4` 继续 exact unsupported。RED 相对冻结基线为 313 additions/1 removal，
+  覆盖 `(inner, outer)=(0,0)/(8,4)/(4096,1)`、全部 declaration positions、双入口 parity、
+  canonical non-alias、zero requirements、四 target support 与三类 Plan-invariant/no-artifact fixture。
+- Corrections：`2f115c74` 将六个 token 的 same-line seam 分母纠正为五个 gaps；GREEN 前完整
+  ParserSession probe 后，`a4752ae0`、`bbab5013` 只校准冻结负例的实际拒绝层。incomplete、两个
+  length 轴的 `4097`/leading-zero/hex/underscore 与仅缺 outer length 的
+  `Option Option Array Bytes 8` 为 exact unsupported；bare Field/Option/Array/Map、`Widget 8 4`、
+  missing both、negative/identifier lengths、extra payload、五个 seams、escaped/qualified constructors
+  与 full compounds 为 parser rejection。原 labels/spellings、positive、migration 与 Tests 集合均未扩大。
+- Canonical：tag 固定 `16→16→18→17→innerLength→outerLength`。Source `(0,0)/(8,4)/(4096,1)`
+  均为 277 bytes，hash 依次为
+  `25dd9358bb3c78228b24deb534e5f96cc9ae214be0935bdd706a1aca98c40b39`、
+  `9f8c4101906597285f27c442669f7384855d59adbb8aa7271537d4b698e8cac9`、
+  `5ee7a18e815711f0797ffa96c2ba8de632afd9ba18238fc065df872d34f5f297`；Semantic 三组均为
+  226 bytes，hash 依次为
+  `f1e4569f4a9e96cd1697e33365f014d9debb05467ba6953265ddd7820b5760d9`、
+  `9be486502ab327e4fb421528427181b721eba4e6202a67b2a9ef688e167a0637`、
+  `1177f7abaa51844b19b4693daf4853248ff3d4afc0015ca4ca99ea0abaa87240`。两层均固定 candidate
+  pairwise、wrapper/leaf structural 与 `8/4↔0/4`、`8/4↔8/0`、`8/4↔4/8` bytes/hash
+  non-alias controls。
+- Boundary：requirements 精确为空；四个 Phase 1 target 的 `checkSupport` 全部通过；
+  state/result/parameter 的 `materializeResult` 分别以 `is not UInt64` / `does not return UInt64` /
+  `is not UInt64` exact Plan invariant 拒绝，因此无 Plan、OutputSet 或 artifact。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；在 clean detached `37102754` 上运行 `just sbom`，self-test/generate/verify/closure 全绿；
+  `git diff --check` 通过。Syntax package pin 为 100088 bytes、SHA-256
+  `f91c18d7208097f926630eff251f1c067a5e2ee1840d035e718c2d7ab59f0cce`；independent final review
+  P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0077`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、zero requirements 与
+  support-vs-Plan/no-artifact boundary；不包括 Bytes/Array/Option operations、none/some/unwrap、任意
+  recursive grammar、runtime/ABI、target nested-Option-Array-Bytes support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；下一 slice 未冻结，先完成 post-PA79 residual audit，
+  禁止由 checkpoint 自动递增。
