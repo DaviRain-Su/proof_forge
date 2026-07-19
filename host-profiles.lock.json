@@ -345,16 +345,16 @@
       ]
     },
     {
-      "id": "linux-x86_64-mint223-development",
+      "id": "linux-x86_64-mint223-eligible",
       "platform": {
         "osReleaseId": "linuxmint",
         "osReleaseVersionId": "22.3",
         "kernelRelease": "7.0.0-28-generic",
         "arch": "x86_64",
-        "secureBoot": "disabled"
+        "secureBoot": "enabled"
       },
-      "eligibleForHermetic": false,
-      "ineligibilityReason": "secure boot is disabled; this profile is development evidence only",
+      "eligibleForHermetic": true,
+      "ineligibilityReason": null,
       "distroTools": {
         "gitPath": "/usr/bin/git",
         "gitSha256": "2a8c18fbf43da9f692d75474c72bea9dfd796c260b0f3dfe456376abc3bbd668",

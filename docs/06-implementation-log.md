@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-07-18
+updated: 2026-07-19
 normative: false
 ---
 
@@ -4519,3 +4519,42 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；先做 post-PA-73 residual audit 与 bounded arbitration，
   尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — TASK-D0-04 外部前置：linux eligible host 重登记（SecureBoot enabled）
+
+- Context：用户已在 BIOS 启用 Secure Boot 并重启；`TASK-D0-04` 三个外部前置中的
+  eligible host 一项由此可执行。按 ADR-0016 §2 谓词以 `observe-host` 全量重观察本机
+  并重登记 linux host profile（schema v2 每平台恰好一个 profile，原 development
+  profile 被替换而非并存）。
+- Changed：`host-profiles.lock.json` 的 linux profile 由
+  `linux-x86_64-mint223-development`（secureBoot disabled、ineligible）替换为
+  `linux-x86_64-mint223-eligible`；重观察结果与已提交 profile 逐字段 diff 仅四项
+  （id、`secureBoot→enabled`、`eligibleForHermetic→true`、`ineligibilityReason→null`），
+  全部 distro/system tool 的 sha256/mode/nlink、kernel `7.0.0-28-generic` 与 mint 22.3
+  观察与 2026-07-18 登记逐项一致（无系统包漂移）。`host-bootstrap-linux.lock` 同步
+  `PROFILE_ID` 与 `HOST_LOCK_SHA256`（`5693c81f…af45`），其余 pinned 节点 digest 不变。
+  `scripts/host_profiles_self_test.py` 三处 committed-profile 硬编码 ineligible 假设改为
+  基线感知：committed/observed 的 `validate-host-profile` summary 与 profile 自身 flag/reason
+  一致；reason 形状负例按基线双向（eligible 基线下 stale reason 必拒、ineligible 基线下
+  null reason 必拒，missing key 恒拒）；marked-eligible 负例改为翻转 `secureBoot=disabled`
+  保持"标记 eligible 但不满足 host policy"语义覆盖。justfile linux `host-stage0-negative`
+  末段由"当前主机必 ineligible"改为 host-independent tamper 负例：复制 locks、仅翻转
+  flag+reason、重钉 `HOST_LOCK_SHA256` 后 `--require-eligible` 必须
+  `PF-HOST-INELIGIBLE`；darwin 段与其余负例不变。
+- Verification：`/usr/bin/python3 -I -S scripts/host_profiles_self_test.py` ok；
+  `/usr/bin/python3 -I -S scripts/toolchain_assets.py validate` 与 `self-test` ok；
+  权威调用 `/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC
+  /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible` 通过并输出
+  `eligibleForHermetic:true`（profile `linux-x86_64-mint223-eligible`、secureBoot enabled）；
+  `just host-stage0-negative` 四负例（mutated host lock/trailing record/LD_PRELOAD/
+  tampered-ineligible）全 fail closed；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean。development evidence 见台账 `EV-20260719-0072`。
+- Limitations：local point-in-time observation；linux 信任根为 Secure Boot + distro 包完整性
+  + pinned digests，弱于 Apple SSV 且无 codesign 等价（ADR-0016 §2 声明），无 remote
+  attestation；eligible profile 只解除 `TASK-D0-04` 的 host 前置——genesis root 离线签发首个
+  `BootstrapAuthorityPolicyV1` 与真实 six-item activation 仍未完成，`TASK-D0-04` 保持
+  blocked，D0 formal milestone 仍为 7/9；本机 SecureBoot 再被关闭或任一 pinned 节点漂移时
+  formal Stage-0 立即重新 fail closed（live 重观察与 profile 精确比对）。
+- Next：genesis root 离线签发首个 `BootstrapAuthorityPolicyV1`（`bootstrap_sign_tool.py`
+  authority-policy 子命令，seed 仅由用户侧持有），随后 `stage0_activate.py` 真实
+  activation → D0-04 关闭治理件（attest + docs_check 分支 + bootstrap EV）。

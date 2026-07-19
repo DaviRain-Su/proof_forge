@@ -145,12 +145,18 @@ def test_closed_field_sets(module: ModuleType) -> None:
         assert "unrecognized field set" in text or "fields" in text, (name, text)
 
 
-def test_ineligible_without_reason(module: ModuleType) -> None:
+def test_reason_shape_matches_eligibility(module: ModuleType) -> None:
     host_lock = registered_host_lock(module)
     linux_index = profile_index(module, host_lock, "linux")
-    null_reason = copy.deepcopy(host_lock)
-    null_reason["profiles"][linux_index]["ineligibilityReason"] = None
-    text = rejection_text(module, lambda: module.validate_host_lock(null_reason))
+    profile = host_lock["profiles"][linux_index]
+    flipped_reason = copy.deepcopy(host_lock)
+    if profile["eligibleForHermetic"]:
+        # An eligible profile must keep a null reason; any stale reason rejects.
+        flipped_reason["profiles"][linux_index]["ineligibilityReason"] = "stale reason"
+    else:
+        # An ineligible profile must carry a human reason; null rejects.
+        flipped_reason["profiles"][linux_index]["ineligibilityReason"] = None
+    text = rejection_text(module, lambda: module.validate_host_lock(flipped_reason))
     assert "ineligibilityReason" in text, text
     missing_reason = copy.deepcopy(host_lock)
     del missing_reason["profiles"][linux_index]["ineligibilityReason"]
@@ -306,9 +312,9 @@ def test_validate_host_profile_command(module: ModuleType) -> None:
         input_path.write_text(json.dumps(linux_profile), encoding="utf-8")
         output = run_main(module, ["validate-host-profile", "--input", str(input_path)])
         summary = json.loads(output)
-        assert summary["eligibleForHermetic"] is False, summary
+        assert summary["eligibleForHermetic"] is linux_profile["eligibleForHermetic"], summary
         assert summary["profileKind"] == "linux", summary
-        assert summary["ineligibilityReason"], summary
+        assert summary["ineligibilityReason"] == linux_profile["ineligibilityReason"], summary
 
         if module.host_platform_kind() == "linux":
             observed = module.observe_host_linux("host-profiles-self-test-observed")
@@ -316,8 +322,8 @@ def test_validate_host_profile_command(module: ModuleType) -> None:
             output = run_main(
                 module, ["validate-host-profile", "--input", str(input_path)])
             summary = json.loads(output)
-            assert summary["eligibleForHermetic"] is False, summary
-            assert summary["ineligibilityReason"], summary
+            assert summary["eligibleForHermetic"] is observed["eligibleForHermetic"], summary
+            assert summary["ineligibilityReason"] == observed["ineligibilityReason"], summary
 
         tampered_secure_boot = copy.deepcopy(linux_profile)
         tampered_secure_boot["platform"]["secureBoot"] = "yes"
@@ -327,9 +333,12 @@ def test_validate_host_profile_command(module: ModuleType) -> None:
             lambda: run_main(module, ["validate-host-profile", "--input", str(input_path)]))
         assert "secureBoot" in text, text
 
-        dropped_reason = copy.deepcopy(linux_profile)
-        dropped_reason["ineligibilityReason"] = None
-        input_path.write_text(json.dumps(dropped_reason), encoding="utf-8")
+        wrong_reason = copy.deepcopy(linux_profile)
+        if linux_profile["eligibleForHermetic"]:
+            wrong_reason["ineligibilityReason"] = "stale reason"
+        else:
+            wrong_reason["ineligibilityReason"] = None
+        input_path.write_text(json.dumps(wrong_reason), encoding="utf-8")
         text = rejection_text(
             module,
             lambda: run_main(module, ["validate-host-profile", "--input", str(input_path)]))
@@ -346,6 +355,7 @@ def test_validate_host_profile_command(module: ModuleType) -> None:
         inconsistent_eligible = copy.deepcopy(linux_profile)
         inconsistent_eligible["eligibleForHermetic"] = True
         inconsistent_eligible["ineligibilityReason"] = None
+        inconsistent_eligible["platform"]["secureBoot"] = "disabled"
         input_path.write_text(json.dumps(inconsistent_eligible), encoding="utf-8")
         text = rejection_text(
             module,
@@ -390,7 +400,7 @@ def main() -> int:
         test_static_eligibility_negatives(module)
         test_v1_migration_error(module)
         test_closed_field_sets(module)
-        test_ineligible_without_reason(module)
+        test_reason_shape_matches_eligibility(module)
         test_mutability_predicate(module)
         test_lock_platform_dispatch(module)
         test_verify_host_cross_profile_rejected(module)

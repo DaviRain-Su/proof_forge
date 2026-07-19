@@ -21,7 +21,7 @@
 | Next development slice | 未冻结；下一步先做 post-PA-73 residual audit 与 bounded arbitration，禁止由 checkpoint 自动递增 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-04** 仓库内 foundation 已齐（对象族/producer/authority-store/handoff producer/bwrap containment/TST-BOOTSTRAP-001 rehearsal 全绿，`EV-20260718-0054`…`EV-20260718-0062`），剩余为外部前置：eligible host（本机 SecureBoot disabled，须 BIOS 启用后重登记 linux profile）+ genesis root 离线签发首个 BootstrapAuthorityPolicyV1 + 真实 six-item activation；D0-08/D0-09 已经 `GOV-PRECUTOVER-001` 关闭，darwin live 重观察为 P2 债务（截止 D0-07 关闭前）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
+| Known blocker | **TASK-D0-04** 仓库内 foundation 已齐（对象族/producer/authority-store/handoff producer/bwrap containment/TST-BOOTSTRAP-001 rehearsal 全绿，`EV-20260718-0054`…`EV-20260718-0062`）；外部前置 eligible host 已闭合（BIOS 启用 SecureBoot 后重登记 `linux-x86_64-mint223-eligible`，formal Stage-0 `--require-eligible` 通过，`EV-20260719-0072`），剩余外部前置：genesis root 离线签发首个 BootstrapAuthorityPolicyV1 + 真实 six-item activation；D0-08/D0-09 已经 `GOV-PRECUTOVER-001` 关闭，darwin live 重观察为 P2 债务（截止 D0-07 关闭前）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

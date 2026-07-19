@@ -136,8 +136,18 @@ host-stage0-negative:
           exit 1
         fi
         rg -q 'ELF loader environment is not empty' "$tmp/ld-preload.log"
-        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible > "$tmp/formal.log" 2>&1; then
-          echo "current ineligible host unexpectedly passed formal Stage-0" >&2
+        # Formal-eligibility negative that holds on eligible and ineligible hosts
+        # alike: tamper the registered profile to ineligible (flag + reason only,
+        # so the live observation still matches), re-pin the copied bootstrap
+        # record to the tampered host lock, and require-eligible must fail closed.
+        mkdir -p "$tmp/ineligible/scripts"
+        cp "toolchains-linux-$(uname -m).lock.json" "$tmp/ineligible/"
+        cp scripts/verify_host_stage0.sh scripts/toolchain_assets.py "$tmp/ineligible/scripts/"
+        /usr/bin/python3 -c 'import json, sys; lock = json.load(open(sys.argv[1])); [profile.update(eligibleForHermetic=False, ineligibilityReason="host-stage0-negative tamper: forced ineligible") for profile in lock["profiles"] if "distroTools" in profile]; json.dump(lock, open(sys.argv[2], "w"), indent=2)' host-profiles.lock.json "$tmp/ineligible/host-profiles.lock.json"
+        tampered_sha="$(/usr/bin/sha256sum "$tmp/ineligible/host-profiles.lock.json" | /usr/bin/cut -d' ' -f1)"
+        sed "s/^HOST_LOCK_SHA256=.*/HOST_LOCK_SHA256=$tampered_sha/" host-bootstrap-linux.lock > "$tmp/ineligible/host-bootstrap-linux.lock"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/ineligible/scripts/verify_host_stage0.sh" --require-eligible > "$tmp/formal.log" 2>&1; then
+          echo "tampered ineligible profile unexpectedly passed formal Stage-0" >&2
           exit 1
         fi
         rg -q 'PF-HOST-INELIGIBLE' "$tmp/formal.log"
