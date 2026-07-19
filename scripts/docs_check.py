@@ -141,6 +141,24 @@ D0_04_TOPOLOGICAL_TASK_IDS = (
     "TASK-D0-06",
     "TASK-D0-04",
 )
+D0_07_FIXTURE_ACCEPTANCE_ATTEST_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-07.attest.json"
+)
+D0_07_GENESIS_REPLAY_REPORT_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-07-genesis-replay-report.json"
+)
+D0_07_GENESIS_TST_IDS = (
+    "TST-DOC-001",
+    "TST-ISO-001",
+    "TST-EVIDENCE-001",
+    "TST-HOST-001",
+    "TST-TOOL-001",
+    "TST-SBOM-001",
+    "TST-COMMON-001",
+    "TST-HOST-002",
+    "TST-SBOM-002",
+)
+D0_07_GENESIS_REPORT_SCHEMA = "proof-forge.genesis-replay-report.v1"
 MILESTONE_TASK_RE = re.compile(r"^TASK-(A0|D[0-9]+)-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 TASK_FREEZE_PACKAGE_NAME_RE = re.compile(
     r"^TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*\.json$"
@@ -2771,6 +2789,112 @@ def d0_04_bootstrap_activation_attested(root: Path) -> bool:
     return _d0_04_verify_activation_bundle(root, payload)
 
 
+def _d0_07_replay_report_verified(report: object) -> bool:
+    """Verify the committed genesis replay report shape and all-green legs."""
+    if type(report) is not dict:
+        return False
+    if report.get("schema") != D0_07_GENESIS_REPORT_SCHEMA:
+        return False
+    if report.get("overallStatus") != "passed":
+        return False
+    legs = report.get("legs")
+    if type(legs) is not list or len(legs) != len(D0_07_GENESIS_TST_IDS):
+        return False
+    tst_ids = tuple(
+        leg.get("tstId") for leg in legs if type(leg) is dict
+    )
+    if tst_ids != D0_07_GENESIS_TST_IDS:
+        return False
+    for leg in legs:
+        commands = leg.get("commands")
+        if type(commands) is not list or not commands:
+            return False
+        for command in commands:
+            if type(command) is not dict or command.get("status") != "passed":
+                return False
+    return True
+
+
+def d0_07_fixture_acceptance_attested(root: Path) -> bool:
+    """Return True only for a fully verified D0-07 fixture acceptance closure."""
+    payload = _load_bootstrap_closure_attest(
+        root, D0_07_FIXTURE_ACCEPTANCE_ATTEST_RELATIVE)
+    if payload is None:
+        return False
+    expected_fields = {
+        "schemaVersion",
+        "taskId",
+        "kind",
+        "ruling",
+        "freezePackage",
+        "freezePackageSha256",
+        "genesisReplayReport",
+        "genesisReplayReportSha256",
+        "darwinLiveReobservation",
+        "d003DeferredClearance",
+        "fixtureEvidenceEvidence",
+        "cleanRoomEvidence",
+        "docsCheckCommand",
+        "notes",
+    }
+    if set(payload) != expected_fields:
+        return False
+    exact_values: dict[str, Any] = {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-07",
+        "kind": "d0-07-fixture-acceptance-closure",
+        "ruling": "GOV-D0CLOSE-001",
+        "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-07.json",
+        "genesisReplayReport": D0_07_GENESIS_REPLAY_REPORT_RELATIVE,
+        "d003DeferredClearance": "EV-20260719-0084",
+        "fixtureEvidenceEvidence": "EV-20260719-0080",
+        "cleanRoomEvidence": "EV-20260719-0082",
+        "docsCheckCommand": (
+            "/usr/bin/python3 -I -S scripts/docs_check.py --root ."),
+    }
+    for field, expected in exact_values.items():
+        if payload.get(field) != expected:
+            return False
+    darwin = payload.get("darwinLiveReobservation")
+    if not isinstance(darwin, str) or "darwin-arm64-" not in darwin:
+        return False
+    notes = payload.get("notes")
+    if (not isinstance(notes, str)
+            or "not formal or hermetic evidence" not in notes):
+        return False
+    freeze_digest = payload.get("freezePackageSha256")
+    if (not isinstance(freeze_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", freeze_digest)):
+        return False
+    freeze_path = root / exact_values["freezePackage"]
+    try:
+        ensure_repository_path(root, freeze_path, str(exact_values["freezePackage"]))
+        freeze_bytes = read_repository_regular_bytes(
+            root, freeze_path, str(exact_values["freezePackage"]))
+        actual_freeze_digest = hashlib.sha256(freeze_bytes).hexdigest()
+    except (DocsCheckError, OSError):
+        return False
+    if freeze_digest != actual_freeze_digest:
+        return False
+    replay_digest = payload.get("genesisReplayReportSha256")
+    if (not isinstance(replay_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", replay_digest)):
+        return False
+    replay_relative = exact_values["genesisReplayReport"]
+    try:
+        report_bytes = read_repository_regular_bytes(
+            root, root / replay_relative, replay_relative)
+    except (DocsCheckError, OSError):
+        return False
+    if hashlib.sha256(report_bytes).hexdigest() != replay_digest:
+        return False
+    try:
+        report = json.loads(report_bytes.decode("utf-8", errors="strict"))
+    except (UnicodeError, json.JSONDecodeError):
+        return False
+    return _d0_07_replay_report_verified(report)
+
+
 def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[TaskRecord],
                    evidence_records: dict[str, EvidenceRecord],
                    document_status: dict[str, str],
@@ -2796,7 +2920,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
         bootstrap_tasks = {
             "TASK-D0-01", "TASK-D0-02", "TASK-D0-03",
             "TASK-D0-04", "TASK-D0-05", "TASK-D0-06",
-            "TASK-D0-08", "TASK-D0-09",
+            "TASK-D0-07", "TASK-D0-08", "TASK-D0-09",
         }
         if record.grade == "bootstrap" and record.task not in bootstrap_tasks:
             error = DocsCheckError(
@@ -2808,6 +2932,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
             # Freeze exceptions: D0-01 pure-consumer and D0-02 package-boundary may close
             # without protected receipt lookup. GOV-PRECUTOVER-001 adds attested D0-08/D0-09.
             # TASK-D0-04 closes only with the fully re-verified real activation bundle.
+            # TASK-D0-07 closes only with the GOV-D0CLOSE-001 fixture acceptance evidence.
             # Other D0 trust-root tasks remain zero-closure.
             allowed = (
                 (record.task == "TASK-D0-01" and d0_01_pure_consumer_attested(root))
@@ -2818,6 +2943,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                 or (record.task == "TASK-D0-06"
                     and genesis_effective
                     and d0_06_common_primitives_attested(root, evidence_records))
+                or (record.task == "TASK-D0-07" and d0_07_fixture_acceptance_attested(root))
                 or (record.task == "TASK-D0-08" and d0_08_sbom_closure_attested(root))
                 or (record.task == "TASK-D0-09" and d0_09_linux_host_attested(root))
             )
@@ -2919,7 +3045,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                 elif task.identifier in {
                     "TASK-D0-01", "TASK-D0-02", "TASK-D0-03",
                     "TASK-D0-04", "TASK-D0-05", "TASK-D0-06",
-                    "TASK-D0-08", "TASK-D0-09",
+                    "TASK-D0-07", "TASK-D0-08", "TASK-D0-09",
                 }:
                     required_grade = "bootstrap"
                 else:

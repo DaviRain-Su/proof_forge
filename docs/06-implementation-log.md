@@ -5287,3 +5287,53 @@ normative: false
   milestone 仍为 8/9。
 - Next：GOV-D0CLOSE-001 §3.2 的其余关闭步骤（ruling 其他款项）与
   post-commit 全绿 genesis replay 复核。
+
+## 2026-07-19 — TASK-D0-07 关闭门禁（GOV-D0CLOSE-001 §3.1 第一变更集：gate）
+
+- Context：GOV-D0CLOSE-001（当前 proposed）要求 D0-07 的关闭分两个变更集
+  落地（GOV-GENESIS-001 §7.3 纪律）：先 gate（本变更），后 closeout
+  （attest + committed replay report + darwin 证据 + bootstrap EV + 任务表
+  行）。此前 `docs_check.py` 的 bootstrap `allowed` 门对 `TASK-D0-07` 一律
+  `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`（zero-closure）。本变更实现
+  D0-07 的 closure gate：只有 bootstrap-closure 目录下存在完整 attest 与
+  全绿 genesis replay report 时，bootstrap 级 EV 才被允许。
+- Changed：`scripts/docs_check.py` 将 `TASK-D0-07` 加入 `bootstrap_tasks`
+  与 required_grade=bootstrap 集合；新增
+  `d0_07_fixture_acceptance_attested(root)`（结构沿用 d0_08/d0_09，replay
+  report 复核取 d0_04 的 rigor）并接入 `allowed` 门。attest
+  （`docs/governance/bootstrap-closure/TASK-D0-07.attest.json`）封闭 14
+  字段精确集：schemaVersion==1、taskId=="TASK-D0-07"、
+  kind=="d0-07-fixture-acceptance-closure"、ruling=="GOV-D0CLOSE-001"、
+  freezePackage 固定路径 + freezePackageSha256 重算（d0_08 同款）、
+  genesisReplayReport 固定路径 + genesisReplayReportSha256 重算、
+  darwinLiveReobservation 非空且含 "darwin-arm64-"、
+  d003DeferredClearance=="EV-20260719-0084"、
+  fixtureEvidenceEvidence=="EV-20260719-0080"、
+  cleanRoomEvidence=="EV-20260719-0082"、docsCheckCommand 精确值、notes
+  含 "not formal or hermetic evidence"；replay report 经
+  `read_repository_regular_bytes` 读取、sha256 对 attest 重算、解析后要求
+  schema==proof-forge.genesis-replay-report.v1、overallStatus=="passed"、
+  恰好九个 TST leg（frozen 顺序）且每条 command status=="passed"；任何缺失
+  /不符一律返回 False 不抛异常（pre-closure 无 attest 时恒 False，
+  docs_check 保持全绿）。`scripts/docs_check_self_test.py` 新增
+  `valid_d0_07_attest`/`complete_d0_07_fixture_closure`/
+  `d0_07_ev_without_attest` 与 7 个负例 mutation（no-attest、
+  missing-field、wrong-kind、wrong-ruling、bad-freeze-digest-grammar、
+  bad-replay-digest-grammar、wrong-report-path），全部断言
+  `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `/usr/bin/python3 -I -S scripts/docs_check_self_test.py` ok（204
+  mutations，较此前 +7）；`just docs-check` 全绿；`git diff --check`
+  clean。全绿 replay 证据来自已提交树上的 `just genesis-replay`
+  （overallStatus=passed，21 command legs）。development evidence 见台账
+  `EV-20260719-0085`。
+- Limitations：gate 已落地但 closeout 未完成——attest、committed replay
+  report（`docs/governance/bootstrap-closure/TASK-D0-07-genesis-replay-report.json`）、
+  darwin live 重观察证据与 bootstrap 级 EV 行尚未提供，validator 当前对
+  任何 `TASK-D0-07` bootstrap EV 恒返回 False；`TASK-D0-07` 保持
+  in_progress，任务表与 AGENTS.md 未动；replay report 的 candidate 绑定为
+  replay 运行时刻的 HEAD（closure 时须以 committed tree 重跑后的 report
+  为准）；D0 formal milestone 仍为 8/9。
+- Next：closure change set（GOV-D0CLOSE-001 §3.2/§3.3 余项 +
+  TASK-D0-07.attest.json + committed replay report + darwin-arm64 重观察
+  + bootstrap EV + 任务表 blocked→done + checkpoint 更新）。

@@ -877,6 +877,61 @@ def d0_04_ev_without_attest(root: Path) -> None:
     write_task_set_lock(root, "TASK-D0-04")
 
 
+def valid_d0_07_attest(freeze_digest: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-07",
+        "kind": "d0-07-fixture-acceptance-closure",
+        "ruling": "GOV-D0CLOSE-001",
+        "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-07.json",
+        "freezePackageSha256": freeze_digest,
+        "genesisReplayReport": (
+            "docs/governance/bootstrap-closure/TASK-D0-07-genesis-replay-report.json"),
+        "genesisReplayReportSha256": "f" * 64,
+        "darwinLiveReobservation": (
+            "darwin-arm64-25E253-xcode17C529-development re-observation pending"),
+        "d003DeferredClearance": "EV-20260719-0084",
+        "fixtureEvidenceEvidence": "EV-20260719-0080",
+        "cleanRoomEvidence": "EV-20260719-0082",
+        "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+        "notes": "Closes D0-07 fixture acceptance; not formal or hermetic evidence.",
+    }
+
+
+def complete_d0_07_fixture_closure(
+        root: Path,
+        mutate_attest: Optional[
+            Callable[[dict[str, Any]], dict[str, Any]]
+        ] = None,
+) -> None:
+    write_task_freeze_package(
+        root,
+        "TASK-D0-07",
+        output="Completed bootstrap task",
+        dependencies=["TASK-A0-20"],
+    )
+    freeze_path = (
+        root / "docs/governance/task-freeze-packages/TASK-D0-07.json")
+    freeze_digest = hashlib.sha256(freeze_path.read_bytes()).hexdigest()
+    attest = valid_d0_07_attest(freeze_digest)
+    if mutate_attest is not None:
+        attest = mutate_attest(attest)
+    complete_attested_bootstrap_task(root, "TASK-D0-07", attest)
+
+
+def d0_07_ev_without_attest(root: Path) -> None:
+    replace(root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-07 | Completed bootstrap task | TASK-A0-20 | — | "
+            "TST-DOC-902 | EV-20260716-9004 | done |")
+    replace(root / "docs/traceability/requirements-matrix.md", "TASK-D0-92", "TASK-D0-07")
+    replace(root / "docs/traceability/evidence-ledger.md", EVIDENCE_ROW,
+            EVIDENCE_ROW + "\n" + bootstrap_evidence_row("TASK-D0-07"))
+    replace(root / "AGENTS.md", "| Next task | TASK-D0-92 |", "| Next task | 无 |")
+    write_task_set_lock(root, "TASK-D0-07")
+
+
 def write_missing_task_freeze_authority_set(root: Path) -> None:
     write_genesis_authority(root, accepted_status=True)
     write_maintainers_authority(root, accepted_status=True)
@@ -1937,6 +1992,40 @@ def main() -> None:
                 lambda attest: {
                     **attest,
                     "bundlePath": "docs/governance/bootstrap-closure/TASK-D0-05"})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-ev-d0-07-no-attest", d0_07_ev_without_attest,
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-07-missing-field", lambda root: (
+            complete_d0_07_fixture_closure(
+                root,
+                lambda attest: drop_attest_field(attest, "genesisReplayReportSha256"))),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-07-wrong-kind", lambda root: (
+            complete_d0_07_fixture_closure(
+                root,
+                lambda attest: {**attest, "kind": "sbom-closure-closure"})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-07-wrong-ruling", lambda root: (
+            complete_d0_07_fixture_closure(
+                root,
+                lambda attest: {**attest, "ruling": "GOV-PRECUTOVER-001"})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-07-bad-freeze-digest", lambda root: (
+            complete_d0_07_fixture_closure(
+                root,
+                lambda attest: {**attest, "freezePackageSha256": "not-a-digest"})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-07-bad-replay-digest", lambda root: (
+            complete_d0_07_fixture_closure(
+                root,
+                lambda attest: {**attest, "genesisReplayReportSha256": "xyz"})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-07-wrong-report-path", lambda root: (
+            complete_d0_07_fixture_closure(
+                root,
+                lambda attest: {
+                    **attest,
+                    "genesisReplayReport": "docs/governance/bootstrap-closure/other.json"})),
          "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
         ("fx-approval-genesis-doc-absent", lambda root: (
             write_governance_authority_set(root),
