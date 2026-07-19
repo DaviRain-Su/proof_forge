@@ -124,6 +124,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.SourceAstCanonicalRootV1,
     `Tests.Language.SourceAstProgramValidateV1,
     `Tests.Language.SourceAstScalarDecodeV1,
+    `Tests.Language.SourceAstTypeDecodeV1,
     `Tests.Language.FrontendParity,
     `Tests.Language.Grouping,
     `Tests.Language.Loader,
