@@ -4511,7 +4511,7 @@ normative: false
   `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；
   `just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package pin 为
   89794 bytes、SHA-256 `09cc60143e0041893abb25acef37db62c098e55840ff11442702a8ed6513670d`；
-  两路独立 final review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0070`。按冻结
+  两路独立 final review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0071`。按冻结
   未重复完整 `just ci`。
 - Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
   requirement 与 support-rejection/no-artifact boundary；不包括 Option/Field value operations、任意
