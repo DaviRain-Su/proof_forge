@@ -19,6 +19,8 @@ import ProofForgeV2.Source.AstDeclCodecV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstSpineEqV1
 import ProofForgeV2.Source.AstSpineCodecV1
+import ProofForgeV2.Source.AstSpineDeclV1
+import ProofForgeV2.Source.AstSpineDeclCodecV1
 import ProofForgeV2.Core.Typed
 import ProofForgeV2.Core.SemanticIR
 import ProofForgeV2.Core.Semantics
