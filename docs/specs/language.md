@@ -1241,8 +1241,10 @@ identity conflict，不得误归为 `PF-EXPORT-004` form/safety failure。
 2. `programPayloads env` 先完成全部 PA82 decode，再运行 PA83 cross-row identity scan；随后仍按 row
    order 对每 row 先运行 PA84 FQN binding，再运行 PA85 rendered short-name binding。PA84 失败优先于
    同 row 的 short-name failure，第一个 failing row 决定 diagnostic，完整成功后才返回 table。
-3. 非 `Name.str` final declaration fail closed；不得使用 panic-prone `Name.getString!` 或把 hygienic
-   `Name.num` 静默映射为 portable source name。empty registry 的 loops 仍为空操作并返回 empty table。
+3. 非 `Name.str` final declaration 必须以同一个
+   `PF-EXPORT-001: exported program short name does not match declaration` fail closed；不得使用
+   panic-prone `Name.getString!` 或把 hygienic `Name.num` 静默映射为 portable source name。empty
+   registry 的 loops 仍为空操作并返回 empty table。
 
 tests-only RED 固定新增 isolated ProgramShortName fixtures 与单一
 `Tests.Language.ProgramShortNames` suite，并只修改 `Tests.lean`/`lakefile.lean` 注册，总新增不超过

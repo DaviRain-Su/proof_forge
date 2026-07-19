@@ -1416,7 +1416,7 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   expected short name 必须是 `(Name.str .anonymous rawComponent).toString`；不得直接比较 raw component，
   不得对 full declaration string 使用 dot split/substring/`endsWith`。这样 simple name 保持原文，同时
   `program «hyphen-prog»` 与 `program «dot.prog»` 的 payload name 精确保留 Lean 4.31 guillemet rendering。
-  final declaration 不是 `Name.str` 时 fail closed。mismatch 固定为
+  final declaration 不是 `Name.str` 时也必须以同一个 short-name mismatch diagnostic fail closed。mismatch 固定为
   `PF-EXPORT-001: exported program short name does not match declaration`，不得归类为 `PF-EXPORT-004`。
   `programPayload` 的检查顺序固定为 registered → PA82 decode → PA84 FQN binding → short-name binding；
   `programPayloads` 固定为全部 PA82 decode → PA83 cross-row scan → 对每 row 先 PA84 FQN binding、再
