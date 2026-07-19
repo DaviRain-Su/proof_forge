@@ -112,6 +112,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.SourceWireDecodeV1,
     `Tests.Language.SourceNameComponentV1,
     `Tests.Language.SourceQualifiedNameV1,
+    `Tests.Language.SourceAstLeafV1,
     `Tests.Language.FrontendParity,
     `Tests.Language.Grouping,
     `Tests.Language.Loader,
