@@ -4931,3 +4931,42 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice。post-PA82 residual audit 只把 identity-level duplicate 等剩余
   D1-05 seam 作为候选；必须先独立冻结再提交 RED，禁止自动编号。
+
+## 2026-07-19 — D1 cross-row exported Source identity pre-acceptance slice
+
+- Commits：freeze `d740b724`；tests-only RED `7d016287`；identity scan/GREEN 与 Lean
+  package-file re-pin `e266f3ed`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-83 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。两路 post-PA82 audit 选择 PA81 declaration-only uniqueness 与 PA82 reconstructed payload 之间的
+  cross-row identity seam，不是 checkpoint 自动递增。
+- Changed：只在既有 `programPayloads` 完成全部 row 的 PA82 structural decode 后调用 private
+  `checkProgramIdentities`。scan 继承 PA81 declaration FQN order，以 exact payload `qualifiedName`
+  为唯一 `Std.HashMap` key，记录首个 sourceHash；同 qualifiedName+同 hash 稳定失败为
+  `PF-EXPORT-001: duplicate exported program identity`，同 qualifiedName+不同 hash 稳定失败为
+  `PF-EXPORT-001: conflicting exported program identity`。不迭代 map，因此首个 collision 仍由
+  row order 决定；不新增 public API。
+- Priority/Boundary：全部 decode 先于 identity scan，任一 invalid payload 继续以
+  `PF-EXPORT-004` 失败，不暴露 partial table。当前 sourceHash preimage 已包含 qualifiedName，因此
+  different-qname/same-hash 不是可构造的业务 fixture；hash 只分类同 qname 的 duplicate 与
+  split-brain，不作为独立主键。
+- RED/Fixtures：195/220 additions，只新增 isolated ProgramIdentity snapshot/fixtures/suite 与
+  Tests/lake 注册。positive 两个 direct `Program.mk` 在相同业务 shape 下保持 distinct
+  qname/hash 和 PA81 FQN order；duplicate 与 split-brain 分别固定同 qname+同/异 hash；priority
+  fixture 在 collision 之后放置排序更后的 invalid constant alias，固定 `PF-EXPORT-004`
+  优先级。RED 时 Positive/Priority 绿，Duplicate/Conflict 唯一失败为 `expected identity failure`。
+- Verification：`lake build Tests.Language.ProgramIdentities` 12 jobs；`lake build
+  proof_forge_next_tests` 242 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom`
+  的 self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。
+  ProgramPayload 从 429 行增加到 449/480，为 20351 bytes、SHA-256
+  `8ffe45aea5e8c8dad88bc52c183343194a47167a874c4be7f3030a159e08086f`；manifest 仍 exact
+  覆盖 32 个 product Lean files。按冻结未重复完整 `just ci`。
+- Review/Evidence：Grok GREEN security review 无 P0/P1 blocker；Kimi final freeze review
+  P0=0/P1=0/P2=0。development evidence 为 `EV-20260719-0081`。
+- Scope claim：只完成 post-decode cross-row qualifiedName duplicate/split-brain rejection、稳定诊断与
+  decode-before-identity priority；不包括 single-row declaration/payload identity binding、independent
+  sourceHash collision oracle、NodeId/origin、`PF-EXPORT-002/003`、CLI/Loader、wire publication、target/
+  materializer、contained frontend worker 或正式 `TST-SRC-006/007` closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA83 residual audit 只把 single-row declaration/payload
+  identity binding 等剩余 D1-05 seam 作为候选；必须先独立冻结再提交 RED。
