@@ -455,6 +455,39 @@ program ArrayArrayParamBoundary where
   entry echo(value : Array Array UInt64 4 4) : UInt64 do
     return 0
 
+program ArrayArrayFieldSurface where
+  state matrix : Array Array Field bn254_fr 4 4
+
+  event NestedFieldMatrixEvent(payload : Array Array Field bn254_fr 4 4)
+  error NestedFieldMatrixError(payload : Array Array Field bn254_fr 4 4)
+
+  struct NestedFieldLimits where
+    empty : Array Array Field bn254_fr 0 0
+    ordinary : Array Array Field bn254_fr 4 4
+    maximum : Array Array Field bn254_fr 4096 1
+
+  enum NestedFieldBatch where
+    | FieldMatrices(Array Array Field bn254_fr 4 4)
+    | FieldMaximum(Array Array Field bn254_fr 4096 1)
+
+  const EmptyFieldMatrix : Array Array Field bn254_fr 0 0 := 0
+
+  init(initial : Array Array Field bn254_fr 4 4) do
+    matrix := initial
+
+  entry echo(value : Array Array Field bn254_fr 4 4) : Array Array Field bn254_fr 4 4 do
+    return value
+
+  view get() : Array Array Field bn254_fr 4 4 do
+    return matrix
+
+  fn keepMaximum(value : Array Array Field bn254_fr 4096 1) : Array Array Field bn254_fr 4096 1 do
+    return value
+
+program ArrayArrayFieldBoundary where
+  entry echo(value : Array Array Field bn254_fr 4 4) : Array Array Field bn254_fr 4 4 do
+    return value
+
 end Tests.Language.ArrayTypesFixture
 
 namespace Tests.Language.ArrayTypes
@@ -689,6 +722,32 @@ private def arrayArraySurfaceSource : String :=
   "  view get() : Array Array UInt64 4 4 do\n" ++
   "    return matrix\n\n" ++
   "  fn keepMaximum(value : Array Array Principal 4096 1) : Array Array Principal 4096 1 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.ArrayTypesFixture\n"
+
+private def arrayArrayFieldSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.ArrayTypesFixture\n\n" ++
+  "program ArrayArrayFieldSurface where\n" ++
+  "  state matrix : Array Array Field bn254_fr 4 4\n\n" ++
+  "  event NestedFieldMatrixEvent(payload : Array Array Field bn254_fr 4 4)\n" ++
+  "  error NestedFieldMatrixError(payload : Array Array Field bn254_fr 4 4)\n\n" ++
+  "  struct NestedFieldLimits where\n" ++
+  "    empty : Array Array Field bn254_fr 0 0\n" ++
+  "    ordinary : Array Array Field bn254_fr 4 4\n" ++
+  "    maximum : Array Array Field bn254_fr 4096 1\n\n" ++
+  "  enum NestedFieldBatch where\n" ++
+  "    | FieldMatrices(Array Array Field bn254_fr 4 4)\n" ++
+  "    | FieldMaximum(Array Array Field bn254_fr 4096 1)\n\n" ++
+  "  const EmptyFieldMatrix : Array Array Field bn254_fr 0 0 := 0\n\n" ++
+  "  init(initial : Array Array Field bn254_fr 4 4) do\n" ++
+  "    matrix := initial\n\n" ++
+  "  entry echo(value : Array Array Field bn254_fr 4 4) : Array Array Field bn254_fr 4 4 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Array Array Field bn254_fr 4 4 do\n" ++
+  "    return matrix\n\n" ++
+  "  fn keepMaximum(value : Array Array Field bn254_fr 4096 1) : Array Array Field bn254_fr 4096 1 do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.ArrayTypesFixture\n"
 
@@ -1217,6 +1276,67 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same Array Array sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let arrayArrayFieldSurface := Tests.Language.ArrayTypesFixture.ArrayArrayFieldSurface
+  expect (arrayArrayFieldSurface.state.map (·.type) == #[.array (.array .field 4) 4])
+    "Array Array Field bn254_fr 4 4 state must survive Lean command elaboration"
+  match arrayArrayFieldSurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "NestedFieldMatrixEvent" &&
+          eventDecl.params.map (·.type) == #[.array (.array .field 4) 4])
+        "Array Array Field event must preserve nested Array/Field tags and dual lengths"
+  | _ => throw <| IO.userError "ArrayArrayFieldSurface must retain NestedFieldMatrixEvent"
+  match arrayArrayFieldSurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "NestedFieldMatrixError" &&
+          errorDecl.params.map (·.type) == #[.array (.array .field 4) 4])
+        "Array Array Field error must preserve nested Array/Field tags and dual lengths"
+  | _ => throw <| IO.userError "ArrayArrayFieldSurface must retain NestedFieldMatrixError"
+  match arrayArrayFieldSurface.structs with
+  | #[limits] =>
+      expect (limits.name == "NestedFieldLimits" &&
+          limits.fields.map (·.type) ==
+            #[.array (.array .field 0) 0, .array (.array .field 4) 4,
+              .array (.array .field 4096) 1])
+        "Array Array Field struct fields must preserve dual lengths 0/0, 4/4, 4096/1"
+  | _ => throw <| IO.userError "ArrayArrayFieldSurface must retain one struct"
+  match arrayArrayFieldSurface.enums with
+  | #[batch] =>
+      expect (batch.name == "NestedFieldBatch" && batch.variants.map (·.payloadTypes) ==
+          #[#[.array (.array .field 4) 4], #[.array (.array .field 4096) 1]])
+        "Array Array Field enum payloads must preserve dual length matrix"
+  | _ => throw <| IO.userError "ArrayArrayFieldSurface must retain one enum"
+  match arrayArrayFieldSurface.consts with
+  | #[emptyMatrix] =>
+      expect (emptyMatrix.name == "EmptyFieldMatrix" &&
+          emptyMatrix.type == .array (.array .field 0) 0)
+        "Array Array Field 0 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "ArrayArrayFieldSurface must retain EmptyFieldMatrix"
+  match arrayArrayFieldSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.array (.array .field 4) 4])
+        "Array Array Field initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "ArrayArrayFieldSurface must retain initializer"
+  match arrayArrayFieldSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.array (.array .field 4) 4] &&
+          echoEntry.result == .array (.array .field 4) 4 &&
+          getView.result == .array (.array .field 4) 4 && getView.mode == .view)
+        "Array Array Field entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "ArrayArrayFieldSurface must retain echo and get"
+  match arrayArrayFieldSurface.functions with
+  | #[keepMaximum] =>
+      expect (keepMaximum.params.map (·.type) == #[.array (.array .field 4096) 1] &&
+          keepMaximum.result == .array (.array .field 4096) 1)
+        "Array Array Field 4096 1 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "ArrayArrayFieldSurface must retain keepMaximum"
+  match ← session.selectProgram arrayArrayFieldSurfaceSource "<array-array-field-types>" none with
+  | .ok decoded =>
+      expect (decoded == arrayArrayFieldSurface)
+        "Loader and Lean command must produce the same Array Array Field Source.Program"
+      expect (decoded.sourceHash == arrayArrayFieldSurface.sourceHash)
+        "Loader and Lean command must produce the same Array Array Field sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let sourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Array UInt64 0", .array .u64 0, 247,
       "3ceb8bd535df35be7ffc11b0936fbb350edab1bbb5506400e0946e4404f7551f"),
@@ -1680,6 +1800,89 @@ unsafe def run : IO Unit := do
         s!"{label} semantic tag18+tag18 golden is unbound: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
   expect goldensBound "Array Array tag18+tag18 canonical goldens must be bound"
 
+  let aafSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Array Field bn254_fr 0 0", .array (.array .field 0) 0, 0, "UNBOUND"),
+    ("Array Array Field bn254_fr 4 4", .array (.array .field 4) 4, 0, "UNBOUND"),
+    ("Array Array Field bn254_fr 4096 1", .array (.array .field 4096) 1, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in aafSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag18+tag18+tag2 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  let aafSourceCanon (type : Source.ValueType) : ByteArray × String :=
+    ((twin type).canonicalBytes, (twin type).sourceHash)
+  let aafSourceDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+    let leftPair := aafSourceCanon left
+    let rightPair := aafSourceCanon right
+    expect (leftPair.1 != rightPair.1 && leftPair.2 != rightPair.2) message
+  let aaf00 : Source.ValueType := .array (.array .field 0) 0
+  let aaf44 : Source.ValueType := .array (.array .field 4) 4
+  let aafMax : Source.ValueType := .array (.array .field 4096) 1
+  let aaf84 : Source.ValueType := .array (.array .field 8) 4
+  let aaf04 : Source.ValueType := .array (.array .field 0) 4
+  let aaf80 : Source.ValueType := .array (.array .field 8) 0
+  let aaf48 : Source.ValueType := .array (.array .field 4) 8
+  aafSourceDistinct aaf00 aaf44
+    "Array Array Field candidates 0/0 vs 4/4 Source must non-alias (bytes+hash)"
+  aafSourceDistinct aaf44 aafMax
+    "Array Array Field candidates 4/4 vs 4096/1 Source must non-alias (bytes+hash)"
+  aafSourceDistinct aaf00 aafMax
+    "Array Array Field candidates 0/0 vs 4096/1 Source must non-alias (bytes+hash)"
+  aafSourceDistinct aaf44 (.array (.array .u64 4) 4)
+    "Array Array Field 4 4 Source must non-alias Array Array UInt64 4 4 (bytes+hash)"
+  aafSourceDistinct aaf44 (.array .field 4)
+    "Array Array Field 4 4 Source must non-alias Array Field bn254_fr 4 (bytes+hash)"
+  aafSourceDistinct aaf44 (.option (.array .field 4))
+    "Array Array Field 4 4 Source must non-alias Option Array Field bn254_fr 4 (bytes+hash)"
+  aafSourceDistinct aaf84 aaf04
+    "Array Array Field one-axis inner 8/4 vs 0/4 Source must non-alias (bytes+hash)"
+  aafSourceDistinct aaf84 aaf80
+    "Array Array Field one-axis outer 8/4 vs 8/0 Source must non-alias (bytes+hash)"
+  aafSourceDistinct aaf84 aaf48
+    "Array Array Field dual-length order 8/4 vs 4/8 Source must non-alias (bytes+hash)"
+
+  let aafSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Array Field bn254_fr 0 0", .array (.array .field 0) 0, 0, "UNBOUND"),
+    ("Array Array Field bn254_fr 4 4", .array (.array .field 4) 4, 0, "UNBOUND"),
+    ("Array Array Field bn254_fr 4096 1", .array (.array .field 4096) 1, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in aafSemanticVectors do
+    let compiled ← match Compiler.compile (twin type) with
+      | .ok value => pure value
+      | .error error =>
+          throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (compiled.canonicalBytes.size == expectedSize && compiled.semanticHash == expectedHash)
+      s!"{label} semantic tag18+tag18+tag2 golden is unbound: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
+  let aafSemanticCanon (type : Source.ValueType) : IO (ByteArray × String) := do
+    match Compiler.compile (twin type) with
+    | .ok value => pure (value.canonicalBytes, value.semanticHash)
+    | .error error =>
+        throw <| IO.userError
+          s!"Array Array Field semantic non-alias twin must compile: {error.render}"
+  let aafSemanticDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+    let leftPair ← aafSemanticCanon left
+    let rightPair ← aafSemanticCanon right
+    expect (leftPair.1 != rightPair.1 && leftPair.2 != rightPair.2) message
+  aafSemanticDistinct aaf00 aaf44
+    "Array Array Field candidates 0/0 vs 4/4 Semantic must non-alias (bytes+hash)"
+  aafSemanticDistinct aaf44 aafMax
+    "Array Array Field candidates 4/4 vs 4096/1 Semantic must non-alias (bytes+hash)"
+  aafSemanticDistinct aaf00 aafMax
+    "Array Array Field candidates 0/0 vs 4096/1 Semantic must non-alias (bytes+hash)"
+  aafSemanticDistinct aaf44 (.array (.array .u64 4) 4)
+    "Array Array Field 4 4 Semantic must non-alias Array Array UInt64 4 4 (bytes+hash)"
+  aafSemanticDistinct aaf44 (.array .field 4)
+    "Array Array Field 4 4 Semantic must non-alias Array Field bn254_fr 4 (bytes+hash)"
+  aafSemanticDistinct aaf44 (.option (.array .field 4))
+    "Array Array Field 4 4 Semantic must non-alias Option Array Field bn254_fr 4 (bytes+hash)"
+  aafSemanticDistinct aaf84 aaf04
+    "Array Array Field one-axis inner 8/4 vs 0/4 Semantic must non-alias (bytes+hash)"
+  aafSemanticDistinct aaf84 aaf80
+    "Array Array Field one-axis outer 8/4 vs 8/0 Semantic must non-alias (bytes+hash)"
+  aafSemanticDistinct aaf84 aaf48
+    "Array Array Field dual-length order 8/4 vs 4/8 Semantic must non-alias (bytes+hash)"
+
   for (label, spelling) in [
       ("bare Array", "Array"),
       ("missing Array element", "Array 4"),
@@ -1744,6 +1947,22 @@ unsafe def run : IO Unit := do
       ("Array element", "Array Array 4"),
       ("unknown Array Array element", "Array Array Mystery 4 4"),
       ("Field Array Array element", "Array Array Field 4 4"),
+      ("alternate Array Array Field id", "Array Array Field bls12_381_fr 4 4"),
+      ("escaped Array Array Field id", "Array Array Field «bn254_fr» 4 4"),
+      ("qualified Array Array Field id", "Array Array Field Curves.bn254_fr 4 4"),
+      ("over-bound Array Array Field inner length", "Array Array Field bn254_fr 4097 4"),
+      ("leading-zero Array Array Field inner length", "Array Array Field bn254_fr 01 4"),
+      ("hex Array Array Field inner length", "Array Array Field bn254_fr 0x10 4"),
+      ("underscore Array Array Field inner length", "Array Array Field bn254_fr 4_096 4"),
+      ("over-bound Array Array Field outer length", "Array Array Field bn254_fr 4 4097"),
+      ("leading-zero Array Array Field outer length", "Array Array Field bn254_fr 4 01"),
+      ("hex Array Array Field outer length", "Array Array Field bn254_fr 4 0x10"),
+      ("underscore Array Array Field outer length", "Array Array Field bn254_fr 4 4_096"),
+      ("Widget Array Array Field leaf", "Array Array Widget 4 4"),
+      ("bare Bytes Array Array element", "Array Array Bytes 4 4"),
+      ("bare Option Array Array element", "Array Array Option 4 4"),
+      ("bare Array Array Array element", "Array Array Array 4 4"),
+      ("bare Map Array Array element", "Array Array Map 4 4"),
       ("over-bound Array Array inner length", "Array Array UInt64 4097 4"),
       ("leading-zero Array Array inner length", "Array Array UInt64 01 4"),
       ("hex Array Array inner length", "Array Array UInt64 0x10 4"),
@@ -1798,6 +2017,21 @@ unsafe def run : IO Unit := do
   | .error error =>
       throw <| IO.userError
         s!"migrated Array Option Option Field bn254_fr 4 must parse: {error.render}"
+
+  let migratedArrayArrayFieldSource :=
+    negativeSource "MigratedArrayArrayField" "Array Array Field bn254_fr 4 4"
+  match ← session.parsePrograms migratedArrayArrayFieldSource
+      "<migrated-array-array-field>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) ==
+          #[.array (.array .field 4) 4])
+        "migrated Array Array Field bn254_fr 4 4 pin must now parse as existing array(array(field,4),4)"
+  | .ok programs =>
+      throw <| IO.userError
+        s!"migrated Array Array Field bn254_fr 4 4 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError
+        s!"migrated Array Array Field bn254_fr 4 4 must parse: {error.render}"
 
   let migratedArrayOptionBytesSource :=
     negativeSource "MigratedArrayOptionBytes" "Array Option Bytes 8 4"
@@ -1894,7 +2128,24 @@ unsafe def run : IO Unit := do
       ("negative Array Array outer length", "Array Array UInt64 4 -1"),
       ("missing Array Array outer length", "Array Array UInt64 4"),
       ("extra Array Array payload", "Array Array UInt64 4 4 Principal"),
-      ("full Field Array Array element", "Array Array Field bn254_fr 4 4"),
+      ("missing Array Array Field outer length", "Array Array Field bn254_fr 4"),
+      ("missing Array Array Field lengths", "Array Array Field bn254_fr"),
+      ("negative Array Array Field inner length", "Array Array Field bn254_fr -1 4"),
+      ("negative Array Array Field outer length", "Array Array Field bn254_fr 4 -1"),
+      ("identifier Array Array Field inner length", "Array Array Field bn254_fr N 4"),
+      ("identifier Array Array Field outer length", "Array Array Field bn254_fr 4 M"),
+      ("extra Array Array Field payload", "Array Array Field bn254_fr 4 4 Principal"),
+      ("split Array Array Field outer Array", "Array\n  Array Field bn254_fr 4 4"),
+      ("split Array Array Field inner Array", "Array Array\n  Field bn254_fr 4 4"),
+      ("split Array Array Field constructor", "Array Array Field\n  bn254_fr 4 4"),
+      ("split Array Array Field id", "Array Array Field bn254_fr\n  4 4"),
+      ("split Array Array Field outer length", "Array Array Field bn254_fr 4\n  4"),
+      ("escaped Array Array Field outer constructor", "«Array» Array Field bn254_fr 4 4"),
+      ("qualified Array Array Field outer constructor", "Std.Array Array Field bn254_fr 4 4"),
+      ("escaped Array Array Field inner constructor", "Array «Array» Field bn254_fr 4 4"),
+      ("qualified Array Array Field inner constructor", "Array Std.Array Field bn254_fr 4 4"),
+      ("escaped Field Array Array Field", "Array Array «Field» bn254_fr 4 4"),
+      ("qualified Field Array Array Field", "Array Array Std.Field bn254_fr 4 4"),
       ("nested Option Array Array element", "Array Array Option Bool 4 4"),
       ("nested Bytes Array Array element", "Array Array Bytes 8 4 4"),
       ("nested Array Array Array element", "Array Array Array UInt64 4 4 4"),
@@ -2128,6 +2379,41 @@ unsafe def run : IO Unit := do
     | .error error =>
         throw <| IO.userError
           s!"{target} must support zero-requirement Array Array UInt64 carrier: {error.render}"
+
+  let arrayArrayFieldBoundary ← match Compiler.compile
+      Tests.Language.ArrayTypesFixture.ArrayArrayFieldBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"ArrayArrayFieldBoundary must compile: {error.render}"
+  expect (arrayArrayFieldBoundary.requirements == #[.fieldBn254])
+    "Array Array Field must recursively propagate fieldBn254 exactly once"
+  match arrayArrayFieldBoundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.array (.array .field 4) 4] &&
+          echoEntry.result == .array (.array .field 4) 4)
+        "Source-to-Semantic adaptation must preserve nested Array Field tags and dual lengths"
+  | _ => throw <| IO.userError "ArrayArrayFieldBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target arrayArrayFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Array Array Field support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError
+          s!"Array Array Field/{target} checkSupport wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError
+          s!"Array Array Field/{target} unexpectedly passed checkSupport"
+    match Targets.materializeResult target arrayArrayFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Array Array Field materialize rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError
+          s!"Array Array Field/{target} materializeResult wrong failure: {other.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"Array Array Field/{target} must not materialize or emit artifact"
 
   let arrayArrayBoolBoundary ← match Compiler.compile
       Tests.Language.ArrayTypesFixture.ArrayArrayBoolBoundary with
