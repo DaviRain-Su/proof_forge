@@ -17,8 +17,8 @@
 | Formal milestone | **D0：7/9 done**；`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级），`TASK-D0-04` blocked，`TASK-D0-07` pending；尚未正式进入 D1 |
 | Active task | 无；当前没有可合法置为 `in_progress` 的正式 TASK |
 | Next task | **TASK-D0-04**（blocked；仍是表序中的下一个非 done 正式任务） |
-| Active development slice | **D1-PA-91 / TASK-D1-01 pre-acceptance**：production `WireCodecV1` primitive/tagged encoder + independent Python reference；完成面已冻结，下一步提交真实 codec RED→GREEN，不引入 partial `ProgramV1` |
-| Next development slice | 未冻结；D1-PA-91 收口后先裁决完整 canonical model cutover 的 escaped identifier carrier、`ProofDecl.theorem` qualified-id 约束与 visibility 映射，再选择 model 或 decoder slice；不得把 alpha `Source.Program` 投影伪装成 v1、修改 alpha sourceHash、提前发布 `canonicalSourceAstBytesV1`/`sourceHashV1` 或据 development evidence 关闭 pending `TASK-D1-01` |
+| Active development slice | 无；**D1-PA-91 / TASK-D1-01 pre-acceptance** production `WireCodecV1` primitive/tagged encoder + independent Python reference 已以 `EV-20260719-0089` 收口；正式 `TASK-D1-01` 仍为 pending |
+| Next development slice | 未冻结；先裁决完整 canonical model cutover 的 escaped identifier carrier、`ProofDecl.theorem` qualified-id 约束、visibility 映射与 NodeId JCS key，再从 model/decoder 中只冻结一个 slice；不得把 alpha `Source.Program` 投影伪装成 v1、修改 alpha sourceHash、提前发布 `canonicalSourceAstBytesV1`/`sourceHashV1` 或据 development evidence 关闭 pending `TASK-D1-01` |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | **TASK-D0-04** 仓库内 foundation 已齐（对象族/producer/authority-store/handoff producer/bwrap containment/TST-BOOTSTRAP-001 rehearsal 全绿，`EV-20260718-0054`…`EV-20260718-0062`），剩余为外部前置：eligible host（本机 SecureBoot disabled，须 BIOS 启用后重登记 linux profile）+ genesis root 离线签发首个 BootstrapAuthorityPolicyV1 + 真实 six-item activation；D0-08/D0-09 已经 `GOV-PRECUTOVER-001` 关闭，darwin live 重观察为 P2 债务（截止 D0-07 关闭前）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |

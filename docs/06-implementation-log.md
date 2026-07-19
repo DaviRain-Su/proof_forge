@@ -5202,3 +5202,38 @@ normative: false
 - Next：当前无 active development slice。对 `TST-SRC-001` 剩余 wire/collision surface 做 bounded audit，
   先确认 accepted/proposed spec authority、现有 production encoder/decoder API 与可安全冻结的最小 RED；
   未冻结前不得新增 public API 或自动递增。
+
+## 2026-07-19 — D1 canonical wire primitive codec pre-acceptance slice
+
+- Commits：D1-PA-91 freeze `cec96db2`；RED `b59dadfd`；GREEN `aa54102f`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 的 primitive/tagged encode foundation，仍属于
+  `TST-SRC-001` development evidence。冻结边界禁止 partial/full `ProgramV1`、alpha projection/sourceHash
+  改写、decoder、NodeId assigner/collision seam 与完整 public wire/hash API。
+- Changed：新增 109-line `ProofForgeV2.Source.WireCodecV1`：u8/u16/u32/u256 little-endian、Bool、带首个
+  child-error 传播的 Option/Array、pinned-NFC String、经 public Common validator 的 Ident/QualifiedName/
+  QualifiedId，以及 generic ASCII tag/u16 field-count encoder。新增 92-line Lean suite、100-line 不 import
+  Lean/ProofForge 的 Python reference 与最小 product/test registration；authored additions 305/380，机械
+  manifest refresh 后 product Lean file-set 为 33 files。`WireCodecV1.lean` 为 3755 bytes、SHA-256
+  `003a9e072583ff9be1903243c980259224c81b27c81f3c83d954fd124322bb56`。
+- Cross implementation：Lean 与 Python 固定 20 个 positive exact-hex vectors，覆盖 scalar endian、u256
+  zero/max、Bool、Option/Array order、ASCII/Unicode NFC Ident/String、一/二组件 qualified carriers、nullary
+  visibility 与 two-field Program tag；11 个 negatives 覆盖 u256 overflow、NFD、invalid/empty/1/257 component、
+  child encoder failure、empty/non-ASCII tag 与 65536 fields。Python identifier oracle 按锁定 Lean 4.31
+  `isIdFirst`/`isIdRest` 的 ASCII、letter-like、subscript 范围和 Common 1..240 UTF-8 bytes 精确实现，不使用
+  host Unicode alpha 类别。
+- Verification：focused `lake build ProofForgeV2.Source.WireCodecV1
+  Tests.Language.SourceWireCodecV1` 8 jobs；focused `lean --run` 与 Python `--self-check` 均输出 `ok`；临时
+  Lean probes 固定 u256 `0x0102` LSB-first、Option/Array first-child error、String symbols 与 QualifiedId 256
+  boundary；`lake build proof_forge_next_tests` 280 jobs，测试二进制输出 `proof-forge-next-tests: ok`；最终态
+  `just sbom` 的 self-test/generate/verify/closure 全绿；`git diff --check` 通过。按冻结未运行完整 `just ci`。
+- Review/Evidence：Grok cross-codec review 的两项 P1（error-path vacuity、Python identifier drift）均在 GREEN
+  内修复，rereview P0/P1=0；Kimi actual production security audit P0/P1=0。development evidence 为
+  `EV-20260719-0089`。
+- Limitations：没有 canonical `ProgramV1` model、closed constructor inventory、decoder、root identity join、
+  `canonicalSourceAstBytesV1`、`sourceHashV1`、escaped-source identifier projection、NodeId traversal/collision
+  staging 或 full cross-tag corpus；spec 仍 proposed，且 D0 dependencies/candidate-bound formal evidence 未齐，
+  因而不能关闭 pending `TASK-D1-01`、任何下游 D1/D2 或 target task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。冻结下一 slice 前先裁决 escaped identifier carrier、
+  `ProofDecl.theorem` QualifiedId 约束、visibility 映射与 NodeId JCS key；之后只能在 canonical model cutover
+  或 decoder 中选择一个 bounded RED，禁止重新接入 alpha hash/model。
