@@ -5374,3 +5374,36 @@ normative: false
   关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
 - Next：当前无 active development slice。Grok/Kimi 正在绘制 recursive spine dependency graph，只能在
   无 placeholder/类型擦除的完整边界上冻结 PA96；model/encoder 若需分批，必须保持同一闭集 inventory。
+
+## 2026-07-19 — D1 ProgramV1 supporting-record pre-acceptance slice
+
+- Commits：D1-PA-96 freeze `1f5377a7`；RED `f957f59a`；GREEN `b3b90cb7`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 中不依赖递归 spine 的三个 supporting
+  record 与其 table-verbatim encoder，仍属于 `TST-SRC-001` development evidence。冻结边界明确排除
+  Pattern、Place/Expr/Stmt/Block/arms/ExternalCall mutual spine、partial ProgramItem/root、alpha、decoder、
+  hash、NodeId 与 target 层。
+- Changed：新增 28-line `AstSupportV1`，精确包含 `ParamV1`、`FieldDeclV1`、`EnumVariantV1`；新增
+  32-line `AstSupportCodecV1`，以 total `def` 编码 `Param`/3、`FieldDecl`/2、`EnumVariant`/2，字段顺序
+  分别为 visibility/raw Ident/Type、raw Ident/Type、raw Ident/Array Type。空 variant payload 在此层合法，
+  future `EnumDecl.variants` 的 nonempty 规则没有错误下沉；所有 raw name 与 Type 子错误原样 fail closed。
+- Cross implementation：97-line Lean suite与 74-line 不 import Lean/ProofForge 的 Python oracle持有 10 组
+  checked-in fixed bytes，覆盖三 visibility、raw `foo-bar`、nested Array(Option(Bytes 0),0)、Map、empty
+  payload、ordered Bool/Principal pair、nested Option；UInt width 24 与 Bytes 4097 子错误逐字传播，Python
+  另执行 closing-guillemet/Cc raw-name negatives。model 28、codec 32、suite 97、Python 74、registrations 5，
+  总 authored additions 236/390；机械 manifest 为 40 files。
+- Verification：`lake build ProofForgeV2.Source.AstSupportV1 ProofForgeV2.Source.AstSupportCodecV1
+  Tests.Language.SourceAstSupportV1 proof_forge_next_tests` 304 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_support_v1.py --self-check` 输出
+  `reference_source_ast_support_v1: ok 10`；`just sbom-package-files-refresh` → 40 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`git diff --check` 通过。按冻结未运行完整 `just ci`。
+- Review/Evidence：Kimi freeze、RED 与 GREEN reviews 均 P0/P1=0，最终 GREEN 为 P0/P1/P2=0；Grok
+  final review P0/P1=0，唯一 P2 stale RED comment 已改为 phase-neutral 描述并聚焦重建。development
+  evidence 为 `EV-20260719-0094`。
+- Limitations：没有 Pattern 或 recursive Place/Expr/Stmt/Block spine，没有 supporting-record decoder、
+  full-tree 256 nesting/100000 nodes/16 MiB validator、theorem/visibility alpha adapter、root/hash、NodeId 或
+  stable Diagnostic；spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭
+  pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok 正在验证完整 Pattern table 是否形成 PA93-96 之上的
+  自包含闭集；只有依赖图、完整 constructor/tag inventory 与 RED 预算冻结后才能启动 D1-PA-97。
