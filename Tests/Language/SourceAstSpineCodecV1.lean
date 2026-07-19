@@ -57,7 +57,7 @@ private def u256Err := "u256 magnitude exceeds 2^256-1"
 def run : IO Unit := do
   let x ← name "x"; let y ← name "y"; let s ← name "s"; let total ← name "total"
   let arr ← name "arr"; let helper ← name "helper"; let i ← name "i"
-  let denied ← name "Denied"; let ping ← name "Ping"; let foobar ← name "foo-bar"
+  let denied ← name "Denied"; let ping ← name "Ping"
   let optSome ← qn #["Option", "some"]; let optNone ← qn #["Option", "none"]
   let mathAdd ← qn #["Math", "add"]; let only ← qn #["Only"]
   let L0 : ExprV1 := .literal (.integer 0)
