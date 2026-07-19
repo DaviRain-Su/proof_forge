@@ -72,7 +72,7 @@ reservation 或在初始 no-clobber 检查前失败的 launcher 不得清理。R
   invocationBindingSha256,
   policy: {path, sha256, size},
   runtimePort: null | integer 1..65535,
-  engine: {path: "/usr/bin/sandbox-exec", observedSha256},
+  engine: {id: "sbpl" | "bwrap", path, observedSha256},
   observedLauncherSha256,
   command: {
     argv: [string, ...], argvSha256,
@@ -90,14 +90,20 @@ reservation 或在初始 no-clobber 检查前失败的 launcher 不得清理。R
 
 - `invocation` 使用 launcher 已有的 lowercase-hyphen ID；receipt 不接受 gate/probe ID 自报。
   Catalog 以后只按 `(stage, invocation)` 映射 required probe。
+- `engine.id`（ADR-0018）：新 receipt 必须携带 `id`；current reader 对无 `id` 且
+  `path == "/usr/bin/sandbox-exec"` 的 legacy engine object 按 `sbpl` 读取，既有 darwin
+  receipt 不失效；`bwrap` receipt 的 `engine.path` 为锁定 bwrap 可执行文件。
 - `runBindingSha256` 与 `invocationBindingSha256` 必须分别等于本节后述 base run context 与
   per-invocation context 的 domain-separated digest；它们阻止不同 context 之间 mix-and-match，
   但没有 freshness 或受保护 nonce registry，不能声称阻止一整套旧 context/receipt 被完整重放。
   两份 context 在 decode 后、Popen 紧前以及 child cleanup 后都必须再次 stable-read 并确认
   pathname identity；任何 pre-spawn mismatch 必须 no-spawn/no-marker。
-- `policy.path` 固定为 `policies/<stage>.sb`；SHA-256/size 来自 launcher 已稳定读取的 exact
-  bytes。`runtimePort` 字段始终存在：非 runtime stage 必须为 `null`，`evm-runtime` 必须为
-  `1..65535`，并且已与 policy 的唯一 inbound/outbound `localhost:PORT` 规则一致。
+- `policy.path` 按 `engine.id` 分派（ADR-0018）：`sbpl` 固定为 `policies/<stage>.sb`，
+  `bwrap` 固定为 `policies/<stage>.bwrap.json`（closed rendered profile）；SHA-256/size 来自
+  launcher 已稳定读取的 exact bytes。`runtimePort` 字段始终存在：非 runtime stage 必须为
+  `null`，`evm-runtime` 必须为 `1..65535`；`sbpl` 下并与 policy 的唯一 inbound/outbound
+  `localhost:PORT` 规则一致，`bwrap` 下记录 payload 绑定端口，隔离性质为仅 loopback 的独立
+  net namespace（严格强于 exact-local-port），LAN 与 adjacent-port 拒绝仍以 probe 实证。
 - `command.argv` 是作为 sandbox engine argv tail 的 exact payload argv（argv[0] 已替换为验证
   后的 absolute canonical executable）；`environment.entries` 是传给 `Popen` 的完整 allowlisted
   environment，按 name 唯一升序。两者都保留 canonical 原值，不能只保留不可复核的 hash。
@@ -110,8 +116,9 @@ reservation 或在初始 no-clobber 检查前失败的 launcher 不得清理。R
 - `observedExecutablePath` 必须等于 `command.argv[0]`。payload executable 与 engine 在 spawn
   前后、launcher source 在 spawn 前及 child cleanup 后，都要 stable-read/check exact
   `(dev,inode,uid,nlink,mode,size,mtime_ns,ctime_ns)`，且 pathname 仍指向同 inode；receipt 字段
-  因此都明确命名为 observed digest，不能声称实际 loaded/executed bytes。完整 Popen vector 可由
-  固定 engine path、`-p`、exact captured policy text 和 `command.argv` 重构。
+  因此都明确命名为 observed digest，不能声称实际 loaded/executed bytes。完整 Popen vector 按
+  `engine.id` 重构（ADR-0018）：`sbpl` 为固定 engine path、`-p`、exact captured policy text 和
+  `command.argv`；`bwrap` 为固定 engine path、rendered profile argv 与 `command.argv`。
 - terminal 三字段始终存在。已提交 receipt 必须 `timedOut=false`，且恰有一个 `exitCode` 或
   `signal` 非 null；普通 nonzero exit 仍应留 receipt。timeout、output-cap、spawn/cleanup failure
   是 launcher internal failure，必须在 marker 前回滚且不得留下 complete receipt。
@@ -1647,7 +1654,16 @@ record 的 exact bytes，不能把 `qualification="development"` 提升成 forma
 `finalizedUtc`，并要求两者日期相同。NNNN 由 caller 分配，no-clobber publication 处理冲突；
 H1e 不把该 clock/sequence 当 freshness authority。
 
-## Formal finalization schema（specified，producer 尚未实现）
+## Formal finalization schema（specified；pre-acceptance producer/consumer 已落地，验收归 TASK-D0-07）
+
+### Fixture 验收域（ADR-0018）
+
+`TST-EVIDENCE-002` 与 `TST-ISO-002` 的验收在 fixture namespace 执行：fixture required
+set（fixture 分母等于 fixture gates）、fixture activation、fixture handoff 与 fixture
+candidate 必须与 production lookup tuple 不相交；真实 activation 只作为 authority 输入
+形态与 host eligibility 的事实来源被消费。fixture 产出永不关闭当前任务、永不构成
+formal/hermetic evidence。对真实 activation 的 77-ID 全量 formal partition 与 formal
+gate 属 release 级范围（`TASK-D8-04`/`TST-ISO-003`），不属于 `TASK-D0-07`。
 
 formal record 使用独立 schema `proof-forge.formal-evidence-finalization.v1`，root object
 恰含：
@@ -1729,6 +1745,12 @@ FormalFinalizerIdentityV1 {
 `ToolLockV2Digest`；TRACE-EV-001 host/candidate record 中命名为 `toolchainLockSha256` 的字段仍只表示
 retained lock file exact bytes 的 raw SHA-256。两者不可代换。
 
+finalizer 身份（ADR-0018）：真实 activation 的 `tcb.formalFinalizerDigest` 维持
+`scripts/gate_evidence.py` 的 development candidate 钉住（其 docstring 已声明该语义），真实
+activation 不重跑；fixture 验收域内 fixture handoff 钉 fixture finalizer executable
+（TASK-D0-07 交付的真实 finalizer 脚本），formal record 的 `finalizer` ref 在 fixture 域内
+自洽且为真。对真实 activation 的 formal finalizer 升级归 D8，届时按新 ADR 重钉。
+
 schema/domain 分别固定为：
 
 | Formal input | schema | digest domain |
@@ -1779,8 +1801,11 @@ formal record、support binding 或 staging。
 其完整 canonical tuple 唯一升序；所有 `signatures` 按 keyId 唯一升序并使用前文 exact
 ApprovalSignatureV1。
 containment 的 PID/session/start token 使用 UInt64，termination
-只允许 `exited|killed`；rootSessionId/escape probe ID 使用 safe-id。freshness maximumAgeSeconds 必须
-nonzero 且纳入 formal freshness 计算；private scan 的 empty findings 与 scannedEvidenceRefs exact
+只允许 `exited|killed`；rootSessionId/escape probe ID 使用 safe-id。freshness 语义（ADR-0018）：
+`expiresAt == observedAt + maximumAgeSeconds`，`maximumAgeSeconds` 必须 nonzero；finalizer 在产生
+record 时必须判定 `finalizedAt < expiresAt`，过期或窗口反转一律 `PF-EVIDENCE-FORMAL-UNVERIFIED`
+零输出；`clockSourceDigest` 绑定一份本地观测时钟声明文档（记录时钟来源与最大可信漂移，
+development 级，无远程时间权威）。private scan 的 empty findings 与 scannedEvidenceRefs exact
 覆盖本 record 全部 evidenceRefs，scannedMembers 必须无遗漏、无额外地覆盖这些 EV 所引用的全部
 retained input/artifact/log member。role 使用 EV catalog role，path 是 ProjectRelativePath，size 是
 不超过 `2^53-1` 的 UInt64，digest 对 member raw bytes 计算；同一 `(evidence,path)` 只出现一次并按该 tuple 排序。

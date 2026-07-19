@@ -1,0 +1,21 @@
+{
+  "denyContentMarkers": [
+    "BEGIN PRIVATE KEY",
+    "BEGIN OPENSSH PRIVATE KEY",
+    "BEGIN PGP PRIVATE KEY BLOCK",
+    "aws_secret_access_key",
+    "xoxb-"
+  ],
+  "denyPathMarkers": [
+    ".env",
+    "id_rsa",
+    "id_ed25519",
+    ".pem",
+    ".p12",
+    ".key"
+  ],
+  "id": "bootstrap-private-scan-policy",
+  "maximumFindings": 0,
+  "schema": "proof-forge.private-scan-policy.v1",
+  "version": "1.0.0"
+}

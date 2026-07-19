@@ -1,15 +1,20 @@
 ---
 id: ADR-0018
 title: D0-07 formal 执行语义：fixture 验收域、linux bwrap stage 引擎、freshness 判定与 finalizer 身份
-status: proposed
+status: accepted
 owner: architecture
 updated: 2026-07-19
 normative: true
+approvers: architecture-owner, quality-owner
+approvedAt: 2026-07-19
+reviewCommit: 200581129c32e44858f80986953a58879a0e22ca
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/200581129c32e44858f80986953a58879a0e22ca
+openFindings: none
 ---
 
 # ADR-0018：D0-07 formal 执行语义——fixture 验收域、linux bwrap stage 引擎、freshness 判定与 finalizer 身份
 
-- 状态：`proposed`
+- 状态：`accepted`
 - 日期：2026-07-19
 
 ## 背景

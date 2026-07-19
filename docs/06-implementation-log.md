@@ -4725,3 +4725,31 @@ normative: false
   catalog、finalizer、freshness/private scan/revocation、support-binding 与
   TST-EVIDENCE-002/TST-ISO-002 均未开始；darwin live 重观察需 Mac 实机（外部前置）。
 - Next：按冻结包先做 TST-ISO-002/TST-EVIDENCE-002 的 RED（先失败验收后实现）。
+
+## 2026-07-19 — ADR-0018 accepted 与规格修订落地（D0-07 执行语义裁决）
+
+- Context：D0-07 冻结后的缺口分析发现四个规格级决策点（77-ID partition、SBPL 钉死
+  wire vs linux host、freshness 未定义、finalizer pin 矛盾）。用户裁决方向 A 并批准
+  本 ADR（proposed 基线 `20058112`）。
+- Changed：新增 [`adr/0018-d0-07-formal-execution-semantics.md`](adr/0018-d0-07-formal-execution-semantics.md)
+  并转 `accepted`（approvers architecture-owner, quality-owner；reviewCommit
+  `20058112…22ca`）；`docs/specs/gate-catalog-finalization.md` 四处修订——
+  fixture 验收域节（TST-EVIDENCE-002/TST-ISO-002 在 fixture namespace 验收，77-ID
+  formal partition 归 D8）、engine-neutral receipt（`engine:{id:"sbpl"|"bwrap",…}`、
+  policy.path 分派、Popen vector 分派、legacy darwin reader 兼容）、freshness 谓词
+  （`expiresAt == observedAt + maximumAgeSeconds`、finalize 时刻 `finalizedAt <
+  expiresAt`、`clockSourceDigest` 绑定本地时钟声明）、finalizer 身份注记（真实
+  activation 不重跑，fixture handoff 钉 fixture finalizer）；`private-scan-policy.json`
+  提交至 `docs/governance/bootstrap-closure/`（与已签 policy 的 `privateScanPolicy`
+  digest `abaaf2aa…` 实测一致）；`docs/adr/README.md` 索引行。
+- Pin 安全核对：`05-test-spec.md` 被真实 activation 的 required set 按 contentDigest
+  钉住，其 fixture 文字同步递延为 P2 债务（owner=quality，随下次 required-set 重签发
+  落地）；五个 activation 钉住脚本与 `05-test-spec.md` 本变更集均未触碰，D0-04 关闭
+  门禁不受影响（`d0_04_bootstrap_activation_attested` 仍 True）。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok（accepted 五字段、
+  ADR 索引、fixture/修订文本无禁词）；`git diff --check` clean。
+- Limitations：本变更集只做治理/规格落地，不含任何 D0-07 实现；fixture harness、
+  bwrap 引擎、finalizer orchestrator、revocation store、private scanner、五个签名输入
+  producer 与 genesis 重放均未开始；darwin live 重观察仍需 Mac 实机。
+- Next：按冻结包与 ADR-0018 开始 TST-EVIDENCE-002/TST-ISO-002 的 RED（fixture
+  namespace 验收 harness 骨架先红）。
