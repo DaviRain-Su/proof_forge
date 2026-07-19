@@ -67,7 +67,7 @@ def run : IO Unit := do
   let someN ← name "Some"
   let ping ← name "Ping"
   let transfer ← name "Transfer"
-  let from ← name "from"
+  let from_ ← name "from"
   let amount ← name "amount"
   let note ← name "note"
   let emptyE ← name "Empty"
@@ -82,7 +82,7 @@ def run : IO Unit := do
   let fdItems : FieldDeclV1 := { name := items, type_ := .map .bool .unit }
   let varNone : EnumVariantV1 := { name := noneN, payloadTypes := #[] }
   let varSome : EnumVariantV1 := { name := someN, payloadTypes := #[.bool, .principal] }
-  let pFrom : ParamV1 := { visibility := .public_, name := from, type_ := .principal }
+  let pFrom : ParamV1 := { visibility := .public_, name := from_, type_ := .principal }
   let pAmount : ParamV1 := { visibility := .private_, name := amount, type_ := .uint 64 }
   let pNote : ParamV1 := { visibility := .commitment, name := note, type_ := .bytes 0 }
   let pReason : ParamV1 := { visibility := .public_, name := reason, type_ := .bool }
