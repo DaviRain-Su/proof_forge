@@ -77,7 +77,7 @@ def run : IO Unit := do
   expectOk "tag_Program" "0700000050726f6772616d020007000000436f756e74657200000000"
     (encodeTagged "Program" #[nameB, itemsB])
   expectErr "non_nfc" (encodeString "e\u0301")
-  expectErr "invalid_ident" (encodeIdent "1bad")
+  expectOk "ident_1bad" "0400000031626164" (encodeIdent "1bad")
   expectErr "qn_empty" (parseQualifiedName #[])
   let qiOne ← liftOk "qi one carrier" (parseQualifiedName #["Only"])
   let qi257 : QualifiedName := {
