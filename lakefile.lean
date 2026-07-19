@@ -107,6 +107,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.SourceIdentity,
     `Tests.Language.SourceSpan,
     `Tests.Language.SourceWireAcceptance,
+    `Tests.Language.SourceBoundsAcceptance,
     `Tests.Language.FrontendParity,
     `Tests.Language.Grouping,
     `Tests.Language.Loader,
