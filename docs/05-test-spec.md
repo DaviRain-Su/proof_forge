@@ -1,10 +1,15 @@
 ---
 id: PHASE-5
 title: 测试与验收规格
-status: proposed
+status: accepted
 owner: quality
-updated: 2026-07-18
+updated: 2026-07-19
 normative: true
+approvers: architecture-owner, davirain, quality-owner
+approvedAt: 2026-07-19
+reviewCommit: cda99d931ab02f063302cfa82861871bddee93e8
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/cda99d931ab02f063302cfa82861871bddee93e8
+openFindings: none
 ---
 
 # Phase 5：测试与验收规格

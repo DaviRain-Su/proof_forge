@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-07-17
+updated: 2026-07-19
 normative: true
 ---
 
@@ -29,8 +29,8 @@ normative: true
 | 产品 | [`01-prd.md`](01-prd.md) | `accepted` | 用户需求、范围、成功标准 |
 | 架构 | [`02-architecture.md`](02-architecture.md) | `accepted` | 系统边界、不变量、数据流 |
 | 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | API、schema、错误和版本 |
-| 实施计划 | [`04-task-breakdown.md`](04-task-breakdown.md) | `proposed` | 任务顺序与任务验收 |
-| 测试 | [`05-test-spec.md`](05-test-spec.md) | `proposed` | 验收和证据要求 |
+| 实施计划 | [`04-task-breakdown.md`](04-task-breakdown.md) | `accepted` | 任务顺序与任务验收 |
+| 测试 | [`05-test-spec.md`](05-test-spec.md) | `accepted` | 验收和证据要求 |
 | 实现事实 | [`06-implementation-log.md`](06-implementation-log.md) | `draft` | alpha 实际命令、结果与限制 |
 | 最终评审 | [`07-review-report.md`](07-review-report.md) | `not_started` | 发布判断 |
 

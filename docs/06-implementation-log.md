@@ -4433,3 +4433,30 @@ normative: false
   genesis 签名封套为 spec gap（见上 (a)）。
 - Next：PHASE-4/5 acceptance（独立 changeset）→ 用户 BIOS SecureBoot →
   profile 重登记 → 真实 activation → D0-04 关闭治理件。
+
+## 2026-07-19 — PHASE-4 与 PHASE-5 转 accepted（真实 activation 治理前置）
+
+- Context：`NormativeDocumentRefV1.status` 必须为 `accepted`（
+  `bootstrap_task_objects.py:_parse_normative_document_ref` 强制），而真实
+  activation 的 RequiredTestSet/TaskApproval 引用的 PHASE-4（实施任务拆解）与
+  PHASE-5（测试与验收规格）此前均为 `proposed`。用户自本会话起连续指示
+  "完善 D0、关闭 milestone D0"、"都完成了那就确认，继续往下"、"你看着继续完成
+  里程碑0吧"，据此按 GOV-GENESIS-001 §3.3 对 PHASE-1..3 追认的同款程序，
+  由全部角色持有人（architecture-owner, davirain, quality-owner）批准转 accepted。
+- Changed：`docs/04-task-breakdown.md` 与 `docs/05-test-spec.md` frontmatter
+  `proposed → accepted`，补 approvers（architecture-owner, davirain, quality-owner）、
+  approvedAt 2026-07-19、reviewCommit `cda99d931ab02f063302cfa82861871bddee93e8`
+  （被批准的内容基线）、reviewLink、`openFindings: none`；
+  `docs/document-status.md` 索引行与 `updated` 同步。
+- Semantics：本批准的对象是 reviewCommit 处的文档内容快照——activation 的
+  NormativeDocumentRef 按 contentDigest 精确钉住该快照；此后任务表逐行状态
+  变更继续由 GOV-TASK-FREEZE-001 的程序治理（不逐行要求 ADR），文档过程性/
+  语义性变更仍须先 ADR（document-status 的既有规则不变）。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok（accepted 五字段、
+  索引一致性、accepted 文档标记扫描——05-test-spec.md 行内代码段的
+  TODO/TBD 字面量不误报）；`bootstrap_ceremony_prep.py stage` 的
+  `PF-CEREMONY-PREREQ` 检查随之放行（全链实测通过）；`git diff --check` clean。
+- Limitations：本批准不关闭任何任务、不改变任何冻结完成面；PHASE-4/5 的
+  后续演进继续按 change-control 治理。
+- Next：用户 BIOS SecureBoot → linux profile 重登记 → 真实 activation →
+  D0-04 关闭治理件。
