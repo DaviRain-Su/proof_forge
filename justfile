@@ -32,6 +32,7 @@ docs-check:
     /usr/bin/python3 -I -S scripts/stage0_activate_self_test.py
     /usr/bin/python3 -I -S scripts/formal_evidence_self_test.py
     /usr/bin/python3 -I -S scripts/formal_evidence_producer_self_test.py
+    /usr/bin/python3 -I -S scripts/bootstrap_ceremony_prep_self_test.py
 
 # TASK-D0-05 / TST-SBOM-001: deterministic license inventory + CycloneDX 1.6.
 sbom:

@@ -4401,3 +4401,35 @@ normative: false
 - Next：D0-07 第三切片——TST-ISO-002 hermetic archive harness（fixture
   namespace：外部 candidate anchor + deny-default stages + containment +
   gate-catalog EV 发布）与 genesis 重放集成。
+
+## 2026-07-19 — bootstrap 仪式准备工具与 PHASE-4/5 acceptance 前置发现
+
+- Context：用户批准生成 genesis 签发模板与分步命令。实现过程中发现两个真实前置：
+  (a) policy wire 无签名字段（`sign-authority-policy` 为 unsigned 子命令——当前
+  accepted 实现里首个 BootstrapAuthorityPolicyV1 的信任来自结构校验+登记，genesis
+  root 签名封套在 spec 中设计但未实现，记为已知 spec gap 待治理决定）；
+  (b) `NormativeDocumentRefV1.status` 必须为 `accepted`，而 `docs/04-task-breakdown.md`
+  与 `docs/05-test-spec.md` 均为 `proposed`——真实 activation 的 approvals/required set
+  引用这两份文档，故 PHASE-4/5 acceptance 是硬前置（另有 changeset 处理）。
+- Changed：`scripts/bootstrap_ceremony_prep.py`（约 420 行）——`init`：从六个
+  seed 文件（architecture/quality/release/security/service/verifier-receipt，
+  mode≤0400 按位拒绝、读入即清、零回显）推导公钥，重算
+  serviceExecutableDigest（`scripts/stage0_store_service.py`）与 verifier
+  executableDigest（`scripts/stage0_activate.py`），产出
+  `authority-policy.spec.json`（4 principals、6 taskRules（D0-04 与 bootstrapSetRule
+  minimum=3、其余 2）、全部 rule 按 ApprovalRoleV1 canonical 序、principals 按
+  keyId 升序——两条不同排序律均已实测）、`private-scan-policy.json`（最小真实
+  策略文档）、`service-descriptor.json`（pf.authority-store.rpc.v1 全字段），并先经
+  sign tool 完整 produce+复验才落盘；`stage`：从 signed policy 重算 ContentRef 并
+  产出 `required-test-set.spec.json`（phase5Document 要求 accepted，否则
+  `PF-CEREMONY-PREREQ` 精确拒绝；requiredTestIds 为 genesis+新增 D0 任务的
+  TST 集合排序）。`scripts/bootstrap_ceremony_prep_self_test.py`：
+  init→sign→stage→sign-required-set 全链正例 + seed mode 0644 拒 + 缺 seed 拒。
+- Verification：`bootstrap-ceremony-prep-self-test: ok`；throwaway seeds 全链实测
+  （policy signed、required set 2-of-2 signed）；`/usr/bin/python3 -I -S
+  scripts/docs_check.py` ok；`git diff --check` clean；justfile 已接入。
+- Limitations：仪式工具只准备 spec/描述符，不做任何签名输出；activation 还需
+  candidate/handoff/16 对象签发与 driver phase 2（runbook 见会话报告）；
+  genesis 签名封套为 spec gap（见上 (a)）。
+- Next：PHASE-4/5 acceptance（独立 changeset）→ 用户 BIOS SecureBoot →
+  profile 重登记 → 真实 activation → D0-04 关闭治理件。
