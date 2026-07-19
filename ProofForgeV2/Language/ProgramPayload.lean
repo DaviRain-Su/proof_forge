@@ -419,6 +419,14 @@ private def checkProgramBinding (name : Lean.Name) (program : Source.Program) :
   unless name.toString == program.qualifiedName do
     throw (identityError "exported program identity does not match declaration")
 
+private def checkProgramShortName (name : Lean.Name) (program : Source.Program) :
+    Except String Unit := do
+  let expected ← match name with
+    | .str _ raw => pure (Lean.Name.str .anonymous raw).toString
+    | _ => throw (identityError "exported program short name does not match declaration")
+  unless expected == program.name do
+    throw (identityError "exported program short name does not match declaration")
+
 def programPayload (env : Lean.Environment) (name : Lean.Name) :
     Except String Source.Program := do
   let exports ← programExports env
@@ -426,6 +434,7 @@ def programPayload (env : Lean.Environment) (name : Lean.Name) :
     throw (exportError "not registered")
   let program ← decodeDeclaration env name
   checkProgramBinding name program
+  checkProgramShortName name program
   pure program
 
 private def checkProgramIdentities
@@ -453,6 +462,7 @@ def programPayloads (env : Lean.Environment) :
   checkProgramIdentities rows
   for (row, program) in rows do
     checkProgramBinding row.declaration program
+    checkProgramShortName row.declaration program
   pure rows
 
 end ProofForgeV2.Language.ProgramPayload
