@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 1516,
+      "bytes": 1562,
       "path": "ProofForgeV2.lean",
-      "sha256": "e67c3de482899ef55393349c7fb415d3ee91bf3cbb626a1ae4f1ec19d3e05a27"
+      "sha256": "697f3e34c2af6aabf5a4987de588a47413a6a027ea86f5540afc538e2653ea23"
     },
     {
       "bytes": 8869,
@@ -114,6 +114,11 @@
       "bytes": 2466,
       "path": "ProofForgeV2/Materialization/Protocol.lean",
       "sha256": "298982e8606f44166175629f783c9265f6bc02abd88964dce4bb506bbf76a7fd"
+    },
+    {
+      "bytes": 1356,
+      "path": "ProofForgeV2/Source/AstCanonicalRootV1.lean",
+      "sha256": "0cb04760548af7554bc0f201906bfa5946c6c28ee7eb9460687fe431c7a96a91"
     },
     {
       "bytes": 3597,
