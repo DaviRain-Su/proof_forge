@@ -4753,3 +4753,56 @@ normative: false
   producer 与 genesis 重放均未开始；darwin live 重观察仍需 Mac 实机。
 - Next：按冻结包与 ADR-0018 开始 TST-EVIDENCE-002/TST-ISO-002 的 RED（fixture
   namespace 验收 harness 骨架先红）。
+
+## 2026-07-19 — TASK-D0-07 slice S1：revocation ledger（record/store/signed snapshot）
+
+- Context：冻结包 in_scope 条目「`RevocationLedgerSnapshotV1`：record
+  链/head/recordsDigest 重算、revocationSnapshotRule 签名」与 ADR-0018 的
+  fixture 验收域裁决要求先交付 revocation 对象族。此前仓库只有 consumer 侧的
+  `formal_evidence.parse_revocation_ledger_snapshot`（snapshot 形状权威），
+  record payload parser、publisher 与 append-only store 均不存在
+  （evidence-schema.md §Revocation records 标注「尚未实现」）。
+- Changed：新模块 `scripts/revocation_ledger.py`（stdlib-only、无 IO、
+  `/usr/bin/python3 -I -S` 纪律、exact-path importlib 加载
+  `bootstrap_task_producers.py` 与 `formal_evidence.py`）交付：
+  `produce_revocation_record`/`parse_revocation_record`（TRACE-EV-001 封闭
+  10 字段 record：schema/id `RVK-YYYYMMDD-NNNN` 真实日期且==`revokedUtc`
+  UTC 日期/version 固定 `1.0.0`/evidence 与 replacement 的 closed
+  `{id,sha256}` ref（EV id 真实日期、replacement≠revoked）/reasonCode 四值
+  枚举/reason 1–4096 UTF-8 bytes/authorityRef safe-id/
+  previousRecordSha256 64-hex）；`RevocationLedgerStore`（in-memory
+  append-only：duplicate id、unknown authority、hash chain fork=指向非 head
+  既有 link、missing link=指向账本外 hash 四类拒绝）；
+  `produce_revocation_ledger_snapshot`（按 spec 表
+  `pf.revocation-ledger-snapshot-{statement,signature}.v1` 域签名
+  revocationSnapshotRule=security+release 两 distinct principal；产出即经
+  `formal_evidence.parse_revocation_ledger_snapshot` 全量复验，seed 仅作显式
+  32-byte 参数、错误不携带密钥材料）。错误码
+  `PF-REVOCATION-{SCHEMA,CHAIN,SIGN,VERIFY}`。自测
+  `scripts/revocation_ledger_self_test.py`（RED→GREEN，23 例）并接入
+  `just docs-check`。wire 决定全部以 consumer 为准：genesis
+  previousRecordSha256 为 64 zero hex（**非** null——evidence-schema.md
+  §470/476 文字仍写 null，与 consumer 不符，记为 P2 文档债务，修文档走单独
+  变更）、chain link=前一 record canonical bytes 的 plain SHA-256、records
+  按 RVK id 唯一升序且 chain 同序、head 空账本为 null 否则恰为末项、
+  recordsDigest=`SHA-256("pf.revocation-ledger-records.v1"||NUL||
+  concat(u32be(size)||digest))`。
+- Verification：`/usr/bin/python3 -I -S scripts/revocation_ledger_self_test.py`
+  ok（23 例：空账本 snapshot head=null round-trip、两记录链、record parser
+  全字段 round-trip、replacement 正例；负例覆盖 fork/missing link/
+  duplicate id/wrong previousRecordSha256/tampered recordsDigest/head 非末项/
+  wrong rule signer/below-quorum/wrong signature domain/stale snapshot/
+  unknown record schema/RVK↔revokedUtc 日期错/自 replacement/多余字段/乱序
+  链）；`just docs-check` 全绿（14 个自测）；`/usr/bin/python3 -I -S
+  scripts/docs_check.py` ok；`git diff --check` clean。development evidence
+  见台账 `EV-20260719-0076`。
+- Limitations：fixture RFC 8032 公测种子与 fixture policy，非 formal/hermetic
+  evidence；record 的 `authorityRef` 只按调用方给定的 authority 集合判定
+  （治理层 authority registry 尚不存在）；EV store resolve（record→真实 EV
+  字节 join）、finalization 集成（`parse_formal_evidence_finalization` 的
+  revocation 输入）与发布 IO 归后续切片；record payload 含 `version` 字段
+  （与 formal fixture 一致），evidence-schema.md 字段清单未列出，同记文档
+  债务；不能关闭 in_progress `TASK-D0-07`；D0 formal milestone 仍为 8/9。
+- Next：S2——freshness authority 求值/签发（ADR-0018 §3 谓词
+  `expiresAt == observedAt + maximumAgeSeconds`，finalization 时刻判定）或
+  private scan receipt 切片，同型 RED-then-GREEN。
