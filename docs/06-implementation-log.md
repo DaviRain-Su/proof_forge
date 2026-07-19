@@ -4238,3 +4238,48 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；双重 post-PA-70 residual audit 只推荐 exact
   `Array Option Option PrimitiveAtom N`，但尚未冻结；禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact Array Option Option PrimitiveAtom spelling pre-acceptance slice
+
+- Commits：freeze `3614e4c5`；tests-only RED `be967ecc`；Syntax/GREEN、canonical binding 与 Lean
+  package-file re-pin `b56b2d04`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-71 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。冻结只为 exact
+  `Array Option Option PrimitiveAtom N` supersede PA59 与 PA60/61/62/68/69 的相关 residual；其他
+  Array Option compounds 与任意 recursive grammar 继续 fail closed。
+- Changed：为既有 `Source/Semantic.ValueType.array (.option (.option element)) length` 开放 exact
+  same-line spelling；新增 named `arrayOptionOptionType` 与 aggregate-field parser，decoder 精确复用
+  closed `decodeArrayValueTypeFromAtoms` 后只双包 element，两个专用 dispatch 均位于 generic
+  `arrayOptionType`/aggregate parser 前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 27 行新增/0 行移除。
+- Migration/Coverage：只迁移既有 `Array Option Option Bool 4` negative 一条；覆盖全部 15 个
+  PrimitiveAtom、length `0/4/4096`、state/struct/enum/const/init/entry/view/fn/event/error、双入口 parity，
+  以及 missing/invalid length、Field/Bytes/Array/Option/Map/Named inner、escaped/qualified/extra/split
+  双通道 fail-closed controls。UInt64 requirements 为空；Bool 精确传播单个 `boolValues` 并在四 target
+  support resolver named rejection；UInt64 state/result/parameter fixtures 在四 target 分别由 target-owned
+  Plan invariant 拒绝，所有路径均无 artifact。
+- Canonical：tag 固定 `18→16→16→element→length`。五组 Source goldens 均 251 bytes，hash 依次为
+  `8892ca6e9b9dfc07d6e5b9cd3e1eb6141a0d5a9285545e88fdf4510436dddad6`、
+  `b61a146b5be1bf559c8c93b95d03fe9196dd8ff055c42801ff12cfdb79833fe6`、
+  `e9e9c741663b977d78a470228883d3d45a8b2cef13c6e5b2760eb25aa81389e1`、
+  `c5264de4fa8673cacfe0a41ec1531155c5163771459cf8ce8dbc5399c6a0caa7`、
+  `be000b509343817a7f2ff46310d060e6c8e88e665aecd3341ab3b3987d71548e`；Semantic sizes 为
+  `200/200/200/201/200`，hash 依次为
+  `6de2e7eae903013b49d9bc4971c5dcdcca00dc0165aecb84eb2a33db2476d2e2`、
+  `2cd8ce38fdc66f441f7b585a0a9b2809ae3593b72e6a0ef8aaf7a0652f52461b`、
+  `a2a03629e67d01b46ba099cc5cfd3426ee4e3c8ed8a86da4bb0d63ba8fde6f8e`、
+  `7a721080c0424521e1ce4766f5c0f0319d2678eea82943059ae858c7e6cee692`、
+  `72e319da48d68103d76d9b349a2255fd8a59f6efe4496c4dcce03b059027c036`。两侧均固定同 payload
+  wrapper depth/order、三长度 pairwise 与 same-length element non-alias。
+- Verification：`lake build Tests.Language.ArrayTypes` 23 jobs；`lake build proof_forge_next_tests`
+  192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom`（self-test/generate/verify/
+  closure）与 `git diff --check` 通过。Syntax package pin 为 86689 bytes、SHA-256
+  `ec39c5448de600f6ee2091b2978f484118387df8c4e25a234e24e8c5b2d94cbe`；Kimi final review
+  P0=0/P1=0/P2=0，coordinator review P0=0/P1=0（并发测试共享路径观察仅为既有 P2）。development
+  evidence 为 `EV-20260719-0067`；按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、requirements 与
+  support-vs-Plan boundary；不包括 array/option value operations、none/some/unwrap、任意 recursive
+  grammar、runtime/ABI、target Array-nested-Option implementation 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；双重 post-PA-71 residual audit 只推荐 exact
+  `Array Option Bytes N M`，尚未冻结且禁止由 checkpoint 自动递增。
