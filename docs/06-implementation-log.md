@@ -5175,3 +5175,30 @@ normative: false
 - Next：当前无 active development slice。复核 `TST-SRC-002` 的直接 `SourceBoundsAcceptance` 与既有
   generated `dsl-negative` 入口，优先复用已经执行的 256/257、100000/100001、namespace unwind 和
   16 MiB 边界，禁止包装混合 `ProgramSyntax`/`Loader` 或重复制造重资源路径。
+
+## 2026-07-19 — D1 source-bound acceptance pre-acceptance slice
+
+- Commits：D1-PA-90 baseline `605b139a`；tests-only freeze `8422bcc1`；
+  `SourceBoundsAcceptance` harness `7f53c324`。TASK-D1-01 pending-prep package 继续为 `ee1cbc8d`。
+- Authority：正式 `TASK-D1-01` 继续 `pending`，两项 frozen Tests 都未改变。本切片只承载
+  `TST-SRC-002` development evidence；五个 D0 dependencies 与 candidate-bound `qualification=formal`
+  要求不变，不能由本条绕过。
+- Changed：新增 81-line direct `Tests.Language.SourceBoundsAcceptance` 与 Tests/lake 最小注册，总计
+  84/110 additions。test-owned iterative helpers 精确固定 linear Syntax 256/257、wide Syntax
+  100000/100001、六个 public decoder 的 shared nesting walker、program-command node walker、qualified
+  identity 总 components 256/257 与 identifier 256/257；四类 `PF-BOUND-001` 使用完整 render 比较。
+  suite 不 import 或包装 mixed `ProgramSyntax`/`Loader`，production/generator/justfile/package file-set 零修改。
+- Integration：单次 `just dsl-negative` exit 0，复用既有 generated fixtures 验证 namespace 255/256、
+  peak 257 unwind、300-term、20,000-state、Lean command/CLI 双入口 exact diagnostic parity、CLI exactly
+  16 MiB accept、16 MiB+1 pre-parse `PF-SRC-INVALID` 与 zero output；这些重路径没有进入 resident binary。
+- Verification：`lake build Tests.Language.SourceBoundsAcceptance proof_forge_next_tests` 276 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；`just dsl-negative`、
+  `just docs-check` 与 `git diff --check` 通过。未运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：Grok implementation P0/P1=0；Kimi probe 与 final live-diff review P0/P1/P2=0；
+  independent final review P0/P1/P2=0。development evidence 为 `EV-20260719-0088`。
+- Limitations：结果不是 candidate-bound formal record；D0 dependencies 未齐，且 `TST-SRC-001` 的完整
+  ProgramV1 independent encoder/golden inventory 与 injectable collision staging 仍未闭合，故不能关闭
+  pending `TASK-D1-01`、任何下游 D1/D2 或 target task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。对 `TST-SRC-001` 剩余 wire/collision surface 做 bounded audit，
+  先确认 accepted/proposed spec authority、现有 production encoder/decoder API 与可安全冻结的最小 RED；
+  未冻结前不得新增 public API 或自动递增。
