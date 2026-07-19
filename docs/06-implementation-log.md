@@ -5678,3 +5678,41 @@ normative: false
   下游 task。D0 formal milestone仍 7/9。
 - Next：当前无 active development slice。Grok 正在只读裁决 canonical root triple与 raw identity join 的
   最小闭合面；完成面冻结前不得开始下一份 RED，LANG set validation/alpha/decoder/hash/NodeId/target不得并入。
+
+## 2026-07-19 — D1 canonical Source.ProgramV1 root encoder pre-acceptance slice
+
+- Commits：D1-PA-104 freeze `a790e7d1`；RED `17600b97`；GREEN `9539ad94`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只闭合 `SPEC-SOURCE-WIRE-001` canonical root 的三段无间隔串接：source-only
+  `moduleName`、source-only `programIdentity`、PA103 `Program` bytes。冻结变更同时把规格 API 中误写的
+  common `QualifiedName` 对齐为 `SourceQualifiedNameV1`，最终 `Except Diagnostic` contract 保持不变；当前
+  `Except String` 仍只是 TASK-D1-07 前的 development seam。
+- Changed：新增 35-line `AstCanonicalRootV1`。single public total `canonicalSourceAstBytesV1` 先复用 PA94
+  `validateSourceProgramIdentityV1`，再用 `NonEmptyArray.tail.back?.getD head` total 取得最后 raw component并
+  exact 校验 `program.name`；成功后依次编码 module QN、identity QN与 Program并直接 concat。唯一新错误为
+  `program name must equal the last program identity component`；没有 outer tag、magic、separator、rendered
+  name、Common identity、set walk、decoder或 hash。production 35、Lean suite 139、Python 92、registrations
+  4，总 authored additions 270/415；机械 manifest 为 54 files。
+- Cross implementation：Lean与 standalone Python各自持有同样三个 checked-in full-root literal：
+  `Root`/`Root.Demo` state-only、同 identity state→const、`A.B`/`A.B.Main` state-only；三者分别为
+  242/462/250 个 lowercase hex chars且逐字节一致。Lean逐例证明
+  `encodeQN(module) ‖ encodeQN(identity) ‖ encodeProgram(program)` direct composition，并固定 module-array
+  prefix与 no-Program-outer-prefix。八条 exact negatives闭合 QID count → strict extension → exact prefix →
+  name mismatch → items/Struct/Const child priority。state-only成功只证明 mechanical root没有混入 LANG set
+  validator，不声明业务 program有效或 pipeline-ready。
+- Verification：RED focused build只因 `AstCanonicalRootV1` production module缺失失败；GREEN
+  `lake build Tests.Language.SourceAstCanonicalRootV1` 28 jobs、`lake build proof_forge_next_tests` 348 jobs；
+  test binary输出 `proof-forge-next-tests: ok`；Python输出
+  `reference_source_ast_canonical_root_v1: ok 3`；package refresh → 54 files；最终单次 `just sbom`
+  self-test/generate/verify/closure全绿；`just docs-check`与 `git diff --check`通过。按冻结未运行完整
+  `just ci`。
+- Review/Evidence：Grok逐行审查 single total def、last-component totality、join/name/encode顺序、import cycle、
+  预算与排除面，P0/P1/P2=0；Kimi程序化比较三组 Lean/Python literal并审查 composition、八条 negatives、
+  standalone oracle、changed-file set与 scope，P0/P1/P2=0。development evidence 为 `EV-20260719-0102`。
+- Limitations：没有 duplicate/zero-entry-view/multiple-init/proof-invariant reference等 LANG declaration-set
+  validation、theorem/visibility alpha adapter、decoder/exact consume、global depth/node/16-MiB validator、
+  sourceHash、NodeId、stable Diagnostic implementation、Common/ProgramPayload或 target。spec仍 proposed，
+  D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。
+  D0 formal milestone仍 7/9。
+- Next：当前无 active development slice。下一步只读裁决 `SPEC-LANG-001` declaration-set validation 的单一
+  闭合面；冻结前不得开始 RED，alpha/decoder/global validator/hash/NodeId/target不得顺手并入。
