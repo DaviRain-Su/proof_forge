@@ -1524,6 +1524,31 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   TASK-D1-01 冻结包要求的两项完整 TST 与 candidate-bound `qualification=formal`；五个 D0 dependency
   未全部 done 时不得关闭 pending `TASK-D1-01`。`TST-SRC-002` 必须由后续单独冻结的窄
   `SourceBoundsAcceptance` slice 承载，禁止用混合 `ProgramSyntax`/`Loader` wrapper 代替边界验收。
+- D1-PA-90 把 `TASK-D1-01`/`TST-SRC-002` 的 unit boundary 收敛为独立 tests-only
+  `Tests.Language.SourceBoundsAcceptance.run`，并把既有 `just dsl-negative` 作为重资源 integration
+  入口；它是当前 production bounds 的 direct characterization，不包装混合的 `ProgramSyntax.run` 或
+  `Loader.run`，不修改 production、generator、justfile、testdata 或既有 suite assertion，也不制造缺文件
+  或删除实现的虚假 RED。
+  direct suite 必须以 test-owned iterative helpers 构造 root-inclusive linear/wide Syntax 与 repeated Name，
+  并固定：`maxSyntaxNesting = 256`、`maxSyntaxNodes = 100000` 与 `PF-BOUND-001` code；linear Syntax
+  256 接受/257 精确拒绝；wide Syntax 100000 接受/100001 精确拒绝；type、parameter、expression、
+  statement、item、program-command 六个 public decoder 对同一 257-deep Syntax 都先返回 exact nesting
+  `PF-BOUND-001`，program-command 对 100001 nodes 返回 exact node-bound diagnostic；namespace 255
+  components + one-part program identity（总计 256）接受、namespace 256 + program（总计 257）精确拒绝；
+  identifier Name 256 components 接受、257 精确拒绝。错误断言必须固定完整 render，不只检查 prefix。
+  重资源 integration 不得进入 resident `proof-forge-next-tests`：现有
+  `scripts/generate_syntax_bound_fixtures.py`/`just dsl-negative` 已分别执行 namespace 255/256、peak 257
+  unwind 到 255、300-term expression、20,000-state wide source、Lean command/CLI 双入口 diagnostic parity、
+  CLI exactly 16 MiB accept 与 16 MiB+1 pre-parse `PF-SRC-INVALID`/zero-output；本切片只要求该既有入口
+  单次通过，不复制这些向量。
+  变更只允许新增 `Tests/Language/SourceBoundsAcceptance.lean` 并最小修改 `Tests.lean`、`lakefile.lean`；
+  总新增 ≤110 行，不得修改 `ProgramSyntax.lean`、`Loader.lean`、其他 tests、`ProofForgeV2/` production、
+  generator、justfile 或 package file-set。验证只运行
+  `lake build Tests.Language.SourceBoundsAcceptance proof_forge_next_tests`、
+  `lake env .lake/build/bin/proof-forge-next-tests`、单次 `just dsl-negative`、`just docs-check`、
+  `git diff --check` 与 independent review；不运行 `just sbom` 或完整 `just ci`。结果只可记录 development
+  evidence，不能满足 candidate-bound `qualification=formal`；五个 D0 dependencies 未全部 done，且
+  `TST-SRC-001` 完整 wire/collision residual 未闭合时，不得关闭 pending `TASK-D1-01` 或任何下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
