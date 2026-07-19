@@ -114,6 +114,12 @@ prevents the following program item from becoming part of the type. -/
     nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
     checkLineEq >> numLit)
+@[pfType_parser default+1] def optionArrayArrayFieldType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> numLit >> checkLineEq >> numLit)
 @[pfType_parser default+1] def optionArrayArrayType := leading_parser
   withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
@@ -314,6 +320,13 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
     checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
     checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionArrayArrayFieldAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >>
+    checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def optionArrayArrayAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
@@ -718,6 +731,13 @@ private def decodeOptionArrayBytesValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   pure (.option (← decodeArrayBytesValueTypeFromAtoms atoms))
 
+private def decodeOptionArrayArrayFieldValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  match ← decodeArrayArrayFieldValueTypeFromAtoms atoms with
+  | .array (.array .field innerLength) outerLength =>
+      pure (.option (.array (.array .field innerLength) outerLength))
+  | _ => throw "unsupported portable type"
+
 private def decodeOptionArrayArrayValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   pure (.option (← decodeArrayArrayValueTypeFromAtoms atoms))
@@ -762,6 +782,8 @@ private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Sour
     decodeOptionArrayOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayBytesType then
     decodeOptionArrayBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``optionArrayArrayFieldType then
+    decodeOptionArrayArrayFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayArrayType then
     decodeOptionArrayArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayType then
@@ -1078,6 +1100,15 @@ private def decodeStructFieldUnchecked (stx : Syntax) :
     return {
       name := ← decodeIdentifier nameStx
       type := ← decodeOptionArrayBytesValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
+  if stx.isOfKind ``optionArrayArrayFieldAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeOptionArrayArrayFieldValueTypeFromAtoms (atoms.extract 1 atoms.size)
     }
   if stx.isOfKind ``optionArrayArrayAggregateField then
     let atoms := collectTypeAtomSyntax stx

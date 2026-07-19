@@ -865,6 +865,24 @@ private def twin (type : Source.ValueType) : Source.Program :=
     }
   ]
 
+private def oaafSourceDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+  let leftProg := twin left
+  let rightProg := twin right
+  expect (leftProg.canonicalBytes != rightProg.canonicalBytes &&
+      leftProg.sourceHash != rightProg.sourceHash) message
+
+private def oaafSemanticDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+  let leftCompiled ← match Compiler.compile (twin left) with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"Option Array Array Field semantic non-alias twin must compile: {error.render}"
+  let rightCompiled ← match Compiler.compile (twin right) with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"Option Array Array Field semantic non-alias twin must compile: {error.render}"
+  expect (leftCompiled.canonicalBytes != rightCompiled.canonicalBytes &&
+      leftCompiled.semanticHash != rightCompiled.semanticHash) message
+
 private def surfaceSource : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
@@ -1273,6 +1291,255 @@ private def expectParserRejected (label source : String)
   | .error other =>
       throw <| IO.userError s!"{label}: reached wrong failure for {source}: {other.render}"
   | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
+
+private unsafe def runOptionArrayArrayField (session : Language.Loader.ParserSession) : IO Unit := do
+  let optionArrayArrayFieldSurface :=
+    Tests.Language.OptionDeclarationsFixture.OptionArrayArrayFieldSurface
+  expect (optionArrayArrayFieldSurface.state.map (·.type) ==
+      #[.option (.array (.array .field 4) 4)])
+    "Option Array Array Field bn254_fr 4 4 state must survive Lean command elaboration"
+  match optionArrayArrayFieldSurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "OptionArrayArrayFieldEvent" &&
+          eventDecl.params.map (·.type) == #[.option (.array (.array .field 4) 4)])
+        "Option Array Array Field event must preserve Option/Array/Array/Field tags and dual lengths"
+  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain OptionArrayArrayFieldEvent"
+  match optionArrayArrayFieldSurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "OptionArrayArrayFieldError" &&
+          errorDecl.params.map (·.type) == #[.option (.array (.array .field 4) 4)])
+        "Option Array Array Field error must preserve Option/Array/Array/Field tags and dual lengths"
+  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain OptionArrayArrayFieldError"
+  match optionArrayArrayFieldSurface.structs with
+  | #[box] =>
+      expect (box.name == "OptionArrayArrayFieldBox" &&
+          box.fields.map (·.type) ==
+            #[.option (.array (.array .field 0) 0), .option (.array (.array .field 4) 4),
+              .option (.array (.array .field 4096) 1)])
+        "Option Array Array Field struct fields must preserve dual lengths 0/0, 4/4, 4096/1"
+  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain one struct"
+  match optionArrayArrayFieldSurface.enums with
+  | #[tag] =>
+      expect (tag.name == "OptionArrayArrayFieldTag" && tag.variants.map (·.payloadTypes) ==
+          #[#[.option (.array (.array .field 4) 4)], #[.option (.array (.array .field 4096) 1)]])
+        "Option Array Array Field enum payloads must preserve dual length matrix"
+  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain one enum"
+  match optionArrayArrayFieldSurface.consts with
+  | #[seed] =>
+      expect (seed.name == "OptionArrayArrayFieldSeed" &&
+          seed.type == .option (.array (.array .field 0) 0))
+        "Option Array Array Field 0 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain OptionArrayArrayFieldSeed"
+  match optionArrayArrayFieldSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.option (.array (.array .field 4) 4)])
+        "Option Array Array Field initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "OptionArrayArrayFieldSurface must retain initializer"
+  match optionArrayArrayFieldSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.array (.array .field 4) 4)] &&
+          echoEntry.result == .option (.array (.array .field 4) 4) &&
+          getView.result == .option (.array (.array .field 4) 4) && getView.mode == .view)
+        "Option Array Array Field entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain echo and get"
+  match optionArrayArrayFieldSurface.functions with
+  | #[identFn] =>
+      expect (identFn.params.map (·.type) == #[.option (.array (.array .field 4096) 1)] &&
+          identFn.result == .option (.array (.array .field 4096) 1))
+        "Option Array Array Field 4096 1 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain ident"
+  match ← session.selectProgram optionArrayArrayFieldSurfaceSource
+      "<option-array-array-field>" none with
+  | .ok decoded =>
+      expect (decoded == optionArrayArrayFieldSurface)
+        "Loader and Lean command must produce the same Option Array Array Field Source.Program"
+      expect (decoded.sourceHash == optionArrayArrayFieldSurface.sourceHash)
+        "Loader and Lean command must produce the same Option Array Array Field sourceHash"
+  | .error error => throw <| IO.userError error.render
+  let oaafSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Array Array Field bn254_fr 0 0", .option (.array (.array .field 0) 0), 277,
+      "72e73f1e50d0eb5b1f9b195c83fbff5efb248e4979378abc3bf548a70407ddea"),
+    ("Option Array Array Field bn254_fr 4 4", .option (.array (.array .field 4) 4), 277,
+      "5237900a70d339d06f26bb07f42cd117e87c3a5b0d7e64485e109a84db322f86"),
+    ("Option Array Array Field bn254_fr 4096 1", .option (.array (.array .field 4096) 1), 277,
+      "189b11f305136cbf1f144ee9d9cbc1e1f1c3839d8845beeb4e498ebfaa448b91")
+  ]
+  for (label, type, expectedSize, expectedHash) in oaafSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag16+tag18+tag18+tag2 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  let oaaf00 : Source.ValueType := .option (.array (.array .field 0) 0)
+  let oaaf44 : Source.ValueType := .option (.array (.array .field 4) 4)
+  let oaafMax : Source.ValueType := .option (.array (.array .field 4096) 1)
+  let oaaf84 : Source.ValueType := .option (.array (.array .field 8) 4)
+  let oaaf04 : Source.ValueType := .option (.array (.array .field 0) 4)
+  let oaaf80 : Source.ValueType := .option (.array (.array .field 8) 0)
+  let oaaf48 : Source.ValueType := .option (.array (.array .field 4) 8)
+  oaafSourceDistinct oaaf00 oaaf44
+    "Option Array Array Field candidates 0/0 vs 4/4 Source must non-alias (bytes+hash)"
+  oaafSourceDistinct oaaf44 oaafMax
+    "Option Array Array Field candidates 4/4 vs 4096/1 Source must non-alias (bytes+hash)"
+  oaafSourceDistinct oaaf00 oaafMax
+    "Option Array Array Field candidates 0/0 vs 4096/1 Source must non-alias (bytes+hash)"
+  oaafSourceDistinct oaaf44 (.array (.array .field 4) 4)
+    "Option Array Array Field 4 4 Source must non-alias Array Array Field bn254_fr 4 4 (bytes+hash)"
+  oaafSourceDistinct oaaf44 (.option (.array .field 4))
+    "Option Array Array Field 4 4 Source must non-alias Option Array Field bn254_fr 4 (bytes+hash)"
+  oaafSourceDistinct oaaf44 (.option (.option (.array .field 4)))
+    "Option Array Array Field 4 4 Source must non-alias Option Option Array Field bn254_fr 4 (bytes+hash)"
+  oaafSourceDistinct oaaf44 (.option (.array (.array .u64 4) 4))
+    "Option Array Array Field 4 4 Source must non-alias Option Array Array UInt64 4 4 (bytes+hash)"
+  oaafSourceDistinct oaaf84 oaaf04
+    "Option Array Array Field one-axis inner 8/4 vs 0/4 Source must non-alias (bytes+hash)"
+  oaafSourceDistinct oaaf84 oaaf80
+    "Option Array Array Field one-axis outer 8/4 vs 8/0 Source must non-alias (bytes+hash)"
+  oaafSourceDistinct oaaf84 oaaf48
+    "Option Array Array Field dual-length order 8/4 vs 4/8 Source must non-alias (bytes+hash)"
+  let oaafSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Array Array Field bn254_fr 0 0", .option (.array (.array .field 0) 0), 227,
+      "ecb6a7cfaf339831ba4c1a7583c2672a1719d10f92f150c1abb86b9d8658e067"),
+    ("Option Array Array Field bn254_fr 4 4", .option (.array (.array .field 4) 4), 227,
+      "8c81c0404d1c85fce18c7e6fd10bbaee70815eddbe75413d24c7c51e8cbf234f"),
+    ("Option Array Array Field bn254_fr 4096 1", .option (.array (.array .field 4096) 1), 227,
+      "bb28c7a4f217666b560d39a40dcbd86cf2f7307447e1c467b0dd7569e43dab75")
+  ]
+  for (label, type, expectedSize, expectedHash) in oaafSemanticVectors do
+    let sourceProgram := twin type
+    let semantic ← match Compiler.compile sourceProgram with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
+      s!"{label} semantic tag16+tag18+tag18+tag2 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
+  oaafSemanticDistinct oaaf00 oaaf44
+    "Option Array Array Field candidates 0/0 vs 4/4 Semantic must non-alias (bytes+hash)"
+  oaafSemanticDistinct oaaf44 oaafMax
+    "Option Array Array Field candidates 4/4 vs 4096/1 Semantic must non-alias (bytes+hash)"
+  oaafSemanticDistinct oaaf00 oaafMax
+    "Option Array Array Field candidates 0/0 vs 4096/1 Semantic must non-alias (bytes+hash)"
+  oaafSemanticDistinct oaaf44 (.array (.array .field 4) 4)
+    "Option Array Array Field 4 4 Semantic must non-alias Array Array Field bn254_fr 4 4 (bytes+hash)"
+  oaafSemanticDistinct oaaf44 (.option (.array .field 4))
+    "Option Array Array Field 4 4 Semantic must non-alias Option Array Field bn254_fr 4 (bytes+hash)"
+  oaafSemanticDistinct oaaf44 (.option (.option (.array .field 4)))
+    "Option Array Array Field 4 4 Semantic must non-alias Option Option Array Field bn254_fr 4 (bytes+hash)"
+  oaafSemanticDistinct oaaf44 (.option (.array (.array .u64 4) 4))
+    "Option Array Array Field 4 4 Semantic must non-alias Option Array Array UInt64 4 4 (bytes+hash)"
+  oaafSemanticDistinct oaaf84 oaaf04
+    "Option Array Array Field one-axis inner 8/4 vs 0/4 Semantic must non-alias (bytes+hash)"
+  oaafSemanticDistinct oaaf84 oaaf80
+    "Option Array Array Field one-axis outer 8/4 vs 8/0 Semantic must non-alias (bytes+hash)"
+  oaafSemanticDistinct oaaf84 oaaf48
+    "Option Array Array Field dual-length order 8/4 vs 4/8 Semantic must non-alias (bytes+hash)"
+  let optionArrayArrayFieldBoundary ← match
+      Compiler.compile Tests.Language.OptionDeclarationsFixture.OptionArrayArrayFieldBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"OptionArrayArrayFieldBoundary must compile: {error.render}"
+  expect (optionArrayArrayFieldBoundary.requirements == #[.fieldBn254])
+    "Option Array Array Field must recursively propagate fieldBn254 exactly once"
+  match optionArrayArrayFieldBoundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.array (.array .field 4) 4)] &&
+          echoEntry.result == .option (.array (.array .field 4) 4))
+        "Source-to-Semantic adaptation must preserve Option Array Array Field tags and dual lengths"
+  | _ => throw <| IO.userError "OptionArrayArrayFieldBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target optionArrayArrayFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Option Array Array Field support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError s!"Option Array Array Field/{target} checkSupport wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError s!"Option Array Array Field/{target} unexpectedly passed checkSupport"
+    match Targets.materializeResult target optionArrayArrayFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Option Array Array Field materialize rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError s!"Option Array Array Field/{target} materializeResult wrong failure: {other.render}"
+    | .ok _ =>
+        throw <| IO.userError s!"Option Array Array Field/{target} must not materialize or emit artifact"
+  for (label, name, spelling) in [
+      ("Field Option Array Array element", "FieldOptionArrayArrayElement",
+        "Option Array Array Field 4 4"),
+      ("alternate Option Array Array Field id", "AlternateOptionArrayArrayFieldId",
+        "Option Array Array Field bls12_381_fr 4 4"),
+      ("escaped Option Array Array Field id", "EscapedOptionArrayArrayFieldId",
+        "Option Array Array Field «bn254_fr» 4 4"),
+      ("qualified Option Array Array Field id", "QualifiedOptionArrayArrayFieldId",
+        "Option Array Array Field Curves.bn254_fr 4 4"),
+      ("over-bound Option Array Array Field inner length", "OverBoundOptionArrayArrayFieldInner",
+        "Option Array Array Field bn254_fr 4097 4"),
+      ("leading-zero Option Array Array Field inner length", "LeadingZeroOptionArrayArrayFieldInner",
+        "Option Array Array Field bn254_fr 01 4"),
+      ("hex Option Array Array Field inner length", "HexOptionArrayArrayFieldInner",
+        "Option Array Array Field bn254_fr 0x10 4"),
+      ("underscore Option Array Array Field inner length", "UnderscoreOptionArrayArrayFieldInner",
+        "Option Array Array Field bn254_fr 4_096 4"),
+      ("over-bound Option Array Array Field outer length", "OverBoundOptionArrayArrayFieldOuter",
+        "Option Array Array Field bn254_fr 4 4097"),
+      ("leading-zero Option Array Array Field outer length", "LeadingZeroOptionArrayArrayFieldOuter",
+        "Option Array Array Field bn254_fr 4 01"),
+      ("hex Option Array Array Field outer length", "HexOptionArrayArrayFieldOuter",
+        "Option Array Array Field bn254_fr 4 0x10"),
+      ("underscore Option Array Array Field outer length", "UnderscoreOptionArrayArrayFieldOuter",
+        "Option Array Array Field bn254_fr 4 4_096"),
+      ("Widget Option Array Array Field leaf", "WidgetOptionArrayArrayField",
+        "Option Array Array Widget 4 4"),
+      ("bare Bytes Option Array Array element", "BareBytesOptionArrayArrayElement",
+        "Option Array Array Bytes 4 4"),
+      ("bare Option Option Array Array element", "BareOptionOptionArrayArrayElement",
+        "Option Array Array Option 4 4"),
+      ("bare Array Option Array Array element", "BareArrayOptionArrayArrayElement",
+        "Option Array Array Array 4 4"),
+      ("bare Map Option Array Array element", "BareMapOptionArrayArrayElement",
+        "Option Array Array Map 4 4")
+    ] do
+    expectUnsupportedType label
+      (← session.parsePrograms (negativeSource name spelling) s!"<option-{label}>")
+  for (label, spelling) in [
+      ("missing Option Array Array Field outer length", "Option Array Array Field bn254_fr 4"),
+      ("missing Option Array Array Field lengths", "Option Array Array Field bn254_fr"),
+      ("negative Option Array Array Field inner length", "Option Array Array Field bn254_fr -1 4"),
+      ("negative Option Array Array Field outer length", "Option Array Array Field bn254_fr 4 -1"),
+      ("identifier Option Array Array Field inner length", "Option Array Array Field bn254_fr N 4"),
+      ("identifier Option Array Array Field outer length", "Option Array Array Field bn254_fr 4 M"),
+      ("extra Option Array Array Field payload", "Option Array Array Field bn254_fr 4 4 Principal"),
+      ("split Option Array Array Field Option", "Option\n  Array Array Field bn254_fr 4 4"),
+      ("split Option Array Array Field outer Array", "Option Array\n  Array Field bn254_fr 4 4"),
+      ("split Option Array Array Field inner Array", "Option Array Array\n  Field bn254_fr 4 4"),
+      ("split Option Array Array Field constructor", "Option Array Array Field\n  bn254_fr 4 4"),
+      ("split Option Array Array Field id", "Option Array Array Field bn254_fr\n  4 4"),
+      ("split Option Array Array Field inner length", "Option Array Array Field bn254_fr 4\n  4"),
+      ("escaped Option Array Array Field Option", "«Option» Array Array Field bn254_fr 4 4"),
+      ("qualified Option Array Array Field Option", "Std.Option Array Array Field bn254_fr 4 4"),
+      ("escaped Option Array Array Field outer Array", "Option «Array» Array Field bn254_fr 4 4"),
+      ("qualified Option Array Array Field outer Array", "Option Std.Array Array Field bn254_fr 4 4"),
+      ("escaped Option Array Array Field inner Array", "Option Array «Array» Field bn254_fr 4 4"),
+      ("qualified Option Array Array Field inner Array", "Option Array Std.Array Field bn254_fr 4 4"),
+      ("escaped Option Array Array Field constructor", "Option Array Array «Field» bn254_fr 4 4"),
+      ("qualified Option Array Array Field constructor", "Option Array Array Std.Field bn254_fr 4 4")
+    ] do
+    let source := negativeSource "RejectedOptionShape" spelling
+    let (_, result) ← IO.FS.withIsolatedStreams
+      (session.parsePrograms source s!"<option-{label}>")
+    expectParserRejected label source result
+  let migratedOptionArrayArrayFieldSource :=
+    negativeSource "MigratedOptionArrayArrayField" "Option Array Array Field bn254_fr 4 4"
+  match ← session.parsePrograms migratedOptionArrayArrayFieldSource
+      "<migrated-option-array-array-field>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) ==
+          #[.option (.array (.array .field 4) 4)])
+        "migrated Option Array Array Field bn254_fr 4 4 pin must now parse as existing option(array(array(field,4),4))"
+  | .ok programs =>
+      throw <| IO.userError
+        s!"migrated Option Array Array Field bn254_fr 4 4 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError
+        s!"migrated Option Array Array Field bn254_fr 4 4 must parse: {error.render}"
 
 set_option maxRecDepth 2048 in
 unsafe def run : IO Unit := do
@@ -1854,72 +2121,7 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same Option Array Array sourceHash"
   | .error error => throw <| IO.userError error.render
 
-  let optionArrayArrayFieldSurface :=
-    Tests.Language.OptionDeclarationsFixture.OptionArrayArrayFieldSurface
-  expect (optionArrayArrayFieldSurface.state.map (·.type) ==
-      #[.option (.array (.array .field 4) 4)])
-    "Option Array Array Field bn254_fr 4 4 state must survive Lean command elaboration"
-  match optionArrayArrayFieldSurface.events with
-  | #[eventDecl] =>
-      expect (eventDecl.name == "OptionArrayArrayFieldEvent" &&
-          eventDecl.params.map (·.type) == #[.option (.array (.array .field 4) 4)])
-        "Option Array Array Field event must preserve Option/Array/Array/Field tags and dual lengths"
-  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain OptionArrayArrayFieldEvent"
-  match optionArrayArrayFieldSurface.errors with
-  | #[errorDecl] =>
-      expect (errorDecl.name == "OptionArrayArrayFieldError" &&
-          errorDecl.params.map (·.type) == #[.option (.array (.array .field 4) 4)])
-        "Option Array Array Field error must preserve Option/Array/Array/Field tags and dual lengths"
-  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain OptionArrayArrayFieldError"
-  match optionArrayArrayFieldSurface.structs with
-  | #[box] =>
-      expect (box.name == "OptionArrayArrayFieldBox" &&
-          box.fields.map (·.type) ==
-            #[.option (.array (.array .field 0) 0),
-              .option (.array (.array .field 4) 4),
-              .option (.array (.array .field 4096) 1)])
-        "Option Array Array Field struct fields must preserve dual lengths 0/0, 4/4, 4096/1"
-  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain one struct"
-  match optionArrayArrayFieldSurface.enums with
-  | #[tag] =>
-      expect (tag.name == "OptionArrayArrayFieldTag" &&
-          tag.variants.map (·.payloadTypes) ==
-            #[#[.option (.array (.array .field 4) 4)],
-              #[.option (.array (.array .field 4096) 1)]])
-        "Option Array Array Field enum payloads must preserve dual length matrix"
-  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain one enum"
-  match optionArrayArrayFieldSurface.consts with
-  | #[seed] =>
-      expect (seed.name == "OptionArrayArrayFieldSeed" &&
-          seed.type == .option (.array (.array .field 0) 0))
-        "Option Array Array Field 0 0 const type must survive elaboration"
-  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain OptionArrayArrayFieldSeed"
-  match optionArrayArrayFieldSurface.initializer with
-  | some initializer =>
-      expect (initializer.params.map (·.type) == #[.option (.array (.array .field 4) 4)])
-        "Option Array Array Field initializer parameter must survive elaboration"
-  | none => throw <| IO.userError "OptionArrayArrayFieldSurface must retain initializer"
-  match optionArrayArrayFieldSurface.entries with
-  | #[echoEntry, getView] =>
-      expect (echoEntry.params.map (·.type) == #[.option (.array (.array .field 4) 4)] &&
-          echoEntry.result == .option (.array (.array .field 4) 4) &&
-          getView.result == .option (.array (.array .field 4) 4) && getView.mode == .view)
-        "Option Array Array Field entry/view parameter and result types must survive elaboration"
-  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain echo and get"
-  match optionArrayArrayFieldSurface.functions with
-  | #[identFn] =>
-      expect (identFn.params.map (·.type) == #[.option (.array (.array .field 4096) 1)] &&
-          identFn.result == .option (.array (.array .field 4096) 1))
-        "Option Array Array Field 4096 1 fn parameter/result must survive elaboration"
-  | _ => throw <| IO.userError "OptionArrayArrayFieldSurface must retain ident"
-  match ← session.selectProgram optionArrayArrayFieldSurfaceSource
-      "<option-array-array-field>" none with
-  | .ok decoded =>
-      expect (decoded == optionArrayArrayFieldSurface)
-        "Loader and Lean command must produce the same Option Array Array Field Source.Program"
-      expect (decoded.sourceHash == optionArrayArrayFieldSurface.sourceHash)
-        "Loader and Lean command must produce the same Option Array Array Field sourceHash"
-  | .error error => throw <| IO.userError error.render
+  runOptionArrayArrayField session
 
   let tripleOptionSurface := Tests.Language.OptionDeclarationsFixture.TripleOptionSurface
   expect (tripleOptionSurface.state.map (·.type) ==
@@ -2717,92 +2919,6 @@ unsafe def run : IO Unit := do
     expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
       s!"{label} semantic tag16+tag18+tag18 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
-  let oaafSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Array Field bn254_fr 0 0", .option (.array (.array .field 0) 0), 0, "UNBOUND"),
-    ("Option Array Array Field bn254_fr 4 4", .option (.array (.array .field 4) 4), 0, "UNBOUND"),
-    ("Option Array Array Field bn254_fr 4096 1", .option (.array (.array .field 4096) 1), 0, "UNBOUND")
-  ]
-  for (label, type, expectedSize, expectedHash) in oaafSourceVectors do
-    let sourceProgram := twin type
-    expect (sourceProgram.canonicalBytes.size == expectedSize &&
-        sourceProgram.sourceHash == expectedHash)
-      s!"{label} source tag16+tag18+tag18+tag2 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
-  let oaafSourceCanon (type : Source.ValueType) : ByteArray × String :=
-    ((twin type).canonicalBytes, (twin type).sourceHash)
-  let oaafSourceDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
-    let leftPair := oaafSourceCanon left
-    let rightPair := oaafSourceCanon right
-    expect (leftPair.1 != rightPair.1 && leftPair.2 != rightPair.2) message
-  let oaaf00 : Source.ValueType := .option (.array (.array .field 0) 0)
-  let oaaf44 : Source.ValueType := .option (.array (.array .field 4) 4)
-  let oaafMax : Source.ValueType := .option (.array (.array .field 4096) 1)
-  let oaaf84 : Source.ValueType := .option (.array (.array .field 8) 4)
-  let oaaf04 : Source.ValueType := .option (.array (.array .field 0) 4)
-  let oaaf80 : Source.ValueType := .option (.array (.array .field 8) 0)
-  let oaaf48 : Source.ValueType := .option (.array (.array .field 4) 8)
-  oaafSourceDistinct oaaf00 oaaf44
-    "Option Array Array Field candidates 0/0 vs 4/4 Source must non-alias (bytes+hash)"
-  oaafSourceDistinct oaaf44 oaafMax
-    "Option Array Array Field candidates 4/4 vs 4096/1 Source must non-alias (bytes+hash)"
-  oaafSourceDistinct oaaf00 oaafMax
-    "Option Array Array Field candidates 0/0 vs 4096/1 Source must non-alias (bytes+hash)"
-  oaafSourceDistinct oaaf44 (.array (.array .field 4) 4)
-    "Option Array Array Field 4 4 Source must non-alias Array Array Field bn254_fr 4 4 (bytes+hash)"
-  oaafSourceDistinct oaaf44 (.option (.array .field 4))
-    "Option Array Array Field 4 4 Source must non-alias Option Array Field bn254_fr 4 (bytes+hash)"
-  oaafSourceDistinct oaaf44 (.option (.option (.array .field 4)))
-    "Option Array Array Field 4 4 Source must non-alias Option Option Array Field bn254_fr 4 (bytes+hash)"
-  oaafSourceDistinct oaaf44 (.option (.array (.array .u64 4) 4))
-    "Option Array Array Field 4 4 Source must non-alias Option Array Array UInt64 4 4 (bytes+hash)"
-  oaafSourceDistinct oaaf84 oaaf04
-    "Option Array Array Field one-axis inner 8/4 vs 0/4 Source must non-alias (bytes+hash)"
-  oaafSourceDistinct oaaf84 oaaf80
-    "Option Array Array Field one-axis outer 8/4 vs 8/0 Source must non-alias (bytes+hash)"
-  oaafSourceDistinct oaaf84 oaaf48
-    "Option Array Array Field dual-length order 8/4 vs 4/8 Source must non-alias (bytes+hash)"
-
-  let oaafSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Array Array Field bn254_fr 0 0", .option (.array (.array .field 0) 0), 0, "UNBOUND"),
-    ("Option Array Array Field bn254_fr 4 4", .option (.array (.array .field 4) 4), 0, "UNBOUND"),
-    ("Option Array Array Field bn254_fr 4096 1", .option (.array (.array .field 4096) 1), 0, "UNBOUND")
-  ]
-  for (label, type, expectedSize, expectedHash) in oaafSemanticVectors do
-    let sourceProgram := twin type
-    let semantic ← match Compiler.compile sourceProgram with
-      | .ok value => pure value
-      | .error error => throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
-    expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
-      s!"{label} semantic tag16+tag18+tag18+tag2 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
-  let oaafSemanticCanon (type : Source.ValueType) : IO (ByteArray × String) := do
-    match Compiler.compile (twin type) with
-    | .ok value => pure (value.canonicalBytes, value.semanticHash)
-    | .error error =>
-        throw <| IO.userError
-          s!"Option Array Array Field semantic non-alias twin must compile: {error.render}"
-  let oaafSemanticDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
-    let leftPair ← oaafSemanticCanon left
-    let rightPair ← oaafSemanticCanon right
-    expect (leftPair.1 != rightPair.1 && leftPair.2 != rightPair.2) message
-  oaafSemanticDistinct oaaf00 oaaf44
-    "Option Array Array Field candidates 0/0 vs 4/4 Semantic must non-alias (bytes+hash)"
-  oaafSemanticDistinct oaaf44 oaafMax
-    "Option Array Array Field candidates 4/4 vs 4096/1 Semantic must non-alias (bytes+hash)"
-  oaafSemanticDistinct oaaf00 oaafMax
-    "Option Array Array Field candidates 0/0 vs 4096/1 Semantic must non-alias (bytes+hash)"
-  oaafSemanticDistinct oaaf44 (.array (.array .field 4) 4)
-    "Option Array Array Field 4 4 Semantic must non-alias Array Array Field bn254_fr 4 4 (bytes+hash)"
-  oaafSemanticDistinct oaaf44 (.option (.array .field 4))
-    "Option Array Array Field 4 4 Semantic must non-alias Option Array Field bn254_fr 4 (bytes+hash)"
-  oaafSemanticDistinct oaaf44 (.option (.option (.array .field 4)))
-    "Option Array Array Field 4 4 Semantic must non-alias Option Option Array Field bn254_fr 4 (bytes+hash)"
-  oaafSemanticDistinct oaaf44 (.option (.array (.array .u64 4) 4))
-    "Option Array Array Field 4 4 Semantic must non-alias Option Array Array UInt64 4 4 (bytes+hash)"
-  oaafSemanticDistinct oaaf84 oaaf04
-    "Option Array Array Field one-axis inner 8/4 vs 0/4 Semantic must non-alias (bytes+hash)"
-  oaafSemanticDistinct oaaf84 oaaf80
-    "Option Array Array Field one-axis outer 8/4 vs 8/0 Semantic must non-alias (bytes+hash)"
-  oaafSemanticDistinct oaaf84 oaaf48
-    "Option Array Array Field dual-length order 8/4 vs 4/8 Semantic must non-alias (bytes+hash)"
 
   let tripleOptionSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Option Option Option UInt64", .option (.option (.option .u64)), 245,
@@ -3097,40 +3213,6 @@ unsafe def run : IO Unit := do
         "Option Array Bytes 8 4_096"),
       ("unknown Option Array Array element", "UnknownOptionArrayArrayElement",
         "Option Array Array Mystery 4 4"),
-      ("Field Option Array Array element", "FieldOptionArrayArrayElement",
-        "Option Array Array Field 4 4"),
-      ("alternate Option Array Array Field id", "AlternateOptionArrayArrayFieldId",
-        "Option Array Array Field bls12_381_fr 4 4"),
-      ("escaped Option Array Array Field id", "EscapedOptionArrayArrayFieldId",
-        "Option Array Array Field «bn254_fr» 4 4"),
-      ("qualified Option Array Array Field id", "QualifiedOptionArrayArrayFieldId",
-        "Option Array Array Field Curves.bn254_fr 4 4"),
-      ("over-bound Option Array Array Field inner length", "OverBoundOptionArrayArrayFieldInner",
-        "Option Array Array Field bn254_fr 4097 4"),
-      ("leading-zero Option Array Array Field inner length", "LeadingZeroOptionArrayArrayFieldInner",
-        "Option Array Array Field bn254_fr 01 4"),
-      ("hex Option Array Array Field inner length", "HexOptionArrayArrayFieldInner",
-        "Option Array Array Field bn254_fr 0x10 4"),
-      ("underscore Option Array Array Field inner length", "UnderscoreOptionArrayArrayFieldInner",
-        "Option Array Array Field bn254_fr 4_096 4"),
-      ("over-bound Option Array Array Field outer length", "OverBoundOptionArrayArrayFieldOuter",
-        "Option Array Array Field bn254_fr 4 4097"),
-      ("leading-zero Option Array Array Field outer length", "LeadingZeroOptionArrayArrayFieldOuter",
-        "Option Array Array Field bn254_fr 4 01"),
-      ("hex Option Array Array Field outer length", "HexOptionArrayArrayFieldOuter",
-        "Option Array Array Field bn254_fr 4 0x10"),
-      ("underscore Option Array Array Field outer length", "UnderscoreOptionArrayArrayFieldOuter",
-        "Option Array Array Field bn254_fr 4 4_096"),
-      ("Widget Option Array Array Field leaf", "WidgetOptionArrayArrayField",
-        "Option Array Array Widget 4 4"),
-      ("bare Bytes Option Array Array element", "BareBytesOptionArrayArrayElement",
-        "Option Array Array Bytes 4 4"),
-      ("bare Option Option Array Array element", "BareOptionOptionArrayArrayElement",
-        "Option Array Array Option 4 4"),
-      ("bare Array Option Array Array element", "BareArrayOptionArrayArrayElement",
-        "Option Array Array Array 4 4"),
-      ("bare Map Option Array Array element", "BareMapOptionArrayArrayElement",
-        "Option Array Array Map 4 4"),
       ("over-bound Option Array Array inner length", "OverBoundOptionArrayArrayInner",
         "Option Array Array UInt64 4097 4"),
       ("leading-zero Option Array Array inner length", "LeadingZeroOptionArrayArrayInner",
@@ -3283,21 +3365,6 @@ unsafe def run : IO Unit := do
   | .error error =>
       throw <| IO.userError s!"migrated Option Array Array UInt64 4 4 must parse: {error.render}"
 
-  let migratedOptionArrayArrayFieldSource :=
-    negativeSource "MigratedOptionArrayArrayField" "Option Array Array Field bn254_fr 4 4"
-  match ← session.parsePrograms migratedOptionArrayArrayFieldSource
-      "<migrated-option-array-array-field>" with
-  | .ok #[decodedProgram] =>
-      expect (decodedProgram.state.map (·.type) ==
-          #[.option (.array (.array .field 4) 4)])
-        "migrated Option Array Array Field bn254_fr 4 4 pin must now parse as existing option(array(array(field,4),4))"
-  | .ok programs =>
-      throw <| IO.userError
-        s!"migrated Option Array Array Field bn254_fr 4 4 produced {programs.size} programs"
-  | .error error =>
-      throw <| IO.userError
-        s!"migrated Option Array Array Field bn254_fr 4 4 must parse: {error.render}"
-
   let migratedTripleOptionSource :=
     negativeSource "MigratedTripleOption" "Option Option Option Bool"
   match ← session.parsePrograms migratedTripleOptionSource "<migrated-triple-option>" with
@@ -3384,27 +3451,6 @@ unsafe def run : IO Unit := do
       ("missing Option Array Array element", "Option Array Array"),
       ("missing Option Array Array lengths", "Option Array Array UInt64"),
       ("missing Option Array Array outer length", "Option Array Array UInt64 4"),
-      ("missing Option Array Array Field outer length", "Option Array Array Field bn254_fr 4"),
-      ("missing Option Array Array Field lengths", "Option Array Array Field bn254_fr"),
-      ("negative Option Array Array Field inner length", "Option Array Array Field bn254_fr -1 4"),
-      ("negative Option Array Array Field outer length", "Option Array Array Field bn254_fr 4 -1"),
-      ("identifier Option Array Array Field inner length", "Option Array Array Field bn254_fr N 4"),
-      ("identifier Option Array Array Field outer length", "Option Array Array Field bn254_fr 4 M"),
-      ("extra Option Array Array Field payload", "Option Array Array Field bn254_fr 4 4 Principal"),
-      ("split Option Array Array Field Option", "Option\n  Array Array Field bn254_fr 4 4"),
-      ("split Option Array Array Field outer Array", "Option Array\n  Array Field bn254_fr 4 4"),
-      ("split Option Array Array Field inner Array", "Option Array Array\n  Field bn254_fr 4 4"),
-      ("split Option Array Array Field constructor", "Option Array Array Field\n  bn254_fr 4 4"),
-      ("split Option Array Array Field id", "Option Array Array Field bn254_fr\n  4 4"),
-      ("split Option Array Array Field inner length", "Option Array Array Field bn254_fr 4\n  4"),
-      ("escaped Option Array Array Field Option", "«Option» Array Array Field bn254_fr 4 4"),
-      ("qualified Option Array Array Field Option", "Std.Option Array Array Field bn254_fr 4 4"),
-      ("escaped Option Array Array Field outer Array", "Option «Array» Array Field bn254_fr 4 4"),
-      ("qualified Option Array Array Field outer Array", "Option Std.Array Array Field bn254_fr 4 4"),
-      ("escaped Option Array Array Field inner Array", "Option Array «Array» Field bn254_fr 4 4"),
-      ("qualified Option Array Array Field inner Array", "Option Array Std.Array Field bn254_fr 4 4"),
-      ("escaped Option Array Array Field constructor", "Option Array Array «Field» bn254_fr 4 4"),
-      ("qualified Option Array Array Field constructor", "Option Array Array Std.Field bn254_fr 4 4"),
       ("Bytes Option Array Array element", "Option Array Array Bytes 8 4 4"),
       ("Option Option Array Array element", "Option Array Array Option Bool 4 4"),
       ("Array Option Array Array element", "Option Array Array Array UInt64 4 4 4"),
@@ -3863,40 +3909,6 @@ unsafe def run : IO Unit := do
         throw <| IO.userError
           s!"{target} must support zero-requirement Option Array Array UInt64 carrier: {error.render}"
 
-  let optionArrayArrayFieldBoundary ← match Compiler.compile
-      Tests.Language.OptionDeclarationsFixture.OptionArrayArrayFieldBoundary with
-    | .ok value => pure value
-    | .error error =>
-        throw <| IO.userError s!"OptionArrayArrayFieldBoundary must compile: {error.render}"
-  expect (optionArrayArrayFieldBoundary.requirements == #[.fieldBn254])
-    "Option Array Array Field must recursively propagate fieldBn254 exactly once"
-  match optionArrayArrayFieldBoundary.entries with
-  | #[echoEntry] =>
-      expect (echoEntry.params.map (·.type) == #[.option (.array (.array .field 4) 4)] &&
-          echoEntry.result == .option (.array (.array .field 4) 4))
-        "Source-to-Semantic adaptation must preserve Option Array Array Field tags and dual lengths"
-  | _ => throw <| IO.userError "OptionArrayArrayFieldBoundary must retain one semantic entry"
-  for target in Targets.phase1 do
-    match Targets.checkSupport target optionArrayArrayFieldBoundary with
-    | .error (.unsupportedRequirement .fieldBn254 actual) =>
-        expect (actual == target)
-          s!"Option Array Array Field support rejection must name {target}, got {actual}"
-    | .error other =>
-        throw <| IO.userError
-          s!"Option Array Array Field/{target} checkSupport wrong failure: {other.render}"
-    | .ok () =>
-        throw <| IO.userError
-          s!"Option Array Array Field/{target} unexpectedly passed checkSupport"
-    match Targets.materializeResult target optionArrayArrayFieldBoundary with
-    | .error (.unsupportedRequirement .fieldBn254 actual) =>
-        expect (actual == target)
-          s!"Option Array Array Field materialize rejection must name {target}, got {actual}"
-    | .error other =>
-        throw <| IO.userError
-          s!"Option Array Array Field/{target} materializeResult wrong failure: {other.render}"
-    | .ok _ =>
-        throw <| IO.userError
-          s!"Option Array Array Field/{target} must not materialize or emit artifact"
 
   let optionArrayArrayBoolBoundary ← match Compiler.compile
       Tests.Language.OptionDeclarationsFixture.OptionArrayArrayBoolBoundary with
