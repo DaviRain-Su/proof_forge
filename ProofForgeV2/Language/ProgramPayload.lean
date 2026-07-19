@@ -414,12 +414,19 @@ private def decodeDeclaration (env : Lean.Environment) (name : Lean.Name) :
       decodeProgram info.value
   | _ => unavailable
 
+private def checkProgramBinding (name : Lean.Name) (program : Source.Program) :
+    Except String Unit := do
+  unless name.toString == program.qualifiedName do
+    throw (identityError "exported program identity does not match declaration")
+
 def programPayload (env : Lean.Environment) (name : Lean.Name) :
     Except String Source.Program := do
   let exports ← programExports env
   unless exports.any (fun row => row.declaration == name) do
     throw (exportError "not registered")
-  decodeDeclaration env name
+  let program ← decodeDeclaration env name
+  checkProgramBinding name program
+  pure program
 
 private def checkProgramIdentities
     (rows : Array (ProgramExportV1 × Source.Program)) : Except String Unit := do
@@ -444,6 +451,8 @@ def programPayloads (env : Lean.Environment) :
   for row in exports do
     rows := rows.push (row, ← decodeDeclaration env row.declaration)
   checkProgramIdentities rows
+  for (row, program) in rows do
+    checkProgramBinding row.declaration program
   pure rows
 
 end ProofForgeV2.Language.ProgramPayload
