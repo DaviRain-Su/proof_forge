@@ -1192,6 +1192,32 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明 field/array/option
   value operations、none/some/unwrap、runtime/ABI、target nested-Option-Array-Field support、完整
   recursive grammar 或正式 D1 完成。
+- D1-PA-76 的 alpha tests 只开放 exact same-line `Array Option Option Field bn254_fr N`，物化为既有
+  `Source/Semantic.ValueType.array (.option (.option .field)) length`，tag 固定 `18→16→16→2→N`，
+  Field id 必须 raw exact `bn254_fr`，length 精确复用 canonical ASCII decimal `0..4096`。本条只对
+  PA71 明示保留的 exact Field leaf residual supersede fail-closed boundary；PA60/71/75 既有 positive
+  保持不变。post-PA-75 四路 audit 按总验收面选择 fixed Field + single length：
+  `Option Option Array Bytes N M` 需要 dual length 与三类 Plan fixture，
+  `Option Option Option Array PrimitiveAtom N` 需要 15-atom matrix；不是 checkpoint 自动递增。
+  tests-only RED 只修改 `Tests.Language.ArrayTypes`，将既有一条
+  `("full Field Array Option Option element", "Array Option Option Field bn254_fr 4")` negative
+  迁移为 positive，migration count 精确为一；incomplete `Array Option Option Field 4` 必须继续 exact
+  unsupported，其他测试不得迁移。positive 覆盖 length `0/4/4096`、state、struct field、enum payload、
+  const、event/error parameter、initializer/entry/view/fn parameter/result 与 Lean command/ParserSession
+  parity。Source/Semantic 各固定三组 golden vectors；`N=4` candidate 必须在两侧分别与
+  `Array Option Field bn254_fr 4`、`Array Option Option UInt64 4`、
+  `Option Option Array Field bn254_fr 4`、`Option Option Field bn254_fr` 做 canonical bytes/hash
+  non-alias，三组 lengths 必须 pairwise non-alias；非 surface-positive control 只可手工构造。
+  requirements 必须精确为单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与
+  `materializeResult` 必须都 exact named rejection、actual target identity 正确且无 Plan/OutputSet/artifact。
+  frozen channels：incomplete、alternate/escaped/qualified Field id、`4097`/leading-zero/hex/underscore
+  length、bare Bytes/Option/Array/Map、`Widget 4` 为 exact unsupported；missing/negative/identifier length、
+  extra payload、五个 same-line seam、四个 constructor 的 escaped/qualified form、full Bytes/Option/Array/
+  Map compounds为 parser rejection。empirical channel 不符时必须 GREEN 前先修规格，禁止改胖 positive。
+  RED 仅 `ArrayTypes.lean` ≤320 additions/2 removals；production 仅 Syntax ≤30 additions/2 removals并刷新
+  package file-set；focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后
+  收口。按冻结不重复完整 `just ci`；不得声明 field/array/option value operations、none/some/unwrap、
+  runtime/ABI、target Array-Option-Option-Field support、完整 recursive grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
