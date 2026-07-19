@@ -40,6 +40,7 @@ docs-check:
     /usr/bin/python3 -I -S scripts/sandbox_bwrap_self_test.py
     /usr/bin/python3 -I -S scripts/formal_clean_room_self_test.py
     /usr/bin/python3 -I -S scripts/genesis_replay_self_test.py
+    /usr/bin/python3 -I -S scripts/tool_invocation_self_test.py
     /usr/bin/python3 -I -S scripts/bootstrap_ceremony_prep_self_test.py
 
 # TASK-D0-05 / TST-SBOM-001: deterministic license inventory + CycloneDX 1.6.
@@ -159,6 +160,65 @@ host-stage0-negative:
           exit 1
         fi
         rg -q 'PF-HOST-INELIGIBLE' "$tmp/formal.log"
+        # Environment mutation matrix (TST-HOST-001 deferred leg): each single
+        # mutation of the authoritative env -i invocation must fail closed with
+        # the exact Stage-0 rejection text (verify_host_stage0.sh lines 37-50).
+        env_reject() {
+          local label="$1" expected="$2"
+          shift 2
+          if /usr/bin/env -i "$@" /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --allow-ineligible-development > "$tmp/env-$label.log" 2>&1; then
+            echo "environment mutation $label unexpectedly passed Stage-0" >&2
+            exit 1
+          fi
+          rg -q "$expected" "$tmp/env-$label.log"
+        }
+        env_reject home 'HOME must be /var/empty' HOME=/tmp PATH=/usr/bin:/bin LC_ALL=C TZ=UTC
+        env_reject path 'PATH must be /usr/bin:/bin' HOME=/var/empty PATH=/usr/bin LC_ALL=C TZ=UTC
+        env_reject lc-all 'LC_ALL must be C' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C.UTF-8 TZ=UTC
+        env_reject tz 'TZ must be UTC' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=Asia/Shanghai
+        env_reject bash-env 'shell startup environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC BASH_ENV=/tmp/nope
+        env_reject env-file 'shell startup environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC ENV=/tmp/nope
+        env_reject cdpath 'shell startup environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC CDPATH=/tmp
+        env_reject developer-dir 'developer or Python environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC DEVELOPER_DIR=/tmp
+        env_reject pythonhome 'developer or Python environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC PYTHONHOME=/tmp
+        env_reject pythonpath 'developer or Python environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC PYTHONPATH=/tmp
+        env_reject git-config-global 'Git environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC GIT_CONFIG_GLOBAL=/tmp/gitconfig
+        env_reject git-config-system 'Git environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC GIT_CONFIG_SYSTEM=/tmp/gitconfig
+        env_reject git-dir 'Git environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC GIT_DIR=/tmp/gitdir
+        env_reject ld-library-path 'ELF loader environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC LD_LIBRARY_PATH=/tmp
+        env_reject ld-audit 'ELF loader environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC LD_AUDIT=/tmp/audit.so
+        env_reject ld-debug 'ELF loader environment is not empty' HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC LD_DEBUG=libs
+        # Lock digest drift negatives on copied trees (TST-HOST-001 deferred leg).
+        drift_tree() {
+          mkdir -p "$1/scripts"
+          cp host-bootstrap-linux.lock host-profiles.lock.json "toolchains-linux-$(uname -m).lock.json" "$1/"
+          cp scripts/verify_host_stage0.sh scripts/toolchain_assets.py "$1/scripts/"
+        }
+        drift_tree "$tmp/drift-launcher"
+        printf 'x' >> "$tmp/drift-launcher/scripts/verify_host_stage0.sh"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/drift-launcher/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/drift-launcher.log" 2>&1; then
+          echo "LAUNCHER digest drift unexpectedly passed Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'LAUNCHER digest mismatch' "$tmp/drift-launcher.log"
+        drift_tree "$tmp/drift-verifier"
+        printf 'x' >> "$tmp/drift-verifier/scripts/toolchain_assets.py"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/drift-verifier/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/drift-verifier.log" 2>&1; then
+          echo "VERIFIER digest drift unexpectedly passed Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'VERIFIER digest mismatch' "$tmp/drift-verifier.log"
+        drift_tree "$tmp/drift-tool-lock"
+        printf 'x' >> "$tmp/drift-tool-lock/toolchains-linux-$(uname -m).lock.json"
+        if /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/drift-tool-lock/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/drift-tool-lock.log" 2>&1; then
+          echo "TOOL_LOCK digest drift unexpectedly passed Stage-0" >&2
+          exit 1
+        fi
+        rg -q 'TOOL_LOCK digest mismatch' "$tmp/drift-tool-lock.log"
+        # Positive control: the unmodified copied tree passes development observation.
+        drift_tree "$tmp/positive-control"
+        /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc "$tmp/positive-control/scripts/verify_host_stage0.sh" --allow-ineligible-development > "$tmp/positive.log" 2>&1
+        rg -q '"eligibleForHermetic":true' "$tmp/positive.log"
         ;;
       *)
         echo "unsupported host platform" >&2

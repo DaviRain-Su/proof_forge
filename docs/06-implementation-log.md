@@ -5237,3 +5237,53 @@ normative: false
 - Next：剩余 D0-07 面：darwin live 重观察（P2）、D0-03 递延 P2 两项
   （TST-TOOL-001 timeout 腿、TST-HOST-001 环境/lock mutation negatives）、
   post-commit 全绿重放 + doneWhen 对齐复核。
+
+## 2026-07-19 — D0-03 递延清偿：TST-TOOL-001 timeout 腿与 TST-HOST-001 环境/lock mutation negatives
+
+- Context：GOV-D0CLOSE-001 §3.2 要求 D0-07 关闭前清偿两项 D0-03 递延 P2：
+  TST-TOOL-001 的 timeout 腿（test-spec:147「exact tool version/checksum、
+  missing/shadow、timeout」的 timeout 面）与 TST-HOST-001 的环境/lock
+  mutation negatives（test-spec:141）。`scripts/toolchain_assets.py` 被
+  host-bootstrap{,-linux}.lock 的 VERIFIER_SHA256 钉住，不能编辑；
+  `scripts/verify_host_stage0.sh` 同样钉住。本切片以新增文件与 recipe 扩展
+  清偿，不触碰任何钉住字节。
+- Changed：(1) 新增 `scripts/tool_invocation_self_test.py`——以
+  host_profiles_self_test.py 同款 exact-path importlib 把
+  `toolchain_assets.py` 作为 module 加载（不修改），用真实 subprocess 钉住
+  `bounded_host_command` 的 timeout 纪律：挂起命令（`/usr/bin/sleep 30`）
+  在 `timeout=1` 被杀且精确报 `host command timed out after 1s`（实测
+  1.0s 返回）；`/bin/bash -c 'echo $$ > f; exec sleep 30'` 被杀后按
+  pgid 在 /proc 逐项核对无残留；`print('x'*1048576)` 在
+  `max_output=1024` 下报 `host command output exceeded 1024 bytes`；
+  快命令（echo）正常返回；`timeout`/`max_output` 为
+  non-int/zero/negative 时在 spawn 前拒绝
+  `host command limits must be positive integers`（共 6 例）。
+  (2) 扩展 justfile `host-stage0-negative` 的 Linux lane（Darwin lane
+  字节不变）：新增 `env_reject` 助手的 16 项环境 mutation（每项以权威
+  `env -i` 单变量注入，断言非零退出 + `rg -q` 精确文本：wrong
+  HOME/PATH/LC_ALL/TZ、BASH_ENV、ENV、CDPATH、DEVELOPER_DIR、
+  PYTHONHOME、PYTHONPATH、GIT_CONFIG_GLOBAL、GIT_CONFIG_SYSTEM、GIT_DIR、
+  LD_LIBRARY_PATH、LD_AUDIT、LD_DEBUG；LD_PRELOAD 为既有覆盖保留）；
+  新增 `drift_tree` 助手的三个 lock digest drift 负例（copied tree 上分别
+  对 LAUNCHER/VERIFIER/TOOL_LOCK 追加一字节，必 fail closed 且报
+  `<label> digest mismatch`）；新增正向对照（未修改 copied tree 以
+  `--allow-ineligible-development` 通过且 observation 含
+  `"eligibleForHermetic":true`）。docs-check 接入
+  `tool_invocation_self_test.py`。
+- Verification：`/usr/bin/python3 -I -S scripts/tool_invocation_self_test.py`
+  ok（6/6）；`just host-stage0-negative` 全 lane ok（0.8s，4 既有负例 +
+  16 环境 mutation + 3 drift + 1 正向对照）；`just docs-check` 全绿（22
+  个自测）；`git diff --check` clean；`/usr/bin/python3 -I -S
+  scripts/docs_check.py` ok；钉住文件零漂移（verify_host_stage0.sh /
+  toolchain_assets.py / stage0_containment.py / gate_evidence.py /
+  stage0_activate.py / stage0_store_service.py / host-bootstrap.lock /
+  host-bootstrap-linux.lock / host-profiles.lock.json /
+  toolchains.lock.json / toolchains-linux-x86_64.lock.json 均未触碰）。
+  development evidence 见台账 `EV-20260719-0084`。
+- Limitations：darwin TST-HOST-001 语义不变；P2 darwin live 重观察债务
+  （GOV-PRECUTOVER-001 §2.1，owner=quality，截止 D0-07 关闭前）不受影响；
+  timeout 腿覆盖的是 `bounded_host_command` 的纪律本身，不等于对每个
+  tool 调用点的 timeout 全路径审计；不能改变任何任务状态；D0 formal
+  milestone 仍为 8/9。
+- Next：GOV-D0CLOSE-001 §3.2 的其余关闭步骤（ruling 其他款项）与
+  post-commit 全绿 genesis replay 复核。
