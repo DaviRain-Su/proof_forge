@@ -75,6 +75,7 @@ import Tests.Language.SourceAstPatternV1
 import Tests.Language.SourceAstDeclV1
 import Tests.Language.SourceAstSpineV1
 import Tests.Language.SourceAstSpineCodecV1
+import Tests.Language.SourceAstSpineDeclV1
 import Tests.Language.FrontendParity
 import Tests.Language.Grouping
 import Tests.Language.Loader
@@ -144,6 +145,7 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceAstDeclV1.run
   Tests.Language.SourceAstSpineV1.run
   Tests.Language.SourceAstSpineCodecV1.run
+  Tests.Language.SourceAstSpineDeclV1.run
   Tests.Language.FrontendParity.run
   Tests.Language.Grouping.run
   Tests.Language.Loader.run
