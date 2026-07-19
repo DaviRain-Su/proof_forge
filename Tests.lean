@@ -34,6 +34,7 @@ import Tests.Language.InvariantDeclarations
 import Tests.Language.ProofReferences
 import Tests.Language.ProgramExports
 import Tests.Language.ProgramExportAcceptance
+import Tests.Language.ProgramCommandAcceptance
 import Tests.Language.ProgramBindings
 import Tests.Language.ProgramIdentities
 import Tests.Language.ProgramPayloads
@@ -94,6 +95,7 @@ unsafe def main : IO Unit := do
   Tests.Language.LetStatements.run
   Tests.Language.ProgramExports.run
   Tests.Language.ProgramExportAcceptance.run
+  Tests.Language.ProgramCommandAcceptance.run
   Tests.Language.ProgramBindings.run
   Tests.Language.ProgramIdentities.run
   Tests.Language.ProgramPayloads.run
