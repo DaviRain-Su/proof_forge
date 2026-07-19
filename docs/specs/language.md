@@ -964,7 +964,7 @@ control 不得借测试开放额外 spelling。requirements 必须为空；四�
 冻结 error channel 如下：incomplete bare spelling、inner/outer 任一 length 的 `4097`/leading-zero/
 `0x10`/`4_096`、bare Field/Option/Array/Map 与 `Widget 8 4` unknown/Named-like leaf 必须 exact
 `unsupported portable type`；missing outer/both lengths、negative/identifier inner/outer length、extra
-payload、六个 Option/Option/Array/Bytes/id-or-inner-length/outer-length same-line seam 换行、四个
+payload、五个 outer-Option/middle-Option/Array/Bytes/inner-length 后的 same-line seam 换行、四个
 constructor（两层 Option、Array、Bytes）的 escaped/qualified form、full Field/Option/Array/Map
 compounds 必须 parser-rejected。若 GREEN empirical probe 与冻结 channel 不一致，必须在 GREEN 前以
 独立规格修正提交闭合，不得静默改断言或扩大 positive。

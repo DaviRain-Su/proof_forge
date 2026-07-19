@@ -1294,7 +1294,7 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   （`is not UInt64` / `does not return UInt64` / `is not UInt64`）且无 Plan/OutputSet/artifact。
   frozen channels：incomplete bare、两个 length 各自的 `4097`/leading-zero/hex/underscore、bare
   Field/Option/Array/Map、`Widget 8 4` 为 exact unsupported；missing outer/both lengths、negative/
-  identifier inner/outer length、extra payload、六个 same-line seam、四个 constructor 的 escaped/
+  identifier inner/outer length、extra payload、五个 same-line seam、四个 constructor 的 escaped/
   qualified form、full Field/Option/Array/Map compounds 为 parser rejection。empirical channel 不符时
   必须 GREEN 前先修规格，禁止改胖 positive。RED 仅 `OptionDeclarations.lean` ≤330 additions/2
   removals；production 仅 Syntax ≤32 additions/2 removals并刷新 package file-set；focused 23-job、
