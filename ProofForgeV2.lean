@@ -10,6 +10,7 @@ import ProofForgeV2.Source.WireCodecV1
 import ProofForgeV2.Source.WireDecodeV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.AstCodecV1
+import ProofForgeV2.Source.AstScalarDecodeV1
 import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstSupportCodecV1
 import ProofForgeV2.Source.AstPatternV1

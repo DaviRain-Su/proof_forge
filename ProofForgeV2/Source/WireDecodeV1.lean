@@ -114,6 +114,35 @@ def decodeString : DecoderV1 String := fun c => do
     requireNfc s
     pure (s, c)
 
+/-- Read one bounded ASCII v1 constructor tag without reading its field count. -/
+def decodeTagV1 : DecoderV1 String := fun c => do
+  let (lenU, c) ← decodeU32le c
+  let len := lenU.toNat
+  unless 1 ≤ len && len ≤ 21 do
+    return ← fail "tag length must be 1..21 bytes"
+  unless remaining c ≥ len do
+    return ← fail "truncated"
+  let mut raw := ByteArray.emptyWithCapacity len
+  let mut c := c
+  for _ in [:len] do
+    let (b, c') ← decodeU8 c
+    raw := raw.push b
+    c := c'
+  match String.fromUTF8? raw with
+  | none => fail "invalid UTF-8 tag"
+  | some tag => do
+      for ch in tag.toList do
+        unless ch.val ≤ 127 do
+          return ← fail "tag must be ASCII"
+      pure (tag, c)
+
+/-- Consume and exactly validate a known constructor's u16 field count. -/
+def decodeFieldCountV1 (tag : String) (expected : Nat) : DecoderV1 Unit := fun c => do
+  let (count, c) ← decodeU16le c
+  unless count.toNat == expected do
+    return ← fail s!"tag '{tag}' must declare {expected} fields"
+  pure ((), c)
+
 /-- Decode raw String payload then parse as `SourceNameComponentV1` (fail closed). -/
 def decodeSourceNameComponentV1 : DecoderV1 SourceNameComponentV1 := fun c => do
   let (raw, c) ← decodeString c
