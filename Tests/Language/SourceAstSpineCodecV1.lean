@@ -1,0 +1,232 @@
+import ProofForgeV2.Source.AstSpineCodecV1
+import ProofForgeV2.Source.AstSpineV1
+import ProofForgeV2.Source.AstPatternV1
+import ProofForgeV2.Source.AstV1
+import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.QualifiedNameV1
+
+namespace Tests.Language.SourceAstSpineCodecV1
+open ProofForgeV2.Source.AstSpineCodecV1
+open ProofForgeV2.Source.AstSpineV1
+open ProofForgeV2.Source.AstPatternV1
+open ProofForgeV2.Source.AstV1
+open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.QualifiedNameV1
+
+private def expect (c : Bool) (m : String) : IO Unit :=
+  unless c do throw <| IO.userError m
+
+private def lift (label : String) (r : Except String α) : IO α :=
+  match r with
+  | .ok v => pure v
+  | .error e => throw <| IO.userError s!"{label}: {e}"
+
+private def expectErrExact (label want : String) (r : Except String α) : IO Unit :=
+  match r with
+  | .error e => expect (e == want) s!"{label}: got {e}"
+  | .ok _ => throw <| IO.userError s!"{label}: unexpectedly ok"
+
+private def lowerHexDigit (v : Nat) : Char :=
+  if v < 10 then Char.ofNat ('0'.toNat + v)
+  else Char.ofNat ('a'.toNat + v - 10)
+
+private def bytesHex (b : ByteArray) : String :=
+  b.foldl (fun o x =>
+    let v := x.toNat
+    (o.push (lowerHexDigit (v / 16))).push (lowerHexDigit (v % 16))) ""
+
+private def expectHex (label want : String) (r : Except String ByteArray) : IO Unit :=
+  match r with
+  | .ok b => expect (bytesHex b == want) s!"{label}: got {bytesHex b}"
+  | .error e => throw <| IO.userError s!"{label}: {e}"
+
+private def name (s : String) : IO SourceNameComponentV1 :=
+  lift s (parseSourceNameComponentV1 s)
+
+private def qn (ps : Array String) : IO SourceQualifiedNameV1 :=
+  lift "qn" (parseSourceQualifiedNameV1 ps)
+
+private def blockEmpty := "block statements must be nonempty"
+private def stmtArmsEmpty := "stmt match arms must be nonempty"
+private def exprArmsEmpty := "expr match arms must be nonempty"
+private def forBoundErr := "for bound must be 0..4096"
+private def qidErr := "source qualified id must contain 2..256 components"
+private def u256Err := "u256 magnitude exceeds 2^256-1"
+
+/-- D1-PA-100 phase-neutral: spine codec wire vectors, priorities, and child errors. -/
+def run : IO Unit := do
+  let x ← name "x"; let y ← name "y"; let s ← name "s"; let total ← name "total"
+  let arr ← name "arr"; let helper ← name "helper"; let i ← name "i"
+  let denied ← name "Denied"; let ping ← name "Ping"; let foobar ← name "foo-bar"
+  let optSome ← qn #["Option", "some"]; let optNone ← qn #["Option", "none"]
+  let mathAdd ← qn #["Math", "add"]; let only ← qn #["Only"]
+  let L0 : ExprV1 := .literal (.integer 0)
+  let L1 : ExprV1 := .literal (.integer 1)
+  let L2 : ExprV1 := .literal (.integer 2)
+  let L4096 : ExprV1 := .literal (.integer 4096)
+  let L2_64 : ExprV1 := .literal (.integer (2 ^ 64))
+  let Lbad : ExprV1 := .literal (.integer (2 ^ 256))
+  let LT : ExprV1 := .literal (.bool true)
+  let pName : PlaceV1 := .name x
+  let pField : PlaceV1 := .field (.name s) total
+  let pIndex : PlaceV1 := .index (.name arr) L1
+  let ePlace : ExprV1 := .place pName
+  let eCtorSome : ExprV1 := .constructor optSome #[LT]
+  let eCtorNone : ExprV1 := .constructor optNone #[]
+  let eNeg : ExprV1 := .unary .neg L1
+  let eAdd : ExprV1 := .binary .add L1 L2
+  let eLocal : ExprV1 := .localCall helper #[L1]
+  let eArmB : ExprMatchArmV1 := { pattern := .bind x, value := L1 }
+  let eArmW : ExprMatchArmV1 := { pattern := .wildcard, value := L2 }
+  let eMatch : ExprV1 := .match_ L1 #[eArmB, eArmW]
+  let retNone : StmtV1 := .return_ none
+  let ret1 : StmtV1 := .return_ (some L1)
+  let blkRet : BlockV1 := { statements := #[retNone] }
+  let blkRet1 : BlockV1 := { statements := #[ret1] }
+  let emitPing : StmtV1 := .emit ping #[]
+  let blkMulti : BlockV1 := { statements := #[retNone, emitPing] }
+  let blkMultiRev : BlockV1 := { statements := #[emitPing, retNone] }
+  let sArmW : StmtMatchArmV1 := { pattern := .wildcard, body := blkRet }
+  let extEmpty : ExternalCallExprV1 := { callee := mathAdd, args := #[] }
+  let ext1 : ExternalCallExprV1 := { callee := mathAdd, args := #[L1] }
+  -- Place / Expr / Match / support directs
+  expectHex "place_name"
+    "0a000000506c6163652e4e616d6501000100000078"
+    (encodePlaceV1 pName)
+  expectHex "place_field"
+    "0b000000506c6163652e4669656c6402000a000000506c6163652e4e616d650100010000007305000000746f74616c"
+    (encodePlaceV1 pField)
+  expectHex "place_index"
+    "0b000000506c6163652e496e64657802000a000000506c6163652e4e616d650100030000006172720c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodePlaceV1 pIndex)
+  expectHex "expr_lit_2_64"
+    "0c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000000000000000000010000000000000000000000000000000000000000000000"
+    (encodeExprV1 L2_64)
+  expectHex "expr_place"
+    "0a000000457870722e506c61636501000a000000506c6163652e4e616d6501000100000078"
+    (encodeExprV1 ePlace)
+  expectHex "expr_ctor_some"
+    "10000000457870722e436f6e7374727563746f72020002000000060000004f7074696f6e04000000736f6d65010000000c000000457870722e4c69746572616c01000c0000004c69746572616c2e426f6f6c010001"
+    (encodeExprV1 eCtorSome)
+  expectHex "expr_ctor_none"
+    "10000000457870722e436f6e7374727563746f72020002000000060000004f7074696f6e040000006e6f6e6500000000"
+    (encodeExprV1 eCtorNone)
+  expectHex "expr_unary"
+    "0a000000457870722e556e61727902000b000000556e6172794f702e4e656700000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeExprV1 eNeg)
+  expectHex "expr_binary"
+    "0b000000457870722e42696e61727903000c00000042696e6172794f702e41646400000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e7465676572010001000000000000000000000000000000000000000000000000000000000000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000200000000000000000000000000000000000000000000000000000000000000"
+    (encodeExprV1 eAdd)
+  expectHex "expr_local"
+    "0e000000457870722e4c6f63616c43616c6c02000600000068656c706572010000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeExprV1 eLocal)
+  expectHex "expr_match"
+    "0a000000457870722e4d6174636802000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000020000000c000000457870724d6174636841726d02000c0000005061747465726e2e42696e64010001000000780c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e7465676572010001000000000000000000000000000000000000000000000000000000000000000c000000457870724d6174636841726d0200100000005061747465726e2e57696c646361726400000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000200000000000000000000000000000000000000000000000000000000000000"
+    (encodeExprV1 eMatch)
+  expectHex "stmt_let_none"
+    "0800000053746d742e4c657403000100000078000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeStmtV1 (.let_ x none L1))
+  expectHex "stmt_let_some"
+    "0800000053746d742e4c6574030001000000790109000000547970652e426f6f6c00000c000000457870722e4c69746572616c01000c0000004c69746572616c2e426f6f6c010001"
+    (encodeStmtV1 (.let_ y (some .bool) LT))
+  expectHex "stmt_assign"
+    "0b00000053746d742e41737369676e02000a000000506c6163652e4e616d65010001000000780c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeStmtV1 (.assign pName L1))
+  expectHex "stmt_if_none"
+    "0700000053746d742e496603000c000000457870722e4c69746572616c01000c0000004c69746572616c2e426f6f6c01000105000000426c6f636b0100010000000b00000053746d742e52657475726e01000000"
+    (encodeStmtV1 (.if_ LT blkRet none))
+  expectHex "stmt_if_some"
+    "0700000053746d742e496603000c000000457870722e4c69746572616c01000c0000004c69746572616c2e426f6f6c01000105000000426c6f636b0100010000000b00000053746d742e52657475726e0100000105000000426c6f636b0100010000000b00000053746d742e52657475726e0100010c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeStmtV1 (.if_ LT blkRet (some blkRet1)))
+  expectHex "stmt_match"
+    "0a00000053746d742e4d6174636802000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000010000000c00000053746d744d6174636841726d0200100000005061747465726e2e57696c6463617264000005000000426c6f636b0100010000000b00000053746d742e52657475726e010000"
+    (encodeStmtV1 (.match_ L1 #[sArmW]))
+  expectHex "stmt_for_0"
+    "0800000053746d742e466f72050001000000690c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e7465676572010000000000000000000000000000000000000000000000000000000000000000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e7465676572010000100000000000000000000000000000000000000000000000000000000000000000000005000000426c6f636b0100010000000b00000053746d742e52657475726e010000"
+    (encodeStmtV1 (.for_ i L0 L4096 0 blkRet))
+  expectHex "stmt_for_4096"
+    "0800000053746d742e466f72050001000000690c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e7465676572010000000000000000000000000000000000000000000000000000000000000000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e7465676572010000100000000000000000000000000000000000000000000000000000000000000010000005000000426c6f636b0100010000000b00000053746d742e52657475726e010000"
+    (encodeStmtV1 (.for_ i L0 L4096 4096 blkRet))
+  expectHex "stmt_assert_none"
+    "0b00000053746d742e41737365727402000c000000457870722e4c69746572616c01000c0000004c69746572616c2e426f6f6c01000100"
+    (encodeStmtV1 (.assert_ LT none))
+  expectHex "stmt_assert_some"
+    "0b00000053746d742e41737365727402000c000000457870722e4c69746572616c01000c0000004c69746572616c2e426f6f6c010001010600000044656e696564"
+    (encodeStmtV1 (.assert_ LT (some denied)))
+  expectHex "stmt_revert_empty"
+    "0b00000053746d742e52657665727402000600000044656e69656400000000"
+    (encodeStmtV1 (.revert denied #[]))
+  expectHex "stmt_revert_one"
+    "0b00000053746d742e52657665727402000600000044656e696564010000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeStmtV1 (.revert denied #[L1]))
+  expectHex "stmt_emit"
+    "0900000053746d742e456d697402000400000050696e6700000000"
+    (encodeStmtV1 emitPing)
+  expectHex "stmt_return_none"
+    "0b00000053746d742e52657475726e010000"
+    (encodeStmtV1 retNone)
+  expectHex "stmt_return_1"
+    "0b00000053746d742e52657475726e0100010c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeStmtV1 ret1)
+  expectHex "stmt_call"
+    "0900000053746d742e43616c6c01001000000045787465726e616c43616c6c45787072020002000000040000004d6174680300000061646400000000"
+    (encodeStmtV1 (.call extEmpty))
+  expectHex "stmt_sched"
+    "0d00000053746d742e5363686564756c6501001000000045787465726e616c43616c6c45787072020002000000040000004d61746803000000616464010000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeStmtV1 (.schedule ext1))
+  expectHex "block_single"
+    "05000000426c6f636b0100010000000b00000053746d742e52657475726e010000"
+    (encodeBlockV1 blkRet)
+  expectHex "block_multi"
+    "05000000426c6f636b0100020000000b00000053746d742e52657475726e0100000900000053746d742e456d697402000400000050696e6700000000"
+    (encodeBlockV1 blkMulti)
+  expectHex "stmt_arm"
+    "0c00000053746d744d6174636841726d0200100000005061747465726e2e57696c6463617264000005000000426c6f636b0100010000000b00000053746d742e52657475726e010000"
+    (encodeStmtMatchArmV1 sArmW)
+  expectHex "expr_arm"
+    "0c000000457870724d6174636841726d02000c0000005061747465726e2e42696e64010001000000780c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeExprMatchArmV1 eArmB)
+  expectHex "ext_empty"
+    "1000000045787465726e616c43616c6c45787072020002000000040000004d6174680300000061646400000000"
+    (encodeExternalCallExprV1 extEmpty)
+  expectHex "nonalias_ctor_12"
+    "10000000457870722e436f6e7374727563746f72020002000000060000004f7074696f6e04000000736f6d65020000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e7465676572010001000000000000000000000000000000000000000000000000000000000000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000200000000000000000000000000000000000000000000000000000000000000"
+    (encodeExprV1 (.constructor optSome #[L1, L2]))
+  expectHex "nonalias_ctor_21"
+    "10000000457870722e436f6e7374727563746f72020002000000060000004f7074696f6e04000000736f6d65020000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e7465676572010002000000000000000000000000000000000000000000000000000000000000000c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000100000000000000000000000000000000000000000000000000000000000000"
+    (encodeExprV1 (.constructor optSome #[L2, L1]))
+  expectHex "nonalias_blk_re"
+    "05000000426c6f636b0100020000000b00000053746d742e52657475726e0100000900000053746d742e456d697402000400000050696e6700000000"
+    (encodeBlockV1 blkMulti)
+  expectHex "nonalias_blk_er"
+    "05000000426c6f636b0100020000000900000053746d742e456d697402000400000050696e67000000000b00000053746d742e52657475726e010000"
+    (encodeBlockV1 blkMultiRev)
+  let c12 ← lift "c12" (encodeExprV1 (.constructor optSome #[L1, L2]))
+  let c21 ← lift "c21" (encodeExprV1 (.constructor optSome #[L2, L1]))
+  expect (bytesHex c12 != bytesHex c21) "ctor args nonalias"
+  let br ← lift "br" (encodeBlockV1 blkMulti)
+  let be ← lift "be" (encodeBlockV1 blkMultiRev)
+  expect (bytesHex br != bytesHex be) "block order nonalias"
+  expectErrExact "block_empty" blockEmpty
+    (encodeBlockV1 { statements := #[] })
+  expectErrExact "stmt_match_empty" stmtArmsEmpty
+    (encodeStmtV1 (.match_ Lbad #[]))
+  expectErrExact "expr_match_empty" exprArmsEmpty
+    (encodeExprV1 (.match_ Lbad #[]))
+  expectErrExact "for_4097" forBoundErr
+    (encodeStmtV1 (.for_ i Lbad Lbad 4097 { statements := #[.return_ (some Lbad)] }))
+  expectErrExact "ctor_qid1" qidErr
+    (encodeExprV1 (.constructor only #[L1]))
+  expectErrExact "ctor_qid_before_arg" qidErr
+    (encodeExprV1 (.constructor only #[Lbad]))
+  expectErrExact "ext_qid1" qidErr
+    (encodeExternalCallExprV1 { callee := only, args := #[L1] })
+  expectErrExact "ext_qid_before_arg" qidErr
+    (encodeExternalCallExprV1 { callee := only, args := #[Lbad] })
+  expectErrExact "child_u256" u256Err
+    (encodeExprV1 Lbad)
+  expectErrExact "pat_qid_child" qidErr
+    (encodeExprMatchArmV1 {
+      pattern := .constructor only #[], value := L1 })
+
+end Tests.Language.SourceAstSpineCodecV1
