@@ -4702,3 +4702,48 @@ normative: false
 - Next：当前无 active development slice。post-PA-77 两路 audit 对 `Option Array Array Field
   bn254_fr N M` 与 `Option Option Array Bytes N M` 的总验收面排序不同，先做 bounded challenge，
   尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact Option dual Array Field spelling pre-acceptance slice
+
+- Commits：freeze `4b2da645`；tests-only RED `26690dc9`；Syntax/GREEN、canonical binding 与
+  Lean package-file re-pin `175e8a1b`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-78 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-77 bounded
+  challenge 按 fixed Field、dual length、outer Option wrapper、support-resolver early rejection 与
+  现有唯一 migration anchor 选择 exact `Option Array Array Field bn254_fr N M`，不是 checkpoint
+  自动递增。
+- Changed：为既有 `Source/Semantic.ValueType.option (.array (.array .field innerLength)
+  outerLength)` 开放 exact same-line spelling。新增 named type/aggregate-field parser；专用 decoder
+  完整复用 closed dual-Array-Field decoder 后只包一层 outer Option，两个专用 dispatch 均位于
+  generic `optionArray` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 31 行新增/0 行移除。
+- RED/Migration：只迁移既有 `Option Array Array Field bn254_fr 4 4` negative 一条；相对 freeze
+  测试为 330 additions/1 removal。覆盖 `(inner, outer)=(0,0)/(4,4)/(4096,1)`、全部 declaration
+  positions 与双入口 parity；Field id、两条 length 轴、same-line seams、constructor 与
+  Field/Bytes/Option/Array/Map/Named compound error channels 均按冻结 fail closed。
+- Canonical：tag 固定 `16→18→18→2→innerLength→outerLength`。Source 三组均为 277 bytes，hash
+  依次为 `72e73f1e50d0eb5b1f9b195c83fbff5efb248e4979378abc3bf548a70407ddea`、
+  `5237900a70d339d06f26bb07f42cd117e87c3a5b0d7e64485e109a84db322f86`、
+  `189b11f305136cbf1f144ee9d9cbc1e1f1c3839d8845beeb4e498ebfaa448b91`；Semantic 三组均为
+  227 bytes，hash 依次为
+  `ecb6a7cfaf339831ba4c1a7583c2672a1719d10f92f150c1abb86b9d8658e067`、
+  `8c81c0404d1c85fce18c7e6fd10bbaee70815eddbe75413d24c7c51e8cbf234f`、
+  `bb28c7a4f217666b560d39a40dcbd86cf2f7307447e1c467b0dd7569e43dab75`。两层均固定 candidate
+  pairwise、wrapper/leaf structural 与 `8/4↔0/4`、`8/4↔8/0`、`8/4↔4/8` bytes/hash
+  non-alias controls。
+- Boundary：requirements 精确为单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与
+  `materializeResult` 均在 Plan dispatch 前返回 exact named rejection，因此无 Plan、OutputSet 或
+  artifact。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；在 clean detached `175e8a1b` 上运行 `just sbom`，self-test/generate/verify/closure 全绿；
+  `git diff --check` 通过。Syntax package pin 为 98459 bytes、SHA-256
+  `130b64a605dcec045a5e4933c099586040bc66a61656011b9a12f762f0a167d2`；两路 independent final
+  review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0076`。按冻结未重复完整
+  `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
+  requirement 与 support-rejection/no-artifact boundary；不包括 Option/Array/Field operations、任意
+  recursive grammar、runtime/ABI、target Option-dual-Array-Field support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；residual audit 的首选候选为 exact
+  `Option Option Array Bytes N M`，须先冻结完成包，禁止由 checkpoint 自动递增。
