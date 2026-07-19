@@ -1411,6 +1411,32 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `PF-EXPORT-002/003`、CLI/Loader selection、target、contained worker 或正式 `TST-SRC-006/007` closure，
   按冻结不重复完整 `just ci`。`PF-EXPORT-003` 的零候选分类仍由 CLI/Loader selection rule 拥有，
   不改变低层 `programPayloads` 对 empty normalized registry 返回 empty table 的语义。
+- D1-PA-85 的 alpha tests 只关闭 reconstructed `Source.Program.name` 与 export declaration 最后一个
+  portable Lean identifier component 的 exact binding。对 `declaration = Name.str prefix rawComponent`，
+  expected short name 必须是 `(Name.str .anonymous rawComponent).toString`；不得直接比较 raw component，
+  不得对 full declaration string 使用 dot split/substring/`endsWith`。这样 simple name 保持原文，同时
+  `program «hyphen-prog»` 与 `program «dot.prog»` 的 payload name 精确保留 Lean 4.31 guillemet rendering。
+  final declaration 不是 `Name.str` 时 fail closed。mismatch 固定为
+  `PF-EXPORT-001: exported program short name does not match declaration`，不得归类为 `PF-EXPORT-004`。
+  `programPayload` 的检查顺序固定为 registered → PA82 decode → PA84 FQN binding → short-name binding；
+  `programPayloads` 固定为全部 PA82 decode → PA83 cross-row scan → 对每 row 先 PA84 FQN binding、再
+  short-name binding。由此 invalid form 仍优先 `PF-EXPORT-004`，PA83 collision diagnostics 仍优先于
+  binding，qname+short-name 同时 lying 时仍先返回 PA84 exact message，任何失败均不得返回 partial table。
+  positive 必须同时覆盖 simple hand-aligned direct `Program.mk`、escaped program identifier with hyphen、
+  escaped program identifier containing dot，并由 single/table API 固定 declaration component rendering 与
+  payload name。negative 必须以 qname 已 exact 对齐、仅 name lying 的 isolated direct payload 分别覆盖
+  single/table exact message；另一 fixture 固定 PA82-invalid later row 的 `PF-EXPORT-004` priority。既有
+  PA83/PA84 suites 必须保持原 exact diagnostics，empty table 语义不变。
+  RED 只新增 ProgramShortName fixtures/suite 与 `Tests.lean`/`lakefile.lean` 最小注册，总新增 ≤180 行；
+  GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+  480，并刷新 `supply-chain/lean-package-files.v1.json`。focused suite、PA83/PA84 regression、aggregate
+  test build/binary、`git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录
+  development evidence，按冻结不重复完整 `just ci`。
+  本切片不实现 portable source-program wire 的 `moduleName`/`programIdentity` component carrier、
+  NodeId/origin、schema-v2 migration、`PF-EXPORT-002/003`、CLI/Loader selection、target/worker 或正式
+  `TST-SRC-006/007` closure。收口后 Lean attribute export/schema 代码路径的 pre-acceptance micro-seam
+  视为饱和；下一步只能冻结正式 evidence packaging 或书面选择其他依赖合法任务，禁止继续发明 identity
+  micro-check。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

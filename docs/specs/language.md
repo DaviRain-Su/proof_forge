@@ -1215,6 +1215,55 @@ CLI/Loader selection、target/materializer、frontend containment 或正式 `TST
 `PF-EXPORT-003` 的零候选分类由 `docs/specs/cli.md` selection rule 拥有；低层 `programPayloads` 的 empty
 registry query 继续返回 empty table，禁止在本切片跨层改义。
 
+D1-PA-85 冻结的 pre-acceptance alpha 子集只关闭 PA84 full-FQN binding 之后仍可由 hand-authored
+direct `Program.mk` 伪造的 payload short name。DSL elaborator 的 `Source.Program.name` 来自
+`program` identifier 的 `stx.getId.toString`；export declaration 的最后一个结构 component 则保存为
+`Name.str prefix rawComponent`。Lean 4.31 probe 证明 escaped program identifier 的两者不能用 raw
+component 直接比较：hyphen/dot 等 component 在 payload name 中由 `Name.toString` 加上 guillemets。
+
+因此 expected short name 只能按 declaration `Name` 结构计算：
+
+```text
+match declaration with
+| Name.str _ rawComponent => (Name.str Name.anonymous rawComponent).toString
+| _ => fail closed
+```
+
+随后要求 expected short name 与 `Source.Program.name` exact `String` equality。禁止对 full FQN 做
+`.` split、suffix/substring comparison，禁止 raw-component equality、casefold、NFC 重算或 wire component
+重编码。失败固定为 `PF-EXPORT-001: exported program short name does not match declaration`；它属于
+identity conflict，不得误归为 `PF-EXPORT-004` form/safety failure。
+
+两个既有 public API 都必须收紧且不新增 public API：
+
+1. `programPayload env name` 固定按 registered membership → PA82 closed decode → PA84 FQN binding →
+   PA85 rendered short-name binding 的顺序执行。
+2. `programPayloads env` 先完成全部 PA82 decode，再运行 PA83 cross-row identity scan；随后仍按 row
+   order 对每 row 先运行 PA84 FQN binding，再运行 PA85 rendered short-name binding。PA84 失败优先于
+   同 row 的 short-name failure，第一个 failing row 决定 diagnostic，完整成功后才返回 table。
+3. 非 `Name.str` final declaration fail closed；不得使用 panic-prone `Name.getString!` 或把 hygienic
+   `Name.num` 静默映射为 portable source name。empty registry 的 loops 仍为空操作并返回 empty table。
+
+tests-only RED 固定新增 isolated ProgramShortName fixtures 与单一
+`Tests.Language.ProgramShortNames` suite，并只修改 `Tests.lean`/`lakefile.lean` 注册，总新增不超过
+180 行。positive 必须固定 simple hand-aligned direct row、escaped program identifier with hyphen 与
+escaped program identifier containing dot，并通过 single/table API 比较 isolated-component rendering 与
+payload name。negative 必须以 qualifiedName 已通过 PA84、只有 short name lying 的 direct row 分别固定
+single/table exact diagnostic；priority fixture 同时含 lying short name 与 later PA82-invalid row，必须仍返回
+`PF-EXPORT-004`。PA83/PA84 existing suites 不得修改或降级。
+
+GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+480，并刷新 `supply-chain/lean-package-files.v1.json`。禁止修改 ProgramExport registry、Core Source、
+Syntax、Loader、CLI、Typed/Semantic 或 target。focused suite、PA83/PA84 regressions、aggregate test
+build/binary、`git diff --check`、单次 `just sbom` 与 independent review 全绿后只能记录 development
+evidence，按冻结不重复完整 `just ci`。
+
+本切片明确不实现 source-program wire 的 moduleName/programIdentity component carrier、NodeId/origin、
+schema-v2 evolution、`PF-EXPORT-002/003`、CLI/Loader selection、target/materializer、frontend containment
+或正式 `TST-SRC-006/007` closure。D1-PA-85 收口后，Lean attribute export/schema 代码侧
+pre-acceptance micro-seam 视为饱和；下一步只能另行冻结正式 `TST-SRC-006/007` evidence packaging，或按
+task authority 选择其他 dependency-safe 工作，不得继续从 checkpoint 自动生成 identity 微检查。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
