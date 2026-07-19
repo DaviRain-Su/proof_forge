@@ -27,6 +27,19 @@ schema/domain，不能在 v1 中宽松读取。
 当前 `ProofForgeV2.Core.Source` 是 alpha 子集，不是本规格的字段或 tag authority。完整 D1
 实现必须迁移到本规格；不得为了兼容 alpha 的内存 constructor 而改变 v1 wire。
 
+### 单轨 integration contract
+
+`ADR-0019` 提议的迁移方向是：ProgramV1 成为 parser、Loader、Lean command、persistent export、compiler
+入口与 wire decoder 的唯一 canonical source AST。产品入口必须按
+`parse → bounded decode → source-shape/declaration validation → validated source unit → Typed` 执行。
+不得同时构造 alpha Program 与 ProgramV1，不得以 parity validator、双向 adapter或第二份 hash维持
+双轨。Typed迁移期间唯一允许的 legacy seam 是 compiler-private、单向 ProgramV1→legacy lowering；
+它不得参与 validation、identity、canonical bytes、hash、export或diagnostic priority。
+
+validated source unit只携带`moduleName`、`programIdentity`与`ProgramV1`；canonical bytes/hash是派生值，
+不作为可分裂的第二份stored truth。诊断路径、absolute/project-relative path、span与NodeId仍明确排除。
+alpha `Source.Program.canonicalBytes/sourceHash`不得接收任何新语法、字段或身份行为。
+
 ## Source name carrier（Ident）
 
 Source wire 的 `Ident` 是 **raw Lean `Name.str` payload carrier**（`SourceNameComponentV1`），与
@@ -328,9 +341,12 @@ forward-compatible skip。malformed/noncanonical/unknown wire 使用 `PF-SRC-020
 `trailing-bytes`；资源上限使用 `PF-BOUND-001`。失败不得返回 partial Program、登记 environment
 extension、计算可用 sourceHash 或进入 D2。
 
-encoder 只能接受已通过同一 invariant validator 的 ProgramV1。`decode(encode(p)) = p` 且
-`encode(decode(bytes)) = bytes`；第二个等式意味着 decoder 必须拒绝任何可以被重新编码成不同
-bytes 的输入。
+raw `canonicalSourceAstBytesV1`只执行identity/name与codec-local structural invariants，因此可作为
+机械测试primitive编码declaration-set-invalid ProgramV1；它不是product publish/hash入口。
+`canonicalValidatedSourceAstBytesV1`只接受已由完整invariant validator产生的`ValidatedSourceV1`；
+binary decoder必须完成全部上述validation后才返回该类型。对validated values，
+`decode(encode(p)) = p`且`encode(decode(bytes)) = bytes`；第二个等式意味着decoder必须拒绝任何
+可以被重新编码成不同bytes的输入。
 
 ## SourceHash
 
@@ -346,19 +362,32 @@ defaults、array/option markers 和 AST values。它排除 schema 字符串、so
 token spelling、绝对/项目相对路径、span、line/column、NodeId、origin table、内存地址、hash-map
 iteration order 和非语义括号；operator precedence 形成的 AST 结构仍包含在内。
 
-以下 API 是唯一 production boundary：
+raw triple root encoder是mechanical codec primitive；它只固定identity/name/local codec validation，不代表
+declaration-set validated product source。validated envelope才是唯一production source-authority boundary：
 
 ```text
+ValidatedSourceV1 {
+  moduleName : SourceQualifiedNameV1,
+  programIdentity : SourceQualifiedNameV1,
+  program : ProgramV1
+}
+
+validateSourceV1(moduleName, programIdentity, program)
+  -> Except Diagnostic ValidatedSourceV1
+
 canonicalSourceAstBytesV1(
   moduleName : SourceQualifiedNameV1,
   programIdentity : SourceQualifiedNameV1,
   program : ProgramV1
 ) -> Except Diagnostic ByteArray
 
-decodeCanonicalSourceAstBytesV1(bytes)
-  -> Except Diagnostic (SourceQualifiedNameV1 × SourceQualifiedNameV1 × ProgramV1)
+canonicalValidatedSourceAstBytesV1(source : ValidatedSourceV1)
+  -> Except Diagnostic ByteArray
 
-sourceHashV1(moduleName, programIdentity, program)
+decodeCanonicalSourceAstBytesV1(bytes)
+  -> Except Diagnostic ValidatedSourceV1
+
+sourceHashV1(source : ValidatedSourceV1)
   -> Except Diagnostic Digest
 ```
 

@@ -2570,6 +2570,47 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   aggregate build/test binary、Python self-check、package refresh后最终单次`just sbom`、`just docs-check`、
   `git diff --check`与independent review；不运行完整`just ci`。结果只记录development evidence，不能关闭
   完整TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-108 是 `TASK-D1-01`/`TST-SRC-001` 的 validated ProgramV1 source-unit/sourceHash boundary
+  slice，也是`ADR-0019`单轨cutover的第一段代码基础。production API精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.ValidatedSourceV1
+  structure ValidatedSourceV1 where
+    private mk ::
+    moduleName : SourceQualifiedNameV1
+    programIdentity : SourceQualifiedNameV1
+    program : ProgramV1
+
+  validateSourceV1 (moduleName programIdentity : SourceQualifiedNameV1)
+    (program : ProgramV1) : Except String ValidatedSourceV1
+  canonicalValidatedSourceAstBytesV1
+    (source : ValidatedSourceV1) : Except String ByteArray
+  sourceHashV1 (source : ValidatedSourceV1) : Except String Digest
+  ```
+
+  `validateSourceV1`先调用既有`canonicalSourceAstBytesV1`，固定identity join→program name→codec-local
+  shape/child error priority，再调用`validateProgramDeclSetV1`，成功后才调用private constructor。
+  `canonicalValidatedSourceAstBytesV1`只接受validated unit并按其三个projection调用同一root codec；
+  `sourceHashV1`只接受validated unit，复用该canonical projection并精确计算
+  `domainSeparatedSha256 "pf.source.v1" bytes`，返回Common `Digest`。结构不存bytes/hash/cache，禁止把
+  validated unit与另一组raw triple的hash配对；NodeId仍独立。
+
+  Lean tests与不import Lean/ProofForge的standalone Python oracle必须共同固定：一个State→Entry valid
+  source unit的literal expected canonical bytes与literal `sha256:<64 lowercase hex>`，并核对返回unit三个
+  projections与inputs exact相等；module identity、program identity/name、cross-kind item order使用各自仍合法
+  的twins，canonical bytes与hash都必须不同；Common Digest 32-byte/render roundtrip。wrong prefix、wrong
+  program name、codec-local empty Block、zero entry/view、duplicate state五类exact negatives必须证明
+  `validateSourceV1`不返回unit；local-shape+set同时错误时codec-local优先。Python oracle不得只从runtime
+  bytes重新接受runtime hash，成功输出`reference_source_ast_canonical_root_v1: ok 4 1`。
+
+  变更文件集：新增`ProofForgeV2/Source/ValidatedSourceV1.lean`；只扩展
+  `Tests/Language/SourceAstCanonicalRootV1.lean`与
+  `scripts/reference_source_ast_canonical_root_v1.py`；再做`ProofForgeV2.lean`注册与机械manifest refresh。
+  production additions≤70、Lean additions≤130、Python additions≤90、registrations≤2、总authored≤292
+  （manifest不计）。明确排除parser/Syntax、Loader/CLI、ProgramExport/ProgramPayload、legacy adapter、
+  Typed/Semantic、full Program decoder、NodeId、stable Diagnostic与target。验证只运行focused+aggregate+
+  test binary、Python、package refresh后最终单次`just sbom`、`just docs-check`、`git diff --check`与
+  independent review；不运行完整`just ci`，不关闭formal TASK-D1-01。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

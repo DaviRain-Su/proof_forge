@@ -21,6 +21,11 @@ normative: true
 一个文件可声明多个 program；其 identity 是 Lean module namespace 加声明名组成的
 fully-qualified `Name`。名字采用 NFC，关键字 ASCII、大小写敏感。
 
+`ADR-0019` 当前提议完整D1 frontend只构造validated ProgramV1 source unit；本文后续标注为alpha或
+pre-acceptance的`Source.Program`、bucket order、quoted payload与sourceHash段落只记录历史实现边界，
+不得作为新source功能的落点。迁移期间禁止DSL decoder同时构造两个AST或运行两套declaration
+validator；ProgramV1→legacy仅可存在于compiler-private Typed lowering。
+
 ```lean
 program Counter where
   state count : UInt64
@@ -112,6 +117,11 @@ Literal       ::= "true" | "false" | IntegerLiteral | StringLiteral
 QualifiedId   ::= Ident "." Ident ("." Ident)*
 QualifiedName ::= Ident ("." Ident)+
 ```
+
+上述structured external-call spelling是cutover后的唯一production form。alpha
+`call StringLiteral`不进入ProgramV1 reader；迁移不得按`.`猜测拆分任意字符串、虚构component或丢弃
+arguments。旧alpha source只有在调用者显式提供string→QualifiedId mapping时才可由独立migration tool
+转换，歧义/缺失mapping使用`PF-MIGRATION-FAILED`且不修改原文件。
 
 `Primitive` 为 `Bool`、`UInt8/16/32/64/128/256`、`Int8/16/32/64/128/256`、
 `Principal`、`Unit`。数组长度、Bytes 长度和 loop bound 必须是 0..4096 的十进制常量。
@@ -2215,10 +2225,12 @@ module aggregate policy 仍由后续 D1/security 任务实现。
 
 ## SourceHash
 
-`canonicalSourceAstBytesV1` 只用于已经通过 declaration-shape validation 的
-`Source.ProgramV1`；它的 root、全部 constructor tag、`u16le` field count、ordered field、scalar/
-array/option encoding、default materialization、decoder unknown rejection 和 cross-implementation golden
-完全由 [`SPEC-SOURCE-WIRE-001`](source-program-wire.md) 定义。本文件不再维护第二份摘要编码表。
+raw `canonicalSourceAstBytesV1`只是identity/name与codec-local structural validation的机械primitive，
+可编码declaration-set-invalid ProgramV1但不得用于product hash/publish；product只消费完整validation产生的
+`ValidatedSourceV1`并调用`canonicalValidatedSourceAstBytesV1`。root、全部constructor tag、`u16le`
+field count、ordered field、scalar/array/option encoding、default materialization、decoder unknown rejection
+和cross-implementation golden完全由[`SPEC-SOURCE-WIRE-001`](source-program-wire.md)定义；本文不维护
+第二份摘要编码表。
 
 ```text
 sourceHash = SHA-256("pf.source.v1" || NUL || canonicalSourceAstBytesV1)
