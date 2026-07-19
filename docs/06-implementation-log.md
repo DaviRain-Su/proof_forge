@@ -4460,3 +4460,24 @@ normative: false
   后续演进继续按 change-control 治理。
 - Next：用户 BIOS SecureBoot → linux profile 重登记 → 真实 activation →
   D0-04 关闭治理件。
+
+## 2026-07-19 — v2-isolation 的 elan 工具链回退缺陷修复（R1）
+
+- Context：`scripts/test_v2_isolation.sh` 在 `cd "$runner_root"`（无 lean-toolchain
+  文件的临时目录）下调用裸 `lake`，elan 因此回退到其 default 工具链——此前
+  default=stable 恰为 4.31.0 与仓库 pin 一致所以一直"能跑"；Lean 4.32.0 发布后
+  stable 变为 4.32.0，隔离构建随即以错误版本编译（`isDefEq` heartbeat 超时 +
+  `Unknown identifier decodeStructFieldUnchecked`），`just ci` 在
+  PHASE-4/5 acceptance 提交后首次暴露。本机并行会话安装 4.32.0 只是触发条件，
+  缺陷本身是 harness 的隐性依赖。
+- Changed：`scripts/test_v2_isolation.sh` 在 candidate 解析后读取
+  `lean-toolchain`、按 `leanprover/lean4:vX.Y.Z` exact 校验并
+  `export ELAN_TOOLCHAIN`（elan 最高优先级，与 cwd 无关），使隔离构建/测试/
+  help 全部使用提交 pin。`verify_isolation.sh` 不受影响（使用锁定 cache 物化的
+  `PF_LEAN_ROOT/bin/lake` 精确二进制）。
+- Verification：修复后 `bash scripts/test_v2_isolation.sh` 以 4.31.0 完成
+  committed archive build/test/help（见下条 just ci 结果）；缺陷为 R1
+  实现缺口修复，不改变任何完成面或 Tests 集合。
+- Limitations：`lake --dir` 的其他裸调用点（若有）同样依赖 ELAN_TOOLCHAIN；
+  本修复覆盖该脚本全部调用点。justfile recipe 中的 lean 调用均在仓库根
+  （pin 生效）不受影响。

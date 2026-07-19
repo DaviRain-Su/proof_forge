@@ -24,6 +24,15 @@ fi
 
 candidate_commit="$(git -C "$source_root" rev-parse --verify 'HEAD^{commit}')" || \
   fail "cannot resolve the committed candidate"
+
+# Pin the Lean toolchain explicitly: `lake` below runs with cwd=$runner_root
+# (no lean-toolchain file), where elan would otherwise fall back to its
+# default toolchain instead of the committed pin.
+candidate_toolchain="$(/usr/bin/tr -d '[:space:]' < "$source_root/lean-toolchain")"
+[[ "$candidate_toolchain" =~ ^leanprover/lean4:v[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
+  fail "lean-toolchain is not an exact remote Lean release"
+export ELAN_TOOLCHAIN="$candidate_toolchain"
+
 temp_root="$(mktemp -d /tmp/proof-forge-v2-isolation.XXXXXX)"
 temp_root="$(CDPATH= cd -- "$temp_root" && pwd -P)"
 trap 'rm -rf "$temp_root"' EXIT HUP INT TERM
