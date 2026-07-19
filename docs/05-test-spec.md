@@ -1799,6 +1799,51 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Loader/ProgramPayload/target 改写。验证只运行 focused+aggregate build/test binary、Python self-check、package
   refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整
   `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-96 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 self-contained supporting-record slice。它只实现
+  `SPEC-SOURCE-WIRE-001` supporting table 中不依赖 Expr/Stmt/Pattern 的三个完整 tag，不定义残缺
+  `ProgramItem` sum 或 mutual spine。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSupportV1
+  structure ParamV1 where
+    visibility : AstV1.VisibilityV1
+    name : SourceNameComponentV1
+    type_ : AstV1.TypeV1
+    deriving DecidableEq, Repr
+  structure FieldDeclV1 where
+    name : SourceNameComponentV1
+    type_ : AstV1.TypeV1
+    deriving DecidableEq, Repr
+  structure EnumVariantV1 where
+    name : SourceNameComponentV1
+    payloadTypes : Array AstV1.TypeV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstSupportCodecV1
+  encodeParamV1 : ParamV1 → Except String ByteArray
+  encodeFieldDeclV1 : FieldDeclV1 → Except String ByteArray
+  encodeEnumVariantV1 : EnumVariantV1 → Except String ByteArray
+  ```
+
+  encoders 必须逐字组合：`Param`/3 fields = Visibility、raw Ident、Type；`FieldDecl`/2 = raw Ident、Type；
+  `EnumVariant`/2 = raw Ident、`encodeArray encodeTypeV1 payloadTypes`。不得调用 Common/render，不增加
+  supporting-record local identifier/array cap；typed Ident 复用 PA93，Type invariants/errors 原样由 PA95
+  child encoder 传播。EnumVariant payloadTypes **允许 empty**；`EnumDecl.variants` nonempty 是未来 declaration/
+  Program validator 规则，不得错误下沉。本切片所有 encoder 必须为 total `def`。
+  RED 与独立 Python必须持有 table-verbatim checked-in hex：Param 覆盖 Public/Private/Commitment、raw names、
+  Bool/Unit/UInt64 与 nested `Array(Option(Bytes 0),0)`；FieldDecl 覆盖 UInt256 与 Map(Bool,Unit)；
+  EnumVariant 覆盖 empty payload、Bool/Principal ordered pair 与 nested Option。负例精确复用 PA95 child errors：
+  Param/Field width 24、EnumVariant Bytes 4097；golden expected 不得由 production encoder 生成。Python 不 import
+  Lean/ProofForge，并保持 raw name Cc/closing-guillemet规则。
+  变更文件集：新增 `ProofForgeV2/Source/AstSupportV1.lean`、
+  `ProofForgeV2/Source/AstSupportCodecV1.lean`、`Tests/Language/SourceAstSupportV1.lean`、
+  `scripts/reference_source_ast_support_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械 manifest refresh。
+  budgets：model≤45、codec≤90、suite≤140、Python≤100、registrations≤8、总 authored additions≤390
+  （manifest 不计）。明确排除：Block/StmtMatchArm/ExprMatchArm/ExternalCallExpr、Pattern、Place/Expr/Stmt/Block
+  mutual spine、任何 partial ProgramItem/Program root、alpha Source/Syntax/Loader/projection、decoder、global validator、
+  sourceHash/NodeId/Common/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python self-check、
+  package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行
+  完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
