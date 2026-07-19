@@ -4607,3 +4607,49 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；先做 post-PA-75 residual audit 与 bounded arbitration，
   尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact Array nested Option Field spelling pre-acceptance slice
+
+- Commits：freeze `e1b26295`；arbitration rationale C0 correction `e8d9477a`；tests-only RED
+  `0ebf6555`；Syntax/GREEN、canonical binding 与 Lean package-file re-pin `d1b76abe`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-76 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-75 四路 residual
+  arbitration 按 fixed Field/single length、support-resolver early rejection 与现有唯一 migration anchor
+  选择 exact `Array Option Option Field bn254_fr N`，不是 checkpoint 自动递增；Bytes dual-length/Plan
+  fixture、PrimitiveAtom element/requirement 分支与其他 compound type继续 fail closed。
+- Changed：为既有 `Source/Semantic.ValueType.array (.option (.option .field)) length` 开放 exact
+  same-line spelling。新增 named type/aggregate-field parser；专用 decoder 复用 closed
+  `decodeArrayFieldValueTypeFromAtoms` 后只把 element 包两层 Option，两个专用 dispatch 均位于 generic
+  `arrayOptionOption` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 29 行新增/0 行移除。
+- RED/Migration：只迁移既有 `Array Option Option Field bn254_fr 4` negative 一条；RED 单文件
+  `ArrayTypes.lean` 为 271 additions/1 removal，6 个 golden 保持 UNBOUND。审查发现四个缺 outer length
+  compound 被误放 unsupported 组，提交前删除；带 outer length 的既有 controls 已完整覆盖冻结边界。
+  focused RED 最终只在两处 missing grammar 报错，并有两处 fixture cascade。
+- Coverage：覆盖 length `0/4/4096`、state/struct/enum/const/init/entry/view/fn/event/error 与双入口 parity；
+  incomplete/Field-id/length/unknown/bare compound 与 parser-only seam/constructor/full compound channels
+  全部按冻结通过。requirements 精确为单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与
+  `materializeResult` 均在 Plan dispatch 前返回 exact named rejection，因此无 Plan、OutputSet 或 artifact。
+- Canonical：tag 固定 `18→16→16→2→length`。两路相互独立的 `/tmp` Lean probe 得到相同结果：
+  Source length `0/4/4096` 均为 251 bytes，hash 依次为
+  `908528b873654efaf9dd45b6223fb646ea47fc773844541d0ef46956a24d8ca4`、
+  `de7bdfa60b9ba9599b1a52cede5552f3733d7333dfcc0b65f7caa9c2fde2e457`、
+  `f7e01b5656e2cc833e72fb4a2ab8095e80a968b1573b2cdac50d6a8fa19f17b2`；Semantic 三组
+  均为 201 bytes，hash 依次为
+  `30be1cfa0c542a100b25b9bd43efc5d29be152b88b7a7b02f186f64567694b7b`、
+  `58e6e067f5a77d667aab1dbefb8188fa3448a97455f24a014bcab4b8f42895fb`、
+  `84685c8432ef274b8ab3a7243369a861c549c0278edd8b87d53c68f8924f8af3`；三组 length
+  pairwise non-alias，`N=4` 对 wrapper depth/order、Field leaf 与 Array presence controls 也
+  bytes/hash non-alias。
+- Verification：`lake build Tests.Language.ArrayTypes` 23 jobs；`lake build proof_forge_next_tests`
+  192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom`
+  （self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package pin 为 94722 bytes、
+  SHA-256 `4fd12db3b200e3f3fa526b355ac4790138b5100f3fbe46598623467ac8dcc061`；Grok
+  implementation audit P0/P1=0，independent final review P0/P1/P2=0；development evidence 为
+  `EV-20260719-0074`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
+  requirement 与 support-rejection/no-artifact boundary；不包括 Field/Array/Option operations、任意
+  recursive grammar、runtime/ABI、target Array-Option-Option-Field support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；先做 post-PA-76 residual audit 与 bounded arbitration，
+  尚未冻结下一 slice，禁止由 checkpoint 自动递增。
