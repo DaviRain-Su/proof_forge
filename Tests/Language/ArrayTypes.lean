@@ -210,6 +210,67 @@ program ArrayOptionOptionParamBoundary where
   entry echo(value : Array Option Option UInt64 4) : UInt64 do
     return 0
 
+
+program ArrayOptionBytesSurface where
+  state maybeBlobs : Array Option Bytes 8 4
+
+  event ArrayOptionBytesEvent(payload : Array Option Bytes 8 4)
+  error ArrayOptionBytesError(payload : Array Option Bytes 8 4)
+
+  struct OptionalBlobLimits where
+    empty : Array Option Bytes 0 0
+    ordinary : Array Option Bytes 8 4
+    maximum : Array Option Bytes 4096 1
+
+  enum OptionalBlobBatch where
+    | MaybeBlobs(Array Option Bytes 8 4)
+    | MaybeMaximum(Array Option Bytes 4096 1)
+
+  const EmptyOptionalBlobs : Array Option Bytes 0 0 := 0
+
+  init(initial : Array Option Bytes 8 4) do
+    maybeBlobs := initial
+
+  entry echo(value : Array Option Bytes 8 4) : Array Option Bytes 8 4 do
+    return value
+
+  view get() : Array Option Bytes 8 4 do
+    return maybeBlobs
+
+  fn keepMaximum(value : Array Option Bytes 4096 1) : Array Option Bytes 4096 1 do
+    return value
+
+program ArrayOptionBytesBoundary where
+  entry echo(value : Array Option Bytes 8 4) : Array Option Bytes 8 4 do
+    return value
+
+program ArrayOptionBytesStateBoundary where
+  state value : Array Option Bytes 8 4
+
+  init(initial : Array Option Bytes 8 4) do
+    value := initial
+
+  view get() : Array Option Bytes 8 4 do
+    return value
+
+program ArrayOptionBytesResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array Option Bytes 8 4) : Array Option Bytes 8 4 do
+    return value
+
+program ArrayOptionBytesParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Array Option Bytes 8 4) : UInt64 do
+    return 0
+
 program ArrayFieldSurface where
   state scalars : Array Field bn254_fr 4
 
@@ -491,6 +552,33 @@ private def arrayFieldSurfaceSource : String :=
   "  view get() : Array Field bn254_fr 4 do\n" ++
   "    return scalars\n\n" ++
   "  fn keepMaximum(value : Array Field bn254_fr 4096) : Array Field bn254_fr 4096 do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.ArrayTypesFixture\n"
+
+
+private def arrayOptionBytesSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.ArrayTypesFixture\n\n" ++
+  "program ArrayOptionBytesSurface where\n" ++
+  "  state maybeBlobs : Array Option Bytes 8 4\n\n" ++
+  "  event ArrayOptionBytesEvent(payload : Array Option Bytes 8 4)\n" ++
+  "  error ArrayOptionBytesError(payload : Array Option Bytes 8 4)\n\n" ++
+  "  struct OptionalBlobLimits where\n" ++
+  "    empty : Array Option Bytes 0 0\n" ++
+  "    ordinary : Array Option Bytes 8 4\n" ++
+  "    maximum : Array Option Bytes 4096 1\n\n" ++
+  "  enum OptionalBlobBatch where\n" ++
+  "    | MaybeBlobs(Array Option Bytes 8 4)\n" ++
+  "    | MaybeMaximum(Array Option Bytes 4096 1)\n\n" ++
+  "  const EmptyOptionalBlobs : Array Option Bytes 0 0 := 0\n\n" ++
+  "  init(initial : Array Option Bytes 8 4) do\n" ++
+  "    maybeBlobs := initial\n\n" ++
+  "  entry echo(value : Array Option Bytes 8 4) : Array Option Bytes 8 4 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Array Option Bytes 8 4 do\n" ++
+  "    return maybeBlobs\n\n" ++
+  "  fn keepMaximum(value : Array Option Bytes 4096 1) : Array Option Bytes 4096 1 do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.ArrayTypesFixture\n"
 
@@ -879,6 +967,69 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same Array Bytes sourceHash"
   | .error error => throw <| IO.userError error.render
 
+
+  let arrayOptionBytesSurface := Tests.Language.ArrayTypesFixture.ArrayOptionBytesSurface
+  expect (arrayOptionBytesSurface.state.map (·.type) ==
+      #[.array (.option (.bytes 8)) 4])
+    "Array Option Bytes 8 4 state must survive Lean command elaboration"
+  match arrayOptionBytesSurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "ArrayOptionBytesEvent" &&
+          eventDecl.params.map (·.type) == #[.array (.option (.bytes 8)) 4])
+        "Array Option Bytes event parameter must preserve Option/Bytes tags and dual lengths"
+  | _ => throw <| IO.userError "ArrayOptionBytesSurface must retain ArrayOptionBytesEvent"
+  match arrayOptionBytesSurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "ArrayOptionBytesError" &&
+          errorDecl.params.map (·.type) == #[.array (.option (.bytes 8)) 4])
+        "Array Option Bytes error parameter must preserve Option/Bytes tags and dual lengths"
+  | _ => throw <| IO.userError "ArrayOptionBytesSurface must retain ArrayOptionBytesError"
+  match arrayOptionBytesSurface.structs with
+  | #[limits] =>
+      expect (limits.name == "OptionalBlobLimits" &&
+          limits.fields.map (·.type) ==
+            #[.array (.option (.bytes 0)) 0, .array (.option (.bytes 8)) 4,
+              .array (.option (.bytes 4096)) 1])
+        "Array Option Bytes struct fields must preserve dual lengths 0/0, 8/4, 4096/1"
+  | _ => throw <| IO.userError "ArrayOptionBytesSurface must retain one struct"
+  match arrayOptionBytesSurface.enums with
+  | #[batch] =>
+      expect (batch.name == "OptionalBlobBatch" && batch.variants.map (·.payloadTypes) ==
+          #[#[.array (.option (.bytes 8)) 4], #[.array (.option (.bytes 4096)) 1]])
+        "Array Option Bytes enum payloads must preserve dual length matrix"
+  | _ => throw <| IO.userError "ArrayOptionBytesSurface must retain one enum"
+  match arrayOptionBytesSurface.consts with
+  | #[emptyConst] =>
+      expect (emptyConst.name == "EmptyOptionalBlobs" &&
+          emptyConst.type == .array (.option (.bytes 0)) 0)
+        "Array Option Bytes 0 0 const type must survive elaboration"
+  | _ => throw <| IO.userError "ArrayOptionBytesSurface must retain EmptyOptionalBlobs"
+  match arrayOptionBytesSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.array (.option (.bytes 8)) 4])
+        "Array Option Bytes initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "ArrayOptionBytesSurface must retain initializer"
+  match arrayOptionBytesSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.array (.option (.bytes 8)) 4] &&
+          echoEntry.result == .array (.option (.bytes 8)) 4 &&
+          getView.result == .array (.option (.bytes 8)) 4 && getView.mode == .view)
+        "Array Option Bytes entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "ArrayOptionBytesSurface must retain echo and get"
+  match arrayOptionBytesSurface.functions with
+  | #[keepMaximum] =>
+      expect (keepMaximum.params.map (·.type) == #[.array (.option (.bytes 4096)) 1] &&
+          keepMaximum.result == .array (.option (.bytes 4096)) 1)
+        "Array Option Bytes 4096 1 fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "ArrayOptionBytesSurface must retain keepMaximum"
+  match ← session.selectProgram arrayOptionBytesSurfaceSource "<array-option-bytes-types>" none with
+  | .ok decoded =>
+      expect (decoded == arrayOptionBytesSurface)
+        "Loader and Lean command must produce the same Array Option Bytes Source.Program"
+      expect (decoded.sourceHash == arrayOptionBytesSurface.sourceHash)
+        "Loader and Lean command must produce the same Array Option Bytes sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let arrayArraySurface := Tests.Language.ArrayTypesFixture.ArrayArraySurface
   expect (arrayArraySurface.state.map (·.type) == #[.array (.array .u64 4) 4])
     "Array Array UInt64 4 4 state must survive Lean command elaboration"
@@ -1193,6 +1344,92 @@ unsafe def run : IO Unit := do
         s!"{label} semantic: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
   expect goldensBound "Array Bytes tag18+tag17 canonical goldens must be bound"
 
+
+  let arrayOptionBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Option Bytes 0 0", .array (.option (.bytes 0)) 0, 0, "UNBOUND"),
+    ("Array Option Bytes 8 4", .array (.option (.bytes 8)) 4, 0, "UNBOUND"),
+    ("Array Option Bytes 4096 1", .array (.option (.bytes 4096)) 1, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayOptionBytesSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag18+tag16+tag17 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  let sourceCanon (type : Source.ValueType) : ByteArray × String :=
+    ((twin type).canonicalBytes, (twin type).sourceHash)
+  let sourceDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+    let leftPair := sourceCanon left
+    let rightPair := sourceCanon right
+    expect (leftPair.1 != rightPair.1 && leftPair.2 != rightPair.2) message
+  let aob00 : Source.ValueType := .array (.option (.bytes 0)) 0
+  let aob84 : Source.ValueType := .array (.option (.bytes 8)) 4
+  let aobMax : Source.ValueType := .array (.option (.bytes 4096)) 1
+  let aob04 : Source.ValueType := .array (.option (.bytes 0)) 4
+  let aob80 : Source.ValueType := .array (.option (.bytes 8)) 0
+  let aob48 : Source.ValueType := .array (.option (.bytes 4)) 8
+  sourceDistinct aob84 (.array (.bytes 8) 4)
+    "Array Option Bytes 8 4 Source must non-alias Array Bytes 8 4 (size+hash)"
+  sourceDistinct aob84 (.option (.array (.bytes 8) 4))
+    "Array Option Bytes 8 4 Source must non-alias Option Array Bytes 8 4 (size+hash)"
+  sourceDistinct aob84 (.array (.option .u64) 4)
+    "Array Option Bytes 8 4 Source must non-alias Array Option UInt64 4 (size+hash)"
+  sourceDistinct aob84 (.option (.bytes 8))
+    "Array Option Bytes 8 4 Source must non-alias Option Bytes 8 (size+hash)"
+  sourceDistinct aob00 aob84
+    "Array Option Bytes candidates 0/0 vs 8/4 Source must non-alias (size+hash)"
+  sourceDistinct aob84 aobMax
+    "Array Option Bytes candidates 8/4 vs 4096/1 Source must non-alias (size+hash)"
+  sourceDistinct aob00 aobMax
+    "Array Option Bytes candidates 0/0 vs 4096/1 Source must non-alias (size+hash)"
+  sourceDistinct aob84 aob04
+    "Array Option Bytes one-axis inner 8/4 vs 0/4 Source must non-alias (size+hash)"
+  sourceDistinct aob84 aob80
+    "Array Option Bytes one-axis outer 8/4 vs 8/0 Source must non-alias (size+hash)"
+  sourceDistinct aob84 aob48
+    "Array Option Bytes dual-length order 8/4 vs 4/8 Source must non-alias (size+hash)"
+
+  let arrayOptionBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Array Option Bytes 0 0", .array (.option (.bytes 0)) 0, 0, "UNBOUND"),
+    ("Array Option Bytes 8 4", .array (.option (.bytes 8)) 4, 0, "UNBOUND"),
+    ("Array Option Bytes 4096 1", .array (.option (.bytes 4096)) 1, 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in arrayOptionBytesSemanticVectors do
+    let compiled ← match Compiler.compile (twin type) with
+      | .ok value => pure value
+      | .error error =>
+          throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (compiled.canonicalBytes.size == expectedSize && compiled.semanticHash == expectedHash)
+      s!"{label} semantic tag18+tag16+tag17 golden is unbound: size={compiled.canonicalBytes.size}, hash={compiled.semanticHash}"
+  let semanticCanon (type : Source.ValueType) : IO (ByteArray × String) := do
+    match Compiler.compile (twin type) with
+    | .ok value => pure (value.canonicalBytes, value.semanticHash)
+    | .error error =>
+        throw <| IO.userError s!"semantic non-alias twin must compile: {error.render}"
+  let semanticDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+    let (leftBytes, leftHash) ← semanticCanon left
+    let (rightBytes, rightHash) ← semanticCanon right
+    expect (leftBytes != rightBytes && leftHash != rightHash) message
+  semanticDistinct aob84 (.array (.bytes 8) 4)
+    "Array Option Bytes 8 4 Semantic must non-alias Array Bytes 8 4 (size+hash)"
+  semanticDistinct aob84 (.option (.array (.bytes 8) 4))
+    "Array Option Bytes 8 4 Semantic must non-alias Option Array Bytes 8 4 (size+hash)"
+  semanticDistinct aob84 (.array (.option .u64) 4)
+    "Array Option Bytes 8 4 Semantic must non-alias Array Option UInt64 4 (size+hash)"
+  semanticDistinct aob84 (.option (.bytes 8))
+    "Array Option Bytes 8 4 Semantic must non-alias Option Bytes 8 (size+hash)"
+  semanticDistinct aob00 aob84
+    "Array Option Bytes candidates 0/0 vs 8/4 Semantic must non-alias (size+hash)"
+  semanticDistinct aob84 aobMax
+    "Array Option Bytes candidates 8/4 vs 4096/1 Semantic must non-alias (size+hash)"
+  semanticDistinct aob00 aobMax
+    "Array Option Bytes candidates 0/0 vs 4096/1 Semantic must non-alias (size+hash)"
+  semanticDistinct aob84 aob04
+    "Array Option Bytes one-axis inner 8/4 vs 0/4 Semantic must non-alias (size+hash)"
+  semanticDistinct aob84 aob80
+    "Array Option Bytes one-axis outer 8/4 vs 8/0 Semantic must non-alias (size+hash)"
+  semanticDistinct aob84 aob48
+    "Array Option Bytes dual-length order 8/4 vs 4/8 Semantic must non-alias (size+hash)"
+
   let arrayArraySourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Array Array UInt64 0 0", .array (.array .u64 0) 0, 265, "82bebef7609b3dd4588252e737f8f12e813f43b0d811c607f7ec9b5725d2d1ca"),
     ("Array Array UInt64 4 4", .array (.array .u64 4) 4, 265, "ca15c383708945969f97236fae7778a1a67f7239e898136904b94782d1d17e6b"),
@@ -1278,6 +1515,15 @@ unsafe def run : IO Unit := do
       ("leading-zero Array Option Option length", "Array Option Option Bool 01"),
       ("hex Array Option Option length", "Array Option Option Bool 0x10"),
       ("underscore Array Option Option length", "Array Option Option Bool 4_096"),
+      ("over-bound Array Option Bytes inner length", "Array Option Bytes 4097 4"),
+      ("leading-zero Array Option Bytes inner length", "Array Option Bytes 01 4"),
+      ("hex Array Option Bytes inner length", "Array Option Bytes 0x10 4"),
+      ("underscore Array Option Bytes inner length", "Array Option Bytes 4_096 4"),
+      ("over-bound Array Option Bytes outer length", "Array Option Bytes 8 4097"),
+      ("leading-zero Array Option Bytes outer length", "Array Option Bytes 8 01"),
+      ("hex Array Option Bytes outer length", "Array Option Bytes 8 0x10"),
+      ("underscore Array Option Bytes outer length", "Array Option Bytes 8 4_096"),
+      ("missing Array Option Bytes outer length", "Array Option Bytes 8"),
       ("Array element", "Array Array 4"),
       ("unknown Array Array element", "Array Array Mystery 4 4"),
       ("Field Array Array element", "Array Array Field 4 4"),
@@ -1321,6 +1567,18 @@ unsafe def run : IO Unit := do
   | .error error =>
       throw <| IO.userError s!"migrated Array Option Option Bool 4 must parse: {error.render}"
 
+
+  let migratedArrayOptionBytesSource :=
+    negativeSource "MigratedArrayOptionBytes" "Array Option Bytes 8 4"
+  match ← session.parsePrograms migratedArrayOptionBytesSource "<migrated-array-option-bytes>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) == #[.array (.option (.bytes 8)) 4])
+        "migrated Array Option Bytes 8 4 pin must now parse as existing array(option(bytes(8)),4)"
+  | .ok programs =>
+      throw <| IO.userError s!"migrated Array Option Bytes 8 4 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError s!"migrated Array Option Bytes 8 4 must parse: {error.render}"
+
   for (label, spelling) in [
       ("negative Array length", "Array UInt64 -1"),
       ("extra Array payload", "Array UInt64 4 Principal"),
@@ -1342,9 +1600,22 @@ unsafe def run : IO Unit := do
       ("qualified Array Bytes constructor", "Std.Array Bytes 32 4"),
       ("escaped Bytes constructor in Array", "Array «Bytes» 32 4"),
       ("qualified Bytes constructor in Array", "Array Std.Bytes 32 4"),
-      ("nested Bytes Array Option element", "Array Option Bytes 8 4"),
       ("nested Array Array Option element", "Array Option Array UInt64 4 4"),
       ("Map Array Option element", "Array Option Map UInt64 Bool 4"),
+      ("missing Array Option Bytes lengths", "Array Option Bytes"),
+      ("negative Array Option Bytes inner length", "Array Option Bytes -1 4"),
+      ("negative Array Option Bytes outer length", "Array Option Bytes 8 -1"),
+      ("extra Array Option Bytes payload", "Array Option Bytes 8 4 Principal"),
+      ("split Array Option Bytes inner length", "Array Option Bytes\n  8 4"),
+      ("split Array Option Bytes outer length", "Array Option Bytes 8\n  4"),
+      ("split Array Option Bytes option", "Array Option\n  Bytes 8 4"),
+      ("split Array Option Bytes array", "Array\n  Option Bytes 8 4"),
+      ("escaped Array Option Bytes constructor", "«Array» Option Bytes 8 4"),
+      ("qualified Array Option Bytes constructor", "Std.Array Option Bytes 8 4"),
+      ("escaped Option in Array Option Bytes", "Array «Option» Bytes 8 4"),
+      ("qualified Option in Array Option Bytes", "Array Std.Option Bytes 8 4"),
+      ("escaped Bytes in Array Option Bytes", "Array Option «Bytes» 8 4"),
+      ("qualified Bytes in Array Option Bytes", "Array Option Std.Bytes 8 4"),
       ("missing Array Option Option length", "Array Option Option Bool"),
       ("negative Array Option Option length", "Array Option Option Bool -1"),
       ("extra Array Option Option payload", "Array Option Option Bool 4 Principal"),
@@ -1542,6 +1813,21 @@ unsafe def run : IO Unit := do
         throw <| IO.userError
           s!"{target} must support zero-requirement Array Bytes carrier: {error.render}"
 
+
+  let arrayOptionBytesBoundary ← match Compiler.compile
+      Tests.Language.ArrayTypesFixture.ArrayOptionBytesBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"ArrayOptionBytesBoundary must compile: {error.render}"
+  expect (arrayOptionBytesBoundary.requirements == #[])
+    "Array Option Bytes must recursively propagate zero requirements"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target arrayOptionBytesBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError
+          s!"{target} must support zero-requirement Array Option Bytes carrier: {error.render}"
+
   let arrayArrayBoundary ← match Compiler.compile
       Tests.Language.ArrayTypesFixture.ArrayArrayBoundary with
     | .ok value => pure value
@@ -1610,6 +1896,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("ArrayBytesParamBoundary",
         Tests.Language.ArrayTypesFixture.ArrayBytesParamBoundary,
+        "is not UInt64"),
+      ("ArrayOptionBytesStateBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayOptionBytesStateBoundary,
+        "is not UInt64"),
+      ("ArrayOptionBytesResultBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayOptionBytesResultBoundary,
+        "does not return UInt64"),
+      ("ArrayOptionBytesParamBoundary",
+        Tests.Language.ArrayTypesFixture.ArrayOptionBytesParamBoundary,
         "is not UInt64"),
       ("ArrayArrayStateBoundary",
         Tests.Language.ArrayTypesFixture.ArrayArrayStateBoundary,
