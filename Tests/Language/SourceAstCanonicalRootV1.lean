@@ -164,6 +164,8 @@ def run : IO Unit := do
   expect (rendered ==
     "sha256:bdad32dda5c3aa2862acc50855a7908a96745b493e58e6b06ecce1d31cdc6ec9")
     s!"source hash: got {rendered}"
+  let parsedHash ← lift "parse source hash" (parseDigest rendered)
+  expect (parsedHash == validHash) "source hash digest roundtrip"
 
   let modA ← qn #["A"]
   let idADemo ← qn #["A", "Demo"]
