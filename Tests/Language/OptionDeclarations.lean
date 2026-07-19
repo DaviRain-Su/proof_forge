@@ -573,6 +573,36 @@ program TripleOptionParamBoundary where
   entry echo(value : Option Option Option UInt64) : UInt64 do
     return 0
 
+program TripleOptionFieldSurface where
+  state tripleScalar : Option Option Option Field bn254_fr
+
+  event TripleOptionFieldEvent(payload : Option Option Option Field bn254_fr)
+  error TripleOptionFieldError(payload : Option Option Option Field bn254_fr)
+
+  struct TripleOptionFieldBox where
+    value : Option Option Option Field bn254_fr
+
+  enum TripleOptionFieldTag where
+    | MaybeTripleScalar(Option Option Option Field bn254_fr)
+
+  const TripleOptionFieldSeed : Option Option Option Field bn254_fr := 0
+
+  init(initial : Option Option Option Field bn254_fr) do
+    tripleScalar := initial
+
+  entry echo(value : Option Option Option Field bn254_fr) : Option Option Option Field bn254_fr do
+    return value
+
+  view get() : Option Option Option Field bn254_fr do
+    return tripleScalar
+
+  fn ident(value : Option Option Option Field bn254_fr) : Option Option Option Field bn254_fr do
+    return value
+
+program TripleOptionFieldBoundary where
+  entry echo(value : Option Option Option Field bn254_fr) : Option Option Option Field bn254_fr do
+    return value
+
 end Tests.Language.OptionDeclarationsFixture
 
 namespace Tests.Language.OptionDeclarationsFixture
@@ -795,6 +825,29 @@ private def nestedOptionFieldSurfaceSource : String :=
   "  view get() : Option Option Field bn254_fr do\n" ++
   "    return nestedScalar\n\n" ++
   "  fn ident(value : Option Option Field bn254_fr) : Option Option Field bn254_fr do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.OptionDeclarationsFixture\n"
+
+private def tripleOptionFieldSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.OptionDeclarationsFixture\n\n" ++
+  "program TripleOptionFieldSurface where\n" ++
+  "  state tripleScalar : Option Option Option Field bn254_fr\n\n" ++
+  "  event TripleOptionFieldEvent(payload : Option Option Option Field bn254_fr)\n" ++
+  "  error TripleOptionFieldError(payload : Option Option Option Field bn254_fr)\n\n" ++
+  "  struct TripleOptionFieldBox where\n" ++
+  "    value : Option Option Option Field bn254_fr\n\n" ++
+  "  enum TripleOptionFieldTag where\n" ++
+  "    | MaybeTripleScalar(Option Option Option Field bn254_fr)\n\n" ++
+  "  const TripleOptionFieldSeed : Option Option Option Field bn254_fr := 0\n\n" ++
+  "  init(initial : Option Option Option Field bn254_fr) do\n" ++
+  "    tripleScalar := initial\n\n" ++
+  "  entry echo(value : Option Option Option Field bn254_fr) : Option Option Option Field bn254_fr do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Option Option Option Field bn254_fr do\n" ++
+  "    return tripleScalar\n\n" ++
+  "  fn ident(value : Option Option Option Field bn254_fr) : Option Option Option Field bn254_fr do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
 
@@ -1594,6 +1647,69 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same Option Option Option sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let tripleOptionFieldSurface :=
+    Tests.Language.OptionDeclarationsFixture.TripleOptionFieldSurface
+  expect (tripleOptionFieldSurface.state.map (·.type) ==
+      #[.option (.option (.option .field))])
+    "Option Option Option Field bn254_fr state must survive Lean command elaboration"
+  match tripleOptionFieldSurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "TripleOptionFieldEvent" &&
+          eventDecl.params.map (·.type) == #[.option (.option (.option .field))])
+        "Option Option Option Field event parameter must preserve three Option tags and Field"
+  | _ => throw <| IO.userError "TripleOptionFieldSurface must retain TripleOptionFieldEvent"
+  match tripleOptionFieldSurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "TripleOptionFieldError" &&
+          errorDecl.params.map (·.type) == #[.option (.option (.option .field))])
+        "Option Option Option Field error parameter must preserve three Option tags and Field"
+  | _ => throw <| IO.userError "TripleOptionFieldSurface must retain TripleOptionFieldError"
+  match tripleOptionFieldSurface.structs with
+  | #[box] =>
+      expect (box.name == "TripleOptionFieldBox" &&
+          box.fields.map (·.type) == #[.option (.option (.option .field))])
+        "Option Option Option Field struct field must preserve three Option tags and Field"
+  | _ => throw <| IO.userError "TripleOptionFieldSurface must retain one struct"
+  match tripleOptionFieldSurface.enums with
+  | #[tag] =>
+      expect (tag.name == "TripleOptionFieldTag" &&
+          tag.variants.map (·.payloadTypes) ==
+            #[#[.option (.option (.option .field))]])
+        "Option Option Option Field enum payload must preserve three Option tags and Field"
+  | _ => throw <| IO.userError "TripleOptionFieldSurface must retain one enum"
+  match tripleOptionFieldSurface.consts with
+  | #[seed] =>
+      expect (seed.name == "TripleOptionFieldSeed" &&
+          seed.type == .option (.option (.option .field)))
+        "Option Option Option Field const type must survive elaboration"
+  | _ => throw <| IO.userError "TripleOptionFieldSurface must retain TripleOptionFieldSeed"
+  match tripleOptionFieldSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.option (.option (.option .field))])
+        "Option Option Option Field initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "TripleOptionFieldSurface must retain initializer"
+  match tripleOptionFieldSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option (.option .field))] &&
+          echoEntry.result == .option (.option (.option .field)) &&
+          getView.result == .option (.option (.option .field)) && getView.mode == .view)
+        "Option Option Option Field entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "TripleOptionFieldSurface must retain echo and get"
+  match tripleOptionFieldSurface.functions with
+  | #[identFn] =>
+      expect (identFn.params.map (·.type) == #[.option (.option (.option .field))] &&
+          identFn.result == .option (.option (.option .field)))
+        "Option Option Option Field fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "TripleOptionFieldSurface must retain ident"
+  match ← session.selectProgram tripleOptionFieldSurfaceSource
+      "<triple-option-field>" none with
+  | .ok decoded =>
+      expect (decoded == tripleOptionFieldSurface)
+        "Loader and Lean command must produce the same triple Option Field Source.Program"
+      expect (decoded.sourceHash == tripleOptionFieldSurface.sourceHash)
+        "Loader and Lean command must produce the same triple Option Field sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let optionArrayElements : Array (String × Source.ValueType) := #[
     ("Bool", .bool),
     ("UInt8", .u8), ("UInt16", .u16), ("UInt32", .u32), ("UInt64", .u64),
@@ -1713,6 +1829,56 @@ unsafe def run : IO Unit := do
       nestedFieldSemantic.semanticHash ==
         "6f639e0d5025222f9c65f88ed9d56808b0ff8c8f019f0c7f885cdf2ad7332db3")
     s!"Option Option Field semantic tag16+tag16+tag2 golden is unbound: size={nestedFieldSemantic.canonicalBytes.size}, hash={nestedFieldSemantic.semanticHash}"
+
+  let tripleFieldType : Source.ValueType := .option (.option (.option .field))
+  let tripleFieldSource := twin tripleFieldType
+  expect (tripleFieldSource.canonicalBytes.size == 0 &&
+      tripleFieldSource.sourceHash == "UNBOUND")
+    s!"Option Option Option Field source tag16+tag16+tag16+tag2 golden is unbound: size={tripleFieldSource.canonicalBytes.size}, hash={tripleFieldSource.sourceHash}"
+  let tripleFieldSourceCanon (type : Source.ValueType) : ByteArray × String :=
+    ((twin type).canonicalBytes, (twin type).sourceHash)
+  let tripleFieldSourceDistinct (other : Source.ValueType) (message : String) : IO Unit := do
+    let left := tripleFieldSourceCanon tripleFieldType
+    let right := tripleFieldSourceCanon other
+    expect (left.1 != right.1 && left.2 != right.2) message
+  tripleFieldSourceDistinct .field
+    "Option Option Option Field Source must non-alias bare Field (bytes+hash)"
+  tripleFieldSourceDistinct (.option .field)
+    "Option Option Option Field Source must non-alias Option Field (bytes+hash)"
+  tripleFieldSourceDistinct (.option (.option .field))
+    "Option Option Option Field Source must non-alias Option Option Field (bytes+hash)"
+  tripleFieldSourceDistinct (.option (.option (.option .u64)))
+    "Option Option Option Field Source must non-alias triple Option UInt64 (bytes+hash)"
+  tripleFieldSourceDistinct (.option (.option (.option .bool)))
+    "Option Option Option Field Source must non-alias triple Option Bool (bytes+hash)"
+  let tripleFieldSemantic ← match Compiler.compile tripleFieldSource with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError
+          s!"Option Option Option Field semantic twin must compile: {error.render}"
+  expect (tripleFieldSemantic.canonicalBytes.size == 0 &&
+      tripleFieldSemantic.semanticHash == "UNBOUND")
+    s!"Option Option Option Field semantic tag16+tag16+tag16+tag2 golden is unbound: size={tripleFieldSemantic.canonicalBytes.size}, hash={tripleFieldSemantic.semanticHash}"
+  let tripleFieldSemanticCanon (type : Source.ValueType) : IO (ByteArray × String) := do
+    match Compiler.compile (twin type) with
+    | .ok value => pure (value.canonicalBytes, value.semanticHash)
+    | .error error =>
+        throw <| IO.userError
+          s!"triple Option Field semantic non-alias twin must compile: {error.render}"
+  let tripleFieldSemanticDistinct (other : Source.ValueType) (message : String) : IO Unit := do
+    let left ← tripleFieldSemanticCanon tripleFieldType
+    let right ← tripleFieldSemanticCanon other
+    expect (left.1 != right.1 && left.2 != right.2) message
+  tripleFieldSemanticDistinct .field
+    "Option Option Option Field Semantic must non-alias bare Field (bytes+hash)"
+  tripleFieldSemanticDistinct (.option .field)
+    "Option Option Option Field Semantic must non-alias Option Field (bytes+hash)"
+  tripleFieldSemanticDistinct (.option (.option .field))
+    "Option Option Option Field Semantic must non-alias Option Option Field (bytes+hash)"
+  tripleFieldSemanticDistinct (.option (.option (.option .u64)))
+    "Option Option Option Field Semantic must non-alias triple Option UInt64 (bytes+hash)"
+  tripleFieldSemanticDistinct (.option (.option (.option .bool)))
+    "Option Option Option Field Semantic must non-alias triple Option Bool (bytes+hash)"
 
   let nestedBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Option Option Bytes 0", .option (.option (.bytes 0)), 259,
@@ -2275,6 +2441,12 @@ unsafe def run : IO Unit := do
         "Option Option Option Mystery"),
       ("Field Triple Option element", "FieldTripleOptionElement",
         "Option Option Option Field"),
+      ("alternate Field Triple Option identifier", "AlternateFieldTripleOptionId",
+        "Option Option Option Field bls12_381_fr"),
+      ("escaped Field Triple Option identifier", "EscapedFieldTripleOptionId",
+        "Option Option Option Field «bn254_fr»"),
+      ("qualified Field Triple Option identifier", "QualifiedFieldTripleOptionId",
+        "Option Option Option Field Curves.bn254_fr"),
       ("missing Triple Option element", "MissingTripleOptionElement",
         "Option Option Option"),
       ("bare fourth nested option", "BareFourthNestedOption",
@@ -2383,12 +2555,40 @@ unsafe def run : IO Unit := do
   | .error error =>
       throw <| IO.userError s!"migrated Option Option Option Bool must parse: {error.render}"
 
+  let migratedTripleOptionFieldSource :=
+    negativeSource "MigratedTripleOptionField" "Option Option Option Field bn254_fr"
+  match ← session.parsePrograms migratedTripleOptionFieldSource
+      "<migrated-triple-option-field>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) ==
+          #[.option (.option (.option .field))])
+        "migrated Option Option Option Field bn254_fr pin must now parse as existing option(option(option(field)))"
+  | .ok programs =>
+      throw <| IO.userError
+        s!"migrated Option Option Option Field bn254_fr produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError
+        s!"migrated Option Option Option Field bn254_fr must parse: {error.render}"
+
   for (label, spelling) in [
       ("fourth nested option", "Option Option Option Option Bool"),
-      ("full Field Triple Option element", "Option Option Option Field bn254_fr"),
       ("Bytes Triple Option element", "Option Option Option Bytes 8"),
       ("Array Triple Option element", "Option Option Option Array UInt64 4"),
       ("extra Triple Option payload", "Option Option Option Bool Principal"),
+      ("extra Triple Option Field payload", "Option Option Option Field bn254_fr Principal"),
+      ("split Triple Option Field outer Option", "Option\n  Option Option Field bn254_fr"),
+      ("split Triple Option Field middle Option", "Option Option\n  Option Field bn254_fr"),
+      ("split Triple Option Field third Option", "Option Option Option\n  Field bn254_fr"),
+      ("split Triple Option Field identifier", "Option Option Option Field\n  bn254_fr"),
+      ("escaped outer Triple Option Field", "«Option» Option Option Field bn254_fr"),
+      ("qualified outer Triple Option Field", "Std.Option Option Option Field bn254_fr"),
+      ("escaped middle Triple Option Field", "Option «Option» Option Field bn254_fr"),
+      ("qualified middle Triple Option Field", "Option Std.Option Option Field bn254_fr"),
+      ("escaped inner Triple Option Field constructor", "Option Option «Option» Field bn254_fr"),
+      ("qualified inner Triple Option Field constructor",
+        "Option Option Std.Option Field bn254_fr"),
+      ("escaped Field Triple Option constructor", "Option Option Option «Field» bn254_fr"),
+      ("qualified Field Triple Option constructor", "Option Option Option Std.Field bn254_fr"),
       ("escaped inner Triple Option", "Option Option «Option» Bool"),
       ("qualified inner Triple Option constructor", "Option Option Std.Option Bool"),
       ("split Triple Option middle", "Option\n  Option Option Bool"),
@@ -2622,6 +2822,41 @@ unsafe def run : IO Unit := do
         throw <| IO.userError s!"Option Option Field/{target} reached wrong failure: {other.render}"
     | .ok () =>
         throw <| IO.userError s!"Option Option Field/{target} unexpectedly passed support"
+
+  let tripleOptionFieldBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.TripleOptionFieldBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"TripleOptionFieldBoundary must compile: {error.render}"
+  expect (tripleOptionFieldBoundary.requirements == #[.fieldBn254])
+    "Option Option Option Field must recursively propagate fieldBn254 exactly once"
+  match tripleOptionFieldBoundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option (.option .field))] &&
+          echoEntry.result == .option (.option (.option .field)))
+        "Source-to-Semantic adaptation must preserve triple Option Field tags"
+  | _ => throw <| IO.userError "TripleOptionFieldBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target tripleOptionFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Option Option Option Field support rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError
+          s!"Option Option Option Field/{target} checkSupport wrong failure: {other.render}"
+    | .ok () =>
+        throw <| IO.userError
+          s!"Option Option Option Field/{target} unexpectedly passed checkSupport"
+    match Targets.materializeResult target tripleOptionFieldBoundary with
+    | .error (.unsupportedRequirement .fieldBn254 actual) =>
+        expect (actual == target)
+          s!"Option Option Option Field materialize rejection must name {target}, got {actual}"
+    | .error other =>
+        throw <| IO.userError
+          s!"Option Option Option Field/{target} materializeResult wrong failure: {other.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"Option Option Option Field/{target} must not materialize or emit artifact"
 
   let optionBytesBoundary ← match Compiler.compile
       Tests.Language.OptionDeclarationsFixture.OptionBytesBoundary with
