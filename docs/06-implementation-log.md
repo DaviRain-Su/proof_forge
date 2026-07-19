@@ -5119,3 +5119,34 @@ normative: false
   不能据此关闭 statement/expression `TST-SRC-005`、D2 type/effect tests、D1-05 或开始 D1-06。
 - Next：当前无 active development slice。按正式依赖顺序优先审计 `TASK-D1-02`/`TST-SRC-003` 的
   pending-prep freeze 与 bounded executable acceptance packaging；冻结前不得开工或自动递增。
+
+## 2026-07-19 — D1 program-command acceptance packaging pre-acceptance slice
+
+- Commits：`TASK-D1-02` pending-prep freeze package `a55f26ac`；D1-PA-88 tests-only freeze
+  `efa7a935`；`ProgramCommandAcceptance` harness `867cba14`。
+- Authority：正式 `TASK-D1-02` 继续 `pending`。完成包逐字绑定 output
+  `` `program ... where` command parser ``、dependency `TASK-D1-01`、empty prerequisites 与唯一
+  `TST-SRC-003`；doneWhen 要求 named acceptance/aggregate commands、`TASK-D1-01` done、candidate-bound
+  `qualification=formal` evidence 和零 P0/P1，任何 development evidence 均被排除为 formal close 依据。
+- Changed：新增 71-line `Tests.Language.ProgramCommandAcceptance`。test-local Fixture 通过唯一用户入口
+  `program Counter where` 定义单 view program；同 namespace source 经共享 ParserSession 的
+  `parsePrograms` 返回 exact-one program，并固定 full `Source.Program` BEq、short name、FQN 与
+  `sourceHash` parity。显式 `: contract` kind suffix 精确返回
+  `PF-SRC-INVALID: Lean parser rejected source: failed to parse file`；非白名单 `run_cmd IO.println`
+  精确返回 `PF-SRC-INVALID: Lean command 'Lean.runCmd' is outside the portable program DSL`，isolated
+  stdout 不含 marker，证明未执行。总计 74/80 additions，只增加 Tests/lake 注册；不调用
+  `selectProgram`、`programExports`/`programPayloads` 或混合 suite `run`，production 与 package file-set
+  零修改。
+- Verification：Grok focused `lake build Tests.Language.ProgramCommandAcceptance` 通过；coordinator
+  `lake build Tests.Language.ProgramCommandAcceptance proof_forge_next_tests` 272 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；`just docs-check` 与
+  `git diff --check` 通过。按冻结不运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：Grok freeze review P0/P1=0；Kimi final live-diff review P0/P1=0，仅 unused
+  `open System` cosmetic P2 且无需修改。development evidence 为 `EV-20260719-0086`。
+- Limitations：本条只证明 development executable packaging，不是 candidate-bound formal record；
+  `TASK-D1-01` 未 done，D0 formal milestone 仍 7/9，因此不能把 `TASK-D1-02` 标为 in_progress/done，
+  不能据此关闭 token/span/NodeId/bounds、declaration/statement、export/selection、Diagnostic v1、worker、
+  D2 或 target task。
+- Next：当前无 active development slice。按正式依赖顺序审计 `TASK-D1-01` 的 pending-prep package；
+  首个 bounded candidate 只包装 `TST-SRC-001` 的 `SourceIdentity`/`SourceSpan`，`TST-SRC-002` 另行窄化，
+  禁止用混合 `ProgramSyntax`/`Loader` wrapper 吞入 SRC-003/008/compile 断言。
