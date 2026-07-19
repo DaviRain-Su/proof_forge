@@ -6,6 +6,7 @@ import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Language.AggregateDeclarations
+import Tests.Language.DeclarationAcceptance
 import Tests.Language.ArrayTypes
 import Tests.Language.AssertStatements
 import Tests.Language.BitwiseNot
@@ -78,32 +79,19 @@ unsafe def main : IO Unit := do
   Tests.Core.run
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
-  Tests.Language.AggregateDeclarations.run
-  Tests.Language.ArrayTypes.run
+  Tests.Language.DeclarationAcceptance.run
   Tests.Language.AssertStatements.run
   Tests.Language.BitwiseNot.run
   Tests.Language.BoolLiterals.run
-  Tests.Language.BytesTypes.run
   Tests.Language.CheckedDiv.run
   Tests.Language.CheckedMod.run
   Tests.Language.CheckedMul.run
   Tests.Language.CheckedNeg.run
   Tests.Language.CheckedSub.run
-  Tests.Language.ConstDeclarations.run
   Tests.Language.EmitStatements.run
-  Tests.Language.EventErrorDeclarations.run
-  Tests.Language.ExtensionRequirements.run
-  Tests.Language.FieldDeclarations.run
-  Tests.Language.FnDeclarations.run
   Tests.Language.ForStatements.run
   Tests.Language.IfStatements.run
-  Tests.Language.IntegerWidthDeclarations.run
   Tests.Language.LetStatements.run
-  Tests.Language.OptionDeclarations.run
-  Tests.Language.PrincipalDeclarations.run
-  Tests.Language.UnitReturnTypes.run
-  Tests.Language.InvariantDeclarations.run
-  Tests.Language.ProofReferences.run
   Tests.Language.ProgramExports.run
   Tests.Language.ProgramExportAcceptance.run
   Tests.Language.ProgramBindings.run
@@ -130,8 +118,6 @@ unsafe def main : IO Unit := do
   Tests.Language.RevertStatements.run
   Tests.Language.ValueLessReturns.run
   Tests.Language.run
-  Tests.Language.PrimitiveDeclarations.run
-  Tests.Language.StateVisibility.run
   Tests.Language.SourceIdentity.run
   Tests.Language.SourceSpan.run
   Tests.Language.FrontendParity.run
