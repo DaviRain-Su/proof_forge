@@ -35,6 +35,7 @@ import Tests.Language.ProgramExports
 import Tests.Language.ProgramBindings
 import Tests.Language.ProgramIdentities
 import Tests.Language.ProgramPayloads
+import Tests.Language.ProgramShortNames
 import Tests.Language.ProgramSyntax
 import Tests.Language.ShiftLeft
 import Tests.Language.ShiftRight
@@ -106,6 +107,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramBindings.run
   Tests.Language.ProgramIdentities.run
   Tests.Language.ProgramPayloads.run
+  Tests.Language.ProgramShortNames.run
   Tests.Language.ShiftLeft.run
   Tests.Language.ShiftRight.run
   Tests.Language.Equal.run
