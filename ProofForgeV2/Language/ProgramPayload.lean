@@ -21,6 +21,9 @@ private def boundExceeded {α : Type} : Except String α :=
 private def unavailable {α : Type} : Except String α :=
   .error (exportError "declaration unavailable or unsafe")
 
+private def identityError (detail : String) : String :=
+  s!"PF-EXPORT-001: {detail}"
+
 private def maxRawNodes : Nat := 100000
 private def maxLogicalDepth : Nat := 256
 
@@ -418,12 +421,29 @@ def programPayload (env : Lean.Environment) (name : Lean.Name) :
     throw (exportError "not registered")
   decodeDeclaration env name
 
+private def checkProgramIdentities
+    (rows : Array (ProgramExportV1 × Source.Program)) : Except String Unit := do
+  let mut seen := Std.HashMap.emptyWithCapacity rows.size
+  for (_, program) in rows do
+    let sourceHash := program.sourceHash
+    let (previous, updated) :=
+      seen.getThenInsertIfNew? program.qualifiedName sourceHash
+    seen := updated
+    match previous with
+    | none => pure ()
+    | some previousHash =>
+        if previousHash == sourceHash then
+          throw (identityError "duplicate exported program identity")
+        else
+          throw (identityError "conflicting exported program identity")
+
 def programPayloads (env : Lean.Environment) :
     Except String (Array (ProgramExportV1 × Source.Program)) := do
   let exports ← programExports env
   let mut rows := #[]
   for row in exports do
     rows := rows.push (row, ← decodeDeclaration env row.declaration)
+  checkProgramIdentities rows
   pure rows
 
 end ProofForgeV2.Language.ProgramPayload
