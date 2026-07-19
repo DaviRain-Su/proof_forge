@@ -2116,6 +2116,93 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行
   完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或
   下游 task。
+- D1-PA-101 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 complete spine-dependent declaration-record
+  slice。closed-class rule 精确为 **all ProgramItem records whose ordered field types depend on the shipped
+  Place/Expr/Stmt/Block spine**：`ConstDecl`、`InvariantDecl`、`InitDecl`、`EntryDecl`、`ViewDecl`、`FnDecl`
+  六种；它们与 PA98 的七种 spine-independent records 合计 13/13 item alternatives。该 slice 只定义
+  named records与各自 codec，不定义 `ProgramItemV1` sum 或 `Program` root。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSpineDeclV1
+  structure ConstDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    type_ : AstV1.TypeV1
+    value : AstSpineV1.ExprV1
+    deriving DecidableEq, Repr
+  structure InvariantDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    predicate : AstSpineV1.ExprV1
+    deriving DecidableEq, Repr
+  structure InitDeclV1 where
+    params : Array AstSupportV1.ParamV1
+    body : AstSpineV1.BlockV1
+    deriving DecidableEq, Repr
+  structure EntryDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    result : AstV1.TypeV1
+    body : AstSpineV1.BlockV1
+    deriving DecidableEq, Repr
+  structure ViewDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    result : AstV1.TypeV1
+    body : AstSpineV1.BlockV1
+    deriving DecidableEq, Repr
+  structure FnDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    result : AstV1.TypeV1
+    body : AstSpineV1.BlockV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstSpineDeclCodecV1
+  encodeConstDeclV1 : ConstDeclV1 → Except String ByteArray
+  encodeInvariantDeclV1 : InvariantDeclV1 → Except String ByteArray
+  encodeInitDeclV1 : InitDeclV1 → Except String ByteArray
+  encodeEntryDeclV1 : EntryDeclV1 → Except String ByteArray
+  encodeViewDeclV1 : ViewDeclV1 → Except String ByteArray
+  encodeFnDeclV1 : FnDeclV1 → Except String ByteArray
+  ```
+
+  wire tag、field count 与顺序必须逐字为：`ConstDecl`/3 = raw Ident、Type、Expr；
+  `InvariantDecl`/2 = raw Ident、Expr；`InitDecl`/2 = Array Param、Block；`EntryDecl`/4、`ViewDecl`/4、
+  `FnDecl`/4 = raw Ident、Array Param、Type result、Block。六个 encoder 均为 total `def`，只组合 PA93–100
+  已发布 codec；Param arrays 唯一复用 `encodeArray encodeParamV1`。该 slice **不新增任何 local validation
+  或 error string**：所有 params（包括 Init/Entry/View/Fn）允许 empty，View 的 empty-params fixture必须成功；
+  empty body 只由 `encodeBlockV1` 返回 `block statements must be nonempty`。Type/Expr/Param/Block child error
+  必须按上述 wire field order原样传播。duplicate declarations、zero entry/view、multiple init、proof-invariant
+  binding 与 256-depth/100000-node/16-MiB 限制属于 future Program/set-level validator，不得下沉到 record codec。
+
+  Lean RED 与不 import Lean/ProofForge 的 Python oracle必须使用同一组 hand-built typed logical fixtures并
+  持有 checked-in expected hex，golden 不得由 production encoder生成。exact 七个 positive goldens 为：
+  `Const max : UInt256 = Integer 4096`；`Invariant bounded = Binary Lt (Place.Name count) (Integer 4096)`；
+  `Init` params `[Public start UInt64, Private secret Field bn254_fr]` + `Block[Assign count 1]`；
+  `Entry run` params `[Public to Principal, Private amount UInt64, Commitment note Bytes0]`、result UInt64、
+  `Block[Return some (Place.Name count)]`；同一 Entry 的 first-two-param swap
+  `[Private amount UInt64, Public to Principal, Commitment note Bytes0]`；`View get` empty params、result UInt64、
+  `Block[Return some Integer 0]`；`Fn helper2` param `[Public x UInt64]`、result Unit、
+  `Block[If true then Block[Return none] else none]`。必须直接调用六个 public encoder；对六种 record各执行
+  derived equality true/false；Entry normal/swapped params须同时 byte 与 DecidableEq nonalias；另构造字段完全
+  相同的 Entry/View并证明 tag bytes nonalias。
+
+  Lean exact negatives只允许既有 child errors：Const 的 UInt24 + hostile Integer `2^256` 必须先返回
+  `integer width must be one of 8,16,32,64,128,256`；valid UInt256 + hostile value与 Invariant hostile predicate
+  均返回 `u256 magnitude exceeds 2^256-1`；Init empty body返回 PA100 block error；Entry 的首个 Param 使用
+  `Type.Field bad_fr`，同时 result UInt24、body empty，必须先返回 `field id must be bn254_fr`；View empty
+  params + UInt24 result + empty body必须先返回 width error；Fn valid fields + empty body返回 block error。
+  私有构造的 SourceNameComponent carrier已在 PA93 validation boundary保证合法，本 slice禁止用 unsafe/伪造
+  carrier制造不可达 name-error priority。Python另在其独立 raw encoder边界保留 closing-guillemet/Cc negatives。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstSpineDeclV1.lean`、
+  `ProofForgeV2/Source/AstSpineDeclCodecV1.lean`、`Tests/Language/SourceAstSpineDeclV1.lean`、
+  `scripts/reference_source_ast_spine_decl_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械 manifest
+  refresh。budgets：model≤60、codec≤90、suite≤200、Python≤160、registrations≤8、总 authored
+  additions≤520（manifest 不计）。明确排除：`ProgramItemV1` sum/Program root、alpha Source/Syntax/Loader/
+  projection、decoder、global/set validator、sourceHash/NodeId、Common/ProgramPayload/target edits。验证只运行
+  focused+aggregate build/test binary、Python self-check、package refresh 后最终单次 `just sbom`、
+  `just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。结果只记录 development
+  evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
