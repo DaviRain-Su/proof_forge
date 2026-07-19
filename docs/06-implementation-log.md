@@ -5716,3 +5716,35 @@ normative: false
   D0 formal milestone仍 7/9。
 - Next：当前无 active development slice。下一步只读裁决 `SPEC-LANG-001` declaration-set validation 的单一
   闭合面；冻结前不得开始 RED，alpha/decoder/global validator/hash/NodeId/target不得顺手并入。
+
+## 2026-07-19 — D1 ProgramV1 declaration-set validator pre-acceptance slice
+
+- Commits：D1-PA-105 freeze `95f40d05`；RED `37ea4665`；GREEN `982c15c9`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只闭合 `SPEC-LANG-001` 已冻结的 residual declaration-set规则，不复用 alpha
+  bucket validator，不修改 codec/root，也不引入 D2 name/type/theorem resolution。public development API为
+  single total `validateProgramDeclSetV1 (program : ProgramV1) : Except String Unit`；最终 stable Diagnostic
+  仍属于 TASK-D1-07。
+- Changed：新增 168-line `AstProgramValidateV1`。validator以 `Std.HashSet` 按冻结的 22 类固定顺序执行，
+  类别内保留 source-order first offender；raw name、combined entry/view、combined entry/view/fn、raw component-array
+  extension identity、proof cardinality-before-full-set membership与六类 record-local duplicate检查全部 fail closed。
+  proof先建立完整 invariant set，允许 forward reference；同 target duplicate proof先于 unknown binding。没有
+  partial/unsafe/bang、quadratic scan、codec-local nonempty重检、serializer修复或 target分支。
+- Cross implementation：179-line Lean suite与 164-line standalone Python oracle覆盖同一 3 positives、23 exact
+  String negatives和 7 cross-rule priorities。extension同 id但 version/digest均不同仍重复；两个同 unknown target
+  proofs固定 cardinality优先级；duplicate-state且合法 entry的 Program继续可编码而 validator拒绝，证明
+  serializer/validator正交。registrations 4，总 authored additions 515/650；机械 manifest为55 files。
+- Verification：RED focused build只因 production module缺失失败；GREEN
+  `lake build Tests.Language.SourceAstProgramValidateV1` 28 jobs、`lake build proof_forge_next_tests` 352 jobs；
+  test binary输出 `proof-forge-next-tests: ok`；Python输出
+  `reference_source_ast_program_validate_v1: ok 3 23 7`；package refresh → 55 files；最终单次 `just sbom`
+  self-test/generate/verify/closure全绿；`just docs-check`与`git diff --check`通过。按冻结未运行完整`just ci`。
+- Review/Evidence：Grok逐行复核fixed category order、source-order、totality、O(n)、extension key与排除面，
+  P0/P1=0；Kimi逐项交叉核对3/23/7、forward proof、duplicate-proof-before-unknown、extension metadata差异、
+  exact errors与serializer neutrality，P0/P1/P2=0。development evidence为`EV-20260719-0103`。
+- Limitations：没有 theorem/visibility alpha mapping、decoder/exact-consume、global depth/node/16-MiB resource
+  validator、sourceHash、NodeId、stable Diagnostic implementation、Common/ProgramPayload或 target。spec仍proposed，
+  D0 dependencies/candidate-bound formal evidence未齐，不能关闭 pending `TASK-D1-01`或任何下游task。
+  D0 formal milestone仍7/9。
+- Next：当前无 active development slice。下一步先只读裁决 theorem/visibility alpha mapping、decoder与full-tree
+  resource validator中的单一最小闭合面；冻结前不得开始下一份RED，sourceHash/NodeId/target不得并入。
