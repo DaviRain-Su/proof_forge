@@ -1353,8 +1353,10 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `Environment.hasUnsafe value = false`；unregistered、missing/opaque、constant alias、unsafe、可观察为
   non-direct value 的 partial alias 与 implemented-by panic replacement 必须在不执行 replacement、无 FS/network/IO/ambient access 的情况下
   以 `PF-EXPORT-004` 拒绝，禁止 raw exception 或 partial table。positive rich fixture 必须用 BEq、
-  qualifiedName 与 sourceHash 证明 reconstructed payload 等于 DSL elaborator constant，并覆盖当前全部
-  ValueType/Expr/Statement/declaration constructor family。
+  qualifiedName 与 sourceHash 证明 reconstructed payload 等于 DSL elaborator constant；rich fixture 与
+  test-owned exact direct quoted control 联合覆盖当前全部 ValueType/Expr/Statement/declaration constructor
+  family。当前 DSL 把 bare state read 解码为 `Expr.variable`，因此 `Expr.state` 用 direct quoted control
+  覆盖，禁止为测试反向扩大 DSL grammar。
   Lean 4.31 对非递归、direct-value `partial def` 不保留可由 `Environment`/closed `Expr` 观察的 modifier
   provenance；若其最终是 safe direct `Program.mk`，本切片按结构与普通 safe def 同等处理，不伪称拒绝
   不可观察的源码修饰符。需要 source-modifier provenance 时必须另行修改 registry schema，属于本切片外。

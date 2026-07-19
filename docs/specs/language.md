@@ -1108,8 +1108,10 @@ decoder 先用显式工作栈对 raw `Expr` 做最多 100000 nodes 的总量预�
 
 tests-only RED 固定新增 single rich DSL payload fixture、alias/opaque/unsafe/implemented-by negative
 fixtures、snapshot helper 与单一 `Tests.Language.ProgramPayloads` suite，并只修改 `Tests.lean`/
-`lakefile.lean` 注册，总新增不超过 360 行。positive 必须比较 reconstructed Program 的全部 BEq value、
-qualified name 与 sourceHash；negative 必须证明 unregistered、constant alias、opaque、unsafe、可观察的
+`lakefile.lean` 注册，总新增不超过 360 行。positive rich fixture 必须比较 reconstructed Program 的全部
+BEq value、qualified name 与 sourceHash；rich 与 test-owned exact direct quoted control 联合覆盖完整
+constructor family。当前 DSL 的 bare state read 产生 `Expr.variable`，所以 `Expr.state` 由 direct quoted
+control 覆盖，禁止为了 fixture 改 grammar。negative 必须证明 unregistered、constant alias、opaque、unsafe、可观察的
 partial alias、
 `implemented_by` replacement 均不执行且以 `PF-EXPORT-004` 拒绝，valid+invalid table 不返回 partial。
 test-owned synthetic raw Expr 另固定 100000/100001 node 与 256/257 logical-depth boundary channel。
