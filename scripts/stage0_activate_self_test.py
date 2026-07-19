@@ -614,7 +614,8 @@ def test_negatives(fixture: dict, tmpdir: Path) -> None:
 
 
 def main() -> int:
-    tmpdir = Path(tempfile.mkdtemp(prefix="stage0-activate-self-test-"))
+    # Keep nested AF_UNIX fixtures below Darwin's 104-byte pathname limit.
+    tmpdir = Path(tempfile.mkdtemp(prefix="pf-sa-", dir="/tmp"))
     try:
         module = load_acceptance()
         fixture = build_fixture(module, tmpdir)
