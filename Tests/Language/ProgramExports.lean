@@ -54,8 +54,8 @@ unsafe def run : IO Unit := do
   match normalizeProgramExports reversed with
   | .error error =>
       throw <| IO.userError s!"reversed entries must normalize: {error}"
-  | .ok table =>
-      let decls := table.map fun entry => entry.declaration.toString
+  | .ok table => do
+      let decls := table.map fun e => e.declaration.toString
       let expected := expectedRows.map fun row => row.declaration
       expect (decls == expected)
         "reversed raw entries must canonicalize to UTF-8 FQN order"
