@@ -5485,3 +5485,40 @@ normative: false
 - Next：当前无 active development slice。下一步只做 full Place/Expr/Stmt/Block/arms/ExternalCall SCC 的
   dependency/constructor/validation/budget 裁决；完成面冻结前不得开始 RED，也不得顺手并入 body-bearing
   ProgramItem 或完整 root。
+
+## 2026-07-19 — D1 ProgramV1 mutual-spine model/equality pre-acceptance slice
+
+- Commits：D1-PA-99 freeze `76705eea`；RED `10677145`；GREEN `a4abc415`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 中不可再拆的 Place/Expr/Stmt/Block/
+  StmtMatchArm/ExprMatchArm/ExternalCallExpr 七类型 SCC model 与证明型 equality。25-constructor table 在
+  model 层完整，但 codec、wire validation、body-bearing ProgramItem 与 root 均明确排除并等待独立冻结。
+- Changed：新增 65-line `AstSpineV1`，一个 Lean mutual block 精确定义 Place 3、Expr 7、Stmt 11 与
+  Block/两种 arm/ExternalCall 四种 record，共 25 constructors；keyword constructor 使用
+  `let_`/`if_`/`match_`/`for_`/`assert_`/`return_`，不改变 future wire tag。新增 392-line
+  `AstSpineEqV1`，以 17 个 private mutual structural decision procedures覆盖七种 carrier、四种 Array/List
+  与两种 SCC Option，公开七个 `DecidableEq` instance；每条路径返回 `Decidable (a = b)`，无 BEq-only、
+  Classical/noncomputable、partial、unsafe、fuel 或 codec-bytes equality。
+- Tests：149-line phase-neutral Lean suite实例化 25/25 constructors，并对七个 instance 各执行 equality
+  true 与 inequality true。覆盖 Expr/Stmt array order与length、Constructor/LocalCall/ExternalCall args、
+  四个 Option site none/some、两种 match arm、Call/Schedule nonalias、For bound value inequality、raw
+  `foo-bar`、two-component QID 与 depth-3 Block→Stmt.If→Block deep equal/mismatch。registrations 5，
+  总 authored additions 611/748；model 层仍允许 empty arrays 与任意 UInt32，未提前实现 codec validation。
+- Verification：`lake build ProofForgeV2.Source.AstSpineV1 ProofForgeV2.Source.AstSpineEqV1
+  Tests.Language.SourceAstSpineV1 proof_forge_next_tests` 322 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `just sbom-package-files-refresh` → 46 files；最终单次 `just sbom` self-test/generate/verify/closure 全绿；
+  `just docs-check` 与 `git diff --check` 通过。一次 coordinator/Grok 并发运行同一 test binary 争用
+  `build/v2/existing-output` 产生 transient `important.txt` 缺失；agent 停止后单进程复测全绿，未改生产
+  语义。按冻结未运行完整 `just ci`。
+- Review/Evidence：Grok RED/final integration review P0/P1=0；Kimi 对 equality 每个 same-constructor field、
+  6/42/110 个 Place/Expr/Stmt ordered cross-constructor cases及 Array/List/Option 正反证明逐项复核通过。
+  Kimi 在 `/tmp` draft 发现 namespace 前 docstring P1，Grok production 从未带入该两行并已实编译，故
+  production residual 为零。development evidence 为 `EV-20260719-0097`。
+- Limitations：没有 25-tag codec、Block/Match nonempty、For 0..4096 或 QID-before-args wire validation；
+  没有 Const/Invariant/Init/Entry/View/Fn、ProgramItem sum/root、alpha、decoder、global validator、sourceHash、
+  NodeId、stable Diagnostic 或 target。spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，
+  不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。候选 PA100 仅为同一 shipped SCC 的完整 25-tag total codec；
+  必须先冻结 exact errors/priority、manual SCC Option/Array totality、golden/Python matrix与预算，禁止并入
+  body-bearing ProgramItem 或 root。
