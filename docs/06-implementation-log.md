@@ -4585,3 +4585,68 @@ normative: false
   D0 formal milestone 仍为 7/9。
 - Next：用户生成六个 seed（mode 0400）→ init/sign-policy/stage/sign-required-set
   → handoff + 14 对象签发 → `stage0_activate.py` 真实 activation。
+
+## 2026-07-19 — TASK-D0-04 关闭门禁（GOV-GENESIS-001 §7.3 第一变更集：gate）
+
+- Context：GOV-GENESIS-001 §7.3 要求 `TASK-D0-04` 的关闭分两个变更集落地：
+  先 gate（本变更），后 closeout（bundle+attest+EV+任务表行）。此前
+  `docs_check.py` 的 `validate_tasks` 对 `TASK-D0-04` 的 bootstrap 级 EV 一律
+  `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`（zero-closure），因为没有任何分支能
+  证明真实 activation 已发生。本变更实现 D0-04 的 closure gate：只有
+  bootstrap-closure 目录下存在可被完整复验的真实 activation 制品时，
+  bootstrap EV 才被允许。
+- Changed：`scripts/docs_check.py` 新增
+  `d0_04_bootstrap_activation_attested(root)`（attest 封闭 15 字段 + 精确值 /
+  语法检查 + freeze package sha256 重算，结构沿用 d0_08/d0_09 模式）、
+  `_d0_04_verify_activation_bundle`（全链复验）、`_d0_04_bundle_file_bytes`
+  （精确 21 文件布局）、`_load_bootstrap_task_consumer`（以
+  genesis_root_policy 同款 exact-path importlib 纪律加载
+  `scripts/bootstrap_task_objects.py`，并在 exec 前注册 `sys.modules`——
+  Python 3.12 dataclass 处理需要），以及
+  `D0_04_BOOTSTRAP_ACTIVATION_ATTEST_RELATIVE` 等常量；`validate_tasks` 的
+  bootstrap `allowed` 门接入 `(record.task == "TASK-D0-04" and
+  d0_04_bootstrap_activation_attested(root))`。复验语义：policy /
+  document-bound required-set（PHASE-5 快照来自当前
+  `docs/05-test-spec.md`）/ 6 approval / 6 receipt / approval set /
+  activation receipt 全部经 consumer 重验；receipt 的 dependencyCompletions
+  与 approval 一致且逐条等于已解析依赖 receipt ref；closure-manifest 的
+  全部 digest 从 bundle 字节重算、manifest 自身 sha256==attest
+  closureManifestSha256；handoff 对 policy/descriptor/candidate/observation
+  逐项 join；TCB 四 digest 对当前仓库 `verify_host_stage0.sh` /
+  `stage0_containment.py` / `gate_evidence.py` / `stage0_activate.py` 重算；
+  descriptor 域 digest==policy.authorityStoreService 且其
+  `serviceExecutableDigest`==sha256(`scripts/stage0_store_service.py`)——
+  任何漂移 fail closed 返回 False。bundle 布局在规格列出的 20 文件之外显式
+  纳入 `service-descriptor.json`（共 21 文件）：规格 (f) 的
+  `serviceExecutableDigest` 复算只能以 descriptor wire 为输入（service 公钥
+  为仪式特有，无法从 repo 重建），缺少该文件则该检查不可实现；gate 必须在
+  本变更集内完整，closeout 只补制品不再改 gate。
+  `scripts/docs_check_self_test.py` 新增 `valid_d0_04_attest` /
+  `complete_d0_04_activation_closure` / `d0_04_ev_without_attest` 与 6 个负例
+  mutation（no-attest、missing-field、wrong-kind、
+  bad-manifest-digest-grammar、bad-candidate、wrong-bundlePath），全部断言
+  `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `/usr/bin/python3 -I -S scripts/docs_check_self_test.py` ok（197 mutations，
+  较此前 +6）；`just docs-check` 13/13 ok；`git diff --check` clean。另以
+  throwaway 集成测试（`build/d0-04-rehearsal/gate_integration_test.py`，
+  gitignored）对真实 rehearsal bundle（throwaway seeds、完整
+  init→sign-policy→stage→sign-required-set→handoff→14 对象签发→
+  `stage0_activate.py` 产物）验证 17 例：正例 True，16 个单点变异
+  （approval/receipt/manifest/descriptor/handoff 篡改、缺/多 bundle 文件、
+  四类 TCB 漂移、PHASE-5 漂移、candidate/activation id 错）全部 False。
+  development evidence 见台账 `EV-20260719-0074`。
+- Limitations：gate 已落地但 closeout 未完成——真实 bundle 与 attest 仍缺，
+  validator 当前对任何 `TASK-D0-04` bootstrap EV 恒返回 False（与此前行为
+  一致，docs_check 保持全绿）；`TASK-D0-04` 保持 blocked，任务表与
+  AGENTS.md 未动；`host-profile.json` 不在 bundle 内，profile 绑定无法在
+  docs_check 复算（仪式时由 stage0_activate 断言）；本 gate 复验的是 driver
+  链（stage0_activate/bootstrap_activation），不是 graph path
+  （verifyBootstrapTaskObjects——后者另要求 per-task handoff/manifest/原始
+  EV 对象/评审报告字节，且当前无法解析已提交 PHASE-4 任务表）；D0 formal
+  milestone 仍为 7/9。
+- Next：真实仪式（六 seed → init/sign-policy → stage/sign-required-set →
+  handoff → 14 对象签发 → `stage0_activate.py`）产出 bundle 后，closeout
+  变更集落 `docs/governance/bootstrap-closure/TASK-D0-04/` bundle（21 文件）
+  + `TASK-D0-04.attest.json` + bootstrap 级 EV 行 + 任务表 `blocked → done`
+  与 checkpoint 更新；届时本 gate 自动转绿。

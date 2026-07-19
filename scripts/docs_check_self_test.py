@@ -536,6 +536,29 @@ def valid_d0_09_attest() -> dict[str, Any]:
     }
 
 
+def valid_d0_04_attest(freeze_digest: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-04",
+        "kind": "bootstrap-activation-closure",
+        "candidate": "dddddddddddddddddddddddddddddddddddddddd",
+        "activationReceiptId": "BAV-20260719-0001",
+        "bundlePath": "docs/governance/bootstrap-closure/TASK-D0-04",
+        "closureManifestSha256": "e" * 64,
+        "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-04.json",
+        "freezePackageSha256": freeze_digest,
+        "stage0FormalCommand": (
+            "/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC "
+            "/bin/bash --noprofile --norc "
+            "scripts/verify_host_stage0.sh --require-eligible"),
+        "stage0FormalResult": "eligible",
+        "rehearsalCommand": "/usr/bin/python3 -I -S scripts/bootstrap_acceptance_self_test.py",
+        "rehearsalResult": "ok",
+        "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+        "notes": "Closes D0-04 bootstrap activation; not formal or hermetic evidence.",
+    }
+
+
 def complete_attested_bootstrap_task(
         root: Path, task_id: str, attest: dict[str, Any]) -> None:
     replace(root / "docs/04-task-breakdown.md",
@@ -818,6 +841,40 @@ def d0_08_ev_without_attest(root: Path) -> None:
             EVIDENCE_ROW + "\n" + bootstrap_evidence_row("TASK-D0-08"))
     replace(root / "AGENTS.md", "| Next task | TASK-D0-92 |", "| Next task | 无 |")
     write_task_set_lock(root, "TASK-D0-08")
+
+
+def complete_d0_04_activation_closure(
+        root: Path,
+        mutate_attest: Optional[
+            Callable[[dict[str, Any]], dict[str, Any]]
+        ] = None,
+) -> None:
+    write_task_freeze_package(
+        root,
+        "TASK-D0-04",
+        output="Completed bootstrap task",
+        dependencies=["TASK-A0-20"],
+    )
+    freeze_path = (
+        root / "docs/governance/task-freeze-packages/TASK-D0-04.json")
+    freeze_digest = hashlib.sha256(freeze_path.read_bytes()).hexdigest()
+    attest = valid_d0_04_attest(freeze_digest)
+    if mutate_attest is not None:
+        attest = mutate_attest(attest)
+    complete_attested_bootstrap_task(root, "TASK-D0-04", attest)
+
+
+def d0_04_ev_without_attest(root: Path) -> None:
+    replace(root / "docs/04-task-breakdown.md",
+            "| TASK-D0-92 | Planned synthetic task | TASK-A0-20 | — | "
+            "TST-DOC-902 | — | pending |",
+            "| TASK-D0-04 | Completed bootstrap task | TASK-A0-20 | — | "
+            "TST-DOC-902 | EV-20260716-9004 | done |")
+    replace(root / "docs/traceability/requirements-matrix.md", "TASK-D0-92", "TASK-D0-04")
+    replace(root / "docs/traceability/evidence-ledger.md", EVIDENCE_ROW,
+            EVIDENCE_ROW + "\n" + bootstrap_evidence_row("TASK-D0-04"))
+    replace(root / "AGENTS.md", "| Next task | TASK-D0-92 |", "| Next task | 无 |")
+    write_task_set_lock(root, "TASK-D0-04")
 
 
 def write_missing_task_freeze_authority_set(root: Path) -> None:
@@ -1851,6 +1908,35 @@ def main() -> None:
             complete_attested_bootstrap_task(
                 root, "TASK-D0-09",
                 drop_attest_field(valid_d0_09_attest(), "laneResult"))),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-ev-d0-04-no-attest", d0_04_ev_without_attest,
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-04-missing-field", lambda root: (
+            complete_d0_04_activation_closure(
+                root,
+                lambda attest: drop_attest_field(attest, "activationReceiptId"))),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-04-wrong-kind", lambda root: (
+            complete_d0_04_activation_closure(
+                root,
+                lambda attest: {**attest, "kind": "sbom-closure-closure"})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-04-bad-manifest-digest", lambda root: (
+            complete_d0_04_activation_closure(
+                root,
+                lambda attest: {**attest, "closureManifestSha256": "not-a-digest"})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-04-bad-candidate", lambda root: (
+            complete_d0_04_activation_closure(
+                root,
+                lambda attest: {**attest, "candidate": "not-a-commit"})),
+         "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
+        ("bootstrap-attest-d0-04-wrong-bundle-path", lambda root: (
+            complete_d0_04_activation_closure(
+                root,
+                lambda attest: {
+                    **attest,
+                    "bundlePath": "docs/governance/bootstrap-closure/TASK-D0-05"})),
          "PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED", "EV-20260716-9004"),
         ("fx-approval-genesis-doc-absent", lambda root: (
             write_governance_authority_set(root),

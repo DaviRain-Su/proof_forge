@@ -126,6 +126,21 @@ D0_08_SBOM_CLOSURE_ATTEST_RELATIVE = (
 D0_09_LINUX_HOST_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-09.attest.json"
 )
+D0_04_BOOTSTRAP_ACTIVATION_ATTEST_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-04.attest.json"
+)
+D0_04_BOOTSTRAP_ACTIVATION_BUNDLE_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-04"
+)
+D0_04_BOOTSTRAP_TASK_IDS = tuple(f"TASK-D0-{index:02d}" for index in range(1, 7))
+D0_04_TOPOLOGICAL_TASK_IDS = (
+    "TASK-D0-01",
+    "TASK-D0-02",
+    "TASK-D0-03",
+    "TASK-D0-05",
+    "TASK-D0-06",
+    "TASK-D0-04",
+)
 MILESTONE_TASK_RE = re.compile(r"^TASK-(A0|D[0-9]+)-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 TASK_FREEZE_PACKAGE_NAME_RE = re.compile(
     r"^TASK-[A-Z0-9]+(?:-[A-Z0-9]+)*\.json$"
@@ -2380,6 +2395,382 @@ def d0_09_linux_host_attested(root: Path) -> bool:
     return True
 
 
+def _load_bootstrap_task_consumer() -> Any | None:
+    """Load scripts/bootstrap_task_objects.py with exact-path discipline."""
+    try:
+        checker_path = Path(__file__).resolve(strict=True)
+        tool_path = checker_path.with_name("bootstrap_task_objects.py")
+        if tool_path.is_symlink() or not tool_path.is_file():
+            return None
+        exact_tool_path = tool_path.resolve(strict=True)
+        if exact_tool_path != tool_path:
+            return None
+        spec = importlib.util.spec_from_file_location(
+            "proof_forge_bootstrap_task_objects_for_docs_check",
+            exact_tool_path,
+        )
+        if spec is None or spec.loader is None or spec.origin is None:
+            return None
+        if Path(spec.origin).resolve(strict=True) != exact_tool_path:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        for name in (
+            "BootstrapDocumentSnapshotV1",
+            "canonical_pf_jcs",
+            "decode_canonical_pf_jcs",
+            "parse_bootstrap_authority_policy",
+            "parse_document_bound_required_test_set",
+            "parse_task_approval",
+            "parse_bootstrap_task_verifier_receipt",
+            "parse_bootstrap_approval_set",
+            "parse_bootstrap_approval_verifier_receipt",
+            "parse_candidate_identity",
+            "_preflight_eligible_stage0_handoff",
+            "Rejected",
+        ):
+            if getattr(module, name, None) is None:
+                return None
+        return module
+    except Exception:
+        return None
+
+
+def _d0_04_bundle_file_bytes(root: Path, bundle_relative: str) -> dict[str, bytes] | None:
+    """Read the exact 21-file activation closure bundle layout, fail closed."""
+    expected = {
+        "activation-receipt.json",
+        "authority-policy.json",
+        "bootstrap-approval-set.json",
+        "candidate.json",
+        "closure-manifest.json",
+        "eligible-stage0-handoff.json",
+        "host-observation.json",
+        "required-test-set.json",
+        "service-descriptor.json",
+    }
+    expected.update(
+        f"approvals/task-d0-0{index}-approval.json" for index in range(1, 7))
+    expected.update(
+        f"receipts/task-d0-0{index}-receipt.json" for index in range(1, 7))
+    bundle_dir = root / bundle_relative
+    if bundle_dir.is_symlink() or not bundle_dir.is_dir():
+        return None
+    found: set[str] = set()
+    for path in bundle_dir.rglob("*"):
+        if path.is_symlink():
+            return None
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            return None
+        found.add(path.relative_to(bundle_dir).as_posix())
+    if found != expected:
+        return None
+    payload: dict[str, bytes] = {}
+    try:
+        for relative in sorted(expected):
+            payload[relative] = read_repository_regular_bytes(
+                root, bundle_dir / relative, f"{bundle_relative}/{relative}")
+    except (DocsCheckError, OSError):
+        return None
+    return payload
+
+
+def _d0_04_verify_activation_bundle(root: Path, payload: dict[str, Any]) -> bool:
+    """Re-verify the real activation bundle with the bootstrap consumer.
+
+    Mirrors the live checks of stage0_activate.py plus the closure-manifest
+    digest bindings; every digest is recomputed from the bundle bytes and the
+    current repo TCB files, so any post-ceremony drift fails closed.
+    """
+    consumer = _load_bootstrap_task_consumer()
+    if consumer is None:
+        return False
+    bundle_relative = payload["bundlePath"]
+    files = _d0_04_bundle_file_bytes(root, bundle_relative)
+    if files is None:
+        return False
+    try:
+        policy_bytes = files["authority-policy.json"]
+        policy, policy_ref = consumer.parse_bootstrap_authority_policy(
+            policy_bytes)
+        phase5_bytes = read_repository_regular_bytes(
+            root, root / "docs/05-test-spec.md", "docs/05-test-spec.md")
+        snapshot = consumer.BootstrapDocumentSnapshotV1(
+            "PHASE-5", "docs/05-test-spec.md", phase5_bytes)
+        required_bytes = files["required-test-set.json"]
+        _, required_ref = consumer.parse_document_bound_required_test_set(
+            required_bytes, policy_bytes, snapshot)
+
+        candidate_wire = json.loads(files["candidate.json"].decode("utf-8"))
+        candidate = consumer.parse_candidate_identity(candidate_wire)
+        if candidate.commit != payload["candidate"]:
+            return False
+
+        handoff_bytes = files["eligible-stage0-handoff.json"]
+        handoff_preflight = consumer._preflight_eligible_stage0_handoff(
+            handoff_bytes)
+        handoff = handoff_preflight.handoff
+        if handoff.authorityPolicy != policy_ref:
+            return False
+        if handoff.authorityStoreService != policy.authorityStoreService:
+            return False
+        if handoff.candidate != candidate:
+            return False
+
+        observation = json.loads(files["host-observation.json"].decode("utf-8"))
+        if (type(observation) is not dict
+                or observation.get("eligibleForHermetic") is not True):
+            return False
+        if handoff.hostObservation.digest.bytes != hashlib.sha256(
+                files["host-observation.json"]).digest():
+            return False
+
+        descriptor_wire = json.loads(
+            files["service-descriptor.json"].decode("utf-8"))
+        if (type(descriptor_wire) is not dict
+                or set(descriptor_wire) != {
+                    "schema", "id", "version", "protocol",
+                    "serviceExecutableDigest", "servicePublicKey",
+                    "namespaceId", "maximumFrameBytes"}
+                or descriptor_wire["schema"] != "proof-forge.authority-store-service.v1"
+                or descriptor_wire["protocol"] != "pf.authority-store.rpc.v1"):
+            return False
+        descriptor_digest = hashlib.sha256(
+            b"pf.authority-store-service.v1\x00"
+            + consumer.canonical_pf_jcs(descriptor_wire)).digest()
+        if policy.authorityStoreService.digest.bytes != descriptor_digest:
+            return False
+        if (policy.authorityStoreService.id != descriptor_wire["id"]
+                or policy.authorityStoreService.version
+                != descriptor_wire["version"]):
+            return False
+
+        def current_script_digest(relative: str) -> bytes:
+            return hashlib.sha256(read_repository_regular_bytes(
+                root, root / relative, relative)).digest()
+
+        service_executable = current_script_digest(
+            "scripts/stage0_store_service.py")
+        if descriptor_wire["serviceExecutableDigest"] != (
+                "sha256:" + service_executable.hex()):
+            return False
+        verifier_executable = current_script_digest("scripts/stage0_activate.py")
+        if policy.verifier.executableDigest.bytes != verifier_executable:
+            return False
+        expected_tcb = (
+            current_script_digest("scripts/verify_host_stage0.sh"),
+            policy.verifier.executableDigest.bytes,
+            current_script_digest("scripts/stage0_containment.py"),
+            current_script_digest("scripts/gate_evidence.py"),
+        )
+        actual_tcb = (
+            handoff.tcb.stage0VerifierDigest.bytes,
+            handoff.tcb.bootstrapVerifierDigest.bytes,
+            handoff.tcb.continuationDigest.bytes,
+            handoff.tcb.formalFinalizerDigest.bytes,
+        )
+        if actual_tcb != expected_tcb:
+            return False
+
+        approval_bytes: dict[str, bytes] = {}
+        receipt_bytes: dict[str, bytes] = {}
+        receipt_refs = {}
+        for task_id in D0_04_TOPOLOGICAL_TASK_IDS:
+            task_approval_bytes = files[f"approvals/{task_id.lower()}-approval.json"]
+            task_receipt_bytes = files[f"receipts/{task_id.lower()}-receipt.json"]
+            approval, _ = consumer.parse_task_approval(
+                task_approval_bytes, required_bytes, policy_bytes, snapshot)
+            receipt, receipt_ref = (
+                consumer.parse_bootstrap_task_verifier_receipt(
+                    task_receipt_bytes, task_approval_bytes, required_bytes,
+                    policy_bytes, snapshot, handoff_bytes))
+            if receipt.dependencyCompletions != approval.dependencyCompletions:
+                return False
+            for completion in approval.dependencyCompletions:
+                if receipt_refs.get(completion.taskId) != completion:
+                    return False
+            approval_bytes[task_id] = task_approval_bytes
+            receipt_bytes[task_id] = task_receipt_bytes
+            receipt_refs[receipt.taskId] = receipt_ref
+
+        set_bytes = files["bootstrap-approval-set.json"]
+        consumer.parse_bootstrap_approval_set(
+            set_bytes,
+            tuple(receipt_bytes[task_id] for task_id in D0_04_BOOTSTRAP_TASK_IDS),
+            required_bytes, policy_bytes, snapshot, handoff_bytes)
+        activation_bytes = files["activation-receipt.json"]
+        activation, activation_ref = (
+            consumer.parse_bootstrap_approval_verifier_receipt(
+                activation_bytes, set_bytes,
+                tuple(receipt_bytes[task_id]
+                      for task_id in D0_04_BOOTSTRAP_TASK_IDS),
+                required_bytes, policy_bytes, snapshot, handoff_bytes))
+        if activation.id != payload["activationReceiptId"]:
+            return False
+
+        manifest_bytes = files["closure-manifest.json"]
+        manifest = json.loads(manifest_bytes.decode("utf-8"))
+        if (type(manifest) is not dict
+                or set(manifest) != {
+                    "schema", "authorityPolicy", "requiredTestSet",
+                    "approvalSet", "stage0Handoff", "taskApprovals",
+                    "taskReceipts", "activationReceipt"}
+                or manifest["schema"]
+                != "proof-forge.stage0-activation-closure-manifest.v1"):
+            return False
+
+        def domain_digest(domain: bytes, content: bytes) -> str:
+            return "sha256:" + hashlib.sha256(domain + content).hexdigest()
+
+        def ref_matches(section: Any, domain: bytes, content: bytes,
+                        identifier: str, version: str, schema: str) -> bool:
+            return (type(section) is dict
+                    and section.get("schema") == schema
+                    and section.get("id") == identifier
+                    and section.get("version") == version
+                    and section.get("digest") == domain_digest(domain, content))
+
+        if not ref_matches(
+                manifest["authorityPolicy"],
+                b"pf.bootstrap-authority-policy.v1\x00", policy_bytes,
+                policy_ref.id, policy_ref.version, policy_ref.schema):
+            return False
+        if not ref_matches(
+                manifest["requiredTestSet"],
+                b"pf.required-test-set.v1\x00", required_bytes,
+                required_ref.id, required_ref.version, required_ref.schema):
+            return False
+        if not ref_matches(
+                manifest["approvalSet"],
+                b"pf.bootstrap-approval-set.v1\x00", set_bytes,
+                "bootstrap-approval-set", "1.0.0",
+                "proof-forge.bootstrap-approval-set.v1"):
+            return False
+        if not ref_matches(
+                manifest["stage0Handoff"],
+                b"pf.eligible-stage0-handoff.v1\x00", handoff_bytes,
+                handoff.id, handoff.version, handoff.schema):
+            return False
+        task_approvals = manifest["taskApprovals"]
+        task_receipts = manifest["taskReceipts"]
+        if (type(task_approvals) is not list or type(task_receipts) is not list
+                or len(task_approvals) != 6 or len(task_receipts) != 6):
+            return False
+        for index, task_id in enumerate(D0_04_BOOTSTRAP_TASK_IDS):
+            approval_section = task_approvals[index]
+            receipt_section = task_receipts[index]
+            receipt_wire = consumer.decode_canonical_pf_jcs(
+                receipt_bytes[task_id])
+            if (type(approval_section) is not dict
+                    or set(approval_section) != {"taskId", "digest"}
+                    or approval_section["taskId"] != task_id
+                    or approval_section["digest"] != domain_digest(
+                        b"pf.bootstrap-task-approval.v1\x00",
+                        approval_bytes[task_id])):
+                return False
+            if (type(receipt_section) is not dict
+                    or set(receipt_section) != {"taskId", "id", "digest"}
+                    or receipt_section["taskId"] != task_id
+                    or receipt_section["id"] != receipt_wire["id"]
+                    or receipt_section["digest"] != domain_digest(
+                        b"pf.bootstrap-task-verifier-receipt.v1\x00",
+                        receipt_bytes[task_id])):
+                return False
+        activation_section = manifest["activationReceipt"]
+        if (type(activation_section) is not dict
+                or set(activation_section) != {"id", "digest"}
+                or activation_section["id"] != activation.id
+                or activation_section["digest"]
+                != "sha256:" + activation_ref.digest.bytes.hex()):
+            return False
+        return hashlib.sha256(
+            manifest_bytes).hexdigest() == payload["closureManifestSha256"]
+    except Exception:
+        return False
+
+
+def d0_04_bootstrap_activation_attested(root: Path) -> bool:
+    """Return True only for a fully re-verified TASK-D0-04 activation closure."""
+    payload = _load_bootstrap_closure_attest(
+        root, D0_04_BOOTSTRAP_ACTIVATION_ATTEST_RELATIVE)
+    if payload is None:
+        return False
+    expected_fields = {
+        "schemaVersion",
+        "taskId",
+        "kind",
+        "candidate",
+        "activationReceiptId",
+        "bundlePath",
+        "closureManifestSha256",
+        "freezePackage",
+        "freezePackageSha256",
+        "stage0FormalCommand",
+        "stage0FormalResult",
+        "rehearsalCommand",
+        "rehearsalResult",
+        "docsCheckCommand",
+        "notes",
+    }
+    if set(payload) != expected_fields:
+        return False
+    exact_values: dict[str, Any] = {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-04",
+        "kind": "bootstrap-activation-closure",
+        "bundlePath": D0_04_BOOTSTRAP_ACTIVATION_BUNDLE_RELATIVE,
+        "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-04.json",
+        "stage0FormalResult": "eligible",
+        "rehearsalResult": "ok",
+        "docsCheckCommand": (
+            "/usr/bin/python3 -I -S scripts/docs_check.py --root ."),
+    }
+    for field, expected in exact_values.items():
+        if payload.get(field) != expected:
+            return False
+    candidate = payload.get("candidate")
+    if (not isinstance(candidate, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", candidate)):
+        return False
+    receipt_id = payload.get("activationReceiptId")
+    if (not isinstance(receipt_id, str)
+            or not re.fullmatch(r"BAV-[0-9]{8}-[0-9]{4}", receipt_id)):
+        return False
+    manifest_digest = payload.get("closureManifestSha256")
+    if (not isinstance(manifest_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", manifest_digest)):
+        return False
+    for field, needle in (
+        ("stage0FormalCommand", "verify_host_stage0.sh --require-eligible"),
+        ("rehearsalCommand", "bootstrap_acceptance_self_test.py"),
+    ):
+        value = payload.get(field)
+        if not isinstance(value, str) or needle not in value:
+            return False
+    notes = payload.get("notes")
+    if (not isinstance(notes, str)
+            or "not formal or hermetic evidence" not in notes):
+        return False
+    freeze_digest = payload.get("freezePackageSha256")
+    if (not isinstance(freeze_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", freeze_digest)):
+        return False
+    freeze_path = root / exact_values["freezePackage"]
+    try:
+        ensure_repository_path(root, freeze_path, str(exact_values["freezePackage"]))
+        freeze_bytes = read_repository_regular_bytes(
+            root, freeze_path, str(exact_values["freezePackage"]))
+        actual_freeze_digest = hashlib.sha256(freeze_bytes).hexdigest()
+    except (DocsCheckError, OSError):
+        return False
+    if freeze_digest != actual_freeze_digest:
+        return False
+    return _d0_04_verify_activation_bundle(root, payload)
+
+
 def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[TaskRecord],
                    evidence_records: dict[str, EvidenceRecord],
                    document_status: dict[str, str],
@@ -2416,11 +2807,13 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
         elif record.grade == "bootstrap":
             # Freeze exceptions: D0-01 pure-consumer and D0-02 package-boundary may close
             # without protected receipt lookup. GOV-PRECUTOVER-001 adds attested D0-08/D0-09.
+            # TASK-D0-04 closes only with the fully re-verified real activation bundle.
             # Other D0 trust-root tasks remain zero-closure.
             allowed = (
                 (record.task == "TASK-D0-01" and d0_01_pure_consumer_attested(root))
                 or (record.task == "TASK-D0-02" and d0_02_package_boundary_attested(root))
                 or (record.task == "TASK-D0-03" and d0_03_development_triad_attested(root))
+                or (record.task == "TASK-D0-04" and d0_04_bootstrap_activation_attested(root))
                 or (record.task == "TASK-D0-05" and d0_05_sbom_inventory_attested(root))
                 or (record.task == "TASK-D0-06"
                     and genesis_effective
