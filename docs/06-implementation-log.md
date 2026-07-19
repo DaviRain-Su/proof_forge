@@ -5637,3 +5637,44 @@ normative: false
   仍 7/9。
 - Next：当前无 active development slice。Grok 正在只读裁决 Program root model/codec与 set-level validation
   的最小边界；完成面冻结前不得开始下一份 RED，alpha/decoder/hash/NodeId/target不得顺手并入。
+
+## 2026-07-19 — D1 ProgramV1 tagged value pre-acceptance slice
+
+- Commits：D1-PA-103 freeze `c89de341`；RED `f527b8ab`；GREEN `678996d6`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 canonical root 第三段的 `Program` tagged value，不实现 root triple。本地结构规则
+  仅为 wire 明定的 items nonempty；moduleName/programIdentity、raw last-component identity join与
+  `SPEC-LANG-001` declaration-set validation全部留在后续独立边界。
+- Changed：新增 14-line `AstProgramV1`，精确持有 raw `name` 与 source-order `items` 并派生
+  `DecidableEq`/`Repr`；新增 25-line `AstProgramCodecV1`。单一 total encoder首先 exact 拒绝 empty items为
+  `program items must be nonempty`，随后按 name → `encodeArray encodeProgramItemV1` →
+  `encodeTagged "Program"`/fieldCount 2组合。items继续使用 PA102 no-wrapper bytes，无 field replay、error
+  remap、identity或 set walk。
+- Cross implementation：127-line Lean suite与 84-line standalone Python oracle各自持有三个 checked-in
+  literal goldens：state-only、state→const与 const→state。coordinator逐 label/byte对照为 3/3、零 mismatch；
+  三例固定首段 `0700000050726f6772616d` Program tag，Lean另逐例证明 Program/2 primitive composition。
+  ordered/reversed同时 byte/Eq nonalias，Program self Eq成立。empty items、single empty Struct、single UInt24
+  Const + hostile value、valid state后 second empty Struct四个 exact negatives证明 local-first、child field与
+  array source-order priority。state-only成功只证明 mechanical serializer未混入 zero-entry/view rule，不声明
+  该 value已通过完整 invariant validator。model 14、codec 25、suite 127、Python 84、registrations 5，
+  总 authored additions 255/345；机械 manifest 为 53 files。
+- Verification：RED `lake build Tests.Language.SourceAstProgramV1` 只因两个 production modules缺失失败；
+  GREEN focused build 27 jobs，`lake build proof_forge_next_tests` 344 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_program_v1.py --self-check` 输出
+  `reference_source_ast_program_v1: ok 3`；`just sbom-package-files-refresh` → 53 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行
+  完整 `just ci`。
+- Review/Evidence：Grok 的 Lean probe与 production实现分别通过；coordinator在 RED 提交前修复 test prefix
+  固定截取长度错误，并拒绝一份 shortened Python literal后完成 3/3 cross-check。GREEN 验证期间旧并行
+  dispatch产生的 Python语法残片由 independent reviewer捕获；coordinator恢复 exact committed RED oracle并
+  重跑 Python/cross-oracle/test binary/SBOM，最终 GREEN diff不含 Python。independent final audit复核 API、
+  3 goldens、composition、四 negatives、manifest与排除面，P0/P1/P2=0。development evidence 为
+  `EV-20260719-0101`。
+- Limitations：没有 canonical root triple、module/program identity count/prefix/name join、duplicate/
+  zero-entry-view/multiple-init/proof-invariant set validation、theorem/visibility alpha adapter、decoder、global
+  depth/node/16-MiB validator、sourceHash、NodeId、stable Diagnostic、Common/ProgramPayload或 target。spec仍
+  proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何
+  下游 task。D0 formal milestone仍 7/9。
+- Next：当前无 active development slice。Grok 正在只读裁决 canonical root triple与 raw identity join 的
+  最小闭合面；完成面冻结前不得开始下一份 RED，LANG set validation/alpha/decoder/hash/NodeId/target不得并入。
