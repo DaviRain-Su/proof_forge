@@ -4323,3 +4323,42 @@ normative: false
   先核对 `git status`。
 - Next：D0-07 第二切片——finalization producer（构造/签名/publish no-clobber
   receipt-last）与 support-binding producer（`proof-forge.support-evidence-binding.v1`）。
+## 2026-07-19 — D1 exact Array Option Bytes spelling pre-acceptance slice
+
+- Commits：freeze `d80e2aeb`；tests-only RED `5a1b21d3`；Syntax/GREEN、canonical binding 与 Lean
+  package-file re-pin `f5bfd28b`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-72 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。冻结只为 exact
+  `Array Option Bytes N M` supersede PA59 的 Bytes-element exclusion、PA60/61/62/68/69 的相关 broad
+  residual 与 PA71 明示保留的 negative；其他 compound type 与任意 recursive grammar 继续 fail closed。
+- Changed：为既有 `Source/Semantic.ValueType.array (.option (.bytes innerLength)) outerLength` 开放
+  exact same-line spelling；新增 named `arrayOptionBytesType` 与 aggregate-field parser，decoder 精确复用
+  closed `decodeArrayBytesValueTypeFromAtoms` 后只为 element 包一层 Option，两个专用 dispatch 均位于
+  generic `arrayOptionType`/aggregate parser 前。Source/Semantic ctor、encoder、Typed 与 target 未改；
+  production `Syntax.lean` 恰好 27 行新增/0 行移除。
+- Migration/Coverage：只迁移既有 `Array Option Bytes 8 4` negative 一条；覆盖 dual lengths
+  `0/0`、`8/4`、`4096/1`、state/struct/enum/const/init/entry/view/fn/event/error 与双入口 parity。
+  两个长度轴的 over-bound/leading-zero/hex/underscore、missing/negative/extra/split、escaped/qualified
+  constructors 及 Field/Array/Option/Map/Named residual 均 fail closed。requirements 精确为空，四 target
+  support 均通过；state/result/parameter fixtures 分别由 target-owned Plan invariant 拒绝，所有路径无 artifact。
+- Canonical：tag 固定 `18→16→17→innerLength→outerLength`。三组 Source goldens 均 265 bytes，hash
+  依次为 `f581d48f1ad258e6048775ff5e49d616da749e0ec14f940d38ecd52023031917`、
+  `b6724eb9c3639b7f829396e0c2541ce529c8124580b3bcd909449a268585ec8b`、
+  `3d55918eaaa9e53941e06aeb29ff143d7c2f0370f34befb0fcc5cbdc147f0e13`；Semantic goldens 均
+  214 bytes，hash 依次为 `d8b17bcd41e856d3198931c1108cd935a52a57c128ae0185ccd5b704e0867477`、
+  `2a91d6123521921650b3df5367f6be2a7276c4b5a43e0febbb28366e8495bade`、
+  `de7da383f867606102e4fc30cd50136de345ff39fc75e4ffa2d614b0559ded59`。Source/Semantic 两侧均
+  固定 wrapper/leaf、三 candidates pairwise、inner-only、outer-only 与 swapped-order canonical non-alias。
+- Verification：`lake build Tests.Language.ArrayTypes` 23 jobs；`lake build proof_forge_next_tests`
+  192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0/9.7 s；`just sbom`（含 closure
+  self-test）与 `git diff --check` 通过。Syntax package pin 为 88229 bytes、SHA-256
+  `9b399271fd6a1cfa380a1bd61ddd30e4063c6399a677b6eba3ceb3d5f0b08392`；Kimi 与 coordinator
+  最终复核均 P0=0/P1=0，Kimi 的 P2 仅为冻结面外、未纳入提交的 `.gitignore` 工作区修改；development
+  evidence 为 `EV-20260719-0068`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、zero requirements 与
+  support-vs-Plan boundary；不包括 bytes/array/option value operations、none/some/unwrap、任意 recursive
+  grammar、runtime/ABI、target Array-Option-Bytes implementation 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；两路 post-PA-72 residual audit 分别推荐 exact
+  `Option Option Option Field bn254_fr` 与 `Array Option Array PrimitiveAtom N M`，必须先做 bounded
+  arbitration；尚未冻结下一 slice，禁止由 checkpoint 自动递增。
