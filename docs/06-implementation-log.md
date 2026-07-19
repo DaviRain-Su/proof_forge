@@ -5522,3 +5522,41 @@ normative: false
 - Next：当前无 active development slice。候选 PA100 仅为同一 shipped SCC 的完整 25-tag total codec；
   必须先冻结 exact errors/priority、manual SCC Option/Array totality、golden/Python matrix与预算，禁止并入
   body-bearing ProgramItem 或 root。
+
+## 2026-07-19 — D1 ProgramV1 mutual-spine codec pre-acceptance slice
+
+- Commits：D1-PA-100 freeze `fdcf9bfe`；RED `3abb82ee`；GREEN `ae5b2bb1`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只为 PA99 已发布的七类型 SCC 实现 proposed `SPEC-SOURCE-WIRE-001` 的完整
+  25-tag canonical codec；不修改 model/equality，也不引入 Const/Invariant/Init/Entry/View/Fn、
+  ProgramItem sum/root、alpha、decoder、global validator、sourceHash、NodeId 或 target。
+- Changed：新增 217-line `AstSpineCodecV1`；七个 public encoder 与八个 private Array/List helper 位于
+  同一 kernel-total mutual family。Place 3、Expr 7、Stmt 11 及 Block/两种 arm/ExternalCall 四个 record
+  的 25/25 tags、field count 与左到右 field order逐字匹配 wire table。recursive Array 先产生 ordered
+  chunks，再唯一复用 `encodeArray pure`；If/Return 的 SCC Option 手工编码 `0x00`/`0x01 || child`，Let/
+  Assert 的非 SCC Option 复用 `encodeOption`。Block/两种 Match/For 四个 local check 先于任意 child；
+  Constructor/ExternalCall 均先 QID 后 args，child errors 原样传播。无 partial、unsafe 或 fuel。
+- Cross implementation：232-line Lean suite持有 37 个 fixed expected-byte assertions，覆盖七个 public API、
+  25 tags、四个 Option site、Constructor/Block order nonalias 与 10 个 exact negative/priority cases；181-line
+  不 import Lean/ProofForge 的 Python oracle持有 36 个 unique goldens、13 个 negatives与两组 nonalias。
+  coordinator 对 37 个 Lean assertions 与 Python logical-label mapping 做逐字节对照，零 missing/extra/
+  mismatch。codec 217、suite 232、Python 181、registrations 4，总 authored additions 634/818；机械
+  manifest 为 47 files。
+- Verification：RED `lake build Tests.Language.SourceAstSpineCodecV1` 只因 production module缺失失败；
+  GREEN focused build 16 jobs，`lake build proof_forge_next_tests` 326 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `python3 -B scripts/reference_source_ast_spine_v1.py --self-check` 输出
+  `reference_source_ast_spine_v1: ok 36`；`just sbom-package-files-refresh` → 47 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。一次未带
+  `lake env` 的直接二进制运行按预期因缺 Lean search path 返回 `unknown module prefix 'ProofForgeV2'`，
+  使用规定入口后通过。GREEN 内删除一个未使用 `foo-bar` local binding以消除 linter warning，未改变
+  fixture、assertion 或 golden 集合。按冻结未运行完整 `just ci`。
+- Review/Evidence：Grok 实现与 focused build通过；Kimi 对单一 mutual family、25 tags/order、Array/
+  Option totality、四个 local error priority、两条 QID-first path、child propagation与 scope逐行独立审查，
+  P0/P1/P2=0。development evidence 为 `EV-20260719-0098`。
+- Limitations：没有 body-bearing declarations、ProgramItem sum/root、theorem/visibility alpha adapter、
+  decoder、full-tree 256 nesting/100000 nodes/16 MiB validator、binding/duplicate/global semantics、
+  sourceHash、NodeId、stable Diagnostic 或 target。spec 仍 proposed，D0 dependencies/candidate-bound formal
+  evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在只读裁决 remaining body-bearing declaration
+  records 的最小闭合面；完成面冻结前不得开始下一份 RED，ProgramItem/root 与其他边界不得顺手并入。
