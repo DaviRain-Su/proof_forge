@@ -6684,3 +6684,30 @@ normative: false
 - Next：当前无active development slice。按用户裁决，下一步先冻结ProgramV1单轨cutover contract，裁决
   structured call、module/program identity、export schema、private one-way Typed lowering与legacy删除门槛；
   不得自动继续下一decoder family，也不得在无冻结包时修改alpha/frontend代码。
+
+## 2026-07-19 — D1 validated ProgramV1 source boundary pre-acceptance slice
+
+- Commits：D1-PA-108 freeze `3797644`；RED `6bfd946`；GREEN `04ad572`。TASK-D1-01
+  pending-prep package继续为`ee1cbc8d`，正式task状态未改变。
+- Authority：本切片只建立`ValidatedSourceV1`产品边界。private constructor保证raw triple只有依次通过
+  canonical root的identity/name/codec-local检查与22-rule declaration-set检查后才能进入publish/hash API；
+  unit只保存moduleName、programIdentity与ProgramV1，不缓存bytes/hash，也不接触NodeId。
+- Changed：新增37-line production module；`validateSourceV1`先调用既有root encoder再调用set validator，
+  `canonicalValidatedSourceAstBytesV1`只接受validated unit，`sourceHashV1`精确计算
+  `domainSeparatedSha256 "pf.source.v1" canonicalBytes`。Lean suite增加66行，standalone Python oracle
+  增加18行，umbrella registration 1行，总authored additions 122/292；机械manifest为59 files。
+- Cross implementation：Lean与Python共同固定State→Entry valid unit的195-byte canonical literal与
+  `sha256:bdad32dda5c3aa2862acc50855a7908a96745b493e58e6b06ecce1d31cdc6ec9`；module、
+  program identity/name及item order三个合法twins均bytes/hash不相等。Lean另固定三个projection、Common
+  Digest 32-byte/render/parse roundtrip、wrong-prefix/name、empty-block、zero-entry/view、duplicate-state与
+  local-shape-before-set exact failures；Python输出`reference_source_ast_canonical_root_v1: ok 4 1`。
+- Verification：RED focused build只因冻结的新production module缺失失败；GREEN focused 30 jobs、aggregate
+  364 jobs与test binary全绿；Python、59-file package refresh、最终SBOM self-test/generate/verify/closure、
+  完整docs-check recipe（191 mutations）与`git diff --check`全绿。按冻结未运行完整`just ci`。
+- Review/Evidence：independent review发现唯一Digest parse roundtrip覆盖缺口，补齐并重跑focused/aggregate/
+  binary后复审Approve，P0/P1/P2=0。development evidence为`EV-20260719-0120`。
+- Limitations：没有parser/Syntax、Loader/CLI、ProgramExport/ProgramPayload、legacy adapter、Typed/Semantic、
+  full Program decoder、NodeId、stable Diagnostic或target；ADR仍proposed，D0 dependencies/candidate-bound
+  formal evidence未齐，不能关闭pending `TASK-D1-01`或任何下游task，D0 formal milestone仍8/9。
+- Next：当前无active development slice。下一步只读审计private one-way ProgramV1→legacy Typed input
+  lowering的最小闭合面与删除门槛，先冻结再RED；该seam闭合前不得修改shared frontend cutover。
