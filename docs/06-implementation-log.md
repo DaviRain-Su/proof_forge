@@ -5183,3 +5183,57 @@ normative: false
 - Next：S8——把 S7 harness 的 stage evidence 接入 S5 rehearsal 的
   authority chain（fixture finalization over clean-room outputs）或将
   supervised containment 扩展到每 stage，同型 RED-then-GREEN。
+
+## 2026-07-19 — TASK-D0-07 slice S8：genesis §5 trust-upgrade replay
+
+- Context：GOV-GENESIS-001 §5 要求 D0-07 的 doneWhen 包含在 eligible host
+  上重放全部冻结 genesis TST（GOV-PRECUTOVER-001 §4.1 增加 TST-HOST-002
+  与 TST-SBOM-002）。本切片交付可重复执行的 replay harness：committed
+  manifest + runner + recipe + 真实重放证据。任一红 leg 即整 run 失败
+  （对应 genesis 关闭记录 superseded-by-finding + P1 finding 的治理后果）。
+- Changed：`docs/governance/genesis-replay.v1.json`（新 committed
+  manifest：九个 TST 的精确 linux-runnable closing command 与 mapping
+  note——TST-HOST-001 的 darwin formal-ineligible legs 记为
+  GOV-PRECUTOVER-001 §2.1 P2 darwin live 重观察债务并说明 linux 侧的
+  development/eligible observation 与 negative lane 覆盖关系，不静默跳
+  过；TST-HOST-002 的 ubuntu CI lane 记为 CI-only；TST-EVIDENCE-001 的
+  TMPDIR/umask 敏感性记录）；`scripts/genesis_replay.py`（stdlib-only：
+  manifest 校验（frozen TST 集合、唯一性、ownership、非空 argv）、权威
+  `env -i` 单次 Stage-0 起始（eligible 证明）、逐 leg bounded
+  subprocess（`just`/`lake` 经调用方 PATH 解析为绝对路径、child env 仅
+  PATH/LC_ALL/TZ/HOME/XDG_CACHE_HOME/TMPDIR、TMPDIR 落 user-cache 链
+  （~/dev 为 775 时 evidence-core publisher 的 component 检查会拒绝）、
+  umask 0022 先于任何 mkdir、log 原子 0400、幂等重写）、
+  `proof-forge.genesis-replay-report.v1` 报告（runUtc/hostProfileId/
+  legs[commands exit/logSha256/durationMs/status]/overallStatus）；
+  `PF-GENESIS-REPLAY-{MANIFEST,STAGE0,IO,FAILED}` 错误族）；
+  `scripts/genesis_replay_self_test.py`（11 例快速单测 + 一个真实
+  docs_check smoke leg）；justfile 新增 `genesis-replay` recipe 并接入
+  `docs-check`。
+- Verification：全量真实重放（`just genesis-replay`，report
+  `build/genesis-replay/report-20260719T144124Z.json`）：**20/21 command
+  legs green**——TST-DOC-001、TST-EVIDENCE-001（修复 TMPDIR/umask 后）、
+  TST-HOST-001、TST-TOOL-001、TST-SBOM-001、TST-COMMON-001、TST-HOST-002
+  （含 negative lane 与 --require-eligible）、TST-SBOM-002 全绿；唯一红
+  leg 为 TST-ISO-001 的 `just v2-isolation`：其 closing gate 按设计拒绝
+  未提交树（"product tree must be committed before archive isolation
+  runs"），本 slice 未提交所致；该 gate 已在本会话已提交树上实测通过
+  （96s rc=0）。S8 提交后重跑 `just genesis-replay` 即得全绿报告——
+  closure 证据本就需要 post-commit run（report 绑定 candidate commit）。
+  环境修复（git 不可见）：checkout 的 umask 002 造成全树文件/目录
+  group-writable，evidence-core 的 stable-source-profile 纪律要求非
+  group-writable 源，已对 repo 文件与目录做 `go-w` 规范化（字节不变、
+  git 只跟踪 x 位）。`just docs-check` 全绿（21 个自测）；
+  `git diff --check` clean；`/usr/bin/python3 -I -S scripts/docs_check.py`
+  ok。development evidence 见台账 `EV-20260719-0083`。
+- Limitations：重放报告为 development 级证据（非 formal/hermetic）；
+  `just v2-isolation` 的全绿需 post-commit 重跑（设计使然，非缺陷）；
+  TST-HOST-001/002 的 darwin legs 属 P2 darwin 重观察债务（owner=quality，
+  截止 D0-07 关闭前）；权威 Stage-0 的 300s watchdog 竞态属钉住 TCB 脚本
+  既有行为（本次重放三次命中）；genesis §5 的补票链（六项 approval +
+  receipt + activation）已由 D0-04 真实 activation 履行，本切片只覆盖
+  TST 重放面；不能关闭 in_progress `TASK-D0-07`；D0 formal milestone
+  仍为 8/9。
+- Next：剩余 D0-07 面：darwin live 重观察（P2）、D0-03 递延 P2 两项
+  （TST-TOOL-001 timeout 腿、TST-HOST-001 环境/lock mutation negatives）、
+  post-commit 全绿重放 + doneWhen 对齐复核。

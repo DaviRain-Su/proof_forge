@@ -39,6 +39,7 @@ docs-check:
     /usr/bin/python3 -I -S scripts/formal_evidence_acceptance_self_test.py
     /usr/bin/python3 -I -S scripts/sandbox_bwrap_self_test.py
     /usr/bin/python3 -I -S scripts/formal_clean_room_self_test.py
+    /usr/bin/python3 -I -S scripts/genesis_replay_self_test.py
     /usr/bin/python3 -I -S scripts/bootstrap_ceremony_prep_self_test.py
 
 # TASK-D0-05 / TST-SBOM-001: deterministic license inventory + CycloneDX 1.6.
@@ -616,3 +617,8 @@ v2-clean-room-alpha:
 # fixture formal EV.  Fixture keys only; not formal or hermetic evidence.
 v2-clean-room:
     /usr/bin/python3 -I -S scripts/formal_clean_room.py
+
+# GOV-GENESIS-001 §5 trust-upgrade: replay every frozen genesis TST on the
+# eligible host and write a proof-forge.genesis-replay-report.v1 report.
+genesis-replay:
+    /usr/bin/python3 -I -S scripts/genesis_replay.py --manifest docs/governance/genesis-replay.v1.json --output build/genesis-replay

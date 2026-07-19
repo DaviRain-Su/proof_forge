@@ -1,0 +1,112 @@
+{
+  "schema": "proof-forge.genesis-replay-manifest.v1",
+  "version": "1.0.0",
+  "governance": {
+    "trustUpgrade": "GOV-GENESIS-001 §5 (eligible-host replay of all frozen genesis TSTs)",
+    "preCutover": "GOV-PRECUTOVER-001 §4.1 (adds TST-HOST-002 and TST-SBOM-002)"
+  },
+  "environment": {
+    "umask": "0022",
+    "tmpdirMode": "0700",
+    "note": "The development evidence-core self-tests reject group/world-writable parent directories (stable-source-profile discipline). On linux /tmp is 1777 and the default umask may be 002, so every leg runs with TMPDIR=<private 0700> and umask 0022; repo sources must not be group-writable."
+  },
+  "legs": [
+    {
+      "tstId": "TST-DOC-001",
+      "taskId": "TASK-D0-01",
+      "closingGate": "docs status/ID/link/trace/task→TST→EV/checkpoint checker (D0-01 output; EV-20260717-0028)",
+      "commands": [
+        ["/usr/bin/python3", "-I", "-S", "scripts/docs_check.py", "--root", "."],
+        ["/usr/bin/python3", "-I", "-S", "scripts/docs_check_self_test.py"]
+      ],
+      "mappingNotes": []
+    },
+    {
+      "tstId": "TST-ISO-001",
+      "taskId": "TASK-D0-02",
+      "closingGate": "independent Lake package/namespace/exe isolation (D0-02 doneWhen: just v2-isolation from the frozen product archive; EV-20260717-0030)",
+      "commands": [
+        ["/usr/bin/python3", "-I", "-S", "-B", "scripts/v2_isolation_self_test.py"],
+        ["just", "v2-isolation"]
+      ],
+      "mappingNotes": []
+    },
+    {
+      "tstId": "TST-EVIDENCE-001",
+      "taskId": "TASK-D0-03",
+      "closingGate": "development evidence schema/bundle/catalog finalization (D0-03 doneWhen: gate_evidence self-test; EV-20260717-0031)",
+      "commands": [
+        ["/usr/bin/python3", "-I", "-S", "scripts/gate_evidence.py", "self-test"],
+        ["/usr/bin/python3", "-I", "-S", "scripts/gate_evidence_finalization_self_test.py"]
+      ],
+      "mappingNotes": [
+        "These self-tests reject group/world-writable parents; on linux they require TMPDIR=<private 0700> and umask 0022 (darwin's per-user TMPDIR and umask 022 satisfy this implicitly)."
+      ]
+    },
+    {
+      "tstId": "TST-HOST-001",
+      "taskId": "TASK-D0-03",
+      "closingGate": "Stage-0 host attestation development observation (D0-03 doneWhen: host Stage-0 development observation succeeds with formal-ineligible fail-closed; EV-20260717-0031)",
+      "commands": [
+        ["/usr/bin/env", "-i", "HOME=/var/empty", "PATH=/usr/bin:/bin", "LC_ALL=C", "TZ=UTC", "/bin/bash", "--noprofile", "--norc", "scripts/verify_host_stage0.sh", "--allow-ineligible-development"]
+      ],
+      "mappingNotes": [
+        "The darwin formal-ineligible fail-closed legs are darwin-only (Apple host re-observation); they are covered by the GOV-PRECUTOVER-001 §2.1 P2 darwin live re-observation debt (owner=quality, due before TASK-D0-07 closes) and are not silently skipped here. On this linux eligible host the development observation passes and the eligible formal observation passes via the TST-HOST-002 leg (--require-eligible); the formal-ineligible-fail-closed semantic itself is exercised by the TST-HOST-002 negative lane (just host-stage0-negative)."
+      ]
+    },
+    {
+      "tstId": "TST-TOOL-001",
+      "taskId": "TASK-D0-03",
+      "closingGate": "exact tool version/checksum/closure (D0-03 doneWhen: toolchain_assets self-test; EV-20260717-0031)",
+      "commands": [
+        ["/usr/bin/python3", "-I", "-S", "scripts/toolchain_assets.py", "self-test"]
+      ],
+      "mappingNotes": []
+    },
+    {
+      "tstId": "TST-SBOM-001",
+      "taskId": "TASK-D0-05",
+      "closingGate": "license inventory + CycloneDX 1.6 deterministic generation (D0-05 doneWhen: sbom_self_test + just sbom; EV-20260717-0033)",
+      "commands": [
+        ["/usr/bin/python3", "-I", "-S", "scripts/sbom_self_test.py"],
+        ["just", "sbom"]
+      ],
+      "mappingNotes": []
+    },
+    {
+      "tstId": "TST-COMMON-001",
+      "taskId": "TASK-D0-06",
+      "closingGate": "common scalar parsers/canonical encoders/domain hashes unit acceptance (D0-06 doneWhen: TST-COMMON-001 unit acceptance + focused Lean builds; EV-20260717-0035)",
+      "commands": [
+        ["lake", "build", "ProofForgeV2.Core.Common", "proof_forge_next_tests"],
+        ["lake", "exe", "proof_forge_next_tests"],
+        ["/usr/bin/python3", "-I", "-S", "scripts/docs_check.py", "--root", "."]
+      ],
+      "mappingNotes": []
+    },
+    {
+      "tstId": "TST-HOST-002",
+      "taskId": "TASK-D0-09",
+      "closingGate": "linux host profile schema v2/lock v3/Stage-0 linux branch (D0-09 doneWhen; GOV-PRECUTOVER-001 §4.1; EV-20260719-0072)",
+      "commands": [
+        ["/usr/bin/python3", "-I", "-S", "scripts/host_profiles_self_test.py"],
+        ["/usr/bin/python3", "-I", "-S", "scripts/toolchain_assets.py", "validate"],
+        ["just", "host-stage0-negative"],
+        ["/usr/bin/env", "-i", "HOME=/var/empty", "PATH=/usr/bin:/bin", "LC_ALL=C", "TZ=UTC", "/bin/bash", "--noprofile", "--norc", "scripts/verify_host_stage0.sh", "--require-eligible"]
+      ],
+      "mappingNotes": [
+        "The ubuntu CI lane leg (generator emits an ineligible development profile on ubuntu) is CI-only and cannot run on this host; its semantics are covered by the host_profiles_self_test negative matrix and just host-stage0-negative. The darwin regression legs (toolchains-validate / host-stage0-development on mac) are covered by the same P2 darwin debt as TST-HOST-001."
+      ]
+    },
+    {
+      "tstId": "TST-SBOM-002",
+      "taskId": "TASK-D0-08",
+      "closingGate": "SBOM↔toolchains.lock closure recompute + sidecar byte-identical (D0-08 doneWhen: TST-SBOM-002 full matrix; EV-20260718-0043)",
+      "commands": [
+        ["/usr/bin/python3", "-I", "-S", "scripts/sbom_closure_self_test.py"],
+        ["just", "sbom"]
+      ],
+      "mappingNotes": []
+    }
+  ]
+}
