@@ -2489,9 +2489,10 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Lean RED与不import Lean/ProofForge或前序reference脚本的standalone Python oracle使用同一固定inventory：
   27个PA95 checked-in wire literals逐一decode为exact value、重新encode回同一bytes并`finish`；每个nullary tag
   有fieldCount=1 negative，每个Literal tag各有fieldCount=0/2 negatives，共30；四个canonical sibling tag
-  分别送入错误family且故意省略fieldCount，证明unknown-before-count。另固定14个边界：empty/22-byte/
-  truncated/invalid-UTF-8/non-ASCII tag，Bool marker 2、truncated u256、String length over remaining/NFD、
-  trailing byte与四family nonalias。LogicalOr与BitOr必须保持value/bytes nonalias。Python self-check成功输出
+  分别送入错误family且故意省略fieldCount，证明unknown-before-count；这四例同时就是14个boundary中的
+  four-family nonalias，不另增加测试数。其余10个boundary为empty/22-byte/truncated/invalid-UTF-8/non-ASCII
+  tag，Bool marker 2、truncated u256、String length over remaining/NFD与trailing byte。LogicalOr与BitOr必须
+  保持value/bytes nonalias。Python self-check成功输出
   `reference_source_ast_scalar_decode_v1: ok 27 30 14`。
 
   变更文件集：新增`ProofForgeV2/Source/AstScalarDecodeV1.lean`、
