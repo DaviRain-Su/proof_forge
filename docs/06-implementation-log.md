@@ -4362,3 +4362,42 @@ normative: false
 - Next：当前无 active development slice；两路 post-PA-72 residual audit 分别推荐 exact
   `Option Option Option Field bn254_fr` 与 `Array Option Array PrimitiveAtom N M`，必须先做 bounded
   arbitration；尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact triple Option Field spelling pre-acceptance slice
+
+- Commits：freeze `b936076d`；tests-only RED `98220833`；empirical error-channel spec correction
+  `6a6ced82`；Syntax/GREEN、canonical binding 与 Lean package-file re-pin `545c4b7e`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-73 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。bounded arbitration 只选择
+  exact `Option Option Option Field bn254_fr`，其他 compound type 与任意 recursive grammar 继续
+  fail closed。
+- Changed：为既有 `Source/Semantic.ValueType.option (.option (.option .field))` 开放 exact same-line
+  spelling；新增 named type/aggregate-field parser，专用 decoder 复用 closed
+  `decodeNestedOptionFieldValueTypeFromAtoms` 后只包一层 Option，两个专用 dispatch 均位于 generic
+  triple-Option 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；production `Syntax.lean`
+  恰好 26 行新增/0 行移除。
+- Migration/Coverage：只迁移既有 `Option Option Option Field bn254_fr` negative 一条；覆盖
+  state/struct/enum/const/init/entry/view/fn/event/error 与双入口 parity。incomplete spelling、alternate/
+  escaped/qualified Field identifier、extra payload、换行 seam、escaped/qualified constructor 与其他
+  compound residual 均 fail closed。实测第三个 Option 后换行及 escaped/qualified 第三个 Option 由
+  decoder 返回 exact `unsupported portable type`，其余冻结 parser 边界保持 parser rejection；该事实在
+  GREEN 前由 `6a6ced82` 同步回规格。requirements 精确为单个 `fieldBn254`；四个 Phase 1 target 的
+  `checkSupport` 与 `materializeResult` 均在 Plan dispatch 前返回 exact named rejection，因此无 Plan、
+  OutputSet 或 artifact。
+- Canonical：tag 固定 `16→16→16→2`。Source golden 为 245 bytes、
+  `85c34b3dd740b76b06ee4061b32105c0067e6c53da11bb44e1c89139331eeb87`；Semantic golden 为
+  195 bytes、`f3e03abd85c77362313c72f789d3bb36c40ee9e4fed6aeff80eba8b31695f223`。Source/Semantic
+  两侧的 bytes 与 hash 均对 bare Field、single/double Option Field、triple Option UInt64/Bool
+  五组 controls non-alias。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；
+  `just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package pin 为
+  89794 bytes、SHA-256 `09cc60143e0041893abb25acef37db62c098e55840ff11442702a8ed6513670d`；
+  两路独立 final review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0070`。按冻结
+  未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
+  requirement 与 support-rejection/no-artifact boundary；不包括 Option/Field value operations、任意
+  recursive grammar、runtime/ABI、target Field support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；先做 post-PA-73 residual audit 与 bounded arbitration，
+  尚未冻结下一 slice，禁止由 checkpoint 自动递增。
