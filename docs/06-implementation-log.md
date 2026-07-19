@@ -5013,3 +5013,48 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice。post-PA84 residual/authority audit 必须先判断 D1-05 是否仍有
   dependency-safe 必需 seam，再冻结单一下一切片；禁止自动递增。
+
+## 2026-07-19 — D1 export payload short-name binding pre-acceptance slice
+
+- Commits：freeze `bce351f4`；non-`Name.str` exact diagnostic pin `bc180f56`；tests-only RED
+  `2f7f916b`；aggregate-only test command collision correction `3f435a67`；short-name binding/GREEN 与
+  Lean package-file re-pin `91d31880`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-85 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。post-PA84 audit 证明 full FQN 已绑定时 hand direct `Program.mk` 仍可独立伪造 `program.name`；
+  因此留在 D1-05 关闭该真实字段完整性缺口，不越过 formal dependency 提前进入 D1-06。
+- Name rendering：DSL short name 来自 identifier `getId.toString`；declaration final `Name.str` 保存 raw
+  component。Lean 4.31 probe 固定 expected short name 为
+  `(Name.str .anonymous rawComponent).toString`，而不是 raw component 或 full FQN dot split，因此
+  `«hyphen-prog»` 与 `«dot.prog»` 合法通过。非 `Name.str` final declaration 与 value mismatch 均稳定返回
+  `PF-EXPORT-001: exported program short name does not match declaration`；不使用 `Name.getString!`。
+- Changed/Priority：新增 private `checkProgramShortName`。single API 顺序为 registered→PA82 decode→
+  PA84 FQN binding→PA85 short-name binding；table 为全部 PA82 decode→PA83 collision scan→逐 row PA84→
+  PA85。invalid form 继续优先 `PF-EXPORT-004`，PA83 collision 与 PA84 qname mismatch 继续优先于
+  short-name mismatch；empty registry 仍返回 empty table，不新增 public API。
+- RED/Fixtures：178/180 additions。positive 固定 simple、escaped hyphen、escaped dot DSL program 与
+  exact-aligned hand direct row；isolated one-liar `Mismatch` 的 combined command 在判定前同时求值
+  `programPayload`/`programPayloads`，RED 输出逐行证明两者均仍为 `ok`，GREEN 后捕获两个 exact
+  diagnostic；Priority004 以 later constant alias 固定 decode-all 004。PA83/PA84 fixtures 零修改。
+- Integration correction：首次 aggregate build 揭示 PA85 Snapshot helper command
+  `#expect_payloads_prefix` 与 PA84 helper 同名；`3f435a67` 只将 PA85 helper/call site 改为唯一
+  `#expect_short_payloads_prefix`，不改变 assertion set、生产面或冻结完成条件。修正后 aggregate 全绿。
+- Verification：pre-GREEN Positive/Priority004 14 jobs 通过，Mismatch 唯一 RED 同时输出 single/table
+  两行 expected short-name failure；GREEN 后 `lake build Tests.Language.ProgramShortNames
+  Tests.Language.ProgramBindings Tests.Language.ProgramIdentities` 28 jobs；`lake build
+  proof_forge_next_tests` 264 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom`
+  self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。ProgramPayload 为
+  468/480 行、21248 bytes、SHA-256
+  `956b25ca159f0c1ba31b6e57dff00d062602819803cff81d582eb4fc6df74a9d`；manifest exact 覆盖
+  32 个 product Lean files。按冻结未重复完整 `just ci`。
+- Review/Evidence：Grok name-rendering probe 与 freeze review P0=0；Kimi authority challenge 接受该
+  D1-05 seam，non-`Name.str` P1 已由 `bc180f56` 在 RED 前钉死；Grok product-only final re-review
+  P0=0/P1=0、commit-ready。development evidence 为 `EV-20260719-0083`。
+- Scope claim：只完成 payload short name 与 rendered final declaration component 的 exact binding、
+  escaped-name correctness 及 PA82/83/84 error priority compatibility；不包括 source-program wire
+  moduleName/programIdentity carrier、NodeId/origin、schema-v2、`PF-EXPORT-002/003`、CLI/Loader、target/
+  worker 或正式 `TST-SRC-006/007` closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。PA81–PA85 已使 Lean
+  attribute export/schema 代码侧 pre-acceptance micro-seam 饱和，禁止继续发明 identity 微检查。
+- Next：当前无 active development slice。下一步只允许审计正式 `TST-SRC-006/007` evidence packaging
+  需要的既有多模块 acceptance/golden 与 close/split/block 条件；D1-06 仍服从 formal task dependency。

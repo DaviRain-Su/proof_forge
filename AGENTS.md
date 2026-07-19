@@ -17,8 +17,8 @@
 | Formal milestone | **D0：7/9 done**；`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级），`TASK-D0-04` blocked，`TASK-D0-07` pending；尚未正式进入 D1 |
 | Active task | 无；当前没有可合法置为 `in_progress` 的正式 TASK |
 | Next task | **TASK-D0-04**（blocked；仍是表序中的下一个非 done 正式任务） |
-| Active development slice | **D1-PA-85 / TASK-D1-05 pre-acceptance**：payload short name 与 export declaration 最后一个 rendered `Name.str` component exact binding；完成面已冻结，下一步提交 tests-only RED；正式 `TASK-D1-05` 仍为 pending |
-| Next development slice | 未冻结；D1-PA-85 收口后 Lean attribute export/schema 代码侧 pre-acceptance 饱和，下一步只能审计正式 `TST-SRC-006/007` evidence packaging；禁止自动递增微切片或提前进入 D1-06 |
+| Active development slice | 无；**D1-PA-85 / TASK-D1-05 pre-acceptance** payload short-name/export declaration binding 已以 `EV-20260719-0083` 收口；Lean attribute export/schema 代码侧 pre-acceptance 已饱和，正式 `TASK-D1-05` 仍为 pending |
+| Next development slice | 未冻结；下一步只审计正式 `TST-SRC-006/007` evidence packaging 与 task-authority close/split/block 条件；禁止自动递增 identity 微切片或提前进入依赖它的 D1-06 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | **TASK-D0-04** 仓库内 foundation 已齐（对象族/producer/authority-store/handoff producer/bwrap containment/TST-BOOTSTRAP-001 rehearsal 全绿，`EV-20260718-0054`…`EV-20260718-0062`），剩余为外部前置：eligible host（本机 SecureBoot disabled，须 BIOS 启用后重登记 linux profile）+ genesis root 离线签发首个 BootstrapAuthorityPolicyV1 + 真实 six-item activation；D0-08/D0-09 已经 `GOV-PRECUTOVER-001` 关闭，darwin live 重观察为 P2 债务（截止 D0-07 关闭前）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
