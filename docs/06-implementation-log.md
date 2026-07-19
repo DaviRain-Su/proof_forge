@@ -5052,3 +5052,68 @@ normative: false
 - Next：S6——TST-ISO-002 bwrap stage 引擎（ADR-0018 §2：
   `scripts/sandbox_bwrap.py` profile renderer+launcher+receipt publisher，
   per-stage materialize/core/evm-runtime profile），同型 RED-then-GREEN。
+
+## 2026-07-19 — TASK-D0-07 slice S6：bwrap stage 引擎（ADR-0018 §2）
+
+- Context：ADR-0018 §2 把 linux stage 引擎定为 bubblewrap profile 引擎
+  （darwin SBPL 引擎与既有 wire 逐字节不变）。冻结包 in_scope 要求
+  materialize/core deny-all-network、runtime exact-local-port 的后续形态、
+  read/write/exec negatives、closed FD/stdin EOF/output cap/timeout 与
+  engine-neutral invocation receipt。本切片交付引擎本体；catalog locks/
+  renderer 全链接入归后续 TST-ISO-002 集成切片。
+- Changed：新模块 `scripts/sandbox_bwrap.py` 交付
+  `render_stage_profile`（封闭 `proof-forge.bwrap-stage-profile.v1` wire：
+  stage/networkMode/unshareUser/binds/tmpfs/env/workdir；binds 恒 readOnly
+  且源必须存在、dest 绝对规范化、按 dest 唯一升序；env 唯一升序；
+  unknown stage/相对 dest/可写 bind 即 `PF-SANDBOX-BWRAP-SCHEMA`，缺源
+  `PF-SANDBOX-BWRAP-IO`）、`profile_argv`（确定性 bwrap argv：
+  `--die-with-parent --unshare-pid --unshare-net [--unshare-user]
+  --clearenv --setenv… --ro-bind… --tmpfs… --proc /proc --chdir… --`）、
+  `launch_stage`（reservation O_EXCL single-writer + 发布前 preflight
+  no-clobber；payload stdin DEVNULL（EOF）、close_fds=True、
+  start_new_session；selectors bounded 捕获双流 ≤4MiB，超时 killpg
+  SIGKILL；timeout/cap 即 `PF-SANDBOX-BWRAP-SPAWN` 零输出；发布顺序
+  policy→stdout→stderr→receipt（last），全部原子 0400 单链接 + fsync +
+  readback 复核，任何失败回滚已写文件并释放 reservation）、
+  `validate_receipt_document`（engine-neutral 封闭 wire 全字段复核：
+  engine `{id,path,observedSha256}`、policy path
+  `policies/<stage>.bwrap.json`、runtimePort 规则、argv/environment 域
+  digest 重算、terminal 二选一、stream path/digest/size/truncated）、probe
+  wrapper（`sandbox_bwrap.py probe -- <op>`：connect/write-file/read-file/
+  listen-connect/flood-stdout/sleep-forever/read-stdin/list-fds；denial
+  errno 映射 exit 77 + stderr 恰 `PF-SANDBOX-PROBE-DENIED\n`）。
+  错误码 `PF-SANDBOX-BWRAP-{SCHEMA,IO,SPAWN,POLICY,RECEIPT}` 固定文本。
+  Probe denial 集合按操作分派：文件类 {EACCES(13), EPERM(1), EROFS(30)}
+  （ro-bind 写实测得 EROFS）；网络类 {EACCES, EPERM, ENETUNREACH(101),
+  EADDRNOTAVAIL(99)}（netns 无路由即 denial）；ECONNREFUSED/timeout 为
+  普通失败不归 77（spec 契约 EACCES/EPERM 对应 sbpl 语义，bwrap 的
+  denial 形态以 netns/EROFS errno 呈现，已记录为引擎中立映射）。
+- Verification：本机实测（kernel 7.0.0-28-generic、bubblewrap 0.9.0）：
+  新 net namespace 内 lo 默认 UP 且带 127.0.0.1/8（`--unshare-user
+  --unshare-net` 下 listener+connect 实测成立；`ip link set lo up` 需
+  `--cap-add CAP_NET_ADMIN` 且非必需；lo down 后 connect 127.0.0.1 挂起
+  超时而非 ENETUNREACH，故 deny-all 不引入 lo-down init）；自测
+  `/usr/bin/python3 -I -S scripts/sandbox_bwrap_self_test.py` ok（29 例全
+  REAL bwrap：两 stage profile/argv、四 profile 负例、deny-all 双外网
+  connect 77、ro-bind 写 77、tmpfs 可写、loopback closed-port 拒绝（非
+  denial）、evm-runtime loopback round-trip 成立 + LAN 77 + 邻端口拒绝、
+  materialize/evm-runtime 两份 receipt 全字段（engine.id=="bwrap"、
+  engine/policy digest 实算一致、runtimePort、0400 单链接、receipt
+  mtime 最后）、argv/env digest 篡改、closed-field、no-clobber replay、
+  stdout cap 无 receipt、timeout kill 无 receipt、stdin EOF、fd 恰
+  0/1/2、缺 payload、read-file 正例）；`just docs-check` 全绿（19 个
+  自测）；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean。development evidence 见台账
+  `EV-20260719-0081`。
+- Limitations：deny-all 的 loopback 在本 kernel 默认 UP（仅本 netns 内
+  无对端），外网/非 loopback 一律 ENETUNREACH fail closed；若未来 kernel
+  改变默认行为，evm-runtime 的 loopback 存活性由 payload 实测保证、
+  deny-all 的外网 denial 不受影响。receipt 的 runBindingSha256/
+  invocationBindingSha256 由调用方供给（run/invocation context 体系归
+  TST-ISO-002 集成切片）；reservation 协议为 single-writer O_EXCL（非
+  sandbox_exec 的完整 token/inode 复核）；catalog locks 对 bwrap 组件
+  digest 的钉扎未接入。fixture 语义，非 formal/hermetic evidence；不能
+  关闭 in_progress `TASK-D0-07`；D0 formal milestone 仍为 8/9。
+- Next：S7——TST-ISO-002 集成：catalog `locks` 的 bwrap
+  engine/renderer/launcher/probe-wrapper digest 钉扎、stage 执行与
+  evidence 绑定的 hermetic archive gate harness，同型 RED-then-GREEN。
