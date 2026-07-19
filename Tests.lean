@@ -70,6 +70,7 @@ import Tests.Language.SourceWireDecodeV1
 import Tests.Language.SourceNameComponentV1
 import Tests.Language.SourceQualifiedNameV1
 import Tests.Language.SourceAstLeafV1
+import Tests.Language.SourceAstSupportV1
 import Tests.Language.FrontendParity
 import Tests.Language.Grouping
 import Tests.Language.Loader
@@ -134,6 +135,7 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceNameComponentV1.run
   Tests.Language.SourceQualifiedNameV1.run
   Tests.Language.SourceAstLeafV1.run
+  Tests.Language.SourceAstSupportV1.run
   Tests.Language.FrontendParity.run
   Tests.Language.Grouping.run
   Tests.Language.Loader.run
