@@ -5303,3 +5303,39 @@ normative: false
   `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
 - Next：当前无 active development slice。Grok/Kimi 正在双路审计 model/theorem/visibility 与 NodeId keys
   的真实依赖顺序；只冻结其中一个最小后继 slice，禁止自动递增或回接 alpha model/hash。
+
+## 2026-07-19 — D1 source-qualified-name array pre-acceptance slice
+
+- Commits：D1-PA-94 freeze `500d6271`；RED `39118134`；frozen-test hardening `3e2c4896`；GREEN
+  `3db2528e`。TASK-D1-01 pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 已定义的 source-only qualified-name array，
+  仍属于 `TST-SRC-001` development evidence。冻结边界禁止 ProgramV1、theorem/visibility model、root/hash、
+  NodeId、alpha projection/sourceHash 与 Common/Syntax/Loader/Core.Source/ProgramPayload/target 改写。
+- Changed：新增 81-line private-constructor `SourceQualifiedNameV1`，内部只复用 Common generic
+  `NonEmptyArray` container，不调用 Common QN validator/render/isId*。QN construction 固定 1..256；专用
+  QualifiedId validation 固定 2..256；Lean Name 只接受以 anonymous 终止的 pure `.str` chain，保持
+  root-to-leaf raw 顺序并以 256 fuel 在第 257 component 前精确失败；module/program join 先做 QID，再要求
+  program strictly longer 且 raw prefix exact。WireCodec/WireDecode 增加 source QN/QID raw-array entrypoint；
+  decoder 手动判 u32 count，0/1/257 在任何 child 前返回锁定 QN/QID error。
+- Cross implementation：新增 137-line Lean suite与 Python source-QN/QID raw-array oracle 增量。fixed bytes
+  覆盖 Demo、Demo/Counter、raw hyphen与 opening guillemet；正向 decoder 直接消费 checked-in bytes；
+  QID-256 完整 encode/decode/finish roundtrip；component empty/NFD/Cc/closing、anonymous/final-num/prefix-num、
+  equal/non-prefix join 与 hostile count-before-child negatives 全部闭合。初始 equal join 的 one-component
+  fixture 会先命中 QID count，`3e2c4896` 在同一冻结负例内改为 valid-QID pair/pair；Python pair 也改为
+  实际调用 QID positive。new production 81、new suite 137、existing/Python/registration additions 80，
+  总 authored additions 298/330；机械 manifest 为 36 files。
+- Verification：`lake build ProofForgeV2.Source.QualifiedNameV1 Tests.Language.SourceQualifiedNameV1
+  proof_forge_next_tests` 292 jobs；`lake env .lake/build/bin/proof-forge-next-tests` 输出
+  `proof-forge-next-tests: ok`；`/usr/bin/python3 -I -S scripts/reference_source_wire_codec_v1.py
+  --self-check` 输出 `ok`；transient 257-component Lean Name probe exact 返回
+  `source qualified name must contain 1..256 components`；`just sbom-package-files-refresh` → 36 files；
+  最终单次 `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。
+  按冻结未运行完整 `just ci`。
+- Review/Evidence：Kimi freeze audit P0/P1=0；Kimi GREEN 的唯一 P1（manifest stale）已由 36-file refresh
+  消除；Grok 对最终 256-fuel/current diff review P0/P1=0。development evidence 为 `EV-20260719-0092`。
+- Limitations：没有 ProgramV1 constructor inventory、`ProofDecl.theorem` materialization、visibility/defaulting、
+  last-component/program.name binding、canonical root/hash、NodeId/global budgets/stable Diagnostic；spec 仍
+  proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何
+  下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在对 theorem QualifiedId、visibility 与完整递归
+  ProgramV1 model 做双路裁决；只能冻结一个最小后继 slice，禁止自动扩成 root/hash/NodeId。
