@@ -4650,3 +4650,60 @@ normative: false
   变更集落 `docs/governance/bootstrap-closure/TASK-D0-04/` bundle（21 文件）
   + `TASK-D0-04.attest.json` + bootstrap 级 EV 行 + 任务表 `blocked → done`
   与 checkpoint 更新；届时本 gate 自动转绿。
+
+## 2026-07-19 — TASK-D0-04 真实 six-item activation 与关闭（cutover）
+
+- Context：GOV-GENESIS-001 §7.3 第二变更集（closeout）。eligible host 登记
+  （`EV-20260719-0072`）、ceremony prep 修复（`EV-20260719-0073`）、关闭门禁
+  （`EV-20260719-0074`）依次落地后，以用户生成的六个 seed（`~/pf-d0-04-seeds`，
+  mode 0400，全程未入库未回显）在 eligible linux host 上完成真实 ceremony 并关闭
+  `TASK-D0-04`。
+- Changed：`docs/governance/bootstrap-closure/TASK-D0-04/`（21 文件 bundle：
+  17 文件 activation 产物 + handoff/candidate/host-observation/service-descriptor）、
+  `TASK-D0-04-reviews/`（13 份 independent review report）、
+  `TASK-D0-04.attest.json`；任务表 D0-04 行 `blocked → done`（Evidence
+  `EV-20260719-0075`）并新增关闭注记段；台账 bootstrap 级 `EV-20260719-0075`；
+  AGENTS.md checkpoint（D0 8/9、Next=`TASK-D0-07`、blocker 更新）。
+- Ceremony facts：candidate `ecd5b5a9f21b5d4642be52283cd832dbc45d8b81`（tree
+  `f0cf1c71…`，product-tree archive 2,211,840 bytes ≤ 4 MiB channel cap）；policy
+  `bootstrap-authority-root` `sha256:f02f6039…`（4 principal、6 taskRule、
+  D0-04/bootstrapSetRule minimum=3）；required set 77 分母 `sha256:d9baf075…`
+  （quality+security 签）；eligible handoff `activation-stage0-handoff`
+  `sha256:b56590e1…`（四 channel fd、TCB 四值与当前仓库脚本逐字节一致）；六个
+  TaskApproval 按 D0-01,02,03,05,06,04 拓扑序（rule 签名者：D0-01/02/06
+  architecture+quality、D0-03/05 quality+security、D0-04 quality+release+security），
+  六个 `BTV-20260719-0001..0006` receipt（verifier-receipt 单签），approval set
+  `sha256:13835e7e…`（quality+release+security），activation receipt
+  `BAV-20260719-0001` `sha256:f12c0bd5…`。`stage0_activate.py` 终链
+  eligible/tcb/service/handoff(consumed)/backfill×6/set/activation 全 ok；
+  dry-run 仅报预期 gap；`verify-bundle` 全 consumer 复验 + manifest 全 digest
+  重算 ok。docs_check `d0_04_bootstrap_activation_attested` 对 committed bundle
+  返回 True（签名、content digest、approval/receipt ref、跨对象 join 全量重算）。
+- Review reports：13 份（每个 rule 签名者一份），`reportDigest=
+  sha256("pf.independent-review-report.v1\x00"+bytes)`，reviewCommit==candidate，
+  reviewLink 为 candidate 的 GitHub commit URL，decision approved；四 principal
+  实为同一人持有（GOV-MAINTAINERS-001 单点声明，独立性弱化已披露）。
+- Evidence digest：approval/manifest 中 `EvidenceRef.digest` 为 development
+  commitment `sha256("pf.bootstrap-evidence-commitment.v1\x00"+EV-id)`；D0-01..06
+  各取任务表行内 closure EV（0028/0030/0031/0033/0035），D0-04 取本条关闭 EV
+  （0075，与任务表行最终 Evidence 一致）；driver 链不 join EV 字节，graph path
+  （D0-07）将要求原始 EV 对象 digest，届时以真实 EV JSON 取代。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py` ok（含 bootstrap
+  EV 门禁正例）；`/usr/bin/python3 -I -S scripts/docs_check_self_test.py` ok
+  （197 mutations）；`just ci` 全绿（v2-isolation/docs-check/sbom/
+  supply-chain-core/build/test/dsl-negative/target-negative）；`git diff --check`
+  clean。
+- Limitations：bootstrap 级关闭，**不是** formal/hermetic 证据——formal gate
+  catalog、formal evidence-set finalizer、freshness/private scan/revocation、
+  acceptance/support-binding 属 `TASK-D0-07`；linux 信任根 secure-boot+distro 包
+  完整性+pinned digests，弱于 Apple SSV 且无 codesign 等价、无 remote attestation；
+  本地子进程 authority-store 模型、plain-SHA256 TCB 约定（D0-07 拥有正式语义）；
+  set/activation receipt 未进入 TST-BOOTSTRAP-001 输入、未回填任何 TaskApproval/
+  task receipt 陈述；TCB 五脚本（verify_host_stage0.sh/stage0_containment.py/
+  gate_evidence.py/stage0_activate.py/stage0_store_service.py）与 docs/05-test-spec.md
+  的任何后续字节漂移会使本 gate 立即 fail closed（设计使然，漂移需重仪式或
+  治理裁决）；PHASE-4 任务表 parser 对当前 9 行 D0 表仍不可解析（DEFECT-1，
+  driver 链不受影响，D0-07 graph 验证前需修）。
+- Next：`TASK-D0-07`（pending）——先写冻结完成包（含 genesis §5 信任升级义务：
+  eligible host 重放全部 genesis TST + `TST-HOST-002`/`TST-SBOM-002`，darwin live
+  重观察 P2 债务截止其关闭前），再置 `in_progress`。

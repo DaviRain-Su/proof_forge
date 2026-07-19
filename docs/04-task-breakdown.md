@@ -85,7 +85,7 @@ openFindings: none
 | TASK-D0-01 | 建立文档 status/ID/link/trace/task→TST→EV/checkpoint checker 与 external TaskApproval/task-receipt pure consumer（FX-2026-07-17-D0-01：candidate-external protected production positive 移交 D0-04，缺失时 fail closed 不阻塞本任务 done） | — | PHASE-1@accepted, PHASE-2@accepted, PHASE-3@accepted | TST-DOC-001 | EV-20260717-0028 | done |
 | TASK-D0-02 | 建立独立 Lake package/namespace/exe（FX-2026-07-17-D0-02：package-boundary 以 isolation development gates 关闭；signed TaskApproval/authenticated receipt 移交 D0-04） | TASK-D0-01 | — | TST-ISO-001 | EV-20260717-0030 | done |
 | TASK-D0-03 | 锁定 Lean/external closure、Host Profile/Stage-0、candidate/evidence core、deny-default continuation 与 exact-port schema；只交付 development evidence schema/bundle/catalog finalizer 及 formal zero-output rejection，当前 alpha 输入为 `TASK-A0-02`（FX-2026-07-17-D0-03：development triad 关闭；full policy/receipt evaluator 与 signed receipt 移交后续） | TASK-D0-01, TASK-D0-02 | — | TST-EVIDENCE-001, TST-HOST-001, TST-TOOL-001 | EV-20260717-0031 | done |
-| TASK-D0-04 | 实现 bootstrap foundation：eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal-catalog authority、per-task verifier receipt/protected service，以及 six-item BootstrapApprovalSet/activation producer-consumer；owned TST 只在 pre-activation 运行，task done 另须随后取得 set+activation receipt，且二者不得回填 TST/TaskApproval/task receipt | TASK-D0-02, TASK-D0-03, TASK-D0-05, TASK-D0-06 | — | TST-BOOTSTRAP-001 | — | blocked |
+| TASK-D0-04 | 实现 bootstrap foundation：eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal-catalog authority、per-task verifier receipt/protected service，以及 six-item BootstrapApprovalSet/activation producer-consumer；owned TST 只在 pre-activation 运行，task done 另须随后取得 set+activation receipt，且二者不得回填 TST/TaskApproval/task receipt | TASK-D0-02, TASK-D0-03, TASK-D0-05, TASK-D0-06 | — | TST-BOOTSTRAP-001 | EV-20260719-0075 | done |
 | TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding（FX-2026-07-17-D0-05：inventory+CycloneDX development gate） | TASK-D0-03 | — | TST-SBOM-001 | EV-20260717-0033 | done |
 | TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0035 | done |
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | pending |
@@ -127,6 +127,21 @@ locked-jv 对 pinned CycloneDX schema 实测 schema/instance ok。doneWhen 第 1
 attest `docs/governance/bootstrap-closure/TASK-D0-08.attest.json`，bootstrap EV
 `EV-20260718-0053`。development 级关闭；formal release binding、freshness/revocation
 与发布签名仍分别属 `TASK-D0-07`、`TASK-D3-05`、`TASK-D8-05`。
+
+`TASK-D0-04` 于 2026-07-19 关闭为 `done`（真实 activation，cutover 达成）：eligible
+host 登记（`linux-x86_64-mint223-eligible`，SecureBoot enabled，`EV-20260719-0072`）后，
+ceremony 在 candidate `ecd5b5a9f21b5d4642be52283cd832dbc45d8b81` 上完成固定序列——
+D0-04 TaskApproval（`sha256:5f2b795a…`）→ D0-04 task receipt（`BTV-20260719-0004`）→
+exact six-item BootstrapApprovalSet（`sha256:13835e7e…`）→ aggregate activation receipt
+（`BAV-20260719-0001` `sha256:f12c0bd5…`）；21 文件 closure bundle 与 13 份 independent
+review report 提交于 `docs/governance/bootstrap-closure/TASK-D0-04{,-reviews}`，attest
+`docs/governance/bootstrap-closure/TASK-D0-04.attest.json`，docs_check
+`d0_04_bootstrap_activation_attested` 对签名、content digest、approval/receipt ref 与
+跨对象 join 全量重算通过，bootstrap EV `EV-20260719-0075`。set 与 activation receipt
+未进入 TST-BOOTSTRAP-001 输入、未回填任何 TaskApproval/task receipt 陈述。此后
+genesis 关闭路径永久失效，任务关闭须持规范签名对象；本关闭为 bootstrap 级，不是
+formal/hermetic 证据（formal gate 属 `TASK-D0-07`），linux 信任根弱于 Apple SSV 且无
+remote attestation；四个 principal 实为同一人持有（GOV-MAINTAINERS-001 单点声明）。
 
 ## Milestone D1：语言前端
 

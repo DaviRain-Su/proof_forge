@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D0-04",
+  "kind": "bootstrap-activation-closure",
+  "candidate": "ecd5b5a9f21b5d4642be52283cd832dbc45d8b81",
+  "activationReceiptId": "BAV-20260719-0001",
+  "bundlePath": "docs/governance/bootstrap-closure/TASK-D0-04",
+  "closureManifestSha256": "f03b34f182ced2b61475bfaa6f6aae7c4f69307fe29dc2986f78a7ade7a403dd",
+  "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-04.json",
+  "freezePackageSha256": "a03e74bb77d46fe924942c26a7e7c6cb0a0d29f0b93a8eb3864628d7769eecb2",
+  "stage0FormalCommand": "/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible",
+  "stage0FormalResult": "eligible",
+  "rehearsalCommand": "/usr/bin/python3 -I -S scripts/bootstrap_acceptance_self_test.py",
+  "rehearsalResult": "ok",
+  "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+  "notes": "Real six-item activation on the eligible linux host (cutover for genesis closures); linux trust root is secure-boot+distro-package-integrity+pinned-digests, weaker than Apple SSV; not formal or hermetic evidence (TASK-D0-07 owns the formal gate)."
+}
