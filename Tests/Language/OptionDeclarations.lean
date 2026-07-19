@@ -2036,9 +2036,12 @@ unsafe def run : IO Unit := do
     "Option Option Option Field Semantic must non-alias triple Option Bool (bytes+hash)"
 
   let tripleBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Option Bytes 0", .option (.option (.option (.bytes 0))), 0, "UNBOUND"),
-    ("Option Option Option Bytes 8", .option (.option (.option (.bytes 8))), 0, "UNBOUND"),
-    ("Option Option Option Bytes 4096", .option (.option (.option (.bytes 4096))), 0, "UNBOUND")
+    ("Option Option Option Bytes 0", .option (.option (.option (.bytes 0))), 261,
+      "1d72684412b3f2105d651777f624ca116739787c9cd8ce344fedaddfa0bfdc85"),
+    ("Option Option Option Bytes 8", .option (.option (.option (.bytes 8))), 261,
+      "efb75c6ef16e8c71b8cefd07085406c0060441ba1ea0dd8d52e5a7df0108bf99"),
+    ("Option Option Option Bytes 4096", .option (.option (.option (.bytes 4096))), 261,
+      "9d1e4ee905f7b5f70ea9ddbd57c8aee77e3b4c6d24533113a4c6023805ac095d")
   ]
   for (label, type, expectedSize, expectedHash) in tripleBytesSourceVectors do
     let sourceProgram := twin type
@@ -2072,9 +2075,12 @@ unsafe def run : IO Unit := do
     "Option Option Option Bytes 8 Source must non-alias triple Option Field (bytes+hash)"
 
   let tripleBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Option Bytes 0", .option (.option (.option (.bytes 0))), 0, "UNBOUND"),
-    ("Option Option Option Bytes 8", .option (.option (.option (.bytes 8))), 0, "UNBOUND"),
-    ("Option Option Option Bytes 4096", .option (.option (.option (.bytes 4096))), 0, "UNBOUND")
+    ("Option Option Option Bytes 0", .option (.option (.option (.bytes 0))), 210,
+      "b11f3d1923eb30e0b331d6653eaad1060f619142ec3776026e033a194de92292"),
+    ("Option Option Option Bytes 8", .option (.option (.option (.bytes 8))), 210,
+      "e140c3f196bf6125cd680df6b518475d2156d6e56473f0dd47f0bf136217e553"),
+    ("Option Option Option Bytes 4096", .option (.option (.option (.bytes 4096))), 210,
+      "e0f99b2cf713c93928915ac2df2cf16df2873becd9b115f75a28851114594864")
   ]
   for (label, type, expectedSize, expectedHash) in tripleBytesSemanticVectors do
     let sourceProgram := twin type
