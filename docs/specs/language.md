@@ -961,13 +961,13 @@ control 不得借测试开放额外 spelling。requirements 必须为空；四�
 `Targets.materializeResult` 必须 exact `.planInvariant` 且 detail 分别包含 `is not UInt64` /
 `does not return UInt64` / `is not UInt64`，证明不能进入 Plan/`OutputSet` 或产出 artifact。
 
-冻结 error channel 如下：incomplete bare spelling、inner/outer 任一 length 的 `4097`/leading-zero/
-`0x10`/`4_096`、bare Field/Option/Array/Map 与 `Widget 8 4` unknown/Named-like leaf 必须 exact
-`unsupported portable type`；missing outer/both lengths、negative/identifier inner/outer length、extra
-payload、五个 outer-Option/middle-Option/Array/Bytes/inner-length 后的 same-line seam 换行、四个
-constructor（两层 Option、Array、Bytes）的 escaped/qualified form、full Field/Option/Array/Map
-compounds 必须 parser-rejected。若 GREEN empirical probe 与冻结 channel 不一致，必须在 GREEN 前以
-独立规格修正提交闭合，不得静默改断言或扩大 positive。
+冻结 error channel 经 GREEN 前 empirical probe 修正如下：incomplete bare spelling、inner/outer
+任一 length 的 `4097`/leading-zero/`0x10`/`4_096` 必须 exact
+`unsupported portable type`；bare Field/Option/Array/Map 与 `Widget 8 4` unknown/Named-like
+dual-length leaf、missing outer/both lengths、negative/identifier inner/outer length、extra payload、
+五个 outer-Option/middle-Option/Array/Bytes/inner-length 后的 same-line seam 换行、四个 constructor
+（两层 Option、Array、Bytes）的 escaped/qualified form、full Field/Option/Array/Map compounds 必须
+parser-rejected。该修正只校准既有负例的实际拒绝层，不迁移或扩大 positive。
 
 本切片不实现 bytes/array/option value operations、none/some/unwrap、任意 recursive type grammar/
 legality、runtime representation、ABI 或 target nested-Option-Array-Bytes support。tests-only RED 仅限

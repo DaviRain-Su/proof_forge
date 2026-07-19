@@ -1292,11 +1292,12 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   （swapped-length-order）non-alias。requirements 必须为空；四个 Phase 1 target 的 `checkSupport`
   必须全部通过；state/result/parameter 三类 fixture 的 `materializeResult` 必须 exact planInvariant
   （`is not UInt64` / `does not return UInt64` / `is not UInt64`）且无 Plan/OutputSet/artifact。
-  frozen channels：incomplete bare、两个 length 各自的 `4097`/leading-zero/hex/underscore、bare
-  Field/Option/Array/Map、`Widget 8 4` 为 exact unsupported；missing outer/both lengths、negative/
-  identifier inner/outer length、extra payload、五个 same-line seam、四个 constructor 的 escaped/
-  qualified form、full Field/Option/Array/Map compounds 为 parser rejection。empirical channel 不符时
-  必须 GREEN 前先修规格，禁止改胖 positive。RED 仅 `OptionDeclarations.lean` ≤330 additions/2
+  frozen channels 经 GREEN 前 empirical probe 修正：incomplete bare、两个 length 各自的
+  `4097`/leading-zero/hex/underscore 为 exact unsupported；bare Field/Option/Array/Map、
+  `Widget 8 4` dual-length leaf、missing outer/both lengths、negative/identifier inner/outer length、
+  extra payload、五个 same-line seam、四个 constructor 的 escaped/qualified form、full
+  Field/Option/Array/Map compounds 为 parser rejection。该修正只校准既有负例的实际拒绝层，禁止
+  迁移或改胖 positive。RED 仅 `OptionDeclarations.lean` ≤330 additions/2
   removals；production 仅 Syntax ≤32 additions/2 removals并刷新 package file-set；focused 23-job、
   192-job aggregate/test binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整
   `just ci`；不得声明 bytes/array/option operations、none/some/unwrap、runtime/ABI、target
