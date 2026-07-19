@@ -4564,3 +4564,46 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；正在做 post-PA-74 expression/type residual audit 与
   bounded arbitration，尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact nested Option Array Field spelling pre-acceptance slice
+
+- Commits：freeze `b1873f6a`；tests-only RED `f87109b1`；Syntax/GREEN、canonical binding 与
+  Lean package-file re-pin `557cace2`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-75 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-74 residual
+  arbitration 在 expression 侧无安全 parser-only 候选后，选择只有 single Field leaf 与 single length
+  轴的 exact `Option Option Array Field bn254_fr N`；不是 checkpoint 自动递增，其他 compound type
+  与任意 recursive grammar 继续 fail closed。
+- Changed：为既有 `Source/Semantic.ValueType.option (.option (.array .field length))` 开放 exact
+  same-line spelling。新增 named type/aggregate-field parser；专用 decoder 复用 closed
+  `decodeOptionArrayFieldValueTypeFromAtoms` 后只包一层 Option，两个专用 dispatch 均位于 generic
+  `Option Option Array` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 27 行新增/0 行移除。
+- Migration/Coverage：只迁移既有 `Option Option Array Field bn254_fr 4` negative 一条；覆盖
+  length `0/4/4096`、state/struct/enum/const/init/entry/view/fn/event/error 与双入口 parity。
+  incomplete/alternate/escaped/qualified Field identifier、非 canonical length、extra payload、换行 seam、
+  escaped/qualified constructors、Bytes/Option/Array/Map/Named residual 均按冻结 channel fail closed。
+  requirements 精确为单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与
+  `materializeResult` 均在 Plan dispatch 前返回 exact named rejection，因此无 Plan、OutputSet 或 artifact。
+- Canonical：tag 固定 `16→16→18→2→length`。Source length `0/4/4096` 均为 261 bytes，hash
+  依次为 `6d63aac74ce61f061de11288097f18de7f7043623ceb0ed3596cd13a938676aa`、
+  `bef51596dc72dc5e0d39730297278d4d7839b872d16bf269f5783f471234765f`、
+  `ee225041fce0de31bc20b8bb53c1d137ec05f3a7826fc2d20cba4f79b167ce98`；Semantic 三组
+  均为 211 bytes，hash 依次为
+  `a7ed080b84e6e5906e8a13c30e57a30a07f06a0993ba2cc6567a6a56b80f29f8`、
+  `6151f2d68d43876455fa3f08a300c6b5f552e52178d984d2a5d4346ae6cf0ebd`、
+  `a065a9cd0fa0201ffde3576f5939a31717fc9a3a2adac6ee218a42c4149ef6d5`；三组 length
+  pairwise non-alias，`N=4` 对 wrapper depth/order 与 Field/compound controls 也 bytes/hash non-alias。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；`just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package
+  pin 为 92988 bytes、SHA-256
+  `32ce411f91e9bd999d486d38b53a51d7f259b2c369003e69f8ce87d3c856c3f4`；Grok implementation
+  audit 与 Kimi independent final review 均 P0=0/P1=0/P2=0；development evidence 为
+  `EV-20260719-0073`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
+  requirement 与 support-rejection/no-artifact boundary；不包括 Option/Array/Field operations、任意
+  recursive grammar、runtime/ABI、target nested-Option-Array-Field support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；先做 post-PA-75 residual audit 与 bounded arbitration，
+  尚未冻结下一 slice，禁止由 checkpoint 自动递增。
