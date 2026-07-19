@@ -4283,3 +4283,43 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；双重 post-PA-71 residual audit 只推荐 exact
   `Array Option Bytes N M`，尚未冻结且禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — TASK-D0-07 pre-acceptance：formal evidence finalization 对象族
+
+- Context：D0-04 仓库内 foundation 齐备后进入 D0-07（pending、依赖未闭合——
+  本切片仍只是 pre-acceptance development evidence，不改变其状态与 Tests 集合）。
+  spec：`docs/specs/gate-catalog-finalization.md:1652-1900`。
+  委托实现，主会话抽查评审后提交。
+- Changed：`scripts/formal_evidence.py`（1567 行）——五个 signed input 类型 +
+  parser（SessionContainmentReceiptV1/FreshnessAuthoritySnapshotV1/
+  PrivateScanReceiptV1(+ScannedMemberRefV1)/RevocationLedgerSnapshotV1(+链与
+  recordsDigest 重算)/FormalFinalizerIdentityV1），每个 exact closed-object、
+  排序/时间/UInt64 约束、按 spec 表的 rule 与 statement/signature domain 验签；
+  root record consumer `parse_formal_evidence_finalization`：六 formal input ref
+  拒绝裸 digest、externalAuthorityPolicy 三处逐字节唯一、requiredTestSet 四处
+  join、gates flatten 无重复 exact partition、catalog qualification=="formal" 且
+  gate IDs/testIds/build exact、catalogApproval 全量复验、bootstrapApproval.set
+  为 D0-01..06 exact six-item 全闭包、verifierReceipt 全链 join、
+  `finalizedAt < expiresAt` 严格 UtcInstant；三条 digest 推导
+  （`pf.formal-evidence-core.v1`/`pf.formal-evidence-set.v1`/
+  `pf.formal-evidence-finalization.v1`）重算并产出 FinalizationRefV1；
+  错误统一 `PF-EVIDENCE-FORMAL-UNVERIFIED`。
+  `scripts/formal_evidence_self_test.py`（1318 行）：正例全链（4 gate 含
+  target gate non-null build、2 条 revocation record 链）+ 约 35 例负例
+  （schema/缺/多/非 canonical、裸 digest、policy 三处不一致、各 join 漂移、
+  gates 漏/重/错 ID、development catalog、错 rule 签名、recordsDigest/head/
+  chain 错、时间约束、statement 替换未重签等）。
+- Verification：`/usr/bin/python3 -I -S scripts/formal_evidence_self_test.py` ok；
+  既有全部自测 ok；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean；justfile `docs-check` recipe 已接入。development
+  evidence 见台账追记。
+- Limitations：仅 record 族 consumer——EV 内容 resolve（passed/qualification/
+  candidate 绑定）、private scan retained-member 完备性、formal freshness 窗口
+  求值、发布路径 IO、support-binding producer、eligible runner 集成均未实现
+  （下一/后续切片）；D0-07 保持 pending、依赖未闭合，不得据本条关闭；
+  D0 formal milestone 仍为 7/9。
+- 本机工作流注记：本仓库本机存在第二个并行 agent 会话在同一工作树推进
+  D1 slices；自本条起主会话提交只用定点 add（不用 `git add -A`），合并前
+  先核对 `git status`。
+- Next：D0-07 第二切片——finalization producer（构造/签名/publish no-clobber
+  receipt-last）与 support-binding producer（`proof-forge.support-evidence-binding.v1`）。
