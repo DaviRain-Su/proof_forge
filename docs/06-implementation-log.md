@@ -5237,3 +5237,35 @@ normative: false
 - Next：当前无 active development slice。冻结下一 slice 前先裁决 escaped identifier carrier、
   `ProofDecl.theorem` QualifiedId 约束、visibility 映射与 NodeId JCS key；之后只能在 canonical model cutover
   或 decoder 中选择一个 bounded RED，禁止重新接入 alpha hash/model。
+
+## 2026-07-19 — D1 canonical wire primitive decoder pre-acceptance slice
+
+- Commits：D1-PA-92 freeze `9d935dc9`；RED `52011dbb`；GREEN `a4cbedfa`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 的 cursor-based primitive decode
+  foundation，仍属于 `TST-SRC-001` development evidence。冻结边界禁止 Ident/QualifiedName/
+  QualifiedId/tagged constructor、ProgramV1/model/root/hash、alpha projection/sourceHash 与 NodeId。
+- Changed：新增 113-line `ProofForgeV2.Source.WireDecodeV1`：private-field `CursorV1`、
+  `DecoderV1 α := CursorV1 → Except String (α × CursorV1)`、`start`/`remaining`/`finish`、
+  LE `decodeU8/U16le/U32le/U256le`、Bool/Option 0/1 marker、`decodeArray maxCount` 在 child 调用与
+  分配前 exact `array count exceeds caller limit`、strict UTF-8 + pinned `requireNfc` String。
+  新增 108-line Lean suite、87-line 不 import Lean/ProofForge 的 Python oracle 与最小 product/test
+  registration；authored additions 312/370；机械 manifest refresh 后 product Lean file-set 为 34 files。
+- Cross implementation：checked-in LE/NFC positives 与 exact-consume；PA91 allowlist
+  `encodeU8/U16le/U32le/U256le/Bool/Option/Array/String` encode→decode round-trip only；negatives 覆盖
+  truncated scalars、marker 2、array cap before distinct child error、first child error、truncated child、
+  string over remaining、invalid UTF-8、NFD 与 trailing。
+- Verification：`lake build ProofForgeV2.Source.WireDecodeV1 Tests.Language.SourceWireDecodeV1
+  proof_forge_next_tests` 284 jobs；`lake env .lake/build/bin/proof-forge-next-tests` 输出
+  `proof-forge-next-tests: ok`；`/usr/bin/python3 -I -S scripts/reference_source_wire_decode_v1.py
+  --self-check` 输出 `ok`；`just sbom-package-files-refresh` → 34 files；`just sbom` self-test/
+  generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行完整 `just ci`。
+- Review/Evidence：Grok implementation；Kimi final review P0/P1/P2=0。development evidence 为
+  `EV-20260719-0090`。
+- Limitations：没有 Ident/QN/QID/tag decode、ProgramV1 model、root identity join、
+  `canonicalSourceAstBytesV1`/`sourceHashV1`、NodeId assigner/collision、global 16 MiB/node/nesting
+  budgets 或 stable Diagnostic；spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，
+  不能关闭 pending `TASK-D1-01`、任何下游 D1/D2 或 target task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。下一未冻结候选优先 raw escaped component carrier audit，
+  再处理 `ProofDecl.theorem` QualifiedId 与 visibility model；NodeId slice 另需固定 exact JCS keys；
+  禁止 alpha hash/model 回填与 formal task 假关闭。
