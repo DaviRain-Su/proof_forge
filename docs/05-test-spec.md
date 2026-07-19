@@ -1366,6 +1366,27 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   严禁 `evalConst`/`evalExpr`/whnf/simp/reduction/compiler/unsafe/IO 回退，不实现 payload identity duplicate、
   `PF-EXPORT-002/003`、CLI/Loader、wire、target、contained worker 或正式 `TST-SRC-006/007` closure，按冻结
   不重复完整 `just ci`。
+- D1-PA-83 的 alpha tests 只关闭 PA82 `programPayloads` 全量重建成功后的 cross-row
+  exported Source identity duplicate/split-brain seam。输入顺序继承 PA81 `programExports` 的 declaration
+  FQN 排序；必须先解码全部 row，任一 payload 失败保留 `PF-EXPORT-004` 且不进入
+  identity scan。scan 以 exact `Source.Program.qualifiedName : String` 为唯一主键，记录首个
+  `qualifiedName → sourceHash`；后续同 qualifiedName 且 hash 相同固定拒绝为
+  `PF-EXPORT-001: duplicate exported program identity`，同 qualifiedName 但 hash 不同固定拒绝为
+  `PF-EXPORT-001: conflicting exported program identity`。首个 collision 按 PA81 row order 决定；不返回
+  partial table。
+  positive 必须用两个 distinct qualifiedName、相同业务 shape 的 attributed direct payload 证明 table
+  通过、qualifiedName/hash 均不同且 declaration FQN order 不变；负例必须分别以两个不同
+  declaration FQN 承载同 qualifiedName+同 payload 和同 qualifiedName+不同 payload，并以第三个
+  invalid payload 固定 decode-before-identity error priority。因 alpha `sourceHash` canonical preimage 已包含
+  qualifiedName，不构造“different qualifiedName + same hash”的伪负例，不将 SHA-256 碰撞 oracle
+  塞入本切片。single-row `ProgramExportV1.declaration.toString` 与 payload qualifiedName 的渲染/绑定也
+  属于后续独立 residual，本切片不静默加入。
+  RED 只新增 ProgramIdentity fixtures/snapshot/suite 并修改 `Tests.lean`/`lakefile.lean` 注册，总新增
+  ≤220 行。GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，文件总行数不超过
+  480，并刷新 `supply-chain/lean-package-files.v1.json`；不新增 public API。focused suite、
+  aggregate test build/binary、`git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录
+  development evidence；不实现 declaration/payload binding、`PF-EXPORT-002/003`、CLI/Loader、wire、
+  target、contained worker 或正式 `TST-SRC-006/007` closure，按冻结不重复完整 `just ci`。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

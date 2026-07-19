@@ -1129,6 +1129,48 @@ identity-level duplicate 已闭合、正式 constant-evaluation sandbox、CLI se
 任意 Lean term evaluator。若 closed structural decoder 无法覆盖 `quoteProgram` 当前完整 constructor
 surface，必须 blocked/split，禁止回退到 `evalConst`/`evalExpr`。
 
+D1-PA-83 冻结的 pre-acceptance alpha 子集只关闭 PA82 成功重建全部 registry row 之后的
+cross-row exported Source identity duplicate/split-brain 缝隙。该选择来自两路 post-PA82
+residual/authority audit，因 PA81 只保证 declaration `Name` 唯一，PA82 明确未检查 payload
+identity，且该缝隙可在不引入 CLI/Loader、wire、NodeId/origin、target 或 contained worker 的情况下
+独立测试；不是 checkpoint 自动递增。正式 `TASK-D1-05` 与 `TST-SRC-006/007` 仍为
+pending。
+
+本切片不新增公开 API，只收紧既有 `programPayloads`。算法顺序固定为：
+
+1. 先取得 PA81 normalized/sorted `programExports env`；registry schema/identity 失败保留
+   `PF-EXPORT-001`。
+2. 按该 row order 调用 PA82 closed structural decoder 重建**全部** payload；任一 row 失败保留
+   `PF-EXPORT-004`，不执行 identity scan，不暴露 partial prefix。
+3. 全部重建成功后，仍按 PA81 declaration FQN order 扫描 rows。唯一主键是 payload
+   `Source.Program.qualifiedName` 的 exact `String` equality，不做 casefold、path normalization 或重排序。
+   第一次出现记录 `qualifiedName → Source.Program.sourceHash`。
+4. 后续 row 使用相同 qualifiedName 时，若 sourceHash 与已记录值相同，稳定失败为
+   `PF-EXPORT-001: duplicate exported program identity`；若 sourceHash 不同，稳定失败为
+   `PF-EXPORT-001: conflicting exported program identity`。首个 collision 决定诊断，不返回 partial table。
+5. qualifiedName 不同的 rows 通过本检查。`sourceHash` 不是可独立碰撞的第二主键：当前
+   `Source.Program.canonicalBytes` 已把 qualifiedName 放入 hash preimage，因此本切片不伪造
+   different-qualifiedName/same-hash 负例，也不以不可构造的 SHA-256 碰撞作为验收前置。
+
+tests-only RED 固定新增 isolated ProgramIdentity fixtures/snapshot 与单一
+`Tests.Language.ProgramIdentities` suite，并只修改 `Tests.lean`/`lakefile.lean` 注册，总新增不超过
+220 行。positive 用两个 distinct qualifiedName、相同业务 shape 的 attributed direct
+`Program.mk` 值固定 table/order 与不同 hash；duplicate fixture 用不同 declaration FQN 承载同
+qualifiedName+同 payload；split-brain fixture 承载同 qualifiedName+不同 payload/hash。另一 isolated
+priority fixture 同时含 identity collision 与后续 PA82-invalid payload，必须稳定返回 `PF-EXPORT-004`，证明
+全量 decode 先于 identity scan。
+
+GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+480，并刷新 `supply-chain/lean-package-files.v1.json`。禁止修改 ProgramExport registry、Core Source、
+Syntax、Loader、CLI、Typed/Semantic 或 target。focused suite、aggregate test build/binary、
+`git diff --check`、单次 `just sbom` 与 independent review 全绿后只能记录 development evidence，按冻结
+不重复完整 `just ci`。
+
+本切片明确不实现 single-row `ProgramExportV1.declaration.toString` 与 payload qualifiedName 绑定、
+independent sourceHash collision oracle、NodeId/origin、`PF-EXPORT-002/003` selection、CLI/Loader、wire
+publication、target/materializer、frontend containment 或正式 `TST-SRC-006/007` closure。这些新缺口
+只能经新的 bounded audit/freeze 处理，不得回填本切片。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
