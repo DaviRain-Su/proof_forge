@@ -6,7 +6,6 @@ import ProofForgeV2.Source.WireDecodeV1
 namespace Tests.Language.SourceNameComponentV1.Fixture
 open ProofForgeV2.Language
 
-/-- Explicit underscore program name: Lean `.str` raw `_` (not anonymous). -/
 program «_» where
   entry ping() : UInt64 do
     return 0
