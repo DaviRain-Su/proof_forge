@@ -866,6 +866,63 @@ focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent rev
 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type grammar 或
 正式 D1 完成。
 
+D1-PA-78 冻结的 pre-acceptance alpha 子集只为已有
+`option(array(array(field,innerLength),outerLength))` carrier 开放 exact same-line spelling
+`Option Array Array Field bn254_fr N M`。Field identifier 必须是 raw exact `bn254_fr`；`N`/`M`
+分别表示 inner/outer Array length，并各自精确复用 canonical ASCII decimal `0..4096` discipline；
+tag 固定 `16→18→18→2→N→M`，requirements 经 Option 与两层 Array 精确透传为单个
+`fieldBn254`。本冻结只 supersede D1-PA-69 明示保留的 exact Field leaf boundary；PA65 的
+`Option Array Field`、PA69 的 `Option Array Array PrimitiveAtom`、PA75 的
+`Option Option Array Field` 与 PA77 的 `Array Array Field` 均保持不变。Bytes/Option/Array/Map/
+Named leaf、第三层 Array 与任意 recursive grammar 继续 fail closed。
+
+post-PA-77 初始 audit 曾分别按 production helper 行数与总验收面把
+`Option Option Array Bytes N M` 和本候选排在第一；随后 bounded challenge 把完整测试/target 调用计入
+同一分母。本候选的 `fieldBn254` 在 support resolver 前置拒绝，只需四 target 各一次
+`checkSupport` 与 `materializeResult`，而 zero-requirement Bytes 候选还需 state/result/parameter 三类
+target-owned Plan rejection fixtures，因此本候选是唯一最小 slice。该选择不是 checkpoint 自动递增或
+type family 补齐。
+
+frontend 只能新增 exact contextual named `optionArrayArrayFieldType` 与 struct-field 对应 parser；不得
+放宽既有 `optionArrayArrayType`、`arrayArrayFieldType`、`optionArrayType` 或 `portableType`，不得引入
+recursive parser。新增 decoder 必须完整复用 closed `decodeArrayArrayFieldValueTypeFromAtoms` 的 raw
+`bn254_fr`、双 length lexical/bound policy与 inner/outer 顺序，随后只包一层 outer Option；专用 type
+与 aggregate dispatch 必须先于 generic `optionArrayArrayType`/aggregate parser。不得新增 ctor/tag、
+修改 Source/Semantic encoder、Typed 或 target；Lean command 与 ParserSession 必须得到同一 Source
+tree/hash。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+`("full Field Option Array Array element", "Option Array Array Field bn254_fr 4 4")`
+parser-negative 迁移为 positive，migration count 精确为一。当前没有既存 incomplete pin，因此 RED
+必须新增 `Option Array Array Field 4 4` 的 exact unsupported control；该新增不是第二条 migration。
+其他测试不得迁移。positive 覆盖 `(inner,outer)=(0,0)/(4,4)/(4096,1)`、所有 declaration
+positions（含 event/error）与双入口 parity。Source/Semantic canonical tests 各固定三组 vectors；
+ordinary candidate 必须在两侧分别与 `Array Array Field bn254_fr 4 4`、
+`Option Array Field bn254_fr 4`、`Option Option Array Field bn254_fr 4`、
+`Option Array Array UInt64 4 4` 做 canonical bytes/hash non-alias，并用手工 carrier controls 在
+Source/Semantic 两侧固定 `8/4` 对 `0/4`（inner-only）、`8/4` 对 `8/0`（outer-only）与
+`8/4` 对 `4/8`（swapped-length-order）non-alias；非 surface-positive control 不得借测试开放额外
+spelling。requirements 必须恰为单个 `fieldBn254`；四个 Phase 1 target 的
+`Targets.checkSupport` 与 `Targets.materializeResult` 必须都返回 exact
+`.unsupportedRequirement .fieldBn254 actualTarget` 且 `actualTarget == target`，证明不能进入 Plan、
+`OutputSet` 或产出 artifact。
+
+冻结 error channel 如下：新增 incomplete spelling、alternate/escaped/qualified Field id、inner/outer
+任一 length 的 `4097`/leading-zero/`0x10`/`4_096`、bare Bytes/Option/Array/Map 与
+`Widget 4 4` unknown/Named-like leaf 必须 exact `unsupported portable type`；missing outer/both
+lengths、negative/identifier inner/outer length、extra payload、六个 Option/Array/Array/Field/id/
+inner-length same-line seam 换行、四个 constructor（Option、两层 Array、Field）的 escaped/qualified
+form、full Bytes/Option/Array/Map compounds 必须 parser-rejected。若 GREEN empirical probe 与冻结
+channel 不一致，必须在 GREEN 前以独立规格修正提交闭合，不得静默改断言或扩大 positive。
+
+本切片不实现 field arithmetic、array/option value operations、none/some/unwrap、任意 recursive type
+grammar/legality、runtime representation、ABI 或 target Option-nested-Array-Field support。tests-only
+RED 仅限 `Tests/Language/OptionDeclarations.lean`，最多 330 行新增、2 行移除；production 仅限
+`Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package
+file-set。focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可
+记录 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type
+grammar 或正式 D1 完成。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有
