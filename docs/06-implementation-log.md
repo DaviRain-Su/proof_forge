@@ -5599,3 +5599,41 @@ normative: false
 - Next：当前无 active development slice。Grok/Kimi 正在只读裁决 complete 13-alternative
   `ProgramItemV1` sum/codec 的最小闭合面；完成面冻结前不得开始下一份 RED，Program root/global boundaries
   不得顺手并入。
+
+## 2026-07-19 — D1 ProgramV1 complete ProgramItem dispatch pre-acceptance slice
+
+- Commits：D1-PA-102 freeze `9ff62f4b`；RED `173baa7e`；GREEN `d1a4a0f5`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只闭合 `SPEC-SOURCE-WIRE-001` 已列出的全部 13 种 ProgramItem alternatives及
+  no-wrapper dispatch boundary。`ProgramItemV1` 的 constructor order精确为 State/Struct/Enum/Const/Event/
+  Error/Init/Entry/View/Fn/Invariant/ExtensionReq/Proof；item wire bytes就是对应 record bytes，不存在额外
+  `ProgramItem` tag、field replay或 validation。
+- Changed：新增 25-line `AstProgramItemV1`，13 constructors全部持有 PA98/PA101 已发布的 typed record并派生
+  `DecidableEq`/`Repr`；新增 26-line `AstProgramItemCodecV1`，单一 total `encodeProgramItemV1` 的 13 arms
+  各自只调用一个现有 record encoder。因此 dispatch不能改变 child field order、错误字符串或优先级，也没有
+  引入 Program root、items array或 set-level语义。
+- Cross implementation：210-line Lean suite与 152-line、不 import Lean/ProofForge/前序 oracle 的 standalone
+  Python oracle持有同名 13 个 fixed expected-byte goldens；coordinator 逐 label/byte对照为 13/13、零
+  missing/extra/mismatch。每个 Lean case同时证明 item bytes等于 direct record encoder；13 constructors各有
+  self-equality，字段同形的 Event/Error与 Entry/View/Fn 同时做 value/byte nonalias。Struct empty fields、Const
+  UInt24 + hostile value、Init empty body、Extension one-component QID + hostile version/digest 四个 negatives
+  精确证明既有 child error及优先级未经 remap传播。model 25、codec 26、suite 210、Python 152、registrations
+  5，总 authored additions 418/515；机械 manifest 为 51 files。
+- Verification：RED `lake build Tests.Language.SourceAstProgramItemV1` 只因两个 production modules缺失失败；
+  GREEN focused build 25 jobs，`lake build proof_forge_next_tests` 338 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_program_item_v1.py --self-check` 输出
+  `reference_source_ast_program_item_v1: ok 13`；`just sbom-package-files-refresh` → 51 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行
+  完整 `just ci`。
+- Review/Evidence：Grok 的 RED audit逐项复核 13 fixture/hex、direct identity、equality/alias groups、四个
+  negatives与唯一 RED 原因，P0/P1=0；Kimi 对 production constructor/order/types、single 13-arm dispatch、
+  import cycle、child error order、budget与 scope逐行独立审查，P0/P1/P2=0。development evidence 为
+  `EV-20260719-0100`。
+- Limitations：没有 Program root/identity/items nonempty、duplicate/zero-entry-view/multiple-init/
+  proof-invariant set validation、theorem/visibility alpha adapter、decoder、full-tree global budgets、sourceHash、
+  NodeId、stable Diagnostic、Common/ProgramPayload 或 target。spec 仍 proposed，D0 dependencies/
+  candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone
+  仍 7/9。
+- Next：当前无 active development slice。Grok 正在只读裁决 Program root model/codec与 set-level validation
+  的最小边界；完成面冻结前不得开始下一份 RED，alpha/decoder/hash/NodeId/target不得顺手并入。
