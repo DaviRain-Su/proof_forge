@@ -1479,6 +1479,31 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。结果只可记录 development evidence，不能满足
   冻结包要求的 candidate-bound `qualification=formal`；`TASK-D1-02` 未 done 时不得关闭 pending
   `TASK-D1-03`，也不得由本切片关闭 D1-04、D1-05 或开始 D1-06。
+- D1-PA-88 只把已冻结的 `TASK-D1-02`/`TST-SRC-003` command surface 收敛为单一 tests-only
+  `Tests.Language.ProgramCommandAcceptance` executable harness；它是既有 parser 行为的 characterization
+  packaging，不包装混合的 `ProgramSyntax.run`、`FrontendParity.run` 或 `Loader.run`，不修改 production，
+  也不制造缺文件或删除实现的虚假 RED。
+  positive 必须在 acceptance module 的 test-only namespace 中以唯一用户入口
+  `program Counter where` 定义一个只含单一 `view` 的 direct fixture，再用
+  `ParserSession.parsePrograms` 解析相同 namespace/source；结果必须精确为一个 program，并与 direct
+  fixture 的完整 `Source.Program`、short name、qualified name 与 `sourceHash` 相等。不得调用
+  `selectProgram`，不得断言 requirements、compile/Typed/Semantic、declaration 或 statement 语义。
+  illegal-top-level negative 固定两条独立源码并捕获 parser streams：显式
+  `program Invalid : contract where` 必须精确返回
+  `PF-SRC-INVALID: Lean parser rejected source: failed to parse file`；非白名单
+  `run_cmd IO.println "PF-PA88-MUST-NOT-EXECUTE"` 必须精确返回
+  `PF-SRC-INVALID: Lean command 'Lean.runCmd' is outside the portable program DSL`，且 captured output 不得
+  包含 marker。这里固定的是 parser behavior，不是 `TST-DIAG-001` Diagnostic v1 schema/redaction 验收。
+  direct fixture 可产生一个 test-local program attribute export，但 suite 不得调用 `programExports`/
+  `programPayloads` 或修改 PA81–PA86 fixtures；PA86 empty snapshot 继续由其独立 import closure 隔离，
+  本切片不得据该 test-local export 声明 `TST-SRC-006/007` coverage。
+  变更只允许新增 `Tests/Language/ProgramCommandAcceptance.lean` 并最小修改 `Tests.lean`、`lakefile.lean`；
+  总新增 ≤80 行，不得修改其他 tests、`ProofForgeV2/` production 或 package file-set。验证只运行
+  `lake build Tests.Language.ProgramCommandAcceptance proof_forge_next_tests`、
+  `lake env .lake/build/bin/proof-forge-next-tests`、`just docs-check`、`git diff --check` 与 independent review；
+  纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。结果只可记录 development evidence，不能满足
+  冻结包要求的 candidate-bound `qualification=formal`；`TASK-D1-01` 未 done 时不得关闭 pending
+  `TASK-D1-02`，也不得由本切片关闭 SRC-001/002/004/005/006/007/008、D1-07/08 或任何 D2/target task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
