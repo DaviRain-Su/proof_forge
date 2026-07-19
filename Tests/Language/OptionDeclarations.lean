@@ -603,6 +603,66 @@ program TripleOptionFieldBoundary where
   entry echo(value : Option Option Option Field bn254_fr) : Option Option Option Field bn254_fr do
     return value
 
+program TripleOptionBytesSurface where
+  state tripleBlob : Option Option Option Bytes 8
+
+  event TripleOptionBytesEvent(payload : Option Option Option Bytes 8)
+  error TripleOptionBytesError(payload : Option Option Option Bytes 8)
+
+  struct TripleOptionBytesBox where
+    empty : Option Option Option Bytes 0
+    ordinary : Option Option Option Bytes 8
+    maximum : Option Option Option Bytes 4096
+
+  enum TripleOptionBytesTag where
+    | MaybeTripleBlob(Option Option Option Bytes 8)
+    | MaybeTripleMax(Option Option Option Bytes 4096)
+
+  const TripleOptionBytesSeed : Option Option Option Bytes 0 := 0
+
+  init(initial : Option Option Option Bytes 8) do
+    tripleBlob := initial
+
+  entry echo(value : Option Option Option Bytes 8) : Option Option Option Bytes 8 do
+    return value
+
+  view get() : Option Option Option Bytes 8 do
+    return tripleBlob
+
+  fn ident(value : Option Option Option Bytes 4096) : Option Option Option Bytes 4096 do
+    return value
+
+program TripleOptionBytesBoundary where
+  entry echo(value : Option Option Option Bytes 8) : Option Option Option Bytes 8 do
+    return value
+
+program TripleOptionBytesStateBoundary where
+  state value : Option Option Option Bytes 8
+
+  init(initial : Option Option Option Bytes 8) do
+    value := initial
+
+  view get() : Option Option Option Bytes 8 do
+    return value
+
+program TripleOptionBytesResultBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option Option Bytes 8) : Option Option Option Bytes 8 do
+    return value
+
+program TripleOptionBytesParamBoundary where
+  state counter : UInt64
+
+  init(initial : UInt64) do
+    counter := initial
+
+  entry echo(value : Option Option Option Bytes 8) : UInt64 do
+    return 0
+
 end Tests.Language.OptionDeclarationsFixture
 
 namespace Tests.Language.OptionDeclarationsFixture
@@ -848,6 +908,32 @@ private def tripleOptionFieldSurfaceSource : String :=
   "  view get() : Option Option Option Field bn254_fr do\n" ++
   "    return tripleScalar\n\n" ++
   "  fn ident(value : Option Option Option Field bn254_fr) : Option Option Option Field bn254_fr do\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.OptionDeclarationsFixture\n"
+
+private def tripleOptionBytesSurfaceSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.OptionDeclarationsFixture\n\n" ++
+  "program TripleOptionBytesSurface where\n" ++
+  "  state tripleBlob : Option Option Option Bytes 8\n\n" ++
+  "  event TripleOptionBytesEvent(payload : Option Option Option Bytes 8)\n" ++
+  "  error TripleOptionBytesError(payload : Option Option Option Bytes 8)\n\n" ++
+  "  struct TripleOptionBytesBox where\n" ++
+  "    empty : Option Option Option Bytes 0\n" ++
+  "    ordinary : Option Option Option Bytes 8\n" ++
+  "    maximum : Option Option Option Bytes 4096\n\n" ++
+  "  enum TripleOptionBytesTag where\n" ++
+  "    | MaybeTripleBlob(Option Option Option Bytes 8)\n" ++
+  "    | MaybeTripleMax(Option Option Option Bytes 4096)\n\n" ++
+  "  const TripleOptionBytesSeed : Option Option Option Bytes 0 := 0\n\n" ++
+  "  init(initial : Option Option Option Bytes 8) do\n" ++
+  "    tripleBlob := initial\n\n" ++
+  "  entry echo(value : Option Option Option Bytes 8) : Option Option Option Bytes 8 do\n" ++
+  "    return value\n\n" ++
+  "  view get() : Option Option Option Bytes 8 do\n" ++
+  "    return tripleBlob\n\n" ++
+  "  fn ident(value : Option Option Option Bytes 4096) : Option Option Option Bytes 4096 do\n" ++
   "    return value\n\n" ++
   "end Tests.Language.OptionDeclarationsFixture\n"
 
@@ -1710,6 +1796,73 @@ unsafe def run : IO Unit := do
         "Loader and Lean command must produce the same triple Option Field sourceHash"
   | .error error => throw <| IO.userError error.render
 
+  let tripleOptionBytesSurface :=
+    Tests.Language.OptionDeclarationsFixture.TripleOptionBytesSurface
+  expect (tripleOptionBytesSurface.state.map (·.type) ==
+      #[.option (.option (.option (.bytes 8)))])
+    "Option Option Option Bytes 8 state must survive Lean command elaboration"
+  match tripleOptionBytesSurface.events with
+  | #[eventDecl] =>
+      expect (eventDecl.name == "TripleOptionBytesEvent" &&
+          eventDecl.params.map (·.type) == #[.option (.option (.option (.bytes 8)))])
+        "Option Option Option Bytes event parameter must preserve three Option tags and Bytes length"
+  | _ => throw <| IO.userError "TripleOptionBytesSurface must retain TripleOptionBytesEvent"
+  match tripleOptionBytesSurface.errors with
+  | #[errorDecl] =>
+      expect (errorDecl.name == "TripleOptionBytesError" &&
+          errorDecl.params.map (·.type) == #[.option (.option (.option (.bytes 8)))])
+        "Option Option Option Bytes error parameter must preserve three Option tags and Bytes length"
+  | _ => throw <| IO.userError "TripleOptionBytesSurface must retain TripleOptionBytesError"
+  match tripleOptionBytesSurface.structs with
+  | #[box] =>
+      expect (box.name == "TripleOptionBytesBox" &&
+          box.fields.map (·.type) ==
+            #[.option (.option (.option (.bytes 0))),
+              .option (.option (.option (.bytes 8))),
+              .option (.option (.option (.bytes 4096)))])
+        "Option Option Option Bytes struct fields must preserve lengths 0/8/4096"
+  | _ => throw <| IO.userError "TripleOptionBytesSurface must retain one struct"
+  match tripleOptionBytesSurface.enums with
+  | #[tag] =>
+      expect (tag.name == "TripleOptionBytesTag" &&
+          tag.variants.map (·.payloadTypes) ==
+            #[#[.option (.option (.option (.bytes 8)))],
+              #[.option (.option (.option (.bytes 4096)))]])
+        "Option Option Option Bytes enum payloads must preserve lengths 8/4096"
+  | _ => throw <| IO.userError "TripleOptionBytesSurface must retain one enum"
+  match tripleOptionBytesSurface.consts with
+  | #[seed] =>
+      expect (seed.name == "TripleOptionBytesSeed" &&
+          seed.type == .option (.option (.option (.bytes 0))))
+        "Option Option Option Bytes const type must survive elaboration"
+  | _ => throw <| IO.userError "TripleOptionBytesSurface must retain TripleOptionBytesSeed"
+  match tripleOptionBytesSurface.initializer with
+  | some initializer =>
+      expect (initializer.params.map (·.type) == #[.option (.option (.option (.bytes 8)))])
+        "Option Option Option Bytes initializer parameter must survive elaboration"
+  | none => throw <| IO.userError "TripleOptionBytesSurface must retain initializer"
+  match tripleOptionBytesSurface.entries with
+  | #[echoEntry, getView] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option (.option (.bytes 8)))] &&
+          echoEntry.result == .option (.option (.option (.bytes 8))) &&
+          getView.result == .option (.option (.option (.bytes 8))) && getView.mode == .view)
+        "Option Option Option Bytes entry/view parameter and result types must survive elaboration"
+  | _ => throw <| IO.userError "TripleOptionBytesSurface must retain echo and get"
+  match tripleOptionBytesSurface.functions with
+  | #[identFn] =>
+      expect (identFn.params.map (·.type) == #[.option (.option (.option (.bytes 4096)))] &&
+          identFn.result == .option (.option (.option (.bytes 4096))))
+        "Option Option Option Bytes fn parameter/result must survive elaboration"
+  | _ => throw <| IO.userError "TripleOptionBytesSurface must retain ident"
+  match ← session.selectProgram tripleOptionBytesSurfaceSource
+      "<triple-option-bytes>" none with
+  | .ok decoded =>
+      expect (decoded == tripleOptionBytesSurface)
+        "Loader and Lean command must produce the same triple Option Bytes Source.Program"
+      expect (decoded.sourceHash == tripleOptionBytesSurface.sourceHash)
+        "Loader and Lean command must produce the same triple Option Bytes sourceHash"
+  | .error error => throw <| IO.userError error.render
+
   let optionArrayElements : Array (String × Source.ValueType) := #[
     ("Bool", .bool),
     ("UInt8", .u8), ("UInt16", .u16), ("UInt32", .u32), ("UInt64", .u64),
@@ -1881,6 +2034,81 @@ unsafe def run : IO Unit := do
     "Option Option Option Field Semantic must non-alias triple Option UInt64 (bytes+hash)"
   tripleFieldSemanticDistinct (.option (.option (.option .bool)))
     "Option Option Option Field Semantic must non-alias triple Option Bool (bytes+hash)"
+
+  let tripleBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Option Bytes 0", .option (.option (.option (.bytes 0))), 0, "UNBOUND"),
+    ("Option Option Option Bytes 8", .option (.option (.option (.bytes 8))), 0, "UNBOUND"),
+    ("Option Option Option Bytes 4096", .option (.option (.option (.bytes 4096))), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in tripleBytesSourceVectors do
+    let sourceProgram := twin type
+    expect (sourceProgram.canonicalBytes.size == expectedSize &&
+        sourceProgram.sourceHash == expectedHash)
+      s!"{label} source tag16+tag16+tag16+tag17 golden is unbound: size={sourceProgram.canonicalBytes.size}, hash={sourceProgram.sourceHash}"
+  let tripleBytesSourceCanon (type : Source.ValueType) : ByteArray × String :=
+    ((twin type).canonicalBytes, (twin type).sourceHash)
+  let tripleBytesSourceDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+    let leftPair := tripleBytesSourceCanon left
+    let rightPair := tripleBytesSourceCanon right
+    expect (leftPair.1 != rightPair.1 && leftPair.2 != rightPair.2) message
+  let tob0 : Source.ValueType := .option (.option (.option (.bytes 0)))
+  let tob8 : Source.ValueType := .option (.option (.option (.bytes 8)))
+  let tobMax : Source.ValueType := .option (.option (.option (.bytes 4096)))
+  tripleBytesSourceDistinct tob0 tob8
+    "Option Option Option Bytes 0 vs 8 Source must non-alias (bytes+hash)"
+  tripleBytesSourceDistinct tob8 tobMax
+    "Option Option Option Bytes 8 vs 4096 Source must non-alias (bytes+hash)"
+  tripleBytesSourceDistinct tob0 tobMax
+    "Option Option Option Bytes 0 vs 4096 Source must non-alias (bytes+hash)"
+  tripleBytesSourceDistinct tob8 (.bytes 8)
+    "Option Option Option Bytes 8 Source must non-alias bare Bytes 8 (bytes+hash)"
+  tripleBytesSourceDistinct tob8 (.option (.bytes 8))
+    "Option Option Option Bytes 8 Source must non-alias Option Bytes 8 (bytes+hash)"
+  tripleBytesSourceDistinct tob8 (.option (.option (.bytes 8)))
+    "Option Option Option Bytes 8 Source must non-alias Option Option Bytes 8 (bytes+hash)"
+  tripleBytesSourceDistinct tob8 (.option (.option (.option .u64)))
+    "Option Option Option Bytes 8 Source must non-alias triple Option UInt64 (bytes+hash)"
+  tripleBytesSourceDistinct tob8 (.option (.option (.option .field)))
+    "Option Option Option Bytes 8 Source must non-alias triple Option Field (bytes+hash)"
+
+  let tripleBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
+    ("Option Option Option Bytes 0", .option (.option (.option (.bytes 0))), 0, "UNBOUND"),
+    ("Option Option Option Bytes 8", .option (.option (.option (.bytes 8))), 0, "UNBOUND"),
+    ("Option Option Option Bytes 4096", .option (.option (.option (.bytes 4096))), 0, "UNBOUND")
+  ]
+  for (label, type, expectedSize, expectedHash) in tripleBytesSemanticVectors do
+    let sourceProgram := twin type
+    let semantic ← match Compiler.compile sourceProgram with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} semantic twin must compile: {error.render}"
+    expect (semantic.canonicalBytes.size == expectedSize && semantic.semanticHash == expectedHash)
+      s!"{label} semantic tag16+tag16+tag16+tag17 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
+  let tripleBytesSemanticCanon (type : Source.ValueType) : IO (ByteArray × String) := do
+    match Compiler.compile (twin type) with
+    | .ok value => pure (value.canonicalBytes, value.semanticHash)
+    | .error error =>
+        throw <| IO.userError
+          s!"triple Option Bytes semantic non-alias twin must compile: {error.render}"
+  let tripleBytesSemanticDistinct (left right : Source.ValueType) (message : String) : IO Unit := do
+    let leftPair ← tripleBytesSemanticCanon left
+    let rightPair ← tripleBytesSemanticCanon right
+    expect (leftPair.1 != rightPair.1 && leftPair.2 != rightPair.2) message
+  tripleBytesSemanticDistinct tob0 tob8
+    "Option Option Option Bytes 0 vs 8 Semantic must non-alias (bytes+hash)"
+  tripleBytesSemanticDistinct tob8 tobMax
+    "Option Option Option Bytes 8 vs 4096 Semantic must non-alias (bytes+hash)"
+  tripleBytesSemanticDistinct tob0 tobMax
+    "Option Option Option Bytes 0 vs 4096 Semantic must non-alias (bytes+hash)"
+  tripleBytesSemanticDistinct tob8 (.bytes 8)
+    "Option Option Option Bytes 8 Semantic must non-alias bare Bytes 8 (bytes+hash)"
+  tripleBytesSemanticDistinct tob8 (.option (.bytes 8))
+    "Option Option Option Bytes 8 Semantic must non-alias Option Bytes 8 (bytes+hash)"
+  tripleBytesSemanticDistinct tob8 (.option (.option (.bytes 8)))
+    "Option Option Option Bytes 8 Semantic must non-alias Option Option Bytes 8 (bytes+hash)"
+  tripleBytesSemanticDistinct tob8 (.option (.option (.option .u64)))
+    "Option Option Option Bytes 8 Semantic must non-alias triple Option UInt64 (bytes+hash)"
+  tripleBytesSemanticDistinct tob8 (.option (.option (.option .field)))
+    "Option Option Option Bytes 8 Semantic must non-alias triple Option Field (bytes+hash)"
 
   let nestedBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
     ("Option Option Bytes 0", .option (.option (.bytes 0)), 259,
@@ -2465,6 +2693,14 @@ unsafe def run : IO Unit := do
         "Option Option Option «Bool»"),
       ("bare Bytes Triple Option element", "BareBytesTripleOptionElement",
         "Option Option Option Bytes"),
+      ("over-bound Triple Option Bytes length", "OverBoundTripleOptionBytes",
+        "Option Option Option Bytes 4097"),
+      ("leading-zero Triple Option Bytes length", "LeadingZeroTripleOptionBytes",
+        "Option Option Option Bytes 01"),
+      ("hex Triple Option Bytes length", "HexTripleOptionBytes",
+        "Option Option Option Bytes 0x10"),
+      ("underscore Triple Option Bytes length", "UnderscoreTripleOptionBytes",
+        "Option Option Option Bytes 4_096"),
       ("bare Array Triple Option element", "BareArrayTripleOptionElement",
         "Option Option Option Array"),
       ("bare Map Triple Option element", "BareMapTripleOptionElement",
@@ -2578,12 +2814,41 @@ unsafe def run : IO Unit := do
       throw <| IO.userError
         s!"migrated Option Option Option Field bn254_fr must parse: {error.render}"
 
+  let migratedTripleOptionBytesSource :=
+    negativeSource "MigratedTripleOptionBytes" "Option Option Option Bytes 8"
+  match ← session.parsePrograms migratedTripleOptionBytesSource
+      "<migrated-triple-option-bytes>" with
+  | .ok #[decodedProgram] =>
+      expect (decodedProgram.state.map (·.type) ==
+          #[.option (.option (.option (.bytes 8)))])
+        "migrated Option Option Option Bytes 8 pin must now parse as existing option(option(option(bytes(8))))"
+  | .ok programs =>
+      throw <| IO.userError
+        s!"migrated Option Option Option Bytes 8 produced {programs.size} programs"
+  | .error error =>
+      throw <| IO.userError
+        s!"migrated Option Option Option Bytes 8 must parse: {error.render}"
+
   for (label, spelling) in [
       ("fourth nested option", "Option Option Option Option Bool"),
-      ("Bytes Triple Option element", "Option Option Option Bytes 8"),
       ("Array Triple Option element", "Option Option Option Array UInt64 4"),
       ("extra Triple Option payload", "Option Option Option Bool Principal"),
       ("extra Triple Option Field payload", "Option Option Option Field bn254_fr Principal"),
+      ("extra Triple Option Bytes payload", "Option Option Option Bytes 8 Principal"),
+      ("negative Triple Option Bytes length", "Option Option Option Bytes -1"),
+      ("identifier Triple Option Bytes length", "Option Option Option Bytes N"),
+      ("split Triple Option Bytes outer Option", "Option\n  Option Option Bytes 8"),
+      ("split Triple Option Bytes middle Option", "Option Option\n  Option Bytes 8"),
+      ("split Triple Option Bytes third Option", "Option Option Option\n  Bytes 8"),
+      ("split Triple Option Bytes length", "Option Option Option Bytes\n  8"),
+      ("escaped outer Triple Option Bytes", "«Option» Option Option Bytes 8"),
+      ("qualified outer Triple Option Bytes", "Std.Option Option Option Bytes 8"),
+      ("escaped middle Triple Option Bytes", "Option «Option» Option Bytes 8"),
+      ("qualified middle Triple Option Bytes", "Option Std.Option Option Bytes 8"),
+      ("escaped third Triple Option Bytes", "Option Option «Option» Bytes 8"),
+      ("qualified third Triple Option Bytes", "Option Option Std.Option Bytes 8"),
+      ("escaped Bytes Triple Option constructor", "Option Option Option «Bytes» 8"),
+      ("qualified Bytes Triple Option constructor", "Option Option Option Std.Bytes 8"),
       ("split Triple Option Field outer Option", "Option\n  Option Option Field bn254_fr"),
       ("split Triple Option Field middle Option", "Option Option\n  Option Field bn254_fr"),
       ("split Triple Option Field identifier", "Option Option Option Field\n  bn254_fr"),
@@ -3056,6 +3321,26 @@ unsafe def run : IO Unit := do
         throw <| IO.userError
           s!"Option Option Option Bool/{target} unexpectedly passed support"
 
+  let tripleOptionBytesBoundary ← match Compiler.compile
+      Tests.Language.OptionDeclarationsFixture.TripleOptionBytesBoundary with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"TripleOptionBytesBoundary must compile: {error.render}"
+  expect (tripleOptionBytesBoundary.requirements == #[])
+    "Option Option Option Bytes must recursively propagate zero requirements"
+  match tripleOptionBytesBoundary.entries with
+  | #[echoEntry] =>
+      expect (echoEntry.params.map (·.type) == #[.option (.option (.option (.bytes 8)))] &&
+          echoEntry.result == .option (.option (.option (.bytes 8))))
+        "Source-to-Semantic adaptation must preserve triple Option Bytes tags and length"
+  | _ => throw <| IO.userError "TripleOptionBytesBoundary must retain one semantic entry"
+  for target in Targets.phase1 do
+    match Targets.checkSupport target tripleOptionBytesBoundary with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError
+          s!"{target} must support zero-requirement Option Option Option Bytes carrier: {error.render}"
+
   for (label, sourceProgram, needle) in [
       ("OptionStateBoundary",
         Tests.Language.OptionDeclarationsFixture.OptionStateBoundary,
@@ -3146,6 +3431,15 @@ unsafe def run : IO Unit := do
         "does not return UInt64"),
       ("TripleOptionParamBoundary",
         Tests.Language.OptionDeclarationsFixture.TripleOptionParamBoundary,
+        "is not UInt64"),
+      ("TripleOptionBytesStateBoundary",
+        Tests.Language.OptionDeclarationsFixture.TripleOptionBytesStateBoundary,
+        "is not UInt64"),
+      ("TripleOptionBytesResultBoundary",
+        Tests.Language.OptionDeclarationsFixture.TripleOptionBytesResultBoundary,
+        "does not return UInt64"),
+      ("TripleOptionBytesParamBoundary",
+        Tests.Language.OptionDeclarationsFixture.TripleOptionBytesParamBoundary,
         "is not UInt64"),
     ] do
     let compiled ← match Compiler.compile sourceProgram with
