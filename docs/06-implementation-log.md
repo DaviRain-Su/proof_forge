@@ -5150,3 +5150,28 @@ normative: false
 - Next：当前无 active development slice。按正式依赖顺序审计 `TASK-D1-01` 的 pending-prep package；
   首个 bounded candidate 只包装 `TST-SRC-001` 的 `SourceIdentity`/`SourceSpan`，`TST-SRC-002` 另行窄化，
   禁止用混合 `ProgramSyntax`/`Loader` wrapper 吞入 SRC-003/008/compile 断言。
+
+## 2026-07-19 — D1 source-wire acceptance packaging pre-acceptance slice
+
+- Commits：`TASK-D1-01` pending-prep freeze package `ee1cbc8d`；D1-PA-89 tests-only freeze
+  `2df076fe`；`SourceWireAcceptance` harness `510f1fad`。
+- Authority：正式 `TASK-D1-01` 继续 `pending`。完成包逐字绑定 output `source token、span、NodeId`、
+  五个 D0 dependencies、empty prerequisites 与 `TST-SRC-001`/`TST-SRC-002`；doneWhen 要求两项完整
+  acceptance、`just dsl-negative`、全部 dependency done、candidate-bound `qualification=formal` evidence 和
+  零 P0/P1。`EV-20260717-0036` 与本条 development evidence 均被明确排除为 formal close 依据。
+- Changed：新增 11-line `Tests.Language.SourceWireAcceptance`，按 aggregate 原相对顺序精确一次调用
+  `SourceIdentity.run` 后 `SourceSpan.run`。`Tests.lean` 保留两个既有 imports，以一个 wrapper call 替换
+  两个 individual calls；`lakefile.lean` 保留两个 roots 并只增加 wrapper root。总计 14/30 additions、
+  aggregate -2 calls；既有 suite assertions、production 与 package file-set 零修改。
+- Verification：Grok `lake build Tests.Language.SourceWireAcceptance proof_forge_next_tests` 274 jobs；
+  coordinator 重跑 `lake env .lake/build/bin/proof-forge-next-tests`，输出 `proof-forge-next-tests: ok`；
+  `just docs-check` 与 `git diff --check` 通过。按冻结不运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：Grok implementation report P0/P1=0；独立 final review P0/P1/P2=0。development evidence
+  为 `EV-20260719-0087`。
+- Limitations：本条只包装既有 NodeId/span development assertions；仓库仍缺完整 ProgramV1 independent
+  encoder/golden corpus 与正式 injectable truncated-ID collision staging，且没有覆盖 `TST-SRC-002`。
+  它不是 candidate-bound formal record，不能关闭 pending `TASK-D1-01`、任何下游 D1/D2 或 target task；
+  D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。复核 `TST-SRC-002` 的直接 `SourceBoundsAcceptance` 与既有
+  generated `dsl-negative` 入口，优先复用已经执行的 256/257、100000/100001、namespace unwind 和
+  16 MiB 边界，禁止包装混合 `ProgramSyntax`/`Loader` 或重复制造重资源路径。
