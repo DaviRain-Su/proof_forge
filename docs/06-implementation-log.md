@@ -5560,3 +5560,42 @@ normative: false
   evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
 - Next：当前无 active development slice。Grok/Kimi 正在只读裁决 remaining body-bearing declaration
   records 的最小闭合面；完成面冻结前不得开始下一份 RED，ProgramItem/root 与其他边界不得顺手并入。
+
+## 2026-07-19 — D1 ProgramV1 spine-dependent declarations pre-acceptance slice
+
+- Commits：D1-PA-101 freeze `0bf6d9a3`；RED `07c1842e`；GREEN `0c7bba46`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 `SPEC-SOURCE-WIRE-001` 中 ordered fields依赖已发布 Expr/Block spine 的全部六个
+  named records：Const/Invariant/Init/Entry/View/Fn。该 closed class 与 PA98 的七个 spine-independent
+  records 合计 13/13 item alternatives，但明确不定义 `ProgramItemV1` sum 或 `Program` root。
+- Changed：新增 51-line `AstSpineDeclV1`，六个 structure 精确持有 raw name、Type/Param/Expr/Block fields，
+  并全部由 Lean 4.31 派生 `DecidableEq`/`Repr`；新增 54-line `AstSpineDeclCodecV1`，六个 total encoder按
+  Const `[name,type,value]`、Invariant `[name,predicate]`、Init `[params,body]`、Entry/View/Fn
+  `[name,params,result,body]` 左到右组合既有 codec。Param arrays 复用 `encodeArray encodeParamV1`，没有
+  新 local validation/error string，empty params允许，所有 child errors原样传播。
+- Cross implementation：151-line Lean suite与 132-line、不 import Lean/ProofForge 的 Python oracle持有
+  同名七个 fixed expected-byte goldens，覆盖六个 tags、三 visibility、nested Type/Expr/Stmt/Block、View
+  empty params与 Entry first-two-param swap；coordinator 逐 label/byte对照为 7/7、零 missing/extra/mismatch。
+  六种 record各有 derived equality true/false；Entry param-order同时 Eq/byte nonalias，字段相同的 Entry/View
+  tag nonalias。Lean 7 个与 Python 9 个 constructible negatives覆盖 Type-before-Expr、Param-before-result/body、
+  result-before-body、u256、Field id与 empty Block；私有 name carrier未被 unsafe伪造。Python 的 Param与
+  Init body priority fixture在 RED 前改为 lazy whole-child evaluation，错误值与 seven-golden集合不变。
+  model 51、codec 54、suite 151、Python 132、registrations 5，总 authored additions 393/520；机械 manifest
+  为 49 files。
+- Verification：RED `lake build Tests.Language.SourceAstSpineDeclV1` 只因两个 production modules缺失失败；
+  GREEN focused build 21 jobs，`lake build proof_forge_next_tests` 332 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `python3 -B scripts/reference_source_ast_spine_decl_v1.py --self-check` 输出
+  `reference_source_ast_spine_decl_v1: ok 7`；`just sbom-package-files-refresh` → 49 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结
+  未运行完整 `just ci`。
+- Review/Evidence：Grok 的两个 production files与事前 `/tmp` Lean 4.31 feasibility candidates逐字一致；
+  Kimi 对六个 fields/derive、six tags/order、required Eq import、Array reuse、zero-new-validation、两条产品
+  registration与排除面逐行独立审查，P0/P1/P2=0。development evidence 为 `EV-20260719-0099`。
+- Limitations：没有 `ProgramItemV1` sum/codec、Program root/identity/items nonempty、set-level duplicate/
+  zero-entry-view/multiple-init/proof-invariant validation、alpha adapter、decoder、full-tree global budgets、
+  sourceHash、NodeId、stable Diagnostic 或 target。spec 仍 proposed，D0 dependencies/candidate-bound formal
+  evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在只读裁决 complete 13-alternative
+  `ProgramItemV1` sum/codec 的最小闭合面；完成面冻结前不得开始下一份 RED，Program root/global boundaries
+  不得顺手并入。
