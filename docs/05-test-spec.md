@@ -1081,6 +1081,29 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明 array/option
   value operations、none/some/unwrap、runtime/ABI、target Array-nested-Option support、完整 recursive grammar
   或正式 D1 完成。
+- D1-PA-72 的 alpha tests 只开放 exact same-line `Array Option Bytes N M`，物化为既有
+  `Source/Semantic.ValueType.array (.option (.bytes innerLength)) outerLength`，tag 固定
+  `18→16→17→N→M`，两长度均复用 canonical ASCII decimal `0..4096`。本条只对 exact spelling 测试面
+  supersede D1-PA-59 的 Bytes-element exclusion、D1-PA-60/61/62/68/69 的 broad Array Option residual 与
+  D1-PA-71 明示保留的 Array Option Bytes negative；Array Option Array、Array Array non-Primitive、第三层
+  inner Option、Map/Named 只保持既有 negatives，不新增 PA72 migrations 或无关完成条件，也不开放任意
+  recursive grammar。tests-only RED 只修改 `Tests.Language.ArrayTypes`，将既有一条
+  `("nested Bytes Array Option element", "Array Option Bytes 8 4")` negative 迁移为 positive，migration
+  count 精确为一。positive 覆盖 dual lengths `0/0`、`8/4`、`4096/1`、all declaration positions（含
+  event/error）与 Lean command/ParserSession parity。Source/Semantic canonical goldens 必须固定上述三组
+  vectors；candidate `Array Option Bytes 8 4` 必须与相同 payload 的 `Array Bytes 8 4`、
+  `Option Array Bytes 8 4` non-alias，并与 `Array Option UInt64 4`、`Option Bytes 8` 固定 leaf/wrapper 差异；
+  三组 candidates 必须 pairwise non-alias；`8/4` 必须分别与 `0/4`（只改变 inner length）、`8/0`
+  （只改变 outer length）non-alias，且 `8/4` 与 `4/8` 必须证明 dual-length order non-alias。RED 中
+  新 goldens 显式未绑定，GREEN 前由独立 probe 计算。requirements 必须为空且四个 Phase 1 target support
+  通过；state/result/parameter dedicated fixtures 必须在四 target 分别触发既有
+  `is not UInt64`/`does not return UInt64` Plan invariant，所有路径均不得产出 artifact。
+  missing inner/outer length、两长度各自 invalid lexical/bound forms、Field/Array/Option/Map/Named inner、
+  escaped/qualified Array/Option/Bytes constructor、extra/split payload 必须 exact fail closed。production 仅限
+  Syntax 一文件 ≤32 additions/2 removals，刷新 package file-set；focused 23-job、192-job aggregate/test
+  binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明 bytes/array/
+  option value operations、none/some/unwrap、runtime/ABI、target Array-Option-Bytes support、完整 recursive
+  grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
