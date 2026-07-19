@@ -116,6 +116,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.SourceAstSupportV1,
     `Tests.Language.SourceAstPatternV1,
     `Tests.Language.SourceAstDeclV1,
+    `Tests.Language.SourceAstSpineV1,
     `Tests.Language.FrontendParity,
     `Tests.Language.Grouping,
     `Tests.Language.Loader,
