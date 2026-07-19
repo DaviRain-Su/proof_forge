@@ -4362,3 +4362,42 @@ normative: false
 - Next：当前无 active development slice；两路 post-PA-72 residual audit 分别推荐 exact
   `Option Option Option Field bn254_fr` 与 `Array Option Array PrimitiveAtom N M`，必须先做 bounded
   arbitration；尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — TASK-D0-07 pre-acceptance：finalization producer + 发布 + support-binding
+
+- Context：D0-07 第二切片（spec：`gate-catalog-finalization.md:1846-1900`、
+  `capabilities-extensions.md:114-241`）。委托实现，主会话抽查评审后提交。
+- Changed：`scripts/formal_evidence_producer.py`（约 800 行）——
+  `produce_formal_evidence_finalization`（构造确定性与 consumer round-trip）；
+  `publish_finalization`：canonical decode 提取 record id/catalog.id、
+  `parse_required_test_set` 解 resolved set id、ref 重算比对后从内容推导
+  `<trusted-root>/finalized-formal/<catalog.id>/<required-set.id>/<EVF-id>.json`，
+  mkstemp staging→fsync→0444→`os.link`（EEXIST 即 ATOMICITY）→目录 fsync→
+  先 record 后 receipt marker 的 receipt-last；预存在预检即拒且零改动。
+  `produce_support_binding`：record 16 输入 consumer 复验、EV digest=EV bytes
+  plain SHA-256 且 ref ∈ record gates 全局 refs、revokedEvidenceId ∈ resolved
+  revocation records 即拒、claimDigest 按 `pf.support-claim.v1` 域从完整
+  SupportClaim 重算、gate vectors 恰覆盖每个 record gate 一次且 achieved 按
+  enum 序取 min、finalizedAt/expiresAt 与 record 精确相等且窗口为正、
+  candidate==record.candidate、revocationLedgerDigest==record.revocationLedger.digest；
+  同 EV 不同 build/requirement 产出不同 binding/ref（钉住）；
+  `publish_support_binding` 同模式 receipt-last 发布。
+  `SupportEvidenceBindingV1`/`SupportBindingRef` wire 定位
+  `capabilities-extensions.md:222-226,61-66,217`；binding 发布路径
+  `<trusted-root>/support-bindings/<requirement.id>/<evidence.id>-<build.targetId>.json`
+  为本切片 development 约定（SPEC-CAP 只钉 receipt-last no-clobber）。
+  `scripts/formal_evidence_producer_self_test.py`（约 800 行）：正例（字节级相等、
+  路径逐字符精确、receipt-last marker 精确、binding 三变体互异）+ 负例
+  （development finalization、revoked EV、窗口反转、record 外 EV、partial/unknown
+  gate vector、非法 grade、篡改 claimDigest、单段 requirement id、未知 predicate
+  variant、record 预存在、非 record payload，全零输出零残留）。
+- Verification：`/usr/bin/python3 -I -S scripts/formal_evidence_producer_self_test.py`
+  ok；全部既有自测 ok；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `git diff --check` clean；justfile `docs-check` recipe 已接入。development
+  evidence 为 `EV-20260719-0070`。
+- Limitations：binding 路径 development 约定、requirement registry resolve 归 D3、
+  freshness 窗口求值未实现（spec 只钉 nonzero 与正向窗口）；D0-07 保持
+  pending、依赖未闭合，不得据本条关闭；D0 formal milestone 仍为 7/9。
+- Next：D0-07 第三切片——TST-ISO-002 hermetic archive harness（fixture
+  namespace：外部 candidate anchor + deny-default stages + containment +
+  gate-catalog EV 发布）与 genesis 重放集成。

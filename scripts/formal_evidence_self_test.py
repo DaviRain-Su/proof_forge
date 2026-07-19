@@ -431,7 +431,9 @@ def build_fixture(acceptance: ModuleType, tmpdir: Path) -> dict:
             "evidenceRefs": [
                 {
                     "id": "EV-20260718-0001",
-                    "digest": digest_text(bytes.fromhex("91" * 32)),
+                    "digest": digest_text(hashlib.sha256(
+                        b"synthetic EV 20260718-0001 bytes\n"
+                    ).digest()),
                 },
             ],
         },
@@ -442,11 +444,15 @@ def build_fixture(acceptance: ModuleType, tmpdir: Path) -> dict:
             "evidenceRefs": [
                 {
                     "id": "EV-20260718-0002",
-                    "digest": digest_text(bytes.fromhex("92" * 32)),
+                    "digest": digest_text(hashlib.sha256(
+                        b"synthetic EV 20260718-0002 bytes\n"
+                    ).digest()),
                 },
                 {
                     "id": "EV-20260718-0003",
-                    "digest": digest_text(bytes.fromhex("93" * 32)),
+                    "digest": digest_text(hashlib.sha256(
+                        b"synthetic EV 20260718-0003 bytes\n"
+                    ).digest()),
                 },
             ],
         },
@@ -463,7 +469,9 @@ def build_fixture(acceptance: ModuleType, tmpdir: Path) -> dict:
             "evidenceRefs": [
                 {
                     "id": "EV-20260718-0005",
-                    "digest": digest_text(bytes.fromhex("96" * 32)),
+                    "digest": digest_text(hashlib.sha256(
+                        b"synthetic EV 20260718-0005 bytes\n"
+                    ).digest()),
                 },
             ],
         },
@@ -474,11 +482,20 @@ def build_fixture(acceptance: ModuleType, tmpdir: Path) -> dict:
             "evidenceRefs": [
                 {
                     "id": "EV-20260718-0004",
-                    "digest": digest_text(bytes.fromhex("97" * 32)),
+                    "digest": digest_text(hashlib.sha256(
+                        b"synthetic EV 20260718-0004 bytes\n"
+                    ).digest()),
                 },
             ],
         },
     ]
+    ev_payloads = {
+        "EV-20260718-0001": b"synthetic EV 20260718-0001 bytes\n",
+        "EV-20260718-0002": b"synthetic EV 20260718-0002 bytes\n",
+        "EV-20260718-0003": b"synthetic EV 20260718-0003 bytes\n",
+        "EV-20260718-0004": b"synthetic EV 20260718-0004 bytes\n",
+        "EV-20260718-0005": b"synthetic EV 20260718-0005 bytes\n",
+    }
     all_refs_sorted = sorted(
         (ref for gate in gates_wire for ref in gate["evidenceRefs"]),
         key=lambda ref: (ref["id"], ref["digest"]),
@@ -625,6 +642,7 @@ def build_fixture(acceptance: ModuleType, tmpdir: Path) -> dict:
         "revocationRefWire": revocation_ref_wire,
         "finalizerRefWire": finalizer_ref_wire,
         "setRefWire": set_ref_wire,
+        "evPayloads": ev_payloads,
     }
 
 
