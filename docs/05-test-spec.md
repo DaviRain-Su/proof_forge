@@ -1742,6 +1742,63 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   aggregate build/test binary、Python self-check、package refresh 后最终单次 `just sbom`、`just docs-check`、
   `git diff --check` 与 independent review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭
   完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-95 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 leaf AST closed-layer slice。边界必须是
+  `SPEC-SOURCE-WIRE-001` 五张完整表的 **38 个唯一 tag**：Visibility 3、Type 11（包含 Named/Map）、
+  Literal 3、UnaryOp 3、BinaryOp 18；不得写成“current grammar subset”后静默删 constructor。模型与
+  encoder 分模块，生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstV1
+  inductive VisibilityV1
+    | public_ | private_ | commitment
+  inductive TypeV1
+    | bool | uint (width : UInt16) | int (width : UInt16)
+    | principal | unit | named (name : SourceNameComponentV1)
+    | array (element : TypeV1) (length : UInt32)
+    | map (key value : TypeV1) | option (element : TypeV1)
+    | bytes (length : UInt32) | field (id : SourceNameComponentV1)
+  inductive LiteralV1
+    | bool (value : Bool) | integer (magnitude : Nat) | string (value : String)
+  inductive UnaryOpV1
+    | neg | not | bitNot
+  inductive BinaryOpV1
+    | add | sub | mul | div | mod | eq | ne | lt | le | gt | ge
+    | logicalAnd | logicalOr | bitAnd | bitOr | bitXor | shl | shr
+  -- each derives DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstCodecV1
+  encodeVisibilityV1 : VisibilityV1 → Except String ByteArray
+  encodeTypeV1 : TypeV1 → Except String ByteArray
+  encodeLiteralV1 : LiteralV1 → Except String ByteArray
+  encodeUnaryOpV1 : UnaryOpV1 → Except String ByteArray
+  encodeBinaryOpV1 : BinaryOpV1 → Except String ByteArray
+  ```
+
+  每个 encoder 只组合 PA91/PA93 已验证的 primitive/raw-name/`encodeTagged`，tag 与 field count 必须逐字
+  匹配 wire 表。`Type.UInt/Int.width` 只接受 UInt16 值 8/16/32/64/128/256；Array/Bytes UInt32 length
+  只接受 0..4096；Field raw id 只接受 `bn254_fr`；Named 与 Field 都编码 raw
+  `SourceNameComponentV1`，不得 rendered/Common 化。Literal.Integer 复用 u256le 并拒绝 `≥2^256`；
+  Literal.String 复用 pinned-NFC String。invalid width/length/field 必须在 `encodeTypeV1` 内 fail closed，
+  exact new errors 分别为 `integer width must be one of 8,16,32,64,128,256`、
+  `array length must be 0..4096`、`bytes length must be 0..4096`、`field id must be bn254_fr`。
+  本切片不加入局部 Type depth 上限；root-inclusive 256 nesting、100000 nodes 与 16 MiB 是后续完整
+  ProgramV1 validator/decoder 的全树规则，不能在 leaf encoder 上冒充完成。
+  RED/independent Python 必须固定 38 个 table-verbatim tag 的 exact bytes，且每个 constructor 至少一个
+  checked-in vector；Type.UInt/Int 六种 width 各通过，0/24 拒绝；Named raw `foo-bar`、Map、nested
+  `Array(Option(Bytes))`；Array/Bytes 0 与4096通过、4097拒绝；Field `bn254_fr` 通过且其他 raw id 拒绝；
+  Literal Integer 0、`>UInt64`、`2^256-1` 通过且 `2^256` 拒绝；Bool 0/1、NFC String通过、NFD拒绝。
+  Binary inventory exact 为 Add/Sub/Mul/Div/Mod/Eq/Ne/Lt/Le/Gt/Ge/And/Or/BitAnd/BitOr/BitXor/Shl/Shr；
+  logicalOr 与 bitOr 必须生成不同 tag。Lean suite与不 import Lean/ProofForge 的 Python oracle各自持有
+  expected hex，禁止以 production encoder 生成 decoder/expected oracle。
+  变更文件集：新增 `ProofForgeV2/Source/AstV1.lean`、`ProofForgeV2/Source/AstCodecV1.lean`、
+  `Tests/Language/SourceAstLeafV1.lean`、`scripts/reference_source_ast_leaf_v1.py`；最小
+  `ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean` registration 与机械 package manifest refresh。budgets：
+  AstV1≤75、AstCodecV1≤180、suite≤220、Python≤130、registrations≤8、总 authored additions≤615
+  （manifest 不计）。明确排除：alpha Source/Syntax/visibility/theorem projection、Program/items/supporting records、
+  recursive Stmt/Expr/Place/Pattern spine、decoder、root/sourceHash、NodeId、global resource validator、Common/
+  Loader/ProgramPayload/target 改写。验证只运行 focused+aggregate build/test binary、Python self-check、package
+  refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整
+  `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
