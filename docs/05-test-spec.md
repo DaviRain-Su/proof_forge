@@ -1303,6 +1303,31 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   192-job aggregate/test binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整
   `just ci`；不得声明 bytes/array/option operations、none/some/unwrap、runtime/ABI、target
   nested-Option-Array-Bytes support、完整 recursive grammar 或正式 D1 完成。
+- D1-PA-80 的 alpha tests 只开放 exact same-line `Array Option Option Bytes N M`，物化为既有
+  `Source/Semantic.ValueType.array (.option (.option (.bytes innerLength))) outerLength`，tag 固定
+  `18→16→16→17→N→M`；两个 length 各自精确复用 canonical ASCII decimal `0..4096`。该选择补齐
+  PA71 PrimitiveAtom、PA76 Field 后 `Array→Option→Option` fixed-leaf 三元组的 Bytes 轴；不是
+  checkpoint 自动递增，compound residual 继续 fail closed。tests-only RED 只修改
+  `Tests.Language.ArrayTypes`，将既有唯一
+  `("full Bytes Array Option Option element", "Array Option Option Bytes 8 4")` negative 迁移为 positive，
+  migration count 精确为一；既有 incomplete `Array Option Option Bytes 4` 必须继续 exact
+  unsupported，其他测试不得迁移。positive 覆盖 `(0,0)/(8,4)/(4096,1)`、state、struct field、enum
+  payload、const、event/error parameter、initializer/entry/view/fn parameter/result 与 Lean
+  command/ParserSession parity。Source/Semantic 各固定三组 deliberately UNBOUND golden vectors；
+  ordinary candidate 必须在两侧对 `Array Option Bytes 8 4`、`Array Option Option UInt64 4`、
+  `Array Option Option Field bn254_fr 4`、`Option Option Bytes 8`、`Array Bytes 8 4` non-alias，并用
+  手工 carrier 固定 `8/4` 对 `0/4`、`8/0`、`4/8` non-alias。requirements 必须为空；四个 Phase 1
+  target 的 `checkSupport` 必须全部通过；state/result/parameter 三类 fixture 的
+  `materializeResult` 必须 exact planInvariant（`is not UInt64` / `does not return UInt64` /
+  `is not UInt64`）且无 Plan/OutputSet/artifact。frozen channels：incomplete、两个 length 各自的
+  `4097`/leading-zero/hex/underscore 与仅缺 outer length 为 exact unsupported；bare
+  Field/Option/Array/Map、`Widget 8 4`、missing both、negative/identifier lengths、extra payload、五个
+  seams、四个 constructor 的 escaped/qualified form、full compounds 为 parser rejection；empirical
+  不符时 GREEN 前独立修规格。RED 仅 `ArrayTypes.lean` ≤320 additions/2 removals；production 仅
+  Syntax ≤32 additions/2 removals并刷新 package file-set；focused 23-job、192-job aggregate/test
+  binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明
+  Bytes/Array/Option operations、none/some/unwrap、runtime/ABI、target support、完整 recursive grammar
+  或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
