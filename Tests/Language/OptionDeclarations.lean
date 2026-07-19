@@ -1691,9 +1691,12 @@ private unsafe def runOptionOptionArrayBytes (session : Language.Loader.ParserSe
         "Loader and Lean command must produce the same Option Option Array Bytes sourceHash"
   | .error error => throw <| IO.userError error.render
   let srcVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Array Bytes 0 0", .option (.option (.array (.bytes 0) 0)), 0, "UNBOUND"),
-    ("Option Option Array Bytes 8 4", .option (.option (.array (.bytes 8) 4)), 0, "UNBOUND"),
-    ("Option Option Array Bytes 4096 1", .option (.option (.array (.bytes 4096) 1)), 0, "UNBOUND")
+    ("Option Option Array Bytes 0 0", .option (.option (.array (.bytes 0) 0)), 277,
+      "25dd9358bb3c78228b24deb534e5f96cc9ae214be0935bdd706a1aca98c40b39"),
+    ("Option Option Array Bytes 8 4", .option (.option (.array (.bytes 8) 4)), 277,
+      "9f8c4101906597285f27c442669f7384855d59adbb8aa7271537d4b698e8cac9"),
+    ("Option Option Array Bytes 4096 1", .option (.option (.array (.bytes 4096) 1)), 277,
+      "5ee7a18e815711f0797ffa96c2ba8de632afd9ba18238fc065df872d34f5f297")
   ]
   for (label, ty, expectedSize, expectedHash) in srcVectors do
     let p := twin ty
@@ -1723,9 +1726,12 @@ private unsafe def runOptionOptionArrayBytes (session : Language.Loader.ParserSe
   srcDistinct ooab84 ooab80 "Option Option Array Bytes one-axis outer 8/4 vs 8/0 Source must non-alias"
   srcDistinct ooab84 ooab48 "Option Option Array Bytes dual-length order 8/4 vs 4/8 Source must non-alias"
   let semVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Array Bytes 0 0", .option (.option (.array (.bytes 0) 0)), 0, "UNBOUND"),
-    ("Option Option Array Bytes 8 4", .option (.option (.array (.bytes 8) 4)), 0, "UNBOUND"),
-    ("Option Option Array Bytes 4096 1", .option (.option (.array (.bytes 4096) 1)), 0, "UNBOUND")
+    ("Option Option Array Bytes 0 0", .option (.option (.array (.bytes 0) 0)), 226,
+      "f1e4569f4a9e96cd1697e33365f014d9debb05467ba6953265ddd7820b5760d9"),
+    ("Option Option Array Bytes 8 4", .option (.option (.array (.bytes 8) 4)), 226,
+      "9be486502ab327e4fb421528427181b721eba4e6202a67b2a9ef688e167a0637"),
+    ("Option Option Array Bytes 4096 1", .option (.option (.array (.bytes 4096) 1)), 226,
+      "1177f7abaa51844b19b4693daf4853248ff3d4afc0015ca4ca99ea0abaa87240")
   ]
   for (label, ty, expectedSize, expectedHash) in semVectors do
     let sem ← match Compiler.compile (twin ty) with
@@ -1782,21 +1788,12 @@ private unsafe def runOptionOptionArrayBytes (session : Language.Loader.ParserSe
         "Option Option Array Bytes 8 0x10"),
       ("underscore Option Option Array Bytes outer length", "UnderscoreOOArrayBytesOuter",
         "Option Option Array Bytes 8 4_096"),
-      ("Widget Option Option Array Bytes leaf", "WidgetOOArrayBytes",
-        "Option Option Array Widget 8 4"),
-      ("bare Field Option Option Array Bytes leaf", "BareFieldOOArrayBytes",
-        "Option Option Array Field 8 4"),
-      ("bare Option Option Option Array Bytes leaf", "BareOptionOOArrayBytes",
-        "Option Option Array Option 8 4"),
-      ("bare Array Option Option Array Bytes leaf", "BareArrayOOArrayBytes",
-        "Option Option Array Array 8 4"),
-      ("bare Map Option Option Array Bytes leaf", "BareMapOOArrayBytes",
-        "Option Option Array Map 8 4")
+      ("missing Option Option Array Bytes outer length", "MissingOuterOOArrayBytes",
+        "Option Option Array Bytes 8")
     ] do
     expectUnsupportedType label
       (← session.parsePrograms (negativeSource name spelling) s!"<option-{label}>")
   for (label, spelling) in [
-      ("missing Option Option Array Bytes outer length", "Option Option Array Bytes 8"),
       ("missing Option Option Array Bytes lengths", "Option Option Array Bytes"),
       ("negative Option Option Array Bytes inner length", "Option Option Array Bytes -1 4"),
       ("negative Option Option Array Bytes outer length", "Option Option Array Bytes 8 -1"),
@@ -1819,7 +1816,12 @@ private unsafe def runOptionOptionArrayBytes (session : Language.Loader.ParserSe
       ("full Field Option Option Array Bytes element", "Option Option Array Field bn254_fr 4 4"),
       ("full Option Option Option Array Bytes element", "Option Option Array Option Bool 4 4"),
       ("full Array Option Option Array Bytes element", "Option Option Array Array UInt64 4 4 4"),
-      ("full Map Option Option Array Bytes element", "Option Option Array Map UInt64 Bool 4 4")
+      ("full Map Option Option Array Bytes element", "Option Option Array Map UInt64 Bool 4 4"),
+      ("Widget Option Option Array Bytes leaf", "Option Option Array Widget 8 4"),
+      ("bare Field Option Option Array Bytes leaf", "Option Option Array Field 8 4"),
+      ("bare Option Option Option Array Bytes leaf", "Option Option Array Option 8 4"),
+      ("bare Array Option Option Array Bytes leaf", "Option Option Array Array 8 4"),
+      ("bare Map Option Option Array Bytes leaf", "Option Option Array Map 8 4")
     ] do
     let source := negativeSource "RejectedOptionShape" spelling
     let (_, result) ← IO.FS.withIsolatedStreams
