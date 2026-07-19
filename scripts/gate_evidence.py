@@ -46,6 +46,7 @@ import hashlib
 import json
 import os
 import posixpath
+import py_compile
 import re
 import secrets
 import stat
@@ -162,6 +163,20 @@ _EVIDENCE_V1_CORE_PUBLIC = (
     "canonical_bytes",
     "decode_json",
     "validate_evidence",
+)
+_EVIDENCE_V1_CORE_REQUIRED = _EVIDENCE_V1_CORE_PUBLIC + (
+    "SCHEMA",
+    "MAX_INPUT_BYTES",
+    "MAX_SAFE_INTEGER",
+    "EVIDENCE_ID_RE",
+    "fail",
+    "_diagnostic_repr",
+    "require_array",
+    "require_int",
+    "require_pattern",
+    "require_sha256",
+    "require_relative_path",
+    "_validate_gate",
 )
 _PINNED_EVIDENCE_V1_CORE_SHA256 = (
     "7868d7ec30af6a32ebcbadec8cf794743ae9b0d14db4ba96e12e489b57d257e7"
@@ -509,6 +524,14 @@ def _load_evidence_v1_core(
         fail(
             "PF-EVIDENCE-CATALOG-DIGEST",
             "evidence v1 core public surface does not match the pinned ABI",
+        )
+    missing = tuple(
+        name for name in _EVIDENCE_V1_CORE_REQUIRED if name not in module.__dict__
+    )
+    if missing:
+        fail(
+            "PF-EVIDENCE-CATALOG-DIGEST",
+            f"evidence v1 core ABI lacks required symbols: {missing}",
         )
     return module, core_path, core_bytes, core_identity
 
@@ -4415,6 +4438,66 @@ def _self_test_core_routing() -> None:
             )
 
 
+def _self_test_source_loader_ignores_bytecode_cache() -> None:
+    """Prove the stable source primitive cannot select adjacent bytecode."""
+    for mode in (
+        py_compile.PycInvalidationMode.TIMESTAMP,
+        py_compile.PycInvalidationMode.UNCHECKED_HASH,
+    ):
+        with tempfile.TemporaryDirectory(prefix="pf-evidence-source-loader-") as temporary:
+            root = Path(temporary)
+            source_path = root / "evidence_v1_core.py"
+            bytecode_source = b"MARKER = 'bytecode'\n"
+            expected_source = b"MARKER = 'source__'\n"
+            if len(bytecode_source) != len(expected_source):
+                fail("PF-EVIDENCE-SELF-TEST", "source-loader fixture size drifted")
+            source_path.write_bytes(bytecode_source)
+            source_metadata = source_path.stat()
+            cache_path = root / "__pycache__" / (
+                f"evidence_v1_core.{sys.implementation.cache_tag}.pyc"
+            )
+            cache_path.parent.mkdir()
+            try:
+                py_compile.compile(
+                    str(source_path),
+                    cfile=str(cache_path),
+                    doraise=True,
+                    invalidation_mode=mode,
+                )
+            except py_compile.PyCompileError as error:
+                fail(
+                    "PF-EVIDENCE-SELF-TEST",
+                    f"cannot construct bytecode-cache fixture: {error}",
+                )
+            source_path.write_bytes(expected_source)
+            os.utime(
+                source_path,
+                ns=(source_metadata.st_atime_ns, source_metadata.st_mtime_ns),
+            )
+            source, _ = _stable_read_implementation(
+                source_path,
+                where="source-loader self-test",
+                code="PF-EVIDENCE-SELF-TEST",
+            )
+            module = ModuleType(f"_proof_forge_source_loader_test_{mode.name}")
+            module.__file__ = os.fspath(source_path)
+            try:
+                exec(
+                    compile(source, os.fspath(source_path), "exec", dont_inherit=True),
+                    module.__dict__,
+                )
+            except (SyntaxError, UnicodeError, ValueError) as error:
+                fail(
+                    "PF-EVIDENCE-SELF-TEST",
+                    f"cannot execute exact source fixture: {error}",
+                )
+            if module.__dict__.get("MARKER") != "source__":
+                fail(
+                    "PF-EVIDENCE-SELF-TEST",
+                    f"source loader executed {mode.name} bytecode cache",
+                )
+
+
 def _self_test_literal_dict_keys() -> None:
     """Reject duplicate string keys hidden by Python dict-literal semantics."""
     source_paths = (
@@ -4448,6 +4531,7 @@ def _self_test_literal_dict_keys() -> None:
 
 def self_test() -> None:
     _self_test_core_routing()
+    _self_test_source_loader_ignores_bytecode_cache()
     _self_test_literal_dict_keys()
     development = _sample_document()
     formal = _sample_document(formal=True)
@@ -4862,6 +4946,12 @@ def self_test() -> None:
     ]
     _expect_rejected("stream log reused across probes", reused_stream)
 
+    independent_duration = copy.deepcopy(development)
+    independent_duration["command"]["durationMs"] = 999  # type: ignore[index]
+    validate_evidence(independent_duration)
+    reversed_utc = copy.deepcopy(development)
+    reversed_utc["command"]["startedUtc"] = "2026-07-15T00:00:01Z"  # type: ignore[index]
+    _expect_rejected("endedUtc before startedUtc", reversed_utc)
     fractional_utc = copy.deepcopy(development)
     fractional_utc["command"]["endedUtc"] = "2026-07-15T00:00:00.125Z"  # type: ignore[index]
     _expect_rejected("fractional UTC wire form", fractional_utc)

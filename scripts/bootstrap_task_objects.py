@@ -20,10 +20,11 @@ evidence.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
+import os
 import posixpath
 import re
+import stat
 import unicodedata
 from datetime import date
 from dataclasses import dataclass
@@ -82,22 +83,98 @@ _EVIDENCE_V1_CORE_PUBLIC = (
     "decode_json",
     "validate_evidence",
 )
+_EVIDENCE_V1_CORE_SOURCE_LIMIT = 2 * 1024 * 1024
+
+
+def _source_identity(metadata: os.stat_result) -> Tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _stable_read_exact_source(path: Path) -> bytes:
+    """Read one exact regular source inode without consulting bytecode cache."""
+    required_flags = ("O_CLOEXEC", "O_NOFOLLOW")
+    if any(not hasattr(os, name) for name in required_flags):
+        raise ImportError("platform lacks no-follow source loading support")
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ImportError(f"cannot open exact evidence core source: {error}") from error
+    try:
+        before = os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode)
+                or before.st_nlink != 1
+                or not 1 <= before.st_size <= _EVIDENCE_V1_CORE_SOURCE_LIMIT
+                or stat.S_IMODE(before.st_mode) & 0o022
+                or before.st_uid not in {0, os.getuid()}):
+            raise ImportError("evidence core source metadata is not trusted")
+        chunks = []
+        remaining = before.st_size
+        while remaining:
+            chunk = os.read(descriptor, min(65_536, remaining))
+            if not chunk:
+                raise ImportError("evidence core source was truncated during read")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if os.read(descriptor, 1):
+            raise ImportError("evidence core source grew during read")
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        pathname = os.stat(path, follow_symlinks=False)
+    except OSError as error:
+        raise ImportError(f"cannot restat exact evidence core source: {error}") from error
+    if (_source_identity(before) != _source_identity(after)
+            or _source_identity(after) != _source_identity(pathname)):
+        raise ImportError("evidence core source identity changed during read")
+    source = b"".join(chunks)
+    if len(source) != before.st_size:
+        raise ImportError("evidence core source length changed during read")
+    return source
+
+
+def _exec_exact_source_module(path: Path, module_name: str) -> ModuleType:
+    source = _stable_read_exact_source(path)
+    try:
+        code = compile(
+            source,
+            str(path),
+            "exec",
+            flags=0,
+            dont_inherit=True,
+            optimize=0,
+        )
+    except (SyntaxError, ValueError) as error:
+        raise ImportError(f"cannot compile exact evidence core source: {error}") from error
+    module = ModuleType(module_name)
+    module.__file__ = str(path)
+    module.__package__ = ""
+    module.__loader__ = None
+    module.__cached__ = None
+    exec(code, module.__dict__)
+    module.__dict__["__proof_forge_source_sha256__"] = hashlib.sha256(source).hexdigest()
+    return module
 
 
 def _load_evidence_v1_core() -> ModuleType:
-    """Load the exact sibling pure core without a sys.path authority seam."""
+    """Execute exact sibling source bytes without sys.path or bytecode cache."""
     consumer_path = Path(__file__).resolve(strict=True)
     core_path = consumer_path.with_name("evidence_v1_core.py")
-    spec = importlib.util.spec_from_file_location(
-        "proof_forge_evidence_v1_core_for_bootstrap",
+    module = _exec_exact_source_module(
         core_path,
+        "proof_forge_evidence_v1_core_for_bootstrap",
     )
-    if spec is None or spec.loader is None or spec.origin is None:
-        raise ImportError("exact evidence-v1 core loader is unavailable")
-    if Path(spec.origin).resolve(strict=True) != core_path.resolve(strict=True):
-        raise ImportError("exact evidence-v1 core origin changed")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     if tuple(module.__dict__.get("__all__", ())) != _EVIDENCE_V1_CORE_PUBLIC:
         raise ImportError("exact evidence-v1 core ABI changed")
     return module
@@ -4303,8 +4380,8 @@ def _preflight_evidence_objects(
         _reject("evidenceObjectBytes count must be 1..24576")
     assert isinstance(values, tuple)
 
-    decoded = []
-    evidence_ids = []
+    result = []
+    previous_evidence_id: Union[str, None] = None
     for index, encoded in enumerate(values):
         if (type(encoded) is not bytes
                 or not 1 <= len(encoded) <= MAX_INPUT_BYTES):
@@ -4319,40 +4396,31 @@ def _preflight_evidence_objects(
         evidence_id = validated["id"]
         if type(evidence_id) is not str:
             _reject(f"evidenceObjectBytes[{index}].id is invalid")
-        decoded.append((encoded, validated))
-        evidence_ids.append(evidence_id)
-
-    if tuple(evidence_ids) != tuple(sorted(evidence_ids)):
-        _reject("evidenceObjectBytes must be ascending by EV id")
-    if len(set(evidence_ids)) != len(evidence_ids):
-        _reject("evidenceObjectBytes EV ids must be unique")
-
-    result = []
-    for encoded, document in decoded:
-        gate = document["gate"]
+        if (previous_evidence_id is not None
+                and evidence_id <= previous_evidence_id):
+            _reject("evidenceObjectBytes EV ids must be unique ascending")
+        previous_evidence_id = evidence_id
+        gate = validated["gate"]
         assert isinstance(gate, dict)
         reference = EvidenceRef(
-            document["id"],
+            evidence_id,
             Digest("sha256", hashlib.sha256(encoded).digest()),
         )
         result.append(_BootstrapEvidenceObjectV1(
             reference,
-            _candidate_from_evidence_document(document),
+            _candidate_from_evidence_document(validated),
             gate["taskId"],
             tuple(gate["testIds"]),
             gate["qualification"],
-            document["result"],
+            validated["result"],
         ))
     return tuple(result)
 
 
-def _require_evidence_graph_joins(
-    subject: BootstrapTaskSubjectV1,
-    authority: _BootstrapGraphAuthorityV1,
+def _require_evidence_manifest_joins(
     task_objects: Tuple[_BootstrapTaskObjectPreflightV1, ...],
     manifests: Tuple[Tuple[BootstrapEvidenceRootManifestV1, Digest], ...],
-    evidence_objects: Tuple[_BootstrapEvidenceObjectV1, ...],
-) -> None:
+) -> Tuple[EvidenceRef, ...]:
     if len(manifests) != len(task_objects):
         _reject("evidence manifests do not match the task closure")
 
@@ -4374,8 +4442,17 @@ def _require_evidence_graph_joins(
     if (len({reference.id for reference in expected_refs_tuple})
             != len(expected_refs_tuple)):
         _reject("TaskApprovalV1 evidence refs are not globally unique")
+    return expected_refs_tuple
+
+
+def _require_evidence_object_joins(
+    subject: BootstrapTaskSubjectV1,
+    authority: _BootstrapGraphAuthorityV1,
+    expected_refs: Tuple[EvidenceRef, ...],
+    evidence_objects: Tuple[_BootstrapEvidenceObjectV1, ...],
+) -> None:
     actual_refs = tuple(item.reference for item in evidence_objects)
-    if actual_refs != expected_refs_tuple:
+    if actual_refs != expected_refs:
         _reject("raw evidence objects do not match TaskApprovalV1 evidence refs")
 
     evidence_rows = {row.id: row for row in subject.evidenceRows}
@@ -4532,14 +4609,17 @@ def _parse_bootstrap_task_object_graph(
         _parse_bootstrap_evidence_manifest(encoded)
         for encoded in manifest_bytes
     )
+    expected_evidence_refs = _require_evidence_manifest_joins(
+        preflights,
+        manifests,
+    )
     evidence_objects = _preflight_evidence_objects(
         objects.evidenceObjectBytes
     )
-    _require_evidence_graph_joins(
+    _require_evidence_object_joins(
         subject,
         authority,
-        preflights,
-        manifests,
+        expected_evidence_refs,
         evidence_objects,
     )
 

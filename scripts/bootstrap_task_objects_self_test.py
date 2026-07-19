@@ -13,7 +13,11 @@ import dataclasses
 import hashlib
 import importlib.util
 import inspect
+import os
+import py_compile
+import struct
 import sys
+import tempfile
 import time
 from pathlib import Path
 from types import ModuleType
@@ -663,6 +667,85 @@ def assert_public_api(module: ModuleType) -> None:
         "Tuple[BootstrapTaskVerifierReceiptRefV1, ...]"
     )
     assert object_verified_annotations["evidence"] == "Tuple[EvidenceRef, ...]"
+
+
+def test_exact_source_module_ignores_bytecode_cache(module: ModuleType) -> None:
+    """The trusted core loader must execute source, never an adjacent pyc."""
+    execute = getattr(module, "_exec_exact_source_module", None)
+    assert callable(execute), "missing exact source module executor"
+
+    cases = (
+        (
+            "timestamp",
+            py_compile.PycInvalidationMode.TIMESTAMP,
+            b'MARKER = "pyc-ts"\n',
+        ),
+        (
+            "unchecked-hash",
+            py_compile.PycInvalidationMode.UNCHECKED_HASH,
+            b'MARKER = "pyc-uh"\n',
+        ),
+    )
+    benign_source = b'MARKER = "source"\n'
+    assert all(len(malicious) == len(benign_source) for _, _, malicious in cases)
+
+    original_spec_loader = importlib.util.spec_from_file_location
+
+    def forbidden_importlib_loader(*args: object, **kwargs: object) -> object:
+        raise AssertionError("exact source execution consulted an importlib loader")
+
+    for label, invalidation_mode, malicious_source in cases:
+        with tempfile.TemporaryDirectory(prefix="pf-exact-source-") as directory:
+            source_path = Path(directory) / "evidence_core.py"
+            source_path.write_bytes(malicious_source)
+            os.chmod(source_path, 0o600)
+            source_metadata = source_path.stat()
+            pyc_path = Path(py_compile.compile(
+                str(source_path),
+                doraise=True,
+                invalidation_mode=invalidation_mode,
+            ))
+            pyc_header = pyc_path.read_bytes()[:16]
+            assert len(pyc_header) == 16
+            flags = struct.unpack("<I", pyc_header[4:8])[0]
+            if invalidation_mode is py_compile.PycInvalidationMode.TIMESTAMP:
+                assert flags == 0
+                assert struct.unpack("<I", pyc_header[8:12])[0] == (
+                    int(source_metadata.st_mtime) & 0xFFFFFFFF
+                )
+                assert struct.unpack("<I", pyc_header[12:16])[0] == len(
+                    malicious_source
+                )
+            else:
+                assert flags & 0b11 == 0b01, (
+                    "fixture must carry an unchecked-hash pyc"
+                )
+
+            source_path.write_bytes(benign_source)
+            os.chmod(source_path, 0o600)
+            if invalidation_mode is py_compile.PycInvalidationMode.TIMESTAMP:
+                os.utime(
+                    source_path,
+                    ns=(source_metadata.st_atime_ns, source_metadata.st_mtime_ns),
+                )
+
+            importlib.util.spec_from_file_location = forbidden_importlib_loader
+            try:
+                loaded = execute(
+                    source_path,
+                    f"proof_forge_exact_source_{label.replace('-', '_')}",
+                )
+            finally:
+                importlib.util.spec_from_file_location = original_spec_loader
+
+            assert loaded.MARKER == "source", (
+                f"{label} bytecode cache bypassed exact source execution"
+            )
+            assert loaded.__loader__ is None
+            assert loaded.__cached__ is None
+            assert loaded.__proof_forge_source_sha256__ == hashlib.sha256(
+                benign_source
+            ).hexdigest()
 
 
 def assert_rejected(module: ModuleType, operation: Callable[[], object]) -> object:
@@ -10697,8 +10780,15 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
 
     positive_fixtures = (
         signed_d0_object_graph_fixture(module, "TASK-D0-01"),
+        signed_d0_object_graph_fixture(module, "TASK-D0-03"),
         signed_d0_object_graph_fixture(module, "TASK-D0-04"),
     )
+    expected_core_path = MODULE_PATH.with_name("evidence_v1_core.py").resolve(
+        strict=True
+    )
+    assert Path(module._EVIDENCE_V1_CORE.__file__).resolve(
+        strict=True
+    ) == expected_core_path, "bootstrap consumer must execute the exact sibling core"
     expected_raw_root_fields = {
         "schema", "id", "gate", "repository", "hostAttestation",
         "environment", "sandboxPolicies", "tools", "command", "inputs",
@@ -10739,21 +10829,111 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         )
         assert all(type(ref) is module.EvidenceRef for ref in result.evidence)
 
-    order_fixture = positive_fixtures[0]
+    multi_evidence_result = module.verifyBootstrapTaskObjects(
+        positive_fixtures[1]["subject"],
+        positive_fixtures[1]["objects"],
+    )
+    assert type(multi_evidence_result) is module.ObjectVerifiedV1
+    assert tuple(ref.id for ref in multi_evidence_result.evidence) == (
+        "EV-20260717-0003",
+        "EV-20260717-0004",
+    ), "root projection must retain every root EvidenceRef in ID order"
+
+    original_core_validate = module._EVIDENCE_V1_CORE.validate_evidence
+    validated_evidence_ids: list[str] = []
+
+    def capture_core_validation(value: object) -> object:
+        validated = original_core_validate(value)
+        validated_evidence_ids.append(validated["id"])
+        return validated
+
+    module._EVIDENCE_V1_CORE.validate_evidence = capture_core_validation
+    try:
+        routed_fixture = positive_fixtures[-1]
+        routed_result = module.verifyBootstrapTaskObjects(
+            routed_fixture["subject"],
+            routed_fixture["objects"],
+        )
+    finally:
+        module._EVIDENCE_V1_CORE.validate_evidence = original_core_validate
+    assert type(routed_result) is module.ObjectVerifiedV1
+    assert tuple(validated_evidence_ids) == tuple(
+        row.id for row in routed_fixture["subject"].evidenceRows
+    ), "the shared full schema core must validate every root/dependency EV once"
+
+    order_fixture = positive_fixtures[-1]
     original_report_preflight = module._preflight_review_reports
-    original_evidence_decode = module._EVIDENCE_V1_CORE.decode_json
+    original_prepare_authority = module._prepare_graph_authority
+    original_signed_preflight = module._preflight_bootstrap_task_signed_content
+    original_required_preflight = module._preflight_required_test_set
+    original_handoff_preflight = module._preflight_eligible_stage0_handoff
+    original_manifest_parse = module._parse_bootstrap_evidence_manifest
+    original_evidence_validate = module._EVIDENCE_V1_CORE.validate_evidence
+    original_required_finalize = module._finalize_required_test_set
+    original_approval_finalize = module._finalize_task_approval
+    original_receipt_finalize = module._finalize_bootstrap_task_verifier_receipt
     intrinsic_events: list[str] = []
 
     def capture_report_preflight(values: object) -> object:
+        result = original_report_preflight(values)
         intrinsic_events.append("report")
-        return original_report_preflight(values)
+        return result
 
-    def capture_evidence_decode(encoded: bytes) -> object:
+    def capture_prepare_authority(*args: object, **kwargs: object) -> object:
+        result = original_prepare_authority(*args, **kwargs)
+        intrinsic_events.append("raw-authority")
+        return result
+
+    def capture_signed_preflight(*args: object, **kwargs: object) -> object:
+        result = original_signed_preflight(*args, **kwargs)
+        intrinsic_events.append("signed-preflight")
+        return result
+
+    def capture_required_preflight(*args: object, **kwargs: object) -> object:
+        result = original_required_preflight(*args, **kwargs)
+        intrinsic_events.append("required-preflight")
+        return result
+
+    def capture_handoff_preflight(*args: object, **kwargs: object) -> object:
+        result = original_handoff_preflight(*args, **kwargs)
+        intrinsic_events.append("handoff-preflight")
+        return result
+
+    def capture_manifest_parse(*args: object, **kwargs: object) -> object:
+        result = original_manifest_parse(*args, **kwargs)
+        intrinsic_events.append("manifest")
+        return result
+
+    def capture_evidence_validate(value: object) -> object:
+        result = original_evidence_validate(value)
         intrinsic_events.append("evidence")
-        return original_evidence_decode(encoded)
+        return result
+
+    def capture_required_finalize(*args: object, **kwargs: object) -> object:
+        result = original_required_finalize(*args, **kwargs)
+        intrinsic_events.append("required-finalize")
+        return result
+
+    def capture_approval_finalize(*args: object, **kwargs: object) -> object:
+        result = original_approval_finalize(*args, **kwargs)
+        intrinsic_events.append("approval-finalize")
+        return result
+
+    def capture_receipt_finalize(*args: object, **kwargs: object) -> object:
+        result = original_receipt_finalize(*args, **kwargs)
+        intrinsic_events.append("receipt-finalize")
+        return result
 
     module._preflight_review_reports = capture_report_preflight
-    module._EVIDENCE_V1_CORE.decode_json = capture_evidence_decode
+    module._prepare_graph_authority = capture_prepare_authority
+    module._preflight_bootstrap_task_signed_content = capture_signed_preflight
+    module._preflight_required_test_set = capture_required_preflight
+    module._preflight_eligible_stage0_handoff = capture_handoff_preflight
+    module._parse_bootstrap_evidence_manifest = capture_manifest_parse
+    module._EVIDENCE_V1_CORE.validate_evidence = capture_evidence_validate
+    module._finalize_required_test_set = capture_required_finalize
+    module._finalize_task_approval = capture_approval_finalize
+    module._finalize_bootstrap_task_verifier_receipt = capture_receipt_finalize
     try:
         ordered_result = module.verifyBootstrapTaskObjects(
             order_fixture["subject"],
@@ -10761,10 +10941,28 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         )
     finally:
         module._preflight_review_reports = original_report_preflight
-        module._EVIDENCE_V1_CORE.decode_json = original_evidence_decode
+        module._prepare_graph_authority = original_prepare_authority
+        module._preflight_bootstrap_task_signed_content = original_signed_preflight
+        module._preflight_required_test_set = original_required_preflight
+        module._preflight_eligible_stage0_handoff = original_handoff_preflight
+        module._parse_bootstrap_evidence_manifest = original_manifest_parse
+        module._EVIDENCE_V1_CORE.validate_evidence = original_evidence_validate
+        module._finalize_required_test_set = original_required_finalize
+        module._finalize_task_approval = original_approval_finalize
+        module._finalize_bootstrap_task_verifier_receipt = original_receipt_finalize
     assert type(ordered_result) is module.ObjectVerifiedV1
-    assert intrinsic_events[0] == "report"
-    assert "evidence" in intrinsic_events[1:]
+    task_count = 1 + len(order_fixture["dependencyTaskIds"])
+    assert intrinsic_events == (
+        ["report", "raw-authority"]
+        + ["signed-preflight"] * task_count
+        + ["required-preflight"]
+        + ["handoff-preflight"] * task_count
+        + ["manifest"] * task_count
+        + ["evidence"] * len(order_fixture["objects"].evidenceObjectBytes)
+        + ["required-finalize"]
+        + ["approval-finalize"] * task_count
+        + ["receipt-finalize"] * task_count
+    ), "object graph authority work must follow the frozen intrinsic order"
 
     def wrong_manifest_binding(handoff: dict) -> None:
         handoff["channels"][3]["bindingDigest"] = digest_text(b"\x00" * 32)
@@ -10791,6 +10989,38 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
     def wrong_artifact_set(evidence: dict) -> None:
         evidence["artifactSetSha256"] = "00" * 32
 
+    def unknown_nested_raw_field(evidence: dict) -> None:
+        evidence["repository"]["callerClaim"] = True
+
+    def failed_sandbox_probe(evidence: dict) -> None:
+        evidence["sandboxPolicies"][0]["probes"][0]["status"] = "failed"
+
+    def missing_attempt_log(evidence: dict) -> None:
+        evidence["command"]["attempts"][0]["stdoutLog"] = (
+            "build/logs/missing.stdout"
+        )
+
+    def set_evidence_tests(test_ids: tuple[str, ...]) -> Callable[[dict], None]:
+        def mutate(evidence: dict) -> None:
+            evidence["gate"]["testIds"] = list(test_ids)
+
+        return mutate
+
+    def subject_with_evidence_tests(
+        subject: object,
+        tests_by_evidence: dict[str, tuple[str, ...]],
+    ) -> object:
+        return dataclasses.replace(
+            subject,
+            evidenceRows=tuple(
+                dataclasses.replace(
+                    row,
+                    testIds=tests_by_evidence.get(row.id, row.testIds),
+                )
+                for row in subject.evidenceRows
+            ),
+        )
+
     def wrong_manifest_schema(manifest: dict) -> None:
         manifest["schema"] = "proof-forge.bootstrap-evidence-root.v1"
 
@@ -10800,7 +11030,113 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
     def wrong_manifest_evidence(manifest: dict) -> None:
         manifest["evidence"][0]["digest"] = digest_text(b"\x00" * 32)
 
+    def wrong_manifest_task(manifest: dict) -> None:
+        manifest["taskId"] = "TASK-D0-07"
+
+    def fixture_with_encoded_manifest(
+        task_id: str,
+        transform: Callable[[bytes], bytes],
+    ) -> dict[str, object]:
+        """Build a fully rebound/signed graph around malformed manifest bytes."""
+        original_canonical = module.canonical_pf_jcs
+
+        def selective_encoding(value: object) -> bytes:
+            encoded = original_canonical(value)
+            if (
+                type(value) is dict
+                and value.get("schema")
+                == "proof-forge.bootstrap-evidence-root-manifest.v1"
+                and value.get("taskId") == task_id
+            ):
+                return transform(encoded)
+            return encoded
+
+        module.canonical_pf_jcs = selective_encoding
+        try:
+            return signed_d0_object_graph_fixture(module, "TASK-D0-04")
+        finally:
+            module.canonical_pf_jcs = original_canonical
+
+    def evidence_ref_for(task_id: str, evidence_id: str) -> dict:
+        candidate = candidate_identity_wire(module)
+        encoded = module.canonical_pf_jcs(full_raw_evidence_wire(
+            module,
+            candidate,
+            task_id,
+            D0_GRAPH_ROWS[task_id]["testIds"],
+            evidence_id,
+        ))
+        return evidence_ref_wire(encoded, evidence_id)
+
+    same_count_dependency_ref = evidence_ref_for(
+        "TASK-D0-05", "EV-20260717-0006"
+    )
+
+    def same_count_dependency_manifest(manifest: dict) -> None:
+        manifest["evidence"] = [copy.deepcopy(same_count_dependency_ref)]
+
+    closure_evidence_refs = tuple(
+        evidence_ref_for(task_id, evidence_id)
+        for task_id in D0_GRAPH_ROWS
+        for evidence_id in D0_GRAPH_ROWS[task_id]["evidenceIds"]
+    )
+    closure_evidence_refs = tuple(sorted(
+        closure_evidence_refs,
+        key=lambda reference: reference["id"],
+    ))
+
+    def closure_union_manifest(manifest: dict) -> None:
+        manifest["evidence"] = copy.deepcopy(list(closure_evidence_refs))
+
     zero_curve_cases: list[tuple[str, object, object]] = []
+
+    split_tests = {
+        "EV-20260717-0003": ("TST-EVIDENCE-001",),
+        "EV-20260717-0004": ("TST-HOST-001", "TST-TOOL-001"),
+    }
+    split_union_fixture = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-03",
+        evidence_mutators={
+            evidence_id: set_evidence_tests(test_ids)
+            for evidence_id, test_ids in split_tests.items()
+        },
+    )
+    split_union_subject = subject_with_evidence_tests(
+        split_union_fixture["subject"], split_tests
+    )
+    split_union_result = module.verifyBootstrapTaskObjects(
+        split_union_subject,
+        split_union_fixture["objects"],
+    )
+    assert type(split_union_result) is module.ObjectVerifiedV1
+    split_expected_fixture = dict(split_union_fixture)
+    split_expected_fixture["subject"] = split_union_subject
+    assert split_union_result == expected_projection(split_expected_fixture), (
+        "each EV may cover a strict subset when the per-task test union is exact"
+    )
+
+    missing_union_tests = {
+        "EV-20260717-0003": ("TST-EVIDENCE-001",),
+        "EV-20260717-0004": ("TST-HOST-001",),
+    }
+    missing_union_fixture = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-03",
+        evidence_mutators={
+            evidence_id: set_evidence_tests(test_ids)
+            for evidence_id, test_ids in missing_union_tests.items()
+        },
+    )
+    missing_union_subject = subject_with_evidence_tests(
+        missing_union_fixture["subject"], missing_union_tests
+    )
+    zero_curve_cases.append((
+        "per-task raw EV test union omits a PHASE-4 test",
+        missing_union_subject,
+        missing_union_fixture["objects"],
+    ))
+
     wrong_binding_fixture = signed_d0_object_graph_fixture(
         module,
         "TASK-D0-01",
@@ -10810,6 +11146,16 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         "manifest digest is not bound by evidence-root handoff channel",
         wrong_binding_fixture["subject"],
         wrong_binding_fixture["objects"],
+    ))
+    dependency_wrong_binding = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-04",
+        handoff_mutators={"TASK-D0-06": wrong_manifest_binding},
+    )
+    zero_curve_cases.append((
+        "last dependency manifest digest is not bound by its handoff",
+        dependency_wrong_binding["subject"],
+        dependency_wrong_binding["objects"],
     ))
     cross_task_manifest = signed_d0_object_graph_fixture(
         module,
@@ -10821,14 +11167,49 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         cross_task_manifest["subject"],
         cross_task_manifest["objects"],
     ))
+    same_count_manifest = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-04",
+        manifest_mutators={"TASK-D0-04": same_count_dependency_manifest},
+    )
+    zero_curve_cases.append((
+        "root manifest substitutes a same-count dependency EvidenceRef",
+        same_count_manifest["subject"],
+        same_count_manifest["objects"],
+    ))
+    closure_manifest = signed_d0_object_graph_fixture(
+        module,
+        "TASK-D0-04",
+        manifest_mutators={"TASK-D0-04": closure_union_manifest},
+    )
+    zero_curve_cases.append((
+        "root manifest reuses the full closure EvidenceRef union",
+        closure_manifest["subject"],
+        closure_manifest["objects"],
+    ))
     for label, task_id, mutator in (
         ("root manifest schema mismatch", "TASK-D0-01", wrong_manifest_schema),
         ("root manifest candidate mismatch", "TASK-D0-01", wrong_manifest_candidate),
         ("root manifest EvidenceRef mismatch", "TASK-D0-01", wrong_manifest_evidence),
         (
-            "dependency manifest candidate mismatch",
+            "first dependency manifest schema mismatch",
+            "TASK-D0-01",
+            wrong_manifest_schema,
+        ),
+        (
+            "second dependency manifest task mismatch",
+            "TASK-D0-02",
+            wrong_manifest_task,
+        ),
+        (
+            "interior dependency manifest candidate mismatch",
             "TASK-D0-03",
             wrong_manifest_candidate,
+        ),
+        (
+            "penultimate dependency manifest EvidenceRef mismatch",
+            "TASK-D0-05",
+            wrong_manifest_evidence,
         ),
     ):
         root_task_id = "TASK-D0-01" if task_id == "TASK-D0-01" else "TASK-D0-04"
@@ -10838,6 +11219,21 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
             manifest_mutators={task_id: mutator},
         )
         zero_curve_cases.append((label, fixture["subject"], fixture["objects"]))
+
+    last_noncanonical_manifest_fixture: dict[str, object] | None = None
+    for label, task_id, transform in (
+        ("first dependency manifest is empty", "TASK-D0-01", lambda _: b""),
+        (
+            "last dependency manifest is noncanonical",
+            "TASK-D0-06",
+            lambda encoded: encoded + b" ",
+        ),
+    ):
+        fixture = fixture_with_encoded_manifest(task_id, transform)
+        if task_id == "TASK-D0-06":
+            last_noncanonical_manifest_fixture = fixture
+        zero_curve_cases.append((label, fixture["subject"], fixture["objects"]))
+    assert last_noncanonical_manifest_fixture is not None
 
     for label, mutator in (
         ("raw EV candidate mismatch", wrong_candidate),
@@ -10852,6 +11248,55 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
             module,
             "TASK-D0-01",
             evidence_mutators={"EV-20260717-0001": mutator},
+        )
+        zero_curve_cases.append((label, fixture["subject"], fixture["objects"]))
+
+    for label, evidence_id, mutator in (
+        (
+            "first dependency EV nested closed-schema mismatch",
+            "EV-20260717-0001",
+            unknown_nested_raw_field,
+        ),
+        (
+            "interior dependency EV passed result has failed sandbox probe",
+            "EV-20260717-0003",
+            failed_sandbox_probe,
+        ),
+        (
+            "last dependency EV command references a missing log",
+            "EV-20260717-0007",
+            missing_attempt_log,
+        ),
+        (
+            "dependency EV candidate mismatch",
+            "EV-20260717-0002",
+            wrong_candidate,
+        ),
+        (
+            "dependency EV task mismatch",
+            "EV-20260717-0004",
+            wrong_task,
+        ),
+        (
+            "dependency EV test mismatch",
+            "EV-20260717-0006",
+            wrong_tests,
+        ),
+        (
+            "dependency EV formal qualification",
+            "EV-20260717-0006",
+            wrong_qualification,
+        ),
+        (
+            "dependency EV failed result",
+            "EV-20260717-0007",
+            wrong_result,
+        ),
+    ):
+        fixture = signed_d0_object_graph_fixture(
+            module,
+            "TASK-D0-04",
+            evidence_mutators={evidence_id: mutator},
         )
         zero_curve_cases.append((label, fixture["subject"], fixture["objects"]))
 
@@ -10891,7 +11336,29 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         ),
     ))
 
-    full_fixture = positive_fixtures[1]
+    dependency_hash_fixture = positive_fixtures[-1]
+    dependency_hash_objects = dependency_hash_fixture["objects"]
+    changed_dependency_raw = copy.deepcopy(
+        dependency_hash_fixture["evidenceWires"]["EV-20260717-0007"]
+    )
+    changed_dependency_raw["gate"]["id"] = "bootstrap-task-d0-06-changed"
+    changed_dependency_bytes = module.canonical_pf_jcs(changed_dependency_raw)
+    changed_dependency_values = tuple(
+        changed_dependency_bytes
+        if module.decode_canonical_pf_jcs(encoded)["id"] == "EV-20260717-0007"
+        else encoded
+        for encoded in dependency_hash_objects.evidenceObjectBytes
+    )
+    zero_curve_cases.append((
+        "dependency raw EV SHA-256 differs from its signed EvidenceRef",
+        dependency_hash_fixture["subject"],
+        dataclasses.replace(
+            dependency_hash_objects,
+            evidenceObjectBytes=changed_dependency_values,
+        ),
+    ))
+
+    full_fixture = positive_fixtures[-1]
     full_objects = full_fixture["objects"]
     evidence_values = full_objects.evidenceObjectBytes
     extra_wire = full_raw_evidence_wire(
@@ -10936,6 +11403,15 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
 
     module._EVIDENCE_V1_CORE.decode_json = count_evidence_decode
     try:
+        evidence_decode_calls = 0
+        rejected = module.verifyBootstrapTaskObjects(
+            last_noncanonical_manifest_fixture["subject"],
+            last_noncanonical_manifest_fixture["objects"],
+        )
+        assert isinstance(rejected, module.Rejected)
+        assert evidence_decode_calls == 0, (
+            "every task manifest must parse before the first raw EV decode"
+        )
         for label, values in (
             ("dynamic missing raw EV", evidence_values[1:]),
             ("dynamic extra raw EV", evidence_values + (extra_bytes,)),
@@ -10960,18 +11436,51 @@ def test_evidence_manifest_raw_and_object_projection(module: ModuleType) -> None
         curve_calls += 1
         return original_verify_ed25519(*args, **kwargs)
 
+    def count_required_finalize(*args: object, **kwargs: object) -> object:
+        nonlocal required_finalize_calls
+        required_finalize_calls += 1
+        return original_required_finalize(*args, **kwargs)
+
+    def count_approval_finalize(*args: object, **kwargs: object) -> object:
+        nonlocal approval_finalize_calls
+        approval_finalize_calls += 1
+        return original_approval_finalize(*args, **kwargs)
+
+    def count_receipt_finalize(*args: object, **kwargs: object) -> object:
+        nonlocal receipt_finalize_calls
+        receipt_finalize_calls += 1
+        return original_receipt_finalize(*args, **kwargs)
+
     module.verify_ed25519 = count_curve_calls
+    module._finalize_required_test_set = count_required_finalize
+    module._finalize_task_approval = count_approval_finalize
+    module._finalize_bootstrap_task_verifier_receipt = count_receipt_finalize
     try:
         for label, subject, objects in zero_curve_cases:
             curve_calls = 0
+            required_finalize_calls = 0
+            approval_finalize_calls = 0
+            receipt_finalize_calls = 0
             rejected = module.verifyBootstrapTaskObjects(subject, objects)
             assert isinstance(rejected, module.Rejected), label
             assert rejected.code == BOOTSTRAP_REJECTION, label
             assert curve_calls == 0, (
                 f"{label} must reject before every signature curve"
             )
+            assert required_finalize_calls == 0, (
+                f"{label} must reject before RequiredTestSet finalization"
+            )
+            assert approval_finalize_calls == 0, (
+                f"{label} must reject before TaskApproval finalization"
+            )
+            assert receipt_finalize_calls == 0, (
+                f"{label} must reject before receipt finalization"
+            )
     finally:
         module.verify_ed25519 = original_verify_ed25519
+        module._finalize_required_test_set = original_required_finalize
+        module._finalize_task_approval = original_approval_finalize
+        module._finalize_bootstrap_task_verifier_receipt = original_receipt_finalize
 
 
 def test_subject_and_missing_root_bytes(module: ModuleType, candidate: object) -> None:
@@ -11076,6 +11585,7 @@ def main() -> int:
     try:
         module = load_consumer()
         assert_public_api(module)
+        test_exact_source_module_ignores_bytecode_cache(module)
         test_pf_jcs(module)
         test_bootstrap_authority_policy(module)
         test_required_test_set(module)
