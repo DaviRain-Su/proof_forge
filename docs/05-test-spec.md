@@ -2203,6 +2203,73 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   focused+aggregate build/test binary、Python self-check、package refresh 后最终单次 `just sbom`、
   `just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。结果只记录 development
   evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-102 是 `TASK-D1-01`/`TST-SRC-001` 的 complete `ProgramItemV1` sum/codec slice。closed class
+  精确为 PA98+PA101 已发布的全部 13 种 item-record types，constructor 顺序逐字对齐 wire table与
+  `WireV1.isProgramItemTag`：State、Struct、Enum、Const、Event、Error、Init、Entry、View、Fn、Invariant、
+  ExtensionReq、Proof。禁止定义只含子集的 incomplete sum。`SPEC-SOURCE-WIRE-001` 冻结
+  **ProgramItem 没有额外 wrapper tag**；item encoder只按 constructor dispatch到已发布 record encoder，
+  输出必须逐 byte等于 direct record encoding，不得调用 `encodeTagged "ProgramItem"`、重编码字段或加入
+  validation。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstProgramItemV1
+  inductive ProgramItemV1 where
+    | state : AstDeclV1.StateDeclV1 → ProgramItemV1
+    | struct : AstDeclV1.StructDeclV1 → ProgramItemV1
+    | enum : AstDeclV1.EnumDeclV1 → ProgramItemV1
+    | const : AstSpineDeclV1.ConstDeclV1 → ProgramItemV1
+    | event : AstDeclV1.EventDeclV1 → ProgramItemV1
+    | error : AstDeclV1.ErrorDeclV1 → ProgramItemV1
+    | init : AstSpineDeclV1.InitDeclV1 → ProgramItemV1
+    | entry : AstSpineDeclV1.EntryDeclV1 → ProgramItemV1
+    | view : AstSpineDeclV1.ViewDeclV1 → ProgramItemV1
+    | fn : AstSpineDeclV1.FnDeclV1 → ProgramItemV1
+    | invariant : AstSpineDeclV1.InvariantDeclV1 → ProgramItemV1
+    | extensionReq : AstDeclV1.ExtensionReqV1 → ProgramItemV1
+    | proof : AstDeclV1.ProofDeclV1 → ProgramItemV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstProgramItemCodecV1
+  encodeProgramItemV1 : AstProgramItemV1.ProgramItemV1 → Except String ByteArray
+  ```
+
+  `encodeProgramItemV1` 必须为 single total `def`，13 arms精确调用对应
+  `encodeStateDeclV1`/`encodeStructDeclV1`/`encodeEnumDeclV1`/`encodeConstDeclV1`/
+  `encodeEventDeclV1`/`encodeErrorDeclV1`/`encodeInitDeclV1`/`encodeEntryDeclV1`/
+  `encodeViewDeclV1`/`encodeFnDeclV1`/`encodeInvariantDeclV1`/`encodeExtensionReqV1`/
+  `encodeProofDeclV1`。constructor names固定为上表短名，包括可由 Lean 4.31 实编译的 `struct`、`enum`、
+  `const`、`error`、`init`、`fn`；RED/GREEN不得自行加下划线或改变 order。该 slice没有 local error、
+  tag或 field encoder；所有 PA98/PA101 child errors未经 remap传播。
+
+  Lean RED 与不 import Lean/ProofForge 的 standalone Python oracle必须持有 13 个 checked-in expected hex，
+  expected不得由 production encoder或运行时读取其他 reference scripts生成。logical fixtures精确复用：
+  `item_state` = PA98 `state_enabled_public_bool`；`item_struct` = `struct_store_single`；`item_enum` =
+  `enum_choice`；`item_const` = PA101 `const_max`；`item_event` = `event_ping_empty`；`item_error` =
+  `error_empty`；`item_init` = `init_two_params`；`item_entry` = `entry_run`；`item_view` =
+  `view_get_empty`；`item_fn` = `fn_helper2`；`item_invariant` = `invariant_bounded`；`item_extension_req` =
+  PA98 `ext_feature`；`item_proof` = `proof_safe`。每个 Lean case必须同时断言 fixed hex与
+  `encodeProgramItemV1 (.ctor payload) = encodeXxxDeclV1 payload`，以直接证明 no-wrapper byte identity；
+  Python对同一 13 labels实现独立 no-wrapper dispatch并固定同一 hex。
+
+  equality必须对 13 constructors各执行 self-equal，并至少对 same payload shape的两组 alternative执行
+  cross-constructor inequality。alias groups精确为：Event/Error使用完全相同 name/params时 item bytes不相等；
+  Entry/View/Fn使用完全相同 name/params/result/body时三者 pairwise不相等，且相应 ProgramItem values由
+  `DecidableEq` 判定不同。负例只通过 pure dispatch传播既有 exact errors：Struct empty fields →
+  `struct fields must be nonempty`；Const UInt24 + hostile value → width error优先；Init empty body →
+  `block statements must be nonempty`；Extension one-component QID + hostile version/digest → PA94 QID count
+  error优先。禁止新增 ProgramItem-local error。Python不必重复 PA93 raw-name negatives，因为本 slice没有新
+  Ident boundary。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstProgramItemV1.lean`、
+  `ProofForgeV2/Source/AstProgramItemCodecV1.lean`、`Tests/Language/SourceAstProgramItemV1.lean`、
+  `scripts/reference_source_ast_program_item_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械
+  manifest refresh。budgets：model≤45、codec≤60、suite≤230、Python≤170、registrations≤8、总 authored
+  additions≤515（manifest 不计）。明确排除：Program root/items Array与 items-nonempty、program identity
+  join、duplicate/zero-entry-view/multiple-init/proof-invariant set validation、alpha Source/Syntax/Loader/
+  projection、decoder、global validator、sourceHash/NodeId、Common/ProgramPayload/target edits。验证只运行
+  focused+aggregate build/test binary、Python self-check、package refresh 后最终单次 `just sbom`、
+  `just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。结果只记录 development
+  evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
