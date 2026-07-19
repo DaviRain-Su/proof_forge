@@ -25,13 +25,13 @@ elab "#snapshot_program_payloads " id:ident : command => do
   match programPayloads env with
   | .error message => throwError message
   | .ok rows =>
-      let payloadRows := rows.map fun (entry, prog) =>
-        { declaration := entry.declaration.toString, programName := prog.name
+      let payloadRows := rows.map fun (exportRow, prog) =>
+        { declaration := exportRow.declaration.toString, programName := prog.name
           qualifiedName := prog.qualifiedName, sourceHash := prog.sourceHash }
       let elems ← payloadRows.mapM quoteRow
       elabCommand (← `(def $id : Array PayloadRow := #[$elems,*]))
 
-elab "#capture_program_payload_error " n:ident " as " id:ident : command => do
+elab "#capture_program_payload_error" n:ident "as" id:ident : command => do
   let env ← getEnv
   let name ← resolveGlobalConstNoOverload n
   match programPayload env name with
@@ -41,7 +41,7 @@ elab "#capture_program_payload_error " n:ident " as " id:ident : command => do
         throwError s!"expected PF-EXPORT-004, got {message}"
       elabCommand (← `(def $id : String := $(Syntax.mkStrLit message)))
 
-elab "#capture_program_payloads_error as " id:ident : command => do
+elab "#capture_program_payloads_error" "as" id:ident : command => do
   match programPayloads (← getEnv) with
   | .ok _ => throwError "expected PF-EXPORT-004 all-or-nothing failure"
   | .error message =>
@@ -66,9 +66,13 @@ elab "#assert_rich_program_payload " n:ident : command => do
           p.invariants.size ≥ 1 && p.extensionRequirements.size ≥ 1 &&
           p.proofReferences.size ≥ 1 do
         throwError "rich surface incomplete"
-      elabCommand (← `(def richPayloadAsserted : Bool := true))
-      elabCommand (← `(def richPayloadName : String := $(Syntax.mkStrLit p.name)))
-      elabCommand (← `(def richPayloadQualifiedName : String :=
+      let assertedId := mkIdent `richPayloadAsserted
+      let nameId := mkIdent `richPayloadName
+      let qualifiedId := mkIdent `richPayloadQualifiedName
+      let hashId := mkIdent `richPayloadSourceHash
+      elabCommand (← `(def $assertedId : Bool := true))
+      elabCommand (← `(def $nameId : String := $(Syntax.mkStrLit p.name)))
+      elabCommand (← `(def $qualifiedId : String :=
           $(Syntax.mkStrLit p.qualifiedName)))
-      elabCommand (← `(def richPayloadSourceHash : String :=
+      elabCommand (← `(def $hashId : String :=
           $(Syntax.mkStrLit p.sourceHash)))

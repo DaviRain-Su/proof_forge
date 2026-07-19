@@ -26,11 +26,13 @@ private def exactNodeExpr (nodes : Nat) : Expr := Id.run do
   pure <| if nodes % 2 == 0 then mkMData MData.empty e else e
 
 private def emptyArray (type : Expr) : Expr :=
-  mkApp2 (mkConst ``List.toArray) type (mkApp (mkConst ``List.nil) type)
+  mkApp2 (mkConst ``List.toArray [Level.zero]) type
+    (mkApp (mkConst ``List.nil [Level.zero]) type)
 
 private def singletonArray (type value : Expr) : Expr :=
-  mkApp2 (mkConst ``List.toArray) type
-    (mkApp3 (mkConst ``List.cons) type value (mkApp (mkConst ``List.nil) type))
+  mkApp2 (mkConst ``List.toArray [Level.zero]) type
+    (mkApp3 (mkConst ``List.cons [Level.zero]) type value
+      (mkApp (mkConst ``List.nil [Level.zero]) type))
 
 private def predicateProgram (predicate : Expr) : Expr := Id.run do
   let invariant := mkApp2 (mkConst ``ProofForgeV2.Source.InvariantDecl.mk)
@@ -41,7 +43,8 @@ private def predicateProgram (predicate : Expr) : Expr := Id.run do
     empty ``ProofForgeV2.Source.StructDecl, empty ``ProofForgeV2.Source.EnumDecl,
     empty ``ProofForgeV2.Source.ConstDecl, empty ``ProofForgeV2.Source.EventDecl,
     empty ``ProofForgeV2.Source.ErrorDecl,
-    mkApp (mkConst ``Option.none) (mkConst ``ProofForgeV2.Source.Initializer),
+    mkApp (mkConst ``Option.none [Level.zero])
+      (mkConst ``ProofForgeV2.Source.Initializer),
     empty ``ProofForgeV2.Source.Entry, empty ``ProofForgeV2.Source.FnDecl,
     singletonArray (mkConst ``ProofForgeV2.Source.InvariantDecl) invariant,
     empty ``ProofForgeV2.Source.ExtensionReq, empty ``ProofForgeV2.Source.ProofDecl]
