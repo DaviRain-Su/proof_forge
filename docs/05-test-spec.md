@@ -1163,6 +1163,35 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   或正式 D1 完成。production 仅限 Syntax 一文件 ≤32 additions/2 removals，刷新 package file-set；focused
   23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整
   `just ci`。
+- D1-PA-75 的 alpha tests 只开放 exact same-line `Option Option Array Field bn254_fr N`，物化为既有
+  `Source/Semantic.ValueType.option (.option (.array .field length))`，tag 固定 `16→16→18→2→N`，
+  Field id 必须 raw exact `bn254_fr`，length 精确复用 canonical ASCII decimal `0..4096`。本条只对 exact
+  spelling supersede PA64 nested Option Array 的 Field residual，并在 PA65 已完成的
+  `Option Array Field bn254_fr N` spelling 外再包一层 Option；PA64/65/73/74 既有 positive 保持不变。
+  post-PA-74 residual challenge 记录 expression 侧无安全 parser-only 候选，并选择本固定 Field + 单
+  length 候选而非更大的 `Option Option Option Array PrimitiveAtom N`（15-atom + 混合 support/Plan）；
+  不是 checkpoint 自动递增。
+  tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+  `("full Field nested Array element", "Option Option Array Field bn254_fr 4")` negative
+  迁移为 positive，migration count 精确为一；incomplete `Option Option Array Field 4` 必须继续 exact
+  unsupported，其他测试不得迁移。positive 覆盖 length `0/4/4096`、state、struct field、enum payload、
+  const、event/error parameter、initializer/entry/view/fn parameter/result 与 Lean command/ParserSession
+  parity。Source/Semantic 各固定三组 golden vectors；`N=4` candidate 必须在两侧分别与
+  `Option Array Field bn254_fr 4`、`Option Option Array UInt64 4`、`Option Option Field bn254_fr`、
+  twin 构造的 `Array Option Option Field bn254_fr 4` 做 canonical bytes/hash non-alias，三组 lengths 必须
+  pairwise non-alias；RED 中新 golden 显式未绑定，GREEN 前由独立 probe 计算。requirements 必须精确为
+  单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与 `materializeResult` 必须都返回 exact
+  `.unsupportedRequirement .fieldBn254 actualTarget` 且 `actualTarget == target`，不得进入 Plan、
+  `OutputSet` 或产出 artifact。
+  empirical GREEN channels：incomplete、alternate/escaped/qualified Field id、`4097`/leading-zero/hex/
+  underscore length、bare Bytes/Option/Array/Map、`Widget 4` Named/unknown leaf 为
+  `unsupported portable type`；missing/negative/identifier length、extra payload、五个 same-line seam
+  换行、四个 constructor 的 escaped/qualified form、full Bytes/Option/Array/Map compounds 为 parser
+  rejection。不得用虚假 Named constructor 作为主 unsupported 路径。production 仅限 Syntax 一文件
+  ≤30 additions/2 removals，刷新 package file-set；focused 23-job、192-job aggregate/test binary、
+  `just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明 field/array/option
+  value operations、none/some/unwrap、runtime/ABI、target nested-Option-Array-Field support、完整
+  recursive grammar 或正式 D1 完成。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
