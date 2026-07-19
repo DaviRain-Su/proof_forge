@@ -1549,6 +1549,40 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `git diff --check` 与 independent review；不运行 `just sbom` 或完整 `just ci`。结果只可记录 development
   evidence，不能满足 candidate-bound `qualification=formal`；五个 D0 dependencies 未全部 done，且
   `TST-SRC-001` 完整 wire/collision residual 未闭合时，不得关闭 pending `TASK-D1-01` 或任何下游 task。
+- D1-PA-91 是 `TASK-D1-01`/`TST-SRC-001` 的首个真实 canonical binary primitive coding slice：新增
+  `ProofForgeV2.Source.WireCodecV1` primitive/tagged encoder 与不 import Lean/ProofForge 的 Python
+  reference self-check。它不定义 partial/full `ProgramV1` business AST，不从当前 bucketed alpha
+  `Source.Program` 投影有损 source-order items，不修改 `Source.Program.canonicalBytes`/`sourceHash`，也不
+  提前发布完整 `canonicalSourceAstBytesV1`、`decodeCanonicalSourceAstBytesV1` 或 `sourceHashV1`。
+  production public API 精确限于 `encodeU8`、`encodeU16le`、`encodeU32le`、`encodeU256le`、
+  `encodeBool`、higher-order `encodeOption`/`encodeArray`、`encodeIdent`/`encodeString`、
+  `encodeQualifiedName`/`encodeQualifiedId` 与 `encodeTagged`。`u16/u32` 必须 little-endian；u256 是
+  exact 32-byte little-endian unsigned magnitude，`2^256` 起 fail closed；Option 使用 `0/1` marker；Array
+  使用 u32 count 并保持输入顺序；Ident/String 使用 u32 UTF-8 byte length 且拒绝 non-NFC，Ident 额外执行
+  exact Lean/common identifier validation；QualifiedId 必须 2..256 components；generic tag 必须 nonempty
+  ASCII、field count 可由 u16 exact 表示，并编码 `u32le tagByteLength || tag || u16le fields.size || fields`。
+  generic primitive codec 不判断 closed constructor inventory，后者只能由未来完整 ProgramV1 encoder 拥有。
+  `Tests.Language.SourceWireCodecV1` 必须固定 checked-in hex goldens：u8 zero/max、u16/u32 endianness、u256 zero/max 与
+  overflow、Bool、Option none/some、Array empty/multi-order、ASCII/Unicode NFC Ident/String、one-component
+  QualifiedName/two-component QualifiedId、
+  nullary tag 与 hand-composed two-field `Program` tag；negative 固定 non-NFC、invalid ident、由
+  `parseQualifiedName #[]` 拒绝的 zero-component carrier、one-component/257-component QualifiedId、
+  empty/non-ASCII tag 与 unrepresentable field count。
+  Escaped source identifier 到 qualified component 的投影仍有独立规格裁决，本切片不得加入 escaped-identifier
+  source fixture 或据 primitive bytes 决定该投影。`scripts/reference_source_wire_codec_v1.py
+  --self-check` 必须由独立实现命中同一 logical vectors/expected hex；只比较两个实现彼此相等而没有固定
+  bytes 不算通过。本切片只证明 primitive cross-implementation foundation，不声称 ProgramV1 full golden。
+  变更只允许新增 `ProofForgeV2/Source/WireCodecV1.lean`、
+  `Tests/Language/SourceWireCodecV1.lean`、`scripts/reference_source_wire_codec_v1.py`，最小修改
+  `ProofForgeV2.lean`、`Tests.lean`、`lakefile.lean`，并机械刷新
+  `supply-chain/lean-package-files.v1.json`；authored additions 总计 ≤380 行（机械 manifest refresh 不计），
+  codec ≤140、Lean suite ≤130、Python ≤100，其余 registration additions ≤10。
+  禁止修改 `Core/Source.lean`、Language/Loader/Syntax、WireV1 NodeId、PA89/90 suites、justfile 或其他
+  production。验证只运行 focused codec/test/aggregate build、test binary、Python `--self-check`、
+  `git diff --check`、`just docs-check`、机械 package refresh 后单次 `just sbom` 与 independent review；
+  不运行完整 `just ci`。`SPEC-SOURCE-WIRE-001` 保持 proposed；`ProofDecl.theorem` carrier、visibility 映射、
+  forward-grammar constructor 与 NodeId JCS key 等未触及的完整-model问题不得混入本切片。结果只能记录 development evidence，不能关闭完整 TST-SRC-001、pending
+  TASK-D1-01、任何下游 task，也不能把 `pf.source.v1` alpha payload 与未来 ProgramV1 payload 混为一谈。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
