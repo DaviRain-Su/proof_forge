@@ -1,10 +1,12 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
+import ProofForgeV2.Source.NameComponentV1
 
 namespace ProofForgeV2.Source.WireCodecV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
+open ProofForgeV2.Source.NameComponentV1
 
 /-- Little-endian portable source-wire primitive codecs (SPEC-SOURCE-WIRE-001). -/
 
@@ -71,10 +73,15 @@ def encodeString (value : String) : Except String ByteArray := do
   let header ← encodeNatAsU32le raw.size
   pure (header.append raw)
 
-/-- Ident wire = NFC string with Common qualified-name component validation. -/
+/-- Typed source-name wire: raw UTF-8 payload only (String primitive layout). -/
+def encodeSourceNameComponentV1 (component : SourceNameComponentV1) :
+    Except String ByteArray :=
+  encodeString component.raw
+
+/-- Ident wire = source raw name carrier validation then raw encode. -/
 def encodeIdent (value : String) : Except String ByteArray := do
-  let _ ← parseQualifiedName #[value]
-  encodeString value
+  let component ← parseSourceNameComponentV1 value
+  encodeSourceNameComponentV1 component
 
 def encodeQualifiedName (name : QualifiedName) : Except String ByteArray := do
   let components ← renderQualifiedNameComponents name

@@ -55,7 +55,7 @@ private def roundTrip (label : String) (c : SourceNameComponentV1) : IO Unit := 
       | .error e => throw <| IO.userError s!"{label} finish: {e}"
       | .ok () => pure ()
 
-private def raw240 : String := String.mk (List.replicate 240 'A')
+private def raw240 : String := String.ofList (List.replicate 240 'A')
 
 /-- D1-PA-93 RED: NameComponentV1 production missing → focused build fails. -/
 def run : IO Unit := do

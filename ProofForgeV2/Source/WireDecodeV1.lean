@@ -1,8 +1,10 @@
 import ProofForgeV2.Core.Unicode
+import ProofForgeV2.Source.NameComponentV1
 
 namespace ProofForgeV2.Source.WireDecodeV1
 
 open ProofForgeV2.Core.Unicode
+open ProofForgeV2.Source.NameComponentV1
 
 /-- Cursor-based primitive wire decoder (SPEC-SOURCE-WIRE-001 / D1-PA-92). -/
 
@@ -109,5 +111,12 @@ def decodeString : DecoderV1 String := fun c => do
   | some s => do
     requireNfc s
     pure (s, c)
+
+/-- Decode raw String payload then parse as `SourceNameComponentV1` (fail closed). -/
+def decodeSourceNameComponentV1 : DecoderV1 SourceNameComponentV1 := fun c => do
+  let (raw, c) ← decodeString c
+  match parseSourceNameComponentV1 raw with
+  | .ok component => pure (component, c)
+  | .error detail => fail detail
 
 end ProofForgeV2.Source.WireDecodeV1
