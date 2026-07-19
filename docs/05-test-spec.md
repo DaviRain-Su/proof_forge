@@ -2458,6 +2458,52 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Python self-check、package refresh后最终单次 `just sbom`、`just docs-check`、`git diff --check`与 independent
   review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending
   TASK-D1-01或下游 task。
+- D1-PA-106 是 `TASK-D1-01`/`TST-SRC-001` 的 complete nonrecursive tagged-scalar decoder slice。它只闭合
+  PA95 中不递归、非 NodeId-node 的 `VisibilityV1`、`LiteralV1`、`UnaryOpV1`、`BinaryOpV1` 共27个tag，
+  不解码递归 `TypeV1`。生产 public API精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.WireDecodeV1
+  decodeTagV1 : DecoderV1 String
+  decodeFieldCountV1 (tag : String) (expected : Nat) : DecoderV1 Unit
+
+  namespace ProofForgeV2.Source.AstScalarDecodeV1
+  decodeVisibilityV1 : DecoderV1 AstV1.VisibilityV1
+  decodeLiteralV1 : DecoderV1 AstV1.LiteralV1
+  decodeUnaryOpV1 : DecoderV1 AstV1.UnaryOpV1
+  decodeBinaryOpV1 : DecoderV1 AstV1.BinaryOpV1
+  ```
+
+  `decodeTagV1`先读u32 length，并在读取、复制或构造tag前 exact要求`1..21`；21是v1 closed constructor
+  inventory的最大ASCII tag长度。length在范围内还必须先检查remaining，随后strict UTF-8并拒绝任一非ASCII
+  scalar。exact errors为`tag length must be 1..21 bytes`、`truncated`、`invalid UTF-8 tag`、
+  `tag must be ASCII`。禁止bang index、unbounded copy、partial/unsafe。
+
+  四个family decoder先调用`decodeTagV1`并立即按各自closed tag set dispatch；unknown tag必须在读取
+  fieldCount前返回`unknown <family> tag '<tag>'`，其中family逐字为`visibility`、`literal`、`unary-op`、
+  `binary-op`。known tag才由`decodeFieldCountV1`读取u16并exact校验；失败逐字为
+  `tag '<tag>' must declare <expected> fields`，且必须先于任何child decoder。Visibility/Unary/Binary均为
+  0 fields；Literal.Bool/Integer/String均为1 field并分别复用`decodeBool`、`decodeU256le`、`decodeString`，
+  child错误原样传播。component decoder保留推进后的cursor；只有测试/未来root调用`finish`执行exact consume。
+
+  Lean RED与不import Lean/ProofForge或前序reference脚本的standalone Python oracle使用同一固定inventory：
+  27个PA95 checked-in wire literals逐一decode为exact value、重新encode回同一bytes并`finish`；每个nullary tag
+  有fieldCount=1 negative，每个Literal tag各有fieldCount=0/2 negatives，共30；四个canonical sibling tag
+  分别送入错误family且故意省略fieldCount，证明unknown-before-count。另固定14个边界：empty/22-byte/
+  truncated/invalid-UTF-8/non-ASCII tag，Bool marker 2、truncated u256、String length over remaining/NFD、
+  trailing byte与四family nonalias。LogicalOr与BitOr必须保持value/bytes nonalias。Python self-check成功输出
+  `reference_source_ast_scalar_decode_v1: ok 27 30 14`。
+
+  变更文件集：新增`ProofForgeV2/Source/AstScalarDecodeV1.lean`、
+  `Tests/Language/SourceAstScalarDecodeV1.lean`、`scripts/reference_source_ast_scalar_decode_v1.py`；只允许为
+  reusable tag API最小修改`WireDecodeV1.lean`，再做ProofForgeV2/Tests/lake registration与机械manifest。
+  budgets：production additions≤170、suite≤260、Python≤190、registrations≤5、总authored additions≤625
+  （manifest不计）。明确排除Type/Pattern/spine/support/declaration/Program/root decoder、recursive
+  `DecodeBudgetV1`、16MiB/256-depth/100000-node完成声明、alpha projection/sourceHash、set validator重检、
+  stable Diagnostic、Common/ProgramPayload、hash/NodeId与target。验证只运行focused+aggregate build/test binary、
+  Python self-check、package refresh后最终单次`just sbom`、`just docs-check`、`git diff --check`与independent
+  review；不运行完整`just ci`。结果只记录development evidence，不能关闭完整TST-SRC-001、pending
+  TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
