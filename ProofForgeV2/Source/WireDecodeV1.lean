@@ -143,12 +143,22 @@ def decodeFieldCountV1 (tag : String) (expected : Nat) : DecoderV1 Unit := fun c
     return ← fail s!"tag '{tag}' must declare {expected} fields"
   pure ((), c)
 
-/-- Decode raw String payload then parse as `SourceNameComponentV1` (fail closed). -/
+/-- Decode Ident/`SourceNameComponentV1`: declared length 1..240 **before** remaining/copy
+    (PA107); then UTF-8, pinned NFC / Cc / guillemet via parse (fail closed). -/
 def decodeSourceNameComponentV1 : DecoderV1 SourceNameComponentV1 := fun c => do
-  let (raw, c) ← decodeString c
-  match parseSourceNameComponentV1 raw with
-  | .ok component => pure (component, c)
-  | .error detail => fail detail
+  let (lenU, c) ← decodeU32le c
+  let len := lenU.toNat
+  unless 1 ≤ len && len ≤ 240 do
+    return ← fail "source name component must contain 1..240 UTF-8 bytes"
+  unless remaining c ≥ len do
+    return ← fail "string length exceeds remaining"
+  let (raw, c) ← takeBytes c len
+  match String.fromUTF8? raw with
+  | none => fail "invalid UTF-8"
+  | some value =>
+      match parseSourceNameComponentV1 value with
+      | .ok component => pure (component, c)
+      | .error detail => fail detail
 
 private def qnCountError : String :=
   "source qualified name must contain 1..256 components"

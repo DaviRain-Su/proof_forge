@@ -165,8 +165,8 @@ def run : IO Unit := do
   -- 16 Option(Bool) depth-short
   decErr "b_opt_d1" "depth budget exhausted" 1 2 optBool
   -- 17–18 Map nodes2 fail / nodes3 pass
-  decErr "b_map_n2" "node budget exhausted" 8 2 (fromHex mapHex)
-  let ((m18, r18), c18) ← lift "m18" (decodeTypeV1 8 (bud 3) (start (fromHex mapHex)))
+  decErr "b_map_n2" "node budget exhausted" 2 2 (fromHex mapHex)
+  let ((m18, r18), c18) ← lift "m18" (decodeTypeV1 2 (bud 3) (start (fromHex mapHex)))
   expect (decide (m18 = .map .bool .unit) && r18.remainingNodes == 0) "m18"
   lift "m18f" (finish c18)
   -- 19 Array bad-element before hostile length: element is unknown tag; length would be 0xFFFFFFFF

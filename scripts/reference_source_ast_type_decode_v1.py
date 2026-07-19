@@ -38,7 +38,8 @@ def dec_fc(tag, expected, b, o):
 def dec_ident(b, o):  # declared length bounded 1..240 BEFORE remaining/copy
     n, o = dec_u32(b, o)
     if not 1 <= n <= 240: raise ValueError(IDENT_LEN_ERR)
-    raw, o = take(b, o, n)
+    if len(b) - o < n: raise ValueError("string length exceeds remaining")
+    raw, o = b[o:o + n], o + n
     try: s = raw.decode("utf-8")
     except UnicodeDecodeError: raise ValueError("invalid UTF-8")
     if unicodedata.normalize("NFC", s) != s: raise ValueError(NFC_ERR)
