@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Independent PA104 canonical-root wire oracle (no Lean/ProofForge, stdlib only).
+"""Independent PA104/PA108 source-root/hash oracle (no Lean/ProofForge, stdlib only).
 Root hex are checked-in literals from /tmp/pa104_python_root_probe.md, never computed at runtime."""
-import sys, unicodedata
+import hashlib, sys, unicodedata
 QID_ERR = "source qualified id must contain 2..256 components"
 LONGER_ERR = "program identity must strictly extend the module name"
 PREFIX_ERR = "program identity must begin with the exact module name components"
@@ -18,6 +18,11 @@ LIT_TWO_ORDER = ("0100000004000000526f6f740200000004000000526f6f740400000044656d
 "0f0000004c69746572616c2e496e746567657201000010000000000000000000000000000000000000000000000000000000000000")
 LIT_DEEP_MOD = ("02000000010000004101000000420300000001000000410100000042040000004d61696e0700000050726f6772616d0200040000004d61696e01000000"
 "0900000053746174654465636c0300110000005669736962696c6974792e5075626c6963000007000000656e61626c656409000000547970652e426f6f6c0000")
+LIT_VALID = ("0100000004000000526f6f740200000004000000526f6f740400000044656d6f0700000050726f6772616d02000400000044656d6f02000000"
+"0900000053746174654465636c0300110000005669736962696c6974792e5075626c6963000007000000656e61626c656409000000547970652e426f6f6c0000"
+"09000000456e7472794465636c04000300000072756e0000000009000000547970652e556e6974000005000000426c6f636b010001000000"
+"0b00000053746d742e52657475726e010000")
+LIT_VALID_HASH = "bdad32dda5c3aa2862acc50855a7908a96745b493e58e6b06ecce1d31cdc6ec9"
 def u16le(v): return bytes((v & 255, (v >> 8) & 255))
 def u32le(v): return bytes((v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >> 24) & 255))
 def u256le(n):
@@ -49,6 +54,11 @@ def d_struct(n, fs):
     return enc_tag("StructDecl", [enc_str(n), enc_arr(fs)])
 def d_state(v, n, t): return enc_tag("StateDecl", [vis(v), enc_str(n), t])
 def d_const(n, t, v): return enc_tag("ConstDecl", [enc_str(n), t, v])
+def d_entry(n, stmts):
+    if not stmts: raise ValueError("block statements must be nonempty")
+    body = enc_tag("Block", [enc_arr(stmts)])
+    return enc_tag("EntryDecl", [enc_str(n), enc_arr([]), null("Type.Unit"), body])
+def return_none(): return enc_tag("Stmt.Return", [b"\0"])
 def enc_program(n, items):
     if not items: raise ValueError(ITEMS_ERR)
     return enc_tag("Program", [enc_str(n), enc_arr(items)])
@@ -62,10 +72,12 @@ def enc_root(mod, ident, prog_name, prog_items):
     return enc_qn(mod) + enc_qid(ident) + enc_program(prog_name, prog_items)
 STATE = d_state("Public", "enabled", null("Type.Bool"))
 CONST = d_const("max", t_uint(256), e_lit(lit_int(4096)))
+ENTRY = d_entry("run", [return_none()])
 G = {
 "root_state_ok": (LIT_STATE_OK, lambda: enc_root(["Root"], ["Root", "Demo"], "Demo", [STATE])),
 "root_two_order": (LIT_TWO_ORDER, lambda: enc_root(["Root"], ["Root", "Demo"], "Demo", [STATE, CONST])),
 "root_deep_mod": (LIT_DEEP_MOD, lambda: enc_root(["A", "B"], ["A", "B", "Main"], "Main", [STATE])),
+"root_valid": (LIT_VALID, lambda: enc_root(["Root"], ["Root", "Demo"], "Demo", [STATE, ENTRY])),
 }
 def _fail(name, want, fn):
     try: fn(); raise SystemExit(f"{name}: unexpectedly ok")
@@ -75,6 +87,9 @@ def self_check():
     for k, (want, fn) in G.items():
         got = fn().hex()
         if got != want: raise SystemExit(f"{k}: got {got}")
+    valid = G["root_valid"][1]()
+    got_hash = hashlib.sha256(b"pf.source.v1\0" + valid).hexdigest()
+    if got_hash != LIT_VALID_HASH: raise SystemExit(f"root_valid_hash: got {got_hash}")
     _fail("qid1", QID_ERR, lambda: enc_root(["Root"], ["Root"], "Demo", [STATE]))
     _fail("equal_two_comp", LONGER_ERR, lambda: enc_root(["A", "B"], ["A", "B"], "Demo", [STATE]))
     _fail("nonprefix", PREFIX_ERR, lambda: enc_root(["A", "B"], ["A", "C", "D"], "D", [STATE]))
@@ -86,7 +101,7 @@ def self_check():
     _fail("const_w24_first", W_ERR,
           lambda: enc_root(["Root"], ["Root", "Demo"], "Demo",
                            [lambda: d_const("max", lambda: t_uint(24), lambda: lit_int(1 << 256))]))
-    print("reference_source_ast_canonical_root_v1: ok 3")
+    print("reference_source_ast_canonical_root_v1: ok 4 1")
 if __name__ == "__main__":
     if "--self-check" in sys.argv: self_check()
     else: print("usage: reference_source_ast_canonical_root_v1.py --self-check")

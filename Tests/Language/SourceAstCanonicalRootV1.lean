@@ -1,3 +1,4 @@
+import ProofForgeV2.Core.Common
 import ProofForgeV2.Source.AstCanonicalRootV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramCodecV1
@@ -8,9 +9,11 @@ import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.QualifiedNameV1
+import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Source.WireCodecV1
 
 namespace Tests.Language.SourceAstCanonicalRootV1
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Source.AstCanonicalRootV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstProgramCodecV1
@@ -21,6 +24,7 @@ open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
+open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireCodecV1
 
 private def expect (c : Bool) (m : String) : IO Unit :=
@@ -135,5 +139,65 @@ def run : IO Unit := do
     (canonicalSourceAstBytesV1 modRoot idRootDemo {
       name := demoN
       items := #[ProgramItemV1.const { name := maxN, type_ := .uint 24, value := Lbad }] })
+
+  -- D1-PA-108: the product publish/hash API accepts only a validated source unit.
+  let runN ← name "run"
+  let validBlock : BlockV1 := { statements := #[.return_ none] }
+  let emptyBlock : BlockV1 := { statements := #[] }
+  let entryWith (n : SourceNameComponentV1) (body : BlockV1) : EntryDeclV1 :=
+    { name := n, params := #[], result := .unit, body }
+  let validProgram : ProgramV1 := {
+    name := demoN
+    items := #[iSt, .entry (entryWith runN validBlock)] }
+  let valid ← lift "validated_source"
+    (validateSourceV1 modRoot idRootDemo validProgram)
+  expect (valid.moduleName == modRoot) "validated module projection"
+  expect (valid.programIdentity == idRootDemo) "validated identity projection"
+  expect (valid.program == validProgram) "validated program projection"
+  let validHex :=
+    "0100000004000000526f6f740200000004000000526f6f740400000044656d6f0700000050726f6772616d02000400000044656d6f020000000900000053746174654465636c0300110000005669736962696c6974792e5075626c6963000007000000656e61626c656409000000547970652e426f6f6c000009000000456e7472794465636c04000300000072756e0000000009000000547970652e556e6974000005000000426c6f636b0100010000000b00000053746d742e52657475726e010000"
+  let validBytes ← lift "validated_bytes" (canonicalValidatedSourceAstBytesV1 valid)
+  expect (bytesHex validBytes == validHex) s!"validated bytes: got {bytesHex validBytes}"
+  let validHash ← lift "validated_hash" (sourceHashV1 valid)
+  expect (validHash.bytes.size == 32) "source hash width"
+  let rendered ← lift "render source hash" (renderDigest validHash)
+  expect (rendered ==
+    "sha256:bdad32dda5c3aa2862acc50855a7908a96745b493e58e6b06ecce1d31cdc6ec9")
+    s!"source hash: got {rendered}"
+
+  let modA ← qn #["A"]
+  let idADemo ← qn #["A", "Demo"]
+  let otherN ← name "Other"
+  let idRootOther ← qn #["Root", "Other"]
+  let moduleTwin ← lift "module_twin" (validateSourceV1 modA idADemo validProgram)
+  let identityTwin ← lift "identity_twin" (validateSourceV1 modRoot idRootOther {
+    name := otherN, items := validProgram.items })
+  let orderTwin ← lift "order_twin" (validateSourceV1 modRoot idRootDemo {
+    name := demoN, items := #[.entry (entryWith runN validBlock), iSt] })
+  for (label, twin) in #[
+      ("module", moduleTwin), ("identity", identityTwin), ("order", orderTwin)] do
+    let twinBytes ← lift s!"{label}_bytes" (canonicalValidatedSourceAstBytesV1 twin)
+    let twinHash ← lift s!"{label}_hash" (sourceHashV1 twin)
+    expect (twinBytes != validBytes) s!"{label} bytes must differ"
+    expect (twinHash.bytes != validHash.bytes) s!"{label} hash must differ"
+
+  expectErrExact "validated_wrong_prefix" prefixErr
+    (validateSourceV1 demoOnly elsewhere validProgram)
+  expectErrExact "validated_wrong_name" nameMismatch
+    (validateSourceV1 modRoot idRootDemo { name := mainN, items := validProgram.items })
+  let emptyBodyProgram : ProgramV1 := {
+    name := demoN, items := #[iSt, .entry (entryWith runN emptyBlock)] }
+  expectErrExact "validated_empty_block" "block statements must be nonempty"
+    (validateSourceV1 modRoot idRootDemo emptyBodyProgram)
+  expectErrExact "validated_zero_entry_view" "program must declare at least one entry or view"
+    (validateSourceV1 modRoot idRootDemo pState)
+  let dupStateProgram : ProgramV1 := {
+    name := demoN, items := #[iSt, iSt, .entry (entryWith runN validBlock)] }
+  expectErrExact "validated_duplicate_state" "program contains duplicate state declarations"
+    (validateSourceV1 modRoot idRootDemo dupStateProgram)
+  let shapeAndSetBad : ProgramV1 := {
+    name := demoN, items := #[iSt, iSt, .entry (entryWith runN emptyBlock)] }
+  expectErrExact "validated_shape_before_set" "block statements must be nonempty"
+    (validateSourceV1 modRoot idRootDemo shapeAndSetBad)
 
 end Tests.Language.SourceAstCanonicalRootV1
