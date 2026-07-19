@@ -350,13 +350,13 @@ iteration order 和非语义括号；operator precedence 形成的 AST 结构仍
 
 ```text
 canonicalSourceAstBytesV1(
-  moduleName : QualifiedName,
-  programIdentity : QualifiedName,
+  moduleName : SourceQualifiedNameV1,
+  programIdentity : SourceQualifiedNameV1,
   program : ProgramV1
 ) -> Except Diagnostic ByteArray
 
 decodeCanonicalSourceAstBytesV1(bytes)
-  -> Except Diagnostic (QualifiedName × QualifiedName × ProgramV1)
+  -> Except Diagnostic (SourceQualifiedNameV1 × SourceQualifiedNameV1 × ProgramV1)
 
 sourceHashV1(moduleName, programIdentity, program)
   -> Except Diagnostic Digest

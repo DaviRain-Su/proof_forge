@@ -2318,6 +2318,58 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   （manifest不计）。验证只运行 focused+aggregate build/test binary、Python self-check、package refresh 后最终
   单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。
   结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-104 是 `TASK-D1-01`/`TST-SRC-001` 的 canonical-root encoder slice，只闭合 v1 root 的
+  source-only identity join 与三段串接。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstCanonicalRootV1
+  canonicalSourceAstBytesV1
+    (moduleName programIdentity : QualifiedNameV1.SourceQualifiedNameV1)
+    (program : AstProgramV1.ProgramV1) : Except String ByteArray
+  ```
+
+  该 API 必须为 single total `def`，且顺序不可交换：先调用
+  `validateSourceProgramIdentityV1 moduleName programIdentity`；再以 total、无 `partial`/`unsafe`/bang index
+  的方式取 `programIdentity` 最后一个 raw `SourceNameComponentV1`；若它与 `program.name` 不等，exact
+  返回 `program name must equal the last program identity component`；之后依次调用
+  `encodeSourceQualifiedNameV1 moduleName`、`encodeSourceQualifiedNameV1 programIdentity`、
+  `encodeProgramV1 program`，最后无间隔串接三段。root 不得增加 outer tag、field count、magic、schema、
+  source path 或 trailing bytes，也不得把 source carrier改成 common `QualifiedName`。
+
+  Lean RED 与不 import Lean/ProofForge、也不在运行时读取前序 reference scripts 的 standalone Python
+  oracle必须各自持有相同的三个 checked-in lowercase full-root expected hex literal；expected不得由
+  production或 oracle自身在 self-check 时生成：`root_state_ok` = module `Root`、identity `Root.Demo`、
+  Program name `Demo` + `[item_state]`；`root_two_order` = 同 identity + `[item_state,item_const]`；
+  `root_deep_mod` = module `A.B`、identity `A.B.Main`、Program name `Main` + `[item_state]`。
+  `item_state`/`item_const`精确复用 PA103 payload。三例均断言 full fixed hex及
+  `encodeSourceQualifiedNameV1(moduleName) ‖ encodeSourceQualifiedNameV1(programIdentity) ‖
+  encodeProgramV1(program)` direct composition；至少一例断言 root 以 module array bytes 开始且不以
+  `Program` tag prefix开始。shallow order与 deep component order不可被排序或 rendered spelling替换。
+
+  负例与 exact priority冻结为：一 component identity首先返回
+  `source qualified id must contain 2..256 components`；二 component module与 identity相等返回
+  `program identity must strictly extend the module name`；non-prefix返回
+  `program identity must begin with the exact module name components`；bad join + wrong name + empty items仍由
+  join error优先；good join + wrong name + empty items由新的 name mismatch优先；good join/name + empty items
+  传播 `program items must be nonempty`；good join/name + empty Struct item传播
+  `struct fields must be nonempty`；good join/name + single Const UInt24 + hostile `2^256` value仍由 width error
+  优先。`root_state_ok`没有 Entry/View仍必须成功，只证明 mechanical root
+  boundary没有混入 `SPEC-LANG-001` set validator，不声明该 root业务有效或可进入编译管线。
+
+  `SPEC-SOURCE-WIRE-001` production boundary继续规定最终 API返回 `Except Diagnostic`；本 pre-acceptance
+  slice 的 `Except String` 只是尚未完成 `TASK-D1-07` 的 development seam。上述 exact String只冻结本切片
+  的错误优先级和 fail-closed行为，不得声明为最终 stable diagnostic schema。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstCanonicalRootV1.lean`、
+  `Tests/Language/SourceAstCanonicalRootV1.lean`、`scripts/reference_source_ast_canonical_root_v1.py`；最小
+  ProofForgeV2/Tests/lake registration与机械 manifest。budgets：codec≤60、suite≤200、Python≤150、
+  registrations≤5、总 authored additions≤415（manifest不计）。明确排除 duplicate identifiers、
+  zero Entry/View、multiple Init、proof/invariant reference等 declaration-set validation；alpha Source/Syntax/
+  Loader/projection；decoder、exact-consume、global depth/node/16-MiB resource validator；sourceHash、NodeId、
+  stable Diagnostic implementation、Common/ProgramPayload与 target edits。验证只运行 focused+aggregate
+  build/test binary、Python self-check、package refresh后最终单次 `just sbom`、`just docs-check`、
+  `git diff --check`与 independent review；不运行完整 `just ci`。结果只记录 development evidence，不能
+  关闭完整 TST-SRC-001、pending TASK-D1-01或下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
