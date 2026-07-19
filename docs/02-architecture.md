@@ -47,6 +47,14 @@ preflight、decoder 和 declaration validation 位于 frontend worker；返回�
 library/elaborator 调用不接受不可信 source，也不得生成 formal evidence。随后三个互不等同的领域
 类型依次承担 surface、checked source 和 canonical semantics 责任。
 
+Source 标识有三层、不得混用：**(A)** Lean `Name.str` **raw** payload（不含 renderer 添加的外围
+guillemets；raw 本身可含 opening `U+00AB`）；**(B)**
+`Name.toString` **rendered** spelling（可含 `«…»`）；**(C)** `SPEC-COMMON-001` `QualifiedName`/
+isId\* **common** component（非 source wire Ident）。未来 `Source.ProgramV1` 的 Ident 与 source
+identity 数组以 raw carrier `SourceNameComponentV1` 为 wire 权威，不把 rendered 写入 canonical
+bytes，也不把 source identity 降格为 common `QualifiedName`。alpha `Source.Program` 字符串字段仍是
+过渡面，不得当作 v1 wire 身份。
+
 ## 架构不变量
 
 - INV-001：source/Typed/Semantic 层不根据 target 分支。

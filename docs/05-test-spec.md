@@ -1639,6 +1639,58 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   model 与 component decoder 的前置，`ProofDecl.theorem`/visibility 是 model 前置，NodeId exact JCS keys 是
   NodeId slice 前置。结果只能记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01
   或任何下游 task，也不能声明 16 MiB/global node/nesting budget、full Program exact consume 或 stable Diagnostic。
+- D1-PA-93 是 `TASK-D1-01`/`TST-SRC-001` 的 raw Lean `Name.str` source-name carrier slice。决策：
+  `SourceNameComponentV1` 是 typed private-constructor carrier，**distinct** from
+  `Core.Common.QualifiedName` 与 `Name.toString` rendered spelling；wire 身份永远是 **raw**，永不写入
+  rendered guillemets。生产 public API 精确冻结为：
+
+  ```lean
+  structure SourceNameComponentV1 where
+    private mk ::
+    raw : String
+    deriving DecidableEq, Repr
+  parseSourceNameComponentV1 : String → Except String SourceNameComponentV1
+  sourceNameComponentV1FromLeanName : Lean.Name → Except String SourceNameComponentV1
+  renderSourceNameComponentV1 : SourceNameComponentV1 → String
+  WireCodecV1.encodeSourceNameComponentV1 :
+    SourceNameComponentV1 → Except String ByteArray
+  WireDecodeV1.decodeSourceNameComponentV1 :
+    WireDecodeV1.DecoderV1 SourceNameComponentV1
+  ```
+
+  `sourceNameComponentV1FromLeanName` 只接受最终 constructor 为 `.str` 的 `Name`（reject `.num` /
+  non-str）。`renderSourceNameComponentV1 c` exact 为 `(Name.str .anonymous c.raw).toString`。
+  `parseSourceNameComponentV1` 验证：raw UTF-8 长度 `1..240`；pinned NFC；拒绝 Unicode Cc 与 closing
+  guillemet `U+00BB`；**显式允许** exact `_`、opening `U+00AB`、digit-leading、hyphen、embedded dot、
+  space、NFC Unicode letter-like 与 language keyword **bodies**（language owner 仍可在 Syntax 层保留词；
+  本 carrier 不做 keyword deny-list）。不调用 `Lean.isIdFirst`/`isIdRest`，也不复用
+  `parseQualifiedName` 作为 accept oracle。
+  Wire：`WireCodecV1.encodeSourceNameComponentV1` / `WireDecodeV1.decodeSourceNameComponentV1` 对 raw
+  使用既有 String primitive layout（`u32le` length ‖ UTF-8）；既有 `encodeIdent : String → …` 的
+  validation **迁移**为先 `parseSourceNameComponentV1` 再 encode raw（因而 PA91 的 `1bad` 负例必须改为
+  exact **positive**，并同步更新 `scripts/reference_source_wire_codec_v1.py` 的 raw validation 与
+  goldens）。独立 Python oracle 必须对同一 raw 规则与 fixed vectors 做 `--self-check`，不 import Lean。
+  变更文件集：新增 `ProofForgeV2/Source/NameComponentV1.lean`、`Tests/Language/SourceNameComponentV1.lean`；
+  修改 `ProofForgeV2/Source/WireCodecV1.lean`、`ProofForgeV2/Source/WireDecodeV1.lean`、
+  `Tests/Language/SourceWireCodecV1.lean`、`scripts/reference_source_wire_codec_v1.py`；最小
+  `ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean` 注册与机械
+  `supply-chain/lean-package-files.v1.json` refresh。authored budgets：new production ≤65、new Lean suite
+  ≤125、既有文件 authored deltas + registrations ≤65；总计 ≤255（机械 manifest 不计）。
+  RED 必须固定：raw vs rendered 字节/字符串不等价（hyphen/dot/space）；同一 suite 顶层必须含真实
+  Lean command `program «_» where ...`，以模块成功 elaboration 而非仅 ParserSession probe 证明 explicit
+  underscore 仍是 `.str` source name。positives：simple、`α`、`_`、
+  digit-leading `1bad`、hyphen、embedded-dot、space、opening-guillemet body、raw exact `«`（render
+  exact `««»`）、keyword body `struct`、
+  exact 240-byte NFC；negatives：empty、241、NFD、Unicode Cc、closing-guillemet `U+00BB`、anonymous
+  `Name`、`Name.num`；decoder exact bytes + encode→decode；injectivity pair：raw `foo.bar` **accept**
+  vs raw containing closing guillemet **reject**。Python reference 只实现 raw validation/wire，不复制
+  `Name.toString` renderer；render 不得进入跨实现 identity assertion。
+  明确排除：root ProgramV1、`SourceQualifiedName` 完整类型/root join、model cutover、`sourceHashV1`、
+  NodeId、Common/Syntax/Loader/Core.Source/ProgramPayload/target 改写。验证只运行 focused
+  NameComponent+WireCodec+WireDecode/test aggregate build、test binary、Python self-check、package
+  refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行
+  完整 `just ci`。结果只可记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01
+  或任何下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
