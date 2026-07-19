@@ -2057,6 +2057,65 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   build/test binary、package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与
   independent review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭完整
   TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-100 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 mutual spine **codec-only** slice。它只消费
+  PA99 已发布的 PlaceV1/ExprV1/StmtV1/BlockV1/StmtMatchArmV1/ExprMatchArmV1/ExternalCallExprV1，
+  一次实现 `SPEC-SOURCE-WIRE-001` 对应完整 25-tag table，不修改 model/equality，也不引入 body-bearing
+  ProgramItem。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSpineCodecV1
+  encodePlaceV1 : PlaceV1 → Except String ByteArray
+  encodeExprV1 : ExprV1 → Except String ByteArray
+  encodeExprMatchArmV1 : ExprMatchArmV1 → Except String ByteArray
+  encodeExternalCallExprV1 : ExternalCallExprV1 → Except String ByteArray
+  encodeBlockV1 : BlockV1 → Except String ByteArray
+  encodeStmtMatchArmV1 : StmtMatchArmV1 → Except String ByteArray
+  encodeStmtV1 : StmtV1 → Except String ByteArray
+  ```
+
+  七个 public encoder 与其 private helpers 必须位于一个 kernel-total mutual family；Array recursive child
+  必须先产生 ordered `ByteArray` chunks，再唯一调用 `encodeArray pure`，不得把 mutual encoder 作为
+  higher-order 参数传给 `encodeArray`。`Stmt.If.elseBlock : Option BlockV1` 与
+  `Stmt.Return.value : Option ExprV1` 必须手工写 `0x00`/`0x01 || child`；非 SCC 的 Let Type option 与
+  Assert Ident option 可复用既有 `encodeOption`。Block/arms/ExternalCall structure 必须用 structural pattern
+  使 termination checker 看见 child。禁止 `partial`、`unsafe`、fuel、model/Eq 修改或复制 Array wire。
+
+  所有 tag、fieldCount 与 ordered fields 逐字复用 `SPEC-SOURCE-WIRE-001`：Place 3、Expr 7、Stmt 11、
+  `Block`/`StmtMatchArm`/`ExprMatchArm`/`ExternalCallExpr` 4，共 25 tags。encoder-owned exact errors 固定为：
+
+  - empty `Block.statements` → `block statements must be nonempty`
+  - empty `Stmt.Match.arms` → `stmt match arms must be nonempty`
+  - empty `Expr.Match.arms` → `expr match arms must be nonempty`
+  - `Stmt.For.bound > 4096` → `for bound must be 0..4096`
+
+  priority 精确冻结为：当前 constructor 的 local nonempty/bound check **先于所有 child**；local check成功后
+  按 wire field order 左到右编码并原样传播 PA93–97 child error。故 empty Stmt/Expr Match 必须在 hostile
+  scrutinee 前返回各自 arms error，For 4097 必须在 hostile binder/start/end/body 前返回 bound error。
+  `Expr.Constructor` 先 `encodeSourceQualifiedIdV1 ctor` 再 args；`ExternalCallExpr` 先 QID callee 再 args，
+  one-component QID + hostile `Literal.integer (2^256)` args 必须返回 PA94 QID error。不得 remap child error，
+  不在本 slice 加 256-depth/100000-node/16-MiB global validator。
+
+  Lean RED 与不 import Lean/ProofForge 的 Python oracle必须持有 checked-in expected hex；两者使用同一组
+  typed logical fixtures但独立实现编码。至少 34 个 fixed expected-byte assertions，必须直接调用七个 public
+  encoder，且完整覆盖 25 tags：Place Name/Field/nested Index；Expr Literal(含 `2^64`)/Place/Constructor
+  some-one-arg与none-empty/Unary/Binary/LocalCall/Match-two-arms；Stmt Let type none/some、Assign、If else
+  none/some、Match、For bound 0/4096、Assert error none/some、Revert empty/one-arg、Emit、Return none/some、
+  Call、Schedule；direct Block single/multi、direct StmtMatchArm/ExprMatchArm/ExternalCallExpr。必须比较
+  Constructor args `[a,b]`/`[b,a]` 与 Block statements normal/reversed exact byte nonalias，并覆盖四个 Option
+  wire marker的 none/some。负例逐字包含 empty Block、empty Stmt Match、empty Expr Match、For 4097、
+  Constructor one-component QID、ExternalCall one-component QID、两条 QID-before-hostile-args、arms/bound-
+  before-hostile-child，以及至少一个既有 Literal/Pattern/Ident child error原样传播。Python另保持 raw closing-
+  guillemet/Cc negatives；expected bytes不得由 production encoder生成。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstSpineCodecV1.lean`、
+  `Tests/Language/SourceAstSpineCodecV1.lean`、`scripts/reference_source_ast_spine_v1.py`；最小
+  ProofForgeV2/Tests/lake registration 与机械 manifest refresh。budgets：codec≤250、suite≤300、Python≤260、
+  registrations≤8、总 authored additions≤818（manifest 不计）。明确排除：model/Eq/Common 修改、
+  Const/Invariant/Init/Entry/View/Fn、ProgramItem sum/Program root、alpha、decoder、global validator、
+  sourceHash/NodeId/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python self-check、
+  package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行
+  完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或
+  下游 task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
