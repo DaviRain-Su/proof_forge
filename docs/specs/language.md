@@ -1171,6 +1171,50 @@ independent sourceHash collision oracle、NodeId/origin、`PF-EXPORT-002/003` se
 publication、target/materializer、frontend containment 或正式 `TST-SRC-006/007` closure。这些新缺口
 只能经新的 bounded audit/freeze 处理，不得回填本切片。
 
+D1-PA-84 冻结的 pre-acceptance alpha 子集只关闭 PA81 export declaration 与 PA82 reconstructed
+payload 之间的 single-row identity binding。两路 post-PA83 audit 与 Lean 4.31 nested/escaped
+`Name.toString` probe 证明 DSL elaborator 在同一 namespace 中以相同
+`currentNamespace ++ name.getId` 同时形成 attributed constant `Name` 和 payload qualifiedName；因此合法
+DSL output 必须满足以下 exact invariant：
+
+```text
+ProgramExportV1.declaration.toString == Source.Program.qualifiedName
+```
+
+比较只使用 exact `String` equality，不做 casefold、NFC 重算、path normalization 或 wire component
+重编码。失败固定为 `PF-EXPORT-001: exported program identity does not match declaration`；它属于 identity
+conflict，不得误归为 `PF-EXPORT-004` structural form/safety failure。
+
+两个既有 public API 都必须收紧且不新增 public API：
+
+1. `programPayload env name` 先取得 PA81 normalized registry 并要求 exact registered Name，再执行 PA82
+   closed structural decode；decode 成功后检查对应 declaration/payload binding，再返回 payload。
+2. `programPayloads env` 先按 PA81 FQN order 完成**全部** PA82 decode；任一 row invalid 仍以
+   `PF-EXPORT-004` 失败且不返回 partial prefix。全部 decode 成功后先运行 PA83 cross-row qualifiedName/hash
+   scan，保留既有 duplicate/conflict exact diagnostic；随后仍按 row order 检查每个 declaration/payload
+   binding。第一个 binding mismatch 决定本切片 exact diagnostic，成功时才返回完整 table。
+3. PA83 scan-before-binding 是显式兼容/defense-in-depth 顺序：它保留已冻结的手工攻击 fixture 与错误
+   优先级；对单个 lying direct payload，或没有 cross-row collision 的 table，新 binding 仍必然 fail closed。
+
+tests-only RED 固定新增 isolated ProgramBinding fixtures 与单一
+`Tests.Language.ProgramBindings` suite，并只修改 `Tests.lean`/`lakefile.lean` 注册，总新增不超过 220 行。
+positive 必须同时覆盖 DSL nested namespace、escaped identifier 与 exact-aligned hand direct `Program.mk`，
+并通过 single/table API 固定 declaration rendering 与 payload qualifiedName 相等。negative 必须分别固定
+single/table mismatch exact message；PA82-invalid form 继续优先 `PF-EXPORT-004`；PA83 existing duplicate/
+conflict fixtures继续保持原 exact messages，不允许为新 slice 降级或删除旧攻击覆盖。
+
+GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+480，并刷新 `supply-chain/lean-package-files.v1.json`。禁止修改 ProgramExport registry、Core Source、
+Syntax、Loader、CLI、Typed/Semantic 或 target。focused suite、aggregate test build/binary、
+`git diff --check`、单次 `just sbom` 与 independent review 全绿后只能记录 development evidence，按冻结
+不重复完整 `just ci`。
+
+本切片明确不实现 payload short-name/last-component binding、source-program wire 的 moduleName/
+QualifiedName component identity、independent hash collision oracle、NodeId/origin、`PF-EXPORT-002/003`、
+CLI/Loader selection、target/materializer、frontend containment 或正式 `TST-SRC-006/007` closure。
+`PF-EXPORT-003` 的零候选分类由 `docs/specs/cli.md` selection rule 拥有；低层 `programPayloads` 的 empty
+registry query 继续返回 empty table，禁止在本切片跨层改义。
+
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为
 `Statement.letDecl(name, typeAnn : Option ValueType, value)`；alpha source canonical encoder 在既有

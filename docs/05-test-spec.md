@@ -1387,6 +1387,30 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   aggregate test build/binary、`git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录
   development evidence；不实现 declaration/payload binding、`PF-EXPORT-002/003`、CLI/Loader、wire、
   target、contained worker 或正式 `TST-SRC-006/007` closure，按冻结不重复完整 `just ci`。
+- D1-PA-84 的 alpha tests 只关闭 PA81 export declaration FQN 与 PA82 reconstructed
+  `Source.Program.qualifiedName` 的 single-row exact binding。两者必须以
+  `ProgramExportV1.declaration.toString == Source.Program.qualifiedName` 的 exact String equality 比较；
+  不做 NFC/casefold/路径归一化。mismatch 固定为
+  `PF-EXPORT-001: exported program identity does not match declaration`，不得归类为 payload form 的
+  `PF-EXPORT-004`。
+  `programPayload env name` 必须在 successful closed decode 后检查该 name 对应 row；
+  `programPayloads env` 必须先完成全部 PA82 decode，任一 invalid row 保留 `PF-EXPORT-004`，再运行
+  PA83 cross-row identity scan，最后按原 declaration FQN order 检查每个 row 的 binding。该顺序保留
+  PA83 duplicate/conflict exact diagnostics 与攻击测试；只含一个 lying direct payload 的 table 才以本切片
+  binding diagnostic 失败，且任何失败均不得返回 partial table。
+  positive 必须覆盖 DSL elaborator 产生的 nested namespace 与 escaped identifier，并同时证明 single/table
+  API 返回的 declaration rendering 与 payload qualifiedName 相等；hand-authored exact-aligned direct
+  `Program.mk` 作为 control。negative 必须在 isolated module 中覆盖 single 与 table mismatch exact message；
+  PA82-invalid direct/alias form 必须继续先得到 `PF-EXPORT-004`，既有 PA83 duplicate/conflict fixtures 必须
+  保持原 exact message，证明新检查没有吞掉旧优先级。
+  RED 只新增 ProgramBinding fixtures/suite 并修改 `Tests.lean`/`lakefile.lean` 注册，总新增 ≤220 行；
+  GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+  480，并刷新 `supply-chain/lean-package-files.v1.json`。focused suite、aggregate test build/binary、
+  `git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录 development evidence；
+  不实现 payload short-name/last-component、wire QualifiedName component binding、NodeId/origin、
+  `PF-EXPORT-002/003`、CLI/Loader selection、target、contained worker 或正式 `TST-SRC-006/007` closure，
+  按冻结不重复完整 `just ci`。`PF-EXPORT-003` 的零候选分类仍由 CLI/Loader selection rule 拥有，
+  不改变低层 `programPayloads` 对 empty normalized registry 返回 empty table 的语义。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
