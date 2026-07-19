@@ -6653,3 +6653,34 @@ normative: false
   fixture 时钟不受日界影响；ceremony 的 BTV/BAV id 只要求 Gregorian 合法日期，
   不受本缺陷影响。
 - Next：全量 `just ci`（pipefail）后推送 origin。
+
+## 2026-07-19 — D1 recursive TypeV1 decoder pre-acceptance slice
+
+- Commits：D1-PA-107 freeze `3d7e6053`；RED `b9388111`；GREEN `08d2f395`。TASK-D1-01
+  pending-prep package继续为`ee1cbc8d`，正式task状态未改变。
+- Authority：本切片只闭合complete 11-tag recursive `TypeV1` decoder与可由后续完整AST decoder组合的
+  caller-threaded node residual。depth是root-inclusive caller参数，node residual跨siblings单调线程；
+  production不提供重置256/100000额度的root helper，也不声明完整Program session资源限制已闭合。
+- Changed：新增9-line `DecodeBudgetV1`与99-line kernel-total `AstTypeDecodeV1`；decoder以
+  `remainingDepth`作structural fuel，固定tag→closed dispatch→fieldCount→depth→node→ordered child
+  priority。Map value接收key消费后的node residual但复用同一child depth；Array先完整解码element再读length。
+  `decodeSourceNameComponentV1`改为读取u32 declared length后先执行1..240 bound，再检查remaining和复制，
+  hostile 241-byte声明不再触发大复制。production additions 128、suite 206、Python 232、registrations 5，
+  总authored 571/800；机械manifest为57 files。
+- Cross implementation：Lean suite与standalone Python oracle闭合24个PA95 fixed Type wire round-trip与exact
+  node residual、19个全constructor field-count negatives、24个domain/truncation/order/budget/pre-copy
+  boundaries。`Option^255(Bool)`以depth/nodes 256通过，`Option^256(Bool)`以depth 256稳定返回depth error；
+  Python输出`reference_source_ast_type_decode_v1: ok 24 19 24`。
+- Verification：`lake build Tests.Language.SourceAstTypeDecodeV1` 15 jobs、`lake build
+  proof_forge_next_tests` 362 jobs、test binary输出`proof-forge-next-tests: ok`；Python self-check、SBOM
+  self-test/generate/verify/closure、完整docs-check recipe与`git diff --check`全绿。按冻结未运行完整`just ci`。
+- Review/Evidence：independent final review逐项核对24/19/24矩阵、totality、priority、Map sibling residual、
+  depth 256边界与Ident pre-copy bound，结论Approve，P0/P1/P2=0。development evidence为
+  `EV-20260719-0119`。
+- Limitations：没有Pattern/spine/support/declaration/Program/root decoder、fresh root budget API、完整
+  16MiB/100000-node/256-depth session、alpha mapping、sourceHash、NodeId、stable Diagnostic、
+  Common/ProgramPayload或target。spec仍proposed，D0 dependencies/candidate-bound formal evidence未齐，
+  不能关闭pending `TASK-D1-01`或任何下游task；D0 formal milestone仍8/9。
+- Next：当前无active development slice。按用户裁决，下一步先冻结ProgramV1单轨cutover contract，裁决
+  structured call、module/program identity、export schema、private one-way Typed lowering与legacy删除门槛；
+  不得自动继续下一decoder family，也不得在无冻结包时修改alpha/frontend代码。
