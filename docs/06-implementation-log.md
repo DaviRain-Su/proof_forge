@@ -4847,3 +4847,43 @@ normative: false
 - Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
 - Next：当前无 active development slice；下一 slice 未冻结，须先完成 bounded residual audit，
   禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 persistent program export registry pre-acceptance slice
+
+- Commits：freeze `6b482876`；tests-only RED `e67c4c30`；persistent registry/GREEN 与
+  Lean package-file re-pin `7326e1bc`；live package-count limit probe maintenance fix
+  `6fe9bea0`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-81 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。选择来自 post-PA-80 declaration residual 与 D1-04 external-call audits：前者已进入无界
+  wrapper 组合，后者需要 Source/Semantic carrier 演进；不是 checkpoint 自动递增。
+- Changed：新增 84 行 `ProofForgeV2.Language.ProgramExport`，以
+  `ProgramExportV1{schema,declaration}` 和 `SimplePersistentEnvExtension` 持久化 schema/FQN-only
+  entries；公开 query 合并 imported/local rows，先以 `PF-EXPORT-001` closed-check unknown schema、
+  structural `Name` duplicate 与 equal-toString conflict，再按 `Name.toString` 排序。attribute 固定
+  no-args/global/current-module/public/after-type-checking/exact `Source.Program`，且在加入 extension 前
+  fail closed；不评估或持久化 payload。`Syntax.lean` +1/-6，只 import 新模块并删除旧 no-op attribute。
+- RED/Fixtures：Shared/A/B diamond、AB/BA 两种 import order 与 snapshot 固定相同三行
+  schema/FQN table；Shared 精确一次，未 attributed manual alias 缺席。raw reverse canonicalize，wrong
+  schema、structural duplicate 与同名冲突均拒绝且不返回 partial table。GREEN 只对 RED suite 做两行
+  Lean 语法校正（`do` block 与保留字 binder rename），未改变 assertion 集合或期望。
+- Verification：`lake build Tests.Language.ProgramExports` 17 jobs；`lake build
+  proof_forge_next_tests` 208 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；
+  `git diff --check` 通过。ProgramExport pin 为 3277 bytes、SHA-256
+  `5636f3054f5c67546955a30a5ad0a41db8a1d188bb6e631cd6e21eec11570a66`；Syntax pin 为
+  101720 bytes、SHA-256 `9821f92d0a66dfea00418609e2a18e36c62644de98a4b5761e4226a30e9dc468`；
+  package manifest 覆盖当前 31 个 product Lean files。
+- SBOM integration：第一次 `just sbom` 的 legacy `SB2-031` equal-limit probe 仍把 D0-08
+  acceptance-time denominator 30 当作 live fixture cardinality，因第 31 个 product module 而正确暴露
+  integration failure。`6fe9bea0` 保留 frozen 30 与 attested freeze-package SHA-256 不变，仅让 generic
+  equal/over probe 从 test-owned current-tree oracle 取 cardinality，禁止读取 production output/sidecar；
+  修复后 self-test/generate/verify/closure 全绿，独立审查 P0/P1=0。
+- Review/Evidence：GREEN independent review P0=0/P1=0/P2=0；SBOM limit repair 两路独立审查
+  P0=0/P1=0；development evidence 为 `EV-20260719-0079`。按冻结未运行完整 `just ci`。
+- Scope claim：只完成 stable schema/FQN environment registry、import-order-independent listing 与
+  structural/schema duplicate rejection；不包括 constant evaluation、payload identity duplicate、
+  NodeId/origin、`PF-EXPORT-002`、CLI/Loader selection、wire publication、target/materializer 或正式
+  `TST-SRC-006/007` closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA-81 residual audit 只保留 payload constant
+  evaluation 作为可能的下一 bounded slice；必须先独立冻结再提交 RED，禁止自动编号。
