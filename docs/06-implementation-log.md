@@ -5091,3 +5091,31 @@ normative: false
   不能开始 D1-06，也不能声明 wire identity、contained worker、target/runtime/proof 完成。
 - Next：D1-05 代码与 development acceptance surface 已饱和。按 task authority 选择下一个
   dependency-safe executable slice；禁止继续增加 export identity micro-check。
+
+## 2026-07-19 — D1 declaration acceptance packaging pre-acceptance slice
+
+- Commits：`TASK-D1-03` pending-prep freeze package `0d4b5d31`；D1-PA-87 tests-only freeze
+  `0eafc92d`；`DeclarationAcceptance` harness `926df351`。
+- Authority：正式 `TASK-D1-03` 继续 `pending`。完成包逐字绑定 output `declaration grammar/elaboration`、
+  dependency `TASK-D1-02`、empty prerequisites 与唯一 `TST-SRC-004`；doneWhen 要求 named acceptance/
+  aggregate commands、`TASK-D1-02` done、candidate-bound `qualification=formal` evidence 和零 P0/P1，
+  task row 上全部 development EV 均被明确排除为 formal close 依据。
+- Changed：新增 39-line `Tests.Language.DeclarationAcceptance`，按既有 aggregate 相对顺序精确一次
+  调用 `AggregateDeclarations`、`ArrayTypes`、`BytesTypes`、`ConstDeclarations`、
+  `EventErrorDeclarations`、`ExtensionRequirements`、`FieldDeclarations`、`FnDeclarations`、
+  `IntegerWidthDeclarations`、`OptionDeclarations`、`PrincipalDeclarations`、`UnitReturnTypes`、
+  `InvariantDeclarations`、`ProofReferences`、`PrimitiveDeclarations`、`StateVisibility`。`Tests.lean`
+  保留 16 个 imports 与独立 `FrontendParity`，以一个 wrapper call 替换 16 个分散 calls；Lake 只增加
+  一个 root。总计 42/50 additions、16 deletions；既有 suite assertions、production、package file-set
+  与其他 tests 零修改。
+- Verification：Grok focused `lake build Tests.Language.DeclarationAcceptance` 41 jobs；coordinator
+  `lake build Tests.Language.DeclarationAcceptance proof_forge_next_tests` 270 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；`just docs-check` 与
+  `git diff --check` 通过。按冻结不运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：Grok/Kimi freeze reviews 均 P0/P1=0；Kimi final live-diff review P0/P1=0、仅 import
+  placement cosmetic P2 且无需修改。development evidence 为 `EV-20260719-0085`。
+- Limitations：本条只证明 development executable packaging，不是 candidate-bound formal record；
+  `TASK-D1-02` 未 done，D0 formal milestone 仍 7/9，因此不能把 `TASK-D1-03` 标为 in_progress/done，
+  不能据此关闭 statement/expression `TST-SRC-005`、D2 type/effect tests、D1-05 或开始 D1-06。
+- Next：当前无 active development slice。按正式依赖顺序优先审计 `TASK-D1-02`/`TST-SRC-003` 的
+  pending-prep freeze 与 bounded executable acceptance packaging；冻结前不得开工或自动递增。
