@@ -42,7 +42,7 @@ private def name (s : String) : IO SourceNameComponentV1 :=
 private def wErr := "integer width must be one of 8,16,32,64,128,256"
 private def bErr := "bytes length must be 0..4096"
 
-/-- D1-PA-96 RED: AstSupportV1/AstSupportCodecV1 missing → focused build fails. -/
+/-- D1-PA-96 exact supporting-record wire vectors and child-error propagation. -/
 def run : IO Unit := do
   let x ← name "x"
   let y ← name "y"
