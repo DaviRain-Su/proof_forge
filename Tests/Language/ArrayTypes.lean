@@ -1346,9 +1346,12 @@ unsafe def run : IO Unit := do
 
 
   let arrayOptionBytesSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option Bytes 0 0", .array (.option (.bytes 0)) 0, 0, "UNBOUND"),
-    ("Array Option Bytes 8 4", .array (.option (.bytes 8)) 4, 0, "UNBOUND"),
-    ("Array Option Bytes 4096 1", .array (.option (.bytes 4096)) 1, 0, "UNBOUND")
+    ("Array Option Bytes 0 0", .array (.option (.bytes 0)) 0, 265,
+      "f581d48f1ad258e6048775ff5e49d616da749e0ec14f940d38ecd52023031917"),
+    ("Array Option Bytes 8 4", .array (.option (.bytes 8)) 4, 265,
+      "b6724eb9c3639b7f829396e0c2541ce529c8124580b3bcd909449a268585ec8b"),
+    ("Array Option Bytes 4096 1", .array (.option (.bytes 4096)) 1, 265,
+      "3d55918eaaa9e53941e06aeb29ff143d7c2f0370f34befb0fcc5cbdc147f0e13")
   ]
   for (label, type, expectedSize, expectedHash) in arrayOptionBytesSourceVectors do
     let sourceProgram := twin type
@@ -1389,9 +1392,12 @@ unsafe def run : IO Unit := do
     "Array Option Bytes dual-length order 8/4 vs 4/8 Source must non-alias (size+hash)"
 
   let arrayOptionBytesSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Array Option Bytes 0 0", .array (.option (.bytes 0)) 0, 0, "UNBOUND"),
-    ("Array Option Bytes 8 4", .array (.option (.bytes 8)) 4, 0, "UNBOUND"),
-    ("Array Option Bytes 4096 1", .array (.option (.bytes 4096)) 1, 0, "UNBOUND")
+    ("Array Option Bytes 0 0", .array (.option (.bytes 0)) 0, 214,
+      "d8b17bcd41e856d3198931c1108cd935a52a57c128ae0185ccd5b704e0867477"),
+    ("Array Option Bytes 8 4", .array (.option (.bytes 8)) 4, 214,
+      "2a91d6123521921650b3df5367f6be2a7276c4b5a43e0febbb28366e8495bade"),
+    ("Array Option Bytes 4096 1", .array (.option (.bytes 4096)) 1, 214,
+      "de7da383f867606102e4fc30cd50136de345ff39fc75e4ffa2d614b0559ded59")
   ]
   for (label, type, expectedSize, expectedHash) in arrayOptionBytesSemanticVectors do
     let compiled ← match Compiler.compile (twin type) with
