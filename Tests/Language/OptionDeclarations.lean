@@ -2328,9 +2328,12 @@ unsafe def run : IO Unit := do
       s!"{label} semantic tag16+tag16+tag18 golden is unbound: size={semantic.canonicalBytes.size}, hash={semantic.semanticHash}"
 
   let noafSourceVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Array Field bn254_fr 0", .option (.option (.array .field 0)), 0, "UNBOUND"),
-    ("Option Option Array Field bn254_fr 4", .option (.option (.array .field 4)), 0, "UNBOUND"),
-    ("Option Option Array Field bn254_fr 4096", .option (.option (.array .field 4096)), 0, "UNBOUND")
+    ("Option Option Array Field bn254_fr 0", .option (.option (.array .field 0)), 261,
+      "6d63aac74ce61f061de11288097f18de7f7043623ceb0ed3596cd13a938676aa"),
+    ("Option Option Array Field bn254_fr 4", .option (.option (.array .field 4)), 261,
+      "bef51596dc72dc5e0d39730297278d4d7839b872d16bf269f5783f471234765f"),
+    ("Option Option Array Field bn254_fr 4096", .option (.option (.array .field 4096)), 261,
+      "ee225041fce0de31bc20b8bb53c1d137ec05f3a7826fc2d20cba4f79b167ce98")
   ]
   for (label, type, expectedSize, expectedHash) in noafSourceVectors do
     let sourceProgram := twin type
@@ -2362,9 +2365,12 @@ unsafe def run : IO Unit := do
     "Option Option Array Field 4 Source must non-alias Array Option Option Field 4 (bytes+hash)"
 
   let noafSemanticVectors : Array (String × Source.ValueType × Nat × String) := #[
-    ("Option Option Array Field bn254_fr 0", .option (.option (.array .field 0)), 0, "UNBOUND"),
-    ("Option Option Array Field bn254_fr 4", .option (.option (.array .field 4)), 0, "UNBOUND"),
-    ("Option Option Array Field bn254_fr 4096", .option (.option (.array .field 4096)), 0, "UNBOUND")
+    ("Option Option Array Field bn254_fr 0", .option (.option (.array .field 0)), 211,
+      "a7ed080b84e6e5906e8a13c30e57a30a07f06a0993ba2cc6567a6a56b80f29f8"),
+    ("Option Option Array Field bn254_fr 4", .option (.option (.array .field 4)), 211,
+      "6151f2d68d43876455fa3f08a300c6b5f552e52178d984d2a5d4346ae6cf0ebd"),
+    ("Option Option Array Field bn254_fr 4096", .option (.option (.array .field 4096)), 211,
+      "a065a9cd0fa0201ffde3576f5939a31717fc9a3a2adac6ee218a42c4149ef6d5")
   ]
   for (label, type, expectedSize, expectedHash) in noafSemanticVectors do
     let sourceProgram := twin type
