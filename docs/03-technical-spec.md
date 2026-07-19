@@ -43,6 +43,7 @@ non-elaborating loader 共用同一个 syntax decoder，以 AST 等价测试防�
 structure SourceNameComponentV1 where
   private mk ::
   raw : String
+  deriving DecidableEq, Repr
 
 structure SourceQualifiedNameV1 where
   components : NonEmptyArray SourceNameComponentV1

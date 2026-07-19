@@ -141,7 +141,7 @@ wire tag、NodeId `parentTag` 与 golden inventory 必须逐 byte 使用同一 A
 | `FnDecl` | 4 | `name : Ident`, `params : Array<Param>`, `result : Type`, `body : Block` |
 | `InvariantDecl` | 2 | `name : Ident`, `predicate : Expr` |
 | `ExtensionReq` | 3 | `id : QualifiedId`, `version : String`, `digest : String` |
-| `ProofDecl` | 2 | `invariant : Ident`, `theorem : QualifiedName` |
+| `ProofDecl` | 2 | `invariant : Ident`, `theorem : QualifiedId` |
 
 `Program.items`、`StructDecl.fields`、`EnumDecl.variants` 和 every `Block.statements` 必须 nonempty。
 `ExtensionReq.version` 必须是 canonical exact SemVer string；`digest` 必须是
