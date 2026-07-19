@@ -1,12 +1,14 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
 import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.QualifiedNameV1
 
 namespace ProofForgeV2.Source.WireCodecV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.QualifiedNameV1
 
 /-- Little-endian portable source-wire primitive codecs (SPEC-SOURCE-WIRE-001). -/
 
@@ -82,6 +84,17 @@ def encodeSourceNameComponentV1 (component : SourceNameComponentV1) :
 def encodeIdent (value : String) : Except String ByteArray := do
   let component ← parseSourceNameComponentV1 value
   encodeSourceNameComponentV1 component
+
+/-- Source-only qualified name array: `u32le count ‖ components…` (raw). -/
+def encodeSourceQualifiedNameV1 (name : SourceQualifiedNameV1) :
+    Except String ByteArray :=
+  encodeArray encodeSourceNameComponentV1 (NonEmptyArray.toArray name.components)
+
+/-- Source-only qualified id array (2..256) using the same raw wire layout. -/
+def encodeSourceQualifiedIdV1 (name : SourceQualifiedNameV1) :
+    Except String ByteArray := do
+  validateSourceQualifiedIdV1 name
+  encodeSourceQualifiedNameV1 name
 
 def encodeQualifiedName (name : QualifiedName) : Except String ByteArray := do
   let components ← renderQualifiedNameComponents name

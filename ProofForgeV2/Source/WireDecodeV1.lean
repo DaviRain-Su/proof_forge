@@ -1,10 +1,12 @@
 import ProofForgeV2.Core.Unicode
 import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.QualifiedNameV1
 
 namespace ProofForgeV2.Source.WireDecodeV1
 
 open ProofForgeV2.Core.Unicode
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.QualifiedNameV1
 
 /-- Cursor-based primitive wire decoder (SPEC-SOURCE-WIRE-001 / D1-PA-92). -/
 
@@ -117,6 +119,44 @@ def decodeSourceNameComponentV1 : DecoderV1 SourceNameComponentV1 := fun c => do
   let (raw, c) ← decodeString c
   match parseSourceNameComponentV1 raw with
   | .ok component => pure (component, c)
+  | .error detail => fail detail
+
+private def qnCountError : String :=
+  "source qualified name must contain 1..256 components"
+
+private def qidCountError : String :=
+  "source qualified id must contain 2..256 components"
+
+/-- Decode source QN array; count checked before any child component decode. -/
+def decodeSourceQualifiedNameV1 : DecoderV1 SourceQualifiedNameV1 := fun c => do
+  let (countU, c) ← decodeU32le c
+  let count := countU.toNat
+  unless 1 ≤ count && count ≤ 256 do
+    return ← fail qnCountError
+  let mut components : Array SourceNameComponentV1 := #[]
+  let mut c := c
+  for _ in [:count] do
+    let (component, c') ← decodeSourceNameComponentV1 c
+    components := components.push component
+    c := c'
+  match sourceQualifiedNameV1OfComponents components with
+  | .ok name => pure (name, c)
+  | .error detail => fail detail
+
+/-- Decode source QID array (2..256); count checked before any child decode. -/
+def decodeSourceQualifiedIdV1 : DecoderV1 SourceQualifiedNameV1 := fun c => do
+  let (countU, c) ← decodeU32le c
+  let count := countU.toNat
+  unless 2 ≤ count && count ≤ 256 do
+    return ← fail qidCountError
+  let mut components : Array SourceNameComponentV1 := #[]
+  let mut c := c
+  for _ in [:count] do
+    let (component, c') ← decodeSourceNameComponentV1 c
+    components := components.push component
+    c := c'
+  match sourceQualifiedNameV1OfComponents components with
+  | .ok name => pure (name, c)
   | .error detail => fail detail
 
 end ProofForgeV2.Source.WireDecodeV1

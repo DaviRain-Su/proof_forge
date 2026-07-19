@@ -5,6 +5,7 @@ import ProofForgeV2.Core.Source
 import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.WireV1
 import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Source.WireCodecV1
 import ProofForgeV2.Source.WireDecodeV1
 import ProofForgeV2.Core.Typed
