@@ -1457,6 +1457,28 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `git diff --check` 与 independent review；纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。
   结果只可记录 development evidence，不能满足冻结包要求的 candidate-bound
   `qualification=formal`，不能关闭 pending `TASK-D1-05` 或开始 D1-06。
+- D1-PA-87 只把已冻结的 `TASK-D1-03`/`TST-SRC-004` declaration surface 收敛为单一 tests-only
+  `Tests.Language.DeclarationAcceptance.run` executable harness；它是对既有 declaration suites 的
+  characterization packaging，不修改 production、既有 suite assertion，也不制造缺文件或删除实现的
+  虚假 RED。wrapper 必须按当前 aggregate runner 的相对顺序各调用一次既有 `run`：
+  `AggregateDeclarations`、`ArrayTypes`、`BytesTypes`、`ConstDeclarations`、
+  `EventErrorDeclarations`、`ExtensionRequirements`、`FieldDeclarations`、`FnDeclarations`、
+  `IntegerWidthDeclarations`、`OptionDeclarations`、`PrincipalDeclarations`、`UnitReturnTypes`、
+  `InvariantDeclarations`、`ProofReferences`、`PrimitiveDeclarations`、`StateVisibility`。
+  `Tests.lean` 必须保留上述 16 个 module import，但把对应 16 个 individual `run` 调用替换为一个
+  `DeclarationAcceptance.run`，使 aggregate binary 内每个 suite 精确执行一次；`lakefile.lean` 保留
+  16 个既有 root 并只增加 `DeclarationAcceptance` root。`FrontendParity` 是跨切片基础设施而不是
+  declaration-kind suite，必须保留其独立 import/root/run，不得被 wrapper 吸收或据此声明
+  `TST-SRC-005` statement/expression coverage。16 个调用在 wrapper 中变为连续执行会改变它们与其他
+  suite 的交错位置；既有 `run` 均为 self-contained IO checks、无跨 suite 共享状态，该变化不得被写成
+  production 或业务语义变化。
+  变更只允许新增 `Tests/Language/DeclarationAcceptance.lean` 并最小修改 `Tests.lean`、`lakefile.lean`；
+  总新增 ≤50 行，不得修改上述 16 个 suite、其他 tests、`ProofForgeV2/` production 或 package file-set。
+  验证只运行 `lake build Tests.Language.DeclarationAcceptance proof_forge_next_tests`、
+  `lake env .lake/build/bin/proof-forge-next-tests`、`just docs-check`、`git diff --check` 与 independent review；
+  纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。结果只可记录 development evidence，不能满足
+  冻结包要求的 candidate-bound `qualification=formal`；`TASK-D1-02` 未 done 时不得关闭 pending
+  `TASK-D1-03`，也不得由本切片关闭 D1-04、D1-05 或开始 D1-06。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
