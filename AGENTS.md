@@ -21,7 +21,7 @@
 | Next development slice | **blocked pending ADR acceptance**：shared DSL/Loader/Lean-command/export atomic cutover属于C3 breaking change，`ADR-0019`仍为proposed；必须先按Architecture+Language/Semantics+Quality五字段书面批准转accepted，再冻结cutover。不得用development evidence或本checkpoint绕过批准，不得建立legacy→ProgramV1 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无 blocked 任务；darwin live 重观察为 P2 债务（owner=quality，截止 D0-07 关闭前，需在 Mac 上执行 `just host-stage0-development`）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
+| Known blocker | 无 blocked 任务；darwin live 重观察已在本机清偿（`EV-20260720-0002`，GOV-PRECUTOVER-001 §2.1 递延 P2 关闭）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

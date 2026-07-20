@@ -6738,3 +6738,27 @@ normative: false
   containment或正式TASK closure。下一步atomic frontend/export cutover为C3 breaking change；必须先把
   `ADR-0019`按Architecture+Language/Semantics+Quality五字段书面批准为accepted，再冻结cutover，不能由
   本development evidence自动推进。D0 formal milestone仍8/9。
+## 2026-07-20 — darwin live 重观察与 `host-bootstrap.lock` 重钉（GOV-PRECUTOVER-001 §2.1 P2 清偿）
+
+- Context：`TASK-D0-07` 冻结包 doneWhen#6 要求 Mac 实机执行
+  `just host-stage0-development`（darwin live 重观察）。本机首跑失败：
+  `PF-HOST-STAGE0: VERIFIER digest mismatch`。排查确认主机零漂移——
+  openssl/env/bash/sleep/rm/codesign/Xcode python3.9/git 九个平台二进制 digest
+  与 macOS 26.4.1/25E253/kernel 25.4.0/arm64 均逐字段等于已提交 profile；漂移仅在
+  两个仓库文件 digest 钉：`toolchain_assets.py`（`1ab751ce` 变更）与
+  `host-profiles.lock.json`（`bdd80b95` linux 重登记变更），darwin lock 未跟进。
+- Changed：`host-bootstrap.lock` 仅重钉 `VERIFIER_SHA256→82cff4ea…` 与
+  `HOST_LOCK_SHA256→5693c81f…`（两值与已提交 linux lock 相同，交叉一致）；
+  LAUNCHER/TOOL_LOCK/PROFILE_ID 未动。xcodebuild 探针（git/llvm-otool/python3）
+  首次缓存写入超出 verifier `ulimit -f 128` 触发 SIGXFSZ，预热后消除。
+- Verification：`just host-stage0-development` 全绿（bootstrap closure verified，
+  attestation 正确报告 `eligibleForHermetic:false`、
+  attestationScope=local-observation-only、remoteAttestation=false）；
+  `/usr/bin/python3 -I -S scripts/host_profiles_self_test.py` ok；
+  `/usr/bin/python3 -I -S scripts/toolchain_assets.py validate` ok；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check` clean。
+- Limitations：development 级证据，未升级任何资格——darwin 仍非 eligible host，
+  formal Stage-0 `--require-eligible` 在本机保持 fail closed；genesis replay
+  仍须 linux eligible host 执行；本变更不关闭 in_progress `TASK-D0-07`。
+- Next：linux eligible host 上 `just genesis-replay` 取全绿报告后落地 D0-07
+  关单变更集（attest + bootstrap EV + 任务表行）。
