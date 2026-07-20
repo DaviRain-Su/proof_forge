@@ -7003,3 +7003,37 @@ normative: false
   doneWhen全部不变，D1-01仍为pending dependency-blocked。
 - Next boundary：构造并自校验完整合法steady-state与D0-10 fixture chains，再提交只因production module
   尚不存在而失败的tests-only RED；禁止placeholder、early-rejection false-green或production test mode。
+
+## 2026-07-20 — D1 complete spine-independent declaration decoder prerequisite slice
+
+- Commits：D1-PA-112 freeze `0ab9c919`；digest boundary clarification `5c293283`；exact matrix
+  clarification `2b589c29`；tests-only RED `e863114f`；GREEN `1615ba95`。正式 TASK 状态未改变。
+- Authority：本切片只实现 accepted ADR-0019 step-3 root decoder prerequisite 中七个
+  spine-independent records：State/Struct/Enum/Event/Error/ExtensionReq/Proof。七个 public API 均消费
+  caller 提供的 `remainingDepth` 与 `DecodeBudgetV1`；不创建 fresh root session，不进入 mutual spine、
+  ProgramItem、Program 或 canonical root。
+- Changed：203-line total production decoder 对七个 singleton family 统一执行
+  tag→unknown→fieldCount→depth→parent node→wire-order fields。Type/support children 使用 parent depth-1，
+  sibling 线程化前一项 node residual；Struct/Enum 在 parent charge 后固定 nonempty 与 count cap，
+  Event/Error 允许 empty；ExtensionReq 复用 Common parse/render 固定 exact SemVer/digest；ProofDecl 固定
+  invariant Ident→theorem QID。无 `partial`、`unsafe`、post-walk、error remap 或 fresh budget helper。
+- Tests：244-line Lean suite与316-line independent Python oracle共同固定14个PA98 checked-in literals的
+  exact value/re-encode/finish/node spend、14个exhaustive field-count negatives及42个unique boundaries。
+  所有优先级槽均为双故障 conflict vector，覆盖七个不同 sibling wrong-family、depth-before-node、
+  node-before-first-field、child propagation、post-charge count、nonempty/empty/source-order/sibling residual、
+  Extension QID/version/digest、Proof Ident/QID与whole-value trailing。
+- Verification：tests-only RED仅因`AstDeclDecodeV1`不存在；GREEN focused build 22 jobs及direct suite全绿；
+  aggregate 378 jobs与test binary全绿；Python normal及`-O`均输出
+  `reference_source_ast_decl_decode_v1: ok 14 14 42`，invalid argv exit 2；62-file package manifest重钉；
+  SBOM self-test/generate/verify/closure与`git diff --check`全绿；`docs_check.py`与204-mutation self-test全绿。
+  默认macOS临时目录在docs治理rehearsal触发`AF_UNIX path too long`；短`TMPDIR=/tmp`消除路径问题后，
+  完整`just docs-check`继续到formal clean-room并按设计以`PF-CLEAN-ROOM-STAGE0`拒绝本机
+  `eligibleForHermetic=false`。未绕过该边界，未运行完整`just ci`。
+- Review/Evidence：RED final review P0/P1=0；GREEN 本地独立审查与 Kimi strict review均为SHIP、P0/P1=0。
+  development evidence为`EV-20260720-0006`。
+- Limitations：本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task；D0-10仍为
+  in_progress且D1尚未正式启动。没有Place/Expr/Stmt/Block、spine-dependent declaration、Program/root decoder、
+  frontend/Loader/CLI/Lean command/export切换、legacy adapter、dual reader或fallback。
+- Next：只读依赖审计选择D1-PA-113 `Place↔Expr` + `ExprMatchArm` + `ExternalCallExpr` 四API/十二tag
+  mutual decoder SCC；kernel-total `/tmp` 探针已编译运行，exact RED matrix仍须独立复审并冻结。其后才进入
+  `Stmt↔Block`，不得由checkpoint自动递增或扩大完成面。
