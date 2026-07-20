@@ -2767,6 +2767,72 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   验证只运行focused+aggregate build/test binary、Python self-check、package refresh后最终单次`just sbom`、
   `just docs-check`、`git diff --check`与independent review；不运行完整`just ci`。结果只记录development
   evidence，不能关闭完整TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-112 是 accepted `ADR-0019` step-3 完整 root decoder prerequisite 的 complete
+  spine-independent declaration-record decoder slice。它只实现 PA98 已冻结的 `StateDeclV1`、
+  `StructDeclV1`、`EnumDeclV1`、`EventDeclV1`、`ErrorDeclV1`、`ExtensionReqV1`、`ProofDeclV1`
+  七个 record decoder；不合并 PA101 spine-dependent declarations、mutual spine、`ProgramItemV1`、
+  `ProgramV1` 或 canonical root decoder。production public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstDeclDecodeV1
+  decodeStateDeclV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstDeclV1.StateDeclV1 × DecodeBudgetV1)
+  decodeStructDeclV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstDeclV1.StructDeclV1 × DecodeBudgetV1)
+  decodeEnumDeclV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstDeclV1.EnumDeclV1 × DecodeBudgetV1)
+  decodeEventDeclV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstDeclV1.EventDeclV1 × DecodeBudgetV1)
+  decodeErrorDeclV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstDeclV1.ErrorDeclV1 × DecodeBudgetV1)
+  decodeExtensionReqV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstDeclV1.ExtensionReqV1 × DecodeBudgetV1)
+  decodeProofDeclV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstDeclV1.ProofDeclV1 × DecodeBudgetV1)
+  ```
+
+  七个 records 均为 node-bearing。每次调用必须按 bounded tag read → singleton closed dispatch →
+  exact fieldCount → depth → node → ordered fields 执行；unknown exact family 分别为 `state-decl`、
+  `struct-decl`、`enum-decl`、`event-decl`、`error-decl`、`extension-req`、`proof-decl`，不得用一个
+  multi-tag head 接受其他 declaration sibling。fieldCounts 精确为 3/2/2/2/2/3/2；depth/node exact
+  errors继续为`depth budget exhausted`/`node budget exhausted`，同时为0时depth优先，所有 primitive、
+  Type 与 PA111 child error 均不得 remap。进入 record 恰好消费一个 session-wide node；Type、FieldDecl、
+  EnumVariant、Param child 使用 `remainingDepth - 1`，同一 array 的 siblings 共享 child depth并线程化
+  前一 sibling 的 node residual。实现必须 kernel-total，不得 `partial`、`unsafe`、post-walk 或 fresh
+  root budget。
+
+  `StructDecl.fields` 与 `EnumDecl.variants` 必须 nonempty；读完 name 与 u32 count 后，zero count 分别
+  exact 返回 `struct fields must be nonempty`/`enum variants must be nonempty`。Struct/Enum/Event/Error 的
+  count 均必须在 allocation 或 child decode 前不大于 parent charge 后的 node residual，否则 exact 返回
+  `array count exceeds caller limit`；不得使用调用前 budget 或 bytes remaining。Event/Error empty params
+  仍为合法值。State 按 Visibility→Ident→Type，四类 array declaration 按 Ident→count→source-order children。
+  ExtensionReq 严格按 QID→String version→canonical SemVer parse/render equality→String digest→canonical
+  Digest parse/render equality，两个 local error exact 复用 PA98 的
+  `extension version must use canonical exact SemVer` 与
+  `extension digest must use canonical sha256 spelling`；ProofDecl 按 invariant Ident→theorem QID。
+
+  Lean suite与不import Lean/ProofForge或既有reference脚本的standalone Python oracle必须共同固定：
+  PA98 的14个checked-in declaration wire literals逐一decode为exact value、重新encode为同一bytes、`finish`
+  并核对exact node spend；14个exhaustive field-count negatives（七个tags各使用expected-1/expected+1，
+  且以zero budgets证明fieldCount优先）；41个固定boundaries覆盖七个wrong-family/no-fieldCount/zero-budget、
+  depth-before-node、七个node-before-hostile-first-field、State三字段顺序与Type error透传、Struct/Enum的
+  name-first/nonempty/post-charge-count/child-error/sibling-residual、Event/Error的name-first/post-charge-count/
+  Param-error/sibling-residual、Extension的QID-before-version/digest与version-before-digest、Proof的
+  invariant-before-QID/QID error以及whole-value trailing rejection。所有A-before-B均使用A、B同时失败的
+  conflict vector；source-order/residual positive不得复用同一assertion冒充多个inventory slot。
+  Python成功输出`reference_source_ast_decl_decode_v1: ok 14 14 41`。
+
+  变更文件集：新增`ProofForgeV2/Source/AstDeclDecodeV1.lean`、
+  `Tests/Language/SourceAstDeclDecodeV1.lean`、`scripts/reference_source_ast_decl_decode_v1.py`；只做
+  `ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean` registration与机械manifest refresh，不修改 declaration/
+  support/type/scalar model或encoder、PA111 decoder、WireDecode、spine/Program modules。budgets：production
+  additions≤220、suite≤400、Python≤320、registrations≤5、总authored additions≤800（manifest不计）。明确
+  排除spine-dependent declaration/Place/Expr/Stmt/Block/ProgramItem/Program/root decoder、fresh root budget
+  API、frontend/Loader/CLI/Lean command、ProgramExport v2/ProgramPayload、legacy删除、16MiB/完整100000-node
+  session完成声明、sourceHash、NodeId、stable Diagnostic、Typed/Semantic与target。验证只运行focused+
+  aggregate build/test binary、Python normal及`-O` self-check、package refresh后最终单次`just sbom`、
+  `just docs-check`、`git diff --check`与independent review；不运行完整`just ci`。结果只记录development
+  evidence，不能关闭完整TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
