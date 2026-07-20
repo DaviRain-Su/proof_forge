@@ -87,9 +87,9 @@ def run : IO Unit := do
   decErr "unknown" "unknown pattern tag 'Literal.Bool'" 0 0 (stripFc (hex "0c0000004c69746572616c2e426f6f6c0100"))
   decErr "fc-budget" "tag 'Pattern.Wildcard' must declare 0 fields" 0 0 (setFc (hex wild) 1)
   decErr "depth" "depth budget exhausted" 0 0 (hex wild)
-  decErr "node" "node budget exhausted" 1 0 (hex bindX)
-  decErr "bind-empty" "source name component must contain 1..240 UTF-8 bytes" 1 1
-    (hex "0c0000005061747465726e2e42696e64010000000000")
+  let emptyBind := hex "0c0000005061747465726e2e42696e64010000000000"
+  decErr "node" "node budget exhausted" 1 0 emptyBind
+  decErr "bind-empty" "source name component must contain 1..240 UTF-8 bytes" 1 1 emptyBind
   decErr "lit-marker" "invalid bool marker" 1 1
     (hex "0f0000005061747465726e2e4c69746572616c01000c0000004c69746572616c2e426f6f6c010002")
   decErr "qid-first" "source qualified id must contain 2..256 components" 1 1 (ctorPrefix.extract 0 (ctorPrefix.size-12) ++ u32 1)

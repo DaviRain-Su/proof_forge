@@ -14,18 +14,18 @@ def ls(v): return tag("Literal.String", [ident(v)])
 def l(v): return tag("Pattern.Literal", [v])
 def c(q, xs): return tag("Pattern.Constructor", [qid(q), u32(len(xs))+b"".join(xs)])
 G = [
-("100000005061747465726e2e57696c64636172640000", ("W",)),
-("0c0000005061747465726e2e42696e6401000100000078", ("B","x")),
-("0c0000005061747465726e2e42696e64010007000000666f6f2d626172", ("B","foo-bar")),
-("0f0000005061747465726e2e4c69746572616c01000c0000004c69746572616c2e426f6f6c010000", ("L",("Bool",False))),
-("0f0000005061747465726e2e4c69746572616c01000c0000004c69746572616c2e426f6f6c010001", ("L",("Bool",True))),
-("0f0000005061747465726e2e4c69746572616c01000f0000004c69746572616c2e496e74656765720100"+"00"*8+"01"+"00"*23, ("L",("Int",1<<64))),
-("0f0000005061747465726e2e4c69746572616c01000e0000004c69746572616c2e537472696e67010005000000636166c3a9", ("L",("Str","café"))),
-("130000005061747465726e2e436f6e7374727563746f72020002000000060000004f7074696f6e040000006e6f6e6500000000", ("C",("Option","none"),())),
-("130000005061747465726e2e436f6e7374727563746f72020002000000060000004f7074696f6e04000000736f6d6501000000100000005061747465726e2e57696c64636172640000", ("C",("Option","some"),(('W',),))),
-("130000005061747465726e2e436f6e7374727563746f720200020000000400000044656d6f0400000050616972020000000c0000005061747465726e2e42696e64010001000000780f0000005061747465726e2e4c69746572616c01000c0000004c69746572616c2e426f6f6c010001", ("C",("Demo","Pair"),(('B','x'),('L',('Bool',True))))),
-("130000005061747465726e2e436f6e7374727563746f720200020000000400000044656d6f0400000050616972020000000f0000005061747465726e2e4c69746572616c01000c0000004c69746572616c2e426f6f6c0100010c0000005061747465726e2e42696e6401000100000078", ("C",("Demo","Pair"),(('L',('Bool',True)),('B','x')))),
-("130000005061747465726e2e436f6e7374727563746f720200020000000100000041010000004202000000130000005061747465726e2e436f6e7374727563746f720200020000000100000043010000004401000000100000005061747465726e2e57696c646361726400000c0000005061747465726e2e42696e6401000100000079", ("C",("A","B"),(('C',('C','D'),(('W',),)),('B','y')))),]
+("100000005061747465726e2e57696c64636172640000", ("W",), 1),
+("0c0000005061747465726e2e42696e6401000100000078", ("B","x"), 1),
+("0c0000005061747465726e2e42696e64010007000000666f6f2d626172", ("B","foo-bar"), 1),
+("0f0000005061747465726e2e4c69746572616c01000c0000004c69746572616c2e426f6f6c010000", ("L",("Bool",False)), 1),
+("0f0000005061747465726e2e4c69746572616c01000c0000004c69746572616c2e426f6f6c010001", ("L",("Bool",True)), 1),
+("0f0000005061747465726e2e4c69746572616c01000f0000004c69746572616c2e496e74656765720100"+"00"*8+"01"+"00"*23, ("L",("Int",1<<64)), 1),
+("0f0000005061747465726e2e4c69746572616c01000e0000004c69746572616c2e537472696e67010005000000636166c3a9", ("L",("Str","café")), 1),
+("130000005061747465726e2e436f6e7374727563746f72020002000000060000004f7074696f6e040000006e6f6e6500000000", ("C",("Option","none"),()), 1),
+("130000005061747465726e2e436f6e7374727563746f72020002000000060000004f7074696f6e04000000736f6d6501000000100000005061747465726e2e57696c64636172640000", ("C",("Option","some"),(('W',),)), 2),
+("130000005061747465726e2e436f6e7374727563746f720200020000000400000044656d6f0400000050616972020000000c0000005061747465726e2e42696e64010001000000780f0000005061747465726e2e4c69746572616c01000c0000004c69746572616c2e426f6f6c010001", ("C",("Demo","Pair"),(('B','x'),('L',('Bool',True)))), 3),
+("130000005061747465726e2e436f6e7374727563746f720200020000000400000044656d6f0400000050616972020000000f0000005061747465726e2e4c69746572616c01000c0000004c69746572616c2e426f6f6c0100010c0000005061747465726e2e42696e6401000100000078", ("C",("Demo","Pair"),(('L',('Bool',True)),('B','x'))), 3),
+("130000005061747465726e2e436f6e7374727563746f720200020000000100000041010000004202000000130000005061747465726e2e436f6e7374727563746f720200020000000100000043010000004401000000100000005061747465726e2e57696c646361726400000c0000005061747465726e2e42696e6401000100000079", ("C",("A","B"),(('C',('C','D'),(('W',),)),('B','y'))), 4),]
 def take(raw,o,n):
     if len(raw)-o<n: raise ValueError("truncated")
     return raw[o:o+n],o+n
@@ -41,6 +41,18 @@ def dec_tag(raw,o):
 def dec_ident(raw,o):
     n,o=num(raw,o,4)
     if not 1<=n<=240: raise ValueError("source name component must contain 1..240 UTF-8 bytes")
+    if len(raw)-o<n: raise ValueError("string length exceeds remaining")
+    d,o=take(raw,o,n)
+    try:s=d.decode()
+    except UnicodeDecodeError: raise ValueError("invalid UTF-8")
+    if unicodedata.normalize("NFC",s)!=s: raise ValueError("string must already be NFC under Unicode 17.0.0")
+    for ch in s:
+        category = unicodedata.category(ch)
+        if category == "Cc": raise ValueError("source name component must not contain a Cc code point")
+        if ch == "»": raise ValueError("source name component must not contain closing guillemet")
+    return s,o
+def dec_string(raw,o):
+    n,o=num(raw,o,4)
     if len(raw)-o<n: raise ValueError("string length exceeds remaining")
     d,o=take(raw,o,n)
     try:s=d.decode()
@@ -64,7 +76,7 @@ def literal(raw,o):
         if n not in (0,1): raise ValueError("invalid bool marker")
         return ("Bool",bool(n)),o
     if t=="Literal.Integer": n,o=num(raw,o,32); return ("Int",n),o
-    s,o=dec_ident(raw,o); return ("Str",s),o
+    s,o=dec_string(raw,o); return ("Str",s),o
 def dec(depth,nodes,raw,o=0):
     t,o=dec_tag(raw,o)
     if t not in FC: raise ValueError(f"unknown pattern tag '{t}'")
@@ -94,16 +106,18 @@ def err(want,fn):
         return
     raise SystemExit(f"want {want!r}: unexpectedly ok")
 def self_check():
-    for hs,want in G:
+    for hs,want,spent in G:
         raw=bytes.fromhex(hs); got,res,o=dec(256,300,raw)
-        if got!=want or enc(got)!=raw or o!=len(raw): raise SystemExit("positive mismatch")
+        if got!=want or enc(got)!=raw or o!=len(raw) or res!=300-spent:
+            raise SystemExit("positive mismatch")
     nf=0
     for i,t,e,bads in [(0,"Pattern.Wildcard",0,[1]),(1,"Pattern.Bind",1,[0,2]),(3,"Pattern.Literal",1,[0,2]),(7,"Pattern.Constructor",2,[1,3])]:
         raw=bytes.fromhex(G[i][0]); off=4+raw[0]
         for bad in bads: err(f"tag '{t}' must declare {e} fields",lambda r=raw[:off]+u16(bad)+raw[off+2:]:dec(0,0,r)); nf+=1
     nb=0; W=bytes.fromhex(G[0][0]); CW=bytes.fromhex(G[8][0]); CE=bytes.fromhex(G[7][0])
+    empty_bind=bytes.fromhex("0c0000005061747465726e2e42696e64010000000000")
     cases=[("unknown pattern tag 'Literal.Bool'",lambda:dec(0,0,bytes.fromhex("0c0000004c69746572616c2e426f6f6c"))),
-      ("depth budget exhausted",lambda:dec(0,0,W)),("node budget exhausted",lambda:dec(1,0,W)),
+      ("depth budget exhausted",lambda:dec(0,0,W)),("node budget exhausted",lambda:dec(1,0,empty_bind)),
       ("truncated",lambda:dec(2,2,W[:-2])),("invalid bool marker",lambda:dec(1,1,bytes.fromhex(G[3][0])[:-1]+b'\x02')),
       ("depth budget exhausted",lambda:dec(1,2,CW)),("array count exceeds caller limit",lambda:dec(2,1,CW)),
       ("array count exceeds caller limit",lambda:dec(2,1,CE[:-4]+u32(1))),
@@ -121,11 +135,16 @@ def self_check():
     err("array count exceeds caller limit",lambda:dec(256,255,deep)); nb+=1
     # Additional exact priority/truncation/count boundaries.
     for want,fn in [("tag 'Pattern.Wildcard' must declare 0 fields",lambda:dec(0,0,W[:-2]+u16(1))),
-      ("source name component must contain 1..240 UTF-8 bytes",lambda:dec(1,1,bytes.fromhex(G[1][0])[:-5]+u32(0))),
+      ("source name component must contain 1..240 UTF-8 bytes",lambda:dec(1,1,empty_bind)),
       ("array count exceeds caller limit",lambda:dec(2,2,prefix+u32(3))),
       ("truncated",lambda:dec(2,2,W[:6]))]: err(want,fn); nb+=1
-    if (len(G),nf,nb)!=(12,7,21): raise SystemExit(f"inventory drift {len(G)} {nf} {nb}")
-    print("reference_source_ast_pattern_decode_v1: ok 12 7 21")
+    empty_string=l(tag("Literal.String",[u32(0)]))
+    got,res,o=dec(1,1,empty_string); assert got==("L",("Str","")) and res==0 and o==len(empty_string); nb+=1
+    for bad,want in (("a\x00","source name component must not contain a Cc code point"),
+                     ("»","source name component must not contain closing guillemet")):
+        err(want,lambda bad=bad:dec(1,1,b(bad))); nb+=1
+    if (len(G),nf,nb)!=(12,7,24): raise SystemExit(f"inventory drift {len(G)} {nf} {nb}")
+    print("reference_source_ast_pattern_decode_v1: ok 12 7 24")
 if __name__=="__main__":
     if "--self-check" in sys.argv:self_check()
     else: print("usage: reference_source_ast_pattern_decode_v1.py --self-check")
