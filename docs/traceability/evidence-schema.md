@@ -417,6 +417,12 @@ candidate-bound formal EV partition、command policy、eligible handoff/containm
 scan/revocation、discriminated authenticated dependency refs、review/signature 与 constrained closeout
 join 仅由 `SPEC-TASKQUAL-001` 定义。它不新增 evidence qualification/ledger grade，不修改
 `RequiredTestSetV1` 或 full formal finalization，且不能替代 D8-04/TST-ISO-003 release aggregate。
+其四个content verifier只接受exact `TaskQualificationContentBundleV1` bytes与subject bytes，并只陈述
+caller-supplied instant处的content验证；production authority须由SPEC-TASKQUAL-001 §8 policy-pinned
+protected adapter另证current policy/time/store/Git/FD/session provenance。fixture projection固定
+`fixture-non-authoritative`，不得投影为本Ledger的任何grade；pure production结果也只为
+`production-content-verified`，只有signed `ProtectedTaskQualificationAcceptanceV1`可成为
+`production-candidate-bound` docs acceptance。
 
 D0-04 的唯一 owned test `TST-BOOTSTRAP-001` 必须在没有既有 aggregate activation 的输入空间内
 运行；其 evidence、TaskApproval 与 task receipt 不得引用或查询本次即将生成的 activation。D0-04

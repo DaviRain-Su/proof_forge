@@ -6950,3 +6950,17 @@ normative: false
 - Triage：按 GOV-TASK-FREEZE-001 R2，`TASK-D0-10 in_progress→blocked`；冻结 Output/Test/Dependencies/
   Prerequisites 与 doneWhen 不变。先以 accepted amendment 明确 pure verifier/protected adapter 分层、fixture
   namespace 与 exact carrier/projection/error contracts，再恢复同一 task 并提交真实 tests-only RED。
+
+## 2026-07-20 — TASK-D0-10 R2 pure-verifier specification repair（仅文档）
+
+- Changed：SPEC-TASKQUAL-001四个public API统一为exact `(contentBundleBytes, subjectBytes)` pure
+  consumer；冻结closed role-keyed bundle、production/fixture profile、immutable projections、Rejected stages、
+  candidate/archive/Git/review/time semantics，并把current policy、trusted clock、safe-open source、
+  authority-store及live FD/session provenance留给policy-pinned protected adapter。
+- Scope：同步ADR-0020、bootstrap ruling、TST-DOC-001 subprofile与evidence-schema说明；未修改Python、tests、
+  D8 aggregate、ADR-0019或TASK-D0-10冻结Output/Test/Dependencies/Prerequisites/doneWhen。
+- Review：多轮 bounded review 发现并修复 inline-hex size、raw-vs-typed role authority、operation
+  cardinality、fixture policy、actual control parser/time、archive/Git ancestry、pure/protected authority 与
+  external production-profile pin；最终结论 `SAFE TO COMMIT AMENDMENT`、P0/P1=0。
+- State：TASK-D0-10仍保持blocked，待本amendment独立提交后另行恢复；不声称RED、GREEN、EV、approval、
+  receipt或closeout。

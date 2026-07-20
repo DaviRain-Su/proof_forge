@@ -42,5 +42,11 @@ freshness/private scan/revocation、已认证依赖、独立 review 和 Architec
 角色签名不证明 reviewer 独立性；在 `GOV-MAINTAINERS-001` 单点映射下，bootstrap closeout 前
 仍必须取得并记录独立复审。
 
+R2 澄清采用既有 D0-07 pure-consumer/protected-consumer 边界：四个 public verifier 只消费 closed
+content bundle与subject bytes并产生非provenance的immutable projection；policy-pinned protected adapter
+独立取得current policy、trusted time、FD/session/store/Git provenance，调用同一pure verifier后再证明
+provenance。fixture namespace静态不相交且永不authoritative。该澄清不增加第二套evidence framework，
+也不改变D8 aggregate、task冻结轴或关闭语义。
+
 本 accepted 决定的批准来源是当前 Amp thread；`reviewCommit` 使用批准时仓库 HEAD，表示
 maintainer 授权本 authority amendment，并非虚构未来 merge commit。

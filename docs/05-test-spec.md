@@ -512,6 +512,12 @@ formal release denominator 仍只含一个 `TST-DOC-001`。gate/EV 的 subject �
 task-test partition、依赖、review/signature、Stage-0/containment/freshness/scan/revocation 连接；不得
 把 subset 当 RequiredTestSet denominator，也不得关闭 `TST-ISO-003`。
 
+该subprofile正例必须调用SPEC-TASKQUAL-001 §8两参数pure API，以closed role-keyed bundle覆盖四种
+operation。steady-state使用synthetic D1 fixture；D0-10 fixture只覆盖one-time approval/receipt与fixture
+D0-07 completion。fixture必须与production tuple静态不相交且永不被docs-check接受；production acceptance
+另经policy-pinned protected adapter验证trusted time、safe-open archive/Git ancestry、authority store及live
+FD/session provenance。pure成功本身不是task evidence或closeout。
+
 Evidence Ledger 的 canonical columns 固定为
 `ID | Task | Tests | Grade | Gate / command | Result | Scope and limitation`。`Grade` 只能是
 `development`、`bootstrap` 或 `formal`。绑定任务的 EV 必须给出一个精确 `TASK-*` 与该任务拥有的非空

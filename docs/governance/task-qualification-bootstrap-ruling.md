@@ -35,6 +35,12 @@ protected docs consumer 与后续任务可认证引用的 completion bridge。�
 
 违反 separation、出现 P0/P1、资格输入撤销/过期或 protected consumer 无法重算时必须 fail closed。
 
+R2 specification repair将content verification与production provenance分层：fixture只能验证pure contract；
+production docs acceptance只能来自本裁决/policy钉住的protected adapter及
+`production-candidate-bound` projection。D0-10 fixture只测一次性approval/receipt并消费fixture D0-07
+GovernanceBootstrapCompletion；它不能签发本裁决的真实bridge或关闭任务。冻结包及blocked状态不变，
+amendment经独立复审前不得恢复RED。
+
 ## 一次性对象与 checker authority
 
 本裁决采用 `SPEC-TASKQUAL-001` §7 的 exact `GovernanceBootstrapCompletionV1`、
