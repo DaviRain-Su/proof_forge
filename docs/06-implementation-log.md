@@ -7037,3 +7037,35 @@ normative: false
 - Next：只读依赖审计选择D1-PA-113 `Place↔Expr` + `ExprMatchArm` + `ExternalCallExpr` 四API/十二tag
   mutual decoder SCC；kernel-total `/tmp` 探针已编译运行，exact RED matrix仍须独立复审并冻结。其后才进入
   `Stmt↔Block`，不得由checkpoint自动递增或扩大完成面。
+
+## 2026-07-20 — D1 Place/Expr mutual decoder prerequisite slice
+
+- Commits：D1-PA-113 freeze `7ff97965`；task pointer `44498d9e`；tests-only RED `ff016d99`；
+  GREEN `7e0c2d3b`。正式 TASK 状态未改变。
+- Authority：本切片只实现 accepted ADR-0019 step-3 root decoder prerequisite 中完整
+  `PlaceV1↔ExprV1` mutual SCC，并包含 `Expr.Match` 必需的 `ExprMatchArmV1` 与后续
+  Stmt.Call/Schedule 直接依赖的 `ExternalCallExprV1`。四个 public API 消费 caller 提供的 depth 与
+  `DecodeBudgetV1`；不创建 fresh root session，不进入 Stmt/Block、declarations、ProgramItem、Program 或 root。
+- Changed：205-line kernel-total mutual decoder 闭合十二个 tag；所有入口固定
+  tag→closed-family unknown→fieldCount→depth→parent node→wire-order fields。Place/Expr/Pattern/arm child
+  使用 parent depth-1，siblings 线程化 node residual；Constructor/LocalCall/ExternalCall/Match 四个 array loop
+  均 inline，并在 parent charge（Match 还在完整 scrutinee）之后做 count cap。Match count=0 固定
+  `expr match arms must be nonempty`。无 `partial`、`unsafe`、post-walk、fresh budget 或 error remap。
+- Tests：215-line Lean suite与349-line standalone Python oracle共同固定15个PA100 checked-in literals的
+  exact value/re-encode/finish/node spend、十二tags的24个exhaustive field-count negatives，以及41个具体且
+  non-vacuous boundaries。覆盖四类closed head、fieldCount/depth/node优先级、十三个双故障field-order、
+  post-charge cap、Match nonempty、四条实际array loop、sibling residual、Unary 255/256 depth/node边界、
+  scalar child error与whole-value trailing；Python normal/`-O`均使用独立tuple模型和独立re-encoder。
+- Verification：RED focused build只因`AstSpineDecodeV1`缺失；GREEN focused build 22 jobs、direct Lean suite
+  `pa113_lean: ok`、aggregate 382 jobs及test binary全绿；Python normal/`-O`均输出
+  `reference_source_ast_spine_place_expr_decode_v1: ok 15 24 41`，invalid argv exit 2；63-file package
+  manifest重钉；SBOM self-test/generate/verify/closure与`git diff --check`全绿。总authored additions
+  773/1100（mechanical manifest不计）。未运行完整`just ci`。
+- Review/Evidence：RED在修复hex loop、test maxRecDepth、Python exact re-encode与resource value断言后，
+  独立复审P0/P1=0；GREEN经Kimi与本地独立审查均为SHIP、P0/P1=0。development evidence为
+  `EV-20260720-0007`。
+- Limitations：本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task；D0-10仍为
+  in_progress且D1尚未正式启动。没有Stmt/Block/StmtMatchArm、spine-dependent declaration、Program/root
+  decoder、frontend/Loader/CLI/Lean command/export切换、legacy adapter、dual reader或fallback。
+- Next：只读审计并冻结D1-PA-114 `StmtV1↔BlockV1↔StmtMatchArmV1` decoder SCC；不得由checkpoint
+  自动递增完成条件。完整root decoder前继续禁止shared DSL/export cutover。
