@@ -7103,3 +7103,32 @@ normative: false
   frontend/Loader/CLI/Lean command/export切换、legacy adapter、dual reader或fallback。
 - Next：只读审计spine-dependent declaration decoder residual并只选择一个最小切片；审计完成前不冻结
   新slice，也不得由checkpoint自动递增或提前切换shared DSL/export v2。
+## 2026-07-20 — TASK-D0-10 honest-fixture join audit R2 triage
+
+- Finding：exact-wire修订后的完整builder草案虽能自报preflight，人工复核发现其使用`None` control ref、
+  arbitrary row/file-set digest、空required review、未闭合scan/EV join及仅四条浅mutation；草案全部删除且
+  未提交，禁止把自断言冒充production-schema legality。
+- Audit：对照SPEC-TASKQUAL-001与四个pinned production parser进一步确认七项normative join仍未定义：
+  resulting done-row digest；raw EV command/tool/environment；private-scan exact member coverage；fixture
+  Markdown projection；legacy control candidate→taskqual candidate normalization；D0-07 ruling resolution；
+  top-level verifier/protected-consumer closure binding。
+- Triage：按GOV-TASK-FREEZE-001 R2，`TASK-D0-10 in_progress→blocked`；冻结Output/Test/Dependencies/
+  Prerequisites/doneWhen不变。只修复既有verifier contract并独立复审；不创建RED/Python/EV，不扩大
+  production authority、D8 aggregate、ADR-0019、DSL或D1范围。
+
+## 2026-07-20 — TASK-D0-10 honest-fixture seven-join amendment draft repair（仅文档）
+
+- Drafted/repaired：SPEC-TASKQUAL-001草案闭合done-row/evidence union、raw EV command/tool/environment/probe、
+  taskqual-owned private scan、profile-discriminated Markdown/ruling、legacy candidate normalization、fixture-only
+  D0-07 bridge以及D0-10 top-level verifier/protected-consumer joins；production保持original ContentRef identity，
+  由signed profile artifact mapping与protected safe-open/hash验证，fixture使用role-derived virtual token wrapper。
+- Boundary：只修复honest fixture audit已记录的七个verification join；TASK-D0-10保持blocked，freeze package、
+  Output/Tests/Dependencies/Prerequisites/doneWhen、raw EV wire、ADR-0019及production rejection边界均未改变；
+  未修改Python、tests、EV、task row或approval/receipt，也不声称RED/GREEN/closeout。review findings已按
+  distinct versioned taskqualification protected authority、
+  invocation-discriminated production profile/pin、external receipt→optional P、acyclic GBC source closure、
+  exact bootstrap Ledger projection、taskqualification-owned snapshot parser与机械role集合修订。
+- Review：多轮bounded独立复审继续发现并修复production profile cardinality、activated Stage-0/store
+  incompatibility、RPC signature closure、profile ID bound、authority equality/time chain与raw provenance ref
+  不可构造问题；最终结论`SAFE TO COMMIT`、P0/P1=0。该结论只覆盖本docs-only contract amendment，不覆盖
+  后续tests-only RED、production implementation或closeout ceremony。
