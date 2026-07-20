@@ -31,7 +31,15 @@ export，不构成source-authority cutover、正式TASK关闭或release API承�
    export reconstruction 与 wire decoder最终都只产生 validated ProgramV1 source unit。
 2. canonical source unit 精确携带 `moduleName`、`programIdentity` 与 `program : ProgramV1`。
    module identity 是 host boundary 的显式语义输入；诊断文件名、绝对路径与项目相对路径不得推导、
-   覆盖或进入 canonical identity。各 host 的具体取得方式必须在对应 parser/CLI cutover slice 冻结。
+   覆盖或进入 canonical identity。直接 Lean command 路径只接受 outer build invocation 已显式设置的
+   main-module `Lean.Name`，按 root-to-leaf 顺序投影 pure `.str` raw components；anonymous、`.num`、
+   缺失 main module 或任一不满足 `SourceNameComponentV1` 的 component 均在 quote/register 前 fail
+   closed。ParserSession/one-shot Loader/CLI 不从 `fileName` 或 source path 猜 module：`check`/`build`
+   必须接收独立 `--module <lean-module-name>`，value 由锁定 Lean identifier parser exact-consume 后投影
+   同一 pure `.str` raw array；CLI path 仍只用于读取与 diagnostics。`programIdentity` 唯一等于
+   `moduleName.components ++ activeNamespace.components ++ declarationName.components`；duplicate、
+   `--program` selection 与双入口 parity 均比较 raw arrays，CLI 的 qualified selector同样由锁定 Lean
+   identifier parser解析，禁止 dotted-string split/render comparison。
 3. declaration/source-shape validation、canonical bytes 与 `sourceHashV1` 只属于 ProgramV1 路径。
    alpha `Source.Program.canonicalBytes/sourceHash` 立即进入冻结退役状态，不得承载新语法或身份规则。
 4. Typed 尚未直接消费 ProgramV1 时，只允许一个 compiler-private、单向
@@ -42,8 +50,16 @@ export，不构成source-authority cutover、正式TASK关闭或release API承�
    reader cutover 时删除；不得 split string、虚构 namespace 或丢弃 args。外部 alpha source 如需迁移，
    独立offline source-text rewrite tool必须由调用者显式给出old string到QualifiedId的mapping；它不得被
    compiler import或作为fallback。歧义以`PF-MIGRATION-FAILED`拒绝且不修改原文件。
-6. persistent export payload meaning切换到 ProgramV1 时必须发布新 export schema，或在正式冻结前记录
-   经评审的 alpha-reset schema裁决；不得让同一 schema string 同时解释 legacy Program 与 ProgramV1。
+6. persistent export 在 cutover 后唯一 schema 为 `proof-forge.program-export.v2`；v1 row、v1 attributed
+   constant type与v1 reader一律拒绝，不提供dual-read、自动升级或fallback。v2 attributed declaration
+   携带封闭 `ProgramExportPayloadV2`（exact schema string + canonical ProgramV1 root bytes），persistent
+   extension row只登记v2 schema与declaration lookup handle。reconstruction先bounded、穷举解码该常量的
+   scalar/ByteArray表达式，再且只调用
+   `decodeCanonicalSourceAstBytesV1 : ByteArray → Except Diagnostic ValidatedSourceV1`；不得在export层
+   重建ProgramV1 constructor、validator、identity或hash。registry declaration只是Lean lookup handle；
+   decoded unit必须满足`programIdentity = moduleName ++ rawComponents(declaration)`，其中declaration是
+   Lean environment中的namespace+decl lookup name且本身不隐含main-module prefix；不得沿用legacy
+   rendered full-string equality。
 7. production/compiler路径不建立legacy AST→ProgramV1 adapter，不做两套validator/hash parity，不保留
    双向round-trip。第5条offline tool只改写source text，不接收或产生legacy内存AST。
 
@@ -51,14 +67,14 @@ export，不构成source-authority cutover、正式TASK关闭或release API承�
 
 1. 建立 validated ProgramV1 source unit 与唯一 `sourceHashV1`。
 2. 建立 private one-way Typed lowering及其 import allowlist。
-3. 原子切换shared DSL decoder、Loader/Compiler/CLI与Lean command；Lean command carrier type和persistent
+3. 完整实现并验收 `decodeCanonicalSourceAstBytesV1`；它是v2 export reconstruction与原子cutover的硬
+   prerequisite，不允许以legacy或另一套quoted ProgramV1 decoder代替。
+4. 原子切换shared DSL decoder、Loader/Compiler/CLI与Lean command；Lean command carrier type和persistent
    export schema/reconstruction在同一cutover gate切换，不允许ProgramV1 decoder继续发布legacy export。
-4. 完整ProgramV1 binary root decoder落地后，可让persistent export reconstruction复用该decoder；不得
-   恢复legacy payload作为中间格式。
 5. Typed 直接消费 ProgramV1 后删除 lowering、`Core.Source.Program`、alpha canonical/hash 与 legacy payload。
 
-不要求等待完整 ProgramV1 binary decoder才开始前四项；但最终 persistent export 可等待完整 root decoder，
-以避免新增另一套大型 quoted-expression decoder。等待不得成为继续扩展 legacy AST 的理由。
+等待完整 root decoder 不得成为继续扩展 legacy AST 的理由；decoder完成前可以做独立、可撤销的
+ProgramV1 pre-acceptance slice，但不得切换任一production frontend/export入口。
 
 ## 机械删除门槛
 
@@ -66,6 +82,10 @@ export，不构成source-authority cutover、正式TASK关闭或release API承�
 - `Compiler.compile` 只接受 validated ProgramV1 source unit，sourceHash只来自 `sourceHashV1`；
 - canonical declaration order唯一来自 `ProgramV1.items`，cross-kind reorder改变 bytes/hash；
 - Lean command、ParserSession 与 export reconstruction 的 module/program identity、ProgramV1、bytes/hash相等；
+- CLI `--module`、Lean main-module identity与v2 export declaration suffix join均按raw component array验证，
+  file/source path与rendered dotted string不参与identity；
+- production只接受`proof-forge.program-export.v2`与`ProgramExportPayloadV2` canonical root bytes，且只经
+  `decodeCanonicalSourceAstBytesV1`重建；v1 schema/type/reader与独立quoted ProgramV1 decoder均不存在；
 - production 不存在 legacy→ProgramV1、第二套 validator/hash或 old string-call reader；
 - PA109 后、frontend cutover 前，production direct `Core.Source` import只允许root umbrella、
   `CLI/Toolchain`、`Compiler/Pipeline`、`Core/Typed`、`Language/ProgramExport`、`ProgramPayload`与
