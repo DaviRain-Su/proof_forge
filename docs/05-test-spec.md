@@ -3047,6 +3047,124 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Typed/Semantic/target。RED必须只因production module缺失；GREEN只运行focused+aggregate build/test binary、
   Python normal/`-O`/invalid argv、package refresh后最终单次`just sbom`、docs/diff与independent review，
   不运行完整`just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-115 是 accepted `ADR-0019` step-3 完整 root decoder prerequisite 的 complete
+  spine-dependent declaration-record decoder slice。它精确闭合 PA101 的六个 `AstSpineDeclV1` record；
+  PA107 Type、PA111 Param、PA113 Expr 与 PA114 Block decoder 是只读 child dependencies。
+  `ProgramItemV1`、`ProgramV1`、canonical root 与 frontend 仍排除。production public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSpineDeclDecodeV1
+  decodeConstDeclV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineDeclV1.ConstDeclV1 × DecodeBudgetV1)
+  decodeInvariantDeclV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineDeclV1.InvariantDeclV1 × DecodeBudgetV1)
+  decodeInitDeclV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineDeclV1.InitDeclV1 × DecodeBudgetV1)
+  decodeEntryDeclV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineDeclV1.EntryDeclV1 × DecodeBudgetV1)
+  decodeViewDeclV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineDeclV1.ViewDeclV1 × DecodeBudgetV1)
+  decodeFnDeclV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineDeclV1.FnDeclV1 × DecodeBudgetV1)
+  ```
+
+  六个 defs 彼此非 mutual，因为所有 child decoder 都已在该 family 外闭合；每个 def 仍必须以 Nat
+  `d` 做 total pattern match，固定 tag→closed-family unknown→exact fieldCount→depth→parent node→wire-order
+  fields。禁止 `partial`、`unsafe`、fresh root budget、默认 `256/100000` convenience API、post-walk、
+  fallback 或 error remap。Param array 可复用 private budget-threaded helper，但不得暴露新 public API；
+  count 必须在 parent charge 后针对当前 node residual 做 cap，children 接收 parent `d-1`，siblings 从左到右
+  线程化同一 residual。
+
+  closed heads/fieldCounts/wire order 精确为：`ConstDecl`/3 Ident→Type→Expr、
+  `InvariantDecl`/2 Ident→Expr、`InitDecl`/2 Array Param→Block、`EntryDecl`/4
+  Ident→Array Param→Type result→Block、`ViewDecl`/4 Ident→Array Param→Type result→Block、
+  `FnDecl`/4 Ident→Array Param→Type result→Block。unknown errors 精确为
+  `unknown const-decl tag '<tag>'`、`unknown invariant-decl tag '<tag>'`、
+  `unknown init-decl tag '<tag>'`、`unknown entry-decl tag '<tag>'`、
+  `unknown view-decl tag '<tag>'`、`unknown fn-decl tag '<tag>'`。12 个 exhaustive field-count
+  negatives 是每个 tag 的 expected-1/expected+1：Const `2/4`、Invariant `1/3`、Init `1/3`、
+  Entry `3/5`、View `3/5`、Fn `3/5`；全部使用 `d=0,nodes=0` 证明 fieldCount 先于 budget，
+  错误精确为 `tag '<tag>' must declare <expected> fields`。
+
+  每个 decl 恰消费一个 session-wide parent node；Ident、Visibility 与 array count 不消费 node/depth。
+  Param array 允许 empty；`view_get_empty` 的 empty 只指 params。Block nonempty 只由 PA114
+  `decodeBlockV1` 执行，decl 根不得重复检查。decoder 必须严格按 wire 从左到右；不得复制 PA101
+  encoder 在 child 编码前执行 local preflight 的顺序。
+
+  Lean suite 与不 import Lean/ProofForge/既有 reference script 的 standalone Python oracle 必须共同固定
+  **7/12/46**。7 个 unique PA101 checked-in literal 全部逐字使用，比较 exact value、exact-consume/
+  `finish`、byte-identical re-encode，并以最小 root-inclusive depth 与恰好 node budget 成功且 residual=0：
+  `const_max d=2,n=3`、`invariant_bounded d=4,n=5`、`init_two_params d=4,n=9`、
+  `entry_run d=5,n=12`、`entry_swapped d=5,n=12`、`view_get_empty d=4,n=5`、
+  `fn_helper2 d=5,n=9`。七者互不 byte alias；PA102 no-wrapper copies、PA101 `viewAsEntry` 与 transient
+  same-fields Entry/View control 不得重复计数。`entry_run` 与 `entry_swapped` 必须证明 same-type
+  value/bytes nonalias；same-fields Entry/View 只做 tag-byte nonalias comparison，不计第八个 positive。
+
+  46 个 boundary slots 精确冻结如下；每个 A-before-B 项同时携带 failing A/B，禁止 vacuous placeholder。
+  `bad("X")` 是 bounded ASCII tag `X` 且故意不带 fieldCount；`head(Tag,fc)` 是合法 tag+fieldCount
+  而无 payload；`ident0` 是 declared Ident length zero；`P_START`、`TU64`、`TU256`、`TUNIT`、
+  `BLK_ASSIGN`、`BLK_RET_0` 与七个 root golden 均逐字使用 PA101 checked-in bytes。
+
+  1. Const `bad("StateDecl")`、2. Invariant `bad("ConstDecl")`、3. Init `bad("EntryDecl")`、
+  4. Entry `bad("ViewDecl")`、5. View `bad("FnDecl")`、6. Fn `bad("EntryDecl")`，均
+  `d=0,n=0`，分别返回对应 exact `unknown <family> tag '<tag>'`；7–12. 六个 decoder 各自以 exact
+  head、`d=0,n=0` 返回 `depth budget exhausted`；13–18. 六个 decoder 各自以 exact head、
+  `d=1,n=0` 返回 `node budget exhausted`。
+
+  19. Const `ident0,bad("BogusType"),bad("BogusValue")`、`d=3,n=8` → source-name length；
+  20. Const `max,bad("BogusType"),bad("BogusValue")` → `unknown type tag 'BogusType'`；
+  21. Const `max,TU256,bad("BogusValue")` → `unknown expr tag 'BogusValue'`；22. `const_max`、
+  `d=2,n=2` → value `node budget exhausted`。23. Invariant `ident0,bad("BogusPred")` → source-name
+  length；24. Invariant `bounded,bad("BogusPred")` → `unknown expr tag 'BogusPred'`；19–21、23–24
+  未另写时均 `d=3,n=8`。
+
+  25. Init count2、`d=2,n=2` → post-charge `array count exceeds caller limit`；26. Init
+  count1+`bad("BogusParam")`+`bad("BogusBody")`、`d=3,n=8` → `unknown param tag 'BogusParam'`；
+  27. Init count1+`P_START`+empty Block、`d=4,n=16` → `block statements must be nonempty`；
+  28. `init_two_params`、`d=3,n=3` → second Param `node budget exhausted`；29. Init
+  count1+`P_START`+`BLK_ASSIGN`、`d=3,n=3` → body `node budget exhausted`。
+
+  30. Entry `ident0,count0,bad("BogusResult"),bad("BogusBody")`、`d=4,n=8` → source-name
+  length；31. Entry `run,count2`、`d=3,n=2` → post-charge cap；32. Entry
+  `run,count1,bad("BogusParam"),bad("BogusResult"),bad("BogusBody")`、`d=4,n=8` → Param error；
+  33. Entry `run,count0,bad("BogusResult"),bad("BogusBody")`、`d=4,n=8` → Type error；
+  34. Entry `run,count0,TU64,bad("BogusBody")`、`d=4,n=8` → Block error；35. Entry
+  `run,count0,TU64,BLK_RET_0`、`d=4,n=2` → body node exhausted。
+
+  36. View `ident0,count0,bad("BogusResult"),bad("BogusBody")`、`d=4,n=8` → source-name
+  length；37. View `get,count2`、`d=3,n=2` → post-charge cap；38. View
+  `get,count1,bad("BogusParam"),bad("BogusResult"),bad("BogusBody")`、`d=4,n=8` → Param error；
+  39. View `get,count0,Type.UInt/1 width24,bad("BogusBody")`、`d=4,n=8` →
+  `integer width must be one of 8,16,32,64,128,256`；40. View `get,count0,TU64,empty Block`、
+  `d=4,n=8` → Block nonempty error。
+
+  41. Fn `ident0,count0,bad("BogusResult"),bad("BogusBody")`、`d=4,n=8` → source-name length；
+  42. Fn `helper2,count2`、`d=3,n=2` → post-charge cap；43. Fn
+  `helper2,count0,Type.UInt/1 width24,bad("BogusBody")`、`d=4,n=8` → width error；44. Fn
+  `helper2,count0,TUNIT,empty Block`、`d=4,n=8` → Block nonempty error；45. full `fn_helper2`、
+  `d=4,n=9` → nested body `depth budget exhausted`；46. `const_max || 00` 以 `d=2,n=3`
+  解出 value 后 `finish` → `trailing bytes`。所有只写“source-name length/Param/Type/Block error”的 slot
+  分别逐字断言 `source name component must contain 1..240 UTF-8 bytes`、
+  `unknown param tag 'BogusParam'`、`unknown type tag 'BogusResult'` 与
+  `unknown block tag 'BogusBody'`；Block nonempty error逐字为
+  `block statements must be nonempty`，不得做 error class 或 substring 比较。
+
+  Python 必须 assert-free，normal/`-O` 都通过，非精确 argv 输出 usage 且 exit 2，只打印
+  `reference_source_ast_spine_decl_decode_v1: ok 7 12 46`；它使用独立 tuple value model 与独立
+  re-encoder，只复制本冻结实际触及的 Type/Param/Expr/Block/Stmt child surface，不得调用 Lean 或既有
+  reference script 形成自证循环。
+
+  变更文件集：新增`ProofForgeV2/Source/AstSpineDeclDecodeV1.lean`、
+  `Tests/Language/SourceAstSpineDeclDecodeV1.lean`、
+  `scripts/reference_source_ast_spine_decl_decode_v1.py`；只做`ProofForgeV2.lean`/`Tests.lean`/
+  `lakefile.lean` registration与机械manifest refresh，不修改PA99–114 model/codec/decoder、PA101 goldens、
+  WireDecode或其他AST modules。budgets：production≤240、suite≤420、Python≤600、registrations≤5、
+  总authored additions≤1300（manifest不计）。明确排除ProgramItem/Program/root/fresh root session、
+  frontend/Loader/CLI/Lean command/export v2、legacy bridge/dual reader/第二 quoted decoder/fallback、
+  sourceHash/NodeId/stable Diagnostic/Typed/Semantic/target。RED必须只因production module缺失；GREEN只运行
+  focused+aggregate build/test binary、direct Lean suite、Python normal/`-O`/invalid argv、package refresh后
+  最终单次`just sbom`、docs/diff与independent review，不运行完整`just ci`。结果只记录development evidence，
+  不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
