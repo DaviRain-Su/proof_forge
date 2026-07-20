@@ -6983,3 +6983,14 @@ normative: false
   FixtureResolvedBlobV1十个role-prefix与total ID derivation。production profile永久拒绝fixture blob schema。
 - Review：bounded independent review最终结论`SAFE FOR HONEST RED`，P0/P1=0；不改变freeze axes、task
   status、D8 aggregate或ADR-0019，无Python/tests/EV。
+
+## 2026-07-20 — TASK-D0-10 FixturePolicyV1 exact-wire R2 triage
+
+- Finding：honest RED builder在构造完整合法baseline时确认FixturePolicyV1仅列顶层字段与RFC8032 vector
+  映射，未冻结principal/verifierKey nested wire；同时“keys只能使用#1–#3”与non-quorum verifierKey #4
+  文本冲突。自行选择string/object会产生不同canonical policy bytes，无法诚实验证digest/signature closure。
+- Triage：按GOV-TASK-FREEZE-001 R2，`TASK-D0-10 in_progress→blocked`；冻结Output/Test/Dependencies/
+  Prerequisites/doneWhen不变。SPEC-TASKQUAL-001补齐closed principal/verifier record、exact field order、
+  key IDs、algorithm及四个public-key lowercase hex，并明确#4永不进入principal/signature/quorum。
+- Boundary：仅消除既有fixture contract歧义；不创建Python/RED/EV，不修改production authority、D8
+  aggregate、ADR-0019、冻结包或D1状态。修订经独立复审并提交后再恢复原任务。

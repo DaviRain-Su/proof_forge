@@ -527,20 +527,43 @@ content result，不能成为authority。
 
 fixture只允许`TST-DOC-001/task-qualification-v1`：namespace固定
 `task-qualification-fixture-v1`，policy id前缀`task-qualification-fixture-policy-`，candidate commit/tree
-首byte分别固定hex `f1`/`f2`，invocation/run前缀`task-qualification-fixture-run-`，keys只能使用RFC8032
-§7.1 public test vectors #1–#3。该tuple必须与已提交production policy/ref/namespace/candidate/run静态不相交；
+首byte分别固定hex `f1`/`f2`，invocation/run前缀`task-qualification-fixture-run-`，principal signing keys
+只能使用RFC8032 §7.1 public test vectors #1–#3，non-quorum verifier key只能使用vector #4。该tuple必须与
+已提交production policy/ref/namespace/candidate/run静态不相交；
 冲突在curve前拒绝。不存在env/CLI/global test-mode switch；fixture永远返回
 `fixture-non-authoritative`，不能产生Ledger bootstrap/formal、GovernanceBootstrapCompletion、docs acceptance
 或task closeout。steady-state fixture使用synthetic `TASK-D1-FIXTURE`；D0-10 fixture只测one-time
 approval/receipt并消费fixture D0-07 GovernanceBootstrapCompletion，二者均不能关闭task。
 
 fixturePolicy使用本规格独立closed schema `proof-forge.task-qualification-fixture-policy.v1`，不冒充
-BootstrapAuthorityPolicyV1：恰含`{schema,id,version,namespace,principals,rule,verifierKey}`。principals
-恰为RFC8032 §7.1 vectors #1/#2/#3 public keys，依次映射
-`(fixture-principal-architecture,fixture-key-architecture,[architecture])`、
-`(fixture-principal-quality,fixture-key-quality,[quality])`、
-`(fixture-principal-security,fixture-key-security,[security])`；verifierKey固定为RFC8032 vector #4，
-不得计入principal/quorum。rule恰为§1三role、minimumDistinctSigners=3，namespace固定fixture值。
+BootstrapAuthorityPolicyV1，其完整closed wire及record field order固定为：
+```text
+FixtureAuthorityPrincipalV1 {
+  principalId, keyId, publicKey, roles: [ApprovalRoleV1]
+}
+FixtureVerifierKeyV1 {
+  keyId: "fixture-verifier-key", algorithm: "ed25519", publicKey
+}
+FixturePolicyV1 {
+  schema: "proof-forge.task-qualification-fixture-policy.v1",
+  id, version: "1.0.0", namespace: "task-qualification-fixture-v1",
+  principals: [FixtureAuthorityPrincipalV1],
+  rule: ApprovalRuleV1, verifierKey: FixtureVerifierKeyV1
+}
+```
+每个object只允许所列字段；`FixtureAuthorityPrincipalV1`与`ApprovalRuleV1`逐字段复用§1 production
+closed value wire，不导入production policy parser或taskRules。principals按`keyId` ASCII严格升序且恰为：
+
+| principalId | keyId | publicKey lowercase hex | roles |
+|---|---|---|---|
+| `fixture-principal-architecture` | `fixture-key-architecture` | `d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a` | `["architecture"]` |
+| `fixture-principal-quality` | `fixture-key-quality` | `3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c` | `["quality"]` |
+| `fixture-principal-security` | `fixture-key-security` | `fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025` | `["security"]` |
+
+`verifierKey.publicKey`固定为RFC8032 §7.1 vector #4 lowercase hex
+`278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e`；该key不得出现在principals、
+signatures或quorum计算。rule恰为`requiredRoles=["architecture","quality","security"]`及
+`minimumDistinctSigners=3`，roles保持上述ASCII顺序，namespace固定fixture值。
 fixture control objects使用本地fixture parser/projection与同一rule，不查询production taskRules。
 由这些exact bytes以domain `pf.taskqual.fixture-policy.v1`重算的
 fixturePolicy必须同时等于profile.fixturePolicy、bundle.expectedAuthorityPolicy、authority member及全部

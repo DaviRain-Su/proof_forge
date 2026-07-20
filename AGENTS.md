@@ -14,14 +14,14 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 在 accepted R2 amendment 后恢复 in_progress；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
-| Active task | **TASK-D0-10**（in_progress；冻结包不变；pure verifier/protected adapter/one-time bridge） |
-| Next task | **TASK-D1-01**（pending；仍依赖 D0-10 done） |
+| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 因 FixturePolicyV1 exact wire 歧义按 R2 暂时 blocked；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
+| Active task | 无；blocked task 见 Known blocker，冻结包不变 |
+| Next task | **TASK-D0-10**（blocked；exact-wire amendment 提交后恢复原冻结任务；其 done 后才进入 D1-01） |
 | Active development slice | 无；**D1-PA-111** complete supporting-record decoders 已完成 development GREEN（`EV-20260720-0005`），正式 `TASK-D1-01` 状态未改变 |
 | Next development slice | 审计并冻结 spine-independent declaration decoders；随后按依赖进入 `Place↔Expr` 与 `Stmt↔Block` mutual SCC。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无 blocked task；D0-10 R2 carrier/fixture-authority 歧义已由 `cc2ad0f` 修复，下一步必须提交从完整合法 fixture 派生的 tests-only RED，不得恢复 placeholder baseline |
+| Known blocker | `TASK-D0-10` 的 FixturePolicyV1 nested principal/verifierKey exact wire 歧义正在按 R2 修订；修订须独立复审并提交后才能恢复任务及进入 tests-only RED |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
