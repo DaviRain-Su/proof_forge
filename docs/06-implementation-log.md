@@ -6738,6 +6738,38 @@ normative: false
   containment或正式TASK closure。下一步atomic frontend/export cutover为C3 breaking change；必须先把
   `ADR-0019`按Architecture+Language/Semantics+Quality五字段书面批准为accepted，再冻结cutover，不能由
   本development evidence自动推进。D0 formal milestone仍8/9。
+
+## 2026-07-20 — D1 complete recursive `PatternV1` decoder prerequisite slice
+
+- Commits：D1-PA-110 freeze `6c02b75`；RED `fa21a39`；GREEN `cd3a757`；test hardening
+  `29f163e`。`ADR-0019`已按五字段书面批准为accepted；正式TASK状态未改变。
+- Authority：本切片只实现accepted ADR step-3完整root decoder prerequisite中的4-tag recursive
+  `PatternV1` family。public API精确为`decodePatternV1 remainingDepth budget`，返回Pattern与线程化后的
+  `DecodeBudgetV1`；不提前实现mutual spine、Program/root或frontend/export cutover。
+- Changed：70-line kernel-total production decoder按tag→fieldCount→depth→node→ordered payload执行；
+  Constructor先解QID，再以parent charge后的node residual约束args count，随后按source order线程化
+  sibling node budget并共享child depth。无`partial`、`unsafe`、无界递归、post-decode walk或error remap。
+  Lean suite 124行、standalone Python oracle 150行、registrations 4行，总authored additions 348/800；
+  production新增后已重钉机械SBOM package manifest。
+- Tests：Lean/Python共同固定12个PA97 literals的exact value/re-encode/node spend、7个exhaustive
+  field-count negatives及24个priority/budget/primitive boundaries；包括unknown-before-count、count-before-budget、
+  depth-before-node、node-before-payload、QID/count/child顺序、empty/source-order/sibling residual、trailing、
+  Constructor深度/节点256边界，以及String与Ident不同的empty/Cc/closing-guillemet语义。
+- Verification：focused build 18 jobs、aggregate build 370 jobs与test binary全绿；Python输出
+  `reference_source_ast_pattern_decode_v1: ok 12 7 24`；SBOM self-test/generate/verify/closure与
+  `git diff --check`全绿。锁定Lean 4.31.0资产因正式materializer的host-profile readelf不匹配，开发验证仅
+  从已校验cache手动提取后执行，临时目录已删除。按冻结未运行完整`just ci`。
+- Review/Evidence：复审发现malformed Bind node-priority、positive node-spend exactness与Python String/Ident
+  conflation三项false-green风险；`29f163e`修复并重跑后independent review Approve，P0/P1=0。
+  development evidence经rebase顺延为`EV-20260720-0004`。
+- Limitations：原候选的`docs_check.py`因当时D0-04 activation PHASE-5 live-document join漂移报
+  `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`；上游`ee38173`已改为候选时快照绑定并随D0 9/9 closeout闭合，
+  未修改checker绕过。
+  本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task。
+- Next：只读审计剩余decoder递归依赖，另行冻结下一窄family；完整
+  `decodeCanonicalSourceAstBytesV1` prerequisite闭合前，不切换shared DSL/Loader/CLI/Lean command/export v2，
+  不建立legacy→ProgramV1、dual reader、第二套quoted decoder或fallback。
+
 ## 2026-07-20 — darwin live 重观察与 `host-bootstrap.lock` 重钉（GOV-PRECUTOVER-001 §2.1 P2 清偿）
 
 - Context：`TASK-D0-07` 冻结包 doneWhen#6 要求 Mac 实机执行
