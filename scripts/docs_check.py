@@ -2456,7 +2456,7 @@ def _load_bootstrap_task_consumer() -> Any | None:
 
 
 def _d0_04_bundle_file_bytes(root: Path, bundle_relative: str) -> dict[str, bytes] | None:
-    """Read the exact 21-file activation closure bundle layout, fail closed."""
+    """Read the exact 22-file activation closure bundle layout, fail closed."""
     expected = {
         "activation-receipt.json",
         "authority-policy.json",
@@ -2465,6 +2465,7 @@ def _d0_04_bundle_file_bytes(root: Path, bundle_relative: str) -> dict[str, byte
         "closure-manifest.json",
         "eligible-stage0-handoff.json",
         "host-observation.json",
+        "phase5-snapshot.json",
         "required-test-set.json",
         "service-descriptor.json",
     }
@@ -2514,10 +2515,20 @@ def _d0_04_verify_activation_bundle(root: Path, payload: dict[str, Any]) -> bool
         policy_bytes = files["authority-policy.json"]
         policy, policy_ref = consumer.parse_bootstrap_authority_policy(
             policy_bytes)
-        phase5_bytes = read_repository_regular_bytes(
-            root, root / "docs/05-test-spec.md", "docs/05-test-spec.md")
+        # The required-set's PHASE-5 join binds the candidate-time snapshot
+        # committed in the bundle: docs/05-test-spec.md is a living catalog
+        # whose denominator the snapshot captures exactly; current-doc churn
+        # must not invalidate the historical activation.
+        snapshot_wire = json.loads(files["phase5-snapshot.json"].decode("utf-8"))
+        if (type(snapshot_wire) is not dict
+                or set(snapshot_wire) != {"id", "path", "bytesHex"}
+                or snapshot_wire["id"] != "PHASE-5"
+                or snapshot_wire["path"] != "docs/05-test-spec.md"
+                or type(snapshot_wire["bytesHex"]) is not str):
+            return False
         snapshot = consumer.BootstrapDocumentSnapshotV1(
-            "PHASE-5", "docs/05-test-spec.md", phase5_bytes)
+            "PHASE-5", "docs/05-test-spec.md",
+            bytes.fromhex(snapshot_wire["bytesHex"]))
         required_bytes = files["required-test-set.json"]
         _, required_ref = consumer.parse_document_bound_required_test_set(
             required_bytes, policy_bytes, snapshot)

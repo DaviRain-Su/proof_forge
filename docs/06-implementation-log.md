@@ -6762,3 +6762,25 @@ normative: false
   仍须 linux eligible host 执行；本变更不关闭 in_progress `TASK-D0-07`。
 - Next：linux eligible host 上 `just genesis-replay` 取全绿报告后落地 D0-07
   关单变更集（attest + bootstrap EV + 任务表行）。
+## 2026-07-20 — D0-04 关闭门禁 PHASE-5 join 绑定候选时快照（活性文档漂移治理）
+
+- Context：合并 origin/main 后并行会话继续向 `docs/05-test-spec.md` 追加 D1-PA
+  条目，文档字节变化使 `docs_check` 的 D0-04 关闭分支对 required set 的
+  `phase5Document.contentDigest` 重算失配（activation 再次 fail closed）。
+  `05-test-spec.md` 是活性 catalog：其分母（77）稳定，但 contentDigest 随任何
+  字节变化——按"当前字节"校验意味着每次 D1-PA 切片都强制重签发，不可持续。
+- Changed：`scripts/docs_check.py` 的 D0-04 bundle 布局由 21 文件扩为 22 文件
+  （新增 `phase5-snapshot.json`），required set 的 PHASE-5 join 改为绑定 bundle
+  内提交的候选时快照字节（{id,path,bytesHex} closed wire），不再读当前
+  `docs/05-test-spec.md`；快照即 candidate commit 处的 PHASE-5 精确状态，
+  exactness 与可审计性不变，文档后续演进不再触发误报。TCB/verifier/service 的
+  执行环境漂移检查保持"当前字节"不变（gate_evidence.py 类漂移仍 fail closed）。
+- Verification：`d0_04_bootstrap_activation_attested` 对现 bundle 返回 True；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok；
+  `/usr/bin/python3 -I -S scripts/docs_check_self_test.py` ok（204 mutations）；
+  `git diff --check` clean。
+- Limitations：本变更只修门禁校验的绑定对象，不改变 activation 本身语义；
+  快照与 required set 的 PHASE-5 ref 的一致性由 consumer 全量复验保持；
+  活性文档分母若未来收缩到低于激活时集合属另一治理问题，不在本 join 覆盖。
+- Next：`just ci`（pipefail）后推送；重跑 genesis replay 取合并树全绿报告，
+  随后 D0-07 关单。
