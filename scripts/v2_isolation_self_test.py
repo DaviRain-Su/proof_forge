@@ -80,6 +80,12 @@ lean_exe proof_forge_next_tests where
     write(root / "lean-toolchain", "leanprover/lean4:v4.31.0\n")
     write(root / "justfile", "build:\n    lake build ProofForgeV2 proof_forge_next\n")
     write(root / "ProofForgeV2.lean", "import ProofForgeV2.CLI.Main\n")
+    write(root / "ProofForgeV2/Core/Source.lean", "namespace ProofForgeV2.Source\nend ProofForgeV2.Source\n")
+    write(
+        root / "ProofForgeV2/Compiler/Pipeline.lean",
+        "import ProofForgeV2.Core.Source\n-- import ProofForgeV2.Core.Source\n"
+        'def sourceImportDecoy := "import ProofForgeV2.Core.Source"\n',
+    )
     write(
         root / "ProofForgeV2/CLI/Main.lean",
         "namespace ProofForgeV2.CLI\n\ndef main : IO Unit := pure ()\n\nend ProofForgeV2.CLI\n",
@@ -152,6 +158,7 @@ def main() -> int:
         ("manifest bare Git dependency", lambda root: replace(root / "lake-manifest.json", '"packages": []', '"packages": [{"type":"git","name":"sibling","url":"sibling"}]')),
         ("manifest parent Git subdirectory", lambda root: replace(root / "lake-manifest.json", '"packages": []', '"packages": [{"type":"git","name":"dep","url":"https://example.invalid/dep.git","subDir":"../sibling"}]')),
         ("legacy import", lambda root: write(root / "ProofForgeV2/Legacy.lean", "import ProofForge.Backend\n")),
+        ("Core.Source import outside allowlist", lambda root: write(root / "ProofForgeV2/Legacy.lean", "import ProofForgeV2.Core.Source\n")),
         ("public legacy import outside library", lambda root: write(root / "Examples/Legacy.lean", "public import ProofForge.Backend\n")),
         ("active module import", lambda root: write(root / "Tests/Legacy.lean", "import active.ProofForge\n")),
         ("bare active module import", lambda root: write(root / "Tests/Legacy.lean", "import active\n")),

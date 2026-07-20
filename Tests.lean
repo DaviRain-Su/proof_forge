@@ -5,6 +5,7 @@ import Tests.Core.Unicode
 import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
+import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Language.AggregateDeclarations
 import Tests.Language.DeclarationAcceptance
 import Tests.Language.ArrayTypes
@@ -99,6 +100,7 @@ unsafe def main : IO Unit := do
   Tests.Core.run
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
+  Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Language.DeclarationAcceptance.run
   Tests.Language.AssertStatements.run
   Tests.Language.BitwiseNot.run
