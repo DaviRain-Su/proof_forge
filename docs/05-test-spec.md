@@ -2837,6 +2837,84 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   aggregate build/test binary、Python normal及`-O` self-check、package refresh后最终单次`just sbom`、
   `just docs-check`、`git diff --check`与independent review；不运行完整`just ci`。结果只记录development
   evidence，不能关闭完整TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-113 是 accepted `ADR-0019` step-3 完整 root decoder prerequisite 的 complete
+  `PlaceV1↔ExprV1` mutual decoder slice。它精确包含 PA99 的`PlaceV1`、`ExprV1`、`ExprMatchArmV1`、
+  `ExternalCallExprV1`四种类型；`Expr.Match`需要arm，且ExternalCall是后续Stmt.Call/Schedule的直接依赖，
+  因而二者不得拆出。`StmtV1`、`BlockV1`、`StmtMatchArmV1`与spine-dependent declarations仍排除。
+  production public API精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSpineDecodeV1
+  decodePlaceV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineV1.PlaceV1 × DecodeBudgetV1)
+  decodeExprV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineV1.ExprV1 × DecodeBudgetV1)
+  decodeExprMatchArmV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineV1.ExprMatchArmV1 × DecodeBudgetV1)
+  decodeExternalCallExprV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineV1.ExternalCallExprV1 × DecodeBudgetV1)
+  ```
+
+  四个defs必须处于一个kernel-total `mutual` block；每个def均以Nat参数`d`做
+  `| 0 => head; depth error | d+1 => head; charge; fields`并逐一定义`termination_by d => d`。
+  array count loop必须inline调用`decodeExprV1 d budget`；禁止把recursive decoder作为higher-order array
+  helper参数，否则不构成结构递减。不得`partial`、`unsafe`、post-walk、fresh root budget或默认
+  `256/100000` convenience入口。
+
+  closed heads精确为：Place family `Place.Name/1`、`Place.Field/2`、`Place.Index/2`；Expr family
+  `Expr.Literal/1`、`Expr.Place/1`、`Expr.Constructor/2`、`Expr.Unary/2`、`Expr.Binary/3`、
+  `Expr.LocalCall/2`、`Expr.Match/2`；singleton `ExprMatchArm/2`与`ExternalCallExpr/2`。unknown errors
+  分别为`unknown place tag '<tag>'`、`unknown expr tag '<tag>'`、
+  `unknown expr-match-arm tag '<tag>'`、`unknown external-call tag '<tag>'`。每个node必须按bounded tag
+  →closed-family unknown→exact fieldCount→depth→node→wire-order fields；depth/node同时为0时depth优先，
+  child errors不得remap。进入每个Place/Expr/arm/external record恰好消费一个session-wide node；recursive
+  Place/Expr/arm与PA110 Pattern child使用parent `d-1`，siblings共享同一child depth并线程化node residual。
+  Literal/UnaryOp/BinaryOp、Ident/QID等scalar不消费node/depth。
+
+  Place按Name Ident、Field base→field Ident、Index base→index Expr；Expr按PA100表顺序。Constructor与
+  ExternalCall先QID、LocalCall先Ident，再读u32 count；所有array count均在callee与parent charge后、
+  allocation/child前不大于当前node residual，否则exact返回`array count exceeds caller limit`。
+  `Expr.Match`必须先完整解scrutinee，再读count；count=0 exact返回
+  `expr match arms must be nonempty`，之后才做post-scrutinee residual cap与arm loop。Constructor、LocalCall、
+  ExternalCall empty args合法。ExprMatchArm按Pattern→Expr，ExternalCall按QID→source-order Expr args。
+
+  Lean suite与不import Lean/ProofForge或既有reference脚本的standalone Python oracle必须共同固定15/24/41：
+  15个PA100 checked-in literals全部逐字使用并比较exact value、re-encode、`finish`与node spend，顺序/花费
+  精确为place_name/field/index `1,2,3`，expr_literal/place/ctor_some/ctor_none/ctor_order_a/ctor_order_b/
+  unary/binary/local/match `1,2,2,1,3,3,2,3,2,8`，expr_arm `3`，external `1`；两个ctor-order值与bytes
+  必须nonalias。24个field-count negatives为十二tags各expected-1/expected+1，且以`d=0,nodes=0`固定
+  fieldCount-before-budget。
+
+  41个boundary slots精确分区为：10个wrong-family/no-fieldCount/zero-budget（Place拒绝Expr.Literal/
+  Expr.Place/Expr.Binary；Expr拒绝Place.Name/ExprMatchArm/ExternalCallExpr；ExprMatchArm拒绝Place.Field/
+  Expr.Match；ExternalCall拒绝Place.Index/Expr.Unary）；1个depth-before-node与四API各1个
+  node-before-absent-first-payload；13个双故障field-order conflicts——Index bad `BogusBase`先于
+  `BogusIndex`及valid-base/bad-index、Field bad-base先于invalid Ident、Binary `BogusLhs`先于
+  `BogusRhs`及`Visibility.Public` op先于bad lhs、Unary `BinaryOp.Add`先于bad operand、Match
+  `BogusScrutinee`先于zero arms、Constructor/ExternalCall一组件`Only` QID先于`0xffffffff` count、
+  LocalCall 241-byte Ident先于`0xffffffff` count、arm `BogusPattern`先于`BogusValue`、Constructor
+  `BogusArg0`先于`BogusArg1`、Binary valid lhs后以`d=2,nodes=2`在rhs exact耗尽；4个post-charge caps
+  覆盖Constructor/LocalCall/ExternalCall `(nodes=2,count=2)`及Match
+  `(nodes=3,valid literal scrutinee,count=2)`；1个valid-scrutinee/zero-arm nonempty；2个slots为
+  `ExternalCall Math.add([Literal 1, Literal 2])`在`d=2,nodes=3`成功且residual0，以及Literal Bool marker2
+  exact透传；6个resource/structure slots为Unary^255在`d=256,nodes=256`成功residual0、Unary^256在
+  `d=256,nodes=257` depth error、Unary^255在`d=256,nodes=255` node error、whole-value trailing、
+  Constructor两Literal与LocalCall两Literal各在`d=2,nodes=3`成功residual0。所有A-before-B均为A/B
+  同时失败的non-vacuous conflict；具体hostile tag、`d`、nodes不得以省略号或范围代替。
+  Python必须assert-free、normal/`-O`均通过、非exact argv usage+exit2，并只输出
+  `reference_source_ast_spine_place_expr_decode_v1: ok 15 24 41`。
+
+  变更文件集：新增`ProofForgeV2/Source/AstSpineDecodeV1.lean`、
+  `Tests/Language/SourceAstSpinePlaceExprDecodeV1.lean`、
+  `scripts/reference_source_ast_spine_place_expr_decode_v1.py`；只做`ProofForgeV2.lean`/`Tests.lean`/
+  `lakefile.lean` registration与机械manifest refresh，不修改PA99 model/equality、PA100 codec/goldens、
+  PA106–112 decoder、WireDecode或其他AST modules。budgets：production≤260、suite≤450、Python≤400、
+  registrations≤5、总authored additions≤1100（manifest不计）。明确排除Stmt/Block/StmtMatchArm、
+  spine-dependent declarations、ProgramItem/Program/root、fresh root session、16MiB/完整100000-node声明、
+  frontend/Loader/CLI/Lean command/export v2、legacy bridge/dual reader/fallback、sourceHash/NodeId/stable
+  Diagnostic/Typed/Semantic/target。RED必须只因production module缺失；GREEN只运行focused+aggregate
+  build/test binary、Python normal/`-O`、package refresh后最终单次`just sbom`、docs/diff与independent review，
+  不运行完整`just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
