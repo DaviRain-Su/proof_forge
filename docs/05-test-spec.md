@@ -2652,6 +2652,46 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   总authored additions≤800（manifest不计）。验证focused+aggregate/test binary、isolation self-test、package
   refresh后final single SBOM、docs/diff与independent review；不运行完整`just ci`，不关闭formal task；
   full-tree global node/depth/resource containment明确不在本切片完成面。
+- D1-PA-110 是 accepted `ADR-0019` step-3 完整 root decoder prerequisite 的首个 post-approval slice，
+  只实现 complete 4-tag recursive `PatternV1` decoder；不提前实现 mutual spine、Program root 或任何
+  frontend/export cutover。production public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstPatternDecodeV1
+  decodePatternV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstPatternV1.PatternV1 × DecodeBudgetV1)
+  ```
+
+  decoder必须是以`remainingDepth : Nat`作structural fuel的kernel-total mutual `def`，不得使用`partial`、
+  `unsafe`、无界递归或构造完整Pattern后事后walk。每个Pattern constructor都是node-bearing，进入时恰好
+  消耗一个session-wide`remainingNodes`；Literal payload不是额外node。exact priority固定为bounded tag read
+  → closed 4-tag dispatch（unknown为`unknown pattern tag '<tag>'`）→ exact fieldCount → depth → node → ordered
+  fields。Wildcard/Bind/Literal/Constructor field counts分别为0/1/1/2；Constructor必须先完整解码QID，再读
+  args count，再按source order递归children。args count必须在allocation或child decode前不大于parent charge后
+  的node residual，否则原样返回`array count exceeds caller limit`；children共享`remainingDepth - 1`并线程化
+  前一sibling消费后的node residual。depth/node exact errors继续为`depth budget exhausted`/
+  `node budget exhausted`，两者同时为0时depth优先；primitive/QID/Literal错误不remap。
+
+  Lean suite与不import Lean/ProofForge或既有reference脚本的standalone Python oracle必须共同固定：
+  12个PA97 checked-in Pattern wire literals逐一decode为exact value、重新encode为同一bytes、`finish`并核对
+  exact node spend；7个exhaustive field-count negatives（Wildcard用1，Bind/Literal各用0/2，Constructor用
+  1/3）；至少20个boundary覆盖wrong-family无fieldCount且zero budgets仍先unknown、known wrong fieldCount
+  先于budgets、depth-before-node、node-before-payload、invalid Bind、invalid Literal、Constructor QID-before-count/
+  child、args count-before-allocation/child、empty args、sibling residual与source order、trailing、
+  Constructor^255(Wildcard)恰为256 nodes/depth通过及^256在depth256失败。Python成功输出
+  `reference_source_ast_pattern_decode_v1: ok 12 7 <boundary-count>`，其中boundary-count不得少于20。
+
+  变更文件集：新增`ProofForgeV2/Source/AstPatternDecodeV1.lean`、
+  `Tests/Language/SourceAstPatternDecodeV1.lean`、
+  `scripts/reference_source_ast_pattern_decode_v1.py`；只做`ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean`
+  registration与机械manifest refresh，不修改Pattern model/encoder、PA107 Type decoder、WireDecode/scalar decoder
+  或其他AST modules。budgets：production additions≤150、suite≤340、Python≤280、registrations≤5、
+  总authored additions≤800（manifest不计）。明确排除spine/support/declaration/Program/root decoder、fresh root
+  budget API、frontend/Loader/CLI/Lean command、ProgramExport v2/ProgramPayload、legacy删除、16MiB/完整
+  100000-node session完成声明、sourceHash、NodeId、stable Diagnostic、Typed/Semantic与target。验证只运行
+  focused+aggregate build/test binary、Python self-check、package refresh后最终单次`just sbom`、
+  `just docs-check`、`git diff --check`与independent review；不运行完整`just ci`。结果只记录development
+  evidence，不能关闭完整TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
