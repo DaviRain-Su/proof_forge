@@ -1,10 +1,15 @@
 ---
 id: GOV-D0CLOSE-001
 title: TASK-D0-07 bootstrap 级关闭裁决与 formal 边界
-status: proposed
+status: accepted
 owner: quality
 updated: 2026-07-19
 normative: true
+approvers: architecture-owner, davirain, quality-owner
+approvedAt: 2026-07-19
+reviewCommit: 02819f8f348e4f739b41a81a2f646631d02a5db8
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/02819f8f348e4f739b41a81a2f646631d02a5db8
+openFindings: none
 ---
 
 # GOV-D0CLOSE-001：TASK-D0-07 bootstrap 级关闭裁决与 formal 边界
