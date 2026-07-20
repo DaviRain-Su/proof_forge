@@ -120,7 +120,34 @@ def run : IO Unit := do
   let collision ← validated quotedModule (← q #["Root", "A", "B.C"]) bcName
     #[.entry (entry runN (ret (u 0)))]
   let collisionSem ← compileOk "identity collision twin" collision
-  expect (quotedSem.qualifiedName != collisionSem.qualifiedName) "raw component boundaries must not collide"
+  expect (quotedSem.qualifiedName != collisionSem.qualifiedName && collisionSem.name == "B.C")
+    "raw component boundaries and short names must remain distinct"
+  let minimal ← validated quotedModule (← q #["Root", "C"]) cName
+    #[.entry (entry runN (ret (u 0)))]
+  let minimalSem ← compileOk "minimum identity" minimal
+  expect (minimalSem.qualifiedName == "Root.C") "minimum two-component identity must lower"
+  let dottedState ← n "state.value"; let dottedParam ← n "arg.value"
+  let dottedEntry ← n "run.call"
+  let rawNames ← validated moduleName identity demo #[
+    .state (state dottedState),
+    .entry (entry dottedEntry (ret (var dottedParam)) #[param dottedParam])]
+  let rawSem ← compileOk "raw unqualified names" rawNames
+  expect (rawSem.state[0]!.name == "state.value" &&
+      rawSem.entries[0]!.name == "run.call" && rawSem.entries[0]!.params[0]!.name == "arg.value")
+    "unqualified names must use raw components"
+  let calleeA ← q #["Peer", "A.B", "C"]
+  let calleeB ← q #["Peer", "A", "B.C"]
+  let callSource (callee : SourceQualifiedNameV1) := validated moduleName identity demo
+    #[.entry (entry runN (block #[.call { callee, args := #[] }, .return_ (some (u 0))]))]
+  let callA ← compileOk "quoted callee A" (← callSource calleeA)
+  let callB ← compileOk "quoted callee B" (← callSource calleeB)
+  match callA.entries[0]!.body[0]?, callB.entries[0]!.body[0]? with
+  | some (Semantic.Statement.synchronousCall a),
+      some (Semantic.Statement.synchronousCall b) =>
+      expect (a == (Lean.Name.str (Lean.Name.str (Lean.Name.str .anonymous "Peer") "A.B") "C").toString &&
+          b == (Lean.Name.str (Lean.Name.str (Lean.Name.str .anonymous "Peer") "A") "B.C").toString && a != b)
+        "qualified callees must preserve raw component boundaries"
+  | _, _ => throw <| IO.userError "quoted callees were not preserved"
   for type_ in acceptedTypes do
     let typed ← validated moduleName identity demo #[.entry (entry runN (ret (u 0)) #[param y type_])]
     let _ ← compileOk "accepted type table" typed
@@ -153,8 +180,8 @@ def run : IO Unit := do
     ("ExtensionReq", #[.extensionReq { id := peer, version := "1.0.0", digest := digest0 }]),
     ("ProofDecl", #[.proof { invariant := x, theorem_ := peer },
       .invariant { name := x, predicate := hostile }])]
-  for (tag, prefix) in topCases do
-    let bad ← validated moduleName identity demo (prefix.push (.entry (entry runN (ret (u 0)))))
+  for (tag, itemPrefix) in topCases do
+    let bad ← validated moduleName identity demo (itemPrefix.push (.entry (entry runN (ret (u 0)))))
     expectInvalid s!"top {tag}" (unsupported tag) (Compiler.compileValidatedSourceV1 bad)
 
   let typeCases : Array (String × TypeV1) := #[

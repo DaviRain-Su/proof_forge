@@ -42,6 +42,20 @@ ACTIVE_IMPORT_RE = re.compile(
     r"(?m)^[ \t]*(?:public[ \t\r\n]+)?import[ \t\r\n]+"
     r"(?:active|«active»)(?:\.|[ \t]*$)"
 )
+CORE_SOURCE_IMPORT_RE = re.compile(
+    r"(?m)^[ \t]*(?:public[ \t\r\n]+)?import[ \t\r\n]+"
+    r"(?:ProofForgeV2|«ProofForgeV2»)\."
+    r"(?:Core|«Core»)\.(?:Source|«Source»)[ \t]*$"
+)
+CORE_SOURCE_IMPORT_ALLOWLIST = {
+    "ProofForgeV2.lean",
+    "ProofForgeV2/CLI/Toolchain.lean",
+    "ProofForgeV2/Compiler/Pipeline.lean",
+    "ProofForgeV2/Core/Typed.lean",
+    "ProofForgeV2/Language/ProgramExport.lean",
+    "ProofForgeV2/Language/ProgramPayload.lean",
+    "ProofForgeV2/Language/Syntax.lean",
+}
 REMOTE_GIT_URL_RE = re.compile(
     r"(?:https?://|ssh://|git://)[^/\s][^\s]*|"
     r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s]+"
@@ -380,6 +394,11 @@ def check_product_tree(root: Path, forbidden_checkout: str) -> None:
             fail("PF-ISO-LEGACY", f"legacy ProofForge name: {source_path.relative_to(root)}")
         if ACTIVE_IMPORT_RE.search(lexical):
             fail("PF-ISO-LEGACY", f"active module import: {source_path.relative_to(root)}")
+        relative = source_path.relative_to(root).as_posix()
+        production = relative == "ProofForgeV2.lean" or relative.startswith("ProofForgeV2/")
+        if (production and CORE_SOURCE_IMPORT_RE.search(lexical)
+                and relative not in CORE_SOURCE_IMPORT_ALLOWLIST):
+            fail("PF-ISO-LEGACY", f"Core.Source import outside transition allowlist: {relative}")
         if "active/" in text or "active\\" in text or "new_design/" in text:
             fail("PF-ISO-LEGACY", f"legacy fallback path: {source_path.relative_to(root)}")
     for product_path in files:

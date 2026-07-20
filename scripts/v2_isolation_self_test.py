@@ -91,6 +91,11 @@ lean_exe proof_forge_next_tests where
         "namespace ProofForgeV2.CLI\n\ndef main : IO Unit := pure ()\n\nend ProofForgeV2.CLI\n",
     )
     write(root / "ProofForgeV2/ActiveField.lean", "def active := true\n")
+    write(
+        root / "ProofForgeV2/ImportDecoy.lean",
+        "-- import ProofForgeV2.Core.Source\n"
+        'def sourceImportDecoyOutsideAllowlist := "import ProofForgeV2.Core.Source"\n',
+    )
     write(root / "Tests.lean", "def main : IO Unit := pure ()\n")
 
 
@@ -159,6 +164,8 @@ def main() -> int:
         ("manifest parent Git subdirectory", lambda root: replace(root / "lake-manifest.json", '"packages": []', '"packages": [{"type":"git","name":"dep","url":"https://example.invalid/dep.git","subDir":"../sibling"}]')),
         ("legacy import", lambda root: write(root / "ProofForgeV2/Legacy.lean", "import ProofForge.Backend\n")),
         ("Core.Source import outside allowlist", lambda root: write(root / "ProofForgeV2/Legacy.lean", "import ProofForgeV2.Core.Source\n")),
+        ("quoted Core.Source import outside allowlist", lambda root: write(root / "ProofForgeV2/Legacy.lean", "import «ProofForgeV2».«Core».«Source»\n")),
+        ("public Core.Source import outside allowlist", lambda root: write(root / "ProofForgeV2/Legacy.lean", "public import ProofForgeV2.Core.Source\n")),
         ("public legacy import outside library", lambda root: write(root / "Examples/Legacy.lean", "public import ProofForge.Backend\n")),
         ("active module import", lambda root: write(root / "Tests/Legacy.lean", "import active.ProofForge\n")),
         ("bare active module import", lambda root: write(root / "Tests/Legacy.lean", "import active\n")),
