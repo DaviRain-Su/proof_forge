@@ -6878,3 +6878,25 @@ normative: false
   关闭须持规范签名对象。
 - Next：`TASK-D1-01`（Dependencies 已全部 done）——milestone D1 语言前端正式
   开工前确认其冻结完成包（已由并行会话预备）。
+
+## 2026-07-20 — D0 closeout rebase 与 D1 formal scheduling 复核
+
+- Rebase：刷新`origin/main`后确认上游新增`ee38173`（D0-04 PHASE-5候选时快照）与
+  `2db8bfe`（D0-07 bootstrap closeout），将12个ADR-0019/decoder提交重放到其上；保留D0 closeout
+  `EV-20260720-0003`，Pattern/support development evidence顺延为`EV-20260720-0004/0005`，并把全部
+  freeze/RED/GREEN/hardening引用修为rebase后commit。ADR-0019 reviewCommit/reviewLink机械重钉到等价的
+  rebase后decision commit `fd1620c`。
+- D0 conclusion：任务表与attest证明D0为9/9 done；D0-07是GOV-D0CLOSE-001下bootstrap级关闭，不把
+  fixture提升为formal/hermetic。`docs_check.py`与204-mutation self-test在合并树全绿。
+- D1 scheduling finding：`TASK-D1-01` dependencies已全done且冻结包存在，机械上可从pending进入
+  in_progress；但冻结doneWhen要求TST-SRC-001/002 candidate-bound formal EV，而GOV-D0CLOSE-001把真实
+  formal lane递延到依赖D1完成的`TASK-D8-04/TST-ISO-003`，与D1-02依赖D1-01 done共同形成正式任务图循环。
+  现在启动D1-01只会触发3-day/20-commit triage且无法合法关闭，因此保持pending，不用development EV或
+  bootstrap exception伪造完成。
+- Development sequence：循环不阻塞accepted ADR-0019的可撤销development slices；继续按
+  spine-independent declarations → `Place↔Expr` → `Stmt↔Block` → spine declarations → ProgramItem/Program/
+  canonical root exact-consume顺序闭合`decodeCanonicalSourceAstBytesV1`，之后才允许shared DSL/Loader/CLI/
+  Lean command/export v2原子切换；禁止legacy→ProgramV1、dual reader、第二套quoted decoder或fallback。
+- Governance next：正式任务激活前须由Architecture+Quality+Security批准task-scoped candidate-bound formal
+  qualification（与D8 full release aggregate不可互换）或等价的无循环方案，并同步仍pending的D1冻结包与
+  accepted ADR-0019；本次复核不自动递增TASK/TST，也不修改任务状态或冻结完成面。
