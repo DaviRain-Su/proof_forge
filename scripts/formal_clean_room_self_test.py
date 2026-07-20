@@ -193,7 +193,7 @@ def main() -> int:
         lines = module.format_report_lines(report)
         assert any(line.startswith("stage0: ok ") for line in lines)
         assert any(line.startswith("anchor: ok commit=") for line in lines)
-        assert any("evidence:" in line and "EV-20260719-0001" in line for line in lines)
+        assert any("evidence:" in line and Path(report.evidencePath).stem in line for line in lines)
         assert lines[-1] == "clean-room: ok"
         checked("typed report lines [real]")
 

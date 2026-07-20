@@ -1406,7 +1406,9 @@ def run_formal_clean_room(
                 "stderrLog": "logs/evm-runtime.stderr.log",
             },
         )
-        ev_id = "EV-20260719-0001"
+        # The evidence id's UTC date must equal the command's endedUtc date:
+        # derive it from the run clock, never a hardcoded calendar day.
+        ev_id = "EV-" + ended_utc[:10].replace("-", "") + "-0001"
         evidence_bytes = _build_fixture_evidence(
             ev_id=ev_id,
             candidate=candidate,
@@ -1482,7 +1484,7 @@ def format_report_lines(report: CleanRoomReport) -> list:
         f"anchor: ok commit={report.candidateCommit} archive={report.archiveSha256[:16]}",
         "stages: ok materialize(deny-all) core(deny-all) evm-runtime(loopback-only)",
         "containment: contained (session supervised, no escapees)",
-        f"evidence: EV-20260719-0001 published ({report.evidencePath})",
+        f"evidence: {Path(report.evidencePath).stem} published ({report.evidencePath})",
         "clean-room: ok",
     ]
 

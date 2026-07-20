@@ -6636,3 +6636,20 @@ normative: false
   stage0_store_service.py）与两个 bootstrap lock 钉住文件（toolchain_assets.py 等）
   的漂移成本——任何字节变化都会触发关闭门禁 fail closed 并强制重签发。
 - Next：`just ci` 全绿后推送 origin；D0-07 关单待 darwin live 重观察（用户 Mac）。
+
+## 2026-07-20 — `formal_clean_room` fixture EV id 跨 UTC 日界缺陷修复（R1）
+
+- Context：合并后首次 `just ci` 在 2026-07-20 00:49 UTC 暴露 S7 harness 缺陷：
+  fixture EV id 硬编码 `EV-20260719-0001`，而 `command.endedUtc` 取真实时钟，
+  `evidence_v1_core` 要求 id 的 UTC 日期等于 endedUtc 日期——跨 UTC 日界后稳定
+  失败（midnight 前恰好通过，属潜伏缺陷）。
+- Changed：`scripts/formal_clean_room.py` 的 ev_id 改从 run clock 的 endedUtc
+  派生（`EV-<endedUtc date>-0001`），report 行与 self-test 断言改从
+  `evidencePath` stem 取实际 id，不再硬编码日历日。
+- Verification：`/usr/bin/python3 -I -S scripts/formal_clean_room_self_test.py`
+  ok（16 checks，2026-07-20 实测）；`/usr/bin/python3 -I -S scripts/docs_check.py`
+  ok；`git diff --check` clean。
+- Limitations：R1 实现修复，不改变任何完成面；其余 fixture harness 使用固定
+  fixture 时钟不受日界影响；ceremony 的 BTV/BAV id 只要求 Gregorian 合法日期，
+  不受本缺陷影响。
+- Next：全量 `just ci`（pipefail）后推送 origin。
