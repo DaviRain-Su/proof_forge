@@ -57,7 +57,7 @@ private def rtV (h : String) (w : EnumVariantV1) (spent : Nat) : IO Unit := do
   lift "variant finish" (finish c); expect (hx (← lift "variant encode" (encodeEnumVariantV1 g))==h) "variant wire"
 private def optN : Nat → ByteArray → ByteArray | 0,b => b | n+1,b => ty "Option" #[optN n b]
 
-/-- Frozen D1-PA-111: ten PA96 literals, six field counts, and 26 boundaries. -/
+/-- Frozen D1-PA-111: ten PA96 literals, six field counts, and the boundary matrix. -/
 def run : IO Unit := do
   let x←nm "x"; let y←nm "y"; let z←nm "z"; let arr←nm "arr"; let fb←nm "foo-bar"
   let count←nm "count"; let items←nm "items"; let none←nm "None"; let some←nm "Some"; let wrap←nm "Wrap"

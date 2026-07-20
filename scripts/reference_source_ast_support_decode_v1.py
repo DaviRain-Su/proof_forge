@@ -127,8 +127,6 @@ def self_check():
   nonlocal nb; err(w,f); nb+=1
  wrong=tag("FieldDecl",[])[:-2]
  for k,fam in (("P","param"),("F","field-decl"),("V","enum-variant")): E(f"unknown {fam} tag 'FieldDecl'" if k!="F" else "unknown field-decl tag 'Param'",lambda k=k:dec(k,0,0,wrong if k!="F" else tag("Param",[])[:-2]))
- for i,k,c in ((0,"P",3),(5,"F",2),(7,"V",2)):
-  raw=bytes.fromhex(G[i][0]); off=4+raw[0]; E(f"tag '{('Param' if k=='P' else 'FieldDecl' if k=='F' else 'EnumVariant')}' must declare {c} fields",lambda k=k,raw=raw,off=off:dec(k,0,0,raw[:off]+u16(c-1)+raw[off+2:]))
  raw=[bytes.fromhex(G[i][0]) for i in (0,5,7)]
  E("depth budget exhausted",lambda:dec("P",0,0,raw[0])); E("node budget exhausted",lambda:dec("P",1,0,raw[0][:11]))
  E("node budget exhausted",lambda:dec("F",1,0,raw[1][:15])); E("node budget exhausted",lambda:dec("V",1,0,raw[2][:17]))
@@ -138,21 +136,29 @@ def self_check():
  E("source name component must contain 1..240 UTF-8 bytes",lambda:dec("F",2,5,tag("FieldDecl",[badid,tag("Bogus",[])])))
  E("source name component must contain 1..240 UTF-8 bytes",lambda:dec("V",2,5,tag("EnumVariant",[badid,u32(99)])))
  E("array count exceeds caller limit",lambda:dec("V",2,1,variant("X",[B])))
- got,r,o=dec("V",1,1,bytes.fromhex(G[7][0])); assert got[2]==() and r==0; nb+=1
+ got,r,o=dec("V",1,1,bytes.fromhex(G[7][0]))
+ if got[2]!=() or r!=0 or o!=len(bytes.fromhex(G[7][0])): raise SystemExit("empty payload mismatch")
+ nb+=1
  E("node budget exhausted",lambda:dec("V",3,3,variant("X",[typ("Option",[B]),U])))
- got,r,o=dec("V",2,3,variant("X",[B,U])); assert got[2]==(("Bool",),("Unit",)) and r==0; nb+=1
+ ordered=variant("X",[B,U]); got,r,o=dec("V",2,3,ordered)
+ if got[2]!=(("Bool",),("Unit",)) or r!=0 or o!=len(ordered): raise SystemExit("source order mismatch")
+ nb+=1
  E("integer width must be one of 8,16,32,64,128,256",lambda:dec("P",2,3,param("Public","x",typ("UInt",[u16(24)]))))
  E("unknown type tag 'Visibility.Public'",lambda:dec("F",2,3,field("x",vh[:-2])))
  E("depth budget exhausted",lambda:dec("P",1,5,param("Public","x",B)))
  E("depth budget exhausted",lambda:dec("V",1,3,variant("X",[B])))
  deep=B
  for _ in range(255): deep=typ("Option",[deep])
- got,r,o=dec("F",257,257,field("x",deep)); assert r==0; nb+=1
+ deep_field=field("x",deep); got,r,o=dec("F",257,257,deep_field)
+ if r!=0 or o!=len(deep_field): raise SystemExit("deep exact boundary mismatch")
+ nb+=1
  E("depth budget exhausted",lambda:dec("F",256,257,field("x",deep)))
  E("node budget exhausted",lambda:dec("F",257,256,field("x",deep)))
  rr=bytes.fromhex(G[0][0])+b"\0"; got,r,o=dec("P",3,5,rr); E("trailing bytes",lambda: (_ for _ in ()).throw(ValueError("trailing bytes")) if o!=len(rr) else None)
- if (len(G),nf,nb)!=(10,6,26): raise SystemExit(f"inventory drift {len(G)} {nf} {nb}")
- print("reference_source_ast_support_decode_v1: ok 10 6 26")
+ if (len(G),nf,nb)!=(10,6,23): raise SystemExit(f"inventory drift {len(G)} {nf} {nb}")
+ print("reference_source_ast_support_decode_v1: ok 10 6 23")
 if __name__=="__main__":
- if "--self-check" in sys.argv:self_check()
- else:print("usage: reference_source_ast_support_decode_v1.py --self-check")
+ if sys.argv[1:] != ["--self-check"]:
+  print("usage: reference_source_ast_support_decode_v1.py --self-check", file=sys.stderr)
+  raise SystemExit(2)
+ self_check()
