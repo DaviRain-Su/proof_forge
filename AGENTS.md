@@ -17,11 +17,11 @@
 | Formal milestone | **D0：9/10 done**；`TASK-D0-10` exact fixture wire amendment 经独立复审后恢复 in_progress；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
 | Active task | **TASK-D0-10**（in_progress；冻结包不变；pure verifier/protected adapter/one-time bridge） |
 | Next task | **TASK-D1-01**（pending；仍依赖 D0-10 done） |
-| Active development slice | **D1-PA-114 / TASK-D1-01 pre-acceptance**：`StmtV1↔BlockV1↔StmtMatchArmV1` mutual decoder SCC 已由 `71d5273d` 冻结，下一步提交只因 production module 缺失而失败的 tests-only RED；未改变正式 TASK 状态 |
-| Next development slice | 未冻结；D1-PA-114 收口后对 spine-dependent declaration residual 做只读审计并选择单一 slice，禁止由 checkpoint 自动递增。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
+| Active development slice | 无；**D1-PA-114 / TASK-D1-01 pre-acceptance** 已以 `EV-20260720-0008` 收口，正式 TASK 状态未改变 |
+| Next development slice | 未冻结；正在对 spine-dependent declaration residual 做只读审计并选择单一 slice，禁止由 checkpoint 自动递增。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无 blocked task；下一步必须提交从完整合法 fixture graph 派生的 tests-only RED，不得恢复 placeholder baseline或引入production test mode |
+| Known blocker | 无；formal D0 收口仍按既有冻结包推进，D1 工作只可形成明确标注的 pre-acceptance development evidence |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

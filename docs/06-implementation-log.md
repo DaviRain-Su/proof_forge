@@ -7069,3 +7069,37 @@ normative: false
   decoder、frontend/Loader/CLI/Lean command/export切换、legacy adapter、dual reader或fallback。
 - Next：只读审计并冻结D1-PA-114 `StmtV1↔BlockV1↔StmtMatchArmV1` decoder SCC；不得由checkpoint
   自动递增完成条件。完整root decoder前继续禁止shared DSL/export cutover。
+
+## 2026-07-20 — D1 statement-spine mutual decoder prerequisite slice
+
+- Commits：D1-PA-114 freeze `71d5273d`；task pointer `1049f00a`；tests-only RED `9d32b2bd`；
+  GREEN `591254a0`。正式 TASK 状态未改变。
+- Authority：本切片只实现 accepted ADR-0019 step-3 root decoder prerequisite 中 PA99 剩余的
+  `StmtV1↔BlockV1↔StmtMatchArmV1` mutual SCC，并只读复用 PA107 Type、PA110 Pattern、PA113
+  Place/Expr/ExternalCall child decoder。三个 public API 消费 caller 提供的 depth 与
+  `DecodeBudgetV1`；不创建 fresh root session，不进入 spine-dependent declaration、ProgramItem、
+  Program 或 canonical root。
+- Changed：218-line kernel-total mutual decoder 闭合 13 个 tag；所有入口固定
+  tag→closed-family unknown→fieldCount→depth→parent node→wire-order fields。递归 Stmt/Block/arm array
+  loop 与 If 的 recursive Block option 全部 inline；children 使用 parent depth-1，siblings 从左到右线程化
+  node residual。Match 与 Block 固定 nonempty-before-post-charge-cap，Revert/Emit 固定 Ident-before-cap，
+  For 固定 binder→start→end→bound `0..4096`→body。无 `partial`、`unsafe`、post-walk、fresh budget、
+  default-budget helper、fallback 或 error remap。
+- Tests：248-line Lean suite与445-line standalone Python oracle共同固定21个PA100 unique literal的exact
+  value/re-encode/finish/node spend、13 tags的26个exhaustive field-count negatives，以及52个具体且
+  non-vacuous priority/resource boundaries。覆盖closed-family heads、fieldCount/depth/node优先级、所有
+  wire-order双故障、Option marker、四条array loop、nonempty/cap、sibling residual、trailing bytes与
+  256/257 exact depth、383/382 node边界；Python normal/`-O`均使用独立tuple模型和独立re-encoder。
+- Verification：RED focused build只因`AstSpineStmtDecodeV1`缺失；GREEN focused build 24 jobs、direct Lean
+  suite `pa114_green: ok`、aggregate 386 jobs及test binary全绿；Python normal/`-O`均输出
+  `reference_source_ast_spine_stmt_decode_v1: ok 21 26 52`，invalid argv exit 2；64-file package manifest
+  重钉；SBOM self-test/generate/verify/closure与`git diff --check`全绿。总authored additions915/1300
+  （mechanical manifest不计）。未运行完整`just ci`。
+- Review/Evidence：tests-only RED与GREEN均经独立复审；GREEN由Kimi及本地独立终审共同给出SHIP、
+  P0/P1=0。唯一warning来自未被本切片修改的PA113 `AstSpineDecodeV1.lean` unused `termination_by`。
+  development evidence为`EV-20260720-0008`。
+- Limitations：本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task；D0-10仍为
+  in_progress且D1尚未正式启动。没有spine-dependent declaration、ProgramItem/Program/root decoder、
+  frontend/Loader/CLI/Lean command/export切换、legacy adapter、dual reader或fallback。
+- Next：只读审计spine-dependent declaration decoder residual并只选择一个最小切片；审计完成前不冻结
+  新slice，也不得由checkpoint自动递增或提前切换shared DSL/export v2。
