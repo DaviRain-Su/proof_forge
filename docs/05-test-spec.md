@@ -2814,13 +2814,14 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Lean suite与不import Lean/ProofForge或既有reference脚本的standalone Python oracle必须共同固定：
   PA98 的14个checked-in declaration wire literals逐一decode为exact value、重新encode为同一bytes、`finish`
   并核对exact node spend；14个exhaustive field-count negatives（七个tags各使用expected-1/expected+1，
-  且以zero budgets证明fieldCount优先）；41个固定boundaries覆盖七个wrong-family/no-fieldCount/zero-budget、
+  且以zero budgets证明fieldCount优先）；42个固定boundaries覆盖七个wrong-family/no-fieldCount/zero-budget、
   depth-before-node、七个node-before-hostile-first-field、State三字段顺序与Type error透传、Struct/Enum的
   name-first/nonempty/post-charge-count/child-error/sibling-residual、Event/Error的name-first/post-charge-count/
-  Param-error/sibling-residual、Extension的QID-before-version/digest与version-before-digest、Proof的
+  Param-error/sibling-residual、Extension的QID-before-version/digest、version-before-digest与独立
+  canonical-digest rejection、Proof的
   invariant-before-QID/QID error以及whole-value trailing rejection。所有A-before-B均使用A、B同时失败的
   conflict vector；source-order/residual positive不得复用同一assertion冒充多个inventory slot。
-  Python成功输出`reference_source_ast_decl_decode_v1: ok 14 14 41`。
+  Python成功输出`reference_source_ast_decl_decode_v1: ok 14 14 42`。
 
   变更文件集：新增`ProofForgeV2/Source/AstDeclDecodeV1.lean`、
   `Tests/Language/SourceAstDeclDecodeV1.lean`、`scripts/reference_source_ast_decl_decode_v1.py`；只做
