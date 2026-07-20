@@ -17,6 +17,7 @@ import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstSupportCodecV1
 import ProofForgeV2.Source.AstPatternV1
 import ProofForgeV2.Source.AstPatternCodecV1
+import ProofForgeV2.Source.AstPatternDecodeV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstDeclCodecV1
 import ProofForgeV2.Source.AstSpineV1
