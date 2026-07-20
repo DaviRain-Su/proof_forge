@@ -3,7 +3,7 @@ task: TASK-D0-01
 reviewer keyId: key-architecture
 role: architecture
 principal: principal-architecture (all roles are held by davirain per GOV-MAINTAINERS-001 single-point declaration)
-candidate commit: ecd5b5a9f21b5d4642be52283cd832dbc45d8b81
+candidate commit: 9029b0660ca5c9416c1483b37bdf7f7d115eed5a
 review scope: docs status/id/link/trace governance and docs_check consumer
 reviewed at: 2026-07-19
 decision: approved

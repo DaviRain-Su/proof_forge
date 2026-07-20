@@ -6601,3 +6601,38 @@ normative: false
   仍7/9。
 - Next：当前无active development slice。Grok/Kimi正在只读裁决budget-threaded recursive `TypeV1`
   decoder的最小闭合面；冻结前不得开始RED，Program/full-tree decoder、alpha/hash/NodeId/target不得并入。
+
+## 2026-07-19 — 合并 origin/main（D1 PA74–PA107）、EV renumber 与 D0-04 activation TCB 重签发
+
+- Context：推送前 `git fetch` 发现 origin/main 已由并行 D1 会话推进（PA74–PA107、
+  TASK-D1 freeze 包、evidence exact-source 硬化）。合并产生四类问题需同批处理：
+  (a) AGENTS.md/log/ledger/任务表四文件冲突；(b) **EV id 撞号**——两侧各自从
+  `EV-20260719-0072` 起编号（我方 D0 线 0072–0085，对方 D1 线 0072–0104）；
+  (c) `717968be` 硬化改变 `scripts/gate_evidence.py` 字节，`formalFinalizerDigest`
+  TCB 漂移使 D0-04 关闭门禁 fail closed（设计内事件）；(d) 合并后 `05-test-spec.md`
+  字节变化（新增 D1-PA 条目）使 required set 的 PHASE-5 contentDigest 失配。
+- Changed：合并 `9029b066`——四文件冲突按并集解决（AGENTS.md 取我方 D0 行+对方
+  D1 行）；按 `5e16ce5f` 先例把本方 D0 线 EV renumber 过并行线（0072–0085 →
+  0105–0118，ledger/log/`docs_check.py` d0_07 分支期望/self-test fixture/AGENTS.md/
+  任务表行同步）；随后重跑完整 ceremony 重签发 activation：policy 不变
+  （`sha256:f02f6039…`，verifier/service/scan-policy/principal 钉均未漂移），
+  required set 按 merged PHASE-5 digest 重签（77 分母不变，`sha256:b9229d63…`），
+  新 handoff `sha256:ac950f9e…`，14 对象拓扑序重签（D0-04 approval 的 evidence ref
+  为 `EV-20260719-0108`），新 activation receipt `BAV-20260719-0002`
+  `sha256:c0840450…` 取代 `BAV-20260719-0001`；21 文件 bundle 与 13 份 review
+  report（reviewCommit=`9029b066…`）刷新提交，`TASK-D0-04.attest.json` 更新
+  candidate/activationReceiptId/closureManifestSha256，任务表关闭注记与
+  `EV-20260719-0108` 台账文本同步重写为重签发事实。
+- Verification：`stage0_activate.py` 终链 eligible/tcb/service/handoff/backfill×6/
+  set/activation 全 ok；`verify-bundle` 全 consumer 复验 ok；docs_check
+  `d0_04_bootstrap_activation_attested` 对刷新 bundle 返回 True；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok（重签发后全绿）；
+  `git diff --check` clean。
+- Limitations：合并提交（`9029b066`）到重签发提交之间 docs_check 短暂为红
+  （TCB 漂移的 fail-closed 设计态），重签发后恢复；`EV-20260719-0108` 台账文本已
+  重写为重签发事实，首签发（`BAV-20260719-0001`）仅存于 git 历史；重签发不改变
+  任何任务完成面；D0 formal milestone 仍为 8/9；并行会话需注意五个 TCB 钉住文件
+  （verify_host_stage0.sh/stage0_containment.py/gate_evidence.py/stage0_activate.py/
+  stage0_store_service.py）与两个 bootstrap lock 钉住文件（toolchain_assets.py 等）
+  的漂移成本——任何字节变化都会触发关闭门禁 fail closed 并强制重签发。
+- Next：`just ci` 全绿后推送 origin；D0-07 关单待 darwin live 重观察（用户 Mac）。

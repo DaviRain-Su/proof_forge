@@ -130,11 +130,16 @@ attest `docs/governance/bootstrap-closure/TASK-D0-08.attest.json`，bootstrap EV
 
 `TASK-D0-04` 于 2026-07-19 关闭为 `done`（真实 activation，cutover 达成）：eligible
 host 登记（`linux-x86_64-mint223-eligible`，SecureBoot enabled，`EV-20260719-0105`）后，
-ceremony 在 candidate `ecd5b5a9f21b5d4642be52283cd832dbc45d8b81` 上完成固定序列——
-D0-04 TaskApproval（`sha256:5f2b795a…`）→ D0-04 task receipt（`BTV-20260719-0004`）→
-exact six-item BootstrapApprovalSet（`sha256:13835e7e…`）→ aggregate activation receipt
-（`BAV-20260719-0001` `sha256:f12c0bd5…`）；21 文件 closure bundle 与 13 份 independent
-review report 提交于 `docs/governance/bootstrap-closure/TASK-D0-04{,-reviews}`，attest
+ceremony 完成固定序列——D0-04 TaskApproval → D0-04 task receipt →
+exact six-item BootstrapApprovalSet → aggregate activation receipt。同日合并
+origin/main 引入 `717968be`（evidence exact-source 硬化）致 `gate_evidence.py` 字节
+变化、`formalFinalizerDigest` TCB 漂移，关闭门禁按设计 fail closed，activation 遂
+在 merged candidate `9029b0660ca5c9416c1483b37bdf7f7d115eed5a` 上重签发：policy
+不变（`sha256:f02f6039…`），required set 按 merged PHASE-5 contentDigest 重签
+（77 分母不变，`sha256:b9229d63…`），新 activation receipt `BAV-20260719-0002`
+`sha256:c0840450…` 取代 `BAV-20260719-0001`（candidate `ecd5b5a9…`，历史见 git）；
+21 文件 closure bundle 与 13 份 independent review report（reviewCommit=merged
+candidate）提交于 `docs/governance/bootstrap-closure/TASK-D0-04{,-reviews}`，attest
 `docs/governance/bootstrap-closure/TASK-D0-04.attest.json`，docs_check
 `d0_04_bootstrap_activation_attested` 对签名、content digest、approval/receipt ref 与
 跨对象 join 全量重算通过，bootstrap EV `EV-20260719-0108`。set 与 activation receipt
