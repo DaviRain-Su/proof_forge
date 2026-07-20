@@ -52,3 +52,8 @@ openFindings: none
 | Milestone 任务 ID 集合增行 | Architecture + Quality |
 | 超时强制 `blocked` | Quality |
 | 将 formal task 标 `done` | 仍受 trace/EV/prerequisite 与本矩阵其他角色约束 |
+
+`TaskQualificationV1` 的永久签发须 Architecture + Quality + Security authorization；角色会签
+不替代 `GOV-MAINTAINERS-001` 的独立复审。它只关闭单个 task，不是 RequiredTestSet release aggregate。
+本段是 ADR-0020/GOV-TASKQUAL-BOOTSTRAP-001 对本 authority 的 2026-07-20 accepted amendment；
+保留本文件原 frontmatter 是为了维持既有 genesis exact-approval anchor，不把新批准伪装成原批准。

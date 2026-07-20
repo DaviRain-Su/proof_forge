@@ -3,12 +3,12 @@ id: PHASE-2
 title: 系统架构
 status: accepted
 owner: architecture
-updated: 2026-07-17
+updated: 2026-07-20
 normative: true
-approvers: architecture-owner, quality-owner
-approvedAt: 2026-07-17
-reviewCommit: 1e97798b5e59c3a7c15db47f2865575dfd3e3dd3
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/1e97798b5e59c3a7c15db47f2865575dfd3e3dd3
+approvers: architecture-owner, davirain, quality-owner, security-owner
+approvedAt: 2026-07-20
+reviewCommit: db4cf6b883196548e46e0e9c7d630ae6b397ee4e
+reviewLink: https://ampcode.com/threads/T-019f7dea-e600-77ea-8884-9f35f81f747d
 openFindings: none
 ---
 
@@ -76,6 +76,11 @@ bytes，也不把 source identity 降格为 common `QualifiedName`。alpha `Sour
   变更要求 major bump、迁移路径和 old/new reader 或 upgrade/rollback 验收，禁止隐式兼容。
 - INV-014：攻击者可控 source 在进入 Lean parser 前必须已经处于版本化资源与 process-session
   containment；parser timeout/OOM/process/output 超限必须由边界外 parent 转换为稳定诊断。
+
+任务关闭有两个不可互换的 control-plane：`SPEC-TASKQUAL-001` 的 `TaskQualificationV1`
+只对 accepted PHASE-4 row 的冻结 tests 作 candidate-bound qualification；`SPEC-EVFINAL-001`
+的 full formal finalization 对 `RequiredTestSetV1` 全分母作 release aggregate。前者不得改变 EV
+qualification vocabulary、推导 subset denominator 或满足 `TASK-D8-04`/`TST-ISO-003`。
 
 ## 中立语义
 

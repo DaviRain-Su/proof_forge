@@ -36,5 +36,6 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0015](0015-canonical-tool-lock-and-candidate-bound-sbom.md) | Tool Lock 唯一摘要与 candidate-bound SBOM | proposed |
 | [ADR-0016](0016-cross-platform-host-profile-and-linux-eligibility.md) | 跨平台 Host Profile、per-platform Tool Lock 与 Linux eligibility | proposed |
 | [ADR-0017](0017-research-phase-targets-ton-move-cairo-zkvm.md) | 研究期新增目标 TON/TVM、Move、Cairo、RISC Zero/SP1 | proposed |
-| [ADR-0018](0018-d0-07-formal-execution-semantics.md) | D0-07 formal 执行语义：fixture 验收域、linux bwrap stage 引擎、freshness 判定与 finalizer 身份 | proposed |
+| [ADR-0018](0018-d0-07-formal-execution-semantics.md) | D0-07 formal 执行语义：fixture 验收域、linux bwrap stage 引擎、freshness 判定与 finalizer 身份 | accepted |
 | [ADR-0019](0019-single-programv1-source-authority.md) | ProgramV1 单一 source authority 与 alpha cutover | accepted |
+| [ADR-0020](0020-task-scoped-formal-qualification.md) | 任务作用域 formal qualification 与 release aggregate 分离 | accepted |

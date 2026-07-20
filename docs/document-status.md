@@ -41,6 +41,10 @@ accepted technical/module spec → accepted test spec。当前事实冲突时：
 → 可复现 gate/evidence → implementation log。调研冲突时：官方 primary source →
 verified claim → synthesis。`proposed` 文档不能覆盖已接受决策。
 
+本轮 authority amendment 的 accepted 输入为 `ADR-0020`、`SPEC-TASKQUAL-001` 与
+`GOV-TASKQUAL-BOOTSTRAP-001`；批准来源是 Amp thread
+`T-019f7dea-e600-77ea-8884-9f35f81f747d`，其 reviewCommit 为批准时 current HEAD。
+
 ## 接受与废弃
 
 - 所有 Markdown frontmatter 必须且只能包含 `id`、`title`、`status`、`owner`、`updated`、

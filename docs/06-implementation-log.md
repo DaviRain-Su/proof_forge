@@ -6763,7 +6763,7 @@ normative: false
   conflation三项false-green风险；`0e6e821`修复并重跑后independent review Approve，P0/P1=0。
   development evidence经rebase顺延为`EV-20260720-0004`。
 - Limitations：原候选的`docs_check.py`因当时D0-04 activation PHASE-5 live-document join漂移报
-  `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`；上游`ee38173`已改为候选时快照绑定并随D0 9/9 closeout闭合，
+  `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`；上游`ee38173`已改为候选时快照绑定并随当时九项基线的D0 9/9 closeout闭合，
   未修改checker绕过。
   本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task。
 - Next：只读审计剩余decoder递归依赖，另行冻结下一窄family；完整
@@ -6797,7 +6797,7 @@ normative: false
   production source order直接复核，Python未自动并入aggregate gate但本证据已逐字记录独立执行。development
   evidence经rebase顺延为`EV-20260720-0005`。
 - Limitations：原候选的`docs_check.py`受当时D0-04 activation PHASE-5 live-document join漂移阻塞；
-  上游`ee38173`已修复并随D0 9/9 closeout闭合，未修改checker绕过。本证据不能关闭pending `TASK-D1-01`、
+  上游`ee38173`已修复并随当时九项基线的D0 9/9 closeout闭合，未修改checker绕过。本证据不能关闭pending `TASK-D1-01`、
   `TST-SRC-001` formal完成面或下游task。
 - Next：审计并冻结spine-independent declaration decoders；随后按依赖进入`Place↔Expr`与`Stmt↔Block`
   mutual SCC。完整root decoder前不切换shared DSL/Loader/CLI/Lean command/export v2，不建立legacy adapter、
@@ -6863,7 +6863,7 @@ normative: false
   重观察记录、三项 EV 引用）；`TASK-D0-07-genesis-replay-report.json` 提交；任务表
   D0-07 行 `in_progress → done`（Evidence `EV-20260720-0003`）+ D0 节关闭注记段；
   台账 bootstrap 级 `EV-20260720-0003`；AGENTS.md checkpoint（Formal milestone
-  D0 **9/9 收口**、Active 无、Next=`TASK-D1-01`）。
+  当时九项基线下 D0 **9/9 收口**、Active 无、Next=`TASK-D1-01`；当前基线为 9/10）。
 - Verification：`d0_07_fixture_acceptance_attested` 对 attest+报告返回 True；
   `/usr/bin/python3 -I -S scripts/docs_check.py` ok（含 D0-07 bootstrap EV 门禁
   正例与 D0-04 分支持续正例）；`/usr/bin/python3 -I -S
@@ -6886,7 +6886,7 @@ normative: false
   `EV-20260720-0003`，Pattern/support development evidence顺延为`EV-20260720-0004/0005`，并把全部
   freeze/RED/GREEN/hardening引用修为rebase后commit。ADR-0019 reviewCommit/reviewLink机械重钉到等价的
   rebase后decision commit `fd1620c`。
-- D0 conclusion：任务表与attest证明D0为9/9 done；D0-07是GOV-D0CLOSE-001下bootstrap级关闭，不把
+- D0 conclusion：任务表与attest证明当时九项基线的D0为9/9 done（当前十项基线为9/10）；D0-07是GOV-D0CLOSE-001下bootstrap级关闭，不把
   fixture提升为formal/hermetic。`docs_check.py`与204-mutation self-test在合并树全绿。
 - D1 scheduling finding：`TASK-D1-01` dependencies已全done且冻结包存在，机械上可从pending进入
   in_progress；但冻结doneWhen要求TST-SRC-001/002 candidate-bound formal EV，而GOV-D0CLOSE-001把真实
@@ -6900,3 +6900,29 @@ normative: false
 - Governance next：正式任务激活前须由Architecture+Quality+Security批准task-scoped candidate-bound formal
   qualification（与D8 full release aggregate不可互换）或等价的无循环方案，并同步仍pending的D1冻结包与
   accepted ADR-0019；本次复核不自动递增TASK/TST，也不修改任务状态或冻结完成面。
+
+## 2026-07-20 — Task qualification authority/graph baseline（仅规范）
+
+- Approval：sole maintainer 通过 Amp thread `T-019f7dea-e600-77ea-8884-9f35f81f747d`
+  以 Architecture+Quality+Security 方向批准；accepted 文档 reviewCommit 钉批准时 HEAD
+  `db4cf6b883196548e46e0e9c7d630ae6b397ee4e`。角色会签不冒充独立 reviewer。
+- Changed：新增 ADR-0020、SPEC-TASKQUAL-001、GOV-TASKQUAL-BOOTSTRAP-001；D0 exact set
+  扩为 D0-01…10，D0-10 pending 且复用 TST-DOC-001；pending D1-01 增加 D0-10 dependency，
+  doneWhen 改为 exact TaskQualificationV1。D8-04/TST-ISO-003 的 77-ID aggregate 不变。
+- Limits：纯 authority/task graph amendment；无 Python/verifier、freeze package、activation、EV 或
+  closeout。D0 为 9/10，D1-01 仍 pending blocked-on-dependency；bootstrap closeout 前仍需独立复审。
+
+## 2026-07-20 — Task qualification independent review P1 remediation（仅 docs/graph）
+
+- Review：独立审查报告六个 P1：wire objects 未闭合、D0-10 bootstrap object/checker authority 未
+  冻结、dependency completion kind/ancestry 错误、closeout hash cycle、TST-DOC-001 retroactivity、
+  ADR/approval source 不一致。本轮记录 findings 并修订 accepted authority baseline；**尚未进行第二次
+  独立复审，不声称 P0/P1=0**。
+- Changed：SPEC-TASKQUAL-001 现完整冻结 closed schemas、domain/signature、policy registry rule、
+  dependency union、C→Q/approval→D→external receipt→optional P、raw-byte API、publication 与 D0-10
+  one-time objects；ADR/ruling/test/task 文档同步 historical boundary 与 named subprofile。
+- Re-review：后续 bounded independent reviews 继续发现并修复 closeout digest cycle、D0-10 command
+  policy carrier、bridge object歧义、accepted metadata、ADR-0018 status、dependency objectDigest 与
+  semantic/full file-set重构歧义；最终结论 `COMMIT BASELINE`，P0/P1=0。
+- Limits：该复审只覆盖 authority/graph；无 Python、freeze package、task activation、EV、receipt 或
+  closeout，D0-10 保持 pending，implementation 后仍须独立复审。

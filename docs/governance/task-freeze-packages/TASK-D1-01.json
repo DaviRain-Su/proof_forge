@@ -9,7 +9,8 @@
     "TASK-D0-02",
     "TASK-D0-03",
     "TASK-D0-04",
-    "TASK-D0-07"
+    "TASK-D0-07",
+    "TASK-D0-10"
   ],
   "prerequisites": [],
   "tests": [
@@ -32,7 +33,7 @@
   ],
   "doneWhen": [
     "lake build Tests.Language.SourceWireAcceptance Tests.Language.SourceBoundsAcceptance proof_forge_next_tests exits zero, lake env .lake/build/bin/proof-forge-next-tests exits zero, and just dsl-negative exits zero with the complete frozen TST-SRC-001 and TST-SRC-002 assertions enabled",
-    "TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, and TASK-D0-07 are done and candidate-bound passed evidence for both TST-SRC-001 and TST-SRC-002 has qualification=formal under the existing formal finalization rules; EV-20260717-0036 and any other development evidence are insufficient",
+    "TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07, and TASK-D0-10 are done, and one valid non-revoked TaskQualificationV1 exact-partitions TST-SRC-001 and TST-SRC-002 with candidate-bound passed formal EVs and all SPEC-TASKQUAL-001 joins; development evidence and full-release aggregate substitution are insufficient",
     "traceability and review are closed with no P0/P1 findings, just docs-check passes, and package-to-task-row consistency passes"
   ],
   "overflowPolicy": "Any new source form, module-aggregate resource policy, parser containment, diagnostic schema, semantic requirement, or target behavior goes to its separately approved TASK; it must not be added to this package after activation.",

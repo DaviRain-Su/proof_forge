@@ -412,6 +412,12 @@ receipt 的 requiredTestSet ref 必须 exact 相等、通过签名验证，且 t
 exact；candidate 变化后按 DAG 重验依赖，禁止回放历史 completion。D0-01/02/03/05/06 不依赖
 六项 aggregate，因而不形成 dependency/checker deadlock。
 
+`TaskQualificationV1` 是另一个独立的任务关闭 control-plane record，其 closed schema/ref、
+candidate-bound formal EV partition、command policy、eligible handoff/containment、freshness/private
+scan/revocation、discriminated authenticated dependency refs、review/signature 与 constrained closeout
+join 仅由 `SPEC-TASKQUAL-001` 定义。它不新增 evidence qualification/ledger grade，不修改
+`RequiredTestSetV1` 或 full formal finalization，且不能替代 D8-04/TST-ISO-003 release aggregate。
+
 D0-04 的唯一 owned test `TST-BOOTSTRAP-001` 必须在没有既有 aggregate activation 的输入空间内
 运行；其 evidence、TaskApproval 与 task receipt 不得引用或查询本次即将生成的 activation。D0-04
 先取得自己的 TaskApproval 与 authenticated task receipt；随后 final candidate/run 按依赖拓扑

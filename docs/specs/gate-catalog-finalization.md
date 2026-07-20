@@ -1665,6 +1665,11 @@ candidate 必须与 production lookup tuple 不相交；真实 activation 只作
 formal/hermetic evidence。对真实 activation 的 77-ID 全量 formal partition 与 formal
 gate 属 release 级范围（`TASK-D8-04`/`TST-ISO-003`），不属于 `TASK-D0-07`。
 
+ADR-0020 只修订“因此 D8 前任何非 D0 task 均不能 formal 关闭”的推论：
+`SPEC-TASKQUAL-001` 可对单个 task 的 tests 签发独立 `TaskQualificationV1`。该对象不进入本规格的
+`RequiredTestSetV1` partition/finalization schema，不改变 EV qualification，也不满足本规格的
+77-ID release aggregate；`TASK-D8-04`/`TST-ISO-003` 的责任保持完整。
+
 formal record 使用独立 schema `proof-forge.formal-evidence-finalization.v1`，root object
 恰含：
 

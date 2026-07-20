@@ -151,7 +151,7 @@ Triage 结论仅四选一：
 | Milestone | 当前封顶策略 |
 |---|---|
 | A0 | **已冻结**：`TASK-A0-01`…`TASK-A0-20`；禁止新增 |
-| D0 | **当前集合** `TASK-D0-01`…`TASK-D0-08` 为执行基线；新增 D0 行视为 milestone 变更，需 Architecture + Quality 批准并记 ADR 或 governance 修订 |
+| D0 | **当前集合**经 `GOV-TASKQUAL-BOOTSTRAP-001` 批准为 `TASK-D0-01`…`TASK-D0-10`；新增 D0 行仍视为 milestone 变更，需 Architecture + Quality 批准并记 ADR 或 governance 修订 |
 | D1–D8 | 以 `04-task-breakdown.md` 现表为基线；新增行同 D0 变更级别 |
 | 未来 Dx | 开 milestone 时一次性写入任务集合并声明 freeze；之后同规则 |
 

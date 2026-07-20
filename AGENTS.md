@@ -14,14 +14,14 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：9/9 done（milestone D0 收口）**；`TASK-D0-07` 经 `GOV-D0CLOSE-001` 以 bootstrap 级关闭（`EV-20260720-0003`），`TASK-D0-04` 经真实 six-item activation 关闭（`EV-20260719-0108`），`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级）；尚未正式进入 D1 |
+| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 经 `GOV-TASKQUAL-BOOTSTRAP-001` 新增且 pending；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
 | Active task | 无；当前没有已正式置为 `in_progress` 的任务 |
-| Next task | **TASK-D1-01**（pending；Dependencies 已随 D0-07 关闭全部 done且冻结包已存在，机械上可启动；但其doneWhen formal-EV路径被递延到依赖D1完成的D8-04，形成正式关单循环，批准修复前有意保持pending） |
+| Next task | **TASK-D0-10**（pending；authority/graph baseline 已批准，本变更不创建 freeze package、不激活；完成后才解除 D1 首任务的 dependency blocker） |
 | Active development slice | 无；**D1-PA-111** complete supporting-record decoders 已完成 development GREEN（`EV-20260720-0005`），正式 `TASK-D1-01` 状态未改变 |
 | Next development slice | 审计并冻结 spine-independent declaration decoders；随后按依赖进入 `Place↔Expr` 与 `Stmt↔Block` mutual SCC。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无状态为`blocked`的任务；D1正式关单存在formal qualification循环（D1-01 done要求formal EV，而真实formal lane归依赖D1的D8-04），须另行批准task-scoped formal lane或等价治理修复；root-decoder development slices不受阻塞 |
+| Known blocker | 无状态为 `blocked` 的任务；D1 首任务仍由 pending bridge dependency 阻挡；TaskQualificationV1 authority 已批准但 verifier/closeout 尚未实施 |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

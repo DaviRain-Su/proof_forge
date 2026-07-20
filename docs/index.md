@@ -45,7 +45,8 @@ normative: true
   [`specs/toolchains.md`](specs/toolchains.md)、
   [`specs/versioning.md`](specs/versioning.md)、
   [`specs/reproducibility.md`](specs/reproducibility.md)、
-  [`specs/gate-catalog-finalization.md`](specs/gate-catalog-finalization.md)。
+  [`specs/gate-catalog-finalization.md`](specs/gate-catalog-finalization.md)、
+  [`specs/task-qualification.md`](specs/task-qualification.md)。
 
 ## 模块、目标与证据
 

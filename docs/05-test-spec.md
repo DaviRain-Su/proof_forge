@@ -3,12 +3,12 @@ id: PHASE-5
 title: 测试与验收规格
 status: accepted
 owner: quality
-updated: 2026-07-19
+updated: 2026-07-20
 normative: true
-approvers: architecture-owner, davirain, quality-owner
-approvedAt: 2026-07-19
-reviewCommit: cda99d931ab02f063302cfa82861871bddee93e8
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/cda99d931ab02f063302cfa82861871bddee93e8
+approvers: architecture-owner, davirain, quality-owner, security-owner
+approvedAt: 2026-07-20
+reviewCommit: db4cf6b883196548e46e0e9c7d630ae6b397ee4e
+reviewLink: https://ampcode.com/threads/T-019f7dea-e600-77ea-8884-9f35f81f747d
 openFindings: none
 ---
 
@@ -496,6 +496,21 @@ task ID set 必须 exact 等于任务表全部 `in_progress` 项；`Next task` �
 exact 比较，禁止 substring/alias。缺/重复 section 或 table、表在 section 外、缺字段、重复字段、未知或
 遗漏 task、状态漂移或 authority 漂移一律返回 `PF-DOC-CHECKPOINT`；AGENTS 只能镜像，不能产生
 task 或改变调度顺序。
+
+`TST-DOC-001` 下冻结一个 D0-10-owned named subprofile
+`TST-DOC-001/task-qualification-v1`，不新增 Test ID。pending baseline（D0-10=pending，且无 freeze
+package、qualification/bootstrap objects）是必须通过的正例；package/verifier/object/closeout cases
+仅在 D0-10=`in_progress` 时激活。该 subprofile 覆盖 accepted ADR/spec/ruling 与 task-set lock/
+PHASE-4/freeze/trace/checkpoint exact join、SPEC-TASKQUAL-001 全 wire/negative matrix、C→Q→D→R→P
+closeout 和 one-time bootstrap。它不追溯修改或 reopen D0-01 的 frozen closure/evidence。
+
+formal release denominator 仍只含一个 `TST-DOC-001`。gate/EV 的 subject 写
+`taskId=TASK-D0-10` 与 `testIds=[TST-DOC-001]`，对应 `TaskCommandPolicyV1.id` 再 exact 绑定协议 ID
+`tst-doc-001.task-qualification-v1`（human-facing subprofile 为
+`TST-DOC-001/task-qualification-v1`）；不得给 raw EV schema 新增 `subprofile` 字段。Ledger `Tests`
+仍只写 `TST-DOC-001`，禁止把 subprofile 当第二个 TST 或重复 denominator。正例只验证单任务 membership、
+task-test partition、依赖、review/signature、Stage-0/containment/freshness/scan/revocation 连接；不得
+把 subset 当 RequiredTestSet denominator，也不得关闭 `TST-ISO-003`。
 
 Evidence Ledger 的 canonical columns 固定为
 `ID | Task | Tests | Grade | Gate / command | Result | Scope and limitation`。`Grade` 只能是

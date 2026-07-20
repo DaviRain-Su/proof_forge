@@ -3,12 +3,12 @@ id: PHASE-4
 title: 实施任务拆解
 status: accepted
 owner: engineering
-updated: 2026-07-19
+updated: 2026-07-20
 normative: true
-approvers: architecture-owner, davirain, quality-owner
-approvedAt: 2026-07-19
-reviewCommit: cda99d931ab02f063302cfa82861871bddee93e8
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/cda99d931ab02f063302cfa82861871bddee93e8
+approvers: architecture-owner, davirain, quality-owner, security-owner
+approvedAt: 2026-07-20
+reviewCommit: db4cf6b883196548e46e0e9c7d630ae6b397ee4e
+reviewLink: https://ampcode.com/threads/T-019f7dea-e600-77ea-8884-9f35f81f747d
 openFindings: none
 ---
 
@@ -34,7 +34,7 @@ openFindings: none
 2. **`in_progress` 与 `done` 禁止完成面变胖**（不得改 Output/Tests/Dependencies/
    Prerequisites 语义，不得在 AGENTS/checkpoint 追加“还必须…”）。  
 3. **新缺口**只能：修实现、标 `blocked`、开新 task、或书面 Freeze Exception——禁止回填当前任务。  
-4. **A0** 已冻结到 `TASK-A0-20`；**D0** 执行基线为 `TASK-D0-01`…`TASK-D0-08`；milestone
+4. **A0** 已冻结到 `TASK-A0-20`；**D0** 执行基线经 `GOV-TASKQUAL-BOOTSTRAP-001` 修订为 `TASK-D0-01`…`TASK-D0-10`；milestone
    增行须 Architecture + Quality 批准。  
 5. 超时（默认 3 日或 20 个 task-owned commits）必须 24h 内 triage：Close / Split / Block /
    Exception。
@@ -91,11 +91,18 @@ openFindings: none
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | EV-20260720-0003 | done |
 | TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0053 | done |
 | TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0052 | done |
+| TASK-D0-10 | task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge | TASK-D0-07 | ADR-0020@accepted, SPEC-TASKQUAL-001@accepted, GOV-TASKQUAL-BOOTSTRAP-001@accepted | TST-DOC-001 | — | pending |
 
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
 authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
 关闭，signed 对象移交 `TASK-D0-04`。genesis 任务的定义、追认与补票义务见
 [`governance/genesis-authority.md`](governance/genesis-authority.md)。
+
+`TASK-D0-10` 经 ADR-0020 与 GOV-TASKQUAL-BOOTSTRAP-001 按 R3 批准新增：D1-01 不能承载
+自己的资格 verifier，D8-04 又依赖 D1，现有 done D0 任务均不可扩面。它仅复用
+`TST-DOC-001` 的 D0-10-owned `task-qualification-v1` subprofile 且保持 pending；pending/no-package
+baseline 是正例，package/verifier cases 只在 activation 后生效。本 authority amendment 不创建
+freeze package、不激活、不产 EV，也不改变 D0-01 的 frozen TST-DOC-001 closure。
 
 `TASK-D0-09` 经 [`adr/0016-cross-platform-host-profile-and-linux-eligibility.md`](adr/0016-cross-platform-host-profile-and-linux-eligibility.md)
 立项（GOV-TASK-FREEZE-001 §4 R3 / §7 milestone 变更）：linux host profile 与 locked linux
@@ -161,7 +168,8 @@ consumer 复验，freshness/private scan/revocation/session containment 各按 p
 含 `TST-HOST-002`/`TST-SBOM-002`）；darwin live 重观察（`EV-20260720-0002`）与
 D0-03 递延两项（`EV-20260719-0117`）清偿。attest
 `docs/governance/bootstrap-closure/TASK-D0-07.attest.json`，bootstrap EV
-`EV-20260720-0003`。**Milestone D0 由此 9/9 收口**；77-ID formal partition 与真实
+`EV-20260720-0003`。**在当时九项基线下 Milestone D0 由此 9/9 收口**；当前十项基线为
+9/10。77-ID formal partition 与真实
 activation 的 formal gate 归 `TASK-D8-04`/`TST-ISO-003`。
 
 ## Milestone D1：语言前端
@@ -286,7 +294,7 @@ activation 的 formal gate 归 `TASK-D8-04`/`TST-ISO-003`。
 
 | ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |
 |---|---|---|---|---|---|---|
-| TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07 | — | TST-SRC-001, TST-SRC-002 | EV-20260717-0036, EV-20260719-0087, EV-20260719-0088, EV-20260719-0089, EV-20260719-0090, EV-20260719-0091, EV-20260719-0092, EV-20260719-0093, EV-20260719-0094, EV-20260719-0095, EV-20260719-0096, EV-20260719-0097, EV-20260719-0098, EV-20260719-0099, EV-20260719-0100, EV-20260719-0101, EV-20260719-0102, EV-20260719-0103, EV-20260719-0104, EV-20260719-0119, EV-20260719-0120, EV-20260720-0001 | pending |
+| TASK-D1-01 | source token、span、NodeId | TASK-D0-01, TASK-D0-02, TASK-D0-03, TASK-D0-04, TASK-D0-07, TASK-D0-10 | — | TST-SRC-001, TST-SRC-002 | EV-20260717-0036, EV-20260719-0087, EV-20260719-0088, EV-20260719-0089, EV-20260719-0090, EV-20260719-0091, EV-20260719-0092, EV-20260719-0093, EV-20260719-0094, EV-20260719-0095, EV-20260719-0096, EV-20260719-0097, EV-20260719-0098, EV-20260719-0099, EV-20260719-0100, EV-20260719-0101, EV-20260719-0102, EV-20260719-0103, EV-20260719-0104, EV-20260719-0119, EV-20260719-0120, EV-20260720-0001 | pending |
 | TASK-D1-02 | `program ... where` command parser | TASK-D1-01 | — | TST-SRC-003 | EV-20260719-0086 | pending |
 | TASK-D1-03 | declaration grammar/elaboration | TASK-D1-02 | — | TST-SRC-004 | EV-20260717-0037, EV-20260717-0038, EV-20260717-0039, EV-20260717-0040, EV-20260717-0041, EV-20260717-0042, EV-20260717-0043, EV-20260717-0044, EV-20260717-0045, EV-20260717-0046, EV-20260717-0047, EV-20260718-0001, EV-20260718-0002, EV-20260718-0003, EV-20260718-0004, EV-20260718-0005, EV-20260718-0046, EV-20260718-0047, EV-20260718-0048, EV-20260718-0049, EV-20260718-0050, EV-20260718-0051, EV-20260718-0055, EV-20260718-0057, EV-20260718-0058, EV-20260719-0059, EV-20260719-0060, EV-20260719-0061, EV-20260719-0062, EV-20260719-0063, EV-20260719-0064, EV-20260719-0065, EV-20260719-0066, EV-20260719-0067, EV-20260719-0068, EV-20260719-0070, EV-20260719-0072, EV-20260719-0073, EV-20260719-0074, EV-20260719-0075, EV-20260719-0076, EV-20260719-0077, EV-20260719-0078, EV-20260719-0085 | pending |
 | TASK-D1-04 | statement/expression grammar | TASK-D1-03 | — | TST-SRC-005 | EV-20260718-0006, EV-20260718-0007, EV-20260718-0008, EV-20260718-0009, EV-20260718-0010, EV-20260718-0011, EV-20260718-0012, EV-20260718-0013, EV-20260718-0014, EV-20260718-0015, EV-20260718-0016, EV-20260718-0017, EV-20260718-0018, EV-20260718-0019, EV-20260718-0020, EV-20260718-0021, EV-20260718-0022, EV-20260718-0023, EV-20260718-0024, EV-20260718-0025, EV-20260718-0026, EV-20260718-0027, EV-20260718-0028, EV-20260718-0029, EV-20260718-0030, EV-20260718-0031, EV-20260718-0032, EV-20260718-0033, EV-20260718-0034, EV-20260718-0035, EV-20260718-0036, EV-20260718-0037, EV-20260718-0044, EV-20260718-0045 | pending |
