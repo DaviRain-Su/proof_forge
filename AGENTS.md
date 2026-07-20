@@ -17,8 +17,8 @@
 | Formal milestone | **D0：8/9 done**；`TASK-D0-04` 经真实 six-item activation 关闭（bootstrap 级 cutover，`EV-20260719-0108`），`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级），`TASK-D0-07` in_progress；尚未正式进入 D1 |
 | Active task | **TASK-D0-07**（formal hermetic clean-room gate + evidence-set finalizer；冻结包 [`docs/governance/task-freeze-packages/TASK-D0-07.json`](docs/governance/task-freeze-packages/TASK-D0-07.json)） |
 | Next task | **TASK-D1-01**（pending；但其 Dependencies 含 D0-07，正式开工仍须当前 in_progress 任务先 done） |
-| Active development slice | 无；D1-PA-108 已完成 development GREEN，当前没有已冻结的后续切片 |
-| Next development slice | 未冻结；按`ADR-0019`只读审计private one-way `ProgramV1 → legacy Typed input` lowering的单一最小闭合面与删除门槛；该seam冻结并闭合后才允许shared DSL/Loader/Lean-command/export atomic cutover。不得自动继续下一AST decoder family，不得在无冻结包时修改Syntax/Loader/CLI/export/legacy adapter/Typed/Semantic/NodeId/target，也不得据development evidence关闭pending `TASK-D1-01` |
+| Active development slice | **D1-PA-109 / ADR-0019 step-2 pre-cutover**：compiler-private narrow `ProgramV1 → legacy Typed input` lowering + validated compiler/hash entry + `Core.Source` import allowlist；完成面已冻结，下一步提交RED |
+| Next development slice | 未冻结；PA109收口后才允许冻结shared DSL/Loader/Lean-command/export atomic cutover。不得把rich ProgramV1构造映射成lossy legacy形态，不得在PA109修改Typed/Semantic/target/frontend/export/NodeId或据development evidence关闭pending `TASK-D1-01` |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | 无 blocked 任务；darwin live 重观察为 P2 债务（owner=quality，截止 D0-07 关闭前，需在 Mac 上执行 `just host-stage0-development`）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |

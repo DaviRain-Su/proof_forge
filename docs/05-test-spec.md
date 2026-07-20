@@ -2611,6 +2611,47 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Typed/Semantic、full Program decoder、NodeId、stable Diagnostic与target。验证只运行focused+aggregate+
   test binary、Python、package refresh后最终单次`just sbom`、`just docs-check`、`git diff --check`与
   independent review；不运行完整`just ci`，不关闭formal TASK-D1-01。
+- D1-PA-109 是 `ADR-0019` step-2 的 compiler-private one-way Typed lowering pre-cutover slice。
+  `Compiler.compileValidatedSourceV1 : ValidatedSourceV1 → CompileResult Semantic.Program`是唯一新增public
+  API；既有`compile(Source.Program)`行为与call sites不变，全部lowering helper必须留在Pipeline内且为
+  private。private lowering不得调用validator、canonical encoder、`sourceHashV1`、legacy builder或
+  legacy canonical/hash API；它只接收
+  state/init/entry/view、完整可映射legacy value type（field仅`bn254_fr`）、UInt64 integer/name-place/add、
+  simple-name assign、value return、零参数external call。source-order第一个unsupported top-level item、
+  constructor-before-child、nonempty-call-args-before-arg traversal为固定错误优先级。遍历精确为items/
+  arrays/block source order、record/wire field order、add lhs→rhs、assign target→value；必须完成全部lowering
+  后才调用Typed，Typed成功后才各调用一次`sourceHashV1`与`renderDigest`，以exact prefix与64 lowercase
+  hex检查后投影到现有Semantic alpha carrier。lowering-owned error均为exact `.invalidProgram`：一般格式
+  `validated ProgramV1 lowering does not support <wire constructor tag>`；两个条件错误精确为
+  `validated ProgramV1 lowering requires a UInt64 integer literal`与
+  `validated ProgramV1 lowering requires zero external call arguments`。raw unqualified names不render；
+  qualified identity只允许完整pure `.str` Lean Name单次`toString`；禁止legacy hash或第二次hash。
+
+  Lean suite必须覆盖：minimal与quoted-component qualified identity；state bucket相对order、entry/view共同bucket
+  相对order、唯一init、三visibility与accepted type table（含nested Option/Array）；UInt64.max/name/add；零参数
+  call及requirements；cross-kind reorder twins必须sourceHash不同、除sourceHash外Semantic fields相同且
+  canonical bytes/semanticHash相同；`parseDigest ("sha256:" ++ semantic.sourceHash) = sourceHashV1`。
+  unqualified program/state/param/callable names必须等于raw；program/callee qualified identity等于完整pure
+  `.str` chain的一次`toString`，`["A.B","C"]`/`["A","B.C"]`collision twins必须不同。negative table
+  穷举9个unsupported top-level alternatives、named/map及accepted recursive Option/Array中按child order首次
+  到达的named/map、bool/string/2^64 integer、field/index
+  place、constructor、3 unary、17 non-add binary、local-call/expr-match、全部unsupported statement families、
+  schedule及nonempty-call argument priority。Pattern四constructor、两类match arm及if/match/for block只作为
+  hostile child sentinel，证明rejected parent不遍历child；rejected top-level record也必须含hostile child
+  sentinel。另固定unknown value、assignment target not declared state、view write/call、non-u64 add、init
+  return、missing/after return与return mismatch仍由Typed返回原exact error。既有legacy Pipeline goldens不得改写。
+
+  `v2_isolation.py`必须机械拒绝allowlist外任何production direct `Core.Source` import，并以mutation self-test
+  证明；该allowlist是忽略comment/string decoy后对root与`ProofForgeV2/**/*.lean`的upper bound，移除既有
+  import合法、allowlist外新增必须失败；路径精确为root umbrella、CLI/Toolchain、Compiler/Pipeline、
+  Core/Typed、Language/ProgramExport、ProgramPayload与Syntax。除definition-free root umbrella registration外，
+  只有Pipeline production definitions可同时触及validated ProgramV1与legacy Source values；不得新增
+  legacy→ProgramV1或第二个adapter module。变更文件集只允许Pipeline、新compiler suite、Tests/lake
+  registration、isolation checker/self-test、umbrella registration与机械SBOM pin；禁止修改Typed/SemanticIR/
+  target/Syntax/Loader/CLI/export/NodeId。production≤210、Lean≤430、checker+self-test≤150、registrations≤6、
+  总authored additions≤800（manifest不计）。验证focused+aggregate/test binary、isolation self-test、package
+  refresh后final single SBOM、docs/diff与independent review；不运行完整`just ci`，不关闭formal task；
+  full-tree global node/depth/resource containment明确不在本切片完成面。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

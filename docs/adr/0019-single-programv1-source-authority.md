@@ -21,6 +21,10 @@ parser projection、validator 和 source hash 会让相同源码拥有两个互�
 pre-acceptance。因此本决定按 alpha reset 收敛实现，不承诺生产 reader 双轨兼容；已保存的 alpha
 hash 不是 ProgramV1 hash，也不得作为新 schema golden。
 
+在本 ADR 转为 `accepted` 前，下述决定只作为可撤销的 pre-acceptance development hypothesis；
+accepted 文档中的 `Source.Program` compiler path仍是现行 authority。PA109 不修改frontend/call sites/
+export，不构成source-authority cutover、正式TASK关闭或release API承诺。
+
 ## 决定
 
 1. `ProgramV1` 是唯一 canonical source AST。DSL decoder、CLI Loader、Lean command、persistent
@@ -63,8 +67,35 @@ hash 不是 ProgramV1 hash，也不得作为新 schema golden。
 - canonical declaration order唯一来自 `ProgramV1.items`，cross-kind reorder改变 bytes/hash；
 - Lean command、ParserSession 与 export reconstruction 的 module/program identity、ProgramV1、bytes/hash相等；
 - production 不存在 legacy→ProgramV1、第二套 validator/hash或 old string-call reader；
-- 过渡期 `Core.Source` import仅允许 private lowering与尚未迁移的 Typed owner，最终归零；
+- PA109 后、frontend cutover 前，production direct `Core.Source` import只允许root umbrella、
+  `CLI/Toolchain`、`Compiler/Pipeline`、`Core/Typed`、`Language/ProgramExport`、`ProgramPayload`与
+  `Syntax`七个路径；frontend/export原子切换后只允许Pipeline与Typed，Typed直接消费ProgramV1后归零；
 - 旧 alpha hash fixtures不被重新标记为 ProgramV1 goldens。
+
+## 过渡 Typed lowering 精确边界
+
+过渡 lowering 采用窄、fail-closed 投影，而不是复制全部 legacy AST：只接收当前 `Typed.check`
+真正可执行的 `state`/`init`/`entry`/`view`；type只接受Bool、固定宽度UInt/Int、Principal、Unit、
+0..4096 Bytes、递归Option、0..4096 Array与raw id精确为`bn254_fr`的Field；expression只接受
+UInt64 integer/name-place/add，statement只接受
+simple-name assign、value return 与零参数 external call。其他 top-level item、named/map type、超出
+UInt64 的 integer、非 name place、其他 expression/statement、`schedule` 与非空 call args 在 private
+lowering 中按 source order/constructor-before-child 拒绝；不得为了复用 Typed 的 unsupported diagnostic
+而先丢失信息。通过 lowering 的 name resolution、type/effect、return 与 view legality 仍只由 Typed 检查。
+
+unqualified name 精确使用 raw component；qualified program/callee identity 以 ordered raw components
+构造完整 pure `.str` Lean `Name` 后只调用一次 `Name.toString`。禁止 `String.intercalate`、split、逐
+component render/拼接、路径推导或 normalization。nonempty call args 必须在遍历参数前拒绝，不能静默
+丢弃；`schedule` 不能降成 synchronous call。
+
+迁移期 compiler 新入口只接受 validated unit。private lowering 不调用 validator、canonical encoder、
+`sourceHashV1`、legacy builder或legacy canonical/hash API。compiler必须先完整lowering，再调用Typed；
+只有两者成功后才各调用一次`sourceHashV1`与`renderDigest`，以exact `sha256:` prefix和64 lowercase hex
+检查后把suffix投影到当前Semantic alpha String carrier，最后调用`Semantic.fromTyped`。该投影不是第二个
+hash或可复用identity API。lowering按items/arrays/block source order、record/wire field order遍历；add先
+lhs后rhs、assign先target后value；unsupported parent不访问child，nonempty call args不访问arg。更晚的
+lowering error因此先于任何Typed semantic error。frontend原子切换时删除旧`compile(Source.Program)`并
+把新入口收敛为唯一`compile`；Typed直接消费ProgramV1时删除整个lowering与import allowlist。
 
 ## 否决方案
 
